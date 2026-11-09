@@ -46,9 +46,7 @@ async fn non_base_unit_line_is_rejected() {
     let rows = db()
         .find_with_params(
             "SELECT COUNT(*) AS cnt FROM biz_stock_in_item WHERE material_id = ?::uuid",
-            vec![Value::from(
-                &Uuid::parse_str(MATERIAL_BOX).expect("夹具 UUID"),
-            )],
+            vec![Value::from(&Uuid::parse_str(MATERIAL_BOX).expect("夹具 UUID"))],
         )
         .await
         .unwrap();
@@ -179,11 +177,7 @@ async fn first_receipt_creates_inventory_row() {
 
     let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
     assert_eq!(qty, dec("100"));
-    assert_eq!(
-        amount,
-        dec("200"),
-        "入库金额必须是不含税 200，不是价税合计 226"
-    );
+    assert_eq!(amount, dec("200"), "入库金额必须是不含税 200，不是价税合计 226");
     assert_eq!(avg, dec("2.000000"));
 
     let detail = detail_of(id).await.unwrap();
@@ -222,11 +216,7 @@ async fn rounding_dust_keeps_amount_authoritative() {
     let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
     assert_eq!(qty, dec("13"));
     assert_eq!(amount, dec("21.09"), "金额是加法得出的权威值，不修尾差");
-    assert_eq!(
-        avg,
-        dec("1.622308"),
-        "21.09 / 13 = 1.62230769… → 6 位四舍五入"
-    );
+    assert_eq!(avg, dec("1.622308"), "21.09 / 13 = 1.62230769… → 6 位四舍五入");
 }
 
 /// ③ 一物一码物料：生成对应数量的序列号，`warehouse_id` 正确（卡面 ③）。
@@ -322,33 +312,18 @@ async fn txn_snapshot_is_before_and_after() {
     assert_eq!(row.get_typed::<String>("doc_type").unwrap(), "STOCK_IN");
     assert_eq!(row.get_typed::<i32>("line_no").unwrap(), 1);
     assert_eq!(row.get_typed::<Decimal>("qty").unwrap(), dec("100"));
-    assert_eq!(
-        row.get_typed::<Decimal>("unit_cost").unwrap(),
-        dec("3.000000")
-    );
+    assert_eq!(row.get_typed::<Decimal>("unit_cost").unwrap(), dec("3.000000"));
     assert_eq!(row.get_typed::<Decimal>("amount").unwrap(), dec("300"));
     assert_eq!(
         row.get_typed::<Decimal>("before_qty").unwrap(),
         dec("100"),
         "第二次入库的 before_qty 必须是第一张单留下的 100"
     );
-    assert_eq!(
-        row.get_typed::<Decimal>("before_amount").unwrap(),
-        dec("200")
-    );
-    assert_eq!(
-        row.get_typed::<Decimal>("before_cost").unwrap(),
-        dec("2.000000")
-    );
+    assert_eq!(row.get_typed::<Decimal>("before_amount").unwrap(), dec("200"));
+    assert_eq!(row.get_typed::<Decimal>("before_cost").unwrap(), dec("2.000000"));
     assert_eq!(row.get_typed::<Decimal>("after_qty").unwrap(), dec("200"));
-    assert_eq!(
-        row.get_typed::<Decimal>("after_amount").unwrap(),
-        dec("500")
-    );
-    assert_eq!(
-        row.get_typed::<Decimal>("after_cost").unwrap(),
-        dec("2.500000")
-    );
+    assert_eq!(row.get_typed::<Decimal>("after_amount").unwrap(), dec("500"));
+    assert_eq!(row.get_typed::<Decimal>("after_cost").unwrap(), dec("2.500000"));
     let period: String = row.get_typed("period_code").unwrap();
     assert_eq!(period.len(), 7, "period_code 是 yyyy-MM：{period}");
     // 第一张单的 before 全是 0
@@ -360,10 +335,7 @@ async fn txn_snapshot_is_before_and_after() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        first_rows[0].get_typed::<Decimal>("before_qty").unwrap(),
-        dec("0")
-    );
+    assert_eq!(first_rows[0].get_typed::<Decimal>("before_qty").unwrap(), dec("0"));
 }
 
 /// ⑥ 并发：两个收货单同时收同一物料（两行顺序相反）→ 不丢数、不死锁。
@@ -377,19 +349,13 @@ async fn concurrent_receipts_do_not_lose_or_deadlock() {
         None => return,
     };
     let a = create_stock_in(
-        &req(vec![
-            line(MATERIAL_A, "10", "2", "0"),
-            line(MATERIAL_B, "10", "5", "0"),
-        ]),
+        &req(vec![line(MATERIAL_A, "10", "2", "0"), line(MATERIAL_B, "10", "5", "0")]),
         None,
     )
     .await
     .unwrap();
     let b = create_stock_in(
-        &req(vec![
-            line(MATERIAL_B, "20", "5", "0"),
-            line(MATERIAL_A, "20", "2", "0"),
-        ]),
+        &req(vec![line(MATERIAL_B, "20", "5", "0"), line(MATERIAL_A, "20", "2", "0")]),
         None,
     )
     .await
@@ -429,9 +395,7 @@ async fn repeated_post_is_conflict() {
         None => return,
     };
     let id = post_new(vec![line(MATERIAL_A, "10", "2", "0")]).await;
-    let err = change_stock_in_status(id, &post_req(), None)
-        .await
-        .unwrap_err();
+    let err = change_stock_in_status(id, &post_req(), None).await.unwrap_err();
     assert_eq!(err.status, 409, "{}", err.msg);
     assert!(err.msg.contains("已过账"), "{}", err.msg);
     let (qty, _, _) = inventory_of(MATERIAL_A).await;
@@ -464,11 +428,7 @@ async fn cost_uses_net_amount_not_gross() {
     assert_eq!(detail.items[0].amount, dec("500"));
     assert_eq!(detail.items[0].tax_amount, dec("65"));
     assert_eq!(detail.items[0].with_tax_amount, dec("565"));
-    assert_eq!(
-        detail.items[0].cost_price,
-        dec("10.000000"),
-        "cost_price 落不含税单价"
-    );
+    assert_eq!(detail.items[0].cost_price, dec("10.000000"), "cost_price 落不含税单价");
     let txn_amount: Decimal = db()
         .scalar_with_params(
             "SELECT amount FROM biz_inventory_txn WHERE doc_id = ?::uuid",

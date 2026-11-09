@@ -70,19 +70,14 @@ impl CleanupReport {
 /// - `scheduler`：全局调度器。
 pub fn register_builtin(scheduler: &Scheduler) {
     // runner 必须返回 JoinHandle：框架调度器每次触发都会接管该句柄
-    scheduler.register_cron(
-        TASK_NAME,
-        TASK_CRON,
-        "系统任务：存储对象回收",
-        || {
-            tokio::spawn(async {
-                match run_once().await {
-                    Ok(report) => tracing::info!(summary = %report.summary(), "存储对象回收完成"),
-                    Err(error) => tracing::error!(error = %error, "存储对象回收失败"),
-                }
-            })
-        },
-    );
+    scheduler.register_cron(TASK_NAME, TASK_CRON, "系统任务：存储对象回收", || {
+        tokio::spawn(async {
+            match run_once().await {
+                Ok(report) => tracing::info!(summary = %report.summary(), "存储对象回收完成"),
+                Err(error) => tracing::error!(error = %error, "存储对象回收失败"),
+            }
+        })
+    });
 }
 
 /// 执行一次回收（可被单测与运维脚本直接调用）。

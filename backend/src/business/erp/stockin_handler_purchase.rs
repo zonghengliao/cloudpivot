@@ -41,10 +41,7 @@ pub(super) enum PurchaseOrderFault {
 }
 
 /// 来源采购单的可收判据（**唯一实现**）：`None` = 可收。
-pub(super) fn purchase_order_fault(
-    order: &model::PurchaseOrderRow,
-    warehouse_id: Uuid,
-) -> Option<PurchaseOrderFault> {
+pub(super) fn purchase_order_fault(order: &model::PurchaseOrderRow, warehouse_id: Uuid) -> Option<PurchaseOrderFault> {
     if !stockin_model::purchase_receivable(&order.status) {
         return Some(PurchaseOrderFault::NotReceivable);
     }
@@ -55,17 +52,11 @@ pub(super) fn purchase_order_fault(
 }
 
 /// 取来源采购单（不存在 / 已删除 → `400 + 66002`）。
-pub(super) async fn fetch_purchase_order(
-    order_id: Uuid,
-) -> std::result::Result<model::PurchaseOrderRow, ApiError> {
+pub(super) async fn fetch_purchase_order(order_id: Uuid) -> std::result::Result<model::PurchaseOrderRow, ApiError> {
     stockin_model::purchase_order_ref(order_id)
         .await
         .map_err(|error| utils::db_error(error, "查询来源采购单"))?
-        .ok_or_else(|| {
-            reference_missing(format!(
-                "source_order_id 采购单不存在或已删除（{order_id}）"
-            ))
-        })
+        .ok_or_else(|| reference_missing(format!("source_order_id 采购单不存在或已删除（{order_id}）")))
 }
 
 /// 校验来源采购单：存在、可收货、仓库一致。返回采购单行（**建单 / 改单**入口，出口 400）。
@@ -245,9 +236,7 @@ pub(super) async fn resolve_parent_pointer(
 ///
 /// 设计 §7.2「过账前复校」：建单期的校验挡不住绕过接口的 UPDATE，
 /// 而应付单直接取单据头 `supplier_id`（`payable_bridge`），错了就是记错账。
-pub(super) async fn guard_posting_supplier(
-    header: &stockin_model::StockInRow,
-) -> std::result::Result<(), ApiError> {
+pub(super) async fn guard_posting_supplier(header: &stockin_model::StockInRow) -> std::result::Result<(), ApiError> {
     let Some(order_id) = header.source_order_id else {
         return Ok(());
     };
@@ -330,14 +319,8 @@ pub(super) async fn pull_lines_from_purchase(
 ///
 /// 两个都给且**不相等** → 400：静默挑一个会让「带错单」这类事故无声无息。
 /// 归一后写回 `request.source_order_id`，后面的代码只认一个字段（不留双真相）。
-pub(super) fn resolve_purchase_order(
-    request: &mut CreateStockInReq,
-) -> std::result::Result<Option<String>, ApiError> {
-    let pick = |raw: Option<&str>| {
-        raw.map(str::trim)
-            .filter(|text| !text.is_empty())
-            .map(str::to_string)
-    };
+pub(super) fn resolve_purchase_order(request: &mut CreateStockInReq) -> std::result::Result<Option<String>, ApiError> {
+    let pick = |raw: Option<&str>| raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string);
     let column = pick(request.source_order_id.as_deref());
     let alias = pick(request.purchase_order_id.as_deref());
     match (column, alias) {
@@ -399,10 +382,7 @@ pub(super) async fn guard_purchase_before_post(
         let Some(source_item_id) = item.source_item_id else {
             continue;
         };
-        match wanted
-            .iter_mut()
-            .find(|(item_id, _, _)| *item_id == source_item_id)
-        {
+        match wanted.iter_mut().find(|(item_id, _, _)| *item_id == source_item_id) {
             Some(slot) => slot.1 += item.qty,
             None => wanted.push((source_item_id, item.qty, item.line_no)),
         }
@@ -456,18 +436,9 @@ pub(super) async fn guard_purchase_before_post(
 /// # 异常情况
 ///
 /// 数据库异常 → [`ApiError`]（`500`）；非基本单位 → `400 + ERP_UNIT_NOT_BASE`。
-pub(super) async fn guard_posting_units(
-    items: &[stockin_model::StockInItemRow],
-) -> std::result::Result<(), ApiError> {
+pub(super) async fn guard_posting_units(items: &[stockin_model::StockInItemRow]) -> std::result::Result<(), ApiError> {
     for (index, item) in items.iter().enumerate() {
-        unit_guard::ensure_unit_row_is_base(
-            db(),
-            item.unit_id,
-            Some(item.material_id),
-            index,
-            item.qty,
-        )
-        .await?;
+        unit_guard::ensure_unit_row_is_base(db(), item.unit_id, Some(item.material_id), index, item.qty).await?;
     }
     Ok(())
 }

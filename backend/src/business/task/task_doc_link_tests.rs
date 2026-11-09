@@ -82,10 +82,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         db().execute_with_params(
             "INSERT INTO sys_user (id, username, password) VALUES (?::uuid, ?, 'p29-not-a-real-hash') \
              ON CONFLICT (id) DO NOTHING",
-            vec![
-                Value::from(&uuid(id)),
-                Value::Text(format!("p29_doc_{}", &id[35..])),
-            ],
+            vec![Value::from(&uuid(id)), Value::Text(format!("p29_doc_{}", &id[35..]))],
         )
         .await
         .unwrap_or_else(|err| panic!("夹具用户写入失败（{id}）：{err}"));
@@ -140,35 +137,16 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 
 /// 全可见范围（超管 + `All`）：让用例只验证「挂单」本身，不掺杂数据权限。
 fn principal_all() -> ScopedPrincipal {
-    ScopedPrincipal::for_test(
-        uuid(U_ME),
-        None,
-        true,
-        scope::ScopeKind::All,
-        Vec::new(),
-        false,
-    )
+    ScopedPrincipal::for_test(uuid(U_ME), None, true, scope::ScopeKind::All, Vec::new(), false)
 }
 
 /// 只看自己（`SelfOnly`）：可见性用例用。
 fn principal_self() -> ScopedPrincipal {
-    ScopedPrincipal::for_test(
-        uuid(U_ME),
-        None,
-        false,
-        scope::ScopeKind::SelfOnly,
-        Vec::new(),
-        true,
-    )
+    ScopedPrincipal::for_test(uuid(U_ME), None, false, scope::ScopeKind::SelfOnly, Vec::new(), true)
 }
 
 /// 建一条任务（真库，走 `model::create_task`：与线上同一条写入路径）。
-async fn create_task_with(
-    owner: Uuid,
-    doc_type: Option<&str>,
-    doc_id: Option<Uuid>,
-    title: &str,
-) -> (Uuid, String) {
+async fn create_task_with(owner: Uuid, doc_type: Option<&str>, doc_id: Option<Uuid>, title: &str) -> (Uuid, String) {
     let id = Uuid::now_v7();
     let month = month_key(today_cst());
     let new = NewTask {
@@ -239,11 +217,7 @@ async fn doc_link_rejects_unknown_type() {
         .expect_err("白名单外的类型必须被拒");
     assert_eq!(error.status, 400, "{}", error.msg);
     assert_eq!(error.code, error_code::TASK_DOC_TYPE_INVALID);
-    assert!(
-        error.msg.contains("PURCHASE_ORDER"),
-        "报文要列出白名单：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("PURCHASE_ORDER"), "报文要列出白名单：{}", error.msg);
 }
 
 // ==================== ② 存在性 ====================
@@ -291,20 +265,10 @@ async fn doc_link_create_persists_and_detail_reports_no() {
         None => return,
     };
     let me = uuid(U_ME);
-    let (id, _) = create_task_with(
-        me,
-        Some("PURCHASE_ORDER"),
-        Some(uuid(PO_OK)),
-        "P2-9 催货（挂采购单）",
-    )
-    .await;
+    let (id, _) = create_task_with(me, Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "P2-9 催货（挂采购单）").await;
 
     let (doc_type, doc_id) = stored_doc(id).await;
-    assert_eq!(
-        doc_type.as_deref(),
-        Some("PURCHASE_ORDER"),
-        "doc_type 必须落库"
-    );
+    assert_eq!(doc_type.as_deref(), Some("PURCHASE_ORDER"), "doc_type 必须落库");
     assert_eq!(doc_id.as_deref(), Some(PO_OK), "doc_id 必须落库");
 
     let detail = find_detail(&principal_all(), id)
@@ -312,10 +276,7 @@ async fn doc_link_create_persists_and_detail_reports_no() {
         .expect("查详情")
         .expect("任务必须存在");
     assert_eq!(detail.card.doc_type.as_deref(), Some("PURCHASE_ORDER"));
-    assert_eq!(
-        detail.card.doc_id.map(|id| id.to_string()).as_deref(),
-        Some(PO_OK)
-    );
+    assert_eq!(detail.card.doc_id.map(|id| id.to_string()).as_deref(), Some(PO_OK));
     // 单号由 handler 现查（这里直接验 doc_ref 的解析，handler 侧同一函数）
     let doc_no = doc_ref::doc_no_of(Some("PURCHASE_ORDER"), Some(PO_OK)).await;
     assert_eq!(doc_no.as_deref(), Some(PO_OK_NO), "详情要能取到单号");
@@ -349,27 +310,16 @@ async fn doc_link_by_doc_lists_only_that_doc() {
         None => return,
     };
     let me = uuid(U_ME);
-    let (hit_a, no_a) =
-        create_task_with(me, Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "挂 A").await;
+    let (hit_a, no_a) = create_task_with(me, Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "挂 A").await;
     let (hit_b, _) = create_task_with(me, Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "挂 B").await;
-    let (other_doc, _) =
-        create_task_with(me, Some("CONTRACT"), Some(uuid(CONTRACT_OK)), "挂合同").await;
+    let (other_doc, _) = create_task_with(me, Some("CONTRACT"), Some(uuid(CONTRACT_OK)), "挂合同").await;
     let (free, _) = create_task_with(me, None, None, "自由任务").await;
 
-    let rows = list_by_doc(
-        &principal_all(),
-        "PURCHASE_ORDER",
-        uuid(PO_OK),
-        DOC_TASK_LIMIT,
-    )
-    .await
-    .expect("反向查询");
+    let rows = list_by_doc(&principal_all(), "PURCHASE_ORDER", uuid(PO_OK), DOC_TASK_LIMIT)
+        .await
+        .expect("反向查询");
     let ids: Vec<Uuid> = rows.iter().map(|row| row.id).collect();
-    assert_eq!(
-        rows.len(),
-        2,
-        "只应返回挂在这张采购单上的 2 条，实际 {ids:?}"
-    );
+    assert_eq!(rows.len(), 2, "只应返回挂在这张采购单上的 2 条，实际 {ids:?}");
     assert!(ids.contains(&hit_a) && ids.contains(&hit_b));
     assert!(!ids.contains(&other_doc), "别的单据上的任务不许混进来");
     assert!(!ids.contains(&free), "自由任务不许混进来");
@@ -379,14 +329,9 @@ async fn doc_link_by_doc_lists_only_that_doc() {
     );
 
     // 挂合同的那条：按 CONTRACT 查得到，按采购单查不到
-    let contract_rows = list_by_doc(
-        &principal_all(),
-        "CONTRACT",
-        uuid(CONTRACT_OK),
-        DOC_TASK_LIMIT,
-    )
-    .await
-    .expect("反向查询（合同）");
+    let contract_rows = list_by_doc(&principal_all(), "CONTRACT", uuid(CONTRACT_OK), DOC_TASK_LIMIT)
+        .await
+        .expect("反向查询（合同）");
     assert_eq!(contract_rows.len(), 1);
     assert_eq!(contract_rows[0].id, other_doc);
 }
@@ -400,34 +345,18 @@ async fn doc_link_by_doc_respects_visibility() {
     };
     let me = uuid(U_ME);
     let (mine, _) = create_task_with(me, Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "我的").await;
-    let (theirs, _) = create_task_with(
-        uuid(U_OTHER),
-        Some("PURCHASE_ORDER"),
-        Some(uuid(PO_OK)),
-        "别人的",
-    )
-    .await;
+    let (theirs, _) = create_task_with(uuid(U_OTHER), Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "别人的").await;
 
     // 超管 / All：两条都看得见
-    let all = list_by_doc(
-        &principal_all(),
-        "PURCHASE_ORDER",
-        uuid(PO_OK),
-        DOC_TASK_LIMIT,
-    )
-    .await
-    .expect("反向查询（全范围）");
+    let all = list_by_doc(&principal_all(), "PURCHASE_ORDER", uuid(PO_OK), DOC_TASK_LIMIT)
+        .await
+        .expect("反向查询（全范围）");
     assert_eq!(all.len(), 2, "全范围应看到两条");
 
     // 只看自己：别人的那条必须消失（挂单不是共享权限）
-    let mine_only = list_by_doc(
-        &principal_self(),
-        "PURCHASE_ORDER",
-        uuid(PO_OK),
-        DOC_TASK_LIMIT,
-    )
-    .await
-    .expect("反向查询（仅自己）");
+    let mine_only = list_by_doc(&principal_self(), "PURCHASE_ORDER", uuid(PO_OK), DOC_TASK_LIMIT)
+        .await
+        .expect("反向查询（仅自己）");
     let ids: Vec<Uuid> = mine_only.iter().map(|row| row.id).collect();
     assert_eq!(ids, vec![mine], "仅自己范围只该看到自己的任务");
     assert!(!ids.contains(&theirs));
@@ -446,12 +375,7 @@ async fn doc_link_update_clears_and_swaps() {
     let (id, _) = create_task_with(me, Some("PURCHASE_ORDER"), Some(uuid(PO_OK)), "改单用例").await;
 
     // ① 换到合同
-    let affected = patch_doc(
-        id,
-        Some((Some("CONTRACT".to_string()), Some(uuid(CONTRACT_OK)))),
-        me,
-    )
-    .await;
+    let affected = patch_doc(id, Some((Some("CONTRACT".to_string()), Some(uuid(CONTRACT_OK)))), me).await;
     assert_eq!(affected, 1);
     let (doc_type, doc_id) = stored_doc(id).await;
     assert_eq!(doc_type.as_deref(), Some("CONTRACT"));
@@ -461,20 +385,12 @@ async fn doc_link_update_clears_and_swaps() {
     let affected = patch_doc(id, Some((None, None)), me).await;
     assert_eq!(affected, 1);
     let (doc_type, doc_id) = stored_doc(id).await;
-    assert!(
-        doc_type.is_none() && doc_id.is_none(),
-        "清单后两列必须都为空"
-    );
+    assert!(doc_type.is_none() && doc_id.is_none(), "清单后两列必须都为空");
 
     // ③ 清单后反向查询不再返回它
-    let rows = list_by_doc(
-        &principal_all(),
-        "CONTRACT",
-        uuid(CONTRACT_OK),
-        DOC_TASK_LIMIT,
-    )
-    .await
-    .expect("反向查询");
+    let rows = list_by_doc(&principal_all(), "CONTRACT", uuid(CONTRACT_OK), DOC_TASK_LIMIT)
+        .await
+        .expect("反向查询");
     assert!(rows.is_empty(), "清单后不该再出现在单据的关联任务里");
 }
 

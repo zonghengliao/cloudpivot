@@ -129,11 +129,7 @@ pub fn month_end(year: i32, month: u32) -> Option<NaiveDate> {
         return None;
     }
     // 下个月 1 号减 1 天：不写 28/30/31 的天数表，闰年自动正确
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
+    let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
     NaiveDate::from_ymd_opt(next_year, next_month, 1).and_then(|date| date.pred_opt())
 }
 
@@ -303,16 +299,12 @@ const RATE_SELECT: &str = "SELECT r.id, r.from_currency, r.to_currency, r.rate, 
 const CURRENCY_ORDER: &str = "ORDER BY c.is_base DESC, c.code ASC";
 
 /// 汇率列表排序：生效日倒序 → 原币升序（最近录的排最前，同一天按币种码扫）。
-const RATE_ORDER: &str =
-    "ORDER BY r.effective_date DESC, r.from_currency ASC, r.rate_type ASC, r.id ASC";
+const RATE_ORDER: &str = "ORDER BY r.effective_date DESC, r.from_currency ASC, r.rate_type ASC, r.id ASC";
 
 /// 币种全量列表（4~10 行的小主数据，**不分页**：一次给全，前端 filterable 下拉直接用）。
 ///
 /// `status` 精确筛选（非法值由 handler 先判 400）；`keyword` 命中码 / 名称（模糊）。
-pub async fn currency_list(
-    status: Option<&str>,
-    keyword: Option<&str>,
-) -> DbResult<Vec<CurrencyRow>> {
+pub async fn currency_list(status: Option<&str>, keyword: Option<&str>) -> DbResult<Vec<CurrencyRow>> {
     let mut sql = format!("{CURRENCY_SELECT} WHERE 1 = 1");
     let mut params: Vec<Value> = Vec::new();
     if let Some(status) = status.map(str::trim).filter(|text| !text.is_empty()) {
@@ -333,10 +325,7 @@ pub async fn currency_list(
 /// 按码取一行（不存在 → `None`）。
 pub async fn currency_find(code: &str) -> DbResult<Option<CurrencyRow>> {
     let rows = db()
-        .query_sql(
-            format!("{CURRENCY_SELECT} WHERE c.code = ?"),
-            vec![Value::from(code)],
-        )
+        .query_sql(format!("{CURRENCY_SELECT} WHERE c.code = ?"), vec![Value::from(code)])
         .await?;
     match rows.first() {
         None => Ok(None),
@@ -367,11 +356,7 @@ pub async fn currency_insert(write: &CurrencyWrite, operator: Option<Uuid>) -> D
 }
 
 /// 编辑币种（`code` 是主键，不可改；`is_base` 走 [`currency_set_base`] 单独一条路）。
-pub async fn currency_update(
-    code: &str,
-    write: &CurrencyWrite,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn currency_update(code: &str, write: &CurrencyWrite, operator: Option<Uuid>) -> DbResult<u64> {
     db().execute_with_params(
         "UPDATE biz_currency SET name = ?, symbol = ?, decimal_places = ?, status = ?, \
              remark = ?, updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
@@ -494,10 +479,7 @@ pub async fn rate_page(
 /// 按 id 取汇率行。
 pub async fn rate_find(id: Uuid) -> DbResult<Option<RateRow>> {
     let rows = db()
-        .query_sql(
-            format!("{RATE_SELECT} WHERE r.id = ?::uuid"),
-            vec![Value::from(&id)],
-        )
+        .query_sql(format!("{RATE_SELECT} WHERE r.id = ?::uuid"), vec![Value::from(&id)])
         .await?;
     match rows.first() {
         None => Ok(None),

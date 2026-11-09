@@ -22,10 +22,7 @@ fn date(y: i32, m: u32, d: u32) -> NaiveDate {
 
 #[test]
 fn title_is_trimmed_and_rejected_when_blank() {
-    assert_eq!(
-        normalize_title("  订单   审批 ").expect("合法标题"),
-        "订单 审批"
-    );
+    assert_eq!(normalize_title("  订单   审批 ").expect("合法标题"), "订单 审批");
     let error = normalize_title("   ").expect_err("空标题必须报错");
     assert_eq!(error.status, 400);
     assert_eq!(error.code, error_code::TASK_TITLE_INVALID);
@@ -84,11 +81,7 @@ fn filter_normalizes_statuses_list() {
     let filter = build_filter(&query).expect("合法多选");
     assert_eq!(
         filter.statuses,
-        Some(vec![
-            "TODO".to_string(),
-            "DOING".to_string(),
-            "DONE".to_string()
-        ]),
+        Some(vec!["TODO".to_string(), "DOING".to_string(), "DONE".to_string()]),
         "逗号分隔 + 去空白 + 大写归一 + 丢空段"
     );
 }
@@ -188,10 +181,7 @@ fn assign_and_member_permission_matrix() {
             "{role:?} 协作人矩阵应与分派一致"
         );
         assert!(may_assign(role, true), "{role:?} 有权限码时一律放行");
-        assert!(
-            may_manage_members(role, true),
-            "{role:?} 有 member 码时一律放行"
-        );
+        assert!(may_manage_members(role, true), "{role:?} 有 member 码时一律放行");
     }
     // 关键的一格：**无关用户 + 无权限码 = 403**（验收第 3 条）
     assert!(!may_assign(ActorRole::Outsider, false));
@@ -210,24 +200,15 @@ fn actor_role_prefers_creator_then_owner_then_assigner() {
     let assigner = Uuid::now_v7();
     let other = Uuid::now_v7();
 
-    assert_eq!(
-        actor_role(creator, creator, owner, Some(assigner)),
-        ActorRole::Creator
-    );
-    assert_eq!(
-        actor_role(owner, creator, owner, Some(assigner)),
-        ActorRole::Owner
-    );
+    assert_eq!(actor_role(creator, creator, owner, Some(assigner)), ActorRole::Creator);
+    assert_eq!(actor_role(owner, creator, owner, Some(assigner)), ActorRole::Owner);
     assert_eq!(
         actor_role(assigner, creator, owner, Some(assigner)),
         ActorRole::Assigner
     );
     assert_eq!(actor_role(other, creator, owner, None), ActorRole::Outsider);
     // 分派人缺席（自建任务）时，除了创建人 / 负责人谁都是 outsider
-    assert_eq!(
-        actor_role(assigner, creator, owner, None),
-        ActorRole::Outsider
-    );
+    assert_eq!(actor_role(assigner, creator, owner, None), ActorRole::Outsider);
 }
 
 /// `assigner_id` 落库口径：操作人非创建人 → 记操作人；创建人自己派 → 沿用原值。
@@ -264,10 +245,7 @@ fn member_quota_boundary() {
     assert!(ensure_member_quota(0, 50).is_ok(), "正好 50 人必须允许");
     assert!(ensure_member_quota(47, 3).is_ok(), "47 + 3 = 50 必须允许");
     // 幂等重复提交（新增 0 人）不该占额度
-    assert!(
-        ensure_member_quota(50, 0).is_ok(),
-        "满 50 人时重复加同一批人不报上限"
-    );
+    assert!(ensure_member_quota(50, 0).is_ok(), "满 50 人时重复加同一批人不报上限");
 
     let error = ensure_member_quota(48, 3).expect_err("51 人必须被拒绝");
     assert_eq!(error.status, 400);
@@ -282,15 +260,12 @@ fn member_quota_boundary() {
 #[test]
 fn user_comment_content_limit_is_strict() {
     let at_limit = "字".repeat(MAX_USER_COMMENT_CHARS);
-    let accepted =
-        normalize_comment_content(&at_limit, &CommentLimit::Strict(MAX_USER_COMMENT_CHARS))
-            .expect("正好 5000 字必须接受");
+    let accepted = normalize_comment_content(&at_limit, &CommentLimit::Strict(MAX_USER_COMMENT_CHARS))
+        .expect("正好 5000 字必须接受");
     assert_eq!(accepted.chars().count(), MAX_USER_COMMENT_CHARS);
     // 首尾空白不计入长度
     let padded = format!("  {}  ", "字".repeat(MAX_USER_COMMENT_CHARS));
-    assert!(
-        normalize_comment_content(&padded, &CommentLimit::Strict(MAX_USER_COMMENT_CHARS)).is_ok()
-    );
+    assert!(normalize_comment_content(&padded, &CommentLimit::Strict(MAX_USER_COMMENT_CHARS)).is_ok());
 
     let too_long = "字".repeat(MAX_USER_COMMENT_CHARS + 1);
     let error = normalize_comment_content(&too_long, &CommentLimit::Strict(MAX_USER_COMMENT_CHARS))
@@ -300,8 +275,7 @@ fn user_comment_content_limit_is_strict() {
     assert!(error.msg.contains("5000"), "文案要带上限：{}", error.msg);
 
     // 空 / 全空白 → 400
-    let error = normalize_comment_content("  \n\t ", &CommentLimit::Strict(5_000))
-        .expect_err("空正文必须 400");
+    let error = normalize_comment_content("  \n\t ", &CommentLimit::Strict(5_000)).expect_err("空正文必须 400");
     assert_eq!(error.status, 400);
     assert_eq!(error.code, error_code::TASK_FIELD_INVALID);
 }
@@ -326,11 +300,7 @@ fn comment_type_forgery_is_rejected() {
         let error = comment_type_verdict(Some(forged)).expect_err("伪造类型必须被拒");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::TASK_FIELD_INVALID);
-        assert!(
-            error.msg.contains(forged),
-            "文案要点名被拒的类型：{}",
-            error.msg
-        );
+        assert!(error.msg.contains(forged), "文案要点名被拒的类型：{}", error.msg);
     }
 }
 
@@ -348,9 +318,6 @@ fn copy_title_appends_suffix_and_keeps_limit() {
         dto::MAX_TITLE_CHARS,
         "副本标题不能超 200 字（会被 normalize_title 拒）"
     );
-    assert!(
-        copied.ends_with(COPY_TITLE_SUFFIX),
-        "后缀必须完整：{copied}"
-    );
+    assert!(copied.ends_with(COPY_TITLE_SUFFIX), "后缀必须完整：{copied}");
     assert!(normalize_title(&copied).is_ok(), "拼出来的标题必须仍然合法");
 }

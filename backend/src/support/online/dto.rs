@@ -48,8 +48,7 @@ impl From<&OnlineSession> for OnlineRes {
             browser: session.browser.clone().unwrap_or_default(),
             os_type: session.os_type.clone().unwrap_or_default(),
             login_time: session.login_time,
-            expire_at: chrono::DateTime::from_timestamp(session.expire_at, 0)
-                .unwrap_or(session.login_time),
+            expire_at: chrono::DateTime::from_timestamp(session.expire_at, 0).unwrap_or(session.login_time),
         }
     }
 }

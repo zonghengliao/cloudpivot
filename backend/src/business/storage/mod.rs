@@ -66,13 +66,8 @@ pub fn global_router() -> &'static StorageRouter {
 /// - 主密钥缺失 / 非法：500（消息说明如何注入，不含密钥内容）；
 /// - 数据库异常：500。
 pub async fn reload_router() -> std::result::Result<usize, ApiError> {
-    let key = MasterKey::from_env().map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::STORAGE_CREDENTIAL_INVALID,
-            error.to_string(),
-        )
-    })?;
+    let key = MasterKey::from_env()
+        .map_err(|error| ApiError::new(500, error_code::STORAGE_CREDENTIAL_INVALID, error.to_string()))?;
     let configs = model::load_enabled_configs()
         .await
         .map_err(|error| utils::db_error(error, "装载存储后端配置"))?;

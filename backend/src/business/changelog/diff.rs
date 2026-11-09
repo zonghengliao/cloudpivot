@@ -391,10 +391,7 @@ impl FlowAction {
 
     /// 由事件码反查（幂等键 / 回调报文里带字符串时用）。
     pub fn parse(code: &str) -> Option<FlowAction> {
-        FlowAction::ALL
-            .iter()
-            .copied()
-            .find(|item| item.code() == code)
+        FlowAction::ALL.iter().copied().find(|item| item.code() == code)
     }
 }
 
@@ -558,21 +555,14 @@ pub fn build(
 
     for column in spec.fields {
         let column = *column;
-        let b = before
-            .and_then(|doc| doc.get(column))
-            .cloned()
-            .unwrap_or(Json::Null);
-        let a = after
-            .and_then(|doc| doc.get(column))
-            .cloned()
-            .unwrap_or(Json::Null);
+        let b = before.and_then(|doc| doc.get(column)).cloned().unwrap_or(Json::Null);
+        let a = after.and_then(|doc| doc.get(column)).cloned().unwrap_or(Json::Null);
         if b == a {
             continue; // 铁律 1：值相等不记
         }
         let decisions = policy.decisions(column);
-        let is_big = spec.big.contains(&column)
-            || payload_len(&b) > BIG_FIELD_BYTES
-            || payload_len(&a) > BIG_FIELD_BYTES;
+        let is_big =
+            spec.big.contains(&column) || payload_len(&b) > BIG_FIELD_BYTES || payload_len(&a) > BIG_FIELD_BYTES;
         // 敏感优先于大字段：敏感列不进 big（摘要里的 len / sha256 对低熵秘密是可用信息）
         let redacted = decisions.iter().any(|d| matches!(d, Decision::Redact));
 
@@ -665,14 +655,7 @@ mod tests {
         let policy = Policy::builtin_only("sys_user");
         let before = json!({"username": "alice", "real_name": "张三", "status": 1});
         let after = json!({"username": "alice", "real_name": "张三", "status": 0});
-        let doc = build(
-            &SYS_USER,
-            &policy,
-            Action::Update,
-            "u-1",
-            Some(&before),
-            Some(&after),
-        );
+        let doc = build(&SYS_USER, &policy, Action::Update, "u-1", Some(&before), Some(&after));
         assert_eq!(doc.changed_fields(), vec!["status".to_string()]);
         assert!(!doc.fields.contains_key("username"));
         assert!(!doc.fields.contains_key("real_name"));
@@ -685,26 +668,12 @@ mod tests {
     fn diff_marks_absent_side_as_null() {
         let policy = Policy::builtin_only("sys_user");
         let after = json!({"username": "alice", "status": 1});
-        let created = build(
-            &SYS_USER,
-            &policy,
-            Action::Create,
-            "u-1",
-            None,
-            Some(&after),
-        );
+        let created = build(&SYS_USER, &policy, Action::Create, "u-1", None, Some(&after));
         assert_eq!(created.fields["username"].b, Json::Null);
         assert_eq!(created.fields["username"].a, json!("alice"));
         assert!(!created.fields["username"].masked);
 
-        let deleted = build(
-            &SYS_USER,
-            &policy,
-            Action::Delete,
-            "u-1",
-            Some(&after),
-            None,
-        );
+        let deleted = build(&SYS_USER, &policy, Action::Delete, "u-1", Some(&after), None);
         assert_eq!(deleted.fields["username"].a, Json::Null);
         assert_eq!(deleted.fields["username"].b, json!("alice"));
     }
@@ -714,14 +683,7 @@ mod tests {
     fn empty_when_nothing_changed() {
         let policy = Policy::builtin_only("sys_user");
         let same = json!({"username": "alice", "status": 1});
-        let doc = build(
-            &SYS_USER,
-            &policy,
-            Action::Update,
-            "u-1",
-            Some(&same),
-            Some(&same),
-        );
+        let doc = build(&SYS_USER, &policy, Action::Update, "u-1", Some(&same), Some(&same));
         assert!(doc.is_empty());
         assert!(doc.changed_fields().is_empty());
         assert_eq!(
@@ -744,10 +706,7 @@ mod tests {
             Some(&json!({"description": at})),
             Some(&json!({"description": at2})),
         );
-        assert!(
-            doc.fields.contains_key("description"),
-            "恰好 2048 字符仍走 fields"
-        );
+        assert!(doc.fields.contains_key("description"), "恰好 2048 字符仍走 fields");
         assert!(doc.big.is_empty());
 
         let over = "甲".repeat(BIG_FIELD_BYTES + 1);
@@ -794,10 +753,7 @@ mod tests {
     fn registered_fields_are_lowercase_columns() {
         for entry in REGISTRY {
             assert!(
-                entry
-                    .table
-                    .chars()
-                    .all(|c| c.is_ascii_lowercase() || c == '_'),
+                entry.table.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
                 "表名 {} 不是小写下划线",
                 entry.table
             );
@@ -862,10 +818,7 @@ mod tests {
         assert_eq!(summary.sha256.len(), 64);
         let text = doc.to_json_string().unwrap();
         assert!(!text.contains(&full), "全文不得入库");
-        assert!(
-            !text.contains(&"甲".repeat(PREVIEW_CHARS + 1)),
-            "预览必须截断"
-        );
+        assert!(!text.contains(&"甲".repeat(PREVIEW_CHARS + 1)), "预览必须截断");
     }
 }
 
@@ -887,10 +840,7 @@ mod flow_action_tests {
             assert!(!entry.fields.is_empty(), "{table} 白名单不能为空");
             // 大字段必须在白名单内（否则 big 摘要永远不生效）
             for big in entry.big {
-                assert!(
-                    entry.fields.contains(big),
-                    "{table}.{big} 在 big 但不在 fields"
-                );
+                assert!(entry.fields.contains(big), "{table}.{big} 在 big 但不在 fields");
             }
             assert!(registered_tables().contains(&table));
         }
@@ -917,14 +867,10 @@ mod flow_action_tests {
     #[test]
     fn no_action_value_added() {
         let check_values: &[&str] = &[
-            "CREATE", "UPDATE", "DELETE", "STATUS", "ASSIGN", "PUBLISH", "OFFLINE", "UPLOAD",
-            "DOWNLOAD", "CLEAN", "LOGIN",
+            "CREATE", "UPDATE", "DELETE", "STATUS", "ASSIGN", "PUBLISH", "OFFLINE", "UPLOAD", "DOWNLOAD", "CLEAN",
+            "LOGIN",
         ];
-        assert_eq!(
-            Action::ALL.len(),
-            11,
-            "sys_change_log.action 的 CHECK 是 11 值，不许扩"
-        );
+        assert_eq!(Action::ALL.len(), 11, "sys_change_log.action 的 CHECK 是 11 值，不许扩");
         let mut codes: Vec<&str> = Action::ALL.iter().map(|item| item.code()).collect();
         codes.sort_unstable();
         let mut expect = check_values.to_vec();

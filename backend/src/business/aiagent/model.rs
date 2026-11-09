@@ -71,11 +71,8 @@ const ROW_COLUMNS: &str = "user_id, hermes_profile, workspace_path, soul_md, age
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
 pub async fn find_by_user(user_id: &Uuid) -> DbResult<Option<AiAgentRow>> {
-    let sql =
-        format!("SELECT {ROW_COLUMNS} FROM sys_ai_agent WHERE user_id = ? AND deleted_at IS NULL");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(user_id)])
-        .await?;
+    let sql = format!("SELECT {ROW_COLUMNS} FROM sys_ai_agent WHERE user_id = ? AND deleted_at IS NULL");
+    let rows = db().find_with_params(&sql, vec![Value::from(user_id)]).await?;
     match rows.first() {
         Some(row) => Ok(Some(row_to_agent(row)?)),
         None => Ok(None),
@@ -129,9 +126,10 @@ pub async fn find_user_brief(user_id: &Uuid) -> DbResult<Option<AiUserBrief>> {
 fn row_to_agent(row: &Row) -> DbResult<AiAgentRow> {
     let model_text: Option<String> = row.get_typed::<Option<String>>("model_override")?;
     let model_override = match model_text {
-        Some(text) => Some(serde_json::from_str(&text).map_err(|e| {
-            DbError::InvalidValue(format!("sys_ai_agent.model_override 不是合法 JSON：{e}"))
-        })?),
+        Some(text) => Some(
+            serde_json::from_str(&text)
+                .map_err(|e| DbError::InvalidValue(format!("sys_ai_agent.model_override 不是合法 JSON：{e}")))?,
+        ),
         None => None,
     };
     Ok(AiAgentRow {
@@ -221,10 +219,7 @@ pub async fn update_content(ex: &impl SqlExecutor, row: &AiAgentRow) -> DbResult
                 ", updated_at = now() WHERE user_id = ? AND deleted_at IS NULL",
             )
         }
-        None => (
-            "NULL",
-            ", updated_at = now() WHERE user_id = ? AND deleted_at IS NULL",
-        ),
+        None => ("NULL", ", updated_at = now() WHERE user_id = ? AND deleted_at IS NULL"),
     };
     params.push(Value::from(row.gateway_status.clone()));
     params.push(Value::from(&row.user_id));
@@ -240,11 +235,7 @@ pub async fn update_content(ex: &impl SqlExecutor, row: &AiAgentRow) -> DbResult
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn update_gateway_status(
-    ex: &impl SqlExecutor,
-    user_id: &Uuid,
-    gateway_status: &str,
-) -> DbResult<u64> {
+pub async fn update_gateway_status(ex: &impl SqlExecutor, user_id: &Uuid, gateway_status: &str) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE sys_ai_agent SET gateway_status = ?, updated_at = now() \
          WHERE user_id = ? AND deleted_at IS NULL"

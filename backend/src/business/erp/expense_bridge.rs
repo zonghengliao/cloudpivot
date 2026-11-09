@@ -244,21 +244,13 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             return Err(ApiError::new(
                 409,
                 error_code::ERP_EXPENSE_STATE,
-                format!(
-                    "报销单 {} 的状态在入账期间被改动，请刷新后重试",
-                    report.report_no
-                ),
+                format!("报销单 {} 的状态在入账期间被改动，请刷新后重试", report.report_no),
             ));
         }
         // 预算占用 → 已执行（带 voucher_id，巡检 L8 用它核对口径）
-        budget_guard::consume(
-            &tx,
-            budget_guard::SOURCE_EXPENSE,
-            report.id,
-            Some(voucher_id),
-        )
-        .await
-        .map_err(|error| internal(error, "预算占用转已执行"))?;
+        budget_guard::consume(&tx, budget_guard::SOURCE_EXPENSE, report.id, Some(voucher_id))
+            .await
+            .map_err(|error| internal(error, "预算占用转已执行"))?;
         state_machine::transition(
             &tx,
             state_machine::ENTITY_EXPENSE,
@@ -275,9 +267,7 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
         // ⑤ 跨单据联动（LNK-05）：状态已是 APPROVED。计提凭证在第 ① 步由
         //    post_report_voucher 出过了，GENERATE_VOUCHER 必须被排除清单挡掉，
         //    否则一张报销单两张计提凭证。
-        let linkage =
-            expense_linkage::run_in_tx(&tx, &report, STATUS_APPROVED, Some(instance.initiator_id))
-                .await?;
+        let linkage = expense_linkage::run_in_tx(&tx, &report, STATUS_APPROVED, Some(instance.initiator_id)).await?;
         Ok(ApprovalOutcome {
             report_id: Some(report.id),
             linkage: Some(linkage),
@@ -286,9 +276,7 @@ async fn execute_approval(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
     .await;
     match outcome {
         Ok(value) => {
-            tx.commit()
-                .await
-                .map_err(|error| internal(error, "提交报销入账事务"))?;
+            tx.commit().await.map_err(|error| internal(error, "提交报销入账事务"))?;
             // 事务已提交 → 才跑提交后的联动动作（审批通过通知）
             if let Some(linkage) = value.linkage {
                 expense_linkage::run_deferred_after_commit(linkage).await;
@@ -339,14 +327,10 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(|text| format!("审批意见：{text}"));
-        let affected = expense_model::report_mark_draft(
-            &tx,
-            report.id,
-            comment.as_deref(),
-            Some(instance.initiator_id),
-        )
-        .await
-        .map_err(|error| internal(error, "报销单回草稿"))?;
+        let affected =
+            expense_model::report_mark_draft(&tx, report.id, comment.as_deref(), Some(instance.initiator_id))
+                .await
+                .map_err(|error| internal(error, "报销单回草稿"))?;
         if affected == 0 {
             return Ok(ApprovalOutcome {
                 report_id: Some(report.id),
@@ -378,13 +362,8 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
         //    不接这一条，`EXPENSE_REPORT/DRAFT` 上配的规则又能保存、又能启用、永远不触发
         //    （P1-FIX-5C 那个病）。打回**不动账**（凭证在审批通过时才出，此时还没出），
         //    所以这里只有通知 / 待办类动作真会执行。
-        let linkage = expense_linkage::run_in_tx(
-            &tx,
-            &report,
-            expense_dto::STATUS_DRAFT,
-            Some(instance.initiator_id),
-        )
-        .await?;
+        let linkage =
+            expense_linkage::run_in_tx(&tx, &report, expense_dto::STATUS_DRAFT, Some(instance.initiator_id)).await?;
         Ok(ApprovalOutcome {
             report_id: Some(report.id),
             linkage: Some(linkage),
@@ -393,9 +372,7 @@ async fn revert_to_draft(instance_id: Uuid) -> Result<Option<Uuid>, ApiError> {
     .await;
     match outcome {
         Ok(value) => {
-            tx.commit()
-                .await
-                .map_err(|error| internal(error, "提交报销打回事务"))?;
+            tx.commit().await.map_err(|error| internal(error, "提交报销打回事务"))?;
             // 事务已提交 → 才跑提交后的联动动作（打回通知）
             if let Some(linkage) = value.linkage {
                 expense_linkage::run_deferred_after_commit(linkage).await;
@@ -457,10 +434,7 @@ pub async fn post_report_voucher(
             source_id: Some(report.id),
             source_no: &report.report_no,
             voucher_date,
-            summary: format!(
-                "报销 {} {}（{}）",
-                report.report_no, report.title, report.reporter_name
-            ),
+            summary: format!("报销 {} {}（{}）", report.report_no, report.title, report.reporter_name),
             debits,
             credit_account: credit,
             credit_amount,
@@ -494,11 +468,7 @@ pub async fn post_payment_voucher(
             source_no: payment_no,
             voucher_date: pay_date,
             summary: format!("报销付款 {} {}", report.report_no, report.reporter_name),
-            debits: vec![voucher_multi::DebitGroup::new(
-                debit,
-                amount,
-                Some(report.dept_id),
-            )],
+            debits: vec![voucher_multi::DebitGroup::new(debit, amount, Some(report.dept_id))],
             credit_account: credit,
             credit_amount: amount,
             credit_summary: Some(format!("支付 {} 报销款", report.reporter_name)),
@@ -609,10 +579,7 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> Result<(), Ap
 /// 作废 / 删除审批中的报销单：终止在跑的实例（避免孤儿实例顶住唯一索引）。
 ///
 /// 返回终止后的实例状态（`None` = 本来就没有实例）。
-pub async fn cancel_approval_of(
-    tx: &Transaction,
-    report: &ReportRow,
-) -> Result<Option<String>, ApiError> {
+pub async fn cancel_approval_of(tx: &Transaction, report: &ReportRow) -> Result<Option<String>, ApiError> {
     let Some(instance_id) = report.approval_instance_id else {
         return Ok(None);
     };
@@ -625,14 +592,9 @@ pub async fn cancel_approval_of(
     if !instance.is_pending() {
         return Ok(Some(instance.status));
     }
-    let out = crate::business::flow::engine::terminate_instance(
-        tx,
-        instance_id,
-        "CANCELLED",
-        "报销单作废：审批终止",
-    )
-    .await
-    .map_err(|error| internal(error, "终止报销审批实例"))?;
+    let out = crate::business::flow::engine::terminate_instance(tx, instance_id, "CANCELLED", "报销单作废：审批终止")
+        .await
+        .map_err(|error| internal(error, "终止报销审批实例"))?;
     if let Some(rejected) = out.rejected {
         // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
         return Err(rejected);
@@ -648,10 +610,7 @@ pub fn check_totals(report: &ReportRow, items: &[ItemRow]) -> Result<(), ApiErro
         return Err(ApiError::new(
             422,
             error_code::ERP_EXPENSE_TOTAL_MISMATCH,
-            format!(
-                "报销单 {} 没有任何明细：无明细的单据不能入账",
-                report.report_no
-            ),
+            format!("报销单 {} 没有任何明细：无明细的单据不能入账", report.report_no),
         ));
     }
     let count = i32::try_from(items.len()).unwrap_or(i32::MAX);
@@ -670,13 +629,7 @@ pub fn check_totals(report: &ReportRow, items: &[ItemRow]) -> Result<(), ApiErro
             format!(
                 "报销单 {} 的明细与单头对不上（明细 {} 条 / 价税 {} / 税额 {} ≠ \
                  单头 {} 条 / 价税 {} / 税额 {}）：这是 ERP 大忌，入账前必须先修数据",
-                report.report_no,
-                count,
-                total,
-                tax,
-                report.item_count,
-                report.total_with_tax,
-                report.total_tax
+                report.report_no, count, total, tax, report.item_count, report.total_with_tax, report.total_tax
             ),
         ));
     }
@@ -707,11 +660,7 @@ pub fn voucher_error(error: DbError, ctx: &str, doc_no: &str) -> ApiError {
 
 /// 内部错误。
 pub fn internal(error: DbError, ctx: &str) -> ApiError {
-    ApiError::new(
-        500,
-        error_code::INTERNAL_ERROR,
-        format!("{ctx}失败：{error}"),
-    )
+    ApiError::new(500, error_code::INTERNAL_ERROR, format!("{ctx}失败：{error}"))
 }
 
 /// 付清 / 部分付款后的目标状态（付款事务里用它算 `status`）。

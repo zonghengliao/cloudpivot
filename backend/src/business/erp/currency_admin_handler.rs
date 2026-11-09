@@ -117,10 +117,7 @@ fn write_error(error: DbError, ctx: impl AsRef<str>) -> ApiError {
         )),
         DbError::CheckViolation { constraint, .. } => bad_request(format!(
             "{ctx}：数据不满足约束{}（币种码三位大写 / 小数位 0~4 / 汇率 > 0 / 币对不能自反）",
-            constraint
-                .as_deref()
-                .map(|name| format!(" {name}"))
-                .unwrap_or_default()
+            constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
         )),
         DbError::ForeignKeyViolation { constraint, .. } => bad_request(format!(
             "{ctx}：引用的币种不存在{}",
@@ -538,14 +535,8 @@ pub struct QuoteRes {
 // ==================== 业务编排（无 service 层） ====================
 
 /// 币种列表。
-pub async fn list_currency(
-    filter: CurrencyFilter,
-) -> std::result::Result<Vec<CurrencyRes>, ApiError> {
-    if let Some(status) = filter
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
+pub async fn list_currency(filter: CurrencyFilter) -> std::result::Result<Vec<CurrencyRes>, ApiError> {
+    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|text| !text.is_empty())
         && !model::is_valid_status(status)
     {
         return Err(bad_request(format!(
@@ -668,12 +659,7 @@ pub async fn update_currency(
         )));
     }
 
-    let status = match req
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let status = match req.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         None => current.status.clone(),
         Some(_) => resolve_status(req.status.as_deref())?,
     };
@@ -714,10 +700,7 @@ pub async fn update_currency(
 }
 
 /// 立本位币（唯一）。
-pub async fn set_base_currency(
-    operator: Option<Uuid>,
-    code_raw: &str,
-) -> std::result::Result<CurrencyRes, ApiError> {
+pub async fn set_base_currency(operator: Option<Uuid>, code_raw: &str) -> std::result::Result<CurrencyRes, ApiError> {
     let code = parse_code(code_raw, "code")?;
     let current = model::currency_find(&code)
         .await
@@ -743,9 +726,7 @@ pub async fn set_base_currency(
 }
 
 /// 汇率分页。
-pub async fn page_rate(
-    filter: RateFilter,
-) -> std::result::Result<PageData<Vec<RateRes>>, ApiError> {
+pub async fn page_rate(filter: RateFilter) -> std::result::Result<PageData<Vec<RateRes>>, ApiError> {
     if let Some(kind) = filter
         .rate_type
         .as_deref()
@@ -784,12 +765,7 @@ pub async fn page_rate(
         None => None,
         Some(text) => Some(parse_date(text, "date_from")?),
     };
-    let date_to = match filter
-        .date_to
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let date_to = match filter.date_to.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         None => None,
         Some(text) => Some(parse_date(text, "date_to")?),
     };
@@ -836,10 +812,7 @@ async fn ensure_currency_exists(code: &str, field: &str) -> std::result::Result<
 }
 
 /// 新建汇率。
-pub async fn create_rate(
-    operator: Option<Uuid>,
-    req: CreateRateReq,
-) -> std::result::Result<RateRes, ApiError> {
+pub async fn create_rate(operator: Option<Uuid>, req: CreateRateReq) -> std::result::Result<RateRes, ApiError> {
     let from_currency = parse_code(&req.from_currency, "from_currency")?;
     let to_currency = match req
         .to_currency
@@ -873,10 +846,9 @@ pub async fn create_rate(
     ensure_currency_exists(&from_currency, "from_currency").await?;
     ensure_currency_exists(&to_currency, "to_currency").await?;
 
-    if let Some(existing) =
-        model::rate_taken(&from_currency, &to_currency, &rate_type, effective_date)
-            .await
-            .map_err(|error| utils::db_error(error, "汇率查重"))?
+    if let Some(existing) = model::rate_taken(&from_currency, &to_currency, &rate_type, effective_date)
+        .await
+        .map_err(|error| utils::db_error(error, "汇率查重"))?
     {
         return Err(conflict(format!(
             "{from_currency} → {to_currency} 在 {effective_date} 已有 {rate_type} 汇率（id `{existing}`）：\
@@ -895,9 +867,7 @@ pub async fn create_rate(
     let id = Uuid::new_v4();
     model::rate_insert(id, &write, operator)
         .await
-        .map_err(|error| {
-            write_error(error, format!("新建 {from_currency} → {to_currency} 汇率"))
-        })?;
+        .map_err(|error| write_error(error, format!("新建 {from_currency} → {to_currency} 汇率")))?;
 
     let row = model::rate_find(id)
         .await
@@ -946,20 +916,13 @@ pub async fn update_rate(
         Some(text) => parse_code(text, "to_currency")?,
     };
     if model::is_self_pair(&from_currency, &to_currency) {
-        return Err(bad_request(format!(
-            "币对不能自反（{from_currency} → {to_currency}）"
-        )));
+        return Err(bad_request(format!("币对不能自反（{from_currency} → {to_currency}）")));
     }
     let rate = match req.rate {
         None => current.rate,
         Some(value) => resolve_rate(value)?,
     };
-    let rate_type = match req
-        .rate_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let rate_type = match req.rate_type.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         None => current.rate_type.clone(),
         Some(_) => resolve_rate_type(req.rate_type.as_deref())?,
     };
@@ -1036,18 +999,12 @@ pub async fn batch_month_rates(
             req.month.trim()
         ))
     })?;
-    let effective_date = model::month_end(year, month).ok_or_else(|| {
-        bad_request(format!(
-            "{} 不是一个合法月份，算不出月末日",
-            req.month.trim()
-        ))
-    })?;
+    let effective_date = model::month_end(year, month)
+        .ok_or_else(|| bad_request(format!("{} 不是一个合法月份，算不出月末日", req.month.trim())))?;
     let rate_type = resolve_rate_type(req.rate_type.as_deref())?;
     let batch_remark = model::normalize_remark(req.remark.clone());
     if req.rates.is_empty() {
-        return Err(bad_request(
-            "rates 不能为空：至少要录一条汇率（空批次不写库）",
-        ));
+        return Err(bad_request("rates 不能为空：至少要录一条汇率（空批次不写库）"));
     }
     if req.rates.len() > model::BATCH_MAX_ROWS {
         return Err(bad_request(format!(
@@ -1103,9 +1060,9 @@ pub async fn batch_month_rates(
         .await
         .map_err(|error| utils::db_error(error, "批量录入前查重"))?
         .is_some();
-        model::rate_upsert(write, operator).await.map_err(|error| {
-            write_error(error, format!("批量录入 {} 汇率", write.from_currency))
-        })?;
+        model::rate_upsert(write, operator)
+            .await
+            .map_err(|error| write_error(error, format!("批量录入 {} 汇率", write.from_currency)))?;
         if existed {
             updated_count += 1;
         } else {
@@ -1141,10 +1098,7 @@ pub async fn quote_rate(
         None => today_cst(),
         Some(text) => parse_date(text, "date")?,
     };
-    let requested = match currency_code_raw
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let requested = match currency_code_raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => None,
         Some(text) => Some(parse_code(text, "currency_code")?),
     };
@@ -1196,9 +1150,7 @@ pub async fn quote_rate(
     permission = "business:erp:currency:list"
 )]
 #[nik::get("/business/erp/currency/list")]
-pub async fn currency_list_api(
-    Query(filter): Query<CurrencyFilter>,
-) -> ResResult<Vec<CurrencyRes>> {
+pub async fn currency_list_api(Query(filter): Query<CurrencyFilter>) -> ResResult<Vec<CurrencyRes>> {
     Ok(Res::ok(list_currency(filter).await?))
 }
 
@@ -1371,23 +1323,14 @@ mod tests {
     #[test]
     fn resolve_status_defaults_to_active() {
         assert_eq!(resolve_status(None).expect("缺省"), model::STATUS_ACTIVE);
-        assert_eq!(
-            resolve_status(Some("  ")).expect("空串等同缺省"),
-            model::STATUS_ACTIVE
-        );
-        assert_eq!(
-            resolve_status(Some("INACTIVE")).expect("合法"),
-            model::STATUS_INACTIVE
-        );
+        assert_eq!(resolve_status(Some("  ")).expect("空串等同缺省"), model::STATUS_ACTIVE);
+        assert_eq!(resolve_status(Some("INACTIVE")).expect("合法"), model::STATUS_INACTIVE);
         assert!(resolve_status(Some("DISABLED")).is_err());
     }
 
     #[test]
     fn resolve_rate_type_defaults_to_spot() {
-        assert_eq!(
-            resolve_rate_type(None).expect("缺省"),
-            model::RATE_TYPE_SPOT
-        );
+        assert_eq!(resolve_rate_type(None).expect("缺省"), model::RATE_TYPE_SPOT);
         assert_eq!(
             resolve_rate_type(Some("MONTH_END")).expect("合法"),
             model::RATE_TYPE_MONTH_END
@@ -1407,8 +1350,7 @@ mod tests {
 
     #[test]
     fn resolve_profile_trims_and_validates_length() {
-        let (name, symbol, remark) =
-            resolve_profile(" 美元 ", " $ ", Some("  央行中间价 ".to_string())).expect("合法");
+        let (name, symbol, remark) = resolve_profile(" 美元 ", " $ ", Some("  央行中间价 ".to_string())).expect("合法");
         assert_eq!(name, "美元");
         assert_eq!(symbol, "$");
         assert_eq!(remark.as_deref(), Some("央行中间价"));
@@ -1431,11 +1373,7 @@ mod tests {
         assert_eq!(CURRENCY_ADMIN_PERMISSIONS.len(), 10);
         for code in CURRENCY_ADMIN_PERMISSIONS {
             let parts: Vec<&str> = code.split(':').collect();
-            assert_eq!(
-                parts.len(),
-                4,
-                "权限码必须是 {{模块}}:{{资源}}:{{动作}} 四段：{code}"
-            );
+            assert_eq!(parts.len(), 4, "权限码必须是 {{模块}}:{{资源}}:{{动作}} 四段：{code}");
             assert_eq!(parts[0], "business");
             assert_eq!(parts[1], "erp");
         }

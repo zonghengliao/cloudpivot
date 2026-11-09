@@ -161,11 +161,7 @@ async fn sample_pdf(req: PdfSampleReq) -> std::result::Result<Response, ApiError
 /// `render` 的实现。
 async fn render_html(req: PdfRenderReq) -> std::result::Result<Response, ApiError> {
     if req.html.trim().is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::PDF_OPTIONS_INVALID,
-            "html 不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::PDF_OPTIONS_INVALID, "html 不能为空"));
     }
     if req.html.len() > MAX_RENDER_HTML_BYTES {
         return Err(ApiError::new(
@@ -190,10 +186,7 @@ async fn render_html(req: PdfRenderReq) -> std::result::Result<Response, ApiErro
     let pdf = engine::render_pdf(&req.html, &opts)
         .await
         .map_err(|error| error.into_api())?;
-    let filename = opts
-        .filename
-        .clone()
-        .unwrap_or_else(|| "document.pdf".to_string());
+    let filename = opts.filename.clone().unwrap_or_else(|| "document.pdf".to_string());
     pdf_response(&pdf, Some(&filename))
 }
 
@@ -213,10 +206,7 @@ async fn render_html(req: PdfRenderReq) -> std::result::Result<Response, ApiErro
 ///
 /// PDF-02 起的单据导出（`erp::order_pdf`）复用这一份响应组装：四个头
 /// （type / length / disposition / no-store）与 `%PDF-` 校验只写一遍。
-pub fn pdf_response(
-    bytes: &[u8],
-    filename: Option<&str>,
-) -> std::result::Result<Response, ApiError> {
+pub fn pdf_response(bytes: &[u8], filename: Option<&str>) -> std::result::Result<Response, ApiError> {
     if !is_pdf(bytes) {
         return Err(ApiError::new(
             500,
@@ -227,10 +217,7 @@ pub fn pdf_response(
     let mut response = Response::new(Body::from(bytes.to_vec()));
     *response.status_mut() = StatusCode::OK;
     let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/pdf"),
-    );
+    headers.insert(header::CONTENT_TYPE, HeaderValue::from_static("application/pdf"));
     headers.insert(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&bytes.len().to_string())
@@ -242,10 +229,7 @@ pub fn pdf_response(
     );
     // 单据内容含金额/客户名，禁止任何中间层缓存
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     Ok(response)
 }
 
@@ -285,10 +269,8 @@ fn content_disposition(original: &str) -> HeaderValue {
             encoded.push_str(&format!("%{byte:02X}"));
         }
     }
-    HeaderValue::from_str(&format!(
-        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"
-    ))
-    .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+    HeaderValue::from_str(&format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
 #[cfg(test)]
@@ -332,16 +314,10 @@ mod tests {
         let response = pdf_response(b"%PDF-1.4\n%fake\n", Some("单据.pdf")).expect("必须成功");
         assert_eq!(response.status(), StatusCode::OK);
         let headers = response.headers();
-        assert_eq!(
-            headers.get(header::CONTENT_TYPE).unwrap(),
-            "application/pdf"
-        );
+        assert_eq!(headers.get(header::CONTENT_TYPE).unwrap(), "application/pdf");
         assert_eq!(headers.get(header::CONTENT_LENGTH).unwrap(), "15");
         assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
-        assert_eq!(
-            headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(),
-            "nosniff"
-        );
+        assert_eq!(headers.get(header::X_CONTENT_TYPE_OPTIONS).unwrap(), "nosniff");
         assert!(
             headers
                 .get(header::CONTENT_DISPOSITION)
@@ -423,11 +399,7 @@ mod tests {
     #[tokio::test]
     async fn sample_reports_unavailable_when_cdp_is_down() {
         // 指向一个必然没人监听的端口，模拟「chromium 没起」
-        let engine = engine::PdfEngine::new(
-            "http://127.0.0.1:9",
-            1,
-            std::time::Duration::from_millis(800),
-        );
+        let engine = engine::PdfEngine::new("http://127.0.0.1:9", 1, std::time::Duration::from_millis(800));
         let opts = PdfOpts::default();
         let error = engine
             .render_pdf("<html><body>x</body></html>", &opts)
@@ -442,14 +414,8 @@ mod tests {
     /// 引擎的失败计数器要真的累加（运维看 health 里的 failed_total）。
     #[tokio::test]
     async fn engine_counts_failures() {
-        let engine = engine::PdfEngine::new(
-            "http://127.0.0.1:9",
-            1,
-            std::time::Duration::from_millis(500),
-        );
-        let _ = engine
-            .render_pdf("<html></html>", &PdfOpts::default())
-            .await;
+        let engine = engine::PdfEngine::new("http://127.0.0.1:9", 1, std::time::Duration::from_millis(500));
+        let _ = engine.render_pdf("<html></html>", &PdfOpts::default()).await;
         let stats = engine.stats().await;
         assert_eq!(stats.failed_total, 1);
         assert_eq!(stats.rendered_total, 0);
@@ -460,15 +426,8 @@ mod tests {
     /// `PdfError::Invalid` 之类的引擎侧错误不能被误判成 4xx 以外的语义。
     #[test]
     fn pdf_error_display_is_human_readable() {
-        assert_eq!(
-            PdfError::Timeout(20_000).to_string(),
-            "渲染超时（>20000ms）"
-        );
-        assert!(
-            PdfError::Render("x".into())
-                .to_string()
-                .contains("渲染失败")
-        );
+        assert_eq!(PdfError::Timeout(20_000).to_string(), "渲染超时（>20000ms）");
+        assert!(PdfError::Render("x".into()).to_string().contains("渲染失败"));
     }
 
     /// 纸张代码回显（health / 日志里能看出用的是哪种纸）。

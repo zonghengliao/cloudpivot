@@ -258,10 +258,7 @@ pub fn validate_syntax(template: &str) -> std::result::Result<(), ApiError> {
 /// # 异常情况
 ///
 /// 出现未声明的占位符 → `422 + 60024`，消息里列出全部未声明变量（一次性告知，不用逐个试）。
-pub fn ensure_declared(
-    template: &str,
-    decls: &[TemplateVarDecl],
-) -> std::result::Result<(), ApiError> {
+pub fn ensure_declared(template: &str, decls: &[TemplateVarDecl]) -> std::result::Result<(), ApiError> {
     let placeholders = collect_placeholders(template)?;
     let declared: BTreeSet<&str> = decls.iter().map(|decl| decl.name.as_str()).collect();
     let undeclared: Vec<&str> = placeholders
@@ -399,9 +396,7 @@ pub fn render_paths(
 /// # 异常情况
 ///
 /// 语法非法（未闭合 / 变量名非法 / 超过一层点号）→ `422 + 60024`。
-pub fn collect_placeholders_paths(
-    template: &str,
-) -> std::result::Result<BTreeSet<String>, ApiError> {
+pub fn collect_placeholders_paths(template: &str) -> std::result::Result<BTreeSet<String>, ApiError> {
     let mut names = BTreeSet::new();
     let mut rest = template;
     while let Some(start) = rest.find("{{") {
@@ -444,14 +439,10 @@ pub fn validate_var_path(name: &str) -> std::result::Result<(), ApiError> {
 /// 单个路径段：`[A-Za-z_][A-Za-z0-9_]*`，长度 ≤ [`MAX_VAR_NAME_LEN`]。
 fn validate_var_segment(segment: &str, full: &str) -> std::result::Result<(), ApiError> {
     if segment.is_empty() {
-        return Err(syntax_error(&format!(
-            "占位符变量名非法：{full}（点号两侧都不能为空）"
-        )));
+        return Err(syntax_error(&format!("占位符变量名非法：{full}（点号两侧都不能为空）")));
     }
     if segment.chars().count() > MAX_VAR_NAME_LEN {
-        return Err(syntax_error(&format!(
-            "占位符变量名超过 {MAX_VAR_NAME_LEN} 个字符"
-        )));
+        return Err(syntax_error(&format!("占位符变量名超过 {MAX_VAR_NAME_LEN} 个字符")));
     }
     let mut chars = segment.chars();
     let first = chars.next().unwrap_or('_');
@@ -580,12 +571,7 @@ mod tests {
         assert!(error.msg.contains("realName"), "消息要指明缺哪个变量");
 
         // 提供了但值为 null，与缺失同义
-        let error = render(
-            "尊敬的 {{realName}}",
-            &json!({"realName": null}),
-            ContentFormat::Text,
-        )
-        .unwrap_err();
+        let error = render("尊敬的 {{realName}}", &json!({"realName": null}), ContentFormat::Text).unwrap_err();
         assert_eq!(error.code, error_code::NOTICE_TEMPLATE_VAR_MISSING);
     }
 
@@ -616,14 +602,8 @@ mod tests {
             ContentFormat::Html,
         )
         .expect("应渲染成功");
-        assert!(
-            content.contains("&lt;b&gt;张三&lt;/b&gt;"),
-            "变量值必须被转义"
-        );
-        assert!(
-            !content.contains("<script>"),
-            "骨架脚本标签必须被净化：{content}"
-        );
+        assert!(content.contains("&lt;b&gt;张三&lt;/b&gt;"), "变量值必须被转义");
+        assert!(!content.contains("<script>"), "骨架脚本标签必须被净化：{content}");
     }
 
     /// 规则 3 补充（嵌套 / 单趟替换）：变量值里的 `{{...}}` 不再被二次渲染。
@@ -677,14 +657,7 @@ mod tests {
         assert_eq!(error.code, error_code::NOTICE_TEMPLATE_TOO_LONG);
 
         // 边界内允许
-        assert!(
-            render_title(
-                &"标".repeat(MAX_TITLE_CHARS),
-                &json!({}),
-                ContentFormat::Text
-            )
-            .is_ok()
-        );
+        assert!(render_title(&"标".repeat(MAX_TITLE_CHARS), &json!({}), ContentFormat::Text).is_ok());
     }
 
     /// 采集与试渲染：`collect_placeholders` 去重排序；`sample_vars` 覆盖缺 sample 的声明。
@@ -711,9 +684,7 @@ mod tests {
         assert_eq!(vars["withSample"], "样例值");
         assert_eq!(vars["noSample"], "无样例", "缺 sample 时回退到 label");
         // 用样例值试渲染必须成功（模板保存时的即时反馈）
-        assert!(
-            render_notice("{{withSample}}", "{{noSample}}", &vars, ContentFormat::Text).is_ok()
-        );
+        assert!(render_notice("{{withSample}}", "{{noSample}}", &vars, ContentFormat::Text).is_ok());
     }
 }
 
@@ -747,17 +718,10 @@ mod render_paths_tests {
             "开头{{name}}中间{{biz_no}}结尾",
         ];
         for template in templates {
-            for format in [
-                ContentFormat::Text,
-                ContentFormat::Html,
-                ContentFormat::Markdown,
-            ] {
+            for format in [ContentFormat::Text, ContentFormat::Html, ContentFormat::Markdown] {
                 let expected = render(template, &vars, format).expect("render 应成功");
                 let actual = render_paths(template, &vars, format).expect("render_paths 应成功");
-                assert_eq!(
-                    actual, expected,
-                    "模板 {template} / 格式 {format:?} 必须逐字节相同"
-                );
+                assert_eq!(actual, expected, "模板 {template} / 格式 {format:?} 必须逐字节相同");
             }
         }
     }
@@ -772,10 +736,7 @@ mod render_paths_tests {
                 // 这一条是**唯一**允许不一致的：`render` 拒点号、`render_paths` 拒两层点号，
                 // 两边都报 60024，但仍然都拒（这是「最多一层」的唯一实现点）。
                 assert!(left.is_err() && right.is_err(), "{template} 两边都必须拒");
-                assert_eq!(
-                    left.as_ref().map_err(|e| e.code),
-                    right.as_ref().map_err(|e| e.code)
-                );
+                assert_eq!(left.as_ref().map_err(|e| e.code), right.as_ref().map_err(|e| e.code));
                 continue;
             }
             match (left, right) {
@@ -817,10 +778,7 @@ mod render_paths_tests {
         // 对照组：老 render 一定拒（这是「不动 render()」的红线）
         let old = render("{{form.amount}}", &vars, ContentFormat::Text);
         assert!(old.is_err(), "render() 必须仍然拒点号");
-        assert_eq!(
-            old.expect_err("必须拒").code,
-            error_code::NOTICE_TEMPLATE_SYNTAX
-        );
+        assert_eq!(old.expect_err("必须拒").code, error_code::NOTICE_TEMPLATE_SYNTAX);
     }
 
     /// 超过一层点号必须拒（`{{form.a.b}}`）：与 `EvalContext::resolve` 的 `split_once` 对齐。
@@ -828,15 +786,10 @@ mod render_paths_tests {
     fn render_paths_rejects_two_levels_of_dots() {
         let vars = json!({"form.a.b": "x"});
         for template in ["{{form.a.b}}", "{{a.b.c}}"] {
-            let error =
-                render_paths(template, &vars, ContentFormat::Text).expect_err("两层点号必须拒");
+            let error = render_paths(template, &vars, ContentFormat::Text).expect_err("两层点号必须拒");
             assert_eq!(error.code, error_code::NOTICE_TEMPLATE_SYNTAX);
             assert_eq!(error.status, 422);
-            assert!(
-                error.msg.contains("点号"),
-                "文案要点明「最多一层点号」：{}",
-                error.msg
-            );
+            assert!(error.msg.contains("点号"), "文案要点明「最多一层点号」：{}", error.msg);
         }
     }
 
@@ -844,8 +797,7 @@ mod render_paths_tests {
     #[test]
     fn render_paths_rejects_malformed_paths() {
         for template in ["{{form.}}", "{{.amount}}", "{{form.2x}}", "{{form.a-b}}"] {
-            let error = render_paths(template, &json!({}), ContentFormat::Text)
-                .expect_err("{template} 必须拒");
+            let error = render_paths(template, &json!({}), ContentFormat::Text).expect_err("{template} 必须拒");
             assert_eq!(error.code, error_code::NOTICE_TEMPLATE_SYNTAX, "{template}");
         }
     }

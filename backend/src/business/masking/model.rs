@@ -132,11 +132,7 @@ pub struct UserBrief {
 /// # 返回值
 ///
 /// `(本页规则, 总条数)`。
-pub async fn page_rules(
-    query: &FieldMaskPageQuery,
-    page: u64,
-    page_size: u64,
-) -> DbResult<(Vec<FieldMaskRow>, i64)> {
+pub async fn page_rules(query: &FieldMaskPageQuery, page: u64, page_size: u64) -> DbResult<(Vec<FieldMaskRow>, i64)> {
     let mut where_sql = String::from(" WHERE m.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(table_name) = utils::trimmed(query.table_name.as_deref()) {
@@ -160,8 +156,7 @@ pub async fn page_rules(
     let count_sql = format!("SELECT COUNT(*) FROM sys_field_mask m{where_sql}");
     let total: i64 = db().scalar_with_params(&count_sql, params.clone()).await?;
 
-    let offset =
-        i64::try_from(page.saturating_sub(1).saturating_mul(page_size)).unwrap_or(i64::MAX);
+    let offset = i64::try_from(page.saturating_sub(1).saturating_mul(page_size)).unwrap_or(i64::MAX);
     let limit = i64::try_from(page_size).unwrap_or(i64::MAX);
     let list_sql = format!(
         "{} {where_sql} ORDER BY m.table_name ASC, m.column_name ASC, m.role_id NULLS FIRST, \
@@ -185,9 +180,7 @@ pub async fn page_rules(
 /// - `id`：规则 ID。
 pub async fn find_rule(id: &Uuid) -> DbResult<Option<FieldMaskRow>> {
     let sql = format!("{} WHERE m.id = ? AND m.deleted_at IS NULL", select_sql());
-    let row = db()
-        .find_first_with_params(&sql, vec![Value::from(*id)])
-        .await?;
+    let row = db().find_first_with_params(&sql, vec![Value::from(*id)]).await?;
     row.as_ref().map(map_row).transpose()
 }
 
@@ -460,10 +453,7 @@ pub async fn is_super_admin(user_id: &Uuid) -> DbResult<bool> {
             "SELECT 1 AS hit FROM sys_user_role ur JOIN sys_role r ON r.id = ur.role_id \
              WHERE ur.user_id = ? AND r.role_code = ? AND r.deleted_at IS NULL \
              LIMIT 1",
-            vec![
-                Value::from(*user_id),
-                Value::from(constants::SUPER_ADMIN_ROLE_CODE),
-            ],
+            vec![Value::from(*user_id), Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
         )
         .await?;
     Ok(row.is_some())
@@ -528,8 +518,7 @@ pub async fn insert_plain_read_audit(user_id: &Uuid, detail: &str) -> DbResult<(
 /// 为什么要有：`audit_plain_read` 是后台任务，失败只进日志；没有计数器时
 /// 「留痕从某天起全丢」只能靠翻日志发现。运维/自检可以读这个值（> 0 即意味着
 /// 有明文访问没被审计），单测也用它钉住「失败必须可观测」。
-static PLAIN_READ_AUDIT_FAILURES: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static PLAIN_READ_AUDIT_FAILURES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 累计失败次数（见 [`PLAIN_READ_AUDIT_FAILURES`]）。
 ///

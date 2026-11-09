@@ -30,10 +30,7 @@ async fn update_draft_replaces_lines() {
         .unwrap();
     update_stock_in(
         id,
-        &req(vec![
-            line(MATERIAL_A, "10", "2", "13"),
-            line(MATERIAL_B, "5", "3", "6"),
-        ]),
+        &req(vec![line(MATERIAL_A, "10", "2", "13"), line(MATERIAL_B, "5", "3", "6")]),
         None,
     )
     .await
@@ -94,10 +91,7 @@ async fn serial_count_mismatch_is_bad_request() {
         )
         .await
         .unwrap();
-    let numbers: Vec<String> = rows
-        .iter()
-        .map(|row| row.get_typed("serial_no").unwrap())
-        .collect();
+    let numbers: Vec<String> = rows.iter().map(|row| row.get_typed("serial_no").unwrap()).collect();
     assert_eq!(
         numbers,
         vec!["SN-P2B1-001", "SN-P2B1-002"],
@@ -113,9 +107,7 @@ async fn serial_count_mismatch_is_bad_request() {
     let another = create_stock_in(&req(vec![line(MATERIAL_SN, "2", "40", "0")]), None)
         .await
         .unwrap();
-    let err = change_stock_in_status(another, &bad_post, None)
-        .await
-        .unwrap_err();
+    let err = change_stock_in_status(another, &bad_post, None).await.unwrap_err();
     assert_eq!(err.status, 400, "{}", err.msg);
     assert!(err.msg.contains("序列号条数与数量不符"), "{}", err.msg);
 }
@@ -169,11 +161,7 @@ async fn over_receipt_against_purchase_order_is_rejected() {
         .unwrap()
         .expect("采购明细行必须存在")
         .received_qty;
-    assert_eq!(
-        received,
-        dec("30"),
-        "过账后已收数量（派生）= 前述已收 10 + 本次 20"
-    );
+    assert_eq!(received, dec("30"), "过账后已收数量（派生）= 前述已收 10 + 本次 20");
     let status: String = db()
         .scalar_with_params(
             "SELECT status FROM biz_purchase_order WHERE id = ?::uuid",
@@ -290,11 +278,7 @@ fn biz_active_conflict_maps_to_409_with_stock_in_no() {
         assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
         assert!(api.msg.contains("IN-20261102-000123"), "{}", api.msg);
         assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
-        assert!(
-            !api.msg.contains("biz_seq"),
-            "不能把用户指到取号器：{}",
-            api.msg
-        );
+        assert!(!api.msg.contains("biz_seq"), "不能把用户指到取号器：{}", api.msg);
         assert!(!api.msg.contains("单号重复"), "{}", api.msg);
     }
 
@@ -340,11 +324,7 @@ async fn cancel_paths() {
     )
     .await
     .unwrap();
-    assert_eq!(
-        inventory_of(MATERIAL_A).await.0,
-        Decimal::ZERO,
-        "草稿作废不该产生库存"
-    );
+    assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO, "草稿作废不该产生库存");
     let detail = detail_of(draft).await.unwrap();
     assert_eq!(detail.header.status, STATUS_CANCELLED);
     assert!(detail.header.cancelled_at.is_some());

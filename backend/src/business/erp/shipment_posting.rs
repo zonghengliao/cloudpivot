@@ -43,12 +43,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::sales_order_model;
-use crate::business::erp::shipment_model::{
-    self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow,
-};
-use crate::business::erp::stockout_base::{
-    NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals,
-};
+use crate::business::erp::shipment_model::{self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow};
+use crate::business::erp::stockout_base::{NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals};
 use crate::business::erp::stockout_handler;
 use crate::business::erp::stockout_model::{self as stock_out, MaterialInfo};
 use crate::business::flow::linkage;
@@ -213,10 +209,7 @@ async fn to_stock_out_lines(
             ));
         }
         let location_row = match item.location_id {
-            Some(dict_id) => Some(
-                location_ledger_row(ex, item.material_id, shipment_row.warehouse_id, dict_id)
-                    .await?,
-            ),
+            Some(dict_id) => Some(location_ledger_row(ex, item.material_id, shipment_row.warehouse_id, dict_id).await?),
             None => None,
         };
         // 同一物料 + 同一库位出现多行：合并成一行出库明细（行号仍可追）。
@@ -288,10 +281,7 @@ async fn bump_delivered(
 }
 
 /// 订单总量与已发总量（同一事务内读，看得到本事务刚写的 `delivered_qty`）。
-async fn order_totals(
-    ex: &impl SqlExecutor,
-    so_id: Uuid,
-) -> std::result::Result<(Decimal, Decimal), ApiError> {
+async fn order_totals(ex: &impl SqlExecutor, so_id: Uuid) -> std::result::Result<(Decimal, Decimal), ApiError> {
     // SCOPE-EXEMPT: 销售订单行是 ERP 单据明细，无归属列。
     let rows = ex
         .query_sql(
@@ -394,8 +384,7 @@ pub async fn post_effects(
         })?;
 
     // ④ 过账：负库存闸 → 三本账负向 → 成本结转凭证 → 联动（同一事务）
-    let run =
-        stockout_handler::post_out_in_tx(ex, stock_out_id, operator, Some(&reason), now).await?;
+    let run = stockout_handler::post_out_in_tx(ex, stock_out_id, operator, Some(&reason), now).await?;
 
     // ⑤ 回填发货单 → 出库单的引用（CAS：只有未回填才写）
     let affected = ex
@@ -444,23 +433,14 @@ pub async fn post_effects(
     )
     .await?;
     if outcome.is_some() {
-        let applied = sales_order_model::apply_status(
-            ex,
-            shipment_row.so_id,
-            &so_status,
-            target,
-            operator.id,
-            now,
-        )
-        .await
-        .map_err(|error| utils::db_error(error, "回写销售订单状态"))?;
+        let applied = sales_order_model::apply_status(ex, shipment_row.so_id, &so_status, target, operator.id, now)
+            .await
+            .map_err(|error| utils::db_error(error, "回写销售订单状态"))?;
         if applied == 0 {
             return Err(ApiError::new(
                 409,
                 error_code::RESOURCE_CONFLICT,
-                format!(
-                    "销售订单 {so_no} 的状态在本次过账期间被改动（期望 {so_status}），请刷新后重试"
-                ),
+                format!("销售订单 {so_no} 的状态在本次过账期间被改动（期望 {so_status}），请刷新后重试"),
             ));
         }
     }
@@ -504,10 +484,7 @@ mod tests {
         // 浮点/精度噪音：多一点点也算发完（库层是 delivered_qty <= qty，不会真的超）
         assert_eq!(order_status_after(dec("10"), dec("10.0000")), "OUTBOUND");
         // 没有明细的订单不能判成「已出库」（否则空单会被误封成终态）
-        assert_eq!(
-            order_status_after(Decimal::ZERO, Decimal::ZERO),
-            "PARTIAL_OUT"
-        );
+        assert_eq!(order_status_after(Decimal::ZERO, Decimal::ZERO), "PARTIAL_OUT");
     }
 
     /// 状态值必须与销售订单模块常量逐字一致（防手写漂移）。
@@ -526,10 +503,7 @@ mod tests {
     /// 出库事由 / 明细备注要能反查到发货单与订单行（对账时靠它）。
     #[test]
     fn reason_and_line_remark_are_traceable() {
-        assert_eq!(
-            stock_out_reason("SH-20261106-000001"),
-            "销售发货 SH-20261106-000001"
-        );
+        assert_eq!(stock_out_reason("SH-20261106-000001"), "销售发货 SH-20261106-000001");
         assert_eq!(line_remark(3), "销售发货订单行 3");
     }
 
@@ -641,28 +615,16 @@ mod tests {
              OR (entity_type = 'SALE_ORDER' AND entity_id IN {orders})"
         ))
         .await;
-        sql(&format!(
-            "DELETE FROM biz_stock_out WHERE source_id IN {shipments}"
-        ))
-        .await;
+        sql(&format!("DELETE FROM biz_stock_out WHERE source_id IN {shipments}")).await;
         sql(&format!("DELETE FROM biz_shipment WHERE so_id IN {orders}")).await;
         sql(&format!(
             "DELETE FROM biz_sales_order WHERE customer_id IN \
                       (SELECT id FROM biz_customer WHERE code = '{CUSTOMER_CODE}')"
         ))
         .await;
-        sql(&format!(
-            "DELETE FROM biz_customer WHERE code = '{CUSTOMER_CODE}'"
-        ))
-        .await;
-        sql(&format!(
-            "DELETE FROM biz_inventory_txn WHERE material_id IN ({MATS})"
-        ))
-        .await;
-        sql(&format!(
-            "DELETE FROM biz_inventory WHERE material_id IN ({MATS})"
-        ))
-        .await;
+        sql(&format!("DELETE FROM biz_customer WHERE code = '{CUSTOMER_CODE}'")).await;
+        sql(&format!("DELETE FROM biz_inventory_txn WHERE material_id IN ({MATS})")).await;
+        sql(&format!("DELETE FROM biz_inventory WHERE material_id IN ({MATS})")).await;
         sql(&format!(
             "DELETE FROM biz_inventory_location WHERE material_id IN ({MATS})"
         ))
@@ -763,12 +725,7 @@ mod tests {
     }
 
     /// 一张审批通过的订单 + 一行明细（`delivered` 由用例指定，用来造并发超发场景）。
-    async fn fixture_order(
-        customer: Uuid,
-        so_item_qty: &str,
-        delivered: &str,
-        status: &str,
-    ) -> (Uuid, Uuid) {
+    async fn fixture_order(customer: Uuid, so_item_qty: &str, delivered: &str, status: &str) -> (Uuid, Uuid) {
         let so_id = Uuid::now_v7();
         let so_no = format!("SO10T-SO-{}", &so_id.to_string()[24..]);
         db().execute_with_params(
@@ -803,13 +760,7 @@ mod tests {
 
     /// 直接落一张 `PENDING_POST` 的发货单（绕过建单守卫 —— 本卡验的是**过账**，
     /// 建单守卫由 SO-09 的单测覆盖；并发超发场景也只能这样造）。
-    async fn fixture_shipment(
-        customer: Uuid,
-        so_id: Uuid,
-        so_item_id: Uuid,
-        material: &str,
-        qty: &str,
-    ) -> Uuid {
+    async fn fixture_shipment(customer: Uuid, so_id: Uuid, so_item_id: Uuid, material: &str, qty: &str) -> Uuid {
         let id = Uuid::now_v7();
         db().execute_with_params(
             "INSERT INTO biz_shipment \
@@ -842,9 +793,7 @@ mod tests {
     }
 
     /// 过账（走 handler 的公开入口：状态机 + 事务 + 库存效果一条龙）。
-    async fn post_shipment(
-        ship_id: Uuid,
-    ) -> std::result::Result<shipment_handler::ShipmentRes, ApiError> {
+    async fn post_shipment(ship_id: Uuid) -> std::result::Result<shipment_handler::ShipmentRes, ApiError> {
         shipment_handler::change_shipment_status(
             None,
             &ship_id.to_string(),
@@ -865,9 +814,7 @@ mod tests {
     }
 
     /// 出库单来源 / 状态 / 金额（断言用）。
-    async fn stock_out_row(
-        ship_id: Uuid,
-    ) -> Option<(String, String, String, Option<String>, String)> {
+    async fn stock_out_row(ship_id: Uuid) -> Option<(String, String, String, Option<String>, String)> {
         let rows = db()
             .query_sql(
                 "SELECT status, out_type, source_type, voucher_id::text AS voucher, total_qty::text AS qty \
@@ -915,20 +862,14 @@ mod tests {
         assert_eq!(res.status, "POSTED", "发货单应推进到 POSTED");
         assert!(res.stock_out_id.is_some(), "必须回填销售出库单 id");
         assert!(
-            res.stock_out_no
-                .as_deref()
-                .is_some_and(|no| no.starts_with("OUT-")),
+            res.stock_out_no.as_deref().is_some_and(|no| no.starts_with("OUT-")),
             "详情必须回显关联出库单号，实际 {:?}",
             res.stock_out_no
         );
 
-        let (status, out_type, source_type, voucher, qty) =
-            stock_out_row(ship_id).await.expect("必须生成销售出库单");
+        let (status, out_type, source_type, voucher, qty) = stock_out_row(ship_id).await.expect("必须生成销售出库单");
         assert_eq!(status, "POSTED", "销售出库单必须在一个事务里过账");
-        assert_eq!(
-            out_type, "OTHER",
-            "out_type 是领用性质，销售出库用 OTHER（借 6401）"
-        );
+        assert_eq!(out_type, "OTHER", "out_type 是领用性质，销售出库用 OTHER（借 6401）");
         assert_eq!(source_type, "SALES", "来源类型必须是 SALES（V0285）");
         assert_eq!(qty, "10.0000", "出库单总数量应等于发货数量");
         let voucher = voucher.expect("有成本（10×10=100）时必须生成成本结转凭证");
@@ -936,11 +877,7 @@ mod tests {
 
         // 三本账：成本账 / 库位账各减 10，流水一笔 OUT −10（净额 = −10）
         assert_eq!(cost_qty(MAT_A).await, dec("10"), "成本账应 20 − 10 = 10");
-        assert_eq!(
-            location_qty(MAT_A).await,
-            dec("10"),
-            "库位账应 20 − 10 = 10"
-        );
+        assert_eq!(location_qty(MAT_A).await, dec("10"), "库位账应 20 − 10 = 10");
         assert_eq!(txn_net(MAT_A).await, dec("-10"), "流水净额应为 −10");
         // FIX-7：销售出库流水的 biz_type 必须是 SALE_OUT（记成 OTHER_OUT 的话
         // 「按 biz_type 统计销售出库」一条都数不到，与手工其他出库混在一起）
@@ -956,11 +893,7 @@ mod tests {
             vec![Value::from(item_id)],
         )
         .await;
-        assert_eq!(
-            delivered.as_deref(),
-            Some("10.0000"),
-            "delivered_qty 必须回写"
-        );
+        assert_eq!(delivered.as_deref(), Some("10.0000"), "delivered_qty 必须回写");
         let so_status = text_of(
             "SELECT status FROM biz_sales_order WHERE id = ?::uuid",
             vec![Value::from(so_id)],
@@ -987,11 +920,7 @@ mod tests {
             vec![Value::from(so_id)],
         )
         .await;
-        assert_eq!(
-            so_status.as_deref(),
-            Some("PARTIAL_OUT"),
-            "发了一部分 → PARTIAL_OUT"
-        );
+        assert_eq!(so_status.as_deref(), Some("PARTIAL_OUT"), "发了一部分 → PARTIAL_OUT");
         assert_eq!(cost_qty(MAT_A).await, dec("17"), "库存应 20 − 3 = 17");
 
         let second = fixture_shipment(customer, so_id, item_id, MAT_A, "7").await;
@@ -1024,9 +953,7 @@ mod tests {
         let (so_id, item_id) = fixture_order(customer, "10", "0", "APPROVED").await;
         let ship_id = fixture_shipment(customer, so_id, item_id, MAT_A, "5").await;
 
-        let error = post_shipment(ship_id)
-            .await
-            .expect_err("库存只有 2，发 5 必须被拒");
+        let error = post_shipment(ship_id).await.expect_err("库存只有 2，发 5 必须被拒");
         assert_eq!(error.status, 409, "库存不足应是 409，实际 {}", error.status);
         assert!(
             error.msg.contains("库存不足"),
@@ -1037,10 +964,7 @@ mod tests {
         assert_eq!(cost_qty(MAT_A).await, dec("2"), "成本账不能被扣");
         assert_eq!(location_qty(MAT_A).await, dec("2"), "库位账不能被扣");
         assert_eq!(txn_net(MAT_A).await, Decimal::ZERO, "不能留流水");
-        assert!(
-            stock_out_row(ship_id).await.is_none(),
-            "拒绝过账不能留下半张销售出库单"
-        );
+        assert!(stock_out_row(ship_id).await.is_none(), "拒绝过账不能留下半张销售出库单");
         assert_eq!(
             text_of(
                 "SELECT status FROM biz_shipment WHERE id = ?::uuid",
@@ -1075,9 +999,7 @@ mod tests {
         post_shipment(ship_id).await.expect("第一次过账应成功");
         assert_eq!(cost_qty(MAT_A).await, dec("16"), "第一次扣 4");
 
-        let error = post_shipment(ship_id)
-            .await
-            .expect_err("已 POSTED 再次过账必须被拒");
+        let error = post_shipment(ship_id).await.expect_err("已 POSTED 再次过账必须被拒");
         assert_eq!(error.status, 409, "重复过账应 409，实际 {}", error.status);
         assert!(
             error.msg.contains("终态") || error.msg.contains("不能"),
@@ -1093,11 +1015,7 @@ mod tests {
             vec![Value::from(ship_id)],
         )
         .await;
-        assert_eq!(
-            count.as_deref(),
-            Some("1"),
-            "同一发货单只能有一张销售出库单"
-        );
+        assert_eq!(count.as_deref(), Some("1"), "同一发货单只能有一张销售出库单");
         assert_eq!(
             text_of(
                 "SELECT delivered_qty::text FROM biz_sales_order_item WHERE id = ?::uuid",
@@ -1135,10 +1053,7 @@ mod tests {
         assert_eq!(cost_qty(MAT_A).await, dec("20"), "扣掉的库存必须回滚");
         assert_eq!(location_qty(MAT_A).await, dec("20"), "库位账必须回滚");
         assert_eq!(txn_net(MAT_A).await, Decimal::ZERO, "流水必须回滚");
-        assert!(
-            stock_out_row(ship_id).await.is_none(),
-            "半张销售出库单必须回滚"
-        );
+        assert!(stock_out_row(ship_id).await.is_none(), "半张销售出库单必须回滚");
         assert_eq!(
             text_of(
                 "SELECT status FROM biz_shipment WHERE id = ?::uuid",

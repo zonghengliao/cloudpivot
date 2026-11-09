@@ -149,12 +149,7 @@ async fn count_pair_rows(a: &Uuid, b: &Uuid) -> i64 {
          WHERE deleted_at IS NULL \
            AND LEAST(role_a_id, role_b_id) = LEAST(?::uuid, ?::uuid) \
            AND GREATEST(role_a_id, role_b_id) = GREATEST(?::uuid, ?::uuid)",
-        vec![
-            Value::from(*a),
-            Value::from(*b),
-            Value::from(*a),
-            Value::from(*b),
-        ],
+        vec![Value::from(*a), Value::from(*b), Value::from(*a), Value::from(*b)],
     )
     .await
     .expect("统计互斥行数失败")
@@ -180,10 +175,7 @@ async fn b7_real_database_acceptance() {
 
     // ---------- ① 反自反：A 与自己互斥 ----------
     let error = guard::ensure_not_self_pair(role_a, role_a).expect_err("guard 必须拒绝自反互斥");
-    assert_eq!(
-        (error.status, error.code),
-        (400, error_code::ROLE_MUTEX_SELF_PAIR)
-    );
+    assert_eq!((error.status, error.code), (400, error_code::ROLE_MUTEX_SELF_PAIR));
     assert_eq!(error.msg, "不能建立角色与自身的互斥关系。");
     // 库层同样拒绝（`ck_sys_role_mutex_distinct`）——两层都不给绕过机会
     let db_error = db()
@@ -213,11 +205,7 @@ async fn b7_real_database_acceptance() {
         matches!(reverse, DbError::UniqueViolation { .. }),
         "反向插入应报 UniqueViolation（handler 会翻译成 409），实际：{reverse:?}"
     );
-    assert_eq!(
-        count_pair_rows(&role_a, &role_b).await,
-        1,
-        "(A,B) 与 (B,A) 只能存一行"
-    );
+    assert_eq!(count_pair_rows(&role_a, &role_b).await, 1, "(A,B) 与 (B,A) 只能存一行");
     // 读侧不假设写入顺序：反向查也能命中
     let found = model::find_active_pair(&role_b, &role_a)
         .await
@@ -236,11 +224,7 @@ async fn b7_real_database_acceptance() {
     let stored_a: Uuid = stored.get_typed("role_a_id").expect("取 role_a_id");
     let stored_b: Uuid = stored.get_typed("role_b_id").expect("取 role_b_id");
     let (low, high) = guard::normalize_pair(role_a, role_b);
-    assert_eq!(
-        (stored_a, stored_b),
-        (low, high),
-        "落库必须按 UUID 字节序规范化"
-    );
+    assert_eq!((stored_a, stored_b), (low, high), "落库必须按 UUID 字节序规范化");
     // 展示侧另有一套顺序：按 `role_code` 字典序（B7_PAY_APPROVER < B7_PURCHASER）
     assert_eq!(
         (found.role_a_code.as_str(), found.role_b_code.as_str()),
@@ -256,14 +240,9 @@ async fn b7_real_database_acceptance() {
     let error = guard::ensure_no_mutex(&user_a, &[role_a, role_b])
         .await
         .expect_err("已持有 A 再授予 B 必须被拒");
-    assert_eq!(
-        (error.status, error.code),
-        (409, error_code::ROLE_MUTEX_CONFLICT)
-    );
+    assert_eq!((error.status, error.code), (409, error_code::ROLE_MUTEX_CONFLICT));
     assert!(
-        error
-            .msg
-            .starts_with("角色「付款审批」与用户已持有的「采购员」互斥"),
+        error.msg.starts_with("角色「付款审批」与用户已持有的「采购员」互斥"),
         "文案必须点明「本次新增的 B」与「已持有的 A」，实际：{}",
         error.msg
     );
@@ -271,23 +250,15 @@ async fn b7_real_database_acceptance() {
     guard::ensure_no_mutex(&user_a, &[role_a])
         .await
         .expect("只授已持有的角色不应命中互斥");
-    println!(
-        "  ③-1 反例：已持有「采购员」再授「付款审批」→ 409 {}",
-        error.msg
-    );
+    println!("  ③-1 反例：已持有「采购员」再授「付款审批」→ 409 {}", error.msg);
 
     // 3b 对称性：先持有 B，再授 A
     let error = guard::ensure_no_mutex(&user_b, &[role_b, role_a])
         .await
         .expect_err("已持有 B 再授予 A 必须被拒（对称性）");
-    assert_eq!(
-        (error.status, error.code),
-        (409, error_code::ROLE_MUTEX_CONFLICT)
-    );
+    assert_eq!((error.status, error.code), (409, error_code::ROLE_MUTEX_CONFLICT));
     assert!(
-        error
-            .msg
-            .starts_with("角色「采购员」与用户已持有的「付款审批」互斥"),
+        error.msg.starts_with("角色「采购员」与用户已持有的「付款审批」互斥"),
         "反向文案必须跟着方向互换，实际：{}",
         error.msg
     );
@@ -320,21 +291,13 @@ async fn b7_real_database_acceptance() {
 
     // ---------- ④ 校验点 3：已有双持时建规则 ----------
     exec_script("插入历史双持绑定", BIND_BOTH_SQL).await;
-    let (total, sample) = checker::pair_holders(&role_a, &role_b)
-        .await
-        .expect("统计双持用户失败");
+    let (total, sample) = checker::pair_holders(&role_a, &role_b).await.expect("统计双持用户失败");
     assert_eq!(total, 1, "夹具里恰有 1 个历史双持用户");
-    assert_eq!(
-        sample.first().map(|row| row.username.as_str()),
-        Some("b7_u_both")
-    );
+    assert_eq!(sample.first().map(|row| row.username.as_str()), Some("b7_u_both"));
     let error = guard::ensure_pair_has_no_holders(&role_a, &role_b, "采购员", "付款审批")
         .await
         .expect_err("存在双持用户时必须阻止配置");
-    assert_eq!(
-        (error.status, error.code),
-        (409, error_code::ROLE_MUTEX_HAS_HOLDERS)
-    );
+    assert_eq!((error.status, error.code), (409, error_code::ROLE_MUTEX_HAS_HOLDERS));
     assert!(
         error.msg.contains("1 个用户") && error.msg.contains("b7_u_both"),
         "文案必须含用户数与示例用户名，实际：{}",
@@ -343,9 +306,7 @@ async fn b7_real_database_acceptance() {
     println!("  ④ 校验点 3：存量双持 → 409 {}", error.msg);
 
     // 体检：该用户命中 1 组；扫描：清单里出现这条规则
-    let conflicts = checker::user_conflicts(&uuid(USER_BOTH))
-        .await
-        .expect("体检失败");
+    let conflicts = checker::user_conflicts(&uuid(USER_BOTH)).await.expect("体检失败");
     assert_eq!(conflicts.len(), 1, "双持用户必须命中 1 组互斥");
     assert_eq!(conflicts[0].mutex_id, rule_id);
     let scan = checker::scan().await.expect("全量扫描失败");
@@ -392,30 +353,18 @@ async fn b7_real_database_acceptance() {
     // 停用（软删）后规则不再参与判定
     let affected = model::set_enabled(&rule_id, false).await.expect("停用失败");
     assert_eq!(affected, 1);
-    assert!(
-        model::find_active_pair(&role_a, &role_b)
-            .await
-            .expect("查")
-            .is_none()
-    );
+    assert!(model::find_active_pair(&role_a, &role_b).await.expect("查").is_none());
     guard::ensure_no_mutex(&user_a, &[role_a, role_b])
         .await
         .expect("规则停用后不应再命中互斥");
     // 恢复启用（仍无双持用户）→ 重新生效
     let affected = model::set_enabled(&rule_id, true).await.expect("恢复失败");
     assert_eq!(affected, 1);
-    assert!(
-        model::find_active_pair(&role_a, &role_b)
-            .await
-            .expect("查")
-            .is_some()
-    );
+    assert!(model::find_active_pair(&role_a, &role_b).await.expect("查").is_some());
     println!("  ⑥ 启停：停用后不判定、恢复后重新生效");
 
     // 校验点 2：停用角色不计入持有 → 允许建规则；但启用该角色必须被拦
-    let (total, _) = checker::pair_holders(&role_a, &role_off)
-        .await
-        .expect("统计失败");
+    let (total, _) = checker::pair_holders(&role_a, &role_off).await.expect("统计失败");
     assert_eq!(total, 0, "停用角色不计入有效持有（校验点 3 因此放行）");
     let off_rule = model::insert_mutex(&role_a, &role_off, "停用角色互斥测试", None)
         .await
@@ -423,10 +372,7 @@ async fn b7_real_database_acceptance() {
     let error = guard::ensure_role_enable_no_mutex(&role_off, "B7_DISABLED", "停用角色")
         .await
         .expect_err("启用角色会让互斥成立，必须被拦");
-    assert_eq!(
-        (error.status, error.code),
-        (409, error_code::ROLE_MUTEX_CONFLICT)
-    );
+    assert_eq!((error.status, error.code), (409, error_code::ROLE_MUTEX_CONFLICT));
     assert!(
         error.msg.contains("停用角色") && error.msg.contains("b7_u_off"),
         "文案必须含被启用角色名与示例用户名，实际：{}",
@@ -434,14 +380,9 @@ async fn b7_real_database_acceptance() {
     );
     // 反向对照：角色 B 仍在互斥规则里，但它是启用状态 → 校验点 2 只在「停用→启用」时触发，
     // 这里直接构造触发条件的正例已在上面的 `user_off` 上验证过，不再重复。
-    println!(
-        "  ⑦ 校验点 2：启用「停用角色」→ 409 {}（规则 {off_rule}）",
-        error.msg
-    );
+    println!("  ⑦ 校验点 2：启用「停用角色」→ 409 {}（规则 {off_rule}）", error.msg);
     // 清理这条临时规则，避免影响后续扫描断言
-    model::set_enabled(&off_rule, false)
-        .await
-        .expect("停用临时规则");
+    model::set_enabled(&off_rule, false).await.expect("停用临时规则");
 
     // ---------- 收尾：清夹具 ----------
     exec_script("清理夹具", CLEANUP_SQL).await;

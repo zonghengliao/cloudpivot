@@ -13,16 +13,12 @@ use std::net::SocketAddr;
 use cloudpivot::business::announcement::dto::{AnnouncementOfflineReq, AnnouncementSaveReq};
 use cloudpivot::business::announcement::handler as ann_handler;
 use cloudpivot::business::changelog::model as changelog_model;
-use cloudpivot::business::impexp::{
-    dto::ExportSyncQuery, handler as impexp_handler, model as impexp_model, worker,
-};
+use cloudpivot::business::impexp::{dto::ExportSyncQuery, handler as impexp_handler, model as impexp_model, worker};
 use cloudpivot::business::masking::model as mask_model;
-use cloudpivot::business::mutex::{
-    dto::MutexCreateReq, handler as mutex_handler, model as mutex_model,
-};
+use cloudpivot::business::mutex::{dto::MutexCreateReq, handler as mutex_handler, model as mutex_model};
 use cloudpivot::business::notice::{
-    DispatchResult, NoticeDraft, NoticeTarget, dispatch, dto::ContentFormat, dto::NoticeLevel,
-    dto::NoticeType, model as notice_model,
+    DispatchResult, NoticeDraft, NoticeTarget, dispatch, dto::ContentFormat, dto::NoticeLevel, dto::NoticeType,
+    model as notice_model,
 };
 use cloudpivot::business::project::{dto::ProjectCreateReq, handler as project_handler};
 use cloudpivot::system::badge::model as badge_model;
@@ -58,11 +54,7 @@ async fn send_notice(ctx: &Ctx, sender: Uuid, to: &[Uuid], title_suffix: &str) -
         biz_id: None,
         template_code: None,
         template_vars: serde_json::Value::Null,
-        target: NoticeTarget::parse(
-            "USER",
-            &to.iter().map(|id| id.to_string()).collect::<Vec<_>>(),
-        )
-        .expect("目标"),
+        target: NoticeTarget::parse("USER", &to.iter().map(|id| id.to_string()).collect::<Vec<_>>()).expect("目标"),
         channel_mask: 1,
         idempotency_key: Some(ctx.key(title_suffix)),
         expire_at: None,
@@ -87,10 +79,7 @@ async fn k01_announcement_publish_changes_badge() {
         let admin = person(&ctx, "admin").await;
         let target = person(&ctx, "target").await;
 
-        let before = badge_model::load(target)
-            .await
-            .expect("徽标")
-            .announcement_unread;
+        let before = badge_model::load(target).await.expect("徽标").announcement_unread;
 
         // 发公告（USER 范围 → 目标用户）
         let created = ann_handler::create(
@@ -123,10 +112,7 @@ async fn k01_announcement_publish_changes_badge() {
         .await
         .expect("发布");
 
-        let after_publish = badge_model::load(target)
-            .await
-            .expect("徽标")
-            .announcement_unread;
+        let after_publish = badge_model::load(target).await.expect("徽标").announcement_unread;
         assert_eq!(
             after_publish,
             before + 1,
@@ -137,10 +123,7 @@ async fn k01_announcement_publish_changes_badge() {
         cloudpivot::business::announcement::model::mark_read(&ann_id, &target)
             .await
             .expect("标记已读");
-        let after_read = badge_model::load(target)
-            .await
-            .expect("徽标")
-            .announcement_unread;
+        let after_read = badge_model::load(target).await.expect("徽标").announcement_unread;
         assert_eq!(
             after_read, before,
             "已读后徽标应回落（before={before} after={after_read}）"
@@ -165,11 +148,7 @@ async fn k02_notice_read_changes_badge() {
         let result = send_notice(&ctx, sender, &[target], "badge").await;
 
         let after_send = badge_model::load(target).await.expect("徽标").notice_unread;
-        assert_eq!(
-            after_send,
-            before + 1,
-            "发通知后徽标应 +1（{before} → {after_send}）"
-        );
+        assert_eq!(after_send, before + 1, "发通知后徽标应 +1（{before} → {after_send}）");
 
         let receiver_id = c::opt_uuid(
             "SELECT id AS v FROM sys_notice_receiver WHERE notice_id = ?::uuid AND user_id = ?::uuid",
@@ -177,16 +156,10 @@ async fn k02_notice_read_changes_badge() {
         )
         .await
         .expect("收件行");
-        notice_model::mark_read(&receiver_id, &target)
-            .await
-            .expect("标记已读");
+        notice_model::mark_read(&receiver_id, &target).await.expect("标记已读");
 
         let after_read = badge_model::load(target).await.expect("徽标").notice_unread;
-        assert_eq!(
-            after_read, before,
-            "已读后徽标应 -1（{before} → {after_read}）"
-        );
-
+        assert_eq!(after_read, before, "已读后徽标应 -1（{before} → {after_read}）");
     })
     .await;
 }
@@ -261,11 +234,7 @@ async fn k03_task_attachment_after_task_delete() {
         );
 
         // 硬删任务 → 附件行级联清、文件本体保留
-        c::exec_with(
-            "DELETE FROM biz_task WHERE id = ?::uuid",
-            vec![Value::from(&task)],
-        )
-        .await;
+        c::exec_with("DELETE FROM biz_task WHERE id = ?::uuid", vec![Value::from(&task)]).await;
         assert_eq!(
             c::count(
                 "SELECT count(*) AS n FROM biz_task_attachment WHERE task_id = ?::uuid",
@@ -282,7 +251,6 @@ async fn k03_task_attachment_after_task_delete() {
                 .is_some(),
             "级联删附件行时把共享文件本体也删了"
         );
-
     })
     .await;
 }
@@ -353,21 +321,12 @@ async fn k04_import_task_visibility_scoped_to_creator() {
         // 但 only_mine 默认 true → 只返回自己创建的
         let data = alice_page.data.expect("分页 data");
         let names: Vec<String> = data.list.iter().map(|row| row.task_no.clone()).collect();
-        println!(
-            "[K04] alice 默认（only_mine=true）看到的导入任务数：{}",
-            names.len()
-        );
-        assert!(
-            data.list.iter().all(|row| row.task_no.contains("")),
-            "分页结构异常"
-        );
+        println!("[K04] alice 默认（only_mine=true）看到的导入任务数：{}", names.len());
+        assert!(data.list.iter().all(|row| row.task_no.contains("")), "分页结构异常");
         // 用自己的任务号核对「自己的一定在」
         let my_task = impexp_model::build_import_task_no(&Uuid::now_v7());
         assert!(!my_task.is_empty());
-        assert!(
-            data.list.iter().all(|row| !row.task_no.is_empty()),
-            "任务是空的"
-        );
+        assert!(data.list.iter().all(|row| !row.task_no.is_empty()), "任务是空的");
         let _ = alice_claims;
     })
     .await;
@@ -476,10 +435,7 @@ async fn k05_async_export_masked() {
             !text.contains("13900001111"),
             "异步导出产物里出现明文手机号（脱敏只做了同步路径）：{text}"
         );
-        assert!(
-            !text.contains("lisi@example.com"),
-            "异步导出产物里出现明文邮箱：{text}"
-        );
+        assert!(!text.contains("lisi@example.com"), "异步导出产物里出现明文邮箱：{text}");
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     })
@@ -578,7 +534,6 @@ async fn k06_project_delete_keeps_task_tree() {
             0,
             "删项目后仍有任务挂在上面"
         );
-
     })
     .await;
 }
@@ -615,10 +570,9 @@ async fn k07_state_change_appends_one_log() {
         .await
         .expect("建公告");
         let ann_id = Uuid::parse_str(&created.data.expect("data").id).expect("id");
-        let after_create =
-            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
-                .await
-                .expect("计数");
+        let after_create = changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
+            .await
+            .expect("计数");
         assert_eq!(after_create, 1, "建公告应留 1 条日志，实际 {after_create}");
 
         ann_handler::publish(
@@ -629,10 +583,9 @@ async fn k07_state_change_appends_one_log() {
         )
         .await
         .expect("发布");
-        let after_publish =
-            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
-                .await
-                .expect("计数");
+        let after_publish = changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
+            .await
+            .expect("计数");
         assert_eq!(after_publish, after_create + 1, "发布应恰好 +1 条日志");
 
         ann_handler::offline(
@@ -646,10 +599,9 @@ async fn k07_state_change_appends_one_log() {
         )
         .await
         .expect("下线");
-        let after_offline =
-            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
-                .await
-                .expect("计数");
+        let after_offline = changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
+            .await
+            .expect("计数");
         assert_eq!(after_offline, after_publish + 1, "下线应恰好 +1 条日志");
         assert_eq!(
             after_offline,
@@ -722,10 +674,9 @@ async fn k08_mutex_erp_maker_checker_gap() {
         // 双持被拒（制单 + 审核不可能落在一个人身上）
         let user = c::make_user(&ctx, "maker", "HUMAN").await;
         c::bind_role(user, maker_role).await;
-        let err =
-            cloudpivot::business::mutex::guard::ensure_no_mutex(&user, &[maker_role, checker_role])
-                .await
-                .expect_err("双持必须被拒");
+        let err = cloudpivot::business::mutex::guard::ensure_no_mutex(&user, &[maker_role, checker_role])
+            .await
+            .expect_err("双持必须被拒");
         assert_eq!(err.code, 61009, "应为 ROLE_MUTEX_CONFLICT");
 
         // ② ERP 侧独立校验**必须存在**（源码层证据，随源码走：谁删了谁红）
@@ -734,9 +685,8 @@ async fn k08_mutex_erp_maker_checker_gap() {
         let mut missing = Vec::new();
         for (file, what) in SELF_APPROVAL_GUARDS {
             let path = erp_dir.join(file);
-            let text = std::fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!("读不到 {}（{what} 的审批桥）：{error}", path.display())
-            });
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("读不到 {}（{what} 的审批桥）：{error}", path.display()));
             for needle in ["guard_self_approval", "FLOW_SELF_APPROVAL_FORBIDDEN"] {
                 if !text.contains(needle) {
                     missing.push(format!("{file}::{needle}"));

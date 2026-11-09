@@ -155,9 +155,7 @@ impl DriftKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::RowsEdited => "发布版本的 node/edge 行被直接修改，与发布时的 graph_hash 不一致",
-            Self::SnapshotEdited => {
-                "发布版本的 graph_snapshot 被直接修改（行未变），与发布时的 graph_hash 不一致"
-            }
+            Self::SnapshotEdited => "发布版本的 graph_snapshot 被直接修改（行未变），与发布时的 graph_hash 不一致",
         }
     }
 }
@@ -436,9 +434,7 @@ pub fn evaluate(stored: &str, rows_hash: &str, snapshot_hash: Option<&str>) -> O
         return Some(DriftKind::RowsEdited);
     }
     match snapshot_hash {
-        Some(snapshot) if !snapshot.is_empty() && snapshot != stored => {
-            Some(DriftKind::SnapshotEdited)
-        }
+        Some(snapshot) if !snapshot.is_empty() && snapshot != stored => Some(DriftKind::SnapshotEdited),
         _ => None,
     }
 }
@@ -518,10 +514,7 @@ async fn scan_batch(after: Option<Uuid>, batch: i64) -> DbResult<Vec<PublishedVe
             db().find_with_params(SQL_SCAN_NEXT, vec![Value::from(cursor), Value::from(batch)])
                 .await?
         }
-        None => {
-            db().find_with_params(SQL_SCAN_FIRST, vec![Value::from(batch)])
-                .await?
-        }
+        None => db().find_with_params(SQL_SCAN_FIRST, vec![Value::from(batch)]).await?,
     };
     let mut versions = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -596,10 +589,7 @@ mod tests {
         let stored = "a".repeat(64);
         let rows = "b".repeat(64);
         // 行被改：即使快照还是好的，也必须报 ROWS_EDITED（源头优先）
-        assert_eq!(
-            evaluate(&stored, &rows, Some(&stored)),
-            Some(DriftKind::RowsEdited)
-        );
+        assert_eq!(evaluate(&stored, &rows, Some(&stored)), Some(DriftKind::RowsEdited));
         assert_eq!(evaluate(&stored, &rows, None), Some(DriftKind::RowsEdited));
         assert_eq!(DriftKind::RowsEdited.as_str(), "ROWS_EDITED");
         assert!(DriftKind::RowsEdited.label().contains("node/edge"));
@@ -641,10 +631,7 @@ mod tests {
         let row = audit_row(request_id, &drift);
         assert_eq!(row.operation, AUDIT_OPERATION);
         assert_eq!(row.target_type.as_deref(), Some(AUDIT_TARGET_TYPE));
-        assert_eq!(
-            row.target_id.as_deref(),
-            Some(drift.version_id.to_string().as_str())
-        );
+        assert_eq!(row.target_id.as_deref(), Some(drift.version_id.to_string().as_str()));
         assert_eq!(row.request_id, request_id);
         assert_eq!(row.username.as_deref(), Some("system"));
         // 自检没有请求者身份，user_id / ip 必须为空（不许伪造一个操作人）
@@ -653,10 +640,7 @@ mod tests {
         let before = row.before_data.clone().expect("before_data");
         let after = row.after_data.clone().expect("after_data");
         assert_eq!(before["graph_hash"], serde_json::json!(drift.stored_hash));
-        assert_eq!(
-            after["graph_hash"],
-            serde_json::json!(drift.recomputed_hash)
-        );
+        assert_eq!(after["graph_hash"], serde_json::json!(drift.recomputed_hash));
         let detail = row.detail.clone().expect("detail");
         assert_eq!(detail["kind"], serde_json::json!("ROWS_EDITED"));
         assert_eq!(detail["flow_code"], serde_json::json!("leave_apply"));

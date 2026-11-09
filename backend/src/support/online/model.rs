@@ -87,10 +87,7 @@ impl OnlineSessionModel {
     /// # 异常情况
     ///
     /// 缓存未初始化或写入失败时返回错误，由调用方决定是否中断主流程。
-    pub async fn record_login(
-        session: &OnlineSession,
-        ttl_secs: u64,
-    ) -> std::result::Result<(), Error> {
+    pub async fn record_login(session: &OnlineSession, ttl_secs: u64) -> std::result::Result<(), Error> {
         let Some(store) = try_cache() else {
             return Err(Error::Msg("缓存未初始化，无法登记在线会话".to_string()));
         };
@@ -189,14 +186,9 @@ impl OnlineSessionModel {
     /// # 异常情况
     ///
     /// 缓存未初始化或写入失败时返回错误。
-    pub async fn record_refresh(
-        session: &RefreshSession,
-        ttl_secs: u64,
-    ) -> std::result::Result<(), Error> {
+    pub async fn record_refresh(session: &RefreshSession, ttl_secs: u64) -> std::result::Result<(), Error> {
         let Some(store) = try_cache() else {
-            return Err(Error::Msg(
-                "缓存未初始化，无法登记 refresh 令牌".to_string(),
-            ));
+            return Err(Error::Msg("缓存未初始化，无法登记 refresh 令牌".to_string()));
         };
         Cache::set_ex(store, &refresh_key(&session.jti), session, ttl_secs).await
     }
@@ -211,9 +203,7 @@ impl OnlineSessionModel {
     /// 会残留一条已作废的令牌，宁可报错也不算成功。
     pub async fn forget_refresh(jti: &str) -> std::result::Result<(), Error> {
         let Some(store) = try_cache() else {
-            return Err(Error::Msg(
-                "缓存未初始化，无法移除 refresh 令牌登记".to_string(),
-            ));
+            return Err(Error::Msg("缓存未初始化，无法移除 refresh 令牌登记".to_string()));
         };
         Cache::del(store, &refresh_key(jti)).await
     }
@@ -233,9 +223,7 @@ impl OnlineSessionModel {
     /// 缓存未初始化或读取失败时返回错误。
     pub async fn find_refresh(jti: &str) -> std::result::Result<Option<RefreshSession>, Error> {
         let Some(store) = try_cache() else {
-            return Err(Error::Msg(
-                "缓存未初始化，无法查询 refresh 令牌登记".to_string(),
-            ));
+            return Err(Error::Msg("缓存未初始化，无法查询 refresh 令牌登记".to_string()));
         };
         Cache::get(store, &refresh_key(jti)).await
     }
@@ -247,9 +235,7 @@ impl OnlineSessionModel {
     /// 缓存未初始化或枚举失败时返回错误；个别键读取失败只记告警并跳过。
     pub async fn list_refresh() -> std::result::Result<Vec<RefreshSession>, Error> {
         let Some(store) = try_cache() else {
-            return Err(Error::Msg(
-                "缓存未初始化，无法枚举 refresh 令牌".to_string(),
-            ));
+            return Err(Error::Msg("缓存未初始化，无法枚举 refresh 令牌".to_string()));
         };
         let pattern = format!("{}*", constants::CACHE_KEY_PREFIX_ONLINE_REFRESH);
         let keys = Cache::keys(store, &pattern).await?;
@@ -386,10 +372,7 @@ pub(crate) async fn force_logout_user(user_id: &str) -> std::result::Result<usiz
         }
     }
 
-    for session in refresh_sessions
-        .into_iter()
-        .filter(|s| s.user_id == user_id)
-    {
+    for session in refresh_sessions.into_iter().filter(|s| s.user_id == user_id) {
         match revoke_refresh(&session).await {
             Ok(()) => kicked += 1,
             Err(e) => {
@@ -480,9 +463,7 @@ pub(crate) async fn detach_user_sessions(user_id: &str) -> std::result::Result<u
 /// # 异常情况
 ///
 /// 枚举 / 删除失败返回 `Err`（调用方按「降级」处理）。
-pub(crate) async fn detach_all_except(
-    exclude_usernames: &[&str],
-) -> std::result::Result<usize, Error> {
+pub(crate) async fn detach_all_except(exclude_usernames: &[&str]) -> std::result::Result<usize, Error> {
     let sessions = OnlineSessionModel::list_all_strict().await?;
     let refresh_sessions = OnlineSessionModel::list_refresh().await?;
     let username_of = |user_id: &str| -> Option<String> {
@@ -553,10 +534,7 @@ pub(crate) async fn detach_all_except(
 /// # 返回值
 ///
 /// `true` = 缓存侧清理成功；`false` = 已降级（库侧失效仍生效）。
-pub(crate) async fn revoke_after_permission_change(
-    scene: &'static str,
-    exclude_usernames: &[&str],
-) -> bool {
+pub(crate) async fn revoke_after_permission_change(scene: &'static str, exclude_usernames: &[&str]) -> bool {
     match detach_all_except(exclude_usernames).await {
         Ok(detached) => {
             tracing::info!(scene, detached, "权限变更后已清理在线会话登记");

@@ -451,10 +451,7 @@ pub(crate) async fn page_json_logs(
     // `{FILTER}` 必须在业务过滤条件之前（片段参数恒前置，§2.6）。
     // 先取锚点再消费 `table`（`JsonLogTable` 不是 `Copy`）。
     let target = table.scope_target();
-    let mut sql = format!(
-        "SELECT to_jsonb(t) AS data FROM {} t WHERE 1=1",
-        table.name()
-    );
+    let mut sql = format!("SELECT to_jsonb(t) AS data FROM {} t WHERE 1=1", table.name());
     sql.push_str(" {FILTER}");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(username.as_deref()) {

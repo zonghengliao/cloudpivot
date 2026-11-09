@@ -25,9 +25,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::erp::transfer_dto::{
-    CreateTransferReq, TransferItemReq, TransferRes, TransferStatusReq,
-};
+use cloudpivot::business::erp::transfer_dto::{CreateTransferReq, TransferItemReq, TransferRes, TransferStatusReq};
 use cloudpivot::business::erp::transfer_handler::{change_transfer_status, create_transfer};
 use cloudpivot::business::erp::transfer_model::{self, TransferQuery};
 use cloudpivot::business::erp::transfer_overdue;
@@ -137,9 +135,7 @@ async fn draft(ctx: &Ctx, items: Vec<TransferItemReq>) -> Uuid {
 async fn step(ctx: &Ctx, id: Uuid, to: &str) {
     change_transfer_status(id, &status_req(to, None), ctx.worker)
         .await
-        .unwrap_or_else(|error| {
-            panic!("{}：推进到 {to} 失败 {} {}", ctx.tag, error.code, error.msg)
-        });
+        .unwrap_or_else(|error| panic!("{}：推进到 {to} 失败 {} {}", ctx.tag, error.code, error.msg));
 }
 
 /// 调拨单号。
@@ -263,12 +259,7 @@ async fn in_transit(ctx: &Ctx, items: Vec<TransferItemReq>) -> Uuid {
         .await
         .unwrap_or_else(|| panic!("{}：提交后必须挂审批实例", ctx.tag));
     approve_instance(instance).await;
-    assert_eq!(
-        status_of(id).await,
-        "APPROVED",
-        "{}：审批通过后必须 APPROVED",
-        ctx.tag
-    );
+    assert_eq!(status_of(id).await, "APPROVED", "{}：审批通过后必须 APPROVED", ctx.tag);
     step(ctx, id, "IN_TRANSIT").await;
     id
 }
@@ -287,10 +278,7 @@ async fn f01_submit_creates_pending_instance() {
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = draft(&ctx, vec![item(ctx.mat, "5")]).await;
     assert_eq!(status_of(id).await, "DRAFT");
-    assert!(
-        instance_id_of(id).await.is_none(),
-        "F01：草稿态不该挂审批实例"
-    );
+    assert!(instance_id_of(id).await.is_none(), "F01：草稿态不该挂审批实例");
 
     step(&ctx, id, "PENDING").await;
     let instance = instance_id_of(id)
@@ -302,10 +290,7 @@ async fn f01_submit_creates_pending_instance() {
         "F01：新发起的调拨审批必须是 PENDING"
     );
     let todos = common::flow_tasks_of(instance).await;
-    assert!(
-        !todos.is_empty(),
-        "F01：提交调拨必须生成待办（一条都没有＝审批没发起）"
-    );
+    assert!(!todos.is_empty(), "F01：提交调拨必须生成待办（一条都没有＝审批没发起）");
     assert!(
         todos.iter().all(|(_, status, _)| status == "PENDING"),
         "F01：新发起的调拨待办必须全部 PENDING，实际 {todos:?}"
@@ -338,21 +323,13 @@ async fn f02_approval_moves_to_approved() {
     let instance = instance_id_of(id).await.expect("审批实例");
     approve_instance(instance).await;
 
-    assert_eq!(
-        status_of(id).await,
-        "APPROVED",
-        "F02：审批通过 → 调拨单 APPROVED"
-    );
+    assert_eq!(status_of(id).await, "APPROVED", "F02：审批通过 → 调拨单 APPROVED");
     assert_eq!(
         instance_status(Some(instance)).await.as_deref(),
         Some("APPROVED"),
         "F02：审批实例本身也必须落 APPROVED"
     );
-    assert_eq!(
-        txn_count(id).await,
-        0,
-        "F02：审批通过还不该写库存流水（发货才写）"
-    );
+    assert_eq!(txn_count(id).await, 0, "F02：审批通过还不该写库存流水（发货才写）");
     ctx.cleanup().await;
 }
 
@@ -368,19 +345,14 @@ async fn f03_ship_records_transit_warehouse_without_touching_stock() {
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
 
-    assert_eq!(
-        status_of(id).await,
-        "IN_TRANSIT",
-        "F03：发货后必须 IN_TRANSIT"
-    );
+    assert_eq!(status_of(id).await, "IN_TRANSIT", "F03：发货后必须 IN_TRANSIT");
     let transit = common::scalar_text(
         "SELECT transit_warehouse_id::text AS v FROM biz_stock_transfer WHERE id = ?::uuid",
         vec![Value::from(&id)],
     )
     .await;
-    let transit = transit.unwrap_or_else(|| {
-        panic!("F03：IN_TRANSIT 起 transit_warehouse_id 必须非空（ck_biz_transfer_state）")
-    });
+    let transit =
+        transit.unwrap_or_else(|| panic!("F03：IN_TRANSIT 起 transit_warehouse_id 必须非空（ck_biz_transfer_state）"));
 
     // 卡面 F03 期望「调出仓扣减 + 在途仓增加」；实现是「发货只回填在途仓，结算才双写」。
     common::assert_dec(
@@ -441,8 +413,7 @@ async fn f05_total_qty_and_cost_conserved_after_done() {
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_to, "10", "8").await;
 
-    let total_qty_before =
-        bucket_qty(ctx.mat, ctx.wh_from).await + bucket_qty(ctx.mat, ctx.wh_to).await;
+    let total_qty_before = bucket_qty(ctx.mat, ctx.wh_from).await + bucket_qty(ctx.mat, ctx.wh_to).await;
     let amount_before = common::scalar_dec(
         "SELECT COALESCE(sum(amount),0)::numeric(18,4) AS v FROM biz_inventory \
           WHERE material_id = ?::uuid AND warehouse_id IN (?::uuid, ?::uuid)",
@@ -457,8 +428,7 @@ async fn f05_total_qty_and_cost_conserved_after_done() {
     let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
     step(&ctx, id, "DONE").await;
 
-    let total_qty_after =
-        bucket_qty(ctx.mat, ctx.wh_from).await + bucket_qty(ctx.mat, ctx.wh_to).await;
+    let total_qty_after = bucket_qty(ctx.mat, ctx.wh_from).await + bucket_qty(ctx.mat, ctx.wh_to).await;
     let amount_after = common::scalar_dec(
         "SELECT COALESCE(sum(amount),0)::numeric(18,4) AS v FROM biz_inventory \
           WHERE material_id = ?::uuid AND warehouse_id IN (?::uuid, ?::uuid)",
@@ -469,11 +439,7 @@ async fn f05_total_qty_and_cost_conserved_after_done() {
         ],
     )
     .await;
-    common::assert_dec(
-        total_qty_after,
-        total_qty_before,
-        "F05：总量必须守恒（110 → 110）",
-    );
+    common::assert_dec(total_qty_after, total_qty_before, "F05：总量必须守恒（110 → 110）");
     common::assert_dec(
         amount_after,
         amount_before,
@@ -506,10 +472,7 @@ async fn f06_draft_cancel_leaves_stock_untouched() {
         "F06：库存不动",
     );
     assert_eq!(txn_count(id).await, 0, "F06：不写流水");
-    assert!(
-        instance_id_of(id).await.is_none(),
-        "F06：草稿取消不该凭空产生审批实例"
-    );
+    assert!(instance_id_of(id).await.is_none(), "F06：草稿取消不该凭空产生审批实例");
     ctx.cleanup().await;
 }
 
@@ -527,13 +490,9 @@ async fn f07_pending_cancel_terminates_running_instance() {
     step(&ctx, id, "PENDING").await;
     let instance = instance_id_of(id).await.expect("审批实例");
 
-    change_transfer_status(
-        id,
-        &status_req("CANCELLED", Some("F07 撤回：计划改了")),
-        ctx.worker,
-    )
-    .await
-    .unwrap_or_else(|error| panic!("F07：撤回失败 {} {}", error.code, error.msg));
+    change_transfer_status(id, &status_req("CANCELLED", Some("F07 撤回：计划改了")), ctx.worker)
+        .await
+        .unwrap_or_else(|error| panic!("F07：撤回失败 {} {}", error.code, error.msg));
 
     assert_eq!(status_of(id).await, "CANCELLED");
     assert_eq!(
@@ -587,11 +546,7 @@ async fn f08_manual_approve_while_pending_is_blocked() {
         .await
         .expect_err("F08：审批中人工直推 APPROVED 必须被门闸拦住");
     assert_eq!(error.status, 409, "F08：门闸 → 409，实际 {error:?}");
-    assert_eq!(
-        status_of(id).await,
-        "PENDING",
-        "F08：被拦住后必须仍是 PENDING"
-    );
+    assert_eq!(status_of(id).await, "PENDING", "F08：被拦住后必须仍是 PENDING");
     assert_eq!(
         instance_status(Some(instance)).await.as_deref(),
         Some("PENDING"),
@@ -632,16 +587,8 @@ async fn f09_over_issue_is_rejected_at_settlement() {
         "IN_TRANSIT",
         "F09：结算失败必须回滚到 IN_TRANSIT（不能出现「状态 DONE、库存没动」）"
     );
-    common::assert_dec(
-        bucket_qty(ctx.mat, ctx.wh_from).await,
-        before_from,
-        "F09：调出仓不变",
-    );
-    common::assert_dec(
-        bucket_qty(ctx.mat, ctx.wh_to).await,
-        before_to,
-        "F09：调入仓不变",
-    );
+    common::assert_dec(bucket_qty(ctx.mat, ctx.wh_from).await, before_from, "F09：调出仓不变");
+    common::assert_dec(bucket_qty(ctx.mat, ctx.wh_to).await, before_to, "F09：调入仓不变");
     ctx.cleanup().await;
 }
 
@@ -803,8 +750,7 @@ async fn f12_in_transit_stuck_shipment_should_alert() {
         stuck_row.is_overdue(now, threshold),
         "F12：压了 30 天的在途单必须被判为超期"
     );
-    let stuck_res =
-        TransferRes::of(&stuck_row, None, None).with_overdue(&stuck_row, now, threshold);
+    let stuck_res = TransferRes::of(&stuck_row, None, None).with_overdue(&stuck_row, now, threshold);
     assert!(stuck_res.in_transit_overdue, "F12：列表响应要带超期标记");
     assert_eq!(
         stuck_res.overdue_days,
@@ -965,9 +911,7 @@ async fn f12_in_transit_stuck_shipment_should_alert() {
     assert_eq!(fresh_notices, 0, "F12：未超期的在途单不许告警");
 
     // ---------- ⑤ 不重复轰炸：紧接着再扫一次 ----------
-    let second = transfer_overdue::scan_once(now)
-        .await
-        .expect("F12：第二轮扫描不能报错");
+    let second = transfer_overdue::scan_once(now).await.expect("F12：第二轮扫描不能报错");
     assert_eq!(
         second.alerted,
         0,

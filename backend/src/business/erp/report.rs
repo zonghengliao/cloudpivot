@@ -447,11 +447,7 @@ pub fn month_range(period: &str) -> Option<(NaiveDate, NaiveDate)> {
 /// 上一期间编码（`2026-01` → `2025-12`；`2026-10` → `2026-09`）。
 pub fn previous_period_of(period: &str) -> Option<String> {
     let (year, month) = parse_period(period)?;
-    let (year, month) = if month == 1 {
-        (year - 1, 12)
-    } else {
-        (year, month - 1)
-    };
+    let (year, month) = if month == 1 { (year - 1, 12) } else { (year, month - 1) };
     Some(format!("{year:04}-{month:02}"))
 }
 
@@ -497,10 +493,7 @@ pub fn match_account(pattern: &str, account_code: &str, account_category: &str) 
 ///
 /// 返回 `Err` 的两种情况都**必须**让接口 500，而不是静默算 0：
 /// ① 引用了尚未计算 / 不存在的 `item_code`；② 算式本身不合法。
-pub fn eval_formula(
-    formula: &str,
-    amounts: &HashMap<String, Decimal>,
-) -> std::result::Result<Decimal, String> {
+pub fn eval_formula(formula: &str, amounts: &HashMap<String, Decimal>) -> std::result::Result<Decimal, String> {
     let mut total = Decimal::ZERO;
     let mut sign = Decimal::ONE;
     let mut expect_operand = true;
@@ -547,11 +540,7 @@ pub fn eval_formula(
 /// `Decimal` 有符号位：`-Decimal::ZERO` 序列化成 `-0` / `-0.0000`，报表上出现「-0」很难看，
 /// 而且会让人以为有负数余额。所有参与出参的金额都过一遍这个函数。
 pub fn zero_norm(value: Decimal) -> Decimal {
-    if value.is_zero() {
-        Decimal::ZERO
-    } else {
-        value
-    }
+    if value.is_zero() { Decimal::ZERO } else { value }
 }
 
 /// 一侧的未归类差额（运行时补出来的行）。
@@ -620,16 +609,9 @@ impl ComputedSheet {
 ///
 /// 返回 `Err` 的只有配置错误（公式引用未知项 / 算式不合法），接口按 500 处理 ——
 /// 报表配置错了绝不能静默出 0，那会被人当成"这个月没发生"。
-pub fn compute(
-    items: &[ReportItemDef],
-    accounts: &[AccountBalance],
-) -> std::result::Result<ComputedSheet, String> {
+pub fn compute(items: &[ReportItemDef], accounts: &[AccountBalance]) -> std::result::Result<ComputedSheet, String> {
     let mut sorted = items.to_vec();
-    sorted.sort_by(|a, b| {
-        a.sort_order
-            .cmp(&b.sort_order)
-            .then(a.item_code.cmp(&b.item_code))
-    });
+    sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.item_code.cmp(&b.item_code)));
 
     let mut amounts: HashMap<String, Decimal> = HashMap::new();
     let mut matched: BTreeSet<usize> = BTreeSet::new();
@@ -656,9 +638,7 @@ pub fn compute(
         let sum = zero_norm(sum);
         amounts.insert(item.item_code.clone(), sum);
         owned.insert(item.item_code.clone(), codes);
-        let entry = contributions
-            .entry(item.side.clone())
-            .or_insert(Decimal::ZERO);
+        let entry = contributions.entry(item.side.clone()).or_insert(Decimal::ZERO);
         *entry = zero_norm(*entry + if item.is_deduction { -sum } else { sum });
     }
 
@@ -678,10 +658,7 @@ pub fn compute(
         let Some(target) = item.reclass_negative_to.as_deref() else {
             continue;
         };
-        let amount = amounts
-            .get(&item.item_code)
-            .copied()
-            .unwrap_or(Decimal::ZERO);
+        let amount = amounts.get(&item.item_code).copied().unwrap_or(Decimal::ZERO);
         if amount >= Decimal::ZERO {
             continue;
         }
@@ -801,10 +778,7 @@ pub fn compute(
                         .unwrap_or_default(),
                     target = item.reclass_negative_to.clone().unwrap_or_default(),
                 )),
-                None => item
-                    .account_pattern
-                    .clone()
-                    .or_else(|| item.formula.clone()),
+                None => item.account_pattern.clone().or_else(|| item.formula.clone()),
             },
             accounts: owned.get(&item.item_code).cloned().unwrap_or_default(),
         };
@@ -812,24 +786,14 @@ pub fn compute(
     }
 
     // 未归类行插在**本侧合计行之前**（人看报表时紧挨小计，不会被忽略）
-    insert_unmapped(
-        &mut assets,
-        &amounts,
-        UNMAPPED_ASSETS,
-        &format!("{REPORT_NAME}·资产"),
-    );
+    insert_unmapped(&mut assets, &amounts, UNMAPPED_ASSETS, &format!("{REPORT_NAME}·资产"));
     insert_unmapped(
         &mut liabilities,
         &amounts,
         UNMAPPED_LIABILITIES,
         &format!("{REPORT_NAME}·负债"),
     );
-    insert_unmapped(
-        &mut equity,
-        &amounts,
-        UNMAPPED_EQUITY,
-        &format!("{REPORT_NAME}·权益"),
-    );
+    insert_unmapped(&mut equity, &amounts, UNMAPPED_EQUITY, &format!("{REPORT_NAME}·权益"));
 
     Ok(ComputedSheet {
         assets,
@@ -858,12 +822,7 @@ fn push_side(
 }
 
 /// 把未归类行插到本侧**最后一个合计行之前**（资产侧就是「资产总计」前），找不到就追加。
-fn insert_unmapped(
-    lines: &mut Vec<ReportLineRes>,
-    amounts: &HashMap<String, Decimal>,
-    code: &str,
-    side_label: &str,
-) {
+fn insert_unmapped(lines: &mut Vec<ReportLineRes>, amounts: &HashMap<String, Decimal>, code: &str, side_label: &str) {
     let amount = amounts.get(code).copied().unwrap_or_default();
     let mut line = unmapped_line(
         match code {
@@ -909,9 +868,7 @@ pub const PERIOD_DERIVED: &str = "DERIVED";
 
 /// 取期间（`biz_accounting_period` 优先；缺失时见 [`resolve_period`]）。
 pub async fn load_period(tx: &Transaction, period: &str) -> DbResult<Option<PeriodInfo>> {
-    let sql = format!(
-        "SELECT period_code, status, start_date, end_date FROM {PERIOD_TABLE} WHERE period_code = ?"
-    );
+    let sql = format!("SELECT period_code, status, start_date, end_date FROM {PERIOD_TABLE} WHERE period_code = ?");
     let row = tx
         .find_with_params(&sql, vec![Value::from(period)])
         .await?
@@ -929,11 +886,7 @@ pub async fn load_period(tx: &Transaction, period: &str) -> DbResult<Option<Peri
 }
 
 /// 该月窗口内已记账凭证的数量（判断"这个月到底有没有账"）。
-pub async fn count_posted_vouchers(
-    tx: &Transaction,
-    start: NaiveDate,
-    end: NaiveDate,
-) -> DbResult<i64> {
+pub async fn count_posted_vouchers(tx: &Transaction, start: NaiveDate, end: NaiveDate) -> DbResult<i64> {
     let sql = format!(
         "SELECT COUNT(*) AS cnt FROM {VOUCHER_TABLE} \
           WHERE status = '{POSTED}' AND deleted_at IS NULL \
@@ -1112,9 +1065,7 @@ pub async fn load_items_of(tx: &Transaction, report_code: &str) -> DbResult<Vec<
            FROM {ITEM_TABLE} WHERE report_code = ? AND is_active = 1 \
           ORDER BY sort_order, item_code"
     );
-    let rows = tx
-        .find_with_params(&sql, vec![Value::from(report_code)])
-        .await?;
+    let rows = tx.find_with_params(&sql, vec![Value::from(report_code)]).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         out.push(ReportItemDef {
@@ -1134,11 +1085,7 @@ pub async fn load_items_of(tx: &Transaction, report_code: &str) -> DbResult<Vec<
 }
 
 /// 窗口内分录的借贷合计（诊断用）。
-pub async fn load_ledger_totals(
-    tx: &Transaction,
-    start: NaiveDate,
-    end: NaiveDate,
-) -> DbResult<(Decimal, Decimal)> {
+pub async fn load_ledger_totals(tx: &Transaction, start: NaiveDate, end: NaiveDate) -> DbResult<(Decimal, Decimal)> {
     let sql = format!(
         "SELECT COALESCE(SUM(e.debit_amount), 0) AS debit, COALESCE(SUM(e.credit_amount), 0) AS credit \
            FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
@@ -1265,8 +1212,7 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<SheetSna
 
     let accounts = load_accounts(tx, info.start_date, info.end_date, Some(period)).await?;
     let sheet = compute(&items, &accounts).map_err(DbError::InvalidValue)?;
-    let (ledger_debit_total, ledger_credit_total) =
-        load_ledger_totals(tx, info.start_date, info.end_date).await?;
+    let (ledger_debit_total, ledger_credit_total) = load_ledger_totals(tx, info.start_date, info.end_date).await?;
     let unbalanced_vouchers = load_unbalanced_vouchers(tx, info.start_date, info.end_date).await?;
 
     // 上期对比：只有**建过期间行**的上期才出对比（报表不替用户"推导"一个不存在的报告期）
@@ -1457,12 +1403,7 @@ pub fn into_response(
             }
         ));
     }
-    let mut check = build_check(
-        &sheet,
-        ledger_debit_total,
-        ledger_credit_total,
-        unbalanced_vouchers,
-    );
+    let mut check = build_check(&sheet, ledger_debit_total, ledger_credit_total, unbalanced_vouchers);
     // 期间是按自然月推算出来的（库里没有期间行，但该月有账）：必须让看报表的人知道
     if period.status == PERIOD_DERIVED {
         check.hints.push(format!(
@@ -1521,19 +1462,14 @@ pub(crate) fn validate_period(raw: Option<&str>) -> std::result::Result<String, 
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
 ///
 /// `pub(crate)`：PDF-07 复用（报表 PDF 与页面必须同一快照口径、同一错误码）。
-pub(crate) async fn snapshot_or_error(
-    period: &str,
-) -> std::result::Result<SheetSnapshot, ApiError> {
+pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<SheetSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启资产负债表快照事务"))?;
     // ★ 硬红线 3：整个报表在一个 REPEATABLE READ 快照里算完。
     //   `SET TRANSACTION` 必须是 BEGIN 之后的第一条语句（PG 规定，否则 25001）。
-    if let Err(error) = tx
-        .execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .await
-    {
+    if let Err(error) = tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").await {
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置报表事务隔离级别"));
     }
@@ -1603,9 +1539,7 @@ pub(crate) async fn company_name() -> String {
     permission = "business:erp:report:balance-sheet"
 )]
 #[nik::get("/business/erp/report/balance-sheet")]
-pub async fn balance_sheet_handler(
-    Query(query): Query<BalanceSheetQuery>,
-) -> ResResult<BalanceSheetRes> {
+pub async fn balance_sheet_handler(Query(query): Query<BalanceSheetQuery>) -> ResResult<BalanceSheetRes> {
     let period = validate_period(query.period.as_deref())?;
     let snapshot = snapshot_or_error(&period).await?;
     let company = company_name().await;
@@ -1699,27 +1633,14 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
         "期末余额",
         "上期余额",
     ];
-    let right: Vec<&ReportLineRes> = report
-        .liabilities
-        .iter()
-        .chain(report.equity.iter())
-        .collect();
+    let right: Vec<&ReportLineRes> = report.liabilities.iter().chain(report.equity.iter()).collect();
     let mut rows: Vec<HashMap<String, String>> = Vec::new();
     // 表头信息（编制单位 / 期间 / 单位）也进表格，导出的文件脱离页面也能看懂。
     // 注意 HashMap 一个 key 只能有一个值：三行信息各占一列，不重复用列名。
     let mut info = HashMap::new();
-    info.insert(
-        "资产".to_string(),
-        format!("编制单位：{}", report.company_name),
-    );
-    info.insert(
-        "期末余额".to_string(),
-        format!("期间：{}", report.period_name),
-    );
-    info.insert(
-        "负债和所有者权益".to_string(),
-        format!("单位：{}", report.unit),
-    );
+    info.insert("资产".to_string(), format!("编制单位：{}", report.company_name));
+    info.insert("期末余额".to_string(), format!("期间：{}", report.period_name));
+    info.insert("负债和所有者权益".to_string(), format!("单位：{}", report.unit));
     rows.push(info);
 
     let indent = |level: i16| "    ".repeat(usize::try_from(level.saturating_sub(1)).unwrap_or(0));
@@ -1740,10 +1661,7 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
                 format!("{}{}", indent(right_line.level), display_name(right_line)),
             );
             row.insert("期末余额".to_string(), money_text(right_line.amount));
-            row.insert(
-                "上期余额".to_string(),
-                money_text(right_line.previous_amount),
-            );
+            row.insert("上期余额".to_string(), money_text(right_line.previous_amount));
         }
         rows.push(row);
     }
@@ -1765,13 +1683,7 @@ mod tests {
     use std::str::FromStr;
 
     /// 造一个科目（报表计算用，不进库）。
-    fn account(
-        code: &str,
-        category: &str,
-        direction: &str,
-        net_before: i64,
-        net_period: i64,
-    ) -> AccountBalance {
+    fn account(code: &str, category: &str, direction: &str, net_before: i64, net_period: i64) -> AccountBalance {
         AccountBalance {
             account_id: Uuid::nil(),
             account_code: code.to_string(),
@@ -2052,28 +1964,12 @@ mod tests {
         let mut items = vec![
             item("CASH", "ASSET", 2, Some("1001"), None, false, 10),
             item("OTHER_CURRENT", "ASSET", 2, Some("1901"), None, false, 20),
-            item(
-                "ASSETS_SUB",
-                "ASSET",
-                2,
-                None,
-                Some("CASH + OTHER_CURRENT"),
-                false,
-                30,
-            ),
+            item("ASSETS_SUB", "ASSET", 2, None, Some("CASH + OTHER_CURRENT"), false, 30),
             item("TOTAL_ASSETS", "ASSET", 1, None, Some("ASSETS_SUB"), false, 40),
             item("TAX", "LIABILITY", 2, Some("2221"), None, false, 50),
             item("LIAB_SUB", "LIABILITY", 2, None, Some("TAX"), false, 60),
             item("EQUITY", "EQUITY", 2, Some("3001"), None, false, 65),
-            item(
-                "LIAB_EQ",
-                "EQUITY",
-                2,
-                None,
-                Some("LIAB_SUB + EQUITY"),
-                false,
-                70,
-            ),
+            item("LIAB_EQ", "EQUITY", 2, None, Some("LIAB_SUB + EQUITY"), false, 70),
             item(
                 "TOTAL_LIABILITIES_AND_EQUITY",
                 "EQUITY",
@@ -2114,10 +2010,7 @@ mod tests {
             "负债+权益同步减 208（原先是 -208）"
         );
         assert!(sheet.diff().is_zero(), "重分类不得破坏勾稽");
-        assert!(
-            sheet.unmapped.is_empty(),
-            "重分类的科目仍算已映射（不是未归类）"
-        );
+        assert!(sheet.unmapped.is_empty(), "重分类的科目仍算已映射（不是未归类）");
         assert_eq!(sheet.reclass.len(), 1, "留一条可审计的重分类明细");
         let row = &sheet.reclass[0];
         assert_eq!(row.from_item, "TAX");
@@ -2138,10 +2031,7 @@ mod tests {
         // 取数说明点明「负数是留抵」，别让人以为这一行取数失败
         let source = line(&sheet.liabilities, "TAX");
         let detail = source.detail.clone().unwrap_or_default();
-        assert!(
-            detail.contains("留抵税额"),
-            "取数说明要点明留抵：{detail}"
-        );
+        assert!(detail.contains("留抵税额"), "取数说明要点明留抵：{detail}");
         println!("[R1-⑤b] 留抵税额重分类 = 208 ✓");
     }
 
@@ -2179,15 +2069,9 @@ mod tests {
         ];
         let sheet = compute(&items, &accounts).expect("配置正确");
 
-        assert!(
-            sheet.reclass.is_empty(),
-            "贷方余额（应交 520）不触发重分类"
-        );
+        assert!(sheet.reclass.is_empty(), "贷方余额（应交 520）不触发重分类");
         assert_eq!(sheet.amounts.get("TAX").copied(), Some(Decimal::from(520)));
-        assert_eq!(
-            sheet.amounts.get("OTHER_CURRENT").copied(),
-            Some(Decimal::ZERO)
-        );
+        assert_eq!(sheet.amounts.get("OTHER_CURRENT").copied(), Some(Decimal::ZERO));
         assert_eq!(sheet.assets_total(), Decimal::from(520));
         assert_eq!(sheet.liability_equity_total(), Decimal::from(520));
         assert!(sheet.diff().is_zero());
@@ -2219,11 +2103,7 @@ mod tests {
         assert!(!check.balanced, "必须报出不平行");
         assert_eq!(check.diff, Decimal::from(40));
         assert_eq!(check.diff_text, "40.00");
-        assert!(
-            check.message.contains("不平"),
-            "结论必须是人话：{}",
-            check.message
-        );
+        assert!(check.message.contains("不平"), "结论必须是人话：{}", check.message);
         assert!(
             check.hints.iter().any(|hint| hint.contains("分录借贷不等")),
             "必须指出最可能成因：{:?}",
@@ -2253,10 +2133,9 @@ mod tests {
             account("3001", "EQUITY", "CREDIT", 0, -100),
         ];
         let mut sheet = compute(&mini_items(), &accounts).expect("计算");
-        sheet.amounts.insert(
-            TOTAL_ASSETS.to_string(),
-            Decimal::from_str("100.0001").unwrap(),
-        );
+        sheet
+            .amounts
+            .insert(TOTAL_ASSETS.to_string(), Decimal::from_str("100.0001").unwrap());
         let check = build_check(&sheet, Decimal::ZERO, Decimal::ZERO, Vec::new());
         assert!(!check.balanced, "0.0001 的不平也必须报");
         assert_eq!(check.diff_text, "0.0001");
@@ -2281,10 +2160,7 @@ mod tests {
         let accounts = vec![account("1001", "ASSET", "DEBIT", 0, 1)];
         let error = compute(&items, &accounts).expect_err("必须报错");
         assert!(error.contains("NOPE"), "错误里要点名缺的项：{error}");
-        assert!(
-            eval_formula("A +", &HashMap::new()).is_err(),
-            "算式结尾是运算符要报错"
-        );
+        assert!(eval_formula("A +", &HashMap::new()).is_err(), "算式结尾是运算符要报错");
         println!("[R1-⑧] 公式引用未知项 → 显式报错 ✓");
     }
 
@@ -2300,15 +2176,9 @@ mod tests {
         assert_eq!(period_name_of("2026-10"), "2026年10月");
         let (start, end) = month_range("2026-02").expect("闰年还是平年都行");
         assert_eq!(start, NaiveDate::from_ymd_opt(2026, 2, 1).expect("日期"));
-        assert_eq!(
-            end,
-            NaiveDate::from_ymd_opt(2026, 2, 28).expect("2026 不是闰年")
-        );
+        assert_eq!(end, NaiveDate::from_ymd_opt(2026, 2, 28).expect("2026 不是闰年"));
         assert!(validate_period(Some("")).is_err(), "空 period 必须 400");
-        assert!(
-            validate_period(Some("2026-10-01")).is_err(),
-            "带日期的 period 必须 400"
-        );
+        assert!(validate_period(Some("2026-10-01")).is_err(), "带日期的 period 必须 400");
         println!("[R1-⑨] 期间解析 / 上期 / 非法格式 ✓");
     }
 
@@ -2333,8 +2203,7 @@ mod tests {
             // 只删本用例自己的两个期间（按 period_code 收敛，不整库扫、不碰别的年度）：
             //   2019-12 —— 「本期没有期间行」样本，必须保证 0 行（下面 fail-closed 断言）；
             //   2020-01 —— 「本期有行、上期 2019-12 无行」样本，先删再插，状态/区间由夹具钉死。
-            "DELETE FROM biz_accounting_period WHERE period_code IN ('2019-12', '2020-01')"
-                .to_string(),
+            "DELETE FROM biz_accounting_period WHERE period_code IN ('2019-12', '2020-01')".to_string(),
             "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
              start_date, end_date, status) VALUES (2026, 10, '2026-10', '2026-10-01', '2026-10-31', 'OPEN') \
              ON CONFLICT (period_code) DO NOTHING"
@@ -2380,14 +2249,7 @@ mod tests {
     }
 
     /// 建一张 POSTED 凭证（两行分录：借 / 贷）。
-    async fn post_voucher(
-        no: &str,
-        date: &str,
-        period: &str,
-        debit_code: &str,
-        credit_code: &str,
-        amount: i64,
-    ) {
+    async fn post_voucher(no: &str, date: &str, period: &str, debit_code: &str, credit_code: &str, amount: i64) {
         let sql = format!(
             "WITH v AS ( \
                 INSERT INTO biz_voucher (voucher_word, voucher_no, period, voucher_date, summary, \
@@ -2503,33 +2365,23 @@ mod tests {
         assert_eq!(d_assets, Decimal::from(12_500), "资产侧增 12,500");
         assert_eq!(d_liab_equity, Decimal::from(12_500), "负债+权益侧增 12,500");
         assert_eq!(check.diff, base_check.diff, "我的 3 张凭证必须不改变差额");
-        assert!(
-            check.balanced,
-            "必须平衡：{} / hints={:?}",
-            check.message, check.hints
-        );
+        assert!(check.balanced, "必须平衡：{} / hints={:?}", check.message, check.hints);
         // 测试库可能残留别的用例的科目（如 P2D1A/P2D1B），它们落到「未归类」是**正确行为**；
         // 这里只要求"我这张报表用到的标准科目一个都不能未归类"。
         for code in ["1002", "1405", "1601", "1602", "2202", "3001", "5602.01"] {
             assert!(
-                !after
-                    .sheet
-                    .unmapped
-                    .iter()
-                    .any(|row| row.account_code == code),
+                !after.sheet.unmapped.iter().any(|row| row.account_code == code),
                 "{code} 有余额却没匹配任何报表项（映射漏了）"
             );
         }
 
         assert_eq!(
-            amount_of(&after.sheet.assets, "MONETARY_FUNDS")
-                - amount_of(&baseline.sheet.assets, "MONETARY_FUNDS"),
+            amount_of(&after.sheet.assets, "MONETARY_FUNDS") - amount_of(&baseline.sheet.assets, "MONETARY_FUNDS"),
             Decimal::from(9_500),
             "银行存款：期初 10,000 − 本期 500"
         );
         assert_eq!(
-            amount_of(&after.sheet.assets, "INVENTORY")
-                - amount_of(&baseline.sheet.assets, "INVENTORY"),
+            amount_of(&after.sheet.assets, "INVENTORY") - amount_of(&baseline.sheet.assets, "INVENTORY"),
             Decimal::from(3_000),
             "存货 +3,000"
         );
@@ -2546,8 +2398,7 @@ mod tests {
             "本期费用 500 冲减未分配利润"
         );
         assert_eq!(
-            amount_of(&after.sheet.equity, "PAID_IN_CAPITAL")
-                - amount_of(&baseline.sheet.equity, "PAID_IN_CAPITAL"),
+            amount_of(&after.sheet.equity, "PAID_IN_CAPITAL") - amount_of(&baseline.sheet.equity, "PAID_IN_CAPITAL"),
             Decimal::from(10_000),
             "上期（2026-09，状态 CLOSED）的实收资本必须计入期初"
         );
@@ -2575,18 +2426,13 @@ mod tests {
                 SELECT id FROM biz_voucher WHERE voucher_no = '0102' AND voucher_word = '{FIXTURE_WORD}') \
                AND credit_amount > 0"
         );
-        db().execute_with_params(&sql, vec![])
-            .await
-            .expect("删分录");
+        db().execute_with_params(&sql, vec![]).await.expect("删分录");
         let broken = check_of(&run("2026-10").await);
 
         // 先清理（含那张已经被弄坏的凭证），再做断言
-        db().execute_with_params(
-            "DELETE FROM biz_voucher WHERE voucher_word = 'ERPR1'",
-            vec![],
-        )
-        .await
-        .expect("清理夹具凭证");
+        db().execute_with_params("DELETE FROM biz_voucher WHERE voucher_word = 'ERPR1'", vec![])
+            .await
+            .expect("清理夹具凭证");
 
         assert!(
             base_check.balanced && posted.balanced,
@@ -2607,10 +2453,7 @@ mod tests {
             "本期分录借贷差 400"
         );
         assert!(
-            broken
-                .unbalanced_vouchers
-                .iter()
-                .any(|row| row.voucher_no == "0102"),
+            broken.unbalanced_vouchers.iter().any(|row| row.voucher_no == "0102"),
             "必须点名被删分录的凭证：{:?}",
             broken
                 .unbalanced_vouchers
@@ -2642,25 +2485,17 @@ mod tests {
         };
         // ① 1999-01：没有期间行、也没有任何凭证 → 必须报错
         let tx = db().begin().await.expect("开启事务");
-        let error = build_snapshot(&tx, "1999-01")
-            .await
-            .expect_err("空月份必须报错");
+        let error = build_snapshot(&tx, "1999-01").await.expect_err("空月份必须报错");
         let _ = tx.rollback().await;
         let message = format!("{error}");
         assert!(message.contains("1999-01"), "错误信息要带期间：{message}");
-        assert!(
-            message.contains("不存在"),
-            "错误信息要说清是不存在：{message}"
-        );
+        assert!(message.contains("不存在"), "错误信息要说清是不存在：{message}");
 
         // ② 2019-12：没有期间行，但**有**一张 12 月的凭证 → 按自然月推算，状态 DERIVED
         //    （2019-12 由夹具显式删干净：V0221 / 启动保底都只看当年，碰不到这个年份）
         post_voucher("0301", "2019-12-05", "2019-12", "1002", "3001", 321).await;
         let snapshot = run("2019-12").await;
-        assert_eq!(
-            snapshot.period.status, PERIOD_DERIVED,
-            "缺期间行但有账 → DERIVED"
-        );
+        assert_eq!(snapshot.period.status, PERIOD_DERIVED, "缺期间行但有账 → DERIVED");
         assert_eq!(
             snapshot.period.start_date,
             NaiveDate::from_ymd_opt(2019, 12, 1).expect("日期")
@@ -2671,22 +2506,15 @@ mod tests {
         );
         let report = into_response("BALANCE_SHEET", REPORT_NAME, "云枢", "元", snapshot);
         assert!(
-            report
-                .check
-                .hints
-                .iter()
-                .any(|hint| hint.contains("请尽快开账")),
+            report.check.hints.iter().any(|hint| hint.contains("请尽快开账")),
             "推算出来的期间必须在 hints 里提示开账：{:?}",
             report.check.hints
         );
         println!("[R1-⑬] 空月份 400；有账无期间 → DERIVED + 提示开账 ✓");
         // 收尾：清掉这张"无期间行月份"的凭证，避免给后续用例/不变量套件留噪声
-        db().execute_with_params(
-            "DELETE FROM biz_voucher WHERE voucher_word = 'ERPR1'",
-            vec![],
-        )
-        .await
-        .expect("清理夹具凭证");
+        db().execute_with_params("DELETE FROM biz_voucher WHERE voucher_word = 'ERPR1'", vec![])
+            .await
+            .expect("清理夹具凭证");
     }
 
     /// ⑭ 真库：上期对比能取到（2026-09 建过期间 → 出对比；上期 2019-12 没行 → 不出）。
@@ -2769,11 +2597,7 @@ mod tests {
             accounts.len()
         );
         assert!(items.iter().any(|row| row.item_code == TOTAL_ASSETS));
-        assert!(
-            items
-                .iter()
-                .any(|row| row.item_code == TOTAL_LIABILITIES_AND_EQUITY)
-        );
+        assert!(items.iter().any(|row| row.item_code == TOTAL_LIABILITIES_AND_EQUITY));
         assert!(
             items
                 .iter()

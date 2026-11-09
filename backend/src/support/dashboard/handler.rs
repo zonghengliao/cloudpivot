@@ -35,11 +35,10 @@ use crate::utils;
 #[nik::get("/support/dashboard/overview")]
 pub async fn overview() -> ResResult<OverviewRes> {
     if let Some(store) = try_cache()
-        && let Some(cached) =
-            Cache::get::<OverviewRes>(store, constants::CACHE_KEY_DASHBOARD_METRICS)
-                .await
-                .ok()
-                .flatten()
+        && let Some(cached) = Cache::get::<OverviewRes>(store, constants::CACHE_KEY_DASHBOARD_METRICS)
+            .await
+            .ok()
+            .flatten()
     {
         return Ok(Res::ok(cached));
     }

@@ -64,9 +64,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::sales_order_model;
-use crate::business::erp::shipment_model::{
-    self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow,
-};
+use crate::business::erp::shipment_model::{self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow};
 use crate::business::erp::shipment_posting;
 use crate::business::erp::stockout_handler;
 use crate::business::shared::state_machine;
@@ -95,11 +93,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 
 /// `404`：发货单不存在 / 已删。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "发货单不存在或已删除".to_string(),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "发货单不存在或已删除".to_string())
 }
 
 /// `409`：状态 / 并发 / 业务冲突。
@@ -158,10 +152,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "发货单号冲突（唯一约束{}）：取号器与库里的号撞了，请重试",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -169,10 +160,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::PARAM_INVALID,
             format!(
                 "数据不满足数据库约束{}（数量必须 > 0 / 合计 ≥ 0 / 状态域 4 值）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         _ => utils::db_error(err, ctx),
@@ -197,18 +185,12 @@ pub fn validate_target(raw: &str) -> std::result::Result<String, String> {
 ///
 /// 与库层 `ck_biz_shipment_item_qty`（只兜 `qty > 0`）互补：上界是跨表的，
 /// 只能在这里判，报文要说清「还剩多少」。
-pub fn validate_qty(
-    qty: Decimal,
-    remaining: Decimal,
-    label: &str,
-) -> std::result::Result<(), String> {
+pub fn validate_qty(qty: Decimal, remaining: Decimal, label: &str) -> std::result::Result<(), String> {
     if qty <= Decimal::ZERO {
         return Err(format!("{label}.qty 必须大于 0（当前 {qty}）"));
     }
     if qty > remaining {
-        return Err(format!(
-            "{label}.qty = {qty} 超过订单行未发货量 {remaining}（超发）"
-        ));
+        return Err(format!("{label}.qty = {qty} 超过订单行未发货量 {remaining}（超发）"));
     }
     Ok(())
 }
@@ -217,11 +199,7 @@ pub fn validate_qty(
 ///
 /// 不在这里强制「序列号物料必须填」：序列号主表是 SO-10 过账时的读物，
 /// 本卡只拦「填了但与数量不符」这种当场就能发现的错。
-pub fn validate_serials(
-    serial_nos: &[String],
-    qty: Decimal,
-    label: &str,
-) -> std::result::Result<(), String> {
+pub fn validate_serials(serial_nos: &[String], qty: Decimal, label: &str) -> std::result::Result<(), String> {
     if serial_nos.is_empty() {
         return Ok(());
     }
@@ -554,11 +532,7 @@ async fn resolve_items(
         if let Err(message) = validate_qty(qty, availability.remaining, &label) {
             return Err(bad_request(message));
         }
-        let serial_nos: Vec<String> = req
-            .serial_nos
-            .iter()
-            .map(|item| item.trim().to_string())
-            .collect();
+        let serial_nos: Vec<String> = req.serial_nos.iter().map(|item| item.trim().to_string()).collect();
         if let Err(message) = validate_serials(&serial_nos, qty, &label) {
             return Err(bad_request(message));
         }
@@ -566,10 +540,7 @@ async fn resolve_items(
             so_item_id,
             material_id,
             qty,
-            location_id: parse_opt_uuid(
-                req.location_id.as_deref(),
-                &format!("{label}.location_id"),
-            )?,
+            location_id: parse_opt_uuid(req.location_id.as_deref(), &format!("{label}.location_id"))?,
             serial_nos,
             remark: req
                 .remark
@@ -631,8 +602,7 @@ pub async fn create_shipment(
     let so_id = parse_uuid(&req.so_id, "so_id")?;
     let warehouse_id = parse_uuid(&req.warehouse_id, "warehouse_id")?;
     let now = Utc::now();
-    let ship_date =
-        parse_date(req.ship_date.as_deref(), "ship_date")?.unwrap_or_else(|| today_cst(now));
+    let ship_date = parse_date(req.ship_date.as_deref(), "ship_date")?.unwrap_or_else(|| today_cst(now));
 
     // ① 订单状态闸：只有审批通过 / 部分出库的订单能发货
     let so_status = model::so_status_of(db(), so_id)
@@ -714,20 +684,9 @@ pub async fn create_shipment(
         customer_id,
         warehouse_id,
         ship_date,
-        remark: req
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
+        remark: req.remark.as_deref().map(str::trim).filter(|text| !text.is_empty()),
     };
-    let created = model::create_shipment(
-        &tx,
-        &new,
-        &items,
-        state_machine::Operator::of(operator),
-        now,
-    )
-    .await;
+    let created = model::create_shipment(&tx, &new, &items, state_machine::Operator::of(operator), now).await;
     let (id, ship_no) = match created {
         Ok(value) => value,
         Err(error) => {
@@ -758,15 +717,9 @@ pub async fn get_shipment(id_raw: &str) -> std::result::Result<ShipmentRes, ApiE
 }
 
 /// 发货单分页。
-pub async fn page_shipment(
-    filter: ShipmentFilter,
-) -> std::result::Result<PageData<Vec<ShipmentRes>>, ApiError> {
+pub async fn page_shipment(filter: ShipmentFilter) -> std::result::Result<PageData<Vec<ShipmentRes>>, ApiError> {
     // `status` 传了非法值 → 400（静默忽略会把「已过账」筛成「全部」，是假数据）
-    if let Some(status) = filter
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
+    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|text| !text.is_empty())
         && !model::is_valid_status(status)
     {
         return Err(bad_request(format!(
@@ -790,21 +743,19 @@ pub async fn page_shipment(
     // 客户 / 仓库 / 订单号 / 出库单号各自一次往返补齐（一页里多张单常常同客户同仓库，
     // 订单号与出库单号则按行去重后再批量查）—— 一页固定 4 条 SQL，不做 N+1。
     let customer_ids: Vec<Uuid> = rows.iter().map(|row| row.customer_id).collect();
-    let naming: std::collections::HashMap<Uuid, (String, String)> =
-        sales_order_model::customer_labels(&customer_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询发货单客户"))?
-            .into_iter()
-            .map(|(id, code, name)| (id, (code, name)))
-            .collect();
+    let naming: std::collections::HashMap<Uuid, (String, String)> = sales_order_model::customer_labels(&customer_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询发货单客户"))?
+        .into_iter()
+        .map(|(id, code, name)| (id, (code, name)))
+        .collect();
     let warehouse_ids: Vec<Uuid> = rows.iter().map(|row| row.warehouse_id).collect();
-    let warehouses: std::collections::HashMap<Uuid, (String, String)> =
-        model::warehouse_labels(db(), &warehouse_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询发货单仓库"))?
-            .into_iter()
-            .map(|(id, code, name)| (id, (code, name)))
-            .collect();
+    let warehouses: std::collections::HashMap<Uuid, (String, String)> = model::warehouse_labels(db(), &warehouse_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询发货单仓库"))?
+        .into_iter()
+        .map(|(id, code, name)| (id, (code, name)))
+        .collect();
     // 来源销售订单号（t_45900ea7：列表缺这一列，与 `ShipmentRes` 注释矛盾）
     let so_ids: Vec<Uuid> = rows.iter().map(|row| row.so_id).collect();
     let so_numbers: std::collections::HashMap<Uuid, String> = model::so_no_labels(db(), &so_ids)
@@ -814,12 +765,11 @@ pub async fn page_shipment(
         .collect();
     // 关联销售出库单号（只对已过账的行查；未过账 = 没有 stock_out_id = 保持 None）
     let stock_out_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.stock_out_id).collect();
-    let stock_out_numbers: std::collections::HashMap<Uuid, String> =
-        model::stock_out_no_labels(db(), &stock_out_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询发货单关联出库单号"))?
-            .into_iter()
-            .collect();
+    let stock_out_numbers: std::collections::HashMap<Uuid, String> = model::stock_out_no_labels(db(), &stock_out_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询发货单关联出库单号"))?
+        .into_iter()
+        .collect();
     let (page, page_size) = model::normalize_page(filter.page, filter.page_size);
     let list = rows
         .iter()
@@ -834,9 +784,7 @@ pub async fn page_shipment(
                 res.warehouse_name = Some(name.clone());
             }
             res.so_no = so_numbers.get(&row.so_id).cloned();
-            res.stock_out_no = row
-                .stock_out_id
-                .and_then(|id| stock_out_numbers.get(&id).cloned());
+            res.stock_out_no = row.stock_out_id.and_then(|id| stock_out_numbers.get(&id).cloned());
             res
         })
         .collect();
@@ -854,15 +802,9 @@ pub async fn page_shipment(
 ///
 /// 不够量 → 409 + 逐行缺口文案（物料 / 要发 / 可用 / 缺口）。
 /// 这里不扣库存：三本账的唯一写入口是 `inventory_writer`，由 SO-10 过账时调用。
-async fn transition_to_posted(
-    row: &ShipmentRow,
-    items: &[ShipmentItemRow],
-) -> std::result::Result<(), ApiError> {
+async fn transition_to_posted(row: &ShipmentRow, items: &[ShipmentItemRow]) -> std::result::Result<(), ApiError> {
     if items.is_empty() {
-        return Err(conflict(format!(
-            "发货单 {} 没有明细，不能过账",
-            row.ship_no
-        )));
+        return Err(conflict(format!("发货单 {} 没有明细，不能过账", row.ship_no)));
     }
     let shortfalls = model::stock_shortfalls(db(), row.warehouse_id, items)
         .await
@@ -936,11 +878,7 @@ pub async fn change_shipment_status(
         return Err(conflict(message));
     }
 
-    let reason = req
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
+    let reason = req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty());
 
     // ② 必填原因（与 state_machine 的 SHIPMENT_REASON_EDGES 同源，提前给人话）
     if state_machine::Entity::Shipment.needs_reason(&row.status, &target) && reason.is_none() {
@@ -960,10 +898,7 @@ pub async fn change_shipment_status(
         .map_err(|error| utils::db_error(error, "查询发货单明细"))?;
     if target == model::STATUS_PENDING_POST {
         if items.is_empty() {
-            return Err(bad_request(format!(
-                "发货单 {} 没有明细，不能提交待过账",
-                row.ship_no
-            )));
+            return Err(bad_request(format!("发货单 {} 没有明细，不能提交待过账", row.ship_no)));
         }
         let so_status = model::so_status_of(db(), row.so_id)
             .await
@@ -1039,12 +974,7 @@ pub async fn change_shipment_status(
                     "发货单已过账：销售出库单 / 三本账 / delivered_qty / 订单状态已同事务落库"
                 );
                 // 提交**之后**才跑延迟联动（发通知 / 建任务，独立事务，失败只记日志）
-                stockout_handler::run_deferred_linkage_after_commit(
-                    note.stock_out_id,
-                    &op,
-                    note.linkage,
-                )
-                .await;
+                stockout_handler::run_deferred_linkage_after_commit(note.stock_out_id, &op, note.linkage).await;
             }
             detail_of(id).await
         }
@@ -1064,9 +994,7 @@ pub async fn change_shipment_status(
     permission = "business:erp:shipment:list"
 )]
 #[nik::get("/business/erp/shipment/page")]
-pub async fn shipment_page_api(
-    Query(filter): Query<ShipmentFilter>,
-) -> ResResult<PageData<Vec<ShipmentRes>>> {
+pub async fn shipment_page_api(Query(filter): Query<ShipmentFilter>) -> ResResult<PageData<Vec<ShipmentRes>>> {
     Ok(Res::ok(page_shipment(filter).await?))
 }
 
@@ -1168,10 +1096,7 @@ mod tests {
     /// ② 数量校验：`qty > 0` 且 ≤ 未发量；边界（等号放行 / 多 0.0001 拒）。
     #[test]
     fn qty_validation_boundary() {
-        assert!(
-            validate_qty(dec("10"), dec("10"), "items[0]").is_ok(),
-            "等号放行"
-        );
+        assert!(validate_qty(dec("10"), dec("10"), "items[0]").is_ok(), "等号放行");
         assert!(validate_qty(dec("0.0001"), dec("10"), "items[0]").is_ok());
         let over = validate_qty(dec("10.0001"), dec("10"), "items[0]").unwrap_err();
         assert!(over.contains("超发"), "超发文案要点明：{over}");
@@ -1186,10 +1111,7 @@ mod tests {
     /// ③ 序列号：不填放行；填了必须一物一码（条数 = 数量），空串拒。
     #[test]
     fn serial_numbers_must_match_qty() {
-        assert!(
-            validate_serials(&[], dec("3"), "items[0]").is_ok(),
-            "不填 = 由过账分配"
-        );
+        assert!(validate_serials(&[], dec("3"), "items[0]").is_ok(), "不填 = 由过账分配");
         assert!(validate_serials(&["SN-1".into(), "SN-2".into()], dec("2"), "items[0]").is_ok());
         let mismatch = validate_serials(&["SN-1".into()], dec("2"), "items[0]").unwrap_err();
         assert!(mismatch.contains("一物一码"), "{mismatch}");
@@ -1239,10 +1161,7 @@ mod tests {
             model::allowed_targets(model::STATUS_PENDING_POST),
             vec!["POSTED", "CANCELLED"]
         );
-        assert!(
-            model::allowed_targets(model::STATUS_POSTED).is_empty(),
-            "已过账是终态"
-        );
+        assert!(model::allowed_targets(model::STATUS_POSTED).is_empty(), "已过账是终态");
         assert!(
             model::allowed_targets(model::STATUS_CANCELLED).is_empty(),
             "已作废是终态"
@@ -1270,22 +1189,13 @@ mod tests {
     fn filter_rejects_bad_values() {
         assert!(parse_uuid("not-a-uuid", "so_id").is_err());
         assert!(parse_uuid("  ", "so_id").is_err());
-        assert_eq!(
-            parse_opt_uuid(Some("   "), "so_id").expect("空白视为不筛"),
-            None
-        );
+        assert_eq!(parse_opt_uuid(Some("   "), "so_id").expect("空白视为不筛"), None);
         let good = Uuid::now_v7();
         assert_eq!(
             parse_opt_uuid(Some(&good.to_string()), "so_id").expect("合法 UUID"),
             Some(good)
         );
-        assert!(
-            parse_date(Some("2026-13-01"), "ship_date").is_err(),
-            "13 月必须拒"
-        );
-        assert_eq!(
-            parse_date(Some(""), "ship_date").expect("空白 = 今天"),
-            None
-        );
+        assert!(parse_date(Some("2026-13-01"), "ship_date").is_err(), "13 月必须拒");
+        assert_eq!(parse_date(Some(""), "ship_date").expect("空白 = 今天"), None);
     }
 }

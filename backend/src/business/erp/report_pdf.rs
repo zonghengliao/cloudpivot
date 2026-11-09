@@ -76,8 +76,8 @@ use crate::business::erp::income_statement;
 use crate::business::erp::{cash_flow, report};
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
-    self, AmountReportContext, AmountReportRow, BalanceReportContext, BalanceReportRow, ReportCell,
-    ReportCheckBlock, ReportHead,
+    self, AmountReportContext, AmountReportRow, BalanceReportContext, BalanceReportRow, ReportCell, ReportCheckBlock,
+    ReportHead,
 };
 use crate::shared::error_code;
 
@@ -202,9 +202,7 @@ pub fn money_plain(value: Decimal) -> String {
 ///
 /// 用于「这一节要不要印」的判断（现金流量表的「其他」节）。
 pub fn is_blank(value: Option<Decimal>) -> bool {
-    value
-        .map(|value| value.round_dp(2).is_zero())
-        .unwrap_or(true)
+    value.map(|value| value.round_dp(2).is_zero()).unwrap_or(true)
 }
 
 /// 期间状态的中文（`DERIVED` 是报表侧独有的"未开账·按自然月推算"）。
@@ -271,14 +269,8 @@ pub fn align_sides(left: &[ReportCell], right: &[ReportCell]) -> Vec<BalanceRepo
     let total = left_cells.len().max(right_cells.len());
     let mut rows = Vec::with_capacity(total);
     for index in 0..total {
-        let left = left_cells
-            .get(index)
-            .cloned()
-            .unwrap_or_else(ReportCell::blank);
-        let right = right_cells
-            .get(index)
-            .cloned()
-            .unwrap_or_else(ReportCell::blank);
+        let left = left_cells.get(index).cloned().unwrap_or_else(ReportCell::blank);
+        let right = right_cells.get(index).cloned().unwrap_or_else(ReportCell::blank);
         let emphatic = left.cls.contains("is-total") || right.cls.contains("is-total");
         rows.push(BalanceReportRow {
             left,
@@ -316,10 +308,7 @@ pub fn balance_notes(data: &report::BalanceSheetRes) -> Vec<String> {
 }
 
 /// 资产负债表上下文（纯逻辑：结构体进，渲染上下文出）。
-pub fn build_balance_context(
-    report: &report::BalanceSheetRes,
-    printed_at: String,
-) -> BalanceReportContext {
+pub fn build_balance_context(report: &report::BalanceSheetRes, printed_at: String) -> BalanceReportContext {
     let left: Vec<ReportCell> = report.assets.iter().map(cell_of).collect();
     let right: Vec<ReportCell> = report
         .liabilities
@@ -377,41 +366,24 @@ pub fn build_balance_context(
 }
 
 /// 资产负债表（`GET /api/business/erp/report/balance-sheet/pdf`）。
-pub async fn export_balance_sheet(
-    period: Option<&str>,
-) -> std::result::Result<RenderedDoc, ApiError> {
+pub async fn export_balance_sheet(period: Option<&str>) -> std::result::Result<RenderedDoc, ApiError> {
     let period = report::validate_period(period)?;
     let snapshot = report::snapshot_or_error(&period).await?;
     let company = report::company_name().await;
-    let data = report::into_response(
-        report::REPORT_CODE,
-        report::REPORT_NAME,
-        &company,
-        "元",
-        snapshot,
-    );
+    let data = report::into_response(report::REPORT_CODE, report::REPORT_NAME, &company, "元", snapshot);
     let ctx = build_balance_context(&data, doc_pdf_model::printed_at_now());
     let html = template::render_balance_report(&ctx).map_err(|error| error.into_api())?;
     let filename = doc_pdf_render::pdf_filename(&ctx.doc_label, &ctx.doc_no);
     let opts = template::report_pdf_opts(&ctx.doc_label, &ctx.doc_no, Some(filename));
-    doc_pdf_render::render_document(
-        &html,
-        &ctx.doc_no,
-        &opts,
-        ctx.rows.len(),
-        data.check.assets_total,
-    )
-    .await
-    .map_err(|error| error.into_api())
+    doc_pdf_render::render_document(&html, &ctx.doc_no, &opts, ctx.rows.len(), data.check.assets_total)
+        .await
+        .map_err(|error| error.into_api())
 }
 
 // ==================== 利润表 / 现金流量表：三列表 ====================
 
 /// 利润表上下文。
-pub fn build_income_context(
-    report: &income_statement::IncomeStatementRes,
-    printed_at: String,
-) -> AmountReportContext {
+pub fn build_income_context(report: &income_statement::IncomeStatementRes, printed_at: String) -> AmountReportContext {
     let rows: Vec<AmountReportRow> = report
         .items
         .iter()
@@ -423,18 +395,12 @@ pub fn build_income_context(
                 kind,
                 line.level.max(1) as u8,
             )
-            .with_amounts(
-                money_or_dash(Some(line.current)),
-                money_or_dash(Some(line.ytd)),
-            )
+            .with_amounts(money_or_dash(Some(line.current)), money_or_dash(Some(line.ytd)))
         })
         .collect();
     let check = &report.check;
     let mut lines = vec![
-        format!(
-            "净利润（本年累计）          {}",
-            money_plain(check.net_profit_ytd)
-        ),
+        format!("净利润（本年累计）          {}", money_plain(check.net_profit_ytd)),
         format!(
             "未分配利润本年变动          {}（期末 {} − 年初 {}）",
             money_plain(check.equity_change),
@@ -518,10 +484,7 @@ fn push_cash_section(rows: &mut Vec<AmountReportRow>, section: &cash_flow::Activ
         for line in lines.iter() {
             rows.push(
                 AmountReportRow::styled(line.item_code.clone(), line.item_name.clone(), "line", 3)
-                    .with_amounts(
-                        money_or_dash(Some(line.current)),
-                        money_or_dash(Some(line.ytd)),
-                    ),
+                    .with_amounts(money_or_dash(Some(line.current)), money_or_dash(Some(line.ytd))),
             );
         }
         let caption = if label == "INFLOW_TOTAL" {
@@ -536,10 +499,7 @@ fn push_cash_section(rows: &mut Vec<AmountReportRow>, section: &cash_flow::Activ
                 "subtotal",
                 2,
             )
-            .with_amounts(
-                money_or_dash(Some(total.current)),
-                money_or_dash(Some(total.ytd)),
-            ),
+            .with_amounts(money_or_dash(Some(total.current)), money_or_dash(Some(total.ytd))),
         );
     }
     rows.push(
@@ -565,10 +525,7 @@ pub fn other_section_visible(section: &cash_flow::ActivitySectionRes) -> bool {
 }
 
 /// 现金流量表上下文。
-pub fn build_cash_flow_context(
-    report: &cash_flow::CashFlowRes,
-    printed_at: String,
-) -> AmountReportContext {
+pub fn build_cash_flow_context(report: &cash_flow::CashFlowRes, printed_at: String) -> AmountReportContext {
     let mut rows: Vec<AmountReportRow> = Vec::new();
     for section in [&report.operating, &report.investing, &report.financing] {
         push_cash_section(&mut rows, section);
@@ -598,27 +555,21 @@ pub fn build_cash_flow_context(
             "total",
         ),
     ] {
-        rows.push(AmountReportRow::styled(code, label, kind, 1).with_amounts(
-            money_or_dash(Some(pair.current)),
-            money_or_dash(Some(pair.ytd)),
-        ));
+        rows.push(
+            AmountReportRow::styled(code, label, kind, 1)
+                .with_amounts(money_or_dash(Some(pair.current)), money_or_dash(Some(pair.ytd))),
+        );
     }
     let check = &report.check;
     let mut lines = vec![
-        format!(
-            "期末现金及现金等价物余额      {}",
-            money_plain(check.closing_balance)
-        ),
+        format!("期末现金及现金等价物余额      {}", money_plain(check.closing_balance)),
         format!(
             "资产负债表「货币资金」        {}",
             money_plain(check.balance_sheet_cash)
         ),
     ];
     lines.push(if check.balanced {
-        format!(
-            "差额 {} —— 与资产负债表货币资金一致",
-            money_plain(check.diff)
-        )
+        format!("差额 {} —— 与资产负债表货币资金一致", money_plain(check.diff))
     } else {
         format!(
             "差额 {} —— 与资产负债表货币资金不符，请核对现金类科目（1001 / 1002）",
@@ -660,9 +611,7 @@ pub fn build_cash_flow_context(
 }
 
 /// 利润表（`GET /api/business/erp/report/income-statement/pdf`）。
-pub async fn export_income_statement(
-    period: Option<&str>,
-) -> std::result::Result<RenderedDoc, ApiError> {
+pub async fn export_income_statement(period: Option<&str>) -> std::result::Result<RenderedDoc, ApiError> {
     let period = report::validate_period(period)?;
     let snapshot = income_statement::snapshot_or_error(&period).await?;
     let company = income_statement::company_name().await;
@@ -671,15 +620,9 @@ pub async fn export_income_statement(
     let html = template::render_amount_report(&ctx).map_err(|error| error.into_api())?;
     let filename = doc_pdf_render::pdf_filename(&ctx.doc_label, &ctx.doc_no);
     let opts = template::report_pdf_opts(&ctx.doc_label, &ctx.doc_no, Some(filename));
-    doc_pdf_render::render_document(
-        &html,
-        &ctx.doc_no,
-        &opts,
-        ctx.rows.len(),
-        data.check.net_profit_ytd,
-    )
-    .await
-    .map_err(|error| error.into_api())
+    doc_pdf_render::render_document(&html, &ctx.doc_no, &opts, ctx.rows.len(), data.check.net_profit_ytd)
+        .await
+        .map_err(|error| error.into_api())
 }
 
 /// 现金流量表（`GET /api/business/erp/report/cash-flow/pdf`）。
@@ -692,22 +635,13 @@ pub async fn export_cash_flow(period: Option<&str>) -> std::result::Result<Rende
     let html = template::render_amount_report(&ctx).map_err(|error| error.into_api())?;
     let filename = doc_pdf_render::pdf_filename(&ctx.doc_label, &ctx.doc_no);
     let opts = template::report_pdf_opts(&ctx.doc_label, &ctx.doc_no, Some(filename));
-    doc_pdf_render::render_document(
-        &html,
-        &ctx.doc_no,
-        &opts,
-        ctx.rows.len(),
-        data.closing_balance.current,
-    )
-    .await
-    .map_err(|error| error.into_api())
+    doc_pdf_render::render_document(&html, &ctx.doc_no, &opts, ctx.rows.len(), data.closing_balance.current)
+        .await
+        .map_err(|error| error.into_api())
 }
 
 /// 按类别导出（HTTP 层与单测共用的唯一入口）。
-pub async fn export_report(
-    kind: ReportKind,
-    period: Option<&str>,
-) -> std::result::Result<RenderedDoc, ApiError> {
+pub async fn export_report(kind: ReportKind, period: Option<&str>) -> std::result::Result<RenderedDoc, ApiError> {
     match kind {
         ReportKind::BalanceSheet => export_balance_sheet(period).await,
         ReportKind::IncomeStatement => export_income_statement(period).await,
@@ -754,18 +688,17 @@ pub async fn report_pdf(
     };
     match export_report(kind, query.period.as_deref()).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            report = kind.code(),
-                            bytes = rendered.bytes.len(),
-                            "财务报表 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        report = kind.code(),
+                        bytes = rendered.bytes.len(),
+                        "财务报表 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
             audit(kind, &headers, &connect_info, &claims, &rendered, started);
             response
         }
@@ -820,20 +753,11 @@ mod tests {
     /// `{type}` 三个合法值 + 兼容写法；**不认识必须 None**（绝不猜一个最像的）。
     #[test]
     fn kind_parse_accepts_three_types_and_rejects_others() {
-        assert_eq!(
-            ReportKind::parse("balance-sheet"),
-            Some(ReportKind::BalanceSheet)
-        );
-        assert_eq!(
-            ReportKind::parse("income-statement"),
-            Some(ReportKind::IncomeStatement)
-        );
+        assert_eq!(ReportKind::parse("balance-sheet"), Some(ReportKind::BalanceSheet));
+        assert_eq!(ReportKind::parse("income-statement"), Some(ReportKind::IncomeStatement));
         assert_eq!(ReportKind::parse("cash-flow"), Some(ReportKind::CashFlow));
         // 兼容：下划线 / 大小写 / 前后空格
-        assert_eq!(
-            ReportKind::parse(" Balance_Sheet "),
-            Some(ReportKind::BalanceSheet)
-        );
+        assert_eq!(ReportKind::parse(" Balance_Sheet "), Some(ReportKind::BalanceSheet));
         assert_eq!(ReportKind::parse("CASH_FLOW"), Some(ReportKind::CashFlow));
         // 不合法
         for raw in [
@@ -886,10 +810,7 @@ mod tests {
         );
         // 校验块里的零照印 0.00（差额是不是 0 要一眼看见）
         assert_eq!(money_plain(Decimal::ZERO), "0.00");
-        assert_eq!(
-            money_plain(Decimal::from_str("1234.5").expect("合法小数")),
-            "1,234.50"
-        );
+        assert_eq!(money_plain(Decimal::from_str("1234.5").expect("合法小数")), "1,234.50");
     }
 
     /// 卡面验收④：空白项（`None`）与零都印 `-`，绝不印 `0.00` 或空串。
@@ -898,10 +819,7 @@ mod tests {
         assert_eq!(money_or_dash(None), "-");
         assert_eq!(money_or_dash(Some(Decimal::ZERO)), "-");
         // 不足一分的金额四舍五入后为零 → 也是空白
-        assert_eq!(
-            money_or_dash(Some(Decimal::from_str("0.004").expect("合法小数"))),
-            "-"
-        );
+        assert_eq!(money_or_dash(Some(Decimal::from_str("0.004").expect("合法小数"))), "-");
         assert!(is_blank(None));
         assert!(is_blank(Some(Decimal::ZERO)));
         assert!(!is_blank(Some(Decimal::from(1))));
@@ -940,10 +858,7 @@ mod tests {
         let last = rows.last().expect("必须有行");
         assert_eq!(last.left.label, "资产总计");
         assert_eq!(last.right.label, "负债和所有者权益总计");
-        assert_eq!(
-            last.left.end, last.right.end,
-            "两栏总计必须相等（借贷平衡）"
-        );
+        assert_eq!(last.left.end, last.right.end, "两栏总计必须相等（借贷平衡）");
         assert_eq!(last.cls, "is-total");
         // 反向：右侧更长时给左侧补位（不写死「资产一定更长」）
         let rows = align_sides(&right, &left);
@@ -996,30 +911,20 @@ mod tests {
     /// 现金流量表「其他」节：有明细或净额非零才印（全零不印一屏 `-`）。
     #[test]
     fn other_section_only_when_nonempty() {
-        let section =
-            |inflow: Vec<cash_flow::CashLineRes>, net: Decimal| cash_flow::ActivitySectionRes {
-                activity: "OTHER".to_string(),
-                activity_name: "四、其他".to_string(),
-                inflow,
-                inflow_total: cash_flow::AmountPair {
-                    current: net,
-                    ytd: net,
-                },
-                outflow: Vec::new(),
-                outflow_total: cash_flow::AmountPair {
-                    current: Decimal::ZERO,
-                    ytd: Decimal::ZERO,
-                },
-                net: cash_flow::AmountPair {
-                    current: net,
-                    ytd: net,
-                },
-            };
+        let section = |inflow: Vec<cash_flow::CashLineRes>, net: Decimal| cash_flow::ActivitySectionRes {
+            activity: "OTHER".to_string(),
+            activity_name: "四、其他".to_string(),
+            inflow,
+            inflow_total: cash_flow::AmountPair { current: net, ytd: net },
+            outflow: Vec::new(),
+            outflow_total: cash_flow::AmountPair {
+                current: Decimal::ZERO,
+                ytd: Decimal::ZERO,
+            },
+            net: cash_flow::AmountPair { current: net, ytd: net },
+        };
         assert!(!other_section_visible(&section(Vec::new(), Decimal::ZERO)));
-        assert!(other_section_visible(&section(
-            Vec::new(),
-            Decimal::from(5)
-        )));
+        assert!(other_section_visible(&section(Vec::new(), Decimal::from(5))));
         let line = cash_flow::CashLineRes {
             item_code: "OTHER_1122".to_string(),
             item_name: "应收账款".to_string(),
@@ -1035,11 +940,32 @@ mod tests {
 
     const FIXTURE_WORD: &str = "PDF07";
 
-    /// 建夹具：2026-11 期间 + 两张 POSTED 凭证（含现金 / 权益 / 收入）。
+    /// 夹具期次：**2001-xx 归本模块独占**（`2026` = 生产/全仓共享期间，绝不碰）。
+    ///
+    /// 为什么（本用例在 E2E-FIX-2 全量跑时红掉的真实原因，卡 t_5904f851）：
+    /// 断言钉死了「本期净利润恰为 500」和「上期无凭证 ⇒ 期初列印 `-`」，
+    /// 而 R1 的「期初」= **期间开始日之前的历史累计**（`load_accounts` 的 `net_before`），
+    /// 所以任何 2026-xx 期间在共享库上都不可能「上期无凭证」——别的模块夹具
+    /// （P2D1 等）早把凭证记进了 2026-09/10/11（实测残留：2026-10 有 3 张 POSTED、
+    /// 货币资金 700.00），于是期初成了 `700.00` 而不是 `-`。
+    /// 这不是模板/PDF 形状断言过期，是**夹具期间选错**：要证明「上期无凭证 ⇒ 期初印 `-`」，
+    /// 期间必须**早于库里所有凭证**。
+    ///
+    /// 为什么是 2001-02 而不是更早的 1999/2000：
+    /// * `2000-12` 是 `income_statement` / `cash_flow` 的「空期间全 0」夹具期
+    ///   （它们断言该期 `current` / `ytd` 全 0）——往里记凭证会把它们的用例打红；
+    /// * 2001 年之后到 2021 年之间全库无凭证（实测最早凭证 2021-05-05），
+    ///   所以 2001-02 的「期初」天然为 0（印 `-`），且不污染任何真实期间；
+    /// * 本用例收尾会 `purge_fixture()` 删掉这两张凭证，退出后对后续用例零影响。
+    const FIXTURE_PERIOD: &str = "2001-02";
+    const FIXTURE_PREV_PERIOD: &str = "2001-01";
+    const FIXTURE_STAMP: &str = "2001-02-09 10:00";
+
+    /// 建夹具：`2001-02` 期间 + 两张 POSTED 凭证（含现金 / 权益 / 收入）。
     ///
     /// ```text
-    /// 2026-11-05  借 1001 库存现金 1,000 / 贷 3001 实收资本 1,000
-    /// 2026-11-06  借 1122 应收账款   500 / 贷 5001 主营业务收入 500
+    /// 2001-02-05  借 1001 库存现金 1,000 / 贷 3001 实收资本 1,000
+    /// 2001-02-06  借 1122 应收账款   500 / 贷 5001 主营业务收入 500
     /// ⇒ 资产 1,500 = 负债+权益 1,500（借贷平衡）；净利润 500 = 未分配利润本年变动 500
     /// ```
     async fn setup_fixture() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -1049,22 +975,26 @@ mod tests {
         }
         let statements = [
             format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'"),
-            "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
-             start_date, end_date, status) VALUES (2026, 11, '2026-11', '2026-11-01', '2026-11-30', 'OPEN') \
-             ON CONFLICT (period_code) DO NOTHING"
-                .to_string(),
-            "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
-             start_date, end_date, status) VALUES (2026, 10, '2026-10', '2026-10-01', '2026-10-31', 'CLOSED') \
-             ON CONFLICT (period_code) DO NOTHING"
-                .to_string(),
+            format!(
+                "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
+                 start_date, end_date, status) \
+                 VALUES (2001, 2, '{FIXTURE_PERIOD}', '2001-02-01', '2001-02-28', 'OPEN') \
+                 ON CONFLICT (period_code) DO NOTHING"
+            ),
+            format!(
+                "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
+                 start_date, end_date, status) \
+                 VALUES (2001, 1, '{FIXTURE_PREV_PERIOD}', '2001-01-01', '2001-01-31', 'CLOSED') \
+                 ON CONFLICT (period_code) DO NOTHING"
+            ),
         ];
         for sql in &statements {
             db().execute_with_params(sql, vec![])
                 .await
                 .unwrap_or_else(|error| panic!("夹具 SQL 失败：{error}\n{sql}"));
         }
-        post_voucher("PDF07-1", "2026-11-05", "1001", "3001", 1000).await;
-        post_voucher("PDF07-2", "2026-11-06", "1122", "5001", 500).await;
+        post_voucher("PDF07-1", "2001-02-05", "1001", "3001", 1000).await;
+        post_voucher("PDF07-2", "2001-02-06", "1122", "5001", 500).await;
         // fail-closed：两张凭证必须真的进库，否则后面全是「空表也绿」的假证明
         let count: i64 = db()
             .scalar(&format!(
@@ -1076,13 +1006,28 @@ mod tests {
         Some(guard)
     }
 
+    /// 收尾：删掉本夹具的两张凭证。
+    ///
+    /// 这两张凭证记在 **2001-02**，虽在真实数据之前，但 R1 的「期初 = 期间开始日之前的
+    /// 历史累计」意味着它们会成为**所有 2001-02 之后期间**的期初；本模块串行跑，
+    /// 留在库里会污染后面用例（尤其 `income_statement` / `cash_flow` 的绝对值断言）。
+    /// 所以每条真库用例收尾都清一次（setup 也会先清，重复跑不积累）。
+    async fn purge_fixture() {
+        db().execute_with_params(
+            &format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'"),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("清夹具失败：{error}"));
+    }
+
     /// 建一张 POSTED 凭证（两行分录：借 / 贷），科目按 `account_code` 取。
     async fn post_voucher(no: &str, date: &str, debit_code: &str, credit_code: &str, amount: i64) {
         let sql = format!(
             "WITH v AS ( \
                 INSERT INTO biz_voucher (voucher_word, voucher_no, period, voucher_date, summary, \
                                          total_debit, total_credit, entry_count, status) \
-                VALUES ('{FIXTURE_WORD}', '{no}', '2026-11', DATE '{date}', 'PDF07 夹具', \
+                VALUES ('{FIXTURE_WORD}', '{no}', '{FIXTURE_PERIOD}', DATE '{date}', 'PDF07 夹具', \
                         {amount}, {amount}, 2, 'POSTED') RETURNING id \
              ), d AS ( \
                 SELECT id, account_code, account_name FROM biz_account \
@@ -1118,14 +1063,9 @@ mod tests {
             "{what} 金额「{text}」小数位不是数字"
         );
         let groups: Vec<&str> = integer.split(',').collect();
+        assert!((1..=3).contains(&groups.len()), "{what} 金额「{text}」千分位分组数异常");
         assert!(
-            (1..=3).contains(&groups.len()),
-            "{what} 金额「{text}」千分位分组数异常"
-        );
-        assert!(
-            !groups[0].is_empty()
-                && groups[0].len() <= 3
-                && groups[0].chars().all(|c| c.is_ascii_digit()),
+            !groups[0].is_empty() && groups[0].len() <= 3 && groups[0].chars().all(|c| c.is_ascii_digit()),
             "{what} 金额「{text}」整数首位分组非法"
         );
         for group in groups.iter().skip(1) {
@@ -1153,18 +1093,12 @@ mod tests {
             return;
         };
         // ---------- ① 资产负债表 ----------
-        let snapshot = report::snapshot_or_error("2026-11")
+        let snapshot = report::snapshot_or_error(FIXTURE_PERIOD)
             .await
             .expect("资产负债表快照必须成功");
-        let sheet = report::into_response(
-            report::REPORT_CODE,
-            report::REPORT_NAME,
-            "测试公司",
-            "元",
-            snapshot,
-        );
-        let ctx = build_balance_context(&sheet, "2026-11-09 10:00".to_string());
-        assert_eq!(ctx.doc_no, "BALANCE_SHEET-2026-11");
+        let sheet = report::into_response(report::REPORT_CODE, report::REPORT_NAME, "测试公司", "元", snapshot);
+        let ctx = build_balance_context(&sheet, FIXTURE_STAMP.to_string());
+        assert_eq!(ctx.doc_no, format!("BALANCE_SHEET-{FIXTURE_PERIOD}"));
         assert_eq!(ctx.head.doc_title, "资 产 负 债 表");
         assert_eq!(ctx.head.unit_label, "单位：元");
         assert_eq!(ctx.end_label, "期末余额");
@@ -1194,7 +1128,7 @@ mod tests {
                 assert_amount_shape(&row.right.begin, "负债权益·期初");
             }
         }
-        // 本期有货币资金（1001），期初（2026-10 无凭证）必须是 `-` 而不是 0.00
+        // 本期有货币资金（1001），期初（2001-01 无凭证）必须是 `-` 而不是 0.00。
         let cash = ctx
             .rows
             .iter()
@@ -1204,12 +1138,12 @@ mod tests {
         assert_eq!(cash.left.begin, "-", "上期无凭证 → 期初列必须印「-」");
 
         // ---------- ② 利润表 ----------
-        let snapshot = income_statement::snapshot_or_error("2026-11")
+        let snapshot = income_statement::snapshot_or_error(FIXTURE_PERIOD)
             .await
             .expect("利润表快照必须成功");
         let income = income_statement::into_response("测试公司", "元", snapshot);
-        let ctx = build_income_context(&income, "2026-11-09 10:00".to_string());
-        assert_eq!(ctx.doc_no, "INCOME_STATEMENT-2026-11");
+        let ctx = build_income_context(&income, FIXTURE_STAMP.to_string());
+        assert_eq!(ctx.doc_no, format!("INCOME_STATEMENT-{FIXTURE_PERIOD}"));
         assert_eq!(ctx.head.doc_title, "利 润 表");
         assert_eq!(ctx.current_label, "本期金额");
         assert_eq!(ctx.ytd_label, "本年累计");
@@ -1230,18 +1164,15 @@ mod tests {
             .find(|row| row.code == "NET_PROFIT")
             .expect("必须有净利润行（NET_PROFIT）");
         assert_eq!(net.kind, "total", "净利润必须是合计行（加粗）");
-        assert_eq!(
-            net.current, "500.00",
-            "净利润本期 = 500（收入 500，无费用）"
-        );
+        assert_eq!(net.current, "500.00", "净利润本期 = 500（收入 500，无费用）");
 
         // ---------- ③ 现金流量表 ----------
-        let snapshot = cash_flow::snapshot_or_error("2026-11")
+        let snapshot = cash_flow::snapshot_or_error(FIXTURE_PERIOD)
             .await
             .expect("现金流量表快照必须成功");
         let cashflow = cash_flow::into_response("测试公司", "元", snapshot);
-        let ctx = build_cash_flow_context(&cashflow, "2026-11-09 10:00".to_string());
-        assert_eq!(ctx.doc_no, "CASH_FLOW-2026-11");
+        let ctx = build_cash_flow_context(&cashflow, FIXTURE_STAMP.to_string());
+        assert_eq!(ctx.doc_no, format!("CASH_FLOW-{FIXTURE_PERIOD}"));
         assert_eq!(ctx.head.doc_title, "现 金 流 量 表");
         assert!(!ctx.rows.is_empty());
         for row in &ctx.rows {
@@ -1265,6 +1196,7 @@ mod tests {
             "必须有「期末现金及现金等价物余额」行"
         );
         assert!(ctx.has_notes, "简化口径说明必须随表出现（不许静默）");
+        purge_fixture().await;
     }
 
     /// 真库：期间不存在 → 400 + 66010（与页面同一错误码，不是 500），三张报表一致。
@@ -1297,6 +1229,7 @@ mod tests {
             assert_eq!(error.status, 400);
             assert_eq!(error.code, error_code::PARAM_INVALID);
         }
+        purge_fixture().await;
     }
 
     /// 真库：`biz_report_item` 的三套配置都在（报表 PDF 依赖它们，配置缺了要 66011）。
@@ -1331,5 +1264,6 @@ mod tests {
                 .unwrap_or_else(|error| panic!("查科目失败：{error}"));
             assert_eq!(found, 1, "科目 {code} 必须存在且唯一");
         }
+        purge_fixture().await;
     }
 }

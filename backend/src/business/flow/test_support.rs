@@ -97,10 +97,7 @@ pub(crate) async fn assert_instance_status(instance_id: Uuid, expected: &str) {
 ///
 /// 上限 `MAX_ROUNDS` 只是防呆：正常最多「节点数 × 审批人数」，32 轮足够；
 /// 真撞上说明库里待办在自我增殖（例如流程定义被写成环），该红而不是死循环。
-pub(crate) async fn approve_all_pending(
-    instance_id: Uuid,
-    comment: &str,
-) -> Vec<engine::ActionOut> {
+pub(crate) async fn approve_all_pending(instance_id: Uuid, comment: &str) -> Vec<engine::ActionOut> {
     const MAX_ROUNDS: usize = 32;
     let mut outs = Vec::new();
     for round in 0..MAX_ROUNDS {

@@ -29,9 +29,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::budget_guard::{self, BudgetVerdict, ControlMode, Slot};
-use crate::business::erp::purchase_requisition_dto::{
-    STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED,
-};
+use crate::business::erp::purchase_requisition_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::purchase_requisition_model::{self as model, BudgetSnapshot};
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
@@ -127,9 +125,7 @@ impl RequisitionBudget {
     ///
     /// 与采购侧同口径：只有**显式 BLOCK** 才硬拦；`WARN` 放行进审批（由条件边加签）。
     pub fn blocks(&self) -> bool {
-        self.verdict
-            .as_ref()
-            .is_some_and(|verdict| verdict.blocks())
+        self.verdict.as_ref().is_some_and(|verdict| verdict.blocks())
     }
 
     /// 超出金额（没超 / 没校验 = 0）。
@@ -427,30 +423,17 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// 判据（任一命中即 403）：操作人 == 申请单的 `create_by`（制单人），
 /// 或操作人 == 审批单的 `initiator_id`（发起人）。
 /// 与本业务无关的待办（其它 `biz_type`）直接放行，零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };

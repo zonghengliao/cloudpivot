@@ -62,8 +62,7 @@ impl Default for TransferQuery {
 /// `transfer_no` 用前缀 `LIKE`（`TK-20261030-%`）：调拨单是低频单据、表很小，
 /// 参数化 `LIKE` 走不了 btree 也不算问题；等量级上来再换 `~>=~` / `~<~`（W1b 的仓库树写法）。
 pub async fn page(query: &TransferQuery) -> DbResult<(Vec<TransferRow>, i64)> {
-    let mut sql =
-        format!("SELECT {TRANSFER_COLUMNS} FROM {TRANSFER_TABLE} WHERE deleted_at IS NULL");
+    let mut sql = format!("SELECT {TRANSFER_COLUMNS} FROM {TRANSFER_TABLE} WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(status) = query.status.as_deref().map(str::trim)
         && !status.is_empty()
@@ -89,9 +88,7 @@ pub async fn page(query: &TransferQuery) -> DbResult<(Vec<TransferRow>, i64)> {
         // 时间点在 Rust 侧算好再绑定（与纯函数 `is_in_transit_overdue` 同一分界点）
         let cutoff = cutoff_of(Utc::now(), query.overdue_days);
         if overdue {
-            sql.push_str(
-                " AND status = 'IN_TRANSIT' AND shipped_at IS NOT NULL AND shipped_at < ?::timestamptz",
-            );
+            sql.push_str(" AND status = 'IN_TRANSIT' AND shipped_at IS NOT NULL AND shipped_at < ?::timestamptz");
         } else {
             sql.push_str(
                 " AND NOT (status = 'IN_TRANSIT' AND shipped_at IS NOT NULL \
@@ -102,15 +99,7 @@ pub async fn page(query: &TransferQuery) -> DbResult<(Vec<TransferRow>, i64)> {
     }
 
     let (page, page_size) = normalize_page(query.page, query.page_size);
-    let result = scope::paginate_unscoped(
-        TRANSFER_TARGET,
-        &sql,
-        params,
-        Some(TRANSFER_ORDER),
-        page,
-        page_size,
-    )
-    .await?;
+    let result = scope::paginate_unscoped(TRANSFER_TARGET, &sql, params, Some(TRANSFER_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -121,9 +110,7 @@ pub async fn page(query: &TransferQuery) -> DbResult<(Vec<TransferRow>, i64)> {
 
 /// 按主键取一行（软删过滤恒带）。
 pub async fn find_by_id(id: Uuid) -> DbResult<Option<TransferRow>> {
-    let sql = format!(
-        "SELECT {TRANSFER_COLUMNS} FROM {TRANSFER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {TRANSFER_COLUMNS} FROM {TRANSFER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(TransferRow::from_row).transpose()
 }
@@ -148,11 +135,7 @@ pub async fn warehouse_names(ids: &[Uuid]) -> DbResult<std::collections::HashMap
     let mut unique: Vec<Uuid> = ids.to_vec();
     unique.sort_unstable();
     unique.dedup();
-    let payload = unique
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let payload = unique.iter().map(|id| id.to_string()).collect::<Vec<_>>().join("\n");
     // SCOPE-EXEMPT: 仓库是全局主数据（V0137 无 dept_id），只按主键批量取名称。
     let rows = db()
         .query_sql(
@@ -184,9 +167,7 @@ pub async fn items_of(transfer_id: Uuid) -> DbResult<Vec<TransferItemRow>> {
           WHERE i.transfer_id = ?::uuid \
           ORDER BY i.line_no ASC, i.id ASC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&transfer_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&transfer_id)]).await?;
     rows.iter().map(TransferItemRow::from_row).collect()
 }
 
@@ -201,10 +182,7 @@ pub async fn items_of(transfer_id: Uuid) -> DbResult<Vec<TransferItemRow>> {
 /// - `Ok(Some((单头, 明细)))`：明细按 `line_no` 升序；
 /// - `Ok(None)`：单头不存在或已软删；
 /// - `Err(DbError)`：数据库异常。
-pub async fn copy_source(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> DbResult<Option<(TransferRow, Vec<TransferItemRow>)>> {
+pub async fn copy_source(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(TransferRow, Vec<TransferItemRow>)>> {
     let header = ex
         .query_first_sql(
             format!(
@@ -251,9 +229,7 @@ pub async fn serials_of(transfer_id: Uuid) -> DbResult<Vec<TransferSerialRow>> {
           WHERE i.transfer_id = ?::uuid \
           ORDER BY i.line_no ASC, ms.serial_no ASC NULLS LAST, s.id ASC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&transfer_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&transfer_id)]).await?;
     rows.iter().map(TransferSerialRow::from_row).collect()
 }
 
@@ -267,9 +243,7 @@ pub async fn warehouse_name(id: Uuid) -> DbResult<Option<String>> {
             vec![Value::from(&id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("warehouse_name"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("warehouse_name")).transpose()
 }
 
 /// 在途仓 id（`WH-TRANSIT`）；没种/被删 → `None`。
@@ -310,10 +284,7 @@ pub async fn material_ref(id: Uuid) -> DbResult<Option<(String, String)>> {
         .await?;
     match rows.first() {
         None => Ok(None),
-        Some(row) => Ok(Some((
-            row.get_typed("material_code")?,
-            row.get_typed("material_name")?,
-        ))),
+        Some(row) => Ok(Some((row.get_typed("material_code")?, row.get_typed("material_name")?))),
     }
 }
 

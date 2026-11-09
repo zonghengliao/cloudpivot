@@ -139,8 +139,7 @@ pub fn claims(user: Uuid, name: &str) -> Extension<AuthClaims> {
 
 /// 金额 / 数量字面量 → `Decimal`（测试里写 `dec("12.34")` 比 `Decimal::new` 可读）。
 pub fn dec(text: &str) -> Decimal {
-    Decimal::from_str(text)
-        .unwrap_or_else(|err| panic!("测试字面量 {text} 不是合法 Decimal：{err}"))
+    Decimal::from_str(text).unwrap_or_else(|err| panic!("测试字面量 {text} 不是合法 Decimal：{err}"))
 }
 
 // ==================== 夹具 ====================
@@ -447,9 +446,7 @@ impl Ctx {
                 o = self.outsider
             ),
             // ---- ERP 单据 ----
-            format!(
-                "DELETE FROM biz_payment WHERE payable_id IN (SELECT id FROM biz_payable WHERE source_id IN {so})"
-            ),
+            format!("DELETE FROM biz_payment WHERE payable_id IN (SELECT id FROM biz_payable WHERE source_id IN {so})"),
             format!("DELETE FROM biz_payable WHERE source_id IN {so}"),
             format!("DELETE FROM biz_voucher_entry WHERE voucher_id IN ({vo})"),
             format!("DELETE FROM biz_voucher WHERE id IN ({vo})"),
@@ -486,10 +483,7 @@ impl Ctx {
             format!("DELETE FROM biz_stock_transfer_item WHERE transfer_id IN {tk}"),
             format!("DELETE FROM biz_stock_transfer WHERE id IN {tk}"),
             format!("DELETE FROM biz_stock_in_item WHERE stock_in_id IN {so}"),
-            format!(
-                "DELETE FROM biz_stock_in WHERE supplier_id = '{}'::uuid",
-                self.supplier
-            ),
+            format!("DELETE FROM biz_stock_in WHERE supplier_id = '{}'::uuid", self.supplier),
             // ---- 主数据 ----
             format!("DELETE FROM biz_location WHERE id = '{}'::uuid", self.loc),
             format!(
@@ -500,10 +494,7 @@ impl Ctx {
                 "DELETE FROM biz_warehouse WHERE id IN ('{}'::uuid, '{}'::uuid)",
                 self.wh_from, self.wh_to
             ),
-            format!(
-                "DELETE FROM biz_supplier WHERE id = '{}'::uuid",
-                self.supplier
-            ),
+            format!("DELETE FROM biz_supplier WHERE id = '{}'::uuid", self.supplier),
             format!("DELETE FROM biz_unit WHERE id = '{}'::uuid", self.unit),
             // ---- 用户 ----
             format!(
@@ -517,14 +508,8 @@ impl Ctx {
                  (SELECT id FROM sys_user WHERE username LIKE '{p}-%')",
                 p = self.prefix
             ),
-            format!(
-                "DELETE FROM sys_user WHERE username LIKE '{p}-%'",
-                p = self.prefix
-            ),
-            format!(
-                "DELETE FROM sys_role WHERE role_code LIKE '{p}-%'",
-                p = self.prefix
-            ),
+            format!("DELETE FROM sys_user WHERE username LIKE '{p}-%'", p = self.prefix),
+            format!("DELETE FROM sys_role WHERE role_code LIKE '{p}-%'", p = self.prefix),
             format!(
                 "DELETE FROM sys_user WHERE id IN ('{}'::uuid, '{}'::uuid, '{}'::uuid)",
                 self.creator, self.worker, self.outsider
@@ -702,10 +687,7 @@ pub async fn flow_instance_of_no(biz_type: &str, biz_no: &str) -> Option<(Uuid, 
             "SELECT id, status FROM biz_flow_instance \
               WHERE biz_type = ? AND biz_no = ? AND deleted_at IS NULL \
               ORDER BY started_at DESC LIMIT 1",
-            vec![
-                Value::Text(biz_type.to_string()),
-                Value::Text(biz_no.to_string()),
-            ],
+            vec![Value::Text(biz_type.to_string()), Value::Text(biz_no.to_string())],
         )
         .await
         .unwrap_or_else(|err| panic!("查审批实例失败：{err}"));

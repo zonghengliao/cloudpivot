@@ -73,17 +73,10 @@ pub async fn scan() -> DbResult<ScanResult> {
     for rule in rules {
         let (total, sample) = pair_holders(&rule.role_a_id, &rule.role_b_id).await?;
         if total > 0 {
-            items.push(ViolationGroup {
-                rule,
-                total,
-                sample,
-            });
+            items.push(ViolationGroup { rule, total, sample });
         }
     }
-    Ok(ScanResult {
-        scanned_pairs,
-        items,
-    })
+    Ok(ScanResult { scanned_pairs, items })
 }
 
 /// 汇总「违规规则数 / 违规人次」（纯函数，可无库单测）。
@@ -94,10 +87,7 @@ pub async fn scan() -> DbResult<ScanResult> {
 /// 去重人数需要再查一次库；而管理员真正要处理的是**绑定**，人次更贴近工作量。
 pub fn summarize(items: &[ViolationGroup]) -> (u64, u64) {
     let violated_pairs = u64::try_from(items.len()).unwrap_or(u64::MAX);
-    let holders = items
-        .iter()
-        .map(|item| u64::try_from(item.total).unwrap_or(0))
-        .sum();
+    let holders = items.iter().map(|item| u64::try_from(item.total).unwrap_or(0)).sum();
     (violated_pairs, holders)
 }
 

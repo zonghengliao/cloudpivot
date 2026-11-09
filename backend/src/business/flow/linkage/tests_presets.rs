@@ -25,8 +25,7 @@ use super::spec;
 
 /// 迁移原文（up / down）。
 const UP: &str = include_str!("../../../../migrations/business/V0254__flow_linkage_presets.up.sql");
-const DOWN: &str =
-    include_str!("../../../../migrations/business/V0254__flow_linkage_presets.down.sql");
+const DOWN: &str = include_str!("../../../../migrations/business/V0254__flow_linkage_presets.down.sql");
 
 /// 一条预置规则的「代码侧期望值」（与迁移逐字对拍）。
 struct Preset {
@@ -77,10 +76,7 @@ const PRESETS: &[Preset] = &[
 fn presets_are_exactly_three() {
     assert_eq!(PRESETS.len(), 3, "卡面要求 3 条预置规则");
     let inserts = UP.matches("gen_random_uuid()").count();
-    assert_eq!(
-        inserts, 3,
-        "迁移 up.sql 里应有 3 行 INSERT（实际 {inserts}）"
-    );
+    assert_eq!(inserts, 3, "迁移 up.sql 里应有 3 行 INSERT（实际 {inserts}）");
 }
 
 /// 2️⃣ 每条规则的触发点都在 `spec::TRIGGERS` 白名单里。
@@ -116,12 +112,8 @@ fn every_preset_status_is_reachable() {
 #[test]
 fn every_preset_action_is_implemented() {
     for preset in PRESETS {
-        let action = spec::spec_of(preset.action).unwrap_or_else(|| {
-            panic!(
-                "规则「{}」的动作码 {} 不在白名单里",
-                preset.name, preset.action
-            )
-        });
+        let action = spec::spec_of(preset.action)
+            .unwrap_or_else(|| panic!("规则「{}」的动作码 {} 不在白名单里", preset.name, preset.action));
         assert!(
             action.implemented,
             "规则「{}」的动作 {} 仍是占位（implemented=false）：配得上但执行时会被跳过",
@@ -135,8 +127,7 @@ fn every_preset_action_is_implemented() {
 fn every_preset_params_pass_layer2_validation() {
     for preset in PRESETS {
         let action = spec::spec_of(preset.action).expect("动作码必须在白名单里");
-        let params: serde_json::Value =
-            serde_json::from_str(preset.params).expect("迁移里的参数必须是合法 JSON");
+        let params: serde_json::Value = serde_json::from_str(preset.params).expect("迁移里的参数必须是合法 JSON");
         if let Err(reason) = spec::validate_params(action, &params) {
             panic!("规则「{}」的参数过不了第 2 层校验：{reason}", preset.name);
         }
@@ -193,15 +184,8 @@ fn preset_keys_are_unique() {
 #[test]
 fn migration_seeds_every_preset_row() {
     for preset in PRESETS {
-        assert!(
-            UP.contains(preset.name),
-            "迁移里找不到规则名「{}」",
-            preset.name
-        );
-        let key = format!(
-            "'{}', '{}', '{}'",
-            preset.entity, preset.status, preset.action
-        );
+        assert!(UP.contains(preset.name), "迁移里找不到规则名「{}」", preset.name);
+        let key = format!("'{}', '{}', '{}'", preset.entity, preset.status, preset.action);
         assert!(
             UP.contains(&key),
             "迁移里找不到触发键 / 动作码 {key}（规则「{}」）",
@@ -228,10 +212,7 @@ fn migration_down_removes_the_same_keys() {
     // down.sql 为了可读性做了列对齐（`('TASK',     'REVIEW', …)`），先压掉多余空白再比
     let squeezed = squeeze_ws(DOWN);
     for preset in PRESETS {
-        let key = format!(
-            "('{}', '{}', '{}')",
-            preset.entity, preset.status, preset.action
-        );
+        let key = format!("('{}', '{}', '{}')", preset.entity, preset.status, preset.action);
         assert!(
             squeezed.contains(&key),
             "down.sql 里找不到 {key}（规则「{}」回滚不掉）",

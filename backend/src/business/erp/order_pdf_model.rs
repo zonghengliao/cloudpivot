@@ -45,11 +45,7 @@ pub struct MaterialInfo {
 /// 与 `purchase_model::*_names_of` 同一写法：`Value::Text("{a,b,c}")` 配
 /// `?::text::uuid[]`。**不用** `Value::Json`——那会被绑成 jsonb，`::uuid[]` 转不过去。
 fn uuid_array(ids: &[Uuid]) -> Value {
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     Value::Text(format!("{{{joined}}}"))
 }
 
@@ -213,11 +209,7 @@ pub async fn write_export_log(entry: &ExportLog<'_>) -> DbResult<()> {
         vec![
             Value::from(&Uuid::now_v7()),
             Value::Text(entry.request_id.to_string()),
-            entry
-                .user_id
-                .as_ref()
-                .map(Value::from)
-                .unwrap_or(Value::Null),
+            entry.user_id.as_ref().map(Value::from).unwrap_or(Value::Null),
             entry
                 .username
                 .map(|name| Value::Text(name.to_string()))
@@ -258,14 +250,8 @@ mod tests {
     /// 操作码必须与单据种类一一对应（日志页按码检索，拼错就等于查不到）。
     #[test]
     fn operation_codes_are_distinct() {
-        assert_eq!(
-            operation_code(OrderDocKind::Purchase),
-            "EXPORT_PURCHASE_ORDER_PDF"
-        );
-        assert_eq!(
-            operation_code(OrderDocKind::Sales),
-            "EXPORT_SALES_ORDER_PDF"
-        );
+        assert_eq!(operation_code(OrderDocKind::Purchase), "EXPORT_PURCHASE_ORDER_PDF");
+        assert_eq!(operation_code(OrderDocKind::Sales), "EXPORT_SALES_ORDER_PDF");
         assert_ne!(
             operation_code(OrderDocKind::Purchase),
             operation_code(OrderDocKind::Sales)
@@ -275,24 +261,9 @@ mod tests {
     /// 空 id 列表不发 SQL（打印 0 行单据时不该有一次多余往返）。
     #[tokio::test]
     async fn empty_ids_short_circuit() {
-        assert!(
-            materials_of(&[])
-                .await
-                .expect("空列表必须直接返回")
-                .is_empty()
-        );
-        assert!(
-            unit_names_of(&[])
-                .await
-                .expect("空列表必须直接返回")
-                .is_empty()
-        );
-        assert!(
-            user_names_of(&[])
-                .await
-                .expect("空列表必须直接返回")
-                .is_empty()
-        );
+        assert!(materials_of(&[]).await.expect("空列表必须直接返回").is_empty());
+        assert!(unit_names_of(&[]).await.expect("空列表必须直接返回").is_empty());
+        assert!(user_names_of(&[]).await.expect("空列表必须直接返回").is_empty());
     }
 
     /// 数组字面量必须是 PG 认的 `{a,b}` 形态（写错就是 `invalid input syntax`）。

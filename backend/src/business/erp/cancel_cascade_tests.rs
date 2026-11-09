@@ -92,8 +92,7 @@ async fn ensure_db() -> bool {
 /// 清掉本模块命名空间下的全部痕迹（顺序写死：子表 → 主表）。
 async fn cleanup() {
     let si_ids = format!("SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid");
-    let po_ids =
-        format!("SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid");
+    let po_ids = format!("SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid");
     let payable_ids = format!("SELECT id FROM biz_payable WHERE source_id IN ({si_ids})");
     let voucher_ids = format!("SELECT id FROM biz_voucher WHERE source_id IN ({si_ids})");
     for sql in [
@@ -118,12 +117,8 @@ async fn cleanup() {
         format!("DELETE FROM biz_purchase_order_item WHERE order_id IN ({po_ids})"),
         format!("DELETE FROM biz_purchase_order WHERE id IN ({po_ids})"),
         // 库存行按物料清（本模块独占 MATERIAL_A / MATERIAL_B）
-        format!(
-            "DELETE FROM biz_inventory_location WHERE material_id IN ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid)"
-        ),
-        format!(
-            "DELETE FROM biz_inventory WHERE material_id IN ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid)"
-        ),
+        format!("DELETE FROM biz_inventory_location WHERE material_id IN ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid)"),
+        format!("DELETE FROM biz_inventory WHERE material_id IN ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid)"),
     ] {
         if let Err(err) = db().execute_with_params(&sql, vec![]).await {
             println!("cleanup 语句失败（继续）：{err} —— {sql}");
@@ -344,13 +339,7 @@ async fn payable_status(stock_in_id: Uuid) -> String {
 #[test]
 fn p15_doc_type_is_normalized_and_unknown_is_rejected() {
     // P2-5：别名不再被归一（「新旧都认」＝兼容层永久化），只认 kebab 路径段
-    for canonical in [
-        "purchase-order",
-        "stock-in",
-        "payable",
-        "stock-transfer",
-        "voucher",
-    ] {
+    for canonical in ["purchase-order", "stock-in", "payable", "stock-transfer", "voucher"] {
         assert!(
             DocKind::parse_route(canonical).is_some(),
             "规范路径段必须能解析：{canonical}"
@@ -368,11 +357,7 @@ fn p15_doc_type_is_normalized_and_unknown_is_rejected() {
         .block_on(cancel_cascade::analyze("unknown-doc", Uuid::now_v7()))
         .unwrap_err();
     assert_eq!(error.status, 400, "{}", error.msg);
-    assert!(
-        error.msg.contains("purchase-order"),
-        "报文要点名可选项：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("purchase-order"), "报文要点名可选项：{}", error.msg);
 }
 
 /// ② 调拨单不支持联动作废（文案要给出替代入口）。
@@ -396,12 +381,7 @@ fn p15_transfer_is_rejected_with_alternative() {
 fn p15_reason_is_required_and_long_enough() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let missing = rt
-        .block_on(cancel_cascade::cascade(
-            "purchase-order",
-            Uuid::now_v7(),
-            None,
-            None,
-        ))
+        .block_on(cancel_cascade::cascade("purchase-order", Uuid::now_v7(), None, None))
         .unwrap_err();
     assert_eq!(missing.status, 400);
     assert!(missing.msg.contains("reason"), "{}", missing.msg);
@@ -426,10 +406,7 @@ fn p15_purchase_order_can_be_cancelled_after_receipt() {
             purchase_model::STATUS_PARTIAL_RECEIVED,
             purchase_model::STATUS_CANCELLED,
         ),
-        (
-            purchase_model::STATUS_RECEIVED,
-            purchase_model::STATUS_CANCELLED,
-        ),
+        (purchase_model::STATUS_RECEIVED, purchase_model::STATUS_CANCELLED),
     ] {
         assert!(
             purchase_model::can_transition(from, to),
@@ -504,12 +481,8 @@ async fn p15_impact_is_read_only() {
     let stock_in_id = create_and_post(order_id, item_ids[0], MATERIAL_A, "3").await;
 
     let before_qty = inventory_qty(MATERIAL_A).await;
-    let first = cancel_cascade::analyze("purchase-order", order_id)
-        .await
-        .unwrap();
-    let second = cancel_cascade::analyze("purchase-order", order_id)
-        .await
-        .unwrap();
+    let first = cancel_cascade::analyze("purchase-order", order_id).await.unwrap();
+    let second = cancel_cascade::analyze("purchase-order", order_id).await.unwrap();
     assert_eq!(first.steps.len(), second.steps.len());
     assert_eq!(po_status(order_id).await, purchase_model::STATUS_RECEIVED);
     assert_eq!(si_status(stock_in_id).await, stockin_model::STATUS_POSTED);
@@ -528,14 +501,9 @@ async fn p15_cascade_voids_downstream_then_order() {
     let stock_in_id = create_and_post(order_id, item_ids[0], MATERIAL_A, "5").await;
     assert_eq!(inventory_qty(MATERIAL_A).await, dec("5.0000"));
 
-    let result = cancel_cascade::cascade(
-        "purchase-order",
-        order_id,
-        Some("客户取消订单，联动作废"),
-        None,
-    )
-    .await
-    .expect("联动作废必须成功");
+    let result = cancel_cascade::cascade("purchase-order", order_id, Some("客户取消订单，联动作废"), None)
+        .await
+        .expect("联动作废必须成功");
 
     // 执行顺序：收货单 → 采购单
     let order_seq: Vec<(u32, &str)> = result
@@ -544,18 +512,10 @@ async fn p15_cascade_voids_downstream_then_order() {
         .map(|step| (step.seq, step.doc_type.as_str()))
         .collect();
     assert_eq!(order_seq, vec![(1, "stock-in"), (2, "purchase-order")]);
-    assert!(
-        result
-            .steps
-            .iter()
-            .all(|s| s.outcome == cancel_cascade::OUTCOME_DONE)
-    );
+    assert!(result.steps.iter().all(|s| s.outcome == cancel_cascade::OUTCOME_DONE));
 
     // 单据状态
-    assert_eq!(
-        si_status(stock_in_id).await,
-        stockin_model::STATUS_CANCELLED
-    );
+    assert_eq!(si_status(stock_in_id).await, stockin_model::STATUS_CANCELLED);
     assert_eq!(po_status(order_id).await, purchase_model::STATUS_CANCELLED);
     // 三本账回基线
     assert_eq!(inventory_qty(MATERIAL_A).await, Decimal::ZERO);
@@ -605,9 +565,7 @@ async fn p15_cascade_without_downstream_only_voids_order() {
     };
     let (order_id, _items) = create_po(&[(MATERIAL_A, "5")]).await;
 
-    let impact = cancel_cascade::analyze("purchase-order", order_id)
-        .await
-        .unwrap();
+    let impact = cancel_cascade::analyze("purchase-order", order_id).await.unwrap();
     assert_eq!(impact.steps.len(), 1, "没有下游就只列采购单自己");
     assert_eq!(impact.steps[0].doc_type, "purchase-order");
     assert!(impact.can_cancel);
@@ -639,9 +597,7 @@ async fn p15_cascade_rolls_back_when_later_step_fails() {
     let before_a = inventory_qty(MATERIAL_A).await;
     let before_b = inventory_qty(MATERIAL_B).await;
 
-    let impact = cancel_cascade::analyze("purchase-order", order_id)
-        .await
-        .unwrap();
+    let impact = cancel_cascade::analyze("purchase-order", order_id).await.unwrap();
     assert!(impact.can_cancel, "预检阶段一切正常：{:?}", impact.blockers);
 
     let now = Utc::now();
@@ -674,16 +630,8 @@ async fn p15_cascade_rolls_back_when_later_step_fails() {
     .await;
     assert!(outcome.is_err(), "第二步必须失败");
     let error = outcome.unwrap_err();
-    assert!(
-        error.msg.contains("第 2 步"),
-        "报文要点名第几步：{}",
-        error.msg
-    );
-    assert!(
-        error.msg.contains("回滚"),
-        "报文要说清已回滚：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("第 2 步"), "报文要点名第几步：{}", error.msg);
+    assert!(error.msg.contains("回滚"), "报文要说清已回滚：{}", error.msg);
     let _ = tx.rollback().await;
 
     // 整笔回滚：第一张收货单仍是已过账，A 的库存一分没退，也没有红字凭证
@@ -722,9 +670,7 @@ async fn p15_cascade_blocked_when_payable_already_paid() {
     .await
     .unwrap();
 
-    let impact = cancel_cascade::analyze("purchase-order", order_id)
-        .await
-        .unwrap();
+    let impact = cancel_cascade::analyze("purchase-order", order_id).await.unwrap();
     assert!(!impact.can_cancel, "已付款的应付单是拦路虎");
     assert!(
         impact.blockers.iter().any(|text| text.contains("已付款")),
@@ -761,14 +707,9 @@ async fn p15_impact_marks_cancelled_stock_in_as_skip() {
     cancel_cascade::cascade("stock-in", stock_in_id, Some("收货数量填错"), None)
         .await
         .unwrap();
-    assert_eq!(
-        si_status(stock_in_id).await,
-        stockin_model::STATUS_CANCELLED
-    );
+    assert_eq!(si_status(stock_in_id).await, stockin_model::STATUS_CANCELLED);
 
-    let impact = cancel_cascade::analyze("purchase-order", order_id)
-        .await
-        .unwrap();
+    let impact = cancel_cascade::analyze("purchase-order", order_id).await.unwrap();
     let si_step = impact
         .steps
         .iter()
@@ -802,10 +743,7 @@ async fn p15_cascade_is_idempotent_on_cancelled_document() {
         again.steps
     );
     assert!(again.message.contains("没有需要执行"), "{}", again.message);
-    assert_eq!(
-        si_status(stock_in_id).await,
-        stockin_model::STATUS_CANCELLED
-    );
+    assert_eq!(si_status(stock_in_id).await, stockin_model::STATUS_CANCELLED);
     assert_eq!(red_voucher_count(stock_in_id).await, 1, "红冲只做一次");
     assert_eq!(inventory_qty(MATERIAL_A).await, Decimal::ZERO);
 }
@@ -819,9 +757,7 @@ async fn p15_stock_in_impact_lists_voucher_and_payable() {
     let (order_id, item_ids) = create_po(&[(MATERIAL_A, "6")]).await;
     let stock_in_id = create_and_post(order_id, item_ids[0], MATERIAL_A, "6").await;
 
-    let impact = cancel_cascade::analyze("stock-in", stock_in_id)
-        .await
-        .unwrap();
+    let impact = cancel_cascade::analyze("stock-in", stock_in_id).await.unwrap();
     let kinds: Vec<&str> = impact.steps.iter().map(|s| s.doc_type.as_str()).collect();
     assert_eq!(kinds, vec!["stock-in", "voucher", "payable"]);
     assert!(impact.can_cancel);
@@ -830,18 +766,12 @@ async fn p15_stock_in_impact_lists_voucher_and_payable() {
         .await
         .unwrap();
     assert_eq!(result.steps.len(), 1);
-    assert_eq!(
-        si_status(stock_in_id).await,
-        stockin_model::STATUS_CANCELLED
-    );
+    assert_eq!(si_status(stock_in_id).await, stockin_model::STATUS_CANCELLED);
     assert_eq!(red_voucher_count(stock_in_id).await, 1);
     assert_eq!(payable_status(stock_in_id).await, "CANCELLED");
     assert_eq!(inventory_qty(MATERIAL_A).await, Decimal::ZERO);
     // 采购单回到 PARTIAL_RECEIVED（收货作废的回退边），仍可再收货
-    assert_eq!(
-        po_status(order_id).await,
-        purchase_model::STATUS_PARTIAL_RECEIVED
-    );
+    assert_eq!(po_status(order_id).await, purchase_model::STATUS_PARTIAL_RECEIVED);
 }
 
 /// ⑭ 应付单入口：未付款的应付单能一键作废并红冲进项凭证；已作废的再调是幂等。
@@ -863,9 +793,7 @@ async fn p15_payable_cascade_reverses_voucher() {
         .await
         .unwrap();
 
-    let impact = cancel_cascade::analyze("payable", payable_id)
-        .await
-        .unwrap();
+    let impact = cancel_cascade::analyze("payable", payable_id).await.unwrap();
     assert!(impact.can_cancel);
     assert!(
         impact.steps.iter().any(|step| step.doc_type == "voucher"),

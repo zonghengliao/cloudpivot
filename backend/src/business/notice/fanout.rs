@@ -97,8 +97,7 @@ impl NoticeTarget {
     /// 目标 ID 的 JSON 数组文本（写 `sys_notice.target_ids` 留痕用）。
     pub fn ids_json(&self) -> String {
         let values: Vec<String> = self.ids().iter().map(|id| id.to_string()).collect();
-        serde_json::Value::Array(values.into_iter().map(serde_json::Value::String).collect())
-            .to_string()
+        serde_json::Value::Array(values.into_iter().map(serde_json::Value::String).collect()).to_string()
     }
 
     /// 校验目标是否可用。
@@ -284,11 +283,7 @@ pub async fn count_receivers_respecting_preference(target: &NoticeTarget) -> DbR
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn fanout(
-    tx: &Transaction,
-    notice_id: &uuid::Uuid,
-    target: &NoticeTarget,
-) -> DbResult<u64> {
+pub async fn fanout(tx: &Transaction, notice_id: &uuid::Uuid, target: &NoticeTarget) -> DbResult<u64> {
     let (sql, mut params) = target.insert_sql(false);
     params[0] = Value::from(*notice_id);
     tx.execute_with_params(&sql, params).await
@@ -322,9 +317,7 @@ pub fn ensure_within_limit(count: i64) -> std::result::Result<(), ApiError> {
         return Err(ApiError::new(
             422,
             error_code::NOTICE_RECEIVER_LIMIT,
-            format!(
-                "接收人 {count} 人超过单条通知上限 {MAX_RECEIVERS} 人：请改用全员公告或分批发送"
-            ),
+            format!("接收人 {count} 人超过单条通知上限 {MAX_RECEIVERS} 人：请改用全员公告或分批发送"),
         ));
     }
     Ok(())
@@ -357,23 +350,15 @@ mod tests {
     use super::*;
 
     fn uuids(count: usize) -> Vec<String> {
-        (0..count)
-            .map(|_| uuid::Uuid::now_v7().to_string())
-            .collect()
+        (0..count).map(|_| uuid::Uuid::now_v7().to_string()).collect()
     }
 
     /// 四种目标类型都能解析，字面量与 `sys_notice.target_type` 一致。
     #[test]
     fn parse_all_target_types() {
         let ids = uuids(2);
-        assert_eq!(
-            NoticeTarget::parse("user", &ids).unwrap().target_type(),
-            "USER"
-        );
-        assert_eq!(
-            NoticeTarget::parse("ROLE", &ids).unwrap().target_type(),
-            "ROLE"
-        );
+        assert_eq!(NoticeTarget::parse("user", &ids).unwrap().target_type(), "USER");
+        assert_eq!(NoticeTarget::parse("ROLE", &ids).unwrap().target_type(), "ROLE");
         let dept = NoticeTarget::parse("dept", &ids).unwrap();
         assert_eq!(dept.target_type(), "DEPT");
         assert_eq!(dept.ids().len(), 2);
@@ -428,10 +413,7 @@ mod tests {
 
         let dept = NoticeTarget::parse("DEPT", &ids).unwrap();
         let (sql, _) = dept.insert_sql(false);
-        assert!(
-            sql.contains("WITH RECURSIVE dept_tree"),
-            "部门必须递归展开子树"
-        );
+        assert!(sql.contains("WITH RECURSIVE dept_tree"), "部门必须递归展开子树");
 
         // 计数与扇出共用同一份用户集合口径（口径不一致会导致上限校验失真）
         let (count_sql, params) = dept.count_sql(false);
@@ -452,10 +434,7 @@ mod tests {
 
             // force = true（强制）：SQL 里**不许**出现偏好过滤
             let (forced, _) = target.insert_sql(false);
-            assert!(
-                !forced.contains("sys_user_preference"),
-                "{kind} 的强制通知不得过滤偏好"
-            );
+            assert!(!forced.contains("sys_user_preference"), "{kind} 的强制通知不得过滤偏好");
             let (forced_count, _) = target.count_sql(false);
             assert!(!forced_count.contains("sys_user_preference"));
 

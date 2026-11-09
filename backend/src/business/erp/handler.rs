@@ -73,19 +73,16 @@ use serde_json::json;
 
 use crate::business::erp::code_policy;
 use crate::business::erp::dto::{
-    AccountFilter, AccountRes, CreateLocationReq, CreateMaterialReq, CreateSupplierReq,
-    CreateUnitReq, CreateWarehouseReq, InventoryFilter, InventoryLocationFilter,
-    InventoryLocationRes, InventoryRes, InventoryTxnFilter, InventoryTxnRes, LocationFilter,
-    LocationRes, MaterialFilter, MaterialRes, PeriodFilter, PeriodRes, PurchaseOrderFilter,
-    PurchaseOrderItemFilter, PurchaseOrderItemRes, PurchaseOrderRes, SeqFilter, SeqRes,
-    SupplierFilter, SupplierRes, UnitFilter, UnitRes, UpdateLocationReq, UpdateMaterialReq,
-    UpdateSupplierReq, UpdateUnitReq, UpdateWarehouseReq, WarehouseFilter, WarehouseRes,
+    AccountFilter, AccountRes, CreateLocationReq, CreateMaterialReq, CreateSupplierReq, CreateUnitReq,
+    CreateWarehouseReq, InventoryFilter, InventoryLocationFilter, InventoryLocationRes, InventoryRes,
+    InventoryTxnFilter, InventoryTxnRes, LocationFilter, LocationRes, MaterialFilter, MaterialRes, PeriodFilter,
+    PeriodRes, PurchaseOrderFilter, PurchaseOrderItemFilter, PurchaseOrderItemRes, PurchaseOrderRes, SeqFilter, SeqRes,
+    SupplierFilter, SupplierRes, UnitFilter, UnitRes, UpdateLocationReq, UpdateMaterialReq, UpdateSupplierReq,
+    UpdateUnitReq, UpdateWarehouseReq, WarehouseFilter, WarehouseRes,
 };
 use crate::business::erp::inventory_audit as inv_audit;
 use crate::business::erp::inventory_audit::AuditReport;
-use crate::business::erp::model::{
-    self, InventoryLocationRow, InventoryRow, InventoryTxnRow, WarehouseRow,
-};
+use crate::business::erp::model::{self, InventoryLocationRow, InventoryRow, InventoryTxnRow, WarehouseRow};
 use crate::business::erp::seq;
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::unit_guard;
@@ -190,12 +187,7 @@ fn operator_of(claims: &TokenClaims) -> Value {
 }
 
 /// 分页出参（`total` 由 model 的 `i64` 收口成 `u64`，`page/page_size` 用统一归一化口径）。
-fn page_body<T: Serialize>(
-    list: Vec<T>,
-    total: i64,
-    page: u64,
-    page_size: u64,
-) -> Res<PageData<Vec<T>>> {
+fn page_body<T: Serialize>(list: Vec<T>, total: i64, page: u64, page_size: u64) -> Res<PageData<Vec<T>>> {
     let (page, page_size) = model::normalize_page(page, page_size);
     Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size)
 }
@@ -217,10 +209,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "编码已存在（唯一约束{}）：同一范围内不允许重复编码，已软删的编码可以复用",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -228,10 +217,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::PARAM_INVALID,
             format!(
                 "数据不满足数据库约束{}（枚举 / 范围 / 组合关系）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         _ => utils::db_error(err, ctx),
@@ -239,12 +225,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
 }
 
 /// 通用「按主键取一行」：`soft` 为真时过滤 `deleted_at`。
-async fn find_row(
-    table: &str,
-    columns: &str,
-    id: Uuid,
-    soft: bool,
-) -> std::result::Result<Option<Row>, ApiError> {
+async fn find_row(table: &str, columns: &str, id: Uuid, soft: bool) -> std::result::Result<Option<Row>, ApiError> {
     let mut sql = format!("SELECT {columns} FROM {table} WHERE id = ?::uuid");
     if soft {
         sql.push_str(" AND deleted_at IS NULL");
@@ -258,11 +239,7 @@ async fn find_row(
 
 /// 不存在统一 404（详情 / 编辑 / 删除三处共用一条文案口径）。
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// 弱引用缺失统一 400（`66002`）。
@@ -392,9 +369,7 @@ fn assemble_tree(rows: &[WarehouseRow]) -> Vec<WarehouseTreeNode> {
     permission = "business:erp:warehouse:list"
 )]
 #[nik::get("/business/erp/warehouse/page")]
-pub async fn warehouse_page(
-    Query(filter): Query<WarehouseFilter>,
-) -> ResResult<PageData<Vec<WarehouseRes>>> {
+pub async fn warehouse_page(Query(filter): Query<WarehouseFilter>) -> ResResult<PageData<Vec<WarehouseRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::warehouse_page(&filter)
@@ -414,15 +389,8 @@ pub async fn warehouse_page(
     permission = "business:erp:warehouse:list"
 )]
 #[nik::get("/business/erp/warehouse/tree")]
-pub async fn warehouse_tree(
-    Query(query): Query<WarehouseTreeQuery>,
-) -> ResResult<Vec<WarehouseTreeNode>> {
-    let root_id = match query
-        .root_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+pub async fn warehouse_tree(Query(query): Query<WarehouseTreeQuery>) -> ResResult<Vec<WarehouseTreeNode>> {
+    let root_id = match query.root_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => Some(parse_uuid(raw, "root_id")?),
         None => None,
     };
@@ -531,10 +499,7 @@ pub async fn create_warehouse(
     req.validate()?;
     // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
     // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
-    code_policy::guard_manual(
-        code_policy::allow_manual_code().await,
-        req.warehouse_code.as_deref(),
-    )?;
+    code_policy::guard_manual(code_policy::allow_manual_code().await, req.warehouse_code.as_deref())?;
     let manual = seq::resolve_manual_code(req.warehouse_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
         .map_err(|reason| param_invalid(format!("warehouse_code 不合法：{reason}")))?;
     if let Some(code) = manual.as_deref() {
@@ -546,12 +511,7 @@ pub async fn create_warehouse(
         }
     }
     let id = Uuid::now_v7();
-    let parent = match req
-        .parent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let parent = match req.parent_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => {
             let parent_id = parse_uuid(raw, "parent_id")?;
             Some(
@@ -674,17 +634,12 @@ pub async fn warehouse_update(
         .warehouse_name
         .map(|text| text.trim().to_string())
         .unwrap_or_else(|| current.warehouse_name.clone());
-    let warehouse_type = req
-        .warehouse_type
-        .unwrap_or_else(|| current.warehouse_type.clone());
+    let warehouse_type = req.warehouse_type.unwrap_or_else(|| current.warehouse_type.clone());
     let manager = match req.manager {
         None => current.manager.clone(),
         Some(value) => value,
     };
-    let allow_negative = req
-        .allow_negative
-        .map(flag_to_i16)
-        .unwrap_or(current.allow_negative);
+    let allow_negative = req.allow_negative.map(flag_to_i16).unwrap_or(current.allow_negative);
     let address = match req.address {
         None => current.address.clone(),
         Some(value) => value,
@@ -804,9 +759,7 @@ pub async fn warehouse_delete(
     permission = "business:erp:location:list"
 )]
 #[nik::get("/business/erp/location/page")]
-pub async fn location_page(
-    Query(filter): Query<LocationFilter>,
-) -> ResResult<PageData<Vec<LocationRes>>> {
+pub async fn location_page(Query(filter): Query<LocationFilter>) -> ResResult<PageData<Vec<LocationRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::location_page(&filter)
@@ -897,11 +850,7 @@ pub async fn location_create(
         vec![
             Value::from(&id),
             Value::from(req.location_code.trim().to_string()),
-            Value::from(
-                req.location_name
-                    .clone()
-                    .map(|text| text.trim().to_string()),
-            ),
+            Value::from(req.location_name.clone().map(|text| text.trim().to_string())),
             Value::from(&warehouse_id),
             Value::from(req.location_type.clone()),
             Value::I16(flag_to_i16(req.is_default)),
@@ -947,13 +896,8 @@ pub async fn location_update(
         None => current.location_name.clone(),
         Some(value) => value.map(|text| text.trim().to_string()),
     };
-    let location_type = req
-        .location_type
-        .unwrap_or_else(|| current.location_type.clone());
-    let is_default = req
-        .is_default
-        .map(flag_to_i16)
-        .unwrap_or(current.is_default);
+    let location_type = req.location_type.unwrap_or_else(|| current.location_type.clone());
+    let is_default = req.is_default.map(flag_to_i16).unwrap_or(current.is_default);
     let capacity = match req.capacity {
         None => current.capacity,
         Some(value) => value,
@@ -1041,9 +985,7 @@ pub async fn location_delete(
     permission = "business:erp:material:list"
 )]
 #[nik::get("/business/erp/material/page")]
-pub async fn material_page(
-    Query(filter): Query<MaterialFilter>,
-) -> ResResult<PageData<Vec<MaterialRes>>> {
+pub async fn material_page(Query(filter): Query<MaterialFilter>) -> ResResult<PageData<Vec<MaterialRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::material_page(&filter)
@@ -1125,9 +1067,7 @@ pub async fn material_create(
     permission = "business:erp:material:create"
 )]
 #[nik::get("/business/erp/material/next-code")]
-pub async fn material_next_code(
-    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
-) -> ResResult<serde_json::Value> {
+pub async fn material_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<serde_json::Value> {
     let code = preview_material_code().await?;
     Ok(Res::ok(json!({ "code": code })))
 }
@@ -1173,10 +1113,7 @@ pub async fn create_material(
     req.validate()?;
     // ① 手工编码：有值就保留（先去重，给出「编码 XXX 已存在」的人话错误）
     // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
-    code_policy::guard_manual(
-        code_policy::allow_manual_code().await,
-        req.material_code.as_deref(),
-    )?;
+    code_policy::guard_manual(code_policy::allow_manual_code().await, req.material_code.as_deref())?;
     let manual = seq::resolve_manual_code(req.material_code.as_deref(), seq::MAX_MANUAL_CODE_LEN)
         .map_err(|reason| param_invalid(format!("material_code 不合法：{reason}")))?;
     if let Some(code) = manual.as_deref() {
@@ -1342,12 +1279,7 @@ pub async fn material_update(
         None => current.spec.clone(),
         Some(value) => value,
     };
-    let unit_id = match req
-        .unit_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let unit_id = match req.unit_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => parse_uuid(raw, "unit_id")?,
         None => current.unit_id,
     };
@@ -1359,9 +1291,7 @@ pub async fn material_update(
         .map_err(|error| utils::db_error(error, "查询计量单位"))?
         .ok_or_else(|| reference_missing("计量单位不存在或已删除"))?;
     unit_guard::ensure_material_unit_is_base(unit.is_base, &unit.unit_name)?;
-    let material_type = req
-        .material_type
-        .unwrap_or_else(|| current.material_type.clone());
+    let material_type = req.material_type.unwrap_or_else(|| current.material_type.clone());
     let default_warehouse_id = match req.default_warehouse_id {
         None => current.default_warehouse_id,
         Some(None) => None,
@@ -1375,9 +1305,7 @@ pub async fn material_update(
         }
     };
     let safety_stock = req.safety_stock.unwrap_or(current.safety_stock);
-    let costing_method = req
-        .costing_method
-        .unwrap_or_else(|| current.costing_method.clone());
+    let costing_method = req.costing_method.unwrap_or_else(|| current.costing_method.clone());
     let inventory_account_id = match req.inventory_account_id {
         None => current.inventory_account_id,
         Some(None) => None,
@@ -1394,11 +1322,8 @@ pub async fn material_update(
     //         缺席就整列不写：库里已是百分数口径（V0327 迁过），再归一一次会把 0.5% 放大成 50%。
     let (tax_clause, tax_params) = match req.tax_rate {
         Some(rate) => {
-            let normalized = tax_rate_mod::normalize_with_mode(
-                rate,
-                tax_rate_mod::TaxRateMode::Legacy,
-                "物料 tax_rate",
-            )?;
+            let normalized =
+                tax_rate_mod::normalize_with_mode(rate, tax_rate_mod::TaxRateMode::Legacy, "物料 tax_rate")?;
             (
                 // 参数是 Text（`normalized.percent.to_string()`）：**必须先 `::text` 再 `::numeric`**。
                 // 直接 `?::numeric` 会让库把占位符推断成 numeric，canal 序列化 Text 失败 →
@@ -1415,10 +1340,7 @@ pub async fn material_update(
     let status = req.status.unwrap_or(current.status);
     // 一物一码开关：缺席 = 不改（不是「关掉」），与其余可选字段同口径。
     let (serial_clause, serial_param) = match req.serial_required {
-        Some(flag) => (
-            " serial_required = ?, ".to_string(),
-            Some(Value::from(flag)),
-        ),
+        Some(flag) => (" serial_required = ?, ".to_string(), Some(Value::from(flag))),
         None => (String::new(), None),
     };
     let remark = match req.remark {
@@ -1538,12 +1460,7 @@ pub async fn unit_create(
     Json(req): Json<CreateUnitReq>,
 ) -> ResResult<UnitRes> {
     req.validate()?;
-    let base_unit_id = match req
-        .base_unit_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let base_unit_id = match req.base_unit_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => {
             let base_id = parse_uuid(raw, "base_unit_id")?;
             model::unit_find_by_id(base_id)
@@ -1557,32 +1474,31 @@ pub async fn unit_create(
     let rate = req.rate.unwrap_or(Decimal::ONE);
     let precision = req.precision.unwrap_or(0);
     let id = Uuid::now_v7();
-    db()
-        .execute_with_params(
-            "INSERT INTO biz_unit \
+    db().execute_with_params(
+        "INSERT INTO biz_unit \
              (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order, remark, \
               is_system, precision, created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::numeric, ?, ?, ?, \
                      false, ?, now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
-            vec![
-                Value::from(&id),
-                Value::from(req.unit_code.trim().to_string()),
-                Value::from(req.unit_name.trim().to_string()),
-                Value::I16(flag_to_i16(req.is_base)),
-                uuid_text(base_unit_id),
-                Value::Text(rate.to_string()),
-                Value::I16(req.status),
-                Value::I32(req.sort_order),
-                Value::from(req.remark.clone()),
-                // precision（0–6）：客户自建单位缺省 0 位小数。
-                // is_system 恒为 false，写成 SQL 里的常量（接口不给这个开关，预置只由迁移种下）。
-                Value::I16(precision),
-                operator_of(&claims),
-                operator_of(&claims),
-            ],
-        )
-        .await
-        .map_err(|error| write_error(error, "新建计量单位"))?;
+        vec![
+            Value::from(&id),
+            Value::from(req.unit_code.trim().to_string()),
+            Value::from(req.unit_name.trim().to_string()),
+            Value::I16(flag_to_i16(req.is_base)),
+            uuid_text(base_unit_id),
+            Value::Text(rate.to_string()),
+            Value::I16(req.status),
+            Value::I32(req.sort_order),
+            Value::from(req.remark.clone()),
+            // precision（0–6）：客户自建单位缺省 0 位小数。
+            // is_system 恒为 false，写成 SQL 里的常量（接口不给这个开关，预置只由迁移种下）。
+            Value::I16(precision),
+            operator_of(&claims),
+            operator_of(&claims),
+        ],
+    )
+    .await
+    .map_err(|error| write_error(error, "新建计量单位"))?;
     let row = model::unit_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读新建计量单位"))?
@@ -1658,27 +1574,26 @@ pub async fn unit_update(
         Some(value) => value,
     };
     let precision = req.precision.unwrap_or(current.precision);
-    db()
-        .execute_with_params(
-            "UPDATE biz_unit SET unit_name = ?, is_base = ?, base_unit_id = NULLIF(?::text,'')::uuid, \
+    db().execute_with_params(
+        "UPDATE biz_unit SET unit_name = ?, is_base = ?, base_unit_id = NULLIF(?::text,'')::uuid, \
              rate = NULLIF(?::text,'')::numeric, status = ?, sort_order = ?, remark = ?, precision = ?, \
              updated_at = now(), \
              update_by = NULLIF(?::text,'')::uuid WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![
-                Value::from(unit_name),
-                Value::I16(is_base),
-                uuid_text(base_unit_id),
-                Value::Text(rate.to_string()),
-                Value::I16(status),
-                Value::I32(sort_order),
-                Value::from(remark),
-                Value::I16(precision),
-                operator_of(&claims),
-                Value::from(&id),
-            ],
-        )
-        .await
-        .map_err(|error| write_error(error, "编辑计量单位"))?;
+        vec![
+            Value::from(unit_name),
+            Value::I16(is_base),
+            uuid_text(base_unit_id),
+            Value::Text(rate.to_string()),
+            Value::I16(status),
+            Value::I32(sort_order),
+            Value::from(remark),
+            Value::I16(precision),
+            operator_of(&claims),
+            Value::from(&id),
+        ],
+    )
+    .await
+    .map_err(|error| write_error(error, "编辑计量单位"))?;
     let row = model::unit_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读计量单位"))?
@@ -1753,9 +1668,7 @@ pub async fn unit_delete(
     permission = "business:erp:supplier:list"
 )]
 #[nik::get("/business/erp/supplier/page")]
-pub async fn supplier_page(
-    Query(filter): Query<SupplierFilter>,
-) -> ResResult<PageData<Vec<SupplierRes>>> {
+pub async fn supplier_page(Query(filter): Query<SupplierFilter>) -> ResResult<PageData<Vec<SupplierRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::supplier_page(&filter)
@@ -1781,9 +1694,7 @@ pub async fn supplier_page(
     permission = "business:erp:supplier:create"
 )]
 #[nik::get("/business/erp/supplier/next-code")]
-pub async fn supplier_next_code(
-    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
-) -> ResResult<serde_json::Value> {
+pub async fn supplier_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<serde_json::Value> {
     let code = preview_supplier_code().await?;
     Ok(Res::ok(json!({ "code": code })))
 }
@@ -2031,42 +1942,38 @@ pub async fn supplier_update(
     };
     let invoice_title = text_or(req.invoice_title, current.invoice_title.clone());
     let invoice_bank_name = text_or(req.invoice_bank_name, current.invoice_bank_name.clone());
-    let invoice_bank_account = text_or(
-        req.invoice_bank_account,
-        current.invoice_bank_account.clone(),
-    );
+    let invoice_bank_account = text_or(req.invoice_bank_account, current.invoice_bank_account.clone());
     let status = req.status.unwrap_or(current.status);
     let remark = text_or(req.remark, current.remark.clone());
-    db()
-        .execute_with_params(
-            "UPDATE biz_supplier SET supplier_name = ?, short_name = ?, contact_person = ?, \
+    db().execute_with_params(
+        "UPDATE biz_supplier SET supplier_name = ?, short_name = ?, contact_person = ?, \
              contact_phone = ?, email = ?, tax_no = ?, address = ?, credit_days = ?, \
              credit_limit = NULLIF(?::text,'')::numeric, payable_account_id = NULLIF(?::text,'')::uuid, \
              invoice_title = ?, invoice_bank_name = ?, invoice_bank_account = ?, status = ?, \
              remark = ?, updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
              WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![
-                Value::from(supplier_name),
-                Value::from(short_name),
-                Value::from(contact_person),
-                Value::from(contact_phone),
-                Value::from(email),
-                Value::from(tax_no),
-                Value::from(address),
-                Value::I32(credit_days),
-                Value::Text(credit_limit.to_string()),
-                uuid_text(payable_account_id),
-                Value::from(invoice_title),
-                Value::from(invoice_bank_name),
-                Value::from(invoice_bank_account),
-                Value::I16(status),
-                Value::from(remark),
-                operator_of(&claims),
-                Value::from(&id),
-            ],
-        )
-        .await
-        .map_err(|error| write_error(error, "编辑供应商"))?;
+        vec![
+            Value::from(supplier_name),
+            Value::from(short_name),
+            Value::from(contact_person),
+            Value::from(contact_phone),
+            Value::from(email),
+            Value::from(tax_no),
+            Value::from(address),
+            Value::I32(credit_days),
+            Value::Text(credit_limit.to_string()),
+            uuid_text(payable_account_id),
+            Value::from(invoice_title),
+            Value::from(invoice_bank_name),
+            Value::from(invoice_bank_account),
+            Value::I16(status),
+            Value::from(remark),
+            operator_of(&claims),
+            Value::from(&id),
+        ],
+    )
+    .await
+    .map_err(|error| write_error(error, "编辑供应商"))?;
     let row = model::supplier_find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "回读供应商"))?
@@ -2109,9 +2016,7 @@ pub async fn supplier_delete(
     permission = "business:erp:account:list"
 )]
 #[nik::get("/business/erp/account/page")]
-pub async fn account_page(
-    Query(filter): Query<AccountFilter>,
-) -> ResResult<PageData<Vec<AccountRes>>> {
+pub async fn account_page(Query(filter): Query<AccountFilter>) -> ResResult<PageData<Vec<AccountRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::account_page(&filter)
@@ -2144,9 +2049,7 @@ pub async fn account_detail(Path(id): Path<String>) -> ResResult<AccountRes> {
     permission = "business:erp:period:list"
 )]
 #[nik::get("/business/erp/period/page")]
-pub async fn period_page(
-    Query(filter): Query<PeriodFilter>,
-) -> ResResult<PageData<Vec<PeriodRes>>> {
+pub async fn period_page(Query(filter): Query<PeriodFilter>) -> ResResult<PageData<Vec<PeriodRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::period_page(&filter)
@@ -2247,16 +2150,11 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
         .ok_or_else(|| not_found("采购订单"))?;
     let mut res = PurchaseOrderRes::from(&row);
     crate::business::erp::purchase_handler::fill_approval_no(std::slice::from_mut(&mut res)).await;
-    crate::business::erp::purchase_handler::fill_supplier_names(std::slice::from_mut(&mut res))
-        .await;
+    crate::business::erp::purchase_handler::fill_supplier_names(std::slice::from_mut(&mut res)).await;
     // P2-8：详情同样回填项目名（关联查现值，口径见 fill_project_names）
-    crate::business::erp::purchase_handler::fill_project_names(std::slice::from_mut(&mut res))
-        .await;
+    crate::business::erp::purchase_handler::fill_project_names(std::slice::from_mut(&mut res)).await;
     // P2-9：详情要**现值**（仓库改名后点进来看到现在的名字），快照另行下发
-    crate::business::erp::purchase_handler::fill_warehouse_name_current(std::slice::from_mut(
-        &mut res,
-    ))
-    .await;
+    crate::business::erp::purchase_handler::fill_warehouse_name_current(std::slice::from_mut(&mut res)).await;
     // FIX-2 ①：预算尚未生效的提示（草稿 / 审批中 / 未到生效日），只提示不阻断
     res.budget_warnings = crate::business::erp::purchase_handler::budget_warnings_of(&row).await;
     Ok(Res::ok(res))
@@ -2304,9 +2202,7 @@ pub async fn purchase_order_item_detail(Path(id): Path<String>) -> ResResult<Pur
     permission = "business:erp:inventory:list"
 )]
 #[nik::get("/business/erp/inventory/page")]
-pub async fn inventory_page(
-    Query(filter): Query<InventoryFilter>,
-) -> ResResult<PageData<Vec<InventoryRes>>> {
+pub async fn inventory_page(Query(filter): Query<InventoryFilter>) -> ResResult<PageData<Vec<InventoryRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::inventory_page(&filter)
@@ -2361,17 +2257,11 @@ pub async fn inventory_location_page(
 #[nik::get("/business/erp/inventory-location/{id}")]
 pub async fn inventory_location_detail(Path(id): Path<String>) -> ResResult<InventoryLocationRes> {
     let id = parse_uuid(&id, "id")?;
-    let row = find_row(
-        "biz_inventory_location",
-        model::INVENTORY_LOCATION_COLUMNS,
-        id,
-        false,
-    )
-    .await?
-    .ok_or_else(|| not_found("库位库存行"))?;
+    let row = find_row("biz_inventory_location", model::INVENTORY_LOCATION_COLUMNS, id, false)
+        .await?
+        .ok_or_else(|| not_found("库位库存行"))?;
     Ok(Res::ok(InventoryLocationRes::from(
-        &InventoryLocationRow::from_row(&row)
-            .map_err(|error| utils::db_error(error, "解析库位库存行"))?,
+        &InventoryLocationRow::from_row(&row).map_err(|error| utils::db_error(error, "解析库位库存行"))?,
     )))
 }
 
@@ -2382,9 +2272,7 @@ pub async fn inventory_location_detail(Path(id): Path<String>) -> ResResult<Inve
     permission = "business:erp:inventory-txn:list"
 )]
 #[nik::get("/business/erp/inventory-txn/page")]
-pub async fn inventory_txn_page(
-    Query(filter): Query<InventoryTxnFilter>,
-) -> ResResult<PageData<Vec<InventoryTxnRes>>> {
+pub async fn inventory_txn_page(Query(filter): Query<InventoryTxnFilter>) -> ResResult<PageData<Vec<InventoryTxnRes>>> {
     let page = filter.page;
     let page_size = filter.page_size;
     let (rows, total) = model::inventory_txn_page(&filter)
@@ -2530,19 +2418,13 @@ mod tests {
         // 3 码制的两个实体：不允许出现 detail / delete 码（卡面只给 3 个）
         for entity in ["unit", "supplier"] {
             let prefix = format!("business:erp:{entity}:");
-            let count = codes
-                .iter()
-                .filter(|code| code.starts_with(&prefix))
-                .count();
+            let count = codes.iter().filter(|code| code.starts_with(&prefix)).count();
             assert_eq!(count, 3, "{entity} 是 3 码制");
         }
         // 5 码制的三个主力表
         for entity in ["warehouse", "location", "material"] {
             let prefix = format!("business:erp:{entity}:");
-            let count = codes
-                .iter()
-                .filter(|code| code.starts_with(&prefix))
-                .count();
+            let count = codes.iter().filter(|code| code.starts_with(&prefix)).count();
             assert_eq!(count, 5, "{entity} 是 5 码制");
         }
     }
@@ -2575,10 +2457,7 @@ mod tests {
         // 上界（model 的 path_prefix_upper）必须覆盖全部后代
         let upper = model::path_prefix_upper(&parent.warehouse_path);
         assert!(child.as_str() >= parent.warehouse_path.as_str());
-        assert!(
-            child.as_str() < upper.as_str(),
-            "子树必须落在 [path, upper) 区间内"
-        );
+        assert!(child.as_str() < upper.as_str(), "子树必须落在 [path, upper) 区间内");
     }
 
     /// ④ 三层树组装：查全 3 层、子节点归位、顶级只有 1 个。
@@ -2593,18 +2472,14 @@ mod tests {
         let mut sub = sample_warehouse(&format!("/{root_id}/{sub_id}/"), 2, Some(root_id));
         sub.id = sub_id;
         sub.warehouse_code = "W1C-T-SUB".to_string();
-        let mut leaf =
-            sample_warehouse(&format!("/{root_id}/{sub_id}/{leaf_id}/"), 3, Some(sub_id));
+        let mut leaf = sample_warehouse(&format!("/{root_id}/{sub_id}/{leaf_id}/"), 3, Some(sub_id));
         leaf.id = leaf_id;
         leaf.warehouse_code = "W1C-T-LEAF".to_string();
         let tree = assemble_tree(&[root, sub, leaf]);
         assert_eq!(tree.len(), 1, "只有一个顶级");
         assert_eq!(tree[0].children.len(), 1, "第 2 层 1 个");
         assert_eq!(tree[0].children[0].children.len(), 1, "第 3 层 1 个");
-        assert!(
-            tree[0].children[0].children[0].children.is_empty(),
-            "第 3 层是叶子"
-        );
+        assert!(tree[0].children[0].children[0].children.is_empty(), "第 3 层是叶子");
     }
 
     /// ④b 子树查询：根节点的父不在返回集合里 → 必须提升为根，不许静默丢节点。
@@ -2614,17 +2489,9 @@ mod tests {
         let root_id = Uuid::now_v7();
         let child_id = Uuid::now_v7();
         // 根：parent_id 指向集合外的 outer_parent（root_id 查询的典型形态）
-        let mut root = sample_warehouse(
-            &format!("/{outer_parent}/{root_id}/"),
-            2,
-            Some(outer_parent),
-        );
+        let mut root = sample_warehouse(&format!("/{outer_parent}/{root_id}/"), 2, Some(outer_parent));
         root.id = root_id;
-        let mut child = sample_warehouse(
-            &format!("/{outer_parent}/{root_id}/{child_id}/"),
-            3,
-            Some(root_id),
-        );
+        let mut child = sample_warehouse(&format!("/{outer_parent}/{root_id}/{child_id}/"), 3, Some(root_id));
         child.id = child_id;
         let tree = assemble_tree(&[root, child]);
         assert_eq!(tree.len(), 1, "父不在集合内的节点必须是根，不能消失");
@@ -2691,11 +2558,7 @@ mod tests {
         );
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_CODE_CONFLICT);
-        assert!(
-            error.msg.contains("uk_biz_unit_code"),
-            "文案要带约束名：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("uk_biz_unit_code"), "文案要带约束名：{}", error.msg);
         // CHECK 兜底 → 400（不是 500）
         let error = write_error(
             DbError::CheckViolation {
@@ -2722,17 +2585,11 @@ mod tests {
         assert!(!source.contains(&physical), "ERP 写路径不得出现物理删除");
         let soft = ["SET", "deleted_at", "=", "now()"].join(" ");
         let count = source.matches(&soft).count();
-        assert!(
-            count >= 5,
-            "5 张可写主数据表都要有软删语句，实测只有 {count} 处"
-        );
+        assert!(count >= 5, "5 张可写主数据表都要有软删语句，实测只有 {count} 处");
         // 三张 5 码制表的 DELETE 端点必须真的写过 deleted_at（防止有人改成物理删）
         for table in ["biz_warehouse", "biz_location", "biz_material"] {
             let marker = format!("UPDATE {table} {soft}");
-            assert!(
-                source.contains(&marker),
-                "{table} 的删除必须走软删（找不到：{marker}）"
-            );
+            assert!(source.contains(&marker), "{table} 的删除必须走软删（找不到：{marker}）");
         }
     }
 
@@ -2747,9 +2604,7 @@ mod tests {
         let unique: std::collections::BTreeSet<_> = routes.iter().collect();
         assert_eq!(unique.len(), routes.len(), "特殊查询路径不得重复");
         assert!(
-            routes
-                .iter()
-                .all(|route| route.starts_with("/business/erp/")),
+            routes.iter().all(|route| route.starts_with("/business/erp/")),
             "路径前缀统一"
         );
         // 下拉上限必须落在分页归一化的合法区间内；用运行时比较，别写成常量断言
@@ -2818,10 +2673,7 @@ mod tests {
 
     /// 每次运行都不同的编码（一次性库也怕重跑撞唯一索引）。
     fn code(prefix: &str) -> String {
-        format!(
-            "W1C-{prefix}-{}",
-            &Uuid::now_v7().simple().to_string()[..10]
-        )
+        format!("W1C-{prefix}-{}", &Uuid::now_v7().simple().to_string()[..10])
     }
 
     /// 物理删掉本用例造的行（真库用例外不留痕；业务接口走的是软删）。
@@ -2964,10 +2816,7 @@ mod tests {
                 .expect("折算单位"),
         );
         let id = Uuid::parse_str(&created.id).unwrap();
-        assert_eq!(
-            created.base_unit_id.as_deref(),
-            Some(base_id.to_string().as_str())
-        );
+        assert_eq!(created.base_unit_id.as_deref(), Some(base_id.to_string().as_str()));
 
         let update = UpdateUnitReq {
             unit_name: Some("W1C 箱（改名）".to_string()),
@@ -2979,13 +2828,9 @@ mod tests {
             precision: None,
         };
         let updated = data(
-            unit_update(
-                Extension(AuthClaims(claims())),
-                Path(id.to_string()),
-                Json(update),
-            )
-            .await
-            .expect("编辑单位"),
+            unit_update(Extension(AuthClaims(claims())), Path(id.to_string()), Json(update))
+                .await
+                .expect("编辑单位"),
         );
         assert_eq!(updated.unit_name, "W1C 箱（改名）");
         assert!(updated.is_base, "清空 base_unit_id 后应变成基础单位");
@@ -3022,9 +2867,7 @@ mod tests {
             .await
             .expect("删除单位");
 
-        let error = unit_detail(Path(id.to_string()))
-            .await
-            .expect_err("删后详情必须 404");
+        let error = unit_detail(Path(id.to_string())).await.expect_err("删后详情必须 404");
         assert_eq!(error.status, 404);
         assert_eq!(error.code, error_code::RESOURCE_NOT_FOUND);
 
@@ -3348,10 +3191,7 @@ mod tests {
         assert_eq!(root_node.children.len(), 1);
         assert_eq!(root_node.children[0].node.id, sub_id.to_string());
         assert_eq!(root_node.children[0].children.len(), 1);
-        assert_eq!(
-            root_node.children[0].children[0].node.id,
-            leaf_id.to_string()
-        );
+        assert_eq!(root_node.children[0].children[0].node.id, leaf_id.to_string());
 
         let subtree = data(
             warehouse_tree(Query(WarehouseTreeQuery {
@@ -3540,10 +3380,7 @@ mod tests {
 
         let first_row = model::location_find_by_id(first_id).await.unwrap().unwrap();
         assert_eq!(first_row.is_default, 0, "旧默认位必须被清掉");
-        let second_row = model::location_find_by_id(second_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let second_row = model::location_find_by_id(second_id).await.unwrap().unwrap();
         assert_eq!(second_row.is_default, 1);
 
         hard_delete("biz_location", first_id).await;
@@ -3665,12 +3502,9 @@ mod tests {
         assert!(updated.spec.is_none());
 
         // 软删 → 详情 404
-        material_delete(
-            Extension(AuthClaims(claims())),
-            Path(material_id.to_string()),
-        )
-        .await
-        .expect("删物料");
+        material_delete(Extension(AuthClaims(claims())), Path(material_id.to_string()))
+            .await
+            .expect("删物料");
         let error = material_detail(Path(material_id.to_string()))
             .await
             .expect_err("删后详情 404");
@@ -3811,9 +3645,7 @@ mod tests {
         assert_eq!(error.status, 400, "{}", error.msg);
         assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
         assert!(
-            error
-                .msg
-                .contains("本版本单据不支持多单位换算（当前「W1C 箱」）"),
+            error.msg.contains("本版本单据不支持多单位换算（当前「W1C 箱」）"),
             "{}",
             error.msg
         );
@@ -4019,14 +3851,8 @@ mod tests {
             by_none.supplier_code
         );
         let id = Uuid::parse_str(&by_none.id).expect("id");
-        let row = model::supplier_find_by_id(id)
-            .await
-            .expect("回读")
-            .expect("行存在");
-        assert_eq!(
-            row.supplier_code, by_none.supplier_code,
-            "自动编码必须真落库"
-        );
+        let row = model::supplier_find_by_id(id).await.expect("回读").expect("行存在");
+        assert_eq!(row.supplier_code, by_none.supplier_code, "自动编码必须真落库");
 
         let by_empty = create_supplier(None, supplier_req(Some(""), "自动编码供应商（空串）"))
             .await
@@ -4036,10 +3862,7 @@ mod tests {
             "{}",
             by_empty.supplier_code
         );
-        assert_ne!(
-            by_empty.supplier_code, by_none.supplier_code,
-            "两次自动取号不得同号"
-        );
+        assert_ne!(by_empty.supplier_code, by_none.supplier_code, "两次自动取号不得同号");
 
         let by_blank = create_supplier(None, supplier_req(Some("   "), "自动编码供应商（空白）"))
             .await
@@ -4049,10 +3872,7 @@ mod tests {
             "{}",
             by_blank.supplier_code
         );
-        assert_ne!(
-            by_blank.supplier_code, by_empty.supplier_code,
-            "三次自动取号两两不同"
-        );
+        assert_ne!(by_blank.supplier_code, by_empty.supplier_code, "三次自动取号两两不同");
 
         for created in [by_none, by_empty, by_blank] {
             hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
@@ -4064,16 +3884,10 @@ mod tests {
     async fn supplier_manual_code_is_preserved() {
         let Some(_guard) = setup().await else { return };
         let manual = "W1C-GYS-001";
-        let created = create_supplier(
-            None,
-            supplier_req(Some(&format!("  {manual}  ")), "手工编码供应商"),
-        )
-        .await
-        .expect("手工编码应保留");
-        assert_eq!(
-            created.supplier_code, manual,
-            "手工编码只 trim，不改成 SUP-xxx"
-        );
+        let created = create_supplier(None, supplier_req(Some(&format!("  {manual}  ")), "手工编码供应商"))
+            .await
+            .expect("手工编码应保留");
+        assert_eq!(created.supplier_code, manual, "手工编码只 trim，不改成 SUP-xxx");
 
         hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
     }
@@ -4113,11 +3927,7 @@ mod tests {
             .expect_err("重复手工编码必须被拒");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            error.msg.contains(&manual),
-            "错误文案要点名具体编码：{}",
-            error.msg
-        );
+        assert!(error.msg.contains(&manual), "错误文案要点名具体编码：{}", error.msg);
 
         hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
     }
@@ -4128,10 +3938,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
 
         let first = preview_supplier_code().await.expect("预览应成功");
-        assert!(
-            is_auto_code(&first, "SUP"),
-            "预览必须是 SUP-0001 形态，实际 {first}"
-        );
+        assert!(is_auto_code(&first, "SUP"), "预览必须是 SUP-0001 形态，实际 {first}");
         let second = preview_supplier_code().await.expect("再预览应成功");
         assert_eq!(
             first, second,
@@ -4175,11 +3982,7 @@ mod tests {
             .expect_err("已占用的编码必须被拒");
         assert_eq!(conflict.status, 409);
         assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            conflict.msg.contains(&previewed),
-            "文案要点名编码：{}",
-            conflict.msg
-        );
+        assert!(conflict.msg.contains(&previewed), "文案要点名编码：{}", conflict.msg);
 
         hard_delete("biz_supplier", Uuid::parse_str(&created.id).expect("id")).await;
     }
@@ -4239,12 +4042,8 @@ mod tests {
     #[tokio::test]
     async fn readonly_ledgers_are_pageable() {
         let Some(_guard) = setup().await else { return };
-        account_page(Query(AccountFilter::default()))
-            .await
-            .expect("科目");
-        period_page(Query(PeriodFilter::default()))
-            .await
-            .expect("期间");
+        account_page(Query(AccountFilter::default())).await.expect("科目");
+        period_page(Query(PeriodFilter::default())).await.expect("期间");
         seq_page(Query(SeqFilter::default())).await.expect("序列");
         purchase_order_page(Query(PurchaseOrderFilter::default()))
             .await
@@ -4252,9 +4051,7 @@ mod tests {
         purchase_order_item_page(Query(PurchaseOrderItemFilter::default()))
             .await
             .expect("采购明细");
-        inventory_page(Query(InventoryFilter::default()))
-            .await
-            .expect("库存");
+        inventory_page(Query(InventoryFilter::default())).await.expect("库存");
         inventory_location_page(Query(InventoryLocationFilter::default()))
             .await
             .expect("库位库存");
@@ -4270,21 +4067,13 @@ mod tests {
         let missing = Uuid::now_v7().to_string();
         for outcome in [
             inventory_detail(Path(missing.clone())).await.map(|_| ()),
-            inventory_location_detail(Path(missing.clone()))
-                .await
-                .map(|_| ()),
-            inventory_txn_detail(Path(missing.clone()))
-                .await
-                .map(|_| ()),
+            inventory_location_detail(Path(missing.clone())).await.map(|_| ()),
+            inventory_txn_detail(Path(missing.clone())).await.map(|_| ()),
             account_detail(Path(missing.clone())).await.map(|_| ()),
             period_detail(Path(missing.clone())).await.map(|_| ()),
             seq_detail(Path(missing.clone())).await.map(|_| ()),
-            purchase_order_detail(Path(missing.clone()))
-                .await
-                .map(|_| ()),
-            purchase_order_item_detail(Path(missing.clone()))
-                .await
-                .map(|_| ()),
+            purchase_order_detail(Path(missing.clone())).await.map(|_| ()),
+            purchase_order_item_detail(Path(missing.clone())).await.map(|_| ()),
         ] {
             let error = outcome.expect_err("不存在的 id 必须 404");
             assert_eq!(error.status, 404);
@@ -4406,46 +4195,28 @@ mod tests {
             by_none.material_code
         );
         let id = Uuid::parse_str(&by_none.id).expect("id");
-        let row = model::material_find_by_id(id)
-            .await
-            .expect("回读")
-            .expect("行存在");
-        assert_eq!(
-            row.material_code, by_none.material_code,
-            "自动编码必须真落库"
-        );
+        let row = model::material_find_by_id(id).await.expect("回读").expect("行存在");
+        assert_eq!(row.material_code, by_none.material_code, "自动编码必须真落库");
 
-        let by_empty = create_material(
-            None,
-            material_req(Some(""), &unit_id, "自动编码物料（空串）"),
-        )
-        .await
-        .expect("空串应自动取号");
+        let by_empty = create_material(None, material_req(Some(""), &unit_id, "自动编码物料（空串）"))
+            .await
+            .expect("空串应自动取号");
         assert!(
             is_auto_code(&by_empty.material_code, "MAT"),
             "{}",
             by_empty.material_code
         );
-        assert_ne!(
-            by_empty.material_code, by_none.material_code,
-            "两次自动取号不得同号"
-        );
+        assert_ne!(by_empty.material_code, by_none.material_code, "两次自动取号不得同号");
 
-        let by_blank = create_material(
-            None,
-            material_req(Some("   "), &unit_id, "自动编码物料（空白）"),
-        )
-        .await
-        .expect("纯空白应自动取号");
+        let by_blank = create_material(None, material_req(Some("   "), &unit_id, "自动编码物料（空白）"))
+            .await
+            .expect("纯空白应自动取号");
         assert!(
             is_auto_code(&by_blank.material_code, "MAT"),
             "{}",
             by_blank.material_code
         );
-        assert_ne!(
-            by_blank.material_code, by_empty.material_code,
-            "三次自动取号两两不同"
-        );
+        assert_ne!(by_blank.material_code, by_empty.material_code, "三次自动取号两两不同");
 
         for created in [by_none, by_empty, by_blank] {
             hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
@@ -4465,10 +4236,7 @@ mod tests {
         )
         .await
         .expect("手工编码应保留");
-        assert_eq!(
-            created.material_code, manual,
-            "手工编码只 trim，不改成 MAT-xxx"
-        );
+        assert_eq!(created.material_code, manual, "手工编码只 trim，不改成 MAT-xxx");
 
         hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
         hard_delete("biz_unit", unit_id).await;
@@ -4504,25 +4272,15 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let unit_id = base_unit("MATD").await;
         let manual = code("MATDUP");
-        let created = create_material(
-            None,
-            material_req(Some(&manual), &unit_id, "重复编码物料一号"),
-        )
-        .await
-        .expect("首次创建应成功");
-        let error = create_material(
-            None,
-            material_req(Some(&manual), &unit_id, "重复编码物料二号"),
-        )
-        .await
-        .expect_err("重复手工编码必须被拒");
+        let created = create_material(None, material_req(Some(&manual), &unit_id, "重复编码物料一号"))
+            .await
+            .expect("首次创建应成功");
+        let error = create_material(None, material_req(Some(&manual), &unit_id, "重复编码物料二号"))
+            .await
+            .expect_err("重复手工编码必须被拒");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            error.msg.contains(&manual),
-            "错误文案要点名具体编码：{}",
-            error.msg
-        );
+        assert!(error.msg.contains(&manual), "错误文案要点名具体编码：{}", error.msg);
 
         hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
         hard_delete("biz_unit", unit_id).await;
@@ -4542,42 +4300,22 @@ mod tests {
             by_none.warehouse_code
         );
         let id = Uuid::parse_str(&by_none.id).expect("id");
-        let row = model::warehouse_find_by_id(id)
-            .await
-            .expect("回读")
-            .expect("行存在");
-        assert_eq!(
-            row.warehouse_code, by_none.warehouse_code,
-            "自动编码必须真落库"
-        );
+        let row = model::warehouse_find_by_id(id).await.expect("回读").expect("行存在");
+        assert_eq!(row.warehouse_code, by_none.warehouse_code, "自动编码必须真落库");
         assert_eq!(row.level, 1, "自动编码不影响层级推导");
         assert_eq!(row.warehouse_path, format!("/{id}/"));
 
         let by_empty = create_warehouse(None, warehouse_req(Some(""), "自动编码仓库（空串）"))
             .await
             .expect("空串应自动取号");
-        assert!(
-            is_auto_wh_code(&by_empty.warehouse_code),
-            "{}",
-            by_empty.warehouse_code
-        );
-        assert_ne!(
-            by_empty.warehouse_code, by_none.warehouse_code,
-            "两次自动取号不得同号"
-        );
+        assert!(is_auto_wh_code(&by_empty.warehouse_code), "{}", by_empty.warehouse_code);
+        assert_ne!(by_empty.warehouse_code, by_none.warehouse_code, "两次自动取号不得同号");
 
         let by_blank = create_warehouse(None, warehouse_req(Some("   "), "自动编码仓库（空白）"))
             .await
             .expect("纯空白应自动取号");
-        assert!(
-            is_auto_wh_code(&by_blank.warehouse_code),
-            "{}",
-            by_blank.warehouse_code
-        );
-        assert_ne!(
-            by_blank.warehouse_code, by_empty.warehouse_code,
-            "三次自动取号两两不同"
-        );
+        assert!(is_auto_wh_code(&by_blank.warehouse_code), "{}", by_blank.warehouse_code);
+        assert_ne!(by_blank.warehouse_code, by_empty.warehouse_code, "三次自动取号两两不同");
 
         for created in [by_none, by_empty, by_blank] {
             hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
@@ -4589,16 +4327,10 @@ mod tests {
     async fn warehouse_manual_code_is_preserved() {
         let Some(_guard) = setup().await else { return };
         let manual = "W1C-CK-01";
-        let created = create_warehouse(
-            None,
-            warehouse_req(Some(&format!("  {manual}  ")), "手工编码仓库"),
-        )
-        .await
-        .expect("手工编码应保留");
-        assert_eq!(
-            created.warehouse_code, manual,
-            "手工编码只 trim，不改成 WH-xx"
-        );
+        let created = create_warehouse(None, warehouse_req(Some(&format!("  {manual}  ")), "手工编码仓库"))
+            .await
+            .expect("手工编码应保留");
+        assert_eq!(created.warehouse_code, manual, "手工编码只 trim，不改成 WH-xx");
 
         hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
     }
@@ -4638,11 +4370,7 @@ mod tests {
             .expect_err("重复手工编码必须被拒");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            error.msg.contains(&manual),
-            "错误文案要点名具体编码：{}",
-            error.msg
-        );
+        assert!(error.msg.contains(&manual), "错误文案要点名具体编码：{}", error.msg);
 
         hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
     }
@@ -4698,12 +4426,9 @@ mod tests {
         let unit_id = base_unit("MPV2").await;
 
         let previewed = preview_material_code().await.expect("物料编码预览应成功");
-        let created = create_material(
-            None,
-            material_req(Some(&previewed), &unit_id, "用预览号建单物料"),
-        )
-        .await
-        .expect("预览号当手工编码应创建成功");
+        let created = create_material(None, material_req(Some(&previewed), &unit_id, "用预览号建单物料"))
+            .await
+            .expect("预览号当手工编码应创建成功");
         assert_eq!(
             created.material_code, previewed,
             "手工提交的编码必须原样保留（不能被再取号覆盖）"
@@ -4714,19 +4439,12 @@ mod tests {
         assert_ne!(after, previewed, "预览必须跳过已占用的号");
 
         // 同一号再建一次 ⇒ 409 + 66001（并发抢号的兜底口径）
-        let conflict = create_material(
-            None,
-            material_req(Some(&previewed), &unit_id, "预览号重复物料"),
-        )
-        .await
-        .expect_err("已占用的编码必须被拒");
+        let conflict = create_material(None, material_req(Some(&previewed), &unit_id, "预览号重复物料"))
+            .await
+            .expect_err("已占用的编码必须被拒");
         assert_eq!(conflict.status, 409);
         assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            conflict.msg.contains(&previewed),
-            "文案要点名编码：{}",
-            conflict.msg
-        );
+        assert!(conflict.msg.contains(&previewed), "文案要点名编码：{}", conflict.msg);
 
         hard_delete("biz_material", Uuid::parse_str(&created.id).expect("id")).await;
         hard_delete("biz_unit", unit_id).await;
@@ -4787,11 +4505,7 @@ mod tests {
             .expect_err("已占用的编码必须被拒");
         assert_eq!(conflict.status, 409);
         assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            conflict.msg.contains(&previewed),
-            "文案要点名编码：{}",
-            conflict.msg
-        );
+        assert!(conflict.msg.contains(&previewed), "文案要点名编码：{}", conflict.msg);
 
         hard_delete("biz_warehouse", Uuid::parse_str(&created.id).expect("id")).await;
     }

@@ -142,10 +142,7 @@ pub fn disposal_spec_of(
 fn amount_of(form: &serde_json::Value, key: &str) -> Decimal {
     match form.get(key) {
         Some(serde_json::Value::String(text)) => text.parse::<Decimal>().unwrap_or(Decimal::ZERO),
-        Some(serde_json::Value::Number(number)) => number
-            .to_string()
-            .parse::<Decimal>()
-            .unwrap_or(Decimal::ZERO),
+        Some(serde_json::Value::Number(number)) => number.to_string().parse::<Decimal>().unwrap_or(Decimal::ZERO),
         _ => Decimal::ZERO,
     }
 }
@@ -189,13 +186,9 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
     let Some(asset_id) = instance.biz_id else {
         return Ok(None);
     };
-    let (kind, disposal_date, reason, sale_price, output_tax) =
-        disposal_spec_of(&instance.form_data)?;
+    let (kind, disposal_date, reason, sale_price, output_tax) = disposal_spec_of(&instance.form_data)?;
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| internal(error, "开启处置事务"))?;
+    let tx = db().begin().await.map_err(|error| internal(error, "开启处置事务"))?;
     let outcome = async {
         // ① 锁卡（与「本月计提」并发时不能两边都用旧净值算）
         let Some(asset) = asset_model::asset_lock_in(&tx, asset_id)
@@ -215,9 +208,7 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
                 ),
             ));
         }
-        let vouchers =
-            post_disposal_vouchers(&tx, &asset, kind, disposal_date, sale_price, output_tax)
-                .await?;
+        let vouchers = post_disposal_vouchers(&tx, &asset, kind, disposal_date, sale_price, output_tax).await?;
         let first_voucher = vouchers.first().copied();
         // ② 状态机（唯一入口：校验边 + 写 biz_status_log）
         state_machine::transition(
@@ -248,10 +239,7 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
             return Err(ApiError::new(
                 409,
                 error_code::ERP_ASSET_DISPOSAL_STATE,
-                format!(
-                    "资产 {} 的状态在处置期间已被改动，请刷新后重试",
-                    asset.asset_no
-                ),
+                format!("资产 {} 的状态在处置期间已被改动，请刷新后重试", asset.asset_no),
             ));
         }
         // ④ 变动留痕（DISPOSAL，append-only）。返回的变动行 id 就是**本次事件标识**：
@@ -306,18 +294,14 @@ async fn execute(instance_id: Uuid) -> std::result::Result<Option<Uuid>, ApiErro
     .await;
     match outcome {
         Ok(Some((asset_id, change))) => {
-            tx.commit()
-                .await
-                .map_err(|error| internal(error, "提交处置事务"))?;
+            tx.commit().await.map_err(|error| internal(error, "提交处置事务"))?;
             // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 处置没做成，
             // 先发通知就是幽灵通知）。
             asset_linkage::run_deferred_after_commit(change).await;
             Ok(Some(asset_id))
         }
         Ok(None) => {
-            tx.commit()
-                .await
-                .map_err(|error| internal(error, "提交处置事务"))?;
+            tx.commit().await.map_err(|error| internal(error, "提交处置事务"))?;
             Ok(None)
         }
         Err(error) => {
@@ -485,11 +469,7 @@ pub fn voucher_error(error: DbError, ctx: &str) -> ApiError {
 }
 
 fn internal(error: DbError, ctx: &str) -> ApiError {
-    ApiError::new(
-        500,
-        error_code::INTERNAL_ERROR,
-        format!("{ctx}失败：{error}"),
-    )
+    ApiError::new(500, error_code::INTERNAL_ERROR, format!("{ctx}失败：{error}"))
 }
 
 // ==================== 内控：制单人不能批自己的处置 ====================
@@ -513,10 +493,7 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 }
 
 /// 审批入口的内控闸（**事务之前**）：发起人 / 制单人不能批自己那一票 → 403 + 65019。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
     let Some(task) = flow_model::find_task(task_id)
         .await
         .map_err(|error| internal(error, "查询待办"))?
@@ -589,12 +566,8 @@ mod tests {
         assert_eq!(price, Decimal::new(500_000_000, 4));
         assert_eq!(tax, Decimal::new(65_000_000, 4));
 
-        let broken =
-            serde_json::json!({ "disposal_type": "DONATE", "disposal_date": "2026-11-05" });
-        assert!(
-            disposal_spec_of(&broken).is_err(),
-            "非法处置类型必须报错而不是猜"
-        );
+        let broken = serde_json::json!({ "disposal_type": "DONATE", "disposal_date": "2026-11-05" });
+        assert!(disposal_spec_of(&broken).is_err(), "非法处置类型必须报错而不是猜");
     }
 
     /// ③ 合法边表与状态机注册表逐条一致（防两处漂移）。

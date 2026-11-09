@@ -40,8 +40,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::sales_target_dto::{
-    ForecastFilter, ORDER_STATUSES, RECEIPT_STATUSES, SCOPE_DEPT, SCOPE_MATERIAL,
-    SCOPE_SALESPERSON, TargetFilter, money2,
+    ForecastFilter, ORDER_STATUSES, RECEIPT_STATUSES, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_SALESPERSON, TargetFilter,
+    money2,
 };
 use crate::utils;
 
@@ -210,10 +210,7 @@ fn map_target_row(row: &Row) -> DbResult<TargetListRow> {
 
 /// 按主键取存活目标。
 pub async fn find_target(id: Uuid) -> DbResult<Option<TargetListRow>> {
-    let sql = format!(
-        "{} WHERE t.id = ?::uuid AND t.deleted_at IS NULL",
-        target_select_sql()
-    );
+    let sql = format!("{} WHERE t.id = ?::uuid AND t.deleted_at IS NULL", target_select_sql());
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(map_target_row).transpose()
 }
@@ -269,9 +266,7 @@ pub async fn page_targets(filter: &TargetFilter) -> DbResult<(Vec<TargetListRow>
     };
 
     let mut list_params = params;
-    list_params.push(Value::I64(
-        i64::try_from(filter.page_size).unwrap_or(i64::MAX),
-    ));
+    list_params.push(Value::I64(i64::try_from(filter.page_size).unwrap_or(i64::MAX)));
     list_params.push(Value::I64(
         i64::try_from(filter.page.saturating_sub(1) * filter.page_size).unwrap_or(0),
     ));
@@ -288,10 +283,7 @@ pub async fn page_targets(filter: &TargetFilter) -> DbResult<(Vec<TargetListRow>
 }
 
 /// 看板取数：某期间（可选某范围类型）的**启用**目标，按范围名排序。
-pub async fn targets_for_period(
-    period_code: &str,
-    scope_type: Option<&str>,
-) -> DbResult<Vec<TargetListRow>> {
+pub async fn targets_for_period(period_code: &str, scope_type: Option<&str>) -> DbResult<Vec<TargetListRow>> {
     let mut sql = format!(
         "{} WHERE t.deleted_at IS NULL AND t.status = 'ACTIVE' AND t.period_code = ?",
         target_select_sql()
@@ -324,12 +316,7 @@ fn insert_target_sql() -> String {
 }
 
 /// 新建目标（`id` / `target_no` 由 handler 先取号再落库）。
-pub async fn insert_target(
-    id: Uuid,
-    target_no: &str,
-    row: &TargetRow,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn insert_target(id: Uuid, target_no: &str, row: &TargetRow, operator: Option<Uuid>) -> DbResult<u64> {
     db().execute_with_params(
         &insert_target_sql(),
         vec![
@@ -455,9 +442,7 @@ pub async fn page_forecasts(filter: &ForecastFilter) -> DbResult<(Vec<ForecastLi
     };
 
     let mut list_params = params;
-    list_params.push(Value::I64(
-        i64::try_from(filter.page_size).unwrap_or(i64::MAX),
-    ));
+    list_params.push(Value::I64(i64::try_from(filter.page_size).unwrap_or(i64::MAX)));
     list_params.push(Value::I64(
         i64::try_from(filter.page.saturating_sub(1) * filter.page_size).unwrap_or(0),
     ));
@@ -488,12 +473,7 @@ fn insert_forecast_sql() -> String {
 }
 
 /// 新建预测。
-pub async fn insert_forecast(
-    id: Uuid,
-    forecast_no: &str,
-    row: &ForecastRow,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn insert_forecast(id: Uuid, forecast_no: &str, row: &ForecastRow, operator: Option<Uuid>) -> DbResult<u64> {
     db().execute_with_params(
         &insert_forecast_sql(),
         vec![
@@ -562,18 +542,12 @@ pub async fn soft_delete_forecast(id: Uuid, operator: Option<Uuid>) -> DbResult<
 /// 必须在入口挡住。
 pub async fn scope_target_exists(scope_type: &str, scope_id: Uuid) -> DbResult<bool> {
     let sql = match scope_type {
-        SCOPE_SALESPERSON => {
-            "SELECT count(*) FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL"
-        }
+        SCOPE_SALESPERSON => "SELECT count(*) FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL",
         SCOPE_DEPT => "SELECT count(*) FROM sys_dept WHERE id = ?::uuid AND deleted_at IS NULL",
-        SCOPE_MATERIAL => {
-            "SELECT count(*) FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL"
-        }
+        SCOPE_MATERIAL => "SELECT count(*) FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL",
         _ => return Ok(false),
     };
-    let count: i64 = db()
-        .scalar_with_params(sql, vec![Value::from(&scope_id)])
-        .await?;
+    let count: i64 = db().scalar_with_params(sql, vec![Value::from(&scope_id)]).await?;
     Ok(count > 0)
 }
 
@@ -659,9 +633,7 @@ pub async fn order_actual_by_object(
         ),
         _ => return Ok(Vec::new()),
     };
-    let rows = db()
-        .query_sql(sql, vec![Value::from(from), Value::from(to)])
-        .await?;
+    let rows = db().query_sql(sql, vec![Value::from(from), Value::from(to)]).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         let object_id: Option<Uuid> = row.get_typed("object_id")?;
@@ -768,12 +740,7 @@ pub async fn receipt_actual_by_object(
     let rows = db()
         .query_sql(
             sql,
-            vec![
-                Value::from(from),
-                Value::from(to),
-                Value::from(from),
-                Value::from(to),
-            ],
+            vec![Value::from(from), Value::from(to), Value::from(from), Value::from(to)],
         )
         .await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -810,12 +777,7 @@ pub async fn receipt_actual_total(from: NaiveDate, to: NaiveDate) -> DbResult<De
                             AND f.refund_date >= ?::date AND f.refund_date < ?::date \
                  ) ev"
             ),
-            vec![
-                Value::from(from),
-                Value::from(to),
-                Value::from(from),
-                Value::from(to),
-            ],
+            vec![Value::from(from), Value::from(to), Value::from(from), Value::from(to)],
         )
         .await?;
     Ok(money2(total.unwrap_or_default()))
@@ -839,12 +801,7 @@ pub fn format_no(prefix: &str, period_key: &str, no: i64) -> String {
 ///
 /// 用 `ON CONFLICT … DO NOTHING` 而不是「捕获唯一键冲突」：失败的语句会把当前事务打成
 /// aborted（PG `25P02`），取号在建单事务内 ⇒ 首次并发建单会 500（FIX-8 实测）。
-async fn ensure_seq_row(
-    ex: &impl SqlExecutor,
-    seq_type: &str,
-    seq_name: &str,
-    remark: &str,
-) -> DbResult<()> {
+async fn ensure_seq_row(ex: &impl SqlExecutor, seq_type: &str, seq_name: &str, remark: &str) -> DbResult<()> {
     // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
     ex.exec_sql(
         "INSERT INTO biz_seq (id, seq_type, seq_name, prefix, date_pattern, period_key, \
@@ -869,11 +826,7 @@ async fn ensure_seq_row(
 }
 
 /// 推进 `biz_seq` 一个号（同日累加 / 新日重置 / 时钟回拨不重置）。
-async fn bump_seq(
-    ex: &impl SqlExecutor,
-    seq_type: &str,
-    period_key: &str,
-) -> DbResult<Option<i64>> {
+async fn bump_seq(ex: &impl SqlExecutor, seq_type: &str, period_key: &str) -> DbResult<Option<i64>> {
     let rows = ex
         .query_sql(
             "UPDATE biz_seq \
@@ -894,9 +847,7 @@ async fn bump_seq(
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个目标号（`STG-yyyyMMdd-000001`）。
@@ -967,10 +918,7 @@ mod tests {
         assert_eq!(format_no("STG", "20261107", 1), "STG-20261107-000001");
         assert_eq!(format_no("SFC", "20261107", 42), "SFC-20261107-000042");
         // 超过 6 位不截断（单号前缀 + 日期 + 流水，长度仍远小于 varchar(32)）
-        assert_eq!(
-            format_no("STG", "20261107", 1234567),
-            "STG-20261107-1234567"
-        );
+        assert_eq!(format_no("STG", "20261107", 1234567), "STG-20261107-1234567");
         assert!(format_no("STG", "20261107", 1).len() <= 32);
     }
 
@@ -1001,10 +949,7 @@ mod tests {
         // 目标达成率按本位币汇总：外币单的 total_with_tax 是原币，直接相加会虚高。
         let expr = base_amount_expr();
         assert!(expr.contains("base_total_with_tax"), "{expr}");
-        assert!(
-            expr.contains("ELSE o.total_with_tax"),
-            "老数据要回落原币：{expr}"
-        );
+        assert!(expr.contains("ELSE o.total_with_tax"), "老数据要回落原币：{expr}");
         // 明细口径按订单比例折算，同样不能直接用原币行金额
         let line = base_line_amount_expr();
         assert!(line.contains("base_total_with_tax"), "{line}");

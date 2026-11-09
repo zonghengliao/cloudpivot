@@ -75,10 +75,7 @@ async fn dc01_post_without_published_flow_is_409() {
     .await
     .unwrap();
     assert!(
-        stockin_model::published_post_flow()
-            .await
-            .unwrap()
-            .is_none(),
+        stockin_model::published_post_flow().await.unwrap().is_none(),
         "流程下线后必须查不到"
     );
     let error = submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
@@ -92,10 +89,7 @@ async fn dc01_post_without_published_flow_is_409() {
     .await
     .unwrap();
     assert!(
-        stockin_model::published_post_flow()
-            .await
-            .unwrap()
-            .is_some(),
+        stockin_model::published_post_flow().await.unwrap().is_some(),
         "夹具自检：流程必须已还原"
     );
 
@@ -113,11 +107,7 @@ async fn dc01_post_without_published_flow_is_409() {
     );
     // 单据 / 未记账痕迹
     assert_eq!(stock_in_status(id).await, STATUS_DRAFT, "被拒后仍应是草稿");
-    assert_eq!(
-        inventory_of(MATERIAL_A).await.0,
-        Decimal::ZERO,
-        "被拒后库存不许动"
-    );
+    assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO, "被拒后库存不许动");
     let txns: i64 = db()
         .scalar_with_params::<Option<i64>>(
             "SELECT count(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
@@ -382,10 +372,7 @@ async fn pflow3a_si_delete_cancels_pending_approval() {
         .unwrap()
         .unwrap();
     assert_eq!(pending, 0, "不许留孤儿待办");
-    assert!(
-        stockin_model::find_stock_in(id).await.unwrap().is_none(),
-        "单据已软删"
-    );
+    assert!(stockin_model::find_stock_in(id).await.unwrap().is_none(), "单据已软删");
 }
 
 /// ⑯ 制单人自批 → 403 + 65019。
@@ -431,11 +418,7 @@ async fn pflow3a_si_maker_cannot_approve_own_post() {
         .expect_err("自批必须被拦");
     assert_eq!(err.status, 403, "{}", err.msg);
     assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
-    assert!(
-        err.msg.contains("不能审批自己提交的过账申请"),
-        "{}",
-        err.msg
-    );
+    assert!(err.msg.contains("不能审批自己提交的过账申请"), "{}", err.msg);
     // 他人可正常审批
     stockin_bridge::guard_self_approval(mine, uid_of(U_WH_MGR))
         .await
@@ -497,11 +480,7 @@ async fn bug01_auto_post_over_receive_reverts_to_draft() {
         .await
         .unwrap_or_else(|err| panic!("A 应免审直过：{} {}", err.code, err.msg));
     assert_eq!(stock_in_status(first).await, "POSTED");
-    assert_eq!(
-        a4_po_status(order_id).await,
-        "RECEIVED",
-        "A 过账后采购单收满"
-    );
+    assert_eq!(a4_po_status(order_id).await, "RECEIVED", "A 过账后采购单收满");
 
     // B 再提交 → 来源采购单已收满/已收货 → 必须失败，且**打回草稿**
     let err = submit_post(second, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
@@ -536,11 +515,7 @@ async fn bug01_auto_post_over_receive_reverts_to_draft() {
         again.is_err(),
         "额度仍是 0，重提仍会被拦 —— 但必须是「可重试」的普通错误"
     );
-    assert_eq!(
-        stock_in_status(second).await,
-        "DRAFT",
-        "重试失败也要回到 DRAFT"
-    );
+    assert_eq!(stock_in_status(second).await, "DRAFT", "重试失败也要回到 DRAFT");
 }
 
 /// ② 供应商与来源采购单不符（绕过接口改库）→ 免审过账失败 → 同样的打回。
@@ -558,10 +533,7 @@ async fn bug01_auto_post_supplier_mismatch_reverts_to_draft() {
     // 模拟「绕过接口直接改库」把单据头供应商换掉（金额 4 元 → 免审）
     db().execute_with_params(
         "UPDATE biz_stock_in SET supplier_id = ?::uuid WHERE id = ?::uuid",
-        vec![
-            Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
-            Value::from(&id),
-        ],
+        vec![Value::from(&Uuid::parse_str(SUPPLIER).unwrap()), Value::from(&id)],
     )
     .await
     .expect("模拟改库");
@@ -582,11 +554,7 @@ async fn bug01_auto_post_supplier_mismatch_reverts_to_draft() {
     let (from, to, reason) = last_status_log(id).await;
     assert_eq!((from.as_str(), to.as_str()), ("PENDING_POST", "DRAFT"));
     assert!(reason.contains("免审过账失败"), "{reason}");
-    assert_eq!(
-        inventory_of(MATERIAL_A).await.0,
-        Decimal::ZERO,
-        "被拦下后库存一分没动"
-    );
+    assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO, "被拦下后库存一分没动");
 }
 
 /// ③ 回归：一切正常的小额单 → 仍然免审直过（打回逻辑不许把正常路径也打回）。
@@ -606,11 +574,7 @@ async fn bug01_auto_post_success_still_posts() {
         .unwrap_or_else(|err| panic!("正常免审必须直过：{} {}", err.code, err.msg));
     assert_eq!(stock_in_status(id).await, "POSTED");
     assert_eq!(inventory_of(MATERIAL_A).await.0, dec("2"), "库存已加");
-    assert_eq!(
-        a4_po_status(order_id).await,
-        "PARTIAL_RECEIVED",
-        "采购单推进"
-    );
+    assert_eq!(a4_po_status(order_id).await, "PARTIAL_RECEIVED", "采购单推进");
 }
 
 // ============================================================================
@@ -635,8 +599,7 @@ async fn approve_instance_without_callback(stock_in_id: Uuid) -> Uuid {
     let task_id = tasks[0].0;
     let out = db()
         .transaction(|tx| async move {
-            crate::business::flow::engine::approve(&tx, task_id, uid_of(U_WH_MGR), Some("同意"))
-                .await
+            crate::business::flow::engine::approve(&tx, task_id, uid_of(U_WH_MGR), Some("同意")).await
         })
         .await
         .unwrap_or_else(|err| panic!("审批推进失败：{err}"));
@@ -678,11 +641,7 @@ async fn bug02_repost_pending_approved_posts_and_moves_books() {
         .await
         .unwrap_or_else(|err| panic!("提交过账审批失败：{} {}", err.code, err.msg));
     assert_eq!(stock_in_status(id).await, "PENDING_POST");
-    assert_eq!(
-        inventory_of(MATERIAL_A).await.0,
-        Decimal::ZERO,
-        "送审不动账"
-    );
+    assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO, "送审不动账");
 
     approve_instance_without_callback(id).await;
     // 死单现场：单据仍是 PENDING_POST、实例 APPROVED、六本账一两没动
@@ -739,10 +698,7 @@ async fn bug02_repost_pending_approved_posts_and_moves_books() {
     // 审计留痕：PENDING_POST → POSTED，原因写清是「审批通过后重新过账」
     let (from, to, reason) = last_status_log(id).await;
     assert_eq!((from.as_str(), to.as_str()), ("PENDING_POST", "POSTED"));
-    assert!(
-        reason.contains("重新过账"),
-        "状态日志要能看出这是一次重试：{reason}"
-    );
+    assert!(reason.contains("重新过账"), "状态日志要能看出这是一次重试：{reason}");
 
     // 过账后详情不再提示可重试
     assert!(!detail_of(id).await.unwrap().repost_available);
@@ -787,11 +743,7 @@ async fn bug02_repost_over_receive_keeps_pending_then_recovers_after_fix() {
         .await
         .expect_err("采购单已收满必须拦下");
     assert_eq!(err.status, 409, "{}", err.msg);
-    assert!(
-        err.msg.contains("不能过账"),
-        "文案要说清为什么：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("不能过账"), "文案要说清为什么：{}", err.msg);
     assert!(
         err.msg.contains("已收货") || err.msg.contains("RECEIVED"),
         "文案要点名采购单现状（已收货 / 已收满）：{}",
@@ -824,11 +776,7 @@ async fn bug02_repost_over_receive_keeps_pending_then_recovers_after_fix() {
         .await
         .unwrap_or_else(|err| panic!("修好数据后重试应成功：{} {}", err.code, err.msg));
     assert_eq!(stock_in_status(second).await, "POSTED");
-    assert_eq!(
-        inventory_of(MATERIAL_A).await.0,
-        dec("1200"),
-        "A 600 + B 600"
-    );
+    assert_eq!(inventory_of(MATERIAL_A).await.0, dec("1200"), "A 600 + B 600");
     assert_eq!(a4_po_status(order_id).await, "RECEIVED", "再次收满");
 }
 
@@ -924,12 +872,9 @@ async fn bug02_repost_blocked_by_separation_of_duties() {
     setup_post_approval().await;
     let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "600", "SUBMITTED").await;
     // 制单人 = U_KEEPER（SoD 才有「自己」可比）
-    let id = create_stock_in(
-        &a4_sourced_req(order_id, item_id, "600", None),
-        Some(uid_of(U_KEEPER)),
-    )
-    .await
-    .expect("建单");
+    let id = create_stock_in(&a4_sourced_req(order_id, item_id, "600", None), Some(uid_of(U_KEEPER)))
+        .await
+        .expect("建单");
     submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
         .await
         .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
@@ -944,12 +889,7 @@ async fn bug02_repost_blocked_by_separation_of_duties() {
 
     let err = blocked.expect_err("内控开关打开时制单人不能自己过账");
     assert_eq!(err.status, 409, "{}", err.msg);
-    assert_eq!(
-        err.code,
-        error_code::ERP_SEPARATION_OF_DUTIES,
-        "{}",
-        err.msg
-    );
+    assert_eq!(err.code, error_code::ERP_SEPARATION_OF_DUTIES, "{}", err.msg);
     assert!(err.msg.contains("制单与过账分离"), "{}", err.msg);
     assert_eq!(stock_in_status(id).await, "PENDING_POST", "被拦不改状态");
     assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO);

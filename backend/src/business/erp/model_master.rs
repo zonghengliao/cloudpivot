@@ -14,8 +14,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::dto::{
-    AccountFilter, LocationFilter, MaterialFilter, PeriodFilter, SeqFilter, SupplierFilter,
-    UnitFilter, WarehouseFilter,
+    AccountFilter, LocationFilter, MaterialFilter, PeriodFilter, SeqFilter, SupplierFilter, UnitFilter, WarehouseFilter,
 };
 use crate::business::shared::scope;
 use crate::utils;
@@ -239,21 +238,12 @@ pub const WAREHOUSE_ORDER: &str = "ORDER BY warehouse_path ASC, sort_order ASC";
 
 /// 按主键取仓库。
 pub async fn warehouse_find_by_id(id: Uuid) -> DbResult<Option<WarehouseRow>> {
-    find_by_id(
-        "biz_warehouse",
-        WAREHOUSE_COLUMNS,
-        id,
-        true,
-        WarehouseRow::from_row,
-    )
-    .await
+    find_by_id("biz_warehouse", WAREHOUSE_COLUMNS, id, true, WarehouseRow::from_row).await
 }
 
 /// 按编码取仓库（唯一性校验 / 导入按编码定位）。
 pub async fn warehouse_find_by_code(code: &str) -> DbResult<Option<WarehouseRow>> {
-    let sql = format!(
-        "SELECT {WAREHOUSE_COLUMNS} FROM biz_warehouse WHERE warehouse_code = ? AND deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {WAREHOUSE_COLUMNS} FROM biz_warehouse WHERE warehouse_code = ? AND deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(code)]).await?;
     rows.first().map(WarehouseRow::from_row).transpose()
 }
@@ -293,9 +283,7 @@ pub async fn warehouse_children(parent_id: Uuid) -> DbResult<Vec<WarehouseRow>> 
         "SELECT {WAREHOUSE_COLUMNS} FROM biz_warehouse \
          WHERE deleted_at IS NULL AND parent_id = ? ORDER BY sort_order ASC, warehouse_code ASC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(parent_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(parent_id)]).await?;
     rows.iter().map(WarehouseRow::from_row).collect()
 }
 
@@ -448,33 +436,19 @@ pub const LOCATION_ORDER: &str = "ORDER BY sort_order ASC, location_code ASC";
 
 /// 按主键取库位。
 pub async fn location_find_by_id(id: Uuid) -> DbResult<Option<LocationRow>> {
-    find_by_id(
-        "biz_location",
-        LOCATION_COLUMNS,
-        id,
-        true,
-        LocationRow::from_row,
-    )
-    .await
+    find_by_id("biz_location", LOCATION_COLUMNS, id, true, LocationRow::from_row).await
 }
 
 /// 按仓库取库位列表（`include_disabled = false` 时只回启用位）。
 ///
 /// 这是「入库 / 出库选择库位」的主路径，走 `idx_biz_location_wh (warehouse_id, status)`。
-pub async fn location_by_warehouse(
-    warehouse_id: Uuid,
-    include_disabled: bool,
-) -> DbResult<Vec<LocationRow>> {
-    let mut sql = format!(
-        "SELECT {LOCATION_COLUMNS} FROM biz_location WHERE deleted_at IS NULL AND warehouse_id = ?"
-    );
+pub async fn location_by_warehouse(warehouse_id: Uuid, include_disabled: bool) -> DbResult<Vec<LocationRow>> {
+    let mut sql = format!("SELECT {LOCATION_COLUMNS} FROM biz_location WHERE deleted_at IS NULL AND warehouse_id = ?");
     if !include_disabled {
         sql.push_str(" AND status = 1");
     }
     sql.push_str(" ORDER BY sort_order ASC, location_code ASC");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(warehouse_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(warehouse_id)]).await?;
     rows.iter().map(LocationRow::from_row).collect()
 }
 
@@ -610,21 +584,12 @@ pub const MATERIAL_ORDER: &str = "ORDER BY material_code ASC";
 
 /// 按主键取物料。
 pub async fn material_find_by_id(id: Uuid) -> DbResult<Option<MaterialRow>> {
-    find_by_id(
-        "biz_material",
-        MATERIAL_COLUMNS,
-        id,
-        true,
-        MaterialRow::from_row,
-    )
-    .await
+    find_by_id("biz_material", MATERIAL_COLUMNS, id, true, MaterialRow::from_row).await
 }
 
 /// 按编码取物料（唯一性校验 / 导入按编码定位）。
 pub async fn material_find_by_code(code: &str) -> DbResult<Option<MaterialRow>> {
-    let sql = format!(
-        "SELECT {MATERIAL_COLUMNS} FROM biz_material WHERE material_code = ? AND deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {MATERIAL_COLUMNS} FROM biz_material WHERE material_code = ? AND deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(code)]).await?;
     rows.first().map(MaterialRow::from_row).transpose()
 }
@@ -798,14 +763,7 @@ pub const SUPPLIER_ORDER: &str = "ORDER BY supplier_code ASC";
 
 /// 按主键取供应商。
 pub async fn supplier_find_by_id(id: Uuid) -> DbResult<Option<SupplierRow>> {
-    find_by_id(
-        "biz_supplier",
-        SUPPLIER_COLUMNS,
-        id,
-        true,
-        SupplierRow::from_row,
-    )
-    .await
+    find_by_id("biz_supplier", SUPPLIER_COLUMNS, id, true, SupplierRow::from_row).await
 }
 
 /// 供应商分页（关键词匹配编码 / 名称 / 简称，可按启用位筛选）。
@@ -910,21 +868,12 @@ pub const ACCOUNT_ORDER: &str = "ORDER BY account_code ASC";
 
 /// 按主键取科目。
 pub async fn account_find_by_id(id: Uuid) -> DbResult<Option<AccountRow>> {
-    find_by_id(
-        "biz_account",
-        ACCOUNT_COLUMNS,
-        id,
-        true,
-        AccountRow::from_row,
-    )
-    .await
+    find_by_id("biz_account", ACCOUNT_COLUMNS, id, true, AccountRow::from_row).await
 }
 
 /// 按编码取科目。
 pub async fn account_find_by_code(code: &str) -> DbResult<Option<AccountRow>> {
-    let sql = format!(
-        "SELECT {ACCOUNT_COLUMNS} FROM biz_account WHERE account_code = ? AND deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {ACCOUNT_COLUMNS} FROM biz_account WHERE account_code = ? AND deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(code)]).await?;
     rows.first().map(AccountRow::from_row).transpose()
 }
@@ -935,9 +884,7 @@ pub async fn account_children(parent_id: Uuid) -> DbResult<Vec<AccountRow>> {
         "SELECT {ACCOUNT_COLUMNS} FROM biz_account \
          WHERE deleted_at IS NULL AND parent_id = ? ORDER BY account_code ASC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(parent_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(parent_id)]).await?;
     rows.iter().map(AccountRow::from_row).collect()
 }
 
@@ -1047,14 +994,7 @@ pub const PERIOD_ORDER: &str = "ORDER BY period_code DESC";
 ///
 /// `biz_accounting_period` **没有 `deleted_at`**（`soft_delete = false`）。
 pub async fn period_find_by_id(id: Uuid) -> DbResult<Option<PeriodRow>> {
-    find_by_id(
-        "biz_accounting_period",
-        PERIOD_COLUMNS,
-        id,
-        false,
-        PeriodRow::from_row,
-    )
-    .await
+    find_by_id("biz_accounting_period", PERIOD_COLUMNS, id, false, PeriodRow::from_row).await
 }
 
 /// 按期间编码（`YYYY-MM`）取期间——记账时按业务日期定位期间的主路径。
@@ -1172,11 +1112,8 @@ pub async fn seq_find_by_id(id: Uuid) -> DbResult<Option<SeqRow>> {
 
 /// 按序列类型取序列（取号前的读）。
 pub async fn seq_find_by_type(seq_type: &str) -> DbResult<Option<SeqRow>> {
-    let sql =
-        format!("SELECT {SEQ_COLUMNS} FROM biz_seq WHERE seq_type = ? AND deleted_at IS NULL");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(seq_type)])
-        .await?;
+    let sql = format!("SELECT {SEQ_COLUMNS} FROM biz_seq WHERE seq_type = ? AND deleted_at IS NULL");
+    let rows = db().find_with_params(&sql, vec![Value::from(seq_type)]).await?;
     rows.first().map(SeqRow::from_row).transpose()
 }
 

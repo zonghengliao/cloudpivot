@@ -23,9 +23,7 @@ use crate::utils;
     permission = "business:erp:stock-in:list"
 )]
 #[nik::get("/business/erp/stock-in/page")]
-pub async fn stock_in_page(
-    Query(query): Query<StockInPageQuery>,
-) -> ResResult<PageData<Vec<StockInRes>>> {
+pub async fn stock_in_page(Query(query): Query<StockInPageQuery>) -> ResResult<PageData<Vec<StockInRes>>> {
     let page = query.page;
     let page_size = query.page_size;
     let (rows, total) = stockin_model::stock_in_page(&query.to_filter())
@@ -78,12 +76,7 @@ pub async fn stock_in_detail(Path(id): Path<String>) -> ResResult<StockInDetailR
 }
 
 /// 分页响应包装（与 `handler::page_body` 同口径；那边的函数是私有的）。
-pub(super) fn page_body<T: Serialize>(
-    list: Vec<T>,
-    total: i64,
-    page: u64,
-    page_size: u64,
-) -> Res<PageData<Vec<T>>> {
+pub(super) fn page_body<T: Serialize>(list: Vec<T>, total: i64, page: u64, page_size: u64) -> Res<PageData<Vec<T>>> {
     let (page, page_size) = model::normalize_page(page, page_size);
     Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size)
 }

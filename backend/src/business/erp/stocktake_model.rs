@@ -489,12 +489,7 @@ pub async fn refresh_totals(
 }
 
 /// 软删（**仅 DRAFT 由调用方保证**），返回 `affected`。
-pub async fn soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET deleted_at = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
@@ -530,9 +525,7 @@ pub async fn apply_status(
             params.push(operator_text);
         }
         STATUS_CANCELLED => {
-            sets.push_str(
-                ", cancelled_at = ?, cancelled_by = NULLIF(?::text,'')::uuid, cancel_reason = ?",
-            );
+            sets.push_str(", cancelled_at = ?, cancelled_by = NULLIF(?::text,'')::uuid, cancel_reason = ?");
             params.push(Value::from(now));
             params.push(operator_text);
             params.push(Value::Text(reason.unwrap_or_default().to_string()));
@@ -580,15 +573,9 @@ pub async fn link_voucher(
     red: bool,
     now: DateTime<Utc>,
 ) -> DbResult<()> {
-    let column = if red {
-        "reverse_voucher_id"
-    } else {
-        "voucher_id"
-    };
+    let column = if red { "reverse_voucher_id" } else { "voucher_id" };
     ex.exec_sql(
-        format!(
-            "UPDATE {TABLE} SET {column} = NULLIF(?::text,'')::uuid, updated_at = ? WHERE id = ?::uuid"
-        ),
+        format!("UPDATE {TABLE} SET {column} = NULLIF(?::text,'')::uuid, updated_at = ? WHERE id = ?::uuid"),
         vec![
             Value::Text(voucher_id.map(|v| v.to_string()).unwrap_or_default()),
             Value::from(now),
@@ -730,18 +717,11 @@ pub async fn find(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockTakeR
 /// 不做 N+1（一页 20 张单最多 40 个 id）。
 ///
 /// 软删的凭证不返回（`deleted_at IS NULL`）：查不到就让前端退回占位，绝不显示半截 UUID 当凭证号。
-pub async fn voucher_no_map(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<std::collections::HashMap<Uuid, String>> {
+pub async fn voucher_no_map(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     // SCOPE-EXEMPT: biz_voucher 按主键批量取凭证号，只补展示字段，不产生行集。
     let rows = ex
         .query_sql(
@@ -765,9 +745,7 @@ pub async fn lock(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockTakeR
     // SCOPE-EXEMPT: 同上，按主键锁 1 行。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT {HEAD_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
-            ),
+            format!("SELECT {HEAD_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -778,9 +756,7 @@ pub async fn lock(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockTakeR
 pub async fn items_of(ex: &impl SqlExecutor, take_id: Uuid) -> DbResult<Vec<StockTakeItemRow>> {
     let rows = ex
         .query_sql(
-            format!(
-                "SELECT {ITEM_COLUMNS} FROM {ITEM_TABLE} WHERE take_id = ?::uuid ORDER BY line_no"
-            ),
+            format!("SELECT {ITEM_COLUMNS} FROM {ITEM_TABLE} WHERE take_id = ?::uuid ORDER BY line_no"),
             vec![Value::from(&take_id)],
         )
         .await?;
@@ -791,10 +767,7 @@ pub async fn items_of(ex: &impl SqlExecutor, take_id: Uuid) -> DbResult<Vec<Stoc
 ///
 /// 一桶一行（`(物料, 仓库, 库位桶)`），与 `biz_inventory` 的唯一键同口径；
 /// 连 `biz_material` 取基础单位，物料已删的行不参与盘点。
-pub async fn book_rows_of_warehouse(
-    ex: &impl SqlExecutor,
-    warehouse_id: Uuid,
-) -> DbResult<Vec<NewStockTakeLine>> {
+pub async fn book_rows_of_warehouse(ex: &impl SqlExecutor, warehouse_id: Uuid) -> DbResult<Vec<NewStockTakeLine>> {
     // SCOPE-EXEMPT: 库存是仓储数据，无归属列。
     let rows = ex
         .query_sql(
@@ -856,12 +829,7 @@ pub async fn book_of_bucket(
 pub async fn page(q: &StockTakeFilter) -> DbResult<(Vec<StockTakeRow>, i64)> {
     let mut clauses = vec!["deleted_at IS NULL".to_string()];
     let mut params: Vec<Value> = Vec::new();
-    if let Some(status) = q
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(status) = q.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         params.push(Value::Text(status.to_uppercase()));
         clauses.push("status = ?".to_string());
     }
@@ -869,28 +837,15 @@ pub async fn page(q: &StockTakeFilter) -> DbResult<(Vec<StockTakeRow>, i64)> {
         params.push(Value::from(&warehouse_id));
         clauses.push("warehouse_id = ?::uuid".to_string());
     }
-    if let Some(take_type) = q
-        .take_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(take_type) = q.take_type.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         params.push(Value::Text(take_type.to_uppercase()));
         clauses.push("take_type = ?".to_string());
     }
-    if let Some(keyword) = q
-        .keyword
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(keyword) = q.keyword.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         params.push(Value::Text(format!("%{keyword}%")));
         clauses.push("take_no ILIKE ?".to_string());
     }
-    let base_sql = format!(
-        "SELECT {HEAD_COLUMNS} FROM {TABLE} WHERE {}",
-        clauses.join(" AND ")
-    );
+    let base_sql = format!("SELECT {HEAD_COLUMNS} FROM {TABLE} WHERE {}", clauses.join(" AND "));
     let result = scope::paginate_unscoped(
         LIST_TARGET,
         &base_sql,
@@ -959,24 +914,9 @@ pub async fn apply_gain(
         amount: money(qty * unit_cost),
         unit_cost,
     };
-    let applied = stockin_write::apply_cost(
-        ex,
-        item.material_id,
-        take.warehouse_id,
-        item.location_id,
-        cost,
-        now,
-    )
-    .await?;
-    stockin_write::apply_location_qty(
-        ex,
-        item.material_id,
-        take.warehouse_id,
-        item.location_id,
-        qty,
-        now,
-    )
-    .await?;
+    let applied =
+        stockin_write::apply_cost(ex, item.material_id, take.warehouse_id, item.location_id, cost, now).await?;
+    stockin_write::apply_location_qty(ex, item.material_id, take.warehouse_id, item.location_id, qty, now).await?;
     let amount = (applied.after.amount - applied.before.amount).round_dp(4);
     write_txn(
         ex,
@@ -1016,9 +956,7 @@ pub async fn apply_loss(
 ) -> DbResult<Decimal> {
     let qty = (-item.diff_qty).round_dp(4);
     let label = item.material_id.to_string();
-    let Some(bucket) =
-        stockout_model::lock_bucket(ex, item.material_id, take.warehouse_id, item.location_id)
-            .await?
+    let Some(bucket) = stockout_model::lock_bucket(ex, item.material_id, take.warehouse_id, item.location_id).await?
     else {
         return Err(DbError::InvalidValue(format!(
             "{NEGATIVE_PREFIX}物料 {label} 在仓库 {}（{}）该库位桶上没有库存行（可用 0），\
@@ -1036,13 +974,8 @@ pub async fn apply_loss(
         )));
     }
     let applied = stockout_model::deduct_cost(ex, &bucket, qty, now).await?;
-    let Some((location_row_id, location_qty)) = stockout_model::lock_location_row(
-        ex,
-        item.material_id,
-        take.warehouse_id,
-        item.location_id,
-    )
-    .await?
+    let Some((location_row_id, location_qty)) =
+        stockout_model::lock_location_row(ex, item.material_id, take.warehouse_id, item.location_id).await?
     else {
         return Err(DbError::InvalidValue(format!(
             "物料 {label} 在仓库 {}（{}）的库位账缺行：账账已经不一致，请先跑库存巡检修复库位账",
@@ -1114,24 +1047,9 @@ pub async fn reverse_gain(
         amount,
         unit_cost: item.unit_cost.round_dp(6),
     };
-    let applied = stockin_cancel::reverse_cost(
-        ex,
-        item.material_id,
-        take.warehouse_id,
-        item.location_id,
-        &line,
-        now,
-    )
-    .await?;
-    stockin_cancel::reverse_location_qty(
-        ex,
-        item.material_id,
-        take.warehouse_id,
-        item.location_id,
-        qty,
-        now,
-    )
-    .await?;
+    let applied =
+        stockin_cancel::reverse_cost(ex, item.material_id, take.warehouse_id, item.location_id, &line, now).await?;
+    stockin_cancel::reverse_location_qty(ex, item.material_id, take.warehouse_id, item.location_id, qty, now).await?;
     write_txn(
         ex,
         &TxnWrite {
@@ -1165,15 +1083,14 @@ pub async fn reverse_loss(
 ) -> DbResult<()> {
     let qty = (-item.diff_qty).round_dp(4);
     let amount = item.diff_amount.round_dp(4);
-    let before =
-        stockout_model::lock_bucket(ex, item.material_id, take.warehouse_id, item.location_id)
-            .await?
-            .map(|bucket| InventorySnapshot {
-                qty: bucket.qty,
-                amount: bucket.amount,
-                avg_cost: bucket.avg_cost,
-            })
-            .unwrap_or_else(InventorySnapshot::zero);
+    let before = stockout_model::lock_bucket(ex, item.material_id, take.warehouse_id, item.location_id)
+        .await?
+        .map(|bucket| InventorySnapshot {
+            qty: bucket.qty,
+            amount: bucket.amount,
+            avg_cost: bucket.avg_cost,
+        })
+        .unwrap_or_else(InventorySnapshot::zero);
     stockout_model::restore_cost(
         ex,
         item.material_id,
@@ -1184,24 +1101,15 @@ pub async fn reverse_loss(
         now,
     )
     .await?;
-    stockout_model::restore_location_qty(
-        ex,
-        item.material_id,
-        take.warehouse_id,
-        item.location_id,
-        qty,
-        now,
-    )
-    .await?;
-    let after =
-        stockout_model::lock_bucket(ex, item.material_id, take.warehouse_id, item.location_id)
-            .await?
-            .map(|bucket| InventorySnapshot {
-                qty: bucket.qty,
-                amount: bucket.amount,
-                avg_cost: bucket.avg_cost,
-            })
-            .unwrap_or(before);
+    stockout_model::restore_location_qty(ex, item.material_id, take.warehouse_id, item.location_id, qty, now).await?;
+    let after = stockout_model::lock_bucket(ex, item.material_id, take.warehouse_id, item.location_id)
+        .await?
+        .map(|bucket| InventorySnapshot {
+            qty: bucket.qty,
+            amount: bucket.amount,
+            avg_cost: bucket.avg_cost,
+        })
+        .unwrap_or(before);
     write_txn(
         ex,
         &TxnWrite {
@@ -1269,10 +1177,8 @@ pub async fn create_voucher(
         );
         return Ok(None);
     }
-    let inventory =
-        voucher::account_required(ex, voucher::DEFAULT_INVENTORY_CODE, "库存商品").await?;
-    let pending =
-        voucher::account_required(ex, voucher::ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢").await?;
+    let inventory = voucher::account_required(ex, voucher::DEFAULT_INVENTORY_CODE, "库存商品").await?;
+    let pending = voucher::account_required(ex, voucher::ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢").await?;
     let mut lines = Vec::with_capacity(pairs.len() * 2);
     for pair in pairs {
         let amount = pair.amount.round_dp(4);
@@ -1364,10 +1270,7 @@ pub async fn reverse_voucher(
 }
 
 /// 期间闸：盘点日期落在已结账月份时返回 `Some((期间, 状态))`。
-pub async fn period_closed(
-    ex: &impl SqlExecutor,
-    date: NaiveDate,
-) -> DbResult<Option<(String, String)>> {
+pub async fn period_closed(ex: &impl SqlExecutor, date: NaiveDate) -> DbResult<Option<(String, String)>> {
     stockout_model::period_closed(ex, date).await
 }
 

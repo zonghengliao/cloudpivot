@@ -25,24 +25,12 @@ async fn u1_plain_transfer_keeps_two_books_equal() {
         dec("100"),
         "前置：调出仓库位账基线"
     );
-    assert_eq!(
-        location_book(M_PLAIN, WH_TO).await,
-        dec("10"),
-        "前置：调入仓库位账基线"
-    );
+    assert_eq!(location_book(M_PLAIN, WH_TO).await, dec("10"), "前置：调入仓库位账基线");
     let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
     receive_ok(id).await;
     // 调出仓 / 调入仓两侧的数量账都要动（本卡修的就是这两笔原来根本没写）
-    assert_eq!(
-        location_book(M_PLAIN, WH_FROM).await,
-        dec("95"),
-        "调出仓库位账必须 -5"
-    );
-    assert_eq!(
-        location_book(M_PLAIN, WH_TO).await,
-        dec("15"),
-        "调入仓库位账必须 +5"
-    );
+    assert_eq!(location_book(M_PLAIN, WH_FROM).await, dec("95"), "调出仓库位账必须 -5");
+    assert_eq!(location_book(M_PLAIN, WH_TO).await, dec("15"), "调入仓库位账必须 +5");
     // 未指定库位 ⇒ 落「未分配库位桶」那一行（与收货过账同口径）
     assert_eq!(location_row(LOC_FROM).await, dec("95"), "调出仓桶行 qty");
     assert_eq!(location_row(LOC_TO).await, dec("15"), "调入仓桶行 qty");
@@ -111,11 +99,7 @@ async fn u2_transfer_with_location_rows_moves_both_books() {
     let id = create_and_ship(vec![line]).await;
     receive_ok(id).await;
 
-    assert_eq!(
-        location_row(LOC_FROM).await,
-        dec("4"),
-        "调出库位行必须 7 → 4"
-    );
+    assert_eq!(location_row(LOC_FROM).await, dec("4"), "调出库位行必须 7 → 4");
     assert_eq!(
         location_row(LOC_TO).await,
         dec("3"),
@@ -270,9 +254,5 @@ async fn u4_settle_rejects_dirty_location_book() {
         dec("96"),
         "库位账仍是污染后的 96（95 + 1）"
     );
-    assert_eq!(
-        cost_book(M_PLAIN, WH_FROM).await,
-        dec("95"),
-        "成本账已回滚，仍是 95"
-    );
+    assert_eq!(cost_book(M_PLAIN, WH_FROM).await, dec("95"), "成本账已回滚，仍是 95");
 }

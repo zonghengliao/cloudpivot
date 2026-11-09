@@ -352,57 +352,27 @@ impl DocKind {
     /// 单据存在性 SQL（`deleted_at IS NULL` 都成立：五张表都是软删模型）。
     pub fn exists_sql(self) -> &'static str {
         match self {
-            DocKind::Contract => {
-                "SELECT 1 FROM biz_contract WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::PurchaseOrder => {
-                "SELECT 1 FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::StockIn => {
-                "SELECT 1 FROM biz_stock_in WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::Payable => {
-                "SELECT 1 FROM biz_payable WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::Payment => {
-                "SELECT 1 FROM biz_payment WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
+            DocKind::Contract => "SELECT 1 FROM biz_contract WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::PurchaseOrder => "SELECT 1 FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::StockIn => "SELECT 1 FROM biz_stock_in WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Payable => "SELECT 1 FROM biz_payable WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Payment => "SELECT 1 FROM biz_payment WHERE id = ?::uuid AND deleted_at IS NULL",
             // FIN-2：资产（发票 / 验收单 / 处置单）。它与 DDL 的
             // `ck_biz_doc_attachment_type`（V0232 放宽到 6 值）逐字对应。
-            DocKind::FixedAsset => {
-                "SELECT 1 FROM biz_fixed_asset WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
+            DocKind::FixedAsset => "SELECT 1 FROM biz_fixed_asset WHERE id = ?::uuid AND deleted_at IS NULL",
             // FIN-3：报销单（发票影像）。与 V0244 放宽后的
             // `ck_biz_doc_attachment_type`（7 值）逐字对应。
-            DocKind::ExpenseReport => {
-                "SELECT 1 FROM biz_expense_report WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
+            DocKind::ExpenseReport => "SELECT 1 FROM biz_expense_report WHERE id = ?::uuid AND deleted_at IS NULL",
             // ATT-06：发票 / 收款 / 盘点 / 采购退货 / 销售退货（迁移 V0347 放宽到 12 值）
-            DocKind::Invoice => {
-                "SELECT 1 FROM biz_invoice WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::Receipt => {
-                "SELECT 1 FROM biz_receipt WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::StockTake => {
-                "SELECT 1 FROM biz_stock_take WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::PurchaseReturn => {
-                "SELECT 1 FROM biz_purchase_return WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::SalesReturn => {
-                "SELECT 1 FROM biz_sales_return WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
+            DocKind::Invoice => "SELECT 1 FROM biz_invoice WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Receipt => "SELECT 1 FROM biz_receipt WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::StockTake => "SELECT 1 FROM biz_stock_take WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::PurchaseReturn => "SELECT 1 FROM biz_purchase_return WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::SalesReturn => "SELECT 1 FROM biz_sales_return WHERE id = ?::uuid AND deleted_at IS NULL",
             // ATT-11：调拨单 / 主数据（供应商、客户）
-            DocKind::StockTransfer => {
-                "SELECT 1 FROM biz_stock_transfer WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::Supplier => {
-                "SELECT 1 FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
-            DocKind::Customer => {
-                "SELECT 1 FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL"
-            }
+            DocKind::StockTransfer => "SELECT 1 FROM biz_stock_transfer WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Supplier => "SELECT 1 FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::Customer => "SELECT 1 FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL",
             // ATT-11：期初余额的存在性 = 「这一期已经有期初凭证」。
             // 只认 `voucher_type = 'OPENING'`：传一张普通凭证的 id 不算期初单据
             // （否则附件会挂到任意凭证上，与「期初依据」的语义无关）。
@@ -446,26 +416,19 @@ impl DocKind {
             DocKind::PurchaseOrder => &["business:erp:purchase-order:list"],
             DocKind::StockIn => &["business:erp:stock-in:list", "business:erp:stock-in:detail"],
             // 付款单是「应付单的付款记录」（没有独立的付款菜单），可见性同应付。
-            DocKind::Payable | DocKind::Payment => {
-                &["business:erp:payable:list", "business:erp:payable:detail"]
-            }
+            DocKind::Payable | DocKind::Payment => &["business:erp:payable:list", "business:erp:payable:detail"],
             DocKind::FixedAsset => &["business:erp:asset:list", "business:erp:asset:detail"],
             DocKind::ExpenseReport => &["business:erp:expense:list", "business:erp:expense:detail"],
             DocKind::Invoice => &["business:erp:invoice:list", "business:erp:invoice:detail"],
             DocKind::Receipt => &["business:erp:receipt:list", "business:erp:receipt:detail"],
-            DocKind::StockTake => &[
-                "business:erp:stock-take:list",
-                "business:erp:stock-take:detail",
-            ],
+            DocKind::StockTake => &["business:erp:stock-take:list", "business:erp:stock-take:detail"],
             // 采购退货 / 销售退货没有独立的 GET 详情路由（`GET {id}` 也挂 `:list`），
             // 与采购订单同口径：只给列表码（多给一个不存在的码就是「点了必然 403」的哑弹）。
             DocKind::PurchaseReturn => &["business:erp:purchase-return:list"],
             DocKind::SalesReturn => &["business:erp:sales-return:list"],
             // ATT-11：调拨单（列表 / 详情两码）、主数据（列表码）、期初（读码）。
             // 与各模块自己的读码逐字一致；`view_permissions_are_real_menu_codes` 真库回查。
-            DocKind::StockTransfer => {
-                &["business:erp:transfer:list", "business:erp:transfer:detail"]
-            }
+            DocKind::StockTransfer => &["business:erp:transfer:list", "business:erp:transfer:detail"],
             DocKind::Supplier => &["business:erp:supplier:list"],
             DocKind::Customer => &["business:erp:customer:list"],
             DocKind::OpeningBalance => &["business:erp:opening:read"],
@@ -580,9 +543,8 @@ impl FileRole {
     /// [`super::dto::role_catalog`] 会按 `ALL` 顺序补一个分组出来 —— 附件绝不凭空消失。
     pub const fn catalog(kind: DocKind) -> &'static [FileRole] {
         use FileRole::{
-            Acceptance, BankAccountPermit, BankReceipt, BizLicense, ContractScan, CreditFile,
-            CustomerPo, Default, InvoiceScan, OpeningEvidence, Qualification, Quotation,
-            Supplement, TransferApproval,
+            Acceptance, BankAccountPermit, BankReceipt, BizLicense, ContractScan, CreditFile, CustomerPo, Default,
+            InvoiceScan, OpeningEvidence, Qualification, Quotation, Supplement, TransferApproval,
         };
         match kind {
             // 合同：扫描件 + 补充协议（ATT-11 明确补充协议要独立分组）
@@ -963,11 +925,7 @@ pub async fn insert(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn list_by_doc(
-    kind: DocKind,
-    doc_id: &Uuid,
-    order: ListOrder,
-) -> DbResult<Vec<DocAttachmentRow>> {
+pub async fn list_by_doc(kind: DocKind, doc_id: &Uuid, order: ListOrder) -> DbResult<Vec<DocAttachmentRow>> {
     let sql = format!(
         "SELECT {COLUMNS} \
            FROM biz_doc_attachment a \
@@ -978,10 +936,7 @@ pub async fn list_by_doc(
         order.order_by()
     );
     let rows = db()
-        .find_with_params(
-            &sql,
-            vec![Value::Text(kind.as_str().to_string()), Value::from(doc_id)],
-        )
+        .find_with_params(&sql, vec![Value::Text(kind.as_str().to_string()), Value::from(doc_id)])
         .await?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -1039,12 +994,7 @@ pub async fn active_ids(kind: DocKind, doc_id: &Uuid) -> DbResult<Vec<Uuid>> {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn set_sort_orders(
-    ex: &impl SqlExecutor,
-    kind: DocKind,
-    doc_id: &Uuid,
-    ids: &[Uuid],
-) -> DbResult<u64> {
+pub async fn set_sort_orders(ex: &impl SqlExecutor, kind: DocKind, doc_id: &Uuid, ids: &[Uuid]) -> DbResult<u64> {
     let mut updated = 0u64;
     for (index, id) in ids.iter().enumerate() {
         // 序号从 0 起：`sort_order` 是 `integer`，50 条附件远不到 i32 上限

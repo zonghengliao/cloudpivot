@@ -285,11 +285,7 @@ pub async fn settle_transfer(
     //     `load_settle_lines` 是按 `line_no` 读的，而建单时的物料顺序由用户决定；
     //     不重排就会与收货过账（`stockin_handler` 按 `material_id` 升序排好）在
     //     「成本账 → 库位账」两级锁上反向推进，两张单并发动同一组物料会交叉等待。
-    lines.sort_by(|a, b| {
-        a.material_id
-            .cmp(&b.material_id)
-            .then(a.line_no.cmp(&b.line_no))
-    });
+    lines.sort_by(|a, b| a.material_id.cmp(&b.material_id).then(a.line_no.cmp(&b.line_no)));
     // ② 先校验再动库存：`ck_biz_transfer_item_qty` 保证 qty > 0，所以一物一码物料
     //    没有序列号一定是错的（先扣库存再报 400 就是白扣一轮再回滚）
     for line in &lines {
@@ -312,14 +308,7 @@ pub async fn settle_transfer(
 
     for line in &lines {
         // ③ 调出仓：先选桶（FIX-4 问题 2 —— 明细指定库位就动那个库位桶，不静默改扣汇总桶）
-        let out_bucket = match pick_bucket(
-            ex,
-            line.material_id,
-            from_warehouse_id,
-            line.from_location_id,
-        )
-        .await?
-        {
+        let out_bucket = match pick_bucket(ex, line.material_id, from_warehouse_id, line.from_location_id).await? {
             // 明细指定的库位桶（精确命中 = 用户意图）
             BucketPick::Exact(bucket) => bucket,
             // 未指定库位时的兜底桶（汇总桶 → 默认库位桶 → 唯一库位桶），来源写进日志便于事后追账
@@ -365,11 +354,8 @@ pub async fn settle_transfer(
                 });
             }
         };
-        let Some(out) = deduct_inventory_row(ex, out_bucket.inventory_id, line.qty, now).await?
-        else {
-            let available = current_qty(ex, out_bucket.inventory_id)
-                .await?
-                .unwrap_or(Decimal::ZERO);
+        let Some(out) = deduct_inventory_row(ex, out_bucket.inventory_id, line.qty, now).await? else {
+            let available = current_qty(ex, out_bucket.inventory_id).await?.unwrap_or(Decimal::ZERO);
             return Err(SettleError::Insufficient {
                 material_code: line.material_code.clone(),
                 required: line.qty,
@@ -439,19 +425,16 @@ pub async fn settle_transfer(
         // ④a 先定「调入侧要动的那个桶」：与成本账（`credit_inventory_row` → `lock_cost_bucket`）同一判据
         //     —— FIX-4 起两边都是「精确匹配优先」（明细点名库位就落那个库位桶），
         //     否则库位账加到明细库位桶、成本账加到汇总桶，分库位库存永久漂移（P0-03）。
-        let in_bucket_location =
-            match pick_bucket(ex, line.material_id, to_warehouse_id, line.to_location_id).await? {
-                BucketPick::Exact(bucket) | BucketPick::Unspecified { bucket, .. } => {
-                    bucket.location_id
-                }
-                // 明细库位还没有库存账：`credit_cost` 的 `lock_cost_bucket` 也是「精确优先」——
-                // 有整仓汇总桶就落汇总桶，没有就按明细库位建档，两本账仍是同一个桶。
-                BucketPick::SpecifiedMissing { summary } => {
-                    summary.map_or(line.to_location_id, |bucket| bucket.location_id)
-                }
-                // 仓里还没有这个物料的库存行：credit 会按明细库位建档 → 两本账同一个桶
-                BucketPick::Missing | BucketPick::Ambiguous => line.to_location_id,
-            };
+        let in_bucket_location = match pick_bucket(ex, line.material_id, to_warehouse_id, line.to_location_id).await? {
+            BucketPick::Exact(bucket) | BucketPick::Unspecified { bucket, .. } => bucket.location_id,
+            // 明细库位还没有库存账：`credit_cost` 的 `lock_cost_bucket` 也是「精确优先」——
+            // 有整仓汇总桶就落汇总桶，没有就按明细库位建档，两本账仍是同一个桶。
+            BucketPick::SpecifiedMissing { summary } => {
+                summary.map_or(line.to_location_id, |bucket| bucket.location_id)
+            }
+            // 仓里还没有这个物料的库存行：credit 会按明细库位建档 → 两本账同一个桶
+            BucketPick::Missing | BucketPick::Ambiguous => line.to_location_id,
+        };
         // ④ 调入仓：加库存（行不存在就建档）+ 移动加权重算 avg_cost
         let ins = credit_inventory_row(
             ex,
@@ -467,15 +450,9 @@ pub async fn settle_transfer(
         )
         .await?;
         // ④b 调入仓**库位账**：+qty（与成本账同一个桶：汇总桶或明细库位桶）
-        let in_location = stockin_model::apply_location_qty(
-            ex,
-            line.material_id,
-            to_warehouse_id,
-            in_bucket_location,
-            line.qty,
-            now,
-        )
-        .await?;
+        let in_location =
+            stockin_model::apply_location_qty(ex, line.material_id, to_warehouse_id, in_bucket_location, line.qty, now)
+                .await?;
         tracing::debug!(
             transfer_no = %transfer_no,
             line_no = line.line_no,
@@ -582,10 +559,7 @@ pub async fn settle_transfer(
 }
 
 /// 读待结算明细（连 `biz_material` 取 `material_code` / `serial_required`，序列号按行分组）。
-pub(super) async fn load_settle_lines(
-    ex: &impl SqlExecutor,
-    transfer_id: Uuid,
-) -> DbResult<Vec<SettleLine>> {
+pub(super) async fn load_settle_lines(ex: &impl SqlExecutor, transfer_id: Uuid) -> DbResult<Vec<SettleLine>> {
     let rows = ex
         .query_sql(
             format!(
@@ -820,11 +794,7 @@ async fn bucket_count_rows(
 }
 
 /// 该物料在这个仓有几个库存桶（只用于报错文案里的「N 个库位桶」）。
-async fn bucket_count(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-    warehouse_id: Uuid,
-) -> DbResult<usize> {
+async fn bucket_count(ex: &impl SqlExecutor, material_id: Uuid, warehouse_id: Uuid) -> DbResult<usize> {
     // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
     let count: i64 = ex
         .scalar_sql(
@@ -838,10 +808,7 @@ async fn bucket_count(
 }
 
 /// 库位桶的人话标签（报错文案用）：`库位 A-01-03` / `整仓汇总桶（未分配库位）`。
-pub(super) async fn bucket_label(
-    ex: &impl SqlExecutor,
-    location_row_id: Option<Uuid>,
-) -> DbResult<String> {
+pub(super) async fn bucket_label(ex: &impl SqlExecutor, location_row_id: Option<Uuid>) -> DbResult<String> {
     let Some(row_id) = location_row_id else {
         return Ok("整仓汇总桶（未分配库位）".to_string());
     };
@@ -873,10 +840,7 @@ fn bucket_from_row(row: &Row) -> DbResult<InventoryBucket> {
 }
 
 /// 该库存行当前账面数量（`None` = 行已不存在）。
-pub(super) async fn current_qty(
-    ex: &impl SqlExecutor,
-    inventory_id: Uuid,
-) -> DbResult<Option<Decimal>> {
+pub(super) async fn current_qty(ex: &impl SqlExecutor, inventory_id: Uuid) -> DbResult<Option<Decimal>> {
     // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
     let row = ex
         .query_first_sql(
@@ -980,11 +944,7 @@ pub(super) async fn move_serials(
     // 数组参数走 `Value::Text("{a,b}")` + `?::text::uuid[]`（技能 §6.5 实测的唯一可行形态）
     let payload = Value::Text(format!(
         "{{{}}}",
-        serial_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        serial_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
     ));
     // SCOPE-EXEMPT: 序列号是仓储数据，无归属列（口径同 erp/model.rs）。
     ex.exec_sql(
@@ -1008,11 +968,7 @@ pub(super) async fn move_serials(
 }
 
 /// 写一条调拨库存流水（`txn_type` 决定方向，`qty` 恒正 —— `ck_biz_inv_txn_qty` 禁负数）。
-pub(super) async fn post_stock_txn(
-    ex: &impl SqlExecutor,
-    txn: &StockTxn<'_>,
-    now: DateTime<Utc>,
-) -> DbResult<()> {
+pub(super) async fn post_stock_txn(ex: &impl SqlExecutor, txn: &StockTxn<'_>, now: DateTime<Utc>) -> DbResult<()> {
     // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]。
     inventory_writer::insert_txn(
         ex,
@@ -1063,10 +1019,7 @@ pub(super) async fn post_stock_txn(
 ///    这一条是本卡补的「当场自检」：历史上调拨/批量生成只写成本账、库位账一行不写，
 ///    造成巡检 B1（BLOCKER）在调出仓/调入仓两侧必红；现在任何一次漏账都会在结算当刻
 ///    整单回滚并指名道姓地报出来，而不是等下一次巡检。
-pub(super) async fn assert_settle_invariants(
-    ex: &impl SqlExecutor,
-    transfer_id: Uuid,
-) -> SettleResult<()> {
+pub(super) async fn assert_settle_invariants(ex: &impl SqlExecutor, transfer_id: Uuid) -> SettleResult<()> {
     // SCOPE-EXEMPT: 库存 / 序列号 / 库位账都是仓储数据，无归属列（口径同 erp/model.rs）。
     let row = ex
         .query_first_sql(
@@ -1118,9 +1071,7 @@ pub(super) async fn assert_settle_invariants(
             vec![Value::from(&transfer_id), Value::from(&transfer_id)],
         )
         .await?
-        .ok_or_else(|| {
-            SettleError::Invariant("不变式查询没有返回行（聚合查询不应为空）".to_string())
-        })?;
+        .ok_or_else(|| SettleError::Invariant("不变式查询没有返回行（聚合查询不应为空）".to_string()))?;
 
     let serial_broken: i64 = row.get_typed("serial_broken")?;
     let negative_qty: i64 = row.get_typed("negative_qty")?;
@@ -1156,10 +1107,7 @@ pub(super) async fn assert_settle_invariants(
 /// 两本账不符的明细文案（**只在断言失败时查**，正常结算不付这次开销）。
 ///
 /// 逐条打印 `物料编码 / 仓库名 / 成本账 / 库位账 / 差额`，让运维不用自己拼 SQL 就能定位。
-pub(super) async fn location_broken_detail(
-    ex: &impl SqlExecutor,
-    transfer_id: Uuid,
-) -> DbResult<String> {
+pub(super) async fn location_broken_detail(ex: &impl SqlExecutor, transfer_id: Uuid) -> DbResult<String> {
     // SCOPE-EXEMPT: 库存 / 库位账是仓储数据，无归属列（口径同 erp/model.rs）。
     let rows = ex
         .query_sql(

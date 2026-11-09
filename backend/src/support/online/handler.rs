@@ -23,11 +23,7 @@ use crate::utils;
 /// # 异常情况
 ///
 /// - 503：缓存未初始化或枚举失败。
-#[nik::permission(
-    path = "/support/online/page",
-    method = "GET",
-    permission = "support:online:list"
-)]
+#[nik::permission(path = "/support/online/page", method = "GET", permission = "support:online:list")]
 #[nik::get("/support/online/page")]
 pub async fn page(Query(query): Query<OnlineQuery>) -> ResResult<PageData<Vec<OnlineRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
@@ -36,11 +32,7 @@ pub async fn page(Query(query): Query<OnlineQuery>) -> ResResult<PageData<Vec<On
         .await
         .map_err(|e| cache_error(e, "枚举在线会话"))?;
 
-    let keyword = query
-        .username
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let keyword = query.username.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let matched: Vec<OnlineRes> = sessions
         .iter()
         .filter(|session| match keyword {
@@ -87,13 +79,7 @@ pub async fn force_logout(Path(token_id): Path<String>) -> ResResult<()> {
     let session = OnlineSessionModel::find(&token_id)
         .await
         .map_err(|e| cache_error(e, "查询在线会话"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::ONLINE_SESSION_NOT_FOUND,
-                "在线会话不存在或已过期",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::ONLINE_SESSION_NOT_FOUND, "在线会话不存在或已过期"))?;
 
     OnlineSessionModel::force_logout(&session)
         .await
@@ -115,9 +101,5 @@ pub async fn force_logout(Path(token_id): Path<String>) -> ResResult<()> {
 /// 统一响应体为 `code = ONLINE_CACHE_UNAVAILABLE` 的 [`ApiError`]。
 fn cache_error(e: Error, ctx: &str) -> ApiError {
     tracing::error!(context = ctx, error = %e, "在线用户缓存操作失败");
-    ApiError::new(
-        503,
-        error_code::ONLINE_CACHE_UNAVAILABLE,
-        "在线用户功能暂不可用",
-    )
+    ApiError::new(503, error_code::ONLINE_CACHE_UNAVAILABLE, "在线用户功能暂不可用")
 }

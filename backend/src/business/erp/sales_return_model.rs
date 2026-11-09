@@ -170,11 +170,7 @@ pub fn is_valid_return_no(value: &str) -> bool {
 /// `-0.5` 这种怪值；真正的判定仍由 [`qty_within_returnable`]（`qty <= remaining`）负责。
 pub fn remaining_returnable(shipped: Decimal, returned: Decimal) -> Decimal {
     let left = shipped - returned;
-    if left < Decimal::ZERO {
-        Decimal::ZERO
-    } else {
-        left
-    }
+    if left < Decimal::ZERO { Decimal::ZERO } else { left }
 }
 
 /// 本行退货量是否允许：`qty > 0` **且** `qty <= 已发货量 − 已退量`。
@@ -253,9 +249,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个退货单号（周期键按北京时间）。
@@ -321,18 +315,13 @@ pub async fn lock_so_item(ex: &impl SqlExecutor, so_item_id: Uuid) -> DbResult<(
         )
         .await?;
     if rows.is_empty() {
-        return Err(DbError::InvalidValue(format!(
-            "销售订单行不存在：{so_item_id}"
-        )));
+        return Err(DbError::InvalidValue(format!("销售订单行不存在：{so_item_id}")));
     }
     Ok(())
 }
 
 /// 发货单的元信息：`(customer_id, so_id, status)`；不存在 / 已软删 → `None`。
-pub async fn shipment_meta(
-    ex: &impl SqlExecutor,
-    shipment_id: Uuid,
-) -> DbResult<Option<(Uuid, Uuid, String)>> {
+pub async fn shipment_meta(ex: &impl SqlExecutor, shipment_id: Uuid) -> DbResult<Option<(Uuid, Uuid, String)>> {
     // SCOPE-EXEMPT: 发货单是 ERP 单据表，无归属列。
     let rows = ex
         .query_sql(
@@ -491,9 +480,7 @@ pub async fn ensure_qty_within_returnable(
     exclude_return: Option<Uuid>,
 ) -> DbResult<(Decimal, Decimal)> {
     if qty <= Decimal::ZERO {
-        return Err(DbError::InvalidValue(format!(
-            "退货数量必须大于 0（实际 {qty}）"
-        )));
+        return Err(DbError::InvalidValue(format!("退货数量必须大于 0（实际 {qty}）")));
     }
     let (shipped, returned) = match shipment_id {
         Some(shipment_id) => {
@@ -513,12 +500,8 @@ pub async fn ensure_qty_within_returnable(
             }
         }
         None => {
-            let Some((_, _, _, shipped, returned)) =
-                so_item_snapshot(ex, so_item_id, exclude_return).await?
-            else {
-                return Err(DbError::InvalidValue(format!(
-                    "销售订单行不存在：{so_item_id}"
-                )));
+            let Some((_, _, _, shipped, returned)) = so_item_snapshot(ex, so_item_id, exclude_return).await? else {
+                return Err(DbError::InvalidValue(format!("销售订单行不存在：{so_item_id}")));
             };
             (shipped, returned)
         }
@@ -745,13 +728,7 @@ pub struct NewReturnItem {
 
 impl NewReturnItem {
     /// 按数量 / 单价 / 税率算好金额后构造（金额只由这里算，调用方不许自己填）。
-    pub fn new(
-        so_item_id: Option<Uuid>,
-        material_id: Uuid,
-        qty: Decimal,
-        price: Decimal,
-        tax_rate: Decimal,
-    ) -> Self {
+    pub fn new(so_item_id: Option<Uuid>, material_id: Uuid, qty: Decimal, price: Decimal, tax_rate: Decimal) -> Self {
         let (amount, tax_amount) = line_amounts(qty, price, tax_rate);
         Self {
             so_item_id,
@@ -796,11 +773,8 @@ pub async fn find_return(id: Uuid) -> DbResult<Option<ReturnRow>> {
 
 /// 取一张退货单的明细（订单行号升序；无原单的行排最后）。
 pub async fn items_of(return_id: Uuid) -> DbResult<Vec<ReturnItemRow>> {
-    let sql =
-        format!("{ITEM_SELECT} WHERE ri.return_id = ? ORDER BY COALESCE(oi.line_no, 0), ri.id");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(return_id)])
-        .await?;
+    let sql = format!("{ITEM_SELECT} WHERE ri.return_id = ? ORDER BY COALESCE(oi.line_no, 0), ri.id");
+    let rows = db().find_with_params(&sql, vec![Value::from(return_id)]).await?;
     rows.iter().map(ReturnItemRow::from_row).collect()
 }
 
@@ -873,9 +847,7 @@ pub async fn so_customer_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Opti
             vec![Value::from(so_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("customer_id"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("customer_id")).transpose()
 }
 
 /// 发货单的单号（详情展示用；不存在 / 已软删 → `None`）。
@@ -883,8 +855,7 @@ pub async fn shipment_no_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<
     // SCOPE-EXEMPT: 发货单是 ERP 单据表，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT ship_no FROM biz_shipment WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT ship_no FROM biz_shipment WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(id)],
         )
         .await?;
@@ -894,10 +865,7 @@ pub async fn shipment_no_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<
 /// 批量取「发货单 id → 单号」，分页列表一次往返补齐（避免 N+1）。
 ///
 /// 软删 / 不存在的发货单不出现在结果里（调用方按缺失处理 = 单号留 `None`）。
-pub async fn shipment_no_labels(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<Vec<(Uuid, String)>> {
+pub async fn shipment_no_labels(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<Vec<(Uuid, String)>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -934,12 +902,7 @@ pub async fn create_return(
     let return_no = next_return_no(ex, now).await?;
     let id = Uuid::now_v7();
     let (total_amount, total_tax, total_with_tax) = totals_of(items);
-    let operator_text = Value::Text(
-        operator
-            .id
-            .map(|value| value.to_string())
-            .unwrap_or_default(),
-    );
+    let operator_text = Value::Text(operator.id.map(|value| value.to_string()).unwrap_or_default());
     ex.exec_sql(
         format!(
             "INSERT INTO {TABLE} \
@@ -955,11 +918,7 @@ pub async fn create_return(
             Value::Text(return_no.clone()),
             Value::from(&new.customer_id),
             Value::Text(new.so_id.map(|value| value.to_string()).unwrap_or_default()),
-            Value::Text(
-                new.shipment_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.shipment_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::Text(new.return_date.to_string()),
             Value::Text(new.return_type.to_string()),
             Value::from(&new.warehouse_id),
@@ -994,11 +953,7 @@ pub async fn create_return(
 ///
 /// `serial_nos` 走 `string_to_array` + 一个 text 参数：驱动没有 `text[]` 编码器，
 /// 直绑 `?::text[]` 会 `error serializing parameter`（`serial_model` 实测坑）。
-async fn insert_items(
-    ex: &impl SqlExecutor,
-    return_id: Uuid,
-    items: &[NewReturnItem],
-) -> DbResult<()> {
+async fn insert_items(ex: &impl SqlExecutor, return_id: Uuid, items: &[NewReturnItem]) -> DbResult<()> {
     for item in items {
         ex.exec_sql(
             format!(
@@ -1012,22 +967,14 @@ async fn insert_items(
             ),
             vec![
                 Value::from(&return_id),
-                Value::Text(
-                    item.so_item_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(item.so_item_id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::from(&item.material_id),
                 Value::Text(item.qty.to_string()),
                 Value::Text(item.price.to_string()),
                 Value::Text(item.amount.to_string()),
                 Value::Text(item.tax_rate.to_string()),
                 Value::Text(item.tax_amount.to_string()),
-                Value::Text(
-                    item.location_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(item.location_id.map(|id| id.to_string()).unwrap_or_default()),
                 Value::Text(item.serial_nos.join(",")),
                 Value::Text(item.remark.clone().unwrap_or_default()),
             ],
@@ -1084,14 +1031,7 @@ mod tests {
     fn status_domain_matches_arch() {
         assert_eq!(
             STATUSES,
-            [
-                "DRAFT",
-                "SUBMITTED",
-                "APPROVED",
-                "PENDING_POST",
-                "POSTED",
-                "CANCELLED"
-            ]
+            ["DRAFT", "SUBMITTED", "APPROVED", "PENDING_POST", "POSTED", "CANCELLED"]
         );
         for status in STATUSES {
             assert!(is_valid_status(status));
@@ -1151,10 +1091,7 @@ mod tests {
         assert!(!can_transition("DRAFT", "APPROVED"));
         assert!(!can_transition("DRAFT", "PENDING_POST"));
         assert!(!can_transition("DRAFT", "POSTED"));
-        assert!(
-            !can_transition("SUBMITTED", "DRAFT"),
-            "退货单没有回草稿的边"
-        );
+        assert!(!can_transition("SUBMITTED", "DRAFT"), "退货单没有回草稿的边");
         assert!(
             !can_transition("PENDING_POST", "CANCELLED"),
             "待过账必须走完过账或先撤回"
@@ -1180,11 +1117,7 @@ mod tests {
         // 超退被拒
         assert!(!qty_within_returnable(dec("11"), dec("10"), dec("0")));
         // 数量必须 > 0
-        assert!(!qty_within_returnable(
-            Decimal::ZERO,
-            dec("10"),
-            Decimal::ZERO
-        ));
+        assert!(!qty_within_returnable(Decimal::ZERO, dec("10"), Decimal::ZERO));
         assert!(!qty_within_returnable(dec("-1"), dec("10"), Decimal::ZERO));
         // 已退超过已发（数据异常也绝不放过）
         assert_eq!(remaining_returnable(dec("2"), dec("5")), Decimal::ZERO);
@@ -1206,10 +1139,7 @@ mod tests {
         assert_eq!(total_amount, dec("20.5000"));
         assert_eq!(total_tax, dec("2.6000"));
         assert_eq!(total_with_tax, total_amount + total_tax);
-        assert_eq!(
-            totals_of(&[]),
-            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO)
-        );
+        assert_eq!(totals_of(&[]), (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
     }
 
     /// ⑦ 单号格式：拼 / 解析 / 非法输入一律 None（不静默纠正）。
@@ -1217,10 +1147,7 @@ mod tests {
     fn return_no_format() {
         assert_eq!(format_return_no("20261107", 1), "SR-20261107-000001");
         assert_eq!(format_return_no("20261107", 1234567), "SR-20261107-1234567");
-        assert_eq!(
-            parse_return_no("SR-20261107-000001"),
-            Some(("20261107".to_string(), 1))
-        );
+        assert_eq!(parse_return_no("SR-20261107-000001"), Some(("20261107".to_string(), 1)));
         for bad in [
             "",
             "SR",

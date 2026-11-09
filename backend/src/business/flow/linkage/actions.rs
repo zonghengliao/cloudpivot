@@ -123,9 +123,7 @@ impl NoticeSetting {
             None | Some("SHADOW") => NoticeMode::Shadow,
             Some("TAKEOVER") => NoticeMode::Takeover,
             Some(other) => {
-                return Err(format!(
-                    "参数 `mode` 只允许 SHADOW / TAKEOVER（当前 {other}）"
-                ));
+                return Err(format!("参数 `mode` 只允许 SHADOW / TAKEOVER（当前 {other}）"));
             }
         };
         let recipient = match text("recipient")?.as_deref() {
@@ -219,11 +217,7 @@ pub fn shape_notice(
 async fn ensure_recipients_alive(recipients: &[Uuid]) -> Result<(), ActionError> {
     // SCOPE-EXEMPT: 只数「这批 uuid 里还有几个存活账号」，用于发送前的存在性校验；
     // 注入数据范围谓词会让「收件人是别人部门的人」这种正常情况被静默判成不存在。
-    let array = recipients
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let array = recipients.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     let alive: i64 = db()
         .scalar_sql(
             "SELECT count(*) FROM sys_user \
@@ -243,10 +237,7 @@ async fn ensure_recipients_alive(recipients: &[Uuid]) -> Result<(), ActionError>
 }
 
 /// 发一条通知（`Phase::AfterCommit`，非关键动作）：整形 + 发送。
-pub async fn send_notice(
-    rule: &LinkageRuleRow,
-    ctx: &LinkageContext<'_>,
-) -> Result<NoticeOutcome, ActionError> {
+pub async fn send_notice(rule: &LinkageRuleRow, ctx: &LinkageContext<'_>) -> Result<NoticeOutcome, ActionError> {
     let (draft, _setting) = prepare_notice(rule, ctx).await?;
     dispatch_notice(draft).await
 }
@@ -368,8 +359,8 @@ pub async fn update_received_qty(
     rule: &LinkageRuleRow,
     ctx: &LinkageContext<'_>,
 ) -> Result<String, ActionError> {
-    let Some(source_item_id) = text_param(&rule.action_params, "source_item_id")
-        .and_then(|text| Uuid::parse_str(&text).ok())
+    let Some(source_item_id) =
+        text_param(&rule.action_params, "source_item_id").and_then(|text| Uuid::parse_str(&text).ok())
     else {
         return Err(ActionError::Skipped(
             "UPDATE_RECEIVED_QTY：参数 source_item_id 缺失或不是合法 UUID，跳过".to_string(),
@@ -396,10 +387,7 @@ pub async fn update_received_qty(
         posted = crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
     );
     let rows = ex
-        .query_sql(
-            sql,
-            vec![Value::from(&ctx.doc_id), Value::from(&source_item_id)],
-        )
+        .query_sql(sql, vec![Value::from(&ctx.doc_id), Value::from(&source_item_id)])
         .await
         .map_err(|error| ActionError::Failed(format!("校验采购明细行失败：{error}")))?;
     let Some(row) = rows.first() else {
@@ -475,9 +463,7 @@ impl VoucherSetting {
             None | Some("SHADOW") => VoucherMode::Shadow,
             Some("TAKEOVER") => VoucherMode::Takeover,
             Some(other) => {
-                return Err(format!(
-                    "参数 `mode` 只允许 SHADOW / TAKEOVER（当前 {other}）"
-                ));
+                return Err(format!("参数 `mode` 只允许 SHADOW / TAKEOVER（当前 {other}）"));
             }
         };
         let Some(biz_type) = text("biz_type")? else {
@@ -555,9 +541,7 @@ pub async fn prepare_voucher(
     }
     let Some(biz_ctx) = stockin_model::voucher_biz_ctx(ex, ctx.doc_id)
         .await
-        .map_err(|error| {
-            ActionError::Failed(format!("取收货单 {} 的凭证上下文失败：{error}", ctx.doc_id))
-        })?
+        .map_err(|error| ActionError::Failed(format!("取收货单 {} 的凭证上下文失败：{error}", ctx.doc_id)))?
     else {
         return Err(ActionError::Skipped(format!(
             "GENERATE_VOUCHER：单据 {}（{}）不存在或已删除，跳过（target 不在）",
@@ -571,10 +555,7 @@ pub async fn prepare_voucher(
         return Err(ActionError::Skipped(format!(
             "GENERATE_VOUCHER：单据 {} 金额全为 0（不含税 {} / 税 {} / 价税合计 {}），\
              会计上不构成一张凭证，跳过",
-            biz_ctx.source_no,
-            biz_ctx.amounts.amount,
-            biz_ctx.amounts.tax,
-            biz_ctx.amounts.with_tax
+            biz_ctx.source_no, biz_ctx.amounts.amount, biz_ctx.amounts.tax, biz_ctx.amounts.with_tax
         )));
     }
     let biz_ctx = match account_date {
@@ -620,19 +601,9 @@ pub async fn commit_voucher(
     biz_ctx: &VoucherBizCtx,
     ctx: &LinkageContext<'_>,
 ) -> Result<Uuid, ActionError> {
-    voucher::create_by_rule(
-        ex,
-        setting.template_code.as_deref(),
-        biz_ctx,
-        ctx.operator,
-        ctx.now,
-    )
-    .await
-    .map_err(|error| {
-        ActionError::Failed(format!(
-            "GENERATE_VOUCHER 生成凭证失败（关键动作，整笔回滚）：{error}"
-        ))
-    })
+    voucher::create_by_rule(ex, setting.template_code.as_deref(), biz_ctx, ctx.operator, ctx.now)
+        .await
+        .map_err(|error| ActionError::Failed(format!("GENERATE_VOUCHER 生成凭证失败（关键动作，整笔回滚）：{error}")))
 }
 
 // ==================== 提交后动作：建工作任务 ====================
@@ -654,17 +625,13 @@ pub async fn commit_voucher(
 /// 联动触发的单据类型里多数不在这个白名单内（如 `STOCK_OUT` / `EXPENSE`）。
 /// 为了让「任何触发点都能配」，这里只落自由任务，源单号写进标题与描述
 /// （可读、可 grep）；要挂单据关联得先扩 `DOC_TARGETS`，那是另一张卡的事，不在这里偷跑。
-pub async fn create_task(
-    rule: &LinkageRuleRow,
-    ctx: &LinkageContext<'_>,
-) -> Result<String, ActionError> {
+pub async fn create_task(rule: &LinkageRuleRow, ctx: &LinkageContext<'_>) -> Result<String, ActionError> {
     let Some(title) = text_param(&rule.action_params, "title") else {
         return Err(ActionError::Skipped(
             "CREATE_TASK：title 必填（任务标题不能凭空生成）".to_string(),
         ));
     };
-    let strategy = text_param(&rule.action_params, "assignee_strategy")
-        .unwrap_or_else(|| "OPERATOR".to_string());
+    let strategy = text_param(&rule.action_params, "assignee_strategy").unwrap_or_else(|| "OPERATOR".to_string());
     let owner = match strategy.as_str() {
         "DOC_CREATOR" => ctx.creator,
         _ => ctx.operator,
@@ -678,10 +645,7 @@ pub async fn create_task(
     // 当前 CST 日期 → 月份键（编号按月递增，与任务模块同一口径，不另写一份）
     let today = voucher::today_cst(ctx.now);
     let month = crate::business::task::model::month_key(today);
-    let due_days = rule
-        .action_params
-        .get("due_days")
-        .and_then(|value| value.as_i64());
+    let due_days = rule.action_params.get("due_days").and_then(|value| value.as_i64());
     let due_date = due_days.map(|days| today + Duration::days(days));
     let assignment = if owner == creator { "SELF" } else { "ASSIGNED" };
     let new = crate::business::task::model::NewTask {
@@ -710,8 +674,7 @@ pub async fn create_task(
         .begin()
         .await
         .map_err(|error| ActionError::Failed(format!("CREATE_TASK：开启事务失败：{error}")))?;
-    let task_no = match crate::business::task::model::create_task(&tx, &new, operator, &month).await
-    {
+    let task_no = match crate::business::task::model::create_task(&tx, &new, operator, &month).await {
         Ok(task_no) => task_no,
         Err(error) => {
             let _ = tx.rollback().await;
@@ -742,21 +705,15 @@ pub async fn run_in_tx(
 ) -> Result<String, ActionError> {
     match rule.action_code.as_str() {
         spec::ACTION_UPDATE_RECEIVED_QTY => update_received_qty(ex, rule, ctx).await,
-        spec::ACTION_GENERATE_VOUCHER => generate_voucher(ex, rule, ctx).await.map(|outcome| {
-            format!(
-                "凭证 {} 已生成（{}）",
-                outcome.voucher_id, outcome.biz_ctx.summary
-            )
-        }),
+        spec::ACTION_GENERATE_VOUCHER => generate_voucher(ex, rule, ctx)
+            .await
+            .map(|outcome| format!("凭证 {} 已生成（{}）", outcome.voucher_id, outcome.biz_ctx.summary)),
         other => Err(ActionError::Skipped(not_taken_over(other))),
     }
 }
 
 /// 执行一个**提交后**动作（`Phase::AfterCommit`）。
-pub async fn run_after_commit(
-    rule: &LinkageRuleRow,
-    ctx: &LinkageContext<'_>,
-) -> Result<String, ActionError> {
+pub async fn run_after_commit(rule: &LinkageRuleRow, ctx: &LinkageContext<'_>) -> Result<String, ActionError> {
     match rule.action_code.as_str() {
         spec::ACTION_SEND_NOTICE => send_notice(rule, ctx).await.map(|outcome| {
             format!(
@@ -787,10 +744,7 @@ fn text_param(params: &serde_json::Value, key: &str) -> Option<String> {
 }
 
 /// 取十进制参数。
-fn decimal_param(
-    params: &serde_json::Value,
-    key: &str,
-) -> Option<nik::prelude::rust_decimal::Decimal> {
+fn decimal_param(params: &serde_json::Value, key: &str) -> Option<nik::prelude::rust_decimal::Decimal> {
     use std::str::FromStr;
     let text = match params.get(key)? {
         serde_json::Value::Number(number) => number.to_string(),

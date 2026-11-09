@@ -167,10 +167,7 @@ pub struct DelegatePatch {
 /// # 异常情况
 ///
 /// - `400 + 65005`：三种形态都解析不出来（文案点名字段，不静默当「现在」）。
-pub fn parse_time(
-    raw: &str,
-    label: &str,
-) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
+pub fn parse_time(raw: &str, label: &str) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
     use chrono::{FixedOffset, NaiveDate, NaiveDateTime, TimeZone};
     let text = raw.trim();
     if text.is_empty() {
@@ -325,9 +322,7 @@ pub fn check_overlap(
 fn format_biz_time(at: chrono::DateTime<chrono::Utc>) -> String {
     use chrono::FixedOffset;
     let offset = FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
-    at.with_timezone(&offset)
-        .format("%Y-%m-%d %H:%M")
-        .to_string()
+    at.with_timezone(&offset).format("%Y-%m-%d %H:%M").to_string()
 }
 
 // ==================== 并发收口 ====================
@@ -372,11 +367,7 @@ pub async fn overlap_of(
             AND delegator_id = ?::uuid \
             AND start_at < ?::timestamptz AND end_at > ?::timestamptz",
     );
-    let mut params: Vec<Value> = vec![
-        Value::from(delegator_id),
-        Value::from(end_at),
-        Value::from(start_at),
-    ];
+    let mut params: Vec<Value> = vec![Value::from(delegator_id), Value::from(end_at), Value::from(start_at)];
     if let Some(exclude) = exclude {
         sql.push_str(" AND id <> ?::uuid");
         params.push(Value::from(exclude));
@@ -560,10 +551,7 @@ pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid) -> DbResult<u64> {
 ///
 /// 返回 `Some(原因)` = 不可用。**保存期**就拦：让用户在配的时候改，
 /// 而不是等出差第一天单据发不出去才发现。
-pub async fn delegate_unusable_reason(
-    ex: &impl SqlExecutor,
-    delegate_id: Uuid,
-) -> DbResult<Option<String>> {
+pub async fn delegate_unusable_reason(ex: &impl SqlExecutor, delegate_id: Uuid) -> DbResult<Option<String>> {
     let rows = ex
         .query_sql(
             "SELECT u.user_type AS user_type, (u.status = 1) AS active \
@@ -578,9 +566,7 @@ pub async fn delegate_unusable_reason(
     let user_type: String = row.get_typed("user_type")?;
     let active: bool = row.get_typed("active")?;
     if user_type.eq_ignore_ascii_case("ROBOT") {
-        return Ok(Some(
-            "受托人不能是机器人（委托要的是能签字的人）".to_string(),
-        ));
+        return Ok(Some("受托人不能是机器人（委托要的是能签字的人）".to_string()));
     }
     if !active {
         return Ok(Some("受托人已停用".to_string()));
@@ -626,10 +612,7 @@ mod tests {
         assert_eq!(naive, rfc, "无时区按 Asia/Shanghai（+08:00）折算");
 
         let date_only = parse_time("2026-11-08", "开始时间").expect("date only");
-        assert_eq!(
-            date_only,
-            Utc.with_ymd_and_hms(2026, 11, 7, 16, 0, 0).unwrap()
-        );
+        assert_eq!(date_only, Utc.with_ymd_and_hms(2026, 11, 7, 16, 0, 0).unwrap());
 
         let bad = parse_time("明天上午", "开始时间").expect_err("非法格式必须 400");
         assert_eq!(bad.status, 400);
@@ -653,9 +636,7 @@ mod tests {
             error_code::FLOW_FIELD_INVALID
         );
         assert_eq!(
-            normalize_scope(Some("采购单"))
-                .expect_err("中文不是业务类型编码")
-                .code,
+            normalize_scope(Some("采购单")).expect_err("中文不是业务类型编码").code,
             error_code::FLOW_FIELD_INVALID
         );
     }
@@ -683,18 +664,16 @@ mod tests {
         let a = Uuid::from_u128(1);
         let b = Uuid::from_u128(2);
 
-        let self_delegate =
-            validate_window(a, a, at(2026, 11, 8), at(2026, 11, 11)).expect_err("自委托必须拒");
+        let self_delegate = validate_window(a, a, at(2026, 11, 8), at(2026, 11, 11)).expect_err("自委托必须拒");
         assert_eq!(self_delegate.code, error_code::FLOW_DELEGATE_INVALID);
         assert_eq!(self_delegate.code, 65043);
         assert!(self_delegate.msg.contains("不能是委托人自己"));
 
-        let reversed = validate_window(a, b, at(2026, 11, 11), at(2026, 11, 8))
-            .expect_err("结束早于开始必须拒");
+        let reversed = validate_window(a, b, at(2026, 11, 11), at(2026, 11, 8)).expect_err("结束早于开始必须拒");
         assert_eq!(reversed.code, 65043);
 
-        let zero = validate_window(a, b, at(2026, 11, 8), at(2026, 11, 8))
-            .expect_err("零长度区间必须拒（end_at > start_at）");
+        let zero =
+            validate_window(a, b, at(2026, 11, 8), at(2026, 11, 8)).expect_err("零长度区间必须拒（end_at > start_at）");
         assert_eq!(zero.code, 65043);
 
         assert!(validate_window(a, b, at(2026, 11, 8), at(2026, 11, 11)).is_ok());
@@ -706,8 +685,7 @@ mod tests {
         let a = Uuid::from_u128(1);
         let b = Uuid::from_u128(2);
         assert!(validate_window(a, b, at(2026, 1, 1), at(2027, 1, 1)).is_ok());
-        let too_long =
-            validate_window(a, b, at(2026, 1, 1), at(2028, 1, 1)).expect_err("两年必须拒");
+        let too_long = validate_window(a, b, at(2026, 1, 1), at(2028, 1, 1)).expect_err("两年必须拒");
         assert_eq!(too_long.code, 65043);
         assert!(too_long.msg.contains("跨度"));
     }
@@ -716,14 +694,9 @@ mod tests {
     #[test]
     fn check_overlap_names_conflict_window() {
         assert!(check_overlap(None).is_ok());
-        let error =
-            check_overlap(Some((at(2026, 11, 8), at(2026, 11, 11)))).expect_err("有重叠必须 65043");
+        let error = check_overlap(Some((at(2026, 11, 8), at(2026, 11, 11)))).expect_err("有重叠必须 65043");
         assert_eq!(error.code, 65043);
-        assert!(
-            error.msg.contains("2026-11-08 08:00"),
-            "报文：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("2026-11-08 08:00"), "报文：{}", error.msg);
         assert!(error.msg.contains("重叠"));
     }
 
@@ -911,22 +884,15 @@ mod db_tests {
 
         // ④ 改自己：排除自己那一行 → 不重叠
         assert!(
-            overlap_of(
-                db(),
-                fx.delegator,
-                at(2027, 1, 10),
-                at(2027, 1, 20),
-                Some(first)
-            )
-            .await
-            .expect("查重叠")
-            .is_none(),
+            overlap_of(db(), fx.delegator, at(2027, 1, 10), at(2027, 1, 20), Some(first))
+                .await
+                .expect("查重叠")
+                .is_none(),
             "改自己（区间不变）不能被自己判成重叠"
         );
 
         // ⑤ 停用的行也算重叠（重新启用就会撞）
-        let disabled =
-            insert_window(&fx, fx.delegate, at(2027, 2, 1), at(2027, 2, 10), false).await;
+        let disabled = insert_window(&fx, fx.delegate, at(2027, 2, 1), at(2027, 2, 10), false).await;
         assert!(
             overlap_of(db(), fx.delegator, at(2027, 2, 5), at(2027, 2, 8), None)
                 .await
@@ -1034,10 +1000,7 @@ mod db_tests {
         assert!(!row.is_active_now(), "停用后不算生效");
 
         soft_delete(db(), id).await.expect("软删");
-        assert!(
-            find(db(), id).await.expect("查询").is_none(),
-            "软删后不该再查得到"
-        );
+        assert!(find(db(), id).await.expect("查询").is_none(), "软删后不该再查得到");
         teardown(&fx).await;
     }
 
@@ -1049,9 +1012,7 @@ mod db_tests {
         }
         let fx = setup("c").await;
         assert_eq!(
-            delegate_unusable_reason(db(), fx.delegate)
-                .await
-                .expect("查询"),
+            delegate_unusable_reason(db(), fx.delegate).await.expect("查询"),
             None,
             "在职真人必须可用"
         );

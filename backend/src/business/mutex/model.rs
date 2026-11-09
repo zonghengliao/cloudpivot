@@ -101,8 +101,7 @@ struct RawRow {
 
 /// 把原始行规范化为「`role_a_code <= role_b_code`」的展示行（纯函数，可单测）。
 fn normalized(raw: RawRow) -> MutexRow {
-    let swap =
-        (raw.role_a_code.as_str(), raw.role_a_id) > (raw.role_b_code.as_str(), raw.role_b_id);
+    let swap = (raw.role_a_code.as_str(), raw.role_a_id) > (raw.role_b_code.as_str(), raw.role_b_id);
     if swap {
         MutexRow {
             id: raw.id,
@@ -272,8 +271,7 @@ pub async fn page_mutexes(
     );
     let total: i64 = db().scalar_with_params(&count_sql, params.clone()).await?;
 
-    let offset =
-        i64::try_from(page.saturating_sub(1).saturating_mul(page_size)).unwrap_or(i64::MAX);
+    let offset = i64::try_from(page.saturating_sub(1).saturating_mul(page_size)).unwrap_or(i64::MAX);
     let limit = i64::try_from(page_size).unwrap_or(i64::MAX);
     let list_sql = format!(
         "{RULE_SELECT}{where_sql} ORDER BY ra.role_code ASC, rb.role_code ASC, m.created_at ASC \
@@ -292,9 +290,7 @@ pub async fn page_mutexes(
 /// 按 ID 取一条规则（**含停用**，靠 [`MutexRow::enabled`] 区分）。
 pub async fn find_mutex(id: &Uuid) -> DbResult<Option<MutexRow>> {
     let sql = format!("{RULE_SELECT} WHERE m.id = ?");
-    let row = db()
-        .find_first_with_params(&sql, vec![Value::from(*id)])
-        .await?;
+    let row = db().find_first_with_params(&sql, vec![Value::from(*id)]).await?;
     row.as_ref().map(map_row).transpose()
 }
 
@@ -326,8 +322,7 @@ pub async fn find_active_pair(role_a: &Uuid, role_b: &Uuid) -> DbResult<Option<M
 
 /// 全部生效中的规则（存量扫描用）。
 pub async fn list_active_pairs() -> DbResult<Vec<MutexRow>> {
-    let sql =
-        format!("{RULE_SELECT} WHERE m.deleted_at IS NULL ORDER BY ra.role_code, rb.role_code");
+    let sql = format!("{RULE_SELECT} WHERE m.deleted_at IS NULL ORDER BY ra.role_code, rb.role_code");
     let rows = db().find_with_params(&sql, Vec::new()).await?;
     rows.iter()
         .map(map_row)
@@ -552,11 +547,7 @@ pub async fn count_pair_holders(role_a: &Uuid, role_b: &Uuid) -> DbResult<i64> {
 }
 
 /// 列出**有效同时持有**该角色对的用户（按登录名排序，`limit` 条）。
-pub async fn list_pair_holders(
-    role_a: &Uuid,
-    role_b: &Uuid,
-    limit: i64,
-) -> DbResult<Vec<HolderRow>> {
+pub async fn list_pair_holders(role_a: &Uuid, role_b: &Uuid, limit: i64) -> DbResult<Vec<HolderRow>> {
     let rows = db()
         .find_with_params(
             "SELECT u.id AS user_id, u.username, \
@@ -570,11 +561,7 @@ pub async fn list_pair_holders(
                LEFT JOIN sys_dept d ON d.id = u.dept_id AND d.deleted_at IS NULL \
               WHERE ua.role_id = ?::uuid AND (ua.expire_time IS NULL OR ua.expire_time > now()) \
               ORDER BY u.username LIMIT ?",
-            vec![
-                Value::from(*role_b),
-                Value::from(*role_a),
-                Value::I64(limit),
-            ],
+            vec![Value::from(*role_b), Value::from(*role_a), Value::I64(limit)],
         )
         .await?;
     rows.iter()
@@ -608,12 +595,7 @@ pub async fn list_pair_holders(
 /// - `DbError::UniqueViolation`（`uk_sys_role_mutex_pair`）：该对已存在生效规则（含反向）；
 /// - `DbError::ForeignKeyViolation`：角色被并发删除；
 /// - 其它 `DbError`：数据库异常。
-pub async fn insert_mutex(
-    role_a: &Uuid,
-    role_b: &Uuid,
-    reason: &str,
-    operator: Option<Uuid>,
-) -> DbResult<Uuid> {
+pub async fn insert_mutex(role_a: &Uuid, role_b: &Uuid, reason: &str, operator: Option<Uuid>) -> DbResult<Uuid> {
     let (low, high) = guard::normalize_pair(*role_a, *role_b);
     let id = Uuid::now_v7();
     db().execute_with_params(

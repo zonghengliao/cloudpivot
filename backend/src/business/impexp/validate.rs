@@ -31,8 +31,7 @@ use async_trait::async_trait;
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{
-    ColumnKind, DictTranslation, ErrorKind, FkSpec, ImportCtx, ImportDefinition, RowIssue,
-    RowValues,
+    ColumnKind, DictTranslation, ErrorKind, FkSpec, ImportCtx, ImportDefinition, RowIssue, RowValues,
 };
 use crate::business::impexp::engine::{EngineError, SheetReader};
 use crate::shared::error_code;
@@ -148,11 +147,7 @@ pub trait FkResolver: Send + Sync {
     /// # 异常情况
     ///
     /// 数据库异常返回 [`DbError`]。
-    async fn existing_values(
-        &self,
-        spec: &FkSpec,
-        values: &[String],
-    ) -> std::result::Result<HashSet<String>, DbError>;
+    async fn existing_values(&self, spec: &FkSpec, values: &[String]) -> std::result::Result<HashSet<String>, DbError>;
 
     /// 已执行的 SQL 语句条数（用于「SQL 次数 = 外键列数」断言）。
     fn statements(&self) -> usize;
@@ -197,11 +192,7 @@ pub fn fk_lookup_sql(spec: &FkSpec) -> String {
 
 #[async_trait]
 impl FkResolver for DbFkResolver {
-    async fn existing_values(
-        &self,
-        spec: &FkSpec,
-        values: &[String],
-    ) -> std::result::Result<HashSet<String>, DbError> {
+    async fn existing_values(&self, spec: &FkSpec, values: &[String]) -> std::result::Result<HashSet<String>, DbError> {
         if values.is_empty() {
             return Ok(HashSet::new());
         }
@@ -210,9 +201,7 @@ impl FkResolver for DbFkResolver {
         let sql = fk_lookup_sql(spec);
         // 计数在**发语句之前**自增：即使查询报错，也如实反映「发过一条」。
         self.statements.fetch_add(1, Ordering::SeqCst);
-        let rows = db()
-            .find_with_params(&sql, vec![Value::Json(payload)])
-            .await?;
+        let rows = db().find_with_params(&sql, vec![Value::Json(payload)]).await?;
         let mut found = HashSet::with_capacity(rows.len());
         for row in rows {
             // `SELECT DISTINCT col::text` 只有一列，按下标取（列名随 spec 变化，不做字符串耦合）
@@ -501,10 +490,7 @@ pub async fn validate(
                     raw_trimmed,
                     crate::business::impexp::definition::FieldIssue {
                         kind: ErrorKind::FkNotFound,
-                        message: format!(
-                            "{}「{}」不存在，请先在{}中维护",
-                            column.header, parsed, spec.label
-                        ),
+                        message: format!("{}「{}」不存在，请先在{}中维护", column.header, parsed, spec.label),
                     },
                 ));
             }
@@ -646,10 +632,7 @@ mod tests {
             values: &[String],
         ) -> std::result::Result<HashSet<String>, DbError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
-            self.sizes
-                .lock()
-                .expect("取值个数记录锁未中毒")
-                .push(values.len());
+            self.sizes.lock().expect("取值个数记录锁未中毒").push(values.len());
             Ok(values
                 .iter()
                 .filter(|value| self.known.contains(*value))
@@ -792,26 +775,14 @@ mod tests {
             vec!["EX-1001", "user_status", "1", "启用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let outcome = validate(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-            false,
-        )
-        .await
-        .expect("预检应成功");
+        let outcome = validate(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx(), false)
+            .await
+            .expect("预检应成功");
         assert_eq!(outcome.report.total, 4);
         assert_eq!(outcome.report.valid, 1);
         assert_eq!(outcome.report.error, 3);
         // 3 行有错：必填为空 / 外键不存在 / 文件内重复
-        let codes = outcome
-            .report
-            .errors
-            .iter()
-            .map(|issue| issue.kind)
-            .collect::<Vec<_>>();
+        let codes = outcome.report.errors.iter().map(|issue| issue.kind).collect::<Vec<_>>();
         assert!(codes.contains(&ErrorKind::Required));
         assert!(codes.contains(&ErrorKind::FkNotFound));
         assert!(codes.contains(&ErrorKind::Unique));
@@ -836,22 +807,13 @@ mod tests {
             vec!["EX-5001", "user_status", "1", ""],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.total, 2);
         assert_eq!(report.error, 1, "第二行应被判为文件内重复");
         assert!(
-            report
-                .errors
-                .iter()
-                .any(|issue| issue.kind == ErrorKind::Unique),
+            report.errors.iter().any(|issue| issue.kind == ErrorKind::Unique),
             "错误类型应为 UNIQUE"
         );
         assert_eq!(report.errors[0].row_no, 3, "重复行行号应为 Excel 第 3 行");
@@ -865,15 +827,9 @@ mod tests {
             vec!["EX-3002", "user_status", "1", "启用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.skipped_example, 1);
         assert_eq!(report.total, 1);
         assert_eq!(report.valid, 1);
@@ -925,15 +881,9 @@ mod tests {
             vec!["EX-2002", "user_status", "1", "启用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let error = precheck(
-            &definition_with_max(1),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect_err("超上限应拒绝");
+        let error = precheck(&definition_with_max(1), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect_err("超上限应拒绝");
         assert_eq!(error.status, 422);
         assert_eq!(error.code, error_code::IMPORT_ROW_LIMIT);
     }
@@ -945,15 +895,9 @@ mod tests {
         map.insert("字典".to_string(), "user_status".to_string());
         let bytes = Export::to_xlsx_bytes(&["字典"], &[map]).expect("造 xlsx");
         let resolver = CountingFkResolver::new(&["user_status"]);
-        let error = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect_err("缺列应拒绝");
+        let error = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect_err("缺列应拒绝");
         assert_eq!(error.status, 422);
         assert!(error.msg.contains("缺少必需列"));
         assert_eq!(resolver.statements(), 0, "结构错误不应发外键 SQL");
@@ -967,18 +911,11 @@ mod tests {
         first.insert("字典项".to_string(), "1".to_string());
         first.insert("状态".to_string(), "启用".to_string());
         first.insert("多余列".to_string(), "x".to_string());
-        let bytes = Export::to_xlsx_bytes(&["字典", "编码", "字典项", "状态", "多余列"], &[first])
-            .expect("造 xlsx");
+        let bytes = Export::to_xlsx_bytes(&["字典", "编码", "字典项", "状态", "多余列"], &[first]).expect("造 xlsx");
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.warnings.len(), 2);
         assert!(report.warnings.iter().any(|w| w.code == "E-IMP-04"));
         assert!(report.warnings.iter().any(|w| w.code == "E-IMP-05"));
@@ -993,10 +930,7 @@ mod tests {
         );
         assert_eq!(
             ColumnKind::Dict("user_status")
-                .parse(
-                    "启用",
-                    Some(&dicts.get("user_status").await.expect("已 seed"))
-                )
+                .parse("启用", Some(&dicts.get("user_status").await.expect("已 seed")))
                 .expect("应命中"),
             "1"
         );
@@ -1123,15 +1057,9 @@ mod tests {
             vec!["EX-7003", "sys_dict_type", "1", "启用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "sys_dict_type", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.valid, 3);
         assert_eq!(report.fk_sql_statements, 2, "两个外键列各 1 条 SQL");
         assert_eq!(
@@ -1145,28 +1073,16 @@ mod tests {
     /// 且错误类型是 REQUIRED 而不是 FK_NOT_FOUND（不能把「没填」报成「不存在」）。
     #[tokio::test]
     async fn fk_column_without_values_sends_no_sql() {
-        let bytes = bytes_of(vec![
-            vec!["EX-7101", "", "", "启用"],
-            vec!["EX-7102", "", "", "启用"],
-        ]);
+        let bytes = bytes_of(vec![vec!["EX-7101", "", "", "启用"], vec!["EX-7102", "", "", "启用"]]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.error, 2);
         assert_eq!(resolver.statements(), 0, "全空的外键列不发 SQL");
         assert_eq!(resolver.sizes(), Vec::<usize>::new(), "根本没有调用解析器");
         assert!(
-            report
-                .errors
-                .iter()
-                .all(|issue| issue.kind == ErrorKind::Required),
+            report.errors.iter().all(|issue| issue.kind == ErrorKind::Required),
             "没填的外键列只能是 REQUIRED：{:?}",
             report.errors
         );
@@ -1183,25 +1099,15 @@ mod tests {
             vec![over_33.as_str(), "user_status", "1", "启用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.valid, 1, "32 个汉字正好在上限内（闭区间）");
         assert_eq!(report.error, 1);
         let issue = &report.errors[0];
         assert_eq!(issue.kind, ErrorKind::Length);
         assert_eq!(issue.column_header, Some("编码"));
-        assert!(
-            issue.message.contains("33"),
-            "文案要报实际字符数：{}",
-            issue.message
-        );
+        assert!(issue.message.contains("33"), "文案要报实际字符数：{}", issue.message);
     }
 
     /// ⑥ 枚举列 label 与 code 都认、落库统一成 code；未知值报 ENUM 并列出可选范围。
@@ -1213,16 +1119,9 @@ mod tests {
             vec!["EX-7203", "user_status", "1", "停用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let outcome = validate(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-            true,
-        )
-        .await
-        .expect("预检应成功");
+        let outcome = validate(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx(), true)
+            .await
+            .expect("预检应成功");
         assert_eq!(outcome.report.valid, 2, "label 与 code 都要认");
         assert_eq!(outcome.report.error, 1);
         assert_eq!(outcome.rows.len(), 2);
@@ -1270,11 +1169,7 @@ mod tests {
         assert_eq!(outcome.rows.len(), 3);
         assert_eq!(outcome.rows[0].get("status"), "1", "label → code");
         assert_eq!(outcome.rows[1].get("status"), "1", "code → code");
-        assert_eq!(
-            outcome.rows[1].get("status_alias"),
-            "0",
-            "第二列的 label → code"
-        );
+        assert_eq!(outcome.rows[1].get("status_alias"), "0", "第二列的 label → code");
         assert_eq!(outcome.rows[2].get("status"), "0");
         let issue = &outcome.report.errors[0];
         assert_eq!(issue.kind, ErrorKind::Dict);
@@ -1295,22 +1190,11 @@ mod tests {
             vec![" EX-8003", "user_status", "1", ""],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let outcome = validate(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-            true,
-        )
-        .await
-        .expect("预检应成功");
+        let outcome = validate(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx(), true)
+            .await
+            .expect("预检应成功");
         assert_eq!(outcome.rows.len(), 3);
-        let codes = outcome
-            .rows
-            .iter()
-            .map(|row| row.get("code"))
-            .collect::<Vec<_>>();
+        let codes = outcome.rows.iter().map(|row| row.get("code")).collect::<Vec<_>>();
         assert_eq!(codes, vec!["EX-8001", "EX-8002", "EX-8003"], "顺序不能乱");
         assert_eq!(
             outcome.rows[0].get("status"),
@@ -1318,11 +1202,7 @@ mod tests {
             "枚举列落库值是 code，原文的前后空白已被 trim 掉"
         );
         assert_eq!(
-            outcome
-                .rows
-                .iter()
-                .map(|row| row.row_no)
-                .collect::<Vec<_>>(),
+            outcome.rows.iter().map(|row| row.row_no).collect::<Vec<_>>(),
             vec![2, 3, 4],
             "行号是 Excel 真实行号（表头占第 1 行）"
         );
@@ -1337,15 +1217,9 @@ mod tests {
             vec!["EX-8102", "user_status", "1", "启用"],
         ]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.skipped_blank, 1, "中间空行计入 skipped_blank");
         assert_eq!(report.total, 2, "空行不进 total");
         assert_eq!(report.valid, 2);
@@ -1358,23 +1232,13 @@ mod tests {
         let over_long = "测".repeat(33);
         let bytes = bytes_of(vec![vec![over_long.as_str(), "user_status", "1", "停用"]]);
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition(),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("预检应成功");
+        let report = precheck(&definition(), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
         assert_eq!(report.error, 1, "同一行多错只计 1 行");
         assert_eq!(report.valid, 0);
         assert_eq!(report.errors.len(), 2, "明细按列各一条");
-        let kinds = report
-            .errors
-            .iter()
-            .map(|issue| issue.kind)
-            .collect::<Vec<_>>();
+        let kinds = report.errors.iter().map(|issue| issue.kind).collect::<Vec<_>>();
         assert!(kinds.contains(&ErrorKind::Length));
         assert!(kinds.contains(&ErrorKind::Enum));
         assert!(
@@ -1402,15 +1266,9 @@ mod tests {
                 .collect(),
         );
         let resolver = CountingFkResolver::new(&["user_status", "1"]);
-        let report = precheck(
-            &definition_with_max(2),
-            &bytes,
-            &DictProvider::new(),
-            &resolver,
-            &ctx(),
-        )
-        .await
-        .expect("恰好 2 行 = 上限，必须放行");
+        let report = precheck(&definition_with_max(2), &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("恰好 2 行 = 上限，必须放行");
         assert_eq!(report.total, 2);
         assert_eq!(report.valid, 2);
     }

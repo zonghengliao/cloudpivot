@@ -157,13 +157,7 @@ impl PdfEngine {
 
     /// 指标快照。
     pub async fn stats(&self) -> EngineStats {
-        let idle = self
-            .pool
-            .lock()
-            .await
-            .iter()
-            .filter(|c| c.is_alive())
-            .count();
+        let idle = self.pool.lock().await.iter().filter(|c| c.is_alive()).count();
         EngineStats {
             max_concurrency: self.limit as u32,
             active: self.active.load(Ordering::Relaxed),
@@ -190,11 +184,7 @@ impl PdfEngine {
         let version = match tokio::time::timeout(self.timeout, conn.browser.version()).await {
             Ok(Ok(v)) => {
                 // `Product` 形如 `HeadlessChrome/157.0.8103.38`；个别发行版只给 userAgent
-                let browser = if v.product.is_empty() {
-                    v.user_agent
-                } else {
-                    v.product
-                };
+                let browser = if v.product.is_empty() { v.user_agent } else { v.product };
                 Ok((browser, v.protocol_version))
             }
             Ok(Err(error)) => Err(PdfError::Unavailable(format!("CDP 取版本失败：{error}"))),
@@ -222,17 +212,12 @@ impl PdfEngine {
     /// - 503 [`PdfError::Unavailable`]：CDP 不可用（已在内部重试一次）；
     /// - 504 [`PdfError::Timeout`]：超过 `PDF_RENDER_TIMEOUT_MS`；
     /// - 500 [`PdfError::Render`]：页面渲染失败。
-    pub async fn render_pdf(
-        &self,
-        html: &str,
-        opts: &PdfOpts,
-    ) -> std::result::Result<Vec<u8>, PdfError> {
-        let permit =
-            match tokio::time::timeout(self.timeout, self.permits.clone().acquire_owned()).await {
-                Ok(Ok(permit)) => permit,
-                Ok(Err(_)) => return Err(PdfError::Unavailable("渲染信号量已关闭".into())),
-                Err(_) => return Err(PdfError::Timeout(self.timeout.as_millis() as u64)),
-            };
+    pub async fn render_pdf(&self, html: &str, opts: &PdfOpts) -> std::result::Result<Vec<u8>, PdfError> {
+        let permit = match tokio::time::timeout(self.timeout, self.permits.clone().acquire_owned()).await {
+            Ok(Ok(permit)) => permit,
+            Ok(Err(_)) => return Err(PdfError::Unavailable("渲染信号量已关闭".into())),
+            Err(_) => return Err(PdfError::Timeout(self.timeout.as_millis() as u64)),
+        };
         self.active.fetch_add(1, Ordering::Relaxed);
         let started = Instant::now();
         let result = self.render_with_retry(html, opts).await;
@@ -263,11 +248,7 @@ impl PdfEngine {
     }
 
     /// 渲染 + 连接层失败重试一次。
-    async fn render_with_retry(
-        &self,
-        html: &str,
-        opts: &PdfOpts,
-    ) -> std::result::Result<Vec<u8>, PdfError> {
+    async fn render_with_retry(&self, html: &str, opts: &PdfOpts) -> std::result::Result<Vec<u8>, PdfError> {
         let conn = self.checkout().await?;
         match self.render_on(&conn, html, opts).await {
             Ok(bytes) => {
@@ -296,12 +277,7 @@ impl PdfEngine {
     }
 
     /// 在一条连接上完成「建 page → 塞 HTML → 等字体 → printToPDF → 关 page」。
-    async fn render_on(
-        &self,
-        conn: &Conn,
-        html: &str,
-        opts: &PdfOpts,
-    ) -> std::result::Result<Vec<u8>, PdfError> {
+    async fn render_on(&self, conn: &Conn, html: &str, opts: &PdfOpts) -> std::result::Result<Vec<u8>, PdfError> {
         let params = print_params(opts);
         let work = async {
             let page = conn
@@ -338,9 +314,9 @@ impl PdfEngine {
             }
             // 已断（handler 结束）→ drop（abort 是 no-op）后继续取下一个
         }
-        let (browser, mut handler) = Browser::connect(&self.url).await.map_err(|error| {
-            PdfError::Unavailable(format!("连接 {url} 失败：{error}", url = self.url))
-        })?;
+        let (browser, mut handler) = Browser::connect(&self.url)
+            .await
+            .map_err(|error| PdfError::Unavailable(format!("连接 {url} 失败：{error}", url = self.url)))?;
         let handle = tokio::spawn(async move {
             // 事件循环：读到 None（对端关闭）或错误就退出；退出后 is_alive() 变 false
             while let Some(message) = handler.next().await {

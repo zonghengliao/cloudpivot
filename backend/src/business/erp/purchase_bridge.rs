@@ -267,13 +267,7 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
                 "采购审批驳回 / 撤回：释放预算占用",
             )
             .await
-            .map_err(|error| {
-                ApiError::new(
-                    500,
-                    error_code::INTERNAL_ERROR,
-                    format!("释放预算占用失败：{error}"),
-                )
-            })?;
+            .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("释放预算占用失败：{error}")))?;
         }
         Ok::<(), ApiError>(())
     }
@@ -342,30 +336,17 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// （待办照常可见、留痕），真正的否决在这里。
 ///
 /// 与本业务无关的待办（其它 `biz_type`）直接放行，零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -513,10 +494,7 @@ mod tests {
             "DRAFT → SUBMITTED 必须合法，否则打回后无法重新提交"
         );
         // 审批通过后可以收货、可以取消，但不能跳回草稿
-        assert!(purchase_model::can_transition(
-            STATUS_APPROVED,
-            "PARTIAL_RECEIVED"
-        ));
+        assert!(purchase_model::can_transition(STATUS_APPROVED, "PARTIAL_RECEIVED"));
         assert!(purchase_model::can_transition(STATUS_APPROVED, "RECEIVED"));
         assert!(purchase_model::can_transition(STATUS_APPROVED, "CANCELLED"));
         assert!(

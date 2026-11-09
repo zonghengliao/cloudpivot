@@ -42,9 +42,7 @@ use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::flow::graph::{
-    self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType,
-};
+use crate::business::flow::graph::{self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
 use crate::business::flow::task_bridge;
 use crate::business::flow::{
     assignee, dto, instance_linkage, model, node_config, self_approval, task_node, template_vars,
@@ -59,13 +57,8 @@ use serde_json::{Map, Value};
 
 /// 解析路径里的 UUID（非法 → `400 + 65005`，不静默当 404）。
 fn parse_uuid_field(raw: &str, label: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim()).map_err(|_| {
-        ApiError::new(
-            400,
-            error_code::FLOW_FIELD_INVALID,
-            format!("{label}格式非法"),
-        )
-    })
+    Uuid::parse_str(raw.trim())
+        .map_err(|_| ApiError::new(400, error_code::FLOW_FIELD_INVALID, format!("{label}格式非法")))
 }
 
 /// 当前用户 id。
@@ -103,9 +96,7 @@ async fn approve_biz_type_issues(graph: &FlowGraph) -> std::result::Result<Vec<I
             continue;
         }
         // 形状问题（缺键 / 非法值）由 R18 的 `parse_task_config` 报，这里只管「存不存在」
-        if node.config["task"]["on_complete"].as_str()
-            != Some(node_config::OnComplete::Approve.as_str())
-        {
+        if node.config["task"]["on_complete"].as_str() != Some(node_config::OnComplete::Approve.as_str()) {
             continue;
         }
         let Some(biz_type) = node.config["task"]["approve_biz_type"]
@@ -297,11 +288,7 @@ async fn load_version(vid: Uuid) -> std::result::Result<model::VersionRow, ApiEr
 ///
 /// - 400 + `65005`：`status` 取值非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/flow/def/page",
-    method = "GET",
-    permission = "business:flow:read"
-)]
+#[nik::permission(path = "/business/flow/def/page", method = "GET", permission = "business:flow:read")]
 #[nik::get("/business/flow/def/page")]
 pub async fn page(Query(query): Query<dto::DefPageQuery>) -> ResResult<dto::DefPageRes> {
     let status = match query.status.as_deref() {
@@ -347,11 +334,7 @@ pub async fn page(Query(query): Query<dto::DefPageQuery>) -> ResResult<dto::DefP
 ///
 /// - 400 + `65005`：id 不是 UUID；
 /// - 404 + `65001`：流程不存在 / 已软删。
-#[nik::permission(
-    path = "/business/flow/def/{id}",
-    method = "GET",
-    permission = "business:flow:read"
-)]
+#[nik::permission(path = "/business/flow/def/{id}", method = "GET", permission = "business:flow:read")]
 #[nik::get("/business/flow/def/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<dto::DefRes> {
     let def_id = parse_uuid_field(&id, "流程 id")?;
@@ -370,11 +353,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<dto::DefRes> {
 /// - 400 + `65005`：编码 / 名称 / 业务类型非法；
 /// - 409 + `10003`：编码已被占用（未软删唯一）；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/flow/def",
-    method = "POST",
-    permission = "business:flow:create"
-)]
+#[nik::permission(path = "/business/flow/def", method = "POST", permission = "business:flow:create")]
 #[nik::post("/business/flow/def")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -385,8 +364,7 @@ pub async fn create(
     let flow_name = dto::normalize_name(&req.flow_name).map_err(field_invalid)?;
     let biz_type = dto::normalize_biz_type(&req.biz_type).map_err(field_invalid)?;
     let category = dto::normalize_category(req.category.as_deref()).map_err(field_invalid)?;
-    let description =
-        dto::normalize_description(req.description.as_deref()).map_err(field_invalid)?;
+    let description = dto::normalize_description(req.description.as_deref()).map_err(field_invalid)?;
 
     if model::flow_code_taken(&flow_code, None)
         .await
@@ -423,18 +401,9 @@ pub async fn create(
                 model::clear_default_of_biz_type(&tx, &biz_type_for_default, def_id).await?;
             }
             model::create_def(&tx, &new_def, operator).await?;
-            let version_id =
-                model::create_version(&tx, def_id, 1, Some("初始版本"), operator).await?;
+            let version_id = model::create_version(&tx, def_id, 1, Some("初始版本"), operator).await?;
             model::replace_graph(&tx, version_id, &graph).await?;
-            model::touch_version(
-                &tx,
-                version_id,
-                Some("初始版本"),
-                node_count,
-                edge_count,
-                operator,
-            )
-            .await?;
+            model::touch_version(&tx, version_id, Some("初始版本"), node_count, edge_count, operator).await?;
             Ok(version_id)
         })
         .await
@@ -490,8 +459,7 @@ pub async fn update(
         patch.category = Some(dto::normalize_category(category.as_deref()).map_err(field_invalid)?);
     }
     if let Some(description) = req.description.as_ref() {
-        patch.description =
-            Some(dto::normalize_description(description.as_deref()).map_err(field_invalid)?);
+        patch.description = Some(dto::normalize_description(description.as_deref()).map_err(field_invalid)?);
     }
     patch.is_default = req.is_default;
     patch.allow_auto_approve = req.allow_auto_approve;
@@ -1055,11 +1023,7 @@ pub async fn create_draft(
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty())
-        .map(|text| {
-            text.chars()
-                .take(dto::MAX_CHANGE_NOTE_CHARS)
-                .collect::<String>()
-        });
+        .map(|text| text.chars().take(dto::MAX_CHANGE_NOTE_CHARS).collect::<String>());
 
     let source_no = source.version_no;
     let source_id = source.id;
@@ -1068,8 +1032,7 @@ pub async fn create_draft(
         .transaction(|tx| async move {
             let next_no = model::max_version_no(&tx, def_id).await? + 1;
             let new_version_id =
-                model::create_version(&tx, def_id, next_no, note_for_write.as_deref(), operator)
-                    .await?;
+                model::create_version(&tx, def_id, next_no, note_for_write.as_deref(), operator).await?;
             let (node_count, edge_count) = model::copy_version_to_draft(
                 &tx,
                 def_id,
@@ -1146,10 +1109,7 @@ fn instance_res(row: &model::InstanceRow, my_task_id: Option<Uuid>) -> dto::Inst
         status: row.status.clone(),
         initiator_id: row.initiator_id.to_string(),
         initiator_name: row.initiator_name.clone().unwrap_or_default(),
-        initiator_dept_id: row
-            .initiator_dept_id
-            .map(|id| id.to_string())
-            .unwrap_or_default(),
+        initiator_dept_id: row.initiator_dept_id.map(|id| id.to_string()).unwrap_or_default(),
         auto_passed_nodes: row.auto_passed_nodes,
         round_total: row.round_total,
         result_comment: row.result_comment.clone().unwrap_or_default(),
@@ -1219,18 +1179,12 @@ fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
         instance_status: ctx.instance_status.to_string(),
         // 没有实例行可取（抄送路径不用）→ `{}`（= 无表单），绝不 `null`：
         // 前端按「对象」判空，`null` 会走进另一条分支。
-        form_data: ctx
-            .form_data
-            .cloned()
-            .unwrap_or_else(|| Value::Object(Map::new())),
+        form_data: ctx.form_data.cloned().unwrap_or_else(|| Value::Object(Map::new())),
         is_added_sign: row.is_added_sign,
         is_self_approval: row.is_self_approval,
         is_auto: row.is_auto,
         comment: row.comment.clone().unwrap_or_default(),
-        transferred_from: row
-            .transferred_from
-            .map(|id| id.to_string())
-            .unwrap_or_default(),
+        transferred_from: row.transferred_from.map(|id| id.to_string()).unwrap_or_default(),
         escalated_from_role: row.escalated_from_role.clone().unwrap_or_default(),
         escalate_reason: row.escalate_reason.clone().unwrap_or_default(),
         escalated_to_role: row.escalated_to_role.clone().unwrap_or_default(),
@@ -1338,12 +1292,7 @@ pub async fn create_instance(
     let def = if let Some(raw_id) = req.def_id.as_deref().filter(|id| !id.trim().is_empty()) {
         let def_id = parse_uuid_field(raw_id, "流程 id")?;
         load_def(def_id).await?
-    } else if let Some(code) = req
-        .flow_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|code| !code.is_empty())
-    {
+    } else if let Some(code) = req.flow_code.as_deref().map(str::trim).filter(|code| !code.is_empty()) {
         match model::find_def_by_code(code)
             .await
             .map_err(|error| utils::db_error(error, "按编码查询流程定义"))?
@@ -1351,11 +1300,7 @@ pub async fn create_instance(
             Some(row) => row,
             None => return Err(model::not_found()),
         }
-    } else if let Some(biz_type) = req
-        .biz_type
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
+    } else if let Some(biz_type) = req.biz_type.as_deref().filter(|value| !value.trim().is_empty()) {
         let normalized = dto::normalize_biz_type(biz_type).map_err(field_invalid)?;
         match model::default_def_of_biz_type(&normalized)
             .await
@@ -1371,9 +1316,7 @@ pub async fn create_instance(
             }
         }
     } else {
-        return Err(field_invalid(
-            "必须指定流程：def_id / flow_code / biz_type 三选一",
-        ));
+        return Err(field_invalid("必须指定流程：def_id / flow_code / biz_type 三选一"));
     };
 
     // ② 只有已发布的流程能发起（DRAFT 上的图还没过快照，引擎读不到图）
@@ -1395,11 +1338,7 @@ pub async fn create_instance(
         .ok_or_else(model::version_not_found)?;
 
     // ③ 业务单据：同一单据同时只能有一个在跑实例
-    let biz_id = match req
-        .biz_id
-        .as_deref()
-        .filter(|value| !value.trim().is_empty())
-    {
+    let biz_id = match req.biz_id.as_deref().filter(|value| !value.trim().is_empty()) {
         None => None,
         Some(raw) => Some(parse_uuid_field(raw, "业务单据 id")?),
     };
@@ -1501,8 +1440,7 @@ pub async fn create_instance(
     //   `APPROVED` —— 那一瞬间没有任何 approve handler 可走，只能在这里补一次；
     //   否则就是「配了 FLOW_INSTANCE/APPROVED 的规则有时响、有时不响」。
     //   正常发起（停在 PENDING）时 `instance_status = PENDING`，hook 直接返回 0。
-    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
-        .await;
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator)).await;
     tracing::info!(
         %instance_id,
         flow_code = %def.flow_code,
@@ -1611,9 +1549,7 @@ pub async fn instance_detail(
     let mine = model::my_instance_ids(me)
         .await
         .map_err(|error| utils::db_error(error, "查询我的相关审批单"))?;
-    let allowed = row.initiator_id == me
-        || mine.contains(&row.id)
-        || claims.has_permission("business:flow:admin");
+    let allowed = row.initiator_id == me || mine.contains(&row.id) || claims.has_permission("business:flow:admin");
     if !allowed {
         return Err(ApiError::new(
             403,
@@ -1660,13 +1596,8 @@ pub async fn instance_detail(
             .iter()
             .map(|task| task_res(task, &ctx_of(&task.node_key)))
             .collect(),
-        cc: cc
-            .iter()
-            .map(|entry| cc_res(entry, &ctx_of(&entry.node_key)))
-            .collect(),
-        my_task: my_task
-            .as_ref()
-            .map(|task| task_res(task, &ctx_of(&task.node_key))),
+        cc: cc.iter().map(|entry| cc_res(entry, &ctx_of(&entry.node_key))).collect(),
+        my_task: my_task.as_ref().map(|task| task_res(task, &ctx_of(&task.node_key))),
         auto_passed_nodes: row.auto_passed_nodes,
     }))
 }
@@ -1707,8 +1638,7 @@ pub async fn withdraw_instance(
     }
     // ★ LNK-12：审批实例落终态（发起人撤回 = WITHDRAWN）→ `FLOW_INSTANCE` 触发点。
     //   位置在业务桥之前：撤回同样要通知发起人 / 相关人；业务桥随后把单据打回草稿。
-    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
-        .await;
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator)).await;
     // P16：从审批中心撤回的也可能是一张「收货单作废」单 → 单据必须回到已过账。
     // 不做这一步就是 P11 的老坑：审批单 WITHDRAWN 了，单据永远停在「作废审批中」。
     crate::business::erp::stockin_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
@@ -1721,8 +1651,7 @@ pub async fn withdraw_instance(
     // P2-03：也可能是「采购退货审批」单 → 打回草稿（账一分没动，可以改完重提）
     crate::business::erp::purchase_return_bridge::on_settled(Some(instance_id), "WITHDRAWN").await;
     // SO-06：也可能是「销售订单审批」单 → 打回草稿（清实例，改完可重新提交）
-    crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "WITHDRAWN")
-        .await;
+    crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "WITHDRAWN").await;
     // FIN-1：也可能是「预算审批」单 → 打回草稿（额度一分没生效）
     crate::business::erp::budget_bridge::on_budget_settled(Some(instance_id), "WITHDRAWN").await;
     // FIN-2：也可能是「资产处置审批」单 → 撤回即资产原地不动（一张凭证都不生成）
@@ -1730,16 +1659,13 @@ pub async fn withdraw_instance(
     // FIN-3：也可能是「费用报销」单 → 撤回即回草稿并释放预算占用（不入账）
     crate::business::erp::expense_bridge::on_expense_settled(Some(instance_id), "WITHDRAWN").await;
     // ARCH-3 R-P1-1：也可能是「合同审批」单 → 撤回即回草稿（实例清空，可改后重提）
-    crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "WITHDRAWN")
-        .await;
+    crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "WITHDRAWN").await;
     // ARCH-3 DC-14：也可能是「盘点过账审批」单 → 撤回即回草稿（账一分没动，可改实盘数后重提）
-    crate::business::erp::stocktake_bridge::on_stock_take_settled(Some(instance_id), "WITHDRAWN")
-        .await;
+    crate::business::erp::stocktake_bridge::on_stock_take_settled(Some(instance_id), "WITHDRAWN").await;
     // P17：也可能是「应付付款」单 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "WITHDRAWN").await;
     // SO-14 遗留 D10：也可能是「收款退款」单 → 退款单仍是已确认（账一分没动，可改完再提）
-    crate::business::erp::receipt_refund_bridge::on_refund_settled(Some(instance_id), "WITHDRAWN")
-        .await;
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3B：也可能是「应付作废」单 → 单据回 OPEN（欠款一分没动）
     crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3B：也可能是「凭证红冲」单 → 只清 pending（凭证一直是 POSTED，账没动）
@@ -1803,9 +1729,7 @@ pub async fn approve_task(
     // P2-03：采购退货 —— 制单人 / 发起人不能批自己的退货（403 + 65019）
     crate::business::erp::purchase_return_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
-        .transaction(|tx| async move {
-            engine::approve(&tx, task_id, operator, comment.as_deref()).await
-        })
+        .transaction(|tx| async move { engine::approve(&tx, task_id, operator, comment.as_deref()).await })
         .await
         .map_err(|error| utils::db_error(error, "审批同意"))?;
     if let Some(error) = drain(&mut out).await {
@@ -1814,76 +1738,47 @@ pub async fn approve_task(
     // ★ LNK-12：审批实例落终态（APPROVED）→ `FLOW_INSTANCE` 触发点。
     //   位置刻意在**业务桥之前**：实例是「原因」、单据状态是「结果」；业务桥的错误被吞掉，
     //   排在它们后面就会「桥挂了 → 审批通过的通知永远丢」。设计见 flow/instance_linkage.rs 文件头。
-    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
-        .await;
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator)).await;
     // D3b：审批单可能已落终态（APPROVED）→ 以 FlowCallback 身份推进任务
     // （**事务已提交**：回调失败只记日志，不回滚审批单）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
     // ★ P3-08：这单也可能是**子流程实例** —— 结算了就回调父流程的 SUBPROCESS 节点
     //   （幂等：父实例已终结 / 父节点已是终态 → 静默跳过；失败只 warn）
-    crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status).await;
     // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     // P16：也可能是「收货单作废」发起的 —— 通过则执行六本账回滚，驳回则打回已过账
-    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3A：也可能是「收货过账」发起的 —— 通过才过账（库存/凭证/应付一起动）
-    crate::business::erp::stockin_bridge::on_post_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3A：也可能是「采购订单审批」发起的 —— 通过则 APPROVED（可收货），驳回则打回草稿
-    crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
     // P2-02：也可能是「采购申请审批」发起的 —— 通过则 APPROVED（可转采购订单），驳回则打回草稿
-    crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status).await;
     // P2-03：也可能是「采购退货审批」发起的 —— 通过则 APPROVED（可确认退货），驳回则打回草稿
-    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status).await;
     // SO-06：也可能是「销售订单审批」发起的 —— 通过则 APPROVED（可出库），驳回则打回草稿
-    crate::business::erp::sales_approval_bridge::on_so_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::sales_approval_bridge::on_so_settled(out.instance_id, &out.instance_status).await;
     // FIN-1（ARCH-6 §3.3）：也可能是「预算审批」发起的 —— 通过则 ACTIVE（同槽旧版 SUPERSEDED）
-    crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status).await;
     // FIN-2（ARCH-6 §5.6.3）：也可能是「资产处置」发起的 —— 通过则生成处置凭证 + 卡片 DISPOSED
-    crate::business::erp::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status).await;
     // FIN-3（ARCH-6 §4.4.4）：也可能是「费用报销」发起的 —— 通过则入账（计提凭证 + 预算执行）
-    crate::business::erp::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status).await;
     // ARCH-3 R-P1-1：也可能是「合同审批」发起的 —— 通过则 SIGNED（可被采购单引用），驳回则回草稿
-    crate::business::erp::contract_bridge::on_contract_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;
     // ARCH-3 DC-14：也可能是「盘点过账审批」发起的 —— 通过只是「允许过账」（状态仍待过账），
     // 驳回/终止则回草稿（三本账一分没动）
-    crate::business::erp::stocktake_bridge::on_stock_take_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::stocktake_bridge::on_stock_take_settled(out.instance_id, &out.instance_status).await;
     // P17：也可能是「应付付款」发起的 —— 通过才记账（应付回写 + 借 2202 / 贷 1002 凭证）
-    crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status).await;
     // SO-14 遗留 D10：也可能是「收款退款」发起的 —— 通过则由回调**直接过账**
     // （借 1122 / 贷 1002 凭证），不需要人再点一次过账；驳回 / 终止则退款单不动
-    crate::business::erp::receipt_refund_bridge::on_refund_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3B：也可能是「应付作废」发起的 —— 通过才真正作废（进项凭证红冲 + 欠款消失）
-    crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3B：也可能是「凭证红冲」发起的 —— 通过才生成红字凭证（原凭证保持 POSTED）
-    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status).await;
     // D3：也可能是「状态机配置变更」发起的 —— 通过才真正写 biz_flow_state_edge（驳回则一分不动）
     crate::business::flow::edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
@@ -1925,9 +1820,7 @@ pub async fn reject_task(
         ));
     }
     let mut out = db()
-        .transaction(|tx| async move {
-            engine::reject(&tx, task_id, operator, &comment, return_to).await
-        })
+        .transaction(|tx| async move { engine::reject(&tx, task_id, operator, &comment, return_to).await })
         .await
         .map_err(|error| utils::db_error(error, "审批驳回"))?;
     if let Some(error) = drain(&mut out).await {
@@ -1935,73 +1828,44 @@ pub async fn reject_task(
     }
     // ★ LNK-12：审批实例落终态（驳回并终止 = REJECTED）→ `FLOW_INSTANCE` 触发点。
     //   位置在业务桥之前（与 approve_task 同口径）；退回上一节点仍是 PENDING → 不触发。
-    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator))
-        .await;
+    instance_linkage::fire_after_commit(out.instance_id, &out.instance_status, Some(operator)).await;
     // D3b：驳回并终止（REJECTED）→ 以 FlowCallback 身份把任务打回 DOING
     // （「退回上一节点」仍是 PENDING，回调不推进；落到 REJECTED 才动任务）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
     // ★ P3-08：子流程实例被驳回并终止 → 按 fail_action 回调父节点（ABORT 会让父实例终止）
-    crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::flow::subprocess::on_instance_settled(out.instance_id, &out.instance_status).await;
     // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     // P16：收货单作废被驳回 → 单据回到已过账（账一动没动）
-    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3A：收货过账被驳回 → 单据打回草稿（六本账一动没动）
-    crate::business::erp::stockin_bridge::on_post_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3A：采购订单审批被驳回 → 打回草稿 + 审批意见写 remark
-    crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
     // P2-02：采购申请审批被驳回 → 打回草稿 + 审批意见写 remark
-    crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status).await;
     // P2-03：采购退货审批被驳回 → 打回草稿 + 审批意见写 remark
-    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status).await;
     // SO-06：销售订单审批被驳回 → 打回草稿 + 审批意见写 remark
-    crate::business::erp::sales_approval_bridge::on_so_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::sales_approval_bridge::on_so_settled(out.instance_id, &out.instance_status).await;
     // FIN-1：预算审批被驳回 / 撤回 → 打回草稿（额度一分没生效）
-    crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status).await;
     // FIN-2：资产处置被驳回 / 撤回 → 资产原地不动（一张凭证都没生成）
-    crate::business::erp::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status).await;
     // FIN-3：报销被驳回 / 撤回 → 回草稿 + 释放预算占用（可改后重提）
-    crate::business::erp::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status).await;
     // ARCH-3 R-P1-1：合同审批被驳回 / 驳回终止 → 回草稿（可改后重提，意见进状态日志）
-    crate::business::erp::contract_bridge::on_contract_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;
     // ARCH-3 DC-14：盘点过账审批被驳回 / 终止 → 回草稿（账一分没动，可改实盘数后重提）
-    crate::business::erp::stocktake_bridge::on_stock_take_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::stocktake_bridge::on_stock_take_settled(out.instance_id, &out.instance_status).await;
     // P17：付款审批被驳回 / 驳回终止 → 付款记录标 REJECTED（账一分没动，可重新提交）
-    crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status).await;
     // SO-14 遗留 D10：退款审批被驳回 / 终止 → 退款单仍是已确认（账一分没动）
-    crate::business::erp::receipt_refund_bridge::on_refund_settled(
-        out.instance_id,
-        &out.instance_status,
-    )
-    .await;
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3B：应付作废被驳回 → 单据回 OPEN（欠款一分没动，可以再提交）
-    crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3B：凭证红冲被驳回 → 只清 pending（凭证一直是 POSTED，账没动）
-    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status)
-        .await;
+    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status).await;
     // D3：状态机配置变更被驳回 / 驳回终止 → 配置一分不动（只留审计行）
     crate::business::flow::edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
@@ -2031,9 +1895,7 @@ pub async fn transfer_task(
     let to_user_id = parse_uuid_field(&req.to_user_id, "目标用户 id")?;
     let reason = dto::normalize_comment(req.reason.as_deref()).map_err(field_invalid)?;
     let mut out = db()
-        .transaction(|tx| async move {
-            engine::transfer(&tx, task_id, operator, to_user_id, reason.as_deref()).await
-        })
+        .transaction(|tx| async move { engine::transfer(&tx, task_id, operator, to_user_id, reason.as_deref()).await })
         .await
         .map_err(|error| utils::db_error(error, "转办待办"))?;
     if let Some(error) = drain(&mut out).await {
@@ -2065,11 +1927,7 @@ pub async fn add_sign_task(
     let operator = me_of(&claims)?;
     let task_id = parse_uuid_field(&id, "待办 id")?;
     if req.user_ids.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::FLOW_ADD_SIGN_INVALID,
-            "加签人不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::FLOW_ADD_SIGN_INVALID, "加签人不能为空"));
     }
     if req.user_ids.len() > dto::MAX_ADD_SIGN_USERS {
         return Err(ApiError::new(
@@ -2131,27 +1989,19 @@ pub async fn batch_task(
         return Err(field_invalid("task_ids 不能为空"));
     }
     if req.task_ids.len() > dto::MAX_BATCH_TASKS {
-        return Err(field_invalid(format!(
-            "单次批量审批最多 {} 条",
-            dto::MAX_BATCH_TASKS
-        )));
+        return Err(field_invalid(format!("单次批量审批最多 {} 条", dto::MAX_BATCH_TASKS)));
     }
     let approve = match req.action.trim().to_ascii_uppercase().as_str() {
         "APPROVE" => true,
         "REJECT" => false,
         other => {
-            return Err(field_invalid(format!(
-                "动作 {other} 非法（只允许 APPROVE / REJECT）"
-            )));
+            return Err(field_invalid(format!("动作 {other} 非法（只允许 APPROVE / REJECT）")));
         }
     };
     let comment = if approve {
         dto::normalize_comment(req.comment.as_deref()).map_err(field_invalid)?
     } else {
-        Some(
-            dto::normalize_reject_comment(req.comment.as_deref().unwrap_or(""))
-                .map_err(field_invalid)?,
-        )
+        Some(dto::normalize_reject_comment(req.comment.as_deref().unwrap_or("")).map_err(field_invalid)?)
     };
     let return_to = engine::ReturnTo::parse(req.return_to.as_deref().unwrap_or(""));
     if !approve && return_to.needs_admin() && !claims.has_permission("business:flow:admin") {
@@ -2178,8 +2028,7 @@ pub async fn batch_task(
     }
 
     // ② 真正的批量：逐条委托单条 handler（内控闸 + 事务 + 全部业务回调都走同一条路）
-    let mut results: std::collections::HashMap<String, (bool, i32, String)> =
-        std::collections::HashMap::new();
+    let mut results: std::collections::HashMap<String, (bool, i32, String)> = std::collections::HashMap::new();
     if !valid.is_empty() {
         let outcome = crate::business::flow::batch::batch_approve(
             &claims,
@@ -2209,11 +2058,7 @@ pub async fn batch_task(
         } else if let Some((_, msg)) = invalid.iter().find(|(key, _)| key == raw) {
             (false, error_code::FLOW_FIELD_INVALID, msg.clone())
         } else {
-            (
-                false,
-                error_code::FLOW_FIELD_INVALID,
-                "待办 id 格式非法".to_string(),
-            )
+            (false, error_code::FLOW_FIELD_INVALID, "待办 id 格式非法".to_string())
         };
         if ok {
             succeeded += 1;
@@ -2825,8 +2670,7 @@ pub async fn stats_self_approval(
     Query(query): Query<SelfApprovalQuery>,
 ) -> ResResult<SelfApprovalRes> {
     me_of(&claims)?;
-    let window = self_approval::Window::parse(query.month.as_deref(), chrono::Utc::now())
-        .map_err(field_invalid)?;
+    let window = self_approval::Window::parse(query.month.as_deref(), chrono::Utc::now()).map_err(field_invalid)?;
     let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
     let threshold = crate::business::erp::separation::self_approval_max_amount().await;
     let biz_type = query
@@ -2948,10 +2792,9 @@ pub async fn task_preview(Json(req): Json<dto::TaskPreviewReq>) -> ResResult<dto
         _ => Value::Object(Map::new()),
     };
     if let Some(name) = req.node_name.as_deref() {
-        let node = source.as_object_mut().map(|map| {
-            map.entry("node")
-                .or_insert_with(|| Value::Object(Map::new()))
-        });
+        let node = source
+            .as_object_mut()
+            .map(|map| map.entry("node").or_insert_with(|| Value::Object(Map::new())));
         if let Some(node) = node.and_then(Value::as_object_mut) {
             node.insert("name".to_string(), Value::String(name.to_string()));
         }
@@ -3000,13 +2843,9 @@ pub async fn task_preview(Json(req): Json<dto::TaskPreviewReq>) -> ResResult<dto
     let dotted = if strict {
         vars.dotted.clone()
     } else {
-        let templates = [
-            Some(cfg.title_template.as_str()),
-            cfg.description_template.as_deref(),
-        ];
+        let templates = [Some(cfg.title_template.as_str()), cfg.description_template.as_deref()];
         let present: Vec<&str> = templates.into_iter().flatten().collect();
-        let (filled, missing) =
-            template_vars::fill_missing_with_placeholders(&vars.dotted, &present);
+        let (filled, missing) = template_vars::fill_missing_with_placeholders(&vars.dotted, &present);
         for path in missing {
             warnings.push(format!(
                 "缺变量 {{{{{path}}}}}：已渲染成可见占位（严格模式下会 400 + 65039）"
@@ -3015,8 +2854,7 @@ pub async fn task_preview(Json(req): Json<dto::TaskPreviewReq>) -> ResResult<dto
         filled
     };
 
-    let title = render::render_paths(&cfg.title_template, &dotted, ContentFormat::Text)
-        .map_err(preview_error)?;
+    let title = render::render_paths(&cfg.title_template, &dotted, ContentFormat::Text).map_err(preview_error)?;
     let title_chars = title.chars().count();
     if title_chars > node_config::MAX_TITLE_TEMPLATE_CHARS {
         return Err(ApiError::new(
@@ -3029,18 +2867,13 @@ pub async fn task_preview(Json(req): Json<dto::TaskPreviewReq>) -> ResResult<dto
         ));
     }
     let description = match cfg.description_template.as_deref() {
-        Some(template) => {
-            render::render_paths(template, &dotted, ContentFormat::Text).map_err(preview_error)?
-        }
+        Some(template) => render::render_paths(template, &dotted, ContentFormat::Text).map_err(preview_error)?,
         None => String::new(),
     };
 
     // ⑥ 期限（`due_base` 可注入，便于前端「假设今天」）
     // 预演的「今天」由 `due_base` 注入（前端要能演「假设今天」）；表单取 `vars.form`
-    let form_only = source
-        .get("form")
-        .cloned()
-        .unwrap_or_else(|| Value::Object(Map::new()));
+    let form_only = source.get("form").cloned().unwrap_or_else(|| Value::Object(Map::new()));
     let due_date = cfg.due.as_ref().map(|due| {
         let base = req.due_base.unwrap_or_else(chrono::Utc::now);
         task_node::compute_due(due, &form_only, base)
@@ -3075,18 +2908,13 @@ pub async fn task_preview(Json(req): Json<dto::TaskPreviewReq>) -> ResResult<dto
                 user_id: candidate.user_id.to_string(),
                 name: candidate.name.clone(),
                 source: candidate.source.as_str().to_string(),
-                source_ref: candidate
-                    .source_ref
-                    .map(|id| id.to_string())
-                    .unwrap_or_default(),
+                source_ref: candidate.source_ref.map(|id| id.to_string()).unwrap_or_default(),
                 is_robot: candidate.is_robot,
                 member: index > 0,
             });
         }
         if assignees.is_empty() {
-            warnings.push(
-                "按当前指派配置解析出 0 个负责人（运行期会按 empty_assignee 策略处理）".to_string(),
-            );
+            warnings.push("按当前指派配置解析出 0 个负责人（运行期会按 empty_assignee 策略处理）".to_string());
         }
     }
 
@@ -3135,10 +2963,7 @@ async fn preview_snapshot_node(
         fork_mode: "AND".to_string(),
         form_var_key: req.form_var_key.clone(),
         superior_levels: req.superior_levels.unwrap_or(1),
-        empty_assignee: req
-            .empty_assignee
-            .clone()
-            .unwrap_or_else(|| "ERROR".to_string()),
+        empty_assignee: req.empty_assignee.clone().unwrap_or_else(|| "ERROR".to_string()),
         // 任务节点没有「自审」这个概念（设计 §2.4）：预演必须与运行期同口径，
         // 否则会出现「预演 1 人、真跑 0 人」的假绿（运行期 `task_node::spawn` 同样置 ALLOW）。
         self_approval: "ALLOW".to_string(),
@@ -3159,12 +2984,11 @@ async fn preview_snapshot_node(
     // USER：`user_ids` 直接转 UUID
     for raw in &req.user_ids {
         let id = parse_uuid_field(raw, "用户 id")?;
-        spec.assignees
-            .push(crate::business::flow::graph::SnapshotAssignee {
-                assignee_type: AssigneeKind::User.as_str().to_string(),
-                ref_id: id.to_string(),
-                sort_order: spec.assignees.len() as i32,
-            });
+        spec.assignees.push(crate::business::flow::graph::SnapshotAssignee {
+            assignee_type: AssigneeKind::User.as_str().to_string(),
+            ref_id: id.to_string(),
+            sort_order: spec.assignees.len() as i32,
+        });
     }
     // ROLE：`role_codes` 走与表达式审批人同一个 code→id 解析
     if !req.role_codes.is_empty() {
@@ -3173,12 +2997,11 @@ async fn preview_snapshot_node(
             .await
             .map_err(|error| utils::db_error(error, "解析角色编码"))?;
         for id in ids {
-            spec.assignees
-                .push(crate::business::flow::graph::SnapshotAssignee {
-                    assignee_type: AssigneeKind::Role.as_str().to_string(),
-                    ref_id: id.to_string(),
-                    sort_order: spec.assignees.len() as i32,
-                });
+            spec.assignees.push(crate::business::flow::graph::SnapshotAssignee {
+                assignee_type: AssigneeKind::Role.as_str().to_string(),
+                ref_id: id.to_string(),
+                sort_order: spec.assignees.len() as i32,
+            });
         }
     }
     Ok(spec)
@@ -3186,13 +3009,7 @@ async fn preview_snapshot_node(
 
 /// 预演用的求值上下文（`form` / `initiator` / `instance` / `task` 四棵树，与运行期同构）。
 fn preview_eval_context(source: &Value) -> graph::EvalContext {
-    let pick = |root: &str| {
-        source
-            .get(root)
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default()
-    };
+    let pick = |root: &str| source.get(root).and_then(Value::as_object).cloned().unwrap_or_default();
     graph::EvalContext {
         form: pick("form"),
         initiator: pick("initiator"),
@@ -3233,9 +3050,7 @@ pub async fn instance_tasks(
     let mine = model::my_instance_ids(me)
         .await
         .map_err(|error| utils::db_error(error, "查询我的相关审批单"))?;
-    let allowed = row.initiator_id == me
-        || mine.contains(&row.id)
-        || claims.has_permission("business:flow:admin");
+    let allowed = row.initiator_id == me || mine.contains(&row.id) || claims.has_permission("business:flow:admin");
     if !allowed {
         return Err(ApiError::new(
             403,
@@ -3380,8 +3195,7 @@ pub async fn templates(Query(query): Query<dto::TemplateQuery>) -> ResResult<dto
         .await
         .map_err(|error| utils::db_error(error, "查询流程分流标签"))?;
 
-    let mut labels_of: std::collections::HashMap<Uuid, Vec<String>> =
-        std::collections::HashMap::new();
+    let mut labels_of: std::collections::HashMap<Uuid, Vec<String>> = std::collections::HashMap::new();
     for (def_id, label) in labels {
         labels_of.entry(def_id).or_default().push(label);
     }
@@ -3510,8 +3324,7 @@ pub async fn duplicate(
     let (version_id, node_count, edge_count) = db()
         .transaction(|tx| async move {
             model::create_def(&tx, &new_def, operator).await?;
-            let version_id =
-                model::create_version(&tx, new_def_id, 1, Some(&note_for_tx), operator).await?;
+            let version_id = model::create_version(&tx, new_def_id, 1, Some(&note_for_tx), operator).await?;
             let (node_count, edge_count) = model::copy_version_to_draft(
                 &tx,
                 new_def_id,
@@ -3521,15 +3334,7 @@ pub async fn duplicate(
                 operator,
             )
             .await?;
-            model::touch_version(
-                &tx,
-                version_id,
-                Some(&note_for_tx),
-                node_count,
-                edge_count,
-                operator,
-            )
-            .await?;
+            model::touch_version(&tx, version_id, Some(&note_for_tx), node_count, edge_count, operator).await?;
             Ok((version_id, node_count, edge_count))
         })
         .await
@@ -3728,14 +3533,7 @@ mod tests {
 mod stats_tests {
     use super::*;
 
-    fn row(
-        code: &str,
-        total: i64,
-        approved: i64,
-        rejected: i64,
-        running: i64,
-        sum: i64,
-    ) -> model::EfficiencyRow {
+    fn row(code: &str, total: i64, approved: i64, rejected: i64, running: i64, sum: i64) -> model::EfficiencyRow {
         model::EfficiencyRow {
             flow_code: code.to_string(),
             flow_name: format!("{code}-名称"),
@@ -3855,11 +3653,7 @@ mod stats_tests {
             .expect("有值");
         assert_eq!(rfc.to_rfc3339(), "2026-10-01T00:30:00+00:00");
         assert!(parse_stat_time(None, "start").expect("缺省").is_none());
-        assert!(
-            parse_stat_time(Some("  "), "start")
-                .expect("空白")
-                .is_none()
-        );
+        assert!(parse_stat_time(Some("  "), "start").expect("空白").is_none());
     }
 
     /// 非法时间 → 400 + 65005（不是 500，也不静默忽略）。

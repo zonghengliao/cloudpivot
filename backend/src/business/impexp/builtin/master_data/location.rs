@@ -23,13 +23,12 @@ use async_trait::async_trait;
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{
-    ColumnKind, DuplicateStrategy, EnumItem, FkSpec, ImportColumn, ImportCtx, ImportDefinition,
-    RowIssue, RowValues,
+    ColumnKind, DuplicateStrategy, EnumItem, FkSpec, ImportColumn, ImportCtx, ImportDefinition, RowIssue, RowValues,
 };
 
 use super::{
-    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, column_of, conflict_clause, duplicate_strategy, flag_of,
-    operator_text, rule, status_of,
+    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, column_of, conflict_clause, duplicate_strategy, flag_of, operator_text, rule,
+    status_of,
 };
 
 /// 库位类型（落库码值与 `ck_biz_location_type` 一致）。
@@ -188,11 +187,7 @@ impl ImportDefinition for LocationImport {
         COLUMNS
     }
 
-    async fn validate_row(
-        &self,
-        row: &RowValues,
-        _ctx: &ImportCtx,
-    ) -> std::result::Result<(), Vec<RowIssue>> {
+    async fn validate_row(&self, row: &RowValues, _ctx: &ImportCtx) -> std::result::Result<(), Vec<RowIssue>> {
         let warehouse_code = row.get("warehouse_code");
         if warehouse_code.is_empty() {
             // 必填与「仓库不存在」由框架统一报，这里不重复报同一格
@@ -222,9 +217,7 @@ impl ImportDefinition for LocationImport {
         let name: String = record
             .get_typed("warehouse_name")
             .unwrap_or_else(|_| warehouse_code.to_string());
-        let is_leaf: String = record
-            .get_typed("is_leaf")
-            .unwrap_or_else(|_| "1".to_string());
+        let is_leaf: String = record.get_typed("is_leaf").unwrap_or_else(|_| "1".to_string());
         if is_leaf == "0" {
             return Err(vec![rule(
                 row,

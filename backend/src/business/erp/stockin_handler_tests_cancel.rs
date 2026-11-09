@@ -46,11 +46,7 @@ async fn cancel_rolls_back_location_ledger() {
     };
     let row = seed_location_row(MATERIAL_A, LOC_DICT_A).await;
     let id = post_new(vec![line_at(MATERIAL_A, "40", "2", "0", &row.to_string())]).await;
-    assert_eq!(
-        location_qty_of(&row).await,
-        Some(dec("40")),
-        "前置：过账写了库位账 40"
-    );
+    assert_eq!(location_qty_of(&row).await, Some(dec("40")), "前置：过账写了库位账 40");
     cancel(id, "库位选错").await;
     assert_eq!(
         location_qty_of(&row).await,
@@ -91,26 +87,11 @@ async fn cancel_writes_out_txn() {
     assert_eq!(row.get_typed::<Decimal>("amount").unwrap(), dec("150"));
     assert_eq!(row.get_typed::<Decimal>("unit_cost").unwrap(), dec("2.5"));
     assert_eq!(row.get_typed::<Decimal>("before_qty").unwrap(), dec("60"));
-    assert_eq!(
-        row.get_typed::<Decimal>("after_qty").unwrap(),
-        Decimal::ZERO
-    );
-    assert_eq!(
-        row.get_typed::<Decimal>("before_amount").unwrap(),
-        dec("150")
-    );
-    assert_eq!(
-        row.get_typed::<Decimal>("after_amount").unwrap(),
-        Decimal::ZERO
-    );
-    assert_eq!(
-        row.get_typed::<Decimal>("before_cost").unwrap(),
-        dec("2.500000")
-    );
-    assert_eq!(
-        row.get_typed::<Decimal>("after_cost").unwrap(),
-        Decimal::ZERO
-    );
+    assert_eq!(row.get_typed::<Decimal>("after_qty").unwrap(), Decimal::ZERO);
+    assert_eq!(row.get_typed::<Decimal>("before_amount").unwrap(), dec("150"));
+    assert_eq!(row.get_typed::<Decimal>("after_amount").unwrap(), Decimal::ZERO);
+    assert_eq!(row.get_typed::<Decimal>("before_cost").unwrap(), dec("2.500000"));
+    assert_eq!(row.get_typed::<Decimal>("after_cost").unwrap(), Decimal::ZERO);
 }
 
 /// ④ 作废 → 红字凭证照旧生成（P2-C1 逻辑不被破坏，双向指针都在）。
@@ -176,11 +157,7 @@ async fn cancel_twice_is_409() {
         .await
         .expect_err("重复作废必须 409");
     assert_eq!(err.status, 409, "{}", err.msg);
-    assert!(
-        err.msg.contains("不能重复作废"),
-        "报文要点明幂等语义：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("不能重复作废"), "报文要点明幂等语义：{}", err.msg);
     assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO);
     assert_eq!(
         txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
@@ -219,11 +196,7 @@ async fn cancel_with_shipped_goods_is_409() {
         err.msg
     );
     assert!(err.msg.contains('9'), "文案要点名本单数量：{}", err.msg);
-    assert_eq!(
-        inventory_of(MATERIAL_A).await.0,
-        dec("3"),
-        "拒绝时库存一个字节都不能动"
-    );
+    assert_eq!(inventory_of(MATERIAL_A).await.0, dec("3"), "拒绝时库存一个字节都不能动");
     assert_eq!(
         detail_of(id).await.unwrap().header.status,
         STATUS_POSTED,
@@ -314,14 +287,8 @@ async fn concurrent_cancels_do_not_deadlock() {
         Decimal::ZERO,
         "两张单都作废 → 库存归零（没有互相踩掉/多扣）"
     );
-    assert_eq!(
-        txn_count(a, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
-        1
-    );
-    assert_eq!(
-        txn_count(b, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
-        1
-    );
+    assert_eq!(txn_count(a, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await, 1);
+    assert_eq!(txn_count(b, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await, 1);
 }
 
 /// ⑩ 作废失败 → 事务整体回滚：库存 / 流水 / 凭证 / 状态全都不变。
@@ -357,11 +324,7 @@ async fn failed_cancel_rolls_back_everything() {
         0,
         "不能留下半条反向流水"
     );
-    assert_eq!(
-        voucher_count(id, None).await,
-        vouchers_before,
-        "不能留下红字凭证"
-    );
+    assert_eq!(voucher_count(id, None).await, vouchers_before, "不能留下红字凭证");
     assert_eq!(voucher_count(id, Some(1)).await, 0, "红字凭证一条都不许有");
     assert_eq!(
         detail_of(id).await.unwrap().header.status,
@@ -529,23 +492,11 @@ async fn cancel_refuses_when_serial_already_shipped() {
         "文案要带出具体号码（运维才能去查那一件）：{}",
         err.msg
     );
-    assert!(
-        err.msg.contains("退货入库冲销"),
-        "文案要给可执行出路：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("退货入库冲销"), "文案要给可执行出路：{}", err.msg);
 
     // 整单回滚：序列号一条都没被软删、库存没有二次扣减、状态仍 POSTED
-    assert_eq!(
-        serial_counts_of(id).await,
-        (3, 0),
-        "拒绝时序列号一条都不许动"
-    );
-    assert_eq!(
-        inventory_of(MATERIAL_SN).await.0,
-        dec("2"),
-        "拒绝时库存不许二次扣减"
-    );
+    assert_eq!(serial_counts_of(id).await, (3, 0), "拒绝时序列号一条都不许动");
+    assert_eq!(inventory_of(MATERIAL_SN).await.0, dec("2"), "拒绝时库存不许二次扣减");
     assert_eq!(
         detail_of(id).await.unwrap().header.status,
         STATUS_POSTED,
@@ -567,21 +518,13 @@ async fn cancel_voids_only_serials_of_that_receipt() {
 
     cancel(first, "少收两件").await;
 
-    assert_eq!(
-        serial_counts_of(first).await,
-        (0, 2),
-        "本单的号必须全部退回"
-    );
+    assert_eq!(serial_counts_of(first).await, (0, 2), "本单的号必须全部退回");
     assert_eq!(
         serial_counts_of(second).await,
         (1, 0),
         "别的单的号不能被连带作废（`source_id` 精确到单）"
     );
-    assert_eq!(
-        inventory_of(MATERIAL_SN).await.0,
-        dec("1"),
-        "库存只退本单那 2 件"
-    );
+    assert_eq!(inventory_of(MATERIAL_SN).await.0, dec("1"), "库存只退本单那 2 件");
 }
 
 /// ⑫ 流水缺失的历史单：拒绝作废并说明原因（不许按现价估算，不许静默）。
@@ -604,11 +547,7 @@ async fn cancel_refuses_when_posted_txn_missing() {
         .await
         .expect_err("流水缺失必须拒绝");
     assert_eq!(err.status, 409, "{}", err.msg);
-    assert!(
-        err.msg.contains("找不到过账流水"),
-        "报文要说清缺口在哪：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("找不到过账流水"), "报文要说清缺口在哪：{}", err.msg);
     assert_eq!(
         inventory_of(MATERIAL_A).await.0,
         dec("12"),

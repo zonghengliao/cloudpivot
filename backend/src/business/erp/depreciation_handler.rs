@@ -19,8 +19,8 @@ use axum::extract::{Extension, Path, Query};
 use nik::prelude::*;
 
 use crate::business::erp::asset_dto::{
-    DepBatchDetailRes, DepBatchFilter, DepBatchRes, ReverseDepreciationReq, RunDepreciationReq,
-    RunDepreciationRes, normalize_page, parse_uuid_text,
+    DepBatchDetailRes, DepBatchFilter, DepBatchRes, ReverseDepreciationReq, RunDepreciationReq, RunDepreciationRes,
+    normalize_page, parse_uuid_text,
 };
 use crate::business::erp::depreciation_model;
 use crate::shared::error_code;
@@ -47,12 +47,7 @@ pub async fn depreciation_page(
         .await
         .map_err(|error| utils::db_error(error, "分页查询折旧批次"))?;
     let list: Vec<DepBatchRes> = rows.iter().map(DepBatchRes::from).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 批次详情（明细 + 合计；合计必须等于批次金额 —— 巡检 K4）。
@@ -86,9 +81,7 @@ pub async fn depreciation_run(
             "手动计提需要登录用户（令牌里没有用户 id）",
         ));
     }
-    let outcome =
-        depreciation_model::run_batch(req.period_code.as_deref(), operator, req.remark.as_deref())
-            .await?;
+    let outcome = depreciation_model::run_batch(req.period_code.as_deref(), operator, req.remark.as_deref()).await?;
     Ok(Res::ok(RunDepreciationRes::from(outcome)))
 }
 

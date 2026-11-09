@@ -32,9 +32,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::asset_dto::{
-    AssetFilter, CategoryFilter, CategorySpec, CreateAssetSpec, DepBatchFilter,
-};
+use crate::business::erp::asset_dto::{AssetFilter, CategoryFilter, CategorySpec, CreateAssetSpec, DepBatchFilter};
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::scope;
 
@@ -154,21 +152,11 @@ impl CategoryRow {
 }
 
 /// 分类分页（软删不返回）。
-pub async fn category_page(
-    q: &CategoryFilter,
-    page: u64,
-    page_size: u64,
-) -> DbResult<(Vec<CategoryRow>, i64)> {
+pub async fn category_page(q: &CategoryFilter, page: u64, page_size: u64) -> DbResult<(Vec<CategoryRow>, i64)> {
     // SCOPE-EXEMPT: 分类是全局主数据，没有归属列。
-    let mut sql =
-        format!("SELECT {CATEGORY_COLUMNS} FROM {CATEGORY_TABLE} c WHERE c.deleted_at IS NULL");
+    let mut sql = format!("SELECT {CATEGORY_COLUMNS} FROM {CATEGORY_TABLE} c WHERE c.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
-    if let Some(keyword) = q
-        .keyword
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(keyword) = q.keyword.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND (c.category_code ILIKE ? OR c.category_name ILIKE ?)");
         let like = format!("%{keyword}%");
         params.push(Value::Text(like.clone()));
@@ -179,9 +167,7 @@ pub async fn category_page(
         params.push(Value::from(i32::from(status)));
     }
     let order = "ORDER BY c.sort_order ASC, c.category_code ASC";
-    let result =
-        scope::paginate_unscoped(CATEGORY_TARGET, &sql, params, Some(order), page, page_size)
-            .await?;
+    let result = scope::paginate_unscoped(CATEGORY_TARGET, &sql, params, Some(order), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -305,11 +291,7 @@ pub async fn category_update(
 }
 
 /// 软删分类。
-pub async fn category_soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn category_soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主数据写入。
     ex.exec_sql(
         format!(
@@ -455,9 +437,7 @@ impl AssetRow {
             salvage_rate: parse_amount(&row.get_typed::<String>("salvage_rate")?),
             monthly_depreciation: parse_amount(&row.get_typed::<String>("monthly_depreciation")?),
             start_depreciation_date: row.get_typed("start_depreciation_date")?,
-            accumulated_depreciation: parse_amount(
-                &row.get_typed::<String>("accumulated_depreciation")?,
-            ),
+            accumulated_depreciation: parse_amount(&row.get_typed::<String>("accumulated_depreciation")?),
             net_value: parse_amount(&row.get_typed::<String>("net_value")?),
             depreciation_months_done: row.get_typed("depreciation_months_done")?,
             last_depreciation_period: row.get_typed("last_depreciation_period")?,
@@ -480,20 +460,11 @@ impl AssetRow {
 }
 
 /// 资产分页（软删不返回）。
-pub async fn asset_page(
-    q: &AssetFilter,
-    page: u64,
-    page_size: u64,
-) -> DbResult<(Vec<AssetRow>, i64)> {
+pub async fn asset_page(q: &AssetFilter, page: u64, page_size: u64) -> DbResult<(Vec<AssetRow>, i64)> {
     // SCOPE-EXEMPT: 资产台账不做行级权限（见模块文档），部门筛选是列表条件。
     let mut sql = format!("SELECT {ASSET_COLUMNS} FROM {TABLE} a WHERE a.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
-    if let Some(keyword) = q
-        .keyword
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(keyword) = q.keyword.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND (a.asset_no ILIKE ? OR a.asset_name ILIKE ? OR a.spec ILIKE ?)");
         let like = format!("%{keyword}%");
         params.push(Value::Text(like.clone()));
@@ -508,27 +479,16 @@ pub async fn asset_page(
         sql.push_str(" AND a.use_dept_id = ?::uuid");
         params.push(Value::from(&dept_id));
     }
-    if let Some(status) = q
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(status) = q.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND a.status = ?");
         params.push(Value::Text(status.to_string()));
     }
-    if let Some(source_type) = q
-        .source_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(source_type) = q.source_type.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND a.source_type = ?");
         params.push(Value::Text(source_type.to_string()));
     }
     let order = "ORDER BY a.purchase_date DESC, a.asset_no DESC";
-    let result =
-        scope::paginate_unscoped(ASSET_TARGET, &sql, params, Some(order), page, page_size).await?;
+    let result = scope::paginate_unscoped(ASSET_TARGET, &sql, params, Some(order), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -675,11 +635,7 @@ pub async fn asset_set_voucher(ex: &impl SqlExecutor, id: Uuid, voucher_id: Uuid
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!("UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"),
-        vec![
-            Value::from(&voucher_id),
-            Value::from(Utc::now()),
-            Value::from(&id),
-        ],
+        vec![Value::from(&voucher_id), Value::from(Utc::now()), Value::from(&id)],
     )
     .await
 }
@@ -719,11 +675,7 @@ pub async fn asset_update(
 }
 
 /// 软删卡片。
-pub async fn asset_soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn asset_soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!(
@@ -745,11 +697,7 @@ pub async fn asset_soft_delete(
 /// 必须一条语句：`ck_biz_fa_disposed` 要求「`status='DISPOSED'` ⇔ 处置日与类型都非空」，
 /// 分两步写（先改状态、再清列）中间那一刻必然违反约束（V0230 第一次跑就是这么挂的）。
 /// 顺序也固定为 CAS 到 `DISPOSED`，防两次「作废处置」并发。
-pub async fn asset_restore_from_disposal(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn asset_restore_from_disposal(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!(
@@ -883,11 +831,7 @@ pub async fn asset_mark_disposed(
 }
 
 /// 清处置痕迹（作废处置后恢复在役用）。
-pub async fn asset_clear_disposal(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn asset_clear_disposal(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!(
@@ -1029,11 +973,7 @@ pub struct ChangeInsert<'a> {
 }
 
 /// 写变动留痕。
-pub async fn insert_change(
-    ex: &impl SqlExecutor,
-    asset_id: Uuid,
-    input: &ChangeInsert<'_>,
-) -> DbResult<Uuid> {
+pub async fn insert_change(ex: &impl SqlExecutor, asset_id: Uuid, input: &ChangeInsert<'_>) -> DbResult<Uuid> {
     let id = Uuid::now_v7();
     // SCOPE-EXEMPT: 明细表写入（按资产归属）。
     ex.exec_sql(
@@ -1150,10 +1090,7 @@ impl DepBatchRow {
 }
 
 /// 按期间取批次（`uk_biz_dep_batch_period` 保证至多一行）。
-pub async fn batch_by_period(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> DbResult<Option<DepBatchRow>> {
+pub async fn batch_by_period(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Option<DepBatchRow>> {
     // SCOPE-EXEMPT: 按期间精确取 1 行。
     let rows = ex
         .query_sql(
@@ -1182,35 +1119,20 @@ pub async fn batch_find_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<D
 }
 
 /// 批次分页。
-pub async fn batch_page(
-    q: &DepBatchFilter,
-    page: u64,
-    page_size: u64,
-) -> DbResult<(Vec<DepBatchRow>, i64)> {
+pub async fn batch_page(q: &DepBatchFilter, page: u64, page_size: u64) -> DbResult<(Vec<DepBatchRow>, i64)> {
     // SCOPE-EXEMPT: 批次是期间台账，无归属列。
     let mut sql = format!("SELECT {BATCH_COLUMNS} FROM {DEP_BATCH_TABLE} b WHERE 1 = 1");
     let mut params: Vec<Value> = Vec::new();
-    if let Some(period) = q
-        .period_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(period) = q.period_code.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND b.period_code = ?");
         params.push(Value::Text(period.to_string()));
     }
-    if let Some(status) = q
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(status) = q.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND b.status = ?");
         params.push(Value::Text(status.to_string()));
     }
     let order = "ORDER BY b.period_code DESC";
-    let result =
-        scope::paginate_unscoped(BATCH_TARGET, &sql, params, Some(order), page, page_size).await?;
+    let result = scope::paginate_unscoped(BATCH_TARGET, &sql, params, Some(order), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -1528,13 +1450,8 @@ pub async fn depreciation_status_of(asset_id: Uuid, period_code: &str) -> DbResu
     // SCOPE-EXEMPT: 按 (资产, 期间) 唯一键取 1 行状态，与「谁能看到这张卡」无关。
     let rows = db()
         .find_with_params(
-            &format!(
-                "SELECT status FROM {DEP_TABLE} WHERE asset_id = ?::uuid AND period_code = ?"
-            ),
-            vec![
-                Value::from(&asset_id),
-                Value::Text(period_code.to_string()),
-            ],
+            &format!("SELECT status FROM {DEP_TABLE} WHERE asset_id = ?::uuid AND period_code = ?"),
+            vec![Value::from(&asset_id), Value::Text(period_code.to_string())],
         )
         .await?;
     match rows.first() {
@@ -1561,11 +1478,7 @@ pub async fn reverse_details(ex: &impl SqlExecutor, batch_id: Uuid) -> DbResult<
 /// `last_depreciation_period` 回退到「该资产最大的 POSTED 期间」——
 /// 不能简单取上一期：中途红冲的不是最后一期时（先红冲 9 月、10 月还在），
 /// 简单减一会把它退到 09，下次 10 月重跑就会撞 `uk_biz_dep_asset_period`。
-pub async fn rollback_depreciation_on_asset(
-    ex: &impl SqlExecutor,
-    asset_id: Uuid,
-    amount: Decimal,
-) -> DbResult<u64> {
+pub async fn rollback_depreciation_on_asset(ex: &impl SqlExecutor, asset_id: Uuid, amount: Decimal) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!(
@@ -1689,13 +1602,7 @@ pub async fn voucher_ids_of_source(
     }
     sql.push_str(" ORDER BY created_at ASC, voucher_no ASC");
     let rows = ex
-        .query_sql(
-            sql,
-            vec![
-                Value::Text(source_type.to_string()),
-                Value::from(&source_id),
-            ],
-        )
+        .query_sql(sql, vec![Value::Text(source_type.to_string()), Value::from(&source_id)])
         .await?;
     rows.iter().map(|row| row.get_typed("id")).collect()
 }

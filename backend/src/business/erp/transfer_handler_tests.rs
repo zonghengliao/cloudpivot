@@ -41,10 +41,7 @@ fn biz_active_conflict_maps_to_409_with_transfer_no() {
             flow_model::BIZ_ACTIVE_INDEX
         ))
     };
-    assert!(
-        is_biz_active_duplicate(&variant()),
-        "带约束名的 23505 必须被认出来"
-    );
+    assert!(is_biz_active_duplicate(&variant()), "带约束名的 23505 必须被认出来");
     assert!(
         is_biz_active_duplicate(&by_text()),
         "文案兜底必须生效（否则真库里就会变成 500）"
@@ -74,9 +71,5 @@ fn biz_active_conflict_maps_to_409_with_transfer_no() {
         "409 文案必须带单号：{}",
         api.msg
     );
-    assert!(
-        api.msg.contains("已有审批中实例"),
-        "409 文案必须说清原因：{}",
-        api.msg
-    );
+    assert!(api.msg.contains("已有审批中实例"), "409 文案必须说清原因：{}", api.msg);
 }

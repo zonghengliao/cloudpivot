@@ -19,9 +19,7 @@ use std::net::SocketAddr;
 use crate::business::shared::principal;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
-use crate::support::file::dto::{
-    FileCheckDuplicateQuery, FileDuplicateRes, FilePageQuery, FileRes, FileUploadQuery,
-};
+use crate::support::file::dto::{FileCheckDuplicateQuery, FileDuplicateRes, FilePageQuery, FileRes, FileUploadQuery};
 use crate::support::file::model::{self, SysFileModel};
 use crate::support::log;
 use crate::utils;
@@ -33,8 +31,7 @@ use crate::utils;
 const ALLOWED_UPLOAD_EXTENSIONS: [&str; 31] = [
     // 图片
     "jpg", "jpeg", "png", "gif", "bmp", "webp", "svg", "ico", // 文档
-    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "md", "json", "xml",
-    // 压缩包
+    "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "md", "json", "xml", // 压缩包
     "zip", "rar", "7z", "gz", "tar", // 音视频
     "mp3", "wav", "mp4", "avi", "mov", "mkv",
 ];
@@ -63,11 +60,7 @@ const ALLOWED_UPLOAD_EXTENSIONS: [&str; 31] = [
 /// # 异常情况
 ///
 /// 表单非法返回 400，超限返回 422，写盘 / 入库失败返回 500。
-#[nik::permission(
-    path = "/support/file/upload",
-    method = "POST",
-    permission = "support:file:upload"
-)]
+#[nik::permission(path = "/support/file/upload", method = "POST", permission = "support:file:upload")]
 #[nik::post("/support/file/upload")]
 pub async fn upload(
     Query(query): Query<FileUploadQuery>,
@@ -141,11 +134,7 @@ pub async fn upload_batch(
     for (original_name, mime_type, bytes) in files {
         result.push(store_file_bytes(&query, &claims, original_name, mime_type, bytes).await?);
     }
-    let target_id = result
-        .iter()
-        .map(|file| file.id.clone())
-        .collect::<Vec<_>>()
-        .join(",");
+    let target_id = result.iter().map(|file| file.id.clone()).collect::<Vec<_>>().join(",");
     log::record_audit(
         &headers,
         &connect_info,
@@ -178,16 +167,10 @@ pub async fn upload_batch(
     permission = "support:file:upload"
 )]
 #[nik::get("/support/file/check-duplicate")]
-pub async fn check_duplicate(
-    Query(query): Query<FileCheckDuplicateQuery>,
-) -> ResResult<FileDuplicateRes> {
+pub async fn check_duplicate(Query(query): Query<FileCheckDuplicateQuery>) -> ResResult<FileDuplicateRes> {
     let file_hash = query.file_hash.trim();
     if file_hash.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "file_hash 不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "file_hash 不能为空"));
     }
     let existing = model::find_reusable_file(file_hash)
         .await
@@ -222,11 +205,7 @@ pub async fn check_duplicate(
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[nik::permission(
-    path = "/support/file/page",
-    method = "GET",
-    permission = "support:file:list"
-)]
+#[nik::permission(path = "/support/file/page", method = "GET", permission = "support:file:list")]
 #[nik::get("/support/file/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -267,11 +246,7 @@ pub async fn page(
 /// - 400：ID 格式非法；
 /// - 404：文件不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/file/{id}",
-    method = "GET",
-    permission = "support:file:list"
-)]
+#[nik::permission(path = "/support/file/{id}", method = "GET", permission = "support:file:list")]
 #[nik::get("/support/file/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<FileRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -305,11 +280,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<FileRes> {
 /// - 400：ID 格式非法；
 /// - 404：文件不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/file/{id}",
-    method = "DELETE",
-    permission = "support:file:delete"
-)]
+#[nik::permission(path = "/support/file/{id}", method = "DELETE", permission = "support:file:delete")]
 #[nik::delete("/support/file/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
@@ -429,9 +400,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// # 异常情况
 ///
 /// - 400：表单解析失败 / 文件内容读取失败 / 不存在任何 `file` 字段。
-async fn read_upload_fields(
-    mut multipart: Multipart,
-) -> std::result::Result<Vec<(String, String, Vec<u8>)>, ApiError> {
+async fn read_upload_fields(mut multipart: Multipart) -> std::result::Result<Vec<(String, String, Vec<u8>)>, ApiError> {
     let mut files = Vec::new();
     while let Some(field) = multipart
         .next_field()
@@ -442,10 +411,7 @@ async fn read_upload_fields(
             continue;
         }
         let original_name = field.file_name().unwrap_or("").to_string();
-        let content_type = field
-            .content_type()
-            .unwrap_or("application/octet-stream")
-            .to_string();
+        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
         let bytes = field
             .bytes()
             .await
@@ -453,11 +419,7 @@ async fn read_upload_fields(
         files.push((original_name, content_type, bytes.to_vec()));
     }
     if files.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "缺少文件字段 file",
-        ));
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "缺少文件字段 file"));
     }
     Ok(files)
 }
@@ -559,19 +521,11 @@ async fn store_file_bytes(
 
     if let Err(e) = std::fs::create_dir_all(dir) {
         tracing::error!(dir = %dir, error = %e, "创建上传目录失败");
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            "服务器内部错误",
-        ));
+        return Err(ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误"));
     }
     if let Err(e) = std::fs::write(&path, &bytes) {
         tracing::error!(path = %path, error = %e, "写入上传文件失败");
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            "服务器内部错误",
-        ));
+        return Err(ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误"));
     }
 
     let category = utils::trimmed(query.category.as_deref())
@@ -698,19 +652,15 @@ async fn download_response(raw_id: &str) -> std::result::Result<Response, ApiErr
         .ok_or_else(|| ApiError::new(404, error_code::FILE_NOT_FOUND, "文件不存在"))?;
 
     let path = format!("{}/{}", nik::upload_path(), file.file_key);
-    let bytes = std::fs::read(&path)
-        .map_err(|_| ApiError::new(404, error_code::FILE_NOT_FOUND, "文件已丢失"))?;
+    let bytes = std::fs::read(&path).map_err(|_| ApiError::new(404, error_code::FILE_NOT_FOUND, "文件已丢失"))?;
 
     let mime = file
         .mime_type
         .clone()
         .unwrap_or_else(|| "application/octet-stream".to_string());
-    let content_type = HeaderValue::from_str(&mime)
-        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
-    let original = file
-        .original_name
-        .clone()
-        .unwrap_or_else(|| file.file_name.clone());
+    let content_type =
+        HeaderValue::from_str(&mime).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
+    let original = file.original_name.clone().unwrap_or_else(|| file.file_name.clone());
     let disposition = build_content_disposition(&original);
 
     Ok((

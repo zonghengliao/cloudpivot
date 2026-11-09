@@ -121,8 +121,7 @@ pub(crate) async fn revoke(
         return Ok(());
     }
 
-    let expire_at =
-        chrono::DateTime::<chrono::Utc>::from_timestamp(exp, 0).unwrap_or_else(chrono::Utc::now);
+    let expire_at = chrono::DateTime::<chrono::Utc>::from_timestamp(exp, 0).unwrap_or_else(chrono::Utc::now);
 
     // ① 权威写入：库。失败即 `Err`——「写不进就是没吊销」。
     //    `user_id` 可空：绑定 uuid 位不能传 `Value::Null`（驱动编码不上），

@@ -22,13 +22,12 @@ use async_trait::async_trait;
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{
-    ColumnKind, DuplicateStrategy, EnumItem, ImportColumn, ImportCtx, ImportDefinition, RowIssue,
-    RowValues,
+    ColumnKind, DuplicateStrategy, EnumItem, ImportColumn, ImportCtx, ImportDefinition, RowIssue, RowValues,
 };
 
 use super::{
-    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, column_of, conflict_clause, duplicate_strategy, flag_of,
-    load_refs, operator_text, rule, status_of,
+    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, column_of, conflict_clause, duplicate_strategy, flag_of, load_refs,
+    operator_text, rule, status_of,
 };
 
 /// 科目类别（落库码值与 `ck_biz_account_category` 一致）。
@@ -197,11 +196,7 @@ impl ImportDefinition for AccountImport {
         COLUMNS
     }
 
-    async fn validate_row(
-        &self,
-        row: &RowValues,
-        _ctx: &ImportCtx,
-    ) -> std::result::Result<(), Vec<RowIssue>> {
+    async fn validate_row(&self, row: &RowValues, _ctx: &ImportCtx) -> std::result::Result<(), Vec<RowIssue>> {
         let mut issues = Vec::new();
         let code = row.get("account_code");
         let parent = row.get("parent_code");
@@ -212,11 +207,7 @@ impl ImportDefinition for AccountImport {
                 format!("上级科目不能是自身（科目编码「{code}」）"),
             ));
         }
-        if issues.is_empty() {
-            Ok(())
-        } else {
-            Err(issues)
-        }
+        if issues.is_empty() { Ok(()) } else { Err(issues) }
     }
 
     async fn persist(
@@ -230,10 +221,7 @@ impl ImportDefinition for AccountImport {
         }
         let strategy = duplicate_strategy(ctx).await?;
 
-        let mut codes: Vec<String> = rows
-            .iter()
-            .map(|row| row.get("account_code").to_string())
-            .collect();
+        let mut codes: Vec<String> = rows.iter().map(|row| row.get("account_code").to_string()).collect();
         codes.extend(
             rows.iter()
                 .map(|row| row.get("parent_code").to_string())
@@ -243,8 +231,7 @@ impl ImportDefinition for AccountImport {
 
         let mut own: HashMap<String, usize> = HashMap::new();
         for (index, row) in rows.iter().enumerate() {
-            own.entry(row.get("account_code").to_string())
-                .or_insert(index);
+            own.entry(row.get("account_code").to_string()).or_insert(index);
         }
 
         let mut memo: Vec<Option<ResolvedAccount>> = vec![None; rows.len()];
@@ -307,11 +294,7 @@ impl ImportDefinition for AccountImport {
             )
             .await?;
         if strategy == DuplicateStrategy::Upsert && affected as usize != rows.len() {
-            return Err(super::missing_rows_error(
-                rows.len(),
-                affected as usize,
-                "请重新上传",
-            ));
+            return Err(super::missing_rows_error(rows.len(), affected as usize, "请重新上传"));
         }
         Ok(affected as usize)
     }
@@ -351,10 +334,7 @@ fn resolve(
             row.row_no
         )));
     }
-    let id = refs
-        .get(&code)
-        .map(|(id, _)| id)
-        .unwrap_or_else(uuid::Uuid::now_v7);
+    let id = refs.get(&code).map(|(id, _)| id).unwrap_or_else(uuid::Uuid::now_v7);
     let (parent_id, level) = if parent_code.is_empty() {
         (None, 1)
     } else if let Some(parent_index) = own.get(&parent_code).copied() {
@@ -371,11 +351,7 @@ fn resolve(
             row.row_no
         )));
     };
-    let resolved = ResolvedAccount {
-        id,
-        parent_id,
-        level,
-    };
+    let resolved = ResolvedAccount { id, parent_id, level };
     memo[index] = Some(resolved);
     Ok(resolved)
 }
@@ -450,8 +426,7 @@ mod tests {
         let refs = super::super::CodeRefs { db: HashMap::new() };
         let mut memo: Vec<Option<ResolvedAccount>> = vec![None; rows.len()];
         let mut stack = Vec::new();
-        let error =
-            resolve(0, &rows, &own, &refs, &mut memo, &mut stack).expect_err("父级不存在应报错");
+        let error = resolve(0, &rows, &own, &refs, &mut memo, &mut stack).expect_err("父级不存在应报错");
         let text = format!("{error}");
         assert!(text.contains("第 7 行"), "错误文案必须带行号：{text}");
         assert!(text.contains("9999"));

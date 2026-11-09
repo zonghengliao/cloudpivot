@@ -208,11 +208,7 @@ impl Validator {
     /// # 异常情况
     ///
     /// 不满足规则 → `400 + 62022`（消息里写清规则与当前值）。
-    pub fn check(
-        &self,
-        def: &PreferenceDef,
-        value: &JsonValue,
-    ) -> std::result::Result<(), ApiError> {
+    pub fn check(&self, def: &PreferenceDef, value: &JsonValue) -> std::result::Result<(), ApiError> {
         match self {
             Self::OneOf(allowed) => {
                 let hit = value
@@ -286,10 +282,7 @@ pub async fn load_defs(ex: &impl SqlExecutor) -> DbResult<Vec<PreferenceDef>> {
 ///
 /// - `ex`：执行器；
 /// - `user_id`：用户 ID（只能来自 `AuthClaims`）。
-pub async fn load_values(
-    ex: &impl SqlExecutor,
-    user_id: &Uuid,
-) -> DbResult<BTreeMap<String, JsonValue>> {
+pub async fn load_values(ex: &impl SqlExecutor, user_id: &Uuid) -> DbResult<BTreeMap<String, JsonValue>> {
     let rows = ex
         .query_sql(VALUE_SELECT.to_string(), vec![Value::from(*user_id)])
         .await?;
@@ -335,11 +328,7 @@ pub async fn load_values(
 ///
 /// - `DbError::ForeignKeyViolation`：用户被并发删除（外键 `fk_sys_user_preference_user`）；
 /// - 其它 `DbError`：数据库异常。
-pub async fn upsert_values(
-    ex: &impl SqlExecutor,
-    user_id: &Uuid,
-    patch: &[(String, JsonValue)],
-) -> DbResult<u64> {
+pub async fn upsert_values(ex: &impl SqlExecutor, user_id: &Uuid, patch: &[(String, JsonValue)]) -> DbResult<u64> {
     let mut affected = 0u64;
     for (key, value) in patch {
         affected += ex
@@ -371,22 +360,12 @@ pub async fn upsert_values(
 /// - `400 + 62021`：类型不符；
 /// - `400 + 62022`：值域不符（oneof / range）；
 /// - `500 + 62024`：字典自身的 value_type / validator 配坏。
-pub fn validate_patch(
-    defs: &[PreferenceDef],
-    patch: &[(String, JsonValue)],
-) -> std::result::Result<(), ApiError> {
-    let index: BTreeMap<&str, &PreferenceDef> = defs
-        .iter()
-        .map(|def| (def.pref_key.as_str(), def))
-        .collect();
+pub fn validate_patch(defs: &[PreferenceDef], patch: &[(String, JsonValue)]) -> std::result::Result<(), ApiError> {
+    let index: BTreeMap<&str, &PreferenceDef> = defs.iter().map(|def| (def.pref_key.as_str(), def)).collect();
     for (key, value) in patch {
-        let def = index.get(key.as_str()).ok_or_else(|| {
-            ApiError::new(
-                400,
-                error_code::PREFERENCE_KEY_UNKNOWN,
-                format!("未知的偏好项：{key}"),
-            )
-        })?;
+        let def = index
+            .get(key.as_str())
+            .ok_or_else(|| ApiError::new(400, error_code::PREFERENCE_KEY_UNKNOWN, format!("未知的偏好项：{key}")))?;
         let value_type = ValueType::parse(&def.value_type).ok_or_else(|| {
             tracing::error!(pref_key = %def.pref_key, value_type = %def.value_type,
                 "偏好字典的 value_type 非法");
@@ -479,13 +458,7 @@ mod tests {
     use super::*;
 
     /// 造一条字典项（默认值给 JSON 文本，与库里取出的形态一致）。
-    fn def(
-        key: &str,
-        name: &str,
-        value_type: &str,
-        default_text: &str,
-        validator: Option<&str>,
-    ) -> PreferenceDef {
+    fn def(key: &str, name: &str, value_type: &str, default_text: &str, validator: Option<&str>) -> PreferenceDef {
         PreferenceDef {
             pref_key: key.to_string(),
             pref_name: name.to_string(),
@@ -522,13 +495,7 @@ mod tests {
                 "\"default\"",
                 Some("oneof:default,compact"),
             ),
-            def(
-                "ui.page_size",
-                "默认分页条数",
-                "number",
-                "10",
-                Some("range:5-200"),
-            ),
+            def("ui.page_size", "默认分页条数", "number", "10", Some("range:5-200")),
             def(
                 "ui.language",
                 "界面语言",
@@ -542,10 +509,7 @@ mod tests {
     }
 
     fn patch(pairs: &[(&str, JsonValue)]) -> Vec<(String, JsonValue)> {
-        pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_string(), v.clone()))
-            .collect()
+        pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect()
     }
 
     fn code_of(err: &ApiError) -> i32 {
@@ -572,8 +536,8 @@ mod tests {
     #[test]
     fn unknown_key_is_rejected() {
         let defs = seed_defs();
-        let err = validate_patch(&defs, &patch(&[("evil.key", serde_json::json!(1))]))
-            .expect_err("字典外的键必须被拒绝");
+        let err =
+            validate_patch(&defs, &patch(&[("evil.key", serde_json::json!(1))])).expect_err("字典外的键必须被拒绝");
         assert_eq!(code_of(&err), error_code::PREFERENCE_KEY_UNKNOWN);
         assert_eq!(code_of(&err), 62020);
     }
@@ -582,11 +546,8 @@ mod tests {
     #[test]
     fn type_mismatch_is_rejected() {
         let defs = seed_defs();
-        let err = validate_patch(
-            &defs,
-            &patch(&[("ui.side_compact", serde_json::json!("yes"))]),
-        )
-        .expect_err("字符串不能写进布尔偏好");
+        let err = validate_patch(&defs, &patch(&[("ui.side_compact", serde_json::json!("yes"))]))
+            .expect_err("字符串不能写进布尔偏好");
         assert_eq!(code_of(&err), error_code::PREFERENCE_VALUE_TYPE_INVALID);
         assert_eq!(code_of(&err), 62021);
     }
@@ -595,11 +556,8 @@ mod tests {
     #[test]
     fn oneof_violation_is_rejected() {
         let defs = seed_defs();
-        let err = validate_patch(
-            &defs,
-            &patch(&[("ui.palette", serde_json::json!("not-a-palette"))]),
-        )
-        .expect_err("不存在的配色必须被拒绝");
+        let err = validate_patch(&defs, &patch(&[("ui.palette", serde_json::json!("not-a-palette"))]))
+            .expect_err("不存在的配色必须被拒绝");
         assert_eq!(code_of(&err), error_code::PREFERENCE_VALUE_INVALID);
         assert_eq!(code_of(&err), 62022);
     }
@@ -608,18 +566,10 @@ mod tests {
     #[test]
     fn range_violation_is_rejected() {
         let defs = seed_defs();
-        for bad in [
-            serde_json::json!(999),
-            serde_json::json!(4),
-            serde_json::json!(10.5),
-        ] {
+        for bad in [serde_json::json!(999), serde_json::json!(4), serde_json::json!(10.5)] {
             let err = validate_patch(&defs, &patch(&[("ui.page_size", bad.clone())]))
                 .expect_err("超范围 / 小数的每页条数必须被拒绝");
-            assert_eq!(
-                code_of(&err),
-                error_code::PREFERENCE_VALUE_INVALID,
-                "值={bad}"
-            );
+            assert_eq!(code_of(&err), error_code::PREFERENCE_VALUE_INVALID, "值={bad}");
         }
         // 边界值必须通过（range 是闭区间）
         for ok in [serde_json::json!(5), serde_json::json!(200)] {
@@ -635,13 +585,8 @@ mod tests {
     fn null_is_rejected_for_every_type() {
         let defs = seed_defs();
         for key in ["ui.palette", "ui.page_size", "ui.side_compact"] {
-            let err = validate_patch(&defs, &patch(&[(key, JsonValue::Null)]))
-                .expect_err("null 不应写入偏好");
-            assert_eq!(
-                code_of(&err),
-                error_code::PREFERENCE_VALUE_TYPE_INVALID,
-                "键={key}"
-            );
+            let err = validate_patch(&defs, &patch(&[(key, JsonValue::Null)])).expect_err("null 不应写入偏好");
+            assert_eq!(code_of(&err), error_code::PREFERENCE_VALUE_TYPE_INVALID, "键={key}");
         }
     }
 
@@ -685,25 +630,13 @@ mod tests {
         assert_eq!(code_of(&err), 62024);
 
         let broken_type = vec![def("ui.palette", "配色方案", "colour", "\"x\"", None)];
-        let err = validate_patch(
-            &broken_type,
-            &patch(&[("ui.palette", serde_json::json!("x"))]),
-        )
-        .expect_err("value_type 非法必须报警");
+        let err = validate_patch(&broken_type, &patch(&[("ui.palette", serde_json::json!("x"))]))
+            .expect_err("value_type 非法必须报警");
         assert_eq!(code_of(&err), error_code::PREFERENCE_DEF_INVALID);
 
-        let broken_validator = vec![def(
-            "ui.page_size",
-            "默认分页条数",
-            "number",
-            "10",
-            Some("range:5"),
-        )];
-        let err = validate_patch(
-            &broken_validator,
-            &patch(&[("ui.page_size", serde_json::json!(10))]),
-        )
-        .expect_err("validator 非法必须报警");
+        let broken_validator = vec![def("ui.page_size", "默认分页条数", "number", "10", Some("range:5"))];
+        let err = validate_patch(&broken_validator, &patch(&[("ui.page_size", serde_json::json!(10))]))
+            .expect_err("validator 非法必须报警");
         assert_eq!(code_of(&err), error_code::PREFERENCE_DEF_INVALID);
     }
 

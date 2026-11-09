@@ -114,10 +114,7 @@ mod tests {
     /// ① 双向：旧码补齐规范码，规范码补齐旧码；无关码不动。
     #[test]
     fn expand_is_bidirectional() {
-        let mut legacy_only = vec![
-            "erp:contract:list".to_string(),
-            "business:erp:budget:list".to_string(),
-        ];
+        let mut legacy_only = vec!["erp:contract:list".to_string(), "business:erp:budget:list".to_string()];
         expand(&mut legacy_only);
         assert!(
             legacy_only.contains(&"business:erp:contract:list".to_string()),
@@ -125,9 +122,7 @@ mod tests {
         );
         assert_eq!(legacy_only.len(), 3, "只追加 1 个别名：{legacy_only:?}");
         assert!(
-            !legacy_only
-                .iter()
-                .any(|c| c.starts_with("erp:contract:create")),
+            !legacy_only.iter().any(|c| c.starts_with("erp:contract:create")),
             "不能凭前缀猜其它动作: {legacy_only:?}"
         );
 
@@ -164,17 +159,12 @@ mod tests {
     #[test]
     fn contract_aliases_match_handler_permissions() {
         let canonical_in_table: BTreeSet<&str> = LEGACY_ALIASES.iter().map(|(_, c)| *c).collect();
-        let canonical_in_code: BTreeSet<&str> =
-            contract_handler::PERMISSIONS.iter().copied().collect();
+        let canonical_in_code: BTreeSet<&str> = contract_handler::PERMISSIONS.iter().copied().collect();
         assert_eq!(
             canonical_in_table, canonical_in_code,
             "LEGACY_ALIASES 的规范码必须与 contract_handler::PERMISSIONS 完全相同"
         );
-        assert_eq!(
-            LEGACY_ALIASES.len(),
-            5,
-            "合同域 5 个码，一个不能多一个不能少"
-        );
+        assert_eq!(LEGACY_ALIASES.len(), 5, "合同域 5 个码，一个不能多一个不能少");
 
         for (legacy, canonical) in LEGACY_ALIASES {
             assert!(
@@ -207,18 +197,9 @@ mod tests {
             .collect();
         expand(&mut codes);
         assert_eq!(codes.len(), 10, "5 个规范码 + 5 个别名：{codes:?}");
+        assert_eq!(codes.iter().filter(|c| c.starts_with("erp:contract:")).count(), 5);
         assert_eq!(
-            codes
-                .iter()
-                .filter(|c| c.starts_with("erp:contract:"))
-                .count(),
-            5
-        );
-        assert_eq!(
-            codes
-                .iter()
-                .filter(|c| c.starts_with("business:erp:contract:"))
-                .count(),
+            codes.iter().filter(|c| c.starts_with("business:erp:contract:")).count(),
             5
         );
     }

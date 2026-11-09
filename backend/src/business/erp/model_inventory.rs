@@ -74,18 +74,10 @@ pub const INVENTORY_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("b
 pub const INVENTORY_ORDER: &str = "ORDER BY material_id ASC, warehouse_id ASC";
 
 /// 按「物料 × 仓库」取即时库存（两级账的成本侧）。
-pub async fn inventory_find(
-    material_id: Uuid,
-    warehouse_id: Uuid,
-) -> DbResult<Option<InventoryRow>> {
-    let sql = format!(
-        "SELECT {INVENTORY_COLUMNS} FROM biz_inventory WHERE material_id = ? AND warehouse_id = ?"
-    );
+pub async fn inventory_find(material_id: Uuid, warehouse_id: Uuid) -> DbResult<Option<InventoryRow>> {
+    let sql = format!("SELECT {INVENTORY_COLUMNS} FROM biz_inventory WHERE material_id = ? AND warehouse_id = ?");
     let rows = db()
-        .find_with_params(
-            &sql,
-            vec![Value::from(material_id), Value::from(warehouse_id)],
-        )
+        .find_with_params(&sql, vec![Value::from(material_id), Value::from(warehouse_id)])
         .await?;
     rows.first().map(InventoryRow::from_row).transpose()
 }
@@ -167,37 +159,26 @@ impl InventoryLocationRow {
 }
 
 /// `biz_inventory_location` 的分页锚点。
-pub const INVENTORY_LOCATION_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::unscoped("biz_inventory_location");
+pub const INVENTORY_LOCATION_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_inventory_location");
 
 /// 库位库存排序：物料 → 仓库 → 库位。
-pub const INVENTORY_LOCATION_ORDER: &str =
-    "ORDER BY material_id ASC, warehouse_id ASC, location_id ASC";
+pub const INVENTORY_LOCATION_ORDER: &str = "ORDER BY material_id ASC, warehouse_id ASC, location_id ASC";
 
 /// 取某物料在某仓库下的**全部库位库存**（数量账的明细来源）。
-pub async fn inventory_locations(
-    material_id: Uuid,
-    warehouse_id: Uuid,
-) -> DbResult<Vec<InventoryLocationRow>> {
+pub async fn inventory_locations(material_id: Uuid, warehouse_id: Uuid) -> DbResult<Vec<InventoryLocationRow>> {
     let sql = format!(
         "SELECT {INVENTORY_LOCATION_COLUMNS} FROM biz_inventory_location \
          WHERE material_id = ? AND warehouse_id = ? ORDER BY location_id ASC"
     );
     let rows = db()
-        .find_with_params(
-            &sql,
-            vec![Value::from(material_id), Value::from(warehouse_id)],
-        )
+        .find_with_params(&sql, vec![Value::from(material_id), Value::from(warehouse_id)])
         .await?;
     rows.iter().map(InventoryLocationRow::from_row).collect()
 }
 
 /// 库位库存分页（按物料 / 仓库 / 库位）。
-pub async fn inventory_location_page(
-    q: &InventoryLocationFilter,
-) -> DbResult<(Vec<InventoryLocationRow>, i64)> {
-    let mut sql =
-        format!("SELECT {INVENTORY_LOCATION_COLUMNS} FROM biz_inventory_location WHERE 1 = 1");
+pub async fn inventory_location_page(q: &InventoryLocationFilter) -> DbResult<(Vec<InventoryLocationRow>, i64)> {
+    let mut sql = format!("SELECT {INVENTORY_LOCATION_COLUMNS} FROM biz_inventory_location WHERE 1 = 1");
     let mut params: Vec<Value> = Vec::new();
     if let Some(material_id) = q.material_id.as_deref() {
         sql.push_str(" AND material_id = ?");
@@ -265,18 +246,12 @@ impl InventoryBalance {
 ///
 /// - 成本账不存在 → `Ok(None)`（该物料在这个仓库没有任何库存记录）；
 /// - 存在 → 成本账 + 库位明细（库位明细可能为空，用 [`InventoryBalance::is_consistent`] 判定）。
-pub async fn inventory_balance(
-    material_id: Uuid,
-    warehouse_id: Uuid,
-) -> DbResult<Option<InventoryBalance>> {
+pub async fn inventory_balance(material_id: Uuid, warehouse_id: Uuid) -> DbResult<Option<InventoryBalance>> {
     let Some(inventory) = inventory_find(material_id, warehouse_id).await? else {
         return Ok(None);
     };
     let locations = inventory_locations(material_id, warehouse_id).await?;
-    Ok(Some(InventoryBalance {
-        inventory,
-        locations,
-    }))
+    Ok(Some(InventoryBalance { inventory, locations }))
 }
 
 // ==================== ⑬ biz_inventory_txn 库存流水 ====================
@@ -367,8 +342,7 @@ impl InventoryTxnRow {
 }
 
 /// `biz_inventory_txn` 的分页锚点。
-pub const INVENTORY_TXN_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::unscoped("biz_inventory_txn");
+pub const INVENTORY_TXN_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_inventory_txn");
 
 /// 流水排序：时间倒序 → 主键倒序（与 `idx_biz_inv_txn_time` 同向，稳定分页）。
 pub const INVENTORY_TXN_ORDER: &str = "ORDER BY created_at DESC, id DESC";
@@ -408,9 +382,7 @@ pub async fn inventory_txn_page(q: &InventoryTxnFilter) -> DbResult<(Vec<Invento
     if let Some(date_to) = q.date_to {
         // 右开区间：`< 次日零点`，避免 `<= 当日 00:00` 漏掉当天的流水
         sql.push_str(" AND created_at < ?");
-        params.push(Value::from(day_start(
-            date_to.succ_opt().unwrap_or(date_to),
-        )));
+        params.push(Value::from(day_start(date_to.succ_opt().unwrap_or(date_to))));
     }
     page_of(
         INVENTORY_TXN_TARGET,

@@ -43,14 +43,11 @@ use crate::business::erp::code_policy;
 use crate::business::erp::expense_bridge::{self, BIZ_TYPE};
 use crate::business::erp::expense_compute::{self, Summary};
 use crate::business::erp::expense_dto::{
-    self, CancelReq, ItemRes, PayReq, PaymentRes, ReportDetailRes, ReportFilter, ReportReq,
-    ReportRes, TypeFilter, TypeReq, TypeRes, UsageRes, conflict, invalid, normalize_page,
-    parse_uuid_text, status_label,
+    self, CancelReq, ItemRes, PayReq, PaymentRes, ReportDetailRes, ReportFilter, ReportReq, ReportRes, TypeFilter,
+    TypeReq, TypeRes, UsageRes, conflict, invalid, normalize_page, parse_uuid_text, status_label,
 };
 use crate::business::erp::expense_linkage;
-use crate::business::erp::expense_model::{
-    self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow,
-};
+use crate::business::erp::expense_model::{self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow};
 use crate::business::erp::seq;
 use crate::business::erp::{budget_guard, voucher, voucher_multi};
 use crate::business::flow::{engine, model as flow_model};
@@ -67,11 +64,7 @@ fn not_found() -> ApiError {
 }
 
 fn type_not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "费用类型不存在或已删除",
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "费用类型不存在或已删除")
 }
 
 /// 岗位用 db_error（500 + 原始错误进 internal_detail）。
@@ -96,9 +89,7 @@ async fn dept_name_of(dept_id: Uuid) -> Result<String, ApiError> {
         .map_err(|error| db_err(error, "查询部门"))?;
     match rows.first() {
         None => Err(invalid(format!("部门 {dept_id} 不存在或已删除"))),
-        Some(row) => row
-            .get_typed("dept_name")
-            .map_err(|error| db_err(error, "读取部门名")),
+        Some(row) => row.get_typed("dept_name").map_err(|error| db_err(error, "读取部门名")),
     }
 }
 
@@ -117,9 +108,7 @@ async fn reporter_profile(user_id: Uuid) -> Result<(String, Uuid), ApiError> {
     let Some(row) = rows.first() else {
         return Err(invalid(format!("报销人 {user_id} 不存在或已停用")));
     };
-    let name: String = row
-        .get_typed("name")
-        .map_err(|error| db_err(error, "读取报销人姓名"))?;
+    let name: String = row.get_typed("name").map_err(|error| db_err(error, "读取报销人姓名"))?;
     let dept: Option<Uuid> = row
         .get_typed("dept_id")
         .map_err(|error| db_err(error, "读取报销人部门"))?;
@@ -164,12 +153,7 @@ pub async fn type_page(
         .await
         .map_err(|error| db_err(error, "分页查询费用类型"))?;
     let list: Vec<TypeRes> = rows.iter().map(type_res).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 #[nik::permission(
@@ -178,9 +162,7 @@ pub async fn type_page(
     permission = "business:erp:expense-type:list"
 )]
 #[nik::get("/business/erp/expense-type/list")]
-pub async fn type_list(
-    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
-) -> ResResult<Vec<TypeRes>> {
+pub async fn type_list(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<Vec<TypeRes>> {
     let rows = expense_model::type_active()
         .await
         .map_err(|error| db_err(error, "查询费用类型"))?;
@@ -229,9 +211,7 @@ pub async fn type_create(
     permission = "business:erp:expense-type:create"
 )]
 #[nik::get("/business/erp/expense-type/next-code")]
-pub async fn type_next_code(
-    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
-) -> ResResult<serde_json::Value> {
+pub async fn type_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<serde_json::Value> {
     let code = seq::peek_master_code(db(), "ET")
         .await
         .map_err(|error| type_seq_error(error, "预览费用类型编码"))?;
@@ -259,17 +239,11 @@ pub async fn type_next_code(
 /// # 存量数据
 ///
 /// **不动**任何已有类型（`TRAVEL` / `MEAL` / `OFFICE` … 这些手工编码照旧）。
-pub async fn create_expense_type(
-    operator: Option<Uuid>,
-    req: TypeReq,
-) -> Result<TypeRes, ApiError> {
+pub async fn create_expense_type(operator: Option<Uuid>, req: TypeReq) -> Result<TypeRes, ApiError> {
     let mut spec = expense_dto::validate_type(&req, true)?;
     // ① 手工编码：有值就保留（先查重，给出「编码 XXX 已存在」的人话错误）
     // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
-    code_policy::guard_manual(
-        code_policy::allow_manual_code().await,
-        Some(spec.type_code.as_str()),
-    )?;
+    code_policy::guard_manual(code_policy::allow_manual_code().await, Some(spec.type_code.as_str()))?;
     if !spec.type_code.is_empty() {
         let taken = expense_model::type_find_by_code(db(), &spec.type_code)
             .await
@@ -459,12 +433,7 @@ pub async fn report_page(
     for row in &rows {
         list.push(report_res(row).await);
     }
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 #[nik::permission(
@@ -489,12 +458,7 @@ pub async fn report_pay_page(
     for row in &rows {
         list.push(report_res(row).await);
     }
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 #[nik::permission(
@@ -577,22 +541,10 @@ async fn budget_warnings_of(
     let mut account_ids: Vec<Uuid> = items.iter().map(|item| item.account_id).collect();
     account_ids.sort_unstable();
     account_ids.dedup();
-    let Some(fiscal_year) = row
-        .period_code
-        .get(0..4)
-        .and_then(|text| text.parse::<i16>().ok())
-    else {
+    let Some(fiscal_year) = row.period_code.get(0..4).and_then(|text| text.parse::<i16>().ok()) else {
         return Vec::new();
     };
-    match budget_guard::pending_budgets(
-        db(),
-        row.dept_id,
-        fiscal_year,
-        &account_ids,
-        &row.period_code,
-    )
-    .await
-    {
+    match budget_guard::pending_budgets(db(), row.dept_id, fiscal_year, &account_ids, &row.period_code).await {
         Ok(pending) => budget_guard::pending_warnings(&pending, &row.period_code)
             .iter()
             .map(crate::business::erp::budget_dto::BudgetWarningRes::from)
@@ -697,10 +649,7 @@ pub async fn report_create(
     let spec = expense_dto::validate_report(&req)?;
     let insert = build_insert(&spec, operator).await?;
     let id = insert.id;
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启建单事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启建单事务"))?;
     let outcome = async {
         expense_model::report_insert(&tx, &insert, Some(operator))
             .await
@@ -712,10 +661,7 @@ pub async fn report_create(
     }
     .await;
     match outcome {
-        Ok(()) => tx
-            .commit()
-            .await
-            .map_err(|error| db_err(error, "提交建单事务"))?,
+        Ok(()) => tx.commit().await.map_err(|error| db_err(error, "提交建单事务"))?,
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
@@ -726,10 +672,7 @@ pub async fn report_create(
 }
 
 /// 把校验后的契约变成写库载荷（类型快照 / 金额拆分 / 单号）。
-async fn build_insert(
-    spec: &expense_dto::ReportSpec,
-    operator: Uuid,
-) -> Result<ReportInsert, ApiError> {
+async fn build_insert(spec: &expense_dto::ReportSpec, operator: Uuid) -> Result<ReportInsert, ApiError> {
     let reporter_id = spec.reporter_id.unwrap_or(operator);
     let (reporter_name, dept_from_user) = reporter_profile(reporter_id).await?;
     let dept_id = spec.dept_id.unwrap_or(dept_from_user);
@@ -857,10 +800,7 @@ pub async fn report_update(
     // 改单沿用原单号与主键（单号是审计锚点，不许换）
     insert.id = existing.id;
     insert.report_no = existing.report_no.clone();
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启改单事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启改单事务"))?;
     let outcome = async {
         let affected = expense_model::report_update_draft(&tx, id, &insert, Some(operator))
             .await
@@ -882,10 +822,7 @@ pub async fn report_update(
     }
     .await;
     match outcome {
-        Ok(()) => tx
-            .commit()
-            .await
-            .map_err(|error| db_err(error, "提交改单事务"))?,
+        Ok(()) => tx.commit().await.map_err(|error| db_err(error, "提交改单事务"))?,
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
@@ -987,10 +924,7 @@ pub async fn report_submit(
         return Err(ApiError::new(
             409,
             error_code::ERP_EXPENSE_STATE,
-            format!(
-                "报销单 {} 已有在跑的审批：请等审批结束或先撤回",
-                row.report_no
-            ),
+            format!("报销单 {} 已有在跑的审批：请等审批结束或先撤回", row.report_no),
         ));
     }
     let items = expense_model::items_of(db(), id)
@@ -1005,9 +939,7 @@ pub async fn report_submit(
     if budget.blocks() {
         // FIX-5：报文按槽列出**触发阻断的那条策略**（槽级 / 全局），不再用全局标签解释槽级阻断；
         // 第一句区分「超出预算额度」与「未编制预算」（后者只在 BLOCK 下才拦）。
-        let detail = budget
-            .block_reason()
-            .unwrap_or_else(|| budget.reason.clone());
+        let detail = budget.block_reason().unwrap_or_else(|| budget.reason.clone());
         return Err(ApiError::new(
             409,
             error_code::ERP_BUDGET_EXCEEDED,
@@ -1046,10 +978,7 @@ pub async fn report_submit(
         form_data,
     };
     let out = {
-        let tx = db()
-            .begin()
-            .await
-            .map_err(|error| db_err(error, "开启提交事务"))?;
+        let tx = db().begin().await.map_err(|error| db_err(error, "开启提交事务"))?;
         let outcome = async {
             let affected = expense_model::report_mark_submitted(
                 &tx,
@@ -1090,13 +1019,7 @@ pub async fn report_submit(
             // ⑥ 跨单据联动（LNK-05）：状态已是 SUBMITTED，事务内动作与业务同生共死。
             //    凭证类动作被 EXPENSE_EXCLUDED_ACTIONS 排除（计提凭证由 bridge 出），
             //    通知 / 建任务落 deferred，commit 之后才跑。
-            let change = expense_linkage::run_in_tx(
-                &tx,
-                &row,
-                expense_dto::STATUS_SUBMITTED,
-                Some(operator),
-            )
-            .await?;
+            let change = expense_linkage::run_in_tx(&tx, &row, expense_dto::STATUS_SUBMITTED, Some(operator)).await?;
             // ⑥-b 发起审批单。**引擎的业务拒绝（65018 没有可用审批人 / 65019 自审被禁）
             //     必须留在事务里当硬错误**：`engine::start` 拒绝时已经写了 PENDING 实例
             //     但一行待办都没有，先 commit 再判 `out.rejected` 会把单据置成 SUBMITTED
@@ -1119,9 +1042,7 @@ pub async fn report_submit(
         .await;
         match outcome {
             Ok((out, change)) => {
-                tx.commit()
-                    .await
-                    .map_err(|error| db_err(error, "提交报销审批事务"))?;
+                tx.commit().await.map_err(|error| db_err(error, "提交报销审批事务"))?;
                 (out, change)
             }
             Err(error) => {
@@ -1167,17 +1088,11 @@ async fn expense_slot_amounts(
         let kind = expense_model::type_find(item.expense_type_id)
             .await
             .map_err(|error| db_err(error, "查询费用类型"))?;
-        let controlled = kind
-            .as_ref()
-            .map(|row| row.budget_controlled)
-            .unwrap_or(true);
+        let controlled = kind.as_ref().map(|row| row.budget_controlled).unwrap_or(true);
         if !controlled {
             continue;
         }
-        match out
-            .iter_mut()
-            .find(|slot| slot.account_id == item.account_id)
-        {
+        match out.iter_mut().find(|slot| slot.account_id == item.account_id) {
             Some(slot) => {
                 slot.amount = expense_compute::money(slot.amount + item.with_tax_amount);
                 slot.amount_net = expense_compute::money(slot.amount_net + item.amount);
@@ -1268,16 +1183,10 @@ pub async fn report_withdraw(
         return Err(ApiError::new(
             409,
             error_code::ERP_EXPENSE_STATE,
-            format!(
-                "报销单 {} 处于审批中但没有审批实例，请让管理员修数据",
-                row.report_no
-            ),
+            format!("报销单 {} 处于审批中但没有审批实例，请让管理员修数据", row.report_no),
         ));
     };
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启撤回事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启撤回事务"))?;
     let outcome = async {
         let out = engine::withdraw(&tx, instance_id, operator)
             .await
@@ -1290,10 +1199,7 @@ pub async fn report_withdraw(
     }
     .await;
     match outcome {
-        Ok(()) => tx
-            .commit()
-            .await
-            .map_err(|error| db_err(error, "提交撤回事务"))?,
+        Ok(()) => tx.commit().await.map_err(|error| db_err(error, "提交撤回事务"))?,
         Err(error) => {
             let _ = tx.rollback().await;
             return Err(error);
@@ -1357,9 +1263,7 @@ pub async fn report_cancel(
     }
     // SOD：制单人不能自己作废已提交 / 已入账的单（DRAFT 走删除，不受此限）
     if row.status != expense_dto::STATUS_DRAFT
-        && row
-            .create_by
-            .is_some_and(|creator| Some(creator) == operator)
+        && row.create_by.is_some_and(|creator| Some(creator) == operator)
         && !claims.is_super_admin()
     {
         return Err(ApiError::new(
@@ -1370,10 +1274,7 @@ pub async fn report_cancel(
     }
     let from_status = row.status.clone();
     let now = Utc::now();
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启作废事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启作废事务"))?;
     let outcome = async {
         let Some(current) = expense_model::report_lock_in(&tx, id)
             .await
@@ -1412,18 +1313,14 @@ pub async fn report_cancel(
         )
         .await?;
         // ④ 回写作废列（CAS 在 WHERE：并发点两次只有一次生效）
-        let affected =
-            expense_model::report_cancel_from(&tx, id, &from_status, &reason, operator, now)
-                .await
-                .map_err(|error| db_err(error, "回写报销单作废"))?;
+        let affected = expense_model::report_cancel_from(&tx, id, &from_status, &reason, operator, now)
+            .await
+            .map_err(|error| db_err(error, "回写报销单作废"))?;
         if affected == 0 {
             return Err(ApiError::new(
                 409,
                 error_code::ERP_EXPENSE_STATE,
-                format!(
-                    "报销单 {} 的状态在作废期间被改动，请刷新后重试",
-                    current.report_no
-                ),
+                format!("报销单 {} 的状态在作废期间被改动，请刷新后重试", current.report_no),
             ));
         }
         // ⑤ 释放预算占用（已执行 / 占用中都释放；付款从不改占用）
@@ -1432,17 +1329,13 @@ pub async fn report_cancel(
             .map_err(|error| db_err(error, "释放预算占用"))?;
         // ⑥ 跨单据联动（LNK-05）：作废后的通知 / 待办。红冲凭证已在 ② 由 bridge 出，
         //    所以 GENERATE_VOUCHER / REVERSE_VOUCHER 必须被排除清单挡掉（不再重复红冲）。
-        let change =
-            expense_linkage::run_in_tx(&tx, &current, expense_dto::STATUS_CANCELLED, operator)
-                .await?;
+        let change = expense_linkage::run_in_tx(&tx, &current, expense_dto::STATUS_CANCELLED, operator).await?;
         Ok::<(usize, expense_linkage::ExpenseStatusChange), ApiError>((reds.len(), change))
     }
     .await;
     let red_count = match outcome {
         Ok((count, change)) => {
-            tx.commit()
-                .await
-                .map_err(|error| db_err(error, "提交作废事务"))?;
+            tx.commit().await.map_err(|error| db_err(error, "提交作废事务"))?;
             // 事务已提交 → 才跑提交后的联动动作
             expense_linkage::run_deferred_after_commit(change).await;
             count
@@ -1504,10 +1397,7 @@ pub async fn report_pay(
                 format!("付款账户科目 {} 不可用：{error}", spec.pay_account_code),
             )
         })?;
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启付款事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启付款事务"))?;
     let outcome = async {
         // ① 行锁报销单（付款是拒绝型操作，不锁会超额付款 —— ARCH-6 §4.8.3）
         let Some(current) = expense_model::report_lock_in(&tx, id)
@@ -1520,20 +1410,13 @@ pub async fn report_pay(
             return Err(ApiError::new(
                 409,
                 error_code::ERP_EXPENSE_STATE,
-                format!(
-                    "报销单 {} 的状态已被改动或已付清，请刷新后重试",
-                    row.report_no
-                ),
+                format!("报销单 {} 的状态已被改动或已付清，请刷新后重试", row.report_no),
             ));
         }
         if spec.amount > current.unpaid_amount {
             return Err(invalid(format!(
                 "本次付款 {} 超过未付金额 {}（报销单 {} 价税合计 {}，已付 {}）",
-                spec.amount,
-                current.unpaid_amount,
-                current.report_no,
-                current.total_with_tax,
-                current.paid_amount
+                spec.amount, current.unpaid_amount, current.report_no, current.total_with_tax, current.paid_amount
             )));
         }
         let payment_id = Uuid::now_v7();
@@ -1578,25 +1461,15 @@ pub async fn report_pay(
         let paid = expense_compute::money(current.paid_amount + spec.amount);
         let pay_status = expense_compute::pay_status_of(current.total_with_tax, paid);
         let new_status = expense_bridge::paid_status(pay_status, &current.status);
-        let affected = expense_model::report_apply_payment(
-            &tx,
-            id,
-            spec.amount,
-            spec.pay_date,
-            pay_status,
-            new_status,
-            operator,
-        )
-        .await
-        .map_err(|error| db_err(error, "回写报销单付款金额"))?;
+        let affected =
+            expense_model::report_apply_payment(&tx, id, spec.amount, spec.pay_date, pay_status, new_status, operator)
+                .await
+                .map_err(|error| db_err(error, "回写报销单付款金额"))?;
         if affected == 0 {
             return Err(ApiError::new(
                 409,
                 error_code::ERP_EXPENSE_STATE,
-                format!(
-                    "报销单 {} 的付款金额被并发修改，请刷新后重试",
-                    current.report_no
-                ),
+                format!("报销单 {} 的付款金额被并发修改，请刷新后重试", current.report_no),
             ));
         }
         // ⑤ 付清 → 状态机 APPROVED → PAID（部分付款不改状态，只改 pay_status）
@@ -1618,19 +1491,14 @@ pub async fn report_pay(
             // ⑥ 跨单据联动（LNK-05）：只有**付清**才触发 —— 部分付款状态不动（APPROVED →
             //    APPROVED），配一条「报销付清」规则却按付款笔数发信是错的。
             //    付款凭证已在 ② 由 bridge 出，GENERATE_VOUCHER 被排除清单挡掉。
-            change = Some(
-                expense_linkage::run_in_tx(&tx, &current, expense_dto::STATUS_PAID, operator)
-                    .await?,
-            );
+            change = Some(expense_linkage::run_in_tx(&tx, &current, expense_dto::STATUS_PAID, operator).await?);
         }
         Ok::<(String, Option<expense_linkage::ExpenseStatusChange>), ApiError>((payment_no, change))
     }
     .await;
     let payment_no = match outcome {
         Ok((no, change)) => {
-            tx.commit()
-                .await
-                .map_err(|error| db_err(error, "提交付款事务"))?;
+            tx.commit().await.map_err(|error| db_err(error, "提交付款事务"))?;
             // 事务已提交 → 才跑提交后的联动动作（付清通知）
             if let Some(change) = change {
                 expense_linkage::run_deferred_after_commit(change).await;
@@ -1727,8 +1595,7 @@ mod tests {
     /// 当前 ET 号段的 `current_no`。
     async fn et_current_no() -> i64 {
         db().query_first_sql(
-            "SELECT current_no FROM biz_seq WHERE seq_type = 'ET' AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT current_no FROM biz_seq WHERE seq_type = 'ET' AND deleted_at IS NULL".to_string(),
             vec![],
         )
         .await
@@ -1748,10 +1615,9 @@ mod tests {
         let before = et_current_no().await;
         let seeded = expense_model::type_active().await.expect("存量类型");
 
-        let by_none =
-            create_expense_type(None, type_req(None, "CODE04 自动类型（未传）", &account))
-                .await
-                .expect("type_code 缺席应自动取号");
+        let by_none = create_expense_type(None, type_req(None, "CODE04 自动类型（未传）", &account))
+            .await
+            .expect("type_code 缺席应自动取号");
         assert!(
             is_auto_et_code(&by_none.type_code),
             "自动编码必须是 ET-01 形态，实际 {}",
@@ -1763,29 +1629,15 @@ mod tests {
             "自动编码必须真落库"
         );
 
-        let by_empty = create_expense_type(
-            None,
-            type_req(Some(""), "CODE04 自动类型（空串）", &account),
-        )
-        .await
-        .expect("空串应自动取号");
-        assert!(
-            is_auto_et_code(&by_empty.type_code),
-            "{}",
-            by_empty.type_code
-        );
+        let by_empty = create_expense_type(None, type_req(Some(""), "CODE04 自动类型（空串）", &account))
+            .await
+            .expect("空串应自动取号");
+        assert!(is_auto_et_code(&by_empty.type_code), "{}", by_empty.type_code);
 
-        let by_spaces = create_expense_type(
-            None,
-            type_req(Some("   "), "CODE04 自动类型（空白）", &account),
-        )
-        .await
-        .expect("纯空白应自动取号");
-        assert!(
-            is_auto_et_code(&by_spaces.type_code),
-            "{}",
-            by_spaces.type_code
-        );
+        let by_spaces = create_expense_type(None, type_req(Some("   "), "CODE04 自动类型（空白）", &account))
+            .await
+            .expect("纯空白应自动取号");
+        assert!(is_auto_et_code(&by_spaces.type_code), "{}", by_spaces.type_code);
 
         let mut codes = vec![
             by_none.type_code.clone(),
@@ -1798,11 +1650,7 @@ mod tests {
         assert_eq!(et_current_no().await, before + 3, "取号数应与号段推进一致");
 
         let after = expense_model::type_active().await.expect("存量类型");
-        assert_eq!(
-            after.len(),
-            seeded.len() + 3,
-            "只应有新建的 3 条，存量类型不许被改"
-        );
+        assert_eq!(after.len(), seeded.len() + 3, "只应有新建的 3 条，存量类型不许被改");
 
         for created in [&by_none, &by_empty, &by_spaces] {
             drop_type(&created.id).await;
@@ -1818,40 +1666,29 @@ mod tests {
         let account = debit_leaf_account().await;
         let before = et_current_no().await;
         let manual = format!("ADMIN-FEE-{}", &Uuid::now_v7().simple().to_string()[..6]);
-        let created =
-            create_expense_type(None, type_req(Some(&manual), "CODE04 手工类型", &account))
-                .await
-                .expect("手工编码应通过");
+        let created = create_expense_type(None, type_req(Some(&manual), "CODE04 手工类型", &account))
+            .await
+            .expect("手工编码应通过");
         assert_eq!(
             created.type_code,
             manual.to_ascii_uppercase(),
             "手工编码必须原样保留（只转大写）"
         );
-        assert!(
-            !is_auto_et_code(&created.type_code),
-            "手工编码不该被改写成交号形态"
-        );
+        assert!(!is_auto_et_code(&created.type_code), "手工编码不该被改写成交号形态");
         assert_eq!(
             type_row(&created.id).await.type_code,
             manual.to_ascii_uppercase(),
             "手工编码真落库"
         );
-        assert_eq!(
-            et_current_no().await,
-            before,
-            "手工编码不消耗号段（取号器不该被调用）"
-        );
+        assert_eq!(et_current_no().await, before, "手工编码不消耗号段（取号器不该被调用）");
 
         // 预览不消耗号；拿到的号可直接当手工编码保存
-        let peeked = seq::peek_master_code(db(), "ET")
-            .await
-            .expect("预览 ET 编码");
+        let peeked = seq::peek_master_code(db(), "ET").await.expect("预览 ET 编码");
         assert!(is_auto_et_code(&peeked), "预览必须给 ET-NN 形态：{peeked}");
         assert_eq!(et_current_no().await, before, "预览不能推进号段");
-        let from_peek =
-            create_expense_type(None, type_req(Some(&peeked), "CODE04 预览号类型", &account))
-                .await
-                .expect("预览号应当能直接保存");
+        let from_peek = create_expense_type(None, type_req(Some(&peeked), "CODE04 预览号类型", &account))
+            .await
+            .expect("预览号应当能直接保存");
         assert_eq!(from_peek.type_code, peeked);
 
         drop_type(&created.id).await;
@@ -1902,10 +1739,9 @@ mod tests {
         };
         let account = debit_leaf_account().await;
         let manual = format!("DUP-FEE-{}", &Uuid::now_v7().simple().to_string()[..6]);
-        let created =
-            create_expense_type(None, type_req(Some(&manual), "CODE04 重复类型", &account))
-                .await
-                .expect("第一次应当成功");
+        let created = create_expense_type(None, type_req(Some(&manual), "CODE04 重复类型", &account))
+            .await
+            .expect("第一次应当成功");
 
         let err = create_expense_type(None, type_req(Some(&manual), "CODE04 重复类型 2", &account))
             .await

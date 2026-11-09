@@ -98,8 +98,8 @@ impl VoucherStatusChange {
     /// 状态中文名取自 `spec::status_label_of`（后端唯一一份编码 → 中文映射），
     /// 不在这里另写一套。
     fn ctx(&self) -> linkage::LinkageContext<'_> {
-        let label = linkage::spec::status_label_of(state_machine::ENTITY_VOUCHER, &self.status)
-            .unwrap_or(self.status.as_str());
+        let label =
+            linkage::spec::status_label_of(state_machine::ENTITY_VOUCHER, &self.status).unwrap_or(self.status.as_str());
         // 默认收件人 = 操作人（谁动的凭证谁关心），退制单人，再退记账人；
         // 都没有 → 空收件人，`SEND_NOTICE` 自己判 Skipped，不会静默发错人。
         let recipient = self.operator.or(self.creator).or(self.posted_by);
@@ -154,8 +154,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::VOUCHER_EXCLUDED_ACTIONS).await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::VOUCHER_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             voucher_id = %change.voucher_id,

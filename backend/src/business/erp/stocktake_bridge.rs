@@ -128,10 +128,7 @@ pub fn take_verdict(instance_status: &str) -> Option<TakeVerdict> {
 ///
 /// 返回受影响的盘点单 id。**不返回错误**：审批已落库，业务侧失败只记日志
 /// （与 `purchase_bridge::on_po_settled` 同口径），单据停在 `PENDING_POST` 由人处理。
-pub async fn on_stock_take_settled(
-    instance_id: Option<Uuid>,
-    instance_status: &str,
-) -> Option<Uuid> {
+pub async fn on_stock_take_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
     let instance_id = instance_id?;
     let verdict = take_verdict(instance_status)?;
     if verdict == TakeVerdict::Approve {
@@ -225,13 +222,7 @@ async fn back_to_draft(instance_id: Uuid) -> DbResult<Option<Uuid>> {
             Utc::now(),
         )
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("盘点单状态回写失败：{error}"),
-            )
-        })?;
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("盘点单状态回写失败：{error}")))?;
         if affected == 0 {
             return Err(ApiError::new(
                 409,
@@ -299,38 +290,23 @@ pub async fn cancel_approval_of(
 ///
 /// 与 `contract_bridge::guard_self_approval` 同款：流程节点写 `self_approval=ALLOW`
 /// （待办照常可见、留痕），真正的否决在这里（403 + 65019）。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
     if instance.biz_type != BIZ_TYPE {
         return Ok(());
     }
-    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve)
-        .await
-    {
+    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve).await {
         return Ok(());
     }
     let Some(take_id) = instance.biz_id else {
@@ -347,9 +323,7 @@ pub async fn guard_self_approval(
                 "不能审批自己提交的盘点单：盘点单 {} 由你本人提交（内控要求制单与审批分离），\
                  请交给其他有审批权限的账号处理{}",
                 row.take_no,
-                crate::business::erp::separation::approval_hint(
-                    crate::business::erp::separation::Duty::Approve
-                )
+                crate::business::erp::separation::approval_hint(crate::business::erp::separation::Duty::Approve)
             ),
         ));
     }

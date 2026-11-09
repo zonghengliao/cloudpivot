@@ -150,8 +150,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::CONTRACT_EXCLUDED_ACTIONS).await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::CONTRACT_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             contract_id = %change.contract_id,
@@ -263,10 +262,7 @@ mod tests {
         let ctx = terminated.ctx();
         let draft = ctx.notice.as_ref().expect("必须带通知草稿");
         assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
-        assert_eq!(
-            draft.biz_id.as_deref(),
-            Some("018f0000-0000-7000-8000-000000000001")
-        );
+        assert_eq!(draft.biz_id.as_deref(), Some("018f0000-0000-7000-8000-000000000001"));
         assert_eq!(
             draft.link_url.as_deref(),
             Some("/business/erp/contract?id=018f0000-0000-7000-8000-000000000001")

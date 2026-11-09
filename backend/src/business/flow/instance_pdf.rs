@@ -58,8 +58,8 @@ use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
 use crate::business::flow::model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
-    self, ApprovalContext, ApprovalContextArgs, ApprovalSignSlot, ApprovalTrace, OrderMetaField,
-    format_money, yuan_to_fen,
+    self, ApprovalContext, ApprovalContextArgs, ApprovalSignSlot, ApprovalTrace, OrderMetaField, format_money,
+    yuan_to_fen,
 };
 use crate::shared::error_code;
 use crate::utils;
@@ -277,10 +277,7 @@ impl InstanceMeta {
                 .filter(|name| !name.trim().is_empty())
                 .unwrap_or_else(|| "—".to_string()),
             form_data: row.form_data.clone(),
-            result_comment: row
-                .result_comment
-                .clone()
-                .filter(|text| !text.trim().is_empty()),
+            result_comment: row.result_comment.clone().filter(|text| !text.trim().is_empty()),
             round_total: row.round_total,
             started_at: row.started_at,
             ended_at: row.ended_at,
@@ -340,11 +337,7 @@ pub fn signable(status: &str) -> bool {
 /// - 签字位按「级」聚合，且**只收真的要签字的人**（见 [`signable`]）；某一级一个人都不剩时
 ///   仍保留该行、姓名打「—（本节点无人签字）」——「这一级走过了但没人签」正是审计要看的信息；
 /// - 没有待办时 `traces` / `sign_slots` 为空，模板打「暂无审批记录」。
-pub fn build_context(
-    meta: &InstanceMeta,
-    nodes: &[model::NodeRow],
-    tasks: &[model::TaskRow],
-) -> ApprovalContext {
+pub fn build_context(meta: &InstanceMeta, nodes: &[model::NodeRow], tasks: &[model::TaskRow]) -> ApprovalContext {
     let node_names: HashMap<&str, &str> = nodes
         .iter()
         .map(|node| (node.node_key.as_str(), node.node_name.as_str()))
@@ -397,10 +390,7 @@ pub fn build_context(
 
         // 签字位：同级的行都要登记（哪怕这个人不签），否则「整级都被剔光」时
         // 连行都不会出现；姓名在下面统一按 `signable` 过滤。
-        match slots
-            .iter_mut()
-            .find(|(slot_index, ..)| *slot_index == index)
-        {
+        match slots.iter_mut().find(|(slot_index, ..)| *slot_index == index) {
             Some(slot) => {
                 if !slot.3.contains(&approver) {
                     slot.3.push(approver);
@@ -416,10 +406,7 @@ pub fn build_context(
         if !signable(&task.status) {
             continue;
         }
-        let index = levels
-            .get(&(task.node_key.clone(), task.round))
-            .copied()
-            .unwrap_or(1);
+        let index = levels.get(&(task.node_key.clone(), task.round)).copied().unwrap_or(1);
         let name = task
             .assignee_name
             .clone()
@@ -450,26 +437,17 @@ pub fn build_context(
     let mut fields = vec![
         OrderMetaField::new("单据类型", meta.biz_type.clone()),
         OrderMetaField::new("单号", meta.instance_no.clone()),
-        OrderMetaField::new(
-            "业务单号",
-            meta.biz_no.clone().unwrap_or_else(|| "—".to_string()),
-        ),
+        OrderMetaField::new("业务单号", meta.biz_no.clone().unwrap_or_else(|| "—".to_string())),
         OrderMetaField::new("金额", amount_text(&meta.form_data)),
         OrderMetaField::new("申请人", meta.initiator_name.clone()),
         OrderMetaField::new("申请时间", doc_pdf_model::beijing_time(&meta.started_at)),
-        OrderMetaField::new(
-            "流程",
-            format!("{}（v{}）", meta.flow_name, meta.version_no),
-        ),
+        OrderMetaField::new("流程", format!("{}（v{}）", meta.flow_name, meta.version_no)),
         OrderMetaField::new("状态", instance_status_label(&meta.status)),
         OrderMetaField::new("完成时间", at_text(meta.ended_at)),
         OrderMetaField::new("标题", meta.title.clone()),
     ];
     if meta.round_total > 1 {
-        fields.push(OrderMetaField::new(
-            "退回轮次",
-            format!("第 {} 轮", meta.round_total),
-        ));
+        fields.push(OrderMetaField::new("退回轮次", format!("第 {} 轮", meta.round_total)));
     }
 
     ApprovalContext::new(ApprovalContextArgs {
@@ -517,11 +495,7 @@ pub async fn instance_context(id: Uuid) -> std::result::Result<ApprovalContext, 
 ///
 /// - 403 [`error_code::FLOW_FORBIDDEN`]：与这张单无关；
 /// - 500：数据库异常。
-pub async fn ensure_visible(
-    row: &model::InstanceRow,
-    viewer: Uuid,
-    admin: bool,
-) -> std::result::Result<(), ApiError> {
+pub async fn ensure_visible(row: &model::InstanceRow, viewer: Uuid, admin: bool) -> std::result::Result<(), ApiError> {
     if admin || row.initiator_id == viewer {
         return Ok(());
     }
@@ -552,11 +526,7 @@ pub async fn ensure_visible(
 /// - 403 [`error_code::FLOW_FORBIDDEN`]：与这张单无关；
 /// - 404：审批单不存在；
 /// - 422 / 503 / 504：模板 / 渲染引擎异常。
-pub async fn export_instance(
-    id_raw: &str,
-    viewer: Uuid,
-    admin: bool,
-) -> std::result::Result<RenderedDoc, ApiError> {
+pub async fn export_instance(id_raw: &str, viewer: Uuid, admin: bool) -> std::result::Result<RenderedDoc, ApiError> {
     let id = doc_pdf_model::parse_doc_id(id_raw)?;
     let row = model::find_instance(id)
         .await
@@ -611,24 +581,22 @@ pub async fn instance_pdf(
     let started = Instant::now();
     let viewer = utils::current_user_uuid(&claims);
     let Some(viewer) = viewer else {
-        return ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识")
-            .into_response();
+        return ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识").into_response();
     };
     let admin = claims.has_permission("business:flow:admin");
     match export_instance(&id, viewer, admin).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "审批单 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "审批单 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
             audit(&id, &headers, &connect_info, &claims, &rendered, started);
             response
         }
@@ -809,10 +777,7 @@ mod tests {
         assert!(ctx.traces[1].tag.is_empty());
         // 同一级两个人 → 一个签字位，但**只列真要签字的人**（被跳过的人没签过）
         assert_eq!(ctx.sign_slots.len(), 1);
-        assert_eq!(
-            ctx.sign_slots[0].approver, "王五",
-            "被自审跳过的人不该出现在签字位里"
-        );
+        assert_eq!(ctx.sign_slots[0].approver, "王五", "被自审跳过的人不该出现在签字位里");
 
         let html = template::render_approval(&ctx).expect("模板必须渲染成功");
         assert!(html.contains("已跳过（自审）"));
@@ -859,11 +824,7 @@ mod tests {
         assert_eq!(ctx.traces[2].tag_kind, "is-delegate");
 
         let html = template::render_approval(&ctx).expect("模板必须渲染成功");
-        for needle in [
-            "已升级至 总经理（原角色无人：SALES_CLERK）",
-            "兜底审批人",
-            "委托代批",
-        ] {
+        for needle in ["已升级至 总经理（原角色无人：SALES_CLERK）", "兜底审批人", "委托代批"] {
             assert!(html.contains(needle), "PDF 缺标记：{needle}");
         }
     }
@@ -871,10 +832,7 @@ mod tests {
     /// 升级原因两种码值都要有自己的一句人话（自审剔光 / 角色 0 人）。
     #[test]
     fn escalation_reason_labels_cover_both_codes() {
-        assert_eq!(
-            escalate_reason_label("SKIP_SELF_APPROVAL"),
-            "原角色自审剔光"
-        );
+        assert_eq!(escalate_reason_label("SKIP_SELF_APPROVAL"), "原角色自审剔光");
         assert_eq!(escalate_reason_label("NO_MEMBER"), "原角色无人");
         assert_eq!(escalate_reason_label("SOMETHING_NEW"), "原角色无可用审批人");
 
@@ -958,10 +916,7 @@ mod tests {
         assert_eq!(ctx.sign_slots.len(), 1);
         assert_eq!(ctx.sign_slots[0].approver, "王五、赵六、孙七");
         // 同一人重复出现（加签前的那张票）不重复列名
-        let tasks = vec![
-            task("cs", "王五", "APPROVED"),
-            task("cs", "王五", "APPROVED"),
-        ];
+        let tasks = vec![task("cs", "王五", "APPROVED"), task("cs", "王五", "APPROVED")];
         let ctx = build_context(&meta("APPROVED"), &nodes, &tasks);
         assert_eq!(ctx.sign_slots[0].approver, "王五");
     }
@@ -985,19 +940,13 @@ mod tests {
     /// 金额口径：`amount` 优先 → `total_amount` 兜底 → 取不到印 `—`。
     #[test]
     fn form_amount_prefers_amount_then_total() {
-        assert_eq!(
-            amount_text(&serde_json::json!({ "amount": 12345.67 })),
-            "12,345.67"
-        );
+        assert_eq!(amount_text(&serde_json::json!({ "amount": 12345.67 })), "12,345.67");
         assert_eq!(
             amount_text(&serde_json::json!({ "amount": "5000.00" })),
             "5,000.00",
             "动态表单常把金额存成字符串"
         );
-        assert_eq!(
-            amount_text(&serde_json::json!({ "total_amount": 88 })),
-            "88.00"
-        );
+        assert_eq!(amount_text(&serde_json::json!({ "total_amount": 88 })), "88.00");
         assert_eq!(
             amount_text(&serde_json::json!({ "amount": "1,000" })),
             "—",
@@ -1007,20 +956,14 @@ mod tests {
         // 「有一个键但值不是数字」= 金额未知，印横线（不许印 0.00 假冒「零元」）
         assert_eq!(amount_text(&serde_json::json!({ "amount": null })), "—");
         assert_eq!(form_amount(&serde_json::json!({})), Decimal::ZERO);
-        assert_eq!(
-            form_amount(&serde_json::json!({ "amount": 0.1 })).to_string(),
-            "0.1"
-        );
+        assert_eq!(form_amount(&serde_json::json!({ "amount": 0.1 })).to_string(), "0.1");
     }
 
     /// 单价 / 金额精度：`0.005` 在分位上是「进位」，两种取法（f64 / Decimal）都不许差 1 分。
     #[test]
     fn form_amount_rounds_half_up_to_fen() {
         assert_eq!(amount_text(&serde_json::json!({ "amount": 1.005 })), "1.01");
-        assert_eq!(
-            amount_text(&serde_json::json!({ "amount": "2.675" })),
-            "2.68"
-        );
+        assert_eq!(amount_text(&serde_json::json!({ "amount": "2.675" })), "2.68");
     }
 
     /// 没有待办（刚发起 / 只到 CC 节点）时不能炸：空轨迹 + 空签字位。
@@ -1038,11 +981,7 @@ mod tests {
     /// 节点名查不到时退回 `node_key`（不许打空单元格）。
     #[test]
     fn unknown_node_key_falls_back_to_key() {
-        let ctx = build_context(
-            &meta("APPROVED"),
-            &[],
-            &[task("orphan", "王五", "APPROVED")],
-        );
+        let ctx = build_context(&meta("APPROVED"), &[], &[task("orphan", "王五", "APPROVED")]);
         assert_eq!(ctx.traces[0].node_name, "orphan");
     }
 
@@ -1313,9 +1252,7 @@ mod db_tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let ctx = instance_context(INSTANCE)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = instance_context(INSTANCE).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, INSTANCE_NO);
         assert_eq!(ctx.doc_title, "审 批 单");
@@ -1371,10 +1308,7 @@ mod db_tests {
 
         // 签字位：2 级；第 1 级只剩真正签过的王五（张三 是自审跳过，不占签字位）
         assert_eq!(ctx.sign_slots.len(), 2);
-        assert_eq!(
-            ctx.sign_slots[0].approver, "王五",
-            "被自审跳过的张三不该出现在签字位"
-        );
+        assert_eq!(ctx.sign_slots[0].approver, "王五", "被自审跳过的张三不该出现在签字位");
         assert_eq!(ctx.sign_slots[1].approver, "孙七");
 
         // 落到 HTML 上也要有（验收②③的字样）
@@ -1396,19 +1330,13 @@ mod db_tests {
             .expect("查实例")
             .expect("实例必须在");
 
-        ensure_visible(&row, INITIATOR, false)
-            .await
-            .expect("发起人必须能导出");
-        ensure_visible(&row, APPROVER, false)
-            .await
-            .expect("审批人必须能导出");
+        ensure_visible(&row, INITIATOR, false).await.expect("发起人必须能导出");
+        ensure_visible(&row, APPROVER, false).await.expect("审批人必须能导出");
         ensure_visible(&row, GM, false)
             .await
             .expect("升级后的审批人也必须能导出");
 
-        let error = ensure_visible(&row, STRANGER, false)
-            .await
-            .expect_err("无关人必须 403");
+        let error = ensure_visible(&row, STRANGER, false).await.expect_err("无关人必须 403");
         assert_eq!(error.status, 403);
         assert_eq!(error.code, error_code::FLOW_FORBIDDEN);
         assert!(error.msg.contains("无关"));
@@ -1426,9 +1354,7 @@ mod db_tests {
             return;
         };
         let missing = Uuid::from_u128(0x0f61_0000_0000_4000_8000_0000_0000_00ff);
-        let error = instance_context(missing)
-            .await
-            .expect_err("不存在的实例必须 404");
+        let error = instance_context(missing).await.expect_err("不存在的实例必须 404");
         assert_eq!(error.status, 404);
         assert!(error.msg.contains("审批单"));
 
@@ -1439,9 +1365,7 @@ mod db_tests {
             "软删审批实例",
         )
         .await;
-        let error = instance_context(INSTANCE)
-            .await
-            .expect_err("软删实例必须 404");
+        let error = instance_context(INSTANCE).await.expect_err("软删实例必须 404");
         assert_eq!(error.status, 404);
     }
 
@@ -1495,22 +1419,13 @@ mod db_tests {
             .find_with_params(
                 "SELECT operation, target_type, detail FROM operation_logs \
                   WHERE target_id = ? AND request_id = ?",
-                vec![
-                    Value::Text(INSTANCE.to_string()),
-                    Value::Text(request_id.to_string()),
-                ],
+                vec![Value::Text(INSTANCE.to_string()), Value::Text(request_id.to_string())],
             )
             .await
             .expect("回查审计行");
         assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].get_typed::<String>("operation").unwrap(),
-            EXPORT_OPERATION
-        );
-        assert_eq!(
-            rows[0].get_typed::<String>("target_type").unwrap(),
-            TARGET_TYPE
-        );
+        assert_eq!(rows[0].get_typed::<String>("operation").unwrap(), EXPORT_OPERATION);
+        assert_eq!(rows[0].get_typed::<String>("target_type").unwrap(), TARGET_TYPE);
         let detail: serde_json::Value = rows[0].get_typed("detail").expect("detail 必须是 jsonb");
         assert_eq!(detail["doc_type"], "FLOW_INSTANCE");
         assert_eq!(detail["trace_count"], 3);

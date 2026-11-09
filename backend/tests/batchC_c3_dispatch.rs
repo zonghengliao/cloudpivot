@@ -166,8 +166,7 @@ async fn notice_id() -> Option<uuid::Uuid> {
         )
         .await
         .expect("查 notice_id");
-    rows.first()
-        .and_then(|row| row.get_typed("notice_id").ok().flatten())
+    rows.first().and_then(|row| row.get_typed("notice_id").ok().flatten())
 }
 
 /// 把 `notice_id` 清空（模拟「扇出成功但回执丢失」：补偿必须能重放且不重复发送）。
@@ -231,22 +230,9 @@ async fn retry_compensation_is_idempotent() {
     for round in 2..=3 {
         forget_notice_id().await;
         let report = maintenance::run_dispatch_retry().await.expect("重放轮次");
-        assert_eq!(
-            report.repaired,
-            1,
-            "第 {round} 轮应再次回填：{}",
-            report.summary()
-        );
-        assert_eq!(
-            notice_id().await,
-            Some(first_notice),
-            "第 {round} 轮必须回填同一个通知"
-        );
-        assert_eq!(
-            notice_rows().await,
-            1,
-            "第 {round} 轮后 sys_notice 仍必须 1 行"
-        );
+        assert_eq!(report.repaired, 1, "第 {round} 轮应再次回填：{}", report.summary());
+        assert_eq!(notice_id().await, Some(first_notice), "第 {round} 轮必须回填同一个通知");
+        assert_eq!(notice_rows().await, 1, "第 {round} 轮后 sys_notice 仍必须 1 行");
         assert_eq!(receiver_rows().await, 2, "第 {round} 轮后接收行仍必须 2 行");
     }
 

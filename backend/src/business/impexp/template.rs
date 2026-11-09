@@ -146,8 +146,7 @@ pub fn build_template(definition: &dyn ImportDefinition) -> std::result::Result<
     let validations = data_validations(columns, last_row);
 
     write_workbook(&[
-        WorkbookSheet::new("数据", data_header_refs.as_slice(), data_rows.as_slice())
-            .with_validations(&validations),
+        WorkbookSheet::new("数据", data_header_refs.as_slice(), data_rows.as_slice()).with_validations(&validations),
         WorkbookSheet::new("字段说明", NOTE_HEADERS.as_slice(), note_rows.as_slice()),
         WorkbookSheet::new("填写须知", guide_headers.as_slice(), guide_rows.as_slice()),
     ])
@@ -191,10 +190,7 @@ fn validation_last_row(max_rows: usize) -> u32 {
 ///
 /// - 该类型不加验证（文本 / 布尔 / 字典 / 日期时间）；
 /// - 枚举值逗号连接后超过 Excel 的 255 字符上限（该列的可选值仍在「字段说明」sheet 里）。
-fn data_validations(
-    columns: &'static [ImportColumn],
-    last_row: u32,
-) -> Vec<XlsxValidation<'static>> {
+fn data_validations(columns: &'static [ImportColumn], last_row: u32) -> Vec<XlsxValidation<'static>> {
     columns
         .iter()
         .enumerate()
@@ -211,20 +207,12 @@ fn data_validations(
                 ColumnKind::Int { min, max } => {
                     XlsxValidation::int_range(column_index, DATA_FIRST_ROW, last_row, *min, *max)
                 }
-                ColumnKind::Decimal { min, max, .. } => XlsxValidation::decimal_range(
-                    column_index,
-                    DATA_FIRST_ROW,
-                    last_row,
-                    *min,
-                    *max,
-                ),
-                ColumnKind::Date => XlsxValidation::date_range(
-                    column_index,
-                    DATA_FIRST_ROW,
-                    last_row,
-                    Some(DATE_MIN),
-                    Some(DATE_MAX),
-                ),
+                ColumnKind::Decimal { min, max, .. } => {
+                    XlsxValidation::decimal_range(column_index, DATA_FIRST_ROW, last_row, *min, *max)
+                }
+                ColumnKind::Date => {
+                    XlsxValidation::date_range(column_index, DATA_FIRST_ROW, last_row, Some(DATE_MIN), Some(DATE_MAX))
+                }
                 _ => return None,
             };
             // 选中单元格时的提示：直接用该列的「说明」（与字段说明 sheet 同源）。
@@ -277,9 +265,7 @@ pub fn build_error_sheet(errors: &[RowIssue]) -> std::result::Result<Vec<u8>, Ap
 /// # 异常情况
 ///
 /// 写入失败返回 500。
-pub fn build_error_sheet_rows(
-    lines: &[(u32, Option<String>, String)],
-) -> std::result::Result<Vec<u8>, ApiError> {
+pub fn build_error_sheet_rows(lines: &[(u32, Option<String>, String)]) -> std::result::Result<Vec<u8>, ApiError> {
     let headers = ["行号", "列名", "错误原因"];
     let rows = lines
         .iter()
@@ -376,44 +362,23 @@ mod tests {
         let data = Import::from_xlsx_sheet(&bytes, "数据").expect("读数据 sheet");
         assert_eq!(data.len(), 1, "数据 sheet 应只有一行示例");
         let header_row = data[0].keys().cloned().collect::<Vec<_>>();
-        assert!(
-            header_row.contains(&"物料编码*".to_string()),
-            "必填列带星标"
-        );
-        assert!(
-            header_row.contains(&"计量单位".to_string()),
-            "非必填列不带星标"
-        );
-        assert_eq!(
-            data[0].get("物料编码*").map(String::as_str),
-            Some("MAT-000001")
-        );
-        assert_eq!(
-            data[0].get("物料名称*").map(String::as_str),
-            Some("螺丝 M6×20")
-        );
+        assert!(header_row.contains(&"物料编码*".to_string()), "必填列带星标");
+        assert!(header_row.contains(&"计量单位".to_string()), "非必填列不带星标");
+        assert_eq!(data[0].get("物料编码*").map(String::as_str), Some("MAT-000001"));
+        assert_eq!(data[0].get("物料名称*").map(String::as_str), Some("螺丝 M6×20"));
 
         let notes = Import::from_xlsx_sheet(&bytes, "字段说明").expect("读字段说明 sheet");
         assert_eq!(notes.len(), COLUMNS.len());
-        assert_eq!(
-            notes[0].get("字段名").map(String::as_str),
-            Some("物料编码*")
-        );
+        assert_eq!(notes[0].get("字段名").map(String::as_str), Some("物料编码*"));
         assert_eq!(notes[0].get("是否必填").map(String::as_str), Some("是"));
         assert_eq!(notes[0].get("类型").map(String::as_str), Some("文本"));
-        assert_eq!(
-            notes[0].get("长度/范围").map(String::as_str),
-            Some("≤32 个字符")
-        );
+        assert_eq!(notes[0].get("长度/范围").map(String::as_str), Some("≤32 个字符"));
         assert_eq!(notes[1].get("是否必填").map(String::as_str), Some("是"));
         assert_eq!(notes[2].get("是否必填").map(String::as_str), Some("否"));
 
         let guide = Import::from_xlsx_sheet(&bytes, "填写须知").expect("读填写须知 sheet");
         assert_eq!(guide.len(), GUIDE_LINES.len());
-        assert_eq!(
-            guide[0].get("填写须知").map(String::as_str),
-            Some(GUIDE_LINES[0])
-        );
+        assert_eq!(guide[0].get("填写须知").map(String::as_str), Some(GUIDE_LINES[0]));
     }
 
     #[test]
@@ -442,10 +407,7 @@ mod tests {
         assert_eq!(rows[0].get("列名").map(String::as_str), Some("（整行）"));
         assert_eq!(rows[1].get("行号").map(String::as_str), Some("9"));
         assert_eq!(rows[1].get("列名").map(String::as_str), Some("物料编码"));
-        assert_eq!(
-            rows[1].get("错误原因").map(String::as_str),
-            Some("长度超限")
-        );
+        assert_eq!(rows[1].get("错误原因").map(String::as_str), Some("长度超限"));
     }
 
     // ── 数据验证（Excel 下拉 / 范围）────────────────────────
@@ -493,16 +455,10 @@ mod tests {
                 xml.contains(&sqref(letter, last_row)),
                 "{letter} 列应有数据验证（{expected}）"
             );
-            assert!(
-                xml.contains(expected),
-                "{letter} 列的下拉项应包含「{expected}」"
-            );
+            assert!(xml.contains(expected), "{letter} 列的下拉项应包含「{expected}」");
         }
         // 安全库存（第 7 列 G）是「≥0」的小数验证
-        assert!(
-            xml.contains(&sqref("G", last_row)),
-            "安全库存列应有范围验证"
-        );
+        assert!(xml.contains(&sqref("G", last_row)), "安全库存列应有范围验证");
         assert!(
             xml.contains("operator=\"greaterThanOrEqual\""),
             "安全库存应是 ≥0 的范围验证"
@@ -515,11 +471,7 @@ mod tests {
             "验证不能覆盖表头与示例行"
         );
         // 4 条验证：3 个枚举列 + 1 个数值列
-        assert_eq!(
-            xml.matches("<dataValidation ").count(),
-            4,
-            "物料模板应有 4 条数据验证"
-        );
+        assert_eq!(xml.matches("<dataValidation ").count(), 4, "物料模板应有 4 条数据验证");
     }
 
     /// 7 个内置导入模板全部仍能生成，且「有枚举/数值/日期列 ⇔ 有数据验证」。
@@ -542,28 +494,20 @@ mod tests {
 
         for definition in definitions {
             let biz = definition.biz_type();
-            let bytes =
-                build_template(definition).unwrap_or_else(|e| panic!("{biz} 生成失败: {e:?}"));
+            let bytes = build_template(definition).unwrap_or_else(|e| panic!("{biz} 生成失败: {e:?}"));
             assert_eq!(&bytes[..4], b"PK\x03\x04", "{biz} 必须是真正的 xlsx");
 
             let names = Import::xlsx_sheet_names(&bytes).expect("读 sheet 名");
             assert_eq!(
                 names,
-                vec![
-                    "数据".to_string(),
-                    "字段说明".to_string(),
-                    "填写须知".to_string()
-                ],
+                vec!["数据".to_string(), "字段说明".to_string(), "填写须知".to_string()],
                 "{biz} 的 sheet 结构变了"
             );
 
             let needs_validation = definition.columns().iter().any(|column| {
                 matches!(
                     column.kind,
-                    ColumnKind::Enum(_)
-                        | ColumnKind::Int { .. }
-                        | ColumnKind::Decimal { .. }
-                        | ColumnKind::Date
+                    ColumnKind::Enum(_) | ColumnKind::Int { .. } | ColumnKind::Decimal { .. } | ColumnKind::Date
                 )
             });
             let data_xml = sheet_xml(&bytes, 1);
@@ -580,20 +524,12 @@ mod tests {
     #[test]
     fn overlong_enum_list_is_skipped_instead_of_failing_the_template() {
         // 3 个 100 字符的 label，逗号连接后 302 字符 > 255
-        const LONG: &str = "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
+        const LONG: &str =
+            "0123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789";
         const LONG_ITEMS: &[EnumItem] = &[
-            EnumItem {
-                label: LONG,
-                code: "A",
-            },
-            EnumItem {
-                label: LONG,
-                code: "B",
-            },
-            EnumItem {
-                label: LONG,
-                code: "C",
-            },
+            EnumItem { label: LONG, code: "A" },
+            EnumItem { label: LONG, code: "B" },
+            EnumItem { label: LONG, code: "C" },
         ];
         static LONG_COLUMNS: &[ImportColumn] = &[ImportColumn {
             key: "long_enum",
@@ -607,10 +543,7 @@ mod tests {
             remark: "",
         }];
 
-        assert!(
-            data_validations(LONG_COLUMNS, 10).is_empty(),
-            "超长下拉应被跳过"
-        );
+        assert!(data_validations(LONG_COLUMNS, 10).is_empty(), "超长下拉应被跳过");
         // 同样的列定义只写进「字段说明」sheet 也不报错（生成器不因超长而失败）
         let bytes = build_template(&TestDefinition).expect("模板仍应能生成");
         assert_eq!(&bytes[..4], b"PK\x03\x04");

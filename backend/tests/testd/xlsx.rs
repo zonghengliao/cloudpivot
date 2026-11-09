@@ -7,11 +7,7 @@ pub fn read_xlsx(bytes: &[u8]) -> Vec<Vec<String>> {
     use calamine::{Xlsx, open_workbook_from_rs};
     let cursor = std::io::Cursor::new(bytes.to_vec());
     let mut workbook: Xlsx<_> = open_workbook_from_rs(cursor).expect("打开 xlsx");
-    let name = workbook
-        .sheet_names()
-        .first()
-        .cloned()
-        .expect("xlsx 至少一个 sheet");
+    let name = workbook.sheet_names().first().cloned().expect("xlsx 至少一个 sheet");
     let range = workbook.worksheet_range(&name).expect("读 sheet");
     range
         .rows()

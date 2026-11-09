@@ -155,9 +155,7 @@ pub(crate) struct FileFilter {
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub(crate) async fn find_reusable_file(
-    file_hash: &str,
-) -> std::result::Result<Option<SysFileModel>, DbError> {
+pub(crate) async fn find_reusable_file(file_hash: &str) -> std::result::Result<Option<SysFileModel>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT * FROM sys_file WHERE file_hash = ? AND deleted_at IS NULL AND status = 1 LIMIT 1",
@@ -182,11 +180,7 @@ pub(crate) async fn find_reusable_file(
 /// `(base_sql, params)`：`base_sql` 已含 [`file_select`] 的 LEFT JOIN 与 `{FILTER}`
 /// 标记，`params` 与 `base_sql` 里 `?` 的出现顺序一致。
 fn build_page_query(filter: &FileFilter) -> (String, Vec<Value>) {
-    let mut sql = format!(
-        "{} WHERE f.deleted_at IS NULL {}",
-        file_select(),
-        scope::FILTER_MARKER
-    );
+    let mut sql = format!("{} WHERE f.deleted_at IS NULL {}", file_select(), scope::FILTER_MARKER);
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.original_name.as_deref()) {
         sql.push_str(" AND f.original_name LIKE ?");
@@ -283,13 +277,8 @@ pub(crate) async fn page_files(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub(crate) async fn find_file_with_uploader(
-    id: &uuid::Uuid,
-) -> std::result::Result<Option<FileRow>, DbError> {
-    let sql = format!(
-        "{} WHERE f.id = ? AND f.deleted_at IS NULL LIMIT 1",
-        file_select()
-    );
+pub(crate) async fn find_file_with_uploader(id: &uuid::Uuid) -> std::result::Result<Option<FileRow>, DbError> {
+    let sql = format!("{} WHERE f.id = ? AND f.deleted_at IS NULL LIMIT 1", file_select());
     let rows = db().find_with_params(&sql, vec![Value::from(id)]).await?;
     rows.into_iter().next().map(FileRow::from_row).transpose()
 }
@@ -311,17 +300,13 @@ pub(crate) async fn find_file_with_uploader(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn uploader_display_name(
-    user_id: Option<uuid::Uuid>,
-) -> std::result::Result<String, DbError> {
+pub(crate) async fn uploader_display_name(user_id: Option<uuid::Uuid>) -> std::result::Result<String, DbError> {
     let Some(id) = user_id else {
         return Ok(String::new());
     };
     let mut rows = db()
         .find_with_params(
-            &format!(
-                "SELECT {UPLOADER_NAME_EXPR_SELF} AS uploader_name FROM sys_user WHERE id = ? LIMIT 1"
-            ),
+            &format!("SELECT {UPLOADER_NAME_EXPR_SELF} AS uploader_name FROM sys_user WHERE id = ? LIMIT 1"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -368,10 +353,7 @@ mod tests {
     /// 两处口径同源：join 版表达式去掉 `u.` 前缀后应与单表版逐字相同。
     #[test]
     fn joined_and_single_user_expressions_are_identical() {
-        assert_eq!(
-            UPLOADER_NAME_EXPR_JOINED.replace("u.", ""),
-            UPLOADER_NAME_EXPR_SELF
-        );
+        assert_eq!(UPLOADER_NAME_EXPR_JOINED.replace("u.", ""), UPLOADER_NAME_EXPR_SELF);
         assert!(file_select().contains(UPLOADER_NAME_EXPR_JOINED));
     }
 
@@ -386,10 +368,7 @@ mod tests {
         };
         let (sql, params) = build_page_query(&filter);
 
-        assert!(
-            sql.contains("LEFT JOIN sys_user u ON u.id = f.uploaded_by"),
-            "{sql}"
-        );
+        assert!(sql.contains("LEFT JOIN sys_user u ON u.id = f.uploaded_by"), "{sql}");
         assert!(sql.contains("AS uploader_name"), "{sql}");
         assert_eq!(
             sql.matches(scope::FILTER_MARKER).count(),
@@ -433,10 +412,7 @@ mod tests {
     /// 详情 SQL 与分页共用同一列清单，且限定主键 + 软删。
     #[test]
     fn detail_query_reuses_same_columns() {
-        let detail_sql = format!(
-            "{} WHERE f.id = ? AND f.deleted_at IS NULL LIMIT 1",
-            file_select()
-        );
+        let detail_sql = format!("{} WHERE f.id = ? AND f.deleted_at IS NULL LIMIT 1", file_select());
         assert!(
             detail_sql.starts_with(&file_select()),
             "详情必须复用 file_select()：{detail_sql}"

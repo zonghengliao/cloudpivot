@@ -31,9 +31,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::price_inquiry_dto::{
-    PriceInquiryFilter, STATUS_AWARDED, STATUS_CONVERTED, STATUS_QUOTING,
-};
+use crate::business::erp::price_inquiry_dto::{PriceInquiryFilter, STATUS_AWARDED, STATUS_CONVERTED, STATUS_QUOTING};
 use crate::business::shared::scope;
 use crate::utils;
 
@@ -256,9 +254,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个询价单号（周期键按北京时间）。
@@ -343,11 +339,7 @@ async fn insert_items(ex: &impl SqlExecutor, inquiry_id: Uuid, items: &[NewItem]
                 Value::from(&item.material_id),
                 Value::from(&item.unit_id),
                 Value::Text(item.qty.to_string()),
-                Value::Text(
-                    item.demand_date
-                        .map(|date| date.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(item.demand_date.map(|date| date.to_string()).unwrap_or_default()),
                 optional_text(item.remark.as_deref()),
             ],
         )
@@ -398,12 +390,7 @@ pub async fn upsert_quotes(
                         Value::Text(quote.price_incl.to_string()),
                         Value::Text(quote.tax_rate.to_string()),
                         quote.delivery_days.map(Value::I32).unwrap_or(Value::Null),
-                        Value::Text(
-                            quote
-                                .delivery_date
-                                .map(|date| date.to_string())
-                                .unwrap_or_default(),
-                        ),
+                        Value::Text(quote.delivery_date.map(|date| date.to_string()).unwrap_or_default()),
                         optional_text(quote.remark.as_deref()),
                         Value::from(now),
                         Value::from(now),
@@ -490,9 +477,7 @@ pub async fn award(
             )
             .await?;
         if head == 0 {
-            return Err(DbError::InvalidValue(format!(
-                "询价单不存在或已删除（{inquiry_id}）"
-            )));
+            return Err(DbError::InvalidValue(format!("询价单不存在或已删除（{inquiry_id}）")));
         }
         Ok::<u64, DbError>(affected)
     }
@@ -510,11 +495,7 @@ pub async fn award(
 }
 
 /// 首次录入报价把 `DRAFT` 推进到 `QUOTING`（已 QUOTING/AWARDED 时不动）。
-pub async fn mark_quoting(
-    inquiry_id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn mark_quoting(inquiry_id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     db().exec_sql(
         format!(
             "UPDATE {INQUIRY_TABLE} SET status = ?, updated_at = ?, \
@@ -696,11 +677,7 @@ pub async fn page_inquiries(filter: &PriceInquiryFilter) -> DbResult<(Vec<Inquir
         filter.page_size,
     )
     .await?;
-    let rows = page
-        .list
-        .iter()
-        .map(read_inquiry_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let rows = page.list.iter().map(read_inquiry_row).collect::<DbResult<Vec<_>>>()?;
     Ok((rows, page.total))
 }
 
@@ -778,9 +755,7 @@ pub async fn list_quotes(inquiry_id: Uuid) -> DbResult<Vec<QuoteRow>> {
 }
 
 /// 每条明细「报过价的供应商集合」（定标闸的取数口径）。
-pub async fn quoted_suppliers_per_item(
-    inquiry_id: Uuid,
-) -> DbResult<BTreeMap<Uuid, BTreeSet<Uuid>>> {
+pub async fn quoted_suppliers_per_item(inquiry_id: Uuid) -> DbResult<BTreeMap<Uuid, BTreeSet<Uuid>>> {
     let rows = db()
         .find_with_params(
             &format!(
@@ -803,8 +778,7 @@ pub async fn quoted_suppliers_per_item(
 pub async fn supplier_name_of(ex: &impl SqlExecutor, supplier_id: Uuid) -> DbResult<String> {
     let rows = ex
         .query_sql(
-            "SELECT supplier_name FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT supplier_name FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&supplier_id)],
         )
         .await?;
@@ -859,9 +833,6 @@ mod tests {
     fn optional_values_fold_to_empty_text() {
         assert_eq!(uuid_text(None), Value::Text(String::new()));
         assert_eq!(optional_text(Some("  ")), Value::Text(String::new()));
-        assert_eq!(
-            optional_text(Some(" 备注 ")),
-            Value::Text("备注".to_string())
-        );
+        assert_eq!(optional_text(Some(" 备注 ")), Value::Text("备注".to_string()));
     }
 }

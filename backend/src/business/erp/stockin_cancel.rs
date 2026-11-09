@@ -212,16 +212,8 @@ pub async fn reverse_cost(
     }
 
     // P2-5A：冲减 SQL（按桶键减 + 均价重算 + 归零夹 0）收口到唯一写入口。
-    let after = inventory_writer::subtract_cost(
-        ex,
-        material_id,
-        warehouse_id,
-        location_id,
-        line.qty,
-        line.amount,
-        now,
-    )
-    .await?;
+    let after =
+        inventory_writer::subtract_cost(ex, material_id, warehouse_id, location_id, line.qty, line.amount, now).await?;
     Ok(AppliedInventory { before, after })
 }
 
@@ -239,19 +231,9 @@ pub async fn reverse_location_qty(
 ) -> DbResult<AppliedLocation> {
     // P2-5A：两条分支（按库位账行 id / 未分配桶）+ 退不回来的 409 哨兵文案
     // 全部收口到 [`inventory_writer::subtract_location_qty`]。
-    let (before_qty, after_qty) = inventory_writer::subtract_location_qty(
-        ex,
-        material_id,
-        warehouse_id,
-        location_id,
-        qty,
-        now,
-    )
-    .await?;
-    Ok(AppliedLocation {
-        before_qty,
-        after_qty,
-    })
+    let (before_qty, after_qty) =
+        inventory_writer::subtract_location_qty(ex, material_id, warehouse_id, location_id, qty, now).await?;
+    Ok(AppliedLocation { before_qty, after_qty })
 }
 
 /// 写一条**反向流水**：`txn_type='OUT'` + `biz_type='PURCHASE_IN_CANCEL'`。
@@ -393,20 +375,13 @@ pub struct SerialBatch<'a> {
 ///
 /// 见模块文档「与卡面 §三 e) 的实现差异」：这里**不调用** `serial_model::batch_generate`
 /// （它会重算库存数量并再写一条 `SERIAL_IN` 流水，与本模块的移动加权加法冲突）。
-pub async fn generate_serials(
-    ex: &impl SqlExecutor,
-    batch: &SerialBatch<'_>,
-) -> DbResult<Vec<String>> {
-    let count: i64 = batch.qty.try_into().map_err(|_| {
-        DbError::InvalidValue(format!(
-            "一物一码物料的数量必须是整数（当前 {}）",
-            batch.qty
-        ))
-    })?;
+pub async fn generate_serials(ex: &impl SqlExecutor, batch: &SerialBatch<'_>) -> DbResult<Vec<String>> {
+    let count: i64 = batch
+        .qty
+        .try_into()
+        .map_err(|_| DbError::InvalidValue(format!("一物一码物料的数量必须是整数（当前 {}）", batch.qty)))?;
     if count <= 0 {
-        return Err(DbError::InvalidValue(
-            "一物一码物料的入库数量必须 > 0".into(),
-        ));
+        return Err(DbError::InvalidValue("一物一码物料的入库数量必须 > 0".into()));
     }
     let pairs: Vec<(Uuid, String)> = if batch.serial_ids.is_empty() {
         let period_key = serial_model::period_key_of(batch.now);
@@ -459,10 +434,7 @@ pub(super) fn serial_status_label(status: &str) -> &'static str {
 /// `FOR UPDATE` 是必须的：作废与「单品出库 / 报废」改的是同一行的 `status`，
 /// 行锁让两边在这行上串行 —— 否则「刚校验完就有人出库」会让后面的软删漏掉已出库的件，
 /// 留下一条「单已作废、号还在库」的幽灵序列号（正是 W2c 口径要防的账实不符）。
-pub async fn lock_serials_of(
-    ex: &impl SqlExecutor,
-    stock_in_id: Uuid,
-) -> DbResult<Vec<SerialBrief>> {
+pub async fn lock_serials_of(ex: &impl SqlExecutor, stock_in_id: Uuid) -> DbResult<Vec<SerialBrief>> {
     // SCOPE-EXEMPT: 序列号台账是仓储数据，无归属列（口径同 serial_model）。
     let rows = ex
         .query_sql(

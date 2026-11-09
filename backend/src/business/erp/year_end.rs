@@ -286,11 +286,7 @@ impl YearEndBlocker {
     /// 补明细（YEAR-END）；同时把前 3 个单号写进老字段 `samples`
     /// （老前端 / 日志可能还在读它，保持不空）。
     fn with_items(mut self, items: Vec<BlockingItem>) -> Self {
-        self.samples = items
-            .iter()
-            .take(3)
-            .map(|item| item.doc_no.clone())
-            .collect();
+        self.samples = items.iter().take(3).map(|item| item.doc_no.clone()).collect();
         self.items = items;
         self
     }
@@ -413,9 +409,7 @@ fn db_error(error: DbError, ctx: &str) -> ApiError {
 
 /// 年度 → 12 个期间编码（`2026-01` … `2026-12`）。
 pub fn period_codes_of(year: i16) -> Vec<String> {
-    (1..=12)
-        .map(|month| period::period_code(year, month))
-        .collect()
+    (1..=12).map(|month| period::period_code(year, month)).collect()
 }
 
 /// 年度入参校验（2000–2998：留给「下一年度」一整年）。
@@ -431,8 +425,8 @@ pub fn validate_year(raw: Option<i16>) -> Result<i16, ApiError> {
 
 /// 年度 → `(1 月 1 日, 12 月 31 日)`。
 pub fn year_range(year: i16) -> Result<(NaiveDate, NaiveDate), ApiError> {
-    let start = NaiveDate::from_ymd_opt(i32::from(year), 1, 1)
-        .ok_or_else(|| bad_request(format!("{year} 不是合法年度")))?;
+    let start =
+        NaiveDate::from_ymd_opt(i32::from(year), 1, 1).ok_or_else(|| bad_request(format!("{year} 不是合法年度")))?;
     let end = NaiveDate::from_ymd_opt(i32::from(year), 12, 31)
         .ok_or_else(|| bad_request(format!("{year} 的 12 月 31 日不合法")))?;
     Ok((start, end))
@@ -477,12 +471,7 @@ pub fn optional_close_reason(raw: Option<&str>) -> Result<Option<String>, ApiErr
 }
 
 /// 造一条分录（`summary` 由调用方给，`line_no` 由 [`build_closing_lines`] 统一编号）。
-fn line(
-    account: &AccountRef,
-    debit: Decimal,
-    credit: Decimal,
-    summary: impl Into<String>,
-) -> EntryLine {
+fn line(account: &AccountRef, debit: Decimal, credit: Decimal, summary: impl Into<String>) -> EntryLine {
     EntryLine {
         line_no: 0,
         summary: summary.into(),
@@ -588,12 +577,7 @@ pub fn build_closing_lines(
             ));
         } else {
             // 借方余额 = 亏损：贷 3103 / 借 3104
-            lines.push(line(
-                current_profit,
-                Decimal::ZERO,
-                after,
-                "本年利润转利润分配（亏损）",
-            ));
+            lines.push(line(current_profit, Decimal::ZERO, after, "本年利润转利润分配（亏损）"));
             lines.push(line(
                 profit_distribution,
                 after,
@@ -669,10 +653,7 @@ async fn months_not_closed(ex: &impl SqlExecutor, year: i16) -> Result<Vec<Strin
 }
 
 /// 下一年度**没开账**的期间（不含已结账的：已结账说明它早开过了）。
-async fn months_not_opened_next_year(
-    ex: &impl SqlExecutor,
-    year: i16,
-) -> Result<Vec<String>, ApiError> {
+async fn months_not_opened_next_year(ex: &impl SqlExecutor, year: i16) -> Result<Vec<String>, ApiError> {
     let next = year + 1;
     let rows = ex
         .query_sql(
@@ -845,11 +826,7 @@ async fn ensure_no_non_leaf_balance(ex: &impl SqlExecutor, end: NaiveDate) -> Re
 }
 
 /// 按编码取科目（不存在 / 已删除 → 400，消息给出去处）。
-async fn account_of_code(
-    ex: &impl SqlExecutor,
-    code: &str,
-    purpose: &str,
-) -> Result<AccountRef, ApiError> {
+async fn account_of_code(ex: &impl SqlExecutor, code: &str, purpose: &str) -> Result<AccountRef, ApiError> {
     voucher::account_by_code(ex, code)
         .await
         .map_err(|error| db_error(error, "查询年结科目"))?
@@ -861,10 +838,7 @@ async fn account_of_code(
 }
 
 /// 下一年度里「不是 OPENING」的凭证（反年结的拦截依据）。
-async fn next_year_other_vouchers(
-    ex: &impl SqlExecutor,
-    next_year: i16,
-) -> Result<(i64, Vec<String>), ApiError> {
+async fn next_year_other_vouchers(ex: &impl SqlExecutor, next_year: i16) -> Result<(i64, Vec<String>), ApiError> {
     let rows = ex
         .query_sql(
             "SELECT voucher_no FROM biz_voucher \
@@ -902,10 +876,7 @@ struct CarryForwardVoucher {
 }
 
 /// 读本年结转凭证（含「结转进 3104 的净额」）。
-async fn carry_forward_voucher(
-    ex: &impl SqlExecutor,
-    year: i16,
-) -> Result<Option<CarryForwardVoucher>, ApiError> {
+async fn carry_forward_voucher(ex: &impl SqlExecutor, year: i16) -> Result<Option<CarryForwardVoucher>, ApiError> {
     let Some(row) = ex
         .query_first_sql(
             "SELECT id, voucher_no, COALESCE(total_debit, 0)::text AS total_debit, \
@@ -920,9 +891,7 @@ async fn carry_forward_voucher(
     else {
         return Ok(None);
     };
-    let id: Uuid = row
-        .get_typed("id")
-        .map_err(|error| db_error(error, "读结转凭证 id"))?;
+    let id: Uuid = row.get_typed("id").map_err(|error| db_error(error, "读结转凭证 id"))?;
     let total_debit_text: String = row
         .get_typed("total_debit")
         .map_err(|error| db_error(error, "读结转凭证借方合计"))?;
@@ -935,10 +904,7 @@ async fn carry_forward_voucher(
                FROM biz_voucher_entry e \
               WHERE e.voucher_id = ?::uuid AND e.account_code = ?"
                 .to_string(),
-            vec![
-                Value::from(&id),
-                Value::Text(ACCOUNT_PROFIT_DISTRIBUTION.to_string()),
-            ],
+            vec![Value::from(&id), Value::Text(ACCOUNT_PROFIT_DISTRIBUTION.to_string())],
         )
         .await
         .map_err(|error| db_error(error, "读结转进利润分配的金额"))?;
@@ -954,10 +920,7 @@ async fn carry_forward_voucher(
 }
 
 /// 下一年度第一个期间的期初台账行数（`(总数, 非年结行数)`）。
-async fn next_year_opening_rows(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> Result<(i64, i64), ApiError> {
+async fn next_year_opening_rows(ex: &impl SqlExecutor, period_code: &str) -> Result<(i64, i64), ApiError> {
     let row = ex
         .query_first_sql(
             "SELECT COUNT(*) AS total, \
@@ -1056,10 +1019,7 @@ pub async fn load_state_in(ex: &impl SqlExecutor, year: i16) -> Result<YearEndSt
         reason,
         carry_forward_voucher_id: carry.as_ref().map(|item| item.id.to_string()),
         carry_forward_voucher_no: carry.as_ref().map(|item| item.voucher_no.clone()),
-        carry_forward_total: carry
-            .as_ref()
-            .map(|item| item.total_debit)
-            .unwrap_or(Decimal::ZERO),
+        carry_forward_total: carry.as_ref().map(|item| item.total_debit).unwrap_or(Decimal::ZERO),
         carry_forward_entries: carry.as_ref().map(|item| item.entry_count).unwrap_or(0),
         net_profit,
         periods_closed,
@@ -1074,10 +1034,7 @@ pub async fn load_state_in(ex: &impl SqlExecutor, year: i16) -> Result<YearEndSt
 // ==================== 五项前置校验 ====================
 
 /// 五项前置校验（检查接口与年结对**共用同一份实现**，不许两处口径分裂）。
-pub async fn collect_blockers(
-    ex: &impl SqlExecutor,
-    year: i16,
-) -> Result<Vec<YearEndBlocker>, ApiError> {
+pub async fn collect_blockers(ex: &impl SqlExecutor, year: i16) -> Result<Vec<YearEndBlocker>, ApiError> {
     let (start, end) = year_range(year)?;
     let mut blockers: Vec<YearEndBlocker> = Vec::new();
     // 处理人反查器（与结账页同一实现）：一次预检里同一个权限码只查一次库
@@ -1106,8 +1063,7 @@ pub async fn collect_blockers(
     // **明细与条数同源**：直接用 `period_items` 的日期区间入口（全年一次 BETWEEN 取完），
     // 不再自写一份 COUNT(*) SQL —— 两份 SQL 各自演化就会出现「文案说 3 张、表格列 5 行」。
     // 明细合并（采购 / 收货 / 调拨）后统一截断到 50 条，与结账页同一个上限。
-    let (docs, doc_items) =
-        period_items::unfinished_doc_items_between(ex, start, end, &mut owners).await?;
+    let (docs, doc_items) = period_items::unfinished_doc_items_between(ex, start, end, &mut owners).await?;
     let total: i64 = docs.iter().map(|(_, count)| *count).sum();
     if total > 0 {
         let detail = docs
@@ -1156,8 +1112,7 @@ pub async fn collect_blockers(
     //
     // 明细同样复用 `period_items::invariant_details_between`（与结账页同一份 SQL）：
     // 单号 / 状态标签 / 「去看凭证」路由都由它给，年结这边只负责挂到 blocker 上。
-    let (failures, invariant_items) =
-        period_items::invariant_details_between(ex, start, end, &mut owners).await?;
+    let (failures, invariant_items) = period_items::invariant_details_between(ex, start, end, &mut owners).await?;
     if !failures.is_empty() {
         let count = i64::try_from(failures.len()).unwrap_or(i64::MAX);
         // 上限口径统一：**任何一条 blocker 的明细都不超过 50 行**
@@ -1276,10 +1231,7 @@ pub async fn close_year(
     let (_, end) = year_range(year)?;
     let now = Utc::now();
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_error(error, "开启年结事务"))?;
+    let tx = db().begin().await.map_err(|error| db_error(error, "开启年结事务"))?;
 
     // 事务级 advisory lock：同一会计年度的并发年结串行化
     // （空年度没有结转凭证，唯一索引兜不住，必须自己上锁）
@@ -1309,10 +1261,8 @@ pub async fn close_year(
 
     // ---------- ① 损益结转凭证 ----------
     let balances = account_balances(&tx, end).await?;
-    let current_profit =
-        account_of_code(&tx, ACCOUNT_CURRENT_PROFIT, "作为本年利润的结转落点").await?;
-    let profit_distribution =
-        account_of_code(&tx, ACCOUNT_PROFIT_DISTRIBUTION, "接收本年利润").await?;
+    let current_profit = account_of_code(&tx, ACCOUNT_CURRENT_PROFIT, "作为本年利润的结转落点").await?;
+    let profit_distribution = account_of_code(&tx, ACCOUNT_PROFIT_DISTRIBUTION, "接收本年利润").await?;
 
     let pl_rows: Vec<(AccountRef, Decimal)> = balances
         .iter()
@@ -1325,12 +1275,7 @@ pub async fn close_year(
         .map(|(_, balance, _)| *balance)
         .unwrap_or(Decimal::ZERO);
 
-    let lines = build_closing_lines(
-        &pl_rows,
-        &current_profit,
-        &profit_distribution,
-        current_profit_balance,
-    );
+    let lines = build_closing_lines(&pl_rows, &current_profit, &profit_distribution, current_profit_balance);
 
     let voucher_id = if lines.is_empty() {
         // 空年度：没有损益可结、也没有本年利润 → 不出凭证（卡面 §七 ⑭）
@@ -1377,8 +1322,7 @@ pub async fn close_year(
     let balances_after = account_balances(&tx, end).await?;
     let opening_rows = opening_rows_of(&balances_after);
     let opening_period = next_year_opening_period(year);
-    opening::write_year_end_opening_in(&tx, &opening_period, &opening_rows, operator.id, now)
-        .await?;
+    opening::write_year_end_opening_in(&tx, &opening_period, &opening_rows, operator.id, now).await?;
 
     // ---------- ③ 留痕（本年 12 月保持 CLOSED，卡面 §一 ④）----------
     // 联动的操作人在留痕**之前**抓下来：`transition` 会消费 `operator`。
@@ -1430,9 +1374,7 @@ pub async fn close_year(
     )
     .await?;
 
-    tx.commit()
-        .await
-        .map_err(|error| db_error(error, "提交年结事务"))?;
+    tx.commit().await.map_err(|error| db_error(error, "提交年结事务"))?;
 
     // 年结已经在库里落定，通知在这里发（失败只记日志，绝不回滚年度）
     year_end_linkage::run_deferred_after_commit(linkage).await;
@@ -1473,10 +1415,7 @@ pub async fn reopen_year(
     let reason = require_reopen_reason(reason)?;
     let now = Utc::now();
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_error(error, "开启反年结事务"))?;
+    let tx = db().begin().await.map_err(|error| db_error(error, "开启反年结事务"))?;
 
     tx.exec_sql(
         "SELECT pg_advisory_xact_lock(?)".to_string(),
@@ -1540,8 +1479,7 @@ pub async fn reopen_year(
     let mut december_reopened = false;
     if let Some(row) = tx
         .query_first_sql(
-            "SELECT id, status FROM biz_accounting_period WHERE period_code = ? FOR UPDATE"
-                .to_string(),
+            "SELECT id, status FROM biz_accounting_period WHERE period_code = ? FOR UPDATE".to_string(),
             vec![Value::Text(december.clone())],
         )
         .await
@@ -1635,9 +1573,7 @@ pub async fn reopen_year(
     )
     .await?;
 
-    tx.commit()
-        .await
-        .map_err(|error| db_error(error, "提交反年结事务"))?;
+    tx.commit().await.map_err(|error| db_error(error, "提交反年结事务"))?;
 
     // 反年结已经在库里落定，通知在这里发（失败只记日志，绝不回滚）
     year_end_linkage::run_deferred_after_commit(linkage).await;
@@ -1699,12 +1635,7 @@ pub async fn year_end_close_handler(
     period::ensure_permission(&claims, PERM_CLOSE, "年结")?;
     let year = validate_year(Some(req.year))?;
     Ok(Res::ok(
-        close_year(
-            year,
-            req.reason.as_deref(),
-            state_machine::Operator::from(&claims),
-        )
-        .await?,
+        close_year(year, req.reason.as_deref(), state_machine::Operator::from(&claims)).await?,
     ))
 }
 
@@ -1722,12 +1653,7 @@ pub async fn year_end_reopen_handler(
     period::ensure_permission(&claims, PERM_REOPEN, "反年结")?;
     let year = validate_year(Some(req.year))?;
     Ok(Res::ok(
-        reopen_year(
-            year,
-            req.reason.as_deref(),
-            state_machine::Operator::from(&claims),
-        )
-        .await?,
+        reopen_year(year, req.reason.as_deref(), state_machine::Operator::from(&claims)).await?,
     ))
 }
 
@@ -1843,10 +1769,8 @@ mod tests {
              ('2022-01', '2023-01', '2021-01', '2022-12', '2023-12')")
         .await;
         sql("DELETE FROM biz_purchase_order WHERE order_no LIKE 'R4-PO-%'").await;
-        sql(
-            "DELETE FROM biz_accounting_period WHERE period_code LIKE '2021-%' \
-              OR period_code LIKE '2022-%' OR period_code LIKE '2023-%'",
-        )
+        sql("DELETE FROM biz_accounting_period WHERE period_code LIKE '2021-%' \
+              OR period_code LIKE '2022-%' OR period_code LIKE '2023-%'")
         .await;
     }
 
@@ -1988,10 +1912,8 @@ mod tests {
             .map(|row| {
                 (
                     row.get_typed::<String>("account_code").expect("科目编码"),
-                    Decimal::from_str(&row.get_typed::<String>("debit").expect("借方"))
-                        .unwrap_or(Decimal::ZERO),
-                    Decimal::from_str(&row.get_typed::<String>("credit").expect("贷方"))
-                        .unwrap_or(Decimal::ZERO),
+                    Decimal::from_str(&row.get_typed::<String>("debit").expect("借方")).unwrap_or(Decimal::ZERO),
+                    Decimal::from_str(&row.get_typed::<String>("credit").expect("贷方")).unwrap_or(Decimal::ZERO),
                 )
             })
             .collect()
@@ -2002,11 +1924,7 @@ mod tests {
         entries
             .iter()
             .filter(|(account, _, _)| account == code)
-            .map(
-                |(_, debit, credit)| {
-                    if side == "debit" { *debit } else { *credit }
-                },
-            )
+            .map(|(_, debit, credit)| if side == "debit" { *debit } else { *credit })
             .sum()
     }
 
@@ -2027,19 +1945,14 @@ mod tests {
             .find_with_params(
                 "SELECT debit_opening::text AS debit, credit_opening::text AS credit, source \
                    FROM biz_opening_balance WHERE period_code = ? AND account_code = ?",
-                vec![
-                    Value::Text(period.to_string()),
-                    Value::Text(code.to_string()),
-                ],
+                vec![Value::Text(period.to_string()), Value::Text(code.to_string())],
             )
             .await
             .expect("读期初行");
         rows.first().map(|row| {
             (
-                Decimal::from_str(&row.get_typed::<String>("debit").expect("借方"))
-                    .unwrap_or(Decimal::ZERO),
-                Decimal::from_str(&row.get_typed::<String>("credit").expect("贷方"))
-                    .unwrap_or(Decimal::ZERO),
+                Decimal::from_str(&row.get_typed::<String>("debit").expect("借方")).unwrap_or(Decimal::ZERO),
+                Decimal::from_str(&row.get_typed::<String>("credit").expect("贷方")).unwrap_or(Decimal::ZERO),
                 row.get_typed::<String>("source").expect("来源"),
             )
         })
@@ -2101,11 +2014,7 @@ mod tests {
             .expect_err("未结账的年度不许年结");
         assert_eq!(error.status, 409, "前置校验不过 → 409");
         for code in ["2021-11", "2021-12"] {
-            assert!(
-                error.msg.contains(code),
-                "409 文案要点名 {code}：{}",
-                error.msg
-            );
+            assert!(error.msg.contains(code), "409 文案要点名 {code}：{}", error.msg);
         }
         assert_eq!(carry_voucher_count(2021).await, 0, "被拦下就不该留下凭证");
     }
@@ -2156,11 +2065,9 @@ mod tests {
         )
         .await;
         // 绕过接口把一条分录改歪 10 元（模拟手工改库）
-        sql(
-            "UPDATE biz_voucher_entry SET debit_amount = debit_amount + 10 \
+        sql("UPDATE biz_voucher_entry SET debit_amount = debit_amount + 10 \
               WHERE account_code = '1002' \
-                AND voucher_id IN (SELECT id FROM biz_voucher WHERE source_no = 'R4-UNBAL-1')",
-        )
+                AND voucher_id IN (SELECT id FROM biz_voucher WHERE source_no = 'R4-UNBAL-1')")
         .await;
         close_all_months(2021).await;
 
@@ -2173,9 +2080,7 @@ mod tests {
             .expect("必须报 UNBALANCED");
         assert_eq!(blocker.diff.as_deref(), Some("10"), "必须给出差额 10");
 
-        let error = close_year(2021, None, operator())
-            .await
-            .expect_err("不平的账不许年结");
+        let error = close_year(2021, None, operator()).await.expect_err("不平的账不许年结");
         assert_eq!(error.status, 409);
         assert!(
             error.msg.contains("借贷不平") && error.msg.contains("10"),
@@ -2202,11 +2107,7 @@ mod tests {
             .find(|item| item.kind == BLOCKER_NEXT_YEAR_NOT_OPENED)
             .expect("必须报 NEXT_YEAR_NOT_OPENED");
         assert_eq!(blocker.periods.len(), 12, "12 个月都没开账");
-        assert!(
-            blocker.message.contains("2022 年期间还没开账"),
-            "{}",
-            blocker.message
-        );
+        assert!(blocker.message.contains("2022 年期间还没开账"), "{}", blocker.message);
 
         let error = close_year(2021, None, operator())
             .await
@@ -2232,18 +2133,11 @@ mod tests {
         close_all_months(2021).await;
 
         let check = check_year(2021).await.expect("前置检查");
-        assert!(
-            check.blockers.is_empty(),
-            "不该有阻塞项：{:?}",
-            check.blockers
-        );
+        assert!(check.blockers.is_empty(), "不该有阻塞项：{:?}", check.blockers);
         assert!(check.can_close, "五项全过 → 可以年结");
         assert!(!check.state.closed, "还没年结");
         assert_eq!(check.state.periods_closed, 12, "本年 12 个月都已结账");
-        assert!(
-            check.state.next_year_periods_ready,
-            "下一年度 12 个月已开账"
-        );
+        assert!(check.state.next_year_periods_ready, "下一年度 12 个月已开账");
         assert_eq!(carry_voucher_count(2021).await, 0, "只读检查不落凭证");
     }
 
@@ -2294,11 +2188,7 @@ mod tests {
             side_of(&entries, ACCOUNT_CURRENT_PROFIT, "credit") >= dec("1000"),
             "贷 3103 至少 1000（本年收入）"
         );
-        assert_eq!(
-            balance_of("5001", end).await,
-            Decimal::ZERO,
-            "结转后收入类归零"
-        );
+        assert_eq!(balance_of("5001", end).await, Decimal::ZERO, "结转后收入类归零");
         // 净利润 = 3103 结转后的余额（= 结转前 3103 + 本年损益净额），也就是搬进 3104 的金额。
         // 用「结转前实测」而不是硬编码 1000：库里可能带着别的模块夹具留下的 3103 余额
         // （R5 的库存期初就贷过 3103），硬编码会随库污染假红。
@@ -2391,10 +2281,7 @@ mod tests {
 
         // 本年净利润 = −损益合计（本卡增量：收入 1000 − 费用 400 = 600；
         // 绝对值里还可能有别的模块夹具留下的损益余量，所以只断言「与 3103 的口径一致」）
-        assert_eq!(
-            result.net_profit, -pl_before,
-            "响应里的净利润口径与损益合计一致"
-        );
+        assert_eq!(result.net_profit, -pl_before, "响应里的净利润口径与损益合计一致");
         let entries = carry_entries(2021).await;
         assert_eq!(
             side_of(&entries, ACCOUNT_PROFIT_DISTRIBUTION, "credit")
@@ -2443,25 +2330,15 @@ mod tests {
         assert!(result.opening_rows > 0);
 
         // ① 银行存款：期末 = 期初，且来源标记为 YEAR_END
-        let (debit, credit, source) = opening_row("2022-01", "1002")
-            .await
-            .expect("银行存款必须带进下年期初");
-        assert_eq!(
-            debit - credit,
-            cash_before,
-            "2027 期初 = 2026 期末（银行存款）"
-        );
+        let (debit, credit, source) = opening_row("2022-01", "1002").await.expect("银行存款必须带进下年期初");
+        assert_eq!(debit - credit, cash_before, "2027 期初 = 2026 期末（银行存款）");
         assert_eq!(source, opening::SOURCE_YEAR_END, "来源必须是年结");
 
         // ② 负债类：贷方
-        let (liability_debit, liability_credit, _) = opening_row("2022-01", "2202")
-            .await
-            .expect("应付账款必须带进下年期初");
+        let (liability_debit, liability_credit, _) =
+            opening_row("2022-01", "2202").await.expect("应付账款必须带进下年期初");
         assert_eq!(liability_debit, Decimal::ZERO, "负债类只能单边（贷方）");
-        assert!(
-            liability_credit >= dec("150"),
-            "应付账款贷方 {liability_credit}"
-        );
+        assert!(liability_credit >= dec("150"), "应付账款贷方 {liability_credit}");
 
         // ③ 损益类：一行都不许有（归零）
         let pl_rows: i64 = db()
@@ -2476,15 +2353,11 @@ mod tests {
 
         // ④ 本年利润归零 → 也不写行；利润分配有值
         assert!(
-            opening_row("2022-01", ACCOUNT_CURRENT_PROFIT)
-                .await
-                .is_none(),
+            opening_row("2022-01", ACCOUNT_CURRENT_PROFIT).await.is_none(),
             "3103 归零"
         );
         assert!(
-            opening_row("2022-01", ACCOUNT_PROFIT_DISTRIBUTION)
-                .await
-                .is_some(),
+            opening_row("2022-01", ACCOUNT_PROFIT_DISTRIBUTION).await.is_some(),
             "3104 有余额"
         );
 
@@ -2522,10 +2395,7 @@ mod tests {
             )
             .await
             .expect("统计期初凭证");
-        assert_eq!(
-            opening_voucher, 0,
-            "年结不生成 2027-01 的期初凭证（会双计）"
-        );
+        assert_eq!(opening_voucher, 0, "年结不生成 2027-01 的期初凭证（会双计）");
     }
 
     /// 记账入口拒绝**非末级**科目（记账科目口径 · 见 `voucher` 模块文档）。
@@ -2641,8 +2511,7 @@ mod tests {
         open_year(2022).await;
         close_all_months(2021).await;
         // 历史脏数据：借 5602 100 / 贷 1002 100（裸 SQL，绕开记账入口的末级校验）
-        sql(
-            "WITH v AS ( \
+        sql("WITH v AS ( \
                 INSERT INTO biz_voucher (voucher_word, voucher_no, period, voucher_date, summary, \
                                          total_debit, total_credit, entry_count, status) \
                 VALUES ('记', 'R4-NONLEAF-2', '2021-05', DATE '2021-05-05', 'R4 历史父科目分录', \
@@ -2654,8 +2523,7 @@ mod tests {
                FROM v, biz_account a WHERE a.account_code = '5602' AND a.deleted_at IS NULL \
              UNION ALL \
              SELECT v.id, 2, '贷 1002', a.id, a.account_code, a.account_name, 0, 100 \
-               FROM v, biz_account a WHERE a.account_code = '1002' AND a.deleted_at IS NULL",
-        )
+               FROM v, biz_account a WHERE a.account_code = '1002' AND a.deleted_at IS NULL")
         .await;
 
         let error = close_year(2021, None, operator())
@@ -2678,11 +2546,7 @@ mod tests {
             error.msg
         );
         // 拦住之后不许留下结转凭证 / 下年期初
-        assert_eq!(
-            carry_voucher_count(2021).await,
-            0,
-            "被拒的年结不许落结转凭证"
-        );
+        assert_eq!(carry_voucher_count(2021).await, 0, "被拒的年结不许落结转凭证");
         let opening: i64 = db()
             .scalar_with_params(
                 "SELECT COUNT(*) FROM biz_opening_balance WHERE period_code = '2022-01'",
@@ -2699,8 +2563,7 @@ mod tests {
         // **后面任何一次年结都会被拦住**。实测：本用例曾在 2021-05 留下一笔「借 5602 100」，
         // 同库随后跑 `year_end_linkage_tests`（2037 年结）5 条集体 409（`lnk11_*`）。
         // 造脏数据验证 fail-closed 是正当的，但**造完必须收干净**。
-        sql("DELETE FROM biz_voucher WHERE voucher_word = '记' AND voucher_no = 'R4-NONLEAF-2'")
-            .await;
+        sql("DELETE FROM biz_voucher WHERE voucher_word = '记' AND voucher_no = 'R4-NONLEAF-2'").await;
     }
 
     /// ⑩ 12 月保持 CLOSED，结转凭证落在 12 月（已结账期间）。
@@ -2739,10 +2602,7 @@ mod tests {
             .await
             .expect("读结转凭证");
         assert_eq!(row.len(), 1, "正好一张结转凭证");
-        assert_eq!(
-            row[0].get_typed::<String>("d").expect("凭证日期"),
-            "2021-12-31"
-        );
+        assert_eq!(row[0].get_typed::<String>("d").expect("凭证日期"), "2021-12-31");
         assert_eq!(result.state.status, STATUS_CLOSED, "年度状态已结转");
         assert!(result.carry_forward_voucher_no.is_some());
     }
@@ -2776,11 +2636,7 @@ mod tests {
         assert_eq!(reopened.deleted_voucher_no, closed.carry_forward_voucher_no);
         assert_eq!(carry_voucher_count(2021).await, 0, "结转凭证必须删掉");
         assert_eq!(opening_count("2022-01").await, 0, "下年期初必须删掉");
-        assert_eq!(
-            period_status("2021-12").await.as_deref(),
-            Some("OPEN"),
-            "12 月必须解封"
-        );
+        assert_eq!(period_status("2021-12").await.as_deref(), Some("OPEN"), "12 月必须解封");
         assert!(reopened.december_reopened);
         assert!(!reopened.state.closed, "年度回到未结转");
         assert_eq!(reopened.state.status, STATUS_NOT_CLOSED);
@@ -2820,11 +2676,7 @@ mod tests {
             "409 文案要点名下一年度的凭证：{}",
             error.msg
         );
-        assert_eq!(
-            carry_voucher_count(2021).await,
-            1,
-            "被拦下时结转凭证必须还在"
-        );
+        assert_eq!(carry_voucher_count(2021).await, 1, "被拦下时结转凭证必须还在");
     }
 
     /// ⑬ 反年结不填原因 / 原因过短 → 400。
@@ -2838,9 +2690,7 @@ mod tests {
         close_all_months(2021).await;
         close_year(2021, None, operator()).await.expect("年结成功");
 
-        let empty = reopen_year(2021, None, operator())
-            .await
-            .expect_err("不填原因必须 400");
+        let empty = reopen_year(2021, None, operator()).await.expect_err("不填原因必须 400");
         assert_eq!(empty.status, 400, "{}", empty.msg);
         assert!(empty.msg.contains("必须填写原因"), "{}", empty.msg);
 
@@ -2850,10 +2700,7 @@ mod tests {
         assert_eq!(short.status, 400);
         assert!(short.msg.contains("至少 10 个字"), "{}", short.msg);
 
-        assert!(
-            load_state_in(db(), 2021).await.expect("读状态").closed,
-            "状态没被改动"
-        );
+        assert!(load_state_in(db(), 2021).await.expect("读状态").closed, "状态没被改动");
     }
 
     // ==================== ④ 边界 ====================
@@ -2878,9 +2725,7 @@ mod tests {
         )
         .await;
         close_all_months(2021).await;
-        close_year(2021, None, operator())
-            .await
-            .expect("2021 年结成功");
+        close_year(2021, None, operator()).await.expect("2021 年结成功");
         assert_eq!(
             balance_of(
                 ACCOUNT_CURRENT_PROFIT,
@@ -2897,10 +2742,7 @@ mod tests {
             .await
             .expect("空年度也要能年结");
 
-        assert_eq!(
-            result.carry_forward_voucher_no, None,
-            "没有损益可结 → 跳过凭证"
-        );
+        assert_eq!(result.carry_forward_voucher_no, None, "没有损益可结 → 跳过凭证");
         assert_eq!(result.entry_count, 0);
         assert_eq!(carry_voucher_count(2022).await, 0);
         assert!(result.state.closed, "空年度也是「已结转」");
@@ -2938,11 +2780,7 @@ mod tests {
             .map(|item| item.credit)
             .sum();
         assert_eq!(cp_debit, dec("500"), "借 3103 = 费用合计");
-        assert_eq!(
-            cp_credit,
-            dec("100") + dec("400"),
-            "贷 3103 = 收入 + 亏损转出"
-        );
+        assert_eq!(cp_credit, dec("100") + dec("400"), "贷 3103 = 收入 + 亏损转出");
 
         let dist_debit: Decimal = lines
             .iter()

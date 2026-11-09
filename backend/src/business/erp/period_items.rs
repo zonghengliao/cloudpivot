@@ -110,8 +110,8 @@ pub const DOC_INVENTORY: &str = "INVENTORY";
 /// 「下一个动作」的权限码与处理人反查 → 见 [`crate::business::erp::period_owner`]
 /// （反查是「该谁处理」的唯一实现，本模块只消费它）。
 pub use crate::business::erp::period_owner::{
-    Owner, OwnerResolver, PERM_PO_STATUS, PERM_PO_SUBMIT, PERM_STOCK_IN_CREATE,
-    PERM_STOCK_IN_STATUS, PERM_TRANSFER_STATUS, PERM_VOUCHER_POST,
+    Owner, OwnerResolver, PERM_PO_STATUS, PERM_PO_SUBMIT, PERM_STOCK_IN_CREATE, PERM_STOCK_IN_STATUS,
+    PERM_TRANSFER_STATUS, PERM_VOUCHER_POST,
 };
 
 /// 前端路由：凭证列表（`?voucher_no=` 深链会预填筛选）。
@@ -128,10 +128,7 @@ pub const ROUTE_INVENTORY: &str = "/business/erp/inventory";
 // ==================== 出参结构 ====================
 
 /// `Uuid` 序列化为字符串（与其它 ERP DTO 的主键口径一致）。
-fn uuid_text<S: serde::Serializer>(
-    id: &Uuid,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error> {
+fn uuid_text<S: serde::Serializer>(id: &Uuid, serializer: S) -> std::result::Result<S::Ok, S::Error> {
     serializer.serialize_str(&id.to_string())
 }
 
@@ -362,22 +359,12 @@ struct RawDoc {
 fn parse_docs(rows: &[Row], ctx: &str) -> Result<Vec<RawDoc>, ApiError> {
     let mut docs = Vec::with_capacity(rows.len());
     for row in rows {
-        let id: Uuid = row
-            .get_typed("doc_id")
-            .map_err(|error| db_error(error, ctx))?;
-        let doc_no: String = row
-            .get_typed("doc_no")
-            .map_err(|error| db_error(error, ctx))?;
-        let status: String = row
-            .get_typed("status")
-            .map_err(|error| db_error(error, ctx))?;
+        let id: Uuid = row.get_typed("doc_id").map_err(|error| db_error(error, ctx))?;
+        let doc_no: String = row.get_typed("doc_no").map_err(|error| db_error(error, ctx))?;
+        let status: String = row.get_typed("status").map_err(|error| db_error(error, ctx))?;
         let amount_text: Option<String> = row.get_typed("amount").ok();
-        let amount = amount_text
-            .as_deref()
-            .and_then(|text| Decimal::from_str(text).ok());
-        let created_at: DateTime<Utc> = row
-            .get_typed("created_at")
-            .map_err(|error| db_error(error, ctx))?;
+        let amount = amount_text.as_deref().and_then(|text| Decimal::from_str(text).ok());
+        let created_at: DateTime<Utc> = row.get_typed("created_at").map_err(|error| db_error(error, ctx))?;
         let creator: Option<String> = row.get_typed("creator").ok();
         docs.push(RawDoc {
             id,
@@ -634,11 +621,7 @@ fn doc_sources_between(start: NaiveDate, end: NaiveDate) -> [(&'static str, DocS
         params: date_params,
     };
 
-    [
-        ("采购单", purchase),
-        ("收货单", stock_in),
-        ("调拨单", transfer),
-    ]
+    [("采购单", purchase), ("收货单", stock_in), ("调拨单", transfer)]
 }
 
 // ==================== ④ 不变量（期间内 A 组） ====================
@@ -721,8 +704,7 @@ async fn invariant_details_scoped(
     let mut items = Vec::new();
 
     // ---------- A1：分录借贷不平 ----------
-    let a1_having =
-        "HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001";
+    let a1_having = "HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001";
     let a1_where = format!(
         "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
          WHERE {filter} \
@@ -758,17 +740,8 @@ async fn invariant_details_scoped(
             .await
             .map_err(|error| db_error(error, "不变量 A1 明细"))?;
         let names = voucher_names(&rows, 3);
-        failures.push(format!(
-            "A1 有 {a1_total} 张凭证分录取和不平（{}）",
-            names.join(" / ")
-        ));
-        let mut loaded = build_items(
-            ex,
-            DOC_VOUCHER,
-            parse_docs(&rows, "解析不变量 A1 明细")?,
-            owners,
-        )
-        .await?;
+        failures.push(format!("A1 有 {a1_total} 张凭证分录取和不平（{}）", names.join(" / ")));
+        let mut loaded = build_items(ex, DOC_VOUCHER, parse_docs(&rows, "解析不变量 A1 明细")?, owners).await?;
         for item in &mut loaded {
             item.status_label = "分录借贷不平".to_string();
             item.action_label = "去看凭证".to_string();
@@ -816,13 +789,7 @@ async fn invariant_details_scoped(
             "A2 有 {a2_total} 张凭证头与分录不一致（{}）",
             names.join(" / ")
         ));
-        let mut loaded = build_items(
-            ex,
-            DOC_VOUCHER,
-            parse_docs(&rows, "解析不变量 A2 明细")?,
-            owners,
-        )
-        .await?;
+        let mut loaded = build_items(ex, DOC_VOUCHER, parse_docs(&rows, "解析不变量 A2 明细")?, owners).await?;
         for item in &mut loaded {
             item.status_label = "凭证头与分录不一致".to_string();
             item.action_label = "去看凭证".to_string();
@@ -864,9 +831,7 @@ fn voucher_names(rows: &[Row], limit: usize) -> Vec<String> {
 // ==================== 全库巡检提示的明细 ====================
 
 /// 负库存行（C1/C2）：`(总数, 明细)`。**只提示、不拦结账**（口径见 `period.rs`）。
-pub async fn negative_stock_items(
-    ex: &impl SqlExecutor,
-) -> Result<(i64, Vec<BlockingItem>), ApiError> {
+pub async fn negative_stock_items(ex: &impl SqlExecutor) -> Result<(i64, Vec<BlockingItem>), ApiError> {
     let count: i64 = ex
         .scalar_sql(
             "SELECT (SELECT COUNT(*) FROM biz_inventory WHERE qty < 0) \
@@ -903,9 +868,7 @@ pub async fn negative_stock_items(
 }
 
 /// 账实漂移组（B4）：`(总数, 明细)`。**只提示、不拦结账**。
-pub async fn stock_drift_items(
-    ex: &impl SqlExecutor,
-) -> Result<(i64, Vec<BlockingItem>), ApiError> {
+pub async fn stock_drift_items(ex: &impl SqlExecutor) -> Result<(i64, Vec<BlockingItem>), ApiError> {
     let count: i64 = ex
         .scalar_sql(
             "SELECT COUNT(*) FROM (\

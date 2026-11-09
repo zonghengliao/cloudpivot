@@ -223,11 +223,7 @@ pub async fn update_precheck_result(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn update_status(
-    id: &uuid::Uuid,
-    status: &str,
-    message: Option<&str>,
-) -> std::result::Result<(), DbError> {
+pub async fn update_status(id: &uuid::Uuid, status: &str, message: Option<&str>) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_import_task SET status = ?, \
          message = COALESCE(NULLIF(?::text, ''), message), updated_at = CURRENT_TIMESTAMP \
@@ -316,11 +312,7 @@ pub async fn cancel_import_task(id: &uuid::Uuid) -> std::result::Result<Option<b
             vec![Value::from(*id)],
         )
         .await?;
-    if flagged > 0 {
-        Ok(Some(false))
-    } else {
-        Ok(None)
-    }
+    if flagged > 0 { Ok(Some(false)) } else { Ok(None) }
 }
 
 /// 读导入任务的取消标记（`import_confirm` 在每个批次前调一次）。
@@ -328,9 +320,7 @@ pub async fn cancel_import_task(id: &uuid::Uuid) -> std::result::Result<Option<b
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn import_cancel_requested(
-    id: &uuid::Uuid,
-) -> std::result::Result<Option<bool>, DbError> {
+pub async fn import_cancel_requested(id: &uuid::Uuid) -> std::result::Result<Option<bool>, DbError> {
     let row = db()
         .find_first_with_params(
             "SELECT cancel_requested FROM sys_import_task WHERE id = ?::uuid",
@@ -354,21 +344,13 @@ pub async fn import_cancel_requested(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn finish_import_canceled(
-    id: &uuid::Uuid,
-    imported: i32,
-    message: &str,
-) -> std::result::Result<(), DbError> {
+pub async fn finish_import_canceled(id: &uuid::Uuid, imported: i32, message: &str) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_import_task \
          SET status = 'CANCELED', imported_rows = ?, message = ?, \
              finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
          WHERE id = ?::uuid AND status IN ('IMPORTING', 'VALIDATED', 'PENDING')",
-        vec![
-            Value::from(imported),
-            Value::from(message),
-            Value::from(*id),
-        ],
+        vec![Value::from(imported), Value::from(message), Value::from(*id)],
     )
     .await?;
     Ok(())
@@ -431,9 +413,8 @@ pub async fn find_import_task(
 ) -> std::result::Result<Option<ImportTask>, DbError> {
     // 批次 B · B5：单条读取与列表同口径（附录 C #12）。片段追加在业务条件**之后**，
     // 因此参数顺序是「id, 片段参数」（与 SQL 里 `?` 的出现顺序一致）。
-    let mut sql = format!(
-        "SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task t WHERE t.id = ?::uuid AND t.deleted_at IS NULL"
-    );
+    let mut sql =
+        format!("SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task t WHERE t.id = ?::uuid AND t.deleted_at IS NULL");
     let filter = scope::filter_for(principal, scope::ScopeTarget::SYS_IMPORT_TASK);
     sql.push_str(filter.sql());
     let mut params = vec![Value::from(*id)];
@@ -482,8 +463,7 @@ pub async fn page_import_tasks(
     // 开关，不开启时任何持 `business:impexp:list` 的人都能看到**全站**导入任务
     // （含他人上传的文件名、行数、错误摘要）—— 这里按 `create_by` 收口。
     // `{FILTER}` 必须在业务条件之前（片段参数恒前置，§2.6）；片段只锚定主体表 `t`。
-    let mut sql =
-        format!("SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task t WHERE t.deleted_at IS NULL");
+    let mut sql = format!("SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task t WHERE t.deleted_at IS NULL");
     sql.push_str(scope::FILTER_MARKER);
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.keyword.as_deref()) {
@@ -539,10 +519,7 @@ pub async fn page_import_tasks(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn insert_task_errors(
-    task_id: &uuid::Uuid,
-    issues: &[RowIssue],
-) -> std::result::Result<(), DbError> {
+pub async fn insert_task_errors(task_id: &uuid::Uuid, issues: &[RowIssue]) -> std::result::Result<(), DbError> {
     if issues.is_empty() {
         return Ok(());
     }
@@ -644,10 +621,7 @@ pub async fn page_task_errors(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn list_task_errors(
-    task_id: &uuid::Uuid,
-    limit: i64,
-) -> std::result::Result<Vec<ImportTaskError>, DbError> {
+pub async fn list_task_errors(task_id: &uuid::Uuid, limit: i64) -> std::result::Result<Vec<ImportTaskError>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT id, row_no, column_key, column_header, raw_value, error_code, error_message \
@@ -942,9 +916,7 @@ pub async fn find_export_task(
 ///
 /// **任何面向用户的 handler 都不得调用本函数** —— 用错一次就是越权读；
 /// 用户侧一律走 [`find_export_task`]（带 `principal`）。
-pub async fn find_export_task_unscoped(
-    id: &uuid::Uuid,
-) -> std::result::Result<Option<ExportTask>, DbError> {
+pub async fn find_export_task_unscoped(id: &uuid::Uuid) -> std::result::Result<Option<ExportTask>, DbError> {
     let sql = format!(
         "SELECT {} FROM sys_export_task WHERE id = ?::uuid AND deleted_at IS NULL",
         export_task_columns("")
@@ -1091,13 +1063,9 @@ pub fn claim_export_task_sql() -> String {
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn claim_export_task(
-    worker_id: &str,
-) -> std::result::Result<Option<ExportTask>, DbError> {
+pub async fn claim_export_task(worker_id: &str) -> std::result::Result<Option<ExportTask>, DbError> {
     let sql = claim_export_task_sql();
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(worker_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(worker_id)]).await?;
     match rows.into_iter().next() {
         Some(row) => Ok(Some(map_export_task(&row)?)),
         None => Ok(None),
@@ -1139,11 +1107,7 @@ pub async fn set_export_total(id: &uuid::Uuid, total: i64) -> std::result::Resul
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn touch_export_progress(
-    id: &uuid::Uuid,
-    exported: i64,
-    progress: i16,
-) -> std::result::Result<u64, DbError> {
+pub async fn touch_export_progress(id: &uuid::Uuid, exported: i64, progress: i16) -> std::result::Result<u64, DbError> {
     db().execute_with_params(
         "UPDATE sys_export_task \
          SET exported_rows = ?, progress = GREATEST(progress, ?), \
@@ -1181,9 +1145,7 @@ pub async fn heartbeat_export_task(id: &uuid::Uuid) -> std::result::Result<u64, 
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn export_cancel_requested(
-    id: &uuid::Uuid,
-) -> std::result::Result<Option<bool>, DbError> {
+pub async fn export_cancel_requested(id: &uuid::Uuid) -> std::result::Result<Option<bool>, DbError> {
     let row = db()
         .find_first_with_params(
             "SELECT cancel_requested FROM sys_export_task WHERE id = ?::uuid",
@@ -1275,11 +1237,7 @@ pub async fn fail_export_task(
                  message = ?, updated_at = CURRENT_TIMESTAMP \
              WHERE id = ?::uuid AND status = 'RUNNING' \
              RETURNING status, attempt_count, max_attempts",
-            vec![
-                Value::from(next_run_at),
-                Value::from(message),
-                Value::from(*id),
-            ],
+            vec![Value::from(next_run_at), Value::from(message), Value::from(*id)],
         )
         .await?;
     match row {
@@ -1307,10 +1265,7 @@ pub async fn fail_export_task(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn fail_export_task_terminal(
-    id: &uuid::Uuid,
-    message: &str,
-) -> std::result::Result<(), DbError> {
+pub async fn fail_export_task_terminal(id: &uuid::Uuid, message: &str) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_export_task \
          SET status = 'FAILED', \
@@ -1330,10 +1285,7 @@ pub async fn fail_export_task_terminal(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn mark_export_canceled(
-    id: &uuid::Uuid,
-    message: &str,
-) -> std::result::Result<(), DbError> {
+pub async fn mark_export_canceled(id: &uuid::Uuid, message: &str) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_export_task \
          SET status = 'CANCELED', message = ?, locked_by = NULL, heartbeat_at = NULL, \
@@ -1380,11 +1332,7 @@ pub async fn cancel_export_task(id: &uuid::Uuid) -> std::result::Result<Option<b
             vec![Value::from(*id)],
         )
         .await?;
-    if flagged > 0 {
-        Ok(Some(false))
-    } else {
-        Ok(None)
-    }
+    if flagged > 0 { Ok(Some(false)) } else { Ok(None) }
 }
 
 /// 重新排队（人工「重试」）：把 `FAILED` / `CANCELED` / `EXPIRED` 重置回 `PENDING`。

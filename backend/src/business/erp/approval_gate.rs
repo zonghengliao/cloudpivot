@@ -232,10 +232,7 @@ fn flow_not_configured(biz_type: &str, flow_code: &str) -> ApiError {
 ///
 /// 六个入口在 `Some(flow)` 分支里调它。**不静默忽略**：忽略等于「以为跳过了、其实走了审批」，
 /// 用户会因为「提交后单据卡在审批中」而困惑（这正是本次改造要消灭的那类静默行为）。
-pub fn ensure_not_skipped(
-    flow_code: &str,
-    gate: &ApprovalGate<'_>,
-) -> std::result::Result<(), ApiError> {
+pub fn ensure_not_skipped(flow_code: &str, gate: &ApprovalGate<'_>) -> std::result::Result<(), ApiError> {
     if gate.requested() {
         return Err(flow_is_published(flow_code));
     }
@@ -273,10 +270,7 @@ pub fn authorize_missing_flow(
     }
     Ok(format!(
         "跳过审批（未配置 {flow_code} 流程）：{}",
-        reason
-            .chars()
-            .take(MAX_MERGED_REASON_CHARS)
-            .collect::<String>()
+        reason.chars().take(MAX_MERGED_REASON_CHARS).collect::<String>()
     ))
 }
 
@@ -488,10 +482,7 @@ pub async fn health() -> DbResult<FlowHealthRes> {
         items.push(inspect(biz_type, flow_code).await?);
     }
     let total = items.len();
-    let healthy = items
-        .iter()
-        .filter(|item| item.published && item.graph_ok)
-        .count();
+    let healthy = items.iter().filter(|item| item.published && item.graph_ok).count();
     Ok(FlowHealthRes {
         checked_at: Utc::now().to_rfc3339(),
         total,
@@ -519,9 +510,7 @@ async fn inspect_test_residue() -> DbResult<TestResidueRes> {
 
     let defs: i64 = db()
         .scalar_with_params(
-            &format!(
-                "SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
-            ),
+            &format!("SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
             vec![],
         )
         .await?;
@@ -537,8 +526,7 @@ async fn inspect_test_residue() -> DbResult<TestResidueRes> {
     };
     let message = match crate::shared::startup_guard::test_residue_warning(residue) {
         Some(message) => message,
-        None => "测试残留 0 行：biz_flow_def / biz_flow_instance 里没有 E2E_* / D2_SMOKE 活行"
-            .to_string(),
+        None => "测试残留 0 行：biz_flow_def / biz_flow_instance 里没有 E2E_* / D2_SMOKE 活行".to_string(),
     };
     Ok(TestResidueRes {
         defs: residue.defs,
@@ -580,9 +568,11 @@ async fn inspect_test_residue() -> DbResult<TestResidueRes> {
 )]
 #[nik::get("/business/erp/approval-flow/health")]
 pub async fn approval_flow_health() -> ResResult<FlowHealthRes> {
-    Ok(Res::ok(health().await.map_err(|error| {
-        utils::db_error(error, "审批流配置自检")
-    })?))
+    Ok(Res::ok(
+        health()
+            .await
+            .map_err(|error| utils::db_error(error, "审批流配置自检"))?,
+    ))
 }
 
 // ==================== 单测 ====================
@@ -631,8 +621,8 @@ mod tests {
         let nobody = claims_with(&["business:erp:purchase-order:status"]);
         let req = skip_req(false, None);
         let gate = ApprovalGate::new(&req, &nobody);
-        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate)
-            .expect_err("没配流程且没请求跳过必须 409");
+        let error =
+            authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("没配流程且没请求跳过必须 409");
         assert_eq!(error.status, 409, "默认拒绝必须是 409（冲突）");
         assert_eq!(
             error.code,
@@ -655,8 +645,7 @@ mod tests {
         // ② 请求了跳过但没有权限码 → 403（不给自助开启的机会）
         let req = skip_req(true, Some("月底关账，供应商已现场验收，先放行"));
         let gate = ApprovalGate::new(&req, &nobody);
-        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate)
-            .expect_err("无权限码必须 403");
+        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("无权限码必须 403");
         assert_eq!(error.status, 403);
         assert_eq!(error.code, error_code::PERMISSION_DENIED);
         assert!(
@@ -669,16 +658,14 @@ mod tests {
         let holder = claims_with(&[PERM_SKIP_APPROVAL]);
         let req = skip_req(true, None);
         let gate = ApprovalGate::new(&req, &holder);
-        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate)
-            .expect_err("有权限没理由必须 400");
+        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("有权限没理由必须 400");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::PARAM_INVALID);
 
         // ④ 有权限但理由不足 10 字 → 400，报文给出实际字数
         let req = skip_req(true, Some("  先放行  "));
         let gate = ApprovalGate::new(&req, &holder);
-        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate)
-            .expect_err("理由不足 10 字必须 400");
+        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("理由不足 10 字必须 400");
         assert_eq!(error.status, 400);
         assert!(
             error.msg.contains("当前 3 字"),
@@ -689,8 +676,7 @@ mod tests {
         // ⑤ 有权限 + 理由齐全 → 放行，返回写日志用的合成理由
         let req = skip_req(true, Some("供应商现场验收完成，月底关账前先入库"));
         let gate = ApprovalGate::new(&req, &holder);
-        let reason = authorize_missing_flow("STOCK_IN_POST", "stock_in_post", &gate)
-            .expect("有权限且理由齐全必须放行");
+        let reason = authorize_missing_flow("STOCK_IN_POST", "stock_in_post", &gate).expect("有权限且理由齐全必须放行");
         assert!(
             reason.starts_with("跳过审批（未配置 stock_in_post 流程）："),
             "合成理由要能一眼看出「这是跳过审批」：{reason}"
@@ -700,10 +686,7 @@ mod tests {
         // ⑥ 超管（`*` 通配）视同持有权限码
         let root = claims_with(&["*"]);
         let gate = ApprovalGate::new(&req, &root);
-        assert!(
-            approve(&gate),
-            "SUPER_ADMIN 的通配权限必须短路放行（与路由层同口径）"
-        );
+        assert!(approve(&gate), "SUPER_ADMIN 的通配权限必须短路放行（与路由层同口径）");
 
         // ⑦ 流程已发布时请求跳过 → 400（不许绕过已配置的内控）
         let error = ensure_not_skipped("po_approve", &gate).expect_err("已发布流程不许跳过");
@@ -714,8 +697,8 @@ mod tests {
         let system = ApprovalGate::none();
         assert!(!system.requested(), "系统路径不带跳过请求");
         assert!(!system.may_skip(), "系统路径没有权限声明");
-        let error = authorize_missing_flow("VOUCHER_REVERSE", "voucher_reverse", &system)
-            .expect_err("系统路径必须 409");
+        let error =
+            authorize_missing_flow("VOUCHER_REVERSE", "voucher_reverse", &system).expect_err("系统路径必须 409");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::APPROVAL_FLOW_NOT_CONFIGURED);
     }
@@ -732,18 +715,11 @@ mod tests {
             Some("供应商召回"),
             "跳过审批（未配置 stock_in_cancel 流程）：现场已清点",
         );
-        assert!(
-            merged.starts_with("供应商召回｜跳过审批"),
-            "业务理由在前：{merged}"
-        );
+        assert!(merged.starts_with("供应商召回｜跳过审批"), "业务理由在前：{merged}");
         let merged = merge_reason(None, "跳过审批（未配置 x 流程）：理由");
         assert_eq!(merged, "跳过审批（未配置 x 流程）：理由");
         let long = merge_reason(Some(&"甲".repeat(300)), "跳过审批");
-        assert_eq!(
-            long.chars().count(),
-            MAX_MERGED_REASON_CHARS,
-            "必须截断到 200 字"
-        );
+        assert_eq!(long.chars().count(), MAX_MERGED_REASON_CHARS, "必须截断到 200 字");
     }
 
     /// 8 个业务类型都在自检清单里（卡面点名的 8 个，一个不能少）。
@@ -827,26 +803,15 @@ mod tests {
                 "{}（{}）必须已发布，实际 def_status={:?}：{:?}",
                 item.biz_type, item.flow_code, item.def_status, item.graph_issues
             );
-            assert!(
-                item.version_no.is_some(),
-                "{} 必须有当前版本号",
-                item.biz_type
-            );
-            assert!(
-                item.has_snapshot,
-                "{} 的当前版本必须有发布快照",
-                item.biz_type
-            );
+            assert!(item.version_no.is_some(), "{} 必须有当前版本号", item.biz_type);
+            assert!(item.has_snapshot, "{} 的当前版本必须有发布快照", item.biz_type);
             assert!(
                 item.graph_ok,
                 "{} 的图形校验必须通过：{:?}",
                 item.biz_type, item.graph_issues
             );
         }
-        assert_eq!(
-            report.healthy, 8,
-            "8 个流程必须全部「已发布 + 图形校验通过」"
-        );
+        assert_eq!(report.healthy, 8, "8 个流程必须全部「已发布 + 图形校验通过」");
         assert_eq!(report.unhealthy, 0);
         println!(
             "[DC-01] 审批流自检 {} / {} 健康（checked_at={}）",
@@ -921,10 +886,7 @@ mod gate_boundary_tests {
     /// 理由去空白；空串 / 纯空白 → `None`（不能算「写了理由」）。
     #[test]
     fn skip_req_reason_text_trims_and_blank_is_none() {
-        assert_eq!(
-            skip_req(true, Some("  现场已验收  ")).reason_text(),
-            Some("现场已验收")
-        );
+        assert_eq!(skip_req(true, Some("  现场已验收  ")).reason_text(), Some("现场已验收"));
         assert_eq!(skip_req(true, Some("")).reason_text(), None);
         assert_eq!(skip_req(true, Some("   \n\t ")).reason_text(), None);
         assert_eq!(skip_req(true, None).reason_text(), None);
@@ -969,14 +931,9 @@ mod gate_boundary_tests {
         assert_eq!(nine.chars().count(), MIN_SKIP_REASON_CHARS - 1);
         let req = skip_req(true, Some(nine));
         let gate = ApprovalGate::new(&req, &claims);
-        let error =
-            authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("9 字必须拒");
+        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("9 字必须拒");
         assert_eq!((error.status, error.code), (400, error_code::PARAM_INVALID));
-        assert!(
-            error.msg.contains("当前 9 字"),
-            "报文必须给出实际字数：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("当前 9 字"), "报文必须给出实际字数：{}", error.msg);
         assert!(
             error.msg.contains(&MIN_SKIP_REASON_CHARS.to_string()),
             "报文必须给出下限：{}",
@@ -987,8 +944,7 @@ mod gate_boundary_tests {
         assert_eq!(ten.chars().count(), MIN_SKIP_REASON_CHARS);
         let req = skip_req(true, Some(ten));
         let gate = ApprovalGate::new(&req, &claims);
-        let reason =
-            authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect("10 字必须放行");
+        let reason = authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect("10 字必须放行");
         assert!(reason.contains(ten), "理由原样带出：{reason}");
     }
 
@@ -1010,8 +966,7 @@ mod gate_boundary_tests {
         // 前后空白不算：`"  一二三四五六七八九  "` 仍是 9 字。
         let req = skip_req(true, Some("  一二三四五六七八九  "));
         let gate = ApprovalGate::new(&req, &claims);
-        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate)
-            .expect_err("去空白后只有 9 字必须拒");
+        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("去空白后只有 9 字必须拒");
         assert!(error.msg.contains("当前 9 字"), "{}", error.msg);
     }
 
@@ -1047,18 +1002,13 @@ mod gate_boundary_tests {
         let req = skip_req(false, None);
         let nobody = claims_with(&[]);
         let gate = ApprovalGate::new(&req, &nobody);
-        let error = authorize_missing_flow("STOCK_IN_POST", "stock_in_post", &gate)
-            .expect_err("没请求跳过必须 409");
+        let error = authorize_missing_flow("STOCK_IN_POST", "stock_in_post", &gate).expect_err("没请求跳过必须 409");
         assert_eq!(
             (error.status, error.code),
             (409, error_code::APPROVAL_FLOW_NOT_CONFIGURED)
         );
         assert!(error.msg.contains("stock_in_post"), "{}", error.msg);
-        assert!(
-            error.msg.contains("STOCK_IN_POST"),
-            "业务类型也要点名：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("STOCK_IN_POST"), "业务类型也要点名：{}", error.msg);
         assert!(error.msg.contains("①"), "出路①（发布流程）：{}", error.msg);
         assert!(error.msg.contains("②"), "出路②（授权跳过）：{}", error.msg);
         assert!(error.msg.contains(PERM_SKIP_APPROVAL), "{}", error.msg);
@@ -1070,12 +1020,8 @@ mod gate_boundary_tests {
         let req = skip_req(true, Some("月底关账，供应商已现场验收"));
         let nobody = claims_with(&["business:erp:payable-payment:status"]);
         let gate = ApprovalGate::new(&req, &nobody);
-        let error = authorize_missing_flow("PAYABLE_PAY", "payable_pay", &gate)
-            .expect_err("无权限码必须 403");
-        assert_eq!(
-            (error.status, error.code),
-            (403, error_code::PERMISSION_DENIED)
-        );
+        let error = authorize_missing_flow("PAYABLE_PAY", "payable_pay", &gate).expect_err("无权限码必须 403");
+        assert_eq!((error.status, error.code), (403, error_code::PERMISSION_DENIED));
         assert!(error.msg.contains(PERM_SKIP_APPROVAL), "{}", error.msg);
         assert!(error.msg.contains("不能自助"), "{}", error.msg);
     }
@@ -1121,10 +1067,7 @@ mod gate_boundary_tests {
     /// 合成后总长恰好截到 200 字（`biz_status_log.reason` 的写入口会判 400）。
     #[test]
     fn merge_reason_clamps_total_length() {
-        let merged = merge_reason(
-            Some(&"业".repeat(150)),
-            &format!("跳过审批：{}", "由".repeat(150)),
-        );
+        let merged = merge_reason(Some(&"业".repeat(150)), &format!("跳过审批：{}", "由".repeat(150)));
         assert_eq!(
             merged.chars().count(),
             MAX_MERGED_REASON_CHARS,
@@ -1142,17 +1085,11 @@ mod gate_boundary_tests {
     fn permission_codes_are_scoped_and_distinct() {
         for code in [PERM_SKIP_APPROVAL, PERM_FLOW_HEALTH] {
             let parts: Vec<&str> = code.split(':').collect();
-            assert!(
-                parts.len() >= 3,
-                "权限码必须是 {{模块}}:{{资源}}:{{动作}}：{code}"
-            );
+            assert!(parts.len() >= 3, "权限码必须是 {{模块}}:{{资源}}:{{动作}}：{code}");
             assert_eq!(parts[0], "business", "业务侧权限码前缀：{code}");
             assert_eq!(parts[1], "erp", "{code}");
         }
-        assert_ne!(
-            PERM_SKIP_APPROVAL, PERM_FLOW_HEALTH,
-            "跳过审批与配置自检必须是两个码"
-        );
+        assert_ne!(PERM_SKIP_APPROVAL, PERM_FLOW_HEALTH, "跳过审批与配置自检必须是两个码");
         assert_eq!(MIN_SKIP_REASON_CHARS, 10, "理由下限是 10 字（卡面契约）");
         assert_eq!(MAX_MERGED_REASON_CHARS, 200, "合成理由上限 200 字");
     }

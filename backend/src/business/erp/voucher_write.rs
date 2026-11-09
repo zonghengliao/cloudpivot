@@ -156,11 +156,7 @@ fn conflict(message: impl Into<String>) -> ApiError {
 
 /// 404：凭证不存在。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "凭证不存在或已删除".to_string(),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "凭证不存在或已删除".to_string())
 }
 
 /// 提交审批撞 `uk_biz_flow_instance_biz_active` → `409 + 本单号`（不是「单号重复、去查 biz_seq」）。
@@ -197,10 +193,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "凭证号重复（唯一约束{}）：取号器与库里的号段不一致，请联系运维排查 biz_seq",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -686,10 +679,7 @@ pub async fn un_audit_voucher(
 /// * 404 + `10002`：凭证不存在 / 已删除；
 /// * 409 + `10003`：不是已审核（草稿要先审核；已记账无需再记）；
 /// * 409 + `10003`：所属期间已结账。
-pub async fn post_audited_voucher(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<VoucherDetailRes, ApiError> {
+pub async fn post_audited_voucher(id: Uuid, operator: Option<Uuid>) -> std::result::Result<VoucherDetailRes, ApiError> {
     run_voucher_transition(VoucherTransition {
         id,
         expect: voucher::STATUS_AUDITED,
@@ -703,9 +693,7 @@ pub async fn post_audited_voucher(
 }
 
 /// 审核链的公共外壳：开事务 → 事务体 → 提交 → 提交后联动（通知 / 建任务）→ 回详情。
-async fn run_voucher_transition(
-    input: VoucherTransition<'_>,
-) -> std::result::Result<VoucherDetailRes, ApiError> {
+async fn run_voucher_transition(input: VoucherTransition<'_>) -> std::result::Result<VoucherDetailRes, ApiError> {
     let id = input.id;
     let tx = db()
         .begin()
@@ -956,9 +944,7 @@ async fn manual_in_tx(
                 ApiError::new(
                     400,
                     error_code::ERP_REFERENCE_MISSING,
-                    format!(
-                        "entries[{index}].account_id 科目不存在 / 已停用 / 已删除（{account_id}）"
-                    ),
+                    format!("entries[{index}].account_id 科目不存在 / 已停用 / 已删除（{account_id}）"),
                 )
             })?;
         lines.push(EntryLine {
@@ -1075,11 +1061,8 @@ pub async fn submit_reverse(
         }
         None => {
             // ARCH-3 DC-01：**不再静默直接红冲**。
-            let skip_reason = approval_gate::authorize_missing_flow(
-                voucher_bridge::BIZ_TYPE,
-                voucher_bridge::FLOW_CODE,
-                gate,
-            )?;
+            let skip_reason =
+                approval_gate::authorize_missing_flow(voucher_bridge::BIZ_TYPE, voucher_bridge::FLOW_CODE, gate)?;
             tracing::warn!(
                 voucher_id = %id,
                 %skip_reason,
@@ -1171,12 +1154,7 @@ async fn submit_reverse_for_approval(
         .await
         .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
     {
-        let instance_no = instance_no_of(
-            original
-                .pending_reverse_instance_id
-                .unwrap_or_else(Uuid::nil),
-        )
-        .await?;
+        let instance_no = instance_no_of(original.pending_reverse_instance_id.unwrap_or_else(Uuid::nil)).await?;
         return Err(conflict(format!(
             "凭证 {} 已在红冲审批中（{instance_no}）：请等审批结束，或从审批中心撤回后再提交",
             original.voucher_no
@@ -1279,9 +1257,8 @@ async fn submit_reverse_tx(
     if let Some(rejected) = out.rejected.take() {
         // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
         // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
-        return Err(rejected.appended(
-            "（内控要求：红冲复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
-        ));
+        return Err(rejected
+            .appended("（内控要求：红冲复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）"));
     }
     let instance_id = out
         .instance_id
@@ -1418,10 +1395,7 @@ pub async fn withdraw_reverse(
 /// ⚠️ 顺序很关键：**先清 pending，再红冲**。
 /// 库侧 `ck_biz_voucher_pending_reverse` 要求「pending 非空 ⟹ `reversed_by IS NULL`」，
 /// 反过来的话 `reverse_posted` 刚写 `reversed_by` 就会 23514。
-pub async fn reverse_after_approval(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<Uuid, ApiError> {
+pub async fn reverse_after_approval(id: Uuid, operator: Option<Uuid>) -> std::result::Result<Uuid, ApiError> {
     let now = Utc::now();
     let tx = db()
         .begin()
@@ -1479,8 +1453,7 @@ pub async fn reverse_after_approval(
                     format!("红字凭证 {red_id} 刚落库却读不到（同一事务内）"),
                 )
             })?;
-        let change =
-            voucher_linkage::run_in_tx(&tx, &red, voucher::STATUS_POSTED, operator).await?;
+        let change = voucher_linkage::run_in_tx(&tx, &red, voucher::STATUS_POSTED, operator).await?;
         Ok::<(Uuid, voucher_linkage::VoucherStatusChange), ApiError>((red_id, change))
     }
     .await;
@@ -1524,10 +1497,7 @@ pub async fn restore_after_reverse_rejection(
     .map_err(|error| {
         write_error(
             error,
-            &format!(
-                "凭证 {id} 红冲审批未通过后清 pending（{}）",
-                verdict.as_str()
-            ),
+            &format!("凭证 {id} 红冲审批未通过后清 pending（{}）", verdict.as_str()),
         )
     })?;
     Ok(())
@@ -1615,9 +1585,7 @@ pub async fn voucher_create_handler(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateVoucherReq>,
 ) -> ResResult<VoucherDetailRes> {
-    Ok(Res::ok(
-        create_manual_voucher(&req, operator_of(&claims)).await?,
-    ))
+    Ok(Res::ok(create_manual_voucher(&req, operator_of(&claims)).await?))
 }
 
 // ==================== P0-FIX-4A：审核链三个入口 ====================
@@ -1701,9 +1669,7 @@ pub async fn voucher_post_handler(
 ) -> ResResult<VoucherDetailRes> {
     let _ = body;
     let id = parse_uuid(&id, "id")?;
-    Ok(Res::ok(
-        post_audited_voucher(id, operator_of(&claims)).await?,
-    ))
+    Ok(Res::ok(post_audited_voucher(id, operator_of(&claims)).await?))
 }
 
 // ==================== 单测 ====================
@@ -1757,11 +1723,7 @@ mod tests {
             assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
             assert!(api.msg.contains("PZ-20261102-000123"), "{}", api.msg);
             assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
-            assert!(
-                !api.msg.contains("biz_seq"),
-                "不能把用户指到取号器：{}",
-                api.msg
-            );
+            assert!(!api.msg.contains("biz_seq"), "不能把用户指到取号器：{}", api.msg);
             assert!(!api.msg.contains("单号重复"), "{}", api.msg);
         }
 
@@ -1883,8 +1845,7 @@ mod tests {
              ON CONFLICT (period_code) DO UPDATE SET status = 'OPEN'",
         )
         .await;
-        exec("UPDATE biz_account SET status = 1 WHERE account_code IN ('1405', '2202', '1002')")
-            .await;
+        exec("UPDATE biz_account SET status = 1 WHERE account_code IN ('1405', '2202', '1002')").await;
         Some(guard)
     }
 
@@ -1956,9 +1917,7 @@ mod tests {
     /// 这里刻意不复写 `WHERE status='POSTED'`：要证明的是「生产总账不认 DRAFT / AUDITED」，
     /// 自己在测试里写一遍那个条件等于自己验自己。
     async fn ledger_lines_of(voucher_id: Uuid, account_code: &str) -> Vec<ledger::LedgerEntryRow> {
-        let account = voucher::account_required(db(), account_code, "单测科目")
-            .await
-            .unwrap();
+        let account = voucher::account_required(db(), account_code, "单测科目").await.unwrap();
         let (rows, _total) = ledger::ledger_page(&ledger::LedgerFilter {
             account_id: account.id,
             date_from: None,
@@ -1968,9 +1927,7 @@ mod tests {
         })
         .await
         .expect("总账取数失败");
-        rows.into_iter()
-            .filter(|row| row.voucher_id == voucher_id)
-            .collect()
+        rows.into_iter().filter(|row| row.voucher_id == voucher_id).collect()
     }
 
     /// 凭证余额表里某科目「本期借方发生额」—— 生产报表口径（只算 POSTED）。
@@ -2050,19 +2007,14 @@ mod tests {
             None => return,
         };
         let original_id = new_posted_voucher().await;
-        let red = reverse_voucher(original_id, Some("金额录错"), None)
-            .await
-            .unwrap();
+        let red = reverse_voucher(original_id, Some("金额录错"), None).await.unwrap();
         let original = find_voucher(db(), original_id).await.unwrap().unwrap();
         assert_eq!(
             original.status,
             voucher::STATUS_POSTED,
             "原凭证状态保持 POSTED，只打 reversed_by"
         );
-        assert_eq!(
-            original.reversed_by,
-            Some(Uuid::parse_str(&red.voucher.id).unwrap())
-        );
+        assert_eq!(original.reversed_by, Some(Uuid::parse_str(&red.voucher.id).unwrap()));
         assert_eq!(original.reverse_of, None, "原凭证不是红字凭证");
     }
 
@@ -2076,9 +2028,7 @@ mod tests {
             None => return,
         };
         let original_id = new_posted_voucher().await;
-        let red = reverse_voucher(original_id, Some("第一次"), None)
-            .await
-            .unwrap();
+        let red = reverse_voucher(original_id, Some("第一次"), None).await.unwrap();
 
         let err = reverse_voucher(original_id, Some("第二次"), None)
             .await
@@ -2112,9 +2062,7 @@ mod tests {
             None => return,
         };
         let original_id = new_posted_voucher().await;
-        let red = reverse_voucher(original_id, Some("录错"), None)
-            .await
-            .unwrap();
+        let red = reverse_voucher(original_id, Some("录错"), None).await.unwrap();
         let red_id = Uuid::parse_str(&red.voucher.id).unwrap();
 
         let err = reverse_voucher(red_id, Some("再冲一次"), None)
@@ -2144,9 +2092,7 @@ mod tests {
             ]),
             remark: None,
         };
-        let err = create_manual_voucher(&req, None)
-            .await
-            .expect_err("借贷不平衡必须被拒");
+        let err = create_manual_voucher(&req, None).await.expect_err("借贷不平衡必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("借贷不平衡"), "{}", err.msg);
         assert!(err.msg.contains("差额 0.5"), "文案要点名差额：{}", err.msg);
@@ -2213,10 +2159,7 @@ mod tests {
             "手工凭证走蓝字号段：{}",
             detail.voucher.voucher_no
         );
-        assert_eq!(
-            detail.entries[0].account_code, "1405",
-            "分录要落科目编码快照"
-        );
+        assert_eq!(detail.entries[0].account_code, "1405", "分录要落科目编码快照");
     }
 
     // ---------- 补充：原因必填 / 已结账期间 ----------
@@ -2297,10 +2240,7 @@ mod tests {
 
         let logs = trail(&detail.voucher.voucher_no).await;
         assert_eq!(logs.len(), 1, "建单只写一条日志：{logs:?}");
-        assert_eq!(
-            logs[0].from_status, None,
-            "建单日志的 from_status 必须是 NULL"
-        );
+        assert_eq!(logs[0].from_status, None, "建单日志的 from_status 必须是 NULL");
         assert_eq!(logs[0].to_status, voucher::STATUS_DRAFT);
         assert_eq!(logs[0].operator_id, Some(CREATOR), "日志要记制单人");
 
@@ -2363,10 +2303,7 @@ mod tests {
             .unwrap_or_else(|err| panic!("审核失败：{} {}", err.code, err.msg));
         assert_eq!(audited.voucher.status, voucher::STATUS_AUDITED);
         assert_eq!(audited.voucher.status_label, "已审核");
-        assert!(
-            audited.voucher.posted_at.is_none(),
-            "审核不是记账：不许有记账时间"
-        );
+        assert!(audited.voucher.posted_at.is_none(), "审核不是记账：不许有记账时间");
 
         let logs = trail(&audited.voucher.voucher_no).await;
         assert_eq!(logs.len(), 2, "建单 + 审核两条：{logs:?}");
@@ -2452,11 +2389,7 @@ mod tests {
             "文案要说清该先做什么：{}",
             err.msg
         );
-        assert!(
-            err.msg.contains("审核"),
-            "文案要给出当前可选动作：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("审核"), "文案要给出当前可选动作：{}", err.msg);
         let row = find_voucher(db(), id).await.unwrap().unwrap();
         assert_eq!(row.status, voucher::STATUS_DRAFT);
         assert!(row.posted_at.is_none(), "记账失败不许盖戳");
@@ -2493,10 +2426,7 @@ mod tests {
         audit_voucher(id, None, Some(AUDITOR))
             .await
             .unwrap_or_else(|err| panic!("审核失败：{} {}", err.code, err.msg));
-        assert!(
-            ledger_lines_of(id, "1405").await.is_empty(),
-            "已审核未记账也不进总账"
-        );
+        assert!(ledger_lines_of(id, "1405").await.is_empty(), "已审核未记账也不进总账");
         assert_eq!(
             trial_period_debit(&period, "1405").await,
             base_ledger_1405,
@@ -2578,9 +2508,7 @@ mod tests {
         assert!(err.msg.contains("已入账"), "{}", err.msg);
 
         // 回到草稿就能改（反审核之后）
-        un_audit_voucher(id, Some("要改摘要"), Some(AUDITOR))
-            .await
-            .unwrap();
+        un_audit_voucher(id, Some("要改摘要"), Some(AUDITOR)).await.unwrap();
         update_summary(id, Some("草稿可以改"), Some(CREATOR))
             .await
             .expect("草稿必须能改摘要");
@@ -2595,12 +2523,8 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let inventory = voucher::account_required(db(), "1405", "单测科目")
-            .await
-            .unwrap();
-        let payable = voucher::account_required(db(), "2202", "单测科目")
-            .await
-            .unwrap();
+        let inventory = voucher::account_required(db(), "1405", "单测科目").await.unwrap();
+        let payable = voucher::account_required(db(), "2202", "单测科目").await.unwrap();
         let line = |line_no: i32, account: AccountRef, debit: &str, credit: &str| EntryLine {
             line_no,
             summary: "P4A 非法初始状态".to_string(),
@@ -2654,12 +2578,8 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let inventory = voucher::account_required(db(), "1405", "单测科目")
-            .await
-            .unwrap();
-        let payable = voucher::account_required(db(), "2202", "单测科目")
-            .await
-            .unwrap();
+        let inventory = voucher::account_required(db(), "1405", "单测科目").await.unwrap();
+        let payable = voucher::account_required(db(), "2202", "单测科目").await.unwrap();
         let line = |line_no: i32, account: AccountRef, debit: &str, credit: &str| EntryLine {
             line_no,
             summary: "P4A 自动凭证".to_string(),
@@ -2709,15 +2629,8 @@ mod tests {
         assert_eq!(Entity::Voucher.edges(), &voucher::LEGAL_EDGES[..]);
         assert_eq!(Entity::Voucher.edges().len(), 3, "凭证只认三条边");
 
-        for (from, to) in [
-            ("DRAFT", "AUDITED"),
-            ("AUDITED", "DRAFT"),
-            ("AUDITED", "POSTED"),
-        ] {
-            assert!(
-                Entity::Voucher.can_transition(from, to),
-                "{from} → {to} 必须是合法边"
-            );
+        for (from, to) in [("DRAFT", "AUDITED"), ("AUDITED", "DRAFT"), ("AUDITED", "POSTED")] {
+            assert!(Entity::Voucher.can_transition(from, to), "{from} → {to} 必须是合法边");
         }
         for (from, to) in [
             ("DRAFT", "POSTED"),   // 制单 ≠ 审核：故意没有这条捷径
@@ -2756,10 +2669,7 @@ mod tests {
                 voucher::LEGAL_EDGES[index],
                 "VOUCHER_BASE 与 LEGAL_EDGES 第 {index} 条不一致"
             );
-            assert!(
-                edge.meta.mandatory,
-                "凭证的三条边都必须 mandatory（内控动作不可关）"
-            );
+            assert!(edge.meta.mandatory, "凭证的三条边都必须 mandatory（内控动作不可关）");
         }
         assert_eq!(
             Entity::Voucher
@@ -2783,8 +2693,8 @@ mod tests {
     #[test]
     fn p4a_self_audit_gate_matrix() {
         // 开关开（默认）+ 同人 → 403 + 65019
-        let err = check_self_audit(true, Some(CREATOR), Some(CREATOR), "PZ-20261105-000001")
-            .expect_err("同人自审必须被拦");
+        let err =
+            check_self_audit(true, Some(CREATOR), Some(CREATOR), "PZ-20261105-000001").expect_err("同人自审必须被拦");
         assert_eq!(err.status, 403);
         assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
         assert!(err.msg.contains("PZ-20261105-000001"), "{}", err.msg);
@@ -2829,10 +2739,7 @@ mod tests {
             .await
             .expect("查清场前日志")
             .unwrap_or(0);
-        assert!(
-            logs > 0,
-            "凭证落地必须写 VOUCHER 状态日志，否则这条用例证明不了什么"
-        );
+        assert!(logs > 0, "凭证落地必须写 VOUCHER 状态日志，否则这条用例证明不了什么");
 
         // ② 走模块真实的清场
         cleanup_fixtures().await;
@@ -2851,10 +2758,7 @@ mod tests {
             .await
             .expect("查清场后日志")
             .unwrap_or(0);
-        assert_eq!(
-            left, 0,
-            "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）"
-        );
+        assert_eq!(left, 0, "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）");
 
         // ④ 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
         fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;

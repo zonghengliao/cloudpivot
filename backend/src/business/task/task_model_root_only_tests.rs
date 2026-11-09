@@ -128,14 +128,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 
 /// 全可见范围（超管 + `All`）：让用例只验证 `root_only` 本身，不掺杂数据权限。
 fn principal() -> ScopedPrincipal {
-    ScopedPrincipal::for_test(
-        uuid(U_ID),
-        None,
-        true,
-        scope::ScopeKind::All,
-        Vec::new(),
-        false,
-    )
+    ScopedPrincipal::for_test(uuid(U_ID), None, true, scope::ScopeKind::All, Vec::new(), false)
 }
 
 /// 夹具关键词：所有夹具标题都以 `T8C ` 开头、任务号都以 `T8C-` 开头。
@@ -177,11 +170,7 @@ fn root_only_snippet_adds_no_bind_params() {
         "root_only 是无参数片段，不许 push 任何绑定值（实际 {} 个）",
         params_on.len()
     );
-    assert_eq!(
-        sql_on.matches('?').count(),
-        0,
-        "片段里不许有占位符：{sql_on}"
-    );
+    assert_eq!(sql_on.matches('?').count(), 0, "片段里不许有占位符：{sql_on}");
 }
 
 // ---------- ② 片段追加在业务过滤之后：参数顺序与文本顺序仍一致 ----------
@@ -206,11 +195,7 @@ fn root_only_snippet_keeps_param_order() {
     off.root_only = false;
     let sql_off = build_filters(&off, &mut params_off);
 
-    assert_eq!(
-        params_on.len(),
-        3,
-        "status 1 + keyword 2 = 3，root_only 不占位"
-    );
+    assert_eq!(params_on.len(), 3, "status 1 + keyword 2 = 3，root_only 不占位");
     assert_eq!(params_off.len(), 3);
     assert_eq!(
         format!("{params_on:?}"),
@@ -225,9 +210,7 @@ fn root_only_snippet_keeps_param_order() {
 
     let pos_status = sql_on.find(" AND t.status = ?").expect("status 片段");
     let pos_keyword = sql_on.find(" AND (t.title ILIKE ?").expect("keyword 片段");
-    let pos_root = sql_on
-        .find(" AND t.parent_id IS NULL")
-        .expect("root_only 片段");
+    let pos_root = sql_on.find(" AND t.parent_id IS NULL").expect("root_only 片段");
     assert!(
         pos_status < pos_keyword && pos_keyword < pos_root,
         "root_only 必须追加在业务过滤之后（否则 `?` 文本顺序对不上参数顺序）：{sql_on}"
@@ -306,11 +289,7 @@ async fn root_only_absent_is_backward_compatible() {
         .expect("分页查询失败");
     assert_eq!(unset.total, 5, "不传 → 返回全部（T8-B 之前的行为）");
     assert_eq!(explicit_false.total, 5, "显式 false → 与不传完全一致");
-    let children = unset
-        .list
-        .iter()
-        .filter(|row| row.parent_id.is_some())
-        .count();
+    let children = unset.list.iter().filter(|row| row.parent_id.is_some()).count();
     assert_eq!(children, 3, "不带 root_only 时子任务照旧出现在列表里");
 }
 
@@ -363,10 +342,7 @@ async fn root_only_status_filters_within_top_level() {
     let page = page_visible(&principal(), &todo_roots, 1, 50)
         .await
         .expect("分页查询失败");
-    assert_eq!(
-        page.total, 1,
-        "顶层里只有 R1 是 TODO（C2/C3 也是 TODO 但它们是子任务）"
-    );
+    assert_eq!(page.total, 1, "顶层里只有 R1 是 TODO（C2/C3 也是 TODO 但它们是子任务）");
     assert_eq!(page.list[0].id, uuid(R1));
 
     let todo_all = TaskFilter {
@@ -378,8 +354,5 @@ async fn root_only_status_filters_within_top_level() {
     let page = page_visible(&principal(), &todo_all, 1, 50)
         .await
         .expect("分页查询失败");
-    assert_eq!(
-        page.total, 3,
-        "不开 root_only 时 TODO 有 3 条（R1 + C2 + C3）"
-    );
+    assert_eq!(page.total, 3, "不开 root_only 时 TODO 有 3 条（R1 + C2 + C3）");
 }

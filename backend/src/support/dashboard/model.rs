@@ -219,9 +219,7 @@ SELECT to_char(days.d, 'MM-DD')                        AS label,
 /// # 异常情况
 ///
 /// 数据库异常或缺少预期列时返回 [`DbError`]。
-async fn trend_rows<T: for<'r> FromTrendRow<'r>>(
-    sql: String,
-) -> std::result::Result<Vec<T>, DbError> {
+async fn trend_rows<T: for<'r> FromTrendRow<'r>>(sql: String) -> std::result::Result<Vec<T>, DbError> {
     let params = vec![Value::from(TREND_DAYS)];
     let rows = db().find_with_params(&sql, params).await?;
     rows.iter().map(T::from_row).collect()

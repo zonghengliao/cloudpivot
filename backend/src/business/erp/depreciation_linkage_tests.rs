@@ -107,14 +107,8 @@ async fn purge() {
             ))
             .await;
         }
-        exec(&format!(
-            "DELETE FROM biz_depreciation WHERE batch_id IN ({list})"
-        ))
-        .await;
-        exec(&format!(
-            "DELETE FROM biz_depreciation_batch WHERE id IN ({list})"
-        ))
-        .await;
+        exec(&format!("DELETE FROM biz_depreciation WHERE batch_id IN ({list})")).await;
+        exec(&format!("DELETE FROM biz_depreciation_batch WHERE id IN ({list})")).await;
         exec(&format!(
             "DELETE FROM biz_status_log WHERE entity_type = 'DEPRECIATION' AND entity_id IN ({list})"
         ))
@@ -145,10 +139,7 @@ async fn purge() {
             "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' AND entity_id IN ({list})"
         ))
         .await;
-        exec(&format!(
-            "DELETE FROM biz_accounting_period WHERE id IN ({list})"
-        ))
-        .await;
+        exec(&format!("DELETE FROM biz_accounting_period WHERE id IN ({list})")).await;
     }
 
     // 卡片删干净了才轮得到部门（`biz_fixed_asset.use_dept_id` 是硬外键）
@@ -232,11 +223,8 @@ async fn make_asset(creator: Uuid, name: &str) -> (Uuid, String) {
     let spec = asset_dto::validate_create(&req).expect("夹具建卡请求必须通过校验");
     let id = Uuid::now_v7();
     let asset_no = format!("FA-LNK10-{}", no_tail(&id));
-    let (residual, base, monthly) = asset_dto::derive_amounts(
-        spec.original_value,
-        category.salvage_rate,
-        category.useful_life_months,
-    );
+    let (residual, base, monthly) =
+        asset_dto::derive_amounts(spec.original_value, category.salvage_rate, category.useful_life_months);
     asset_model::asset_insert(
         db(),
         id,
@@ -286,9 +274,7 @@ const NOTICE_CREATOR: &str = r#"{"mode":"TAKEOVER","recipient":"CREATOR"}"#;
 async fn notices_of(status: &str, batch_id: Uuid) -> i64 {
     db().scalar_with_params::<i64>(
         "SELECT count(*) FROM sys_notice WHERE idempotency_key LIKE ?",
-        vec![Value::Text(format!(
-            "LNK:DEPRECIATION:{status}:{batch_id}:%"
-        ))],
+        vec![Value::Text(format!("LNK:DEPRECIATION:{status}:{batch_id}:%"))],
     )
     .await
     .expect("查联动通知")
@@ -298,9 +284,7 @@ async fn notices_of(status: &str, batch_id: Uuid) -> i64 {
 async fn notice_content(status: &str, batch_id: Uuid) -> String {
     db().scalar_with_params::<String>(
         "SELECT content FROM sys_notice WHERE idempotency_key LIKE ? ORDER BY created_at DESC LIMIT 1",
-        vec![Value::Text(format!(
-            "LNK:DEPRECIATION:{status}:{batch_id}:%"
-        ))],
+        vec![Value::Text(format!("LNK:DEPRECIATION:{status}:{batch_id}:%"))],
     )
     .await
     .expect("查联动通知正文")
@@ -352,12 +336,7 @@ async fn lnk10_posting_triggers_one_aggregate_notice() {
     for index in 0..3 {
         make_asset(user, &format!("LNK10 夹具资产 {index}")).await;
     }
-    add_rule(
-        asset_dto::DEP_POSTED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::DEP_POSTED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     let outcome = depreciation_model::run_batch(Some(&period), Some(user), Some("LNK-10 用例"))
         .await
@@ -375,11 +354,7 @@ async fn lnk10_posting_triggers_one_aggregate_notice() {
         "本次批次至少要带 3 台夹具资产（实际 {}）：夹具没造出来",
         batch.asset_count
     );
-    assert_eq!(
-        batch.status,
-        asset_dto::DEP_POSTED,
-        "计提成功后批次必须是 POSTED"
-    );
+    assert_eq!(batch.status, asset_dto::DEP_POSTED, "计提成功后批次必须是 POSTED");
 
     assert_eq!(
         notices_of(asset_dto::DEP_POSTED, batch_id).await,
@@ -410,12 +385,7 @@ async fn lnk10_repeat_posting_does_not_trigger_twice() {
     };
     let period = open_month(2).await;
     make_asset(user, "LNK10 重复计提夹具").await;
-    add_rule(
-        asset_dto::DEP_POSTED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::DEP_POSTED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     let first = depreciation_model::run_batch(Some(&period), Some(user), Some("LNK-10 用例"))
         .await
@@ -442,11 +412,7 @@ async fn lnk10_repeat_posting_does_not_trigger_twice() {
         1,
         "被幂等闸挡住的重复计提**不许**再发通知"
     );
-    assert_eq!(
-        posted_vouchers_of(batch_id).await,
-        1,
-        "重复计提不许再落一张凭证"
-    );
+    assert_eq!(posted_vouchers_of(batch_id).await, 1, "重复计提不许再落一张凭证");
     assert_eq!(batch_status(batch_id).await, asset_dto::DEP_POSTED);
     purge().await;
 }
@@ -463,12 +429,7 @@ async fn lnk10_reversal_triggers_notice_once() {
     let period = open_month(3).await;
     make_asset(user, "LNK10 红冲夹具").await;
     // 只配 REVERSED：顺带证明「过账不误触发 REVERSED 的规则」
-    add_rule(
-        asset_dto::DEP_REVERSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::DEP_REVERSED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     let outcome = depreciation_model::run_batch(Some(&period), Some(user), Some("LNK-10 用例"))
         .await
@@ -484,19 +445,14 @@ async fn lnk10_reversal_triggers_notice_once() {
     let reversed = depreciation_model::reverse_batch(batch_id, "LNK-10 用例：重算基数", Some(user))
         .await
         .unwrap_or_else(|error| panic!("红冲失败：{} {}", error.code, error.msg));
-    assert_eq!(
-        reversed.status,
-        asset_dto::DEP_REVERSED,
-        "红冲后批次必须是 REVERSED"
-    );
+    assert_eq!(reversed.status, asset_dto::DEP_REVERSED, "红冲后批次必须是 REVERSED");
     assert_eq!(
         notices_of(asset_dto::DEP_REVERSED, batch_id).await,
         1,
         "DEPRECIATION/REVERSED 上配的 SEND_NOTICE 必须由红冲触发一次"
     );
 
-    let again =
-        depreciation_model::reverse_batch(batch_id, "LNK-10 用例：重复红冲", Some(user)).await;
+    let again = depreciation_model::reverse_batch(batch_id, "LNK-10 用例：重复红冲", Some(user)).await;
     let error = again.expect_err("重复红冲必须被挡住");
     assert_eq!(
         error.code,
@@ -535,12 +491,7 @@ async fn lnk10_rolled_back_tx_never_sends_notice() {
     };
     let batch_id = Uuid::now_v7();
     let event = Uuid::now_v7();
-    add_rule(
-        asset_dto::DEP_POSTED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::DEP_POSTED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     // ---- ① 事务内：通知只在 deferred 里 ----
     let tx = db().begin().await.expect("开事务");
@@ -622,12 +573,7 @@ async fn lnk10_excluded_voucher_actions_never_run() {
         return;
     };
     let batch_id = Uuid::now_v7();
-    add_rule(
-        asset_dto::DEP_POSTED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::DEP_POSTED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
     add_rule(
         asset_dto::DEP_POSTED,
         spec::ACTION_GENERATE_VOUCHER,
@@ -646,10 +592,9 @@ async fn lnk10_excluded_voucher_actions_never_run() {
     .with_people(Some(user), Some(user), None);
     let tx = db().begin().await.expect("开事务");
     let without_exclusion = linkage::engine::run(&tx, &ctx).await.expect("跑引擎");
-    let with_exclusion =
-        linkage::engine::run_excluding(&tx, &ctx, spec::DEPRECIATION_EXCLUDED_ACTIONS)
-            .await
-            .expect("跑引擎（带排除清单）");
+    let with_exclusion = linkage::engine::run_excluding(&tx, &ctx, spec::DEPRECIATION_EXCLUDED_ACTIONS)
+        .await
+        .expect("跑引擎（带排除清单）");
     tx.rollback().await.expect("回滚");
     assert!(
         without_exclusion

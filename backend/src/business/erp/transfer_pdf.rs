@@ -46,8 +46,8 @@ use crate::business::erp::transfer_base::TransferItemRow;
 use crate::business::erp::transfer_model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
-    self, OrderMetaField, TransferContext, TransferContextArgs, TransferItem, format_money,
-    format_quantity, yuan_to_fen,
+    self, OrderMetaField, TransferContext, TransferContextArgs, TransferItem, format_money, format_quantity,
+    yuan_to_fen,
 };
 use crate::utils;
 
@@ -170,9 +170,7 @@ pub async fn transfer_context(id: Uuid) -> std::result::Result<TransferContext, 
         .get(&row.to_warehouse_id)
         .cloned()
         .unwrap_or_else(|| "（仓库已删除）".to_string());
-    let transit_warehouse = row
-        .transit_warehouse_id
-        .and_then(|id| warehouses.get(&id).cloned());
+    let transit_warehouse = row.transit_warehouse_id.and_then(|id| warehouses.get(&id).cloned());
 
     let people: Vec<Uuid> = row
         .applicant_id
@@ -210,10 +208,7 @@ pub async fn transfer_context(id: Uuid) -> std::result::Result<TransferContext, 
             OrderMetaField::new("状态", transfer_model::status_label(&row.status)),
             OrderMetaField::new("调出仓库", from_warehouse.clone()),
             OrderMetaField::new("调入仓库", to_warehouse.clone()),
-            OrderMetaField::new(
-                "在途仓",
-                transit_warehouse.clone().unwrap_or_else(|| "—".to_string()),
-            ),
+            OrderMetaField::new("在途仓", transit_warehouse.clone().unwrap_or_else(|| "—".to_string())),
             OrderMetaField::new("申请人", applicant),
             OrderMetaField::new("审批人", approver),
             OrderMetaField::new("经办人", operator),
@@ -286,18 +281,17 @@ pub async fn stock_transfer_pdf(
     let started = Instant::now();
     match export_transfer(&id).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "调拨单 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "调拨单 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
             audit(&id, &headers, &connect_info, &claims, &rendered, started);
             response
         }
@@ -354,12 +348,7 @@ mod tests {
         }
     }
 
-    fn source(
-        material_id: Uuid,
-        qty: Decimal,
-        from: Option<Uuid>,
-        to: Option<Uuid>,
-    ) -> TransferItemRow {
+    fn source(material_id: Uuid, qty: Decimal, from: Option<Uuid>, to: Option<Uuid>) -> TransferItemRow {
         TransferItemRow {
             id: Uuid::now_v7(),
             transfer_id: Uuid::now_v7(),
@@ -421,14 +410,8 @@ mod tests {
     /// 物料主档 / 单位 / 库位账行都查不到时不 500，走兜底文案。
     #[test]
     fn missing_master_data_degrades_gracefully() {
-        let sources = vec![source(
-            Uuid::now_v7(),
-            Decimal::ONE,
-            Some(Uuid::now_v7()),
-            None,
-        )];
-        let items =
-            build_transfer_items(&sources, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let sources = vec![source(Uuid::now_v7(), Decimal::ONE, Some(Uuid::now_v7()), None)];
+        let items = build_transfer_items(&sources, &HashMap::new(), &HashMap::new(), &HashMap::new());
         assert_eq!(items[0].material_code, "ROW-CODE", "连表值兜底");
         assert_eq!(items[0].spec, "", "规格为空是常态，不塞横线");
         assert_eq!(items[0].unit, "—", "单位查不到打横线");
@@ -645,12 +628,7 @@ mod db_tests {
                      12.5, 185.20, {submitted}, {approved}, {shipped}, {received},
                      '两仓已实物清点', '0f410000-0000-4000-8000-000000000003'::uuid)"
         );
-        exec(
-            &sql,
-            vec![Value::Text(TRANSFER_NO.to_string())],
-            "写入调拨单夹具",
-        )
-        .await;
+        exec(&sql, vec![Value::Text(TRANSFER_NO.to_string())], "写入调拨单夹具").await;
         exec(
             "INSERT INTO biz_stock_transfer_item
                 (id, transfer_id, line_no, material_id, from_location_id, to_location_id,
@@ -688,9 +666,7 @@ mod db_tests {
             return;
         };
         seed_transfer("DONE").await;
-        let ctx = transfer_context(TRANSFER)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = transfer_context(TRANSFER).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, TRANSFER_NO);
         assert_eq!(ctx.doc_title, "调 拨 单");
@@ -788,18 +764,12 @@ mod db_tests {
             .find_with_params(
                 "SELECT operation, target_type, detail FROM operation_logs \
                   WHERE target_id = ? AND request_id = ?",
-                vec![
-                    Value::Text(TRANSFER.to_string()),
-                    Value::Text(request_id.to_string()),
-                ],
+                vec![Value::Text(TRANSFER.to_string()), Value::Text(request_id.to_string())],
             )
             .await
             .expect("回查审计行");
         assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].get_typed::<String>("operation").unwrap(),
-            EXPORT_OPERATION
-        );
+        assert_eq!(rows[0].get_typed::<String>("operation").unwrap(), EXPORT_OPERATION);
         assert_eq!(
             rows[0].get_typed::<String>("target_type").unwrap(),
             "biz_stock_transfer"
@@ -825,9 +795,7 @@ mod db_tests {
             "软删调拨单",
         )
         .await;
-        let error = transfer_context(TRANSFER)
-            .await
-            .expect_err("软删单必须 404");
+        let error = transfer_context(TRANSFER).await.expect_err("软删单必须 404");
         assert_eq!(error.status, 404);
         assert!(error.msg.contains("调拨单"));
         purge().await;

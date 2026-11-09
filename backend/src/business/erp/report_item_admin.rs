@@ -83,11 +83,7 @@ fn conflict(message: impl Into<String>) -> ApiError {
 }
 
 fn not_found(id: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("报表项不存在（id={id}）"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("报表项不存在（id={id}）"))
 }
 
 fn parse_uuid_field(raw: &str, label: &str) -> std::result::Result<Uuid, ApiError> {
@@ -342,8 +338,7 @@ fn validate_pattern(pattern: &str) -> std::result::Result<(), String> {
             }
             continue;
         }
-        let (prefix, is_prefix) = match token.strip_suffix('*').or_else(|| token.strip_suffix('%'))
-        {
+        let (prefix, is_prefix) = match token.strip_suffix('*').or_else(|| token.strip_suffix('%')) {
             Some(prefix) => (prefix, true),
             None => (token, false),
         };
@@ -430,18 +425,13 @@ impl Candidate {
 fn validate_report(items: &[Candidate]) -> Vec<String> {
     let mut problems = Vec::new();
     let mut active: Vec<&Candidate> = items.iter().filter(|item| item.is_active).collect();
-    active.sort_by(|a, b| {
-        a.sort_order
-            .cmp(&b.sort_order)
-            .then(a.item_code.cmp(&b.item_code))
-    });
+    active.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.item_code.cmp(&b.item_code)));
     let position: std::collections::HashMap<&str, usize> = active
         .iter()
         .enumerate()
         .map(|(index, item)| (item.item_code.as_str(), index))
         .collect();
-    let all_codes: std::collections::HashSet<&str> =
-        items.iter().map(|item| item.item_code.as_str()).collect();
+    let all_codes: std::collections::HashSet<&str> = items.iter().map(|item| item.item_code.as_str()).collect();
 
     for item in &active {
         if let Some(parent) = item.parent_code.as_deref() {
@@ -518,9 +508,7 @@ fn dependents_of(items: &[ItemRow], item_code: &str) -> Vec<String> {
 fn matched(pattern: &str, accounts: &[AccountOption]) -> Vec<AccountOption> {
     accounts
         .iter()
-        .filter(|account| {
-            report::match_account(pattern, &account.account_code, &account.account_category)
-        })
+        .filter(|account| report::match_account(pattern, &account.account_code, &account.account_category))
         .cloned()
         .collect()
 }
@@ -626,10 +614,7 @@ pub async fn report_item_catalog() -> ResResult<CatalogRes> {
             },
             PatternTipRes {
                 syntax: "@CATEGORY:PROFIT_LOSS".to_string(),
-                meaning: format!(
-                    "按科目类别整类匹配（可选 {}）",
-                    ACCOUNT_CATEGORIES.join(" / ")
-                ),
+                meaning: format!("按科目类别整类匹配（可选 {}）", ACCOUNT_CATEGORIES.join(" / ")),
                 example: "整类损益科目".to_string(),
             },
         ],
@@ -654,10 +639,7 @@ pub async fn report_item_list(Query(query): Query<ItemListQuery>) -> ResResult<V
     let accounts = model::account_catalog(db())
         .await
         .map_err(|error| utils::db_error(error, "查询科目"))?;
-    let list = rows
-        .iter()
-        .map(|row| item_res(row, &rows, &accounts))
-        .collect();
+    let list = rows.iter().map(|row| item_res(row, &rows, &accounts)).collect();
     Ok(Res::ok(list))
 }
 
@@ -674,8 +656,8 @@ pub async fn report_item_preview(Json(req): Json<ItemPreviewReq>) -> ResResult<P
     let accounts = model::account_catalog(db())
         .await
         .map_err(|error| utils::db_error(error, "查询科目"))?;
-    let report_code = trimmed(&req.report_code)
-        .ok_or_else(|| invalid("report_code 必填（取数预览要按报表校验公式）"))?;
+    let report_code =
+        trimmed(&req.report_code).ok_or_else(|| invalid("report_code 必填（取数预览要按报表校验公式）"))?;
     let rows = model::list_items(db(), Some(&report_code))
         .await
         .map_err(|error| utils::db_error(error, "查询报表项"))?;
@@ -686,20 +668,12 @@ pub async fn report_item_preview(Json(req): Json<ItemPreviewReq>) -> ResResult<P
     let mut warnings = Vec::new();
 
     if pattern.is_none() && formula.is_none() {
-        warnings.push(
-            "既没有取数模式也没有计算式：只有层级 1 的大类标题行允许这样（金额恒为空）".to_string(),
-        );
+        warnings.push("既没有取数模式也没有计算式：只有层级 1 的大类标题行允许这样（金额恒为空）".to_string());
     }
-    if let Some(message) = pattern
-        .as_deref()
-        .and_then(|pattern| validate_pattern(pattern).err())
-    {
+    if let Some(message) = pattern.as_deref().and_then(|pattern| validate_pattern(pattern).err()) {
         problems.push(message);
     }
-    if let Some(message) = formula
-        .as_deref()
-        .and_then(|formula| formula_operands(formula).err())
-    {
+    if let Some(message) = formula.as_deref().and_then(|formula| formula_operands(formula).err()) {
         problems.push(message);
     }
 
@@ -738,7 +712,10 @@ pub async fn report_item_preview(Json(req): Json<ItemPreviewReq>) -> ResResult<P
         .map(|pattern| matched(pattern, &accounts))
         .unwrap_or_default();
     if pattern.is_some() && hits.is_empty() {
-        warnings.push("当前取数模式没有命中任何启用科目 —— 启用后这一行会恒为 0（是「没发生」还是「配错了」报表上看不出来）".to_string());
+        warnings.push(
+            "当前取数模式没有命中任何启用科目 —— 启用后这一行会恒为 0（是「没发生」还是「配错了」报表上看不出来）"
+                .to_string(),
+        );
     }
 
     problems.dedup();
@@ -840,10 +817,7 @@ pub async fn report_item_create(Json(req): Json<ItemUpsertReq>) -> ResResult<Ite
     candidates.push(candidate.clone());
     let problems = validate_report(&candidates);
     if !problems.is_empty() {
-        return Err(invalid(format!(
-            "报表配置校验未通过：{}",
-            problems.join("；")
-        )));
+        return Err(invalid(format!("报表配置校验未通过：{}", problems.join("；"))));
     }
 
     let spec = ItemWrite {
@@ -880,13 +854,13 @@ pub async fn report_item_create(Json(req): Json<ItemUpsertReq>) -> ResResult<Ite
     if let Some(pattern) = account_pattern.as_deref() {
         let hits = matched(pattern, &accounts).len();
         if hits == 0 {
-            warnings.push(format!(
-                "取数模式「{pattern}」没有命中任何启用科目 —— 该行会恒为 0"
-            ));
+            warnings.push(format!("取数模式「{pattern}」没有命中任何启用科目 —— 该行会恒为 0"));
         }
     }
     if report_code == income_report::REPORT_CODE && side != "EQUITY" {
-        warnings.push("利润表的报表项通常用 EQUITY 所属方（沿用资产负债表的 ASSET / LIABILITY 会让两表口径不一致）".to_string());
+        warnings.push(
+            "利润表的报表项通常用 EQUITY 所属方（沿用资产负债表的 ASSET / LIABILITY 会让两表口径不一致）".to_string(),
+        );
     }
     Ok(Res::ok(ItemSaveRes {
         item: item_res(saved, &rows, &accounts),
@@ -903,10 +877,7 @@ pub async fn report_item_create(Json(req): Json<ItemUpsertReq>) -> ResResult<Ite
     permission = "business:erp:report-item:manage"
 )]
 #[nik::put("/business/erp/report-item/{id}")]
-pub async fn report_item_update(
-    Path(id): Path<String>,
-    Json(req): Json<ItemUpsertReq>,
-) -> ResResult<ItemSaveRes> {
+pub async fn report_item_update(Path(id): Path<String>, Json(req): Json<ItemUpsertReq>) -> ResResult<ItemSaveRes> {
     let id = parse_uuid_field(&id, "id")?;
     let existing = model::find_item(db(), id)
         .await
@@ -957,9 +928,7 @@ pub async fn report_item_update(
         ));
     }
     if account_pattern.is_some() && formula.is_some() {
-        return Err(invalid(
-            "取数模式与计算式只能填一个：清空其中一个再保存（空串 = 清空）",
-        ));
+        return Err(invalid("取数模式与计算式只能填一个：清空其中一个再保存（空串 = 清空）"));
     }
     if let Some(pattern) = account_pattern.as_deref() {
         validate_pattern(pattern).map_err(invalid)?;
@@ -1014,10 +983,7 @@ pub async fn report_item_update(
     // 停用后整表校验只看启用行；把 candidate 的 is_active 带进去，引用它的公式会在上面被拦。
     let problems = validate_report(&candidates);
     if !problems.is_empty() {
-        return Err(invalid(format!(
-            "报表配置校验未通过：{}",
-            problems.join("；")
-        )));
+        return Err(invalid(format!("报表配置校验未通过：{}", problems.join("；"))));
     }
 
     let spec = ItemWrite {
@@ -1059,9 +1025,7 @@ pub async fn report_item_update(
     if let Some(pattern) = account_pattern.as_deref() {
         let hits = matched(pattern, &accounts).len();
         if hits == 0 {
-            warnings.push(format!(
-                "取数模式「{pattern}」没有命中任何启用科目 —— 该行会恒为 0"
-            ));
+            warnings.push(format!("取数模式「{pattern}」没有命中任何启用科目 —— 该行会恒为 0"));
         }
     }
     if existing.report_code == income_report::REPORT_CODE && side != "EQUITY" {
@@ -1082,10 +1046,7 @@ pub async fn report_item_update(
     permission = "business:erp:report-item:manage"
 )]
 #[nik::put("/business/erp/report-item/{id}/toggle")]
-pub async fn report_item_toggle(
-    Path(id): Path<String>,
-    Json(req): Json<ItemToggleReq>,
-) -> ResResult<ItemRes> {
+pub async fn report_item_toggle(Path(id): Path<String>, Json(req): Json<ItemToggleReq>) -> ResResult<ItemRes> {
     let id = parse_uuid_field(&id, "id")?;
     let existing = model::find_item(db(), id)
         .await
@@ -1191,10 +1152,7 @@ pub async fn report_item_sort(Json(req): Json<ItemSortReq>) -> ResResult<Vec<Ite
         .collect();
     let problems = validate_report(&candidates);
     if !problems.is_empty() {
-        return Err(invalid(format!(
-            "这个顺序会让报表配置不合法：{}",
-            problems.join("；")
-        )));
+        return Err(invalid(format!("这个顺序会让报表配置不合法：{}", problems.join("；"))));
     }
 
     let tx = db()
@@ -1220,8 +1178,6 @@ pub async fn report_item_sort(Json(req): Json<ItemSortReq>) -> ResResult<Vec<Ite
         .await
         .map_err(|error| utils::db_error(error, "查询科目"))?;
     Ok(Res::ok(
-        rows.iter()
-            .map(|row| item_res(row, &rows, &accounts))
-            .collect(),
+        rows.iter().map(|row| item_res(row, &rows, &accounts)).collect(),
     ))
 }

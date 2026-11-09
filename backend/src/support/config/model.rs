@@ -333,12 +333,7 @@ pub(crate) async fn reload_runtime_snapshot() -> std::result::Result<usize, DbEr
     let current = runtime_snapshot().unwrap_or_default();
     let listeners: Vec<(&'static str, RuntimeListener)> = listener_cell()
         .read()
-        .map(|guard| {
-            guard
-                .iter()
-                .map(|(name, cb)| (*name, Arc::clone(cb)))
-                .collect()
-        })
+        .map(|guard| guard.iter().map(|(name, cb)| (*name, Arc::clone(cb))).collect())
         .unwrap_or_default();
     for (name, callback) in listeners {
         callback(&current);
@@ -495,10 +490,7 @@ pub(crate) async fn count_config_key(
             )
             .await
         }
-        None => {
-            SysConfigModel::count_by(db(), "config_key = ? AND deleted_at IS NULL", (config_key,))
-                .await
-        }
+        None => SysConfigModel::count_by(db(), "config_key = ? AND deleted_at IS NULL", (config_key,)).await,
     }
 }
 
@@ -515,9 +507,7 @@ pub(crate) async fn count_config_key(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn find_enabled_config(
-    config_key: &str,
-) -> std::result::Result<Option<SysConfigModel>, DbError> {
+pub(crate) async fn find_enabled_config(config_key: &str) -> std::result::Result<Option<SysConfigModel>, DbError> {
     SysConfigModel::find_first_by(
         db(),
         "config_key = ? AND status = ? AND deleted_at IS NULL",
@@ -607,10 +597,7 @@ pub(crate) async fn cache_public(map: &HashMap<String, String>) {
 pub(crate) async fn load_cached_value(key: &str) -> Option<Option<String>> {
     let store = try_cache()?;
     let cache_key = format!("{}{}", constants::CACHE_KEY_PREFIX_CONFIG_VALUE, key);
-    Cache::get::<Option<String>>(store, &cache_key)
-        .await
-        .ok()
-        .flatten()
+    Cache::get::<Option<String>>(store, &cache_key).await.ok().flatten()
 }
 
 /// 写入按键取值缓存；失败只告警，不影响主流程。
@@ -619,14 +606,7 @@ pub(crate) async fn cache_value(key: &str, value: &Option<String>) {
         return;
     };
     let cache_key = format!("{}{}", constants::CACHE_KEY_PREFIX_CONFIG_VALUE, key);
-    if let Err(e) = Cache::set_ex(
-        store,
-        &cache_key,
-        value,
-        constants::CACHE_HOT_QUERY_TTL_SECS,
-    )
-    .await
-    {
+    if let Err(e) = Cache::set_ex(store, &cache_key, value, constants::CACHE_HOT_QUERY_TTL_SECS).await {
         tracing::warn!(config_key = key, error = %e, "写入参数取值缓存失败");
     }
 }
@@ -690,10 +670,7 @@ pub(crate) async fn read_config_version() -> Option<String> {
 ///
 /// 缓存不可用时只更新本地值，退化为单实例行为（其余实例靠快照 TTL 兜底）。
 pub(crate) async fn bump_config_version() {
-    let version = chrono::Utc::now()
-        .timestamp_nanos_opt()
-        .unwrap_or_default()
-        .to_string();
+    let version = chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default().to_string();
     if let Some(store) = try_cache()
         && let Err(e) = Cache::set_ex(
             store,
@@ -849,12 +826,7 @@ pub(crate) fn encrypt_config_value(plaintext: &str) -> std::result::Result<Strin
     })?;
     let (cipher, nonce) = nik_utils::Crypto::aes_encrypt(&key, plaintext)
         .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "参数加密失败"))?;
-    Ok(format!(
-        "{}{}:{}",
-        constants::CONFIG_CIPHER_PREFIX,
-        nonce,
-        cipher
-    ))
+    Ok(format!("{}{}:{}", constants::CONFIG_CIPHER_PREFIX, nonce, cipher))
 }
 
 /// 解密落库的参数值。

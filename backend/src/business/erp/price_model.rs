@@ -87,12 +87,10 @@ const COMMON_TIER_SQL: &str = "SELECT id, tier_type, price, min_qty, max_qty, ef
        AND status = 'ACTIVE' AND deleted_at IS NULL";
 
 /// ④ 物料标准售价（软删行不算：删掉的物料给不出价）。
-const MATERIAL_SQL: &str =
-    "SELECT id, standard_price FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL";
+const MATERIAL_SQL: &str = "SELECT id, standard_price FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL";
 
 /// 客户存在性（软删行不算）。
-const CUSTOMER_EXISTS_SQL: &str =
-    "SELECT COUNT(*) FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL";
+const CUSTOMER_EXISTS_SQL: &str = "SELECT COUNT(*) FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL";
 
 // ==================== 候选行 ====================
 
@@ -204,11 +202,7 @@ fn tier_key(row: &TierCandidate) -> (u8, Reverse<Decimal>, Reverse<NaiveDate>, U
 /// ① 从协议价候选里挑唯一命中行（全序，绝不并列）。
 ///
 /// 过滤：起订量达标 + 有效期覆盖；排序：见 [`agreed_key`]。
-pub fn pick_agreed(
-    rows: &[AgreedCandidate],
-    qty: Decimal,
-    on: NaiveDate,
-) -> Option<&AgreedCandidate> {
+pub fn pick_agreed(rows: &[AgreedCandidate], qty: Decimal, on: NaiveDate) -> Option<&AgreedCandidate> {
     rows.iter()
         .filter(|row| qty_reaches(row.min_qty, qty))
         .filter(|row| date_covered(row.effective_from, row.effective_to, on))
@@ -311,19 +305,13 @@ pub async fn customer_exists(customer_id: Uuid) -> DbResult<bool> {
 /// 某客户对某物料的协议价候选（只含 `ACTIVE` + 未软删行）。
 pub async fn load_agreed(customer_id: Uuid, material_id: Uuid) -> DbResult<Vec<AgreedCandidate>> {
     let rows = db()
-        .find_with_params(
-            AGREED_SQL,
-            vec![Value::from(&customer_id), Value::from(&material_id)],
-        )
+        .find_with_params(AGREED_SQL, vec![Value::from(&customer_id), Value::from(&material_id)])
         .await?;
     rows.iter().map(agreed_of_row).collect()
 }
 
 /// 客户专属阶梯候选（`customer_id IS NOT NULL`）。
-pub async fn load_customer_tiers(
-    customer_id: Uuid,
-    material_id: Uuid,
-) -> DbResult<Vec<TierCandidate>> {
+pub async fn load_customer_tiers(customer_id: Uuid, material_id: Uuid) -> DbResult<Vec<TierCandidate>> {
     let rows = db()
         .find_with_params(
             CUSTOMER_TIER_SQL,
@@ -384,13 +372,7 @@ mod tests {
         Uuid::parse_str(&format!("5b000000-0000-4000-8000-0000000000{last:02}")).unwrap()
     }
 
-    fn agreed(
-        id: Uuid,
-        price: &str,
-        min_qty: &str,
-        from: &str,
-        to: Option<&str>,
-    ) -> AgreedCandidate {
+    fn agreed(id: Uuid, price: &str, min_qty: &str, from: &str, to: Option<&str>) -> AgreedCandidate {
         AgreedCandidate {
             id,
             price: dec(price),
@@ -428,27 +410,12 @@ mod tests {
         let from = date("2026-01-01");
         let to = Some(date("2026-03-31"));
 
-        assert!(
-            date_covered(from, to, date("2026-01-01")),
-            "生效日当天必须命中"
-        );
-        assert!(
-            date_covered(from, to, date("2026-03-31")),
-            "失效日当天必须命中"
-        );
+        assert!(date_covered(from, to, date("2026-01-01")), "生效日当天必须命中");
+        assert!(date_covered(from, to, date("2026-03-31")), "失效日当天必须命中");
         assert!(date_covered(from, to, date("2026-02-15")), "区间内命中");
-        assert!(
-            !date_covered(from, to, date("2025-12-31")),
-            "生效日前一天不命中"
-        );
-        assert!(
-            !date_covered(from, to, date("2026-04-01")),
-            "失效日后一天不命中"
-        );
-        assert!(
-            date_covered(from, None, date("2099-12-31")),
-            "无失效日 = 长期有效"
-        );
+        assert!(!date_covered(from, to, date("2025-12-31")), "生效日前一天不命中");
+        assert!(!date_covered(from, to, date("2026-04-01")), "失效日后一天不命中");
+        assert!(date_covered(from, None, date("2099-12-31")), "无失效日 = 长期有效");
     }
 
     // ---------- 档位区间边界（左闭右开） ----------
@@ -461,10 +428,7 @@ mod tests {
         assert!(tier_covers(min, max, dec("10")), "qty == min 命中");
         assert!(!tier_covers(min, max, dec("9.9999")), "qty < min 不命中");
         assert!(tier_covers(min, max, dec("99.9999")), "qty < max 命中");
-        assert!(
-            !tier_covers(min, max, dec("100")),
-            "qty == max 不命中（右开）"
-        );
+        assert!(!tier_covers(min, max, dec("100")), "qty == max 不命中（右开）");
         assert!(tier_covers(min, None, dec("999999")), "max 为空 = 无上限");
     }
 
@@ -482,15 +446,7 @@ mod tests {
     #[test]
     fn level1_agreed_hits() {
         let rows = vec![agreed(uid(1), "10.0000", "0", "2026-01-01", None)];
-        let out = resolve_from(
-            uid(9),
-            dec("5"),
-            date("2026-02-01"),
-            &rows,
-            &[],
-            &[],
-            Some(dec("99")),
-        );
+        let out = resolve_from(uid(9), dec("5"), date("2026-02-01"), &rows, &[], &[], Some(dec("99")));
         assert_eq!(out.source, "AGREED");
         assert_eq!(out.price, Some(dec("10.0000")));
         assert_eq!(out.source_id, Some(uid(1)));
@@ -499,24 +455,8 @@ mod tests {
     /// ② 客户专属阶梯命中（协议价层为空）。
     #[test]
     fn level2_customer_tier_hits() {
-        let tiers = vec![tier(
-            uid(2),
-            "TIER",
-            "8.0000",
-            "0",
-            Some("100"),
-            "2026-01-01",
-            None,
-        )];
-        let out = resolve_from(
-            uid(9),
-            dec("50"),
-            date("2026-02-01"),
-            &[],
-            &tiers,
-            &[],
-            Some(dec("99")),
-        );
+        let tiers = vec![tier(uid(2), "TIER", "8.0000", "0", Some("100"), "2026-01-01", None)];
+        let out = resolve_from(uid(9), dec("50"), date("2026-02-01"), &[], &tiers, &[], Some(dec("99")));
         assert_eq!(out.source, "TIER_CUSTOMER");
         assert_eq!(out.price, Some(dec("8.0000")));
         assert_eq!(out.source_id, Some(uid(2)));
@@ -525,15 +465,7 @@ mod tests {
     /// ③ 通用阶梯命中（协议价 / 客户专属都没有）。
     #[test]
     fn level3_common_tier_hits() {
-        let common = vec![tier(
-            uid(3),
-            "TIER",
-            "9.5000",
-            "0",
-            None,
-            "2026-01-01",
-            None,
-        )];
+        let common = vec![tier(uid(3), "TIER", "9.5000", "0", None, "2026-01-01", None)];
         let out = resolve_from(
             uid(9),
             dec("50"),
@@ -578,24 +510,8 @@ mod tests {
     #[test]
     fn priority_is_strict_and_short_circuits() {
         let agreed_rows = vec![agreed(uid(1), "20.0000", "0", "2026-01-01", None)];
-        let customer_tiers = vec![tier(
-            uid(2),
-            "PROMO",
-            "5.0000",
-            "0",
-            None,
-            "2026-01-01",
-            None,
-        )];
-        let common_tiers = vec![tier(
-            uid(3),
-            "PROMO",
-            "4.0000",
-            "0",
-            None,
-            "2026-01-01",
-            None,
-        )];
+        let customer_tiers = vec![tier(uid(2), "PROMO", "5.0000", "0", None, "2026-01-01", None)];
+        let common_tiers = vec![tier(uid(3), "PROMO", "4.0000", "0", None, "2026-01-01", None)];
 
         // ① 命中 → 即使 ②③ 更便宜也取 ①（协议价是谈定的契约价，不能被活动价挤掉）
         let out = resolve_from(
@@ -642,36 +558,14 @@ mod tests {
     /// 协议价已过期（`effective_to` 前一天可以，当天前后一步之差决定降级）。
     #[test]
     fn expired_agreed_falls_through_to_next_level() {
-        let rows = vec![agreed(
-            uid(1),
-            "10.0000",
-            "0",
-            "2026-01-01",
-            Some("2026-03-31"),
-        )];
+        let rows = vec![agreed(uid(1), "10.0000", "0", "2026-01-01", Some("2026-03-31"))];
 
         // 失效日当天仍命中
-        let out = resolve_from(
-            uid(9),
-            dec("1"),
-            date("2026-03-31"),
-            &rows,
-            &[],
-            &[],
-            Some(dec("12")),
-        );
+        let out = resolve_from(uid(9), dec("1"), date("2026-03-31"), &rows, &[], &[], Some(dec("12")));
         assert_eq!(out.source, "AGREED");
 
         // 失效日次日 → 掉到 ④
-        let out = resolve_from(
-            uid(9),
-            dec("1"),
-            date("2026-04-01"),
-            &rows,
-            &[],
-            &[],
-            Some(dec("12")),
-        );
+        let out = resolve_from(uid(9), dec("1"), date("2026-04-01"), &rows, &[], &[], Some(dec("12")));
         assert_eq!(out.source, "STANDARD");
         assert_eq!(out.price, Some(dec("12")));
     }
@@ -689,26 +583,10 @@ mod tests {
     fn qty_below_min_qty_falls_through() {
         let rows = vec![agreed(uid(1), "10.0000", "100", "2026-01-01", None)];
 
-        let out = resolve_from(
-            uid(9),
-            dec("99.9999"),
-            date("2026-02-01"),
-            &rows,
-            &[],
-            &[],
-            None,
-        );
+        let out = resolve_from(uid(9), dec("99.9999"), date("2026-02-01"), &rows, &[], &[], None);
         assert_eq!(out.source, "NONE");
 
-        let out = resolve_from(
-            uid(9),
-            dec("100"),
-            date("2026-02-01"),
-            &rows,
-            &[],
-            &[],
-            None,
-        );
+        let out = resolve_from(uid(9), dec("100"), date("2026-02-01"), &rows, &[], &[], None);
         assert_eq!(out.source, "AGREED");
     }
 
@@ -769,20 +647,11 @@ mod tests {
             agreed(uid(2), "9.0000", "10", "2026-01-01", None),
             agreed(uid(3), "9.5000", "10", "2025-06-01", None),
         ];
-        let expected = pick_agreed(&base, dec("20"), date("2026-02-01"))
-            .expect("应命中")
-            .id;
+        let expected = pick_agreed(&base, dec("20"), date("2026-02-01")).expect("应命中").id;
 
         // 6 种排列全试：uid(2) 与 uid(3) 同为 min_qty=10，取 effective_from 更新的 uid(2)
         assert_eq!(expected, uid(2));
-        let permutations: [[usize; 3]; 6] = [
-            [0, 1, 2],
-            [0, 2, 1],
-            [1, 0, 2],
-            [1, 2, 0],
-            [2, 0, 1],
-            [2, 1, 0],
-        ];
+        let permutations: [[usize; 3]; 6] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
         for order in permutations {
             let rows: Vec<AgreedCandidate> = order.iter().map(|&i| base[i].clone()).collect();
             let hit = pick_agreed(&rows, dec("20"), date("2026-02-01")).expect("应命中");
@@ -808,33 +677,9 @@ mod tests {
     #[test]
     fn tier_overlap_picks_highest_min_qty() {
         let rows = vec![
-            tier(
-                uid(1),
-                "TIER",
-                "10.0000",
-                "0",
-                Some("100"),
-                "2026-01-01",
-                None,
-            ),
-            tier(
-                uid(2),
-                "TIER",
-                "9.0000",
-                "50",
-                Some("200"),
-                "2026-01-01",
-                None,
-            ),
-            tier(
-                uid(3),
-                "TIER",
-                "7.0000",
-                "150",
-                Some("500"),
-                "2026-01-01",
-                None,
-            ),
+            tier(uid(1), "TIER", "10.0000", "0", Some("100"), "2026-01-01", None),
+            tier(uid(2), "TIER", "9.0000", "50", Some("200"), "2026-01-01", None),
+            tier(uid(3), "TIER", "7.0000", "150", Some("500"), "2026-01-01", None),
         ];
         // qty = 160：1 不命中（>100）、2 命中、3 命中 → 取 min_qty 更大的 uid(3)
         let hit = pick_tier(&rows, dec("160"), date("2026-02-01")).expect("应命中");
@@ -857,24 +702,8 @@ mod tests {
     #[test]
     fn customer_tier_miss_falls_to_common() {
         // 客户专属档位只覆盖 100+
-        let customer_tiers = vec![tier(
-            uid(1),
-            "TIER",
-            "5.0000",
-            "100",
-            None,
-            "2026-01-01",
-            None,
-        )];
-        let common_tiers = vec![tier(
-            uid(2),
-            "TIER",
-            "9.0000",
-            "0",
-            None,
-            "2026-01-01",
-            None,
-        )];
+        let customer_tiers = vec![tier(uid(1), "TIER", "5.0000", "100", None, "2026-01-01", None)];
+        let common_tiers = vec![tier(uid(2), "TIER", "9.0000", "0", None, "2026-01-01", None)];
 
         let out = resolve_from(
             uid(9),
@@ -893,15 +722,7 @@ mod tests {
     #[test]
     fn expired_tier_is_ignored() {
         let rows = vec![
-            tier(
-                uid(1),
-                "TIER",
-                "1.0000",
-                "100",
-                None,
-                "2025-01-01",
-                Some("2025-12-31"),
-            ),
+            tier(uid(1), "TIER", "1.0000", "100", None, "2025-01-01", Some("2025-12-31")),
             tier(uid(2), "TIER", "9.0000", "0", None, "2026-01-01", None),
         ];
         let hit = pick_tier(&rows, dec("500"), date("2026-02-01")).expect("应命中");
@@ -921,15 +742,7 @@ mod tests {
             tier(uid(3), "TIER", "8.0000", "0", None, "2026-01-01", None),
             tier(uid(4), "PROMO", "8.0000", "0", None, "2026-01-01", None),
         ];
-        let common_tiers = vec![tier(
-            uid(5),
-            "TIER",
-            "9.0000",
-            "0",
-            None,
-            "2026-01-01",
-            None,
-        )];
+        let common_tiers = vec![tier(uid(5), "TIER", "9.0000", "0", None, "2026-01-01", None)];
 
         let first = resolve_from(
             uid(9),
@@ -953,11 +766,7 @@ mod tests {
             assert_eq!(again, first, "同条件多次调用必须完全一致");
         }
         assert_eq!(first.source, "AGREED");
-        assert_eq!(
-            first.source_id,
-            Some(uid(2)),
-            "qty=100 命中 min_qty=100 那条"
-        );
+        assert_eq!(first.source_id, Some(uid(2)), "qty=100 命中 min_qty=100 那条");
     }
 
     // ---------- SQL 口径守卫（防止后人把过滤/条件改孬） ----------

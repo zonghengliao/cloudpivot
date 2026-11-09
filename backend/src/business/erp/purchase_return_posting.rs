@@ -56,9 +56,7 @@ use crate::business::erp::purchase_return_model::{
 use crate::business::erp::stockin_base::InventorySnapshot;
 use crate::business::erp::stockout_base;
 use crate::business::erp::stockout_model as stock_out;
-use crate::business::erp::voucher::{
-    self, ACCOUNT_MAIN_COST, AccountRef, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO,
-};
+use crate::business::erp::voucher::{self, ACCOUNT_MAIN_COST, AccountRef, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO};
 use crate::business::shared::doc_kind::TxnBizType;
 use crate::shared::error_code;
 use crate::utils;
@@ -287,10 +285,7 @@ pub async fn confirm_tx(
     now: DateTime<Utc>,
 ) -> std::result::Result<PostedReturn, ApiError> {
     if items.is_empty() {
-        return Err(bad_request(format!(
-            "退货单 {} 没有明细，不能确认",
-            row.return_no
-        )));
+        return Err(bad_request(format!("退货单 {} 没有明细，不能确认", row.return_no)));
     }
     // ① 期间闸：已结账的月份不能动账（凭证写入也会拦，这里提前给人话）
     let period_code = period_code_of(row.return_date);
@@ -368,10 +363,9 @@ pub async fn confirm_tx(
         .map_err(|error| utils::db_error(error, "建退货出库明细"))?;
 
         // 成本账（负库存闸）
-        let Some(bucket) =
-            stock_out::lock_bucket(ex, item.material_id, row.warehouse_id, item.location_id)
-                .await
-                .map_err(|error| utils::db_error(error, "锁定库存行"))?
+        let Some(bucket) = stock_out::lock_bucket(ex, item.material_id, row.warehouse_id, item.location_id)
+            .await
+            .map_err(|error| utils::db_error(error, "锁定库存行"))?
         else {
             return Err(negative_stock(format!(
                 "库存不足，退货确认已拒绝：物料 {} 在退货仓库没有库存行（可退数量与在库数量不一致）。\
@@ -504,8 +498,7 @@ pub async fn confirm_tx(
                 "退货确认：原应付单已作废，退货金额全额转供应商应退款"
             );
         } else {
-            let after: PayableAfter =
-                dto::payable_after(payable.amount, payable.paid_amount, row.total_with_tax);
+            let after: PayableAfter = dto::payable_after(payable.amount, payable.paid_amount, row.total_with_tax);
             ex.exec_sql(
                 "UPDATE biz_payable SET amount = NULLIF(?::text,'')::numeric, \
                         unpaid_amount = NULLIF(?::text,'')::numeric, status = ?, \
@@ -565,16 +558,8 @@ pub async fn confirm_tx(
     }
 
     // ⑤ 冲销凭证
-    let (voucher_id, voucher_no) = write_voucher(
-        ex,
-        row,
-        stock_out_id,
-        &stock_out_no,
-        cost_total,
-        operator,
-        now,
-    )
-    .await?;
+    let (voucher_id, voucher_no) =
+        write_voucher(ex, row, stock_out_id, &stock_out_no, cost_total, operator, now).await?;
 
     Ok(PostedReturn {
         stock_out_id,
@@ -661,9 +646,7 @@ async fn write_voucher(
         return Err(ApiError::new(
             500,
             error_code::INTERNAL_ERROR,
-            format!(
-                "采购退货凭证构造失败：借贷不平衡（借 {debit} / 贷 {credit}）—— 这是代码缺陷，请报障"
-            ),
+            format!("采购退货凭证构造失败：借贷不平衡（借 {debit} / 贷 {credit}）—— 这是代码缺陷，请报障"),
         ));
     }
     let summary = voucher_summary(&row.return_no, &row.stock_in_no);
@@ -691,13 +674,8 @@ async fn write_voucher(
 
     // 回写出库单 → 凭证（与销售侧 link 同口径；本模块只写这一个引用）
     ex.exec_sql(
-        "UPDATE biz_stock_out SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"
-            .to_string(),
-        vec![
-            Value::from(&voucher_id),
-            Value::from(now),
-            Value::from(&stock_out_id),
-        ],
+        "UPDATE biz_stock_out SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid".to_string(),
+        vec![Value::from(&voucher_id), Value::from(now), Value::from(&stock_out_id)],
     )
     .await
     .map_err(|error| utils::db_error(error, "回写出库单凭证"))?;
@@ -798,14 +776,7 @@ mod tests {
             tax: Some(tax.clone()),
             cost: cogs.clone(),
         };
-        let lines = voucher_lines(
-            "PRT-T-0001",
-            "IN-T-0001",
-            supplier,
-            warehouse,
-            basis,
-            &accounts,
-        );
+        let lines = voucher_lines("PRT-T-0001", "IN-T-0001", supplier, warehouse, basis, &accounts);
         assert_eq!(lines.len(), 3, "借 1 行 + 贷 2 行（存货 / 税）");
         let (debit, credit) = totals_of_lines(&lines);
         assert_eq!(debit, credit, "借贷必须精确相等");
@@ -817,14 +788,7 @@ mod tests {
             tax: d("39"),
             cost: d("320"),
         };
-        let lines = voucher_lines(
-            "PRT-T-0002",
-            "IN-T-0001",
-            supplier,
-            warehouse,
-            basis,
-            &accounts,
-        );
+        let lines = voucher_lines("PRT-T-0002", "IN-T-0001", supplier, warehouse, basis, &accounts);
         let (debit, credit) = totals_of_lines(&lines);
         assert_eq!(debit, credit);
         assert_eq!(lines.len(), 4);
@@ -836,14 +800,7 @@ mod tests {
             tax: d("39"),
             cost: d("280"),
         };
-        let lines = voucher_lines(
-            "PRT-T-0003",
-            "IN-T-0001",
-            supplier,
-            warehouse,
-            basis,
-            &accounts,
-        );
+        let lines = voucher_lines("PRT-T-0003", "IN-T-0001", supplier, warehouse, basis, &accounts);
         let (debit, credit) = totals_of_lines(&lines);
         assert_eq!(debit, credit);
         assert_eq!(lines[3].credit, d("20"), "差异 20 记 6401 贷方");

@@ -253,8 +253,7 @@ async fn lookup_username(ex: &Transaction, user_id: Uuid) -> Option<String> {
         )
         .await
         .ok()?;
-    rows.first()
-        .and_then(|row| row.get_typed::<String>("username").ok())
+    rows.first().and_then(|row| row.get_typed::<String>("username").ok())
 }
 
 fn opt_text(value: Option<&str>) -> Value {
@@ -288,10 +287,7 @@ impl Window {
     /// # 异常情况
     ///
     /// 格式非法（不是 `YYYY-MM`、月份不在 1–12）→ `Err(中文原因)`，handler 翻成 `400 + 65005`。
-    pub fn parse(
-        month: Option<&str>,
-        now: chrono::DateTime<chrono::Utc>,
-    ) -> std::result::Result<Self, String> {
+    pub fn parse(month: Option<&str>, now: chrono::DateTime<chrono::Utc>) -> std::result::Result<Self, String> {
         const OFFSET_SECONDS: i32 = 8 * 3600; // 北京时间
         let Some(offset) = chrono::FixedOffset::east_opt(OFFSET_SECONDS) else {
             return Err("时区偏移构造失败".to_string());
@@ -773,10 +769,7 @@ mod tests {
         assert!(!over_limit(5_000.0, 1_000.0 * 5.0), "等于上限不拦");
         assert!(over_limit(5_000.01, 5_000.0));
         assert!(!over_limit(0.0, 1_000.0));
-        assert!(
-            over_limit(1_000.01, 1_000.0),
-            "阈值 1000 / 单据 1000.01 必须拦"
-        );
+        assert!(over_limit(1_000.01, 1_000.0), "阈值 1000 / 单据 1000.01 必须拦");
     }
 
     /// ③ 留痕文案必须点名金额与上限（卡面：「超出自审金额上限 X」）。
@@ -813,14 +806,10 @@ mod tests {
         assert!(last_second >= window.start && last_second < window.end);
         // 次月 1 号 00:00（北京时间）不算本月
         let next_month = utc("2026-11-30T16:00:00Z");
-        assert!(
-            next_month >= window.end,
-            "右开区间：次月 1 号 00:00 不属于本月"
-        );
+        assert!(next_month >= window.end, "右开区间：次月 1 号 00:00 不属于本月");
 
         // 12 月跨年
-        let december =
-            Window::parse(Some("2026-12"), utc("2026-12-15T00:00:00Z")).expect("合法月份");
+        let december = Window::parse(Some("2026-12"), utc("2026-12-15T00:00:00Z")).expect("合法月份");
         assert_eq!(december.end.to_rfc3339(), "2026-12-31T16:00:00+00:00");
         assert_eq!(december.month, "2026-12");
 
@@ -868,10 +857,7 @@ mod tests {
             text.contains(crate::business::erp::separation::SELF_APPROVAL_MAX_AMOUNT_KEY),
             "{text}"
         );
-        assert_eq!(
-            over_limit_error("x").code,
-            error_code::FLOW_SELF_APPROVAL_AMOUNT_LIMIT
-        );
+        assert_eq!(over_limit_error("x").code, error_code::FLOW_SELF_APPROVAL_AMOUNT_LIMIT);
     }
 }
 
@@ -1045,17 +1031,9 @@ mod db_tests {
 
     /// 造一条实例（`ended` = `ended_at` 的 SQL 表达式，`None` 表示未结束）。
     #[allow(clippy::too_many_arguments)]
-    async fn add_instance(
-        fx: &Fixture,
-        no: &str,
-        status: &str,
-        ended: Option<&str>,
-        form: serde_json::Value,
-    ) -> Uuid {
+    async fn add_instance(fx: &Fixture, no: &str, status: &str, ended: Option<&str>, form: serde_json::Value) -> Uuid {
         let id = Uuid::now_v7();
-        let ended_sql = ended
-            .map(|sql| sql.to_string())
-            .unwrap_or("NULL".to_string());
+        let ended_sql = ended.map(|sql| sql.to_string()).unwrap_or("NULL".to_string());
         exec(
             &format!(
                 "INSERT INTO biz_flow_instance \
@@ -1215,17 +1193,10 @@ mod db_tests {
         assert_eq!(rows.len(), 1, "一次调用只写一行");
         let row = &rows[0];
         let request_id: String = row.get_typed("request_id").expect("request_id");
-        assert!(
-            !request_id.is_empty(),
-            "request_id 是 NOT NULL 列，必须显式赋值"
-        );
+        assert!(!request_id.is_empty(), "request_id 是 NOT NULL 列，必须显式赋值");
+        assert_eq!(row.get_typed::<Uuid>("user_id").expect("user_id"), fx.initiator);
         assert_eq!(
-            row.get_typed::<Uuid>("user_id").expect("user_id"),
-            fx.initiator
-        );
-        assert_eq!(
-            row.get_typed::<Option<String>>("username")
-                .expect("username"),
+            row.get_typed::<Option<String>>("username").expect("username"),
             Some(format!("p305_log_init")),
             "账号列必须由 record 补齐（日志页可直接按账号检索）"
         );
@@ -1238,8 +1209,7 @@ mod db_tests {
             super::TARGET_TYPE
         );
         let detail_text: String = row.get_typed("detail_text").expect("detail 文本");
-        let detail: serde_json::Value =
-            serde_json::from_str(&detail_text).expect("detail 必须是合法 JSON");
+        let detail: serde_json::Value = serde_json::from_str(&detail_text).expect("detail 必须是合法 JSON");
         assert_eq!(detail["node_name"], "部门经理审批", "{detail}");
         assert_eq!(detail["node_key"], "n_mgr", "{detail}");
         assert_eq!(detail["amount"], 4321.5, "{detail}");
@@ -1248,15 +1218,11 @@ mod db_tests {
         assert_eq!(detail["vote"], "APPROVED", "{detail}");
         assert_eq!(detail["self_approval"], "ALLOW", "{detail}");
         assert!(
-            detail["reason"]
-                .as_str()
-                .unwrap_or_default()
-                .contains("自审身份"),
+            detail["reason"].as_str().unwrap_or_default().contains("自审身份"),
             "{detail}"
         );
         // 追加写表关闭了时间戳 Hook：created_at 必须真被写上
-        let created_at: chrono::DateTime<chrono::Utc> =
-            row.get_typed("created_at").expect("created_at");
+        let created_at: chrono::DateTime<chrono::Utc> = row.get_typed("created_at").expect("created_at");
         let age = chrono::Utc::now() - created_at;
         assert!(age.num_seconds().abs() < 300, "created_at 必须是写入时刻");
 
@@ -1402,12 +1368,7 @@ mod db_tests {
         );
 
         // 按节点：n_mgr 1 票 / n_fin 1 票（C 的 n_mgr 不在窗内）
-        assert_eq!(
-            report.by_node.len(),
-            2,
-            "两个节点：{:?}",
-            report.by_node.len()
-        );
+        assert_eq!(report.by_node.len(), 2, "两个节点：{:?}", report.by_node.len());
         let mgr = report
             .by_node
             .iter()
@@ -1428,11 +1389,7 @@ mod db_tests {
         assert_eq!(person.tickets, 2);
         assert_eq!(person.instances, 2);
         assert_eq!(person.amount, "5800.50");
-        assert_eq!(
-            report.by_person.len(),
-            1,
-            "按人榜只收自审票：非自审的甲 / 乙都不该出现"
-        );
+        assert_eq!(report.by_person.len(), 1, "按人榜只收自审票：非自审的甲 / 乙都不该出现");
 
         // 明细：按投票时刻倒序，C 不在里面
         assert_eq!(report.list.len(), 2);

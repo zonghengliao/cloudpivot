@@ -40,8 +40,8 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
 use super::stocktake_model::{
-    self as model, MAX_LINES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED,
-    StockTakeFilter, StockTakeItemRow, StockTakeRow, TAKE_TYPES, status_label, take_type_label,
+    self as model, MAX_LINES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockTakeFilter,
+    StockTakeItemRow, StockTakeRow, TAKE_TYPES, status_label, take_type_label,
 };
 
 /// 备注最大长度（列 `VARCHAR(500)`）。
@@ -57,14 +57,8 @@ pub const STOCK_TAKE_PERMISSIONS: [(&str, &str); 6] = [
         "business:erp:stock-take:detail",
         "盘点单详情（账面 / 实盘 / 差异 / 凭证）",
     ),
-    (
-        "business:erp:stock-take:create",
-        "新建盘点单（账面数自动快照）",
-    ),
-    (
-        "business:erp:stock-take:update",
-        "编辑盘点单（仅草稿：填实盘数）",
-    ),
+    ("business:erp:stock-take:create", "新建盘点单（账面数自动快照）"),
+    ("business:erp:stock-take:update", "编辑盘点单（仅草稿：填实盘数）"),
     ("business:erp:stock-take:delete", "删除盘点单（仅草稿）"),
     (
         "business:erp:stock-take:status",
@@ -82,13 +76,8 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 
 /// 解析 uuid 字符串。
 fn parse_uuid_text(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim()).map_err(|err| {
-        ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            format!("{field} 不是合法 UUID：{err}"),
-        )
-    })
+    Uuid::parse_str(raw.trim())
+        .map_err(|err| ApiError::new(400, error_code::PARAM_INVALID, format!("{field} 不是合法 UUID：{err}")))
 }
 
 // ==================== 入参 ====================
@@ -111,12 +100,7 @@ impl StockTakeScopeItemReq {
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
-            .ok_or_else(|| {
-                bad_request(format!(
-                    "第 {} 行缺 material_id：抽盘必须逐行指定物料",
-                    index + 1
-                ))
-            })?;
+            .ok_or_else(|| bad_request(format!("第 {} 行缺 material_id：抽盘必须逐行指定物料", index + 1)))?;
         let material_id = parse_uuid_text(raw, &format!("第 {} 行 material_id", index + 1))?;
         let location_id = match self
             .location_id
@@ -125,10 +109,7 @@ impl StockTakeScopeItemReq {
             .filter(|text| !text.is_empty())
         {
             None => None,
-            Some(text) => Some(parse_uuid_text(
-                text,
-                &format!("第 {} 行 location_id", index + 1),
-            )?),
+            Some(text) => Some(parse_uuid_text(text, &format!("第 {} 行 location_id", index + 1))?),
         };
         Ok((material_id, location_id))
     }
@@ -181,12 +162,7 @@ impl CreateStockTakeReq {
 
     /// 备注（去空白 + 长度上限）。
     pub fn remark_text(&self) -> std::result::Result<Option<String>, ApiError> {
-        let Some(text) = self
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-        else {
+        let Some(text) = self.remark.as_deref().map(str::trim).filter(|t| !t.is_empty()) else {
             return Ok(None);
         };
         if text.chars().count() > MAX_REMARK_LEN {
@@ -199,10 +175,7 @@ impl CreateStockTakeReq {
     }
 
     /// 抽盘范围（类型与行数的交叉校验）。
-    pub fn scope_items(
-        &self,
-        take_type: &str,
-    ) -> std::result::Result<Vec<(Uuid, Option<Uuid>)>, ApiError> {
+    pub fn scope_items(&self, take_type: &str) -> std::result::Result<Vec<(Uuid, Option<Uuid>)>, ApiError> {
         if take_type == model::TAKE_TYPE_FULL {
             if !self.items.is_empty() {
                 return Err(bad_request(
@@ -355,12 +328,7 @@ impl StockTakeStatusReq {
 
     /// 原因文本（去空白；空串 → `None`；长度校验）。
     pub fn reason_text(&self) -> std::result::Result<Option<&str>, ApiError> {
-        let Some(text) = self
-            .reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-        else {
+        let Some(text) = self.reason.as_deref().map(str::trim).filter(|t| !t.is_empty()) else {
             return Ok(None);
         };
         if text.chars().count() > MAX_REASON_LEN {
@@ -468,11 +436,7 @@ impl StockTakeRes {
 /// AUD-02：制单人姓名回填（`create_by` → `create_by_name`）。
 impl crate::business::shared::user_name::PersonNameRow for StockTakeRes {
     fn person_ids(&self, out: &mut Vec<Uuid>) {
-        if let Some(id) = self
-            .create_by
-            .as_deref()
-            .and_then(|raw| Uuid::parse_str(raw).ok())
-        {
+        if let Some(id) = self.create_by.as_deref().and_then(|raw| Uuid::parse_str(raw).ok()) {
             out.push(id);
         }
     }
@@ -519,10 +483,7 @@ pub struct StockTakeItemRes {
 
 impl StockTakeItemRes {
     /// 行 → 明细项。
-    pub fn of(
-        item: &StockTakeItemRow,
-        material: Option<&super::stockout_model::MaterialInfo>,
-    ) -> Self {
+    pub fn of(item: &StockTakeItemRow, material: Option<&super::stockout_model::MaterialInfo>) -> Self {
         Self {
             id: item.id.to_string(),
             line_no: item.line_no,
@@ -567,10 +528,7 @@ impl StockTakeDetailRes {
     /// 组装详情（纯函数：边表由 handler 取一次传进来）。
     pub fn of(
         row: &StockTakeRow,
-        items: &[(
-            StockTakeItemRow,
-            Option<super::stockout_model::MaterialInfo>,
-        )],
+        items: &[(StockTakeItemRow, Option<super::stockout_model::MaterialInfo>)],
         edges: &[state_machine::Edge],
     ) -> Self {
         let available: Vec<(String, String)> = edges
@@ -652,9 +610,4 @@ pub struct StockTakePageRes {
 }
 
 /// 状态常量再导出（handler / 单测共用，避免各处重新写字符串）。
-pub const STATUSES: [&str; 4] = [
-    STATUS_DRAFT,
-    STATUS_PENDING_POST,
-    STATUS_POSTED,
-    STATUS_CANCELLED,
-];
+pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, STATUS_CANCELLED];

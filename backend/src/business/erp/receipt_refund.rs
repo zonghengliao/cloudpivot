@@ -150,12 +150,7 @@ pub const STATUS_POSTED: &str = "POSTED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 状态白名单（与 `ck_biz_receipt_refund_status` 逐字一致，单测钉住）。
-pub const STATUSES: [&str; 4] = [
-    STATUS_DRAFT,
-    STATUS_CONFIRMED,
-    STATUS_POSTED,
-    STATUS_CANCELLED,
-];
+pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_CONFIRMED, STATUS_POSTED, STATUS_CANCELLED];
 
 /// 退款方式：银行转账。
 pub const METHOD_BANK_TRANSFER: &str = "BANK_TRANSFER";
@@ -167,12 +162,7 @@ pub const METHOD_CHECK: &str = "CHECK";
 pub const METHOD_OTHER: &str = "OTHER";
 
 /// 退款方式白名单（与 `ck_biz_receipt_refund_method` 逐字一致）。
-pub const METHODS: [&str; 4] = [
-    METHOD_BANK_TRANSFER,
-    METHOD_CASH,
-    METHOD_CHECK,
-    METHOD_OTHER,
-];
+pub const METHODS: [&str; 4] = [METHOD_BANK_TRANSFER, METHOD_CASH, METHOD_CHECK, METHOD_OTHER];
 
 /// 单号前缀（`RR-yyyyMMdd-000001`）。
 pub const NO_PREFIX: &str = "RR";
@@ -225,8 +215,7 @@ pub const LIST_COLUMNS: &str = "p.id, p.refund_no, p.customer_id, COALESCE(c.nam
                                 p.created_at, p.updated_at, p.create_by";
 
 /// 分页 FROM（客户左连：客户软删后历史退款单仍要能列出来）。
-pub const LIST_FROM: &str =
-    "FROM biz_receipt_refund p LEFT JOIN biz_customer c ON c.id = p.customer_id";
+pub const LIST_FROM: &str = "FROM biz_receipt_refund p LEFT JOIN biz_customer c ON c.id = p.customer_id";
 
 /// 分页排序（新建在前）。
 pub const LIST_ORDER: &str = "ORDER BY p.created_at DESC, p.refund_no DESC";
@@ -355,11 +344,7 @@ pub fn validate_allocate_amount(
 }
 
 /// 汇总校验：冲减总额 ≤ 退款金额。
-pub fn validate_allocate_total(
-    refund_no: &str,
-    total: Decimal,
-    amount: Decimal,
-) -> std::result::Result<(), ApiError> {
+pub fn validate_allocate_total(refund_no: &str, total: Decimal, amount: Decimal) -> std::result::Result<(), ApiError> {
     if total > amount {
         return Err(bad_request(format!(
             "冲减总额 {total} 超过退款金额 {amount}（退款单 {refund_no}）：\
@@ -557,9 +542,7 @@ pub async fn lock_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Refu
     // SCOPE-EXEMPT: 退款台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
-            ),
+            format!("SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -570,10 +553,7 @@ pub async fn lock_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Refu
 }
 
 /// 锁一张应收单（`SELECT … FOR UPDATE`，与收款核销同口径的并发闸）。
-pub async fn lock_receivable(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> DbResult<Option<receivable::ReceivableRow>> {
+pub async fn lock_receivable(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<receivable::ReceivableRow>> {
     // SCOPE-EXEMPT: 应收台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
@@ -592,10 +572,7 @@ pub async fn lock_receivable(
 }
 
 /// 一张退款单的冲减明细（连带应收金额与状态，按创建顺序）。
-pub async fn allocations_of(
-    ex: &impl SqlExecutor,
-    refund_id: Uuid,
-) -> DbResult<Vec<RefundAllocationRow>> {
+pub async fn allocations_of(ex: &impl SqlExecutor, refund_id: Uuid) -> DbResult<Vec<RefundAllocationRow>> {
     // SCOPE-EXEMPT: 退款台账无归属列（见模块文档）。
     let rows = ex
         .query_sql(
@@ -620,9 +597,7 @@ pub async fn allocated_sum(ex: &impl SqlExecutor, refund_id: Uuid) -> DbResult<D
     // SCOPE-EXEMPT: 退款台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT COALESCE(SUM(amount), 0) AS total FROM {ALLOC_TABLE} WHERE refund_id = ?::uuid"
-            ),
+            format!("SELECT COALESCE(SUM(amount), 0) AS total FROM {ALLOC_TABLE} WHERE refund_id = ?::uuid"),
             vec![Value::from(&refund_id)],
         )
         .await?;
@@ -633,17 +608,11 @@ pub async fn allocated_sum(ex: &impl SqlExecutor, refund_id: Uuid) -> DbResult<D
 }
 
 /// 本退款对某张应收已有的冲减金额（没有 → 0）。
-async fn existing_allocation(
-    ex: &impl SqlExecutor,
-    refund_id: Uuid,
-    receivable_id: Uuid,
-) -> DbResult<Decimal> {
+async fn existing_allocation(ex: &impl SqlExecutor, refund_id: Uuid, receivable_id: Uuid) -> DbResult<Decimal> {
     // SCOPE-EXEMPT: 退款台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT amount FROM {ALLOC_TABLE} WHERE refund_id = ?::uuid AND receivable_id = ?::uuid"
-            ),
+            format!("SELECT amount FROM {ALLOC_TABLE} WHERE refund_id = ?::uuid AND receivable_id = ?::uuid"),
             vec![Value::from(&refund_id), Value::from(&receivable_id)],
         )
         .await?;
@@ -658,9 +627,7 @@ pub async fn customer_exists(ex: &impl SqlExecutor, customer_id: Uuid) -> DbResu
     // SCOPE-EXEMPT: 客户主数据全局（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT 1 AS hit FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            format!("SELECT 1 AS hit FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&customer_id)],
         )
         .await?;
@@ -762,15 +729,7 @@ pub async fn refund_page(q: &RefundFilter) -> DbResult<(Vec<(RefundRow, String)>
         sql.push_str(" AND p.refund_date <= ?::text::date");
         params.push(Value::Text(to.to_string()));
     }
-    let result = scope::paginate_unscoped(
-        LIST_TARGET,
-        &sql,
-        params,
-        Some(LIST_ORDER),
-        q.page,
-        q.page_size,
-    )
-    .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), q.page, q.page_size).await?;
     let rows = result
         .list
         .iter()
@@ -909,9 +868,7 @@ impl RefundPageQuery {
             && !method.is_empty()
             && !METHODS.contains(&method)
         {
-            return Err(bad_request(format!(
-                "method 只认 {METHODS:?}（收到「{method}」）"
-            )));
+            return Err(bad_request(format!("method 只认 {METHODS:?}（收到「{method}」）")));
         }
         if let Some(raw) = self.date_from.as_deref().map(str::trim)
             && !raw.is_empty()
@@ -928,8 +885,7 @@ impl RefundPageQuery {
 
     /// 转数据层筛选。
     pub fn to_filter(&self) -> std::result::Result<RefundFilter, ApiError> {
-        let (page, page_size) =
-            normalize_page(self.page.unwrap_or(1), self.page_size.unwrap_or(20));
+        let (page, page_size) = normalize_page(self.page.unwrap_or(1), self.page_size.unwrap_or(20));
         let mut filter = RefundFilter {
             page,
             page_size,
@@ -1134,10 +1090,7 @@ pub async fn refund_detail(id: Uuid) -> std::result::Result<RefundDetailRes, Api
 }
 
 /// 详情（可放进事务）。
-pub async fn detail_with(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<RefundDetailRes, ApiError> {
+pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<RefundDetailRes, ApiError> {
     let row = find_by_id(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "查询收款退款单"))?
@@ -1162,10 +1115,7 @@ pub async fn detail_with(
     Ok(RefundDetailRes {
         header: RefundRes::from_row(&row, &name),
         voucher_no,
-        allocations: allocations
-            .iter()
-            .map(RefundAllocationRes::from_row)
-            .collect(),
+        allocations: allocations.iter().map(RefundAllocationRes::from_row).collect(),
         approval,
     })
 }
@@ -1175,17 +1125,12 @@ pub async fn detail_with(
 /// 今日（CST）。
 fn today_cst() -> NaiveDate {
     Utc::now()
-        .with_timezone(
-            &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
-        )
+        .with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
         .date_naive()
 }
 
 /// 登记一张退款单（`DRAFT`，已冲减 0），并写建单状态日志。
-pub async fn create(
-    operator: Option<Uuid>,
-    req: CreateRefundReq,
-) -> std::result::Result<RefundDetailRes, ApiError> {
+pub async fn create(operator: Option<Uuid>, req: CreateRefundReq) -> std::result::Result<RefundDetailRes, ApiError> {
     let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
     let amount = validate_amount(req.amount)?;
     let reason = validate_reason(&req.reason)?;
@@ -1278,11 +1223,7 @@ pub async fn create(
                 Value::from(&id),
                 Value::Text(refund_no.clone()),
                 Value::from(&customer_id),
-                Value::Text(
-                    source_receipt_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(source_receipt_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(refund_date.to_string()),
                 Value::Text(amount.to_string()),
                 Value::Text(method.clone().unwrap_or_default()),
@@ -1298,16 +1239,7 @@ pub async fn create(
         .await
         .map_err(|error| write_error(error, "写入退款单"))?;
 
-        state_machine::log_created(
-            &tx,
-            ENTITY,
-            id,
-            &refund_no,
-            STATUS_DRAFT,
-            operator,
-            Some(&reason),
-        )
-        .await?;
+        state_machine::log_created(&tx, ENTITY, id, &refund_no, STATUS_DRAFT, operator, Some(&reason)).await?;
 
         detail_with(&tx, id).await
     }
@@ -1391,10 +1323,7 @@ pub async fn allocate(
         let mut planned: Vec<PlannedLine> = Vec::with_capacity(requested.len());
         for line in &requested {
             let receivable_id = parse_uuid(&line.receivable_id, "receivable_id")?;
-            if planned
-                .iter()
-                .any(|item| item.receivable_id == receivable_id)
-            {
+            if planned.iter().any(|item| item.receivable_id == receivable_id) {
                 return Err(bad_request(format!(
                     "应收 {receivable_id} 在这次请求里出现了两次：同一张应收只允许一行冲减"
                 )));
@@ -1565,14 +1494,9 @@ pub async fn allocate(
         // ⑥ SO-38：退款核销 = 额度释放出口 ② 的反向边（钱退了，敞口又回来了）。
         // 与冲减同事务；一张退款单同样只冲同一客户的应收。
         if !planned.is_empty() {
-            credit::sync(
-                &tx,
-                refund.customer_id,
-                credit::CAUSE_AR_REVERSED,
-                &refund.refund_no,
-            )
-            .await
-            .map_err(|error| utils::db_error(error, "同步客户信用额度（收款退款）"))?;
+            credit::sync(&tx, refund.customer_id, credit::CAUSE_AR_REVERSED, &refund.refund_no)
+                .await
+                .map_err(|error| utils::db_error(error, "同步客户信用额度（收款退款）"))?;
         }
 
         // ⑦ 回写退款头：allocated_amount 以**库里的明细合计**为准
@@ -1648,9 +1572,7 @@ async fn change_status_with(
     let id = parse_uuid(id, "id")?;
     let target = req.status.trim().to_string();
     if !STATUSES.contains(&target.as_str()) {
-        return Err(bad_request(format!(
-            "status 只认 {STATUSES:?}（收到「{target}」）"
-        )));
+        return Err(bad_request(format!("status 只认 {STATUSES:?}（收到「{target}」）")));
     }
     let mut reason = match req.reason.as_deref() {
         Some(raw) if !raw.trim().is_empty() => Some(validate_reason(raw)?),
@@ -1964,10 +1886,7 @@ pub async fn submit_approval(
                 id_raw,
                 RefundStatusReq {
                     status: STATUS_POSTED.to_string(),
-                    reason: note
-                        .map(str::trim)
-                        .filter(|text| !text.is_empty())
-                        .map(str::to_string),
+                    reason: note.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string),
                 },
                 Some(skip_reason),
             )
@@ -2049,9 +1968,7 @@ async fn start_approval(
         return Err(ApiError::new(
             500,
             error_code::INTERNAL_ERROR,
-            format!(
-                "退款审批单发起后状态是 {status}（应为 PENDING）：流程定义可能没有可执行的审批节点"
-            ),
+            format!("退款审批单发起后状态是 {status}（应为 PENDING）：流程定义可能没有可执行的审批节点"),
         ));
     }
     tx.commit()
@@ -2102,10 +2019,9 @@ async fn post_refund_voucher(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> std::result::Result<Uuid, ApiError> {
-    let receivable_account =
-        voucher::account_required(tx, DEBIT_CODE, "退款凭证的借方科目 1122 应收账款")
-            .await
-            .map_err(|error| write_error(error, "解析退款凭证借方科目"))?;
+    let receivable_account = voucher::account_required(tx, DEBIT_CODE, "退款凭证的借方科目 1122 应收账款")
+        .await
+        .map_err(|error| write_error(error, "解析退款凭证借方科目"))?;
     let bank = voucher::account_required(tx, CREDIT_CODE, "退款凭证的贷方科目 1002 银行存款")
         .await
         .map_err(|error| write_error(error, "解析退款凭证贷方科目"))?;
@@ -2194,18 +2110,13 @@ pub async fn receipt_refund_detail_handler(Path(id): Path<String>) -> ResResult<
     permission = "business:erp:receipt-refund:list"
 )]
 #[nik::get("/business/erp/receipt-refund/page")]
-pub async fn receipt_refund_page_handler(
-    Query(query): Query<RefundPageQuery>,
-) -> ResResult<PageData<Vec<RefundRes>>> {
+pub async fn receipt_refund_page_handler(Query(query): Query<RefundPageQuery>) -> ResResult<PageData<Vec<RefundRes>>> {
     query.validate()?;
     let filter = query.to_filter()?;
     let (rows, total) = refund_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询收款退款单"))?;
-    let list = rows
-        .iter()
-        .map(|(row, name)| RefundRes::from_row(row, name))
-        .collect();
+    let list = rows.iter().map(|(row, name)| RefundRes::from_row(row, name)).collect();
     Ok(Res::page(
         list,
         u64::try_from(total).unwrap_or(0),
@@ -2343,10 +2254,7 @@ mod tests {
     #[test]
     fn voucher_source_is_registered_with_its_doc_kind() {
         assert_eq!(SOURCE_RECEIPT_REFUND, "RECEIPT_REFUND");
-        assert_eq!(
-            VoucherSourceType::ReceiptRefund.as_str(),
-            SOURCE_RECEIPT_REFUND
-        );
+        assert_eq!(VoucherSourceType::ReceiptRefund.as_str(), SOURCE_RECEIPT_REFUND);
         assert_eq!(
             VoucherSourceType::ReceiptRefund.doc_kind(),
             Some(crate::business::shared::doc_kind::DocKind::ReceiptRefund)
@@ -2401,11 +2309,7 @@ mod tests {
     #[test]
     fn receivable_downward_edges_are_registered() {
         // 退款把应收往回推：三条向下边必须在注册表里（否则 transition 会 500）
-        for edge in [
-            ("SETTLED", "PARTIAL"),
-            ("PARTIAL", "OPEN"),
-            ("SETTLED", "OPEN"),
-        ] {
+        for edge in [("SETTLED", "PARTIAL"), ("PARTIAL", "OPEN"), ("SETTLED", "OPEN")] {
             assert!(
                 state_machine::RECEIVABLE_EDGES.contains(&edge),
                 "应收状态机缺退款冲减边 {edge:?}"
@@ -2507,8 +2411,7 @@ mod tests {
         sql("DELETE FROM biz_flow_instance WHERE biz_type = 'RECEIPT_REFUND'").await;
         sql("DELETE FROM biz_receipt_refund_allocation").await;
         sql("DELETE FROM biz_receipt_refund").await;
-        sql("DELETE FROM biz_status_log WHERE entity_type IN ('RECEIPT_REFUND','RECEIVABLE')")
-            .await;
+        sql("DELETE FROM biz_status_log WHERE entity_type IN ('RECEIPT_REFUND','RECEIVABLE')").await;
         sql("DELETE FROM biz_voucher WHERE source_type = 'RECEIPT_REFUND'").await;
         sql("DELETE FROM biz_receivable WHERE ar_no LIKE 'AR-RR14C-%'").await;
         sql("DELETE FROM biz_customer WHERE code LIKE 'RR14C-%'").await;
@@ -2526,10 +2429,7 @@ mod tests {
                      gen_random_uuid(), 'MANUAL', 1000, 100, 900, 30, '2026-11', '2026-12-06', 'PARTIAL')"
         ))
         .await;
-        (
-            Uuid::parse_str(FIX_CUSTOMER).expect("夹具 UUID 非法"),
-            ar_id,
-        )
+        (Uuid::parse_str(FIX_CUSTOMER).expect("夹具 UUID 非法"), ar_id)
     }
 
     /// 一个超管 id（`sys_role.role_code = 'SUPER_ADMIN'` 的成员）。
@@ -2566,9 +2466,7 @@ mod tests {
     /// 这里只回答「闸认不认这个实例」，所以直接落一行终态实例，不跑引擎。
     async fn seed_approved_instance(refund_id: &Uuid) -> Uuid {
         let admin = admin_id().await.expect("库里必须有超管（种子迁移）");
-        let (def_id, version_id) = refund_flow()
-            .await
-            .expect("库里必须有 receipt_refund 流程（V0297）");
+        let (def_id, version_id) = refund_flow().await.expect("库里必须有 receipt_refund 流程（V0297）");
         let instance_id = Uuid::now_v7();
         let short = instance_id.to_string().replace('-', "");
         sql(&format!(
@@ -2608,14 +2506,9 @@ mod tests {
         let (customer, ar_id) = setup().await;
 
         // ① 登记
-        let created = create(None, sample_req(customer))
-            .await
-            .expect("登记退款应成功");
+        let created = create(None, sample_req(customer)).await.expect("登记退款应成功");
         assert_eq!(created.header.status, STATUS_DRAFT);
-        assert!(
-            created.header.refund_no.starts_with("RR-"),
-            "单号应带 RR- 前缀"
-        );
+        assert!(created.header.refund_no.starts_with("RR-"), "单号应带 RR- 前缀");
         assert_eq!(created.header.allocated_amount, Decimal::ZERO);
         assert_eq!(created.header.reason, "客户退货，货款原路退回");
         let refund_id = Uuid::parse_str(&created.header.id).expect("id 非法");
@@ -2757,9 +2650,7 @@ mod tests {
             return;
         }
         let (customer, ar_id) = setup().await;
-        let created = create(None, sample_req(customer))
-            .await
-            .expect("登记退款应成功");
+        let created = create(None, sample_req(customer)).await.expect("登记退款应成功");
         let refund_id = created.header.id.clone();
 
         // 冲减 100.0001 > 已收 100 → 400
@@ -2896,9 +2787,7 @@ mod tests {
     /// 审批一条待办，并在**事务提交之后**跑业务回调（与 `flow::handler::approve_task` 同序）。
     async fn approve_task(task_id: Uuid, operator: Uuid) -> String {
         let out = db()
-            .transaction(|tx| async move {
-                engine::approve(&tx, task_id, operator, Some("D10 同意")).await
-            })
+            .transaction(|tx| async move { engine::approve(&tx, task_id, operator, Some("D10 同意")).await })
             .await
             .expect("审批失败");
         if let Some(rejected) = out.rejected {
@@ -2913,14 +2802,7 @@ mod tests {
     async fn reject_task(task_id: Uuid, operator: Uuid) -> String {
         let out = db()
             .transaction(|tx| async move {
-                engine::reject(
-                    &tx,
-                    task_id,
-                    operator,
-                    "D10 金额存疑，驳回",
-                    engine::ReturnTo::Final,
-                )
-                .await
+                engine::reject(&tx, task_id, operator, "D10 金额存疑，驳回", engine::ReturnTo::Final).await
             })
             .await
             .expect("驳回失败");
@@ -2971,11 +2853,7 @@ mod tests {
             stored,
             "V0297 种子的 graph_snapshot/graph_hash 与 biz_flow_node/biz_flow_edge 行不一致"
         );
-        assert_eq!(
-            graph.nodes.len(),
-            3,
-            "种子图应为 START + 财务经理审批 + END"
-        );
+        assert_eq!(graph.nodes.len(), 3, "种子图应为 START + 财务经理审批 + END");
         assert_eq!(graph.edges.len(), 2, "种子图应为 e_start + e_end");
     }
 
@@ -3173,14 +3051,8 @@ mod tests {
         )
         .await
         .expect("第二张提交审批应成功");
-        let second_instance = Uuid::parse_str(
-            &second_submitted
-                .approval
-                .as_ref()
-                .expect("审批段")
-                .instance_id,
-        )
-        .expect("实例 id 非法");
+        let second_instance =
+            Uuid::parse_str(&second_submitted.approval.as_ref().expect("审批段").instance_id).expect("实例 id 非法");
         let second_assignees = pending_assignee(second_instance).await;
         assert!(
             !second_assignees.contains(&creator.to_string()),
@@ -3217,10 +3089,7 @@ mod tests {
         )
         .await
         .expect("驳回后应能重新提交");
-        assert_eq!(
-            resubmitted.approval.as_ref().expect("审批段").status,
-            "PENDING"
-        );
+        assert_eq!(resubmitted.approval.as_ref().expect("审批段").status, "PENDING");
 
         // ---------- ⑥ 清场 ----------
         sql("DELETE FROM biz_flow_task WHERE instance_id IN \

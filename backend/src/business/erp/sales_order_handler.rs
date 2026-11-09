@@ -166,10 +166,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "销售订单号冲突（唯一约束{}）：取号器与库里的号撞了，请重试",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -177,10 +174,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::PARAM_INVALID,
             format!(
                 "数据不满足数据库约束{}（数量 > 0 / 价税合计恒等 / 状态域 7 值）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         _ => utils::db_error(err, ctx),
@@ -493,9 +487,7 @@ fn build_item(req: &SalesOrderItemReq, index: usize) -> std::result::Result<NewI
     }
     let price = req.price.unwrap_or(Decimal::ZERO);
     if price < Decimal::ZERO {
-        return Err(bad_request(format!(
-            "{label}.price 不能为负（当前 {price}）"
-        )));
+        return Err(bad_request(format!("{label}.price 不能为负（当前 {price}）")));
     }
     let tax_rate = req.tax_rate.unwrap_or(Decimal::ZERO);
     if tax_rate < Decimal::ZERO || tax_rate > Decimal::from(100) {
@@ -562,8 +554,7 @@ fn build_order<'a>(
 ) -> std::result::Result<(NewSalesOrder<'a>, Vec<NewItem>), ApiError> {
     let customer_id = parse_uuid(customer_id, "customer_id")?;
     let contract_id = parse_contract_id(contract_id)?;
-    let order_date =
-        parse_date(order_date, "order_date")?.unwrap_or_else(|| Utc::now().date_naive());
+    let order_date = parse_date(order_date, "order_date")?.unwrap_or_else(|| Utc::now().date_naive());
     let delivery_date = parse_date(delivery_date, "delivery_date")?;
     if let Some(delivery) = delivery_date
         && delivery < order_date
@@ -585,15 +576,9 @@ fn build_order<'a>(
     // 同行重复物料不拦（同一物料两行 = 两个交期 / 两个价格，是合理业务），
     // 但总金额必须自洽：这里再跑一次恒等守卫（漏了就是库层 23514 = 500 手感）
     let totals = Totals::of(&built);
-    if !crate::business::erp::sales_model::totals_consistent(
-        totals.amount,
-        totals.tax,
-        totals.with_tax,
-    ) || !crate::business::erp::sales_model::amounts_non_negative(
-        totals.amount,
-        totals.tax,
-        totals.with_tax,
-    ) {
+    if !crate::business::erp::sales_model::totals_consistent(totals.amount, totals.tax, totals.with_tax)
+        || !crate::business::erp::sales_model::amounts_non_negative(totals.amount, totals.tax, totals.with_tax)
+    {
         return Err(bad_request(
             "价税合计不自洽（total_with_tax 必须等于 amount + tax，且三项都非负）",
         ));
@@ -624,10 +609,7 @@ fn build_order<'a>(
 ///    两处口径不一致会让用户看到「可用 = true」却选不到；
 /// 3. 合同乙方必须是本单客户（`party_b_id == customer_id`）——
 ///    挂到别家客户的合同上，累计额会算进别人的合同，等于替别人用额度。
-fn ensure_sales_contract_usable(
-    contract: &ContractRow,
-    customer_id: Uuid,
-) -> std::result::Result<(), ApiError> {
+fn ensure_sales_contract_usable(contract: &ContractRow, customer_id: Uuid) -> std::result::Result<(), ApiError> {
     if contract.contract_type != "SALES" {
         return Err(ApiError::new(
             400,
@@ -693,10 +675,7 @@ fn ensure_within_contract_amount(
 ///
 /// 读在事务外（与采购单 `resolve_contract` 同序）：额度守卫会在**事务内**再锁一次
 /// 合同行并复检状态，所以这里读到的是「建单那一刻」的快照。
-async fn resolve_sales_contract(
-    contract_id: Uuid,
-    customer_id: Uuid,
-) -> std::result::Result<ContractRow, ApiError> {
+async fn resolve_sales_contract(contract_id: Uuid, customer_id: Uuid) -> std::result::Result<ContractRow, ApiError> {
     let contract = contract_model::contract_find(contract_id)
         .await
         .map_err(|error| utils::db_error(error, "查询销售合同"))?
@@ -755,9 +734,7 @@ async fn guard_contract_amount(
 // ==================== 业务逻辑（单测直接调这些） ====================
 
 /// 取客户主档：不存在 / 已软删 → 404；冻结 → 409（冻结 = 禁开新单，SO-02 口径）。
-async fn require_active_customer(
-    customer_id: Uuid,
-) -> std::result::Result<customer_model::CustomerRow, ApiError> {
+async fn require_active_customer(customer_id: Uuid) -> std::result::Result<customer_model::CustomerRow, ApiError> {
     let row = customer_model::customer_find_by_id(customer_id)
         .await
         .map_err(|error| utils::db_error(error, "查询销售订单客户"))?
@@ -765,9 +742,7 @@ async fn require_active_customer(
             ApiError::new(
                 404,
                 error_code::RESOURCE_NOT_FOUND,
-                format!(
-                    "客户 {customer_id} 不存在或已删除（customer_id 是弱引用，必须在建单前校验）"
-                ),
+                format!("客户 {customer_id} 不存在或已删除（customer_id 是弱引用，必须在建单前校验）"),
             )
         })?;
     if row.status != STATUS_ACTIVE {
@@ -932,8 +907,7 @@ pub async fn update_sales_order(
         // （停用是「不许再接新单」，不是「历史单必须改掉」）。
         require_active_salesperson(changed).await?;
     }
-    let order_date =
-        parse_date(req.order_date.as_deref(), "order_date")?.unwrap_or(current.order_date);
+    let order_date = parse_date(req.order_date.as_deref(), "order_date")?.unwrap_or(current.order_date);
     let delivery_date = match req.delivery_date.as_deref() {
         // 传空串 = 清空交期
         Some(text) if text.trim().is_empty() => None,
@@ -1032,17 +1006,7 @@ pub async fn update_sales_order(
         let _ = tx.rollback().await;
         return Err(error);
     }
-    let affected = model::update_order(
-        &tx,
-        id,
-        &new,
-        &items,
-        &totals,
-        &locked,
-        operator,
-        Utc::now(),
-    )
-    .await;
+    let affected = model::update_order(&tx, id, &new, &items, &totals, &locked, operator, Utc::now()).await;
     let affected = match affected {
         Ok(value) => value,
         Err(error) => {
@@ -1069,15 +1033,9 @@ pub async fn get_sales_order(id_raw: &str) -> std::result::Result<SalesOrderRes,
 }
 
 /// 销售订单分页。
-pub async fn page_sales_order(
-    filter: SalesOrderFilter,
-) -> std::result::Result<PageData<Vec<SalesOrderRes>>, ApiError> {
+pub async fn page_sales_order(filter: SalesOrderFilter) -> std::result::Result<PageData<Vec<SalesOrderRes>>, ApiError> {
     // `status` 传了非法值 → 400（静默忽略会把「已审批」筛成「全部」，是假数据）
-    if let Some(status) = filter
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
+    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|text| !text.is_empty())
         && !model::is_valid_status(status)
     {
         return Err(bad_request(format!(
@@ -1108,18 +1066,15 @@ pub async fn page_sales_order(
     let labels = model::customer_labels(&customer_ids)
         .await
         .map_err(|error| utils::db_error(error, "批量查询销售订单客户"))?;
-    let naming: std::collections::HashMap<Uuid, (String, String)> = labels
-        .into_iter()
-        .map(|(id, code, name)| (id, (code, name)))
-        .collect();
+    let naming: std::collections::HashMap<Uuid, (String, String)> =
+        labels.into_iter().map(|(id, code, name)| (id, (code, name))).collect();
     // V0309：销售员姓名一次往返补齐（一页里多张单常是同一个销售员）
     let salesperson_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.salesperson_id).collect();
-    let salespeople: std::collections::HashMap<Uuid, String> =
-        model::salesperson_labels(&salesperson_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询销售订单销售员"))?
-            .into_iter()
-            .collect();
+    let salespeople: std::collections::HashMap<Uuid, String> = model::salesperson_labels(&salesperson_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询销售订单销售员"))?
+        .into_iter()
+        .collect();
     let (page, page_size) = model::normalize_page(filter.page, filter.page_size);
     let list = rows
         .iter()
@@ -1129,9 +1084,7 @@ pub async fn page_sales_order(
                 res.customer_code = Some(code.clone());
                 res.customer_name = Some(name.clone());
             }
-            res.salesperson_name = row
-                .salesperson_id
-                .and_then(|id| salespeople.get(&id).cloned());
+            res.salesperson_name = row.salesperson_id.and_then(|id| salespeople.get(&id).cloned());
             res
         })
         .collect();
@@ -1144,10 +1097,7 @@ pub async fn page_sales_order(
 }
 
 /// 提交前的三道守卫（卡面要求）：明细 / 客户未冻结 / 信用额度未超。
-async fn ensure_submittable(
-    row: &SalesOrderRow,
-    lines: &[SalesOrderItemRow],
-) -> std::result::Result<(), ApiError> {
+async fn ensure_submittable(row: &SalesOrderRow, lines: &[SalesOrderItemRow]) -> std::result::Result<(), ApiError> {
     if lines.is_empty() {
         return Err(bad_request(format!(
             "销售订单 {} 没有明细，不能提交：至少要有 1 行明细",
@@ -1233,11 +1183,7 @@ pub async fn change_sales_order_status(
         return Err(conflict(message));
     }
 
-    let reason = req
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
+    let reason = req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty());
 
     // ② 需要原因的边（与 state_machine 的 SALES_ORDER_REASON_EDGES 同源，提前给人话）
     let needs_reason = state_machine::Entity::SaleOrder
@@ -1291,9 +1237,7 @@ pub async fn change_sales_order_status(
     // `uk_biz_flow_instance_biz_active` 会把这张单**下一次提交**永久堵死。
     if row.status == model::STATUS_SUBMITTED && target == model::STATUS_CANCELLED {
         let cancel_reason = reason.unwrap_or("审批中作废：终止在跑的审批单");
-        if let Err(error) =
-            sales_approval_bridge::cancel_approval_of(&tx, id, &row.so_no, cancel_reason).await
-        {
+        if let Err(error) = sales_approval_bridge::cancel_approval_of(&tx, id, &row.so_no, cancel_reason).await {
             let _ = tx.rollback().await;
             return Err(write_error(error, "终止在跑的销售订单审批"));
         }
@@ -1581,9 +1525,7 @@ async fn pending_instance_no(row: &SalesOrderRow) -> String {
     permission = "business:erp:sale-order:list"
 )]
 #[nik::get("/business/erp/sales-order/page")]
-pub async fn sales_order_page(
-    Query(filter): Query<SalesOrderFilter>,
-) -> ResResult<PageData<Vec<SalesOrderRes>>> {
+pub async fn sales_order_page(Query(filter): Query<SalesOrderFilter>) -> ResResult<PageData<Vec<SalesOrderRes>>> {
     Ok(Res::ok(page_sales_order(filter).await?))
 }
 
@@ -1662,9 +1604,7 @@ pub async fn sales_order_change_status(
         let gate = approval_gate::ApprovalGate::new(&no_skip, &claims);
         return Ok(Res::ok(submit_approval(operator, &id, &gate).await?));
     }
-    Ok(Res::ok(
-        change_sales_order_status(operator, &id, req).await?,
-    ))
+    Ok(Res::ok(change_sales_order_status(operator, &id, req).await?))
 }
 
 /// 提交审批（`DRAFT → SUBMITTED` + 发起 `so_approve` 实例）。
@@ -1733,70 +1673,43 @@ mod tests {
     #[test]
     fn create_request_validation_rejects_bad_input() {
         // ① 0 行明细
-        let err = build_order(CUST, None, Some("2026-11-06"), None, None, &[])
-            .expect_err("0 行明细必须被拒");
+        let err = build_order(CUST, None, Some("2026-11-06"), None, None, &[]).expect_err("0 行明细必须被拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::PARAM_INVALID);
         assert!(err.msg.contains("至少"), "{}", err.msg);
 
         // ② 数量 <= 0
         let bad_qty = item_req("0", "10", "13");
-        let err =
-            build_order(CUST, None, None, None, None, &[bad_qty]).expect_err("qty=0 必须被拒");
+        let err = build_order(CUST, None, None, None, None, &[bad_qty]).expect_err("qty=0 必须被拒");
         assert!(err.msg.contains("大于 0"), "{}", err.msg);
         // 负数数量
-        let err = build_order(CUST, None, None, None, None, &[item_req("-1", "10", "13")])
-            .expect_err("负数量必须被拒");
+        let err = build_order(CUST, None, None, None, None, &[item_req("-1", "10", "13")]).expect_err("负数量必须被拒");
         assert!(err.msg.contains("大于 0"), "{}", err.msg);
 
         // ③ 单价为负
-        let err = build_order(
-            CUST,
-            None,
-            None,
-            None,
-            None,
-            &[item_req("1", "-0.0001", "0")],
-        )
-        .expect_err("负单价必须被拒");
+        let err =
+            build_order(CUST, None, None, None, None, &[item_req("1", "-0.0001", "0")]).expect_err("负单价必须被拒");
         assert!(err.msg.contains("不能为负"), "{}", err.msg);
 
         // ④ 税率越界（> 100 / < 0）
         for rate in ["100.0001", "-1"] {
-            let err = build_order(CUST, None, None, None, None, &[item_req("1", "10", rate)])
-                .unwrap_err();
+            let err = build_order(CUST, None, None, None, None, &[item_req("1", "10", rate)]).unwrap_err();
             assert!(err.msg.contains("0–100"), "税率 {rate}：{}", err.msg);
         }
         // 边界值 0 / 100 合法
         build_order(CUST, None, None, None, None, &[item_req("1", "10", "0")]).expect("0% 合法");
-        build_order(CUST, None, None, None, None, &[item_req("1", "10", "100")])
-            .expect("100% 合法");
+        build_order(CUST, None, None, None, None, &[item_req("1", "10", "100")]).expect("100% 合法");
 
         // ⑤ 客户 id 非法 UUID / 缺失
-        let err = build_order("", None, None, None, None, &[item_req("1", "10", "0")])
-            .expect_err("空客户 id 必须被拒");
+        let err = build_order("", None, None, None, None, &[item_req("1", "10", "0")]).expect_err("空客户 id 必须被拒");
         assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
-        let err = build_order(
-            "not-a-uuid",
-            None,
-            None,
-            None,
-            None,
-            &[item_req("1", "10", "0")],
-        )
-        .expect_err("非法客户 id 必须被拒");
+        let err = build_order("not-a-uuid", None, None, None, None, &[item_req("1", "10", "0")])
+            .expect_err("非法客户 id 必须被拒");
         assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
 
         // ⑥ 日期格式 / 交期早于下单日
-        let err = build_order(
-            CUST,
-            None,
-            Some("2026-13-01"),
-            None,
-            None,
-            &[item_req("1", "10", "0")],
-        )
-        .expect_err("13 月必须被拒");
+        let err = build_order(CUST, None, Some("2026-13-01"), None, None, &[item_req("1", "10", "0")])
+            .expect_err("13 月必须被拒");
         assert!(err.msg.contains("yyyy-MM-dd"), "{}", err.msg);
         let err = build_order(
             CUST,
@@ -1843,10 +1756,7 @@ mod tests {
     #[test]
     fn page_status_domain_is_checked_by_pure_rule() {
         for bad in ["SHIPPED", "PARTIAL_SHIPPED", "draft", ""] {
-            assert!(
-                !model::is_valid_status(bad.trim()),
-                "`{bad}` 不应通过状态域校验"
-            );
+            assert!(!model::is_valid_status(bad.trim()), "`{bad}` 不应通过状态域校验");
         }
         for good in model::STATUSES {
             assert!(model::is_valid_status(good));
@@ -1859,10 +1769,7 @@ mod tests {
         let codes = all_permissions();
         assert_eq!(codes.len(), 4);
         for (index, code) in codes.iter().enumerate() {
-            assert!(
-                code.starts_with("business:erp:sale-order:"),
-                "权限码前缀不对：{code}"
-            );
+            assert!(code.starts_with("business:erp:sale-order:"), "权限码前缀不对：{code}");
             assert!(!codes[index + 1..].contains(code), "权限码重复：{code}");
         }
     }
@@ -1917,12 +1824,7 @@ mod tests {
     // ---------- SO-27：销售订单 ↔ 销售合同（纯逻辑） ----------
 
     /// 合同夹具：只填与「能不能挂单」相关的四列，其余给安全默认值。
-    fn contract_fixture(
-        kind: &str,
-        status: &str,
-        party_b_id: Uuid,
-        amount: Decimal,
-    ) -> ContractRow {
+    fn contract_fixture(kind: &str, status: &str, party_b_id: Uuid, amount: Decimal) -> ContractRow {
         ContractRow {
             id: Uuid::now_v7(),
             contract_no: "HT-20261107-000001".to_string(),
@@ -2025,22 +1927,18 @@ mod tests {
     fn contract_amount_guard_rejects_only_when_exceeded() {
         let no = "HT-20261107-000001";
         // 边界：正好用满 → 放行
-        ensure_within_contract_amount(no, dec("100"), dec("80"), dec("20"))
-            .expect("用满不等于超出");
+        ensure_within_contract_amount(no, dec("100"), dec("80"), dec("20")).expect("用满不等于超出");
         // 未用满 → 放行
-        ensure_within_contract_amount(no, dec("100"), dec("0"), dec("99.9999"))
-            .expect("未超应放行");
+        ensure_within_contract_amount(no, dec("100"), dec("0"), dec("99.9999")).expect("未超应放行");
         // 超出 0.0001 → 409 + 66019，报文点名四个数（合同额 / 已下 / 本单 / 剩余）
-        let err = ensure_within_contract_amount(no, dec("100"), dec("80"), dec("20.0001"))
-            .expect_err("超出必须被拒");
+        let err = ensure_within_contract_amount(no, dec("100"), dec("80"), dec("20.0001")).expect_err("超出必须被拒");
         assert_eq!(err.status, 409);
         assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED);
         for needle in ["100", "80", "20.0001", "剩余额度 20"] {
             assert!(err.msg.contains(needle), "报文缺 {needle}：{}", err.msg);
         }
         // 已下单额本身就超了合同（历史脏数据）→ 依然拒绝，不能因为「本单很小」放过
-        let err = ensure_within_contract_amount(no, dec("100"), dec("120"), dec("1"))
-            .expect_err("累计已超也必须拒");
+        let err = ensure_within_contract_amount(no, dec("100"), dec("120"), dec("1")).expect_err("累计已超也必须拒");
         assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED);
     }
 
@@ -2138,11 +2036,7 @@ mod tests {
         db().execute_with_params(
             "UPDATE biz_customer SET credit_limit = ?::text::numeric, status = ?, deleted_at = NULL \
               WHERE code = ?",
-            vec![
-                Value::from(credit_limit),
-                Value::from(status),
-                Value::from(code),
-            ],
+            vec![Value::from(credit_limit), Value::from(status), Value::from(code)],
         )
         .await
         .expect("重置夹具客户应成功");
@@ -2159,12 +2053,9 @@ mod tests {
     async fn status_machine_main_chain_and_illegal_transitions() {
         let Some(_guard) = setup().await else { return };
         let customer = fixture_customer(CUSTOMER_CODE, "10000", "ACTIVE").await;
-        let created = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("2", "100", "13")]),
-        )
-        .await
-        .expect("建单应成功");
+        let created = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("2", "100", "13")]))
+            .await
+            .expect("建单应成功");
         assert_eq!(created.status, model::STATUS_DRAFT);
         assert!(created.so_no.starts_with("SO-"), "{}", created.so_no);
         assert_eq!(created.items.len(), 1);
@@ -2301,12 +2192,9 @@ mod tests {
     async fn cancel_requires_reason_after_submit() {
         let Some(_guard) = setup().await else { return };
         let customer = fixture_customer(CUSTOMER_CODE, "10000", "ACTIVE").await;
-        let first = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("1", "10", "0")]),
-        )
-        .await
-        .expect("建单应成功");
+        let first = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("1", "10", "0")]))
+            .await
+            .expect("建单应成功");
         // 草稿作废：原因可选
         let cancelled = change_sales_order_status(
             None,
@@ -2321,12 +2209,9 @@ mod tests {
         assert_eq!(cancelled.status, model::STATUS_CANCELLED);
 
         // 第二张：提交后作废，缺原因 → 400
-        let second = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("1", "10", "0")]),
-        )
-        .await
-        .expect("建单应成功");
+        let second = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("1", "10", "0")]))
+            .await
+            .expect("建单应成功");
         change_sales_order_status(
             None,
             &second.id,
@@ -2372,12 +2257,9 @@ mod tests {
         let customer = fixture_customer(CUSTOMER_CODE, "1000", "ACTIVE").await;
 
         // ① 0 行明细：建单后手工清掉明细，再提交 → 400
-        let no_lines = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("1", "10", "0")]),
-        )
-        .await
-        .expect("建单应成功");
+        let no_lines = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("1", "10", "0")]))
+            .await
+            .expect("建单应成功");
         db().execute_with_params(
             "DELETE FROM biz_sales_order_item WHERE so_id = ?",
             vec![Value::from(Uuid::parse_str(&no_lines.id).expect("id"))],
@@ -2398,12 +2280,9 @@ mod tests {
         assert!(err.msg.contains("明细"), "{}", err.msg);
 
         // ② 客户冻结：建单时 ACTIVE，草稿期间被冻结 → 提交 409
-        let frozen_later = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("1", "10", "0")]),
-        )
-        .await
-        .expect("建单应成功");
+        let frozen_later = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("1", "10", "0")]))
+            .await
+            .expect("建单应成功");
         db().execute_with_params(
             "UPDATE biz_customer SET status = 'FROZEN' WHERE id = ?",
             vec![Value::from(customer)],
@@ -2423,12 +2302,9 @@ mod tests {
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("冻结"), "{}", err.msg);
         // 冻结客户也不能建新单
-        let err = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("1", "10", "0")]),
-        )
-        .await
-        .expect_err("冻结客户不能开新单");
+        let err = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("1", "10", "0")]))
+            .await
+            .expect_err("冻结客户不能开新单");
         assert_eq!(err.status, 409, "{}", err.msg);
         // 复原
         db().execute_with_params(
@@ -2440,12 +2316,9 @@ mod tests {
 
         // ③ 信用额度：额度 50，本单 113 → 超；额度 200 的另一客户 → 通过
         let tight = fixture_customer(CUSTOMER_CODE_TIGHT, "50", "ACTIVE").await;
-        let over = create_sales_order(
-            None,
-            order_req(&tight.to_string(), vec![item_req("1", "100", "13")]),
-        )
-        .await
-        .expect("建单应成功（建单不占额度）");
+        let over = create_sales_order(None, order_req(&tight.to_string(), vec![item_req("1", "100", "13")]))
+            .await
+            .expect("建单应成功（建单不占额度）");
         let err = change_sales_order_status(
             None,
             &over.id,
@@ -2490,12 +2363,9 @@ mod tests {
     async fn update_page_and_detail_work_end_to_end() {
         let Some(_guard) = setup().await else { return };
         let customer = fixture_customer(CUSTOMER_CODE, "10000", "ACTIVE").await;
-        let created = create_sales_order(
-            None,
-            order_req(&customer.to_string(), vec![item_req("1", "10", "0")]),
-        )
-        .await
-        .expect("建单应成功");
+        let created = create_sales_order(None, order_req(&customer.to_string(), vec![item_req("1", "10", "0")]))
+            .await
+            .expect("建单应成功");
         assert_eq!(created.total_with_tax, dec("10"));
 
         let updated = update_sales_order(
@@ -2602,11 +2472,7 @@ mod tests {
         );
         let err = parse_salesperson_id(Some("not-a-uuid")).expect_err("乱码必须 400");
         assert_eq!(err.status, 400);
-        assert!(
-            err.msg.contains("salesperson_id"),
-            "错误文案要点名字段：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("salesperson_id"), "错误文案要点名字段：{}", err.msg);
     }
 
     /// V0309 / SO-35：建单挂销售员 → 出参带 id + 姓名；停用 / 不存在的账号 400。
@@ -2616,10 +2482,7 @@ mod tests {
         let customer = fixture_customer("SO5HT-SP", "0", "ACTIVE").await;
         let active = Uuid::parse_str("d0509000-0000-4000-8000-0000000000a1").expect("夹具 uuid");
         let inactive = Uuid::parse_str("d0509000-0000-4000-8000-0000000000a2").expect("夹具 uuid");
-        for (id, name, status) in [
-            (active, "SO-35 销售员甲", 1),
-            (inactive, "SO-35 销售员乙（停用）", 0),
-        ] {
+        for (id, name, status) in [(active, "SO-35 销售员甲", 1), (inactive, "SO-35 销售员乙（停用）", 0)] {
             db().execute_with_params(
                 "INSERT INTO sys_user (id, username, password, real_name, status) \
                  VALUES (?::uuid, ?, 'x', ?, ?) \
@@ -2641,27 +2504,20 @@ mod tests {
         req.salesperson_id = Some(active.to_string());
         let created = create_sales_order(None, req).await.expect("建单应成功");
         let active_text = active.to_string();
-        assert_eq!(
-            created.salesperson_id.as_deref(),
-            Some(active_text.as_str())
-        );
+        assert_eq!(created.salesperson_id.as_deref(), Some(active_text.as_str()));
         assert_eq!(created.salesperson_name.as_deref(), Some("SO-35 销售员甲"));
 
         // ② 停用账号 → 400（停用即停止接新单计佣）
         let mut req = order_req(&customer.to_string(), vec![item_req("1", "10", "0")]);
         req.salesperson_id = Some(inactive.to_string());
-        let err = create_sales_order(None, req)
-            .await
-            .expect_err("停用账号必须被拒");
+        let err = create_sales_order(None, req).await.expect_err("停用账号必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("停用"), "{}", err.msg);
 
         // ③ 不存在的账号 → 400（不是 500、也不是静默落库）
         let mut req = order_req(&customer.to_string(), vec![item_req("1", "10", "0")]);
         req.salesperson_id = Some(Uuid::now_v7().to_string());
-        let err = create_sales_order(None, req)
-            .await
-            .expect_err("不存在的销售员必须被拒");
+        let err = create_sales_order(None, req).await.expect_err("不存在的销售员必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
 
         // ④ 列表批量补名：一页里能看到销售员姓名（不是只有 id）
@@ -2672,10 +2528,7 @@ mod tests {
         .await
         .expect("分页应成功");
         assert_eq!(page.total, 1, "只有 ① 建单成功");
-        assert_eq!(
-            page.list[0].salesperson_name.as_deref(),
-            Some("SO-35 销售员甲")
-        );
+        assert_eq!(page.list[0].salesperson_name.as_deref(), Some("SO-35 销售员甲"));
 
         // ⑤ 改单解绑（传空串）→ salesperson_id 变 null
         let updated = update_sales_order(

@@ -247,26 +247,15 @@ async fn lnk12_approve_fires_once_and_replay_is_deduped() {
     if !ensure_db().await {
         return;
     }
-    let fx = Fixture::new(
-        "APPROVED",
-        Some(("APPROVED", "SEND_NOTICE", notice_params())),
-    )
-    .await;
+    let fx = Fixture::new("APPROVED", Some(("APPROVED", "SEND_NOTICE", notice_params()))).await;
 
-    let first =
-        instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", Some(fx.initiator))
-            .await;
+    let first = instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", Some(fx.initiator)).await;
     assert_eq!(first, 1, "第一次审批通过必须真的执行 1 条规则（通知）");
     assert_eq!(fx.notice_count().await, 1, "通知必须落 1 条");
 
     // 重放：同一实例同一结论再触发一次（模拟回调重试 / 幂等重放）
-    let replay =
-        instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", Some(fx.initiator))
-            .await;
-    assert!(
-        replay >= 1,
-        "重放仍会命中规则（引擎照跑），但通知必须被幂等键挡下"
-    );
+    let replay = instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", Some(fx.initiator)).await;
+    assert!(replay >= 1, "重放仍会命中规则（引擎照跑），但通知必须被幂等键挡下");
     assert_eq!(
         fx.notice_count().await,
         1,
@@ -292,11 +281,7 @@ async fn lnk12_pending_instance_never_fires() {
         return;
     }
     // 配了 APPROVED 的规则，但实例还在 PENDING
-    let fx = Fixture::new(
-        "PENDING",
-        Some(("APPROVED", "SEND_NOTICE", notice_params())),
-    )
-    .await;
+    let fx = Fixture::new("PENDING", Some(("APPROVED", "SEND_NOTICE", notice_params()))).await;
 
     assert_eq!(
         instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", None).await,
@@ -323,14 +308,9 @@ async fn lnk12_excluded_ledger_action_never_runs() {
         "voucher_date": "2026-11-07",
         "summary": "LNK12 不该出现的一张凭证"
     });
-    let fx = Fixture::new(
-        "APPROVED",
-        Some(("APPROVED", "GENERATE_VOUCHER", voucher_params)),
-    )
-    .await;
+    let fx = Fixture::new("APPROVED", Some(("APPROVED", "GENERATE_VOUCHER", voucher_params))).await;
 
-    let executed =
-        instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", None).await;
+    let executed = instance_linkage::fire_after_commit(Some(fx.instance_id), "APPROVED", None).await;
     assert_eq!(
         executed, 0,
         "GENERATE_VOUCHER 被 spec::FLOW_INSTANCE_EXCLUDED_ACTIONS 排除 ⇒ 一条都不执行"
@@ -356,14 +336,9 @@ async fn lnk12_reject_verdict_gets_its_own_key() {
     if !ensure_db().await {
         return;
     }
-    let fx = Fixture::new(
-        "REJECTED",
-        Some(("REJECTED", "SEND_NOTICE", notice_params())),
-    )
-    .await;
+    let fx = Fixture::new("REJECTED", Some(("REJECTED", "SEND_NOTICE", notice_params()))).await;
 
-    let executed =
-        instance_linkage::fire_after_commit(Some(fx.instance_id), "REJECTED", None).await;
+    let executed = instance_linkage::fire_after_commit(Some(fx.instance_id), "REJECTED", None).await;
     assert_eq!(executed, 1, "驳回同样要触发（通知发起人「单子被打回了」）");
     assert_eq!(fx.notice_count().await, 1);
     assert_eq!(

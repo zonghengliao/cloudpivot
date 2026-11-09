@@ -257,18 +257,12 @@ pub async fn spot_rate(
 /// **建单汇率锁定**：按请求币种 + 单据日期查一次 SPOT，得到要落到单据行的三件事。
 ///
 /// 调用点（四个单据的建单入口）**必须**用它，不要在业务代码里另写取汇率的 SQL。
-pub async fn lock(
-    ex: &impl SqlExecutor,
-    requested: Option<&str>,
-    on_date: NaiveDate,
-) -> DbResult<LockOutcome> {
+pub async fn lock(ex: &impl SqlExecutor, requested: Option<&str>, on_date: NaiveDate) -> DbResult<LockOutcome> {
     let base = base_currency_code(ex).await?;
     // 请求的是本位币 / 未指定 ⇒ 不必查汇率表（少一次往返，也不会被「历史上没有 CNY 行」卡住）
     let needs_lookup = match requested.map(str::trim).filter(|text| !text.is_empty()) {
         None => false,
-        Some(raw) => normalize_currency(raw)
-            .map(|code| code != base)
-            .unwrap_or(false),
+        Some(raw) => normalize_currency(raw).map(|code| code != base).unwrap_or(false),
     };
     if !needs_lookup {
         return Ok(decide(&base, requested, None, on_date));
@@ -323,15 +317,9 @@ mod tests {
             (date(2026, 11, 5), dec("7.20000000")),
             (date(2026, 11, 9), dec("7.30000000")), // 未来汇率
         ];
-        assert_eq!(
-            latest_on_or_before(&rows, date(2026, 11, 6)),
-            Some(dec("7.20000000"))
-        );
+        assert_eq!(latest_on_or_before(&rows, date(2026, 11, 6)), Some(dec("7.20000000")));
         // 单据日恰好有牌价 ⇒ 取当天的
-        assert_eq!(
-            latest_on_or_before(&rows, date(2026, 11, 5)),
-            Some(dec("7.20000000"))
-        );
+        assert_eq!(latest_on_or_before(&rows, date(2026, 11, 5)), Some(dec("7.20000000")));
         // 早于全部牌价 ⇒ 取不到（4xx，而不是拿最早那条倒推）
         assert_eq!(latest_on_or_before(&rows, date(2026, 10, 31)), None);
     }
@@ -340,10 +328,7 @@ mod tests {
     fn latest_on_or_before_handles_empty_and_single() {
         assert_eq!(latest_on_or_before(&[], date(2026, 11, 7)), None);
         let single = vec![(date(2026, 1, 1), dec("1.00000000"))];
-        assert_eq!(
-            latest_on_or_before(&single, date(2026, 12, 31)),
-            Some(Decimal::ONE)
-        );
+        assert_eq!(latest_on_or_before(&single, date(2026, 12, 31)), Some(Decimal::ONE));
     }
 
     // ---------- 锁定决策 ----------
@@ -351,9 +336,7 @@ mod tests {
     #[test]
     fn decide_defaults_to_base_currency_with_rate_one() {
         let outcome = decide("CNY", None, None, date(2026, 11, 7));
-        let locked = outcome
-            .into_locked("销售订单")
-            .expect("本位币单必定锁定成功");
+        let locked = outcome.into_locked("销售订单").expect("本位币单必定锁定成功");
         assert_eq!(locked.currency_code, "CNY");
         assert_eq!(locked.exchange_rate, Decimal::ONE);
     }
@@ -361,12 +344,7 @@ mod tests {
     #[test]
     fn decide_uses_rate_one_for_base_currency_even_if_rate_present() {
         // 账套本位币被切成 USD 时，USD 单同样不必查汇率（rate 恒 1）
-        let outcome = decide(
-            "USD",
-            Some("usd"),
-            Some(dec("7.30000000")),
-            date(2026, 11, 7),
-        );
+        let outcome = decide("USD", Some("usd"), Some(dec("7.30000000")), date(2026, 11, 7));
         let locked = outcome.into_locked("销售订单").expect("本位币单");
         assert_eq!(locked.base_currency, "USD");
         assert_eq!(locked.currency_code, "USD");

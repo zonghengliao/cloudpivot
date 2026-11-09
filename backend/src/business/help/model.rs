@@ -348,9 +348,7 @@ pub struct SearchFilter {
 /// 可安全放进 `ILIKE ? ESCAPE '\'` 的片段。**不转义时**用户搜 `%` 会全表命中
 /// （H-08），搜 `a_b` 会把 `_` 当单字符通配（多命中）。
 pub fn escape_like(raw: &str) -> String {
-    raw.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+    raw.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 /// 把用户输入切成检索词（按空白切分，去空、去重、最多 [`MAX_SEARCH_TERMS`] 个）。
@@ -722,9 +720,7 @@ pub async fn category_child_count(id: &uuid::Uuid) -> DbResult<i64> {
 /// - [`HelpError::Db`]：数据库异常。
 pub async fn create_category(input: &CategoryInput) -> std::result::Result<CategoryRow, HelpError> {
     if let Some(parent_id) = input.parent_id {
-        let parent_depth = category_depth(&parent_id)
-            .await?
-            .ok_or(HelpError::CategoryNotFound)?;
+        let parent_depth = category_depth(&parent_id).await?.ok_or(HelpError::CategoryNotFound)?;
         if parent_depth + 1 > MAX_CATEGORY_DEPTH {
             return Err(HelpError::DepthExceeded);
         }
@@ -752,9 +748,7 @@ pub async fn create_category(input: &CategoryInput) -> std::result::Result<Categ
         )
         .await?;
     if inserted == 0 {
-        return Err(HelpError::Db(DbError::InvalidValue(
-            "新建分类未写入任何行".to_string(),
-        )));
+        return Err(HelpError::Db(DbError::InvalidValue("新建分类未写入任何行".to_string())));
     }
     find_category(&id).await?.ok_or(HelpError::CategoryNotFound)
 }
@@ -776,13 +770,8 @@ pub async fn create_category(input: &CategoryInput) -> std::result::Result<Categ
 /// - [`HelpError::DepthExceeded`]：移动后（自身深度 + 子树高度）超过 3 层（H-01）；
 /// - [`HelpError::CategoryMoveCycle`]：目标父分类在自己的子树里；
 /// - [`HelpError::CategoryCodeConflict`]：编码重复。
-pub async fn update_category(
-    id: &uuid::Uuid,
-    input: &CategoryInput,
-) -> std::result::Result<CategoryRow, HelpError> {
-    let current = find_category(id)
-        .await?
-        .ok_or(HelpError::CategoryNotFound)?;
+pub async fn update_category(id: &uuid::Uuid, input: &CategoryInput) -> std::result::Result<CategoryRow, HelpError> {
+    let current = find_category(id).await?.ok_or(HelpError::CategoryNotFound)?;
     if category_code_taken(&input.code, Some(id)).await? {
         return Err(HelpError::CategoryCodeConflict);
     }
@@ -793,9 +782,7 @@ pub async fn update_category(
         if &parent_id == id {
             return Err(HelpError::CategoryMoveCycle);
         }
-        let parent_depth = category_depth(&parent_id)
-            .await?
-            .ok_or(HelpError::CategoryNotFound)?;
+        let parent_depth = category_depth(&parent_id).await?.ok_or(HelpError::CategoryNotFound)?;
         // 目标父节点不能在自己的子树里（否则成环，递归 CTE 会无限展开）
         let in_subtree: i64 = db()
             .scalar_with_params(
@@ -853,9 +840,7 @@ pub async fn update_category(
 /// - [`HelpError::CategoryHasChildren`]：还有子分类；
 /// - [`HelpError::CategoryNotEmpty`]：还有文档（H-02：409 + 62011 且分类仍在）。
 pub async fn delete_category(id: &uuid::Uuid) -> std::result::Result<(), HelpError> {
-    find_category(id)
-        .await?
-        .ok_or(HelpError::CategoryNotFound)?;
+    find_category(id).await?.ok_or(HelpError::CategoryNotFound)?;
     if category_child_count(id).await? > 0 {
         return Err(HelpError::CategoryHasChildren);
     }
@@ -905,11 +890,8 @@ pub async fn find_doc(id: &uuid::Uuid) -> DbResult<Option<DocDetailRow>> {
 ///
 /// 数据库异常返回 [`DbError`]。
 pub async fn find_doc_by_slug(slug: &str) -> DbResult<Option<DocDetailRow>> {
-    let sql =
-        format!("{DOC_DETAIL_SELECT} WHERE d.deleted_at IS NULL AND d.slug = ?::text LIMIT 1");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::Text(slug.to_string())])
-        .await?;
+    let sql = format!("{DOC_DETAIL_SELECT} WHERE d.deleted_at IS NULL AND d.slug = ?::text LIMIT 1");
+    let rows = db().find_with_params(&sql, vec![Value::Text(slug.to_string())]).await?;
     rows.first().map(doc_detail_from_row).transpose()
 }
 
@@ -982,11 +964,7 @@ pub fn subtree_cte(alias: &str) -> String {
 /// 帮助文档是**全局内容**（架构 §3.5 / S-1），有意不登记 `SCOPED_TABLES`；但闸①
 /// 要求列表分页只能走 [`scope::paginate`] / [`scope::paginate_unscoped`]，所以这里
 /// 用显式 `unscoped` 锚点，而不是自己拼 `LIMIT/OFFSET`。
-pub async fn page_docs(
-    filter: &DocFilter,
-    page: u64,
-    page_size: u64,
-) -> DbResult<Page<DocCardRow>> {
+pub async fn page_docs(filter: &DocFilter, page: u64, page_size: u64) -> DbResult<Page<DocCardRow>> {
     let mut sql = String::new();
     let mut params: Vec<Value> = Vec::new();
 
@@ -1019,9 +997,7 @@ pub async fn page_docs(
         params.push(Value::Text(status.to_string()));
     }
     if let Some(keyword) = filter.keyword.as_deref() {
-        sql.push_str(
-            " AND (d.title ILIKE ?::text ESCAPE '\\' OR d.summary ILIKE ?::text ESCAPE '\\')",
-        );
+        sql.push_str(" AND (d.title ILIKE ?::text ESCAPE '\\' OR d.summary ILIKE ?::text ESCAPE '\\')");
         params.push(Value::Text(keyword.to_string()));
         params.push(Value::Text(keyword.to_string()));
     }
@@ -1066,11 +1042,7 @@ pub async fn page_docs(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn search(
-    filter: &SearchFilter,
-    page: u64,
-    page_size: u64,
-) -> DbResult<Page<SearchHitRow>> {
+pub async fn search(filter: &SearchFilter, page: u64, page_size: u64) -> DbResult<Page<SearchHitRow>> {
     if filter.terms.is_empty() {
         return Ok(Page {
             list: Vec::new(),
@@ -1106,9 +1078,7 @@ pub async fn search(
     }
     // 每个词一组 (title OR content_md)，组间 AND
     for term in &filter.terms {
-        sql.push_str(
-            " AND (d.title ILIKE ?::text ESCAPE '\\' OR d.content_md ILIKE ?::text ESCAPE '\\')",
-        );
+        sql.push_str(" AND (d.title ILIKE ?::text ESCAPE '\\' OR d.content_md ILIKE ?::text ESCAPE '\\')");
         let pattern = like_pattern(term);
         params.push(Value::Text(pattern.clone()));
         params.push(Value::Text(pattern));
@@ -1223,9 +1193,7 @@ pub async fn create_doc_in(
         )
         .await?;
     if affected == 0 {
-        return Err(HelpError::Db(DbError::InvalidValue(
-            "新建文档未写入任何行".to_string(),
-        )));
+        return Err(HelpError::Db(DbError::InvalidValue("新建文档未写入任何行".to_string())));
     }
     Ok(id)
 }
@@ -1240,11 +1208,7 @@ pub async fn create_doc(
     operator: Option<uuid::Uuid>,
 ) -> std::result::Result<DocDetailRow, HelpError> {
     let id = db()
-        .transaction(|tx| async move {
-            create_doc_in(&tx, input, operator)
-                .await
-                .map_err(help_error_to_db)
-        })
+        .transaction(|tx| async move { create_doc_in(&tx, input, operator).await.map_err(help_error_to_db) })
         .await
         .map_err(help_error_from_db)?;
     find_doc(&id).await?.ok_or(HelpError::DocNotFound)
@@ -1427,14 +1391,10 @@ pub async fn rollback_doc_in(
     note: Option<&str>,
 ) -> std::result::Result<(), HelpError> {
     find_doc(id).await?.ok_or(HelpError::DocNotFound)?;
-    let target = find_version(id, version)
-        .await?
-        .ok_or(HelpError::VersionNotFound)?;
+    let target = find_version(id, version).await?.ok_or(HelpError::VersionNotFound)?;
 
     let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
-    let note_text = note
-        .map(str::to_string)
-        .unwrap_or_else(|| format!("回滚到 v{version}"));
+    let note_text = note.map(str::to_string).unwrap_or_else(|| format!("回滚到 v{version}"));
     let doc_id = *id;
     let title = target.title;
     let content_md = target.content_md;
@@ -1483,10 +1443,7 @@ pub async fn rollback_doc(
 ///
 /// - [`HelpError::DocNotFound`]；
 /// - [`HelpError::Db`]。
-pub async fn delete_doc_in(
-    ex: &Transaction,
-    id: &uuid::Uuid,
-) -> std::result::Result<(), HelpError> {
+pub async fn delete_doc_in(ex: &Transaction, id: &uuid::Uuid) -> std::result::Result<(), HelpError> {
     find_doc(id).await?.ok_or(HelpError::DocNotFound)?;
     ex.execute_with_params(
         "UPDATE sys_help_doc SET deleted_at = now(), updated_at = now() \
@@ -1500,11 +1457,9 @@ pub async fn delete_doc_in(
 /// 兼容包装（批次 C · C6），口径同 [`create_doc`]。
 pub async fn delete_doc(id: &uuid::Uuid) -> std::result::Result<(), HelpError> {
     let doc_id = *id;
-    db().transaction(
-        |tx| async move { delete_doc_in(&tx, &doc_id).await.map_err(help_error_to_db) },
-    )
-    .await
-    .map_err(help_error_from_db)?;
+    db().transaction(|tx| async move { delete_doc_in(&tx, &doc_id).await.map_err(help_error_to_db) })
+        .await
+        .map_err(help_error_from_db)?;
     Ok(())
 }
 
@@ -1527,9 +1482,7 @@ pub async fn increment_view(id: &uuid::Uuid) -> DbResult<Option<i32>> {
             vec![Value::from(id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed::<i32>("view_count"))
-        .transpose()
+    rows.first().map(|row| row.get_typed::<i32>("view_count")).transpose()
 }
 
 // ==================== 版本快照 ====================
@@ -1604,11 +1557,7 @@ pub async fn cleanup_versions(doc_id: &uuid::Uuid, keep: i64) -> DbResult<u64> {
         "DELETE FROM sys_help_doc_version v \
           WHERE v.doc_id = ?::uuid \
             AND v.version <= (SELECT max(version) FROM sys_help_doc_version WHERE doc_id = ?::uuid) - ?::bigint",
-        vec![
-            Value::from(doc_id),
-            Value::from(doc_id),
-            Value::I64(keep),
-        ],
+        vec![Value::from(doc_id), Value::from(doc_id), Value::I64(keep)],
     )
     .await
 }
@@ -1684,12 +1633,7 @@ pub fn register_builtin(scheduler: &Scheduler) {
 /// - `doc_id`：文档 ID；
 /// - `note`：变更说明；
 /// - `operator`：操作人字符串（空串 = 未知）。
-async fn snapshot_in_tx(
-    tx: &Transaction,
-    doc_id: &uuid::Uuid,
-    note: Option<&str>,
-    operator: &str,
-) -> DbResult<()> {
+async fn snapshot_in_tx(tx: &Transaction, doc_id: &uuid::Uuid, note: Option<&str>, operator: &str) -> DbResult<()> {
     tx.execute_with_params(
         "INSERT INTO sys_help_doc_version \
              (doc_id, version, title, content_md, content_html, change_note, create_by) \
@@ -1952,16 +1896,7 @@ mod tests {
         for ok in ["ab", "a1", "help-center", "abc-123", &"a".repeat(120)] {
             assert!(is_valid_slug(ok), "应合法：{ok}");
         }
-        for bad in [
-            "",
-            "a",
-            "A",
-            "My Slug",
-            "帮助",
-            "-abc",
-            "a_b",
-            &"a".repeat(121),
-        ] {
+        for bad in ["", "a", "A", "My Slug", "帮助", "-abc", "a_b", &"a".repeat(121)] {
             assert!(!is_valid_slug(bad), "应非法：{bad}");
         }
     }

@@ -259,12 +259,8 @@ pub(super) async fn location_row_of(id: &Uuid) -> Option<(Decimal, Decimal)> {
         )
         .await
         .unwrap_or_else(|err| panic!("查库位账行失败：{err}"));
-    rows.first().map(|row| {
-        (
-            row.get_typed("qty").unwrap(),
-            row.get_typed("locked_qty").unwrap(),
-        )
-    })
+    rows.first()
+        .map(|row| (row.get_typed("qty").unwrap(), row.get_typed("locked_qty").unwrap()))
 }
 
 /// 库位账某一行的数量（行不存在 → `None`）。
@@ -435,9 +431,7 @@ pub(super) async fn pending_task_of(stock_in_id: Uuid) -> (Uuid, Uuid) {
 /// 并断言实例真的 `APPROVED` —— 没到终态就是夹具的错，不能让它悄悄绿着过去。
 pub(super) async fn approve_cancel(stock_in_id: Uuid) {
     let instance_id = cancel_instance_of(stock_in_id).await;
-    let outs =
-        crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意作废")
-            .await;
+    let outs = crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意作废").await;
     assert!(
         !outs.is_empty(),
         "作废审批必须至少有一条 PENDING 待办可批（实例 {instance_id}）"
@@ -510,10 +504,7 @@ pub(super) async fn voucher_count(doc: Uuid, red: Option<i16>) -> i64 {
 /// （FIX-7 起无源入库的序列号 `source_type` 为 NULL，加条件会一律查成 0 条）。
 pub(super) async fn serial_counts_of(doc: Uuid) -> (i64, i64) {
     let mut out = [0i64; 2];
-    for (slot, cond) in out
-        .iter_mut()
-        .zip(["deleted_at IS NULL", "deleted_at IS NOT NULL"])
-    {
+    for (slot, cond) in out.iter_mut().zip(["deleted_at IS NULL", "deleted_at IS NOT NULL"]) {
         let sql = format!(
             "SELECT count(*) FROM biz_material_serial \
               WHERE source_id = ?::uuid AND {cond}"
@@ -681,12 +672,9 @@ pub(super) async fn setup_post_approval() {
 
 /// 造一张含税金额 = `amount` 的收货单（单行、税率 0）。
 pub(super) async fn stock_in_with_amount(amount: &str, maker: Option<&str>) -> Uuid {
-    create_stock_in(
-        &req(vec![line(MATERIAL_A, "1", amount, "0")]),
-        maker.map(uid_of),
-    )
-    .await
-    .unwrap_or_else(|err| panic!("造收货单失败：{} {}", err.code, err.msg))
+    create_stock_in(&req(vec![line(MATERIAL_A, "1", amount, "0")]), maker.map(uid_of))
+        .await
+        .unwrap_or_else(|err| panic!("造收货单失败：{} {}", err.code, err.msg))
 }
 
 pub(super) async fn running_post_instance(stock_in_id: Uuid) -> Uuid {
@@ -710,22 +698,14 @@ pub(super) async fn post_pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
         .await
         .expect("读待办失败");
     rows.iter()
-        .map(|row| {
-            (
-                row.get_typed("id").unwrap(),
-                row.get_typed("assignee_id").unwrap(),
-            )
-        })
+        .map(|row| (row.get_typed("id").unwrap(), row.get_typed("assignee_id").unwrap()))
         .collect()
 }
 
 /// 某人在本实例上的待办（**不限状态**）：`(task_id, status, comment)`。
 ///
 /// P0-FIX 之后「制单人 / 发起人」不再拿 `PENDING`（生成时就被排除成 `SKIPPED`）。
-pub(super) async fn post_task_of(
-    instance_id: Uuid,
-    assignee: Uuid,
-) -> Option<(Uuid, String, String)> {
+pub(super) async fn post_task_of(instance_id: Uuid, assignee: Uuid) -> Option<(Uuid, String, String)> {
     let rows = db()
         .find_with_params(
             "SELECT id, status, COALESCE(comment,'') AS comment FROM biz_flow_task \
@@ -744,15 +724,10 @@ pub(super) async fn post_task_of(
 }
 
 /// 以某人身份同意一条待办，并按 `flow::handler` 的口径推进业务回调。
-pub(super) async fn post_approve_as(
-    task_id: Uuid,
-    operator: &str,
-) -> crate::business::flow::engine::ActionOut {
+pub(super) async fn post_approve_as(task_id: Uuid, operator: &str) -> crate::business::flow::engine::ActionOut {
     let op = uid_of(operator);
     let out = db()
-        .transaction(|tx| async move {
-            crate::business::flow::engine::approve(&tx, task_id, op, Some("同意")).await
-        })
+        .transaction(|tx| async move { crate::business::flow::engine::approve(&tx, task_id, op, Some("同意")).await })
         .await
         .unwrap_or_else(|err| panic!("同意失败：{err}"));
     stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
@@ -856,12 +831,7 @@ pub(super) async fn a4_seed_po(supplier: &str, qty: &str, status: &str) -> (Uuid
 }
 
 /// 从采购单生成收货单的请求（`supplier` = `None` 时证明服务端派生）。
-pub(super) fn a4_sourced_req(
-    order_id: Uuid,
-    item_id: Uuid,
-    qty: &str,
-    supplier: Option<&str>,
-) -> CreateStockInReq {
+pub(super) fn a4_sourced_req(order_id: Uuid, item_id: Uuid, qty: &str, supplier: Option<&str>) -> CreateStockInReq {
     let mut one = line(MATERIAL_A, qty, "2", "0");
     one.purchase_order_item_id = Some(item_id.to_string());
     CreateStockInReq {

@@ -108,11 +108,7 @@ pub async fn sync_purchase_status(
         crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
     );
     let pending: i64 = ex.scalar_sql(sql, vec![Value::from(&order_id)]).await?;
-    let target = if pending == 0 {
-        "RECEIVED"
-    } else {
-        "PARTIAL_RECEIVED"
-    };
+    let target = if pending == 0 { "RECEIVED" } else { "PARTIAL_RECEIVED" };
 
     // ③④ `transition_if_changed`：状态没变（继续部分收货）→ 不写状态日志、返回 Ok(0)，
     //     只留收货流水；变了 → 边表校验 + reason 校验 + 写 biz_status_log（关联收货单号）。
@@ -168,10 +164,7 @@ pub async fn sync_purchase_status(
     //
     // 采购单自己不落账（库存 / 流水 / 凭证 / 已收数量都在收货过账的事务里写完了），
     // 所以排除清单会把那 4 类动作交给专用路径（`spec::PURCHASE_EXCLUDED_ACTIONS`）。
-    crate::business::erp::purchase_model::purchase_linkage::run_in_tx(
-        ex, order_id, target, operator, outbox,
-    )
-    .await?;
+    crate::business::erp::purchase_model::purchase_linkage::run_in_tx(ex, order_id, target, operator, outbox).await?;
     Ok(affected)
 }
 
@@ -239,10 +232,7 @@ pub async fn purchase_order_ref(order_id: Uuid) -> DbResult<Option<PurchaseOrder
 /// - 两张收货单收同一张采购单也会在这里串行化 ⇒ 待收额度复核
 ///   （[`order_item_balances`]）成为**权威判据**（也是唯一判据：P2-3 之后
 ///   `add_received_qty` 的条件更新已随列一起删除）。
-pub async fn lock_purchase_order(
-    ex: &impl SqlExecutor,
-    order_id: Uuid,
-) -> DbResult<Option<(String, String)>> {
+pub async fn lock_purchase_order(ex: &impl SqlExecutor, order_id: Uuid) -> DbResult<Option<(String, String)>> {
     let rows = ex
         .query_sql(
             "SELECT order_no, status FROM biz_purchase_order \
@@ -287,10 +277,7 @@ impl OrderItemBalance {
 /// 已收口径**复用** [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]
 /// （与「待收明细」页 `pending_receive_lines` 同一个聚合表达式），不写第二套：
 /// 一旦分叉，就会出现「页面说还能收 40、过账放行 60」这类最难查的账实不符。
-pub async fn order_item_balances(
-    ex: &impl SqlExecutor,
-    order_id: Uuid,
-) -> DbResult<Vec<OrderItemBalance>> {
+pub async fn order_item_balances(ex: &impl SqlExecutor, order_id: Uuid) -> DbResult<Vec<OrderItemBalance>> {
     let sql = format!(
         "SELECT i.id AS item_id, i.line_no, i.qty AS order_qty, \
                 ({}::numeric(18,4)) AS posted_received \

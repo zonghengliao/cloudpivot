@@ -38,14 +38,8 @@ fn assign_owner_sql_is_guarded() {
         ASSIGN_OWNER_SQL.contains("deleted_at IS NULL"),
         "已软删的任务不许被分派"
     );
-    assert!(
-        ASSIGN_OWNER_SQL.contains("dept_id = ?::uuid"),
-        "部门快照要跟着换"
-    );
-    assert!(
-        ASSIGN_OWNER_SQL.contains("source = ?"),
-        "来源要能改成 TRANSFERRED"
-    );
+    assert!(ASSIGN_OWNER_SQL.contains("dept_id = ?::uuid"), "部门快照要跟着换");
+    assert!(ASSIGN_OWNER_SQL.contains("source = ?"), "来源要能改成 TRANSFERRED");
 }
 
 /// T3：加协作人必须是**一条**集合式 INSERT（不许 N+1），且幂等 + 回吐新增行。
@@ -173,10 +167,7 @@ fn visible_params_are_one_uuid_array() {
     );
     assert_eq!(
         params[0],
-        Value::Text(
-            "{018f0000-0000-7000-8000-000000000001,018f0000-0000-7000-8000-000000000002}"
-                .to_string()
-        ),
+        Value::Text("{018f0000-0000-7000-8000-000000000001,018f0000-0000-7000-8000-000000000002}".to_string()),
         "uuid[] 必须编码成 PG 文本数组字面量 {{uuid,uuid}}"
     );
 }
@@ -189,10 +180,7 @@ fn truncated_scope_degrades_to_empty_array() {
         ids: vec![Uuid::nil()],
         truncated: true,
     };
-    assert_eq!(
-        visible_params(&oversized),
-        vec![Value::Text("{}".to_string())]
-    );
+    assert_eq!(visible_params(&oversized), vec![Value::Text("{}".to_string())]);
     // 空集合本身的编码就是 `{}`（没有任何参与关系时同样安全）
     assert_eq!(
         visible_params(&MyScopeIds::default()),
@@ -238,15 +226,9 @@ fn default_due_date_is_this_friday() {
 fn buckets_cover_all_cases() {
     let today = date(2026, 10, 29); // 周四；本周日 = 11-01
     assert_eq!(bucket_of(None, today), MyBucket::NoDue);
-    assert_eq!(
-        bucket_of(Some(date(2026, 10, 28)), today),
-        MyBucket::Overdue
-    );
+    assert_eq!(bucket_of(Some(date(2026, 10, 28)), today), MyBucket::Overdue);
     assert_eq!(bucket_of(Some(today), today), MyBucket::Today);
-    assert_eq!(
-        bucket_of(Some(date(2026, 10, 30)), today),
-        MyBucket::ThisWeek
-    );
+    assert_eq!(bucket_of(Some(date(2026, 10, 30)), today), MyBucket::ThisWeek);
     assert_eq!(
         bucket_of(Some(date(2026, 11, 1)), today),
         MyBucket::ThisWeek,

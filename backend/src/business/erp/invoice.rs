@@ -312,11 +312,7 @@ pub fn validate_total(total: Decimal) -> std::result::Result<Decimal, ApiError> 
 }
 
 /// 金额符号规则（`ck_biz_invoice_sign` 的 Rust 镜像，先在本层拦，报错才说得清）。
-pub fn validate_sign(
-    invoice_type: &str,
-    amount: Decimal,
-    tax_amount: Decimal,
-) -> std::result::Result<(), ApiError> {
+pub fn validate_sign(invoice_type: &str, amount: Decimal, tax_amount: Decimal) -> std::result::Result<(), ApiError> {
     match invoice_type {
         TYPE_OUT => {
             if amount <= Decimal::ZERO {
@@ -325,9 +321,7 @@ pub fn validate_sign(
                 )));
             }
             if tax_amount < Decimal::ZERO {
-                return Err(bad_request(format!(
-                    "销项正票（OUT）的税额不能为负，收到 {tax_amount}"
-                )));
+                return Err(bad_request(format!("销项正票（OUT）的税额不能为负，收到 {tax_amount}")));
             }
             Ok(())
         }
@@ -344,9 +338,7 @@ pub fn validate_sign(
             }
             Ok(())
         }
-        other => Err(bad_request(format!(
-            "invoice_type 只认 {TYPES:?}，收到「{other}」"
-        ))),
+        other => Err(bad_request(format!("invoice_type 只认 {TYPES:?}，收到「{other}」"))),
     }
 }
 
@@ -406,10 +398,7 @@ pub fn resolve_amounts(
 }
 
 /// 用户给了价税合计时，算出来的合计必须与它逐分相等（不静默改用户的数）。
-fn ensure_total_matches(
-    given: Option<Decimal>,
-    computed: Decimal,
-) -> std::result::Result<(), ApiError> {
+fn ensure_total_matches(given: Option<Decimal>, computed: Decimal) -> std::result::Result<(), ApiError> {
     match given {
         Some(given) if given != computed => Err(bad_request(format!(
             "金额三列不自洽：total_with_tax({given}) ≠ amount + tax_amount({computed})：\
@@ -489,11 +478,7 @@ pub fn validate_invoice_code(raw: Option<&str>) -> std::result::Result<Option<St
 /// 规则在 `biz_attachment_rule` 里按 `is_electronic` 分支（V0348）。这里只给中文标签，
 /// 供错误文案 / 前端兜底共用。
 pub fn electronic_label(is_electronic: bool) -> &'static str {
-    if is_electronic {
-        "电子票"
-    } else {
-        "纸质票"
-    }
+    if is_electronic { "电子票" } else { "纸质票" }
 }
 
 /// 票面形式归一：请求不传（`None`）= **电子票**（数电票为主，与 V0348 默认值一致）。
@@ -512,9 +497,7 @@ pub fn validate_type(raw: Option<&str>) -> std::result::Result<String, ApiError>
         return Ok(TYPE_OUT.to_string());
     }
     if !TYPES.contains(&text) {
-        return Err(bad_request(format!(
-            "invoice_type 只认 {TYPES:?}，收到「{text}」"
-        )));
+        return Err(bad_request(format!("invoice_type 只认 {TYPES:?}，收到「{text}」")));
     }
     if text == TYPE_OUT_RED {
         return Err(bad_request(
@@ -591,11 +574,7 @@ fn conflict(message: impl Into<String>) -> ApiError {
 
 /// 404：发票不存在。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "发票不存在或已删除".to_string(),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "发票不存在或已删除".to_string())
 }
 
 /// 路径 / 请求体里的 UUID：非法 → `400 + 66006`。
@@ -751,9 +730,7 @@ pub async fn lock_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Invo
     // SCOPE-EXEMPT: 销售台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
-            ),
+            format!("SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -794,11 +771,7 @@ pub async fn invoiced_total(
             vec![
                 Value::from(&receivable_id),
                 Value::Text(STATUS_VOID.to_string()),
-                Value::Text(
-                    exclude_invoice_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(exclude_invoice_id.map(|id| id.to_string()).unwrap_or_default()),
             ],
         )
         .await?;
@@ -813,8 +786,7 @@ pub async fn voucher_no_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<
     // SCOPE-EXEMPT: biz_voucher 是会计台账，没有归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            "SELECT voucher_no FROM biz_voucher WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT voucher_no FROM biz_voucher WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&voucher_id)],
         )
         .await?;
@@ -828,9 +800,7 @@ pub async fn customer_exists(ex: &impl SqlExecutor, customer_id: Uuid) -> DbResu
     // SCOPE-EXEMPT: biz_customer 是客户主数据（全局），没有归属列。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT 1 AS hit FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            format!("SELECT 1 AS hit FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&customer_id)],
         )
         .await?;
@@ -965,13 +935,9 @@ pub async fn invoice_detail(id: Uuid) -> std::result::Result<InvoiceDetailRes, A
 }
 
 /// [`invoice_detail`] 的 executor 版（事务内回读用，看得到本事务未提交的写入）。
-pub async fn detail_with(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<InvoiceDetailRes, ApiError> {
+pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<InvoiceDetailRes, ApiError> {
     // SCOPE-EXEMPT: 发票 / 客户 / 应收 / 凭证均无归属列（见模块文档）。
-    let sql =
-        format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
+    let sql = format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
     let row = ex
         .query_first_sql(sql, vec![Value::from(&id)])
         .await
@@ -987,36 +953,35 @@ pub async fn detail_with(
             .map_err(|error| utils::db_error(error, "查询发票凭证号"))?,
         None => None,
     };
-    let (receivable_no, receivable_amount, receivable_status, headroom) =
-        match invoice.receivable_id {
-            Some(receivable_id) => {
-                match receivable::find_by_id(ex, receivable_id)
-                    .await
-                    .map_err(|error| utils::db_error(error, "查询关联应收"))?
-                {
-                    Some(ar) => {
-                        let invoiced = invoiced_total(ex, receivable_id, Some(invoice.id))
-                            .await
-                            .map_err(|error| utils::db_error(error, "统计应收已开票金额"))?;
-                        // 详情里的额度 = 应收金额 - **其它**存活发票（含本张），
-                        // 即「不算本张」的剩余额度，前端据此提示还能开多少。
-                        let others = if invoice.status == STATUS_VOID {
-                            invoiced
-                        } else {
-                            (invoiced + invoice.total_with_tax).round_dp(4)
-                        };
-                        (
-                            Some(ar.ar_no.clone()),
-                            Some(ar.amount),
-                            Some(ar.status.clone()),
-                            Some(headroom_of(ar.amount, others)),
-                        )
-                    }
-                    None => (None, None, None, None),
+    let (receivable_no, receivable_amount, receivable_status, headroom) = match invoice.receivable_id {
+        Some(receivable_id) => {
+            match receivable::find_by_id(ex, receivable_id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询关联应收"))?
+            {
+                Some(ar) => {
+                    let invoiced = invoiced_total(ex, receivable_id, Some(invoice.id))
+                        .await
+                        .map_err(|error| utils::db_error(error, "统计应收已开票金额"))?;
+                    // 详情里的额度 = 应收金额 - **其它**存活发票（含本张），
+                    // 即「不算本张」的剩余额度，前端据此提示还能开多少。
+                    let others = if invoice.status == STATUS_VOID {
+                        invoiced
+                    } else {
+                        (invoiced + invoice.total_with_tax).round_dp(4)
+                    };
+                    (
+                        Some(ar.ar_no.clone()),
+                        Some(ar.amount),
+                        Some(ar.status.clone()),
+                        Some(headroom_of(ar.amount, others)),
+                    )
                 }
+                None => (None, None, None, None),
             }
-            None => (None, None, None, None),
-        };
+        }
+        None => (None, None, None, None),
+    };
     Ok(InvoiceDetailRes {
         invoice: InvoiceRes::from_row(&invoice, &customer_name),
         voucher_no,
@@ -1256,15 +1221,7 @@ pub async fn invoice_page(q: &InvoiceFilter) -> DbResult<(Vec<(InvoiceRow, Strin
         sql.push_str(" AND p.invoice_date <= ?::text::date");
         params.push(Value::Text(to.to_string()));
     }
-    let result = scope::paginate_unscoped(
-        LIST_TARGET,
-        &sql,
-        params,
-        Some(LIST_ORDER),
-        q.page,
-        q.page_size,
-    )
-    .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), q.page, q.page_size).await?;
     let rows = result
         .list
         .iter()
@@ -1281,19 +1238,14 @@ pub async fn invoice_page(q: &InvoiceFilter) -> DbResult<(Vec<(InvoiceRow, Strin
 /// 今日（CST）。
 fn today_cst() -> NaiveDate {
     Utc::now()
-        .with_timezone(
-            &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
-        )
+        .with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
         .date_naive()
 }
 
 /// 建一张发票（`DRAFT`，账上一分没动），并写建单状态日志。
 ///
 /// 从应收开票时在同一事务里**锁应收**并校验「开票金额 ≤ 应收金额 - 已开票金额」。
-pub async fn create(
-    operator: Option<Uuid>,
-    req: CreateInvoiceReq,
-) -> std::result::Result<InvoiceDetailRes, ApiError> {
+pub async fn create(operator: Option<Uuid>, req: CreateInvoiceReq) -> std::result::Result<InvoiceDetailRes, ApiError> {
     let receivable_id = match req.receivable_id.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() => Some(parse_uuid(raw, "receivable_id")?),
         _ => None,
@@ -1401,8 +1353,8 @@ pub async fn create(
                 )));
             }
             resolved_customer = Some(ar.customer_id);
-            resolved_source_type = resolved_source_type
-                .or_else(|| normalize_source_type(Some(ar.source_type.as_str())));
+            resolved_source_type =
+                resolved_source_type.or_else(|| normalize_source_type(Some(ar.source_type.as_str())));
             resolved_source_no = resolved_source_no.or(Some(ar.source_no.clone()));
             receivable_total = Some(ar.amount);
             receivable_currency = Some(ar.currency_code.clone());
@@ -1586,9 +1538,7 @@ pub async fn change_status(
     let id = parse_uuid(id, "id")?;
     let target = req.status.trim().to_string();
     if !STATUSES.contains(&target.as_str()) {
-        return Err(bad_request(format!(
-            "status 只认 {STATUSES:?}（收到「{target}」）"
-        )));
+        return Err(bad_request(format!("status 只认 {STATUSES:?}（收到「{target}」）")));
     }
     if target == STATUS_DRAFT {
         return Err(bad_request(
@@ -1642,21 +1592,11 @@ pub async fn change_status(
         }
         match target.as_str() {
             STATUS_ISSUED | STATUS_POSTED => {
-                period::ensure_period_writable(
-                    &tx,
-                    &period_code_of(invoice.invoice_date),
-                    "发票开票",
-                )
-                .await?;
+                period::ensure_period_writable(&tx, &period_code_of(invoice.invoice_date), "发票开票").await?;
             }
             STATUS_VOID => {
                 // 作废要把凭证红冲掉，红字凭证落在**作废当天**的期间
-                period::ensure_period_writable(
-                    &tx,
-                    &period_code_of(voucher::today_cst(now)),
-                    "发票作废",
-                )
-                .await?;
+                period::ensure_period_writable(&tx, &period_code_of(voucher::today_cst(now)), "发票作废").await?;
             }
             _ => {}
         }
@@ -1740,11 +1680,7 @@ pub async fn change_status(
                             "UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? \
                               WHERE id = ?::uuid"
                         ),
-                        vec![
-                            Value::from(&voucher_id),
-                            Value::from(now),
-                            Value::from(&invoice.id),
-                        ],
+                        vec![Value::from(&voucher_id), Value::from(now), Value::from(&invoice.id)],
                     )
                     .await
                     .map_err(|error| write_error(error, "发票回写凭证"))?;
@@ -1964,15 +1900,10 @@ pub struct PointerCandidate {
 ///
 /// `exclude` 是刚作废的那张（调用方在事务里已经把它的 `status` 改成 `VOID`，
 /// 这里再显式排除一次，避免「状态还没落库」的调用顺序把它选回来）。
-pub fn surviving_pointer<'a>(
-    candidates: &'a [PointerCandidate],
-    exclude: Uuid,
-) -> Option<&'a PointerCandidate> {
+pub fn surviving_pointer<'a>(candidates: &'a [PointerCandidate], exclude: Uuid) -> Option<&'a PointerCandidate> {
     candidates
         .iter()
-        .filter(|row| {
-            row.id != exclude && matches!(row.status.as_str(), STATUS_ISSUED | STATUS_POSTED)
-        })
+        .filter(|row| row.id != exclude && matches!(row.status.as_str(), STATUS_ISSUED | STATUS_POSTED))
         .max_by_key(|row| (row.invoice_date, row.created_at))
 }
 
@@ -2044,12 +1975,7 @@ async fn restore_receivable_pointer(
         vec![
             Value::Text(picked.invoice_no.clone()),
             Value::Text(picked.invoice_date.to_string()),
-            Value::Text(
-                picked
-                    .voucher_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(picked.voucher_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::from(now),
             Value::Text(operator.map(|value| value.to_string()).unwrap_or_default()),
             Value::from(&receivable_id),
@@ -2096,18 +2022,13 @@ pub async fn invoice_detail_handler(Path(id): Path<String>) -> ResResult<Invoice
     permission = "business:erp:invoice:list"
 )]
 #[nik::get("/business/erp/invoice/page")]
-pub async fn invoice_page_handler(
-    Query(query): Query<InvoicePageQuery>,
-) -> ResResult<PageData<Vec<InvoiceRes>>> {
+pub async fn invoice_page_handler(Query(query): Query<InvoicePageQuery>) -> ResResult<PageData<Vec<InvoiceRes>>> {
     query.validate()?;
     let filter = query.to_filter()?;
     let (rows, total) = invoice_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询发票"))?;
-    let list = rows
-        .iter()
-        .map(|(row, name)| InvoiceRes::from_row(row, name))
-        .collect();
+    let list = rows.iter().map(|(row, name)| InvoiceRes::from_row(row, name)).collect();
     Ok(Res::page(
         list,
         u64::try_from(total).unwrap_or(0),
@@ -2174,11 +2095,7 @@ mod tests {
         assert_eq!(validate_type(None).expect("缺省 OUT"), TYPE_OUT);
         assert_eq!(validate_type(Some(" OUT ")).expect("可带空白"), TYPE_OUT);
         let red = validate_type(Some("OUT_RED")).expect_err("本卡不开放手工建红字票");
-        assert!(
-            red.msg.contains("退货流程"),
-            "文案要说明红字票从哪来：{}",
-            red.msg
-        );
+        assert!(red.msg.contains("退货流程"), "文案要说明红字票从哪来：{}", red.msg);
         let bad = validate_type(Some("INVOICE")).expect_err("非法票种要拒");
         assert!(bad.msg.contains("INVOICE"), "{}", bad.msg);
     }
@@ -2223,10 +2140,7 @@ mod tests {
         );
         // reason 边必须同时是合法边（作废必须给原因）
         for edge in state_machine::INVOICE_REASON_EDGES {
-            assert!(
-                LEGAL_EDGES.contains(&edge),
-                "reason 边 {edge:?} 不在合法边表里"
-            );
+            assert!(LEGAL_EDGES.contains(&edge), "reason 边 {edge:?} 不在合法边表里");
         }
         assert_eq!(
             state_machine::INVOICE_REASON_EDGES,
@@ -2251,19 +2165,13 @@ mod tests {
             VoucherSourceType::Invoice.doc_kind(),
             Some(crate::business::shared::doc_kind::DocKind::Invoice)
         );
-        assert_eq!(
-            crate::business::shared::doc_kind::DocKind::Invoice.table(),
-            Some(TABLE)
-        );
+        assert_eq!(crate::business::shared::doc_kind::DocKind::Invoice.table(), Some(TABLE));
         assert_eq!(
             crate::business::shared::doc_kind::DocKind::Invoice.route(),
             Some("invoice")
         );
         assert!(crate::business::shared::doc_kind::DocKind::Invoice.is_document());
-        assert_eq!(
-            crate::business::shared::doc_kind::DocKind::Invoice.label(),
-            "销售发票"
-        );
+        assert_eq!(crate::business::shared::doc_kind::DocKind::Invoice.label(), "销售发票");
     }
 
     #[test]
@@ -2291,39 +2199,32 @@ mod tests {
     fn resolve_amounts_covers_every_combination() {
         let rate = dec(13.0);
         // 只给合计：按税率倒推
-        let (amount, tax, total) =
-            resolve_amounts(None, None, Some(dec(1130.0)), rate).expect("只给合计可推");
+        let (amount, tax, total) = resolve_amounts(None, None, Some(dec(1130.0)), rate).expect("只给合计可推");
         assert_eq!((amount, tax, total), (dec(1000.0), dec(130.0), dec(1130.0)));
         // 只给不含税：按税率算税
-        let (amount, tax, total) =
-            resolve_amounts(Some(dec(1000.0)), None, None, rate).expect("只给不含税可推");
+        let (amount, tax, total) = resolve_amounts(Some(dec(1000.0)), None, None, rate).expect("只给不含税可推");
         assert_eq!((amount, tax, total), (dec(1000.0), dec(130.0), dec(1130.0)));
         // 不含税 + 合计：税额取差
         let (amount, tax, total) =
             resolve_amounts(Some(dec(1000.0)), None, Some(dec(2260.0)), rate).expect("给两个可推");
-        assert_eq!(
-            (amount, tax, total),
-            (dec(1000.0), dec(1260.0), dec(2260.0))
-        );
+        assert_eq!((amount, tax, total), (dec(1000.0), dec(1260.0), dec(2260.0)));
         // 三列都给且自洽
         let (_, _, total) =
-            resolve_amounts(Some(dec(1000.0)), Some(dec(130.0)), Some(dec(1130.0)), rate)
-                .expect("三列自洽可过");
+            resolve_amounts(Some(dec(1000.0)), Some(dec(130.0)), Some(dec(1130.0)), rate).expect("三列自洽可过");
         assert_eq!(total, dec(1130.0));
         // 三列不自洽 → 400（别等库层 23514）
-        let err = resolve_amounts(Some(dec(1000.0)), Some(dec(130.0)), Some(dec(1200.0)), rate)
-            .expect_err("不自洽要拒");
+        let err =
+            resolve_amounts(Some(dec(1000.0)), Some(dec(130.0)), Some(dec(1200.0)), rate).expect_err("不自洽要拒");
         assert!(err.msg.contains("不自洽"), "{}", err.msg);
         // 一个都不给 → 400
         let err = resolve_amounts(None, None, None, rate).expect_err("没金额要拒");
         assert!(err.msg.contains("金额一个都没给"), "{}", err.msg);
         // 只给税额 → 400（税额是结果不是输入）
-        let err =
-            resolve_amounts(None, Some(dec(130.0)), None, rate).expect_err("只给税额推不出不含税");
+        let err = resolve_amounts(None, Some(dec(130.0)), None, rate).expect_err("只给税额推不出不含税");
         assert!(err.msg.contains("推不出"), "{}", err.msg);
         // 税额 + 合计 → 不含税取差
-        let (amount, tax, total) = resolve_amounts(None, Some(dec(130.0)), Some(dec(1130.0)), rate)
-            .expect("税额+合计可推");
+        let (amount, tax, total) =
+            resolve_amounts(None, Some(dec(130.0)), Some(dec(1130.0)), rate).expect("税额+合计可推");
         assert_eq!((amount, tax, total), (dec(1000.0), dec(130.0), dec(1130.0)));
     }
 
@@ -2331,25 +2232,15 @@ mod tests {
     fn tax_rate_bounds() {
         // FIX-6：百分数口径 0–100；13 = 13%，1 = 1%，100 = 100%
         assert_eq!(validate_tax_rate(dec(13.0)).expect("13% 可过"), dec(13.0));
-        assert_eq!(
-            validate_tax_rate(Decimal::ZERO).expect("0 税率可过"),
-            Decimal::ZERO
-        );
-        assert_eq!(
-            validate_tax_rate(Decimal::ONE).expect("1 = 1% 可过"),
-            Decimal::ONE
-        );
+        assert_eq!(validate_tax_rate(Decimal::ZERO).expect("0 税率可过"), Decimal::ZERO);
+        assert_eq!(validate_tax_rate(Decimal::ONE).expect("1 = 1% 可过"), Decimal::ONE);
         assert_eq!(
             validate_tax_rate(Decimal::ONE_HUNDRED).expect("100% 可过"),
             Decimal::ONE_HUNDRED
         );
         assert!(validate_tax_rate(dec(100.01)).is_err(), "超过 100% 要拒");
         assert!(validate_tax_rate(dec(-0.01)).is_err(), "负税率要拒");
-        assert_eq!(
-            default_tax_rate(),
-            dec(13.0),
-            "默认 13%（V0327 的库层默认值）"
-        );
+        assert_eq!(default_tax_rate(), dec(13.0), "默认 13%（V0327 的库层默认值）");
     }
 
     #[test]
@@ -2377,36 +2268,26 @@ mod tests {
         // 应收 1130，已开 0 → 可开 1130
         assert_eq!(headroom_of(dec(1130.0), Decimal::ZERO), dec(1130.0));
         validate_headroom("AR-1", dec(1130.0), Decimal::ZERO, dec(1130.0)).expect("刚好开满可以");
-        validate_headroom("AR-1", dec(300.0), dec(830.0), dec(1130.0))
-            .expect("分次开票（300 + 830 = 1130）可以");
+        validate_headroom("AR-1", dec(300.0), dec(830.0), dec(1130.0)).expect("分次开票（300 + 830 = 1130）可以");
         // 超额：1130.0001 > 1130 - 0
-        let err = validate_headroom("AR-1", dec(1130.0001), Decimal::ZERO, dec(1130.0))
-            .expect_err("超过应收金额必须拒");
+        let err =
+            validate_headroom("AR-1", dec(1130.0001), Decimal::ZERO, dec(1130.0)).expect_err("超过应收金额必须拒");
         assert_eq!(err.code, error_code::RESOURCE_CONFLICT, "额度超限是 409");
         assert!(err.msg.contains("AR-1"), "文案要点名应收单号：{}", err.msg);
-        assert!(
-            err.msg.contains("1130.0001"),
-            "文案要点名本次金额：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("1130.0001"), "文案要点名本次金额：{}", err.msg);
         assert!(err.msg.contains("可开票额度"), "{}", err.msg);
         // 已开满再开 1 分也要拒
-        let err = validate_headroom("AR-1", dec(0.01), dec(1130.0), dec(1130.0))
-            .expect_err("额度用完要拒");
+        let err = validate_headroom("AR-1", dec(0.01), dec(1130.0), dec(1130.0)).expect_err("额度用完要拒");
         assert!(err.msg.contains("0"), "额度 0 要点名：{}", err.msg);
         // 库层已漂移（已开 > 应收）：先排查，别继续开
-        let err = validate_headroom("AR-1", dec(1.0), dec(1200.0), dec(1130.0))
-            .expect_err("已开超应收要拒");
+        let err = validate_headroom("AR-1", dec(1.0), dec(1200.0), dec(1130.0)).expect_err("已开超应收要拒");
         assert!(err.msg.contains("漂移"), "{}", err.msg);
     }
 
     #[test]
     fn invoice_no_shape() {
         assert_eq!(validate_invoice_no(None).expect("空 = 自动取号"), None);
-        assert_eq!(
-            validate_invoice_no(Some("   ")).expect("空白 = 自动取号"),
-            None
-        );
+        assert_eq!(validate_invoice_no(Some("   ")).expect("空白 = 自动取号"), None);
         assert_eq!(
             validate_invoice_no(Some(" 25337000000012345678 ")).expect("手填税控号"),
             Some("25337000000012345678".to_string())
@@ -2459,10 +2340,7 @@ mod tests {
             validate_reason("  客户要求重开，金额开错  ").expect("正常原因"),
             "客户要求重开，金额开错"
         );
-        assert!(
-            validate_reason(&"字".repeat(REASON_MAX_CHARS + 1)).is_err(),
-            "超长要拒"
-        );
+        assert!(validate_reason(&"字".repeat(REASON_MAX_CHARS + 1)).is_err(), "超长要拒");
     }
 
     #[test]
@@ -2470,10 +2348,7 @@ mod tests {
         // 稿面 6001 在本仓科目表里不存在（V0183 种的是 5xxx 损益类）
         assert_eq!(ACCOUNT_REVENUE, "5001");
         assert_eq!(ACCOUNT_AR, "1122");
-        assert_eq!(
-            ACCOUNT_OUTPUT_TAX, "2221.02",
-            "2221 是汇总科目，记账必须落叶子"
-        );
+        assert_eq!(ACCOUNT_OUTPUT_TAX, "2221.02", "2221 是汇总科目，记账必须落叶子");
         assert_eq!(SEQ_TYPE, "IV");
         assert_eq!(NO_PREFIX, "IV");
         assert_eq!(INVOICE_SEQ.seq_type, SEQ_TYPE);
@@ -2497,9 +2372,10 @@ mod tests {
     #[test]
     fn column_lists_carry_is_electronic() {
         for (name, columns) in [("COLUMNS", COLUMNS), ("LIST_COLUMNS", LIST_COLUMNS)] {
-            let found = columns.split(',').map(str::trim).any(|column| {
-                column == "is_electronic" || column.strip_prefix("p.") == Some("is_electronic")
-            });
+            let found = columns
+                .split(',')
+                .map(str::trim)
+                .any(|column| column == "is_electronic" || column.strip_prefix("p.") == Some("is_electronic"));
             assert!(found, "{name} 缺 is_electronic：{columns}");
         }
         assert!(
@@ -2518,25 +2394,19 @@ mod tests {
     fn surviving_pointer_skips_void_and_draft() {
         let day = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("日期");
         let at = |secs: i64| DateTime::<Utc>::from_timestamp(secs, 0);
-        let candidate =
-            |no: &str, date: &str, status: &str, created: Option<DateTime<Utc>>| PointerCandidate {
-                id: Uuid::new_v4(),
-                invoice_no: no.to_string(),
-                invoice_date: day(date),
-                status: status.to_string(),
-                voucher_id: None,
-                created_at: created,
-            };
+        let candidate = |no: &str, date: &str, status: &str, created: Option<DateTime<Utc>>| PointerCandidate {
+            id: Uuid::new_v4(),
+            invoice_no: no.to_string(),
+            invoice_date: day(date),
+            status: status.to_string(),
+            voucher_id: None,
+            created_at: created,
+        };
         let void_one = candidate("IV-A", "2026-11-09", STATUS_VOID, at(3));
         let draft = candidate("IV-B", "2026-11-08", STATUS_DRAFT, at(2));
         let posted = candidate("IV-C", "2026-11-07", STATUS_POSTED, at(1));
         let issued = candidate("IV-D", "2026-11-09", STATUS_ISSUED, at(2));
-        let all = vec![
-            void_one.clone(),
-            draft.clone(),
-            posted.clone(),
-            issued.clone(),
-        ];
+        let all = vec![void_one.clone(), draft.clone(), posted.clone(), issued.clone()];
 
         let picked = surviving_pointer(&all, void_one.id).expect("还有生效中的票");
         assert_eq!(

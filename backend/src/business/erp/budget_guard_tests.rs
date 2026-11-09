@@ -50,14 +50,7 @@ fn verdict_without_budget(mode: ControlMode, year_used: &str, this: &str) -> Bud
 /// ① 额度内：年度、月度都够 → 不超、两个缺口都是 0。
 #[test]
 fn within_budget_passes() {
-    let v = verdict(
-        ControlMode::Warn,
-        "100000",
-        "20000",
-        "10000",
-        "3000",
-        "5000",
-    );
+    let v = verdict(ControlMode::Warn, "100000", "20000", "10000", "3000", "5000");
     assert!(!v.over, "{}", v.describe());
     assert_eq!(v.year_gap, Decimal::ZERO);
     assert_eq!(v.month_gap, Decimal::ZERO);
@@ -81,14 +74,7 @@ fn year_over_month_within_reports_year_gap_only() {
 #[test]
 fn month_over_year_within_reports_month_gap_only() {
     // 年额度 10 万、已用 1 万；月额度 1 万、已用 9 千；本次 5 千 → 月可用 1 千
-    let v = verdict(
-        ControlMode::Warn,
-        "100000",
-        "10000",
-        "10000",
-        "9000",
-        "5000",
-    );
+    let v = verdict(ControlMode::Warn, "100000", "10000", "10000", "9000", "5000");
     assert!(v.over);
     assert_eq!(v.year_gap, Decimal::ZERO);
     assert_eq!(v.month_gap, dec("4000"));
@@ -120,10 +106,7 @@ fn missing_budget_is_flagged_but_never_over() {
     assert!(!warn.blocks());
 
     let off = verdict(ControlMode::Off, "0", "0", "0", "0", "1000");
-    assert!(
-        !off.blocks(),
-        "OFF 模式即使超支也不阻断（调用方也不会写 usage）"
-    );
+    assert!(!off.blocks(), "OFF 模式即使超支也不阻断（调用方也不会写 usage）");
 
     // FIX-5：BLOCK 下「未编预算」仍然拦（强管控 = 没有额度不许花），但理由不是「超支」
     let block = verdict(ControlMode::Block, "0", "0", "0", "0", "1000");
@@ -148,14 +131,7 @@ fn boundary_equal_is_not_over() {
 /// ⑦ 一分钱就超（金额比较不能有四舍五入余量）。
 #[test]
 fn one_cent_over_is_over() {
-    let v = verdict(
-        ControlMode::Warn,
-        "10000",
-        "6000",
-        "10000",
-        "6000",
-        "4000.01",
-    );
+    let v = verdict(ControlMode::Warn, "10000", "6000", "10000", "6000", "4000.01");
     assert!(v.over);
     assert_eq!(v.over_amount(), dec("0.01"));
 }
@@ -173,10 +149,7 @@ fn used_beyond_limit_clamps_available_to_zero() {
 /// ⑨ 策略解析：槽级优先、空则继承全局、非法值不静默猜测。
 #[test]
 fn control_mode_resolution() {
-    assert_eq!(
-        ControlMode::resolve(None, ControlMode::Warn),
-        ControlMode::Warn
-    );
+    assert_eq!(ControlMode::resolve(None, ControlMode::Warn), ControlMode::Warn);
     assert_eq!(
         ControlMode::resolve(Some("BLOCK"), ControlMode::Warn),
         ControlMode::Block,
@@ -207,24 +180,14 @@ fn slot_rejects_malformed_period() {
     assert_eq!(slot.fiscal_year, 2026);
     assert_eq!(slot.period_code, "2026-03");
     for bad in ["2026-13", "2026-00", "1999-01", "202603", "2026-3", ""] {
-        assert!(
-            Slot::new(dept, account, bad).is_none(),
-            "非法期间 {bad} 应被拒"
-        );
+        assert!(Slot::new(dept, account, bad).is_none(), "非法期间 {bad} 应被拒");
     }
 }
 
 /// ⑪ 报文六个数齐全（排障时不用再翻库）。
 #[test]
 fn describe_carries_all_six_numbers() {
-    let v = verdict(
-        ControlMode::Warn,
-        "100000",
-        "20000",
-        "10000",
-        "3000",
-        "5000",
-    );
+    let v = verdict(ControlMode::Warn, "100000", "20000", "10000", "3000", "5000");
     let text = v.describe();
     for needle in ["100000", "20000", "80000", "10000", "3000", "7000", "WARN"] {
         assert!(text.contains(needle), "报文缺 {needle}：{text}");
@@ -238,10 +201,7 @@ fn describe_carries_all_six_numbers() {
 #[test]
 fn control_mode_vocabulary_round_trips() {
     assert_eq!(ControlMode::ALL.len(), 3, "取值域只能是 OFF/WARN/BLOCK");
-    assert_eq!(
-        ControlMode::ALL.map(ControlMode::as_str),
-        ["OFF", "WARN", "BLOCK"]
-    );
+    assert_eq!(ControlMode::ALL.map(ControlMode::as_str), ["OFF", "WARN", "BLOCK"]);
     assert_eq!(
         ControlMode::ALL.map(ControlMode::label),
         ["不校验", "标记并强制审批", "阻断提交"]
@@ -291,9 +251,7 @@ fn slot_year_window_is_inclusive() {
         assert_eq!(slot.fiscal_year, year, "{period} 年度推导错");
         assert_eq!(slot.year_text(), format!("{year} 年"));
     }
-    for bad in [
-        "1999-12", "2101-01", "2026-13", "2026-00", "abcd-03", "-2026-03",
-    ] {
+    for bad in ["1999-12", "2101-01", "2026-13", "2026-00", "abcd-03", "-2026-03"] {
         assert!(
             Slot::new(dept, account, bad).is_none(),
             "越界 / 非法的期间码 {bad} 应被拒"
@@ -382,17 +340,11 @@ fn off_mode_still_reports_gaps_without_blocking() {
 fn over_amount_is_max_and_never_negative() {
     // 只有年缺口：年可用 1000-900=100 → 缺口 500-100=400；月可用 10000-0 → 月缺口 0
     let only_year = verdict(ControlMode::Warn, "1000", "900", "10000", "0", "500");
-    assert_eq!(
-        (only_year.year_gap, only_year.month_gap),
-        (dec("400"), Decimal::ZERO)
-    );
+    assert_eq!((only_year.year_gap, only_year.month_gap), (dec("400"), Decimal::ZERO));
     assert_eq!(only_year.over_amount(), dec("400"));
     // 只有月缺口：年可用 10000；月可用 1000-900=100 → 月缺口 400
     let only_month = verdict(ControlMode::Warn, "10000", "0", "1000", "900", "500");
-    assert_eq!(
-        (only_month.year_gap, only_month.month_gap),
-        (Decimal::ZERO, dec("400"))
-    );
+    assert_eq!((only_month.year_gap, only_month.month_gap), (Decimal::ZERO, dec("400")));
     assert_eq!(only_month.over_amount(), dec("400"));
     // 两边都缺但大小不同：年缺口 100、月缺口 400 → 取大的（月）
     let both = verdict(ControlMode::Warn, "400", "0", "100", "0", "500");
@@ -438,11 +390,7 @@ fn effective_from_next_month_does_not_govern_this_month() {
     let slot_nov = Slot::new(Uuid::now_v7(), Uuid::now_v7(), "2026-11").expect("槽");
     let slot_dec = Slot::new(Uuid::now_v7(), Uuid::now_v7(), "2026-12").expect("槽");
     let effective_from = date("2026-12-01");
-    assert_eq!(
-        slot_nov.period_end(),
-        Some(date("2026-11-30")),
-        "11 月的月末是 11-30"
-    );
+    assert_eq!(slot_nov.period_end(), Some(date("2026-11-30")), "11 月的月末是 11-30");
     assert!(
         effective_from > slot_nov.period_end().expect("月末"),
         "12-01 晚于 11-30 → 该版本对 11 月不生效（修复前 11 月就被 12 月额度管住）"
@@ -673,14 +621,8 @@ fn block_reason_says_slot_level_block_not_global_label() {
     assert!(budget.blocks(), "槽级 BLOCK + 超支必须阻断");
     let reason = budget.block_reason().expect("有阻断槽就有正文");
     assert!(reason.contains("槽级策略 BLOCK"), "报文：{reason}");
-    assert!(
-        reason.contains("科目「5602.02 差旅费」2026年11月"),
-        "报文：{reason}"
-    );
-    assert!(
-        reason.contains("月度已用 9500 / 月度预算 10000"),
-        "报文：{reason}"
-    );
+    assert!(reason.contains("科目「5602.02 差旅费」2026年11月"), "报文：{reason}");
+    assert!(reason.contains("月度已用 9500 / 月度预算 10000"), "报文：{reason}");
     assert!(reason.contains("本次 1000"), "报文：{reason}");
     assert!(reason.contains("超支 500"), "报文：{reason}");
     assert!(
@@ -742,10 +684,7 @@ fn block_reason_lists_every_blocking_slot_worst_first() {
     let reason = budget.block_reason().expect("正文");
     let lines: Vec<&str> = reason.lines().collect();
     assert_eq!(lines.len(), 2, "两个阻断槽各一行：{reason}");
-    assert!(
-        lines[0].contains("差旅费"),
-        "超支 3500 的排在前面：{reason}"
-    );
+    assert!(lines[0].contains("差旅费"), "超支 3500 的排在前面：{reason}");
     assert!(lines[1].contains("招待费"), "报文：{reason}");
     assert!(
         lines.iter().all(|line| line.starts_with("· ")),

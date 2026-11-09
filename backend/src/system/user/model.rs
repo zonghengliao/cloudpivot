@@ -271,9 +271,7 @@ pub(crate) async fn page_users(
 
     let mut users: Vec<UserWithDept> = Vec::with_capacity(list.len());
     for row in list {
-        let dept_name = row
-            .get_typed::<Option<String>>("dept_name")?
-            .unwrap_or_default();
+        let dept_name = row.get_typed::<Option<String>>("dept_name")?.unwrap_or_default();
         // 账号类型：列缺失（老库未跑 V0102）时回落 HUMAN，不让列表整体 500
         let user_type = row
             .get_typed::<Option<String>>("user_type")
@@ -382,19 +380,14 @@ pub(crate) async fn find_super_admin_role_id() -> std::result::Result<Option<uui
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub(crate) async fn user_holds_super_admin_role(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<bool, DbError> {
+pub(crate) async fn user_holds_super_admin_role(user_id: &uuid::Uuid) -> std::result::Result<bool, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT count(*) AS cnt FROM sys_user_role ur \
              INNER JOIN sys_role r ON r.id = ur.role_id AND r.deleted_at IS NULL \
              WHERE ur.user_id = ? AND r.role_code = ? \
                AND (ur.expire_time IS NULL OR ur.expire_time > now())",
-            vec![
-                Value::from(user_id),
-                Value::from(constants::SUPER_ADMIN_ROLE_CODE),
-            ],
+            vec![Value::from(user_id), Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
         )
         .await?;
     match rows.first() {
@@ -415,9 +408,7 @@ pub(crate) async fn user_holds_super_admin_role(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn find_user_type(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Option<String>, DbError> {
+pub(crate) async fn find_user_type(user_id: &uuid::Uuid) -> std::result::Result<Option<String>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT user_type FROM sys_user WHERE id = ? AND deleted_at IS NULL",
@@ -546,9 +537,7 @@ pub(crate) async fn count_visible_users(
         return Ok(0);
     }
     let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-    let mut sql = format!(
-        "SELECT COUNT(*) FROM sys_user u WHERE u.deleted_at IS NULL AND u.id IN ({placeholders})"
-    );
+    let mut sql = format!("SELECT COUNT(*) FROM sys_user u WHERE u.deleted_at IS NULL AND u.id IN ({placeholders})");
     // 片段追加在业务条件之后，因此参数顺序是「ids…, 片段参数…」（与 SQL 里 `?` 的顺序一致）
     let filter = scope::filter_for(principal, scope::ScopeTarget::SYS_USER);
     sql.push_str(filter.sql());
@@ -628,9 +617,7 @@ pub(crate) async fn bump_token_version(user_id: &uuid::Uuid) -> std::result::Res
         .first()
         .map(|row| row.get_typed::<i32>("token_version"))
         .transpose()?
-        .ok_or_else(|| {
-            DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败"))
-        })?;
+        .ok_or_else(|| DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败")))?;
     // FIX-05：库侧已推进 → 立刻删掉该用户的会话字段缓存（`uv:{user_id}`），
     // 让下一个请求直接读到新版本号（不等 60 s TTL）。失效失败只降级为本实例直查库。
     crate::shared::session_cache::invalidate(user_id).await;
@@ -742,9 +729,7 @@ pub(crate) async fn bump_token_version_of_role_holders_in(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn load_role_codes(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Vec<String>, DbError> {
+pub(crate) async fn load_role_codes(user_id: &uuid::Uuid) -> std::result::Result<Vec<String>, DbError> {
     // SCOPE-EXEMPT: 只读令牌主体自己的角色（会话守卫），不存在跨用户可见性问题
     let rows = db()
         .find_with_params(
@@ -773,9 +758,7 @@ pub(crate) async fn load_role_codes(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn load_session_flags(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Option<(i32, bool)>, DbError> {
+pub(crate) async fn load_session_flags(user_id: &uuid::Uuid) -> std::result::Result<Option<(i32, bool)>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT token_version, must_change_password FROM sys_user \

@@ -129,25 +129,16 @@ impl TransferFilter {
             return Err(ApiError::new(
                 400,
                 error_code_param(),
-                format!(
-                    "status 只能是 {} 之一（收到 {status}）",
-                    ALL_STATUSES.join(" / ")
-                ),
+                format!("status 只能是 {} 之一（收到 {status}）", ALL_STATUSES.join(" / ")),
             ));
         }
         if let Some(keyword) = trimmed(self.transfer_no.as_deref())
             && keyword.chars().count() > 32
         {
-            return Err(ApiError::new(
-                400,
-                error_code_param(),
-                "transfer_no 最长 32 个字符",
-            ));
+            return Err(ApiError::new(400, error_code_param(), "transfer_no 最长 32 个字符"));
         }
         // 「超期在途」与状态互相矛盾时直接 400：静默返回空列表会被当成「没有超期单」。
-        if let (Some(overdue), Some(status)) =
-            (self.in_transit_overdue, trimmed(self.status.as_deref()))
-        {
+        if let (Some(overdue), Some(status)) = (self.in_transit_overdue, trimmed(self.status.as_deref())) {
             if overdue && status != crate::business::erp::transfer_model::STATUS_IN_TRANSIT {
                 return Err(ApiError::new(
                     400,
@@ -297,11 +288,7 @@ impl CreateTransferReq {
         if let Some(remark) = trimmed(self.remark.as_deref())
             && remark.chars().count() > 1000
         {
-            return Err(ApiError::new(
-                400,
-                error_code_param(),
-                "remark 最长 1000 个字符",
-            ));
+            return Err(ApiError::new(400, error_code_param(), "remark 最长 1000 个字符"));
         }
         for (index, item) in self.items.iter().enumerate() {
             item.validate(index)?;
@@ -328,10 +315,7 @@ impl CreateTransferReq {
 
     /// 全单数量合计（落 `total_qty`，`NUMERIC(18,4)`）。
     pub fn total_qty(&self) -> Decimal {
-        self.items
-            .iter()
-            .map(|item| item.qty.round_dp(4))
-            .sum::<Decimal>()
+        self.items.iter().map(|item| item.qty.round_dp(4)).sum::<Decimal>()
     }
 }
 
@@ -472,8 +456,7 @@ impl TransferRes {
             to_warehouse_name: to_name,
             transit_warehouse_id: row.transit_warehouse_id.map(|id| id.to_string()),
             status: row.status.clone(),
-            status_label: crate::business::erp::transfer_model::status_label(&row.status)
-                .to_string(),
+            status_label: crate::business::erp::transfer_model::status_label(&row.status).to_string(),
             transfer_date: row.transfer_date,
             reason: row.reason.clone(),
             applicant_id: row.applicant_id.map(|id| id.to_string()),
@@ -501,12 +484,7 @@ impl TransferRes {
     /// 所有行的判定用同一个时间基准）。
     ///
     /// 只对 `IN_TRANSIT` 行计算：其它状态 `in_transit_overdue = false`、`overdue_days = None`。
-    pub fn with_overdue(
-        mut self,
-        row: &TransferRow,
-        now: DateTime<Utc>,
-        threshold_days: i64,
-    ) -> Self {
+    pub fn with_overdue(mut self, row: &TransferRow, now: DateTime<Utc>, threshold_days: i64) -> Self {
         self.in_transit_overdue = row.is_overdue(now, threshold_days);
         self.overdue_days = if self.in_transit_overdue {
             row.elapsed_days(now)
@@ -653,11 +631,7 @@ fn trimmed(value: Option<&str>) -> Option<&str> {
 fn require_uuid(value: &str, field: &str) -> std::result::Result<(), ApiError> {
     let text = value.trim();
     if text.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code_param(),
-            format!("{field} 不能为空"),
-        ));
+        return Err(ApiError::new(400, error_code_param(), format!("{field} 不能为空")));
     }
     if nik::uuid::Uuid::parse_str(text).is_err() {
         return Err(ApiError::new(
@@ -726,9 +700,7 @@ mod tests {
     /// ② 建单体：明细为空 → 400。
     #[test]
     fn create_rejects_empty_items() {
-        let error = req("1", "2", Vec::new())
-            .validate()
-            .expect_err("没有明细必须 400");
+        let error = req("1", "2", Vec::new()).validate().expect_err("没有明细必须 400");
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("items 不能为空"), "{}", error.msg);
     }
@@ -766,11 +738,7 @@ mod tests {
     /// ⑤ 合计数量按 4 位标度累加（`NUMERIC(18,4)`）。
     #[test]
     fn total_qty_is_summed_with_four_decimals() {
-        let body = req(
-            "1",
-            "2",
-            vec![item("3", "1.5"), item("4", "2.25"), item("5", "0.0001")],
-        );
+        let body = req("1", "2", vec![item("3", "1.5"), item("4", "2.25"), item("5", "0.0001")]);
         assert_eq!(body.total_qty().to_string(), "3.7501");
     }
 
@@ -794,13 +762,8 @@ mod tests {
             status: "cancelled".to_string(),
             reason: None,
         };
-        assert_eq!(
-            cancel.target_status().expect("大小写归一"),
-            STATUS_CANCELLED
-        );
-        let error = cancel
-            .cancel_reason()
-            .expect_err("取消必须给原因（文案要说清为什么）");
+        assert_eq!(cancel.target_status().expect("大小写归一"), STATUS_CANCELLED);
+        let error = cancel.cancel_reason().expect_err("取消必须给原因（文案要说清为什么）");
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("ck_biz_transfer_state"), "{}", error.msg);
 
@@ -816,11 +779,7 @@ mod tests {
     fn permission_codes_match_card() {
         assert_eq!(TRANSFER_PERMISSIONS.len(), 6);
         let mut codes: Vec<&str> = TRANSFER_PERMISSIONS.iter().map(|(code, _)| *code).collect();
-        assert!(
-            codes
-                .iter()
-                .all(|code| code.starts_with("business:erp:transfer:"))
-        );
+        assert!(codes.iter().all(|code| code.starts_with("business:erp:transfer:")));
         codes.sort_unstable();
         let unique = {
             let mut dedup = codes.clone();

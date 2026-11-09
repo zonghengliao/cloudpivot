@@ -98,12 +98,9 @@ async fn p24_receipt_with_dict_location_writes_that_location() {
     // 开局：该库位连账行都没有（证明「不需要预先有库存账行」）
     assert_eq!(row_at(MATERIAL_A, LOC_DICT_A).await, None);
 
-    let id = create_stock_in(
-        &req(vec![line_dict(MATERIAL_A, "200", "2", "0", LOC_DICT_A)]),
-        None,
-    )
-    .await
-    .expect("建单：指定库位应通过");
+    let id = create_stock_in(&req(vec![line_dict(MATERIAL_A, "200", "2", "0", LOC_DICT_A)]), None)
+        .await
+        .expect("建单：指定库位应通过");
 
     // 建单期就存了「用户意图」，并回读成编码（前端下拉回显用）
     let draft = detail_of(id).await.expect("详情");
@@ -121,20 +118,14 @@ async fn p24_receipt_with_dict_location_writes_that_location() {
     // 草稿态**不建**库位账行（免得「库位库存」Tab 被 0 数量的空行撑爆）
     assert_eq!(row_at(MATERIAL_A, LOC_DICT_A).await, None);
 
-    change_stock_in_status(id, &post_req(), None)
-        .await
-        .expect("过账");
+    change_stock_in_status(id, &post_req(), None).await.expect("过账");
 
     assert_eq!(
         qty_at(MATERIAL_A, LOC_DICT_A).await,
         dec("200"),
         "数量必须落在指定的库位"
     );
-    assert_eq!(
-        null_bucket_qty(MATERIAL_A).await,
-        None,
-        "「未分配」桶不该被创建"
-    );
+    assert_eq!(null_bucket_qty(MATERIAL_A).await, None, "「未分配」桶不该被创建");
     // 明细回写了库位账行 id（作废 / 红冲按它原路退回）
     let row = row_at(MATERIAL_A, LOC_DICT_A).await.expect("库位账行");
     let detail = detail_of(id).await.expect("过账后详情");
@@ -162,24 +153,15 @@ async fn p24_receipt_without_location_uses_default() {
         Some(LOC_DEFAULT),
         "不传库位时必须带出仓库默认库位"
     );
-    assert!(
-        draft.location_warnings.is_empty(),
-        "有默认库位就不该提示未分配"
-    );
+    assert!(draft.location_warnings.is_empty(), "有默认库位就不该提示未分配");
 
-    change_stock_in_status(id, &post_req(), None)
-        .await
-        .expect("过账");
+    change_stock_in_status(id, &post_req(), None).await.expect("过账");
     assert_eq!(
         qty_at(MATERIAL_A, LOC_DEFAULT).await,
         dec("100"),
         "默认库位必须收到 100"
     );
-    assert_eq!(
-        null_bucket_qty(MATERIAL_A).await,
-        None,
-        "有默认库位时不该再落未分配桶"
-    );
+    assert_eq!(null_bucket_qty(MATERIAL_A).await, None, "有默认库位时不该再落未分配桶");
 }
 
 // ==================== ③ 无默认库位 → 未分配桶 + 提示 ====================
@@ -204,9 +186,7 @@ async fn p24_receipt_without_default_falls_back_to_unassigned_with_warning() {
         draft.location_warnings[0]
     );
 
-    change_stock_in_status(id, &post_req(), None)
-        .await
-        .expect("过账");
+    change_stock_in_status(id, &post_req(), None).await.expect("过账");
     assert_eq!(
         null_bucket_qty(MATERIAL_A).await,
         Some(dec("50")),
@@ -230,23 +210,13 @@ async fn p24_cross_warehouse_location_is_rejected() {
         None => return,
     };
     let err = create_stock_in(
-        &req(vec![line_dict(
-            MATERIAL_A,
-            "10",
-            "2",
-            "0",
-            LOC_IN_WAREHOUSE_B,
-        )]),
+        &req(vec![line_dict(MATERIAL_A, "10", "2", "0", LOC_IN_WAREHOUSE_B)]),
         None,
     )
     .await
     .expect_err("跨仓库位必须被拒");
     assert_eq!(err.status, 400, "{}", err.msg);
-    assert!(
-        err.msg.contains("不一致"),
-        "文案要点名仓库不一致：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("不一致"), "文案要点名仓库不一致：{}", err.msg);
     assert_eq!(null_bucket_qty(MATERIAL_A).await, None, "被拒的单不能动账");
 }
 
@@ -258,18 +228,11 @@ async fn p24_disabled_and_deleted_location_are_rejected() {
         None => return,
     };
     for (location, keyword) in [(LOC_DISABLED, "已停用"), (LOC_DELETED, "已被删除")] {
-        let err = create_stock_in(
-            &req(vec![line_dict(MATERIAL_A, "10", "2", "0", location)]),
-            None,
-        )
-        .await
-        .expect_err(&format!("库位 {location} 必须被拒"));
+        let err = create_stock_in(&req(vec![line_dict(MATERIAL_A, "10", "2", "0", location)]), None)
+            .await
+            .expect_err(&format!("库位 {location} 必须被拒"));
         assert_eq!(err.status, 400, "{}", err.msg);
-        assert!(
-            err.msg.contains(keyword),
-            "文案要含「{keyword}」：{}",
-            err.msg
-        );
+        assert!(err.msg.contains(keyword), "文案要含「{keyword}」：{}", err.msg);
     }
 }
 
@@ -282,12 +245,9 @@ async fn p24_update_draft_can_move_location() {
         Some(guard) => guard,
         None => return,
     };
-    let id = create_stock_in(
-        &req(vec![line_dict(MATERIAL_A, "30", "2", "0", LOC_DICT_A)]),
-        None,
-    )
-    .await
-    .expect("建单");
+    let id = create_stock_in(&req(vec![line_dict(MATERIAL_A, "30", "2", "0", LOC_DICT_A)]), None)
+        .await
+        .expect("建单");
 
     let mut request = req(vec![line_dict(MATERIAL_A, "30", "2", "0", LOC_DICT_B)]);
     request.warehouse_id = Some(WAREHOUSE.to_string());
@@ -296,15 +256,9 @@ async fn p24_update_draft_can_move_location() {
     let draft = detail_of(id).await.expect("详情");
     assert_eq!(draft.items[0].location_dict_id.as_deref(), Some(LOC_DICT_B));
 
-    change_stock_in_status(id, &post_req(), None)
-        .await
-        .expect("过账");
+    change_stock_in_status(id, &post_req(), None).await.expect("过账");
     assert_eq!(qty_at(MATERIAL_A, LOC_DICT_B).await, dec("30"));
-    assert_eq!(
-        row_at(MATERIAL_A, LOC_DICT_A).await,
-        None,
-        "改单后原库位不该建账"
-    );
+    assert_eq!(row_at(MATERIAL_A, LOC_DICT_A).await, None, "改单后原库位不该建账");
 }
 
 // ==================== ⑥ 两个口径打架 → 400 ====================
@@ -324,11 +278,7 @@ async fn p24_conflicting_dict_and_ledger_row_rejected() {
         .await
         .expect_err("两个库位口径打架必须被拒");
     assert_eq!(err.status, 400, "{}", err.msg);
-    assert!(
-        err.msg.contains("不同的库位"),
-        "文案要点名冲突：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("不同的库位"), "文案要点名冲突：{}", err.msg);
 }
 
 // ==================== ⑦ 容量只提示不拦截 ====================
@@ -340,18 +290,12 @@ async fn p24_capacity_overflow_is_warning_only() {
         Some(guard) => guard,
         None => return,
     };
-    let id = create_stock_in(
-        &req(vec![line_dict(MATERIAL_A, "80", "2", "0", LOC_CAP)]),
-        None,
-    )
-    .await
-    .expect("建单");
+    let id = create_stock_in(&req(vec![line_dict(MATERIAL_A, "80", "2", "0", LOC_CAP)]), None)
+        .await
+        .expect("建单");
     let draft = detail_of(id).await.expect("详情");
     assert!(
-        draft
-            .location_warnings
-            .iter()
-            .any(|text| text.contains("超出容量")),
+        draft.location_warnings.iter().any(|text| text.contains("超出容量")),
         "容量 50 收 80 必须给出超容量提示：{:?}",
         draft.location_warnings
     );
@@ -359,11 +303,7 @@ async fn p24_capacity_overflow_is_warning_only() {
     change_stock_in_status(id, &post_req(), None)
         .await
         .expect("容量只是提示：过账必须放行");
-    assert_eq!(
-        qty_at(MATERIAL_A, LOC_CAP).await,
-        dec("80"),
-        "提示不拦截：账照样落"
-    );
+    assert_eq!(qty_at(MATERIAL_A, LOC_CAP).await, dec("80"), "提示不拦截：账照样落");
 }
 
 // ==================== ⑧ 出库：FIFO / 指定 ====================
@@ -396,11 +336,7 @@ async fn p24_stockout_without_location_deducts_fifo() {
         dec("150"),
         "FIFO：先扣最早建账的 A"
     );
-    assert_eq!(
-        qty_at(MATERIAL_A, LOC_DICT_B).await,
-        dec("100"),
-        "后排的 B 不动"
-    );
+    assert_eq!(qty_at(MATERIAL_A, LOC_DICT_B).await, dec("100"), "后排的 B 不动");
     // 明细回写了 FIFO 选中的库位账行（作废时按它原路退回）
     let item_location: Option<Uuid> = db()
         .scalar_with_params::<Option<Uuid>>(

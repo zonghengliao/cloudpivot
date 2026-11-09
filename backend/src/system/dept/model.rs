@@ -189,14 +189,7 @@ pub(crate) async fn count_depts_by_code(
     exclude: Option<uuid::Uuid>,
 ) -> std::result::Result<i64, DbError> {
     match exclude {
-        Some(id) => {
-            SysDeptModel::count_by(
-                db(),
-                "dept_code = ? AND id <> ?",
-                (Value::from(dept_code), &id),
-            )
-            .await
-        }
+        Some(id) => SysDeptModel::count_by(db(), "dept_code = ? AND id <> ?", (Value::from(dept_code), &id)).await,
         None => SysDeptModel::count_by(db(), "dept_code", (Value::from(dept_code),)).await,
     }
 }
@@ -228,11 +221,7 @@ pub(crate) async fn count_depts_by_name(
             SysDeptModel::count_by(
                 db(),
                 "dept_name = ? AND parent_id = ? AND id <> ?",
-                (
-                    Value::from(dept_name),
-                    Value::from(parent),
-                    Value::from(exclude),
-                ),
+                (Value::from(dept_name), Value::from(parent), Value::from(exclude)),
             )
             .await
         }
@@ -253,12 +242,7 @@ pub(crate) async fn count_depts_by_name(
             .await
         }
         (None, None) => {
-            SysDeptModel::count_by(
-                db(),
-                "dept_name = ? AND parent_id IS NULL",
-                (Value::from(dept_name),),
-            )
-            .await
+            SysDeptModel::count_by(db(), "dept_name = ? AND parent_id IS NULL", (Value::from(dept_name),)).await
         }
     }
 }
@@ -279,9 +263,7 @@ pub(crate) async fn count_depts_by_name(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub(crate) async fn find_dept_subtree_ids(
-    root_id: &uuid::Uuid,
-) -> std::result::Result<Vec<uuid::Uuid>, DbError> {
+pub(crate) async fn find_dept_subtree_ids(root_id: &uuid::Uuid) -> std::result::Result<Vec<uuid::Uuid>, DbError> {
     let sql = "WITH RECURSIVE dept_tree AS ( \
          SELECT id FROM sys_dept WHERE id = ? AND deleted_at IS NULL \
          UNION ALL \
@@ -289,9 +271,7 @@ pub(crate) async fn find_dept_subtree_ids(
          INNER JOIN dept_tree t ON c.parent_id = t.id \
          WHERE c.deleted_at IS NULL \
        ) SELECT id FROM dept_tree";
-    let rows = db()
-        .find_with_params(sql, vec![Value::from(root_id)])
-        .await?;
+    let rows = db().find_with_params(sql, vec![Value::from(root_id)]).await?;
     let mut ids = Vec::with_capacity(rows.len());
     for row in rows {
         ids.push(row.get_typed::<uuid::Uuid>("id")?);
@@ -321,10 +301,7 @@ pub(crate) async fn load_cached_tree() -> Option<Vec<crate::system::dept::dto::D
         }
     }
     let store = try_cache()?;
-    Cache::get(store, constants::CACHE_KEY_DEPT_TREE)
-        .await
-        .ok()
-        .flatten()
+    Cache::get(store, constants::CACHE_KEY_DEPT_TREE).await.ok().flatten()
 }
 
 /// 写入全量部门树缓存。

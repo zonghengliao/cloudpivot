@@ -13,9 +13,7 @@ use nik::prelude::*;
 use super::task_handler_assign::*;
 use super::task_handler_comment::*;
 use super::task_handler_common::*;
-use crate::business::task::dto::{
-    self, TaskAiProgressReq, TaskAiProgressRes, TaskDispatchReq, TaskDispatchRes,
-};
+use crate::business::task::dto::{self, TaskAiProgressReq, TaskAiProgressRes, TaskDispatchReq, TaskDispatchRes};
 use crate::business::task::hermes_sync;
 use crate::business::task::model::{self};
 use crate::middleware::task_token::AiTaskActor;
@@ -101,15 +99,7 @@ pub async fn ai_progress(
                 if let Some(value) = write_percent {
                     model::set_progress(&tx, task_id, value as i16, author).await?;
                 }
-                model::insert_comment(
-                    &tx,
-                    task_id,
-                    author,
-                    &content,
-                    model::COMMENT_TYPE_AI_PROGRESS,
-                    author,
-                )
-                .await?;
+                model::insert_comment(&tx, task_id, author, &content, model::COMMENT_TYPE_AI_PROGRESS, author).await?;
                 model::mark_ai_active(&tx, task_id, author).await?;
                 // SCOPE-EXEMPT: 事务内回读**刚刚写入的那一行**（task_id 已由任务令牌
                 // 绑定 + 令牌校验判定过归属），不是列表 / 导出查询；注入 scope 反而会
@@ -250,11 +240,7 @@ pub async fn dispatch_ai(
             )
         });
 
-    let reason = req
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
+    let reason = req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty());
     let operator_name = display_name(&claims);
     let retry = task.hermes_task_id.is_some();
     let outcome = hermes_sync::dispatch(

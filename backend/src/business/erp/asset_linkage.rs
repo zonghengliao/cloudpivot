@@ -126,17 +126,10 @@ impl AssetStatusChange {
         draft.force = false;
         // 幂等键 = **事件维度**（状态 + 卡片 + 本次变动行 id）：同一事件重放只发一条
         // （CAS 之外的第二道闸），不同事件（可逆边的第二次）各发一条。见文件头 §幂等键。
-        let key = format!(
-            "LNK:FIXED_ASSET:{}:{}:{}",
-            self.status, self.asset_id, self.event_ref
-        );
+        let key = format!("LNK:FIXED_ASSET:{}:{}:{}", self.status, self.asset_id, self.event_ref);
         // `sys_notice.idempotency_key` 是 VARCHAR(128)（V0043）；本键最长 98 字符。
         // 钉住它，免得将来有人把状态名写长之后才在库里撞列宽（LNK-10 同款断言）。
-        assert!(
-            key.len() <= 128,
-            "通知幂等键超长（{}/128）：{key}",
-            key.len()
-        );
+        assert!(key.len() <= 128, "通知幂等键超长（{}/128）：{key}", key.len());
         draft.idempotency_key = Some(key);
         linkage::LinkageContext::new(
             state_machine::ENTITY_FIXED_ASSET,
@@ -174,9 +167,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::FIXED_ASSET_EXCLUDED_ACTIONS)
-            .await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::FIXED_ASSET_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             asset_id = %change.asset_id,
@@ -318,10 +309,7 @@ mod tests {
         let ctx = disposed.ctx();
         let draft = ctx.notice.as_ref().expect("必须带通知草稿");
         assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
-        assert_eq!(
-            draft.biz_id.as_deref(),
-            Some("018f0000-0000-7000-8000-000000000003")
-        );
+        assert_eq!(draft.biz_id.as_deref(), Some("018f0000-0000-7000-8000-000000000003"));
         assert_eq!(
             draft.link_url.as_deref(),
             Some("/business/erp/asset?id=018f0000-0000-7000-8000-000000000003")
@@ -365,18 +353,13 @@ mod tests {
     // 任何一处漂移 → 用例红，且文案直接说是哪条规则。
 
     /// 迁移原文（up / down）。
-    const PRESET_UP: &str =
-        include_str!("../../../migrations/business/V0323__asset_linkage_rules.up.sql");
-    const PRESET_DOWN: &str =
-        include_str!("../../../migrations/business/V0323__asset_linkage_rules.down.sql");
+    const PRESET_UP: &str = include_str!("../../../migrations/business/V0323__asset_linkage_rules.up.sql");
+    const PRESET_DOWN: &str = include_str!("../../../migrations/business/V0323__asset_linkage_rules.down.sql");
 
     /// 3 条预置规则（规则名 + 触发状态；触发状态 = 变更**之后**的目标态）。
     const PRESETS: &[(&str, &str)] = &[
         ("资产停用 → 通知制单人", asset_dto::STATUS_IDLE),
-        (
-            "资产启用 / 作废处置 → 通知制单人",
-            asset_dto::STATUS_IN_USE,
-        ),
+        ("资产启用 / 作废处置 → 通知制单人", asset_dto::STATUS_IN_USE),
         ("资产处置 → 通知制单人", asset_dto::STATUS_DISPOSED),
     ];
 
@@ -385,10 +368,7 @@ mod tests {
     fn presets_cover_every_fixed_asset_status() {
         assert_eq!(PRESETS.len(), 3, "卡面要求 3 条 FIXED_ASSET 规则");
         let inserts = PRESET_UP.matches("gen_random_uuid()").count();
-        assert_eq!(
-            inserts, 3,
-            "迁移 up.sql 里应有 3 行 INSERT（实际 {inserts}）"
-        );
+        assert_eq!(inserts, 3, "迁移 up.sql 里应有 3 行 INSERT（实际 {inserts}）");
         let known = linkage::model::known_statuses(state_machine::ENTITY_FIXED_ASSET);
         let mut preset_statuses: Vec<&str> = PRESETS.iter().map(|(_, status)| *status).collect();
         preset_statuses.sort_unstable();
@@ -410,19 +390,14 @@ mod tests {
     #[test]
     fn migration_seeds_every_preset_row() {
         for (name, status) in PRESETS {
-            assert!(
-                PRESET_UP.contains(name),
-                "迁移里找不到规则名「{name}」"
-            );
+            assert!(PRESET_UP.contains(name), "迁移里找不到规则名「{name}」");
             assert!(
                 PRESET_UP.contains(&format!("'FIXED_ASSET', '{status}', 'SEND_NOTICE'")),
                 "迁移里找不到触发键 ('FIXED_ASSET', '{status}', 'SEND_NOTICE')"
             );
         }
         assert!(
-            PRESET_UP.contains(&format!(
-                "trigger_entity = 'FIXED_ASSET'"
-            )),
+            PRESET_UP.contains(&format!("trigger_entity = 'FIXED_ASSET'")),
             "迁移的自检块必须按 FIXED_ASSET 过滤"
         );
     }
@@ -440,18 +415,13 @@ mod tests {
             3,
             "三条规则的参数必须都是 {params_literal}（资产通知没有旧代码兜底，只能 TAKEOVER）"
         );
-        let action = linkage::spec::spec_of(linkage::spec::ACTION_SEND_NOTICE)
-            .expect("SEND_NOTICE 必须在动作白名单里");
+        let action = linkage::spec::spec_of(linkage::spec::ACTION_SEND_NOTICE).expect("SEND_NOTICE 必须在动作白名单里");
         assert!(action.implemented, "SEND_NOTICE 必须是已接管动作");
-        let params: serde_json::Value =
-            serde_json::from_str(r#"{"mode": "TAKEOVER"}"#).expect("合法 JSON");
+        let params: serde_json::Value = serde_json::from_str(r#"{"mode": "TAKEOVER"}"#).expect("合法 JSON");
         if let Err(reason) = linkage::spec::validate_params(action, &params) {
             panic!("预置规则的参数过不了第 2 层校验：{reason}");
         }
-        assert_eq!(
-            params.get("mode").and_then(|value| value.as_str()),
-            Some("TAKEOVER")
-        );
+        assert_eq!(params.get("mode").and_then(|value| value.as_str()), Some("TAKEOVER"));
         for key in params.as_object().expect("参数必须是对象").keys() {
             assert!(
                 !linkage::spec::is_forbidden_key(key),
@@ -558,4 +528,3 @@ mod tests {
         );
     }
 }
-

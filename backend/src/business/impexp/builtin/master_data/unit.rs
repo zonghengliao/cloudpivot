@@ -27,8 +27,8 @@ use crate::business::impexp::definition::{
 };
 
 use super::{
-    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, column_of, conflict_clause, duplicate_strategy, flag_of,
-    load_refs, operator_text, rule, status_of,
+    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, column_of, conflict_clause, duplicate_strategy, flag_of, load_refs,
+    operator_text, rule, status_of,
 };
 
 /// 导入列定义（顺序即模板列顺序）。
@@ -154,11 +154,7 @@ impl ImportDefinition for UnitImport {
         COLUMNS
     }
 
-    async fn validate_row(
-        &self,
-        row: &RowValues,
-        _ctx: &ImportCtx,
-    ) -> std::result::Result<(), Vec<RowIssue>> {
+    async fn validate_row(&self, row: &RowValues, _ctx: &ImportCtx) -> std::result::Result<(), Vec<RowIssue>> {
         let mut issues = Vec::new();
         let unit_code = row.get("unit_code");
         let base_code = row.get("base_unit_code");
@@ -185,10 +181,7 @@ impl ImportDefinition for UnitImport {
                 issues.push(rule(
                     row,
                     rate_column,
-                    format!(
-                        "基础单位的换算率必须为 1（当前填了 {}），留空即按 1",
-                        row.get("rate")
-                    ),
+                    format!("基础单位的换算率必须为 1（当前填了 {}），留空即按 1", row.get("rate")),
                 ));
             }
             let _ = is_base_column;
@@ -237,10 +230,7 @@ impl ImportDefinition for UnitImport {
         let strategy = duplicate_strategy(ctx).await?;
 
         // ---------- 1. 编码映射：库里已有的 + 本批次里的（基准单位允许同文件引用） ----------
-        let mut codes: Vec<String> = rows
-            .iter()
-            .map(|row| row.get("unit_code").to_string())
-            .collect();
+        let mut codes: Vec<String> = rows.iter().map(|row| row.get("unit_code").to_string()).collect();
         codes.extend(
             rows.iter()
                 .map(|row| row.get("base_unit_code").to_string())
@@ -251,10 +241,7 @@ impl ImportDefinition for UnitImport {
         let mut own_is_base: HashMap<String, bool> = HashMap::new();
         for row in rows {
             let code = row.get("unit_code").to_string();
-            let id = refs
-                .get(&code)
-                .map(|(id, _)| id)
-                .unwrap_or_else(uuid::Uuid::now_v7);
+            let id = refs.get(&code).map(|(id, _)| id).unwrap_or_else(uuid::Uuid::now_v7);
             own.insert(code.clone(), id);
             own_is_base.insert(code, flag_of(row, "is_base") == 1);
         }
@@ -290,9 +277,7 @@ impl ImportDefinition for UnitImport {
                     issues.push(rule(
                         row,
                         column_of(COLUMNS, "base_unit_code"),
-                        format!(
-                            "基准单位「{base_code}」在系统中是辅助单位（不是基础单位），不能作为基准"
-                        ),
+                        format!("基准单位「{base_code}」在系统中是辅助单位（不是基础单位），不能作为基准"),
                     ));
                     None
                 }
@@ -300,9 +285,7 @@ impl ImportDefinition for UnitImport {
                 issues.push(rule(
                     row,
                     column_of(COLUMNS, "base_unit_code"),
-                    format!(
-                        "基准单位「{base_code}」不存在（本文件里也没有这个编码），请先维护该单位"
-                    ),
+                    format!("基准单位「{base_code}」不存在（本文件里也没有这个编码），请先维护该单位"),
                 ));
                 None
             };
@@ -310,10 +293,7 @@ impl ImportDefinition for UnitImport {
                 return Err(DbError::InvalidValue(join_issues(&issues)));
             }
             resolved.push(ResolvedUnit {
-                id: own
-                    .get(&unit_code)
-                    .copied()
-                    .unwrap_or_else(uuid::Uuid::now_v7),
+                id: own.get(&unit_code).copied().unwrap_or_else(uuid::Uuid::now_v7),
                 unit_code,
                 unit_name: row.get("unit_name").to_string(),
                 is_base,
@@ -367,11 +347,7 @@ impl ImportDefinition for UnitImport {
             )
             .await?;
         if strategy == DuplicateStrategy::Upsert && affected as usize != rows.len() {
-            return Err(super::missing_rows_error(
-                rows.len(),
-                affected as usize,
-                "请重新上传",
-            ));
+            return Err(super::missing_rows_error(rows.len(), affected as usize, "请重新上传"));
         }
         Ok(affected as usize)
     }
@@ -379,11 +355,7 @@ impl ImportDefinition for UnitImport {
 
 /// 收集到的问题：没有就 `Ok(())`，有就整批返回（框架按行落错误明细）。
 fn finish(issues: Vec<RowIssue>) -> std::result::Result<(), Vec<RowIssue>> {
-    if issues.is_empty() {
-        Ok(())
-    } else {
-        Err(issues)
-    }
+    if issues.is_empty() { Ok(()) } else { Err(issues) }
 }
 
 /// 把解析期的行级错误拼成一句可读文案（`persist` 只有 `DbError` 这一个出口）。
@@ -498,11 +470,7 @@ mod tests {
 
     /// 与 `persist` 里 `flag_of(row, "is_base")` 同口径的小包装（便于直接断言）。
     fn unit_is_base(raw: &str) -> i16 {
-        if raw.is_empty() || raw == "true" {
-            1
-        } else {
-            0
-        }
+        if raw.is_empty() || raw == "true" { 1 } else { 0 }
     }
 
     #[test]
@@ -511,13 +479,7 @@ mod tests {
         // 有意不挂 FkSpec：同文件的基准单位也要能解析（见模块头）
         assert!(column.fk.is_none());
         assert!(column.remark.contains("同一份文件"));
-        assert_eq!(
-            text_of(&row(&[("base_unit_code", "")]), "base_unit_code"),
-            None
-        );
-        assert_eq!(
-            num_of(&row(&[("rate", "1.5")]), "rate"),
-            Some("1.5".to_string())
-        );
+        assert_eq!(text_of(&row(&[("base_unit_code", "")]), "base_unit_code"), None);
+        assert_eq!(num_of(&row(&[("rate", "1.5")]), "rate"), Some("1.5".to_string()));
     }
 }

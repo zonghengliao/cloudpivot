@@ -44,10 +44,7 @@ pub const ENABLE_HTML: bool = false;
 /// 编译期红线：把 [`ENABLE_HTML`] 改成 `true` 会**直接编译失败**（不是靠测试兜）。
 ///
 /// 允许 HTML 等于给 XSS 开门（架构 §2.4.3 闸 1 的前提），所以这条断言写在类型层。
-const _: () = assert!(
-    !ENABLE_HTML,
-    "ENABLE_HTML 必须恒为 false（红线，见架构 §2.4.3）"
-);
+const _: () = assert!(!ENABLE_HTML, "ENABLE_HTML 必须恒为 false（红线，见架构 §2.4.3）");
 
 /// 外链图片被移除后写进正文的占位文本（架构 §2.4.3 加固项：图片只允许 storage URL）。
 pub const IMAGE_REMOVED: &str = "[图片已移除]";
@@ -313,11 +310,7 @@ pub fn build_toc(headings: &[HeadingRef]) -> Vec<TocNode> {
 /// # 返回值
 ///
 /// `(节点列表, 下一个待处理下标)`。
-fn build_toc_from(
-    headings: &[HeadingRef],
-    start: usize,
-    parent_level: u8,
-) -> (Vec<TocNode>, usize) {
+fn build_toc_from(headings: &[HeadingRef], start: usize, parent_level: u8) -> (Vec<TocNode>, usize) {
     let mut nodes = Vec::new();
     let mut index = start;
     while index < headings.len() {
@@ -465,10 +458,7 @@ fn code_classes(recipe: Recipe) -> Vec<&'static str> {
     if recipe == Recipe::PlainText {
         return classes;
     }
-    for token in ANNOUNCEMENT_CODE_LANGS
-        .iter()
-        .chain(HELP_ONLY_CODE_LANGS.iter())
-    {
+    for token in ANNOUNCEMENT_CODE_LANGS.iter().chain(HELP_ONLY_CODE_LANGS.iter()) {
         if !lang_allowed(recipe, token) {
             continue;
         }
@@ -495,9 +485,7 @@ fn image_allowed(dest: &str) -> bool {
     if dest.is_empty() {
         return false;
     }
-    ALLOWED_IMAGE_PREFIXES
-        .iter()
-        .any(|prefix| dest.starts_with(prefix))
+    ALLOWED_IMAGE_PREFIXES.iter().any(|prefix| dest.starts_with(prefix))
 }
 
 /// 链接是否允许保留成 `<a>`：协议白名单 + 站内相对路径。
@@ -735,11 +723,7 @@ impl<'a> Walker<'a> {
             Tag::CodeBlock(kind) => {
                 let kind = match kind {
                     CodeBlockKind::Fenced(info) => {
-                        let token = info
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or_default()
-                            .to_ascii_lowercase();
+                        let token = info.split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
                         if lang_allowed(self.recipe, &token) {
                             CodeBlockKind::Fenced(token.into())
                         } else {
@@ -794,8 +778,7 @@ impl<'a> Walker<'a> {
             });
         }
         // `id` 由本模块生成（`h-{level}-{index}`，不透传用户输入），可直接写进 HTML
-        self.events
-            .push(Event::Html(format!("<h{level} id=\"{id}\">").into()));
+        self.events.push(Event::Html(format!("<h{level} id=\"{id}\">").into()));
         self.events.extend(heading.inner);
         self.events.push(Event::Html(format!("</h{level}>").into()));
         // 标题文本已随 Text/Code 事件进过纯文本（见 `handle`），这里只补一个换行做分隔
@@ -927,9 +910,7 @@ mod tests {
     fn c1_01_heading_offset_plus_one_and_anchor_id() {
         let rendered = render_help("# 维护时间\n\n正文\n");
         assert!(
-            rendered
-                .content_html
-                .contains("<h2 id=\"h-2-1\">维护时间</h2>"),
+            rendered.content_html.contains("<h2 id=\"h-2-1\">维护时间</h2>"),
             "heading 偏移 +1 且生成 id 失败：{}",
             rendered.content_html
         );
@@ -951,11 +932,7 @@ mod tests {
     fn c1_02_heading_ids_unique_when_titles_repeat() {
         let rendered = render_help("## 概述\n\nA\n\n## 概述\n\nB\n\n## 概述\n\nC\n");
         let ids: Vec<&str> = rendered.headings.iter().map(|h| h.id.as_str()).collect();
-        assert_eq!(
-            ids,
-            vec!["h-3-1", "h-3-2", "h-3-3"],
-            "同层序号必须递增且唯一"
-        );
+        assert_eq!(ids, vec!["h-3-1", "h-3-2", "h-3-3"], "同层序号必须递增且唯一");
         let unique: std::collections::BTreeSet<&str> = ids.iter().copied().collect();
         assert_eq!(unique.len(), ids.len(), "锚点 id 不得重复");
         println!("[C1-02] 三个同名 `##` → {ids:?} ✓");
@@ -1002,11 +979,7 @@ mod tests {
             "转义计数应被记账（escaped_html={}）",
             rendered.escaped_html
         );
-        println!(
-            "[C1-04] {} → {} ✓",
-            markdown.trim(),
-            rendered.content_html.trim()
-        );
+        println!("[C1-04] {} → {} ✓", markdown.trim(), rendered.content_html.trim());
     }
 
     /// C1-05：`<script>alert(1)</script>` 不得产出可执行 script 标签（A-13）。
@@ -1014,10 +987,7 @@ mod tests {
     fn c1_05_script_tag_never_reaches_output() {
         let rendered = render_help("<script>alert(1)</script>\n\n正常正文\n");
         assert!(
-            !rendered
-                .content_html
-                .to_ascii_lowercase()
-                .contains("<script"),
+            !rendered.content_html.to_ascii_lowercase().contains("<script"),
             "输出中不得出现 <script 标签：{}",
             rendered.content_html
         );
@@ -1077,10 +1047,7 @@ mod tests {
     fn c1_08_javascript_link_is_removed() {
         let rendered = render_announcement("[点我](javascript:alert(1))\n");
         assert!(
-            !rendered
-                .content_html
-                .to_ascii_lowercase()
-                .contains("javascript:"),
+            !rendered.content_html.to_ascii_lowercase().contains("javascript:"),
             "输出不得残留 javascript: 协议：{}",
             rendered.content_html
         );
@@ -1095,17 +1062,13 @@ mod tests {
             rendered.content_html
         );
         assert_eq!(rendered.removed_links, 1, "降级计数应为 1");
-        println!(
-            "[C1-08] javascript: 链接 → {} ✓",
-            rendered.content_html.trim()
-        );
+        println!("[C1-08] javascript: 链接 → {} ✓", rendered.content_html.trim());
     }
 
     /// C1-09：`file:///etc/passwd` 等非白名单协议整段降级为纯文本（A-16）。
     #[test]
     fn c1_09_non_whitelisted_scheme_downgraded() {
-        let rendered =
-            render_help("[读文件](file:///etc/passwd) 与 [外链](https://example.com/a)\n");
+        let rendered = render_help("[读文件](file:///etc/passwd) 与 [外链](https://example.com/a)\n");
         assert!(
             !rendered.content_html.contains("file:"),
             "file: 协议必须被移除：{}",
@@ -1117,17 +1080,12 @@ mod tests {
             rendered.content_html
         );
         assert!(
-            rendered
-                .content_html
-                .contains("<a href=\"https://example.com/a\""),
+            rendered.content_html.contains("<a href=\"https://example.com/a\""),
             "https 链接应保留：{}",
             rendered.content_html
         );
         assert_eq!(rendered.removed_links, 1);
-        println!(
-            "[C1-09] file: 降级、https 保留 → {} ✓",
-            rendered.content_html.trim()
-        );
+        println!("[C1-09] file: 降级、https 保留 → {} ✓", rendered.content_html.trim());
     }
 
     /// C1-10：TOC 层级正确（h2 / h3 / h4 嵌套，H-11）。
@@ -1138,10 +1096,7 @@ mod tests {
         // 偏移 +1 之后：#→h2、##→h3、###→h4、####→h5
         assert_eq!(rendered.toc.len(), 1, "顶层只有 1 个节点（一级）");
         let top = &rendered.toc[0];
-        assert_eq!(
-            (top.level, top.text.as_str(), top.id.as_str()),
-            (2, "一级", "h-2-1")
-        );
+        assert_eq!((top.level, top.text.as_str(), top.id.as_str()), (2, "一级", "h-2-1"));
         assert_eq!(top.children.len(), 2, "一级下有 2 个二级节点");
         assert_eq!(top.children[0].text, "二级 A");
         assert_eq!(top.children[0].level, 3);
@@ -1164,7 +1119,8 @@ mod tests {
     /// C1-11：纯文本配方全部剥标签（检索 snippet / 摘要用，H-10）。
     #[test]
     fn c1_11_plain_text_recipe_strips_every_tag() {
-        let markdown = "# 标题\n\n**加粗** 与 `代码` 与 [链接](https://example.com)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+        let markdown =
+            "# 标题\n\n**加粗** 与 `代码` 与 [链接](https://example.com)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
         let rendered = render(markdown, Recipe::PlainText);
         assert!(
             !rendered.content_html.contains('<'),

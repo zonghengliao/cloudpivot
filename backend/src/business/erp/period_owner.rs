@@ -85,11 +85,7 @@ impl OwnerResolver {
     }
 
     /// 反查一个权限码的责任角色（`None` = 没有启用角色持有该码，不猜）。
-    pub async fn resolve(
-        &mut self,
-        ex: &impl SqlExecutor,
-        permission: &str,
-    ) -> Result<Option<Owner>, ApiError> {
+    pub async fn resolve(&mut self, ex: &impl SqlExecutor, permission: &str) -> Result<Option<Owner>, ApiError> {
         let key = permission.trim().to_string();
         if let Some(cached) = self.cache.get(&key) {
             return Ok(cached.clone());

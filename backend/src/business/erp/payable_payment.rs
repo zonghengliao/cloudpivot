@@ -326,11 +326,7 @@ fn conflict(message: impl Into<String>) -> ApiError {
 
 /// 404：应付单不存在。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "应付单不存在或已删除".to_string(),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "应付单不存在或已删除".to_string())
 }
 
 /// 提交审批撞 `uk_biz_flow_instance_biz_active` → `409 + 本单号`（不是「单号重复、去查 biz_seq」）。
@@ -367,10 +363,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "单号重复（唯一约束{}）：取号器与库里的号段不一致，请联系运维排查 biz_seq",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -439,8 +432,7 @@ pub async fn payments_of(ex: &impl SqlExecutor, payable_id: Uuid) -> DbResult<Ve
 /// `awaiting_executor`）与执行入口（[`execute_approved_payment`] 的判据 3）都走它，
 /// 免得将来一边改了另一边忘。
 pub fn is_awaiting_executor(payment_status: &str, instance_status: Option<&str>) -> bool {
-    payment_status == APPROVAL_PENDING
-        && instance_status.is_some_and(|status| status.eq_ignore_ascii_case("APPROVED"))
+    payment_status == APPROVAL_PENDING && instance_status.is_some_and(|status| status.eq_ignore_ascii_case("APPROVED"))
 }
 
 /// 查库版 [`is_awaiting_executor`]：读付款记录挂的审批实例状态再判。
@@ -468,10 +460,7 @@ pub async fn awaiting_executor_of(payment: &PaymentRow) -> std::result::Result<b
 }
 
 /// 付款记录 → 出参（带付款凭证号）。
-pub async fn payments_res(
-    ex: &impl SqlExecutor,
-    payable_id: Uuid,
-) -> std::result::Result<Vec<PaymentRes>, ApiError> {
+pub async fn payments_res(ex: &impl SqlExecutor, payable_id: Uuid) -> std::result::Result<Vec<PaymentRes>, ApiError> {
     let rows = payments_of(ex, payable_id)
         .await
         .map_err(|error| utils::db_error(error, "查询付款记录"))?;
@@ -539,10 +528,7 @@ pub fn payment_capability(
     if row.status == payable::STATUS_CANCELLED {
         return (
             false,
-            Some(format!(
-                "应付单 {} 已作废（CANCELLED），不能再付款",
-                row.payable_no
-            )),
+            Some(format!("应付单 {} 已作废（CANCELLED），不能再付款", row.payable_no)),
         );
     }
     if row.status == payable::STATUS_PENDING_CANCEL {
@@ -567,10 +553,7 @@ pub fn payment_capability(
     if unpaid <= Decimal::ZERO {
         return (
             false,
-            Some(format!(
-                "应付单 {} 未付金额为 {unpaid}，没有可付的余额",
-                row.payable_no
-            )),
+            Some(format!("应付单 {} 未付金额为 {unpaid}，没有可付的余额", row.payable_no)),
         );
     }
     if let Some((payment_no, amount)) = pending {
@@ -589,10 +572,7 @@ pub fn payment_capability(
 ///
 /// 只是**提示**，不拦人（真正拦截在 `settle_approved_in_tx`：执行时 `amount > unpaid`
 /// 会把付款记录标 `REJECTED` 且账一分不动）。返回 `None` 表示没有这种风险。
-pub fn overpay_risk_of(
-    row: &payable_query::PayableRow,
-    pending: Option<(&str, Decimal)>,
-) -> Option<String> {
+pub fn overpay_risk_of(row: &payable_query::PayableRow, pending: Option<(&str, Decimal)>) -> Option<String> {
     let (payment_no, amount) = pending?;
     let unpaid = row.unpaid_amount.round_dp(4);
     let amount = amount.round_dp(4);
@@ -839,9 +819,7 @@ pub async fn pay_payable_with_reason(
         .map(|value| value.round_dp(4))
         .ok_or_else(|| bad_request("amount 必填：本次付款金额（> 0，且不超过未付余额）"))?;
     if amount <= Decimal::ZERO {
-        return Err(bad_request(format!(
-            "本次付款金额必须大于 0，收到 {amount}"
-        )));
+        return Err(bad_request(format!("本次付款金额必须大于 0，收到 {amount}")));
     }
 
     let now = Utc::now();
@@ -972,10 +950,7 @@ async fn pay_in_tx(
 /// ① 状态必须是 `OPEN` / `PARTIAL_PAID`（`SETTLED` / `CANCELLED` → 409）；
 /// ② `0 < amount ≤ unpaid_amount`（400，文案点名两个金额）。
 fn validate_payment_target(row: &PayableRow, amount: Decimal) -> std::result::Result<(), ApiError> {
-    if !matches!(
-        row.status.as_str(),
-        payable::STATUS_OPEN | payable::STATUS_PARTIAL_PAID
-    ) {
+    if !matches!(row.status.as_str(), payable::STATUS_OPEN | payable::STATUS_PARTIAL_PAID) {
         return Err(conflict(format!(
             "应付单 {} 当前是「{}」，只有未付 / 部分已付的应付单能登记付款：\
              已结清（SETTLED）或已作废（CANCELLED）的单据不能再付款",
@@ -1036,11 +1011,7 @@ async fn insert_payment_row(
                 Value::Text(operator_text.clone()),
                 Value::Text(operator_text),
                 Value::Text(approval_status.to_string()),
-                Value::Text(
-                    approval_instance_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(approval_instance_id.map(|v| v.to_string()).unwrap_or_default()),
             ],
         )
         .await
@@ -1134,14 +1105,12 @@ async fn settle_payment_in_tx(
     };
 
     // ② 付款凭证：借 2202 应付账款 / 贷 1002 银行存款（同事务，直接 POSTED）
-    let payable_account =
-        voucher::account_required(tx, PAY_DEBIT_CODE, "付款凭证的借方科目 2202 应付账款")
-            .await
-            .map_err(|error| write_error(error, "解析付款凭证借方科目"))?;
-    let bank_account =
-        voucher::account_required(tx, PAY_CREDIT_CODE, "付款凭证的贷方科目 1002 银行存款")
-            .await
-            .map_err(|error| write_error(error, "解析付款凭证贷方科目"))?;
+    let payable_account = voucher::account_required(tx, PAY_DEBIT_CODE, "付款凭证的借方科目 2202 应付账款")
+        .await
+        .map_err(|error| write_error(error, "解析付款凭证借方科目"))?;
+    let bank_account = voucher::account_required(tx, PAY_CREDIT_CODE, "付款凭证的贷方科目 1002 银行存款")
+        .await
+        .map_err(|error| write_error(error, "解析付款凭证贷方科目"))?;
     let summary = format!("付款 {payment_no} 应付单 {}", row.payable_no);
     // 部门辅助核算（DC-11 的「部门从哪来」）：付款凭证的部门 = **付款申请人**的部门。
     // 申请人 = `biz_payment.create_by` = 本函数的 `operator`（直付与审批路径都由同一人落库），
@@ -1209,11 +1178,7 @@ async fn settle_payment_in_tx(
     // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
     tx.exec_sql(
         format!("UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"),
-        vec![
-            Value::from(&voucher_id),
-            Value::from(now),
-            Value::from(&payment_id),
-        ],
+        vec![Value::from(&voucher_id), Value::from(now), Value::from(&payment_id)],
     )
     .await
     .map_err(|error| utils::db_error(error, "付款记录回写凭证"))?;
@@ -1249,11 +1214,7 @@ async fn settle_payment_in_tx(
         )
     })?;
     // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
-    let settled_at_text = if settled {
-        now.to_rfc3339()
-    } else {
-        String::new()
-    };
+    let settled_at_text = if settled { now.to_rfc3339() } else { String::new() };
     let affected = tx
         .exec_sql(
             format!(
@@ -1322,9 +1283,7 @@ pub async fn submit_payment(
         .map(|value| value.round_dp(4))
         .ok_or_else(|| bad_request("amount 必填：本次付款金额（> 0，且不超过未付余额）"))?;
     if amount <= Decimal::ZERO {
-        return Err(bad_request(format!(
-            "本次付款金额必须大于 0，收到 {amount}"
-        )));
+        return Err(bad_request(format!("本次付款金额必须大于 0，收到 {amount}")));
     }
 
     let flow = crate::business::erp::payable_bridge::published_pay_flow()
@@ -1333,11 +1292,8 @@ pub async fn submit_payment(
     let Some(flow) = flow else {
         // ARCH-3 DC-01：**不再静默降级直付**。默认 409（点名 payable_pay）；
         // 只有「持 business:erp:skip-approval + 理由 ≥10 字」才能显式跳过。
-        let skip_reason = approval_gate::authorize_missing_flow(
-            payable_bridge::BIZ_TYPE,
-            payable_bridge::FLOW_CODE,
-            gate,
-        )?;
+        let skip_reason =
+            approval_gate::authorize_missing_flow(payable_bridge::BIZ_TYPE, payable_bridge::FLOW_CODE, gate)?;
         tracing::warn!(
             payable_id = %id,
             %skip_reason,
@@ -1385,19 +1341,7 @@ async fn submit_for_approval(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启付款审批事务"))?;
-    match submit_for_approval_tx(
-        &tx,
-        id,
-        amount,
-        pay_date,
-        pay_method,
-        remark,
-        operator_id,
-        flow,
-        now,
-    )
-    .await
-    {
+    match submit_for_approval_tx(&tx, id, amount, pay_date, pay_method, remark, operator_id, flow, now).await {
         Ok((payment_id, payment_no, instance_id)) => {
             tx.commit()
                 .await
@@ -1414,9 +1358,7 @@ async fn submit_for_approval(
             let detail = payable_query::payable_detail(id).await?;
             Ok(PaySubmitRes {
                 outcome: OUTCOME_PENDING.to_string(),
-                message: format!(
-                    "已提交审批（付款单 {payment_no}，金额 {amount}），等待审批通过后才会记账"
-                ),
+                message: format!("已提交审批（付款单 {payment_no}，金额 {amount}），等待审批通过后才会记账"),
                 amount,
                 payment_id: Some(payment_id.to_string()),
                 payment_no: Some(payment_no),
@@ -1545,8 +1487,7 @@ async fn submit_for_approval_tx(
         initiator_id: operator,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: payment_form_data(&row, payment_id, &payment_no, amount, pay_date, operator)
-            .await,
+        form_data: payment_form_data(&row, payment_id, &payment_no, amount, pay_date, operator).await,
     };
     let out = engine::start(tx, &start)
         .await
@@ -1590,11 +1531,7 @@ async fn submit_for_approval_tx(
               WHERE id = ?::uuid AND deleted_at IS NULL",
             payable::TABLE
         ),
-        vec![
-            Value::from(&instance_id),
-            Value::from(now),
-            Value::from(&row.id),
-        ],
+        vec![Value::from(&instance_id), Value::from(now), Value::from(&row.id)],
     )
     .await
     .map_err(|error| utils::db_error(error, "回写应付单的审批实例引用"))?;
@@ -1808,24 +1745,17 @@ pub async fn execute_approved_payment(
         SettleOutcome::Paid => Ok(PaymentExecuteRes {
             payment_id: payment_id.to_string(),
             outcome: "PAID".to_string(),
-            message: format!(
-                "付款 {} 已执行：应付回写 + 付款凭证已生成",
-                payment.payment_no
-            ),
+            message: format!("付款 {} 已执行：应付回写 + 付款凭证已生成", payment.payment_no),
         }),
         // 并发下被别人先执行了（前置校验与记账之间）：幂等语义如实说出，不重复记账
         SettleOutcome::AlreadySettled => Err(conflict(format!(
             "付款 {} 已被执行（重复提交 / 并发执行）：账只动一次，本次未重复记账",
             payment.payment_no
         ))),
-        SettleOutcome::AwaitingExecutor { reason } => Err(ApiError::new(
-            409,
-            error_code::ERP_SEPARATION_OF_DUTIES,
-            reason,
-        )),
-        SettleOutcome::Cancelled { reason } | SettleOutcome::Rejected { reason } => {
-            Err(conflict(reason))
+        SettleOutcome::AwaitingExecutor { reason } => {
+            Err(ApiError::new(409, error_code::ERP_SEPARATION_OF_DUTIES, reason))
         }
+        SettleOutcome::Cancelled { reason } | SettleOutcome::Rejected { reason } => Err(conflict(reason)),
     }
 }
 
@@ -1906,10 +1836,7 @@ async fn settle_approved_in_tx(
             None,
         ));
     }
-    if !matches!(
-        row.status.as_str(),
-        payable::STATUS_OPEN | payable::STATUS_PARTIAL_PAID
-    ) {
+    if !matches!(row.status.as_str(), payable::STATUS_OPEN | payable::STATUS_PARTIAL_PAID) {
         let reason = format!(
             "应付单 {} 当前是「{}」，付款审批通过时已不该再付款",
             row.payable_no,
@@ -1991,16 +1918,11 @@ pub async fn abort_payment(payment_id: Uuid, note: &str) -> std::result::Result<
 }
 
 /// 锁一条付款记录（`SELECT ... FOR UPDATE`）。
-async fn lock_payment(
-    tx: &Transaction,
-    payment_id: Uuid,
-) -> std::result::Result<Option<PaymentRow>, ApiError> {
+async fn lock_payment(tx: &Transaction, payment_id: Uuid) -> std::result::Result<Option<PaymentRow>, ApiError> {
     // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
     let row = tx
         .query_first_sql(
-            format!(
-                "SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
-            ),
+            format!("SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"),
             vec![Value::from(&payment_id)],
         )
         .await
@@ -2075,9 +1997,7 @@ pub async fn cancel_payable(
 ) -> std::result::Result<PayableDetailRes, ApiError> {
     let reason = reason.map(str::trim).filter(|text| !text.is_empty());
     let Some(reason) = reason else {
-        return Err(bad_request(
-            "reason 必填：请写明作废原因（会计上作废必须留痕）",
-        ));
+        return Err(bad_request("reason 必填：请写明作废原因（会计上作废必须留痕）"));
     };
 
     let now = Utc::now();
@@ -2156,13 +2076,9 @@ async fn cancel_body_in_tx(
     // ★ P17 反向（硬红线 9）：付款审批中把应付单作废 → **先撤付款审批**再作废单据。
     //   PENDING 的付款记录不动账（paid 仍是 0），所以这里不会和「已付款不能作废」冲突；
     //   但审批实例必须终止 —— 否则它会顶住 uk_biz_payment_pending，让这张单永远付不出钱。
-    let revoked = payable_bridge::cancel_pending_of_payable(
-        tx,
-        row.id,
-        "应付单已作废，付款审批自动终止（账一分没动）",
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "终止在跑的付款审批"))?;
+    let revoked = payable_bridge::cancel_pending_of_payable(tx, row.id, "应付单已作废，付款审批自动终止（账一分没动）")
+        .await
+        .map_err(|error| utils::db_error(error, "终止在跑的付款审批"))?;
     if revoked > 0 {
         tracing::info!(
             payable_id = %row.id,
@@ -2195,12 +2111,7 @@ async fn cancel_body_in_tx(
 
     // 作废：状态 + 原因写进 remark（表里没有独立的原因列）
     // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
-    let note = match row
-        .remark
-        .as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-    {
+    let note = match row.remark.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
         Some(old) => format!("{old}\n作废原因：{reason}"),
         None => format!("作废原因：{reason}"),
     };
@@ -2308,11 +2219,8 @@ pub async fn submit_cancel(
         }
         None => {
             // ARCH-3 DC-01：**不再静默直接作废**（作废会联动红冲凭证）。
-            let skip_reason = approval_gate::authorize_missing_flow(
-                payable::CANCEL_BIZ_TYPE,
-                payable::CANCEL_FLOW_CODE,
-                gate,
-            )?;
+            let skip_reason =
+                approval_gate::authorize_missing_flow(payable::CANCEL_BIZ_TYPE, payable::CANCEL_FLOW_CODE, gate)?;
             tracing::warn!(
                 payable_id = %id,
                 %skip_reason,
@@ -2483,9 +2391,8 @@ async fn submit_cancel_tx(
     if let Some(rejected) = out.rejected.take() {
         // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
         // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
-        return Err(rejected.appended(
-            "（内控要求：作废复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
-        ));
+        return Err(rejected
+            .appended("（内控要求：作废复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）"));
     }
     let instance_id = out
         .instance_id
@@ -2610,10 +2517,7 @@ pub async fn withdraw_cancel(
 ///
 /// 与 [`cancel_in_tx`] 的差别只有入口状态：这里是 `PENDING_CANCEL`（审批已通过），
 /// 里子完全一样（终止在跑的付款审批 → 红冲进项凭证 → 状态机 → 回写）。
-pub async fn cancel_after_approval(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<(), ApiError> {
+pub async fn cancel_after_approval(id: Uuid, operator: Option<Uuid>) -> std::result::Result<(), ApiError> {
     let now = Utc::now();
     let tx = db()
         .begin()
@@ -2974,10 +2878,7 @@ pub async fn find_payable_for_cascade(id: Uuid) -> std::result::Result<PayableRo
 }
 
 /// 在调用方的事务里锁住应付单（联动作废的第一步）。
-pub async fn lock_payable_in_tx(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<Option<PayableRow>, ApiError> {
+pub async fn lock_payable_in_tx(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<Option<PayableRow>, ApiError> {
     lock_payable(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "锁定应付单"))
@@ -3021,14 +2922,9 @@ pub async fn cancel_payable_in_tx(
         )));
     }
     if row.status == payable::STATUS_PENDING_CANCEL {
-        payable_bridge::cancel_approval_of_payable_cancel(
-            ex,
-            id,
-            &row.payable_no,
-            "联动作废：应付作废审批自动终止",
-        )
-        .await
-        .map_err(|error| utils::db_error(error, "终止在跑的作废审批"))?;
+        payable_bridge::cancel_approval_of_payable_cancel(ex, id, &row.payable_no, "联动作废：应付作废审批自动终止")
+            .await
+            .map_err(|error| utils::db_error(error, "终止在跑的作废审批"))?;
     }
     cancel_body_in_tx(ex, &row, reason, operator, now).await
 }
@@ -3094,10 +2990,7 @@ mod tests {
         };
         assert!(!flow_model::is_biz_active_duplicate(&other));
 
-        for (label, no) in [
-            ("付款单", "PM-20261102-000123"),
-            ("应付单", "AP-20261102-000123"),
-        ] {
+        for (label, no) in [("付款单", "PM-20261102-000123"), ("应付单", "AP-20261102-000123")] {
             for err in [variant(), by_text()] {
                 let api = submit_conflict(err, "发起审批单", label, no);
                 assert_eq!(api.status, 409, "{}", api.msg);
@@ -3105,11 +2998,7 @@ mod tests {
                 assert!(api.msg.contains(no), "{}", api.msg);
                 assert!(api.msg.contains(label), "{}", api.msg);
                 assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
-                assert!(
-                    !api.msg.contains("biz_seq"),
-                    "不能把用户指到取号器：{}",
-                    api.msg
-                );
+                assert!(!api.msg.contains("biz_seq"), "不能把用户指到取号器：{}", api.msg);
                 assert!(!api.msg.contains("单号重复"), "{}", api.msg);
             }
         }
@@ -3268,7 +3157,7 @@ mod tests {
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                          NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::date, '2026-10', ?) \
                  RETURNING id"
-                .to_string(),
+                    .to_string(),
                 vec![
                     Value::Text(no),
                     Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
@@ -3298,10 +3187,7 @@ mod tests {
     }
 
     async fn row_of(id: Uuid) -> payable_query::PayableRow {
-        payable_query::find_payable(id)
-            .await
-            .unwrap()
-            .expect("应付单不存在")
+        payable_query::find_payable(id).await.unwrap().expect("应付单不存在")
     }
 
     // ---------- ① 全额付款 ----------
@@ -3366,12 +3252,7 @@ mod tests {
         assert_eq!(detail.payable.unpaid_amount, Decimal::ZERO);
         assert_eq!(detail.payments.len(), 2, "两次付款必须各留一条记录");
 
-        let sum: Decimal = payments_of(db(), id)
-            .await
-            .unwrap()
-            .iter()
-            .map(|row| row.amount)
-            .sum();
+        let sum: Decimal = payments_of(db(), id).await.unwrap().iter().map(|row| row.amount).sum();
         assert_eq!(sum, dec("226"), "付款记录合计必须等于已付金额");
     }
 
@@ -3486,12 +3367,9 @@ mod tests {
         let detail = pay_payable(id, &pay_req("126.5"), None).await.unwrap();
 
         let payment = &detail.payments[0];
-        let voucher_id = Uuid::parse_str(payment.voucher_id.as_deref().expect("付款必须生成凭证"))
-            .expect("凭证 id 非法");
-        let voucher = find_voucher(db(), voucher_id)
-            .await
-            .unwrap()
-            .expect("付款凭证不存在");
+        let voucher_id =
+            Uuid::parse_str(payment.voucher_id.as_deref().expect("付款必须生成凭证")).expect("凭证 id 非法");
+        let voucher = find_voucher(db(), voucher_id).await.unwrap().expect("付款凭证不存在");
         assert_eq!(voucher.status, voucher::STATUS_POSTED, "付款凭证直接已记账");
         assert_eq!(voucher.voucher_type, voucher::VOUCHER_TYPE_AUTO);
         assert_eq!(voucher.source_type, voucher::SOURCE_PAYMENT);
@@ -3514,10 +3392,7 @@ mod tests {
         assert_eq!(credit.credit, dec("126.5"));
         assert_eq!(credit.debit, Decimal::ZERO);
         assert_eq!(debit.debit, credit.credit, "借贷必须平衡");
-        assert_eq!(
-            payment.voucher_no.as_deref(),
-            Some(voucher.voucher_no.as_str())
-        );
+        assert_eq!(payment.voucher_no.as_deref(), Some(voucher.voucher_no.as_str()));
     }
 
     /// ⑧b 付款凭证的**部门辅助核算**（ARCH-3 §5 DC-11 · P2-1）：
@@ -3550,8 +3425,8 @@ mod tests {
             .await
             .unwrap_or_else(|err| panic!("付款失败：{} {}", err.code, err.msg));
         let payment = &detail.payments[0];
-        let voucher_id = Uuid::parse_str(payment.voucher_id.as_deref().expect("付款必须生成凭证"))
-            .expect("凭证 id 非法");
+        let voucher_id =
+            Uuid::parse_str(payment.voucher_id.as_deref().expect("付款必须生成凭证")).expect("凭证 id 非法");
         let entries = entries_of(db(), voucher_id).await.unwrap();
 
         let debit = entries
@@ -3590,12 +3465,8 @@ mod tests {
         };
         let id = new_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
         // 造一张「进项凭证」并把应付指向它（真实来源是收货过账，单测直接落库等价）
-        let inventory_account = voucher::account_required(db(), "1405", "借方")
-            .await
-            .unwrap();
-        let payable_account = voucher::account_required(db(), "2202", "贷方")
-            .await
-            .unwrap();
+        let inventory_account = voucher::account_required(db(), "1405", "借方").await.unwrap();
+        let payable_account = voucher::account_required(db(), "2202", "贷方").await.unwrap();
         let voucher_id = voucher::post_voucher(
             db(),
             &voucher::PostVoucher {
@@ -3686,9 +3557,7 @@ mod tests {
         };
         let id = new_payable(dec("10"), Decimal::ZERO, payable::STATUS_OPEN).await;
         for reason in [None, Some("   ")] {
-            let err = cancel_payable(id, reason, None)
-                .await
-                .expect_err("缺原因必须被拒");
+            let err = cancel_payable(id, reason, None).await.expect_err("缺原因必须被拒");
             assert_eq!(err.status, 400, "{}", err.msg);
             assert!(err.msg.contains("reason 必填"), "{}", err.msg);
         }
@@ -3891,8 +3760,7 @@ mod tests {
         let partial = fake_row(payable::STATUS_PARTIAL_PAID, dec("226"), dec("100"));
         assert_eq!(payment_capability(&partial, None, None), (true, None));
 
-        let (can_pay, reason) =
-            payment_capability(&open, Some(("PM-20261029-000001", dec("30"))), None);
+        let (can_pay, reason) = payment_capability(&open, Some(("PM-20261029-000001", dec("30"))), None);
         assert!(!can_pay, "审批中不能再发起第二笔");
         assert!(
             reason.unwrap_or_default().contains("审批中"),
@@ -3937,12 +3805,7 @@ mod tests {
     /// 开关打开后执行完也落这个状态 —— 两种来源都是「已经付了」，按钮必须消失。
     #[test]
     fn p307_awaiting_executor_false_when_payment_already_approved() {
-        for payment_status in [
-            APPROVAL_APPROVED,
-            APPROVAL_REJECTED,
-            APPROVAL_CANCELLED,
-            APPROVAL_NONE,
-        ] {
+        for payment_status in [APPROVAL_APPROVED, APPROVAL_REJECTED, APPROVAL_CANCELLED, APPROVAL_NONE] {
             assert!(
                 !is_awaiting_executor(payment_status, Some("APPROVED")),
                 "付款 {payment_status} 不是「审批中」，不该等执行"
@@ -3973,22 +3836,13 @@ mod tests {
         let (can_pay, reason) = payment_capability(&row, None, Some("FLW-20261102-000001"));
         assert!(!can_pay, "作废审批中一律不能付款");
         let reason = reason.unwrap_or_default();
-        assert!(
-            reason.contains("正在作废审批中"),
-            "文案要点明作废审批中：{reason}"
-        );
+        assert!(reason.contains("正在作废审批中"), "文案要点明作废审批中：{reason}");
         assert!(
             reason.contains("FLW-20261102-000001"),
             "文案必须带审批单号（否则用户不知道去哪撤回）：{reason}"
         );
-        assert!(
-            reason.contains(&row.payable_no),
-            "文案必须带应付单号：{reason}"
-        );
-        assert!(
-            reason.contains("撤回"),
-            "文案要给出出路（撤回后的再次付款）：{reason}"
-        );
+        assert!(reason.contains(&row.payable_no), "文案必须带应付单号：{reason}");
+        assert!(reason.contains("撤回"), "文案要给出出路（撤回后的再次付款）：{reason}");
 
         // 拿不到审批单号时文案仍要成立，不能 panic、也不能漏成「可付」
         let (can_pay, reason) = payment_capability(&row, None, None);
@@ -3999,8 +3853,7 @@ mod tests {
         );
 
         // 与「已有付款在审批中」同时成立时，作废审批的文案优先（② 在 ⑤ 之前）
-        let (can_pay, reason) =
-            payment_capability(&row, Some(("PM-20261102-000002", dec("10"))), Some("FLW-X"));
+        let (can_pay, reason) = payment_capability(&row, Some(("PM-20261102-000002", dec("10"))), Some("FLW-X"));
         assert!(!can_pay);
         assert!(reason.unwrap_or_default().contains("正在作废审批中"));
     }
@@ -4013,16 +3866,8 @@ mod tests {
         let info = PaymentInfoPayable::from_row(&row, None, today, Some("FLW-20261102-000001"));
         assert!(!info.can_pay);
         assert_eq!(info.default_amount, Decimal::ZERO);
-        assert_eq!(
-            info.unpaid_amount,
-            dec("800"),
-            "未付金额照实下发，只拦「可付」"
-        );
-        assert!(
-            info.blocked_reason
-                .unwrap_or_default()
-                .contains("FLW-20261102-000001")
-        );
+        assert_eq!(info.unpaid_amount, dec("800"), "未付金额照实下发，只拦「可付」");
+        assert!(info.blocked_reason.unwrap_or_default().contains("FLW-20261102-000001"));
     }
 
     /// ⓪ `default_amount` 取**未付**（卡面 F2 / O1），不是应付总额。
@@ -4050,8 +3895,7 @@ mod tests {
         assert_eq!(overpay_risk_of(&ok, Some(("PM-1", dec("400")))), None);
 
         let shrunk = fake_row(payable::STATUS_PARTIAL_PAID, dec("500"), dec("450"));
-        let risk =
-            overpay_risk_of(&shrunk, Some(("PM-2", dec("400")))).expect("400 > 未付 50 必须有提示");
+        let risk = overpay_risk_of(&shrunk, Some(("PM-2", dec("400")))).expect("400 > 未付 50 必须有提示");
         assert!(risk.contains("PM-2"), "{risk}");
         assert!(risk.contains("超过当前未付余额 50"), "{risk}");
     }
@@ -4122,11 +3966,7 @@ mod tests {
         let reason = info.blocked_reason.expect("必须给不能付的原因");
         assert!(reason.contains("已结清"), "{reason}");
         assert_eq!(info.unpaid_amount, Decimal::ZERO);
-        assert_eq!(
-            info.default_amount,
-            Decimal::ZERO,
-            "不能付时默认金额必须是 0"
-        );
+        assert_eq!(info.default_amount, Decimal::ZERO, "不能付时默认金额必须是 0");
     }
 
     // ---------- ④ 已作废 CANCELLED → can_pay=false ----------
@@ -4195,10 +4035,7 @@ mod tests {
             None => return,
         };
         let id = new_d5_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
-        assert_eq!(
-            payment_info(id).await.unwrap().payable.default_amount,
-            dec("226")
-        );
+        assert_eq!(payment_info(id).await.unwrap().payable.default_amount, dec("226"));
 
         // 直付路径（未配流程时的降级行为），把「已付 100」落成真账
         pay_payable(id, &d5_pay_req("100"), None)
@@ -4311,10 +4148,7 @@ mod tests {
         let info = payment_info(id).await.unwrap().payable;
         assert!(!info.can_pay);
         let reason = info.blocked_reason.unwrap_or_default();
-        assert!(
-            reason.contains("审批中") && reason.contains(&first_no),
-            "{reason}"
-        );
+        assert!(reason.contains("审批中") && reason.contains(&first_no), "{reason}");
         assert_eq!(info.pending_payment_no.as_deref(), Some(first_no.as_str()));
         assert_eq!(info.pending_amount, Some(dec("100")));
         assert_eq!(info.overpay_risk, None, "100 <= 未付 500，不该报超付风险");
@@ -4368,9 +4202,7 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let err = payment_info(Uuid::now_v7())
-            .await
-            .expect_err("不存在的应付单必须 404");
+        let err = payment_info(Uuid::now_v7()).await.expect_err("不存在的应付单必须 404");
         assert_eq!(err.status, 404, "{}", err.msg);
         assert_eq!(err.code, error_code::RESOURCE_NOT_FOUND);
     }
@@ -4432,10 +4264,7 @@ mod tests {
                 .await
                 .expect("查清场前日志")
                 .unwrap_or(0);
-            assert!(
-                n > 0,
-                "清场前必须有 {label} 状态日志，否则这条用例证明不了什么"
-            );
+            assert!(n > 0, "清场前必须有 {label} 状态日志，否则这条用例证明不了什么");
         }
 
         // ② 走模块真实的清场
@@ -4443,10 +4272,7 @@ mod tests {
 
         // ③ 单据与日志按 id 全为 0
         assert!(
-            payable_query::find_payable(id)
-                .await
-                .expect("查单据")
-                .is_none(),
+            payable_query::find_payable(id).await.expect("查单据").is_none(),
             "清场后应付单必须不存在"
         );
         for (label, sql, target) in [

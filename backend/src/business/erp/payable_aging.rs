@@ -452,10 +452,7 @@ pub fn pivot_suppliers(rows: Vec<SupplierBucketRow>) -> Vec<SupplierAgingRes> {
             cell.doc_count += row.doc_count;
         }
     }
-    let mut out: Vec<SupplierAgingRes> = order
-        .into_iter()
-        .filter_map(|id| index.remove(&id))
-        .collect();
+    let mut out: Vec<SupplierAgingRes> = order.into_iter().filter_map(|id| index.remove(&id)).collect();
     out.sort_by(|left, right| {
         right
             .total_unpaid
@@ -498,11 +495,7 @@ pub fn summarise(suppliers: &[SupplierAgingRes]) -> Vec<AgingBucketAmountRes> {
 /// 金额归一：`-0` 统一成 `0`，保留 4 位（`{:.2}` 是截断，先 round 再格式化）。
 pub fn money(value: Decimal) -> Decimal {
     let value = value.round_dp(4);
-    if value.is_zero() {
-        Decimal::ZERO
-    } else {
-        value
-    }
+    if value.is_zero() { Decimal::ZERO } else { value }
 }
 
 // ==================== 取数 ====================
@@ -582,11 +575,7 @@ fn base_cte() -> String {
 }
 
 /// 按供应商 × 档位聚合。
-pub async fn load_cells(
-    tx: &Transaction,
-    as_of: NaiveDate,
-    period_key: &str,
-) -> DbResult<Vec<SupplierBucketRow>> {
+pub async fn load_cells(tx: &Transaction, as_of: NaiveDate, period_key: &str) -> DbResult<Vec<SupplierBucketRow>> {
     let bucket = bucket_case_sql("overdue_days");
     let sql = format!(
         "{base} \
@@ -600,10 +589,7 @@ pub async fn load_cells(
         base = base_cte()
     );
     let rows = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(as_of), Value::Text(period_key.to_string())],
-        )
+        .find_with_params(&sql, vec![Value::from(as_of), Value::Text(period_key.to_string())])
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -637,10 +623,7 @@ pub async fn load_totals_and_details(
         base = base_cte()
     );
     let row = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(as_of), Value::Text(period_key.to_string())],
-        )
+        .find_with_params(&sql, vec![Value::from(as_of), Value::Text(period_key.to_string())])
         .await?
         .into_iter()
         .next();
@@ -665,10 +648,7 @@ pub async fn load_totals_and_details(
         base = base_cte()
     );
     let rows = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(as_of), Value::Text(period_key.to_string())],
-        )
+        .find_with_params(&sql, vec![Value::from(as_of), Value::Text(period_key.to_string())])
         .await?;
     let mut details = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -699,11 +679,7 @@ pub async fn load_totals_and_details(
 }
 
 /// 在 REPEATABLE READ 快照里取全套数据。
-pub async fn build_snapshot(
-    tx: &Transaction,
-    as_of: NaiveDate,
-    period_key: &str,
-) -> DbResult<AgingSnapshot> {
+pub async fn build_snapshot(tx: &Transaction, as_of: NaiveDate, period_key: &str) -> DbResult<AgingSnapshot> {
     let cells = load_cells(tx, as_of, period_key).await?;
     let (total_amount, total_paid, total_unpaid, doc_count, supplier_count, details) =
         load_totals_and_details(tx, as_of, period_key).await?;
@@ -885,10 +861,7 @@ async fn build_report(query: &PayableAgingQuery) -> std::result::Result<PayableA
         .await
         .map_err(|error| utils::db_error(error, "开启应付账龄快照事务"))?;
     // 整张表在一个 REPEATABLE READ 快照里算完（与资产负债表同口径）
-    if let Err(error) = tx
-        .execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .await
-    {
+    if let Err(error) = tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").await {
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置账龄报表事务隔离级别"));
     }
@@ -913,13 +886,7 @@ async fn build_report(query: &PayableAgingQuery) -> std::result::Result<PayableA
         return Err(utils::db_error(error, "提交应付账龄快照事务"));
     }
     let company = company_name().await;
-    Ok(assemble(
-        as_of,
-        period.as_deref(),
-        period_status,
-        snapshot,
-        &company,
-    ))
+    Ok(assemble(as_of, period.as_deref(), period_status, snapshot, &company))
 }
 
 /// 应付账款账龄分析表。
@@ -931,9 +898,7 @@ async fn build_report(query: &PayableAgingQuery) -> std::result::Result<PayableA
     permission = "business:erp:report:payable-aging"
 )]
 #[nik::get("/business/erp/report/payable-aging")]
-pub async fn payable_aging_handler(
-    Query(query): Query<PayableAgingQuery>,
-) -> ResResult<PayableAgingRes> {
+pub async fn payable_aging_handler(Query(query): Query<PayableAgingQuery>) -> ResResult<PayableAgingRes> {
     Ok(Res::ok(build_report(&query).await?))
 }
 
@@ -956,10 +921,7 @@ pub async fn payable_aging_export_handler(
         bytes,
         &format!(
             "{REPORT_NAME}_{}_截止{}.xlsx",
-            report
-                .period
-                .clone()
-                .unwrap_or_else(|| "无期间".to_string()),
+            report.period.clone().unwrap_or_else(|| "无期间".to_string()),
             report.as_of,
         ),
     ))
@@ -988,10 +950,7 @@ pub fn export_table(report: &PayableAgingRes) -> (Vec<&'static str>, Vec<HashMap
             row.insert(label.to_string(), money_text(cell.unpaid));
         }
         row.insert("未付合计".to_string(), money_text(supplier.total_unpaid));
-        row.insert(
-            "最长逾期天数".to_string(),
-            supplier.max_overdue_days.to_string(),
-        );
+        row.insert("最长逾期天数".to_string(), supplier.max_overdue_days.to_string());
         rows.push(row);
     }
 
@@ -1035,16 +994,9 @@ pub fn money_text(value: Decimal) -> String {
         .map(|chunk| String::from_utf8_lossy(chunk).to_string())
         .collect::<Vec<_>>()
         .join(",");
-    let integer = if grouped.is_empty() {
-        "0".to_string()
-    } else {
-        grouped
-    };
+    let integer = if grouped.is_empty() { "0".to_string() } else { grouped };
     let is_zero = digits.chars().all(|c| c == '0') && fraction == "00";
-    format!(
-        "{}{integer}.{fraction}",
-        if negative && !is_zero { "-" } else { "" }
-    )
+    format!("{}{integer}.{fraction}", if negative && !is_zero { "-" } else { "" })
 }
 
 // ==================== 单测（分档边界 / 基准日 / 透视） ====================
@@ -1079,29 +1031,13 @@ mod tests {
         let mut previous_max: Option<i64> = None;
         for bucket in &BUCKETS {
             match (previous_max, bucket.max_days) {
-                (Some(prev), Some(_)) => assert_eq!(
-                    prev + 1,
-                    bucket.min_days,
-                    "档位 {} 与上一档不连续",
-                    bucket.key
-                ),
+                (Some(prev), Some(_)) => assert_eq!(prev + 1, bucket.min_days, "档位 {} 与上一档不连续", bucket.key),
                 (None, Some(_)) => {}
                 (_, None) => {}
             }
             if let Some(max) = bucket.max_days {
-                assert_eq!(
-                    bucket_of(max),
-                    bucket.key,
-                    "上界 {} 应落在 {}",
-                    max,
-                    bucket.key
-                );
-                assert_ne!(
-                    bucket_of(max + 1),
-                    bucket.key,
-                    "上界 + 1 必须离开 {}",
-                    bucket.key
-                );
+                assert_eq!(bucket_of(max), bucket.key, "上界 {} 应落在 {}", max, bucket.key);
+                assert_ne!(bucket_of(max + 1), bucket.key, "上界 + 1 必须离开 {}", bucket.key);
             } else {
                 assert_eq!(bucket_of(i64::MAX), bucket.key);
             }

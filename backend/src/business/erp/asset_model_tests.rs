@@ -88,10 +88,7 @@ mod db {
             )
             .await;
         let _ = db()
-            .exec_sql(
-                format!("DELETE FROM biz_fixed_asset WHERE id IN ({list})"),
-                vec![],
-            )
+            .exec_sql(format!("DELETE FROM biz_fixed_asset WHERE id IN ({list})"), vec![])
             .await;
         let _ = db()
             .exec_sql(
@@ -126,9 +123,7 @@ mod db {
             monthly_depreciation: monthly,
             useful_life_months: category.useful_life_months,
             salvage_rate: category.salvage_rate,
-            start_depreciation_date: crate::business::erp::asset_compute::start_depreciation_date(
-                spec.purchase_date,
-            ),
+            start_depreciation_date: crate::business::erp::asset_compute::start_depreciation_date(spec.purchase_date),
             operator: None,
             spec: crate::business::erp::asset_dto::CreateAssetSpec {
                 use_dept_id: dept,
@@ -138,10 +133,7 @@ mod db {
     }
 
     /// 建卡请求（夹具）。
-    fn create_req(
-        category_id: Uuid,
-        dept_id: Uuid,
-    ) -> crate::business::erp::asset_dto::CreateAssetReq {
+    fn create_req(category_id: Uuid, dept_id: Uuid) -> crate::business::erp::asset_dto::CreateAssetReq {
         crate::business::erp::asset_dto::CreateAssetReq {
             asset_name: Some("夹具笔记本".to_string()),
             category_id: Some(category_id.to_string()),
@@ -188,14 +180,8 @@ mod db {
         assert_eq!(row.net_value, row.original_value, "初始净值 = 原值");
         assert_eq!(row.accumulated_depreciation, Decimal::ZERO);
         assert_eq!(row.status, "IN_USE");
-        assert_eq!(
-            row.depreciable_base,
-            row.original_value - row.residual_value
-        );
-        assert!(
-            row.monthly_depreciation > Decimal::ZERO,
-            "月折旧额必须建卡时算好"
-        );
+        assert_eq!(row.depreciable_base, row.original_value - row.residual_value);
+        assert!(row.monthly_depreciation > Decimal::ZERO, "月折旧额必须建卡时算好");
         assert_eq!(row.asset_no, no);
 
         // 负原值必须被库挡住（ck_biz_fa_value）
@@ -245,12 +231,7 @@ mod db {
         let dup = asset_insert(
             db(),
             second,
-            &insert_input(
-                dept,
-                &category,
-                spec,
-                format!("FA-T2-{}", &second.to_string()[..8]),
-            ),
+            &insert_input(dept, &category, spec, format!("FA-T2-{}", &second.to_string()[..8])),
         )
         .await;
         assert!(

@@ -15,9 +15,7 @@
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::help::model::{
-    self, CategoryRow, DocCardRow, DocDetailRow, SearchHitRow, VersionRow,
-};
+use crate::business::help::model::{self, CategoryRow, DocCardRow, DocDetailRow, SearchHitRow, VersionRow};
 use crate::business::shared::content::TocNode;
 
 // ==================== 请求：分类 ====================
@@ -179,12 +177,7 @@ impl HelpCategoryNodeRes {
     ///
     /// 子树文档合计。
     pub fn subtree_doc_count(&self) -> i64 {
-        self.doc_count
-            + self
-                .children
-                .iter()
-                .map(Self::subtree_doc_count)
-                .sum::<i64>()
+        self.doc_count + self.children.iter().map(Self::subtree_doc_count).sum::<i64>()
     }
 
     /// 递归累加子树文档数（**不删任何分支**），父节点角标 = 子树合计。
@@ -498,10 +491,7 @@ mod tests {
         let tree = node(
             "root",
             1,
-            vec![
-                node("a", 2, vec![node("a1", 3, vec![])]),
-                node("b", 4, vec![]),
-            ],
+            vec![node("a", 2, vec![node("a1", 3, vec![])]), node("b", 4, vec![])],
         );
         assert_eq!(tree.subtree_doc_count(), 10);
     }

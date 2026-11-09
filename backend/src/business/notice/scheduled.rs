@@ -84,22 +84,17 @@ impl SweepReport {
 /// - `scheduler`：全局调度器。
 pub fn register_builtin(scheduler: &Scheduler) {
     // runner 必须返回 JoinHandle：框架调度器每次触发都会接管该句柄
-    scheduler.register_cron(
-        TASK_NAME,
-        TASK_CRON,
-        "系统任务：定时通知投递",
-        || {
-            tokio::spawn(async move {
-                match run_once().await {
-                    Ok(report) => tracing::info!(
-                        summary = %report.summary(),
-                        "定时通知投递完成"
-                    ),
-                    Err(error) => tracing::error!(error = %error, "定时通知投递失败"),
-                }
-            })
-        },
-    );
+    scheduler.register_cron(TASK_NAME, TASK_CRON, "系统任务：定时通知投递", || {
+        tokio::spawn(async move {
+            match run_once().await {
+                Ok(report) => tracing::info!(
+                    summary = %report.summary(),
+                    "定时通知投递完成"
+                ),
+                Err(error) => tracing::error!(error = %error, "定时通知投递失败"),
+            }
+        })
+    });
 }
 
 /// 执行一轮巡逻（可被单测 / 运维脚本直接调用）。
@@ -138,9 +133,7 @@ pub async fn run_once() -> std::result::Result<SweepReport, String> {
             Err(error) => {
                 report.failed += 1;
                 tracing::error!(notice_id = %id, error = %error, "定时通知投递失败");
-                if let Err(counter_error) =
-                    model::record_dispatch_failure(&id, MAX_DISPATCH_ATTEMPTS).await
-                {
+                if let Err(counter_error) = model::record_dispatch_failure(&id, MAX_DISPATCH_ATTEMPTS).await {
                     tracing::error!(
                         notice_id = %id,
                         error = %counter_error,
@@ -170,10 +163,7 @@ pub async fn run_once() -> std::result::Result<SweepReport, String> {
 ///
 /// 目标数据损坏 / 扇出 / 投递 / 状态回写失败 → `Err`（事务回滚，通知留在
 /// `PENDING`，本轮会计一次尝试次数，下轮重试）。
-pub async fn dispatch_one(
-    id: uuid::Uuid,
-    settings: &ChannelSettings,
-) -> std::result::Result<bool, String> {
+pub async fn dispatch_one(id: uuid::Uuid, settings: &ChannelSettings) -> std::result::Result<bool, String> {
     // 目标先解析（纯内存校验）：坏数据在这里就暴露，不必把 ApiError 塞进事务的 DbError
     let pending = model::find_notice(&id)
         .await
@@ -196,14 +186,7 @@ pub async fn dispatch_one(
             };
             let rows = fanout::fanout(&tx, &locked.id, &target).await?;
             model::refresh_receiver_count(&ex, &locked.id).await?;
-            delivery::deliver(
-                &ex,
-                &locked.id,
-                locked.channel_mask.max(0) as u16,
-                settings,
-                rows,
-            )
-            .await?;
+            delivery::deliver(&ex, &locked.id, locked.channel_mask.max(0) as u16, settings, rows).await?;
             model::mark_notice_dispatched(&ex, &locked.id).await?;
             Ok(Some((
                 locked.id,
@@ -219,9 +202,7 @@ pub async fn dispatch_one(
         .await
         .map_err(|error| format!("{error}"))?;
 
-    let Some((notice_id, notice_no, notice_type, level, title, link_url, biz_type, biz_id)) =
-        pushed
-    else {
+    let Some((notice_id, notice_no, notice_type, level, title, link_url, biz_type, biz_id)) = pushed else {
         return Ok(false);
     };
     let seed = sse_hub::NoticeEvent {
@@ -271,10 +252,7 @@ mod tests {
         assert_eq!(BATCH_SIZE, 50);
         assert_eq!(MAX_DISPATCH_ATTEMPTS, 3);
         // 6 段 cron 的第 1 段必须是秒，否则调度精度会从 30 秒掉到 30 分钟
-        assert!(
-            TASK_CRON.split_whitespace().count() == 6,
-            "必须是 6 段 cron"
-        );
+        assert!(TASK_CRON.split_whitespace().count() == 6, "必须是 6 段 cron");
         assert!(TASK_CRON.starts_with("*/30"), "必须每 30 秒触发");
     }
 }

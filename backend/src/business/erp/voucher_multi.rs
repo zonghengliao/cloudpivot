@@ -154,10 +154,7 @@ pub async fn post_multi_debit(
     let line_no = i32::try_from(lines.len() + 1).unwrap_or(1);
     lines.push(EntryLine {
         line_no,
-        summary: req
-            .credit_summary
-            .clone()
-            .unwrap_or_else(|| req.summary.clone()),
+        summary: req.credit_summary.clone().unwrap_or_else(|| req.summary.clone()),
         account: req.credit_account.clone(),
         debit: Decimal::ZERO,
         credit: req.credit_amount,
@@ -328,9 +325,7 @@ pub async fn ensure_leaf(ex: &impl SqlExecutor, account_id: Uuid) -> DbResult<Ac
         )));
     }
     if status != 1 {
-        return Err(DbError::InvalidValue(format!(
-            "科目 {code} 已停用：不能再用它记账"
-        )));
+        return Err(DbError::InvalidValue(format!("科目 {code} 已停用：不能再用它记账")));
     }
     Ok(AccountRef {
         id: account_id,
@@ -373,10 +368,7 @@ pub struct RuleAccounts {
 /// 与 `voucher::load_rule_by_code` 同表同栏位（**不新增第二套映射表**），
 /// 只是把三个科目都过一遍 [`ensure_leaf`]：规则表里配成父科目时，
 /// 这里当场报错，而不是等 `post_voucher` 落库才发现报表翻倍。
-pub async fn rule_accounts(
-    ex: &impl SqlExecutor,
-    rule_code: &str,
-) -> DbResult<Option<RuleAccounts>> {
+pub async fn rule_accounts(ex: &impl SqlExecutor, rule_code: &str) -> DbResult<Option<RuleAccounts>> {
     // SCOPE-EXEMPT: 凭证规则是全局配置，按 rule_code 精确取 1 行。
     let row = ex
         .query_first_sql(
@@ -434,11 +426,7 @@ mod tests {
         ];
         let total: Decimal = groups.iter().map(|group| group.amount).sum();
         assert_eq!(total, Decimal::new(200_000, 2), "按部门拆行后合计不变");
-        assert_ne!(
-            total,
-            Decimal::new(1, 0),
-            "不对称时入口必须报错（不是凑平）"
-        );
+        assert_ne!(total, Decimal::new(1, 0), "不对称时入口必须报错（不是凑平）");
     }
 
     /// ② 一行只能一个方向（红字走红冲，不在同一行正负相抵）。

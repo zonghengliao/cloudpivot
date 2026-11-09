@@ -253,10 +253,7 @@ mod db {
             .await
             .expect("单头合法");
         let err = expense_model::items_insert_many(db(), id, &insert.items).await;
-        assert!(
-            err.is_err(),
-            "明细 with_tax = amount + tax 必须由库 CHECK 挡住"
-        );
+        assert!(err.is_err(), "明细 with_tax = amount + tax 必须由库 CHECK 挡住");
         cleanup(&[id]).await;
     }
 
@@ -335,17 +332,9 @@ mod db {
         .await
         .expect("置已审批");
         let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
-        let affected = expense_model::report_apply_payment(
-            db(),
-            id,
-            dec!(1000),
-            date,
-            "PARTIAL",
-            "APPROVED",
-            None,
-        )
-        .await
-        .expect("部分付款");
+        let affected = expense_model::report_apply_payment(db(), id, dec!(1000), date, "PARTIAL", "APPROVED", None)
+            .await
+            .expect("部分付款");
         assert_eq!(affected, 1);
         let row = expense_model::report_find(id).await.unwrap().unwrap();
         assert_eq!(row.status, "APPROVED", "部分付款不改状态");
@@ -373,10 +362,9 @@ mod db {
         .await
         .expect("置已审批");
         let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
-        let affected =
-            expense_model::report_apply_payment(db(), id, dec!(500), date, "PAID", "PAID", None)
-                .await
-                .expect("付清");
+        let affected = expense_model::report_apply_payment(db(), id, dec!(500), date, "PAID", "PAID", None)
+            .await
+            .expect("付清");
         assert_eq!(affected, 1);
         let row = expense_model::report_find(id).await.unwrap().unwrap();
         assert_eq!(row.status, "PAID");
@@ -402,14 +390,10 @@ mod db {
         .await
         .expect("置已审批");
         let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
-        let affected =
-            expense_model::report_apply_payment(db(), id, dec!(1000), date, "PAID", "PAID", None)
-                .await
-                .expect("超额付款语句本身不报错");
-        assert_eq!(
-            affected, 0,
-            "超额付款必须 0 行（WHERE paid + x <= total 挡住）"
-        );
+        let affected = expense_model::report_apply_payment(db(), id, dec!(1000), date, "PAID", "PAID", None)
+            .await
+            .expect("超额付款语句本身不报错");
+        assert_eq!(affected, 0, "超额付款必须 0 行（WHERE paid + x <= total 挡住）");
         let row = expense_model::report_find(id).await.unwrap().unwrap();
         assert_eq!(row.paid_amount, Decimal::ZERO);
         cleanup(&[id]).await;
@@ -425,18 +409,11 @@ mod db {
         let dept = any_dept().await;
         let user = any_user().await;
         let kind = travel_type().await;
-        let before = expense_model::type_used_count(db(), kind.id)
-            .await
-            .expect("计数");
+        let before = expense_model::type_used_count(db(), kind.id).await.expect("计数");
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(100));
         let id = create_report(&insert).await;
-        let after = expense_model::type_used_count(db(), kind.id)
-            .await
-            .expect("计数");
-        assert!(
-            after > before,
-            "新建单据后引用计数必须 +1（当前 {before} → {after}）"
-        );
+        let after = expense_model::type_used_count(db(), kind.id).await.expect("计数");
+        assert!(after > before, "新建单据后引用计数必须 +1（当前 {before} → {after}）");
         cleanup(&[id]).await;
     }
 
@@ -456,13 +433,9 @@ mod db {
         let items = expense_model::items_of(db(), id).await.expect("明细");
         // 单头被人改成别的数（模拟脏数据）：必须 422 + 66042
         row.total_with_tax = dec!(9999);
-        let err =
-            crate::business::erp::expense_bridge::check_totals(&row, &items).expect_err("必须报错");
+        let err = crate::business::erp::expense_bridge::check_totals(&row, &items).expect_err("必须报错");
         assert_eq!(err.status, 422);
-        assert_eq!(
-            err.code,
-            crate::shared::error_code::ERP_EXPENSE_TOTAL_MISMATCH
-        );
+        assert_eq!(err.code, crate::shared::error_code::ERP_EXPENSE_TOTAL_MISMATCH);
         cleanup(&[id]).await;
     }
 
@@ -478,37 +451,28 @@ mod db {
         let kind = travel_type().await;
         let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(3180));
         // 加第二条：办公费 240（13%），验证「多费用科目 → 多借方行」
-        let office = expense_model::type_find_by_code(db(), "OFFICE")
-            .await
-            .ok()
-            .flatten();
+        let office = expense_model::type_find_by_code(db(), "OFFICE").await.ok().flatten();
         if let Some(office) = office {
-            let split = crate::business::erp::expense_compute::split(
-                dec!(240),
-                dec!(0.13),
-                office.tax_deductible,
-            );
-            insert
-                .items
-                .push(crate::business::erp::expense_model::ItemInsert {
-                    line_no: 2,
-                    expense_date: insert.expense_date,
-                    expense_type_id: office.id,
-                    type_code: office.type_code.clone(),
-                    type_name: office.type_name.clone(),
-                    account_id: office.account_id,
-                    account_code: office.account_code.clone(),
-                    account_name: office.account_name.clone(),
-                    amount: split.amount,
-                    tax_rate: dec!(0.13),
-                    tax_amount: split.tax,
-                    with_tax_amount: split.with_tax,
-                    invoice_no: Some("INV-TEST-002".to_string()),
-                    invoice_date: None,
-                    invoice_type: Some("VAT_SPECIAL".to_string()),
-                    summary: "打印耗材".to_string(),
-                    remark: None,
-                });
+            let split = crate::business::erp::expense_compute::split(dec!(240), dec!(0.13), office.tax_deductible);
+            insert.items.push(crate::business::erp::expense_model::ItemInsert {
+                line_no: 2,
+                expense_date: insert.expense_date,
+                expense_type_id: office.id,
+                type_code: office.type_code.clone(),
+                type_name: office.type_name.clone(),
+                account_id: office.account_id,
+                account_code: office.account_code.clone(),
+                account_name: office.account_name.clone(),
+                amount: split.amount,
+                tax_rate: dec!(0.13),
+                tax_amount: split.tax,
+                with_tax_amount: split.with_tax,
+                invoice_no: Some("INV-TEST-002".to_string()),
+                invoice_date: None,
+                invoice_type: Some("VAT_SPECIAL".to_string()),
+                summary: "打印耗材".to_string(),
+                remark: None,
+            });
             insert.total_amount += split.amount;
             insert.total_tax += split.tax;
             insert.total_with_tax += split.with_tax;
@@ -535,11 +499,7 @@ mod db {
         assert_eq!(debit, row.total_with_tax, "借方合计 = 报销单价税合计");
         let tax_entry = entries.iter().find(|entry| entry.account.code == "2221.01");
         assert!(tax_entry.is_some(), "可抵扣明细必须生成进项税行");
-        assert_eq!(
-            tax_entry.unwrap().debit,
-            row.total_tax,
-            "税行金额 = Σ 明细税额"
-        );
+        assert_eq!(tax_entry.unwrap().debit, row.total_tax, "税行金额 = Σ 明细税额");
         let credit_entry = entries.iter().find(|entry| entry.credit > Decimal::ZERO);
         assert_eq!(
             credit_entry.map(|entry| entry.account.code.as_str()),
@@ -577,14 +537,8 @@ mod db {
         tx.commit().await.expect("提交");
         let entries = voucher::entries_of(db(), voucher_id).await.expect("分录");
         assert_eq!(entries.len(), 2, "付款凭证只有两行（借 2241.01 / 贷 1002）");
-        let debit = entries
-            .iter()
-            .find(|entry| entry.debit > Decimal::ZERO)
-            .expect("借方");
-        let credit = entries
-            .iter()
-            .find(|entry| entry.credit > Decimal::ZERO)
-            .expect("贷方");
+        let debit = entries.iter().find(|entry| entry.debit > Decimal::ZERO).expect("借方");
+        let credit = entries.iter().find(|entry| entry.credit > Decimal::ZERO).expect("贷方");
         assert_eq!(debit.account.code, "2241.01");
         assert_eq!(credit.account.code, "1002");
         assert_eq!(debit.debit, dec!(500));
@@ -638,14 +592,9 @@ mod db {
             .expect("红字存在");
         assert_eq!(red.is_red, 1, "红字凭证 is_red = 1");
         // 再冲一次：已经红冲过的不重复冲
-        let again = crate::business::erp::expense_bridge::reverse_report_vouchers(
-            db(),
-            id,
-            "重复作废",
-            None,
-        )
-        .await
-        .expect("重复红冲");
+        let again = crate::business::erp::expense_bridge::reverse_report_vouchers(db(), id, "重复作废", None)
+            .await
+            .expect("重复红冲");
         assert!(again.is_empty(), "已红冲的蓝字凭证不能重复红冲");
         cleanup(&[id]).await;
     }
@@ -668,46 +617,33 @@ mod db {
             amount: items[0].with_tax_amount,
             amount_net: items[0].amount,
         }];
-        let budget =
-            crate::business::erp::budget_guard::check_for_expense(db(), dept, "2026-11", &slots)
-                .await
-                .expect("预算校验");
+        let budget = crate::business::erp::budget_guard::check_for_expense(db(), dept, "2026-11", &slots)
+            .await
+            .expect("预算校验");
         // 三种策略都可能（取决于库里配置）：只断言「结构完整」与「不误报 BLOCK」
         assert_eq!(budget.dept_id, dept);
         if !budget.checks.is_empty() {
             assert_eq!(budget.checks[0].amount, dec!(1200));
             if !budget.over() {
                 let tx = db().begin().await.expect("事务");
-                let written = crate::business::erp::budget_guard::occupy_for_expense(
-                    &tx,
-                    &budget,
-                    id,
-                    "EXP-T-BUDGET",
-                    None,
-                )
-                .await
-                .expect("写占用");
+                let written =
+                    crate::business::erp::budget_guard::occupy_for_expense(&tx, &budget, id, "EXP-T-BUDGET", None)
+                        .await
+                        .expect("写占用");
                 tx.commit().await.expect("提交");
                 if written > 0 {
-                    let usages =
-                        crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
-                            .await
-                            .expect("查占用");
+                    let usages = crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
+                        .await
+                        .expect("查占用");
                     assert_eq!(usages.len(), written);
                     assert_eq!(usages[0].status, "OCCUPIED");
-                    let released = crate::business::erp::budget_guard::release(
-                        db(),
-                        "EXPENSE_REPORT",
-                        id,
-                        "REJECTED",
-                    )
-                    .await
-                    .expect("释放");
+                    let released = crate::business::erp::budget_guard::release(db(), "EXPENSE_REPORT", id, "REJECTED")
+                        .await
+                        .expect("释放");
                     assert_eq!(released, u64::try_from(written).unwrap());
-                    let after =
-                        crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
-                            .await
-                            .expect("查占用");
+                    let after = crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
+                        .await
+                        .expect("查占用");
                     assert_eq!(after[0].status, "RELEASED");
                     assert_eq!(after[0].release_reason.as_deref(), Some("REJECTED"));
                 }
@@ -781,8 +717,7 @@ mod db {
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
         let id = create_report(&insert).await;
         let items = expense_model::items_of(db(), id).await.expect("明细");
-        let slot = budget_guard::Slot::new(dept, items[0].account_id, &insert.period_code)
-            .expect("槽（期间码合法）");
+        let slot = budget_guard::Slot::new(dept, items[0].account_id, &insert.period_code).expect("槽（期间码合法）");
         let verdict = budget_guard::BudgetVerdict::evaluate(
             budget_guard::ControlMode::Warn,
             Some(Uuid::now_v7()),
@@ -815,25 +750,17 @@ mod db {
             )
         };
         // 第一次提交：库里没有同键行 → 必然插入新行。
-        let first_id = occupy(dec!(1200))
-            .await
-            .expect("首次占用")
-            .expect("首次必须插新行");
+        let first_id = occupy(dec!(1200)).await.expect("首次占用").expect("首次必须插新行");
         // 3 轮「撤回 → 再提交」：id 必须不变、行数必须不涨。
         for round in 1..=3 {
-            let released =
-                budget_guard::release(db(), budget_guard::SOURCE_EXPENSE, id, "WITHDRAWN")
-                    .await
-                    .expect("释放");
+            let released = budget_guard::release(db(), budget_guard::SOURCE_EXPENSE, id, "WITHDRAWN")
+                .await
+                .expect("释放");
             assert_eq!(released, 1, "第 {round} 轮释放 1 行");
             let again = occupy(dec!(1200))
                 .await
                 .expect("再次占用不能再报错（旧实现这里 23505 → 提交事务回滚）");
-            assert_eq!(
-                again,
-                Some(first_id),
-                "第 {round} 轮必须复用同一行，不能新插一条"
-            );
+            assert_eq!(again, Some(first_id), "第 {round} 轮必须复用同一行，不能新插一条");
             let usages = budget_guard::usages_of(db(), budget_guard::SOURCE_EXPENSE, id)
                 .await
                 .expect("查占用");
@@ -849,10 +776,7 @@ mod db {
         budget_guard::release(db(), budget_guard::SOURCE_EXPENSE, id, "WITHDRAWN")
             .await
             .expect("改金额前释放");
-        let changed = occupy(dec!(800))
-            .await
-            .expect("改金额后再占用")
-            .expect("复用同一行");
+        let changed = occupy(dec!(800)).await.expect("改金额后再占用").expect("复用同一行");
         assert_eq!(changed, first_id, "金额变了也还是同一行");
         let usages = budget_guard::usages_of(db(), budget_guard::SOURCE_EXPENSE, id)
             .await
@@ -883,12 +807,10 @@ mod db {
     // ==================== 17) 分页 SQL 契约（SCOPE-PAGE 回归；不连库，永远跑） ====================
 
     /// 与 `report_page` **同一条**组装路径：基础 SQL（带 `{FILTER}`）+ 业务过滤片段。
-    fn report_page_sql(
-        q: &crate::business::erp::expense_dto::ReportFilter,
-    ) -> (String, Vec<Value>) {
+    fn report_page_sql(q: &crate::business::erp::expense_dto::ReportFilter) -> (String, Vec<Value>) {
         let mut params: Vec<Value> = Vec::new();
-        let filters = crate::business::erp::expense_model::report_page_filters(q, &mut params)
-            .expect("组装报销分页过滤片段");
+        let filters =
+            crate::business::erp::expense_model::report_page_filters(q, &mut params).expect("组装报销分页过滤片段");
         let mut sql = crate::business::erp::expense_model::report_page_base_sql();
         sql.push_str(&filters);
         (sql, params)
@@ -904,10 +826,7 @@ mod db {
             1,
             "报销分页的 base_sql 必须恰好一个 {{FILTER}}：{sql}"
         );
-        assert!(
-            sql.contains("e.deleted_at IS NULL"),
-            "恒真条件不能丢：{sql}"
-        );
+        assert!(sql.contains("e.deleted_at IS NULL"), "恒真条件不能丢：{sql}");
         assert!(!sql.contains('?'), "基础 SQL 不得自带业务参数：{sql}");
     }
 
@@ -1005,10 +924,7 @@ mod db {
                 "【{name}】`?` 个数必须等于参数个数（游标/类型别名也算占位）：{sql}"
             );
             if let Some(first) = sql.find('?') {
-                assert!(
-                    marker < first,
-                    "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}"
-                );
+                assert!(marker < first, "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}");
             }
             // 真机上 500 的那道守卫：直接跑一遍，任何组合都不许被拒。
             crate::business::shared::scope::ensure_injection_point(&sql, params.len())
@@ -1024,10 +940,7 @@ mod db {
         let error = crate::business::shared::scope::ensure_injection_point(old, 1)
             .expect_err("带业务参数却没有 {FILTER} 必须报错");
         let text = format!("{error}");
-        assert!(
-            text.contains("{FILTER}"),
-            "错误信息要点名标记，便于定位：{text}"
-        );
+        assert!(text.contains("{FILTER}"), "错误信息要点名标记，便于定位：{text}");
     }
 
     // ==================== 18) 带筛选 + 数据权限裁剪（SCOPE-PAGE 真库回归） ====================
@@ -1048,10 +961,7 @@ mod db {
             )
             .await
             .unwrap_or_else(|err| panic!("查部门失败：{err}"));
-        let mut ids: Vec<Uuid> = rows
-            .iter()
-            .filter_map(|row| row.get_typed::<Uuid>("id").ok())
-            .collect();
+        let mut ids: Vec<Uuid> = rows.iter().filter_map(|row| row.get_typed::<Uuid>("id").ok()).collect();
         let mut seq = 0usize;
         while ids.len() < n {
             seq += 1;
@@ -1089,20 +999,16 @@ mod db {
         let depts = some_depts(2).await;
         let (mine, other) = (depts[0], depts[1]);
         let keyword = format!("SCOPE-REGRESS-{}", uniq());
-        let mut mine_insert =
-            insert_of(format!("EXP-S1-{}", uniq()), mine, user, &kind, dec!(1060));
+        let mut mine_insert = insert_of(format!("EXP-S1-{}", uniq()), mine, user, &kind, dec!(1060));
         mine_insert.title = format!("{keyword} 本部门");
-        let mut other_insert =
-            insert_of(format!("EXP-S2-{}", uniq()), other, user, &kind, dec!(1060));
+        let mut other_insert = insert_of(format!("EXP-S2-{}", uniq()), other, user, &kind, dec!(1060));
         other_insert.title = format!("{keyword} 他部门");
         let mine_id = create_report(&mine_insert).await;
         let other_id = create_report(&other_insert).await;
 
         // 「本部门」范围的非超管：片段是 ` AND e.dept_id = ?`（1 个参数）→ 旧代码在这里 500。
-        let restricted =
-            ScopedPrincipal::for_test(user, Some(mine), false, ScopeKind::Dept, vec![mine], false);
-        let super_admin =
-            ScopedPrincipal::for_test(user, Some(mine), true, ScopeKind::All, Vec::new(), false);
+        let restricted = ScopedPrincipal::for_test(user, Some(mine), false, ScopeKind::Dept, vec![mine], false);
+        let super_admin = ScopedPrincipal::for_test(user, Some(mine), true, ScopeKind::All, Vec::new(), false);
 
         let cases: Vec<(&str, ReportFilter)> = vec![
             (
@@ -1142,13 +1048,8 @@ mod db {
         for (name, filter) in &cases {
             let (rows, total) = expense_model::report_page(filter, 1, 50, &restricted)
                 .await
-                .unwrap_or_else(|err| {
-                    panic!("【{name}】非超管带筛选的分页必须成功（旧代码 500）：{err}")
-                });
-            assert_eq!(
-                total, 1,
-                "【{name}】范围裁剪后只该看见本部门那张，total={total}"
-            );
+                .unwrap_or_else(|err| panic!("【{name}】非超管带筛选的分页必须成功（旧代码 500）：{err}"));
+            assert_eq!(total, 1, "【{name}】范围裁剪后只该看见本部门那张，total={total}");
             assert_eq!(rows.len(), 1, "【{name}】");
             assert!(
                 rows.iter().all(|row| row.dept_id == mine),
@@ -1162,20 +1063,16 @@ mod db {
             let (super_rows, super_total) = expense_model::report_page(filter, 1, 50, &super_admin)
                 .await
                 .unwrap_or_else(|err| panic!("【{name}】超管分页失败：{err}"));
-            assert_eq!(
-                super_total, 2,
-                "【{name}】超管看见两张，total={super_total}"
-            );
+            assert_eq!(super_total, 2, "【{name}】超管看见两张，total={super_total}");
             assert!(
                 super_rows.iter().any(|row| row.id == other_id),
                 "【{name}】超管要能看见他部门那张"
             );
         }
         // 无筛选（空条件，不触发注入校验）也必须按范围裁剪。
-        let (all_rows, _) =
-            expense_model::report_page(&ReportFilter::default(), 1, 200, &restricted)
-                .await
-                .expect("无筛选分页必须成功");
+        let (all_rows, _) = expense_model::report_page(&ReportFilter::default(), 1, 200, &restricted)
+            .await
+            .expect("无筛选分页必须成功");
         assert!(
             all_rows.iter().all(|row| row.dept_id == mine),
             "无筛选也必须按数据范围裁剪"

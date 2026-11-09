@@ -108,9 +108,7 @@ fn flow_todo_where() -> String {
         .map(|kind| format!("'{kind}'"))
         .collect::<Vec<_>>()
         .join(",");
-    format!(
-        " WHERE t.assignee_id = ?::uuid AND t.status IN ({statuses}) AND t.task_kind IN ({kinds})"
-    )
+    format!(" WHERE t.assignee_id = ?::uuid AND t.status IN ({statuses}) AND t.task_kind IN ({kinds})")
 }
 
 /// 待我处理任务的 `WHERE` 片段（`?` 只有 1 个：`owner_id`）。
@@ -132,18 +130,13 @@ pub async fn count_flow_todo(user_id: Uuid) -> DbResult<i64> {
            JOIN biz_flow_instance i ON i.id = t.instance_id AND i.deleted_at IS NULL{}",
         flow_todo_where()
     );
-    db().scalar_with_params(&sql, vec![Value::from(user_id)])
-        .await
+    db().scalar_with_params(&sql, vec![Value::from(user_id)]).await
 }
 
 /// 待我处理条数（`owner_id = me` ∧ `TODO` ∧ 7 天内创建）。
 pub async fn count_task_todo(user_id: Uuid) -> DbResult<i64> {
-    let sql = format!(
-        "SELECT count(*) AS todo FROM biz_task t{}",
-        task_todo_where()
-    );
-    db().scalar_with_params(&sql, vec![Value::from(user_id)])
-        .await
+    let sql = format!("SELECT count(*) AS todo FROM biz_task t{}", task_todo_where());
+    db().scalar_with_params(&sql, vec![Value::from(user_id)]).await
 }
 
 /// 四个桶一次性取齐（**四条 count 并发**）。
@@ -191,12 +184,7 @@ mod tests {
         let value = serde_json::to_value(counts).expect("序列化不该失败");
         let object = value.as_object().expect("响应体必须是对象");
         // 键名与前端 store 逐字一致，改名会让徽标静默变 0
-        for key in [
-            "announcement_unread",
-            "notice_unread",
-            "flow_todo",
-            "task_todo",
-        ] {
+        for key in ["announcement_unread", "notice_unread", "flow_todo", "task_todo"] {
             assert!(object.contains_key(key), "缺少字段 {key}");
         }
         assert_eq!(object.len(), 4, "只允许四个桶，多一个前端就用不上");
@@ -220,10 +208,7 @@ mod tests {
     fn flow_todo_where_matches_my_todo_list() {
         let sql = flow_todo_where();
         assert!(sql.contains("t.assignee_id = ?::uuid"));
-        assert!(
-            sql.contains("t.status IN ('PENDING')"),
-            "状态口径取自 MY_TODO_STATUSES"
-        );
+        assert!(sql.contains("t.status IN ('PENDING')"), "状态口径取自 MY_TODO_STATUSES");
         assert!(
             sql.contains("t.task_kind IN ('APPROVAL','RESUBMIT')"),
             "类型口径取自 flow::dto::TASK_KINDS"

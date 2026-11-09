@@ -41,9 +41,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::price_admin_model::{
-    self as model, AgreedRow, AgreedWrite, TierRow, TierWrite,
-};
+use crate::business::erp::price_admin_model::{self as model, AgreedRow, AgreedWrite, TierRow, TierWrite};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -87,11 +85,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 
 /// `404 + 10002`：价格行不存在 / 已软删。
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// `409 + 10003`：唯一键冲突（人话点名是哪组键）。
@@ -111,10 +105,7 @@ fn write_error(error: DbError, ctx: &str) -> ApiError {
         )),
         DbError::CheckViolation { constraint, .. } => bad_request(format!(
             "{ctx}：数据不满足约束{}（价格 > 0 / 起订量 >= 0 / 档位上界 > 下界 / 有效期不减）",
-            constraint
-                .as_deref()
-                .map(|name| format!(" {name}"))
-                .unwrap_or_default()
+            constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
         )),
         other => utils::db_error(other, ctx),
     }
@@ -130,10 +121,7 @@ fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
 }
 
 /// 可选 UUID（查询串）：空串 / 缺省 → `None`（= 该维度不筛）。
-fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
         Some(text) => Ok(Some(parse_uuid(text, field)?)),
@@ -718,10 +706,7 @@ fn resolve_tier_type(value: Option<&str>) -> std::result::Result<String, ApiErro
 }
 
 /// 可空日期：缺省 / 空串 → `None`。
-fn optional_date(
-    value: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<NaiveDate>, ApiError> {
+fn optional_date(value: Option<&str>, field: &str) -> std::result::Result<Option<NaiveDate>, ApiError> {
     match value.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
         Some(text) => Ok(Some(parse_date(text, field)?)),
@@ -731,9 +716,7 @@ fn optional_date(
 // ==================== 业务编排（无 service 层） ====================
 
 /// 协议价分页。
-pub async fn page_agreed(
-    filter: AgreedFilter,
-) -> std::result::Result<PageData<Vec<AgreedRes>>, ApiError> {
+pub async fn page_agreed(filter: AgreedFilter) -> std::result::Result<PageData<Vec<AgreedRes>>, ApiError> {
     let customer_id = parse_optional_uuid(filter.customer_id.as_deref(), "customer_id")?;
     let material_id = parse_optional_uuid(filter.material_id.as_deref(), "material_id")?;
     check_status_filter(filter.status.as_deref())?;
@@ -757,10 +740,7 @@ pub async fn page_agreed(
 }
 
 /// 新建协议价。
-pub async fn create_agreed(
-    operator: Option<Uuid>,
-    req: CreateAgreedReq,
-) -> std::result::Result<AgreedRes, ApiError> {
+pub async fn create_agreed(operator: Option<Uuid>, req: CreateAgreedReq) -> std::result::Result<AgreedRes, ApiError> {
     let write = req.to_write()?;
     ensure_material(write.material_id).await?;
     ensure_customer(write.customer_id).await?;
@@ -827,10 +807,7 @@ pub async fn update_agreed(
 }
 
 /// 软删协议价。
-pub async fn delete_agreed(
-    operator: Option<Uuid>,
-    id_raw: &str,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_agreed(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_uuid(id_raw, "id")?;
     let affected = model::agreed_soft_delete(id, operator)
         .await
@@ -842,17 +819,10 @@ pub async fn delete_agreed(
 }
 
 /// 档位分页。
-pub async fn page_tier(
-    filter: TierFilter,
-) -> std::result::Result<PageData<Vec<TierRes>>, ApiError> {
+pub async fn page_tier(filter: TierFilter) -> std::result::Result<PageData<Vec<TierRes>>, ApiError> {
     let material_id = parse_optional_uuid(filter.material_id.as_deref(), "material_id")?;
     let customer_id = parse_optional_uuid(filter.customer_id.as_deref(), "customer_id")?;
-    if let Some(tier_type) = filter
-        .tier_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(tier_type) = filter.tier_type.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         resolve_tier_type(Some(tier_type))?;
     }
     check_status_filter(filter.status.as_deref())?;
@@ -877,10 +847,7 @@ pub async fn page_tier(
 }
 
 /// 新建档位。
-pub async fn create_tier(
-    operator: Option<Uuid>,
-    req: CreateTierReq,
-) -> std::result::Result<TierRes, ApiError> {
+pub async fn create_tier(operator: Option<Uuid>, req: CreateTierReq) -> std::result::Result<TierRes, ApiError> {
     let write = req.to_write()?;
     ensure_material(write.material_id).await?;
     if let Some(customer_id) = write.customer_id {
@@ -953,10 +920,7 @@ pub async fn update_tier(
 }
 
 /// 软删档位。
-pub async fn delete_tier(
-    operator: Option<Uuid>,
-    id_raw: &str,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_tier(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_uuid(id_raw, "id")?;
     let affected = model::tier_soft_delete(id, operator)
         .await
@@ -1023,9 +987,7 @@ fn tier_duplicate(write: &TierWrite) -> ApiError {
     permission = "business:erp:cust-price:list"
 )]
 #[nik::get("/business/erp/price/agreed/page")]
-pub async fn agreed_page_api(
-    Query(filter): Query<AgreedFilter>,
-) -> ResResult<PageData<Vec<AgreedRes>>> {
+pub async fn agreed_page_api(Query(filter): Query<AgreedFilter>) -> ResResult<PageData<Vec<AgreedRes>>> {
     Ok(Res::ok(page_agreed(filter).await?))
 }
 
@@ -1172,8 +1134,7 @@ mod tests {
             assert_eq!(parts[0], "business");
             assert_eq!(parts[1], "erp");
             assert!(
-                code.starts_with("business:erp:cust-price:")
-                    || code.starts_with("business:erp:price-tier:"),
+                code.starts_with("business:erp:cust-price:") || code.starts_with("business:erp:price-tier:"),
                 "{code} 资源段只能是 cust-price / price-tier"
             );
         }
@@ -1369,10 +1330,7 @@ mod tests {
         let err = parse_optional_uuid(Some("abc"), "customer_id").unwrap_err();
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("customer_id"));
-        assert_eq!(
-            parse_optional_uuid(Some("  "), "customer_id").unwrap(),
-            None
-        );
+        assert_eq!(parse_optional_uuid(Some("  "), "customer_id").unwrap(), None);
         assert_eq!(parse_optional_uuid(None, "customer_id").unwrap(), None);
     }
 

@@ -83,9 +83,7 @@ pub async fn instance_status_of(approval_instance_id: Option<Uuid>) -> DbResult<
     let Some(instance_id) = approval_instance_id else {
         return Ok(None);
     };
-    Ok(model::find_instance(instance_id)
-        .await?
-        .map(|row| row.status))
+    Ok(model::find_instance(instance_id).await?.map(|row| row.status))
 }
 
 /// 审批结论 → 任务目标状态（**纯函数**，便于单测）。
@@ -159,9 +157,7 @@ pub async fn prepare_accept(
     }
 
     // ③ 发起人快照（姓名 / 部门，审批中心列表要显示「谁提的」）
-    let (initiator_name, initiator_dept_id) = model::user_profile(initiator)
-        .await?
-        .unwrap_or((String::new(), None));
+    let (initiator_name, initiator_dept_id) = model::user_profile(initiator).await?.unwrap_or((String::new(), None));
     let title = format!("{task_no} {title}")
         .trim()
         .chars()
@@ -310,10 +306,7 @@ pub async fn on_instance_settled(instance_id: Option<Uuid>, instance_status: &st
 }
 
 /// [`on_instance_settled`] 的实现体（可失败，由调用方吞掉错误）。
-async fn settle(
-    instance_id: Uuid,
-    target: TaskStatus,
-) -> std::result::Result<Option<Uuid>, DbError> {
+async fn settle(instance_id: Uuid, target: TaskStatus) -> std::result::Result<Option<Uuid>, DbError> {
     // ① 审批单必须是任务验收类的（别的业务类型与任务无关）
     let Some(instance) = model::find_instance(instance_id).await? else {
         tracing::debug!(%instance_id, "审批单不存在，跳过任务回调");
@@ -331,9 +324,8 @@ async fn settle(
         tracing::warn!(%task_id, "任务不存在或已删除，跳过审批回调");
         return Ok(None);
     };
-    let from = TaskStatus::parse(&row.status).ok_or_else(|| {
-        DbError::InvalidValue(format!("库里的任务状态不是 5 态之一：{}", row.status))
-    })?;
+    let from = TaskStatus::parse(&row.status)
+        .ok_or_else(|| DbError::InvalidValue(format!("库里的任务状态不是 5 态之一：{}", row.status)))?;
 
     // ★ C1（t_1e174431）：写目标状态**之前**先校验【目标单据此刻的状态】还在不在
     //   「能接受这个审批结论」的合法路径上。实测事故 TSK-202610-000813：
@@ -342,10 +334,7 @@ async fn settle(
     //   （实例本身仍是 APPROVED，红线：不改审批实例状态）。
     //   判定走任务状态机的 `callback_transition`（`FlowCallback` 只开 `REVIEW → DONE|DOING`），
     //   这里不写任何 if-else 硬判。
-    let biz_no = instance
-        .biz_no
-        .clone()
-        .unwrap_or_else(|| task_id.to_string());
+    let biz_no = instance.biz_no.clone().unwrap_or_else(|| task_id.to_string());
     if !settle_guard::gate_task(&instance, &biz_no, &row.status, target.code()).await {
         return Ok(None);
     }
@@ -409,11 +398,7 @@ async fn settle(
     // ④ 评论正文：让任务时间线能看出「这条是审批结论推的」
     let mut content = format!(
         "审批结论：{}（审批单 {}）→ 状态变更：{}（{}）→ {}（{}）",
-        if target == TaskStatus::Done {
-            "通过"
-        } else {
-            "驳回"
-        },
+        if target == TaskStatus::Done { "通过" } else { "驳回" },
         instance.instance_no,
         from.label(),
         from.code(),
@@ -463,18 +448,11 @@ async fn settle(
             changelog::record(
                 &tx,
                 &ChangeCtx::api(None, Some(CALLBACK_OPERATOR_NAME)),
-                ChangeTarget::of(
-                    "biz_task",
-                    task_id.to_string(),
-                    Action::Status,
-                    action_label,
-                ),
+                ChangeTarget::of("biz_task", task_id.to_string(), Action::Status, action_label),
                 DiffInput::update(&before, &after),
             )
             .await
-            .map_err(|error| {
-                DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
-            })?;
+            .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
             Ok(affected)
         })
         .await?;
@@ -525,8 +503,7 @@ pub struct CascadeAfterFlow {
 /// 而级联失败在生产里只有「库故障 / 进程被杀 / 并发冲突」这些不可控来源 ——
 /// 没有开关就只能靠运气复现。置 true 后下一次 [`cascade_after_flow`] 直接返回错误。
 #[cfg(test)]
-static CASCADE_FAIL_INJECTED: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static CASCADE_FAIL_INJECTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// 审批结论推进过任务之后，把父任务链跟上（**独立事务**）。
 ///
@@ -577,18 +554,11 @@ pub async fn cascade_after_flow(start: Uuid, operator: Uuid) -> DbResult<Cascade
             changelog::record(
                 &tx,
                 &ChangeCtx::api(None, Some(CALLBACK_OPERATOR_NAME)),
-                ChangeTarget::of(
-                    "biz_task",
-                    cascade.task_id.to_string(),
-                    Action::Status,
-                    cascade.reason,
-                ),
+                ChangeTarget::of("biz_task", cascade.task_id.to_string(), Action::Status, cascade.reason),
                 DiffInput::update(&before, &after),
             )
             .await
-            .map_err(|error| {
-                DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
-            })?;
+            .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
         }
         Ok(CascadeAfterFlow { recalcs, cascades })
     })
@@ -689,13 +659,8 @@ pub const TASK_DELETE_CANCEL_COMMENT: &str = "任务已删除，审批单自动�
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]（调用方事务回滚，任务不会被删掉）。
-pub async fn cancel_on_task_deleted(
-    tx: &Transaction,
-    task_id: Uuid,
-    task_no: &str,
-) -> DbResult<model::CancelledOfBiz> {
-    let out =
-        model::cancel_pending_of_biz(tx, task_id, task_no, TASK_DELETE_CANCEL_COMMENT).await?;
+pub async fn cancel_on_task_deleted(tx: &Transaction, task_id: Uuid, task_no: &str) -> DbResult<model::CancelledOfBiz> {
+    let out = model::cancel_pending_of_biz(tx, task_id, task_no, TASK_DELETE_CANCEL_COMMENT).await?;
     tracing::info!(
         %task_id,
         task_no,
@@ -761,8 +726,7 @@ pub async fn cancel_on_task_cancelled(
 
 /// 单测故障注入开关（`#[cfg(test)]` 关掉的生产路径见 [`cancel_on_task_cancelled`]）。
 #[cfg(test)]
-pub(crate) static CANCEL_INJECT_FAIL: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+pub(crate) static CANCEL_INJECT_FAIL: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 /// 注入失败时回传的哨兵文案（单测用它区分「注入的错」与「真库的错」）。
 #[cfg(test)]
 pub(crate) const P11_FAIL_SENTINEL: &str = "P11-FAIL-INJECTED";
@@ -886,13 +850,11 @@ pub fn node_action_of(from: TaskStatus, to: TaskStatus, cfg: &TaskNodeConfig) ->
         // `DONE → CANCELLED`（`state.rs` 实测，设计 §7.2 硬结论 1）。这里按可达集收窄：
         // 万一上层传进 `DONE → CANCELLED`（绕过状态机的脏调用），也不许把**已经干完的活**
         // 变成"流程被取消" —— 那等于用一条非法边把完成率改小。
-        (TaskStatus::Todo | TaskStatus::Doing | TaskStatus::Review, TaskStatus::Cancelled) => {
-            match cfg.on_cancel {
-                OnCancel::Stay => NodeAction::Nothing,
-                OnCancel::BackToPrev => NodeAction::ReturnToPrev,
-                OnCancel::Terminate => NodeAction::Terminate("CANCELLED"),
-            }
-        }
+        (TaskStatus::Todo | TaskStatus::Doing | TaskStatus::Review, TaskStatus::Cancelled) => match cfg.on_cancel {
+            OnCancel::Stay => NodeAction::Nothing,
+            OnCancel::BackToPrev => NodeAction::ReturnToPrev,
+            OnCancel::Terminate => NodeAction::Terminate("CANCELLED"),
+        },
         // `DOING→REVIEW`（等验收）/ `DONE→DOING`（重开）/ `TODO→DOING`（开始）/
         // `CANCELLED→TODO`（复活）/ 同状态 / 不可达组合：流程都不该动
         // （设计 §3.4「其它 → 不动」）
@@ -915,10 +877,7 @@ struct FlowBridgeTaskRow {
 // SCOPE-EXEMPT: 按 `task_id` 精确取**单条**任务（主键命中），不是列表查询。
 // 调用链：`change_status` 事务内（task_id 来自路径参数，已过 `find_detail` 可见性校验）
 // 与审批回调（task_id 来自 `instance.biz_id`，发起时已校验归属）。
-async fn flow_bridge_row(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-) -> DbResult<Option<FlowBridgeTaskRow>> {
+async fn flow_bridge_row(ex: &impl SqlExecutor, task_id: Uuid) -> DbResult<Option<FlowBridgeTaskRow>> {
     let Some(row) = ex
         .query_first_sql(
             "SELECT t.task_no, t.title, t.source, t.flow_instance_id, \
@@ -967,10 +926,7 @@ async fn task_node_config_of(
         return Ok(None);
     };
     let snapshot = graph::parse_snapshot(&raw).map_err(|error| {
-        DbError::InvalidValue(format!(
-            "流程实例 {} 的发布快照无法解析：{error}",
-            instance.instance_no
-        ))
+        DbError::InvalidValue(format!("流程实例 {} 的发布快照无法解析：{error}", instance.instance_no))
     })?;
     let Some(spec) = snapshot.nodes.iter().find(|node| node.key == node_key) else {
         return Ok(None);
@@ -1004,14 +960,10 @@ async fn task_node_config_of(
 ///
 /// - 快照缺失 / 配置非法 → [`DbError::InvalidValue`]（整笔回滚，**不静默跳过**）；
 /// - 数据库异常 → [`DbError`]。
-pub async fn on_task_status_changed(
-    tx: &Transaction,
-    ev: TaskStatusChanged<'_>,
-) -> DbResult<FlowTaskOutcome> {
+pub async fn on_task_status_changed(tx: &Transaction, ev: TaskStatusChanged<'_>) -> DbResult<FlowTaskOutcome> {
     // ① 三列缺任何一个都当「不是流程任务」：`source='FLOW'` 却缺列说明数据损坏，
     //    这时推进流程比不动更危险（不知道该推哪个节点）。
-    let (Some(instance_id), Some(node_key), Some(round)) = (ev.instance_id, ev.node_key, ev.round)
-    else {
+    let (Some(instance_id), Some(node_key), Some(round)) = (ev.instance_id, ev.node_key, ev.round) else {
         tracing::warn!(
             task_id = %ev.task_id,
             "任务标记为流程任务但 flow_instance_id / node_key / round 有缺失，跳过流程回调"
@@ -1066,17 +1018,12 @@ pub async fn on_task_status_changed(
     let needs_pending = matches!(action, NodeAction::Approve | NodeAction::StartApproval);
     if !instance.is_pending() {
         if needs_pending {
-            let node_approved = matches!(
-                node.as_ref().map(|row| row.status.as_str()),
-                Some("APPROVED")
-            );
+            let node_approved = matches!(node.as_ref().map(|row| row.status.as_str()), Some("APPROVED"));
             if node_approved {
                 return Ok(FlowTaskOutcome::Conflict(ApiError::new(
                     409,
                     error_code::FLOW_TASK_ALREADY_DONE,
-                    format!(
-                        "流程节点「{node_key}」第 {round} 轮已经完成过，本次重复提交不再推进流程"
-                    ),
+                    format!("流程节点「{node_key}」第 {round} 轮已经完成过，本次重复提交不再推进流程"),
                 )));
             }
             return Ok(FlowTaskOutcome::Conflict(ApiError::new(
@@ -1105,8 +1052,7 @@ pub async fn on_task_status_changed(
             instance_status: instance.status.clone(),
         }),
         NodeAction::Approve => {
-            let out =
-                engine::complete_task_node(tx, instance_id, node_key, round, ev.operator).await?;
+            let out = engine::complete_task_node(tx, instance_id, node_key, round, ev.operator).await?;
             finish_outcome(out, ev, node_key)
         }
         NodeAction::StartApproval => {
@@ -1119,15 +1065,11 @@ pub async fn on_task_status_changed(
                 biz_type = cfg.approve_biz_type.as_deref().unwrap_or(""),
                 "任务完成（on_complete=APPROVE）：节点保持 ACTIVE，已发起审批单"
             );
-            Ok(FlowTaskOutcome::Advanced {
-                next_nodes: Vec::new(),
-            })
+            Ok(FlowTaskOutcome::Advanced { next_nodes: Vec::new() })
         }
         NodeAction::ReturnToPrev => {
             let comment = ev.reason.unwrap_or("任务被打回，流程退回上一节点");
-            let out =
-                engine::return_task_node(tx, instance_id, node_key, round, ev.operator, comment)
-                    .await?;
+            let out = engine::return_task_node(tx, instance_id, node_key, round, ev.operator, comment).await?;
             match out.rejected {
                 // 节点已经不是 ACTIVE（别人先动过）：流程不能后退，但任务打回本身是合法的
                 // → 记 warn 后按 Ignored 处理，不把用户的「打回」变成 500/409。
@@ -1164,9 +1106,7 @@ pub async fn on_task_status_changed(
                         instance_status: instance.status.clone(),
                     })
                 }
-                None => Ok(FlowTaskOutcome::Advanced {
-                    next_nodes: Vec::new(),
-                }),
+                None => Ok(FlowTaskOutcome::Advanced { next_nodes: Vec::new() }),
             }
         }
     }
@@ -1176,11 +1116,7 @@ pub async fn on_task_status_changed(
 ///
 /// 引擎的「业务拒绝」在这里一律升级成 `Conflict`（任务已完成 / 实例已结束都是用户该知道的），
 /// 引擎的「下游驱动失败」也一样 —— 那说明流程图本身有问题，静默成功会把问题埋掉。
-fn finish_outcome(
-    mut out: engine::ActionOut,
-    ev: TaskStatusChanged<'_>,
-    node_key: &str,
-) -> DbResult<FlowTaskOutcome> {
+fn finish_outcome(mut out: engine::ActionOut, ev: TaskStatusChanged<'_>, node_key: &str) -> DbResult<FlowTaskOutcome> {
     match out.rejected.take() {
         Some(error) => {
             tracing::warn!(
@@ -1260,14 +1196,10 @@ async fn start_task_node_approval(
         )));
     };
     let Some(version_id) = def.current_version_id else {
-        return Err(DbError::InvalidValue(format!(
-            "审批流 {biz_type} 没有当前发布版本"
-        )));
+        return Err(DbError::InvalidValue(format!("审批流 {biz_type} 没有当前发布版本")));
     };
     let Some(version) = model::find_version_in(tx, version_id).await? else {
-        return Err(DbError::InvalidValue(format!(
-            "审批流 {biz_type} 的发布版本行不存在"
-        )));
+        return Err(DbError::InvalidValue(format!("审批流 {biz_type} 的发布版本行不存在")));
     };
     // ③ 任务行（标题 / 单号写进审批单，审批中心里能对上）
     let Some(row) = flow_bridge_row(tx, ev.task_id).await? else {
@@ -1313,10 +1245,7 @@ async fn start_task_node_approval(
     let out = engine::start(tx, &req).await?;
     if let Some(error) = out.rejected.as_ref() {
         // 发起被拒（派不出审批人 / 图上配置错）：整笔回滚，业务码原样返回
-        return Err(DbError::InvalidValue(format!(
-            "发起审批失败：{}",
-            error.msg
-        )));
+        return Err(DbError::InvalidValue(format!("发起审批失败：{}", error.msg)));
     }
     let instance_id = out.instance_id.unwrap_or(instance_id);
     // ④ 回写任务行（门闸与回调都认这一列）
@@ -1365,10 +1294,7 @@ async fn start_task_node_approval(
 /// # 返回值
 ///
 /// 一段可直接进日志的说明（`None` = 与流程节点无关）。
-pub async fn on_task_approval_settled(
-    approval_instance_id: Option<Uuid>,
-    instance_status: &str,
-) -> Option<String> {
+pub async fn on_task_approval_settled(approval_instance_id: Option<Uuid>, instance_status: &str) -> Option<String> {
     let approval_instance_id = approval_instance_id?;
     match settle_flow_node(approval_instance_id, instance_status).await {
         Ok(Some(note)) => {
@@ -1394,10 +1320,7 @@ pub async fn on_task_approval_settled(
 }
 
 /// [`on_task_approval_settled`] 的实现体（可失败，由调用方吞掉错误）。
-async fn settle_flow_node(
-    approval_instance_id: Uuid,
-    instance_status: &str,
-) -> DbResult<Option<String>> {
+async fn settle_flow_node(approval_instance_id: Uuid, instance_status: &str) -> DbResult<Option<String>> {
     // ① 审批单 → 业务 id（= 任务 id），且必须是流程任务 + 这张单就是它挂的那张
     let Some(approval) = model::find_instance(approval_instance_id).await? else {
         return Ok(None);
@@ -1415,11 +1338,9 @@ async fn settle_flow_node(
         // 历史行 / 别的审批单：不动（`approval_instance_id` 是指针，不是猜测）
         return Ok(None);
     }
-    let (Some(flow_instance_id), Some(node_key), Some(round)) = (
-        row.flow_instance_id,
-        row.flow_node_key.as_deref(),
-        row.flow_round,
-    ) else {
+    let (Some(flow_instance_id), Some(node_key), Some(round)) =
+        (row.flow_instance_id, row.flow_node_key.as_deref(), row.flow_round)
+    else {
         return Ok(None);
     };
 
@@ -1455,25 +1376,11 @@ async fn settle_flow_node(
         .transaction(|tx| async move {
             let out = match action {
                 NodeAction::Approve => {
-                    engine::complete_task_node(
-                        &tx,
-                        flow_instance_id,
-                        node_key,
-                        round,
-                        approval.initiator_id,
-                    )
-                    .await?
+                    engine::complete_task_node(&tx, flow_instance_id, node_key, round, approval.initiator_id).await?
                 }
                 NodeAction::ReturnToPrev => {
-                    engine::return_task_node(
-                        &tx,
-                        flow_instance_id,
-                        node_key,
-                        round,
-                        approval.initiator_id,
-                        &comment,
-                    )
-                    .await?
+                    engine::return_task_node(&tx, flow_instance_id, node_key, round, approval.initiator_id, &comment)
+                        .await?
                 }
                 NodeAction::Terminate(status) => {
                     engine::terminate_instance(&tx, flow_instance_id, status, &comment).await?
@@ -1615,15 +1522,9 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
     let creator = row.create_by;
     let (affected, linkage_run) = db()
         .transaction(move |tx| async move {
-            let affected = erp_transfer::settle_approval(
-                &tx,
-                transfer_id,
-                approved,
-                opinion_for_tx.as_deref(),
-                approver,
-                now,
-            )
-            .await?;
+            let affected =
+                erp_transfer::settle_approval(&tx, transfer_id, approved, opinion_for_tx.as_deref(), approver, now)
+                    .await?;
             if affected == 0 {
                 // CAS 落空（单据已被别的路径推走）→ 不触发联动，与「状态没变就不通知」同口径
                 return Ok((0u64, linkage::LinkageRun::default()));
@@ -1632,16 +1533,9 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
             // 只接人工流转会让「配了已发布流程」的生产环境里 STOCK_TRANSFER/APPROVED
             // 的规则永远不触发（P1-FIX-5C 那类静默失效），所以这里同样走通用引擎，
             // 排除清单与人工流转**共用** `transfer_linkage` 里的那一份。
-            let run = transfer_linkage::run_in_tx(
-                &tx,
-                transfer_id,
-                &transfer_no_in_tx,
-                target,
-                approver,
-                creator,
-            )
-            .await
-            .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+            let run = transfer_linkage::run_in_tx(&tx, transfer_id, &transfer_no_in_tx, target, approver, creator)
+                .await
+                .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
             Ok((affected, run))
         })
         .await?;
@@ -1790,14 +1684,7 @@ mod flow_cascade_tests {
     }
 
     /// 写一行夹具任务（`task_no` 全表唯一 ⇒ 每个夹具自己的号）。
-    async fn insert_task(
-        id: Uuid,
-        tag: &str,
-        parent: Option<Uuid>,
-        status: &str,
-        progress: i16,
-        me: Uuid,
-    ) {
+    async fn insert_task(id: Uuid, tag: &str, parent: Option<Uuid>, status: &str, progress: i16, me: Uuid) {
         let affected = db()
             .execute_with_params(
                 "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, parent_id, \
@@ -1836,9 +1723,7 @@ mod flow_cascade_tests {
             .await
             .expect("查流程定义失败")
             .expect("测试库必须有 PUBLISHED 的 TASK_ACCEPT 流程（V0127 种子）");
-        let version_id = def
-            .current_version_id
-            .expect("TASK_ACCEPT 流程必须有当前版本");
+        let version_id = def.current_version_id.expect("TASK_ACCEPT 流程必须有当前版本");
         let version = model::find_version(version_id)
             .await
             .expect("查版本失败")
@@ -1948,27 +1833,14 @@ mod flow_cascade_tests {
         reset(me).await;
         // 父 DOING + 两个子：一个待验收（等审批）、一个已完成
         insert_task(uuid(PARENT), "P1-父", None, "DOING", 0, me).await;
-        insert_task(
-            uuid(CHILD1),
-            "P1-子1",
-            Some(uuid(PARENT)),
-            "REVIEW",
-            100,
-            me,
-        )
-        .await;
+        insert_task(uuid(CHILD1), "P1-子1", Some(uuid(PARENT)), "REVIEW", 100, me).await;
         insert_task(uuid(CHILD2), "P1-子2", Some(uuid(PARENT)), "DONE", 100, me).await;
-        let instance =
-            insert_settled_instance(uuid(CHILD1), "T13-P1-子1", "APPROVED", None, me).await;
+        let instance = insert_settled_instance(uuid(CHILD1), "T13-P1-子1", "APPROVED", None, me).await;
 
         let advanced = on_instance_settled(Some(instance), "APPROVED").await;
         assert_eq!(advanced, Some(uuid(CHILD1)), "审批通过必须推进那个子任务");
 
-        assert_eq!(
-            status_of(uuid(CHILD1)).await,
-            TaskStatus::Done,
-            "子任务应已完成"
-        );
+        assert_eq!(status_of(uuid(CHILD1)).await, TaskStatus::Done, "子任务应已完成");
         assert_eq!(
             status_of(uuid(PARENT)).await,
             TaskStatus::Review,
@@ -1987,23 +1859,10 @@ mod flow_cascade_tests {
         let me = uuid(U_ID);
         reset(me).await;
         insert_task(uuid(PARENT), "P2-父", None, "DOING", 0, me).await;
-        insert_task(
-            uuid(CHILD1),
-            "P2-子1",
-            Some(uuid(PARENT)),
-            "REVIEW",
-            100,
-            me,
-        )
-        .await;
+        insert_task(uuid(CHILD1), "P2-子1", Some(uuid(PARENT)), "REVIEW", 100, me).await;
         insert_task(uuid(CHILD2), "P2-子2", Some(uuid(PARENT)), "DONE", 100, me).await;
-        assert_eq!(
-            progress_of(uuid(PARENT)).await,
-            0,
-            "夹具前置：父任务进度为 0"
-        );
-        let instance =
-            insert_settled_instance(uuid(CHILD1), "T13-P2-子1", "APPROVED", None, me).await;
+        assert_eq!(progress_of(uuid(PARENT)).await, 0, "夹具前置：父任务进度为 0");
+        let instance = insert_settled_instance(uuid(CHILD1), "T13-P2-子1", "APPROVED", None, me).await;
 
         on_instance_settled(Some(instance), "APPROVED").await;
 
@@ -2031,15 +1890,7 @@ mod flow_cascade_tests {
         reset(me).await;
         // 父 DOING + 子1 待验收 + 子2 还在跑（所以父任务不该被推到 REVIEW）
         insert_task(uuid(PARENT), "P3-父", None, "DOING", 40, me).await;
-        insert_task(
-            uuid(CHILD1),
-            "P3-子1",
-            Some(uuid(PARENT)),
-            "REVIEW",
-            100,
-            me,
-        )
-        .await;
+        insert_task(uuid(CHILD1), "P3-子1", Some(uuid(PARENT)), "REVIEW", 100, me).await;
         insert_task(uuid(CHILD2), "P3-子2", Some(uuid(PARENT)), "DOING", 20, me).await;
         let instance = insert_settled_instance(
             uuid(CHILD1),
@@ -2053,11 +1904,7 @@ mod flow_cascade_tests {
         let advanced = on_instance_settled(Some(instance), "REJECTED").await;
         assert_eq!(advanced, Some(uuid(CHILD1)), "审批驳回必须推进那个子任务");
 
-        assert_eq!(
-            status_of(uuid(CHILD1)).await,
-            TaskStatus::Doing,
-            "子任务应被打回 DOING"
-        );
+        assert_eq!(status_of(uuid(CHILD1)).await, TaskStatus::Doing, "子任务应被打回 DOING");
         assert_eq!(
             status_of(uuid(PARENT)).await,
             TaskStatus::Doing,
@@ -2086,8 +1933,7 @@ mod flow_cascade_tests {
         insert_task(uuid(LEAF), "P4-孙", Some(uuid(MIDDLE)), "REVIEW", 100, me).await;
 
         // 第一跳：孙任务审批通过 → 父任务（它的唯一子任务到终态）→ REVIEW
-        let leaf_instance =
-            insert_settled_instance(uuid(LEAF), "T13-P4-孙", "APPROVED", None, me).await;
+        let leaf_instance = insert_settled_instance(uuid(LEAF), "T13-P4-孙", "APPROVED", None, me).await;
         on_instance_settled(Some(leaf_instance), "APPROVED").await;
         assert_eq!(status_of(uuid(LEAF)).await, TaskStatus::Done);
         assert_eq!(
@@ -2102,8 +1948,7 @@ mod flow_cascade_tests {
         );
 
         // 第二跳：中间层也审批通过 → 祖父（它的唯一子任务到终态）→ REVIEW
-        let middle_instance =
-            insert_settled_instance(uuid(MIDDLE), "T13-P4-父", "APPROVED", None, me).await;
+        let middle_instance = insert_settled_instance(uuid(MIDDLE), "T13-P4-父", "APPROVED", None, me).await;
         on_instance_settled(Some(middle_instance), "APPROVED").await;
         assert_eq!(status_of(uuid(MIDDLE)).await, TaskStatus::Done);
         assert_eq!(
@@ -2124,18 +1969,9 @@ mod flow_cascade_tests {
         let me = uuid(U_ID);
         reset(me).await;
         insert_task(uuid(PARENT), "P5-父", None, "DOING", 0, me).await;
-        insert_task(
-            uuid(CHILD1),
-            "P5-子1",
-            Some(uuid(PARENT)),
-            "REVIEW",
-            100,
-            me,
-        )
-        .await;
+        insert_task(uuid(CHILD1), "P5-子1", Some(uuid(PARENT)), "REVIEW", 100, me).await;
         insert_task(uuid(CHILD2), "P5-子2", Some(uuid(PARENT)), "DONE", 100, me).await;
-        let instance =
-            insert_settled_instance(uuid(CHILD1), "T13-P5-子1", "APPROVED", None, me).await;
+        let instance = insert_settled_instance(uuid(CHILD1), "T13-P5-子1", "APPROVED", None, me).await;
 
         // 注入一次级联失败（`cfg(test)` 专用开关，生产二进制里没有这段代码）
         CASCADE_FAIL_INJECTED.store(true, std::sync::atomic::Ordering::SeqCst);
@@ -2215,8 +2051,7 @@ mod flow_cascade_tests {
         let me = uuid(U_ID);
         reset(me).await;
         insert_task(uuid(CHILD1), "C1-已取消", None, "CANCELLED", 0, me).await;
-        let instance =
-            insert_settled_instance(uuid(CHILD1), "T13-C1-取消", "APPROVED", None, me).await;
+        let instance = insert_settled_instance(uuid(CHILD1), "T13-C1-取消", "APPROVED", None, me).await;
         insert_node(instance).await;
 
         let advanced = on_instance_settled(Some(instance), "APPROVED").await;
@@ -2240,11 +2075,7 @@ mod flow_cascade_tests {
 
         // 留痕：一条 SKIPPED + is_auto + comment 写明「目标已不可改，跳过落状态」
         let traces = skip_traces_of(instance).await;
-        assert_eq!(
-            traces.len(),
-            1,
-            "⑥ 跳过落状态必须留一条痕，实际 {traces:#?}"
-        );
+        assert_eq!(traces.len(), 1, "⑥ 跳过落状态必须留一条痕，实际 {traces:#?}");
         let (status, is_auto, comment) = &traces[0];
         assert_eq!(status, "SKIPPED", "⑥ 留痕行必须是 SKIPPED（不占待办槽位）");
         assert!(is_auto, "⑥ 留痕必须标 is_auto（系统代写，不是人审的）");
@@ -2258,11 +2089,7 @@ mod flow_cascade_tests {
 
         // 幂等：再回调一次不重复刷痕
         on_instance_settled(Some(instance), "APPROVED").await;
-        assert_eq!(
-            skip_traces_of(instance).await.len(),
-            1,
-            "⑥ 重复回调不许重复留痕"
-        );
+        assert_eq!(skip_traces_of(instance).await.len(), 1, "⑥ 重复回调不许重复留痕");
     }
 
     /// 不误伤：任务在等验收（REVIEW）+ 审批通过 → 正常变 DONE。
@@ -2275,8 +2102,7 @@ mod flow_cascade_tests {
         let me = uuid(U_ID);
         reset(me).await;
         insert_task(uuid(CHILD1), "C1-待验收", None, "REVIEW", 80, me).await;
-        let instance =
-            insert_settled_instance(uuid(CHILD1), "T13-C1-正常", "APPROVED", None, me).await;
+        let instance = insert_settled_instance(uuid(CHILD1), "T13-C1-正常", "APPROVED", None, me).await;
         insert_node(instance).await;
 
         let advanced = on_instance_settled(Some(instance), "APPROVED").await;
@@ -2311,8 +2137,7 @@ mod flow_cascade_tests {
         let me = uuid(U_ID);
         reset(me).await;
         insert_task(uuid(CHILD1), "C1-进行中", None, "DOING", 40, me).await;
-        let instance =
-            insert_settled_instance(uuid(CHILD1), "T13-C1-跳级", "APPROVED", None, me).await;
+        let instance = insert_settled_instance(uuid(CHILD1), "T13-C1-跳级", "APPROVED", None, me).await;
         insert_node(instance).await;
 
         assert_eq!(
@@ -2429,11 +2254,7 @@ mod pflow1b_mapping_tests {
     /// 表格第 5 行 · `on_reject=BACK_TO_PREV`：退回上一节点。
     #[test]
     fn reject_back_to_prev_returns_flow() {
-        let cfg = cfg(
-            OnComplete::Direct,
-            OnReject::BackToPrev,
-            OnCancel::Terminate,
-        );
+        let cfg = cfg(OnComplete::Direct, OnReject::BackToPrev, OnCancel::Terminate);
         assert_eq!(
             node_action_of(TaskStatus::Review, TaskStatus::Doing, &cfg),
             NodeAction::ReturnToPrev
@@ -2481,10 +2302,7 @@ mod pflow1b_mapping_tests {
     fn cancel_stay_keeps_flow() {
         let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::Stay);
         for from in [TaskStatus::Todo, TaskStatus::Doing, TaskStatus::Review] {
-            assert_eq!(
-                node_action_of(from, TaskStatus::Cancelled, &cfg),
-                NodeAction::Nothing
-            );
+            assert_eq!(node_action_of(from, TaskStatus::Cancelled, &cfg), NodeAction::Nothing);
         }
     }
 
@@ -2527,11 +2345,7 @@ mod pflow1b_mapping_tests {
     fn only_tabulated_transitions_act_on_flow() {
         use TaskStatus::{Cancelled, Doing, Done, Review, Todo};
         let all = [Todo, Doing, Review, Done, Cancelled];
-        let cfg = cfg(
-            OnComplete::Approve,
-            OnReject::Terminate,
-            OnCancel::Terminate,
-        );
+        let cfg = cfg(OnComplete::Approve, OnReject::Terminate, OnCancel::Terminate);
         let mut acting = Vec::new();
         for from in all {
             for to in all {
@@ -2582,10 +2396,7 @@ mod pflow1b_mapping_tests {
         match conflict {
             FlowTaskOutcome::Conflict(error) => {
                 assert_eq!(error.status, 409);
-                assert_eq!(
-                    error.code,
-                    crate::shared::error_code::FLOW_TASK_STATE_CONFLICT
-                );
+                assert_eq!(error.code, crate::shared::error_code::FLOW_TASK_STATE_CONFLICT);
             }
             other => panic!("必须是 Conflict：{other:?}"),
         }
@@ -2695,11 +2506,7 @@ mod p11_cancel_flow_tests {
     }
 
     async fn insert_task(id: Uuid, task_no: &str, parent: Option<Uuid>, me: Uuid) {
-        let parent_sql = if parent.is_some() {
-            "?::uuid"
-        } else {
-            "NULL::uuid"
-        };
+        let parent_sql = if parent.is_some() { "?::uuid" } else { "NULL::uuid" };
         let mut params = vec![
             Value::from(&id),
             Value::Text(task_no.to_string()),
@@ -2722,14 +2529,7 @@ mod p11_cancel_flow_tests {
         .await;
     }
 
-    async fn insert_instance(
-        id: Uuid,
-        instance_no: &str,
-        status: &str,
-        biz_id: Uuid,
-        biz_no: &str,
-        me: Uuid,
-    ) {
+    async fn insert_instance(id: Uuid, instance_no: &str, status: &str, biz_id: Uuid, biz_no: &str, me: Uuid) {
         // ck_biz_flow_instance_end：`(status='PENDING') = (ended_at IS NULL)`。
         let ended_at = if status == "PENDING" { "NULL" } else { "now()" };
         let result_comment = if status == "APPROVED" {
@@ -2924,38 +2724,10 @@ mod p11_cancel_flow_tests {
         insert_node(uuid(NODE_HIST), uuid(INST_HIST), "APPROVED").await;
         insert_node(uuid(NODE_CHILD), uuid(INST_CHILD), "ACTIVE").await;
         insert_node(uuid(NODE_OTHER), uuid(INST_OTHER), "ACTIVE").await;
-        insert_flow_task(
-            uuid(FT_PARENT),
-            uuid(INST_PARENT),
-            uuid(NODE_PARENT),
-            "PENDING",
-            me,
-        )
-        .await;
-        insert_flow_task(
-            uuid(FT_HIST),
-            uuid(INST_HIST),
-            uuid(NODE_HIST),
-            "APPROVED",
-            me,
-        )
-        .await;
-        insert_flow_task(
-            uuid(FT_CHILD),
-            uuid(INST_CHILD),
-            uuid(NODE_CHILD),
-            "PENDING",
-            me,
-        )
-        .await;
-        insert_flow_task(
-            uuid(FT_OTHER),
-            uuid(INST_OTHER),
-            uuid(NODE_OTHER),
-            "PENDING",
-            me,
-        )
-        .await;
+        insert_flow_task(uuid(FT_PARENT), uuid(INST_PARENT), uuid(NODE_PARENT), "PENDING", me).await;
+        insert_flow_task(uuid(FT_HIST), uuid(INST_HIST), uuid(NODE_HIST), "APPROVED", me).await;
+        insert_flow_task(uuid(FT_CHILD), uuid(INST_CHILD), uuid(NODE_CHILD), "PENDING", me).await;
+        insert_flow_task(uuid(FT_OTHER), uuid(INST_OTHER), uuid(NODE_OTHER), "PENDING", me).await;
         Some(guard)
     }
 
@@ -2977,13 +2749,8 @@ mod p11_cancel_flow_tests {
         };
         let affected = task_model::apply_status(tx, task_id, &update, me).await?;
         assert_eq!(affected, 1, "夹具任务必须存在");
-        let cancels = task_model::cascade_cancel_descendants(
-            tx,
-            task_id,
-            me,
-            task_model::CASCADE_CANCEL_REASON,
-        )
-        .await?;
+        let cancels =
+            task_model::cascade_cancel_descendants(tx, task_id, me, task_model::CASCADE_CANCEL_REASON).await?;
         let mut out = cancel_on_task_cancelled(tx, task_id, task_no).await?;
         for cancel in &cancels {
             let sub = cancel_on_task_cancelled(tx, cancel.task_id, &cancel.task_no).await?;
@@ -2995,11 +2762,7 @@ mod p11_cancel_flow_tests {
     }
 
     /// 提交式封装（正常路径）。
-    async fn cancel_task(
-        task_id: Uuid,
-        task_no: &str,
-        me: Uuid,
-    ) -> (CancelledOfBiz, Vec<task_model::CancelCascade>) {
+    async fn cancel_task(task_id: Uuid, task_no: &str, me: Uuid) -> (CancelledOfBiz, Vec<task_model::CancelCascade>) {
         let tx = db().begin().await.expect("开事务失败");
         let out = cancel_task_in_tx(&tx, task_id, task_no, me)
             .await
@@ -3010,16 +2773,10 @@ mod p11_cancel_flow_tests {
 
     async fn task_status(id: Uuid) -> String {
         let rows = db()
-            .find_with_params(
-                "SELECT status FROM biz_task WHERE id = ?::uuid",
-                vec![Value::from(&id)],
-            )
+            .find_with_params("SELECT status FROM biz_task WHERE id = ?::uuid", vec![Value::from(&id)])
             .await
             .expect("读任务失败");
-        rows.first()
-            .expect("任务不存在")
-            .get_typed("status")
-            .expect("status")
+        rows.first().expect("任务不存在").get_typed("status").expect("status")
     }
 
     /// 实例三元组：状态 / `ended_at` 是否非空 / `result_comment`。
@@ -3083,16 +2840,10 @@ mod p11_cancel_flow_tests {
         };
         let me = uuid(U_ID);
         let (out, _) = cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
-        assert_eq!(
-            out.instances, 2,
-            "父任务 + 被级联取消的子任务各一条在跑实例"
-        );
+        assert_eq!(out.instances, 2, "父任务 + 被级联取消的子任务各一条在跑实例");
         let (status, ended, comment) = instance_row(uuid(INST_PARENT)).await;
         assert_eq!(status, "CANCELLED");
-        assert!(
-            ended,
-            "实例结束必须同写 ended_at（ck_biz_flow_instance_end）"
-        );
+        assert!(ended, "实例结束必须同写 ended_at（ck_biz_flow_instance_end）");
         assert_eq!(comment.as_deref(), Some(TASK_CANCEL_COMMENT));
     }
 
@@ -3106,10 +2857,7 @@ mod p11_cancel_flow_tests {
         cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
         let (status, done, comment) = flow_task_row(uuid(FT_PARENT)).await;
         assert_eq!(status, "CANCELLED");
-        assert!(
-            done,
-            "待办结束必须同写 completed_at（ck_biz_flow_task_done）"
-        );
+        assert!(done, "待办结束必须同写 completed_at（ck_biz_flow_task_done）");
         assert_eq!(comment.as_deref(), Some(TASK_CANCEL_COMMENT));
     }
 
@@ -3251,10 +2999,7 @@ mod p11_cancel_flow_tests {
     #[test]
     fn cancel_and_delete_comments_are_distinct() {
         assert_ne!(TASK_CANCEL_COMMENT, TASK_DELETE_CANCEL_COMMENT);
-        assert!(
-            TASK_CANCEL_COMMENT.contains("取消"),
-            "取消留痕必须写明「任务已取消」"
-        );
+        assert!(TASK_CANCEL_COMMENT.contains("取消"), "取消留痕必须写明「任务已取消」");
         assert!(
             TASK_DELETE_CANCEL_COMMENT.contains("删除"),
             "删除留痕必须写明「任务已删除」"

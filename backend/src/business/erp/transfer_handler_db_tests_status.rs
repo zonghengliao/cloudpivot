@@ -47,13 +47,9 @@ async fn draft_to_done_is_rejected() {
     let Some(_guard) = prepare().await else {
         return;
     };
-    let id = create_transfer(
-        &body(vec![item(M_PLAIN, "1")]),
-        Some(uuid(U_APPLICANT)),
-        None,
-    )
-    .await
-    .expect("建单");
+    let id = create_transfer(&body(vec![item(M_PLAIN, "1")]), Some(uuid(U_APPLICANT)), None)
+        .await
+        .expect("建单");
     let err = change_transfer_status(id, &status_req(STATUS_DONE, None), uuid(U_APPLICANT))
         .await
         .expect_err("跳级必须 409");
@@ -98,21 +94,14 @@ async fn pending_to_cancelled_requires_reason() {
         .expect_err("撤回必须给原因");
     assert_eq!(err.status, 400);
     // 给原因 → CANCELLED
-    change_transfer_status(
-        id,
-        &status_req(STATUS_CANCELLED, Some("需求取消")),
-        uuid(U_APPLICANT),
-    )
-    .await
-    .expect("撤回必须成功");
+    change_transfer_status(id, &status_req(STATUS_CANCELLED, Some("需求取消")), uuid(U_APPLICANT))
+        .await
+        .expect("撤回必须成功");
     let row = refresh(id).await;
     assert_eq!(row.status, STATUS_CANCELLED);
     assert_eq!(row.cancel_reason.as_deref(), Some("需求取消"));
     assert!(row.cancelled_at.is_some());
-    assert!(
-        row.submitted_at.is_some(),
-        "撤回不清理提交时间（CANCELLED 分支不约束）"
-    );
+    assert!(row.submitted_at.is_some(), "撤回不清理提交时间（CANCELLED 分支不约束）");
 }
 
 // ---------- ⑪ 状态机：APPROVED → IN_TRANSIT（回填在途仓） ----------
@@ -155,10 +144,9 @@ async fn done_rejects_every_transition() {
     };
     let (id, _) = transfer_in_status(STATUS_DONE).await;
     for target in [STATUS_DRAFT, STATUS_CANCELLED, STATUS_PENDING] {
-        let err =
-            change_transfer_status(id, &status_req(target, Some("终态试探")), uuid(U_APPLICANT))
-                .await
-                .expect_err("DONE 之后任何流转都必须 409");
+        let err = change_transfer_status(id, &status_req(target, Some("终态试探")), uuid(U_APPLICANT))
+            .await
+            .expect_err("DONE 之后任何流转都必须 409");
         assert_eq!(err.status, 409, "目标 {target}");
     }
     assert_eq!(refresh(id).await.status, STATUS_DONE);
@@ -174,14 +162,9 @@ async fn delete_allows_draft_and_rejects_in_transit() {
     let draft = create_transfer(&body(vec![item(M_PLAIN, "1")]), Some(applicant), None)
         .await
         .expect("建单");
-    delete_transfer(draft, Some(applicant))
-        .await
-        .expect("DRAFT 必须能删");
+    delete_transfer(draft, Some(applicant)).await.expect("DRAFT 必须能删");
     assert!(
-        transfer_model::find_by_id(draft)
-            .await
-            .expect("查询")
-            .is_none(),
+        transfer_model::find_by_id(draft).await.expect("查询").is_none(),
         "软删后按主键必须查不到"
     );
 
@@ -278,17 +261,9 @@ async fn seed_flow_is_published_with_self_consistent_hash() {
         )
         .await
         .expect("查流程定义");
-    let def = defs
-        .first()
-        .expect("① 迁移种后 biz_flow_def 必须有 stock_transfer");
-    assert_eq!(
-        def.get_typed::<String>("flow_code").expect("code"),
-        "stock_transfer"
-    );
-    assert_eq!(
-        def.get_typed::<String>("biz_type").expect("biz_type"),
-        "STOCK_TRANSFER"
-    );
+    let def = defs.first().expect("① 迁移种后 biz_flow_def 必须有 stock_transfer");
+    assert_eq!(def.get_typed::<String>("flow_code").expect("code"), "stock_transfer");
+    assert_eq!(def.get_typed::<String>("biz_type").expect("biz_type"), "STOCK_TRANSFER");
 
     // ① 版本行：PUBLISHED + 快照/hash/发布时间 + 计数
     let versions = db()
@@ -302,9 +277,7 @@ async fn seed_flow_is_published_with_self_consistent_hash() {
         .expect("查流程版本");
     let version = versions.first().expect("① 迁移种后必须有版本行");
     assert_eq!(
-        version
-            .get_typed::<String>("version_status")
-            .expect("status"),
+        version.get_typed::<String>("version_status").expect("status"),
         "PUBLISHED"
     );
     assert_eq!(version.get_typed::<i32>("node_count").expect("nodes"), 3);
@@ -313,20 +286,14 @@ async fn seed_flow_is_published_with_self_consistent_hash() {
     // ① 图内容：快照能被引擎解析，且重算 hash == 落库 hash
     let text: String = version.get_typed("snapshot_text").expect("snapshot");
     let snapshot = parse_snapshot(&text).expect("① 快照必须能被 graph::parse_snapshot 解析");
-    let recomputed = hex_sha256(&canonical_json(
-        &serde_json::to_value(&snapshot).expect("快照序列化"),
-    ));
+    let recomputed = hex_sha256(&canonical_json(&serde_json::to_value(&snapshot).expect("快照序列化")));
     assert_eq!(
         recomputed,
         version.get_typed::<String>("graph_hash").expect("hash"),
         "① 快照重算的 sha256 必须等于落库 graph_hash（否则 D4d 每日自检会报 drift）"
     );
     let keys: Vec<&str> = snapshot.nodes.iter().map(|n| n.key.as_str()).collect();
-    assert_eq!(
-        keys,
-        vec!["e", "n_approve", "s"],
-        "① 节点按 key 升序（canonical 前提）"
-    );
+    assert_eq!(keys, vec!["e", "n_approve", "s"], "① 节点按 key 升序（canonical 前提）");
     let approver = snapshot
         .nodes
         .iter()
@@ -395,13 +362,9 @@ async fn submit_creates_pending_todo_for_seed_assignee() {
         .await
         .expect("查审批人绑定");
     let bind = binds.first().expect("① 种子审批节点必须有审批人绑定");
-    let bind_type = bind
-        .get_typed::<String>("assignee_type")
-        .expect("assignee_type");
+    let bind_type = bind.get_typed::<String>("assignee_type").expect("assignee_type");
     let role_code: String = bind.get_typed("role_code").expect("role_code");
-    let empty_policy = bind
-        .get_typed::<String>("empty_assignee")
-        .expect("empty_assignee");
+    let empty_policy = bind.get_typed::<String>("empty_assignee").expect("empty_assignee");
 
     // ② 由绑定推导「期望收件人与来源」（角色无人 → 兜底超管）
     let admins = crate::business::flow::test_support::super_admin_count().await;
@@ -445,14 +408,8 @@ async fn submit_creates_pending_todo_for_seed_assignee() {
     );
     let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
     for todo in &todos {
-        assert_eq!(
-            todo.get_typed::<String>("status").expect("status"),
-            "PENDING"
-        );
-        assert_eq!(
-            todo.get_typed::<String>("node_key").expect("node"),
-            "n_approve"
-        );
+        assert_eq!(todo.get_typed::<String>("status").expect("status"), "PENDING");
+        assert_eq!(todo.get_typed::<String>("node_key").expect("node"), "n_approve");
         assert_eq!(
             todo.get_typed::<String>("assignee_source").expect("source"),
             expect_source,
@@ -482,10 +439,7 @@ async fn submit_creates_pending_todo_for_seed_assignee() {
             .await
             .expect("查超管角色")
         };
-        assert_eq!(
-            member, 1,
-            "③ 待办审批人必须是 {expect_source} 的合法成员（{assignee}）"
-        );
+        assert_eq!(member, 1, "③ 待办审批人必须是 {expect_source} 的合法成员（{assignee}）");
     }
 
     // ③ 按调拨单反查也能命中（审批中心「待办」按 biz_type + biz_id 过滤的口径）
@@ -520,17 +474,9 @@ async fn manual_approve_blocked_while_approval_pending() {
         .await
         .expect_err("⑦ 审批还在跑时，人工直推 APPROVED 必须被拒");
     assert_eq!(err.status, 409, "⑦ HTTP 409（不是 500/400）");
-    assert_eq!(
-        err.code,
-        error_code::TRANSFER_FLOW_GATE_BLOCKED,
-        "⑦ 业务码 65030"
-    );
+    assert_eq!(err.code, error_code::TRANSFER_FLOW_GATE_BLOCKED, "⑦ 业务码 65030");
     assert_eq!(err.code, 65030);
-    assert!(
-        err.msg.contains("审批中"),
-        "⑦ 文案要说清「在审批中」：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("审批中"), "⑦ 文案要说清「在审批中」：{}", err.msg);
 
     // 单据与审批单都原地不动
     assert_eq!(refresh(id).await.status, STATUS_PENDING);
@@ -611,13 +557,9 @@ async fn withdraw_cancels_running_approval_instance() {
     let (id, row) = transfer_in_status(STATUS_PENDING).await;
     let instance_id = row.approval_instance_id.expect("实例 id");
 
-    change_transfer_status(
-        id,
-        &status_req(STATUS_CANCELLED, Some("仓库临时不调了")),
-        applicant,
-    )
-    .await
-    .expect("⑨ 撤回必须成功");
+    change_transfer_status(id, &status_req(STATUS_CANCELLED, Some("仓库临时不调了")), applicant)
+        .await
+        .expect("⑨ 撤回必须成功");
     let row = refresh(id).await;
     assert_eq!(row.status, STATUS_CANCELLED);
     assert!(row.cancelled_at.is_some());
@@ -662,13 +604,9 @@ async fn submit_twice_is_409_with_transfer_no_not_500() {
         return;
     };
     let applicant = uuid(U_APPLICANT);
-    let id = create_transfer(
-        &body(vec![item(M_PLAIN, "3")]),
-        Some(applicant),
-        Some("w3b_applicant"),
-    )
-    .await
-    .expect("建单必须成功");
+    let id = create_transfer(&body(vec![item(M_PLAIN, "3")]), Some(applicant), Some("w3b_applicant"))
+        .await
+        .expect("建单必须成功");
     let row = refresh(id).await;
     let start = prepare_start(&row, applicant)
         .await
@@ -685,11 +623,7 @@ async fn submit_twice_is_409_with_transfer_no_not_500() {
         .await
         .expect_err("已有审批中实例，提交必须 409");
     assert_eq!(err.status, 409, "不能是 500：{}", err.msg);
-    assert!(
-        err.msg.contains(&row.transfer_no),
-        "409 文案必须带单号：{}",
-        err.msg
-    );
+    assert!(err.msg.contains(&row.transfer_no), "409 文案必须带单号：{}", err.msg);
     assert!(
         err.msg.contains("审批中实例"),
         "409 文案必须说清「已有审批中实例」：{}",
@@ -764,13 +698,9 @@ async fn zz_teardown_purges_fixture_residue() {
     };
     let applicant = uuid(U_APPLICANT);
     // 造一张**带在跑审批单**的单：正好是卡面残留的那四类
-    let id = create_transfer(
-        &body(vec![item(M_PLAIN, "2")]),
-        Some(applicant),
-        Some("w3b_applicant"),
-    )
-    .await
-    .expect("建单必须成功");
+    let id = create_transfer(&body(vec![item(M_PLAIN, "2")]), Some(applicant), Some("w3b_applicant"))
+        .await
+        .expect("建单必须成功");
     change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
         .await
         .expect("提交审批应成功");
@@ -791,10 +721,7 @@ async fn zz_teardown_purges_fixture_residue() {
 
     // ① 单据没了
     assert!(
-        transfer_model::find_by_id(id)
-            .await
-            .expect("查单据")
-            .is_none(),
+        transfer_model::find_by_id(id).await.expect("查单据").is_none(),
         "清场后调拨单必须不存在"
     );
     // ② 实例没了

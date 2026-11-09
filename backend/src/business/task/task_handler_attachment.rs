@@ -113,14 +113,8 @@ pub async fn upload_attachment(
     let uploader_name = user_name::snapshot_name(operator)
         .await
         .map_err(|error| utils::db_error(error, "查询上传人姓名"))?;
-    let record = storage::handler::store_server_upload(
-        category,
-        &file_name,
-        &mime_type,
-        &bytes,
-        Some(operator),
-    )
-    .await?;
+    let record =
+        storage::handler::store_server_upload(category, &file_name, &mime_type, &bytes, Some(operator)).await?;
 
     // E14：秒传按「内容 hash」复用 `sys_file` 记录，同名不同内容不受影响；但同一份字节
     // 被第二个任务再传时，落到附件列表的仍是**首次上传**那个名字（记录是共用的）。
@@ -151,15 +145,9 @@ pub async fn upload_attachment(
         .await
         .map_err(|error| utils::db_error(error, "绑定 AI 附件"))?
     } else {
-        model::bind_human_attachment(
-            db(),
-            task_id,
-            record.id,
-            operator,
-            Some(uploader_name.as_str()),
-        )
-        .await
-        .map_err(|error| utils::db_error(error, "绑定任务附件"))?
+        model::bind_human_attachment(db(), task_id, record.id, operator, Some(uploader_name.as_str()))
+            .await
+            .map_err(|error| utils::db_error(error, "绑定任务附件"))?
     };
 
     tracing::info!(
@@ -200,13 +188,11 @@ pub(super) async fn read_single_upload(
     multipart: &mut axum::extract::Multipart,
 ) -> std::result::Result<(String, String, Vec<u8>), ApiError> {
     let limit = storage::handler::server_upload_limit_bytes();
-    while let Some(field) = multipart.next_field().await.map_err(|error| {
-        ApiError::new(
-            400,
-            error_code::PAYLOAD_INVALID,
-            format!("上传表单解析失败：{error}"),
-        )
-    })? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|error| ApiError::new(400, error_code::PAYLOAD_INVALID, format!("上传表单解析失败：{error}")))?
+    {
         let name = field.name().unwrap_or_default().to_string();
         let file_name = field.file_name().map(|value| value.to_string());
         let mime = field

@@ -210,11 +210,7 @@ pub(crate) async fn add_cost(
             ],
         )
         .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库存 upsert 未返回行（biz_inventory 的 RETURNING 不应为空）".into(),
-            )
-        })?;
+        .ok_or_else(|| DbError::InvalidValue("库存 upsert 未返回行（biz_inventory 的 RETURNING 不应为空）".into()))?;
     snapshot!(&row, "qty", "amount", "avg_cost")
 }
 
@@ -269,11 +265,7 @@ pub(crate) async fn subtract_cost(
             ],
         )
         .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库存反向冲减未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
-            )
-        })?;
+        .ok_or_else(|| DbError::InvalidValue("库存反向冲减未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into()))?;
     snapshot!(&row, "qty", "amount", "avg_cost")
 }
 
@@ -545,8 +537,7 @@ pub(crate) async fn credit_cost(
     let qty_text = qty.to_string();
     let amount_text = amount.to_string();
 
-    if let Some((id, before)) = lock_cost_bucket(ex, material_id, warehouse_id, location_id).await?
-    {
+    if let Some((id, before)) = lock_cost_bucket(ex, material_id, warehouse_id, location_id).await? {
         let updated = ex
             .query_first_sql(
                 "UPDATE biz_inventory \
@@ -621,9 +612,7 @@ pub(crate) async fn credit_cost(
             ],
         )
         .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue("调入仓库存建档未返回行（upsert 不应为空）".to_string())
-        })?;
+        .ok_or_else(|| DbError::InvalidValue("调入仓库存建档未返回行（upsert 不应为空）".to_string()))?;
     let after = snapshot!(&created, "after_qty", "after_amount", "after_cost")?;
     let before_qty = after.qty - qty;
     let before_amount = after.amount - amount;
@@ -784,17 +773,11 @@ pub(crate) fn align_cost_qty_insert_sql(source_cte: &str) -> String {
 /// 两条语句同一段 `source_cte`、同一个 executor（`dry_run=false` 时是同一个事务），
 /// 各自按 `bucket_count` 分流，**互不相交**（`= 1` 与 `= 0`），所以顺序无关；
 /// 也绝不按 (物料, 仓库) 循环 —— 每类都是一条集合语句。
-pub(crate) async fn align_cost_qty_batch(
-    ex: &impl SqlExecutor,
-    source_cte: &str,
-    params: Vec<Value>,
-) -> DbResult<u64> {
+pub(crate) async fn align_cost_qty_batch(ex: &impl SqlExecutor, source_cte: &str, params: Vec<Value>) -> DbResult<u64> {
     let updated = ex
         .query_sql(align_cost_qty_delta_sql(source_cte), params.clone())
         .await?;
-    let inserted = ex
-        .query_sql(align_cost_qty_insert_sql(source_cte), params)
-        .await?;
+    let inserted = ex.query_sql(align_cost_qty_insert_sql(source_cte), params).await?;
     Ok(u64::try_from(updated.len() + inserted.len()).unwrap_or(u64::MAX))
 }
 
@@ -813,9 +796,7 @@ pub(crate) async fn lock_location(
     location_id: Option<Uuid>,
 ) -> DbResult<Option<(Uuid, Decimal)>> {
     let sql = match location_id {
-        Some(_) => {
-            "SELECT id, qty FROM biz_inventory_location WHERE id = ?::uuid FOR UPDATE".to_string()
-        }
+        Some(_) => "SELECT id, qty FROM biz_inventory_location WHERE id = ?::uuid FOR UPDATE".to_string(),
         None => "SELECT id, qty FROM biz_inventory_location \
                   WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
                   FOR UPDATE"
@@ -895,9 +876,7 @@ pub(crate) async fn add_location_qty(
             )
             .await?
             .ok_or_else(|| {
-                DbError::InvalidValue(
-                    "库位账 UPDATE 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
-                )
+                DbError::InvalidValue("库位账 UPDATE 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into())
             })?;
         return Ok((before_qty, updated.get_typed("qty")?));
     }
@@ -944,9 +923,7 @@ pub(crate) async fn add_location_qty(
         )
         .await?
         .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库位账 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
-            )
+            DbError::InvalidValue("库位账 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into())
         })?;
     Ok((before_qty, row.get_typed("qty")?))
 }
@@ -1011,9 +988,7 @@ pub(crate) async fn subtract_location_qty(
             )
             .await?
             .ok_or_else(|| {
-                DbError::InvalidValue(
-                    "库位账反向冲减未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
-                )
+                DbError::InvalidValue("库位账反向冲减未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into())
             })?;
         return Ok((before_qty, updated.get_typed("qty")?));
     }
@@ -1060,9 +1035,7 @@ pub(crate) async fn subtract_location_qty(
             ],
         )
         .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue("库位账反向冲减（未分配桶）未返回行（UPDATE 命中 0 行）".into())
-        })?;
+        .ok_or_else(|| DbError::InvalidValue("库位账反向冲减（未分配桶）未返回行（UPDATE 命中 0 行）".into()))?;
     Ok((before_qty, updated.get_typed("qty")?))
 }
 
@@ -1087,11 +1060,7 @@ pub(crate) async fn deduct_location_qty(
             ],
         )
         .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "出库扣减库位账未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
-            )
-        })?;
+        .ok_or_else(|| DbError::InvalidValue("出库扣减库位账未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into()))?;
     row.get_typed("qty")
 }
 
@@ -1199,9 +1168,7 @@ pub(crate) async fn ensure_location_row(
         )
         .await?
         .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库位账行 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
-            )
+            DbError::InvalidValue("库位账行 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into())
         })?;
     row.get_typed("id")
 }

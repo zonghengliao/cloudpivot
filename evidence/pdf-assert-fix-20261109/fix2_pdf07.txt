@@ -1,0 +1,39 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+error[E0063]: missing field `confirm_critical` in initializer of `business::shared::state_machine::EdgeConfigPatch`
+   --> src/business/flow/edge_admin.rs:124:9
+    |
+124 |         EdgeConfigPatch {
+    |         ^^^^^^^^^^^^^^^ missing `confirm_critical`
+
+error[E0063]: missing field `confirm_critical` in initializer of `business::shared::state_machine::EdgeConfigPatch`
+   --> src/business/flow/edge_admin.rs:717:60
+    |
+717 |             Some(ACTION_UPSERT) => Some(EdgeChange::Upsert(EdgeConfigPatch {
+    |                                                            ^^^^^^^^^^^^^^^ missing `confirm_critical`
+
+error[E0063]: missing field `confirm_critical` in initializer of `business::shared::state_machine::EdgeConfigPatch`
+  --> src/business/flow/edge_admin_tests.rs:73:37
+   |
+73 |     let upsert = EdgeChange::Upsert(state_machine::EdgeConfigPatch {
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `confirm_critical`
+
+error[E0063]: missing field `confirm_critical` in initializer of `business::shared::state_machine::EdgeConfigPatch`
+   --> src/business/flow/edge_admin_tests.rs:172:37
+    |
+172 |     let change = EdgeChange::Upsert(state_machine::EdgeConfigPatch {
+    |                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `confirm_critical`
+
+error[E0063]: missing field `confirm_critical` in initializer of `business::shared::state_machine::EdgeConfigPatch`
+   --> src/business/flow/edge_admin_tests.rs:917:10
+    |
+917 |         &state_machine::EdgeConfigPatch {
+    |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `confirm_critical`
+
+error[E0063]: missing field `confirm_critical` in initializer of `business::shared::state_machine::EdgeConfigPatch`
+    --> src/business/flow/edge_admin_tests.rs:1016:10
+     |
+1016 |         &state_machine::EdgeConfigPatch {
+     |          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ missing `confirm_critical`
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `cloudpivot` (lib test) due to 6 previous errors

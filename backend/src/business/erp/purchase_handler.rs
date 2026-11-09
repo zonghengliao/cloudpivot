@@ -51,13 +51,13 @@ use crate::business::erp::model::PurchaseOrderRow;
 use crate::business::erp::purchase_bridge;
 use crate::business::erp::purchase_credit;
 use crate::business::erp::purchase_dto::{
-    CreatePurchaseOrderReq, PURCHASE_TYPE_CONTRACT, PendingItemRes, PendingOrderRes,
-    PendingReceiveRes, PendingStockInRes, PreparedOrder, PurchaseOrderDetailRes,
-    PurchaseOrderLineRes, PurchaseOrderStatusReq, ensure_submittable_lines,
+    CreatePurchaseOrderReq, PURCHASE_TYPE_CONTRACT, PendingItemRes, PendingOrderRes, PendingReceiveRes,
+    PendingStockInRes, PreparedOrder, PurchaseOrderDetailRes, PurchaseOrderLineRes, PurchaseOrderStatusReq,
+    ensure_submittable_lines,
 };
 use crate::business::erp::purchase_model::{
-    self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals,
-    can_transition, status_label, transition_rejected_message,
+    self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals, can_transition,
+    status_label, transition_rejected_message,
 };
 use crate::business::erp::stockin_model;
 use crate::business::erp::unit_guard;
@@ -94,11 +94,7 @@ fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
 
 /// 不存在统一 404。
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// 状态冲突统一 409。
@@ -148,10 +144,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "采购订单号重复（唯一约束{}）：取号器与库里的号段不一致，请联系运维排查 biz_seq",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -166,10 +159,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
         DbError::ForeignKeyViolation { constraint, .. } => ApiError::new(
             400,
             error_code::ERP_REFERENCE_MISSING,
-            format!(
-                "引用的数据不存在（外键 {}）",
-                constraint.as_deref().unwrap_or("<未知>")
-            ),
+            format!("引用的数据不存在（外键 {}）", constraint.as_deref().unwrap_or("<未知>")),
         ),
         other => utils::db_error(other, ctx),
     }
@@ -207,10 +197,7 @@ struct ResolvedHead {
 /// - ARCH-2 §5.1 V-22 与设计 §6.2/§7.3 都是「已签署（SIGNED）/ 生效（ACTIVE）」；
 /// - A2 的详情接口已按同一常量下发 `usable_for_order`，两处若不一致，
 ///   前端会看到「可用 = true」却下不了单。
-async fn resolve_contract(
-    raw: &str,
-    order_date: NaiveDate,
-) -> std::result::Result<OrderContract, ApiError> {
+async fn resolve_contract(raw: &str, order_date: NaiveDate) -> std::result::Result<OrderContract, ApiError> {
     let id = parse_uuid(raw, "contract_id")?;
     let contract = contract_model::contract_find(id)
         .await
@@ -266,9 +253,7 @@ async fn resolve_contract(
         id: contract.id,
         contract_no: contract.contract_no,
         party_b_id: contract.party_b_id,
-        supplier_name: contract
-            .party_b_current_name
-            .unwrap_or(contract.party_b_name),
+        supplier_name: contract.party_b_current_name.unwrap_or(contract.party_b_name),
     })
 }
 
@@ -398,9 +383,7 @@ pub async fn fill_supplier_names(rows: &mut [PurchaseOrderRes]) {
     if missing.is_empty() {
         return;
     }
-    let map = purchase_model::supplier_names_of(&missing)
-        .await
-        .unwrap_or_default();
+    let map = purchase_model::supplier_names_of(&missing).await.unwrap_or_default();
     for row in rows.iter_mut() {
         if row.supplier_name.is_some() {
             continue;
@@ -432,9 +415,7 @@ pub async fn fill_project_names(rows: &mut [PurchaseOrderRes]) {
     if ids.is_empty() {
         return;
     }
-    let map = purchase_model::project_names_of(&ids)
-        .await
-        .unwrap_or_default();
+    let map = purchase_model::project_names_of(&ids).await.unwrap_or_default();
     for row in rows.iter_mut() {
         if row.project_name.is_some() {
             continue;
@@ -474,9 +455,7 @@ pub async fn fill_warehouse_names(rows: &mut [PurchaseOrderRes]) {
     if ids.is_empty() {
         return;
     }
-    let map = purchase_model::warehouse_names_of(&ids)
-        .await
-        .unwrap_or_default();
+    let map = purchase_model::warehouse_names_of(&ids).await.unwrap_or_default();
     for row in rows.iter_mut() {
         if row.warehouse_name.is_some() {
             continue;
@@ -510,9 +489,7 @@ pub async fn fill_warehouse_name_current(rows: &mut [PurchaseOrderRes]) {
     if ids.is_empty() {
         return;
     }
-    let map = purchase_model::warehouse_names_of(&ids)
-        .await
-        .unwrap_or_default();
+    let map = purchase_model::warehouse_names_of(&ids).await.unwrap_or_default();
     for row in rows.iter_mut() {
         let live = Uuid::parse_str(&row.warehouse_id)
             .ok()
@@ -561,15 +538,7 @@ pub(crate) async fn budget_warnings_of(
     let (Some(account_id), Some(slot)) = (check.account_id, check.slot.as_ref()) else {
         return Vec::new();
     };
-    match budget_guard::pending_budgets(
-        db(),
-        slot.dept_id,
-        slot.fiscal_year,
-        &[account_id],
-        &slot.period_code,
-    )
-    .await
-    {
+    match budget_guard::pending_budgets(db(), slot.dept_id, slot.fiscal_year, &[account_id], &slot.period_code).await {
         Ok(pending) => budget_guard::pending_warnings(&pending, &slot.period_code)
             .iter()
             .map(crate::business::erp::budget_dto::BudgetWarningRes::from)
@@ -595,11 +564,7 @@ pub async fn fill_approval_no(rows: &mut [PurchaseOrderRes]) {
     if ids.is_empty() {
         return;
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     let found = db()
         .find_with_params(
             "SELECT id, instance_no FROM biz_flow_instance \
@@ -657,10 +622,7 @@ pub async fn create_purchase_order(
         warehouse_id,
         purchase_type: &prepared.purchase_type,
         contract_id: head.contract.as_ref().map(|contract| contract.id),
-        contract_no_snapshot: head
-            .contract
-            .as_ref()
-            .map(|contract| contract.contract_no.as_str()),
+        contract_no_snapshot: head.contract.as_ref().map(|contract| contract.contract_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
         warehouse_name_snapshot: Some(warehouse_name.as_str()),
         project_id,
@@ -722,10 +684,7 @@ async fn prepare_items(
 ) -> std::result::Result<Vec<NewItem>, ApiError> {
     let mut items = Vec::with_capacity(prepared.lines.len());
     for (index, line) in prepared.lines.iter().enumerate() {
-        let material_id = parse_uuid(
-            &line.material_id_raw,
-            &format!("items[{index}].material_id"),
-        )?;
+        let material_id = parse_uuid(&line.material_id_raw, &format!("items[{index}].material_id"))?;
         let material = purchase_model::material_ref(material_id)
             .await
             .map_err(|error| utils::db_error(error, "查询物料"))?
@@ -875,11 +834,7 @@ pub async fn update_purchase_order(
         .ok_or_else(|| not_found("采购订单"))?;
     if current.status != STATUS_DRAFT {
         // P10 铁律 ④：入账态（收过货）→ 统一的「已入账」文案
-        state_machine::ensure_writable(
-            state_machine::ENTITY_PURCHASE_ORDER,
-            &current.status,
-            &current.order_no,
-        )?;
+        state_machine::ensure_writable(state_machine::ENTITY_PURCHASE_ORDER, &current.status, &current.order_no)?;
         return Err(conflict(format!(
             "采购订单当前是「{}」（{}），只有草稿（DRAFT）能编辑：\
              已提交的单据请先取消，或由收货流程处理",
@@ -914,12 +869,7 @@ pub async fn update_purchase_order(
     }
     // 省缺 `purchase_type` → 用当前类型（否则 CONTRACT 单改备注会被默认成 SPOT）
     let mut req = req.clone();
-    if req
-        .purchase_type
-        .as_deref()
-        .map(str::trim)
-        .is_none_or(str::is_empty)
-    {
+    if req.purchase_type.as_deref().map(str::trim).is_none_or(str::is_empty) {
         req.purchase_type = Some(current.purchase_type.clone());
     }
     let prepared = req.prepare()?;
@@ -940,10 +890,7 @@ pub async fn update_purchase_order(
         warehouse_id,
         purchase_type: &prepared.purchase_type,
         contract_id: head.contract.as_ref().map(|contract| contract.id),
-        contract_no_snapshot: head
-            .contract
-            .as_ref()
-            .map(|contract| contract.contract_no.as_str()),
+        contract_no_snapshot: head.contract.as_ref().map(|contract| contract.contract_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
         warehouse_name_snapshot: Some(warehouse_name.as_str()),
         project_id,
@@ -1117,18 +1064,7 @@ pub async fn change_purchase_order_status(
         let _ = tx.rollback().await;
         return Err(error);
     }
-    match purchase_model::apply_status(
-        &tx,
-        id,
-        &row.status,
-        target,
-        reason,
-        op.id,
-        now,
-        &mut linkage_outbox,
-    )
-    .await
-    {
+    match purchase_model::apply_status(&tx, id, &row.status, target, reason, op.id, now, &mut linkage_outbox).await {
         Ok(0) => {
             let _ = tx.rollback().await;
             Err(conflict(format!(
@@ -1153,8 +1089,7 @@ pub async fn change_purchase_order_status(
                     return Err(write_error(error, "释放预算占用"));
                 }
             } else if target == purchase_model::STATUS_CLOSED
-                && let Err(error) =
-                    budget_guard::consume(&tx, budget_guard::SOURCE_PURCHASE, id, None).await
+                && let Err(error) = budget_guard::consume(&tx, budget_guard::SOURCE_PURCHASE, id, None).await
             {
                 let _ = tx.rollback().await;
                 return Err(write_error(error, "预算占用转已执行"));
@@ -1323,11 +1258,8 @@ pub async fn submit_approval(
             // ARCH-3 DC-01：**不再静默降级**。默认 409（点名 po_approve）；
             // 只有「持 business:erp:skip-approval + 理由 ≥10 字」才放行，
             // 理由随状态流转写进 `biz_status_log`（审计据此追溯为什么这次没有复核）。
-            let skip_reason = approval_gate::authorize_missing_flow(
-                purchase_bridge::BIZ_TYPE,
-                purchase_bridge::FLOW_CODE,
-                gate,
-            )?;
+            let skip_reason =
+                approval_gate::authorize_missing_flow(purchase_bridge::BIZ_TYPE, purchase_bridge::FLOW_CODE, gate)?;
             tracing::warn!(
                 order_id = %row.id,
                 order_no = %row.order_no,
@@ -1462,17 +1394,7 @@ async fn submit_po_approval(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启采购审批事务"))?;
-    let outcome = submit_po_tx(
-        &tx,
-        row,
-        operator,
-        &start,
-        credit,
-        budget,
-        now,
-        &mut linkage_outbox,
-    )
-    .await;
+    let outcome = submit_po_tx(&tx, row, operator, &start, credit, budget, now, &mut linkage_outbox).await;
     let mut out = match outcome {
         Ok(out) => out,
         Err(error) => {
@@ -1591,9 +1513,7 @@ async fn submit_po_tx(
 }
 
 /// 在跑实例的单号（拼 409 文案用；查不到就给 `-`）。
-async fn pending_instance_no_of(
-    instance_id: Option<Uuid>,
-) -> std::result::Result<String, ApiError> {
+async fn pending_instance_no_of(instance_id: Option<Uuid>) -> std::result::Result<String, ApiError> {
     let Some(instance_id) = instance_id else {
         return Ok("-".to_string());
     };
@@ -1681,10 +1601,7 @@ async fn purchase_form_data(
         }
         match warehouse {
             Ok(Some(name)) => {
-                object.insert(
-                    "warehouse_name".to_string(),
-                    serde_json::Value::String(name),
-                );
+                object.insert("warehouse_name".to_string(), serde_json::Value::String(name));
             }
             Ok(None) => {}
             Err(error) => {
@@ -1747,10 +1664,7 @@ pub async fn purchase_order_submit_approval(
 /// —— 后者会连同审批单一起终止（P11：不许留孤儿待办）。
 ///
 /// 其余状态（已审批 / 部分收货 / 已收货 / 已关闭 / 已取消）是审批与收货的事实，只能作废。
-pub async fn delete_purchase_order(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_purchase_order(id: Uuid, operator: Option<Uuid>) -> std::result::Result<(), ApiError> {
     let row = purchase_model::find_order(id)
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单"))?
@@ -1878,10 +1792,7 @@ mod tests {
         .await
         .unwrap();
         assert!(
-            purchase_bridge::published_po_flow()
-                .await
-                .unwrap()
-                .is_some(),
+            purchase_bridge::published_po_flow().await.unwrap().is_some(),
             "夹具自检：流程必须已还原成 PUBLISHED"
         );
 
@@ -1942,11 +1853,7 @@ mod tests {
             assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
             assert!(api.msg.contains("PO-20261102-000123"), "{}", api.msg);
             assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
-            assert!(
-                !api.msg.contains("biz_seq"),
-                "不能把用户指到取号器：{}",
-                api.msg
-            );
+            assert!(!api.msg.contains("biz_seq"), "不能把用户指到取号器：{}", api.msg);
             assert!(!api.msg.contains("单号重复"), "{}", api.msg);
         }
 
@@ -2244,11 +2151,7 @@ mod tests {
         let detail = detail_of(id).await.unwrap();
         assert_eq!(detail.order.status, STATUS_DRAFT);
         assert_eq!(detail.order.price_mode, "EXCL");
-        assert!(
-            detail.order.order_no.starts_with("PO-"),
-            "{}",
-            detail.order.order_no
-        );
+        assert!(detail.order.order_no.starts_with("PO-"), "{}", detail.order.order_no);
         assert_eq!(detail.order.total_amount, dec("200.00"));
         assert_eq!(detail.order.total_tax, dec("26.00"));
         assert_eq!(detail.order.total_with_tax, dec("226.00"));
@@ -2322,10 +2225,7 @@ mod tests {
         let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "100", "2", "13")]), None)
             .await
             .unwrap();
-        let changed = req(
-            "EXCL",
-            &[(MATERIAL_A, "10", "2", "13"), (MATERIAL_B, "5", "3", "6")],
-        );
+        let changed = req("EXCL", &[(MATERIAL_A, "10", "2", "13"), (MATERIAL_B, "5", "3", "6")]);
         update_purchase_order(id, &changed, None).await.unwrap();
         let detail = detail_of(id).await.unwrap();
         assert_eq!(detail.items.len(), 2, "旧行必须被替换掉");
@@ -2382,10 +2282,7 @@ mod tests {
 
         // 基本单位 + 折算单位混填：整单拒，不许「先把前一行落进去」
         let mixed = create_purchase_order(
-            &req(
-                "EXCL",
-                &[(MATERIAL_A, "1", "2", "13"), (MATERIAL_BOX, "1", "2", "13")],
-            ),
+            &req("EXCL", &[(MATERIAL_A, "1", "2", "13"), (MATERIAL_BOX, "1", "2", "13")]),
             None,
         )
         .await
@@ -2436,12 +2333,9 @@ mod tests {
             None => return,
         };
         let operator = Uuid::now_v7();
-        let id = create_purchase_order(
-            &req("EXCL", &[(MATERIAL_A, "100", "2", "13")]),
-            Some(operator),
-        )
-        .await
-        .unwrap();
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "100", "2", "13")]), Some(operator))
+            .await
+            .unwrap();
         change_purchase_order_status(id, &status_req(STATUS_SUBMITTED, None), Some(operator))
             .await
             .unwrap();
@@ -2468,11 +2362,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.status, 409, "{}", err.msg);
-        assert!(
-            err.msg.contains("SUBMITTED"),
-            "文案要点名可选去向：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("SUBMITTED"), "文案要点名可选去向：{}", err.msg);
     }
 
     /// ⑧ 作废：SUBMITTED → CANCELLED 必须给 reason（400），给了才成功并追加进 remark。
@@ -2495,13 +2385,9 @@ mod tests {
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("reason"), "{}", err.msg);
 
-        change_purchase_order_status(
-            id,
-            &status_req(STATUS_CANCELLED, Some("供应商断供，改走另一家")),
-            None,
-        )
-        .await
-        .unwrap();
+        change_purchase_order_status(id, &status_req(STATUS_CANCELLED, Some("供应商断供，改走另一家")), None)
+            .await
+            .unwrap();
         let detail = detail_of(id).await.unwrap();
         assert_eq!(detail.order.status, STATUS_CANCELLED);
         assert!(
@@ -2561,13 +2447,7 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let request = req(
-            "EXCL",
-            &[
-                (MATERIAL_A, "10", "2.5", "13"),
-                (MATERIAL_B, "3", "10", "6"),
-            ],
-        );
+        let request = req("EXCL", &[(MATERIAL_A, "10", "2.5", "13"), (MATERIAL_B, "3", "10", "6")]);
         let id = create_purchase_order(&request, None).await.unwrap();
         let detail = detail_of(id).await.unwrap();
         // 行 1：25.00 + 3.25 = 28.25；行 2：30.00 + 1.80 = 31.80
@@ -2726,12 +2606,7 @@ mod tests {
             .await
             .expect("读待办失败");
         rows.iter()
-            .map(|row| {
-                (
-                    row.get_typed("id").unwrap(),
-                    row.get_typed("assignee_id").unwrap(),
-                )
-            })
+            .map(|row| (row.get_typed("id").unwrap(), row.get_typed("assignee_id").unwrap()))
             .collect()
     }
 
@@ -2761,9 +2636,9 @@ mod tests {
     async fn approve_as(task_id: Uuid, operator: &str) -> crate::business::flow::engine::ActionOut {
         let op = uid(operator);
         let out = db()
-            .transaction(|tx| async move {
-                crate::business::flow::engine::approve(&tx, task_id, op, Some("同意")).await
-            })
+            .transaction(
+                |tx| async move { crate::business::flow::engine::approve(&tx, task_id, op, Some("同意")).await },
+            )
             .await
             .unwrap_or_else(|err| panic!("同意失败：{err}"));
         purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
@@ -2771,11 +2646,7 @@ mod tests {
     }
 
     /// 以某人的身份驳回（驳回并终止）。
-    async fn reject_as(
-        task_id: Uuid,
-        operator: &str,
-        comment: &str,
-    ) -> crate::business::flow::engine::ActionOut {
+    async fn reject_as(task_id: Uuid, operator: &str, comment: &str) -> crate::business::flow::engine::ActionOut {
         let op = uid(operator);
         let out = db()
             .transaction(|tx| async move {
@@ -2850,21 +2721,10 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
-        assert_eq!(
-            tasks.len(),
-            1,
-            "第一档只有一个审批人，实际待办 {}",
-            tasks.len()
-        );
-        assert_eq!(
-            tasks[0].1,
-            uid(U_DEPT),
-            "8000 元必须派给 DEPT_LEADER（部门主管）"
-        );
+        assert_eq!(tasks.len(), 1, "第一档只有一个审批人，实际待办 {}", tasks.len());
+        assert_eq!(tasks[0].1, uid(U_DEPT), "8000 元必须派给 DEPT_LEADER（部门主管）");
     }
 
     /// ②b t_72e95761：「admin（超管）提交 8000 元采购单」必须停在 SUBMITTED + 1 条待办。
@@ -2899,13 +2759,8 @@ mod tests {
             row.status, STATUS_SUBMITTED,
             "提交后必须停在 SUBMITTED —— 没有任何人点过「通过」，不许是 APPROVED"
         );
-        assert!(
-            row.approved_at.is_none(),
-            "没人点过通过，approval 时间必须为空"
-        );
-        let instance = row
-            .approval_instance_id
-            .expect("SUBMITTED 必须回写审批实例 id");
+        assert!(row.approved_at.is_none(), "没人点过通过，approval 时间必须为空");
+        let instance = row.approval_instance_id.expect("SUBMITTED 必须回写审批实例 id");
         let instance_status: String = db()
             .scalar_with_params::<Option<String>>(
                 "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
@@ -2917,11 +2772,7 @@ mod tests {
         assert_eq!(instance_status, "PENDING", "实例必须还在等审批");
 
         let tasks = pending_tasks(instance).await;
-        assert_eq!(
-            tasks.len(),
-            1,
-            "必须恰好 1 条待办（流程真的在等人批），实际 {tasks:?}"
-        );
+        assert_eq!(tasks.len(), 1, "必须恰好 1 条待办（流程真的在等人批），实际 {tasks:?}");
         assert_eq!(tasks[0].1, uid(U_DEPT), "8000 元档的待办要落在部门主管头上");
         assert!(
             task_of(instance, admin).await.is_none(),
@@ -2944,16 +2795,10 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("50000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         assert_eq!(tasks.len(), 1);
-        assert_eq!(
-            tasks[0].1,
-            uid(U_PM),
-            "50000 元必须派给 PURCHASE_MANAGER（采购经理）"
-        );
+        assert_eq!(tasks[0].1, uid(U_PM), "50000 元必须派给 PURCHASE_MANAGER（采购经理）");
     }
 
     /// ④ 500000 元（≥ 10 万）→ 采购经理 + 总经理**会签**，只批一人不通过。
@@ -2965,9 +2810,7 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("500000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let instance = running_instance(id).await;
         let tasks = pending_tasks(instance).await;
         assert_eq!(tasks.len(), 2, "会签节点必须同时生成 2 条待办");
@@ -2980,11 +2823,7 @@ mod tests {
         let out = approve_as(pm_task, U_PM).await;
         assert_eq!(out.instance_status, "PENDING", "会签没走完不能结束");
         assert_eq!(
-            purchase_model::find_order(id)
-                .await
-                .unwrap()
-                .unwrap()
-                .status,
+            purchase_model::find_order(id).await.unwrap().unwrap().status,
             STATUS_SUBMITTED,
             "只批一票不能变 APPROVED"
         );
@@ -2994,11 +2833,7 @@ mod tests {
         let out = approve_as(gm_task, U_GM).await;
         assert_eq!(out.instance_status, "APPROVED");
         assert_eq!(
-            purchase_model::find_order(id)
-                .await
-                .unwrap()
-                .unwrap()
-                .status,
+            purchase_model::find_order(id).await.unwrap().unwrap().status,
             "APPROVED",
             "两人都批才 APPROVED"
         );
@@ -3013,9 +2848,7 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         approve_as(tasks[0].0, U_DEPT).await;
 
@@ -3040,22 +2873,14 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         reject_as(tasks[0].0, U_DEPT, "预算不够，下季度再买").await;
 
         let row = purchase_model::find_order(id).await.unwrap().unwrap();
-        assert_eq!(
-            row.status, "DRAFT",
-            "驳回必须打回草稿（不是关闭、不是取消）"
-        );
+        assert_eq!(row.status, "DRAFT", "驳回必须打回草稿（不是关闭、不是取消）");
         let remark = row.remark.unwrap_or_default();
-        assert!(
-            remark.contains("预算不够"),
-            "审批意见必须写进 remark，实际：{remark}"
-        );
+        assert!(remark.contains("预算不够"), "审批意见必须写进 remark，实际：{remark}");
         assert!(
             row.approval_instance_id.is_none(),
             "打回草稿必须清空审批实例（否则下次提交的判断被污染）"
@@ -3085,9 +2910,7 @@ mod tests {
              VALUES ('{U_MAKER}'::uuid, '{ROLE_DEPT_LEADER}'::uuid) ON CONFLICT DO NOTHING"
         ))
         .await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let instance = running_instance(id).await;
         let (mine, status, comment) = task_of(instance, uid(U_MAKER))
             .await
@@ -3110,11 +2933,7 @@ mod tests {
             .expect_err("自批必须被拦");
         assert_eq!(err.status, 403, "{}", err.msg);
         assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
-        assert!(
-            err.msg.contains("不能审批自己提交的采购订单"),
-            "{}",
-            err.msg
-        );
+        assert!(err.msg.contains("不能审批自己提交的采购订单"), "{}", err.msg);
         // 换成别的部门主管就能批（闸只拦本人）
         purchase_bridge::guard_self_approval(mine, uid(U_DEPT))
             .await
@@ -3135,9 +2954,7 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let instance = running_instance(id).await;
         let instance_no: String = db()
             .scalar_with_params::<Option<String>>(
@@ -3152,11 +2969,7 @@ mod tests {
             .await
             .expect_err("重复提交必须 409");
         assert_eq!(err.status, 409, "{}", err.msg);
-        assert!(
-            err.msg.contains(&instance_no),
-            "报文要点名审批单号：{}",
-            err.msg
-        );
+        assert!(err.msg.contains(&instance_no), "报文要点名审批单号：{}", err.msg);
         // 不能因此多出一张审批单
         let count: i64 = db()
             .scalar_with_params::<Option<i64>>(
@@ -3184,9 +2997,7 @@ mod tests {
         setup_approval().await;
         // 8000 元 → 部门主管单节点（U_DEPT），便于查「我的待办」。
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
-            .await
-            .unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await.unwrap();
         let instance = running_instance(id).await;
 
         // 验收标准 1 的 SQL：直接读库里冻结的那一份。
@@ -3198,8 +3009,7 @@ mod tests {
             .await
             .unwrap()
             .expect("实例必须存在");
-        let form: serde_json::Value =
-            serde_json::from_str(&text).expect("form_data 必须是合法 JSON");
+        let form: serde_json::Value = serde_json::from_str(&text).expect("form_data 必须是合法 JSON");
 
         // 显示名：审批岗位角色没有 business:erp:* 权限，这两个键是「看不见 ID 也能看懂」的全部依靠。
         assert_eq!(
@@ -3274,8 +3084,7 @@ mod tests {
         row.supplier_id = Uuid::nil();
         row.warehouse_id = Uuid::nil();
         // 信用评估结果按「额度不限」传：本用例只钉显示名的降级口径
-        let credit =
-            purchase_credit::CreditVerdict::unassessable(Decimal::ZERO, row.total_with_tax);
+        let credit = purchase_credit::CreditVerdict::unassessable(Decimal::ZERO, row.total_with_tax);
         // FIN-1：预算判定用「未解析到科目」的空结果（本用例只钉显示名降级口径）
         let budget = budget_guard::PurchaseBudget {
             mode: budget_guard::ControlMode::Warn,
@@ -3334,10 +3143,7 @@ mod tests {
 
         // ① 单据没了
         assert!(
-            purchase_model::find_order(id)
-                .await
-                .expect("查单据")
-                .is_none(),
+            purchase_model::find_order(id).await.expect("查单据").is_none(),
             "清场后采购订单必须不存在"
         );
         // ② 实例没了（**孤儿也认**：单据已删，实例仍必须被收走）
@@ -3427,23 +3233,14 @@ mod tests {
         assert_eq!(detail.order.purchase_type, "CONTRACT");
         assert_eq!(detail.order.supplier_id, SUPPLIER, "供应商必须 = 合同乙方");
         assert_eq!(detail.order.contract_id.as_deref(), Some(CONTRACT_ACTIVE));
-        assert_eq!(
-            detail.order.contract_no.as_deref(),
-            Some(CONTRACT_ACTIVE_NO)
-        );
+        assert_eq!(detail.order.contract_no.as_deref(), Some(CONTRACT_ACTIVE_NO));
         assert_eq!(
             detail.order.contract_no_snapshot.as_deref(),
             Some(CONTRACT_ACTIVE_NO),
             "落库的是合同号**快照**，不是运行时 JOIN 出来的"
         );
-        assert_eq!(
-            detail.order.supplier_name_snapshot.as_deref(),
-            Some("P2A2 测试供应商")
-        );
-        assert_eq!(
-            detail.order.supplier_name.as_deref(),
-            Some("P2A2 测试供应商")
-        );
+        assert_eq!(detail.order.supplier_name_snapshot.as_deref(), Some("P2A2 测试供应商"));
+        assert_eq!(detail.order.supplier_name.as_deref(), Some("P2A2 测试供应商"));
     }
 
     /// ⑨ CONTRACT 但 contract_id 为空 → 400（业务码 66023，不是 500）。
@@ -3485,11 +3282,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert_eq!(err.code, error_code::ERP_CONTRACT_NOT_USABLE);
-        assert!(
-            err.msg.contains("草稿"),
-            "文案要说清是状态问题：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("草稿"), "文案要说清是状态问题：{}", err.msg);
     }
 
     /// ⑫ CONTRACT 但传入的 supplier_id ≠ 合同乙方 → 400 + 66025（不静默按合同方覆盖）。
@@ -3545,19 +3338,10 @@ mod tests {
             .await
             .unwrap();
         let detail = detail_of(id).await.unwrap();
-        assert_eq!(
-            detail.order.purchase_type, "SPOT",
-            "缺省必须是 SPOT（与列默认值一致）"
-        );
+        assert_eq!(detail.order.purchase_type, "SPOT", "缺省必须是 SPOT（与列默认值一致）");
         assert!(detail.order.contract_id.is_none());
-        assert_eq!(
-            detail.order.contract_no_snapshot, None,
-            "SPOT 的合同号快照必须为 NULL"
-        );
-        assert_eq!(
-            detail.order.supplier_name_snapshot.as_deref(),
-            Some("P2A2 测试供应商")
-        );
+        assert_eq!(detail.order.contract_no_snapshot, None, "SPOT 的合同号快照必须为 NULL");
+        assert_eq!(detail.order.supplier_name_snapshot.as_deref(), Some("P2A2 测试供应商"));
     }
 
     /// ⑯ 改单想改 purchase_type → 400 + 66022（CONTRACT → SPOT 会洗掉合同关联）。
@@ -3619,9 +3403,7 @@ mod tests {
             page_size: 20,
             ..Default::default()
         };
-        let (rows, total) = crate::business::erp::model::purchase_order_page(&filter)
-            .await
-            .unwrap();
+        let (rows, total) = crate::business::erp::model::purchase_order_page(&filter).await.unwrap();
         assert_eq!(total, 1, "按合同筛选必须只命中这一张");
         let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
         fill_supplier_names(&mut list).await;
@@ -3652,14 +3434,9 @@ mod tests {
              VALUES ('{legacy}'::uuid, 'A3-LEGACY-1', '{SUPPLIER}'::uuid, current_date, \
                  '{WAREHOUSE}'::uuid, 'DRAFT', 'EXCL', 1, 2, 0.26, 2.26)"
         );
-        db().execute_with_params(&sql, vec![])
-            .await
-            .expect("写存量行");
+        db().execute_with_params(&sql, vec![]).await.expect("写存量行");
         let detail = detail_of(legacy).await.unwrap();
-        assert_eq!(
-            detail.order.purchase_type, "SPOT",
-            "存量单必须落默认值 SPOT"
-        );
+        assert_eq!(detail.order.purchase_type, "SPOT", "存量单必须落默认值 SPOT");
         assert!(detail.order.contract_id.is_none());
         assert_eq!(
             detail.order.supplier_name_snapshot, None,
@@ -3692,9 +3469,7 @@ mod tests {
             page_size: 20,
             ..Default::default()
         };
-        let (_, total) = crate::business::erp::model::purchase_order_page(&filter)
-            .await
-            .unwrap();
+        let (_, total) = crate::business::erp::model::purchase_order_page(&filter).await.unwrap();
         assert_eq!(total, 0, "超限的单必须整体回滚，不留半张");
     }
 
@@ -3708,15 +3483,10 @@ mod tests {
         create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
             .await
             .unwrap();
-        let used =
-            purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_ACTIVE).unwrap(), None)
-                .await
-                .unwrap();
-        assert_eq!(
-            used,
-            dec("22.60"),
-            "已下单额必须现算（SUM 未取消单），不是缓存列"
-        );
+        let used = purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_ACTIVE).unwrap(), None)
+            .await
+            .unwrap();
+        assert_eq!(used, dec("22.60"), "已下单额必须现算（SUM 未取消单），不是缓存列");
         // 第二张同样能建（累计 45.20 远小于 10 万）
         let second = create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
             .await
@@ -3748,11 +3518,7 @@ mod tests {
         let err = request.prepare().unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert_eq!(err.code, error_code::ERP_PO_TYPE_INVALID);
-        assert!(
-            err.msg.contains("CONTRACT"),
-            "文案要给出可选项：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("CONTRACT"), "文案要给出可选项：{}", err.msg);
     }
 
     /// ㉔ 类型大小写 / 空格归一化：`"  contract  "` 等价于 `CONTRACT`。
@@ -3786,10 +3552,8 @@ mod tests {
             .expect("单据应存在");
         (
             row.over_credit_limit,
-            row.credit_exposure
-                .map(|value| value.normalize().to_string()),
-            row.credit_limit_snapshot
-                .map(|value| value.normalize().to_string()),
+            row.credit_exposure.map(|value| value.normalize().to_string()),
+            row.credit_limit_snapshot.map(|value| value.normalize().to_string()),
         )
     }
 
@@ -3820,12 +3584,7 @@ mod tests {
 
         submit_approval(id, Some(uid(U_MAKER)), &none_gate())
             .await
-            .unwrap_or_else(|err| {
-                panic!(
-                    "超限单应当能提交（策略 B：允许 + 强制审批）：{} {}",
-                    err.code, err.msg
-                )
-            });
+            .unwrap_or_else(|err| panic!("超限单应当能提交（策略 B：允许 + 强制审批）：{} {}", err.code, err.msg));
 
         // ② 快照三元组（`normalize()` 去掉 PG 补的尾零）
         assert_eq!(
@@ -3869,11 +3628,7 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        assert_eq!(
-            eval(&condition, &context),
-            Ok(true),
-            "「超信用额度」条件分支必须命中"
-        );
+        assert_eq!(eval(&condition, &context), Ok(true), "「超信用额度」条件分支必须命中");
     }
 
     /// **P2-2-①b**：额度 10 万，下单 8 千 → **不**标记超限，但累计照记。
@@ -3937,13 +3692,9 @@ mod tests {
         set_credit_limit("30000").await;
 
         let cancelled = order_with_amount("20000").await;
-        change_purchase_order_status(
-            cancelled,
-            &status_req("CANCELLED", None),
-            Some(uid(U_MAKER)),
-        )
-        .await
-        .expect("草稿单作废应当成功");
+        change_purchase_order_status(cancelled, &status_req("CANCELLED", None), Some(uid(U_MAKER)))
+            .await
+            .expect("草稿单作废应当成功");
 
         let live = order_with_amount("20000").await;
         submit_approval(live, Some(uid(U_MAKER)), &none_gate())
@@ -4003,11 +3754,7 @@ mod tests {
             error.msg
         );
         assert!(error.msg.contains("po_approve"), "{}", error.msg);
-        assert!(
-            error.msg.contains("信用额度"),
-            "报文要点名是额度问题：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("信用额度"), "报文要点名是额度问题：{}", error.msg);
         // 单据一动不动
         let row = purchase_model::find_order(id).await.unwrap().unwrap();
         assert_eq!(row.status, STATUS_DRAFT, "被拒后必须仍是草稿");
@@ -4051,8 +3798,7 @@ mod tests {
         .await
         .unwrap();
 
-        outcome
-            .unwrap_or_else(|err| panic!("额度内的单应当能显式跳过审批：{} {}", err.code, err.msg));
+        outcome.unwrap_or_else(|err| panic!("额度内的单应当能显式跳过审批：{} {}", err.code, err.msg));
         let row = purchase_model::find_order(id).await.unwrap().unwrap();
         assert_eq!(row.status, STATUS_SUBMITTED);
         assert_eq!(
@@ -4111,34 +3857,10 @@ mod tests {
     /// `deleted_at` 复位成 NULL。
     async fn seed_projects() {
         let rows = [
-            (
-                PROJECT_MAIN,
-                "P28-MAIN",
-                PROJECT_MAIN_NAME,
-                "ACTIVE",
-                "NULL",
-            ),
-            (
-                PROJECT_OTHER,
-                "P28-OTHER",
-                "P2-8 备用项目",
-                "ACTIVE",
-                "NULL",
-            ),
-            (
-                PROJECT_ARCHIVED,
-                "P28-ARCH",
-                "P2-8 归档项目",
-                "ARCHIVED",
-                "NULL",
-            ),
-            (
-                PROJECT_DELETED,
-                "P28-DEL",
-                "P2-8 已删项目",
-                "ACTIVE",
-                "now()",
-            ),
+            (PROJECT_MAIN, "P28-MAIN", PROJECT_MAIN_NAME, "ACTIVE", "NULL"),
+            (PROJECT_OTHER, "P28-OTHER", "P2-8 备用项目", "ACTIVE", "NULL"),
+            (PROJECT_ARCHIVED, "P28-ARCH", "P2-8 归档项目", "ARCHIVED", "NULL"),
+            (PROJECT_DELETED, "P28-DEL", "P2-8 已删项目", "ACTIVE", "now()"),
         ];
         for (id, no, name, status, deleted_at) in rows {
             let sql = format!(
@@ -4238,20 +3960,14 @@ mod tests {
             .expect_err("项目不存在必须 400");
         assert_eq!(err.status, 400, "{}", err.msg);
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING, "{}", err.msg);
-        assert!(
-            err.msg.contains("project_id"),
-            "文案必须点名 project_id：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("project_id"), "文案必须点名 project_id：{}", err.msg);
         let filter = PurchaseOrderFilter {
             supplier_id: Some(SUPPLIER.to_string()),
             page: 1,
             page_size: 20,
             ..Default::default()
         };
-        let (_, total) = crate::business::erp::model::purchase_order_page(&filter)
-            .await
-            .unwrap();
+        let (_, total) = crate::business::erp::model::purchase_order_page(&filter).await.unwrap();
         assert_eq!(total, 0, "被拒的单不能留下半张");
     }
 
@@ -4321,11 +4037,7 @@ mod tests {
         update_purchase_order(id, &req_with_project(None), None)
             .await
             .expect("改单清空项目");
-        assert_eq!(
-            stored_project_of(id).await,
-            None,
-            "不传 project_id 必须清空"
-        );
+        assert_eq!(stored_project_of(id).await, None, "不传 project_id 必须清空");
         assert_eq!(detail_of(id).await.unwrap().order.project_name, None);
     }
 
@@ -4344,9 +4056,7 @@ mod tests {
         let _with_other = create_purchase_order(&req_with_project(Some(PROJECT_OTHER)), None)
             .await
             .unwrap();
-        let _without = create_purchase_order(&req_with_project(None), None)
-            .await
-            .unwrap();
+        let _without = create_purchase_order(&req_with_project(None), None).await.unwrap();
 
         let filter = PurchaseOrderFilter {
             project_id: Some(PROJECT_MAIN.to_string()),
@@ -4354,9 +4064,7 @@ mod tests {
             page_size: 20,
             ..Default::default()
         };
-        let (rows, total) = crate::business::erp::model::purchase_order_page(&filter)
-            .await
-            .unwrap();
+        let (rows, total) = crate::business::erp::model::purchase_order_page(&filter).await.unwrap();
         assert_eq!(total, 1, "按项目筛选必须只命中挂在该项目上的那 1 张");
         let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
         fill_project_names(&mut list).await;
@@ -4375,9 +4083,7 @@ mod tests {
             page_size: 20,
             ..Default::default()
         };
-        let (_, total_all) = crate::business::erp::model::purchase_order_page(&all)
-            .await
-            .unwrap();
+        let (_, total_all) = crate::business::erp::model::purchase_order_page(&all).await.unwrap();
         assert_eq!(total_all, 3);
     }
 
@@ -4451,9 +4157,7 @@ mod tests {
     /// 改仓库名（P2-9 的核心场景：主档改名后历史单据该显示什么）。
     async fn rename_warehouse(name: &str) {
         db().execute_with_params(
-            &format!(
-                "UPDATE biz_warehouse SET warehouse_name = '{name}' WHERE id = '{WAREHOUSE}'::uuid"
-            ),
+            &format!("UPDATE biz_warehouse SET warehouse_name = '{name}' WHERE id = '{WAREHOUSE}'::uuid"),
             vec![],
         )
         .await

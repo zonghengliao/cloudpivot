@@ -165,8 +165,7 @@ impl PurchaseOrderRow {
 }
 
 /// `biz_purchase_order` 的分页锚点。
-pub const PURCHASE_ORDER_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::unscoped("biz_purchase_order");
+pub const PURCHASE_ORDER_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_purchase_order");
 
 /// 采购订单列表排序：下单日期降序 → 单号降序（走 `idx_biz_po_date`）。
 pub const PURCHASE_ORDER_ORDER: &str = "ORDER BY order_date DESC, order_no DESC";
@@ -189,18 +188,13 @@ pub async fn purchase_order_find_by_no(order_no: &str) -> DbResult<Option<Purcha
         "SELECT {PURCHASE_ORDER_COLUMNS} FROM biz_purchase_order \
          WHERE order_no = ? AND deleted_at IS NULL"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(order_no)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(order_no)]).await?;
     rows.first().map(PurchaseOrderRow::from_row).transpose()
 }
 
 /// 采购订单分页（关键词 / 状态 / 供应商 / 仓库 / 下单日期区间）。
-pub async fn purchase_order_page(
-    q: &PurchaseOrderFilter,
-) -> DbResult<(Vec<PurchaseOrderRow>, i64)> {
-    let mut sql =
-        format!("SELECT {PURCHASE_ORDER_COLUMNS} FROM biz_purchase_order WHERE deleted_at IS NULL");
+pub async fn purchase_order_page(q: &PurchaseOrderFilter) -> DbResult<(Vec<PurchaseOrderRow>, i64)> {
+    let mut sql = format!("SELECT {PURCHASE_ORDER_COLUMNS} FROM biz_purchase_order WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(q.keyword.as_deref()) {
         sql.push_str(" AND (order_no LIKE ? OR remark LIKE ?)");
@@ -357,9 +351,7 @@ pub async fn purchase_order_items(order_id: Uuid) -> DbResult<Vec<PurchaseOrderI
          WHERE i.order_id = ? ORDER BY i.line_no ASC",
         purchase_order_item_columns()
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(order_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(order_id)]).await?;
     rows.iter().map(PurchaseOrderItemRow::from_row).collect()
 }
 
@@ -377,9 +369,7 @@ pub async fn purchase_order_item_find_by_id(id: Uuid) -> DbResult<Option<Purchas
 }
 
 /// 采购明细分页（按订单 / 按物料），供「物料采购记录」类页面使用。
-pub async fn purchase_order_item_page(
-    q: &PurchaseOrderItemFilter,
-) -> DbResult<(Vec<PurchaseOrderItemRow>, i64)> {
+pub async fn purchase_order_item_page(q: &PurchaseOrderItemFilter) -> DbResult<(Vec<PurchaseOrderItemRow>, i64)> {
     let mut sql = format!(
         "SELECT {} FROM biz_purchase_order_item i WHERE 1 = 1",
         purchase_order_item_columns()

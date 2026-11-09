@@ -44,14 +44,7 @@ fn dept_row(id: uuid::Uuid, parent: Option<uuid::Uuid>, code: &str, sort: i32) -
 
 /// 「仅本人 / 无部门」的操作者。
 fn self_only_principal() -> ScopedPrincipal {
-    ScopedPrincipal::for_test(
-        uuid::Uuid::now_v7(),
-        None,
-        false,
-        ScopeKind::SelfOnly,
-        Vec::new(),
-        true,
-    )
+    ScopedPrincipal::for_test(uuid::Uuid::now_v7(), None, false, ScopeKind::SelfOnly, Vec::new(), true)
 }
 
 /// 「本部门及以下」的操作者（可见 1 个部门）。
@@ -74,13 +67,9 @@ fn dept_principal(dept: uuid::Uuid) -> ScopedPrincipal {
 #[tokio::test]
 async fn a01_cannot_grant_all_scope_from_narrow_operator() {
     let operator = self_only_principal();
-    let error = scope_model::ensure_kind_grantable(&operator, ScopeKind::All)
-        .expect_err("仅本人范围不得授出「全部数据」");
-    assert_eq!(
-        error.status, 403,
-        "应 403，实际 {}/{}",
-        error.status, error.code
-    );
+    let error =
+        scope_model::ensure_kind_grantable(&operator, ScopeKind::All).expect_err("仅本人范围不得授出「全部数据」");
+    assert_eq!(error.status, 403, "应 403，实际 {}/{}", error.status, error.code);
     assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
 
     // 对照：收紧到「仅本人」永远允许
@@ -96,14 +85,7 @@ async fn a01_cannot_grant_all_scope_from_narrow_operator() {
 /// A02：超管（或自身范围已是「全部」的管理员）可以授任意范围（架构 §2.7：超管不受限）。
 #[tokio::test]
 async fn a02_super_admin_can_grant_any_scope() {
-    let sup = ScopedPrincipal::for_test(
-        uuid::Uuid::now_v7(),
-        None,
-        true,
-        ScopeKind::All,
-        Vec::new(),
-        false,
-    );
+    let sup = ScopedPrincipal::for_test(uuid::Uuid::now_v7(), None, true, ScopeKind::All, Vec::new(), false);
     for kind in [
         ScopeKind::All,
         ScopeKind::Dept,
@@ -118,14 +100,7 @@ async fn a02_super_admin_can_grant_any_scope() {
         );
     }
     // 非超管但范围 = All 的管理员同样可以
-    let all_admin = ScopedPrincipal::for_test(
-        uuid::Uuid::now_v7(),
-        None,
-        false,
-        ScopeKind::All,
-        Vec::new(),
-        false,
-    );
+    let all_admin = ScopedPrincipal::for_test(uuid::Uuid::now_v7(), None, false, ScopeKind::All, Vec::new(), false);
     assert!(
         scope_model::ensure_kind_grantable(&all_admin, ScopeKind::All).is_ok(),
         "范围=全部的管理员授出全部不该被拦"
@@ -140,8 +115,7 @@ async fn a02_super_admin_can_grant_any_scope() {
 async fn a03_dept_scope_requires_visible_depts() {
     let operator = self_only_principal();
     for kind in [ScopeKind::Dept, ScopeKind::DeptAndChild] {
-        let error = scope_model::ensure_kind_grantable(&operator, kind)
-            .expect_err("无部门可见者不得授出部门级范围");
+        let error = scope_model::ensure_kind_grantable(&operator, kind).expect_err("无部门可见者不得授出部门级范围");
         assert_eq!(error.status, 403, "应 403，实际 {}", error.status);
         assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
     }
@@ -161,21 +135,19 @@ async fn a03_dept_scope_requires_visible_depts() {
 /// A04：`data_scope=5`（自定义）但没选部门 → 400（不能静默降级成「仅本人」或「全部」）。
 #[tokio::test]
 async fn a04_custom_scope_requires_depts() {
-    let error = scope_model::validate_custom_scope(ScopeKind::Custom, None)
-        .expect_err("自定义范围未选部门必须 400");
+    let error = scope_model::validate_custom_scope(ScopeKind::Custom, None).expect_err("自定义范围未选部门必须 400");
     assert_eq!(error.status, 400);
     assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
 
     let empty: Vec<uuid::Uuid> = Vec::new();
-    let empty_error = scope_model::validate_custom_scope(ScopeKind::Custom, Some(&empty))
-        .expect_err("自定义范围空集合必须 400");
+    let empty_error =
+        scope_model::validate_custom_scope(ScopeKind::Custom, Some(&empty)).expect_err("自定义范围空集合必须 400");
     assert_eq!(empty_error.code, error_code::DATA_SCOPE_INVALID);
 
     // 正常：带 2 个部门（含重复）→ 去重后 2 个
     let a = uuid::Uuid::now_v7();
     let b = uuid::Uuid::now_v7();
-    let ok = scope_model::validate_custom_scope(ScopeKind::Custom, Some(&[a, b, a]))
-        .expect("自定义范围带部门应通过");
+    let ok = scope_model::validate_custom_scope(ScopeKind::Custom, Some(&[a, b, a])).expect("自定义范围带部门应通过");
     assert_eq!(ok.expect("应有值"), vec![a, b], "去重且保序");
     println!("[A04] 自定义范围：空 → 400；带部门 → 去重保序 ✓");
 }
@@ -192,8 +164,8 @@ async fn a05_non_custom_scope_rejects_dept_set() {
         ScopeKind::DeptAndChild,
         ScopeKind::SelfOnly,
     ] {
-        let error = scope_model::validate_custom_scope(kind, Some(&[dept]))
-            .expect_err("非自定义范围带部门集合必须 400");
+        let error =
+            scope_model::validate_custom_scope(kind, Some(&[dept])).expect_err("非自定义范围带部门集合必须 400");
         assert_eq!(error.status, 400, "{kind:?} 应 400");
         assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
     }
@@ -233,10 +205,7 @@ async fn a06_exceeded_dept_ids_pointed_out() {
     let rows = vec![dept_row(other_1, None, "B1", 0)];
     let text = scope_model::describe_depts(&exceeded, &rows);
     assert!(text.contains("部门-B1"), "已知部门应显示名称，实际 {text}");
-    assert!(
-        text.contains(&other_2.to_string()),
-        "未知部门应显示 ID，实际 {text}"
-    );
+    assert!(text.contains(&other_2.to_string()), "未知部门应显示 ID，实际 {text}");
     println!("[A06] 越界点名：{text} ✓");
 }
 
@@ -276,10 +245,7 @@ async fn a08_crop_keeps_orphans_as_roots() {
     let by_id = |id: uuid::Uuid| cropped.iter().find(|r| r.id == id).expect("节点应存在");
     assert!(by_id(child).parent_id.is_none(), "父不可见 → 提升为根");
     assert_eq!(by_id(grandchild).parent_id, Some(child), "父可见则保持挂载");
-    assert!(
-        cropped.iter().all(|r| r.id != parent),
-        "不可见的父节点绝不能被补进结果"
-    );
+    assert!(cropped.iter().all(|r| r.id != parent), "不可见的父节点绝不能被补进结果");
 
     let tree = scope_model::build_tree(cropped);
     assert_eq!(tree.len(), 1, "提升为根后应只有 1 个根节点");
@@ -305,10 +271,7 @@ async fn a09_tree_sorted_by_sort_order() {
     assert!(
         children[0].dept_name.ends_with("C1") && children[1].dept_name.ends_with("C2"),
         "同级必须按 sort_order 升序，实际 {:?}",
-        children
-            .iter()
-            .map(|c| c.dept_name.clone())
-            .collect::<Vec<_>>()
+        children.iter().map(|c| c.dept_name.clone()).collect::<Vec<_>>()
     );
     println!("[A09] 同级按 sort_order 升序（C1 在 C2 前）✓");
 }
@@ -403,22 +366,13 @@ async fn a11_table_coverage_self_consistent() {
 #[tokio::test]
 async fn a12_core_tables_are_wired() {
     for table in ["sys_user", "sys_dept"] {
-        assert!(
-            scope_model::is_wired(table),
-            "{table} 是数据权限最核心的表，必须已接线"
-        );
+        assert!(scope_model::is_wired(table), "{table} 是数据权限最核心的表，必须已接线");
         let wiring = scope_model::wiring_of(table).expect("应能查到接线描述");
         assert_eq!(wiring.table, table);
-        assert!(
-            !wiring.anchor.is_empty(),
-            "{table} 必须给出 SQL 锚点（否则接线是假的）"
-        );
+        assert!(!wiring.anchor.is_empty(), "{table} 必须给出 SQL 锚点（否则接线是假的）");
     }
     // 部门树不分页（没有 {FILTER} 契约），必须显式声明
     let dept_wiring = scope_model::wiring_of("sys_dept").expect("sys_dept 应已接线");
-    assert!(
-        dept_wiring.no_paginate,
-        "部门树不分页，必须标记 no_paginate"
-    );
+    assert!(dept_wiring.no_paginate, "部门树不分页，必须标记 no_paginate");
     println!("[A12] sys_user / sys_dept 均已接线且锚点完备 ✓");
 }

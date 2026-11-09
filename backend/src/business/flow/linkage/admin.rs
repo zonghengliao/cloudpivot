@@ -206,9 +206,7 @@ impl RuleRes {
             action_label: action
                 .map(|item| item.label.to_string())
                 .unwrap_or_else(|| row.action_code.clone()),
-            phase: action
-                .map(|item| item.phase.as_str().to_string())
-                .unwrap_or_default(),
+            phase: action.map(|item| item.phase.as_str().to_string()).unwrap_or_default(),
             severity: action
                 .map(|item| item.severity.as_str().to_string())
                 .unwrap_or_default(),
@@ -603,8 +601,7 @@ pub async fn toggle_rule(
         return Err(ApiError::new(
             400,
             error_code::PARAM_INVALID,
-            "启停联动规则需要二次确认（confirm = true）：规则决定「单据状态变了以后还会动哪些账」"
-                .to_string(),
+            "启停联动规则需要二次确认（confirm = true）：规则决定「单据状态变了以后还会动哪些账」".to_string(),
         ));
     }
     let tx = db()
@@ -719,10 +716,7 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
         .await
         .map_err(|error| utils::db_error(error, "查询联动规则"))?;
     let mut steps: Vec<PreviewStepRes> = Vec::new();
-    for row in rows
-        .iter()
-        .filter(|row| row.enabled && row.trigger_status == status)
-    {
+    for row in rows.iter().filter(|row| row.enabled && row.trigger_status == status) {
         let action = row.spec();
         steps.push(PreviewStepRes {
             rule_id: row.id.to_string(),
@@ -732,16 +726,12 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
             action_label: action
                 .map(|item| item.label.to_string())
                 .unwrap_or_else(|| row.action_code.clone()),
-            phase: action
-                .map(|item| item.phase.as_str().to_string())
-                .unwrap_or_default(),
+            phase: action.map(|item| item.phase.as_str().to_string()).unwrap_or_default(),
             severity: action
                 .map(|item| item.severity.as_str().to_string())
                 .unwrap_or_default(),
             action_params: row.action_params.clone(),
-            effect: action
-                .map(|item| item.reuse.to_string())
-                .unwrap_or_default(),
+            effect: action.map(|item| item.reuse.to_string()).unwrap_or_default(),
             problems: rule_problems(row),
         });
     }
@@ -749,18 +739,13 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
     let rollback_risk = steps
         .iter()
         .any(|step| step.phase == "IN_TX" && step.severity == "CRITICAL");
-    let after_commit_count = steps
-        .iter()
-        .filter(|step| step.phase == "AFTER_COMMIT")
-        .count();
+    let after_commit_count = steps.iter().filter(|step| step.phase == "AFTER_COMMIT").count();
     let mut warnings = Vec::new();
     let trigger_wired = spec::is_wired_trigger(&entity);
     if !trigger_wired {
         warnings.push(format!(
             "【未接线】{entity} 的「{status}」变更点还没有调用联动引擎：这里的规则配了也不会触发。{}",
-            spec::trigger_spec(&entity)
-                .map(|item| item.wiring)
-                .unwrap_or("")
+            spec::trigger_spec(&entity).map(|item| item.wiring).unwrap_or("")
         ));
     }
     if steps.is_empty() {
@@ -770,10 +755,8 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
         ));
     }
     if rollback_risk {
-        warnings.push(
-            "执行链里有「同事务 + 关键动作」：任一动作失败，本次单据状态变更整笔回滚（不会半执行）"
-                .to_string(),
-        );
+        warnings
+            .push("执行链里有「同事务 + 关键动作」：任一动作失败，本次单据状态变更整笔回滚（不会半执行）".to_string());
     }
     if after_commit_count > 0 {
         warnings.push(format!(
@@ -785,10 +768,7 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
             &entity,
             &status,
             &draft.action_code,
-            draft
-                .action_params
-                .clone()
-                .unwrap_or_else(|| serde_json::json!({})),
+            draft.action_params.clone().unwrap_or_else(|| serde_json::json!({})),
             &rows,
         )
     });
@@ -836,9 +816,9 @@ fn check_draft(
             overrides_existing: false,
         };
     };
-    let overrides_existing = rows.iter().any(|row| {
-        row.trigger_entity == entity && row.trigger_status == status && row.action_code == code
-    });
+    let overrides_existing = rows
+        .iter()
+        .any(|row| row.trigger_entity == entity && row.trigger_status == status && row.action_code == code);
     let base = |ok: bool, message: String| DraftCheckRes {
         ok,
         message,
@@ -856,9 +836,7 @@ fn check_draft(
             format!(
                 "触发点 {entity}/{status} 尚未接线：引擎在这个状态变更点不会被调用，规则保存后\
                  永远不会触发。{}",
-                spec::trigger_spec(entity)
-                    .map(|item| item.wiring)
-                    .unwrap_or("")
+                spec::trigger_spec(entity).map(|item| item.wiring).unwrap_or("")
             ),
         );
     }
@@ -874,10 +852,7 @@ fn check_draft(
     // 实体级禁令（LNK-06）：与 `model::upsert_rule` 同一份判据，预览阶段当场标红，
     // 而不是等保存时才 400。
     if let Some(reason) = spec::forbidden_action_reason(entity, code) {
-        return base(
-            false,
-            format!("动作 {code} 不能配置在触发点 {entity} 上：{reason}"),
-        );
+        return base(false, format!("动作 {code} 不能配置在触发点 {entity} 上：{reason}"));
     }
     match spec::validate_params(action, &params) {
         Ok(()) => base(true, String::new()),
@@ -895,11 +870,7 @@ fn rule_problems(row: &LinkageRuleRow) -> Vec<String> {
             row.trigger_entity,
             row.trigger_entity,
             row.trigger_status,
-            if row.enabled {
-                ""
-            } else {
-                "（且已停用）"
-            }
+            if row.enabled { "" } else { "（且已停用）" }
         ));
     }
     match row.spec() {
@@ -933,20 +904,13 @@ fn rule_problems(row: &LinkageRuleRow) -> Vec<String> {
 
 /// 触发点白名单校验（不在白名单直接 400，不静默返回空）。
 fn parse_trigger(raw: &str) -> std::result::Result<&'static str, ApiError> {
-    spec::TRIGGERS
-        .iter()
-        .copied()
-        .find(|item| *item == raw)
-        .ok_or_else(|| {
-            ApiError::new(
-                400,
-                error_code::PARAM_INVALID,
-                format!(
-                    "未知的触发单据类型「{raw}」：只认 {}",
-                    spec::TRIGGERS.join(" / ")
-                ),
-            )
-        })
+    spec::TRIGGERS.iter().copied().find(|item| *item == raw).ok_or_else(|| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("未知的触发单据类型「{raw}」：只认 {}", spec::TRIGGERS.join(" / ")),
+        )
+    })
 }
 
 /// 触发状态校验（写错状态的规则永远不触发，必须当场拒）。
@@ -991,9 +955,7 @@ fn trigger_label(entity: &str) -> String {
 /// 而不是「未知状态」——脏数据 / 状态机里已删掉的老状态，回显编码才能对着
 /// `biz_flow_linkage_rule.trigger_status` 和日志排障；空白或「未知状态」都没法查。
 fn trigger_status_label(entity: &str, status: &str) -> String {
-    spec::status_label_of(entity, status)
-        .unwrap_or(status)
-        .to_string()
+    spec::status_label_of(entity, status).unwrap_or(status).to_string()
 }
 
 /// 某触发点的「状态编码 + 中文名」清单（**顺序与 `statuses` 逐项对齐**）。
@@ -1017,10 +979,7 @@ fn catalog_triggers() -> Vec<TriggerRes> {
         .map(|entity| TriggerRes {
             entity: entity.to_string(),
             label: trigger_label(entity),
-            statuses: model::known_statuses(entity)
-                .into_iter()
-                .map(str::to_string)
-                .collect(),
+            statuses: model::known_statuses(entity).into_iter().map(str::to_string).collect(),
             status_labels: status_labels_of(entity),
             wired: spec::is_wired_trigger(entity),
             wiring: spec::trigger_spec(entity)
@@ -1050,10 +1009,7 @@ mod tests {
         );
         let triggers = catalog_triggers();
         assert_eq!(
-            triggers
-                .iter()
-                .map(|item| item.entity.as_str())
-                .collect::<Vec<_>>(),
+            triggers.iter().map(|item| item.entity.as_str()).collect::<Vec<_>>(),
             spec::TRIGGERS.to_vec(),
             "触发点字典顺序与白名单一致"
         );
@@ -1141,10 +1097,7 @@ mod tests {
         let mut legacy = row.clone();
         legacy.trigger_status = "LEGACY_STATE".to_string();
         let res = RuleRes::of(&legacy);
-        assert_eq!(
-            res.trigger_status_label, "LEGACY_STATE",
-            "查不到就回显编码，便于排障"
-        );
+        assert_eq!(res.trigger_status_label, "LEGACY_STATE", "查不到就回显编码，便于排障");
     }
 
     /// 触发点字典必须带上「是否接线」与其说明（P1-FIX-5C：配置页靠它拦误配）。
@@ -1217,23 +1170,11 @@ mod tests {
     #[test]
     fn draft_check_rejects_bad_input() {
         let rows: Vec<LinkageRuleRow> = Vec::new();
-        let unknown = check_draft(
-            "STOCK_IN",
-            "POSTED",
-            "DROP_TABLE",
-            serde_json::json!({}),
-            &rows,
-        );
+        let unknown = check_draft("STOCK_IN", "POSTED", "DROP_TABLE", serde_json::json!({}), &rows);
         assert!(!unknown.ok);
         assert!(unknown.message.contains("不在白名单"));
 
-        let placeholder = check_draft(
-            "STOCK_IN",
-            "POSTED",
-            "LOCK_DOCUMENT",
-            serde_json::json!({}),
-            &rows,
-        );
+        let placeholder = check_draft("STOCK_IN", "POSTED", "LOCK_DOCUMENT", serde_json::json!({}), &rows);
         assert!(!placeholder.ok);
         assert!(placeholder.message.contains("尚未接管"));
 

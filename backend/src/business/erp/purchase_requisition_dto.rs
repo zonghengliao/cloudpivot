@@ -44,12 +44,7 @@ pub const STATUS_APPROVED: &str = "APPROVED";
 pub const STATUS_CONVERTED: &str = "CONVERTED";
 
 /// 全部状态（与 `ck_biz_prq_status` 逐字一致）。
-pub const STATUSES: [&str; 4] = [
-    STATUS_DRAFT,
-    STATUS_SUBMITTED,
-    STATUS_APPROVED,
-    STATUS_CONVERTED,
-];
+pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_SUBMITTED, STATUS_APPROVED, STATUS_CONVERTED];
 
 /// 明细分行上限（一次提交，防超大数组）。
 pub const MAX_LINES: usize = 200;
@@ -197,21 +192,14 @@ pub struct RequisitionFilter {
 impl RequisitionPageQuery {
     /// 入参校验 + 归一化（域值乱码一律 400，不静默忽略）。
     pub fn filter(&self) -> std::result::Result<RequisitionFilter, ApiError> {
-        let status = match self
-            .status
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-        {
+        let status = match self.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
             Some(raw) => Some(normalize_status(raw)?),
             None => None,
         };
         if let (Some(from), Some(to)) = (self.date_from, self.date_to)
             && from > to
         {
-            return Err(bad_request(format!(
-                "date_from（{from}）不能晚于 date_to（{to}）"
-            )));
+            return Err(bad_request(format!("date_from（{from}）不能晚于 date_to（{to}）")));
         }
         let keyword = self
             .keyword
@@ -219,10 +207,8 @@ impl RequisitionPageQuery {
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_string);
-        let (page, page_size) = crate::business::erp::model::normalize_page(
-            self.page.unwrap_or(1),
-            self.page_size.unwrap_or(20),
-        );
+        let (page, page_size) =
+            crate::business::erp::model::normalize_page(self.page.unwrap_or(1), self.page_size.unwrap_or(20));
         Ok(RequisitionFilter {
             page,
             page_size,
@@ -435,15 +421,11 @@ pub fn parse_uuid_field(raw: Option<&str>, field: &str) -> std::result::Result<U
     if text.is_empty() {
         return Err(field_invalid(format!("{field} 不能为空（需要 UUID）")));
     }
-    Uuid::parse_str(text)
-        .map_err(|_| field_invalid(format!("{field} 不是合法的 UUID（收到 {text}）")))
+    Uuid::parse_str(text).map_err(|_| field_invalid(format!("{field} 不是合法的 UUID（收到 {text}）")))
 }
 
 /// 解析可空 UUID（空串 / 缺省 → None；格式错 → 400）。
-pub fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     let text = raw.map(str::trim).unwrap_or_default();
     if text.is_empty() {
         return Ok(None);
@@ -460,9 +442,7 @@ pub fn check_qty(raw: Option<Decimal>, field: &str) -> std::result::Result<Decim
         return Err(field_invalid(format!("{field} 必须大于 0（收到 {qty}）")));
     }
     if qty.scale() > 4 {
-        return Err(field_invalid(format!(
-            "{field} 最多 4 位小数（收到 {qty}）"
-        )));
+        return Err(field_invalid(format!("{field} 最多 4 位小数（收到 {qty}）")));
     }
     Ok(qty)
 }
@@ -479,9 +459,7 @@ pub fn check_price(raw: Option<Decimal>, field: &str) -> std::result::Result<Dec
         )));
     }
     if price.scale() > 6 {
-        return Err(field_invalid(format!(
-            "{field} 最多 6 位小数（收到 {price}）"
-        )));
+        return Err(field_invalid(format!("{field} 最多 6 位小数（收到 {price}）")));
     }
     Ok(price)
 }
@@ -490,14 +468,10 @@ pub fn check_price(raw: Option<Decimal>, field: &str) -> std::result::Result<Dec
 pub fn check_tax(raw: Option<Decimal>, field: &str) -> std::result::Result<Decimal, ApiError> {
     let tax = raw.unwrap_or(Decimal::ZERO);
     if tax < Decimal::ZERO || tax > Decimal::from(100) {
-        return Err(field_invalid(format!(
-            "{field} 必须在 0–100 之间（收到 {tax}）"
-        )));
+        return Err(field_invalid(format!("{field} 必须在 0–100 之间（收到 {tax}）")));
     }
     if tax.scale() > 4 {
-        return Err(field_invalid(format!(
-            "{field} 最多 4 位小数（收到 {tax}）"
-        )));
+        return Err(field_invalid(format!("{field} 最多 4 位小数（收到 {tax}）")));
     }
     Ok(tax)
 }
@@ -531,9 +505,7 @@ pub fn line_amount(qty: Decimal, est_price: Decimal) -> Decimal {
 pub fn est_amount_of(lines: &[(Decimal, Decimal)]) -> Decimal {
     lines
         .iter()
-        .fold(Decimal::ZERO, |acc, (qty, price)| {
-            acc + line_amount(*qty, *price)
-        })
+        .fold(Decimal::ZERO, |acc, (qty, price)| acc + line_amount(*qty, *price))
         .round_dp(4)
 }
 
@@ -606,18 +578,13 @@ pub enum MergeError {
 ///
 /// 排序：按物料 id 升序（BTreeMap 遍历序）⇒ 同一批输入永远得到同一套行序，
 /// 采购单明细行号稳定（重复转单的可复现性靠它）。
-pub fn merge_by_material(
-    inputs: &[MergeInput],
-) -> std::result::Result<Vec<MergedLine>, MergeError> {
+pub fn merge_by_material(inputs: &[MergeInput]) -> std::result::Result<Vec<MergedLine>, MergeError> {
     if inputs.is_empty() {
         return Err(MergeError::Empty);
     }
     let mut by_material: BTreeMap<Uuid, Vec<&MergeInput>> = BTreeMap::new();
     for input in inputs {
-        by_material
-            .entry(input.material_id)
-            .or_default()
-            .push(input);
+        by_material.entry(input.material_id).or_default().push(input);
     }
     let mut out = Vec::with_capacity(by_material.len());
     for (material_id, rows) in by_material {
@@ -665,17 +632,11 @@ pub fn merge_by_material(
 }
 
 /// 合并单的供应商：请求优先；否则必须「所有建议供应商一致」。
-pub fn resolve_merge_supplier(
-    inputs: &[MergeInput],
-    requested: Option<Uuid>,
-) -> std::result::Result<Uuid, MergeError> {
+pub fn resolve_merge_supplier(inputs: &[MergeInput], requested: Option<Uuid>) -> std::result::Result<Uuid, MergeError> {
     if let Some(supplier) = requested {
         return Ok(supplier);
     }
-    let mut suppliers: Vec<Uuid> = inputs
-        .iter()
-        .filter_map(|input| input.suggest_supplier_id)
-        .collect();
+    let mut suppliers: Vec<Uuid> = inputs.iter().filter_map(|input| input.suggest_supplier_id).collect();
     suppliers.sort();
     suppliers.dedup();
     match suppliers.len() {
@@ -722,14 +683,7 @@ mod tests {
         text.parse().expect("十进制字面量")
     }
 
-    fn input(
-        material: &str,
-        req: &str,
-        item: &str,
-        qty: &str,
-        price: &str,
-        tax: &str,
-    ) -> MergeInput {
+    fn input(material: &str, req: &str, item: &str, qty: &str, price: &str, tax: &str) -> MergeInput {
         MergeInput {
             requisition_id: Uuid::parse_str(req).unwrap(),
             requisition_no: format!("PRQ-{req}"),
@@ -769,10 +723,7 @@ mod tests {
             vec![Uuid::parse_str(I1).unwrap(), Uuid::parse_str(I2).unwrap()]
         );
         assert_eq!(merged[0].source_requisition_ids.len(), 2);
-        assert_eq!(
-            merged[0].source_req_nos,
-            vec![format!("PRQ-{R1}"), format!("PRQ-{R2}")]
-        );
+        assert_eq!(merged[0].source_req_nos, vec![format!("PRQ-{R1}"), format!("PRQ-{R2}")]);
     }
 
     /// 单价取加权平均：100×10 + 50×12 = 1600 / 150 = 10.666667（6 位舍入）。
@@ -798,10 +749,7 @@ mod tests {
     /// 税率不同不许合并（13% 与 9% 混在一行会让采购单金额口径分叉）。
     #[test]
     fn merge_rejects_tax_conflict() {
-        let rows = vec![
-            input(M1, R1, I1, "100", "10", "13"),
-            input(M1, R2, I2, "50", "10", "9"),
-        ];
+        let rows = vec![input(M1, R1, I1, "100", "10", "13"), input(M1, R2, I2, "50", "10", "9")];
         match merge_by_material(&rows) {
             Err(MergeError::TaxRateConflict { rates, .. }) => {
                 assert_eq!(rates, vec![dec("9"), dec("13")]);
@@ -849,15 +797,9 @@ mod tests {
         a.suggest_supplier_id = Some(s1);
         let mut b = input(M1, R2, I2, "50", "10", "13");
         b.suggest_supplier_id = Some(s1);
-        assert_eq!(
-            resolve_merge_supplier(&[a.clone(), b.clone()], None),
-            Ok(s1)
-        );
+        assert_eq!(resolve_merge_supplier(&[a.clone(), b.clone()], None), Ok(s1));
         // 请求指定优先（哪怕建议是另一个）
-        assert_eq!(
-            resolve_merge_supplier(&[a.clone(), b.clone()], Some(s2)),
-            Ok(s2)
-        );
+        assert_eq!(resolve_merge_supplier(&[a.clone(), b.clone()], Some(s2)), Ok(s2));
         // 一个都没有 → 必须显式指定
         let plain = input(M1, R1, I1, "1", "1", "0");
         assert_eq!(
@@ -922,24 +864,15 @@ mod tests {
     fn input_guards_reject_bad_values() {
         assert!(check_qty(Some(dec("0")), "qty").is_err(), "0 数量必须拒");
         assert!(check_qty(Some(dec("-1")), "qty").is_err(), "负数量必须拒");
-        assert!(
-            check_qty(Some(dec("1.00001")), "qty").is_err(),
-            "5 位小数必须拒"
-        );
+        assert!(check_qty(Some(dec("1.00001")), "qty").is_err(), "5 位小数必须拒");
         assert!(
             check_price(Some(dec("0")), "price").is_err(),
             "0 单价必须拒（会绕过预算）"
         );
-        assert!(
-            check_tax(Some(dec("101")), "tax").is_err(),
-            "税率 > 100 必须拒"
-        );
+        assert!(check_tax(Some(dec("101")), "tax").is_err(), "税率 > 100 必须拒");
         assert!(check_tax(Some(dec("-1")), "tax").is_err(), "负税率必须拒");
         assert!(check_tax(None, "tax").is_ok(), "税率缺省 = 0");
-        assert!(
-            clean_remark(Some("   ")).unwrap().is_none(),
-            "空白备注归 None"
-        );
+        assert!(clean_remark(Some("   ")).unwrap().is_none(), "空白备注归 None");
         let long = "长".repeat(MAX_REMARK_LEN + 1);
         assert!(clean_remark(Some(&long)).is_err(), "超长备注必须拒");
     }

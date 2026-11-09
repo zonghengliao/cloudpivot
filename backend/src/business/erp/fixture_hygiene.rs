@@ -88,10 +88,7 @@ pub(crate) async fn orphans(entity_types: &[&str]) -> i64 {
 pub(crate) async fn purge_orphans(entity_types: &[&str]) -> i64 {
     let mut total = 0_i64;
     for entity_type in entity_types {
-        let sql = format!(
-            "DELETE FROM biz_status_log WHERE {}",
-            orphan_where(entity_type)
-        );
+        let sql = format!("DELETE FROM biz_status_log WHERE {}", orphan_where(entity_type));
         let deleted = db()
             .execute_with_params(&sql, vec![])
             .await

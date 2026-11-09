@@ -42,9 +42,9 @@ use nik::prelude::*;
 use serde_json::Value as Json;
 
 use crate::business::changelog::dto::{
-    ChangeLogDetailQuery, ChangeLogDetailRes, ChangeLogListItem, ChangeLogPageQuery,
-    ChangeLogStatsQuery, ChangeLogStatsRes, ChangeLogTimelineItem, ChangeLogTimelineQuery,
-    ChangeLogTimelineRes, CountBucketRes, TableRegistryEntryRes, TableRegistryRes,
+    ChangeLogDetailQuery, ChangeLogDetailRes, ChangeLogListItem, ChangeLogPageQuery, ChangeLogStatsQuery,
+    ChangeLogStatsRes, ChangeLogTimelineItem, ChangeLogTimelineQuery, ChangeLogTimelineRes, CountBucketRes,
+    TableRegistryEntryRes, TableRegistryRes,
 };
 use crate::business::changelog::mask;
 use crate::business::changelog::query::{self, ChangeLogRow, Filter};
@@ -98,19 +98,13 @@ const EXPORT_HEADERS: [&str; 16] = [
     permission = "system:change-log:list"
 )]
 #[nik::get("/business/changelog/page")]
-pub async fn page(
-    Query(query): Query<ChangeLogPageQuery>,
-) -> ResResult<PageData<Vec<ChangeLogListItem>>> {
+pub async fn page(Query(query): Query<ChangeLogPageQuery>) -> ResResult<PageData<Vec<ChangeLogListItem>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let filter = build_filter(&query)?;
     let result = query::page(&filter, page, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询变更日志"))?;
-    let list = result
-        .list
-        .iter()
-        .map(ChangeLogListItem::from_row)
-        .collect();
+    let list = result.list.iter().map(ChangeLogListItem::from_row).collect();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -182,16 +176,9 @@ pub async fn detail(
     permission = "system:change-log:list"
 )]
 #[nik::get("/business/changelog/timeline")]
-pub async fn timeline(
-    Query(query): Query<ChangeLogTimelineQuery>,
-) -> ResResult<ChangeLogTimelineRes> {
-    let table = utils::trimmed(query.table.as_deref()).ok_or_else(|| {
-        ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "table 不能为空（如 sys_user）",
-        )
-    })?;
+pub async fn timeline(Query(query): Query<ChangeLogTimelineQuery>) -> ResResult<ChangeLogTimelineRes> {
+    let table = utils::trimmed(query.table.as_deref())
+        .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "table 不能为空（如 sys_user）"))?;
     let target_id = utils::trimmed(query.target_id.as_deref())
         .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "target_id 不能为空"))?;
     let start = parse_optional_time(query.start_time.as_deref(), "start_time")?;
@@ -342,24 +329,15 @@ async fn export_response(query: ChangeLogPageQuery) -> std::result::Result<Respo
         line.insert("对象ID".to_string(), row.resource_id.clone());
         line.insert("动作".to_string(), row.action.clone());
         line.insert("动作名称".to_string(), row.action_label.clone());
-        line.insert(
-            "操作人".to_string(),
-            row.operator_name.clone().unwrap_or_default(),
-        );
+        line.insert("操作人".to_string(), row.operator_name.clone().unwrap_or_default());
         // 操作人类型（T5）：`HUMAN` / `ROBOT`，导出里保留原始码值，
         // 便于审计用数据透视按类型筛（中文标签留给前端渲染）。
         line.insert("操作人类型".to_string(), row.operator_type.clone());
         line.insert("来源".to_string(), row.trace_source.clone());
         line.insert("变化字段".to_string(), row.changed_fields.join(","));
         line.insert("变更内容（前后值）".to_string(), rendered);
-        line.insert(
-            "请求ID".to_string(),
-            row.request_id.clone().unwrap_or_default(),
-        );
-        line.insert(
-            "客户端IP".to_string(),
-            row.client_ip.clone().unwrap_or_default(),
-        );
+        line.insert("请求ID".to_string(), row.request_id.clone().unwrap_or_default());
+        line.insert("客户端IP".to_string(), row.client_ip.clone().unwrap_or_default());
         line.insert("结果".to_string(), row.result.clone());
         line.insert(
             "含脱敏字段".to_string(),
@@ -368,10 +346,7 @@ async fn export_response(query: ChangeLogPageQuery) -> std::result::Result<Respo
         sheet_rows.push(line);
     }
     let bytes = crate::business::impexp::engine::write_sheet(&EXPORT_HEADERS, &sheet_rows)?;
-    let file_name = format!(
-        "变更日志_{}.xlsx",
-        chrono::Utc::now().format("%Y%m%d_%H%M%S")
-    );
+    let file_name = format!("变更日志_{}.xlsx", chrono::Utc::now().format("%Y%m%d_%H%M%S"));
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(XLSX_MIME));
     headers.insert(
@@ -417,10 +392,7 @@ async fn load_policies() -> std::result::Result<HashMap<&'static str, mask::Poli
 /// ① 幂等（`masker` 对已脱敏值不变形），代价可忽略；② 防的是「L1 之后有人改了
 /// `sys_field_mask`，旧行里的值现在算明文」这类跨时间漂移 —— 出系统边界时按**当前**
 /// 规则再判一次，是唯一能做的地方。
-fn render_diff(
-    policies: &HashMap<&'static str, mask::Policy>,
-    row: &ChangeLogRow,
-) -> (String, bool) {
+fn render_diff(policies: &HashMap<&'static str, mask::Policy>, row: &ChangeLogRow) -> (String, bool) {
     let policy = policies.get(row.resource.as_str());
     let mut parts: Vec<String> = Vec::new();
     let mut masked_any = row.masked();
@@ -430,10 +402,8 @@ fn render_diff(
         for name in names {
             let pair = &fields[name];
             let decisions = policy.map(|item| item.decisions(name)).unwrap_or_default();
-            let (before, masked_before) =
-                mask::apply(&decisions, pair.get("b").unwrap_or(&Json::Null));
-            let (after, masked_after) =
-                mask::apply(&decisions, pair.get("a").unwrap_or(&Json::Null));
+            let (before, masked_before) = mask::apply(&decisions, pair.get("b").unwrap_or(&Json::Null));
+            let (after, masked_after) = mask::apply(&decisions, pair.get("a").unwrap_or(&Json::Null));
             masked_any = masked_any || masked_before || masked_after;
             parts.push(format!("{name}: {} → {}", plain(&before), plain(&after)));
         }
@@ -550,10 +520,7 @@ fn shallow_filter(
 }
 
 /// 可空 UUID 参数字符串解析。
-fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<uuid::Uuid>, ApiError> {
+fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<uuid::Uuid>, ApiError> {
     match utils::trimmed(raw) {
         Some(value) => utils::require_uuid(value, field).map(Some),
         None => Ok(None),
@@ -576,10 +543,7 @@ fn parse_optional_time(
 /// # 异常情况
 ///
 /// 三种格式都不匹配 → 400 参数错误。
-fn parse_time(
-    raw: &str,
-    field: &str,
-) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
+fn parse_time(raw: &str, field: &str) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
     if let Ok(value) = chrono::DateTime::parse_from_rfc3339(raw) {
         return Ok(value.with_timezone(&chrono::Utc));
     }
@@ -605,13 +569,7 @@ fn content_disposition(file_name: &str) -> String {
     let encoded = percent_encode(file_name);
     let ascii = file_name
         .chars()
-        .map(|value| {
-            if value.is_ascii() && value != '"' {
-                value
-            } else {
-                '_'
-            }
-        })
+        .map(|value| if value.is_ascii() && value != '"' { value } else { '_' })
         .collect::<String>();
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
@@ -674,10 +632,7 @@ mod tests {
     /// 空白 = 没传（不是「解析失败」）。
     #[test]
     fn blank_time_is_none() {
-        assert_eq!(
-            parse_optional_time(Some("  "), "t").expect("空白应放行"),
-            None
-        );
+        assert_eq!(parse_optional_time(Some("  "), "t").expect("空白应放行"), None);
         assert_eq!(parse_optional_time(None, "t").expect("None 应放行"), None);
     }
 
@@ -685,10 +640,7 @@ mod tests {
     #[test]
     fn list_filter_gets_default_window() {
         let filter = build_filter(&ChangeLogPageQuery::default()).expect("默认条件应可构造");
-        assert!(
-            filter.start_time.is_some(),
-            "列表必须带时间窗，否则扫全部分区"
-        );
+        assert!(filter.start_time.is_some(), "列表必须带时间窗，否则扫全部分区");
         assert!(filter.end_time.is_none());
     }
 
@@ -733,20 +685,14 @@ mod tests {
         });
         let row = row_with_diff("sys_user", diff);
         let (text, masked) = render_diff(&HashMap::new(), &row);
-        assert!(
-            text.contains("redacted"),
-            "密码类字段要显示为 redacted：{text}"
-        );
+        assert!(text.contains("redacted"), "密码类字段要显示为 redacted：{text}");
         assert!(masked);
     }
 
     /// 空 diff 不 panic、不产生多余分隔符。
     #[test]
     fn render_diff_empty_is_empty() {
-        let row = row_with_diff(
-            "sys_user",
-            json!({"v": 1, "mode": "WHITELIST", "fields": {}}),
-        );
+        let row = row_with_diff("sys_user", json!({"v": 1, "mode": "WHITELIST", "fields": {}}));
         let (text, masked) = render_diff(&HashMap::new(), &row);
         assert!(text.is_empty());
         assert!(!masked);

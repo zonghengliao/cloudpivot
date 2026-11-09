@@ -205,10 +205,7 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_id.clone()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_id.clone())],
     )
     .await;
 
@@ -232,10 +229,7 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     let after = crate::system::auth::model::load_permissions(&user_id, false)
         .await
         .expect("装载权限失败");
-    assert!(
-        after.contains(&grant_auth),
-        "新授权必须立刻生效，实际 {after:?}"
-    );
+    assert!(after.contains(&grant_auth), "新授权必须立刻生效，实际 {after:?}");
     assert!(
         !after.contains(&revoke_auth),
         "被撤销的权限必须立刻消失，实际 {after:?}"
@@ -271,10 +265,7 @@ async fn r03_role_in_use_cannot_be_deleted() {
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_id.clone()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_id.clone())],
     )
     .await;
 
@@ -346,9 +337,7 @@ async fn r04_builtin_super_admin_role_is_protected() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(normal),
-        ValidatedJson(RoleMenuAssignReq {
-            menu_ids: Vec::new(),
-        }),
+        ValidatedJson(RoleMenuAssignReq { menu_ids: Vec::new() }),
     )
     .await
     .expect_err("非超管不得修改内置超管角色的授权");
@@ -410,12 +399,9 @@ async fn r05_mutex_roles_rejected() {
     .await;
 
     // 只有 A 时通过
-    crate::business::mutex::guard::ensure_no_mutex(
-        &user_id,
-        &[uuid::Uuid::parse_str(&role_a).expect("uuid")],
-    )
-    .await
-    .expect("单独授予 A 不该冲突");
+    crate::business::mutex::guard::ensure_no_mutex(&user_id, &[uuid::Uuid::parse_str(&role_a).expect("uuid")])
+        .await
+        .expect("单独授予 A 不该冲突");
 
     // 同一次请求里同时授予 A + B → 409
     let error = crate::business::mutex::guard::ensure_no_mutex(
@@ -437,23 +423,15 @@ async fn r05_mutex_roles_rejected() {
     // 「已持有 A，本次再授 B」同样被拒（不能靠分两次请求绕过）
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_a.clone()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_a.clone())],
     )
     .await;
-    let second = crate::business::mutex::guard::ensure_no_mutex(
-        &user_id,
-        &[uuid::Uuid::parse_str(&role_b).expect("uuid")],
-    )
-    .await
-    .expect_err("已持有 A 再授 B 必须被拒");
+    let second =
+        crate::business::mutex::guard::ensure_no_mutex(&user_id, &[uuid::Uuid::parse_str(&role_b).expect("uuid")])
+            .await
+            .expect_err("已持有 A 再授 B 必须被拒");
     assert_eq!(second.code, error_code::ROLE_MUTEX_CONFLICT);
-    println!(
-        "[R05] 互斥角色：同次同授 409、分次补授 409（{}）✓",
-        error.msg
-    );
+    println!("[R05] 互斥角色：同次同授 409、分次补授 409（{}）✓", error.msg);
     fx.sweep().await;
 }
 
@@ -541,10 +519,7 @@ async fn r07_assign_menus_bumps_holders_token_version() {
     let holder = create_user(&fx.name("holder")).await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(holder.to_string()),
-            Value::from(role_id.clone()),
-        ],
+        vec![Value::from(holder.to_string()), Value::from(role_id.clone())],
     )
     .await;
     let bystander = create_user(&fx.name("by")).await;
@@ -561,12 +536,7 @@ async fn r07_assign_menus_bumps_holders_token_version() {
     let bystander_before = token_version_of(&bystander).await;
     let admin_before = token_version_of(&admin_id).await;
 
-    let menu = create_menu(
-        &claims,
-        &fx.name("按钮"),
-        &format!("testc:{}:r07", fx.tag()),
-    )
-    .await;
+    let menu = create_menu(&claims, &fx.name("按钮"), &format!("testc:{}:r07", fx.tag())).await;
     // helper 内部对失败 panic：无 Redis 也必须成功（BUG-SYS-03）
     assign_menus(&claims, &role_id, std::slice::from_ref(&menu)).await;
 
@@ -602,19 +572,11 @@ async fn r08_assign_menus_succeeds_without_cache() {
         return;
     }
     let fx = ts::Fixture::new("tc_r", "r08");
-    assert!(
-        try_cache().is_none(),
-        "本用例模拟「无 Redis」：要求进程内没有注册缓存"
-    );
+    assert!(try_cache().is_none(), "本用例模拟「无 Redis」：要求进程内没有注册缓存");
     let claims = admin_operator().await;
     let code = fx.name("role");
     let role_id = create_role(&claims, &code, "测试C R08 角色").await;
-    let menu = create_menu(
-        &claims,
-        &fx.name("按钮"),
-        &format!("testc:{}:r08", fx.tag()),
-    )
-    .await;
+    let menu = create_menu(&claims, &fx.name("按钮"), &format!("testc:{}:r08", fx.tag())).await;
 
     // ① 首次授权：无缓存 → 缓存侧吊销必然失败，但接口必须成功
     assign_menus(&claims, &role_id, std::slice::from_ref(&menu)).await;
@@ -623,10 +585,7 @@ async fn r08_assign_menus_succeeds_without_cache() {
         vec![Value::from(role_id.clone())],
     )
     .await;
-    assert_eq!(
-        bound, 1,
-        "授权必须落库（无缓存不影响写库），实际 {bound} 行"
-    );
+    assert_eq!(bound, 1, "授权必须落库（无缓存不影响写库），实际 {bound} 行");
 
     // ② 再执行一次（清空授权）：证明「重试不幂等」的隐患已消失——两次都成功且结果确定
     assign_menus(&claims, &role_id, &[]).await;
@@ -639,14 +598,10 @@ async fn r08_assign_menus_succeeds_without_cache() {
 
     // ③ 读路径：无缓存时角色下拉回退查库
     assert!(
-        crate::system::role::model::load_cached_enabled_roles()
-            .await
-            .is_none(),
+        crate::system::role::model::load_cached_enabled_roles().await.is_none(),
         "无缓存时 load_cached_enabled_roles 必须返回 None"
     );
-    handler::list()
-        .await
-        .expect("无缓存时启用角色下拉仍必须可查");
+    handler::list().await.expect("无缓存时启用角色下拉仍必须可查");
 
     println!("[R08] 无缓存：授权 / 清空均成功且落库，缓存读路径回退查库 ✓");
     fx.sweep().await;

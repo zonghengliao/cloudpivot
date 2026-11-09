@@ -52,16 +52,14 @@ use std::sync::Arc;
 use tokio_util::io::ReaderStream;
 
 use crate::business::announcement::dto::{
-    AnnouncementAttachmentBindReq, AnnouncementCardRes, AnnouncementDetailRes,
-    AnnouncementManageDetailRes, AnnouncementOfflineReq, AnnouncementOfflineRes,
-    AnnouncementPreviewReq, AnnouncementPreviewRes, AnnouncementPublishRes, AnnouncementSaveReq,
-    AnnouncementSaveRes, AnnouncementTopReq, AnnouncementTopRes, AttachmentRes, ManageCardRes,
-    ManagePageQuery, MarkReadRes, ReadAllRes, ReaderRes, ReaderState, ReadersQuery, ReadersRes,
-    UnreadCountRes, VisibleQuery,
+    AnnouncementAttachmentBindReq, AnnouncementCardRes, AnnouncementDetailRes, AnnouncementManageDetailRes,
+    AnnouncementOfflineReq, AnnouncementOfflineRes, AnnouncementPreviewReq, AnnouncementPreviewRes,
+    AnnouncementPublishRes, AnnouncementSaveReq, AnnouncementSaveRes, AnnouncementTopReq, AnnouncementTopRes,
+    AttachmentRes, ManageCardRes, ManagePageQuery, MarkReadRes, ReadAllRes, ReaderRes, ReaderState, ReadersQuery,
+    ReadersRes, UnreadCountRes, VisibleQuery,
 };
 use crate::business::announcement::model::{
-    self, AnnouncementDetailRow, Audience, ManageFilter, ReaderStateFilter, Visibility,
-    VisibleFilter,
+    self, AnnouncementDetailRow, Audience, ManageFilter, ReaderStateFilter, Visibility, VisibleFilter,
 };
 use crate::business::announcement::{dto, maintenance};
 use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
@@ -137,10 +135,7 @@ pub async fn mine_page(
 }
 
 /// 列表查询的公共实现（三个路径共用）。
-async fn page_visible(
-    claims: &TokenClaims,
-    query: VisibleQuery,
-) -> ResResult<PageData<Vec<AnnouncementCardRes>>> {
+async fn page_visible(claims: &TokenClaims, query: VisibleQuery) -> ResResult<PageData<Vec<AnnouncementCardRes>>> {
     let user_id = current_user(claims)?;
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let filter = VisibleFilter {
@@ -151,11 +146,7 @@ async fn page_visible(
     let result = model::page_visible(&audience, &filter, page, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询我的公告"))?;
-    let list = result
-        .list
-        .iter()
-        .map(AnnouncementCardRes::from_row)
-        .collect();
+    let list = result.list.iter().map(AnnouncementCardRes::from_row).collect();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -178,9 +169,7 @@ async fn page_visible(
     permission = "business:announcement:read"
 )]
 #[nik::get("/business/announcement/unread-count")]
-pub async fn unread_count(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<UnreadCountRes> {
+pub async fn unread_count(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<UnreadCountRes> {
     count_unread(&claims).await
 }
 
@@ -191,9 +180,7 @@ pub async fn unread_count(
     permission = "business:announcement:read"
 )]
 #[nik::get("/business/announcement/mine/unread-count")]
-pub async fn mine_unread_count(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<UnreadCountRes> {
+pub async fn mine_unread_count(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<UnreadCountRes> {
     count_unread(&claims).await
 }
 
@@ -203,9 +190,7 @@ async fn count_unread(claims: &TokenClaims) -> ResResult<UnreadCountRes> {
     let announcement_unread = model::count_unread(&audience)
         .await
         .map_err(|error| utils::db_error(error, "统计公告未读数"))?;
-    Ok(Res::ok(UnreadCountRes {
-        announcement_unread,
-    }))
+    Ok(Res::ok(UnreadCountRes { announcement_unread }))
 }
 
 // ==================== 详情 ====================
@@ -244,10 +229,7 @@ pub async fn mine_detail(
     announcement_detail(&claims, &id).await
 }
 
-async fn announcement_detail(
-    claims: &TokenClaims,
-    raw_id: &str,
-) -> ResResult<AnnouncementDetailRes> {
+async fn announcement_detail(claims: &TokenClaims, raw_id: &str) -> ResResult<AnnouncementDetailRes> {
     let user_id = current_user(claims)?;
     let announcement_id = utils::require_uuid(raw_id, "id")?;
     let audience = load_audience(&user_id).await?;
@@ -262,11 +244,7 @@ async fn announcement_detail(
         .await
         .map_err(|error| utils::db_error(error, "查询公告附件"))?;
     let html = detail_html(&row);
-    Ok(Res::ok(AnnouncementDetailRes::from_row(
-        &row,
-        html,
-        &attachments,
-    )))
+    Ok(Res::ok(AnnouncementDetailRes::from_row(&row, html, &attachments)))
 }
 
 /// 详情出参的 HTML（**闸 3**：出参前再净化一次）。
@@ -348,10 +326,7 @@ async fn announcement_read(claims: &TokenClaims, raw_id: &str) -> ResResult<Mark
     let (first_read, read_count) = model::mark_read(&announcement_id, &user_id)
         .await
         .map_err(|error| utils::db_error(error, "标记公告已读"))?;
-    Ok(Res::ok(MarkReadRes {
-        read_count,
-        first_read,
-    }))
+    Ok(Res::ok(MarkReadRes { read_count, first_read }))
 }
 
 /// 全部已读（只影响「我的可见集合」，不越权写别人的回执）。
@@ -365,9 +340,7 @@ async fn announcement_read(claims: &TokenClaims, raw_id: &str) -> ResResult<Mark
     permission = "business:announcement:read"
 )]
 #[nik::put("/business/announcement/read-all")]
-pub async fn read_all(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<ReadAllRes> {
+pub async fn read_all(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<ReadAllRes> {
     mark_all_read(&claims).await
 }
 
@@ -378,9 +351,7 @@ pub async fn read_all(
     permission = "business:announcement:read"
 )]
 #[nik::put("/business/announcement/mine/read-all")]
-pub async fn mine_read_all(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<ReadAllRes> {
+pub async fn mine_read_all(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<ReadAllRes> {
     mark_all_read(&claims).await
 }
 
@@ -505,10 +476,7 @@ async fn attachment_response(
                 "附件对象已丢失（记录存在但文件被清理）",
             )
         })?;
-    let reader = backend
-        .stream(&file.file_key, 0)
-        .await
-        .map_err(map_store_error)?;
+    let reader = backend.stream(&file.file_key, 0).await.map_err(map_store_error)?;
 
     let mime = download_mime(attachment.mime_type.as_deref(), file.mime_type.as_deref());
     let mut response = Response::new(Body::from_stream(ReaderStream::new(reader)));
@@ -516,26 +484,16 @@ async fn attachment_response(
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(&mime).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     headers.insert(
         header::CONTENT_LENGTH,
         HeaderValue::from_str(&stat.size.to_string())
             .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "响应头构造失败"))?,
     );
-    headers.insert(
-        header::CONTENT_DISPOSITION,
-        content_disposition(&attachment.file_name),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, max-age=300"),
-    );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::CONTENT_DISPOSITION, content_disposition(&attachment.file_name));
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("private, max-age=300"));
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     Ok(response)
 }
 
@@ -556,9 +514,7 @@ async fn attachment_response(
 ///
 /// - 409：记录指向的后端已停用 / 删除；
 /// - 500：路由表装载失败（主密钥缺失等）。
-async fn resolve_file_store(
-    storage_code: Option<&str>,
-) -> std::result::Result<Arc<dyn ObjectStore>, ApiError> {
+async fn resolve_file_store(storage_code: Option<&str>) -> std::result::Result<Arc<dyn ObjectStore>, ApiError> {
     if let Some(code) = storage_code.map(str::trim).filter(|code| !code.is_empty()) {
         ensure_router().await?;
         return global_router().by_code(code).ok_or_else(|| {
@@ -589,10 +545,7 @@ fn download_mime(attachment_mime: Option<&str>, file_mime: Option<&str>) -> Stri
         return "application/octet-stream".to_string();
     }
     let lowered = raw.to_ascii_lowercase();
-    if lowered.starts_with("text/html")
-        || lowered.starts_with("application/xhtml")
-        || lowered.contains("svg")
-    {
+    if lowered.starts_with("text/html") || lowered.starts_with("application/xhtml") || lowered.contains("svg") {
         return "application/octet-stream".to_string();
     }
     lowered
@@ -629,10 +582,8 @@ fn content_disposition(original: &str) -> HeaderValue {
             encoded.push_str(&format!("%{byte:02X}"));
         }
     }
-    HeaderValue::from_str(&format!(
-        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"
-    ))
-    .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+    HeaderValue::from_str(&format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
 /// 存储错误 → 统一出口（状态码 + 业务码）。
@@ -653,11 +604,7 @@ fn map_store_error(error: StoreError) -> ApiError {
 /// 可见性判定结果 → 错误（判定顺序已在 SQL 里固定，这里只做映射）。
 fn visibility_error(visibility: &Visibility) -> ApiError {
     match visibility {
-        Visibility::NotFound => ApiError::new(
-            404,
-            error_code::ANNOUNCEMENT_NOT_FOUND,
-            "公告不存在或已删除",
-        ),
+        Visibility::NotFound => ApiError::new(404, error_code::ANNOUNCEMENT_NOT_FOUND, "公告不存在或已删除"),
         Visibility::NotAvailable => ApiError::new(
             403,
             error_code::ANNOUNCEMENT_NOT_AVAILABLE,
@@ -746,9 +693,7 @@ async fn load_audience(user_id: &uuid::Uuid) -> std::result::Result<Audience, Ap
     permission = "business:announcement:list"
 )]
 #[nik::get("/business/announcement/page")]
-pub async fn manage_page(
-    Query(query): Query<ManagePageQuery>,
-) -> ResResult<PageData<Vec<ManageCardRes>>> {
+pub async fn manage_page(Query(query): Query<ManagePageQuery>) -> ResResult<PageData<Vec<ManageCardRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let filter = manage_filter(&query)?;
     let result = model::page_manage(&filter, page, page_size)
@@ -793,11 +738,7 @@ fn manage_filter(query: &ManagePageQuery) -> std::result::Result<ManageFilter, A
         &["ALL", "ROLE", "DEPT", "USER"],
         "scope_type",
     )?;
-    let level = enum_param(
-        query.level.as_deref(),
-        &["NORMAL", "IMPORTANT", "URGENT"],
-        "level",
-    )?;
+    let level = enum_param(query.level.as_deref(), &["NORMAL", "IMPORTANT", "URGENT"], "level")?;
     let publish_from = dto::parse_rfc3339(query.publish_from.as_deref(), "publish_from")?;
     let publish_to = dto::parse_rfc3339(query.publish_to.as_deref(), "publish_to")?;
     if let (Some(from), Some(to)) = (publish_from, publish_to)
@@ -820,11 +761,7 @@ fn manage_filter(query: &ManagePageQuery) -> std::result::Result<ManageFilter, A
 }
 
 /// 归一化可空枚举查询参数（空白视为未传）。
-fn enum_param(
-    raw: Option<&str>,
-    allowed: &[&str],
-    field: &str,
-) -> std::result::Result<Option<String>, ApiError> {
+fn enum_param(raw: Option<&str>, allowed: &[&str], field: &str) -> std::result::Result<Option<String>, ApiError> {
     let Some(value) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
         return Ok(None);
     };
@@ -935,12 +872,7 @@ pub async fn create(
         changelog::record_in(
             &tx,
             &ctx.ctx(),
-            ChangeTarget::of(
-                "sys_announcement",
-                id.to_string(),
-                Action::Create,
-                "新建公告",
-            ),
+            ChangeTarget::of("sys_announcement", id.to_string(), Action::Create, "新建公告"),
             DiffInput::create(&snapshot),
         )
         .await?;
@@ -1117,8 +1049,7 @@ pub async fn delete(
     let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
     let (affected, withdraw) = db()
         .transaction(|tx| async move {
-            let (affected, withdraw) =
-                model::soft_delete_with_notice(&tx, &announcement_id, operator).await?;
+            let (affected, withdraw) = model::soft_delete_with_notice(&tx, &announcement_id, operator).await?;
             if affected > 0 {
                 changelog::record_in(
                     &tx,
@@ -1294,9 +1225,7 @@ async fn publish_inner(
     };
     match maintenance::dispatch_announcement(&pending).await {
         Ok(result) => {
-            if let Err(error) =
-                model::backfill_notice(announcement_id, &result.notice_id, result.receiver_count)
-                    .await
+            if let Err(error) = model::backfill_notice(announcement_id, &result.notice_id, result.receiver_count).await
             {
                 tracing::warn!(
                     announcement_id = %announcement_id,
@@ -1304,10 +1233,8 @@ async fn publish_inner(
                     "扇出成功但回填 notice_id 失败（补偿任务会重放，幂等）"
                 );
                 response.fanout = FANOUT_FAILED.to_string();
-                response.warning = Some(
-                    "公告已发布，站内信已发出但回执未能落库；补偿任务会自动补齐（不会重复发送）"
-                        .to_string(),
-                );
+                response.warning =
+                    Some("公告已发布，站内信已发出但回执未能落库；补偿任务会自动补齐（不会重复发送）".to_string());
                 return Ok(Res::ok(response));
             }
             response.notice_id = Some(result.notice_id.to_string());
@@ -1440,11 +1367,7 @@ fn require_offline_reason(raw: &str) -> std::result::Result<String, ApiError> {
         ));
     }
     if reason.chars().count() > 200 {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "下线原因最多 200 个字符",
-        ));
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "下线原因最多 200 个字符"));
     }
     Ok(reason.to_string())
 }
@@ -1595,9 +1518,7 @@ pub async fn bind_attachment(
         ));
     }
 
-    let sort_order = req
-        .sort_order
-        .unwrap_or(i32::try_from(count).unwrap_or(i32::MAX));
+    let sort_order = req.sort_order.unwrap_or(i32::try_from(count).unwrap_or(i32::MAX));
     let attachment_id = model::bind_attachment(&announcement_id, &file_id, sort_order)
         .await
         .map_err(|error| utils::db_error(error, "绑定公告附件"))?
@@ -1612,10 +1533,7 @@ pub async fn bind_attachment(
         sort_order,
         "公告附件已绑定"
     );
-    Ok(Res::ok(AttachmentRes::from_row(
-        &announcement_id,
-        &attachment,
-    )))
+    Ok(Res::ok(AttachmentRes::from_row(&announcement_id, &attachment)))
 }
 
 /// 阅读名单 / 阅读统计（谁读了、谁没读）。
@@ -1640,10 +1558,7 @@ pub async fn bind_attachment(
     permission = "business:announcement:list"
 )]
 #[nik::get("/business/announcement/{id}/readers")]
-pub async fn readers(
-    Path(id): Path<String>,
-    Query(query): Query<ReadersQuery>,
-) -> ResResult<ReadersRes> {
+pub async fn readers(Path(id): Path<String>, Query(query): Query<ReadersQuery>) -> ResResult<ReadersRes> {
     readers_inner(&id, &query).await
 }
 
@@ -1654,10 +1569,7 @@ pub async fn readers(
     permission = "business:announcement:list"
 )]
 #[nik::get("/business/announcement/{id}/read-stats")]
-pub async fn read_stats(
-    Path(id): Path<String>,
-    Query(query): Query<ReadersQuery>,
-) -> ResResult<ReadersRes> {
+pub async fn read_stats(Path(id): Path<String>, Query(query): Query<ReadersQuery>) -> ResResult<ReadersRes> {
     readers_inner(&id, &query).await
 }
 
@@ -1738,24 +1650,15 @@ pub async fn set_top_alias(
     set_top_inner(&claims, &id, req).await
 }
 
-async fn set_top_inner(
-    claims: &TokenClaims,
-    raw_id: &str,
-    req: AnnouncementTopReq,
-) -> ResResult<AnnouncementTopRes> {
+async fn set_top_inner(claims: &TokenClaims, raw_id: &str, req: AnnouncementTopReq) -> ResResult<AnnouncementTopRes> {
     let operator = current_user(claims)?;
     let announcement_id = utils::require_uuid(raw_id, "id")?;
     let now = chrono::Utc::now();
     let normalized = dto::normalize_top(&req, now)?;
     require_manage(&announcement_id).await?;
-    model::apply_top(
-        &announcement_id,
-        normalized.is_top,
-        normalized.top_expire_at,
-        operator,
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "置顶公告"))?;
+    model::apply_top(&announcement_id, normalized.is_top, normalized.top_expire_at, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "置顶公告"))?;
     tracing::info!(
         announcement_id = %announcement_id,
         is_top = normalized.is_top,
@@ -1795,11 +1698,7 @@ pub async fn manage_detail(Path(id): Path<String>) -> ResResult<AnnouncementMana
         .await
         .map_err(|error| utils::db_error(error, "查询公告附件"))?;
     let html = purified_html(&row.content_html, &row.content_md);
-    Ok(Res::ok(AnnouncementManageDetailRes::from_row(
-        &row,
-        html,
-        &attachments,
-    )))
+    Ok(Res::ok(AnnouncementManageDetailRes::from_row(&row, html, &attachments)))
 }
 
 // ==================== 管理侧公共辅助 ====================
@@ -1845,9 +1744,7 @@ pub fn auto_summary(plain_text: &str) -> String {
 }
 
 /// 加载管理详情行，不存在直接 404。
-async fn require_manage(
-    announcement_id: &uuid::Uuid,
-) -> std::result::Result<model::ManageDetailRow, ApiError> {
+async fn require_manage(announcement_id: &uuid::Uuid) -> std::result::Result<model::ManageDetailRow, ApiError> {
     model::find_manage(announcement_id)
         .await
         .map_err(|error| utils::db_error(error, "查询公告（管理端）"))?
@@ -1856,11 +1753,7 @@ async fn require_manage(
 
 /// 公告不存在 / 已软删 → `404 + 62002`。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::ANNOUNCEMENT_NOT_FOUND,
-        "公告不存在或已删除",
-    )
+    ApiError::new(404, error_code::ANNOUNCEMENT_NOT_FOUND, "公告不存在或已删除")
 }
 
 /// 附件不存在 → `400 + 62003`（§2.8.3 校验表：附件 file_id 不存在为 400）。
@@ -1877,9 +1770,7 @@ fn attachment_not_found() -> ApiError {
 /// # 异常情况
 ///
 /// 见 [`ensure_attachment_file`] 与数量 / 大小校验的中文错误。
-async fn ensure_attachments(
-    attachments: &[(uuid::Uuid, i32)],
-) -> std::result::Result<(), ApiError> {
+async fn ensure_attachments(attachments: &[(uuid::Uuid, i32)]) -> std::result::Result<(), ApiError> {
     if attachments.len() > dto::MAX_ATTACHMENTS {
         return Err(ApiError::new(
             400,
@@ -1944,19 +1835,12 @@ async fn ensure_attachment_file(
         u64::try_from(file.file_size).unwrap_or(0),
         file.mime_type.as_deref(),
     )
-    .map_err(|violation| {
-        ApiError::new(
-            violation.http_status(),
-            violation.code(),
-            violation.message(),
-        )
-    })?;
+    .map_err(|violation| ApiError::new(violation.http_status(), violation.code(), violation.message()))?;
     Ok(file)
 }
 
 /// 附件分类策略（`announcement` → `document` → 内置默认）。
-async fn resolve_upload_policy()
--> std::result::Result<storage_model::SysStoragePolicyModel, ApiError> {
+async fn resolve_upload_policy() -> std::result::Result<storage_model::SysStoragePolicyModel, ApiError> {
     for category in ["announcement", "document"] {
         let found = storage_model::find_policy_by_category(category)
             .await
@@ -2019,28 +1903,18 @@ mod manage_tests {
         let auto = resolve_summary("", &long);
         assert_eq!(auto.chars().count(), 201, "200 字 + 省略号");
         assert!(auto.ends_with('…'));
-        assert_eq!(
-            auto_summary("  多   空格\n换行 "),
-            "多 空格 换行",
-            "空白应折叠"
-        );
+        assert_eq!(auto_summary("  多   空格\n换行 "), "多 空格 换行", "空白应折叠");
     }
 
     /// A-18 XSS 口径（管理侧）：脏快照 / Markdown 内嵌 HTML 都不可执行。
     #[test]
     fn purified_html_blocks_scripts() {
-        let dirty = purified_html(
-            "<p>看图</p><img src=x onerror=alert(1)><script>alert(2)</script>",
-            "x",
-        );
+        let dirty = purified_html("<p>看图</p><img src=x onerror=alert(1)><script>alert(2)</script>", "x");
         assert!(!dirty.contains("<script"), "{dirty}");
         assert!(!dirty.contains("onerror"), "{dirty}");
 
         let escaped = purified_html("", "<img src=x onerror=alert(1)>");
-        assert!(
-            !escaped.contains("<img"),
-            "ENABLE_HTML=false 必须转义：{escaped}"
-        );
+        assert!(!escaped.contains("<img"), "ENABLE_HTML=false 必须转义：{escaped}");
         assert!(escaped.contains("&lt;img"), "{escaped}");
     }
 
@@ -2052,18 +1926,9 @@ mod manage_tests {
             Recipe::Announcement,
         );
         let warnings = preview_warnings("非空正文", &rendered);
-        assert!(
-            warnings.iter().any(|w| w.contains("外链图片")),
-            "{warnings:?}"
-        );
-        assert!(
-            warnings.iter().any(|w| w.contains("不安全链接")),
-            "{warnings:?}"
-        );
-        assert!(
-            warnings.iter().any(|w| w.contains("原始 HTML")),
-            "{warnings:?}"
-        );
+        assert!(warnings.iter().any(|w| w.contains("外链图片")), "{warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("不安全链接")), "{warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("原始 HTML")), "{warnings:?}");
 
         let empty = content::render("", Recipe::Announcement);
         let warnings = preview_warnings("", &empty);
@@ -2076,10 +1941,7 @@ mod manage_tests {
     fn offline_reason_required() {
         let error = require_offline_reason("   ").expect_err("空原因必须拒绝");
         assert_eq!((error.status, error.code), (400, 10001));
-        assert_eq!(
-            require_offline_reason(" 内容有误 ").expect("合法"),
-            "内容有误"
-        );
+        assert_eq!(require_offline_reason(" 内容有误 ").expect("合法"), "内容有误");
         let too_long = "字".repeat(201);
         assert!(require_offline_reason(&too_long).is_err());
     }
@@ -2185,10 +2047,7 @@ mod tests {
     /// 正常路径：Markdown → HTML 走净化管线，表格 / 标题都保留。
     #[test]
     fn detail_html_renders_markdown() {
-        let row = detail_row(
-            "## 维护时间\n\n| 系统 | 影响 |\n|---|---|\n| 云枢 | 不可用 |\n",
-            "",
-        );
+        let row = detail_row("## 维护时间\n\n| 系统 | 影响 |\n|---|---|\n| 云枢 | 不可用 |\n", "");
         let html = detail_html(&row);
         // 标题层级强制偏移 +1（`##` → `<h3>`），页面已有 `<h1>`，正文不再出现 h1
         assert!(html.contains("<h3>维护时间</h3>"), "{html}");
@@ -2222,10 +2081,7 @@ mod tests {
         let html = detail_html(&row);
         assert!(!html.contains("<img"), "ENABLE_HTML 必须为 false：{html}");
         assert!(html.contains("&lt;img"), "应降级为转义的纯文本：{html}");
-        assert!(
-            !html.contains("<img src=x"),
-            "转义不彻底会形成真实标签：{html}"
-        );
+        assert!(!html.contains("<img src=x"), "转义不彻底会形成真实标签：{html}");
     }
 
     /// 边界分支：快照为空 → 从 Markdown 现渲染（不返回空串，也不拼原文）。
@@ -2239,18 +2095,9 @@ mod tests {
     /// A-12：下载 MIME 不允许 `text/html` / SVG（防存储型 XSS）。
     #[test]
     fn download_mime_downgrades_active_content() {
-        assert_eq!(
-            download_mime(Some("text/html"), None),
-            "application/octet-stream"
-        );
-        assert_eq!(
-            download_mime(Some("image/svg+xml"), None),
-            "application/octet-stream"
-        );
-        assert_eq!(
-            download_mime(Some("application/pdf"), None),
-            "application/pdf"
-        );
+        assert_eq!(download_mime(Some("text/html"), None), "application/octet-stream");
+        assert_eq!(download_mime(Some("image/svg+xml"), None), "application/octet-stream");
+        assert_eq!(download_mime(Some("application/pdf"), None), "application/pdf");
         // 绑定行没有 MIME → 回落文件记录
         assert_eq!(download_mime(None, Some("text/plain")), "text/plain");
         // 都没有 → octet-stream

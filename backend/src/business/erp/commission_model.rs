@@ -39,9 +39,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::commission_dto::{
-    self, CommissionFilter, STATUS_APPROVED, STATUS_DRAFT, STATUS_PAID,
-};
+use crate::business::erp::commission_dto::{self, CommissionFilter, STATUS_APPROVED, STATUS_DRAFT, STATUS_PAID};
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
 
@@ -81,8 +79,7 @@ pub const ACCOUNT_BANK: &str = "1002";
 
 /// 列表锚点：`salesperson_id` 是归属列（SELF 范围用），无部门列
 /// （部门类范围由 `filter_for` 安全侧降级为「仅本人」）。
-pub const LIST_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::new(TABLE, "t", None, Some("salesperson_id"));
+pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::new(TABLE, "t", None, Some("salesperson_id"));
 
 // ==================== 行 ====================
 
@@ -262,10 +259,7 @@ pub async fn alive_settlement(
                 "SELECT {COLUMNS} FROM {TABLE} \
                   WHERE salesperson_id = ?::uuid AND period_code = ? AND deleted_at IS NULL"
             ),
-            vec![
-                Value::from(&salesperson_id),
-                Value::Text(period_code.to_string()),
-            ],
+            vec![Value::from(&salesperson_id), Value::Text(period_code.to_string())],
         )
         .await?;
     row.as_ref().map(SettlementRow::from_row).transpose()
@@ -331,8 +325,7 @@ pub async fn voucher_no_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<
             vec![Value::from(&voucher_id)],
         )
         .await?;
-    row.map(|row| row.get_typed::<String>("voucher_no"))
-        .transpose()
+    row.map(|row| row.get_typed::<String>("voucher_no")).transpose()
 }
 
 /// 「有销售员归属的订单」的销售员清单（结算批跑的目标集合）。
@@ -358,10 +351,7 @@ pub async fn salespeople_with_orders(ex: &impl SqlExecutor) -> DbResult<Vec<(Uui
 }
 
 /// 某销售员的计提候选（应收 + 订单 + 已认领基数）。
-pub async fn load_candidates(
-    ex: &impl SqlExecutor,
-    salesperson_id: Uuid,
-) -> DbResult<Vec<CandidateRow>> {
+pub async fn load_candidates(ex: &impl SqlExecutor, salesperson_id: Uuid) -> DbResult<Vec<CandidateRow>> {
     let sql = format!(
         "SELECT r.id AS receivable_id, r.ar_no, r.received_amount, s.so_id, so.so_no, \
                 COALESCE(base.settled, 0) AS settled_base \
@@ -438,10 +428,7 @@ pub async fn load_rules(ex: &impl SqlExecutor) -> DbResult<Vec<RuleRow>> {
 }
 
 /// 一批订单的全部明细（按物料拆基数用）。
-pub async fn load_order_lines(
-    ex: &impl SqlExecutor,
-    so_ids: &[Uuid],
-) -> DbResult<Vec<OrderLineRow>> {
+pub async fn load_order_lines(ex: &impl SqlExecutor, so_ids: &[Uuid]) -> DbResult<Vec<OrderLineRow>> {
     if so_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -561,12 +548,7 @@ pub async fn next_settlement_no(ex: &impl SqlExecutor, period_code: &str) -> DbR
 }
 
 /// 软删一张结算单（重算前清场；明细随 `deleted_at` 一起失效于「已认领基数」口径）。
-pub async fn soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET deleted_at = ?, updated_at = ?, \
@@ -613,9 +595,7 @@ pub async fn insert_settlement(
             Value::Text(total_sales.to_string()),
             Value::Text(total_commission.to_string()),
             Value::Text(STATUS_DRAFT.to_string()),
-            remark
-                .map(|v| Value::Text(v.to_string()))
-                .unwrap_or(Value::Null),
+            remark.map(|v| Value::Text(v.to_string())).unwrap_or(Value::Null),
             Value::from(now),
             Value::from(now),
             Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
@@ -650,9 +630,7 @@ pub async fn insert_items(
         params.push(Value::from(&item.so_id));
         params.push(Value::Text(item.base_amount.to_string()));
         // 可空 uuid 统一走 NULLIF(?::text,'')：本栈驱动不支持把 NULL 直接绑到 uuid 位。
-        params.push(Value::Text(
-            item.rule_id.map(|v| v.to_string()).unwrap_or_default(),
-        ));
+        params.push(Value::Text(item.rule_id.map(|v| v.to_string()).unwrap_or_default()));
         params.push(Value::Text(item.rate.to_string()));
         params.push(Value::Text(item.commission.to_string()));
         params.push(
@@ -723,10 +701,7 @@ pub async fn apply_status(
 }
 
 /// 订单号映射（明细回显用）。
-pub async fn order_nos(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<std::collections::HashMap<Uuid, String>> {
+pub async fn order_nos(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
@@ -739,19 +714,13 @@ pub async fn order_nos(
         .await?;
     let mut map = std::collections::HashMap::new();
     for row in &rows {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("so_no")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("so_no")?);
     }
     Ok(map)
 }
 
 /// 应收单号映射（明细回显用）。
-pub async fn receivable_nos(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<std::collections::HashMap<Uuid, String>> {
+pub async fn receivable_nos(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
@@ -764,10 +733,7 @@ pub async fn receivable_nos(
         .await?;
     let mut map = std::collections::HashMap::new();
     for row in &rows {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("ar_no")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("ar_no")?);
     }
     Ok(map)
 }
@@ -831,9 +797,6 @@ mod tests {
     fn list_target_uses_salesperson_as_owner_column() {
         assert!(LIST_TARGET.is_scoped(), "佣金结算单必须参与数据权限");
         assert_eq!(LIST_TARGET.owner_col, Some("salesperson_id"));
-        assert_eq!(
-            LIST_TARGET.dept_col, None,
-            "结算单没有部门列（降级为仅本人）"
-        );
+        assert_eq!(LIST_TARGET.dept_col, None, "结算单没有部门列（降级为仅本人）");
     }
 }

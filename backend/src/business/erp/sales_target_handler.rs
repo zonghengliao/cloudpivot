@@ -53,15 +53,12 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::sales_target_dto::{
-    AchievementBasis, AchievementQuery, AchievementRow, BASIS_RECEIPT, ForecastCreateReq,
-    ForecastFilter, ForecastPageQuery, ForecastRes, ForecastUpdateReq, Period, SCOPE_ALL,
-    TargetCreateReq, TargetFilter, TargetPageQuery, TargetRes, TargetUpdateReq, achievement_rate,
-    check_amount, check_qty, gap, money2, normalize_basis, normalize_confidence, normalize_period,
-    normalize_scope, normalize_status,
+    AchievementBasis, AchievementQuery, AchievementRow, BASIS_RECEIPT, ForecastCreateReq, ForecastFilter,
+    ForecastPageQuery, ForecastRes, ForecastUpdateReq, Period, SCOPE_ALL, TargetCreateReq, TargetFilter,
+    TargetPageQuery, TargetRes, TargetUpdateReq, achievement_rate, check_amount, check_qty, gap, money2,
+    normalize_basis, normalize_confidence, normalize_period, normalize_scope, normalize_status,
 };
-use crate::business::erp::sales_target_model::{
-    self as model, ForecastListRow, ForecastRow, TargetListRow, TargetRow,
-};
+use crate::business::erp::sales_target_model::{self as model, ForecastListRow, ForecastRow, TargetListRow, TargetRow};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -143,9 +140,7 @@ pub fn to_target_res(row: &TargetListRow) -> TargetRes {
         target_no: target.target_no.clone(),
         scope_type: target.scope_type.clone(),
         scope_id: target.scope_id.map(|id| id.to_string()),
-        scope_name: scope_name
-            .clone()
-            .or_else(|| target.scope_id.map(|id| id.to_string())),
+        scope_name: scope_name.clone().or_else(|| target.scope_id.map(|id| id.to_string())),
         period_code: target.period_code.clone(),
         target_amount: target.target_amount,
         target_qty: target.target_qty,
@@ -179,10 +174,7 @@ pub fn to_forecast_res(row: &ForecastListRow) -> ForecastRes {
 // ==================== 目标：业务逻辑 ====================
 
 /// 范围对象存在性校验（写错表是静默失效，必须在入口挡住）。
-async fn ensure_scope_target(
-    scope_type: &str,
-    scope_id: Option<Uuid>,
-) -> std::result::Result<(), ApiError> {
+async fn ensure_scope_target(scope_type: &str, scope_id: Option<Uuid>) -> std::result::Result<(), ApiError> {
     let Some(scope_id) = scope_id else {
         return Ok(());
     };
@@ -199,9 +191,7 @@ async fn ensure_scope_target(
 
 /// 备注清洗（空白串 → `None`）。
 fn clean_remark(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// 版本号校验：`version_no >= 1`（与 `ck_biz_sf_version` 逐字一致）。
@@ -217,10 +207,7 @@ fn check_version_no(value: i32) -> std::result::Result<i32, ApiError> {
 }
 
 /// 新建目标。
-pub async fn create_target(
-    operator: Option<Uuid>,
-    req: TargetCreateReq,
-) -> std::result::Result<TargetRes, ApiError> {
+pub async fn create_target(operator: Option<Uuid>, req: TargetCreateReq) -> std::result::Result<TargetRes, ApiError> {
     let period = Period::from_code(&req.period_code)?;
     let (scope_type, scope_id) = normalize_scope(&req.scope_type, req.scope_id.as_deref())?;
     let status = normalize_status(req.status.as_deref())?;
@@ -266,10 +253,7 @@ pub async fn update_target(
     let (current, _) = current;
 
     // 三态合并：scope_type / scope_id 一起改（只改一个会让「范围 + 对象」自相矛盾）
-    let raw_scope_type = req
-        .scope_type
-        .clone()
-        .unwrap_or_else(|| current.scope_type.clone());
+    let raw_scope_type = req.scope_type.clone().unwrap_or_else(|| current.scope_type.clone());
     let raw_scope_id: Option<String> = match req.scope_id.clone() {
         Some(Some(raw)) => Some(raw),
         Some(None) => None,
@@ -332,10 +316,7 @@ pub async fn update_target(
 }
 
 /// 软删目标。
-pub async fn delete_target(
-    operator: Option<Uuid>,
-    id_raw: &str,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_target(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_uuid(id_raw, "id")?;
     let affected = model::soft_delete_target(id, operator)
         .await
@@ -347,9 +328,7 @@ pub async fn delete_target(
 }
 
 /// 目标分页。
-pub async fn page_targets(
-    query: TargetPageQuery,
-) -> std::result::Result<PageData<Vec<TargetRes>>, ApiError> {
+pub async fn page_targets(query: TargetPageQuery) -> std::result::Result<PageData<Vec<TargetRes>>, ApiError> {
     let mut filter: TargetFilter = query.filter()?;
     let (page, page_size) = normalize_page(filter.page, filter.page_size);
     filter.page = page;
@@ -475,10 +454,7 @@ pub async fn update_forecast(
 }
 
 /// 软删预测。
-pub async fn delete_forecast(
-    operator: Option<Uuid>,
-    id_raw: &str,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_forecast(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_uuid(id_raw, "id")?;
     let affected = model::soft_delete_forecast(id, operator)
         .await
@@ -490,9 +466,7 @@ pub async fn delete_forecast(
 }
 
 /// 预测分页。
-pub async fn page_forecasts(
-    query: ForecastPageQuery,
-) -> std::result::Result<PageData<Vec<ForecastRes>>, ApiError> {
+pub async fn page_forecasts(query: ForecastPageQuery) -> std::result::Result<PageData<Vec<ForecastRes>>, ApiError> {
     let mut filter: ForecastFilter = query.filter()?;
     let (page, page_size) = normalize_page(filter.page, filter.page_size);
     filter.page = page;
@@ -551,17 +525,12 @@ fn basis_of(target: &TargetRow, actual: Decimal) -> AchievementBasis {
 }
 
 /// 组装看板行（纯函数：单测直接喂数据，不碰库）。
-pub fn assemble_achievement(
-    targets: &[TargetListRow],
-    actuals: &Actuals,
-    basis: &str,
-) -> Vec<AchievementRow> {
+pub fn assemble_achievement(targets: &[TargetListRow], actuals: &Actuals, basis: &str) -> Vec<AchievementRow> {
     targets
         .iter()
         .map(|(target, scope_name)| {
             let order_actual = lookup(&actuals.by_order, target.scope_id, actuals.order_total);
-            let receipt_actual =
-                lookup(&actuals.by_receipt, target.scope_id, actuals.receipt_total);
+            let receipt_actual = lookup(&actuals.by_receipt, target.scope_id, actuals.receipt_total);
             let by_order = basis_of(target, order_actual);
             let by_receipt = basis_of(target, receipt_actual);
             let chosen = if basis == BASIS_RECEIPT {
@@ -591,9 +560,7 @@ pub fn assemble_achievement(
 }
 
 /// 达成率看板。
-pub async fn achievement(
-    query: AchievementQuery,
-) -> std::result::Result<Vec<AchievementRow>, ApiError> {
+pub async fn achievement(query: AchievementQuery) -> std::result::Result<Vec<AchievementRow>, ApiError> {
     let raw_period = query
         .period_code
         .as_deref()
@@ -653,15 +620,11 @@ pub async fn achievement(
 
 /// 解析必填 UUID 参数。
 fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到「{raw}」）")))
+    Uuid::parse_str(raw.trim()).map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到「{raw}」）")))
 }
 
 /// 解析可空 UUID 参数（空白串 = `None`）。
-fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => Uuid::parse_str(text)
             .map(Some)
@@ -684,9 +647,7 @@ fn now_utc_time() -> nik::prelude::chrono::DateTime<nik::prelude::chrono::Utc> {
     permission = "business:erp:sales-target:list"
 )]
 #[nik::get("/business/erp/sales-target/page")]
-pub async fn sales_target_page_api(
-    Query(query): Query<TargetPageQuery>,
-) -> ResResult<PageData<Vec<TargetRes>>> {
+pub async fn sales_target_page_api(Query(query): Query<TargetPageQuery>) -> ResResult<PageData<Vec<TargetRes>>> {
     Ok(Res::ok(page_targets(query).await?))
 }
 
@@ -697,9 +658,7 @@ pub async fn sales_target_page_api(
     permission = "business:erp:sales-target:list"
 )]
 #[nik::get("/business/erp/sales-target/achievement")]
-pub async fn sales_target_achievement_api(
-    Query(query): Query<AchievementQuery>,
-) -> ResResult<Vec<AchievementRow>> {
+pub async fn sales_target_achievement_api(Query(query): Query<AchievementQuery>) -> ResResult<Vec<AchievementRow>> {
     Ok(Res::ok(achievement(query).await?))
 }
 
@@ -757,9 +716,7 @@ pub async fn sales_target_delete_api(
     permission = "business:erp:sales-forecast:list"
 )]
 #[nik::get("/business/erp/sales-forecast/page")]
-pub async fn sales_forecast_page_api(
-    Query(query): Query<ForecastPageQuery>,
-) -> ResResult<PageData<Vec<ForecastRes>>> {
+pub async fn sales_forecast_page_api(Query(query): Query<ForecastPageQuery>) -> ResResult<PageData<Vec<ForecastRes>>> {
     Ok(Res::ok(page_forecasts(query).await?))
 }
 
@@ -821,8 +778,8 @@ pub fn all_permissions() -> Vec<&'static str> {
 mod tests {
     use super::*;
     use crate::business::erp::sales_target_dto::{
-        BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, SCOPE_DEPT, SCOPE_MATERIAL,
-        SCOPE_SALESPERSON, TARGET_ACTIVE, TARGET_STATUSES,
+        BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_SALESPERSON, TARGET_ACTIVE,
+        TARGET_STATUSES,
     };
     use nik::prelude::chrono::NaiveDate;
     use nik::prelude::rust_decimal::Decimal;
@@ -888,10 +845,7 @@ mod tests {
             assert_eq!(parts.len(), 4, "{code}");
             assert_eq!(parts[0], "business", "{code}");
             assert_eq!(parts[1], "erp", "{code}");
-            assert!(
-                parts[2] == "sales-target" || parts[2] == "sales-forecast",
-                "{code}"
-            );
+            assert!(parts[2] == "sales-target" || parts[2] == "sales-forecast", "{code}");
         }
     }
 
@@ -959,10 +913,7 @@ mod tests {
     #[test]
     fn achievement_rate_is_percentage_two_decimals() {
         assert_eq!(achievement_rate(dec("85500"), dec("100000")), dec("85.50"));
-        assert_eq!(
-            achievement_rate(dec("120000"), dec("100000")),
-            dec("120.00")
-        );
+        assert_eq!(achievement_rate(dec("120000"), dec("100000")), dec("120.00"));
         assert_eq!(achievement_rate(dec("0"), dec("100000")), dec("0.00"));
         // 除不尽要四舍五入到 2 位（不是截断）
         assert_eq!(achievement_rate(dec("1"), dec("3")), dec("33.33"));
@@ -1023,13 +974,7 @@ mod tests {
 
     #[test]
     fn assemble_all_scope_uses_totals() {
-        let targets = vec![target_row(
-            Uuid::now_v7(),
-            SCOPE_ALL,
-            None,
-            dec("500000"),
-            "2026-Q4",
-        )];
+        let targets = vec![target_row(Uuid::now_v7(), SCOPE_ALL, None, dec("500000"), "2026-Q4")];
         let actuals = Actuals {
             by_order: vec![(Uuid::now_v7(), dec("1"))],
             by_receipt: vec![],
@@ -1108,28 +1053,19 @@ mod tests {
     #[test]
     fn status_and_confidence_normalization() {
         assert_eq!(normalize_status(None).expect("缺省"), TARGET_ACTIVE);
-        assert_eq!(
-            normalize_status(Some("inactive")).expect("小写也收"),
-            "INACTIVE"
-        );
+        assert_eq!(normalize_status(Some("inactive")).expect("小写也收"), "INACTIVE");
         assert!(normalize_status(Some("DELETED")).is_err());
         assert_eq!(TARGET_STATUSES.len(), 2);
 
         assert_eq!(normalize_confidence(None).expect("缺省"), CONFIDENCE_MEDIUM);
-        assert_eq!(
-            normalize_confidence(Some("high")).expect("小写也收"),
-            CONFIDENCE_HIGH
-        );
+        assert_eq!(normalize_confidence(Some("high")).expect("小写也收"), CONFIDENCE_HIGH);
         assert!(normalize_confidence(Some("SURE")).is_err());
     }
 
     #[test]
     fn basis_normalization_defaults_to_order() {
         assert_eq!(normalize_basis(None).expect("缺省"), BASIS_ORDER);
-        assert_eq!(
-            normalize_basis(Some("receipt")).expect("小写"),
-            BASIS_RECEIPT
-        );
+        assert_eq!(normalize_basis(Some("receipt")).expect("小写"), BASIS_RECEIPT);
         assert!(normalize_basis(Some("CASH")).is_err());
     }
 
@@ -1150,10 +1086,7 @@ mod tests {
         // 口径一致性（纯算术演练）：各销售员实际之和 = 全公司总额，
         // 看板 `ALL` 行与按人汇总不该互相打架。
         let actuals = Actuals {
-            by_order: vec![
-                (Uuid::now_v7(), dec("120000")),
-                (Uuid::now_v7(), dec("80000")),
-            ],
+            by_order: vec![(Uuid::now_v7(), dec("120000")), (Uuid::now_v7(), dec("80000"))],
             by_receipt: vec![],
             order_total: dec("200000"),
             receipt_total: decimal_zero(),

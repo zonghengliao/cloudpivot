@@ -31,8 +31,7 @@ async fn ensure_db() -> bool {
     static READY: OnceCell<bool> = OnceCell::const_new();
     *READY
         .get_or_init(|| async {
-            let Ok(url) = std::env::var("ERP_DB_URL").or_else(|_| std::env::var("TASK_DB_URL"))
-            else {
+            let Ok(url) = std::env::var("ERP_DB_URL").or_else(|_| std::env::var("TASK_DB_URL")) else {
                 println!("SKIP: 未设置 ERP_DB_URL / TASK_DB_URL（不连真实数据库）");
                 return false;
             };
@@ -174,8 +173,7 @@ async fn d9_task_copy_keeps_fields_but_not_children() {
     let me = uuid(U_ME);
     let (origin_id, origin_no) = seed_task("D9 月度对账", None, "P1", Some(3.5), true).await;
     // 子任务 + 评论：复制时必须一个都不带
-    let (_child_id, _child_no) =
-        seed_task("D9 月度对账-子任务", Some(origin_id), "P2", None, false).await;
+    let (_child_id, _child_no) = seed_task("D9 月度对账-子任务", Some(origin_id), "P2", None, false).await;
     db().execute_with_params(
         "INSERT INTO biz_task_comment \
              (id, task_id, user_id, content, mentions, parent_comment_id, comment_type, \
@@ -192,26 +190,16 @@ async fn d9_task_copy_keeps_fields_but_not_children() {
     .await
     .expect("夹具评论写入失败");
 
-    let before = model::find_raw(origin_id)
-        .await
-        .unwrap()
-        .expect("原任务必须存在");
+    let before = model::find_raw(origin_id).await.unwrap().expect("原任务必须存在");
 
     let new_id = copy_task(origin_id, &claims_with(&["*:*:*"]))
         .await
         .expect("复制任务应成功");
-    let copied = model::find_raw(new_id)
-        .await
-        .unwrap()
-        .expect("副本必须存在");
+    let copied = model::find_raw(new_id).await.unwrap().expect("副本必须存在");
 
     assert_ne!(copied.card.id, before.card.id);
     assert_ne!(copied.card.task_no, origin_no, "任务编号必须是新的");
-    assert!(
-        copied.card.task_no.starts_with("TSK-"),
-        "{}",
-        copied.card.task_no
-    );
+    assert!(copied.card.task_no.starts_with("TSK-"), "{}", copied.card.task_no);
     assert_eq!(
         copied.card.title,
         format!("{}{}", before.card.title, COPY_TITLE_SUFFIX),
@@ -220,11 +208,7 @@ async fn d9_task_copy_keeps_fields_but_not_children() {
     assert_eq!(copied.description, before.description, "描述要带出");
     assert_eq!(copied.card.priority, "P1", "优先级要带出");
     assert_eq!(copied.card.owner_id, me, "负责人要带出");
-    assert_eq!(
-        copied.estimate_hours,
-        Some(3.5),
-        "预估工时（NUMERIC(6,1)）要带出"
-    );
+    assert_eq!(copied.estimate_hours, Some(3.5), "预估工时（NUMERIC(6,1)）要带出");
     assert!(copied.card.need_review, "需验收标记要带出");
     assert_eq!(copied.card.status, dto::STATUS_TODO, "副本从 TODO 开始");
     assert_eq!(copied.card.progress, 0, "进度归零");
@@ -233,28 +217,17 @@ async fn d9_task_copy_keeps_fields_but_not_children() {
     assert!(copied.approval_instance_id.is_none());
     // 子任务 / 评论一个都没复制
     assert_eq!(
-        count(
-            "SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid",
-            new_id
-        )
-        .await,
+        count("SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid", new_id).await,
         0,
         "子任务不许复制"
     );
     assert_eq!(
-        count(
-            "SELECT count(*) FROM biz_task_comment WHERE task_id = ?::uuid",
-            new_id
-        )
-        .await,
+        count("SELECT count(*) FROM biz_task_comment WHERE task_id = ?::uuid", new_id).await,
         0,
         "评论不许复制"
     );
     // 原任务一个字都不改（标题 / 状态 / 编号 / updated_at）
-    let after = model::find_raw(origin_id)
-        .await
-        .unwrap()
-        .expect("原任务还在");
+    let after = model::find_raw(origin_id).await.unwrap().expect("原任务还在");
     assert_eq!(after.card.title, before.card.title);
     assert_eq!(after.card.status, before.card.status);
     assert_eq!(after.card.task_no, before.card.task_no);
@@ -263,11 +236,7 @@ async fn d9_task_copy_keeps_fields_but_not_children() {
         "原任务 updated_at 不许变"
     );
     assert_eq!(
-        count(
-            "SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid",
-            origin_id
-        )
-        .await,
+        count("SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid", origin_id).await,
         1,
         "原任务的子任务还在"
     );
@@ -293,11 +262,7 @@ async fn d9_task_copy_requires_create_permission() {
     );
     // 一个副本都不许建出来（仍只有原任务 + 它自己）
     assert_eq!(
-        count(
-            "SELECT count(*) FROM biz_task WHERE creator_id = ?::uuid",
-            uuid(U_ME)
-        )
-        .await,
+        count("SELECT count(*) FROM biz_task WHERE creator_id = ?::uuid", uuid(U_ME)).await,
         1
     );
 }
@@ -361,12 +326,9 @@ async fn zz_teardown_purges_super_admin_fixture_user() {
     )
     .await
     .expect("清场删角色关联失败");
-    db().execute_with_params(
-        "DELETE FROM sys_user WHERE id = ?::uuid",
-        vec![Value::from(&me)],
-    )
-    .await
-    .expect("清场删用户失败");
+    db().execute_with_params("DELETE FROM sys_user WHERE id = ?::uuid", vec![Value::from(&me)])
+        .await
+        .expect("清场删用户失败");
 
     // ④ 断言：用户 / 角色关联 / 任务 全为 0
     assert_eq!(
@@ -375,20 +337,12 @@ async fn zz_teardown_purges_super_admin_fixture_user() {
         "超管夹具用户必须删掉（留着会让兄弟模块的第二遍全量变红）"
     );
     assert_eq!(
-        count(
-            "SELECT count(*) FROM sys_user_role WHERE user_id = ?::uuid",
-            me
-        )
-        .await,
+        count("SELECT count(*) FROM sys_user_role WHERE user_id = ?::uuid", me).await,
         0,
         "角色关联必须删掉"
     );
     assert_eq!(
-        count(
-            "SELECT count(*) FROM biz_task WHERE creator_id = ?::uuid",
-            me
-        )
-        .await,
+        count("SELECT count(*) FROM biz_task WHERE creator_id = ?::uuid", me).await,
         0,
         "夹具任务必须删掉"
     );

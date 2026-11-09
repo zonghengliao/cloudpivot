@@ -1,0 +1,44 @@
+{
+  "task": "t_881cfdfb MENU-FIX-3 生产发布：144 应用 V0353 + 前端实测",
+  "verified_at": "2026-11-09 09:45 CST（本卡 run 1125 独立复核，非沿用上次尝试的结论）",
+  "env": {
+    "host": "172.18.10.144 (prod, /opt/cloudpivot, db=cloudpivot)",
+    "git_head": "0847d579 (== origin/main)，含 5169df9 V0353",
+    "deploy": {
+      "script": "scripts/deploy/deploy.sh（既有 gating，未改流程）",
+      "tag": "20261109-092815",
+      "log": "/var/log/cloudpivot-deploy-20261109-092815.log",
+      "V0353_apply": "APPLY_OK V353 checksum=ea7e52ece80a8afa… seq=292 ms=33ms；SQL 输出 UPDATE 1 / UPDATE 1；NOTICE: V0353 完成",
+      "reconcile": "记账 274 → 275（增量 1 == 待跑 1）",
+      "health": "启动后 /health 200；进程==磁盘 md5 e2835b83f00290018cbe9208aa744f1b"
+    }
+  },
+  "acceptance": {
+    "1_migration_record": "353 | menu_icon_and_material_move | t | imported  （select version,name,success,applied_via from schema_migrations where version='353'）",
+    "2_db_live": {
+      "purchase": "采购订单 | /business/erp/purchase | cart",
+      "material": "物料管理 | parent=仓库管理 | sort_order=5",
+      "warehouse_children_menu_type2": ["物料管理(5)", "仓库管理(10)", "库位管理(20)", "序列号管理(30)", "即时库存(40)", "库存调拨(50)", "库位库存(60)", "库存流水(70)", "出库单(80)", "盘点单(90)"],
+      "warehouse_children_note": "未过滤 menu_type 时有 4 个 menu_type=3 按钮（仓库详情10/新建仓库20/编辑仓库30/删除仓库40）与页面同 sort，属按钮不进侧栏；不变量⑦只管 menu_type=2，实测 0 违规",
+      "master_data_children": ["计量单位(20)", "单号序列(30)"],
+      "totals": "sys_menu 435 行 / 未删 431"
+    },
+    "3_invariants": "144 上跑两版：仓库自带 7 条版 → 全绿 rc=0（①0 ②0 ③0 ④0 ⑤431 ⑥0 ⑦0）；再以 /tmp 方式跑仓库最新 8 条版（含 ⑧ icon 名合法，MENU_REPO_ROOT=/opt/cloudpivot）→ 全绿 rc=0，⑧ 图标库 2356 个名字，(icon,path) 去重 104 条全部命中",
+    "4_frontend_render": "FE_BASE=http://172.18.10.144 node scripts/verify/menu_render_check.mjs → RENDER_RC=0，82 个菜单项全部渲染 svg.t-icon，blanks=[]；采购管理/采购订单 = t-icon-cart；仓库管理第一子项 = 物料管理 [t-icon-layers]；基础数据只剩 计量单位/单号序列"
+  },
+  "service_state": {
+    "systemctl": "active, MainPID 2574687",
+    "proc_md5": "e2835b83f00290018cbe9208aa744f1b == 磁盘二进制",
+    "health": "{\"code\":0,\"msg\":\"ok\",\"data\":{\"status\":\"ok\",\"app\":\"cloudpivot\",\"profile\":\"prod\"}}"
+  },
+  "screenshots": {
+    "01_prod_sidebar_purchase.png": "dir_06 采购管理（采购订单前 t-icon-cart）",
+    "02_prod_sidebar_warehouse.png": "dir_08 仓库管理（第一子项 物料管理 t-icon-layers）",
+    "03_prod_sidebar_masterdata.png": "dir_11 基础数据（计量单位 / 单号序列）"
+  },
+  "rollback": "V0353__menu_icon_and_material_move.down.sql（注意会把 icon 改回 shopping-cart，等于把空白 bug 装回去）；发布级回滚三件套见 /root/deploy-backup-20261109-092815",
+  "notes": [
+    "本次为纯数据迁移，前端无改动，deploy.sh 第 7 步按 gating 跳过 dist 构建（144 dist 入口 assets/index-D8odIrkm.js 未变）",
+    "144 HEAD 0847d579；本机 main 已前进到 312e584a（其它卡的新提交，不在本卡范围）"
+  ]
+}

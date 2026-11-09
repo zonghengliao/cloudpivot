@@ -23,9 +23,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::approval_gate;
 use crate::business::erp::voucher_write;
-use crate::business::erp::{
-    fixture_hygiene, payable, payable_bridge, payable_payment, voucher, voucher_bridge,
-};
+use crate::business::erp::{fixture_hygiene, payable, payable_bridge, payable_payment, voucher, voucher_bridge};
 use crate::business::flow::engine;
 
 /// ARCH-3 DC-01：系统路径的审批前置上下文 —— 不请求跳过、也没有权限声明。
@@ -132,8 +130,7 @@ async fn purge_fixtures() {
             (SELECT id FROM biz_flow_instance WHERE biz_type IN \
                ('PAYABLE_CANCEL','VOUCHER_REVERSE'))"
             .to_string(),
-        "DELETE FROM biz_flow_instance WHERE biz_type IN ('PAYABLE_CANCEL','VOUCHER_REVERSE')"
-            .to_string(),
+        "DELETE FROM biz_flow_instance WHERE biz_type IN ('PAYABLE_CANCEL','VOUCHER_REVERSE')".to_string(),
         "DELETE FROM biz_flow_task WHERE assignee_id IN \
            (SELECT id FROM sys_user WHERE username LIKE 'p3b_%')"
             .to_string(),
@@ -325,10 +322,7 @@ async fn posted_voucher(amount: &str, creator: &str) -> Uuid {
 // ==================== 夹具：读状态 ====================
 
 async fn payable_row(id: Uuid) -> payable::PayableRow {
-    let sql = format!(
-        "SELECT {} FROM biz_payable WHERE id = ?::uuid",
-        payable::COLUMNS
-    );
+    let sql = format!("SELECT {} FROM biz_payable WHERE id = ?::uuid", payable::COLUMNS);
     let rows = db()
         .find_with_params(&sql, vec![Value::from(&id)])
         .await
@@ -404,12 +398,7 @@ async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
         .await
         .expect("读待办失败");
     rows.iter()
-        .map(|row| {
-            (
-                row.get_typed("id").unwrap(),
-                row.get_typed("assignee_id").unwrap(),
-            )
-        })
+        .map(|row| (row.get_typed("id").unwrap(), row.get_typed("assignee_id").unwrap()))
         .collect()
 }
 
@@ -423,21 +412,15 @@ async fn task_of(instance_id: Uuid, assignee: Uuid) -> Option<(Uuid, String)> {
         )
         .await
         .expect("读待办失败");
-    rows.first().map(|row| {
-        (
-            row.get_typed("id").unwrap(),
-            row.get_typed("status").unwrap(),
-        )
-    })
+    rows.first()
+        .map(|row| (row.get_typed("id").unwrap(), row.get_typed("status").unwrap()))
 }
 
 /// 以某人身份同意一条待办（**只动引擎**，回调由调用点自己调）。
 async fn approve(task_id: Uuid, operator: Uuid) -> engine::ActionOut {
-    db().transaction(|tx| async move {
-        engine::approve(&tx, task_id, operator, Some("同意（P3B 单测）")).await
-    })
-    .await
-    .unwrap_or_else(|err| panic!("审批同意失败：{err}"))
+    db().transaction(|tx| async move { engine::approve(&tx, task_id, operator, Some("同意（P3B 单测）")).await })
+        .await
+        .unwrap_or_else(|err| panic!("审批同意失败：{err}"))
 }
 
 /// 以某人身份驳回并终止一条待办。
@@ -481,19 +464,15 @@ async fn pflow3b_payable_submit_cancel_enters_pending() {
     let id = payable_with("1000", "0", payable::STATUS_OPEN, U_FM).await;
     let before = payable_row(id).await;
 
-    let out =
-        payable_payment::submit_cancel(id, Some("供应商重复开票"), Some(uid(U_FM)), &none_gate())
-            .await
-            .unwrap_or_else(|err| panic!("提交作废失败：{} {}", err.code, err.msg));
+    let out = payable_payment::submit_cancel(id, Some("供应商重复开票"), Some(uid(U_FM)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("提交作废失败：{} {}", err.code, err.msg));
     assert_eq!(out.outcome, payable_payment::OUTCOME_CANCEL_PENDING);
     assert!(out.approval_instance_id.is_some(), "必须回写审批实例 id");
 
     let after = payable_row(id).await;
     assert_eq!(after.status, payable::STATUS_PENDING_CANCEL);
-    assert!(
-        after.cancel_instance_id.is_some(),
-        "必须挂 cancel_instance_id"
-    );
+    assert!(after.cancel_instance_id.is_some(), "必须挂 cancel_instance_id");
     assert_eq!(
         after.cancel_reason.as_deref(),
         Some("供应商重复开票"),
@@ -546,21 +525,13 @@ async fn pflow3b_payable_approve_cancels() {
     payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
 
     let after = payable_row(id).await;
-    assert_eq!(
-        after.status,
-        payable::STATUS_CANCELLED,
-        "审批通过必须真作废"
-    );
+    assert_eq!(after.status, payable::STATUS_CANCELLED, "审批通过必须真作废");
     assert!(
         after.cancel_instance_id.is_none(),
         "作废后必须摘掉实例引用（ck_biz_payable_pending_cancel 要求）"
     );
     assert!(
-        after
-            .remark
-            .as_deref()
-            .unwrap_or_default()
-            .contains("重复开票"),
+        after.remark.as_deref().unwrap_or_default().contains("重复开票"),
         "作废原因要写进 remark：{:?}",
         after.remark
     );
@@ -670,10 +641,7 @@ async fn pflow3b_payable_self_approval_forbidden() {
         .await
         .expect_err("制单人自批必须 403");
     assert_eq!(err.status, 403, "{}", err.msg);
-    assert_eq!(
-        err.code,
-        crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN
-    );
+    assert_eq!(err.code, crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
     assert!(err.msg.contains("内控"), "{}", err.msg);
     // 别人来批：放行
     payable_bridge::guard_self_approval(tasks[0].0, uid(U_MAKER))
@@ -751,10 +719,9 @@ async fn pflow3b_voucher_submit_reverse_flags_pending_only() {
         None => return,
     };
     let id = posted_voucher("8000", U_FM).await;
-    let out =
-        voucher_write::submit_reverse(id, Some("凭证金额录错"), Some(uid(U_FM)), &none_gate())
-            .await
-            .unwrap_or_else(|err| panic!("提交红冲失败：{} {}", err.code, err.msg));
+    let out = voucher_write::submit_reverse(id, Some("凭证金额录错"), Some(uid(U_FM)), &none_gate())
+        .await
+        .unwrap_or_else(|err| panic!("提交红冲失败：{} {}", err.code, err.msg));
     assert_eq!(out.outcome, voucher_write::OUTCOME_REVERSE_PENDING);
 
     let row = voucher_row(id).await;
@@ -773,11 +740,7 @@ async fn pflow3b_voucher_submit_reverse_flags_pending_only() {
     let instance = instance_id_of(voucher_bridge::BIZ_TYPE, id).await;
     let tasks = pending_tasks(instance).await;
     assert_eq!(tasks.len(), 1, "1 万以内走财务经理单人审批");
-    assert_eq!(
-        tasks[0].1,
-        uid(U_MAKER),
-        "制单人（U_FM）被内控排除，派给另一名财务经理"
-    );
+    assert_eq!(tasks[0].1, uid(U_MAKER), "制单人（U_FM）被内控排除，派给另一名财务经理");
 }
 
 /// ⑨ 审批通过 → 生成红字凭证 + `reversed_by` 回写 + pending 清空。
@@ -800,10 +763,7 @@ async fn pflow3b_voucher_approve_generates_red() {
 
     let original = voucher_row(id).await;
     assert_eq!(original.status, voucher::STATUS_POSTED, "原凭证仍 POSTED");
-    assert!(
-        original.pending_reverse_instance_id.is_none(),
-        "通过后必须清空 pending"
-    );
+    assert!(original.pending_reverse_instance_id.is_none(), "通过后必须清空 pending");
     let red_id = original.reversed_by.expect("必须回写 reversed_by");
     let reds = red_children(id).await;
     assert_eq!(reds.len(), 1, "必须且只生成一张红字凭证");
@@ -841,10 +801,7 @@ async fn pflow3b_voucher_reject_clears_pending() {
         "驳回必须清 pending（否则这张凭证永远提交不了红冲）"
     );
     assert!(original.reversed_by.is_none(), "驳回不许生成红字");
-    assert!(
-        red_children(id).await.is_empty(),
-        "库里的红字凭证数必须是 0"
-    );
+    assert!(red_children(id).await.is_empty(), "库里的红字凭证数必须是 0");
 
     // 驳回后还能再提交（pending 没清干净的话这里会 409）
     voucher_write::submit_reverse(id, Some("重新提交"), Some(uid(U_FM)), &none_gate())
@@ -900,10 +857,7 @@ async fn pflow3b_voucher_large_amount_requires_countersign() {
     let first = approve(tasks[0].0, tasks[0].1).await;
     assert_eq!(first.instance_status, "PENDING", "会签只批一票不许通过");
     voucher_bridge::on_reverse_settled(first.instance_id, &first.instance_status).await;
-    assert!(
-        voucher_row(id).await.reversed_by.is_none(),
-        "会签未凑齐时不许红冲"
-    );
+    assert!(voucher_row(id).await.reversed_by.is_none(), "会签未凑齐时不许红冲");
 
     // 第二票：通过
     let second = approve(tasks[1].0, tasks[1].1).await;
@@ -932,10 +886,7 @@ async fn pflow3b_voucher_self_approval_forbidden() {
         .await
         .expect_err("制单人自批必须 403");
     assert_eq!(err.status, 403, "{}", err.msg);
-    assert_eq!(
-        err.code,
-        crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN
-    );
+    assert_eq!(err.code, crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
     voucher_bridge::guard_self_approval(tasks[0].0, uid(U_MAKER))
         .await
         .expect("非制单人应当放行");
@@ -959,9 +910,7 @@ async fn pflow3b_voucher_delete_cancels_approval() {
         "UPDATE biz_voucher SET deleted_at = now() WHERE id = '{id}'::uuid"
     ))
     .await;
-    let cancelled = voucher_bridge::reconcile_orphan_reverses()
-        .await
-        .expect("孤儿回收失败");
+    let cancelled = voucher_bridge::reconcile_orphan_reverses().await.expect("孤儿回收失败");
     assert!(cancelled >= 1, "必须回收这条孤儿实例");
     assert_eq!(
         instance_of(voucher_bridge::BIZ_TYPE, id).await.as_deref(),
@@ -986,10 +935,7 @@ async fn pflow3b_voucher_withdraw_clears_pending() {
         .unwrap_or_else(|err| panic!("撤回失败：{} {}", err.code, err.msg));
     let row = voucher_row(id).await;
     assert_eq!(row.status, voucher::STATUS_POSTED);
-    assert!(
-        row.pending_reverse_instance_id.is_none(),
-        "撤回必须清 pending"
-    );
+    assert!(row.pending_reverse_instance_id.is_none(), "撤回必须清 pending");
     assert!(red_children(id).await.is_empty());
     assert_eq!(
         instance_of(voucher_bridge::BIZ_TYPE, id).await.as_deref(),
@@ -1010,10 +956,7 @@ async fn pflow3b_seeded_flows_hash_matches_rows() {
         Some(guard) => guard,
         None => return,
     };
-    for (flow_code, expect_nodes, expect_edges) in [
-        ("payable_cancel", 3usize, 2usize),
-        ("voucher_reverse", 5, 5),
-    ] {
+    for (flow_code, expect_nodes, expect_edges) in [("payable_cancel", 3usize, 2usize), ("voucher_reverse", 5, 5)] {
         let rows = db()
             .find_with_params(
                 "SELECT d.current_version_id AS version_id, v.graph_hash, v.node_count, v.edge_count \
@@ -1023,9 +966,7 @@ async fn pflow3b_seeded_flows_hash_matches_rows() {
             )
             .await
             .expect("查流程定义失败");
-        let row = rows
-            .first()
-            .unwrap_or_else(|| panic!("V0191 没种出流程 {flow_code}"));
+        let row = rows.first().unwrap_or_else(|| panic!("V0191 没种出流程 {flow_code}"));
         let version_id: Uuid = row.get_typed("version_id").unwrap();
         let stored: String = row.get_typed("graph_hash").unwrap();
         let nodes: i32 = row.get_typed("node_count").unwrap();
@@ -1083,9 +1024,7 @@ async fn pflow3b_dc01_cancel_without_published_flow_is_409() {
     let id = payable_with("1000", "0", payable::STATUS_OPEN, U_FM).await;
     let before = payable_row(id).await;
     exec("UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'payable_cancel'").await;
-    let outcome =
-        payable_payment::submit_cancel(id, Some("供应商重复开票"), Some(uid(U_FM)), &none_gate())
-            .await;
+    let outcome = payable_payment::submit_cancel(id, Some("供应商重复开票"), Some(uid(U_FM)), &none_gate()).await;
     exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'payable_cancel'").await;
     assert!(
         payable_bridge::published_cancel_flow()
@@ -1113,10 +1052,7 @@ async fn pflow3b_dc01_cancel_without_published_flow_is_409() {
     assert_eq!(after.status, payable::STATUS_OPEN, "被拒后仍是 OPEN");
     assert_eq!(after.amount, before.amount);
     assert_eq!(after.paid_amount, before.paid_amount);
-    assert!(
-        after.cancel_instance_id.is_none(),
-        "被拒后不许挂作废审批实例"
-    );
+    assert!(after.cancel_instance_id.is_none(), "被拒后不许挂作废审批实例");
     assert!(after.cancel_reason.is_none(), "被拒后不许落作废原因");
 }
 
@@ -1139,9 +1075,7 @@ async fn pflow3b_dc01_reverse_without_published_flow_is_409() {
         .expect("查红字凭证")
         .unwrap_or(0);
     exec("UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'voucher_reverse'").await;
-    let outcome =
-        voucher_write::submit_reverse(id, Some("凭证金额录错"), Some(uid(U_FM)), &none_gate())
-            .await;
+    let outcome = voucher_write::submit_reverse(id, Some("凭证金额录错"), Some(uid(U_FM)), &none_gate()).await;
     exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'voucher_reverse'").await;
 
     let error = outcome.expect_err("没配流程必须 409，不能静默直接红冲");
@@ -1159,10 +1093,7 @@ async fn pflow3b_dc01_reverse_without_published_flow_is_409() {
     );
     let row = voucher_row(id).await;
     assert!(row.reversed_by.is_none(), "被拒后原凭证不许被标记已红冲");
-    assert!(
-        row.pending_reverse_instance_id.is_none(),
-        "被拒后不许挂红冲审批实例"
-    );
+    assert!(row.pending_reverse_instance_id.is_none(), "被拒后不许挂红冲审批实例");
     let after_red: i64 = db()
         .scalar_with_params::<Option<i64>>(
             "SELECT count(*) FROM biz_voucher WHERE reverse_of = ?::uuid",
@@ -1192,12 +1123,10 @@ async fn pflow3b_dc01_reverse_with_explicit_skip_executes_and_logs_reason() {
         skip_reason: Some("会计已当面核对原始凭证，先红冲重录".to_string()),
     };
     let gate = approval_gate::ApprovalGate::new(&skip, &claims);
-    let outcome =
-        voucher_write::submit_reverse(id, Some("凭证金额录错"), Some(uid(U_FM)), &gate).await;
+    let outcome = voucher_write::submit_reverse(id, Some("凭证金额录错"), Some(uid(U_FM)), &gate).await;
     exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'voucher_reverse'").await;
 
-    let out =
-        outcome.unwrap_or_else(|err| panic!("显式跳过审批的红冲失败：{} {}", err.code, err.msg));
+    let out = outcome.unwrap_or_else(|err| panic!("显式跳过审批的红冲失败：{} {}", err.code, err.msg));
     assert_eq!(
         out.outcome,
         voucher_write::OUTCOME_REVERSED,
@@ -1285,10 +1214,7 @@ async fn pflow3b_c1_moved_doc_is_not_overwritten_by_approval() {
                 AND t.comment LIKE ?::text",
             vec![
                 Value::from(&instance),
-                Value::Text(format!(
-                    "%{}%",
-                    crate::business::flow::settle_guard::SKIP_TRACE_PREFIX
-                )),
+                Value::Text(format!("%{}%", crate::business::flow::settle_guard::SKIP_TRACE_PREFIX)),
             ],
         )
         .await
@@ -1325,10 +1251,7 @@ async fn pflow3b_zz_teardown_purges_fixtures() {
             "供应商",
             "SELECT count(*) AS n FROM biz_supplier WHERE supplier_code = 'P3B-SUP'",
         ),
-        (
-            "用户",
-            "SELECT count(*) AS n FROM sys_user WHERE username LIKE 'p3b_%'",
-        ),
+        ("用户", "SELECT count(*) AS n FROM sys_user WHERE username LIKE 'p3b_%'"),
         (
             "本卡实例",
             "SELECT count(*) AS n FROM biz_flow_instance \

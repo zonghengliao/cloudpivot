@@ -39,10 +39,9 @@ use serde_json::json;
 
 use crate::business::erp::budget_bridge;
 use crate::business::erp::budget_dto::{
-    AdjustBudgetReq, BudgetDetailRes, BudgetFilter, BudgetRes, CreateBudgetReq, MappingReq,
-    MappingRes, PeriodRes, ReportRes, UpdateBudgetReq, UsageRes, conflict, invalid, normalize_page,
-    parse_uuid_text, status_label, validate_adjust, validate_control_mode, validate_mapping,
-    validate_periods,
+    AdjustBudgetReq, BudgetDetailRes, BudgetFilter, BudgetRes, CreateBudgetReq, MappingReq, MappingRes, PeriodRes,
+    ReportRes, UpdateBudgetReq, UsageRes, conflict, invalid, normalize_page, parse_uuid_text, status_label,
+    validate_adjust, validate_control_mode, validate_mapping, validate_periods,
 };
 use crate::business::erp::budget_guard;
 use crate::business::erp::budget_model::{
@@ -62,11 +61,7 @@ fn not_found() -> ApiError {
 }
 
 fn map_not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "预算科目映射不存在或已删除",
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "预算科目映射不存在或已删除")
 }
 
 /// 部门名快照（部门不存在 → 400，不允许编出「无主预算」）。
@@ -119,10 +114,7 @@ async fn account_snapshot(account_id: Uuid) -> std::result::Result<(String, Stri
             row.get_typed::<String>("account_code")?
         )));
     }
-    Ok((
-        row.get_typed("account_code")?,
-        row.get_typed("account_name")?,
-    ))
+    Ok((row.get_typed("account_code")?, row.get_typed("account_name")?))
 }
 
 // ==================== ① 分页 / 详情 ====================
@@ -154,12 +146,7 @@ pub async fn budget_page(
         .await
         .map_err(|error| utils::db_error(error, "分页查询预算"))?;
     let list: Vec<BudgetRes> = rows.iter().map(BudgetRes::from).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 fn budget_dto_default() -> u64 {
@@ -187,10 +174,9 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<BudgetDetailRes, ApiErro
     // 当月已用（现算；口径与 budget_guard 完全一致）
     // 占用记录按**槽**查（FIX-2 问题 3）：预算单 id ≠ 源单据 id，且同一槽下的占用可能来自
     // 报销 / 采购多种来源、还可能是旧版本写的 —— 按 `budget_id` 或写死来源都会漏。
-    let usage_rows =
-        budget_guard::usages_of_slot(db(), row.dept_id, row.account_id, row.fiscal_year)
-            .await
-            .unwrap_or_default();
+    let usage_rows = budget_guard::usages_of_slot(db(), row.dept_id, row.account_id, row.fiscal_year)
+        .await
+        .unwrap_or_default();
     let usages: Vec<UsageRes> = usage_rows.iter().map(UsageRes::of).collect();
     let periods = budget_model::periods_of(db(), row.id)
         .await
@@ -242,10 +228,7 @@ async fn year_used_of(row: &budget_model::BudgetRow) -> std::result::Result<Deci
         .unwrap_or(Decimal::ZERO))
 }
 
-async fn month_used_of(
-    row: &budget_model::BudgetRow,
-    period_code: &str,
-) -> std::result::Result<Decimal, ApiError> {
+async fn month_used_of(row: &budget_model::BudgetRow, period_code: &str) -> std::result::Result<Decimal, ApiError> {
     let rows = db()
         .query_sql(
             "SELECT COALESCE(SUM(amount), 0)::text AS used FROM biz_budget_usage \
@@ -285,10 +268,7 @@ pub async fn budget_create(
 }
 
 /// 建单核心（handler 与用例共用）。
-pub async fn create_budget(
-    req: &CreateBudgetReq,
-    operator: Option<Uuid>,
-) -> std::result::Result<Uuid, ApiError> {
+pub async fn create_budget(req: &CreateBudgetReq, operator: Option<Uuid>) -> std::result::Result<Uuid, ApiError> {
     let control_mode = validate_control_mode(req.control_mode.as_deref())?;
     let periods = validate_periods(req.fiscal_year, req.total_amount, req.periods.as_deref())?;
     let dept_id = parse_uuid_text(&req.dept_id, "dept_id")?;
@@ -300,10 +280,9 @@ pub async fn create_budget(
         .await
         .map_err(|error| utils::db_error(error, "查询该槽已生效预算"))?;
     if existing.is_none() {
-        let pending =
-            budget_model::pending_adjust_of_slot(db(), dept_id, account_id, req.fiscal_year)
-                .await
-                .map_err(|error| utils::db_error(error, "查询该槽在审预算"))?;
+        let pending = budget_model::pending_adjust_of_slot(db(), dept_id, account_id, req.fiscal_year)
+            .await
+            .map_err(|error| utils::db_error(error, "查询该槽在审预算"))?;
         existing = pending;
     }
     if let Some(row) = existing {
@@ -374,11 +353,7 @@ fn build_conflict(error: DbError) -> ApiError {
             "同一「部门 × 科目 × 年度」已有预算版本：改额度请用「调整」（新增版本走审批），\
              不要重复编制",
         ),
-        other => ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("写入预算失败：{other}"),
-        ),
+        other => ApiError::new(500, error_code::INTERNAL_ERROR, format!("写入预算失败：{other}")),
     }
 }
 
@@ -624,9 +599,9 @@ pub async fn submit_budget(id: Uuid, operator: Option<Uuid>) -> std::result::Res
             // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
             return Err(rejected);
         }
-        let instance_id = out.instance_id.ok_or_else(|| {
-            ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id")
-        })?;
+        let instance_id = out
+            .instance_id
+            .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
         let affected = budget_model::apply_status(
             &tx,
             row.id,
@@ -729,11 +704,7 @@ pub async fn budget_adjust(
 }
 
 /// 调整核心（建新版本草稿）。返回新版本 id。
-pub async fn adjust(
-    id: Uuid,
-    req: &AdjustBudgetReq,
-    operator: Option<Uuid>,
-) -> std::result::Result<Uuid, ApiError> {
+pub async fn adjust(id: Uuid, req: &AdjustBudgetReq, operator: Option<Uuid>) -> std::result::Result<Uuid, ApiError> {
     let current = budget_model::find(id)
         .await
         .map_err(|error| utils::db_error(error, "查询预算"))?
@@ -755,14 +726,10 @@ pub async fn adjust(
         )));
     }
     // ② 同一槽只允许一条在审的调整单（ARCH-6 §3.7.2 第 3 条坑）
-    if let Some(pending) = budget_model::pending_adjust_of_slot(
-        db(),
-        current.dept_id,
-        current.account_id,
-        current.fiscal_year,
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "查询在审调整单"))?
+    if let Some(pending) =
+        budget_model::pending_adjust_of_slot(db(), current.dept_id, current.account_id, current.fiscal_year)
+            .await
+            .map_err(|error| utils::db_error(error, "查询在审调整单"))?
     {
         return Err(conflict(format!(
             "该槽已有在审的调整单 {}（{}）：等它审批结束再调整",
@@ -794,15 +761,11 @@ pub async fn adjust(
         .await
         .map_err(|error| utils::db_error(error, "开启调整事务"))?;
     let outcome = async {
-        let version_no = budget_model::max_version_of_slot(
-            &tx,
-            current.dept_id,
-            current.account_id,
-            current.fiscal_year,
-        )
-        .await
-        .map_err(|error| utils::db_error(error, "查询版本号"))?
-            + 1;
+        let version_no =
+            budget_model::max_version_of_slot(&tx, current.dept_id, current.account_id, current.fiscal_year)
+                .await
+                .map_err(|error| utils::db_error(error, "查询版本号"))?
+                + 1;
         let no = budget_model::next_budget_no(&tx, now)
             .await
             .map_err(|error| utils::db_error(error, "取预算单号"))?;
@@ -876,9 +839,7 @@ pub async fn budget_report(Query(filter): Query<BudgetFilter>) -> ResResult<Vec<
     permission = "business:erp:budget:mapping"
 )]
 #[nik::get("/business/erp/budget/mapping/page")]
-pub async fn mapping_page(
-    Query(filter): Query<BudgetFilter>,
-) -> ResResult<PageData<Vec<MappingRes>>> {
+pub async fn mapping_page(Query(filter): Query<BudgetFilter>) -> ResResult<PageData<Vec<MappingRes>>> {
     let (page, page_size) = normalize_page(
         filter.page.unwrap_or(1),
         filter.page_size.unwrap_or(budget_dto_default()),
@@ -911,10 +872,8 @@ pub async fn mapping_create(
     validate_mapping(&req)?;
     let account_id = parse_uuid_text(&req.account_id, "account_id")?;
     account_snapshot(account_id).await?;
-    let ref_id =
-        crate::business::erp::budget_dto::parse_optional_uuid(req.ref_id.as_deref(), "ref_id")?;
-    let dept_id =
-        crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
+    let ref_id = crate::business::erp::budget_dto::parse_optional_uuid(req.ref_id.as_deref(), "ref_id")?;
+    let dept_id = crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
     let id = Uuid::now_v7();
     budget_model::map_insert(
         db(),
@@ -955,8 +914,7 @@ pub async fn mapping_update(
     validate_mapping(&req)?;
     let account_id = parse_uuid_text(&req.account_id, "account_id")?;
     account_snapshot(account_id).await?;
-    let dept_id =
-        crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
+    let dept_id = crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
     let affected = budget_model::map_update(
         db(),
         id,

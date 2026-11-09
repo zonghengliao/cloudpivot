@@ -45,8 +45,8 @@ use crate::business::shared::{scope, state_machine};
 pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};
 /// 状态域与标签（唯一真相在 `sales_model`，这里只做转发，避免两处漂移）。
 pub use crate::business::erp::sales_model::{
-    STATUS_APPROVED, STATUS_CANCELLED, STATUS_CLOSED, STATUS_DRAFT, STATUS_OUTBOUND,
-    STATUS_PARTIAL_OUT, STATUS_SUBMITTED, STATUSES, is_valid_status, status_label,
+    STATUS_APPROVED, STATUS_CANCELLED, STATUS_CLOSED, STATUS_DRAFT, STATUS_OUTBOUND, STATUS_PARTIAL_OUT,
+    STATUS_SUBMITTED, STATUSES, is_valid_status, status_label,
 };
 
 // ==================== 常量 ====================
@@ -93,8 +93,7 @@ pub fn allowed_targets(from: &str) -> Vec<&'static str> {
 /// 口径：订单**提交之后**就占用额度（客户可能已经据此排产 / 备货），
 /// 出库完成（`OUTBOUND`）转成应收账款、`CLOSED` / `CANCELLED` 不再占用，
 /// `DRAFT` 是草稿不占用。与 PRD §4.13 「信用额度 = 未出库订单价税合计」一致。
-pub const CREDIT_OCCUPYING_STATUSES: [&str; 3] =
-    [STATUS_SUBMITTED, STATUS_APPROVED, STATUS_PARTIAL_OUT];
+pub const CREDIT_OCCUPYING_STATUSES: [&str; 3] = [STATUS_SUBMITTED, STATUS_APPROVED, STATUS_PARTIAL_OUT];
 
 /// 分页锚点（ERP 单据表，不参与数据范围）。
 pub const ORDER_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(ORDER_TABLE);
@@ -319,8 +318,8 @@ impl Totals {
 /// 所以这里显式传策略，别用默认值。
 pub fn line_amounts(qty: Decimal, price: Decimal, tax_rate: Decimal) -> (Decimal, Decimal) {
     let amount = (price * qty).round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero);
-    let tax = (amount * tax_rate / Decimal::from(100))
-        .round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero);
+    let tax =
+        (amount * tax_rate / Decimal::from(100)).round_dp_with_strategy(4, RoundingStrategy::MidpointAwayFromZero);
     (amount, tax)
 }
 
@@ -328,22 +327,13 @@ pub fn line_amounts(qty: Decimal, price: Decimal, tax_rate: Decimal) -> (Decimal
 
 /// 按主键取销售订单（软删行不返回）。
 pub async fn find_order(id: Uuid) -> DbResult<Option<SalesOrderRow>> {
-    find_by_id(
-        ORDER_TABLE,
-        ORDER_COLUMNS,
-        id,
-        true,
-        SalesOrderRow::from_row,
-    )
-    .await
+    find_by_id(ORDER_TABLE, ORDER_COLUMNS, id, true, SalesOrderRow::from_row).await
 }
 
 /// 取一张单的明细（行号升序）。
 pub async fn items_of(so_id: Uuid) -> DbResult<Vec<SalesOrderItemRow>> {
     let sql = format!("SELECT {ITEM_COLUMNS} FROM {ITEM_TABLE} WHERE so_id = ? {ITEM_ORDER}");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(so_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(so_id)]).await?;
     rows.iter().map(SalesOrderItemRow::from_row).collect()
 }
 
@@ -359,21 +349,14 @@ pub async fn items_of(so_id: Uuid) -> DbResult<Vec<SalesOrderItemRow>> {
 ///
 /// ⚠ 本函数**不加锁**：并发安全靠调用方在同一事务里先 `FOR UPDATE` 锁合同行
 /// （`contract_model::contract_lock_full`），见 handler `guard_contract_amount`。
-pub async fn committed_amount(
-    ex: &impl SqlExecutor,
-    contract_id: Uuid,
-    exclude: Option<Uuid>,
-) -> DbResult<Decimal> {
+pub async fn committed_amount(ex: &impl SqlExecutor, contract_id: Uuid, exclude: Option<Uuid>) -> DbResult<Decimal> {
     let mut sql = format!(
         "SELECT COALESCE(SUM(total_with_tax), 0)::text AS total \
            FROM {ORDER_TABLE} \
           WHERE contract_id = ?::uuid AND status <> ? AND deleted_at IS NULL"
     );
     // 作废态也走参数绑定（不在 SQL 里写字面量）：状态域的唯一真相是 `sales_model`
-    let mut params = vec![
-        Value::from(&contract_id),
-        Value::Text(STATUS_CANCELLED.to_string()),
-    ];
+    let mut params = vec![Value::from(&contract_id), Value::Text(STATUS_CANCELLED.to_string())];
     if let Some(exclude_id) = exclude {
         // 改单时把自己排除掉。条件按需拼接，**不用** `NULLIF(?::text,'')` 那类写法
         // ——空串参数在驱动里会被当成 NULL 序列化（A3 的 `error serializing parameter 2`）。
@@ -563,11 +546,7 @@ pub async fn customer_open_credit(
 /// 或跨订单退货）时占用必须是 0，不能是 -30（负占用会让下一张单白拿额度）。
 pub fn credited_after_returns(ordered: Decimal, returned: Decimal) -> Decimal {
     let net = ordered - returned;
-    if net < Decimal::ZERO {
-        Decimal::ZERO
-    } else {
-        net
-    }
+    if net < Decimal::ZERO { Decimal::ZERO } else { net }
 }
 
 // ==================== 写入 ====================
@@ -617,12 +596,7 @@ pub async fn create_order(
     let id = Uuid::now_v7();
     // SO-40：本位币三项 = 原币 × 锁定汇率（含税取前两项之和，尾差落含税列）
     let base_amounts = currency::BaseAmounts::of(totals.amount, totals.tax, locked.exchange_rate);
-    let operator_text = Value::Text(
-        operator
-            .id
-            .map(|value| value.to_string())
-            .unwrap_or_default(),
-    );
+    let operator_text = Value::Text(operator.id.map(|value| value.to_string()).unwrap_or_default());
     ex.exec_sql(
         format!(
             "INSERT INTO {ORDER_TABLE} \
@@ -642,23 +616,11 @@ pub async fn create_order(
             Value::from(&new.customer_id),
             // 空串 → NULL（Uuid::to_string 不可能为空 ⇒ None 走空串分支）；
             // 不用 `?::uuid` 直接绑 Option<Uuid>：与本文件其它写法保持一致
-            Value::Text(
-                new.contract_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.contract_id.map(|value| value.to_string()).unwrap_or_default()),
             // V0309：销售员（None → 空串 → NULL）
-            Value::Text(
-                new.salesperson_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.salesperson_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::Text(new.order_date.to_string()),
-            Value::Text(
-                new.delivery_date
-                    .map(|date| date.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.delivery_date.map(|date| date.to_string()).unwrap_or_default()),
             Value::Text(STATUS_DRAFT.to_string()),
             Value::Text(totals.amount.to_string()),
             Value::Text(totals.tax.to_string()),
@@ -726,23 +688,11 @@ pub async fn update_order(
             ),
             vec![
                 Value::from(&new.customer_id),
-                Value::Text(
-                    new.contract_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.contract_id.map(|value| value.to_string()).unwrap_or_default()),
                 // V0309：销售员（空串 → NULL = 解绑销售员）
-                Value::Text(
-                    new.salesperson_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.salesperson_id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::Text(new.order_date.to_string()),
-                Value::Text(
-                    new.delivery_date
-                        .map(|date| date.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.delivery_date.map(|date| date.to_string()).unwrap_or_default()),
                 Value::Text(totals.amount.to_string()),
                 Value::Text(totals.tax.to_string()),
                 Value::Text(totals.with_tax.to_string()),
@@ -836,11 +786,7 @@ pub async fn apply_status_with_instance(
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
     let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
-    let instance_text = Value::Text(
-        approval_instance_id
-            .map(|value| value.to_string())
-            .unwrap_or_default(),
-    );
+    let instance_text = Value::Text(approval_instance_id.map(|value| value.to_string()).unwrap_or_default());
     let from_text = Value::Text(from.to_string());
     let reason_text = reason
         .map(str::trim)
@@ -1082,16 +1028,8 @@ mod tests {
         assert_eq!(totals.tax, dec("6.9055"));
         assert_eq!(totals.with_tax, dec("260.2038"));
         // model 层守卫也认这三个值（与 handler 提交前的最后一道同口径）
-        assert!(base::totals_consistent(
-            totals.amount,
-            totals.tax,
-            totals.with_tax
-        ));
-        assert!(base::amounts_non_negative(
-            totals.amount,
-            totals.tax,
-            totals.with_tax
-        ));
+        assert!(base::totals_consistent(totals.amount, totals.tax, totals.with_tax));
+        assert!(base::amounts_non_negative(totals.amount, totals.tax, totals.with_tax));
         // 空明细：三项全 0（但 handler 会拒「0 行明细」提交，这里是纯算术口径）
         let empty = Totals::of(&[]);
         assert_eq!(
@@ -1136,12 +1074,7 @@ mod tests {
         for status in CREDIT_OCCUPYING_STATUSES {
             assert!(base::is_valid_status(status));
         }
-        for not_occupying in [
-            STATUS_DRAFT,
-            STATUS_OUTBOUND,
-            STATUS_CLOSED,
-            STATUS_CANCELLED,
-        ] {
+        for not_occupying in [STATUS_DRAFT, STATUS_OUTBOUND, STATUS_CLOSED, STATUS_CANCELLED] {
             assert!(
                 !CREDIT_OCCUPYING_STATUSES.contains(&not_occupying),
                 "`{not_occupying}` 不应占用信用额度"
@@ -1295,35 +1228,21 @@ mod tests {
         .expect("建单应成功");
         tx.commit().await.expect("提交事务");
 
-        assert!(
-            so_no.starts_with("SO-"),
-            "单号前缀必须是 SO-（实际 {so_no}）"
-        );
-        assert!(
-            base::is_valid_so_no(&so_no),
-            "取出的单号必须能拆解：{so_no}"
-        );
+        assert!(so_no.starts_with("SO-"), "单号前缀必须是 SO-（实际 {so_no}）");
+        assert!(base::is_valid_so_no(&so_no), "取出的单号必须能拆解：{so_no}");
         let row = find_order(id).await.expect("查单头").expect("单头必须存在");
         assert_eq!(row.status, STATUS_DRAFT);
         assert_eq!(row.so_no, so_no);
         assert_eq!(row.total_amount, totals.amount);
         assert_eq!(row.total_tax, totals.tax);
-        assert_eq!(
-            row.total_with_tax,
-            row.total_amount + row.total_tax,
-            "价税合计必须恒等"
-        );
+        assert_eq!(row.total_with_tax, row.total_amount + row.total_tax, "价税合计必须恒等");
         assert_eq!(row.remark.as_deref(), Some("SO-05 建单"));
 
         let lines = items_of(id).await.expect("查明细");
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0].line_no, 1, "行号必须从 1 起");
         assert_eq!(lines[1].line_no, 2);
-        assert_eq!(
-            lines[0].delivered_qty,
-            Decimal::ZERO,
-            "delivered_qty 默认 0"
-        );
+        assert_eq!(lines[0].delivered_qty, Decimal::ZERO, "delivered_qty 默认 0");
         assert_eq!(lines[0].qty, dec("3"));
 
         // 建单日志：from NULL → DRAFT
@@ -1433,11 +1352,7 @@ mod tests {
 
         let row = find_order(id).await.expect("查单头").expect("单头必须存在");
         assert_eq!(row.currency_code, "USD", "币种必须落库（不是默认 CNY）");
-        assert_eq!(
-            row.exchange_rate,
-            dec("7.20000000"),
-            "汇率必须锁成建单时的值"
-        );
+        assert_eq!(row.exchange_rate, dec("7.20000000"), "汇率必须锁成建单时的值");
         assert_eq!(row.total_amount, totals.amount, "原币金额不受汇率影响");
         assert_eq!(
             row.base_total_amount,
@@ -1462,11 +1377,7 @@ mod tests {
         .await
         .expect("touch 单头应成功");
         let again = find_order(id).await.expect("查单头").expect("单头必须存在");
-        assert_eq!(
-            again.exchange_rate,
-            dec("7.20000000"),
-            "汇率锁定后任何读路径都不得重算"
-        );
+        assert_eq!(again.exchange_rate, dec("7.20000000"), "汇率锁定后任何读路径都不得重算");
         cleanup().await;
     }
 
@@ -1509,17 +1420,12 @@ mod tests {
         assert_eq!(by_customer.1, 2, "夹具客户下应有 2 张单");
 
         // ②b 批量客户标签（分页列表一次往返补齐编码 / 名称）
-        let labels = customer_labels(&[customer, customer])
-            .await
-            .expect("取客户标签");
+        let labels = customer_labels(&[customer, customer]).await.expect("取客户标签");
         assert_eq!(labels.len(), 1, "重复客户 id 应去重");
         assert_eq!(labels[0].0, customer);
         assert_eq!(labels[0].1, CUSTOMER_CODE);
         assert!(!labels[0].2.is_empty(), "名称不能为空");
-        assert!(
-            customer_labels(&[]).await.expect("空入参").is_empty(),
-            "空入参不发 SQL"
-        );
+        assert!(customer_labels(&[]).await.expect("空入参").is_empty(), "空入参不发 SQL");
 
         // ③ 状态精确筛：把第二张推成 SUBMITTED，DRAFT 只应剩 1 张
         let second_id = by_customer
@@ -1529,16 +1435,9 @@ mod tests {
             .expect("第二张单必须在分页里")
             .id;
         let tx = db().begin().await.expect("开事务");
-        apply_status(
-            &tx,
-            second_id,
-            STATUS_DRAFT,
-            STATUS_SUBMITTED,
-            None,
-            Utc::now(),
-        )
-        .await
-        .expect("推状态应成功");
+        apply_status(&tx, second_id, STATUS_DRAFT, STATUS_SUBMITTED, None, Utc::now())
+            .await
+            .expect("推状态应成功");
         tx.commit().await.expect("提交事务");
         let draft_only = order_page(None, Some(STATUS_DRAFT), Some(customer), 1, 50)
             .await
@@ -1586,9 +1485,7 @@ mod tests {
         .expect("建单应成功");
         tx.commit().await.expect("提交事务");
 
-        let draft_used = customer_open_credit(db(), customer, None)
-            .await
-            .expect("算占用");
+        let draft_used = customer_open_credit(db(), customer, None).await.expect("算占用");
         assert_eq!(draft_used, Decimal::ZERO, "DRAFT 不占额度");
 
         let tx = db().begin().await.expect("开事务");
@@ -1596,9 +1493,7 @@ mod tests {
             .await
             .expect("推状态");
         tx.commit().await.expect("提交");
-        let used = customer_open_credit(db(), customer, None)
-            .await
-            .expect("算占用");
+        let used = customer_open_credit(db(), customer, None).await.expect("算占用");
         assert_eq!(used, dec("113"), "SUBMITTED 占用 113");
         let excluded = customer_open_credit(db(), customer, Some(id))
             .await
@@ -1606,20 +1501,11 @@ mod tests {
         assert_eq!(excluded, Decimal::ZERO, "exclude 应把本单排除");
 
         let tx = db().begin().await.expect("开事务");
-        apply_status(
-            &tx,
-            id,
-            STATUS_SUBMITTED,
-            STATUS_CANCELLED,
-            None,
-            Utc::now(),
-        )
-        .await
-        .expect("推状态");
-        tx.commit().await.expect("提交");
-        let after_cancel = customer_open_credit(db(), customer, None)
+        apply_status(&tx, id, STATUS_SUBMITTED, STATUS_CANCELLED, None, Utc::now())
             .await
-            .expect("算占用");
+            .expect("推状态");
+        tx.commit().await.expect("提交");
+        let after_cancel = customer_open_credit(db(), customer, None).await.expect("算占用");
         assert_eq!(after_cancel, Decimal::ZERO, "CANCELLED 释放额度");
         cleanup().await;
     }
@@ -1674,8 +1560,7 @@ mod tests {
             async move {
                 // 上一次跑挂了可能留下同 username 的另一行（uk_sys_user_username 只约束存活行）
                 db().exec_sql(
-                    "DELETE FROM sys_user WHERE username = 'SO5T-SALES' AND id <> ?::uuid"
-                        .to_string(),
+                    "DELETE FROM sys_user WHERE username = 'SO5T-SALES' AND id <> ?::uuid".to_string(),
                     vec![Value::from(&user_id)],
                 )
                 .await
@@ -1706,52 +1591,31 @@ mod tests {
         tx.commit().await.expect("提交");
 
         let row = find_order(id).await.expect("查单").expect("必须存在");
-        assert_eq!(
-            row.salesperson_id,
-            Some(user_id),
-            "建单必须落 salesperson_id"
-        );
+        assert_eq!(row.salesperson_id, Some(user_id), "建单必须落 salesperson_id");
 
         // 启用账号 → 能挂且能取到姓名
         assert_eq!(
-            active_salesperson(user_id)
-                .await
-                .expect("查销售员")
-                .as_deref(),
+            active_salesperson(user_id).await.expect("查销售员").as_deref(),
             Some("SO5T 销售员")
         );
         // 停用账号 → 不可再挂新单（业务口径：停用即停止计佣）
         insert_user(0).await;
         assert!(
-            active_salesperson(user_id)
-                .await
-                .expect("查停用销售员")
-                .is_none(),
+            active_salesperson(user_id).await.expect("查停用销售员").is_none(),
             "停用账号不该还能当销售员"
         );
         insert_user(1).await;
 
         // 批量补名：同 id 传两次只回一行（分页里多张单同一个销售员）
-        let labels = salesperson_labels(&[user_id, user_id])
-            .await
-            .expect("批量取销售员姓名");
+        let labels = salesperson_labels(&[user_id, user_id]).await.expect("批量取销售员姓名");
         assert_eq!(labels, vec![(user_id, "SO5T 销售员".to_string())]);
 
         // 改单不传销售员 = 解绑（与 contract_id 同口径：空 ⇒ NULL）
         let unbound = new_order(customer, "SO-35 解绑销售员");
         let tx = db().begin().await.expect("开事务");
-        let affected = update_order(
-            &tx,
-            id,
-            &unbound,
-            &items,
-            &totals,
-            &test_locked(),
-            None,
-            Utc::now(),
-        )
-        .await
-        .expect("改单");
+        let affected = update_order(&tx, id, &unbound, &items, &totals, &test_locked(), None, Utc::now())
+            .await
+            .expect("改单");
         assert_eq!(affected, 1);
         tx.commit().await.expect("提交");
         let row = find_order(id).await.expect("查单").expect("必须存在");

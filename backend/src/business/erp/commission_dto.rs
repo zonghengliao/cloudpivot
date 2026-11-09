@@ -37,10 +37,7 @@ pub const STATUS_APPROVED: &str = "APPROVED";
 pub const STATUS_PAID: &str = "PAID";
 
 /// 状态迁移边（`DRAFT → APPROVED → PAID`；无回退边 —— 回退等于改写已入账的凭证）。
-pub const LEGAL_EDGES: [(&str, &str); 2] = [
-    (STATUS_DRAFT, STATUS_APPROVED),
-    (STATUS_APPROVED, STATUS_PAID),
-];
+pub const LEGAL_EDGES: [(&str, &str); 2] = [(STATUS_DRAFT, STATUS_APPROVED), (STATUS_APPROVED, STATUS_PAID)];
 
 /// 状态中文名（错误文案用）。
 pub fn status_label(status: &str) -> &'static str {
@@ -60,8 +57,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 
 /// 解析 uuid 路径 / 请求参数。
 pub fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到「{raw}」）")))
+    Uuid::parse_str(raw.trim()).map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到「{raw}」）")))
 }
 
 /// 期间必须是 `yyyy-MM` 且月份 01–12（与 `ck_biz_cmset_period` 同一口径）。
@@ -73,24 +69,18 @@ pub fn validate_period_code(raw: &str) -> std::result::Result<String, ApiError> 
         && bytes[..4].iter().all(u8::is_ascii_digit)
         && bytes[5..].iter().all(u8::is_ascii_digit);
     if !shaped {
-        return Err(bad_request(format!(
-            "period_code 必须是 yyyy-MM（收到「{text}」）"
-        )));
+        return Err(bad_request(format!("period_code 必须是 yyyy-MM（收到「{text}」）")));
     }
     let month: u32 = text[5..].parse().unwrap_or(0);
     if !(1..=12).contains(&month) {
-        return Err(bad_request(format!(
-            "period_code 的月份必须在 01–12（收到「{text}」）"
-        )));
+        return Err(bad_request(format!("period_code 的月份必须在 01–12（收到「{text}」）")));
     }
     Ok(text.to_string())
 }
 
 /// 当前月（北京时间）的期间编码。
 pub fn current_period_code(now: DateTime<Utc>) -> String {
-    let cst = now.with_timezone(
-        &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
-    );
+    let cst = now.with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"));
     format!(
         "{:04}-{:02}",
         nik::prelude::chrono::Datelike::year(&cst),
@@ -246,9 +236,7 @@ impl CommissionPageQuery {
             && !raw.is_empty()
             && !STATUSES.contains(&raw)
         {
-            return Err(bad_request(format!(
-                "status 只认 {STATUSES:?}（收到「{raw}」）"
-            )));
+            return Err(bad_request(format!("status 只认 {STATUSES:?}（收到「{raw}」）")));
         }
         if let Some(raw) = self.period_code.as_deref().map(str::trim)
             && !raw.is_empty()

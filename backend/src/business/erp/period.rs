@@ -393,9 +393,7 @@ pub fn ensure_permission(claims: &TokenClaims, code: &str, action: &str) -> Resu
 /// `(年, 月)` 的起止日（当月 1 日 ~ 当月最后一天，自动算闰年）。
 pub fn month_range(year: i16, month: i16) -> Result<(NaiveDate, NaiveDate), ApiError> {
     if !(1..=12).contains(&month) {
-        return Err(bad_request(format!(
-            "period_month 只能是 1–12（当前 {month}）"
-        )));
+        return Err(bad_request(format!("period_month 只能是 1–12（当前 {month}）")));
     }
     if !(2000..=2999).contains(&year) {
         return Err(bad_request(format!(
@@ -406,17 +404,9 @@ pub fn month_range(year: i16, month: i16) -> Result<(NaiveDate, NaiveDate), ApiE
     let start = NaiveDate::from_ymd_opt(i32::from(year), u32::try_from(month).unwrap_or(1), 1)
         .ok_or_else(|| bad_request(format!("{year}-{month:02} 不是合法年月")))?;
     // 下月 1 日减一天 = 本月最后一天（闰年 2 月自动 29）
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
-    let first_of_next = NaiveDate::from_ymd_opt(
-        i32::from(next_year),
-        u32::try_from(next_month).unwrap_or(1),
-        1,
-    )
-    .ok_or_else(|| bad_request(format!("{year}-{month:02} 的下一个月不合法")))?;
+    let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
+    let first_of_next = NaiveDate::from_ymd_opt(i32::from(next_year), u32::try_from(next_month).unwrap_or(1), 1)
+        .ok_or_else(|| bad_request(format!("{year}-{month:02} 的下一个月不合法")))?;
     let end = first_of_next
         .pred_opt()
         .ok_or_else(|| bad_request("计算期间结束日失败"))?;
@@ -510,20 +500,12 @@ pub fn unbalanced_blocker(debit: Decimal, credit: Decimal) -> Option<Blocker> {
 }
 
 /// 草稿凭证 → 阻塞项（**文案点名张数**，卡面 O5；明细给到单号 / 金额 / 制单人 / 处理人）。
-pub fn draft_voucher_blocker(
-    count: i64,
-    period_code: &str,
-    items: Vec<BlockingItem>,
-) -> Option<Blocker> {
+pub fn draft_voucher_blocker(count: i64, period_code: &str, items: Vec<BlockingItem>) -> Option<Blocker> {
     if count <= 0 {
         return None;
     }
     // 定位线索 = 明细里的前 3 个凭证号（老字段保留：前端/日志可能还在读）
-    let samples = items
-        .iter()
-        .take(3)
-        .map(|item| item.doc_no.clone())
-        .collect::<Vec<_>>();
+    let samples = items.iter().take(3).map(|item| item.doc_no.clone()).collect::<Vec<_>>();
     Some(
         Blocker::with_count(
             BLOCKER_DRAFT_VOUCHER,
@@ -532,9 +514,7 @@ pub fn draft_voucher_blocker(
                 "还有 {count} 张草稿凭证未过账：结账前必须全部过账或作废{}",
                 limit_note(count)
             ),
-            Some(format!(
-                "/business/erp/voucher?status=DRAFT&period={period_code}"
-            )),
+            Some(format!("/business/erp/voucher?status=DRAFT&period={period_code}")),
         )
         .samples(samples)
         .items(items),
@@ -553,16 +533,18 @@ pub fn unfinished_doc_blocker(counts: &[(&str, i64)], items: Vec<BlockingItem>) 
         .map(|(label, count)| format!("{label} {count} 张"))
         .collect::<Vec<_>>()
         .join(" / ");
-    Some(Blocker::with_count(
-        BLOCKER_DOC_UNFINISHED,
-        total,
-        format!(
-            "还有 {total} 张单据未完成（{detail}）：结账前单据必须到终态（已过账 / 已作废 / 已完成）{}",
-            limit_note(total)
-        ),
-        Some("/business/erp/stock-in".to_string()),
+    Some(
+        Blocker::with_count(
+            BLOCKER_DOC_UNFINISHED,
+            total,
+            format!(
+                "还有 {total} 张单据未完成（{detail}）：结账前单据必须到终态（已过账 / 已作废 / 已完成）{}",
+                limit_note(total)
+            ),
+            Some("/business/erp/stock-in".to_string()),
+        )
+        .items(items),
     )
-    .items(items))
 }
 
 /// 不变量未通过 → 阻塞项（明细是失败的那几张凭证）。
@@ -616,10 +598,7 @@ async fn find_by_code(ex: &impl SqlExecutor, code: &str) -> Result<Option<Period
 /// 并发两次结账，第二次会等锁，拿到的是已 CLOSED 的行，直接 409。
 async fn find_by_id_locked(ex: &impl SqlExecutor, id: Uuid) -> Result<Option<PeriodRow>, ApiError> {
     let rows = ex
-        .query_sql(
-            select_period_sql("id = ?::uuid FOR UPDATE"),
-            vec![Value::from(&id)],
-        )
+        .query_sql(select_period_sql("id = ?::uuid FOR UPDATE"), vec![Value::from(&id)])
         .await
         .map_err(|error| db_error(error, "锁定会计期间"))?;
     rows.first()
@@ -726,11 +705,7 @@ async fn apply_status(
                 .to_string(),
             vec![
                 Value::Text(to.to_string()),
-                Value::Text(
-                    closed_at
-                        .map(|value| value.to_rfc3339())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(closed_at.map(|value| value.to_rfc3339()).unwrap_or_default()),
                 Value::Text(closed_by.map(|value| value.to_string()).unwrap_or_default()),
                 Value::Text(remark.unwrap_or_default().to_string()),
                 Value::from(now),
@@ -746,10 +721,7 @@ async fn apply_status(
 /// 读回一个期间行（按 id）；不存在 → `Ok(None)`。
 ///
 /// 预检、催办、结账前读行都走它：三处各自写一遍 `select_period_sql` 是漂移之源。
-pub(crate) async fn load_period_row(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> Result<Option<PeriodRow>, ApiError> {
+pub(crate) async fn load_period_row(ex: &impl SqlExecutor, id: Uuid) -> Result<Option<PeriodRow>, ApiError> {
     let rows = ex
         .query_sql(select_period_sql("id = ?::uuid"), vec![Value::from(&id)])
         .await
@@ -793,10 +765,7 @@ pub async fn open_period(
     let remark = remark.map(str::trim).filter(|text| !text.is_empty());
     let now = Utc::now();
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_error(error, "开启开账事务"))?;
+    let tx = db().begin().await.map_err(|error| db_error(error, "开启开账事务"))?;
 
     // 行锁：同一期间的并发开账只有一次能过（编码唯一索引只是最后兜底）
     let existing = find_by_code(&tx, &code).await?;
@@ -829,17 +798,8 @@ pub async fn open_period(
                     None,
                 )
                 .await?;
-                let affected = apply_status(
-                    &tx,
-                    row.id,
-                    STATUS_NOT_OPENED,
-                    STATUS_OPEN,
-                    None,
-                    None,
-                    remark,
-                    now,
-                )
-                .await?;
+                let affected =
+                    apply_status(&tx, row.id, STATUS_NOT_OPENED, STATUS_OPEN, None, None, remark, now).await?;
                 if affected == 0 {
                     return Err(conflict(format!(
                         "会计期间 {code} 的状态在本次开账期间已被改动，请刷新后重试"
@@ -871,9 +831,7 @@ pub async fn open_period(
     };
 
     let res = load_res(&tx, id).await?;
-    tx.commit()
-        .await
-        .map_err(|error| db_error(error, "提交开账事务"))?;
+    tx.commit().await.map_err(|error| db_error(error, "提交开账事务"))?;
     tracing::info!(period = %code, "会计期间已开账");
     Ok(res)
 }
@@ -954,16 +912,10 @@ pub async fn batch_open(
         }
     }
 
-    tx.commit()
-        .await
-        .map_err(|error| db_error(error, "提交批量开账事务"))?;
+    tx.commit().await.map_err(|error| db_error(error, "提交批量开账事务"))?;
     let created_count = i64::try_from(created.len()).unwrap_or(0);
     let skipped_count = i64::try_from(skipped.len()).unwrap_or(0);
-    tracing::info!(
-        created = created_count,
-        skipped = skipped_count,
-        "批量开账完成"
-    );
+    tracing::info!(created = created_count, skipped = skipped_count, "批量开账完成");
     Ok(BatchOpenRes {
         created,
         skipped,
@@ -1150,10 +1102,7 @@ impl CheckOutcome {
 /// 返回 [`CheckOutcome`]：`blockers` 拦人，`warnings` 只提示（全库巡检口径）。
 /// 每条 blocker 都带 `items`（最多 50 条明细 + 该谁处理 + 跳转），实现在
 /// [`crate::business::erp::period_items`]。
-pub(crate) async fn collect_blockers(
-    ex: &impl SqlExecutor,
-    row: &PeriodRow,
-) -> Result<CheckOutcome, ApiError> {
+pub(crate) async fn collect_blockers(ex: &impl SqlExecutor, row: &PeriodRow) -> Result<CheckOutcome, ApiError> {
     let mut blockers = Vec::new();
     // 处理人反查按请求缓存：同一个权限码一次预检只查一次库
     let mut owners = OwnerResolver::new();
@@ -1175,18 +1124,14 @@ pub(crate) async fn collect_blockers(
         STATUS_NOT_OPENED => blockers.push(Blocker::with_count(
             BLOCKER_PERIOD_STATUS,
             0,
-            format!(
-                "会计期间 {} 还没开账（NOT_OPENED）：先开账再结账",
-                row.period_code
-            ),
+            format!("会计期间 {} 还没开账（NOT_OPENED）：先开账再结账", row.period_code),
             None,
         )),
         _ => {}
     }
 
     // ① 草稿凭证
-    let (draft_count, draft_items) =
-        period_items::draft_voucher_items(ex, &row.period_code, &mut owners).await?;
+    let (draft_count, draft_items) = period_items::draft_voucher_items(ex, &row.period_code, &mut owners).await?;
     if let Some(blocker) = draft_voucher_blocker(draft_count, &row.period_code, draft_items) {
         blockers.push(blocker);
     }
@@ -1204,8 +1149,7 @@ pub(crate) async fn collect_blockers(
     }
 
     // ④ 不变量（期间内 A 组拦人；全库 B/C 只提示）
-    let (failures, invariant_items) =
-        period_items::invariant_details(ex, &row.period_code, &mut owners).await?;
+    let (failures, invariant_items) = period_items::invariant_details(ex, &row.period_code, &mut owners).await?;
     if let Some(blocker) = invariant_blocker(failures, invariant_items) {
         blockers.push(blocker);
     }
@@ -1252,10 +1196,7 @@ pub async fn close_period(
     let remark = optional_close_reason(reason)?;
     let now = Utc::now();
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_error(error, "开启结账事务"))?;
+    let tx = db().begin().await.map_err(|error| db_error(error, "开启结账事务"))?;
 
     let row = find_by_id_locked(&tx, id).await?.ok_or_else(not_found)?;
     if row.status == STATUS_CLOSED {
@@ -1280,10 +1221,7 @@ pub async fn close_period(
         );
     }
     if !outcome.blockers.is_empty() {
-        return Err(conflict(rejection_message(
-            &row.period_code,
-            &outcome.blockers,
-        )));
+        return Err(conflict(rejection_message(&row.period_code, &outcome.blockers)));
     }
 
     // ⑤ 期末汇兑重估（SO-41 / ARCH-7 §15.6.4 ②）：未核销外币应收按**月末**汇率重估，
@@ -1291,13 +1229,7 @@ pub async fn close_period(
     //    必须在 `OPEN → CLOSED` 之前跑：`post_voucher` 的期间闸只放行 OPEN 期间，
     //    状态先改再记账会自己把自己拦掉。
     //    幂等：同一期间已提过 ⇒ `skipped = true`，不会重复计提（见 fx_revaluation 头注释）。
-    let fx = crate::business::erp::fx_revaluation::revalue_period(
-        &tx,
-        &row.period_code,
-        operator.id,
-        now,
-    )
-    .await?;
+    let fx = crate::business::erp::fx_revaluation::revalue_period(&tx, &row.period_code, operator.id, now).await?;
     if fx.skipped {
         tracing::info!(
             period = %row.period_code,
@@ -1350,14 +1282,10 @@ pub async fn close_period(
     //    凭证由 ⑤ 的汇兑重估专用路径出，见 `period_linkage` 文件头）；
     //    通知这类 AfterCommit 动作在事务提交**之后**才发（结账是长事务，
     //    事务内发通知一旦回滚就是「通知已发、结账失败」）。
-    let linkage =
-        period_linkage::run_in_tx(&tx, row.id, &row.period_code, STATUS_CLOSED, operator.id)
-            .await?;
+    let linkage = period_linkage::run_in_tx(&tx, row.id, &row.period_code, STATUS_CLOSED, operator.id).await?;
 
     let res = load_res(&tx, row.id).await?;
-    tx.commit()
-        .await
-        .map_err(|error| db_error(error, "提交结账事务"))?;
+    tx.commit().await.map_err(|error| db_error(error, "提交结账事务"))?;
     period_linkage::run_deferred_after_commit(linkage).await;
     tracing::info!(period = %row.period_code, "会计期间已结账");
     Ok(res)
@@ -1377,10 +1305,7 @@ pub async fn reopen_period(
     let reason = require_reopen_reason(reason)?;
     let now = Utc::now();
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_error(error, "开启反结账事务"))?;
+    let tx = db().begin().await.map_err(|error| db_error(error, "开启反结账事务"))?;
 
     let row = find_by_id_locked(&tx, id).await?.ok_or_else(not_found)?;
     if row.status != STATUS_CLOSED {
@@ -1456,24 +1381,17 @@ pub async fn reopen_period(
     //    排除清单与事务边界同结账（见 `period_linkage` 文件头）：事务内只跑关键动作，
     //    通知在事务提交**之后**才发 —— 反结账把已经发出的「月结完成」通知留在原地，
     //    但「已反结账」这条新通知必须与状态一起生效，不能先发后回滚。
-    let linkage =
-        period_linkage::run_in_tx(&tx, row.id, &row.period_code, STATUS_OPEN, operator.id).await?;
+    let linkage = period_linkage::run_in_tx(&tx, row.id, &row.period_code, STATUS_OPEN, operator.id).await?;
 
     let res = load_res(&tx, row.id).await?;
-    tx.commit()
-        .await
-        .map_err(|error| db_error(error, "提交反结账事务"))?;
+    tx.commit().await.map_err(|error| db_error(error, "提交反结账事务"))?;
     period_linkage::run_deferred_after_commit(linkage).await;
     tracing::warn!(period = %row.period_code, reason = %reason, "会计期间已反结账");
     Ok(res)
 }
 
 /// 反结账的 UPDATE：状态回 `OPEN`、结账痕迹清空（**不写 remark**，保留原备注）。
-async fn ex_update_reopen(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    now: DateTime<Utc>,
-) -> Result<u64, ApiError> {
+async fn ex_update_reopen(ex: &impl SqlExecutor, id: Uuid, now: DateTime<Utc>) -> Result<u64, ApiError> {
     ex.exec_sql(
         "UPDATE biz_accounting_period \
             SET status = ?, closed_at = NULL, closed_by = NULL, updated_at = ? \
@@ -1496,11 +1414,7 @@ async fn ex_update_reopen(
 ///
 /// 挂点：`voucher::post_voucher`（自动凭证 / 手工凭证 / 付款凭证的共同收口）。
 /// 单据过账要生成凭证，因此「该期间的单据不能过账」也由这一条闸兜住（400 + 整笔回滚）。
-pub async fn ensure_period_writable(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-    action: &str,
-) -> Result<(), ApiError> {
+pub async fn ensure_period_writable(ex: &impl SqlExecutor, period_code: &str, action: &str) -> Result<(), ApiError> {
     if voucher::is_period_closed(ex, period_code)
         .await
         .map_err(|error| db_error(error, "查询期间结账状态"))?
@@ -1596,12 +1510,7 @@ pub async fn period_close_handler(
     ensure_permission(&claims, PERM_CLOSE, "结账")?;
     let id = parse_period_id(&id)?;
     Ok(Res::ok(
-        close_period(
-            id,
-            req.reason.as_deref(),
-            state_machine::Operator::from(&claims),
-        )
-        .await?,
+        close_period(id, req.reason.as_deref(), state_machine::Operator::from(&claims)).await?,
     ))
 }
 
@@ -1620,12 +1529,7 @@ pub async fn period_reopen_handler(
     ensure_permission(&claims, PERM_REOPEN, "反结账")?;
     let id = parse_period_id(&id)?;
     Ok(Res::ok(
-        reopen_period(
-            id,
-            req.reason.as_deref(),
-            state_machine::Operator::from(&claims),
-        )
-        .await?,
+        reopen_period(id, req.reason.as_deref(), state_machine::Operator::from(&claims)).await?,
     ))
 }
 
@@ -1737,10 +1641,8 @@ mod tests {
     /// 清掉本模块造的所有夹具（按前缀收敛，**不碰 2026-xx 的生产期间**）。
     async fn cleanup() {
         // 状态日志没有外键，必须按期间编码先删（期间行一删就查不到 id 了）
-        sql(
-            "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
-             AND (entity_no LIKE '2031-%' OR entity_no LIKE '2032-%' OR entity_no LIKE '2033-%')",
-        )
+        sql("DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
+             AND (entity_no LIKE '2031-%' OR entity_no LIKE '2032-%' OR entity_no LIKE '2033-%')")
         .await;
         // 分录随凭证 CASCADE
         sql(
@@ -1749,10 +1651,8 @@ mod tests {
         )
         .await;
         sql("DELETE FROM biz_purchase_order WHERE order_no LIKE 'P1-PO-%'").await;
-        sql(
-            "DELETE FROM biz_accounting_period WHERE period_code LIKE '2031-%' \
-             OR period_code LIKE '2032-%' OR period_code LIKE '2033-%'",
-        )
+        sql("DELETE FROM biz_accounting_period WHERE period_code LIKE '2031-%' \
+             OR period_code LIKE '2032-%' OR period_code LIKE '2033-%'")
         .await;
     }
 
@@ -1785,8 +1685,7 @@ mod tests {
             )
             .await
             .expect("读期间状态");
-        rows.first()
-            .map(|row| row.get_typed("status").expect("status"))
+        rows.first().map(|row| row.get_typed("status").expect("status"))
     }
 
     /// 期间内凭证数。
@@ -1939,21 +1838,14 @@ mod tests {
         assert_eq!(res.status, STATUS_OPEN);
         assert!(res.closed_at.is_none());
 
-        let trail = state_machine::trail_of_no(db(), "2031-02")
-            .await
-            .expect("读状态轨迹");
+        let trail = state_machine::trail_of_no(db(), "2031-02").await.expect("读状态轨迹");
         assert_eq!(trail.len(), 1, "开账只该写一条日志：{trail:?}");
         assert_eq!(trail[0].entity_type, state_machine::ENTITY_PERIOD);
         assert_eq!(trail[0].to_status, STATUS_OPEN);
-        assert!(
-            trail[0].from_status.is_none(),
-            "建账日志的 from_status 必须是 NULL"
-        );
+        assert!(trail[0].from_status.is_none(), "建账日志的 from_status 必须是 NULL");
 
         // 2032 是闰年 → 2 月 29 天（期间结束日必须按真实日历算）
-        let leap = open_period(2032, 2, None, operator())
-            .await
-            .expect("开账应成功");
+        let leap = open_period(2032, 2, None, operator()).await.expect("开账应成功");
         assert_eq!(leap.end_date.to_string(), "2032-02-29");
     }
 
@@ -1963,9 +1855,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        open_period(2031, 3, None, operator())
-            .await
-            .expect("首次开账应成功");
+        open_period(2031, 3, None, operator()).await.expect("首次开账应成功");
         let err = open_period(2031, 3, None, operator())
             .await
             .expect_err("重复开账必须 409");
@@ -2032,11 +1922,9 @@ mod tests {
         sql("DELETE FROM biz_accounting_period WHERE period_year = 2046").await;
 
         // 先放一行「非种子形态」的期间：保底逻辑必须原样保留它
-        sql(
-            "INSERT INTO biz_accounting_period \
+        sql("INSERT INTO biz_accounting_period \
                 (period_year, period_month, period_code, start_date, end_date, status, remark) \
-             VALUES (2046, 3, '2046-03', DATE '2046-03-01', DATE '2046-03-31', 'NOT_OPENED', 'p1 手工行')",
-        )
+             VALUES (2046, 3, '2046-03', DATE '2046-03-01', DATE '2046-03-31', 'NOT_OPENED', 'p1 手工行')")
         .await;
 
         let first = ensure_year_periods(db(), YEAR).await.expect("期间保底");
@@ -2068,10 +1956,7 @@ mod tests {
                 "{code} 的起始日必须是当月 1 号"
             );
             let end: String = row.get_typed("end_date").expect("end_date");
-            assert!(
-                end.starts_with(&code),
-                "{code} 的结束日必须落在本月（实际 {end}）"
-            );
+            assert!(end.starts_with(&code), "{code} 的结束日必须落在本月（实际 {end}）");
         }
         // 2046 不是闰年 → 2 月末是 28 号（`make_date` 自己的口径，别写成 30）
         let feb_end: String = rows[1].get_typed("end_date").expect("end_date");
@@ -2126,11 +2011,7 @@ mod tests {
                 )
                 .await
                 .expect("查权限节点");
-            assert_eq!(
-                rows.len(),
-                1,
-                "权限码 {code} 没有 sys_menu 节点（V0188 未应用？）"
-            );
+            assert_eq!(rows.len(), 1, "权限码 {code} 没有 sys_menu 节点（V0188 未应用？）");
         }
     }
 
@@ -2142,9 +2023,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 5, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 5, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
 
         let check = close_check(id).await.expect("预检");
@@ -2154,10 +2033,7 @@ mod tests {
         // 它们是「整本账」的时点状态（别的用例跑一半时库里就有漂移），
         // 混进阻断项会让任何一处库存漂移封死所有期间的结账（见模块文档 §四项前置校验）。
         assert!(
-            check
-                .warnings
-                .iter()
-                .all(|item| item.kind == BLOCKER_INVARIANT),
+            check.warnings.iter().all(|item| item.kind == BLOCKER_INVARIANT),
             "warnings 里只该有巡检类提示：{:?}",
             check.warnings
         );
@@ -2169,18 +2045,14 @@ mod tests {
         assert!(closed.closed_at.is_some(), "closed_at 必须落库");
         assert_eq!(closed.closed_by.as_deref(), Some(TEST_UID));
 
-        let trail = state_machine::trail_of_no(db(), "2031-05")
-            .await
-            .expect("读状态轨迹");
+        let trail = state_machine::trail_of_no(db(), "2031-05").await.expect("读状态轨迹");
         assert_eq!(trail.len(), 2);
         assert_eq!(trail[1].from_status.as_deref(), Some(STATUS_OPEN));
         assert_eq!(trail[1].to_status, STATUS_CLOSED);
         assert_eq!(trail[1].reason.as_deref(), Some("2031 年 5 月结账"));
 
         // 重复结账 → 409
-        let err = close_period(id, None, operator())
-            .await
-            .expect_err("重复结账必须 409");
+        let err = close_period(id, None, operator()).await.expect_err("重复结账必须 409");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已经结账"), "{}", err.msg);
     }
@@ -2191,9 +2063,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 6, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 6, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
         for no in ["P1-V-001", "P1-V-002", "P1-V-003"] {
             seed_voucher("2031-06", no, "DRAFT", ("100", "100"), ("100", "100")).await;
@@ -2236,19 +2106,10 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 7, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 7, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
         // 单头 100/100（满足 ck_biz_voucher_balance），分录却是 60/40 —— 只有分录侧的校验抓得到
-        seed_voucher(
-            "2031-07",
-            "P1-V-101",
-            "POSTED",
-            ("100", "100"),
-            ("60", "40"),
-        )
-        .await;
+        seed_voucher("2031-07", "P1-V-101", "POSTED", ("100", "100"), ("60", "40")).await;
 
         let check = close_check(id).await.expect("预检");
         let blocker = check
@@ -2263,9 +2124,7 @@ mod tests {
             blocker.message
         );
 
-        let err = close_period(id, None, operator())
-            .await
-            .expect_err("借贷不平必须 409");
+        let err = close_period(id, None, operator()).await.expect_err("借贷不平必须 409");
         assert_eq!(err.status, 409);
         assert!(err.msg.contains("借贷不平"), "{}", err.msg);
         assert!(err.msg.contains("20"), "差额要写进文案：{}", err.msg);
@@ -2278,9 +2137,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 8, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 8, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
         sql("INSERT INTO biz_purchase_order \
                 (order_no, supplier_id, order_date, warehouse_id, status) \
@@ -2319,9 +2176,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 9, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 9, None, operator()).await.expect("开账应成功");
         close_period(uuid_of(&opened.id), None, operator())
             .await
             .expect("结账应成功");
@@ -2347,13 +2202,9 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 9, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 9, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
-        close_period(id, None, operator())
-            .await
-            .expect("结账应成功");
+        close_period(id, None, operator()).await.expect("结账应成功");
 
         let reopened = reopen_period(id, Some("发现 9 月漏记一笔运费，需要补凭证"), operator())
             .await
@@ -2362,17 +2213,12 @@ mod tests {
         assert!(reopened.closed_at.is_none(), "closed_at 必须清空");
         assert!(reopened.closed_by.is_none(), "closed_by 必须清空");
 
-        let trail = state_machine::trail_of_no(db(), "2031-09")
-            .await
-            .expect("读状态轨迹");
+        let trail = state_machine::trail_of_no(db(), "2031-09").await.expect("读状态轨迹");
         assert_eq!(trail.len(), 3, "开账 / 结账 / 反结账三条：{trail:?}");
         assert_eq!(trail[2].from_status.as_deref(), Some(STATUS_CLOSED));
         assert_eq!(trail[2].to_status, STATUS_OPEN);
         assert!(
-            trail[2]
-                .reason
-                .as_deref()
-                .is_some_and(|reason| reason.contains("漏记")),
+            trail[2].reason.as_deref().is_some_and(|reason| reason.contains("漏记")),
             "反结账原因必须进状态日志：{:?}",
             trail[2].reason
         );
@@ -2384,17 +2230,11 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 9, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 9, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
-        close_period(id, None, operator())
-            .await
-            .expect("结账应成功");
+        close_period(id, None, operator()).await.expect("结账应成功");
 
-        let err = reopen_period(id, None, operator())
-            .await
-            .expect_err("不给原因必须 400");
+        let err = reopen_period(id, None, operator()).await.expect_err("不给原因必须 400");
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("必须填写原因"), "{}", err.msg);
 
@@ -2417,17 +2257,10 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 9, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 9, None, operator()).await.expect("开账应成功");
         let id = uuid_of(&opened.id);
-        close_period(id, None, operator())
-            .await
-            .expect("结账应成功");
-        assert!(
-            post_simple_voucher("2031-09-10").await.is_err(),
-            "结账期间应当拒绝记账"
-        );
+        close_period(id, None, operator()).await.expect("结账应成功");
+        assert!(post_simple_voucher("2031-09-10").await.is_err(), "结账期间应当拒绝记账");
 
         reopen_period(id, Some("供应商退回上月运费，需要补记一笔凭证"), operator())
             .await
@@ -2457,26 +2290,18 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let sep = open_period(2031, 9, None, operator())
-            .await
-            .expect("开账应成功");
+        let sep = open_period(2031, 9, None, operator()).await.expect("开账应成功");
         close_period(uuid_of(&sep.id), None, operator())
             .await
             .expect("9 月结账");
-        let oct = open_period(2031, 10, None, operator())
-            .await
-            .expect("开账应成功");
+        let oct = open_period(2031, 10, None, operator()).await.expect("开账应成功");
         close_period(uuid_of(&oct.id), None, operator())
             .await
             .expect("10 月结账");
 
-        let err = reopen_period(
-            uuid_of(&sep.id),
-            Some("9 月凭证科目挂错，需要重记一张"),
-            operator(),
-        )
-        .await
-        .expect_err("后续期间已结账必须 409");
+        let err = reopen_period(uuid_of(&sep.id), Some("9 月凭证科目挂错，需要重记一张"), operator())
+            .await
+            .expect_err("后续期间已结账必须 409");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("2031-10"), "要点名后续期间：{}", err.msg);
         assert_eq!(status_of("2031-09").await.as_deref(), Some(STATUS_CLOSED));
@@ -2489,16 +2314,12 @@ mod tests {
     /// （「手工凭证只能记到已开启期间」），与卡面要求的 400「期间已结账」不一致。
     #[tokio::test]
     async fn p1_manual_voucher_on_closed_period_is_bad_request() {
-        use crate::business::erp::voucher_write::{
-            CreateVoucherReq, ManualEntryReq, create_manual_voucher,
-        };
+        use crate::business::erp::voucher_write::{CreateVoucherReq, ManualEntryReq, create_manual_voucher};
 
         let Some(_guard) = setup().await else {
             return;
         };
-        let opened = open_period(2031, 9, None, operator())
-            .await
-            .expect("开账应成功");
+        let opened = open_period(2031, 9, None, operator()).await.expect("开账应成功");
         close_period(uuid_of(&opened.id), None, operator())
             .await
             .expect("结账应成功");

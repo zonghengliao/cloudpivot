@@ -96,8 +96,7 @@ async fn uuid_opt(sql_text: &str) -> Option<Uuid> {
 
 /// 夹具仓库 id（`RM-WH`）。
 async fn fixture_warehouse() -> Uuid {
-    let sql_text =
-        "SELECT id FROM biz_warehouse WHERE warehouse_code = 'RM-WH' AND deleted_at IS NULL";
+    let sql_text = "SELECT id FROM biz_warehouse WHERE warehouse_code = 'RM-WH' AND deleted_at IS NULL";
     if let Some(id) = uuid_opt(sql_text).await {
         return id;
     }
@@ -205,12 +204,7 @@ async fn seed_low_stock(material_code: &str) -> (Uuid, Uuid) {
 ///
 /// 为什么单独抽出来：安全库存口径的四条边界（0 / 恰好等于 / 负数 / 在途仓）都要**同一套
 /// 造数代码**才可比，各写一遍就会各有各的口径。
-async fn seed_stock_in(
-    material_code: &str,
-    safety: i64,
-    qty: i64,
-    warehouse: Uuid,
-) -> (Uuid, Uuid) {
+async fn seed_stock_in(material_code: &str, safety: i64, qty: i64, warehouse: Uuid) -> (Uuid, Uuid) {
     let unit = fixture_unit().await;
     let material = Uuid::now_v7();
     db().execute_with_params(
@@ -236,11 +230,7 @@ async fn seed_stock_in(
             "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount) \
              VALUES (?, ?, ?, {qty}, 0, 1, {qty})"
         ),
-        vec![
-            Value::from(&inventory),
-            Value::from(&material),
-            Value::from(&warehouse),
-        ],
+        vec![Value::from(&inventory), Value::from(&material), Value::from(&warehouse)],
     )
     .await
     .unwrap_or_else(|err| panic!("插入库存失败：{err}"));
@@ -277,10 +267,7 @@ async fn candidate_codes() -> Vec<String> {
 async fn notice_count(biz_type: &str, doc_id: Uuid) -> i64 {
     db().scalar_with_params(
         "SELECT COUNT(*) FROM sys_notice WHERE biz_type = ? AND biz_id = ?",
-        vec![
-            Value::Text(biz_type.to_string()),
-            Value::Text(doc_id.to_string()),
-        ],
+        vec![Value::Text(biz_type.to_string()), Value::Text(doc_id.to_string())],
     )
     .await
     .expect("统计通知")
@@ -296,10 +283,7 @@ async fn assert_notice_count(biz_type: &str, doc_id: Uuid, expected: i64) {
             "SELECT notice_no, idempotency_key, receiver_count, created_at::text AS created_at \
                FROM sys_notice WHERE biz_type = ? AND biz_id = ? ORDER BY created_at"
                 .to_string(),
-            vec![
-                Value::Text(biz_type.to_string()),
-                Value::Text(doc_id.to_string()),
-            ],
+            vec![Value::Text(biz_type.to_string()), Value::Text(doc_id.to_string())],
         )
         .await
         .expect("查通知明细");
@@ -309,8 +293,7 @@ async fn assert_notice_count(biz_type: &str, doc_id: Uuid, expected: i64) {
             format!(
                 "{}|{}|recv={}|{}",
                 row.get_typed::<String>("notice_no").unwrap_or_default(),
-                row.get_typed::<String>("idempotency_key")
-                    .unwrap_or_default(),
+                row.get_typed::<String>("idempotency_key").unwrap_or_default(),
                 row.get_typed::<i64>("receiver_count").unwrap_or(-1),
                 row.get_typed::<String>("created_at").unwrap_or_default(),
             )
@@ -329,10 +312,7 @@ async fn notice_text(biz_type: &str, doc_id: Uuid) -> (String, String) {
         .find_with_params(
             "SELECT title, content FROM sys_notice WHERE biz_type = ? AND biz_id = ? \
              ORDER BY created_at DESC LIMIT 1",
-            vec![
-                Value::Text(biz_type.to_string()),
-                Value::Text(doc_id.to_string()),
-            ],
+            vec![Value::Text(biz_type.to_string()), Value::Text(doc_id.to_string())],
         )
         .await
         .expect("查通知");
@@ -348,10 +328,7 @@ async fn receiver_count(biz_type: &str, doc_id: Uuid) -> i64 {
     db().scalar_with_params(
         "SELECT COALESCE(SUM(n.receiver_count), 0) FROM sys_notice n \
           WHERE n.biz_type = ? AND n.biz_id = ?",
-        vec![
-            Value::Text(biz_type.to_string()),
-            Value::Text(doc_id.to_string()),
-        ],
+        vec![Value::Text(biz_type.to_string()), Value::Text(doc_id.to_string())],
     )
     .await
     .expect("统计收件人")
@@ -418,24 +395,15 @@ async fn payable_due_sends_once_per_day() {
 
     // 同一天再跑 2 次：这张单命中台账，通知条数不变
     for round in 2..=3 {
-        let again = reminder::run_kind(RemindKind::PayableDue, now)
-            .await
-            .expect("重复扫描");
-        assert!(
-            again.skipped_reminded >= 1,
-            "第 {round} 次应计入「今天已提醒」"
-        );
+        let again = reminder::run_kind(RemindKind::PayableDue, now).await.expect("重复扫描");
+        assert!(again.skipped_reminded >= 1, "第 {round} 次应计入「今天已提醒」");
         assert_eq!(
             notice_count("payable_due", payable).await,
             1,
             "第 {round} 次后这张单的通知仍是 1 条（防轰炸）"
         );
     }
-    assert_eq!(
-        ledger_count(RemindKind::PayableDue, payable).await,
-        1,
-        "台账不能重复写"
-    );
+    assert_eq!(ledger_count(RemindKind::PayableDue, payable).await, 1, "台账不能重复写");
 }
 
 // ==================== ② 低库存：扫描 + 幂等 ====================
@@ -450,24 +418,14 @@ async fn low_stock_sends_once_and_dedupes() {
     let (_material, inventory) = seed_low_stock("RM-M-0001").await;
 
     let now = Utc::now();
-    let first = reminder::run_kind(RemindKind::LowStock, now)
-        .await
-        .expect("扫描低库存");
+    let first = reminder::run_kind(RemindKind::LowStock, now).await.expect("扫描低库存");
     assert!(first.scanned >= 1);
     assert!(first.sent >= 1, "首次必须发出去");
     assert_notice_count("low_stock", inventory, 1).await;
 
     let (title, content) = notice_text("low_stock", inventory).await;
     assert!(title.contains("RM-M-0001"), "标题要带物料编码：{title}");
-    for fact in [
-        "RM-M-0001",
-        "提醒夹具物料",
-        "提醒夹具仓",
-        "10",
-        "50",
-        "40",
-        "补货",
-    ] {
+    for fact in ["RM-M-0001", "提醒夹具物料", "提醒夹具仓", "10", "50", "40", "补货"] {
         assert!(content.contains(fact), "正文缺 `{fact}`：{content}");
     }
     // 收件人就是夹具仓管主管
@@ -481,15 +439,9 @@ async fn low_stock_sends_once_and_dedupes() {
         .expect("统计收件行");
     assert_eq!(receivers, 1, "仓管主管必须有收件行");
 
-    let again = reminder::run_kind(RemindKind::LowStock, now)
-        .await
-        .expect("重复扫描");
+    let again = reminder::run_kind(RemindKind::LowStock, now).await.expect("重复扫描");
     assert!(again.skipped_reminded >= 1);
-    assert_eq!(
-        notice_count("low_stock", inventory).await,
-        1,
-        "同一天再触发不得重复发"
-    );
+    assert_eq!(notice_count("low_stock", inventory).await, 1, "同一天再触发不得重复发");
 }
 
 // ==================== ②b 安全库存口径（P2-2 ②：0 = 不预警 / 恰好等于不报 / 在途仓不报） ====================
@@ -600,20 +552,14 @@ async fn low_stock_ignores_in_transit_warehouse() {
         db().execute_with_params(
             "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount) \
              VALUES (?, ?, ?, 0, 0, 1, 0)",
-            vec![
-                Value::from(&row),
-                Value::from(&material),
-                Value::from(&transit),
-            ],
+            vec![Value::from(&row), Value::from(&material), Value::from(&transit)],
         )
         .await
         .expect("插入在途仓库存行");
         (material, row)
     };
 
-    let candidates = reminder_stock::scan_candidates()
-        .await
-        .expect("扫描低库存候选");
+    let candidates = reminder_stock::scan_candidates().await.expect("扫描低库存候选");
     let hits: Vec<&reminder_stock::LowStockCandidate> = candidates
         .iter()
         .filter(|candidate| candidate.material_code == "RM-M-TRANSIT")
@@ -652,17 +598,11 @@ async fn purchase_overdue_respects_realert_window() {
     assert!(first.sent >= 1);
     let (title, content) = notice_text("po_overdue", order).await;
     assert!(title.contains("RM-PO-0001"), "{}", title);
-    assert!(
-        content.contains("RM-PO-0001") && content.contains('5'),
-        "{}",
-        content
-    );
+    assert!(content.contains("RM-PO-0001") && content.contains('5'), "{}", content);
     assert!(content.contains("催供应商交货"), "{}", content);
 
     // 同一天再跑：台账命中
-    let same_day = reminder::run_kind(RemindKind::PoOverdue, now)
-        .await
-        .expect("重复扫描");
+    let same_day = reminder::run_kind(RemindKind::PoOverdue, now).await.expect("重复扫描");
     assert!(same_day.skipped_reminded >= 1);
     assert_notice_count("po_overdue", order, 1).await;
 
@@ -689,11 +629,7 @@ async fn purchase_overdue_respects_realert_window() {
     let _ = reminder::run_kind(RemindKind::PoOverdue, now)
         .await
         .expect("扫描采购超期");
-    assert_eq!(
-        notice_count("po_overdue", order).await,
-        2,
-        "过了重提醒间隔应再发一条"
-    );
+    assert_eq!(notice_count("po_overdue", order).await, 2, "过了重提醒间隔应再发一条");
 }
 
 // ==================== ④ 合同到期 ====================
@@ -790,10 +726,7 @@ async fn ledger_uses_beijing_business_day() {
         let second = reminder::run_kind(RemindKind::PayableDue, later)
             .await
             .expect("第二次扫描");
-        assert!(
-            second.skipped_reminded >= 1,
-            "同一业务日应命中台账（不重复提醒）"
-        );
+        assert!(second.skipped_reminded >= 1, "同一业务日应命中台账（不重复提醒）");
     }
     assert_notice_count("payable_due", payable, 1).await;
     // 低库存的预览入口能跑通（不连库失败）

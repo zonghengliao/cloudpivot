@@ -32,9 +32,7 @@ use axum::extract::Path;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::flow::graph::{
-    self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType,
-};
+use cloudpivot::business::flow::graph::{self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
 use cloudpivot::business::flow::task_bridge::{self, FlowTaskOutcome, TaskStatusChanged};
 use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model as flow_model};
 use cloudpivot::business::task::state::TaskStatus;
@@ -131,10 +129,7 @@ impl Fixture {
              VALUES (?::uuid, ?, 'fixture-not-a-real-hash', ?, 1, 'HUMAN')",
             vec![
                 Value::from(&operator),
-                Value::Text(format!(
-                    "pflowb-{tag}-{}",
-                    &Uuid::now_v7().simple().to_string()[24..32]
-                )),
+                Value::Text(format!("pflowb-{tag}-{}", &Uuid::now_v7().simple().to_string()[24..32])),
                 Value::Text(format!("PFLOWB {tag} 操作人")),
             ],
         )
@@ -326,13 +321,7 @@ fn graph_to_save_req(graph: &FlowGraph) -> flow_dto::GraphSaveReq {
 }
 
 /// 建流程 + 存图 + 发布，返回 `def_id`。
-async fn create_and_publish(
-    f: &Fixture,
-    tag: &str,
-    graph: &FlowGraph,
-    biz_type: &str,
-    is_default: bool,
-) -> Uuid {
+async fn create_and_publish(f: &Fixture, tag: &str, graph: &FlowGraph, biz_type: &str, is_default: bool) -> Uuid {
     let flow_code = format!(
         "pflowb_{}_{}",
         tag.to_ascii_lowercase(),
@@ -354,13 +343,9 @@ async fn create_and_publish(
     let def_id = Uuid::parse_str(&data.id).expect("def id");
     let version_id = Uuid::parse_str(&data.version_id).expect("version id");
 
-    flow_handler::save_graph(
-        f.ext(),
-        Path(version_id.to_string()),
-        Json(graph_to_save_req(graph)),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("保存整图失败：{} {}", error.code, error.msg));
+    flow_handler::save_graph(f.ext(), Path(version_id.to_string()), Json(graph_to_save_req(graph)))
+        .await
+        .unwrap_or_else(|error| panic!("保存整图失败：{} {}", error.code, error.msg));
     flow_handler::publish(f.ext(), Path(def_id.to_string()))
         .await
         .unwrap_or_else(|error| panic!("发布失败：{} {}", error.code, error.msg));
@@ -374,10 +359,7 @@ async fn start_instance(f: &Fixture, def_id: Uuid, title: &str) -> Uuid {
         flow_code: None,
         biz_type: None,
         biz_id: None,
-        biz_no: Some(format!(
-            "PFLOWB-{}",
-            &Uuid::now_v7().simple().to_string()[24..32]
-        )),
+        biz_no: Some(format!("PFLOWB-{}", &Uuid::now_v7().simple().to_string()[24..32])),
         title: title.to_string(),
         form_data: Some(serde_json::json!({})),
     };
@@ -416,18 +398,11 @@ async fn instance_row(instance_id: Uuid) -> (String, i32) {
         .await
         .expect("查实例");
     let row = rows.first().expect("实例必须存在");
-    (
-        row.get_typed("status").unwrap(),
-        row.get_typed("round_total").unwrap(),
-    )
+    (row.get_typed("status").unwrap(), row.get_typed("round_total").unwrap())
 }
 
 /// 某实例某节点某轮生成的任务（`(id, status, cancel_reason)`）。
-async fn flow_task_of(
-    instance_id: Uuid,
-    key: &str,
-    round: i32,
-) -> Option<(Uuid, String, Option<String>)> {
+async fn flow_task_of(instance_id: Uuid, key: &str, round: i32) -> Option<(Uuid, String, Option<String>)> {
     let rows = db()
         .find_with_params(
             "SELECT id, status, cancel_reason FROM biz_task \
@@ -458,10 +433,7 @@ async fn task_status(task_id: Uuid) -> String {
         )
         .await
         .expect("查任务");
-    rows.first()
-        .expect("任务必须存在")
-        .get_typed("status")
-        .unwrap()
+    rows.first().expect("任务必须存在").get_typed("status").unwrap()
 }
 
 async fn task_approval_instance(task_id: Uuid) -> Option<Uuid> {
@@ -491,10 +463,7 @@ async fn change_task(
         reason: reason.map(str::to_string),
     };
     let res = task_handler::change_status(f.ext(), Path(task_id.to_string()), Json(req)).await?;
-    Ok(res
-        .data
-        .expect("change_status 必须返回 TaskStatusRes")
-        .status)
+    Ok(res.data.expect("change_status 必须返回 TaskStatusRes").status)
 }
 
 /// 一路推到 `DONE`（`TODO→DOING→DONE`，`need_review=false` 的路径）。
@@ -518,10 +487,7 @@ async fn pending_flow_task(instance_id: Uuid) -> Uuid {
         )
         .await
         .expect("查审批待办");
-    rows.first()
-        .expect("审批单必须有待办")
-        .get_typed("id")
-        .unwrap()
+    rows.first().expect("审批单必须有待办").get_typed("id").unwrap()
 }
 
 // ==================== 验收审批流的开/关（人工验收路径的前置） ====================
@@ -549,10 +515,7 @@ async fn suspend_task_accept_flow() -> Vec<Uuid> {
         )
         .await
         .expect("查 TASK_ACCEPT 流程");
-    let ids: Vec<Uuid> = rows
-        .iter()
-        .map(|row| row.get_typed::<Uuid>("id").unwrap())
-        .collect();
+    let ids: Vec<Uuid> = rows.iter().map(|row| row.get_typed::<Uuid>("id").unwrap()).collect();
     if !ids.is_empty() {
         db().execute_with_params(
             "UPDATE biz_flow_def SET status = 'DISABLED', updated_at = now() \
@@ -595,14 +558,9 @@ async fn complete_without_review_advances_flow() {
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景1").await;
 
     // 发起后：A 节点 ACTIVE + 任务 TODO；B 节点还不存在（进入即生成）
-    let (task_a, status_a, _) = flow_task_of(instance_id, "n_a", 1)
-        .await
-        .expect("节点 A 必须生成任务");
+    let (task_a, status_a, _) = flow_task_of(instance_id, "n_a", 1).await.expect("节点 A 必须生成任务");
     assert_eq!(status_a, "TODO", "① 发起后任务 A 是 TODO");
-    assert_eq!(
-        node_status(instance_id, "n_a", 1).await.as_deref(),
-        Some("ACTIVE")
-    );
+    assert_eq!(node_status(instance_id, "n_a", 1).await.as_deref(), Some("ACTIVE"));
     assert!(
         node_status(instance_id, "n_b", 1).await.is_none(),
         "① 下游还没到，不该有节点行"
@@ -627,11 +585,7 @@ async fn complete_without_review_advances_flow() {
         .await
         .expect("② 下游节点 B 必须生成任务");
     assert_eq!(status_b, "TODO", "② 下游任务 B 是 TODO 等人干");
-    assert_eq!(
-        instance_row(instance_id).await.0,
-        "PENDING",
-        "② 实例仍 PENDING"
-    );
+    assert_eq!(instance_row(instance_id).await.0, "PENDING", "② 实例仍 PENDING");
     println!("[PASS] 场景1：完成任务 → 节点 APPROVED → 下游驱动（两侧状态一致）");
     f.cleanup().await;
 }
@@ -656,13 +610,9 @@ async fn review_pass_approves_node() {
     )
     .await;
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景2").await;
-    let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1)
-        .await
-        .expect("必须生成任务");
+    let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1).await.expect("必须生成任务");
 
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
     let status = change_task(&f, task_id, TaskStatus::Review, None)
         .await
         .expect("提交验收");
@@ -712,13 +662,9 @@ async fn reject_stay_keeps_node_active() {
     )
     .await;
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景3").await;
-    let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1)
-        .await
-        .expect("必须生成任务");
+    let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1).await.expect("必须生成任务");
 
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
     change_task(&f, task_id, TaskStatus::Review, None)
         .await
         .expect("提交验收");
@@ -763,9 +709,7 @@ async fn reject_back_to_prev_reopens_previous() {
     let (task_a, _, _) = flow_task_of(instance_id, "n_a", 1).await.expect("A 任务");
     drive_to_done(&f, task_a).await;
     let (task_b, _, _) = flow_task_of(instance_id, "n_b", 1).await.expect("B 任务");
-    change_task(&f, task_b, TaskStatus::Doing, None)
-        .await
-        .expect("B 开始");
+    change_task(&f, task_b, TaskStatus::Doing, None).await.expect("B 开始");
     change_task(&f, task_b, TaskStatus::Review, None)
         .await
         .expect("B 提交验收");
@@ -789,11 +733,7 @@ async fn reject_back_to_prev_reopens_previous() {
         .expect("① 第 2 轮的上一节点必须生成第 2 轮任务（不是重复任务）");
     assert_eq!(status_a2, "TODO");
     assert_ne!(task_a2, task_a, "① 第 2 轮是新任务行");
-    assert_eq!(
-        instance_row(instance_id).await.0,
-        "PENDING",
-        "① 实例仍 PENDING"
-    );
+    assert_eq!(instance_row(instance_id).await.0, "PENDING", "① 实例仍 PENDING");
     assert_eq!(instance_row(instance_id).await.1, 2, "① round_total = 2");
     println!("[PASS] 场景4：on_reject=BACK_TO_PREV → 上一节点 round+1 重新激活");
     f.cleanup().await;
@@ -817,18 +757,11 @@ async fn cancel_task_terminates_instance() {
     let def_id = create_and_publish(&f, "s5", &graph, "PFLOWB_TASK", false).await;
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景5").await;
     let (task_a, _, _) = flow_task_of(instance_id, "n_a", 1).await.expect("A 任务");
-    change_task(&f, task_a, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_a, TaskStatus::Doing, None).await.expect("开始");
 
-    let status = change_task(
-        &f,
-        task_a,
-        TaskStatus::Cancelled,
-        Some("这张活不干了，整条线作废"),
-    )
-    .await
-    .expect("取消任务");
+    let status = change_task(&f, task_a, TaskStatus::Cancelled, Some("这张活不干了，整条线作废"))
+        .await
+        .expect("取消任务");
     assert_eq!(status, "CANCELLED", "① 任务 CANCELLED");
     assert_eq!(
         instance_row(instance_id).await.0,
@@ -840,9 +773,7 @@ async fn cancel_task_terminates_instance() {
         Some("CANCELLED"),
         "① 节点随实例终止"
     );
-    let (_, _, reason) = flow_task_of(instance_id, "n_a", 1)
-        .await
-        .expect("任务行还在");
+    let (_, _, reason) = flow_task_of(instance_id, "n_a", 1).await.expect("任务行还在");
     let reason = reason.unwrap_or_default();
     assert!(
         reason.contains("不干了"),
@@ -880,23 +811,11 @@ async fn withdraw_instance_cancels_unfinished_tasks() {
         .await
         .expect("撤回");
 
-    assert_eq!(
-        instance_row(instance_id).await.0,
-        "WITHDRAWN",
-        "① 实例 WITHDRAWN"
-    );
-    let (_, status, reason) = flow_task_of(instance_id, "n_task", 1)
-        .await
-        .expect("任务行还在");
-    assert_eq!(
-        status, "CANCELLED",
-        "① 未完成任务必须 CANCELLED（不是 DONE）"
-    );
+    assert_eq!(instance_row(instance_id).await.0, "WITHDRAWN", "① 实例 WITHDRAWN");
+    let (_, status, reason) = flow_task_of(instance_id, "n_task", 1).await.expect("任务行还在");
+    assert_eq!(status, "CANCELLED", "① 未完成任务必须 CANCELLED（不是 DONE）");
     let reason = reason.unwrap_or_default();
-    assert!(
-        reason.contains("撤回"),
-        "① cancel_reason 要说明是撤回：{reason}"
-    );
+    assert!(reason.contains("撤回"), "① cancel_reason 要说明是撤回：{reason}");
     println!("[PASS] 场景6：实例撤回 → 未完成任务 CANCELLED（cancel_reason 可读）");
     f.cleanup().await;
 }
@@ -919,9 +838,7 @@ async fn approve_mode_full_chain() {
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景7").await;
     let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1).await.expect("任务");
 
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
     change_task(&f, task_id, TaskStatus::Done, None)
         .await
         .expect("完成（APPROVE 模式）");
@@ -936,19 +853,12 @@ async fn approve_mode_full_chain() {
         Some("ACTIVE"),
         "① 审批没通过前节点保持 ACTIVE（不驱动下游）"
     );
-    assert_eq!(
-        instance_row(instance_id).await.0,
-        "PENDING",
-        "① 实例仍 PENDING"
-    );
+    assert_eq!(instance_row(instance_id).await.0, "PENDING", "① 实例仍 PENDING");
     let approval = flow_model::find_instance(approval_id)
         .await
         .expect("查审批单")
         .expect("审批单必须存在");
-    assert_eq!(
-        approval.biz_type, "PFLOWB_APPROVE",
-        "① 用的是 approve_biz_type"
-    );
+    assert_eq!(approval.biz_type, "PFLOWB_APPROVE", "① 用的是 approve_biz_type");
     assert_eq!(approval.biz_id, Some(task_id), "① biz_id = 任务 id");
     assert_eq!(approval.status, "PENDING");
 
@@ -965,11 +875,7 @@ async fn approve_mode_full_chain() {
     .expect("审批同意");
 
     assert_eq!(
-        flow_model::find_instance(approval_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
+        flow_model::find_instance(approval_id).await.unwrap().unwrap().status,
         "APPROVED",
         "② 审批单 APPROVED"
     );
@@ -983,11 +889,7 @@ async fn approve_mode_full_chain() {
         "APPROVED",
         "② 节点通过后下游驱动到 END → 实例 APPROVED"
     );
-    assert_eq!(
-        task_status(task_id).await,
-        "DONE",
-        "② 任务仍是 DONE（不被回调改）"
-    );
+    assert_eq!(task_status(task_id).await, "DONE", "② 任务仍是 DONE（不被回调改）");
     println!("[PASS] 场景7：APPROVE 全链路（任务 DONE → 发起审批 → 通过 → 节点 APPROVED → 下游）");
     f.cleanup().await;
 }
@@ -1013,12 +915,8 @@ async fn approve_mode_reject_follows_on_reject() {
     let (task_a, _, _) = flow_task_of(instance_id, "n_a", 1).await.expect("A 任务");
     drive_to_done(&f, task_a).await;
     let (task_b, _, _) = flow_task_of(instance_id, "n_b", 1).await.expect("B 任务");
-    change_task(&f, task_b, TaskStatus::Doing, None)
-        .await
-        .expect("B 开始");
-    change_task(&f, task_b, TaskStatus::Done, None)
-        .await
-        .expect("B 完成");
+    change_task(&f, task_b, TaskStatus::Doing, None).await.expect("B 开始");
+    change_task(&f, task_b, TaskStatus::Done, None).await.expect("B 完成");
     let approval_id = task_approval_instance(task_b).await.expect("必须发起审批");
 
     let flow_task_id = pending_flow_task(approval_id).await;
@@ -1034,11 +932,7 @@ async fn approve_mode_reject_follows_on_reject() {
     .expect("审批驳回并终止");
 
     assert_eq!(
-        flow_model::find_instance(approval_id)
-            .await
-            .unwrap()
-            .unwrap()
-            .status,
+        flow_model::find_instance(approval_id).await.unwrap().unwrap().status,
         "REJECTED",
         "① 审批单 REJECTED"
     );
@@ -1088,18 +982,14 @@ async fn conflict_when_instance_already_cancelled() {
     let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1).await.expect("任务");
 
     // 让实例先终止（走真实入口：on_cancel=TERMINATE）
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
     change_task(&f, task_id, TaskStatus::Cancelled, Some("整条线作废"))
         .await
         .expect("取消任务");
     assert_eq!(instance_row(instance_id).await.0, "CANCELLED");
 
     // 复活任务（CANCELLED→TODO 是白名单边），再试着完成它
-    change_task(&f, task_id, TaskStatus::Todo, None)
-        .await
-        .expect("复活");
+    change_task(&f, task_id, TaskStatus::Todo, None).await.expect("复活");
     change_task(&f, task_id, TaskStatus::Doing, None)
         .await
         .expect("开始（实例已终止但任务侧照常，属 Ignored 分支）");
@@ -1113,11 +1003,7 @@ async fn conflict_when_instance_already_cancelled() {
         "DOING",
         "① 事务干净：任务必须还是 DOING（没有半截 DONE）"
     );
-    assert_eq!(
-        instance_row(instance_id).await.0,
-        "CANCELLED",
-        "① 实例状态不变"
-    );
+    assert_eq!(instance_row(instance_id).await.0, "CANCELLED", "① 实例状态不变");
     assert_eq!(
         node_status(instance_id, "n_task", 1).await.as_deref(),
         Some("CANCELLED"),
@@ -1147,9 +1033,7 @@ async fn concurrent_complete_only_one_advances() {
     .await;
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景10").await;
     let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1).await.expect("任务");
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
 
     let req = || task_dto::TaskStatusChangeReq {
         to: TaskStatus::Done.code().to_string(),
@@ -1165,11 +1049,7 @@ async fn concurrent_complete_only_one_advances() {
         match result {
             Ok(_) => ok += 1,
             Err(error) => {
-                assert_eq!(
-                    error.status, 409,
-                    "① 冲突必须 409：{} {}",
-                    error.code, error.msg
-                );
+                assert_eq!(error.status, 409, "① 冲突必须 409：{} {}", error.code, error.msg);
                 assert_eq!(
                     error.code,
                     error_code::FLOW_TASK_ALREADY_DONE,
@@ -1281,9 +1161,7 @@ async fn flow_task_outcome_four_branches() {
     }
 
     // ③ Advanced：真完成（任务侧已经 DOING，节点 ACTIVE）
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
     let advanced = db()
         .transaction(|tx| async move {
             task_bridge::on_task_status_changed(
@@ -1333,17 +1211,11 @@ async fn flow_task_outcome_four_branches() {
     match conflict {
         FlowTaskOutcome::Conflict(error) => {
             assert_eq!(error.status, 409);
-            assert_eq!(
-                error.code,
-                error_code::FLOW_TASK_ALREADY_DONE,
-                "④ 重复完成 → 65020"
-            );
+            assert_eq!(error.code, error_code::FLOW_TASK_ALREADY_DONE, "④ 重复完成 → 65020");
         }
         other => panic!("④ 重复完成必须是 Conflict，实得 {other:?}"),
     }
-    println!(
-        "[PASS] 场景11：FlowTaskOutcome 四分支（NotFlowTask / Ignored / Advanced / Conflict）真库各命中一次"
-    );
+    println!("[PASS] 场景11：FlowTaskOutcome 四分支（NotFlowTask / Ignored / Advanced / Conflict）真库各命中一次");
     f.cleanup().await;
 }
 
@@ -1377,9 +1249,7 @@ async fn task_accept_approval_advances_node() {
     let instance_id = start_instance(&f, def_id, "PFLOWB 场景14").await;
     let (task_id, _, _) = flow_task_of(instance_id, "n_task", 1).await.expect("任务");
 
-    change_task(&f, task_id, TaskStatus::Doing, None)
-        .await
-        .expect("开始");
+    change_task(&f, task_id, TaskStatus::Doing, None).await.expect("开始");
     change_task(&f, task_id, TaskStatus::Review, None)
         .await
         .expect("提交验收");
@@ -1393,10 +1263,7 @@ async fn task_accept_approval_advances_node() {
         Some("ACTIVE"),
         "① 审批没结论前节点保持 ACTIVE"
     );
-    let approval = flow_model::find_instance(approval_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let approval = flow_model::find_instance(approval_id).await.unwrap().unwrap();
     assert_eq!(approval.biz_type, task_bridge::TASK_ACCEPT_BIZ_TYPE);
     assert_eq!(approval.status, "PENDING");
 
@@ -1452,9 +1319,7 @@ async fn plain_task_is_untouched() {
         due_date: None,
         estimate_hours: None,
     };
-    let created = task_handler::create(f.ext(), Json(req))
-        .await
-        .expect("建普通任务");
+    let created = task_handler::create(f.ext(), Json(req)).await.expect("建普通任务");
     let task_id = Uuid::parse_str(&created.data.expect("CreateRes").id).expect("task id");
 
     // `TODO → DOING → DONE`：普通任务的老路径必须一路 200，且不产生任何流程行
@@ -1478,11 +1343,7 @@ async fn plain_task_is_untouched() {
     let row = rows.first().expect("任务必须存在");
     let source: String = row.get_typed("source").unwrap();
     let flow_instance_id: Option<Uuid> = row.get_typed("flow_instance_id").unwrap();
-    assert_ne!(
-        source,
-        task_bridge::FLOW_SOURCE,
-        "① 普通任务 source != FLOW"
-    );
+    assert_ne!(source, task_bridge::FLOW_SOURCE, "① 普通任务 source != FLOW");
     assert!(flow_instance_id.is_none(), "① 普通任务没有流程实例");
     println!("[PASS] 场景12：普通任务（source != FLOW）的 change_status 行为不变");
     f.cleanup().await;
@@ -1500,10 +1361,7 @@ async fn publish_rejects_missing_approve_biz_type() {
     let f = Fixture::new("s13").await;
     // 直接建流程 + 存图，不发布（publish 要报错）
     let graph = single_task_graph(approve_task_cfg("STAY", "PFLOWB_NOT_EXIST"));
-    let flow_code = format!(
-        "pflowb_s13_{}",
-        &Uuid::now_v7().simple().to_string()[24..32]
-    );
+    let flow_code = format!("pflowb_s13_{}", &Uuid::now_v7().simple().to_string()[24..32]);
     let create = flow_dto::DefCreateReq {
         flow_code,
         flow_name: "PFLOWB s13".to_string(),
@@ -1513,20 +1371,14 @@ async fn publish_rejects_missing_approve_biz_type() {
         is_default: Some(false),
         allow_auto_approve: Some(false),
     };
-    let res = flow_handler::create(f.ext(), Json(create))
-        .await
-        .expect("建流程");
+    let res = flow_handler::create(f.ext(), Json(create)).await.expect("建流程");
     let data = res.data.expect("DefSaveRes");
     let def_id = Uuid::parse_str(&data.id).unwrap();
     let version_id = Uuid::parse_str(&data.version_id).unwrap();
     // 整图保存会先做结构校验（`approve_biz_type` 的存在性检查在发布 / 只校验接口上）
-    flow_handler::save_graph(
-        f.ext(),
-        Path(version_id.to_string()),
-        Json(graph_to_save_req(&graph)),
-    )
-    .await
-    .expect("保存整图");
+    flow_handler::save_graph(f.ext(), Path(version_id.to_string()), Json(graph_to_save_req(&graph)))
+        .await
+        .expect("保存整图");
 
     let error = flow_handler::publish(f.ext(), Path(def_id.to_string()))
         .await

@@ -72,8 +72,7 @@ pub const SEQ: SeqSpec<'static> = SeqSpec {
 /// `scope::paginate(…, &principal)`，基础版无部门范围配置时等价于不裁剪，专业版配了范围
 /// 就自动按部门裁。`biz_budget` 未登记进 `SCOPED_TABLES`（那份清单是 `sys_*` 系统表的，
 /// 业务表按 `contract_model` 的约定各自声明锚点）。
-pub const BUDGET_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::new(TABLE, "b", Some("dept_id"), None);
+pub const BUDGET_TARGET: scope::ScopeTarget = scope::ScopeTarget::new(TABLE, "b", Some("dept_id"), None);
 
 /// 映射表的数据权限锚点：运维级主数据，不做数据裁剪。
 pub const MAP_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(MAP_TABLE);
@@ -284,9 +283,7 @@ pub async fn find_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<BudgetR
     // SCOPE-EXEMPT: 主键精确取 1 行（事务内读自己的写）。
     let rows = ex
         .query_sql(
-            format!(
-                "SELECT {BUDGET_COLUMNS} FROM biz_budget b WHERE b.id = ?::uuid AND b.deleted_at IS NULL"
-            ),
+            format!("SELECT {BUDGET_COLUMNS} FROM biz_budget b WHERE b.id = ?::uuid AND b.deleted_at IS NULL"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -325,7 +322,9 @@ fn budget_page_filters(q: &BudgetFilter, params: &mut Vec<Value>) -> DbResult<St
     }
     if let Some(keyword) = q.keyword.as_deref() {
         let pattern = format!("%{}%", keyword.trim());
-        sql.push_str(" AND (b.budget_no LIKE ? OR b.account_code LIKE ? OR b.account_name LIKE ? OR b.dept_name LIKE ?)");
+        sql.push_str(
+            " AND (b.budget_no LIKE ? OR b.account_code LIKE ? OR b.account_name LIKE ? OR b.dept_name LIKE ?)",
+        );
         for _ in 0..4 {
             params.push(Value::from(pattern.clone()));
         }
@@ -362,12 +361,7 @@ pub async fn budget_page(
 }
 
 /// 插入一个预算版本（状态恒 `DRAFT`）。
-pub async fn insert_budget(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    no: &str,
-    new: &BudgetMut,
-) -> DbResult<u64> {
+pub async fn insert_budget(ex: &impl SqlExecutor, id: Uuid, no: &str, new: &BudgetMut) -> DbResult<u64> {
     ex.exec_sql(
         "INSERT INTO biz_budget (
              id, budget_no, fiscal_year, dept_id, dept_name, account_id, account_code,
@@ -389,11 +383,7 @@ pub async fn insert_budget(
             Value::from(new.total_amount.to_string()),
             Value::Text(new.control_mode.clone().unwrap_or_default()),
             Value::from(new.version_no),
-            Value::Text(
-                new.supersedes_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.supersedes_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::from(new.change_type.clone()),
             Value::Text(new.change_reason.clone().unwrap_or_default()),
             Value::Text(new.remark.clone().unwrap_or_default()),
@@ -426,11 +416,7 @@ pub async fn update_draft(ex: &impl SqlExecutor, id: Uuid, new: &BudgetMut) -> D
             Value::from(i32::from(new.fiscal_year)),
             Value::Text(new.change_reason.clone().unwrap_or_default()),
             Value::Text(new.remark.clone().unwrap_or_default()),
-            Value::Text(
-                new.operator
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.operator.map(|value| value.to_string()).unwrap_or_default()),
             Value::from(&id),
         ],
     )
@@ -461,11 +447,7 @@ pub async fn periods_of(ex: &impl SqlExecutor, budget_id: Uuid) -> DbResult<Vec<
 }
 
 /// 覆盖写分解行（先删后插，**只在 DRAFT** 上发生）。
-pub async fn replace_periods(
-    ex: &impl SqlExecutor,
-    budget_id: Uuid,
-    periods: &[NewPeriod],
-) -> DbResult<u64> {
+pub async fn replace_periods(ex: &impl SqlExecutor, budget_id: Uuid, periods: &[NewPeriod]) -> DbResult<u64> {
     ex.exec_sql(
         "DELETE FROM biz_budget_period WHERE budget_id = ?::uuid".to_string(),
         vec![Value::from(&budget_id)],
@@ -633,11 +615,7 @@ pub async fn apply_status(
             Value::from(target),
             Value::from(target),
             uuid_text(operator),
-            Value::Text(
-                effective_from
-                    .map(|date| date.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(effective_from.map(|date| date.to_string()).unwrap_or_default()),
             Value::from(&id),
             Value::from(expect),
         ],
@@ -818,11 +796,7 @@ async fn month_breakdown(
               WHERE p.budget_id = ?::uuid
               ORDER BY p.period_month"
                 .to_string(),
-            vec![
-                Value::from(&dept_id),
-                Value::from(&account_id),
-                Value::from(&budget_id),
-            ],
+            vec![Value::from(&dept_id), Value::from(&account_id), Value::from(&budget_id)],
         )
         .await?;
     let _ = fiscal_year;
@@ -838,11 +812,7 @@ async fn month_breakdown(
 }
 
 /// 版本链（同槽全部版本，按版本号倒序；含被取代与软删的行）。
-pub async fn version_chain(
-    dept_id: Uuid,
-    account_id: Uuid,
-    fiscal_year: i16,
-) -> DbResult<Vec<BudgetRow>> {
+pub async fn version_chain(dept_id: Uuid, account_id: Uuid, fiscal_year: i16) -> DbResult<Vec<BudgetRow>> {
     // SCOPE-EXEMPT: 槽级查询（版本链展示），行数 = 该槽历史版本数。
     let rows = db()
         .query_sql(
@@ -902,10 +872,7 @@ pub async fn map_page(q: &BudgetFilter) -> DbResult<(Vec<MapRow>, i64)> {
     );
     let mut params: Vec<Value> = Vec::new();
     if let Some(map_type) = q.status.as_deref()
-        && matches!(
-            map_type,
-            "MATERIAL" | "MATERIAL_TYPE" | "WAREHOUSE" | "DEFAULT"
-        )
+        && matches!(map_type, "MATERIAL" | "MATERIAL_TYPE" | "WAREHOUSE" | "DEFAULT")
     {
         sql.push_str(" AND m.map_type = ?");
         params.push(Value::from(map_type));
@@ -933,12 +900,8 @@ pub async fn map_page(q: &BudgetFilter) -> DbResult<(Vec<MapRow>, i64)> {
                 ref_id: row.get_typed("ref_id")?,
                 ref_code: row.get_typed("ref_code")?,
                 account_id: row.get_typed("account_id")?,
-                account_code: row
-                    .get_typed::<Option<String>>("account_code")?
-                    .unwrap_or_default(),
-                account_name: row
-                    .get_typed::<Option<String>>("account_name")?
-                    .unwrap_or_default(),
+                account_code: row.get_typed::<Option<String>>("account_code")?.unwrap_or_default(),
+                account_name: row.get_typed::<Option<String>>("account_name")?.unwrap_or_default(),
                 dept_id: row.get_typed("dept_id")?,
                 priority: row.get_typed("priority")?,
                 status: row.get_typed("status")?,
@@ -967,8 +930,7 @@ pub async fn map_insert(
     remark: Option<&str>,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
-    let (ref_id, ref_code) =
-        crate::business::erp::budget_dto::normalize_target(map_type, ref_id, ref_code);
+    let (ref_id, ref_code) = crate::business::erp::budget_dto::normalize_target(map_type, ref_id, ref_code);
     ex.exec_sql(
         "INSERT INTO biz_budget_subject_map (
              id, map_type, ref_id, ref_code, account_id, dept_id, priority, status, remark,
@@ -1009,8 +971,7 @@ pub async fn map_update(
     remark: Option<&str>,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
-    let (_, ref_code) =
-        crate::business::erp::budget_dto::normalize_target(map_type, None, ref_code);
+    let (_, ref_code) = crate::business::erp::budget_dto::normalize_target(map_type, None, ref_code);
     ex.exec_sql(
         "UPDATE biz_budget_subject_map
             SET ref_code = NULLIF(?::text,''), account_id = ?::uuid,

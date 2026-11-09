@@ -59,9 +59,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::sales_order_model;
-use crate::business::erp::sales_return_model::{
-    self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow,
-};
+use crate::business::erp::sales_return_model::{self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow};
 use crate::business::erp::shipment_model;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -160,10 +158,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "退货单号冲突（唯一约束{}）：取号器与库里的号撞了，请重试",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -171,10 +166,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::PARAM_INVALID,
             format!(
                 "数据不满足数据库约束{}（数量必须 > 0 / 金额非负 / 价税合计恒等 / 状态域 6 值）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         _ => utils::db_error(err, ctx),
@@ -211,12 +203,7 @@ pub fn validate_return_type(raw: &str) -> std::result::Result<String, String> {
 ///
 /// 与库层 `ck_biz_sreturn_item_qty`（只兜 `qty > 0`）互补：上界是跨表的，
 /// 只能在这里判，报文要说清「已发多少 / 已退多少 / 还剩多少」。
-pub fn validate_qty(
-    qty: Decimal,
-    shipped: Decimal,
-    returned: Decimal,
-    label: &str,
-) -> std::result::Result<(), String> {
+pub fn validate_qty(qty: Decimal, shipped: Decimal, returned: Decimal, label: &str) -> std::result::Result<(), String> {
     if qty <= Decimal::ZERO {
         return Err(format!("{label}.qty 必须大于 0（当前 {qty}）"));
     }
@@ -230,28 +217,18 @@ pub fn validate_qty(
 }
 
 /// 单价 / 税率校验：早于库层 CHECK 给出人话报文。
-pub fn validate_amount_inputs(
-    price: Decimal,
-    tax_rate: Decimal,
-    label: &str,
-) -> std::result::Result<(), String> {
+pub fn validate_amount_inputs(price: Decimal, tax_rate: Decimal, label: &str) -> std::result::Result<(), String> {
     if price < Decimal::ZERO {
         return Err(format!("{label}.price 不能为负（当前 {price}）"));
     }
     if tax_rate < Decimal::ZERO || tax_rate > Decimal::from(100) {
-        return Err(format!(
-            "{label}.tax_rate 必须是 0–100 的百分数（当前 {tax_rate}）"
-        ));
+        return Err(format!("{label}.tax_rate 必须是 0–100 的百分数（当前 {tax_rate}）"));
     }
     Ok(())
 }
 
 /// 序列号条数校验：填了就必须**一物一码**（条数 = 数量），不填则交给过账按库存分配。
-pub fn validate_serials(
-    serial_nos: &[String],
-    qty: Decimal,
-    label: &str,
-) -> std::result::Result<(), String> {
+pub fn validate_serials(serial_nos: &[String], qty: Decimal, label: &str) -> std::result::Result<(), String> {
     if serial_nos.is_empty() {
         return Ok(());
     }
@@ -552,9 +529,7 @@ impl ReturnRes {
 /// 该发货单**可退明细**（前端「从发货单带出」对话框的唯一读数）。
 ///
 /// 只对**已过账**的发货单开放：未过账的货还在仓库里，没有「退回来」这回事。
-pub async fn returnable_of(
-    shipment_id: Uuid,
-) -> std::result::Result<Vec<ReturnableItemRes>, ApiError> {
+pub async fn returnable_of(shipment_id: Uuid) -> std::result::Result<Vec<ReturnableItemRes>, ApiError> {
     let Some((_, _, status)) = model::shipment_meta(db(), shipment_id)
         .await
         .map_err(|error| utils::db_error(error, "查询发货单"))?
@@ -634,15 +609,9 @@ pub async fn get_return(id_raw: &str) -> std::result::Result<ReturnRes, ApiError
 }
 
 /// 退货单分页。
-pub async fn page_return(
-    filter: ReturnFilter,
-) -> std::result::Result<PageData<Vec<ReturnRes>>, ApiError> {
+pub async fn page_return(filter: ReturnFilter) -> std::result::Result<PageData<Vec<ReturnRes>>, ApiError> {
     // `status` 传了非法值 → 400（静默忽略会把「已过账」筛成「全部」，是假数据）
-    if let Some(status) = filter
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
+    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|text| !text.is_empty())
         && !model::is_valid_status(status)
     {
         return Err(bad_request(format!(
@@ -667,13 +636,12 @@ pub async fn page_return(
 
     // 客户 / 仓库 / 订单号 / 发货单号各自一次往返补齐（一页固定 4 条 SQL，不做 N+1）
     let customer_ids: Vec<Uuid> = rows.iter().map(|row| row.customer_id).collect();
-    let naming: std::collections::HashMap<Uuid, (String, String)> =
-        sales_order_model::customer_labels(&customer_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询退货单客户"))?
-            .into_iter()
-            .map(|(id, code, name)| (id, (code, name)))
-            .collect();
+    let naming: std::collections::HashMap<Uuid, (String, String)> = sales_order_model::customer_labels(&customer_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询退货单客户"))?
+        .into_iter()
+        .map(|(id, code, name)| (id, (code, name)))
+        .collect();
     let warehouse_ids: Vec<Uuid> = rows.iter().map(|row| row.warehouse_id).collect();
     let warehouses: std::collections::HashMap<Uuid, (String, String)> =
         shipment_model::warehouse_labels(db(), &warehouse_ids)
@@ -683,19 +651,17 @@ pub async fn page_return(
             .map(|(id, code, name)| (id, (code, name)))
             .collect();
     let so_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.so_id).collect();
-    let so_numbers: std::collections::HashMap<Uuid, String> =
-        shipment_model::so_no_labels(db(), &so_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询退货单原订单号"))?
-            .into_iter()
-            .collect();
+    let so_numbers: std::collections::HashMap<Uuid, String> = shipment_model::so_no_labels(db(), &so_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询退货单原订单号"))?
+        .into_iter()
+        .collect();
     let shipment_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.shipment_id).collect();
-    let shipment_numbers: std::collections::HashMap<Uuid, String> =
-        model::shipment_no_labels(db(), &shipment_ids)
-            .await
-            .map_err(|error| utils::db_error(error, "批量查询退货单原发货单号"))?
-            .into_iter()
-            .collect();
+    let shipment_numbers: std::collections::HashMap<Uuid, String> = model::shipment_no_labels(db(), &shipment_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "批量查询退货单原发货单号"))?
+        .into_iter()
+        .collect();
     let (page, page_size) = model::normalize_page(filter.page, filter.page_size);
     let list = rows
         .iter()
@@ -710,9 +676,7 @@ pub async fn page_return(
                 res.warehouse_name = Some(name.clone());
             }
             res.so_no = row.so_id.and_then(|id| so_numbers.get(&id).cloned());
-            res.shipment_no = row
-                .shipment_id
-                .and_then(|id| shipment_numbers.get(&id).cloned());
+            res.shipment_no = row.shipment_id.and_then(|id| shipment_numbers.get(&id).cloned());
             res
         })
         .collect();
@@ -780,66 +744,57 @@ async fn resolve_items(
             Some(so_item_id) => {
                 ids.push(so_item_id);
                 // 归属校验：有发货单 ⇒ 必须在它的可退明细里；只有订单 ⇒ 必须属于该订单
-                let (material_id, order_price, order_rate, shipped, returned) =
-                    match (shipment_id, so_id) {
-                        (Some(shipment_id), _) => {
-                            let lines = model::returnable_lines(ex, shipment_id, None)
-                                .await
-                                .map_err(|error| utils::db_error(error, "查询发货单可退明细"))?;
-                            match lines.into_iter().find(|line| line.so_item_id == so_item_id) {
-                                Some(line) => (
-                                    line.material_id,
-                                    line.price,
-                                    line.tax_rate,
-                                    line.shipped,
-                                    line.returned,
-                                ),
-                                None => {
-                                    return Err(bad_request(format!(
-                                        "{label}.so_item_id 不属于发货单 {shipment_id} 的可退明细\
+                let (material_id, order_price, order_rate, shipped, returned) = match (shipment_id, so_id) {
+                    (Some(shipment_id), _) => {
+                        let lines = model::returnable_lines(ex, shipment_id, None)
+                            .await
+                            .map_err(|error| utils::db_error(error, "查询发货单可退明细"))?;
+                        match lines.into_iter().find(|line| line.so_item_id == so_item_id) {
+                            Some(line) => (line.material_id, line.price, line.tax_rate, line.shipped, line.returned),
+                            None => {
+                                return Err(bad_request(format!(
+                                    "{label}.so_item_id 不属于发货单 {shipment_id} 的可退明细\
                                          （行不存在 / 没发过货 / 已全部退完）"
-                                    )));
-                                }
+                                )));
                             }
                         }
-                        (None, Some(so_id)) => {
-                            let belongs = shipment_model::so_item_belongs(ex, so_item_id, so_id)
-                                .await
-                                .map_err(|error| utils::db_error(error, "校验订单行归属"))?;
-                            if !belongs {
-                                return Err(bad_request(format!(
-                                    "{label}.so_item_id 不属于销售订单 {so_id}：\
+                    }
+                    (None, Some(so_id)) => {
+                        let belongs = shipment_model::so_item_belongs(ex, so_item_id, so_id)
+                            .await
+                            .map_err(|error| utils::db_error(error, "校验订单行归属"))?;
+                        if !belongs {
+                            return Err(bad_request(format!(
+                                "{label}.so_item_id 不属于销售订单 {so_id}：\
                                      一张退货单只能退同一张订单的货"
-                                )));
-                            }
-                            let Some((material_id, order_price, order_rate, shipped, returned)) =
-                                model::so_item_snapshot(ex, so_item_id, None)
-                                    .await
-                                    .map_err(|error| utils::db_error(error, "查询订单行可退量"))?
-                            else {
-                                return Err(bad_request(format!(
-                                    "{label}.so_item_id 指向的销售订单行不存在：{so_item_id}"
-                                )));
-                            };
-                            (material_id, order_price, order_rate, shipped, returned)
+                            )));
                         }
-                        (None, None) => {
-                            // 既没发货单也没订单：允许（OTHER 手工退货），但没有可退量可校
-                            let Some((material_id, order_price, order_rate, shipped, returned)) =
-                                model::so_item_snapshot(ex, so_item_id, None)
-                                    .await
-                                    .map_err(|error| utils::db_error(error, "查询订单行可退量"))?
-                            else {
-                                return Err(bad_request(format!(
-                                    "{label}.so_item_id 指向的销售订单行不存在：{so_item_id}"
-                                )));
-                            };
-                            (material_id, order_price, order_rate, shipped, returned)
-                        }
-                    };
-                let qty = req
-                    .qty
-                    .unwrap_or(model::remaining_returnable(shipped, returned));
+                        let Some((material_id, order_price, order_rate, shipped, returned)) =
+                            model::so_item_snapshot(ex, so_item_id, None)
+                                .await
+                                .map_err(|error| utils::db_error(error, "查询订单行可退量"))?
+                        else {
+                            return Err(bad_request(format!(
+                                "{label}.so_item_id 指向的销售订单行不存在：{so_item_id}"
+                            )));
+                        };
+                        (material_id, order_price, order_rate, shipped, returned)
+                    }
+                    (None, None) => {
+                        // 既没发货单也没订单：允许（OTHER 手工退货），但没有可退量可校
+                        let Some((material_id, order_price, order_rate, shipped, returned)) =
+                            model::so_item_snapshot(ex, so_item_id, None)
+                                .await
+                                .map_err(|error| utils::db_error(error, "查询订单行可退量"))?
+                        else {
+                            return Err(bad_request(format!(
+                                "{label}.so_item_id 指向的销售订单行不存在：{so_item_id}"
+                            )));
+                        };
+                        (material_id, order_price, order_rate, shipped, returned)
+                    }
+                };
+                let qty = req.qty.unwrap_or(model::remaining_returnable(shipped, returned));
                 if let Err(message) = validate_qty(qty, shipped, returned, &label) {
                     return Err(bad_request(message));
                 }
@@ -880,17 +835,12 @@ async fn resolve_items(
         if let Err(message) = validate_amount_inputs(price, tax_rate, &label) {
             return Err(bad_request(message));
         }
-        let serial_nos: Vec<String> = req
-            .serial_nos
-            .iter()
-            .map(|item| item.trim().to_string())
-            .collect();
+        let serial_nos: Vec<String> = req.serial_nos.iter().map(|item| item.trim().to_string()).collect();
         if let Err(message) = validate_serials(&serial_nos, qty, &label) {
             return Err(bad_request(message));
         }
         let mut item = NewReturnItem::new(so_item_id, material_id, qty, price, tax_rate);
-        item.location_id =
-            parse_opt_uuid(req.location_id.as_deref(), &format!("{label}.location_id"))?;
+        item.location_id = parse_opt_uuid(req.location_id.as_deref(), &format!("{label}.location_id"))?;
         item.serial_nos = serial_nos;
         item.remark = req
             .remark
@@ -907,15 +857,11 @@ async fn resolve_items(
 }
 
 /// 建单：原单闸 → 明细编译 → **锁原单 + 超退守卫** → 取号落库（同一事务）。
-pub async fn create_return(
-    operator: Option<Uuid>,
-    req: CreateReturnReq,
-) -> std::result::Result<ReturnRes, ApiError> {
+pub async fn create_return(operator: Option<Uuid>, req: CreateReturnReq) -> std::result::Result<ReturnRes, ApiError> {
     let warehouse_id = parse_uuid(&req.warehouse_id, "warehouse_id")?;
     let return_type = validate_return_type(&req.return_type).map_err(bad_request)?;
     let now = Utc::now();
-    let return_date =
-        parse_date(req.return_date.as_deref(), "return_date")?.unwrap_or_else(|| today_cst(now));
+    let return_date = parse_date(req.return_date.as_deref(), "return_date")?.unwrap_or_else(|| today_cst(now));
     let shipment_id = parse_opt_uuid(req.shipment_id.as_deref(), "shipment_id")?;
     let req_so_id = parse_opt_uuid(req.so_id.as_deref(), "so_id")?;
     let req_customer_id = parse_opt_uuid(req.customer_id.as_deref(), "customer_id")?;
@@ -929,10 +875,9 @@ pub async fn create_return(
     // ② 原单闸：优先按发货单（推荐口径），其次按订单，最后是纯手工退货
     let (customer_id, so_id) = match (shipment_id, req_so_id) {
         (Some(shipment_id), _) => {
-            let Some((customer_id, shipment_so_id, status)) =
-                model::shipment_meta(db(), shipment_id)
-                    .await
-                    .map_err(|error| utils::db_error(error, "查询发货单"))?
+            let Some((customer_id, shipment_so_id, status)) = model::shipment_meta(db(), shipment_id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询发货单"))?
             else {
                 return Err(ApiError::new(
                     404,
@@ -1057,9 +1002,7 @@ pub async fn create_return(
                 let _ = tx.rollback().await;
                 return Err(write_error(error, "锁定销售订单行"));
             }
-            match model::ensure_qty_within_returnable(&tx, shipment_id, so_item_id, item.qty, None)
-                .await
-            {
+            match model::ensure_qty_within_returnable(&tx, shipment_id, so_item_id, item.qty, None).await {
                 Ok(_) => {}
                 Err(DbError::InvalidValue(message)) => {
                     let _ = tx.rollback().await;
@@ -1079,20 +1022,9 @@ pub async fn create_return(
         return_date,
         return_type: &return_type,
         warehouse_id,
-        remark: req
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
+        remark: req.remark.as_deref().map(str::trim).filter(|text| !text.is_empty()),
     };
-    let created = model::create_return(
-        &tx,
-        &new,
-        &items,
-        state_machine::Operator::of(operator),
-        now,
-    )
-    .await;
+    let created = model::create_return(&tx, &new, &items, state_machine::Operator::of(operator), now).await;
     let (id, return_no) = match created {
         Ok(value) => value,
         Err(error) => {
@@ -1122,10 +1054,7 @@ pub async fn create_return(
 /// 但这里只读、不锁行 —— 真正的写入在下一步的状态事务里；
 /// 若此刻恰好被别人插队，状态机那一步的 CAS / 下游过账会拦（宁可多一次判定，
 /// 也不要让一张「已经退超」的单据进入待过账）。
-async fn revalidate_items(
-    row: &ReturnRow,
-    items: &[ReturnItemRow],
-) -> std::result::Result<(), ApiError> {
+async fn revalidate_items(row: &ReturnRow, items: &[ReturnItemRow]) -> std::result::Result<(), ApiError> {
     if items.is_empty() {
         return Err(bad_request(format!(
             "退货单 {} 没有明细，不能流转到需要明细的状态",
@@ -1136,15 +1065,7 @@ async fn revalidate_items(
         let Some(so_item_id) = item.so_item_id else {
             continue;
         };
-        match model::ensure_qty_within_returnable(
-            db(),
-            row.shipment_id,
-            so_item_id,
-            item.qty,
-            Some(row.id),
-        )
-        .await
-        {
+        match model::ensure_qty_within_returnable(db(), row.shipment_id, so_item_id, item.qty, Some(row.id)).await {
             Ok(_) => {}
             Err(DbError::InvalidValue(message)) => return Err(bad_request(message)),
             Err(error) => return Err(write_error(error, "重跑可退量校验")),
@@ -1199,11 +1120,7 @@ pub async fn change_return_status(
         return Err(conflict(message));
     }
 
-    let reason = req
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
+    let reason = req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty());
 
     // ② 必填原因（与 state_machine 的 SALES_RETURN_REASON_EDGES 同源，提前给人话）
     if state_machine::Entity::SalesReturn.needs_reason(&row.status, &target) && reason.is_none() {
@@ -1232,10 +1149,7 @@ pub async fn change_return_status(
                 .await
                 .map_err(|error| utils::db_error(error, "查询销售退货单明细"))?;
             if items.is_empty() {
-                return Err(bad_request(format!(
-                    "退货单 {} 没有明细，不能过账",
-                    row.return_no
-                )));
+                return Err(bad_request(format!("退货单 {} 没有明细，不能过账", row.return_no)));
             }
         }
         model::STATUS_SUBMITTED | model::STATUS_PENDING_POST => {
@@ -1249,10 +1163,7 @@ pub async fn change_return_status(
                 .await
                 .map_err(|error| utils::db_error(error, "查询销售退货单明细"))?;
             if items.is_empty() {
-                return Err(bad_request(format!(
-                    "退货单 {} 没有明细，不能批准",
-                    row.return_no
-                )));
+                return Err(bad_request(format!("退货单 {} 没有明细，不能批准", row.return_no)));
             }
         }
         _ => {}
@@ -1292,8 +1203,7 @@ pub async fn change_return_status(
         // 与上面的状态 CAS **同一个事务**：任何一步失败，状态与六本账一起回滚
         // （绝不出现「状态已过账、账上一分没动」的单）。
         if target == model::STATUS_POSTED {
-            let posted =
-                crate::business::erp::sales_return_posting::post_in_tx(&tx, id, &op, now).await?;
+            let posted = crate::business::erp::sales_return_posting::post_in_tx(&tx, id, &op, now).await?;
             tracing::info!(
                 return_no = %row.return_no,
                 stock_in_no = %posted.stock_in_no,
@@ -1333,9 +1243,7 @@ pub async fn change_return_status(
     permission = "business:erp:sales-return:list"
 )]
 #[nik::get("/business/erp/sales-return/page")]
-pub async fn sales_return_page_api(
-    Query(filter): Query<ReturnFilter>,
-) -> ResResult<PageData<Vec<ReturnRes>>> {
+pub async fn sales_return_page_api(Query(filter): Query<ReturnFilter>) -> ResResult<PageData<Vec<ReturnRes>>> {
     Ok(Res::ok(page_return(filter).await?))
 }
 
@@ -1357,9 +1265,7 @@ pub async fn sales_return_detail(Path(id): Path<String>) -> ResResult<ReturnRes>
     permission = "business:erp:sales-return:list"
 )]
 #[nik::get("/business/erp/sales-return/returnable/{shipment_id}")]
-pub async fn sales_return_returnable(
-    Path(shipment_id): Path<String>,
-) -> ResResult<Vec<ReturnableItemRes>> {
+pub async fn sales_return_returnable(Path(shipment_id): Path<String>) -> ResResult<Vec<ReturnableItemRes>> {
     let shipment_id = parse_uuid(&shipment_id, "shipment_id")?;
     Ok(Res::ok(returnable_of(shipment_id).await?))
 }
@@ -1416,10 +1322,7 @@ mod tests {
         assert!(validate_target("  DRAFT  ").is_ok(), "两端空白要 trim");
         for bad in ["", "draft", "SHIPPED", "RECEIVED", "UNKNOWN"] {
             let message = validate_target(bad).unwrap_err();
-            assert!(
-                message.contains("target_status"),
-                "报文要点名字段：{message}"
-            );
+            assert!(message.contains("target_status"), "报文要点名字段：{message}");
         }
     }
 
@@ -1474,14 +1377,7 @@ mod tests {
     #[test]
     fn serial_validation() {
         assert!(validate_serials(&[], dec("3"), "items[0]").is_ok());
-        assert!(
-            validate_serials(
-                &["SN1".to_string(), "SN2".to_string()],
-                dec("2"),
-                "items[0]"
-            )
-            .is_ok()
-        );
+        assert!(validate_serials(&["SN1".to_string(), "SN2".to_string()], dec("2"), "items[0]").is_ok());
         let mismatch = validate_serials(&["SN1".to_string()], dec("2"), "items[0]").unwrap_err();
         assert!(mismatch.contains("一物一码"), "{mismatch}");
         let blank = validate_serials(&["".to_string()], dec("1"), "items[0]").unwrap_err();
@@ -1522,10 +1418,7 @@ mod tests {
                 "{status} 不是销售订单的合法状态：订单侧闸门写错了"
             );
         }
-        assert_eq!(
-            RETURNABLE_SO_STATUSES,
-            ["PARTIAL_OUT", "OUTBOUND", "CLOSED"]
-        );
+        assert_eq!(RETURNABLE_SO_STATUSES, ["PARTIAL_OUT", "OUTBOUND", "CLOSED"]);
     }
 
     /// ⑨ 缺 material_id / 缺 qty 的无原单行：在纯逻辑层就拦，不靠库层 23502。

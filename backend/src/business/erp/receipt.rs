@@ -119,12 +119,7 @@ pub const STATUS_POSTED: &str = "POSTED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 状态白名单（与 `ck_biz_receipt_status` 逐字一致，单测钉住）。
-pub const STATUSES: [&str; 4] = [
-    STATUS_DRAFT,
-    STATUS_CONFIRMED,
-    STATUS_POSTED,
-    STATUS_CANCELLED,
-];
+pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_CONFIRMED, STATUS_POSTED, STATUS_CANCELLED];
 
 /// 可以核销的状态（`DRAFT` 允许先挂核销、`CONFIRMED` 是常规入口）。
 ///
@@ -143,12 +138,7 @@ pub const METHOD_CHECK: &str = "CHECK";
 pub const METHOD_OTHER: &str = "OTHER";
 
 /// 收款方式白名单（与 `ck_biz_receipt_method` 逐字一致）。
-pub const METHODS: [&str; 4] = [
-    METHOD_BANK_TRANSFER,
-    METHOD_CASH,
-    METHOD_CHECK,
-    METHOD_OTHER,
-];
+pub const METHODS: [&str; 4] = [METHOD_BANK_TRANSFER, METHOD_CASH, METHOD_CHECK, METHOD_OTHER];
 
 /// 单号前缀（`RC-yyyyMMdd-000001`）。
 pub const NO_PREFIX: &str = "RC";
@@ -351,11 +341,7 @@ fn conflict(message: impl Into<String>) -> ApiError {
 
 /// 404：收款单不存在。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "收款单不存在或已删除".to_string(),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "收款单不存在或已删除".to_string())
 }
 
 /// 路径 / 请求体里的 UUID：非法 → `400 + 66006`。
@@ -528,9 +514,7 @@ pub async fn lock_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Rece
     // SCOPE-EXEMPT: 收款台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
-            ),
+            format!("SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -554,10 +538,7 @@ async fn lock_receivable(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Rec
 }
 
 /// 某张收款单的全部核销明细（连带应收金额 / 状态）。
-pub async fn allocations_of(
-    ex: &impl SqlExecutor,
-    receipt_id: Uuid,
-) -> DbResult<Vec<AllocationRow>> {
+pub async fn allocations_of(ex: &impl SqlExecutor, receipt_id: Uuid) -> DbResult<Vec<AllocationRow>> {
     // SCOPE-EXEMPT: 收款 / 应收台账无归属列（见模块文档）。
     let sql = format!(
         "SELECT a.id, a.receivable_id, a.amount, a.remark, a.created_at, \
@@ -578,9 +559,7 @@ pub async fn allocated_sum(ex: &impl SqlExecutor, receipt_id: Uuid) -> DbResult<
     // SCOPE-EXEMPT: 收款台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT COALESCE(SUM(amount), 0) AS total FROM {ALLOC_TABLE} WHERE receipt_id = ?::uuid"
-            ),
+            format!("SELECT COALESCE(SUM(amount), 0) AS total FROM {ALLOC_TABLE} WHERE receipt_id = ?::uuid"),
             vec![Value::from(&receipt_id)],
         )
         .await?;
@@ -595,8 +574,7 @@ pub async fn voucher_no_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<
     // SCOPE-EXEMPT: biz_voucher 是会计台账，没有归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            "SELECT voucher_no FROM biz_voucher WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT voucher_no FROM biz_voucher WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&voucher_id)],
         )
         .await?;
@@ -610,9 +588,7 @@ pub async fn customer_exists(ex: &impl SqlExecutor, customer_id: Uuid) -> DbResu
     // SCOPE-EXEMPT: biz_customer 是客户主数据（全局），没有归属列。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT 1 AS hit FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            format!("SELECT 1 AS hit FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&customer_id)],
         )
         .await?;
@@ -764,20 +740,15 @@ pub async fn receipt_detail(id: Uuid) -> std::result::Result<ReceiptDetailRes, A
 }
 
 /// [`receipt_detail`] 的 executor 版（事务内回读用，看得到本事务未提交的写入）。
-pub async fn detail_with(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<ReceiptDetailRes, ApiError> {
+pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<ReceiptDetailRes, ApiError> {
     // SCOPE-EXEMPT: 收款 / 客户 / 凭证均无归属列（见模块文档）。
-    let sql =
-        format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
+    let sql = format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
     let row = ex
         .query_first_sql(sql, vec![Value::from(&id)])
         .await
         .map_err(|error| utils::db_error(error, "查询收款单"))?
         .ok_or_else(not_found)?;
-    let receipt =
-        ReceiptRow::from_row(&row).map_err(|error| utils::db_error(error, "解析收款单"))?;
+    let receipt = ReceiptRow::from_row(&row).map_err(|error| utils::db_error(error, "解析收款单"))?;
     let customer_name: String = row
         .get_typed("customer_name")
         .map_err(|error| utils::db_error(error, "读取客户名称"))?;
@@ -997,15 +968,7 @@ pub async fn receipt_page(q: &ReceiptFilter) -> DbResult<(Vec<(ReceiptRow, Strin
         sql.push_str(" AND p.receipt_date <= ?::text::date");
         params.push(Value::Text(to.to_string()));
     }
-    let result = scope::paginate_unscoped(
-        LIST_TARGET,
-        &sql,
-        params,
-        Some(LIST_ORDER),
-        q.page,
-        q.page_size,
-    )
-    .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), q.page, q.page_size).await?;
     let rows = result
         .list
         .iter()
@@ -1022,17 +985,12 @@ pub async fn receipt_page(q: &ReceiptFilter) -> DbResult<(Vec<(ReceiptRow, Strin
 /// 今日（CST）。
 fn today_cst() -> NaiveDate {
     Utc::now()
-        .with_timezone(
-            &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
-        )
+        .with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
         .date_naive()
 }
 
 /// 登记一张收款单（`DRAFT`，已核销 0），并写建单状态日志。
-pub async fn create(
-    operator: Option<Uuid>,
-    req: CreateReceiptReq,
-) -> std::result::Result<ReceiptDetailRes, ApiError> {
+pub async fn create(operator: Option<Uuid>, req: CreateReceiptReq) -> std::result::Result<ReceiptDetailRes, ApiError> {
     let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
     let amount = validate_amount(req.amount)?;
     let method = validate_method(req.method.as_deref())?;
@@ -1127,22 +1085,14 @@ pub async fn create(
         let id: Uuid = inserted
             .get_typed("id")
             .map_err(|error| utils::db_error(error, "读取收款单 id"))?;
-        state_machine::log_created(
-            &tx,
-            ENTITY,
-            id,
-            &receipt_no,
-            STATUS_DRAFT,
-            operator,
-            Some("收款登记"),
-        )
-        .await
-        .map_err(|error| {
-            write_error(
-                DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)),
-                "收款单建单日志",
-            )
-        })?;
+        state_machine::log_created(&tx, ENTITY, id, &receipt_no, STATUS_DRAFT, operator, Some("收款登记"))
+            .await
+            .map_err(|error| {
+                write_error(
+                    DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)),
+                    "收款单建单日志",
+                )
+            })?;
         detail_with(&tx, id).await
     }
     .await;
@@ -1188,18 +1138,14 @@ pub async fn allocate(
     let id = parse_uuid(id, "id")?;
     if req.items.is_empty() {
         return Err(bad_request(
-            "items 不能为空：核销至少要指定一张应收（反核销请用金额 0 之外的方式，本卡未开放）"
-                .to_string(),
+            "items 不能为空：核销至少要指定一张应收（反核销请用金额 0 之外的方式，本卡未开放）".to_string(),
         ));
     }
     // ① 请求内重复应收 → 400（同一 (receipt, receivable) 只有一行，重复会让 SUM 失真）
     let mut raw_items: Vec<(Uuid, Decimal, Option<String>)> = Vec::with_capacity(req.items.len());
     for item in &req.items {
         let receivable_id = parse_uuid(&item.receivable_id, "receivable_id")?;
-        if raw_items
-            .iter()
-            .any(|(existing, _, _)| *existing == receivable_id)
-        {
+        if raw_items.iter().any(|(existing, _, _)| *existing == receivable_id) {
             return Err(bad_request(format!(
                 "items 里应收 {receivable_id} 出现了多次：同一张收款对同一笔应收只能有一行核销\
                  （要改金额请只提交一条）"
@@ -1240,8 +1186,7 @@ pub async fn allocate(
                 status_label(&receipt.status)
             )));
         }
-        period::ensure_period_writable(&tx, &period_code_of(receipt.receipt_date), "核销收款")
-            .await?;
+        period::ensure_period_writable(&tx, &period_code_of(receipt.receipt_date), "核销收款").await?;
 
         // ③ 逐条：锁应收 → 校验客户 / 状态 / 单张上限
         let mut planned: Vec<PlannedItem> = Vec::with_capacity(raw_items.len());
@@ -1260,10 +1205,7 @@ pub async fn allocate(
                 return Err(bad_request(format!(
                     "应收单 {} 的客户是 {}，与收款单 {} 的客户 {} 不一致：\
                      收款只能核销同一个客户名下的应收",
-                    receivable.ar_no,
-                    receivable.customer_id,
-                    receipt.receipt_no,
-                    receipt.customer_id
+                    receivable.ar_no, receivable.customer_id, receipt.receipt_no, receipt.customer_id
                 )));
             }
             if !receivable::has_balance(&receivable.status) {
@@ -1417,14 +1359,9 @@ pub async fn allocate(
         // 与核销同事务 —— 钱收到了，额度必须当场还回去，不能等每日兜底重算。
         // 一张收款单只允许核销同一客户的应收（上面已校验），所以这里同步一个客户即可。
         if !planned.is_empty() {
-            credit::sync(
-                &tx,
-                receipt.customer_id,
-                credit::CAUSE_AR_SETTLED,
-                &receipt.receipt_no,
-            )
-            .await
-            .map_err(|error| utils::db_error(error, "同步客户信用额度（收款核销）"))?;
+            credit::sync(&tx, receipt.customer_id, credit::CAUSE_AR_SETTLED, &receipt.receipt_no)
+                .await
+                .map_err(|error| utils::db_error(error, "同步客户信用额度（收款核销）"))?;
         }
 
         // ⑥ 回写收款头：allocated_amount 以**库里的明细合计**为准
@@ -1465,17 +1402,11 @@ pub async fn allocate(
 }
 
 /// 本收款对某张应收已有的核销金额（没有 → 0）。
-async fn existing_allocation(
-    ex: &impl SqlExecutor,
-    receipt_id: Uuid,
-    receivable_id: Uuid,
-) -> DbResult<Decimal> {
+async fn existing_allocation(ex: &impl SqlExecutor, receipt_id: Uuid, receivable_id: Uuid) -> DbResult<Decimal> {
     // SCOPE-EXEMPT: 收款台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT amount FROM {ALLOC_TABLE} WHERE receipt_id = ?::uuid AND receivable_id = ?::uuid"
-            ),
+            format!("SELECT amount FROM {ALLOC_TABLE} WHERE receipt_id = ?::uuid AND receivable_id = ?::uuid"),
             vec![Value::from(&receipt_id), Value::from(&receivable_id)],
         )
         .await?;
@@ -1501,9 +1432,7 @@ pub async fn change_status(
     let id = parse_uuid(id, "id")?;
     let target = req.status.trim().to_string();
     if !STATUSES.contains(&target.as_str()) {
-        return Err(bad_request(format!(
-            "status 只认 {STATUSES:?}（收到「{target}」）"
-        )));
+        return Err(bad_request(format!("status 只认 {STATUSES:?}（收到「{target}」）")));
     }
     let reason = match req.reason.as_deref() {
         Some(raw) if !raw.trim().is_empty() => Some(validate_reason(raw)?),
@@ -1555,12 +1484,7 @@ pub async fn change_status(
                         receipt.allocated_amount
                     )));
                 }
-                period::ensure_period_writable(
-                    &tx,
-                    &period_code_of(receipt.receipt_date),
-                    "收款过账",
-                )
-                .await?;
+                period::ensure_period_writable(&tx, &period_code_of(receipt.receipt_date), "收款过账").await?;
             }
             STATUS_CANCELLED => {
                 if receipt.allocated_amount != Decimal::ZERO {
@@ -1621,14 +1545,8 @@ pub async fn change_status(
         if target == STATUS_POSTED {
             let voucher_id = post_receipt_voucher(&tx, &receipt, operator, now).await?;
             tx.exec_sql(
-                format!(
-                    "UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"
-                ),
-                vec![
-                    Value::from(&voucher_id),
-                    Value::from(now),
-                    Value::from(&receipt.id),
-                ],
+                format!("UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"),
+                vec![Value::from(&voucher_id), Value::from(now), Value::from(&receipt.id)],
             )
             .await
             .map_err(|error| write_error(error, "收款单回写凭证"))?;
@@ -1675,10 +1593,9 @@ async fn post_receipt_voucher(
     let bank = voucher::account_required(tx, DEBIT_CODE, "收款凭证的借方科目 1002 银行存款")
         .await
         .map_err(|error| write_error(error, "解析收款凭证借方科目"))?;
-    let receivable_account =
-        voucher::account_required(tx, CREDIT_CODE, "收款凭证的贷方科目 1122 应收账款")
-            .await
-            .map_err(|error| write_error(error, "解析收款凭证贷方科目"))?;
+    let receivable_account = voucher::account_required(tx, CREDIT_CODE, "收款凭证的贷方科目 1122 应收账款")
+        .await
+        .map_err(|error| write_error(error, "解析收款凭证贷方科目"))?;
     let summary = format!("收款 {} 客户 {}", receipt.receipt_no, receipt.customer_id);
     let lines = vec![
         EntryLine {
@@ -1762,18 +1679,13 @@ pub async fn receipt_detail_handler(Path(id): Path<String>) -> ResResult<Receipt
     permission = "business:erp:receipt:list"
 )]
 #[nik::get("/business/erp/receipt/page")]
-pub async fn receipt_page_handler(
-    Query(query): Query<ReceiptPageQuery>,
-) -> ResResult<PageData<Vec<ReceiptRes>>> {
+pub async fn receipt_page_handler(Query(query): Query<ReceiptPageQuery>) -> ResResult<PageData<Vec<ReceiptRes>>> {
     query.validate()?;
     let filter = query.to_filter()?;
     let (rows, total) = receipt_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询收款单"))?;
-    let list = rows
-        .iter()
-        .map(|(row, name)| ReceiptRes::from_row(row, name))
-        .collect();
+    let list = rows.iter().map(|(row, name)| ReceiptRes::from_row(row, name)).collect();
     Ok(Res::page(
         list,
         u64::try_from(total).unwrap_or(0),
@@ -1877,10 +1789,7 @@ mod tests {
         }
         // reason 边必须同时是合法边
         for edge in state_machine::RECEIPT_REASON_EDGES {
-            assert!(
-                LEGAL_EDGES.contains(&edge),
-                "reason 边 {edge:?} 不在合法边表里"
-            );
+            assert!(LEGAL_EDGES.contains(&edge), "reason 边 {edge:?} 不在合法边表里");
         }
         assert_eq!(describe_next(STATUS_DRAFT), "CONFIRMED / CANCELLED");
         assert_eq!(describe_next(STATUS_CONFIRMED), "POSTED");
@@ -1898,10 +1807,7 @@ mod tests {
             VoucherSourceType::Receipt.doc_kind(),
             Some(crate::business::shared::doc_kind::DocKind::Receipt)
         );
-        assert_eq!(
-            crate::business::shared::doc_kind::DocKind::Receipt.table(),
-            Some(TABLE)
-        );
+        assert_eq!(crate::business::shared::doc_kind::DocKind::Receipt.table(), Some(TABLE));
     }
 
     #[test]
@@ -1910,10 +1816,7 @@ mod tests {
         assert_eq!(remaining_of(dec(1000.0), dec(1000.0)), Decimal::ZERO);
         assert_eq!(remaining_of(dec(0.0004), dec(0.0002)), dec(0.0002));
         assert_eq!(validate_amount(dec(0.0001)).expect("正数可过"), dec(0.0001));
-        assert!(
-            validate_amount(Decimal::ZERO).is_err(),
-            "0 元收款无业务含义"
-        );
+        assert!(validate_amount(Decimal::ZERO).is_err(), "0 元收款无业务含义");
         assert!(validate_amount(dec(-1.0)).is_err(), "负数收款要拒");
         assert!(
             validate_amount(Decimal::from(10_000_000_000_000i64)).is_err(),
@@ -1940,24 +1843,18 @@ mod tests {
     #[test]
     fn allocation_line_cap() {
         validate_allocation_amount("AR-1", dec(600.0), dec(600.0)).expect("刚好等于余额可以");
-        let err = validate_allocation_amount("AR-1", dec(600.0001), dec(600.0))
-            .expect_err("超过未收余额必须拒");
+        let err = validate_allocation_amount("AR-1", dec(600.0001), dec(600.0)).expect_err("超过未收余额必须拒");
         assert!(err.msg.contains("AR-1"), "文案要点名单号：{}", err.msg);
-        assert!(
-            err.msg.contains("600.0001"),
-            "文案要点名本次金额：{}",
-            err.msg
-        );
-        let zero =
-            validate_allocation_amount("AR-1", Decimal::ZERO, dec(600.0)).expect_err("0 核销要拒");
+        assert!(err.msg.contains("600.0001"), "文案要点名本次金额：{}", err.msg);
+        let zero = validate_allocation_amount("AR-1", Decimal::ZERO, dec(600.0)).expect_err("0 核销要拒");
         assert!(zero.msg.contains("大于 0"), "{}", zero.msg);
     }
 
     #[test]
     fn allocation_total_cap() {
         validate_allocation_total("RC-1", dec(1000.0), dec(1000.0)).expect("刚好核销满可以");
-        let err = validate_allocation_total("RC-1", dec(1000.0001), dec(1000.0))
-            .expect_err("核销总额超过收款金额必须拒");
+        let err =
+            validate_allocation_total("RC-1", dec(1000.0001), dec(1000.0)).expect_err("核销总额超过收款金额必须拒");
         assert!(err.msg.contains("RC-1"), "文案要点名单号：{}", err.msg);
         assert!(err.msg.contains("超过收款金额"), "{}", err.msg);
     }
@@ -1991,9 +1888,6 @@ mod tests {
             validate_reason("  客户退单，银行退回  ").expect("正常原因"),
             "客户退单，银行退回"
         );
-        assert!(
-            validate_reason(&"字".repeat(REASON_MAX_CHARS + 1)).is_err(),
-            "超长要拒"
-        );
+        assert!(validate_reason(&"字".repeat(REASON_MAX_CHARS + 1)).is_err(), "超长要拒");
     }
 }

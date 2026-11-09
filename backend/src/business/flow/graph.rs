@@ -171,19 +171,12 @@ impl NodeType {
     /// 「出度 = 1」这种结构属性统一走 [`NodeType::is_single_exit`]；
     /// 「是审批语义」才用本方法。两条约束各有各的规则编号（R6 / R17），互不覆盖。
     pub fn is_approval_class(self) -> bool {
-        matches!(
-            self,
-            NodeType::Approval | NodeType::Countersign | NodeType::Cc
-        )
+        matches!(self, NodeType::Approval | NodeType::Countersign | NodeType::Cc)
     }
 
     /// 出度必须 = 1 的节点（审批类 + 任务 + 通知 + 子流程；R6 / R17 / R27 的共同判据）。
     pub fn is_single_exit(self) -> bool {
-        self.is_approval_class()
-            || matches!(
-                self,
-                NodeType::Task | NodeType::Notify | NodeType::Subprocess
-            )
+        self.is_approval_class() || matches!(self, NodeType::Task | NodeType::Notify | NodeType::Subprocess)
     }
 
     /// 是否分支网关（条件 / 并行，出度 ≥ 2）。
@@ -200,10 +193,7 @@ impl NodeType {
     /// 只是与 R14 共用同一段判定、互相**不重复报错**（见 `FlowGraph::check_assignees`：
     /// 它按节点类型分派规则编号与用词）。
     pub fn needs_assignee(self) -> bool {
-        matches!(
-            self,
-            NodeType::Approval | NodeType::Countersign | NodeType::Task
-        )
+        matches!(self, NodeType::Approval | NodeType::Countersign | NodeType::Task)
     }
 }
 
@@ -238,8 +228,7 @@ impl ApprovalMode {
     /// 非法值（理论不可能 —— 库里有 `CHECK (approval_mode IN ('ALL','RATIO','ANY'))`）
     /// 也落 `Any`：宁可放宽也不要让一个错字把流程卡死在「等全员」上。
     pub fn effective(raw: Option<&str>) -> Self {
-        raw.and_then(ApprovalMode::parse)
-            .unwrap_or(ApprovalMode::Any)
+        raw.and_then(ApprovalMode::parse).unwrap_or(ApprovalMode::Any)
     }
 
     /// 入库字符串。
@@ -378,10 +367,7 @@ impl AssigneeKind {
     /// `EXPRESSION` **不**可枚举：它没有固定的审批人清单，具体目标由规则树在运行期算出
     /// （否则 R14 会误报「一个审批人都没选」，见 EXPRESSION-DSL 规范 §8.7 第 2 条）。
     pub fn is_enumerable(self) -> bool {
-        matches!(
-            self,
-            AssigneeKind::User | AssigneeKind::Role | AssigneeKind::DeptLeader
-        )
+        matches!(self, AssigneeKind::User | AssigneeKind::Role | AssigneeKind::DeptLeader)
     }
 }
 
@@ -590,11 +576,7 @@ impl FlowGraph {
 
     /// 入度表（只算两端都存在的边）。
     pub fn in_degree(&self) -> HashMap<&str, usize> {
-        let mut map: HashMap<&str, usize> = self
-            .nodes
-            .iter()
-            .map(|node| (node.key.as_str(), 0))
-            .collect();
+        let mut map: HashMap<&str, usize> = self.nodes.iter().map(|node| (node.key.as_str(), 0)).collect();
         for edge in &self.edges {
             if self.node(&edge.from).is_none() {
                 continue;
@@ -608,11 +590,7 @@ impl FlowGraph {
 
     /// 出度表（只算两端都存在的边）。
     pub fn out_degree(&self) -> HashMap<&str, usize> {
-        let mut map: HashMap<&str, usize> = self
-            .nodes
-            .iter()
-            .map(|node| (node.key.as_str(), 0))
-            .collect();
+        let mut map: HashMap<&str, usize> = self.nodes.iter().map(|node| (node.key.as_str(), 0)).collect();
         for edge in &self.edges {
             if self.node(&edge.to).is_none() {
                 continue;
@@ -666,11 +644,7 @@ impl FlowGraph {
         let out = self.out_edges();
         let budget = self.nodes.len() * 2 + self.edges.len() * 2 + 8;
         let mut steps = 0usize;
-        let mut colour: HashMap<&str, Colour> = self
-            .nodes
-            .iter()
-            .map(|n| (n.key.as_str(), Colour::White))
-            .collect();
+        let mut colour: HashMap<&str, Colour> = self.nodes.iter().map(|n| (n.key.as_str(), Colour::White)).collect();
 
         for root in &self.nodes {
             if colour.get(root.key.as_str()) != Some(&Colour::White) {
@@ -707,8 +681,7 @@ impl FlowGraph {
                     Colour::Gray => {
                         // 回边：路径上从 next 开始的那一段 + next 就是闭合路径
                         let pos = path.iter().position(|key| *key == next).unwrap_or(0);
-                        let mut cycle: Vec<String> =
-                            path[pos..].iter().map(|key| (*key).to_string()).collect();
+                        let mut cycle: Vec<String> = path[pos..].iter().map(|key| (*key).to_string()).collect();
                         cycle.push(next.to_string());
                         return Some(cycle);
                     }
@@ -869,10 +842,7 @@ impl FlowGraph {
     /// 反过来，「两条无网关来源的入边真的混流」这种要拦的情况不受影响 —— 那两个来源
     /// 都不是网关，也不会被这里短路。
     pub fn nearest_upstream_fork(&self, from_key: &str) -> Option<(String, NodeType)> {
-        if let Some(node) = self
-            .node(from_key)
-            .filter(|node| node.node_type.is_gateway())
-        {
+        if let Some(node) = self.node(from_key).filter(|node| node.node_type.is_gateway()) {
             return Some((node.key.clone(), node.node_type));
         }
         let input = self.in_edges();
@@ -886,10 +856,7 @@ impl FlowGraph {
                 return None;
             }
             for edge in input.get(key).map(Vec::as_slice).unwrap_or(&[]) {
-                if let Some(node) = self
-                    .node(&edge.from)
-                    .filter(|node| node.node_type.is_gateway())
-                {
+                if let Some(node) = self.node(&edge.from).filter(|node| node.node_type.is_gateway()) {
                     return Some((node.key.clone(), node.node_type));
                 }
                 if seen.insert(edge.from.as_str()) {
@@ -999,9 +966,7 @@ impl FlowGraph {
                 Issue::new(
                     "R3",
                     error_code::FLOW_GRAPH_CYCLE,
-                    format!(
-                        "检测到环：{path_text}（流程必须无环；分支请用「条件」节点，并让所有分支最终汇合）"
-                    ),
+                    format!("检测到环：{path_text}（流程必须无环；分支请用「条件」节点，并让所有分支最终汇合）"),
                 )
                 .with_nodes(cycle),
             );
@@ -1018,10 +983,7 @@ impl FlowGraph {
                     Issue::new(
                         "R4",
                         error_code::FLOW_GRAPH_DEGREE,
-                        format!(
-                            "开始节点 {} 有 {indegree} 条入边（开始节点必须没有入边）",
-                            node.key
-                        ),
+                        format!("开始节点 {} 有 {indegree} 条入边（开始节点必须没有入边）", node.key),
                     )
                     .with_nodes(vec![node.key.clone()]),
                 );
@@ -1031,10 +993,7 @@ impl FlowGraph {
                     Issue::new(
                         "R4",
                         error_code::FLOW_GRAPH_DEGREE,
-                        format!(
-                            "结束节点 {} 有 {outdegree} 条出边（结束节点必须没有出边）",
-                            node.key
-                        ),
+                        format!("结束节点 {} 有 {outdegree} 条出边（结束节点必须没有出边）", node.key),
                     )
                     .with_nodes(vec![node.key.clone()]),
                 );
@@ -1157,10 +1116,7 @@ impl FlowGraph {
                         Issue::new(
                             "R9",
                             error_code::FLOW_NODE_ASSIGNEE_MISSING,
-                            format!(
-                                "{kind} {}（{}）选择了「按比例」但没有填通过比例",
-                                node.key, node.name
-                            ),
+                            format!("{kind} {}（{}）选择了「按比例」但没有填通过比例", node.key, node.name),
                         )
                         .with_nodes(vec![node.key.clone()]),
                     ),
@@ -1168,10 +1124,7 @@ impl FlowGraph {
                         Issue::new(
                             "R9",
                             error_code::FLOW_NODE_ASSIGNEE_MISSING,
-                            format!(
-                                "{kind} {} 的通过比例必须在 (0,1] 之间（当前 {ratio}）",
-                                node.key
-                            ),
+                            format!("{kind} {} 的通过比例必须在 (0,1] 之间（当前 {ratio}）", node.key),
                         )
                         .with_nodes(vec![node.key.clone()]),
                     ),
@@ -1245,11 +1198,7 @@ impl FlowGraph {
             if node.node_type != NodeType::Condition {
                 continue;
             }
-            let outgoing: Vec<&EdgeSpec> = self
-                .edges
-                .iter()
-                .filter(|edge| edge.from == node.key)
-                .collect();
+            let outgoing: Vec<&EdgeSpec> = self.edges.iter().filter(|edge| edge.from == node.key).collect();
             let defaults = outgoing.iter().filter(|edge| edge.is_default).count();
             if defaults != 1 {
                 issues.push(
@@ -1302,20 +1251,14 @@ impl FlowGraph {
             issues.push(Issue::new(
                 "R15",
                 error_code::FLOW_GRAPH_TOO_LARGE,
-                format!(
-                    "流程节点数 {} 超过上限 {MAX_NODES}（请拆成多个流程）",
-                    self.nodes.len()
-                ),
+                format!("流程节点数 {} 超过上限 {MAX_NODES}（请拆成多个流程）", self.nodes.len()),
             ));
         }
         if self.edges.len() > MAX_EDGES {
             issues.push(Issue::new(
                 "R15",
                 error_code::FLOW_GRAPH_TOO_LARGE,
-                format!(
-                    "流程连线数 {} 超过上限 {MAX_EDGES}（请拆成多个流程）",
-                    self.edges.len()
-                ),
+                format!("流程连线数 {} 超过上限 {MAX_EDGES}（请拆成多个流程）", self.edges.len()),
             ));
         }
 
@@ -1324,10 +1267,7 @@ impl FlowGraph {
 
         // ---------- R17（P-FLOW-1A / P3-08）：TASK_NODE / NOTIFY_NODE / SUBPROCESS 出度必须 = 1 ----------
         for node in &self.nodes {
-            if !matches!(
-                node.node_type,
-                NodeType::Task | NodeType::Notify | NodeType::Subprocess
-            ) {
+            if !matches!(node.node_type, NodeType::Task | NodeType::Notify | NodeType::Subprocess) {
                 continue;
             }
             let outdegree = out_degree.get(node.key.as_str()).copied().unwrap_or(0);
@@ -1497,10 +1437,7 @@ impl FlowGraph {
             // ③ 内联模板占位符：语法 + 白名单
             for (label, template) in [
                 ("inline.title", config.template.templates().first().copied()),
-                (
-                    "inline.content",
-                    config.template.templates().get(1).copied(),
-                ),
+                ("inline.content", config.template.templates().get(1).copied()),
             ] {
                 let Some(template) = template else {
                     continue;
@@ -1552,9 +1489,7 @@ impl FlowGraph {
             }
             let config = node_config::parse_task_config(&node.config["task"]).ok();
             if node.empty_assignee.eq_ignore_ascii_case("SKIP")
-                && !config
-                    .as_ref()
-                    .is_some_and(|cfg| cfg.allow_skip_when_no_assignee)
+                && !config.as_ref().is_some_and(|cfg| cfg.allow_skip_when_no_assignee)
             {
                 issues.push(
                     Issue::new(
@@ -1675,10 +1610,7 @@ impl FlowGraph {
                     Issue::new(
                         "R27",
                         error.code,
-                        format!(
-                            "子流程节点 {}（{}）：{}",
-                            node.key, node.name, error.message
-                        ),
+                        format!("子流程节点 {}（{}）：{}", node.key, node.name, error.message),
                     )
                     .with_nodes(vec![node.key.clone()]),
                 );
@@ -1733,8 +1665,7 @@ impl FlowGraph {
             if let Some(fallback_user) = user
                 && node.assignee_type == Some(AssigneeKind::User)
                 && node.assignees.iter().any(|assignee| {
-                    assignee.kind.eq_ignore_ascii_case("USER")
-                        && assignee.ref_id == fallback_user.to_string()
+                    assignee.kind.eq_ignore_ascii_case("USER") && assignee.ref_id == fallback_user.to_string()
                 })
             {
                 issues.push(
@@ -1798,10 +1729,7 @@ impl FlowGraph {
             };
             for (label, template) in [
                 ("title_template", Some(config.title_template.as_str())),
-                (
-                    "description_template",
-                    config.description_template.as_deref(),
-                ),
+                ("description_template", config.description_template.as_deref()),
             ] {
                 let Some(template) = template else {
                     continue;
@@ -1931,10 +1859,7 @@ impl FlowGraph {
                     Issue::new(
                         "R16",
                         error_code::FLOW_CONDITION_INVALID,
-                        format!(
-                            "节点 {}（{}）的审批人表达式不合法：{reason}",
-                            node.key, node.name
-                        ),
+                        format!("节点 {}（{}）的审批人表达式不合法：{reason}", node.key, node.name),
                     )
                     .with_nodes(vec![node.key.clone()]),
                 );
@@ -1976,17 +1901,12 @@ impl FlowGraph {
             if in_degree.get(node.key.as_str()).copied().unwrap_or(0) < 2 {
                 continue;
             }
-            let incoming = in_map
-                .get(node.key.as_str())
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+            let incoming = in_map.get(node.key.as_str()).map(Vec::as_slice).unwrap_or(&[]);
             let mut sources: Vec<(String, NodeType, String)> = Vec::new();
             let mut unresolved: Vec<String> = Vec::new();
             for edge in incoming {
                 match self.nearest_upstream_fork(&edge.from) {
-                    Some((fork_key, fork_type)) => {
-                        sources.push((fork_key, fork_type, edge.from.clone()))
-                    }
+                    Some((fork_key, fork_type)) => sources.push((fork_key, fork_type, edge.from.clone())),
                     None => unresolved.push(edge.from.clone()),
                 }
             }
@@ -2106,10 +2026,7 @@ impl FlowGraph {
 /// 否则「角色里 0 人」这类边界会在两张卡之间漂移（一个拦、一个不拦）。
 fn assignee_source_issues(node: &NodeSpec, rule: &'static str, noun: &str) -> Vec<Issue> {
     let mut issues = Vec::new();
-    let Some(kind) = node
-        .assignee_type
-        .or_else(|| infer_assignee_kind(&node.assignees))
-    else {
+    let Some(kind) = node.assignee_type.or_else(|| infer_assignee_kind(&node.assignees)) else {
         issues.push(
             Issue::new(
                 rule,
@@ -2176,10 +2093,7 @@ pub fn expression_uses_prev_approver(value: &Value) -> bool {
         value
             .get("type")
             .and_then(Value::as_str)
-            .map(|raw| {
-                raw.trim()
-                    .eq_ignore_ascii_case(expression::RESERVED_PREV_APPROVER)
-            })
+            .map(|raw| raw.trim().eq_ignore_ascii_case(expression::RESERVED_PREV_APPROVER))
             .unwrap_or(false)
     }
 
@@ -2341,9 +2255,7 @@ pub fn field_allowed(field: &str) -> bool {
         Some(first) if first.is_ascii_alphabetic() || first == '_' => {}
         _ => return false,
     }
-    !rest.is_empty()
-        && rest.chars().count() <= 64
-        && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+    !rest.is_empty() && rest.chars().count() <= 64 && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
 }
 
 /// 只给**模板**用的字段根（设计 §2.5.1 的「两套白名单」）。
@@ -2355,12 +2267,7 @@ pub fn field_allowed(field: &str) -> bool {
 /// 处理 ⇒ 静默走错分支）。模板的求值时机是「节点已激活、要填一句话」，node / prev 都是确定值。
 ///
 /// 一句话：**同一个变量命名空间，不同的可用子集，由求值时机决定**。
-pub const TEMPLATE_ONLY_FIELDS: [&str; 4] = [
-    "node.name",
-    "node.key",
-    "prev.approver_name",
-    "prev.approver_id",
-];
+pub const TEMPLATE_ONLY_FIELDS: [&str; 4] = ["node.name", "node.key", "prev.approver_name", "prev.approver_id"];
 
 /// 模板变量路径白名单（R21 的判据）：`FIXED_FIELDS(10) ∪ TEMPLATE_ONLY_FIELDS(4) ∪ form.*`。
 ///
@@ -2379,11 +2286,7 @@ pub fn parse_condition(value: &Value) -> Result<Condition, String> {
     parse_condition_inner(value, 1, &mut nodes)
 }
 
-fn parse_condition_inner(
-    value: &Value,
-    depth: usize,
-    nodes: &mut usize,
-) -> Result<Condition, String> {
+fn parse_condition_inner(value: &Value, depth: usize, nodes: &mut usize) -> Result<Condition, String> {
     if depth > MAX_CONDITION_DEPTH {
         return Err(format!(
             "条件嵌套层数超过 {MAX_CONDITION_DEPTH} 层（请把条件拆成几条边）"
@@ -2475,9 +2378,7 @@ fn parse_condition_inner(
                 value,
             })
         }
-        other => Err(format!(
-            "不支持的算子 {other}（只允许 and / or / not / cmp）"
-        )),
+        other => Err(format!("不支持的算子 {other}（只允许 and / or / not / cmp）")),
     }
 }
 
@@ -2557,8 +2458,7 @@ impl EvalContext {
             "task" => &self.task,
             _ => return Err(EvalError::UnknownField(field.to_string())),
         };
-        map.get(leaf)
-            .ok_or_else(|| EvalError::Missing(field.to_string()))
+        map.get(leaf).ok_or_else(|| EvalError::Missing(field.to_string()))
     }
 }
 
@@ -2590,12 +2490,7 @@ pub fn eval(condition: &Condition, context: &EvalContext) -> Result<bool, EvalEr
     }
 }
 
-fn compare(
-    actual: &Value,
-    cmp: CompareOp,
-    expected: &Value,
-    field: &str,
-) -> Result<bool, EvalError> {
+fn compare(actual: &Value, cmp: CompareOp, expected: &Value, field: &str) -> Result<bool, EvalError> {
     match cmp {
         CompareOp::IsNull => Ok(actual.is_null()),
         CompareOp::NotNull => Ok(!actual.is_null()),
@@ -2610,9 +2505,9 @@ fn compare(
         }
         CompareOp::Contains => match actual {
             Value::String(text) => {
-                let needle = expected.as_str().ok_or_else(|| {
-                    EvalError::TypeMismatch(format!("{field}: contains 需要字符串右值"))
-                })?;
+                let needle = expected
+                    .as_str()
+                    .ok_or_else(|| EvalError::TypeMismatch(format!("{field}: contains 需要字符串右值")))?;
                 Ok(text.contains(needle))
             }
             Value::Array(items) => Ok(items.iter().any(|item| json_eq(item, expected))),
@@ -2821,9 +2716,7 @@ impl FlowGraph {
                 is_default: edge.is_default,
             })
             .collect();
-        edges.sort_by(|left, right| {
-            (&left.from, &left.to, &left.key).cmp(&(&right.from, &right.to, &right.key))
-        });
+        edges.sort_by(|left, right| (&left.from, &left.to, &left.key).cmp(&(&right.from, &right.to, &right.key)));
 
         Snapshot {
             schema_version: SNAPSHOT_SCHEMA_VERSION,
@@ -2910,8 +2803,7 @@ fn write_canonical(value: &Value, out: &mut String) {
 
 /// 反序列化快照（D2 的引擎从这里拿 L3 内存图）。
 pub fn parse_snapshot(raw: &str) -> Result<Snapshot, String> {
-    let snapshot: Snapshot =
-        serde_json::from_str(raw).map_err(|error| format!("快照 JSON 解析失败：{error}"))?;
+    let snapshot: Snapshot = serde_json::from_str(raw).map_err(|error| format!("快照 JSON 解析失败：{error}"))?;
     if snapshot.schema_version != SNAPSHOT_SCHEMA_VERSION {
         return Err(format!(
             "快照格式版本 {} 与当前引擎（{SNAPSHOT_SCHEMA_VERSION}）不一致",
@@ -2964,11 +2856,7 @@ mod tests {
         let mut approve = NodeSpec::new("n_approve", "主管审批", NodeType::Approval);
         approve.assignee_type = Some(AssigneeKind::InitiatorSuperior);
         FlowGraph {
-            nodes: vec![
-                start,
-                approve,
-                NodeSpec::new("n_end", "结束", NodeType::End),
-            ],
+            nodes: vec![start, approve, NodeSpec::new("n_end", "结束", NodeType::End)],
             edges: vec![
                 EdgeSpec::new("e1", "n_start", "n_approve"),
                 EdgeSpec::new("e2", "n_approve", "n_end"),
@@ -3007,16 +2895,9 @@ mod tests {
         // 加一条回边 n199 → n5（架构 §8 证据 B 的那条回边）
         graph.edges.push(EdgeSpec::new("e_back", "n199", "n5"));
         let cycle = graph.find_cycle().expect("必须检出环");
-        assert!(
-            cycle.len() >= 2,
-            "闭合路径至少两个节点（首尾相同）：{cycle:?}"
-        );
+        assert!(cycle.len() >= 2, "闭合路径至少两个节点（首尾相同）：{cycle:?}");
         assert_eq!(cycle.first(), cycle.last(), "路径必须首尾相同：{cycle:?}");
-        println!(
-            "[R3] 加回边后闭合路径（{} 跳）：{}",
-            cycle.len(),
-            cycle.join(" → ")
-        );
+        println!("[R3] 加回边后闭合路径（{} 跳）：{}", cycle.len(), cycle.join(" → "));
     }
 
     #[test]
@@ -3126,8 +3007,7 @@ mod tests {
                 EdgeSpec::new("e1", "n_start", "n_cond"),
                 {
                     let mut edge = EdgeSpec::new("e2", "n_cond", "n_a");
-                    edge.condition =
-                        Some(json!({"op":"cmp","field":"form.amount","cmp":"gte","value":10000}));
+                    edge.condition = Some(json!({"op":"cmp","field":"form.amount","cmp":"gte","value":10000}));
                     edge
                 },
                 {
@@ -3157,12 +3037,8 @@ mod tests {
         println!("[R1 反例] {}", issues[0].message);
 
         let mut graph = minimal();
-        graph
-            .nodes
-            .push(NodeSpec::new("n_start2", "开始2", NodeType::Start));
-        graph
-            .edges
-            .push(EdgeSpec::new("e9", "n_start2", "n_approve"));
+        graph.nodes.push(NodeSpec::new("n_start2", "开始2", NodeType::Start));
+        graph.edges.push(EdgeSpec::new("e9", "n_start2", "n_approve"));
         let issues = graph.validate();
         assert!(rules(&issues).contains(&"R1"), "{issues:?}");
     }
@@ -3184,17 +3060,10 @@ mod tests {
         let mut graph = chain(5);
         graph.edges.push(EdgeSpec::new("e_back", "n4", "n1"));
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R3")
-            .expect("必须有环");
+        let issue = issues.iter().find(|issue| issue.rule == "R3").expect("必须有环");
         assert_eq!(issue.code, error_code::FLOW_GRAPH_CYCLE);
         for key in ["n1", "n2", "n3", "n4"] {
-            assert!(
-                issue.message.contains(key),
-                "文案必须点名 {key}：{}",
-                issue.message
-            );
+            assert!(issue.message.contains(key), "文案必须点名 {key}：{}", issue.message);
         }
         assert!(issue.message.contains(" → "), "必须给出闭合路径");
         println!("[R3 反例] {}", issue.message);
@@ -3203,9 +3072,7 @@ mod tests {
     #[test]
     fn r4_rejects_start_with_inbound_and_end_with_outbound() {
         let mut graph = minimal();
-        graph
-            .edges
-            .push(EdgeSpec::new("e3", "n_approve", "n_start"));
+        graph.edges.push(EdgeSpec::new("e3", "n_approve", "n_start"));
         graph.edges.push(EdgeSpec::new("e4", "n_end", "n_approve"));
         let issues = graph.validate();
         let degree_issues: Vec<&Issue> = issues.iter().filter(|issue| issue.rule == "R4").collect();
@@ -3226,9 +3093,7 @@ mod tests {
             node.assignee_type = Some(AssigneeKind::Initiator);
             node
         });
-        graph
-            .edges
-            .push(EdgeSpec::new("e9", "n_approve", "n_orphan"));
+        graph.edges.push(EdgeSpec::new("e9", "n_approve", "n_orphan"));
         let issues = graph.validate();
         assert!(rules(&issues).contains(&"R5"), "{issues:?}");
         let issue = issues.iter().find(|issue| issue.rule == "R5").unwrap();
@@ -3239,15 +3104,10 @@ mod tests {
     #[test]
     fn r6_rejects_approval_with_two_out_edges() {
         let mut graph = minimal();
-        graph
-            .nodes
-            .push(NodeSpec::new("n_end2", "结束2", NodeType::End));
+        graph.nodes.push(NodeSpec::new("n_end2", "结束2", NodeType::End));
         graph.edges.push(EdgeSpec::new("e3", "n_approve", "n_end2"));
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R6")
-            .expect("必须是 R6");
+        let issue = issues.iter().find(|issue| issue.rule == "R6").expect("必须是 R6");
         assert_eq!(issue.code, error_code::FLOW_GRAPH_DEGREE);
         assert!(issue.message.contains("n_approve"), "{}", issue.message);
         println!("[R6 反例] {}", issue.message);
@@ -3260,10 +3120,7 @@ mod tests {
         graph.nodes[1].assignee_type = None;
         graph.edges[1].is_default = true;
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R7")
-            .expect("必须是 R7");
+        let issue = issues.iter().find(|issue| issue.rule == "R7").expect("必须是 R7");
         assert_eq!(issue.code, error_code::FLOW_GRAPH_DEGREE);
         println!("[R7 反例] {}", issue.message);
     }
@@ -3296,8 +3153,7 @@ mod tests {
                 EdgeSpec::new("e1", "n_start", "n_cond"),
                 {
                     let mut edge = EdgeSpec::new("e2", "n_cond", "n_a");
-                    edge.condition =
-                        Some(json!({"op":"cmp","field":"form.amount","cmp":"gt","value":1}));
+                    edge.condition = Some(json!({"op":"cmp","field":"form.amount","cmp":"gt","value":1}));
                     edge
                 },
                 {
@@ -3311,10 +3167,7 @@ mod tests {
             ],
         };
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R8")
-            .expect("必须是 R8");
+        let issue = issues.iter().find(|issue| issue.rule == "R8").expect("必须是 R8");
         assert_eq!(issue.code, error_code::FLOW_GRAPH_JOIN_MODE);
         assert!(issue.message.contains("OR"), "{}", issue.message);
         println!("[R8 反例] {}", issue.message);
@@ -3342,8 +3195,7 @@ mod tests {
                 EdgeSpec::new("e1", "n_start", "n_cond1"),
                 {
                     let mut edge = EdgeSpec::new("e2", "n_cond1", "n_cond2");
-                    edge.condition =
-                        Some(json!({"op":"cmp","field":"form.amount","cmp":"gt","value":1}));
+                    edge.condition = Some(json!({"op":"cmp","field":"form.amount","cmp":"gt","value":1}));
                     edge
                 },
                 {
@@ -3358,8 +3210,7 @@ mod tests {
                 },
                 {
                     let mut edge = EdgeSpec::new("e5", "n_cond2", "n_merge");
-                    edge.condition =
-                        Some(json!({"op":"cmp","field":"form.amount","cmp":"lte","value":1}));
+                    edge.condition = Some(json!({"op":"cmp","field":"form.amount","cmp":"lte","value":1}));
                     edge
                 },
                 EdgeSpec::new("e6", "n_merge", "n_end"),
@@ -3439,10 +3290,7 @@ mod tests {
         graph.nodes[1].approval_mode = Some(ApprovalMode::Ratio);
         graph.nodes[1].approve_ratio = Some(1.5);
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R9")
-            .expect("必须是 R9");
+        let issue = issues.iter().find(|issue| issue.rule == "R9").expect("必须是 R9");
         assert_eq!(issue.code, error_code::FLOW_NODE_ASSIGNEE_MISSING);
         println!("[R9 反例①] {}", issue.message);
 
@@ -3454,11 +3302,7 @@ mod tests {
         assert!(rules(&issues).contains(&"R9"), "{issues:?}");
         println!(
             "[R9 反例②] {}",
-            issues
-                .iter()
-                .find(|issue| issue.rule == "R9")
-                .unwrap()
-                .message
+            issues.iter().find(|issue| issue.rule == "R9").unwrap().message
         );
     }
 
@@ -3535,13 +3379,9 @@ mod tests {
     fn r10_rejects_unknown_field_and_deep_nesting() {
         // ① 未知字段（`secret.*` 不在白名单）
         let mut graph = minimal();
-        graph.edges[0].condition =
-            Some(json!({"op":"cmp","field":"secret.amount","cmp":"eq","value":1}));
+        graph.edges[0].condition = Some(json!({"op":"cmp","field":"secret.amount","cmp":"eq","value":1}));
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R10")
-            .expect("必须是 R10");
+        let issue = issues.iter().find(|issue| issue.rule == "R10").expect("必须是 R10");
         assert_eq!(issue.code, error_code::FLOW_CONDITION_INVALID);
         println!("[R10 反例] {}", issue.message);
 
@@ -3553,10 +3393,7 @@ mod tests {
         let mut graph = minimal();
         graph.edges[0].condition = Some(nested);
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R10")
-            .expect("必须是 R10");
+        let issue = issues.iter().find(|issue| issue.rule == "R10").expect("必须是 R10");
         assert!(issue.message.contains("层"), "{}", issue.message);
     }
 
@@ -3568,17 +3405,10 @@ mod tests {
             node.assignee_type = Some(AssigneeKind::Initiator);
             node
         });
-        graph
-            .nodes
-            .push(NodeSpec::new("n_end2", "结束2", NodeType::End));
-        graph
-            .edges
-            .push(EdgeSpec::new("e9", "n_detached", "n_end2"));
+        graph.nodes.push(NodeSpec::new("n_end2", "结束2", NodeType::End));
+        graph.edges.push(EdgeSpec::new("e9", "n_detached", "n_end2"));
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R11")
-            .expect("必须是 R11");
+        let issue = issues.iter().find(|issue| issue.rule == "R11").expect("必须是 R11");
         assert!(issue.message.contains("n_detached"), "{}", issue.message);
         println!("[R11 反例] {}", issue.message);
     }
@@ -3608,21 +3438,14 @@ mod tests {
             ],
         };
         let issues = graph.validate();
-        assert!(
-            rules(&issues).contains(&"R3"),
-            "自环必须同时被 R3 检出：{issues:?}"
-        );
+        assert!(rules(&issues).contains(&"R3"), "自环必须同时被 R3 检出：{issues:?}");
         assert!(
             rules(&issues).contains(&"R12"),
             "B 走不到 END 必须被 R12 检出：{issues:?}"
         );
         println!(
             "[R12 反例] {}",
-            issues
-                .iter()
-                .find(|issue| issue.rule == "R12")
-                .unwrap()
-                .message
+            issues.iter().find(|issue| issue.rule == "R12").unwrap().message
         );
 
         // 干净的断链：去掉回边，B 只有「走不到 END」这一个问题
@@ -3632,15 +3455,9 @@ mod tests {
         assert!(
             r12.iter().any(|issue| issue.message.contains("n_b")),
             "文案必须点名走不到结束的节点 n_b：{:?}",
-            issues
-                .iter()
-                .map(|issue| issue.message.as_str())
-                .collect::<Vec<_>>()
+            issues.iter().map(|issue| issue.message.as_str()).collect::<Vec<_>>()
         );
-        assert!(
-            r12.iter()
-                .all(|issue| issue.code == error_code::FLOW_GRAPH_STRUCTURE)
-        );
+        assert!(r12.iter().all(|issue| issue.code == error_code::FLOW_GRAPH_STRUCTURE));
     }
 
     #[test]
@@ -3667,8 +3484,7 @@ mod tests {
                 EdgeSpec::new("e1", "n_start", "n_cond"),
                 {
                     let mut edge = EdgeSpec::new("e2", "n_cond", "n_a");
-                    edge.condition =
-                        Some(json!({"op":"cmp","field":"form.amount","cmp":"gt","value":1}));
+                    edge.condition = Some(json!({"op":"cmp","field":"form.amount","cmp":"gt","value":1}));
                     edge
                 },
                 // e3 无条件也不是兜底
@@ -3678,8 +3494,7 @@ mod tests {
             ],
         };
         let issues = graph.validate();
-        let default_issues: Vec<&Issue> =
-            issues.iter().filter(|issue| issue.rule == "R13").collect();
+        let default_issues: Vec<&Issue> = issues.iter().filter(|issue| issue.rule == "R13").collect();
         assert!(!default_issues.is_empty(), "{issues:?}");
         assert!(
             default_issues
@@ -3694,10 +3509,7 @@ mod tests {
         let mut graph = minimal();
         graph.nodes[1].assignee_type = None;
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R14")
-            .expect("必须是 R14");
+        let issue = issues.iter().find(|issue| issue.rule == "R14").expect("必须是 R14");
         assert_eq!(issue.code, error_code::FLOW_NODE_ASSIGNEE_MISSING);
         assert!(issue.message.contains("n_approve"), "{}", issue.message);
         println!("[R14 反例] {}", issue.message);
@@ -3761,10 +3573,7 @@ mod tests {
         let mut graph = chain(MAX_NODES + 1);
         graph.edges.clear();
         let issues = graph.validate();
-        let issue = issues
-            .iter()
-            .find(|issue| issue.rule == "R15")
-            .expect("必须是 R15");
+        let issue = issues.iter().find(|issue| issue.rule == "R15").expect("必须是 R15");
         assert_eq!(issue.code, error_code::FLOW_GRAPH_TOO_LARGE);
         println!("[R15 反例] {}", issue.message);
     }
@@ -3913,9 +3722,7 @@ mod tests {
                     continue;
                 }
                 let trimmed = line.trim_start();
-                let is_comment = trimmed.starts_with("//")
-                    || trimmed.starts_with('*')
-                    || trimmed.starts_with("/*");
+                let is_comment = trimmed.starts_with("//") || trimmed.starts_with('*') || trimmed.starts_with("/*");
                 if !is_comment {
                     offenders.push(format!("{name}:{}", index + 1));
                 }
@@ -3948,11 +3755,7 @@ mod tests {
             node.cc_on_approved = true;
         }
         let snapshot = graph.snapshot();
-        let node = snapshot
-            .nodes
-            .iter()
-            .find(|node| node.key == "n_approve")
-            .unwrap();
+        let node = snapshot.nodes.iter().find(|node| node.key == "n_approve").unwrap();
         assert_eq!(node.timeout_hours, Some(24));
         assert_eq!(node.timeout_action, "AUTO_REJECT");
         assert_eq!(node.empty_assignee, "ERROR");
@@ -3960,11 +3763,7 @@ mod tests {
         assert!(node.cc_on_approved);
 
         let parsed = parse_snapshot(&graph.snapshot_json()).expect("快照必须可反序列化");
-        let again = parsed
-            .nodes
-            .iter()
-            .find(|node| node.key == "n_approve")
-            .unwrap();
+        let again = parsed.nodes.iter().find(|node| node.key == "n_approve").unwrap();
         assert_eq!(again.self_approval, "FORBID");
         assert_eq!(again.max_remind_times, 5);
     }
@@ -3987,11 +3786,7 @@ mod expression_tests {
         approve.assignee_type = Some(AssigneeKind::Expression);
         approve.config = config;
         FlowGraph {
-            nodes: vec![
-                start,
-                approve,
-                NodeSpec::new("n_end", "结束", NodeType::End),
-            ],
+            nodes: vec![start, approve, NodeSpec::new("n_end", "结束", NodeType::End)],
             edges: vec![
                 EdgeSpec::new("e1", "n_start", "n_approve"),
                 EdgeSpec::new("e2", "n_approve", "n_end"),
@@ -4088,11 +3883,7 @@ mod expression_tests {
             "D-E8：PREV_APPROVER 必须在发布期以 65033 拒绝（不是 501、也不是 65016）"
         );
         assert_eq!(found[0].code, 65033);
-        assert!(
-            found[0].message.contains("PREV_APPROVER"),
-            "{}",
-            found[0].message
-        );
+        assert!(found[0].message.contains("PREV_APPROVER"), "{}", found[0].message);
     }
 
     #[test]
@@ -4223,11 +4014,7 @@ mod task_node_rule_tests {
         }
         assert_eq!(NodeType::parse("TASK_NODE"), Some(NodeType::Task));
         assert_eq!(NodeType::parse("NOTIFY_NODE"), Some(NodeType::Notify));
-        assert_eq!(
-            NodeType::parse("TASK"),
-            None,
-            "别名不认（库里只存 TASK_NODE）"
-        );
+        assert_eq!(NodeType::parse("TASK"), None, "别名不认（库里只存 TASK_NODE）");
         // 出度约束的分类：审批类不含任务/通知，但都属「出度必须 = 1」
         assert!(!NodeType::Task.is_approval_class());
         assert!(NodeType::Task.is_single_exit());
@@ -4241,10 +4028,7 @@ mod task_node_rule_tests {
     #[test]
     fn r17_task_node_single_exit_passes() {
         let issues = task_graph(task_config()).validate();
-        assert!(
-            !rules(&issues).contains(&"R17"),
-            "出度为 1 不该报 R17：{issues:#?}"
-        );
+        assert!(!rules(&issues).contains(&"R17"), "出度为 1 不该报 R17：{issues:#?}");
     }
 
     /// R17 反例：`TASK_NODE` 出度 = 2 → `65012`。
@@ -4253,10 +4037,7 @@ mod task_node_rule_tests {
         let mut graph = task_graph(task_config());
         graph.edges.push(EdgeSpec::new("e3", "n_task", "n_end"));
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R17")
-            .expect("必须报 R17");
+        let hit = issues.iter().find(|issue| issue.rule == "R17").expect("必须报 R17");
         assert_eq!(hit.code, error_code::FLOW_GRAPH_DEGREE);
         assert_eq!(hit.nodes, vec!["n_task".to_string()]);
     }
@@ -4278,10 +4059,7 @@ mod task_node_rule_tests {
         let mut graph = task_graph(task_config());
         graph.nodes[1].config = json!({});
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R18")
-            .expect("必须报 R18");
+        let hit = issues.iter().find(|issue| issue.rule == "R18").expect("必须报 R18");
         assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
         assert!(hit.message.contains("config.task"), "{}", hit.message);
     }
@@ -4292,10 +4070,7 @@ mod task_node_rule_tests {
         let mut graph = task_graph(task_config());
         graph.nodes[1].node_type = NodeType::Approval;
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R18")
-            .expect("必须报 R18");
+        let hit = issues.iter().find(|issue| issue.rule == "R18").expect("必须报 R18");
         assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
         assert!(hit.message.contains("TASK_NODE"), "{}", hit.message);
     }
@@ -4385,10 +4160,7 @@ mod task_node_rule_tests {
         let mut graph = notify_graph(notify_config());
         graph.edges.push(EdgeSpec::new("e3", "n_notify", "n_end"));
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R17")
-            .expect("必须报 R17");
+        let hit = issues.iter().find(|issue| issue.rule == "R17").expect("必须报 R17");
         assert_eq!(hit.code, error_code::FLOW_GRAPH_DEGREE);
         assert_eq!(hit.nodes, vec!["n_notify".to_string()]);
         assert!(hit.message.contains("通知节点"), "{}", hit.message);
@@ -4406,10 +4178,7 @@ mod task_node_rule_tests {
             "task": {"title_template": "t", "on_complete": "DIRECT"}
         });
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R18")
-            .expect("必须报 R18");
+        let hit = issues.iter().find(|issue| issue.rule == "R18").expect("必须报 R18");
         assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
         assert!(hit.message.contains("任务配置"), "{}", hit.message);
     }
@@ -4425,9 +4194,7 @@ mod task_node_rule_tests {
         assert!(r19.is_empty(), "合法通知配置不该报 R19：{r19:#?}");
         // 顺带钉住「NOTIFY 可以直接跟在 START 后面」这条设计决定
         assert!(
-            !issues
-                .iter()
-                .any(|issue| issue.rule == "R1" || issue.rule == "R2"),
+            !issues.iter().any(|issue| issue.rule == "R1" || issue.rule == "R2"),
             "START → NOTIFY → END 必须是合法结构：{issues:#?}"
         );
     }
@@ -4438,10 +4205,7 @@ mod task_node_rule_tests {
         let mut graph = notify_graph(notify_config());
         graph.nodes[1].config = json!({});
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R19")
-            .expect("必须报 R19");
+        let hit = issues.iter().find(|issue| issue.rule == "R19").expect("必须报 R19");
         assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
         assert!(hit.message.contains("config.notify"), "{}", hit.message);
     }
@@ -4458,10 +4222,7 @@ mod task_node_rule_tests {
             }
         });
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R19")
-            .expect("必须报 R19");
+        let hit = issues.iter().find(|issue| issue.rule == "R19").expect("必须报 R19");
         assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
         assert!(
             hit.message.contains("secret.password"),
@@ -4482,10 +4243,7 @@ mod task_node_rule_tests {
             }
         });
         let issues = graph.validate();
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R19")
-            .expect("必须报 R19");
+        let hit = issues.iter().find(|issue| issue.rule == "R19").expect("必须报 R19");
         assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
         assert!(hit.message.contains("模板语法错误"), "{}", hit.message);
     }
@@ -4502,9 +4260,7 @@ mod task_node_rule_tests {
         let issues = graph.validate();
         let hit = issues
             .iter()
-            .find(|issue| {
-                issue.rule == "R19" && issue.code == error_code::FLOW_TIMEOUT_CONFIG_INVALID
-            })
+            .find(|issue| issue.rule == "R19" && issue.code == error_code::FLOW_TIMEOUT_CONFIG_INVALID)
             .expect("ON_TIMEOUT 缺 timeout_hours 必须报 65031");
         assert!(hit.message.contains("timeout_hours"), "{}", hit.message);
         // 配上就放行
@@ -4555,11 +4311,7 @@ mod task_node_rule_tests {
             .iter()
             .find(|issue| issue.rule == "R20" && issue.code == error_code::FLOW_NO_ASSIGNEE)
             .expect("必须报 65018");
-        assert!(
-            hit.message.contains("allow_skip_when_no_assignee"),
-            "{}",
-            hit.message
-        );
+        assert!(hit.message.contains("allow_skip_when_no_assignee"), "{}", hit.message);
     }
 
     /// R20 正例：开了 `allow_skip_when_no_assignee=true` 就放行（人确认过两次）。
@@ -4625,10 +4377,7 @@ mod task_node_rule_tests {
             "on_complete": "DIRECT"
         }));
         let issues = graph.validate_with(Some("PURCHASE_ORDER"));
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R21")
-            .expect("必须报 R21");
+        let hit = issues.iter().find(|issue| issue.rule == "R21").expect("必须报 R21");
         assert_eq!(hit.code, error_code::FLOW_TEMPLATE_VAR_INVALID);
         assert!(hit.message.contains("order.amount"), "{}", hit.message);
     }
@@ -4668,10 +4417,7 @@ mod task_node_rule_tests {
             "due": {"mode": "FIELD", "field": "instance.title"}
         }));
         let issues = graph.validate_with(Some("PURCHASE_ORDER"));
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R21")
-            .expect("必须报 R21");
+        let hit = issues.iter().find(|issue| issue.rule == "R21").expect("必须报 R21");
         assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
         assert!(hit.message.contains("form.*"), "{}", hit.message);
     }
@@ -4684,10 +4430,7 @@ mod task_node_rule_tests {
             "on_complete": "DIRECT"
         }));
         let issues = graph.validate_with(Some("PURCHASE_ORDER"));
-        let hit = issues
-            .iter()
-            .find(|issue| issue.rule == "R21")
-            .expect("必须报 R21");
+        let hit = issues.iter().find(|issue| issue.rule == "R21").expect("必须报 R21");
         assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
     }
 
@@ -4750,11 +4493,7 @@ mod task_node_rule_tests {
         assert_eq!(hits.len(), 1, "只报一条");
         assert_eq!(hits[0].code, error_code::FLOW_FALLBACK_INVALID);
         assert_eq!(hits[0].code, 65042);
-        assert!(
-            hits[0].message.contains("只能二选一"),
-            "{}",
-            hits[0].message
-        );
+        assert!(hits[0].message.contains("只能二选一"), "{}", hits[0].message);
     }
 
     /// R22 反例 ②：兜底人 == 节点 `assignee_type=USER` 的指定人 → `65042`（无意义配置）。
@@ -4806,11 +4545,7 @@ mod task_node_rule_tests {
         let hits = r22(&issues);
         assert_eq!(hits.len(), 1, "{:?}", hits);
         assert_eq!(hits[0].code, 65042);
-        assert!(
-            hits[0].message.contains("不允许配置兜底审批人"),
-            "{}",
-            hits[0].message
-        );
+        assert!(hits[0].message.contains("不允许配置兜底审批人"), "{}", hits[0].message);
     }
 
     /// 快照里未配兜底时不出现这两个键 —— 存量已发布流程的 `graph_hash` 一个字节都不能变
@@ -4819,10 +4554,7 @@ mod task_node_rule_tests {
     fn snapshot_omits_fallback_when_unset() {
         let graph = approval_graph(|_| {});
         let text = graph.snapshot_json();
-        assert!(
-            !text.contains("fallback_user_id"),
-            "未配兜底时不该出现在快照里"
-        );
+        assert!(!text.contains("fallback_user_id"), "未配兜底时不该出现在快照里");
         assert!(!text.contains("fallback_role_id"));
 
         let mut with_fallback = graph.clone();

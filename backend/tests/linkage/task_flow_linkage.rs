@@ -25,12 +25,7 @@ use crate::linkage::common::{self, Ctx};
 // ==================== 夹具动作（本文件内复用） ====================
 
 /// 建一个任务（创建人 = `ctx.creator`，负责人 = `ctx.worker`）。
-async fn make_task(
-    ctx: &Ctx,
-    tag: &str,
-    need_review: bool,
-    parent: Option<Uuid>,
-) -> (Uuid, String) {
+async fn make_task(ctx: &Ctx, tag: &str, need_review: bool, parent: Option<Uuid>) -> (Uuid, String) {
     let req = task_dto::TaskCreateReq {
         title: ctx.code(tag),
         description: None,
@@ -66,12 +61,7 @@ async fn change(
         to: to.to_string(),
         reason: reason.map(str::to_string),
     };
-    let res = task_handler::change_status(
-        common::claims(actor, name),
-        Path(task_id.to_string()),
-        Json(req),
-    )
-    .await?;
+    let res = task_handler::change_status(common::claims(actor, name), Path(task_id.to_string()), Json(req)).await?;
     Ok(res.data.expect("状态流转必须返回 TaskStatusRes"))
 }
 
@@ -95,11 +85,7 @@ async fn submit_to_review(ctx: &Ctx, tag: &str) -> (Uuid, String, Uuid) {
 }
 
 /// 审批人点「同意」（走 `flow::handler::approve_task`，含终态回调）。
-async fn approve(
-    approver: Uuid,
-    name: &str,
-    instance_id: Uuid,
-) -> std::result::Result<(), ApiError> {
+async fn approve(approver: Uuid, name: &str, instance_id: Uuid) -> std::result::Result<(), ApiError> {
     let todo = pending_todo_of(instance_id).await;
     approve_todo(todo, approver, name).await
 }
@@ -119,11 +105,7 @@ async fn pending_todo_of(instance_id: Uuid) -> Uuid {
 /// 与 [`approve`] 的区别：这里不重新挑「当前 PENDING 的那条」，而是拿着调用方给的 id 直接投。
 /// 这正是老板报的 TSK-149 的真实场景 —— 页面没刷新，审批人手里还捏着那条**已经被撤销**
 /// 的待办，点下去会怎样？必须用这个入口才能复现。
-async fn approve_todo(
-    todo_id: Uuid,
-    approver: Uuid,
-    name: &str,
-) -> std::result::Result<(), ApiError> {
+async fn approve_todo(todo_id: Uuid, approver: Uuid, name: &str) -> std::result::Result<(), ApiError> {
     let body = flow_dto::ApproveReq {
         comment: Some("同意（联动测试）".to_string()),
     };
@@ -309,11 +291,7 @@ async fn t05_task_done_keeps_instance_approved() {
         vec![Value::from(&task_id)],
     )
     .await;
-    assert_eq!(
-        task_status.as_deref(),
-        Some("DONE"),
-        "T05：审批通过后任务必须 DONE"
-    );
+    assert_eq!(task_status.as_deref(), Some("DONE"), "T05：审批通过后任务必须 DONE");
     let instance_status = common::flow_instance_of(task_id)
         .await
         .map(|(_, status)| status)
@@ -373,9 +351,7 @@ async fn t07_parent_cancel_cancels_child_instance() {
 
     change_ok(ctx.creator, "creator", parent, "CANCELLED").await;
 
-    let after = common::flow_instance_of(child)
-        .await
-        .map(|(_, status)| status);
+    let after = common::flow_instance_of(child).await.map(|(_, status)| status);
     assert_eq!(
         after.as_deref(),
         Some("CANCELLED"),
@@ -400,16 +376,10 @@ async fn t08_task_soft_delete_cancels_instance() {
     let ctx = Ctx::new("T08").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T08").await;
 
-    let res = task_handler::delete(
-        common::claims(ctx.creator, "creator"),
-        Path(task_id.to_string()),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("T08：删任务失败：{} {}", error.code, error.msg));
-    assert!(
-        res.data.expect("删除返回体").deleted,
-        "T08：首次删除必须真删"
-    );
+    let res = task_handler::delete(common::claims(ctx.creator, "creator"), Path(task_id.to_string()))
+        .await
+        .unwrap_or_else(|error| panic!("T08：删任务失败：{} {}", error.code, error.msg));
+    assert!(res.data.expect("删除返回体").deleted, "T08：首次删除必须真删");
 
     let status = common::flow_instance_of(task_id)
         .await
@@ -422,10 +392,7 @@ async fn t08_task_soft_delete_cancels_instance() {
     )
     .await;
     assert!(
-        comment
-            .as_deref()
-            .unwrap_or_default()
-            .contains("任务已删除"),
+        comment.as_deref().unwrap_or_default().contains("任务已删除"),
         "T08：删除与取消的审计文案要区分（删除是「任务已删除，审批单自动终止」），实际 {comment:?}"
     );
     ctx.cleanup().await;
@@ -691,10 +658,7 @@ async fn t16_outsider_sees_nothing() {
     let instance_no = instance_no_of(instance_id).await;
 
     let mine = common::todo_of(ctx.outsider, &instance_no).await;
-    assert!(
-        mine.is_empty(),
-        "T16：无关用户不该看到 {task_no} 的待办，实际 {mine:?}"
-    );
+    assert!(mine.is_empty(), "T16：无关用户不该看到 {task_no} 的待办，实际 {mine:?}");
     ctx.cleanup().await;
 }
 
@@ -752,10 +716,7 @@ async fn t17_missing_flow_falls_back_to_two_level_acceptance() {
             error.code, error.msg
         )
     });
-    assert_eq!(
-        result.status, "REVIEW",
-        "T17：任务仍要进入 REVIEW 等人工验收"
-    );
+    assert_eq!(result.status, "REVIEW", "T17：任务仍要进入 REVIEW 等人工验收");
     let instances = common::scalar_i64(
         "SELECT count(*) AS v FROM biz_flow_instance WHERE biz_type = 'TASK_ACCEPT' AND biz_id = ?::uuid",
         vec![Value::from(&task_id)],
@@ -799,10 +760,7 @@ async fn t18_second_submit_does_not_create_second_instance() {
         vec![Value::from(&task_id)],
     )
     .await;
-    assert_eq!(
-        instances, 1,
-        "T18：{task_no} 只该有 1 张审批单，实际 {instances}"
-    );
+    assert_eq!(instances, 1, "T18：{task_no} 只该有 1 张审批单，实际 {instances}");
     ctx.cleanup().await;
 }
 

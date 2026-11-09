@@ -157,8 +157,7 @@ async fn claim_is_exclusive_across_processes() {
         .ok()
         .and_then(|raw| raw.parse().ok())
         .unwrap_or_else(now_millis);
-    let worker_id =
-        std::env::var("A4_WORKER_ID").unwrap_or_else(|_| format!("proc-{}", std::process::id()));
+    let worker_id = std::env::var("A4_WORKER_ID").unwrap_or_else(|_| format!("proc-{}", std::process::id()));
 
     // 屏障：两个进程都等到同一个绝对时刻才发认领，才算「同时」
     loop {
@@ -170,9 +169,7 @@ async fn claim_is_exclusive_across_processes() {
     }
 
     let started = now_millis();
-    let claimed = model::claim_export_task(&worker_id)
-        .await
-        .expect("认领查询失败");
+    let claimed = model::claim_export_task(&worker_id).await.expect("认领查询失败");
     let elapsed = now_millis().saturating_sub(started);
     match claimed {
         Some(task) => println!(
@@ -185,9 +182,7 @@ async fn claim_is_exclusive_across_processes() {
     let row = db()
         .find_first_with_params(
             "SELECT status, locked_by, attempt_count FROM sys_export_task WHERE id = ?::uuid",
-            vec![Value::from(
-                uuid::Uuid::parse_str(&task_id).expect("任务 ID 非法"),
-            )],
+            vec![Value::from(uuid::Uuid::parse_str(&task_id).expect("任务 ID 非法"))],
         )
         .await
         .expect("查询任务失败")
@@ -195,9 +190,7 @@ async fn claim_is_exclusive_across_processes() {
     let status: String = row.get_typed("status").expect("status");
     let locked_by: Option<String> = row.get_typed("locked_by").expect("locked_by");
     let attempt_count: i16 = row.get_typed("attempt_count").expect("attempt_count");
-    println!(
-        "[{worker_id}] DB status={status} locked_by={locked_by:?} attempt_count={attempt_count}"
-    );
+    println!("[{worker_id}] DB status={status} locked_by={locked_by:?} attempt_count={attempt_count}");
     assert_eq!(status, "RUNNING", "认领后状态必须是 RUNNING");
     assert_eq!(attempt_count, 0, "认领不增加尝试次数");
     assert!(
@@ -254,12 +247,7 @@ async fn zombie_running_task_is_reclaimed() {
         .expect("本用例的僵尸任务必须被回收");
     println!(
         "回收结果: task_no={} status={} attempt={}/{} previous_worker={:?} previous_heartbeat={:?}",
-        mine.task_no,
-        mine.status,
-        mine.attempt_count,
-        mine.max_attempts,
-        mine.previous_worker,
-        mine.previous_heartbeat
+        mine.task_no, mine.status, mine.attempt_count, mine.max_attempts, mine.previous_worker, mine.previous_heartbeat
     );
 
     let after = model::find_export_task_unscoped(&id)
@@ -268,12 +256,7 @@ async fn zombie_running_task_is_reclaimed() {
         .expect("任务不存在");
     println!(
         "回收后: status={} locked_by={:?} progress={} attempt={}/{} message={:?}",
-        after.status,
-        after.locked_by,
-        after.progress,
-        after.attempt_count,
-        after.max_attempts,
-        after.message
+        after.status, after.locked_by, after.progress, after.attempt_count, after.max_attempts, after.message
     );
     assert_eq!(after.status, "PENDING", "未达上限应回到 PENDING 等再执行");
     assert_eq!(after.attempt_count, 1, "回收要算一次尝试");
@@ -308,10 +291,7 @@ async fn zombie_reclaim_marks_failed_when_attempts_exhausted() {
     .await
     .expect("制造僵尸任务失败");
     let reclaimed = cleanup::reclaim_stale(1_800, 10).await.expect("回收失败");
-    assert!(
-        reclaimed.iter().any(|task| task.id == id.to_string()),
-        "应被回收"
-    );
+    assert!(reclaimed.iter().any(|task| task.id == id.to_string()), "应被回收");
     let after = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
@@ -372,10 +352,7 @@ async fn expired_artifact_file_is_purged() {
              file_path = ?, file_name = '过期用例.xlsx', file_size = 16, file_sha256 = 'deadbeef', \
              expire_at = CURRENT_TIMESTAMP - INTERVAL '1 minute' \
          WHERE id = ?::uuid",
-        vec![
-            Value::from(path.to_string_lossy().to_string()),
-            Value::from(id),
-        ],
+        vec![Value::from(path.to_string_lossy().to_string()), Value::from(id)],
     )
     .await
     .expect("制造过期产物失败");
@@ -404,10 +381,7 @@ async fn expired_artifact_file_is_purged() {
         .await
         .expect("查询失败")
         .expect("任务不存在");
-    println!(
-        "清理后: status={} file_path={:?}",
-        after.status, after.file_path
-    );
+    println!("清理后: status={} file_path={:?}", after.status, after.file_path);
     assert_eq!(after.status, "EXPIRED");
     assert!(after.file_path.is_none(), "路径要被清空");
     assert!(!path.exists(), "物理文件必须被删除");
@@ -434,9 +408,7 @@ async fn worker_marks_failed_when_definition_missing() {
         claim_limit: 1,
         ..options
     };
-    let report = worker::run_once_with(&options)
-        .await
-        .expect("worker 执行失败");
+    let report = worker::run_once_with(&options).await.expect("worker 执行失败");
     println!("worker 报告: {}", report.summary());
     assert_eq!(report.claimed, 1);
     assert_eq!(report.failed, 1, "未注册定义应判终态失败");

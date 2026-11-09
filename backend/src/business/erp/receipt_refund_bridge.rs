@@ -133,10 +133,7 @@ pub struct ApprovalBrief {
 ///
 /// 「最近一条」按 `started_at DESC, created_at DESC`：一张退款单被驳回后重新提交会留下
 /// 多条实例，前端要看的是**当前这一轮**。
-pub async fn latest_approval_of(
-    ex: &impl SqlExecutor,
-    refund_id: Uuid,
-) -> DbResult<Option<ApprovalBrief>> {
+pub async fn latest_approval_of(ex: &impl SqlExecutor, refund_id: Uuid) -> DbResult<Option<ApprovalBrief>> {
     // SCOPE-EXEMPT: 审批实例是流程运行时表，按 (biz_type, biz_id) 精确取最近 1 行；
     // 可见性由退款单本身的 detail 权限控制，不在这里按部门裁剪。
     let row = ex
@@ -178,10 +175,7 @@ pub struct ApprovedInstance {
 /// `status = 'APPROVED'`。不认「最近一条实例是什么状态」—— 驳回后重新提交的场景里，
 /// 最近一条可能还是 `PENDING`、而更早那条是 `APPROVED`，此时应当**放行**（钱已经被批过，
 /// 只是又提了一轮重复的）。宁可放过重复提交，也不要让已经批过的款过不了账。
-pub async fn approved_instance_of(
-    ex: &impl SqlExecutor,
-    refund_id: Uuid,
-) -> DbResult<Option<ApprovedInstance>> {
+pub async fn approved_instance_of(ex: &impl SqlExecutor, refund_id: Uuid) -> DbResult<Option<ApprovedInstance>> {
     // SCOPE-EXEMPT: 同上，按 (biz_type, biz_id, status) 精确取 1 行。
     let row = ex
         .query_first_sql(
@@ -409,32 +403,19 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// 与采购 / 收货 / 凭证红冲 / 付款 / 销售订单是**同一把内控开关**，
 /// 待办生成侧的排除（[`internal_control_creator`]）读的也是它，两处不可能自相矛盾。
 /// 与本业务无关的待办（其它 `biz_type`）直接放行，零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
     // SCOPE-EXEMPT: 审批待办 / 实例是流程运行时表，按主键精确取 1 行；数据范围由
     // 「这条待办是不是你的」这一层判定（engine 投票时的 403）负责，与本闸无关。
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -501,8 +482,7 @@ mod tests {
             refund_no: "RR-20261106-000001".to_string(),
             customer_id: Uuid::now_v7(),
             source_receipt_id: None,
-            refund_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 6)
-                .expect("日期非法"),
+            refund_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 6).expect("日期非法"),
             amount: dec("100"),
             allocated_amount: dec("100"),
             method: Some("BANK_TRANSFER".to_string()),

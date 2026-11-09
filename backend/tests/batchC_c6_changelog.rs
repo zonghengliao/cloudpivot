@@ -37,9 +37,7 @@
 use std::time::Instant;
 
 use cloudpivot::business::changelog::query;
-use cloudpivot::business::changelog::{
-    self, Action, ChangeCtx, ChangeTarget, DiffInput, partition,
-};
+use cloudpivot::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput, partition};
 use cloudpivot::shared::error_code;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -85,10 +83,7 @@ async fn cleanup() {
         )
         .await;
     let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_change_log WHERE resource_id LIKE 'perf-%'",
-            Vec::new(),
-        )
+        .execute_with_params("DELETE FROM sys_change_log WHERE resource_id LIKE 'perf-%'", Vec::new())
         .await;
     let _ = db()
         .execute_with_params(
@@ -185,10 +180,7 @@ async fn c6_change_log_scenarios() {
         .expect("统计变更次数");
     assert_eq!(rows, 1, "T-CL-02：建用户必须恰好 1 行日志");
     let first = &diff_texts(&alice.to_string()).await[0];
-    assert!(
-        first.contains("\"CREATE\""),
-        "T-CL-02：action 必须是 CREATE：{first}"
-    );
+    assert!(first.contains("\"CREATE\""), "T-CL-02：action 必须是 CREATE：{first}");
     assert!(
         first.contains("138****1234"),
         "T-CL-02：mobile 必须已脱敏（实际：{first}）"
@@ -238,12 +230,7 @@ async fn c6_change_log_scenarios() {
     let outcome = changelog::record_in(
         db(),
         &ctx(),
-        ChangeTarget::of(
-            "sys_user",
-            alice.to_string(),
-            Action::Status,
-            "修改用户状态",
-        ),
+        ChangeTarget::of("sys_user", alice.to_string(), Action::Status, "修改用户状态"),
         DiffInput::update(&partial, &partial_after),
     )
     .await
@@ -285,19 +272,9 @@ async fn c6_change_log_scenarios() {
     .await
     .expect("T-CL-05 第二次");
     let bob_diff = diff_texts(&bob.to_string()).await;
-    assert_eq!(
-        bob_diff.len(),
-        3,
-        "T-CL-05：建 1 + 改 2 = 3 行（一操作一凭证）"
-    );
-    assert!(
-        bob_diff[1].contains("\"STATUS\""),
-        "T-CL-05：第 2 行是 STATUS"
-    );
-    assert!(
-        bob_diff[2].contains("\"ASSIGN\""),
-        "T-CL-05：第 3 行是 ASSIGN"
-    );
+    assert_eq!(bob_diff.len(), 3, "T-CL-05：建 1 + 改 2 = 3 行（一操作一凭证）");
+    assert!(bob_diff[1].contains("\"STATUS\""), "T-CL-05：第 2 行是 STATUS");
+    assert!(bob_diff[2].contains("\"ASSIGN\""), "T-CL-05：第 3 行是 ASSIGN");
     println!("T-CL-05 PASS：3 行，动作分别 CREATE / STATUS / ASSIGN（未合并）");
 
     // ─────────────── T-CL-06：软删 → action=DELETE，b 侧齐全 ───────────────
@@ -312,18 +289,12 @@ async fn c6_change_log_scenarios() {
     .expect("T-CL-06 记录删除");
     let texts = diff_texts(&bob.to_string()).await;
     let delete_row = texts.last().expect("至少一行");
-    assert!(
-        delete_row.contains("\"DELETE\""),
-        "T-CL-06：action 必须是 DELETE"
-    );
+    assert!(delete_row.contains("\"DELETE\""), "T-CL-06：action 必须是 DELETE");
     assert!(
         delete_row.contains("\"b\": \"137****1111\""),
         "T-CL-06：删除时 b 侧必须带（已脱敏的）原值：{delete_row}"
     );
-    assert!(
-        delete_row.contains("\"a\": null"),
-        "T-CL-06：删除时 a 侧必须为 null"
-    );
+    assert!(delete_row.contains("\"a\": null"), "T-CL-06：删除时 a 侧必须为 null");
     println!("T-CL-06 PASS：DELETE + b 侧齐全 + a 侧 null");
 
     // ─────────────── T-CL-11：分区裁剪（EXPLAIN 只出现一个分区） ───────────────
@@ -377,12 +348,7 @@ async fn c6_change_log_scenarios() {
             changelog::record_in(
                 db(),
                 &ctx(),
-                ChangeTarget::of(
-                    "sys_user",
-                    target.to_string(),
-                    Action::Status,
-                    "修改用户状态",
-                ),
+                ChangeTarget::of("sys_user", target.to_string(), Action::Status, "修改用户状态"),
                 DiffInput::update(&before, &after),
             )
             .await
@@ -399,10 +365,7 @@ async fn c6_change_log_scenarios() {
         .await
         .expect("统计 carol");
     assert_eq!(ok, 10, "T-CL-13：10 个并发写都该成功（UUIDv7 主键不冲突）");
-    assert_eq!(
-        carol_rows, 11,
-        "T-CL-13：建 1 + 并发 10 = 11 行（实测 {carol_rows}）"
-    );
+    assert_eq!(carol_rows, 11, "T-CL-13：建 1 + 并发 10 = 11 行（实测 {carol_rows}）");
     println!("T-CL-13 PASS：10 并发全部成功，共 {carol_rows} 行，无主键冲突");
 
     // ─────────────── 错误路径：未登记的表必须 62012 ───────────────
@@ -471,12 +434,7 @@ async fn c6_timeline_performance_and_partitions() {
             .await
             .expect("timeline 查询");
         let elapsed = began.elapsed();
-        assert_eq!(
-            rows.len(),
-            20,
-            "perf-42 应有 20 条历史（实际 {}）",
-            rows.len()
-        );
+        assert_eq!(rows.len(), 20, "perf-42 应有 20 条历史（实际 {}）", rows.len());
         samples.push(elapsed);
     }
     let best = samples.iter().min().copied().unwrap_or_default();
@@ -484,10 +442,7 @@ async fn c6_timeline_performance_and_partitions() {
         "timeline 性能：5 次采样 {:?}，最快 {best:?}（阈值 50 ms，10 万行）",
         samples
     );
-    assert!(
-        best.as_millis() < 50,
-        "timeline 必须 < 50 ms（最快 {best:?}）"
-    );
+    assert!(best.as_millis() < 50, "timeline 必须 < 50 ms（最快 {best:?}）");
 
     // ─────────────── 分区运维：预建下月 + 清理过期 ───────────────
     let now = chrono::Utc::now();
@@ -627,10 +582,7 @@ async fn c6_rollback_keeps_zero_residue() {
         .expect("查日志行");
     println!("回滚后：sys_user={users} 行，sys_change_log={logs} 行");
     assert_eq!(users, 0, "业务必须回滚（用户不该存在）");
-    assert_eq!(
-        logs, 0,
-        "sys_change_log 必须零残留（这就是 D11 的核心断言）"
-    );
+    assert_eq!(logs, 0, "sys_change_log 必须零残留（这就是 D11 的核心断言）");
 
     cleanup().await;
 }
@@ -670,8 +622,7 @@ async fn c6_find_detail_with_and_without_created_at() {
         .expect("查夹具日志");
     assert_eq!(rows.len(), 1, "夹具应恰有 1 行日志");
     let log_id: Uuid = rows[0].get_typed("id").expect("id");
-    let created_at: chrono::DateTime<chrono::Utc> =
-        rows[0].get_typed("created_at").expect("created_at");
+    let created_at: chrono::DateTime<chrono::Utc> = rows[0].get_typed("created_at").expect("created_at");
 
     // ① 带 created_at：`WHERE created_at = ? AND id = ?` → 只扫一个分区
     let with_key = query::find(db(), log_id, Some(created_at))

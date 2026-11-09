@@ -57,10 +57,7 @@ impl From<&SysRoleModel> for RoleRes {
             status: m.status.as_i16(),
             data_scope: m.data_scope,
             sort_order: m.sort_order,
-            escalation_role_id: m
-                .escalation_role_id
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
+            escalation_role_id: m.escalation_role_id.map(|id| id.to_string()).unwrap_or_default(),
             remark: m.remark.clone().unwrap_or_default(),
             created_at: m.created_at,
         }

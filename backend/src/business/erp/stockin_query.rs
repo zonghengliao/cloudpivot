@@ -57,9 +57,7 @@ pub async fn items_of(id: Uuid) -> DbResult<Vec<StockInItemRow>> {
 pub async fn header_on(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockInRow>> {
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            format!("SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -117,9 +115,10 @@ pub async fn voucher_biz_ctx(
         return Ok(None);
     };
     let material_lines = material_lines_of(ex, id).await?;
-    Ok(Some(
-        crate::business::erp::voucher::VoucherBizCtx::of_stock_in(&header, material_lines),
-    ))
+    Ok(Some(crate::business::erp::voucher::VoucherBizCtx::of_stock_in(
+        &header,
+        material_lines,
+    )))
 }
 
 /// 复制源（D9）：原单头 + 明细，**只读**（`FOR SHARE`：本事务不会改这两张表的行）。
@@ -133,10 +132,7 @@ pub async fn voucher_biz_ctx(
 /// - `Ok(Some((单头, 明细)))`：明细按 `line_no` 升序；
 /// - `Ok(None)`：单头不存在或已软删；
 /// - `Err(DbError)`：数据库异常。
-pub async fn copy_source(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> DbResult<Option<(StockInRow, Vec<StockInItemRow>)>> {
+pub async fn copy_source(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(StockInRow, Vec<StockInItemRow>)>> {
     let header = ex
         .query_first_sql(
             format!(
@@ -205,9 +201,7 @@ pub async fn stock_in_page(q: &StockInFilter) -> DbResult<(Vec<StockInRow>, i64)
         params.push(Value::from(date_to));
     }
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result =
-        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
-            .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -218,8 +212,7 @@ pub async fn stock_in_page(q: &StockInFilter) -> DbResult<(Vec<StockInRow>, i64)
 
 /// DTO 里的 id 是 `String`：非法 UUID 一律报错（不静默跳过条件）。
 pub(super) fn parse_id(value: &str) -> DbResult<Uuid> {
-    Uuid::parse_str(value.trim())
-        .map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
+    Uuid::parse_str(value.trim()).map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
 }
 
 /// 单查来源采购单号（详情页用；采购单被软删 / 不存在 → `None`）。
@@ -354,10 +347,7 @@ pub async fn published_post_flow() -> DbResult<Option<PublishedFlow>> {
 ///
 /// 排序口径（作废 / 过账 / 调拨三处一致）：`biz_type` 精确命中优先 → `is_default` →
 /// 版本号 → 更新时间，这样「客户自己建了同名流程」也能被稳定选中。
-pub(super) async fn published_flow_of(
-    biz_type: &str,
-    flow_code: &str,
-) -> DbResult<Option<PublishedFlow>> {
+pub(super) async fn published_flow_of(biz_type: &str, flow_code: &str) -> DbResult<Option<PublishedFlow>> {
     // SCOPE-EXEMPT: 流程定义（biz_flow_def）是全局配置，按 biz_type / flow_code 精确取 1 行，
     // 不分页、不按部门裁剪（裁剪会导致「看不到自己的单据该走哪个流程」）。
     let rows = db()

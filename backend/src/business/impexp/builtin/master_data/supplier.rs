@@ -6,13 +6,9 @@
 use async_trait::async_trait;
 use nik::prelude::*;
 
-use crate::business::impexp::definition::{
-    ColumnKind, ImportColumn, ImportCtx, ImportDefinition, RowValues,
-};
+use crate::business::impexp::definition::{ColumnKind, ImportColumn, ImportCtx, ImportDefinition, RowValues};
 
-use super::{
-    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, conflict_clause, duplicate_strategy, operator_text,
-};
+use super::{BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, conflict_clause, duplicate_strategy, operator_text};
 
 /// 导入列定义（顺序即模板列顺序）。
 static COLUMNS: &[ImportColumn] = &[

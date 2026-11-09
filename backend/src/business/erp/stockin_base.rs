@@ -44,12 +44,7 @@ pub const IN_TYPE_OTHER: &str = DocSubtype::OtherIn.as_str();
 pub const IN_TYPE_SOURCELESS: &str = DocSubtype::Sourceless.as_str();
 
 /// 全部入库类型（唯一真相是 [`DocSubtype::IN_TYPES`]，这里只是给 erp 侧的好念别名）。
-pub const IN_TYPES: [&str; 4] = [
-    IN_TYPE_PURCHASE,
-    IN_TYPE_RETURN,
-    IN_TYPE_OTHER,
-    IN_TYPE_SOURCELESS,
-];
+pub const IN_TYPES: [&str; 4] = [IN_TYPE_PURCHASE, IN_TYPE_RETURN, IN_TYPE_OTHER, IN_TYPE_SOURCELESS];
 
 /// 「无源标记 → 落库的 `in_type`」的**唯一入口**（建单 / 改单都走它）。
 ///
@@ -225,11 +220,7 @@ impl CostBasis {
         } else {
             (amount / qty).round_dp_with_strategy(6, ROUNDING)
         };
-        Self {
-            qty,
-            amount,
-            unit_cost,
-        }
+        Self { qty, amount, unit_cost }
     }
 }
 
@@ -333,9 +324,7 @@ pub(super) async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResul
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个收货单号（周期键按北京时间，与 `IN-yyyyMMdd-*` 的 `yyyyMMdd` 同源）。
@@ -434,12 +423,8 @@ impl Totals {
         Self {
             qty: lines.iter().fold(Decimal::ZERO, |acc, l| acc + l.qty),
             amount: lines.iter().fold(Decimal::ZERO, |acc, l| acc + l.amount),
-            tax: lines
-                .iter()
-                .fold(Decimal::ZERO, |acc, l| acc + l.tax_amount),
-            with_tax: lines
-                .iter()
-                .fold(Decimal::ZERO, |acc, l| acc + l.with_tax_amount),
+            tax: lines.iter().fold(Decimal::ZERO, |acc, l| acc + l.tax_amount),
+            with_tax: lines.iter().fold(Decimal::ZERO, |acc, l| acc + l.with_tax_amount),
         }
     }
 }

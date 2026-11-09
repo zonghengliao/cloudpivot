@@ -177,11 +177,7 @@ impl PayableRow {
 }
 
 /// 按来源单据取应付单（`uk_biz_payable_source` 保证最多一张）。
-pub async fn find_by_source(
-    ex: &impl SqlExecutor,
-    source_type: &str,
-    source_id: Uuid,
-) -> DbResult<Option<PayableRow>> {
+pub async fn find_by_source(ex: &impl SqlExecutor, source_type: &str, source_id: Uuid) -> DbResult<Option<PayableRow>> {
     // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
@@ -189,10 +185,7 @@ pub async fn find_by_source(
                 "SELECT {COLUMNS} FROM {TABLE} \
                   WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL"
             ),
-            vec![
-                Value::Text(source_type.to_string()),
-                Value::from(&source_id),
-            ],
+            vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
         )
         .await?;
     row.as_ref().map(PayableRow::from_row).transpose()
@@ -270,11 +263,7 @@ pub async fn insert(
                 Value::from(new.credit_days),
                 Value::Text(new.due_date.to_string()),
                 Value::Text(new.period_code.to_string()),
-                Value::Text(
-                    new.voucher_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.voucher_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(now),
                 Value::from(now),
                 Value::Text(operator_text.clone()),
@@ -440,10 +429,7 @@ mod tests {
     /// 单号格式：`AP-yyyyMMdd-000001`。
     #[test]
     fn payable_no_format_is_ap_prefix_with_six_digits() {
-        assert_eq!(
-            voucher::format_doc_no(NO_PREFIX, "20261031", 1),
-            "AP-20261031-000001"
-        );
+        assert_eq!(voucher::format_doc_no(NO_PREFIX, "20261031", 1), "AP-20261031-000001");
         assert_eq!(PAYABLE_SEQ.prefix, "AP");
         assert_eq!(PAYABLE_SEQ.seq_type, "AP");
     }
@@ -455,9 +441,6 @@ mod tests {
             unpaid_of(Decimal::new(2260000, 4), Decimal::new(1000000, 4)),
             Decimal::new(1260000, 4)
         );
-        assert_eq!(
-            unpaid_of(Decimal::new(10000, 4), Decimal::new(10000, 4)),
-            Decimal::ZERO
-        );
+        assert_eq!(unpaid_of(Decimal::new(10000, 4), Decimal::new(10000, 4)), Decimal::ZERO);
     }
 }

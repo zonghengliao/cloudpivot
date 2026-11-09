@@ -305,10 +305,7 @@ pub async fn find_by_source(
                 "SELECT {COLUMNS} FROM {TABLE} \
                   WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL"
             ),
-            vec![
-                Value::Text(source_type.to_string()),
-                Value::from(&source_id),
-            ],
+            vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
         )
         .await?;
     row.as_ref().map(ReceivableRow::from_row).transpose()
@@ -407,8 +404,7 @@ pub fn parse_date_arg(raw: &str, field: &str) -> std::result::Result<NaiveDate, 
             "{field} 必须是 yyyy-MM-dd（例：2026-11-05），收到「{text}」"
         )));
     }
-    NaiveDate::parse_from_str(text, "%Y-%m-%d")
-        .map_err(|_| bad_request(format!("{field} 不是合法日期：{text}")))
+    NaiveDate::parse_from_str(text, "%Y-%m-%d").map_err(|_| bad_request(format!("{field} 不是合法日期：{text}")))
 }
 
 /// 参数类 400（`10001`）。
@@ -491,11 +487,7 @@ pub async fn insert_with_reason(
     let received = new.received_amount.round_dp(4);
     let unsettled = unsettled_of(amount, received);
     // SO-40：本位币金额 = 原币 × 锁定汇率（应收无税额拆分 ⇒ base_tax = 0）
-    let base_amounts = currency::BaseAmounts::of(
-        amount,
-        Decimal::ZERO,
-        currency::scale_rate(new.exchange_rate),
-    );
+    let base_amounts = currency::BaseAmounts::of(amount, Decimal::ZERO, currency::scale_rate(new.exchange_rate));
     let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
     // SCOPE-EXEMPT: 应收台账无归属列（见模块文档）。
     let inserted = ex
@@ -532,11 +524,7 @@ pub async fn insert_with_reason(
                 Value::from(new.credit_days),
                 Value::Text(new.due_date.to_string()),
                 Value::Text(new.period_code.to_string()),
-                Value::Text(
-                    new.voucher_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.voucher_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(new.remark.unwrap_or_default().to_string()),
                 Value::Text(currency::scale_rate(new.exchange_rate).to_string()),
                 Value::Text(base_amounts.amount.to_string()),
@@ -589,13 +577,7 @@ pub async fn write_off(
     let row = find_by_id(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "查询应收单"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "应收单不存在或已删除".to_string(),
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "应收单不存在或已删除".to_string()))?;
     if LOCKED.contains(&row.status.as_str()) {
         return Err(ApiError::new(
             409,
@@ -820,22 +802,12 @@ async fn cancel_core(
     let row = find_by_id(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "查询应收单"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "应收单不存在或已删除".to_string(),
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "应收单不存在或已删除".to_string()))?;
     if row.status == STATUS_CANCELLED {
         return Err(ApiError::new(
             409,
             error_code::RESOURCE_CONFLICT,
-            format!(
-                "应收单 {} 已经是「{}」",
-                row.ar_no,
-                status_label(&row.status)
-            ),
+            format!("应收单 {} 已经是「{}」", row.ar_no, status_label(&row.status)),
         ));
     }
     if row.status != STATUS_OPEN || row.received_amount > Decimal::ZERO {
@@ -1024,9 +996,10 @@ pub async fn create_manual(
     req: CreateReceivableReq,
 ) -> std::result::Result<CreateReceivableRes, ApiError> {
     let customer_id = parse_uuid(&req.customer_id, "customer_id")?;
-    let amount = validate_amount(req.amount.ok_or_else(|| {
-        bad_request("amount 必填（biz_receivable.amount 没有默认值，必须显式给出）")
-    })?)?;
+    let amount = validate_amount(
+        req.amount
+            .ok_or_else(|| bad_request("amount 必填（biz_receivable.amount 没有默认值，必须显式给出）"))?,
+    )?;
     let credit_days = validate_credit_days(req.credit_days.unwrap_or(0))?;
     let due_date_explicit = match req.due_date.as_deref().map(str::trim) {
         Some(text) if !text.is_empty() => Some(parse_date_arg(text, "due_date")?),
@@ -1101,9 +1074,7 @@ async fn create_manual_in_tx(
     // 客户必须存在且未冻结（FROZEN = 禁开新单，历史单据不受影响）
     let customer_status: Option<String> = tx
         .query_first_sql(
-            format!(
-                "SELECT status FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            format!("SELECT status FROM {CUSTOMER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&customer_id)],
         )
         .await
@@ -1318,11 +1289,7 @@ mod tests {
             "已作废",
             "作废与坏账的标签必须能一眼分开（报表 / 台账都靠它）"
         );
-        assert_eq!(
-            status_label("WHATEVER"),
-            "WHATEVER",
-            "未知状态原样返回，不 panic"
-        );
+        assert_eq!(status_label("WHATEVER"), "WHATEVER", "未知状态原样返回，不 panic");
     }
 
     /// ①b 有余额的状态只有 OPEN / PARTIAL：账龄、逾期、收款都按这个判（V0290 后三终态全排除）。
@@ -1402,25 +1369,15 @@ mod tests {
     /// ③ 未收金额恒等 + 到期日推算（与库层约束同口径）。
     #[test]
     fn unsettled_and_due_date_follow_db_rules() {
-        assert_eq!(
-            unsettled_of(dec("2260.0000"), dec("1000.0000")),
-            dec("1260.0000")
-        );
-        assert_eq!(
-            unsettled_of(dec("100.0000"), dec("100.0000")),
-            Decimal::ZERO
-        );
+        assert_eq!(unsettled_of(dec("2260.0000"), dec("1000.0000")), dec("1260.0000"));
+        assert_eq!(unsettled_of(dec("100.0000"), dec("100.0000")), Decimal::ZERO);
         assert_eq!(
             due_date_of(date("2026-11-05"), 0),
             date("2026-11-05"),
             "账期 0 ⇒ 到期日 = 挂账日"
         );
         assert_eq!(due_date_of(date("2026-11-05"), 30), date("2026-12-05"));
-        assert_eq!(
-            due_date_of(date("2026-12-20"), 30),
-            date("2027-01-19"),
-            "跨年也要对"
-        );
+        assert_eq!(due_date_of(date("2026-12-20"), 30), date("2027-01-19"), "跨年也要对");
     }
 
     /// ④ 金额校验：0 / 负数 / 超精度一律 400。
@@ -1454,11 +1411,7 @@ mod tests {
         assert_eq!(validate_reason("  客户已注销  ").unwrap(), "客户已注销");
         assert_eq!(validate_reason("").unwrap_err().status, 400);
         assert_eq!(validate_reason("   ").unwrap_err().status, 400);
-        assert_eq!(
-            validate_reason("坏账").unwrap_err().status,
-            400,
-            "太短不算依据"
-        );
+        assert_eq!(validate_reason("坏账").unwrap_err().status, 400, "太短不算依据");
         let long = "核".repeat(REASON_MAX_CHARS + 1);
         assert_eq!(validate_reason(&long).unwrap_err().status, 400);
     }
@@ -1471,25 +1424,16 @@ mod tests {
         for bad in ["2026-13", "2026-00", "2026-1", "26-11", "2026/11", ""] {
             assert!(validate_period(bad).is_err(), "period={bad} 必须 400");
         }
-        assert_eq!(
-            parse_date_arg("2026-11-05", "due_date").unwrap(),
-            date("2026-11-05")
-        );
+        assert_eq!(parse_date_arg("2026-11-05", "due_date").unwrap(), date("2026-11-05"));
         for bad in ["2026-1-1", "20261105", "2026-02-30"] {
-            assert!(
-                parse_date_arg(bad, "due_date").is_err(),
-                "date={bad} 必须 400"
-            );
+            assert!(parse_date_arg(bad, "due_date").is_err(), "date={bad} 必须 400");
         }
     }
 
     /// ⑧ 单号格式：`AR-yyyyMMdd-000001`（6 位补零）。
     #[test]
     fn ar_no_format_is_ar_prefix_with_six_digits() {
-        assert_eq!(
-            voucher::format_doc_no(NO_PREFIX, "20261106", 1),
-            "AR-20261106-000001"
-        );
+        assert_eq!(voucher::format_doc_no(NO_PREFIX, "20261106", 1), "AR-20261106-000001");
         assert_eq!(RECEIVABLE_SEQ.prefix, "AR");
         assert_eq!(RECEIVABLE_SEQ.seq_type, "AR");
     }
@@ -1506,10 +1450,7 @@ mod tests {
         assert!(req.due_date.is_none(), "不传到期日 ⇒ 由账期推算");
         assert!(req.period_code.is_none(), "不传期间 ⇒ 取挂账日所属期间");
         assert!(parse_uuid(&req.customer_id, "customer_id").is_ok());
-        assert_eq!(
-            parse_uuid("not-a-uuid", "customer_id").unwrap_err().status,
-            400
-        );
+        assert_eq!(parse_uuid("not-a-uuid", "customer_id").unwrap_err().status, 400);
     }
 
     // ---------- 真库用例（需 `ERP_DB_URL`，缺省 SKIP） ----------
@@ -1603,16 +1544,10 @@ mod tests {
     #[tokio::test]
     async fn db_manual_posting_creates_open_row_with_log() {
         let Some(_guard) = setup().await else { return };
-        let res = create_manual(None, manual_req("1130.0000", "手工"))
-            .await
-            .unwrap();
+        let res = create_manual(None, manual_req("1130.0000", "手工")).await.unwrap();
         assert_eq!(res.status, STATUS_OPEN);
         assert_eq!(res.received_amount, Decimal::ZERO);
-        assert_eq!(
-            res.unsettled_amount,
-            dec("1130.0000"),
-            "恒等式：未收 = 应收"
-        );
+        assert_eq!(res.unsettled_amount, dec("1130.0000"), "恒等式：未收 = 应收");
         assert_eq!(res.credit_days, 0);
         assert_eq!(res.due_date, voucher::today_cst(Utc::now()));
         // AR- + 8 位日期 + - + 6 位流水 = 18 个字符
@@ -1643,10 +1578,7 @@ mod tests {
             .await
             .unwrap()
             .expect("建单必须写 biz_status_log");
-        assert_eq!(
-            log.get_typed::<Option<String>>("from_status").unwrap(),
-            None
-        );
+        assert_eq!(log.get_typed::<Option<String>>("from_status").unwrap(), None);
         assert_eq!(log.get_typed::<String>("to_status").unwrap(), STATUS_OPEN);
         assert_eq!(log.get_typed::<String>("entity_no").unwrap(), res.ar_no);
     }
@@ -1655,12 +1587,8 @@ mod tests {
     #[tokio::test]
     async fn db_manual_source_allows_multiple_rows_per_day() {
         let Some(_guard) = setup().await else { return };
-        let first = create_manual(None, manual_req("10.0000", "A"))
-            .await
-            .unwrap();
-        let second = create_manual(None, manual_req("20.0000", "B"))
-            .await
-            .unwrap();
+        let first = create_manual(None, manual_req("10.0000", "A")).await.unwrap();
+        let second = create_manual(None, manual_req("20.0000", "B")).await.unwrap();
         assert_ne!(first.id, second.id);
         assert_ne!(first.ar_no, second.ar_no, "同一天两张单的流水号必须不同");
         assert!(second.ar_no > first.ar_no, "取号单调递增");
@@ -1670,9 +1598,7 @@ mod tests {
     #[tokio::test]
     async fn db_write_off_sets_terminal_state_and_reason() {
         let Some(_guard) = setup().await else { return };
-        let created = create_manual(None, manual_req("500.0000", "核销"))
-            .await
-            .unwrap();
+        let created = create_manual(None, manual_req("500.0000", "核销")).await.unwrap();
         let id = Uuid::parse_str(&created.id).unwrap();
         let row = write_off_api(
             None,
@@ -1689,11 +1615,7 @@ mod tests {
             row.remark.as_deref().unwrap_or("").contains("客户已注销"),
             "核销原因要进 remark"
         );
-        assert_eq!(
-            row.unsettled_amount,
-            dec("500.0000"),
-            "坏账不冲金额，只改状态"
-        );
+        assert_eq!(row.unsettled_amount, dec("500.0000"), "坏账不冲金额，只改状态");
 
         let log = db()
             .query_first_sql(
@@ -1707,11 +1629,7 @@ mod tests {
             .unwrap()
             .expect("核销必须写状态日志");
         assert_eq!(log.get_typed::<String>("from_status").unwrap(), STATUS_OPEN);
-        assert!(
-            log.get_typed::<String>("reason")
-                .unwrap()
-                .contains("客户已注销")
-        );
+        assert!(log.get_typed::<String>("reason").unwrap().contains("客户已注销"));
 
         // 二次核销 → 409（终态）
         let again = write_off_api(
@@ -1730,9 +1648,7 @@ mod tests {
     #[tokio::test]
     async fn db_write_off_respects_state_domain() {
         let Some(_guard) = setup().await else { return };
-        let created = create_manual(None, manual_req("300.0000", "终态"))
-            .await
-            .unwrap();
+        let created = create_manual(None, manual_req("300.0000", "终态")).await.unwrap();
         let id = Uuid::parse_str(&created.id).unwrap();
         // 直接造一张已收清的单（金额恒等式一起写，否则 23514）
         db().execute_with_params(
@@ -1753,9 +1669,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.status, 409, "SETTLED 是终态，核销必须 409");
 
-        let partial = create_manual(None, manual_req("400.0000", "部分"))
-            .await
-            .unwrap();
+        let partial = create_manual(None, manual_req("400.0000", "部分")).await.unwrap();
         let partial_id = Uuid::parse_str(&partial.id).unwrap();
         db().execute_with_params(
             "UPDATE biz_receivable SET received_amount = 100, unsettled_amount = 300, \

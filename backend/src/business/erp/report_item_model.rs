@@ -94,10 +94,7 @@ fn opt_text(value: Option<&str>) -> Value {
 }
 
 /// 报表项列表（含停用行，按 `sort_order, item_code` 排；与报表计算顺序同源）。
-pub async fn list_items(
-    ex: &impl SqlExecutor,
-    report_code: Option<&str>,
-) -> DbResult<Vec<ItemRow>> {
+pub async fn list_items(ex: &impl SqlExecutor, report_code: Option<&str>) -> DbResult<Vec<ItemRow>> {
     let sql = format!(
         "SELECT id, report_code, item_code, item_name, item_level, parent_code, side, \
                 account_pattern, formula, is_deduction, is_active, sort_order, remark, \
@@ -117,25 +114,15 @@ pub async fn list_items(
             item_code: row.get_typed("item_code")?,
             item_name: row.get_typed("item_name")?,
             item_level: row.get_typed("item_level")?,
-            parent_code: row
-                .get_typed::<Option<String>>("parent_code")
-                .unwrap_or_default(),
+            parent_code: row.get_typed::<Option<String>>("parent_code").unwrap_or_default(),
             side: row.get_typed("side")?,
-            account_pattern: row
-                .get_typed::<Option<String>>("account_pattern")
-                .unwrap_or_default(),
-            formula: row
-                .get_typed::<Option<String>>("formula")
-                .unwrap_or_default(),
+            account_pattern: row.get_typed::<Option<String>>("account_pattern").unwrap_or_default(),
+            formula: row.get_typed::<Option<String>>("formula").unwrap_or_default(),
             is_deduction: row.get_typed::<bool>("is_deduction")?,
             is_active: row.get_typed::<i16>("is_active")? == 1,
             sort_order: row.get_typed("sort_order")?,
-            remark: row
-                .get_typed::<Option<String>>("remark")
-                .unwrap_or_default(),
-            updated_at: row
-                .get_typed::<Option<String>>("updated_at_text")
-                .unwrap_or_default(),
+            remark: row.get_typed::<Option<String>>("remark").unwrap_or_default(),
+            updated_at: row.get_typed::<Option<String>>("updated_at_text").unwrap_or_default(),
         });
     }
     Ok(out)
@@ -163,25 +150,15 @@ pub async fn find_item(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<ItemR
         item_code: row.get_typed("item_code")?,
         item_name: row.get_typed("item_name")?,
         item_level: row.get_typed("item_level")?,
-        parent_code: row
-            .get_typed::<Option<String>>("parent_code")
-            .unwrap_or_default(),
+        parent_code: row.get_typed::<Option<String>>("parent_code").unwrap_or_default(),
         side: row.get_typed("side")?,
-        account_pattern: row
-            .get_typed::<Option<String>>("account_pattern")
-            .unwrap_or_default(),
-        formula: row
-            .get_typed::<Option<String>>("formula")
-            .unwrap_or_default(),
+        account_pattern: row.get_typed::<Option<String>>("account_pattern").unwrap_or_default(),
+        formula: row.get_typed::<Option<String>>("formula").unwrap_or_default(),
         is_deduction: row.get_typed::<bool>("is_deduction")?,
         is_active: row.get_typed::<i16>("is_active")? == 1,
         sort_order: row.get_typed("sort_order")?,
-        remark: row
-            .get_typed::<Option<String>>("remark")
-            .unwrap_or_default(),
-        updated_at: row
-            .get_typed::<Option<String>>("updated_at_text")
-            .unwrap_or_default(),
+        remark: row.get_typed::<Option<String>>("remark").unwrap_or_default(),
+        updated_at: row.get_typed::<Option<String>>("updated_at_text").unwrap_or_default(),
     }))
 }
 
@@ -325,10 +302,7 @@ pub async fn set_active(ex: &impl SqlExecutor, id: Uuid, active: bool) -> DbResu
             "UPDATE {ITEM_TABLE} SET is_active = ?::int, updated_at = now() \
               WHERE id = ?::uuid"
         ),
-        vec![
-            Value::from(if active { 1i32 } else { 0i32 }),
-            Value::from(&id),
-        ],
+        vec![Value::from(if active { 1i32 } else { 0i32 }), Value::from(&id)],
     )
     .await
 }

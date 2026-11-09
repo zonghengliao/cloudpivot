@@ -138,10 +138,7 @@ fn in_uuids(ids: &[Uuid]) -> String {
 
 /// `IN ('<uuid>', …)` 片段（用于 `biz_id` 这类 **text** 弱引用列）。
 fn in_texts(ids: &[Uuid]) -> String {
-    ids.iter()
-        .map(|id| format!("'{id}'"))
-        .collect::<Vec<_>>()
-        .join(", ")
+    ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", ")
 }
 
 /// 清掉本套夹具（**只删本夹具拥有的期次/号段里的行，且写操作一律按 id 集合**）。
@@ -201,27 +198,16 @@ pub async fn cleanup() {
         ("biz_stock_in", "in_no", "P2-IN-%"),
         ("biz_stock_transfer", "transfer_no", "P2-TR-%"),
     ] {
-        let ids = uuids_of(&format!(
-            "SELECT id FROM {table} WHERE {column} LIKE '{prefix}'"
-        ))
-        .await;
+        let ids = uuids_of(&format!("SELECT id FROM {table} WHERE {column} LIKE '{prefix}'")).await;
         if !ids.is_empty() {
-            sql(&format!(
-                "DELETE FROM {table} WHERE id IN ({})",
-                in_uuids(&ids)
-            ))
-            .await;
+            sql(&format!("DELETE FROM {table} WHERE id IN ({})", in_uuids(&ids))).await;
         }
     }
 
     // ---- ③ 夹具角色 / 用户 / 权限节点（`P2-` / `p2.` / `P2I-` / `p2i.` 都是本夹具的号段）----
     // 外键顺序：先删关系，再删主体。
-    let roles =
-        uuids_of("SELECT id FROM sys_role WHERE role_code LIKE 'P2-%' OR role_code LIKE 'P2I-%'")
-            .await;
-    let users =
-        uuids_of("SELECT id FROM sys_user WHERE username LIKE 'p2.%' OR username LIKE 'p2i.%'")
-            .await;
+    let roles = uuids_of("SELECT id FROM sys_role WHERE role_code LIKE 'P2-%' OR role_code LIKE 'P2I-%'").await;
+    let users = uuids_of("SELECT id FROM sys_user WHERE username LIKE 'p2.%' OR username LIKE 'p2i.%'").await;
     if !roles.is_empty() || !users.is_empty() {
         let mut where_parts = Vec::new();
         if !roles.is_empty() {
@@ -238,18 +224,10 @@ pub async fn cleanup() {
                 in_uuids(&roles)
             ))
             .await;
-            sql(&format!(
-                "DELETE FROM sys_role WHERE id IN ({})",
-                in_uuids(&roles)
-            ))
-            .await;
+            sql(&format!("DELETE FROM sys_role WHERE id IN ({})", in_uuids(&roles))).await;
         }
         if !users.is_empty() {
-            sql(&format!(
-                "DELETE FROM sys_user WHERE id IN ({})",
-                in_uuids(&users)
-            ))
-            .await;
+            sql(&format!("DELETE FROM sys_user WHERE id IN ({})", in_uuids(&users))).await;
         }
     }
     let menus = uuids_of(
@@ -263,11 +241,7 @@ pub async fn cleanup() {
             in_uuids(&menus)
         ))
         .await;
-        sql(&format!(
-            "DELETE FROM sys_menu WHERE id IN ({})",
-            in_uuids(&menus)
-        ))
-        .await;
+        sql(&format!("DELETE FROM sys_menu WHERE id IN ({})", in_uuids(&menus))).await;
     }
 }
 
@@ -507,11 +481,7 @@ pub async fn seed_stock_transfer(period: &str, transfer_no: &str, status: &str) 
             stamp(submitted),
             stamp(approved),
             stamp(shipped),
-            if transit {
-                Value::from(&from)
-            } else {
-                Value::Null
-            },
+            if transit { Value::from(&from) } else { Value::Null },
         ],
     )
     .await

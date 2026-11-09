@@ -69,10 +69,7 @@ pub async fn public() -> ResResult<HashMap<String, String>> {
         } else {
             raw
         };
-        if let Some(key) = config
-            .config_key
-            .strip_prefix(constants::PUBLIC_CONFIG_KEY_PREFIX)
-        {
+        if let Some(key) = config.config_key.strip_prefix(constants::PUBLIC_CONFIG_KEY_PREFIX) {
             map.insert(key.to_string(), value);
         }
     }
@@ -93,11 +90,7 @@ pub async fn public() -> ResResult<HashMap<String, String>> {
 /// # 异常情况
 ///
 /// 状态值非法返回 400，数据库异常返回 500。
-#[nik::permission(
-    path = "/support/config/page",
-    method = "GET",
-    permission = "support:config:list"
-)]
+#[nik::permission(path = "/support/config/page", method = "GET", permission = "support:config:list")]
 #[nik::get("/support/config/page")]
 pub async fn page(Query(query): Query<ConfigPageQuery>) -> ResResult<PageData<Vec<ConfigRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
@@ -144,11 +137,7 @@ pub async fn page(Query(query): Query<ConfigPageQuery>) -> ResResult<PageData<Ve
 ///
 /// - 400：ID 格式非法；
 /// - 404：系统参数不存在。
-#[nik::permission(
-    path = "/support/config/{id}",
-    method = "GET",
-    permission = "support:config:list"
-)]
+#[nik::permission(path = "/support/config/{id}", method = "GET", permission = "support:config:list")]
 #[nik::get("/support/config/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<ConfigRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -182,11 +171,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<ConfigRes> {
 /// - 400：参数非法；
 /// - 409：配置键已存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/config",
-    method = "POST",
-    permission = "support:config:create"
-)]
+#[nik::permission(path = "/support/config", method = "POST", permission = "support:config:create")]
 #[nik::post("/support/config")]
 pub async fn create(
     headers: HeaderMap,
@@ -200,11 +185,7 @@ pub async fn create(
         .map_err(|e| utils::db_error(e, "校验配置键唯一性"))?
         > 0
     {
-        return Err(ApiError::new(
-            409,
-            error_code::CONFIG_KEY_EXISTS,
-            "配置键已存在",
-        ));
+        return Err(ApiError::new(409, error_code::CONFIG_KEY_EXISTS, "配置键已存在"));
     }
 
     let mut config = build_model(&req, None, utils::current_user_uuid(&claims))?;
@@ -260,11 +241,7 @@ pub async fn create(
 /// - 404：系统参数不存在；
 /// - 409：配置键与他人重复；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/config/{id}",
-    method = "PUT",
-    permission = "support:config:update"
-)]
+#[nik::permission(path = "/support/config/{id}", method = "PUT", permission = "support:config:update")]
 #[nik::put("/support/config/{id}")]
 pub async fn update(
     Path(id): Path<String>,
@@ -294,11 +271,7 @@ pub async fn update(
             .map_err(|e| utils::db_error(e, "校验配置键唯一性"))?
             > 0
     {
-        return Err(ApiError::new(
-            409,
-            error_code::CONFIG_KEY_EXISTS,
-            "配置键已存在",
-        ));
+        return Err(ApiError::new(409, error_code::CONFIG_KEY_EXISTS, "配置键已存在"));
     }
 
     // 保留创建审计字段，仅更新业务字段
@@ -375,11 +348,7 @@ pub async fn delete(
         .await
         .map_err(|e| utils::db_error(e, "查询待删除系统参数"))?
     else {
-        return Err(ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "系统参数不存在",
-        ));
+        return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "系统参数不存在"));
     };
 
     SysConfigModel::of(id)
@@ -496,11 +465,7 @@ pub async fn reload() -> ResResult<Vec<String>> {
 /// # 返回值
 ///
 /// 统一响应体，`data` 为「枚举名 → 枚举项数组」，结构见 [`crate::shared::enums`]。
-#[nik::permission(
-    path = "/support/config/enums",
-    method = "GET",
-    permission = "support:config:list"
-)]
+#[nik::permission(path = "/support/config/enums", method = "GET", permission = "support:config:list")]
 #[nik::get("/support/config/enums")]
 pub async fn enums() -> Res<crate::shared::enums::EnumsRes> {
     Res::ok(crate::support::config::model::enums())
@@ -551,12 +516,7 @@ fn build_model(
     let config_level = i16::try_from(req.config_level.unwrap_or(2)).unwrap_or(2);
     let is_encrypted = req.is_encrypted.unwrap_or(false);
     // 标记加密的参数在写入前加密，避免明文落库
-    let config_value = match req
-        .config_value
-        .as_deref()
-        .map(str::trim)
-        .map(str::to_string)
-    {
+    let config_value = match req.config_value.as_deref().map(str::trim).map(str::to_string) {
         Some(plain) if is_encrypted => Some(model::encrypt_config_value(&plain)?),
         other => other,
     };
@@ -566,11 +526,7 @@ fn build_model(
         config_key: req.config_key.trim().to_string(),
         config_value,
         config_type,
-        description: req
-            .description
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string),
+        description: req.description.as_deref().map(str::trim).map(str::to_string),
         category: req.category.as_deref().map(str::trim).map(str::to_string),
         sort_order: req.sort_order.unwrap_or(0),
         config_level,
@@ -579,11 +535,7 @@ fn build_model(
         is_restart: req.is_restart.unwrap_or(false),
         status,
         ref_value: req.ref_value.as_deref().map(str::trim).map(str::to_string),
-        select_value: req
-            .select_value
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string),
+        select_value: req.select_value.as_deref().map(str::trim).map(str::to_string),
         created_at: now,
         updated_at: now,
         create_by: operator,

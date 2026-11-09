@@ -144,11 +144,7 @@ pub fn new_token() -> (String, String) {
 pub fn hash_token(raw: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(raw.as_bytes());
-    hasher
-        .finalize()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// 从请求路径里认出「本中间件管的端点」。
@@ -283,11 +279,7 @@ pub async fn guard(request: Request, next: Next) -> Response {
 /// 「拿 A 任务的令牌访问 B 任务」报成「令牌过期」，验收脚本就分不清越权与过期。
 // SCOPE-EXEMPT: 任务令牌校验按 sha256 精确命中单行再回查该任务自身；令牌只可能属于
 // 一个任务，不存在「按用户数据范围过滤」的语义（越权由 task_id 比对拦，见 63303）。
-async fn authenticate(
-    raw: &str,
-    path_task_id: Uuid,
-    target: AiTarget,
-) -> std::result::Result<AiTaskActor, ApiError> {
+async fn authenticate(raw: &str, path_task_id: Uuid, target: AiTarget) -> std::result::Result<AiTaskActor, ApiError> {
     let hash = hash_token(raw);
     let rows = db()
         .find_with_params(
@@ -302,16 +294,10 @@ async fn authenticate(
         .await
         .map_err(|error| {
             tracing::error!(error = %error, "任务令牌查询失败（fail-closed）");
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                "服务器内部错误".to_string(),
-            )
+            ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误".to_string())
         })?;
     let Some(row) = rows.first() else {
-        return Err(token_invalid(
-            "任务令牌无效（可能已被重新派活覆盖或任务已删除）",
-        ));
+        return Err(token_invalid("任务令牌无效（可能已被重新派活覆盖或任务已删除）"));
     };
     let token_task_id: Uuid = row
         .get_typed("task_id")
@@ -336,14 +322,10 @@ async fn authenticate(
             ),
         ));
     }
-    let status: String = row
-        .get_typed("status")
-        .map_err(|_| token_invalid("任务状态读取失败"))?;
+    let status: String = row.get_typed("status").map_err(|_| token_invalid("任务状态读取失败"))?;
     let deleted_at: Option<DateTime<Utc>> = row.get_typed("deleted_at").unwrap_or(None);
     if task_closed(&status, deleted_at.is_some()) {
-        return Err(token_invalid(
-            "任务已结束（已完成 / 已取消 / 已删除），令牌已失效",
-        ));
+        return Err(token_invalid("任务已结束（已完成 / 已取消 / 已删除），令牌已失效"));
     }
     let exec_mode: String = row.get_typed("exec_mode").unwrap_or_default();
     if exec_mode != "AI" {
@@ -400,11 +382,7 @@ mod tests {
     fn classify_accepts_only_the_four_whitelisted_endpoints() {
         let id = "0199f0a0-1111-7000-8000-000000000001";
         for (method, path, expected) in [
-            (
-                "POST",
-                format!("/api/business/task/{id}/comment"),
-                AiTarget::Comment,
-            ),
+            ("POST", format!("/api/business/task/{id}/comment"), AiTarget::Comment),
             (
                 "POST",
                 format!("/api/business/task/{id}/attachment"),
@@ -445,10 +423,7 @@ mod tests {
             ("POST", "/api/system/user".to_string()),
             ("GET", "/api/business/storage/file/page".to_string()),
         ] {
-            assert!(
-                classify(method, &path).is_none(),
-                "{method} {path} 不该命中白名单"
-            );
+            assert!(classify(method, &path).is_none(), "{method} {path} 不该命中白名单");
         }
     }
 

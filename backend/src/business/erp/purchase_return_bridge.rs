@@ -183,9 +183,7 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
             model::mark_back_to_draft(&tx, return_id, Some(&note), approver, now).await?
         };
         if affected == 0 {
-            return Err(DbError::InvalidValue(
-                "采购退货状态在审批回调期间已被改动".to_string(),
-            ));
+            return Err(DbError::InvalidValue("采购退货状态在审批回调期间已被改动".to_string()));
         }
         Ok::<(), DbError>(())
     }
@@ -264,29 +262,16 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 ///
 /// 判据（任一命中即 403）：操作人 == 退货单的 `create_by`（制单人），
 /// 或操作人 == 审批单的 `initiator_id`（发起人）。与本业务无关的待办直接放行。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };

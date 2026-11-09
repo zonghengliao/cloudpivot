@@ -54,8 +54,7 @@ pub fn parse_doc_id(raw: &str) -> std::result::Result<Uuid, ApiError> {
 /// 服务器时区不可控（容器里常常是 UTC），所以**显式**用 +08:00 ——
 /// 单据上印的「打印时间」必须是给中国人看的当地时间。
 pub fn printed_at_now() -> String {
-    let offset =
-        nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
+    let offset = nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
     nik::prelude::chrono::Utc::now()
         .with_timezone(&offset)
         .format("%Y-%m-%d %H:%M")
@@ -64,24 +63,15 @@ pub fn printed_at_now() -> String {
 
 /// 北京时间格式化（附件上传时间等展示字段）。
 pub fn beijing_time(value: &nik::prelude::chrono::DateTime<nik::prelude::chrono::Utc>) -> String {
-    let offset =
-        nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
-    value
-        .with_timezone(&offset)
-        .format("%Y-%m-%d %H:%M")
-        .to_string()
+    let offset = nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
+    value.with_timezone(&offset).format("%Y-%m-%d %H:%M").to_string()
 }
 
 /// 下载名里的单号必须与 URL / `Content-Disposition` 兼容（去掉路径分隔符与控制字符）。
 pub fn sanitize_filename(text: &str) -> String {
     text.chars()
         .map(|ch| {
-            if ch.is_control()
-                || matches!(
-                    ch,
-                    '/' | '\\' | '"' | '\'' | ':' | '*' | '?' | '<' | '>' | '|'
-                )
-            {
+            if ch.is_control() || matches!(ch, '/' | '\\' | '"' | '\'' | ':' | '*' | '?' | '<' | '>' | '|') {
                 '_'
             } else {
                 ch
@@ -104,11 +94,7 @@ pub fn not_found(label: &str) -> ApiError {
 /// `Value::Text("{a,b,c}")` 配 `?::text::uuid[]`；**不用** `Value::Json`
 /// （那会被绑成 jsonb，`::uuid[]` 转不过去）。
 fn uuid_array(ids: &[Uuid]) -> Value {
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     Value::Text(format!("{{{joined}}}"))
 }
 
@@ -137,10 +123,7 @@ pub async fn location_labels_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>>
         .await?;
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows.iter() {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("location_code")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("location_code")?);
     }
     Ok(map)
 }
@@ -168,10 +151,7 @@ pub async fn location_dict_labels_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, Str
         .await?;
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows.iter() {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("location_code")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("location_code")?);
     }
     Ok(map)
 }
@@ -189,10 +169,7 @@ pub async fn warehouse_names_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>>
         .await?;
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows.iter() {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("warehouse_name")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("warehouse_name")?);
     }
     Ok(map)
 }
@@ -210,10 +187,7 @@ pub async fn supplier_names_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>> 
         .await?;
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows.iter() {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("supplier_name")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("supplier_name")?);
     }
     Ok(map)
 }
@@ -231,10 +205,7 @@ pub async fn customer_names_of(ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>> 
         .await?;
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows.iter() {
-        map.insert(
-            row.get_typed::<Uuid>("id")?,
-            row.get_typed::<String>("name")?,
-        );
+        map.insert(row.get_typed::<Uuid>("id")?, row.get_typed::<String>("name")?);
     }
     Ok(map)
 }
@@ -358,17 +329,11 @@ pub async fn write_export_log(entry: &ExportLog<'_>) -> DbResult<()> {
         serde_json::Value::Object(map) => map,
         _ => serde_json::Map::new(),
     };
-    detail.insert(
-        "doc_id".to_string(),
-        serde_json::json!(entry.doc_id.to_string()),
-    );
+    detail.insert("doc_id".to_string(), serde_json::json!(entry.doc_id.to_string()));
     detail.insert("doc_no".to_string(), serde_json::json!(entry.doc_no));
     detail.insert("filename".to_string(), serde_json::json!(entry.filename));
     detail.insert("bytes".to_string(), serde_json::json!(entry.bytes));
-    detail.insert(
-        "duration_ms".to_string(),
-        serde_json::json!(entry.duration_ms),
-    );
+    detail.insert("duration_ms".to_string(), serde_json::json!(entry.duration_ms));
     // `source` 默认写 PDF-03（`write_export_log` 是 PDF-03 起的公共件），
     // 但**调用方传了就以调用方为准** —— 否则 PDF-05 的审批单导出会挂上
     // 「来源 PDF-03」的假标签，审计按来源统计时把单据族串在一起。
@@ -383,11 +348,7 @@ pub async fn write_export_log(entry: &ExportLog<'_>) -> DbResult<()> {
         vec![
             Value::from(&Uuid::now_v7()),
             Value::Text(entry.request_id.to_string()),
-            entry
-                .user_id
-                .as_ref()
-                .map(Value::from)
-                .unwrap_or(Value::Null),
+            entry.user_id.as_ref().map(Value::from).unwrap_or(Value::Null),
             entry
                 .username
                 .map(|name| Value::Text(name.to_string()))
@@ -504,10 +465,7 @@ mod tests {
     async fn empty_ids_short_circuit() {
         for map_len in [
             location_labels_of(&[]).await.expect("空列表直接返回").len(),
-            location_dict_labels_of(&[])
-                .await
-                .expect("空列表直接返回")
-                .len(),
+            location_dict_labels_of(&[]).await.expect("空列表直接返回").len(),
             warehouse_names_of(&[]).await.expect("空列表直接返回").len(),
             supplier_names_of(&[]).await.expect("空列表直接返回").len(),
             customer_names_of(&[]).await.expect("空列表直接返回").len(),
@@ -543,10 +501,7 @@ mod tests {
     /// 下载名净化：路径分隔符 / 引号 / 控制字符一律替换成下划线。
     #[test]
     fn sanitize_filename_strips_path_chars() {
-        assert_eq!(
-            sanitize_filename("HT-20261108-000001"),
-            "HT-20261108-000001"
-        );
+        assert_eq!(sanitize_filename("HT-20261108-000001"), "HT-20261108-000001");
         assert_eq!(sanitize_filename("a/b\\c:d*e?f"), "a_b_c_d_e_f");
         assert_eq!(sanitize_filename("IN\n1"), "IN_1");
     }
@@ -571,15 +526,11 @@ mod tests {
             "EXPORT_CONTRACT_PDF"
         );
         assert_eq!(
-            crate::business::erp::stock_pdf::export_operation(
-                crate::business::pdf::template::StockDocKind::StockIn
-            ),
+            crate::business::erp::stock_pdf::export_operation(crate::business::pdf::template::StockDocKind::StockIn),
             "EXPORT_STOCK_IN_PDF"
         );
         assert_eq!(
-            crate::business::erp::stock_pdf::export_operation(
-                crate::business::pdf::template::StockDocKind::StockOut
-            ),
+            crate::business::erp::stock_pdf::export_operation(crate::business::pdf::template::StockDocKind::StockOut),
             "EXPORT_STOCK_OUT_PDF"
         );
     }

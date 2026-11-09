@@ -276,9 +276,7 @@ pub fn parse_dry_run(raw: Option<&str>) -> std::result::Result<bool, String> {
             match lowered.as_str() {
                 "true" | "1" | "yes" | "on" => Ok(true),
                 "false" | "0" | "no" | "off" => Ok(false),
-                _ => Err(format!(
-                    "dry_run 只接受 true/false（或 1/0、yes/no、on/off）：{text}"
-                )),
+                _ => Err(format!("dry_run 只接受 true/false（或 1/0、yes/no、on/off）：{text}")),
             }
         }
     }
@@ -324,20 +322,14 @@ async fn scan(ex: &impl SqlExecutor, prefix: &str) -> DbResult<AuditReport> {
         });
     }
     report.mismatched = u64::try_from(report.items.len()).unwrap_or(0);
-    report.unfixable =
-        u64::try_from(report.items.iter().filter(|i| !i.fixable).count()).unwrap_or(0);
+    report.unfixable = u64::try_from(report.items.iter().filter(|i| !i.fixable).count()).unwrap_or(0);
     Ok(report)
 }
 
 /// 执行修正（单桶差额调整 + 零桶建档；多桶跳过），返回实际改动行数。
 async fn fix(ex: &impl SqlExecutor, prefix: &str) -> DbResult<u64> {
     // P2-5A：执行也走唯一写入口（SQL 只有一份，报与修不可能各写一套）。
-    inventory_writer::align_cost_qty_batch(
-        ex,
-        AUDIT_CTE,
-        vec![Value::from(prefix), Value::from(prefix)],
-    )
-    .await
+    inventory_writer::align_cost_qty_batch(ex, AUDIT_CTE, vec![Value::from(prefix), Value::from(prefix)]).await
 }
 
 /// 巡检入口（`prefix` = 物料编码过滤，测试用）。
@@ -526,9 +518,7 @@ mod tests {
     /// 巡检（按 `W2C2-` 前缀自校验，不受共享测试库其它夹具影响）。
     async fn audit_prefix(dry_run: bool) -> AuditReport {
         let prefix = format!("{PREFIX}-%");
-        audit_scoped(db(), dry_run, &prefix)
-            .await
-            .expect("巡检执行失败")
+        audit_scoped(db(), dry_run, &prefix).await.expect("巡检执行失败")
     }
 
     async fn book_qty(material_id: &str, warehouse_id: &str) -> Option<Decimal> {
@@ -536,10 +526,7 @@ mod tests {
             .find_with_params(
                 "SELECT qty FROM biz_inventory \
                   WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
-                vec![
-                    Value::from(&uuid(material_id)),
-                    Value::from(&uuid(warehouse_id)),
-                ],
+                vec![Value::from(&uuid(material_id)), Value::from(&uuid(warehouse_id))],
             )
             .await
             .expect("读账面数量");
@@ -553,10 +540,7 @@ mod tests {
     async fn set_buckets(material_id: &str, warehouse_id: &str, buckets: &[(Option<&str>, &str)]) {
         db().execute_with_params(
             "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
-            vec![
-                Value::from(&uuid(material_id)),
-                Value::from(&uuid(warehouse_id)),
-            ],
+            vec![Value::from(&uuid(material_id)), Value::from(&uuid(warehouse_id))],
         )
         .await
         .expect("清空成本账桶");
@@ -587,10 +571,7 @@ mod tests {
                 "SELECT location_id, qty FROM biz_inventory \
                   WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
                   ORDER BY location_id NULLS FIRST",
-                vec![
-                    Value::from(&uuid(material_id)),
-                    Value::from(&uuid(warehouse_id)),
-                ],
+                vec![Value::from(&uuid(material_id)), Value::from(&uuid(warehouse_id))],
             )
             .await
             .expect("读成本账桶");
@@ -633,15 +614,9 @@ mod tests {
         assert_eq!(AUDIT_ROUTE, "/business/erp/inventory/audit");
         // 巡检 SQL 必须同时覆盖两个方向：FULL OUTER JOIN（反向）+ diff 过滤
         let sql = audit_sql();
-        assert!(
-            sql.contains("FULL OUTER JOIN"),
-            "反向巡检靠 FULL OUTER JOIN"
-        );
+        assert!(sql.contains("FULL OUTER JOIN"), "反向巡检靠 FULL OUTER JOIN");
         assert!(sql.contains("<> c.actual_qty"), "只报不一致");
-        assert!(
-            sql.matches("COUNT(*)").count() >= 1,
-            "checked 用一次聚合算出来：{sql}"
-        );
+        assert!(sql.matches("COUNT(*)").count() >= 1, "checked 用一次聚合算出来：{sql}");
         // book_qty 口径：按 (物料, 仓库) 把**所有桶相加**。
         // E2E-03 的 P1（两桶并存时只取未分配桶 → 假差异 + 修复会抹掉库位桶）就死在这条上。
         assert!(
@@ -813,11 +788,7 @@ mod tests {
         let report = audit_prefix(true).await;
         assert_eq!(report.mismatched, 2, "{:?}", report.items);
         assert_eq!(report.fixed, 0, "dry_run 不修");
-        assert_eq!(
-            book_qty(M_SN, W_A).await,
-            Some(Decimal::from(9)),
-            "账面不许被改"
-        );
+        assert_eq!(book_qty(M_SN, W_A).await, Some(Decimal::from(9)), "账面不许被改");
         assert_eq!(book_qty(M_RT, W_B).await, None, "不许被凭空建档");
     }
 
@@ -849,16 +820,8 @@ mod tests {
         assert_eq!(counts, vec![0, 1], "一行为 0 桶（反向建档）、一行为 1 桶（差额调整）");
         assert!(report.items.iter().all(|i| i.fixable && i.unfixable_reason.is_none()));
 
-        assert_eq!(
-            book_qty(M_SN, W_A).await,
-            Some(Decimal::from(3)),
-            "账多 → 改回 3"
-        );
-        assert_eq!(
-            book_qty(M_RT, W_B).await,
-            Some(Decimal::from(1)),
-            "反向 → 建档 1"
-        );
+        assert_eq!(book_qty(M_SN, W_A).await, Some(Decimal::from(3)), "账多 → 改回 3");
+        assert_eq!(book_qty(M_RT, W_B).await, Some(Decimal::from(1)), "反向 → 建档 1");
 
         // 再巡检一次：前缀内必须全绿
         let again = audit_prefix(true).await;
@@ -958,10 +921,7 @@ mod tests {
         // 修完再巡检：仍然报同一条，不许静默吞掉
         let again = audit_prefix(true).await;
         assert_eq!(again.mismatched, 1);
-        assert_eq!(
-            again.items[0].unfixable_reason.as_deref(),
-            Some(UNFIXABLE_MULTI_BUCKET)
-        );
+        assert_eq!(again.items[0].unfixable_reason.as_deref(), Some(UNFIXABLE_MULTI_BUCKET));
     }
 
     /// ⑦-quater **单桶差额语义**：值被推平到 `actual`，金额仍是 `qty × avg_cost`（不覆盖、不丢列）。
@@ -1020,11 +980,7 @@ mod tests {
         for id in SN_IDS {
             let (warehouse, location, _) = serial_row(id).await;
             assert_eq!(warehouse, Some(uuid(W_A)));
-            assert_eq!(
-                location,
-                Some(uuid(IL_A)),
-                "location_id = biz_inventory_location.id"
-            );
+            assert_eq!(location, Some(uuid(IL_A)), "location_id = biz_inventory_location.id");
         }
         let upstream: Option<Uuid> = db()
             .scalar_with_params(
@@ -1111,10 +1067,7 @@ mod tests {
         .expect("改按数量物料账面");
         let report = audit_prefix(true).await;
         assert!(
-            report
-                .items
-                .iter()
-                .all(|i| i.material_code != "W2C2-M-PLAIN"),
+            report.items.iter().all(|i| i.material_code != "W2C2-M-PLAIN"),
             "按数量物料不该进巡检：{:?}",
             report.items
         );

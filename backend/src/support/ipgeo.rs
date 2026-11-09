@@ -190,12 +190,9 @@ async fn query_api(ip: &str) -> Option<String> {
 ///
 /// 状态码为 200 时返回响应体文本，其余情况返回 `None`。
 async fn http_get(path: &str) -> Option<String> {
-    let mut stream = tokio::net::TcpStream::connect((API_HOST, API_PORT))
-        .await
-        .ok()?;
-    let request = format!(
-        "GET {path} HTTP/1.0\r\nHost: {API_HOST}\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
-    );
+    let mut stream = tokio::net::TcpStream::connect((API_HOST, API_PORT)).await.ok()?;
+    let request =
+        format!("GET {path} HTTP/1.0\r\nHost: {API_HOST}\r\nAccept: application/json\r\nConnection: close\r\n\r\n");
     stream.write_all(request.as_bytes()).await.ok()?;
 
     let mut raw = Vec::new();

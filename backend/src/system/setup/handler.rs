@@ -41,21 +41,13 @@ use crate::utils;
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/setup/check",
-    method = "GET",
-    permission = "system:setup:read"
-)]
+#[nik::permission(path = "/system/setup/check", method = "GET", permission = "system:setup:read")]
 #[nik::get("/system/setup/check")]
 pub async fn check() -> ResResult<dto::SetupCheckRes> {
     let roles = model::key_role_status()
         .await
         .map_err(|error| utils::db_error(error, "查询关键角色成员数"))?;
-    let missing = roles
-        .iter()
-        .filter(|role| !role.ready)
-        .cloned()
-        .collect::<Vec<_>>();
+    let missing = roles.iter().filter(|role| !role.ready).cloned().collect::<Vec<_>>();
     Ok(Res::ok(dto::SetupCheckRes {
         all_ready: missing.is_empty(),
         demo_users_enabled: model::demo_users_enabled(),
@@ -88,27 +80,22 @@ pub async fn check() -> ResResult<dto::SetupCheckRes> {
 /// - 400 + `10001`：角色 / 用户 id 不是 UUID，或一个可用用户都没给；
 /// - 404 + `10002`：角色不存在 / 已删除；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/setup/assign",
-    method = "POST",
-    permission = "system:setup:manage"
-)]
+#[nik::permission(path = "/system/setup/assign", method = "POST", permission = "system:setup:manage")]
 #[nik::post("/system/setup/assign")]
 pub async fn assign(Json(req): Json<dto::SetupAssignReq>) -> ResResult<dto::SetupAssignRes> {
     // ① 角色
-    let role =
-        match (req.role_code.as_deref(), req.role_id.as_deref()) {
-            (Some(code), _) if !code.trim().is_empty() => model::find_role_by_code(code.trim())
+    let role = match (req.role_code.as_deref(), req.role_id.as_deref()) {
+        (Some(code), _) if !code.trim().is_empty() => model::find_role_by_code(code.trim())
+            .await
+            .map_err(|error| utils::db_error(error, "按编码查询角色"))?,
+        (_, Some(raw_id)) if !raw_id.trim().is_empty() => {
+            let role_id = utils::require_uuid(raw_id, "role_id")?;
+            model::find_role_by_id(role_id)
                 .await
-                .map_err(|error| utils::db_error(error, "按编码查询角色"))?,
-            (_, Some(raw_id)) if !raw_id.trim().is_empty() => {
-                let role_id = utils::require_uuid(raw_id, "role_id")?;
-                model::find_role_by_id(role_id)
-                    .await
-                    .map_err(|error| utils::db_error(error, "按 id 查询角色"))?
-            }
-            _ => None,
-        };
+                .map_err(|error| utils::db_error(error, "按 id 查询角色"))?
+        }
+        _ => None,
+    };
     let Some((role_id, role_code, role_name)) = role else {
         return Err(ApiError::new(
             404,
@@ -201,9 +188,7 @@ pub async fn assign(Json(req): Json<dto::SetupAssignReq>) -> ResResult<dto::Setu
     permission = "system:setup:manage"
 )]
 #[nik::post("/system/setup/demo-users")]
-pub async fn demo_users(
-    Json(_req): Json<dto::SetupDemoUsersReq>,
-) -> ResResult<dto::SetupDemoUsersRes> {
+pub async fn demo_users(Json(_req): Json<dto::SetupDemoUsersReq>) -> ResResult<dto::SetupDemoUsersRes> {
     if !model::demo_users_enabled() {
         return Err(ApiError::new(
             409,

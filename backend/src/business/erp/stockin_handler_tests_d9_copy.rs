@@ -31,18 +31,12 @@ async fn d9_stockin_copy_creates_draft_with_new_no_and_same_items() {
     let origin = detail_of(origin_id).await.unwrap();
     assert_eq!(origin.header.status, STATUS_POSTED);
 
-    let new_id = copy_stock_in(origin_id, &create_only())
-        .await
-        .expect("复制应成功");
+    let new_id = copy_stock_in(origin_id, &create_only()).await.expect("复制应成功");
     let copied = detail_of(new_id).await.unwrap();
 
     assert_ne!(copied.header.id, origin.header.id);
     assert_ne!(copied.header.in_no, origin.header.in_no, "单号必须是新的");
-    assert!(
-        copied.header.in_no.starts_with("IN-"),
-        "{}",
-        copied.header.in_no
-    );
+    assert!(copied.header.in_no.starts_with("IN-"), "{}", copied.header.in_no);
     assert_eq!(copied.header.status, STATUS_DRAFT, "复制出来的必须是草稿");
     assert_eq!(copied.header.status_label, "草稿");
     assert_eq!(copied.header.supplier_id, origin.header.supplier_id);
@@ -51,10 +45,7 @@ async fn d9_stockin_copy_creates_draft_with_new_no_and_same_items() {
     assert_eq!(copied.header.total_amount, origin.header.total_amount);
     assert_eq!(copied.header.total_tax, origin.header.total_tax);
     assert_eq!(copied.header.total_with_tax, origin.header.total_with_tax);
-    assert_eq!(
-        copied.header.invoice_received,
-        origin.header.invoice_received
-    );
+    assert_eq!(copied.header.invoice_received, origin.header.invoice_received);
     assert_eq!(copied.items.len(), origin.items.len());
     for (new_line, old_line) in copied.items.iter().zip(origin.items.iter()) {
         assert_eq!(new_line.material_id, old_line.material_id);
@@ -65,10 +56,7 @@ async fn d9_stockin_copy_creates_draft_with_new_no_and_same_items() {
         assert_eq!(new_line.location_id, old_line.location_id);
     }
     // 入库日期口径：复制是新的入库动作 → 今天（不沿用原单日期）
-    assert_eq!(
-        copied.header.in_date,
-        crate::business::erp::stockin_dto::today_cst()
-    );
+    assert_eq!(copied.header.in_date, crate::business::erp::stockin_dto::today_cst());
     // 原单没被动：仍是已过账
     let origin_after = detail_of(origin_id).await.unwrap();
     assert_eq!(origin_after.header.status, STATUS_POSTED);
@@ -104,22 +92,13 @@ async fn d9_stockin_copy_clears_purchase_order_id() {
     );
     assert!(copied.header.source_order_no.is_none());
     assert!(
-        copied
-            .items
-            .iter()
-            .all(|line| line.source_item_id.is_none()),
+        copied.items.iter().all(|line| line.source_item_id.is_none()),
         "明细行的 source_item_id 也必须清空"
     );
     // 原单的关联原样保留（复制不改原单）
     let origin_after = detail_of(origin_id).await.unwrap();
-    assert_eq!(
-        origin_after.header.source_order_id,
-        origin.header.source_order_id
-    );
-    assert_eq!(
-        origin_after.items[0].source_item_id,
-        origin.items[0].source_item_id
-    );
+    assert_eq!(origin_after.header.source_order_id, origin.header.source_order_id);
+    assert_eq!(origin_after.items[0].source_item_id, origin.items[0].source_item_id);
 }
 
 /// ③ 已过账原单（有凭证 + 应付）复制后：凭证 / 应付 / 审批实例 / 过账时间全部为空。
@@ -131,20 +110,14 @@ async fn d9_stockin_copy_clears_voucher_payable_and_approval_links() {
     };
     let origin_id = post_new(vec![line(MATERIAL_A, "10", "2", "13")]).await;
     let origin = detail_of(origin_id).await.unwrap();
-    assert!(
-        origin.header.voucher_id.is_some(),
-        "前提：过账要生成进项凭证"
-    );
+    assert!(origin.header.voucher_id.is_some(), "前提：过账要生成进项凭证");
     assert!(origin.header.payable_id.is_some(), "前提：过账要生成应付单");
 
     let new_id = copy_stock_in(origin_id, &create_only()).await.unwrap();
     let copied = detail_of(new_id).await.unwrap();
     assert!(copied.header.voucher_id.is_none(), "凭证关联必须清空");
     assert!(copied.header.payable_id.is_none(), "应付关联必须清空");
-    assert!(
-        copied.header.approval_instance_id.is_none(),
-        "审批实例必须清空"
-    );
+    assert!(copied.header.approval_instance_id.is_none(), "审批实例必须清空");
     assert!(copied.header.posted_at.is_none(), "过账时间必须清空");
     assert!(copied.header.posted_by.is_none());
     assert!(copied.header.cancelled_at.is_none());
@@ -164,22 +137,13 @@ async fn d9_stockin_copy_clears_voucher_payable_and_approval_links() {
         .unwrap();
     let row = rows.first().expect("新单必须存在");
     assert_eq!(row.get_typed::<String>("status").unwrap(), STATUS_DRAFT);
-    assert!(
-        row.get_typed::<bool>("v_null").unwrap(),
-        "voucher_id 必须 NULL"
-    );
-    assert!(
-        row.get_typed::<bool>("p_null").unwrap(),
-        "payable_id 必须 NULL"
-    );
+    assert!(row.get_typed::<bool>("v_null").unwrap(), "voucher_id 必须 NULL");
+    assert!(row.get_typed::<bool>("p_null").unwrap(), "payable_id 必须 NULL");
     assert!(
         row.get_typed::<bool>("a_null").unwrap(),
         "approval_instance_id 必须 NULL"
     );
-    assert!(
-        row.get_typed::<bool>("posted_null").unwrap(),
-        "posted_at 必须 NULL"
-    );
+    assert!(row.get_typed::<bool>("posted_null").unwrap(), "posted_at 必须 NULL");
     assert!(row.get_typed::<bool>("poster_null").unwrap());
     assert!(row.get_typed::<bool>("cancel_null").unwrap());
 }
@@ -203,10 +167,7 @@ async fn d9_stockin_copy_works_when_source_purchase_order_is_gone() {
         "DELETE FROM biz_purchase_order_item WHERE order_id = '{order_id}'::uuid"
     ))
     .await;
-    sql(&format!(
-        "DELETE FROM biz_purchase_order WHERE id = '{order_id}'::uuid"
-    ))
-    .await;
+    sql(&format!("DELETE FROM biz_purchase_order WHERE id = '{order_id}'::uuid")).await;
 
     let new_id = copy_stock_in(origin_id, &create_only())
         .await
@@ -338,10 +299,7 @@ async fn d9_stockin_copy_does_not_touch_origin() {
             )
         })
         .collect();
-    assert_eq!(
-        after_items, before_items,
-        "原单明细行必须原样（id 都不许变）"
-    );
+    assert_eq!(after_items, before_items, "原单明细行必须原样（id 都不许变）");
 }
 
 /// ⑩ 权限：只有 `:list` 码 → 403 且文案点名 create；复制守的码与建单逐字相同。

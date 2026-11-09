@@ -126,9 +126,8 @@ impl PriceResolveQuery {
         };
         let date = match non_empty(self.date.as_deref()) {
             None => crate::business::erp::voucher::today_cst(Utc::now()),
-            Some(text) => NaiveDate::parse_from_str(&text, "%Y-%m-%d").map_err(|err| {
-                bad_request(format!("date 不是合法日期 `{text}`（YYYY-MM-DD）：{err}"))
-            })?,
+            Some(text) => NaiveDate::parse_from_str(&text, "%Y-%m-%d")
+                .map_err(|err| bad_request(format!("date 不是合法日期 `{text}`（YYYY-MM-DD）：{err}")))?,
         };
         Ok(PriceResolveReq {
             customer_id,
@@ -149,14 +148,12 @@ fn non_empty(value: Option<&str>) -> Option<String> {
 
 /// UUID 文本 → `Uuid`；非法 → 400（绝不静默当作「没传」）。
 fn parse_uuid(text: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(text)
-        .map_err(|err| bad_request(format!("{field} 不是合法 UUID `{text}`：{err}")))
+    Uuid::parse_str(text).map_err(|err| bad_request(format!("{field} 不是合法 UUID `{text}`：{err}")))
 }
 
 /// 数量：定点数，**负数一律拒**（负的订购量在取价里没有意义，且会让 `min_qty` 过滤变成全放行）。
 fn parse_qty(text: &str) -> std::result::Result<Decimal, ApiError> {
-    let qty = Decimal::from_str(text)
-        .map_err(|err| bad_request(format!("qty 不是合法数字 `{text}`：{err}")))?;
+    let qty = Decimal::from_str(text).map_err(|err| bad_request(format!("qty 不是合法数字 `{text}`：{err}")))?;
     if qty < Decimal::ZERO {
         return Err(bad_request(format!("qty 不能为负 `{text}`")));
     }
@@ -207,10 +204,7 @@ mod tests {
     /// source 五值必须与 ARCH-7 §15.3.3 逐字一致（差一个字前端就静默不认）。
     #[test]
     fn source_domain_matches_arch7() {
-        assert_eq!(
-            SOURCES,
-            ["AGREED", "TIER_CUSTOMER", "TIER_COMMON", "STANDARD", "NONE"]
-        );
+        assert_eq!(SOURCES, ["AGREED", "TIER_CUSTOMER", "TIER_COMMON", "STANDARD", "NONE"]);
         for code in SOURCES {
             assert!(is_valid_source(code), "{code} 应在白名单内");
         }
@@ -255,9 +249,7 @@ mod tests {
     #[test]
     fn qty_is_required_and_non_negative() {
         for raw in [None, Some(""), Some("-1"), Some("-0.0001"), Some("abc")] {
-            let error = query(Some(CUS), Some(MAT), raw, None)
-                .validate()
-                .unwrap_err();
+            let error = query(Some(CUS), Some(MAT), raw, None).validate().unwrap_err();
             assert_eq!(error.status, 400, "raw={raw:?}");
             assert!(error.msg.contains("qty"), "{}", error.msg);
         }
@@ -274,10 +266,7 @@ mod tests {
         let req = query(Some(CUS), Some(MAT), Some("1"), None)
             .validate()
             .expect("日期可缺省");
-        assert_eq!(
-            req.date,
-            crate::business::erp::voucher::today_cst(Utc::now())
-        );
+        assert_eq!(req.date, crate::business::erp::voucher::today_cst(Utc::now()));
 
         for raw in ["2026-13-01", "2026/03/01", "20260301", "not-a-date"] {
             let error = query(Some(CUS), Some(MAT), Some("1"), Some(raw))
@@ -291,15 +280,11 @@ mod tests {
     /// 非法 UUID → 400 且点名字段（绝不静默当「没传」）。
     #[test]
     fn bad_uuid_is_rejected() {
-        let error = query(None, Some("not-a-uuid"), Some("1"), None)
-            .validate()
-            .unwrap_err();
+        let error = query(None, Some("not-a-uuid"), Some("1"), None).validate().unwrap_err();
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("material_id"), "{}", error.msg);
 
-        let error = query(Some("xyz"), Some(MAT), Some("1"), None)
-            .validate()
-            .unwrap_err();
+        let error = query(Some("xyz"), Some(MAT), Some("1"), None).validate().unwrap_err();
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("customer_id"), "{}", error.msg);
     }

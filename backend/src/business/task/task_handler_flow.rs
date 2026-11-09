@@ -33,11 +33,7 @@ use crate::utils;
 /// - 400 + `10001`：路径里的 id 不是 UUID；
 /// - 404 + `63001`：任务不存在 / 已软删 / 不在可见范围内；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task/{id}/flow",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/{id}/flow", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/{id}/flow")]
 pub async fn flow_of_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -112,11 +108,7 @@ pub async fn flow_of_task(
 ///
 /// - 400 + `10001`：日期 / uuid / scope 取值非法，或窗口倒置 / 超过 366 天；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task/stats",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/stats", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/stats")]
 pub async fn stats(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -124,9 +116,7 @@ pub async fn stats(
 ) -> ResResult<dto::TaskStatsRes> {
     let principal = principal::resolve_for_claims(&claims).await?;
     let end = query.end.unwrap_or_else(model::today_cst);
-    let start = query
-        .start
-        .unwrap_or_else(|| model::stats_default_window(end).0);
+    let start = query.start.unwrap_or_else(|| model::stats_default_window(end).0);
     if let Some(message) = model::stats_window_error(start, end) {
         return Err(param_invalid(message));
     }
@@ -138,9 +128,7 @@ pub async fn stats(
         None | Some("") | Some("all") => None,
         Some("my") => Some(principal.user_id()),
         Some(raw) => {
-            return Err(param_invalid(format!(
-                "scope 取值非法：{raw}（应为 my / all）"
-            )));
+            return Err(param_invalid(format!("scope 取值非法：{raw}（应为 my / all）")));
         }
     };
 

@@ -303,8 +303,7 @@ pub async fn key_role_status() -> DbResult<Vec<KeyRoleStatus>> {
         )
         .await?;
 
-    let mut found: std::collections::HashMap<String, (String, Uuid, i64, i64)> =
-        std::collections::HashMap::new();
+    let mut found: std::collections::HashMap<String, (String, Uuid, i64, i64)> = std::collections::HashMap::new();
     for row in &rows {
         let code: String = row.get_typed("role_code")?;
         found.insert(
@@ -364,8 +363,7 @@ pub async fn find_role_by_code(code: &str) -> DbResult<Option<(Uuid, String, Str
 pub async fn find_role_by_id(role_id: Uuid) -> DbResult<Option<(Uuid, String, String)>> {
     let rows = db()
         .query_sql(
-            "SELECT id, role_code, role_name FROM sys_role WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT id, role_code, role_name FROM sys_role WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&role_id)],
         )
         .await?;
@@ -384,15 +382,10 @@ pub async fn existing_user_ids(user_ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let body = user_ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let body = user_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     let rows = db()
         .query_sql(
-            "SELECT id FROM sys_user WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT id FROM sys_user WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL".to_string(),
             vec![Value::Text(format!("{{{body}}}"))],
         )
         .await?;
@@ -540,18 +533,15 @@ pub async fn seed_demo_users(password: &str) -> DbResult<DemoSeedOutcome> {
 
     // 哈希是 CPU 密集的慢操作，放阻塞线程池（与 bootstrap 的管理员种子同一做法）
     let plain = password.to_string();
-    let hashed = tokio::task::spawn_blocking(move || {
-        Crypto::hash_password(&plain).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| DbError::InvalidValue(format!("演示账号口令哈希任务失败: {e}")))?
-    .map_err(|e| DbError::InvalidValue(format!("演示账号口令哈希失败: {e}")))?;
+    let hashed = tokio::task::spawn_blocking(move || Crypto::hash_password(&plain).map_err(|e| e.to_string()))
+        .await
+        .map_err(|e| DbError::InvalidValue(format!("演示账号口令哈希任务失败: {e}")))?
+        .map_err(|e| DbError::InvalidValue(format!("演示账号口令哈希失败: {e}")))?;
 
     let (dept_id, dept_created) = ensure_demo_dept().await?;
     outcome.dept_created = dept_created;
 
-    let mut user_ids: std::collections::HashMap<&'static str, Uuid> =
-        std::collections::HashMap::new();
+    let mut user_ids: std::collections::HashMap<&'static str, Uuid> = std::collections::HashMap::new();
     // ① 账号（9 个全部落演示部门 —— 「不属演示部门」这个开关已被 t_92234f6b 删除）
     for spec in DEMO_USERS {
         let existing = db()
@@ -613,11 +603,7 @@ pub async fn seed_demo_users(password: &str) -> DbResult<DemoSeedOutcome> {
             "UPDATE sys_dept SET leader_id = ?::uuid, updated_at = now() \
               WHERE id = ?::uuid AND leader_id IS DISTINCT FROM ?::uuid"
                 .to_string(),
-            vec![
-                Value::from(&lead_id),
-                Value::from(&dept_id),
-                Value::from(&lead_id),
-            ],
+            vec![Value::from(&lead_id), Value::from(&dept_id), Value::from(&lead_id)],
         )
         .await?;
     }
@@ -629,19 +615,14 @@ pub async fn seed_demo_users(password: &str) -> DbResult<DemoSeedOutcome> {
     //     ① 会整条跳过 ⇒ 那 4 个 `dept_id IS NULL` 的账号**永远**补不上，N2 继续 WARN；
     //   · `admin` 由 `bootstrap::seed_super_admin` 建，根本不经过 ①。
     // 条件里带 `dept_id IS NULL`：管理员后来手工调整过部门的账号一行都不动（幂等 + 不越权）。
-    let names = dept_required_usernames()
-        .map(ToString::to_string)
-        .collect::<Vec<_>>();
+    let names = dept_required_usernames().map(ToString::to_string).collect::<Vec<_>>();
     let rows = db()
         .query_sql(
             "UPDATE sys_user SET dept_id = ?::uuid, updated_at = now() \
               WHERE dept_id IS NULL AND deleted_at IS NULL AND username = ANY(?::text::text[]) \
              RETURNING username"
                 .to_string(),
-            vec![
-                Value::from(&dept_id),
-                Value::Text(format!("{{{}}}", names.join(","))),
-            ],
+            vec![Value::from(&dept_id), Value::Text(format!("{{{}}}", names.join(",")))],
         )
         .await?;
     for row in &rows {
@@ -681,10 +662,7 @@ mod tests {
     /// ② 演示账号清单覆盖卡面 8 个 + 总经理，且登录名唯一
     #[test]
     fn demo_users_are_unique_and_cover_card() {
-        let names = DEMO_USERS
-            .iter()
-            .map(|user| user.username)
-            .collect::<Vec<_>>();
+        let names = DEMO_USERS.iter().map(|user| user.username).collect::<Vec<_>>();
         let unique: std::collections::HashSet<_> = names.iter().collect();
         assert_eq!(unique.len(), names.len(), "演示登录名必须唯一");
         for card in [
@@ -706,13 +684,9 @@ mod tests {
     #[test]
     fn every_key_role_has_a_demo_owner() {
         for role in KEY_ROLES {
-            let covered = DEMO_USERS
-                .iter()
-                .any(|user| user.role_codes.contains(&role.role_code));
+            let covered = DEMO_USERS.iter().any(|user| user.role_codes.contains(&role.role_code));
             assert!(covered, "关键角色 {} 没有演示账号覆盖", role.role_code);
-            let named = DEMO_USERS
-                .iter()
-                .any(|user| user.username == role.demo_username);
+            let named = DEMO_USERS.iter().any(|user| user.username == role.demo_username);
             assert!(
                 named,
                 "关键角色 {} 建议的演示账号 {} 不在清单里",
@@ -724,10 +698,7 @@ mod tests {
     /// ④ 关键角色清单必须含卡面 5 个 + 总经理（少一个就还有链跑不通）
     #[test]
     fn key_roles_cover_all_flow_gates() {
-        let codes = KEY_ROLES
-            .iter()
-            .map(|role| role.role_code)
-            .collect::<Vec<_>>();
+        let codes = KEY_ROLES.iter().map(|role| role.role_code).collect::<Vec<_>>();
         for code in [
             "SALES_SUPERVISOR",
             "PURCHASE_MANAGER",
@@ -745,10 +716,7 @@ mod tests {
     ///    且**9 个账号全部在部门里**（t_92234f6b：「不属演示部门」的口子已经删掉）
     #[test]
     fn demo_dept_holds_every_account_with_one_leader() {
-        let leaders = DEMO_USERS
-            .iter()
-            .filter(|user| user.username == "demo_lead")
-            .count();
+        let leaders = DEMO_USERS.iter().filter(|user| user.username == "demo_lead").count();
         assert_eq!(leaders, 1, "演示部门的负责人只能是 demo_lead");
         let members = dept_required_usernames()
             .filter(|name| *name != crate::shared::constants::ADMIN_USERNAME)
@@ -777,11 +745,7 @@ mod tests {
             "admin 没有部门 ⇒ N2 照样 WARN（本卡现象①）"
         );
         for user in DEMO_USERS {
-            assert!(
-                names.contains(&user.username),
-                "{} 不在补漏名单里",
-                user.username
-            );
+            assert!(names.contains(&user.username), "{} 不在补漏名单里", user.username);
         }
     }
 

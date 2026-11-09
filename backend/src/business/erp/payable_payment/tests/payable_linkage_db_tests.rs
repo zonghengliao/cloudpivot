@@ -200,11 +200,7 @@ async fn pay(payable_id: Uuid, amount: &str) {
 }
 
 /// 引擎上下文（反证用：不传排除清单时规则到底读不读得到）。
-fn ctx_of<'a>(
-    payable_id: Uuid,
-    payable_no: &'a str,
-    status: &'a str,
-) -> linkage::LinkageContext<'a> {
+fn ctx_of<'a>(payable_id: Uuid, payable_no: &'a str, status: &'a str) -> linkage::LinkageContext<'a> {
     linkage::LinkageContext::new(
         state_machine::ENTITY_PAYABLE,
         status,
@@ -261,14 +257,8 @@ async fn full_payment_settles_and_triggers_notice_once() {
         "应付单已结清",
         "标题来自触发点基稿（目标态中文名），不是配置凭空生成"
     );
-    assert_eq!(
-        notice.get_typed::<String>("biz_type").expect("biz_type"),
-        "PAYABLE"
-    );
-    assert_eq!(
-        notice.get_typed::<String>("biz_id").expect("biz_id"),
-        id.to_string()
-    );
+    assert_eq!(notice.get_typed::<String>("biz_type").expect("biz_type"), "PAYABLE");
+    assert_eq!(notice.get_typed::<String>("biz_id").expect("biz_id"), id.to_string());
     assert!(
         notice
             .get_typed::<String>("link_url")
@@ -345,10 +335,7 @@ async fn second_partial_payment_does_not_trigger_again() {
     // 第二期仍是 PARTIAL_PAID（30 + 30 = 60 < 100）：状态没变 → 不许再触发一次联动
     pay(id, "30").await;
     let row = row_of(id).await;
-    assert_eq!(
-        row.status, "PARTIAL_PAID",
-        "前提：60/100 仍是部分已付（状态没变）"
-    );
+    assert_eq!(row.status, "PARTIAL_PAID", "前提：60/100 仍是部分已付（状态没变）");
     assert_eq!(row.paid_amount, dec("60"), "两期累计 60（每期只扣一次）");
     assert_eq!(row.unpaid_amount, dec("40"));
     assert_eq!(

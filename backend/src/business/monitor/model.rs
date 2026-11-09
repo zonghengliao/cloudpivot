@@ -51,17 +51,11 @@ pub async fn collect() -> ServerStatusRes {
 async fn collect_cpu() -> CpuRes {
     let cores = std::thread::available_parallelism().map_or(0, |n| n.get() as u32);
     let Some(prev) = read_cpu_times().await else {
-        return CpuRes {
-            percent: 0.0,
-            cores,
-        };
+        return CpuRes { percent: 0.0, cores };
     };
     tokio::time::sleep(CPU_SAMPLE_INTERVAL).await;
     let Some(curr) = read_cpu_times().await else {
-        return CpuRes {
-            percent: 0.0,
-            cores,
-        };
+        return CpuRes { percent: 0.0, cores };
     };
     CpuRes {
         percent: round1(cpu_percent(prev, curr)),
@@ -91,10 +85,7 @@ async fn collect_memory() -> UsageRes {
 
 /// 采集根分区磁盘使用情况（`df -P -k /`，失败降级为 0）。
 fn collect_disk() -> UsageRes {
-    let Ok(output) = std::process::Command::new("df")
-        .args(["-P", "-k", "/"])
-        .output()
-    else {
+    let Ok(output) = std::process::Command::new("df").args(["-P", "-k", "/"]).output() else {
         return UsageRes::default();
     };
     if !output.status.success() {
@@ -170,10 +161,7 @@ async fn collect_redis() -> RedisRes {
 async fn fetch_redis_info(url: &str) -> Option<String> {
     let client = redis::Client::open(url).ok()?;
     let mut conn = client.get_multiplexed_async_connection().await.ok()?;
-    redis::cmd("INFO")
-        .query_async::<String>(&mut conn)
-        .await
-        .ok()
+    redis::cmd("INFO").query_async::<String>(&mut conn).await.ok()
 }
 
 // ==================== 纯逻辑（含单测） ====================
@@ -251,11 +239,7 @@ pub fn parse_meminfo(text: &str) -> Option<MemSnapshot> {
         let Some((key, rest)) = line.split_once(':') else {
             continue;
         };
-        let Some(value) = rest
-            .split_whitespace()
-            .next()
-            .and_then(|v| v.parse::<u64>().ok())
-        else {
+        let Some(value) = rest.split_whitespace().next().and_then(|v| v.parse::<u64>().ok()) else {
             continue;
         };
         match key.trim() {
@@ -418,14 +402,8 @@ mod tests {
 
     #[test]
     fn cpu_percent_normal_and_zero_delta() {
-        let prev = CpuTimes {
-            busy: 100,
-            total: 1000,
-        };
-        let curr = CpuTimes {
-            busy: 200,
-            total: 2000,
-        };
+        let prev = CpuTimes { busy: 100, total: 1000 };
+        let curr = CpuTimes { busy: 200, total: 2000 };
         assert_eq!(cpu_percent(prev, curr), 10.0);
 
         // 边界：两次快照完全相同 → 不 panic，返回 0

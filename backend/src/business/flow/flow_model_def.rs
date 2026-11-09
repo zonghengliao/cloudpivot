@@ -58,10 +58,7 @@ pub async fn page_defs(filter: &DefFilter, page: u64, page_size: u64) -> DbResul
     page_params.push(Value::from(((page.saturating_sub(1)) * page_size) as i64));
 
     let rows = db().find_with_params(&sql, page_params).await?;
-    let list = rows
-        .iter()
-        .map(DefRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let list = rows.iter().map(DefRow::from_row).collect::<DbResult<Vec<_>>>()?;
     Ok(DefPage {
         list,
         total: total.max(0) as u64,
@@ -256,8 +253,7 @@ pub async fn template_condition_labels() -> DbResult<Vec<(Uuid, String)>> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn find_def(id: Uuid) -> DbResult<Option<DefRow>> {
-    let sql =
-        format!("SELECT {DEF_COLUMNS}{DEF_FROM} WHERE d.id = ?::uuid AND d.deleted_at IS NULL");
+    let sql = format!("SELECT {DEF_COLUMNS}{DEF_FROM} WHERE d.id = ?::uuid AND d.deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(DefRow::from_row).transpose()
 }
@@ -268,9 +264,7 @@ pub async fn find_def(id: Uuid) -> DbResult<Option<DefRow>> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn flow_code_taken(code: &str, exclude: Option<Uuid>) -> DbResult<bool> {
-    let mut sql = String::from(
-        "SELECT count(*) AS total FROM biz_flow_def WHERE flow_code = ? AND deleted_at IS NULL",
-    );
+    let mut sql = String::from("SELECT count(*) AS total FROM biz_flow_def WHERE flow_code = ? AND deleted_at IS NULL");
     let mut params = vec![Value::Text(code.to_string())];
     if let Some(id) = exclude {
         sql.push_str(" AND id <> ?::uuid");
@@ -312,12 +306,8 @@ pub async fn find_version_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn versions_of(def_id: Uuid) -> DbResult<Vec<VersionRow>> {
-    let sql = format!(
-        "SELECT {VERSION_COLUMNS}{VERSION_FROM} WHERE v.def_id = ?::uuid ORDER BY v.version_no DESC"
-    );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&def_id)])
-        .await?;
+    let sql = format!("SELECT {VERSION_COLUMNS}{VERSION_FROM} WHERE v.def_id = ?::uuid ORDER BY v.version_no DESC");
+    let rows = db().find_with_params(&sql, vec![Value::from(&def_id)]).await?;
     rows.iter().map(VersionRow::from_row).collect()
 }
 
@@ -332,9 +322,7 @@ pub async fn latest_draft(def_id: Uuid) -> DbResult<Option<VersionRow>> {
           WHERE v.def_id = ?::uuid AND v.version_status = 'DRAFT' \
           ORDER BY v.version_no DESC LIMIT 1"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&def_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&def_id)]).await?;
     rows.first().map(VersionRow::from_row).transpose()
 }
 
@@ -346,8 +334,7 @@ pub async fn latest_draft(def_id: Uuid) -> DbResult<Option<VersionRow>> {
 pub async fn biz_type_of(ex: &impl SqlExecutor, def_id: Uuid) -> DbResult<Option<String>> {
     let rows = ex
         .query_sql(
-            "SELECT biz_type FROM biz_flow_def WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT biz_type FROM biz_flow_def WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&def_id)],
         )
         .await?;
@@ -362,11 +349,7 @@ pub async fn biz_type_of(ex: &impl SqlExecutor, def_id: Uuid) -> DbResult<Option
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn clear_default_of_biz_type(
-    ex: &impl SqlExecutor,
-    biz_type: &str,
-    keep: Uuid,
-) -> DbResult<u64> {
+pub async fn clear_default_of_biz_type(ex: &impl SqlExecutor, biz_type: &str, keep: Uuid) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE biz_flow_def SET is_default = FALSE, updated_at = now() \
           WHERE biz_type = ? AND deleted_at IS NULL AND is_default AND id <> ?::uuid"
@@ -592,11 +575,8 @@ pub async fn touch_version(
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn find_def_by_code(code: &str) -> DbResult<Option<DefRow>> {
-    let sql =
-        format!("SELECT {DEF_COLUMNS}{DEF_FROM} WHERE d.flow_code = ? AND d.deleted_at IS NULL");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::Text(code.to_string())])
-        .await?;
+    let sql = format!("SELECT {DEF_COLUMNS}{DEF_FROM} WHERE d.flow_code = ? AND d.deleted_at IS NULL");
+    let rows = db().find_with_params(&sql, vec![Value::Text(code.to_string())]).await?;
     rows.first().map(DefRow::from_row).transpose()
 }
 
@@ -622,10 +602,7 @@ pub async fn default_def_of_biz_type(biz_type: &str) -> DbResult<Option<DefRow>>
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn default_def_of_biz_type_in(
-    ex: &impl SqlExecutor,
-    biz_type: &str,
-) -> DbResult<Option<DefRow>> {
+pub async fn default_def_of_biz_type_in(ex: &impl SqlExecutor, biz_type: &str) -> DbResult<Option<DefRow>> {
     let sql = format!(
         "SELECT {DEF_COLUMNS}{DEF_FROM} \
           WHERE d.biz_type = ? AND d.deleted_at IS NULL AND d.status = 'PUBLISHED' \

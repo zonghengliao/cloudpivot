@@ -94,11 +94,7 @@ fn doc_kinds_cover_five_distinct_tables() {
     let mut tables: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.table()).collect();
     tables.sort_unstable();
     tables.dedup();
-    assert_eq!(
-        tables.len(),
-        16,
-        "十六类单据必须落在十六张不同的表上：{tables:?}"
-    );
+    assert_eq!(tables.len(), 16, "十六类单据必须落在十六张不同的表上：{tables:?}");
     for kind in DocKind::ALL {
         // 字面值与 DDL 的 ck_biz_doc_attachment_type 逐字一致
         assert_eq!(
@@ -117,13 +113,7 @@ fn doc_kinds_cover_five_distinct_tables() {
     assert_eq!(DocKind::parse("BILL"), None);
     assert_eq!(DocKind::parse(""), None);
     // ATT-06 新增的 5 类必须可回解析（附件要能挂到它们上）
-    for raw in [
-        "INVOICE",
-        "RECEIPT",
-        "STOCK_TAKE",
-        "PURCHASE_RETURN",
-        "SALES_RETURN",
-    ] {
+    for raw in ["INVOICE", "RECEIPT", "STOCK_TAKE", "PURCHASE_RETURN", "SALES_RETURN"] {
         let kind = DocKind::parse(raw).unwrap_or_else(|| panic!("{raw} 必须可解析"));
         assert_eq!(kind.as_str(), raw);
     }
@@ -206,27 +196,15 @@ fn file_roles_parse_and_default() {
     assert_eq!(FileRole::parse(Some("   ")), Some(FileRole::Default));
 
     // 老值归一（ATT-04）：INVOICE → INVOICE_SCAN、OTHER → DEFAULT，写库只写规范值
-    assert_eq!(
-        FileRole::parse(Some("invoice")),
-        Some(FileRole::InvoiceScan)
-    );
-    assert_eq!(
-        FileRole::parse(Some("INVOICE")),
-        Some(FileRole::InvoiceScan)
-    );
+    assert_eq!(FileRole::parse(Some("invoice")), Some(FileRole::InvoiceScan));
+    assert_eq!(FileRole::parse(Some("INVOICE")), Some(FileRole::InvoiceScan));
     assert_eq!(FileRole::parse(Some("other")), Some(FileRole::Default));
     assert_eq!(FileRole::InvoiceScan.as_str(), "INVOICE_SCAN");
     assert_eq!(FileRole::Default.as_str(), "DEFAULT");
 
     // 小写 / 去空白都能用（前端大小写不一致不挡人）
-    assert_eq!(
-        FileRole::parse(Some(" supplement ")),
-        Some(FileRole::Supplement)
-    );
-    assert_eq!(
-        FileRole::parse(Some("Bank_Receipt")),
-        Some(FileRole::BankReceipt)
-    );
+    assert_eq!(FileRole::parse(Some(" supplement ")), Some(FileRole::Supplement));
+    assert_eq!(FileRole::parse(Some("Bank_Receipt")), Some(FileRole::BankReceipt));
 
     // 典型的「写错」：CONTRACT_SCANNED / SIGN 都不能被猜成 SCAN / RECEIPT
     assert_eq!(FileRole::parse(Some("CONTRACT_SCANNED")), None);
@@ -324,29 +302,15 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     };
     assert_eq!(
         codes(DocKind::Supplier),
-        vec![
-            "BIZ_LICENSE",
-            "BANK_ACCOUNT_PERMIT",
-            "QUALIFICATION",
-            "DEFAULT"
-        ]
+        vec!["BIZ_LICENSE", "BANK_ACCOUNT_PERMIT", "QUALIFICATION", "DEFAULT"]
     );
-    assert_eq!(
-        codes(DocKind::Customer),
-        vec!["BIZ_LICENSE", "CREDIT_FILE", "DEFAULT"]
-    );
+    assert_eq!(codes(DocKind::Customer), vec!["BIZ_LICENSE", "CREDIT_FILE", "DEFAULT"]);
     assert_eq!(
         codes(DocKind::PurchaseOrder),
         vec!["QUOTATION", "CUSTOMER_PO", "DEFAULT"]
     );
-    assert_eq!(
-        codes(DocKind::StockTransfer),
-        vec!["TRANSFER_APPROVAL", "DEFAULT"]
-    );
-    assert_eq!(
-        codes(DocKind::OpeningBalance),
-        vec!["OPENING_EVIDENCE", "DEFAULT"]
-    );
+    assert_eq!(codes(DocKind::StockTransfer), vec!["TRANSFER_APPROVAL", "DEFAULT"]);
+    assert_eq!(codes(DocKind::OpeningBalance), vec!["OPENING_EVIDENCE", "DEFAULT"]);
     assert_eq!(codes(DocKind::Receipt), vec!["BANK_RECEIPT", "DEFAULT"]);
 
     // ⑦ TO-DTO：file_role_label 也要用归一后的中文名（tag 与分组标题同一份词表）
@@ -370,18 +334,17 @@ fn fixture_item(file_role: &str) -> dto::DocAttachmentItemRes {
 /// 上传元信息：doc_id 必须是 UUID，缺字段直接 400（不是 500）。
 #[test]
 fn upload_meta_rejects_missing_or_bad_ids() {
-    let error =
-        dto::parse_upload_meta(Some("CONTRACT"), None, None, None).expect_err("缺 doc_id 必须被拒");
+    let error = dto::parse_upload_meta(Some("CONTRACT"), None, None, None).expect_err("缺 doc_id 必须被拒");
     assert_eq!(error.status, 400);
     assert!(error.msg.contains("doc_id"), "{}", error.msg);
 
-    let error = dto::parse_upload_meta(Some("CONTRACT"), Some("not-a-uuid"), None, None)
-        .expect_err("非法 UUID 必须被拒");
+    let error =
+        dto::parse_upload_meta(Some("CONTRACT"), Some("not-a-uuid"), None, None).expect_err("非法 UUID 必须被拒");
     assert_eq!(error.status, 400);
     assert!(error.msg.contains("不是合法 UUID"), "{}", error.msg);
 
-    let error = dto::parse_upload_meta(Some("CONTRACTS"), Some(DOC_CONTRACT), None, None)
-        .expect_err("未知 doc_type 必须被拒");
+    let error =
+        dto::parse_upload_meta(Some("CONTRACTS"), Some(DOC_CONTRACT), None, None).expect_err("未知 doc_type 必须被拒");
     assert_eq!(error.status, 400);
     // 消息里必须列出可选值，前端写错时能直接看到正确值
     assert!(error.msg.contains("PURCHASE_ORDER"), "{}", error.msg);
@@ -397,8 +360,7 @@ fn upload_meta_rejects_missing_or_bad_ids() {
     assert_eq!(meta.file_role, FileRole::SignReceipt);
     assert_eq!(meta.remark.as_deref(), Some("签收单"));
     // 空备注归一为 None（列可空，不用空串占位）
-    let meta = dto::parse_upload_meta(Some("CONTRACT"), Some(DOC_CONTRACT), None, Some("  "))
-        .expect("空备注必须放行");
+    let meta = dto::parse_upload_meta(Some("CONTRACT"), Some(DOC_CONTRACT), None, Some("  ")).expect("空备注必须放行");
     assert!(meta.remark.is_none());
 }
 
@@ -442,10 +404,7 @@ fn display_name_never_leaks_object_key() {
         model::display_name(Some("合同扫描件.pdf"), "2026/11/03/abc.pdf"),
         "合同扫描件.pdf"
     );
-    assert_eq!(
-        model::display_name(Some("   "), "2026/11/03/abc.pdf"),
-        "abc.pdf"
-    );
+    assert_eq!(model::display_name(Some("   "), "2026/11/03/abc.pdf"), "abc.pdf");
     assert_eq!(model::display_name(None, "2026/11/03/abc.pdf"), "abc.pdf");
     assert_eq!(model::display_name(None, ""), "");
 }
@@ -490,10 +449,7 @@ fn doc_not_found_message_names_the_kind() {
 fn view_permissions_map_to_erp_read_codes() {
     let expected: [(DocKind, &[&str]); 16] = [
         (DocKind::Contract, &["business:erp:contract:list"]),
-        (
-            DocKind::PurchaseOrder,
-            &["business:erp:purchase-order:list"],
-        ),
+        (DocKind::PurchaseOrder, &["business:erp:purchase-order:list"]),
         (
             DocKind::StockIn,
             &["business:erp:stock-in:list", "business:erp:stock-in:detail"],
@@ -526,16 +482,10 @@ fn view_permissions_map_to_erp_read_codes() {
         ),
         (
             DocKind::StockTake,
-            &[
-                "business:erp:stock-take:list",
-                "business:erp:stock-take:detail",
-            ],
+            &["business:erp:stock-take:list", "business:erp:stock-take:detail"],
         ),
         // 采购退货 / 销售退货没有独立的 GET 详情路由（`GET {id}` 也挂 `:list`）
-        (
-            DocKind::PurchaseReturn,
-            &["business:erp:purchase-return:list"],
-        ),
+        (DocKind::PurchaseReturn, &["business:erp:purchase-return:list"]),
         (DocKind::SalesReturn, &["business:erp:sales-return:list"]),
         // ATT-11：调拨单（列表 / 详情）、供应商 / 客户（列表）、期初（读码）
         (
@@ -548,12 +498,7 @@ fn view_permissions_map_to_erp_read_codes() {
     ];
     assert_eq!(expected.len(), DocKind::ALL.len(), "十六类单据必须全覆盖");
     for (kind, codes) in expected {
-        assert_eq!(
-            kind.view_permissions(),
-            codes,
-            "{} 的模块读码漂移了",
-            kind.label()
-        );
+        assert_eq!(kind.view_permissions(), codes, "{} 的模块读码漂移了", kind.label());
         for code in codes {
             // 形态 `business:erp:{资源}:{动作}`（模块前缀本身带冒号），且全小写
             assert!(
@@ -609,11 +554,7 @@ fn can_view_doc_truth_table() {
         "只有附件码（能用附件功能）不等于能看这张单"
     );
     for kind in DocKind::ALL {
-        assert!(
-            !dto::can_view_doc(&attachment_only, kind),
-            "{}",
-            kind.label()
-        );
+        assert!(!dto::can_view_doc(&attachment_only, kind), "{}", kind.label());
         assert!(!dto::can_view_doc(&nobody, kind), "{}", kind.label());
         // 超管短路（框架的 has_any_permission）
         assert!(dto::can_view_doc(&wildcard, kind), "{}", kind.label());
@@ -719,11 +660,7 @@ fn upload_preflight_forbids_blind_upload_before_existence_check() {
             error.msg
         );
         // 消息里不得出现 id / 文件名 / 「不存在」这类会泄露存在性的事实
-        assert!(
-            !error.msg.contains(doc_id),
-            "403 消息不得回显 doc_id：{}",
-            error.msg
-        );
+        assert!(!error.msg.contains(doc_id), "403 消息不得回显 doc_id：{}", error.msg);
         assert!(!error.msg.contains("不存在"), "{}", error.msg);
         messages.push(error.msg);
     }
@@ -746,13 +683,10 @@ fn upload_preflight_forbids_blind_upload_before_existence_check() {
     assert_eq!(ok.remark.as_deref(), Some("合同扫描件"));
 
     // ④ 有应付单读码 → 也放行（存在性判定由 handler 负责）
-    assert!(
-        dto::preflight_upload(&payable, Some("PAYABLE"), Some(DOC_PAYABLE), None, None).is_ok()
-    );
+    assert!(dto::preflight_upload(&payable, Some("PAYABLE"), Some(DOC_PAYABLE), None, None).is_ok());
 
     // ⑤ 白名单外的 doc_type 之上再叠非法 doc_id：仍然是 400（先判字段）
-    let error = dto::preflight_upload(&blind, Some("NOT_A_DOC"), Some("bad"), None, None)
-        .expect_err("字段非法优先");
+    let error = dto::preflight_upload(&blind, Some("NOT_A_DOC"), Some("bad"), None, None).expect_err("字段非法优先");
     assert_eq!(error.status, 400);
 
     println!("[ATT-04] 上传前置：400 先于 403；无读码时任意 id 均同一份 403（无可探测位）✓");
@@ -812,10 +746,7 @@ fn can_delete_requires_doc_read_for_the_delete_code_branch() {
     // 无属主历史行：只有 delete 码能删，且同样要看读码
     assert!(!dto::can_delete(&deleter, None, false));
     assert!(dto::can_delete(&deleter, None, true));
-    assert!(
-        !dto::can_delete(&owner, None, true),
-        "上传人不是属主时不能删无主行"
-    );
+    assert!(!dto::can_delete(&owner, None, true), "上传人不是属主时不能删无主行");
 
     // 超管：两个短路都要生效（has_permission("*") + has_any_permission("*")）
     assert!(dto::can_delete(
@@ -849,8 +780,7 @@ fn download_log_fields() {
     let claims = claims_of(U_OWNER, &["business:erp:payable:list"]);
     let row = fixture_row();
 
-    let entry =
-        super::handler::download_log(&headers, &connect, &claims, &row, DocKind::Payable, 7);
+    let entry = super::handler::download_log(&headers, &connect, &claims, &row, DocKind::Payable, 7);
 
     assert_eq!(entry.operation, super::handler::OP_DOWNLOAD);
     assert_eq!(entry.target_type.as_deref(), Some("DocAttachment"));
@@ -864,10 +794,7 @@ fn download_log_fields() {
     assert_eq!(entry.duration_ms, Some(7));
     // 操作人（谁）
     assert_eq!(entry.user_id, Some(uid(U_OWNER)));
-    assert_eq!(
-        entry.username.as_deref(),
-        Some(&*format!("att_{}", &U_OWNER[..8]))
-    );
+    assert_eq!(entry.username.as_deref(), Some(&*format!("att_{}", &U_OWNER[..8])));
     // 请求上下文与其它日志同源
     assert_eq!(entry.request_id, "req-att02-1");
     assert_eq!(entry.user_agent.as_deref(), Some("att02-test/1.0"));
@@ -876,10 +803,7 @@ fn download_log_fields() {
     let detail = entry.detail.as_ref().expect("detail 必须有");
     assert_eq!(detail["doc_type"], serde_json::json!("PAYABLE"));
     assert_eq!(detail["doc_id"], serde_json::json!(row.doc_id.to_string()));
-    assert_eq!(
-        detail["file_id"],
-        serde_json::json!(row.file_id.to_string())
-    );
+    assert_eq!(detail["file_id"], serde_json::json!(row.file_id.to_string()));
     assert_eq!(detail["file_name"], serde_json::json!("发票影像.pdf"));
     assert_eq!(detail["file_size"], serde_json::json!(2048));
     assert_eq!(detail["file_role"], serde_json::json!("INVOICE_SCAN"));
@@ -913,14 +837,8 @@ fn fixture_row() -> model::DocAttachmentRow {
 /// `at` 解析：缺省 / 空串 → `SUBMIT`，大小写不敏感，未知值 400（不静默回落）。
 #[test]
 fn check_parse_required_at() {
-    assert_eq!(
-        dto::parse_required_at(None).expect("缺省"),
-        RequiredAt::Submit
-    );
-    assert_eq!(
-        dto::parse_required_at(Some("  ")).expect("空串"),
-        RequiredAt::Submit
-    );
+    assert_eq!(dto::parse_required_at(None).expect("缺省"), RequiredAt::Submit);
+    assert_eq!(dto::parse_required_at(Some("  ")).expect("空串"), RequiredAt::Submit);
     assert_eq!(
         dto::parse_required_at(Some("confirm")).expect("小写"),
         RequiredAt::Confirm
@@ -956,12 +874,7 @@ fn check_res_shape_matches_card_contract() {
         remark: Some("发票影像".to_string()),
     };
     let violation = att_rule::evaluate(&rule, &[]).expect("没有附件必须违例");
-    let res = dto::to_check_res(
-        DocKind::Invoice,
-        uid(DOC_INVOICE),
-        RequiredAt::Submit,
-        &[violation],
-    );
+    let res = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &[violation]);
     assert!(!res.can_proceed);
     assert_eq!(res.doc_type, "INVOICE");
     assert_eq!(res.doc_id, DOC_INVOICE);
@@ -981,10 +894,7 @@ fn check_res_shape_matches_card_contract() {
     assert_eq!(missing.role_label, "发票影像");
     // 红字与 400 报文（同源）
     assert_eq!(missing.hint, "缺少发票影像（需 pdf/ofd/xml 格式）");
-    assert_eq!(
-        res.hint.as_deref(),
-        Some("缺少发票影像（需 pdf/ofd/xml 格式）")
-    );
+    assert_eq!(res.hint.as_deref(), Some("缺少发票影像（需 pdf/ofd/xml 格式）"));
     assert!(
         res.message
             .as_deref()
@@ -1019,12 +929,7 @@ fn check_can_proceed_iff_no_missing() {
         ext: "pdf".to_string(),
     }];
     let violation = att_rule::evaluate(&rule, &facts).expect("只传 1 个、要 2 个 → 违例");
-    let res = dto::to_check_res(
-        DocKind::Invoice,
-        uid(DOC_INVOICE),
-        RequiredAt::Submit,
-        &[violation],
-    );
+    let res = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &[violation]);
     assert_eq!(res.can_proceed, res.missing.is_empty());
     assert!(!res.can_proceed);
 
@@ -1036,23 +941,12 @@ fn check_can_proceed_iff_no_missing() {
     second.remark = Some("银行回单".to_string());
     let first = att_rule::evaluate(&rule, &[]).expect("缺一");
     let second = att_rule::evaluate(&second, &[]).expect("缺二");
-    let res = dto::to_check_res(
-        DocKind::Invoice,
-        uid(DOC_INVOICE),
-        RequiredAt::Submit,
-        &[first, second],
-    );
+    let res = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &[first, second]);
     let hint = res.hint.expect("有缺口就有红字");
     assert!(hint.contains('；'), "多条红字用中文分号连接：{hint}");
-    assert!(
-        hint.contains("发票影像") && hint.contains("银行回单"),
-        "{hint}"
-    );
+    assert!(hint.contains("发票影像") && hint.contains("银行回单"), "{hint}");
     let message = res.message.expect("有缺口就有报文");
-    assert!(
-        message.contains('\n'),
-        "报文逐行（与 400 msg 一致）：{message}"
-    );
+    assert!(message.contains('\n'), "报文逐行（与 400 msg 一致）：{message}");
 }
 
 // ---------- 真库 ----------
@@ -1123,20 +1017,13 @@ async fn purge_fixtures() {
              'd2120107-0000-4000-8000-000000000001'::uuid)"
             .to_string(),
         "UPDATE biz_attachment_rule SET enabled = TRUE WHERE doc_type = 'INVOICE'".to_string(),
-        "DELETE FROM biz_payment WHERE id = 'd2120105-0000-4000-8000-000000000001'::uuid"
-            .to_string(),
-        "DELETE FROM biz_payable WHERE id = 'd2120104-0000-4000-8000-000000000001'::uuid"
-            .to_string(),
-        "DELETE FROM biz_stock_in WHERE id = 'd2120103-0000-4000-8000-000000000001'::uuid"
-            .to_string(),
-        "DELETE FROM biz_purchase_order WHERE id = 'd2120102-0000-4000-8000-000000000001'::uuid"
-            .to_string(),
-        "DELETE FROM biz_contract WHERE id = 'd2120101-0000-4000-8000-000000000001'::uuid"
-            .to_string(),
-        "DELETE FROM biz_warehouse WHERE id = 'd2120200-0000-4000-8000-000000000002'::uuid"
-            .to_string(),
-        "DELETE FROM biz_supplier WHERE id = 'd2120200-0000-4000-8000-000000000001'::uuid"
-            .to_string(),
+        "DELETE FROM biz_payment WHERE id = 'd2120105-0000-4000-8000-000000000001'::uuid".to_string(),
+        "DELETE FROM biz_payable WHERE id = 'd2120104-0000-4000-8000-000000000001'::uuid".to_string(),
+        "DELETE FROM biz_stock_in WHERE id = 'd2120103-0000-4000-8000-000000000001'::uuid".to_string(),
+        "DELETE FROM biz_purchase_order WHERE id = 'd2120102-0000-4000-8000-000000000001'::uuid".to_string(),
+        "DELETE FROM biz_contract WHERE id = 'd2120101-0000-4000-8000-000000000001'::uuid".to_string(),
+        "DELETE FROM biz_warehouse WHERE id = 'd2120200-0000-4000-8000-000000000002'::uuid".to_string(),
+        "DELETE FROM biz_supplier WHERE id = 'd2120200-0000-4000-8000-000000000001'::uuid".to_string(),
         "DELETE FROM sys_user_role WHERE user_id IN \
            ('d2120901-0000-4000-8000-000000000001'::uuid, \
             'd2120902-0000-4000-8000-000000000002'::uuid)"
@@ -1245,23 +1132,12 @@ async fn db_doc_exists_covers_five_tables() {
         (DocKind::Payable, DOC_PAYABLE),
         (DocKind::Payment, DOC_PAYMENT),
     ] {
-        let exists = model::doc_exists(kind, &uid(doc_id))
-            .await
-            .expect("查存在性");
-        assert!(
-            exists,
-            "{} 的夹具单据应存在（表 {}）",
-            kind.label(),
-            kind.table()
-        );
+        let exists = model::doc_exists(kind, &uid(doc_id)).await.expect("查存在性");
+        assert!(exists, "{} 的夹具单据应存在（表 {}）", kind.label(), kind.table());
     }
     // 不存在的主键
     let missing = uuid::Uuid::now_v7();
-    assert!(
-        !model::doc_exists(DocKind::Contract, &missing)
-            .await
-            .expect("查存在性")
-    );
+    assert!(!model::doc_exists(DocKind::Contract, &missing).await.expect("查存在性"));
 }
 
 /// 软删的单据不能再挂附件（`deleted_at IS NULL` 是判据的一部分）。
@@ -1303,13 +1179,9 @@ async fn db_bind_list_and_soft_delete() {
     .await
     .expect("绑定附件");
 
-    let list = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::TimeDesc,
-    )
-    .await
-    .expect("查列表");
+    let list = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::TimeDesc)
+        .await
+        .expect("查列表");
     assert_eq!(list.len(), 1);
     assert_eq!(list[0].id, id);
     assert_eq!(list[0].file_role, "CONTRACT_SCAN");
@@ -1320,10 +1192,7 @@ async fn db_bind_list_and_soft_delete() {
     assert_eq!(list[0].uploaded_by, Some(owner));
 
     // 单条查询（下载 / 删除前用）
-    let row = model::find_active(&id)
-        .await
-        .expect("查单条")
-        .expect("应存在");
+    let row = model::find_active(&id).await.expect("查单条").expect("应存在");
     assert_eq!(row.file_id, uid(FILE_A));
     assert_eq!(row.doc_type, "CONTRACT");
 
@@ -1331,14 +1200,10 @@ async fn db_bind_list_and_soft_delete() {
     let affected = model::soft_delete(db(), &id).await.expect("软删");
     assert_eq!(affected, 1);
     assert!(
-        model::list_by_doc(
-            DocKind::Contract,
-            &uid(DOC_CONTRACT),
-            model::ListOrder::TimeDesc,
-        )
-        .await
-        .expect("查列表")
-        .is_empty()
+        model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::TimeDesc,)
+            .await
+            .expect("查列表")
+            .is_empty()
     );
     assert!(model::find_active(&id).await.expect("查单条").is_none());
     // 幂等：再删一次影响 0 行（不报错）
@@ -1385,13 +1250,9 @@ async fn db_uploader_name_is_snapshot_and_survives_rename() {
     ))
     .await;
 
-    let list = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::TimeDesc,
-    )
-    .await
-    .expect("查列表");
+    let list = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::TimeDesc)
+        .await
+        .expect("查列表");
     let snap = list
         .iter()
         .find(|row| row.id == with_snapshot)
@@ -1400,10 +1261,7 @@ async fn db_uploader_name_is_snapshot_and_survives_rename() {
         snap.uploader_name, "张三",
         "快照生效：改名后旧附件必须显示**上传当时**的名字"
     );
-    let live = list
-        .iter()
-        .find(|row| row.id == legacy)
-        .expect("历史行在列表里");
+    let live = list.iter().find(|row| row.id == legacy).expect("历史行在列表里");
     assert_eq!(
         live.uploader_name, "张三丰",
         "没有快照的历史行回落实时 join 现值（不是 UUID、不是空白）"
@@ -1452,13 +1310,9 @@ async fn db_bind_is_idempotent_per_doc_and_file() {
     .await
     .expect("重复绑定必须幂等");
     assert_eq!(first, second);
-    let list = model::list_by_doc(
-        DocKind::PurchaseOrder,
-        &uid(DOC_PO),
-        model::ListOrder::TimeDesc,
-    )
-    .await
-    .expect("查列表");
+    let list = model::list_by_doc(DocKind::PurchaseOrder, &uid(DOC_PO), model::ListOrder::TimeDesc)
+        .await
+        .expect("查列表");
     assert_eq!(list.len(), 1, "同一文件不能在同一单据上出现两行");
     // 幂等不覆盖角色：第二次的角色被忽略（行仍是首次的 DEFAULT），这是刻意的
     assert_eq!(list[0].file_role, "DEFAULT");
@@ -1492,10 +1346,7 @@ async fn db_shared_file_reference_count() {
     .await
     .expect("收货单绑定同一份文件");
 
-    assert_eq!(
-        model::count_by_file(&uid(FILE_A)).await.expect("引用计数"),
-        2
-    );
+    assert_eq!(model::count_by_file(&uid(FILE_A)).await.expect("引用计数"), 2);
     model::soft_delete(db(), &a).await.expect("删一条");
     assert_eq!(
         model::count_by_file(&uid(FILE_A)).await.expect("引用计数"),
@@ -1503,10 +1354,7 @@ async fn db_shared_file_reference_count() {
         "还有别的单据在用这份文件，计数必须仍是 1"
     );
     model::soft_delete(db(), &b).await.expect("删另一条");
-    assert_eq!(
-        model::count_by_file(&uid(FILE_A)).await.expect("引用计数"),
-        0
-    );
+    assert_eq!(model::count_by_file(&uid(FILE_A)).await.expect("引用计数"), 0);
 }
 
 /// 配额口径：`count_by_doc` 只数未删的行，且按单据隔离。
@@ -1517,9 +1365,7 @@ async fn db_count_by_doc_isolation_and_quota() {
     };
     let owner = Some(uid(U_OWNER));
     assert_eq!(
-        model::count_by_doc(DocKind::StockIn, &uid(DOC_IN))
-            .await
-            .expect("计数"),
+        model::count_by_doc(DocKind::StockIn, &uid(DOC_IN)).await.expect("计数"),
         0
     );
     let id = model::insert(
@@ -1533,16 +1379,12 @@ async fn db_count_by_doc_isolation_and_quota() {
     .await
     .expect("绑定");
     assert_eq!(
-        model::count_by_doc(DocKind::StockIn, &uid(DOC_IN))
-            .await
-            .expect("计数"),
+        model::count_by_doc(DocKind::StockIn, &uid(DOC_IN)).await.expect("计数"),
         1
     );
     // 别的单据 / 别的类型都不受影响
     assert_eq!(
-        model::count_by_doc(DocKind::StockIn, &uid(DOC_PO))
-            .await
-            .expect("计数"),
+        model::count_by_doc(DocKind::StockIn, &uid(DOC_PO)).await.expect("计数"),
         0
     );
     assert_eq!(
@@ -1553,9 +1395,7 @@ async fn db_count_by_doc_isolation_and_quota() {
     );
     model::soft_delete(db(), &id).await.expect("软删");
     assert_eq!(
-        model::count_by_doc(DocKind::StockIn, &uid(DOC_IN))
-            .await
-            .expect("计数"),
+        model::count_by_doc(DocKind::StockIn, &uid(DOC_IN)).await.expect("计数"),
         0,
         "软删后配额立即释放"
     );
@@ -1595,9 +1435,7 @@ async fn view_permissions_are_real_menu_codes() {
     // 反例守卫：BUG-SYS-05 删掉的采购单详情码不能被重新写回清单
     for kind in DocKind::ALL {
         assert!(
-            !kind
-                .view_permissions()
-                .contains(&"business:erp:purchase-order:detail"),
+            !kind.view_permissions().contains(&"business:erp:purchase-order:detail"),
             "{} 引用了已删除的采购单详情码",
             kind.label()
         );
@@ -1619,10 +1457,7 @@ async fn db_download_log_lands_in_operation_logs() {
 
     let log_id = uid("d2120e01-0000-4000-8000-000000000001");
     // 先清（重跑安全）
-    exec(&format!(
-        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM operation_logs WHERE id = '{log_id}'::uuid")).await;
 
     let mut headers = HeaderMap::new();
     headers.insert("x-request-id", "req-att02-db".parse().expect("头值"));
@@ -1632,13 +1467,9 @@ async fn db_download_log_lands_in_operation_logs() {
     let claims = claims_of(U_OWNER, &["business:erp:payable:list"]);
     let row = fixture_row();
 
-    let mut entry =
-        super::handler::download_log(&headers, &connect, &claims, &row, DocKind::Payable, 7);
+    let mut entry = super::handler::download_log(&headers, &connect, &claims, &row, DocKind::Payable, 7);
     entry.id = log_id;
-    entry
-        .insert(db())
-        .await
-        .expect("下载留痕必须能写进 operation_logs");
+    entry.insert(db()).await.expect("下载留痕必须能写进 operation_logs");
 
     let rows = db()
         .find_with_params(
@@ -1666,36 +1497,21 @@ async fn db_download_log_lands_in_operation_logs() {
         sql_row.get_typed::<String>("target_id").expect("id"),
         row.id.to_string()
     );
-    assert_eq!(
-        sql_row.get_typed::<i32>("status_code").expect("状态码"),
-        200
-    );
-    assert_eq!(
-        sql_row.get_typed::<String>("request_method").expect("方法"),
-        "GET"
-    );
-    assert_eq!(
-        sql_row.get_typed::<String>("doc_type").expect("doc_type"),
-        "PAYABLE"
-    );
+    assert_eq!(sql_row.get_typed::<i32>("status_code").expect("状态码"), 200);
+    assert_eq!(sql_row.get_typed::<String>("request_method").expect("方法"), "GET");
+    assert_eq!(sql_row.get_typed::<String>("doc_type").expect("doc_type"), "PAYABLE");
     assert_eq!(
         sql_row.get_typed::<String>("file_name").expect("文件名"),
         "发票影像.pdf"
     );
     assert_eq!(sql_row.get_typed::<i64>("file_size").expect("大小"), 2048);
-    assert_eq!(
-        sql_row.get_typed::<String>("ip_text").expect("IP"),
-        "10.9.8.7"
-    );
+    assert_eq!(sql_row.get_typed::<String>("ip_text").expect("IP"), "10.9.8.7");
     assert_eq!(
         sql_row.get_typed::<String>("username").expect("账号"),
         format!("att_{}", &U_OWNER[..8])
     );
 
-    exec(&format!(
-        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM operation_logs WHERE id = '{log_id}'::uuid")).await;
     let left: i64 = db()
         .scalar_with_params(
             "SELECT count(*) FROM operation_logs WHERE id = ?::uuid",
@@ -1729,10 +1545,7 @@ fn list_order_parse_and_sql() {
     assert_eq!(ListOrder::parse(Some("manual")), Some(ListOrder::Manual));
     assert_eq!(ListOrder::parse(Some("MANUAL")), Some(ListOrder::Manual));
     assert_eq!(ListOrder::parse(Some("sort")), Some(ListOrder::Manual));
-    assert_eq!(
-        ListOrder::parse(Some("sort_order")),
-        Some(ListOrder::Manual)
-    );
+    assert_eq!(ListOrder::parse(Some("sort_order")), Some(ListOrder::Manual));
     assert_eq!(ListOrder::parse(Some("desc")), None, "未知口径必须拒绝");
     assert_eq!(ListOrder::parse(Some("1")), None);
 
@@ -1745,14 +1558,8 @@ fn list_order_parse_and_sql() {
     let time_sql = ListOrder::TimeDesc.order_by();
     let manual_sql = ListOrder::Manual.order_by();
     assert!(time_sql.contains("a.created_at DESC"), "{time_sql}");
-    assert!(
-        !time_sql.contains("sort_order"),
-        "时间口径不应读 sort_order"
-    );
-    assert!(
-        manual_sql.starts_with("ORDER BY a.sort_order ASC"),
-        "{manual_sql}"
-    );
+    assert!(!time_sql.contains("sort_order"), "时间口径不应读 sort_order");
+    assert!(manual_sql.starts_with("ORDER BY a.sort_order ASC"), "{manual_sql}");
     assert!(manual_sql.contains("a.created_at DESC"), "{manual_sql}");
     // 两种都以 id 收尾（同秒上传不抖）
     assert!(time_sql.ends_with("a.id DESC"), "{time_sql}");
@@ -1771,16 +1578,8 @@ fn parse_sort_order_rejects_unknown() {
     let error = dto::parse_sort_order(Some("uploaded_at")).expect_err("未知值必须拒绝");
     assert_eq!(error.status, 400);
     assert_eq!(error.code, crate::shared::error_code::PARAM_INVALID);
-    assert!(
-        error.msg.contains("time"),
-        "消息要列出可选值：{}",
-        error.msg
-    );
-    assert!(
-        error.msg.contains("manual"),
-        "消息要列出可选值：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("time"), "消息要列出可选值：{}", error.msg);
+    assert!(error.msg.contains("manual"), "消息要列出可选值：{}", error.msg);
 }
 
 /// 重排入参：空 / 非 UUID / 重复 全部 400；合法时**按入参顺序**保留 id。
@@ -1809,11 +1608,7 @@ fn parse_sort_request_validates() {
     // 非 UUID
     let bad = dto::parse_sort_request(&build(vec![FILE_A, "not-a-uuid"])).expect_err("非法 id");
     assert_eq!(bad.status, 400);
-    assert!(
-        bad.msg.contains("not-a-uuid"),
-        "消息要带上原文：{}",
-        bad.msg
-    );
+    assert!(bad.msg.contains("not-a-uuid"), "消息要带上原文：{}", bad.msg);
 
     // 重复
     let dup = dto::parse_sort_request(&build(vec![FILE_A, FILE_A])).expect_err("重复 id");
@@ -1849,14 +1644,13 @@ fn ensure_same_members_truth_table() {
     super::handler::ensure_same_members(&active, &active).expect("原样提交应通过");
 
     // 多一个不属于该单据的 id
-    let extra = super::handler::ensure_same_members(&active, &[a, b, c, uid(DOC_CONTRACT)])
-        .expect_err("多余 id 必须拒绝");
+    let extra =
+        super::handler::ensure_same_members(&active, &[a, b, c, uid(DOC_CONTRACT)]).expect_err("多余 id 必须拒绝");
     assert_eq!(extra.status, 400);
     assert!(extra.msg.contains("不属于该单据"), "{}", extra.msg);
 
     // 少一个（漏提）
-    let missing =
-        super::handler::ensure_same_members(&active, &[a, b]).expect_err("缺失 id 必须拒绝");
+    let missing = super::handler::ensure_same_members(&active, &[a, b]).expect_err("缺失 id 必须拒绝");
     assert_eq!(missing.status, 400);
     assert!(missing.msg.contains("不完整"), "{}", missing.msg);
 
@@ -1947,13 +1741,9 @@ async fn db_list_default_order_is_time_desc() {
     ))
     .await;
 
-    let time_desc = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::TimeDesc,
-    )
-    .await
-    .expect("查列表");
+    let time_desc = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::TimeDesc)
+        .await
+        .expect("查列表");
     assert_eq!(time_desc.len(), 3);
     assert_eq!(
         time_desc.iter().map(|row| row.id).collect::<Vec<_>>(),
@@ -1964,23 +1754,16 @@ async fn db_list_default_order_is_time_desc() {
     assert_eq!(time_desc[0].file_size, 1_536_000);
 
     // 手动口径：此时还没排过序，序号按插入顺序 0/1/2 → A, B, C
-    let manual_before = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::Manual,
-    )
-    .await
-    .expect("查列表");
+    let manual_before = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::Manual)
+        .await
+        .expect("查列表");
     assert_eq!(
         manual_before.iter().map(|row| row.id).collect::<Vec<_>>(),
         vec![a, b, c],
         "手动口径按 sort_order 升序（新上传追加在末尾）"
     );
     assert_eq!(
-        manual_before
-            .iter()
-            .map(|row| row.sort_order)
-            .collect::<Vec<_>>(),
+        manual_before.iter().map(|row| row.sort_order).collect::<Vec<_>>(),
         vec![0, 1, 2]
     );
     println!("[ATT-03] 默认时间倒序 / manual 按 sort_order ✓");
@@ -2017,18 +1800,11 @@ async fn db_insert_appends_sort_order() {
     .await
     .expect("绑 B");
 
-    let manual = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::Manual,
-    )
-    .await
-    .expect("查列表");
+    let manual = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::Manual)
+        .await
+        .expect("查列表");
     assert_eq!(
-        manual
-            .iter()
-            .map(|row| (row.id, row.sort_order))
-            .collect::<Vec<_>>(),
+        manual.iter().map(|row| (row.id, row.sort_order)).collect::<Vec<_>>(),
         vec![(first, 0), (second, 1)]
     );
 
@@ -2045,18 +1821,11 @@ async fn db_insert_appends_sort_order() {
     .await
     .expect("重挂 A");
     assert_ne!(again, first, "软删后重挂是一条新绑定行");
-    let manual = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::Manual,
-    )
-    .await
-    .expect("查列表");
+    let manual = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::Manual)
+        .await
+        .expect("查列表");
     assert_eq!(
-        manual
-            .iter()
-            .map(|row| (row.id, row.sort_order))
-            .collect::<Vec<_>>(),
+        manual.iter().map(|row| (row.id, row.sort_order)).collect::<Vec<_>>(),
         vec![(second, 1), (again, 2)],
         "重挂的附件必须追加在末尾（max+1），且序号不重号"
     );
@@ -2125,31 +1894,19 @@ async fn db_manual_sort_persists_and_rejects_foreign_ids() {
         vec![c, b, a],
         "active_ids 必须与写入的顺序一致（重排接口的成员校验也读它）"
     );
-    let manual = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::Manual,
-    )
-    .await
-    .expect("查列表");
-    assert_eq!(
-        manual.iter().map(|row| row.id).collect::<Vec<_>>(),
-        vec![c, b, a]
-    );
+    let manual = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::Manual)
+        .await
+        .expect("查列表");
+    assert_eq!(manual.iter().map(|row| row.id).collect::<Vec<_>>(), vec![c, b, a]);
     assert_eq!(
         manual.iter().map(|row| row.sort_order).collect::<Vec<_>>(),
         vec![0, 1, 2]
     );
 
     // 跨单据的 id：WHERE 里带 doc_type + doc_id，命中 0 行（不会改到采购单那条）
-    let crossed = model::set_sort_orders(
-        db(),
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        &[foreign, a, b, c],
-    )
-    .await
-    .expect("带外部 id 的重排不报错（只是命中少）");
+    let crossed = model::set_sort_orders(db(), DocKind::Contract, &uid(DOC_CONTRACT), &[foreign, a, b, c])
+        .await
+        .expect("带外部 id 的重排不报错（只是命中少）");
     assert_eq!(crossed, 3, "只有属于该合同的三行被更新");
     assert_eq!(
         model::active_ids(DocKind::PurchaseOrder, &uid(DOC_PO))
@@ -2214,19 +1971,12 @@ fn delete_log_fields() {
         serde_json::json!(true),
         "detail 要记文件是否一并软删"
     );
-    assert_eq!(
-        detail["soft_delete"],
-        serde_json::json!(true),
-        "必须能看出这是软删"
-    );
+    assert_eq!(detail["soft_delete"], serde_json::json!(true), "必须能看出这是软删");
     assert_eq!(
         entry.response_data.as_ref().map(|v| v["deleted"].clone()),
         Some(serde_json::json!(true))
     );
-    assert_eq!(
-        entry.ip,
-        Some("10.9.8.9".parse::<std::net::IpAddr>().expect("IP"))
-    );
+    assert_eq!(entry.ip, Some("10.9.8.9".parse::<std::net::IpAddr>().expect("IP")));
     println!("[ATT-03] 删除留痕字段（operation/target/detail/软删标记）✓");
 }
 
@@ -2242,10 +1992,7 @@ async fn db_delete_log_lands_in_operation_logs() {
     use axum::http::HeaderMap;
 
     let log_id = uid("d2120e02-0000-4000-8000-000000000002");
-    exec(&format!(
-        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM operation_logs WHERE id = '{log_id}'::uuid")).await;
 
     let mut headers = HeaderMap::new();
     headers.insert("x-request-id", "req-att03-db-del".parse().expect("头值"));
@@ -2257,10 +2004,7 @@ async fn db_delete_log_lands_in_operation_logs() {
 
     let mut entry = super::handler::delete_log(&headers, &connect, &claims, &row, false, 9);
     entry.id = log_id;
-    entry
-        .insert(db())
-        .await
-        .expect("删除留痕必须能写进 operation_logs");
+    entry.insert(db()).await.expect("删除留痕必须能写进 operation_logs");
 
     let rows = db()
         .find_with_params(
@@ -2288,30 +2032,15 @@ async fn db_delete_log_lands_in_operation_logs() {
         row_db.get_typed::<String>("target_id").expect("目标 id"),
         row.id.to_string()
     );
-    assert_eq!(
-        row_db.get_typed::<String>("request_method").expect("方法"),
-        "DELETE"
-    );
+    assert_eq!(row_db.get_typed::<String>("request_method").expect("方法"), "DELETE");
     assert_eq!(row_db.get_typed::<i32>("status_code").expect("状态码"), 200);
-    assert_eq!(
-        row_db.get_typed::<String>("doc_type").expect("doc_type"),
-        "PAYABLE"
-    );
-    assert_eq!(
-        row_db.get_typed::<String>("file_name").expect("文件名"),
-        "发票影像.pdf"
-    );
+    assert_eq!(row_db.get_typed::<String>("doc_type").expect("doc_type"), "PAYABLE");
+    assert_eq!(row_db.get_typed::<String>("file_name").expect("文件名"), "发票影像.pdf");
     assert_eq!(row_db.get_typed::<i64>("file_size").expect("大小"), 2048);
     assert!(row_db.get_typed::<bool>("soft_delete").expect("软删标记"));
-    assert_eq!(
-        row_db.get_typed::<String>("ip_text").expect("IP"),
-        "10.9.8.9"
-    );
+    assert_eq!(row_db.get_typed::<String>("ip_text").expect("IP"), "10.9.8.9");
 
-    exec(&format!(
-        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM operation_logs WHERE id = '{log_id}'::uuid")).await;
     let left: i64 = db()
         .scalar_with_params(
             "SELECT count(*) FROM operation_logs WHERE id = ?::uuid",
@@ -2373,23 +2102,14 @@ fn upload_log_fields() {
     );
     // 请求上下文
     assert_eq!(entry.request_method.as_deref(), Some("POST"));
-    assert_eq!(
-        entry.request_path.as_deref(),
-        Some("/api/business/attachment/upload")
-    );
+    assert_eq!(entry.request_path.as_deref(), Some("/api/business/attachment/upload"));
     assert_eq!(entry.status_code, Some(200));
     assert_eq!(entry.duration_ms, Some(23));
     assert_eq!(entry.user_id, Some(uid(U_OWNER)));
-    assert_eq!(
-        entry.username.as_deref(),
-        Some(&*format!("att_{}", &U_OWNER[..8]))
-    );
+    assert_eq!(entry.username.as_deref(), Some(&*format!("att_{}", &U_OWNER[..8])));
     assert_eq!(entry.request_id, "req-aud02-up");
     assert_eq!(entry.user_agent.as_deref(), Some("aud02-test/1.0"));
-    assert_eq!(
-        entry.ip,
-        Some("10.9.8.11".parse::<std::net::IpAddr>().expect("IP"))
-    );
+    assert_eq!(entry.ip, Some("10.9.8.11".parse::<std::net::IpAddr>().expect("IP")));
     // multipart 正文（含文件字节）不进日志
     assert!(entry.request_params.is_none());
     assert_eq!(
@@ -2418,10 +2138,7 @@ fn upload_log_fields() {
     let dup_entry = super::handler::upload_log(&headers, &connect, &claims, &duplicated_facts, 5);
     let dup_detail = dup_entry.detail.as_ref().expect("detail 必须存在");
     assert_eq!(dup_detail["file_name"], serde_json::json!("发票影像.pdf"));
-    assert_eq!(
-        dup_detail["original_name"],
-        serde_json::json!("同名副本.pdf")
-    );
+    assert_eq!(dup_detail["original_name"], serde_json::json!("同名副本.pdf"));
     assert_eq!(dup_detail["duplicated"], serde_json::json!(true));
     println!("[AUD-02] 上传留痕字段（operation/target/九个 detail/秒传双键）✓");
 }
@@ -2438,10 +2155,7 @@ async fn db_upload_log_lands_in_operation_logs() {
     use axum::http::HeaderMap;
 
     let log_id = uid("d2120e03-0000-4000-8000-000000000004");
-    exec(&format!(
-        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM operation_logs WHERE id = '{log_id}'::uuid")).await;
 
     let mut headers = HeaderMap::new();
     headers.insert("x-request-id", "req-aud02-db-up".parse().expect("头值"));
@@ -2453,10 +2167,7 @@ async fn db_upload_log_lands_in_operation_logs() {
 
     let mut entry = super::handler::upload_log(&headers, &connect, &claims, &facts, 23);
     entry.id = log_id;
-    entry
-        .insert(db())
-        .await
-        .expect("上传留痕必须能写进 operation_logs");
+    entry.insert(db()).await.expect("上传留痕必须能写进 operation_logs");
 
     let rows = db()
         .find_with_params(
@@ -2480,63 +2191,39 @@ async fn db_upload_log_lands_in_operation_logs() {
         "DOC_ATTACHMENT_UPLOAD"
     );
     assert_eq!(
-        sql_row
-            .get_typed::<String>("target_type")
-            .expect("目标类型"),
+        sql_row.get_typed::<String>("target_type").expect("目标类型"),
         "DocAttachment"
     );
     assert_eq!(
         sql_row.get_typed::<String>("target_id").expect("目标 id"),
         facts.binding_id.to_string()
     );
-    assert_eq!(
-        sql_row.get_typed::<String>("request_method").expect("方法"),
-        "POST"
-    );
+    assert_eq!(sql_row.get_typed::<String>("request_method").expect("方法"), "POST");
     assert_eq!(
         sql_row.get_typed::<String>("request_path").expect("路径"),
         "/api/business/attachment/upload"
     );
-    assert_eq!(
-        sql_row.get_typed::<i32>("status_code").expect("状态码"),
-        200
-    );
+    assert_eq!(sql_row.get_typed::<i32>("status_code").expect("状态码"), 200);
     assert_eq!(
         sql_row.get_typed::<String>("username").expect("账号"),
         format!("att_{}", &U_OWNER[..8])
     );
-    assert_eq!(
-        sql_row.get_typed::<String>("doc_type").expect("doc_type"),
-        "PAYABLE"
-    );
+    assert_eq!(sql_row.get_typed::<String>("doc_type").expect("doc_type"), "PAYABLE");
     // 两个键都在库里（ATT-04 清理脚本按 file_name 检索的坑）
     assert_eq!(
         sql_row.get_typed::<String>("file_name").expect("文件名"),
         "发票影像.pdf"
     );
     assert_eq!(
-        sql_row
-            .get_typed::<String>("original_name")
-            .expect("原始文件名"),
+        sql_row.get_typed::<String>("original_name").expect("原始文件名"),
         "发票影像.pdf"
     );
-    assert_eq!(
-        sql_row
-            .get_typed::<String>("storage_code")
-            .expect("存储后端"),
-        "LOCAL"
-    );
+    assert_eq!(sql_row.get_typed::<String>("storage_code").expect("存储后端"), "LOCAL");
     assert_eq!(sql_row.get_typed::<i64>("file_size").expect("大小"), 2048);
     assert!(!sql_row.get_typed::<bool>("duplicated").expect("秒传标记"));
-    assert_eq!(
-        sql_row.get_typed::<String>("ip_text").expect("IP"),
-        "10.9.8.11"
-    );
+    assert_eq!(sql_row.get_typed::<String>("ip_text").expect("IP"), "10.9.8.11");
 
-    exec(&format!(
-        "DELETE FROM operation_logs WHERE id = '{log_id}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM operation_logs WHERE id = '{log_id}'::uuid")).await;
     let left: i64 = db()
         .scalar_with_params(
             "SELECT count(*) FROM operation_logs WHERE id = ?::uuid",
@@ -2559,8 +2246,8 @@ fn repo_root() -> std::path::PathBuf {
 /// 从前端 `attachment.ts` 里抠出 `FILE_ROLE_OPTIONS` 的 (value, label) 列表（保序）。
 fn frontend_file_role_options() -> Vec<(String, String)> {
     let path = repo_root().join("frontend/src/api/business/erp/attachment.ts");
-    let text = std::fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("读不到前端角色词表 {}：{err}", path.display()));
+    let text =
+        std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到前端角色词表 {}：{err}", path.display()));
     let start = text
         .find("export const FILE_ROLE_OPTIONS")
         .expect("前端 attachment.ts 必须有 FILE_ROLE_OPTIONS");
@@ -2607,20 +2294,13 @@ fn file_roles_match_frontend_vocabulary() {
 /// 代码写成 50MB」这种漂移没人发现。
 #[test]
 fn file_size_limit_is_20mb_with_exact_message() {
-    assert_eq!(
-        dto::MAX_FILE_BYTES,
-        20 * 1024 * 1024,
-        "单文件上限必须是 20 MiB"
-    );
+    assert_eq!(dto::MAX_FILE_BYTES, 20 * 1024 * 1024, "单文件上限必须是 20 MiB");
     assert_eq!(dto::MAX_FILE_BYTES, 20_971_520, "20 MiB 的十进制值");
     assert_eq!(dto::MAX_FILE_MB, 20);
     assert_eq!(dto::FILE_TOO_LARGE_MSG, "文件超过 20MB，请压缩或分卷上传");
 
     let error = dto::file_too_large();
-    assert_eq!(
-        error.status, 400,
-        "卡面验收④：后端必须是 400（不是 413 / 422）"
-    );
+    assert_eq!(error.status, 400, "卡面验收④：后端必须是 400（不是 413 / 422）");
     assert_eq!(error.code, error_code::PARAM_INVALID, "入参不合法 → 10001");
     assert_eq!(error.msg, dto::FILE_TOO_LARGE_MSG);
 }
@@ -2670,8 +2350,7 @@ fn extend_within_file_limit_truth_table() {
 /// ATT-05：前端必须与后端同一个数字、同一句提示（漂了就在前端放行 25 MB 让后端 400 打脸）。
 fn frontend_upload_pure_source() -> String {
     let path = repo_root().join("frontend/src/components/attachment-upload-pure.ts");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("读不到前端上限词表 {}：{err}", path.display()))
+    std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到前端上限词表 {}：{err}", path.display()))
 }
 
 #[test]
@@ -2693,9 +2372,7 @@ fn file_size_limit_matches_frontend() {
         "前端超限文案必须与后端 FILE_TOO_LARGE_MSG 逐字一致（卡面：文件超过 20MB，请压缩或分卷上传）"
     );
     assert!(
-        source.contains(
-            "export const OFFICE_OPEN_HINT = '已下载到文件夹，请用本地 Office/WPS 打开';"
-        ),
+        source.contains("export const OFFICE_OPEN_HINT = '已下载到文件夹，请用本地 Office/WPS 打开';"),
         "前端 Office 下载后的提示文案必须逐字为「已下载到文件夹，请用本地 Office/WPS 打开」"
     );
 }
@@ -2726,10 +2403,7 @@ async fn db_attachment_policy_allows_office_and_wps() {
     for ext in [
         "doc", "docx", "xls", "xlsx", "ppt", "pptx", "wps", "et", "dps", "pdf", "jpg", "png",
     ] {
-        assert!(
-            exts.contains(&ext),
-            "attachment 策略必须放行 .{ext}（当前：{raw}）"
-        );
+        assert!(exts.contains(&ext), "attachment 策略必须放行 .{ext}（当前：{raw}）");
     }
     // 上限仍由 storage 策略给出（业务 20 MB 闸更严，见 `dto::MAX_FILE_BYTES`）
     let max_mb: i32 = db()
@@ -2811,27 +2485,15 @@ async fn db_role_groups_split_contract_scan_and_supplement() {
     .await
     .expect("绑补充协议（新角色必须能被 CHECK 放行）");
 
-    let rows = model::list_by_doc(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        model::ListOrder::TimeDesc,
-    )
-    .await
-    .expect("查列表");
+    let rows = model::list_by_doc(DocKind::Contract, &uid(DOC_CONTRACT), model::ListOrder::TimeDesc)
+        .await
+        .expect("查列表");
     assert_eq!(rows.len(), 3);
-    assert_eq!(
-        rows.iter()
-            .filter(|row| row.file_role == "CONTRACT_SCAN")
-            .count(),
-        2
-    );
+    assert_eq!(rows.iter().filter(|row| row.file_role == "CONTRACT_SCAN").count(), 2);
     assert!(rows.iter().any(|row| row.id == supplement));
 
     let claims = claims_of(U_OWNER, &[]);
-    let items: Vec<dto::DocAttachmentItemRes> = rows
-        .iter()
-        .map(|row| dto::to_item(row, &claims, true))
-        .collect();
+    let items: Vec<dto::DocAttachmentItemRes> = rows.iter().map(|row| dto::to_item(row, &claims, true)).collect();
     let catalog = dto::role_catalog(DocKind::Contract, &items);
     assert_eq!(catalog.len(), 3, "合同的分组清单（含空分组）");
     let count = |code: &str| {
@@ -2945,10 +2607,7 @@ async fn db_rule_seeds_cover_card_documents() {
             .scalar_with_params(
                 "SELECT count(*) FROM biz_attachment_rule \
                   WHERE doc_type = ? AND required_at = ? AND enabled AND deleted_at IS NULL",
-                vec![
-                    Value::Text(doc_type.to_string()),
-                    Value::Text(at.to_string()),
-                ],
+                vec![Value::Text(doc_type.to_string()), Value::Text(at.to_string())],
             )
             .await
             .expect("数规则");
@@ -2968,10 +2627,7 @@ async fn db_rule_seeds_cover_card_documents() {
         electronic.allow_exts.as_deref(),
         Some(&["pdf".to_string(), "ofd".to_string(), "xml".to_string()][..])
     );
-    assert_eq!(
-        electronic.requirement(),
-        "发票必须上传发票影像（pdf/ofd/xml）"
-    );
+    assert_eq!(electronic.requirement(), "发票必须上传发票影像（pdf/ofd/xml）");
 }
 
 /// 验收②：不传附件提交发票 → 结构化错误，文案逐字含「发票必须上传发票影像（pdf/ofd/xml）」。
@@ -2980,10 +2636,9 @@ async fn db_invoice_without_attachment_is_blocked_verbatim() {
     let Some(_guard) = setup().await else {
         return;
     };
-    let error =
-        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect_err("没有附件必须被拦");
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect_err("没有附件必须被拦");
     let text = violation_text(error);
     assert!(
         text.contains("发票必须上传发票影像（pdf/ofd/xml）"),
@@ -2992,13 +2647,10 @@ async fn db_invoice_without_attachment_is_blocked_verbatim() {
     assert!(text.contains("还差 1 个"), "文案必须说清还差几个：{text}");
 
     // 闸门转 HTTP：400 + 10001（前端按 code 分流，不靠文案）
-    let api =
-        match att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-        {
-            Ok(()) => panic!("没有附件必须被拦"),
-            Err(error) => error.into_api_error(),
-        };
+    let api = match att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit).await {
+        Ok(()) => panic!("没有附件必须被拦"),
+        Err(error) => error.into_api_error(),
+    };
     assert_eq!(api.status, 400);
     assert_eq!(api.code, error_code::PARAM_INVALID);
 }
@@ -3010,10 +2662,9 @@ async fn db_invoice_wrong_format_is_blocked_with_format_hint() {
         return;
     };
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await; // FILE_D = 发票影像.jpg
-    let error =
-        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect_err("格式不对必须被拦");
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect_err("格式不对必须被拦");
     let text = violation_text(error);
     assert!(
         text.contains("现有附件是 jpg 格式，不在白名单内，请上传 pdf/ofd/xml 格式"),
@@ -3090,10 +2741,9 @@ async fn db_paper_invoice_uses_scan_rule_branch() {
         return;
     };
     // 纸质票没附件：文案是「纸质发票扫描件」，而不是电子票的 pdf/ofd/xml
-    let error =
-        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
-            .await
-            .expect_err("纸质票没附件也要拦");
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+        .await
+        .expect_err("纸质票没附件也要拦");
     let text = violation_text(error);
     assert!(
         text.contains("发票必须上传纸质发票扫描件（pdf/jpg/png）"),
@@ -3124,19 +2774,15 @@ async fn db_invoice_branch_follows_is_electronic_column() {
     };
     // ③ 电子票（fixture: is_electronic = TRUE）+ jpg → 拦（要 pdf/ofd/xml）
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await;
-    let error =
-        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect_err("电子票挂 jpg 必须拦");
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect_err("电子票挂 jpg 必须拦");
     let text = violation_text(error);
     assert!(
         text.contains("发票必须上传发票影像（pdf/ofd/xml）"),
         "电子票分支文案不对：{text}"
     );
-    assert!(
-        text.contains("现有附件是 jpg 格式"),
-        "必须点明现有格式：{text}"
-    );
+    assert!(text.contains("现有附件是 jpg 格式"), "必须点明现有格式：{text}");
 
     // ③' 电子票 + pdf → 通过
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_B).await;
@@ -3168,10 +2814,9 @@ async fn db_invoice_branch_follows_is_electronic_column() {
     )
     .await
     .expect("改回电子票");
-    let error =
-        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect_err("改回电子票后（只剩 jpg）必须再次被拦");
+    let error = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect_err("改回电子票后（只剩 jpg）必须再次被拦");
     assert!(violation_text(error).contains("格式，不在白名单内"));
 }
 
@@ -3216,48 +2861,32 @@ async fn db_check_reports_invoice_gap_then_clears_it() {
     clear_doc_attachments(DocKind::Invoice, DOC_INVOICE).await;
 
     // ① 没附件：缺口一条，字段与红字都符合卡面契约
-    let violations =
-        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect("查缺口");
-    let res = dto::to_check_res(
-        DocKind::Invoice,
-        uid(DOC_INVOICE),
-        RequiredAt::Submit,
-        &violations,
-    );
+    let violations = att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("查缺口");
+    let res = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &violations);
     assert!(!res.can_proceed, "没有发票影像时按钮必须禁用");
     assert_eq!(res.missing.len(), 1, "数电票只命中电子票一条规则");
     let missing = &res.missing[0];
     assert_eq!(missing.need.as_deref(), Some("pdf/ofd/xml"));
     assert_eq!((missing.have, missing.min), (0, 1));
     assert_eq!(missing.hint, "缺少发票影像（需 pdf/ofd/xml 格式）");
-    assert_eq!(
-        res.hint.as_deref(),
-        Some("缺少发票影像（需 pdf/ofd/xml 格式）")
-    );
+    assert_eq!(res.hint.as_deref(), Some("缺少发票影像（需 pdf/ofd/xml 格式）"));
     assert!(
         missing.message.contains("还差 1 个"),
         "tooltip 必须说清还差几个：{}",
         missing.message
     );
     // 同一时刻闸门也拦 → 前端提前告知与后端最终拦完全一致
-    let gate =
-        att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit).await;
+    let gate = att_rule::assert_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit).await;
     assert!(gate.is_err(), "check 说不通过时闸门必须也拦");
 
     // ② 传一份 pdf：can_proceed 立刻为 true、红字消失、闸门放行
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_B).await;
-    let violations =
-        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect("查缺口");
-    let res = dto::to_check_res(
-        DocKind::Invoice,
-        uid(DOC_INVOICE),
-        RequiredAt::Submit,
-        &violations,
-    );
+    let violations = att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("查缺口");
+    let res = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &violations);
     assert!(res.can_proceed, "有 pdf 后按钮必须恢复");
     assert!(res.missing.is_empty());
     assert!(res.hint.is_none());
@@ -3275,23 +2904,13 @@ async fn db_check_reports_wrong_format_hint() {
     clear_doc_attachments(DocKind::Invoice, DOC_INVOICE).await;
     bind_file(DocKind::Invoice, DOC_INVOICE, FILE_D).await; // FILE_D = 发票影像.jpg
 
-    let violations =
-        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
-            .await
-            .expect("查缺口");
-    let res = dto::to_check_res(
-        DocKind::Invoice,
-        uid(DOC_INVOICE),
-        RequiredAt::Submit,
-        &violations,
-    );
+    let violations = att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit)
+        .await
+        .expect("查缺口");
+    let res = dto::to_check_res(DocKind::Invoice, uid(DOC_INVOICE), RequiredAt::Submit, &violations);
     assert!(!res.can_proceed, "jpg 不算数，按钮仍要禁用");
     let missing = &res.missing[0];
-    assert_eq!(
-        (missing.have, missing.total),
-        (0, 1),
-        "有 1 个附件但 0 个命中白名单"
-    );
+    assert_eq!((missing.have, missing.total), (0, 1), "有 1 个附件但 0 个命中白名单");
     assert_eq!(missing.actual_exts, vec!["jpg".to_string()]);
     assert!(
         missing.hint.contains("格式不符，需要 pdf/ofd/xml"),
@@ -3312,10 +2931,9 @@ async fn db_check_follows_electronic_branch() {
         return;
     };
     clear_doc_attachments(DocKind::Invoice, DOC_INVOICE_PAPER).await;
-    let violations =
-        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
-            .await
-            .expect("查缺口");
+    let violations = att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+        .await
+        .expect("查缺口");
     let res = dto::to_check_res(
         DocKind::Invoice,
         uid(DOC_INVOICE_PAPER),
@@ -3330,10 +2948,9 @@ async fn db_check_follows_electronic_branch() {
 
     // 纸质票传 jpg → 放行（电子票那条规则对它「不适用」，不是「格式错」）
     bind_file(DocKind::Invoice, DOC_INVOICE_PAPER, FILE_D).await;
-    let violations =
-        att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
-            .await
-            .expect("查缺口");
+    let violations = att_rule::check_attachments(DocKind::Invoice, uid(DOC_INVOICE_PAPER), RequiredAt::Submit)
+        .await
+        .expect("查缺口");
     assert!(violations.is_empty(), "纸质票 jpg 扫描件必须放行");
 }
 
@@ -3343,17 +2960,11 @@ async fn db_check_passes_when_no_rule() {
     let Some(_guard) = setup().await else {
         return;
     };
-    let violations =
-        att_rule::check_attachments(DocKind::Contract, uid(DOC_CONTRACT), RequiredAt::Submit)
-            .await
-            .expect("查缺口");
+    let violations = att_rule::check_attachments(DocKind::Contract, uid(DOC_CONTRACT), RequiredAt::Submit)
+        .await
+        .expect("查缺口");
     assert!(violations.is_empty(), "合同没有必传规则，不该报缺");
-    let res = dto::to_check_res(
-        DocKind::Contract,
-        uid(DOC_CONTRACT),
-        RequiredAt::Submit,
-        &violations,
-    );
+    let res = dto::to_check_res(DocKind::Contract, uid(DOC_CONTRACT), RequiredAt::Submit, &violations);
     assert!(res.can_proceed);
 }
 

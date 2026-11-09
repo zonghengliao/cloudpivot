@@ -128,12 +128,7 @@ pub struct AiUserStatusRes {
 
 impl AiUserStatusRes {
     /// 由库里的行与本次探测结果组装。
-    pub fn new(
-        user_id: &uuid::Uuid,
-        hermes_profile: &str,
-        db_gateway_status: &str,
-        status: &ProfileStatus,
-    ) -> Self {
+    pub fn new(user_id: &uuid::Uuid, hermes_profile: &str, db_gateway_status: &str, status: &ProfileStatus) -> Self {
         Self {
             user_id: user_id.to_string(),
             hermes_profile: hermes_profile.to_string(),
@@ -226,10 +221,7 @@ pub fn normalize_description(raw: Option<&str>) -> Result<String, ApiError> {
         return Err(ApiError::new(
             400,
             crate::shared::error_code::AI_AGENT_DESCRIPTION_INVALID,
-            format!(
-                "职责最多 {max} 个字符（当前 {}）",
-                flattened.chars().count()
-            ),
+            format!("职责最多 {max} 个字符（当前 {}）", flattened.chars().count()),
         ));
     }
     Ok(flattened)

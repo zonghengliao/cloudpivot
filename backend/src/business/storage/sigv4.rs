@@ -97,9 +97,7 @@ pub fn uri_encode(input: &str, encode_slash: bool) -> String {
     let mut out = String::with_capacity(input.len());
     for byte in input.as_bytes() {
         match *byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*byte as char)
-            }
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(*byte as char),
             b'/' if !encode_slash => out.push('/'),
             other => {
                 const HEX: &[u8; 16] = b"0123456789ABCDEF";
@@ -346,27 +344,16 @@ pub fn presign(opts: &PresignOptions<'_>) -> PresignOutcome {
     // 1. 规范查询串：5 个固定参数 + 业务附加参数，排序后编码
     let mut query: Vec<(String, String)> = opts.extra_query.to_vec();
     query.push(("X-Amz-Algorithm".to_string(), ALGORITHM.to_string()));
-    query.push((
-        "X-Amz-Credential".to_string(),
-        format!("{}/{scope}", opts.access_key),
-    ));
+    query.push(("X-Amz-Credential".to_string(), format!("{}/{scope}", opts.access_key)));
     query.push(("X-Amz-Date".to_string(), amz_date.clone()));
     query.push(("X-Amz-Expires".to_string(), ttl.to_string()));
-    query.push((
-        "X-Amz-SignedHeaders".to_string(),
-        SIGNED_HEADERS.to_string(),
-    ));
+    query.push(("X-Amz-SignedHeaders".to_string(), SIGNED_HEADERS.to_string()));
     let canonical_query = canonical_query(&query);
 
     // 2. 规范请求（预签名不签 payload）
     let canonical_request = format!(
         "{}\n{}\n{}\nhost:{}\n\n{}\n{}",
-        opts.method,
-        opts.canonical_uri,
-        canonical_query,
-        opts.host,
-        SIGNED_HEADERS,
-        UNSIGNED_PAYLOAD
+        opts.method, opts.canonical_uri, canonical_query, opts.host, SIGNED_HEADERS, UNSIGNED_PAYLOAD
     );
 
     // 3. 待签串
@@ -406,10 +393,7 @@ pub fn presign(opts: &PresignOptions<'_>) -> PresignOutcome {
 ///
 /// 32 字节签名密钥。
 pub fn signing_key(secret_key: &str, date_stamp: &str, region: &str, service: &str) -> [u8; 32] {
-    let k_date = hmac_sha256(
-        format!("AWS4{secret_key}").as_bytes(),
-        date_stamp.as_bytes(),
-    );
+    let k_date = hmac_sha256(format!("AWS4{secret_key}").as_bytes(), date_stamp.as_bytes());
     let k_region = hmac_sha256(&k_date, region.as_bytes());
     let k_service = hmac_sha256(&k_region, service.as_bytes());
     hmac_sha256(&k_service, b"aws4_request")
@@ -521,9 +505,9 @@ mod tests {
         assert_eq!(signed.signature.len(), 64);
         assert!(signed.signature.chars().all(|c| c.is_ascii_hexdigit()));
         assert!(
-            signed.string_to_sign.starts_with(
-                "AWS4-HMAC-SHA256\n20261028T031415Z\n20261028/us-east-1/s3/aws4_request\n"
-            ),
+            signed
+                .string_to_sign
+                .starts_with("AWS4-HMAC-SHA256\n20261028T031415Z\n20261028/us-east-1/s3/aws4_request\n"),
             "{}",
             signed.string_to_sign
         );
@@ -666,11 +650,7 @@ mod tests {
                 "{}: 签名与官方 SDK 不一致",
                 vector.name
             );
-            assert_eq!(
-                outcome.url, vector.url,
-                "{}: 预签名 URL 与官方 SDK 不一致",
-                vector.name
-            );
+            assert_eq!(outcome.url, vector.url, "{}: 预签名 URL 与官方 SDK 不一致", vector.name);
             assert_eq!(
                 outcome.expire_at,
                 fixed_now() + chrono::Duration::seconds(vector.ttl as i64)
@@ -714,10 +694,7 @@ mod tests {
         assert_eq!(uri_encode("a+b", true), "a%2Bb");
         assert_eq!(uri_encode("a/b", true), "a%2Fb");
         assert_eq!(uri_encode("a/b", false), "a/b");
-        assert_eq!(
-            uri_encode("合同 2026.pdf", false),
-            "%E5%90%88%E5%90%8C%202026.pdf"
-        );
+        assert_eq!(uri_encode("合同 2026.pdf", false), "%E5%90%88%E5%90%8C%202026.pdf");
         // 未保留字符不编码
         assert_eq!(uri_encode("Aa0-_.~", false), "Aa0-_.~");
     }
@@ -725,18 +702,9 @@ mod tests {
     /// 边界：path 风格与 virtual-host 风格的规范 URI / Host 差异。
     #[test]
     fn sigv4_path_style_vs_virtual_host() {
-        assert_eq!(
-            object_canonical_uri("mybucket", "/a/b.txt", true),
-            "/mybucket/a/b.txt"
-        );
-        assert_eq!(
-            request_host("minio.local:9000", "mybucket", true),
-            "minio.local:9000"
-        );
-        assert_eq!(
-            object_canonical_uri("mybucket", "a/b.txt", false),
-            "/a/b.txt"
-        );
+        assert_eq!(object_canonical_uri("mybucket", "/a/b.txt", true), "/mybucket/a/b.txt");
+        assert_eq!(request_host("minio.local:9000", "mybucket", true), "minio.local:9000");
+        assert_eq!(object_canonical_uri("mybucket", "a/b.txt", false), "/a/b.txt");
         assert_eq!(
             request_host("s3.us-west-2.amazonaws.com", "mybucket", false),
             "mybucket.s3.us-west-2.amazonaws.com"
@@ -773,11 +741,7 @@ mod tests {
             region: "us-east-1",
             now: fixed_now(),
         });
-        assert!(
-            too_small.url.contains("X-Amz-Expires=60&"),
-            "{}",
-            too_small.url
-        );
+        assert!(too_small.url.contains("X-Amz-Expires=60&"), "{}", too_small.url);
 
         let too_large = presign(&PresignOptions {
             method: "GET",
@@ -791,11 +755,7 @@ mod tests {
             region: "us-east-1",
             now: fixed_now(),
         });
-        assert!(
-            too_large.url.contains("X-Amz-Expires=604800&"),
-            "{}",
-            too_large.url
-        );
+        assert!(too_large.url.contains("X-Amz-Expires=604800&"), "{}", too_large.url);
     }
 
     /// HMAC-SHA256 与 RFC 4231 官方向量（用例 1）一致。

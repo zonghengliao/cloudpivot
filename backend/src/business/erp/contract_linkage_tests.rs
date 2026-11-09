@@ -151,10 +151,7 @@ fn uuid_in(ids: &[Uuid]) -> String {
 }
 
 fn text_in(ids: &[Uuid]) -> String {
-    ids.iter()
-        .map(|id| format!("'{id}'"))
-        .collect::<Vec<_>>()
-        .join(", ")
+    ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", ")
 }
 
 /// 本模块夹具的合同 id 集合（`LNK07-` 是模块独占的合同名号段）。
@@ -195,11 +192,7 @@ async fn purge() {
                 uuid_in(&notices)
             ))
             .await;
-            exec(&format!(
-                "DELETE FROM sys_notice WHERE id IN ({})",
-                uuid_in(&notices)
-            ))
-            .await;
+            exec(&format!("DELETE FROM sys_notice WHERE id IN ({})", uuid_in(&notices))).await;
         }
         exec(&format!(
             "UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE prev_instance_id IN ({})",
@@ -247,11 +240,7 @@ async fn purge() {
         uid(U_MAKER)
     ))
     .await;
-    exec(&format!(
-        "DELETE FROM sys_user WHERE id = '{}'::uuid",
-        uid(U_MAKER)
-    ))
-    .await;
+    exec(&format!("DELETE FROM sys_user WHERE id = '{}'::uuid", uid(U_MAKER))).await;
 }
 
 /// 拿锁 + 连库 + 清上一轮 + 建夹具（供应商 + 一个真实账号）。
@@ -631,10 +620,7 @@ async fn lnk07_manual_transitions_trigger_once() {
     };
     clear_rules().await;
     let contract_id = make_contract("manual").await;
-    for status in [
-        contract_model::STATUS_ACTIVE,
-        contract_model::STATUS_TERMINATED,
-    ] {
+    for status in [contract_model::STATUS_ACTIVE, contract_model::STATUS_TERMINATED] {
         add_rule(
             status,
             spec::ACTION_SEND_NOTICE,

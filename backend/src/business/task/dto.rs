@@ -43,13 +43,7 @@ pub const STATUS_DONE: &str = "DONE";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 全部状态（顺序 = 状态机推进顺序，前端看板列按此排列）。
-pub const STATUSES: [&str; 5] = [
-    STATUS_TODO,
-    STATUS_DOING,
-    STATUS_REVIEW,
-    STATUS_DONE,
-    STATUS_CANCELLED,
-];
+pub const STATUSES: [&str; 5] = [STATUS_TODO, STATUS_DOING, STATUS_REVIEW, STATUS_DONE, STATUS_CANCELLED];
 
 /// 优先级四级（老大 v2 拍板：P0 最高 → P3 最低）。
 pub const PRIORITIES: [&str; 4] = ["P0", "P1", "P2", "P3"];
@@ -1651,24 +1645,17 @@ impl TaskScheduleReq {
     pub fn mode(&self) -> std::result::Result<ScheduleMode, String> {
         let has_explicit = self.start_date.is_some() || self.due_date.is_some();
         match (self.shift_days, has_explicit) {
-            (Some(_), true) => Err(
-                "shift_days 与 start_date / due_date 只能二选一（同时传无法判断以哪个为准）"
-                    .to_string(),
-            ),
-            (None, false) => {
-                Err("请求体必须给 shift_days 或 start_date / due_date 之一".to_string())
+            (Some(_), true) => {
+                Err("shift_days 与 start_date / due_date 只能二选一（同时传无法判断以哪个为准）".to_string())
             }
+            (None, false) => Err("请求体必须给 shift_days 或 start_date / due_date 之一".to_string()),
             (None, true) => Ok(ScheduleMode::Explicit),
             (Some(days), false) => {
                 if days == 0 {
-                    return Err(
-                        "shift_days = 0 等于没改期（前端应在拖动 0 格时不发请求）".to_string()
-                    );
+                    return Err("shift_days = 0 等于没改期（前端应在拖动 0 格时不发请求）".to_string());
                 }
                 if days.abs() > MAX_SHIFT_DAYS {
-                    return Err(format!(
-                        "shift_days 超出范围：{days}（绝对值上限 {MAX_SHIFT_DAYS} 天）"
-                    ));
+                    return Err(format!("shift_days 超出范围：{days}（绝对值上限 {MAX_SHIFT_DAYS} 天）"));
                 }
                 Ok(ScheduleMode::Shift(days))
             }
@@ -1735,10 +1722,7 @@ mod tests {
         let title = "任".repeat(MAX_TITLE_CHARS);
         assert_eq!(truncate_chars(&title, MAX_TITLE_CHARS).chars().count(), 200);
         let longer = "任".repeat(MAX_TITLE_CHARS + 10);
-        assert_eq!(
-            truncate_chars(&longer, MAX_TITLE_CHARS).chars().count(),
-            200
-        );
+        assert_eq!(truncate_chars(&longer, MAX_TITLE_CHARS).chars().count(), 200);
     }
 
     #[test]
@@ -1749,18 +1733,14 @@ mod tests {
         assert!(absent.due_date.is_none(), "缺省字段必须是 None（保持原值）");
 
         // 显式 null：Some(None)（清空）
-        let cleared: TaskUpdateReq =
-            serde_json::from_str(r#"{"due_date":null}"#).expect("合法 JSON");
+        let cleared: TaskUpdateReq = serde_json::from_str(r#"{"due_date":null}"#).expect("合法 JSON");
         assert_eq!(cleared.due_date, Some(None), "显式 null 必须表达清空");
 
         // 有值：Some(Some(..))
-        let set: TaskUpdateReq =
-            serde_json::from_str(r#"{"due_date":"2026-11-06"}"#).expect("合法 JSON");
+        let set: TaskUpdateReq = serde_json::from_str(r#"{"due_date":"2026-11-06"}"#).expect("合法 JSON");
         assert_eq!(
             set.due_date,
-            Some(Some(
-                NaiveDate::from_ymd_opt(2026, 11, 6).expect("合法日期")
-            ))
+            Some(Some(NaiveDate::from_ymd_opt(2026, 11, 6).expect("合法日期")))
         );
     }
 
@@ -1797,8 +1777,7 @@ mod tests {
         assert_eq!(canonical.to, "DOING");
         assert_eq!(canonical.reason.as_deref(), Some("开始做"));
 
-        let aliased: TaskStatusChangeReq =
-            serde_json::from_str(r#"{"status":"REVIEW"}"#).expect("别名也应被接受");
+        let aliased: TaskStatusChangeReq = serde_json::from_str(r#"{"status":"REVIEW"}"#).expect("别名也应被接受");
         assert_eq!(aliased.to, "REVIEW");
         assert!(aliased.reason.is_none());
 
@@ -1809,8 +1788,7 @@ mod tests {
         );
 
         let reject_alias: TaskStatusChangeReq =
-            serde_json::from_str(r#"{"to":"DOING","reject_reason":"单测没跑"}"#)
-                .expect("打回原因别名");
+            serde_json::from_str(r#"{"to":"DOING","reject_reason":"单测没跑"}"#).expect("打回原因别名");
         assert_eq!(reject_alias.reason.as_deref(), Some("单测没跑"));
     }
 }

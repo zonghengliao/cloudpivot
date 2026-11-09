@@ -51,9 +51,7 @@ use crate::utils;
 ///
 /// 正常读取不写业务日志（每次进设置页都会打一次，写了就是噪声）。
 #[nik::get("/system/auth/preference")]
-pub async fn get_preference(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<PreferenceRes> {
+pub async fn get_preference(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<PreferenceRes> {
     let user_id = utils::require_uuid(&claims.sub, "sub")?;
     let defs = model::load_defs(db())
         .await

@@ -28,12 +28,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 
-use crate::business::erp::asset_compute::{
-    self, DisposalKind, depreciable_base, monthly_depreciation, residual_value,
-};
-use crate::business::erp::asset_model::{
-    self, AssetChangeRow, AssetRow, CategoryRow, DepBatchRow, DepDetailRow,
-};
+use crate::business::erp::asset_compute::{self, DisposalKind, depreciable_base, monthly_depreciation, residual_value};
+use crate::business::erp::asset_model::{self, AssetChangeRow, AssetRow, CategoryRow, DepBatchRow, DepDetailRow};
 use crate::shared::error_code;
 
 /// 默认每页条数。
@@ -116,8 +112,7 @@ pub fn normalize_page(page: u64, page_size: u64) -> (u64, u64) {
 
 /// DTO 里的 id 是 `String`，落库前必须显式解析（非法 UUID → 400，不静默跳过条件）。
 pub fn parse_uuid_text(raw: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|err| invalid(format!("{field} 不是合法 UUID（{raw}）：{err}")))
+    Uuid::parse_str(raw.trim()).map_err(|err| invalid(format!("{field} 不是合法 UUID（{raw}）：{err}")))
 }
 
 /// 可选 id 解析（空串 / 未传 → `None`）。
@@ -461,9 +456,7 @@ pub fn validate_create(req: &CreateAssetReq) -> Result<CreateAssetSpec, ApiError
     }
     let tax_amount = req.tax_amount.unwrap_or(Decimal::ZERO);
     if tax_amount < Decimal::ZERO {
-        return Err(invalid(format!(
-            "可抵扣进项税不能为负（当前 {tax_amount}）"
-        )));
+        return Err(invalid(format!("可抵扣进项税不能为负（当前 {tax_amount}）")));
     }
     if tax_amount >= original_value {
         return Err(invalid(format!(
@@ -490,9 +483,7 @@ pub fn validate_create(req: &CreateAssetReq) -> Result<CreateAssetSpec, ApiError
     let source_id = parse_opt_uuid(req.source_id.as_ref(), "来源单")?;
     match (source_type.as_str(), source_id) {
         (SOURCE_MANUAL, Some(_)) => {
-            return Err(invalid(
-                "来源为 MANUAL 时不能给来源单 id（手工建卡没有来源单）",
-            ));
+            return Err(invalid("来源为 MANUAL 时不能给来源单 id（手工建卡没有来源单）"));
         }
         (SOURCE_MANUAL, None) => {}
         (_, None) => {
@@ -505,12 +496,7 @@ pub fn validate_create(req: &CreateAssetReq) -> Result<CreateAssetSpec, ApiError
 
     // 购入口径：收货单来源**强制** FROM_STOCK（ARCH-6 §5.3.3 —— 收货单已过账意味着
     // 1405 已增加，不冲回就是重复计价）。
-    let buy_mode = match req
-        .buy_mode
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let buy_mode = match req.buy_mode.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         Some(mode) if mode == BUY_DIRECT || mode == BUY_FROM_STOCK => mode.to_string(),
         Some(mode) => {
             return Err(invalid(format!(
@@ -728,10 +714,7 @@ pub struct StatusChangeSpec {
 /// **`DISPOSED` 明确拒绝**：处置要出凭证、要审批（`asset_disposal` 流程），
 /// 放它进来就等于给「无凭证、无审批的处置」开后门（FIN-ASSET-ST02 D2）。
 /// 报文直接点名该走哪个接口，别让调用方猜。
-pub fn validate_status_change(
-    req: &StatusChangeReq,
-    today: NaiveDate,
-) -> Result<StatusChangeSpec, ApiError> {
+pub fn validate_status_change(req: &StatusChangeReq, today: NaiveDate) -> Result<StatusChangeSpec, ApiError> {
     let raw = req
         .target_status
         .as_deref()
@@ -782,14 +765,11 @@ pub fn change_type_of(target_status: &str) -> &'static str {
 }
 
 fn require_reason(raw: Option<&str>, field: &str) -> Result<String, ApiError> {
-    let text = raw
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .ok_or_else(|| {
-            invalid(format!(
-                "{field}必填：变动留痕要能回答「为什么变」（内控要求，库里的 reason 是 NOT NULL）"
-            ))
-        })?;
+    let text = raw.map(str::trim).filter(|text| !text.is_empty()).ok_or_else(|| {
+        invalid(format!(
+            "{field}必填：变动留痕要能回答「为什么变」（内控要求，库里的 reason 是 NOT NULL）"
+        ))
+    })?;
     if text.chars().count() > MAX_REASON_LEN {
         return Err(invalid(format!("{field}最长 {MAX_REASON_LEN} 字符")));
     }
@@ -1388,11 +1368,7 @@ mod tests {
         req.original_value = Some(dec!(-1));
         let err = validate_create(&req).expect_err("负金额必须拒绝");
         assert_eq!(err.status, 400);
-        assert!(
-            err.msg.contains("原值必须大于 0"),
-            "报文要指名问题：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("原值必须大于 0"), "报文要指名问题：{}", err.msg);
 
         req.original_value = Some(Decimal::ZERO);
         assert!(validate_create(&req).is_err(), "零金额同样拒绝");
@@ -1419,11 +1395,7 @@ mod tests {
             }
             let err = validate_create(&req).expect_err("缺必填必须拒绝");
             assert_eq!(err.status, 400);
-            assert!(
-                err.msg.contains(keyword),
-                "报文应含「{keyword}」，实际：{}",
-                err.msg
-            );
+            assert!(err.msg.contains(keyword), "报文应含「{keyword}」，实际：{}", err.msg);
         }
     }
 
@@ -1443,10 +1415,7 @@ mod tests {
         req.source_type = Some(SOURCE_STOCK_IN.to_string());
         req.source_id = Some("33333333-3333-4333-8333-333333333333".to_string());
         let spec = validate_create(&req).expect("收货单来源 + 来源 id 合法");
-        assert_eq!(
-            spec.buy_mode, BUY_FROM_STOCK,
-            "收货单来源必须自动判 FROM_STOCK"
-        );
+        assert_eq!(spec.buy_mode, BUY_FROM_STOCK, "收货单来源必须自动判 FROM_STOCK");
 
         let mut with_tax = req.clone();
         with_tax.tax_amount = Some(dec!(1300));
@@ -1459,10 +1428,7 @@ mod tests {
         wrong_mode.source_type = Some(SOURCE_STOCK_IN.to_string());
         wrong_mode.source_id = Some("33333333-3333-4333-8333-333333333333".to_string());
         wrong_mode.buy_mode = Some(BUY_DIRECT.to_string());
-        assert!(
-            validate_create(&wrong_mode).is_err(),
-            "收货单来源不许显式选 DIRECT_BUY"
-        );
+        assert!(validate_create(&wrong_mode).is_err(), "收货单来源不许显式选 DIRECT_BUY");
     }
 
     /// ⑥ 非 MANUAL 来源必须给来源单 id；MANUAL 不许给。
@@ -1506,19 +1472,12 @@ mod tests {
 
         let mut bad_rate = ok.clone();
         bad_rate.salvage_rate = Some(Decimal::ONE);
-        assert!(
-            validate_category(&bad_rate).is_err(),
-            "残值率 1 必须拒绝（<1）"
-        );
+        assert!(validate_category(&bad_rate).is_err(), "残值率 1 必须拒绝（<1）");
 
         let mut bad_code = ok.clone();
         bad_code.category_code = Some("CAT BUILDING".to_string());
         let err = validate_category(&bad_code).expect_err("编码含空格必须拒绝");
-        assert!(
-            err.msg.contains("分类编码"),
-            "文案要点名是编码的问题：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("分类编码"), "文案要点名是编码的问题：{}", err.msg);
 
         // CODE-04：编码留空 = 交给 handler 取号（`AC-01` 形态），不能拒
         let mut blank = ok.clone();
@@ -1529,29 +1488,20 @@ mod tests {
             "留空 → 空串（handler 据此取号）"
         );
         blank.category_code = None;
-        assert_eq!(
-            validate_category(&blank)
-                .expect("缺席同样放行")
-                .category_code,
-            ""
-        );
+        assert_eq!(validate_category(&blank).expect("缺席同样放行").category_code, "");
 
         // CODE-04：自动编码形态（AC-01）与企业自有编码（CAT-BUILDING）都得能存
         let mut auto_like = ok.clone();
         auto_like.category_code = Some("AC-01".to_string());
         assert_eq!(
-            validate_category(&auto_like)
-                .expect("AC-01 合法")
-                .category_code,
+            validate_category(&auto_like).expect("AC-01 合法").category_code,
             "AC-01",
             "取号器产出的编码必须能通过校验"
         );
         let mut legacy = ok.clone();
         legacy.category_code = Some("cat-building".to_string());
         assert_eq!(
-            validate_category(&legacy)
-                .expect("企业自有编码合法")
-                .category_code,
+            validate_category(&legacy).expect("企业自有编码合法").category_code,
             "CAT-BUILDING",
             "手工编码统一大写（与存量 ELEC/VEHICLE 同口径）"
         );
@@ -1574,17 +1524,11 @@ mod tests {
 
         let mut bad_type = ok.clone();
         bad_type.disposal_type = Some("DONATE".to_string());
-        assert!(
-            validate_dispose(&bad_type, today).is_err(),
-            "捐赠不在取值域"
-        );
+        assert!(validate_dispose(&bad_type, today).is_err(), "捐赠不在取值域");
 
         let mut scrap_with_price = ok.clone();
         scrap_with_price.disposal_type = Some("SCRAP".to_string());
-        assert!(
-            validate_dispose(&scrap_with_price, today).is_err(),
-            "报废不许有售价"
-        );
+        assert!(validate_dispose(&scrap_with_price, today).is_err(), "报废不许有售价");
 
         let mut sale_without_price = ok.clone();
         sale_without_price.sale_price = Some(Decimal::ZERO);
@@ -1617,10 +1561,7 @@ mod tests {
 
         let mut no_reason = transfer;
         no_reason.reason = None;
-        assert!(
-            validate_transfer(&no_reason, today).is_err(),
-            "转移必须有原因"
-        );
+        assert!(validate_transfer(&no_reason, today).is_err(), "转移必须有原因");
 
         let custodian = CustodianReq {
             to_user_id: Some("44444444-4444-4444-8444-444444444444".to_string()),
@@ -1673,11 +1614,7 @@ mod tests {
         };
         let err = validate_status_change(&disposed, today).expect_err("处置不许走本接口");
         assert_eq!(err.status, 400, "处置走错接口是参数问题，不是状态冲突");
-        assert!(
-            err.msg.contains("/dispose"),
-            "报文必须指向处置接口：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("/dispose"), "报文必须指向处置接口：{}", err.msg);
 
         for bad in ["", "   ", "CANCELLED", "in_use"] {
             let req = StatusChangeReq {
@@ -1693,10 +1630,7 @@ mod tests {
             target_status: None,
             ..idle.clone()
         };
-        assert!(
-            validate_status_change(&missing, today).is_err(),
-            "目标状态必填"
-        );
+        assert!(validate_status_change(&missing, today).is_err(), "目标状态必填");
 
         let no_reason = StatusChangeReq {
             reason: Some("  ".to_string()),

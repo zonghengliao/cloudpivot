@@ -37,9 +37,9 @@ use std::str::FromStr;
 
 use crate::business::erp::ledger::{AuxBalanceQuery, aux_balance, aux_column};
 use crate::business::erp::voucher::{
-    AccountRef, AccountSet, EntryLine, EntryRow, LineContext, MaterialInventoryRef, PostVoucher,
-    VoucherAmounts, VoucherBizCtx, VoucherMaterialLine, absorb_tail_diff, create_by_rule,
-    entries_of, post_voucher, purchase_in_lines, reversed_lines, user_dept_of,
+    AccountRef, AccountSet, EntryLine, EntryRow, LineContext, MaterialInventoryRef, PostVoucher, VoucherAmounts,
+    VoucherBizCtx, VoucherMaterialLine, absorb_tail_diff, create_by_rule, entries_of, post_voucher, purchase_in_lines,
+    reversed_lines, user_dept_of,
 };
 use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
 
@@ -96,18 +96,9 @@ async fn exec(sql: &str) {
 /// 清本组的全部痕迹（凭证 → 分录级联 → 主数据 → 科目）。
 async fn cleanup() {
     exec("DELETE FROM biz_voucher WHERE source_no LIKE 'P21AUX%'").await;
-    exec(&format!(
-        "DELETE FROM biz_material WHERE id = '{MAT}'::uuid"
-    ))
-    .await;
-    exec(&format!(
-        "DELETE FROM biz_warehouse WHERE id = '{WH}'::uuid"
-    ))
-    .await;
-    exec(&format!(
-        "DELETE FROM biz_supplier WHERE id = '{SUP}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM biz_material WHERE id = '{MAT}'::uuid")).await;
+    exec(&format!("DELETE FROM biz_warehouse WHERE id = '{WH}'::uuid")).await;
+    exec(&format!("DELETE FROM biz_supplier WHERE id = '{SUP}'::uuid")).await;
     exec(&format!("DELETE FROM biz_unit WHERE id = '{UNIT}'::uuid")).await;
     exec(&format!(
         "DELETE FROM sys_user WHERE id IN ('{USER}'::uuid, '{USER_NO_DEPT}'::uuid)"
@@ -184,13 +175,7 @@ fn account_set() -> AccountSet {
 }
 
 /// 一条「按物料聚合」的明细行（P2-1b 取数产物）。
-fn mat_line(
-    material_id: &str,
-    amount: &str,
-    qty: &str,
-    line_from: i32,
-    line_to: i32,
-) -> VoucherMaterialLine {
+fn mat_line(material_id: &str, amount: &str, qty: &str, line_from: i32, line_to: i32) -> VoucherMaterialLine {
     VoucherMaterialLine {
         material_id: uid(material_id),
         qty: dec(qty),
@@ -460,23 +445,12 @@ fn p21_purchase_in_lines_write_material_and_warehouse_only() {
     for (label, lines) in [("回退", &fallback), ("拆分行", &split)] {
         assert_eq!(lines.len(), 3, "{label}：存货 / 进项税 / 应付 三行");
         let inventory = &lines[0];
-        assert_eq!(
-            inventory.aux_material_id,
-            Some(uid(MAT)),
-            "{label}：存货行带物料"
-        );
-        assert_eq!(
-            inventory.aux_warehouse_id,
-            Some(uid(WH)),
-            "{label}：存货行带仓库"
-        );
+        assert_eq!(inventory.aux_material_id, Some(uid(MAT)), "{label}：存货行带物料");
+        assert_eq!(inventory.aux_warehouse_id, Some(uid(WH)), "{label}：存货行带仓库");
         assert_eq!(inventory.aux_supplier_id, None);
         assert_eq!(inventory.debit, dec("200"), "{label}：存货金额取明细");
         let tax = &lines[1];
-        assert_eq!(
-            tax.aux_material_id, None,
-            "{label}：进项税是全公司口径，不挂物料"
-        );
+        assert_eq!(tax.aux_material_id, None, "{label}：进项税是全公司口径，不挂物料");
         assert_eq!(tax.aux_warehouse_id, None);
         let payable = &lines[2];
         assert_eq!(payable.aux_supplier_id, Some(uid(SUP)));
@@ -519,10 +493,7 @@ fn p21_purchase_in_lines_split_per_material() {
             supplier_id: Some(uid(SUP)),
         },
         // 故意乱序传入：出行顺序必须是 `material_id` 升序（MAT2 > MAT 编码）
-        &[
-            mat_line(MAT2, "150", "3", 2, 2),
-            mat_line(MAT, "150", "1", 1, 1),
-        ],
+        &[mat_line(MAT2, "150", "3", 2, 2), mat_line(MAT, "150", "1", 1, 1)],
         &mat_accounts(&[(MAT, ACC_DR), (MAT2, ACC_DR)]),
         "IN-2",
     )
@@ -536,11 +507,7 @@ fn p21_purchase_in_lines_split_per_material() {
     assert_eq!(two[0].aux_material_id, Some(uid(MAT)), "升序第一行 = MAT");
     assert_eq!(two[1].aux_material_id, Some(uid(MAT2)), "升序第二行 = MAT2");
     assert_eq!(two[2].aux_material_id, None, "进项税一条，不挂物料");
-    assert_eq!(
-        two[3].aux_supplier_id,
-        Some(uid(SUP)),
-        "贷方应付一条（按 DOC）"
-    );
+    assert_eq!(two[3].aux_supplier_id, Some(uid(SUP)), "贷方应付一条（按 DOC）");
     assert_eq!(two[3].aux_material_id, None);
     let inventory_sum: Decimal = two.iter().map(|line| line.debit).take(2).sum();
     assert_eq!(inventory_sum, dec("300"), "Σ 存货行 = 单头不含税金额");
@@ -579,9 +546,7 @@ fn p21_purchase_in_lines_split_per_material() {
         "逐行物料，按 material_id 升序"
     );
     assert!(
-        three[..3]
-            .iter()
-            .all(|line| line.aux_warehouse_id == Some(uid(WH))),
+        three[..3].iter().all(|line| line.aux_warehouse_id == Some(uid(WH))),
         "每个存货行都挂本单收货仓"
     );
 }
@@ -671,8 +636,7 @@ fn p21_absorb_tail_diff_lands_on_last_material() {
     );
 
     // 最后一行吸收后 ≤ 0（不是 > 0）→ 往前退一个物料
-    let retreated =
-        absorb_tail_diff("IN-TAIL2", dec("100"), &[dec("100"), dec("5")]).expect("尾差必须能吸收");
+    let retreated = absorb_tail_diff("IN-TAIL2", dec("100"), &[dec("100"), dec("5")]).expect("尾差必须能吸收");
     assert_eq!(
         retreated,
         vec![dec("95"), dec("5")],
@@ -682,14 +646,8 @@ fn p21_absorb_tail_diff_lands_on_last_material() {
     // 全吸收不了 → 报错（不许静默吞掉差额）
     let err = absorb_tail_diff("IN-BAD", dec("10"), &[dec("100"), dec("100")])
         .expect_err("差额为负且每行都吸收不了时必须报错");
-    assert!(
-        format!("{err}").contains("IN-BAD"),
-        "报错必须点名单号，实际：{err}"
-    );
-    assert!(
-        format!("{err}").contains("尾差"),
-        "报错要说清是尾差吸收，实际：{err}"
-    );
+    assert!(format!("{err}").contains("IN-BAD"), "报错必须点名单号，实际：{err}");
+    assert!(format!("{err}").contains("尾差"), "报错要说清是尾差吸收，实际：{err}");
 }
 
 /// 金额全为 0 的物料**不出分录**（0 元赠品行不占金额；数量仍在库存流水里）。
@@ -709,10 +667,7 @@ fn p21_purchase_in_lines_skip_zero_amount_material() {
             supplier_id: Some(uid(SUP)),
         },
         // MAT2 是赠品：qty = 5 但 amount = 0
-        &[
-            mat_line(MAT, "200", "2", 1, 1),
-            mat_line(MAT2, "0", "5", 2, 2),
-        ],
+        &[mat_line(MAT, "200", "2", 1, 1), mat_line(MAT2, "0", "5", 2, 2)],
         &mat_accounts(&[(MAT, ACC_DR), (MAT2, ACC_DR)]),
         "IN-5",
     )
@@ -720,9 +675,7 @@ fn p21_purchase_in_lines_skip_zero_amount_material() {
     assert_eq!(lines.len(), 2, "只剩 MAT 存货行 + 应付行");
     assert_eq!(lines[0].aux_material_id, Some(uid(MAT)));
     assert!(
-        lines
-            .iter()
-            .all(|line| line.aux_material_id != Some(uid(MAT2))),
+        lines.iter().all(|line| line.aux_material_id != Some(uid(MAT2))),
         "金额为 0 的物料不能占一行分录"
     );
 }
@@ -740,11 +693,7 @@ fn p21_biz_ctx_carries_material_lines_sorted() {
             mat_line(MAT, "50", "1", 2, 2),
         ],
     );
-    assert_eq!(
-        ctx.material_lines.len(),
-        2,
-        "同物料合并 ⇒ 2 个物料（MAT / MAT3）"
-    );
+    assert_eq!(ctx.material_lines.len(), 2, "同物料合并 ⇒ 2 个物料（MAT / MAT3）");
     assert_eq!(
         ctx.material_lines
             .iter()
@@ -754,11 +703,7 @@ fn p21_biz_ctx_carries_material_lines_sorted() {
         "按 material_id 升序"
     );
     assert_eq!(ctx.material_lines[0].amount, dec("150"), "同物料金额相加");
-    assert_eq!(
-        ctx.material_id,
-        Some(uid(MAT)),
-        "科目解析退化用的物料 = 升序首个物料"
-    );
+    assert_eq!(ctx.material_id, Some(uid(MAT)), "科目解析退化用的物料 = 升序首个物料");
     assert_eq!(ctx.material_lines.len() as i64, 2, "物料种类数 = 行数");
 
     // 空物料行（非 STOCK_IN 调用方 / 历史单据）⇒ 上下文如实为空，由 builder 回退汇总行
@@ -793,36 +738,29 @@ async fn p21_split_resolves_each_materials_own_inventory_account() {
         }
         // 模板：debit_account_id 故意留 NULL（这里才需要退到「该物料自己的存货科目」）
         tx.exec_sql(
-        "INSERT INTO biz_voucher_rule (rule_code, biz_type, debit_account_id, credit_account_id, \
+            "INSERT INTO biz_voucher_rule (rule_code, biz_type, debit_account_id, credit_account_id, \
                                        tax_account_id, is_active, remark) \
          VALUES ('P21AUX-NODEIBT', 'PURCHASE_IN', NULL, NULL, NULL, 1, \
                  'P2-1b 用例：规则无借方科目 ⇒ 逐物料退化')"
-            .to_string(),
-        vec![],
-    )
-    .await
-    .expect("插入映射规则失败");
+                .to_string(),
+            vec![],
+        )
+        .await
+        .expect("插入映射规则失败");
 
         let mut header = stockin_header_stub();
         // 用一个别的期间，避开「期间已结账」类用例钉死的 2031-03
         header.in_date = date("2031-07-15");
         let ctx = VoucherBizCtx::of_stock_in(
             &header,
-            vec![
-                mat_line(MAT2, "100", "1", 1, 1),
-                mat_line(MAT3, "100", "1", 2, 2),
-            ],
+            vec![mat_line(MAT2, "100", "1", 1, 1), mat_line(MAT3, "100", "1", 2, 2)],
         );
         let voucher_id = create_by_rule(&tx, Some("P21AUX-NODEIBT"), &ctx, None, Utc::now())
             .await
             .expect("两个物料各有存货科目时必须能生成凭证");
         let entries = entries_of(&tx, voucher_id).await.expect("读分录");
         assert_eq!(entries.len(), 4, "含税 M=2 ⇒ 2 + 1 + 1 行");
-        assert_eq!(
-            entries[0].account.id,
-            uid(ACC_DR),
-            "MAT2 那行走它自己的存货科目"
-        );
+        assert_eq!(entries[0].account.id, uid(ACC_DR), "MAT2 那行走它自己的存货科目");
         assert_eq!(
             entries[1].account.id,
             uid(ACC_CR),
@@ -909,11 +847,7 @@ fn p21_reversed_lines_copy_aux_dimensions() {
     ];
     let red = reversed_lines(&original, Some("测试红冲"));
     assert_eq!(red.len(), 2);
-    assert_eq!(
-        red[0].aux_dept_id,
-        Some(uid(DEPT)),
-        "部门辅助核算要跟着红冲"
-    );
+    assert_eq!(red[0].aux_dept_id, Some(uid(DEPT)), "部门辅助核算要跟着红冲");
     assert_eq!(red[0].aux_supplier_id, Some(uid(SUP)));
     assert_eq!(red[1].aux_dept_id, None, "原本没部门的行也不会凭空长出部门");
     assert_eq!(red[0].debit, Decimal::ZERO);
@@ -975,9 +909,7 @@ async fn p21_aux_balance_material_splits_opening_and_period() {
 async fn p21_aux_balance_lists_all_items_of_a_dimension() {
     case(|| async {
         fixtures().await;
-        let res = aux_balance(&query("MATERIAL", None))
-            .await
-            .expect("按维度列全部物料");
+        let res = aux_balance(&query("MATERIAL", None)).await.expect("按维度列全部物料");
         assert!(!res.rows.is_empty());
         let material = res
             .rows
@@ -1004,11 +936,7 @@ async fn p21_aux_balance_reports_unassigned_amounts() {
             .await
             .expect("按物料查辅助账");
         // 2031-03 里没有物料辅助核算的借方：V2 的 40（凭证行本身不挂料）+ V4 的 60（挂部门）
-        assert_eq!(
-            res.unassigned.period_debit,
-            dec("100"),
-            "未挂物料的借方合计 = 40 + 60"
-        );
+        assert_eq!(res.unassigned.period_debit, dec("100"), "未挂物料的借方合计 = 40 + 60");
         assert!(
             res.unassigned.entry_count >= 2,
             "未挂物料的借方分录至少 2 行，实际 {}",
@@ -1041,9 +969,7 @@ async fn p21_aux_balance_supplier_sums_credit_side() {
 async fn p21_aux_balance_dept_reads_payment_dimension() {
     case(|| async {
         fixtures().await;
-        let res = aux_balance(&query("DEPT", Some(DEPT)))
-            .await
-            .expect("按部门查辅助账");
+        let res = aux_balance(&query("DEPT", Some(DEPT))).await.expect("按部门查辅助账");
         assert_eq!(res.aux_name.as_deref(), Some(DEPT_NAME), "部门名称要回显");
         assert_eq!(res.rows.len(), 1);
         assert_eq!(res.rows[0].period_debit, dec("60"), "付款 60 记到采购部");
@@ -1076,11 +1002,7 @@ async fn p21_aux_balance_respects_period_bounds() {
         q.period_from = Some("2031-03-01".to_string());
         q.period_to = Some("2031-03-06".to_string());
         let res = aux_balance(&q).await.expect("按日期区间查");
-        assert_eq!(
-            res.rows[0].period_debit,
-            dec("100"),
-            "V1 在 03-05，仍在区间内"
-        );
+        assert_eq!(res.rows[0].period_debit, dec("100"), "V1 在 03-05，仍在区间内");
         assert_eq!(res.rows[0].opening_debit, dec("25"), "03-01 之前的算期初");
         let _ = (&fixture.plain_debit, &fixture.opening);
     })
@@ -1092,17 +1014,11 @@ async fn p21_aux_balance_respects_period_bounds() {
 async fn p21_aux_balance_rejects_bad_params() {
     let mut missing = query("MATERIAL", None);
     missing.aux_type = None;
-    assert_eq!(
-        aux_balance(&missing).await.expect_err("缺 aux_type").status,
-        400
-    );
+    assert_eq!(aux_balance(&missing).await.expect_err("缺 aux_type").status, 400);
 
     let mut illegal = query("MATERIAL", None);
     illegal.aux_type = Some("PROJECT".to_string());
-    assert_eq!(
-        aux_balance(&illegal).await.expect_err("非法维度").status,
-        400
-    );
+    assert_eq!(aux_balance(&illegal).await.expect_err("非法维度").status, 400);
 
     assert_eq!(
         aux_balance(&query("MATERIAL", Some("not-a-uuid")))
@@ -1115,10 +1031,7 @@ async fn p21_aux_balance_rejects_bad_params() {
     let mut reversed = query("MATERIAL", None);
     reversed.period_from = Some("2031-03".to_string());
     reversed.period_to = Some("2031-02".to_string());
-    assert_eq!(
-        aux_balance(&reversed).await.expect_err("区间倒挂").status,
-        400
-    );
+    assert_eq!(aux_balance(&reversed).await.expect_err("区间倒挂").status, 400);
 }
 
 // ==================== ⑥ 部门从哪来（`sys_user.dept_id`） ====================
@@ -1169,9 +1082,7 @@ async fn zz_p21_aux_teardown_purges_fixtures() {
     assert_eq!(left, 0, "本组凭证必须清干净");
     let accounts: i64 = db()
         .scalar_sql(
-            format!(
-                "SELECT count(*) FROM biz_account WHERE id IN ('{ACC_DR}'::uuid, '{ACC_CR}'::uuid)"
-            ),
+            format!("SELECT count(*) FROM biz_account WHERE id IN ('{ACC_DR}'::uuid, '{ACC_CR}'::uuid)"),
             vec![],
         )
         .await

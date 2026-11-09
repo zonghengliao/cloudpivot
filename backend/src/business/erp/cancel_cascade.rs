@@ -235,11 +235,7 @@ fn conflict(message: impl Into<String>) -> ApiError {
 
 /// 404：单据不存在。
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// 路径里的 UUID：非法 → `400 + 66006`。
@@ -278,12 +274,10 @@ fn normalize_doc_type(raw: &str) -> std::result::Result<&'static str, ApiError> 
         Some(DocKind::StockIn) => Ok(DOC_TYPE_STOCK_IN),
         Some(DocKind::Payable) => Ok(DOC_TYPE_PAYABLE),
         // 调拨 / 出库 / 凭证：有路径段但不支持跨单据联动，给出替代入口
-        Some(DocKind::StockTransfer) | Some(DocKind::StockOut) | Some(DocKind::Voucher) => {
-            Err(bad_request(format!(
-                "doc_type 不支持联动作废：{text}（该单据的作废请用 \
+        Some(DocKind::StockTransfer) | Some(DocKind::StockOut) | Some(DocKind::Voucher) => Err(bad_request(format!(
+            "doc_type 不支持联动作废：{text}（该单据的作废请用 \
                  PATCH /business/erp/{{模块}}/{{id}}/status，它不跨单据联动）"
-            )))
-        }
+        ))),
         None => Err(bad_request(format!(
             "doc_type 不支持：{text}（只支持 {DOC_TYPE_PURCHASE_ORDER} / {DOC_TYPE_STOCK_IN} / \
              {DOC_TYPE_PAYABLE}；历史写法 purchase_order / po 已废弃，统一用路径段）"
@@ -436,11 +430,7 @@ async fn voucher_of(stock_in_id: Uuid) -> std::result::Result<Option<VoucherBrie
             id: row.get_typed("id")?,
             voucher_no: row.get_typed("voucher_no")?,
             amount: row.get_typed("total_debit")?,
-            reversed: row
-                .get_typed::<Option<Uuid>>("reversed_by")
-                .ok()
-                .flatten()
-                .is_some(),
+            reversed: row.get_typed::<Option<Uuid>>("reversed_by").ok().flatten().is_some(),
         })),
     }
 }
@@ -460,19 +450,13 @@ async fn voucher_by_id(voucher_id: Uuid) -> std::result::Result<Option<VoucherBr
             id: row.get_typed("id")?,
             voucher_no: row.get_typed("voucher_no")?,
             amount: row.get_typed("total_debit")?,
-            reversed: row
-                .get_typed::<Option<Uuid>>("reversed_by")
-                .ok()
-                .flatten()
-                .is_some(),
+            reversed: row.get_typed::<Option<Uuid>>("reversed_by").ok().flatten().is_some(),
         })),
     }
 }
 
 /// 收货单联动的应付单（未删除；理论上最多一张，取最新）。
-async fn payable_of_stock_in(
-    stock_in_id: Uuid,
-) -> std::result::Result<Option<PayableBrief>, ApiError> {
+async fn payable_of_stock_in(stock_in_id: Uuid) -> std::result::Result<Option<PayableBrief>, ApiError> {
     let rows = db()
         .find_with_params(
             "SELECT id, payable_no, status, amount, paid_amount \
@@ -558,14 +542,7 @@ async fn analyze_purchase_order(id: Uuid) -> std::result::Result<CancelImpactRes
         }
         // 可行性预检：库存够不够退 / 序列号有没有已出库 —— 拦路虎要现在就说
         if brief.status != stockin_model::STATUS_DRAFT {
-            match stockin_model::ensure_cancellable(
-                db(),
-                brief.id,
-                &brief.in_no,
-                brief.warehouse_id,
-            )
-            .await
-            {
+            match stockin_model::ensure_cancellable(db(), brief.id, &brief.in_no, brief.warehouse_id).await {
                 Ok(()) => {}
                 Err(error) => {
                     let message = readable(&error.to_string());
@@ -714,10 +691,7 @@ async fn analyze_purchase_order(id: Uuid) -> std::result::Result<CancelImpactRes
         detail,
     });
 
-    let affected = steps
-        .iter()
-        .filter(|item| item.action == ACTION_EXECUTE)
-        .count();
+    let affected = steps.iter().filter(|item| item.action == ACTION_EXECUTE).count();
     let summary = if affected == 0 {
         format!("作废 {} 不需要做任何事（下游都已处理）", row.order_no)
     } else {
@@ -773,9 +747,7 @@ async fn analyze_stock_in(id: Uuid) -> std::result::Result<CancelImpactRes, ApiE
         });
     } else {
         if row.status != stockin_model::STATUS_DRAFT {
-            match stockin_model::ensure_cancellable(db(), row.id, &row.in_no, row.warehouse_id)
-                .await
-            {
+            match stockin_model::ensure_cancellable(db(), row.id, &row.in_no, row.warehouse_id).await {
                 Ok(()) => {}
                 Err(error) => blockers.push(format!(
                     "收货单 {} 不能作废：{}",
@@ -860,10 +832,7 @@ async fn analyze_stock_in(id: Uuid) -> std::result::Result<CancelImpactRes, ApiE
         }
     }
 
-    let affected = steps
-        .iter()
-        .filter(|item| item.action == ACTION_EXECUTE)
-        .count();
+    let affected = steps.iter().filter(|item| item.action == ACTION_EXECUTE).count();
     Ok(CancelImpactRes {
         doc_type: DOC_TYPE_STOCK_IN.to_string(),
         doc_id: row.id.to_string(),
@@ -880,9 +849,7 @@ async fn analyze_stock_in(id: Uuid) -> std::result::Result<CancelImpactRes, ApiE
         ),
         steps,
         blockers,
-        note:
-            "收货单作废会同时把库存三本账退回去、红冲进项凭证、作废联动应付单 —— 都在一个事务里。"
-                .to_string(),
+        note: "收货单作废会同时把库存三本账退回去、红冲进项凭证、作废联动应付单 —— 都在一个事务里。".to_string(),
     })
 }
 
@@ -961,10 +928,7 @@ async fn analyze_payable(id: Uuid) -> std::result::Result<CancelImpactRes, ApiEr
         });
     }
 
-    let affected = steps
-        .iter()
-        .filter(|item| item.action == ACTION_EXECUTE)
-        .count();
+    let affected = steps.iter().filter(|item| item.action == ACTION_EXECUTE).count();
     Ok(CancelImpactRes {
         doc_type: DOC_TYPE_PAYABLE.to_string(),
         doc_id: row.id.to_string(),
@@ -1017,9 +981,7 @@ pub async fn cascade(
         )));
     }
     if len > MAX_REASON_LEN {
-        return Err(bad_request(format!(
-            "reason 超过 {MAX_REASON_LEN} 字（当前 {len} 字）"
-        )));
+        return Err(bad_request(format!("reason 超过 {MAX_REASON_LEN} 字（当前 {len} 字）")));
     }
     // 统一加前缀：事后在 biz_status_log 里能一眼认出「这三张单是同一次联动作废废掉的」
     let log_reason = format!("联动作废：{reason}");
@@ -1027,17 +989,10 @@ pub async fn cascade(
     // 执行前的影响分析：拦路虎当场拦下（不静默跳过）
     let impact = analyze(normalized, id).await?;
     if !impact.blockers.is_empty() {
-        return Err(conflict(format!(
-            "不能一键处理：{}",
-            impact.blockers.join("；")
-        )));
+        return Err(conflict(format!("不能一键处理：{}", impact.blockers.join("；"))));
     }
     // 幂等：下游与单据本身都已经是终态 → 什么都不做，如实回报（别报错，用户点的可能就是「再确认一次」）
-    let affected = impact
-        .steps
-        .iter()
-        .filter(|item| item.action == ACTION_EXECUTE)
-        .count();
+    let affected = impact.steps.iter().filter(|item| item.action == ACTION_EXECUTE).count();
     if affected == 0 {
         return Ok(CancelCascadeRes {
             doc_type: normalized.to_string(),
@@ -1053,10 +1008,7 @@ pub async fn cascade(
                     message: item.action_label.clone(),
                 })
                 .collect(),
-            message: format!(
-                "{} 及其下游都已处理过，本次没有需要执行的动作",
-                impact.doc_no
-            ),
+            message: format!("{} 及其下游都已处理过，本次没有需要执行的动作", impact.doc_no),
             transaction: "未开事务：没有任何需要改动的行".to_string(),
         });
     }
@@ -1072,12 +1024,9 @@ pub async fn cascade(
         .map_err(|error| utils::db_error(error, "开启联动作废事务"))?;
     let outcome = match normalized {
         DOC_TYPE_PURCHASE_ORDER => {
-            cascade_purchase_order_tx(&tx, id, &impact, &log_reason, &op, now, &mut linkage_outbox)
-                .await
+            cascade_purchase_order_tx(&tx, id, &impact, &log_reason, &op, now, &mut linkage_outbox).await
         }
-        DOC_TYPE_STOCK_IN => {
-            cascade_stock_in_tx(&tx, id, &log_reason, &op, now, &mut linkage_outbox).await
-        }
+        DOC_TYPE_STOCK_IN => cascade_stock_in_tx(&tx, id, &log_reason, &op, now, &mut linkage_outbox).await,
         DOC_TYPE_PAYABLE => cascade_payable_tx(&tx, id, &log_reason, operator, now).await,
         other => Err(bad_request(format!("doc_type={other} 不支持联动作废"))),
     };
@@ -1102,10 +1051,7 @@ pub async fn cascade(
                 doc_type: normalized.to_string(),
                 doc_no: impact.doc_no.clone(),
                 steps,
-                message: format!(
-                    "{} 已联动作废：{} 个动作在一个事务里完成",
-                    impact.doc_no, done
-                ),
+                message: format!("{} 已联动作废：{} 个动作在一个事务里完成", impact.doc_no, done),
                 transaction: "单事务：任一步失败整笔回滚（不会留半笔账）".to_string(),
             })
         }
@@ -1169,17 +1115,9 @@ pub(crate) async fn cascade_purchase_order_tx(
             .await
             .map_err(|error| utils::db_error(error, "锁定收货入库单"))?
             .ok_or_else(|| not_found("收货入库单"))?;
-        stockin_handler_cancel::cancel_in_tx(
-            tx,
-            locked.id,
-            &locked,
-            Some(reason),
-            op,
-            now,
-            linkage_outbox,
-        )
-        .await
-        .map_err(|error| step_failure(seq, &format!("作废收货单 {}", locked.in_no), error))?;
+        stockin_handler_cancel::cancel_in_tx(tx, locked.id, &locked, Some(reason), op, now, linkage_outbox)
+            .await
+            .map_err(|error| step_failure(seq, &format!("作废收货单 {}", locked.in_no), error))?;
         steps.push(CancelCascadeStep {
             seq,
             doc_type: DOC_TYPE_STOCK_IN.to_string(),
@@ -1192,8 +1130,7 @@ pub(crate) async fn cascade_purchase_order_tx(
     // ③ 作废采购单本身（重算后的状态可能已被收货作废推回 APPROVED / PARTIAL_RECEIVED）
     let current: Option<String> = tx
         .query_sql(
-            "SELECT status FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT status FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&id)],
         )
         .await
@@ -1220,13 +1157,7 @@ pub(crate) async fn cascade_purchase_order_tx(
     if current == purchase_model::STATUS_SUBMITTED {
         purchase_bridge::cancel_approval_of(tx, id, &order_no, "采购单联动作废，审批自动终止")
             .await
-            .map_err(|error| {
-                step_failure(
-                    seq,
-                    "终止在跑的采购审批",
-                    utils::db_error(error, "终止审批"),
-                )
-            })?;
+            .map_err(|error| step_failure(seq, "终止在跑的采购审批", utils::db_error(error, "终止审批")))?;
     }
     state_machine::transition(
         tx,
@@ -1355,9 +1286,7 @@ pub(crate) async fn cascade_payable_tx(
     permission = "business:erp:doc:cancel-impact"
 )]
 #[nik::get("/business/erp/{doc_type}/{id}/cancel-impact")]
-pub async fn cancel_impact_handler(
-    Path((doc_type, id)): Path<(String, String)>,
-) -> ResResult<CancelImpactRes> {
+pub async fn cancel_impact_handler(Path((doc_type, id)): Path<(String, String)>) -> ResResult<CancelImpactRes> {
     let id = parse_uuid(&id, "id")?;
     Ok(Res::ok(analyze(&doc_type, id).await?))
 }

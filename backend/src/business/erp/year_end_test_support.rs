@@ -65,15 +65,13 @@ pub async fn sql(text: &str) {
 /// 顺序按外键依赖：通知 → 状态日志 → 期初 → 凭证（分录随凭证 CASCADE）→ 单据 → 期间 → 角色 / 用户。
 pub async fn cleanup() {
     // 年结催办 / 期间催办留下的通知（`biz_id` 是单据 id 的文本）
-    sql(
-        "DELETE FROM sys_notice \
+    sql("DELETE FROM sys_notice \
           WHERE biz_type IN ('year_end_remind', 'period_remind') \
             AND biz_id IN (SELECT id::text FROM biz_purchase_order WHERE order_no LIKE 'YE-%' \
                            UNION SELECT id::text FROM biz_stock_in WHERE in_no LIKE 'YE-%' \
                            UNION SELECT id::text FROM biz_stock_transfer WHERE transfer_no LIKE 'YE-%' \
                            UNION SELECT id::text FROM biz_voucher WHERE period LIKE '2037-%' \
-                                 OR period LIKE '2038-%')",
-    )
+                                 OR period LIKE '2038-%')")
     .await;
     sql(
         "DELETE FROM biz_status_log WHERE entity_type IN ('ACCOUNTING_YEAR', 'ACCOUNTING_PERIOD') \
@@ -85,28 +83,19 @@ pub async fn cleanup() {
            AND entity_id IN (SELECT id FROM biz_voucher \
                               WHERE period LIKE '2037-%' OR period LIKE '2038-%')")
     .await;
-    sql(
-        "DELETE FROM biz_opening_balance WHERE period_code LIKE '2037-%' OR period_code LIKE '2038-%'",
-    )
-    .await;
+    sql("DELETE FROM biz_opening_balance WHERE period_code LIKE '2037-%' OR period_code LIKE '2038-%'").await;
     sql("DELETE FROM biz_voucher WHERE period LIKE '2037-%' OR period LIKE '2038-%'").await;
     sql("DELETE FROM biz_purchase_order WHERE order_no LIKE 'YE-%'").await;
     sql("DELETE FROM biz_stock_in WHERE in_no LIKE 'YE-%'").await;
     sql("DELETE FROM biz_stock_transfer WHERE transfer_no LIKE 'YE-%'").await;
-    sql(
-        "DELETE FROM biz_accounting_period WHERE period_code LIKE '2037-%' OR period_code LIKE '2038-%'",
-    )
-    .await;
+    sql("DELETE FROM biz_accounting_period WHERE period_code LIKE '2037-%' OR period_code LIKE '2038-%'").await;
     // 夹具角色 / 用户（`ensure_role_for` 造的是 `P2-` 角色 + `p2.` 用户，本模块额外用 `YE-` / `ye.`）
     sql(
         "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE 'ye.%') \
            OR role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'YE-%')",
     )
     .await;
-    sql(
-        "DELETE FROM sys_role_menu WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'YE-%')",
-    )
-    .await;
+    sql("DELETE FROM sys_role_menu WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'YE-%')").await;
     sql("DELETE FROM sys_role WHERE role_code LIKE 'YE-%'").await;
     sql("DELETE FROM sys_user WHERE username LIKE 'ye.%'").await;
     // 期间夹具模块（`P2-` / `p2.`）的残留也清一遍：`ensure_role_for` 来自那边。
@@ -182,14 +171,7 @@ pub async fn seed_stock_in(in_no: &str, month: i16, status: &str) -> Uuid {
 
 /// 造一张「分录借贷不平」的已过账凭证（A1 不变量），用于验证 INVARIANT 明细。
 pub async fn seed_broken_voucher(voucher_no: &str, month: i16) -> Uuid {
-    base::seed_voucher(
-        &period_code(month),
-        voucher_no,
-        "POSTED",
-        ("100", "100"),
-        ("60", "40"),
-    )
-    .await
+    base::seed_voucher(&period_code(month), voucher_no, "POSTED", ("100", "100"), ("60", "40")).await
 }
 
 // ==================== 授权快照（测「反查不到就留 null」时用） ====================

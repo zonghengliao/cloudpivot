@@ -58,12 +58,7 @@ pub async fn touch_node(ex: &Transaction, new: &NewNode) -> DbResult<()> {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn find_node(
-    ex: &Transaction,
-    instance_id: Uuid,
-    node_key: &str,
-    round: i32,
-) -> DbResult<Option<NodeRow>> {
+pub async fn find_node(ex: &Transaction, instance_id: Uuid, node_key: &str, round: i32) -> DbResult<Option<NodeRow>> {
     let sql = format!(
         "SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n \
           WHERE n.instance_id = ?::uuid AND n.node_key = ? AND n.round = ?"
@@ -87,9 +82,7 @@ pub async fn find_node(
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn lock_node(ex: &Transaction, id: Uuid) -> DbResult<Option<NodeRow>> {
-    let sql = format!(
-        "SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n WHERE n.id = ?::uuid FOR UPDATE"
-    );
+    let sql = format!("SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n WHERE n.id = ?::uuid FOR UPDATE");
     let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(NodeRow::from_row).transpose()
 }
@@ -201,9 +194,7 @@ pub async fn nodes_of(instance_id: Uuid) -> DbResult<Vec<NodeRow>> {
         "SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n \
           WHERE n.instance_id = ?::uuid ORDER BY n.round, n.created_at, n.node_key"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&instance_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&instance_id)]).await?;
     rows.iter().map(NodeRow::from_row).collect()
 }
 
@@ -212,11 +203,7 @@ pub async fn nodes_of(instance_id: Uuid) -> DbResult<Vec<NodeRow>> {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn cancel_active_nodes(
-    ex: &Transaction,
-    instance_id: Uuid,
-    except_node_id: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn cancel_active_nodes(ex: &Transaction, instance_id: Uuid, except_node_id: Option<Uuid>) -> DbResult<u64> {
     let mut sql = String::from(
         "UPDATE biz_flow_instance_node \
             SET status = 'CANCELLED', ended_at = now(), \
@@ -258,12 +245,7 @@ pub async fn max_round(ex: &Transaction, instance_id: Uuid) -> DbResult<i32> {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn node_arrived(
-    ex: &Transaction,
-    instance_id: Uuid,
-    node_key: &str,
-    round: i32,
-) -> DbResult<bool> {
+pub async fn node_arrived(ex: &Transaction, instance_id: Uuid, node_key: &str, round: i32) -> DbResult<bool> {
     let rows = ex
         .find_with_params(
             "SELECT count(*) AS total FROM biz_flow_instance_node \
@@ -298,11 +280,7 @@ pub async fn node_arrived(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn inflight_node_keys(
-    ex: &Transaction,
-    instance_id: Uuid,
-    round: i32,
-) -> DbResult<Vec<String>> {
+pub async fn inflight_node_keys(ex: &Transaction, instance_id: Uuid, round: i32) -> DbResult<Vec<String>> {
     let rows = ex
         .find_with_params(
             "SELECT DISTINCT node_key FROM biz_flow_instance_node \

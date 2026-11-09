@@ -56,12 +56,7 @@ pub const OUT_TYPE_LOSS: &str = DocSubtype::Loss.as_str();
 pub const OUT_TYPE_OTHER: &str = DocSubtype::OtherOut.as_str();
 
 /// 四种出库类型（唯一真相，DTO 校验与巡检共用；取值来自 [`DocSubtype`]）。
-pub const OUT_TYPES: [&str; 4] = [
-    OUT_TYPE_ISSUE,
-    OUT_TYPE_SCRAP,
-    OUT_TYPE_LOSS,
-    OUT_TYPE_OTHER,
-];
+pub const OUT_TYPES: [&str; 4] = [OUT_TYPE_ISSUE, OUT_TYPE_SCRAP, OUT_TYPE_LOSS, OUT_TYPE_OTHER];
 
 /// 库存流水方向：出（`ck_biz_inv_txn_type` 只认 IN / OUT，数量恒正）。
 pub const TXN_TYPE_OUT: &str = "OUT";
@@ -207,9 +202,7 @@ pub fn biz_type_of_doc(out_type: &str, source_type: Option<&str>) -> &'static st
 
 /// 该状态能否去目标状态（查注册表，不写第二份边表）。
 pub fn can_transition(from: &str, to: &str) -> bool {
-    LEGAL_EDGES
-        .iter()
-        .any(|(start, end)| *start == from && *end == to)
+    LEGAL_EDGES.iter().any(|(start, end)| *start == from && *end == to)
 }
 
 /// 非法流转的 400 文案（列出当前状态能去哪）。
@@ -470,10 +463,7 @@ mod tests {
         assert_eq!(BIZ_TYPE_LOSS, TxnBizType::LossOut.as_str());
         assert_eq!(BIZ_TYPE_OTHER, TxnBizType::OtherOut.as_str());
         assert_eq!(BIZ_TYPE_SALE_OUT, TxnBizType::SaleOut.as_str());
-        assert_eq!(
-            BIZ_TYPE_STOCK_OUT_CANCEL,
-            TxnBizType::StockOutCancel.as_str()
-        );
+        assert_eq!(BIZ_TYPE_STOCK_OUT_CANCEL, TxnBizType::StockOutCancel.as_str());
         assert_eq!(DOC_TYPE_STOCK_OUT, TxnDocType::StockOut.as_str());
         assert_eq!(OUT_TYPES, DocSubtype::OUT_TYPES.map(DocSubtype::as_str));
         // 五个出库 biz_type 互不相同（否则报表按 biz_type 分组会把两种业务合并）
@@ -488,10 +478,7 @@ mod tests {
     /// 但流水必须记 `SALE_OUT` —— 记成 `OTHER_OUT` 就等于「销售出库」从统计里消失。
     #[test]
     fn sales_stock_out_is_sale_out_not_other_out() {
-        assert_eq!(
-            biz_type_of_doc(OUT_TYPE_OTHER, Some(SOURCE_TYPE_SALES)),
-            "SALE_OUT"
-        );
+        assert_eq!(biz_type_of_doc(OUT_TYPE_OTHER, Some(SOURCE_TYPE_SALES)), "SALE_OUT");
         // 同一 out_type + 没有来源 = 真的手工其他出库，仍记 OTHER_OUT
         assert_eq!(biz_type_of_doc(OUT_TYPE_OTHER, None), "OTHER_OUT");
         // 来源列只认 SALES：别的来源类型不改变 out_type 的口径

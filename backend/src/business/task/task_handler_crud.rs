@@ -17,9 +17,8 @@ use crate::business::flow::task_bridge;
 use crate::business::shared::principal::{self};
 use crate::business::task::doc_ref;
 use crate::business::task::dto::{
-    self, MyCounts, MyTasksRes, TaskAttachmentRes, TaskByDocQuery, TaskByDocRes, TaskCreateReq,
-    TaskDeleteRes, TaskDetailRes, TaskMemberRes, TaskPageQuery, TaskPageRes, TaskSaveRes,
-    TaskUpdateReq,
+    self, MyCounts, MyTasksRes, TaskAttachmentRes, TaskByDocQuery, TaskByDocRes, TaskCreateReq, TaskDeleteRes,
+    TaskDetailRes, TaskMemberRes, TaskPageQuery, TaskPageRes, TaskSaveRes, TaskUpdateReq,
 };
 use crate::business::task::model::{self, MyBucket, TaskFilter};
 use crate::middleware::task_token::AiTaskActor;
@@ -48,11 +47,7 @@ use crate::utils;
 /// - 401：令牌缺用户标识；
 /// - 400 + `10001`：`status` / `priority` / `owner_id` 取值非法；
 /// - 500：数据库异常 / 数据权限片段形态异常。
-#[nik::permission(
-    path = "/business/task/page",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/page", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -100,11 +95,7 @@ pub async fn page(
 /// - 400 + `63004`：`doc_id` 不是合法 UUID；
 /// - 401：令牌缺用户标识；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task/by-doc",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/by-doc", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/by-doc")]
 pub async fn by_doc(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -131,12 +122,10 @@ pub async fn by_doc(
 pub(super) fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiError> {
     let status = match query.status.as_deref().map(str::trim) {
         None | Some("") => None,
-        Some(raw) => Some(dto::normalize_status(raw).ok_or_else(|| {
-            param_invalid(format!(
-                "状态取值非法：{raw}（应为 {}）",
-                dto::STATUSES.join(" / ")
-            ))
-        })?),
+        Some(raw) => Some(
+            dto::normalize_status(raw)
+                .ok_or_else(|| param_invalid(format!("状态取值非法：{raw}（应为 {}）", dto::STATUSES.join(" / "))))?,
+        ),
     };
     // T9-A：状态多选（逗号分隔）。`statuses` 非空时优先于单值 `status`；
     // 空字符串 / 全是空串 → `None`（等价不传）。
@@ -149,25 +138,20 @@ pub(super) fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFil
                 .filter(|item| !item.is_empty())
                 .map(|item| {
                     dto::normalize_status(item).ok_or_else(|| {
-                        param_invalid(format!(
-                            "状态取值非法：{item}（应为 {}）",
-                            dto::STATUSES.join(" / ")
-                        ))
+                        param_invalid(format!("状态取值非法：{item}（应为 {}）", dto::STATUSES.join(" / ")))
                     })
                 })
                 .collect::<std::result::Result<Vec<_>, ApiError>>()?;
             (!list.is_empty()).then_some(list)
         }
     };
-    let priority = match query.priority.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(raw) => Some(dto::normalize_priority(Some(raw)).ok_or_else(|| {
-            param_invalid(format!(
-                "优先级取值非法：{raw}（应为 {}）",
-                dto::PRIORITIES.join(" / ")
-            ))
-        })?),
-    };
+    let priority =
+        match query.priority.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(raw) => Some(dto::normalize_priority(Some(raw)).ok_or_else(|| {
+                param_invalid(format!("优先级取值非法：{raw}（应为 {}）", dto::PRIORITIES.join(" / ")))
+            })?),
+        };
     let owner_id = match query.owner_id.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(raw) => Some(parse_uuid_field(raw, "负责人")?),
@@ -193,9 +177,7 @@ pub(super) fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFil
     if let (Some(from), Some(to)) = (query.due_from, query.due_to)
         && from > to
     {
-        return Err(param_invalid(
-            "截止日范围非法：下界不能晚于上界".to_string(),
-        ));
+        return Err(param_invalid("截止日范围非法：下界不能晚于上界".to_string()));
     }
     Ok(TaskFilter {
         status,
@@ -217,9 +199,7 @@ pub(super) fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFil
 /// 项目下任务列表（`GET /business/project/{id}/tasks`）必须与任务页**同一套过滤口径**，
 /// 否则「项目里没有这条任务」与「筛选条件不同」会混在一起，排查成本极高。
 /// 项目模块只在本函数的结果上覆盖 `project_id` 一个字段。
-pub(crate) fn build_task_filter(
-    query: &TaskPageQuery,
-) -> std::result::Result<TaskFilter, ApiError> {
+pub(crate) fn build_task_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiError> {
     build_filter(query)
 }
 
@@ -258,11 +238,7 @@ pub(crate) fn page_res(result: &model::VisiblePage) -> TaskPageRes {
 /// - 400 + `10001`：`owner_id` / `parent_id` 不是合法 UUID；
 /// - 400 + `63009`：负责人不存在或已停用；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task",
-    method = "POST",
-    permission = "business:task:create"
-)]
+#[nik::permission(path = "/business/task", method = "POST", permission = "business:task:create")]
 #[nik::post("/business/task")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -273,20 +249,14 @@ pub async fn create(
     let description = normalize_description(req.description.as_deref())?;
     let priority = match req.priority.as_deref() {
         None => dto::DEFAULT_PRIORITY.to_string(),
-        Some(raw) => dto::normalize_priority(Some(raw)).ok_or_else(|| {
-            param_invalid(format!(
-                "优先级取值非法：{raw}（应为 {}）",
-                dto::PRIORITIES.join(" / ")
-            ))
-        })?,
+        Some(raw) => dto::normalize_priority(Some(raw))
+            .ok_or_else(|| param_invalid(format!("优先级取值非法：{raw}（应为 {}）", dto::PRIORITIES.join(" / "))))?,
     };
     let estimate_hours = validate_hours(req.estimate_hours)?;
     if let (Some(start), Some(due)) = (req.start_date, req.due_date)
         && start > due
     {
-        return Err(param_invalid(
-            "日期非法：计划开始日不能晚于截止日".to_string(),
-        ));
+        return Err(param_invalid("日期非法：计划开始日不能晚于截止日".to_string()));
     }
 
     // 负责人：缺省 = 自己；传他人 = 分派（§八「分派即自动加协作人」）
@@ -315,9 +285,7 @@ pub async fn create(
         Some(raw) => Some(parse_uuid_field(raw, "父任务")?),
     };
     if let Some(parent_id) = parent_id {
-        model::validate_parent(parent_id, None)
-            .await
-            .map_err(parent_invalid)?;
+        model::validate_parent(parent_id, None).await.map_err(parent_invalid)?;
     }
     let project_id = match req.project_id.as_deref().map(str::trim) {
         None | Some("") => None,
@@ -393,11 +361,7 @@ pub const COPY_TITLE_SUFFIX: &str = "（副本）";
 /// 而「副本」两字被截掉的标题和原任务无法区分，所以砍的是原标题尾部。
 pub fn copy_title(origin: &str) -> String {
     let keep = dto::MAX_TITLE_CHARS.saturating_sub(COPY_TITLE_SUFFIX.chars().count());
-    format!(
-        "{}{}",
-        dto::truncate_chars(origin.trim(), keep),
-        COPY_TITLE_SUFFIX
-    )
+    format!("{}{}", dto::truncate_chars(origin.trim(), keep), COPY_TITLE_SUFFIX)
 }
 
 /// 「复制为新任务」的核心逻辑（endpoint 与单测共用）。
@@ -533,11 +497,7 @@ pub async fn task_copy(
 /// - 403 + `63002`：不是负责人也不是创建人；
 /// - 400 + `63003` / `63004` / `63005` / `63009`：同创建；
 /// - 400 + `10001`：空 PUT（一个字段都没传）。
-#[nik::permission(
-    path = "/business/task/{id}",
-    method = "PUT",
-    permission = "business:task:update"
-)]
+#[nik::permission(path = "/business/task/{id}", method = "PUT", permission = "business:task:update")]
 #[nik::put("/business/task/{id}")]
 pub async fn update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -643,9 +603,7 @@ pub async fn update(
     if let (Some(Some(start)), Some(Some(due))) = (patch.start_date, patch.due_date)
         && start > due
     {
-        return Err(param_invalid(
-            "日期非法：计划开始日不能晚于截止日".to_string(),
-        ));
+        return Err(param_invalid("日期非法：计划开始日不能晚于截止日".to_string()));
     }
 
     let affected = db()
@@ -688,11 +646,7 @@ pub async fn update(
 /// 审批实例 → `CANCELLED`（同写 `ended_at` + `result_comment`），其 `PENDING`
 /// 待办 → `CANCELLED`（同写 `completed_at`）。否则审批单成孤儿，一直挂在待办里。
 /// `APPROVED` / `REJECTED` / `WITHDRAWN` 的实例**不动**（已完成的事实留作审计）。
-#[nik::permission(
-    path = "/business/task/{id}",
-    method = "DELETE",
-    permission = "business:task:delete"
-)]
+#[nik::permission(path = "/business/task/{id}", method = "DELETE", permission = "business:task:delete")]
 #[nik::delete("/business/task/{id}")]
 pub async fn delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -843,10 +797,7 @@ pub async fn detail(
         hermes_task_id: row.hermes_task_id.clone(),
         hermes_status: row.hermes_status.clone(),
         ai_summary: row.ai_summary.clone(),
-        ai_result: row
-            .ai_result
-            .as_deref()
-            .and_then(|raw| serde_json::from_str(raw).ok()),
+        ai_result: row.ai_result.as_deref().and_then(|raw| serde_json::from_str(raw).ok()),
         children: children.iter().map(card_res).collect(),
         members: members
             .iter()
@@ -885,11 +836,7 @@ pub async fn detail(
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task/my",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/my", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/my")]
 pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<MyTasksRes> {
     let me = current_user(&claims)?;

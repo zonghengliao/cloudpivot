@@ -16,9 +16,8 @@ use super::task_handler_common::*;
 use crate::business::shared::principal::{self};
 use crate::business::task::dep;
 use crate::business::task::dto::{
-    self, GanttBarRes, GanttDepRes, GanttRangeRes, GanttTaskRes, TaskDependenciesRes,
-    TaskDependencyAddReq, TaskDependencyAddRes, TaskDependencyItemRes, TaskDependencyRemoveRes,
-    TaskGanttQuery, TaskGanttRes,
+    self, GanttBarRes, GanttDepRes, GanttRangeRes, GanttTaskRes, TaskDependenciesRes, TaskDependencyAddReq,
+    TaskDependencyAddRes, TaskDependencyItemRes, TaskDependencyRemoveRes, TaskGanttQuery, TaskGanttRes,
 };
 use crate::business::task::model::{self};
 use crate::shared::error_code;
@@ -62,10 +61,7 @@ pub(super) const DEP_CYCLE_PREFIX: &str = "TASK_DEP_CYCLE:";
 pub(super) const DEP_ADVISORY_LOCK: i64 = 7_340_105;
 
 /// 依赖行 → 出参（`show_blocking = true` 只对前置组有意义）。
-pub(super) fn dependency_item_res(
-    row: &model::DependencyRow,
-    show_blocking: bool,
-) -> TaskDependencyItemRes {
+pub(super) fn dependency_item_res(row: &model::DependencyRow, show_blocking: bool) -> TaskDependencyItemRes {
     TaskDependencyItemRes {
         dep_id: row.peer_id.to_string(),
         task_no: row.task_no.clone(),
@@ -99,14 +95,8 @@ pub(super) async fn dependency_groups(
         .filter(|row| dep::is_blocking_status(&row.status))
         .count() as i64;
     Ok((
-        prerequisites
-            .iter()
-            .map(|row| dependency_item_res(row, true))
-            .collect(),
-        successors
-            .iter()
-            .map(|row| dependency_item_res(row, false))
-            .collect(),
+        prerequisites.iter().map(|row| dependency_item_res(row, true)).collect(),
+        successors.iter().map(|row| dependency_item_res(row, false)).collect(),
         blocking_count,
     ))
 }
@@ -190,12 +180,7 @@ pub async fn add_dependency(
         .ok_or_else(not_found)?;
 
     // ① 权限矩阵
-    let role = actor_role(
-        me,
-        current.creator_id,
-        current.card.owner_id,
-        current.assigner_id,
-    );
+    let role = actor_role(me, current.creator_id, current.card.owner_id, current.assigner_id);
     if !may_manage_dependencies(role, claims.has_permission(dto::PERM_DEPENDENCY)) {
         return Err(forbidden_dependency());
     }
@@ -355,12 +340,7 @@ pub async fn remove_dependency(
         .await
         .map_err(|error| utils::db_error(error, "查询任务详情"))?
         .ok_or_else(not_found)?;
-    let role = actor_role(
-        me,
-        current.creator_id,
-        current.card.owner_id,
-        current.assigner_id,
-    );
+    let role = actor_role(me, current.creator_id, current.card.owner_id, current.assigner_id);
     if !may_manage_dependencies(role, claims.has_permission(dto::PERM_DEPENDENCY)) {
         return Err(forbidden_dependency());
     }
@@ -408,31 +388,21 @@ pub async fn remove_dependency(
 /// - 400 + `10001` / `63004`：uuid / scope 取值非法；400 + `63105`：时间窗非法或超 180 天；
 /// - 400 + `63103`：传了本版不支持的 `board_id`；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task/gantt",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/gantt", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/gantt")]
 pub async fn gantt(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<TaskGanttQuery>,
 ) -> ResResult<TaskGanttRes> {
     let mine = principal::resolve_for_claims(&claims).await?;
-    if query
-        .board_id
-        .as_deref()
-        .is_some_and(|raw| !raw.trim().is_empty())
-    {
+    if query.board_id.as_deref().is_some_and(|raw| !raw.trim().is_empty()) {
         return Err(dependency_invalid(
-            "board_id 维度属于 P1（自定义看板列），本版请用 project_id / assignee_id 或 scope=my"
-                .to_string(),
+            "board_id 维度属于 P1（自定义看板列），本版请用 project_id / assignee_id 或 scope=my".to_string(),
         ));
     }
     let today = model::today_cst();
-    let range = dep::resolve_range(query.start, query.end, today).map_err(|error| {
-        ApiError::new(400, error_code::TASK_GANTT_RANGE_INVALID, error.message())
-    })?;
+    let range = dep::resolve_range(query.start, query.end, today)
+        .map_err(|error| ApiError::new(400, error_code::TASK_GANTT_RANGE_INVALID, error.message()))?;
 
     let owner_id = match query.assignee_id.as_deref().map(str::trim) {
         None | Some("") => None,
@@ -446,9 +416,7 @@ pub async fn gantt(
         None | Some("") | Some("all") => None,
         Some("my") => Some(mine.user_id()),
         Some(raw) => {
-            return Err(param_invalid(format!(
-                "scope 取值非法：{raw}（应为 my / all）"
-            )));
+            return Err(param_invalid(format!("scope 取值非法：{raw}（应为 my / all）")));
         }
     };
 
@@ -546,14 +514,7 @@ pub(super) async fn check_dependencies_ready(task_id: Uuid) -> std::result::Resu
     }
     let names = blocking
         .iter()
-        .map(|row| {
-            format!(
-                "{}「{}」（{}）",
-                row.task_no,
-                row.title,
-                status_label(&row.status)
-            )
-        })
+        .map(|row| format!("{}「{}」（{}）", row.task_no, row.title, status_label(&row.status)))
         .collect::<Vec<_>>()
         .join("、");
     Err(ApiError::new(

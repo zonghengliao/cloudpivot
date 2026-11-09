@@ -197,11 +197,7 @@ pub(crate) async fn invalidate_all_principals() -> u64 {
 /// SCOPE-EXEMPT: 查的是**关联表** `sys_user_role` / `sys_role_menu`（门禁按子串匹配
 /// `FROM sys_user` 会把它算成 `sys_user`），用途是「哪些主体的缓存要失效」——
 /// 系统内部的缓存维护，与「当前用户能看到哪些数据」无关；注入范围会导致漏失效（越权）。
-async fn holder_ids_by(
-    sql: &'static str,
-    id: &uuid::Uuid,
-    label: &'static str,
-) -> Option<Vec<uuid::Uuid>> {
+async fn holder_ids_by(sql: &'static str, id: &uuid::Uuid, label: &'static str) -> Option<Vec<uuid::Uuid>> {
     let rows = match db().find_with_params(sql, vec![Value::from(id)]).await {
         Ok(rows) => rows,
         Err(e) => {
@@ -266,11 +262,7 @@ pub(crate) async fn invalidate_role_holders(role_id: &uuid::Uuid) {
             tracing::debug!(?role_id, "角色无持有者，无需失效主体缓存");
         }
         Some(user_ids) => {
-            tracing::debug!(
-                ?role_id,
-                users = user_ids.len(),
-                "失效角色持有者的主体上下文缓存"
-            );
+            tracing::debug!(?role_id, users = user_ids.len(), "失效角色持有者的主体上下文缓存");
             invalidate_users_principal(&user_ids).await;
         }
     }
@@ -296,11 +288,7 @@ pub(crate) async fn invalidate_menu_holders(menu_id: &uuid::Uuid) {
             tracing::debug!(?menu_id, "菜单无持有者，无需失效主体缓存");
         }
         Some(user_ids) => {
-            tracing::debug!(
-                ?menu_id,
-                users = user_ids.len(),
-                "失效菜单持有者的主体上下文缓存"
-            );
+            tracing::debug!(?menu_id, users = user_ids.len(), "失效菜单持有者的主体上下文缓存");
             invalidate_users_principal(&user_ids).await;
         }
     }
@@ -323,16 +311,10 @@ pub(crate) async fn invalidate_menu_holders(menu_id: &uuid::Uuid) {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]；缓存异常不影响结果（回退查库）。
-pub(crate) async fn load_role_codes(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Vec<String>, DbError> {
+pub(crate) async fn load_role_codes(user_id: &uuid::Uuid) -> std::result::Result<Vec<String>, DbError> {
     let key = cache_key_user_roles(user_id);
     if let Some(cached) = cache_get::<Vec<CachedRole>>(&key).await {
-        return Ok(cached
-            .into_iter()
-            .filter(|r| r.enabled)
-            .map(|r| r.role_code)
-            .collect());
+        return Ok(cached.into_iter().filter(|r| r.enabled).map(|r| r.role_code).collect());
     }
     let roles = load_roles_uncached(user_id).await?;
     let projection = roles.iter().map(CachedRole::from_model).collect::<Vec<_>>();
@@ -348,9 +330,7 @@ pub(crate) async fn load_role_codes(
 ///
 /// SCOPE-EXEMPT: 装载的是**当前登录者本人**的角色（`user_id` 取自令牌 `sub`），
 /// 这是权限快照的构成部分 —— 「算权限」的查询不能再被「权限」过滤，否则会自我循环。
-async fn load_roles_uncached(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Vec<SysRoleModel>, DbError> {
+async fn load_roles_uncached(user_id: &uuid::Uuid) -> std::result::Result<Vec<SysRoleModel>, DbError> {
     SysRoleModel::find_by(
         db(),
         "id IN (SELECT role_id FROM sys_user_role \
@@ -409,9 +389,7 @@ pub(crate) async fn load_permissions(
 }
 
 /// 查询用户权限码列表（不走缓存，供内部装载 / 回填复用）。
-async fn load_permissions_uncached(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Vec<String>, DbError> {
+async fn load_permissions_uncached(user_id: &uuid::Uuid) -> std::result::Result<Vec<String>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT DISTINCT m.auth_code AS auth_code FROM sys_menu m \
@@ -475,9 +453,7 @@ pub(crate) struct PrincipalSnapshot {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（调用方回 500，不签发携带空权限的令牌）。
-pub(crate) async fn load_principal_snapshot(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<PrincipalSnapshot, DbError> {
+pub(crate) async fn load_principal_snapshot(user_id: &uuid::Uuid) -> std::result::Result<PrincipalSnapshot, DbError> {
     let roles = load_roles_uncached(user_id).await?;
     let projection: Vec<CachedRole> = roles.iter().map(CachedRole::from_model).collect();
     let role_codes: Vec<String> = projection
@@ -535,10 +511,8 @@ pub(crate) async fn load_user_menus(
         return Ok(cached);
     }
     let menus = load_user_menus_uncached(user_id, super_admin).await?;
-    let nodes: Vec<crate::system::menu::dto::MenuRes> = menus
-        .iter()
-        .map(crate::system::menu::dto::MenuRes::from)
-        .collect();
+    let nodes: Vec<crate::system::menu::dto::MenuRes> =
+        menus.iter().map(crate::system::menu::dto::MenuRes::from).collect();
     cache_set(&key, &nodes).await;
     Ok(nodes)
 }
@@ -549,12 +523,7 @@ async fn load_user_menus_uncached(
     super_admin: bool,
 ) -> std::result::Result<Vec<SysMenuModel>, DbError> {
     if super_admin {
-        SysMenuModel::find_by(
-            db(),
-            "menu_type IN (1, 2) AND status = 1 ORDER BY sort_order ASC",
-            (),
-        )
-        .await
+        SysMenuModel::find_by(db(), "menu_type IN (1, 2) AND status = 1 ORDER BY sort_order ASC", ()).await
     } else {
         SysMenuModel::find_by(
             db(),

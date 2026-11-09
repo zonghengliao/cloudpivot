@@ -162,9 +162,7 @@ pub(crate) struct MenuTreeFilter {
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub(crate) async fn find_menu_list(
-    filter: &MenuTreeFilter,
-) -> std::result::Result<Vec<SysMenuModel>, DbError> {
+pub(crate) async fn find_menu_list(filter: &MenuTreeFilter) -> std::result::Result<Vec<SysMenuModel>, DbError> {
     let mut sql = String::from("SELECT * FROM sys_menu WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
 
@@ -226,10 +224,7 @@ pub(crate) async fn load_cached_tree() -> Option<Vec<crate::system::menu::dto::M
         }
     }
     let store = try_cache()?;
-    Cache::get(store, constants::CACHE_KEY_MENU_TREE)
-        .await
-        .ok()
-        .flatten()
+    Cache::get(store, constants::CACHE_KEY_MENU_TREE).await.ok().flatten()
 }
 
 /// 写入全量菜单树缓存。

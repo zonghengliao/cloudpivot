@@ -40,8 +40,8 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
 use super::stockout_base::{
-    OUT_TYPES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockOutFilter,
-    StockOutItemRow, StockOutRow, out_type_label, status_label,
+    OUT_TYPES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockOutFilter, StockOutItemRow,
+    StockOutRow, out_type_label, status_label,
 };
 
 /// 明细行上限。
@@ -56,20 +56,11 @@ pub const MAX_REASON_LEN: usize = 255;
 /// 本卡的 6 个权限码（与迁移逐字一致）。
 pub const STOCK_OUT_PERMISSIONS: [(&str, &str); 6] = [
     ("business:erp:stock-out:list", "出库单列表"),
-    (
-        "business:erp:stock-out:detail",
-        "出库单详情（含明细与成本结转金额）",
-    ),
-    (
-        "business:erp:stock-out:create",
-        "新建出库单（领用 / 报废 / 盘亏）",
-    ),
+    ("business:erp:stock-out:detail", "出库单详情（含明细与成本结转金额）"),
+    ("business:erp:stock-out:create", "新建出库单（领用 / 报废 / 盘亏）"),
     ("business:erp:stock-out:update", "编辑出库单（仅草稿）"),
     ("business:erp:stock-out:delete", "删除出库单（仅草稿）"),
-    (
-        "business:erp:stock-out:status",
-        "出库单状态流转（提交 / 过账 / 作废）",
-    ),
+    ("business:erp:stock-out:status", "出库单状态流转（提交 / 过账 / 作废）"),
 ];
 
 /// 状态流转允许的 3 个目标态。
@@ -173,9 +164,7 @@ impl CreateStockOutReq {
             if let Some(remark) = item.remark.as_deref()
                 && remark.chars().count() > MAX_REASON_LEN
             {
-                return Err(bad_request(format!(
-                    "第 {line_no} 行备注最长 {MAX_REASON_LEN} 字"
-                )));
+                return Err(bad_request(format!("第 {line_no} 行备注最长 {MAX_REASON_LEN} 字")));
             }
         }
         Ok(())
@@ -243,10 +232,7 @@ impl StockOutStatusReq {
 
     /// 原因文本（去空白；空串 → `None`）。
     pub fn reason_text(&self) -> Option<&str> {
-        self.reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
+        self.reason.as_deref().map(str::trim).filter(|text| !text.is_empty())
     }
 }
 
@@ -277,14 +263,8 @@ impl StockOutPageQuery {
     pub fn to_filter(&self) -> StockOutFilter {
         StockOutFilter {
             keyword: self.keyword.clone(),
-            status: self
-                .status
-                .as_deref()
-                .map(|text| text.trim().to_uppercase()),
-            out_type: self
-                .out_type
-                .as_deref()
-                .map(|text| text.trim().to_uppercase()),
+            status: self.status.as_deref().map(|text| text.trim().to_uppercase()),
+            out_type: self.out_type.as_deref().map(|text| text.trim().to_uppercase()),
             warehouse_id: self.warehouse_id.clone(),
             date_from: self.date_from,
             date_to: self.date_to,

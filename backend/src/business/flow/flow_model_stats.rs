@@ -52,9 +52,7 @@ impl StatsWindow {
             return Err("时间范围非法：start 必须早于 end".to_string());
         }
         if end - start > chrono::Duration::days(STATS_MAX_SPAN_DAYS) {
-            return Err(format!(
-                "时间范围非法：跨度不得超过 {STATS_MAX_SPAN_DAYS} 天"
-            ));
+            return Err(format!("时间范围非法：跨度不得超过 {STATS_MAX_SPAN_DAYS} 天"));
         }
         Ok(Self { start, end })
     }
@@ -183,8 +181,7 @@ pub fn slowest_of(rows: &[BottleneckRow]) -> Option<&BottleneckRow> {
             None => Some(row),
             Some(current) => {
                 let better = row.avg_dwell_seconds > current.avg_dwell_seconds
-                    || (row.avg_dwell_seconds == current.avg_dwell_seconds
-                        && row.samples > current.samples)
+                    || (row.avg_dwell_seconds == current.avg_dwell_seconds && row.samples > current.samples)
                     || (row.avg_dwell_seconds == current.avg_dwell_seconds
                         && row.samples == current.samples
                         && row.node_key.as_str() < current.node_key.as_str());

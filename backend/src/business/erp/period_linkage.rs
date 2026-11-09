@@ -92,8 +92,8 @@ impl PeriodStatusChange {
     /// （与合同 `contract_linkage` / 应付 `payable_linkage` 同一口径）。
     fn ctx(&self) -> linkage::LinkageContext<'_> {
         // 状态中文名只从 `spec::TRIGGER_SPECS` 取一份（配置页下拉用的就是它）
-        let label = linkage::spec::status_label_of(state_machine::ENTITY_PERIOD, &self.status)
-            .unwrap_or(self.status.as_str());
+        let label =
+            linkage::spec::status_label_of(state_machine::ENTITY_PERIOD, &self.status).unwrap_or(self.status.as_str());
         // `biz_accounting_period` 没有 create_by / owner 列（全局会计字典，见 period.rs
         // 头注释「数据权限」），唯一稳定的人是**操作人**：谁结的账就通知谁。
         // `owner` 也取操作人，使配置里 `recipient = OWNER` 时不至于空收件人。
@@ -144,8 +144,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::PERIOD_EXCLUDED_ACTIONS).await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::PERIOD_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             period_id = %change.period_id,
@@ -214,11 +213,7 @@ mod tests {
                 .and_then(|draft| draft.idempotency_key.clone())
                 .expect("联动上下文必须带通知幂等键")
         };
-        assert_ne!(
-            key(&closed.ctx()),
-            key(&opened.ctx()),
-            "结账与反结账必须是不同幂等键"
-        );
+        assert_ne!(key(&closed.ctx()), key(&opened.ctx()), "结账与反结账必须是不同幂等键");
         assert_eq!(
             key(&closed.ctx()),
             key(&closed_again.ctx()),
@@ -238,10 +233,7 @@ mod tests {
         let ctx = closed.ctx();
         let draft = ctx.notice.as_ref().expect("必须带通知草稿");
         assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
-        assert_eq!(
-            draft.biz_id.as_deref(),
-            Some("018f0000-0000-7000-8000-000000000002")
-        );
+        assert_eq!(draft.biz_id.as_deref(), Some("018f0000-0000-7000-8000-000000000002"));
         assert_eq!(
             draft.link_url.as_deref(),
             Some("/business/erp/period?id=018f0000-0000-7000-8000-000000000002")

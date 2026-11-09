@@ -75,11 +75,7 @@ pub fn period_of(date: NaiveDate) -> String {
 pub fn period_range(period_code: &str) -> Option<(NaiveDate, NaiveDate)> {
     let (year, month) = split_period(period_code)?;
     let start = NaiveDate::from_ymd_opt(year, month, 1)?;
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
+    let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
     let next = NaiveDate::from_ymd_opt(next_year, next_month, 1)?;
     let end = next.pred_opt()?;
     Some((start, end))
@@ -156,11 +152,7 @@ pub fn month_amount(card: &DepreciationCard) -> Option<Decimal> {
         card.monthly_depreciation.min(remaining)
     };
     let amount = money(amount);
-    if amount <= Decimal::ZERO {
-        None
-    } else {
-        Some(amount)
-    }
+    if amount <= Decimal::ZERO { None } else { Some(amount) }
 }
 
 /// 本期是否是「提足的最后一期」（尾差补齐期，落 `biz_depreciation.is_last_month`）。
@@ -293,7 +285,6 @@ pub fn disposal_dep_gate(
     }
 }
 
-
 // ==================== 处置分录（ARCH-6 §5.6.4） ====================
 
 /// 处置方式（与 `ck_biz_fa_disposal` 逐字一致）。
@@ -422,32 +413,17 @@ pub fn disposal_vouchers(
     // 凭证 1：把资产从账上清掉（三种处置共用形状，只有中间科目不同）
     let mut clear_lines = Vec::with_capacity(3);
     if amounts.accumulated > Decimal::ZERO {
-        clear_lines.push(ExplicitLine::debit(
-            accounts.accum.clone(),
-            amounts.accumulated,
-        ));
+        clear_lines.push(ExplicitLine::debit(accounts.accum.clone(), amounts.accumulated));
     }
     let mut vouchers = Vec::with_capacity(kind.voucher_count());
     match kind {
         DisposalKind::Sale | DisposalKind::Scrap => {
-            clear_lines.push(ExplicitLine::debit(
-                accounts.clearing.clone(),
-                amounts.net_value,
-            ));
-            clear_lines.push(ExplicitLine::credit(
-                accounts.asset.clone(),
-                amounts.original,
-            ));
+            clear_lines.push(ExplicitLine::debit(accounts.clearing.clone(), amounts.net_value));
+            clear_lines.push(ExplicitLine::credit(accounts.asset.clone(), amounts.original));
         }
         DisposalKind::Loss => {
-            clear_lines.push(ExplicitLine::debit(
-                accounts.pending.clone(),
-                amounts.net_value,
-            ));
-            clear_lines.push(ExplicitLine::credit(
-                accounts.asset.clone(),
-                amounts.original,
-            ));
+            clear_lines.push(ExplicitLine::debit(accounts.pending.clone(), amounts.net_value));
+            clear_lines.push(ExplicitLine::credit(accounts.asset.clone(), amounts.original));
         }
     }
     vouchers.push(DisposalVoucher {
@@ -458,21 +434,12 @@ pub fn disposal_vouchers(
     match kind {
         DisposalKind::Sale => {
             // 凭证 2：收款与销项税
-            let mut cash_lines = vec![ExplicitLine::debit(
-                accounts.cash.clone(),
-                amounts.cash_in(),
-            )];
+            let mut cash_lines = vec![ExplicitLine::debit(accounts.cash.clone(), amounts.cash_in())];
             if amounts.sale_price > Decimal::ZERO {
-                cash_lines.push(ExplicitLine::credit(
-                    accounts.clearing.clone(),
-                    amounts.sale_price,
-                ));
+                cash_lines.push(ExplicitLine::credit(accounts.clearing.clone(), amounts.sale_price));
             }
             if amounts.output_tax > Decimal::ZERO {
-                cash_lines.push(ExplicitLine::credit(
-                    accounts.output_tax.clone(),
-                    amounts.output_tax,
-                ));
+                cash_lines.push(ExplicitLine::credit(accounts.output_tax.clone(), amounts.output_tax));
             }
             vouchers.push(DisposalVoucher {
                 label: "收款",
@@ -501,14 +468,8 @@ pub fn disposal_vouchers(
             // 报废无收入：直接把清理净额转营业外支出
             let mut settle = Vec::with_capacity(2);
             if amounts.net_value > Decimal::ZERO {
-                settle.push(ExplicitLine::debit(
-                    accounts.loss.clone(),
-                    amounts.net_value,
-                ));
-                settle.push(ExplicitLine::credit(
-                    accounts.clearing.clone(),
-                    amounts.net_value,
-                ));
+                settle.push(ExplicitLine::debit(accounts.loss.clone(), amounts.net_value));
+                settle.push(ExplicitLine::credit(accounts.clearing.clone(), amounts.net_value));
                 vouchers.push(DisposalVoucher {
                     label: "结转清理",
                     lines: settle,
@@ -519,14 +480,8 @@ pub fn disposal_vouchers(
             // 盘亏：批准后从待处理转损失（1901 必须归零）
             let mut settle = Vec::with_capacity(2);
             if amounts.net_value > Decimal::ZERO {
-                settle.push(ExplicitLine::debit(
-                    accounts.loss.clone(),
-                    amounts.net_value,
-                ));
-                settle.push(ExplicitLine::credit(
-                    accounts.pending.clone(),
-                    amounts.net_value,
-                ));
+                settle.push(ExplicitLine::debit(accounts.loss.clone(), amounts.net_value));
+                settle.push(ExplicitLine::credit(accounts.pending.clone(), amounts.net_value));
                 vouchers.push(DisposalVoucher {
                     label: "结转损失",
                     lines: settle,
@@ -588,13 +543,7 @@ mod tests {
         assert!(!is_last_month(&at_59));
 
         // 第 60 月：尾差补齐 1583.3353
-        let at_60 = card(
-            dec!(100000),
-            dec!(5000),
-            60,
-            dec!(95000.0000) - dec!(1583.3353),
-            59,
-        );
+        let at_60 = card(dec!(100000), dec!(5000), 60, dec!(95000.0000) - dec!(1583.3353), 59);
         assert_eq!(month_amount(&at_60), Some(dec!(1583.3353)));
         assert!(is_last_month(&at_60));
 
@@ -667,20 +616,13 @@ mod tests {
         assert_eq!(start, NaiveDate::from_ymd_opt(2026, 2, 1).unwrap());
         assert_eq!(end, NaiveDate::from_ymd_opt(2026, 2, 28).unwrap());
         let (_, leap_end) = period_range("2028-02").expect("合法期间");
-        assert_eq!(
-            leap_end,
-            NaiveDate::from_ymd_opt(2028, 2, 29).unwrap(),
-            "闰年"
-        );
+        assert_eq!(leap_end, NaiveDate::from_ymd_opt(2028, 2, 29).unwrap(), "闰年");
         assert_eq!(prev_period("2026-01").as_deref(), Some("2025-12"));
         assert_eq!(prev_period("2026-11").as_deref(), Some("2026-10"));
         assert!(!is_valid_period("2026-13"));
         assert!(!is_valid_period("2026-1"));
         assert!(period_range("2026-13").is_none());
-        assert_eq!(
-            period_of(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()),
-            "2026-03"
-        );
+        assert_eq!(period_of(NaiveDate::from_ymd_opt(2026, 3, 9).unwrap()), "2026-03");
     }
 
     fn accounts() -> DisposalAccounts {
@@ -893,27 +835,12 @@ mod tests {
     /// `biz_depreciation` 里本来就不会有 2026-06 这一行，不能因此拦下。
     #[test]
     fn gate_skips_asset_bought_and_disposed_in_same_month() {
-        let gate = disposal_dep_gate(
-            "2026-06",
-            start_of("2026-06-10"),
-            dec!(114000),
-            dec!(0),
-            None,
-        );
-        assert_eq!(
-            gate,
-            DisposalDepGate::NotRequired(DepGateSkip::BoughtThisMonth)
-        );
+        let gate = disposal_dep_gate("2026-06", start_of("2026-06-10"), dec!(114000), dec!(0), None);
+        assert_eq!(gate, DisposalDepGate::NotRequired(DepGateSkip::BoughtThisMonth));
         assert!(!gate.is_blocked());
 
         // 跨年边界：2025-12 购入 → 起提 2026-01；2025-12 处置仍是「当月购入当月处置」
-        let gate = disposal_dep_gate(
-            "2025-12",
-            start_of("2025-12-31"),
-            dec!(114000),
-            dec!(0),
-            None,
-        );
+        let gate = disposal_dep_gate("2025-12", start_of("2025-12-31"), dec!(114000), dec!(0), None);
         assert_eq!(
             gate,
             DisposalDepGate::NotRequired(DepGateSkip::BoughtThisMonth),
@@ -921,13 +848,7 @@ mod tests {
         );
 
         // 次月处置（2026-01）就不再有豁免：起提月 = 处置月 ⇒ 必须已计提
-        let gate = disposal_dep_gate(
-            "2026-01",
-            start_of("2025-12-31"),
-            dec!(114000),
-            dec!(0),
-            None,
-        );
+        let gate = disposal_dep_gate("2026-01", start_of("2025-12-31"), dec!(114000), dec!(0), None);
         assert_eq!(gate, DisposalDepGate::Missing(DepGateMiss::NoDetail));
     }
 
@@ -941,10 +862,7 @@ mod tests {
             dec!(114000), // 累计 == 可折旧总额
             None,
         );
-        assert_eq!(
-            gate,
-            DisposalDepGate::NotRequired(DepGateSkip::FullyDepreciated)
-        );
+        assert_eq!(gate, DisposalDepGate::NotRequired(DepGateSkip::FullyDepreciated));
         assert!(!gate.is_blocked());
 
         // 高一分也算提足（脏数据 / 尾差）；低一分则必须已计提，不许蒙混
@@ -954,4 +872,3 @@ mod tests {
         assert!(under.is_blocked(), "差一分也还没提足，当月折旧必须先计提");
     }
 }
-

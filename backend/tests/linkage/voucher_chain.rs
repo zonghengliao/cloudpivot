@@ -123,9 +123,7 @@ async fn voucher_head(voucher_id: Uuid) -> (String, i16, Option<Uuid>, Decimal, 
         )
         .await
         .unwrap_or_else(|error| panic!("查凭证失败：{error}"));
-    let row = rows
-        .first()
-        .unwrap_or_else(|| panic!("凭证 {voucher_id} 不存在"));
+    let row = rows.first().unwrap_or_else(|| panic!("凭证 {voucher_id} 不存在"));
     (
         row.get_typed("status").expect("状态"),
         row.get_typed("is_red").expect("is_red"),
@@ -212,10 +210,7 @@ async fn cleanup_manual(ctx: &Ctx) {
         println!("WARN: 清理手工凭证分录失败（{}）：{error}", ctx.tag);
     }
     if let Err(error) = db()
-        .execute_with_params(
-            "DELETE FROM biz_voucher WHERE remark = ?",
-            vec![Value::Text(remark)],
-        )
+        .execute_with_params("DELETE FROM biz_voucher WHERE remark = ?", vec![Value::Text(remark)])
         .await
     {
         println!("WARN: 清理手工凭证失败（{}）：{error}", ctx.tag);
@@ -264,20 +259,9 @@ async fn v01_reverse_creates_mirrored_red_voucher() {
     let mut actual = red_entries.clone();
     actual.sort_by(|a, b| a.0.cmp(&b.0));
     for (expect, got) in mirrored.iter().zip(actual.iter()) {
-        assert_eq!(
-            expect.0, got.0,
-            "V01：科目集合必须一致（{mirrored:?} vs {actual:?}）"
-        );
-        common::assert_dec(
-            got.1,
-            expect.2,
-            &format!("V01：科目 {} 的借方 = 原单贷方", got.0),
-        );
-        common::assert_dec(
-            got.2,
-            expect.1,
-            &format!("V01：科目 {} 的贷方 = 原单借方", got.0),
-        );
+        assert_eq!(expect.0, got.0, "V01：科目集合必须一致（{mirrored:?} vs {actual:?}）");
+        common::assert_dec(got.1, expect.2, &format!("V01：科目 {} 的借方 = 原单贷方", got.0));
+        common::assert_dec(got.2, expect.1, &format!("V01：科目 {} 的贷方 = 原单借方", got.0));
     }
     ctx.cleanup().await;
 }
@@ -305,21 +289,14 @@ async fn v02_reverse_backfills_pointer_and_keeps_posted() {
         .expect("红字凭证 id");
 
     let (status_after, _, pointer_after, _, _) = voucher_head(blue).await;
-    assert_eq!(
-        pointer_after,
-        Some(red),
-        "V02：原凭证必须把 reversed_by 指到红字凭证"
-    );
+    assert_eq!(pointer_after, Some(red), "V02：原凭证必须把 reversed_by 指到红字凭证");
     assert_eq!(
         status_after, "POSTED",
         "V02：红冲不改原单状态（账务事实只能靠反向凭证抵消，不能把历史改成「已作废」）"
     );
     // 反向：红字凭证自己不许有 reversed_by（它是这笔红冲的终点）
     let (_, _, red_pointer, _, _) = voucher_head(red).await;
-    assert!(
-        red_pointer.is_none(),
-        "V02：红字凭证不该再指向谁（否则形成环）"
-    );
+    assert!(red_pointer.is_none(), "V02：红字凭证不该再指向谁（否则形成环）");
     ctx.cleanup().await;
 }
 
@@ -440,16 +417,8 @@ async fn v06_balanced_manual_voucher_is_posted() {
         .await
         .unwrap_or_else(|error| panic!("V06：平衡的手工凭证必须成功 {} {}", error.code, error.msg));
     assert_eq!(detail.entries.len(), 2, "V06：分录条数必须是 2");
-    common::assert_dec(
-        detail.entry_total_debit,
-        common::dec("100"),
-        "V06：借方合计 100",
-    );
-    common::assert_dec(
-        detail.entry_total_credit,
-        common::dec("100"),
-        "V06：贷方合计 100",
-    );
+    common::assert_dec(detail.entry_total_debit, common::dec("100"), "V06：借方合计 100");
+    common::assert_dec(detail.entry_total_credit, common::dec("100"), "V06：贷方合计 100");
     assert!(detail.balanced, "V06：详情自检必须 balanced");
 
     let id = detail.voucher.id.parse::<Uuid>().expect("凭证 id");
@@ -506,11 +475,7 @@ async fn v07_every_voucher_is_balanced() {
             debit += *d;
             credit += *c;
         }
-        common::assert_dec(
-            debit,
-            credit,
-            &format!("V07：凭证 {voucher_id} 的分录 Σ借 必须 = Σ贷"),
-        );
+        common::assert_dec(debit, credit, &format!("V07：凭证 {voucher_id} 的分录 Σ借 必须 = Σ贷"));
     }
     cleanup_manual(&ctx).await;
     ctx.cleanup().await;

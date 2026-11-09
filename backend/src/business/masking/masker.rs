@@ -125,9 +125,7 @@ impl MaskType {
     /// 参数形态说明（`sys_field_mask.mask_param` 的合法写法，错误文案里回显给管理员）。
     pub fn param_hint(self) -> &'static str {
         match self {
-            MaskType::Mobile | MaskType::IdCard | MaskType::BankCard => {
-                "保留前N,保留后M（如 \"3,4\"）"
-            }
+            MaskType::Mobile | MaskType::IdCard | MaskType::BankCard => "保留前N,保留后M（如 \"3,4\"）",
             MaskType::Name => "保留前N（如 \"1\"）",
             MaskType::Amount => "区间宽度（如 \"1000\"）",
             MaskType::Regex => "正则与保留组（如 \"^(\\\\w{2}).*$|1\"）",
@@ -246,11 +244,7 @@ impl MaskError {
 ///
 /// 只返回 [`MaskError`]，**永不 panic**。调用方拿到 `Err` 必须走 fail-closed
 /// （报错或全掩码），**不许**把 `raw` 当结果用。
-pub fn apply(
-    ty: MaskType,
-    param: Option<&str>,
-    raw: &str,
-) -> std::result::Result<String, MaskError> {
+pub fn apply(ty: MaskType, param: Option<&str>, raw: &str) -> std::result::Result<String, MaskError> {
     // 约束 1 + 4：空 / 纯空白原样返回（不做任何统计，避免产生噪音掩码）
     if raw.trim().is_empty() {
         return Ok(raw.to_string());
@@ -425,11 +419,7 @@ fn mask_amount(raw: &str, param: Option<&str>) -> std::result::Result<String, Ma
     let bucket = i128::from(width) * 10_i128.pow(SCALE);
     let lower = scaled.div_euclid(bucket) * bucket;
     let upper = lower + bucket;
-    Ok(format!(
-        "{}~{}",
-        format_fixed(lower, SCALE),
-        format_fixed(upper, SCALE)
-    ))
+    Ok(format!("{}~{}", format_fixed(lower, SCALE), format_fixed(upper, SCALE)))
 }
 
 /// 把十进制串解析成放大 `10^scale` 倍的定点整数；非法返回 `None`。
@@ -451,16 +441,10 @@ fn parse_fixed(raw: &str, scale: u32) -> Option<i128> {
     if int_part.is_empty() && frac_part.is_empty() {
         return None;
     }
-    if !int_part.chars().all(|c| c.is_ascii_digit())
-        || !frac_part.chars().all(|c| c.is_ascii_digit())
-    {
+    if !int_part.chars().all(|c| c.is_ascii_digit()) || !frac_part.chars().all(|c| c.is_ascii_digit()) {
         return None;
     }
-    let int_value: i128 = if int_part.is_empty() {
-        0
-    } else {
-        int_part.parse().ok()?
-    };
+    let int_value: i128 = if int_part.is_empty() { 0 } else { int_part.parse().ok()? };
     // 小数位超过 scale 的部分按「截断」处理（金额区间化不需要更高精度）
     let mut frac = String::with_capacity(scale as usize);
     for c in frac_part.chars().take(scale as usize) {
@@ -469,14 +453,8 @@ fn parse_fixed(raw: &str, scale: u32) -> Option<i128> {
     while frac.len() < scale as usize {
         frac.push('0');
     }
-    let frac_value: i128 = if frac.is_empty() {
-        0
-    } else {
-        frac.parse().ok()?
-    };
-    let magnitude = int_value
-        .checked_mul(10_i128.pow(scale))?
-        .checked_add(frac_value)?;
+    let frac_value: i128 = if frac.is_empty() { 0 } else { frac.parse().ok()? };
+    let magnitude = int_value.checked_mul(10_i128.pow(scale))?.checked_add(frac_value)?;
     Some(if negative { -magnitude } else { magnitude })
 }
 
@@ -581,15 +559,9 @@ mod tests {
     #[test]
     fn mobile_default_and_custom() {
         assert_eq!(masked(MaskType::Mobile, None, "13812345678"), "138****5678");
-        assert_eq!(
-            masked(MaskType::Mobile, Some("3,4"), "13812345678"),
-            "138****5678"
-        );
+        assert_eq!(masked(MaskType::Mobile, Some("3,4"), "13812345678"), "138****5678");
         // 自定义保留位（框架的 Mask::mobile 只支持 3,4，其余走本模块的按字符实现）
-        assert_eq!(
-            masked(MaskType::Mobile, Some("4,2"), "13812345678"),
-            "1381****78"
-        );
+        assert_eq!(masked(MaskType::Mobile, Some("4,2"), "13812345678"), "1381****78");
         // 幂等
         assert_eq!(masked(MaskType::Mobile, None, "138****5678"), "138****5678");
     }
@@ -615,10 +587,7 @@ mod tests {
     fn id_card_default_and_short() {
         // 框架 `Mask::id_card` 的口径：保留前 4 后 4，中间固定 4 个星号（实现在
         // `nik-utils-0.4.2/src/mask.rs`，与架构表里的示例星号个数不同——以代码为准）
-        assert_eq!(
-            masked(MaskType::IdCard, None, "110101199001011234"),
-            "1101****1234"
-        );
+        assert_eq!(masked(MaskType::IdCard, None, "110101199001011234"), "1101****1234");
         assert_eq!(
             masked(MaskType::IdCard, Some("6,4"), "110101199001011234"),
             "110101****1234"
@@ -635,26 +604,14 @@ mod tests {
 
     #[test]
     fn email_variants() {
-        assert_eq!(
-            masked(MaskType::Email, None, "alice@mail.com"),
-            "a***@mail.com"
-        );
+        assert_eq!(masked(MaskType::Email, None, "alice@mail.com"), "a***@mail.com");
         assert_eq!(masked(MaskType::Email, None, "ab@mail.com"), "*@mail.com");
         // 无 @ → 原样
-        assert_eq!(
-            masked(MaskType::Email, None, "not-an-email"),
-            "not-an-email"
-        );
+        assert_eq!(masked(MaskType::Email, None, "not-an-email"), "not-an-email");
         // 多字节本地部分：Mask::email 会按字节切，这里走字符安全分支
-        assert_eq!(
-            masked(MaskType::Email, None, "张三丰@mail.com"),
-            "张***@mail.com"
-        );
+        assert_eq!(masked(MaskType::Email, None, "张三丰@mail.com"), "张***@mail.com");
         // 幂等
-        assert_eq!(
-            masked(MaskType::Email, None, "a***@mail.com"),
-            "a***@mail.com"
-        );
+        assert_eq!(masked(MaskType::Email, None, "a***@mail.com"), "a***@mail.com");
     }
 
     // ---------- 4. 姓名 ----------
@@ -673,10 +630,7 @@ mod tests {
 
     #[test]
     fn bank_card_variants() {
-        assert_eq!(
-            masked(MaskType::BankCard, None, "6222021234567890"),
-            "6222 **** 7890"
-        );
+        assert_eq!(masked(MaskType::BankCard, None, "6222021234567890"), "6222 **** 7890");
         // 多字节：Mask::bank_card 按字节切片会 panic，这里必须走字符安全分支
         assert_eq!(
             masked(MaskType::BankCard, None, "卡号甲乙丙丁戊己庚辛"),
@@ -685,10 +639,7 @@ mod tests {
         // 过短：原样
         assert_eq!(masked(MaskType::BankCard, None, "6222"), "6222");
         // 幂等
-        assert_eq!(
-            masked(MaskType::BankCard, None, "6222 **** 7890"),
-            "6222 **** 7890"
-        );
+        assert_eq!(masked(MaskType::BankCard, None, "6222 **** 7890"), "6222 **** 7890");
     }
 
     // ---------- 6. 金额 ----------
@@ -697,15 +648,9 @@ mod tests {
     fn amount_buckets_without_float() {
         assert_eq!(masked(MaskType::Amount, None, "48620.00"), "48000~49000");
         // 自定义区间宽度
-        assert_eq!(
-            masked(MaskType::Amount, Some("100"), "48620.00"),
-            "48600~48700"
-        );
+        assert_eq!(masked(MaskType::Amount, Some("100"), "48620.00"), "48600~48700");
         // 负数向下取整（div_euclid）
-        assert_eq!(
-            masked(MaskType::Amount, Some("1000"), "-1500.50"),
-            "-2000~-1000"
-        );
+        assert_eq!(masked(MaskType::Amount, Some("1000"), "-1500.50"), "-2000~-1000");
         // 非数字（含已脱敏的区间串）原样 → 幂等
         assert_eq!(masked(MaskType::Amount, None, "报价面议"), "报价面议");
         assert_eq!(masked(MaskType::Amount, None, "48000~49000"), "48000~49000");
@@ -717,35 +662,17 @@ mod tests {
 
     #[test]
     fn regex_keep_group() {
-        assert_eq!(
-            masked(MaskType::Regex, Some(r"^(\w{2}).*$|1"), "AB12345"),
-            "AB*****"
-        );
+        assert_eq!(masked(MaskType::Regex, Some(r"^(\w{2}).*$|1"), "AB12345"), "AB*****");
         // 保留组 0（整段匹配）
-        assert_eq!(
-            masked(MaskType::Regex, Some(r"^\w{2}|0"), "AB12345"),
-            "AB*****"
-        );
+        assert_eq!(masked(MaskType::Regex, Some(r"^\w{2}|0"), "AB12345"), "AB*****");
         // 正则自身含 `|`（从最后一个 `|` 切分才切得对）
-        assert_eq!(
-            masked(MaskType::Regex, Some(r"^(AB|CD).*$|1"), "AB12345"),
-            "AB*****"
-        );
+        assert_eq!(masked(MaskType::Regex, Some(r"^(AB|CD).*$|1"), "AB12345"), "AB*****");
         // 不匹配 → 原样（不报错、幂等）
-        assert_eq!(
-            masked(MaskType::Regex, Some(r"^ZZ.*$|0"), "AB12345"),
-            "AB12345"
-        );
+        assert_eq!(masked(MaskType::Regex, Some(r"^ZZ.*$|0"), "AB12345"), "AB12345");
         // 多字节：按字符计数，不 panic
-        assert_eq!(
-            masked(MaskType::Regex, Some(r"^(..).*$|1"), "张三丰李四"),
-            "张三***"
-        );
+        assert_eq!(masked(MaskType::Regex, Some(r"^(..).*$|1"), "张三丰李四"), "张三***");
         // 幂等
-        assert_eq!(
-            masked(MaskType::Regex, Some(r"^(\w{2}).*$|1"), "AB*****"),
-            "AB*****"
-        );
+        assert_eq!(masked(MaskType::Regex, Some(r"^(\w{2}).*$|1"), "AB*****"), "AB*****");
     }
 
     // ---------- 参数错误：必须报错，绝不放明文 ----------
@@ -755,26 +682,17 @@ mod tests {
         let bad = apply(MaskType::Mobile, Some("3"), "13812345678").expect_err("参数应为两段");
         assert_eq!(bad.http_status(), 400);
         assert_eq!(bad.error_code(), error_code::FIELD_MASK_TYPE_INVALID);
-        assert!(
-            bad.message().contains("保留前N,保留后M"),
-            "{}",
-            bad.message()
-        );
+        assert!(bad.message().contains("保留前N,保留后M"), "{}", bad.message());
 
         let bad_amount = apply(MaskType::Amount, Some("0"), "1.00").expect_err("宽度不能为 0");
         assert_eq!(bad_amount.error_code(), error_code::FIELD_MASK_TYPE_INVALID);
 
-        let bad_regex =
-            apply(MaskType::Regex, Some("^(unclosed|1"), "x").expect_err("正则应编译失败");
+        let bad_regex = apply(MaskType::Regex, Some("^(unclosed|1"), "x").expect_err("正则应编译失败");
         assert_eq!(bad_regex.http_status(), 422);
         assert_eq!(bad_regex.error_code(), error_code::FIELD_MASK_REGEX_INVALID);
 
-        let out_of_range =
-            apply(MaskType::Regex, Some(r"^(\w{2}).*$|5"), "AB12345").expect_err("组越界");
-        assert_eq!(
-            out_of_range.error_code(),
-            error_code::FIELD_MASK_REGEX_INVALID
-        );
+        let out_of_range = apply(MaskType::Regex, Some(r"^(\w{2}).*$|5"), "AB12345").expect_err("组越界");
+        assert_eq!(out_of_range.error_code(), error_code::FIELD_MASK_REGEX_INVALID);
     }
 
     // ---------- 七种类型 × 幂等 / 不 panic（汇总断言） ----------
@@ -793,17 +711,11 @@ mod tests {
         // 用缺省参数各扫一遍，断言「一次 == 二次」（幂等）
         for ty in MaskType::ALL.iter().filter(|ty| **ty != MaskType::Regex) {
             for raw in samples {
-                let once = apply(*ty, None, raw)
-                    .unwrap_or_else(|error| panic!("{} 不应失败：{}", ty.code(), error.message()));
-                let twice = apply(*ty, None, &once).unwrap_or_else(|error| {
-                    panic!("{} 二次脱敏不应失败：{}", ty.code(), error.message())
-                });
-                assert_eq!(
-                    once,
-                    twice,
-                    "{} 不幂等：{raw:?} → {once:?} → {twice:?}",
-                    ty.code()
-                );
+                let once =
+                    apply(*ty, None, raw).unwrap_or_else(|error| panic!("{} 不应失败：{}", ty.code(), error.message()));
+                let twice = apply(*ty, None, &once)
+                    .unwrap_or_else(|error| panic!("{} 二次脱敏不应失败：{}", ty.code(), error.message()));
+                assert_eq!(once, twice, "{} 不幂等：{raw:?} → {once:?} → {twice:?}", ty.code());
             }
         }
         // 多字节 + 极短串不得 panic（逐类型扫一遍；Regex 用非匹配正则避开参数缺失）

@@ -288,11 +288,7 @@ pub fn money_text(value: Decimal) -> String {
 }
 
 /// 幂等键：`PERIOD:REMIND:{期间}:{类型}:{id}:{日期}`（同一天同一张单只发一条）。
-pub fn remind_idempotency_key(
-    period_code: &str,
-    item: &BlockingItem,
-    now: DateTime<Utc>,
-) -> String {
+pub fn remind_idempotency_key(period_code: &str, item: &BlockingItem, now: DateTime<Utc>) -> String {
     idempotency_key_of(&RemindScope::period(period_code), item, now)
 }
 
@@ -301,8 +297,7 @@ pub fn target_of(item: &BlockingItem) -> Option<NoticeTarget> {
     if let Some(user_id) = item.owner_user_id {
         return Some(NoticeTarget::User(vec![user_id]));
     }
-    item.owner_role_id
-        .map(|role_id| NoticeTarget::Role(vec![role_id]))
+    item.owner_role_id.map(|role_id| NoticeTarget::Role(vec![role_id]))
 }
 
 /// 把明细组装成一条通知草稿（`None` = 没有处理人）。
@@ -332,12 +327,7 @@ pub fn build_draft_in(
     draft.biz_id = Some(item.doc_id.to_string());
     draft.idempotency_key = Some(idempotency_key_of(scope, item, now));
     draft.sender_id = operator.id;
-    draft.sender_name = Some(
-        operator
-            .name
-            .clone()
-            .unwrap_or_else(|| SENDER_NAME.to_string()),
-    );
+    draft.sender_name = Some(operator.name.clone().unwrap_or_else(|| SENDER_NAME.to_string()));
     // 结账被挡 = 漏了就直接造成「结不了账」的一类，强制送达（跳过 notify.inbox 偏好）；
     // 与 flow::notify::FlowEvent::Urge / transfer_overdue 同分级。
     draft.force = true;
@@ -412,11 +402,8 @@ pub fn pick_from<'a>(
     let wanted_ids = ids
         .iter()
         .map(|raw| {
-            Uuid::parse_str(raw.trim()).map_err(|_| {
-                bad_request(format!(
-                    "item_ids 里有非法 UUID：{raw}（应为明细里的 doc_id）"
-                ))
-            })
+            Uuid::parse_str(raw.trim())
+                .map_err(|_| bad_request(format!("item_ids 里有非法 UUID：{raw}（应为明细里的 doc_id）")))
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     let filtered = picked
@@ -462,15 +449,9 @@ pub async fn remind_period(
         )));
     }
     let now = Utc::now();
-    let row = period::load_period_row(db(), id)
-        .await?
-        .ok_or_else(not_found)?;
+    let row = period::load_period_row(db(), id).await?.ok_or_else(not_found)?;
     let outcome = period::collect_blockers(db(), &row).await?;
-    let picked = pick_items(
-        &outcome.blockers,
-        req.blocker_kind.as_deref(),
-        &req.item_ids,
-    )?;
+    let picked = pick_items(&outcome.blockers, req.blocker_kind.as_deref(), &req.item_ids)?;
 
     if picked.is_empty() {
         return Ok(RemindRes {
@@ -544,12 +525,7 @@ pub async fn dispatch_all(
 }
 
 /// 记台账（失败只 WARN：信已经发出去了，不能因为记账失败把 `sent` 判成失败）。
-async fn record_ledger(
-    scope: &RemindScope,
-    item: &BlockingItem,
-    reply: &notice::DispatchResult,
-    now: DateTime<Utc>,
-) {
+async fn record_ledger(scope: &RemindScope, item: &BlockingItem, reply: &notice::DispatchResult, now: DateTime<Utc>) {
     let row = ledger_row_of(scope, item, reply.notice_id, reply.receiver_count, now);
     if let Err(error) = reminder::ledger_insert(row).await {
         tracing::warn!(
@@ -571,11 +547,7 @@ async fn record_ledger(
 ///
 /// 判据带 `biz_type` / `remind_kind`：期间催办与年结催办互不干扰（同一个单据 id
 /// 在两个上下文里各催一次）。
-async fn reminded_recently(
-    scope: &RemindScope,
-    doc_id: Uuid,
-    now: DateTime<Utc>,
-) -> Result<bool, ApiError> {
+async fn reminded_recently(scope: &RemindScope, doc_id: Uuid, now: DateTime<Utc>) -> Result<bool, ApiError> {
     let since = now - Duration::hours(REMIND_WINDOW_HOURS);
 
     // ① 台账（append-only，通知被清理也还在）

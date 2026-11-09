@@ -89,9 +89,7 @@ pub fn master_code_exists_sql(seq_type: &str) -> Option<&'static str> {
         // SCOPE-EXEMPT: 同上。
         "WH" => Some("SELECT 1 FROM biz_warehouse WHERE warehouse_code = ? AND deleted_at IS NULL"),
         // SCOPE-EXEMPT: 同上。
-        "AC" => {
-            Some("SELECT 1 FROM biz_asset_category WHERE category_code = ? AND deleted_at IS NULL")
-        }
+        "AC" => Some("SELECT 1 FROM biz_asset_category WHERE category_code = ? AND deleted_at IS NULL"),
         // SCOPE-EXEMPT: 同上。
         "ET" => Some("SELECT 1 FROM biz_expense_type WHERE type_code = ? AND deleted_at IS NULL"),
         _ => None,
@@ -115,10 +113,7 @@ fn is_manual_code_char(ch: char) -> bool {
 /// 前端三种「没填」的形态（`null` 反序列化成 `None`、空串、空格）在这里统一收口，
 /// 调用方不必各自判断。
 pub fn manual_code(input: Option<&str>) -> Option<String> {
-    input
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    input.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// 手工编码格式校验（**只校验可用性，不校验编码规则**）：
@@ -149,10 +144,7 @@ pub fn validate_manual_code(code: &str, max_len: usize) -> std::result::Result<(
 /// `Ok(Some(code))` = 合法的手工编码（已去首尾空白），`Err(原因)` = 格式不合法。
 ///
 /// 供应商 / 客户的建单路径都走这一个入口，保证两边口径一致。
-pub fn resolve_manual_code(
-    input: Option<&str>,
-    max_len: usize,
-) -> std::result::Result<Option<String>, String> {
+pub fn resolve_manual_code(input: Option<&str>, max_len: usize) -> std::result::Result<Option<String>, String> {
     let Some(code) = manual_code(input) else {
         return Ok(None);
     };
@@ -249,12 +241,7 @@ async fn bump_master_no(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<i64> 
 pub async fn next_master_code(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
     let rule = load_rule(ex, seq_type).await?;
     let no = bump_master_no(ex, seq_type).await?;
-    Ok(format_master_code(
-        &rule.prefix,
-        &rule.separator,
-        rule.pad_width,
-        no,
-    ))
+    Ok(format_master_code(&rule.prefix, &rule.separator, rule.pad_width, no))
 }
 
 /// 同 [`next_master_code`]，但走全局 `db()`（自动提交；无法参与调用方事务）。
@@ -274,11 +261,7 @@ async fn code_taken(ex: &impl SqlExecutor, exists_sql: &str, code: &str) -> DbRe
 ///
 /// 建档案时用它做**手工编码的预检**：撞了就返回「编码 `XXX` 已存在」的人话错误，
 /// 不必等 DB 的部分唯一索引抛 `23505` 再翻译。
-pub async fn master_code_taken(
-    ex: &impl SqlExecutor,
-    seq_type: &str,
-    code: &str,
-) -> DbResult<bool> {
+pub async fn master_code_taken(ex: &impl SqlExecutor, seq_type: &str, code: &str) -> DbResult<bool> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
             "唯一性校验失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET）"
@@ -443,12 +426,9 @@ mod tests {
             !is_master_code_type(seq_type),
             "测试号段不得占用六类主数据号段（{seq_type}）"
         );
-        db().execute_with_params(
-            "DELETE FROM biz_seq WHERE seq_type = ?",
-            vec![Value::from(seq_type)],
-        )
-        .await
-        .expect("清测试号段");
+        db().execute_with_params("DELETE FROM biz_seq WHERE seq_type = ?", vec![Value::from(seq_type)])
+            .await
+            .expect("清测试号段");
         db().execute_with_params(
             "INSERT INTO biz_seq (id, seq_type, seq_name, prefix, date_pattern, period_key, \
                                   current_no, step, separator, status, pad_width) \
@@ -466,12 +446,9 @@ mod tests {
 
     /// 删掉专用测试号段。
     async fn drop_test_seq(seq_type: &str) {
-        db().execute_with_params(
-            "DELETE FROM biz_seq WHERE seq_type = ?",
-            vec![Value::from(seq_type)],
-        )
-        .await
-        .expect("清测试号段");
+        db().execute_with_params("DELETE FROM biz_seq WHERE seq_type = ?", vec![Value::from(seq_type)])
+            .await
+            .expect("清测试号段");
     }
 
     async fn current_no_of(seq_type: &str) -> i64 {
@@ -512,10 +489,7 @@ mod tests {
             );
             assert!(is_master_code_type(seq_type));
         }
-        assert!(
-            master_code_exists_sql("PO").is_none(),
-            "单据号段不是主数据号段"
-        );
+        assert!(master_code_exists_sql("PO").is_none(), "单据号段不是主数据号段");
         assert!(master_code_exists_sql("SUP2").is_none());
         assert!(!is_master_code_type("SN"));
     }
@@ -566,10 +540,7 @@ mod tests {
         for bad in ["GYS 001", "供应商001", "GYS/001", "GYS#001", "GYS\t001"] {
             match resolve_manual_code(Some(bad), MAX_MANUAL_CODE_LEN) {
                 Ok(got) => panic!("`{bad}` 应被拒，却通过：{got:?}"),
-                Err(msg) => assert!(
-                    msg.contains("只允许"),
-                    "`{bad}` 的错误文案应说明字符集：{msg}"
-                ),
+                Err(msg) => assert!(msg.contains("只允许"), "`{bad}` 的错误文案应说明字符集：{msg}"),
             }
         }
     }
@@ -594,14 +565,7 @@ mod tests {
             .expect("查六条主数据规则");
         assert_eq!(rows.len(), 6, "六类主数据各一条，实际 {} 条", rows.len());
 
-        let expected: [(&str, i32); 6] = [
-            ("SUP", 4),
-            ("CUS", 4),
-            ("MAT", 4),
-            ("WH", 2),
-            ("AC", 2),
-            ("ET", 2),
-        ];
+        let expected: [(&str, i32); 6] = [("SUP", 4), ("CUS", 4), ("MAT", 4), ("WH", 2), ("AC", 2), ("ET", 2)];
         for (seq_type, pad) in expected {
             let row = rows
                 .iter()
@@ -609,11 +573,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("缺 seq_type={seq_type} 的取号规则（V0337 未应用？）"));
             assert_eq!(row.get_typed::<String>("prefix").expect("prefix"), seq_type);
             // 真实列是 NOT NULL + 白名单，'none' 即「不带日期」（卡面写的 NULL 落不了库）
-            assert_eq!(
-                row.get_typed::<String>("date_pattern")
-                    .expect("date_pattern"),
-                "none"
-            );
+            assert_eq!(row.get_typed::<String>("date_pattern").expect("date_pattern"), "none");
             assert_eq!(
                 row.get_typed::<String>("period_key").expect("period_key"),
                 "GLOBAL",
@@ -624,10 +584,7 @@ mod tests {
                 pad,
                 "{seq_type} 位数"
             );
-            assert_eq!(
-                row.get_typed::<String>("separator").expect("separator"),
-                "-"
-            );
+            assert_eq!(row.get_typed::<String>("separator").expect("separator"), "-");
             assert_eq!(row.get_typed::<i16>("status").expect("status"), 1);
         }
     }
@@ -659,14 +616,8 @@ mod tests {
             return;
         }
         reset_test_seq("T2DGT", "T2D", 2, 0).await;
-        assert_eq!(
-            next_master_code(db(), "T2DGT").await.expect("取号"),
-            "T2D-01"
-        );
-        assert_eq!(
-            next_master_code(db(), "T2DGT").await.expect("取号"),
-            "T2D-02"
-        );
+        assert_eq!(next_master_code(db(), "T2DGT").await.expect("取号"), "T2D-01");
+        assert_eq!(next_master_code(db(), "T2DGT").await.expect("取号"), "T2D-02");
         // 手工把流水推到 99（模拟老库），下一次必须是 100（3 位），不回到 00
         db().execute_with_params(
             "UPDATE biz_seq SET current_no = 99 WHERE seq_type = ?",
@@ -674,10 +625,7 @@ mod tests {
         )
         .await
         .expect("推流水");
-        assert_eq!(
-            next_master_code(db(), "T2DGT").await.expect("取号"),
-            "T2D-100"
-        );
+        assert_eq!(next_master_code(db(), "T2DGT").await.expect("取号"), "T2D-100");
         drop_test_seq("T2DGT").await;
     }
 
@@ -708,11 +656,7 @@ mod tests {
         let mut sorted = codes.clone();
         sorted.sort();
         sorted.dedup();
-        assert_eq!(
-            sorted.len(),
-            10,
-            "10 次取号必须得到 10 个不同号，实际 {codes:?}"
-        );
+        assert_eq!(sorted.len(), 10, "10 次取号必须得到 10 个不同号，实际 {codes:?}");
         let expected: Vec<String> = (1..=10).map(|n| format!("TCC-{n:04}")).collect();
         assert_eq!(sorted, expected, "号码必须连续 0001..0010");
         assert_eq!(current_no_of("TCCON").await, 10, "current_no 应正好推进 10");
@@ -747,9 +691,7 @@ mod tests {
             "0001 已被占用"
         );
         assert!(
-            !master_code_taken(db(), "SUP", "T7S-0002")
-                .await
-                .expect("查占用"),
+            !master_code_taken(db(), "SUP", "T7S-0002").await.expect("查占用"),
             "0002 还没人占"
         );
         let got = next_master_code_free_with(db(), SEQ, exists_sql, 5)
@@ -786,22 +728,13 @@ mod tests {
         let err = next_master_code_free(db(), "NO_SUCH").await.unwrap_err();
         let msg = format!("{err}");
         assert!(msg.contains("NO_SUCH"), "错误里必须带上 seq_type：{msg}");
-        assert!(
-            msg.contains("SUP/CUS/MAT/WH/AC/ET"),
-            "错误里必须列出支持范围：{msg}"
-        );
+        assert!(msg.contains("SUP/CUS/MAT/WH/AC/ET"), "错误里必须列出支持范围：{msg}");
 
         // 规则行不存在：报错指向 V0337
         let err = next_master_code(db(), "NO_RULE_TYPE").await.unwrap_err();
         let msg = format!("{err}");
-        assert!(
-            msg.contains("NO_RULE_TYPE"),
-            "错误里必须带上 seq_type：{msg}"
-        );
-        assert!(
-            msg.contains("V0337"),
-            "错误里必须指出应由哪条迁移种入：{msg}"
-        );
+        assert!(msg.contains("NO_RULE_TYPE"), "错误里必须带上 seq_type：{msg}");
+        assert!(msg.contains("V0337"), "错误里必须指出应由哪条迁移种入：{msg}");
 
         // 停用的规则不参与取号（status = 0）
         reset_test_seq("TOFF", "TOF", 4, 0).await;
@@ -833,9 +766,7 @@ mod tests {
         let exists_sql = master_code_exists_sql("SUP").expect("SUP 占位 SQL");
 
         // 非主数据号段走内置入口：明确报错，不猜表
-        let err = peek_master_code(db(), SEQ)
-            .await
-            .expect_err("非六类必须报错");
+        let err = peek_master_code(db(), SEQ).await.expect_err("非六类必须报错");
         assert!(
             format!("{err}").contains("不是主数据号段"),
             "错误要说清楚支持范围：{err}"
@@ -844,9 +775,7 @@ mod tests {
         // 连看三次都是同一个号（真实取号才会推进）
         for _ in 0..3 {
             assert_eq!(
-                peek_master_code_with(db(), SEQ, exists_sql, 5)
-                    .await
-                    .expect("预览"),
+                peek_master_code_with(db(), SEQ, exists_sql, 5).await.expect("预览"),
                 "TPK-0001",
                 "预览不能推进 current_no"
             );

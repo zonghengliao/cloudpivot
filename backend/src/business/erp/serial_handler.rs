@@ -86,11 +86,7 @@ fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
 
 /// 不存在统一 404。
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// 弱引用缺失 / 数据不一致统一 400（`66002`）。
@@ -111,10 +107,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "序列号重复（唯一约束{}）：取号器与应用数据不一致，请联系运维排查 biz_seq",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         _ => utils::db_error(err, ctx),
@@ -185,11 +178,7 @@ pub async fn generate_serials(
         }
     }
 
-    let batch_no = req
-        .batch_no
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
+    let batch_no = req.batch_no.as_deref().map(str::trim).filter(|text| !text.is_empty());
     let source_type = req
         .source_type
         .as_deref()
@@ -202,9 +191,7 @@ pub async fn generate_serials(
     serial_model::ensure_source_pair(db(), source_type, source_id)
         .await
         .map_err(|err| match err {
-            DbError::InvalidValue(message) => {
-                ApiError::new(400, error_code::PARAM_INVALID, message)
-            }
+            DbError::InvalidValue(message) => ApiError::new(400, error_code::PARAM_INVALID, message),
             other => utils::db_error(other, "校验序列号来源单据"),
         })?;
 
@@ -275,9 +262,7 @@ pub async fn serial_batch_generate(
     permission = "business:erp:serial:list"
 )]
 #[nik::get("/business/erp/serial/page")]
-pub async fn serial_page(
-    Query(filter): Query<SerialFilter>,
-) -> ResResult<PageData<Vec<SerialRes>>> {
+pub async fn serial_page(Query(filter): Query<SerialFilter>) -> ResResult<PageData<Vec<SerialRes>>> {
     let filter = filter.validated()?;
     let page = filter.page;
     let page_size = filter.page_size;
@@ -286,12 +271,7 @@ pub async fn serial_page(
         .map_err(|error| utils::db_error(error, "分页查询序列号"))?;
     let (page, page_size) = model::normalize_page(page, page_size);
     let list = rows.iter().map(SerialRes::from).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 // ==================== ③ 扫码 ====================
@@ -349,15 +329,7 @@ pub async fn apply_status(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启序列号状态流转事务"))?;
-    let outcome = match serial_model::transition_status_with(
-        &tx,
-        id,
-        target,
-        operator,
-        req.reason.as_deref(),
-    )
-    .await
-    {
+    let outcome = match serial_model::transition_status_with(&tx, id, target, operator, req.reason.as_deref()).await {
         Ok(outcome) => outcome,
         Err(error) => {
             let _ = tx.rollback().await;
@@ -437,9 +409,8 @@ mod tests {
     use crate::business::erp::fixture_hygiene;
     use crate::business::erp::serial_dto::{MAX_PAGE_SIZE, OptionalDecimal, WRITABLE_TARGETS};
     use crate::business::erp::serial_model::{
-        ALL_STATUSES, BIZ_TYPE_SERIAL_IN, BIZ_TYPE_SERIAL_OUT, BIZ_TYPE_SERIAL_SCRAP,
-        MAX_BATCH_COUNT, STATUS_IN_STOCK, STATUS_OUTBOUND, STATUS_SCRAPPED, SerialRow, TXN_TYPE_IN,
-        TXN_TYPE_OUT, format_serial_no, period_code_of,
+        ALL_STATUSES, BIZ_TYPE_SERIAL_IN, BIZ_TYPE_SERIAL_OUT, BIZ_TYPE_SERIAL_SCRAP, MAX_BATCH_COUNT, STATUS_IN_STOCK,
+        STATUS_OUTBOUND, STATUS_SCRAPPED, SerialRow, TXN_TYPE_IN, TXN_TYPE_OUT, format_serial_no, period_code_of,
     };
     use nik::prelude::chrono::{DateTime, Utc};
     use nik::prelude::rust_decimal::Decimal;
@@ -636,10 +607,7 @@ mod tests {
         }
     }
 
-    async fn generate(
-        material_id: &str,
-        count: u64,
-    ) -> std::result::Result<SerialBatchRes, ApiError> {
+    async fn generate(material_id: &str, count: u64) -> std::result::Result<SerialBatchRes, ApiError> {
         generate_serials(&req_for(material_id, count), None).await
     }
 
@@ -699,24 +667,18 @@ mod tests {
     /// 某物料的流水条数（`biz_type` 可选过滤）。
     async fn txn_count(material_id: Uuid, biz_type: Option<&str>) -> i64 {
         let sql = match biz_type {
-            Some(_) => {
-                "SELECT COUNT(*) FROM biz_inventory_txn WHERE material_id = ?::uuid AND biz_type = ?"
-            }
+            Some(_) => "SELECT COUNT(*) FROM biz_inventory_txn WHERE material_id = ?::uuid AND biz_type = ?",
             None => "SELECT COUNT(*) FROM biz_inventory_txn WHERE material_id = ?::uuid",
         };
         let mut params = vec![Value::from(&material_id)];
         if let Some(biz_type) = biz_type {
             params.push(Value::from(biz_type));
         }
-        db().scalar_with_params(sql, params)
-            .await
-            .expect("统计库存流水")
+        db().scalar_with_params(sql, params).await.expect("统计库存流水")
     }
 
     /// 最新一条流水的关键列（时间倒序，同秒用 id 兜底）。
-    async fn latest_txn(
-        material_id: Uuid,
-    ) -> (String, String, Decimal, Decimal, Decimal, Option<String>) {
+    async fn latest_txn(material_id: Uuid) -> (String, String, Decimal, Decimal, Decimal, Option<String>) {
         let rows = db()
             .find_with_params(
                 "SELECT txn_type, biz_type, qty, before_qty, after_qty, remark \
@@ -761,9 +723,7 @@ mod tests {
         let unique: std::collections::BTreeSet<&&str> = codes.iter().collect();
         assert_eq!(unique.len(), codes.len(), "权限码不得重复");
         assert!(
-            codes
-                .iter()
-                .all(|code| code.starts_with("business:erp:serial:")),
+            codes.iter().all(|code| code.starts_with("business:erp:serial:")),
             "前缀必须统一"
         );
         for expected in ["list", "detail", "view", "generate", "status"] {
@@ -808,11 +768,7 @@ mod tests {
                 .await
                 .expect_err("非法目标态必须在库操作之前拒掉");
             assert_eq!(err.status, 400, "target={target}");
-            assert_eq!(
-                err.code,
-                error_code::ERP_SERIAL_STATUS_INVALID,
-                "target={target}"
-            );
+            assert_eq!(err.code, error_code::ERP_SERIAL_STATUS_INVALID, "target={target}");
         }
     }
 
@@ -967,23 +923,12 @@ mod tests {
             format_serial_no(new_period, 1),
             "跨天必须从 000001 重新开始"
         );
-        assert!(
-            day.rows
-                .first()
-                .expect("非空")
-                .serial_no
-                .ends_with("000001")
-        );
+        assert!(day.rows.first().expect("非空").serial_no.ends_with("000001"));
         assert!(day.rows.last().expect("非空").serial_no.ends_with("000005"));
 
         let same_day = same_day.expect("同一天再生成");
         assert!(
-            same_day
-                .rows
-                .first()
-                .expect("非空")
-                .serial_no
-                .ends_with("000006"),
+            same_day.rows.first().expect("非空").serial_no.ends_with("000006"),
             "同一天必须接着上一段（实际 {}）",
             same_day.rows.first().expect("非空").serial_no
         );
@@ -1030,9 +975,7 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let err = generate(M_PLAIN_ID, 1)
-            .await
-            .expect_err("按数量管理的物料必须拒");
+        let err = generate(M_PLAIN_ID, 1).await.expect_err("按数量管理的物料必须拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_SERIAL_NOT_REQUIRED);
         assert!(err.msg.contains("serial_required"), "{}", err.msg);
@@ -1061,17 +1004,13 @@ mod tests {
         };
         let mut req = req_for(M_SN_ID, 1);
         req.location_id = Some(Uuid::now_v7().to_string());
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("悬空库位必须拒");
+        let err = generate_serials(&req, None).await.expect_err("悬空库位必须拒");
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
         assert!(err.msg.contains("biz_inventory_location"), "{}", err.msg);
 
         let mut req = req_for(M_SN_ID, 1);
         req.warehouse_id = Some(W_OTHER_ID.to_string());
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("库位与仓库不匹配必须拒");
+        let err = generate_serials(&req, None).await.expect_err("库位与仓库不匹配必须拒");
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
         assert!(err.msg.contains("不属于所选仓库"), "{}", err.msg);
 
@@ -1094,9 +1033,7 @@ mod tests {
         };
         let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
         let serial_no = body.serial_nos.first().expect("有号").clone();
-        let scan = scan_one(Some(&format!("  {serial_no}\n")))
-            .await
-            .expect("扫码命中");
+        let scan = scan_one(Some(&format!("  {serial_no}\n"))).await.expect("扫码命中");
         assert_eq!(scan.serial_no, serial_no);
         assert_eq!(scan.material_code, "W2B-M-SN");
         assert_eq!(scan.material_name, "W2B 一物一码物料");
@@ -1116,9 +1053,7 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let err = scan_one(Some("SN-19700101-000001"))
-            .await
-            .expect_err("不存在的号 404");
+        let err = scan_one(Some("SN-19700101-000001")).await.expect_err("不存在的号 404");
         assert_eq!(err.status, 404);
         assert!(err.msg.contains("SN-19700101-000001"), "{}", err.msg);
     }
@@ -1228,9 +1163,7 @@ mod tests {
             status: STATUS_OUTBOUND.to_string(),
             reason: Some("发货出库".to_string()),
         };
-        let res = apply_status(id, &req, None)
-            .await
-            .expect("IN_STOCK → OUTBOUND");
+        let res = apply_status(id, &req, None).await.expect("IN_STOCK → OUTBOUND");
         assert_eq!(res.status, STATUS_OUTBOUND);
         assert!(res.outbound_at.is_some(), "转 OUTBOUND 必须写 outbound_at");
         let count: i64 = db()
@@ -1257,9 +1190,7 @@ mod tests {
             status: STATUS_SCRAPPED.to_string(),
             reason: Some("来料破损".to_string()),
         };
-        let res = apply_status(id, &req, None)
-            .await
-            .expect("IN_STOCK → SCRAPPED");
+        let res = apply_status(id, &req, None).await.expect("IN_STOCK → SCRAPPED");
         assert_eq!(res.status, STATUS_SCRAPPED);
         assert!(res.outbound_at.is_some(), "报废也要留时间戳");
     }
@@ -1363,11 +1294,7 @@ mod tests {
             )
             .await
             .expect_err("报废后不能再流转");
-            assert_eq!(
-                err.code,
-                error_code::ERP_SERIAL_STATUS_INVALID,
-                "target={target}"
-            );
+            assert_eq!(err.code, error_code::ERP_SERIAL_STATUS_INVALID, "target={target}");
             assert!(err.msg.contains("已报废"), "{}", err.msg);
         }
     }
@@ -1485,10 +1412,7 @@ mod tests {
         .await
         .expect("软删");
         assert!(
-            serial_model::serial_find_by_id(id)
-                .await
-                .expect("查询")
-                .is_none(),
+            serial_model::serial_find_by_id(id).await.expect("查询").is_none(),
             "软删行详情必须查不到"
         );
     }
@@ -1534,18 +1458,14 @@ mod tests {
         // ① 有类型没 id：PURCHASE 有实体单据表（biz_stock_in）⇒ 必须给 id
         let mut req = req_for(M_SN_ID, 1);
         req.source_type = Some("PURCHASE".to_string());
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("有类型无 id 必须拒");
+        let err = generate_serials(&req, None).await.expect_err("有类型无 id 必须拒");
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("必须同时给 source_id"), "{}", err.msg);
 
         // ② 有 id 没类型：不知道这个 id 指向哪张表
         let mut req = req_for(M_SN_ID, 1);
         req.source_id = Some(Uuid::now_v7().to_string());
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("有 id 无类型必须拒");
+        let err = generate_serials(&req, None).await.expect_err("有 id 无类型必须拒");
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("不能单独出现"), "{}", err.msg);
 
@@ -1563,9 +1483,7 @@ mod tests {
         let mut req = req_for(M_SN_ID, 1);
         req.source_type = Some("PRODUCE".to_string());
         req.source_id = Some(Uuid::now_v7().to_string());
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("PRODUCE 带 id 必须拒");
+        let err = generate_serials(&req, None).await.expect_err("PRODUCE 带 id 必须拒");
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("没有实体单据表"), "{}", err.msg);
 
@@ -1632,8 +1550,7 @@ mod tests {
             1,
             "一次批量生成只写一条 IN 流水"
         );
-        let (txn_type, biz_type, qty, before_qty, after_qty, remark) =
-            latest_txn(uuid(M_LINK_ID)).await;
+        let (txn_type, biz_type, qty, before_qty, after_qty, remark) = latest_txn(uuid(M_LINK_ID)).await;
         assert_eq!(txn_type, TXN_TYPE_IN);
         assert_eq!(biz_type, BIZ_TYPE_SERIAL_IN);
         assert_eq!(qty, Decimal::from(5), "qty 必须等于生成件数");
@@ -1693,23 +1610,14 @@ mod tests {
         )
         .await
         .expect("IN_STOCK → OUTBOUND");
-        assert_eq!(
-            txn_count(uuid(M_LINK_ID), None).await - before,
-            1,
-            "出库只写一条流水"
-        );
-        let (txn_type, biz_type, qty, before_qty, after_qty, remark) =
-            latest_txn(uuid(M_LINK_ID)).await;
+        assert_eq!(txn_count(uuid(M_LINK_ID), None).await - before, 1, "出库只写一条流水");
+        let (txn_type, biz_type, qty, before_qty, after_qty, remark) = latest_txn(uuid(M_LINK_ID)).await;
         assert_eq!(txn_type, TXN_TYPE_OUT);
         assert_eq!(biz_type, BIZ_TYPE_SERIAL_OUT);
         assert_eq!(qty, Decimal::from(1), "单件流水 qty 恒为 1（正数）");
         assert_eq!(before_qty, Decimal::from(5));
         assert_eq!(after_qty, Decimal::from(4));
-        assert_eq!(
-            remark.as_deref(),
-            Some("发货出库"),
-            "接口层的 reason 现在落流水 remark"
-        );
+        assert_eq!(remark.as_deref(), Some("发货出库"), "接口层的 reason 现在落流水 remark");
     }
 
     /// ⑤ IN_STOCK 转 SCRAPPED → 数量 -1 + 1 条报废流水（`OUT` + `SERIAL_SCRAP`）。
@@ -1808,10 +1716,9 @@ mod tests {
         let txn_before = txn_count(uuid(M_LINK_ID), None).await;
         let too_long = "超".repeat(300);
         let tx = db().begin().await.expect("开启事务");
-        let error =
-            serial_model::transition_status_with(&tx, id, STATUS_OUTBOUND, None, Some(&too_long))
-                .await
-                .expect_err("remark 超过 255 字符，流水必须写失败");
+        let error = serial_model::transition_status_with(&tx, id, STATUS_OUTBOUND, None, Some(&too_long))
+            .await
+            .expect_err("remark 超过 255 字符，流水必须写失败");
         println!("预期失败：{error}");
         tx.rollback().await.expect("回滚");
 
@@ -1826,11 +1733,7 @@ mod tests {
             Some(Decimal::from(1)),
             "账面数量必须回到 1"
         );
-        assert_eq!(
-            txn_count(uuid(M_LINK_ID), None).await,
-            txn_before,
-            "流水一条都不许留"
-        );
+        assert_eq!(txn_count(uuid(M_LINK_ID), None).await, txn_before, "流水一条都不许留");
         assert_invariant(M_LINK_ID, W_LINK_ID, "回滚之后").await;
     }
 
@@ -1855,13 +1758,9 @@ mod tests {
         };
         apply_status(out_id, &out_req, None).await.expect("出库");
         assert_invariant(M_LINK_ID, W_LINK_ID, "出库 1").await;
-        apply_status(scrap_id, &scrap_req, None)
-            .await
-            .expect("在库报废");
+        apply_status(scrap_id, &scrap_req, None).await.expect("在库报废");
         assert_invariant(M_LINK_ID, W_LINK_ID, "在库报废 1").await;
-        apply_status(out_id, &scrap_req, None)
-            .await
-            .expect("出库后报废");
+        apply_status(out_id, &scrap_req, None).await.expect("出库后报废");
         assert_invariant(M_LINK_ID, W_LINK_ID, "出库后报废").await;
         generate_link(2).await.expect("再生成 2 条");
         assert_invariant(M_LINK_ID, W_LINK_ID, "再生成 2").await;
@@ -1940,8 +1839,7 @@ mod tests {
             status: STATUS_OUTBOUND.to_string(),
             reason: Some("并发出库".to_string()),
         };
-        let (left, right) =
-            tokio::join!(apply_status(id, &req, None), apply_status(id, &req, None));
+        let (left, right) = tokio::join!(apply_status(id, &req, None), apply_status(id, &req, None));
         let ok = usize::from(left.is_ok()) + usize::from(right.is_ok());
         assert_eq!(ok, 1, "同一件只能出库一次：{left:?} / {right:?}");
         let failed = [&left, &right]
@@ -1950,11 +1848,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(failed.len(), 1, "另一个必须失败");
         assert_eq!(failed[0].status, 400, "失败方是非法流转 400");
-        assert_eq!(
-            failed[0].code,
-            error_code::ERP_SERIAL_STATUS_INVALID,
-            "失败方业务码"
-        );
+        assert_eq!(failed[0].code, error_code::ERP_SERIAL_STATUS_INVALID, "失败方业务码");
         assert_eq!(
             inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
             Some(Decimal::ZERO),
@@ -2165,9 +2059,7 @@ mod tests {
         let before_seq = seq_current_no().await;
         let mut req = req_for_link(3);
         req.unit_cost = None;
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("缺 unit_cost 必须 400");
+        let err = generate_serials(&req, None).await.expect_err("缺 unit_cost 必须 400");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::PARAM_INVALID);
         assert_eq!(
@@ -2179,11 +2071,7 @@ mod tests {
             before_counts,
             "400 必须零落库（号/成本账/库位账/流水/凭证/分录一行都不许有）"
         );
-        assert_eq!(
-            seq_current_no().await,
-            before_seq,
-            "校验失败不得推进 biz_seq"
-        );
+        assert_eq!(seq_current_no().await, before_seq, "校验失败不得推进 biz_seq");
     }
 
     /// T3：0 / -1.5 / "abc" / 1e11 四种非法单价都 400，且报文逐字（规格 §2.3）。
@@ -2200,9 +2088,7 @@ mod tests {
                 "unit_cost 必须 > 0（收到 0）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行（巡检 C3），系统拒收",
             ),
             (
-                Some(OptionalDecimal::Num(
-                    Decimal::from_str_exact("-1.5").expect("decimal"),
-                )),
+                Some(OptionalDecimal::Num(Decimal::from_str_exact("-1.5").expect("decimal"))),
                 "unit_cost 必须 > 0（收到 -1.5）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行（巡检 C3），系统拒收",
             ),
             (
@@ -2225,11 +2111,7 @@ mod tests {
             assert_eq!(err.status, 400, "{expected}");
             assert_eq!(err.msg, expected);
         }
-        assert_eq!(
-            ledger_snapshot(uuid(M_LINK_ID)).await,
-            before,
-            "非法单价一律零落库"
-        );
+        assert_eq!(ledger_snapshot(uuid(M_LINK_ID)).await, before, "非法单价一律零落库");
     }
 
     /// T4–T7 + T13/T14：一次生成 5 件 @10 ⇒ 成本账 / 库位账 / 流水 / 凭证 / 响应体全对，B2 增量 0。
@@ -2254,23 +2136,14 @@ mod tests {
         // T4 成本账（NULL 汇总桶）+ 库位账
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "5.0000".to_string(),
-                "50.0000".to_string(),
-                "10.000000".to_string()
-            )),
+            Some(("5.0000".to_string(), "50.0000".to_string(), "10.000000".to_string())),
             "qty=5 / amount=5×10 / avg_cost=单价"
         );
-        assert_eq!(
-            location_total(material, warehouse).await,
-            "5.0000",
-            "库位账合计 = 5"
-        );
+        assert_eq!(location_total(material, warehouse).await, "5.0000", "库位账合计 = 5");
         assert_invariant(M_LINK_ID, W_LINK_ID, "生成 5 件 @10 后").await;
 
         // T5 流水：形态不变（IN + SERIAL_IN + SERIAL_BATCH），单价/金额写实值
-        let (unit_cost, amount, qty, before_qty, after_qty, remark) =
-            latest_txn_of(material, BIZ_TYPE_SERIAL_IN).await;
+        let (unit_cost, amount, qty, before_qty, after_qty, remark) = latest_txn_of(material, BIZ_TYPE_SERIAL_IN).await;
         assert_eq!(unit_cost, "10.000000");
         assert_eq!(amount, "50.0000", "流水金额是实值，不是 0");
         assert_eq!(qty, "5.0000");
@@ -2309,16 +2182,8 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                (
-                    "1405".to_string(),
-                    "50.0000".to_string(),
-                    "0.0000".to_string()
-                ),
-                (
-                    "1901".to_string(),
-                    "0.0000".to_string(),
-                    "50.0000".to_string()
-                ),
+                ("1405".to_string(), "50.0000".to_string(), "0.0000".to_string()),
+                ("1901".to_string(), "0.0000".to_string(), "50.0000".to_string()),
             ],
             "期初入库：借 库存商品 / 贷 待处理财产损溢"
         );
@@ -2356,11 +2221,7 @@ mod tests {
         .expect("IN_STOCK → OUTBOUND");
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "4.0000".to_string(),
-                "40.0000".to_string(),
-                "10.000000".to_string()
-            )),
+            Some(("4.0000".to_string(), "40.0000".to_string(), "10.000000".to_string())),
             "出库 1 件后：4 / 40 / 10（avg 不动）"
         );
         let mut req = req_for_link(5);
@@ -2369,11 +2230,7 @@ mod tests {
         assert_eq!(body.amount.to_string(), "65.0000", "本次入账 = 5 × 13");
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "9.0000".to_string(),
-                "105.0000".to_string(),
-                "11.666667".to_string()
-            )),
+            Some(("9.0000".to_string(), "105.0000".to_string(), "11.666667".to_string())),
             "avg = ROUND((40 + 65) / 9, 6) = 11.666667"
         );
         assert_eq!(location_total(material, warehouse).await, "9.0000");
@@ -2405,18 +2262,10 @@ mod tests {
 
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "4.0000".to_string(),
-                "40.0000".to_string(),
-                "10.000000".to_string()
-            )),
+            Some(("4.0000".to_string(), "40.0000".to_string(), "10.000000".to_string())),
             "出库 1 件：4 / 40 / 10"
         );
-        assert_eq!(
-            location_total(material, warehouse).await,
-            "4.0000",
-            "库位账同步减到 4"
-        );
+        assert_eq!(location_total(material, warehouse).await, "4.0000", "库位账同步减到 4");
         assert_invariant(M_LINK_ID, W_LINK_ID, "出库 1 件后").await;
 
         let (unit_cost, amount, qty, _, _, _) = latest_txn_of(material, BIZ_TYPE_SERIAL_OUT).await;
@@ -2428,16 +2277,8 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                (
-                    "6401".to_string(),
-                    "10.0000".to_string(),
-                    "0.0000".to_string()
-                ),
-                (
-                    "1405".to_string(),
-                    "0.0000".to_string(),
-                    "10.0000".to_string()
-                ),
+                ("6401".to_string(), "10.0000".to_string(), "0.0000".to_string()),
+                ("1405".to_string(), "0.0000".to_string(), "10.0000".to_string()),
             ],
             "出库结转：借 主营业务成本 / 贷 库存商品"
         );
@@ -2486,11 +2327,7 @@ mod tests {
 
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "8.0000".to_string(),
-                "93.3333".to_string(),
-                "11.666667".to_string()
-            )),
+            Some(("8.0000".to_string(), "93.3333".to_string(), "11.666667".to_string())),
             "报废 1 件：8 / 93.3333（amount = 8 × 11.666667）"
         );
         assert_eq!(location_total(material, warehouse).await, "8.0000");
@@ -2498,16 +2335,8 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                (
-                    "1901".to_string(),
-                    "11.6667".to_string(),
-                    "0.0000".to_string()
-                ),
-                (
-                    "1405".to_string(),
-                    "0.0000".to_string(),
-                    "11.6667".to_string()
-                ),
+                ("1901".to_string(), "11.6667".to_string(), "0.0000".to_string()),
+                ("1405".to_string(), "0.0000".to_string(), "11.6667".to_string()),
             ],
             "报废损失按差额口径：105.0000 − 93.3333 = 11.6667（不是 1 × 11.666667）"
         );
@@ -2530,9 +2359,7 @@ mod tests {
         // 桶 1：NULL 汇总桶 5 件 @10
         let mut req = req_for(M_SN_ID, 5);
         req.location_id = None;
-        generate_serials(&req, None)
-            .await
-            .expect("NULL 桶 5 件 @10");
+        generate_serials(&req, None).await.expect("NULL 桶 5 件 @10");
         // 桶 2：库位桶 3 件 @15
         let mut req = req_for(M_SN_ID, 3);
         req.unit_cost = Some(OptionalDecimal::Num(Decimal::from(15)));
@@ -2540,27 +2367,15 @@ mod tests {
 
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "5.0000".to_string(),
-                "50.0000".to_string(),
-                "10.000000".to_string()
-            )),
+            Some(("5.0000".to_string(), "50.0000".to_string(), "10.000000".to_string())),
             "NULL 桶 5 / 50 / 10"
         );
         assert_eq!(
             cost_bucket(material, warehouse, Some(bucket)).await,
-            Some((
-                "3.0000".to_string(),
-                "45.0000".to_string(),
-                "15.000000".to_string()
-            )),
+            Some(("3.0000".to_string(), "45.0000".to_string(), "15.000000".to_string())),
             "库位桶 3 / 45 / 15"
         );
-        assert_eq!(
-            location_total(material, warehouse).await,
-            "8.0000",
-            "库位账 5 + 3 = 8"
-        );
+        assert_eq!(location_total(material, warehouse).await, "8.0000", "库位账 5 + 3 = 8");
         assert_invariant(M_SN_ID, W_ID, "混桶生成后（B1 差 0）").await;
         // T20：两次生成 = 两条流水（不是两条 × 桶数）
         assert_eq!(
@@ -2583,42 +2398,22 @@ mod tests {
         .expect("从库位桶出库 1 件");
         assert_eq!(
             cost_bucket(material, warehouse, Some(bucket)).await,
-            Some((
-                "2.0000".to_string(),
-                "30.0000".to_string(),
-                "15.000000".to_string()
-            )),
+            Some(("2.0000".to_string(), "30.0000".to_string(), "15.000000".to_string())),
             "库位桶 2 / 30"
         );
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "5.0000".to_string(),
-                "50.0000".to_string(),
-                "10.000000".to_string()
-            )),
+            Some(("5.0000".to_string(), "50.0000".to_string(), "10.000000".to_string())),
             "NULL 桶不受影响"
         );
-        assert_eq!(
-            location_total(material, warehouse).await,
-            "7.0000",
-            "库位账 5 + 2 = 7"
-        );
+        assert_eq!(location_total(material, warehouse).await, "7.0000", "库位账 5 + 2 = 7");
         assert_invariant(M_SN_ID, W_ID, "库位桶出库 1 件后").await;
         let lines = voucher_lines("SERIAL_OUT", serial_id).await;
         assert_eq!(
             lines,
             vec![
-                (
-                    "6401".to_string(),
-                    "15.0000".to_string(),
-                    "0.0000".to_string()
-                ),
-                (
-                    "1405".to_string(),
-                    "0.0000".to_string(),
-                    "15.0000".to_string()
-                ),
+                ("6401".to_string(), "15.0000".to_string(), "0.0000".to_string()),
+                ("1405".to_string(), "0.0000".to_string(), "15.0000".to_string()),
             ],
             "库位桶出库按该桶单价 15 结转"
         );
@@ -2647,11 +2442,7 @@ mod tests {
         .expect("库位桶出空");
         assert_eq!(
             cost_bucket(material, warehouse, Some(bucket)).await,
-            Some((
-                "0.0000".to_string(),
-                "0.0000".to_string(),
-                "15.000000".to_string()
-            )),
+            Some(("0.0000".to_string(), "0.0000".to_string(), "15.000000".to_string())),
             "桶出空后 qty/amount 归零（avg_cost 不动）"
         );
         assert_invariant(M_SN_ID, W_ID, "库位桶出空后（B1 差 0）").await;
@@ -2668,23 +2459,17 @@ mod tests {
         // 「科目不可用」用**停用**而不是物理删：`biz_voucher_entry.account_id` 有外键，
         // 其它用例已经写过 1901 的分录，物理删会撞 FK（而停用正是运维真实的故障形态：
         // 科目被停用 / 未启用 ⇒ `account_required` 取不到）。
-        db().execute_with_params(
-            "UPDATE biz_account SET status = 0 WHERE account_code = '1901'",
-            vec![],
-        )
-        .await
-        .expect("临时停用 1901 科目");
+        db().execute_with_params("UPDATE biz_account SET status = 0 WHERE account_code = '1901'", vec![])
+            .await
+            .expect("临时停用 1901 科目");
         let err = generate_link(2)
             .await
             .expect_err("科目不可用必须报错（不能静默不记账）");
         // 科目缺失是 DbError::InvalidValue → utils::db_error 收敛成 500 + 10004
         assert_eq!(err.status, 500, "{}", err.msg);
-        db().execute_with_params(
-            "UPDATE biz_account SET status = 1 WHERE account_code = '1901'",
-            vec![],
-        )
-        .await
-        .expect("还原 1901 科目");
+        db().execute_with_params("UPDATE biz_account SET status = 1 WHERE account_code = '1901'", vec![])
+            .await
+            .expect("还原 1901 科目");
         assert_eq!(
             ledger_snapshot(uuid(M_LINK_ID)).await,
             before,
@@ -2769,11 +2554,7 @@ mod tests {
 
         assert_eq!(
             cost_bucket(material, warehouse, None).await,
-            Some((
-                "1.0000".to_string(),
-                "0.0000".to_string(),
-                "0.000000".to_string()
-            )),
+            Some(("1.0000".to_string(), "0.0000".to_string(), "0.000000".to_string())),
             "1 件 / 0 元（存量不补账）"
         );
         assert_eq!(location_total(material, warehouse).await, "1.0000");
@@ -2796,18 +2577,14 @@ mod tests {
         };
         let mut req = req_for(M_PLAIN_ID, 1);
         req.location_id = None;
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("非一物一码物料必须拒");
+        let err = generate_serials(&req, None).await.expect_err("非一物一码物料必须拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_SERIAL_NOT_REQUIRED);
 
         let mut req = req_for(M_SN_ID, 1);
         req.warehouse_id = None;
         req.location_id = None;
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("缺 warehouse_id 必须拒");
+        let err = generate_serials(&req, None).await.expect_err("缺 warehouse_id 必须拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
         assert!(err.msg.contains("warehouse_id"), "{}", err.msg);

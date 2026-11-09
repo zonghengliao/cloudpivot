@@ -25,8 +25,7 @@ fn months(amounts: &[&str]) -> Vec<PeriodReq> {
 #[test]
 fn create_budget_with_full_periods_passes() {
     let periods = months(&[
-        "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000",
-        "1000",
+        "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000", "1000",
     ]);
     let rows = validate_periods(2026, dec("12000"), Some(&periods)).expect("应通过");
     assert_eq!(rows.len(), 12);
@@ -60,8 +59,7 @@ fn duplicated_period_is_rejected() {
 /// ④ 缺行 / 多余行：分解必须正好 12 行。
 #[test]
 fn period_count_must_be_twelve() {
-    let err = validate_periods(2026, dec("11000"), Some(&months(&["1000"; 11])))
-        .expect_err("11 行必须被拒");
+    let err = validate_periods(2026, dec("11000"), Some(&months(&["1000"; 11]))).expect_err("11 行必须被拒");
     assert!(err.msg.contains("12 行"), "{}", err.msg);
 }
 
@@ -106,8 +104,7 @@ fn adjust_requires_reason() {
     let err = validate_adjust(2026, dec("12000"), None, Some("   ")).expect_err("空白原因必须被拒");
     assert!(err.msg.contains("调整原因"), "{}", err.msg);
 
-    let (rows, reason) =
-        validate_adjust(2026, dec("12000"), None, Some("业务收缩，砍掉 2 万")).expect("应通过");
+    let (rows, reason) = validate_adjust(2026, dec("12000"), None, Some("业务收缩，砍掉 2 万")).expect("应通过");
     assert_eq!(rows.len(), 12);
     assert_eq!(reason, "业务收缩，砍掉 2 万");
 }
@@ -157,10 +154,7 @@ fn mapping_validation() {
     // ---- MATERIAL_TYPE：ref_code 是唯一目标，ref_id 必须为空 ----
     let mut mt = base.clone();
     mt.map_type = "MATERIAL_TYPE".to_string();
-    assert!(
-        validate_mapping(&mt).is_err(),
-        "MATERIAL_TYPE 缺 ref_code 必须拒绝"
-    );
+    assert!(validate_mapping(&mt).is_err(), "MATERIAL_TYPE 缺 ref_code 必须拒绝");
 
     mt.ref_code = Some("RAW".to_string());
     validate_mapping(&mt).expect("MATERIAL_TYPE 只给 ref_code 必须通过（本卡修的正是这条）");
@@ -170,11 +164,7 @@ fn mapping_validation() {
 
     mt.ref_code = Some("BOGUS".to_string());
     let err = validate_mapping(&mt).expect_err("值域外的物料类型必须拒绝");
-    assert!(
-        err.msg.contains("ref_code"),
-        "文案要点名 ref_code：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("ref_code"), "文案要点名 ref_code：{}", err.msg);
 
     mt.ref_code = Some("RAW".to_string());
     mt.ref_id = Some(Uuid::now_v7().to_string());
@@ -184,20 +174,14 @@ fn mapping_validation() {
     // ---- MATERIAL / WAREHOUSE：必须有真实目标 id ----
     let mut material = base.clone();
     material.map_type = "MATERIAL".to_string();
-    assert!(
-        validate_mapping(&material).is_err(),
-        "MATERIAL 必须给 ref_id"
-    );
+    assert!(validate_mapping(&material).is_err(), "MATERIAL 必须给 ref_id");
 
     material.ref_id = Some(Uuid::now_v7().to_string());
     validate_mapping(&material).expect("MATERIAL 合法");
 
     let mut warehouse = base.clone();
     warehouse.map_type = "WAREHOUSE".to_string();
-    assert!(
-        validate_mapping(&warehouse).is_err(),
-        "WAREHOUSE 必须给 ref_id"
-    );
+    assert!(validate_mapping(&warehouse).is_err(), "WAREHOUSE 必须给 ref_id");
     warehouse.ref_id = Some(Uuid::now_v7().to_string());
     validate_mapping(&warehouse).expect("WAREHOUSE 合法");
 

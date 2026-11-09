@@ -132,9 +132,7 @@ pub async fn count(sql: &str, params: Vec<Value>) -> i64 {
         .query_sql(sql.to_string(), params)
         .await
         .unwrap_or_else(|error| panic!("count 查询失败：{error}\nSQL: {sql}"));
-    rows.first()
-        .and_then(|row| row.get_typed::<i64>("n").ok())
-        .unwrap_or(0)
+    rows.first().and_then(|row| row.get_typed::<i64>("n").ok()).unwrap_or(0)
 }
 
 /// 取第一行第一列（文本）。
@@ -245,19 +243,13 @@ impl Ctx {
             "(SELECT id FROM biz_project WHERE project_no LIKE '{p}' OR project_name LIKE '{p}' \
              OR owner_id IN {users})"
         );
-        let notices =
-            format!("(SELECT id FROM sys_notice WHERE title LIKE '{p}' OR sender_id IN {users})");
-        let anns = format!(
-            "(SELECT id FROM sys_announcement WHERE title LIKE '{p}' OR publisher_id IN {users})"
-        );
-        let docs =
-            format!("(SELECT id FROM sys_help_doc WHERE slug LIKE '{lpct}' OR slug LIKE '{p}')");
+        let notices = format!("(SELECT id FROM sys_notice WHERE title LIKE '{p}' OR sender_id IN {users})");
+        let anns = format!("(SELECT id FROM sys_announcement WHERE title LIKE '{p}' OR publisher_id IN {users})");
+        let docs = format!("(SELECT id FROM sys_help_doc WHERE slug LIKE '{lpct}' OR slug LIKE '{p}')");
         let roles = format!("(SELECT id FROM sys_role WHERE role_code LIKE '{p}')");
         let dicts = format!("(SELECT id FROM sys_dict_type WHERE dict_code LIKE '{p}')");
         let imports = format!("(SELECT id FROM sys_import_task WHERE task_no LIKE '{p}')");
-        let files = format!(
-            "(SELECT id FROM sys_file WHERE file_name LIKE '{p}' OR uploaded_by IN {users})"
-        );
+        let files = format!("(SELECT id FROM sys_file WHERE file_name LIKE '{p}' OR uploaded_by IN {users})");
         // 审计行要在对象还在的时候摘（对象一删就查不到 resource_id 了）
         let objs = format!(
             "(SELECT id::text FROM biz_task WHERE title LIKE '{p}' OR owner_id IN {users} OR creator_id IN {users} \
@@ -274,17 +266,11 @@ impl Ctx {
 
         let statements = [
             // ---- 审计（分区表，DELETE 直接走父表路由到月分区）----
-            format!(
-                "DELETE FROM sys_change_log WHERE resource_id IN {objs} OR operator_id IN {users}"
-            ),
+            format!("DELETE FROM sys_change_log WHERE resource_id IN {objs} OR operator_id IN {users}"),
             // ---- 任务域：子表 → 任务（先断 parent_id 自引用）→ 模板 ----
-            format!(
-                "DELETE FROM biz_task_dependency WHERE task_id IN {tasks} OR depends_on_id IN {tasks}"
-            ),
+            format!("DELETE FROM biz_task_dependency WHERE task_id IN {tasks} OR depends_on_id IN {tasks}"),
             format!("DELETE FROM biz_task_ai_token WHERE task_id IN {tasks}"),
-            format!(
-                "DELETE FROM biz_task_attachment WHERE task_id IN {tasks} OR file_id IN {files}"
-            ),
+            format!("DELETE FROM biz_task_attachment WHERE task_id IN {tasks} OR file_id IN {files}"),
             format!("DELETE FROM biz_task_comment WHERE task_id IN {tasks}"),
             format!("DELETE FROM biz_task_worklog WHERE task_id IN {tasks}"),
             format!("DELETE FROM biz_task_member WHERE task_id IN {tasks} OR user_id IN {users}"),
@@ -294,18 +280,14 @@ impl Ctx {
             format!("UPDATE biz_task SET parent_id = NULL WHERE parent_id IN {tasks}"),
             format!("DELETE FROM biz_task WHERE id IN {tasks} OR project_id IN {projects}"),
             // ---- 项目域（任务清干净之后再删项目，否则 biz_task_project_id_fkey）----
-            format!(
-                "DELETE FROM biz_project_member WHERE project_id IN {projects} OR user_id IN {users}"
-            ),
+            format!("DELETE FROM biz_project_member WHERE project_id IN {projects} OR user_id IN {users}"),
             format!("DELETE FROM biz_project WHERE id IN {projects}"),
             // ---- 公告 / 通知（投递 → 收件 → 通知 → 公告）----
             format!(
                 "DELETE FROM sys_notice_delivery WHERE notice_id IN {notices} \
                  OR receiver_id IN (SELECT id FROM sys_notice_receiver WHERE user_id IN {users})"
             ),
-            format!(
-                "DELETE FROM sys_notice_receiver WHERE notice_id IN {notices} OR user_id IN {users}"
-            ),
+            format!("DELETE FROM sys_notice_receiver WHERE notice_id IN {notices} OR user_id IN {users}"),
             format!("DELETE FROM sys_notice WHERE id IN {notices}"),
             format!("DELETE FROM sys_notice_template WHERE template_code LIKE '{ROOT}-%'"),
             format!("DELETE FROM sys_announcement_read WHERE announcement_id IN {anns}"),
@@ -315,17 +297,13 @@ impl Ctx {
             // ---- 导入导出 ----
             format!("DELETE FROM sys_import_task_error WHERE task_id IN {imports}"),
             format!("DELETE FROM sys_import_task WHERE id IN {imports}"),
-            format!(
-                "DELETE FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"
-            ),
+            format!("DELETE FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"),
             // ---- 帮助中心 ----
             format!("DELETE FROM sys_help_doc_version WHERE doc_id IN {docs}"),
             format!("DELETE FROM sys_help_doc WHERE id IN {docs}"),
             format!("DELETE FROM sys_help_category WHERE code LIKE '{lpct}' OR code LIKE '{p}'"),
             // ---- 字典 ----
-            format!(
-                "DELETE FROM sys_dict_item WHERE dict_type_id IN {dicts} OR item_label LIKE '{p}'"
-            ),
+            format!("DELETE FROM sys_dict_item WHERE dict_type_id IN {dicts} OR item_label LIKE '{p}'"),
             format!("DELETE FROM sys_dict_type WHERE id IN {dicts}"),
             // ---- 角色关联 / 互斥 / 脱敏 ----
             format!("DELETE FROM sys_role_menu WHERE role_id IN {roles}"),
@@ -373,40 +351,25 @@ impl Ctx {
         let lpct = format!("{}%", self.prefix.to_lowercase());
         let users = format!("(SELECT id FROM sys_user WHERE username LIKE '{p}')");
         let roles = format!("(SELECT id FROM sys_role WHERE role_code LIKE '{p}')");
-        let notices =
-            format!("(SELECT id FROM sys_notice WHERE title LIKE '{p}' OR sender_id IN {users})");
-        let anns = format!(
-            "(SELECT id FROM sys_announcement WHERE title LIKE '{p}' OR publisher_id IN {users})"
-        );
+        let notices = format!("(SELECT id FROM sys_notice WHERE title LIKE '{p}' OR sender_id IN {users})");
+        let anns = format!("(SELECT id FROM sys_announcement WHERE title LIKE '{p}' OR publisher_id IN {users})");
         let checks = [
             format!("SELECT count(*) AS n FROM sys_user WHERE username LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_role WHERE role_code LIKE '{p}'"),
-            format!(
-                "SELECT count(*) AS n FROM sys_user_role WHERE user_id IN {users} OR role_id IN {roles}"
-            ),
+            format!("SELECT count(*) AS n FROM sys_user_role WHERE user_id IN {users} OR role_id IN {roles}"),
             format!(
                 "SELECT count(*) AS n FROM sys_role_mutex WHERE role_a_id IN {roles} OR role_b_id IN {roles} OR reason LIKE '{p}'"
             ),
-            format!(
-                "SELECT count(*) AS n FROM biz_project WHERE project_no LIKE '{p}' OR project_name LIKE '{p}'"
-            ),
+            format!("SELECT count(*) AS n FROM biz_project WHERE project_no LIKE '{p}' OR project_name LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM biz_task WHERE title LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_announcement WHERE title LIKE '{p}'"),
-            format!(
-                "SELECT count(*) AS n FROM sys_announcement_read WHERE announcement_id IN {anns}"
-            ),
-            format!(
-                "SELECT count(*) AS n FROM sys_announcement_attachment WHERE announcement_id IN {anns}"
-            ),
+            format!("SELECT count(*) AS n FROM sys_announcement_read WHERE announcement_id IN {anns}"),
+            format!("SELECT count(*) AS n FROM sys_announcement_attachment WHERE announcement_id IN {anns}"),
             format!("SELECT count(*) AS n FROM sys_notice WHERE title LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_notice_receiver WHERE notice_id IN {notices}"),
             format!("SELECT count(*) AS n FROM sys_import_task WHERE task_no LIKE '{p}'"),
-            format!(
-                "SELECT count(*) AS n FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"
-            ),
-            format!(
-                "SELECT count(*) AS n FROM sys_help_doc WHERE slug LIKE '{lpct}' OR slug LIKE '{p}'"
-            ),
+            format!("SELECT count(*) AS n FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"),
+            format!("SELECT count(*) AS n FROM sys_help_doc WHERE slug LIKE '{lpct}' OR slug LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_dict_type WHERE dict_code LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_file WHERE file_name LIKE '{p}'"),
         ];
@@ -460,9 +423,7 @@ where
     let ctx = Ctx::new(tag).await;
     // AssertUnwindSafe：夹具（`Ctx`）跨 panic 边界后用不着，用例体里被改坏的状态也不会
     // 影响清理（清理只认前缀 + 全局连接池）。这是 `catch_unwind` 唯一的实际顾虑。
-    let outcome = std::panic::AssertUnwindSafe(body(ctx.clone()))
-        .catch_unwind()
-        .await;
+    let outcome = std::panic::AssertUnwindSafe(body(ctx.clone())).catch_unwind().await;
     let left = ctx.reset().await;
     match outcome {
         Ok(()) => assert_eq!(
@@ -505,9 +466,7 @@ pub async fn root_residue() -> Vec<(&'static str, i64)> {
         ),
         (
             "biz_project",
-            format!(
-                "SELECT count(*) AS n FROM biz_project WHERE project_no LIKE '{p}' OR project_name LIKE '{p}'"
-            ),
+            format!("SELECT count(*) AS n FROM biz_project WHERE project_no LIKE '{p}' OR project_name LIKE '{p}'"),
         ),
         (
             "biz_task",
@@ -533,15 +492,11 @@ pub async fn root_residue() -> Vec<(&'static str, i64)> {
         ),
         (
             "sys_export_task",
-            format!(
-                "SELECT count(*) AS n FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"
-            ),
+            format!("SELECT count(*) AS n FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"),
         ),
         (
             "sys_help_doc",
-            format!(
-                "SELECT count(*) AS n FROM sys_help_doc WHERE slug LIKE '{lpct}' OR slug LIKE '{p}'"
-            ),
+            format!("SELECT count(*) AS n FROM sys_help_doc WHERE slug LIKE '{lpct}' OR slug LIKE '{p}'"),
         ),
         (
             "sys_help_category",

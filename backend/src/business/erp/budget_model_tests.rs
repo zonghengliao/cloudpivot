@@ -65,10 +65,7 @@ fn status_constants_match_state_machine() {
         STATUS_CLOSED,
         STATUS_CANCELLED,
     ] {
-        assert!(
-            nodes.contains(&status),
-            "状态 {status} 不在状态机边表的节点集合里"
-        );
+        assert!(nodes.contains(&status), "状态 {status} 不在状态机边表的节点集合里");
     }
 }
 
@@ -124,8 +121,7 @@ mod db {
     async fn expense_account() -> Uuid {
         let rows = db()
             .query_sql(
-                "SELECT id FROM biz_account WHERE account_code = '5602.02' AND deleted_at IS NULL"
-                    .to_string(),
+                "SELECT id FROM biz_account WHERE account_code = '5602.02' AND deleted_at IS NULL".to_string(),
                 vec![],
             )
             .await
@@ -158,10 +154,7 @@ mod db {
             )
             .await;
         let _ = db()
-            .exec_sql(
-                format!("DELETE FROM biz_budget WHERE id IN ({list})"),
-                vec![],
-            )
+            .exec_sql(format!("DELETE FROM biz_budget WHERE id IN ({list})"), vec![])
             .await;
     }
 
@@ -195,9 +188,7 @@ mod db {
             remark: None,
             operator: None,
         };
-        insert_budget(db(), v1, "BDG-TEST-V1", &new)
-            .await
-            .expect("插 v1");
+        insert_budget(db(), v1, "BDG-TEST-V1", &new).await.expect("插 v1");
         // v1 直接置 ACTIVE（不跑审批，只验版本链与唯一索引）
         apply_status(db(), v1, STATUS_DRAFT, STATUS_ACTIVE, None, None, None)
             .await
@@ -210,9 +201,7 @@ mod db {
         new.supersedes_id = Some(v1);
         new.change_type = CHANGE_ADJUST.to_string();
         new.change_reason = Some("测试调整".to_string());
-        insert_budget(db(), dup, "BDG-TEST-V2", &new)
-            .await
-            .expect("插 v2");
+        insert_budget(db(), dup, "BDG-TEST-V2", &new).await.expect("插 v2");
         let conflict = apply_status(db(), dup, STATUS_DRAFT, STATUS_ACTIVE, None, None, None).await;
         assert!(
             conflict.is_err(),
@@ -366,8 +355,7 @@ mod db {
 
         let rows = db()
             .query_sql(
-                "SELECT map_type, ref_id, ref_code FROM biz_budget_subject_map WHERE id = ?::uuid"
-                    .to_string(),
+                "SELECT map_type, ref_id, ref_code FROM biz_budget_subject_map WHERE id = ?::uuid".to_string(),
                 vec![Value::from(&raw)],
             )
             .await
@@ -492,8 +480,8 @@ mod db {
     /// 与 `budget_page` 同一条组装路径：基础 SQL（带 `{FILTER}`）+ 业务过滤片段。
     fn budget_page_sql(q: &BudgetFilter) -> (String, Vec<Value>) {
         let mut params: Vec<Value> = Vec::new();
-        let filters = crate::business::erp::budget_model::budget_page_filters(q, &mut params)
-            .expect("组装预算分页过滤");
+        let filters =
+            crate::business::erp::budget_model::budget_page_filters(q, &mut params).expect("组装预算分页过滤");
         let mut sql = crate::business::erp::budget_model::budget_page_base_sql();
         sql.push_str(&filters);
         (sql, params)
@@ -560,8 +548,7 @@ mod db {
         for (name, filter) in cases {
             let (sql, params) = budget_page_sql(&filter);
             assert_eq!(
-                sql.matches(crate::business::shared::scope::FILTER_MARKER)
-                    .count(),
+                sql.matches(crate::business::shared::scope::FILTER_MARKER).count(),
                 1,
                 "【{name}】预算分页 base_sql 必须恰好一个 {{FILTER}}：{sql}"
             );
@@ -574,10 +561,7 @@ mod db {
                 .find(crate::business::shared::scope::FILTER_MARKER)
                 .expect("标记位置");
             if let Some(first) = sql.find('?') {
-                assert!(
-                    marker < first,
-                    "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}"
-                );
+                assert!(marker < first, "【{name}】{{FILTER}} 必须在第一个业务 `?` 之前：{sql}");
             }
             crate::business::shared::scope::ensure_injection_point(&sql, params.len())
                 .unwrap_or_else(|err| panic!("【{name}】注入位置契约校验失败：{err}"));

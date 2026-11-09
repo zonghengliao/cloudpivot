@@ -113,11 +113,7 @@ pub async fn snapshot_name(user_id: Uuid) -> DbResult<String> {
 /// # 可见性
 ///
 /// `pub(crate)`：`snapshot_name` 用它，`tests` 直接断言真值表（不连库）。
-pub(crate) fn display_name(
-    real_name: Option<&str>,
-    username: Option<&str>,
-    deleted: bool,
-) -> String {
+pub(crate) fn display_name(real_name: Option<&str>, username: Option<&str>, deleted: bool) -> String {
     if deleted {
         return DELETED_USER_LABEL.to_string();
     }
@@ -186,11 +182,7 @@ where
     if unique.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let joined = unique
-        .iter()
-        .map(Uuid::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = unique.iter().map(Uuid::to_string).collect::<Vec<_>>().join(",");
     #[cfg(test)]
     stats::bump();
     let rows = db()
@@ -303,10 +295,7 @@ mod tests {
         assert_eq!(display_name(None, Some("zs"), false), "zs");
         assert_eq!(display_name(Some("   "), Some("zs"), false), "zs");
         // 已软删：不管有没有姓名，一律占位串（改名 / 删号后要能看出"人已不在"）
-        assert_eq!(
-            display_name(Some("张三"), Some("zs"), true),
-            DELETED_USER_LABEL
-        );
+        assert_eq!(display_name(Some("张三"), Some("zs"), true), DELETED_USER_LABEL);
         // 两个都空（历史脏数据）：不留空串
         assert_eq!(display_name(None, None, false), DELETED_USER_LABEL);
         assert_eq!(display_name(Some(""), Some(""), false), DELETED_USER_LABEL);

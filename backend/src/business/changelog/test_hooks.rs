@@ -135,9 +135,7 @@ pub async fn record_then_rollback(
     };
 
     // ③ 强制回滚（D11 的另一半：日志与业务同生共死）
-    tx.rollback()
-        .await
-        .map_err(|error| internal("强制回滚失败", error))?;
+    tx.rollback().await.map_err(|error| internal("强制回滚失败", error))?;
 
     // ④ 回滚后计数：走连接池，看到的是「已提交的数据」这一真实视角
     let after = model::count_for_object(connection, resource, &resource_id)
@@ -155,11 +153,7 @@ pub async fn record_then_rollback(
 
 /// 把任何错误折成「500 + 内部错误码」的 [`ApiError`]，消息里保留原始成因。
 fn internal(context: &str, error: impl std::fmt::Display) -> ApiError {
-    ApiError::new(
-        500,
-        error_code::INTERNAL_ERROR,
-        format!("{context}：{error}"),
-    )
+    ApiError::new(500, error_code::INTERNAL_ERROR, format!("{context}：{error}"))
 }
 
 #[cfg(test)]

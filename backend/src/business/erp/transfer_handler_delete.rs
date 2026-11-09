@@ -14,10 +14,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 /// 删除核心逻辑：**只有 `DRAFT` / `CANCELLED`** 能删（软删）。
-pub async fn delete_transfer(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_transfer(id: Uuid, operator: Option<Uuid>) -> std::result::Result<(), ApiError> {
     let row = transfer_model::find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "查询调拨单"))?

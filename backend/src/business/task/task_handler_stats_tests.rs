@@ -29,10 +29,7 @@ fn row(mode: &str, done: i64, cancelled: i64, hours: Option<f64>) -> dto::ExecMo
 
 #[test]
 fn total_is_weighted_by_done_count_not_a_plain_mean() {
-    let rows = vec![
-        row("HUMAN", 100, 0, Some(10.0)),
-        row("AI", 1, 0, Some(40.0)),
-    ];
+    let rows = vec![row("HUMAN", 100, 0, Some(10.0)), row("AI", 1, 0, Some(40.0))];
     let total = stats_total(&rows);
     assert_eq!(total.total, 103, "101 + 2（每行多 1 条待开始）");
     assert_eq!(total.done, 101);
@@ -56,10 +53,7 @@ fn total_handles_empty_and_cancelled_only() {
 fn weighted_average_ignores_zero_and_negative_weights() {
     assert_eq!(weighted_average(std::iter::empty()), None);
     assert_eq!(weighted_average(vec![(5.0, 0)].into_iter()), None);
-    assert_eq!(
-        weighted_average(vec![(5.0, 0), (3.0, 2)].into_iter()),
-        Some(3.0)
-    );
+    assert_eq!(weighted_average(vec![(5.0, 0), (3.0, 2)].into_iter()), Some(3.0));
     assert_eq!(
         weighted_average(vec![(99.0, -4), (2.0, 1)].into_iter()),
         Some(2.0),

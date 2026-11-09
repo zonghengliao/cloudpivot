@@ -13,9 +13,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_model::{
-    self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_POSTED,
-};
+use crate::business::erp::stockin_model::{self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_POSTED};
 use crate::business::flow::model as flow_model;
 use crate::shared::error_code;
 
@@ -84,10 +82,7 @@ async fn p16_submit_moves_to_pending_cancel_with_instance() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        todos, reviewers,
-        "发起后必须给复核岗位成员各 1 条待办（实际 {todos}）"
-    );
+    assert_eq!(todos, reviewers, "发起后必须给复核岗位成员各 1 条待办（实际 {todos}）");
     let assignee: Option<Uuid> = db()
         .scalar_with_params(
             "SELECT assignee_id FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
@@ -122,10 +117,7 @@ async fn dc01_cancel_without_published_flow_is_409() {
     .await
     .unwrap();
     assert!(
-        stockin_model::published_cancel_flow()
-            .await
-            .unwrap()
-            .is_none(),
+        stockin_model::published_cancel_flow().await.unwrap().is_none(),
         "流程下线后必须查不到"
     );
 
@@ -147,19 +139,9 @@ async fn dc01_cancel_without_published_flow_is_409() {
 
     // 六本账 / 单据状态一动不动（改造前这里会被直接作废并回滚库存）
     let detail = detail_of(id).await.unwrap();
-    assert_eq!(
-        detail.header.status, STATUS_POSTED,
-        "被拒后单据必须仍是已过账"
-    );
-    assert!(
-        detail.header.approval_instance_id.is_none(),
-        "被拒后不许挂审批单"
-    );
-    assert_eq!(
-        inventory_of(MATERIAL_B).await,
-        before,
-        "被拒后库存一个字节都不能动"
-    );
+    assert_eq!(detail.header.status, STATUS_POSTED, "被拒后单据必须仍是已过账");
+    assert!(detail.header.approval_instance_id.is_none(), "被拒后不许挂审批单");
+    assert_eq!(inventory_of(MATERIAL_B).await, before, "被拒后库存一个字节都不能动");
     assert_eq!(
         txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
         0,
@@ -193,10 +175,7 @@ async fn p16_duplicate_submit_is_409() {
         .await
         .unwrap();
     assert_eq!(instances, 1, "不能生成第二条审批实例");
-    assert_eq!(
-        detail_of(id).await.unwrap().header.status,
-        STATUS_PENDING_CANCEL
-    );
+    assert_eq!(detail_of(id).await.unwrap().header.status, STATUS_PENDING_CANCEL);
 }
 
 /// ④ 作废审批中单据**锁定**：改金额 / 改明细 → 409，数据一个字节都不动。
@@ -247,29 +226,14 @@ async fn p16_approval_rolls_back_six_ledgers() {
         None => return,
     };
     let loc = seed_location_row(MATERIAL_SN, LOC_DICT_A).await;
-    let id = post_new(vec![line_at(
-        MATERIAL_SN,
-        "3",
-        "100",
-        "0",
-        &loc.to_string(),
-    )])
-    .await;
-    assert_eq!(
-        location_qty_of(&loc).await,
-        Some(dec("3")),
-        "前置：库位账 3 件"
-    );
+    let id = post_new(vec![line_at(MATERIAL_SN, "3", "100", "0", &loc.to_string())]).await;
+    assert_eq!(location_qty_of(&loc).await, Some(dec("3")), "前置：库位账 3 件");
     assert_eq!(serial_counts_of(id).await.0, 3, "一物一码 3 件在库");
     assert_eq!(voucher_count(id, None).await, 1, "过账生成 1 张凭证");
-    let payable_status = |sql: String| async move {
-        db().scalar_with_params(&sql, vec![Value::from(&id)])
-            .await
-            .unwrap()
-    };
+    let payable_status =
+        |sql: String| async move { db().scalar_with_params(&sql, vec![Value::from(&id)]).await.unwrap() };
     let payable_before: String =
-        payable_status("SELECT status::text FROM biz_payable WHERE source_id = ?::uuid".into())
-            .await;
+        payable_status("SELECT status::text FROM biz_payable WHERE source_id = ?::uuid".into()).await;
     assert_eq!(payable_before, "OPEN");
 
     cancel_request(id, "整批退回").await;
@@ -305,16 +269,12 @@ async fn p16_approval_rolls_back_six_ledgers() {
     // ③ 库位账
     assert_eq!(location_qty_of(&loc).await, Some(Decimal::ZERO));
     // ④ 流水：一条 OUT / PURCHASE_IN_CANCEL
-    assert_eq!(
-        txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
-        1
-    );
+    assert_eq!(txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await, 1);
     // ⑤ 凭证：多出一张红字
     assert_eq!(voucher_count(id, Some(1)).await, 1, "必须生成红字凭证");
     // ⑥ 应付：作废
     let payable_after: String =
-        payable_status("SELECT status::text FROM biz_payable WHERE source_id = ?::uuid".into())
-            .await;
+        payable_status("SELECT status::text FROM biz_payable WHERE source_id = ?::uuid".into()).await;
     assert_eq!(payable_after, "CANCELLED", "应付单必须联动作废");
     // ⑦ 序列号：3 件全部软删（行保留、审计不丢）
     let (alive, deleted) = serial_counts_of(id).await;
@@ -415,10 +375,7 @@ async fn p16_reject_restores_posted() {
         "打回后实例引用必须清空（否则下次发起撞唯一索引）"
     );
     assert_eq!(inventory_of(MATERIAL_A).await, before, "驳回不许动账");
-    assert_eq!(
-        txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
-        0
-    );
+    assert_eq!(txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await, 0);
     assert_eq!(voucher_count(id, Some(1)).await, 0);
     let instance_id: Option<Uuid> = db()
         .scalar_with_params(
@@ -427,10 +384,7 @@ async fn p16_reject_restores_posted() {
         )
         .await
         .unwrap();
-    let instance = flow_model::find_instance(instance_id.unwrap())
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = flow_model::find_instance(instance_id.unwrap()).await.unwrap().unwrap();
     assert_eq!(instance.status, "REJECTED");
     assert_eq!(
         instance_status_of(id).await,
@@ -465,10 +419,7 @@ async fn p16_withdraw_restores_posted() {
     let detail = detail_of(id).await.unwrap();
     assert_eq!(detail.header.status, STATUS_POSTED);
     assert!(detail.header.approval_instance_id.is_none());
-    let instance = flow_model::find_instance(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();
     assert_eq!(instance.status, "WITHDRAWN", "撤回要留 WITHDRAWN 轨迹");
     assert_eq!(inventory_of(MATERIAL_B).await, before, "撤回不许动账");
     // 待办不能留成 PENDING（否则就是孤儿待办）
@@ -538,10 +489,7 @@ async fn p16_soft_deleted_doc_reconciles_instance() {
         .expect("孤儿回收必须成功");
     assert!(cancelled >= 1, "必须回收至少 1 条（实际 {cancelled}）");
 
-    let instance = flow_model::find_instance(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();
     assert_eq!(instance.status, "CANCELLED", "单据没了，审批单必须终止");
     let pending: i64 = db()
         .scalar_with_params(
@@ -582,10 +530,7 @@ async fn p16_other_path_cancel_reconciles_instance() {
     crate::business::erp::stockin_bridge::reconcile_orphan_cancels()
         .await
         .expect("孤儿回收必须成功");
-    let instance = flow_model::find_instance(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();
     assert_eq!(instance.status, "CANCELLED");
     // 回收不许「顺手」回滚六本账（那是审批通过才有的动作）
     assert_eq!(
@@ -629,10 +574,7 @@ async fn p16_withdraw_failure_rolls_back() {
         Some(instance_id.to_string().as_str()),
         "实例引用也不能被清空"
     );
-    let instance = flow_model::find_instance(instance_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();
     assert_eq!(instance.status, "PENDING", "审批单还在跑");
 }
 
@@ -705,10 +647,7 @@ async fn p16_seed_flow_is_self_consistent() {
         .await
         .unwrap();
     let row = row.first().expect("V0174 必须种好 stock_in_cancel");
-    assert_eq!(
-        row.get_typed::<String>("biz_type").unwrap(),
-        "STOCK_IN_CANCEL"
-    );
+    assert_eq!(row.get_typed::<String>("biz_type").unwrap(), "STOCK_IN_CANCEL");
     assert_eq!(row.get_typed::<String>("status").unwrap(), "PUBLISHED");
     assert!(row.get_typed::<bool>("is_default").unwrap());
     let stored: String = row.get_typed("graph_hash").unwrap();
@@ -718,10 +657,7 @@ async fn p16_seed_flow_is_self_consistent() {
         // 与 graph::FlowGraph::graph_hash 同一算法（sha256 → 小写 hex）
         use sha2::{Digest, Sha256};
         let digest = Sha256::digest(json.as_bytes());
-        digest
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>()
+        digest.iter().map(|b| format!("{b:02x}")).collect::<String>()
     };
     assert_eq!(
         stored, recomputed,
@@ -737,25 +673,16 @@ async fn p16_seed_flow_is_self_consistent() {
         .iter()
         .find(|node| node.node_type == "APPROVAL")
         .expect("必须有审批节点");
-    assert_eq!(
-        review.assignee_type.as_deref(),
-        Some("ROLE"),
-        "审批人来源必须是角色"
-    );
+    assert_eq!(review.assignee_type.as_deref(), Some("ROLE"), "审批人来源必须是角色");
     assert_eq!(review.self_approval, "FORBID", "内控：不许自审自批");
     assert_eq!(
         review.empty_assignee, "ERROR",
         "角色 0 人时必须报配置错，不许偷偷兜底超管"
     );
-    assert_eq!(
-        review.assignees.len(),
-        1,
-        "作废复核必须恰好绑定一个审批角色"
-    );
+    assert_eq!(review.assignees.len(), 1, "作废复核必须恰好绑定一个审批角色");
     assert_eq!(review.assignees[0].assignee_type, "ROLE");
     // 角色码必须是「仓管主管」（ref_id → sys_role.role_code）
-    let ref_id = Uuid::parse_str(review.assignees[0].ref_id.trim())
-        .expect("快照里的审批角色 ref_id 必须是 uuid");
+    let ref_id = Uuid::parse_str(review.assignees[0].ref_id.trim()).expect("快照里的审批角色 ref_id 必须是 uuid");
     let role_code: String = db()
         .scalar_with_params::<Option<String>>(
             "SELECT role_code FROM sys_role WHERE id = ?::uuid AND deleted_at IS NULL",

@@ -39,11 +39,7 @@ pub struct RenderedDoc {
 
 /// 文件名：`<单据名>-<单号>.pdf`（单号里的路径字符已净化）。
 pub fn pdf_filename(doc_label: &str, doc_no: &str) -> String {
-    format!(
-        "{}-{}.pdf",
-        doc_label,
-        doc_pdf_model::sanitize_filename(doc_no)
-    )
+    format!("{}-{}.pdf", doc_label, doc_pdf_model::sanitize_filename(doc_no))
 }
 
 /// HTML → PDF 字节，并组装 [`RenderedDoc`]。

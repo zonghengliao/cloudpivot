@@ -65,9 +65,7 @@ use std::result::Result;
 
 use crate::business::erp::period;
 use crate::business::erp::period_items::BlockingItem;
-use crate::business::erp::period_remind::{
-    self, REMIND_MAX_ITEMS, RemindReq, RemindRes, RemindScope,
-};
+use crate::business::erp::period_remind::{self, REMIND_MAX_ITEMS, RemindReq, RemindRes, RemindScope};
 use crate::business::erp::year_end::{self, YearEndBlocker};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -119,11 +117,7 @@ pub fn scope_of(year: i16) -> RemindScope {
 /// 从年结阻塞项里挑出本次要催的明细（`kind` 空 = 全部；`ids` 空 = 该类全部）。
 ///
 /// 与期间催办共用 [`period_remind::pick_from`]：**「哪一类 + 哪几张」的筛选不许有两套实现**。
-pub fn pick(
-    blockers: &[YearEndBlocker],
-    kind: Option<&str>,
-    ids: &[String],
-) -> Result<Vec<BlockingItem>, ApiError> {
+pub fn pick(blockers: &[YearEndBlocker], kind: Option<&str>, ids: &[String]) -> Result<Vec<BlockingItem>, ApiError> {
     period_remind::pick_from(
         blockers
             .iter()
@@ -148,10 +142,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 ///
 /// - `400`：`year` 不在 2000–2998 / `item_ids` 有非法 UUID / 条数超过上限；
 /// - 单条 `dispatch` 失败只计入 `failed` 并继续下一条。
-pub async fn remind_year_end(
-    req: &YearEndRemindReq,
-    operator: state_machine::Operator,
-) -> Result<RemindRes, ApiError> {
+pub async fn remind_year_end(req: &YearEndRemindReq, operator: state_machine::Operator) -> Result<RemindRes, ApiError> {
     let year = year_end::validate_year(Some(req.year))?;
     if req.item_ids.len() > REMIND_MAX_ITEMS {
         return Err(bad_request(format!(

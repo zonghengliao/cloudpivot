@@ -114,10 +114,7 @@ async fn fixtures(fx: &ts::Fixture) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
     }
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(holder.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(holder.to_string()), Value::from(role_id.to_string())],
     )
     .await;
     (role_id, holder, plain)
@@ -158,13 +155,7 @@ async fn m01_create_rule_and_reject_duplicate() {
     let (fx, role_id, _, _) = setup("M01").await;
     let claims = ts::super_claims();
 
-    let id = create_rule(
-        &claims,
-        &role_id.to_string(),
-        MOBILE,
-        &fx.name("不该给只读员看"),
-    )
-    .await;
+    let id = create_rule(&claims, &role_id.to_string(), MOBILE, &fx.name("不该给只读员看")).await;
     let stored = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_field_mask WHERE id = ?::text::uuid AND deleted_at IS NULL",
         vec![Value::from(id.clone())],
@@ -199,18 +190,10 @@ async fn m02_unauthorized_role_gets_masked_value() {
     }
     let (fx, role_id, holder, plain) = setup("M02").await;
     let claims = ts::super_claims();
-    create_rule(
-        &claims,
-        &role_id.to_string(),
-        MOBILE,
-        &fx.name("手机号脱敏"),
-    )
-    .await;
+    create_rule(&claims, &role_id.to_string(), MOBILE, &fx.name("手机号脱敏")).await;
 
     let raw = "13912345678";
-    let set = registry::load_user_set(&holder)
-        .await
-        .expect("加载脱敏规则失败");
+    let set = registry::load_user_set(&holder).await.expect("加载脱敏规则失败");
     assert!(!set.is_empty(), "持角色用户必须命中 1 条规则");
     let masked = set
         .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
@@ -220,15 +203,10 @@ async fn m02_unauthorized_role_gets_masked_value() {
         !masked.contains(raw),
         "无权限角色的结果里绝不能出现原值，实际 {masked:?}"
     );
-    assert!(
-        masked.contains('*'),
-        "打码结果应包含掩码字符，实际 {masked:?}"
-    );
+    assert!(masked.contains('*'), "打码结果应包含掩码字符，实际 {masked:?}");
 
     // 不持该角色的用户 → 该列没有规则 → 调用方保持原值（不是「被遮」）
-    let other = registry::load_user_set(&plain)
-        .await
-        .expect("加载脱敏规则失败");
+    let other = registry::load_user_set(&plain).await.expect("加载脱敏规则失败");
     assert!(
         other.hits(TARGET_TABLE, TARGET_COLUMN).is_none(),
         "未持有该角色的用户不应命中规则，实际 {:?}",
@@ -333,9 +311,7 @@ async fn m04_export_applies_mask_from_database_rule() {
     )
     .await;
 
-    let set = registry::load_user_set(&holder)
-        .await
-        .expect("加载规则失败");
+    let set = registry::load_user_set(&holder).await.expect("加载规则失败");
     static COLUMNS: &[crate::business::impexp::definition::ExportColumn] = &[
         crate::business::impexp::definition::ExportColumn {
             key: "username",
@@ -359,18 +335,11 @@ async fn m04_export_applies_mask_from_database_rule() {
     row.insert("username", "alice".to_string());
     row.insert("remark", raw.to_string());
 
-    let formatted = crate::business::impexp::engine::format_export_rows(
-        COLUMNS,
-        &[row],
-        &std::collections::HashMap::new(),
-        &set,
-    )
-    .expect("库里有规则，导出应成功");
+    let formatted =
+        crate::business::impexp::engine::format_export_rows(COLUMNS, &[row], &std::collections::HashMap::new(), &set)
+            .expect("库里有规则，导出应成功");
     let cell = formatted[0].get("备注").cloned().unwrap_or_default();
-    assert!(
-        !cell.contains(raw),
-        "导出的单元格里不能出现原值，实际 {cell:?}"
-    );
+    assert!(!cell.contains(raw), "导出的单元格里不能出现原值，实际 {cell:?}");
     assert_eq!(
         formatted[0].get("用户名").map(String::as_str),
         Some("alice"),
@@ -410,13 +379,7 @@ async fn m05_list_and_detail_share_same_ruleset() {
         return;
     }
     let (fx, role_id, holder, _) = setup("M05").await;
-    create_rule(
-        &ts::super_claims(),
-        &role_id.to_string(),
-        MOBILE,
-        &fx.name("同源校验"),
-    )
-    .await;
+    create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &fx.name("同源校验")).await;
 
     let principal = crate::business::shared::principal::ScopedPrincipal::for_test(
         holder,
@@ -426,12 +389,8 @@ async fn m05_list_and_detail_share_same_ruleset() {
         Vec::new(),
         false,
     );
-    let request_set = registry::resolve(Some(&principal), None)
-        .await
-        .expect("resolve 失败");
-    let selfcheck_set = registry::load_user_set(&holder)
-        .await
-        .expect("load_user_set 失败");
+    let request_set = registry::resolve(Some(&principal), None).await.expect("resolve 失败");
+    let selfcheck_set = registry::load_user_set(&holder).await.expect("load_user_set 失败");
     assert_eq!(
         request_set.rules().len(),
         selfcheck_set.rules().len(),
@@ -481,17 +440,9 @@ async fn m06_conflict_resolved_by_priority() {
     };
 
     // 两种输入顺序都必须收敛到同一条：角色规则（更具体）赢
-    for rows in [
-        vec![global.clone(), role.clone()],
-        vec![role.clone(), global.clone()],
-    ] {
+    for rows in [vec![global.clone(), role.clone()], vec![role.clone(), global.clone()]] {
         let picked = registry::pick_effective(rows);
-        assert_eq!(
-            picked.len(),
-            1,
-            "同一列只能留下一条规则，实际 {} 条",
-            picked.len()
-        );
+        assert_eq!(picked.len(), 1, "同一列只能留下一条规则，实际 {} 条", picked.len());
         assert_eq!(picked[0].mask_type, MOBILE, "角色规则必须优先于全局规则");
     }
 
@@ -525,9 +476,7 @@ async fn m07_config_change_takes_effect_immediately() {
     let claims = ts::super_claims();
 
     // 改前：该列没有规则（目标列刻意避开有全局种子规则的 mobile/email/real_name）
-    let before = registry::load_user_set(&holder)
-        .await
-        .expect("加载规则失败");
+    let before = registry::load_user_set(&holder).await.expect("加载规则失败");
     assert!(
         before.hits(TARGET_TABLE, TARGET_COLUMN).is_none(),
         "改前不应命中规则，实际 {:?}",
@@ -536,9 +485,7 @@ async fn m07_config_change_takes_effect_immediately() {
 
     // 建规则 → 立刻生效
     let id = create_rule(&claims, &role_id.to_string(), MOBILE, &fx.name("第一步")).await;
-    let after_create = registry::load_user_set(&holder)
-        .await
-        .expect("加载规则失败");
+    let after_create = registry::load_user_set(&holder).await.expect("加载规则失败");
     let hit = after_create
         .hits(TARGET_TABLE, TARGET_COLUMN)
         .expect("新建后必须立刻命中");
@@ -559,16 +506,9 @@ async fn m07_config_change_takes_effect_immediately() {
     )
     .await
     .expect("改规则失败");
-    let after_update = registry::load_user_set(&holder)
-        .await
-        .expect("加载规则失败");
-    let hit = after_update
-        .hits(TARGET_TABLE, TARGET_COLUMN)
-        .expect("改后必须仍命中");
-    assert_eq!(
-        hit.mask_type, NAME,
-        "改完 mask_type 必须立刻生效（缓存已失效）"
-    );
+    let after_update = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let hit = after_update.hits(TARGET_TABLE, TARGET_COLUMN).expect("改后必须仍命中");
+    assert_eq!(hit.mask_type, NAME, "改完 mask_type 必须立刻生效（缓存已失效）");
 
     // 删规则 → 立刻失效
     handler::delete(
@@ -579,9 +519,7 @@ async fn m07_config_change_takes_effect_immediately() {
     )
     .await
     .expect("删规则失败");
-    let after_delete = registry::load_user_set(&holder)
-        .await
-        .expect("加载规则失败");
+    let after_delete = registry::load_user_set(&holder).await.expect("加载规则失败");
     assert!(
         after_delete.hits(TARGET_TABLE, TARGET_COLUMN).is_none(),
         "删完规则必须立刻不再命中，实际 {:?}",
@@ -603,21 +541,11 @@ async fn m08_masking_does_not_mutate_stored_value() {
         return;
     }
     let (fx, role_id, holder, _) = setup("M08").await;
-    create_rule(
-        &ts::super_claims(),
-        &role_id.to_string(),
-        MOBILE,
-        &fx.name("不许改库"),
-    )
-    .await;
+    create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &fx.name("不许改库")).await;
 
-    let set = registry::load_user_set(&holder)
-        .await
-        .expect("加载规则失败");
+    let set = registry::load_user_set(&holder).await.expect("加载规则失败");
     let raw = "13912345678";
-    let masked = set
-        .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
-        .expect("不应失败");
+    let masked = set.mask_value(TARGET_TABLE, TARGET_COLUMN, raw).expect("不应失败");
     assert!(masked.is_some(), "应命中规则");
     assert_ne!(masked.as_deref(), Some(raw), "响应值必须被打码");
 
@@ -655,8 +583,7 @@ async fn m09_fail_closed_never_leaks_plaintext() {
 
     // ② 规则参数非法 → 返回 Err，不给「原样返回」的机会；错误信息也不许带原值
     let raw = "13912345678";
-    let error = masker::apply(masker::MaskType::Mobile, Some("abc"), raw)
-        .expect_err("非法参数必须报错，不能回退明文");
+    let error = masker::apply(masker::MaskType::Mobile, Some("abc"), raw).expect_err("非法参数必须报错，不能回退明文");
     assert!(
         !error.message().contains(raw),
         "错误信息里不许带原值，实际 {}",
@@ -734,18 +661,12 @@ async fn m10_sweep_drains_fk_pinned_fixture_and_stays_scope_scoped() {
     ts::exec(
         "INSERT INTO sys_user (id, username, password, real_name, status) \
          VALUES (?::text::uuid, ?, 'x', 'tc_m-探针用户', 1)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(probe.name("holder")),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(probe.name("holder"))],
     )
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_a.to_string()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_a.to_string())],
     )
     .await;
 
@@ -768,10 +689,7 @@ async fn m10_sweep_drains_fk_pinned_fixture_and_stays_scope_scoped() {
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
          VALUES (?::text::uuid, ?, '兄弟用例的角色（不许删）', 1, 1)",
-        vec![
-            Value::from(sibling_role.to_string()),
-            Value::from(sibling.name("ROLE")),
-        ],
+        vec![Value::from(sibling_role.to_string()), Value::from(sibling.name("ROLE"))],
     )
     .await;
     ts::exec(
@@ -812,10 +730,7 @@ async fn m10_sweep_drains_fk_pinned_fixture_and_stays_scope_scoped() {
         vec![Value::from(format!("{}%", probe.tag()))],
     )
     .await;
-    assert_eq!(
-        mutex_left, 0,
-        "本用例的互斥行必须被清掉（漏了它，删角色会被外键回滚）"
-    );
+    assert_eq!(mutex_left, 0, "本用例的互斥行必须被清掉（漏了它，删角色会被外键回滚）");
 
     // 反向对照：同族前缀的兄弟夹具一行未少（清扫不许越界到别人的身份）
     let kept_role = ts::scalar_i64(

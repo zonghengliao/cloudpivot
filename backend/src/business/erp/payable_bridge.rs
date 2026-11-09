@@ -142,32 +142,19 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// 真正的否决在这里，报文明确告诉他「找别人批」。
 ///
 /// 与本业务无关的待办（其它 `biz_type`）直接放行，零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
     // SCOPE-EXEMPT: 审批待办 / 实例是流程运行时表，按主键精确取 1 行；数据范围由
     // 「这条待办是不是你的」这一层判定（engine::vote 的 403）负责，与本闸无关。
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -181,8 +168,7 @@ pub async fn guard_self_approval(
         let Some(payable_id) = instance.biz_id else {
             return Ok(());
         };
-        let Ok(Some(row)) = crate::business::erp::payable_query::find_payable(payable_id).await
-        else {
+        let Ok(Some(row)) = crate::business::erp::payable_query::find_payable(payable_id).await else {
             return Ok(());
         };
         let creator = internal_control_creator_of_payable(Some(payable_id))
@@ -236,9 +222,7 @@ pub async fn guard_self_approval(
 }
 
 /// 取一笔付款的**制单人**与单号（`create_by` 为空的历史行 → `None`）。
-async fn payment_creator(
-    payment_id: Uuid,
-) -> std::result::Result<Option<(Option<Uuid>, String)>, ApiError> {
+async fn payment_creator(payment_id: Uuid) -> std::result::Result<Option<(Option<Uuid>, String)>, ApiError> {
     // SCOPE-EXEMPT: 付款台账无归属列（见 payable_payment 模块文档）。
     let row = db()
         .query_first_sql(
@@ -246,20 +230,12 @@ async fn payment_creator(
             vec![Value::from(&payment_id)],
         )
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询付款记录失败：{error}"),
-            )
-        })?;
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询付款记录失败：{error}")))?;
     let Some(row) = row else {
         return Ok(None);
     };
     let creator: Option<Uuid> = row.get_typed("create_by").ok().flatten();
-    let payment_no: String = row
-        .get_typed("payment_no")
-        .unwrap_or_else(|_| "(未知单号)".to_string());
+    let payment_no: String = row.get_typed("payment_no").unwrap_or_else(|_| "(未知单号)".to_string());
     Ok(Some((creator, payment_no)))
 }
 
@@ -418,8 +394,7 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
         }
         Verdict::Abort => {
             use crate::business::erp::payable_payment;
-            match payable_payment::abort_payment(payment_id, "审批驳回 / 撤回，付款未执行").await
-            {
+            match payable_payment::abort_payment(payment_id, "审批驳回 / 撤回，付款未执行").await {
                 Ok(true) => Ok(Some(payment_id)),
                 Ok(false) => Ok(None),
                 Err(error) => {
@@ -457,18 +432,11 @@ async fn notify_stakeholders(initiator: Uuid, instance_id: Uuid, instance_no: &s
 ///
 /// 与 [`notify_stakeholders`] 分开写而不是加一个 `title` 参数：那条通知的语义是
 /// 「付款作废了，别等了」，这条是「付得了，但要换个人点」，混用一个标题会让收件人误判。
-async fn notify_awaiting_executor(
-    initiator: Uuid,
-    instance_id: Uuid,
-    instance_no: &str,
-    content: &str,
-) {
+async fn notify_awaiting_executor(initiator: Uuid, instance_id: Uuid, instance_no: &str, content: &str) {
     let notice = engine::Notice {
         recipients: vec![initiator],
         title: "付款待他人执行（审批与执行分离）".to_string(),
-        content: format!(
-            "审批单 {instance_no}：{content}。请让另一位有付款权限的账号在应付单里执行这笔付款"
-        ),
+        content: format!("审批单 {instance_no}：{content}。请让另一位有付款权限的账号在应付单里执行这笔付款"),
         link_url: "/business/erp/payable".to_string(),
         instance_id,
         force: true,
@@ -502,11 +470,7 @@ async fn latest_completed_assignee(instance_id: Uuid) -> DbResult<Option<Uuid>> 
 /// 调用点（同事务）：
 /// * [`crate::business::erp::payable_payment::cancel_in_tx`]（应付单作废）；
 /// * [`crate::business::erp::payable::cancel_for_stock_in`]（收货单作废联动）。
-pub async fn cancel_pending_of_payable(
-    ex: &impl SqlExecutor,
-    payable_id: Uuid,
-    reason: &str,
-) -> DbResult<u64> {
+pub async fn cancel_pending_of_payable(ex: &impl SqlExecutor, payable_id: Uuid, reason: &str) -> DbResult<u64> {
     // 先取在跑的付款记录（拿单号给 cancel_pending_of_biz 兜住 biz_id 为空的历史行）
     let pending = ex
         .query_sql(
@@ -520,8 +484,7 @@ pub async fn cancel_pending_of_payable(
     for row in &pending {
         let payment_id: Uuid = row.get_typed("id")?;
         let payment_no: String = row.get_typed("payment_no")?;
-        let outcome =
-            flow_model::cancel_pending_of_biz(ex, payment_id, &payment_no, reason).await?;
+        let outcome = flow_model::cancel_pending_of_biz(ex, payment_id, &payment_no, reason).await?;
         // 付款记录同步标 CANCELLED（账没动过，所以不需要任何冲销）；
         // 审批实例 id 保留作审计（约束只要求 PENDING ⟹ 有实例）
         ex.exec_sql(
@@ -605,8 +568,7 @@ pub async fn reconcile_orphan_payments() -> DbResult<u64> {
         let payment_id: Uuid = row.get_typed("payment_id")?;
         let payment_no: Option<String> = row.get_typed("biz_no")?;
         let payment_no = payment_no.unwrap_or_else(|| "(无单号)".to_string());
-        let deleted: Option<chrono::DateTime<chrono::Utc>> =
-            row.get_typed("payment_deleted_at").ok().flatten();
+        let deleted: Option<chrono::DateTime<chrono::Utc>> = row.get_typed("payment_deleted_at").ok().flatten();
         let reason = if deleted.is_some() {
             "付款记录已删除，付款审批自动终止"
         } else {
@@ -626,20 +588,15 @@ pub async fn reconcile_orphan_payments() -> DbResult<u64> {
 
 /// 在调度器上注册孤儿实例回收任务（与 `stockin_bridge::register_builtin` 同款）。
 pub fn register_builtin(scheduler: &crate::task::Scheduler) {
-    scheduler.register_cron(
-        TASK_NAME,
-        CRON,
-        "系统任务：付款审批孤儿实例回收",
-        || {
-            tokio::spawn(async move {
-                match reconcile_orphan_payments().await {
-                    Ok(0) => {}
-                    Ok(count) => tracing::info!(count, "付款审批孤儿实例回收完成"),
-                    Err(error) => tracing::error!(%error, "付款审批孤儿实例回收失败"),
-                }
-            })
-        },
-    );
+    scheduler.register_cron(TASK_NAME, CRON, "系统任务：付款审批孤儿实例回收", || {
+        tokio::spawn(async move {
+            match reconcile_orphan_payments().await {
+                Ok(0) => {}
+                Ok(count) => tracing::info!(count, "付款审批孤儿实例回收完成"),
+                Err(error) => tracing::error!(%error, "付款审批孤儿实例回收失败"),
+            }
+        })
+    });
 }
 
 /// 让引擎的 `ActionOut` 能直接喂给 [`on_payment_settled`]（只取「落终态」这一层语义）。
@@ -815,9 +772,7 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
                 );
                 return Ok(None);
             }
-            match crate::business::erp::payable_payment::cancel_after_approval(payable_id, approver)
-                .await
-            {
+            match crate::business::erp::payable_payment::cancel_after_approval(payable_id, approver).await {
                 Ok(()) => Ok(Some(payable_id)),
                 Err(error) => {
                     tracing::warn!(
@@ -831,10 +786,8 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
             }
         }
         CancelVerdict::Restore => {
-            match crate::business::erp::payable_payment::restore_after_cancel_rejection(
-                payable_id, verdict, approver,
-            )
-            .await
+            match crate::business::erp::payable_payment::restore_after_cancel_rejection(payable_id, verdict, approver)
+                .await
             {
                 Ok(()) => Ok(Some(payable_id)),
                 Err(error) => {
@@ -941,8 +894,7 @@ pub async fn reconcile_orphan_payable_cancels() -> DbResult<u64> {
         let payable_id: Uuid = row.get_typed("payable_id")?;
         let payable_no: Option<String> = row.get_typed("biz_no")?;
         let payable_no = payable_no.unwrap_or_else(|| "(无单号)".to_string());
-        let deleted: Option<chrono::DateTime<chrono::Utc>> =
-            row.get_typed("payable_deleted_at").ok().flatten();
+        let deleted: Option<chrono::DateTime<chrono::Utc>> = row.get_typed("payable_deleted_at").ok().flatten();
         let reason = if deleted.is_some() {
             "应付单已删除，作废审批自动终止"
         } else {
@@ -1005,8 +957,8 @@ mod tests {
     use crate::business::erp::fixture_hygiene;
     use crate::business::erp::payable::{self as payable_mod, PayableRow};
     use crate::business::erp::payable_payment::{
-        self as payment, APPROVAL_APPROVED, APPROVAL_CANCELLED, APPROVAL_PENDING,
-        APPROVAL_REJECTED, OUTCOME_PAID, OUTCOME_PENDING, PayPayableReq,
+        self as payment, APPROVAL_APPROVED, APPROVAL_CANCELLED, APPROVAL_PENDING, APPROVAL_REJECTED, OUTCOME_PAID,
+        OUTCOME_PENDING, PayPayableReq,
     };
     use crate::business::erp::payable_query;
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
@@ -1190,10 +1142,7 @@ mod tests {
         let users_sql = id_list(&[uid(CREATOR), uid(APPROVER1), uid(APPROVER2)]);
         let cleanups = [
             // 制单人不能是超管（上一轮旧夹具可能给他挂过角色）
-            format!(
-                "DELETE FROM sys_user_role WHERE user_id = '{}'::uuid",
-                uid(CREATOR)
-            ),
+            format!("DELETE FROM sys_user_role WHERE user_id = '{}'::uuid", uid(CREATOR)),
             // 审批实例：先解开自引用（`prev_instance_id` 无级联），再删子表与本体（按 id）
             format!(
                 "UPDATE biz_flow_instance SET prev_instance_id = NULL \
@@ -1207,18 +1156,12 @@ mod tests {
                 "DELETE FROM sys_notice_receiver WHERE notice_id IN \
                   (SELECT id FROM sys_notice WHERE biz_type = 'flow' AND biz_id IN ({instance_text}))"
             ),
-            format!(
-                "DELETE FROM sys_notice WHERE biz_type = 'flow' AND biz_id IN ({instance_text})"
-            ),
+            format!("DELETE FROM sys_notice WHERE biz_type = 'flow' AND biz_id IN ({instance_text})"),
             // 状态日志（无外键）：必须在删凭证 / 应付单之前按 id 清（`fixture_hygiene`）
-            format!(
-                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN ({vouchers_sql})"
-            ),
+            format!("DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN ({vouchers_sql})"),
             format!("DELETE FROM biz_voucher_entry WHERE voucher_id IN ({vouchers_sql})"),
             format!("DELETE FROM biz_voucher WHERE id IN ({vouchers_sql})"),
-            format!(
-                "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN ({payables_sql})"
-            ),
+            format!("DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN ({payables_sql})"),
             format!("DELETE FROM biz_payment WHERE id IN ({payments_sql})"),
             format!("DELETE FROM biz_payable WHERE id IN ({payables_sql})"),
             // ⚠️ P17 的审批人夹具是**超管**，而「审批人 = 全部超管」：留着会污染兄弟模块
@@ -1241,14 +1184,10 @@ mod tests {
             // ⚠️ 这里**不再**按 `assignee_id IN (夹具用户)` 删别人发起的流程行：那些行属于
             // 兄弟模块**正在跑**的实例，删掉会把它们的「1 条待办」断言打成 0 —— 同一类互删
             // 只是换了个表。我方实例的待办由 ② 的级联负责。
-            format!(
-                "UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE initiator_id IN ({users_sql})"
-            ),
+            format!("UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE initiator_id IN ({users_sql})"),
             format!("DELETE FROM biz_flow_instance WHERE initiator_id IN ({users_sql})"),
             format!("DELETE FROM sys_user_role WHERE user_id IN ({users_sql})"),
-            format!(
-                "UPDATE sys_user SET deleted_at = COALESCE(deleted_at, now()) WHERE id IN ({users_sql})"
-            ),
+            format!("UPDATE sys_user SET deleted_at = COALESCE(deleted_at, now()) WHERE id IN ({users_sql})"),
         ];
         for sql in cleanups {
             exec(&sql).await;
@@ -1302,11 +1241,7 @@ mod tests {
                 roles.push(role_id);
             }
         }
-        for (id, name) in [
-            (CREATOR, "p17_creator"),
-            (APPROVER1, "p17_ap1"),
-            (APPROVER2, "p17_ap2"),
-        ] {
+        for (id, name) in [(CREATOR, "p17_creator"), (APPROVER1, "p17_ap1"), (APPROVER2, "p17_ap2")] {
             // 复活：`cleanup_fixtures` 只**软删**这三行（硬删会撞 `biz_flow_task.assignee_id`
             // 的并发写入，见清理段的注释），所以这里必须把 `deleted_at` 清回去，
             // 否则它们不再是「超管」（`admins()` 过滤 `deleted_at IS NULL`）。
@@ -1343,8 +1278,7 @@ mod tests {
         .await;
         exec("UPDATE biz_account SET status = 1 WHERE account_code IN ('2202', '1002')").await;
         // 流程必须是 PUBLISHED（前一个用例可能临时关过）
-        exec("UPDATE biz_flow_def SET status = 'PUBLISHED', deleted_at = NULL WHERE flow_code = 'payable_pay'")
-            .await;
+        exec("UPDATE biz_flow_def SET status = 'PUBLISHED', deleted_at = NULL WHERE flow_code = 'payable_pay'").await;
         Some(guard)
     }
 
@@ -1395,10 +1329,7 @@ mod tests {
     async fn payable_row(id: Uuid) -> PayableRow {
         let row = db()
             .query_first_sql(
-                format!(
-                    "SELECT {} FROM biz_payable WHERE id = ?::uuid",
-                    payable_mod::COLUMNS
-                ),
+                format!("SELECT {} FROM biz_payable WHERE id = ?::uuid", payable_mod::COLUMNS),
                 vec![Value::from(&id)],
             )
             .await
@@ -1505,9 +1436,7 @@ mod tests {
     /// 审批一条待办，并在**事务提交之后**跑业务回调（与 `flow::handler::approve_task` 同序）。
     async fn approve(task_id: Uuid, operator: Uuid) -> String {
         let out = db()
-            .transaction(|tx| async move {
-                engine::approve(&tx, task_id, operator, Some("P17 同意")).await
-            })
+            .transaction(|tx| async move { engine::approve(&tx, task_id, operator, Some("P17 同意")).await })
             .await
             .expect("审批失败");
         if let Some(rejected) = out.rejected {
@@ -1522,14 +1451,7 @@ mod tests {
     async fn reject(task_id: Uuid, operator: Uuid) -> String {
         let out = db()
             .transaction(|tx| async move {
-                engine::reject(
-                    &tx,
-                    task_id,
-                    operator,
-                    "P17 金额存疑，驳回",
-                    engine::ReturnTo::Final,
-                )
-                .await
+                engine::reject(&tx, task_id, operator, "P17 金额存疑，驳回", engine::ReturnTo::Final).await
             })
             .await
             .expect("驳回失败");
@@ -1543,16 +1465,10 @@ mod tests {
 
     /// 提交付款（制单人 = CREATOR），返回 `(付款 id, 实例 id, 出参)`。
     async fn submit(payable_id: Uuid, amount: &str) -> (Uuid, Option<Uuid>, payment::PaySubmitRes) {
-        let outcome = payment::submit_payment(
-            payable_id,
-            &pay_req(amount),
-            Some(uid(CREATOR)),
-            &none_gate(),
-        )
-        .await
-        .unwrap_or_else(|err| panic!("提交付款失败：{} {}", err.code, err.msg));
-        let payment_id =
-            Uuid::parse_str(outcome.payment_id.as_deref().expect("付款 id 缺失")).unwrap();
+        let outcome = payment::submit_payment(payable_id, &pay_req(amount), Some(uid(CREATOR)), &none_gate())
+            .await
+            .unwrap_or_else(|err| panic!("提交付款失败：{} {}", err.code, err.msg));
+        let payment_id = Uuid::parse_str(outcome.payment_id.as_deref().expect("付款 id 缺失")).unwrap();
         let instance_id = outcome
             .approval_instance_id
             .as_deref()
@@ -1587,18 +1503,12 @@ mod tests {
         assert_eq!(payable.status, payable_mod::STATUS_OPEN);
 
         // 实例口径
-        let instance = flow_model::find_instance(instance_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();
         assert_eq!(instance.biz_type, BIZ_TYPE);
         assert_eq!(instance.biz_id, Some(payment_id));
         assert_eq!(instance.status, "PENDING");
         assert_eq!(instance.initiator_id, uid(CREATOR));
-        assert!(
-            !pending_tasks(instance_id).await.is_empty(),
-            "必须有人有待办"
-        );
+        assert!(!pending_tasks(instance_id).await.is_empty(), "必须有人有待办");
         // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
         cleanup_fixtures().await;
     }
@@ -1618,13 +1528,7 @@ mod tests {
         let payable_id = new_payable(dec("5000")).await;
         // 临时关掉流程（模拟「客户还没配审批」）
         exec("UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'payable_pay'").await;
-        let result = payment::submit_payment(
-            payable_id,
-            &pay_req("5000"),
-            Some(uid(CREATOR)),
-            &none_gate(),
-        )
-        .await;
+        let result = payment::submit_payment(payable_id, &pay_req("5000"), Some(uid(CREATOR)), &none_gate()).await;
         // 先还原再断言（panic 也不会把流程留在 DISABLED 状态里）
         exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'payable_pay'").await;
 
@@ -1671,19 +1575,12 @@ mod tests {
         let (payment_id, _, _) = submit(payable_id, "1000").await;
         let payment_no = payment_row(payment_id).await.payment_no;
 
-        let err = payment::submit_payment(
-            payable_id,
-            &pay_req("1000"),
-            Some(uid(APPROVER1)),
-            &none_gate(),
-        )
-        .await
-        .expect_err("审批中再提交必须被拒");
+        let err = payment::submit_payment(payable_id, &pay_req("1000"), Some(uid(APPROVER1)), &none_gate())
+            .await
+            .expect_err("审批中再提交必须被拒");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(
-            err.msg.contains("在审批中")
-                && err.msg.contains(&payment_no)
-                && err.msg.contains("1000"),
+            err.msg.contains("在审批中") && err.msg.contains(&payment_no) && err.msg.contains("1000"),
             "文案要点名单号与金额：{}",
             err.msg
         );
@@ -1710,20 +1607,11 @@ mod tests {
             None => return,
         };
         let payable_id = new_payable(dec("5000")).await;
-        let err = payment::submit_payment(
-            payable_id,
-            &pay_req("5000.01"),
-            Some(uid(CREATOR)),
-            &none_gate(),
-        )
-        .await
-        .expect_err("超过未付余额必须被拒");
+        let err = payment::submit_payment(payable_id, &pay_req("5000.01"), Some(uid(CREATOR)), &none_gate())
+            .await
+            .expect_err("超过未付余额必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
-        assert!(
-            err.msg.contains("超过未付余额 5000"),
-            "文案要点名未付余额：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("超过未付余额 5000"), "文案要点名未付余额：{}", err.msg);
         // 零落库：既没有付款记录，也没有审批实例
         let instances: i64 = db()
             .scalar_with_params(
@@ -1763,10 +1651,9 @@ mod tests {
               WHERE id = '{payable_id}'::uuid"
         ))
         .await;
-        let err =
-            payment::submit_payment(payable_id, &pay_req("1"), Some(uid(CREATOR)), &none_gate())
-                .await
-                .expect_err("已结清不能再付款");
+        let err = payment::submit_payment(payable_id, &pay_req("1"), Some(uid(CREATOR)), &none_gate())
+            .await
+            .expect_err("已结清不能再付款");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已结清"), "{}", err.msg);
         // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
@@ -1870,10 +1757,7 @@ mod tests {
         }
         let status = approve(last.0, last.1).await;
         assert_eq!(status, "APPROVED", "全部批完必须通过");
-        assert_eq!(
-            payment_row(payment_id).await.approval_status,
-            APPROVAL_APPROVED
-        );
+        assert_eq!(payment_row(payment_id).await.approval_status, APPROVAL_APPROVED);
         // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
         cleanup_fixtures().await;
     }
@@ -1975,11 +1859,7 @@ mod tests {
         let row = payment_row(payment_id).await;
         let voucher_id = row.voucher_id.expect("付款记录必须回写凭证");
         let voucher = find_voucher(db(), voucher_id).await.unwrap().unwrap();
-        assert_eq!(
-            voucher.source_id,
-            Some(payment_id),
-            "凭证的 source_id 指向付款记录"
-        );
+        assert_eq!(voucher.source_id, Some(payment_id), "凭证的 source_id 指向付款记录");
         assert_eq!(voucher.source_no.as_deref(), Some(row.payment_no.as_str()));
         // 凭证号能在详情里查到（前端 drawer 直接显示）
         let detail = payable_query::payable_detail(payable_id).await.unwrap();
@@ -1988,10 +1868,7 @@ mod tests {
             .iter()
             .find(|item| item.id == payment_id.to_string())
             .expect("详情里必须有这条付款");
-        assert_eq!(
-            shown.voucher_id.as_deref(),
-            Some(voucher_id.to_string().as_str())
-        );
+        assert_eq!(shown.voucher_id.as_deref(), Some(voucher_id.to_string().as_str()));
         assert_eq!(shown.approval_status, APPROVAL_APPROVED);
         assert!(!shown.pending);
         // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
@@ -2005,8 +1882,7 @@ mod tests {
     /// 后面节点的待办是批完才生成的。所以用 `test_support::approve_all_pending`
     /// **逐轮重查**直到实例离开 `PENDING`，并断言真的 `APPROVED`。
     async fn approve_all(instance_id: Uuid) {
-        let outs =
-            crate::business::flow::test_support::approve_all_pending(instance_id, "P17 同意").await;
+        let outs = crate::business::flow::test_support::approve_all_pending(instance_id, "P17 同意").await;
         assert!(
             !outs.is_empty(),
             "付款审批必须有 PENDING 待办可批（实例 {instance_id}）"
@@ -2082,10 +1958,7 @@ mod tests {
             .await
             .unwrap_or_else(|err| panic!("作废失败：{} {}", err.code, err.msg));
 
-        let instance = flow_model::find_instance(instance_id)
-            .await
-            .unwrap()
-            .unwrap();
+        let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();
         assert_eq!(instance.status, "CANCELLED", "在跑的付款审批必须被终止");
         assert!(
             pending_tasks(instance_id).await.is_empty(),
@@ -2159,17 +2032,11 @@ mod tests {
         };
         let payable_id = new_payable(dec("5000")).await;
         // 由超管 APPROVER1 自己提交（他就是制单人，也在审批人里）
-        let outcome = payment::submit_payment(
-            payable_id,
-            &pay_req("5000"),
-            Some(uid(APPROVER1)),
-            &none_gate(),
-        )
-        .await
-        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+        let outcome = payment::submit_payment(payable_id, &pay_req("5000"), Some(uid(APPROVER1)), &none_gate())
+            .await
+            .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
         let payment_id = Uuid::parse_str(outcome.payment_id.as_deref().unwrap()).unwrap();
-        let instance_id =
-            Uuid::parse_str(outcome.approval_instance_id.as_deref().unwrap()).unwrap();
+        let instance_id = Uuid::parse_str(outcome.approval_instance_id.as_deref().unwrap()).unwrap();
 
         let mine = task_of(instance_id, uid(APPROVER1))
             .await
@@ -2207,15 +2074,10 @@ mod tests {
             .find(|(_, assignee, _)| *assignee != uid(APPROVER1))
             .map(|(task, assignee, _)| (task, assignee))
             .expect("必须有别人的待办");
-        guard_self_approval(other.0, other.1)
-            .await
-            .expect("非制单人应放行");
+        guard_self_approval(other.0, other.1).await.expect("非制单人应放行");
 
         // 账一分没动（制单人那一票没生效，会签也没凑齐）
-        assert_eq!(
-            payment_row(payment_id).await.approval_status,
-            APPROVAL_PENDING
-        );
+        assert_eq!(payment_row(payment_id).await.approval_status, APPROVAL_PENDING);
         assert_eq!(payable_row(payable_id).await.paid_amount, Decimal::ZERO);
         // teardown：用例结束即摘净夹具（不把「还活着的超管账号」留给后面的模块 —— 卡 t_977c5189）
         cleanup_fixtures().await;
@@ -2237,17 +2099,12 @@ mod tests {
         assert_eq!(flow.flow_code, "payable_pay");
         assert_eq!(flow.biz_type, BIZ_TYPE);
 
-        let graph = flow_model::load_graph(flow.version_id)
-            .await
-            .expect("加载流程图失败");
+        let graph = flow_model::load_graph(flow.version_id).await.expect("加载流程图失败");
         let issues = graph.validate();
         assert!(
             issues.is_empty(),
             "种子流程图必须能过发布校验：{:?}",
-            issues
-                .iter()
-                .map(|issue| &issue.message)
-                .collect::<Vec<_>>()
+            issues.iter().map(|issue| &issue.message).collect::<Vec<_>>()
         );
 
         // hash 自洽（快照 vs 行）
@@ -2304,11 +2161,7 @@ mod tests {
         assert_eq!(settle_verdict("APPROVED"), Some(Verdict::Execute));
         assert_eq!(settle_verdict(" approved "), Some(Verdict::Execute));
         for status in ["REJECTED", "WITHDRAWN", "CANCELLED"] {
-            assert_eq!(
-                settle_verdict(status),
-                Some(Verdict::Abort),
-                "{status} 必须打回"
-            );
+            assert_eq!(settle_verdict(status), Some(Verdict::Abort), "{status} 必须打回");
         }
         for status in ["PENDING", "", "APPROVED2", "DRAFT"] {
             assert_eq!(settle_verdict(status), None, "{status} 不该推进付款");
@@ -2380,8 +2233,7 @@ mod tests {
     /// 夹具用户剩余条数：按**固定 uuid 集合**数，只数**未软删**的行。
     async fn fixture_users_left() -> i64 {
         let users = id_list(&[uid(CREATOR), uid(APPROVER1), uid(APPROVER2)]);
-        let sql =
-            format!("SELECT count(*) FROM sys_user WHERE id IN ({users}) AND deleted_at IS NULL");
+        let sql = format!("SELECT count(*) FROM sys_user WHERE id IN ({users}) AND deleted_at IS NULL");
         db().scalar_with_params::<Option<i64>>(sql.as_str(), vec![])
             .await
             .expect("查夹具用户")
@@ -2433,8 +2285,7 @@ mod tests {
         let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
         let result = payment::submit_payment(payable_id, &req, Some(uid(CREATOR)), &gate).await;
         exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'payable_pay'").await;
-        let outcome =
-            result.unwrap_or_else(|err| panic!("显式跳过审批的直付失败：{} {}", err.code, err.msg));
+        let outcome = result.unwrap_or_else(|err| panic!("显式跳过审批的直付失败：{} {}", err.code, err.msg));
         assert_eq!(
             outcome.outcome, OUTCOME_PAID,
             "显式跳过审批后必须直接生效（这就是「暂不审批」的合法出路）"
@@ -2502,11 +2353,7 @@ mod tests {
         // 并行跑时别的模块可能正处在「单据已删、它自己的日志还没删」的毫秒级中间态，
         // 一次断言会把别人的中间态判成本模块假红 ⇒ 收敛式判定（`settle_orphans`）：
         // 真孤儿等多久都还在，仍然会红；只吸收别人正在删的瞬时窗口。
-        let left = fixture_hygiene::settle_orphans(
-            fixture_hygiene::FINANCE,
-            std::time::Duration::from_secs(5),
-        )
-        .await;
+        let left = fixture_hygiene::settle_orphans(fixture_hygiene::FINANCE, std::time::Duration::from_secs(5)).await;
         assert_eq!(
             left, 0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"

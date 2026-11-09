@@ -121,9 +121,8 @@ pub fn shift_month(month: chrono::NaiveDate, delta: i32) -> chrono::NaiveDate {
     let total = month.year() * 12 + (month.month() as i32 - 1) + delta;
     let year = total.div_euclid(12);
     let month_index = total.rem_euclid(12) + 1;
-    chrono::NaiveDate::from_ymd_opt(year, month_index as u32, 1).unwrap_or_else(|| {
-        chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 一定合法")
-    })
+    chrono::NaiveDate::from_ymd_opt(year, month_index as u32, 1)
+        .unwrap_or_else(|| chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 一定合法"))
 }
 
 /// 分区表名（`2026-10-01` → `sys_change_log_2026_10`）。
@@ -151,9 +150,7 @@ pub fn parse_partition_month(name: &str) -> Option<chrono::NaiveDate> {
     if year_text.len() != 4 || month_text.len() != 2 {
         return None;
     }
-    if !year_text.bytes().all(|b| b.is_ascii_digit())
-        || !month_text.bytes().all(|b| b.is_ascii_digit())
-    {
+    if !year_text.bytes().all(|b| b.is_ascii_digit()) || !month_text.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
     let year: i32 = year_text.parse().ok()?;
@@ -179,10 +176,7 @@ pub fn is_managed_partition(name: &str) -> bool {
 ///
 /// - `current_month`：当前月月初；
 /// - `retention_months`：保留月数（≤ 0 视为 1，防止把当前月也算过期）。
-pub fn oldest_kept_month(
-    current_month: chrono::NaiveDate,
-    retention_months: i32,
-) -> chrono::NaiveDate {
+pub fn oldest_kept_month(current_month: chrono::NaiveDate, retention_months: i32) -> chrono::NaiveDate {
     let retention = retention_months.max(1);
     shift_month(current_month, -(retention - 1))
 }
@@ -202,11 +196,7 @@ pub fn oldest_kept_month(
 ///
 /// 需要删除的分区名（升序）。不合命名规范的名字**不会被删除**（返回里没有），
 /// 由调用方另行告警 —— 宁可少删，不可误删。
-pub fn expired_partitions(
-    existing: &[String],
-    current_month: chrono::NaiveDate,
-    retention_months: i32,
-) -> Vec<String> {
+pub fn expired_partitions(existing: &[String], current_month: chrono::NaiveDate, retention_months: i32) -> Vec<String> {
     let cutoff = oldest_kept_month(current_month, retention_months);
     let mut out: Vec<String> = existing
         .iter()
@@ -319,11 +309,7 @@ pub async fn drop_expired_partitions(
     current_month: chrono::NaiveDate,
     retention_months: i32,
 ) -> DbResult<Vec<String>> {
-    let all: Vec<String> = list_partitions(ex)
-        .await?
-        .into_iter()
-        .map(|info| info.name)
-        .collect();
+    let all: Vec<String> = list_partitions(ex).await?.into_iter().map(|info| info.name).collect();
     let expired = expired_partitions(&all, current_month, retention_months);
     for name in &expired {
         // 不可逆操作前的最后一道校验（见文件头）
@@ -331,8 +317,7 @@ pub async fn drop_expired_partitions(
             tracing::error!(partition = %name, "分区名不合规范，跳过 DROP");
             continue;
         }
-        ex.exec_sql(format!("DROP TABLE IF EXISTS {name}"), Vec::new())
-            .await?;
+        ex.exec_sql(format!("DROP TABLE IF EXISTS {name}"), Vec::new()).await?;
         tracing::warn!(partition = %name, "已删除过期变更日志分区");
     }
     Ok(expired)
@@ -519,14 +504,8 @@ mod tests {
             retention_months: 36,
         };
         let summary = report.summary();
-        assert!(
-            summary.contains("created=[\"sys_change_log_2026_11\"]"),
-            "{summary}"
-        );
-        assert!(
-            summary.contains("dropped=[\"sys_change_log_2023_10\"]"),
-            "{summary}"
-        );
+        assert!(summary.contains("created=[\"sys_change_log_2026_11\"]"), "{summary}");
+        assert!(summary.contains("dropped=[\"sys_change_log_2023_10\"]"), "{summary}");
         assert!(summary.contains("kept=36"), "{summary}");
         assert!(report.changed());
         assert!(!MaintenanceReport::default().changed());

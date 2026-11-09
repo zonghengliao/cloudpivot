@@ -284,10 +284,7 @@ pub fn subscriber_count(user_id: uuid::Uuid) -> usize {
 
 /// 全部用户的订阅端总数。
 pub fn total_receivers() -> usize {
-    read_hub()
-        .values()
-        .map(|entry| entry.bus.receiver_count())
-        .sum()
+    read_hub().values().map(|entry| entry.bus.receiver_count()).sum()
 }
 
 /// 当前**在线**（至少一个订阅端）的用户主键（推送时据此只查在线用户的接收行）。
@@ -537,17 +534,11 @@ mod tests {
         // A 先收到自己的（频道隔离意味着 B 的事件不会串进来）
         let first = rx_a.recv().await.expect("A 应收到事件");
         assert!(first.contains("给 A 的通知"), "A 收到：{first}");
-        assert!(
-            !first.contains("给 B 的通知"),
-            "A 不得收到 B 的事件：{first}"
-        );
+        assert!(!first.contains("给 B 的通知"), "A 不得收到 B 的事件：{first}");
 
         let second = rx_b.recv().await.expect("B 应收到事件");
         assert!(second.contains("给 B 的通知"), "B 收到：{second}");
-        assert!(
-            !second.contains("给 A 的通知"),
-            "B 不得收到 A 的事件：{second}"
-        );
+        assert!(!second.contains("给 A 的通知"), "B 不得收到 A 的事件：{second}");
 
         // 交叉断言：各自队列里再无第二条（A 只收到 1 条）
         assert!(
@@ -566,20 +557,13 @@ mod tests {
         assert!(online_user_ids().contains(&user_id));
 
         drop(subscription);
-        assert_eq!(
-            subscriber_count(user_id),
-            0,
-            "断连后 receiver_count 必须归零"
-        );
+        assert_eq!(subscriber_count(user_id), 0, "断连后 receiver_count 必须归零");
         assert!(
             !online_user_ids().contains(&user_id),
             "空频道必须从 HUB 摘除（否则是内存泄漏）"
         );
         assert!(
-            stats()
-                .users
-                .iter()
-                .all(|user| user.user_id != user_id.to_string()),
+            stats().users.iter().all(|user| user.user_id != user_id.to_string()),
             "stats 里不应再出现该用户"
         );
     }
@@ -608,12 +592,7 @@ mod tests {
         let event = event_for("离线用户的通知");
         assert_eq!(publish(user_id, &event), 0);
         assert_eq!(subscriber_count(user_id), 0);
-        assert!(
-            stats()
-                .users
-                .iter()
-                .all(|user| user.user_id != user_id.to_string())
-        );
+        assert!(stats().users.iter().all(|user| user.user_id != user_id.to_string()));
     }
 
     /// 巡逻任务：空频道超过 30 分钟才回收，有订阅者的频道一律不动。

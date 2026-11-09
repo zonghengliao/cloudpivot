@@ -37,16 +37,13 @@ use serde::Serialize;
 
 use super::stocktake_bridge;
 use super::stocktake_dto::{
-    CreateStockTakeReq, StockTakeDetailRes, StockTakeScopeItemReq, StockTakeStatusReq,
-    UpdateStockTakeReq,
+    CreateStockTakeReq, StockTakeDetailRes, StockTakeScopeItemReq, StockTakeStatusReq, UpdateStockTakeReq,
 };
 use super::stocktake_handler::{
-    create_stock_take, stock_take_change_status, stock_take_create, stock_take_delete,
-    stock_take_detail, stock_take_page, stock_take_update, update_stock_take,
+    create_stock_take, stock_take_change_status, stock_take_create, stock_take_delete, stock_take_detail,
+    stock_take_page, stock_take_update, update_stock_take,
 };
-use super::stocktake_model::{
-    self as model, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED,
-};
+use super::stocktake_model::{self as model, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED};
 use crate::business::flow::engine;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
@@ -187,8 +184,7 @@ async fn purge_fixtures() {
            (SELECT id FROM sys_user WHERE username LIKE 'stk_%')"
             .to_string(),
         "DELETE FROM sys_user WHERE username LIKE 'stk_%'".to_string(),
-        "DELETE FROM biz_warehouse WHERE id = 'd2110100-0000-4000-8000-000000000002'::uuid"
-            .to_string(),
+        "DELETE FROM biz_warehouse WHERE id = 'd2110100-0000-4000-8000-000000000002'::uuid".to_string(),
         "DELETE FROM biz_material WHERE id IN \
             ('d2110100-0000-4000-8000-000000000011'::uuid, 'd2110100-0000-4000-8000-000000000012'::uuid)"
             .to_string(),
@@ -319,11 +315,7 @@ async fn make_full_take(remark: &str) -> StockTakeDetailRes {
 }
 
 /// 把某物料的实盘数写进去（按明细物料匹配）。
-async fn set_actual(
-    take: &StockTakeDetailRes,
-    material_id: &str,
-    actual: &str,
-) -> StockTakeDetailRes {
+async fn set_actual(take: &StockTakeDetailRes, material_id: &str, actual: &str) -> StockTakeDetailRes {
     let item = take
         .items
         .iter()
@@ -417,21 +409,14 @@ async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
         .await
         .expect("读待办失败");
     rows.iter()
-        .map(|row| {
-            (
-                row.get_typed("id").unwrap(),
-                row.get_typed("assignee_id").unwrap(),
-            )
-        })
+        .map(|row| (row.get_typed("id").unwrap(), row.get_typed("assignee_id").unwrap()))
         .collect()
 }
 
 /// 以某人身份同意一条待办（只动引擎；业务回调由测试自己按 `flow::handler` 的顺序调）。
 async fn approve_task(task_id: Uuid, operator: Uuid) -> engine::ActionOut {
     let out = db()
-        .transaction(|tx| async move {
-            engine::approve(&tx, task_id, operator, Some("同意（DC14 单测）")).await
-        })
+        .transaction(|tx| async move { engine::approve(&tx, task_id, operator, Some("同意（DC14 单测）")).await })
         .await
         .unwrap_or_else(|err| panic!("审批同意失败：{err}"));
     stocktake_bridge::on_stock_take_settled(out.instance_id, &out.instance_status).await;
@@ -533,20 +518,14 @@ fn status_and_edges_are_consistent() {
         ("PENDING_POST", "CANCELLED"),
         ("POSTED", "CANCELLED"),
     ] {
-        assert!(
-            entity.can_transition(from, to),
-            "{from} → {to} 必须在边表里"
-        );
+        assert!(entity.can_transition(from, to), "{from} → {to} 必须在边表里");
     }
     // 「没人批就改账」这条路必须不存在
     assert!(
         !entity.can_transition("DRAFT", "POSTED"),
         "DRAFT → POSTED 必须禁止（盘点必须先审批再过账）"
     );
-    assert!(
-        entity.needs_reason("POSTED", "CANCELLED"),
-        "已过账作废必须写原因"
-    );
+    assert!(entity.needs_reason("POSTED", "CANCELLED"), "已过账作废必须写原因");
     assert!(entity.is_locked("POSTED") && entity.is_locked("PENDING_POST"));
 }
 
@@ -624,10 +603,7 @@ fn payload_validation() {
     };
     assert!(missing.parse(0).is_err(), "缺 item_id 必须 400");
     let update = UpdateStockTakeReq::default();
-    assert!(
-        update.parsed_lines().unwrap().is_empty(),
-        "不传 lines = 只改单头"
-    );
+    assert!(update.parsed_lines().unwrap().is_empty(), "不传 lines = 只改单头");
 
     let req = StockTakeStatusReq {
         status: Some("posted".to_string()),
@@ -663,10 +639,7 @@ async fn full_take_snapshots_book_qty() {
     assert_eq!(take.header.status, STATUS_DRAFT);
     assert_eq!(take.items.len(), 2, "该仓 2 个库存桶 → 2 行明细");
     for item in &take.items {
-        assert_eq!(
-            item.book_qty, item.actual_qty,
-            "实盘数应预填账面数（差异 0）"
-        );
+        assert_eq!(item.book_qty, item.actual_qty, "实盘数应预填账面数（差异 0）");
         assert_eq!(dec(&item.diff_qty), Decimal::ZERO);
     }
     assert_eq!(dec(&take.header.total_book_qty), dec("110"));
@@ -737,11 +710,7 @@ async fn gain_books_inbound_direction() {
 
     let (qty, amount) = cost_ledger(MATERIAL_A).await;
     assert_eq!(qty, dec("13"), "账面 10 + 盘盈 3 = 13");
-    assert_eq!(
-        amount,
-        dec("65"),
-        "盘盈按账面成本快照入账（3×5=15 → 50+15）"
-    );
+    assert_eq!(amount, dec("65"), "盘盈按账面成本快照入账（3×5=15 → 50+15）");
     assert_eq!(location_ledger(MATERIAL_A).await, dec("13"));
     assert_eq!(take_txn_total(MATERIAL_A).await, dec("3"), "盘盈记 IN 3");
 
@@ -809,18 +778,10 @@ async fn cancel_after_post_rolls_back_and_reds_voucher() {
     assert_eq!(qty, dec("100"), "作废后库存回到 100");
     assert_eq!(amount, dec("800"), "作废后金额回到 800");
     assert_eq!(location_ledger(MATERIAL_A).await, dec("100"));
-    assert_eq!(
-        take_txn_total(MATERIAL_A).await,
-        dec("0"),
-        "正向 + 冲销流水净额为 0"
-    );
+    assert_eq!(take_txn_total(MATERIAL_A).await, dec("0"), "正向 + 冲销流水净额为 0");
 
     // 红字凭证：is_red = 1、reverse_of = 原凭证、借贷互换
-    let red_id = cancelled
-        .header
-        .reverse_voucher_id
-        .clone()
-        .expect("必须红冲");
+    let red_id = cancelled.header.reverse_voucher_id.clone().expect("必须红冲");
     let row = db()
         .query_first_sql(
             "SELECT is_red, reverse_of FROM biz_voucher WHERE id = ?::uuid".to_string(),
@@ -868,11 +829,7 @@ async fn negative_stock_is_blocked() {
     .await;
 
     let err = transition_expect_err(&take.header.id, STATUS_POSTED, None).await;
-    assert_eq!(
-        err.code,
-        error_code::ERP_STOCK_OUT_NEGATIVE,
-        "必须 409 + 负库存码"
-    );
+    assert_eq!(err.code, error_code::ERP_STOCK_OUT_NEGATIVE, "必须 409 + 负库存码");
     assert!(
         err.msg.contains("盘亏") && err.msg.contains("4"),
         "报文要点名发生了什么（盘亏多少 / 账面剩多少）：{}",
@@ -899,18 +856,11 @@ async fn post_requires_approved_instance() {
     let take = make_full_take("未审批过账用例").await;
     let take = set_actual(&take, MATERIAL_A, "92").await;
     let submitted = transition(&take.header.id, STATUS_PENDING_POST, None).await;
-    assert!(
-        submitted.header.approval_instance_id.is_some(),
-        "提交审批后必须挂实例"
-    );
+    assert!(submitted.header.approval_instance_id.is_some(), "提交审批后必须挂实例");
 
     let err = transition_expect_err(&take.header.id, STATUS_POSTED, None).await;
     assert_eq!(err.code, error_code::RESOURCE_CONFLICT);
-    assert!(
-        err.msg.contains("审批尚未通过"),
-        "报文要点名审批没过：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("审批尚未通过"), "报文要点名审批没过：{}", err.msg);
     let (qty, _) = cost_ledger(MATERIAL_A).await;
     assert_eq!(qty, dec("100"), "被拦下的过账不许动账");
 }
@@ -930,11 +880,7 @@ async fn reject_returns_to_draft() {
     assert!(!tasks.is_empty());
     reject_final(tasks[0].0, tasks[0].1).await;
 
-    let detail = data(
-        stock_take_detail(Path(take.header.id.clone()))
-            .await
-            .expect("读详情"),
-    );
+    let detail = data(stock_take_detail(Path(take.header.id.clone())).await.expect("读详情"));
     assert_eq!(detail.header.status, STATUS_DRAFT, "驳回必须回草稿");
     assert!(
         detail.header.approval_instance_id.is_none(),
@@ -946,11 +892,7 @@ async fn reject_returns_to_draft() {
     // 回草稿后实盘数能改（这是回草稿的意义）
     let again = set_actual(&detail, MATERIAL_A, "95").await;
     assert_eq!(again.header.status, STATUS_DRAFT);
-    let item = again
-        .items
-        .iter()
-        .find(|item| item.material_id == MATERIAL_A)
-        .unwrap();
+    let item = again.items.iter().find(|item| item.material_id == MATERIAL_A).unwrap();
     assert_eq!(dec(&item.diff_qty), dec("-5"), "改完实盘数差异必须立刻反映");
 }
 
@@ -1036,9 +978,7 @@ async fn partial_scope_only_includes_requested_material() {
         ],
     };
     let claims = claims_of(U_MAKER);
-    let err = create_stock_take(&req, &claims)
-        .await
-        .expect_err("重复行必须被拒");
+    let err = create_stock_take(&req, &claims).await.expect_err("重复行必须被拒");
     assert!(err.msg.contains("重复"), "报文要点名重复行：{}", err.msg);
 }
 
@@ -1053,11 +993,7 @@ async fn illegal_transitions_are_rejected() {
     // 草稿 → 已过账
     let err = transition_expect_err(&take.header.id, STATUS_POSTED, None).await;
     assert_eq!(err.code, error_code::RESOURCE_CONFLICT);
-    assert!(
-        err.msg.contains("不能转到"),
-        "报文要解释为什么：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("不能转到"), "报文要解释为什么：{}", err.msg);
 
     // 过账后改实盘数
     let take = set_actual(&take, MATERIAL_A, "92").await;
@@ -1098,11 +1034,7 @@ async fn illegal_transitions_are_rejected() {
         .expect("分页"),
     );
     assert!(page.total >= 1);
-    assert!(
-        page.list
-            .iter()
-            .any(|row| row.take_no == posted.header.take_no)
-    );
+    assert!(page.list.iter().any(|row| row.take_no == posted.header.take_no));
 }
 
 /// ⑯ 草稿删除 + 审批中撤回：都能终止在跑的审批（不留孤儿实例）。
@@ -1131,12 +1063,9 @@ async fn withdraw_and_delete_terminate_running_approval() {
     assert_eq!(running, 0, "撤回必须终止在跑实例（否则下次提交撞唯一索引）");
 
     // 删：草稿可删，删完详情 404
-    stock_take_delete(
-        Extension(AuthClaims(claims_of(U_MAKER))),
-        Path(take.header.id.clone()),
-    )
-    .await
-    .expect("草稿删除应成功");
+    stock_take_delete(Extension(AuthClaims(claims_of(U_MAKER))), Path(take.header.id.clone()))
+        .await
+        .expect("草稿删除应成功");
     let missing = stock_take_detail(Path(take.header.id.clone())).await;
     assert!(missing.is_err(), "删掉的单详情必须 404");
 }
@@ -1251,14 +1180,8 @@ async fn lnk04_post_triggers_linkage_notice() {
         "盘点单已过账",
         "标题来自触发点基稿（目标态中文名），不是配置凭空生成"
     );
-    assert_eq!(
-        notice.get_typed::<String>("biz_type").expect("biz_type"),
-        "STOCK_TAKE"
-    );
-    assert_eq!(
-        notice.get_typed::<String>("biz_id").expect("biz_id"),
-        take.header.id
-    );
+    assert_eq!(notice.get_typed::<String>("biz_type").expect("biz_type"), "STOCK_TAKE");
+    assert_eq!(notice.get_typed::<String>("biz_id").expect("biz_id"), take.header.id);
     assert!(
         notice
             .get_typed::<String>("link_url")
@@ -1362,11 +1285,7 @@ async fn lnk04_cancel_draft_triggers_linkage_notice() {
     assert_eq!(cancelled.header.status, STATUS_CANCELLED);
 
     assert_eq!(
-        notices_of_key(&format!(
-            "LNK:STOCK_TAKE:{STATUS_CANCELLED}:{}",
-            take.header.id
-        ))
-        .await,
+        notices_of_key(&format!("LNK:STOCK_TAKE:{STATUS_CANCELLED}:{}", take.header.id)).await,
         1,
         "草稿作废也要触发联动（cancel_tx 的提前 return 分支漏接就没这一条）"
     );
@@ -1397,11 +1316,7 @@ async fn lnk04_repeat_post_does_not_trigger_twice() {
 
     // 第二次过账：状态已经是 POSTED，过账闸 409（账只动一次）
     let err = transition_expect_err(&take.header.id, STATUS_POSTED, None).await;
-    assert_eq!(
-        err.status, 409,
-        "已过账的单再过账必须 409，实际：{}",
-        err.msg
-    );
+    assert_eq!(err.status, 409, "已过账的单再过账必须 409，实际：{}", err.msg);
     assert_eq!(
         probe_tasks().await,
         1,
@@ -1443,10 +1358,7 @@ async fn lnk04_excluded_inventory_actions_do_not_double_write() {
     let take = set_actual(&take, MATERIAL_A, "92").await;
     let _ = submit_and_approve_single(&take).await;
     let posted = transition(&take.header.id, STATUS_POSTED, None).await;
-    assert_eq!(
-        posted.header.status, STATUS_POSTED,
-        "排除清单生效时过账必须成功"
-    );
+    assert_eq!(posted.header.status, STATUS_POSTED, "排除清单生效时过账必须成功");
 
     // ① 库存只按差异落一次：100 - 8 = 92（排除清单丢了会是 1092 / 84 之类）
     let (qty, amount) = cost_ledger(MATERIAL_A).await;
@@ -1488,9 +1400,7 @@ async fn lnk04_excluded_inventory_actions_do_not_double_write() {
     );
     match linkage::engine::run_excluding(db(), &ctx, &[]).await {
         Ok(run) => assert!(
-            run.runs
-                .iter()
-                .any(|item| item.action_code == "WRITE_INVENTORY"),
+            run.runs.iter().any(|item| item.action_code == "WRITE_INVENTORY"),
             "不传排除清单时规则必须被执行到，实际：{:?}",
             run.runs
                 .iter()
@@ -1531,8 +1441,5 @@ async fn zz_teardown_purges_stocktake_fixtures() {
         )
         .await
         .expect("统计残留");
-    assert_eq!(
-        left, 0,
-        "盘点用例的夹具必须零残留（用户 / 单据 / 凭证 / 库存）"
-    );
+    assert_eq!(left, 0, "盘点用例的夹具必须零残留（用户 / 单据 / 凭证 / 库存）");
 }

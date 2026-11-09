@@ -168,10 +168,7 @@ mod tests {
     /// 这条防的是「改文案时顺手删掉了标记」——那会让检测与替换同时失效。
     #[test]
     fn safety_block_is_wrapped_by_markers() {
-        assert!(
-            SAFETY_BLOCK.starts_with(SAFETY_BEGIN),
-            "区块必须以 BEGIN 开头"
-        );
+        assert!(SAFETY_BLOCK.starts_with(SAFETY_BEGIN), "区块必须以 BEGIN 开头");
         assert!(SAFETY_BLOCK.ends_with(SAFETY_END), "区块必须以 END 结尾");
         assert!(!has_safety_block(USER_SOUL));
         assert!(has_safety_block(SAFETY_BLOCK));
@@ -225,10 +222,7 @@ mod tests {
     #[test]
     fn ensure_keeps_user_content_before_block() {
         let guarded = ensure_safety_block(USER_SOUL);
-        assert!(
-            guarded.starts_with(USER_SOUL),
-            "用户内容必须在区块之前且逐字不变"
-        );
+        assert!(guarded.starts_with(USER_SOUL), "用户内容必须在区块之前且逐字不变");
         assert!(has_safety_block(&guarded));
         assert_eq!(guarded, format!("{USER_SOUL}\n{SAFETY_BLOCK}"));
     }
@@ -248,10 +242,7 @@ mod tests {
     fn strip_roundtrips_back_to_user_content() {
         let guarded = ensure_safety_block(USER_SOUL);
         assert_eq!(strip_safety_block(&guarded), format!("{USER_SOUL}\n"));
-        assert_eq!(
-            strip_safety_block(&guarded).trim_end(),
-            USER_SOUL.trim_end()
-        );
+        assert_eq!(strip_safety_block(&guarded).trim_end(), USER_SOUL.trim_end());
         // 没有区块的文本原样返回
         assert_eq!(strip_safety_block(USER_SOUL), USER_SOUL);
         assert_eq!(strip_safety_block(""), "");

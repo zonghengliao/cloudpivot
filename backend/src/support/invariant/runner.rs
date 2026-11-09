@@ -99,17 +99,12 @@ struct Report {
 /// # 异常情况
 ///
 /// 仅当**写库本身**失败时返回 [`DbError`]。
-pub async fn run_and_store(
-    trigger: Trigger,
-) -> std::result::Result<SysInvariantResultModel, DbError> {
+pub async fn run_and_store(trigger: Trigger) -> std::result::Result<SysInvariantResultModel, DbError> {
     let started = Instant::now();
     let run_at = chrono::Utc::now();
     let database_name = cfg().database.name.clone();
     let script = resolve_script();
-    let script_path = script
-        .as_ref()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
+    let script_path = script.as_ref().map(|p| p.display().to_string()).unwrap_or_default();
 
     let outcome = match script.as_deref() {
         Some(path) => execute(path).await,
@@ -131,11 +126,7 @@ pub async fn run_and_store(
                 .filter(|item| !item.ok)
                 .cloned()
                 .collect::<Vec<_>>();
-            let status = if failed_items.is_empty() {
-                "OK"
-            } else {
-                "FAIL"
-            };
+            let status = if failed_items.is_empty() { "OK" } else { "FAIL" };
             (
                 status.to_string(),
                 report.results.len() as i32,
@@ -217,12 +208,7 @@ pub fn summary(record: &SysInvariantResultModel) -> String {
         ),
         _ => format!(
             "巡检完成：{}/{} 通过，BLOCKER {}，WARN {}，耗时 {}ms（结果 #{}）",
-            record.passed,
-            record.total,
-            record.blockers,
-            record.warns,
-            record.duration_ms,
-            record.id
+            record.passed, record.total, record.blockers, record.warns, record.duration_ms, record.id
         ),
     }
 }
@@ -251,10 +237,7 @@ pub fn resolve_script() -> Option<PathBuf> {
         candidates.push(dir.join("../../scripts/verify/erp_invariants.py"));
         candidates.push(dir.join("../../../scripts/verify/erp_invariants.py"));
     }
-    candidates
-        .into_iter()
-        .find(|path| path.is_file())
-        .map(canonical)
+    candidates.into_iter().find(|path| path.is_file()).map(canonical)
 }
 
 /// 尽量转成绝对路径（落库快照用；失败时保留原样）。
@@ -305,22 +288,21 @@ async fn execute(script: &Path) -> std::result::Result<Report, String> {
         Err(reason) => return Err(reason),
     }
 
-    let output =
-        match tokio::time::timeout(Duration::from_secs(SCRIPT_TIMEOUT_SECS), cmd.output()).await {
-            Err(_) => {
-                return Err(format!(
-                    "巡检脚本执行超时（>{SCRIPT_TIMEOUT_SECS}s，已终止）：{}",
-                    script.display()
-                ));
-            }
-            Ok(Err(e)) => {
-                return Err(format!(
-                    "无法启动巡检脚本（解释器 `{python}`，脚本 {}）：{e}",
-                    script.display()
-                ));
-            }
-            Ok(Ok(output)) => output,
-        };
+    let output = match tokio::time::timeout(Duration::from_secs(SCRIPT_TIMEOUT_SECS), cmd.output()).await {
+        Err(_) => {
+            return Err(format!(
+                "巡检脚本执行超时（>{SCRIPT_TIMEOUT_SECS}s，已终止）：{}",
+                script.display()
+            ));
+        }
+        Ok(Err(e)) => {
+            return Err(format!(
+                "无法启动巡检脚本（解释器 `{python}`，脚本 {}）：{e}",
+                script.display()
+            ));
+        }
+        Ok(Ok(output)) => output,
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -384,13 +366,12 @@ fn password_source(password: &str, encrypted: bool) -> std::result::Result<Optio
 /// 找不到 JSON 段 / JSON 非法 / `results` 结构不符时返回中文原因。
 fn parse_report(stdout: &str) -> std::result::Result<Report, String> {
     const NEEDLE: &str = "{\n  \"total\"";
-    let start = stdout.rfind(NEEDLE).ok_or_else(|| {
-        "巡检脚本输出里找不到 JSON 结果段（未加 --json 或脚本中途崩溃）".to_string()
-    })?;
+    let start = stdout
+        .rfind(NEEDLE)
+        .ok_or_else(|| "巡检脚本输出里找不到 JSON 结果段（未加 --json 或脚本中途崩溃）".to_string())?;
     let payload = stdout[start..].trim_end();
 
-    let value: JsonValue =
-        serde_json::from_str(payload).map_err(|e| format!("解析巡检 JSON 失败：{e}"))?;
+    let value: JsonValue = serde_json::from_str(payload).map_err(|e| format!("解析巡检 JSON 失败：{e}"))?;
     let raw_results = value
         .get("results")
         .and_then(|v| v.as_array())
@@ -398,9 +379,7 @@ fn parse_report(stdout: &str) -> std::result::Result<Report, String> {
     let results: Vec<CheckItem> = serde_json::from_value(JsonValue::Array(raw_results.clone()))
         .map_err(|e| format!("巡检结果结构与 CheckItem 不符（脚本被改过？）：{e}"))?;
     if results.is_empty() {
-        return Err(
-            "巡检结果的 results 为空：脚本一条检查都没跑（疑似连不上库或参数错误）".to_string(),
-        );
+        return Err("巡检结果的 results 为空：脚本一条检查都没跑（疑似连不上库或参数错误）".to_string());
     }
 
     let total = results.len() as i32;
@@ -488,7 +467,8 @@ mod tests {
     /// 空 results 不能算 OK：连不上库时脚本会一条检查都跑不出来。
     #[test]
     fn rejects_empty_results() {
-        let stdout = "{\n  \"total\": 0,\n  \"passed\": 0,\n  \"blockers\": 0,\n  \"warns\": 0,\n  \"results\": []\n}\n";
+        let stdout =
+            "{\n  \"total\": 0,\n  \"passed\": 0,\n  \"blockers\": 0,\n  \"warns\": 0,\n  \"results\": []\n}\n";
         let err = parse_report(stdout).expect_err("应报错");
         assert!(err.contains("results 为空"), "实际：{err}");
     }

@@ -153,12 +153,7 @@ pub fn parse_cron(expr: &str) -> std::result::Result<CronSpec, String> {
 }
 
 /// 解析单个 cron 字段 → 升序去重后的取值集合。
-fn parse_field(
-    raw: &str,
-    min: u8,
-    max: u8,
-    aliases: &[(&str, u8)],
-) -> std::result::Result<Vec<u8>, String> {
+fn parse_field(raw: &str, min: u8, max: u8, aliases: &[(&str, u8)]) -> std::result::Result<Vec<u8>, String> {
     let text = raw.trim();
     if text.is_empty() {
         return Err("字段为空".to_string());
@@ -180,12 +175,7 @@ fn parse_field(
 }
 
 /// 解析单段（`*` / `a` / `a-b` / `*/n` / `a-b/n`）。
-fn parse_range(
-    piece: &str,
-    min: u8,
-    max: u8,
-    aliases: &[(&str, u8)],
-) -> std::result::Result<Vec<u8>, String> {
+fn parse_range(piece: &str, min: u8, max: u8, aliases: &[(&str, u8)]) -> std::result::Result<Vec<u8>, String> {
     let (base, step) = match piece.split_once('/') {
         Some((base, raw_step)) => {
             let step: u8 = raw_step
@@ -211,11 +201,7 @@ fn parse_range(
     } else {
         let value = parse_value(base, aliases)?;
         // `a/n` 的语义（vixie cron）= 从 a 到上限按步长取
-        if step > 1 {
-            (value, max)
-        } else {
-            (value, value)
-        }
+        if step > 1 { (value, max) } else { (value, value) }
     };
     if from < min || to > max {
         return Err(format!("取值越界：{from}-{to}（允许 {min}-{max}）"));
@@ -235,14 +221,10 @@ fn parse_range(
 /// 解析单个取值（数字或月份 / 星期别名）。
 fn parse_value(raw: &str, aliases: &[(&str, u8)]) -> std::result::Result<u8, String> {
     let text = raw.trim();
-    if let Some((_, value)) = aliases
-        .iter()
-        .find(|(name, _)| name.eq_ignore_ascii_case(text))
-    {
+    if let Some((_, value)) = aliases.iter().find(|(name, _)| name.eq_ignore_ascii_case(text)) {
         return Ok(*value);
     }
-    text.parse::<u8>()
-        .map_err(|_| format!("无法识别的取值：`{text}`"))
+    text.parse::<u8>().map_err(|_| format!("无法识别的取值：`{text}`"))
 }
 
 impl CronSpec {
@@ -343,10 +325,7 @@ pub fn register_builtin(scheduler: &crate::task::Scheduler) {
                 match run_once().await {
                     Ok(report) => {
                         if report.generated.is_empty() && report.failed.is_empty() {
-                            tracing::debug!(
-                                scanned = report.scanned,
-                                "周期任务扫描完成（无需生成）"
-                            );
+                            tracing::debug!(scanned = report.scanned, "周期任务扫描完成（无需生成）");
                         } else {
                             tracing::info!(
                                 scanned = report.scanned,
@@ -363,11 +342,7 @@ pub fn register_builtin(scheduler: &crate::task::Scheduler) {
             })
         },
     );
-    tracing::info!(
-        invoke_target = TASK_NAME,
-        cron = CRON,
-        "周期任务生成任务已注册（E11）"
-    );
+    tracing::info!(invoke_target = TASK_NAME, cron = CRON, "周期任务生成任务已注册（E11）");
 }
 
 /// 单次扫描的产物（供日志与验收脚本使用）。
@@ -437,13 +412,8 @@ pub async fn run_once() -> DbResult<RecurringReport> {
                 continue;
             }
         };
-        match template::create_from_template(
-            tpl,
-            actor,
-            &TaskFromTemplateReq::default(),
-            template::SOURCE_RECURRING,
-        )
-        .await
+        match template::create_from_template(tpl, actor, &TaskFromTemplateReq::default(), template::SOURCE_RECURRING)
+            .await
         {
             Ok(created) => {
                 let task_id = Uuid::parse_str(&created.id).unwrap_or_else(|_| Uuid::nil());
@@ -485,9 +455,7 @@ async fn due_templates() -> DbResult<Vec<TemplateRow>> {
           ORDER BY next_run_at ASC LIMIT ?",
         template::TEMPLATE_COLUMNS
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::I64(SCAN_LIMIT)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::I64(SCAN_LIMIT)]).await?;
     rows.iter().map(TemplateRow::from_row).collect()
 }
 
@@ -510,11 +478,7 @@ async fn claim_slot(id: Uuid, from: DateTime<Utc>, to: Option<DateTime<Utc>>) ->
 }
 
 /// 生成失败时把排期还原（保持 `last_run_at` 不变，避免误报「跑过了」）。
-async fn restore_slot(
-    id: Uuid,
-    from: DateTime<Utc>,
-    attempted: Option<DateTime<Utc>>,
-) -> DbResult<()> {
+async fn restore_slot(id: Uuid, from: DateTime<Utc>, attempted: Option<DateTime<Utc>>) -> DbResult<()> {
     db().execute_with_params(
         "UPDATE biz_task_template \
             SET next_run_at = ?::timestamptz, updated_at = now() \

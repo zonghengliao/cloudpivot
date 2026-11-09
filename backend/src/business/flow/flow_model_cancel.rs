@@ -40,11 +40,7 @@ pub async fn cancel_pending_of_node(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn cancel_pending_of_instance(
-    ex: &Transaction,
-    instance_id: Uuid,
-    comment: &str,
-) -> DbResult<u64> {
+pub async fn cancel_pending_of_instance(ex: &Transaction, instance_id: Uuid, comment: &str) -> DbResult<u64> {
     ex.execute_with_params(
         "UPDATE biz_flow_task \
             SET status = 'CANCELLED', comment = COALESCE(comment, ?), completed_at = now() \
@@ -241,9 +237,7 @@ pub async fn cancel_flow_tasks(
             DiffInput::update(&before, &after),
         )
         .await
-        .map_err(|error| {
-            DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
-        })?;
+        .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
     }
 
     tracing::info!(

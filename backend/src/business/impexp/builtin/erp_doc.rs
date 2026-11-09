@@ -45,9 +45,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use nik::prelude::*;
 
-use crate::business::impexp::definition::{
-    ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter,
-};
+use crate::business::impexp::definition::{ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter};
 
 /// 收货单状态 → 中文（与 `stockin_model::status_label` 同口径）。
 const STOCK_IN_STATUS: &[EnumItem] = &[
@@ -533,9 +531,8 @@ impl ExportDefinition for ErpDocExport {
         push_filters(&mut sql, &mut params, self.spec, filter);
         if let Some(after) = after_id {
             // `?::uuid` 必须绑 uuid：传字符串会在驱动侧 "error serializing parameter"（A4 实测）。
-            let after = uuid::Uuid::parse_str(after).map_err(|error| {
-                DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}"))
-            })?;
+            let after = uuid::Uuid::parse_str(after)
+                .map_err(|error| DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}")))?;
             sql.push_str(&format!(" AND {} > ?::uuid", self.spec.id_expr));
             params.push(Value::from(after));
         }
@@ -644,10 +641,7 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for definition in definitions() {
             let biz_type = definition.biz_type();
-            assert!(
-                biz_type.starts_with("erp."),
-                "业务编码要带 erp. 前缀：{biz_type}"
-            );
+            assert!(biz_type.starts_with("erp."), "业务编码要带 erp. 前缀：{biz_type}");
             assert!(seen.insert(biz_type), "业务编码重复：{biz_type}");
             assert!(!definition.biz_name().is_empty());
             assert!(!definition.columns().is_empty());
@@ -683,9 +677,7 @@ mod tests {
                 keyword: Some("IN-2026".to_string()),
                 status: None,
                 status_code: None,
-                ids: vec![
-                    uuid::Uuid::parse_str("018f4b2c-1111-7222-8333-444455550001").expect("uuid"),
-                ],
+                ids: vec![uuid::Uuid::parse_str("018f4b2c-1111-7222-8333-444455550001").expect("uuid")],
             },
         );
         assert!(sql.contains("s.in_no::text LIKE ?"));
@@ -723,10 +715,7 @@ mod tests {
         );
         assert_eq!(params.len(), 1, "一个状态码 = 一个参数");
         let bound = format!("{:?}", params[0]);
-        assert!(
-            bound.contains("{POSTED}"),
-            "绑定值要归一化成大写（POSTED）：{bound}"
-        );
+        assert!(bound.contains("{POSTED}"), "绑定值要归一化成大写（POSTED）：{bound}");
     }
 
     #[test]
@@ -772,11 +761,7 @@ mod tests {
                     _ => None,
                 })
                 .unwrap_or_else(|| panic!("{} 没有 Enum 状态列", definition.biz_type()));
-            assert!(
-                !codes.is_empty(),
-                "{} 的状态列不许为空",
-                definition.biz_type()
-            );
+            assert!(!codes.is_empty(), "{} 的状态列不许为空", definition.biz_type());
             assert_eq!(
                 definition.status_codes(),
                 codes,
@@ -784,12 +769,7 @@ mod tests {
                 definition.biz_type()
             );
             // status_expr 必须指向同一张表的别名（复制粘贴写错别名 = 过滤到别的表）
-            let alias = definition
-                .spec
-                .id_expr
-                .split('.')
-                .next()
-                .unwrap_or_default();
+            let alias = definition.spec.id_expr.split('.').next().unwrap_or_default();
             assert_eq!(definition.spec.status_expr, format!("{alias}.status"));
         }
         // 与 DB CHECK 同步：V0191 起应付单有 PENDING_CANCEL（漏了就会出现「能看到、筛不出」）
@@ -845,8 +825,7 @@ mod tests {
             status: Some(1),
             ..Default::default()
         };
-        let error = check_export_filter(&ErpDocExport { spec: &PAYABLE }, &mut filter)
-            .expect_err("status 必须被拒");
+        let error = check_export_filter(&ErpDocExport { spec: &PAYABLE }, &mut filter).expect_err("status 必须被拒");
         assert_eq!(error.status, 422);
         assert!(
             error.msg.contains("status_code") && error.msg.contains("OPEN"),
@@ -935,45 +914,23 @@ mod tests {
         };
         let total = definition.count(&filter).await.expect("count 应能跑");
         assert_eq!(total, 1, "勾了 1 行就该数到 1 行");
-        let page = definition
-            .fetch(&filter, None, 100)
-            .await
-            .expect("fetch 应能跑");
-        assert_eq!(
-            page.len(),
-            1,
-            "取数必须真的返回行（SELECT 拼错时这里就是 0/报错）"
-        );
+        let page = definition.fetch(&filter, None, 100).await.expect("fetch 应能跑");
+        assert_eq!(page.len(), 1, "取数必须真的返回行（SELECT 拼错时这里就是 0/报错）");
         let (id, values) = &page[0];
         assert_eq!(id, doc);
-        assert_eq!(
-            values.get("in_no").map(String::as_str),
-            Some("IN-D7EXP-000001")
-        );
-        assert_eq!(
-            values.get("supplier_name").map(String::as_str),
-            Some("D7 导出供应商")
-        );
-        assert_eq!(
-            values.get("warehouse_name").map(String::as_str),
-            Some("D7 导出仓")
-        );
+        assert_eq!(values.get("in_no").map(String::as_str), Some("IN-D7EXP-000001"));
+        assert_eq!(values.get("supplier_name").map(String::as_str), Some("D7 导出供应商"));
+        assert_eq!(values.get("warehouse_name").map(String::as_str), Some("D7 导出仓"));
         assert_eq!(
             values.get("status").map(String::as_str),
             Some("DRAFT"),
             "枚举列取的是码值"
         );
-        assert_eq!(
-            values.get("total_with_tax").map(String::as_str),
-            Some("22.6000")
-        );
+        assert_eq!(values.get("total_with_tax").map(String::as_str), Some("22.6000"));
 
         // 清理（真库用例不留痕）
         let _ = db()
-            .exec_sql(
-                format!("DELETE FROM biz_stock_in WHERE id = '{doc}'::uuid"),
-                vec![],
-            )
+            .exec_sql(format!("DELETE FROM biz_stock_in WHERE id = '{doc}'::uuid"), vec![])
             .await;
         for (table, id) in [
             ("biz_warehouse", warehouse),
@@ -981,10 +938,7 @@ mod tests {
             ("biz_unit", unit),
         ] {
             let _ = db()
-                .exec_sql(
-                    format!("DELETE FROM {table} WHERE id = '{id}'::uuid"),
-                    vec![],
-                )
+                .exec_sql(format!("DELETE FROM {table} WHERE id = '{id}'::uuid"), vec![])
                 .await;
         }
     }
@@ -1042,10 +996,7 @@ mod tests {
             1,
             "status_code=POSTED 只能命中已记账那张（本卡修的就是这里放过全量）"
         );
-        let page = definition
-            .fetch(&filter, None, 100)
-            .await
-            .expect("fetch POSTED");
+        let page = definition.fetch(&filter, None, 100).await.expect("fetch POSTED");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].0, posted, "命中的必须是 POSTED 那张");
         assert_eq!(page[0].1.get("status").map(String::as_str), Some("POSTED"));
@@ -1054,10 +1005,7 @@ mod tests {
         let mut filter = base();
         filter.status_code = Some("CANCELLED".to_string());
         check_export_filter(&definition, &mut filter).expect("CANCELLED 合法");
-        let page = definition
-            .fetch(&filter, None, 100)
-            .await
-            .expect("fetch CANCELLED");
+        let page = definition.fetch(&filter, None, 100).await.expect("fetch CANCELLED");
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].0, cancelled);
 
@@ -1071,10 +1019,7 @@ mod tests {
         // 清理（真库用例不留痕）
         for id in [posted, cancelled] {
             let _ = db()
-                .exec_sql(
-                    format!("DELETE FROM biz_voucher WHERE id = '{id}'::uuid"),
-                    vec![],
-                )
+                .exec_sql(format!("DELETE FROM biz_voucher WHERE id = '{id}'::uuid"), vec![])
                 .await;
         }
     }

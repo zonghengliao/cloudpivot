@@ -26,9 +26,7 @@
 //! 全部夹具的 `slug` 以 `c4-` 开头、分类 `code` 以 `c4-` 开头；用例开头与结尾各清一次，
 //! 只删自己造的行（不会碰库里其它数据），可重复运行。
 
-use cloudpivot::business::help::model::{
-    self, CategoryInput, DocFilter, DocInput, HelpError, SearchFilter,
-};
+use cloudpivot::business::help::model::{self, CategoryInput, DocFilter, DocInput, HelpError, SearchFilter};
 use cloudpivot::business::shared::content;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -115,9 +113,7 @@ async fn make_category(suffix: &str, parent_id: Option<Uuid>) -> model::Category
         sort_order: 0,
         status: 1,
     };
-    model::create_category(&input)
-        .await
-        .expect("建分类应当成功")
+    model::create_category(&input).await.expect("建分类应当成功")
 }
 
 /// 建一篇文档（草稿）。
@@ -131,9 +127,7 @@ async fn make_doc(category_id: Uuid, suffix: &str, content_md: &str) -> model::D
         keywords: Some("c4,测试".into()),
         sort_order: 0,
     };
-    model::create_doc(&input, None)
-        .await
-        .expect("建文档应当成功")
+    model::create_doc(&input, None).await.expect("建文档应当成功")
 }
 
 /// H-01 分类深度：第 4 层 → [`HelpError::DepthExceeded`]；移动导致超深 → 同错误。
@@ -236,9 +230,7 @@ async fn h02_category_not_empty() {
 
     // 文档删掉（软删）之后分类可删
     model::delete_doc(&doc.id).await.expect("软删文档");
-    model::delete_category(&cat.id)
-        .await
-        .expect("文档删除后分类应可删");
+    model::delete_category(&cat.id).await.expect("文档删除后分类应可删");
     println!("[PASS] H-02 分类非空：62011 且分类仍在；文档软删后可删");
     cleanup().await;
 }
@@ -294,9 +286,7 @@ async fn h03_slug_unique_and_format() {
     }
 
     // 软删后同一 slug 可复用（部分唯一索引 WHERE deleted_at IS NULL）
-    let first = model::find_doc_by_slug(&format!("{TAG}doc-h03"))
-        .await
-        .unwrap();
+    let first = model::find_doc_by_slug(&format!("{TAG}doc-h03")).await.unwrap();
     let first = first.expect("应能按 slug 找到");
     model::delete_doc(&first.id).await.expect("软删");
     let reused = make_doc(cat.id, "h03", "## 复用\n\n同 slug 重建").await;
@@ -365,11 +355,7 @@ async fn h05_version_snapshots() {
             .await
             .unwrap()
             .expect("版本应存在");
-        assert!(
-            !detail.content_md.is_empty(),
-            "版本 {} 的正文不能为空",
-            version.version
-        );
+        assert!(!detail.content_md.is_empty(), "版本 {} 的正文不能为空", version.version);
     }
     // 每条快照的 change_note 与内容是配套的
     let v1 = model::find_version(&doc.id, 1).await.unwrap().unwrap();
@@ -425,9 +411,7 @@ async fn h06_rollback_creates_new_version() {
         history_before.iter().map(|v| v.version).collect::<Vec<_>>()
     );
 
-    let rolled = model::rollback_doc(&doc.id, 1, None, None)
-        .await
-        .expect("回滚应当成功");
+    let rolled = model::rollback_doc(&doc.id, 1, None, None).await.expect("回滚应当成功");
     assert_eq!(
         rolled.content_md, "## 原始版本\n\n第一版内容 V1",
         "回滚后内容必须等于 v1"
@@ -515,9 +499,7 @@ async fn h08_search_escapes_wildcards() {
     let percent = make_doc(cat.id, "h08-percent", "## 折扣\n\n满 100% 返现说明").await;
     model::publish_doc(&percent.id, None, None).await.unwrap();
     let underscore = make_doc(cat.id, "h08-underscore", "## 命名\n\n变量 a_b 的含义").await;
-    model::publish_doc(&underscore.id, None, None)
-        .await
-        .unwrap();
+    model::publish_doc(&underscore.id, None, None).await.unwrap();
     let plain = make_doc(cat.id, "h08-plain", "## 无关\n\n这里没有任何通配符").await;
     model::publish_doc(&plain.id, None, None).await.unwrap();
 
@@ -568,11 +550,7 @@ async fn h08_search_escapes_wildcards() {
     )
     .await
     .expect("搜 a_b 不能报错");
-    let underscore_slugs: Vec<String> = underscore_hits
-        .list
-        .iter()
-        .map(|r| r.slug.clone())
-        .collect();
+    let underscore_slugs: Vec<String> = underscore_hits.list.iter().map(|r| r.slug.clone()).collect();
     assert_eq!(
         underscore_slugs,
         vec![format!("{TAG}doc-h08-underscore")],
@@ -703,11 +681,7 @@ async fn h10_h11_h12_snippet_and_toc() {
     }
     collect(toc, &mut ids);
     let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
-    assert_eq!(
-        unique.len(),
-        ids.len(),
-        "H-12：同名标题的 id 不能重复：{ids:?}"
-    );
+    assert_eq!(unique.len(), ids.len(), "H-12：同名标题的 id 不能重复：{ids:?}");
     for id in &ids {
         assert!(
             rendered.content_html.contains(&format!("id=\"{id}\"")),
@@ -780,18 +754,10 @@ async fn search_performance_2000_docs() {
         .expect("检索应当成功");
         let elapsed = started.elapsed().as_millis();
         worst = worst.max(elapsed);
-        println!(
-            "第 {} 轮：{} ms（命中 {} 条）",
-            round + 1,
-            elapsed,
-            hits.total
-        );
+        println!("第 {} 轮：{} ms（命中 {} 条）", round + 1, elapsed, hits.total);
         assert_eq!(hits.list.len(), 20, "分页大小应为 20");
     }
-    assert!(
-        worst < 100,
-        "2000 篇检索最坏耗时应 < 100 ms，实测 {worst} ms"
-    );
+    assert!(worst < 100, "2000 篇检索最坏耗时应 < 100 ms，实测 {worst} ms");
     println!("[PASS] 检索性能：2000 篇最坏 {worst} ms（阈值 100 ms）");
     cleanup().await;
 }

@@ -105,14 +105,8 @@ pub async fn insert(ex: &impl SqlExecutor, row: &NewChangeLog<'_>) -> DbResult<(
     debug_assert_eq!(result, "SUCCESS");
 
     let operator_id = row.operator_id.map(|id| id.to_string()).unwrap_or_default();
-    let operator_dept = row
-        .operator_dept_id
-        .map(|id| id.to_string())
-        .unwrap_or_default();
-    let error_code = row
-        .error_code
-        .map(|code| code.to_string())
-        .unwrap_or_default();
+    let operator_dept = row.operator_dept_id.map(|id| id.to_string()).unwrap_or_default();
+    let error_code = row.error_code.map(|code| code.to_string()).unwrap_or_default();
     let duration_ms = row.duration_ms.map(|ms| ms.to_string()).unwrap_or_default();
 
     let params = vec![
@@ -168,14 +162,9 @@ fn array_literal(fields: &[String]) -> String {
 ///
 /// - `ex`：执行器；
 /// - `resource` / `resource_id`：对象坐标。
-pub async fn count_for_object(
-    ex: &impl SqlExecutor,
-    resource: &str,
-    resource_id: &str,
-) -> DbResult<i64> {
+pub async fn count_for_object(ex: &impl SqlExecutor, resource: &str, resource_id: &str) -> DbResult<i64> {
     ex.scalar_sql(
-        "SELECT COUNT(*) FROM sys_change_log WHERE resource = ?::text AND resource_id = ?::text"
-            .to_string(),
+        "SELECT COUNT(*) FROM sys_change_log WHERE resource = ?::text AND resource_id = ?::text".to_string(),
         vec![Value::from(resource), Value::from(resource_id)],
     )
     .await
@@ -187,11 +176,7 @@ pub async fn count_for_object(
 ///
 /// - `ex`：执行器；
 /// - `resource` / `resource_id`：对象坐标。
-pub async fn diff_texts(
-    ex: &impl SqlExecutor,
-    resource: &str,
-    resource_id: &str,
-) -> DbResult<Vec<String>> {
+pub async fn diff_texts(ex: &impl SqlExecutor, resource: &str, resource_id: &str) -> DbResult<Vec<String>> {
     let rows = ex
         .query_sql(
             "SELECT diff::text AS diff FROM sys_change_log \
@@ -218,11 +203,7 @@ pub async fn diff_texts(
 /// # 返回值
 ///
 /// 删除行数。
-pub async fn purge_for_object(
-    ex: &impl SqlExecutor,
-    resource: &str,
-    resource_id: &str,
-) -> DbResult<u64> {
+pub async fn purge_for_object(ex: &impl SqlExecutor, resource: &str, resource_id: &str) -> DbResult<u64> {
     ex.exec_sql(
         "DELETE FROM sys_change_log WHERE resource = ?::text AND resource_id = ?::text".to_string(),
         vec![Value::from(resource), Value::from(resource_id)],
@@ -255,10 +236,7 @@ pub async fn purge_for_object(
 /// 查到 `ROBOT` → [`OperatorType::Robot`]；查不到 / 读到脏值 → [`OperatorType::Human`]。
 /// **读侧不因为找不到人而报错**：日志是「事后凭证」，不该被一个已删除的账号卡住。
 // SCOPE-EXEMPT: 按主键读 sys_user.user_type（单列账号类型，不涉及行级可见性，非列表/导出查询）
-pub async fn operator_type_of(
-    ex: &impl SqlExecutor,
-    operator_id: Option<Uuid>,
-) -> DbResult<OperatorType> {
+pub async fn operator_type_of(ex: &impl SqlExecutor, operator_id: Option<Uuid>) -> DbResult<OperatorType> {
     let Some(operator_id) = operator_id else {
         return Ok(OperatorType::Human);
     };

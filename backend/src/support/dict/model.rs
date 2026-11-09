@@ -207,11 +207,8 @@ pub(crate) async fn page_dict_types(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn find_dict_type_by_code(
-    dict_code: &str,
-) -> std::result::Result<Option<SysDictTypeModel>, DbError> {
-    SysDictTypeModel::find_first_by(db(), "dict_code = ? AND deleted_at IS NULL", (dict_code,))
-        .await
+pub(crate) async fn find_dict_type_by_code(dict_code: &str) -> std::result::Result<Option<SysDictTypeModel>, DbError> {
+    SysDictTypeModel::find_first_by(db(), "dict_code = ? AND deleted_at IS NULL", (dict_code,)).await
 }
 
 /// 统计字典编码在未删除记录中的数量（唯一性校验）。
@@ -241,10 +238,7 @@ pub(crate) async fn count_dict_code(
             )
             .await
         }
-        None => {
-            SysDictTypeModel::count_by(db(), "dict_code = ? AND deleted_at IS NULL", (dict_code,))
-                .await
-        }
+        None => SysDictTypeModel::count_by(db(), "dict_code = ? AND deleted_at IS NULL", (dict_code,)).await,
     }
 }
 
@@ -334,15 +328,8 @@ pub(crate) async fn page_dict_items(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn count_items_by_type(
-    dict_type_id: &uuid::Uuid,
-) -> std::result::Result<i64, DbError> {
-    SysDictItemModel::count_by(
-        db(),
-        "dict_type_id = ? AND deleted_at IS NULL",
-        (dict_type_id,),
-    )
-    .await
+pub(crate) async fn count_items_by_type(dict_type_id: &uuid::Uuid) -> std::result::Result<i64, DbError> {
+    SysDictItemModel::count_by(db(), "dict_type_id = ? AND deleted_at IS NULL", (dict_type_id,)).await
 }
 
 /// 查询某字典类型下的全部启用字典项（未删除）。
@@ -445,9 +432,7 @@ fn cache_key(dict_code: &str) -> String {
 /// # 异常情况
 ///
 /// 缓存未初始化或读取失败返回错误，由调用方决定是否回退数据库查询。
-pub(crate) async fn load_cached_items(
-    dict_code: &str,
-) -> std::result::Result<Option<Vec<DictItemRes>>, Error> {
+pub(crate) async fn load_cached_items(dict_code: &str) -> std::result::Result<Option<Vec<DictItemRes>>, Error> {
     let Some(store) = try_cache() else {
         return Err(Error::Msg("缓存未初始化，无法读取字典缓存".to_string()));
     };
@@ -464,20 +449,11 @@ pub(crate) async fn load_cached_items(
 /// # 异常情况
 ///
 /// 缓存未初始化或写入失败返回错误；调用方可只记日志（缓存非主数据源）。
-pub(crate) async fn cache_items(
-    dict_code: &str,
-    items: &[DictItemRes],
-) -> std::result::Result<(), Error> {
+pub(crate) async fn cache_items(dict_code: &str, items: &[DictItemRes]) -> std::result::Result<(), Error> {
     let Some(store) = try_cache() else {
         return Err(Error::Msg("缓存未初始化，无法写入字典缓存".to_string()));
     };
-    Cache::set_ex(
-        store,
-        &cache_key(dict_code),
-        items,
-        constants::CACHE_DICT_TTL_SECS,
-    )
-    .await
+    Cache::set_ex(store, &cache_key(dict_code), items, constants::CACHE_DICT_TTL_SECS).await
 }
 
 /// 失效指定字典编码的缓存（写操作后调用，避免读路径返回旧数据）。

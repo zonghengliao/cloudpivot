@@ -298,11 +298,7 @@ pub fn parse_expression(value: &Value) -> Result<Expression, String> {
     for (index, rule_json) in rules_json.iter().enumerate() {
         let position = index + 1;
         let rule = expect_object(rule_json, &format!("第 {position} 条规则"))?;
-        deny_unknown_keys(
-            rule,
-            &["id", "when", "then"],
-            &format!("第 {position} 条规则"),
-        )?;
+        deny_unknown_keys(rule, &["id", "when", "then"], &format!("第 {position} 条规则"))?;
         let id = parse_rule_id(rule, position)?;
         if !rule_ids.insert(id) {
             return Err(format!("规则 id 重复：{id}"));
@@ -358,8 +354,7 @@ pub fn parse_config(config: &Value) -> Result<Expression, String> {
     match config.get("expression") {
         Some(value) if !value.is_null() => parse_expression(value),
         _ => Err(
-            "审批人来源选择了表达式，但 config 里没有 expression —— 请先配置规则（至少 1 条 when/then）"
-                .to_string(),
+            "审批人来源选择了表达式，但 config 里没有 expression —— 请先配置规则（至少 1 条 when/then）".to_string(),
         ),
     }
 }
@@ -370,9 +365,9 @@ pub fn parse_snapshot_node(node: &SnapshotNode) -> Result<Expression, String> {
 }
 
 fn parse_version(root: &Map<String, Value>) -> Result<u32, String> {
-    let raw = root.get("version").ok_or_else(|| {
-        format!("表达式缺少 version 字段（本期只支持 version={EXPRESSION_VERSION}）")
-    })?;
+    let raw = root
+        .get("version")
+        .ok_or_else(|| format!("表达式缺少 version 字段（本期只支持 version={EXPRESSION_VERSION}）"))?;
     let version = raw
         .as_u64()
         .ok_or_else(|| format!("表达式的 version 必须是整数 {EXPRESSION_VERSION}"))?;
@@ -500,11 +495,7 @@ fn parse_target(value: &Value, where_desc: &str) -> Result<Target, String> {
                 .and_then(Value::as_str)
                 .map(str::trim)
                 .filter(|key| is_form_var_key(key))
-                .ok_or_else(|| {
-                    format!(
-                        "{where_desc}缺少 form_var_key（表单字段名，字母或下划线开头，最长 64）"
-                    )
-                })?;
+                .ok_or_else(|| format!("{where_desc}缺少 form_var_key（表单字段名，字母或下划线开头，最长 64）"))?;
             Ok(Target::FormVar {
                 form_var_key: key.to_string(),
             })
@@ -542,8 +533,7 @@ fn required_str_array(
     where_desc: &str,
     max: usize,
 ) -> Result<Vec<String>, String> {
-    optional_str_array(map, key, where_desc, max)?
-        .ok_or_else(|| format!("{where_desc}缺少 {key}（1–{max} 项）"))
+    optional_str_array(map, key, where_desc, max)?.ok_or_else(|| format!("{where_desc}缺少 {key}（1–{max} 项）"))
 }
 
 fn optional_str_array(
@@ -565,19 +555,13 @@ fn optional_str_array(
         return Err(format!("{where_desc}的 {key} 不能为空数组"));
     }
     if items.len() > max {
-        return Err(format!(
-            "{where_desc}的 {key} 超过 {max} 项（当前 {} 项）",
-            items.len()
-        ));
+        return Err(format!("{where_desc}的 {key} 超过 {max} 项（当前 {} 项）", items.len()));
     }
     let mut out: Vec<String> = Vec::with_capacity(items.len());
     for item in items {
-        let text = item.as_str().ok_or_else(|| {
-            format!(
-                "{where_desc}的 {key} 只允许字符串（当前是{}）",
-                json_kind(item)
-            )
-        })?;
+        let text = item
+            .as_str()
+            .ok_or_else(|| format!("{where_desc}的 {key} 只允许字符串（当前是{}）", json_kind(item)))?;
         let text = text.trim();
         if text.is_empty() {
             return Err(format!("{where_desc}的 {key} 里不能有空字符串"));
@@ -587,27 +571,18 @@ fn optional_str_array(
     Ok(Some(out))
 }
 
-fn required_uuid_array(
-    map: &Map<String, Value>,
-    key: &str,
-    where_desc: &str,
-) -> Result<Vec<Uuid>, String> {
+fn required_uuid_array(map: &Map<String, Value>, key: &str, where_desc: &str) -> Result<Vec<Uuid>, String> {
     optional_uuid_array(map, key, where_desc)?
         .ok_or_else(|| format!("{where_desc}缺少 {key}（1–{MAX_EXPR_IDS} 个 UUID）"))
 }
 
-fn optional_uuid_array(
-    map: &Map<String, Value>,
-    key: &str,
-    where_desc: &str,
-) -> Result<Option<Vec<Uuid>>, String> {
+fn optional_uuid_array(map: &Map<String, Value>, key: &str, where_desc: &str) -> Result<Option<Vec<Uuid>>, String> {
     let Some(items) = optional_str_array(map, key, where_desc, MAX_EXPR_IDS)? else {
         return Ok(None);
     };
     let mut out: Vec<Uuid> = Vec::with_capacity(items.len());
     for raw in items {
-        let id = Uuid::parse_str(&raw)
-            .map_err(|_| format!("{where_desc}的 {key} 里的「{raw}」不是合法 UUID"))?;
+        let id = Uuid::parse_str(&raw).map_err(|_| format!("{where_desc}的 {key} 里的「{raw}」不是合法 UUID"))?;
         out.push(id);
     }
     Ok(Some(out))
@@ -622,10 +597,7 @@ fn expect_object<'a>(value: &'a Value, what: &str) -> Result<&'a Map<String, Val
 fn deny_unknown_keys(map: &Map<String, Value>, allowed: &[&str], what: &str) -> Result<(), String> {
     for key in map.keys() {
         if !allowed.contains(&key.as_str()) {
-            return Err(format!(
-                "{what}含未知字段 {key}（允许的键：{}）",
-                allowed.join(" / ")
-            ));
+            return Err(format!("{what}含未知字段 {key}（允许的键：{}）", allowed.join(" / ")));
         }
     }
     Ok(())
@@ -677,11 +649,7 @@ pub fn eval_expression(expr: &Expression, ctx: &EvalContext) -> EvalOutcome {
 /// - `表达式命中规则 r_big`
 /// - `规则 r1 求值失败（Missing: form.not_filled）→ 按不成立处理`
 /// - `无规则命中且无兜底 → 空审批人` / `无规则命中，走 otherwise`
-pub fn eval_expression_with_trace(
-    expr: &Expression,
-    ctx: &EvalContext,
-    trace: &mut Vec<String>,
-) -> EvalOutcome {
+pub fn eval_expression_with_trace(expr: &Expression, ctx: &EvalContext, trace: &mut Vec<String>) -> EvalOutcome {
     for rule in &expr.rules {
         match graph::eval(&rule.when, ctx) {
             Ok(true) => {
@@ -694,10 +662,7 @@ pub fn eval_expression_with_trace(
             // 不成立：不记 trace（否则 16 条规则会把日志刷满，§3.6 第 2 行标的就是「可选，debug 级」）
             Ok(false) => {}
             // 出错 ≠ 失败：按「不成立」处理继续下一条，但必须留痕（S4 失败不静默）
-            Err(error) => trace.push(format!(
-                "规则 {} 求值失败（{error}）→ 按不成立处理",
-                rule.id
-            )),
+            Err(error) => trace.push(format!("规则 {} 求值失败（{error}）→ 按不成立处理", rule.id)),
         }
     }
 
@@ -730,23 +695,20 @@ pub fn resolve_targets(targets: &[Target], ctx: &ResolveContext) -> ResolvedTarg
             Target::User { user_ids } => resolved
                 .targets
                 .push(ResolvedTarget::Plan(SourcePlan::Users(user_ids.clone()))),
-            Target::Role { role_codes } => resolved
-                .targets
-                .push(ResolvedTarget::RoleCodes(role_codes.clone())),
+            Target::Role { role_codes } => resolved.targets.push(ResolvedTarget::RoleCodes(role_codes.clone())),
             Target::DeptLeader { dept_ids } => {
                 let ids: Vec<Uuid> = if dept_ids.is_empty() {
                     match ctx.initiator_dept_id {
                         Some(dept_id) => {
-                            resolved.notes.push(format!(
-                                "DEPT_LEADER 未指定部门 → 按发起人部门 {dept_id} 解析"
-                            ));
+                            resolved
+                                .notes
+                                .push(format!("DEPT_LEADER 未指定部门 → 按发起人部门 {dept_id} 解析"));
                             vec![dept_id]
                         }
                         None => {
-                            resolved.notes.push(
-                                "DEPT_LEADER 未指定部门且发起人没有部门 → 该来源解析 0 人"
-                                    .to_string(),
-                            );
+                            resolved
+                                .notes
+                                .push("DEPT_LEADER 未指定部门且发起人没有部门 → 该来源解析 0 人".to_string());
                             Vec::new()
                         }
                     }
@@ -757,43 +719,23 @@ pub fn resolve_targets(targets: &[Target], ctx: &ResolveContext) -> ResolvedTarg
                     .targets
                     .push(ResolvedTarget::Plan(SourcePlan::DeptLeaders(ids)));
             }
-            Target::Initiator => resolved
-                .targets
-                .push(ResolvedTarget::Plan(SourcePlan::Initiator)),
+            Target::Initiator => resolved.targets.push(ResolvedTarget::Plan(SourcePlan::Initiator)),
             Target::InitiatorSuperior { levels } => resolved
                 .targets
                 .push(ResolvedTarget::Plan(SourcePlan::InitiatorSuperior(*levels))),
-            Target::TaskOwner => {
-                resolved
-                    .targets
-                    .push(ResolvedTarget::Plan(SourcePlan::TaskParty(
-                        TaskParty::Owner,
-                    )))
-            }
-            Target::TaskCreator => {
-                resolved
-                    .targets
-                    .push(ResolvedTarget::Plan(SourcePlan::TaskParty(
-                        TaskParty::Creator,
-                    )))
-            }
-            Target::TaskAssigner => {
-                resolved
-                    .targets
-                    .push(ResolvedTarget::Plan(SourcePlan::TaskParty(
-                        TaskParty::Assigner,
-                    )))
-            }
-            Target::FormVar { form_var_key } => {
-                resolved
-                    .targets
-                    .push(ResolvedTarget::Plan(SourcePlan::FormVar(
-                        form_var_key.clone(),
-                    )))
-            }
-            Target::Admin => resolved
+            Target::TaskOwner => resolved
                 .targets
-                .push(ResolvedTarget::Plan(SourcePlan::Admins)),
+                .push(ResolvedTarget::Plan(SourcePlan::TaskParty(TaskParty::Owner))),
+            Target::TaskCreator => resolved
+                .targets
+                .push(ResolvedTarget::Plan(SourcePlan::TaskParty(TaskParty::Creator))),
+            Target::TaskAssigner => resolved
+                .targets
+                .push(ResolvedTarget::Plan(SourcePlan::TaskParty(TaskParty::Assigner))),
+            Target::FormVar { form_var_key } => resolved
+                .targets
+                .push(ResolvedTarget::Plan(SourcePlan::FormVar(form_var_key.clone()))),
+            Target::Admin => resolved.targets.push(ResolvedTarget::Plan(SourcePlan::Admins)),
         }
     }
     resolved
@@ -942,11 +884,7 @@ mod tests {
                     cmp("form.amount", "gt", json!(10000)),
                     json!([role(&["FINANCE_DIRECTOR"])]),
                 ),
-                rule(
-                    "r_second",
-                    cmp("task.priority", "eq", json!("P0")),
-                    json!([admin()]),
-                ),
+                rule("r_second", cmp("task.priority", "eq", json!("P0")), json!([admin()])),
             ],
             None,
         ));
@@ -1048,11 +986,7 @@ mod tests {
     fn e_t07_missing_treated_as_false() {
         let expr = parse(expression(
             vec![
-                rule(
-                    "r1",
-                    cmp("form.not_filled", "eq", json!(1)),
-                    json!([admin()]),
-                ),
+                rule("r1", cmp("form.not_filled", "eq", json!(1)), json!([admin()])),
                 rule(
                     "r2",
                     cmp("form.amount", "gte", json!(1)),
@@ -1066,8 +1000,7 @@ mod tests {
         assert!(
             trace
                 .iter()
-                .any(|line| line
-                    .contains("规则 r1 求值失败（Missing: form.not_filled）→ 按不成立处理")),
+                .any(|line| line.contains("规则 r1 求值失败（Missing: form.not_filled）→ 按不成立处理")),
             "trace 必须点名缺失字段：{trace:?}"
         );
     }
@@ -1076,11 +1009,7 @@ mod tests {
     #[test]
     fn e_t08_type_mismatch_treated_as_false() {
         let expr = parse(expression(
-            vec![rule(
-                "r_num",
-                cmp("form.amount", "gt", json!(10000)),
-                json!([admin()]),
-            )],
+            vec![rule("r_num", cmp("form.amount", "gt", json!(10000)), json!([admin()]))],
             None,
         ));
         let (outcome, trace) = trace_of(&expr, &ctx_with(json!({ "amount": "12000" })));
@@ -1123,11 +1052,7 @@ mod tests {
     fn e_t10_is_null_and_not_null() {
         let ctx = ctx_with(json!({ "legal_flag": Value::Null }));
         let is_null = parse(expression(
-            vec![rule(
-                "r_null",
-                unary("form.legal_flag", "is_null"),
-                json!([admin()]),
-            )],
+            vec![rule("r_null", unary("form.legal_flag", "is_null"), json!([admin()]))],
             None,
         ));
         assert_eq!(eval_expression(&is_null, &ctx).rule_id(), Some("r_null"));
@@ -1259,10 +1184,7 @@ mod tests {
         for _ in 0..8 {
             deep = and(vec![deep]);
         }
-        let reason = parse_err(expression(
-            vec![rule("r_deep", deep, json!([admin()]))],
-            None,
-        ));
+        let reason = parse_err(expression(vec![rule("r_deep", deep, json!([admin()]))], None));
         assert!(reason.contains("嵌套层数超过 8 层"), "{reason}");
 
         // ④ 单条 when 65 节点（上限 64）
@@ -1414,12 +1336,7 @@ mod tests {
                 ResolvedTarget::Plan(SourcePlan::InitiatorSuperior(1)),
             ]
         );
-        assert!(
-            resolved
-                .notes
-                .iter()
-                .any(|note| note.contains("按发起人部门"))
-        );
+        assert!(resolved.notes.iter().any(|note| note.contains("按发起人部门")));
         assert_eq!(resolved.len(), 5);
 
         let resolved = resolve_targets(second.targets(), &ResolveContext::default());
@@ -1435,10 +1352,7 @@ mod tests {
         );
 
         // 未指定部门且发起人无部门 → 空部门列表（⇒ 该来源 0 人，走 empty_assignee）
-        let resolved = resolve_targets(
-            &[Target::DeptLeader { dept_ids: vec![] }],
-            &ResolveContext::default(),
-        );
+        let resolved = resolve_targets(&[Target::DeptLeader { dept_ids: vec![] }], &ResolveContext::default());
         assert_eq!(
             resolved.targets,
             vec![ResolvedTarget::Plan(SourcePlan::DeptLeaders(vec![]))]
@@ -1568,11 +1482,7 @@ mod tests {
         assert!(reason.contains("未知字段 extar"), "{reason}");
 
         let reason = parse_err(expression(
-            vec![rule(
-                "r1",
-                always(0),
-                json!([{ "type": "ADMIN", "user_ids": ["x"] }]),
-            )],
+            vec![rule("r1", always(0), json!([{ "type": "ADMIN", "user_ids": ["x"] }]))],
             None,
         ));
         assert!(reason.contains("未知字段 user_ids"), "{reason}");
@@ -1602,13 +1512,7 @@ mod tests {
             .iter()
             .map(|_| Candidate::new(same_person_id, "张三", AssigneeKind::Role))
             .collect();
-        let finalized = finalize(
-            candidates,
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let finalized = finalize(candidates, SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert_eq!(finalized.approvers.len(), 1, "同一人只留 1 行");
         assert!(finalized.notes.iter().any(|note| note.contains("已去重")));
 
@@ -1619,10 +1523,7 @@ mod tests {
         ));
         let outcome = eval_expression(&expr, &ctx_with(json!({ "amount": 1 })));
         let plans = resolve_targets(outcome.targets(), &ResolveContext::default());
-        assert_eq!(
-            plans.targets,
-            vec![ResolvedTarget::Plan(SourcePlan::Initiator)]
-        );
+        assert_eq!(plans.targets, vec![ResolvedTarget::Plan(SourcePlan::Initiator)]);
         let finalized = finalize(
             vec![Candidate::new(initiator, "我自己", AssigneeKind::Initiator)],
             SelfPolicy::Skip,
@@ -1634,31 +1535,13 @@ mod tests {
         assert!(finalized.auto_pass);
 
         // ③ 命中但 0 人 + empty_assignee 三态
-        let skip = finalize(
-            vec![],
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let skip = finalize(vec![], SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert!(skip.auto_pass);
         assert!(skip.error.is_none());
-        let error = finalize(
-            vec![],
-            SelfPolicy::Skip,
-            EmptyPolicy::Error,
-            false,
-            initiator,
-        );
+        let error = finalize(vec![], SelfPolicy::Skip, EmptyPolicy::Error, false, initiator);
         let api_error = error.error.expect("ERROR 策略必须给业务错误");
         assert_eq!(api_error.code, 65018);
-        let fallback = finalize(
-            vec![],
-            SelfPolicy::Skip,
-            EmptyPolicy::FallbackAdmin,
-            false,
-            initiator,
-        );
+        let fallback = finalize(vec![], SelfPolicy::Skip, EmptyPolicy::FallbackAdmin, false, initiator);
         assert!(fallback.fallback_admin);
 
         // ④ ROBOT 过滤：角色来源的机器人被过滤（留痕），显式 USER 来源放行
@@ -1675,13 +1558,7 @@ mod tests {
         assert!(filtered.notes.iter().any(|note| note.contains("机器人")));
         let mut explicit = robot;
         explicit.source = AssigneeKind::User;
-        let kept = finalize(
-            vec![explicit],
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let kept = finalize(vec![explicit], SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert_eq!(kept.approvers.len(), 1, "显式 USER 的机器人必须放行");
     }
 }

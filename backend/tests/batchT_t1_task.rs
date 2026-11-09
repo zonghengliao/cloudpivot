@@ -167,10 +167,7 @@ async fn cleanup() {
     }
     for one in [DEPT_R_SUB, DEPT_R, DEPT_M] {
         let _ = db()
-            .execute_with_params(
-                "DELETE FROM sys_dept WHERE id = ?::uuid",
-                vec![Value::from(&dept(one))],
-            )
+            .execute_with_params("DELETE FROM sys_dept WHERE id = ?::uuid", vec![Value::from(&dept(one))])
             .await;
     }
 }
@@ -258,12 +255,7 @@ async fn seed_org() {
 }
 
 /// 建一条测试任务（走 `model::create_task`，顺带验证编号生成）。
-async fn create_task(
-    owner: &str,
-    dept_id: &str,
-    title: &str,
-    due_date: Option<chrono::NaiveDate>,
-) -> (Uuid, String) {
+async fn create_task(owner: &str, dept_id: &str, title: &str, due_date: Option<chrono::NaiveDate>) -> (Uuid, String) {
     let id = Uuid::now_v7();
     let month = model::month_key(model::today_cst());
     let new = model::NewTask {
@@ -296,9 +288,9 @@ async fn create_task(
 
 /// 把任务拉个协作人（模拟「跨部门协作」）。
 async fn add_collaborator(task_id: Uuid, user: &str) {
-    db().transaction(|tx| async move {
-        model::add_member(&tx, task_id, uuid(user), "COLLABORATOR", uuid(U_OTHER)).await
-    })
+    db().transaction(
+        |tx| async move { model::add_member(&tx, task_id, uuid(user), "COLLABORATOR", uuid(U_OTHER)).await },
+    )
     .await
     .expect("加协作人");
 }
@@ -366,10 +358,7 @@ async fn visibility_four_scenarios() {
     let emp = visible_ids(U_EMP).await;
     println!("[a] 普通员工可见 {} 条：{:?}", emp.len(), emp);
     assert!(emp.contains(&s.t1), "普通员工必须看到自己负责的任务 T1");
-    assert!(
-        !emp.contains(&s.t2),
-        "普通员工看不到同部门主管的任务（SELF 范围）"
-    );
+    assert!(!emp.contains(&s.t2), "普通员工看不到同部门主管的任务（SELF 范围）");
     assert!(!emp.contains(&s.t3) && !emp.contains(&s.t4) && !emp.contains(&s.t5));
     assert_eq!(emp.len(), 1, "普通员工应恰好看到 1 条（自己的）");
 
@@ -410,10 +399,7 @@ async fn visibility_four_scenarios() {
         assert!(super_ids.contains(&id), "超管必须看到全部 5 条夹具任务");
     }
     let total_in_db: i64 = db()
-        .scalar_with_params(
-            "SELECT count(*) AS n FROM biz_task WHERE deleted_at IS NULL",
-            vec![],
-        )
+        .scalar_with_params("SELECT count(*) AS n FROM biz_task WHERE deleted_at IS NULL", vec![])
         .await
         .expect("统计任务总数");
     assert_eq!(
@@ -490,22 +476,16 @@ async fn crud_roundtrip() {
     };
     let task_no = {
         let month = month.clone();
-        db().transaction(
-            |tx| async move { model::create_task(&tx, &new, uuid(U_EMP), &month).await },
-        )
-        .await
-        .expect("新建任务")
+        db().transaction(|tx| async move { model::create_task(&tx, &new, uuid(U_EMP), &month).await })
+            .await
+            .expect("新建任务")
     };
 
     // 创建后的默认值（状态 TODO / 进度 0 / 负责人自己 / 部门快照）
     let created = model::find_raw(id).await.expect("查询").expect("任务存在");
     println!(
         "[CRUD] 新建：task_no={task_no} status={} progress={} owner={} dept={:?} due={:?}",
-        created.card.status,
-        created.card.progress,
-        created.card.owner_id,
-        created.card.dept_id,
-        created.card.due_date
+        created.card.status, created.card.progress, created.card.owner_id, created.card.dept_id, created.card.due_date
     );
     assert_eq!(created.card.status, "TODO");
     assert_eq!(created.card.progress, 0);
@@ -532,10 +512,7 @@ async fn crud_roundtrip() {
     assert_eq!(updated.card.title, "T1自测-CRUD-改后标题");
     assert_eq!(updated.card.priority, "P0");
     assert!(updated.card.need_review);
-    assert_eq!(
-        updated.card.due_date,
-        Some(today + chrono::Duration::days(7))
-    );
+    assert_eq!(updated.card.due_date, Some(today + chrono::Duration::days(7)));
     println!(
         "[CRUD] 编辑后：title={} priority={} need_review={} due={:?}",
         updated.card.title, updated.card.priority, updated.card.need_review, updated.card.due_date
@@ -590,13 +567,7 @@ async fn task_no_is_unique_and_increasing() {
     let month = model::month_key(today);
     let mut numbers = Vec::new();
     for index in 1..=5 {
-        let (_, task_no) = create_task(
-            U_EMP,
-            DEPT_R_SUB,
-            &format!("T1自测-编号-{index}"),
-            Some(today),
-        )
-        .await;
+        let (_, task_no) = create_task(U_EMP, DEPT_R_SUB, &format!("T1自测-编号-{index}"), Some(today)).await;
         numbers.push(task_no);
     }
     println!("[编号] 连续创建 5 条：{numbers:?}");
@@ -634,8 +605,7 @@ async fn task_no_is_unique_and_increasing() {
     db().transaction(|tx| async move { model::soft_delete(&tx, victim, uuid(U_EMP)).await })
         .await
         .expect("软删");
-    let (_, after_delete) =
-        create_task(U_EMP, DEPT_R_SUB, "T1自测-编号-软删之后", Some(today)).await;
+    let (_, after_delete) = create_task(U_EMP, DEPT_R_SUB, "T1自测-编号-软删之后", Some(today)).await;
     let after_seq: i64 = after_delete
         .rsplit('-')
         .next()
@@ -804,10 +774,7 @@ async fn my_buckets_and_overdue_scan() {
         overdue.iter().any(|row| row.id == overdue_id),
         "逾期扫描必须命中过期任务"
     );
-    assert!(
-        !overdue.iter().any(|row| row.id == today_id),
-        "今日到期不算逾期"
-    );
+    assert!(!overdue.iter().any(|row| row.id == today_id), "今日到期不算逾期");
 
     cleanup().await;
 }

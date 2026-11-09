@@ -19,19 +19,11 @@ use nik::uuid::Uuid;
 /// 所以这里**批到终态**并断言实例真的 `APPROVED`。
 #[cfg(test)]
 pub(super) async fn approve_flow_instance(instance_id: Uuid) {
-    let outs =
-        crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意").await;
-    assert!(
-        !outs.is_empty(),
-        "审批通过前必须有 PENDING 待办（实例 {instance_id}）"
-    );
+    let outs = crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意").await;
+    assert!(!outs.is_empty(), "审批通过前必须有 PENDING 待办（实例 {instance_id}）");
     for out in outs {
         // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
-        crate::business::flow::task_bridge::on_transfer_settled(
-            out.instance_id,
-            &out.instance_status,
-        )
-        .await;
+        crate::business::flow::task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     }
     crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
 }

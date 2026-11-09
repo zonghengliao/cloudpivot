@@ -234,8 +234,7 @@ mod tests {
 
     /// 单测用主密钥（**非真实密钥**）。
     fn test_key() -> MasterKey {
-        MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-            .expect("测试主密钥应合法")
+        MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").expect("测试主密钥应合法")
     }
 
     /// 正常路径：加密 → 解密往返一致，且密文与 nonce 都不是明文。
@@ -245,10 +244,7 @@ mod tests {
         let (cipher, nonce) = encrypt(&key, "CPAKFixtureTestValue").expect("加密应成功");
         assert_ne!(cipher, "CPAKFixtureTestValue");
         assert!(!cipher.contains("CPAKFixture"));
-        assert_eq!(
-            decrypt(&key, &cipher, &nonce).as_deref(),
-            Some("CPAKFixtureTestValue")
-        );
+        assert_eq!(decrypt(&key, &cipher, &nonce).as_deref(), Some("CPAKFixtureTestValue"));
     }
 
     /// 边界：同一明文两次加密必须得到不同密文（nonce 随机）。
@@ -273,30 +269,21 @@ mod tests {
         let mut tampered: Vec<char> = cipher.chars().collect();
         tampered[0] = if tampered[0] == 'A' { 'B' } else { 'A' };
         let tampered: String = tampered.into_iter().collect();
-        assert_eq!(
-            decrypt(&key, &tampered, &nonce),
-            None,
-            "篡改密文必须解密失败"
-        );
+        assert_eq!(decrypt(&key, &tampered, &nonce), None, "篡改密文必须解密失败");
 
         // 篡改 nonce：GCM 认证同样失败
         let mut nonce_chars: Vec<char> = nonce.chars().collect();
         nonce_chars[0] = if nonce_chars[0] == 'A' { 'B' } else { 'A' };
         let bad_nonce: String = nonce_chars.into_iter().collect();
-        assert_eq!(
-            decrypt(&key, &cipher, &bad_nonce),
-            None,
-            "篡改 nonce 必须失败"
-        );
+        assert_eq!(decrypt(&key, &cipher, &bad_nonce), None, "篡改 nonce 必须失败");
     }
 
     /// 错误分支：换一把主密钥必须解不开（密钥轮换的语义基础）。
     #[test]
     fn crypto_wrong_key_rejected() {
         let key = test_key();
-        let other =
-            MasterKey::parse("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
-                .expect("测试主密钥应合法");
+        let other = MasterKey::parse("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
+            .expect("测试主密钥应合法");
         let (cipher, nonce) = encrypt(&key, "another-secret").expect("加密应成功");
         assert_eq!(decrypt(&other, &cipher, &nonce), None);
     }

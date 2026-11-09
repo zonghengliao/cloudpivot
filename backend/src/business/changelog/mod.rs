@@ -80,9 +80,7 @@ use nik::uuid::Uuid;
 
 use crate::shared::error_code;
 
-pub use dto::{
-    Action, ChangeCtx, ChangeTarget, DiffInput, OperatorType, RecordOutcome, TraceSource,
-};
+pub use dto::{Action, ChangeCtx, ChangeTarget, DiffInput, OperatorType, RecordOutcome, TraceSource};
 pub use model::NewChangeLog;
 
 /// 允许的时钟偏斜：`occurred_at` 最多可以领先「现在」这么多，再多就是未来时间。
@@ -361,8 +359,7 @@ mod tests {
     fn preflight_tolerates_small_skew() {
         let target = ChangeTarget::of("sys_user", "u-1", Action::Update, "修改用户");
         let soon = chrono::Utc::now() + chrono::Duration::minutes(1);
-        let (_, created_at) =
-            preflight(&ctx().with_occurred_at(Some(soon)), &target).expect("1 分钟偏斜应放行");
+        let (_, created_at) = preflight(&ctx().with_occurred_at(Some(soon)), &target).expect("1 分钟偏斜应放行");
         assert_eq!(created_at, soon, "显式传入的发生时刻必须原样使用");
     }
 
@@ -370,8 +367,8 @@ mod tests {
     #[test]
     fn action_and_source_codes_match_ddl() {
         let ddl_actions = [
-            "CREATE", "UPDATE", "DELETE", "STATUS", "ASSIGN", "PUBLISH", "OFFLINE", "UPLOAD",
-            "DOWNLOAD", "CLEAN", "LOGIN",
+            "CREATE", "UPDATE", "DELETE", "STATUS", "ASSIGN", "PUBLISH", "OFFLINE", "UPLOAD", "DOWNLOAD", "CLEAN",
+            "LOGIN",
         ];
         assert_eq!(Action::ALL.len(), ddl_actions.len());
         for action in Action::ALL {

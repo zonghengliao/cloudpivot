@@ -49,21 +49,15 @@ async fn non_base_unit_item_is_rejected() {
     )
     .await;
     assert_eq!(
-        heads
-            .first()
-            .map(|row| row.get_typed::<i64>("cnt").unwrap()),
+        heads.first().map(|row| row.get_typed::<i64>("cnt").unwrap()),
         Some(0),
         "被拒的调拨单不许留下单头"
     );
 
     // 对照组：基本单位物料照常建单（同一夹具、同一请求形状）
-    create_transfer(
-        &body(vec![item(M_PLAIN, "1")]),
-        Some(uuid(U_APPLICANT)),
-        None,
-    )
-    .await
-    .unwrap();
+    create_transfer(&body(vec![item(M_PLAIN, "1")]), Some(uuid(U_APPLICANT)), None)
+        .await
+        .unwrap();
 }
 
 // ---------- ① 建单：DRAFT + 单号格式 ----------
@@ -98,13 +92,7 @@ async fn create_returns_draft_with_card_no_format() {
         .expect("查调拨单状态轨迹");
     let seen: Vec<String> = trail
         .iter()
-        .map(|log| {
-            format!(
-                "{}→{}",
-                log.from_status.as_deref().unwrap_or("NULL"),
-                log.to_status
-            )
-        })
+        .map(|log| format!("{}→{}", log.from_status.as_deref().unwrap_or("NULL"), log.to_status))
         .collect();
     assert_eq!(seen, vec!["NULL→DRAFT".to_string()], "轨迹：{seen:?}");
     assert_eq!(trail[0].entity_type, state_machine::ENTITY_TRANSFER);
@@ -250,11 +238,7 @@ async fn d9_transfer_copy_keeps_header_and_items_but_resets_state() {
     let copied = refresh(new_id).await;
     assert_ne!(copied.id, origin.id);
     assert_ne!(copied.transfer_no, origin.transfer_no, "单号必须是新的");
-    assert!(
-        copied.transfer_no.starts_with("TK-"),
-        "{}",
-        copied.transfer_no
-    );
+    assert!(copied.transfer_no.starts_with("TK-"), "{}", copied.transfer_no);
     assert_eq!(copied.status, STATUS_DRAFT, "复制出来的必须是草稿");
     assert_eq!(copied.from_warehouse_id, origin.from_warehouse_id);
     assert_eq!(copied.to_warehouse_id, origin.to_warehouse_id);
@@ -293,14 +277,8 @@ async fn d9_transfer_copy_keeps_header_and_items_but_resets_state() {
     let origin_after = refresh(origin_id).await;
     assert_eq!(origin_after.status, STATUS_PENDING);
     assert_eq!(origin_after.transfer_no, origin.transfer_no);
-    assert_eq!(
-        origin_after.approval_instance_id,
-        origin.approval_instance_id
-    );
-    assert_eq!(
-        origin_after.updated_at, origin.updated_at,
-        "原单 updated_at 不许变"
-    );
+    assert_eq!(origin_after.approval_instance_id, origin.approval_instance_id);
+    assert_eq!(origin_after.updated_at, origin.updated_at, "原单 updated_at 不许变");
 }
 
 /// ④b 复制不带建单权限 → 403；权限码必须与建单同一个。
@@ -310,13 +288,9 @@ async fn d9_transfer_copy_requires_create_permission() {
         return;
     };
     assert_eq!(COPY_PERMISSION, "business:erp:transfer:create");
-    let origin_id = create_transfer(
-        &body(vec![item(M_PLAIN, "1")]),
-        Some(uuid(U_APPLICANT)),
-        None,
-    )
-    .await
-    .expect("建单应成功");
+    let origin_id = create_transfer(&body(vec![item(M_PLAIN, "1")]), Some(uuid(U_APPLICANT)), None)
+        .await
+        .expect("建单应成功");
     let err = copy_transfer(origin_id, &copy_claims(&["business:erp:transfer:list"]))
         .await
         .expect_err("没有建单权限必须 403");

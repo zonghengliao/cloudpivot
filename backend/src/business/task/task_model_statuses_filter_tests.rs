@@ -125,14 +125,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 
 /// 全可见范围（超管 + `All`）：只验证 `statuses` 本身，不掺数据权限。
 fn principal() -> ScopedPrincipal {
-    ScopedPrincipal::for_test(
-        uuid(U_ID),
-        None,
-        true,
-        scope::ScopeKind::All,
-        Vec::new(),
-        false,
-    )
+    ScopedPrincipal::for_test(uuid(U_ID), None, true, scope::ScopeKind::All, Vec::new(), false)
 }
 
 /// 夹具关键词：标题以 `T9A ` 开头、任务号以 `T9A-` 开头。
@@ -153,20 +146,12 @@ fn filter(statuses: Option<Vec<&str>>, status: Option<&str>, root_only: bool) ->
 
 /// 断言分页结果恰好是这些任务（忽略顺序）。
 fn assert_ids(page: &VisiblePage, expected: &[&str]) {
-    let mut got = page
-        .list
-        .iter()
-        .map(|row| row.id.to_string())
-        .collect::<Vec<_>>();
+    let mut got = page.list.iter().map(|row| row.id.to_string()).collect::<Vec<_>>();
     got.sort();
     let mut want = expected.iter().map(|id| id.to_string()).collect::<Vec<_>>();
     want.sort();
     assert_eq!(got, want, "返回的任务集合不对（total={}）", page.total);
-    assert_eq!(
-        page.total as usize,
-        expected.len(),
-        "total 与 list 必须同口径"
-    );
+    assert_eq!(page.total as usize, expected.len(), "total 与 list 必须同口径");
 }
 
 // ---------- ① 纯逻辑：IN 子句的占位符个数与参数顺序 ----------
@@ -186,11 +171,7 @@ fn statuses_builds_in_clause_with_ordered_params() {
         &mut params,
     );
     assert_eq!(sql, " AND t.status IN (?,?)", "IN 子句形态不对：{sql}");
-    assert_eq!(
-        sql.matches('?').count(),
-        list.len(),
-        "占位符个数必须等于状态个数"
-    );
+    assert_eq!(sql.matches('?').count(), list.len(), "占位符个数必须等于状态个数");
     assert_eq!(params.len(), 2, "每个状态一个绑定参数");
     // 参数必须按 statuses 顺序逐个 push（顺序错 = 静默绑错值）
     let texts = params.iter().map(|v| format!("{v:?}")).collect::<Vec<_>>();
@@ -237,10 +218,7 @@ fn statuses_wins_over_single_status() {
         },
         &mut params,
     );
-    assert_eq!(
-        sql, " AND t.status IN (?)",
-        "statuses 必须盖住单值 status：{sql}"
-    );
+    assert_eq!(sql, " AND t.status IN (?)", "statuses 必须盖住单值 status：{sql}");
     assert_eq!(params.len(), 1);
     let got = format!("{:?}", params[0]);
     assert!(
@@ -280,9 +258,7 @@ fn statuses_keeps_param_order_with_other_filters() {
     let pos_in = sql.find(" AND t.status IN (?,?)").expect("IN 片段");
     let pos_prio = sql.find(" AND t.priority = ?").expect("priority 片段");
     let pos_kw = sql.find(" AND (t.title ILIKE ?").expect("keyword 片段");
-    let pos_root = sql
-        .find(" AND t.parent_id IS NULL")
-        .expect("root_only 片段");
+    let pos_root = sql.find(" AND t.parent_id IS NULL").expect("root_only 片段");
     assert!(
         pos_in < pos_prio && pos_prio < pos_kw && pos_kw < pos_root,
         "片段顺序必须与参数 push 顺序一致：{sql}"
@@ -296,14 +272,9 @@ async fn page_returns_only_selected_statuses() {
         Some(guard) => guard,
         None => return,
     };
-    let page = page_visible(
-        &principal(),
-        &filter(Some(vec!["TODO", "DOING"]), None, false),
-        1,
-        50,
-    )
-    .await
-    .expect("分页查询失败");
+    let page = page_visible(&principal(), &filter(Some(vec!["TODO", "DOING"]), None, false), 1, 50)
+        .await
+        .expect("分页查询失败");
     // TODO 顶层 + DOING 顶层 + DOING 子任务 = 3
     assert_ids(&page, &[T_TODO, T_DOING, T_CHILD]);
     assert!(
@@ -321,14 +292,9 @@ async fn single_statuses_equals_legacy_status() {
         Some(guard) => guard,
         None => return,
     };
-    let multi = page_visible(
-        &principal(),
-        &filter(Some(vec!["DONE"]), None, false),
-        1,
-        50,
-    )
-    .await
-    .expect("statuses 分页失败");
+    let multi = page_visible(&principal(), &filter(Some(vec!["DONE"]), None, false), 1, 50)
+        .await
+        .expect("statuses 分页失败");
     let legacy = page_visible(&principal(), &filter(None, Some("DONE"), false), 1, 50)
         .await
         .expect("status 分页失败");
@@ -349,23 +315,13 @@ async fn statuses_combines_with_root_only() {
         None => return,
     };
     // 不带 root_only：TODO + DOING 三行（含 DOING 子任务）
-    let all = page_visible(
-        &principal(),
-        &filter(Some(vec!["TODO", "DOING"]), None, false),
-        1,
-        50,
-    )
-    .await
-    .expect("分页失败");
+    let all = page_visible(&principal(), &filter(Some(vec!["TODO", "DOING"]), None, false), 1, 50)
+        .await
+        .expect("分页失败");
     // 带 root_only：子任务被排除，只剩两个顶层
-    let roots = page_visible(
-        &principal(),
-        &filter(Some(vec!["TODO", "DOING"]), None, true),
-        1,
-        50,
-    )
-    .await
-    .expect("分页失败");
+    let roots = page_visible(&principal(), &filter(Some(vec!["TODO", "DOING"]), None, true), 1, 50)
+        .await
+        .expect("分页失败");
     assert_eq!(all.total, 3, "不带 root_only 时含 DOING 子任务");
     assert_ids(&roots, &[T_TODO, T_DOING]);
     assert!(

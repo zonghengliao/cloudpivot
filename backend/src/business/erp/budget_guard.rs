@@ -159,9 +159,7 @@ impl ControlMode {
 
     /// 槽级 `control_mode` 为空时继承全局（ARCH-6 §3.2.1 的 `NULL` 语义）。
     pub fn resolve(slot_mode: Option<&str>, global_mode: ControlMode) -> ControlMode {
-        slot_mode
-            .and_then(ControlMode::parse)
-            .unwrap_or(global_mode)
+        slot_mode.and_then(ControlMode::parse).unwrap_or(global_mode)
     }
 
     /// 是否「真的校验」（`OFF` 不校验也不占用）。
@@ -257,11 +255,7 @@ pub fn period_end_of(period_code: &str) -> Option<NaiveDate> {
     if !(1..=12).contains(&month) {
         return None;
     }
-    let (next_year, next_month) = if month == 12 {
-        (year + 1, 1)
-    } else {
-        (year, month + 1)
-    };
+    let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
     NaiveDate::from_ymd_opt(next_year, next_month, 1)?.pred_opt()
 }
 
@@ -363,9 +357,7 @@ impl BudgetVerdict {
     /// 未编预算仍然照常提交（只标记 `missing_budget`），所以默认配置的业务不受影响。
     /// 0 元单永远不拦（没有钱发生，拦它只会挡住冲销/补录类草稿）。
     pub fn blocks(&self) -> bool {
-        self.mode == ControlMode::Block
-            && self.this_amount > Decimal::ZERO
-            && (self.over || self.missing_budget)
+        self.mode == ControlMode::Block && self.this_amount > Decimal::ZERO && (self.over || self.missing_budget)
     }
 
     /// 一句话结论（日志 / 409 报文 / 审批备注共用，避免三处各写一套文案）。
@@ -375,10 +367,7 @@ impl BudgetVerdict {
         } else if self.over {
             format!("超出预算（超支 {}）", self.over_amount())
         } else {
-            format!(
-                "预算内（剩余 {}）",
-                self.year_available().min(self.month_available())
-            )
+            format!("预算内（剩余 {}）", self.year_available().min(self.month_available()))
         };
         format!(
             "{head}：本次 {} ｜ 年度 额度 {} / 已用 {} / 可用 {} ｜ 月度 额度 {} / 已用 {} / 可用 {} ｜ 策略 {}（{}）",
@@ -415,8 +404,7 @@ pub async fn global_mode(ex: &impl SqlExecutor) -> DbResult<ControlMode> {
     // SCOPE-EXEMPT: 全局配置读 1 行，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT config_value FROM sys_config WHERE config_key = ? AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT config_value FROM sys_config WHERE config_key = ? AND deleted_at IS NULL".to_string(),
             vec![Value::Text(CONFIG_CONTROL_MODE.to_string())],
         )
         .await?;
@@ -424,10 +412,7 @@ pub async fn global_mode(ex: &impl SqlExecutor) -> DbResult<ControlMode> {
         None => None,
         Some(row) => Some(row.get_typed("config_value")?),
     };
-    Ok(raw
-        .as_deref()
-        .and_then(ControlMode::parse)
-        .unwrap_or(ControlMode::Warn))
+    Ok(raw.as_deref().and_then(ControlMode::parse).unwrap_or(ControlMode::Warn))
 }
 
 /// 采购提交是否做预算校验（`erp.budget.enforce_on_po`，缺省 true）。
@@ -435,8 +420,7 @@ pub async fn enforce_on_po(ex: &impl SqlExecutor) -> DbResult<bool> {
     // SCOPE-EXEMPT: 同上，全局开关 1 行。
     let rows = ex
         .query_sql(
-            "SELECT config_value FROM sys_config WHERE config_key = ? AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT config_value FROM sys_config WHERE config_key = ? AND deleted_at IS NULL".to_string(),
             vec![Value::Text(CONFIG_ENFORCE_ON_PO.to_string())],
         )
         .await?;
@@ -459,9 +443,7 @@ pub async fn enforce_on_po(ex: &impl SqlExecutor) -> DbResult<bool> {
 /// 额度按 0 处理 —— 否则「审批通过次月 1 日生效」形同虚设（11 月单据被 12 月额度管）。
 pub async fn slot_snapshot(ex: &impl SqlExecutor, slot: &Slot) -> DbResult<SlotSnapshot> {
     // ① 最新 ACTIVE 版本（槽级唯一索引保证最多 1 行；`effective_from` 未到 → 视为没有预算）
-    let period_end = slot
-        .period_end_text()
-        .unwrap_or_else(|| "9999-12-31".to_string());
+    let period_end = slot.period_end_text().unwrap_or_else(|| "9999-12-31".to_string());
     let active = ex
         .query_sql(
             "SELECT id, total_amount::text AS total_amount \
@@ -606,10 +588,7 @@ pub async fn occupy(
     snapshot: &SlotSnapshot,
     operator: Option<Uuid>,
 ) -> DbResult<Option<Uuid>> {
-    let budget_id = snapshot
-        .budget_id
-        .map(|id| id.to_string())
-        .unwrap_or_default();
+    let budget_id = snapshot.budget_id.map(|id| id.to_string()).unwrap_or_default();
     // ① 复用：同键的 RELEASED 行拉回 OCCUPIED（撤回 / 驳回后重新提交）。
     let revived = ex
         .query_first_sql(
@@ -689,12 +668,7 @@ pub async fn occupy(
 }
 
 /// 释放某张单据的全部占用（驳回 / 撤回 / 取消 / 作废）。**只改状态，不删行**（留痕）。
-pub async fn release(
-    ex: &impl SqlExecutor,
-    source_type: &str,
-    source_id: Uuid,
-    reason: &str,
-) -> DbResult<u64> {
+pub async fn release(ex: &impl SqlExecutor, source_type: &str, source_id: Uuid, reason: &str) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE biz_budget_usage \
             SET status = 'RELEASED', released_at = now(), release_reason = ?, updated_at = now() \
@@ -733,11 +707,7 @@ pub async fn consume(
 }
 
 /// 某张单据当前的占用快照（详情页 / 测试用）。
-pub async fn usages_of(
-    ex: &impl SqlExecutor,
-    source_type: &str,
-    source_id: Uuid,
-) -> DbResult<Vec<UsageRow>> {
+pub async fn usages_of(ex: &impl SqlExecutor, source_type: &str, source_id: Uuid) -> DbResult<Vec<UsageRow>> {
     let rows = ex
         .query_sql(
             "SELECT id, dept_id, account_id, fiscal_year, period_code, amount::text AS amount, \
@@ -747,10 +717,7 @@ pub async fn usages_of(
               WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL \
               ORDER BY created_at"
                 .to_string(),
-            vec![
-                Value::Text(source_type.to_string()),
-                Value::from(&source_id),
-            ],
+            vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
         )
         .await?;
     rows.iter().map(UsageRow::from_row).collect()
@@ -867,10 +834,7 @@ pub fn period_label(period_code: &str) -> String {
 
 /// 落库用的超支额文本：**没超支 → 空串**（SQL 侧 `NULLIF(?,'')` 转 `NULL`）。
 fn over_amount_text(verdict: &BudgetVerdict) -> String {
-    verdict
-        .over_amount_opt()
-        .map(amount_text)
-        .unwrap_or_default()
+    verdict.over_amount_opt().map(amount_text).unwrap_or_default()
 }
 
 fn truncate(text: &str, max: usize) -> String {
@@ -941,8 +905,7 @@ pub async fn check_for_purchase(
             account_id: None,
             slot: None,
             verdict: None,
-            reason: "erp.budget.enforce_on_po = false：采购提交不做预算校验、不占用预算"
-                .to_string(),
+            reason: "erp.budget.enforce_on_po = false：采购提交不做预算校验、不占用预算".to_string(),
         });
     }
     // 部门：提交人部门优先，缺失时退回制单人部门
@@ -961,9 +924,7 @@ pub async fn check_for_purchase(
             account_id: None,
             slot: None,
             verdict: None,
-            reason:
-                "提交人 / 制单人都没有部门：无法定位预算槽，本单不占用预算（请在用户资料里补部门）"
-                    .to_string(),
+            reason: "提交人 / 制单人都没有部门：无法定位预算槽，本单不占用预算（请在用户资料里补部门）".to_string(),
         });
     };
     // 物料：取明细第一行（多物料按金额占比拆是 v2 的事，ARCH-6 §3.2.5 的 ① 命中即可）
@@ -1038,9 +999,7 @@ pub async fn check_for_purchase(
 /// 既不提供额度、也不提供槽级策略 —— 否则「12 月才生效的 BLOCK 预算」会拦 11 月的单据。
 pub async fn active_control_mode(ex: &impl SqlExecutor, slot: &Slot) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: 槽级精确查询，返回 0..1 行的单列。
-    let period_end = slot
-        .period_end_text()
-        .unwrap_or_else(|| "9999-12-31".to_string());
+    let period_end = slot.period_end_text().unwrap_or_else(|| "9999-12-31".to_string());
     let rows = ex
         .query_sql(
             "SELECT control_mode FROM biz_budget \
@@ -1147,10 +1106,7 @@ pub async fn pending_budgets(
             continue;
         }
         // 同一科目只提示最相关的一条（同科目多版本时取版本号最大那行 —— SQL 已按其倒序）。
-        if out
-            .iter()
-            .any(|item: &PendingBudget| item.account_id == account_id)
-        {
+        if out.iter().any(|item: &PendingBudget| item.account_id == account_id) {
             continue;
         }
         out.push(PendingBudget {
@@ -1203,15 +1159,11 @@ pub fn pending_warnings(pending: &[PendingBudget], period_code: &str) -> Vec<Bud
 ///
 /// `pub(crate)`：采购申请（P2-02）的预算判定要不重写一遍同样的取数口径 ——
 /// 两个入口对「物料类型」的理解必须同源，否则同一个物料在申请与下单时命中不同科目。
-pub(crate) async fn material_type_code_of(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-) -> DbResult<Option<String>> {
+pub(crate) async fn material_type_code_of(ex: &impl SqlExecutor, material_id: Uuid) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: 按主键取 1 行的单列。
     let rows = ex
         .query_sql(
-            "SELECT material_type FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT material_type FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&material_id)],
         )
         .await?;
@@ -1338,22 +1290,11 @@ impl ExpenseSlotCheck {
                 amount_text(self.amount)
             );
         }
-        let (gate, used, limit, gap) =
-            if verdict.month_gap >= verdict.year_gap && verdict.month_gap > Decimal::ZERO {
-                (
-                    "月度",
-                    verdict.month_used,
-                    verdict.month_limit,
-                    verdict.month_gap,
-                )
-            } else {
-                (
-                    "年度",
-                    verdict.year_used,
-                    verdict.year_limit,
-                    verdict.year_gap,
-                )
-            };
+        let (gate, used, limit, gap) = if verdict.month_gap >= verdict.year_gap && verdict.month_gap > Decimal::ZERO {
+            ("月度", verdict.month_used, verdict.month_limit, verdict.month_gap)
+        } else {
+            ("年度", verdict.year_used, verdict.year_limit, verdict.year_gap)
+        };
         format!(
             "科目「{}」{period}：{} {}（{}），{gate}已用 {} / {gate}预算 {}，本次 {}，超支 {}",
             self.account_label(),
@@ -1402,11 +1343,7 @@ impl ExpenseBudget {
 
     /// 触发阻断的槽（`BLOCK` + 真超支），按超支额降序（报文最严重的排第一）。
     pub fn blocking_checks(&self) -> Vec<&ExpenseSlotCheck> {
-        let mut blocking: Vec<&ExpenseSlotCheck> = self
-            .checks
-            .iter()
-            .filter(|check| check.verdict.blocks())
-            .collect();
+        let mut blocking: Vec<&ExpenseSlotCheck> = self.checks.iter().filter(|check| check.verdict.blocks()).collect();
         blocking.sort_by(|a, b| {
             b.verdict
                 .over_amount()
@@ -1436,11 +1373,7 @@ impl ExpenseBudget {
 
     /// 409 报文的第一句：**超支**和**未编制预算**是两种不同的拒绝理由，别混着说。
     pub fn block_headline(&self) -> &'static str {
-        if self
-            .blocking_checks()
-            .iter()
-            .any(|check| check.verdict.over)
-        {
+        if self.blocking_checks().iter().any(|check| check.verdict.over) {
             "超出预算额度"
         } else {
             "涉及的预算科目未编制（当前策略 BLOCK，不予放行）"
@@ -1552,12 +1485,8 @@ pub async fn check_for_expense(
     }
     // 文案只列**真正超支**的槽（逐槽说出「槽级策略 BLOCK」这类事实），
     // 「未编制预算」单独计数 —— 它是标记，不是超支（FIX-5）。
-    let over_checks: Vec<&ExpenseSlotCheck> =
-        checks.iter().filter(|check| check.verdict.over).collect();
-    let missing_slots = checks
-        .iter()
-        .filter(|check| check.verdict.missing_budget)
-        .count();
+    let over_checks: Vec<&ExpenseSlotCheck> = checks.iter().filter(|check| check.verdict.over).collect();
+    let missing_slots = checks.iter().filter(|check| check.verdict.missing_budget).count();
     let reason = if over_checks.is_empty() {
         if missing_slots > 0 {
             format!(
@@ -1574,9 +1503,7 @@ pub async fn check_for_expense(
             .collect::<Vec<_>>()
             .join("；");
         if missing_slots > 0 {
-            text.push_str(&format!(
-                "；另有 {missing_slots} 个预算槽未编制预算（不按超支处理）"
-            ));
+            text.push_str(&format!("；另有 {missing_slots} 个预算槽未编制预算（不按超支处理）"));
         }
         text
     };
@@ -1591,10 +1518,7 @@ pub async fn check_for_expense(
 
 /// 预算科目的编码 / 名称（409 报文用；科目表查不到就 `None`，不报错 ——
 /// 报文是附加信息，不能因为缺科目把提交拦掉）。
-async fn account_label_of(
-    ex: &impl SqlExecutor,
-    account_id: Uuid,
-) -> DbResult<(Option<String>, Option<String>)> {
+async fn account_label_of(ex: &impl SqlExecutor, account_id: Uuid) -> DbResult<(Option<String>, Option<String>)> {
     // SCOPE-EXEMPT: 科目表按主键取 1 行。
     let rows = ex
         .query_sql(

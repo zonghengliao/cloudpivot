@@ -48,8 +48,8 @@ use crate::business::erp::doc_pdf_model::{self, ExportLogOwned};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
 use crate::business::erp::{stockin_model, stockout_model};
 use crate::business::pdf::template::{
-    self, OrderMetaField, SerialGroup, StockContext, StockContextArgs, StockDocKind, StockItem,
-    format_money, format_quantity, yuan_to_fen,
+    self, OrderMetaField, SerialGroup, StockContext, StockContextArgs, StockDocKind, StockItem, format_money,
+    format_quantity, yuan_to_fen,
 };
 use crate::business::pdf::{engine, handler as pdf_handler};
 use crate::utils;
@@ -154,10 +154,7 @@ pub fn build_stock_items(
                     .map(|info| info.name.clone())
                     .unwrap_or_else(|| "（物料已删除）".to_string()),
                 spec: material.map(|info| info.spec.clone()).unwrap_or_default(),
-                unit: units
-                    .get(&source.unit_id)
-                    .cloned()
-                    .unwrap_or_else(|| "—".to_string()),
+                unit: units.get(&source.unit_id).cloned().unwrap_or_else(|| "—".to_string()),
                 qty: format_quantity(source.qty),
                 price: format_quantity(source.price),
                 amount: format_money(yuan_to_fen(source.amount)),
@@ -216,10 +213,7 @@ pub fn build_serial_groups(
                 material_name: material
                     .map(|info| info.name.clone())
                     .unwrap_or_else(|| "（物料已删除）".to_string()),
-                numbers: serials
-                    .get(material_id)
-                    .map(|list| list.join("、"))
-                    .unwrap_or_default(),
+                numbers: serials.get(material_id).map(|list| list.join("、")).unwrap_or_default(),
             }
         })
         .collect()
@@ -326,12 +320,7 @@ pub async fn stock_in_context(id: Uuid) -> std::result::Result<StockContext, Api
         .collect();
     let items = build_stock_items(&sources, &materials, &units, &locations);
     let serial_groups = build_serial_groups(&sources, &materials, &serials);
-    let location_summary = location_summary(
-        &items
-            .iter()
-            .map(|item| item.location.clone())
-            .collect::<Vec<_>>(),
-    );
+    let location_summary = location_summary(&items.iter().map(|item| item.location.clone()).collect::<Vec<_>>());
     let total_qty: Decimal = lines.iter().map(|line| line.qty).sum();
 
     Ok(StockContext::new(StockContextArgs {
@@ -449,12 +438,7 @@ pub async fn stock_out_context(id: Uuid) -> std::result::Result<StockContext, Ap
         })
         .collect();
     let items = build_stock_items(&sources, &materials, &units, &locations);
-    let location_summary = location_summary(
-        &items
-            .iter()
-            .map(|item| item.location.clone())
-            .collect::<Vec<_>>(),
-    );
+    let location_summary = location_summary(&items.iter().map(|item| item.location.clone()).collect::<Vec<_>>());
     let total_qty: Decimal = lines.iter().map(|line| line.qty).sum();
 
     Ok(StockContext::new(StockContextArgs {
@@ -463,10 +447,7 @@ pub async fn stock_out_context(id: Uuid) -> std::result::Result<StockContext, Ap
         meta: vec![
             OrderMetaField::new("单号", row.out_no.clone()),
             OrderMetaField::new("日期", row.out_date.format("%Y-%m-%d").to_string()),
-            OrderMetaField::new(
-                "状态",
-                crate::business::erp::stockout_base::status_label(&row.status),
-            ),
+            OrderMetaField::new("状态", crate::business::erp::stockout_base::status_label(&row.status)),
             OrderMetaField::new("客户", customer),
             OrderMetaField::new("仓库", warehouse),
             OrderMetaField::new("库位", location_summary),
@@ -618,14 +599,7 @@ pub async fn stock_out_pdf(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
 ) -> Response {
-    export_http(
-        StockDocKind::StockOut,
-        &headers,
-        &connect_info,
-        &claims,
-        &id,
-    )
-    .await
+    export_http(StockDocKind::StockOut, &headers, &connect_info, &claims, &id).await
 }
 
 /// 两个入口共用的 HTTP 编排：导出 → 组响应 → 补审计。
@@ -643,28 +617,19 @@ async fn export_http(
     };
     match rendered {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            kind = kind.label(),
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "出入库单 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
-            audit(
-                kind,
-                headers,
-                connect_info,
-                claims,
-                id_raw,
-                &rendered,
-                started,
-            );
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        kind = kind.label(),
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "出入库单 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
+            audit(kind, headers, connect_info, claims, id_raw, &rendered, started);
             response
         }
         Err(error) => error.into_response(),
@@ -842,12 +807,7 @@ mod tests {
             "重复库位只列一次"
         );
         assert_eq!(
-            location_summary(&[
-                "A".to_string(),
-                "B".to_string(),
-                "C".to_string(),
-                "D".to_string()
-            ]),
+            location_summary(&["A".to_string(), "B".to_string(), "C".to_string(), "D".to_string()]),
             "多库位（4 个，见明细）"
         );
     }
@@ -876,22 +836,10 @@ mod tests {
     /// 操作码 / 权限码必须一一对应（拼错 = 审计检索不到 / 接口 403）。
     #[test]
     fn operation_and_permission_codes() {
-        assert_eq!(
-            export_operation(StockDocKind::StockIn),
-            "EXPORT_STOCK_IN_PDF"
-        );
-        assert_eq!(
-            export_operation(StockDocKind::StockOut),
-            "EXPORT_STOCK_OUT_PDF"
-        );
-        assert_eq!(
-            permission_code(StockDocKind::StockIn),
-            "business:erp:stock-in:list"
-        );
-        assert_eq!(
-            permission_code(StockDocKind::StockOut),
-            "business:erp:stock-out:list"
-        );
+        assert_eq!(export_operation(StockDocKind::StockIn), "EXPORT_STOCK_IN_PDF");
+        assert_eq!(export_operation(StockDocKind::StockOut), "EXPORT_STOCK_OUT_PDF");
+        assert_eq!(permission_code(StockDocKind::StockIn), "business:erp:stock-in:list");
+        assert_eq!(permission_code(StockDocKind::StockOut), "business:erp:stock-out:list");
     }
 
     /// 上下文金额回读（审计用）不许被千分位污染；出库单取成本结转合计。
@@ -1084,17 +1032,7 @@ mod db_tests {
                 Some("LOT-20261108-A"),
                 Some(LOCATION_IL),
             ),
-            (
-                2,
-                MATERIAL_B,
-                "2.5",
-                "100.000000",
-                "250",
-                "32.5",
-                "282.5",
-                None,
-                None,
-            ),
+            (2, MATERIAL_B, "2.5", "100.000000", "250", "32.5", "282.5", None, None),
         ];
         for (line_no, material, qty, price, amount, tax, with_tax, lot_no, location) in lines {
             exec(
@@ -1115,9 +1053,7 @@ mod db_tests {
                     Value::Text(tax.to_string()),
                     Value::Text(with_tax.to_string()),
                     location.as_ref().map(Value::from).unwrap_or(Value::Null),
-                    lot_no
-                        .map(|lot| Value::Text(lot.to_string()))
-                        .unwrap_or(Value::Null),
+                    lot_no.map(|lot| Value::Text(lot.to_string())).unwrap_or(Value::Null),
                 ],
                 "写入收货入库明细夹具",
             )
@@ -1210,9 +1146,7 @@ mod db_tests {
             return;
         };
         seed_stock_in().await;
-        let ctx = stock_in_context(STOCK_IN)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = stock_in_context(STOCK_IN).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, IN_NO);
         assert_eq!(ctx.doc_title, "收 货 入 库 单");
@@ -1238,10 +1172,7 @@ mod db_tests {
 
         assert_eq!(ctx.items.len(), 2);
         assert_eq!(ctx.items[0].material_code, "PDF03-MAT-001");
-        assert_eq!(
-            ctx.items[0].lot_no, "LOT-20261108-A",
-            "验收②：批次号必须打印"
-        );
+        assert_eq!(ctx.items[0].lot_no, "LOT-20261108-A", "验收②：批次号必须打印");
         assert_eq!(ctx.items[0].location, "A-01-03");
         assert_eq!(ctx.items[0].qty, "10");
         assert_eq!(ctx.items[0].unit, "台");
@@ -1277,9 +1208,7 @@ mod db_tests {
             return;
         };
         seed_stock_out().await;
-        let ctx = stock_out_context(STOCK_OUT)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = stock_out_context(STOCK_OUT).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, OUT_NO);
         assert_eq!(ctx.doc_title, "出 库 单");
@@ -1289,10 +1218,7 @@ mod db_tests {
             .flatten()
             .map(|field| (field.label.clone(), field.value.clone()))
             .collect();
-        assert!(
-            meta.contains(&("来源单据号".into(), SHIP_NO.into())),
-            "验收③：{meta:?}"
-        );
+        assert!(meta.contains(&("来源单据号".into(), SHIP_NO.into())), "验收③：{meta:?}");
         assert!(meta.contains(&("客户".into(), "PDF03 测试客户".into())));
         assert!(meta.contains(&("出库类型".into(), "其他".into())));
         assert!(meta.contains(&("经办人".into(), "出入库测试员".into())));
@@ -1375,10 +1301,7 @@ mod db_tests {
             .find_with_params(
                 "SELECT operation, target_type, detail FROM operation_logs \
                   WHERE target_id = ? AND request_id = ?",
-                vec![
-                    Value::Text(STOCK_OUT.to_string()),
-                    Value::Text(request_id.to_string()),
-                ],
+                vec![Value::Text(STOCK_OUT.to_string()), Value::Text(request_id.to_string())],
             )
             .await
             .expect("回查审计行");
@@ -1387,10 +1310,7 @@ mod db_tests {
             rows[0].get_typed::<String>("operation").unwrap(),
             "EXPORT_STOCK_OUT_PDF"
         );
-        assert_eq!(
-            rows[0].get_typed::<String>("target_type").unwrap(),
-            "biz_stock_out"
-        );
+        assert_eq!(rows[0].get_typed::<String>("target_type").unwrap(), "biz_stock_out");
         let detail: serde_json::Value = rows[0].get_typed("detail").expect("detail 必须是 jsonb");
         assert_eq!(detail["doc_type"], "STOCK_OUT");
         assert_eq!(detail["row_count"], 1);
@@ -1412,9 +1332,7 @@ mod db_tests {
             "软删收货入库单",
         )
         .await;
-        let error = stock_in_context(STOCK_IN)
-            .await
-            .expect_err("软删单必须 404");
+        let error = stock_in_context(STOCK_IN).await.expect_err("软删单必须 404");
         assert_eq!(error.status, 404);
         assert!(error.msg.contains("收货入库单"));
         purge().await;

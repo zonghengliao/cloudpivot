@@ -47,9 +47,6 @@ fn stats_window_error_covers_reversed_and_too_long() {
             .contains("开始日")
     );
     let too_long = stats_window_error(date(2025, 1, 1), date(2026, 10, 29));
-    assert!(
-        too_long.expect("超 366 天必须报错").contains("366"),
-        "文案必须点名上限"
-    );
+    assert!(too_long.expect("超 366 天必须报错").contains("366"), "文案必须点名上限");
     assert_eq!(MAX_STATS_WINDOW_DAYS, 366);
 }

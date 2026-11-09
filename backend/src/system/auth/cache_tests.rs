@@ -132,10 +132,7 @@ async fn c04_role_holder_ids_finds_holders() {
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, description, status, data_scope) \
          VALUES (?::text::uuid, ?, 'P1FIX3 C04 角色', 'cache test', 1, 4)",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(fx.name("role")),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(fx.name("role"))],
     )
     .await;
     let hash = nik::Crypto::hash_password("Passw0rd@3").expect("哈希失败");
@@ -154,16 +151,11 @@ async fn c04_role_holder_ids_finds_holders() {
     // 只给 holder 绑角色
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(holder.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(holder.to_string()), Value::from(role_id.to_string())],
     )
     .await;
 
-    let holders = model::role_holder_ids(&role_id)
-        .await
-        .expect("反查角色持有者不应失败");
+    let holders = model::role_holder_ids(&role_id).await.expect("反查角色持有者不应失败");
     assert_eq!(holders.len(), 1, "只应命中 holder，实际 {holders:?}");
     assert_eq!(holders[0], holder, "命中的必须是 holder");
     assert!(!holders.contains(&outsider), "未绑角色的用户不该被命中");
@@ -171,11 +163,7 @@ async fn c04_role_holder_ids_finds_holders() {
     // 没有持有者的角色 → Some(空) 而不是 None（区分「失败」与「确实没有」，
     // 否则每次改一个空角色的授权都会触发一次 KEYS 全扫）
     let empty = model::role_holder_ids(&uuid::Uuid::now_v7()).await;
-    assert_eq!(
-        empty,
-        Some(Vec::new()),
-        "无持有者必须返回 Some(空)，不能是 None"
-    );
+    assert_eq!(empty, Some(Vec::new()), "无持有者必须返回 Some(空)，不能是 None");
     println!("[C04] 角色持有者反查精确（1 中 0 漏）✓");
     fx.sweep().await;
 }
@@ -201,10 +189,7 @@ async fn c05_menu_holder_ids_follows_role_grant() {
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
          VALUES (?::text::uuid, ?, 'P1FIX3 C05 角色', 1, 4)",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(fx.name("role")),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(fx.name("role"))],
     )
     .await;
     ts::exec(
@@ -219,10 +204,7 @@ async fn c05_menu_holder_ids_follows_role_grant() {
     .await;
     ts::exec(
         "INSERT INTO sys_role_menu (role_id, menu_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(menu_id.to_string()),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(menu_id.to_string())],
     )
     .await;
 
@@ -241,23 +223,16 @@ async fn c05_menu_holder_ids_follows_role_grant() {
     }
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(grantee.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(grantee.to_string()), Value::from(role_id.to_string())],
     )
     .await;
 
-    let holders = model::menu_holder_ids(&menu_id)
-        .await
-        .expect("反查菜单持有者不应失败");
+    let holders = model::menu_holder_ids(&menu_id).await.expect("反查菜单持有者不应失败");
     assert_eq!(holders, vec![grantee], "必须命中经角色拿到该菜单的用户");
     assert!(!holders.contains(&other), "没该角色的用户不该被命中");
 
     // 权限码层面同时确认：这个用户确实「通过这条菜单」拿到了码
-    let perms = model::load_permissions(&grantee, false)
-        .await
-        .expect("装载权限失败");
+    let perms = model::load_permissions(&grantee, false).await.expect("装载权限失败");
     assert!(
         perms.contains(&auth_code),
         "该用户应通过角色拿到 {auth_code}，实际 {perms:?}"
@@ -289,10 +264,7 @@ async fn c06_issue_snapshot_reads_db_not_cache() {
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
          VALUES (?::text::uuid, ?, 'P1FIX3 C06 角色', 1, 4)",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(fx.name("role")),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(fx.name("role"))],
     )
     .await;
     ts::exec(
@@ -318,10 +290,7 @@ async fn c06_issue_snapshot_reads_db_not_cache() {
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_id.to_string())],
     )
     .await;
 
@@ -339,10 +308,7 @@ async fn c06_issue_snapshot_reads_db_not_cache() {
     // ② 绕过接口直接写库授权（= 运维直连 SQL / 另一个实例写的授权）
     ts::exec(
         "INSERT INTO sys_role_menu (role_id, menu_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(menu_id.to_string()),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(menu_id.to_string())],
     )
     .await;
     let granted = model::load_principal_snapshot(&user_id)
@@ -357,10 +323,7 @@ async fn c06_issue_snapshot_reads_db_not_cache() {
     // ③ 撤销同样立刻生效
     ts::exec(
         "DELETE FROM sys_role_menu WHERE role_id = ?::text::uuid AND menu_id = ?::text::uuid",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(menu_id.to_string()),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(menu_id.to_string())],
     )
     .await;
     let revoked = model::load_principal_snapshot(&user_id)

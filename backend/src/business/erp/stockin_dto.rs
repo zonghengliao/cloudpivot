@@ -40,8 +40,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::stockin_model::{
-    STOCK_IN_SUMMARY_PLACEHOLDER, StockInFilter, StockInItemRow, StockInRow, Totals, money,
-    unit_price,
+    STOCK_IN_SUMMARY_PLACEHOLDER, StockInFilter, StockInItemRow, StockInRow, Totals, money, unit_price,
 };
 use crate::shared::error_code;
 
@@ -64,10 +63,7 @@ pub const STOCK_IN_PERMISSIONS: [(&str, &str); 6] = [
     ("business:erp:stock-in:create", "新建收货入库单"),
     ("business:erp:stock-in:update", "编辑收货入库单（仅草稿）"),
     ("business:erp:stock-in:delete", "删除收货入库单（仅草稿）"),
-    (
-        "business:erp:stock-in:status",
-        "收货入库单状态流转（过账 / 作废）",
-    ),
+    ("business:erp:stock-in:status", "收货入库单状态流转（过账 / 作废）"),
 ];
 
 /// 状态流转请求里允许的 2 个目标态（卡面 §二）。
@@ -209,10 +205,7 @@ impl StockInStatusReq {
 
     /// 原因（去空白；空串 → `None`）。
     pub fn reason_text(&self) -> Option<&str> {
-        self.reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
+        self.reason.as_deref().map(str::trim).filter(|text| !text.is_empty())
     }
 }
 
@@ -356,10 +349,7 @@ impl CreateStockInReq {
     /// 校验 + 算金额（**纯函数**：不做任何数据库查询，单测可直接跑）。
     ///
     /// `allow_empty_items` 由 handler 传：带 `source_order_id` 时允许空明细（按采购单未收数量自动带出）。
-    pub fn prepare(
-        &self,
-        allow_empty_items: bool,
-    ) -> std::result::Result<PreparedStockIn, ApiError> {
+    pub fn prepare(&self, allow_empty_items: bool) -> std::result::Result<PreparedStockIn, ApiError> {
         // 供应商不再在这里强制：有源单由采购单派生（`resolve_parent_pointer`），
         // 无源单在同一个函数里强制 + 要求显式无源标记。DTO 层只负责「原样带出」。
         let supplier_id_raw = self
@@ -394,9 +384,7 @@ impl CreateStockInReq {
             .map(str::to_string);
 
         if self.items.is_empty() && !allow_empty_items {
-            return Err(bad_request(
-                "items 不能为空：没有来源采购单时至少要有一行明细",
-            ));
+            return Err(bad_request("items 不能为空：没有来源采购单时至少要有一行明细"));
         }
         if self.items.len() > MAX_LINES {
             return Err(bad_request(format!(
@@ -412,15 +400,9 @@ impl CreateStockInReq {
 
         let totals = TotalsSummary {
             qty: lines.iter().fold(Decimal::ZERO, |acc, line| acc + line.qty),
-            amount: lines
-                .iter()
-                .fold(Decimal::ZERO, |acc, line| acc + line.amount),
-            tax: lines
-                .iter()
-                .fold(Decimal::ZERO, |acc, line| acc + line.tax_amount),
-            with_tax: lines
-                .iter()
-                .fold(Decimal::ZERO, |acc, line| acc + line.with_tax_amount),
+            amount: lines.iter().fold(Decimal::ZERO, |acc, line| acc + line.amount),
+            tax: lines.iter().fold(Decimal::ZERO, |acc, line| acc + line.tax_amount),
+            with_tax: lines.iter().fold(Decimal::ZERO, |acc, line| acc + line.with_tax_amount),
         };
 
         Ok(PreparedStockIn {
@@ -438,15 +420,8 @@ impl CreateStockInReq {
 
 impl StockInItemReq {
     /// 单行校验 + 算金额。`index` 从 0 起，文案里按「第 N 行」展示。
-    fn prepare(
-        &self,
-        index: usize,
-        with_source_order: bool,
-    ) -> std::result::Result<PreparedLine, ApiError> {
-        let material_id_raw = require_text(
-            self.material_id.as_deref(),
-            &format!("items[{index}].material_id"),
-        )?;
+    fn prepare(&self, index: usize, with_source_order: bool) -> std::result::Result<PreparedLine, ApiError> {
+        let material_id_raw = require_text(self.material_id.as_deref(), &format!("items[{index}].material_id"))?;
         let qty = self
             .qty
             .ok_or_else(|| bad_request(format!("items[{index}].qty 不能为空")))?;
@@ -477,8 +452,7 @@ impl StockInItemReq {
         let amount = money_of(qty * price_excl);
         let tax_amount = money_of(amount * tax_rate / Decimal::ONE_HUNDRED);
         let with_tax_amount = amount + tax_amount;
-        let price_incl =
-            unit_price_of(price_excl * (Decimal::ONE + tax_rate / Decimal::ONE_HUNDRED));
+        let price_incl = unit_price_of(price_excl * (Decimal::ONE + tax_rate / Decimal::ONE_HUNDRED));
 
         let source_item_id_raw = self
             .purchase_order_item_id
@@ -532,11 +506,7 @@ impl StockInItemReq {
 }
 
 /// 序列号规整 + 校验（卡面 ⑩：条数必须与数量相等）。
-fn normalize_serials(
-    index: usize,
-    raw: &[String],
-    qty: Decimal,
-) -> std::result::Result<Vec<String>, ApiError> {
+fn normalize_serials(index: usize, raw: &[String], qty: Decimal) -> std::result::Result<Vec<String>, ApiError> {
     if raw.is_empty() {
         return Ok(Vec::new());
     }
@@ -682,8 +652,7 @@ impl From<&StockInRow> for StockInRes {
             warehouse_id: row.warehouse_id.to_string(),
             in_date: row.in_date,
             status: row.status.clone(),
-            status_label: crate::business::erp::stockin_model::status_label(&row.status)
-                .to_string(),
+            status_label: crate::business::erp::stockin_model::status_label(&row.status).to_string(),
             currency_code: row.currency_code.clone(),
             total_qty: row.total_qty,
             total_amount: row.total_amount,

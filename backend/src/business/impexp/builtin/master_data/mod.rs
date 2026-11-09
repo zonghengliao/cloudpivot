@@ -49,8 +49,7 @@ use std::collections::HashMap;
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{
-    DuplicateStrategy, EnumItem, ErrorKind, FieldIssue, ImportColumn, ImportCtx, RowIssue,
-    RowValues,
+    DuplicateStrategy, EnumItem, ErrorKind, FieldIssue, ImportColumn, ImportCtx, RowIssue, RowValues,
 };
 
 pub mod account;
@@ -107,9 +106,7 @@ pub(super) const STATUS_ITEMS: &[EnumItem] = &[
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（宁可整批失败，也不猜一个策略去覆盖线上主数据）。
-pub(super) async fn duplicate_strategy(
-    ctx: &ImportCtx,
-) -> std::result::Result<DuplicateStrategy, DbError> {
+pub(super) async fn duplicate_strategy(ctx: &ImportCtx) -> std::result::Result<DuplicateStrategy, DbError> {
     let raw = crate::business::impexp::model::import_task_options(&ctx.task_id).await?;
     let parsed = raw
         .as_deref()
@@ -140,11 +137,7 @@ pub(super) fn operator_text(ctx: &ImportCtx) -> String {
 /// - `row`：当前行。
 /// - `column`：相关列（整行级问题传 `None`）。
 /// - `message`：面向用户的文案（必须说清「哪个值、错在哪、怎么改」）。
-pub(super) fn rule(
-    row: &RowValues,
-    column: Option<&ImportColumn>,
-    message: impl Into<String>,
-) -> RowIssue {
+pub(super) fn rule(row: &RowValues, column: Option<&ImportColumn>, message: impl Into<String>) -> RowIssue {
     let issue = FieldIssue {
         kind: ErrorKind::Rule,
         message: message.into(),
@@ -237,25 +230,21 @@ pub(super) async fn load_refs(
     let mut unique = codes.to_vec();
     unique.sort_unstable();
     unique.dedup();
-    let payload = serde_json::to_string(&unique)
-        .map_err(|error| DbError::InvalidValue(format!("编码序列化失败：{error}")))?;
+    let payload =
+        serde_json::to_string(&unique).map_err(|error| DbError::InvalidValue(format!("编码序列化失败：{error}")))?;
     let sql = format!(
         "SELECT {code_col}::text AS code, id::text AS id, {extra_col}::text AS extra \
          FROM {table} \
          WHERE {code_col}::text IN (SELECT jsonb_array_elements_text(?::jsonb)) \
            AND deleted_at IS NULL"
     );
-    let rows = tx
-        .find_with_params(&sql, vec![Value::Json(payload)])
-        .await?;
+    let rows = tx.find_with_params(&sql, vec![Value::Json(payload)]).await?;
     for row in rows {
         let code: String = row.get_typed("code")?;
         let id: String = row.get_typed("id")?;
         let extra: Option<String> = row.get_typed("extra")?;
         let Ok(id) = uuid::Uuid::parse_str(&id) else {
-            return Err(DbError::InvalidValue(format!(
-                "{table} 主键不是合法 UUID：{id}"
-            )));
+            return Err(DbError::InvalidValue(format!("{table} 主键不是合法 UUID：{id}")));
         };
         let extra = extra.and_then(|text| text.parse::<i16>().ok()).unwrap_or(0);
         db.insert(code, (id, extra));
@@ -295,19 +284,10 @@ mod tests {
 
     #[test]
     fn duplicate_strategy_parsing_is_lenient_but_explicit() {
-        assert_eq!(
-            DuplicateStrategy::parse("upsert"),
-            Some(DuplicateStrategy::Upsert)
-        );
-        assert_eq!(
-            DuplicateStrategy::parse(" SKIP "),
-            Some(DuplicateStrategy::Skip)
-        );
+        assert_eq!(DuplicateStrategy::parse("upsert"), Some(DuplicateStrategy::Upsert));
+        assert_eq!(DuplicateStrategy::parse(" SKIP "), Some(DuplicateStrategy::Skip));
         // 空串按默认（老客户端不带该参数）
-        assert_eq!(
-            DuplicateStrategy::parse(""),
-            Some(DuplicateStrategy::Upsert)
-        );
+        assert_eq!(DuplicateStrategy::parse(""), Some(DuplicateStrategy::Upsert));
         assert_eq!(DuplicateStrategy::parse("覆盖"), None);
         assert_eq!(DuplicateStrategy::default().as_str(), "UPSERT");
         assert_eq!(DuplicateStrategy::Skip.as_str(), "SKIP");
@@ -372,16 +352,8 @@ mod tests {
         let mut biz_types = std::collections::HashSet::new();
         let mut names = std::collections::HashSet::new();
         for def in &defs {
-            assert!(
-                biz_types.insert(def.biz_type()),
-                "业务编码重复：{}",
-                def.biz_type()
-            );
-            assert!(
-                names.insert(def.biz_name()),
-                "业务名称重复：{}",
-                def.biz_name()
-            );
+            assert!(biz_types.insert(def.biz_type()), "业务编码重复：{}", def.biz_type());
+            assert!(names.insert(def.biz_name()), "业务名称重复：{}", def.biz_name());
             assert!(def.allow_partial(), "{} 应允许部分导入", def.biz_type());
             assert_eq!(def.batch_size(), MAX_ROWS);
             assert!(!def.columns().is_empty());

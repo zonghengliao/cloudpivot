@@ -19,10 +19,7 @@ fn transfer_no_matches_card_format() {
     assert_eq!(format_transfer_no("20261030", 1), "TK-20261030-000001");
     assert_eq!(format_transfer_no("20261030", 42), "TK-20261030-000042");
     // 超过 6 位不截断：宁可长一位也不撞号
-    assert_eq!(
-        format_transfer_no("20261030", 1_000_000),
-        "TK-20261030-1000000"
-    );
+    assert_eq!(format_transfer_no("20261030", 1_000_000), "TK-20261030-1000000");
 }
 
 /// ② 状态机：6 条合法边全部放行。
@@ -40,12 +37,7 @@ fn flow_gate_blocks_only_manual_approve_of_running_instance() {
     let instance = Uuid::now_v7();
     // ① 审批中 + 人工直推 APPROVED → 拦
     assert!(
-        flow_gate_blocked(
-            STATUS_PENDING,
-            STATUS_APPROVED,
-            Some(instance),
-            Some("PENDING")
-        ),
+        flow_gate_blocked(STATUS_PENDING, STATUS_APPROVED, Some(instance), Some("PENDING")),
         "审批中的人工批准必须被拦（否则审批单永远挂着脏待办）"
     );
     // 前后空白 / 小写也算审批中（库里是 VARCHAR，不保证大小写）
@@ -57,21 +49,11 @@ fn flow_gate_blocks_only_manual_approve_of_running_instance() {
     ));
 
     // ② 没挂审批单（降级路径）→ 放行
-    assert!(!flow_gate_blocked(
-        STATUS_PENDING,
-        STATUS_APPROVED,
-        None,
-        None
-    ));
+    assert!(!flow_gate_blocked(STATUS_PENDING, STATUS_APPROVED, None, None));
     // ③ 审批单已落终态 → 放行（这时放行人工推是修数据，拦住会把单据锁死）
     for status in ["APPROVED", "REJECTED", "CANCELLED", "WITHDRAWN"] {
         assert!(
-            !flow_gate_blocked(
-                STATUS_PENDING,
-                STATUS_APPROVED,
-                Some(instance),
-                Some(status)
-            ),
+            !flow_gate_blocked(STATUS_PENDING, STATUS_APPROVED, Some(instance), Some(status)),
             "实例已是 {status} 时不该拦"
         );
     }
@@ -97,31 +79,13 @@ fn flow_gate_blocks_only_manual_approve_of_running_instance() {
 /// ③ 状态机：跳级 / 回退 / 原地 / 终态再流转全部拒绝（卡面 §五 ⑧⑬）。
 #[test]
 fn status_machine_rejects_jumps_and_terminal() {
-    assert!(
-        !can_transition(STATUS_DRAFT, STATUS_DONE),
-        "DRAFT 不能直接 DONE"
-    );
-    assert!(
-        !can_transition(STATUS_DRAFT, STATUS_APPROVED),
-        "DRAFT 不能跳审批"
-    );
+    assert!(!can_transition(STATUS_DRAFT, STATUS_DONE), "DRAFT 不能直接 DONE");
+    assert!(!can_transition(STATUS_DRAFT, STATUS_APPROVED), "DRAFT 不能跳审批");
     assert!(!can_transition(STATUS_PENDING, STATUS_IN_TRANSIT));
-    assert!(
-        !can_transition(STATUS_APPROVED, STATUS_DONE),
-        "必须经过在途"
-    );
-    assert!(
-        !can_transition(STATUS_DONE, STATUS_CANCELLED),
-        "DONE 是终态"
-    );
-    assert!(
-        !can_transition(STATUS_CANCELLED, STATUS_DRAFT),
-        "CANCELLED 不可复活"
-    );
-    assert!(
-        !can_transition(STATUS_PENDING, STATUS_PENDING),
-        "原地流转也算非法"
-    );
+    assert!(!can_transition(STATUS_APPROVED, STATUS_DONE), "必须经过在途");
+    assert!(!can_transition(STATUS_DONE, STATUS_CANCELLED), "DONE 是终态");
+    assert!(!can_transition(STATUS_CANCELLED, STATUS_DRAFT), "CANCELLED 不可复活");
+    assert!(!can_transition(STATUS_PENDING, STATUS_PENDING), "原地流转也算非法");
     // 非法边的文案要点名「当前态的可选去向」
     let message = transition_rejected_message(STATUS_DRAFT, STATUS_DONE);
     assert!(message.contains("PENDING"), "{message}");
@@ -145,10 +109,7 @@ fn every_legal_edge_keeps_db_state_check_holds() {
     };
     for (from, to) in LEGAL_EDGES {
         let before = before_of(from);
-        assert!(
-            state_check_holds(from, &before),
-            "夹具自身不满足库约束：{from}"
-        );
+        assert!(state_check_holds(from, &before), "夹具自身不满足库约束：{from}");
         let effect = transition_effect(from, to).expect("合法边必须有 effect");
         let after = apply_effect(before, &effect);
         assert!(
@@ -221,12 +182,7 @@ fn overdue_boundary_is_strict_and_status_bound() {
     );
     // ② 早一秒就算超期
     assert!(
-        is_in_transit_overdue(
-            STATUS_IN_TRANSIT,
-            Some(cutoff - Duration::seconds(1)),
-            now,
-            threshold
-        ),
+        is_in_transit_overdue(STATUS_IN_TRANSIT, Some(cutoff - Duration::seconds(1)), now, threshold),
         "超过阈值 1 秒即算超期"
     );
     // ③ 非 IN_TRANSIT 一律不算（哪怕压了 30 天）
@@ -243,12 +199,7 @@ fn overdue_boundary_is_strict_and_status_bound() {
         );
     }
     // ④ 在途但没有 shipped_at（脏数据）→ 不告警，不误报
-    assert!(!is_in_transit_overdue(
-        STATUS_IN_TRANSIT,
-        None,
-        now,
-        threshold
-    ));
+    assert!(!is_in_transit_overdue(STATUS_IN_TRANSIT, None, now, threshold));
 }
 
 /// ⑧ LNK-F12：已压天数向下取整；未来时间不出现负数。
@@ -279,8 +230,5 @@ fn query_defaults_keep_overdue_threshold() {
     let query = TransferQuery::default();
     assert_eq!(query.overdue_days, DEFAULT_OVERDUE_DAYS);
     assert_eq!(query.in_transit_overdue, None);
-    assert_eq!(
-        query.page_size,
-        crate::business::erp::model::DEFAULT_PAGE_SIZE
-    );
+    assert_eq!(query.page_size, crate::business::erp::model::DEFAULT_PAGE_SIZE);
 }

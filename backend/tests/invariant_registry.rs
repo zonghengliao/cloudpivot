@@ -78,15 +78,8 @@ fn n01_check_view_and_registry_are_bijective() {
     let root = repo_root();
     let sql_path = root.join("docs/architecture/snapshot-drift/10_checks.sql");
     let py_path = root.join("scripts/verify/snapshot_audit.py");
-    let (Ok(sql), Ok(py)) = (
-        std::fs::read_to_string(&sql_path),
-        std::fs::read_to_string(&py_path),
-    ) else {
-        println!(
-            "SKIP: 非完整仓库（缺 {} 或 {}）",
-            sql_path.display(),
-            py_path.display()
-        );
+    let (Ok(sql), Ok(py)) = (std::fs::read_to_string(&sql_path), std::fs::read_to_string(&py_path)) else {
+        println!("SKIP: 非完整仓库（缺 {} 或 {}）", sql_path.display(), py_path.display());
         return;
     };
 

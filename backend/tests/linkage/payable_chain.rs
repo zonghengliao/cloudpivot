@@ -128,19 +128,14 @@ async fn pay(ctx: &Ctx, payable_id: Uuid, amount: &str) -> std::result::Result<(
         // ARCH-3 DC-01：新加的「显式跳过审批」片段（不请求跳过 = 默认行为不变）
         approval: Default::default(),
     };
-    pay_payable(payable_id, &req, Some(ctx.worker))
-        .await
-        .map(|_| ())
+    pay_payable(payable_id, &req, Some(ctx.worker)).await.map(|_| ())
 }
 
 /// 付款成功（失败直接 panic）。
 async fn pay_ok(ctx: &Ctx, payable_id: Uuid, amount: &str) {
-    pay(ctx, payable_id, amount).await.unwrap_or_else(|error| {
-        panic!(
-            "{}：付款 {amount} 失败 {} {}",
-            ctx.tag, error.code, error.msg
-        )
-    });
+    pay(ctx, payable_id, amount)
+        .await
+        .unwrap_or_else(|error| panic!("{}：付款 {amount} 失败 {} {}", ctx.tag, error.code, error.msg));
 }
 
 /// 某笔付款产生的凭证 id（`biz_payment.voucher_id`）。
@@ -290,18 +285,9 @@ async fn p04_payment_generates_balanced_voucher() {
         "P04：凭证金额 = 本次付款金额（不是应付总额）",
     );
 
-    let find = |code: &str| {
-        codes
-            .iter()
-            .find(|(c, _, _)| c == code)
-            .map(|(_, d, c)| (*d, *c))
-    };
+    let find = |code: &str| codes.iter().find(|(c, _, _)| c == code).map(|(_, d, c)| (*d, *c));
     let (d2202, c2202) = find("2202").unwrap_or_else(|| panic!("P04：缺 2202 分录：{codes:?}"));
-    common::assert_dec(
-        d2202,
-        common::dec("8"),
-        "P04：借 2202 应付账款（付款冲减负债）",
-    );
+    common::assert_dec(d2202, common::dec("8"), "P04：借 2202 应付账款（付款冲减负债）");
     common::assert_dec(c2202, common::dec("0"), "P04：2202 不许有贷方");
     let (d1002, c1002) = find("1002").unwrap_or_else(|| panic!("P04：缺 1002 分录：{codes:?}"));
     common::assert_dec(d1002, common::dec("0"), "P04：1002 不许有借方");
@@ -309,11 +295,7 @@ async fn p04_payment_generates_balanced_voucher() {
 
     // 反向：付款凭证不能影响库存（付款不是库存事件）
     let (inv, _, txn, _) = common::four_ledger_snapshot(ctx.mat, ctx.wh_from).await;
-    common::assert_dec(
-        inv,
-        common::dec("10"),
-        "P04：付款不动库存数量（仍为收货的 10）",
-    );
+    common::assert_dec(inv, common::dec("10"), "P04：付款不动库存数量（仍为收货的 10）");
     assert_eq!(txn, 1, "P04：付款不写库存流水（仍只有收货那 1 条）");
     assert!(amount > common::dec("0"));
     ctx.cleanup().await;
@@ -336,10 +318,7 @@ async fn p05_over_payment_is_bad_request() {
     let error = pay(&ctx, payable_id, "20.01")
         .await
         .expect_err("P05：付 20.01 > 未付 20 必须被拒");
-    assert_eq!(
-        error.status, 400,
-        "P05：超额付款是参数问题 → 400，实际 {error:?}"
-    );
+    assert_eq!(error.status, 400, "P05：超额付款是参数问题 → 400，实际 {error:?}");
     assert!(
         error.msg.contains("未付") || error.msg.contains("超过"),
         "P05：文案要点名未付余额，实际：{}",
@@ -418,12 +397,7 @@ async fn p07_cancel_paid_payable_is_conflict() {
     assert_eq!(fresh_status, "OPEN");
     cancel_payable(fresh_id, Some("P07 未付款可以作废"), Some(ctx.worker))
         .await
-        .unwrap_or_else(|error| {
-            panic!(
-                "P07：未付款的应付单应当能作废，实际 {} {}",
-                error.code, error.msg
-            )
-        });
+        .unwrap_or_else(|error| panic!("P07：未付款的应付单应当能作废，实际 {} {}", error.code, error.msg));
     assert_eq!(
         payable_snapshot(fresh).await.1,
         "CANCELLED",

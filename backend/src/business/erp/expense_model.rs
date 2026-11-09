@@ -53,8 +53,7 @@ pub const PAY_SEQ: SeqSpec<'static> = SeqSpec {
 };
 
 /// 报销单分页的数据权限锚点：归部门（预算维度）。
-pub const REPORT_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::new(TABLE, "e", Some("dept_id"), None);
+pub const REPORT_TARGET: scope::ScopeTarget = scope::ScopeTarget::new(TABLE, "e", Some("dept_id"), None);
 
 /// 费用类型分页锚点：运维级主数据，不做数据裁剪。
 pub const TYPE_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(TYPE_TABLE);
@@ -148,12 +147,7 @@ pub async fn type_page(q: &TypeFilter, page: u64, page_size: u64) -> DbResult<(V
           WHERE t.deleted_at IS NULL"
     );
     let mut params: Vec<Value> = Vec::new();
-    if let Some(keyword) = q
-        .keyword
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(keyword) = q.keyword.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND (t.type_code ILIKE ? OR t.type_name ILIKE ?)");
         let like = format!("%{keyword}%");
         params.push(Value::Text(like.clone()));
@@ -164,8 +158,7 @@ pub async fn type_page(q: &TypeFilter, page: u64, page_size: u64) -> DbResult<(V
         params.push(Value::from(i32::from(status)));
     }
     let order = "ORDER BY t.sort_order ASC, t.type_code ASC";
-    let result =
-        scope::paginate_unscoped(TYPE_TARGET, &sql, params, Some(order), page, page_size).await?;
+    let result = scope::paginate_unscoped(TYPE_TARGET, &sql, params, Some(order), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -323,11 +316,7 @@ pub async fn type_update(
 }
 
 /// 软删费用类型（调用方先判引用数）。
-pub async fn type_soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn type_soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主数据写入。
     ex.exec_sql(
         format!(
@@ -335,10 +324,7 @@ pub async fn type_soft_delete(
                     update_by = NULLIF(?::text,'')::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL"
         ),
-        vec![
-            opt_text(operator.map(|id| id.to_string()).as_deref()),
-            Value::from(&id),
-        ],
+        vec![opt_text(operator.map(|id| id.to_string()).as_deref()), Value::from(&id)],
     )
     .await
 }
@@ -494,12 +480,7 @@ fn report_page_base_sql() -> String {
 /// 「片段参数恒前置」的契约就能被单测逐字校验（`expense_model_tests` 的「分页 SQL 契约」三条）。
 fn report_page_filters(q: &ReportFilter, params: &mut Vec<Value>) -> DbResult<String> {
     let mut sql = String::new();
-    if let Some(keyword) = q
-        .keyword
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(keyword) = q.keyword.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(
             " AND (e.report_no ILIKE ? OR e.title ILIKE ? OR e.reporter_name ILIKE ? \
                OR e.dept_name ILIKE ?)",
@@ -509,21 +490,11 @@ fn report_page_filters(q: &ReportFilter, params: &mut Vec<Value>) -> DbResult<St
             params.push(Value::Text(like.clone()));
         }
     }
-    if let Some(status) = q
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(status) = q.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND e.status = ?");
         params.push(Value::Text(status.to_string()));
     }
-    if let Some(pay_status) = q
-        .pay_status
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(pay_status) = q.pay_status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND e.pay_status = ?");
         params.push(Value::Text(pay_status.to_string()));
     }
@@ -532,19 +503,13 @@ fn report_page_filters(q: &ReportFilter, params: &mut Vec<Value>) -> DbResult<St
         (q.dept_id.as_deref(), "e.dept_id"),
     ] {
         if let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) {
-            let id = Uuid::parse_str(text).map_err(|err| {
-                DbError::InvalidValue(format!("筛选条件 {column} 不是合法 UUID（{text}）：{err}"))
-            })?;
+            let id = Uuid::parse_str(text)
+                .map_err(|err| DbError::InvalidValue(format!("筛选条件 {column} 不是合法 UUID（{text}）：{err}")))?;
             sql.push_str(&format!(" AND {column} = ?::uuid"));
             params.push(Value::from(&id));
         }
     }
-    if let Some(period) = q
-        .period_code
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    if let Some(period) = q.period_code.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         sql.push_str(" AND e.period_code = ?");
         params.push(Value::Text(period.to_string()));
     }
@@ -653,10 +618,7 @@ pub async fn report_lock_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<
 }
 
 /// 按审批实例取报销单（回调入口：实例 → 单据）。
-pub async fn report_by_instance(
-    ex: &impl SqlExecutor,
-    instance_id: Uuid,
-) -> DbResult<Option<ReportRow>> {
+pub async fn report_by_instance(ex: &impl SqlExecutor, instance_id: Uuid) -> DbResult<Option<ReportRow>> {
     // SCOPE-EXEMPT: 实例 id 精确取 1 行。
     let rows = ex
         .query_sql(
@@ -745,11 +707,7 @@ pub struct ItemInsert {
 }
 
 /// 插单头（明细另插，见 [`items_insert_many`]；两者必须同一事务）。
-pub async fn report_insert(
-    ex: &impl SqlExecutor,
-    insert: &ReportInsert,
-    operator: Option<Uuid>,
-) -> DbResult<()> {
+pub async fn report_insert(ex: &impl SqlExecutor, insert: &ReportInsert, operator: Option<Uuid>) -> DbResult<()> {
     // SCOPE-EXEMPT: 主表写入。
     ex.exec_sql(
         format!(
@@ -827,11 +785,7 @@ pub async fn report_update_draft(
 }
 
 /// 批量插明细。
-pub async fn items_insert_many(
-    ex: &impl SqlExecutor,
-    report_id: Uuid,
-    items: &[ItemInsert],
-) -> DbResult<()> {
+pub async fn items_insert_many(ex: &impl SqlExecutor, report_id: Uuid, items: &[ItemInsert]) -> DbResult<()> {
     for item in items {
         // SCOPE-EXEMPT: 子表写入（随主单）。
         ex.exec_sql(
@@ -969,10 +923,7 @@ pub async fn items_of(ex: &impl SqlExecutor, report_id: Uuid) -> DbResult<Vec<It
 }
 
 /// 明细合计与条数（巡检 L1 / 提交前复算）。
-pub async fn items_sum(
-    ex: &impl SqlExecutor,
-    report_id: Uuid,
-) -> DbResult<(Decimal, Decimal, i32)> {
+pub async fn items_sum(ex: &impl SqlExecutor, report_id: Uuid) -> DbResult<(Decimal, Decimal, i32)> {
     // SCOPE-EXEMPT: 子表聚合。
     let rows = ex
         .query_sql(
@@ -1131,11 +1082,7 @@ pub async fn report_cancel_from(
 }
 
 /// 软删草稿（只有 DRAFT 能删；已提交 / 已入账的走作废）。
-pub async fn report_soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn report_soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     // SCOPE-EXEMPT: 主表写入（状态 CAS 在 WHERE 里）。
     ex.exec_sql(
         format!(
@@ -1143,10 +1090,7 @@ pub async fn report_soft_delete(
                     update_by = NULLIF(?::text,'')::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'DRAFT'"
         ),
-        vec![
-            opt_text(operator.map(|id| id.to_string()).as_deref()),
-            Value::from(&id),
-        ],
+        vec![opt_text(operator.map(|id| id.to_string()).as_deref()), Value::from(&id)],
     )
     .await
 }
@@ -1323,11 +1267,7 @@ pub async fn payments_of(ex: &impl SqlExecutor, report_id: Uuid) -> DbResult<Vec
 }
 
 /// 某张单**未红冲**的计提凭证 id（作废时要逐张红冲）。
-pub async fn blue_voucher_ids(
-    ex: &impl SqlExecutor,
-    source_type: &str,
-    source_id: Uuid,
-) -> DbResult<Vec<Uuid>> {
+pub async fn blue_voucher_ids(ex: &impl SqlExecutor, source_type: &str, source_id: Uuid) -> DbResult<Vec<Uuid>> {
     // SCOPE-EXEMPT: 凭证按来源反查（红冲用）。
     let rows = ex
         .query_sql(
@@ -1336,10 +1276,7 @@ pub async fn blue_voucher_ids(
                 AND is_red = 0 AND reversed_by IS NULL AND deleted_at IS NULL \
               ORDER BY created_at ASC"
                 .to_string(),
-            vec![
-                Value::Text(source_type.to_string()),
-                Value::from(&source_id),
-            ],
+            vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
         )
         .await?;
     rows.iter().map(|row| row.get_typed::<Uuid>("id")).collect()

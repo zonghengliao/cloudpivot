@@ -38,9 +38,7 @@
 use cloudpivot::business::changelog::diff;
 use cloudpivot::business::changelog::mask;
 use cloudpivot::business::changelog::model;
-use cloudpivot::business::changelog::{
-    self, Action, ChangeCtx, ChangeTarget, DiffInput, RecordOutcome,
-};
+use cloudpivot::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput, RecordOutcome};
 use cloudpivot::shared::error_code;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -204,10 +202,7 @@ fn diff_pairs_before_after() {
     );
     assert_eq!(created.fields["real_name"].b, Json::Null);
     let text = created.to_json_string().unwrap();
-    assert!(
-        text.contains(r#""b":null"#),
-        "新增必须显式写 null 侧：{text}"
-    );
+    assert!(text.contains(r#""b":null"#), "新增必须显式写 null 侧：{text}");
 
     // DELETE：a 侧显式 null
     let deleted = diff::build(
@@ -286,9 +281,7 @@ async fn mask_applied_on_write() {
 
     let outcome = db()
         .transaction(|tx| async move {
-            let outcome = changelog::record(&tx, ctx_ref, target, input)
-                .await
-                .map_err(api_err)?;
+            let outcome = changelog::record(&tx, ctx_ref, target, input).await.map_err(api_err)?;
             Ok::<RecordOutcome, DbError>(outcome)
         })
         .await
@@ -299,18 +292,12 @@ async fn mask_applied_on_write() {
     };
     assert_eq!(
         changed_fields,
-        vec![
-            "mobile".to_string(),
-            "password".to_string(),
-            "real_name".to_string()
-        ],
+        vec!["mobile".to_string(), "password".to_string(), "real_name".to_string()],
         "三个字段都变了（排序后）"
     );
     println!("recorded id={id} changed_fields={changed_fields:?}");
 
-    let texts = model::diff_texts(db(), "sys_user", rid)
-        .await
-        .expect("读回 diff");
+    let texts = model::diff_texts(db(), "sys_user", rid).await.expect("读回 diff");
     assert_eq!(texts.len(), 1, "一个事务应只写一行");
     let text = &texts[0];
     println!("落库的 diff：{text}");
@@ -326,24 +313,14 @@ async fn mask_applied_on_write() {
     // ② 脱敏值确实是掩码形态（手机号规则保留前 3 后 4）
     assert!(flat.contains("138****1111"), "旧值应为掩码：{flat}");
     assert!(flat.contains("139****2222"), "新值应为掩码：{flat}");
-    assert!(
-        flat.contains(r#""masked":true"#),
-        "命中脱敏的字段要打标：{flat}"
-    );
+    assert!(flat.contains(r#""masked":true"#), "命中脱敏的字段要打标：{flat}");
     // 结构化断言（PG 的 jsonb 会按「键长度 + 字节序」重排键，不能拿原始字符串比顺序）
     let doc: Json = serde_json::from_str(text).expect("diff 必须是合法 JSON");
-    assert_eq!(
-        doc["fields"]["mobile"]["b"],
-        json!("138****1111"),
-        "旧手机号必须是掩码"
-    );
+    assert_eq!(doc["fields"]["mobile"]["b"], json!("138****1111"), "旧手机号必须是掩码");
     assert_eq!(doc["fields"]["mobile"]["a"], json!("139****2222"));
     assert_eq!(doc["fields"]["mobile"]["masked"], json!(true));
     // ③ 口令类整值抹掉：连哈希都不入库
-    assert!(
-        !text.contains(old_hash) && !text.contains(new_hash),
-        "口令泄露：{text}"
-    );
+    assert!(!text.contains(old_hash) && !text.contains(new_hash), "口令泄露：{text}");
     assert_eq!(
         doc["fields"]["password"]["b"],
         json!({"redacted": true}),
@@ -356,10 +333,7 @@ async fn mask_applied_on_write() {
     );
     assert_eq!(doc["fields"]["password"]["masked"], json!(true));
     // ④ 姓名列被 V0066 的姓名规则命中 → 打码，明文不入库
-    assert!(
-        !text.contains("张三丰"),
-        "姓名规则生效后不应出现明文：{text}"
-    );
+    assert!(!text.contains("张三丰"), "姓名规则生效后不应出现明文：{text}");
     assert_eq!(doc["fields"]["real_name"]["b"], json!("张*"));
     assert_eq!(doc["fields"]["real_name"]["a"], json!("张**"));
 
@@ -393,11 +367,7 @@ async fn mask_ignores_operator_role() {
         println!("SKIP: 库里没有 SUPER_ADMIN 用户（种子缺失），跳过本用例");
         return;
     };
-    let super_id: Uuid = row
-        .get_typed::<String>("id")
-        .unwrap()
-        .parse()
-        .expect("uuid");
+    let super_id: Uuid = row.get_typed::<String>("id").unwrap().parse().expect("uuid");
     let super_name: String = row.get_typed("username").unwrap();
     println!("超管操作人：{super_name} ({super_id})");
 
@@ -408,17 +378,13 @@ async fn mask_ignores_operator_role() {
     let input = DiffInput::update(&before, &after);
     let target = ChangeTarget::of("sys_user", rid, Action::Update, "修改用户");
     db().transaction(|tx| async move {
-        changelog::record(&tx, ctx_ref, target, input)
-            .await
-            .map_err(api_err)?;
+        changelog::record(&tx, ctx_ref, target, input).await.map_err(api_err)?;
         Ok::<(), DbError>(())
     })
     .await
     .expect("事务应提交成功");
 
-    let texts = model::diff_texts(db(), "sys_user", rid)
-        .await
-        .expect("读回 diff");
+    let texts = model::diff_texts(db(), "sys_user", rid).await.expect("读回 diff");
     assert_eq!(texts.len(), 1);
     let text = &texts[0];
     println!("超管写入落库的 diff：{text}");
@@ -451,12 +417,7 @@ async fn record_rejects_unregistered_table() {
     let ctx = ChangeCtx::api(None, Some("c5-tester"));
     let ctx_ref = &ctx;
     let input = DiffInput::update(&before, &after);
-    let target = ChangeTarget::of(
-        "sys_not_registered_by_c5",
-        "c5-unreg",
-        Action::Update,
-        "乱记",
-    );
+    let target = ChangeTarget::of("sys_not_registered_by_c5", "c5-unreg", Action::Update, "乱记");
     let error = db()
         .transaction(|tx| async move {
             let error = changelog::record(&tx, ctx_ref, target, input)
@@ -550,10 +511,7 @@ async fn record_in_same_transaction_rolls_back() {
         .await
         .expect("提交后计数");
     println!("对照组提交后 sys_change_log 行数 = {after_commit}");
-    assert_eq!(
-        after_commit, 1,
-        "对照组必须能看到 1 行（证明断言不是永远为 0）"
-    );
+    assert_eq!(after_commit, 1, "对照组必须能看到 1 行（证明断言不是永远为 0）");
 
     cleanup().await;
     println!("[PASS] record_in_same_transaction_rolls_back: 回滚 0 行 / 提交 1 行");

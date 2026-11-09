@@ -263,11 +263,7 @@ pub(crate) fn audit_input(
 /// - `headers`：请求头（派生 request_id / IP / User-Agent）。
 /// - `connect_info`：TCP 连接对端地址（解析真实客户端 IP 用）。
 /// - `input`：安全事件字段。
-pub(crate) fn record_security(
-    headers: &HeaderMap,
-    connect_info: &SocketAddr,
-    input: SecurityLogInput,
-) {
+pub(crate) fn record_security(headers: &HeaderMap, connect_info: &SocketAddr, input: SecurityLogInput) {
     bus::enqueue_security(SecurityLogModel {
         id: uuid::Uuid::now_v7(),
         request_id: Some(utils::request_id(headers)),
@@ -288,11 +284,7 @@ pub(crate) fn record_security(
 /// - `headers`：请求头（派生 request_id / IP / User-Agent）。
 /// - `connect_info`：TCP 连接对端地址（解析真实客户端 IP 用）。
 /// - `input`：密码变更字段。
-pub(crate) fn record_password_change(
-    headers: &HeaderMap,
-    connect_info: &SocketAddr,
-    input: PasswordChangeLogInput,
-) {
+pub(crate) fn record_password_change(headers: &HeaderMap, connect_info: &SocketAddr, input: PasswordChangeLogInput) {
     bus::enqueue_password_change(PasswordChangeLogModel {
         id: uuid::Uuid::now_v7(),
         request_id: utils::request_id(headers),

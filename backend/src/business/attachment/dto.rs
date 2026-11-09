@@ -87,10 +87,7 @@ pub fn file_too_large() -> ApiError {
 /// 先 `field.bytes()` 把整个文件读进内存再判大小，等于让任意大小的文件先把进程内存
 /// 打满（25 MB 无所谓，500 MB 就是事故）。按分片累加 + 提前返回，才能做到
 /// 「超限的字节一个都不留」。
-pub fn extend_within_file_limit(
-    buffer: &mut Vec<u8>,
-    chunk: &[u8],
-) -> std::result::Result<(), ApiError> {
+pub fn extend_within_file_limit(buffer: &mut Vec<u8>, chunk: &[u8]) -> std::result::Result<(), ApiError> {
     let next = buffer.len() as u64 + chunk.len() as u64;
     if next > MAX_FILE_BYTES {
         return Err(file_too_large());
@@ -288,13 +285,8 @@ pub struct AttachmentCheckRes {
 /// # 异常情况
 ///
 /// 400 + `PARAM_INVALID`（消息列出三个可选值）。
-pub fn parse_required_at(
-    raw: Option<&str>,
-) -> std::result::Result<super::rule::RequiredAt, ApiError> {
-    let text = raw
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-        .unwrap_or("SUBMIT");
+pub fn parse_required_at(raw: Option<&str>) -> std::result::Result<super::rule::RequiredAt, ApiError> {
+    let text = raw.map(str::trim).filter(|text| !text.is_empty()).unwrap_or("SUBMIT");
     super::rule::RequiredAt::parse(text).ok_or_else(|| {
         ApiError::new(
             400,
@@ -428,11 +420,7 @@ pub fn parse_upload_meta(
     let kind = parse_doc_type(doc_type.unwrap_or_default())?;
     let raw_id = doc_id.map(str::trim).unwrap_or_default();
     if raw_id.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "缺少单据主键 doc_id",
-        ));
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "缺少单据主键 doc_id"));
     }
     let doc_id = Uuid::parse_str(raw_id).map_err(|_| {
         ApiError::new(
@@ -540,10 +528,7 @@ pub fn parse_file_role(raw: Option<&str>) -> std::result::Result<FileRole, ApiEr
         ApiError::new(
             400,
             error_code::PARAM_INVALID,
-            format!(
-                "文件角色 file_role 非法：{}（可选 {allowed}）",
-                raw.unwrap_or_default()
-            ),
+            format!("文件角色 file_role 非法：{}（可选 {allowed}）", raw.unwrap_or_default()),
         )
     })
 }
@@ -580,13 +565,8 @@ pub fn parse_sort_order(raw: Option<&str>) -> std::result::Result<ListOrder, Api
 /// - `raw`：请求里的字符串（去空白后解析）；
 /// - `field`：字段名（`doc_id` / `ids[]`），只用于错误消息。
 fn parse_uuid_field(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim()).map_err(|_| {
-        ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            format!("{field} 不是合法 UUID：{raw}"),
-        )
-    })
+    Uuid::parse_str(raw.trim())
+        .map_err(|_| ApiError::new(400, error_code::PARAM_INVALID, format!("{field} 不是合法 UUID：{raw}")))
 }
 
 /// 重排入参（`PUT /business/attachment/sort`）。
@@ -789,11 +769,7 @@ fn denied(kind: DocKind, action: &str) -> ApiError {
 /// - `claims`：当前用户（算 `can_delete`）；
 /// - `can_view_doc`：当前用户能否查看该附件所属单据（ATT-04：由调用方用
 ///   [`can_view_doc`] 算好传进来 —— 列表接口已经在进门前判过，这里再算一遍不查库，几乎零成本）。
-pub fn to_item(
-    row: &DocAttachmentRow,
-    claims: &TokenClaims,
-    can_view_doc: bool,
-) -> DocAttachmentItemRes {
+pub fn to_item(row: &DocAttachmentRow, claims: &TokenClaims, can_view_doc: bool) -> DocAttachmentItemRes {
     DocAttachmentItemRes {
         id: row.id.to_string(),
         doc_type: row.doc_type.clone(),

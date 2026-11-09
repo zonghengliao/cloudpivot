@@ -52,8 +52,7 @@ pub const RULE_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(RULE_TA
 
 /// 列表排序：**启用的排在前面**（运营看列表先看还在生效的），同组内新生效的在前，
 /// 最后用 `created_at` / `id` 收全序 —— 没有全序时翻页会漏行 / 重复行。
-pub const RULE_ORDER: &str =
-    "ORDER BY t.status ASC, t.effective_from DESC, t.created_at DESC, t.id ASC";
+pub const RULE_ORDER: &str = "ORDER BY t.status ASC, t.effective_from DESC, t.created_at DESC, t.id ASC";
 
 // ==================== 行结构 ====================
 
@@ -165,10 +164,7 @@ fn select_sql() -> String {
 
 /// 按主键取存活规则（软删 / 不存在 → `None`）。
 pub async fn find_by_id(id: Uuid) -> DbResult<Option<RuleListRow>> {
-    let sql = format!(
-        "{} WHERE t.id = ?::uuid AND t.deleted_at IS NULL",
-        select_sql()
-    );
+    let sql = format!("{} WHERE t.id = ?::uuid AND t.deleted_at IS NULL", select_sql());
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(map_list_row).transpose()
 }
@@ -223,17 +219,11 @@ pub async fn page(filter: &RuleFilter) -> DbResult<(Vec<RuleListRow>, i64)> {
 /// 但历史提成口径要留着），这是与卡面「物料存在且未软删」一致的口径。
 pub async fn scope_target_exists(scope_type: &str, scope_id: Uuid) -> DbResult<bool> {
     let sql = match scope_type {
-        SCOPE_SALESPERSON => {
-            "SELECT count(*) FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL"
-        }
-        SCOPE_MATERIAL => {
-            "SELECT count(*) FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL"
-        }
+        SCOPE_SALESPERSON => "SELECT count(*) FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL",
+        SCOPE_MATERIAL => "SELECT count(*) FROM biz_material WHERE id = ?::uuid AND deleted_at IS NULL",
         _ => return Ok(false),
     };
-    let count: i64 = db()
-        .scalar_with_params(sql, vec![Value::from(&scope_id)])
-        .await?;
+    let count: i64 = db().scalar_with_params(sql, vec![Value::from(&scope_id)]).await?;
     Ok(count > 0)
 }
 
@@ -419,10 +409,7 @@ mod tests {
     /// 排序必须带全序（末尾用 id）：只按 status / effective_from 翻页会漏行。
     #[test]
     fn list_order_is_total() {
-        assert!(
-            RULE_ORDER.ends_with("t.id ASC"),
-            "排序必须是全序：{RULE_ORDER}"
-        );
+        assert!(RULE_ORDER.ends_with("t.id ASC"), "排序必须是全序：{RULE_ORDER}");
         assert!(RULE_ORDER.contains("t.created_at DESC"));
     }
 
@@ -454,10 +441,7 @@ mod tests {
         assert_eq!(optional_date(None), Value::Text(String::new()));
         assert_eq!(optional_decimal(None), Value::Text(String::new()));
         assert_eq!(optional_text(None), Value::Text(String::new()));
-        assert_eq!(
-            date_text(NaiveDate::from_ymd_opt(2026, 11, 7).unwrap()),
-            "2026-11-07"
-        );
+        assert_eq!(date_text(NaiveDate::from_ymd_opt(2026, 11, 7).unwrap()), "2026-11-07");
     }
 
     /// **参数类型必须与 `Value::Text` 对得上**（线上 500 的根因，别再犯）。
@@ -481,21 +465,14 @@ mod tests {
                 !sql.contains("?::numeric"),
                 "金额参数必须写成 `?::text::numeric`（`Value::Text` 编码不进 numeric 槽）：{sql}"
             );
-            assert!(
-                !sql.contains("NULLIF(?,"),
-                "可空参数统一用 `NULLIF(?::text,'')`：{sql}"
-            );
+            assert!(!sql.contains("NULLIF(?,"), "可空参数统一用 `NULLIF(?::text,'')`：{sql}");
         }
         assert!(INSERT_SQL.contains("?::text::date"));
         assert!(UPDATE_SQL.contains("?::text::date"));
         // 占位符个数 = 参数个数（14 / 13 / 2），错位绑定会静默写错列
         assert_eq!(INSERT_SQL.matches('?').count(), 14, "INSERT 占位符个数");
         assert_eq!(UPDATE_SQL.matches('?').count(), 13, "UPDATE 占位符个数");
-        assert_eq!(
-            SOFT_DELETE_SQL.matches('?').count(),
-            2,
-            "SOFT DELETE 占位符个数"
-        );
+        assert_eq!(SOFT_DELETE_SQL.matches('?').count(), 2, "SOFT DELETE 占位符个数");
     }
 
     /// `to_spec` 必须原样保留 11 个业务字段（编辑合并的基准值）。

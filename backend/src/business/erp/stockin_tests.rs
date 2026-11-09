@@ -82,17 +82,11 @@ fn only_six_legal_edges() {
     assert!(can_transition(STATUS_PENDING_POST, STATUS_DRAFT));
     assert!(can_transition(STATUS_PENDING_POST, STATUS_CANCELLED));
     assert_eq!(LEGAL_EDGES.len(), 10, "边表总数钉死，防止悄悄多放/少放");
-    assert!(
-        !can_transition(STATUS_POSTED, STATUS_POSTED),
-        "重复过账非法"
-    );
+    assert!(!can_transition(STATUS_POSTED, STATUS_POSTED), "重复过账非法");
     // 作废审批中不能再跳回草稿，也不能回到「过账审批中」
     assert!(!can_transition(STATUS_PENDING_CANCEL, STATUS_DRAFT));
     assert!(!can_transition(STATUS_PENDING_CANCEL, STATUS_PENDING_POST));
-    assert!(!can_transition(
-        STATUS_PENDING_CANCEL,
-        STATUS_PENDING_CANCEL
-    ));
+    assert!(!can_transition(STATUS_PENDING_CANCEL, STATUS_PENDING_CANCEL));
     assert!(!can_transition(STATUS_CANCELLED, STATUS_POSTED));
     assert!(!can_transition(STATUS_CANCELLED, STATUS_DRAFT));
     assert!(!can_transition(STATUS_CANCELLED, STATUS_PENDING_CANCEL));
@@ -150,14 +144,8 @@ fn cancel_sentinels_are_distinct() {
     for (i, a) in all.iter().enumerate() {
         for (j, b) in all.iter().enumerate() {
             if i != j {
-                assert!(
-                    !a.starts_with(b),
-                    "{a} 不能以 {b} 开头（前缀重叠会让文案串台）"
-                );
-                assert!(
-                    !b.starts_with(a),
-                    "{b} 不能以 {a} 开头（前缀重叠会让文案串台）"
-                );
+                assert!(!a.starts_with(b), "{a} 不能以 {b} 开头（前缀重叠会让文案串台）");
+                assert!(!b.starts_with(a), "{b} 不能以 {a} 开头（前缀重叠会让文案串台）");
             }
         }
     }

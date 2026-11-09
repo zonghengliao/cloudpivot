@@ -93,8 +93,7 @@ pub async fn blocking_prerequisites(task_id: Uuid) -> DbResult<Vec<DependencyRow
 pub async fn dependency_edges(ex: &impl SqlExecutor) -> DbResult<Vec<dep::DepEdge>> {
     let rows = ex
         .query_sql(
-            "SELECT task_id, depends_on_id FROM biz_task_dependency WHERE dep_type = 'FS'"
-                .to_string(),
+            "SELECT task_id, depends_on_id FROM biz_task_dependency WHERE dep_type = 'FS'".to_string(),
             vec![],
         )
         .await?;
@@ -113,11 +112,7 @@ pub async fn dependency_edges(ex: &impl SqlExecutor) -> DbResult<Vec<dep::DepEdg
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn find_dependency(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-    depends_on_id: Uuid,
-) -> DbResult<Option<i32>> {
+pub async fn find_dependency(ex: &impl SqlExecutor, task_id: Uuid, depends_on_id: Uuid) -> DbResult<Option<i32>> {
     let rows = ex
         .query_sql(
             "SELECT lag_days FROM biz_task_dependency \
@@ -179,11 +174,7 @@ pub async fn insert_dependency(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn delete_dependency(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-    peer_id: Uuid,
-) -> DbResult<u64> {
+pub async fn delete_dependency(ex: &impl SqlExecutor, task_id: Uuid, peer_id: Uuid) -> DbResult<u64> {
     ex.exec_sql(
         "DELETE FROM biz_task_dependency \
           WHERE (task_id = ?::uuid AND depends_on_id = ?::uuid) \
@@ -228,11 +219,7 @@ pub async fn task_relation(id_a: Uuid, id_b: Uuid) -> DbResult<Option<TaskRelati
             found += 1;
         }
     }
-    if found == 2 {
-        Ok(Some(relation))
-    } else {
-        Ok(None)
-    }
+    if found == 2 { Ok(Some(relation)) } else { Ok(None) }
 }
 
 /// 一批任务的编号 / 标题（环路径文案用）。
@@ -240,19 +227,13 @@ pub async fn task_relation(id_a: Uuid, id_b: Uuid) -> DbResult<Option<TaskRelati
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn dependency_labels(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<Vec<dep::DepLabel>> {
+pub async fn dependency_labels(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<Vec<dep::DepLabel>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
     let array = Value::Text(format!(
         "{{{}}}",
-        ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
     ));
     let rows = ex
         .query_sql(
@@ -318,9 +299,7 @@ pub async fn gantt_tasks(
         sql.push_str(" AND t.owner_id = ?::uuid");
         params.push(Value::from(&me));
     }
-    sql.push_str(
-        " ORDER BY COALESCE(t.start_date, t.due_date) ASC, t.due_date ASC NULLS LAST, t.id ASC",
-    );
+    sql.push_str(" ORDER BY COALESCE(t.start_date, t.due_date) ASC, t.due_date ASC NULLS LAST, t.id ASC");
     sql.push_str(&format!(" LIMIT {}", dep::MAX_GANTT_TASKS + 1));
 
     let rows = db().find_with_params(&sql, params).await?;
@@ -380,10 +359,7 @@ pub async fn gantt_tasks(
 pub(super) async fn blocked_task_ids(ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
     let array = Value::Text(format!(
         "{{{}}}",
-        ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
     ));
     let rows = db()
         .find_with_params(
@@ -414,10 +390,7 @@ pub async fn gantt_edges(ids: &[Uuid]) -> DbResult<Vec<dep::DepEdge>> {
     }
     let array = Value::Text(format!(
         "{{{}}}",
-        ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
     ));
     let rows = db()
         .find_with_params(

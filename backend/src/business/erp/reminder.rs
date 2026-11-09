@@ -90,9 +90,7 @@ use nik::uuid::Uuid;
 use serde::Serialize;
 
 use crate::business::erp::period;
-use crate::business::erp::{
-    reminder_contract, reminder_payable, reminder_purchase, reminder_stock,
-};
+use crate::business::erp::{reminder_contract, reminder_payable, reminder_purchase, reminder_stock};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, DispatchError, NoticeDraft, NoticeTarget};
 use crate::shared::error_code;
@@ -270,9 +268,7 @@ impl RemindKind {
 ///
 /// 与 `transfer_scan::overdue_threshold_days` 同一取舍：配置读不到不能让提醒整体失效。
 async fn config_positive_i64(key: &str) -> Option<i64> {
-    SysConfigModel::read_i64(key)
-        .await
-        .filter(|value| *value > 0)
+    SysConfigModel::read_i64(key).await.filter(|value| *value > 0)
 }
 
 // ==================== 业务日 / 幂等键 ====================
@@ -303,13 +299,7 @@ pub fn business_day(now: DateTime<Utc>) -> NaiveDate {
 /// 采购超期 / 低库存是状态型提醒，过了重提醒间隔要**再发一次**；此时 stage 与 date 可能
 /// 与上一次相同（如「逾期 5 天」隔天再发仍是同一档），不带次数就会被 `uk_sys_notice_idem`
 /// 吞掉。`seq` = 台账里这张单的提醒历史行数 + 1（见 [`next_seq_of`]）。
-pub fn idempotency_key(
-    kind: RemindKind,
-    doc_id: Uuid,
-    stage: &str,
-    day: NaiveDate,
-    seq: i64,
-) -> String {
+pub fn idempotency_key(kind: RemindKind, doc_id: Uuid, stage: &str, day: NaiveDate, seq: i64) -> String {
     format!(
         "ERP:{}:{}:{}:{}:{}",
         kind.code(),
@@ -436,11 +426,7 @@ pub async fn next_seq_of(kind: RemindKind, doc_id: Uuid) -> DbResult<i64> {
 /// - `kind`：提醒类型；
 /// - `day`：业务日；
 /// - `window_days`：重提醒间隔天数（`1` = 只看今天）。
-pub async fn ledger_snapshot(
-    kind: RemindKind,
-    day: NaiveDate,
-    window_days: i64,
-) -> DbResult<LedgerSnapshot> {
+pub async fn ledger_snapshot(kind: RemindKind, day: NaiveDate, window_days: i64) -> DbResult<LedgerSnapshot> {
     let window_days = window_days.max(1);
     let since = day - nik::prelude::chrono::Duration::days(window_days - 1);
     let rows = db()
@@ -647,12 +633,7 @@ enum SendOutcome {
 }
 
 /// 组装通知草稿（模板可选）。
-fn build_draft(
-    kind: RemindKind,
-    day: NaiveDate,
-    seq: i64,
-    message: &ReminderMessage,
-) -> NoticeDraft {
+fn build_draft(kind: RemindKind, day: NaiveDate, seq: i64, message: &ReminderMessage) -> NoticeDraft {
     let mut draft = NoticeDraft::text(
         NoticeType::Alert,
         NoticeLevel::Warn,
@@ -663,13 +644,7 @@ fn build_draft(
     draft.biz_type = Some(kind.biz_type().to_string());
     draft.biz_id = Some(message.doc_id.to_string());
     draft.link_url = Some(kind.link_url().to_string());
-    draft.idempotency_key = Some(idempotency_key(
-        kind,
-        message.doc_id,
-        &message.stage,
-        day,
-        seq,
-    ));
+    draft.idempotency_key = Some(idempotency_key(kind, message.doc_id, &message.stage, day, seq));
     draft.sender_name = Some(SENDER_NAME.to_string());
     // 到期/超期/断料提醒属于「漏了要赔钱」的一类，强制送达（跳过 notify.inbox 偏好），
     // 与 `transfer_overdue` / `flow::notify::FlowEvent::Urge` 同分级。
@@ -702,9 +677,7 @@ async fn send_one(
             let mut fallback = draft;
             fallback.template_code = None;
             fallback.template_vars = serde_json::Value::Null;
-            notice::dispatch(fallback)
-                .await
-                .map_err(|error| error.to_string())?
+            notice::dispatch(fallback).await.map_err(|error| error.to_string())?
         }
         Err(error) => return Err(error.to_string()),
     };
@@ -788,14 +761,8 @@ pub async fn run_kind(kind: RemindKind, now: DateTime<Utc>) -> DbResult<ScanRepo
         match send_one(kind, day, seq, message).await {
             Ok(outcome) => {
                 let (notice_id, receivers, duplicated) = match outcome {
-                    SendOutcome::Sent {
-                        notice_id,
-                        receivers,
-                    } => (notice_id, receivers, false),
-                    SendOutcome::Duplicated {
-                        notice_id,
-                        receivers,
-                    } => (notice_id, receivers, true),
+                    SendOutcome::Sent { notice_id, receivers } => (notice_id, receivers, false),
+                    SendOutcome::Duplicated { notice_id, receivers } => (notice_id, receivers, true),
                 };
                 match ledger_record(kind, day, message, notice_id, receivers).await {
                     Ok(1) => {
@@ -848,24 +815,19 @@ pub async fn run_all(now: DateTime<Utc>) -> DbResult<Vec<(RemindKind, ScanReport
 /// 在调度器上注册 4 个提醒任务（由 `task::Scheduler::register_builtin` 调用）。
 pub fn register_builtin(scheduler: &Scheduler) {
     for kind in RemindKind::ALL {
-        scheduler.register_cron(
-            kind.task_name(),
-            kind.cron(),
-            kind.description(),
-            move || {
-                tokio::spawn(async move {
-                    match run_kind(kind, Utc::now()).await {
-                        Ok(report) => {
-                            tracing::info!(summary = %report.summary(kind), "业务提醒扫描完成")
-                        }
-                        Err(error) => tracing::error!(
-                            summary = %report_error(kind, &error),
-                            "业务提醒扫描失败"
-                        ),
+        scheduler.register_cron(kind.task_name(), kind.cron(), kind.description(), move || {
+            tokio::spawn(async move {
+                match run_kind(kind, Utc::now()).await {
+                    Ok(report) => {
+                        tracing::info!(summary = %report.summary(kind), "业务提醒扫描完成")
                     }
-                })
-            },
-        );
+                    Err(error) => tracing::error!(
+                        summary = %report_error(kind, &error),
+                        "业务提醒扫描失败"
+                    ),
+                }
+            })
+        });
         tracing::info!(
             invoke_target = kind.task_name(),
             cron = kind.cron(),
@@ -876,10 +838,7 @@ pub fn register_builtin(scheduler: &Scheduler) {
 
 /// 扫描失败的日志摘要（失败时没有 `ScanReport`，单独拼一行，保持字段名一致）。
 fn report_error(kind: RemindKind, error: &DbError) -> String {
-    format!(
-        "{}: scanned=0 sent=0 failed=1 error={error}",
-        kind.task_name()
-    )
+    format!("{}: scanned=0 sent=0 failed=1 error={error}", kind.task_name())
 }
 
 // ==================== 接口层（手动触发，验收入口） ====================
@@ -937,10 +896,7 @@ impl KindRunRes {
 fn run_message(runs: &[KindRunRes]) -> String {
     let sent: i64 = runs.iter().map(|run| run.sent).sum();
     let scanned: i64 = runs.iter().map(|run| run.scanned).sum();
-    let skipped: i64 = runs
-        .iter()
-        .map(|run| run.skipped_reminded + run.skipped_recent)
-        .sum();
+    let skipped: i64 = runs.iter().map(|run| run.skipped_reminded + run.skipped_recent).sum();
     let no_recipient: i64 = runs.iter().map(|run| run.skipped_no_recipient).sum();
     let failed: i64 = runs.iter().map(|run| run.failed).sum();
     if scanned == 0 {
@@ -972,10 +928,7 @@ pub async fn run_by_code(kind_code: &str) -> std::result::Result<ReminderRunRes,
     let now = Utc::now();
     let mut runs = Vec::new();
     if kind_code.trim().eq_ignore_ascii_case("all") {
-        for (kind, report) in run_all(now)
-            .await
-            .map_err(|e| utils::db_error(e, "执行业务提醒扫描"))?
-        {
+        for (kind, report) in run_all(now).await.map_err(|e| utils::db_error(e, "执行业务提醒扫描"))? {
             runs.push(KindRunRes::of(kind, &report));
         }
     } else {
@@ -1026,9 +979,7 @@ mod tests {
 
     fn fixed_now() -> DateTime<Utc> {
         // 2026-11-03T02:00:00Z = 北京时间 2026-11-03 10:00
-        Utc.with_ymd_and_hms(2026, 11, 3, 2, 0, 0)
-            .single()
-            .expect("固定时间")
+        Utc.with_ymd_and_hms(2026, 11, 3, 2, 0, 0).single().expect("固定时间")
     }
 
     /// ① 业务日按 Asia/Shanghai 折算：UTC 前一天 17:00 = 北京次日 01:00。
@@ -1038,17 +989,11 @@ mod tests {
         assert_eq!(day.to_string(), "2026-11-03");
 
         // UTC 2026-11-03 17:30 → 北京 2026-11-04 01:30（业务日必须是 04 号）
-        let later = Utc
-            .with_ymd_and_hms(2026, 11, 3, 17, 30, 0)
-            .single()
-            .unwrap();
+        let later = Utc.with_ymd_and_hms(2026, 11, 3, 17, 30, 0).single().unwrap();
         assert_eq!(business_day(later).to_string(), "2026-11-04");
 
         // UTC 2026-11-03 15:59 → 北京 23:59，还是 03 号（差一分钟跨日）
-        let edge = Utc
-            .with_ymd_and_hms(2026, 11, 3, 15, 59, 0)
-            .single()
-            .unwrap();
+        let edge = Utc.with_ymd_and_hms(2026, 11, 3, 15, 59, 0).single().unwrap();
         assert_eq!(business_day(edge).to_string(), "2026-11-03");
     }
 
@@ -1063,10 +1008,7 @@ mod tests {
             idempotency_key(RemindKind::PayableDue, id, "D-7", day, 1),
             "同输入必须稳定"
         );
-        assert!(
-            key.starts_with("ERP:PAYABLE_DUE:"),
-            "键前缀要能一眼看出业务：{key}"
-        );
+        assert!(key.starts_with("ERP:PAYABLE_DUE:"), "键前缀要能一眼看出业务：{key}");
         assert_ne!(
             key,
             idempotency_key(RemindKind::PayableDue, id, "D-3", day, 1),
@@ -1074,13 +1016,7 @@ mod tests {
         );
         assert_ne!(
             key,
-            idempotency_key(
-                RemindKind::PayableDue,
-                id,
-                "D-7",
-                day + Duration::days(1),
-                1
-            ),
+            idempotency_key(RemindKind::PayableDue, id, "D-7", day + Duration::days(1), 1),
             "跨业务日必须是不同的键"
         );
         assert_ne!(
@@ -1103,10 +1039,7 @@ mod tests {
             vec![a, b],
             "去重保序、剔空"
         );
-        assert!(
-            merge_recipients([None, None]).is_empty(),
-            "全空必须是空列表"
-        );
+        assert!(merge_recipients([None, None]).is_empty(), "全空必须是空列表");
 
         let many = (0..MAX_RECIPIENTS + 5)
             .map(|index| Uuid::from_u128(index as u128 + 1))

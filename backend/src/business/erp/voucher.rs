@@ -311,11 +311,7 @@ async fn ensure_seq_row(ex: &impl SqlExecutor, spec: &SeqSpec<'_>) -> DbResult<(
 ///
 /// 第三支是 W2b 实测的撞号地雷：`CASE WHEN period_key = ? THEN +1 ELSE 1` 会在
 /// 「A→B→A（NTP 回拨 / 单测用假日期）」时把 A 当天已发的号整段撞掉。
-async fn bump_seq(
-    ex: &impl SqlExecutor,
-    seq_type: &str,
-    period_key: &str,
-) -> DbResult<Option<i64>> {
+async fn bump_seq(ex: &impl SqlExecutor, seq_type: &str, period_key: &str) -> DbResult<Option<i64>> {
     // SCOPE-EXEMPT: 同上，biz_seq 是全局取号规则字典。
     let rows = ex
         .query_sql(
@@ -337,17 +333,11 @@ async fn bump_seq(
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个单号（`{prefix}-yyyyMMdd-NNNNNN`，周期键按北京时间）。
-pub async fn next_doc_no(
-    ex: &impl SqlExecutor,
-    spec: &SeqSpec<'_>,
-    now: DateTime<Utc>,
-) -> DbResult<String> {
+pub async fn next_doc_no(ex: &impl SqlExecutor, spec: &SeqSpec<'_>, now: DateTime<Utc>) -> DbResult<String> {
     let period_key = serial_model::period_key_of(now);
     ensure_seq_row(ex, spec).await?;
     match bump_seq(ex, spec.seq_type, &period_key).await? {
@@ -524,11 +514,7 @@ pub async fn account_by_code(ex: &impl SqlExecutor, code: &str) -> DbResult<Opti
 }
 
 /// 按科目编码取科目，取不到就报**点名科目编码**的明确错误（卡面 §一 ②：科目不存在要报明确错误）。
-pub async fn account_required(
-    ex: &impl SqlExecutor,
-    code: &str,
-    what: &str,
-) -> DbResult<AccountRef> {
+pub async fn account_required(ex: &impl SqlExecutor, code: &str, what: &str) -> DbResult<AccountRef> {
     load_account_by_code(ex, code)
         .await?
         .ok_or_else(|| account_missing(what, &format!("科目编码 {code}")))
@@ -560,9 +546,7 @@ async fn non_leaf_codes(ex: &impl SqlExecutor, lines: &[EntryLine]) -> DbResult<
     );
     let params: Vec<Value> = codes.into_iter().map(Value::Text).collect();
     let rows = ex.query_sql(sql, params).await?;
-    rows.iter()
-        .map(|row| row.get_typed::<String>("account_code"))
-        .collect()
+    rows.iter().map(|row| row.get_typed::<String>("account_code")).collect()
 }
 
 /// 一条映射规则（三个科目 id 都已解析成 `AccountRef`；税科目可空）。
@@ -593,10 +577,7 @@ async fn load_rule(ex: &impl SqlExecutor, biz_type: &str) -> DbResult<Option<Res
 ///
 /// 【D3】联动动作 `GENERATE_VOUCHER` 的 `template_code` 参数走这条：
 /// 与 `biz_type` 同表同栏位，只是换一个查询键 —— **不新增第二套映射表**。
-async fn load_rule_by_code(
-    ex: &impl SqlExecutor,
-    rule_code: &str,
-) -> DbResult<Option<ResolvedRule>> {
+async fn load_rule_by_code(ex: &impl SqlExecutor, rule_code: &str) -> DbResult<Option<ResolvedRule>> {
     // SCOPE-EXEMPT: 同上。
     let row = ex
         .query_first_sql(
@@ -615,10 +596,7 @@ async fn load_rule_by_code(
 ///
 /// `load_rule`（按 biz_type）与 `load_rule_by_code`（按模板码）共用本函数：
 /// 「规则 → 科目」的解析口径只能有一处，否则模板路径与默认路径的科目会分叉。
-async fn resolve_rule(
-    ex: &impl SqlExecutor,
-    row: Option<nik::prelude::Row>,
-) -> DbResult<Option<ResolvedRule>> {
+async fn resolve_rule(ex: &impl SqlExecutor, row: Option<nik::prelude::Row>) -> DbResult<Option<ResolvedRule>> {
     let Some(row) = row else {
         return Ok(None);
     };
@@ -641,10 +619,7 @@ async fn resolve_rule(
 }
 
 /// 物料的存货科目（`biz_material.inventory_account_id`，可空）。
-async fn material_inventory_account(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-) -> DbResult<Option<AccountRef>> {
+async fn material_inventory_account(ex: &impl SqlExecutor, material_id: Uuid) -> DbResult<Option<AccountRef>> {
     // SCOPE-EXEMPT: biz_material 是物料主数据（全局），没有归属列。
     let row = ex
         .query_first_sql(
@@ -759,14 +734,12 @@ async fn material_inventory_accounts(
                 None => match &default_account {
                     Some(account) => account.clone(),
                     None => {
-                        let loaded = load_account_by_code(ex, DEFAULT_INVENTORY_CODE)
-                            .await?
-                            .ok_or_else(|| {
-                                account_missing(
-                                    "默认存货科目 1405 库存商品",
-                                    "biz_voucher_rule 无 PURCHASE_IN 规则且物料未配存货科目",
-                                )
-                            })?;
+                        let loaded = load_account_by_code(ex, DEFAULT_INVENTORY_CODE).await?.ok_or_else(|| {
+                            account_missing(
+                                "默认存货科目 1405 库存商品",
+                                "biz_voucher_rule 无 PURCHASE_IN 规则且物料未配存货科目",
+                            )
+                        })?;
                         default_account = Some(loaded.clone());
                         loaded
                     }
@@ -797,9 +770,7 @@ async fn material_codes(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<BTreeMa
     if ids.is_empty() {
         return Ok(codes);
     }
-    let mut sql = String::from(
-        "SELECT id, material_code FROM biz_material WHERE deleted_at IS NULL AND id IN (",
-    );
+    let mut sql = String::from("SELECT id, material_code FROM biz_material WHERE deleted_at IS NULL AND id IN (");
     for index in 0..ids.len() {
         if index > 0 {
             sql.push(',');
@@ -818,10 +789,7 @@ async fn material_codes(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<BTreeMa
 }
 
 /// 供应商的应付科目（`biz_supplier.payable_account_id`，可空）。
-async fn supplier_payable_account(
-    ex: &impl SqlExecutor,
-    supplier_id: Uuid,
-) -> DbResult<Option<AccountRef>> {
+async fn supplier_payable_account(ex: &impl SqlExecutor, supplier_id: Uuid) -> DbResult<Option<AccountRef>> {
     // SCOPE-EXEMPT: biz_supplier 是供应商主数据（全局），没有归属列。
     let row = ex
         .query_first_sql(
@@ -881,14 +849,12 @@ async fn resolve_accounts_with(
             };
             match from_material {
                 Some(account) => account,
-                None => load_account_by_code(ex, DEFAULT_INVENTORY_CODE)
-                    .await?
-                    .ok_or_else(|| {
-                        account_missing(
-                            "默认存货科目 1405 库存商品",
-                            "biz_voucher_rule 无 PURCHASE_IN 规则且物料未配存货科目",
-                        )
-                    })?,
+                None => load_account_by_code(ex, DEFAULT_INVENTORY_CODE).await?.ok_or_else(|| {
+                    account_missing(
+                        "默认存货科目 1405 库存商品",
+                        "biz_voucher_rule 无 PURCHASE_IN 规则且物料未配存货科目",
+                    )
+                })?,
             }
         }
     };
@@ -902,14 +868,12 @@ async fn resolve_accounts_with(
             };
             match from_supplier {
                 Some(account) => account,
-                None => load_account_by_code(ex, DEFAULT_PAYABLE_CODE)
-                    .await?
-                    .ok_or_else(|| {
-                        account_missing(
-                            "默认应付科目 2202 应付账款",
-                            "biz_voucher_rule 无 PURCHASE_IN 规则且供应商未配应付科目",
-                        )
-                    })?,
+                None => load_account_by_code(ex, DEFAULT_PAYABLE_CODE).await?.ok_or_else(|| {
+                    account_missing(
+                        "默认应付科目 2202 应付账款",
+                        "biz_voucher_rule 无 PURCHASE_IN 规则且供应商未配应付科目",
+                    )
+                })?,
             }
         }
     };
@@ -1024,11 +988,7 @@ impl VoucherMaterialLine {
 ///
 /// * `header_amount`：单头金额（权威值，已 `round_dp(4)`）；
 /// * `amounts`：按物料升序的逐物料金额（长度与物料行一致，**已剔除 0 元物料**）。
-pub fn absorb_tail_diff(
-    doc_no: &str,
-    header_amount: Decimal,
-    amounts: &[Decimal],
-) -> DbResult<Vec<Decimal>> {
+pub fn absorb_tail_diff(doc_no: &str, header_amount: Decimal, amounts: &[Decimal]) -> DbResult<Vec<Decimal>> {
     let header = header_amount.round_dp(4);
     let material_sum: Decimal = amounts.iter().copied().sum();
     let diff = (header - material_sum).round_dp(4);
@@ -1153,10 +1113,8 @@ pub fn purchase_in_lines(
         }
     } else {
         // ---- 按物料拆：每个物料一行 1405，金额取明细、末行吸尾差 ----
-        let mut positives: Vec<&VoucherMaterialLine> = materials
-            .iter()
-            .filter(|line| line.amount > Decimal::ZERO)
-            .collect();
+        let mut positives: Vec<&VoucherMaterialLine> =
+            materials.iter().filter(|line| line.amount > Decimal::ZERO).collect();
         // `normalize` 已按 material_id 升序；这里再排一次是廉价的自证（顺序是契约的一部分）
         positives.sort_by_key(|line| line.material_id);
         let amounts_of_materials: Vec<Decimal> = positives.iter().map(|line| line.amount).collect();
@@ -1414,9 +1372,7 @@ pub async fn find_voucher(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Vo
     // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
     let row = ex
         .query_first_sql(
-            format!(
-                "SELECT {VOUCHER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            format!("SELECT {VOUCHER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -1473,10 +1429,7 @@ pub async fn find_voucher_by_source(
                   WHERE source_type = ? AND source_id = ?::uuid AND is_red = 0 AND deleted_at IS NULL \
                   ORDER BY created_at ASC LIMIT 1"
             ),
-            vec![
-                Value::Text(source_type.to_string()),
-                Value::from(&source_id),
-            ],
+            vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
         )
         .await?;
     row.as_ref().map(VoucherRow::from_row).transpose()
@@ -1566,10 +1519,7 @@ impl VoucherBizCtx {
             source_no: header.in_no.clone(),
             voucher_date: header.in_date,
             amounts: VoucherAmounts::of_stock_in(header),
-            summary: format!(
-                "采购入库 {} 价税合计 {}",
-                header.in_no, header.total_with_tax
-            ),
+            summary: format!("采购入库 {} 价税合计 {}", header.in_no, header.total_with_tax),
             biz_type: BIZ_TYPE_PURCHASE_IN.to_string(),
             material_id: material_lines.first().map(|line| line.material_id),
             material_lines,
@@ -1630,8 +1580,7 @@ pub async fn create_by_rule(
         })?),
         None => load_rule(ex, &ctx.biz_type).await?,
     };
-    let accounts =
-        resolve_accounts_with(ex, rule.clone(), ctx.material_id, ctx.supplier_id).await?;
+    let accounts = resolve_accounts_with(ex, rule.clone(), ctx.material_id, ctx.supplier_id).await?;
 
     // 税率 > 0 但系统里没有进项税科目 → 拦住（不许静默漏记进项税）
     if ctx.amounts.tax > Decimal::ZERO && accounts.tax.is_none() {
@@ -1643,12 +1592,8 @@ pub async fn create_by_rule(
 
     // 逐物料的存货科目（一条 SQL 批取，P2-1b §4.4）：规则 debit → 该物料科目 → 1405。
     // 批取是硬要求：凭证在过账事务里生成（持着收货单行锁），N 次单查会把锁等待拖长。
-    let material_accounts = material_inventory_accounts(
-        ex,
-        rule.as_ref().and_then(|r| r.debit.as_ref()),
-        &ctx.material_lines,
-    )
-    .await?;
+    let material_accounts =
+        material_inventory_accounts(ex, rule.as_ref().and_then(|r| r.debit.as_ref()), &ctx.material_lines).await?;
     if !ctx.material_lines.is_empty() {
         // 多物料单不再是「汇总行 + 物料留空」，而是逐物料出行 —— 这条日志让财务能按单号
         // 确认「这张单的存货成本按物料查得到 M 条」。
@@ -1775,9 +1720,7 @@ pub struct VoucherSnapshot {
 /// 取一张凭证的快照（读主表 + 分录 + 同一来源的凭证张数）。
 pub async fn snapshot_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<VoucherSnapshot> {
     let Some(row) = find_voucher(ex, voucher_id).await? else {
-        return Err(DbError::InvalidValue(format!(
-            "凭证快照失败：凭证 {voucher_id} 不存在"
-        )));
+        return Err(DbError::InvalidValue(format!("凭证快照失败：凭证 {voucher_id} 不存在")));
     };
     let voucher_count = match (row.source_type.as_str(), row.source_id) {
         (source_type, Some(source_id)) => {
@@ -1787,10 +1730,7 @@ pub async fn snapshot_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<Vo
                     "SELECT count(*) FROM {TABLE} \
                       WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL"
                 ),
-                vec![
-                    Value::Text(source_type.to_string()),
-                    Value::from(&source_id),
-                ],
+                vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
             )
             .await?
         }
@@ -1834,10 +1774,7 @@ pub async fn snapshot_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<Vo
 ///
 /// 这是 SHADOW 阶段「并行跑一段、对比一致再切换」的判据：日志里 `matched` / `diffs`
 /// 是可 grep 的事实，不是口头保证。
-pub fn compare_snapshots(
-    configured: &VoucherSnapshot,
-    legacy: &VoucherSnapshot,
-) -> Vec<&'static str> {
+pub fn compare_snapshots(configured: &VoucherSnapshot, legacy: &VoucherSnapshot) -> Vec<&'static str> {
     let mut diffs: Vec<&'static str> = Vec::new();
     if configured.voucher_count != legacy.voucher_count {
         diffs.push("voucher_count");
@@ -1888,11 +1825,7 @@ pub fn compare_snapshots(
 }
 
 /// 批量写分录（单条语句，行号唯一键冲突即失败）。
-async fn write_entries(
-    ex: &impl SqlExecutor,
-    voucher_id: Uuid,
-    lines: &[EntryLine],
-) -> DbResult<()> {
+async fn write_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[EntryLine]) -> DbResult<()> {
     for line in lines {
         // SCOPE-EXEMPT: 凭证分录无归属列（见模块文档）。
         ex.exec_sql(
@@ -1915,21 +1848,9 @@ async fn write_entries(
                 Value::Text(line.account.name.clone()),
                 Value::Text(line.debit.to_string()),
                 Value::Text(line.credit.to_string()),
-                Value::Text(
-                    line.aux_supplier_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
-                Value::Text(
-                    line.aux_material_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
-                Value::Text(
-                    line.aux_warehouse_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(line.aux_supplier_id.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(line.aux_material_id.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(line.aux_warehouse_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(line.aux_dept_id.map(|v| v.to_string()).unwrap_or_default()),
             ],
         )
@@ -1943,11 +1864,7 @@ async fn write_entries(
 /// 会计上凭证一经记账不可改，唯一例外是**期初凭证**：同一期间只有一张，重复录入是
 /// 「把这张凭证的分录整组换掉」，凭证号保持不变（卡面 §三 硬红线 2）。
 /// 删除 + 重写放在同一个函数里，避免调用方只做了一半（删了老分录、新分录没写进去）。
-pub async fn replace_entries(
-    ex: &impl SqlExecutor,
-    voucher_id: Uuid,
-    lines: &[EntryLine],
-) -> DbResult<()> {
+pub async fn replace_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[EntryLine]) -> DbResult<()> {
     ex.exec_sql(
         format!("DELETE FROM {ENTRY_TABLE} WHERE voucher_id = ?::uuid"),
         vec![Value::from(&voucher_id)],
@@ -2074,20 +1991,12 @@ pub async fn post_voucher(
     };
     let voucher_no_text = voucher_no.clone();
     let entry_count = i32::try_from(req.lines.len()).unwrap_or(0);
-    let is_red = if req.red_of.is_some() {
-        IS_RED_YES
-    } else {
-        IS_RED_NO
-    };
+    let is_red = if req.red_of.is_some() { IS_RED_YES } else { IS_RED_NO };
     let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
     // 落库即记账（POSTED）才盖「记账时间 / 记账人」戳；草稿（DRAFT）两列留 NULL ——
     // 否则列表 / 报表里会出现「草稿却有记账人」的自相矛盾行，审计第一个问的就是这个。
     let posted = req.status == STATUS_POSTED;
-    let posted_at = if posted {
-        Value::from(now)
-    } else {
-        Value::Null
-    };
+    let posted_at = if posted { Value::from(now) } else { Value::Null };
     let posted_by = if posted {
         Value::Text(operator_text.clone())
     } else {
@@ -2242,10 +2151,7 @@ pub async fn reverse_posted(
         )));
     }
     let lines = reversed_lines(&entries, input.reason);
-    let summary = format!(
-        "红冲凭证 {} 借贷合计 {}",
-        original.voucher_no, original.total_debit
-    );
+    let summary = format!("红冲凭证 {} 借贷合计 {}", original.voucher_no, original.total_debit);
 
     let red_id = post_voucher(
         ex,
@@ -2330,10 +2236,7 @@ pub async fn user_dept_of(ex: &impl SqlExecutor, user_id: Uuid) -> DbResult<Opti
             vec![Value::from(&user_id)],
         )
         .await?;
-    match row
-        .as_ref()
-        .map(|row| row.get_typed::<Option<Uuid>>("dept_id"))
-    {
+    match row.as_ref().map(|row| row.get_typed::<Option<Uuid>>("dept_id")) {
         Some(Ok(dept_id)) => Ok(dept_id),
         Some(Err(err)) => Err(err),
         None => Ok(None),
@@ -2461,8 +2364,7 @@ pub async fn create_for_serial_movement(
     let inventory_aux_warehouse = Some(warehouse_id);
     let lines = match debit_side {
         DebitSide::Inventory => {
-            let counterpart =
-                account_required(ex, ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢").await?;
+            let counterpart = account_required(ex, ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢").await?;
             vec![
                 EntryLine {
                     line_no: 1,
@@ -2840,11 +2742,10 @@ pub fn sales_revenue_split(
     revenue_total: Decimal,
     material_lines: &[VoucherMaterialLine],
 ) -> DbResult<Vec<VoucherMaterialLine>> {
-    let mut positives: Vec<VoucherMaterialLine> =
-        VoucherMaterialLine::normalize(material_lines.iter().cloned())
-            .into_iter()
-            .filter(|line| line.amount > Decimal::ZERO)
-            .collect();
+    let mut positives: Vec<VoucherMaterialLine> = VoucherMaterialLine::normalize(material_lines.iter().cloned())
+        .into_iter()
+        .filter(|line| line.amount > Decimal::ZERO)
+        .collect();
     if positives.is_empty() {
         return Ok(Vec::new());
     }
@@ -2986,15 +2887,13 @@ pub async fn create_for_sales_revenue(
         }
         // 兼容路径：没有 base_* 的调用方按原币入账（本位币单据 rate = 1 时两者逐分相等）
         None => {
-            let (revenue, tax) =
-                sales_revenue_amounts(req.invoice_no, total, req.amount, req.tax_amount)?;
+            let (revenue, tax) = sales_revenue_amounts(req.invoice_no, total, req.amount, req.tax_amount)?;
             (revenue, tax, total)
         }
     };
 
     let ar_account = account_required(ex, ACCOUNT_AR, "收入凭证的借方科目 1122 应收账款").await?;
-    let revenue_account =
-        account_required(ex, ACCOUNT_REVENUE, "收入凭证的贷方科目 5001 主营业务收入").await?;
+    let revenue_account = account_required(ex, ACCOUNT_REVENUE, "收入凭证的贷方科目 5001 主营业务收入").await?;
 
     // 借：应收账款（价税合计）
     let mut lines: Vec<EntryLine> = vec![EntryLine {
@@ -3054,8 +2953,7 @@ pub async fn create_for_sales_revenue(
 
     // 贷：应交税费-销项税（税额为 0 不出行 —— 零金额分录入不了库）
     if tax > Decimal::ZERO {
-        let tax_account =
-            account_required(ex, ACCOUNT_OUTPUT_TAX, "收入凭证的贷方科目 2221.02 销项税").await?;
+        let tax_account = account_required(ex, ACCOUNT_OUTPUT_TAX, "收入凭证的贷方科目 2221.02 销项税").await?;
         lines.push(EntryLine {
             line_no: 0,
             summary: format!("{} 销项税额", req.summary),
@@ -3085,11 +2983,7 @@ pub async fn create_for_sales_revenue(
     }
     if diff > Decimal::ZERO {
         // < 0.01 的尾差落到最后一笔贷方行（上面已保证税额行是派生值，正常走不到这里）
-        if let Some(last) = lines
-            .iter_mut()
-            .rev()
-            .find(|line| line.credit > Decimal::ZERO)
-        {
+        if let Some(last) = lines.iter_mut().rev().find(|line| line.credit > Decimal::ZERO) {
             last.credit = (last.credit + diff).round_dp(4);
             tracing::warn!(
                 doc_no = req.invoice_no,
@@ -3144,17 +3038,7 @@ pub async fn reverse_by_source(
     let Some(original) = find_voucher_by_source(ex, source_type, source_id).await? else {
         return Ok(None);
     };
-    let red_id = reverse_posted(
-        ex,
-        &original,
-        ReversalInput {
-            reason,
-            voucher_date,
-        },
-        operator,
-        now,
-    )
-    .await?;
+    let red_id = reverse_posted(ex, &original, ReversalInput { reason, voucher_date }, operator, now).await?;
     Ok(Some(red_id))
 }
 
@@ -3193,17 +3077,7 @@ pub async fn reverse_for_stock_in(
         .map(|at| at.date_naive())
         .unwrap_or_else(|| today_cst(now));
     // 红冲只保留一份实现（[`reverse_posted`]）；本函数只负责「找到原凭证 + 定日期」。
-    let red_id = reverse_posted(
-        ex,
-        &original,
-        ReversalInput {
-            reason,
-            voucher_date,
-        },
-        operator,
-        now,
-    )
-    .await?;
+    let red_id = reverse_posted(ex, &original, ReversalInput { reason, voucher_date }, operator, now).await?;
     Ok(Some(red_id))
 }
 
@@ -3487,19 +3361,13 @@ mod tests {
             .await
             .expect("查作废实例失败")
             .expect("作废审批必须回写实例 id");
-        let outs =
-            crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意作废")
-                .await;
+        let outs = crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意作废").await;
         assert!(
             !outs.is_empty(),
             "作废审批必须至少有一条 PENDING 待办可批（实例 {instance_id}）"
         );
         for out in outs {
-            crate::business::erp::stockin_bridge::on_cancel_settled(
-                out.instance_id,
-                &out.instance_status,
-            )
-            .await;
+            crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
         }
         crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
     }
@@ -3534,11 +3402,7 @@ mod tests {
         };
         let id = post_new(vec![line_req(MATERIAL_A, "100", "2", "13")]).await;
         let row = payable_of(id).await;
-        assert_eq!(
-            row.amount,
-            dec("226"),
-            "应付金额 = 价税合计（不是不含税 200）"
-        );
+        assert_eq!(row.amount, dec("226"), "应付金额 = 价税合计（不是不含税 200）");
         assert_eq!(row.paid_amount, Decimal::ZERO);
         assert_eq!(row.unpaid_amount, dec("226"));
         assert_eq!(row.status, payable::STATUS_OPEN);
@@ -3574,15 +3438,8 @@ mod tests {
         assert_eq!(voucher.voucher_type, VOUCHER_TYPE_AUTO);
         assert_eq!(voucher.is_red, IS_RED_NO);
         assert_eq!(voucher.voucher_word, WORD_DEFAULT);
-        assert!(
-            voucher.voucher_no.starts_with("PZ-"),
-            "{}",
-            voucher.voucher_no
-        );
-        assert_eq!(
-            voucher.source_no.as_deref(),
-            Some(id_to_in_no(id).await.as_str())
-        );
+        assert!(voucher.voucher_no.starts_with("PZ-"), "{}", voucher.voucher_no);
+        assert_eq!(voucher.source_no.as_deref(), Some(id_to_in_no(id).await.as_str()));
         assert_eq!(voucher.entry_count, 3);
     }
 
@@ -3612,10 +3469,7 @@ mod tests {
         assert_eq!(inventory.account.name, "库存商品");
         assert_eq!(inventory.debit, dec("200"));
         assert_eq!(inventory.credit, Decimal::ZERO);
-        assert_eq!(
-            inventory.aux_warehouse_id,
-            Some(Uuid::parse_str(WAREHOUSE).unwrap())
-        );
+        assert_eq!(inventory.aux_warehouse_id, Some(Uuid::parse_str(WAREHOUSE).unwrap()));
 
         let tax = &entries[1];
         assert_eq!(tax.line_no, 2);
@@ -3683,9 +3537,7 @@ mod tests {
         let entries = entries_of(db(), voucher.id).await.unwrap();
         assert_eq!(entries.len(), 2, "税率 0 → 无进项税行");
         assert!(
-            entries
-                .iter()
-                .all(|row| row.account.code != DEFAULT_TAX_CODE),
+            entries.iter().all(|row| row.account.code != DEFAULT_TAX_CODE),
             "不应出现进项税科目"
         );
         assert_eq!(voucher.total_debit, dec("20"));
@@ -3706,10 +3558,7 @@ mod tests {
             .iter()
             .find(|row| row.account.code == DEFAULT_INVENTORY_CODE)
             .unwrap();
-        let tax = entries
-            .iter()
-            .find(|row| row.account.code == DEFAULT_TAX_CODE)
-            .unwrap();
+        let tax = entries.iter().find(|row| row.account.code == DEFAULT_TAX_CODE).unwrap();
         let ap = entries
             .iter()
             .find(|row| row.account.code == DEFAULT_PAYABLE_CODE)
@@ -3720,11 +3569,7 @@ mod tests {
         assert_eq!(tax.debit, header.total_tax);
         assert_eq!(ap.credit, header.total_with_tax);
         assert_eq!(inventory.debit, dec("10.5"), "存货 = 不含税金额");
-        assert_eq!(
-            ap.credit,
-            inventory.debit + tax.debit,
-            "应付 = 存货 + 进项税"
-        );
+        assert_eq!(ap.credit, inventory.debit + tax.debit, "应付 = 存货 + 进项税");
         let payable_row = payable_of(id).await;
         assert_eq!(payable_row.amount, ap.credit, "应付金额 = 贷方合计");
     }
@@ -3744,11 +3589,7 @@ mod tests {
         let payable_row = payable_of(id).await;
         assert_eq!(header.voucher_id, Some(voucher.id));
         assert_eq!(header.payable_id, Some(payable_row.id));
-        assert_eq!(
-            payable_row.voucher_id,
-            Some(voucher.id),
-            "应付单也要指向同一张凭证"
-        );
+        assert_eq!(payable_row.voucher_id, Some(voucher.id), "应付单也要指向同一张凭证");
     }
 
     /// ⑧ 凭证 period = 收货日期所属会计期间（落在未开期间时退化成 yyyy-MM）。
@@ -3782,9 +3623,7 @@ mod tests {
         )
         .await
         .unwrap();
-        change_stock_in_status(id2, &post_req(), None)
-            .await
-            .unwrap();
+        change_stock_in_status(id2, &post_req(), None).await.unwrap();
         assert_eq!(voucher_of(id2).await.period, "2025-03");
     }
 
@@ -3818,23 +3657,13 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        exec(
-            "UPDATE biz_voucher_rule SET deleted_at = now() WHERE rule_code = 'PURCHASE_IN_DEFAULT'",
-        )
-        .await;
+        exec("UPDATE biz_voucher_rule SET deleted_at = now() WHERE rule_code = 'PURCHASE_IN_DEFAULT'").await;
         let id = post_new(vec![line_req(MATERIAL_A, "100", "2", "13")]).await;
         let entries = entries_of(db(), voucher_of(id).await.id).await.unwrap();
-        let codes: Vec<&str> = entries
-            .iter()
-            .map(|row| row.account.code.as_str())
-            .collect();
+        let codes: Vec<&str> = entries.iter().map(|row| row.account.code.as_str()).collect();
         assert_eq!(
             codes,
-            vec![
-                DEFAULT_INVENTORY_CODE,
-                DEFAULT_TAX_CODE,
-                DEFAULT_PAYABLE_CODE
-            ]
+            vec![DEFAULT_INVENTORY_CODE, DEFAULT_TAX_CODE, DEFAULT_PAYABLE_CODE]
         );
     }
 
@@ -3845,10 +3674,7 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        exec(
-            "UPDATE biz_voucher_rule SET deleted_at = now() WHERE rule_code = 'PURCHASE_IN_DEFAULT'",
-        )
-        .await;
+        exec("UPDATE biz_voucher_rule SET deleted_at = now() WHERE rule_code = 'PURCHASE_IN_DEFAULT'").await;
         exec(&format!(
             "UPDATE biz_material SET inventory_account_id = '{TEST_ACCOUNT}'::uuid \
               WHERE id = '{MATERIAL_B}'::uuid"
@@ -3856,10 +3682,7 @@ mod tests {
         .await;
         let id = post_new(vec![line_req(MATERIAL_B, "10", "2", "0")]).await;
         let entries = entries_of(db(), voucher_of(id).await.id).await.unwrap();
-        assert_eq!(
-            entries[0].account.code, "P2C1.1405",
-            "物料配的存货科目优先于 1405"
-        );
+        assert_eq!(entries[0].account.code, "P2C1.1405", "物料配的存货科目优先于 1405");
     }
 
     // ---------- ⑪⑫⑬ 红冲 ----------
@@ -3891,10 +3714,7 @@ mod tests {
         let red = VoucherRow::from_row(&red).unwrap();
         assert_eq!(red.status, STATUS_POSTED);
         assert_eq!(red.reverse_of, Some(original.id));
-        assert_eq!(
-            red.total_debit, original.total_debit,
-            "红字凭证金额与原凭证等额"
-        );
+        assert_eq!(red.total_debit, original.total_debit, "红字凭证金额与原凭证等额");
 
         let red_entries = entries_of(db(), red.id).await.unwrap();
         assert_eq!(red_entries.len(), 3);
@@ -3904,11 +3724,7 @@ mod tests {
             .filter(|row| row.debit > Decimal::ZERO)
             .map(|row| row.account.code.as_str())
             .collect();
-        assert_eq!(
-            debit_codes,
-            vec![DEFAULT_PAYABLE_CODE],
-            "红字凭证借方 = 原贷方"
-        );
+        assert_eq!(debit_codes, vec![DEFAULT_PAYABLE_CODE], "红字凭证借方 = 原贷方");
         let credit_total: Decimal = red_entries.iter().map(|row| row.credit).sum();
         assert_eq!(credit_total, dec("226"));
 
@@ -3964,10 +3780,7 @@ mod tests {
         cancel_via_approval(id, "供应商取消").await;
 
         let refreshed = find_voucher(db(), original.id).await.unwrap().unwrap();
-        assert_eq!(
-            refreshed.status, STATUS_POSTED,
-            "原凭证状态保持 POSTED（卡面 §五）"
-        );
+        assert_eq!(refreshed.status, STATUS_POSTED, "原凭证状态保持 POSTED（卡面 §五）");
         let red_id = refreshed.reversed_by.expect("原凭证必须打 reversed_by");
         let red = find_voucher(db(), red_id).await.unwrap().unwrap();
         assert_eq!(red.reverse_of, Some(original.id));
@@ -4126,10 +3939,7 @@ mod tests {
     #[test]
     fn voucher_no_format_is_pz_prefix_with_six_digits() {
         assert_eq!(format_doc_no("PZ", "20261031", 1), "PZ-20261031-000001");
-        assert_eq!(
-            format_doc_no("PZ", "20261031", 123456),
-            "PZ-20261031-123456"
-        );
+        assert_eq!(format_doc_no("PZ", "20261031", 123456), "PZ-20261031-123456");
         assert_eq!(format_doc_no("AP", "20261031", 7), "AP-20261031-000007");
         assert_eq!(VOUCHER_SEQ.prefix, "PZ");
         assert_eq!(VOUCHER_SEQ.seq_type, "PZ");
@@ -4204,12 +4014,9 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        db().execute_with_params(
-            "DELETE FROM biz_account WHERE account_code LIKE 'P2C1%'",
-            vec![],
-        )
-        .await
-        .expect("清场删夹具科目失败");
+        db().execute_with_params("DELETE FROM biz_account WHERE account_code LIKE 'P2C1%'", vec![])
+            .await
+            .expect("清场删夹具科目失败");
         let left: i64 = db()
             .scalar_sql(
                 "SELECT count(*) FROM biz_account WHERE account_code LIKE 'P2C1%'".to_string(),
@@ -4272,11 +4079,7 @@ mod tests {
         // 并行跑时别的模块可能正处在「单据已删、它自己的日志还没删」的毫秒级中间态，
         // 一次断言会把别人的中间态判成本模块假红 ⇒ 收敛式判定（`settle_orphans`）：
         // 真孤儿等多久都还在，仍然会红；只吸收别人正在删的瞬时窗口。
-        let left = fixture_hygiene::settle_orphans(
-            fixture_hygiene::FINANCE,
-            std::time::Duration::from_secs(5),
-        )
-        .await;
+        let left = fixture_hygiene::settle_orphans(fixture_hygiene::FINANCE, std::time::Duration::from_secs(5)).await;
         assert_eq!(
             left, 0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
@@ -4321,8 +4124,7 @@ mod tests {
             .map(|row| {
                 (
                     row.get_typed::<i32>("line_no").expect("line_no"),
-                    row.get_typed::<String>("account_code")
-                        .expect("account_code"),
+                    row.get_typed::<String>("account_code").expect("account_code"),
                     row.get_typed::<Decimal>("d").expect("debit"),
                     row.get_typed::<Decimal>("c").expect("credit"),
                 )
@@ -4333,24 +4135,22 @@ mod tests {
     /// 纯函数：三个金额自洽 ⇒ 通过；差额 < 0.01 ⇒ 吸收；≥ 0.01 ⇒ 拒绝。
     #[test]
     fn sales_revenue_amounts_absorbs_under_a_cent_and_rejects_a_cent() {
-        let (revenue, tax) =
-            sales_revenue_amounts("SO22-U-1", dec("1130"), dec("1000"), dec("130"))
-                .expect("1130 = 1000 + 130 必须通过");
+        let (revenue, tax) = sales_revenue_amounts("SO22-U-1", dec("1130"), dec("1000"), dec("130"))
+            .expect("1130 = 1000 + 130 必须通过");
         assert_eq!(revenue, dec("1000"));
         assert_eq!(tax, dec("130"));
         assert_eq!(revenue + tax, dec("1130"), "借贷必须相等");
 
         // 尾差 0.004 < 0.01 ⇒ 吸收进销项税（含税 − 不含税），借贷分毫不差
-        let (revenue, tax) =
-            sales_revenue_amounts("SO22-U-2", dec("1130"), dec("1000"), dec("129.9960"))
-                .expect("尾差 < 0.01 应吸收而不是报错");
+        let (revenue, tax) = sales_revenue_amounts("SO22-U-2", dec("1130"), dec("1000"), dec("129.9960"))
+            .expect("尾差 < 0.01 应吸收而不是报错");
         assert_eq!(revenue, dec("1000"));
         assert_eq!(revenue + tax, dec("1130"), "吸收后借贷必须严格相等");
         assert_eq!(tax, dec("130"));
 
         // 差额恰好 0.01 ⇒ 拒绝（「< 0.01 才算平衡」，等于 0.01 就不算）
-        let err = sales_revenue_amounts("SO22-U-3", dec("1130"), dec("1000"), dec("129.99"))
-            .expect_err("差额 0.01 必须拒绝");
+        let err =
+            sales_revenue_amounts("SO22-U-3", dec("1130"), dec("1000"), dec("129.99")).expect_err("差额 0.01 必须拒绝");
         let text = format!("{err}");
         assert!(text.contains("不自洽"), "文案要说清金额不自洽：{text}");
 
@@ -4395,11 +4195,7 @@ mod tests {
         assert_eq!(split[0].line_from, 1);
         assert_eq!(split[0].line_to, 2);
         let sum: Decimal = split.iter().map(|l| l.amount).sum();
-        assert_eq!(
-            sum,
-            dec("1000"),
-            "拆行后合计必须等于表头不含税金额（尾差吸收）"
-        );
+        assert_eq!(sum, dec("1000"), "拆行后合计必须等于表头不含税金额（尾差吸收）");
         println!("[SO22-②] 合并 400+100=500 / 升序 / 尾差 0.01 吸收 → Σ=1000 ✓");
     }
 
@@ -4456,14 +4252,8 @@ mod tests {
             .await
             .expect("查凭证头")
             .expect("凭证头应存在");
-        assert_eq!(
-            header.get_typed::<String>("source_type").unwrap(),
-            SOURCE_INVOICE
-        );
-        assert_eq!(
-            header.get_typed::<String>("source_no").unwrap(),
-            "SO22-T-0001"
-        );
+        assert_eq!(header.get_typed::<String>("source_type").unwrap(), SOURCE_INVOICE);
+        assert_eq!(header.get_typed::<String>("source_no").unwrap(), "SO22-T-0001");
         assert_eq!(header.get_typed::<String>("status").unwrap(), STATUS_POSTED);
         assert_eq!(header.get_typed::<i32>("entry_count").unwrap(), 3);
         cleanup_sales_revenue().await;
@@ -4507,11 +4297,7 @@ mod tests {
         .expect("应有凭证 id");
 
         let entries = so22_entries(&voucher_id).await;
-        assert_eq!(
-            entries.len(),
-            4,
-            "应为 借1 + 贷(收入2) + 贷(税1) = 4 行：{entries:?}"
-        );
+        assert_eq!(entries.len(), 4, "应为 借1 + 贷(收入2) + 贷(税1) = 4 行：{entries:?}");
         let revenue_lines: Vec<&(i32, String, Decimal, Decimal)> =
             entries.iter().filter(|e| e.1 == ACCOUNT_REVENUE).collect();
         assert_eq!(revenue_lines.len(), 2, "收入必须按商品拆成 2 行");
@@ -4688,15 +4474,9 @@ mod tests {
             .expect("应收主键");
 
         // ③ 出库作废 ⇒ 应收冲销（真实入口，内部同一事务里红冲收入凭证）
-        let row = crate::business::erp::receivable::cancel_for_stock_out(
-            db(),
-            ar_id,
-            "出库作废：SO22 单测",
-            None,
-            now,
-        )
-        .await
-        .expect("应收冲销应成功");
+        let row = crate::business::erp::receivable::cancel_for_stock_out(db(), ar_id, "出库作废：SO22 单测", None, now)
+            .await
+            .expect("应收冲销应成功");
         assert_eq!(row.status, "CANCELLED");
 
         // ④ 蓝 + 红两张凭证，红字反向
@@ -4722,11 +4502,7 @@ mod tests {
 
         let blue_entries = so22_entries(&blue_id).await;
         let red_entries = so22_entries(&red_id).await;
-        assert_eq!(
-            red_entries.len(),
-            blue_entries.len(),
-            "红字行数应与蓝字一致"
-        );
+        assert_eq!(red_entries.len(), blue_entries.len(), "红字行数应与蓝字一致");
         for (blue_line, red_line) in blue_entries.iter().zip(red_entries.iter()) {
             assert_eq!(blue_line.1, red_line.1, "科目顺序应一致");
             assert_eq!(blue_line.2, red_line.3, "红字的贷方 = 蓝字的借方（反向）");
@@ -4775,8 +4551,7 @@ mod tests {
         rows.iter()
             .map(|row| {
                 (
-                    row.get_typed::<String>("account_code")
-                        .expect("account_code"),
+                    row.get_typed::<String>("account_code").expect("account_code"),
                     row.get_typed::<Decimal>("d").expect("debit"),
                     row.get_typed::<Decimal>("c").expect("credit"),
                 )
@@ -4885,14 +4660,9 @@ mod tests {
         );
         // 退化：原币不含税 ≤ 0 ⇒ 也不拆（不许除零/天文数字）
         assert!(
-            sales_revenue_split_in_base(
-                "SO41-T-0008",
-                dec("0"),
-                dec("7100"),
-                &[air(MATERIAL_A, "10")]
-            )
-            .expect("原币为 0 不该报错")
-            .is_empty()
+            sales_revenue_split_in_base("SO41-T-0008", dec("0"), dec("7100"), &[air(MATERIAL_A, "10")])
+                .expect("原币为 0 不该报错")
+                .is_empty()
         );
 
         println!("[SO41-⓪] 纯逻辑：本位币收入等比拆分 + 尾差吸收 + 两种退化 ✓");
@@ -4933,11 +4703,7 @@ mod tests {
         .expect("应有凭证 id");
 
         let entries = so41_entries(&voucher_id).await;
-        assert_eq!(
-            entries.len(),
-            3,
-            "借 1122 + 贷 5001 + 贷 2221.02：{entries:?}"
-        );
+        assert_eq!(entries.len(), 3, "借 1122 + 贷 5001 + 贷 2221.02：{entries:?}");
         assert_eq!(entries[0].0, ACCOUNT_AR, "借方必须是 1122 应收账款");
         assert_eq!(
             entries[0].1,
@@ -4999,11 +4765,7 @@ mod tests {
         let entries = so41_entries(&voucher_id).await;
         assert_eq!(entries.len(), 2, "借 6401 + 贷 1405：{entries:?}");
         assert_eq!(entries[0].0, ACCOUNT_MAIN_COST);
-        assert_eq!(
-            entries[0].1,
-            dec("500"),
-            "借方成本 = 账上扣减额（不得再乘汇率）"
-        );
+        assert_eq!(entries[0].1, dec("500"), "借方成本 = 账上扣减额（不得再乘汇率）");
         assert_eq!(entries[1].0, DEFAULT_INVENTORY_CODE);
         assert_eq!(entries[1].2, dec("500"));
 
@@ -5105,9 +4867,7 @@ mod tests {
         for _ in 0..10 {
             handles.push(tokio::spawn(async move {
                 let tx = db().begin().await.expect("开事务");
-                let no = next_doc_no(&tx, &FIX8_CONC, now)
-                    .await
-                    .expect("并发取号不应失败");
+                let no = next_doc_no(&tx, &FIX8_CONC, now).await.expect("并发取号不应失败");
                 tx.commit().await.expect("提交");
                 no
             }));
@@ -5126,13 +4886,8 @@ mod tests {
             "10 个并发取号必须两两不同（重号是生产事故）：{numbers:?}"
         );
         // 号码必须是同一号段的连续 1..=10：不是「各自从 0 起」也不是「跳着走」
-        let expected: Vec<String> = (1..=10)
-            .map(|no| format_doc_no("F8", &period_key, no))
-            .collect();
-        assert_eq!(
-            unique, expected,
-            "并发取到的应是 {period_key} 号段的 1..=10"
-        );
+        let expected: Vec<String> = (1..=10).map(|no| format_doc_no("F8", &period_key, no)).collect();
+        assert_eq!(unique, expected, "并发取到的应是 {period_key} 号段的 1..=10");
         // 计数器只前进 10 步：多推 = 有人读了旧值再写（丢号不算错，但说明实现退化）
         let (key, current) = seq_state("FIX8_CONC").await.expect("号段行应存在");
         assert_eq!(key, period_key, "周期键应停在本次取号的周期");
@@ -5170,34 +4925,16 @@ mod tests {
         for handle in handles {
             numbers.push(handle.await.expect("取号任务 panic"));
         }
-        let mut a: Vec<String> = numbers
-            .iter()
-            .filter(|no| no.starts_with("FA-"))
-            .cloned()
-            .collect();
-        let mut b: Vec<String> = numbers
-            .iter()
-            .filter(|no| no.starts_with("FB-"))
-            .cloned()
-            .collect();
+        let mut a: Vec<String> = numbers.iter().filter(|no| no.starts_with("FA-")).cloned().collect();
+        let mut b: Vec<String> = numbers.iter().filter(|no| no.starts_with("FB-")).cloned().collect();
         a.sort();
         b.sort();
-        let expected_a: Vec<String> = (1..=6)
-            .map(|no| format_doc_no("FA", &period_key, no))
-            .collect();
-        let expected_b: Vec<String> = (1..=4)
-            .map(|no| format_doc_no("FB", &period_key, no))
-            .collect();
+        let expected_a: Vec<String> = (1..=6).map(|no| format_doc_no("FA", &period_key, no)).collect();
+        let expected_b: Vec<String> = (1..=4).map(|no| format_doc_no("FB", &period_key, no)).collect();
         assert_eq!(a, expected_a, "A 号段应独立从 1 递增到 6：{numbers:?}");
         assert_eq!(b, expected_b, "B 号段应独立从 1 递增到 4：{numbers:?}");
-        assert_eq!(
-            seq_state("FIX8_A").await.expect("A 号段行"),
-            (period_key.clone(), 6)
-        );
-        assert_eq!(
-            seq_state("FIX8_B").await.expect("B 号段行"),
-            (period_key.clone(), 4)
-        );
+        assert_eq!(seq_state("FIX8_A").await.expect("A 号段行"), (period_key.clone(), 6));
+        assert_eq!(seq_state("FIX8_B").await.expect("B 号段行"), (period_key.clone(), 4));
 
         // 其它号段（PO / TK / STOCK_TAKE / PZ …）纹丝不动
         let after = seq_snapshot().await;
@@ -5258,9 +4995,7 @@ mod tests {
         let map = material_inventory_accounts(db(), Some(&rule_account), &[material_line.clone()])
             .await
             .expect("逐物料科目解析");
-        let resolved = map
-            .get(&material_line.material_id)
-            .expect("物料必须解析出结果");
+        let resolved = map.get(&material_line.material_id).expect("物料必须解析出结果");
         assert_eq!(
             resolved.label, "物料 P2C1-M1",
             "摘要标签必须是物料编码，不是 uuid 前 8 位"

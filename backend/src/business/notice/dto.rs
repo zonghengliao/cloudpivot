@@ -18,9 +18,7 @@ use validator::Validate;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 
-use crate::business::notice::model::{
-    DeliverySummaryRow, MyNoticeRow, SysNoticeModel, SysNoticeTemplateModel,
-};
+use crate::business::notice::model::{DeliverySummaryRow, MyNoticeRow, SysNoticeModel, SysNoticeTemplateModel};
 
 // ==================== 领域枚举 ====================
 
@@ -786,10 +784,7 @@ mod tests {
             CHANNEL_INBOX | CHANNEL_EMAIL | CHANNEL_WEBHOOK,
             "站内信恒置位"
         );
-        assert_eq!(
-            channel_names(CHANNEL_INBOX | CHANNEL_SMS),
-            vec!["INBOX", "SMS"]
-        );
+        assert_eq!(channel_names(CHANNEL_INBOX | CHANNEL_SMS), vec!["INBOX", "SMS"]);
         // 未识别的名字忽略，不报错（历史数据容错）
         assert_eq!(channel_mask_of_csv("FOO,bar"), CHANNEL_INBOX);
     }
@@ -826,9 +821,7 @@ mod tests {
         assert!(parse_var_decls(Some("not-json")).is_empty());
         assert!(parse_var_decls(Some(r#"{"a":1}"#)).is_empty());
 
-        let decls = parse_var_decls(Some(
-            r#"[{"name":"a","required":true},{"name":""},{"label":"无名字"}]"#,
-        ));
+        let decls = parse_var_decls(Some(r#"[{"name":"a","required":true},{"name":""},{"label":"无名字"}]"#));
         assert_eq!(decls.len(), 1, "空名 / 缺 name 的元素被丢弃");
         assert_eq!(decls[0].name, "a");
         assert!(decls[0].required);

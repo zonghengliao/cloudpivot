@@ -175,8 +175,7 @@ pub async fn ensure_source_pair(
     let Some(source_type) = source_type else {
         if source_id.is_some() {
             return Err(DbError::InvalidValue(
-                "source_id 不能单独出现：必须同时给 source_type（否则不知道这个 id 指向哪张表）"
-                    .to_string(),
+                "source_id 不能单独出现：必须同时给 source_type（否则不知道这个 id 指向哪张表）".to_string(),
             ));
         }
         return Ok(());
@@ -207,9 +206,7 @@ pub async fn ensure_source_pair(
     let found: i64 = ex
         .scalar_sql(
             match target {
-                "biz_stock_in" => {
-                    "SELECT count(*) FROM biz_stock_in WHERE id = ?::uuid AND deleted_at IS NULL"
-                }
+                "biz_stock_in" => "SELECT count(*) FROM biz_stock_in WHERE id = ?::uuid AND deleted_at IS NULL",
                 "biz_stock_transfer" => {
                     "SELECT count(*) FROM biz_stock_transfer WHERE id = ?::uuid AND deleted_at IS NULL"
                 }
@@ -433,9 +430,7 @@ pub enum TransitionOutcome {
 /// 号按天重置必须用 **CST 的天**：用 UTC 会让「北京时间 00:00–08:00」这段算成前一天，
 /// 跨天那一刻的号段会跟白天重叠。
 pub fn period_key_of(now: DateTime<Utc>) -> String {
-    (now + Duration::hours(CST_OFFSET_HOURS))
-        .format("%Y%m%d")
-        .to_string()
+    (now + Duration::hours(CST_OFFSET_HOURS)).format("%Y%m%d").to_string()
 }
 
 /// 当前周期键（北京时间今天）。
@@ -471,15 +466,11 @@ pub fn can_transition(from: &str, to: &str) -> bool {
 /// 状态流转被拒时的中文文案（接口层 400 的 `msg`）。
 pub fn transition_rejected_message(from: &str, to: &str) -> String {
     match (from, to) {
-        ("OUTBOUND", "IN_STOCK") => {
-            "已出库的序列号不能回退到在库：要重新入库请生成新的序列号".to_string()
-        }
+        ("OUTBOUND", "IN_STOCK") => "已出库的序列号不能回退到在库：要重新入库请生成新的序列号".to_string(),
         ("SCRAPPED", _) => {
             format!("已报废的序列号不能再流转（当前 {from} → 目标 {to}），状态机不可逆")
         }
-        _ => format!(
-            "非法状态流转 {from} → {to}：只允许 IN_STOCK→OUTBOUND、IN_STOCK→SCRAPPED、OUTBOUND→SCRAPPED"
-        ),
+        _ => format!("非法状态流转 {from} → {to}：只允许 IN_STOCK→OUTBOUND、IN_STOCK→SCRAPPED、OUTBOUND→SCRAPPED"),
     }
 }
 
@@ -580,9 +571,7 @@ async fn bump_seq(ex: &impl SqlExecutor, count: i64, period_key: &str) -> DbResu
 /// 必须落在**同一个事务**里，取号失败/落库失败才能一起回滚（不会白吃一段号）。
 pub async fn take_numbers(ex: &impl SqlExecutor, count: i64, period_key: &str) -> DbResult<i64> {
     if count <= 0 {
-        return Err(DbError::InvalidValue(format!(
-            "取号条数必须 > 0（收到 {count}）"
-        )));
+        return Err(DbError::InvalidValue(format!("取号条数必须 > 0（收到 {count}）")));
     }
     if count > MAX_BATCH_COUNT {
         return Err(DbError::InvalidValue(format!(
@@ -594,9 +583,7 @@ pub async fn take_numbers(ex: &impl SqlExecutor, count: i64, period_key: &str) -
     }
     ensure_seq_row(ex).await?;
     bump_seq(ex, count, period_key).await?.ok_or_else(|| {
-        DbError::InvalidValue(
-            "biz_seq 里没有 seq_type='SN' 的取号规则（V0138 应已种入），无法生成序列号".to_string(),
-        )
+        DbError::InvalidValue("biz_seq 里没有 seq_type='SN' 的取号规则（V0138 应已种入），无法生成序列号".to_string())
     })
 }
 
@@ -627,9 +614,7 @@ pub const TXN_REMARK_MAX: usize = 255;
 
 /// 「某一刻」的会计期间码 `yyyy-MM`（同样用 **CST**：月末 23:30 的流水不该记到上个月）。
 pub fn period_code_of(now: DateTime<Utc>) -> String {
-    (now + Duration::hours(CST_OFFSET_HOURS))
-        .format("%Y-%m")
-        .to_string()
+    (now + Duration::hours(CST_OFFSET_HOURS)).format("%Y-%m").to_string()
 }
 
 /// 库存快照（流水的前后六列里，变动前的三项）。
@@ -698,16 +683,9 @@ async fn read_warehouse_snapshot(
             .to_string()
     };
     let row = ex
-        .query_first_sql(
-            sql,
-            vec![Value::from(&material_id), Value::from(&warehouse_id)],
-        )
+        .query_first_sql(sql, vec![Value::from(&material_id), Value::from(&warehouse_id)])
         .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库存快照查询未返回行（聚合查询不应为空，请检查连接）".to_string(),
-            )
-        })?;
+        .ok_or_else(|| DbError::InvalidValue("库存快照查询未返回行（聚合查询不应为空，请检查连接）".to_string()))?;
     let qty: Decimal = row.get_typed("qty")?;
     let amount: Decimal = row.get_typed("amount")?;
     Ok(InventorySnapshot {
@@ -798,11 +776,7 @@ async fn bucket_avg_cost(
 /// # 返回值
 ///
 /// 重算后的**仓级** qty（= `Σ` 桶 qty = 在库件数）。
-pub async fn recompute_quantity(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-    warehouse_id: Uuid,
-) -> DbResult<Decimal> {
+pub async fn recompute_quantity(ex: &impl SqlExecutor, material_id: Uuid, warehouse_id: Uuid) -> DbResult<Decimal> {
     // ① 锁顺序（全局唯一）：成本账全部桶行 → 库位账全部行，都按 COALESCE(location_id, 零 uuid) 升序。
     lock_warehouse_snapshot(ex, material_id, warehouse_id).await?;
     ex.query_sql(
@@ -992,8 +966,7 @@ pub async fn batch_generate(
     }
     if params.unit_cost <= Decimal::ZERO {
         return Err(DbError::InvalidValue(
-            "批量生成必须录成本单价（> 0）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行"
-                .to_string(),
+            "批量生成必须录成本单价（> 0）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行".to_string(),
         ));
     }
     // P2-6b：`source_type` 与 `source_id` 必须成对且指向真实单据（闸门放在模型层，
@@ -1001,8 +974,7 @@ pub async fn batch_generate(
     ensure_source_pair(ex, params.source_type, params.source_id).await?;
     let Some(warehouse_id) = params.warehouse_id else {
         return Err(DbError::InvalidValue(
-            "一物一码物料批量生成必须指定仓库：账面数量按 物料×仓库 由序列号派生（不变式①）"
-                .to_string(),
+            "一物一码物料批量生成必须指定仓库：账面数量按 物料×仓库 由序列号派生（不变式①）".to_string(),
         ));
     };
     let now = Utc::now();
@@ -1059,25 +1031,10 @@ pub async fn batch_generate(
         amount: qty * params.unit_cost,
         unit_cost: params.unit_cost,
     };
-    let applied = stockin_model::apply_cost(
-        ex,
-        params.material_id,
-        warehouse_id,
-        params.location_id,
-        cost,
-        now,
-    )
-    .await?;
+    let applied =
+        stockin_model::apply_cost(ex, params.material_id, warehouse_id, params.location_id, cost, now).await?;
     // ④ 库位账：加法（有库位行按主键、无则 NULL 汇总桶）。
-    stockin_model::apply_location_qty(
-        ex,
-        params.material_id,
-        warehouse_id,
-        params.location_id,
-        qty,
-        now,
-    )
-    .await?;
+    stockin_model::apply_location_qty(ex, params.material_id, warehouse_id, params.location_id, qty, now).await?;
 
     // 本次入账金额 = 该成本桶 `amount` 的真实增量（4 位）。Rust 侧不重算 `N × unit_cost`。
     let amount = (applied.after.amount - applied.before.amount).round_dp(4);
@@ -1135,10 +1092,7 @@ pub async fn batch_generate(
             vec![Value::Text(pair_payload(&pairs))],
         )
         .await?;
-    let rows: Vec<SerialRow> = rows
-        .iter()
-        .map(SerialRow::from_row)
-        .collect::<DbResult<_>>()?;
+    let rows: Vec<SerialRow> = rows.iter().map(SerialRow::from_row).collect::<DbResult<_>>()?;
     Ok(BatchOutcome {
         rows,
         unit_cost: params.unit_cost,
@@ -1168,9 +1122,7 @@ pub async fn material_serial_required(material_id: Uuid) -> DbResult<Option<bool
             vec![Value::from(&material_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("serial_required"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("serial_required")).transpose()
 }
 
 /// 库位库存行的归属（批量生成时校验 `location_id` 与 `warehouse_id` 是否自洽）。
@@ -1210,9 +1162,7 @@ pub async fn serial_find_by_id(id: Uuid) -> DbResult<Option<SerialRow>> {
     // SCOPE-EXEMPT: 同文件头，biz_material_serial 无归属列。
     let rows = db()
         .find_with_params(
-            &format!(
-                "SELECT {SERIAL_COLUMNS} FROM biz_material_serial WHERE id = ?::uuid AND deleted_at IS NULL"
-            ),
+            &format!("SELECT {SERIAL_COLUMNS} FROM biz_material_serial WHERE id = ?::uuid AND deleted_at IS NULL"),
             vec![Value::from(&id)],
         )
         .await?;
@@ -1233,8 +1183,7 @@ pub async fn serial_scan(serial_no: &str) -> DbResult<Option<SerialScanRow>> {
 /// 非法 UUID → `DbError::InvalidValue`（接口层转 `400 + 66006`）：**绝不静默跳过条件**
 /// ——跳过等于「按物料筛」变成「返回全部」。
 pub async fn serial_page(q: &SerialFilter) -> DbResult<(Vec<SerialRow>, i64)> {
-    let mut sql =
-        format!("SELECT {SERIAL_COLUMNS} FROM biz_material_serial WHERE deleted_at IS NULL");
+    let mut sql = format!("SELECT {SERIAL_COLUMNS} FROM biz_material_serial WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(material_id) = q.material_id.as_deref() {
         sql.push_str(" AND material_id = ?::uuid");
@@ -1262,15 +1211,7 @@ pub async fn serial_page(q: &SerialFilter) -> DbResult<(Vec<SerialRow>, i64)> {
         params.push(Value::from(pattern));
     }
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result = scope::paginate_unscoped(
-        SERIAL_TARGET,
-        &sql,
-        params,
-        Some(SERIAL_ORDER),
-        page,
-        page_size,
-    )
-    .await?;
+    let result = scope::paginate_unscoped(SERIAL_TARGET, &sql, params, Some(SERIAL_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -1470,16 +1411,7 @@ async fn post_outbound_movement(
             serial_no: row.serial_no.as_str(),
         }
     };
-    voucher::create_for_serial_movement(
-        ex,
-        movement,
-        row.id,
-        &row.serial_no,
-        amount,
-        operator,
-        now,
-    )
-    .await?;
+    voucher::create_for_serial_movement(ex, movement, row.id, &row.serial_no, amount, operator, now).await?;
     Ok(())
 }
 
@@ -1598,19 +1530,14 @@ mod tests {
     /// ② 超过 6 位不截断（宁可长一位，也不撞号）。
     #[test]
     fn serial_no_grows_beyond_six_digits() {
-        assert_eq!(
-            format_serial_no("20261030", 1_000_000),
-            "SN-20261030-1000000"
-        );
+        assert_eq!(format_serial_no("20261030", 1_000_000), "SN-20261030-1000000");
     }
 
     /// ③ 一整个号段连续：`start+1 ..= start+n`，且互不相同。
     #[test]
     fn number_range_is_contiguous_and_unique() {
         let start = 1_234_i64;
-        let nos: Vec<String> = (1..=5)
-            .map(|i| format_serial_no("20261101", start + i))
-            .collect();
+        let nos: Vec<String> = (1..=5).map(|i| format_serial_no("20261101", start + i)).collect();
         assert_eq!(
             nos,
             vec![

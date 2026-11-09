@@ -74,12 +74,7 @@ pub enum FlowEvent {
 
 impl FlowEvent {
     /// 四个事件（顺序即 [`FlowEvent::template_code`] 的书写顺序）。
-    pub const ALL: &'static [FlowEvent] = &[
-        FlowEvent::Todo,
-        FlowEvent::Result,
-        FlowEvent::Cc,
-        FlowEvent::Urge,
-    ];
+    pub const ALL: &'static [FlowEvent] = &[FlowEvent::Todo, FlowEvent::Result, FlowEvent::Cc, FlowEvent::Urge];
 
     /// 对应模板编码（必须与迁移种子里的 `sys_notice_template.template_code` 逐字一致）。
     pub fn template_code(self) -> &'static str {
@@ -373,10 +368,7 @@ mod tests {
             assert!(!seen.contains(&code), "{code} 重复");
             seen.push(code);
         }
-        assert_eq!(
-            seen,
-            vec!["FLOW_TODO", "FLOW_RESULT", "FLOW_CC", "FLOW_URGE"]
-        );
+        assert_eq!(seen, vec!["FLOW_TODO", "FLOW_RESULT", "FLOW_CC", "FLOW_URGE"]);
     }
 
     /// 待办通知：走模板、强制、含流程名 + 实例号 + 当前节点名、链到实例详情。
@@ -390,10 +382,7 @@ mod tests {
         assert_eq!(vars["instanceNo"], "FLW-202610-000123");
         assert_eq!(vars["nodeName"], "主管审批");
         assert_eq!(draft.biz_type.as_deref(), Some(BIZ_TYPE));
-        assert_eq!(
-            draft.biz_id.as_deref(),
-            Some("00000000-0000-0000-0000-000000001234")
-        );
+        assert_eq!(draft.biz_id.as_deref(), Some("00000000-0000-0000-0000-000000001234"));
         assert_eq!(
             draft.link_url.as_deref(),
             Some("/flow/instance/00000000-0000-0000-0000-000000001234")
@@ -420,11 +409,7 @@ mod tests {
                 "urgeCount",
             ] {
                 assert!(vars.get(key).is_some(), "{} 缺变量 {key}", event.code());
-                assert!(
-                    !vars[key].is_null(),
-                    "{} 的 {key} 不能是 null",
-                    event.code()
-                );
+                assert!(!vars[key].is_null(), "{} 的 {key} 不能是 null", event.code());
             }
         }
     }
@@ -446,14 +431,8 @@ mod tests {
         let base = notice(FlowEvent::Todo);
         let again = notice(FlowEvent::Todo);
         assert_eq!(base.idempotency_key(), again.idempotency_key());
-        assert_ne!(
-            base.idempotency_key(),
-            base.clone().with_round(2).idempotency_key()
-        );
-        assert_ne!(
-            base.idempotency_key(),
-            notice(FlowEvent::Urge).idempotency_key()
-        );
+        assert_ne!(base.idempotency_key(), base.clone().with_round(2).idempotency_key());
+        assert_ne!(base.idempotency_key(), notice(FlowEvent::Urge).idempotency_key());
         assert!(base.idempotency_key().starts_with("FLOW:TODO:"));
         // 幂等键长度：`sys_notice.idempotency_key` 一列最多 128 字符
         assert!(base.idempotency_key().chars().count() <= 128);

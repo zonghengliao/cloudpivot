@@ -250,9 +250,7 @@ async fn start_instance(f: &Fixture, def_id: Uuid, title: &str) -> Uuid {
 ///
 /// `scope` 由调用方给：P2-6b 收口后接口默认只回标准流程（`is_system = TRUE`），
 /// 本套夹具造的流程都是客户流程，所以既要标准口径的用例、也要 `all` 口径的用例。
-async fn load_templates(
-    scope: flow_model::TemplateScope,
-) -> (Vec<flow_dto::TemplateGroupRes>, u64) {
+async fn load_templates(scope: flow_model::TemplateScope) -> (Vec<flow_dto::TemplateGroupRes>, u64) {
     let query = flow_dto::TemplateQuery {
         scope: Some(
             match scope {
@@ -284,10 +282,7 @@ async fn load_templates_default() -> (Vec<flow_dto::TemplateGroupRes>, u64) {
 }
 
 /// 在模板库结果里按 id 找条目。
-fn find_item(
-    groups: &[flow_dto::TemplateGroupRes],
-    def_id: Uuid,
-) -> Option<flow_dto::TemplateItemRes> {
+fn find_item(groups: &[flow_dto::TemplateGroupRes], def_id: Uuid) -> Option<flow_dto::TemplateItemRes> {
     let target = def_id.to_string();
     groups
         .iter()
@@ -316,15 +311,7 @@ async fn templates_grouped_by_category() {
 
     let (buy_id, _) = make_def(&f, "buy", "PFLOW5_GROUP_BUY", "采购管理", false, false).await;
     let (task_id, _) = make_def(&f, "task", "PFLOW5_GROUP_TASK", "任务", false, false).await;
-    let (odd_id, _) = make_def(
-        &f,
-        "odd",
-        "PFLOW5_GROUP_ODD",
-        "PFLOW5 自定义域",
-        false,
-        false,
-    )
-    .await;
+    let (odd_id, _) = make_def(&f, "odd", "PFLOW5_GROUP_ODD", "PFLOW5 自定义域", false, false).await;
 
     let (groups, total) = load_templates(flow_model::TemplateScope::All).await;
     assert!(total >= 3, "模板库至少包含本用例的 3 条（实际 {total}）");
@@ -335,10 +322,7 @@ async fn templates_grouped_by_category() {
         .find(|group| group.category == "采购管理")
         .expect("必须有「采购管理」分组");
     assert!(
-        buy_group
-            .items
-            .iter()
-            .any(|item| item.id == buy_id.to_string()),
+        buy_group.items.iter().any(|item| item.id == buy_id.to_string()),
         "采购流程必须落在「采购管理」组"
     );
     let task_group = groups
@@ -346,22 +330,14 @@ async fn templates_grouped_by_category() {
         .find(|group| group.category == "任务")
         .expect("必须有「任务」分组");
     assert!(
-        task_group
-            .items
-            .iter()
-            .any(|item| item.id == task_id.to_string()),
+        task_group.items.iter().any(|item| item.id == task_id.to_string()),
         "任务流程必须落在「任务」组"
     );
     let odd_group = groups
         .iter()
         .find(|group| group.category == "PFLOW5 自定义域")
         .expect("未知分类也要成组（不能丢条目）");
-    assert!(
-        odd_group
-            .items
-            .iter()
-            .any(|item| item.id == odd_id.to_string())
-    );
+    assert!(odd_group.items.iter().any(|item| item.id == odd_id.to_string()));
 
     // 组顺序：采购管理 → 仓库管理 → 财务管理 → 任务 → 其它
     let pos = |name: &str| groups.iter().position(|group| group.category == name);
@@ -398,10 +374,7 @@ async fn templates_marks_system_defs() {
     let (groups, _) = load_templates(flow_model::TemplateScope::All).await;
     let system_item = find_item(&groups, system_id).expect("系统流程必须在模板库里");
     let custom_item = find_item(&groups, custom_id).expect("客户流程必须在模板库里");
-    assert!(
-        system_item.is_system,
-        "预置流程必须 is_system = true（前端标「标准」）"
-    );
+    assert!(system_item.is_system, "预置流程必须 is_system = true（前端标「标准」）");
     assert!(!custom_item.is_system, "客户自建流程必须 is_system = false");
 
     f.cleanup().await;
@@ -411,10 +384,7 @@ async fn templates_marks_system_defs() {
 
 /// 扁平化分组里的全部条目。
 fn flatten(groups: &[flow_dto::TemplateGroupRes]) -> Vec<flow_dto::TemplateItemRes> {
-    groups
-        .iter()
-        .flat_map(|group| group.items.iter().cloned())
-        .collect()
+    groups.iter().flat_map(|group| group.items.iter().cloned()).collect()
 }
 
 /// 库里某个口径的行数（用来把「N = 标准流程数」钉在真实数据上，而不是写死数字）。
@@ -447,10 +417,7 @@ async fn templates_default_scope_only_returns_standard() {
     // ---- 默认口径（不传 scope / include_mine）----
     let (groups, total) = load_templates_default().await;
     let items = flatten(&groups);
-    assert!(
-        find_item(&groups, std_id).is_some(),
-        "标准流程必须出现在默认结果里"
-    );
+    assert!(find_item(&groups, std_id).is_some(), "标准流程必须出现在默认结果里");
     assert!(
         find_item(&groups, cust_id).is_none(),
         "客户副本（is_system=false）不能出现在默认结果里"
@@ -471,19 +438,10 @@ async fn templates_default_scope_only_returns_standard() {
     // ---- scope=all：标准 + 客户副本 ----
     let (all_groups, all_total) = load_templates(flow_model::TemplateScope::All).await;
     let all_items = flatten(&all_groups);
-    assert!(
-        find_item(&all_groups, cust_id).is_some(),
-        "scope=all 必须回出客户副本"
-    );
-    assert!(
-        find_item(&all_groups, std_id).is_some(),
-        "scope=all 也必须包含标准流程"
-    );
+    assert!(find_item(&all_groups, cust_id).is_some(), "scope=all 必须回出客户副本");
+    assert!(find_item(&all_groups, std_id).is_some(), "scope=all 也必须包含标准流程");
     let all_rows = count_defs("").await as u64;
-    assert_eq!(
-        all_total, all_rows,
-        "scope=all 的 total 必须等于库里全部未软删流程数"
-    );
+    assert_eq!(all_total, all_rows, "scope=all 的 total 必须等于库里全部未软删流程数");
     assert_eq!(
         all_total,
         standard_rows + count_defs("AND NOT is_system").await as u64,
@@ -571,12 +529,9 @@ async fn templates_default_scope_keeps_disabled_standard() {
     .expect("停用标准流程");
 
     let (groups, _) = load_templates_default().await;
-    let item = find_item(&groups, std_id)
-        .expect("停用（DISABLED）的标准流程必须仍在默认结果里，否则用户再也启用不回来");
-    assert_eq!(
-        item.status, "DISABLED",
-        "状态如实下发（前端据此显示「已停用」标签）"
-    );
+    let item =
+        find_item(&groups, std_id).expect("停用（DISABLED）的标准流程必须仍在默认结果里，否则用户再也启用不回来");
+    assert_eq!(item.status, "DISABLED", "状态如实下发（前端据此显示「已停用」标签）");
     assert!(item.is_system, "停用不改 is_system：它仍是标准流程");
 
     f.cleanup().await;
@@ -599,10 +554,7 @@ async fn templates_usage_count_from_instances() {
     let (groups, _) = load_templates(flow_model::TemplateScope::All).await;
     let used = find_item(&groups, def_id).expect("用过的流程在模板库");
     let idle = find_item(&groups, idle_id).expect("没用的流程也在模板库");
-    assert_eq!(
-        used.usage_count, 2,
-        "usage_count 必须等于 biz_flow_instance 的真实条数"
-    );
+    assert_eq!(used.usage_count, 2, "usage_count 必须等于 biz_flow_instance 的真实条数");
     assert!(used.last_used_at.is_some(), "用过就必须有 last_used_at");
     assert_eq!(idle.usage_count, 0, "没发起过 → 0");
     assert!(idle.last_used_at.is_none(), "没发起过 → last_used_at 为空");
@@ -618,8 +570,7 @@ async fn templates_summary_from_condition_labels() {
     let f = Fixture::new("summary").await;
     f.reset().await;
 
-    let (def_id, version_id) =
-        make_def(&f, "sum", "PFLOW5_SUMMARY", "财务管理", false, false).await;
+    let (def_id, version_id) = make_def(&f, "sum", "PFLOW5_SUMMARY", "财务管理", false, false).await;
     // 真分支：分流到审批节点、带阈值标签
     db().execute_with_params(
         "UPDATE biz_flow_edge SET condition_label = '金额 < 10000' \
@@ -677,8 +628,7 @@ async fn duplicate_creates_draft_copy_with_graph() {
     let f = Fixture::new("dup").await;
     f.reset().await;
 
-    let (source_id, source_version_id) =
-        make_def(&f, "src", "PFLOW5_DUP", "采购管理", false, true).await;
+    let (source_id, source_version_id) = make_def(&f, "src", "PFLOW5_DUP", "采购管理", false, true).await;
     let source_nodes = count_rows(
         "SELECT count(*) AS total FROM biz_flow_node WHERE version_id = ?::uuid",
         source_version_id,
@@ -734,9 +684,7 @@ async fn duplicate_creates_draft_copy_with_graph() {
         "副本不能抢占默认流程（否则等于偷偷改客户在跑的规则）"
     );
     assert!(
-        row.get_typed::<Option<Uuid>>("current_version_id")
-            .unwrap()
-            .is_none(),
+        row.get_typed::<Option<Uuid>>("current_version_id").unwrap().is_none(),
         "副本还没有发布版本"
     );
     assert_eq!(
@@ -745,9 +693,7 @@ async fn duplicate_creates_draft_copy_with_graph() {
         "业务类型随源模板"
     );
     assert_eq!(
-        row.get_typed::<Option<String>>("category")
-            .unwrap()
-            .as_deref(),
+        row.get_typed::<Option<String>>("category").unwrap().as_deref(),
         Some("采购管理")
     );
 
@@ -930,10 +876,7 @@ async fn offline_non_default_keeps_other_default() {
         .await
         .expect("解析默认流程")
         .expect("默认流程必须还在");
-    assert_eq!(
-        after.id, default_id,
-        "停用非默认流程不能影响同业务域的默认流程"
-    );
+    assert_eq!(after.id, default_id, "停用非默认流程不能影响同业务域的默认流程");
 
     f.cleanup().await;
 }
@@ -1022,10 +965,7 @@ async fn enable_refuses_draft_definitions() {
         )
         .await
         .expect("查状态");
-    assert_eq!(
-        rows.first().unwrap().get_typed::<String>("status").unwrap(),
-        "DRAFT"
-    );
+    assert_eq!(rows.first().unwrap().get_typed::<String>("status").unwrap(), "DRAFT");
 
     f.cleanup().await;
 }
@@ -1038,8 +978,7 @@ async fn read_only_graph_endpoint_returns_nodes_edges() {
     let f = Fixture::new("graph").await;
     f.reset().await;
 
-    let (source_id, source_version_id) =
-        make_def(&f, "g", "PFLOW5_GRAPH", "仓库管理", false, true).await;
+    let (source_id, source_version_id) = make_def(&f, "g", "PFLOW5_GRAPH", "仓库管理", false, true).await;
     let source_nodes = count_rows(
         "SELECT count(*) AS total FROM biz_flow_node WHERE version_id = ?::uuid",
         source_version_id,
@@ -1071,16 +1010,8 @@ async fn read_only_graph_endpoint_returns_nodes_edges() {
         .expect("只读流程图接口必须成功")
         .data
         .expect("版本详情");
-    assert_eq!(
-        view.nodes.len() as i64,
-        source_nodes,
-        "节点必须能完整读回来"
-    );
-    assert_eq!(
-        view.edges.len() as i64,
-        source_edges,
-        "连线必须能完整读回来"
-    );
+    assert_eq!(view.nodes.len() as i64, source_nodes, "节点必须能完整读回来");
+    assert_eq!(view.edges.len() as i64, source_edges, "连线必须能完整读回来");
     assert!(view.editable, "DRAFT 版本可编辑");
     assert!(!view.has_snapshot, "DRAFT 没有发布快照");
     assert!(

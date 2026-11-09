@@ -138,9 +138,7 @@ impl Period {
                 .parse()
                 .map_err(|_| bad_request(format!("period_code 季度不合法（收到「{raw}」）")))?;
             if !(1..=4).contains(&quarter) {
-                return Err(bad_request(format!(
-                    "period_code 季度只能是 Q1..Q4（收到「{raw}」）"
-                )));
+                return Err(bad_request(format!("period_code 季度只能是 Q1..Q4（收到「{raw}」）")));
             }
             let start_month = (quarter - 1) * 3 + 1;
             let from = NaiveDate::from_ymd_opt(year, start_month, 1)
@@ -154,23 +152,15 @@ impl Period {
                 .ok_or_else(|| bad_request(format!("period_code 日期不存在（收到「{raw}」）")))?;
             (from, to)
         } else {
-            let month: u32 = tail.parse().map_err(|_| {
-                bad_request(format!(
-                    "period_code 只认 yyyy-MM 或 yyyy-QN（收到「{raw}」）"
-                ))
-            })?;
+            let month: u32 = tail
+                .parse()
+                .map_err(|_| bad_request(format!("period_code 只认 yyyy-MM 或 yyyy-QN（收到「{raw}」）")))?;
             if !(1..=12).contains(&month) {
-                return Err(bad_request(format!(
-                    "period_code 月份只能是 01..12（收到「{raw}」）"
-                )));
+                return Err(bad_request(format!("period_code 月份只能是 01..12（收到「{raw}」）")));
             }
             let from = NaiveDate::from_ymd_opt(year, month, 1)
                 .ok_or_else(|| bad_request(format!("period_code 日期不存在（收到「{raw}」）")))?;
-            let (next_year, next_month) = if month == 12 {
-                (year + 1, 1)
-            } else {
-                (year, month + 1)
-            };
+            let (next_year, next_month) = if month == 12 { (year + 1, 1) } else { (year, month + 1) };
             let to = NaiveDate::from_ymd_opt(next_year, next_month, 1)
                 .ok_or_else(|| bad_request(format!("period_code 日期不存在（收到「{raw}」）")))?;
             (from, to)
@@ -245,8 +235,7 @@ pub fn normalize_scope(
             scope_target_hint(&scope_type)
         )));
     };
-    let id = Uuid::parse_str(raw)
-        .map_err(|_| bad_request(format!("scope_id 不是合法的 UUID（收到「{raw}」）")))?;
+    let id = Uuid::parse_str(raw).map_err(|_| bad_request(format!("scope_id 不是合法的 UUID（收到「{raw}」）")))?;
     Ok((scope_type, Some(id)))
 }
 
@@ -314,15 +303,11 @@ pub fn check_amount(value: Decimal, field: &str) -> std::result::Result<(), ApiE
         return Err(bad_request(format!("{field} 不能为负（收到 {value}）")));
     }
     if value.scale() > 2 {
-        return Err(bad_request(format!(
-            "{field} 最多 2 位小数（收到 {value}）"
-        )));
+        return Err(bad_request(format!("{field} 最多 2 位小数（收到 {value}）")));
     }
     let limit = Decimal::from(10_i64.pow(16));
     if value.abs() >= limit {
-        return Err(bad_request(format!(
-            "{field} 超出 NUMERIC(18,2) 范围（收到 {value}）"
-        )));
+        return Err(bad_request(format!("{field} 超出 NUMERIC(18,2) 范围（收到 {value}）")));
     }
     Ok(())
 }
@@ -333,9 +318,7 @@ pub fn check_qty(value: Decimal, field: &str) -> std::result::Result<(), ApiErro
         return Err(bad_request(format!("{field} 不能为负（收到 {value}）")));
     }
     if value.scale() > 4 {
-        return Err(bad_request(format!(
-            "{field} 最多 4 位小数（收到 {value}）"
-        )));
+        return Err(bad_request(format!("{field} 最多 4 位小数（收到 {value}）")));
     }
     Ok(())
 }
@@ -499,12 +482,7 @@ impl TargetPageQuery {
             }
             None => None,
         };
-        let status = match self
-            .status
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-        {
+        let status = match self.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
             Some(raw) => Some(normalize_status(Some(raw))?),
             None => None,
         };
@@ -665,9 +643,10 @@ impl ForecastPageQuery {
             .map(str::trim)
             .filter(|text| !text.is_empty())
         {
-            Some(raw) => Some(Uuid::parse_str(raw).map_err(|_| {
-                bad_request(format!("customer_id 不是合法的 UUID（收到「{raw}」）"))
-            })?),
+            Some(raw) => Some(
+                Uuid::parse_str(raw)
+                    .map_err(|_| bad_request(format!("customer_id 不是合法的 UUID（收到「{raw}」）")))?,
+            ),
             None => None,
         };
         let material_id = match self
@@ -676,9 +655,10 @@ impl ForecastPageQuery {
             .map(str::trim)
             .filter(|text| !text.is_empty())
         {
-            Some(raw) => Some(Uuid::parse_str(raw).map_err(|_| {
-                bad_request(format!("material_id 不是合法的 UUID（收到「{raw}」）"))
-            })?),
+            Some(raw) => Some(
+                Uuid::parse_str(raw)
+                    .map_err(|_| bad_request(format!("material_id 不是合法的 UUID（收到「{raw}」）")))?,
+            ),
             None => None,
         };
         let confidence = match self
@@ -837,25 +817,13 @@ mod tests {
     #[test]
     fn achievement_rate_matches_dashboard_expectation() {
         // 看板验收值：目标 20000 / 实际 11300 ⇒ 56.50%
-        assert_eq!(
-            achievement_rate(dec("11300.00"), dec("20000.00")),
-            dec("56.50")
-        );
+        assert_eq!(achievement_rate(dec("11300.00"), dec("20000.00")), dec("56.50"));
         // 目标 5000 / 实际 6780 ⇒ 135.60%（超额）
-        assert_eq!(
-            achievement_rate(dec("6780.00"), dec("5000.00")),
-            dec("135.60")
-        );
+        assert_eq!(achievement_rate(dec("6780.00"), dec("5000.00")), dec("135.60"));
         // 目标 50000 / 实际 11300 ⇒ 22.60%
-        assert_eq!(
-            achievement_rate(dec("11300.00"), dec("50000.00")),
-            dec("22.60")
-        );
+        assert_eq!(achievement_rate(dec("11300.00"), dec("50000.00")), dec("22.60"));
         // 刚好达成
-        assert_eq!(
-            achievement_rate(dec("11300.00"), dec("11300.00")),
-            dec("100.00")
-        );
+        assert_eq!(achievement_rate(dec("11300.00"), dec("11300.00")), dec("100.00"));
         // 四舍五入到 2 位（1/3 ⇒ 33.33）
         assert_eq!(achievement_rate(dec("1"), dec("3")), dec("33.33"));
     }
@@ -863,14 +831,8 @@ mod tests {
     #[test]
     fn achievement_rate_target_zero_is_zero_not_infinity() {
         // 目标 0 = 没定目标，报 100% 会让看板撒谎
-        assert_eq!(
-            achievement_rate(dec("11300.00"), Decimal::ZERO),
-            Decimal::ZERO
-        );
-        assert_eq!(
-            achievement_rate(Decimal::ZERO, Decimal::ZERO),
-            Decimal::ZERO
-        );
+        assert_eq!(achievement_rate(dec("11300.00"), Decimal::ZERO), Decimal::ZERO);
+        assert_eq!(achievement_rate(Decimal::ZERO, Decimal::ZERO), Decimal::ZERO);
     }
 
     #[test]
@@ -903,8 +865,7 @@ mod tests {
     fn normalize_scope_enforces_scope_id_rule() {
         let id = Uuid::now_v7();
         // ALL 不许带 scope_id（库侧 ck_biz_st_target_scope_id 同口径）
-        let error =
-            normalize_scope(SCOPE_ALL, Some(&id.to_string())).expect_err("ALL 带 id 应被拒");
+        let error = normalize_scope(SCOPE_ALL, Some(&id.to_string())).expect_err("ALL 带 id 应被拒");
         assert_eq!(error.status, 400);
         assert_eq!(
             normalize_scope(SCOPE_ALL, None).expect("ALL 不带 id"),
@@ -913,8 +874,7 @@ mod tests {
         // 其余三种必须带
         let error = normalize_scope(SCOPE_SALESPERSON, None).expect_err("缺 scope_id 应被拒");
         assert_eq!(error.code, error_code::PARAM_INVALID);
-        let (scope, scope_id) =
-            normalize_scope("salesperson", Some(&format!(" {} ", id))).expect("小写 + 空白可解析");
+        let (scope, scope_id) = normalize_scope("salesperson", Some(&format!(" {} ", id))).expect("小写 + 空白可解析");
         assert_eq!(scope, SCOPE_SALESPERSON);
         assert_eq!(scope_id, Some(id));
         // 域值外的写法不静默忽略
@@ -924,46 +884,28 @@ mod tests {
     #[test]
     fn normalize_status_and_confidence_defaults() {
         assert_eq!(normalize_status(None).expect("默认"), TARGET_ACTIVE);
-        assert_eq!(
-            normalize_status(Some(" inactive ")).expect("小写"),
-            TARGET_INACTIVE
-        );
+        assert_eq!(normalize_status(Some(" inactive ")).expect("小写"), TARGET_INACTIVE);
         assert!(normalize_status(Some("DELETED")).is_err());
 
         assert_eq!(normalize_confidence(None).expect("默认"), CONFIDENCE_MEDIUM);
-        assert_eq!(
-            normalize_confidence(Some("high")).expect("小写"),
-            CONFIDENCE_HIGH
-        );
-        assert_eq!(
-            normalize_confidence(Some("LOW")).expect("大写"),
-            CONFIDENCE_LOW
-        );
+        assert_eq!(normalize_confidence(Some("high")).expect("小写"), CONFIDENCE_HIGH);
+        assert_eq!(normalize_confidence(Some("LOW")).expect("大写"), CONFIDENCE_LOW);
         assert!(normalize_confidence(Some("SURE")).is_err());
     }
 
     #[test]
     fn normalize_basis_defaults_to_order() {
         assert_eq!(normalize_basis(None).expect("默认"), BASIS_ORDER);
-        assert_eq!(
-            normalize_basis(Some(" receipt ")).expect("小写"),
-            BASIS_RECEIPT
-        );
+        assert_eq!(normalize_basis(Some(" receipt ")).expect("小写"), BASIS_RECEIPT);
         assert!(normalize_basis(Some("CASH")).is_err());
     }
 
     #[test]
     fn domain_values_match_v0318_checks() {
         // 与迁移里的 CHECK 逐字一致：改这里必须同步改 V0318（否则库拒而接口放行）
-        assert_eq!(
-            SCOPE_TYPES,
-            [SCOPE_SALESPERSON, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_ALL]
-        );
+        assert_eq!(SCOPE_TYPES, [SCOPE_SALESPERSON, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_ALL]);
         assert_eq!(TARGET_STATUSES, [TARGET_ACTIVE, TARGET_INACTIVE]);
-        assert_eq!(
-            CONFIDENCES,
-            [CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIDENCE_LOW]
-        );
+        assert_eq!(CONFIDENCES, [CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, CONFIDENCE_LOW]);
         assert_eq!(BASIS_TYPES, [BASIS_ORDER, BASIS_RECEIPT]);
         // 看板取数的状态白名单：作废单绝不进业绩
         assert!(!ORDER_STATUSES.contains(&"CANCELLED"));

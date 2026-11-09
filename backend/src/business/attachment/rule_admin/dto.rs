@@ -254,14 +254,8 @@ pub struct RuleDraft {
 ///
 /// 403 + `PERMISSION_DENIED`：不是超管。
 pub fn ensure_super_admin(claims: &TokenClaims, action: &str) -> std::result::Result<(), ApiError> {
-    let is_super = claims
-        .roles
-        .iter()
-        .any(|role| role == SUPER_ADMIN_ROLE_CODE)
-        || claims
-            .permissions
-            .iter()
-            .any(|code| code == "*" || code == "*:*:*");
+    let is_super = claims.roles.iter().any(|role| role == SUPER_ADMIN_ROLE_CODE)
+        || claims.permissions.iter().any(|code| code == "*" || code == "*:*:*");
     if is_super {
         return Ok(());
     }
@@ -296,10 +290,7 @@ pub fn validate(req: &RuleSaveReq) -> std::result::Result<RuleDraft, ApiError> {
             .map(|kind| kind.as_str())
             .collect::<Vec<_>>()
             .join(" / ");
-        param_error(format!(
-            "单据类型 doc_type 非法：{}（可选 {allowed}）",
-            req.doc_type
-        ))
+        param_error(format!("单据类型 doc_type 非法：{}（可选 {allowed}）", req.doc_type))
     })?;
 
     let required_at = RequiredAt::parse(&req.required_at).ok_or_else(|| {
@@ -408,11 +399,7 @@ pub fn parse_allow_exts(raw: Option<&str>) -> std::result::Result<Option<String>
         if token.is_empty() {
             continue;
         }
-        if token.len() > EXT_TOKEN_MAX_CHARS
-            || !token
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() && c.is_ascii())
-        {
+        if token.len() > EXT_TOKEN_MAX_CHARS || !token.chars().all(|c| c.is_ascii_alphanumeric() && c.is_ascii()) {
             return Err(param_error(format!(
                 "扩展名「{token}」不合法：只允许字母 / 数字，长度 1–{EXT_TOKEN_MAX_CHARS}\
                  （不要写点号前缀与通配符）"
@@ -467,9 +454,7 @@ pub fn parse_condition(raw: Option<&str>) -> std::result::Result<Option<String>,
 
 /// 去空白 + 空串归一为 `None`。
 fn normalize_opt(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// 400 + `PARAM_INVALID` 的统一构造（本文件所有校验失败都走它）。

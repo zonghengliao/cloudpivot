@@ -1,0 +1,31 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 5 tests
+test business::erp::return_pdf::db_tests::export_rejects_bad_uuid_before_query ... ok
+test business::erp::return_pdf::db_tests::export_writes_operation_log_rows ... ok
+test business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason ... FAILED
+test business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason ... FAILED
+test business::erp::return_pdf::db_tests::soft_deleted_returns_are_not_found ... ok
+
+failures:
+
+---- business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason stdout ----
+
+thread 'business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason' (2230766) panicked at src/business/erp/return_pdf.rs:1150:9:
+assertion failed: html.contains("<th>价税合计</th>")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason stdout ----
+
+thread 'business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason' (2230849) panicked at src/business/erp/return_pdf.rs:1200:9:
+assertion failed: html.contains("<th>序列号</th>")
+
+
+failures:
+    business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason
+    business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 3858 filtered out; finished in 15.42s
+
+error: test failed, to rerun pass `--lib`

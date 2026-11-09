@@ -86,13 +86,7 @@ pub struct LinkageContext<'a> {
 
 impl<'a> LinkageContext<'a> {
     /// 最小上下文（只有触发点 + 单据 + 操作人）。
-    pub fn new(
-        entity: &'a str,
-        status: &'a str,
-        doc_id: Uuid,
-        doc_no: &'a str,
-        operator: Option<Uuid>,
-    ) -> Self {
+    pub fn new(entity: &'a str, status: &'a str, doc_id: Uuid, doc_no: &'a str, operator: Option<Uuid>) -> Self {
         Self {
             entity,
             status,
@@ -108,12 +102,7 @@ impl<'a> LinkageContext<'a> {
     }
 
     /// 追加三个「人」（`recipient` 策略用）。
-    pub fn with_people(
-        mut self,
-        owner: Option<Uuid>,
-        creator: Option<Uuid>,
-        assigner: Option<Uuid>,
-    ) -> Self {
+    pub fn with_people(mut self, owner: Option<Uuid>, creator: Option<Uuid>, assigner: Option<Uuid>) -> Self {
         self.owner = owner;
         self.creator = creator;
         self.assigner = assigner;
@@ -304,14 +293,10 @@ pub async fn run_deferred(ctx: &LinkageContext<'_>, deferred: Vec<LinkageRuleRow
     let mut runs = Vec::with_capacity(deferred.len());
     for rule in deferred {
         let outcome = match rule.spec() {
-            None => Outcome::Skipped(format!(
-                "动作码 {} 不在白名单里（历史脏行），跳过",
-                rule.action_code
-            )),
-            Some(action) if !action.implemented => Outcome::Skipped(format!(
-                "动作 {} 尚未接管（阶段 3）：占位动作不执行",
-                rule.action_code
-            )),
+            None => Outcome::Skipped(format!("动作码 {} 不在白名单里（历史脏行），跳过", rule.action_code)),
+            Some(action) if !action.implemented => {
+                Outcome::Skipped(format!("动作 {} 尚未接管（阶段 3）：占位动作不执行", rule.action_code))
+            }
             Some(action) => match spec::validate_params(action, &rule.action_params) {
                 Err(reason) => Outcome::Skipped(reason),
                 Ok(()) => match actions::run_after_commit(&rule, ctx).await {
@@ -517,9 +502,7 @@ pub async fn status_notice(ctx: &LinkageContext<'_>) -> NoticeRoute {
         }
     }
 
-    NoticeRoute::Legacy {
-        compare: last_compare,
-    }
+    NoticeRoute::Legacy { compare: last_compare }
 }
 
 // ==================== 第 3 步：GENERATE_VOUCHER 的接管入口 ====================
@@ -578,10 +561,7 @@ pub enum VoucherRoute {
 /// 而「配置说要用这张单生成凭证，结果没生成还让过账成功」= 库存动了账没动，
 /// 那是不变式 BLOCKER。所以这里是唯一一处**接管后失败必须回滚**的动作
 /// （与 `spec.severity = Critical` 一致），卡面也点名要这条。
-pub async fn stockin_voucher(
-    ex: &impl SqlExecutor,
-    ctx: &LinkageContext<'_>,
-) -> Result<VoucherRoute, ApiError> {
+pub async fn stockin_voucher(ex: &impl SqlExecutor, ctx: &LinkageContext<'_>) -> Result<VoucherRoute, ApiError> {
     let rules = model::rules_for(ex, ctx.entity, ctx.status).await;
     let candidates: Vec<LinkageRuleRow> = rules
         .into_iter()
@@ -693,8 +673,7 @@ pub async fn stockin_voucher(
         // ---- SHADOW：试算 → 快照 → 回滚 ----
         if ex.post_commit_queue().is_none() {
             // 没有事务时跑影子 = 直接落一张真凭证。宁可退回旧逻辑。
-            last_reason =
-                "影子对比必须在调用方事务里跑（否则会落下一张真凭证），本次不做影子".to_string();
+            last_reason = "影子对比必须在调用方事务里跑（否则会落下一张真凭证），本次不做影子".to_string();
             tracing::error!(rule_id = %rule.id, reason = last_reason, "联动 GENERATE_VOUCHER 影子跳过");
             continue;
         }
@@ -739,8 +718,7 @@ pub async fn stockin_voucher(
                         "联动凭证影子试算完成（已回滚，库里不会多出这张凭证；生成权仍在旧逻辑）"
                     );
                     Ok(VoucherRoute::Legacy {
-                        reason: "影子模式（mode=SHADOW）：配置试算成功并回滚，凭证仍由旧逻辑生成"
-                            .to_string(),
+                        reason: "影子模式（mode=SHADOW）：配置试算成功并回滚，凭证仍由旧逻辑生成".to_string(),
                         shadow: Some(Box::new(ShadowVoucher {
                             rule_id: rule.id,
                             snapshot,

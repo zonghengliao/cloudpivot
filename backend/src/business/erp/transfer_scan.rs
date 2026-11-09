@@ -158,11 +158,7 @@ pub async fn scan_overdue_candidates(
                 AND (overdue_alerted_at IS NULL OR overdue_alerted_at < ?::timestamptz) \
               ORDER BY shipped_at ASC, id ASC LIMIT ?"
                 .to_string(),
-            vec![
-                Value::from(cutoff),
-                Value::from(realert_before),
-                Value::I64(limit),
-            ],
+            vec![Value::from(cutoff), Value::from(realert_before), Value::I64(limit)],
         )
         .await?;
     rows.iter()

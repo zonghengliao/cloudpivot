@@ -23,9 +23,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use nik::prelude::*;
 
-use crate::business::impexp::definition::{
-    ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter,
-};
+use crate::business::impexp::definition::{ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter};
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope::{self, ScopeTarget};
 use crate::utils;
@@ -103,10 +101,7 @@ impl UserExport {
     /// - `filter`：业务过滤条件；
     /// - `principal`：当前导出发起人的数据范围；`None`（无法确认发起人）→ **拒绝全部行**，
     ///   而不是把全表导出去。
-    fn build_where(
-        filter: &ExportFilter,
-        principal: Option<&ScopedPrincipal>,
-    ) -> (String, Vec<Value>) {
+    fn build_where(filter: &ExportFilter, principal: Option<&ScopedPrincipal>) -> (String, Vec<Value>) {
         let mut sql = String::from(" WHERE u.deleted_at IS NULL");
         let mut params: Vec<Value> = Vec::new();
         // 数据权限（B5 的注入点，本文件按 scope::filter_for 生成片段 + 参数，一起拼）
@@ -192,18 +187,15 @@ impl ExportDefinition for UserExport {
                     FROM sys_user u";
         if let Some(after) = after_id {
             // `?::uuid` 必须绑 uuid 值（传字符串会在驱动侧报 error serializing parameter）
-            let after = uuid::Uuid::parse_str(after).map_err(|error| {
-                DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}"))
-            })?;
+            let after = uuid::Uuid::parse_str(after)
+                .map_err(|error| DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}")))?;
             sql.push_str(" AND u.id > ?::uuid");
             params.push(Value::from(after));
         }
         sql.push_str(" ORDER BY u.id ASC LIMIT ?");
         params.push(Value::from(i64::from(limit)));
 
-        let rows = db()
-            .find_with_params(&format!("{head}{sql}"), params)
-            .await?;
+        let rows = db().find_with_params(&format!("{head}{sql}"), params).await?;
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             let id: String = row.get_typed("id")?;
@@ -225,10 +217,7 @@ mod tests {
     #[test]
     fn sensitive_columns_carry_table() {
         for column in EXPORT_COLUMNS {
-            assert_eq!(
-                column.table, "sys_user",
-                "每列都必须带表名（脱敏要按表匹配规则）"
-            );
+            assert_eq!(column.table, "sys_user", "每列都必须带表名（脱敏要按表匹配规则）");
         }
         let sensitive: Vec<&str> = EXPORT_COLUMNS
             .iter()

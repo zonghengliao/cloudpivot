@@ -20,9 +20,7 @@ use std::net::SocketAddr;
 
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
-use crate::support::job::dto::{
-    JobLogPageQuery, JobLogRes, JobPageQuery, JobRes, JobSaveReq, JobStatusReq,
-};
+use crate::support::job::dto::{JobLogPageQuery, JobLogRes, JobPageQuery, JobRes, JobSaveReq, JobStatusReq};
 use crate::support::job::model::{self, SysJobLogModel, SysJobModel};
 use crate::support::log;
 use crate::utils;
@@ -42,11 +40,7 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[nik::permission(
-    path = "/support/job/page",
-    method = "GET",
-    permission = "support:job:list"
-)]
+#[nik::permission(path = "/support/job/page", method = "GET", permission = "support:job:list")]
 #[nik::get("/support/job/page")]
 pub async fn page(Query(query): Query<JobPageQuery>) -> ResResult<PageData<Vec<JobRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
@@ -78,11 +72,7 @@ pub async fn page(Query(query): Query<JobPageQuery>) -> ResResult<PageData<Vec<J
 ///
 /// - 400：ID 格式非法；
 /// - 404：任务不存在。
-#[nik::permission(
-    path = "/support/job/{id}",
-    method = "GET",
-    permission = "support:job:list"
-)]
+#[nik::permission(path = "/support/job/{id}", method = "GET", permission = "support:job:list")]
 #[nik::get("/support/job/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<JobRes> {
     let job = load_job(&id).await?;
@@ -112,11 +102,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<JobRes> {
 /// - 422：cron 表达式非法或处理器未注册；
 /// - 409：任务名称已存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/job",
-    method = "POST",
-    permission = "support:job:create"
-)]
+#[nik::permission(path = "/support/job", method = "POST", permission = "support:job:create")]
 #[nik::post("/support/job")]
 pub async fn create(
     headers: HeaderMap,
@@ -126,9 +112,7 @@ pub async fn create(
 ) -> ResResult<JobRes> {
     let job = build_model(&req, None, utils::current_user_uuid(&claims)).await?;
     let mut job = job;
-    job.insert(db())
-        .await
-        .map_err(|e| utils::db_error(e, "新建定时任务"))?;
+    job.insert(db()).await.map_err(|e| utils::db_error(e, "新建定时任务"))?;
     reload_scheduler().await;
     log::record_audit(
         &headers,
@@ -177,11 +161,7 @@ pub async fn create(
 /// - 422：cron 表达式非法或处理器未注册；
 /// - 409：任务名称与其它任务冲突；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/job/{id}",
-    method = "PUT",
-    permission = "support:job:update"
-)]
+#[nik::permission(path = "/support/job/{id}", method = "PUT", permission = "support:job:update")]
 #[nik::put("/support/job/{id}")]
 pub async fn update(
     Path(id): Path<String>,
@@ -202,9 +182,7 @@ pub async fn update(
     job.create_by = existing.create_by;
     job.last_run_at = existing.last_run_at;
     job.next_run_at = existing.next_run_at;
-    job.update(db())
-        .await
-        .map_err(|e| utils::db_error(e, "更新定时任务"))?;
+    job.update(db()).await.map_err(|e| utils::db_error(e, "更新定时任务"))?;
     reload_scheduler().await;
     log::record_audit(
         &headers,
@@ -252,11 +230,7 @@ pub async fn update(
 /// - 400：ID 格式非法；
 /// - 404：任务不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/job/{id}",
-    method = "DELETE",
-    permission = "support:job:delete"
-)]
+#[nik::permission(path = "/support/job/{id}", method = "DELETE", permission = "support:job:delete")]
 #[nik::delete("/support/job/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
@@ -333,11 +307,7 @@ pub async fn change_status(
         .await
         .map_err(|e| utils::db_error(e, "查询待启停定时任务"))?
     else {
-        return Err(ApiError::new(
-            404,
-            error_code::JOB_NOT_FOUND,
-            "定时任务不存在",
-        ));
+        return Err(ApiError::new(404, error_code::JOB_NOT_FOUND, "定时任务不存在"));
     };
 
     model::update_job_status(&id, status, utils::current_user_uuid(&claims))
@@ -438,22 +408,13 @@ pub async fn trigger(
 ///
 /// - 400：`job_id` 格式非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/job/log/page",
-    method = "GET",
-    permission = "support:job:list"
-)]
+#[nik::permission(path = "/support/job/log/page", method = "GET", permission = "support:job:list")]
 #[nik::get("/support/job/log/page")]
 pub async fn log_page(Query(query): Query<JobLogPageQuery>) -> ResResult<PageData<Vec<JobLogRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
 
     // `job_id` 为可选过滤：提供但格式非法时按参数错误拦截
-    let job_id = match query
-        .job_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
+    let job_id = match query.job_id.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
         Some(raw) => Some(utils::require_uuid(raw, "job_id")?),
         None => None,
     };
@@ -485,11 +446,7 @@ pub async fn log_page(Query(query): Query<JobLogPageQuery>) -> ResResult<PageDat
 /// - 400：ID 格式非法；
 /// - 404：日志不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/job/log/{id}",
-    method = "GET",
-    permission = "support:job:list"
-)]
+#[nik::permission(path = "/support/job/log/{id}", method = "GET", permission = "support:job:list")]
 #[nik::get("/support/job/log/{id}")]
 pub async fn log_detail(Path(id): Path<String>) -> ResResult<JobLogRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -585,11 +542,7 @@ async fn build_model(
 
     // cron 表达式合法性（与调度器同一解析器，避免「能存不能跑」）
     if CronSchedule::parse(&cron_expr).is_err() {
-        return Err(ApiError::new(
-            422,
-            error_code::JOB_CRON_INVALID,
-            "cron 表达式非法",
-        ));
+        return Err(ApiError::new(422, error_code::JOB_CRON_INVALID, "cron 表达式非法"));
     }
     // 处理器必须已注册，否则任务永远无法执行
     if !crate::task::is_registered_target(&invoke_target) {
@@ -606,11 +559,7 @@ async fn build_model(
     if let Some(existing) = duplicate
         && Some(existing.id) != id
     {
-        return Err(ApiError::new(
-            409,
-            error_code::RESOURCE_CONFLICT,
-            "任务名称已存在",
-        ));
+        return Err(ApiError::new(409, error_code::RESOURCE_CONFLICT, "任务名称已存在"));
     }
 
     let status = match req.status {
@@ -739,20 +688,14 @@ mod tests {
             "数组不能被包成字符串"
         );
         assert_eq!(parse_params(Some("123")), Some(serde_json::json!(123)));
-        assert_eq!(
-            parse_params(Some("\"topic\"")),
-            Some(serde_json::json!("topic"))
-        );
+        assert_eq!(parse_params(Some("\"topic\"")), Some(serde_json::json!("topic")));
         assert_eq!(parse_params(Some("null")), Some(JsonValue::Null));
     }
 
     /// 首尾空白剥掉后再解析（前端输入框常带空格，不能因此降级成字符串）。
     #[test]
     fn parse_params_trims_outer_whitespace_before_parsing() {
-        assert_eq!(
-            parse_params(Some("  {\"a\": 1}  ")),
-            Some(serde_json::json!({"a": 1}))
-        );
+        assert_eq!(parse_params(Some("  {\"a\": 1}  ")), Some(serde_json::json!({"a": 1})));
     }
 
     /// 非 JSON 文本按「JSON 字符串」存，且保留用户原文（只去首尾空白）。
@@ -893,10 +836,7 @@ mod tests {
         let mut req = save_req();
         req.invoke_target = String::new();
         let error = req.validate().unwrap_err().to_string();
-        assert!(
-            error.contains("调用目标"),
-            "必须点名 invoke_target：{error}"
-        );
+        assert!(error.contains("调用目标"), "必须点名 invoke_target：{error}");
     }
 
     /// 超长 1 个字就拒：名称 65 / 分组 65 / cron 65 / 目标 256 / 备注 501。
@@ -926,10 +866,9 @@ mod tests {
     /// 可选字段可以整段省略（老前端 / curl 只传必填项也必须能用）。
     #[test]
     fn job_save_req_deserializes_without_optional_fields() {
-        let req: JobSaveReq = serde_json::from_str(
-            r#"{"job_name":"n","cron_expr":"0 3 * * *","invoke_target":"clean_audit_log"}"#,
-        )
-        .expect("只传必填项必须能反序列化");
+        let req: JobSaveReq =
+            serde_json::from_str(r#"{"job_name":"n","cron_expr":"0 3 * * *","invoke_target":"clean_audit_log"}"#)
+                .expect("只传必填项必须能反序列化");
         assert!(req.job_group.is_none());
         assert!(req.params.is_none());
         assert!(req.status.is_none());
@@ -1076,10 +1015,7 @@ mod tests {
     #[test]
     fn cron_rejects_wrong_field_count() {
         for bad in ["", "   ", "0 3 * *", "0 0 3 * * * *"] {
-            assert!(
-                CronSchedule::parse(bad).is_err(),
-                "「{bad}」段数不合法，必须拒"
-            );
+            assert!(CronSchedule::parse(bad).is_err(), "「{bad}」段数不合法，必须拒");
         }
     }
 
@@ -1087,10 +1023,7 @@ mod tests {
     #[test]
     fn cron_rejects_out_of_range_values() {
         for bad in ["60 * * * *", "0 24 * * *", "0 0 32 * *", "0 0 * 13 *"] {
-            assert!(
-                CronSchedule::parse(bad).is_err(),
-                "越界表达式「{bad}」必须拒"
-            );
+            assert!(CronSchedule::parse(bad).is_err(), "越界表达式「{bad}」必须拒");
         }
     }
 
@@ -1104,10 +1037,7 @@ mod tests {
             "0 0-23/2 * * *",
             "30 2 * * 0",
         ] {
-            assert!(
-                CronSchedule::parse(ok).is_ok(),
-                "常见写法「{ok}」必须能解析"
-            );
+            assert!(CronSchedule::parse(ok).is_ok(), "常见写法「{ok}」必须能解析");
         }
     }
 }
@@ -1183,10 +1113,7 @@ mod db_tests {
                 }
                 // 全局连接可能由更早的用例装成别的库（set_db 先到先得）→ 比对库名，别假绿。
                 let expected = url.rsplit('/').next().unwrap_or_default().to_string();
-                match db()
-                    .scalar_with_params("SELECT current_database()", vec![])
-                    .await
-                {
+                match db().scalar_with_params("SELECT current_database()", vec![]).await {
                     Ok::<String, _>(actual) if actual == expected => true,
                     Ok(actual) => {
                         println!("SKIP: 全局连接指向 {actual}，本用例要求 {expected}");
@@ -1275,15 +1202,10 @@ mod db_tests {
         // 软删后：名称查不到（否则同名的第二个任务永远建不了）。
         SysJobModel::of(job.id).delete(db()).await.expect("软删");
         assert!(
-            find_job_by_name(&job.job_name)
-                .await
-                .expect("查名称")
-                .is_none(),
+            find_job_by_name(&job.job_name).await.expect("查名称").is_none(),
             "软删行不得参与名称唯一性校验"
         );
-        let gone = SysJobModel::find_or_none(db(), &job.id)
-            .await
-            .expect("按 id 查");
+        let gone = SysJobModel::find_or_none(db(), &job.id).await.expect("按 id 查");
         assert!(gone.is_none(), "软删后按 id 应查不到");
 
         cleanup().await;
@@ -1336,10 +1258,7 @@ mod db_tests {
         .await
         .expect("空白分组 = 不过滤");
         assert_eq!(page.total, 2, "空白分组不能当成「等于空串」");
-        assert!(
-            page.list.iter().any(|row| row.id == enabled.id),
-            "启用那条必须在本页里"
-        );
+        assert!(page.list.iter().any(|row| row.id == enabled.id), "启用那条必须在本页里");
 
         cleanup().await;
         println!("[P2-3A·定时任务] 名称模糊 / 分组精确 / 状态过滤 ✓");
@@ -1414,10 +1333,7 @@ mod db_tests {
         );
 
         // 任务被软删后，历史日志仍在（弱引用、无外键，这是设计）。
-        SysJobModel::of(job.id)
-            .delete(db())
-            .await
-            .expect("软删任务");
+        SysJobModel::of(job.id).delete(db()).await.expect("软删任务");
         let still = model::page_job_logs(
             &model::JobLogFilter {
                 job_id: Some(job.id),

@@ -1,0 +1,155 @@
+{
+  "base": "http://172.18.10.144",
+  "blanks": [],
+  "report": [
+    {
+      "dir": "系统管理",
+      "dirIcon": "t-icon t-icon-setting",
+      "children": [
+        "用户管理 [t-icon t-icon-user]",
+        "角色管理 [t-icon t-icon-usergroup]",
+        "菜单管理 [t-icon t-icon-menu-application]",
+        "部门管理 [t-icon t-icon-tree-round-dot]",
+        "数据权限 [t-icon t-icon-lock-on]",
+        "字段脱敏 [t-icon t-icon-chat-error]",
+        "角色互斥 [t-icon t-icon-swap]",
+        "变更日志 [t-icon t-icon-history]"
+      ]
+    },
+    {
+      "dir": "公告与消息",
+      "dirIcon": "t-icon t-icon-notification",
+      "children": [
+        "公告中心 [t-icon t-icon-notification]",
+        "消息中心 [t-icon t-icon-notification]",
+        "公告管理 [t-icon t-icon-component-dropdown]",
+        "消息通知 [t-icon t-icon-notification]"
+      ]
+    },
+    {
+      "dir": "支撑功能",
+      "dirIcon": "t-icon t-icon-app",
+      "children": [
+        "字典管理 [t-icon t-icon-book]",
+        "参数配置 [t-icon t-icon-setting-1]",
+        "文件管理 [t-icon t-icon-file]",
+        "操作日志 [t-icon t-icon-file-copy]",
+        "定时任务 [t-icon t-icon-time]",
+        "在线用户 [t-icon t-icon-user]",
+        "账务巡检 [t-icon t-icon-chart]",
+        "附件规则 [t-icon t-icon-file]"
+      ]
+    },
+    {
+      "dir": "审批流",
+      "dirIcon": "t-icon t-icon-task-checked",
+      "children": [
+        "发起审批 [t-icon t-icon-add-circle]",
+        "审批中心 [t-icon t-icon-task]",
+        "联动规则 [t-icon t-icon-link]",
+        "审批委托 [t-icon t-icon-swap]",
+        "自审监控 [t-icon t-icon-chart]",
+        "审批流程定义 [t-icon t-icon-adjustment]"
+      ]
+    },
+    {
+      "dir": "工作任务",
+      "dirIcon": "t-icon t-icon-task",
+      "children": [
+        "任务列表 [t-icon t-icon-task]",
+        "任务看板 [t-icon t-icon-dashboard-1]",
+        "甘特图（只读排期） [t-icon t-icon-chart]",
+        "任务模板 [t-icon t-icon-file-copy]"
+      ]
+    },
+    {
+      "dir": "采购管理",
+      "dirIcon": "t-icon t-icon-cart",
+      "children": [
+        "采购订单 [t-icon t-icon-cart]",
+        "收货入库 [t-icon t-icon-download]",
+        "应付账款 [t-icon t-icon-money]",
+        "询比价 [t-icon t-icon-search]",
+        "采购申请 [t-icon t-icon-file-add]",
+        "采购退货 [t-icon t-icon-rollback]",
+        "供应商 [t-icon t-icon-usergroup]",
+        "采购明细 [t-icon t-icon-order-list]"
+      ]
+    },
+    {
+      "dir": "销售管理",
+      "dirIcon": "t-icon t-icon-shop-5",
+      "children": [
+        "客户档案 [t-icon t-icon-user]",
+        "销售订单 [t-icon t-icon-cart]",
+        "发货单 [t-icon t-icon-send]",
+        "应收台账 [t-icon t-icon-money]",
+        "收款单 [t-icon t-icon-wallet]",
+        "销售发票 [t-icon t-icon-file-copy]",
+        "客户价格 [t-icon t-icon-money]",
+        "销售退货单 [t-icon t-icon-rollback]",
+        "销售目标 [t-icon t-icon-chart-bar]",
+        "佣金规则 [t-icon t-icon-money]",
+        "币种管理 [t-icon t-icon-money]",
+        "佣金结算 [t-icon t-icon-wallet]",
+        "汇率管理 [t-icon t-icon-currency-exchange]"
+      ]
+    },
+    {
+      "dir": "仓库管理",
+      "dirIcon": "t-icon t-icon-server",
+      "children": [
+        "物料管理 [t-icon t-icon-layers]",
+        "仓库管理 [t-icon t-icon-shop]",
+        "库位管理 [t-icon t-icon-scan]",
+        "序列号管理 [t-icon t-icon-barcode]",
+        "即时库存 [t-icon t-icon-data-base]",
+        "库存调拨 [t-icon t-icon-swap-right]",
+        "库位库存 [t-icon t-icon-location]",
+        "库存流水 [t-icon t-icon-history]",
+        "出库单 [t-icon t-icon-app]",
+        "盘点单 [t-icon t-icon-file-copy]"
+      ]
+    },
+    {
+      "dir": "财务管理",
+      "dirIcon": "t-icon t-icon-money",
+      "children": [
+        "会计科目 [t-icon t-icon-book]",
+        "会计期间 [t-icon t-icon-calendar]",
+        "期初余额 [t-icon t-icon-flag]",
+        "年度结转 [t-icon t-icon-calendar]",
+        "预算管理 [t-icon t-icon-money]",
+        "费用报销 [t-icon t-icon-money]",
+        "固定资产 [t-icon t-icon-server]",
+        "记账凭证 [t-icon t-icon-file-paste]",
+        "总账 [t-icon t-icon-chart-pie]",
+        "资产负债表 [t-icon t-icon-app]",
+        "利润表 [t-icon t-icon-app]",
+        "现金流量表 [t-icon t-icon-app]",
+        "应付账龄分析 [t-icon t-icon-app]",
+        "报表项维护 [t-icon t-icon-chart]"
+      ]
+    },
+    {
+      "dir": "通用底座",
+      "dirIcon": "t-icon t-icon-arrow-left-right-3",
+      "children": [
+        "存储管理 [t-icon t-icon-object-storage]",
+        "文件管理 [t-icon t-icon-folder]",
+        "导入向导 [t-icon t-icon-upload]",
+        "导入任务 [t-icon t-icon-file-import]",
+        "导出任务 [t-icon t-icon-file-export]"
+      ]
+    },
+    {
+      "dir": "基础数据",
+      "dirIcon": "t-icon t-icon-folder",
+      "children": [
+        "计量单位 [t-icon t-icon-swap]",
+        "单号序列 [t-icon t-icon-automatic-numbering]"
+      ]
+    }
+  ],
+  "pageErrors": []
+}

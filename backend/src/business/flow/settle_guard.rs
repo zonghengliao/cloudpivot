@@ -109,13 +109,7 @@ impl SettleCheck {
 ///
 /// 数据库异常不会冒出来：[`state_machine::effective_edges`] 读配置失败会退化到 BASE_EDGES
 /// （状态机是主链路，不许因为配置表读不到就把审批回调打死）。
-pub async fn check(
-    ex: &impl SqlExecutor,
-    entity: Entity,
-    current: &str,
-    awaiting: &str,
-    target: &str,
-) -> SettleCheck {
+pub async fn check(ex: &impl SqlExecutor, entity: Entity, current: &str, awaiting: &str, target: &str) -> SettleCheck {
     let cur = norm(current);
     let tgt = norm(target);
     let wait = norm(awaiting);
@@ -196,9 +190,7 @@ pub fn check_task(current: &str, target: &str) -> SettleCheck {
     match task_state::callback_transition(from, to) {
         Ok(_) => SettleCheck::Apply,
         Err(_) => SettleCheck::Moved {
-            reason: format!(
-                "任务的 {cur} → {tgt} 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）"
-            ),
+            reason: format!("任务的 {cur} → {tgt} 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）"),
         },
     }
 }
@@ -222,31 +214,13 @@ pub async fn gate(
     target: &str,
 ) -> bool {
     let verdict = check(db(), entity, current, awaiting, target).await;
-    apply(
-        instance,
-        entity.as_str(),
-        biz_no,
-        current,
-        awaiting,
-        target,
-        verdict,
-    )
-    .await
+    apply(instance, entity.as_str(), biz_no, current, awaiting, target, verdict).await
 }
 
 /// 任务侧的统一入口（`awaiting` 固定 `REVIEW`，判定走任务状态机）。
 pub async fn gate_task(instance: &InstanceRow, biz_no: &str, current: &str, target: &str) -> bool {
     let verdict = check_task(current, target);
-    apply(
-        instance,
-        "biz_task",
-        biz_no,
-        current,
-        TASK_AWAITING,
-        target,
-        verdict,
-    )
-    .await
+    apply(instance, "biz_task", biz_no, current, TASK_AWAITING, target, verdict).await
 }
 
 /// 判定结果 → 日志 + 留痕（三个出口唯一的落地处）。
@@ -326,14 +300,7 @@ impl SkipNote<'_> {
             "{SKIP_TRACE_PREFIX}（目标已不可改，跳过落状态）：系统留痕 · {} {} \
              当前状态 {}，审批结论要落的 {}（等审批状态应为 {}）；\
              审批单 {} 已按结论结束，单据状态保持不变；原因：{}；时间 {}",
-            self.entity,
-            self.biz_no,
-            self.current,
-            self.target,
-            self.awaiting,
-            self.instance_no,
-            self.reason,
-            self.at
+            self.entity, self.biz_no, self.current, self.target, self.awaiting, self.instance_no, self.reason, self.at
         );
         text.chars().take(COMMENT_MAX_CHARS).collect()
     }
@@ -434,9 +401,7 @@ mod tests {
         assert_eq!(
             check_task("CANCELLED", "DONE"),
             SettleCheck::Moved {
-                reason:
-                    "任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）"
-                        .to_string()
+                reason: "任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）".to_string()
             }
         );
     }
@@ -499,9 +464,6 @@ mod tests {
         ] {
             assert!(text.contains(needle), "留痕正文必须含 {needle}：{text}");
         }
-        assert!(
-            text.chars().count() <= COMMENT_MAX_CHARS,
-            "留痕正文不许超列宽"
-        );
+        assert!(text.chars().count() <= COMMENT_MAX_CHARS, "留痕正文不许超列宽");
     }
 }

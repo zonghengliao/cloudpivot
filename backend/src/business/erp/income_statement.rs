@@ -214,11 +214,7 @@ impl IncomeAccount {
 /// 而权益侧要的是它对利润的**贡献**（−500）。两者混用会把费用算成利润
 /// （ERP-R1 的单测 R1-⑪ 就是这么抓到同类翻车的）。
 pub fn income_amount(net: Decimal, balance_direction: &str) -> Decimal {
-    report::zero_norm(if balance_direction == "CREDIT" {
-        -net
-    } else {
-        net
-    })
+    report::zero_norm(if balance_direction == "CREDIT" { -net } else { net })
 }
 
 /// 科目 → **权益贡献**（与 `report::AccountBalance::display` 逐字同口径）。
@@ -226,9 +222,7 @@ pub fn income_amount(net: Decimal, balance_direction: &str) -> Decimal {
 /// 损益类一律 `−net`：收入（贷方余额，net 为负）贡献为正，费用（借方）贡献为负。
 pub fn equity_amount(account: &IncomeAccount, net: Decimal) -> Decimal {
     report::zero_norm(
-        if account.account_category.eq_ignore_ascii_case("PROFIT_LOSS")
-            || account.balance_direction == "CREDIT"
-        {
+        if account.account_category.eq_ignore_ascii_case("PROFIT_LOSS") || account.balance_direction == "CREDIT" {
             -net
         } else {
             net
@@ -394,16 +388,9 @@ impl ComputedIncome {
 ///
 /// 返回 `Err` 的只有配置错误（公式引用未知项 / 算式不合法），接口按 500 处理 ——
 /// 配置错了绝不能静默出 0，那会被人当成「这个月没发生」。
-pub fn compute(
-    items: &[ReportItemDef],
-    accounts: &[IncomeAccount],
-) -> std::result::Result<ComputedIncome, String> {
+pub fn compute(items: &[ReportItemDef], accounts: &[IncomeAccount]) -> std::result::Result<ComputedIncome, String> {
     let mut sorted = items.to_vec();
-    sorted.sort_by(|a, b| {
-        a.sort_order
-            .cmp(&b.sort_order)
-            .then(a.item_code.cmp(&b.item_code))
-    });
+    sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.item_code.cmp(&b.item_code)));
 
     let mut current: HashMap<String, Decimal> = HashMap::new();
     let mut ytd: HashMap<String, Decimal> = HashMap::new();
@@ -461,8 +448,7 @@ pub fn compute(
         });
     }
     unmapped.sort_by(|a, b| a.account_code.cmp(&b.account_code));
-    let unmapped_effect_current =
-        report::zero_norm(unmapped.iter().map(|row| row.effect_current).sum());
+    let unmapped_effect_current = report::zero_norm(unmapped.iter().map(|row| row.effect_current).sum());
     let unmapped_effect_ytd = report::zero_norm(unmapped.iter().map(|row| row.effect_ytd).sum());
     // 未归类行的金额先塞进两张金额表：这样 `formula` 也可以引用它
     // （比如 `formula = 'TOTAL_PROFIT - INCOME_TAX + UNMAPPED_PROFIT_LOSS'`），
@@ -493,10 +479,7 @@ pub fn compute(
             current: current.get(&item.item_code).copied().unwrap_or_default(),
             ytd: ytd.get(&item.item_code).copied().unwrap_or_default(),
             is_total,
-            detail: item
-                .account_pattern
-                .clone()
-                .or_else(|| item.formula.clone()),
+            detail: item.account_pattern.clone().or_else(|| item.formula.clone()),
             accounts: owned.get(&item.item_code).cloned().unwrap_or_default(),
         });
     }
@@ -592,8 +575,7 @@ pub fn build_check(
     unbalanced_vouchers: Vec<UnbalancedVoucherRes>,
 ) -> IncomeCheckRes {
     let net_profit_ytd = computed.net_profit_ytd();
-    let (undistributed_end, undistributed_start) =
-        undistributed_profit(accounts, undistributed_pattern);
+    let (undistributed_end, undistributed_start) = undistributed_profit(accounts, undistributed_pattern);
     let equity_change = report::zero_norm(undistributed_end - undistributed_start);
     let diff = report::zero_norm(net_profit_ytd - equity_change);
     let balanced = diff.is_zero();
@@ -662,9 +644,7 @@ pub fn build_check(
     }
 
     let message = if balanced {
-        format!(
-            "勾稽一致：净利润（本年累计）{net_profit_ytd} = 资产负债表「未分配利润」本年变动 {equity_change}"
-        )
+        format!("勾稽一致：净利润（本年累计）{net_profit_ytd} = 资产负债表「未分配利润」本年变动 {equity_change}")
     } else {
         format!(
             "不平：净利润（本年累计）{net_profit_ytd} ≠ 资产负债表「未分配利润」本年变动 {equity_change}，\
@@ -701,8 +681,7 @@ pub fn ytd_start_of(period: &str) -> Option<NaiveDate> {
 
 /// 本年累计起算日（拿不到期间时按 `period_end` 的年兜底 —— 调用方已经校验过格式）。
 fn ytd_start_for(period: &str, period_end: NaiveDate) -> NaiveDate {
-    ytd_start_of(period)
-        .unwrap_or_else(|| NaiveDate::from_ymd_opt(period_end.year(), 1, 1).unwrap_or(period_end))
+    ytd_start_of(period).unwrap_or_else(|| NaiveDate::from_ymd_opt(period_end.year(), 1, 1).unwrap_or(period_end))
 }
 
 /// 报表所属期间（`yyyy-MM`）。
@@ -731,13 +710,9 @@ pub async fn load_income_accounts(
     // ERP-R5：期初口径必须两边一致（见 report::load_accounts 的文档）——
     // 传报表所属期间，而不是各窗口自己的起算月。
     let opening_period = opening_period_of(period_start);
-    let period_rows =
-        report::load_accounts(tx, period_start, period_end, Some(&opening_period)).await?;
+    let period_rows = report::load_accounts(tx, period_start, period_end, Some(&opening_period)).await?;
     let ytd_rows = report::load_accounts(tx, ytd_start, period_end, Some(&opening_period)).await?;
-    let ytd_by_id: HashMap<Uuid, AccountBalance> = ytd_rows
-        .into_iter()
-        .map(|row| (row.account_id, row))
-        .collect();
+    let ytd_by_id: HashMap<Uuid, AccountBalance> = ytd_rows.into_iter().map(|row| (row.account_id, row)).collect();
 
     let mut out = Vec::with_capacity(period_rows.len());
     for row in period_rows {
@@ -767,10 +742,7 @@ pub async fn load_undistributed_pattern(tx: &Transaction) -> DbResult<String> {
     let row = tx
         .find_with_params(
             &sql,
-            vec![
-                Value::from(BALANCE_REPORT_CODE),
-                Value::from(UNDISTRIBUTED_ITEM),
-            ],
+            vec![Value::from(BALANCE_REPORT_CODE), Value::from(UNDISTRIBUTED_ITEM)],
         )
         .await?
         .into_iter()
@@ -837,10 +809,8 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<IncomeSn
     let computed = compute(&items, &accounts).map_err(DbError::InvalidValue)?;
     let undistributed_pattern = load_undistributed_pattern(tx).await?;
 
-    let (ledger_debit_total, ledger_credit_total) =
-        report::load_ledger_totals(tx, ytd_start, info.end_date).await?;
-    let unbalanced_vouchers =
-        report::load_unbalanced_vouchers(tx, ytd_start, info.end_date).await?;
+    let (ledger_debit_total, ledger_credit_total) = report::load_ledger_totals(tx, ytd_start, info.end_date).await?;
+    let unbalanced_vouchers = report::load_unbalanced_vouchers(tx, ytd_start, info.end_date).await?;
 
     Ok(IncomeSnapshot {
         computed,
@@ -855,11 +825,7 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<IncomeSn
 }
 
 /// 组装接口返回体（纯逻辑：IO 结果进来，JSON 出去）。
-pub fn into_response(
-    company_name: &str,
-    unit: &str,
-    snapshot: IncomeSnapshot,
-) -> IncomeStatementRes {
+pub fn into_response(company_name: &str, unit: &str, snapshot: IncomeSnapshot) -> IncomeStatementRes {
     let IncomeSnapshot {
         computed,
         period,
@@ -943,19 +909,14 @@ fn period_error(period: &str, message: String) -> ApiError {
 
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
 /// `pub(crate)`：PDF-07（[`crate::business::erp::report_pdf`]）复用同一快照与错误码。
-pub(crate) async fn snapshot_or_error(
-    period: &str,
-) -> std::result::Result<IncomeSnapshot, ApiError> {
+pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<IncomeSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启利润表快照事务"))?;
     // ★ L11：整张报表在一个 REPEATABLE READ 快照里算完。
     //   `SET TRANSACTION` 必须是 BEGIN 之后的第一条语句（PG 规定，否则 25001）。
-    if let Err(error) = tx
-        .execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .await
-    {
+    if let Err(error) = tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").await {
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置利润表事务隔离级别"));
     }
@@ -998,9 +959,7 @@ pub(crate) async fn company_name() -> String {
     permission = "business:erp:report:income-statement"
 )]
 #[nik::get("/business/erp/report/income-statement")]
-pub async fn income_statement_handler(
-    Query(query): Query<IncomeStatementQuery>,
-) -> ResResult<IncomeStatementRes> {
+pub async fn income_statement_handler(Query(query): Query<IncomeStatementQuery>) -> ResResult<IncomeStatementRes> {
     let period = validate_period(query.period.as_deref())?;
     let snapshot = snapshot_or_error(&period).await?;
     let company = company_name().await;
@@ -1034,42 +993,28 @@ pub async fn income_statement_export_handler(
 }
 
 /// 把报表拍成「项目 / 本期金额 / 本年累计」三列的表格行。
-pub fn export_table(
-    report: &IncomeStatementRes,
-) -> (Vec<&'static str>, Vec<HashMap<String, String>>) {
+pub fn export_table(report: &IncomeStatementRes) -> (Vec<&'static str>, Vec<HashMap<String, String>>) {
     const HEADERS: [&str; 3] = ["项目", "本期金额", "本年累计"];
     let mut rows: Vec<HashMap<String, String>> = Vec::new();
 
     // 表头信息（编制单位 / 期间 / 单位 / 累计起点）也进表格，导出的文件脱离页面也能看懂。
     let mut info = HashMap::new();
-    info.insert(
-        "项目".to_string(),
-        format!("编制单位：{}", report.company_name),
-    );
+    info.insert("项目".to_string(), format!("编制单位：{}", report.company_name));
     info.insert(
         "本期金额".to_string(),
         format!("期间：{}（{}）", report.period_name, report.period_status),
     );
     info.insert(
         "本年累计".to_string(),
-        format!(
-            "单位：{}；本年累计从 {} 起算",
-            report.unit, report.ytd_start
-        ),
+        format!("单位：{}；本年累计从 {} 起算", report.unit, report.ytd_start),
     );
     rows.push(info);
 
     let indent = |level: i16| "    ".repeat(usize::try_from(level.saturating_sub(1)).unwrap_or(0));
     for line in &report.items {
         let mut row: HashMap<String, String> = HashMap::new();
-        row.insert(
-            "项目".to_string(),
-            format!("{}{}", indent(line.level), line.item_name),
-        );
-        row.insert(
-            "本期金额".to_string(),
-            report::money_text(Some(line.current)),
-        );
+        row.insert("项目".to_string(), format!("{}{}", indent(line.level), line.item_name));
+        row.insert("本期金额".to_string(), report::money_text(Some(line.current)));
         row.insert("本年累计".to_string(), report::money_text(Some(line.ytd)));
         rows.push(row);
     }
@@ -1183,14 +1128,7 @@ mod tests {
     fn income_items() -> Vec<ReportItemDef> {
         vec![
             item("REVENUE", "一、营业收入", 1, Some("5001,5051"), None, 10),
-            item(
-                "COST_OF_SALES",
-                "减：营业成本",
-                2,
-                Some("5401,5402,6401"),
-                None,
-                11,
-            ),
+            item("COST_OF_SALES", "减：营业成本", 2, Some("5401,5402,6401"), None, 11),
             item("TAX_SURCHARGE", "减：税金及附加", 2, Some("5403"), None, 12),
             item("SELLING_EXPENSE", "减：销售费用", 2, Some("5601"), None, 13),
             item("ADMIN_EXPENSE", "减：管理费用", 2, Some("5602"), None, 14),
@@ -1200,27 +1138,11 @@ mod tests {
                 "二、营业利润",
                 1,
                 None,
-                Some(
-                    "REVENUE - COST_OF_SALES - TAX_SURCHARGE - SELLING_EXPENSE - ADMIN_EXPENSE - FINANCE_EXPENSE",
-                ),
+                Some("REVENUE - COST_OF_SALES - TAX_SURCHARGE - SELLING_EXPENSE - ADMIN_EXPENSE - FINANCE_EXPENSE"),
                 20,
             ),
-            item(
-                "NON_OPERATING_INCOME",
-                "加：营业外收入",
-                2,
-                Some("5301"),
-                None,
-                21,
-            ),
-            item(
-                "NON_OPERATING_EXPENSE",
-                "减：营业外支出",
-                2,
-                Some("5711"),
-                None,
-                22,
-            ),
+            item("NON_OPERATING_INCOME", "加：营业外收入", 2, Some("5301"), None, 21),
+            item("NON_OPERATING_EXPENSE", "减：营业外支出", 2, Some("5711"), None, 22),
             item(
                 "TOTAL_PROFIT",
                 "三、利润总额",
@@ -1258,10 +1180,7 @@ mod tests {
         let computed = compute(&income_items(), &accounts).expect("计算");
         assert_eq!(computed.current_of("REVENUE"), Decimal::from(1_000));
         assert_eq!(computed.ytd_of("REVENUE"), Decimal::from(1_000));
-        assert_eq!(
-            computed.current_of("OPERATING_PROFIT"),
-            Decimal::from(1_000)
-        );
+        assert_eq!(computed.current_of("OPERATING_PROFIT"), Decimal::from(1_000));
         assert_eq!(computed.net_profit_current(), Decimal::from(1_000));
         assert_eq!(computed.net_profit_ytd(), Decimal::from(1_000));
         assert!(computed.unmapped.is_empty(), "5001 已被映射，不该未归类");
@@ -1331,10 +1250,7 @@ mod tests {
         ];
         let computed = compute(&income_items(), &accounts).expect("计算");
         assert_eq!(computed.current_of("OPERATING_PROFIT"), Decimal::from(300));
-        assert_eq!(
-            computed.current_of("NON_OPERATING_INCOME"),
-            Decimal::from(40)
-        );
+        assert_eq!(computed.current_of("NON_OPERATING_INCOME"), Decimal::from(40));
         assert_eq!(
             computed.current_of("TOTAL_PROFIT"),
             Decimal::from(330),
@@ -1396,11 +1312,7 @@ mod tests {
     #[test]
     fn r2_empty_period_is_all_zero() {
         let computed = compute(&income_items(), &[]).expect("计算");
-        assert_eq!(
-            computed.items.len(),
-            income_items().len() + 1,
-            "12 行 + 未归类行"
-        );
+        assert_eq!(computed.items.len(), income_items().len() + 1, "12 行 + 未归类行");
         for row in &computed.items {
             assert!(
                 row.current.is_zero() && row.ytd.is_zero(),
@@ -1453,11 +1365,7 @@ mod tests {
             revenue_account("5111", 50), // 卡面结构没有这一行
         ];
         let computed = compute(&income_items(), &accounts).expect("计算");
-        assert_eq!(
-            computed.net_profit_ytd(),
-            Decimal::from(1_000),
-            "净利润只含已映射的行"
-        );
+        assert_eq!(computed.net_profit_ytd(), Decimal::from(1_000), "净利润只含已映射的行");
         assert_eq!(computed.unmapped_effect_ytd(), Decimal::from(50));
         assert_eq!(computed.unmapped.len(), 1);
         let check = build_check(
@@ -1469,11 +1377,7 @@ mod tests {
             Vec::new(),
         );
         assert!(!check.balanced, "漏一行映射就必须报不平");
-        assert_eq!(
-            check.diff,
-            Decimal::from(-50),
-            "净利润 1000 − 权益变动 1050"
-        );
+        assert_eq!(check.diff, Decimal::from(-50), "净利润 1000 − 权益变动 1050");
         assert_eq!(check.diff_text, "-50.00");
         assert!(
             check.hints.iter().any(|hint| hint.contains("5111")),
@@ -1495,10 +1399,7 @@ mod tests {
         assert!(validate_period(Some("   ")).is_err());
         assert!(validate_period(Some("2026-13")).is_err(), "13 月不存在");
         assert!(validate_period(Some("2026-1")).is_err(), "必须两位月份");
-        assert_eq!(
-            validate_period(Some(" 2026-10 ")).ok().as_deref(),
-            Some("2026-10")
-        );
+        assert_eq!(validate_period(Some(" 2026-10 ")).ok().as_deref(), Some("2026-10"));
         assert_eq!(
             ytd_start_of("2026-10"),
             NaiveDate::from_ymd_opt(2026, 1, 1),
@@ -1529,20 +1430,13 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(check.net_profit_ytd, Decimal::from(400));
-        assert_eq!(
-            check.equity_change,
-            Decimal::from(800),
-            "权益变动 400 + 400"
-        );
+        assert_eq!(check.equity_change, Decimal::from(800), "权益变动 400 + 400");
         assert!(!check.balanced);
         assert_eq!(check.diff, Decimal::from(-400));
         assert_eq!(check.diff_text, "-400.00");
         assert!(check.message.contains("不平"), "{}", check.message);
         assert!(
-            check
-                .hints
-                .iter()
-                .any(|hint| hint.contains("本年利润 / 利润分配")),
+            check.hints.iter().any(|hint| hint.contains("本年利润 / 利润分配")),
             "必须指出 3103/3104 直接发生额：{:?}",
             check.hints
         );
@@ -1555,9 +1449,7 @@ mod tests {
         let accounts = vec![
             revenue_account("5001", 100),
             // 3104 上多 0.0001 的贷方余额 → 权益变动比净利润多 0.0001
-            acct_dec(
-                "3104", "EQUITY", "CREDIT", "0.0001", "0.0001", "0.0001", "0",
-            ),
+            acct_dec("3104", "EQUITY", "CREDIT", "0.0001", "0.0001", "0.0001", "0"),
         ];
         let computed = compute(&income_items(), &accounts).expect("计算");
         let check = build_check(
@@ -1569,10 +1461,7 @@ mod tests {
             Vec::new(),
         );
         assert!(!check.balanced, "0.0001 的不平也必须报");
-        assert_eq!(
-            check.diff_text, "0.0001",
-            "2 位小数会抹成 0.00 → 必须保留 4 位"
-        );
+        assert_eq!(check.diff_text, "0.0001", "2 位小数会抹成 0.00 → 必须保留 4 位");
         println!("[R2-⑪] 0.0001 的差额不被抹平 ✓");
     }
 
@@ -1580,14 +1469,7 @@ mod tests {
     #[test]
     fn r2_formula_with_unknown_item_fails_loudly() {
         let mut items = income_items();
-        items.push(item(
-            "BROKEN",
-            "坏公式",
-            1,
-            None,
-            Some("REVENUE - NOPE"),
-            50,
-        ));
+        items.push(item("BROKEN", "坏公式", 1, None, Some("REVENUE - NOPE"), 50));
         let accounts = vec![revenue_account("5001", 1)];
         let error = compute(&items, &accounts).expect_err("必须报错");
         assert!(error.contains("NOPE"), "错误里要点名缺的项：{error}");
@@ -1609,9 +1491,7 @@ mod tests {
                 SELECT id FROM biz_voucher WHERE voucher_no = '0301' AND voucher_word = '{FIXTURE_WORD}') \
                AND credit_amount > 0"
         );
-        db().execute_with_params(&sql, vec![])
-            .await
-            .expect("删分录");
+        db().execute_with_params(&sql, vec![]).await.expect("删分录");
         let snapshot = run("2026-10").await;
         let check = snapshot.check();
         cleanup().await;
@@ -1621,10 +1501,7 @@ mod tests {
             "删掉贷方分录后两侧确实同时为 0（这正是危险之处）"
         );
         assert!(
-            check
-                .unbalanced_vouchers
-                .iter()
-                .any(|row| row.voucher_no == "0301"),
+            check.unbalanced_vouchers.iter().any(|row| row.voucher_no == "0301"),
             "必须识别出分录不平的凭证：{:?}",
             check.unbalanced_vouchers
         );
@@ -1669,14 +1546,7 @@ mod tests {
     }
 
     /// 建一张 POSTED 凭证（两行分录：借 / 贷）。
-    async fn post_voucher(
-        no: &str,
-        date: &str,
-        period: &str,
-        debit_code: &str,
-        credit_code: &str,
-        amount: i64,
-    ) {
+    async fn post_voucher(no: &str, date: &str, period: &str, debit_code: &str, credit_code: &str, amount: i64) {
         let sql = format!(
             "WITH v AS ( \
                 INSERT INTO biz_voucher (voucher_word, voucher_no, period, voucher_date, summary, \
@@ -1728,16 +1598,11 @@ mod tests {
             return;
         };
         let tx = db().begin().await.expect("开启事务");
-        let error = build_snapshot(&tx, "1999-01")
-            .await
-            .expect_err("空月份必须报错");
+        let error = build_snapshot(&tx, "1999-01").await.expect_err("空月份必须报错");
         let _ = tx.rollback().await;
         let message = format!("{error}");
         assert!(message.contains("1999-01"), "错误信息要带期间：{message}");
-        assert!(
-            message.contains("不存在"),
-            "错误信息要说清是不存在：{message}"
-        );
+        assert!(message.contains("不存在"), "错误信息要说清是不存在：{message}");
         println!("[R2-⑨b] 空月份 1999-01 → 400 + 66010 ✓");
     }
 
@@ -1815,9 +1680,7 @@ mod tests {
 
         // 确认与资产负债表同一口径：未分配利润期末 = R1 报表里的 UNDISTRIBUTED_PROFIT
         let tx = db().begin().await.expect("开启事务");
-        let bs = report::build_snapshot(&tx, "2026-10")
-            .await
-            .expect("资产负债表");
+        let bs = report::build_snapshot(&tx, "2026-10").await.expect("资产负债表");
         let _ = tx.rollback().await;
         let bs_undistributed = bs
             .sheet
@@ -1844,9 +1707,7 @@ mod tests {
 
         // 资产负债表侧的「未分配利润」（必须在清理凭证**之前**取，否则拿到的是基线）
         let tx = db().begin().await.expect("开启事务");
-        let after_bs = report::build_snapshot(&tx, "2026-10")
-            .await
-            .expect("资产负债表");
+        let after_bs = report::build_snapshot(&tx, "2026-10").await.expect("资产负债表");
         let _ = tx.rollback().await;
         let after_bs_undistributed = after_bs
             .sheet
@@ -1896,9 +1757,7 @@ mod tests {
             return;
         };
         let tx = db().begin().await.expect("开启事务");
-        let items = report::load_items_of(&tx, REPORT_CODE)
-            .await
-            .expect("读利润表配置");
+        let items = report::load_items_of(&tx, REPORT_CODE).await.expect("读利润表配置");
         let accounts = report::load_accounts(
             &tx,
             NaiveDate::from_ymd_opt(2026, 10, 1).expect("日期"),
@@ -1907,16 +1766,11 @@ mod tests {
         )
         .await
         .expect("读科目");
-        let pattern = load_undistributed_pattern(&tx)
-            .await
-            .expect("读未分配利润口径");
+        let pattern = load_undistributed_pattern(&tx).await.expect("读未分配利润口径");
         let _ = tx.rollback().await;
 
         assert_eq!(items.len(), 12, "INCOME_STATEMENT 应有 12 个启用报表项");
-        assert!(
-            items.iter().any(|row| row.item_code == NET_PROFIT),
-            "净利润行必须在"
-        );
+        assert!(items.iter().any(|row| row.item_code == NET_PROFIT), "净利润行必须在");
         assert_eq!(
             pattern, UNDISTRIBUTED_PATTERN_FALLBACK,
             "未分配利润口径应取自资产负债表（与 V0183 种子一致）"
@@ -1942,8 +1796,7 @@ mod tests {
 
         // 标准损益类科目必须被**恰好一行**匹配（5111 投资收益按设计不映射）
         let standard = [
-            "5001", "5051", "5301", "5401", "5402", "5403", "5601", "5602", "5603", "5711", "5801",
-            "6401",
+            "5001", "5051", "5301", "5401", "5402", "5403", "5601", "5602", "5603", "5711", "5801", "6401",
         ];
         let mut problems: Vec<String> = Vec::new();
         for account in &accounts {
@@ -1951,11 +1804,7 @@ mod tests {
                 .iter()
                 .filter(|item| {
                     item.account_pattern.as_deref().is_some_and(|pattern| {
-                        report::match_account(
-                            pattern,
-                            &account.account_code,
-                            &account.account_category,
-                        )
+                        report::match_account(pattern, &account.account_code, &account.account_category)
                     })
                 })
                 .map(|item| item.item_code.as_str())
@@ -2000,10 +1849,7 @@ mod tests {
         assert_eq!(report.period, "2026-10");
         assert_eq!(report.current_label, CURRENT_LABEL);
         assert_eq!(report.ytd_label, YTD_LABEL);
-        assert_eq!(
-            report.ytd_start,
-            NaiveDate::from_ymd_opt(2026, 1, 1).expect("日期")
-        );
+        assert_eq!(report.ytd_start, NaiveDate::from_ymd_opt(2026, 1, 1).expect("日期"));
         assert!(
             report.check.balanced,
             "生产数据必须勾稽平：{} / hints={:?}",
@@ -2012,10 +1858,7 @@ mod tests {
         // 导出件能生成且带表头
         let (headers, rows) = export_table(&report);
         assert_eq!(headers, vec!["项目", "本期金额", "本年累计"]);
-        assert!(
-            rows.len() > report.items.len(),
-            "表头信息行 + 报表行 + 结论行"
-        );
+        assert!(rows.len() > report.items.len(), "表头信息行 + 报表行 + 结论行");
         println!(
             "[R2-⑭] 生产期间 2026-10 出表：净利润 {} / 勾稽 {} ✓",
             report.check.net_profit_ytd, report.check.diff_text

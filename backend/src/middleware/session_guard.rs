@@ -84,9 +84,7 @@ pub async fn guard(request: Request, next: Next) -> Response {
     };
 
     // 1) 令牌版本比对（缺省按 0 处理：整改上线前签发的旧令牌在版本号仍为 0 时平滑过渡）
-    let ver = claims
-        .extra_i64(constants::CLAIM_TOKEN_VERSION)
-        .unwrap_or(0);
+    let ver = claims.extra_i64(constants::CLAIM_TOKEN_VERSION).unwrap_or(0);
     if !version_is_current(ver, token_version) {
         tracing::info!(
             user_id = %user_id,
@@ -96,10 +94,7 @@ pub async fn guard(request: Request, next: Next) -> Response {
         );
         // 401 + 20008：令牌本身有效，但它承载的权限快照已被撤销
         // （改密 / 改角色 / 改角色权限 / 改菜单授权 / 停用 / 删除都会推进版本号）
-        return unauthorized_with(
-            error_code::AUTH_PERMISSION_CHANGED,
-            "您的权限已变更，请重新登录",
-        );
+        return unauthorized_with(error_code::AUTH_PERMISSION_CHANGED, "您的权限已变更，请重新登录");
     }
 
     // 2) 首登强制改密：仅放行改密 / 登出
@@ -184,10 +179,7 @@ pub(crate) async fn verify_wildcard_claims(
         return Ok(WildcardVerdict::NotWildcard);
     }
     let role_codes = model::load_role_codes(user_id).await?;
-    if role_codes
-        .iter()
-        .any(|code| code == constants::SUPER_ADMIN_ROLE_CODE)
-    {
+    if role_codes.iter().any(|code| code == constants::SUPER_ADMIN_ROLE_CODE) {
         return Ok(WildcardVerdict::Backed);
     }
     Ok(WildcardVerdict::RoleMismatch { role_codes })
@@ -204,13 +196,11 @@ pub(crate) async fn verify_wildcard_claims(
 /// 命中白名单返回 `true`。
 fn is_allowed_while_must_change(path: &str) -> bool {
     let prefix = cfg().router.prefix.trim_end_matches('/').to_string();
-    constants::MUST_CHANGE_PASSWORD_ALLOWED_PATHS
-        .iter()
-        .any(|allowed| {
-            let full = format!("{prefix}{allowed}");
-            // 允许精确命中，也允许其子路径（如未来的 /system/auth/password/xxx）
-            path == full || path.starts_with(&format!("{full}/"))
-        })
+    constants::MUST_CHANGE_PASSWORD_ALLOWED_PATHS.iter().any(|allowed| {
+        let full = format!("{prefix}{allowed}");
+        // 允许精确命中，也允许其子路径（如未来的 /system/auth/password/xxx）
+        path == full || path.starts_with(&format!("{full}/"))
+    })
 }
 
 /// 令牌里的版本号是否等于库里的当前版本号（会话守卫第 1 条判定）。
@@ -279,10 +269,7 @@ fn server_error(msg: &str) -> Response {
 fn build(status: StatusCode, body: String) -> Response {
     (
         status,
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "application/json; charset=utf-8",
-        )],
+        [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
         Body::from(body),
     )
         .into_response()

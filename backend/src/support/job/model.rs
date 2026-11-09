@@ -170,9 +170,7 @@ pub(crate) struct JobLogFilter {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub(crate) async fn find_job_by_name(
-    job_name: &str,
-) -> std::result::Result<Option<SysJobModel>, DbError> {
+pub(crate) async fn find_job_by_name(job_name: &str) -> std::result::Result<Option<SysJobModel>, DbError> {
     SysJobModel::find_first_by(db(), "job_name = ? AND deleted_at IS NULL", (job_name,)).await
 }
 

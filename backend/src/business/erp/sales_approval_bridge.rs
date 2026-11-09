@@ -39,9 +39,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::sales_order_model::{
-    self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED,
-};
+use crate::business::erp::sales_order_model::{self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
@@ -358,30 +356,17 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// 待办生成侧的排除（`internal_control_creator`）读的也是同一个开关，两处不可能自相矛盾。
 ///
 /// 与本业务无关的待办（其它 `biz_type`）直接放行，零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -715,11 +700,7 @@ mod db_tests {
             "INSERT INTO biz_sales_order_item \
                  (so_id, line_no, material_id, qty, price, amount, tax_rate, tax_amount) \
              VALUES (?::uuid, 1, gen_random_uuid(), 1, ?::text::numeric, ?::text::numeric, 0, 0)",
-            vec![
-                Value::from(&order_id),
-                Value::from(amount),
-                Value::from(amount),
-            ],
+            vec![Value::from(&order_id), Value::from(amount), Value::from(amount)],
         )
         .await
         .expect("插入夹具明细");
@@ -731,11 +712,9 @@ mod db_tests {
     }
 
     async fn admin_id() -> Uuid {
-        db().scalar::<Uuid>(
-            "SELECT id FROM sys_user WHERE username = 'admin' AND deleted_at IS NULL LIMIT 1",
-        )
-        .await
-        .expect("查 admin")
+        db().scalar::<Uuid>("SELECT id FROM sys_user WHERE username = 'admin' AND deleted_at IS NULL LIMIT 1")
+            .await
+            .expect("查 admin")
     }
 
     /// 当前在跑的待办（按创建顺序）→ `(task_id, node_key, assignee_id)`。
@@ -768,9 +747,7 @@ mod db_tests {
 
     async fn approve_task(task_id: Uuid, admin: Uuid) -> String {
         let out = db()
-            .transaction(
-                |tx| async move { engine::approve(&tx, task_id, admin, Some("同意")).await },
-            )
+            .transaction(|tx| async move { engine::approve(&tx, task_id, admin, Some("同意")).await })
             .await
             .expect("审批同意");
         // 与 flow::handler::approve_task 同款：审批事务提交后再回调业务
@@ -801,24 +778,14 @@ mod db_tests {
         };
         // 不再用 admin 代点：受派人由角色成员展开，必须用库给的受派人（见 `pending_tasks`）。
         // 这里仍取一次 admin，作为「库里必须有超管」的前置断言。
-        assert!(
-            !admin_id().await.is_nil(),
-            "库里必须有 admin（bootstrap 超管）"
-        );
+        assert!(!admin_id().await.is_nil(), "库里必须有 admin（bootstrap 超管）");
         // (金额, 期望串行节点数) —— < 1 万 / 1–10 万 / ≥ 10 万
         for (amount, hops) in [("5000.0000", 1usize), ("50000.0000", 2), ("150000.0000", 3)] {
             let order_id = fixture_order(amount).await;
-            let res = sales_order_handler::submit_approval(
-                Some(maker()),
-                &order_id.to_string(),
-                &ApprovalGate::none(),
-            )
-            .await
-            .expect("提交审批成功（配了 so_approve 流程就该建实例）");
-            assert_eq!(
-                res.status, STATUS_SUBMITTED,
-                "金额 {amount} 提交后必须是 SUBMITTED"
-            );
+            let res = sales_order_handler::submit_approval(Some(maker()), &order_id.to_string(), &ApprovalGate::none())
+                .await
+                .expect("提交审批成功（配了 so_approve 流程就该建实例）");
+            assert_eq!(res.status, STATUS_SUBMITTED, "金额 {amount} 提交后必须是 SUBMITTED");
             let (status, instance_id) = status_of(order_id).await;
             assert_eq!(status, STATUS_SUBMITTED);
             let instance_id = instance_id.expect("提交后必须挂审批实例");
@@ -840,12 +807,7 @@ mod db_tests {
                     _ => "n_gm",
                 };
                 for (task_id, node_key, assignee) in tasks {
-                    assert_eq!(
-                        node_key,
-                        expected_node,
-                        "金额 {amount} 第 {} 跳节点不对",
-                        hop + 1
-                    );
+                    assert_eq!(node_key, expected_node, "金额 {amount} 第 {} 跳节点不对", hop + 1);
                     last_status = approve_task(task_id, assignee).await;
                 }
                 let expect_final = hop + 1 == hops;
@@ -856,10 +818,7 @@ mod db_tests {
                 }
             }
             let (status, instance_id) = status_of(order_id).await;
-            assert_eq!(
-                status, STATUS_APPROVED,
-                "金额 {amount} 审批通过后必须 APPROVED"
-            );
+            assert_eq!(status, STATUS_APPROVED, "金额 {amount} 审批通过后必须 APPROVED");
             assert!(
                 instance_id.is_some(),
                 "APPROVED 后实例 id 保留作审计（详情页要能显示审批单号）"
@@ -874,13 +833,9 @@ mod db_tests {
             return;
         };
         let order_id = fixture_order("150000.0000").await;
-        sales_order_handler::submit_approval(
-            Some(maker()),
-            &order_id.to_string(),
-            &ApprovalGate::none(),
-        )
-        .await
-        .expect("提交审批成功");
+        sales_order_handler::submit_approval(Some(maker()), &order_id.to_string(), &ApprovalGate::none())
+            .await
+            .expect("提交审批成功");
         let (_, instance_id) = status_of(order_id).await;
         let instance_id = instance_id.expect("实例 id");
         let tasks = pending_tasks(instance_id).await;
@@ -928,13 +883,9 @@ mod db_tests {
             return;
         };
         let order_id = fixture_order("5000.0000").await;
-        sales_order_handler::submit_approval(
-            Some(maker()),
-            &order_id.to_string(),
-            &ApprovalGate::none(),
-        )
-        .await
-        .expect("提交审批成功");
+        sales_order_handler::submit_approval(Some(maker()), &order_id.to_string(), &ApprovalGate::none())
+            .await
+            .expect("提交审批成功");
         let (_, instance_id) = status_of(order_id).await;
         let tasks = pending_tasks(instance_id.expect("实例 id")).await;
         let (task_id, _, _) = tasks.first().cloned().expect("待办");
@@ -958,13 +909,9 @@ mod db_tests {
         )
         .await
         .expect("临时下线流程");
-        let err = sales_order_handler::submit_approval(
-            Some(maker()),
-            &order_id.to_string(),
-            &ApprovalGate::none(),
-        )
-        .await
-        .expect_err("没配流程必须 409 默认拒绝");
+        let err = sales_order_handler::submit_approval(Some(maker()), &order_id.to_string(), &ApprovalGate::none())
+            .await
+            .expect_err("没配流程必须 409 默认拒绝");
         db().execute_with_params(
             "UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'so_approve'",
             vec![],

@@ -120,9 +120,7 @@ pub fn budget_verdict(instance_status: &str) -> Option<BudgetVerdictKind> {
 ///
 /// 为什么不是「当天」：预算按自然月管节奏，月中生效会让当月「月度额度」变成
 /// 「半个月的额度却按整月校验」；次月 1 日生效与月度闸的口径一致。
-pub fn effective_from_of(
-    approved: nik::prelude::chrono::NaiveDate,
-) -> nik::prelude::chrono::NaiveDate {
+pub fn effective_from_of(approved: nik::prelude::chrono::NaiveDate) -> nik::prelude::chrono::NaiveDate {
     let (year, month) = if approved.month() == 12 {
         (approved.year() + 1, 1)
     } else {
@@ -200,20 +198,12 @@ async fn settle(instance_id: Uuid, verdict: BudgetVerdictKind) -> DbResult<Optio
         },
     };
     let now = Utc::now();
-    let effective_from =
-        matches!(verdict, BudgetVerdictKind::Approve).then(|| effective_from_of(now.date_naive()));
+    let effective_from = matches!(verdict, BudgetVerdictKind::Approve).then(|| effective_from_of(now.date_naive()));
     let tx = db().begin().await?;
     let outcome = async {
         // ③ 通过：同槽旧版先退位（顺序不能反：库级唯一索引会 23505）
         if matches!(verdict, BudgetVerdictKind::Approve) {
-            budget_model::supersede_active(
-                &tx,
-                row.dept_id,
-                row.account_id,
-                row.fiscal_year,
-                row.id,
-            )
-            .await?;
+            budget_model::supersede_active(&tx, row.dept_id, row.account_id, row.fiscal_year, row.id).await?;
         }
         // ④ 状态机唯一入口（写 biz_status_log）
         state_machine::transition(
@@ -230,23 +220,12 @@ async fn settle(instance_id: Uuid, verdict: BudgetVerdictKind) -> DbResult<Optio
         )
         .await?;
         // ⑤ CAS 回写状态 + 审批痕迹
-        let affected = budget_model::apply_status(
-            &tx,
-            row.id,
-            STATUS_SUBMITTED,
-            to_status,
-            None,
-            approver,
-            effective_from,
-        )
-        .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("预算单状态回写失败：{error}"),
-            )
-        })?;
+        let affected =
+            budget_model::apply_status(&tx, row.id, STATUS_SUBMITTED, to_status, None, approver, effective_from)
+                .await
+                .map_err(|error| {
+                    ApiError::new(500, error_code::INTERNAL_ERROR, format!("预算单状态回写失败：{error}"))
+                })?;
         if affected == 0 {
             return Err(ApiError::new(
                 409,
@@ -302,29 +281,16 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 ///
 /// 与 `purchase_bridge::guard_self_approval` 同口径：流程节点写 `ALLOW`（待办可见、留痕），
 /// 真正的否决在这里；与预算无关的待办直接放行（零影响）。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -339,10 +305,7 @@ pub async fn guard_self_approval(
         ));
     }
     if let Some(budget_id) = instance.biz_id
-        && let Some(creator) = internal_control_creator(Some(budget_id))
-            .await
-            .ok()
-            .flatten()
+        && let Some(creator) = internal_control_creator(Some(budget_id)).await.ok().flatten()
         && creator == operator
     {
         return Err(ApiError::new(
@@ -400,14 +363,8 @@ mod tests {
             Some(BudgetVerdictKind::BackToDraft),
             "大小写不敏感"
         );
-        assert_eq!(
-            budget_verdict("WITHDRAWN"),
-            Some(BudgetVerdictKind::BackToDraft)
-        );
-        assert_eq!(
-            budget_verdict("CANCELLED"),
-            Some(BudgetVerdictKind::BackToDraft)
-        );
+        assert_eq!(budget_verdict("WITHDRAWN"), Some(BudgetVerdictKind::BackToDraft));
+        assert_eq!(budget_verdict("CANCELLED"), Some(BudgetVerdictKind::BackToDraft));
         assert_eq!(budget_verdict("PENDING"), None);
         assert_eq!(budget_verdict(""), None);
     }

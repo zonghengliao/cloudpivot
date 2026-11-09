@@ -70,10 +70,7 @@ pub struct DepEdge {
 impl DepEdge {
     /// 构造。
     pub fn new(task_id: Uuid, depends_on_id: Uuid) -> Self {
-        Self {
-            task_id,
-            depends_on_id,
-        }
+        Self { task_id, depends_on_id }
     }
 }
 
@@ -139,10 +136,7 @@ pub fn find_cycle(edges: &[DepEdge], task_id: Uuid, depends_on_id: Uuid) -> Cycl
     // 邻接表：后继 → 它的前置们（顺着「依赖」方向走）
     let mut upstream: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
     for edge in edges {
-        upstream
-            .entry(edge.task_id)
-            .or_default()
-            .push(edge.depends_on_id);
+        upstream.entry(edge.task_id).or_default().push(edge.depends_on_id);
     }
 
     // BFS：从 depends_on_id 出发，找 task_id
@@ -277,9 +271,7 @@ pub fn blocking_prerequisites<T, F>(rows: &[T], status_of: F) -> Vec<&T>
 where
     F: for<'a> Fn(&'a T) -> &'a str,
 {
-    rows.iter()
-        .filter(|row| is_blocking_status(status_of(row)))
-        .collect()
+    rows.iter().filter(|row| is_blocking_status(status_of(row))).collect()
 }
 
 // ==================== 甘特排期 ====================
@@ -376,11 +368,7 @@ pub struct BarSpan {
 ///
 /// 像素由前端按缩放比例换算（日 / 周视图列宽不同）。后端只给天数，
 /// 前后端就不会出现「两边各算一遍偏移、差了 8 小时」这类事故。
-pub fn bar_span(
-    start_date: Option<NaiveDate>,
-    due_date: Option<NaiveDate>,
-    range: &GanttRange,
-) -> Option<BarSpan> {
+pub fn bar_span(start_date: Option<NaiveDate>, due_date: Option<NaiveDate>, range: &GanttRange) -> Option<BarSpan> {
     let from = start_date.or(due_date)?;
     let to = match (start_date, due_date) {
         (Some(start), Some(due)) if due >= start => due,
@@ -520,10 +508,7 @@ mod tests {
         // 加 E 依赖 D 也不成环
         assert_eq!(find_cycle(&edges, id(9), id(4)), CycleVerdict::Acyclic);
         // 菱形本身不误判：A 依赖 D 才成环
-        assert!(matches!(
-            find_cycle(&edges, id(1), id(4)),
-            CycleVerdict::Cycle { .. }
-        ));
+        assert!(matches!(find_cycle(&edges, id(1), id(4)), CycleVerdict::Cycle { .. }));
     }
 
     #[test]
@@ -603,12 +588,7 @@ mod tests {
 
     #[test]
     fn blocking_prerequisites_filters_terminals() {
-        let rows = vec![
-            ("A", "DONE"),
-            ("B", "DOING"),
-            ("C", "CANCELLED"),
-            ("D", "REVIEW"),
-        ];
+        let rows = vec![("A", "DONE"), ("B", "DOING"), ("C", "CANCELLED"), ("D", "REVIEW")];
         let blocking = blocking_prerequisites(&rows, |row| row.1);
         let names: Vec<&str> = blocking.iter().map(|row| row.0).collect();
         assert_eq!(names, vec!["B", "D"]);

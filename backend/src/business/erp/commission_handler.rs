@@ -72,9 +72,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::commission_dto::{
-    self, CommissionFilter, CommissionItemRes, CommissionPageQuery, CommissionStatusReq,
-    STATUS_APPROVED, STATUS_PAID, STATUSES, SettleReq, SettleRes, SettlementDetailRes,
-    SettlementRes, SkippedRes,
+    self, CommissionFilter, CommissionItemRes, CommissionPageQuery, CommissionStatusReq, STATUS_APPROVED, STATUS_PAID,
+    STATUSES, SettleReq, SettleRes, SettlementDetailRes, SettlementRes, SkippedRes,
 };
 use crate::business::erp::commission_model::{self as model, NewItem, RuleRow};
 use crate::business::erp::model::normalize_page;
@@ -200,11 +199,7 @@ pub fn commission_of(rule: &RuleRow, base: Decimal) -> Option<(Decimal, Decimal)
             if rule.rate <= Decimal::ZERO {
                 return None;
             }
-            if base > Decimal::ZERO {
-                rule.rate
-            } else {
-                -rule.rate
-            }
+            if base > Decimal::ZERO { rule.rate } else { -rule.rate }
         }
         _ => return None,
     };
@@ -282,10 +277,7 @@ pub fn weights_by_material(lines: &[model::OrderLineRow]) -> Vec<(Option<Uuid>, 
         } else {
             line.qty
         };
-        match buckets
-            .iter_mut()
-            .find(|(material, _)| *material == line.material_id)
-        {
+        match buckets.iter_mut().find(|(material, _)| *material == line.material_id) {
             Some((_, sum)) => *sum += weight,
             None => buckets.push((line.material_id, weight)),
         }
@@ -352,10 +344,7 @@ pub fn plan_receivable(
 ///
 /// 不给销售员时按「有销售员归属的订单」逐个跑一遍 —— 月结就是这么用的：
 /// 一次把当月所有已收款都计提掉，没数据的销售员进 `skipped`（不是错误）。
-pub async fn settle(
-    operator: Option<Uuid>,
-    req: SettleReq,
-) -> std::result::Result<SettleRes, ApiError> {
+pub async fn settle(operator: Option<Uuid>, req: SettleReq) -> std::result::Result<SettleRes, ApiError> {
     let now = Utc::now();
     let period_code = match req.period_code.as_deref().map(str::trim) {
         Some(raw) if !raw.is_empty() => commission_dto::validate_period_code(raw)?,
@@ -381,15 +370,7 @@ pub async fn settle(
     let mut settlements = Vec::new();
     let mut skipped = Vec::new();
     for (salesperson_id, name) in targets {
-        match settle_one(
-            operator,
-            salesperson_id,
-            &period_code,
-            remark.as_deref(),
-            now,
-        )
-        .await?
-        {
+        match settle_one(operator, salesperson_id, &period_code, remark.as_deref(), now).await? {
             Ok(res) => settlements.push(res),
             Err(reason) => skipped.push(SkippedRes {
                 salesperson_id: salesperson_id.to_string(),
@@ -495,7 +476,7 @@ async fn settle_one(
 
         if items.is_empty() {
             return Ok(Err(
-                "本期没有可计佣的已收款（未收款 / 已全部计过 / 未命中生效规则）".to_string(),
+                "本期没有可计佣的已收款（未收款 / 已全部计过 / 未命中生效规则）".to_string()
             ));
         }
         let total_commission: Decimal = items.iter().map(|item| item.commission).sum();
@@ -558,10 +539,7 @@ async fn settle_one(
 // ==================== 查询 ====================
 
 /// 结算单详情（同事务内取，供计提返回体复用）。
-async fn detail_in(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<SettlementDetailRes, ApiError> {
+async fn detail_in(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<SettlementDetailRes, ApiError> {
     let row = model::find_by_id(ex, id)
         .await
         .map_err(|error| utils::db_error(error, "读佣金结算单"))?
@@ -622,10 +600,7 @@ async fn detail_in(
     })
 }
 
-async fn salesperson_name_in(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<String, ApiError> {
+async fn salesperson_name_in(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<String, ApiError> {
     let row = ex
         .query_first_sql(
             "SELECT COALESCE(NULLIF(real_name, ''), username, '') AS name \
@@ -647,10 +622,7 @@ async fn rule_names_in(
     ex: &impl SqlExecutor,
 ) -> std::result::Result<std::collections::HashMap<Uuid, String>, ApiError> {
     let rows = ex
-        .query_sql(
-            "SELECT id, rule_name FROM biz_commission_rule".to_string(),
-            vec![],
-        )
+        .query_sql("SELECT id, rule_name FROM biz_commission_rule".to_string(), vec![])
         .await
         .map_err(|error| utils::db_error(error, "读佣金规则名"))?;
     let mut map = std::collections::HashMap::new();
@@ -676,13 +648,7 @@ pub async fn detail(id: &str) -> std::result::Result<SettlementDetailRes, ApiErr
 pub async fn page(
     principal: &ScopedPrincipal,
     query: &CommissionPageQuery,
-) -> std::result::Result<
-    (
-        (Vec<(model::SettlementRow, String, i64)>, i64),
-        CommissionFilter,
-    ),
-    ApiError,
-> {
+) -> std::result::Result<((Vec<(model::SettlementRow, String, i64)>, i64), CommissionFilter), ApiError> {
     query.validate()?;
     let (page, page_size) = normalize_page(query.page.unwrap_or(1), query.page_size.unwrap_or(0));
     let filter = CommissionFilter {
@@ -695,9 +661,7 @@ pub async fn page(
             .filter(|text| !text.is_empty())
             .map(str::to_string),
         salesperson_id: match query.salesperson_id.as_deref().map(str::trim) {
-            Some(raw) if !raw.is_empty() => {
-                Some(commission_dto::parse_uuid(raw, "salesperson_id")?)
-            }
+            Some(raw) if !raw.is_empty() => Some(commission_dto::parse_uuid(raw, "salesperson_id")?),
             _ => None,
         },
         status: query
@@ -730,9 +694,7 @@ pub async fn change_status(
     let id = commission_dto::parse_uuid(id, "id")?;
     let target = req.status.trim().to_string();
     if !STATUSES.contains(&target.as_str()) {
-        return Err(bad_request(format!(
-            "status 只认 {STATUSES:?}（收到「{target}」）"
-        )));
+        return Err(bad_request(format!("status 只认 {STATUSES:?}（收到「{target}」）")));
     }
     let reason = req
         .reason
@@ -898,19 +860,12 @@ async fn write_commission_voucher(
         .map_err(|error| utils::db_error(error, "取银行存款科目 1002"))?;
 
     // 正数：正常方向；负数（纯冲回）：整张凭证反向，借仍是「费用/应付」那一侧的最小集合
-    let (debit, credit, debit_summary, credit_summary) =
-        match (kind, row.total_commission < Decimal::ZERO) {
-            (CommissionVoucherKind::Accrual, false) => {
-                (expense, payable, "计提销售佣金", "应付销售佣金")
-            }
-            (CommissionVoucherKind::Accrual, true) => {
-                (payable, expense, "冲回应付佣金", "冲回销售费用")
-            }
-            (CommissionVoucherKind::Payment, false) => (payable, bank, "发放销售佣金", "银行付款"),
-            (CommissionVoucherKind::Payment, true) => {
-                (bank, payable, "收回多付佣金", "冲回应付佣金")
-            }
-        };
+    let (debit, credit, debit_summary, credit_summary) = match (kind, row.total_commission < Decimal::ZERO) {
+        (CommissionVoucherKind::Accrual, false) => (expense, payable, "计提销售佣金", "应付销售佣金"),
+        (CommissionVoucherKind::Accrual, true) => (payable, expense, "冲回应付佣金", "冲回销售费用"),
+        (CommissionVoucherKind::Payment, false) => (payable, bank, "发放销售佣金", "银行付款"),
+        (CommissionVoucherKind::Payment, true) => (bank, payable, "收回多付佣金", "冲回应付佣金"),
+    };
     let summary = format!(
         "{} {}（销售员 {} 期间 {}）",
         kind.summary_prefix(),
@@ -1196,9 +1151,7 @@ mod tests {
             ),
         ];
         assert_eq!(
-            pick_rule(&rules, sp, Some(material), date("2026-11-30"))
-                .unwrap()
-                .rate,
+            pick_rule(&rules, sp, Some(material), date("2026-11-30")).unwrap().rate,
             dec(8.0)
         );
         // 别的物料只命中全局
@@ -1209,12 +1162,7 @@ mod tests {
             dec(5.0)
         );
         // 订单没有明细（无物料）时，物料规则不参与匹配
-        assert_eq!(
-            pick_rule(&rules, sp, None, date("2026-11-30"))
-                .unwrap()
-                .rate,
-            dec(5.0)
-        );
+        assert_eq!(pick_rule(&rules, sp, None, date("2026-11-30")).unwrap().rate, dec(5.0));
     }
 
     #[test]
@@ -1241,12 +1189,7 @@ mod tests {
                 "2026-01-01",
             ),
         ];
-        assert_eq!(
-            pick_rule(&rules, sp, None, date("2026-11-30"))
-                .unwrap()
-                .rate,
-            dec(5.0)
-        );
+        assert_eq!(pick_rule(&rules, sp, None, date("2026-11-30")).unwrap().rate, dec(5.0));
     }
 
     #[test]
@@ -1291,9 +1234,7 @@ mod tests {
             "2026-11-01",
         );
         assert_eq!(
-            pick_rule(&[old, new], sp, None, date("2026-11-30"))
-                .unwrap()
-                .rate,
+            pick_rule(&[old, new], sp, None, date("2026-11-30")).unwrap().rate,
             dec(7.0)
         );
     }
@@ -1461,10 +1402,7 @@ mod tests {
                 "2026-01-01",
             ),
         ];
-        let lines = vec![
-            line(so, m1, dec(600.0), dec(6.0)),
-            line(so, m2, dec(400.0), dec(4.0)),
-        ];
+        let lines = vec![line(so, m1, dec(600.0), dec(6.0)), line(so, m2, dec(400.0), dec(4.0))];
         let plan = plan_receivable(ar, so, dec(1000.0), &lines, &rules, sp, date("2026-11-30"));
         assert_eq!(plan.len(), 2);
         let m1_line = plan.iter().find(|p| p.material_id == Some(m1)).unwrap();
@@ -1541,15 +1479,7 @@ mod tests {
             "2026-01-01",
         )];
         let lines = vec![line(so, Uuid::now_v7(), dec(1000.0), dec(1.0))];
-        let plan = plan_receivable(
-            Uuid::now_v7(),
-            so,
-            dec(-1000.0),
-            &lines,
-            &rules,
-            sp,
-            date("2026-11-30"),
-        );
+        let plan = plan_receivable(Uuid::now_v7(), so, dec(-1000.0), &lines, &rules, sp, date("2026-11-30"));
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].base_amount, dec(-1000.0));
         assert_eq!(plan[0].commission, dec(-50.0));
@@ -1570,15 +1500,7 @@ mod tests {
             None,
             "2026-01-01",
         )];
-        let plan = plan_receivable(
-            Uuid::now_v7(),
-            so,
-            dec(500.0),
-            &[],
-            &rules,
-            sp,
-            date("2026-11-30"),
-        );
+        let plan = plan_receivable(Uuid::now_v7(), so, dec(500.0), &[], &rules, sp, date("2026-11-30"));
         assert_eq!(plan.len(), 1);
         assert_eq!(plan[0].commission, dec(20.0));
     }

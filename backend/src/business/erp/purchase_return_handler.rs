@@ -54,9 +54,9 @@ use crate::business::attachment::rule::{self as attach_rule, RequiredAt as Attac
 use crate::business::erp::approval_gate::{self, ApprovalGate};
 use crate::business::erp::purchase_return_bridge;
 use crate::business::erp::purchase_return_dto::{
-    self as dto, CancelReturnReq, ConfirmReturnReq, CreateReturnReq, ReturnDetailRes,
-    ReturnPageQuery, ReturnableItemRes, ReturnableSourceRes, STATUS_APPROVED, STATUS_CONFIRMED,
-    STATUS_DRAFT, STATUS_SUBMITTED, SubmitReturnReq,
+    self as dto, CancelReturnReq, ConfirmReturnReq, CreateReturnReq, ReturnDetailRes, ReturnPageQuery,
+    ReturnableItemRes, ReturnableSourceRes, STATUS_APPROVED, STATUS_CONFIRMED, STATUS_DRAFT, STATUS_SUBMITTED,
+    SubmitReturnReq,
 };
 use crate::business::erp::purchase_return_model::{self as model, NewItem, NewReturn};
 use crate::business::erp::purchase_return_posting;
@@ -112,11 +112,7 @@ fn reference_missing(message: impl Into<String>) -> ApiError {
 }
 
 fn write_error(error: DbError, context: &str) -> ApiError {
-    ApiError::new(
-        500,
-        error_code::INTERNAL_ERROR,
-        format!("{context}失败：{error}"),
-    )
+    ApiError::new(500, error_code::INTERNAL_ERROR, format!("{context}失败：{error}"))
 }
 
 fn submit_conflict(error: DbError, context: &str, return_no: &str) -> ApiError {
@@ -197,10 +193,7 @@ async fn load_stock_in(stock_in_id: Uuid) -> std::result::Result<SourceStockIn, 
 }
 
 /// 建单核心逻辑（handler 与单测共用，只跳过认证）。
-pub async fn create_return(
-    req: &CreateReturnReq,
-    operator: Option<Uuid>,
-) -> std::result::Result<Uuid, ApiError> {
+pub async fn create_return(req: &CreateReturnReq, operator: Option<Uuid>) -> std::result::Result<Uuid, ApiError> {
     let stock_in_id = dto::parse_uuid_field(Some(&req.stock_in_id), "stock_in_id")?;
     let stock_in = load_stock_in(stock_in_id).await?;
     // 只有「已过账的采购入库」能退：草稿没收货、作废的两类都没有可退数量
@@ -249,13 +242,11 @@ pub async fn create_return(
         let sources = model::lock_source_items(&tx, stock_in.id)
             .await
             .map_err(|error| write_error(error, "锁读入库明细"))?;
-        let source_by_id: HashMap<Uuid, model::SourceItem> =
-            sources.into_iter().map(|item| (item.id, item)).collect();
+        let source_by_id: HashMap<Uuid, model::SourceItem> = sources.into_iter().map(|item| (item.id, item)).collect();
 
         let mut seen: HashMap<Uuid, ()> = HashMap::new();
         let mut new_items: Vec<NewItem> = Vec::with_capacity(req.items.len());
-        let mut amount_lines: Vec<(Decimal, Decimal, Decimal)> =
-            Vec::with_capacity(req.items.len());
+        let mut amount_lines: Vec<(Decimal, Decimal, Decimal)> = Vec::with_capacity(req.items.len());
         let mut total_qty = Decimal::ZERO;
         for (index, line) in req.items.iter().enumerate() {
             let stock_in_item_id = dto::parse_uuid_field(
@@ -292,8 +283,7 @@ pub async fn create_return(
                 already,
                 &format!("入库单 {} 第 {} 行", stock_in.in_no, source.line_no),
             )?;
-            let (amount, tax, with_tax) =
-                dto::line_amounts(qty, source.price, source.price_incl, source.tax_rate);
+            let (amount, tax, with_tax) = dto::line_amounts(qty, source.price, source.price_incl, source.tax_rate);
             amount_lines.push((amount, tax, with_tax));
             total_qty += qty;
             new_items.push(NewItem {
@@ -390,9 +380,7 @@ pub async fn purchase_return_create(
     permission = "business:erp:purchase-return:list"
 )]
 #[nik::get("/business/erp/purchase-return/page")]
-pub async fn purchase_return_page(
-    Query(query): Query<ReturnPageQuery>,
-) -> ResResult<PageData<Vec<dto::ReturnRowRes>>> {
+pub async fn purchase_return_page(Query(query): Query<ReturnPageQuery>) -> ResResult<PageData<Vec<dto::ReturnRowRes>>> {
     let filter = query.filter()?;
     let (rows, total) = model::page_returns(&filter)
         .await
@@ -541,9 +529,7 @@ pub async fn purchase_return_source(Path(id): Path<String>) -> ResResult<Returna
 }
 
 /// 来源入库单的供应商名 / 采购单号（可退明细页展示用）。
-async fn source_names(
-    stock_in: &SourceStockIn,
-) -> std::result::Result<(Option<String>, Option<String>), ApiError> {
+async fn source_names(stock_in: &SourceStockIn) -> std::result::Result<(Option<String>, Option<String>), ApiError> {
     let supplier_name = match stock_in.supplier_id {
         None => None,
         Some(supplier_id) => db()
@@ -662,10 +648,9 @@ pub async fn submit_return(
                 "采购退货提交：没有已发布的 prt_approve 流程，按「显式跳过审批」直接放行到 APPROVED"
             );
             let note = approval_gate::merge_reason(business_reason.as_deref(), &skip_reason);
-            let affected =
-                model::mark_approved(db(), row.id, Some(&note), Some(operator_id), Utc::now())
-                    .await
-                    .map_err(|error| write_error(error, "采购退货进入已批准（跳过审批）"))?;
+            let affected = model::mark_approved(db(), row.id, Some(&note), Some(operator_id), Utc::now())
+                .await
+                .map_err(|error| write_error(error, "采购退货进入已批准（跳过审批）"))?;
             if affected == 0 {
                 return Err(conflict(
                     error_code::ERP_PURCHASE_RETURN_STATUS_GUARD,
@@ -743,13 +728,9 @@ async fn submit_with_approval(
             };
             return Err(rejected.appended(hint));
         }
-        let instance = out.instance_id.ok_or_else(|| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                "审批单发起后没有实例 id",
-            )
-        })?;
+        let instance = out
+            .instance_id
+            .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
         let affected = model::mark_submitted(&tx, row.id, instance, Some(operator_id), now)
             .await
             .map_err(|error| write_error(error, "采购退货进入已提交"))?;
@@ -852,9 +833,7 @@ fn json_number(decimal_text: &str) -> serde_json::Value {
 }
 
 /// 在跑实例的单号（409 报文用）。
-async fn pending_instance_no_of(
-    instance_id: Option<Uuid>,
-) -> std::result::Result<String, ApiError> {
+async fn pending_instance_no_of(instance_id: Option<Uuid>) -> std::result::Result<String, ApiError> {
     let Some(instance_id) = instance_id else {
         return Ok("未知审批单".to_string());
     };
@@ -973,10 +952,7 @@ pub async fn confirm_return(
         if current != STATUS_APPROVED {
             return Err(conflict(
                 error_code::ERP_PURCHASE_RETURN_STATUS_GUARD,
-                format!(
-                    "采购退货 {} 的状态已变为 {current}，请刷新后重试",
-                    row.return_no
-                ),
+                format!("采购退货 {} 的状态已变为 {current}，请刷新后重试", row.return_no),
             ));
         }
         // 出库 + 三本账 + 应付 + 应退款 + 凭证
@@ -995,32 +971,18 @@ pub async fn confirm_return(
             Some(("STOCK_OUT", &posted.stock_out_no)),
         )
         .await?;
-        let affected = model::mark_confirmed(
-            &tx,
-            id,
-            purchase_return_posting::links_of(&posted),
-            operator,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "采购退货确认落库"))?;
+        let affected = model::mark_confirmed(&tx, id, purchase_return_posting::links_of(&posted), operator, now)
+            .await
+            .map_err(|error| write_error(error, "采购退货确认落库"))?;
         if affected == 0 {
             return Err(conflict(
                 error_code::ERP_PURCHASE_RETURN_STATUS_GUARD,
-                format!(
-                    "采购退货 {} 的状态在确认期间已被改动，请刷新后重试",
-                    row.return_no
-                ),
+                format!("采购退货 {} 的状态在确认期间已被改动，请刷新后重试", row.return_no),
             ));
         }
         // 联动（事务内关键动作）；凭证 / 库存 / 应付余额由上面专用路径落账，必须排除
         let ctx = linkage_ctx(&row, operator);
-        let run = linkage::engine::run_excluding(
-            &tx,
-            &ctx,
-            linkage_spec::PURCHASE_RETURN_EXCLUDED_ACTIONS,
-        )
-        .await?;
+        let run = linkage::engine::run_excluding(&tx, &ctx, linkage_spec::PURCHASE_RETURN_EXCLUDED_ACTIONS).await?;
         tracing::info!(
             return_no = %row.return_no,
             stock_out_no = %posted.stock_out_no,
@@ -1064,19 +1026,13 @@ pub async fn confirm_return(
 }
 
 /// 联动上下文（`PURCHASE_RETURN/CONFIRMED`）。
-fn linkage_ctx<'a>(
-    row: &'a model::ReturnRow,
-    operator: Option<Uuid>,
-) -> linkage::LinkageContext<'a> {
+fn linkage_ctx<'a>(row: &'a model::ReturnRow, operator: Option<Uuid>) -> linkage::LinkageContext<'a> {
     // 默认收件人 = 制单人（「我经办的单子退货确认了」）：退货单没有负责人字段，
     // 制单人是唯一稳定的人；没有制单人（外部导入 / 历史行）退操作人；
     // 都没有 → 空收件人，`SEND_NOTICE` 自己判 Skipped，不会静默发错人。
     let recipient = row.create_by.or(operator);
-    let label = linkage::spec::status_label_of(
-        state_machine::ENTITY_PURCHASE_RETURN,
-        dto::STATUS_CONFIRMED,
-    )
-    .unwrap_or_else(|| dto::status_label(dto::STATUS_CONFIRMED));
+    let label = linkage::spec::status_label_of(state_machine::ENTITY_PURCHASE_RETURN, dto::STATUS_CONFIRMED)
+        .unwrap_or_else(|| dto::status_label(dto::STATUS_CONFIRMED));
     let mut draft = notice::NoticeDraft::text(
         NoticeType::Workflow,
         NoticeLevel::Info,
@@ -1102,11 +1058,7 @@ fn linkage_ctx<'a>(
     draft.force = false;
     // 幂等键 = 单据 + 目标态：CONFIRMED 是**终态**（确认后不可再确认），一张单一条通知。
     // `sys_notice.idempotency_key` 是 VARCHAR(128)（V0043），本键 66 字符（单测钉住）。
-    draft.idempotency_key = Some(format!(
-        "LNK:PURCHASE_RETURN:{}:{}",
-        dto::STATUS_CONFIRMED,
-        row.id
-    ));
+    draft.idempotency_key = Some(format!("LNK:PURCHASE_RETURN:{}:{}", dto::STATUS_CONFIRMED, row.id));
     linkage::LinkageContext::new(
         state_machine::ENTITY_PURCHASE_RETURN,
         dto::STATUS_CONFIRMED,
@@ -1154,11 +1106,7 @@ pub async fn cancel_return(
         .await
         .map_err(|error| utils::db_error(error, "查询采购退货单"))?
         .ok_or_else(|| not_found(id))?;
-    let reason = req
-        .reason
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty());
+    let reason = req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty());
     match row.status.as_str() {
         STATUS_DRAFT | STATUS_APPROVED => {}
         STATUS_SUBMITTED => {
@@ -1187,9 +1135,7 @@ pub async fn cancel_return(
             ));
         }
     }
-    if state_machine::Entity::PurchaseReturn.needs_reason(&row.status, dto::STATUS_CANCELLED)
-        && reason.is_none()
-    {
+    if state_machine::Entity::PurchaseReturn.needs_reason(&row.status, dto::STATUS_CANCELLED) && reason.is_none() {
         return Err(bad_request(format!(
             "{}（{}）→ 已作废必须给出原因（reason）：财务已按这张单据准备冲账，\
              对账时要能回答「为什么不退了」",
@@ -1217,23 +1163,13 @@ pub async fn cancel_return(
             None,
         )
         .await?;
-        let affected = model::mark_cancelled(
-            &tx,
-            id,
-            &row.status,
-            reason.unwrap_or("草稿作废"),
-            operator,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "采购退货作废"))?;
+        let affected = model::mark_cancelled(&tx, id, &row.status, reason.unwrap_or("草稿作废"), operator, now)
+            .await
+            .map_err(|error| write_error(error, "采购退货作废"))?;
         if affected == 0 {
             return Err(conflict(
                 error_code::ERP_PURCHASE_RETURN_STATUS_GUARD,
-                format!(
-                    "采购退货 {} 的状态在作废期间已被改动，请刷新后重试",
-                    row.return_no
-                ),
+                format!("采购退货 {} 的状态在作废期间已被改动，请刷新后重试", row.return_no),
             ));
         }
         Ok::<(), ApiError>(())
@@ -1340,10 +1276,7 @@ mod tests {
         let draft = ctx.notice.as_ref().expect("必须带通知草稿");
         assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
         assert_eq!(draft.biz_id.as_deref(), Some(row.id.to_string().as_str()));
-        assert_eq!(
-            draft.link_url.as_deref(),
-            Some("/business/erp/purchase-return")
-        );
+        assert_eq!(draft.link_url.as_deref(), Some("/business/erp/purchase-return"));
         assert!(
             draft.title.contains("已确认"),
             "标题必须用人读的中文状态名：{}",
@@ -1364,10 +1297,7 @@ mod tests {
             }
             other => panic!("默认收件人必须是 User(制单人)，实际 {other:?}"),
         }
-        let key = draft
-            .idempotency_key
-            .as_deref()
-            .expect("必须带幂等键（重放不重复发）");
+        let key = draft.idempotency_key.as_deref().expect("必须带幂等键（重放不重复发）");
         assert!(
             key.contains(dto::STATUS_CONFIRMED) && key.contains(&row.id.to_string()),
             "幂等键必须由「目标态 + 单据 id」组成：{key}"
@@ -1384,9 +1314,7 @@ mod tests {
     fn confirm_ctx_falls_back_to_operator_as_recipient() {
         let row = sample_row(None);
         let operator = Uuid::now_v7();
-        let draft = linkage_ctx(&row, Some(operator))
-            .notice
-            .expect("必须带通知草稿");
+        let draft = linkage_ctx(&row, Some(operator)).notice.expect("必须带通知草稿");
         match &draft.target {
             notice::NoticeTarget::User(users) => assert_eq!(users, &vec![operator]),
             other => panic!("收件人必须是 User(操作人)，实际 {other:?}"),

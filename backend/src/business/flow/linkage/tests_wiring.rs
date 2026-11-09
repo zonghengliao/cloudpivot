@@ -180,10 +180,7 @@ fn every_trigger_declares_wired_and_reason() {
             );
         }
     }
-    assert!(
-        !spec::is_wired_trigger("NOT_A_DOC"),
-        "未知触发点必须 fail-closed"
-    );
+    assert!(!spec::is_wired_trigger("NOT_A_DOC"), "未知触发点必须 fail-closed");
 }
 
 /// 正向守卫：wired 触发点点名的文件必须存在且含该调用片段。
@@ -193,9 +190,8 @@ fn wired_trigger_proofs_exist_in_source() {
     for item in spec::TRIGGER_SPECS.iter().filter(|item| item.wired) {
         for (file, needle) in item.proofs {
             let path = root.join(file);
-            let text = fs::read_to_string(&path).unwrap_or_else(|error| {
-                panic!("触发点 {} 的接线文件 {file} 读不到：{error}", item.entity)
-            });
+            let text = fs::read_to_string(&path)
+                .unwrap_or_else(|error| panic!("触发点 {} 的接线文件 {file} 读不到：{error}", item.entity));
             assert!(
                 text.contains(needle),
                 "触发点 {} 声明接线在 {file}，但文件里找不到 `{needle}` —— 调用被删/改名了，\
@@ -305,11 +301,7 @@ fn transfer_status_wires_generic_engine_and_excludes_inventory() {
         hook.contains("linkage::engine::run_deferred"),
         "调拨的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
     );
-    for code in [
-        "WRITE_INVENTORY",
-        "WRITE_INVENTORY_TXN",
-        spec::ACTION_GENERATE_VOUCHER,
-    ] {
+    for code in ["WRITE_INVENTORY", "WRITE_INVENTORY_TXN", spec::ACTION_GENERATE_VOUCHER] {
         assert!(
             spec::TRANSFER_EXCLUDED_ACTIONS.contains(&code),
             "调拨的排除清单漏了 {code}：它由 settle_transfer 专用落账，通用引擎再跑一次就是重复落账"
@@ -501,9 +493,7 @@ fn payable_status_wires_generic_engine_and_excludes_balance_and_voucher() {
          （只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        payment
-            .matches("payable_linkage::run_deferred_after_commit(")
-            .count(),
+        payment.matches("payable_linkage::run_deferred_after_commit(").count(),
         2,
         "两条入口都要在 commit 之后 flush：直付 pay_payable_with_reason + \
          审批通过 settle_approved_payment（少一处，那条路径的通知永远不发）"
@@ -558,11 +548,7 @@ fn stocktake_wires_generic_engine_and_excludes_inventory() {
         hook.contains("linkage::engine::run_deferred"),
         "盘点单的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
     );
-    for code in [
-        "WRITE_INVENTORY",
-        "WRITE_INVENTORY_TXN",
-        spec::ACTION_GENERATE_VOUCHER,
-    ] {
+    for code in ["WRITE_INVENTORY", "WRITE_INVENTORY_TXN", spec::ACTION_GENERATE_VOUCHER] {
         assert!(
             spec::STOCKTAKE_EXCLUDED_ACTIONS.contains(&code),
             "盘点单的排除清单漏了 {code}：它在 post_tx ③⑤ / cancel_tx 回滚里有专用落账，\
@@ -586,9 +572,7 @@ fn stocktake_wires_generic_engine_and_excludes_inventory() {
          stocktake_linkage::run_in_tx（只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        handler
-            .matches("stocktake_linkage::run_deferred_after_commit(")
-            .count(),
+        handler.matches("stocktake_linkage::run_deferred_after_commit(").count(),
         2,
         "过账 / 作废两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -668,9 +652,7 @@ fn expense_wires_generic_engine_and_excludes_voucher() {
          （只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        handler
-            .matches("expense_linkage::run_deferred_after_commit(")
-            .count(),
+        handler.matches("expense_linkage::run_deferred_after_commit(").count(),
         3,
         "提交 / 付清 / 作废三个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -685,9 +667,7 @@ fn expense_wires_generic_engine_and_excludes_voucher() {
          expense_linkage::run_in_tx：否则「报销审批通过 → 通知财务待付款」配了也不触发"
     );
     assert_eq!(
-        bridge
-            .matches("expense_linkage::run_deferred_after_commit(")
-            .count(),
+        bridge.matches("expense_linkage::run_deferred_after_commit(").count(),
         2,
         "审批通过 / 打回两个事务都在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -779,9 +759,7 @@ fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
          voucher_linkage::run_in_tx（只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        write
-            .matches("voucher_linkage::run_deferred_after_commit(")
-            .count(),
+        write.matches("voucher_linkage::run_deferred_after_commit(").count(),
         4,
         "四个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -852,9 +830,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
          （只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        handler
-            .matches("contract_linkage::run_deferred_after_commit(")
-            .count(),
+        handler.matches("contract_linkage::run_deferred_after_commit(").count(),
         2,
         "提交审批 / 通用流转两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -869,9 +845,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
          否则配了已发布 contract_approve 流程的环境里 CONTRACT/SIGNED 的规则永远不触发"
     );
     assert_eq!(
-        bridge
-            .matches("contract_linkage::run_deferred_after_commit(")
-            .count(),
+        bridge.matches("contract_linkage::run_deferred_after_commit(").count(),
         1,
         "审批回调的提交后动作同样必须在 commit 之后跑（run_deferred_after_commit）"
     );
@@ -955,9 +929,7 @@ fn period_wires_generic_engine_and_excludes_ledger_actions() {
          （只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        source
-            .matches("period_linkage::run_deferred_after_commit(")
-            .count(),
+        source.matches("period_linkage::run_deferred_after_commit(").count(),
         2,
         "结账 / 反结账两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -969,10 +941,7 @@ fn period_wires_generic_engine_and_excludes_ledger_actions() {
     let reopen_start = source
         .find("pub async fn reopen_period(")
         .expect("period.rs 必须有 reopen_period");
-    assert!(
-        close_start < reopen_start,
-        "夹具：close_period 应在 reopen_period 之前"
-    );
+    assert!(close_start < reopen_start, "夹具：close_period 应在 reopen_period 之前");
     for (name, body) in [
         ("close_period", &source[close_start..reopen_start]),
         ("reopen_period", &source[reopen_start..]),
@@ -1069,9 +1038,7 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
          （只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        bridge
-            .matches("asset_linkage::run_deferred_after_commit(")
-            .count(),
+        bridge.matches("asset_linkage::run_deferred_after_commit(").count(),
         1,
         "处置入口必须在 commit 之后 flush（事务内发通知 = 回滚后幽灵通知）"
     );
@@ -1084,9 +1051,7 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
          asset_linkage::run_in_tx（只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        handler
-            .matches("asset_linkage::run_deferred_after_commit(")
-            .count(),
+        handler.matches("asset_linkage::run_deferred_after_commit(").count(),
         2,
         "作废处置与停用 / 启用两个入口都必须在 commit 之后 flush（事务内发通知 = 回滚后幽灵通知）"
     );
@@ -1353,9 +1318,7 @@ fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
          （只改 spec.rs 的 wired 标记不算接线）"
     );
     assert_eq!(
-        source
-            .matches("year_end_linkage::run_deferred_after_commit(")
-            .count(),
+        source.matches("year_end_linkage::run_deferred_after_commit(").count(),
         2,
         "年结 / 反年结两个入口都要在 commit 之后 flush（少一处，那条路径的通知永远不发）"
     );
@@ -1367,10 +1330,7 @@ fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
     let reopen_start = source
         .find("pub async fn reopen_year(")
         .expect("year_end.rs 必须有 reopen_year");
-    assert!(
-        close_start < reopen_start,
-        "夹具：close_year 应在 reopen_year 之前"
-    );
+    assert!(close_start < reopen_start, "夹具：close_year 应在 reopen_year 之前");
     for (name, body) in [
         ("close_year", &source[close_start..reopen_start]),
         ("reopen_year", &source[reopen_start..]),
@@ -1443,9 +1403,7 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
     // ---------- ② 四个调用点，一个不能少 ----------
     let handler = include_str!("../handler.rs");
     assert_eq!(
-        handler
-            .matches("instance_linkage::fire_after_commit(")
-            .count(),
+        handler.matches("instance_linkage::fire_after_commit(").count(),
         4,
         "approve_task / reject_task / withdraw_instance / create_instance（发起即自动走完）\
          四个位置都必须真的调 hook（只改 spec.rs 的 wired 标记不算接线）"
@@ -1464,10 +1422,7 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
     let reject_start = handler
         .find("pub async fn reject_task(")
         .expect("handler.rs 必须有 reject_task");
-    assert!(
-        approve_start < reject_start,
-        "夹具：approve_task 应在 reject_task 之前"
-    );
+    assert!(approve_start < reject_start, "夹具：approve_task 应在 reject_task 之前");
     let approve = &handler[approve_start..reject_start];
     let fire = approve
         .find("instance_linkage::fire_after_commit(")
@@ -1528,8 +1483,7 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
     }
 
     // ---------- ⑤ 可配状态 = 会触发的状态（P1-FIX-5C：不许留「配了不响」的状态） ----------
-    let decl =
-        spec::trigger_spec(spec::TRIGGER_FLOW_INSTANCE).expect("FLOW_INSTANCE 必须在接线表里");
+    let decl = spec::trigger_spec(spec::TRIGGER_FLOW_INSTANCE).expect("FLOW_INSTANCE 必须在接线表里");
     let codes: Vec<&str> = decl.status_labels.iter().map(|(code, _)| *code).collect();
     assert_eq!(
         codes,

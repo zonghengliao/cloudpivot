@@ -204,9 +204,7 @@ pub async fn latest() -> std::result::Result<Option<SysInvariantResultModel>, Db
 /// # 数据权限
 ///
 /// SCOPE-EXEMPT：理由同 [`page_results`]。
-pub async fn find_by_id(
-    id: uuid::Uuid,
-) -> std::result::Result<Option<SysInvariantResultModel>, DbError> {
+pub async fn find_by_id(id: uuid::Uuid) -> std::result::Result<Option<SysInvariantResultModel>, DbError> {
     SysInvariantResultModel::find_or_none(db(), id).await
 }
 
@@ -339,8 +337,5 @@ pub async fn runs_in_window(days: i64) -> std::result::Result<i64, DbError> {
             vec![Value::from(days)],
         )
         .await?;
-    Ok(row
-        .as_ref()
-        .and_then(|r| r.get_typed::<i64>("n").ok())
-        .unwrap_or(0))
+    Ok(row.as_ref().and_then(|r| r.get_typed::<i64>("n").ok()).unwrap_or(0))
 }

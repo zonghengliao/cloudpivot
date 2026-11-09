@@ -80,15 +80,13 @@ pub async fn create_by_ids(
     export_name: Option<&str>,
 ) -> std::result::Result<BatchExportTask, ApiError> {
     let biz_type = biz_type.trim();
-    let definition = global_registry()
-        .export_definition(biz_type)
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::IMPORT_DEF_NOT_FOUND,
-                format!("导入导出功能「{biz_type}」未注册或已停用，请联系管理员"),
-            )
-        })?;
+    let definition = global_registry().export_definition(biz_type).ok_or_else(|| {
+        ApiError::new(
+            404,
+            error_code::IMPORT_DEF_NOT_FOUND,
+            format!("导入导出功能「{biz_type}」未注册或已停用，请联系管理员"),
+        )
+    })?;
     filter.ids = ids.to_vec();
     // 卡 t_93cba3f4：批量导出同样过状态过滤契约（非法 `status_code` / 给 ERP 单据传
     // `status` → 422），别让「勾选后导出」成为绕过校验的后门。
@@ -113,15 +111,13 @@ pub async fn create_by_ids(
 
     let id = Uuid::now_v7();
     let task_no = model::build_export_task_no(&id);
-    let export_name = utils::trimmed(export_name)
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            format!(
-                "{}_{}",
-                definition.biz_name(),
-                chrono::Local::now().format("%Y%m%d_%H%M%S")
-            )
-        });
+    let export_name = utils::trimmed(export_name).map(str::to_string).unwrap_or_else(|| {
+        format!(
+            "{}_{}",
+            definition.biz_name(),
+            chrono::Local::now().format("%Y%m%d_%H%M%S")
+        )
+    });
     // 快照：ids + 筛选条件。worker 用 `filter_from_params` 还原成 `ExportFilter`（含 ids）。
     let query_params = serde_json::json!({
         "keyword": filter.keyword,

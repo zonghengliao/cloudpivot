@@ -14,8 +14,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::announcement::model::{
-    AnnouncementCardRow, AnnouncementDetailRow, AttachmentRow, ManageCardRow, ManageDetailRow,
-    ReaderRow,
+    AnnouncementCardRow, AnnouncementDetailRow, AttachmentRow, ManageCardRow, ManageDetailRow, ReaderRow,
 };
 use crate::shared::error_code;
 
@@ -45,10 +44,7 @@ impl VisibleQuery {
         if keyword.is_empty() {
             return None;
         }
-        let escaped = keyword
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_");
+        let escaped = keyword.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
         Some(format!("%{escaped}%"))
     }
 }
@@ -193,11 +189,7 @@ impl AnnouncementDetailRes {
     /// - `row`：详情行；
     /// - `content_html`：**已经过闸 3 净化**的 HTML（调用方负责，不在这里渲染）；
     /// - `attachments`：附件行。
-    pub fn from_row(
-        row: &AnnouncementDetailRow,
-        content_html: String,
-        attachments: &[AttachmentRow],
-    ) -> Self {
+    pub fn from_row(row: &AnnouncementDetailRow, content_html: String, attachments: &[AttachmentRow]) -> Self {
         Self {
             id: row.id.to_string(),
             ann_no: row.ann_no.clone(),
@@ -292,9 +284,7 @@ pub const DEFAULT_TOP_DAYS: i64 = 7;
 /// # 异常情况
 ///
 /// 反序列化失败由 serde 报错（框架统一转 400）。
-fn deserialize_double_option<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Option<Option<String>>, D::Error>
+fn deserialize_double_option<'de, D>(deserializer: D) -> std::result::Result<Option<Option<String>>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -567,23 +557,14 @@ fn present(raw: Option<&Option<String>>) -> Option<String> {
 ///
 /// 六个字段 × 三种状态 = 一处写错就静默改数据（最坏是定向公告变全员可见）。
 /// 放在 dto 里可以单测全覆盖。
-pub fn merge_with_existing(
-    req: &AnnouncementSaveReq,
-    existing: &ManageDetailRow,
-) -> AnnouncementSaveReq {
+pub fn merge_with_existing(req: &AnnouncementSaveReq, existing: &ManageDetailRow) -> AnnouncementSaveReq {
     let mut merged = req.clone();
     if merged.level.is_none() {
         merged.level = Some(existing.level.clone());
     }
     if merged.scope_type.is_none() && merged.scope_ids.is_none() {
         merged.scope_type = Some(existing.scope_type.clone());
-        merged.scope_ids = Some(
-            existing
-                .scope_ids
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>(),
-        );
+        merged.scope_ids = Some(existing.scope_ids.iter().map(|id| id.to_string()).collect::<Vec<_>>());
     }
     if merged.is_top.is_none() {
         merged.is_top = Some(existing.is_top_flag);
@@ -702,19 +683,13 @@ pub fn normalize_save(
             return Err(ApiError::new(
                 400,
                 error_code::ANNOUNCEMENT_SCOPE_INVALID,
-                format!(
-                    "scope_ids 最多 {MAX_SCOPE_IDS} 个（当前 {}）",
-                    scope_ids.len()
-                ),
+                format!("scope_ids 最多 {MAX_SCOPE_IDS} 个（当前 {}）", scope_ids.len()),
             ));
         }
     }
 
     let is_top = req.is_top.unwrap_or(false);
-    let top_expire_at = parse_rfc3339(
-        present(req.top_expire_at.as_ref()).as_deref(),
-        "top_expire_at",
-    )?;
+    let top_expire_at = parse_rfc3339(present(req.top_expire_at.as_ref()).as_deref(), "top_expire_at")?;
     if is_top {
         let Some(when) = top_expire_at else {
             return Err(ApiError::new(
@@ -931,11 +906,7 @@ impl AnnouncementManageDetailRes {
     /// - `row`：管理详情行；
     /// - `content_html`：**已净化**的 HTML（调用方负责，不在这里渲染）；
     /// - `attachments`：附件行。
-    pub fn from_row(
-        row: &ManageDetailRow,
-        content_html: String,
-        attachments: &[AttachmentRow],
-    ) -> Self {
+    pub fn from_row(row: &ManageDetailRow, content_html: String, attachments: &[AttachmentRow]) -> Self {
         let receiver_count = i64::from(row.receiver_count);
         let read_count = i64::from(row.read_count);
         Self {
@@ -1088,12 +1059,7 @@ pub enum ReaderState {
 impl ReaderState {
     /// 解析（大小写不敏感，非法值 → `400 + 10001`）。
     pub fn parse(raw: Option<&str>) -> std::result::Result<Self, ApiError> {
-        match raw
-            .map(str::trim)
-            .unwrap_or_default()
-            .to_ascii_uppercase()
-            .as_str()
-        {
+        match raw.map(str::trim).unwrap_or_default().to_ascii_uppercase().as_str() {
             "" | "ALL" => Ok(ReaderState::All),
             "READ" => Ok(ReaderState::Read),
             "UNREAD" => Ok(ReaderState::Unread),
@@ -1160,11 +1126,7 @@ pub struct ReadersRes {
 
 /// 构造「内容非法」错误（`400 + 62001`）。
 fn content_invalid(message: impl Into<String>) -> ApiError {
-    ApiError::new(
-        400,
-        error_code::ANNOUNCEMENT_CONTENT_INVALID,
-        message.into(),
-    )
+    ApiError::new(400, error_code::ANNOUNCEMENT_CONTENT_INVALID, message.into())
 }
 
 /// 把可空字符串归一化成白名单枚举值（大小写不敏感；缺省用 `default`）。
@@ -1205,8 +1167,8 @@ fn normalize_enum(
 /// - `file_name`：文件名（大小写不敏感）。
 pub fn is_forbidden_attachment(file_name: &str) -> bool {
     const BLOCKED: [&str; 16] = [
-        "html", "htm", "xhtml", "shtml", "svg", "xml", "js", "mjs", "exe", "msi", "bat", "cmd",
-        "sh", "jar", "vbs", "ps1",
+        "html", "htm", "xhtml", "shtml", "svg", "xml", "js", "mjs", "exe", "msi", "bat", "cmd", "sh", "jar", "vbs",
+        "ps1",
     ];
     let extension = file_name
         .rsplit_once('.')
@@ -1289,9 +1251,7 @@ mod manage_tests {
         assert_eq!(normalized.scope_type, "ROLE");
         assert_eq!(normalized.scope_ids.len(), 1);
 
-        let many: Vec<String> = (0..=MAX_SCOPE_IDS)
-            .map(|_| uuid::Uuid::now_v7().to_string())
-            .collect();
+        let many: Vec<String> = (0..=MAX_SCOPE_IDS).map(|_| uuid::Uuid::now_v7().to_string()).collect();
         req.scope_ids = Some(many);
         let error = normalize_save(&req, now()).expect_err("超 500 个必须拒绝");
         assert_eq!(error.code, 62006);
@@ -1389,10 +1349,7 @@ mod manage_tests {
         )
         .expect("取消置顶应放行");
         assert!(!normalized.is_top);
-        assert!(
-            normalized.top_expire_at.is_none(),
-            "取消置顶必须清空到期时间"
-        );
+        assert!(normalized.top_expire_at.is_none(), "取消置顶必须清空到期时间");
     }
 
     /// 错误分支：置顶缺时间 → 62007。
@@ -1414,10 +1371,7 @@ mod manage_tests {
     fn parse_rfc3339_rejects_garbage() {
         let error = parse_rfc3339(Some("2026-13-45"), "expire_at").expect_err("非法时间必须报错");
         assert_eq!((error.status, error.code), (400, 62001));
-        assert_eq!(
-            parse_rfc3339(Some("   "), "expire_at").expect("空白视为未传"),
-            None
-        );
+        assert_eq!(parse_rfc3339(Some("   "), "expire_at").expect("空白视为未传"), None);
     }
 
     /// 阅读率：接收人为 0 时不得出现 NaN（JSON 里 NaN 不合法）。
@@ -1432,10 +1386,7 @@ mod manage_tests {
     /// 阅读名单状态过滤：非法值 → 400 + 10001。
     #[test]
     fn reader_state_parse() {
-        assert_eq!(
-            ReaderState::parse(None).expect("缺省 ALL"),
-            ReaderState::All
-        );
+        assert_eq!(ReaderState::parse(None).expect("缺省 ALL"), ReaderState::All);
         assert_eq!(
             ReaderState::parse(Some("read")).expect("大小写不敏感"),
             ReaderState::Read
@@ -1465,10 +1416,7 @@ mod manage_tests {
     /// 默认置顶期 = 7 天（PRD 故事 1「置顶 7 天」）。
     #[test]
     fn default_top_expire_is_seven_days() {
-        assert_eq!(
-            default_top_expire_at(now()) - now(),
-            chrono::Duration::days(7)
-        );
+        assert_eq!(default_top_expire_at(now()) - now(), chrono::Duration::days(7));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1521,10 +1469,7 @@ mod manage_tests {
         };
         let merged = merge_with_existing(&req, &existing);
         assert_eq!(merged.scope_type.as_deref(), Some("ROLE"));
-        assert_eq!(
-            merged.scope_ids.as_deref(),
-            Some([role.to_string()].as_slice())
-        );
+        assert_eq!(merged.scope_ids.as_deref(), Some([role.to_string()].as_slice()));
         // 级别 / 置顶 / 有效期的「未传」同样保持原值
         assert_eq!(merged.level.as_deref(), Some("IMPORTANT"));
         assert_eq!(merged.is_top, Some(false));
@@ -1538,15 +1483,7 @@ mod manage_tests {
     #[test]
     fn merge_distinguishes_null_from_missing() {
         let expire = now() + chrono::Duration::days(30);
-        let existing = existing_row(
-            "ALL",
-            Vec::new(),
-            false,
-            None,
-            Some(expire),
-            "旧备注",
-            "NORMAL",
-        );
+        let existing = existing_row("ALL", Vec::new(), false, None, Some(expire), "旧备注", "NORMAL");
 
         // 未传 → 保持原有效期
         let req = AnnouncementSaveReq {
@@ -1581,19 +1518,14 @@ mod manage_tests {
         assert_eq!(missing.expire_at, None, "缺席 = None（保持原值）");
 
         let explicit_null: AnnouncementSaveReq =
-            serde_json::from_str(r#"{"title":"t","content_md":"c","expire_at":null}"#)
-                .expect("合法 JSON");
+            serde_json::from_str(r#"{"title":"t","content_md":"c","expire_at":null}"#).expect("合法 JSON");
         assert_eq!(explicit_null.expire_at, Some(None), "null = 清空");
         assert_eq!(explicit_null.top_expire_at, None);
 
-        let valued: AnnouncementSaveReq = serde_json::from_str(
-            r#"{"title":"t","content_md":"c","expire_at":"2026-11-08T00:00:00Z"}"#,
-        )
-        .expect("合法 JSON");
-        assert_eq!(
-            valued.expire_at,
-            Some(Some("2026-11-08T00:00:00Z".to_string()))
-        );
+        let valued: AnnouncementSaveReq =
+            serde_json::from_str(r#"{"title":"t","content_md":"c","expire_at":"2026-11-08T00:00:00Z"}"#)
+                .expect("合法 JSON");
+        assert_eq!(valued.expire_at, Some(Some("2026-11-08T00:00:00Z".to_string())));
     }
 }
 
@@ -1607,14 +1539,8 @@ mod tests {
         let ann = uuid::Uuid::now_v7();
         let att = uuid::Uuid::now_v7();
         let url = download_url(&ann, &att);
-        assert_eq!(
-            url,
-            format!("/api/business/announcement/{ann}/attachment/{att}")
-        );
-        assert!(
-            url.starts_with("/api/"),
-            "前端 `<a href>` 需要完整前缀：{url}"
-        );
+        assert_eq!(url, format!("/api/business/announcement/{ann}/attachment/{att}"));
+        assert!(url.starts_with("/api/"), "前端 `<a href>` 需要完整前缀：{url}");
         for forbidden in ["bucket", "http://", "https://", "X-Amz", "minio", "storage"] {
             assert!(
                 !url.contains(forbidden),

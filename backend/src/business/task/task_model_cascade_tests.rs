@@ -72,12 +72,9 @@ pub(super) async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     )
     .await
     .expect("清触发器失败");
-    db().exec_sql(
-        "DROP FUNCTION IF EXISTS t10_block_review()".to_string(),
-        Vec::new(),
-    )
-    .await
-    .expect("清触发器函数失败");
+    db().exec_sql("DROP FUNCTION IF EXISTS t10_block_review()".to_string(), Vec::new())
+        .await
+        .expect("清触发器函数失败");
     db().execute_with_params(
         "INSERT INTO sys_user (id, username, password) \
              VALUES (?::uuid, 't10_cascade_user', 't10-cascade-not-a-real-hash') \
@@ -151,13 +148,9 @@ pub(super) async fn change_child(child: Uuid, to: TaskStatus, me: Uuid) -> Vec<S
             None
         },
     };
-    let affected = apply_status(&tx, child, &update, me)
-        .await
-        .expect("改子任务状态失败");
+    let affected = apply_status(&tx, child, &update, me).await.expect("改子任务状态失败");
     assert_eq!(affected, 1, "子任务必须存在");
-    let out = cascade_parent_status(&tx, child, me)
-        .await
-        .expect("状态级联失败");
+    let out = cascade_parent_status(&tx, child, me).await.expect("状态级联失败");
     tx.commit().await.expect("提交事务失败");
     out
 }
@@ -220,10 +213,7 @@ pub(super) fn cascade_target_follows_the_three_rules() {
         None,
         "父任务已完成，子任务被拉回进行中 → 父任务不动"
     );
-    assert_eq!(
-        cascade_target(TaskStatus::Cancelled, &[snap(TaskStatus::Doing)]),
-        None
-    );
+    assert_eq!(cascade_target(TaskStatus::Cancelled, &[snap(TaskStatus::Doing)]), None);
     // 目标 == 现状 / 没有子任务 / 子任务全是 TODO / 父任务 REVIEW 但还没全结束
     assert_eq!(
         cascade_target(TaskStatus::Review, &[snap(TaskStatus::Done)]),
@@ -232,24 +222,15 @@ pub(super) fn cascade_target_follows_the_three_rules() {
     );
     assert_eq!(cascade_target(TaskStatus::Todo, &[]), None);
     assert_eq!(
-        cascade_target(
-            TaskStatus::Todo,
-            &[snap(TaskStatus::Todo), snap(TaskStatus::Todo)]
-        ),
+        cascade_target(TaskStatus::Todo, &[snap(TaskStatus::Todo), snap(TaskStatus::Todo)]),
         None,
         "子任务全在 TODO → 父任务还是待开始"
     );
     assert_eq!(
-        cascade_target(
-            TaskStatus::Review,
-            &[snap(TaskStatus::Done), snap(TaskStatus::Doing)]
-        ),
+        cascade_target(TaskStatus::Review, &[snap(TaskStatus::Done), snap(TaskStatus::Doing)]),
         None
     );
-    assert_eq!(
-        cascade_target(TaskStatus::Doing, &[snap(TaskStatus::Doing)]),
-        None
-    );
+    assert_eq!(cascade_target(TaskStatus::Doing, &[snap(TaskStatus::Doing)]), None);
 }
 
 // ---------- ① 单子任务：父 TODO + 子 TODO→DOING → 父 DOING ----------
@@ -350,11 +331,7 @@ pub(super) async fn partially_done_children_keep_parent_in_doing() {
     assert_eq!(out[0].to, TaskStatus::Doing);
     assert_eq!(out[0].reason, CASCADE_REASON_FIRST_ACTIVE);
     assert!(!out[0].all_terminal);
-    assert_eq!(
-        status_of(c2).await,
-        TaskStatus::Todo,
-        "另一条子任务不该被动"
-    );
+    assert_eq!(status_of(c2).await, TaskStatus::Todo, "另一条子任务不该被动");
 }
 
 // ---------- ④ 双子任务全部 DONE → 父进 REVIEW ----------
@@ -373,11 +350,7 @@ pub(super) async fn all_children_done_sends_parent_to_review() {
     insert_task(c2, "R4-C2", Some(parent), "TODO", me).await;
 
     let first = change_child(c1, TaskStatus::Done, me).await;
-    assert_eq!(
-        first[0].to,
-        TaskStatus::Doing,
-        "第一个子任务完成时父任务先进进行中"
-    );
+    assert_eq!(first[0].to, TaskStatus::Doing, "第一个子任务完成时父任务先进进行中");
     let second = change_child(c2, TaskStatus::Done, me).await;
     assert_eq!(
         status_of(parent).await,
@@ -565,9 +538,7 @@ pub(super) async fn cascade_failure_rolls_back_child_change() {
         reject_reason: None,
         cancel_reason: None,
     };
-    apply_status(&tx, child, &update, me)
-        .await
-        .expect("子任务状态先写成功");
+    apply_status(&tx, child, &update, me).await.expect("子任务状态先写成功");
     let error = cascade_parent_status(&tx, child, me)
         .await
         .expect_err("父任务进 REVIEW 必须失败");
@@ -587,10 +558,7 @@ pub(super) async fn cascade_failure_rolls_back_child_change() {
     )
     .await
     .expect("删触发器失败");
-    db().exec_sql(
-        "DROP FUNCTION IF EXISTS t10_block_review()".to_string(),
-        Vec::new(),
-    )
-    .await
-    .expect("删触发器函数失败");
+    db().exec_sql("DROP FUNCTION IF EXISTS t10_block_review()".to_string(), Vec::new())
+        .await
+        .expect("删触发器函数失败");
 }

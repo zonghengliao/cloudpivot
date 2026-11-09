@@ -17,8 +17,7 @@ use crate::business::impexp::definition::{
 };
 
 use super::{
-    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, conflict_clause, duplicate_strategy, missing_rows_error,
-    operator_text,
+    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, conflict_clause, duplicate_strategy, missing_rows_error, operator_text,
 };
 
 /// 物料分类（落库码值与 `ck_biz_material_type` 一致）。
@@ -248,8 +247,7 @@ impl ImportDefinition for MaterialImport {
             )
             .await?;
         // STRICT 语义：JOIN 掉的行不能悄悄变少（预检后被删的单位会让这里少行）
-        if strategy == crate::business::impexp::definition::DuplicateStrategy::Upsert
-            && affected as usize != rows.len()
+        if strategy == crate::business::impexp::definition::DuplicateStrategy::Upsert && affected as usize != rows.len()
         {
             return Err(missing_rows_error(
                 rows.len(),
@@ -294,10 +292,7 @@ mod tests {
     fn costing_method_rejects_retired_values() {
         // V0201：FIFO / STANDARD 已收敛掉，导入必须当场报错而不是静默按移动加权算
         let kind = COLUMNS[5].kind;
-        assert_eq!(
-            kind.parse("移动加权平均", None).expect("中文值应合法"),
-            "MOVING_AVG"
-        );
+        assert_eq!(kind.parse("移动加权平均", None).expect("中文值应合法"), "MOVING_AVG");
         let issue = kind.parse("FIFO", None).expect_err("FIFO 应被拒");
         assert_eq!(issue.kind, ErrorKind::Enum);
         assert!(issue.message.contains("移动加权平均"));
@@ -314,10 +309,7 @@ mod tests {
         ] {
             assert_eq!(kind.parse(label, None).expect("应合法"), code);
         }
-        assert_eq!(
-            kind.parse("包材", None).expect_err("未定义分类").kind,
-            ErrorKind::Enum
-        );
+        assert_eq!(kind.parse("包材", None).expect_err("未定义分类").kind, ErrorKind::Enum);
         assert!(matches!(kind, ColumnKind::Enum(_)));
     }
 
@@ -325,9 +317,6 @@ mod tests {
     fn safety_stock_rejects_negative() {
         let kind = COLUMNS[6].kind;
         assert_eq!(kind.parse("0", None).expect("下界应合法"), "0");
-        assert_eq!(
-            kind.parse("-1", None).expect_err("负数应被拒").kind,
-            ErrorKind::Range
-        );
+        assert_eq!(kind.parse("-1", None).expect_err("负数应被拒").kind, ErrorKind::Range);
     }
 }

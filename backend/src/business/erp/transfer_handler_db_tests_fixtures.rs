@@ -10,9 +10,7 @@ use super::*;
 use crate::business::erp::transfer_dto::TransferItemReq;
 use crate::business::erp::transfer_dto::{CreateTransferReq, TransferStatusReq};
 use crate::business::erp::transfer_model::{self, STATUS_PENDING, TransferRow};
-use crate::business::erp::transfer_model::{
-    STATUS_APPROVED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,
-};
+use crate::business::erp::transfer_model::{STATUS_APPROVED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -214,10 +212,7 @@ pub(super) async fn cleanup() {
 pub(super) fn array_param(ids: &[Uuid]) -> Value {
     Value::Text(format!(
         "{{{}}}",
-        ids.iter()
-            .map(|id| id.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
+        ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",")
     ))
 }
 
@@ -298,10 +293,7 @@ pub(super) async fn prepare() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     // 升级前建的存量单」），这里每轮无条件复位 —— 用例中途 panic 也不会把后面的用例带红。
     exec(
         "UPDATE biz_material SET unit_id = ?::uuid WHERE id = ANY(?::text::uuid[])",
-        vec![
-            Value::from(&uuid(UNIT)),
-            array_param(&[uuid(M_PLAIN), uuid(M_SN)]),
-        ],
+        vec![Value::from(&uuid(UNIT)), array_param(&[uuid(M_PLAIN), uuid(M_SN)])],
         "复位物料单位",
     )
     .await;
@@ -484,23 +476,16 @@ pub(super) async fn ensure_seed_flow() -> (Uuid, Uuid) {
         row.get_typed::<bool>("is_default").expect("is_default"),
         "① 种子流程必须是 is_default（提交审批时按 biz_type 取默认流程）"
     );
+    assert_eq!(row.get_typed::<String>("biz_type").expect("biz_type"), "STOCK_TRANSFER");
     assert_eq!(
-        row.get_typed::<String>("biz_type").expect("biz_type"),
-        "STOCK_TRANSFER"
-    );
-    assert_eq!(
-        row.get_typed::<String>("version_status")
-            .expect("version_status"),
+        row.get_typed::<String>("version_status").expect("version_status"),
         "PUBLISHED",
         "① 当前版本必须是 PUBLISHED"
     );
     // 返回库里真实的当前版本（V0251 起是 v2），而不是写死的 v1：
     // 下游用例（⑰-b 的图/hash 自洽）断言的是「当前版本」的内容。
     let cur_ver = row.get_typed::<String>("cur_ver").expect("cur_ver");
-    (
-        uuid(DEF_ID),
-        Uuid::parse_str(&cur_ver).expect("当前版本 id 非法"),
-    )
+    (uuid(DEF_ID), Uuid::parse_str(&cur_ver).expect("当前版本 id 非法"))
 }
 
 pub(super) fn item(material_id: &str, qty: &str) -> TransferItemReq {
@@ -555,17 +540,11 @@ pub(super) async fn inventory_qty(material_id: &str, warehouse_id: &str) -> Stri
         .find_with_params(
             "SELECT qty::text AS qty FROM biz_inventory \
               WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
-            vec![
-                Value::from(&uuid(material_id)),
-                Value::from(&uuid(warehouse_id)),
-            ],
+            vec![Value::from(&uuid(material_id)), Value::from(&uuid(warehouse_id))],
         )
         .await
         .expect("查库存数量");
-    rows.first()
-        .expect("库存行必须存在")
-        .get_typed("qty")
-        .expect("取 qty")
+    rows.first().expect("库存行必须存在").get_typed("qty").expect("取 qty")
 }
 
 /// 某物料在某仓的整仓库存金额。
@@ -574,10 +553,7 @@ pub(super) async fn inventory_amount(material_id: &str, warehouse_id: &str) -> S
         .find_with_params(
             "SELECT amount::text AS amount FROM biz_inventory \
               WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
-            vec![
-                Value::from(&uuid(material_id)),
-                Value::from(&uuid(warehouse_id)),
-            ],
+            vec![Value::from(&uuid(material_id)), Value::from(&uuid(warehouse_id))],
         )
         .await
         .expect("查库存金额");
@@ -589,10 +565,8 @@ pub(super) async fn inventory_amount(material_id: &str, warehouse_id: &str) -> S
 
 /// 数值比较（`NUMERIC(18,4)` 经 text 回来是 `95.0000`，逐字比字符串会假红 —— W3c 的教训）。
 pub(super) fn assert_dec_eq(actual: String, expected: &str, what: &str) {
-    let left =
-        Decimal::from_str(&actual).unwrap_or_else(|_| panic!("{what}：实际值不是数字 [{actual}]"));
-    let right =
-        Decimal::from_str(expected).unwrap_or_else(|_| panic!("{what}：期望值非法 [{expected}]"));
+    let left = Decimal::from_str(&actual).unwrap_or_else(|_| panic!("{what}：实际值不是数字 [{actual}]"));
+    let right = Decimal::from_str(expected).unwrap_or_else(|_| panic!("{what}：期望值非法 [{expected}]"));
     assert_eq!(left, right, "{what}：期望 {expected} 实际 {actual}");
 }
 
@@ -611,13 +585,9 @@ pub(super) async fn approve_instance(instance_id: Uuid) {
 /// 没挂审批单（降级路径）才人工推。
 pub(super) async fn transfer_in_status(target: &str) -> (Uuid, TransferRow) {
     let applicant = uuid(U_APPLICANT);
-    let id = create_transfer(
-        &body(vec![item(M_PLAIN, "5")]),
-        Some(applicant),
-        Some("w3b_applicant"),
-    )
-    .await
-    .expect("建单必须成功");
+    let id = create_transfer(&body(vec![item(M_PLAIN, "5")]), Some(applicant), Some("w3b_applicant"))
+        .await
+        .expect("建单必须成功");
     if target == STATUS_DRAFT {
         return (id, refresh(id).await);
     }
@@ -677,8 +647,7 @@ pub(super) async fn bucket_qty(material: &str, warehouse: &str) -> Option<Decima
         vec![Value::from(&uuid(material)), Value::from(&uuid(warehouse))],
     )
     .await;
-    rows.first()
-        .map(|row| row.get_typed::<Decimal>("qty").expect("qty"))
+    rows.first().map(|row| row.get_typed::<Decimal>("qty").expect("qty"))
 }
 
 pub(super) async fn bucket_amount(material: &str, warehouse: &str) -> Option<Decimal> {

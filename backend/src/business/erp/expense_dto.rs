@@ -67,12 +67,7 @@ pub const INVOICE_E_INVOICE: &str = "E_INVOICE";
 pub const INVOICE_NONE: &str = "NONE";
 
 /// 发票类型取值域（与 `ck_biz_exp_item_inv` 逐字一致）。
-pub const INVOICE_TYPES: [&str; 4] = [
-    INVOICE_VAT_SPECIAL,
-    INVOICE_VAT_NORMAL,
-    INVOICE_E_INVOICE,
-    INVOICE_NONE,
-];
+pub const INVOICE_TYPES: [&str; 4] = [INVOICE_VAT_SPECIAL, INVOICE_VAT_NORMAL, INVOICE_E_INVOICE, INVOICE_NONE];
 
 /// 付款方式：银行转账（缺省）。
 pub const PAY_METHOD_BANK: &str = "BANK_TRANSFER";
@@ -129,16 +124,12 @@ pub fn normalize_page(page: u64, page_size: u64) -> (u64, u64) {
 
 /// DTO 里的 id 是 `String`，落库前必须显式解析（非法 UUID → 400，不静默跳过条件）。
 pub fn parse_uuid_text(raw: &str, field: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|err| invalid(format!("{field} 不是合法 UUID（{raw}）：{err}")))
+    Uuid::parse_str(raw.trim()).map_err(|err| invalid(format!("{field} 不是合法 UUID（{raw}）：{err}")))
 }
 
 /// 可选文本：去空白后为空 → `None`。
 fn trimmed(value: Option<&String>, field: &str, max: usize) -> Result<Option<String>, ApiError> {
-    let Some(text) = value
-        .map(|text| text.trim())
-        .filter(|text| !text.is_empty())
-    else {
+    let Some(text) = value.map(|text| text.trim()).filter(|text| !text.is_empty()) else {
         return Ok(None);
     };
     if text.chars().count() > max {
@@ -152,8 +143,7 @@ fn trimmed(value: Option<&String>, field: &str, max: usize) -> Result<Option<Str
 
 /// 必填文本。
 fn required(value: Option<&String>, field: &str, max: usize) -> Result<String, ApiError> {
-    let text =
-        trimmed(value, field, max)?.ok_or_else(|| invalid(format!("{field} 必填（不能为空）")))?;
+    let text = trimmed(value, field, max)?.ok_or_else(|| invalid(format!("{field} 必填（不能为空）")))?;
     Ok(text)
 }
 
@@ -261,9 +251,7 @@ pub fn validate_type(req: &TypeReq, creating: bool) -> Result<TypeSpec, ApiError
     }
     let status = req.status.unwrap_or(1);
     if !matches!(status, 0 | 1) {
-        return Err(invalid(format!(
-            "状态只能是 1（启用）或 0（停用），收到 {status}"
-        )));
+        return Err(invalid(format!("状态只能是 1（启用）或 0（停用），收到 {status}")));
     }
     Ok(TypeSpec {
         type_code,
@@ -406,9 +394,7 @@ pub struct ReportSpec {
 pub fn validate_report(req: &ReportReq) -> Result<ReportSpec, ApiError> {
     let title = required(req.title.as_ref(), "事由 title", MAX_TITLE_LEN)?;
     if req.items.is_empty() {
-        return Err(invalid(
-            "报销单至少要一条明细（没有明细的报销单在会计上无意义）",
-        ));
+        return Err(invalid("报销单至少要一条明细（没有明细的报销单在会计上无意义）"));
     }
     let mut items = Vec::with_capacity(req.items.len());
     for (index, item) in req.items.iter().enumerate() {
@@ -892,9 +878,7 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            validate_report(&req).unwrap().items[0]
-                .invoice_type
-                .as_deref(),
+            validate_report(&req).unwrap().items[0].invoice_type.as_deref(),
             Some(INVOICE_E_INVOICE),
             "小写要归一成大写"
         );
@@ -988,10 +972,6 @@ mod tests {
         bad.type_code = Some("差旅费".to_string());
         let err = validate_type(&bad, true).expect_err("中文编码必须拒绝");
         assert_eq!(err.code, error_code::PARAM_INVALID);
-        assert!(
-            err.msg.contains("费用类型编码"),
-            "文案要点名是编码的问题：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("费用类型编码"), "文案要点名是编码的问题：{}", err.msg);
     }
 }

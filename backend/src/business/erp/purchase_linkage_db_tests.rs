@@ -266,18 +266,9 @@ async fn submit_status_triggers_linkage_notice_once() {
         .await
         .expect("查通知行");
     let row = rows.first().expect("通知行");
-    assert_eq!(
-        row.get_typed::<String>("title").expect("title"),
-        "采购订单已提交"
-    );
-    assert_eq!(
-        row.get_typed::<String>("biz_type").expect("biz_type"),
-        "PURCHASE_ORDER"
-    );
-    assert_eq!(
-        row.get_typed::<String>("target_type").expect("target_type"),
-        "USER"
-    );
+    assert_eq!(row.get_typed::<String>("title").expect("title"), "采购订单已提交");
+    assert_eq!(row.get_typed::<String>("biz_type").expect("biz_type"), "PURCHASE_ORDER");
+    assert_eq!(row.get_typed::<String>("target_type").expect("target_type"), "USER");
     assert!(
         row.get_typed::<String>("link_url")
             .expect("link_url")
@@ -340,18 +331,10 @@ async fn full_receipt_triggers_linkage() {
     post_sourced(order_id, item_id, "4").await;
     assert_eq!(po_status(order_id).await, "PARTIAL_RECEIVED");
     let key = format!("LNK:PURCHASE_ORDER:RECEIVED:{order_id}");
-    assert_eq!(
-        notices_of_key(&key).await,
-        0,
-        "只配了 RECEIVED：部分收货那一刻不许响"
-    );
+    assert_eq!(notices_of_key(&key).await, 0, "只配了 RECEIVED：部分收货那一刻不许响");
 
     post_sourced(order_id, item_id, "6").await;
-    assert_eq!(
-        po_status(order_id).await,
-        "RECEIVED",
-        "前提：补收 6 必须推进到已收货"
-    );
+    assert_eq!(po_status(order_id).await, "RECEIVED", "前提：补收 6 必须推进到已收货");
     assert_eq!(
         notices_of_key(&key).await,
         1,
@@ -392,11 +375,7 @@ async fn repeated_partial_receipt_does_not_trigger_twice() {
         )
         .await
     };
-    assert_eq!(
-        tasks("首次部分收货后建任务").await,
-        1,
-        "正常触发一次：建 1 个任务"
-    );
+    assert_eq!(tasks("首次部分收货后建任务").await, 1, "正常触发一次：建 1 个任务");
 
     // 第二次部分收货：状态仍是 PARTIAL_RECEIVED（3 + 3 = 6 < 10），
     // `transition_if_changed` 返回 None → 状态没变 → 不许再触发一次联动
@@ -488,8 +467,7 @@ async fn excluded_received_qty_action_is_not_executed_by_the_generic_engine() {
         .expect_err("不带排除清单时，qty=999 必然超收 → 关键动作失败 → 引擎必须返回 Err");
     assert_eq!(unfiltered.status, 500, "关键动作失败按 500 出口");
     assert!(
-        unfiltered.msg.contains(spec::ACTION_UPDATE_RECEIVED_QTY)
-            && unfiltered.msg.contains("超收"),
+        unfiltered.msg.contains(spec::ACTION_UPDATE_RECEIVED_QTY) && unfiltered.msg.contains("超收"),
         "报文必须点名动作与原因，实际：{}",
         unfiltered.msg
     );

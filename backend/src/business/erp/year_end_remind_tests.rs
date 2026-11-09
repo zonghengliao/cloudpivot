@@ -76,14 +76,8 @@ fn scope_is_year_shaped_and_permission_code_is_pinned() {
     );
 
     let content = period_remind::content_of(&scope, &item, Utc::now());
-    assert!(
-        content.contains("挡住了 2037 年度的结账"),
-        "正文要点名年度：{content}"
-    );
-    assert!(
-        content.contains("请去审批"),
-        "正文要写下一步动作：{content}"
-    );
+    assert!(content.contains("挡住了 2037 年度的结账"), "正文要点名年度：{content}");
+    assert!(content.contains("请去审批"), "正文要写下一步动作：{content}");
     assert!(content.contains("（88）"), "正文要带金额：{content}");
 
     let key = period_remind::idempotency_key_of(&scope, &item, Utc::now());
@@ -99,8 +93,7 @@ fn scope_is_year_shaped_and_permission_code_is_pinned() {
         "2036-03 月结账待处理：PO-2037-001"
     );
     assert!(
-        period_remind::content_of(&period_scope, &item, Utc::now())
-            .contains("挡住了 2036-03 的结账"),
+        period_remind::content_of(&period_scope, &item, Utc::now()).contains("挡住了 2036-03 的结账"),
         "期间催办正文词形必须保持原样"
     );
 }
@@ -151,12 +144,7 @@ fn pick_filters_by_kind_and_ids() {
 
     let only_docs = pick(&blockers, Some(BLOCKER_DOC_UNFINISHED), &[]).expect("挑选");
     assert_eq!(only_docs.len(), 2, "按类过滤");
-    let one = pick(
-        &blockers,
-        Some(BLOCKER_DOC_UNFINISHED),
-        &[first_id.to_string()],
-    )
-    .expect("挑选");
+    let one = pick(&blockers, Some(BLOCKER_DOC_UNFINISHED), &[first_id.to_string()]).expect("挑选");
     assert_eq!(one.len(), 1);
     assert_eq!(one[0].doc_no, "YE-PO-001");
     let all = pick(&blockers, None, &[]).expect("挑选");
@@ -191,15 +179,9 @@ async fn remind_sends_to_owner_and_counts_are_consistent() {
     .await;
 
     // 明细里到底有几条有处理人（取决于库里的授权，不写死）
-    let blockers = year_end::collect_blockers(db(), support::YEAR)
-        .await
-        .expect("年结预检");
-    let total_items: Vec<_> = blockers
-        .iter()
-        .flat_map(|blocker| blocker.items.iter())
-        .collect();
-    let with_owner = i64::try_from(total_items.iter().filter(|item| item.has_owner()).count())
-        .unwrap_or_default();
+    let blockers = year_end::collect_blockers(db(), support::YEAR).await.expect("年结预检");
+    let total_items: Vec<_> = blockers.iter().flat_map(|blocker| blocker.items.iter()).collect();
+    let with_owner = i64::try_from(total_items.iter().filter(|item| item.has_owner()).count()).unwrap_or_default();
     assert!(total_items.len() >= 2, "至少两张挡路单据");
 
     let res = remind_year_end(&req(support::YEAR, None, &[]), support::operator())
@@ -242,10 +224,7 @@ async fn remind_sends_to_owner_and_counts_are_consistent() {
     let content: String = row.get_typed("content").expect("content");
     let link: Option<String> = row.get_typed("link_url").ok();
     assert_eq!(title, format!("2037 年结账待处理：{}", "YE-PO-001"));
-    assert!(
-        content.contains("挡住了 2037 年度的结账"),
-        "正文要点名年度：{content}"
-    );
+    assert!(content.contains("挡住了 2037 年度的结账"), "正文要点名年度：{content}");
     assert!(content.contains("请去审批"), "正文要写动作：{content}");
     assert!(
         link.unwrap_or_default()
@@ -320,10 +299,7 @@ async fn remind_skips_items_without_owner() {
     ] {
         if let Some(menu) = support::menu_id_of(code).await {
             saved.extend(support::grants_of(menu).await);
-            support::sql(&format!(
-                "DELETE FROM sys_role_menu WHERE menu_id = '{menu}'"
-            ))
-            .await;
+            support::sql(&format!("DELETE FROM sys_role_menu WHERE menu_id = '{menu}'")).await;
         }
     }
 

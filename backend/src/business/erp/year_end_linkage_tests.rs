@@ -94,10 +94,7 @@ async fn setup() -> Option<Fixture> {
     let guard = support::setup().await?;
     purge_linkage().await;
     let user = p2::seed_user("p2.lnk11_maker", "LNK11 年结会计").await;
-    Some(Fixture {
-        user,
-        _guard: guard,
-    })
+    Some(Fixture { user, _guard: guard })
 }
 
 /// 用例结尾：清本卡的规则 / 通知 + 年度夹具（`year_end_test_support::teardown`）。
@@ -164,12 +161,7 @@ async fn ready_year() {
 
 /// 年结（真实入口，与 HTTP handler 同一个函数）。
 async fn close(fixture: &Fixture) -> std::result::Result<year_end::YearEndCloseRes, ApiError> {
-    year_end::close_year(
-        support::YEAR,
-        Some("LNK-11 用例：年度结转"),
-        fixture.operator(),
-    )
-    .await
+    year_end::close_year(support::YEAR, Some("LNK-11 用例：年度结转"), fixture.operator()).await
 }
 
 /// 反年结（原因 ≥ 10 字）。
@@ -186,10 +178,7 @@ async fn reopen(fixture: &Fixture) -> std::result::Result<year_end::YearEndReope
 async fn notices_of(status: &str) -> i64 {
     db().scalar_with_params::<i64>(
         "SELECT count(*) FROM sys_notice WHERE idempotency_key LIKE ?",
-        vec![Value::Text(format!(
-            "LNK:ACCOUNTING_YEAR:{status}:{}:%",
-            support::YEAR
-        ))],
+        vec![Value::Text(format!("LNK:ACCOUNTING_YEAR:{status}:{}:%", support::YEAR))],
     )
     .await
     .expect("查联动通知")
@@ -200,10 +189,7 @@ async fn notice_content(status: &str) -> String {
     db().scalar_with_params::<String>(
         "SELECT content FROM sys_notice WHERE idempotency_key LIKE ? \
           ORDER BY created_at DESC LIMIT 1",
-        vec![Value::Text(format!(
-            "LNK:ACCOUNTING_YEAR:{status}:{}:%",
-            support::YEAR
-        ))],
+        vec![Value::Text(format!("LNK:ACCOUNTING_YEAR:{status}:{}:%", support::YEAR))],
     )
     .await
     .expect("查联动通知正文")
@@ -233,8 +219,7 @@ async fn latest_year_status() -> Option<String> {
         )
         .await
         .expect("查年度状态日志");
-    rows.first()
-        .and_then(|row| row.get_typed::<String>("value").ok())
+    rows.first().and_then(|row| row.get_typed::<String>("value").ok())
 }
 
 /// 插一条 `ACCOUNTING_YEAR/<status>` 上的规则（绕过 API 写库：与「管理员在配置页配好」等价）。
@@ -291,11 +276,7 @@ async fn lnk11_close_triggers_one_notice_for_multi_voucher_year() {
         outcome.state.carry_forward_entries > 0,
         "结转凭证必须有分录（损益类科目逐条结平）"
     );
-    assert_eq!(
-        carry_vouchers().await,
-        1,
-        "一个年度只能有一张 YEAR_END 凭证"
-    );
+    assert_eq!(carry_vouchers().await, 1, "一个年度只能有一张 YEAR_END 凭证");
     assert_eq!(
         latest_year_status().await.as_deref(),
         Some(STATUS_CLOSED),
@@ -308,22 +289,10 @@ async fn lnk11_close_triggers_one_notice_for_multi_voucher_year() {
         "年结必须触发一条联动通知（触发单据是年度，不是每张凭证一条）"
     );
     let content = notice_content(STATUS_CLOSED).await;
-    let voucher_no = outcome
-        .state
-        .carry_forward_voucher_no
-        .clone()
-        .expect("结转凭证号");
+    let voucher_no = outcome.state.carry_forward_voucher_no.clone().expect("结转凭证号");
     let year_text = support::YEAR.to_string();
-    for needle in [
-        year_text.as_str(),
-        voucher_no.as_str(),
-        "条分录",
-        "本年净利润",
-    ] {
-        assert!(
-            content.contains(needle),
-            "年结通知正文必须带 {needle}：{content}"
-        );
+    for needle in [year_text.as_str(), voucher_no.as_str(), "条分录", "本年净利润"] {
+        assert!(content.contains(needle), "年结通知正文必须带 {needle}：{content}");
     }
     teardown().await;
 }
@@ -630,9 +599,7 @@ async fn lnk11_critical_action_failure_rolls_back_year_end() {
     .await;
 
     // ---- ① 失败：500 + 点名联动动作 ----
-    let failed = close(&fixture)
-        .await
-        .expect_err("关键动作失败必须让年结失败");
+    let failed = close(&fixture).await.expect_err("关键动作失败必须让年结失败");
     assert_eq!(failed.status, 500, "关键动作失败必须是 500：{}", failed.msg);
     assert!(
         failed.msg.contains("UPDATE_RECEIVED_QTY") && failed.msg.contains("超收"),
@@ -658,8 +625,7 @@ async fn lnk11_critical_action_failure_rolls_back_year_end() {
     );
 
     // ---- 正向对照：撤掉失败规则重跑 → 成功 + 通知 1 条 ----
-    exec("DELETE FROM biz_flow_linkage_rule WHERE name LIKE 'LNK11-CLOSED-UPDATE_RECEIVED_QTY-%'")
-        .await;
+    exec("DELETE FROM biz_flow_linkage_rule WHERE name LIKE 'LNK11-CLOSED-UPDATE_RECEIVED_QTY-%'").await;
     let outcome = close(&fixture)
         .await
         .unwrap_or_else(|error| panic!("撤掉失败规则后年结必须成功：{} {}", error.code, error.msg));

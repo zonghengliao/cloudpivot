@@ -42,8 +42,8 @@ use crate::business::erp::contract_model;
 use crate::business::erp::doc_pdf_model::{self, ExportLogOwned};
 use crate::business::erp::order_pdf_model;
 use crate::business::pdf::template::{
-    self, ContractAttachment, ContractContext, ContractContextArgs, OrderMetaField, format_size,
-    payment_terms_of, term_range_of,
+    self, ContractAttachment, ContractContext, ContractContextArgs, OrderMetaField, format_size, payment_terms_of,
+    term_range_of,
 };
 use crate::business::pdf::{engine, handler as pdf_handler};
 use crate::utils;
@@ -170,9 +170,7 @@ pub async fn contract_context(id: Uuid) -> std::result::Result<ContractContext, 
         row.start_date
             .map(|date| date.format("%Y-%m-%d").to_string())
             .as_deref(),
-        row.end_date
-            .map(|date| date.format("%Y-%m-%d").to_string())
-            .as_deref(),
+        row.end_date.map(|date| date.format("%Y-%m-%d").to_string()).as_deref(),
     );
 
     Ok(ContractContext::new(ContractContextArgs {
@@ -227,14 +225,9 @@ pub struct RenderedContract {
 /// - 422 [`crate::shared::error_code::PDF_TEMPLATE_INVALID`]：模板渲染失败；
 /// - 503 [`crate::shared::error_code::PDF_RENDER_UNAVAILABLE`]：Chromium 不可用；
 /// - 504 [`crate::shared::error_code::PDF_RENDER_TIMEOUT`]：渲染超时。
-pub async fn render_contract_pdf(
-    context: &ContractContext,
-) -> std::result::Result<RenderedContract, ApiError> {
+pub async fn render_contract_pdf(context: &ContractContext) -> std::result::Result<RenderedContract, ApiError> {
     let html = template::render_contract(context).map_err(|error| error.into_api())?;
-    let filename = format!(
-        "合同-{}.pdf",
-        doc_pdf_model::sanitize_filename(&context.doc_no)
-    );
+    let filename = format!("合同-{}.pdf", doc_pdf_model::sanitize_filename(&context.doc_no));
     let opts = template::contract_pdf_opts(&context.doc_no, Some(filename.clone()));
     let started = Instant::now();
     let bytes = engine::render_pdf(&html, &opts)
@@ -285,18 +278,17 @@ pub async fn contract_pdf(
     let started = Instant::now();
     match export_contract(&id).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "合同 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "合同 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
             audit(&headers, &connect_info, &claims, &id, &rendered, started);
             response
         }
@@ -377,10 +369,7 @@ mod tests {
         let ctx = sample_contract(0);
         let html = template::render_contract(&ctx).expect("渲染必须成功");
         assert!(html.contains(&ctx.doc_no));
-        assert_eq!(
-            doc_pdf_model::sanitize_filename("HT/2026:11*01"),
-            "HT_2026_11_01"
-        );
+        assert_eq!(doc_pdf_model::sanitize_filename("HT/2026:11*01"), "HT_2026_11_01");
     }
 
     /// 无权限路由必须挂 `:list` 码（不是新种的 `:export`）。
@@ -532,11 +521,7 @@ mod db_tests {
                 "INSERT INTO biz_doc_attachment (id, doc_type, doc_id, file_id, file_role, uploaded_by)
                  VALUES (?::uuid, 'CONTRACT', '0f030000-0000-4000-8000-000000000001'::uuid,
                          ?::uuid, ?, '0f030000-0000-4000-8000-000000000003'::uuid)",
-                vec![
-                    Value::from(&id),
-                    Value::from(&file_id),
-                    Value::Text(role.to_string()),
-                ],
+                vec![Value::from(&id), Value::from(&file_id), Value::Text(role.to_string())],
                 "写入附件夹具",
             )
             .await;
@@ -559,9 +544,7 @@ mod db_tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let ctx = contract_context(CONTRACT)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = contract_context(CONTRACT).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, CONTRACT_NO);
         assert_eq!(ctx.contract_name, "PDF03 不锈钢管件年度采购合同");
@@ -581,10 +564,7 @@ mod db_tests {
         // 两个夹具 sort_order 相同且同一秒创建，所以顺序由 id 决定，断言不写死次序。
         assert_eq!(ctx.attachments.len(), 2);
         assert_eq!(ctx.attachment_count, "2");
-        let by_name: std::collections::HashMap<
-            &str,
-            &crate::business::pdf::template::ContractAttachment,
-        > = ctx
+        let by_name: std::collections::HashMap<&str, &crate::business::pdf::template::ContractAttachment> = ctx
             .attachments
             .iter()
             .map(|file| (file.file_name.as_str(), file))
@@ -595,9 +575,7 @@ mod db_tests {
         assert_eq!(scan.role_label, "合同扫描件");
         assert_eq!(scan.size, "262.5 KB");
         assert_eq!(scan.uploader, "合同负责人");
-        let receipt = by_name
-            .get("PDF03-补充协议.pdf")
-            .expect("第二个附件必须在清单里");
+        let receipt = by_name.get("PDF03-补充协议.pdf").expect("第二个附件必须在清单里");
         assert_eq!(receipt.role_label, "签收单");
         // 序号 1..n 连续
         let mut seqs: Vec<u32> = ctx.attachments.iter().map(|file| file.seq).collect();
@@ -605,11 +583,7 @@ mod db_tests {
         assert_eq!(seqs, vec![1, 2]);
 
         // 甲乙双方
-        let party_b: Vec<&str> = ctx
-            .party_b_rows
-            .iter()
-            .map(|field| field.value.as_str())
-            .collect();
+        let party_b: Vec<&str> = ctx.party_b_rows.iter().map(|field| field.value.as_str()).collect();
         assert!(party_b.contains(&"PDF03 测试供应商"), "乙方快照名必须在");
 
         // 渲染（不碰 chromium）：盖章位 / 附件清单 / 骑缝章 / 正文
@@ -646,9 +620,7 @@ mod db_tests {
             "软删合同",
         )
         .await;
-        let error = contract_context(CONTRACT)
-            .await
-            .expect_err("软删合同必须 404");
+        let error = contract_context(CONTRACT).await.expect_err("软删合同必须 404");
         assert_eq!(error.status, 404);
         assert!(error.msg.contains("合同"));
         purge().await;
@@ -685,23 +657,14 @@ mod db_tests {
                 "SELECT operation, target_type, target_id, username, detail, ip::text AS ip, \
                         request_method, status_code
                    FROM operation_logs WHERE target_id = ? AND request_id = ?",
-                vec![
-                    Value::Text(CONTRACT.to_string()),
-                    Value::Text(request_id.to_string()),
-                ],
+                vec![Value::Text(CONTRACT.to_string()), Value::Text(request_id.to_string())],
             )
             .await
             .expect("回查审计行");
         assert_eq!(rows.len(), 1);
         let row = &rows[0];
-        assert_eq!(
-            row.get_typed::<String>("operation").unwrap(),
-            "EXPORT_CONTRACT_PDF"
-        );
-        assert_eq!(
-            row.get_typed::<String>("target_type").unwrap(),
-            "biz_contract"
-        );
+        assert_eq!(row.get_typed::<String>("operation").unwrap(), "EXPORT_CONTRACT_PDF");
+        assert_eq!(row.get_typed::<String>("target_type").unwrap(), "biz_contract");
         assert_eq!(row.get_typed::<String>("username").unwrap(), "pdf03.owner");
         assert_eq!(row.get_typed::<String>("request_method").unwrap(), "GET");
         assert_eq!(row.get_typed::<i32>("status_code").unwrap(), 200);

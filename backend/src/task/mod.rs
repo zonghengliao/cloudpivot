@@ -129,10 +129,7 @@ impl Scheduler {
     /// 调度器 `stop()` / `start()` 失败返回 500。
     pub async fn reload(&self) -> std::result::Result<(), ApiError> {
         // 1. 停止当前调度循环（框架 start() 对注册表做一次性快照，必须重载）
-        self.inner
-            .stop()
-            .await
-            .map_err(|e| scheduler_error(e, "停止调度器"))?;
+        self.inner.stop().await.map_err(|e| scheduler_error(e, "停止调度器"))?;
 
         // 2. 清理上一次注册的任务名并逐个移除
         self.clear_registered();
@@ -153,10 +150,7 @@ impl Scheduler {
         }
 
         // 5. 启动调度
-        self.inner
-            .start()
-            .await
-            .map_err(|e| scheduler_error(e, "启动调度器"))?;
+        self.inner.start().await.map_err(|e| scheduler_error(e, "启动调度器"))?;
         Ok(())
     }
 
@@ -208,10 +202,7 @@ impl Scheduler {
 
     /// 清空已注册任务名集合并逐个从框架调度器移除。
     fn clear_registered(&self) {
-        let mut names = self
-            .names
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
+        let mut names = self.names.lock().unwrap_or_else(|poison| poison.into_inner());
         for name in names.drain() {
             self.inner.remove(&name);
         }
@@ -237,8 +228,7 @@ impl Scheduler {
     fn register_builtin(&self) {
         for (name, cron) in LOG_CLEAN_TASKS {
             let runner = move || tokio::spawn(run_builtin(name));
-            self.inner
-                .register(name, cron, "系统任务：日志清理", runner);
+            self.inner.register(name, cron, "系统任务：日志清理", runner);
             self.remember(name);
         }
         // 业务侧内置任务：注册点必须在这里（与日志清理同批），不能挪到 bootstrap.rs
@@ -265,13 +255,7 @@ impl Scheduler {
                 "系统任务：变更日志分区预建与清理",
                 || {
                     tokio::spawn(async move {
-                        match partition::run_once(
-                            db(),
-                            chrono::Utc::now(),
-                            partition::RETENTION_MONTHS,
-                        )
-                        .await
-                        {
+                        match partition::run_once(db(), chrono::Utc::now(), partition::RETENTION_MONTHS).await {
                             Ok(report) => {
                                 tracing::info!(report = %report.summary(), "变更日志分区运维完成")
                             }
@@ -625,10 +609,7 @@ pub fn is_registered_target(target: &str) -> bool {
 ///
 /// - 422：处理器标识未注册；
 /// - 500：处理器内部数据库操作失败。
-pub async fn run_handler(
-    invoke_target: &str,
-    params: Option<JsonValue>,
-) -> std::result::Result<String, ApiError> {
+pub async fn run_handler(invoke_target: &str, params: Option<JsonValue>) -> std::result::Result<String, ApiError> {
     tracing::debug!(invoke_target = invoke_target, params = ?params, "执行任务处理器");
     match invoke_target {
         "clean_operation_log" => {
@@ -640,14 +621,11 @@ pub async fn run_handler(
         "clean_audit_log" => cleanup_json_logs(JsonLogTable::Audit, "审计日志").await,
         "clean_auth_log" => cleanup_json_logs(JsonLogTable::Auth, "认证日志").await,
         "clean_security_log" => cleanup_json_logs(JsonLogTable::Security, "安全日志").await,
-        "clean_password_log" => {
-            cleanup_json_logs(JsonLogTable::PasswordChange, "密码变更日志").await
-        }
+        "clean_password_log" => cleanup_json_logs(JsonLogTable::PasswordChange, "密码变更日志").await,
         // R-P1-2：业务提醒（4 类扫描）。sys_job 里的 4 行种子默认停用（内置 cron 已在跑），
         // 但「定时任务」页的「立即执行」走的就是这里 —— 验收与事后补跑都用它。
         target if crate::business::erp::reminder::RemindKind::from_task_name(target).is_some() => {
-            let kind = crate::business::erp::reminder::RemindKind::from_task_name(target)
-                .expect("上面刚判过");
+            let kind = crate::business::erp::reminder::RemindKind::from_task_name(target).expect("上面刚判过");
             let report = crate::business::erp::reminder::run_kind(kind, chrono::Utc::now())
                 .await
                 .map_err(|e| utils::db_error(e, "执行业务提醒扫描"))?;
@@ -657,11 +635,10 @@ pub async fn run_handler(
         // 注意这里返回 Ok 即使 status = FAIL —— 那是账务结论，不是任务执行失败；
         // 只有脚本没跑成（ERROR 行）与写库失败会让摘要里出现原因。
         target if target == crate::support::invariant::runner::TASK_NAME => {
-            let record = crate::support::invariant::runner::run_and_store(
-                crate::support::invariant::runner::Trigger::Manual,
-            )
-            .await
-            .map_err(|e| utils::db_error(e, "执行账务不变量巡检并落库"))?;
+            let record =
+                crate::support::invariant::runner::run_and_store(crate::support::invariant::runner::Trigger::Manual)
+                    .await
+                    .map_err(|e| utils::db_error(e, "执行账务不变量巡检并落库"))?;
             Ok(crate::support::invariant::runner::summary(&record))
         }
         // SO-38：客户信用额度兜底重算（定时任务页「执行一次」走这里，与内置 cron 共用任务体）。
@@ -703,10 +680,7 @@ fn log_cutoff() -> chrono::DateTime<chrono::Utc> {
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-async fn cleanup_json_logs(
-    table: JsonLogTable,
-    label: &str,
-) -> std::result::Result<String, ApiError> {
+async fn cleanup_json_logs(table: JsonLogTable, label: &str) -> std::result::Result<String, ApiError> {
     let affected = log_model::delete_json_logs_before(table, log_cutoff())
         .await
         .map_err(|e| utils::db_error(e, "清理日志"))?;
@@ -751,12 +725,7 @@ mod tests {
                 "内置注册后 {name} 应恰好 1 条，实际 {}",
                 builtin.len()
             );
-            assert_eq!(
-                builtin[0].1,
-                kind.cron(),
-                "{name} 内置 cron 应为 {}",
-                kind.cron()
-            );
+            assert_eq!(builtin[0].1, kind.cron(), "{name} 内置 cron 应为 {}", kind.cron());
 
             // 模拟 load_db_jobs → register_job：同样的名字、同样的 cron
             scheduler.register_cron(name, kind.cron(), "系统任务：来自 sys_job", || {

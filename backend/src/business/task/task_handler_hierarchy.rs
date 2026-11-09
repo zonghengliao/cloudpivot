@@ -70,20 +70,14 @@ pub async fn create_subtask(
         ));
     }
     // 深度 / 成环：父任务自身不能已是子任务
-    model::validate_parent(parent_id, None)
-        .await
-        .map_err(parent_invalid)?;
+    model::validate_parent(parent_id, None).await.map_err(parent_invalid)?;
 
     let title = normalize_title(&req.title)?;
     let description = normalize_description(req.description.as_deref())?;
     let priority = match req.priority.as_deref() {
         None => parent.card.priority.clone(),
-        Some(raw) => dto::normalize_priority(Some(raw)).ok_or_else(|| {
-            param_invalid(format!(
-                "优先级取值非法：{raw}（应为 {}）",
-                dto::PRIORITIES.join(" / ")
-            ))
-        })?,
+        Some(raw) => dto::normalize_priority(Some(raw))
+            .ok_or_else(|| param_invalid(format!("优先级取值非法：{raw}（应为 {}）", dto::PRIORITIES.join(" / "))))?,
     };
     let estimate_hours = validate_hours(req.estimate_hours)?;
     let owner_id = match req.owner_id.as_deref().map(str::trim) {
@@ -276,20 +270,12 @@ pub async fn repair_parent_status(
                         changelog::record(
                             &tx,
                             &ChangeCtx::api(Some(me), None),
-                            ChangeTarget::of(
-                                "biz_task",
-                                cascade.task_id.to_string(),
-                                Action::Status,
-                                cascade.reason,
-                            ),
+                            ChangeTarget::of("biz_task", cascade.task_id.to_string(), Action::Status, cascade.reason),
                             DiffInput::update(&before, &after),
                         )
                         .await
                         .map_err(|error| {
-                            DbError::InvalidValue(format!(
-                                "变更日志写入失败 [{}] {}",
-                                error.code, error.msg
-                            ))
+                            DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
                         })?;
                     }
                     Ok(cascades)
@@ -310,10 +296,7 @@ pub async fn repair_parent_status(
                 }
             }
             // 修后状态**回读库里**，不拿返回值猜（对账接口只认落库事实）
-            status_after = require_task(gap.task_id)
-                .await
-                .ok()
-                .map(|task| task.card.status);
+            status_after = require_task(gap.task_id).await.ok().map(|task| task.card.status);
         }
         items.push(dto::ParentStatusGapRes {
             id: gap.task_id.to_string(),

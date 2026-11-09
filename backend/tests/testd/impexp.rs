@@ -12,8 +12,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use cloudpivot::business::impexp::{
-    definition::ImportCtx, definition::ImportMode, engine, global_registry, model as impexp_model,
-    template, validate, worker,
+    definition::ImportCtx, definition::ImportMode, engine, global_registry, model as impexp_model, template, validate,
+    worker,
 };
 
 use crate::testd::common::{self as c, Ctx};
@@ -45,11 +45,7 @@ fn read_xlsx(bytes: &[u8]) -> Vec<Vec<String>> {
     use calamine::{Xlsx, open_workbook_from_rs};
     let cursor = std::io::Cursor::new(bytes.to_vec());
     let mut workbook: Xlsx<_> = open_workbook_from_rs(cursor).expect("打开 xlsx");
-    let name = workbook
-        .sheet_names()
-        .first()
-        .cloned()
-        .expect("xlsx 至少一个 sheet");
+    let name = workbook.sheet_names().first().cloned().expect("xlsx 至少一个 sheet");
     let range = workbook.worksheet_range(&name).expect("读 sheet");
     range
         .rows()
@@ -186,12 +182,10 @@ async fn i01_import_chain_template_precheck_confirm() {
 
         // ④ 确认入库
         let task = seed_import_task(&ctx, &bytes, user, ImportMode::Strict).await;
-        let res = impexp_handler::import_confirm(
-            axum::extract::Path(task.to_string()),
-            c::claims(user, "importer", &[]),
-        )
-        .await
-        .expect("确认入库");
+        let res =
+            impexp_handler::import_confirm(axum::extract::Path(task.to_string()), c::claims(user, "importer", &[]))
+                .await
+                .expect("确认入库");
         let data = res.data.expect("确认入库返回空 data");
         assert_eq!(data.status, "SUCCESS", "入库状态：{}", data.status);
         assert_eq!(data.imported_rows, 2, "实际入库 {} 行", data.imported_rows);
@@ -215,7 +209,6 @@ async fn i01_import_chain_template_precheck_confirm() {
         )
         .await;
         assert_eq!(sort, 1, "排序号列映射错误");
-
     })
     .await;
 }
@@ -292,8 +285,7 @@ async fn i02_error_report_row_and_column() {
         );
         let row_nos: Vec<&String> = rows_out.iter().skip(1).map(|row| &row[0]).collect();
         assert!(
-            row_nos.iter().any(|no| no.as_str() == "3")
-                && row_nos.iter().any(|no| no.as_str() == "4"),
+            row_nos.iter().any(|no| no.as_str() == "3") && row_nos.iter().any(|no| no.as_str() == "4"),
             "错误报表里的行号不准确：{row_nos:?}"
         );
     })
@@ -338,11 +330,7 @@ async fn i03_strict_vs_partial_transaction_boundary() {
         )
         .await
         .expect_err("STRICT 有失败行必须整批中止");
-        assert_eq!(
-            err.status, 422,
-            "STRICT 中止状态码应为 422，实际 {}",
-            err.status
-        );
+        assert_eq!(err.status, 422, "STRICT 中止状态码应为 422，实际 {}", err.status);
         assert_eq!(
             c::count(
                 "SELECT count(*) AS n FROM sys_dict_item WHERE dict_type_id = ?::uuid",
@@ -417,11 +405,7 @@ async fn i04_ten_thousand_rows() {
             .map(|row| row.iter().map(String::as_str).collect())
             .collect();
         let bytes = xlsx(&headers, &rows_ref);
-        assert!(
-            bytes.len() > 100_000,
-            "1 万行 xlsx 体量异常：{} 字节",
-            bytes.len()
-        );
+        assert!(bytes.len() > 100_000, "1 万行 xlsx 体量异常：{} 字节", bytes.len());
 
         let started = std::time::Instant::now();
         let report = precheck(&bytes, ImportMode::Strict).await;
@@ -472,12 +456,9 @@ async fn i05_duplicate_import_is_idempotent() {
 
         // 第一次
         let first = seed_import_task(&ctx, &bytes, user, ImportMode::Strict).await;
-        impexp_handler::import_confirm(
-            axum::extract::Path(first.to_string()),
-            c::claims(user, "importer", &[]),
-        )
-        .await
-        .expect("首次导入");
+        impexp_handler::import_confirm(axum::extract::Path(first.to_string()), c::claims(user, "importer", &[]))
+            .await
+            .expect("首次导入");
         let after_first = c::count(
             "SELECT count(*) AS n FROM sys_dict_item WHERE dict_type_id = ?::uuid",
             vec![Value::from(&dict)],
@@ -534,13 +515,7 @@ async fn i05_duplicate_import_is_idempotent() {
 async fn i06_task_import_definition_missing() {
     let Some(()) = c::ready().await else { return };
     let registry = global_registry();
-    let candidates = [
-        "biz.task",
-        "business.task",
-        "task",
-        "system.task",
-        "biz_task",
-    ];
+    let candidates = ["biz.task", "business.task", "task", "system.task", "biz_task"];
     let found: Vec<&str> = candidates
         .iter()
         .copied()
@@ -617,9 +592,7 @@ async fn i07_export_sync_content() {
         )
         .await;
         assert_eq!(response.status(), 200, "同步导出 HTTP 状态应为 200");
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("读响应体");
+        let body = to_bytes(response.into_body(), usize::MAX).await.expect("读响应体");
         let rows = read_xlsx(&body);
         assert!(rows.len() >= 3, "导出文件行数不足：{}", rows.len());
         let flat: Vec<String> = rows.concat();
@@ -632,7 +605,6 @@ async fn i07_export_sync_content() {
             flat.iter().any(|cell| cell == "启用") && flat.iter().any(|cell| cell == "停用"),
             "状态枚举未中文化：{flat:?}"
         );
-
     })
     .await;
 }
@@ -765,10 +737,7 @@ async fn i09_export_permission_code_enforced() {
                 vec![Value::Text(code.to_string())],
             )
             .await;
-            assert_eq!(
-                n, 1,
-                "权限码 {code} 未在 sys_menu 登记（框架层将无法拦截越权）"
-            );
+            assert_eq!(n, 1, "权限码 {code} 未在 sys_menu 登记（框架层将无法拦截越权）");
         }
 
         let role = c::make_role(&ctx, "NOPERM", 4).await;
@@ -929,10 +898,7 @@ async fn i12_expired_artifact_returns_410() {
             vec![Value::from(&task_id)],
         )
         .await;
-        assert_eq!(
-            after, "EXPIRED",
-            "命中过期后任务状态应置 EXPIRED，实际 {after}"
-        );
+        assert_eq!(after, "EXPIRED", "命中过期后任务状态应置 EXPIRED，实际 {after}");
         assert!(
             tokio::fs::metadata(&path).await.is_err(),
             "过期产物的物理文件没有被回收"
@@ -970,7 +936,6 @@ async fn i12_expired_artifact_returns_410() {
             "过期清理没有扫到该任务（返回 {} 条）",
             expired.len()
         );
-
     })
     .await;
 }
@@ -1001,11 +966,7 @@ async fn i13_header_mismatch_reports_structured_error() {
         )
         .await
         .expect_err("表头完全不匹配必须报结构性错误");
-        assert_eq!(
-            error.status, 422,
-            "结构性错误应为 422，实际 {}",
-            error.status
-        );
+        assert_eq!(error.status, 422, "结构性错误应为 422，实际 {}", error.status);
         assert!(
             error.msg.contains("字典编码") || error.msg.contains("缺"),
             "错误文案没有点出缺失的列：{}",
@@ -1022,15 +983,8 @@ async fn i13_header_mismatch_reports_structured_error() {
         )
         .await
         .expect_err("非 xlsx 文件必须报错");
-        assert_eq!(
-            junk.status, 400,
-            "非 xlsx 应为 400（格式错误），实际 {}",
-            junk.status
-        );
-        assert!(
-            !junk.msg.is_empty(),
-            "非 xlsx 的错误文案为空，用户无从判断原因"
-        );
+        assert_eq!(junk.status, 400, "非 xlsx 应为 400（格式错误），实际 {}", junk.status);
+        assert!(!junk.msg.is_empty(), "非 xlsx 的错误文案为空，用户无从判断原因");
     })
     .await;
 }
@@ -1077,17 +1031,11 @@ async fn i14_tampered_import_file_rejected() {
         let tampered = xlsx(&headers, &tampered_ref);
         tokio::fs::write(&path, &tampered).await.expect("篡改文件");
 
-        let err = impexp_handler::import_confirm(
-            axum::extract::Path(task.to_string()),
-            c::claims(user, "importer", &[]),
-        )
-        .await
-        .expect_err("文件被篡改时必须拒绝入库");
-        assert_eq!(
-            err.status, 409,
-            "应为 409（内容与上传时不一致），实际 {}",
-            err.status
-        );
+        let err =
+            impexp_handler::import_confirm(axum::extract::Path(task.to_string()), c::claims(user, "importer", &[]))
+                .await
+                .expect_err("文件被篡改时必须拒绝入库");
+        assert_eq!(err.status, 409, "应为 409（内容与上传时不一致），实际 {}", err.status);
         assert!(
             err.msg.contains("SHA-256") || err.msg.contains("不一致"),
             "错误文案没说明原因：{}",

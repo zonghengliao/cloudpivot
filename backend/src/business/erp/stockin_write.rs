@@ -43,11 +43,7 @@ pub(super) async fn insert_items(
                 Value::from(&id),
                 Value::from(&stock_in_id),
                 Value::from(i32::try_from(index + 1).unwrap_or(i32::MAX)),
-                Value::Text(
-                    line.source_item_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(line.source_item_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(&line.material_id),
                 Value::from(&line.unit_id),
                 Value::Text(line.qty.round_dp(4).to_string()),
@@ -59,11 +55,7 @@ pub(super) async fn insert_items(
                 Value::Text(line.with_tax_amount.round_dp(4).to_string()),
                 Value::Text(cost.unit_cost.to_string()),
                 Value::Text(line.location_id.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(
-                    line.location_dict_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(line.location_dict_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(line.remark.clone().unwrap_or_default()),
             ],
         )
@@ -103,11 +95,7 @@ pub async fn create(
             Value::from(&id),
             Value::Text(in_no.clone()),
             Value::from(in_type_of(new.is_sourceless)),
-            Value::Text(
-                new.source_order_id
-                    .map(|v| v.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.source_order_id.map(|v| v.to_string()).unwrap_or_default()),
             Value::from(&new.supplier_id),
             Value::from(new.is_sourceless),
             Value::from(&new.warehouse_id),
@@ -171,11 +159,7 @@ pub async fn update(
             vec![
                 // 草稿改单允许在「有源 / 无源」之间切换，`in_type` 跟着来源一起刷新（FIX-7）
                 Value::from(in_type_of(new.is_sourceless)),
-                Value::Text(
-                    new.source_order_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.source_order_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(&new.supplier_id),
                 Value::from(new.is_sourceless),
                 Value::from(&new.warehouse_id),
@@ -296,8 +280,7 @@ pub async fn apply_status_with_instance(
             // 审批中没有实例 id 就等于「永远等不到回调」：库约束和代码两头都挡
             let Some(instance_id) = approval_instance_id else {
                 return Err(DbError::InvalidValue(
-                    "发起作废审批必须同时写 approval_instance_id（ck_biz_si_pending_cancel）"
-                        .to_string(),
+                    "发起作废审批必须同时写 approval_instance_id（ck_biz_si_pending_cancel）".to_string(),
                 ));
             };
             (
@@ -322,8 +305,7 @@ pub async fn apply_status_with_instance(
         STATUS_PENDING_POST => {
             let Some(instance_id) = approval_instance_id else {
                 return Err(DbError::InvalidValue(
-                    "提交过账审批必须同时写 approval_instance_id（ck_biz_si_pending_approval）"
-                        .to_string(),
+                    "提交过账审批必须同时写 approval_instance_id（ck_biz_si_pending_approval）".to_string(),
                 ));
             };
             (
@@ -390,12 +372,7 @@ pub async fn apply_status_with_instance(
 /// P-FLOW-3A：`PENDING_POST`（过账审批中）也允许删 —— 前提是调用方**先**终止在跑的
 /// 审批单（[`crate::business::erp::stockin_bridge::cancel_approval_of`]，同一事务），
 /// 否则删掉的单据会留下孤儿审批（P11 的教训）。删的同时清空 `approval_instance_id`。
-pub async fn soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET deleted_at = ?, updated_at = ?, \
@@ -530,12 +507,8 @@ pub async fn apply_location_qty(
 ) -> DbResult<AppliedLocation> {
     // P2-5A：库位账加法（两条分支 + 库位行归属校验）收口到 [`inventory_writer::add_location_qty`]。
     let (before_qty, after_qty) =
-        inventory_writer::add_location_qty(ex, material_id, warehouse_id, location_id, qty, now)
-            .await?;
-    Ok(AppliedLocation {
-        before_qty,
-        after_qty,
-    })
+        inventory_writer::add_location_qty(ex, material_id, warehouse_id, location_id, qty, now).await?;
+    Ok(AppliedLocation { before_qty, after_qty })
 }
 
 /// 写一条 `IN` 流水（**只增不改**，`qty` 恒正、方向看 `txn_type`）。

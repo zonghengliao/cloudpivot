@@ -46,9 +46,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::model::PurchaseOrderItemRow;
-use crate::business::erp::purchase_model::{
-    LineAmounts, PRICE_MODE_EXCL, PRICE_MODE_INCL, PRICE_MODES, unit_price,
-};
+use crate::business::erp::purchase_model::{LineAmounts, PRICE_MODE_EXCL, PRICE_MODE_INCL, PRICE_MODES, unit_price};
 use crate::shared::error_code;
 
 // ==================== 口径常量 ====================
@@ -83,14 +81,8 @@ pub const DEFAULT_PURCHASE_TYPE: &str = PURCHASE_TYPE_SPOT;
 /// 勾给角色也不会生效。
 pub const PURCHASE_ORDER_PERMISSIONS: [(&str, &str); 4] = [
     ("business:erp:purchase-order:create", "新建采购订单"),
-    (
-        "business:erp:purchase-order:update",
-        "编辑采购订单（仅草稿）",
-    ),
-    (
-        "business:erp:purchase-order:delete",
-        "删除采购订单（仅草稿）",
-    ),
+    ("business:erp:purchase-order:update", "编辑采购订单（仅草稿）"),
+    ("business:erp:purchase-order:delete", "删除采购订单（仅草稿）"),
     ("business:erp:purchase-order:status", "采购订单状态流转"),
 ];
 
@@ -173,9 +165,7 @@ impl PurchaseOrderStatusReq {
     pub fn target_status(&self) -> std::result::Result<&str, ApiError> {
         let raw = self.status.as_deref().map(str::trim).unwrap_or_default();
         if raw.is_empty() {
-            return Err(bad_request(
-                "status 不能为空（SUBMITTED / CLOSED / CANCELLED）",
-            ));
+            return Err(bad_request("status 不能为空（SUBMITTED / CLOSED / CANCELLED）"));
         }
         if !TRANSITION_TARGETS.contains(&raw) {
             return Err(bad_request(format!(
@@ -188,10 +178,7 @@ impl PurchaseOrderStatusReq {
 
     /// 原因（去空白；空串 → `None`）。
     pub fn reason_text(&self) -> Option<&str> {
-        self.reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
+        self.reason.as_deref().map(str::trim).filter(|text| !text.is_empty())
     }
 }
 
@@ -395,12 +382,8 @@ impl CreatePurchaseOrderReq {
         let totals = TotalsSummary {
             total_qty: lines.iter().fold(Decimal::ZERO, |acc, line| acc + line.qty),
             amount: amounts.iter().fold(Decimal::ZERO, |acc, a| acc + a.amount),
-            tax: amounts
-                .iter()
-                .fold(Decimal::ZERO, |acc, a| acc + a.tax_amount),
-            with_tax: amounts
-                .iter()
-                .fold(Decimal::ZERO, |acc, a| acc + a.with_tax_amount),
+            tax: amounts.iter().fold(Decimal::ZERO, |acc, a| acc + a.tax_amount),
+            with_tax: amounts.iter().fold(Decimal::ZERO, |acc, a| acc + a.with_tax_amount),
         };
 
         Ok(PreparedOrder {
@@ -422,24 +405,15 @@ impl CreatePurchaseOrderReq {
 
 impl PurchaseOrderItemReq {
     /// 单行校验 + 算金额。`index` 从 0 起，文案里按「第 N 行」展示。
-    fn prepare(
-        &self,
-        index: usize,
-        price_mode: &str,
-    ) -> std::result::Result<PreparedLine, ApiError> {
+    fn prepare(&self, index: usize, price_mode: &str) -> std::result::Result<PreparedLine, ApiError> {
         let line_no = index + 1;
-        let material_id_raw = require_text(
-            self.material_id.as_deref(),
-            &format!("items[{index}].material_id"),
-        )?;
+        let material_id_raw = require_text(self.material_id.as_deref(), &format!("items[{index}].material_id"))?;
 
         let qty_raw = self
             .qty
             .ok_or_else(|| bad_request(format!("第 {line_no} 行数量（qty）必填")))?;
         if qty_raw < Decimal::ZERO {
-            return Err(bad_request(format!(
-                "第 {line_no} 行数量 {qty_raw} 不能为负"
-            )));
+            return Err(bad_request(format!("第 {line_no} 行数量 {qty_raw} 不能为负")));
         }
         if qty_raw.is_zero() {
             // ⚠️ 卡面写「草稿允许 0」，但 ck_biz_po_item_qty CHECK (qty > 0) 让 0 数量的行插不进库
@@ -535,9 +509,7 @@ impl PurchaseOrderItemReq {
 /// （`ck_biz_po_item_qty`），所以这条校验在**建单/改单**就生效；
 /// 但它同时是「提交」这一步的守卫：DRAFT → SUBMITTED 时用行数据再判一次，
 /// 兜住历史脏数据（P2-A1 之前手工插过 0 数量行的情况）。
-pub fn ensure_submittable_lines(
-    lines: &[PurchaseOrderItemRow],
-) -> std::result::Result<(), ApiError> {
+pub fn ensure_submittable_lines(lines: &[PurchaseOrderItemRow]) -> std::result::Result<(), ApiError> {
     if lines.is_empty() {
         return Err(bad_request("明细为空，不能提交（请先补明细）"));
     }
@@ -750,8 +722,7 @@ impl PendingStockInRes {
             id: brief.id.to_string(),
             in_no: brief.in_no.clone(),
             status: brief.status.clone(),
-            status_label: crate::business::erp::stockin_model::status_label(&brief.status)
-                .to_string(),
+            status_label: crate::business::erp::stockin_model::status_label(&brief.status).to_string(),
             in_date: brief.in_date,
             total_qty: brief.total_qty,
             posted: brief.status == crate::business::erp::stockin_model::STATUS_POSTED,
@@ -779,9 +750,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::purchase_model::{
-        LEGAL_EDGES, can_transition, line_amounts, sum_lines,
-    };
+    use crate::business::erp::purchase_model::{LEGAL_EDGES, can_transition, line_amounts, sum_lines};
     use std::str::FromStr;
 
     fn dec(text: &str) -> Decimal {
@@ -818,10 +787,7 @@ mod tests {
         assert_eq!(amounts.with_tax_amount, dec("226.00"));
 
         let prepared = request(None, &[("100", "2", "13")]).prepare().unwrap();
-        assert_eq!(
-            prepared.price_mode, PRICE_MODE_EXCL,
-            "默认口径必须是不含税录入"
-        );
+        assert_eq!(prepared.price_mode, PRICE_MODE_EXCL, "默认口径必须是不含税录入");
         assert_eq!(prepared.totals.amount, dec("200.00"));
         assert_eq!(prepared.totals.tax, dec("26.00"));
         assert_eq!(prepared.totals.with_tax, dec("226.00"));
@@ -842,9 +808,7 @@ mod tests {
             "三金额恒等必须精确成立"
         );
 
-        let prepared = request(Some(PRICE_MODE_INCL), &[("100", "2", "13")])
-            .prepare()
-            .unwrap();
+        let prepared = request(Some(PRICE_MODE_INCL), &[("100", "2", "13")]).prepare().unwrap();
         assert_eq!(prepared.totals.amount, dec("176.99"));
         assert_eq!(prepared.totals.tax, dec("23.01"));
         assert_eq!(prepared.totals.with_tax, dec("200.00"));
@@ -862,22 +826,11 @@ mod tests {
         assert_eq!(amount, dec("0.03"));
         assert_eq!(tax, Decimal::ZERO);
         assert_eq!(with_tax, dec("0.03"));
-        assert_ne!(
-            amount,
-            dec("0.02"),
-            "先加总再舍入会少 1 分（PRD §3.1.5 禁止）"
-        );
+        assert_ne!(amount, dec("0.02"), "先加总再舍入会少 1 分（PRD §3.1.5 禁止）");
 
-        let prepared = request(
-            None,
-            &[
-                ("1", "0.005", "0"),
-                ("1", "0.005", "0"),
-                ("1", "0.005", "0"),
-            ],
-        )
-        .prepare()
-        .unwrap();
+        let prepared = request(None, &[("1", "0.005", "0"), ("1", "0.005", "0"), ("1", "0.005", "0")])
+            .prepare()
+            .unwrap();
         assert_eq!(prepared.totals.amount, dec("0.03"));
     }
 
@@ -924,11 +877,7 @@ mod tests {
         let err = request(None, &[("0", "2", "13")]).prepare().unwrap_err();
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("数量为 0"), "{}", err.msg);
-        assert!(
-            err.msg.contains("ck_biz_po_item_qty"),
-            "文案要给出依据：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("ck_biz_po_item_qty"), "文案要给出依据：{}", err.msg);
     }
 
     /// ⑦b 提交守卫：`ensure_submittable_lines` 单独钉住「0 数量不能提交」这条 PRD 规则。
@@ -945,12 +894,9 @@ mod tests {
     /// ⑧ 多税率单：各行独立算，合计 = 逐行舍入后相加。
     #[test]
     fn multi_tax_rate_lines_sum_independently() {
-        let prepared = request(
-            None,
-            &[("10", "2.5", "13"), ("3", "10", "6"), ("2", "1", "0")],
-        )
-        .prepare()
-        .unwrap();
+        let prepared = request(None, &[("10", "2.5", "13"), ("3", "10", "6"), ("2", "1", "0")])
+            .prepare()
+            .unwrap();
         assert_eq!(prepared.lines[0].amounts.amount, dec("25.00"));
         assert_eq!(prepared.lines[0].amounts.tax_amount, dec("3.25"));
         assert_eq!(prepared.lines[1].amounts.amount, dec("30.00"));
@@ -1000,17 +946,11 @@ mod tests {
     #[test]
     fn price_mode_validation() {
         assert_eq!(
-            request(None, &[("1", "1", "0")])
-                .prepare()
-                .unwrap()
-                .price_mode,
+            request(None, &[("1", "1", "0")]).prepare().unwrap().price_mode,
             PRICE_MODE_EXCL
         );
         assert_eq!(
-            request(Some("incl"), &[("1", "1", "13")])
-                .prepare()
-                .unwrap()
-                .price_mode,
+            request(Some("incl"), &[("1", "1", "13")]).prepare().unwrap().price_mode,
             PRICE_MODE_INCL,
             "小写也要归一化"
         );
@@ -1104,12 +1044,10 @@ mod tests {
     /// ⑯ 非法流转文案要点名「当前态的可选去向」/「终态」。
     #[test]
     fn transition_message_names_allowed_targets() {
-        let message =
-            crate::business::erp::purchase_model::transition_rejected_message("DRAFT", "CLOSED");
+        let message = crate::business::erp::purchase_model::transition_rejected_message("DRAFT", "CLOSED");
         assert!(message.contains("SUBMITTED"), "{message}");
         assert!(message.contains("CANCELLED"), "{message}");
-        let terminal =
-            crate::business::erp::purchase_model::transition_rejected_message("CLOSED", "DRAFT");
+        let terminal = crate::business::erp::purchase_model::transition_rejected_message("CLOSED", "DRAFT");
         assert!(terminal.contains("终态"), "{terminal}");
     }
 

@@ -483,9 +483,10 @@ fn principal_from_cached(user_id: Uuid, cached: CachedScope) -> DbResult<ScopedP
     let own_dept_id = parse_optional_id(cached.own_dept_id.as_deref(), "own_dept_id")?;
     let mut dept_ids = Vec::with_capacity(cached.dept_ids.len());
     for raw in &cached.dept_ids {
-        dept_ids.push(Uuid::parse_str(raw).map_err(|error| {
-            DbError::InvalidValue(format!("缓存里的部门 ID 非法（{raw}）：{error}"))
-        })?);
+        dept_ids.push(
+            Uuid::parse_str(raw)
+                .map_err(|error| DbError::InvalidValue(format!("缓存里的部门 ID 非法（{raw}）：{error}")))?,
+        );
     }
     Ok(ScopedPrincipal::new(
         user_id,
@@ -501,9 +502,9 @@ fn principal_from_cached(user_id: Uuid, cached: CachedScope) -> DbResult<ScopedP
 fn parse_optional_id(raw: Option<&str>, field: &str) -> DbResult<Option<Uuid>> {
     match raw {
         None => Ok(None),
-        Some(text) => Uuid::parse_str(text).map(Some).map_err(|error| {
-            DbError::InvalidValue(format!("缓存里的 {field} 非法（{text}）：{error}"))
-        }),
+        Some(text) => Uuid::parse_str(text)
+            .map(Some)
+            .map_err(|error| DbError::InvalidValue(format!("缓存里的 {field} 非法（{text}）：{error}"))),
     }
 }
 
@@ -587,9 +588,7 @@ impl ScopeCache for GlobalScopeCache {
         let Some(store) = try_cache() else {
             return;
         };
-        if let Err(error) =
-            Cache::set_ex(store, key, value, constants::CACHE_PRINCIPAL_TTL_SECS).await
-        {
+        if let Err(error) = Cache::set_ex(store, key, value, constants::CACHE_PRINCIPAL_TTL_SECS).await {
             tracing::warn!(key, error = %error, "写入用户数据范围缓存失败");
         }
     }
@@ -634,9 +633,7 @@ pub async fn resolve(user_id: &Uuid) -> DbResult<ScopedPrincipal> {
 ///
 /// - 令牌缺少 `sub` / `sub` 非 UUID → `401 + AUTH_TOKEN_INVALID`；
 /// - 查库失败 → `500`（经 [`crate::utils::db_error`] 收敛，与项目既有口径一致）。
-pub async fn resolve_for_claims(
-    claims: &TokenClaims,
-) -> std::result::Result<ScopedPrincipal, ApiError> {
+pub async fn resolve_for_claims(claims: &TokenClaims) -> std::result::Result<ScopedPrincipal, ApiError> {
     let user_id = crate::utils::current_user_uuid(claims).ok_or_else(|| {
         ApiError::new(
             401,
@@ -666,11 +663,7 @@ pub(crate) async fn resolve_with<S: ScopeSource, C: ScopeCache>(
         );
     }
 
-    let epoch = if available {
-        cache.epoch().await.unwrap_or(0)
-    } else {
-        0
-    };
+    let epoch = if available { cache.epoch().await.unwrap_or(0) } else { 0 };
     let key = cache_key(epoch, user_id);
 
     if available {
@@ -706,10 +699,7 @@ mod tests {
     }
 
     fn row(kind: ScopeRowKind, dept: Option<Uuid>) -> ScopeRow {
-        ScopeRow {
-            kind,
-            dept_id: dept,
-        }
+        ScopeRow { kind, dept_id: dept }
     }
 
     fn user(n: u128) -> Uuid {
@@ -731,11 +721,7 @@ mod tests {
             row(ScopeRowKind::Custom, Some(dept)), // 与 DEPT 重复 → 必须去重
         ];
         let cached = merge_scope_rows(&rows).expect("合并应成功");
-        assert_eq!(
-            cached.kind,
-            ScopeKind::Custom,
-            "有 CUSTOM 角色时主导范围=CUSTOM"
-        );
+        assert_eq!(cached.kind, ScopeKind::Custom, "有 CUSTOM 角色时主导范围=CUSTOM");
         assert!(!cached.self_only);
         assert_eq!(cached.dept_ids.len(), 3, "去重后应有 3 个部门：{cached:?}");
         for id in [dept, custom_a, custom_b] {
@@ -790,26 +776,15 @@ mod tests {
         assert!(cached.self_only, "并集里出现 SELF → self_only=true");
         let principal = cached.into_principal(user(8));
         let filter = filter_for(&principal, ScopeTarget::SYS_USER);
-        assert_eq!(
-            filter.sql(),
-            " AND (u.dept_id = ANY(?::text::uuid[]) OR u.id = ?)"
-        );
-        assert_eq!(
-            filter.sql().matches('?').count(),
-            2,
-            "S8 要求恰好 2 个占位符"
-        );
+        assert_eq!(filter.sql(), " AND (u.dept_id = ANY(?::text::uuid[]) OR u.id = ?)");
+        assert_eq!(filter.sql().matches('?').count(), 2, "S8 要求恰好 2 个占位符");
         assert_eq!(filter.params().len(), 2);
         assert_eq!(
             filter.params()[0],
             Value::Text(format!("{{{dept}}}")),
             "第 1 个参数必须是部门数组"
         );
-        assert_eq!(
-            filter.params()[1],
-            Value::from(&user(8)),
-            "第 2 个参数必须是 user_id"
-        );
+        assert_eq!(filter.params()[1], Value::from(&user(8)), "第 2 个参数必须是 user_id");
         println!(
             "[S8] SelfOnly ∪ Dept → `{}`，params=[数组({dept}), user_id] ✓",
             filter.sql()
@@ -879,10 +854,7 @@ mod tests {
         assert_eq!(filter.sql(), " AND u.id = ?");
         // 也不能生成 `dept_id = NULL`（恒空）或放行
         assert!(!filter.sql().contains("dept_id"));
-        println!(
-            "[S11] 无部门 + 本部门及以下 → SELF，片段 `{}` ✓",
-            filter.sql()
-        );
+        println!("[S11] 无部门 + 本部门及以下 → SELF，片段 `{}` ✓", filter.sql());
     }
 
     /// 附加：用户不存在（没有 `ME` 行）→ `DbError::NotFound`。
@@ -976,10 +948,7 @@ mod tests {
         }
         async fn store(&self, key: &str, value: &CachedScope) {
             self.sets.fetch_add(1, Ordering::Relaxed);
-            self.entries
-                .lock()
-                .unwrap()
-                .insert(key.to_string(), value.clone());
+            self.entries.lock().unwrap().insert(key.to_string(), value.clone());
         }
     }
 
@@ -1028,9 +997,7 @@ mod tests {
         assert_eq!(source.loads(), 2);
         assert_eq!(third.dept_ids(), first.dept_ids());
         assert!(cache.gets() >= 3);
-        println!(
-            "[缓存] 1st miss→db(1), 2nd hit(hits=1), bump_epoch → 3rd miss(db_loads=2) ✓ stats={stats:?}"
-        );
+        println!("[缓存] 1st miss→db(1), 2nd hit(hits=1), bump_epoch → 3rd miss(db_loads=2) ✓ stats={stats:?}");
     }
 
     /// 缓存验收：**缓存不可用时回退查库**，结果仍然正确（不因 Redis 故障报错）。
@@ -1062,10 +1029,7 @@ mod tests {
     #[tokio::test]
     async fn bump_epoch_without_cache_is_a_noop() {
         let epoch = super::super::guard::bump_epoch().await;
-        assert!(
-            epoch.is_none(),
-            "缓存不可用时 bump_epoch 应返回 None 而不是 panic"
-        );
+        assert!(epoch.is_none(), "缓存不可用时 bump_epoch 应返回 None 而不是 panic");
         println!("[epoch] 缓存不可用时 bump_epoch() → None（告警 + TTL 兜底）✓");
     }
 
@@ -1073,14 +1037,8 @@ mod tests {
     #[test]
     fn cache_key_shape() {
         let user_id = uid(0x7301);
-        assert_eq!(
-            cache_key(0, &user_id),
-            format!("perm:user_scope:0:{user_id}")
-        );
-        assert_eq!(
-            cache_key(42, &user_id),
-            format!("perm:user_scope:42:{user_id}")
-        );
+        assert_eq!(cache_key(0, &user_id), format!("perm:user_scope:0:{user_id}"));
+        assert_eq!(cache_key(42, &user_id), format!("perm:user_scope:42:{user_id}"));
         assert!(cache_key(7, &user_id).starts_with(CACHE_KEY_PREFIX_USER_SCOPE));
         assert_eq!(CACHE_KEY_USER_SCOPE_EPOCH, "perm:user_scope_epoch");
         println!("[键] perm:user_scope:{{epoch}}:{{uid}} ✓");
@@ -1102,35 +1060,20 @@ mod tests {
             return;
         };
         let client = redis::Client::open(url).expect("B2_REDIS_URL 非法");
-        let mut conn = client
-            .get_connection_manager()
-            .await
-            .expect("连接 Redis 失败");
+        let mut conn = client.get_connection_manager().await.expect("连接 Redis 失败");
         let prefix = format!("b2:test:{}:", std::process::id());
         let epoch_key = format!("{prefix}epoch");
         let ttl = constants::CACHE_PRINCIPAL_TTL_SECS;
         let user_id = uid(0x7401);
 
-        let _: i64 = redis::cmd("DEL")
-            .arg(&epoch_key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+        let _: i64 = redis::cmd("DEL").arg(&epoch_key).query_async(&mut conn).await.unwrap();
 
         // ① epoch 键不存在 → 与 current_epoch() 的语义一致（按 0 处理）
-        let raw: Option<String> = redis::cmd("GET")
-            .arg(&epoch_key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+        let raw: Option<String> = redis::cmd("GET").arg(&epoch_key).query_async(&mut conn).await.unwrap();
         assert_eq!(raw, None, "首次部署时 epoch 键不存在");
 
         // ② INCR（等价 bump_epoch）
-        let epoch: u64 = redis::cmd("INCR")
-            .arg(&epoch_key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+        let epoch: u64 = redis::cmd("INCR").arg(&epoch_key).query_async(&mut conn).await.unwrap();
         assert_eq!(epoch, 1);
 
         // ③ 写 + 读回（等价 Cache::set_ex / Cache::get），TTL 必须是 300 s
@@ -1150,40 +1093,23 @@ mod tests {
             .query_async(&mut conn)
             .await
             .unwrap();
-        let ttl_left: i64 = redis::cmd("TTL")
-            .arg(&key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+        let ttl_left: i64 = redis::cmd("TTL").arg(&key).query_async(&mut conn).await.unwrap();
         assert!(
             ttl_left > 0 && ttl_left <= i64::try_from(ttl).unwrap(),
             "TTL 必须落在 (0, {ttl}]，实际 {ttl_left}"
         );
-        let read: Option<String> = redis::cmd("GET")
-            .arg(&key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
-        let decoded: CachedScope =
-            serde_json::from_str(&read.expect("刚写入的键必须能读回")).unwrap();
+        let read: Option<String> = redis::cmd("GET").arg(&key).query_async(&mut conn).await.unwrap();
+        let decoded: CachedScope = serde_json::from_str(&read.expect("刚写入的键必须能读回")).unwrap();
         assert_eq!(decoded.kind, payload.kind);
         assert_eq!(decoded.dept_ids, payload.dept_ids);
         assert!(decoded.self_only);
 
         // ④ 再 INCR → 新键未命中（旧键仍在，靠 TTL 自然回收 —— epoch 方案的取舍）
-        let epoch2: u64 = redis::cmd("INCR")
-            .arg(&epoch_key)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+        let epoch2: u64 = redis::cmd("INCR").arg(&epoch_key).query_async(&mut conn).await.unwrap();
         assert_eq!(epoch2, 2);
         let key2 = format!("{prefix}user_scope:{epoch2}:{user_id}");
         assert_ne!(key, key2, "epoch 变化必须换来新键");
-        let missing: Option<String> = redis::cmd("GET")
-            .arg(&key2)
-            .query_async(&mut conn)
-            .await
-            .unwrap();
+        let missing: Option<String> = redis::cmd("GET").arg(&key2).query_async(&mut conn).await.unwrap();
         assert_eq!(missing, None, "epoch 递增后新键必然未命中");
         // 生产键函数与测试里手拼的形态一致（防止两处漂移）
         assert_eq!(
@@ -1197,8 +1123,6 @@ mod tests {
             .query_async(&mut conn)
             .await
             .unwrap();
-        println!(
-            "[真Redis] INCR epoch 1→2；键 `{key}` TTL={ttl_left}s；读回 serde 一致；新键未命中 ✓"
-        );
+        println!("[真Redis] INCR epoch 1→2；键 `{key}` TTL={ttl_left}s；读回 serde 一致；新键未命中 ✓");
     }
 }

@@ -115,12 +115,7 @@ pub fn conflict_message(hits: &[PairHit], requested: &[Uuid], held: &[Uuid]) -> 
 }
 
 /// 校验点 3 的文案：建规则时已有用户同时持有。
-pub fn holders_message(
-    total: i64,
-    role_a_name: &str,
-    role_b_name: &str,
-    sample_usernames: &[String],
-) -> String {
+pub fn holders_message(total: i64, role_a_name: &str, role_b_name: &str, sample_usernames: &[String]) -> String {
     let sample = if sample_usernames.is_empty() {
         String::new()
     } else {
@@ -133,12 +128,7 @@ pub fn holders_message(
 }
 
 /// 校验点 2 的文案：启用角色会让互斥关系成立。
-pub fn role_enable_message(
-    role_name: &str,
-    total: i64,
-    pairs: &str,
-    sample_usernames: &[String],
-) -> String {
+pub fn role_enable_message(role_name: &str, total: i64, pairs: &str, sample_usernames: &[String]) -> String {
     let sample = if sample_usernames.is_empty() {
         String::new()
     } else {
@@ -166,10 +156,7 @@ pub fn role_enable_message(
 /// # 对超管同样生效（刻意）
 ///
 /// 见模块文档「超管不短路」。
-pub async fn ensure_no_mutex(
-    user_id: &Uuid,
-    requested: &[Uuid],
-) -> std::result::Result<(), ApiError> {
+pub async fn ensure_no_mutex(user_id: &Uuid, requested: &[Uuid]) -> std::result::Result<(), ApiError> {
     if requested.is_empty() {
         // 清空全部角色：不可能新增互斥。历史上已违规的用户由体检接口暴露，不在这里报。
         return Ok(());
@@ -277,10 +264,7 @@ pub async fn ensure_role_enable_no_mutex(
             pair_names.push(pair);
         }
     }
-    let usernames = hits
-        .iter()
-        .map(|hit| hit.username.clone())
-        .collect::<Vec<_>>();
+    let usernames = hits.iter().map(|hit| hit.username.clone()).collect::<Vec<_>>();
     let usernames = dedup_take(&usernames, 3);
     let total = i64::try_from(users.len()).unwrap_or(i64::MAX);
     tracing::warn!(
@@ -440,12 +424,7 @@ mod tests {
     /// 校验点 3 文案：必须同时出现用户数、两个角色名、示例用户名。
     #[test]
     fn holders_message_contains_total_roles_and_sample() {
-        let text = holders_message(
-            2,
-            "采购员",
-            "付款审批",
-            &["zhangsan".to_string(), "lisi".to_string()],
-        );
+        let text = holders_message(2, "采购员", "付款审批", &["zhangsan".to_string(), "lisi".to_string()]);
         assert!(text.starts_with("无法建立互斥关系：2 个用户同时持有「采购员」与「付款审批」"));
         assert!(text.contains("如 zhangsan、lisi"));
         assert!(text.ends_with("请先解除他们的其中一个角色（如 zhangsan、lisi）。"));
@@ -474,10 +453,7 @@ mod tests {
     /// 去重截断：重复项不占位，最多留 3 个（文案不因同一用户命中两条规则而变长）。
     #[test]
     fn dedup_take_limits_and_dedups() {
-        let items: Vec<String> = ["a", "a", "b", "c", "d"]
-            .iter()
-            .map(|v| v.to_string())
-            .collect();
+        let items: Vec<String> = ["a", "a", "b", "c", "d"].iter().map(|v| v.to_string()).collect();
         assert_eq!(
             dedup_take(&items, 3),
             vec!["a".to_string(), "b".to_string(), "c".to_string()]

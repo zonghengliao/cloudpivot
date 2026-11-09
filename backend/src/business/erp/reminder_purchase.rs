@@ -61,20 +61,15 @@ pub struct PurchaseOverdueCandidate {
 
 /// 组装一条提醒消息（收件人 = 制单人 + 采购经理）。
 pub fn message_of(candidate: &PurchaseOverdueCandidate, managers: &[Uuid]) -> ReminderMessage {
-    let recipients = reminder::merge_recipients(
-        std::iter::once(candidate.created_by).chain(managers.iter().copied().map(Some)),
-    );
+    let recipients =
+        reminder::merge_recipients(std::iter::once(candidate.created_by).chain(managers.iter().copied().map(Some)));
     let expect_date = candidate.expect_date.format("%Y-%m-%d").to_string();
     let overdue_days = candidate.overdue_days;
     let title = format!("采购单超期 {overdue_days} 天未收货：{}", candidate.order_no);
     let content = format!(
         "采购单 {}（供应商：{}）期望到货日 {}，已逾期 {} 天仍未收完（收货仓库：{}）。\n\
          请催供应商交货，或在本单上改期 / 关闭，避免「已审批未到货」长期悬空拖累计划与应付。",
-        candidate.order_no,
-        candidate.supplier_name,
-        expect_date,
-        overdue_days,
-        candidate.warehouse_name
+        candidate.order_no, candidate.supplier_name, expect_date, overdue_days, candidate.warehouse_name
     );
     let vars = serde_json::json!({
         "poNo": candidate.order_no,
@@ -137,18 +132,14 @@ pub async fn scan_candidates(day: NaiveDate) -> DbResult<Vec<PurchaseOverdueCand
               ORDER BY o.expect_date ASC, o.order_no ASC \
               LIMIT ?"
                 .to_string(),
-            vec![
-                Value::Text(day.format("%Y-%m-%d").to_string()),
-                Value::I64(SCAN_BATCH),
-            ],
+            vec![Value::Text(day.format("%Y-%m-%d").to_string()), Value::I64(SCAN_BATCH)],
         )
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows.iter() {
         let raw: String = row.get_typed("expect_date")?;
-        let expect_date = NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|error| {
-            DbError::InvalidValue(format!("采购单期望到货日解析失败（{raw}）：{error}"))
-        })?;
+        let expect_date = NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d")
+            .map_err(|error| DbError::InvalidValue(format!("采购单期望到货日解析失败（{raw}）：{error}")))?;
         out.push(PurchaseOverdueCandidate {
             id: row.get_typed("id")?,
             order_no: row.get_typed("order_no")?,
@@ -204,16 +195,8 @@ mod tests {
     fn message_carries_doc_no_date_and_action() {
         let managers = vec![Uuid::parse_str("0199dddd-0000-7000-8000-000000000021").unwrap()];
         let message = message_of(&candidate(14), &managers);
-        assert!(
-            message.title.contains("PO-20261001-000007"),
-            "{}",
-            message.title
-        );
-        assert!(
-            message.title.contains("14"),
-            "标题要写逾期天数：{}",
-            message.title
-        );
+        assert!(message.title.contains("PO-20261001-000007"), "{}", message.title);
+        assert!(message.title.contains("14"), "标题要写逾期天数：{}", message.title);
         for fact in [
             "PO-20261001-000007",
             "上海示例供应商",
@@ -221,11 +204,7 @@ mod tests {
             "原料仓",
             "催供应商交货",
         ] {
-            assert!(
-                message.content.contains(fact),
-                "正文缺 `{fact}`：{}",
-                message.content
-            );
+            assert!(message.content.contains(fact), "正文缺 `{fact}`：{}", message.content);
         }
         assert_eq!(message.stage, "OVERDUE-14");
         assert_eq!(message.vars["overdueDays"], "14");
@@ -239,10 +218,7 @@ mod tests {
         let manager = Uuid::parse_str("0199dddd-0000-7000-8000-000000000021").unwrap();
         let mut no_creator = candidate(3);
         no_creator.created_by = None;
-        assert_eq!(
-            message_of(&no_creator, &[manager]).recipients,
-            vec![manager]
-        );
+        assert_eq!(message_of(&no_creator, &[manager]).recipients, vec![manager]);
 
         let mut nobody = candidate(3);
         nobody.created_by = None;

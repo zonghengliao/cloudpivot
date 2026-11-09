@@ -18,13 +18,9 @@ async fn detail_and_serials_are_grouped_by_line() {
     };
     let mut sn_line = item(M_SN, "2");
     sn_line.serial_ids = vec![SERIAL_1.to_string(), SERIAL_2.to_string()];
-    let id = create_transfer(
-        &body(vec![item(M_PLAIN, "1"), sn_line]),
-        Some(uuid(U_APPLICANT)),
-        None,
-    )
-    .await
-    .expect("建单");
+    let id = create_transfer(&body(vec![item(M_PLAIN, "1"), sn_line]), Some(uuid(U_APPLICANT)), None)
+        .await
+        .expect("建单");
     let detail = detail_of(id).await.expect("详情");
     assert_eq!(detail.items.len(), 2);
     assert_eq!(detail.items[0].serial_ids.len(), 0);
@@ -41,11 +37,10 @@ async fn detail_and_serials_are_grouped_by_line() {
         .expect("第 2 行的分组");
     assert_eq!(sn_group.serials.len(), 2);
     assert!(
-        sn_group.serials.iter().all(|serial| serial
-            .serial_no
-            .as_deref()
-            .unwrap_or("")
-            .starts_with("W3B-SN-")),
+        sn_group
+            .serials
+            .iter()
+            .all(|serial| serial.serial_no.as_deref().unwrap_or("").starts_with("W3B-SN-")),
         "必须回读出序列号文本"
     );
 }
@@ -78,13 +73,9 @@ async fn page_filters_by_status_and_warehouse() {
     };
     let (rows, total) = transfer_model::page(&query).await.expect("分页");
     assert!(total >= 1);
+    assert!(rows.iter().all(|row| row.status == STATUS_PENDING), "状态筛选必须生效");
     assert!(
-        rows.iter().all(|row| row.status == STATUS_PENDING),
-        "状态筛选必须生效"
-    );
-    assert!(
-        rows.iter()
-            .all(|row| row.from_warehouse_id == uuid(WH_FROM)),
+        rows.iter().all(|row| row.from_warehouse_id == uuid(WH_FROM)),
         "仓库筛选必须生效"
     );
     // 单号前缀筛选能命中自己

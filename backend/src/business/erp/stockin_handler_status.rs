@@ -18,8 +18,8 @@ use crate::business::erp::approval_gate;
 use crate::business::erp::separation;
 use crate::business::erp::stockin_dto::{MAX_REASON_LEN, StockInDetailRes, StockInStatusReq};
 use crate::business::erp::stockin_model::{
-    self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED,
-    can_transition, transition_rejected_message,
+    self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED, can_transition,
+    transition_rejected_message,
 };
 use crate::business::shared::state_machine;
 use crate::utils;
@@ -145,13 +145,7 @@ pub async fn change_stock_in_status_with(
         {
             Some(flow) => {
                 approval_gate::ensure_not_skipped(stockin_model::CANCEL_FLOW_CODE, gate)?;
-                return submit_cancel_approval(
-                    &row,
-                    reason.as_deref().unwrap_or_default(),
-                    &op,
-                    &flow,
-                )
-                .await;
+                return submit_cancel_approval(&row, reason.as_deref().unwrap_or_default(), &op, &flow).await;
             }
             None => {
                 let skip_reason = approval_gate::authorize_missing_flow(
@@ -177,17 +171,7 @@ pub async fn change_stock_in_status_with(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    match cancel_in_tx(
-        &tx,
-        id,
-        &row,
-        reason.as_deref(),
-        &op,
-        now,
-        &mut linkage_outbox,
-    )
-    .await
-    {
+    match cancel_in_tx(&tx, id, &row, reason.as_deref(), &op, now, &mut linkage_outbox).await {
         Ok(()) => {
             tx.commit()
                 .await

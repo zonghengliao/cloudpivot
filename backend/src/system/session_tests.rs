@@ -62,10 +62,10 @@ async fn admin_id() -> uuid::Uuid {
 async fn admin_claims(ver: i64) -> AuthClaims {
     let mut claims = ts::super_claims();
     claims.0.sub = admin_id().await.to_string();
-    claims.0.extra.insert(
-        constants::CLAIM_TOKEN_VERSION.to_string(),
-        serde_json::json!(ver),
-    );
+    claims
+        .0
+        .extra
+        .insert(constants::CLAIM_TOKEN_VERSION.to_string(), serde_json::json!(ver));
     claims
 }
 
@@ -124,10 +124,7 @@ async fn create_menu(name: &str, auth_code: &str) -> uuid::Uuid {
 async fn bind_role(user_id: &uuid::Uuid, role_id: &uuid::Uuid) {
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_id.to_string())],
     )
     .await;
 }
@@ -138,10 +135,7 @@ async fn cleanup(prefix: &str, extra_roles: &[uuid::Uuid], extra_menus: &[uuid::
         &format!("FIX05→sys_user_role({prefix})"),
         "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?) \
          OR role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-        vec![
-            Value::from(format!("{prefix}%")),
-            Value::from(format!("{prefix}%")),
-        ],
+        vec![Value::from(format!("{prefix}%")), Value::from(format!("{prefix}%"))],
     )
     .await;
     ts::cleanup_sql(
@@ -182,18 +176,12 @@ async fn cleanup(prefix: &str, extra_roles: &[uuid::Uuid], extra_menus: &[uuid::
 /// 这里钉死这两个出口，避免后续有人把码改回 `401` 或把文案改掉（前端按码跳登录页）。
 #[tokio::test]
 async fn s01_version_mismatch_returns_20008() {
-    assert!(
-        version_is_current(0, 0),
-        "0 == 0 应放行（整改前的旧令牌平滑过渡）"
-    );
+    assert!(version_is_current(0, 0), "0 == 0 应放行（整改前的旧令牌平滑过渡）");
     assert!(version_is_current(7, 7), "相等必须放行");
     assert!(!version_is_current(6, 7), "旧版本必须被判过期");
     assert!(!version_is_current(7, 6), "库比令牌新也必须判过期");
 
-    let response = unauthorized_with(
-        error_code::AUTH_PERMISSION_CHANGED,
-        "您的权限已变更，请重新登录",
-    );
+    let response = unauthorized_with(error_code::AUTH_PERMISSION_CHANGED, "您的权限已变更，请重新登录");
     assert_eq!(
         response.status(),
         axum::http::StatusCode::UNAUTHORIZED,
@@ -259,9 +247,7 @@ async fn s02_assign_roles_invalidates_old_token() {
         ts::headers(),
         ts::connect_info(),
         Extension(admin),
-        ValidatedJson(UserRoleAssignReq {
-            role_ids: Vec::new(),
-        }),
+        ValidatedJson(UserRoleAssignReq { role_ids: Vec::new() }),
     )
     .await
     .expect("撤销角色应成功");
@@ -292,9 +278,7 @@ async fn s02_assign_roles_invalidates_old_token() {
         "会话字段读到的必须是最新版本号（没有旧值残留）"
     );
 
-    println!(
-        "[S02] 改角色：{ver_login} → {ver_after_grant} → {ver_after_revoke}，旧令牌 ver={ver_login} 已作废 ✓"
-    );
+    println!("[S02] 改角色：{ver_login} → {ver_after_grant} → {ver_after_revoke}，旧令牌 ver={ver_login} 已作废 ✓");
     cleanup(&prefix, &[role_id], &[]).await;
 }
 
@@ -342,16 +326,11 @@ async fn s03_assign_role_menus_invalidates_holders() {
     );
     let granted = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_role_menu WHERE role_id = ?::text::uuid AND menu_id = ?::text::uuid",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(menu_id.to_string()),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(menu_id.to_string())],
     )
     .await;
     assert_eq!(granted, 1, "授权绑定必须真的落库");
-    println!(
-        "[S03] 改角色权限：持有者 {holder_before} → {holder_after}，无关用户保持 {bystander_after} ✓"
-    );
+    println!("[S03] 改角色权限：持有者 {holder_before} → {holder_after}，无关用户保持 {bystander_after} ✓");
     cleanup(&prefix, &[role_id], &[menu_id]).await;
 }
 
@@ -474,10 +453,7 @@ async fn s06_degrades_to_db_without_cache() {
         .await
         .expect("读会话字段失败")
         .expect("用户应存在");
-    assert_eq!(
-        second.0, 5,
-        "没有缓存时必须立刻读到库里的新版本号（无窗口）"
-    );
+    assert_eq!(second.0, 5, "没有缓存时必须立刻读到库里的新版本号（无窗口）");
 
     session_cache::invalidate(&user_id).await;
     session_cache::invalidate_all().await;
@@ -532,13 +508,10 @@ async fn s08_super_admin_exempt_but_other_holders_bumped() {
     let holder_before = version_of(&holder).await;
     let admin_before = version_of(&admin).await;
 
-    let bumped = crate::system::user::model::bump_token_version_of_role_holders_in(
-        db(),
-        role_id,
-        constants::ADMIN_USERNAME,
-    )
-    .await
-    .expect("批量推进版本号失败");
+    let bumped =
+        crate::system::user::model::bump_token_version_of_role_holders_in(db(), role_id, constants::ADMIN_USERNAME)
+            .await
+            .expect("批量推进版本号失败");
     assert_eq!(bumped, 1, "只应推进非超管的 1 个持有者（实际 {bumped}）");
 
     let holder_after = version_of(&holder).await;
@@ -558,10 +531,7 @@ async fn s08_super_admin_exempt_but_other_holders_bumped() {
     ts::cleanup_sql(
         &format!("FIX05→sys_user_role(admin,{role_id})"),
         "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid AND role_id = ?::text::uuid",
-        vec![
-            Value::from(admin.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(admin.to_string()), Value::from(role_id.to_string())],
     )
     .await;
     cleanup(&prefix, &[role_id], &[]).await;

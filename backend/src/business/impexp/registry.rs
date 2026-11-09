@@ -56,10 +56,7 @@ impl DefinitionRegistry {
     /// # 异常情况
     ///
     /// 同一 `biz_type` 重复注册返回错误（编码必须全局唯一，避免静默覆盖）。
-    pub fn register_import(
-        &mut self,
-        definition: Arc<dyn ImportDefinition>,
-    ) -> std::result::Result<(), String> {
+    pub fn register_import(&mut self, definition: Arc<dyn ImportDefinition>) -> std::result::Result<(), String> {
         let biz_type = definition.biz_type();
         if self.imports.contains_key(biz_type) {
             return Err(format!("导入定义 {biz_type} 重复注册"));
@@ -77,10 +74,7 @@ impl DefinitionRegistry {
     /// # 异常情况
     ///
     /// 同一 `biz_type` 重复注册返回错误。
-    pub fn register_export(
-        &mut self,
-        definition: Arc<dyn ExportDefinition>,
-    ) -> std::result::Result<(), String> {
+    pub fn register_export(&mut self, definition: Arc<dyn ExportDefinition>) -> std::result::Result<(), String> {
         let biz_type = definition.biz_type();
         if self.exports.contains_key(biz_type) {
             return Err(format!("导出定义 {biz_type} 重复注册"));
@@ -178,9 +172,9 @@ pub fn global_registry() -> &'static DefinitionRegistry {
         // 批次 B · B6：`sys_user` 导出定义（三个敏感列）。注册在 `masking/` 而不是
         // `builtin/`，因为它是「导出脱敏」的验证载体，属于 B6 的交付面；
         // 脱敏本身在 `engine::format_export_rows` 里统一处理，与定义放哪无关。
-        if let Err(error) = registry.register_export(std::sync::Arc::new(
-            crate::business::masking::user_export::UserExport,
-        )) {
+        if let Err(error) =
+            registry.register_export(std::sync::Arc::new(crate::business::masking::user_export::UserExport))
+        {
             panic!("用户导出定义注册失败：{error}");
         }
         registry

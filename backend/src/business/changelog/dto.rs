@@ -335,12 +335,7 @@ impl<'a> ChangeTarget<'a> {
     /// - `resource_id`：业务主键字符串；
     /// - `action`：动作；
     /// - `action_label`：中文可读动作名。
-    pub fn of(
-        resource: &'a str,
-        resource_id: impl Into<String>,
-        action: Action,
-        action_label: &'a str,
-    ) -> Self {
+    pub fn of(resource: &'a str, resource_id: impl Into<String>, action: Action, action_label: &'a str) -> Self {
         Self {
             resource,
             resource_id: resource_id.into(),
@@ -666,10 +661,7 @@ fn big_summary(value: Option<&serde_json::Value>) -> BigSummaryRes {
         };
     };
     BigSummaryRes {
-        len: map
-            .get("len")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
+        len: map.get("len").and_then(serde_json::Value::as_u64).unwrap_or(0),
         sha256: map
             .get("sha256")
             .and_then(serde_json::Value::as_str)
@@ -697,10 +689,7 @@ impl ChangeLogDetailRes {
                 let after = pair.get("a").cloned().unwrap_or(serde_json::Value::Null);
                 fields.push(FieldDiffRes {
                     field: name.clone(),
-                    masked: pair
-                        .get("masked")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false),
+                    masked: pair.get("masked").and_then(serde_json::Value::as_bool).unwrap_or(false),
                     redacted: is_redacted(&before) || is_redacted(&after),
                     before,
                     after,

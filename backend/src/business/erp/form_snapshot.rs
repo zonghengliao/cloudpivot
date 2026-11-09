@@ -109,12 +109,7 @@ const TRANSFER_ITEMS_SQL: &str = "SELECT i.line_no, \
   ORDER BY i.line_no ASC";
 
 /// 取单列文本（首行；无行 → `None`）。
-async fn one_text(
-    ex: &impl SqlExecutor,
-    sql: &str,
-    id: Uuid,
-    column: &str,
-) -> DbResult<Option<String>> {
+async fn one_text(ex: &impl SqlExecutor, sql: &str, id: Uuid, column: &str) -> DbResult<Option<String>> {
     let rows = ex.query_sql(sql.to_string(), vec![Value::from(id)]).await?;
     match rows.first() {
         Some(row) => Ok(row.get_typed::<Option<String>>(column)?),
@@ -174,29 +169,17 @@ pub async fn purchase_items(ex: &impl SqlExecutor, order_id: Uuid) -> DbResult<s
 }
 
 /// 收货入库单明细快照（`items` 键的值）。
-pub async fn stock_in_items(
-    ex: &impl SqlExecutor,
-    stock_in_id: Uuid,
-) -> DbResult<serde_json::Value> {
+pub async fn stock_in_items(ex: &impl SqlExecutor, stock_in_id: Uuid) -> DbResult<serde_json::Value> {
     let rows = ex
-        .query_sql(
-            STOCK_IN_ITEMS_SQL.to_string(),
-            vec![Value::from(stock_in_id)],
-        )
+        .query_sql(STOCK_IN_ITEMS_SQL.to_string(), vec![Value::from(stock_in_id)])
         .await?;
     item_rows(&rows)
 }
 
 /// 调拨单明细快照（`items` 键的值）。
-pub async fn transfer_items(
-    ex: &impl SqlExecutor,
-    transfer_id: Uuid,
-) -> DbResult<serde_json::Value> {
+pub async fn transfer_items(ex: &impl SqlExecutor, transfer_id: Uuid) -> DbResult<serde_json::Value> {
     let rows = ex
-        .query_sql(
-            TRANSFER_ITEMS_SQL.to_string(),
-            vec![Value::from(transfer_id)],
-        )
+        .query_sql(TRANSFER_ITEMS_SQL.to_string(), vec![Value::from(transfer_id)])
         .await?;
     item_rows(&rows)
 }
@@ -348,10 +331,7 @@ mod tests {
     /// 一条明细行必须**八个键全在**（前端按存在的键出列；少一个就是少一列）。
     fn assert_item_keys(row: &serde_json::Value) {
         for key in ITEM_KEYS {
-            assert!(
-                row.get(key).is_some(),
-                "明细行缺键 `{key}`：{row}（前端会少一列）"
-            );
+            assert!(row.get(key).is_some(), "明细行缺键 `{key}`：{row}（前端会少一列）");
         }
     }
 
@@ -363,17 +343,11 @@ mod tests {
             None => return,
         };
         assert_eq!(
-            supplier_name(db(), uuid(SUPPLIER))
-                .await
-                .unwrap()
-                .as_deref(),
+            supplier_name(db(), uuid(SUPPLIER)).await.unwrap().as_deref(),
             Some("P1FIX 快照供应商")
         );
         assert_eq!(
-            warehouse_name(db(), uuid(WH_FROM))
-                .await
-                .unwrap()
-                .as_deref(),
+            warehouse_name(db(), uuid(WH_FROM)).await.unwrap().as_deref(),
             Some("P1FIX 调出仓")
         );
         assert_eq!(

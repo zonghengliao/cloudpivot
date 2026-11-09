@@ -98,10 +98,7 @@ pub async fn default_location_of(warehouse_id: Uuid) -> DbResult<Option<Location
 }
 
 /// 同 [`default_location_of`]，但在**给定事务 / 连接**上读（过账路径用）。
-pub async fn default_location_in(
-    ex: &impl SqlExecutor,
-    warehouse_id: Uuid,
-) -> DbResult<Option<LocationDict>> {
+pub async fn default_location_in(ex: &impl SqlExecutor, warehouse_id: Uuid) -> DbResult<Option<LocationDict>> {
     let row = ex
         .query_first_sql(
             "SELECT id, location_code, location_name, warehouse_id, is_default, capacity, \
@@ -187,9 +184,7 @@ pub async fn location_dict_of_rows(ids: &[Uuid]) -> DbResult<HashMap<Uuid, Optio
     let params: Vec<Value> = unique.iter().map(Value::from).collect();
     let rows = db()
         .find_with_params(
-            &format!(
-                "SELECT id, location_id FROM biz_inventory_location WHERE id IN ({placeholders})"
-            ),
+            &format!("SELECT id, location_id FROM biz_inventory_location WHERE id IN ({placeholders})"),
             params,
         )
         .await?;
@@ -222,11 +217,7 @@ pub async fn warehouse_label_of(warehouse_id: Uuid) -> DbResult<Option<(String, 
 /// 容量预警的取数口径：`biz_location.capacity` 的注释写的是「同基础单位数量」，
 /// 即库位容量是按基础单位计的粗粒度上限（不做单位换算）。这里按库位账
 /// `SUM(qty)` 取，只用于**提示**，不做拦截（卡面 §三 允许二选一，本卡选预警）。
-pub async fn location_usage_in(
-    ex: &impl SqlExecutor,
-    warehouse_id: Uuid,
-    location_dict_id: Uuid,
-) -> DbResult<Decimal> {
+pub async fn location_usage_in(ex: &impl SqlExecutor, warehouse_id: Uuid, location_dict_id: Uuid) -> DbResult<Decimal> {
     let value: Option<Decimal> = ex
         .query_first_sql(
             "SELECT COALESCE(SUM(qty), 0) AS used FROM biz_inventory_location \
@@ -290,8 +281,7 @@ pub async fn ensure_location_row(
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
     // P2-5A：库位账行 upsert 收口到 [`inventory_writer::ensure_location_row`]。
-    inventory_writer::ensure_location_row(ex, material_id, warehouse_id, location_dict_id, now)
-        .await
+    inventory_writer::ensure_location_row(ex, material_id, warehouse_id, location_dict_id, now).await
 }
 
 /// 过账时把「解析出来的库位账行 id」回写到明细（作废 / 红冲按它原路退回）。
@@ -302,13 +292,8 @@ pub async fn set_item_location_id(
     now: DateTime<Utc>,
 ) -> DbResult<()> {
     ex.exec_sql(
-        "UPDATE biz_stock_in_item SET location_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"
-            .to_string(),
-        vec![
-            Value::from(&row_id),
-            Value::from(now),
-            Value::from(&item_id),
-        ],
+        "UPDATE biz_stock_in_item SET location_id = ?::uuid, updated_at = ? WHERE id = ?::uuid".to_string(),
+        vec![Value::from(&row_id), Value::from(now), Value::from(&item_id)],
     )
     .await?;
     Ok(())

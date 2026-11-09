@@ -47,9 +47,8 @@ use std::net::SocketAddr;
 
 use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::help::dto::{
-    CategorySaveReq, CategoryTreeQuery, ChangeNoteReq, DocPageQuery, DocSaveReq,
-    HelpCategoryNodeRes, HelpDocCardRes, HelpDocDetailRes, HelpReadRes, HelpSearchHitRes,
-    HelpSearchQuery, HelpTocRes, HelpVersionRes,
+    CategorySaveReq, CategoryTreeQuery, ChangeNoteReq, DocPageQuery, DocSaveReq, HelpCategoryNodeRes, HelpDocCardRes,
+    HelpDocDetailRes, HelpReadRes, HelpSearchHitRes, HelpSearchQuery, HelpTocRes, HelpVersionRes,
 };
 use crate::business::help::model::{self, DocFilter, DocInput, HelpError, SearchFilter};
 use crate::business::shared::content::{self, Recipe};
@@ -127,9 +126,7 @@ pub async fn category_list() -> ResResult<Vec<HelpCategoryNodeRes>> {
     let rows = model::list_categories(false)
         .await
         .map_err(|error| utils::db_error(error, "查询帮助分类"))?;
-    Ok(Res::ok(
-        rows.iter().map(HelpCategoryNodeRes::from_row).collect(),
-    ))
+    Ok(Res::ok(rows.iter().map(HelpCategoryNodeRes::from_row).collect()))
 }
 
 /// 新建分类（H-01：第 4 层 → 422 + 62010）。
@@ -158,9 +155,7 @@ pub async fn category_update(
 ) -> ResResult<HelpCategoryNodeRes> {
     let category_id = utils::require_uuid(&id, "id")?;
     let input = to_category_input(&req)?;
-    let row = model::update_category(&category_id, &input)
-        .await
-        .map_err(help_error)?;
+    let row = model::update_category(&category_id, &input).await.map_err(help_error)?;
     Ok(Res::ok(HelpCategoryNodeRes::from_row(&row)))
 }
 
@@ -173,20 +168,14 @@ pub async fn category_update(
 #[nik::delete("/business/help/category/{id}")]
 pub async fn category_delete(Path(id): Path<String>) -> ResResult<()> {
     let category_id = utils::require_uuid(&id, "id")?;
-    model::delete_category(&category_id)
-        .await
-        .map_err(help_error)?;
+    model::delete_category(&category_id).await.map_err(help_error)?;
     Ok(Res::ok(()))
 }
 
 // ==================== 文档：列表 / 详情 ====================
 
 /// 文档列表（用户侧只看已发布；管理侧可按 `status` 过滤）。
-#[nik::permission(
-    path = "/business/help/doc/page",
-    method = "GET",
-    permission = "system:help:read"
-)]
+#[nik::permission(path = "/business/help/doc/page", method = "GET", permission = "system:help:read")]
 #[nik::get("/business/help/doc/page")]
 pub async fn doc_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -199,10 +188,7 @@ pub async fn doc_page(
         _ => None,
     };
     let status = if admin {
-        query
-            .status
-            .as_deref()
-            .map(|value| value.trim().to_uppercase())
+        query.status.as_deref().map(|value| value.trim().to_uppercase())
     } else {
         None
     };
@@ -231,11 +217,7 @@ pub async fn doc_page(
 ///
 /// - 404 + 62015：文档不存在 / 已软删；
 /// - 404 + 62015：文档未发布且当前用户无 `system:help:doc:list`（**不泄露存在性**）。
-#[nik::permission(
-    path = "/business/help/doc/{id}",
-    method = "GET",
-    permission = "system:help:read"
-)]
+#[nik::permission(path = "/business/help/doc/{id}", method = "GET", permission = "system:help:read")]
 #[nik::get("/business/help/doc/{id}")]
 pub async fn doc_detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -255,11 +237,7 @@ pub async fn doc_detail(
 // ==================== 文档：写 ====================
 
 /// 新建文档（草稿，`version = 0`，不产生版本快照）。
-#[nik::permission(
-    path = "/business/help/doc",
-    method = "POST",
-    permission = "system:help:doc:create"
-)]
+#[nik::permission(path = "/business/help/doc", method = "POST", permission = "system:help:doc:create")]
 #[nik::post("/business/help/doc")]
 pub async fn doc_create(
     headers: HeaderMap,
@@ -291,12 +269,7 @@ pub async fn doc_create(
             changelog::record_in(
                 &tx,
                 &ctx.ctx(),
-                ChangeTarget::of(
-                    "sys_help_doc",
-                    doc_id.to_string(),
-                    Action::Create,
-                    "新建帮助文档",
-                ),
+                ChangeTarget::of("sys_help_doc", doc_id.to_string(), Action::Create, "新建帮助文档"),
                 DiffInput::create(&snapshot),
             )
             .await?;
@@ -358,12 +331,7 @@ pub async fn doc_update(
         changelog::record_in(
             &tx,
             &ctx.ctx(),
-            ChangeTarget::of(
-                "sys_help_doc",
-                doc_id.to_string(),
-                Action::Update,
-                "保存帮助文档",
-            ),
+            ChangeTarget::of("sys_help_doc", doc_id.to_string(), Action::Update, "保存帮助文档"),
             DiffInput::update(&before_snapshot, &after_snapshot),
         )
         .await?;
@@ -400,12 +368,7 @@ pub async fn doc_delete(
         changelog::record_in(
             &tx,
             &ctx.ctx(),
-            ChangeTarget::of(
-                "sys_help_doc",
-                doc_id.to_string(),
-                Action::Delete,
-                "删除帮助文档",
-            ),
+            ChangeTarget::of("sys_help_doc", doc_id.to_string(), Action::Delete, "删除帮助文档"),
             DiffInput::delete(&before_snapshot),
         )
         .await?;
@@ -456,12 +419,7 @@ pub async fn doc_publish(
         changelog::record_in(
             &tx,
             &ctx.ctx(),
-            ChangeTarget::of(
-                "sys_help_doc",
-                doc_id.to_string(),
-                Action::Publish,
-                "发布帮助文档",
-            ),
+            ChangeTarget::of("sys_help_doc", doc_id.to_string(), Action::Publish, "发布帮助文档"),
             DiffInput::update(&before_snapshot, &after_snapshot),
         )
         .await?;
@@ -566,11 +524,7 @@ pub async fn doc_rollback(
 ///
 /// `q` 为空 → 返回空页（**不查库**）：`%%` 会全表命中，而"没关键词"的正确语义是
 /// "没有结果"。
-#[nik::permission(
-    path = "/business/help/search",
-    method = "GET",
-    permission = "system:help:read"
-)]
+#[nik::permission(path = "/business/help/search", method = "GET", permission = "system:help:read")]
 #[nik::get("/business/help/search")]
 pub async fn search(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -584,10 +538,7 @@ pub async fn search(
         _ => None,
     };
     let status = if admin {
-        query
-            .status
-            .as_deref()
-            .map(|value| value.trim().to_uppercase())
+        query.status.as_deref().map(|value| value.trim().to_uppercase())
     } else {
         None
     };
@@ -638,9 +589,8 @@ pub async fn doc_read(
 ) -> ResResult<HelpReadRes> {
     let admin = can_manage(&claims);
     let doc = load_doc(&id, admin).await?;
-    let user_id = utils::current_user_uuid(&claims).ok_or_else(|| {
-        ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识")
-    })?;
+    let user_id = utils::current_user_uuid(&claims)
+        .ok_or_else(|| ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识"))?;
     let counted = claim_read_once(&doc.id.to_string(), &user_id.to_string()).await;
     if !counted {
         // 去重命中：直接回报当前阅读量，不写库
@@ -725,35 +675,17 @@ fn help_error(error: HelpError) -> ApiError {
     let message = error.message().to_string();
     match error {
         HelpError::Db(inner) => utils::db_error(inner, "帮助文档"),
-        HelpError::DepthExceeded => {
-            ApiError::new(422, error_code::HELP_CATEGORY_DEPTH_EXCEEDED, message)
-        }
-        HelpError::CategoryNotEmpty => {
-            ApiError::new(409, error_code::HELP_CATEGORY_NOT_EMPTY, message)
-        }
-        HelpError::CategoryHasChildren => {
-            ApiError::new(409, error_code::RESOURCE_CONFLICT, message)
-        }
-        HelpError::CategoryNotFound => {
-            ApiError::new(404, error_code::HELP_CATEGORY_NOT_FOUND, message)
-        }
-        HelpError::CategoryCodeConflict => {
-            ApiError::new(409, error_code::RESOURCE_CONFLICT, message)
-        }
+        HelpError::DepthExceeded => ApiError::new(422, error_code::HELP_CATEGORY_DEPTH_EXCEEDED, message),
+        HelpError::CategoryNotEmpty => ApiError::new(409, error_code::HELP_CATEGORY_NOT_EMPTY, message),
+        HelpError::CategoryHasChildren => ApiError::new(409, error_code::RESOURCE_CONFLICT, message),
+        HelpError::CategoryNotFound => ApiError::new(404, error_code::HELP_CATEGORY_NOT_FOUND, message),
+        HelpError::CategoryCodeConflict => ApiError::new(409, error_code::RESOURCE_CONFLICT, message),
         HelpError::CategoryMoveCycle => ApiError::new(400, error_code::PARAM_INVALID, message),
         HelpError::DocNotFound => ApiError::new(404, error_code::HELP_DOC_NOT_FOUND, message),
-        HelpError::DocSlugConflict => {
-            ApiError::new(409, error_code::HELP_DOC_SLUG_CONFLICT, message)
-        }
-        HelpError::DocStatusConflict => {
-            ApiError::new(409, error_code::HELP_DOC_STATUS_CONFLICT, message)
-        }
-        HelpError::DocContentInvalid => {
-            ApiError::new(400, error_code::HELP_DOC_CONTENT_INVALID, message)
-        }
-        HelpError::VersionNotFound => {
-            ApiError::new(404, error_code::HELP_DOC_VERSION_NOT_FOUND, message)
-        }
+        HelpError::DocSlugConflict => ApiError::new(409, error_code::HELP_DOC_SLUG_CONFLICT, message),
+        HelpError::DocStatusConflict => ApiError::new(409, error_code::HELP_DOC_STATUS_CONFLICT, message),
+        HelpError::DocContentInvalid => ApiError::new(400, error_code::HELP_DOC_CONTENT_INVALID, message),
+        HelpError::VersionNotFound => ApiError::new(404, error_code::HELP_DOC_VERSION_NOT_FOUND, message),
     }
 }
 

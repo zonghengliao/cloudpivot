@@ -85,11 +85,7 @@ pub fn resolve_allow_manual(raw: Option<&str>) -> bool {
 ///
 /// `true` = 允许手工指定编码（默认），`false` = 编码完全由系统生成。
 pub async fn allow_manual_code() -> bool {
-    resolve_allow_manual(
-        SysConfigModel::read_text(ALLOW_MANUAL_CODE_KEY)
-            .await
-            .as_deref(),
-    )
+    resolve_allow_manual(SysConfigModel::read_text(ALLOW_MANUAL_CODE_KEY).await.as_deref())
 }
 
 /// 拦截文案（**唯一出口**）：说清「为什么不行」「现在该怎么办」「要放开去哪里」。
@@ -304,10 +300,7 @@ mod tests {
             Some("true"),
             "V0342 必须把 {ALLOW_MANUAL_CODE_KEY} 种成 true（读到 {raw:?}）"
         );
-        assert!(
-            allow_manual_code().await,
-            "默认值 true ⇒ 生效值必须是「允许手工编码」"
-        );
+        assert!(allow_manual_code().await, "默认值 true ⇒ 生效值必须是「允许手工编码」");
     }
 
     /// 策略载荷携带前端要的三样东西，且 `allow_manual_code` 与读取口径一致。
@@ -320,10 +313,7 @@ mod tests {
             serde_json::json!(allow_manual_code().await),
             "载荷里的生效值必须与 allow_manual_code() 同源"
         );
-        assert_eq!(
-            payload["config_key"],
-            serde_json::json!(ALLOW_MANUAL_CODE_KEY)
-        );
+        assert_eq!(payload["config_key"], serde_json::json!(ALLOW_MANUAL_CODE_KEY));
         assert_eq!(
             payload["default_allow_manual_code"],
             serde_json::json!(DEFAULT_ALLOW_MANUAL_CODE)
@@ -364,20 +354,11 @@ mod tests {
         let manual_forbidden = format!("GYS-C08-{tag}-OFF");
         let manual_allowed = format!("GYS-C08-{tag}-ON");
 
-        let blocked = handler::create_supplier_with_policy(
-            None,
-            req(Some(&manual_forbidden), "CODE-08 手工被拒"),
-            false,
-        )
-        .await;
-        let auto =
-            handler::create_supplier_with_policy(None, req(None, "CODE-08 自动取号"), false).await;
-        let manual = handler::create_supplier_with_policy(
-            None,
-            req(Some(&manual_allowed), "CODE-08 手工放行"),
-            true,
-        )
-        .await;
+        let blocked =
+            handler::create_supplier_with_policy(None, req(Some(&manual_forbidden), "CODE-08 手工被拒"), false).await;
+        let auto = handler::create_supplier_with_policy(None, req(None, "CODE-08 自动取号"), false).await;
+        let manual =
+            handler::create_supplier_with_policy(None, req(Some(&manual_allowed), "CODE-08 手工放行"), true).await;
 
         // 清场（真库用例外不留痕）：只删本用例造的两行
         for created in [&auto, &manual] {
@@ -385,10 +366,7 @@ mod tests {
                 && let Ok(id) = Uuid::parse_str(&res.id)
             {
                 let _ = db()
-                    .execute_with_params(
-                        "DELETE FROM biz_supplier WHERE id = ?::uuid",
-                        vec![Value::from(&id)],
-                    )
+                    .execute_with_params("DELETE FROM biz_supplier WHERE id = ?::uuid", vec![Value::from(&id)])
                     .await;
             }
         }

@@ -31,11 +31,7 @@ use crate::utils;
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/log/page",
-    method = "GET",
-    permission = "support:log:list"
-)]
+#[nik::permission(path = "/support/log/page", method = "GET", permission = "support:log:list")]
 #[nik::get("/support/log/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -78,11 +74,7 @@ pub async fn page(
 /// - 400：ID 格式非法；
 /// - 404：日志不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/log/{id}",
-    method = "GET",
-    permission = "support:log:list"
-)]
+#[nik::permission(path = "/support/log/{id}", method = "GET", permission = "support:log:list")]
 #[nik::get("/support/log/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<LogDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -107,17 +99,10 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<LogDetailRes> {
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[nik::permission(
-    path = "/support/log/clean",
-    method = "DELETE",
-    permission = "support:log:delete"
-)]
+#[nik::permission(path = "/support/log/clean", method = "DELETE", permission = "support:log:delete")]
 #[nik::delete("/support/log/clean")]
 pub async fn clean(Query(query): Query<CleanQuery>) -> ResResult<CleanRes> {
-    let days = query
-        .days
-        .unwrap_or(constants::OPERATION_LOG_RETENTION_DAYS)
-        .max(1);
+    let days = query.days.unwrap_or(constants::OPERATION_LOG_RETENTION_DAYS).max(1);
     let cutoff = chrono::Utc::now() - chrono::Duration::days(days);
 
     let removed = model::delete_operation_logs_before(cutoff)
@@ -136,11 +121,7 @@ pub async fn clean(Query(query): Query<CleanQuery>) -> ResResult<CleanRes> {
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/log/audit/page",
-    method = "GET",
-    permission = "support:log:list"
-)]
+#[nik::permission(path = "/support/log/audit/page", method = "GET", permission = "support:log:list")]
 #[nik::get("/support/log/audit/page")]
 pub async fn page_audit(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -157,11 +138,7 @@ pub async fn page_audit(
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/log/auth/page",
-    method = "GET",
-    permission = "support:log:list"
-)]
+#[nik::permission(path = "/support/log/auth/page", method = "GET", permission = "support:log:list")]
 #[nik::get("/support/log/auth/page")]
 pub async fn page_auth(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -178,11 +155,7 @@ pub async fn page_auth(
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/log/security/page",
-    method = "GET",
-    permission = "support:log:list"
-)]
+#[nik::permission(path = "/support/log/security/page", method = "GET", permission = "support:log:list")]
 #[nik::get("/support/log/security/page")]
 pub async fn page_security(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -199,11 +172,7 @@ pub async fn page_security(
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/log/password/page",
-    method = "GET",
-    permission = "support:log:list"
-)]
+#[nik::permission(path = "/support/log/password/page", method = "GET", permission = "support:log:list")]
 #[nik::get("/support/log/password/page")]
 pub async fn page_password(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -251,10 +220,7 @@ fn parse_optional_time(
 /// # 异常情况
 ///
 /// 两种格式都解析失败返回 400 参数错误。
-fn parse_time(
-    raw: &str,
-    field: &str,
-) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
+fn parse_time(raw: &str, field: &str) -> std::result::Result<chrono::DateTime<chrono::Utc>, ApiError> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
         return Ok(dt.with_timezone(&chrono::Utc));
     }
@@ -294,22 +260,9 @@ async fn json_log_page(
     // 批次 B · B5：四类日志表（审计/认证/安全/密码变更）逐个按数据范围收口。
     let principal = principal::resolve_for_claims(claims).await?;
 
-    let result = model::page_json_logs(
-        table,
-        query.username,
-        start_time,
-        end_time,
-        page,
-        page_size,
-        &principal,
-    )
-    .await
-    .map_err(|e| utils::db_error(e, "分页查询日志"))?;
+    let result = model::page_json_logs(table, query.username, start_time, end_time, page, page_size, &principal)
+        .await
+        .map_err(|e| utils::db_error(e, "分页查询日志"))?;
 
-    Ok(Res::page(
-        result.list,
-        result.total,
-        result.page,
-        result.size,
-    ))
+    Ok(Res::page(result.list, result.total, result.page, result.size))
 }

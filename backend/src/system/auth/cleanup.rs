@@ -58,10 +58,7 @@ impl CleanupReport {
     ///
     /// 形如 `token_blacklist_cleanup: deleted=12 remaining=4301`。
     pub fn summary(&self) -> String {
-        format!(
-            "{TASK_NAME}: deleted={} remaining={}",
-            self.deleted, self.remaining
-        )
+        format!("{TASK_NAME}: deleted={} remaining={}", self.deleted, self.remaining)
     }
 }
 
@@ -72,21 +69,16 @@ impl CleanupReport {
 /// - `scheduler`：全局调度器。
 pub fn register_builtin(scheduler: &Scheduler) {
     // runner 必须返回 JoinHandle：框架调度器每次触发都会接管该句柄
-    scheduler.register_cron(
-        TASK_NAME,
-        TASK_CRON,
-        "系统任务：令牌吊销表清理",
-        || {
-            tokio::spawn(async move {
-                match run_once().await {
-                    Ok(report) => tracing::info!(summary = %report.summary(), "令牌吊销表清理完成"),
-                    Err(error) => {
-                        tracing::error!(error = %error, "令牌吊销表清理失败（表增长与点查计划会退化）")
-                    }
+    scheduler.register_cron(TASK_NAME, TASK_CRON, "系统任务：令牌吊销表清理", || {
+        tokio::spawn(async move {
+            match run_once().await {
+                Ok(report) => tracing::info!(summary = %report.summary(), "令牌吊销表清理完成"),
+                Err(error) => {
+                    tracing::error!(error = %error, "令牌吊销表清理失败（表增长与点查计划会退化）")
                 }
-            })
-        },
-    );
+            }
+        })
+    });
 }
 
 /// 执行一次清理（可被单测与运维脚本直接调用）。
@@ -133,10 +125,7 @@ mod tests {
             deleted: 12,
             remaining: 4301,
         };
-        assert_eq!(
-            report.summary(),
-            "token_blacklist_cleanup: deleted=12 remaining=4301"
-        );
+        assert_eq!(report.summary(), "token_blacklist_cleanup: deleted=12 remaining=4301");
     }
 
     /// 常量符合设计（防误改：宽限期必须是 1 小时，cron 必须与日志表错峰）。

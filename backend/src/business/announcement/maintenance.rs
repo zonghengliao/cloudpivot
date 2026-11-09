@@ -203,9 +203,7 @@ pub async fn run_dispatch_retry() -> std::result::Result<RetryReport, String> {
     for row in &pending {
         match dispatch_announcement(row).await {
             Ok(result) => {
-                if let Err(error) =
-                    model::backfill_notice(&row.id, &result.notice_id, result.receiver_count).await
-                {
+                if let Err(error) = model::backfill_notice(&row.id, &result.notice_id, result.receiver_count).await {
                     tracing::warn!(
                         announcement_id = %row.id,
                         %error,
@@ -390,10 +388,7 @@ mod tests {
     #[test]
     fn notice_target_mapping() {
         let ids = vec![uuid::Uuid::now_v7()];
-        assert!(matches!(
-            notice_target("ALL", &[]).expect("ALL"),
-            NoticeTarget::All
-        ));
+        assert!(matches!(notice_target("ALL", &[]).expect("ALL"), NoticeTarget::All));
         assert!(matches!(
             notice_target("ROLE", &ids).expect("ROLE"),
             NoticeTarget::Role(_)
@@ -433,10 +428,7 @@ mod tests {
         row.summary = "   ".into();
         let content = notice_content(&row);
         assert!(content.contains("维护时间"), "{content}");
-        assert!(
-            !content.contains("##"),
-            "通知正文里不应残留 Markdown 标记：{content}"
-        );
+        assert!(!content.contains("##"), "通知正文里不应残留 Markdown 标记：{content}");
 
         row.content_md = String::new();
         assert_eq!(notice_content(&row), row.title);

@@ -11,8 +11,7 @@ use nik::prelude::*;
 
 use crate::shared::error_code;
 use crate::support::invariant::dto::{
-    OverviewQuery, OverviewRes, ResultDetailRes, ResultPageQuery, ResultRes, ScheduleRes,
-    TrendPointRes,
+    OverviewQuery, OverviewRes, ResultDetailRes, ResultPageQuery, ResultRes, ScheduleRes, TrendPointRes,
 };
 use crate::support::invariant::model::{self, ResultFilter};
 use crate::support::invariant::runner::{self, Trigger};
@@ -102,9 +101,7 @@ pub async fn overview(Query(query): Query<OverviewQuery>) -> ResResult<OverviewR
 #[nik::get("/support/invariant/page")]
 pub async fn page(Query(query): Query<ResultPageQuery>) -> ResResult<PageData<Vec<ResultRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
-    let filter = ResultFilter {
-        status: query.status,
-    };
+    let filter = ResultFilter { status: query.status };
     let paged = model::page_results(&filter, page, page_size)
         .await
         .map_err(|e| utils::db_error(e, "查询巡检运行历史"))?;

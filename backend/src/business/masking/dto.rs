@@ -81,12 +81,7 @@ impl FieldMaskRes {
             mask_param: effective_param(ty, row.mask_param.as_deref()),
             role_id: row.role_id.map(|id| id.to_string()),
             role_name: row.role_name.clone(),
-            scope: if row.role_id.is_some() {
-                "ROLE"
-            } else {
-                "GLOBAL"
-            }
-            .to_string(),
+            scope: if row.role_id.is_some() { "ROLE" } else { "GLOBAL" }.to_string(),
             status: row.status,
             reason: row.reason.clone(),
             created_at: row.created_at,
@@ -99,10 +94,7 @@ impl FieldMaskRes {
 fn effective_param(ty: Option<MaskType>, stored: Option<&str>) -> String {
     match stored.map(str::trim).filter(|item| !item.is_empty()) {
         Some(text) => text.to_string(),
-        None => ty
-            .and_then(|t| t.default_param())
-            .unwrap_or_default()
-            .to_string(),
+        None => ty.and_then(|t| t.default_param()).unwrap_or_default().to_string(),
     }
 }
 

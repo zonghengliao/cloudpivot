@@ -60,21 +60,16 @@ impl CleanupReport {
 /// - `scheduler`：全局调度器。
 pub fn register_builtin(scheduler: &Scheduler) {
     // runner 必须返回 JoinHandle：框架调度器每次触发都会接管该句柄
-    scheduler.register_cron(
-        TASK_NAME,
-        TASK_CRON,
-        "系统任务：过期通知清理",
-        || {
-            tokio::spawn(async move {
-                match run_once().await {
-                    Ok(report) => {
-                        tracing::info!(summary = %report.summary(), "过期通知清理完成")
-                    }
-                    Err(error) => tracing::error!(error = %error, "过期通知清理失败"),
+    scheduler.register_cron(TASK_NAME, TASK_CRON, "系统任务：过期通知清理", || {
+        tokio::spawn(async move {
+            match run_once().await {
+                Ok(report) => {
+                    tracing::info!(summary = %report.summary(), "过期通知清理完成")
                 }
-            })
-        },
-    );
+                Err(error) => tracing::error!(error = %error, "过期通知清理失败"),
+            }
+        })
+    });
 }
 
 /// 执行一次清理（可被单测与运维脚本直接调用）。

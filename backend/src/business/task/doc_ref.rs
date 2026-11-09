@@ -109,12 +109,10 @@ pub fn normalize_pair(
     match (raw_type, raw_id) {
         (None, None) => Ok(None),
         (Some(_), None) => Err(field_invalid(
-            "doc_type 与 doc_id 必须同时给出：只给类型无法定位单据（补 doc_id，或两者都清空）"
-                .to_string(),
+            "doc_type 与 doc_id 必须同时给出：只给类型无法定位单据（补 doc_id，或两者都清空）".to_string(),
         )),
         (None, Some(_)) => Err(field_invalid(
-            "doc_type 与 doc_id 必须同时给出：只给 id 不知道该查哪张表（补 doc_type，或两者都清空）"
-                .to_string(),
+            "doc_type 与 doc_id 必须同时给出：只给 id 不知道该查哪张表（补 doc_type，或两者都清空）".to_string(),
         )),
         (Some(raw_type), Some(raw_id)) => {
             let target = find(raw_type).ok_or_else(|| {
@@ -131,8 +129,8 @@ pub fn normalize_pair(
                     ),
                 )
             })?;
-            let id = utils::parse_uuid(raw_id)
-                .ok_or_else(|| field_invalid(format!("doc_id 不是合法 UUID：{raw_id}")))?;
+            let id =
+                utils::parse_uuid(raw_id).ok_or_else(|| field_invalid(format!("doc_id 不是合法 UUID：{raw_id}")))?;
             Ok(Some((target, id)))
         }
     }
@@ -166,10 +164,7 @@ pub async fn resolve(
         return Err(ApiError::new(
             400,
             error_code::TASK_DOC_NOT_FOUND,
-            format!(
-                "{}不存在或已删除（{id}）：无法把任务挂到这张单上",
-                target.kind.label()
-            ),
+            format!("{}不存在或已删除（{id}）：无法把任务挂到这张单上", target.kind.label()),
         ));
     }
     Ok(Some((target, id)))
@@ -191,8 +186,7 @@ pub async fn exists(target: &DocTarget, id: Uuid) -> std::result::Result<bool, A
         ));
     };
     // 表名来自编译期常量（`DocKind::table()`），不含任何请求参数 ⇒ 无注入面。
-    let sql =
-        format!("SELECT 1 AS ok FROM {table} WHERE id = ?::uuid AND deleted_at IS NULL LIMIT 1");
+    let sql = format!("SELECT 1 AS ok FROM {table} WHERE id = ?::uuid AND deleted_at IS NULL LIMIT 1");
     let rows = db()
         .find_with_params(&sql, vec![Value::from(&id)])
         .await
@@ -213,10 +207,7 @@ pub async fn doc_no(target: &DocTarget, id: Uuid) -> Option<String> {
         "SELECT {} AS doc_no FROM {table} WHERE id = ?::uuid AND deleted_at IS NULL",
         target.no_column
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&id)])
-        .await
-        .ok()?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await.ok()?;
     rows.first()
         .and_then(|row| row.get_typed::<String>("doc_no").ok())
         .filter(|text| !text.trim().is_empty())
@@ -248,13 +239,7 @@ mod tests {
         let codes: Vec<&str> = DOC_TARGETS.iter().map(|t| t.kind.as_str()).collect();
         assert_eq!(
             codes,
-            vec![
-                "PURCHASE_ORDER",
-                "STOCK_IN",
-                "CONTRACT",
-                "PAYABLE",
-                "VOUCHER"
-            ],
+            vec!["PURCHASE_ORDER", "STOCK_IN", "CONTRACT", "PAYABLE", "VOUCHER"],
             "白名单与采购单前端 / 文档口径必须逐字一致"
         );
         // 每种都必须真有实体表 + 单号列名以 _no 结尾（词表抄错行的机械检测）
@@ -300,10 +285,7 @@ mod tests {
     /// 严格全等：大小写 / 空串都不被接受（错误文案会把允许值列出来）。
     #[test]
     fn find_is_strict_and_rejects_unknown() {
-        assert_eq!(
-            find("PURCHASE_ORDER").map(|t| t.kind.as_str()),
-            Some("PURCHASE_ORDER")
-        );
+        assert_eq!(find("PURCHASE_ORDER").map(|t| t.kind.as_str()), Some("PURCHASE_ORDER"));
         assert!(find("purchase_order").is_none(), "不做大小写归一");
         assert!(find("SALES_ORDER").is_none(), "白名单外的类型必须查不到");
         assert!(find("").is_none());
@@ -319,19 +301,14 @@ mod tests {
         assert_eq!(only_type.status, 400);
         assert_eq!(only_type.code, error_code::TASK_FIELD_INVALID);
 
-        let only_id =
-            normalize_pair(None, Some("7a9c0000-0000-4000-8000-000000000001")).unwrap_err();
+        let only_id = normalize_pair(None, Some("7a9c0000-0000-4000-8000-000000000001")).unwrap_err();
         assert_eq!(only_id.code, error_code::TASK_FIELD_INVALID);
     }
 
     /// 白名单外的类型 → 63022；非法 UUID → 63004（两条错误码不能混）。
     #[test]
     fn normalize_rejects_unknown_type_and_bad_uuid() {
-        let unknown = normalize_pair(
-            Some("SALES_ORDER"),
-            Some("7a9c0000-0000-4000-8000-000000000001"),
-        )
-        .unwrap_err();
+        let unknown = normalize_pair(Some("SALES_ORDER"), Some("7a9c0000-0000-4000-8000-000000000001")).unwrap_err();
         assert_eq!(unknown.status, 400);
         assert_eq!(unknown.code, error_code::TASK_DOC_TYPE_INVALID);
         assert!(
@@ -347,12 +324,9 @@ mod tests {
     /// 合法一对 → 返回归一化后的 (白名单行, uuid)。
     #[test]
     fn normalize_returns_canonical_pair() {
-        let (target, id) = normalize_pair(
-            Some("STOCK_IN"),
-            Some("7a9c0000-0000-4000-8000-0000000000c1"),
-        )
-        .unwrap()
-        .expect("应解析出单据");
+        let (target, id) = normalize_pair(Some("STOCK_IN"), Some("7a9c0000-0000-4000-8000-0000000000c1"))
+            .unwrap()
+            .expect("应解析出单据");
         assert_eq!(target.kind, DocKind::StockIn);
         assert_eq!(target.kind.table(), Some("biz_stock_in"));
         assert_eq!(id.to_string(), "7a9c0000-0000-4000-8000-0000000000c1");

@@ -213,12 +213,7 @@ pub struct LineAmounts {
 /// * 其它（含 `EXCL`，默认口径）：先定价款 → 按价款计税 → **加法**得价税合计。
 ///
 /// `tax_rate` 是百分数（13 表示 13%），与 `tax_rate NUMERIC(7,4)` 列同口径。
-pub fn line_amounts(
-    price_mode: &str,
-    qty: Decimal,
-    price: Decimal,
-    tax_rate: Decimal,
-) -> LineAmounts {
+pub fn line_amounts(price_mode: &str, qty: Decimal, price: Decimal, tax_rate: Decimal) -> LineAmounts {
     if price_mode == PRICE_MODE_INCL {
         let with_tax_amount = money(qty * price);
         let divisor = Decimal::ONE + tax_rate / Decimal::ONE_HUNDRED;
@@ -335,9 +330,7 @@ impl Totals {
     pub fn of(items: &[NewItem]) -> Self {
         let lines: Vec<LineAmounts> = items.iter().map(|item| item.amounts).collect();
         let (amount, tax, with_tax) = sum_lines(&lines);
-        let total_qty = items
-            .iter()
-            .fold(Decimal::ZERO, |acc, item| acc + item.qty.round_dp(4));
+        let total_qty = items.iter().fold(Decimal::ZERO, |acc, item| acc + item.qty.round_dp(4));
         Self {
             total_qty,
             amount,
@@ -416,9 +409,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个采购订单号（周期键按北京时间）。
@@ -523,19 +514,11 @@ pub async fn create(
             operator_text.clone(),
             operator_text,
             Value::Text(new.purchase_type.to_string()),
-            Value::Text(
-                new.contract_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.contract_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
             Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
             Value::Text(new.warehouse_name_snapshot.unwrap_or_default().to_string()),
-            Value::Text(
-                new.project_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.project_id.map(|value| value.to_string()).unwrap_or_default()),
         ],
     )
     .await?;
@@ -601,19 +584,11 @@ pub async fn update(
                 Value::from(now),
                 operator_text.clone(),
                 Value::Text(new.purchase_type.to_string()),
-                Value::Text(
-                    new.contract_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.contract_id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
                 Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
                 Value::Text(new.warehouse_name_snapshot.unwrap_or_default().to_string()),
-                Value::Text(
-                    new.project_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(new.project_id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::from(&id),
             ],
         )
@@ -686,11 +661,7 @@ pub async fn apply_status_with_instance(
             vec![
                 Value::from(now),
                 operator_text.clone(),
-                Value::Text(
-                    approval_instance_id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(approval_instance_id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::from(now),
                 operator_text,
                 Value::from(&id),
@@ -792,12 +763,7 @@ pub async fn apply_status_with_instance(
 ///
 /// P-FLOW-3A：`SUBMITTED` 也允许删 —— 前提是调用方**先**在同一个事务里终止在跑的审批单
 /// （`purchase_bridge::cancel_approval_of`）。否则删掉的单据会留下孤儿待办（P11 教训）。
-pub async fn soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {ORDER_TABLE} SET deleted_at = ?, updated_at = ?, \
@@ -863,11 +829,7 @@ pub async fn supplier_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashM
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     // SCOPE-EXEMPT: biz_supplier 是全局主数据（无 dept_id / 归属人列），按主键批量解析名称。
     let rows = db()
         .find_with_params(
@@ -924,11 +886,7 @@ pub async fn project_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashMa
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     let rows = db()
         .find_with_params(
             "SELECT id, project_name FROM biz_project \
@@ -959,11 +917,7 @@ pub async fn warehouse_names_of(ids: &[Uuid]) -> DbResult<std::collections::Hash
     if ids.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     // SCOPE-EXEMPT: biz_warehouse 是全局主数据（无 dept_id / 归属人列），按主键批量解析名称。
     let rows = db()
         .find_with_params(
@@ -992,11 +946,7 @@ pub async fn warehouse_names_of(ids: &[Uuid]) -> DbResult<std::collections::Hash
 ///
 /// ⚠ 调用方必须在**事务内**先 `SELECT … FOR UPDATE` 锁住合同行（见
 /// `contract_model::contract_lock_full`），否则两个并发请求会双双放行（V-23 的并发坑）。
-pub async fn committed_amount(
-    ex: &impl SqlExecutor,
-    contract_id: Uuid,
-    exclude: Option<Uuid>,
-) -> DbResult<Decimal> {
+pub async fn committed_amount(ex: &impl SqlExecutor, contract_id: Uuid, exclude: Option<Uuid>) -> DbResult<Decimal> {
     let mut sql = "SELECT COALESCE(SUM(total_with_tax), 0)::text AS total \
                FROM biz_purchase_order \
               WHERE contract_id = ?::uuid AND status <> 'CANCELLED' AND deleted_at IS NULL"
@@ -1163,9 +1113,7 @@ pub async fn pending_receive_lines(order_id: Uuid) -> DbResult<Vec<PendingReceiv
           WHERE i.order_id = ?::uuid \
           ORDER BY i.line_no ASC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&order_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&order_id)]).await?;
     rows.iter().map(PendingReceiveLine::from_row).collect()
 }
 

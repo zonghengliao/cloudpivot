@@ -160,11 +160,7 @@ pub fn judge(mode: ApprovalMode, ratio: Option<f64>, veto: bool, tally: Tally) -
         }
         ApprovalMode::Any => tally.pending == 0,
     };
-    if hopeless {
-        Verdict::Reject
-    } else {
-        Verdict::Wait
-    }
+    if hopeless { Verdict::Reject } else { Verdict::Wait }
 }
 
 /// 实例状态迁移是否合法（5×5 矩阵，架构 §4.1）。
@@ -173,10 +169,7 @@ pub fn judge(mode: ApprovalMode, ratio: Option<f64>, veto: bool, tally: Tally) -
 /// 终态之间互转、终态回 `PENDING` 全部 `false`。`same_as_self` 单独用 [`instance_transition`]。
 pub fn transition_allowed(from: &str, to: &str) -> bool {
     match (from, to) {
-        ("PENDING", "APPROVED")
-        | ("PENDING", "REJECTED")
-        | ("PENDING", "CANCELLED")
-        | ("PENDING", "WITHDRAWN") => true,
+        ("PENDING", "APPROVED") | ("PENDING", "REJECTED") | ("PENDING", "CANCELLED") | ("PENDING", "WITHDRAWN") => true,
         // 幂等：同一个状态再写一次不算迁移（重复提交 / 重试）
         (a, b) if a == b => true,
         _ => false,
@@ -192,11 +185,7 @@ pub fn instance_transition(action: InstanceAction, from: &str) -> Option<&'stati
         InstanceAction::Withdraw => "WITHDRAWN",
         InstanceAction::Cancel => "CANCELLED",
     };
-    if transition_allowed(from, to) {
-        Some(to)
-    } else {
-        None
-    }
+    if transition_allowed(from, to) { Some(to) } else { None }
 }
 
 /// 引擎动作（→ 实例迁移）。
@@ -529,15 +518,8 @@ pub async fn start(ex: &Transaction, req: &StartReq) -> DbResult<ActionOut> {
     };
     // CAS：发起时 revision = 0 → 1（并发双击的第二个请求会拿到 0 行 → handler 报 409，
     // 库层还有 uk_biz_flow_instance_biz_active 兜底）
-    let updated = model::bump_instance(
-        ex,
-        instance.id,
-        instance.revision,
-        Some(&final_status),
-        None,
-        run.round,
-    )
-    .await?;
+    let updated =
+        model::bump_instance(ex, instance.id, instance.revision, Some(&final_status), None, run.round).await?;
     if updated == 0 {
         return Err(DbError::InvalidValue(format!(
             "审批单 {} 并发冲突（revision CAS 失败）",
@@ -601,10 +583,7 @@ pub enum StartFailure {
 /// # 异常情况
 ///
 /// 与 [`start`] 相同，只有「业务拒绝」被额外翻成 `Err`。
-pub async fn start_in_tx(
-    ex: &Transaction,
-    req: &StartReq,
-) -> std::result::Result<ActionOut, StartFailure> {
+pub async fn start_in_tx(ex: &Transaction, req: &StartReq) -> std::result::Result<ActionOut, StartFailure> {
     let mut out = start(ex, req).await.map_err(StartFailure::Db)?;
     match out.rejected.take() {
         Some(error) => Err(StartFailure::Rejected(error)),
@@ -658,22 +637,8 @@ pub fn is_start_rejected(error: &DbError) -> bool {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]（整单回滚）。
-pub async fn approve(
-    ex: &Transaction,
-    task_id: Uuid,
-    operator: Uuid,
-    comment: Option<&str>,
-) -> DbResult<ActionOut> {
-    vote(
-        ex,
-        task_id,
-        operator,
-        Vote::Approve,
-        comment,
-        ReturnTo::Prev,
-        false,
-    )
-    .await
+pub async fn approve(ex: &Transaction, task_id: Uuid, operator: Uuid, comment: Option<&str>) -> DbResult<ActionOut> {
+    vote(ex, task_id, operator, Vote::Approve, comment, ReturnTo::Prev, false).await
 }
 
 /// 驳回（**事务内**）。
@@ -692,16 +657,7 @@ pub async fn reject(
     comment: &str,
     return_to: ReturnTo,
 ) -> DbResult<ActionOut> {
-    vote(
-        ex,
-        task_id,
-        operator,
-        Vote::Reject,
-        Some(comment),
-        return_to,
-        false,
-    )
-    .await
+    vote(ex, task_id, operator, Vote::Reject, Some(comment), return_to, false).await
 }
 
 /// 退回目标（架构 §4.6.1）。
@@ -760,11 +716,7 @@ async fn vote(
     if task.assignee_id != operator {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                403,
-                error_code::FLOW_TASK_NOT_MINE,
-                "这条待办不是你的，不能审批",
-            ),
+            ApiError::new(403, error_code::FLOW_TASK_NOT_MINE, "这条待办不是你的，不能审批"),
         ));
     }
     if !task.is_pending() {
@@ -772,17 +724,11 @@ async fn vote(
         let instance = model::find_instance(task.instance_id).await?;
         return Ok(ActionOut {
             instance_id: Some(task.instance_id),
-            instance_status: instance
-                .as_ref()
-                .map(|row| row.status.clone())
-                .unwrap_or_default(),
+            instance_status: instance.as_ref().map(|row| row.status.clone()).unwrap_or_default(),
             node_status: Some(task.status.clone()),
             done: true,
             idempotent: true,
-            auto_passed_nodes: instance
-                .as_ref()
-                .map(|row| row.auto_passed_nodes)
-                .unwrap_or(0),
+            auto_passed_nodes: instance.as_ref().map(|row| row.auto_passed_nodes).unwrap_or(0),
             ..ActionOut::default()
         });
     }
@@ -791,21 +737,14 @@ async fn vote(
     let Some(node) = model::lock_node(ex, task.instance_node_id).await? else {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                404,
-                error_code::FLOW_TASK_NOT_FOUND,
-                "待办对应的节点行不存在",
-            ),
+            ApiError::new(404, error_code::FLOW_TASK_NOT_FOUND, "待办对应的节点行不存在"),
         ));
     };
     if node.is_terminal() {
         let instance = model::find_instance(task.instance_id).await?;
         return Ok(ActionOut {
             instance_id: Some(task.instance_id),
-            instance_status: instance
-                .as_ref()
-                .map(|row| row.status.clone())
-                .unwrap_or_default(),
+            instance_status: instance.as_ref().map(|row| row.status.clone()).unwrap_or_default(),
             node_status: Some(node.status.clone()),
             done: true,
             idempotent: true,
@@ -841,11 +780,7 @@ async fn vote(
     }
 
     // ④ 写这一票
-    let status = if vote == Vote::Approve {
-        "APPROVED"
-    } else {
-        "REJECTED"
-    };
+    let status = if vote == Vote::Approve { "APPROVED" } else { "REJECTED" };
     model::finish_task(ex, task.id, status, comment, is_auto).await?;
 
     // ★ P3-05 审计（第二次留痕）：「他真的自审了」。
@@ -889,11 +824,7 @@ async fn vote(
     let tally = model::tally_of_node(ex, node.id, node.round).await?;
     model::update_node_counts(ex, node.id, tally).await?;
 
-    let mut run = Run::new(
-        ex,
-        instance.clone(),
-        load_snapshot(ex, instance.version_id).await?,
-    );
+    let mut run = Run::new(ex, instance.clone(), load_snapshot(ex, instance.version_id).await?);
     run.round = task.round;
     run.approver_count = tally.total as i32;
     run.approved_count = tally.approved as i32;
@@ -933,13 +864,7 @@ async fn vote(
                 }
                 Verdict::Pass => {
                     // 其余待办作废（会签提前通过 / 或签）—— 这是「不需要他们投了」，不是驳回
-                    model::cancel_pending_of_node(
-                        ex,
-                        node.id,
-                        Some(task.id),
-                        "该节点已满足通过条件，无需再投",
-                    )
-                    .await?;
+                    model::cancel_pending_of_node(ex, node.id, Some(task.id), "该节点已满足通过条件，无需再投").await?;
                     let passed = model::tally_of_node(ex, node.id, node.round).await?;
                     model::end_node_row(ex, node.id, "APPROVED", passed, None, false).await?;
                     out.node_status = Some("APPROVED".to_string());
@@ -975,9 +900,7 @@ async fn vote(
             model::end_node_row(ex, node.id, "REJECTED", tally, None, false).await?;
             out.node_status = Some("REJECTED".to_string());
             model::cancel_pending_of_node(ex, node.id, Some(task.id), "节点已被驳回").await?;
-            let failure = run
-                .apply_return(&node, &return_to, comment.unwrap_or_default())
-                .await?;
+            let failure = run.apply_return(&node, &return_to, comment.unwrap_or_default()).await?;
             out.next_nodes = run.next_nodes.clone();
             out.effects = run.effects;
             if let Some(error) = failure {
@@ -989,13 +912,8 @@ async fn vote(
     // ⑥ 实例 CAS（`revision` 自增）；0 行 → 重读重试一次 → 仍失败返回业务拒绝
     let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
     out.auto_passed_nodes = auto_passed;
-    let status_after = run
-        .final_status
-        .clone()
-        .unwrap_or_else(|| "PENDING".to_string());
-    let round_total = model::max_round(ex, instance.id)
-        .await?
-        .max(instance.round_total);
+    let status_after = run.final_status.clone().unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id).await?.max(instance.round_total);
     // ⑦ 实例落终态时把「最后一条审批意见」回写 `result_comment`（FIX-9 ①）。
     //
     //    引擎向来只把意见写在待办行（`biz_flow_task.comment`），而实例详情页读的是
@@ -1049,8 +967,7 @@ async fn vote(
     // 失败 → 整笔回滚（「实例已终止、任务还挂着」是用户能看见的脏状态）。
     if out.instance_status != "PENDING" {
         let comment = format!("流程已终止（{}）", instance.instance_no);
-        let cancelled =
-            model::cancel_flow_tasks(ex, instance.id, &instance.instance_no, &comment).await?;
+        let cancelled = model::cancel_flow_tasks(ex, instance.id, &instance.instance_no, &comment).await?;
         if !cancelled.is_empty() {
             tracing::info!(
                 instance_id = %instance.id,
@@ -1072,12 +989,7 @@ async fn vote(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn auto_decide(
-    ex: &Transaction,
-    task_id: Uuid,
-    approve: bool,
-    comment: &str,
-) -> DbResult<ActionOut> {
+pub async fn auto_decide(ex: &Transaction, task_id: Uuid, approve: bool, comment: &str) -> DbResult<ActionOut> {
     let Some(task) = model::find_task(task_id).await? else {
         return Ok(ActionOut::deny(
             None,
@@ -1115,11 +1027,7 @@ pub async fn withdraw(ex: &Transaction, instance_id: Uuid, operator: Uuid) -> Db
     if instance.initiator_id != operator {
         return Ok(ActionOut::deny(
             Some(instance.id),
-            ApiError::new(
-                403,
-                error_code::FLOW_FORBIDDEN,
-                "只有发起人本人可以撤回这张审批单",
-            ),
+            ApiError::new(403, error_code::FLOW_FORBIDDEN, "只有发起人本人可以撤回这张审批单"),
         ));
     }
     if !instance.is_pending() {
@@ -1174,10 +1082,7 @@ pub async fn withdraw(ex: &Transaction, instance_id: Uuid, operator: Uuid) -> Db
         format!("审批单已撤回：{}", instance.title),
         format!(
             "{} 撤回了审批单 {}（{}）。",
-            instance
-                .initiator_name
-                .clone()
-                .unwrap_or_else(|| "发起人".to_string()),
+            instance.initiator_name.clone().unwrap_or_else(|| "发起人".to_string()),
             instance.instance_no,
             instance.flow_name
         ),
@@ -1256,11 +1161,7 @@ pub async fn complete_task_node(
     let Some(instance) = model::lock_instance(ex, instance_id).await? else {
         return Ok(ActionOut::deny(
             Some(instance_id),
-            ApiError::new(
-                404,
-                error_code::FLOW_INSTANCE_NOT_FOUND,
-                "任务所属的流程实例不存在",
-            ),
+            ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "任务所属的流程实例不存在"),
         ));
     };
     if !instance.is_pending() {
@@ -1322,22 +1223,13 @@ pub async fn complete_task_node(
     )
     .await?;
 
-    let mut run = Run::new(
-        ex,
-        instance.clone(),
-        load_snapshot(ex, instance.version_id).await?,
-    );
+    let mut run = Run::new(ex, instance.clone(), load_snapshot(ex, instance.version_id).await?);
     run.round = round;
     let targets = run.out_targets(node_key, None, false);
     let failure = run.drive(targets).await?;
     let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
-    let status_after = run
-        .final_status
-        .clone()
-        .unwrap_or_else(|| "PENDING".to_string());
-    let round_total = model::max_round(ex, instance.id)
-        .await?
-        .max(instance.round_total);
+    let status_after = run.final_status.clone().unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id).await?.max(instance.round_total);
     let updated = model::bump_instance(
         ex,
         instance.id,
@@ -1369,11 +1261,7 @@ pub async fn complete_task_node(
             &instance.instance_no,
             &format!(
                 "流程已{}（{}）",
-                if status_after == "APPROVED" {
-                    "通过"
-                } else {
-                    "结束"
-                },
+                if status_after == "APPROVED" { "通过" } else { "结束" },
                 instance.instance_no
             ),
         )
@@ -1426,20 +1314,11 @@ pub async fn complete_task_node(
 ///
 /// - 数据库异常 / 快照缺失 → [`DbError`]（调用方整笔回滚）；
 /// - 业务拒绝（节点已处理 / 实例已结束 / 模板渲染失败）→ `ActionOut::rejected`。
-pub async fn fire_notify_node(
-    ex: &Transaction,
-    instance_id: Uuid,
-    node_key: &str,
-    round: i32,
-) -> DbResult<ActionOut> {
+pub async fn fire_notify_node(ex: &Transaction, instance_id: Uuid, node_key: &str, round: i32) -> DbResult<ActionOut> {
     let Some(instance) = model::lock_instance(ex, instance_id).await? else {
         return Ok(ActionOut::deny(
             Some(instance_id),
-            ApiError::new(
-                404,
-                error_code::FLOW_INSTANCE_NOT_FOUND,
-                "通知节点所属的流程实例不存在",
-            ),
+            ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "通知节点所属的流程实例不存在"),
         ));
     };
     if !instance.is_pending() {
@@ -1478,12 +1357,7 @@ pub async fn fire_notify_node(
     }
 
     let snapshot = load_snapshot(ex, instance.version_id).await?;
-    let Some(spec) = snapshot
-        .nodes
-        .iter()
-        .find(|item| item.key == node_key)
-        .cloned()
-    else {
+    let Some(spec) = snapshot.nodes.iter().find(|item| item.key == node_key).cloned() else {
         return Ok(ActionOut::deny(
             Some(instance.id),
             ApiError::new(
@@ -1501,9 +1375,7 @@ pub async fn fire_notify_node(
     let ctx = instance.assignee_ctx();
     // 求值上下文（条件 / 表达式 / 模板共用**同一份**白名单，见 `Run::eval_context`）：
     // 本函数不在 `Run` 的生命周期里，临时建一个 `Run` 借它的方法，**不复制第二份**。
-    let eval = Run::new(ex, instance.clone(), snapshot.clone())
-        .eval_context()
-        .await?;
+    let eval = Run::new(ex, instance.clone(), snapshot.clone()).eval_context().await?;
     match notify_node::build(ex, &instance, &spec, round, &cfg, &ctx, &eval).await? {
         notify_node::NotifyOutcome::Ready {
             draft,
@@ -1550,22 +1422,13 @@ async fn finish_notify_node(
     model::end_node_row(ex, node.id, "APPROVED", Tally::default(), None, true).await?;
     let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
 
-    let mut run = Run::new(
-        ex,
-        instance.clone(),
-        load_snapshot(ex, instance.version_id).await?,
-    );
+    let mut run = Run::new(ex, instance.clone(), load_snapshot(ex, instance.version_id).await?);
     run.round = round;
     run.effects = effects;
     let targets = run.out_targets(&spec.key, None, false);
     let failure = run.drive(targets).await?;
-    let status_after = run
-        .final_status
-        .clone()
-        .unwrap_or_else(|| "PENDING".to_string());
-    let round_total = model::max_round(ex, instance.id)
-        .await?
-        .max(instance.round_total);
+    let status_after = run.final_status.clone().unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id).await?.max(instance.round_total);
     let updated = model::bump_instance(
         ex,
         instance.id,
@@ -1635,11 +1498,7 @@ pub async fn return_task_node(
     let Some(instance) = model::lock_instance(ex, instance_id).await? else {
         return Ok(ActionOut::deny(
             Some(instance_id),
-            ApiError::new(
-                404,
-                error_code::FLOW_INSTANCE_NOT_FOUND,
-                "任务所属的流程实例不存在",
-            ),
+            ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "任务所属的流程实例不存在"),
         ));
     };
     if !instance.is_pending() {
@@ -1699,21 +1558,12 @@ pub async fn return_task_node(
     )
     .await?;
 
-    let mut run = Run::new(
-        ex,
-        instance.clone(),
-        load_snapshot(ex, instance.version_id).await?,
-    );
+    let mut run = Run::new(ex, instance.clone(), load_snapshot(ex, instance.version_id).await?);
     run.round = round;
     let failure = run.apply_return(&node, &ReturnTo::Prev, comment).await?;
     let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
-    let status_after = run
-        .final_status
-        .clone()
-        .unwrap_or_else(|| "PENDING".to_string());
-    let round_total = model::max_round(ex, instance.id)
-        .await?
-        .max(instance.round_total);
+    let status_after = run.final_status.clone().unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id).await?.max(instance.round_total);
     let updated = model::bump_instance(
         ex,
         instance.id,
@@ -1830,8 +1680,7 @@ pub async fn terminate_instance(
             ),
         ));
     }
-    let flow_tasks =
-        model::cancel_flow_tasks(ex, instance.id, &instance.instance_no, comment).await?;
+    let flow_tasks = model::cancel_flow_tasks(ex, instance.id, &instance.instance_no, comment).await?;
 
     let mut effects = Effects::default();
     effects.notice(
@@ -1902,31 +1751,19 @@ pub async fn transfer(
     let Some(node) = model::lock_node(ex, task.instance_node_id).await? else {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                404,
-                error_code::FLOW_TASK_NOT_FOUND,
-                "待办对应的节点行不存在",
-            ),
+            ApiError::new(404, error_code::FLOW_TASK_NOT_FOUND, "待办对应的节点行不存在"),
         ));
     };
     if to_user_id == task.assignee_id {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                400,
-                error_code::FLOW_TRANSFER_INVALID,
-                "不能把待办转办给自己",
-            ),
+            ApiError::new(400, error_code::FLOW_TRANSFER_INVALID, "不能把待办转办给自己"),
         ));
     }
     let Some(target) = model::user_brief(to_user_id).await? else {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                400,
-                error_code::FLOW_TRANSFER_INVALID,
-                "转办目标用户不存在或已删除",
-            ),
+            ApiError::new(400, error_code::FLOW_TRANSFER_INVALID, "转办目标用户不存在或已删除"),
         ));
     };
     if !target.active {
@@ -2041,12 +1878,7 @@ pub async fn transfer(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn add_sign(
-    ex: &Transaction,
-    task_id: Uuid,
-    operator: Uuid,
-    user_ids: &[Uuid],
-) -> DbResult<ActionOut> {
+pub async fn add_sign(ex: &Transaction, task_id: Uuid, operator: Uuid, user_ids: &[Uuid]) -> DbResult<ActionOut> {
     let Some(task) = model::lock_task(ex, task_id).await? else {
         return Ok(ActionOut::deny(
             None,
@@ -2062,21 +1894,13 @@ pub async fn add_sign(
     if !task.is_pending() {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                409,
-                error_code::FLOW_TASK_ALREADY_DONE,
-                "这条待办已处理，不能再加签",
-            ),
+            ApiError::new(409, error_code::FLOW_TASK_ALREADY_DONE, "这条待办已处理，不能再加签"),
         ));
     }
     let Some(node) = model::lock_node(ex, task.instance_node_id).await? else {
         return Ok(ActionOut::deny(
             Some(task.instance_id),
-            ApiError::new(
-                404,
-                error_code::FLOW_TASK_NOT_FOUND,
-                "待办对应的节点行不存在",
-            ),
+            ApiError::new(404, error_code::FLOW_TASK_NOT_FOUND, "待办对应的节点行不存在"),
         ));
     };
     if node.status != "ACTIVE" {
@@ -2336,10 +2160,7 @@ impl<'a> Run<'a> {
                         node_type: spec.node_type.clone(),
                         round,
                         approval_mode: spec.approval_mode.clone(),
-                        approve_ratio: spec
-                            .approve_ratio
-                            .as_deref()
-                            .and_then(|raw| raw.parse::<f64>().ok()),
+                        approve_ratio: spec.approve_ratio.as_deref().and_then(|raw| raw.parse::<f64>().ok()),
                         reject_veto: Some(spec.reject_veto),
                     },
                 )
@@ -2369,10 +2190,7 @@ impl<'a> Run<'a> {
                 node_type: spec.node_type.clone(),
                 round,
                 approval_mode: spec.approval_mode.clone(),
-                approve_ratio: spec
-                    .approve_ratio
-                    .as_deref()
-                    .and_then(|raw| raw.parse::<f64>().ok()),
+                approve_ratio: spec.approve_ratio.as_deref().and_then(|raw| raw.parse::<f64>().ok()),
                 reject_veto: Some(spec.reject_veto),
             },
         )
@@ -2390,14 +2208,12 @@ impl<'a> Run<'a> {
 
         match node_type {
             NodeType::End => {
-                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false)
-                    .await?;
+                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false).await?;
                 self.maybe_finish().await?;
                 Ok(Step::Idle)
             }
             NodeType::Start => {
-                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false)
-                    .await?;
+                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false).await?;
                 Ok(Step::Next(self.out_targets(&spec.key, None, true)))
             }
             NodeType::Condition => {
@@ -2412,21 +2228,12 @@ impl<'a> Run<'a> {
                         format!("条件节点 {} 没有任何可用出边（缺少兜底边）", spec.key),
                     )));
                 };
-                model::end_node_row(
-                    self.ex,
-                    row.id,
-                    "APPROVED",
-                    Tally::default(),
-                    Some(&edge.key),
-                    false,
-                )
-                .await?;
+                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), Some(&edge.key), false).await?;
                 Ok(Step::Next(vec![edge.to]))
             }
             NodeType::Parallel => {
                 let targets = self.out_targets(&spec.key, None, false);
-                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false)
-                    .await?;
+                model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, false).await?;
                 Ok(Step::Next(targets))
             }
             NodeType::Cc => {
@@ -2434,8 +2241,7 @@ impl<'a> Run<'a> {
                 // EXPRESSION 节点的 `when` 与条件边共用同一个求值上下文（含 F1 补齐的 11 个白名单字段）；
                 // 静态来源节点不读它，多算一次只为让两条分支的写法一致（不引入第二份上下文构造器）。
                 let eval = self.eval_context().await?;
-                let Resolution { finalized, trace } =
-                    assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
+                let Resolution { finalized, trace } = assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
                 if let Some(error) = finalized.error {
                     return Ok(Step::Fail(error));
                 }
@@ -2464,8 +2270,7 @@ impl<'a> Run<'a> {
                     "抄送节点已扇出（非阻塞）"
                 );
                 if receivers > 0 {
-                    let recipients =
-                        model::cc_receivers(self.ex, self.instance.id, &spec.key, round).await?;
+                    let recipients = model::cc_receivers(self.ex, self.instance.id, &spec.key, round).await?;
                     self.effects.notice(
                         recipients,
                         format!("抄送给你：{}", self.instance.title),
@@ -2475,8 +2280,7 @@ impl<'a> Run<'a> {
                         false,
                     );
                 }
-                model::end_node_row(self.ex, row.id, "SKIPPED", Tally::default(), None, false)
-                    .await?;
+                model::end_node_row(self.ex, row.id, "SKIPPED", Tally::default(), None, false).await?;
                 Ok(Step::Next(self.out_targets(&spec.key, None, false)))
             }
             // ★ P-FLOW-1A：任务节点（阻塞等人干完活）
@@ -2493,9 +2297,7 @@ impl<'a> Run<'a> {
                 };
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;
-                match task_node::spawn(self.ex, &self.instance, &spec, round, &cfg, &ctx, &eval)
-                    .await?
-                {
+                match task_node::spawn(self.ex, &self.instance, &spec, round, &cfg, &ctx, &eval).await? {
                     SpawnOutcome::Created {
                         task_id,
                         task_no,
@@ -2521,10 +2323,7 @@ impl<'a> Run<'a> {
                             format!("待你处理：{}", self.instance.title),
                             format!(
                                 "流程 {}（{}）到达节点「{}」，已生成任务 {}，请及时处理。",
-                                self.instance.instance_no,
-                                self.instance.flow_name,
-                                spec.name,
-                                task_no
+                                self.instance.instance_no, self.instance.flow_name, spec.name, task_no
                             ),
                             format!("/task/detail/{}", task_id),
                             self.instance.id,
@@ -2547,15 +2346,7 @@ impl<'a> Run<'a> {
                     SpawnOutcome::Skipped { reason } => {
                         // `empty_assignee=SKIP` + `allow_skip_when_no_assignee=true`：
                         // 明确配置过才允许，节点记 SKIPPED 并继续往下。
-                        model::end_node_row(
-                            self.ex,
-                            row.id,
-                            "SKIPPED",
-                            Tally::default(),
-                            None,
-                            true,
-                        )
-                        .await?;
+                        model::end_node_row(self.ex, row.id, "SKIPPED", Tally::default(), None, true).await?;
                         model::sync_auto_passed(self.ex, self.instance.id).await?;
                         tracing::warn!(
                             instance_id = %self.instance.id,
@@ -2612,16 +2403,13 @@ impl<'a> Run<'a> {
                 // 投递时刻相同（都在提交后），所以这里只是顺序不同，语义见 notify_node 头注释。
                 let enter_first = cfg.when == node_config::NotifyWhen::OnEnter;
                 if !enter_first {
-                    model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, true)
-                        .await?;
+                    model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, true).await?;
                     model::sync_auto_passed(self.ex, self.instance.id).await?;
                 }
 
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;
-                let outcome =
-                    notify_node::build(self.ex, &self.instance, &spec, round, &cfg, &ctx, &eval)
-                        .await?;
+                let outcome = notify_node::build(self.ex, &self.instance, &spec, round, &cfg, &ctx, &eval).await?;
                 match outcome {
                     notify_node::NotifyOutcome::Ready {
                         draft,
@@ -2663,8 +2451,7 @@ impl<'a> Run<'a> {
                 }
 
                 if enter_first {
-                    model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, true)
-                        .await?;
+                    model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, true).await?;
                     model::sync_auto_passed(self.ex, self.instance.id).await?;
                 }
                 Ok(Step::Next(self.out_targets(&spec.key, None, false)))
@@ -2686,15 +2473,7 @@ impl<'a> Run<'a> {
                         return Ok(Step::Fail(ApiError::new(422, error.code, error.message)));
                     }
                 };
-                let spawned = match subprocess::spawn_child(
-                    self.ex,
-                    &self.instance,
-                    &spec,
-                    round,
-                    &cfg,
-                )
-                .await
-                {
+                let spawned = match subprocess::spawn_child(self.ex, &self.instance, &spec, round, &cfg).await {
                     Ok(spawned) => spawned,
                     Err(subprocess::spawn_error::Error::Api(error)) => {
                         return Ok(Step::Fail(error));
@@ -2706,8 +2485,7 @@ impl<'a> Run<'a> {
                 // **失败只 warn**：这是可见性附加物，不该让一张已经建好的子单被回滚
                 // （子实例建不出来才是 65047，那条路在上面已经 return 了）。
                 if cfg.spawn_task
-                    && let Err(error) =
-                        spawn_visibility_task(self.ex, &self.instance, &spec, round).await
+                    && let Err(error) = spawn_visibility_task(self.ex, &self.instance, &spec, round).await
                 {
                     tracing::warn!(
                         instance_id = %self.instance.id,
@@ -2745,10 +2523,7 @@ impl<'a> Run<'a> {
             NodeType::Approval | NodeType::Countersign => {
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;
-                let Resolution {
-                    mut finalized,
-                    trace,
-                } = assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
+                let Resolution { mut finalized, trace } = assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
                 if let Some(error) = finalized.error {
                     return Ok(Step::Fail(error));
                 }
@@ -2831,8 +2606,7 @@ impl<'a> Run<'a> {
                                     .get(&candidate.user_id)
                                     .and_then(|meta| meta.comment.clone())
                                     .unwrap_or_else(|| {
-                                        "审批人是发起人本人（self_approval=SKIP），已跳过并留痕"
-                                            .to_string()
+                                        "审批人是发起人本人（self_approval=SKIP），已跳过并留痕".to_string()
                                     }),
                             ),
                             due_at: None,
@@ -2882,15 +2656,9 @@ impl<'a> Run<'a> {
                         .iter()
                         .map(|(candidate, reason)| format!("{}：{reason}", candidate.name))
                         .collect::<Vec<_>>();
-                    let payload = no_assignee::payload(
-                        self.ex,
-                        self.instance.id,
-                        &spec,
-                        signal,
-                        excluded,
-                        escalation.as_ref(),
-                    )
-                    .await;
+                    let payload =
+                        no_assignee::payload(self.ex, self.instance.id, &spec, signal, excluded, escalation.as_ref())
+                            .await;
                     // P3-02：升级链走过但到顶仍无人 → 报文里必须写「升级链已走完 + 每一级几个人」，
                     // 否则用户只会看到「内控剔光」而不知道系统已经替他想过上级角色了。
                     // P3-03：兜底人同样要交代（配没配 / 配了为什么没用上）。
@@ -2989,9 +2757,7 @@ impl<'a> Run<'a> {
                             is_auto: false,
                             status: "PENDING".to_string(),
                             // P3-04：委托派下来的行写「代 A 审批（委托至 YYYY-MM-DD）」
-                            comment: row_meta
-                                .get(&candidate.user_id)
-                                .and_then(|meta| meta.comment.clone()),
+                            comment: row_meta.get(&candidate.user_id).and_then(|meta| meta.comment.clone()),
                             due_at: None,
                             transferred_from: None,
                             assignee_rule_id: finalized.rule_id.clone(),
@@ -3040,8 +2806,7 @@ impl<'a> Run<'a> {
                         continue;
                     }
                     let amount = self_approval::amount_of(&self.instance.form_data);
-                    let threshold =
-                        crate::business::erp::separation::self_approval_max_amount().await;
+                    let threshold = crate::business::erp::separation::self_approval_max_amount().await;
                     self_approval::record(
                         self.ex,
                         &self_approval::AuditEntry {
@@ -3119,11 +2884,7 @@ impl<'a> Run<'a> {
 
     /// 取节点配置（快照）。
     fn spec(&self, key: &str) -> Option<SnapshotNode> {
-        self.snapshot
-            .nodes
-            .iter()
-            .find(|node| node.key == key)
-            .cloned()
+        self.snapshot.nodes.iter().find(|node| node.key == key).cloned()
     }
 
     /// 出边目标（按 `priority` 升序，保证可复现）。
@@ -3140,10 +2901,7 @@ impl<'a> Run<'a> {
     }
 
     /// 条件 / OR 分叉：按优先级求值，取第一条为真的边，都不中走 `is_default`。
-    async fn pick_condition_edge(
-        &self,
-        spec: &SnapshotNode,
-    ) -> DbResult<(Option<SnapshotEdge>, Option<ApiError>)> {
+    async fn pick_condition_edge(&self, spec: &SnapshotNode) -> DbResult<(Option<SnapshotEdge>, Option<ApiError>)> {
         let mut edges: Vec<&SnapshotEdge> = self
             .snapshot
             .edges
@@ -3183,10 +2941,7 @@ impl<'a> Run<'a> {
             }
         }
         Ok((
-            edges
-                .iter()
-                .find(|edge| edge.is_default)
-                .map(|edge| (*edge).clone()),
+            edges.iter().find(|edge| edge.is_default).map(|edge| (*edge).clone()),
             None,
         ))
     }
@@ -3213,10 +2968,7 @@ impl<'a> Run<'a> {
 
         // ── initiator：白名单三项全覆盖（id / name / dept_id）──
         let mut initiator = Map::new();
-        initiator.insert(
-            "id".to_string(),
-            Json::String(self.instance.initiator_id.to_string()),
-        );
+        initiator.insert("id".to_string(), Json::String(self.instance.initiator_id.to_string()));
         if let Some(name) = &self.instance.initiator_name {
             initiator.insert("name".to_string(), Json::String(name.clone()));
         }
@@ -3228,10 +2980,7 @@ impl<'a> Run<'a> {
         //    id / biz_id 不在白名单，但保留供将来放宽（field_allowed 会先拒）──
         let mut instance = Map::new();
         instance.insert("id".to_string(), Json::String(self.instance.id.to_string()));
-        instance.insert(
-            "biz_type".to_string(),
-            Json::String(self.instance.biz_type.clone()),
-        );
+        instance.insert("biz_type".to_string(), Json::String(self.instance.biz_type.clone()));
         if let Some(biz_id) = self.instance.biz_id {
             instance.insert("biz_id".to_string(), Json::String(biz_id.to_string()));
         }
@@ -3239,10 +2988,7 @@ impl<'a> Run<'a> {
             instance.insert("biz_no".to_string(), Json::String(biz_no.clone()));
         }
         if !self.instance.title.is_empty() {
-            instance.insert(
-                "title".to_string(),
-                Json::String(self.instance.title.clone()),
-            );
+            instance.insert("title".to_string(), Json::String(self.instance.title.clone()));
         }
 
         // ── task：仅 TASK_ACCEPT 场景查 biz_task（白名单四项：status/priority/estimate_hours/title）──
@@ -3309,13 +3055,9 @@ impl<'a> Run<'a> {
         // 结果回写：子流程通过后把子表单的值写回父表单（`config.sub.result_mapping`）
         if approved
             && !cfg.result_mapping.is_empty()
-            && let Err(error) = subprocess::apply_result_mapping(
-                self.ex,
-                self.instance.id,
-                child_instance_id,
-                &cfg.result_mapping,
-            )
-            .await
+            && let Err(error) =
+                subprocess::apply_result_mapping(self.ex, self.instance.id, child_instance_id, &cfg.result_mapping)
+                    .await
         {
             // 回写失败不改变「节点通过」这个结论（子单已经结完了），但要留 warn
             tracing::warn!(
@@ -3327,9 +3069,7 @@ impl<'a> Run<'a> {
         }
 
         // 父侧可见性任务（`spawn_task=true` 时生成的那条 biz_task）一并收尾
-        if let Err(error) =
-            close_visibility_task(self.ex, self.instance.id, &spec.key, approved).await
-        {
+        if let Err(error) = close_visibility_task(self.ex, self.instance.id, &spec.key, approved).await {
             tracing::warn!(
                 instance_id = %self.instance.id,
                 node_key = %spec.key,
@@ -3424,11 +3164,9 @@ impl<'a> Run<'a> {
         comment: &str,
     ) -> DbResult<Option<ApiError>> {
         // ③ 掐断其它 ACTIVE / 等待中的节点（并行分支上的幽灵待办必须清掉）
-        let cancelled =
-            model::cancel_active_nodes(self.ex, self.instance.id, Some(node.id)).await?;
+        let cancelled = model::cancel_active_nodes(self.ex, self.instance.id, Some(node.id)).await?;
         if cancelled > 0 {
-            model::cancel_pending_of_instance(self.ex, self.instance.id, "流程被退回，该节点作废")
-                .await?;
+            model::cancel_pending_of_instance(self.ex, self.instance.id, "流程被退回，该节点作废").await?;
         }
 
         if *return_to == ReturnTo::Final {
@@ -3436,10 +3174,7 @@ impl<'a> Run<'a> {
             self.effects.notice(
                 vec![self.instance.initiator_id],
                 format!("审批已驳回：{}", self.instance.title),
-                format!(
-                    "审批单 {} 被驳回并终止：{}",
-                    self.instance.instance_no, comment
-                ),
+                format!("审批单 {} 被驳回并终止：{}", self.instance.instance_no, comment),
                 format!("/flow/instance/{}", self.instance.id),
                 self.instance.id,
                 true,
@@ -3471,9 +3206,10 @@ impl<'a> Run<'a> {
             ReturnTo::Prev | ReturnTo::Final => {
                 let upstream = self.passed_upstream_sources(&node.node_key).await?;
                 if upstream.is_empty() {
-                    starts.clone().map(|key| vec![key]).ok_or_else(|| {
-                        DbError::InvalidValue("流程快照里没有 START 节点".to_string())
-                    })?
+                    starts
+                        .clone()
+                        .map(|key| vec![key])
+                        .ok_or_else(|| DbError::InvalidValue("流程快照里没有 START 节点".to_string()))?
                 } else {
                     upstream
                 }
@@ -3492,8 +3228,8 @@ impl<'a> Run<'a> {
 
         let target_key = targets[0].clone();
         let target_is_start = Some(&target_key) == starts.as_ref();
-        let go_initiator = *return_to == ReturnTo::Initiator
-            || (target_is_start && matches!(return_to, ReturnTo::Prev));
+        let go_initiator =
+            *return_to == ReturnTo::Initiator || (target_is_start && matches!(return_to, ReturnTo::Prev));
 
         if go_initiator {
             // 退发起人：START 节点 `round + 1` + 一条 `RESUBMIT` 待办（D8 / §4.11 时序 3）
@@ -3516,9 +3252,7 @@ impl<'a> Run<'a> {
                 },
             )
             .await?;
-            let Some(start_row) =
-                model::find_node(self.ex, self.instance.id, &target_key, next_round).await?
-            else {
+            let Some(start_row) = model::find_node(self.ex, self.instance.id, &target_key, next_round).await? else {
                 return Ok(Some(ApiError::new(
                     500,
                     error_code::FLOW_GRAPH_STRUCTURE,
@@ -3636,11 +3370,7 @@ impl<'a> Run<'a> {
             arrived.dedup();
             return Ok(arrived);
         }
-        Ok(self
-            .nearest_passed_upstream(from_key)
-            .await?
-            .into_iter()
-            .collect())
+        Ok(self.nearest_passed_upstream(from_key).await?.into_iter().collect())
     }
 
     /// 本轮「最近的一个已通过上游节点」（BFS 反向，逐层找）。入度 = 1 的链式流程用。
@@ -3648,12 +3378,7 @@ impl<'a> Run<'a> {
         let mut frontier: VecDeque<String> = VecDeque::new();
         let mut visited: Vec<String> = vec![from_key.to_string()];
         // 直接上游先入队
-        for edge in self
-            .snapshot
-            .edges
-            .iter()
-            .filter(|edge| edge.to == from_key)
-        {
+        for edge in self.snapshot.edges.iter().filter(|edge| edge.to == from_key) {
             frontier.push_back(edge.from.clone());
         }
         while let Some(key) = frontier.pop_front() {
@@ -3682,8 +3407,7 @@ impl<'a> Run<'a> {
 ///
 /// 抽成自由函数同样是为了能纯单测（决策本身与 DB 无关）。
 fn end_waits(live: &[String], upstream: &HashSet<String>, end_key: &str) -> bool {
-    live.iter()
-        .any(|key| key != end_key && upstream.contains(key))
+    live.iter().any(|key| key != end_key && upstream.contains(key))
 }
 
 /// `to_key` 的**上游可达闭包**（含 `to_key` 自身）：沿入边反向 BFS 收集所有能走到它的节点 key。
@@ -3746,10 +3470,7 @@ async fn spawn_visibility_task(
         ),
         // `on_complete` 是必填项（`parse_task_config` 的硬约束）：这张任务只是「看得见」用的，
         // 它的完成由子流程结算驱动 —— 直接完成，不产生二次审批。
-        (
-            "on_complete".to_string(),
-            Json::String("DIRECT".to_string()),
-        ),
+        ("on_complete".to_string(), Json::String("DIRECT".to_string())),
         ("need_review".to_string(), Json::Bool(false)),
     ])))
     .map_err(|error| DbError::InvalidValue(format!("子流程可见性任务配置非法：{}", error.msg)))?;
@@ -3772,9 +3493,7 @@ async fn spawn_visibility_task(
     run.round = round;
     let eval = run.eval_context().await?;
     match task_node::spawn(ex, instance, &work_spec, round, &cfg, &ctx, &eval).await? {
-        SpawnOutcome::Created {
-            task_id, task_no, ..
-        } => {
+        SpawnOutcome::Created { task_id, task_no, .. } => {
             tracing::info!(
                 instance_id = %instance.id,
                 node_key = %spec.key,
@@ -3803,19 +3522,11 @@ async fn spawn_visibility_task(
 ///
 /// 只动 `source='FLOW'` 且 `flow_instance_id + flow_node_key` 对得上的那一行；
 /// 已经是终态的行不动（幂等：重复回调不会把 `DONE` 改回 `CANCELLED`）。
-async fn close_visibility_task(
-    ex: &Transaction,
-    parent_id: Uuid,
-    node_key: &str,
-    approved: bool,
-) -> DbResult<u64> {
+async fn close_visibility_task(ex: &Transaction, parent_id: Uuid, node_key: &str, approved: bool) -> DbResult<u64> {
     let (status, comment) = if approved {
         ("DONE", String::new())
     } else {
-        (
-            "CANCELLED",
-            "子流程未通过，该提示任务随节点一并结束".to_string(),
-        )
+        ("CANCELLED", "子流程未通过，该提示任务随节点一并结束".to_string())
     };
     ex.execute_with_params(
         "UPDATE biz_task \
@@ -3854,10 +3565,7 @@ async fn close_visibility_task(
 /// 数据库异常 / 推进被业务拒绝（例如下游节点派不出审批人）→ `Err`，**整笔回调事务回滚**：
 /// 父节点保持 `ACTIVE`（停在子流程上），子单结论不受影响。这种状态需要人工介入，
 /// 日志里 `warn!` 带父子两个 id，一眼能捞出来。
-pub async fn resume_parent_after_subprocess(
-    ex: &Transaction,
-    child_instance_id: Uuid,
-) -> DbResult<Option<Uuid>> {
+pub async fn resume_parent_after_subprocess(ex: &Transaction, child_instance_id: Uuid) -> DbResult<Option<Uuid>> {
     // ① 子实例上的父子指针（这是「是不是子实例」的唯一判据）
     let rows = ex
         .find_with_params(
@@ -3957,34 +3665,14 @@ pub async fn resume_parent_after_subprocess(
 
     // ⑥ 实例 CAS（与 vote 同款：0 行 → 重读重试一次）
     let auto_passed = model::sync_auto_passed(ex, parent_id).await?;
-    let status_after = run
-        .final_status
-        .clone()
-        .unwrap_or_else(|| "PENDING".to_string());
-    let round_total = model::max_round(ex, parent_id)
-        .await?
-        .max(parent.round_total);
-    let mut updated = model::bump_instance(
-        ex,
-        parent_id,
-        parent.revision,
-        Some(&status_after),
-        None,
-        round_total,
-    )
-    .await?;
+    let status_after = run.final_status.clone().unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, parent_id).await?.max(parent.round_total);
+    let mut updated =
+        model::bump_instance(ex, parent_id, parent.revision, Some(&status_after), None, round_total).await?;
     if updated == 0
         && let Some(fresh) = model::lock_instance(ex, parent_id).await?
     {
-        updated = model::bump_instance(
-            ex,
-            parent_id,
-            fresh.revision,
-            Some(&status_after),
-            None,
-            round_total,
-        )
-        .await?;
+        updated = model::bump_instance(ex, parent_id, fresh.revision, Some(&status_after), None, round_total).await?;
     }
     if updated == 0 {
         return Err(DbError::InvalidValue(format!(
@@ -3995,8 +3683,7 @@ pub async fn resume_parent_after_subprocess(
     // ⑦ 父流程到终态 → 清掉挂着的流程任务（与 vote 同口径）
     if status_after != "PENDING" {
         let comment = format!("流程已终止（{}）", parent.instance_no);
-        let cancelled =
-            model::cancel_flow_tasks(ex, parent_id, &parent.instance_no, &comment).await?;
+        let cancelled = model::cancel_flow_tasks(ex, parent_id, &parent.instance_no, &comment).await?;
         if !cancelled.is_empty() {
             tracing::info!(
                 %parent_id,
@@ -4019,11 +3706,7 @@ pub async fn resume_parent_after_subprocess(
 }
 
 /// 锁父实例里某个节点的**最新一轮**行（父子回调专用）。
-async fn lock_latest_node(
-    ex: &Transaction,
-    instance_id: Uuid,
-    node_key: &str,
-) -> DbResult<Option<model::NodeRow>> {
+async fn lock_latest_node(ex: &Transaction, instance_id: Uuid, node_key: &str) -> DbResult<Option<model::NodeRow>> {
     let rows = ex
         .find_with_params(
             "SELECT id FROM biz_flow_instance_node \
@@ -4049,9 +3732,7 @@ async fn load_snapshot(ex: &Transaction, version_id: Uuid) -> DbResult<Snapshot>
         )
         .await?;
     let Some(row) = rows.first() else {
-        return Err(DbError::InvalidValue(format!(
-            "流程版本 {version_id} 不存在"
-        )));
+        return Err(DbError::InvalidValue(format!("流程版本 {version_id} 不存在")));
     };
     let text: Option<String> = row.get_typed("snapshot_text")?;
     let Some(text) = text.filter(|value| !value.trim().is_empty()) else {
@@ -4078,11 +3759,7 @@ fn start_key_of(snapshot: &Snapshot) -> Option<String> {
 }
 
 /// 节点是否允许机器人审批（`allow_robot` 在快照上，`node` 是实例行所以要回快照取）。
-async fn node_allows_robot(
-    node: &model::NodeRow,
-    ex: &Transaction,
-    instance_id: Uuid,
-) -> DbResult<bool> {
+async fn node_allows_robot(node: &model::NodeRow, ex: &Transaction, instance_id: Uuid) -> DbResult<bool> {
     let rows = ex
         .find_with_params(
             "SELECT i.version_id AS version_id FROM biz_flow_instance i WHERE i.id = ?::uuid",
@@ -4186,9 +3863,9 @@ mod tests {
             ("task", "estimate_hours"),
         ];
         for (root, leaf) in required {
-            let root_pos = body.find(&format!("{root}.insert(")).unwrap_or_else(|| {
-                panic!("eval_context() 里找不到 {root}.insert( —— 整类字段缺失")
-            });
+            let root_pos = body
+                .find(&format!("{root}.insert("))
+                .unwrap_or_else(|| panic!("eval_context() 里找不到 {root}.insert( —— 整类字段缺失"));
             let window = &body[root_pos..std::cmp::min(body.len(), root_pos + 800)];
             let leaf_pat = format!("\"{leaf}\"");
             if !window.contains(&leaf_pat) {
@@ -4217,19 +3894,10 @@ mod tests {
     #[test]
     fn countersign_all_waits_for_everyone() {
         // 验收 7：ALL 3 人，2 同意 1 未审 → 仍等待；第 3 人同意 → 通过
-        assert_eq!(
-            judge(ApprovalMode::All, None, false, tally(2, 0, 1)),
-            Verdict::Wait
-        );
-        assert_eq!(
-            judge(ApprovalMode::All, None, false, tally(3, 0, 0)),
-            Verdict::Pass
-        );
+        assert_eq!(judge(ApprovalMode::All, None, false, tally(2, 0, 1)), Verdict::Wait);
+        assert_eq!(judge(ApprovalMode::All, None, false, tally(3, 0, 0)), Verdict::Pass);
         // 全员表过态且有驳回 → 驳回
-        assert_eq!(
-            judge(ApprovalMode::All, None, false, tally(2, 1, 0)),
-            Verdict::Reject
-        );
+        assert_eq!(judge(ApprovalMode::All, None, false, tally(2, 1, 0)), Verdict::Reject);
     }
 
     #[test]
@@ -4254,15 +3922,9 @@ mod tests {
     #[test]
     fn countersign_any_passes_on_first_vote() {
         // 验收 9：ANY 3 人，1 人同意 → 立即通过
-        assert_eq!(
-            judge(ApprovalMode::Any, None, false, tally(1, 0, 2)),
-            Verdict::Pass
-        );
+        assert_eq!(judge(ApprovalMode::Any, None, false, tally(1, 0, 2)), Verdict::Pass);
         // 都投完但没人同意 → 驳回
-        assert_eq!(
-            judge(ApprovalMode::Any, None, false, tally(0, 3, 0)),
-            Verdict::Reject
-        );
+        assert_eq!(judge(ApprovalMode::Any, None, false, tally(0, 3, 0)), Verdict::Reject);
     }
 
     /// P3-06 ①：`APPROVAL` + `approval_mode = NULL` → 或签语义（任一人同意即通过）。
@@ -4283,21 +3945,11 @@ mod tests {
         );
         // 显式 ALL 仍然是全员签（回归：不能被新默认带跑）
         assert_eq!(
-            judge(
-                ApprovalMode::effective(Some("ALL")),
-                None,
-                true,
-                tally(1, 0, 2)
-            ),
+            judge(ApprovalMode::effective(Some("ALL")), None, true, tally(1, 0, 2)),
             Verdict::Wait
         );
         assert_eq!(
-            judge(
-                ApprovalMode::effective(Some("ALL")),
-                None,
-                true,
-                tally(3, 0, 0)
-            ),
+            judge(ApprovalMode::effective(Some("ALL")), None, true, tally(3, 0, 0)),
             Verdict::Pass
         );
     }
@@ -4315,31 +3967,19 @@ mod tests {
             Verdict::Pass
         );
         // ANY + veto：一人同意一人反对 → 驳回优先
-        assert_eq!(
-            judge(ApprovalMode::Any, None, true, tally(1, 1, 1)),
-            Verdict::Reject
-        );
+        assert_eq!(judge(ApprovalMode::Any, None, true, tally(1, 1, 1)), Verdict::Reject);
     }
 
     #[test]
     fn zero_assignees_auto_pass() {
-        assert_eq!(
-            judge(ApprovalMode::All, None, true, tally(0, 0, 0)),
-            Verdict::AutoPass
-        );
+        assert_eq!(judge(ApprovalMode::All, None, true, tally(0, 0, 0)), Verdict::AutoPass);
     }
 
     #[test]
     fn single_sign_matrix() {
         // 单签 = ALL + n = 1
-        assert_eq!(
-            judge(ApprovalMode::All, None, true, tally(1, 0, 0)),
-            Verdict::Pass
-        );
-        assert_eq!(
-            judge(ApprovalMode::All, None, false, tally(0, 1, 0)),
-            Verdict::Reject
-        );
+        assert_eq!(judge(ApprovalMode::All, None, true, tally(1, 0, 0)), Verdict::Pass);
+        assert_eq!(judge(ApprovalMode::All, None, false, tally(0, 1, 0)), Verdict::Reject);
     }
 
     #[test]
@@ -4355,11 +3995,7 @@ mod tests {
                         let p = 3 - a - r;
                         let verdict = judge(mode, Some(0.6), veto, tally(a, r, p));
                         if veto && r >= 1 {
-                            assert_eq!(
-                                verdict,
-                                Verdict::Reject,
-                                "veto 必须短路：{mode:?} a={a} r={r}"
-                            );
+                            assert_eq!(verdict, Verdict::Reject, "veto 必须短路：{mode:?} a={a} r={r}");
                         }
                         if a == 3 {
                             assert_eq!(verdict, Verdict::Pass, "{mode:?} 全员同意必须通过");
@@ -4389,26 +4025,16 @@ mod tests {
         for from in states {
             for to in states {
                 let expected = from == to || legal.contains(&(from, to));
-                assert_eq!(
-                    transition_allowed(from, to),
-                    expected,
-                    "{from} → {to} 的判定不对"
-                );
+                assert_eq!(transition_allowed(from, to), expected, "{from} → {to} 的判定不对");
                 if transition_allowed(from, to) && from != to {
                     allowed += 1;
                 }
             }
         }
-        assert_eq!(
-            allowed, 4,
-            "PENDING 之外必须没有任何出边（终态不可复活，§4.1 #7/#8）"
-        );
+        assert_eq!(allowed, 4, "PENDING 之外必须没有任何出边（终态不可复活，§4.1 #7/#8）");
 
         // 引擎动作 → 迁移
-        assert_eq!(
-            instance_transition(InstanceAction::Finish, "PENDING"),
-            Some("APPROVED")
-        );
+        assert_eq!(instance_transition(InstanceAction::Finish, "PENDING"), Some("APPROVED"));
         assert_eq!(
             instance_transition(InstanceAction::Finish, "APPROVED"),
             Some("APPROVED"),
@@ -4640,13 +4266,7 @@ mod tests {
                 ("e1", "END"),
                 ("e2", "END"),
             ],
-            &[
-                ("s", "p"),
-                ("p", "a1"),
-                ("p", "b1"),
-                ("a1", "e1"),
-                ("b1", "e2"),
-            ],
+            &[("s", "p"), ("p", "a1"), ("p", "b1"), ("a1", "e1"), ("b1", "e2")],
         );
         let e1 = upstream_closure(&s, "e1");
         assert!(e1.contains("a1") && e1.contains("p") && e1.contains("s"));
@@ -4669,13 +4289,7 @@ mod tests {
                 ("b0", "APPROVAL"),
                 ("e", "END"),
             ],
-            &[
-                ("s", "p"),
-                ("p", "a1"),
-                ("p", "b0"),
-                ("a1", "e"),
-                ("b0", "e"),
-            ],
+            &[("s", "p"), ("p", "a1"), ("p", "b0"), ("a1", "e"), ("b0", "e")],
         );
         let e = upstream_closure(&same_end, "e");
         // ① 条件分叉的唯一一支已通过（本轮无在跑上游）→ 立刻结束
@@ -4695,13 +4309,7 @@ mod tests {
                 ("e1", "END"),
                 ("e2", "END"),
             ],
-            &[
-                ("s", "p"),
-                ("p", "a1"),
-                ("p", "b1"),
-                ("a1", "e1"),
-                ("b1", "e2"),
-            ],
+            &[("s", "p"), ("p", "a1"), ("p", "b1"), ("a1", "e1"), ("b1", "e2")],
         );
         let e1 = upstream_closure(&two_ends, "e1");
         // ④ 在跑的是另一支（b1 → e2）→ 不属于本 END 的上游，不许等

@@ -190,9 +190,9 @@ impl MaskSet {
         if self.is_exempt() {
             return None;
         }
-        self.rules.iter().find(|rule| {
-            rule.table.eq_ignore_ascii_case(table) && rule.column.eq_ignore_ascii_case(column)
-        })
+        self.rules
+            .iter()
+            .find(|rule| rule.table.eq_ignore_ascii_case(table) && rule.column.eq_ignore_ascii_case(column))
     }
 
     /// 对单个值脱敏：`None` = 该列没有规则（调用方按各自的策略处理；
@@ -207,12 +207,7 @@ impl MaskSet {
     ///
     /// 规则本身不可用（非法 `mask_type`）或参数不合法时返回 [`MaskError`]。
     /// 调用方**不得**把 `raw` 当结果（fail-closed）。
-    pub fn mask_value(
-        &self,
-        table: &str,
-        column: &str,
-        raw: &str,
-    ) -> std::result::Result<Option<String>, MaskError> {
+    pub fn mask_value(&self, table: &str, column: &str, raw: &str) -> std::result::Result<Option<String>, MaskError> {
         let Some(rule) = self.hits(table, column) else {
             return Ok(None);
         };
@@ -333,10 +328,7 @@ pub fn pick_effective(rows: Vec<RawRule>) -> Vec<MaskRule> {
 /// 键 `perm:user_mask:{user_id}`，TTL 与主体上下文一致（300 s）。规则变更时
 /// [`model::invalidate_all`] 整片清理。缓存不可用 → 回退查库（与数据权限同口径：
 /// 脱敏是「限制」，查库慢但结果正确，不能因为 Redis 挂了让列表 500）。
-pub async fn resolve(
-    principal: Option<&ScopedPrincipal>,
-    claims: Option<&TokenClaims>,
-) -> DbResult<MaskSet> {
+pub async fn resolve(principal: Option<&ScopedPrincipal>, claims: Option<&TokenClaims>) -> DbResult<MaskSet> {
     if principal.is_some_and(ScopedPrincipal::is_super) {
         return Ok(MaskSet::new(Vec::new(), ExemptReason::SuperAdmin));
     }
@@ -350,10 +342,7 @@ pub async fn resolve(
     let Some(user_id) = principal.map(ScopedPrincipal::user_id) else {
         // 没有身份（导出 worker 的 create_by 为空）：只能用全局规则，宁严不松
         let rows = model::rules_for_user(&Uuid::nil()).await?;
-        let global: Vec<RawRule> = rows
-            .into_iter()
-            .filter(|row| row.role_id.is_none())
-            .collect();
+        let global: Vec<RawRule> = rows.into_iter().filter(|row| row.role_id.is_none()).collect();
         return Ok(MaskSet::new(pick_effective(global), ExemptReason::None));
     };
     let rules = load_rules(&user_id).await?;
@@ -391,8 +380,7 @@ pub async fn load_rules(user_id: &Uuid) -> DbResult<Vec<MaskRule>> {
     let rows = model::rules_for_user(user_id).await?;
     let rules = pick_effective(rows);
     if let Some(store) = try_cache()
-        && let Err(error) =
-            Cache::set_ex(store, &key, &rules, constants::CACHE_PRINCIPAL_TTL_SECS).await
+        && let Err(error) = Cache::set_ex(store, &key, &rules, constants::CACHE_PRINCIPAL_TTL_SECS).await
     {
         tracing::warn!(error = %error, %user_id, "写脱敏规则缓存失败（不影响本次结果）");
     }
@@ -719,10 +707,7 @@ mod tests {
         dto.mask(&set);
         let after = serde_json::to_value(&dto).expect("脱敏后应可序列化");
 
-        assert_ne!(
-            before, after,
-            "mask() 必须至少改变一个字段（防止空 mask 假通过）"
-        );
+        assert_ne!(before, after, "mask() 必须至少改变一个字段（防止空 mask 假通过）");
         let text = serde_json::to_string(&after).expect("应可序列化");
         for (pattern, label) in [
             (r"^1[3-9]\d{9}$", "手机号"),
@@ -767,14 +752,7 @@ mod tests {
     /// 参数坏掉 → 全掩码，且不留明文（fail-closed）。
     #[test]
     fn broken_rule_falls_back_to_full_mask() {
-        let mut set_rules = pick_effective(vec![raw(
-            "sys_user",
-            "mobile",
-            1,
-            Some("oops"),
-            None,
-            now(),
-        )]);
+        let mut set_rules = pick_effective(vec![raw("sys_user", "mobile", 1, Some("oops"), None, now())]);
         set_rules[0].mask_param = Some("oops".to_string());
         let set = MaskSet::new(set_rules, ExemptReason::None);
         let mut dto = crate::system::user::dto::UserRes::sample_for_mask_test();

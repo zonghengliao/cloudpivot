@@ -47,10 +47,7 @@ pub(super) fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, Ap
 }
 
 /// 可空 UUID 原文 → `Option<Uuid>`（空 = `None`）。
-pub(super) fn parse_optional_uuid(
-    raw: Option<&String>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub(super) fn parse_optional_uuid(raw: Option<&String>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(|text| text.trim()) {
         None | Some("") => Ok(None),
         Some(text) => parse_uuid(text, field).map(Some),
@@ -64,11 +61,7 @@ pub(super) fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
 
 /// 不存在统一 404。
 pub(super) fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// 状态冲突统一 409。
@@ -131,11 +124,9 @@ pub(super) fn cancel_write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::RESOURCE_CONFLICT,
             format!("该单的货已部分出库（{detail}），不能直接作废；请先做退货入库冲销"),
         ),
-        Some((CancelGuard::Detail, detail)) => ApiError::new(
-            409,
-            error_code::RESOURCE_CONFLICT,
-            format!("不能作废：{detail}"),
-        ),
+        Some((CancelGuard::Detail, detail)) => {
+            ApiError::new(409, error_code::RESOURCE_CONFLICT, format!("不能作废：{detail}"))
+        }
         None => write_error(err, ctx),
     }
 }
@@ -178,10 +169,7 @@ pub(super) fn write_error(err: DbError, ctx: &str) -> ApiError {
             format!(
                 "收货入库单号或序列号重复（唯一约束{}）：取号器与库里的号段不一致，\
                  请联系运维排查 biz_seq",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -196,10 +184,7 @@ pub(super) fn write_error(err: DbError, ctx: &str) -> ApiError {
         DbError::ForeignKeyViolation { constraint, .. } => ApiError::new(
             400,
             error_code::ERP_REFERENCE_MISSING,
-            format!(
-                "引用的数据不存在（外键 {}）",
-                constraint.as_deref().unwrap_or("<未知>")
-            ),
+            format!("引用的数据不存在（外键 {}）", constraint.as_deref().unwrap_or("<未知>")),
         ),
         // P2-C1：应付 / 凭证生成失败（科目映射缺失、金额为 0、重复红冲…）都是**业务校验**
         // 失败，必须 400 + 原文，不能折成 500「服务器内部错误」——否则财务看到的是
@@ -256,11 +241,8 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
             .map_err(|error| utils::db_error(error, "查询供应商名称"))?;
         header.supplier_name = names.get(&supplier_id).cloned();
     }
-    let mut detail = StockInDetailRes::with_summary(
-        header,
-        items.iter().map(StockInItemRes::from).collect(),
-        serial_count,
-    );
+    let mut detail =
+        StockInDetailRes::with_summary(header, items.iter().map(StockInItemRes::from).collect(), serial_count);
     detail.contract_no = contract_no;
 
     // ★ BUG-02：详情带上「审批实例状态」+「能不能重新过账」。
@@ -268,10 +250,9 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
     // 单据只有一个 `PENDING_POST`：审批还在跑 / 审批已通过但过账失败，界面分不清。
     // 死单（审批 APPROVED + 单据 PENDING_POST）的唯一出路是 `POST /repost`，
     // 所以这两个字段由服务端算好给前端，口径只留一份。
-    let instance_status =
-        crate::business::flow::task_bridge::instance_status_of(row.approval_instance_id)
-            .await
-            .map_err(|error| utils::db_error(error, "查询收货单审批实例状态"))?;
+    let instance_status = crate::business::flow::task_bridge::instance_status_of(row.approval_instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货单审批实例状态"))?;
     detail.repost_available = row.status == stockin_model::STATUS_PENDING_POST
         && instance_status
             .as_deref()
@@ -290,10 +271,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
     let legacy_dicts = stockin_model::location_dict_of_rows(&legacy_rows)
         .await
         .map_err(|error| utils::db_error(error, "查询库位账行的库位"))?;
-    let mut dict_ids: Vec<Uuid> = items
-        .iter()
-        .filter_map(|item| item.location_dict_id)
-        .collect();
+    let mut dict_ids: Vec<Uuid> = items.iter().filter_map(|item| item.location_dict_id).collect();
     dict_ids.extend(legacy_dicts.values().copied().flatten());
     let briefs = stockin_model::location_briefs_of(&dict_ids)
         .await
@@ -331,8 +309,7 @@ async fn location_warnings_of(
     briefs: &std::collections::HashMap<Uuid, stockin_model::LocationBrief>,
 ) -> std::result::Result<Vec<String>, ApiError> {
     let mut warnings = Vec::new();
-    let draft = header.status == stockin_model::STATUS_DRAFT
-        || header.status == stockin_model::STATUS_PENDING_POST;
+    let draft = header.status == stockin_model::STATUS_DRAFT || header.status == stockin_model::STATUS_PENDING_POST;
 
     // ① 未分配：这些行过账后会记进「未分配」库位桶（客户会以为库位管理没生效）
     //    判据是**两个口径都空**：新客户端看 `location_dict_id`，旧客户端看 `location_id`
@@ -423,10 +400,7 @@ pub(super) async fn plan_lines(
     let mut requested_by_source: HashMap<Uuid, Decimal> = HashMap::new();
 
     for (index, line) in prepared.lines.iter().enumerate() {
-        let material_id = parse_uuid(
-            &line.material_id_raw,
-            &format!("items[{index}].material_id"),
-        )?;
+        let material_id = parse_uuid(&line.material_id_raw, &format!("items[{index}].material_id"))?;
         let material = model::material_find_by_id(material_id)
             .await
             .map_err(|error| utils::db_error(error, "查询物料"))?
@@ -466,8 +440,7 @@ pub(super) async fn plan_lines(
         let location_dict_id = match line.location_dict_id_raw.as_deref() {
             None => None,
             Some(raw) => {
-                let location_dict_id =
-                    parse_uuid(raw, &format!("items[{index}].location_dict_id"))?;
+                let location_dict_id = parse_uuid(raw, &format!("items[{index}].location_dict_id"))?;
                 let dict = stockin_model::location_dict_of(location_dict_id)
                     .await
                     .map_err(|error| utils::db_error(error, "查询库位"))?
@@ -504,16 +477,15 @@ pub(super) async fn plan_lines(
             None => None,
             Some(raw) => {
                 let location_id = parse_uuid(raw, &format!("items[{index}].location_id"))?;
-                let reference =
-                    crate::business::erp::serial_model::inventory_location_ref(location_id)
-                        .await
-                        .map_err(|error| utils::db_error(error, "查询库位库存行"))?
-                        .ok_or_else(|| {
-                            reference_missing(format!(
-                                "items[{index}].location_id 库位库存行不存在（{location_id}；\
+                let reference = crate::business::erp::serial_model::inventory_location_ref(location_id)
+                    .await
+                    .map_err(|error| utils::db_error(error, "查询库位库存行"))?
+                    .ok_or_else(|| {
+                        reference_missing(format!(
+                            "items[{index}].location_id 库位库存行不存在（{location_id}；\
                              必须是 biz_inventory_location.id，不是库位字典 id）"
-                            ))
-                        })?;
+                        ))
+                    })?;
                 if reference.warehouse_id != warehouse_id {
                     return Err(reference_missing(format!(
                         "items[{index}].location_id 的库位属于仓库 {}，与收货仓库 {warehouse_id} 不一致",
@@ -618,11 +590,7 @@ pub const COPY_PERMISSION: &str = "business:erp:stock-in:create";
 
 /// 入账态改单的 409（统一文案 + 点名本次想改的字段）。
 pub(super) fn locked_change(current: &stockin_model::StockInRow, field: &str) -> ApiError {
-    let base = state_machine::locked_message(
-        state_machine::ENTITY_STOCK_IN,
-        &current.status,
-        &current.in_no,
-    );
+    let base = state_machine::locked_message(state_machine::ENTITY_STOCK_IN, &current.status, &current.in_no);
     ApiError::new(
         409,
         error_code::RESOURCE_CONFLICT,
@@ -644,29 +612,17 @@ pub(super) async fn ensure_remark_only(
     {
         return Err(locked_change(current, "无源标记 is_sourceless"));
     }
-    if let Some(raw) = req
-        .supplier_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
+    if let Some(raw) = req.supplier_id.as_deref().map(str::trim).filter(|t| !t.is_empty())
         && parse_uuid(raw, "supplier_id")? != current.supplier_id.unwrap_or_else(Uuid::nil)
     {
         return Err(locked_change(current, "供应商 supplier_id"));
     }
-    if let Some(raw) = req
-        .warehouse_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
+    if let Some(raw) = req.warehouse_id.as_deref().map(str::trim).filter(|t| !t.is_empty())
         && parse_uuid(raw, "warehouse_id")? != current.warehouse_id
     {
         return Err(locked_change(current, "仓库 warehouse_id"));
     }
-    if let Some(raw) = req
-        .source_order_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
+    if let Some(raw) = req.source_order_id.as_deref().map(str::trim).filter(|t| !t.is_empty())
         && Some(parse_uuid(raw, "source_order_id")?) != current.source_order_id
     {
         return Err(locked_change(current, "来源采购单 source_order_id"));
@@ -714,11 +670,7 @@ pub(super) fn ensure_derived_totals(
 ) -> std::result::Result<(), ApiError> {
     let given = [
         ("数量合计 total_qty", req.total_qty, current.total_qty),
-        (
-            "不含税金额合计 total_amount",
-            req.total_amount,
-            current.total_amount,
-        ),
+        ("不含税金额合计 total_amount", req.total_amount, current.total_amount),
         ("税额合计 total_tax", req.total_tax, current.total_tax),
     ];
     for (field, provided, stored) in given {
@@ -803,9 +755,7 @@ pub(super) async fn flush_effects(out: &mut engine::ActionOut) {
 }
 
 /// 在跑实例的单号（拼 409 文案用；查不到就给 `-`）。
-pub(super) async fn pending_post_no_of(
-    instance_id: Option<Uuid>,
-) -> std::result::Result<String, ApiError> {
+pub(super) async fn pending_post_no_of(instance_id: Option<Uuid>) -> std::result::Result<String, ApiError> {
     let Some(instance_id) = instance_id else {
         return Ok("-".to_string());
     };
@@ -860,10 +810,7 @@ pub(super) async fn stock_in_form_data(row: &stockin_model::StockInRow) -> serde
         }
         match warehouse {
             Ok(Some(name)) => {
-                object.insert(
-                    "warehouse_name".to_string(),
-                    serde_json::Value::String(name),
-                );
+                object.insert("warehouse_name".to_string(), serde_json::Value::String(name));
             }
             Ok(None) => {}
             Err(error) => {

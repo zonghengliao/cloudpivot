@@ -186,9 +186,7 @@ impl ReceivablePageQuery {
 
 /// 空白串 → `None`（`?status=` 不该变成「筛状态 = 空串」）。
 fn blank_to_none(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// 参数类 400（`10001`）。
@@ -382,9 +380,7 @@ pub struct ReceivableDetailRes {
 /// 三种终态都不算逾期：`SETTLED` 收清了、`WRITTEN_OFF` 核销成损失了、
 /// `CANCELLED` 对应的销售根本没发生（V0290）。
 pub fn is_overdue(row: &ReceivableRow, today: NaiveDate) -> bool {
-    receivable::has_balance(&row.status)
-        && row.unsettled_amount > Decimal::ZERO
-        && row.due_date < today
+    receivable::has_balance(&row.status) && row.unsettled_amount > Decimal::ZERO && row.due_date < today
 }
 
 // ==================== 数据层 ====================
@@ -419,9 +415,7 @@ pub async fn receivable_page(q: &ReceivableFilter) -> DbResult<(Vec<ReceivableRo
         params.push(Value::Text(to.to_string()));
     }
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result =
-        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
-            .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -432,8 +426,7 @@ pub async fn receivable_page(q: &ReceivableFilter) -> DbResult<(Vec<ReceivableRo
 
 /// 单张应收单（未删除）。
 pub async fn find_receivable(id: Uuid) -> DbResult<Option<ReceivableRow>> {
-    let sql =
-        format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
+    let sql = format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
     let row = db().query_first_sql(sql, vec![Value::from(id)]).await?;
     row.as_ref().map(ReceivableRow::from_row).transpose()
 }
@@ -441,11 +434,8 @@ pub async fn find_receivable(id: Uuid) -> DbResult<Option<ReceivableRow>> {
 /// 凭证号（凭证已软删 / 不存在 → `None`，不阻断详情）。
 pub async fn voucher_no_of(voucher_id: Uuid) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: biz_voucher 是会计台账，没有归属列（见模块文档）。
-    let sql =
-        format!("SELECT voucher_no FROM {VOUCHER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
-    let row = db()
-        .query_first_sql(sql, vec![Value::from(voucher_id)])
-        .await?;
+    let sql = format!("SELECT voucher_no FROM {VOUCHER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
+    let row = db().query_first_sql(sql, vec![Value::from(voucher_id)]).await?;
     match row.as_ref() {
         Some(row) => Ok(Some(row.get_typed("voucher_no")?)),
         None => Ok(None),
@@ -457,13 +447,7 @@ pub async fn receivable_detail(id: Uuid) -> std::result::Result<ReceivableDetail
     let row = find_receivable(id)
         .await
         .map_err(|error| utils::db_error(error, "查询应收单"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "应收单不存在或已删除".to_string(),
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "应收单不存在或已删除".to_string()))?;
     let voucher_no = match row.voucher_id {
         Some(voucher_id) => voucher_no_of(voucher_id)
             .await
@@ -479,9 +463,7 @@ pub async fn receivable_detail(id: Uuid) -> std::result::Result<ReceivableDetail
 /// 今天（CST）：与取号 / 账期同口径（`AR-yyyyMMdd` 按 CST 滚动）。
 fn today_cst() -> NaiveDate {
     Utc::now()
-        .with_timezone(
-            &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
-        )
+        .with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
         .date_naive()
 }
 
@@ -503,17 +485,9 @@ pub async fn receivable_page_handler(
         .await
         .map_err(|error| utils::db_error(error, "分页查询应收单"))?;
     let today = today_cst();
-    let list = rows
-        .iter()
-        .map(|row| ReceivableRes::from_row(row, today))
-        .collect();
+    let list = rows.iter().map(|row| ReceivableRes::from_row(row, today)).collect();
     let (page, page_size) = normalize_page(query.page, query.page_size);
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 应收单详情（含关联凭证号）。
@@ -564,8 +538,7 @@ fn parse_date(raw: &str, field: &str) -> std::result::Result<NaiveDate, ApiError
             "{field} 必须是 YYYY-MM-DD（补零，例：2026-11-05），收到「{raw}」"
         )));
     }
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-        .map_err(|_| bad_request(format!("{field} 不是合法日期：{raw}")))
+    NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| bad_request(format!("{field} 不是合法日期：{raw}")))
 }
 
 // ==================== 单测 ====================
@@ -618,10 +591,7 @@ mod tests {
             !is_overdue(&sample_row("OPEN", "100", "0", "2026-11-05"), today),
             "到期当天不算逾期（账龄同口径）"
         );
-        assert!(is_overdue(
-            &sample_row("OPEN", "100", "0", "2026-11-04"),
-            today
-        ));
+        assert!(is_overdue(&sample_row("OPEN", "100", "0", "2026-11-04"), today));
         assert!(
             !is_overdue(&sample_row("SETTLED", "100", "100", "2026-10-01"), today),
             "收清了即使早就到期也不算逾期"
@@ -634,19 +604,13 @@ mod tests {
             !is_overdue(&sample_row("CANCELLED", "100", "0", "2026-10-01"), today),
             "已作废（出库作废冲销）不算逾期：这笔销售根本没发生"
         );
-        assert!(!is_overdue(
-            &sample_row("OPEN", "100", "0", "2026-12-01"),
-            today
-        ));
+        assert!(!is_overdue(&sample_row("OPEN", "100", "0", "2026-12-01"), today));
     }
 
     /// ② Res 映射：状态标签取应收域（不是 payable 的「部分已付 / 已作废」）。
     #[test]
     fn res_maps_status_label_and_amounts() {
-        let res = ReceivableRes::from_row(
-            &sample_row("PARTIAL", "1000", "400", "2026-10-01"),
-            date("2026-11-05"),
-        );
+        let res = ReceivableRes::from_row(&sample_row("PARTIAL", "1000", "400", "2026-10-01"), date("2026-11-05"));
         assert_eq!(res.status_label, "部分已收");
         assert_eq!(res.unsettled_amount, dec("600"));
         assert!(res.overdue);
@@ -672,10 +636,7 @@ mod tests {
             assert!(query.validate().is_ok(), "{good} 应通过");
         }
         query.status = Some("CANCELLED".to_string());
-        assert!(
-            query.validate().is_ok(),
-            "CANCELLED 是应收自己的域值（V0290）"
-        );
+        assert!(query.validate().is_ok(), "CANCELLED 是应收自己的域值（V0290）");
         for bad in ["PARTIAL_PAID", "PENDING_CANCEL", "open", "cancelled", ""] {
             query.status = Some(bad.to_string());
             let outcome = query.validate();
@@ -782,22 +743,11 @@ mod tests {
         if !ensure_db().await {
             return None;
         }
-        exec(
-            "DELETE FROM biz_receivable WHERE ar_no LIKE 'Q1301-%'",
-            vec![],
-        )
-        .await;
-        exec(
-            "DELETE FROM biz_voucher WHERE voucher_word = 'Q1301'",
-            vec![],
-        )
-        .await;
+        exec("DELETE FROM biz_receivable WHERE ar_no LIKE 'Q1301-%'", vec![]).await;
+        exec("DELETE FROM biz_voucher WHERE voucher_word = 'Q1301'", vec![]).await;
         exec("DELETE FROM biz_customer WHERE code LIKE 'Q1301-%'", vec![]).await;
         // uuid 一律内联成字面量：`Value::Text` 绑到 `?::uuid` 在 nik-db 上序列化失败（实测）
-        for (id, code, name) in [
-            (CUSTOMER_A, "Q1301-A", "甲客户"),
-            (CUSTOMER_B, "Q1301-B", "乙客户"),
-        ] {
+        for (id, code, name) in [(CUSTOMER_A, "Q1301-A", "甲客户"), (CUSTOMER_B, "Q1301-B", "乙客户")] {
             exec(
                 &format!(
                     "INSERT INTO biz_customer (id, code, name, status) \
@@ -919,10 +869,7 @@ mod tests {
         let (rows, total) = receivable_page(&filter).await.unwrap();
         assert_eq!(total, 5, "5 张夹具单全部可见");
         assert_eq!(rows.len(), 5);
-        assert!(
-            rows.iter().all(|row| !row.customer_name.is_empty()),
-            "客户名要 JOIN 上"
-        );
+        assert!(rows.iter().all(|row| !row.customer_name.is_empty()), "客户名要 JOIN 上");
         // 排序：created_at DESC, ar_no DESC —— 同一时刻插入 ⇒ 单号倒序
         assert_eq!(rows[0].ar_no, "Q1301-0005");
         assert_eq!(rows[4].ar_no, "Q1301-0001");
@@ -996,24 +943,15 @@ mod tests {
         )
         .await;
         assert!(
-            find_receivable(id)
-                .await
-                .unwrap()
-                .unwrap()
-                .voucher_id
-                .is_some(),
+            find_receivable(id).await.unwrap().unwrap().voucher_id.is_some(),
             "单据上的 voucher_id 不因凭证软删而丢"
         );
         let detail = receivable_detail(id).await.unwrap();
-        assert_eq!(
-            detail.voucher_no, None,
-            "凭证软删后详情只回落凭证号，不 404"
-        );
+        assert_eq!(detail.voucher_no, None, "凭证软删后详情只回落凭证号，不 404");
 
-        let err =
-            receivable_detail(Uuid::parse_str("a13a1002-0000-4000-8000-00000000dead").unwrap())
-                .await
-                .unwrap_err();
+        let err = receivable_detail(Uuid::parse_str("a13a1002-0000-4000-8000-00000000dead").unwrap())
+            .await
+            .unwrap_err();
         assert_eq!(err.status, 404);
     }
 }

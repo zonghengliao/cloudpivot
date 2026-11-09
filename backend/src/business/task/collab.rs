@@ -67,10 +67,9 @@ use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::business::storage;
 use crate::business::task::dto::{
-    self, PERM_ATTACHMENT_DELETE, PERM_COMMENT_DELETE, PERM_WORKLOG, TaskAttachmentDeleteRes,
-    TaskAttachmentItemRes, TaskAttachmentsRes, TaskCommentDeleteRes, TaskCommentItemRes,
-    TaskCommentPageQuery, TaskCommentsRes, TaskWorklogCreateReq, TaskWorklogDeleteRes,
-    TaskWorklogItemRes, TaskWorklogSaveRes, TaskWorklogsRes,
+    self, PERM_ATTACHMENT_DELETE, PERM_COMMENT_DELETE, PERM_WORKLOG, TaskAttachmentDeleteRes, TaskAttachmentItemRes,
+    TaskAttachmentsRes, TaskCommentDeleteRes, TaskCommentItemRes, TaskCommentPageQuery, TaskCommentsRes,
+    TaskWorklogCreateReq, TaskWorklogDeleteRes, TaskWorklogItemRes, TaskWorklogSaveRes, TaskWorklogsRes,
 };
 use crate::business::task::handler::{not_found, parse_uuid_field};
 use crate::business::task::model::{self, TaskDetailRow};
@@ -100,8 +99,7 @@ pub const MAX_WORKLOG_NOTE_CHARS: usize = 500;
 /// 外加 T5b 的 `AI_PROGRESS`（AI 进度回写，同属「机器生成的时间线」）。
 /// `AI_REPORT` **不在**这个集合里：它是 AI 的执行报告，属「某个作者写下的一段话」，
 /// 管理员可以按普通评论的规则清理（作者是 ROBOT，自己删不了）。
-pub const READONLY_COMMENT_TYPES: [&str; 4] =
-    ["STATUS_CHANGE", "ASSIGN", "PROGRESS_AUTO", "AI_PROGRESS"];
+pub const READONLY_COMMENT_TYPES: [&str; 4] = ["STATUS_CHANGE", "ASSIGN", "PROGRESS_AUTO", "AI_PROGRESS"];
 
 /// @ 提及通知里评论摘要的字符上限。
 pub const MENTION_EXCERPT_CHARS: usize = 120;
@@ -160,14 +158,10 @@ pub fn normalize_worklog_hours(raw: f64) -> std::result::Result<f64, String> {
         return Err("工时必须是有限数字".to_string());
     }
     if raw < MIN_WORKLOG_HOURS {
-        return Err(format!(
-            "单条工时不能小于 {MIN_WORKLOG_HOURS} 小时（15 分钟）"
-        ));
+        return Err(format!("单条工时不能小于 {MIN_WORKLOG_HOURS} 小时（15 分钟）"));
     }
     if raw > MAX_WORKLOG_HOURS {
-        return Err(format!(
-            "单条工时不能超过 {MAX_WORKLOG_HOURS} 小时（一个工作日）"
-        ));
+        return Err(format!("单条工时不能超过 {MAX_WORKLOG_HOURS} 小时（一个工作日）"));
     }
     Ok((raw * 10.0).round() / 10.0)
 }
@@ -223,8 +217,7 @@ pub fn parse_work_date(raw: &str) -> std::result::Result<NaiveDate, String> {
     if trimmed.is_empty() {
         return Err("工时日期不能为空（格式 YYYY-MM-DD）".to_string());
     }
-    NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
-        .map_err(|_| format!("工时日期格式非法（应为 YYYY-MM-DD）：{raw}"))
+    NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").map_err(|_| format!("工时日期格式非法（应为 YYYY-MM-DD）：{raw}"))
 }
 
 // ==================== 数据访问（子表，按 task_id 收口） ====================
@@ -297,11 +290,7 @@ fn parse_mentions(raw: Option<&str>) -> Vec<Uuid> {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn page_comments(
-    task_id: Uuid,
-    page: u64,
-    page_size: u64,
-) -> DbResult<(Vec<CommentRow>, u64)> {
+pub async fn page_comments(task_id: Uuid, page: u64, page_size: u64) -> DbResult<(Vec<CommentRow>, u64)> {
     let offset = (page.saturating_sub(1)) * page_size;
     let sql = format!(
         "SELECT {COMMENT_COLUMNS} \
@@ -362,11 +351,7 @@ pub async fn soft_delete_comment(
             SET deleted_at = now(), updated_at = now(), update_by = ?::uuid \
           WHERE id = ?::uuid AND task_id = ?::uuid AND deleted_at IS NULL"
             .to_string(),
-        vec![
-            Value::from(&operator),
-            Value::from(&comment_id),
-            Value::from(&task_id),
-        ],
+        vec![Value::from(&operator), Value::from(&comment_id), Value::from(&task_id)],
     )
     .await
 }
@@ -452,9 +437,7 @@ pub async fn list_attachment_rows(task_id: Uuid) -> DbResult<Vec<AttachmentRow>>
           WHERE a.task_id = ?::uuid AND a.deleted_at IS NULL \
           ORDER BY a.sort_order ASC, a.created_at ASC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&task_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&task_id)]).await?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
         list.push(AttachmentRow::from_row(row)?);
@@ -463,10 +446,7 @@ pub async fn list_attachment_rows(task_id: Uuid) -> DbResult<Vec<AttachmentRow>>
 }
 
 /// 取单条未删附件（下载 / 删除前判定「这个附件属于这个任务」）。
-pub async fn find_attachment(
-    task_id: Uuid,
-    attachment_id: Uuid,
-) -> DbResult<Option<AttachmentRow>> {
+pub async fn find_attachment(task_id: Uuid, attachment_id: Uuid) -> DbResult<Option<AttachmentRow>> {
     let sql = format!(
         "SELECT {ATTACHMENT_COLUMNS} \
            FROM biz_task_attachment a \
@@ -475,10 +455,7 @@ pub async fn find_attachment(
           WHERE a.id = ?::uuid AND a.task_id = ?::uuid AND a.deleted_at IS NULL"
     );
     let rows = db()
-        .find_with_params(
-            &sql,
-            vec![Value::from(&attachment_id), Value::from(&task_id)],
-        )
+        .find_with_params(&sql, vec![Value::from(&attachment_id), Value::from(&task_id)])
         .await?;
     match rows.first() {
         Some(row) => Ok(Some(AttachmentRow::from_row(row)?)),
@@ -560,9 +537,7 @@ pub async fn worklog_rows(task_id: Uuid) -> DbResult<Vec<WorklogRow>> {
           WHERE w.task_id = ?::uuid \
           ORDER BY w.work_date DESC, w.created_at DESC"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&task_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&task_id)]).await?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
         list.push(WorklogRow::from_row(row)?);
@@ -635,11 +610,7 @@ pub async fn insert_worklog(
 /// 删除一条工时记录（硬删：工时是日志类数据，表本身没有 `deleted_at`）。
 ///
 /// 名字带 `_row`：与同名 handler [`delete_worklog`] 区分（同模块同名函数直接编不过）。
-pub async fn delete_worklog_row(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-    worklog_id: Uuid,
-) -> DbResult<u64> {
+pub async fn delete_worklog_row(ex: &impl SqlExecutor, task_id: Uuid, worklog_id: Uuid) -> DbResult<u64> {
     ex.exec_sql(
         "DELETE FROM biz_task_worklog WHERE id = ?::uuid AND task_id = ?::uuid".to_string(),
         vec![Value::from(&worklog_id), Value::from(&task_id)],
@@ -660,11 +631,7 @@ pub async fn delete_worklog_row(
 /// - 没有工时记录 → `actual_hours = NULL`（**不是 0**：「还没登记」与「登记了 0」
 ///   是两件事，详情页靠这个区分显示 `-` 还是 `0h`）；
 /// - 有记录 → `SUM(hours)`（`NUMERIC(6,1)` 精度）。
-pub async fn sync_actual_hours(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-    operator: Uuid,
-) -> DbResult<()> {
+pub async fn sync_actual_hours(ex: &impl SqlExecutor, task_id: Uuid, operator: Uuid) -> DbResult<()> {
     ex.exec_sql(
         "UPDATE biz_task t \
             SET actual_hours = (SELECT sum(w.hours)::numeric \
@@ -727,11 +694,7 @@ fn me_of(claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
 
 /// 404（评论 / 附件 / 工时不存在，或不属于该任务）。
 fn child_not_found(label: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::TASK_NOT_FOUND,
-        format!("{label}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::TASK_NOT_FOUND, format!("{label}不存在或已删除"))
 }
 
 /// 403（本卡的三类拒绝共用一处文案出口）。
@@ -786,12 +749,7 @@ pub async fn list_comments(
             parent_comment_id: row.parent_comment_id.map(|parent| parent.to_string()),
             created_at: row.created_at,
             readonly: comment_is_readonly(&row.comment_type),
-            can_delete: comment_delete_verdict(
-                &row.comment_type,
-                row.user_id == me,
-                has_delete_permission,
-            )
-            .is_ok(),
+            can_delete: comment_delete_verdict(&row.comment_type, row.user_id == me, has_delete_permission).is_ok(),
         })
         .collect();
 
@@ -1237,9 +1195,7 @@ pub async fn delete_worklog(
         .ok_or_else(|| child_not_found("工时记录"))?;
 
     if row.user_id != me && !claims.has_permission(PERM_WORKLOG) {
-        return Err(forbidden(
-            "只能删除自己的工时记录，或持有 business:task:worklog 权限",
-        ));
+        return Err(forbidden("只能删除自己的工时记录，或持有 business:task:worklog 权限"));
     }
 
     let affected = db()

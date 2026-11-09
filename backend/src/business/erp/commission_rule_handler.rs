@@ -49,8 +49,8 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::commission_model::RuleRow;
 use crate::business::erp::commission_rule_dto::{
-    self, RuleCreateReq, RuleFilter, RulePageQuery, RuleRes, RuleSpec, RuleUpdateReq,
-    SCOPE_SALESPERSON, scope_label, spec_from_create, spec_from_update,
+    self, RuleCreateReq, RuleFilter, RulePageQuery, RuleRes, RuleSpec, RuleUpdateReq, SCOPE_SALESPERSON, scope_label,
+    spec_from_create, spec_from_update,
 };
 use crate::business::erp::commission_rule_model::{self as model, RuleDetailRow};
 use crate::business::erp::model::normalize_page;
@@ -159,10 +159,7 @@ async fn ensure_scope_target(spec: &RuleSpec) -> std::result::Result<(), ApiErro
 // ==================== 业务逻辑（单测直接调这些） ====================
 
 /// 新建规则。
-pub async fn create_rule(
-    operator: Option<Uuid>,
-    req: RuleCreateReq,
-) -> std::result::Result<RuleRes, ApiError> {
+pub async fn create_rule(operator: Option<Uuid>, req: RuleCreateReq) -> std::result::Result<RuleRes, ApiError> {
     let spec = spec_from_create(&req, today_cst())?;
     ensure_scope_target(&spec).await?;
     let id = Uuid::now_v7();
@@ -199,10 +196,7 @@ pub async fn update_rule(
 }
 
 /// 软删规则（**只用于录错了**：被明细引用过的规则改「停用」，不删）。
-pub async fn delete_rule(
-    operator: Option<Uuid>,
-    id_raw: &str,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_rule(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = commission_rule_dto::parse_uuid(id_raw, "id")?;
     let row = model::find_by_id(id)
         .await
@@ -228,9 +222,7 @@ pub async fn delete_rule(
 }
 
 /// 规则分页。
-pub async fn page_rules(
-    query: RulePageQuery,
-) -> std::result::Result<PageData<Vec<RuleRes>>, ApiError> {
+pub async fn page_rules(query: RulePageQuery) -> std::result::Result<PageData<Vec<RuleRes>>, ApiError> {
     let filter: RuleFilter = query.filter()?;
     let (rows, total) = model::page(&filter)
         .await
@@ -287,9 +279,7 @@ pub fn to_rule_row(spec: &RuleSpec, id: Uuid, created_at: DateTime<Utc>) -> Rule
     permission = "business:erp:commission-rule:list"
 )]
 #[nik::get("/business/erp/commission-rule/page")]
-pub async fn commission_rule_page_api(
-    Query(query): Query<RulePageQuery>,
-) -> ResResult<PageData<Vec<RuleRes>>> {
+pub async fn commission_rule_page_api(Query(query): Query<RulePageQuery>) -> ResResult<PageData<Vec<RuleRes>>> {
     Ok(Res::ok(page_rules(query).await?))
 }
 
@@ -400,11 +390,7 @@ mod tests {
             assert_eq!(parts[2], "commission-rule", "{code}");
         }
         // 与 SO-36 结算域的码必须是两个不同资源（别把 settle 的码复用过来）
-        assert!(
-            RULE_PERMISSIONS
-                .iter()
-                .all(|code| code.contains("commission-rule"))
-        );
+        assert!(RULE_PERMISSIONS.iter().all(|code| code.contains("commission-rule")));
     }
 
     #[test]
@@ -425,10 +411,7 @@ mod tests {
         let cst = today_cst();
         let utc = Utc::now().date_naive();
         let delta = (cst - utc).num_days();
-        assert!(
-            (0..=1).contains(&delta),
-            "CST 日期与 UTC 日期相差 {delta} 天"
-        );
+        assert!((0..=1).contains(&delta), "CST 日期与 UTC 日期相差 {delta} 天");
     }
 
     // ---------- 出参形状（前端 SO-37 逐字对齐） ----------
@@ -474,10 +457,7 @@ mod tests {
             "created_at",
             "updated_at",
         ] {
-            assert!(
-                object.contains_key(field),
-                "出参缺字段 {field}（前端会 undefined）"
-            );
+            assert!(object.contains_key(field), "出参缺字段 {field}（前端会 undefined）");
         }
         // 金额/比率是字符串（前端按字符串展示，不自己算）
         assert_eq!(json["rate"], serde_json::json!("10.0000"));
@@ -504,8 +484,7 @@ mod tests {
         let on = date("2026-06-01");
 
         // ① 建：全局 5%
-        let mut spec = spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07"))
-            .expect("新建规格");
+        let mut spec = spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07")).expect("新建规格");
         let rule_id = Uuid::now_v7();
         let mut rules = vec![to_rule_row(&spec, rule_id, created_at)];
         let picked = pick_rule(&rules, salesperson, Some(material), on).expect("命中全局规则");
@@ -593,8 +572,7 @@ mod tests {
         let salesperson = Uuid::now_v7();
         let material = Uuid::now_v7();
 
-        let global =
-            spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07")).expect("全局");
+        let global = spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07")).expect("全局");
         let mut material_req = create_req(SCOPE_MATERIAL, Some(&material.to_string()), "10");
         material_req.rule_name = "物料一 10%".to_string();
         let by_material = spec_from_create(&material_req, date("2026-11-07")).expect("物料");
@@ -609,13 +587,9 @@ mod tests {
             to_rule_row(&global, Uuid::now_v7(), now),
             to_rule_row(&by_material, Uuid::now_v7(), now),
         ];
-        let picked =
-            pick_rule(&rules, salesperson, Some(material), date("2026-06-01")).expect("命中");
+        let picked = pick_rule(&rules, salesperson, Some(material), date("2026-06-01")).expect("命中");
         assert_eq!(picked.rule_name, "销售员甲 20%");
-        assert_eq!(
-            commission_of(picked, dec("1000")).expect("计佣").1,
-            dec("200.0000")
-        );
+        assert_eq!(commission_of(picked, dec("1000")).expect("计佣").1, dec("200.0000"));
 
         // 没有物料桶（订单无明细）时退到销售员规则，而不是物料规则
         let picked = pick_rule(&rules, salesperson, None, date("2026-06-01")).expect("命中");
@@ -654,10 +628,7 @@ mod tests {
         req.rule_name = "固定 300 元（起算 600）".to_string();
         let spec = spec_from_create(&req, date("2026-11-07")).expect("固定额规则");
         let rule = to_rule_row(&spec, Uuid::now_v7(), Utc::now());
-        assert!(
-            commission_of(&rule, dec("500")).is_none(),
-            "未达起算额 600 → 不计佣"
-        );
+        assert!(commission_of(&rule, dec("500")).is_none(), "未达起算额 600 → 不计佣");
         assert_eq!(
             commission_of(&rule, dec("700")).expect("计佣"),
             (dec("300"), dec("300.0000")),
@@ -670,8 +641,7 @@ mod tests {
     /// 只有 `status=INACTIVE` 才算「不再参与匹配」；DTO 层不允许把状态写成别的值糊过去。
     #[test]
     fn stopping_a_rule_is_a_status_change_not_a_delete() {
-        let spec =
-            spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07")).expect("新建");
+        let spec = spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07")).expect("新建");
         assert_eq!(spec.status, RULE_ACTIVE, "默认启用");
         let stopped = spec_from_update(
             &spec,
@@ -695,8 +665,7 @@ mod tests {
     /// 编辑时若把 scope_type 从 ALL 改成 SALESPERSON 却没给 scope_id（合并后为空）→ 400。
     #[test]
     fn switching_scope_type_requires_scope_id() {
-        let spec = spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07"))
-            .expect("全局规则");
+        let spec = spec_from_create(&create_req(SCOPE_ALL, None, "5"), date("2026-11-07")).expect("全局规则");
         let err = spec_from_update(
             &spec,
             &RuleUpdateReq {

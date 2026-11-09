@@ -415,9 +415,7 @@ pub fn parse_task_config(value: &Value) -> std::result::Result<TaskNodeConfig, A
 
     let approve_raw = optional_string(object, "approve_biz_type")?;
     if on_complete == OnComplete::Approve && approve_raw.is_none() {
-        return Err(config_invalid(
-            "on_complete=APPROVE 必须指定 approve_biz_type",
-        ));
+        return Err(config_invalid("on_complete=APPROVE 必须指定 approve_biz_type"));
     }
     if on_complete != OnComplete::Approve && approve_raw.is_some() {
         return Err(config_invalid(format!(
@@ -462,8 +460,7 @@ pub fn parse_task_config(value: &Value) -> std::result::Result<TaskNodeConfig, A
 
     let form_mapping = parse_form_mapping(object)?;
     let attach_biz = optional_bool(object, "attach_biz")?.unwrap_or(true);
-    let allow_skip_when_no_assignee =
-        optional_bool(object, "allow_skip_when_no_assignee")?.unwrap_or(false);
+    let allow_skip_when_no_assignee = optional_bool(object, "allow_skip_when_no_assignee")?.unwrap_or(false);
 
     Ok(TaskNodeConfig {
         title_template,
@@ -519,8 +516,8 @@ fn parse_due(value: &Value) -> std::result::Result<DueConfig, ApiError> {
     };
     deny_unknown_keys(object, &DUE_KEYS, "config.task.due")?;
 
-    let mode_raw = required_string(object, "mode")
-        .map_err(|_| config_invalid("due.mode 必填（RELATIVE / ABSOLUTE / FIELD）"))?;
+    let mode_raw =
+        required_string(object, "mode").map_err(|_| config_invalid("due.mode 必填（RELATIVE / ABSOLUTE / FIELD）"))?;
     let mode = DueMode::parse(&mode_raw).ok_or_else(|| {
         config_invalid(format!(
             "due.mode 取值非法：{mode_raw}（应为 RELATIVE / ABSOLUTE / FIELD）"
@@ -529,11 +526,10 @@ fn parse_due(value: &Value) -> std::result::Result<DueConfig, ApiError> {
 
     let amount = optional_i64(object, "amount")?;
     let unit = match optional_string(object, "unit")? {
-        Some(raw) => Some(DueUnit::parse(&raw).ok_or_else(|| {
-            config_invalid(format!(
-                "due.unit 取值非法：{raw}（应为 HOUR / DAY / WORKDAY）"
-            ))
-        })?),
+        Some(raw) => Some(
+            DueUnit::parse(&raw)
+                .ok_or_else(|| config_invalid(format!("due.unit 取值非法：{raw}（应为 HOUR / DAY / WORKDAY）")))?,
+        ),
         None => None,
     };
     let date = optional_string(object, "date")?;
@@ -541,21 +537,16 @@ fn parse_due(value: &Value) -> std::result::Result<DueConfig, ApiError> {
 
     match mode {
         DueMode::Relative => {
-            let amount = amount.ok_or_else(|| {
-                config_invalid("due.mode=RELATIVE 必须指定 amount（数量）与 unit（单位）")
-            })?;
+            let amount =
+                amount.ok_or_else(|| config_invalid("due.mode=RELATIVE 必须指定 amount（数量）与 unit（单位）"))?;
             if !(1..=MAX_DUE_AMOUNT).contains(&amount) {
                 return Err(config_invalid(format!(
                     "due.amount 必须在 1..{MAX_DUE_AMOUNT} 之间（当前 {amount}）"
                 )));
             }
-            let unit = unit.ok_or_else(|| {
-                config_invalid("due.mode=RELATIVE 必须指定 amount（数量）与 unit（单位）")
-            })?;
-            reject_keys_for_mode(
-                &[("date", date.is_some()), ("field", field.is_some())],
-                mode,
-            )?;
+            let unit =
+                unit.ok_or_else(|| config_invalid("due.mode=RELATIVE 必须指定 amount（数量）与 unit（单位）"))?;
+            reject_keys_for_mode(&[("date", date.is_some()), ("field", field.is_some())], mode)?;
             Ok(DueConfig {
                 mode,
                 amount: Some(amount),
@@ -565,12 +556,9 @@ fn parse_due(value: &Value) -> std::result::Result<DueConfig, ApiError> {
             })
         }
         DueMode::Absolute => {
-            let date = date
-                .ok_or_else(|| config_invalid("due.mode=ABSOLUTE 必须指定 date（yyyy-MM-dd）"))?;
+            let date = date.ok_or_else(|| config_invalid("due.mode=ABSOLUTE 必须指定 date（yyyy-MM-dd）"))?;
             if !is_iso_date(&date) {
-                return Err(config_invalid(format!(
-                    "due.date 格式非法：{date}（应为 yyyy-MM-dd）"
-                )));
+                return Err(config_invalid(format!("due.date 格式非法：{date}（应为 yyyy-MM-dd）")));
             }
             reject_keys_for_mode(
                 &[
@@ -589,13 +577,9 @@ fn parse_due(value: &Value) -> std::result::Result<DueConfig, ApiError> {
             })
         }
         DueMode::Field => {
-            let field = field.ok_or_else(|| {
-                config_invalid("due.mode=FIELD 必须指定 field（表单日期字段路径）")
-            })?;
+            let field = field.ok_or_else(|| config_invalid("due.mode=FIELD 必须指定 field（表单日期字段路径）"))?;
             if field.chars().count() > MAX_FIELD_PATH_CHARS {
-                return Err(config_invalid(format!(
-                    "due.field 超过 {MAX_FIELD_PATH_CHARS} 个字符"
-                )));
+                return Err(config_invalid(format!("due.field 超过 {MAX_FIELD_PATH_CHARS} 个字符")));
             }
             reject_keys_for_mode(
                 &[
@@ -617,10 +601,7 @@ fn parse_due(value: &Value) -> std::result::Result<DueConfig, ApiError> {
 }
 
 /// 某个模式下不允许出现的键（配置了就是「两个模式同时声明」）。
-fn reject_keys_for_mode(
-    present: &[(&str, bool)],
-    mode: DueMode,
-) -> std::result::Result<(), ApiError> {
+fn reject_keys_for_mode(present: &[(&str, bool)], mode: DueMode) -> std::result::Result<(), ApiError> {
     for (key, has) in present {
         if *has {
             return Err(config_invalid(format!(
@@ -633,9 +614,7 @@ fn reject_keys_for_mode(
 }
 
 /// `form_mapping`：只有三个键，值必须是 `form.*` 路径。
-fn parse_form_mapping(
-    object: &Map<String, Value>,
-) -> std::result::Result<BTreeMap<String, String>, ApiError> {
+fn parse_form_mapping(object: &Map<String, Value>) -> std::result::Result<BTreeMap<String, String>, ApiError> {
     let mut out = BTreeMap::new();
     let Some(value) = object.get("form_mapping").filter(|v| !v.is_null()) else {
         return Ok(out);
@@ -674,11 +653,7 @@ fn parse_form_mapping(
 // ==================== 小工具 ====================
 
 /// 拒绝未知键（`additionalProperties: false`）。
-fn deny_unknown_keys(
-    object: &Map<String, Value>,
-    allowed: &[&str],
-    scope: &str,
-) -> std::result::Result<(), ApiError> {
+fn deny_unknown_keys(object: &Map<String, Value>, allowed: &[&str], scope: &str) -> std::result::Result<(), ApiError> {
     let mut unknown: Vec<&str> = object
         .keys()
         .map(String::as_str)
@@ -696,18 +671,12 @@ fn deny_unknown_keys(
 }
 
 /// 必填字符串（缺失 / 非字符串 / 空白 → 65034）。
-fn required_string(
-    object: &Map<String, Value>,
-    key: &str,
-) -> std::result::Result<String, ApiError> {
+fn required_string(object: &Map<String, Value>, key: &str) -> std::result::Result<String, ApiError> {
     optional_string(object, key)?.ok_or_else(|| config_invalid(format!("{key} 必填")))
 }
 
 /// 可选字符串（缺失 / `null` → `None`；非字符串 / 空白 → 65034）。
-fn optional_string(
-    object: &Map<String, Value>,
-    key: &str,
-) -> std::result::Result<Option<String>, ApiError> {
+fn optional_string(object: &Map<String, Value>, key: &str) -> std::result::Result<Option<String>, ApiError> {
     match object.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) => {
@@ -722,10 +691,7 @@ fn optional_string(
 }
 
 /// 可选布尔。
-fn optional_bool(
-    object: &Map<String, Value>,
-    key: &str,
-) -> std::result::Result<Option<bool>, ApiError> {
+fn optional_bool(object: &Map<String, Value>, key: &str) -> std::result::Result<Option<bool>, ApiError> {
     match object.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(flag)) => Ok(Some(*flag)),
@@ -734,10 +700,7 @@ fn optional_bool(
 }
 
 /// 可选整数。
-fn optional_i64(
-    object: &Map<String, Value>,
-    key: &str,
-) -> std::result::Result<Option<i64>, ApiError> {
+fn optional_i64(object: &Map<String, Value>, key: &str) -> std::result::Result<Option<i64>, ApiError> {
     match object.get(key) {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Number(number)) => number
@@ -813,14 +776,7 @@ pub const NOTIFY_CONFIG_KEYS: [&str; 9] = [
 const INLINE_KEYS: [&str; 3] = ["title", "content", "content_format"];
 
 /// `targets[]` 的合法键。
-const NOTIFY_TARGET_KEYS: [&str; 6] = [
-    "type",
-    "user_ids",
-    "role_codes",
-    "dept_ids",
-    "levels",
-    "form_var_key",
-];
+const NOTIFY_TARGET_KEYS: [&str; 6] = ["type", "user_ids", "role_codes", "dept_ids", "levels", "form_var_key"];
 
 /// 通知时机（`config.notify.when`）。
 ///
@@ -857,11 +813,7 @@ impl NotifyWhen {
     }
 
     /// 全部取值（错误文案「应为 …」用）。
-    pub const ALL: [NotifyWhen; 3] = [
-        NotifyWhen::OnEnter,
-        NotifyWhen::OnLeave,
-        NotifyWhen::OnTimeout,
-    ];
+    pub const ALL: [NotifyWhen; 3] = [NotifyWhen::OnEnter, NotifyWhen::OnLeave, NotifyWhen::OnTimeout];
 
     /// 解析（大小写不敏感）。
     pub fn parse(raw: &str) -> Option<Self> {
@@ -1035,9 +987,7 @@ impl NotifyTargetType {
     /// 解析（大小写不敏感）。
     pub fn parse(raw: &str) -> Option<Self> {
         let upper = raw.trim().to_ascii_uppercase();
-        NotifyTargetType::ALL
-            .into_iter()
-            .find(|kind| kind.as_str() == upper)
+        NotifyTargetType::ALL.into_iter().find(|kind| kind.as_str() == upper)
     }
 
     /// 对应的 `assignee_type`（交给 `assignee::resolve` 复用既有解析能力）。
@@ -1182,12 +1132,11 @@ pub fn parse_notify_config(value: &Value) -> std::result::Result<NotifyNodeConfi
     let Some(object) = value.as_object() else {
         return Err(notify_invalid("config.notify 必须是对象"));
     };
-    deny_unknown_keys(object, &NOTIFY_CONFIG_KEYS, "config.notify")
-        .map_err(|error| notify_invalid(error.msg))?;
+    deny_unknown_keys(object, &NOTIFY_CONFIG_KEYS, "config.notify").map_err(|error| notify_invalid(error.msg))?;
 
     // ---------- when ----------
-    let when_raw = required_string(object, "when")
-        .map_err(|_| notify_invalid("when 必填（ON_ENTER / ON_LEAVE / ON_TIMEOUT）"))?;
+    let when_raw =
+        required_string(object, "when").map_err(|_| notify_invalid("when 必填（ON_ENTER / ON_LEAVE / ON_TIMEOUT）"))?;
     let when = NotifyWhen::parse(&when_raw).ok_or_else(|| {
         notify_invalid(format!(
             "when 取值非法：{when_raw}（应为 ON_ENTER / ON_LEAVE / ON_TIMEOUT）"
@@ -1201,8 +1150,7 @@ pub fn parse_notify_config(value: &Value) -> std::result::Result<NotifyNodeConfi
     let targets = parse_notify_targets(targets_value)?;
 
     // ---------- 模板二选一 ----------
-    let template_code =
-        optional_string(object, "template_code").map_err(|error| notify_invalid(error.msg))?;
+    let template_code = optional_string(object, "template_code").map_err(|error| notify_invalid(error.msg))?;
     let inline_present = object.get("inline").is_some_and(|value| !value.is_null());
     let template = match (template_code, inline_present) {
         (Some(code), false) => NotifyTemplate::Code {
@@ -1226,24 +1174,16 @@ pub fn parse_notify_config(value: &Value) -> std::result::Result<NotifyNodeConfi
         .map_err(|error| notify_invalid(error.msg))?
         .unwrap_or(false);
     let level = match optional_string(object, "level").map_err(|error| notify_invalid(error.msg))? {
-        Some(raw) => NotifyLevel::parse(&raw).ok_or_else(|| {
-            notify_invalid(format!(
-                "level 取值非法：{raw}（应为 INFO / WARN / URGENT）"
-            ))
-        })?,
+        Some(raw) => NotifyLevel::parse(&raw)
+            .ok_or_else(|| notify_invalid(format!("level 取值非法：{raw}（应为 INFO / WARN / URGENT）")))?,
         None => NotifyLevel::Info,
     };
     let force = optional_bool(object, "force")
         .map_err(|error| notify_invalid(error.msg))?
         .unwrap_or(false);
-    let skip_if_empty = match optional_string(object, "skip_if_empty")
-        .map_err(|error| notify_invalid(error.msg))?
-    {
-        Some(raw) => SkipIfEmpty::parse(&raw).ok_or_else(|| {
-            notify_invalid(format!(
-                "skip_if_empty 取值非法：{raw}（应为 PASS / WARN / ERROR）"
-            ))
-        })?,
+    let skip_if_empty = match optional_string(object, "skip_if_empty").map_err(|error| notify_invalid(error.msg))? {
+        Some(raw) => SkipIfEmpty::parse(&raw)
+            .ok_or_else(|| notify_invalid(format!("skip_if_empty 取值非法：{raw}（应为 PASS / WARN / ERROR）")))?,
         None => SkipIfEmpty::Warn,
     };
     let channels = parse_channels(object)?;
@@ -1274,9 +1214,7 @@ fn parse_notify_targets(value: &Value) -> std::result::Result<Vec<NotifyTarget>,
         return Err(notify_invalid("targets 必须是数组"));
     };
     if items.is_empty() {
-        return Err(notify_invalid(
-            "targets 至少要有一项（没人可发的通知节点没有意义）",
-        ));
+        return Err(notify_invalid("targets 至少要有一项（没人可发的通知节点没有意义）"));
     }
     if items.len() > MAX_NOTIFY_TARGETS {
         return Err(notify_invalid(format!(
@@ -1297,20 +1235,12 @@ fn parse_one_target(value: &Value, index: usize) -> std::result::Result<NotifyTa
     let Some(object) = value.as_object() else {
         return Err(notify_invalid(format!("{label} 必须是对象")));
     };
-    deny_unknown_keys(
-        object,
-        &NOTIFY_TARGET_KEYS,
-        &format!("config.notify.{label}"),
-    )
-    .map_err(|error| notify_invalid(error.msg))?;
+    deny_unknown_keys(object, &NOTIFY_TARGET_KEYS, &format!("config.notify.{label}"))
+        .map_err(|error| notify_invalid(error.msg))?;
 
-    let type_raw = required_string(object, "type")
-        .map_err(|_| notify_invalid(format!("{label}.type 必填")))?;
+    let type_raw = required_string(object, "type").map_err(|_| notify_invalid(format!("{label}.type 必填")))?;
     let target_type = NotifyTargetType::parse(&type_raw).ok_or_else(|| {
-        let allowed: Vec<&str> = NotifyTargetType::ALL
-            .iter()
-            .map(|kind| kind.as_str())
-            .collect();
+        let allowed: Vec<&str> = NotifyTargetType::ALL.iter().map(|kind| kind.as_str()).collect();
         notify_invalid(format!(
             "{label}.type 取值非法：{type_raw}（应为 {}）",
             allowed.join(" / ")
@@ -1321,9 +1251,7 @@ fn parse_one_target(value: &Value, index: usize) -> std::result::Result<NotifyTa
     target.user_ids = parse_uuid_list(object, "user_ids", &label)?;
     target.dept_ids = parse_uuid_list(object, "dept_ids", &label)?;
     target.role_codes = parse_string_list(object, "role_codes", &label)?;
-    if let Some(levels) =
-        optional_i64(object, "levels").map_err(|error| notify_invalid(error.msg))?
-    {
+    if let Some(levels) = optional_i64(object, "levels").map_err(|error| notify_invalid(error.msg))? {
         if !(1..=10).contains(&levels) {
             return Err(notify_invalid(format!(
                 "{label}.levels 必须在 1..10 之间（当前 {levels}）"
@@ -1331,8 +1259,7 @@ fn parse_one_target(value: &Value, index: usize) -> std::result::Result<NotifyTa
         }
         target.levels = levels as i16;
     }
-    target.form_var_key =
-        optional_string(object, "form_var_key").map_err(|error| notify_invalid(error.msg))?;
+    target.form_var_key = optional_string(object, "form_var_key").map_err(|error| notify_invalid(error.msg))?;
 
     // 来源 × 必备键：**用错来源的键要报错，不是静默忽略**
     // （静默忽略 = 用户以为配了「发给张三」，实际解析成「发起人」）。
@@ -1388,12 +1315,9 @@ fn parse_inline(value: &Value) -> std::result::Result<NotifyTemplate, ApiError> 
     let Some(object) = value.as_object() else {
         return Err(notify_invalid("inline 必须是对象"));
     };
-    deny_unknown_keys(object, &INLINE_KEYS, "config.notify.inline")
-        .map_err(|error| notify_invalid(error.msg))?;
-    let title = required_string(object, "title")
-        .map_err(|_| notify_template_invalid("inline.title 必填"))?;
-    let content = required_string(object, "content")
-        .map_err(|_| notify_template_invalid("inline.content 必填"))?;
+    deny_unknown_keys(object, &INLINE_KEYS, "config.notify.inline").map_err(|error| notify_invalid(error.msg))?;
+    let title = required_string(object, "title").map_err(|_| notify_template_invalid("inline.title 必填"))?;
+    let content = required_string(object, "content").map_err(|_| notify_template_invalid("inline.content 必填"))?;
     let title_chars = title.chars().count();
     if title_chars == 0 {
         return Err(notify_template_invalid("inline.title 不能为空"));
@@ -1412,9 +1336,7 @@ fn parse_inline(value: &Value) -> std::result::Result<NotifyTemplate, ApiError> 
             "inline.content 有 {content_chars} 个字符，超过上限 {MAX_NOTIFY_CONTENT_CHARS}"
         )));
     }
-    let content_format = match optional_string(object, "content_format")
-        .map_err(|error| notify_invalid(error.msg))?
-    {
+    let content_format = match optional_string(object, "content_format").map_err(|error| notify_invalid(error.msg))? {
         Some(raw) => {
             let upper = raw.trim().to_ascii_uppercase();
             if upper != "TEXT" && upper != "HTML" {
@@ -1473,9 +1395,7 @@ fn parse_channels(object: &Map<String, Value>) -> std::result::Result<u16, ApiEr
         return Err(notify_invalid("channels 必须是数组"));
     };
     if items.is_empty() {
-        return Err(notify_invalid(
-            "channels 不能为空数组（不指定就留空整个键）",
-        ));
+        return Err(notify_invalid("channels 不能为空数组（不指定就留空整个键）"));
     }
     let mut mask: u16 = 0;
     for item in items {
@@ -1499,23 +1419,14 @@ fn parse_channels(object: &Map<String, Value>) -> std::result::Result<u16, ApiEr
 }
 
 /// `Vec<uuid>` 形态的数组（每项必须是合法 UUID，错一项就报错点位置）。
-fn parse_uuid_list(
-    object: &Map<String, Value>,
-    key: &str,
-    label: &str,
-) -> std::result::Result<Vec<String>, ApiError> {
+fn parse_uuid_list(object: &Map<String, Value>, key: &str, label: &str) -> std::result::Result<Vec<String>, ApiError> {
     let items = parse_string_list(object, key, label)?;
     for (index, item) in items.iter().enumerate() {
         if Uuid::parse_str(item.trim()).is_err() {
-            return Err(notify_invalid(format!(
-                "{label}.{key}[{index}] 不是合法 UUID：{item}"
-            )));
+            return Err(notify_invalid(format!("{label}.{key}[{index}] 不是合法 UUID：{item}")));
         }
     }
-    Ok(items
-        .into_iter()
-        .map(|item| item.trim().to_string())
-        .collect())
+    Ok(items.into_iter().map(|item| item.trim().to_string()).collect())
 }
 
 /// `Vec<String>` 形态的数组（去重、去空）。
@@ -1547,15 +1458,11 @@ fn parse_string_list(
     let mut out: Vec<String> = Vec::with_capacity(items.len());
     for (index, item) in items.iter().enumerate() {
         let Some(text) = item.as_str() else {
-            return Err(notify_invalid(format!(
-                "{label}.{key}[{index}] 必须是字符串"
-            )));
+            return Err(notify_invalid(format!("{label}.{key}[{index}] 必须是字符串")));
         };
         let text = text.trim().to_string();
         if text.is_empty() {
-            return Err(notify_invalid(format!(
-                "{label}.{key}[{index}] 不能为空字符串"
-            )));
+            return Err(notify_invalid(format!("{label}.{key}[{index}] 不能为空字符串")));
         }
         if !out.contains(&text) {
             out.push(text);
@@ -1642,11 +1549,7 @@ mod tests {
             let mut raw = base();
             raw["due"] = due.clone();
             let error = parse_task_config(&raw).unwrap_err();
-            assert_eq!(
-                error.code,
-                error_code::FLOW_NODE_CONFIG_MISMATCH,
-                "due={due} 应被拒"
-            );
+            assert_eq!(error.code, error_code::FLOW_NODE_CONFIG_MISMATCH, "due={due} 应被拒");
             assert!(
                 error.msg.contains(expect),
                 "due={due} 的文案应点名 {expect}：{}",
@@ -1682,11 +1585,7 @@ mod tests {
             let mut raw = base();
             raw["due"] = due.clone();
             let error = parse_task_config(&raw).unwrap_err();
-            assert_eq!(
-                error.code,
-                error_code::FLOW_NODE_CONFIG_MISMATCH,
-                "due={due} 应被拒"
-            );
+            assert_eq!(error.code, error_code::FLOW_NODE_CONFIG_MISMATCH, "due={due} 应被拒");
         }
     }
 
@@ -1725,17 +1624,11 @@ mod tests {
         cfg.on_complete = OnComplete::Verify;
         assert!(check_matrix(&cfg).is_ok());
         cfg.need_review = false;
-        assert_eq!(
-            check_matrix(&cfg).unwrap_err().code,
-            error_code::FLOW_TASK_NODE_INVALID
-        );
+        assert_eq!(check_matrix(&cfg).unwrap_err().code, error_code::FLOW_TASK_NODE_INVALID);
         // APPROVE × true 拒绝（点两次）；× false 从 P-FLOW-1B 起**允许**（引擎分支已落地）
         cfg.on_complete = OnComplete::Approve;
         cfg.need_review = true;
-        assert_eq!(
-            check_matrix(&cfg).unwrap_err().code,
-            error_code::FLOW_TASK_NODE_INVALID
-        );
+        assert_eq!(check_matrix(&cfg).unwrap_err().code, error_code::FLOW_TASK_NODE_INVALID);
         cfg.need_review = false;
         assert!(
             check_matrix(&cfg).is_ok(),
@@ -1748,10 +1641,7 @@ mod tests {
     fn enums_round_trip() {
         for value in [OnComplete::Direct, OnComplete::Verify, OnComplete::Approve] {
             assert_eq!(OnComplete::parse(value.as_str()), Some(value));
-            assert_eq!(
-                OnComplete::parse(&value.as_str().to_ascii_lowercase()),
-                Some(value)
-            );
+            assert_eq!(OnComplete::parse(&value.as_str().to_ascii_lowercase()), Some(value));
         }
         for value in [OnReject::BackToPrev, OnReject::Terminate, OnReject::Stay] {
             assert_eq!(OnReject::parse(value.as_str()), Some(value));
@@ -1794,10 +1684,7 @@ mod notify_config_tests {
         assert_eq!(cfg.when, NotifyWhen::OnEnter);
         assert_eq!(cfg.targets.len(), 2);
         assert_eq!(cfg.targets[0].target_type, NotifyTargetType::Initiator);
-        assert_eq!(
-            cfg.targets[1].role_codes,
-            vec!["FINANCE_MANAGER".to_string()]
-        );
+        assert_eq!(cfg.targets[1].role_codes, vec!["FINANCE_MANAGER".to_string()]);
         assert!(!cfg.prev_approver, "prev_approver 默认 false");
         assert_eq!(cfg.channels, 1, "通道默认只有站内信");
         assert_eq!(cfg.level, NotifyLevel::Info);
@@ -1890,11 +1777,7 @@ mod notify_config_tests {
         }
         assert!(NotifyWhen::OnTimeout.is_deferred());
         assert!(!NotifyWhen::OnEnter.is_deferred());
-        assert_eq!(
-            NotifyWhen::OnEnter.idempotency_segment(),
-            "E",
-            "幂等键用单字母段"
-        );
+        assert_eq!(NotifyWhen::OnEnter.idempotency_segment(), "E", "幂等键用单字母段");
 
         let bad = json!({"when": "ON_CLICK", "targets": [{"type": "INITIATOR"}], "template_code": "FLOW_TODO"});
         let error = parse_notify_config(&bad).expect_err("非法 when 必须拒绝");
@@ -1906,10 +1789,7 @@ mod notify_config_tests {
     fn channels_map_to_bitmask() {
         let mut value = valid();
         value["channels"] = json!(["INBOX", "EMAIL", "SMS"]);
-        assert_eq!(
-            parse_notify_config(&value).expect("解析").channels,
-            1 | 2 | 8
-        );
+        assert_eq!(parse_notify_config(&value).expect("解析").channels, 1 | 2 | 8);
 
         value["channels"] = json!(["PIGEON"]);
         let error = parse_notify_config(&value).expect_err("非法通道必须拒绝");

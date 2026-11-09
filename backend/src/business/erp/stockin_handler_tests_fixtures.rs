@@ -360,9 +360,7 @@ pub(super) async fn cleanup_fixtures() {
         // 作废路径会为凭证 / 应付写状态日志（P10 起所有实体都写），而日志**没有外键**：
         // 单据删了日志还在。所以要在删凭证/应付**之前**、按「本夹具收货单 → 凭证/应付」的
         // id 链清掉 —— 那两条语句排在前面（紧跟 STOCK_IN 日志之后），这里不再重复。
-        format!(
-            "DELETE FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
-        ),
+        format!("DELETE FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"),
         // 卡 t_8ec0a1af（**必须排在删采购单之前**）：收货过账会推进采购单状态
         // （`SUBMITTED → PARTIAL_RECEIVED / RECEIVED`，见 `stockin_purchase.rs`），
         // 而 `biz_status_log` **没有外键** —— 只在下面那条里删 `biz_purchase_order`，
@@ -380,9 +378,7 @@ pub(super) async fn cleanup_fixtures() {
              (SELECT id FROM biz_purchase_order WHERE supplier_id IN ({}))",
             fixture_suppliers()
         ),
-        format!(
-            "DELETE FROM biz_purchase_order WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
-        ),
+        format!("DELETE FROM biz_purchase_order WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"),
     ];
     for sql in cleanups {
         if let Err(err) = db().execute_with_params(&sql, vec![]).await {
@@ -411,13 +407,7 @@ pub(super) fn line(material: &str, qty: &str, price: &str, rate: &str) -> StockI
 }
 
 /// 同 [`line`]，但带上库位（`biz_inventory_location.id`，P6）。
-pub(super) fn line_at(
-    material: &str,
-    qty: &str,
-    price: &str,
-    rate: &str,
-    location: &str,
-) -> StockInItemReq {
+pub(super) fn line_at(material: &str, qty: &str, price: &str, rate: &str, location: &str) -> StockInItemReq {
     StockInItemReq {
         location_id: Some(location.to_string()),
         ..line(material, qty, price, rate)
@@ -425,13 +415,7 @@ pub(super) fn line_at(
 }
 
 /// 同 [`line`]，但带上「用户选的库位」（`biz_location.id`，P2-4 的推荐口径）。
-pub(super) fn line_dict(
-    material: &str,
-    qty: &str,
-    price: &str,
-    rate: &str,
-    location_dict: &str,
-) -> StockInItemReq {
+pub(super) fn line_dict(material: &str, qty: &str, price: &str, rate: &str, location_dict: &str) -> StockInItemReq {
     StockInItemReq {
         location_dict_id: Some(location_dict.to_string()),
         ..line(material, qty, price, rate)
@@ -655,10 +639,7 @@ pub(super) async fn zz_module_namespace_has_no_residue() {
         .await
         .expect("查夹具收货单")
         .unwrap_or(0);
-    assert_eq!(
-        left, 0,
-        "模块命名空间内不许留夹具收货单（setup 已清过一轮）"
-    );
+    assert_eq!(left, 0, "模块命名空间内不许留夹具收货单（setup 已清过一轮）");
 
     // 本模块命名空间内的孤儿实例（`biz_id` 指向已不存在的收货单）先收掉，再断言为 0
     purge_orphan_post_instances().await;

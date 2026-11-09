@@ -59,11 +59,11 @@ use crate::business::erp::purchase_handler;
 use crate::business::erp::purchase_model::{self, PRICE_MODE_EXCL};
 use crate::business::erp::purchase_requisition_dto::{
     CreateRequisitionReq, MAX_LINES, MAX_MERGE, MergeError, MergeInput, MergedLine, MergedLineRes,
-    REQUISITION_PERMISSIONS, RequisitionDetailRes, RequisitionItemRes, RequisitionPageQuery,
-    RequisitionRowRes, STATUS_APPROVED, STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED,
-    SubmitRequisitionReq, ToPoReq, ToPoRes, WarehouseError, check_price, check_qty, check_tax,
-    clean_remark, line_amount, merge_by_material, parse_optional_uuid, parse_uuid_field,
-    price_incl_of, resolve_merge_supplier, resolve_merge_warehouse, status_label, today_cst,
+    REQUISITION_PERMISSIONS, RequisitionDetailRes, RequisitionItemRes, RequisitionPageQuery, RequisitionRowRes,
+    STATUS_APPROVED, STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED, SubmitRequisitionReq, ToPoReq, ToPoRes,
+    WarehouseError, check_price, check_qty, check_tax, clean_remark, line_amount, merge_by_material,
+    parse_optional_uuid, parse_uuid_field, price_incl_of, resolve_merge_supplier, resolve_merge_warehouse,
+    status_label, today_cst,
 };
 use crate::business::erp::purchase_requisition_model::{
     self as model, ItemRow, NewItem, NewRequisition, RequisitionRow,
@@ -117,11 +117,7 @@ fn reference_missing(message: impl Into<String>) -> ApiError {
 
 /// `DbError` → `ApiError`（写库阶段的统一出口）。
 fn write_error(error: DbError, context: &str) -> ApiError {
-    ApiError::new(
-        500,
-        error_code::INTERNAL_ERROR,
-        format!("{context}失败：{error}"),
-    )
+    ApiError::new(500, error_code::INTERNAL_ERROR, format!("{context}失败：{error}"))
 }
 
 /// 发起审批撞唯一索引时的 409（同一张单不允许两个在跑的审批）。
@@ -180,10 +176,7 @@ pub async fn create_requisition(
     let mut items = Vec::with_capacity(req.items.len());
     let mut amount_lines: Vec<(Decimal, Decimal)> = Vec::with_capacity(req.items.len());
     for (index, line) in req.items.iter().enumerate() {
-        let material_id = parse_uuid_field(
-            line.material_id.as_deref(),
-            &format!("items[{index}].material_id"),
-        )?;
+        let material_id = parse_uuid_field(line.material_id.as_deref(), &format!("items[{index}].material_id"))?;
         let qty = check_qty(line.qty, &format!("items[{index}].qty"))?;
         let est_price = check_price(line.est_price, &format!("items[{index}].est_price"))?;
         let tax_rate = check_tax(line.tax_rate, &format!("items[{index}].tax_rate"))?;
@@ -303,9 +296,7 @@ pub async fn purchase_requisition_page(
     permission = "business:erp:purchase-requisition:list"
 )]
 #[nik::get("/business/erp/purchase-requisition/{id}")]
-pub async fn purchase_requisition_detail(
-    Path(id): Path<String>,
-) -> ResResult<RequisitionDetailRes> {
+pub async fn purchase_requisition_detail(Path(id): Path<String>) -> ResResult<RequisitionDetailRes> {
     let id = parse_uuid_field(Some(&id), "id")?;
     Ok(Res::ok(detail_of(id).await?))
 }
@@ -453,16 +444,10 @@ pub async fn submit_requisition(
                 "采购申请提交：没有已发布的 pr_approve 流程，按「显式跳过审批」直接放行到 APPROVED"
             );
             let reason = approval_gate::merge_reason(business_reason.as_deref(), &skip_reason);
-            let affected = model::mark_skipped_approval(
-                db(),
-                row.id,
-                &snapshot,
-                &reason,
-                Some(operator_id),
-                Utc::now(),
-            )
-            .await
-            .map_err(|error| write_error(error, "采购申请进入已审批（跳过审批）"))?;
+            let affected =
+                model::mark_skipped_approval(db(), row.id, &snapshot, &reason, Some(operator_id), Utc::now())
+                    .await
+                    .map_err(|error| write_error(error, "采购申请进入已审批（跳过审批）"))?;
             if affected == 0 {
                 return Err(conflict(
                     error_code::ERP_REQUISITION_STATUS_GUARD,
@@ -542,13 +527,9 @@ async fn submit_with_approval(
             };
             return Err(rejected.appended(hint));
         }
-        let instance = out.instance_id.ok_or_else(|| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                "审批单发起后没有实例 id",
-            )
-        })?;
+        let instance = out
+            .instance_id
+            .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
         let affected = model::mark_submitted(
             &tx,
             row.id,
@@ -613,11 +594,7 @@ async fn submit_with_approval(
 /// ⚠️ 金额必须写成 JSON **数字**（不是字符串）：条件边比较走 `as_f64()`，
 /// `"5000.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边
 ///（也就是超预算的单悄悄跳过财务经理，这是本卡最危险的一类静默失败）。
-fn form_data(
-    row: &RequisitionRow,
-    items: &[ItemRow],
-    budget: &model::BudgetSnapshot,
-) -> serde_json::Value {
+fn form_data(row: &RequisitionRow, items: &[ItemRow], budget: &model::BudgetSnapshot) -> serde_json::Value {
     let lines: Vec<serde_json::Value> = items
         .iter()
         .map(|item| {
@@ -660,9 +637,7 @@ fn json_number(decimal_text: &str) -> serde_json::Value {
 }
 
 /// 在跑实例的单号（拼 409 文案用；查不到就给 `-`）。
-async fn pending_instance_no_of(
-    instance_id: Option<Uuid>,
-) -> std::result::Result<String, ApiError> {
+async fn pending_instance_no_of(instance_id: Option<Uuid>) -> std::result::Result<String, ApiError> {
     let Some(instance_id) = instance_id else {
         return Ok("-".to_string());
     };
@@ -777,9 +752,7 @@ pub async fn to_purchase_order(
                 format!(
                     "采购申请 {} 已转采购订单（{}），不能重复转单",
                     row.req_no,
-                    row.po_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_else(|| "-".to_string())
+                    row.po_id.map(|id| id.to_string()).unwrap_or_else(|| "-".to_string())
                 ),
             ));
         }
@@ -1009,11 +982,7 @@ fn merge_error(error: MergeError) -> ApiError {
             error_code::ERP_REQUISITION_MERGE_MISMATCH,
             format!(
                 "合并的申请单指定了不同供应商（{}）：合并单只能是一个供应商，请在请求里显式指定 supplier_id",
-                suppliers
-                    .iter()
-                    .map(|id| id.to_string())
-                    .collect::<Vec<_>>()
-                    .join("、")
+                suppliers.iter().map(|id| id.to_string()).collect::<Vec<_>>().join("、")
             ),
         ),
         MergeError::SupplierRequired => conflict(
@@ -1030,10 +999,7 @@ fn to_merged_res(
     po_item_of_material: &BTreeMap<Uuid, Uuid>,
     materials: &BTreeMap<Uuid, (String, String)>,
 ) -> MergedLineRes {
-    let (material_code, material_name) = materials
-        .get(&line.material_id)
-        .cloned()
-        .unwrap_or_default();
+    let (material_code, material_name) = materials.get(&line.material_id).cloned().unwrap_or_default();
     MergedLineRes {
         line_no: i32::try_from(index + 1).unwrap_or(i32::MAX),
         material_id: line.material_id.to_string(),
@@ -1044,14 +1010,8 @@ fn to_merged_res(
         tax_rate: line.tax_rate,
         demand_date: line.demand_date,
         source_req_nos: line.source_req_nos.clone(),
-        source_item_ids: line
-            .source_item_ids
-            .iter()
-            .map(|id| id.to_string())
-            .collect(),
-        po_item_id: po_item_of_material
-            .get(&line.material_id)
-            .map(|id| id.to_string()),
+        source_item_ids: line.source_item_ids.iter().map(|id| id.to_string()).collect(),
+        po_item_id: po_item_of_material.get(&line.material_id).map(|id| id.to_string()),
     }
 }
 
@@ -1070,9 +1030,7 @@ pub async fn purchase_requisition_to_po(
     let id = parse_uuid_field(Some(&id), "id")?;
     let req = body.map(|Json(item)| item).unwrap_or_default();
     let operator = utils::current_user_uuid(&claims);
-    Ok(Res::ok(
-        to_purchase_order(id, &req, operator, Utc::now()).await?,
-    ))
+    Ok(Res::ok(to_purchase_order(id, &req, operator, Utc::now()).await?))
 }
 
 // ==================== 出参转换 ====================
@@ -1122,10 +1080,7 @@ fn to_item_res(item: &ItemRow) -> RequisitionItemRes {
         amount: line_amount(item.qty, item.est_price),
         demand_date: item.demand_date,
         suggest_supplier_id: item.suggest_supplier_id.map(|id| id.to_string()),
-        suggest_supplier_name: item
-            .suggest_supplier_name
-            .clone()
-            .filter(|name| !name.is_empty()),
+        suggest_supplier_name: item.suggest_supplier_name.clone().filter(|name| !name.is_empty()),
         po_item_id: item.po_item_id.map(|id| id.to_string()),
         remark: item.remark.clone(),
     }

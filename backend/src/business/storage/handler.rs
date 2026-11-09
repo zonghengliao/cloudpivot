@@ -39,14 +39,13 @@ use std::net::SocketAddr;
 use crate::business::shared::principal;
 use crate::business::storage::cipher::{self, MasterKey};
 use crate::business::storage::dto::{
-    StorageCompleteReq, StorageConfigPageQuery, StorageConfigRes, StorageConfigSaveReq,
-    StorageFilePageQuery, StorageFileRes, StorageHeader, StoragePolicyPageQuery, StoragePolicyRes,
-    StoragePolicySaveReq, StoragePresignReq, StoragePresignRes, StorageRebindReq, StorageTestRes,
-    StorageUploadQuery,
+    StorageCompleteReq, StorageConfigPageQuery, StorageConfigRes, StorageConfigSaveReq, StorageFilePageQuery,
+    StorageFileRes, StorageHeader, StoragePolicyPageQuery, StoragePolicyRes, StoragePolicySaveReq, StoragePresignReq,
+    StoragePresignRes, StorageRebindReq, StorageTestRes, StorageUploadQuery,
 };
 use crate::business::storage::model::{
-    self, PolicyViolation, StorageConfigFilter, StorageFileFilter, StorageFileModel,
-    StoragePolicyFilter, SysStorageConfigModel, SysStoragePolicyModel,
+    self, PolicyViolation, StorageConfigFilter, StorageFileFilter, StorageFileModel, StoragePolicyFilter,
+    SysStorageConfigModel, SysStoragePolicyModel,
 };
 use crate::business::storage::store::{ObjectStore, StoreError};
 use crate::business::storage::{
@@ -80,9 +79,7 @@ use crate::utils;
     permission = "business:storage:config:list"
 )]
 #[nik::get("/business/storage/config/page")]
-pub async fn config_page(
-    Query(query): Query<StorageConfigPageQuery>,
-) -> ResResult<PageData<Vec<StorageConfigRes>>> {
+pub async fn config_page(Query(query): Query<StorageConfigPageQuery>) -> ResResult<PageData<Vec<StorageConfigRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let status = query.status.map(EnableStatus::from_i16).transpose()?;
     let filter = StorageConfigFilter {
@@ -174,11 +171,7 @@ pub async fn config_create(
         .map_err(|error| utils::db_error(error, "校验后端编码唯一性"))?
         > 0
     {
-        return Err(ApiError::new(
-            409,
-            error_code::RESOURCE_CONFLICT,
-            "后端编码已存在",
-        ));
+        return Err(ApiError::new(409, error_code::RESOURCE_CONFLICT, "后端编码已存在"));
     }
 
     let make_default = req.is_default.unwrap_or(false);
@@ -269,12 +262,7 @@ pub async fn config_update(
         ));
     }
 
-    let mut updated = build_config(
-        &req,
-        Some(&existing),
-        utils::current_user_uuid(&claims),
-        &key,
-    )?;
+    let mut updated = build_config(&req, Some(&existing), utils::current_user_uuid(&claims), &key)?;
     updated.is_default = existing.is_default;
 
     updated
@@ -492,11 +480,7 @@ pub async fn config_test(
     if let Err(error) = model::update_health(
         &id,
         if healthy { "HEALTHY" } else { "DOWN" },
-        if healthy {
-            None
-        } else {
-            Some(error_text.as_str())
-        },
+        if healthy { None } else { Some(error_text.as_str()) },
     )
     .await
     {
@@ -553,9 +537,7 @@ pub async fn config_test(
     permission = "business:storage:policy:list"
 )]
 #[nik::get("/business/storage/policy/page")]
-pub async fn policy_page(
-    Query(query): Query<StoragePolicyPageQuery>,
-) -> ResResult<PageData<Vec<StoragePolicyRes>>> {
+pub async fn policy_page(Query(query): Query<StoragePolicyPageQuery>) -> ResResult<PageData<Vec<StoragePolicyRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let status = query.status.map(EnableStatus::from_i16).transpose()?;
     let filter = StoragePolicyFilter {
@@ -566,11 +548,7 @@ pub async fn policy_page(
     let result = model::page_policies(&filter, page, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询上传策略"))?;
-    let list = result
-        .list
-        .iter()
-        .map(StoragePolicyRes::from_model)
-        .collect();
+    let list = result.list.iter().map(StoragePolicyRes::from_model).collect();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -746,13 +724,11 @@ pub async fn upload(
         ensure_size_allowed(&policy, declared, server_limit_bytes)?;
     }
 
-    let (original_name, mime_type, bytes) =
-        read_single_file(multipart, &policy, server_limit_bytes).await?;
+    let (original_name, mime_type, bytes) = read_single_file(multipart, &policy, server_limit_bytes).await?;
     let operator = utils::current_user_uuid(&claims);
     // 策略校验 → 秒传 → 选后端 → 落 `sys_file`：与任务附件 / AI 产出回传**共用同一套**
     // （抽成 store_server_upload，避免「AI 传的文件绕过人类上传那套白名单」）。
-    let record =
-        store_server_upload(&category, &original_name, &mime_type, &bytes, operator).await?;
+    let record = store_server_upload(&category, &original_name, &mime_type, &bytes, operator).await?;
 
     log::record_audit(
         &headers,
@@ -913,13 +889,7 @@ pub async fn complete(
 ) -> ResResult<StorageFileRes> {
     let category = category_of(Some(&req.category));
     let policy = resolve_policy(&category).await?;
-    model::check_upload(
-        &policy,
-        &req.file_name,
-        req.file_size,
-        req.mime_type.as_deref(),
-    )
-    .map_err(violation_error)?;
+    model::check_upload(&policy, &req.file_name, req.file_size, req.mime_type.as_deref()).map_err(violation_error)?;
 
     ensure_router().await?;
     let backend = global_router().pick(Some(&policy))?;
@@ -935,10 +905,7 @@ pub async fn complete(
         return Err(ApiError::new(
             422,
             error_code::STORAGE_OBJECT_MISSING,
-            format!(
-                "对象大小 {} 与声明 {} 不一致，请重新直传",
-                stat.size, req.file_size
-            ),
+            format!("对象大小 {} 与声明 {} 不一致，请重新直传", stat.size, req.file_size),
         ));
     }
 
@@ -1042,11 +1009,7 @@ pub async fn file_page(
     let result = model::page_storage_files(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询文件"))?;
-    let mut list = result
-        .list
-        .iter()
-        .map(StorageFileRes::from_model)
-        .collect::<Vec<_>>();
+    let mut list = result.list.iter().map(StorageFileRes::from_model).collect::<Vec<_>>();
     // AUD-02：整页一次 `WHERE id = ANY(...)`；失败只降级为空串（前端显示 `—`，不显示 UUID）
     crate::business::shared::user_name::fill_person_names(&mut list)
         .await
@@ -1091,10 +1054,7 @@ pub async fn file_page(
     permission = "business:storage:download"
 )]
 #[nik::get("/business/storage/download/{file_id}")]
-pub async fn download(
-    Path(file_id): Path<String>,
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> Response {
+pub async fn download(Path(file_id): Path<String>, Extension(AuthClaims(claims)): Extension<AuthClaims>) -> Response {
     match download_for_viewer(&claims, &file_id).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
@@ -1137,11 +1097,7 @@ pub async fn remove(
             .await
             .map_err(|error| utils::db_error(error, "软删文件"))?;
         if affected == 0 {
-            return Err(ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "文件不存在或已删除",
-            ));
+            return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "文件不存在或已删除"));
         }
         log::record_audit(
             &headers,
@@ -1231,10 +1187,7 @@ pub async fn rebind(
         file_key: &origin.file_key,
         file_size: origin.file_size,
         file_hash: origin.file_hash.as_deref().unwrap_or_default(),
-        mime_type: origin
-            .mime_type
-            .as_deref()
-            .unwrap_or("application/octet-stream"),
+        mime_type: origin.mime_type.as_deref().unwrap_or("application/octet-stream"),
         category: &category,
         storage_code: origin.storage_code.as_deref().unwrap_or_default(),
         storage_path: origin.storage_path.clone(),
@@ -1282,11 +1235,7 @@ pub async fn rebind(
 fn master_key() -> std::result::Result<MasterKey, ApiError> {
     MasterKey::from_env().map_err(|error| {
         tracing::error!(error = %error, "存储主密钥不可用");
-        ApiError::new(
-            500,
-            error_code::STORAGE_CREDENTIAL_INVALID,
-            error.to_string(),
-        )
+        ApiError::new(500, error_code::STORAGE_CREDENTIAL_INVALID, error.to_string())
     })
 }
 
@@ -1308,9 +1257,9 @@ fn validate_config_code(code: &str) -> std::result::Result<(), ApiError> {
         let bytes = code.as_bytes();
         (2..=64).contains(&bytes.len())
             && bytes[0].is_ascii_lowercase()
-            && bytes.iter().all(|byte| {
-                byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-')
-            })
+            && bytes
+                .iter()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'_' | b'-'))
     };
     if valid {
         Ok(())
@@ -1389,16 +1338,11 @@ fn build_config(
             ));
         };
         if bucket.is_none() {
-            return Err(ApiError::new(
-                400,
-                error_code::PARAM_INVALID,
-                "S3 后端必须填写 bucket",
-            ));
+            return Err(ApiError::new(400, error_code::PARAM_INVALID, "S3 后端必须填写 bucket"));
         }
         // SSRF 防护：拒绝回环 / 私网 / 链路本地字面量地址
-        store::ensure_endpoint_allowed(endpoint, req.use_tls.unwrap_or(true)).map_err(|error| {
-            ApiError::new(400, error_code::STORAGE_ENDPOINT_FORBIDDEN, error.message())
-        })?;
+        store::ensure_endpoint_allowed(endpoint, req.use_tls.unwrap_or(true))
+            .map_err(|error| ApiError::new(400, error_code::STORAGE_ENDPOINT_FORBIDDEN, error.message()))?;
         if credentials.is_none() && existing.is_none() {
             return Err(ApiError::new(
                 400,
@@ -1407,8 +1351,7 @@ fn build_config(
             ));
         }
         if credentials.is_none()
-            && existing
-                .is_some_and(|config| config.ak_cipher.is_none() || config.sk_cipher.is_none())
+            && existing.is_some_and(|config| config.ak_cipher.is_none() || config.sk_cipher.is_none())
         {
             return Err(ApiError::new(
                 400,
@@ -1420,9 +1363,7 @@ fn build_config(
 
     let now = chrono::Utc::now();
     let mut model = SysStorageConfigModel {
-        id: existing
-            .map(|config| config.id)
-            .unwrap_or_else(uuid::Uuid::now_v7),
+        id: existing.map(|config| config.id).unwrap_or_else(uuid::Uuid::now_v7),
         config_code: existing
             .map(|config| config.config_code.clone())
             .unwrap_or_else(|| req.config_code.trim().to_string()),
@@ -1461,9 +1402,7 @@ fn build_config(
         is_default: req.is_default.unwrap_or(false),
         status: match req.status {
             Some(value) => EnableStatus::from_i16(value)?,
-            None => existing
-                .map(|config| config.status)
-                .unwrap_or(EnableStatus::enabled),
+            None => existing.map(|config| config.status).unwrap_or(EnableStatus::enabled),
         },
         health_status: existing
             .map(|config| config.health_status.clone())
@@ -1605,11 +1544,7 @@ async fn resolve_policy(category: &str) -> std::result::Result<SysStoragePolicyM
 ///
 /// 带中文消息的 [`ApiError`]。
 fn violation_error(violation: PolicyViolation) -> ApiError {
-    ApiError::new(
-        violation.http_status(),
-        violation.code(),
-        violation.message(),
-    )
+    ApiError::new(violation.http_status(), violation.code(), violation.message())
 }
 
 /// 存储层错误 → 统一错误（**只透出脱敏后的中文消息**）。
@@ -1671,10 +1606,7 @@ async fn resolve_file_store(
             )
         });
     }
-    Ok(std::sync::Arc::new(store::LocalStore::new(
-        "local-default",
-        "",
-    )))
+    Ok(std::sync::Arc::new(store::LocalStore::new("local-default", "")))
 }
 
 /// 生成对象键：`{yyyy}/{MM}/{dd}/{uuidv7}.{ext}`。
@@ -1833,8 +1765,7 @@ pub(crate) async fn store_server_upload(
     operator: Option<uuid::Uuid>,
 ) -> std::result::Result<StorageFileModel, ApiError> {
     let policy = resolve_policy(category).await?;
-    model::check_upload(&policy, original_name, bytes.len() as u64, Some(mime_type))
-        .map_err(violation_error)?;
+    model::check_upload(&policy, original_name, bytes.len() as u64, Some(mime_type)).map_err(violation_error)?;
 
     // 秒传：内容相同直接复用已有记录（跨后端天然成立，记录里带 storage_code）
     let file_hash = sigv4::hex_sha256(bytes);
@@ -1849,10 +1780,7 @@ pub(crate) async fn store_server_upload(
     ensure_router().await?;
     let backend = global_router().pick(Some(&policy))?;
     let file_key = build_object_key(original_name);
-    backend
-        .put(&file_key, bytes, mime_type)
-        .await
-        .map_err(store_error)?;
+    backend.put(&file_key, bytes, mime_type).await.map_err(store_error)?;
 
     let mut record = build_file_record(FileRecordInput {
         original_name,
@@ -1962,8 +1890,7 @@ pub(crate) fn ensure_size_allowed(
     server_limit_bytes: u64,
 ) -> std::result::Result<(), ApiError> {
     let policy_max_mb = policy.max_size_mb.max(0) as u64;
-    if policy_max_mb > 0 && size_bytes > policy_max_mb * 1024 * 1024 + MULTIPART_OVERHEAD_ALLOWANCE
-    {
+    if policy_max_mb > 0 && size_bytes > policy_max_mb * 1024 * 1024 + MULTIPART_OVERHEAD_ALLOWANCE {
         return Err(category_size_error(policy.max_size_mb, Some(size_bytes)));
     }
     if server_limit_bytes > 0 && size_bytes > server_limit_bytes + MULTIPART_OVERHEAD_ALLOWANCE {
@@ -1994,9 +1921,7 @@ pub(crate) fn upload_read_error(
     if status == StatusCode::PAYLOAD_TOO_LARGE {
         let policy_max_mb = policy.max_size_mb.max(0) as u64;
         let policy_max_bytes = policy_max_mb * 1024 * 1024;
-        return if policy_max_bytes > 0
-            && (server_limit_bytes == 0 || policy_max_bytes < server_limit_bytes)
-        {
+        return if policy_max_bytes > 0 && (server_limit_bytes == 0 || policy_max_bytes < server_limit_bytes) {
             category_size_error(policy.max_size_mb, None)
         } else {
             server_size_error(server_limit_bytes)
@@ -2035,10 +1960,7 @@ async fn read_single_file(
             continue;
         }
         let original_name = field.file_name().unwrap_or("").trim().to_string();
-        let content_type = field
-            .content_type()
-            .unwrap_or("application/octet-stream")
-            .to_string();
+        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
         let bytes = field
             .bytes()
             .await
@@ -2052,11 +1974,7 @@ async fn read_single_file(
         }
         return Ok((original_name, content_type, bytes.to_vec()));
     }
-    Err(ApiError::new(
-        400,
-        error_code::PARAM_INVALID,
-        "缺少文件字段 file",
-    ))
+    Err(ApiError::new(400, error_code::PARAM_INVALID, "缺少文件字段 file"))
 }
 
 /// 构造 `Content-Disposition`（ASCII 回退名 + RFC 5987 编码名，恒 `attachment`）。
@@ -2088,10 +2006,8 @@ fn content_disposition(original: &str) -> HeaderValue {
             encoded.push_str(&format!("%{byte:02X}"));
         }
     }
-    HeaderValue::from_str(&format!(
-        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"
-    ))
-    .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+    HeaderValue::from_str(&format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"))
+        .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
 /// 组装下载响应（本地流式 / S3 302）—— **内部可信路径**，不做属主隔离。
@@ -2145,10 +2061,7 @@ pub(crate) async fn download_response(raw_id: &str) -> std::result::Result<Respo
 /// # 异常情况
 ///
 /// - 400 / 403 / 404 / 409 / 502，见 [`download`]。
-pub async fn download_for_viewer(
-    claims: &TokenClaims,
-    raw_id: &str,
-) -> std::result::Result<Response, ApiError> {
+pub async fn download_for_viewer(claims: &TokenClaims, raw_id: &str) -> std::result::Result<Response, ApiError> {
     let id = utils::require_uuid(raw_id, "file_id")?;
     let record = model::find_active_file(&id)
         .await
@@ -2186,19 +2099,14 @@ pub async fn download_for_viewer(
 /// # 异常情况
 ///
 /// 409：后端已停用；404：物理对象丢失；502：远端访问失败。
-async fn stream_file_record(
-    record: model::StorageFileModel,
-) -> std::result::Result<Response, ApiError> {
+async fn stream_file_record(record: model::StorageFileModel) -> std::result::Result<Response, ApiError> {
     let backend = resolve_file_store(record.storage_code.as_deref()).await?;
     let mime = record
         .mime_type
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "application/octet-stream".to_string());
-    let original = record
-        .original_name
-        .clone()
-        .unwrap_or_else(|| record.file_name.clone());
+    let original = record.original_name.clone().unwrap_or_else(|| record.file_name.clone());
 
     // S3 后端：302 到现签 URL（后端零流量，且天然支持 Range / 断点续传）
     if backend.backend_type() == "S3"
@@ -2207,22 +2115,14 @@ async fn stream_file_record(
             .await
             .map_err(store_error)?
     {
-        let location = HeaderValue::from_str(&url).map_err(|_| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                "预签名下载链接生成失败（含非法字符）",
-            )
-        })?;
+        let location = HeaderValue::from_str(&url)
+            .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "预签名下载链接生成失败（含非法字符）"))?;
         let mut response = Response::new(Body::empty());
         *response.status_mut() = StatusCode::FOUND;
         let headers = response.headers_mut();
         headers.insert(header::LOCATION, location);
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-        headers.insert(
-            header::X_CONTENT_TYPE_OPTIONS,
-            HeaderValue::from_static("nosniff"),
-        );
+        headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
         return Ok(response);
     }
 
@@ -2235,17 +2135,13 @@ async fn stream_file_record(
             "文件已丢失（记录存在但对象被清理）",
         ));
     };
-    let reader = backend
-        .stream(&record.file_key, 0)
-        .await
-        .map_err(store_error)?;
+    let reader = backend.stream(&record.file_key, 0).await.map_err(store_error)?;
     let mut response = Response::new(Body::from_stream(ReaderStream::new(reader)));
     *response.status_mut() = StatusCode::OK;
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(&mime)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(&mime).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     headers.insert(
         header::CONTENT_LENGTH,
@@ -2253,10 +2149,7 @@ async fn stream_file_record(
             .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "响应头构造失败"))?,
     );
     headers.insert(header::CONTENT_DISPOSITION, content_disposition(&original));
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     Ok(response)
 }
 
@@ -2304,13 +2197,7 @@ mod tests {
         assert!(text.starts_with("attachment;"));
         assert!(text.contains("filename*=UTF-8''"), "{text}");
         assert!(text.contains("%20"), "{text}");
-        assert!(
-            text.split("filename*")
-                .next()
-                .unwrap_or_default()
-                .is_ascii(),
-            "{text}"
-        );
+        assert!(text.split("filename*").next().unwrap_or_default().is_ascii(), "{text}");
         // 引号被替换，不会破坏头语法
         assert!(
             !content_disposition("a\"b.txt")
@@ -2329,26 +2216,14 @@ mod tests {
                 404u16,
                 error_code::STORAGE_OBJECT_MISSING,
             ),
-            (
-                StoreError::Invalid("k".into()),
-                400u16,
-                error_code::PARAM_INVALID,
-            ),
+            (StoreError::Invalid("k".into()), 400u16, error_code::PARAM_INVALID),
             (
                 StoreError::Unsupported("k".into()),
                 422u16,
                 error_code::STORAGE_DIRECT_UPLOAD_DISABLED,
             ),
-            (
-                StoreError::Io("k".into()),
-                500u16,
-                error_code::INTERNAL_ERROR,
-            ),
-            (
-                StoreError::Backend("k".into()),
-                502u16,
-                error_code::INTERNAL_ERROR,
-            ),
+            (StoreError::Io("k".into()), 500u16, error_code::INTERNAL_ERROR),
+            (StoreError::Backend("k".into()), 502u16, error_code::INTERNAL_ERROR),
         ];
         for (error, status, code) in cases {
             let api = store_error(error);
@@ -2384,10 +2259,7 @@ mod tests {
         assert!(!record.is_shared, "import 分类不应默认共享");
 
         let res = StorageFileRes::from_model(&record);
-        assert_eq!(
-            res.url,
-            format!("/api/business/storage/download/{}", record.id)
-        );
+        assert_eq!(res.url, format!("/api/business/storage/download/{}", record.id));
         assert_eq!(res.storage_code, "");
         assert_eq!(res.upload_mode, "DIRECT");
     }
@@ -2462,8 +2334,7 @@ mod tests {
         let mut policy = model::default_policy("attachment");
         policy.max_size_mb = 100;
         let mb = 1024 * 1024;
-        let error = ensure_size_allowed(&policy, 110 * mb, 128 * mb)
-            .expect_err("110 MB 超过 100 MB 上限必须被拒");
+        let error = ensure_size_allowed(&policy, 110 * mb, 128 * mb).expect_err("110 MB 超过 100 MB 上限必须被拒");
         assert_eq!(error.status, 422);
         assert_eq!(error.code, error_code::STORAGE_SIZE_EXCEEDED);
         assert!(
@@ -2471,11 +2342,7 @@ mod tests {
             "文案应指明分类上限：{}",
             error.msg
         );
-        assert!(
-            error.msg.contains("110.00 MB"),
-            "文案应带实际大小：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("110.00 MB"), "文案应带实际大小：{}", error.msg);
     }
 
     /// 边界分支：分类策略放宽（5 GB）但服务端中转上限 128 MB → 报服务端上限并引导直传
@@ -2485,8 +2352,7 @@ mod tests {
         let mut policy = model::default_policy("attachment");
         policy.max_size_mb = 5120;
         let mb = 1024 * 1024;
-        let error =
-            ensure_size_allowed(&policy, 200 * mb, 128 * mb).expect_err("超过服务端上限必须被拒");
+        let error = ensure_size_allowed(&policy, 200 * mb, 128 * mb).expect_err("超过服务端上限必须被拒");
         assert_eq!(error.status, 422);
         assert_eq!(error.code, error_code::STORAGE_SIZE_EXCEEDED);
         assert!(
@@ -2494,11 +2360,7 @@ mod tests {
             "文案应指明服务端上限：{}",
             error.msg
         );
-        assert!(
-            error.msg.contains("presign"),
-            "应引导预签名直传：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("presign"), "应引导预签名直传：{}", error.msg);
     }
 
     /// 正常分支：50 MB（< 100 MB 上限、< 128 MB 服务端上限）必须放行；

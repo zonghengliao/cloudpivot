@@ -72,8 +72,8 @@ fn builtin_decision(column: &str) -> Option<Decision> {
             ty: MaskType::IdCard,
             param: None,
         }),
-        "password" | "new_password" | "old_password" | "confirm_password" | "token"
-        | "access_token" | "refresh_token" | "secret" => Some(Decision::Redact),
+        "password" | "new_password" | "old_password" | "confirm_password" | "token" | "access_token"
+        | "refresh_token" | "secret" => Some(Decision::Redact),
         _ => None,
     }
 }
@@ -346,10 +346,7 @@ mod tests {
         // 每个内置字段都必须有处置方式（不能「列了名却没规则」）
         for name in BUILTIN_SENSITIVE {
             let policy = Policy::builtin_only("sys_user");
-            assert!(
-                policy.is_sensitive(name),
-                "内置敏感字段 {name} 没有对应脱敏方式"
-            );
+            assert!(policy.is_sensitive(name), "内置敏感字段 {name} 没有对应脱敏方式");
         }
     }
 

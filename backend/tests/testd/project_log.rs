@@ -47,14 +47,7 @@ async fn create_project(ctx: &Ctx, owner: Uuid, name: &str) -> Uuid {
 }
 
 /// 在项目下挂一个任务（最小列）。
-async fn attach_task(
-    ctx: &Ctx,
-    owner: Uuid,
-    project: Uuid,
-    name: &str,
-    status: &str,
-    progress: i16,
-) -> Uuid {
+async fn attach_task(ctx: &Ctx, owner: Uuid, project: Uuid, name: &str, status: &str, progress: i16) -> Uuid {
     let id = Uuid::now_v7();
     c::exec_with(
         "INSERT INTO biz_task (id, task_no, title, status, priority, progress, need_review, \
@@ -62,11 +55,7 @@ async fn attach_task(
          VALUES (?::uuid, ?, ?, ?, 'P2', ?, false, ?::uuid, ?::uuid, ?::uuid)",
         vec![
             Value::from(&id),
-            Value::Text(format!(
-                "{}-{}",
-                ctx.key("T"),
-                &id.simple().to_string()[24..]
-            )),
+            Value::Text(format!("{}-{}", ctx.key("T"), &id.simple().to_string()[24..])),
             Value::Text(ctx.key(name)),
             Value::Text(status.to_string()),
             Value::I16(progress),
@@ -140,11 +129,7 @@ async fn p02_delete_project_unbinds_tasks() {
             .await
             .expect("删项目");
         let data = res.data.expect("删除 data");
-        assert_eq!(
-            data.unbound_tasks, 2,
-            "解绑任务数应为 2，实际 {}",
-            data.unbound_tasks
-        );
+        assert_eq!(data.unbound_tasks, 2, "解绑任务数应为 2，实际 {}", data.unbound_tasks);
 
         // 任务本体**不删**，只是 project_id 置空
         let alive = c::count(
@@ -159,7 +144,6 @@ async fn p02_delete_project_unbinds_tasks() {
         )
         .await;
         assert_eq!(bound, 0, "删项目后仍有任务挂在上面");
-
     })
     .await;
 }
@@ -223,15 +207,11 @@ async fn p04_project_membership_is_not_a_scope() {
         c::bind_role(member, member_role).await;
 
         let project = create_project(&ctx, owner, "proj").await;
-        db().transaction(|tx| async move {
-            project_model::add_member(&tx, project, member, "MEMBER", owner).await
-        })
-        .await
-        .expect("加成员");
+        db().transaction(|tx| async move { project_model::add_member(&tx, project, member, "MEMBER", owner).await })
+            .await
+            .expect("加成员");
         assert!(
-            project_model::is_member(project, member)
-                .await
-                .expect("成员判断"),
+            project_model::is_member(project, member).await.expect("成员判断"),
             "成员关系没写进 biz_project_member"
         );
 
@@ -248,22 +228,13 @@ async fn p04_project_membership_is_not_a_scope() {
             vec![Value::from(&task), Value::from(&member)],
         )
         .await;
-        assert_eq!(
-            visible, 0,
-            "成员通过项目关系看到了别人的任务（项目被当成权限边界）"
-        );
+        assert_eq!(visible, 0, "成员通过项目关系看到了别人的任务（项目被当成权限边界）");
 
         // 移出成员
-        db().transaction(
-            |tx| async move { project_model::remove_member(&tx, project, member).await },
-        )
-        .await
-        .expect("移出成员");
-        assert!(
-            !project_model::is_member(project, member)
-                .await
-                .expect("成员判断")
-        );
+        db().transaction(|tx| async move { project_model::remove_member(&tx, project, member).await })
+            .await
+            .expect("移出成员");
+        assert!(!project_model::is_member(project, member).await.expect("成员判断"));
     })
     .await;
 }
@@ -373,30 +344,19 @@ async fn c01_every_state_change_logged() {
         .await
         .expect("下线");
 
-        let count =
-            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
-                .await
-                .expect("计数");
+        let count = changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
+            .await
+            .expect("计数");
         assert_eq!(count, 3, "建/发布/下线应各留一条日志，实际 {count} 条");
 
         // 动作序列按时间递增且覆盖三种动作
-        let timeline = changelog_query::timeline(
-            db(),
-            "sys_announcement",
-            &ann_id.to_string(),
-            None,
-            None,
-            50,
-        )
-        .await
-        .expect("时间线");
+        let timeline = changelog_query::timeline(db(), "sys_announcement", &ann_id.to_string(), None, None, 50)
+            .await
+            .expect("时间线");
         let actions: Vec<&str> = timeline.iter().map(|row| row.action.as_str()).collect();
         println!("[C01] 动作序列：{actions:?}");
         for expected in ["CREATE", "PUBLISH", "OFFLINE"] {
-            assert!(
-                actions.contains(&expected),
-                "缺少 {expected} 动作，实际 {actions:?}"
-            );
+            assert!(actions.contains(&expected), "缺少 {expected} 动作，实际 {actions:?}");
         }
     })
     .await;
@@ -431,18 +391,12 @@ async fn c02_log_fields_complete() {
 
         let first = &rows[0];
         assert_eq!(
-            first
-                .get_typed::<Option<String>>("operator_id")
-                .unwrap()
-                .as_deref(),
+            first.get_typed::<Option<String>>("operator_id").unwrap().as_deref(),
             Some(user.to_string().as_str()),
             "操作人缺失"
         );
         assert_eq!(
-            first
-                .get_typed::<Option<String>>("operator_name")
-                .unwrap()
-                .as_deref(),
+            first.get_typed::<Option<String>>("operator_name").unwrap().as_deref(),
             Some("publisher"),
             "操作人姓名缺失"
         );
@@ -456,7 +410,6 @@ async fn c02_log_fields_complete() {
             !first.get_typed::<String>("created_at").unwrap().is_empty(),
             "发生时刻缺失"
         );
-
     })
     .await;
 }
@@ -514,42 +467,20 @@ async fn c04_timeline_by_object() {
     c::case("C04", |ctx| async move {
         let (_user, ann_id) = published_announcement(&ctx).await;
 
-        let timeline = changelog_query::timeline(
-            db(),
-            "sys_announcement",
-            &ann_id.to_string(),
-            None,
-            None,
-            100,
-        )
-        .await
-        .expect("时间线");
-        assert_eq!(
-            timeline.len(),
-            2,
-            "建 + 发布应有 2 条，实际 {}",
-            timeline.len()
-        );
+        let timeline = changelog_query::timeline(db(), "sys_announcement", &ann_id.to_string(), None, None, 100)
+            .await
+            .expect("时间线");
+        assert_eq!(timeline.len(), 2, "建 + 发布应有 2 条，实际 {}", timeline.len());
         // 时间线默认倒序（最新在前），倒过来即为正序轨迹
         let times: Vec<_> = timeline.iter().map(|row| row.created_at).collect();
         let mut sorted = times.clone();
         sorted.sort_by(|a, b| b.cmp(a));
-        assert_eq!(
-            times, sorted,
-            "时间线未按时间倒序（与 SQL ORDER BY 不一致）"
-        );
+        assert_eq!(times, sorted, "时间线未按时间倒序（与 SQL ORDER BY 不一致）");
 
         // 查一个不存在的单据 → 空（不能串到别的单据）
-        let empty = changelog_query::timeline(
-            db(),
-            "sys_announcement",
-            &Uuid::now_v7().to_string(),
-            None,
-            None,
-            100,
-        )
-        .await
-        .expect("空轨迹");
+        let empty = changelog_query::timeline(db(), "sys_announcement", &Uuid::now_v7().to_string(), None, None, 100)
+            .await
+            .expect("空轨迹");
         assert!(empty.is_empty(), "无关单据查出了日志");
     })
     .await;
@@ -575,11 +506,7 @@ async fn c05_filter_by_operator_and_time() {
         )
         .await
         .expect("按操作人筛选");
-        assert_eq!(
-            mine.total, 2,
-            "按操作人筛选应命中 2 条，实际 {}",
-            mine.total
-        );
+        assert_eq!(mine.total, 2, "按操作人筛选应命中 2 条，实际 {}", mine.total);
 
         let theirs = changelog_query::page(
             &changelog_query::Filter {
@@ -625,10 +552,9 @@ async fn c06_ten_objects_log_count_matches() {
         }
 
         for (index, id) in ids.iter().enumerate() {
-            let count =
-                changelog_model::count_for_object(db(), "sys_announcement", &id.to_string())
-                    .await
-                    .expect("计数");
+            let count = changelog_model::count_for_object(db(), "sys_announcement", &id.to_string())
+                .await
+                .expect("计数");
             // 每张单据：1 次建 + 1 次发布 = 2 次状态变更
             assert_eq!(
                 count, 2,

@@ -39,8 +39,7 @@ use serde::Serialize;
 use super::expense_bridge;
 use super::expense_compute;
 use super::expense_dto::{
-    CancelReq, PayReq, STATUS_APPROVED, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PAID,
-    STATUS_SUBMITTED,
+    CancelReq, PayReq, STATUS_APPROVED, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PAID, STATUS_SUBMITTED,
 };
 use super::expense_handler::{report_cancel, report_pay, report_submit};
 use super::expense_model::{self, ItemInsert, ReportInsert};
@@ -224,16 +223,11 @@ async fn purge(ids: &[Uuid]) {
     clear_rules().await;
     for id in ids {
         let one = format!("'{}'::uuid", id);
-        let instances = format!(
-            "(SELECT id FROM biz_flow_instance WHERE biz_type = 'EXPENSE' AND biz_id = {one})"
-        );
-        let instance_text = format!(
-            "(SELECT id::text FROM biz_flow_instance WHERE biz_type = 'EXPENSE' AND biz_id = {one})"
-        );
+        let instances = format!("(SELECT id FROM biz_flow_instance WHERE biz_type = 'EXPENSE' AND biz_id = {one})");
+        let instance_text =
+            format!("(SELECT id::text FROM biz_flow_instance WHERE biz_type = 'EXPENSE' AND biz_id = {one})");
         for sql in [
-            format!(
-                "UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE prev_instance_id IN {instances}"
-            ),
+            format!("UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE prev_instance_id IN {instances}"),
             format!(
                 "UPDATE biz_flow_instance SET status = 'CANCELLED', ended_at = now() WHERE id IN {instances} AND status = 'PENDING'"
             ),
@@ -242,9 +236,7 @@ async fn purge(ids: &[Uuid]) {
             format!(
                 "DELETE FROM sys_notice_receiver WHERE notice_id IN (SELECT id FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN {instance_text})"
             ),
-            format!(
-                "DELETE FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN {instance_text}"
-            ),
+            format!("DELETE FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN {instance_text}"),
             format!("DELETE FROM biz_flow_instance WHERE biz_type = 'EXPENSE' AND biz_id = {one}"),
             format!(
                 "DELETE FROM biz_voucher_entry WHERE voucher_id IN (SELECT id FROM biz_voucher WHERE source_id = {one})"
@@ -254,9 +246,7 @@ async fn purge(ids: &[Uuid]) {
             ),
             format!("DELETE FROM biz_voucher WHERE source_id = {one}"),
             format!("DELETE FROM biz_budget_usage WHERE source_id = {one}"),
-            format!(
-                "DELETE FROM biz_status_log WHERE entity_type = 'EXPENSE_REPORT' AND entity_id = {one}"
-            ),
+            format!("DELETE FROM biz_status_log WHERE entity_type = 'EXPENSE_REPORT' AND entity_id = {one}"),
             format!("DELETE FROM biz_expense_payment WHERE report_id = {one}"),
             format!("DELETE FROM biz_expense_item WHERE report_id = {one}"),
             format!("DELETE FROM biz_expense_report WHERE id = {one}"),
@@ -295,10 +285,7 @@ async fn vouchers_of(report_id: Uuid, source_type: &str) -> i64 {
     db().scalar_with_params::<i64>(
         "SELECT count(*) FROM biz_voucher \
           WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL",
-        vec![
-            Value::Text(source_type.to_string()),
-            Value::from(&report_id),
-        ],
+        vec![Value::Text(source_type.to_string()), Value::from(&report_id)],
     )
     .await
     .expect("查报销凭证")
@@ -332,12 +319,9 @@ async fn submit(report_id: Uuid) -> String {
     .await;
     let (user, _, _) = reporter().await;
     let detail = data(
-        report_submit(
-            Extension(AuthClaims(claims_of(user))),
-            Path(report_id.to_string()),
-        )
-        .await
-        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg)),
+        report_submit(Extension(AuthClaims(claims_of(user))), Path(report_id.to_string()))
+            .await
+            .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg)),
     );
     detail.report.status
 }
@@ -365,12 +349,7 @@ async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
         .await
         .expect("读待办失败");
     rows.iter()
-        .map(|row| {
-            (
-                row.get_typed("id").unwrap(),
-                row.get_typed("assignee_id").unwrap(),
-            )
-        })
+        .map(|row| (row.get_typed("id").unwrap(), row.get_typed("assignee_id").unwrap()))
         .collect()
 }
 
@@ -409,14 +388,7 @@ async fn reject_all(instance_id: Uuid, reason: &str) -> String {
     for (task_id, assignee) in tasks {
         let out = db()
             .transaction(|tx| async move {
-                engine::reject(
-                    &tx,
-                    task_id,
-                    assignee,
-                    "驳回（LNK-05 单测）",
-                    engine::ReturnTo::Final,
-                )
-                .await
+                engine::reject(&tx, task_id, assignee, "驳回（LNK-05 单测）", engine::ReturnTo::Final).await
             })
             .await
             .unwrap_or_else(|err| panic!("驳回失败：{err}"));
@@ -432,11 +404,7 @@ async fn reject_all(instance_id: Uuid, reason: &str) -> String {
 
 /// 提交并审批通过（返回单号 id 与实例 id），并断言状态真的到了 APPROVED。
 async fn submit_and_approve(report_id: Uuid) -> Uuid {
-    assert_eq!(
-        submit(report_id).await,
-        STATUS_SUBMITTED,
-        "提交后应当是审批中"
-    );
+    assert_eq!(submit(report_id).await, STATUS_SUBMITTED, "提交后应当是审批中");
     let instance = running_instance(report_id).await;
     let status = approve_all(instance).await;
     assert_eq!(status, "APPROVED", "审批应当通过（实际 {status}）");
@@ -497,9 +465,7 @@ async fn lnk05_submit_triggers_linkage_notice() {
         .find_with_params(
             "SELECT title, biz_type, biz_id, link_url, sender_name FROM sys_notice \
               WHERE idempotency_key = ?",
-            vec![Value::Text(format!(
-                "LNK:EXPENSE:{STATUS_SUBMITTED}:{report_id}"
-            ))],
+            vec![Value::Text(format!("LNK:EXPENSE:{STATUS_SUBMITTED}:{report_id}"))],
         )
         .await
         .expect("查通知行");
@@ -670,10 +636,7 @@ async fn lnk05_cancel_triggers_linkage_notice() {
     .await;
 
     let _instance = submit_and_approve(report_id).await;
-    assert_eq!(
-        vouchers_of(report_id, expense_bridge::SOURCE_REPORT).await,
-        1
-    );
+    assert_eq!(vouchers_of(report_id, expense_bridge::SOURCE_REPORT).await, 1);
 
     let (user, _, _) = reporter().await;
     let detail = data(
@@ -749,11 +712,7 @@ async fn lnk05_repeat_submit_and_pay_do_not_trigger_twice() {
     assert_eq!(submit(report_id).await, STATUS_SUBMITTED);
     // 第二次提交：不是草稿 → 409
     let (user, _, _) = reporter().await;
-    let again = report_submit(
-        Extension(AuthClaims(claims_of(user))),
-        Path(report_id.to_string()),
-    )
-    .await;
+    let again = report_submit(Extension(AuthClaims(claims_of(user))), Path(report_id.to_string())).await;
     assert!(again.is_err(), "已提交的单再提交必须 409");
     assert_eq!(again.unwrap_err().status, 409);
     assert_eq!(

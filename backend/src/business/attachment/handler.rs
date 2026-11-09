@@ -43,8 +43,7 @@ use std::net::SocketAddr;
 use crate::business::shared::user_name;
 use crate::business::storage;
 use crate::business::storage::handler::{
-    declared_content_length, download_response, server_size_error, server_upload_limit_bytes,
-    store_server_upload,
+    declared_content_length, download_response, server_size_error, server_upload_limit_bytes, store_server_upload,
 };
 use crate::shared::error_code;
 use crate::support::log;
@@ -186,14 +185,7 @@ pub async fn upload(
         .map_err(|error| utils::db_error(error, "查询可复用文件"))?
         .is_some();
 
-    let record = store_server_upload(
-        UPLOAD_CATEGORY,
-        &file.name,
-        &file.mime,
-        &file.bytes,
-        operator,
-    )
-    .await?;
+    let record = store_server_upload(UPLOAD_CATEGORY, &file.name, &file.mime, &file.bytes, operator).await?;
 
     let binding_id = model::insert_with_uploader(
         meta.doc_type,
@@ -209,10 +201,7 @@ pub async fn upload(
 
     // 显示名口径与响应体同一份：秒传复用别人的记录时，`record.original_name` 是
     // 首个上传者的名字；响应与留痕都用它，保证「界面看到的」= 「审计记下的」。
-    let file_name = record
-        .original_name
-        .clone()
-        .unwrap_or_else(|| file.name.clone());
+    let file_name = record.original_name.clone().unwrap_or_else(|| file.name.clone());
 
     // AUD-02：直写 `operation_logs`（不走日志总线）。总线是 500 ms 批量，未初始化
     // 的进程会丢事件 —— 145 上实测上传 8 次、`DOC_ATTACHMENT_UPLOAD` 一行没有。
@@ -386,13 +375,7 @@ async fn record_upload_log(
     facts: &UploadLogFacts<'_>,
     started: std::time::Instant,
 ) {
-    let mut entry = upload_log(
-        headers,
-        connect_info,
-        claims,
-        facts,
-        utils::elapsed_ms(started),
-    );
+    let mut entry = upload_log(headers, connect_info, claims, facts, utils::elapsed_ms(started));
     if let Err(error) = entry.insert(db()).await {
         tracing::warn!(
             attachment_id = %facts.binding_id,
@@ -484,10 +467,7 @@ async fn list_of(
     // ATT-04：`can_delete` 的「删别人」分支要求看得见这张单；能走到这里说明读码已过，
     // 但判据仍按 `can_view_doc` 计算（同一条函数，权限码若日后细分也不会失配）。
     let can_view = dto::can_view_doc(claims, kind);
-    let list: Vec<DocAttachmentItemRes> = rows
-        .iter()
-        .map(|row| dto::to_item(row, claims, can_view))
-        .collect();
+    let list: Vec<DocAttachmentItemRes> = rows.iter().map(|row| dto::to_item(row, claims, can_view)).collect();
     // ATT-04 / ATT-11：分组口径随列表一起下发（空分组也要能画出来 → 不能只靠遍历 list）
     let roles = dto::role_catalog(kind, &list);
 
@@ -655,9 +635,7 @@ pub async fn sort(
     let tx_doc_id = ticket.doc_id;
     let tx_ids = ticket.ids.clone();
     let updated = db()
-        .transaction(
-            |tx| async move { model::set_sort_orders(&tx, tx_kind, &tx_doc_id, &tx_ids).await },
-        )
+        .transaction(|tx| async move { model::set_sort_orders(&tx, tx_kind, &tx_doc_id, &tx_ids).await })
         .await
         .map_err(|error| utils::db_error(error, "重排单据附件"))?;
 
@@ -693,13 +671,7 @@ pub async fn sort(
         "单据附件顺序已更新"
     );
 
-    list_of(
-        &claims,
-        ticket.kind,
-        ticket.doc_id,
-        model::ListOrder::Manual,
-    )
-    .await
+    list_of(&claims, ticket.kind, ticket.doc_id, model::ListOrder::Manual).await
 }
 
 /// 重排留痕的操作码（`operation_logs.operation`）。
@@ -827,10 +799,7 @@ pub async fn remove(
         return Err(ApiError::new(
             403,
             error_code::PERMISSION_DENIED,
-            format!(
-                "只能删除自己上传的附件，或持有 {} 权限",
-                super::dto::PERM_DELETE
-            ),
+            format!("只能删除自己上传的附件，或持有 {} 权限", super::dto::PERM_DELETE),
         ));
     }
 
@@ -862,15 +831,7 @@ pub async fn remove(
         ),
     }
 
-    record_delete_log(
-        &headers,
-        &connect_info,
-        &claims,
-        &row,
-        file_deleted,
-        started,
-    )
-    .await;
+    record_delete_log(&headers, &connect_info, &claims, &row, file_deleted, started).await;
 
     tracing::info!(
         attachment_id = %attachment_id,
@@ -1072,17 +1033,15 @@ async fn download_inner(
         return Err(dto::doc_forbidden(kind));
     }
 
-    let response = download_response(&row.file_id.to_string())
-        .await
-        .inspect_err(|error| {
-            tracing::warn!(
-                attachment_id = %attachment_id,
-                file_id = %row.file_id,
-                error_code = error.code,
-                error = %error.msg,
-                "单据附件下载失败"
-            );
-        })?;
+    let response = download_response(&row.file_id.to_string()).await.inspect_err(|error| {
+        tracing::warn!(
+            attachment_id = %attachment_id,
+            file_id = %row.file_id,
+            error_code = error.code,
+            error = %error.msg,
+            "单据附件下载失败"
+        );
+    })?;
 
     record_download_log(headers, connect_info, claims, &row, kind, started).await;
     Ok(response)
@@ -1166,14 +1125,7 @@ async fn record_download_log(
     kind: model::DocKind,
     started: std::time::Instant,
 ) {
-    let mut entry = download_log(
-        headers,
-        connect_info,
-        claims,
-        row,
-        kind,
-        utils::elapsed_ms(started),
-    );
+    let mut entry = download_log(headers, connect_info, claims, row, kind, utils::elapsed_ms(started));
     if let Err(error) = entry.insert(db()).await {
         tracing::warn!(
             attachment_id = %row.id,
@@ -1251,10 +1203,7 @@ async fn read_multipart(
         let name = field.name().unwrap_or("").to_string();
         if name == "file" {
             let file_name = field.file_name().unwrap_or("").trim().to_string();
-            let mime = field
-                .content_type()
-                .unwrap_or("application/octet-stream")
-                .to_string();
+            let mime = field.content_type().unwrap_or("application/octet-stream").to_string();
             // ATT-05：逐片累加 + 超限后只排水（不先把整份 `bytes()` 读进内存）
             let mut bytes: Vec<u8> = Vec::new();
             while let Some(chunk) = field
@@ -1313,11 +1262,7 @@ async fn read_multipart(
     }
 
     let Some(file) = file else {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "缺少文件字段 file",
-        ));
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "缺少文件字段 file"));
     };
     Ok((fields, file))
 }

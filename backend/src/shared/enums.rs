@@ -183,11 +183,7 @@ mod tests {
     #[test]
     fn int_and_text_keep_native_json_type() {
         assert!(EnumItem::int("启用", 1, color::SUCCESS).value.is_i64());
-        assert!(
-            EnumItem::text("启用", "on", color::SUCCESS)
-                .value
-                .is_string()
-        );
+        assert!(EnumItem::text("启用", "on", color::SUCCESS).value.is_string());
     }
 
     #[test]

@@ -76,11 +76,7 @@ pub fn ids_array_param(ids: &[Uuid]) -> Value {
     if ids.is_empty() {
         return Value::Text("{}".to_string());
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     Value::Text(format!("{{{joined}}}"))
 }
 
@@ -299,10 +295,7 @@ pub async fn page_visible(
     )
     .await?;
 
-    let rows = list
-        .iter()
-        .map(ProjectRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let rows = list.iter().map(ProjectRow::from_row).collect::<DbResult<Vec<_>>>()?;
     Ok(ProjectPage {
         list: rows,
         total,
@@ -333,11 +326,7 @@ pub async fn find_visible(principal: &ScopedPrincipal, id: Uuid) -> DbResult<Opt
     let mut params = Vec::with_capacity(1 + fragment.params().len() + 4);
     params.push(Value::from(&id));
     params.extend(fragment.params().iter().cloned());
-    params.extend(visible_params(
-        principal.user_id(),
-        &member_ids,
-        &my_tasks.ids,
-    ));
+    params.extend(visible_params(principal.user_id(), &member_ids, &my_tasks.ids));
 
     let rows = db().find_with_params(&sql, params).await?;
     rows.first().map(ProjectRow::from_row).transpose()
@@ -349,9 +338,7 @@ pub async fn find_visible(principal: &ScopedPrincipal, id: Uuid) -> DbResult<Opt
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn find_raw(id: Uuid) -> DbResult<Option<ProjectRow>> {
-    let sql = format!(
-        "SELECT {PROJECT_COLUMNS}{PROJECT_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {PROJECT_COLUMNS}{PROJECT_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(ProjectRow::from_row).transpose()
 }
@@ -418,10 +405,7 @@ impl ProjectStats {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn stats_for_projects(
-    principal: &ScopedPrincipal,
-    project_ids: &[Uuid],
-) -> DbResult<Vec<ProjectStats>> {
+pub async fn stats_for_projects(principal: &ScopedPrincipal, project_ids: &[Uuid]) -> DbResult<Vec<ProjectStats>> {
     if project_ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -592,12 +576,7 @@ impl ProjectPatch {
 /// # 异常情况
 ///
 /// 数据库异常（含唯一索引冲突）→ [`DbError`]。
-pub async fn update_project(
-    ex: &Transaction,
-    id: Uuid,
-    patch: &ProjectPatch,
-    operator: Uuid,
-) -> DbResult<u64> {
+pub async fn update_project(ex: &Transaction, id: Uuid, patch: &ProjectPatch, operator: Uuid) -> DbResult<u64> {
     let mut sets: Vec<&str> = Vec::new();
     let mut params: Vec<Value> = Vec::new();
     if let Some(code) = patch.code.as_ref() {
@@ -616,9 +595,7 @@ pub async fn update_project(
         sets.push("owner_id = ?::uuid");
         params.push(Value::from(owner.as_ref().map(|(id, _)| *id).as_ref()));
         sets.push("dept_id = ?::uuid");
-        params.push(Value::from(
-            owner.as_ref().and_then(|(_, dept)| *dept).as_ref(),
-        ));
+        params.push(Value::from(owner.as_ref().and_then(|(_, dept)| *dept).as_ref()));
     }
     if let Some(status) = patch.status.as_ref() {
         sets.push("status = ?");
@@ -964,11 +941,7 @@ mod tests {
         };
         let mut params = Vec::new();
         let sql = build_filters(&filter, &mut params);
-        assert_eq!(
-            sql.matches('?').count(),
-            params.len(),
-            "占位符与参数个数必须一致"
-        );
+        assert_eq!(sql.matches('?').count(), params.len(), "占位符与参数个数必须一致");
         // 名称过滤是「名称 OR 编码」两个占位符，因此总数是 2 + 1(状态) + 1(负责人)
         assert_eq!(params.len(), 4);
         assert!(sql.find("project_name ILIKE").unwrap() < sql.find("p.status").unwrap());

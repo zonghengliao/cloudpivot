@@ -95,9 +95,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::report::{
-    self, AccountBalance, PERIOD_DERIVED, PeriodInfo, UnbalancedVoucherRes,
-};
+use crate::business::erp::report::{self, AccountBalance, PERIOD_DERIVED, PeriodInfo, UnbalancedVoucherRes};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -440,11 +438,7 @@ fn pick_item<'a>(
             "对方科目 {} 在「{}」方向上被 {} 行同时匹配（{}）—— 已取 sort_order 最小的 {}，\
              同一笔钱可能被重复计数，请检查 {ITEM_TABLE} 的 account_pattern",
             account_code,
-            if direction == INFLOW {
-                "流入"
-            } else {
-                "流出"
-            },
+            if direction == INFLOW { "流入" } else { "流出" },
             hits.len(),
             codes.join(" / "),
             first.item_code
@@ -464,11 +458,7 @@ fn pick_item<'a>(
 /// ```
 pub fn classify(items: &[CashFlowItemDef], vouchers: &[CashVoucher]) -> CashClassification {
     let mut sorted = items.to_vec();
-    sorted.sort_by(|a, b| {
-        a.sort_order
-            .cmp(&b.sort_order)
-            .then(a.item_code.cmp(&b.item_code))
-    });
+    sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.item_code.cmp(&b.item_code)));
 
     let mut flows: Vec<VoucherFlow> = Vec::new();
     let mut unbalanced: Vec<UnbalancedVoucherRes> = Vec::new();
@@ -502,10 +492,7 @@ pub fn classify(items: &[CashFlowItemDef], vouchers: &[CashVoucher]) -> CashClas
         }
 
         // 分录合计 ≠ 单头（或借贷不等）：账本身坏了。与「两侧是否相等」无关，必须点名。
-        if entry_debit != voucher.header_debit
-            || entry_credit != voucher.header_credit
-            || entry_debit != entry_credit
-        {
+        if entry_debit != voucher.header_debit || entry_credit != voucher.header_credit || entry_debit != entry_credit {
             unbalanced.push(UnbalancedVoucherRes {
                 voucher_no: voucher.voucher_no.clone(),
                 voucher_date: voucher.voucher_date,
@@ -524,11 +511,7 @@ pub fn classify(items: &[CashFlowItemDef], vouchers: &[CashVoucher]) -> CashClas
                 continue;
             }
             allocated += slot.net;
-            let direction = if slot.net > Decimal::ZERO {
-                INFLOW
-            } else {
-                OUTFLOW
-            };
+            let direction = if slot.net > Decimal::ZERO { INFLOW } else { OUTFLOW };
             let amount = report::zero_norm(slot.net.abs());
             match pick_item(&sorted, code, &slot.category, direction, &mut notes) {
                 Some(item) => flows.push(VoucherFlow {
@@ -605,9 +588,7 @@ impl ComputedCashFlow {
 
     /// 某个分区净额。
     pub fn net_of(&self, activity: &str) -> AmountPair {
-        self.section(activity)
-            .map(|row| row.net)
-            .unwrap_or_default()
+        self.section(activity).map(|row| row.net).unwrap_or_default()
     }
 
     /// 某明细行的金额（找不到按 0）。
@@ -685,12 +666,7 @@ impl Window {
     fn pair(&self, item_code: &str, direction: &str) -> AmountPair {
         let key = (item_code.to_string(), direction.to_string());
         AmountPair {
-            current: report::zero_norm(
-                self.current
-                    .get(&key)
-                    .map(|slot| slot.0)
-                    .unwrap_or_default(),
-            ),
+            current: report::zero_norm(self.current.get(&key).map(|slot| slot.0).unwrap_or_default()),
             ytd: report::zero_norm(self.ytd.get(&key).map(|slot| slot.0).unwrap_or_default()),
         }
     }
@@ -756,11 +732,7 @@ pub fn compute(
     period_end: NaiveDate,
 ) -> ComputedCashFlow {
     let mut sorted = items.to_vec();
-    sorted.sort_by(|a, b| {
-        a.sort_order
-            .cmp(&b.sort_order)
-            .then(a.item_code.cmp(&b.item_code))
-    });
+    sorted.sort_by(|a, b| a.sort_order.cmp(&b.sort_order).then(a.item_code.cmp(&b.item_code)));
 
     let mut window = Window::default();
     let mut other_names: BTreeMap<(String, String), String> = BTreeMap::new();
@@ -828,9 +800,7 @@ pub fn compute(
             current: pair.current,
             ytd: pair.ytd,
             accounts: window.accounts(&code, &direction),
-            detail: Some(
-                "未匹配 biz_cashflow_item 任何一行（对方科目分类缺失，已归「其他」）".to_string(),
-            ),
+            detail: Some("未匹配 biz_cashflow_item 任何一行（对方科目分类缺失，已归「其他」）".to_string()),
         };
         if direction == INFLOW {
             other_inflow.push(line);
@@ -933,13 +903,7 @@ pub fn build_check(
                 .unclassified
                 .iter()
                 .take(8)
-                .map(|row| {
-                    format!(
-                        "{}({})",
-                        row.item_code.trim_start_matches("OTHER_"),
-                        row.current
-                    )
-                })
+                .map(|row| format!("{}({})", row.item_code.trim_start_matches("OTHER_"), row.current))
                 .collect();
             hints.push(format!(
                 "有 {} 类现金收支的对方科目没有归入任何现金流量表行：{}（已归「其他」，\
@@ -977,9 +941,7 @@ pub fn build_check(
     }
 
     let message = if balanced {
-        format!(
-            "勾稽一致：期末现金及现金等价物余额 {closing_balance} = 资产负债表「货币资金」{balance_sheet_cash}"
-        )
+        format!("勾稽一致：期末现金及现金等价物余额 {closing_balance} = 资产负债表「货币资金」{balance_sheet_cash}")
     } else {
         format!(
             "不平：期末现金及现金等价物余额 {closing_balance} ≠ 资产负债表「货币资金」{balance_sheet_cash}，\
@@ -1014,8 +976,7 @@ pub fn ytd_start_of(period: &str) -> Option<NaiveDate> {
 }
 
 fn ytd_start_for(period: &str, period_end: NaiveDate) -> NaiveDate {
-    ytd_start_of(period)
-        .unwrap_or_else(|| NaiveDate::from_ymd_opt(period_end.year(), 1, 1).unwrap_or(period_end))
+    ytd_start_of(period).unwrap_or_else(|| NaiveDate::from_ymd_opt(period_end.year(), 1, 1).unwrap_or(period_end))
 }
 
 /// 分类配置（`biz_cashflow_item`，启用行，按 `sort_order`）。
@@ -1051,11 +1012,7 @@ pub async fn load_items(tx: &Transaction) -> DbResult<Vec<CashFlowItemDef>> {
 /// 而「期末现金」又因 `ledger_cash_balance`（走 `report::load_accounts`，期初单列）
 /// 是对的 —— 一增一减，勾稽差额恰好抵消成 0，把口径错误藏了起来（实测 2022 年
 /// 净增加额 1 616 000 而不是 1 116 000）。期初现金只由 `opening_cash_balance()` 提供。
-pub async fn load_cash_vouchers(
-    tx: &Transaction,
-    start: NaiveDate,
-    end: NaiveDate,
-) -> DbResult<Vec<CashVoucher>> {
+pub async fn load_cash_vouchers(tx: &Transaction, start: NaiveDate, end: NaiveDate) -> DbResult<Vec<CashVoucher>> {
     let sql = format!(
         "SELECT v.voucher_no, v.voucher_date, v.total_debit, v.total_credit, \
                 e.line_no, e.account_code, e.account_name, e.debit_amount, e.credit_amount, \
@@ -1126,10 +1083,7 @@ pub async fn load_monetary_pattern(tx: &Transaction) -> DbResult<String> {
         report::ITEM_TABLE
     );
     let row = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(BALANCE_REPORT_CODE), Value::from(MONETARY_ITEM)],
-        )
+        .find_with_params(&sql, vec![Value::from(BALANCE_REPORT_CODE), Value::from(MONETARY_ITEM)])
         .await?
         .into_iter()
         .next();
@@ -1265,13 +1219,7 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<CashFlow
     // 一张宽窗口查进来，本期 / 累计在内存里切（同一快照、同一份数据）
     let vouchers = load_cash_vouchers(tx, ytd_start, info.end_date).await?;
     let classification = classify(&items, &vouchers);
-    let mut computed = compute(
-        &items,
-        &classification,
-        info.start_date,
-        ytd_start,
-        info.end_date,
-    );
+    let mut computed = compute(&items, &classification, info.start_date, ytd_start, info.end_date);
 
     let cash_entry_count: usize = vouchers
         .iter()
@@ -1282,10 +1230,8 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<CashFlow
 
     // 期初：期间开始日之前 / 本年 1 月 1 日之前
     // ERP-R5：期初凭证算「期初」而不是「本期发生」，两个窗口都按报表所属期间识别它
-    let period_accounts =
-        report::load_accounts(tx, info.start_date, info.end_date, Some(&info.period_code)).await?;
-    let ytd_accounts =
-        report::load_accounts(tx, ytd_start, info.end_date, Some(&info.period_code)).await?;
+    let period_accounts = report::load_accounts(tx, info.start_date, info.end_date, Some(&info.period_code)).await?;
+    let ytd_accounts = report::load_accounts(tx, ytd_start, info.end_date, Some(&info.period_code)).await?;
     let opening_current = opening_cash_balance(&period_accounts);
     let opening_ytd = opening_cash_balance(&ytd_accounts);
     let closing_by_ledger = ledger_cash_balance(&period_accounts);
@@ -1293,8 +1239,7 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<CashFlow
     // 勾稽右式：资产负债表「货币资金」
     let monetary_pattern = load_monetary_pattern(tx).await?;
     let bs_items = report::load_items_of(tx, BALANCE_REPORT_CODE).await?;
-    let (balance_sheet_cash, monetary_warning) =
-        monetary_funds(&bs_items, &period_accounts, &monetary_pattern);
+    let (balance_sheet_cash, monetary_warning) = monetary_funds(&bs_items, &period_accounts, &monetary_pattern);
 
     let closing_current = report::zero_norm(opening_current + computed.net_increase.current);
 
@@ -1306,9 +1251,7 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<CashFlow
     let outside: Vec<String> = period_accounts
         .iter()
         .filter(|row| !is_cash_account(&row.account_code))
-        .filter(|row| {
-            report::match_account(&monetary_pattern, &row.account_code, &row.account_category)
-        })
+        .filter(|row| report::match_account(&monetary_pattern, &row.account_code, &row.account_category))
         .filter(|row| !row.net().is_zero())
         .map(|row| format!("{}({})", row.account_code, row.net()))
         .collect();
@@ -1466,19 +1409,14 @@ fn period_error(period: &str, message: String) -> ApiError {
 
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
 /// `pub(crate)`：PDF-07（[`crate::business::erp::report_pdf`]）复用同一快照与错误码。
-pub(crate) async fn snapshot_or_error(
-    period: &str,
-) -> std::result::Result<CashFlowSnapshot, ApiError> {
+pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<CashFlowSnapshot, ApiError> {
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启现金流量表快照事务"))?;
     // ★ L11：整张报表在一个 REPEATABLE READ 快照里算完。
     //   `SET TRANSACTION` 必须是 BEGIN 之后的第一条语句（PG 规定，否则 25001）。
-    if let Err(error) = tx
-        .execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .await
-    {
+    if let Err(error) = tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").await {
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置现金流量表事务隔离级别"));
     }
@@ -1535,9 +1473,7 @@ pub async fn cash_flow_handler(Query(query): Query<CashFlowQuery>) -> ResResult<
     permission = "business:erp:report:export"
 )]
 #[nik::get("/business/erp/report/cash-flow/export")]
-pub async fn cash_flow_export_handler(
-    Query(query): Query<CashFlowQuery>,
-) -> std::result::Result<Response, ApiError> {
+pub async fn cash_flow_export_handler(Query(query): Query<CashFlowQuery>) -> std::result::Result<Response, ApiError> {
     let period = validate_period(query.period.as_deref())?;
     let snapshot = snapshot_or_error(&period).await?;
     let company = company_name().await;
@@ -1560,10 +1496,7 @@ pub fn export_table(report: &CashFlowRes) -> (Vec<&'static str>, Vec<HashMap<Str
     let mut rows: Vec<HashMap<String, String>> = Vec::new();
 
     let mut info = HashMap::new();
-    info.insert(
-        "项目".to_string(),
-        format!("编制单位：{}", report.company_name),
-    );
+    info.insert("项目".to_string(), format!("编制单位：{}", report.company_name));
     info.insert(
         "本期金额".to_string(),
         format!("期间：{}（{}）", report.period_name, report.period_status),
@@ -1577,22 +1510,11 @@ pub fn export_table(report: &CashFlowRes) -> (Vec<&'static str>, Vec<HashMap<Str
     );
     rows.push(info);
 
-    for section in [
-        &report.operating,
-        &report.investing,
-        &report.financing,
-        &report.other,
-    ] {
+    for section in [&report.operating, &report.investing, &report.financing, &report.other] {
         let mut title = HashMap::new();
         title.insert("项目".to_string(), section.activity_name.clone());
-        title.insert(
-            "本期金额".to_string(),
-            report::money_text(Some(section.net.current)),
-        );
-        title.insert(
-            "本年累计".to_string(),
-            report::money_text(Some(section.net.ytd)),
-        );
+        title.insert("本期金额".to_string(), report::money_text(Some(section.net.current)));
+        title.insert("本年累计".to_string(), report::money_text(Some(section.net.ytd)));
         rows.push(title);
 
         for (label, lines, total) in [
@@ -1602,19 +1524,13 @@ pub fn export_table(report: &CashFlowRes) -> (Vec<&'static str>, Vec<HashMap<Str
             for line in lines {
                 let mut row = HashMap::new();
                 row.insert("项目".to_string(), format!("    {}", line.item_name));
-                row.insert(
-                    "本期金额".to_string(),
-                    report::money_text(Some(line.current)),
-                );
+                row.insert("本期金额".to_string(), report::money_text(Some(line.current)));
                 row.insert("本年累计".to_string(), report::money_text(Some(line.ytd)));
                 rows.push(row);
             }
             let mut subtotal = HashMap::new();
             subtotal.insert("项目".to_string(), format!("  {label}小计"));
-            subtotal.insert(
-                "本期金额".to_string(),
-                report::money_text(Some(total.current)),
-            );
+            subtotal.insert("本期金额".to_string(), report::money_text(Some(total.current)));
             subtotal.insert("本年累计".to_string(), report::money_text(Some(total.ytd)));
             rows.push(subtotal);
         }
@@ -1623,14 +1539,8 @@ pub fn export_table(report: &CashFlowRes) -> (Vec<&'static str>, Vec<HashMap<Str
             "项目".to_string(),
             format!("  {}净额", activity_label(&section.activity)),
         );
-        net.insert(
-            "本期金额".to_string(),
-            report::money_text(Some(section.net.current)),
-        );
-        net.insert(
-            "本年累计".to_string(),
-            report::money_text(Some(section.net.ytd)),
-        );
+        net.insert("本期金额".to_string(), report::money_text(Some(section.net.current)));
+        net.insert("本年累计".to_string(), report::money_text(Some(section.net.ytd)));
         rows.push(net);
     }
 
@@ -1641,10 +1551,7 @@ pub fn export_table(report: &CashFlowRes) -> (Vec<&'static str>, Vec<HashMap<Str
     ] {
         let mut row = HashMap::new();
         row.insert("项目".to_string(), label.to_string());
-        row.insert(
-            "本期金额".to_string(),
-            report::money_text(Some(pair.current)),
-        );
+        row.insert("本期金额".to_string(), report::money_text(Some(pair.current)));
         row.insert("本年累计".to_string(), report::money_text(Some(pair.ytd)));
         rows.push(row);
     }
@@ -1701,14 +1608,7 @@ mod tests {
     }
 
     /// 造一条分类行（与 V0185 种子逐字一致）。
-    fn item(
-        code: &str,
-        name: &str,
-        activity: &str,
-        direction: &str,
-        pattern: &str,
-        order: i32,
-    ) -> CashFlowItemDef {
+    fn item(code: &str, name: &str, activity: &str, direction: &str, pattern: &str, order: i32) -> CashFlowItemDef {
         CashFlowItemDef {
             item_code: code.to_string(),
             item_name: name.to_string(),
@@ -1868,11 +1768,7 @@ mod tests {
 
     /// 一笔简单业务：借 `debit` / 贷 `credit`。
     fn two_line(no: &str, date: NaiveDate, debit: &str, credit: &str, amount: i64) -> CashVoucher {
-        voucher(
-            no,
-            date,
-            vec![entry(debit, amount, 0), entry(credit, 0, amount)],
-        )
+        voucher(no, date, vec![entry(debit, amount, 0), entry(credit, 0, amount)])
     }
 
     fn run(vouchers: &[CashVoucher]) -> ComputedCashFlow {
@@ -1892,10 +1788,7 @@ mod tests {
     #[test]
     fn r3_single_cash_inflow_is_operating() {
         let flows = run(&[two_line("0101", day(10, 5), "1002", "5001", 1_000)]);
-        assert_eq!(
-            flows.current_of("OPER_SALES_RECEIPTS"),
-            Decimal::from(1_000)
-        );
+        assert_eq!(flows.current_of("OPER_SALES_RECEIPTS"), Decimal::from(1_000));
         assert_eq!(flows.ytd_of("OPER_SALES_RECEIPTS"), Decimal::from(1_000));
         assert_eq!(
             flows.net_of("OPERATING"),
@@ -1914,10 +1807,7 @@ mod tests {
     #[test]
     fn r3_single_cash_outflow_is_operating() {
         let flows = run(&[two_line("0102", day(10, 6), "5401", "1002", 600)]);
-        assert_eq!(
-            flows.current_of("OPER_PURCHASE_PAYMENTS"),
-            Decimal::from(600)
-        );
+        assert_eq!(flows.current_of("OPER_PURCHASE_PAYMENTS"), Decimal::from(600));
         let operating = flows.section("OPERATING").expect("经营分区");
         assert_eq!(operating.outflow_total.current, Decimal::from(600));
         assert_eq!(operating.net.current, Decimal::from(-600));
@@ -1989,11 +1879,7 @@ mod tests {
         let flows = run(&[two_line("0109", day(10, 11), "2221", "1002", 82)]);
         assert_eq!(flows.current_of("OPER_TAX_PAYMENTS"), Decimal::from(82));
         assert_eq!(
-            flows
-                .section("OPERATING")
-                .expect("经营分区")
-                .outflow_total
-                .current,
+            flows.section("OPERATING").expect("经营分区").outflow_total.current,
             Decimal::from(82)
         );
         println!("[R3-⑥] 借 2221 / 贷 1002 82 → 经营流出·税费 82 ✓");
@@ -2035,11 +1921,7 @@ mod tests {
         assert_eq!(check.diff, Decimal::ZERO);
         assert_eq!(check.diff_text, "0.00");
         assert!(check.message.contains("勾稽一致"), "{}", check.message);
-        assert!(
-            check.hints.is_empty(),
-            "平的时候不吐提示：{:?}",
-            check.hints
-        );
+        assert!(check.hints.is_empty(), "平的时候不吐提示：{:?}", check.hints);
 
         let check = build_check(&flows, closing, Decimal::from(1_250), closing, 2);
         assert!(!check.balanced, "差 250 必须报");
@@ -2066,10 +1948,7 @@ mod tests {
         ]);
         assert_eq!(flows.unclassified.len(), 2, "两笔都该进「其他」");
         assert_eq!(flows.unclassified_count(), 2);
-        assert_eq!(
-            flows.unclassified_amount(),
-            (Decimal::from(700), Decimal::from(300))
-        );
+        assert_eq!(flows.unclassified_amount(), (Decimal::from(700), Decimal::from(300)));
         let other = flows.section(OTHER_ACTIVITY).expect("其他分区");
         assert_eq!(other.inflow_total.current, Decimal::from(700));
         assert_eq!(other.outflow_total.current, Decimal::from(300));
@@ -2188,10 +2067,7 @@ mod tests {
         let flows = run(&[voucher(
             "0120",
             day(10, 15),
-            vec![
-                entry_dec("1002", "0.0001", "0"),
-                entry_dec("5001", "0", "0.0001"),
-            ],
+            vec![entry_dec("1002", "0.0001", "0"), entry_dec("5001", "0", "0.0001")],
         )]);
         let closing = Decimal::from_str("0.0001").expect("十进制");
         let check = build_check(&flows, closing, Decimal::ZERO, closing, 1);
@@ -2233,11 +2109,11 @@ mod tests {
         }
         // 每个科目在每个方向上至多命中一行，且至少在一个方向上被覆盖
         let codes = [
-            "1121", "1122", "1123", "1131", "1132", "1221", "1401", "1402", "1403", "1404", "1405",
-            "1408", "1601", "1602", "1604", "1605", "1606", "1701", "1702", "1801", "1901", "2101",
-            "2202", "2203", "2211", "2221", "2221.01", "2221.02", "2231", "2241", "2401", "2501",
-            "2701", "3001", "3101", "3102", "3103", "3104", "4001", "4101", "5001", "5051", "5111",
-            "5301", "5401", "5402", "5403", "5601", "5602", "5603", "5711", "5801", "6401",
+            "1121", "1122", "1123", "1131", "1132", "1221", "1401", "1402", "1403", "1404", "1405", "1408", "1601",
+            "1602", "1604", "1605", "1606", "1701", "1702", "1801", "1901", "2101", "2202", "2203", "2211", "2221",
+            "2221.01", "2221.02", "2231", "2241", "2401", "2501", "2701", "3001", "3101", "3102", "3103", "3104",
+            "4001", "4101", "5001", "5051", "5111", "5301", "5401", "5402", "5403", "5601", "5602", "5603", "5711",
+            "5801", "6401",
         ];
         let mut problems: Vec<String> = Vec::new();
         for code in codes {
@@ -2246,9 +2122,7 @@ mod tests {
                 let hits: Vec<&str> = items
                     .iter()
                     .filter(|item| item.direction == direction)
-                    .filter(|item| {
-                        report::match_account(&item.account_pattern, code, category_of(code))
-                    })
+                    .filter(|item| report::match_account(&item.account_pattern, code, category_of(code)))
                     .map(|item| item.item_code.as_str())
                     .collect();
                 total += hits.len();
@@ -2275,10 +2149,7 @@ mod tests {
         assert!(validate_period(Some("  ")).is_err());
         assert!(validate_period(Some("2026-13")).is_err());
         assert!(validate_period(Some("2026-1")).is_err());
-        assert_eq!(
-            validate_period(Some(" 2026-10 ")).ok().as_deref(),
-            Some("2026-10")
-        );
+        assert_eq!(validate_period(Some(" 2026-10 ")).ok().as_deref(), Some("2026-10"));
         assert_eq!(ytd_start_of("2026-10"), NaiveDate::from_ymd_opt(2026, 1, 1));
         println!("[R3-⑯] period 校验 / 累计起点 ✓");
     }
@@ -2315,14 +2186,7 @@ mod tests {
     }
 
     /// 建一张 POSTED 凭证（两行分录：借 / 贷）。
-    async fn post_voucher(
-        no: &str,
-        date: &str,
-        period: &str,
-        debit_code: &str,
-        credit_code: &str,
-        amount: i64,
-    ) {
+    async fn post_voucher(no: &str, date: &str, period: &str, debit_code: &str, credit_code: &str, amount: i64) {
         let sql = format!(
             "WITH v AS ( \
                 INSERT INTO biz_voucher (voucher_word, voucher_no, period, voucher_date, summary, \
@@ -2417,16 +2281,8 @@ mod tests {
             Decimal::from(568),
             "净增加 = 1000 − 400 − 150 − 82 − 300 + 500"
         );
-        assert_eq!(
-            closing - base_closing,
-            Decimal::from(568),
-            "期末 = 期初 + 净增加"
-        );
-        assert_eq!(
-            bs_cash - base_bs,
-            Decimal::from(568),
-            "资产负债表「货币资金」同步 +568"
-        );
+        assert_eq!(closing - base_closing, Decimal::from(568), "期末 = 期初 + 净增加");
+        assert_eq!(bs_cash - base_bs, Decimal::from(568), "资产负债表「货币资金」同步 +568");
         assert_eq!(closing, bs_cash, "期末现金必须逐分等于货币资金");
         assert_eq!(ledger, closing, "总账现金类科目余额也必须等于期末现金");
         assert!(
@@ -2441,10 +2297,7 @@ mod tests {
             "不该有告警：{:?}",
             after.computed.warnings
         );
-        assert_eq!(
-            after.opening_current, base_opening,
-            "本期新增凭证不改变期初"
-        );
+        assert_eq!(after.opening_current, base_opening, "本期新增凭证不改变期初");
         println!(
             "[R3-⑰] 真库：经营 {} / 投资 {} / 筹资 {} / 净增 {} / 期末 {} = 货币资金 ✓",
             operating.current, investing.current, financing.current, net, closing
@@ -2471,9 +2324,7 @@ mod tests {
                 SELECT id FROM biz_voucher WHERE voucher_no = '0322' AND voucher_word = '{FIXTURE_WORD}') \
                AND credit_amount > 0"
         );
-        db().execute_with_params(&sql, vec![])
-            .await
-            .expect("删分录");
+        db().execute_with_params(&sql, vec![]).await.expect("删分录");
 
         let after = run_snapshot("2026-10").await;
         let other = after.computed.net_of(OTHER_ACTIVITY).current;
@@ -2496,8 +2347,7 @@ mod tests {
         );
         // 现金账本身也被这笔孤立分录带歪了：勾稽必须照样把差额报出来（不许因为"平"就噤声）
         assert!(
-            check.closing_balance != after.closing_by_ledger
-                || !check.unbalanced_vouchers.is_empty(),
+            check.closing_balance != after.closing_by_ledger || !check.unbalanced_vouchers.is_empty(),
             "孤立分录必须留下痕迹（分录不平凭证 1 张）"
         );
         println!("[R3-⑱] 真库：分录被删 → 500 进「其他」+ 点名 0322 ✓");
@@ -2536,11 +2386,7 @@ mod tests {
             let hits: Vec<&str> = items
                 .iter()
                 .filter(|item| {
-                    report::match_account(
-                        &item.account_pattern,
-                        &account.account_code,
-                        &account.account_category,
-                    )
+                    report::match_account(&item.account_pattern, &account.account_code, &account.account_category)
                 })
                 .map(|item| item.item_code.as_str())
                 .collect();

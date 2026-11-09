@@ -37,9 +37,7 @@ use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::flow::graph::{
-    self, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, NodeSpec, NodeType,
-};
+use cloudpivot::business::flow::graph::{self, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, NodeSpec, NodeType};
 use cloudpivot::business::flow::task_node::{self, SpawnOutcome};
 use cloudpivot::business::flow::{dto as flow_dto, handler as flow_handler, model as flow_model};
 use cloudpivot::business::task::{dto as task_dto, handler as task_handler};
@@ -217,10 +215,7 @@ impl Fixture {
             )
             .await;
         let _ = db()
-            .execute_with_params(
-                "DELETE FROM sys_role WHERE id = ?::uuid",
-                vec![Value::from(&self.role)],
-            )
+            .execute_with_params("DELETE FROM sys_role WHERE id = ?::uuid", vec![Value::from(&self.role)])
             .await;
     }
 }
@@ -228,11 +223,7 @@ impl Fixture {
 // ==================== 建流程 / 发布 / 发起 ====================
 
 /// 一份 `START → TASK_NODE → END` 的图（任务节点指派来源可切换）。
-fn task_flow_graph(
-    assignee_type: AssigneeKind,
-    role_id: Option<Uuid>,
-    task_config: serde_json::Value,
-) -> FlowGraph {
+fn task_flow_graph(assignee_type: AssigneeKind, role_id: Option<Uuid>, task_config: serde_json::Value) -> FlowGraph {
     let mut task = NodeSpec::new("n_task", "催货", NodeType::Task);
     task.assignee_type = Some(assignee_type);
     if let Some(role_id) = role_id {
@@ -295,13 +286,9 @@ async fn create_and_publish_as(
 
     // 用 DTO 走一遍真实保存路径（含 into_graph 的结构校验）
     let save = graph_to_save_req(&graph);
-    flow_handler::save_graph(
-        claims(f.operator, "op", &[]),
-        Path(version_id.to_string()),
-        Json(save),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("保存整图失败：{} {}", error.code, error.msg));
+    flow_handler::save_graph(claims(f.operator, "op", &[]), Path(version_id.to_string()), Json(save))
+        .await
+        .unwrap_or_else(|error| panic!("保存整图失败：{} {}", error.code, error.msg));
 
     let published = flow_handler::publish(claims(f.operator, "op", &[]), Path(def_id.to_string()))
         .await
@@ -384,10 +371,7 @@ async fn start_instance(
         flow_code: None,
         biz_type: None,
         biz_id: None,
-        biz_no: Some(format!(
-            "PFLOW-{}",
-            &Uuid::now_v7().simple().to_string()[24..32]
-        )),
+        biz_no: Some(format!("PFLOW-{}", &Uuid::now_v7().simple().to_string()[24..32])),
         title: title.to_string(),
         form_data: Some(form),
     };
@@ -405,9 +389,7 @@ async fn count_flow_tasks(instance_id: Uuid) -> i64 {
         )
         .await
         .expect("count biz_task");
-    rows.first()
-        .map(|row| row.get_typed("n").unwrap())
-        .unwrap_or(0)
+    rows.first().map(|row| row.get_typed("n").unwrap()).unwrap_or(0)
 }
 
 // ==================== ④ 发布回归 ====================
@@ -445,10 +427,7 @@ async fn publish_regression_keeps_graph_hash() {
             )
         })
         .collect::<Vec<_>>();
-    assert!(
-        !defs.is_empty(),
-        "库里必须已有发布的流程（否则这条回归没有意义）"
-    );
+    assert!(!defs.is_empty(), "库里必须已有发布的流程（否则这条回归没有意义）");
     let operator = Uuid::now_v7();
     for (def_id, flow_code) in &defs {
         let def_id = *def_id;
@@ -478,16 +457,12 @@ async fn publish_regression_keeps_graph_hash() {
         )
         .await
         .unwrap_or_else(|error| panic!("{flow_code} 另存草稿失败：{} {}", error.code, error.msg));
-        let draft_id =
-            Uuid::parse_str(&draft.data.expect("草稿回执").version_id).expect("draft id");
+        let draft_id = Uuid::parse_str(&draft.data.expect("草稿回执").version_id).expect("draft id");
 
         // ② 重新发布（跑 R1–R21 + 重新算 hash）
-        let published = flow_handler::publish(
-            claims(operator, "pflow-regression", &[]),
-            Path(def_id.to_string()),
-        )
-        .await
-        .unwrap_or_else(|error| panic!("{flow_code} 重新发布失败：{} {}", error.code, error.msg));
+        let published = flow_handler::publish(claims(operator, "pflow-regression", &[]), Path(def_id.to_string()))
+            .await
+            .unwrap_or_else(|error| panic!("{flow_code} 重新发布失败：{} {}", error.code, error.msg));
         let after_hash = published.data.expect("发布回执").graph_hash;
 
         // ③ 断言 hash / 节点数 / 边数逐一相同
@@ -500,10 +475,7 @@ async fn publish_regression_keeps_graph_hash() {
             "{flow_code} 重新发布后 graph_hash 变了（{before_hash} → {after_hash}）：\
              说明快照口径被改动，存量 PUBLISHED 版本全部失效"
         );
-        assert_eq!(
-            after.node_count, before.node_count,
-            "{flow_code} 节点数变了"
-        );
+        assert_eq!(after.node_count, before.node_count, "{flow_code} 节点数变了");
         assert_eq!(after.edge_count, before.edge_count, "{flow_code} 边数变了");
         println!(
             "[④] {flow_code} v{} → 重新发布 hash 不变（{before_hash}），nodes={} edges={}",
@@ -598,9 +570,7 @@ async fn task_node_end_to_end_creates_one_task() {
         .expect("查实例")
         .expect("实例必须存在");
     assert_eq!(instance.status, "PENDING", "任务没完成，实例必须仍 PENDING");
-    println!(
-        "[⑤] 实例 {instance_id} 生成 1 张任务，节点 ACTIVE，实例 PENDING，截止日 {due_date:?}"
-    );
+    println!("[⑤] 实例 {instance_id} 生成 1 张任务，节点 ACTIVE，实例 PENDING，截止日 {due_date:?}");
 
     f.cleanup().await;
 }
@@ -624,11 +594,7 @@ async fn role_multi_resolution_makes_one_task_with_members() {
         .await
         .unwrap_or_else(|error| panic!("发起失败：{} {}", error.code, error.msg));
 
-    assert_eq!(
-        count_flow_tasks(instance_id).await,
-        1,
-        "多人必须只生成 1 张任务"
-    );
+    assert_eq!(count_flow_tasks(instance_id).await, 1, "多人必须只生成 1 张任务");
 
     let rows = db()
         .find_with_params(
@@ -641,10 +607,7 @@ async fn role_multi_resolution_makes_one_task_with_members() {
     let owner: Uuid = rows[0].get_typed("owner_id").unwrap();
     let members: i64 = rows[0].get_typed("members").unwrap();
     let expected_owner = std::cmp::min(f.operator, f.colleague);
-    assert_eq!(
-        owner, expected_owner,
-        "owner 必须是按 user_id 排序的第一个人"
-    );
+    assert_eq!(owner, expected_owner, "owner 必须是按 user_id 排序的第一个人");
     assert_eq!(members, 1, "其余解析出来的人必须挂协作人");
     println!("[⑤b] 角色 2 人 → 1 张任务，owner={owner}，协作人 {members} 个");
 
@@ -687,8 +650,7 @@ async fn task_node_generation_is_idempotent() {
         .find(|node| node.key == "n_task")
         .expect("快照里必须有任务节点")
         .clone();
-    let cfg = cloudpivot::business::flow::node_config::parse_task_config(&spec.config["task"])
-        .expect("配置合法");
+    let cfg = cloudpivot::business::flow::node_config::parse_task_config(&spec.config["task"]).expect("配置合法");
     let ctx = instance.assignee_ctx();
     let eval = graph::EvalContext {
         form: serde_json::Map::new(),
@@ -713,11 +675,7 @@ async fn task_node_generation_is_idempotent() {
         }
         other => panic!("第二次 spawn 必须返回 AlreadyExists，实际 {other:?}"),
     }
-    assert_eq!(
-        count_flow_tasks(instance_id).await,
-        1,
-        "幂等命中后仍必须是 1 行"
-    );
+    assert_eq!(count_flow_tasks(instance_id).await, 1, "幂等命中后仍必须是 1 行");
 
     // ② 绕过应用层再 INSERT 一次 → 被 uk_biz_task_flow_node 挡下（23505）
     let duplicate = db()
@@ -783,12 +741,9 @@ async fn too_long_title_rolls_back_whole_instance() {
             .find_with_params(sql, vec![Value::from(&def_id)])
             .await
             .expect("计数");
-        rows.first()
-            .map(|row| row.get_typed::<i64>("n").unwrap())
-            .unwrap_or(0)
+        rows.first().map(|row| row.get_typed::<i64>("n").unwrap()).unwrap_or(0)
     };
-    let instances =
-        count("SELECT count(*) AS n FROM biz_flow_instance WHERE def_id = ?::uuid").await;
+    let instances = count("SELECT count(*) AS n FROM biz_flow_instance WHERE def_id = ?::uuid").await;
     assert_eq!(instances, 0, "发起失败必须不留下半截实例");
     let tasks = db()
         .find_with_params(
@@ -799,10 +754,7 @@ async fn too_long_title_rolls_back_whole_instance() {
         .await
         .expect("数流程任务");
     assert_eq!(
-        tasks
-            .first()
-            .map(|row| row.get_typed::<i64>("n").unwrap())
-            .unwrap_or(0),
+        tasks.first().map(|row| row.get_typed::<i64>("n").unwrap()).unwrap_or(0),
         0,
         "发起失败必须不留下任务"
     );
@@ -845,12 +797,9 @@ async fn task_page_filters_by_flow_source() {
         keyword: None,
         root_only: None,
     };
-    let res = task_handler::page(
-        claims(f.operator, "op", &["business:task:read"]),
-        Query(query.clone()),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("task/page?source=FLOW 失败：{} {}", error.code, error.msg));
+    let res = task_handler::page(claims(f.operator, "op", &["business:task:read"]), Query(query.clone()))
+        .await
+        .unwrap_or_else(|error| panic!("task/page?source=FLOW 失败：{} {}", error.code, error.msg));
     let data = res.data.expect("分页回执");
     assert_eq!(data.total, 1, "该负责人名下只应有 1 张流程任务");
     let card = data.list.first().expect("必须有一条");
@@ -863,27 +812,17 @@ async fn task_page_filters_by_flow_source() {
     // `source=SELF`：同一条件下不该命中（证明筛选真的生效，不是摆设）
     let mut self_query = query.clone();
     self_query.source = Some("SELF".to_string());
-    let res = task_handler::page(
-        claims(f.operator, "op", &["business:task:read"]),
-        Query(self_query),
-    )
-    .await
-    .expect("task/page?source=SELF 不该报错");
-    assert_eq!(
-        res.data.expect("分页回执").total,
-        0,
-        "source=SELF 不该命中流程任务"
-    );
+    let res = task_handler::page(claims(f.operator, "op", &["business:task:read"]), Query(self_query))
+        .await
+        .expect("task/page?source=SELF 不该报错");
+    assert_eq!(res.data.expect("分页回执").total, 0, "source=SELF 不该命中流程任务");
 
     // 非法来源 → 400（不静默忽略）
     let mut bad = query;
     bad.source = Some("NOPE".to_string());
-    let error = task_handler::page(
-        claims(f.operator, "op", &["business:task:read"]),
-        Query(bad),
-    )
-    .await
-    .expect_err("非法来源必须 400");
+    let error = task_handler::page(claims(f.operator, "op", &["business:task:read"]), Query(bad))
+        .await
+        .expect_err("非法来源必须 400");
     assert_eq!(error.status, 400);
     println!("[⑨] source=FLOW 命中 1 条并带 flow 段；source=SELF 0 条；非法值 400");
 
@@ -928,11 +867,7 @@ async fn preview_covers_five_cases() {
     let task = data.task.expect("必须渲染出任务");
     assert_eq!(task.title, "PO202611010001 催货：华东金属");
     assert_eq!(task.description, "请于 2026-11-04 前催到货");
-    assert_eq!(
-        task.due_date.as_deref(),
-        Some("2026-11-04"),
-        "周日 + 3 工作日 = 周三"
-    );
+    assert_eq!(task.due_date.as_deref(), Some("2026-11-04"), "周日 + 3 工作日 = 周三");
 
     // ② 缺变量 strict=false → 可见占位 + warning（不报错）
     let lenient = flow_dto::TaskPreviewReq {
@@ -957,9 +892,7 @@ async fn preview_covers_five_cases() {
         "缺变量必须渲染成可见占位"
     );
     assert!(
-        data.warnings
-            .iter()
-            .any(|w| w.contains("form.supplier_name")),
+        data.warnings.iter().any(|w| w.contains("form.supplier_name")),
         "必须给出缺变量告警：{:?}",
         data.warnings
     );
@@ -1039,21 +972,12 @@ async fn task_of_instance(instance_id: Uuid) -> Uuid {
 }
 
 /// 起一张实例 → 打 `/business/task/{id}/flow` → 回三个「流程走向」字段。
-async fn flow_detail_of(
-    f: &Fixture,
-    tag: &str,
-    task_config: serde_json::Value,
-) -> task_dto::TaskFlowDetailRes {
+async fn flow_detail_of(f: &Fixture, tag: &str, task_config: serde_json::Value) -> task_dto::TaskFlowDetailRes {
     let graph = task_flow_graph(AssigneeKind::Initiator, None, task_config);
     let (def_id, _, _) = create_and_publish(f, tag, graph).await;
-    let instance_id = start_instance(
-        f,
-        def_id,
-        &format!("PFLOW {tag} 走向"),
-        serde_json::json!({}),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("发起失败：{} {}", error.code, error.msg));
+    let instance_id = start_instance(f, def_id, &format!("PFLOW {tag} 走向"), serde_json::json!({}))
+        .await
+        .unwrap_or_else(|error| panic!("发起失败：{} {}", error.code, error.msg));
     let task_id = task_of_instance(instance_id).await;
     let res = task_handler::flow_of_task(
         claims(f.operator, "op", &["business:task:read"]),
@@ -1061,10 +985,7 @@ async fn flow_detail_of(
     )
     .await
     .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
-    res.data
-        .expect("flow 回执")
-        .flow
-        .expect("流程任务必须有 flow 段")
+    res.data.expect("flow 回执").flow.expect("流程任务必须有 flow 段")
 }
 
 /// `on_complete=VERIFY`（+ `need_review=true`）：接口必须回 `VERIFY`，不是 `DIRECT`。
@@ -1094,11 +1015,7 @@ async fn flow_detail_carries_on_complete_verify() {
         Some("VERIFY"),
         "on_complete 必须回快照里的 VERIFY"
     );
-    assert_eq!(
-        flow.on_reject.as_deref(),
-        Some("STAY"),
-        "on_reject 必须回 STAY"
-    );
+    assert_eq!(flow.on_reject.as_deref(), Some("STAY"), "on_reject 必须回 STAY");
     assert_eq!(
         flow.on_cancel.as_deref(),
         Some("BACK_TO_PREV"),
@@ -1166,28 +1083,19 @@ async fn flow_detail_is_null_for_manual_task() {
         estimate_hours: None,
         need_review: None,
     };
-    let res = task_handler::create(
-        claims(f.operator, "op", &["business:task:create"]),
-        Json(create),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("建任务失败：{} {}", error.code, error.msg));
+    let res = task_handler::create(claims(f.operator, "op", &["business:task:create"]), Json(create))
+        .await
+        .unwrap_or_else(|error| panic!("建任务失败：{} {}", error.code, error.msg));
     let task_id = res.data.expect("建任务回执").id;
-    let flow_res = task_handler::flow_of_task(
-        claims(f.operator, "op", &["business:task:read"]),
-        Path(task_id.clone()),
-    )
-    .await
-    .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
+    let flow_res = task_handler::flow_of_task(claims(f.operator, "op", &["business:task:read"]), Path(task_id.clone()))
+        .await
+        .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
     assert!(
         flow_res.data.expect("flow 回执").flow.is_none(),
         "手工任务的 flow 必须是 null（前端据此隐藏卡片）"
     );
     let _ = db()
-        .execute_with_params(
-            "DELETE FROM biz_task WHERE id = ?::uuid",
-            vec![Value::Text(task_id)],
-        )
+        .execute_with_params("DELETE FROM biz_task WHERE id = ?::uuid", vec![Value::Text(task_id)])
         .await;
     println!("[⑩] 非流程任务 → flow = null");
     f.cleanup().await;
@@ -1203,20 +1111,13 @@ async fn flow_of(f: &Fixture, task_id: Uuid) -> task_dto::TaskFlowDetailRes {
     )
     .await
     .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
-    res.data
-        .expect("flow 回执")
-        .flow
-        .expect("流程任务必须有 flow 段")
+    res.data.expect("flow 回执").flow.expect("流程任务必须有 flow 段")
 }
 
 /// 推一次任务状态（走真实 `change_status`，含 1B 的流程回调）。
 async fn push_task_status(f: &Fixture, task_id: Uuid, to: &str) {
     task_handler::change_status(
-        claims(
-            f.operator,
-            "op",
-            &["business:task:read", "business:task:update"],
-        ),
+        claims(f.operator, "op", &["business:task:read", "business:task:update"]),
         Path(task_id.to_string()),
         Json(task_dto::TaskStatusChangeReq {
             to: to.to_string(),
@@ -1236,10 +1137,7 @@ async fn task_status_of(task_id: Uuid) -> String {
         )
         .await
         .expect("查任务状态");
-    rows.first()
-        .expect("任务必须存在")
-        .get_typed("status")
-        .expect("status")
+    rows.first().expect("任务必须存在").get_typed("status").expect("status")
 }
 
 /// 取某审批实例下唯一一条 `PENDING` 待办（`(id, 审批人姓名)`）。
@@ -1319,14 +1217,8 @@ async fn flow_detail_carries_approval_progress() {
     let biz_type = format!("PFLOW_APPR_{}", suffix.to_ascii_uppercase());
 
     // ① 先发布「审批流程」并设为默认（R18 要求 approve_biz_type 有已发布的默认流程）
-    let (appr_def, _, _) = create_and_publish_as(
-        &f,
-        "aprv_a",
-        approval_graph(f.colleague, "主管审批"),
-        &biz_type,
-        true,
-    )
-    .await;
+    let (appr_def, _, _) =
+        create_and_publish_as(&f, "aprv_a", approval_graph(f.colleague, "主管审批"), &biz_type, true).await;
     assert_ne!(appr_def, Uuid::nil());
 
     // ② 任务流程：任务节点的 on_complete=APPROVE
@@ -1387,8 +1279,7 @@ async fn flow_detail_carries_approval_progress() {
 
     // ⑤ 审批通过 → APPROVED 且待办清空
     let (flow_task_id, assignee_name) =
-        pending_flow_task_of(Uuid::parse_str(&approval.instance_id).expect("approval instance id"))
-            .await;
+        pending_flow_task_of(Uuid::parse_str(&approval.instance_id).expect("approval instance id")).await;
     assert_eq!(assignee_name, "APRV 同事");
     flow_handler::approve_task(
         claims(f.colleague, "cb", &[]),
@@ -1417,10 +1308,7 @@ async fn flow_detail_carries_approval_progress() {
         "同一个任务指向同一张审批单"
     );
     assert_eq!(
-        approval_instance_status(
-            Uuid::parse_str(&approval.instance_id).expect("approval instance id")
-        )
-        .await,
+        approval_instance_status(Uuid::parse_str(&approval.instance_id).expect("approval instance id")).await,
         "APPROVED",
         "库里的事实：审批实例已 APPROVED"
     );
@@ -1473,10 +1361,7 @@ async fn flow_detail_approval_is_null_for_direct_node() {
         flow.node_status, "APPROVED",
         "DIRECT 完成后节点应直接推进（不再 ACTIVE）"
     );
-    println!(
-        "[⑪] DIRECT：approval = null，node_status = {}",
-        flow.node_status
-    );
+    println!("[⑪] DIRECT：approval = null，node_status = {}", flow.node_status);
 
     f.cleanup().await;
 }

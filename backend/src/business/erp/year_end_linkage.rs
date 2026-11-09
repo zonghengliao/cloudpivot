@@ -240,8 +240,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::YEAR_END_EXCLUDED_ACTIONS).await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::YEAR_END_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             year = change.year,
@@ -333,21 +332,13 @@ mod tests {
             key_of(&closed_again),
             "同一笔年结重放必须撞同一个幂等键（只发一条）"
         );
-        assert_ne!(
-            key_of(&closed),
-            key_of(&reopened),
-            "年结与反年结必须是不同幂等键"
-        );
+        assert_ne!(key_of(&closed), key_of(&reopened), "年结与反年结必须是不同幂等键");
         assert_ne!(
             key_of(&closed),
             key_of(&reclosed),
             "反年结后重结是新的一笔（新凭证）：必须能再发一条"
         );
-        assert_ne!(
-            key_of(&closed),
-            key_of(&other_year),
-            "年度不同必须是不同幂等键"
-        );
+        assert_ne!(key_of(&closed), key_of(&other_year), "年度不同必须是不同幂等键");
         assert!(
             key_of(&closed).starts_with("LNK:ACCOUNTING_YEAR:CLOSED:2037:"),
             "幂等键前缀是清理夹具与排障的判据：{}",
@@ -375,10 +366,7 @@ mod tests {
             year_doc_id(2037),
             "doc_id 必须是年度的稳定主键（不是随机凭证 id）"
         );
-        assert_eq!(
-            draft.link_url.as_deref(),
-            Some("/business/erp/year-end?year=2037")
-        );
+        assert_eq!(draft.link_url.as_deref(), Some("/business/erp/year-end?year=2037"));
         assert_eq!(draft.biz_type.as_deref(), Some(NOTICE_BIZ_TYPE));
         let expected_biz_id = year_doc_id(2037).to_string();
         assert_eq!(draft.biz_id.as_deref(), Some(expected_biz_id.as_str()));
@@ -428,9 +416,6 @@ mod tests {
     fn year_doc_id_is_stable_per_year() {
         assert_eq!(year_doc_id(2037), year_doc_id(2037));
         assert_ne!(year_doc_id(2037), year_doc_id(2038));
-        assert_eq!(
-            year_doc_id(2037).to_string(),
-            "018f0000-0000-7000-8000-000000002037"
-        );
+        assert_eq!(year_doc_id(2037).to_string(), "018f0000-0000-7000-8000-000000002037");
     }
 }

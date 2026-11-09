@@ -16,24 +16,15 @@ fn prefers_original_name() {
         "recheck.md"
     );
     // 原始名带空白要 trim，不能把空格写进保存名
-    assert_eq!(
-        display_file_name(Some("  report.md "), "2026/10/29/x.md"),
-        "report.md"
-    );
+    assert_eq!(display_file_name(Some("  report.md "), "2026/10/29/x.md"), "report.md");
 }
 
 /// 边界 1：`original_name` 为 NULL → 退回存储名的 basename（去掉日期目录）。
 #[test]
 fn falls_back_to_stored_basename() {
-    assert_eq!(
-        display_file_name(None, "2026/10/29/01a1874d.md"),
-        "01a1874d.md"
-    );
+    assert_eq!(display_file_name(None, "2026/10/29/01a1874d.md"), "01a1874d.md");
     // Windows 风格分隔符同样要剥掉（备份 / 迁移数据里出现过）
-    assert_eq!(
-        display_file_name(None, "2026\\10\\29\\01a1874d.md"),
-        "01a1874d.md"
-    );
+    assert_eq!(display_file_name(None, "2026\\10\\29\\01a1874d.md"), "01a1874d.md");
     // 没有分隔符 → 原样返回
     assert_eq!(display_file_name(None, "plain.md"), "plain.md");
 }

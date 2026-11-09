@@ -102,14 +102,7 @@ async fn insert_task(id: Uuid, task_no: &str, me: Uuid) {
     .await;
 }
 
-async fn insert_instance(
-    id: Uuid,
-    instance_no: &str,
-    status: &str,
-    biz_id: Uuid,
-    biz_no: &str,
-    me: Uuid,
-) {
+async fn insert_instance(id: Uuid, instance_no: &str, status: &str, biz_id: Uuid, biz_no: &str, me: Uuid) {
     // ck_biz_flow_instance_end：`(status='PENDING') = (ended_at IS NULL)`。
     let ended_at = if status == "PENDING" { "NULL" } else { "now()" };
     let result_comment = if status == "APPROVED" {
@@ -251,15 +244,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         "流程版本",
     )
     .await;
-    insert_instance(
-        uuid(INST_PENDING),
-        "T12-INST-P",
-        "PENDING",
-        uuid(TASK_DEL),
-        NO_DEL,
-        me,
-    )
-    .await;
+    insert_instance(uuid(INST_PENDING), "T12-INST-P", "PENDING", uuid(TASK_DEL), NO_DEL, me).await;
     insert_instance(
         uuid(INST_APPROVED),
         "T12-INST-A",
@@ -282,14 +267,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     insert_node(uuid(NODE_A), uuid(INST_APPROVED), "APPROVED").await;
     insert_node(uuid(NODE_O), uuid(INST_OTHER), "ACTIVE").await;
     insert_flow_task(uuid(FT_P), uuid(INST_PENDING), uuid(NODE_P), "PENDING", me).await;
-    insert_flow_task(
-        uuid(FT_A),
-        uuid(INST_APPROVED),
-        uuid(NODE_A),
-        "APPROVED",
-        me,
-    )
-    .await;
+    insert_flow_task(uuid(FT_A), uuid(INST_APPROVED), uuid(NODE_A), "APPROVED", me).await;
     insert_flow_task(uuid(FT_O), uuid(INST_OTHER), uuid(NODE_O), "PENDING", me).await;
     Some(guard)
 }
@@ -297,9 +275,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 /// 与 handler 同款：**一个事务**里「软删任务 + 终止在跑审批单」。
 async fn delete_task(task_id: Uuid, task_no: &str, me: Uuid) -> CancelledOfBiz {
     let tx = db().begin().await.expect("开事务失败");
-    let affected = task_model::soft_delete(&tx, task_id, me)
-        .await
-        .expect("软删任务失败");
+    let affected = task_model::soft_delete(&tx, task_id, me).await.expect("软删任务失败");
     assert_eq!(affected, 1, "夹具任务应被软删掉 1 行");
     let out = task_bridge::cancel_on_task_deleted(&tx, task_id, task_no)
         .await
@@ -364,10 +340,7 @@ async fn node_status(id: Uuid) -> String {
         )
         .await
         .expect("读节点失败");
-    rows.first()
-        .expect("节点不存在")
-        .get_typed("status")
-        .expect("status")
+    rows.first().expect("节点不存在").get_typed("status").expect("status")
 }
 
 async fn task_deleted(id: Uuid) -> bool {
@@ -378,10 +351,7 @@ async fn task_deleted(id: Uuid) -> bool {
         )
         .await
         .expect("读任务失败");
-    rows.first()
-        .expect("任务不存在")
-        .get_typed("gone")
-        .expect("gone")
+    rows.first().expect("任务不存在").get_typed("gone").expect("gone")
 }
 
 /// ① 有 1 个 `PENDING` 实例 → 删任务 → 实例 CANCELLED + `ended_at` 非空 + 文案。
@@ -415,18 +385,10 @@ async fn approved_instance_untouched() {
     let (status, ended, comment) = instance_row(uuid(INST_APPROVED)).await;
     assert_eq!(status, "APPROVED", "已完成的事实不许改");
     assert!(ended, "APPROVED 的 ended_at 本来就非空");
-    assert_eq!(
-        comment.as_deref(),
-        Some(APPROVED_COMMENT),
-        "原审批意见不许被覆盖"
-    );
+    assert_eq!(comment.as_deref(), Some(APPROVED_COMMENT), "原审批意见不许被覆盖");
     let (task_status, _) = flow_task_row(uuid(FT_A)).await;
     assert_eq!(task_status, "APPROVED", "已通过的票不许改");
-    assert_eq!(
-        node_status(uuid(NODE_A)).await,
-        "APPROVED",
-        "已通过的节点不许改"
-    );
+    assert_eq!(node_status(uuid(NODE_A)).await, "APPROVED", "已通过的节点不许改");
     // 计数器：只数到那 1 个 PENDING 实例，APPROVED 的没被碰
     let out = delete_task(uuid(TASK_OTHER), NO_OTHER, uuid(U_ID)).await;
     assert_eq!(out.instances, 1, "另一个任务的在跑实例是 1 个");
@@ -442,11 +404,7 @@ async fn pending_flow_task_and_node_cancelled() {
     let (status, completed) = flow_task_row(uuid(FT_P)).await;
     assert_eq!(status, "CANCELLED", "审批人的待办里不能再挂着它");
     assert!(completed, "completed_at 必须非空（ck_biz_flow_task_done）");
-    assert_eq!(
-        node_status(uuid(NODE_P)).await,
-        "CANCELLED",
-        "活动节点要一起作废"
-    );
+    assert_eq!(node_status(uuid(NODE_P)).await, "CANCELLED", "活动节点要一起作废");
 }
 
 /// ④ 没有审批实例的任务 → 删除正常、计数全 0（不报错）。
@@ -506,11 +464,7 @@ async fn other_biz_instances_untouched() {
     let (task_status, completed) = flow_task_row(uuid(FT_O)).await;
     assert_eq!(task_status, "PENDING", "别的任务的待办不许动");
     assert!(!completed);
-    assert_eq!(
-        node_status(uuid(NODE_O)).await,
-        "ACTIVE",
-        "别的任务的节点不许动"
-    );
+    assert_eq!(node_status(uuid(NODE_O)).await, "ACTIVE", "别的任务的节点不许动");
 }
 
 /// ⑦ 幂等：第二遍终止 → 全 0，且不再 bump `revision`。
@@ -522,20 +476,13 @@ async fn second_call_is_idempotent() {
     let first = delete_task(uuid(TASK_DEL), NO_DEL, uuid(U_ID)).await;
     assert_eq!(first.instances, 1);
     let revision_after = instance_revision(uuid(INST_PENDING)).await;
-    assert_eq!(
-        revision_after, 1,
-        "终止时 revision + 1（与 bump_instance 同口径）"
-    );
+    assert_eq!(revision_after, 1, "终止时 revision + 1（与 bump_instance 同口径）");
     let tx = db().begin().await.expect("开事务失败");
     let second = task_bridge::cancel_on_task_deleted(&tx, uuid(TASK_DEL), NO_DEL)
         .await
         .expect("重复终止不该报错");
     tx.commit().await.expect("提交失败");
-    assert_eq!(
-        second,
-        CancelledOfBiz::default(),
-        "已经没有在跑的，三张表都 0 行"
-    );
+    assert_eq!(second, CancelledOfBiz::default(), "已经没有在跑的，三张表都 0 行");
     assert_eq!(
         instance_revision(uuid(INST_PENDING)).await,
         revision_after,
@@ -546,8 +493,5 @@ async fn second_call_is_idempotent() {
 /// ⑧ 文案常量口径（纯逻辑）：验收脚本与单测按同一句断言，不许悄悄改字。
 #[test]
 fn delete_cancel_comment_is_stable() {
-    assert_eq!(
-        task_bridge::TASK_DELETE_CANCEL_COMMENT,
-        "任务已删除，审批单自动终止"
-    );
+    assert_eq!(task_bridge::TASK_DELETE_CANCEL_COMMENT, "任务已删除，审批单自动终止");
 }

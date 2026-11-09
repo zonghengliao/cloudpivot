@@ -30,10 +30,7 @@ async fn a4_01_purchase_with_source_derives_supplier() {
         .await
         .unwrap_or_else(|err| panic!("有源单应当建得出来：{} {}", err.code, err.msg));
 
-    let row = stockin_model::find_stock_in(id)
-        .await
-        .unwrap()
-        .expect("单头");
+    let row = stockin_model::find_stock_in(id).await.unwrap().expect("单头");
     assert_eq!(
         row.supplier_id,
         Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()),
@@ -140,12 +137,9 @@ async fn a4_05_client_supplier_mismatch_is_400() {
     };
     let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
 
-    let err = create_stock_in(
-        &a4_sourced_req(order_id, item_id, "1", Some(SUPPLIER)),
-        None,
-    )
-    .await
-    .unwrap_err();
+    let err = create_stock_in(&a4_sourced_req(order_id, item_id, "1", Some(SUPPLIER)), None)
+        .await
+        .unwrap_err();
     assert_eq!(err.status, 400, "{}", err.msg);
     assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
     assert!(
@@ -155,17 +149,11 @@ async fn a4_05_client_supplier_mismatch_is_400() {
     );
 
     // 传对（与采购单一致）→ 幂等放行，落库仍是采购单那边的值
-    let id = create_stock_in(
-        &a4_sourced_req(order_id, item_id, "1", Some(A4_SUPPLIER_B)),
-        None,
-    )
-    .await
-    .unwrap_or_else(|err| panic!("传对供应商不该报错：{} {}", err.code, err.msg));
+    let id = create_stock_in(&a4_sourced_req(order_id, item_id, "1", Some(A4_SUPPLIER_B)), None)
+        .await
+        .unwrap_or_else(|err| panic!("传对供应商不该报错：{} {}", err.code, err.msg));
     let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
-    assert_eq!(
-        row.supplier_id,
-        Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap())
-    );
+    assert_eq!(row.supplier_id, Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()));
 }
 
 /// ⑦ + ⑧：无源单据必须**显式**打标记 + 写原因；有源单不许标无源。
@@ -312,12 +300,9 @@ async fn a4_07_non_purchase_with_supplier_db_rejects() {
         "应当撞 ck_biz_si_supplier_scope：{err}"
     );
     // 把正向探针清掉，别留残渣（清理口径只碰本用例自己的前缀）
-    db().execute_with_params(
-        "DELETE FROM biz_stock_in WHERE in_no LIKE 'B1-A4-NEG-%'",
-        vec![],
-    )
-    .await
-    .expect("清理探针行");
+    db().execute_with_params("DELETE FROM biz_stock_in WHERE in_no LIKE 'B1-A4-NEG-%'", vec![])
+        .await
+        .expect("清理探针行");
 }
 
 /// ⑩：超收（本次数量 > 采购单待收）→ 400（D4 的老校验还在）。
@@ -370,10 +355,7 @@ async fn a4_09_list_and_detail_expose_snapshot_columns() {
     let id = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
         .await
         .expect("建单");
-    let po_no = stockin_model::order_no_of(order_id)
-        .await
-        .unwrap()
-        .expect("采购单号");
+    let po_no = stockin_model::order_no_of(order_id).await.unwrap().expect("采购单号");
 
     let page = stock_in_page(Query(StockInPageQuery {
         supplier_id: Some(A4_SUPPLIER_B.to_string()),
@@ -398,10 +380,7 @@ async fn a4_09_list_and_detail_expose_snapshot_columns() {
     assert!(!list[0].is_sourceless);
 
     let detail = detail_of(id).await.expect("详情");
-    assert_eq!(
-        detail.header.supplier_name.as_deref(),
-        Some("A4 二号供应商")
-    );
+    assert_eq!(detail.header.supplier_name.as_deref(), Some("A4 二号供应商"));
     assert_eq!(detail.purchase_order_no.as_deref(), Some(po_no.as_str()));
     // 这张采购单是 SPOT（没挂合同）→ 一跳带出为空，且**绝不**去 JOIN biz_contract
     assert_eq!(detail.contract_no, None);
@@ -423,17 +402,12 @@ async fn a4_10_posting_rechecks_supplier() {
     // 模拟「绕过接口直接改库」
     db().execute_with_params(
         "UPDATE biz_stock_in SET supplier_id = ?::uuid WHERE id = ?::uuid",
-        vec![
-            Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
-            Value::from(&id),
-        ],
+        vec![Value::from(&Uuid::parse_str(SUPPLIER).unwrap()), Value::from(&id)],
     )
     .await
     .expect("模拟改库");
 
-    let err = change_stock_in_status(id, &post_req(), None)
-        .await
-        .unwrap_err();
+    let err = change_stock_in_status(id, &post_req(), None).await.unwrap_err();
     assert_eq!(err.status, 400, "{}", err.msg);
     assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
     assert!(err.msg.contains("直接改库"), "{}", err.msg);
@@ -519,28 +493,15 @@ async fn a4_12_copy_marks_sourceless() {
     let origin = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
         .await
         .expect("建单");
-    let origin_no = stockin_model::find_stock_in(origin)
-        .await
-        .unwrap()
-        .unwrap()
-        .in_no;
+    let origin_no = stockin_model::find_stock_in(origin).await.unwrap().unwrap().in_no;
 
     let copy_id = copy_stock_in(origin, &create_only()).await.expect("复制");
-    let copy = stockin_model::find_stock_in(copy_id)
-        .await
-        .unwrap()
-        .unwrap();
+    let copy = stockin_model::find_stock_in(copy_id).await.unwrap().unwrap();
     assert!(copy.is_sourceless, "复制单没有来源单 ⇒ 必须是无源单");
     assert_eq!(copy.source_order_id, None);
-    assert_eq!(
-        copy.supplier_id,
-        Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap())
-    );
+    assert_eq!(copy.supplier_id, Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()));
     assert!(
-        copy.remark
-            .as_deref()
-            .unwrap_or_default()
-            .contains(&origin_no),
+        copy.remark.as_deref().unwrap_or_default().contains(&origin_no),
         "备注要留「复制自 {origin_no}」：{:?}",
         copy.remark
     );
@@ -558,13 +519,9 @@ async fn a4_13_draft_update_cannot_hand_pick_supplier() {
         .await
         .expect("建单");
 
-    let err = update_stock_in(
-        id,
-        &a4_sourced_req(order_id, item_id, "2", Some(SUPPLIER)),
-        None,
-    )
-    .await
-    .unwrap_err();
+    let err = update_stock_in(id, &a4_sourced_req(order_id, item_id, "2", Some(SUPPLIER)), None)
+        .await
+        .unwrap_err();
     assert_eq!(err.status, 400, "{}", err.msg);
     assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
     let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();

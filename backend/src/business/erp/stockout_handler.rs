@@ -48,20 +48,15 @@ use crate::business::flow::linkage;
 
 use super::stockout_base::*;
 use super::stockout_dto::{
-    CreateStockOutReq, StockOutDetailRes, StockOutEnvelope, StockOutPageQuery, StockOutPageRes,
-    StockOutStatusReq, ensure_draft, list_res, materials_of,
+    CreateStockOutReq, StockOutDetailRes, StockOutEnvelope, StockOutPageQuery, StockOutPageRes, StockOutStatusReq,
+    ensure_draft, list_res, materials_of,
 };
 use super::stockout_model::{self as stock_out, MaterialInfo};
 
 /// 解析路径 / 请求里的 uuid。
 fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim()).map_err(|err| {
-        ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            format!("{field} 不是合法 UUID：{err}"),
-        )
-    })
+    Uuid::parse_str(raw.trim())
+        .map_err(|err| ApiError::new(400, error_code::PARAM_INVALID, format!("{field} 不是合法 UUID：{err}")))
 }
 
 /// 可选 uuid（空串 / `None` → `None`；非法 → 400）。
@@ -73,11 +68,7 @@ fn optional_uuid(raw: Option<&String>, field: &str) -> std::result::Result<Optio
 }
 
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 fn bad_request(message: impl Into<String>) -> ApiError {
@@ -104,10 +95,7 @@ fn write_error(error: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "{ctx}：违反唯一约束{}（单号或行号冲突，请刷新重试）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::InvalidValue(message) => {
@@ -168,11 +156,7 @@ async fn plan(
             None => stock_out::material_info(db(), material_id)
                 .await
                 .map_err(|error| utils::db_error(error, "查询物料"))?
-                .ok_or_else(|| {
-                    reference_missing(format!(
-                        "第 {line_no} 行的物料 {material_id} 不存在或已删除"
-                    ))
-                })?,
+                .ok_or_else(|| reference_missing(format!("第 {line_no} 行的物料 {material_id} 不存在或已删除")))?,
         };
         // 一物一码：账面数量必须等于在库序列号件数（不变式②），
         // 那条件数只由 serial_handler 维护 —— 走出库单会把它冲成负数，直接拦。
@@ -207,9 +191,7 @@ async fn plan(
             }
             // 用户手填的库位 = **覆盖自动值**（卡面 §2）：原样尊重，不再跑 FIFO；
             // 但要登记它占用的桶量，后面的「自动分配」行才不会再从同一个桶里取第二次。
-            *reserved
-                .entry((material_id, Some(row_id)))
-                .or_insert(Decimal::ZERO) += qty;
+            *reserved.entry((material_id, Some(row_id))).or_insert(Decimal::ZERO) += qty;
             lines.push(NewStockOutLine {
                 material_id,
                 unit_id,
@@ -531,10 +513,7 @@ async fn post_out_tx(
         .await
         .map_err(|error| utils::db_error(error, "查询出库单明细"))?;
     if items.is_empty() {
-        return Err(bad_request(format!(
-            "出库单 {} 没有任何明细，不能过账",
-            header.out_no
-        )));
+        return Err(bad_request(format!("出库单 {} 没有任何明细，不能过账", header.out_no)));
     }
 
     // ② 状态机唯一入口 + CAS
@@ -551,17 +530,9 @@ async fn post_out_tx(
         None,
     )
     .await?;
-    let affected = stock_out::apply_status(
-        ex,
-        id,
-        &from_status,
-        STATUS_POSTED,
-        reason,
-        operator.id,
-        now,
-    )
-    .await
-    .map_err(|error| write_error(error, "出库单过账改状态"))?;
+    let affected = stock_out::apply_status(ex, id, &from_status, STATUS_POSTED, reason, operator.id, now)
+        .await
+        .map_err(|error| write_error(error, "出库单过账改状态"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "出库单 {} 的状态在本次过账期间被改动（期望 {}），请刷新后重试",
@@ -626,10 +597,9 @@ async fn post_out_tx(
                     // ★ P1-FIX-2：不再把「拆行」甩给用户 —— 文案要说清「差多少 + 现有在哪些库位
                     // + 该怎么办」。改之前这里只报「没有任何一个库位够量，请把这一行拆成多行
                     // 并分别指定库位」，货明明分布在 2 个库位、加起来够，用户也得手工作业。
-                    let plan =
-                        stock_out::fifo_plan(ex, item.material_id, header.warehouse_id, item.qty)
-                            .await
-                            .map_err(|error| utils::db_error(error, "统计各库位可用量"))?;
+                    let plan = stock_out::fifo_plan(ex, item.material_id, header.warehouse_id, item.qty)
+                        .await
+                        .map_err(|error| utils::db_error(error, "统计各库位可用量"))?;
                     let distribution = plan.availability_text();
                     let advice = if plan.available > Decimal::ZERO {
                         format!(
@@ -660,10 +630,9 @@ async fn post_out_tx(
             }
         }
 
-        let Some(bucket) =
-            stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, location_row)
-                .await
-                .map_err(|error| utils::db_error(error, "锁定库存行"))?
+        let Some(bucket) = stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, location_row)
+            .await
+            .map_err(|error| utils::db_error(error, "锁定库存行"))?
         else {
             return Err(negative_stock(format!(
                 "库存不足，过账已拒绝：物料 {label} 在仓库 {}（{}）该库位桶上没有库存行（可用 0），\
@@ -753,15 +722,9 @@ async fn post_out_tx(
         .map_err(|error| write_error(error, "过账：写库存流水"))?;
 
         // 明细回写过账成本快照（作废时按它原路退回）
-        stock_out::set_item_cost(
-            ex,
-            item.id,
-            bucket.avg_cost.round_dp(6),
-            applied.amount,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "过账：回写明细成本"))?;
+        stock_out::set_item_cost(ex, item.id, bucket.avg_cost.round_dp(6), applied.amount, now)
+            .await
+            .map_err(|error| write_error(error, "过账：回写明细成本"))?;
         total_amount += applied.amount;
         material_lines.push(voucher::VoucherMaterialLine {
             material_id: item.material_id,
@@ -819,8 +782,7 @@ async fn post_out_tx(
     //     不是 out_type。与 ②③ 同一事务：挂账失败（客户不存在 / 发货单缺失 / 库层约束）
     //     直接 Err → 调用方回滚，库存与成本凭证一起消失（不许出现「货出了、应收没挂」）。
     //     幂等三道闸在 receivable_bridge 里（已有行 → 跳过；并发撞 `uk_biz_ar_source` → 按已挂上处理）。
-    let receivable =
-        crate::business::erp::receivable_bridge::post_in_tx(ex, id, operator.id, now).await?;
+    let receivable = crate::business::erp::receivable_bridge::post_in_tx(ex, id, operator.id, now).await?;
     if let Some(bridged) = receivable.as_ref() {
         tracing::info!(
             stock_out_id = %id,
@@ -853,8 +815,7 @@ async fn post_out_tx(
     //    提交后动作（发通知 / 建任务）放进 `deferred`，由 `post_stock_out` 在 commit 之后跑。
     let linkage_ctx = linkage_hook::post_linkage_ctx(&header, operator);
     let linkage_run =
-        linkage::engine::run_excluding(ex, &linkage_ctx, linkage::spec::STOCKOUT_EXCLUDED_ACTIONS)
-            .await?;
+        linkage::engine::run_excluding(ex, &linkage_ctx, linkage::spec::STOCKOUT_EXCLUDED_ACTIONS).await?;
     if !linkage_run.is_empty() {
         tracing::info!(
             stock_out_id = %id,
@@ -953,10 +914,7 @@ async fn cancel_out_tx(
         .map_err(|error| utils::db_error(error, "锁定出库单"))?
         .ok_or_else(|| not_found("出库单"))?;
     let from_status = header.status.clone();
-    if from_status != STATUS_DRAFT
-        && from_status != STATUS_PENDING_POST
-        && from_status != STATUS_POSTED
-    {
+    if from_status != STATUS_DRAFT && from_status != STATUS_PENDING_POST && from_status != STATUS_POSTED {
         return Err(conflict(format!(
             "出库单 {} 当前是「{}」（{}），不能再作废",
             header.out_no,
@@ -979,17 +937,9 @@ async fn cancel_out_tx(
         None,
     )
     .await?;
-    let affected = stock_out::apply_status(
-        ex,
-        id,
-        &from_status,
-        STATUS_CANCELLED,
-        Some(reason),
-        operator.id,
-        now,
-    )
-    .await
-    .map_err(|error| write_error(error, "出库单作废改状态"))?;
+    let affected = stock_out::apply_status(ex, id, &from_status, STATUS_CANCELLED, Some(reason), operator.id, now)
+        .await
+        .map_err(|error| write_error(error, "出库单作废改状态"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "出库单 {} 的状态在本次作废期间被改动（期望 {}），请刷新后重试",
@@ -1030,16 +980,15 @@ async fn cancel_out_tx(
     }
     for item in &items {
         // 锁成本账行（拿 before 快照写冲销流水），再加回
-        let before =
-            stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, item.location_id)
-                .await
-                .map_err(|error| utils::db_error(error, "锁定库存行"))?
-                .unwrap_or(stock_out::BucketSnapshot {
-                    inventory_id: Uuid::nil(),
-                    qty: Decimal::ZERO,
-                    amount: Decimal::ZERO,
-                    avg_cost: Decimal::ZERO,
-                });
+        let before = stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, item.location_id)
+            .await
+            .map_err(|error| utils::db_error(error, "锁定库存行"))?
+            .unwrap_or(stock_out::BucketSnapshot {
+                inventory_id: Uuid::nil(),
+                qty: Decimal::ZERO,
+                amount: Decimal::ZERO,
+                avg_cost: Decimal::ZERO,
+            });
         stock_out::restore_cost(
             ex,
             item.material_id,
@@ -1062,11 +1011,10 @@ async fn cancel_out_tx(
         .await
         .map_err(|error| write_error(error, "作废：回滚库位账"))?;
         // 回滚后的真实账面（回读，不用 Rust 里算的 before + delta）
-        let after =
-            stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, item.location_id)
-                .await
-                .map_err(|error| utils::db_error(error, "读取回滚后的库存行"))?
-                .unwrap_or(before);
+        let after = stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, item.location_id)
+            .await
+            .map_err(|error| utils::db_error(error, "读取回滚后的库存行"))?
+            .unwrap_or(before);
         stock_out::write_cancel_txn(
             ex,
             item,
@@ -1109,9 +1057,7 @@ async fn cancel_out_tx(
     // 顺序与过账侧对称（过账：三本账 → 成本凭证 → 挂应收；作废：回滚三本账 → 红字凭证 → 冲销应收）。
     // 任何 Err（应收已收款 / 已核销 / 并发改状态）都会让整笔作废回滚 —— 单据留在 POSTED，
     // 不允许出现「货退回库存了、应收还挂着」或「应收作废了、库存没回」的半截账。
-    let ar =
-        crate::business::erp::receivable_bridge::cancel_in_tx(ex, id, reason, operator.id, now)
-            .await?;
+    let ar = crate::business::erp::receivable_bridge::cancel_in_tx(ex, id, reason, operator.id, now).await?;
 
     tracing::info!(
         stock_out_id = %id,
@@ -1195,10 +1141,7 @@ async fn submit_pending(
             .await
             .map_err(|error| utils::db_error(error, "查询出库单明细"))?;
         if items.is_empty() {
-            return Err(bad_request(format!(
-                "出库单 {} 没有任何明细，不能提交",
-                header.out_no
-            )));
+            return Err(bad_request(format!("出库单 {} 没有任何明细，不能提交", header.out_no)));
         }
         state_machine::transition(
             &tx,
@@ -1213,17 +1156,9 @@ async fn submit_pending(
             None,
         )
         .await?;
-        let affected = stock_out::apply_status(
-            &tx,
-            id,
-            STATUS_DRAFT,
-            STATUS_PENDING_POST,
-            reason,
-            operator.id,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "提交出库单待过账"))?;
+        let affected = stock_out::apply_status(&tx, id, STATUS_DRAFT, STATUS_PENDING_POST, reason, operator.id, now)
+            .await
+            .map_err(|error| write_error(error, "提交出库单待过账"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "出库单 {} 的状态在本次提交期间被改动，请刷新后重试",
@@ -1235,9 +1170,7 @@ async fn submit_pending(
     .await;
     match outcome {
         Ok(()) => {
-            tx.commit()
-                .await
-                .map_err(|error| utils::db_error(error, "提交事务"))?;
+            tx.commit().await.map_err(|error| utils::db_error(error, "提交事务"))?;
             Ok(())
         }
         Err(error) => {
@@ -1284,17 +1217,9 @@ async fn withdraw_pending(
             None,
         )
         .await?;
-        let affected = stock_out::apply_status(
-            &tx,
-            id,
-            STATUS_PENDING_POST,
-            STATUS_DRAFT,
-            reason,
-            operator.id,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "撤回到草稿"))?;
+        let affected = stock_out::apply_status(&tx, id, STATUS_PENDING_POST, STATUS_DRAFT, reason, operator.id, now)
+            .await
+            .map_err(|error| write_error(error, "撤回到草稿"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "出库单 {} 的状态在本次撤回期间被改动，请刷新后重试",
@@ -1306,9 +1231,7 @@ async fn withdraw_pending(
     .await;
     match outcome {
         Ok(()) => {
-            tx.commit()
-                .await
-                .map_err(|error| utils::db_error(error, "提交事务"))?;
+            tx.commit().await.map_err(|error| utils::db_error(error, "提交事务"))?;
             Ok(())
         }
         Err(error) => {
@@ -1385,32 +1308,27 @@ async fn stock_warnings(
             .unwrap_or_else(|| item.material_id.to_string());
         let qty = item.qty.round_dp(4);
         match item.location_id {
-            Some(row_id) => {
-                match buckets
-                    .iter()
-                    .find(|bucket| bucket.location_row_id == Some(row_id))
-                {
-                    Some(bucket) if bucket.available >= qty => {}
-                    Some(bucket) => warnings.push(format!(
-                        "物料 {label} 第 {} 行：指定库位 {} 只有 {}，本行要出 {}，差 {}；\
+            Some(row_id) => match buckets.iter().find(|bucket| bucket.location_row_id == Some(row_id)) {
+                Some(bucket) if bucket.available >= qty => {}
+                Some(bucket) => warnings.push(format!(
+                    "物料 {label} 第 {} 行：指定库位 {} 只有 {}，本行要出 {}，差 {}；\
                          该物料在本仓还分布在：{}。清空本行库位（或重新保存草稿）会按 FIFO \
                          自动分配到有货的库位",
-                        item.line_no,
-                        bucket.location_code,
-                        bucket.available.round_dp(4),
-                        qty,
-                        (qty - bucket.available).round_dp(4),
-                        stock_out::describe_buckets(&buckets)
-                    )),
-                    None => warnings.push(format!(
-                        "物料 {label} 第 {} 行：指定的库位账行已不存在或库存为 0，本行要出 {}；\
+                    item.line_no,
+                    bucket.location_code,
+                    bucket.available.round_dp(4),
+                    qty,
+                    (qty - bucket.available).round_dp(4),
+                    stock_out::describe_buckets(&buckets)
+                )),
+                None => warnings.push(format!(
+                    "物料 {label} 第 {} 行：指定的库位账行已不存在或库存为 0，本行要出 {}；\
                          该物料在本仓可用：{}。请重新选择库位，或清空库位让系统按 FIFO 自动分配",
-                        item.line_no,
-                        qty,
-                        stock_out::describe_buckets(&buckets)
-                    )),
-                }
-            }
+                    item.line_no,
+                    qty,
+                    stock_out::describe_buckets(&buckets)
+                )),
+            },
             None => {
                 let available = buckets
                     .iter()

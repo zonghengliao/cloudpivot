@@ -174,15 +174,9 @@ pub async fn change_status(
             "title": current.card.title,
             "priority": current.card.priority,
         });
-        task_bridge::prepare_accept(
-            task_id,
-            &current.card.task_no,
-            &current.card.title,
-            me,
-            form_data,
-        )
-        .await
-        .map_err(|error| utils::db_error(error, "准备验收审批单"))?
+        task_bridge::prepare_accept(task_id, &current.card.task_no, &current.card.title, me, form_data)
+            .await
+            .map_err(|error| utils::db_error(error, "准备验收审批单"))?
     } else {
         None
     };
@@ -334,8 +328,7 @@ pub async fn change_status(
             // T11 规则①：本条推到 CANCELLED → 同一事务里级联取消全部非终态子孙
             // （一条递归 CTE；DONE 不回退；失败 → 整笔回滚，不接受「父取消、子还在跑」）
             let cancels = if to == TaskStatus::Cancelled {
-                model::cascade_cancel_descendants(&tx, task_id, me, model::CASCADE_CANCEL_REASON)
-                    .await?
+                model::cascade_cancel_descendants(&tx, task_id, me, model::CASCADE_CANCEL_REASON).await?
             } else {
                 Vec::new()
             };
@@ -349,9 +342,7 @@ pub async fn change_status(
                 crate::business::flow::model::CancelledOfBiz::default()
             };
             for cancel in &cancels {
-                let sub =
-                    task_bridge::cancel_on_task_cancelled(&tx, cancel.task_id, &cancel.task_no)
-                        .await?;
+                let sub = task_bridge::cancel_on_task_cancelled(&tx, cancel.task_id, &cancel.task_no).await?;
                 approvals.instances += sub.instances;
                 approvals.tasks += sub.tasks;
                 approvals.nodes += sub.nodes;
@@ -360,30 +351,16 @@ pub async fn change_status(
             if let Some(start) = accept.as_ref() {
                 task_bridge::start_in_tx(&tx, start, task_id, &start_rejected_tx).await?;
             }
-            let comment_id = model::insert_comment(
-                &tx,
-                task_id,
-                me,
-                &content,
-                model::COMMENT_TYPE_STATUS_CHANGE,
-                me,
-            )
-            .await?;
+            let comment_id =
+                model::insert_comment(&tx, task_id, me, &content, model::COMMENT_TYPE_STATUS_CHANGE, me).await?;
             changelog::record(
                 &tx,
                 &ChangeCtx::api(Some(me), Some(&operator_name_tx)),
-                ChangeTarget::of(
-                    "biz_task",
-                    task_id.to_string(),
-                    Action::Status,
-                    action_label,
-                ),
+                ChangeTarget::of("biz_task", task_id.to_string(), Action::Status, action_label),
                 DiffInput::update(&before, &after),
             )
             .await
-            .map_err(|error| {
-                DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
-            })?;
+            .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
             // T11：每个被级联取消的子孙各记一条变更日志（审计口径：不能只留在父任务
             // 那条汇总里 —— 事后要能回答「这条子任务是谁、为什么取消的」），
             // 并在父任务时间线上补一条汇总评论。
@@ -402,12 +379,7 @@ pub async fn change_status(
                     DiffInput::update(&before, &after),
                 )
                 .await
-                .map_err(|error| {
-                    DbError::InvalidValue(format!(
-                        "变更日志写入失败 [{}] {}",
-                        error.code, error.msg
-                    ))
-                })?;
+                .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
             }
             if !cancels.is_empty() {
                 model::insert_comment(
@@ -436,21 +408,11 @@ pub async fn change_status(
                 changelog::record(
                     &tx,
                     &ChangeCtx::api(Some(me), Some(operator_name_tx.as_str())),
-                    ChangeTarget::of(
-                        "biz_task",
-                        cascade.task_id.to_string(),
-                        Action::Status,
-                        cascade.reason,
-                    ),
+                    ChangeTarget::of("biz_task", cascade.task_id.to_string(), Action::Status, cascade.reason),
                     DiffInput::update(&before, &after),
                 )
                 .await
-                .map_err(|error| {
-                    DbError::InvalidValue(format!(
-                        "变更日志写入失败 [{}] {}",
-                        error.code, error.msg
-                    ))
-                })?;
+                .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
             }
             Ok((
                 comment_id,
@@ -491,9 +453,7 @@ pub async fn change_status(
         );
     }
     // ⑨d P11：撤销审批的留痕（孤儿待办是「正向没有配套反向」的典型，日志要能一眼查到）
-    if to == TaskStatus::Cancelled
-        && approvals != crate::business::flow::model::CancelledOfBiz::default()
-    {
+    if to == TaskStatus::Cancelled && approvals != crate::business::flow::model::CancelledOfBiz::default() {
         tracing::info!(
             task_id = %task_id,
             task_no = %task_no,

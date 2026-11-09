@@ -29,10 +29,7 @@ use crate::business::shared::scope;
 ///
 /// - 片段形态异常 → `DbError::InvalidValue`（`500 + 63008`）；
 /// - 数据库异常 → [`DbError`]。
-pub async fn task_stats(
-    principal: &ScopedPrincipal,
-    filter: &StatsFilter,
-) -> DbResult<Vec<ExecModeStat>> {
+pub async fn task_stats(principal: &ScopedPrincipal, filter: &StatsFilter) -> DbResult<Vec<ExecModeStat>> {
     assert_scope_fragment(principal)?;
     let fragment = scope::filter_for(principal, TASK_TARGET);
     let tail = VISIBLE_OR_TAIL.replacen(scope::FILTER_MARKER, fragment.sql().trim(), 1);

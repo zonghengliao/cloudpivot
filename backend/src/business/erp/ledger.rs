@@ -343,11 +343,7 @@ pub fn month_range(period: &str) -> Option<(NaiveDate, NaiveDate)> {
 }
 
 /// 期间 / 日期边界：`yyyy-MM`（起=月首 / 止=月末）或 `yyyy-MM-dd`。
-pub fn parse_boundary(
-    raw: Option<&str>,
-    field: &str,
-    upper: bool,
-) -> std::result::Result<Option<NaiveDate>, ApiError> {
+pub fn parse_boundary(raw: Option<&str>, field: &str, upper: bool) -> std::result::Result<Option<NaiveDate>, ApiError> {
     let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
         return Ok(None);
     };
@@ -374,11 +370,7 @@ pub fn split_balance(net: Decimal) -> (Decimal, Decimal) {
 /// 余额表平衡校验：返回差额（`None` = 平衡）。
 pub fn balance_gap(debit: Decimal, credit: Decimal) -> Option<Decimal> {
     let gap = debit - credit;
-    if gap == Decimal::ZERO {
-        None
-    } else {
-        Some(gap)
-    }
+    if gap == Decimal::ZERO { None } else { Some(gap) }
 }
 
 /// 参数类 400（`10001`）。
@@ -489,15 +481,8 @@ pub async fn ledger_page(q: &LedgerFilter) -> DbResult<(Vec<LedgerEntryRow>, i64
          {from_where}"
     );
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result = scope::paginate_unscoped(
-        LEDGER_TARGET,
-        &base_sql,
-        params,
-        Some(LEDGER_ORDER),
-        page,
-        page_size,
-    )
-    .await?;
+    let result =
+        scope::paginate_unscoped(LEDGER_TARGET, &base_sql, params, Some(LEDGER_ORDER), page, page_size).await?;
     let mut rows = result
         .list
         .iter()
@@ -570,9 +555,7 @@ impl BalanceRaw {
 /// 科目余额表（`period` 必填；Σ借 ≠ Σ贷 → `500 + 66009`）。
 pub async fn trial_balance(period: &str) -> std::result::Result<TrialBalanceRes, ApiError> {
     if !is_month_key(period) {
-        return Err(bad_request(format!(
-            "period 必填且必须是 yyyy-MM，收到「{period}」"
-        )));
+        return Err(bad_request(format!("period 必填且必须是 yyyy-MM，收到「{period}」")));
     }
     let (period_start, period_end) = period_range(period)
         .await
@@ -700,9 +683,7 @@ pub const AUX_SUPPLIER: &str = "SUPPLIER";
 /// 大小写不敏感（`material` / `Material` 都认）：前端下拉传的是大写，但报表脚本 /
 /// 手工 curl 常写小写，为此回 400 只会让人反复试。**白名单**是关键：
 /// 列名要从入参拼进 SQL，只接受这 4 个常量，别的一律 400，不存在注入面。
-pub fn aux_column(
-    aux_type: Option<&str>,
-) -> std::result::Result<(&'static str, &'static str), ApiError> {
+pub fn aux_column(aux_type: Option<&str>) -> std::result::Result<(&'static str, &'static str), ApiError> {
     let raw = aux_type
         .map(str::trim)
         .filter(|text| !text.is_empty())
@@ -869,9 +850,7 @@ pub async fn aux_balance(q: &AuxBalanceQuery) -> std::result::Result<AuxBalanceR
     if let (Some(from), Some(to)) = (date_from, date_to)
         && from > to
     {
-        return Err(bad_request(format!(
-            "period_from（{from}）不能晚于 period_to（{to}）"
-        )));
+        return Err(bad_request(format!("period_from（{from}）不能晚于 period_to（{to}）")));
     }
 
     // 期初 / 本期两段：给了 date_from 就用 CASE 拆，没给就只有本期。
@@ -980,8 +959,7 @@ pub async fn aux_balance(q: &AuxBalanceQuery) -> std::result::Result<AuxBalanceR
             .map_err(|error| utils::db_error(error, "读取本期贷方"))?;
         let net = opening_debit - opening_credit + period_debit - period_credit;
         let (closing_debit, closing_credit) = split_balance(net);
-        let (opening_debit_side, opening_credit_side) =
-            split_balance(opening_debit - opening_credit);
+        let (opening_debit_side, opening_credit_side) = split_balance(opening_debit - opening_credit);
         res.total_opening_debit += opening_debit_side;
         res.total_opening_credit += opening_credit_side;
         res.total_period_debit += period_debit;
@@ -1007,9 +985,7 @@ pub async fn aux_balance(q: &AuxBalanceQuery) -> std::result::Result<AuxBalanceR
         });
     }
     if let Some(id) = res.aux_id.as_deref() {
-        res.aux_name = Uuid::parse_str(id)
-            .ok()
-            .and_then(|id| names.get(&id).cloned());
+        res.aux_name = Uuid::parse_str(id).ok().and_then(|id| names.get(&id).cloned());
     }
     res.unassigned = unassigned_of(column, date_from, date_to)
         .await
@@ -1059,26 +1035,16 @@ async fn unassigned_of(
     permission = "business:erp:ledger:list"
 )]
 #[nik::get("/business/erp/ledger/page")]
-pub async fn ledger_page_handler(
-    Query(query): Query<LedgerQuery>,
-) -> ResResult<PageData<Vec<LedgerRowRes>>> {
-    let account =
-        resolve_account(query.account_id.as_deref(), query.account_code.as_deref()).await?;
-    let account_id = Uuid::parse_str(&account.id).map_err(|_| {
-        ApiError::new(
-            500,
-            error_code::ERP_FILTER_INVALID,
-            "科目主键解析失败".to_string(),
-        )
-    })?;
+pub async fn ledger_page_handler(Query(query): Query<LedgerQuery>) -> ResResult<PageData<Vec<LedgerRowRes>>> {
+    let account = resolve_account(query.account_id.as_deref(), query.account_code.as_deref()).await?;
+    let account_id = Uuid::parse_str(&account.id)
+        .map_err(|_| ApiError::new(500, error_code::ERP_FILTER_INVALID, "科目主键解析失败".to_string()))?;
     let date_from = parse_boundary(query.period_from.as_deref(), "period_from", false)?;
     let date_to = parse_boundary(query.period_to.as_deref(), "period_to", true)?;
     if let (Some(from), Some(to)) = (date_from, date_to)
         && from > to
     {
-        return Err(bad_request(format!(
-            "period_from（{from}）不能晚于 period_to（{to}）"
-        )));
+        return Err(bad_request(format!("period_from（{from}）不能晚于 period_to（{to}）")));
     }
     let filter = LedgerFilter {
         account_id,
@@ -1092,12 +1058,7 @@ pub async fn ledger_page_handler(
         .map_err(|error| utils::db_error(error, "查询科目流水"))?;
     let list = rows.into_iter().map(LedgerEntryRow::into_res).collect();
     let (page, page_size) = normalize_page(query.page, query.page_size);
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 科目余额表。
@@ -1107,9 +1068,7 @@ pub async fn ledger_page_handler(
     permission = "business:erp:ledger:trial-balance"
 )]
 #[nik::get("/business/erp/ledger/trial-balance")]
-pub async fn trial_balance_handler(
-    Query(query): Query<TrialBalanceQuery>,
-) -> ResResult<TrialBalanceRes> {
+pub async fn trial_balance_handler(Query(query): Query<TrialBalanceQuery>) -> ResResult<TrialBalanceRes> {
     let period = query
         .period
         .as_deref()
@@ -1187,13 +1146,7 @@ mod tests {
         let nos: Vec<_> = rows.iter().map(|row| row.voucher_no.as_str()).collect();
         assert_eq!(
             nos,
-            vec![
-                "P2D1-0001",
-                "P2D1-0002",
-                "P2D1-0003",
-                "P2D1-0005",
-                "P2D1-0006"
-            ],
+            vec!["P2D1-0001", "P2D1-0002", "P2D1-0003", "P2D1-0005", "P2D1-0006"],
             "按日期 / 字号 / 行号升序"
         );
         assert_eq!(rows[3].net(), Decimal::from(-50), "红冲行净额为负");
@@ -1228,21 +1181,19 @@ mod tests {
             "DRAFT 凭证 P2D1-0004 不得进总账"
         );
         assert!(
-            rows.iter()
-                .all(|row| row.debit_amount != Decimal::from(999)),
+            rows.iter().all(|row| row.debit_amount != Decimal::from(999)),
             "DRAFT 的 999 不得出现在流水里"
         );
         // 对照：凭证列表（全状态）里它是在的。
-        let (all, total) = crate::business::erp::voucher_query::voucher_page(
-            &crate::business::erp::voucher_query::VoucherFilter {
+        let (all, total) =
+            crate::business::erp::voucher_query::voucher_page(&crate::business::erp::voucher_query::VoucherFilter {
                 status: Some("DRAFT".to_string()),
                 page: 1,
                 page_size: 50,
                 ..Default::default()
-            },
-        )
-        .await
-        .expect("草稿凭证列表");
+            })
+            .await
+            .expect("草稿凭证列表");
         assert_eq!(total, 1, "DRAFT 只应 1 张（列表口径看得见）");
         assert_eq!(all[0].voucher_no, "P2D1-0004");
         println!("[P2D1-④] 只算 POSTED（列表仍可见 DRAFT）✓");
@@ -1265,10 +1216,7 @@ mod tests {
         assert_eq!(nos, vec!["P2D1-0002", "P2D1-0003", "P2D1-0005"]);
         // 页内余额不含期初：50 / 80 / 30。
         let balances: Vec<_> = rows.iter().map(|row| row.running_balance).collect();
-        assert_eq!(
-            balances,
-            vec![Decimal::from(50), Decimal::from(80), Decimal::from(30)]
-        );
+        assert_eq!(balances, vec![Decimal::from(50), Decimal::from(80), Decimal::from(30)]);
         println!("[P2D1-⑤] 期间过滤（含边界 / 余额从区间首行起算）✓");
     }
 
@@ -1279,14 +1227,8 @@ mod tests {
             return;
         };
         let tb = trial_balance("2026-10").await.expect("2026-10 余额表");
-        assert_eq!(
-            tb.period_start,
-            NaiveDate::from_ymd_opt(2026, 10, 1).unwrap()
-        );
-        assert_eq!(
-            tb.period_end,
-            NaiveDate::from_ymd_opt(2026, 10, 31).unwrap()
-        );
+        assert_eq!(tb.period_start, NaiveDate::from_ymd_opt(2026, 10, 1).unwrap());
+        assert_eq!(tb.period_end, NaiveDate::from_ymd_opt(2026, 10, 31).unwrap());
         let a = tb
             .rows
             .iter()
@@ -1297,28 +1239,20 @@ mod tests {
         assert_eq!(a.period_debit, Decimal::from(80), "本期借 = 50 + 30");
         assert_eq!(a.period_credit, Decimal::from(50), "本期贷 = 红冲的 50");
         assert_eq!(a.closing_debit, Decimal::from(130), "100 + 80 − 50");
-        let b = tb
-            .rows
-            .iter()
-            .find(|row| row.account_code == "P2D1B")
-            .expect("科目 B");
+        let b = tb.rows.iter().find(|row| row.account_code == "P2D1B").expect("科目 B");
         assert_eq!(b.opening_credit, Decimal::from(100));
         assert_eq!(b.period_debit, Decimal::from(50));
         assert_eq!(b.period_credit, Decimal::from(80));
         assert_eq!(b.closing_credit, Decimal::from(130));
         // 没有发生额的科目也在（全 0 行）。
-        let zero = tb
-            .rows
-            .iter()
-            .find(|row| row.account_code == "1001")
-            .map(|row| {
-                (
-                    row.opening_debit,
-                    row.period_debit,
-                    row.period_credit,
-                    row.closing_debit,
-                )
-            });
+        let zero = tb.rows.iter().find(|row| row.account_code == "1001").map(|row| {
+            (
+                row.opening_debit,
+                row.period_debit,
+                row.period_credit,
+                row.closing_debit,
+            )
+        });
         if let Some((od, pd, pc, cd)) = zero {
             assert_eq!(od + pd + pc + cd, Decimal::ZERO, "内置科目 1001 未动过账");
         }
@@ -1337,19 +1271,10 @@ mod tests {
             "Σ本期借必须是 {}，实际借 {} 贷 {}",
             tb.total_period_debit, tb.total_period_debit, tb.total_period_credit
         );
-        assert_eq!(
-            tb.total_closing_debit, tb.total_closing_credit,
-            "期末也必须平"
-        );
-        assert_eq!(
-            tb.total_opening_debit, tb.total_opening_credit,
-            "期初必须平"
-        );
+        assert_eq!(tb.total_closing_debit, tb.total_closing_credit, "期末也必须平");
+        assert_eq!(tb.total_opening_debit, tb.total_opening_credit, "期初必须平");
         assert!(tb.balanced);
-        assert!(
-            tb.total_period_debit >= Decimal::from(130),
-            "至少包含夹具的 130 借"
-        );
+        assert!(tb.total_period_debit >= Decimal::from(130), "至少包含夹具的 130 借");
         println!(
             "[P2D1-⑦] Σ借 {} == Σ贷 {} ✓",
             tb.total_period_debit, tb.total_period_credit
@@ -1363,11 +1288,7 @@ mod tests {
             return;
         };
         let tb = trial_balance("2026-10").await.expect("2026-10 余额表");
-        let a = tb
-            .rows
-            .iter()
-            .find(|row| row.account_code == "P2D1A")
-            .expect("科目 A");
+        let a = tb.rows.iter().find(|row| row.account_code == "P2D1A").expect("科目 A");
         // 0002（+50）与 0005（−50）互相抵消：本期净额只剩 0003 的 +30。
         assert_eq!(a.period_debit - a.period_credit, Decimal::from(30));
         // 红字凭证在流水里可辨认（is_red），且净额为负。
@@ -1375,11 +1296,7 @@ mod tests {
         let red: Vec<_> = rows.iter().filter(|row| row.is_red == 1).collect();
         assert_eq!(red.len(), 1, "科目 A 上应只有 1 行红字");
         assert_eq!(red[0].voucher_no, "P2D1-0005");
-        assert_eq!(
-            red[0].running_balance,
-            Decimal::from(130),
-            "红冲后余额回到 130"
-        );
+        assert_eq!(red[0].running_balance, Decimal::from(130), "红冲后余额回到 130");
         println!("[P2D1-⑧] 红冲借贷互换参与计算（净额 −50）✓");
     }
 
@@ -1408,24 +1325,13 @@ mod tests {
             parse_boundary(Some("2026-10-05"), "d", true).expect("日期"),
             NaiveDate::from_ymd_opt(2026, 10, 5)
         );
+        assert_eq!(parse_boundary(Some("  "), "d", true).expect("空白 = 不限"), None);
         assert_eq!(
-            parse_boundary(Some("  "), "d", true).expect("空白 = 不限"),
-            None
-        );
-        assert_eq!(
-            parse_boundary(Some("2026/10"), "d", true)
-                .expect_err("非法边界")
-                .status,
+            parse_boundary(Some("2026/10"), "d", true).expect_err("非法边界").status,
             400
         );
-        assert_eq!(
-            split_balance(Decimal::from(-70)),
-            (Decimal::ZERO, Decimal::from(70))
-        );
-        assert_eq!(
-            split_balance(Decimal::from(70)),
-            (Decimal::from(70), Decimal::ZERO)
-        );
+        assert_eq!(split_balance(Decimal::from(-70)), (Decimal::ZERO, Decimal::from(70)));
+        assert_eq!(split_balance(Decimal::from(70)), (Decimal::from(70), Decimal::ZERO));
         assert_eq!(split_balance(Decimal::ZERO), (Decimal::ZERO, Decimal::ZERO));
         println!("[P2D1-⑨] 期间边界 / 余额拆两侧 ✓");
     }
@@ -1462,13 +1368,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        assert_eq!(
-            resolve_account(None, None)
-                .await
-                .expect_err("都不给")
-                .status,
-            400
-        );
+        assert_eq!(resolve_account(None, None).await.expect_err("都不给").status, 400);
         assert_eq!(
             resolve_account(Some("not-a-uuid"), None)
                 .await
@@ -1483,13 +1383,9 @@ mod tests {
                 .status,
             404
         );
-        let brief = resolve_account(None, Some("P2D1A"))
-            .await
-            .expect("按编码查");
+        let brief = resolve_account(None, Some("P2D1A")).await.expect("按编码查");
         assert_eq!(brief.id, ACCOUNT_A);
-        let brief_b = resolve_account(Some(ACCOUNT_B), None)
-            .await
-            .expect("按 id 查");
+        let brief_b = resolve_account(Some(ACCOUNT_B), None).await.expect("按 id 查");
         assert_eq!(brief_b.account_code, "P2D1B");
         println!("[P2D1-⑪] 科目解析（400 / 404 / 成功）✓");
     }
@@ -1542,9 +1438,7 @@ mod extra_tests {
     async fn setup_or_skip() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         let guard = setup().await;
         if guard.is_none() {
-            println!(
-                "SKIP: 本用例未执行（真库不可用，原因见 voucher_query::tests::ensure_db 首条 SKIP）"
-            );
+            println!("SKIP: 本用例未执行（真库不可用，原因见 voucher_query::tests::ensure_db 首条 SKIP）");
         }
         guard
     }
@@ -1600,10 +1494,7 @@ mod extra_tests {
             Some((date(2026, 12, 1), date(2026, 12, 31))),
             "12 月末不能算成次年 1 月 0 日"
         );
-        assert_eq!(
-            month_range("2027-01"),
-            Some((date(2027, 1, 1), date(2027, 1, 31)))
-        );
+        assert_eq!(month_range("2027-01"), Some((date(2027, 1, 1), date(2027, 1, 31))));
     }
 
     // ---------- ② 边界解析 ----------
@@ -1641,27 +1532,14 @@ mod extra_tests {
     /// `None` / 空串 / 纯空白 = 不限；非法输入 400，且报文点名**字段**与**原值**。
     #[test]
     fn parse_boundary_blank_is_unbounded_and_errors_name_the_field() {
-        assert_eq!(
-            parse_boundary(None, "period_from", false).expect("未提供"),
-            None
-        );
-        assert_eq!(
-            parse_boundary(Some(""), "period_from", false).expect("空串"),
-            None
-        );
-        assert_eq!(
-            parse_boundary(Some("   "), "period_to", true).expect("空白"),
-            None
-        );
+        assert_eq!(parse_boundary(None, "period_from", false).expect("未提供"), None);
+        assert_eq!(parse_boundary(Some(""), "period_from", false).expect("空串"), None);
+        assert_eq!(parse_boundary(Some("   "), "period_to", true).expect("空白"), None);
 
         let error = parse_boundary(Some("2026/10"), "period_from", false).expect_err("非法");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::PARAM_INVALID);
-        assert!(
-            error.msg.contains("period_from"),
-            "要点名字段：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("period_from"), "要点名字段：{}", error.msg);
         assert!(error.msg.contains("2026/10"), "要回显原值：{}", error.msg);
     }
 
@@ -1677,14 +1555,8 @@ mod extra_tests {
     /// 净额按符号拆成借 / 贷两侧，正负对称，0 两侧都是 0。
     #[test]
     fn split_balance_is_sign_symmetric() {
-        assert_eq!(
-            split_balance(Decimal::from(70)),
-            (Decimal::from(70), Decimal::ZERO)
-        );
-        assert_eq!(
-            split_balance(Decimal::from(-70)),
-            (Decimal::ZERO, Decimal::from(70))
-        );
+        assert_eq!(split_balance(Decimal::from(70)), (Decimal::from(70), Decimal::ZERO));
+        assert_eq!(split_balance(Decimal::from(-70)), (Decimal::ZERO, Decimal::from(70)));
         assert_eq!(split_balance(Decimal::ZERO), (Decimal::ZERO, Decimal::ZERO));
     }
 
@@ -1712,11 +1584,7 @@ mod extra_tests {
             Some(Decimal::new(-1, 2)),
             "贷方多则差额为负"
         );
-        assert_eq!(
-            balance_gap(Decimal::ZERO, Decimal::ZERO),
-            None,
-            "全 0 也是平的"
-        );
+        assert_eq!(balance_gap(Decimal::ZERO, Decimal::ZERO), None, "全 0 也是平的");
     }
 
     // ---------- ④ 流水/期初共用的 WHERE（参数顺序是契约） ----------
@@ -1729,10 +1597,7 @@ mod extra_tests {
         assert!(sql.contains("e.account_id = ?::uuid"), "{sql}");
         assert!(sql.contains("v.status = 'POSTED'"), "总账只算已过账：{sql}");
         assert!(sql.contains("v.deleted_at IS NULL"), "{sql}");
-        assert!(
-            !sql.contains("voucher_date"),
-            "没给日期时不能凭空加日期条件：{sql}"
-        );
+        assert!(!sql.contains("voucher_date"), "没给日期时不能凭空加日期条件：{sql}");
     }
 
     /// 起止都给：**先 from 后 to**（`sum_before` 与本查询共用这个顺序，错序会把期初算错）。
@@ -1815,19 +1680,10 @@ mod extra_tests {
     /// 辅助项名称取数表逐维度固定；未知维度兜底到供应商（调用前已被白名单拦过）。
     #[test]
     fn aux_name_source_maps_each_dimension() {
-        assert_eq!(
-            aux_name_source(AUX_MATERIAL),
-            ("biz_material", "material_name")
-        );
-        assert_eq!(
-            aux_name_source(AUX_WAREHOUSE),
-            ("biz_warehouse", "warehouse_name")
-        );
+        assert_eq!(aux_name_source(AUX_MATERIAL), ("biz_material", "material_name"));
+        assert_eq!(aux_name_source(AUX_WAREHOUSE), ("biz_warehouse", "warehouse_name"));
         assert_eq!(aux_name_source(AUX_DEPT), ("sys_dept", "dept_name"));
-        assert_eq!(
-            aux_name_source(AUX_SUPPLIER),
-            ("biz_supplier", "supplier_name")
-        );
+        assert_eq!(aux_name_source(AUX_SUPPLIER), ("biz_supplier", "supplier_name"));
         assert_eq!(
             aux_name_source("UNKNOWN"),
             ("biz_supplier", "supplier_name"),
@@ -1852,10 +1708,7 @@ mod extra_tests {
     #[tokio::test]
     async fn period_range_rejects_bad_period() {
         let error = period_range("2026-13").await.expect_err("非法期间");
-        assert!(
-            format!("{error:?}").contains("yyyy-MM"),
-            "错误要说明格式：{error:?}"
-        );
+        assert!(format!("{error:?}").contains("yyyy-MM"), "错误要说明格式：{error:?}");
     }
 
     // ---------- ⑦ 真库：起止边界 / 越界分页 / 期间表优先 ----------
@@ -1922,18 +1775,10 @@ mod extra_tests {
             Some(row) => {
                 let row_start: NaiveDate = row.get_typed("start_date").expect("start_date");
                 let row_end: NaiveDate = row.get_typed("end_date").expect("end_date");
-                assert_eq!(
-                    (start, end),
-                    (row_start, row_end),
-                    "有期间行时必须用行上的起止"
-                );
+                assert_eq!((start, end), (row_start, row_end), "有期间行时必须用行上的起止");
             }
             None => {
-                assert_eq!(
-                    (start, end),
-                    (date(2026, 10, 1), date(2026, 10, 31)),
-                    "缺行按自然月"
-                );
+                assert_eq!((start, end), (date(2026, 10, 1), date(2026, 10, 31)), "缺行按自然月");
             }
         }
         // 未开账的月份也要给出可用区间（不能让报表直接 500）：区间至少要覆盖 11-03 那张凭证。

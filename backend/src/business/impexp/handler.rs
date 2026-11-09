@@ -55,13 +55,11 @@ use crate::business::impexp::definition::{
     self, DuplicateStrategy, ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
 };
 use crate::business::impexp::dto::{
-    ColumnQuery, ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery,
-    ExportTaskRes, ImportColumnRes, ImportColumnsRes, ImportErrorRes, ImportPageQuery,
-    ImportTaskRes, TaskActionRes, TemplateQuery, UploadQuery, UploadRes,
+    ColumnQuery, ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery, ExportTaskRes,
+    ImportColumnRes, ImportColumnsRes, ImportErrorRes, ImportPageQuery, ImportTaskRes, TaskActionRes, TemplateQuery,
+    UploadQuery, UploadRes,
 };
-use crate::business::impexp::model::{
-    self, ExportTaskFilter, ImportTaskFilter, NewExportTask, NewImportTask,
-};
+use crate::business::impexp::model::{self, ExportTaskFilter, ImportTaskFilter, NewExportTask, NewImportTask};
 use crate::business::impexp::registry::{DefinitionBrief, ensure_mode_allowed, global_registry};
 use crate::business::impexp::template;
 use crate::business::impexp::validate::{self, DbFkResolver, global_dicts};
@@ -199,10 +197,7 @@ fn build_template_response(biz_type: &str) -> std::result::Result<Response, ApiE
         .import_definition(biz_type.trim())
         .ok_or_else(|| def_not_found(biz_type))?;
     let bytes = template::build_template(definition.as_ref())?;
-    Ok(xlsx_response(
-        bytes,
-        &template::template_file_name(definition.as_ref()),
-    ))
+    Ok(xlsx_response(bytes, &template::template_file_name(definition.as_ref())))
 }
 
 // ==================== 上传 + 预检 ====================
@@ -239,22 +234,11 @@ pub async fn import_upload(
     let definition = global_registry()
         .import_definition(query.biz_type.trim())
         .ok_or_else(|| def_not_found(&query.biz_type))?;
-    let mode = ImportMode::parse(query.mode.as_deref().unwrap_or("")).ok_or_else(|| {
-        ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "mode 只能是 STRICT 或 PARTIAL",
-        )
-    })?;
+    let mode = ImportMode::parse(query.mode.as_deref().unwrap_or(""))
+        .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "mode 只能是 STRICT 或 PARTIAL"))?;
     let mode = ensure_mode_allowed(definition.allow_partial(), mode)?;
-    let duplicate =
-        DuplicateStrategy::parse(query.duplicate.as_deref().unwrap_or("")).ok_or_else(|| {
-            ApiError::new(
-                400,
-                error_code::PARAM_INVALID,
-                "duplicate 只能是 UPSERT 或 SKIP",
-            )
-        })?;
+    let duplicate = DuplicateStrategy::parse(query.duplicate.as_deref().unwrap_or(""))
+        .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "duplicate 只能是 UPSERT 或 SKIP"))?;
 
     let (file_name, bytes) = read_upload_file(multipart).await?;
     let max_bytes = (cfg().upload.max_size_mb as usize).saturating_mul(1024 * 1024);
@@ -290,14 +274,7 @@ pub async fn import_upload(
     .await
     .map_err(|error| utils::db_error(error, "创建导入任务"))?;
 
-    let outcome = run_precheck(
-        &definition,
-        task_id,
-        &bytes,
-        utils::current_user_uuid(&claims),
-        mode,
-    )
-    .await?;
+    let outcome = run_precheck(&definition, task_id, &bytes, utils::current_user_uuid(&claims), mode).await?;
 
     Ok(Res::ok(UploadRes {
         task_id: task_id.to_string(),
@@ -339,25 +316,14 @@ async fn run_precheck(
         mode,
     };
     let resolver = DbFkResolver::new();
-    let outcome =
-        match validate::precheck(definition.as_ref(), bytes, global_dicts(), &resolver, &ctx).await
-        {
-            Ok(report) => report,
-            Err(error) => {
-                // 结构性问题也要把任务置为失败并留痕，方便运营回看「他到底传了什么」
-                let _ = model::update_precheck_result(
-                    &task_id,
-                    "FAILED",
-                    0,
-                    0,
-                    0,
-                    None,
-                    Some(&error.msg),
-                )
-                .await;
-                return Err(error);
-            }
-        };
+    let outcome = match validate::precheck(definition.as_ref(), bytes, global_dicts(), &resolver, &ctx).await {
+        Ok(report) => report,
+        Err(error) => {
+            // 结构性问题也要把任务置为失败并留痕，方便运营回看「他到底传了什么」
+            let _ = model::update_precheck_result(&task_id, "FAILED", 0, 0, 0, None, Some(&error.msg)).await;
+            return Err(error);
+        }
+    };
 
     model::insert_task_errors(
         &task_id,
@@ -422,11 +388,7 @@ pub async fn import_page(
     let result = model::page_import_tasks(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询导入任务"))?;
-    let list = result
-        .list
-        .into_iter()
-        .map(ImportTaskRes::from_model)
-        .collect();
+    let list = result.list.into_iter().map(ImportTaskRes::from_model).collect();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -491,11 +453,7 @@ pub async fn import_errors(
     let result = model::page_task_errors(&task.id, page, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询错误明细"))?;
-    let list = result
-        .list
-        .into_iter()
-        .map(ImportErrorRes::from_model)
-        .collect();
+    let list = result.list.into_iter().map(ImportErrorRes::from_model).collect();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -565,10 +523,7 @@ pub async fn import_errors_file(
     permission = "business:impexp:import:download"
 )]
 #[nik::get("/business/impexp/import/{id}/download")]
-pub async fn import_download(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn import_download(Extension(AuthClaims(claims)): Extension<AuthClaims>, Path(id): Path<String>) -> Response {
     // 批次 B · B5：下载与详情同口径（越权 → 404 响应体）。
     let result = async {
         let principal = principal::resolve_for_claims(&claims).await?;
@@ -582,10 +537,7 @@ pub async fn import_download(
 }
 
 /// 错误行文件响应构造。
-async fn errors_file_response(
-    id: &str,
-    principal: &ScopedPrincipal,
-) -> std::result::Result<Response, ApiError> {
+async fn errors_file_response(id: &str, principal: &ScopedPrincipal) -> std::result::Result<Response, ApiError> {
     let task = load_task(id, principal).await?;
     let rows = model::list_task_errors(&task.id, MAX_PERSIST_ERRORS as i64)
         .await
@@ -601,10 +553,7 @@ async fn errors_file_response(
         })
         .collect::<Vec<_>>();
     let bytes = template::build_error_sheet_rows(&lines)?;
-    Ok(xlsx_response(
-        bytes,
-        &format!("{}_错误明细.xlsx", task.task_no),
-    ))
+    Ok(xlsx_response(bytes, &format!("{}_错误明细.xlsx", task.task_no)))
 }
 
 // ==================== 确认入库 ====================
@@ -650,13 +599,10 @@ pub async fn import_confirm(
     let definition = global_registry()
         .import_definition(&task.biz_type)
         .ok_or_else(|| def_not_found(&task.biz_type))?;
-    let file_path = task.file_path.clone().ok_or_else(|| {
-        ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "导入文件已丢失，请重新上传",
-        )
-    })?;
+    let file_path = task
+        .file_path
+        .clone()
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "导入文件已丢失，请重新上传"))?;
     let bytes = tokio::fs::read(&file_path).await.map_err(|error| {
         ApiError::new(
             404,
@@ -721,11 +667,7 @@ pub async fn import_confirm(
         model::finish_import_canceled(&task.id, imported as i32, &message)
             .await
             .map_err(|error| utils::db_error(error, "回写取消状态"))?;
-        return Err(ApiError::new(
-            409,
-            error_code::IMPORT_STATUS_INVALID,
-            message,
-        ));
+        return Err(ApiError::new(409, error_code::IMPORT_STATUS_INVALID, message));
     }
 
     for (batch_index, batch) in outcome.rows.chunks(batch_size).enumerate() {
@@ -745,14 +687,9 @@ pub async fn import_confirm(
                         "第 {} 批（行 {first_row}–{last_row}）入库失败，前 {imported} 行已入库；请按已入库范围修正后重导（原因：{error}）",
                         batch_index + 1
                     );
-                    model::update_import_result(
-                        &task.id,
-                        "FAILED",
-                        imported as i32,
-                        Some(&message),
-                    )
-                    .await
-                    .map_err(|db_error| utils::db_error(db_error, "回写入库结果"))?;
+                    model::update_import_result(&task.id, "FAILED", imported as i32, Some(&message))
+                        .await
+                        .map_err(|db_error| utils::db_error(db_error, "回写入库结果"))?;
                     return Err(ApiError::new(422, error_code::IMPORT_BATCH_FAILED, message));
                 }
                 tracing::warn!(
@@ -911,16 +848,11 @@ async fn export_sync_response(
         .iter()
         .map(|column| column.header)
         .collect::<Vec<_>>();
-    let formatted = crate::business::impexp::engine::format_export_rows(
-        definition.columns(),
-        &rows,
-        &dicts,
-        &mask,
-    )
-    .map_err(|error| {
-        // 脱敏失败 → 拒绝导出（422），绝不返回明文文件
-        ApiError::new(error.http_status(), error.error_code(), error.message())
-    })?;
+    let formatted = crate::business::impexp::engine::format_export_rows(definition.columns(), &rows, &dicts, &mask)
+        .map_err(|error| {
+            // 脱敏失败 → 拒绝导出（422），绝不返回明文文件
+            ApiError::new(error.http_status(), error.error_code(), error.message())
+        })?;
     let bytes = crate::business::impexp::engine::write_sheet(&headers, &formatted)?;
     Ok(xlsx_response(
         bytes,
@@ -948,10 +880,7 @@ fn def_not_found(biz_type: &str) -> ApiError {
 /// # 异常情况
 ///
 /// 400：ID 格式非法；404：任务不存在。
-async fn load_task(
-    raw_id: &str,
-    principal: &ScopedPrincipal,
-) -> std::result::Result<model::ImportTask, ApiError> {
+async fn load_task(raw_id: &str, principal: &ScopedPrincipal) -> std::result::Result<model::ImportTask, ApiError> {
     // 批次 B · B5：统一入口 —— 看不见的任务一律按 404 处理（不暴露"存在但无权"的差异）。
     let id = utils::require_uuid(raw_id, "id")?;
     model::find_import_task(&id, principal)
@@ -969,9 +898,7 @@ async fn load_task(
 /// # 异常情况
 ///
 /// 400：表单解析失败 / 没有 `file` 字段。
-async fn read_upload_file(
-    mut multipart: Multipart,
-) -> std::result::Result<(String, Vec<u8>), ApiError> {
+async fn read_upload_file(mut multipart: Multipart) -> std::result::Result<(String, Vec<u8>), ApiError> {
     while let Some(field) = multipart
         .next_field()
         .await
@@ -987,11 +914,7 @@ async fn read_upload_file(
             .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传文件内容读取失败"))?;
         return Ok((file_name, bytes.to_vec()));
     }
-    Err(ApiError::new(
-        400,
-        error_code::PARAM_INVALID,
-        "缺少文件字段 file",
-    ))
+    Err(ApiError::new(400, error_code::PARAM_INVALID, "缺少文件字段 file"))
 }
 
 /// 把上传文件写到 `{upload_path}/impexp/{task_id}.xlsx`。
@@ -1003,26 +926,15 @@ async fn read_upload_file(
 /// # 异常情况
 ///
 /// 500：目录创建或写入失败。
-async fn persist_upload(
-    task_id: uuid::Uuid,
-    bytes: &[u8],
-) -> std::result::Result<String, ApiError> {
+async fn persist_upload(task_id: uuid::Uuid, bytes: &[u8]) -> std::result::Result<String, ApiError> {
     let dir = std::path::Path::new(nik::upload_path()).join("impexp");
-    tokio::fs::create_dir_all(&dir).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("创建导入目录失败：{error}"),
-        )
-    })?;
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("创建导入目录失败：{error}")))?;
     let path = dir.join(format!("{task_id}.xlsx"));
-    tokio::fs::write(&path, bytes).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("保存导入文件失败：{error}"),
-        )
-    })?;
+    tokio::fs::write(&path, bytes)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("保存导入文件失败：{error}")))?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -1067,13 +979,7 @@ fn content_disposition(file_name: &str) -> String {
     let encoded = percent_encode(file_name);
     let ascii = file_name
         .chars()
-        .map(|value| {
-            if value.is_ascii() && value != '"' {
-                value
-            } else {
-                '_'
-            }
-        })
+        .map(|value| if value.is_ascii() && value != '"' { value } else { '_' })
         .collect::<String>();
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
@@ -1249,13 +1155,7 @@ pub async fn export_create(
     let task = model::find_export_task(&task_id, &principal)
         .await
         .map_err(|error| utils::db_error(error, "查询导出任务"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                "导出任务创建后未能读回，请稍后重试",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "导出任务创建后未能读回，请稍后重试"))?;
     tracing::info!(
         task_id = %task.id,
         task_no = %task.task_no,
@@ -1306,11 +1206,7 @@ pub async fn export_page(
     let result = model::page_export_tasks(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询导出任务"))?;
-    let list = result
-        .list
-        .into_iter()
-        .map(ExportTaskRes::from_model)
-        .collect();
+    let list = result.list.into_iter().map(ExportTaskRes::from_model).collect();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -1363,10 +1259,7 @@ pub async fn export_detail(
     permission = "business:impexp:export:download"
 )]
 #[nik::get("/business/impexp/export/{id}/download")]
-pub async fn export_download(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-    Path(id): Path<String>,
-) -> Response {
+pub async fn export_download(Extension(AuthClaims(claims)): Extension<AuthClaims>, Path(id): Path<String>) -> Response {
     let result = async {
         let principal = principal::resolve_for_claims(&claims).await?;
         export_download_response(&id, &principal).await
@@ -1392,10 +1285,7 @@ async fn export_download_response(
         return Err(ApiError::new(
             409,
             error_code::EXPORT_NOT_READY,
-            format!(
-                "任务当前状态为 {}，产物尚未就绪（完成后才能下载）",
-                task.status
-            ),
+            format!("任务当前状态为 {}，产物尚未就绪（完成后才能下载）", task.status),
         ));
     }
     // 懒过期：清理任务是每天 04:40 跑，过期但还没被扫到的行状态仍是 SUCCESS
@@ -1424,11 +1314,7 @@ async fn export_download_response(
             "导出产物文件已不存在（可能已被清理），请重新导出",
         )
     })?;
-    let size = file
-        .metadata()
-        .await
-        .map(|meta| meta.len())
-        .unwrap_or_default();
+    let size = file.metadata().await.map(|meta| meta.len()).unwrap_or_default();
     let file_name = task
         .file_name
         .clone()
@@ -1444,8 +1330,7 @@ async fn export_download_response(
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(mime)
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(mime).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     headers.insert(
         header::CONTENT_LENGTH,
@@ -1462,10 +1347,7 @@ async fn export_download_response(
     {
         headers.insert(header::HeaderName::from_static("x-file-sha256"), value);
     }
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     Ok(response)
 }
 
@@ -1554,10 +1436,7 @@ pub async fn export_retry(
         return Err(ApiError::new(
             409,
             error_code::EXPORT_STATUS_INVALID,
-            format!(
-                "当前状态为 {}，只有失败 / 取消 / 过期的任务才能重试",
-                task.status
-            ),
+            format!("当前状态为 {}，只有失败 / 取消 / 过期的任务才能重试", task.status),
         ));
     }
     if let Some(path) = task.file_path.as_deref() {
@@ -1697,10 +1576,7 @@ pub async fn import_retry(
         return Err(ApiError::new(
             409,
             error_code::IMPORT_STATUS_INVALID,
-            format!(
-                "当前状态为 {}，只有失败 / 取消 / 部分成功的任务才能重试",
-                task.status
-            ),
+            format!("当前状态为 {}，只有失败 / 取消 / 部分成功的任务才能重试", task.status),
         ));
     }
     let definition = global_registry()
@@ -1735,10 +1611,7 @@ pub async fn import_retry(
     let operator = utils::current_user_uuid(&claims);
     let new_id = uuid::Uuid::now_v7();
     let new_task_no = model::build_import_task_no(&new_id);
-    let file_name = task
-        .file_name
-        .clone()
-        .unwrap_or_else(|| "import.xlsx".to_string());
+    let file_name = task.file_name.clone().unwrap_or_else(|| "import.xlsx".to_string());
     // 来源留档：新任务的 options 里记下「从哪条任务重试而来」，审计可回溯
     // 重复数据策略必须跟着继承：重试是「同一份文件的再试一次」，不能悄悄把 SKIP 变成 UPSERT。
     let source_options = model::import_task_options(&task.id)
@@ -1854,13 +1727,7 @@ mod tests {
     #[test]
     fn summary_keeps_only_first_hundred_rows() {
         let errors = (0..150)
-            .map(|index| {
-                RowIssue::row(
-                    index,
-                    crate::business::impexp::definition::ErrorKind::Rule,
-                    "x",
-                )
-            })
+            .map(|index| RowIssue::row(index, crate::business::impexp::definition::ErrorKind::Rule, "x"))
             .collect::<Vec<_>>();
         let summary = summary_rows(&errors);
         assert_eq!(summary.len(), SUMMARY_LIMIT);

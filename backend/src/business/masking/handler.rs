@@ -33,8 +33,8 @@ use nik::uuid::Uuid;
 use std::net::SocketAddr;
 
 use crate::business::masking::dto::{
-    EffectiveMaskQuery, EffectiveMaskRes, EffectiveRuleRes, FieldMaskCreateReq, FieldMaskPageQuery,
-    FieldMaskRes, FieldMaskUpdateReq, MaskPreviewQuery, MaskPreviewRes, sample_value,
+    EffectiveMaskQuery, EffectiveMaskRes, EffectiveRuleRes, FieldMaskCreateReq, FieldMaskPageQuery, FieldMaskRes,
+    FieldMaskUpdateReq, MaskPreviewQuery, MaskPreviewRes, sample_value,
 };
 use crate::business::masking::masker::{self, MaskType};
 use crate::business::masking::model::{self, NewFieldMaskRule, UpdateFieldMaskRule};
@@ -44,9 +44,8 @@ use crate::support::log;
 use crate::utils;
 
 /// 标识符正则（与 `V0062` 的 `ck_sys_field_mask_ident` **逐字一致**）。
-static IDENT_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
-    regex::Regex::new(r"^[a-z][a-z0-9_]{1,63}$").expect("标识符正则必须可编译")
-});
+static IDENT_RE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"^[a-z][a-z0-9_]{1,63}$").expect("标识符正则必须可编译"));
 
 // ==================== 分页 ====================
 
@@ -69,20 +68,13 @@ static IDENT_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(||
     permission = "system:field-mask:list"
 )]
 #[nik::get("/system/field-mask/page")]
-pub async fn page(
-    Query(query): Query<FieldMaskPageQuery>,
-) -> ResResult<PageData<Vec<FieldMaskRes>>> {
+pub async fn page(Query(query): Query<FieldMaskPageQuery>) -> ResResult<PageData<Vec<FieldMaskRes>>> {
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
     let (rows, total) = model::page_rules(&query, page_no, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询脱敏规则"))?;
     let list: Vec<FieldMaskRes> = rows.iter().map(FieldMaskRes::from_row).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page_no,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page_no, page_size))
 }
 
 // ==================== 新建 ====================
@@ -130,12 +122,7 @@ pub async fn create(
     let param = normalize_param(ty, req.mask_param.as_deref())?;
     let status = normalize_status(req.status)?;
     let reason = require_reason(&req.reason)?;
-    let role_id = match req
-        .role_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let role_id = match req.role_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         None => None,
         Some(raw) => {
             let role_id = utils::require_uuid(raw, "role_id")?;
@@ -170,11 +157,7 @@ pub async fn create(
         .await?
         .is_some()
     {
-        return Err(duplicate_rule_error(
-            &table_name,
-            &column_name,
-            role_id.as_ref(),
-        ));
+        return Err(duplicate_rule_error(&table_name, &column_name, role_id.as_ref()));
     }
 
     model::insert_rule(&NewFieldMaskRule {
@@ -453,12 +436,7 @@ pub async fn effective(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<EffectiveMaskQuery>,
 ) -> ResResult<EffectiveMaskRes> {
-    let target = match query
-        .user_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let target = match query.user_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         None => current_user_id(&claims)?,
         Some(raw) => utils::require_uuid(raw, "user_id")?,
     };
@@ -491,10 +469,7 @@ pub async fn effective(
             table_name: rule.table.clone(),
             column_name: rule.column.clone(),
             mask_type: rule.mask_type,
-            mask_type_label: rule
-                .ty()
-                .map(|ty| ty.label().to_string())
-                .unwrap_or_default(),
+            mask_type_label: rule.ty().map(|ty| ty.label().to_string()).unwrap_or_default(),
             mask_param: rule.effective_param().unwrap_or_default().to_string(),
             source: rule.source.code().to_string(),
             source_name: rule.role_name.clone(),
@@ -555,10 +530,7 @@ fn valid_ident(field: &str, raw: &str) -> std::result::Result<String, ApiError> 
 /// # 返回值
 ///
 /// `None` = 该类型无参数；`Some(text)` = 落库的参数文本。
-fn normalize_param(
-    ty: MaskType,
-    raw: Option<&str>,
-) -> std::result::Result<Option<String>, ApiError> {
+fn normalize_param(ty: MaskType, raw: Option<&str>) -> std::result::Result<Option<String>, ApiError> {
     let text = raw.map(str::trim).filter(|item| !item.is_empty());
     if matches!(ty, MaskType::Email) {
         if text.is_some() {
@@ -701,10 +673,7 @@ mod tests {
         assert!(!IDENT_RE.is_match("SysUser"), "大写应拒绝");
         assert!(!IDENT_RE.is_match("1user"), "数字开头应拒绝");
         assert!(!IDENT_RE.is_match("sys-user"), "连字符应拒绝");
-        assert!(
-            !IDENT_RE.is_match("sys_user; drop table x"),
-            "注入形态应拒绝"
-        );
+        assert!(!IDENT_RE.is_match("sys_user; drop table x"), "注入形态应拒绝");
         assert!(
             !IDENT_RE.is_match("a"),
             "长度 1 应拒绝（与 CHECK 的 2..64 字符约定一致）"
@@ -715,11 +684,7 @@ mod tests {
     fn email_type_rejects_param() {
         let error = normalize_param(MaskType::Email, Some("1,2")).expect_err("邮箱不接受参数");
         assert_eq!(error.code, error_code::FIELD_MASK_TYPE_INVALID);
-        assert!(
-            normalize_param(MaskType::Email, None)
-                .expect("应通过")
-                .is_none()
-        );
+        assert!(normalize_param(MaskType::Email, None).expect("应通过").is_none());
     }
 
     #[test]

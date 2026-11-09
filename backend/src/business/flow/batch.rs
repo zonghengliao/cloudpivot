@@ -88,10 +88,7 @@ const LABEL_SQL: &str = "SELECT t.id::text AS id, \
 /// - `403`：缺 `business:flow:approve`；
 /// - `400`：`ids` 为空 / 超上限 / 非法 UUID / `decision` 非法；
 /// - 逐条失败（不是你待办 / 已结束 / 驳回意见太短）进 `failed`，其余继续。
-pub async fn batch_approve(
-    claims: &TokenClaims,
-    req: &BatchApproveReq,
-) -> std::result::Result<BatchResult, ApiError> {
+pub async fn batch_approve(claims: &TokenClaims, req: &BatchApproveReq) -> std::result::Result<BatchResult, ApiError> {
     batch::ensure_permission(claims, PERM_APPROVE)?;
     let ids = batch::parse_ids(&req.ids)?;
     let decision = req.decision()?;
@@ -112,22 +109,14 @@ pub async fn batch_approve(
                     comment: comment.unwrap_or_default(),
                     return_to,
                 };
-                reject_task(
-                    Extension(AuthClaims(claims)),
-                    Path(id.to_string()),
-                    Json(body),
-                )
-                .await
-                .map(|_| ())
+                reject_task(Extension(AuthClaims(claims)), Path(id.to_string()), Json(body))
+                    .await
+                    .map(|_| ())
             } else {
                 let body = ApproveReq { comment };
-                approve_task(
-                    Extension(AuthClaims(claims)),
-                    Path(id.to_string()),
-                    Some(Json(body)),
-                )
-                .await
-                .map(|_| ())
+                approve_task(Extension(AuthClaims(claims)), Path(id.to_string()), Some(Json(body)))
+                    .await
+                    .map(|_| ())
             }
         }
     })

@@ -157,9 +157,7 @@ impl DictTranslation {
         let mut code_set = HashSet::new();
         let mut code_to_label = HashMap::new();
         for (code, label) in items {
-            label_to_code
-                .entry(label.clone())
-                .or_insert_with(|| code.clone());
+            label_to_code.entry(label.clone()).or_insert_with(|| code.clone());
             code_to_label.entry(code.clone()).or_insert(label);
             code_set.insert(code);
         }
@@ -234,27 +232,17 @@ impl ColumnKind {
         match self {
             ColumnKind::Text { max_len: Some(max) } => format!("≤{max} 个字符"),
             ColumnKind::Text { max_len: None } => "不限长度".to_string(),
-            ColumnKind::Int { min, max } => format_range(
-                min.map(|v| v.to_string()),
-                max.map(|v| v.to_string()),
-                "整数",
-            ),
+            ColumnKind::Int { min, max } => {
+                format_range(min.map(|v| v.to_string()), max.map(|v| v.to_string()), "整数")
+            }
             ColumnKind::Decimal { scale, min, max } => {
-                let base = format_range(
-                    min.map(|v| v.to_string()),
-                    max.map(|v| v.to_string()),
-                    "小数",
-                );
+                let base = format_range(min.map(|v| v.to_string()), max.map(|v| v.to_string()), "小数");
                 format!("{base}，最多 {scale} 位小数")
             }
             ColumnKind::Bool => "是 / 否".to_string(),
             ColumnKind::Date => "YYYY-MM-DD".to_string(),
             ColumnKind::DateTime => "YYYY-MM-DD HH:MM[:SS]".to_string(),
-            ColumnKind::Enum(items) => items
-                .iter()
-                .map(|item| item.label)
-                .collect::<Vec<_>>()
-                .join(" / "),
+            ColumnKind::Enum(items) => items.iter().map(|item| item.label).collect::<Vec<_>>().join(" / "),
             ColumnKind::Dict(code) => format!("字典 {code} 的取值"),
         }
     }
@@ -266,11 +254,7 @@ impl ColumnKind {
     /// 枚举列如 `启用 / 停用`；其它类型返回空串。
     pub fn option_text(&self) -> String {
         match self {
-            ColumnKind::Enum(items) => items
-                .iter()
-                .map(|item| item.label)
-                .collect::<Vec<_>>()
-                .join(" / "),
+            ColumnKind::Enum(items) => items.iter().map(|item| item.label).collect::<Vec<_>>().join(" / "),
             ColumnKind::Dict(code) => format!("字典 {code}"),
             ColumnKind::Bool => "是 / 否".to_string(),
             _ => String::new(),
@@ -292,11 +276,7 @@ impl ColumnKind {
     /// # 异常情况
     ///
     /// 类型 / 长度 / 范围 / 枚举 / 字典 / 日期不合法时返回 [`FieldIssue`]。
-    pub fn parse(
-        &self,
-        raw: &str,
-        dict: Option<&DictTranslation>,
-    ) -> std::result::Result<String, FieldIssue> {
+    pub fn parse(&self, raw: &str, dict: Option<&DictTranslation>) -> std::result::Result<String, FieldIssue> {
         let text = raw.trim();
         if text.is_empty() {
             return Ok(String::new());
@@ -315,9 +295,9 @@ impl ColumnKind {
                 Ok(text.to_string())
             }
             ColumnKind::Int { min, max } => {
-                let value = text.parse::<i64>().map_err(|_| {
-                    FieldIssue::new(ErrorKind::Type, format!("应为整数，实际为「{text}」"))
-                })?;
+                let value = text
+                    .parse::<i64>()
+                    .map_err(|_| FieldIssue::new(ErrorKind::Type, format!("应为整数，实际为「{text}」")))?;
                 if let Some(low) = min
                     && value < *low
                 {
@@ -337,14 +317,11 @@ impl ColumnKind {
                 Ok(value.to_string())
             }
             ColumnKind::Decimal { scale, min, max } => {
-                let value = text.parse::<f64>().map_err(|_| {
-                    FieldIssue::new(ErrorKind::Type, format!("应为数字，实际为「{text}」"))
-                })?;
+                let value = text
+                    .parse::<f64>()
+                    .map_err(|_| FieldIssue::new(ErrorKind::Type, format!("应为数字，实际为「{text}」")))?;
                 if !value.is_finite() {
-                    return Err(FieldIssue::new(
-                        ErrorKind::Type,
-                        format!("应为数字，实际为「{text}」"),
-                    ));
+                    return Err(FieldIssue::new(ErrorKind::Type, format!("应为数字，实际为「{text}」")));
                 }
                 let actual_scale = text
                     .split_once('.')
@@ -377,10 +354,7 @@ impl ColumnKind {
             ColumnKind::Bool => match text.to_ascii_lowercase().as_str() {
                 "是" | "true" | "1" | "y" | "yes" | "真" => Ok("true".to_string()),
                 "否" | "false" | "0" | "n" | "no" | "假" => Ok("false".to_string()),
-                _ => Err(FieldIssue::new(
-                    ErrorKind::Type,
-                    format!("应为是/否，实际为「{text}」"),
-                )),
+                _ => Err(FieldIssue::new(ErrorKind::Type, format!("应为是/否，实际为「{text}」"))),
             },
             ColumnKind::Date => {
                 let date = parse_date(text).ok_or_else(|| {
@@ -407,11 +381,7 @@ impl ColumnKind {
                 if let Some(item) = items.iter().find(|item| item.code == text) {
                     return Ok(item.code.to_string());
                 }
-                let options = items
-                    .iter()
-                    .map(|item| item.label)
-                    .collect::<Vec<_>>()
-                    .join(" / ");
+                let options = items.iter().map(|item| item.label).collect::<Vec<_>>().join(" / ");
                 Err(FieldIssue::new(
                     ErrorKind::Enum,
                     format!("值「{text}」不在可选范围内（{options}）"),
@@ -426,9 +396,9 @@ impl ColumnKind {
                         format!("字典 {code} 未装载，请稍后重试"),
                     ));
                 };
-                dict.resolve(text).map(str::to_string).ok_or_else(|| {
-                    FieldIssue::new(ErrorKind::Dict, format!("值「{text}」不在字典 {code} 中"))
-                })
+                dict.resolve(text)
+                    .map(str::to_string)
+                    .ok_or_else(|| FieldIssue::new(ErrorKind::Dict, format!("值「{text}」不在字典 {code} 中")))
             }
         }
     }
@@ -462,11 +432,7 @@ impl ColumnKind {
                 .and_then(|dict| dict.code_to_label.get(stored))
                 .cloned()
                 .unwrap_or_else(|| stored.to_string()),
-            ColumnKind::Date => stored
-                .split_whitespace()
-                .next()
-                .unwrap_or(stored)
-                .to_string(),
+            ColumnKind::Date => stored.split_whitespace().next().unwrap_or(stored).to_string(),
             _ => stored.to_string(),
         }
     }
@@ -826,11 +792,7 @@ pub trait ImportDefinition: Send + Sync {
     /// 列定义。
     fn columns(&self) -> &'static [ImportColumn];
     /// 单行业务规则（跨列校验、库内唯一等）；返回 `Vec` 以支持一行多错。
-    async fn validate_row(
-        &self,
-        _row: &RowValues,
-        _ctx: &ImportCtx,
-    ) -> std::result::Result<(), Vec<RowIssue>> {
+    async fn validate_row(&self, _row: &RowValues, _ctx: &ImportCtx) -> std::result::Result<(), Vec<RowIssue>> {
         Ok(())
     }
     /// 批量入库：框架已在事务内，业务方只写 INSERT / UPDATE。
@@ -1078,12 +1040,9 @@ mod tests {
         // 空值交给必填判定，避免同一次空触发两条错误
         assert_eq!(text(8).parse("   ", None).expect("不应报错"), "");
         assert_eq!(
-            ColumnKind::Int {
-                min: None,
-                max: None
-            }
-            .parse("", None)
-            .expect("不应报错"),
+            ColumnKind::Int { min: None, max: None }
+                .parse("", None)
+                .expect("不应报错"),
             ""
         );
         assert_eq!(ColumnKind::Date.parse(" ", None).expect("不应报错"), "");
@@ -1120,14 +1079,8 @@ mod tests {
         assert_eq!(kind.parse("13.50", None).expect("末尾零不计位数"), "13.50");
         let scale = kind.parse("13.505", None).expect_err("三位小数应拒绝");
         assert_eq!(scale.kind, ErrorKind::Range);
-        assert_eq!(
-            kind.parse("-0.5", None).expect_err("越界").kind,
-            ErrorKind::Range
-        );
-        assert_eq!(
-            kind.parse("abc", None).expect_err("非数字").kind,
-            ErrorKind::Type
-        );
+        assert_eq!(kind.parse("-0.5", None).expect_err("越界").kind, ErrorKind::Range);
+        assert_eq!(kind.parse("abc", None).expect_err("非数字").kind, ErrorKind::Type);
     }
 
     #[test]
@@ -1159,13 +1112,8 @@ mod tests {
             "2026-10-28"
         );
         // Excel 序列号 46323 = 2026-10-28（纪元 1899-12-30 起算）
-        assert_eq!(
-            ColumnKind::Date.parse("46323", None).expect("应合法"),
-            "2026-10-28"
-        );
-        let bad = ColumnKind::Date
-            .parse("2026/13/45", None)
-            .expect_err("非法日期");
+        assert_eq!(ColumnKind::Date.parse("46323", None).expect("应合法"), "2026-10-28");
+        let bad = ColumnKind::Date.parse("2026/13/45", None).expect_err("非法日期");
         assert_eq!(bad.kind, ErrorKind::Date);
         assert!(bad.message.contains("实际 2026/13/45"));
     }
@@ -1173,28 +1121,19 @@ mod tests {
     #[test]
     fn datetime_accepts_date_only_and_minutes() {
         assert_eq!(
-            ColumnKind::DateTime
-                .parse("2026-10-28", None)
-                .expect("应合法"),
+            ColumnKind::DateTime.parse("2026-10-28", None).expect("应合法"),
             "2026-10-28 00:00:00"
         );
         assert_eq!(
-            ColumnKind::DateTime
-                .parse("2026-10-28 12:30", None)
-                .expect("应合法"),
+            ColumnKind::DateTime.parse("2026-10-28 12:30", None).expect("应合法"),
             "2026-10-28 12:30:00"
         );
         assert_eq!(
-            ColumnKind::DateTime
-                .parse("2026/10/28 12:30:05", None)
-                .expect("应合法"),
+            ColumnKind::DateTime.parse("2026/10/28 12:30:05", None).expect("应合法"),
             "2026-10-28 12:30:05"
         );
         assert_eq!(
-            ColumnKind::DateTime
-                .parse("28/10/2026", None)
-                .expect_err("非法")
-                .kind,
+            ColumnKind::DateTime.parse("28/10/2026", None).expect_err("非法").kind,
             ErrorKind::Date
         );
     }
@@ -1220,10 +1159,7 @@ mod tests {
         assert_eq!(kind.parse("0", Some(&dict)).expect("code"), "0");
         assert_eq!(kind.format("0", Some(&dict)), "停用");
         // 字典未装载 → 规则错误（不是「值非法」，避免无从排查）
-        assert_eq!(
-            kind.parse("启用", None).expect_err("未装载").kind,
-            ErrorKind::Rule
-        );
+        assert_eq!(kind.parse("启用", None).expect_err("未装载").kind, ErrorKind::Rule);
         let bad = kind.parse("台套", Some(&dict)).expect_err("不在字典");
         assert_eq!(bad.kind, ErrorKind::Dict);
         assert!(bad.message.contains("sys_status"));
@@ -1235,10 +1171,7 @@ mod tests {
         assert_eq!(ColumnKind::Enum(STATUS).format("9", None), "9");
         assert_eq!(ColumnKind::Bool.format("true", None), "是");
         assert_eq!(ColumnKind::Bool.format("false", None), "否");
-        assert_eq!(
-            ColumnKind::Date.format("2026-10-28 00:00:00", None),
-            "2026-10-28"
-        );
+        assert_eq!(ColumnKind::Date.format("2026-10-28 00:00:00", None), "2026-10-28");
         assert_eq!(text(8).format("", None), "");
     }
 
@@ -1271,10 +1204,7 @@ mod tests {
         );
         assert_eq!(ColumnKind::Date.rule_text(), "YYYY-MM-DD");
         assert_eq!(ColumnKind::Enum(STATUS).option_text(), "启用 / 停用");
-        assert_eq!(
-            ColumnKind::Dict("sys_status").option_text(),
-            "字典 sys_status"
-        );
+        assert_eq!(ColumnKind::Dict("sys_status").option_text(), "字典 sys_status");
         assert_eq!(text(3).option_text(), "");
     }
 
@@ -1310,10 +1240,7 @@ mod tests {
         };
         let long = "x".repeat(260);
         let issue = RowIssue::column(3, &column, &long, FieldIssue::new(ErrorKind::Type, "bad"));
-        assert_eq!(
-            issue.raw_value.as_deref().map(|v| v.chars().count()),
-            Some(200)
-        );
+        assert_eq!(issue.raw_value.as_deref().map(|v| v.chars().count()), Some(200));
         assert_eq!(issue.column_key, Some("k"));
     }
 

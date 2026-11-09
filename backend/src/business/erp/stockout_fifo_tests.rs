@@ -162,13 +162,7 @@ async fn seed_bucket(dict: Option<&str>, qty: &str, age_minutes: i64) -> Uuid {
     seed_bucket_in(WAREHOUSE, MATERIAL, dict, qty, age_minutes).await
 }
 
-async fn seed_bucket_in(
-    warehouse: &str,
-    material: &str,
-    dict: Option<&str>,
-    qty: &str,
-    age_minutes: i64,
-) -> Uuid {
+async fn seed_bucket_in(warehouse: &str, material: &str, dict: Option<&str>, qty: &str, age_minutes: i64) -> Uuid {
     let now = Utc::now();
     let warehouse_id = uuid(warehouse);
     let material_id = uuid(material);
@@ -176,41 +170,22 @@ async fn seed_bucket_in(
     let amount = (quantity * dec("10")).round_dp(4);
     let ledger_row = match dict {
         Some(dict_id) => {
-            let row = stockin_model::ensure_location_row(
-                db(),
-                material_id,
-                warehouse_id,
-                uuid(dict_id),
-                now,
-            )
-            .await
-            .expect("库位账行 find-or-create");
-            stockin_model::apply_location_qty(
-                db(),
-                material_id,
-                warehouse_id,
-                Some(row),
-                quantity,
-                now,
-            )
-            .await
-            .expect("库位账加法");
+            let row = stockin_model::ensure_location_row(db(), material_id, warehouse_id, uuid(dict_id), now)
+                .await
+                .expect("库位账行 find-or-create");
+            stockin_model::apply_location_qty(db(), material_id, warehouse_id, Some(row), quantity, now)
+                .await
+                .expect("库位账加法");
             row
         }
         None => {
             stockin_model::apply_location_qty(db(), material_id, warehouse_id, None, quantity, now)
                 .await
                 .expect("未分配桶加法");
-            null_bucket_row(warehouse, material)
-                .await
-                .expect("未分配桶行")
+            null_bucket_row(warehouse, material).await.expect("未分配桶行")
         }
     };
-    let cost_bucket = if dict.is_some() {
-        Some(ledger_row)
-    } else {
-        None
-    };
+    let cost_bucket = if dict.is_some() { Some(ledger_row) } else { None };
     stockin_model::apply_cost(
         db(),
         material_id,
@@ -285,9 +260,7 @@ async fn out_doc_lines(items: Vec<StockOutItemReq>) -> Uuid {
 }
 
 /// 明细按**行号**排好（`items_of` 是按锁顺序排的，断言 FIFO 顺序必须看 `line_no`）。
-fn detail_rows(
-    detail: &crate::business::erp::stockout_dto::StockOutDetailRes,
-) -> Vec<(i32, Option<Uuid>, Decimal)> {
+fn detail_rows(detail: &crate::business::erp::stockout_dto::StockOutDetailRes) -> Vec<(i32, Option<Uuid>, Decimal)> {
     let mut rows: Vec<(i32, Option<Uuid>, Decimal)> = detail
         .items
         .iter()
@@ -390,17 +363,9 @@ async fn fifo_create_prefills_single_location() {
 
     let rows = detail_rows(&detail);
     assert_eq!(rows.len(), 1, "单库位够量不该拆行");
-    assert_eq!(
-        rows[0].1,
-        Some(row_a),
-        "建单必须把 FIFO 选中的库位预填进明细"
-    );
+    assert_eq!(rows[0].1, Some(row_a), "建单必须把 FIFO 选中的库位预填进明细");
     assert_eq!(rows[0].2, dec("20"));
-    assert_eq!(
-        dec(&detail.header.total_qty),
-        dec("20"),
-        "拆行不能改变单头合计"
-    );
+    assert_eq!(dec(&detail.header.total_qty), dec("20"), "拆行不能改变单头合计");
     assert!(
         detail.stock_warnings.is_empty(),
         "库存够量不该有提示：{:?}",
@@ -429,16 +394,8 @@ async fn fifo_create_auto_splits_across_locations_and_posts() {
     let detail = stockout_handler::detail_of(doc).await.expect("详情");
     let rows = detail_rows(&detail);
     assert_eq!(rows.len(), 2, "跨库位够量必须自动拆成 2 行");
-    assert_eq!(
-        rows[0],
-        (1, Some(row_a), dec("30")),
-        "第 1 行 = 最早建账的 A，整桶"
-    );
-    assert_eq!(
-        rows[1],
-        (2, Some(row_b), dec("30")),
-        "第 2 行 = 后建的 B，补差 30"
-    );
+    assert_eq!(rows[0], (1, Some(row_a), dec("30")), "第 1 行 = 最早建账的 A，整桶");
+    assert_eq!(rows[1], (2, Some(row_b), dec("30")), "第 2 行 = 后建的 B，补差 30");
     assert_eq!(dec(&detail.header.total_qty), dec("60"), "拆行后合计不变");
     assert!(detail.stock_warnings.is_empty(), "够量不该提示");
 
@@ -461,14 +418,9 @@ async fn fifo_split_follows_creation_order() {
 
     let doc = out_doc("30", None).await;
     let rows = detail_rows(&stockout_handler::detail_of(doc).await.expect("详情"));
-    assert_eq!(
-        rows,
-        vec![(1, Some(row_a), dec("20")), (2, Some(row_b), dec("10"))]
-    );
+    assert_eq!(rows, vec![(1, Some(row_a), dec("20")), (2, Some(row_b), dec("10"))]);
 
-    stockout_handler::post_stock_out(doc, None, None)
-        .await
-        .expect("过账");
+    stockout_handler::post_stock_out(doc, None, None).await.expect("过账");
     assert_eq!(qty_at(Some(LOC_A)).await, Decimal::ZERO);
     assert_eq!(qty_at(Some(LOC_B)).await, dec("40"), "B 只剩 40");
 }
@@ -489,11 +441,7 @@ async fn fifo_manual_location_overrides_auto() {
 
     let doc = out_doc("30", Some(row_b)).await;
     let rows = detail_rows(&stockout_handler::detail_of(doc).await.expect("详情"));
-    assert_eq!(
-        rows,
-        vec![(1, Some(row_b), dec("30"))],
-        "手填库位覆盖 FIFO，且不拆行"
-    );
+    assert_eq!(rows, vec![(1, Some(row_b), dec("30"))], "手填库位覆盖 FIFO，且不拆行");
 
     stockout_handler::post_stock_out(doc, None, None)
         .await
@@ -525,10 +473,7 @@ async fn fifo_insufficient_stock_warns_then_rejects_post() {
     assert_eq!(detail.stock_warnings.len(), 1, "应给出一条库存提示");
     let warning = &detail.stock_warnings[0];
     for expected in ["差 10.0000", LOC_CODE_A, LOC_CODE_B, "可用合计 50.0000"] {
-        assert!(
-            warning.contains(expected),
-            "提示要包含「{expected}」：{warning}"
-        );
+        assert!(warning.contains(expected), "提示要包含「{expected}」：{warning}");
     }
 
     let error = stockout_handler::post_stock_out(doc, None, None)
@@ -554,10 +499,7 @@ async fn fifo_insufficient_stock_warns_then_rejects_post() {
     );
     // 整笔回滚：状态没变、两桶原样
     let after = stockout_handler::detail_of(doc).await.expect("详情");
-    assert_eq!(
-        after.header.status, "DRAFT",
-        "过账失败必须整笔回滚（状态不变）"
-    );
+    assert_eq!(after.header.status, "DRAFT", "过账失败必须整笔回滚（状态不变）");
     assert_eq!(qty_at(Some(LOC_A)).await, dec("30"));
     assert_eq!(qty_at(Some(LOC_B)).await, dec("20"));
 }
@@ -606,16 +548,10 @@ async fn fifo_null_bucket_participates() {
     let doc = out_doc("25", None).await;
     let rows = detail_rows(&stockout_handler::detail_of(doc).await.expect("详情"));
     assert_eq!(rows.len(), 2);
-    assert_eq!(
-        rows[0],
-        (1, None, dec("10")),
-        "未分配桶也是桶，按建账时间参与 FIFO"
-    );
+    assert_eq!(rows[0], (1, None, dec("10")), "未分配桶也是桶，按建账时间参与 FIFO");
     assert_eq!(rows[1], (2, Some(row_a), dec("15")));
 
-    stockout_handler::post_stock_out(doc, None, None)
-        .await
-        .expect("过账");
+    stockout_handler::post_stock_out(doc, None, None).await.expect("过账");
     assert_eq!(qty_at(None).await, Decimal::ZERO);
     assert_eq!(qty_at(Some(LOC_A)).await, dec("5"));
 }
@@ -655,11 +591,7 @@ async fn fifo_multiple_lines_do_not_double_book() {
         (2, None, dec("20")),
         "第 2 行只剩 10，不预填（不能重复分配同一桶）"
     );
-    assert_eq!(
-        dec(&detail.header.total_qty),
-        dec("40"),
-        "用户要的合计不能被预分配改掉"
-    );
+    assert_eq!(dec(&detail.header.total_qty), dec("40"), "用户要的合计不能被预分配改掉");
 }
 
 /// 负库存仓：不够量也不预拆，过账按「允许负库存」放行（口径与改前一致）。

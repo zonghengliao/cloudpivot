@@ -57,9 +57,7 @@ use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInpu
 use crate::business::shared::principal;
 use crate::business::task::dep;
 use crate::business::task::dto::{ScheduleMode, TaskScheduleReq, TaskScheduleRes};
-use crate::business::task::handler::{
-    current_user, display_name, not_found, param_invalid, parse_uuid_field,
-};
+use crate::business::task::handler::{current_user, display_name, not_found, param_invalid, parse_uuid_field};
 use crate::business::task::model::{self, PeerSchedule, ScheduleRow};
 use crate::business::task::state::TaskStatus;
 use crate::shared::error_code;
@@ -193,9 +191,7 @@ pub fn resolve_target(
     let span = match mode {
         ScheduleMode::Shift(days) => {
             if current.start_date.is_none() && current.due_date.is_none() {
-                return Err(
-                    "任务没有起止日期，无法整体平移（请先在详情页设置起止日期）".to_string()
-                );
+                return Err("任务没有起止日期，无法整体平移（请先在详情页设置起止日期）".to_string());
             }
             let delta = Duration::days(days);
             TargetSpan::new(
@@ -203,10 +199,9 @@ pub fn resolve_target(
                 current.due_date.map(|date| date + delta),
             )
         }
-        ScheduleMode::Explicit => TargetSpan::new(
-            req.start_date.or(current.start_date),
-            req.due_date.or(current.due_date),
-        ),
+        ScheduleMode::Explicit => {
+            TargetSpan::new(req.start_date.or(current.start_date), req.due_date.or(current.due_date))
+        }
     };
     if span.start.is_none() && span.due.is_none() {
         return Err("改期后任务没有任何日期（起止日不能同时为空）".to_string());
@@ -223,10 +218,7 @@ pub fn resolve_target(
 /// 补录历史任务是合法需求（把去年的活儿补录进系统），所以不能卡「今天」；
 /// 但 `1000-01-01` 这种明显是误输（拖拽像素换算错 / 手输少一位），
 /// 以任务创建时间为锚、放宽 1 年，既不误伤补录也能拦住手滑。
-pub fn check_date_sanity(
-    span: &TargetSpan,
-    created_at: NaiveDate,
-) -> std::result::Result<(), ScheduleConflict> {
+pub fn check_date_sanity(span: &TargetSpan, created_at: NaiveDate) -> std::result::Result<(), ScheduleConflict> {
     if let (Some(start), Some(due)) = (span.start, span.due)
         && start > due
     {
@@ -310,20 +302,13 @@ pub fn check_predecessors(
 ///   一条已完成的后继仍记录着「它当时从哪天开始」，前置拖到它之后会让历史自相矛盾）；
 /// - 后继**没有开始日** ⇒ 不拦；
 /// - 相等**允许**（`due <= succ.start`）。
-pub fn check_successors(
-    span: &TargetSpan,
-    successors: &[PeerSchedule],
-) -> std::result::Result<(), ScheduleConflict> {
+pub fn check_successors(span: &TargetSpan, successors: &[PeerSchedule]) -> std::result::Result<(), ScheduleConflict> {
     let Some(due) = span.effective_due() else {
         return Ok(());
     };
     let hits: Vec<String> = successors
         .iter()
-        .filter(|peer| {
-            !peer
-                .status
-                .eq_ignore_ascii_case(TaskStatus::Cancelled.code())
-        })
+        .filter(|peer| !peer.status.eq_ignore_ascii_case(TaskStatus::Cancelled.code()))
         .filter_map(|peer| {
             let start = peer.start_date?;
             (due > start).then(|| {
@@ -402,10 +387,7 @@ pub fn check_parent_range(
 /// 前端文案只有一句「子任务日期必须在父任务范围内」。把「父任务甩出子任务」拆成
 /// 另一个码，前端就得再写一套文案，而用户看到的问题本质是同一个
 /// （父子区间不一致）。文案里点名**具体的子任务**，两种方向都能一眼定位。
-pub fn check_children_range(
-    span: &TargetSpan,
-    children: &[PeerSchedule],
-) -> std::result::Result<(), ScheduleConflict> {
+pub fn check_children_range(span: &TargetSpan, children: &[PeerSchedule]) -> std::result::Result<(), ScheduleConflict> {
     if span.start.is_none() && span.due.is_none() {
         return Ok(());
     }
@@ -546,18 +528,13 @@ pub async fn schedule(
                 return Ok(None); // 事务内被并发软删 → 调用方转 404
             };
             let span = resolve_target(&row, &req, mode).map_err(|message| {
-                DbError::InvalidValue(
-                    ScheduleConflict::new(error_code::TASK_FIELD_INVALID, message).encode(),
-                )
+                DbError::InvalidValue(ScheduleConflict::new(error_code::TASK_FIELD_INVALID, message).encode())
             })?;
             if span.start == row.start_date && span.due == row.due_date {
                 return Err(DbError::InvalidValue(
                     ScheduleConflict::new(
                         error_code::TASK_FIELD_INVALID,
-                        format!(
-                            "改期没有实际变化：仍为 {}（拖动 0 格时前端不应发请求）",
-                            span.text()
-                        ),
+                        format!("改期没有实际变化：仍为 {}（拖动 0 格时前端不应发请求）", span.text()),
                     )
                     .encode(),
                 ));
@@ -570,15 +547,8 @@ pub async fn schedule(
                 None => None,
             };
             let children = model::schedule_children(&tx, task_id).await?;
-            check_all(
-                &span,
-                &row,
-                &prerequisites,
-                &successors,
-                parent.as_ref(),
-                &children,
-            )
-            .map_err(|conflict| DbError::InvalidValue(conflict.encode()))?;
+            check_all(&span, &row, &prerequisites, &successors, parent.as_ref(), &children)
+                .map_err(|conflict| DbError::InvalidValue(conflict.encode()))?;
 
             let affected = model::update_schedule(&tx, task_id, span.start, span.due, me).await?;
             if affected == 0 {
@@ -594,8 +564,7 @@ pub async fn schedule(
                 }
             );
             let comment_id =
-                model::insert_comment(&tx, task_id, me, &comment, model::COMMENT_TYPE_SCHEDULE, me)
-                    .await?;
+                model::insert_comment(&tx, task_id, me, &comment, model::COMMENT_TYPE_SCHEDULE, me).await?;
             let before = serde_json::json!({
                 "start_date": row.start_date,
                 "due_date": row.due_date,
@@ -607,18 +576,11 @@ pub async fn schedule(
             let recorded = changelog::record(
                 &tx,
                 &ChangeCtx::api(Some(me), Some(&operator_name_tx)),
-                ChangeTarget::of(
-                    "biz_task",
-                    task_id.to_string(),
-                    Action::Update,
-                    "甘特拖拽改期",
-                ),
+                ChangeTarget::of("biz_task", task_id.to_string(), Action::Update, "甘特拖拽改期"),
                 DiffInput::update(&before, &after),
             )
             .await
-            .map_err(|error| {
-                DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
-            })?;
+            .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
             Ok(Some(ScheduleOutcome {
                 task_no: row.task_no,
                 old_start: row.start_date,
@@ -720,21 +682,12 @@ mod tests {
             status: "TODO".to_string(),
             start_date: start.map(day),
             due_date: due.map(day),
-            created_at: Utc
-                .with_ymd_and_hms(2026, 10, 1, 3, 0, 0)
-                .single()
-                .expect("合法时间"),
+            created_at: Utc.with_ymd_and_hms(2026, 10, 1, 3, 0, 0).single().expect("合法时间"),
             parent_id: None,
         }
     }
 
-    fn peer(
-        task_no: &str,
-        title: &str,
-        status: &str,
-        start: Option<&str>,
-        due: Option<&str>,
-    ) -> PeerSchedule {
+    fn peer(task_no: &str, title: &str, status: &str, start: Option<&str>, due: Option<&str>) -> PeerSchedule {
         PeerSchedule {
             peer_id: Uuid::now_v7(),
             task_no: task_no.to_string(),
@@ -815,11 +768,7 @@ mod tests {
         };
         let span = resolve_target(&current, &req, ScheduleMode::Explicit).expect("只改开始日");
         assert_eq!(span.start, Some(day("2026-11-03")));
-        assert_eq!(
-            span.due,
-            Some(day("2026-11-05")),
-            "未传的截止日必须保持原值"
-        );
+        assert_eq!(span.due, Some(day("2026-11-05")), "未传的截止日必须保持原值");
 
         // 右边缘拖：只给 due_date
         let req = TaskScheduleReq {
@@ -827,11 +776,7 @@ mod tests {
             ..TaskScheduleReq::default()
         };
         let span = resolve_target(&current, &req, ScheduleMode::Explicit).expect("只改截止日");
-        assert_eq!(
-            span.start,
-            Some(day("2026-11-01")),
-            "未传的开始日必须保持原值"
-        );
+        assert_eq!(span.start, Some(day("2026-11-01")), "未传的开始日必须保持原值");
         assert_eq!(span.due, Some(day("2026-11-09")));
     }
 
@@ -881,9 +826,7 @@ mod tests {
             "正好落在下界上允许（不得早于 ≠ 必须晚于）"
         );
         // 只改截止日也要查下界
-        assert!(
-            check_date_sanity(&TargetSpan::new(None, Some(day("2020-01-01"))), created).is_err()
-        );
+        assert!(check_date_sanity(&TargetSpan::new(None, Some(day("2020-01-01"))), created).is_err());
     }
 
     // ---------- ② 前置 ----------
@@ -902,21 +845,9 @@ mod tests {
         let conflict = check_predecessors(&span, &preds).expect_err("早于前置截止必须拒");
         assert_eq!(conflict.code, error_code::TASK_SCHEDULE_PREDECESSOR);
         assert_eq!(conflict.code, 63110);
-        assert!(
-            conflict.message.contains("TSK-202610-000012"),
-            "{}",
-            conflict.message
-        );
-        assert!(
-            conflict.message.contains("数据库设计"),
-            "{}",
-            conflict.message
-        );
-        assert!(
-            conflict.message.contains("2026-10-30"),
-            "{}",
-            conflict.message
-        );
+        assert!(conflict.message.contains("TSK-202610-000012"), "{}", conflict.message);
+        assert!(conflict.message.contains("数据库设计"), "{}", conflict.message);
+        assert!(conflict.message.contains("2026-10-30"), "{}", conflict.message);
         assert!(
             conflict.message.starts_with("改期违反依赖：前置 "),
             "文案前缀必须是卡面写死的形态：{}",
@@ -957,21 +888,12 @@ mod tests {
             Some("2026-09-01"),
             Some("2026-10-10"),
         )];
-        assert!(
-            check_predecessors(&span, &preds).is_err(),
-            "REVIEW 不是「已完成」"
-        );
+        assert!(check_predecessors(&span, &preds).is_err(), "REVIEW 不是「已完成」");
     }
 
     #[test]
     fn predecessor_without_due_date_is_not_a_conflict() {
-        let preds = vec![peer(
-            "TSK-202610-000014",
-            "没排截止日的前置",
-            "TODO",
-            None,
-            None,
-        )];
+        let preds = vec![peer("TSK-202610-000014", "没排截止日的前置", "TODO", None, None)];
         let span = TargetSpan::new(Some(day("2026-10-01")), Some(day("2026-10-05")));
         assert!(
             check_predecessors(&span, &preds).is_ok(),
@@ -994,21 +916,9 @@ mod tests {
         let conflict = check_successors(&span, &succs).expect_err("晚于后继开始必须拒");
         assert_eq!(conflict.code, error_code::TASK_SCHEDULE_SUCCESSOR);
         assert_eq!(conflict.code, 63111);
-        assert!(
-            conflict.message.contains("TSK-202610-000015"),
-            "{}",
-            conflict.message
-        );
-        assert!(
-            conflict.message.contains("接口联调"),
-            "{}",
-            conflict.message
-        );
-        assert!(
-            conflict.message.contains("2026-11-01"),
-            "{}",
-            conflict.message
-        );
+        assert!(conflict.message.contains("TSK-202610-000015"), "{}", conflict.message);
+        assert!(conflict.message.contains("接口联调"), "{}", conflict.message);
+        assert!(conflict.message.contains("2026-11-01"), "{}", conflict.message);
         assert!(
             conflict.message.starts_with("改期违反依赖：后继 "),
             "文案前缀必须是卡面写死的形态：{}",
@@ -1058,11 +968,7 @@ mod tests {
         .expect_err("子任务开始早于父任务必须拒");
         assert_eq!(conflict.code, error_code::TASK_SCHEDULE_PARENT_RANGE);
         assert_eq!(conflict.code, 63112);
-        assert!(
-            conflict.message.contains("TSK-202610-000001"),
-            "{}",
-            conflict.message
-        );
+        assert!(conflict.message.contains("TSK-202610-000001"), "{}", conflict.message);
         assert!(conflict.message.contains("父任务"), "{}", conflict.message);
         assert!(
             conflict.message.contains("2026-11-01"),
@@ -1097,11 +1003,7 @@ mod tests {
         )
         .expect_err("父任务不级联，甩出子任务必须拒");
         assert_eq!(conflict.code, 63112);
-        assert!(
-            conflict.message.contains("TSK-202610-000021"),
-            "{}",
-            conflict.message
-        );
+        assert!(conflict.message.contains("TSK-202610-000021"), "{}", conflict.message);
         assert!(conflict.message.contains("不级联"), "{}", conflict.message);
 
         // 区间包含子任务 → 通过
@@ -1127,8 +1029,7 @@ mod tests {
             Some("2026-10-20"),
             Some("2026-10-30"),
         )];
-        let conflict = check_all(&span, &current, &preds, &[], None, &[])
-            .expect_err("倒置区间必须先被日期合法性拦住");
+        let conflict = check_all(&span, &current, &preds, &[], None, &[]).expect_err("倒置区间必须先被日期合法性拦住");
         assert_eq!(
             conflict.code,
             error_code::TASK_FIELD_INVALID,
@@ -1138,10 +1039,7 @@ mod tests {
 
     #[test]
     fn conflict_encoding_round_trips() {
-        let conflict = ScheduleConflict::new(
-            63110,
-            "改期违反依赖：前置 X「Y」（截止 Z）尚未完成".to_string(),
-        );
+        let conflict = ScheduleConflict::new(63110, "改期违反依赖：前置 X「Y」（截止 Z）尚未完成".to_string());
         let raw = conflict.encode();
         assert_eq!(ScheduleConflict::decode(&raw), Some(conflict));
         assert!(ScheduleConflict::decode("真正的数据库异常").is_none());

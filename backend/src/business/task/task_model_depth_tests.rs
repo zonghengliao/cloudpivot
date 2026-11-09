@@ -131,11 +131,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     .expect("夹具清理失败");
     // 8 层链：L1（顶层）→ … → L8
     for (index, id) in L.iter().enumerate() {
-        let parent = if index == 0 {
-            None
-        } else {
-            Some(uuid(L[index - 1]))
-        };
+        let parent = if index == 0 { None } else { Some(uuid(L[index - 1])) };
         insert_task(uuid(id), &format!("T8A-L{}", index + 1), parent, me).await;
     }
     // 独立顶层任务（不在任何链上）
@@ -217,10 +213,7 @@ async fn level_one_task_can_be_created() {
         "任务号形态应为 TSK-YYYYMM-NNNNNN：{task_no}"
     );
     let row = find_raw(id).await.expect("查任务失败").expect("任务应存在");
-    assert!(
-        row.card.parent_id.is_none(),
-        "顶层任务的 parent_id 必须是 NULL"
-    );
+    assert!(row.card.parent_id.is_none(), "顶层任务的 parent_id 必须是 NULL");
     assert_eq!(chain_of(id).await, 1, "顶层任务的祖先链长 = 1 层");
 }
 
@@ -250,10 +243,7 @@ async fn level_three_is_allowed_and_really_created() {
         .expect("第 3 层以前被「最多 2 层」拒，现在必须放行");
     let id = uuid(NEW_L3);
     create_via_model(id, Some(uuid(L[1])), me).await;
-    let row = find_raw(id)
-        .await
-        .expect("查任务失败")
-        .expect("第 3 层任务应落库");
+    let row = find_raw(id).await.expect("查任务失败").expect("第 3 层任务应落库");
     assert_eq!(row.card.parent_id, Some(uuid(L[1])), "第 3 层的父应是 L2");
     assert_eq!(chain_of(id).await, 3, "新建的任务应为第 3 层");
 }
@@ -265,14 +255,8 @@ async fn level_eight_is_allowed() {
         Some(guard) => guard,
         None => return,
     };
-    validate_parent(uuid(L[6]), None)
-        .await
-        .expect("第 8 层必须建得出来");
-    assert_eq!(
-        chain_of(uuid(L[7])).await,
-        MAX_TASK_DEPTH,
-        "L8 的链长应为 8"
-    );
+    validate_parent(uuid(L[6]), None).await.expect("第 8 层必须建得出来");
+    assert_eq!(chain_of(uuid(L[7])).await, MAX_TASK_DEPTH, "L8 的链长应为 8");
     assert_eq!(chain_of(uuid(L[0])).await, 1, "L1 的链长应为 1");
 }
 
@@ -283,18 +267,10 @@ async fn level_nine_is_rejected_with_63005() {
         Some(guard) => guard,
         None => return,
     };
-    let error = validate_parent(uuid(L[7]), None)
-        .await
-        .expect_err("第 9 层必须被拒");
+    let error = validate_parent(uuid(L[7]), None).await.expect_err("第 9 层必须被拒");
     let message = format!("{error}");
-    assert!(
-        message.contains("最多 8 层"),
-        "文案应写明 8 层上限：{message}"
-    );
-    assert!(
-        message.contains("第 8 层"),
-        "文案应点明父任务链已到第 8 层：{message}"
-    );
+    assert!(message.contains("最多 8 层"), "文案应写明 8 层上限：{message}");
+    assert!(message.contains("第 8 层"), "文案应点明父任务链已到第 8 层：{message}");
     // handler 侧的口径：DbError::InvalidValue → 400 + TASK_PARENT_INVALID(63005)
     assert_eq!(crate::shared::error_code::TASK_PARENT_INVALID, 63005);
 }
@@ -310,10 +286,7 @@ async fn self_parent_is_rejected() {
     let error = validate_parent(id, Some(id))
         .await
         .expect_err("自己当自己的父任务必须被拒");
-    assert!(
-        format!("{error}").contains("父任务不能是任务自己"),
-        "文案不对：{error}"
-    );
+    assert!(format!("{error}").contains("父任务不能是任务自己"), "文案不对：{error}");
 }
 
 // ---------- ⑦ 成环（A→B，然后 B→A）→ 400 + 63005 ----------
@@ -343,11 +316,7 @@ async fn ancestor_chain_cycle_terminates_with_error() {
         None => return,
     };
     // CYC_A → CYC_B → CYC_A（库里真的有环；handler 任何路径都造不出来，只能手工改库）
-    assert_eq!(
-        chain_of(uuid(CYC_A)).await,
-        0,
-        "夹具应是一条真环（链长判定为 0）"
-    );
+    assert_eq!(chain_of(uuid(CYC_A)).await, 0, "夹具应是一条真环（链长判定为 0）");
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(5),
         validate_parent(uuid(CYC_A), Some(uuid(L[0]))),
@@ -356,20 +325,14 @@ async fn ancestor_chain_cycle_terminates_with_error() {
     let error = outcome
         .expect("祖先链有环时必须在 5s 内返回，不许死循环")
         .expect_err("祖先链有环必须报错，不能猜一个深度放行");
-    assert!(
-        format!("{error}").contains("成环"),
-        "文案应说明成环：{error}"
-    );
+    assert!(format!("{error}").contains("成环"), "文案应说明成环：{error}");
 }
 
 // ---------- ⑨ 不连库的结构守卫：祖先链只有一条递归 SQL ----------
 #[test]
 fn ancestor_chain_query_is_one_recursive_cte() {
     let sql = ancestor_chain_sql();
-    assert!(
-        sql.contains("WITH RECURSIVE"),
-        "必须用 WITH RECURSIVE：{sql}"
-    );
+    assert!(sql.contains("WITH RECURSIVE"), "必须用 WITH RECURSIVE：{sql}");
     assert_eq!(
         sql.matches("?::uuid").count(),
         1,
@@ -397,13 +360,8 @@ async fn missing_or_deleted_parent_is_rejected() {
         None => return,
     };
     let ghost = uuid("7a8a0000-0000-4000-8000-00000000dead");
-    let error = validate_parent(ghost, None)
-        .await
-        .expect_err("不存在的父任务必须被拒");
-    assert!(
-        format!("{error}").contains("父任务不存在"),
-        "文案不对：{error}"
-    );
+    let error = validate_parent(ghost, None).await.expect_err("不存在的父任务必须被拒");
+    assert!(format!("{error}").contains("父任务不存在"), "文案不对：{error}");
 
     db().execute_with_params(
         "UPDATE biz_task SET deleted_at = now() WHERE id = ?::uuid",
@@ -414,8 +372,5 @@ async fn missing_or_deleted_parent_is_rejected() {
     let error = validate_parent(uuid(L[3]), None)
         .await
         .expect_err("已软删的父任务必须被拒");
-    assert!(
-        format!("{error}").contains("父任务已删除"),
-        "文案不对：{error}"
-    );
+    assert!(format!("{error}").contains("父任务已删除"), "文案不对：{error}");
 }

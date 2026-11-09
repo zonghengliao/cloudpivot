@@ -44,13 +44,8 @@ fn me_of(claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
 
 /// 解析 UUID 字段（非法 → `400 + 65005`，不静默当 404）。
 fn parse_uuid_field(raw: &str, label: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim()).map_err(|_| {
-        ApiError::new(
-            400,
-            error_code::FLOW_FIELD_INVALID,
-            format!("{label}格式非法"),
-        )
-    })
+    Uuid::parse_str(raw.trim())
+        .map_err(|_| ApiError::new(400, error_code::FLOW_FIELD_INVALID, format!("{label}格式非法")))
 }
 
 /// 字段非法（`400 + 65005`）。
@@ -146,9 +141,7 @@ pub async fn page(
             Some(raw) => {
                 let target = parse_uuid_field(raw, "委托人 id")?;
                 if target != me && !is_admin {
-                    return Err(forbidden(
-                        "只能查看自己的委托（查看他人委托需要 business:flow:admin）",
-                    ));
+                    return Err(forbidden("只能查看自己的委托（查看他人委托需要 business:flow:admin）"));
                 }
                 Some(target)
             }
@@ -204,9 +197,7 @@ pub async fn create(
         Some(raw) => {
             let target = parse_uuid_field(raw, "委托人 id")?;
             if target != me && !is_admin {
-                return Err(forbidden(
-                    "只能给自己配委托（替他人配置需要 business:flow:admin）",
-                ));
+                return Err(forbidden("只能给自己配委托（替他人配置需要 business:flow:admin）"));
             }
             target
         }
@@ -300,9 +291,7 @@ pub async fn update(
         .map_err(|error| utils::db_error(error, "查询审批委托"))?
         .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "委托不存在或已删除"))?;
     if row.delegator_id != me && !is_admin {
-        return Err(forbidden(
-            "只能修改自己的委托（修改他人委托需要 business:flow:admin）",
-        ));
+        return Err(forbidden("只能修改自己的委托（修改他人委托需要 business:flow:admin）"));
     }
 
     let delegate_id = parse_uuid_field(&req.delegate_id, "受托人 id")?;
@@ -325,9 +314,7 @@ pub async fn update(
         .transaction(|tx| async move {
             delegate::lock_delegator(&tx, delegator_id).await?;
             // 排除自己这一行 —— 否则「什么都不改」的保存会被自己判成重叠
-            let conflict =
-                delegate::overlap_of(&tx, delegator_id, start_at, end_at, Some(delegate_id_row))
-                    .await?;
+            let conflict = delegate::overlap_of(&tx, delegator_id, start_at, end_at, Some(delegate_id_row)).await?;
             if conflict.is_some() {
                 return Ok(conflict);
             }
@@ -383,9 +370,7 @@ pub async fn remove(
         .map_err(|error| utils::db_error(error, "查询审批委托"))?
         .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "委托不存在或已删除"))?;
     if row.delegator_id != me && !is_admin {
-        return Err(forbidden(
-            "只能删除自己的委托（删除他人委托需要 business:flow:admin）",
-        ));
+        return Err(forbidden("只能删除自己的委托（删除他人委托需要 business:flow:admin）"));
     }
     delegate::soft_delete(db(), row_id)
         .await

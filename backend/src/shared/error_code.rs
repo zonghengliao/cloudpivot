@@ -1736,10 +1736,7 @@ mod tests {
         assert!(codes[0].0 > 60033, "6100x 段必须排在批次 A 之后");
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "6100x 段不得有重复码值");
-        println!(
-            "[码表] 6100x 段 {} 个码齐全且不重复（61001–61012）✓",
-            codes.len()
-        );
+        println!("[码表] 6100x 段 {} 个码齐全且不重复（61001–61012）✓", codes.len());
     }
 
     /// C0 段码位自检：62xxx 段 **24 个**码齐全（C 段 19 + 批次 D 偏好 5）、码值不重复、与架构 §5.2 码表逐字一致
@@ -1784,16 +1781,9 @@ mod tests {
         // 与批次 B 的 6100x 段严格不重叠
         assert!(codes[0].0 > 61012, "62xxx 段必须排在批次 B 之后");
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
-        assert_eq!(
-            unique.len(),
-            24,
-            "62xxx 段必须是 24 个码（C 段 19 + 偏好 5）"
-        );
+        assert_eq!(unique.len(), 24, "62xxx 段必须是 24 个码（C 段 19 + 偏好 5）");
         assert_eq!(unique.len(), codes.len(), "62xxx 段不得有重复码值");
-        println!(
-            "[码表] 62xxx 段 {} 个码齐全且不重复（62001–62019）✓",
-            codes.len()
-        );
+        println!("[码表] 62xxx 段 {} 个码齐全且不重复（62001–62019）✓", codes.len());
     }
 
     /// T 段码位自检：63xxx 段 20 个码齐全、码值不重复、与 62xxx 段不重叠。
@@ -1887,10 +1877,7 @@ mod tests {
             codes.iter().all(|(c, _)| *c > 63308 && *c < 64001),
             "634xx 段必须落在 63308 与 64001 之间（不侵占 AI 用户段）"
         );
-        println!(
-            "[码表] 634xx 段 {} 个码齐全且不重复（63401–63407）✓",
-            codes.len()
-        );
+        println!("[码表] 634xx 段 {} 个码齐全且不重复（63401–63407）✓", codes.len());
     }
 
     /// AI 执行者硬拒段自检：632xx 段 4 个码齐全、码值不重复、与 63xxx / 64xxx 都不重叠。
@@ -1964,10 +1951,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "64xxx 段不得有重复码值");
         assert_eq!(unique.len(), 14, "64xxx 段必须是 14 个码（64001–64014）");
-        println!(
-            "[码表] 64xxx 段 {} 个码齐全且不重复（64001–64014）✓",
-            codes.len()
-        );
+        println!("[码表] 64xxx 段 {} 个码齐全且不重复（64001–64014）✓", codes.len());
     }
 
     /// 审批流段自检：65xxx 段 22 个码齐全、码值不重复、与 64xxx 段不重叠。

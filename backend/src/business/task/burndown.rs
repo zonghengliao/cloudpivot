@@ -126,12 +126,7 @@ pub struct BurndownSeries {
 ///
 /// - `ideal[i] = total × (days - i) / days`（`days = end - start`，最后一点为 0）；
 /// - `actual[i] = total − Σ{daily.date < dates[i]}`（严格小于 → 首点为全量）。
-pub fn build_series(
-    total: i64,
-    start: NaiveDate,
-    end: NaiveDate,
-    daily: &[(NaiveDate, i64)],
-) -> BurndownSeries {
+pub fn build_series(total: i64, start: NaiveDate, end: NaiveDate, daily: &[(NaiveDate, i64)]) -> BurndownSeries {
     let span = (end - start).num_days().max(0);
     let count = (span + 1) as usize;
     let mut dates = Vec::with_capacity(count);
@@ -154,11 +149,7 @@ pub fn build_series(
             .sum();
         actual.push((total - done_before).max(0));
     }
-    BurndownSeries {
-        dates,
-        ideal,
-        actual,
-    }
+    BurndownSeries { dates, ideal, actual }
 }
 
 // ==================== 数据访问 ====================
@@ -206,11 +197,7 @@ fn where_clause(
 }
 
 /// 拉取燃尽图事实数据（两条聚合查询，同一份 WHERE）。
-async fn facts(
-    principal: &ScopedPrincipal,
-    project_id: Option<Uuid>,
-    mine_only: bool,
-) -> DbResult<BurndownFacts> {
+async fn facts(principal: &ScopedPrincipal, project_id: Option<Uuid>, mine_only: bool) -> DbResult<BurndownFacts> {
     let scope_ids = model::my_member_task_ids(principal.user_id()).await?;
     let (where_sql, params) = where_clause(principal, &scope_ids, project_id, mine_only);
 
@@ -269,11 +256,7 @@ fn resolve_window(
         ));
     }
     // 单点区间没有「递减」可言 → 补一天，保证至少两个点（前端的线才画得出来）
-    let end = if end == start {
-        start + Duration::days(1)
-    } else {
-        end
-    };
+    let end = if end == start { start + Duration::days(1) } else { end };
     let span = (end - start).num_days();
     if span > MAX_WINDOW_DAYS {
         return Err(ApiError::new(
@@ -294,11 +277,7 @@ fn resolve_window(
 /// - 400 + `10001`：uuid / 日期 / `board` 取值非法；
 /// - 400 + `63504`：区间倒置或超过 366 天；
 /// - 500：数据库异常（含数据权限片段形态异常）。
-#[nik::permission(
-    path = "/business/task/burndown",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/burndown", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/burndown")]
 pub async fn burndown(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -314,9 +293,7 @@ pub async fn burndown(
         Some(raw) if raw.eq_ignore_ascii_case(BOARD_MY) => BOARD_MY.to_string(),
         Some(raw) if raw.eq_ignore_ascii_case(BOARD_ALL) => BOARD_ALL.to_string(),
         Some(raw) => {
-            return Err(param_invalid(format!(
-                "board 取值非法：{raw}（应为 all / my）"
-            )));
+            return Err(param_invalid(format!("board 取值非法：{raw}（应为 all / my）")));
         }
     };
     let mine_only = board == BOARD_MY;

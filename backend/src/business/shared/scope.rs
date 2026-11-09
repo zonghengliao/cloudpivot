@@ -252,8 +252,7 @@ impl ScopeTarget {
 
     /// `password_change_logs`：密码变更日志（B5 补登记，§2.5 的 ✅(P1) 行）。
     /// 归属列是 `user_id`（迁移 `V0017`，`information_schema` 已核对）。
-    pub const PASSWORD_CHANGE_LOGS: Self =
-        Self::new("password_change_logs", "l", None, Some("user_id"));
+    pub const PASSWORD_CHANGE_LOGS: Self = Self::new("password_change_logs", "l", None, Some("user_id"));
 
     /// `sys_notice`（管理视角 `page_notices`）：发送人是 `sender_id`。
     pub const SYS_NOTICE: Self = Self::new("sys_notice", "n", None, Some("sender_id"));
@@ -267,12 +266,8 @@ impl ScopeTarget {
     /// 归属列是 `salesperson_id`（这张结算单算在哪个销售员头上），**没有部门列** ——
     /// 部门类范围（本部门 / 本部门及以下 / 自定义）由 [`filter_for`] 安全侧降级为
     /// 「仅本人」。这是佣金的正确语义：提成对个人，不对部门。
-    pub const BIZ_COMMISSION_SETTLEMENT: Self = Self::new(
-        "biz_commission_settlement",
-        "t",
-        None,
-        Some("salesperson_id"),
-    );
+    pub const BIZ_COMMISSION_SETTLEMENT: Self =
+        Self::new("biz_commission_settlement", "t", None, Some("salesperson_id"));
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
@@ -353,13 +348,7 @@ impl RowFilter {
     }
 
     /// 内部构造：片段 + 参数 + 生效范围。
-    fn new(
-        sql: String,
-        params: Vec<Value>,
-        kind: ScopeKind,
-        dept_set: Option<Vec<Uuid>>,
-        degraded: bool,
-    ) -> Self {
+    fn new(sql: String, params: Vec<Value>, kind: ScopeKind, dept_set: Option<Vec<Uuid>>, degraded: bool) -> Self {
         debug_assert_eq!(
             sql.matches('?').count(),
             params.len(),
@@ -473,9 +462,7 @@ pub fn filter_for(principal: &ScopedPrincipal, target: ScopeTarget) -> RowFilter
         let Some(dept_col) = dept else {
             // 表无部门列：部门范围无法表达 → 降级为仅本人 / 拒绝全部
             return match owner {
-                Some(owner_col) => {
-                    owner_only_filter(format!(" AND {alias}.{owner_col} = ?"), user_id, kind, true)
-                }
+                Some(owner_col) => owner_only_filter(format!(" AND {alias}.{owner_col} = ?"), user_id, kind, true),
                 None => RowFilter::deny_all(),
             };
         };
@@ -485,9 +472,7 @@ pub fn filter_for(principal: &ScopedPrincipal, target: ScopeTarget) -> RowFilter
             // 无归属列的表用部门集合覆盖「本人」那一行（本人的部门必在集合内）。
             return match owner {
                 Some(owner_col) => RowFilter::new(
-                    format!(
-                        " AND ({alias}.{dept_col} = ANY(?::text::uuid[]) OR {alias}.{owner_col} = ?)"
-                    ),
+                    format!(" AND ({alias}.{dept_col} = ANY(?::text::uuid[]) OR {alias}.{owner_col} = ?)"),
                     vec![array_param(&dept_set), user_id],
                     kind,
                     Some(dept_set),
@@ -517,10 +502,7 @@ pub fn filter_for(principal: &ScopedPrincipal, target: ScopeTarget) -> RowFilter
             user_id,
             kind,
             // 部门类范围却没拿到部门集合（表无部门列 / 集合为空）→ 标记降级，自检接口要提示
-            matches!(
-                kind,
-                ScopeKind::Dept | ScopeKind::DeptAndChild | ScopeKind::Custom
-            ),
+            matches!(kind, ScopeKind::Dept | ScopeKind::DeptAndChild | ScopeKind::Custom),
         ),
         None => match (dept, principal.own_dept_id()) {
             // 无归属人但有部门列（`sys_dept`）：本人的「自己」= 本人所在部门这一行
@@ -958,10 +940,7 @@ mod tests {
         assert!(!filter.sql().contains("sys_dept"), "SQL 里不应再出现部门表");
         assert_eq!(filter.sql().matches('?').count(), 1);
         assert_eq!(filter.params().len(), 1);
-        println!(
-            "[S4] DeptAndChild → `{}`（无 WITH RECURSIVE）✓",
-            filter.sql()
-        );
+        println!("[S4] DeptAndChild → `{}`（无 WITH RECURSIVE）✓", filter.sql());
     }
 
     /// S5：`SelfOnly` 在 `sys_user` 用 `id`，在 `sys_import_task` 用 `create_by`。
@@ -994,13 +973,7 @@ mod tests {
 
         // 日志表没有部门列 → 降级为仅本人（fail-closed），并标记 degraded
         let filter = filter_for(
-            &principal(
-                ScopeKind::DeptAndChild,
-                vec![dept, uid(0xD7)],
-                false,
-                Some(dept),
-                false,
-            ),
+            &principal(ScopeKind::DeptAndChild, vec![dept, uid(0xD7)], false, Some(dept), false),
             ScopeTarget::OPERATION_LOGS,
         );
         assert_eq!(filter.sql(), " AND l.user_id = ?");
@@ -1026,11 +999,7 @@ mod tests {
             &principal(ScopeKind::SelfOnly, vec![], true, None, false),
             ScopeTarget::SYS_DEPT,
         );
-        assert_eq!(
-            no_dept.sql(),
-            " AND 1 = 0",
-            "无部门时必须拒绝全部而不是放行"
-        );
+        assert_eq!(no_dept.sql(), " AND 1 = 0", "无部门时必须拒绝全部而不是放行");
         assert!(no_dept.is_degraded());
         println!(
             "[S5c] sys_dept + SelfOnly → `{}`；无部门 → `{}`（fail-closed）✓",
@@ -1044,13 +1013,7 @@ mod tests {
     fn s12_count_strips_order_by() {
         let dept = uid(0xD9);
         let filter = filter_for(
-            &principal(
-                ScopeKind::DeptAndChild,
-                vec![dept],
-                false,
-                Some(dept),
-                false,
-            ),
+            &principal(ScopeKind::DeptAndChild, vec![dept], false, Some(dept), false),
             ScopeTarget::SYS_USER,
         );
         let base = "SELECT u.* FROM sys_user u WHERE u.deleted_at IS NULL";
@@ -1065,10 +1028,7 @@ mod tests {
             data_sql.to_uppercase().contains("ORDER BY"),
             "数据页必须含 ORDER BY：{data_sql}"
         );
-        assert!(
-            data_sql.ends_with("LIMIT 20 OFFSET 0"),
-            "data_sql={data_sql}"
-        );
+        assert!(data_sql.ends_with("LIMIT 20 OFFSET 0"), "data_sql={data_sql}");
         assert!(count_sql.starts_with("SELECT COUNT(*) FROM ("));
         println!("[S12] count → `{count_sql}`");
         println!("[S12] data  → `{data_sql}`");
@@ -1089,29 +1049,19 @@ mod tests {
             ),
             ScopeTarget::SYS_USER,
         );
-        assert_eq!(
-            filter.sql(),
-            " AND (u.dept_id = ANY(?::text::uuid[]) OR u.id = ?)"
-        );
+        assert_eq!(filter.sql(), " AND (u.dept_id = ANY(?::text::uuid[]) OR u.id = ?)");
         let base_params = vec![Value::Text("%ali%".to_string()), Value::I16(1)];
         let merged = merge_params(&filter, &base_params);
         assert_eq!(merged.len(), 4, "片段 2 个 + 业务 2 个");
         // 前两个就是片段参数：数组字面量 + user_id
         match &merged[0] {
             Value::Text(literal) => {
-                assert!(
-                    literal.starts_with('{') && literal.ends_with('}'),
-                    "literal={literal}"
-                );
+                assert!(literal.starts_with('{') && literal.ends_with('}'), "literal={literal}");
                 assert_eq!(literal, &format!("{{{dept}}}"), "第 1 个参数必须是部门数组");
             }
             other => panic!("第 1 个参数应为部门数组文本，实际 {other:?}"),
         }
-        assert_eq!(
-            merged[1],
-            Value::from(&uid(0xC0FFEE)),
-            "第 2 个参数必须是 user_id"
-        );
+        assert_eq!(merged[1], Value::from(&uid(0xC0FFEE)), "第 2 个参数必须是 user_id");
         assert_eq!(merged[2], base_params[0]);
         assert_eq!(merged[3], base_params[1]);
         // 占位符数量 == 参数数量，且片段的 `?` 在业务参数之前（S8/S13 的顺序契约）
@@ -1121,10 +1071,7 @@ mod tests {
         assert_eq!(sql.matches('?').count(), merged.len(), "sql={sql}");
         let first_business = sql.find("username LIKE ?").expect("业务条件必须在 SQL 里");
         let filter_at = sql.find("= ANY(").expect("片段必须在 SQL 里");
-        assert!(
-            filter_at < first_business,
-            "片段必须出现在业务条件之前：{sql}"
-        );
+        assert!(filter_at < first_business, "片段必须出现在业务条件之前：{sql}");
         assert!(!sql.contains(FILTER_MARKER), "标记必须被替换掉：{sql}");
         println!("[S13] sql=`{sql}` params[0]=数组 params[1]=user_id params[2..]=业务参数 ✓");
     }
@@ -1136,16 +1083,13 @@ mod tests {
         assert!(ensure_injection_point("SELECT 1 FROM t WHERE a = 1 {FILTER}", 2).is_ok());
         assert!(ensure_injection_point("SELECT 1 FROM t WHERE a = 1", 0).is_ok());
 
-        let error = ensure_injection_point("SELECT 1 FROM t WHERE a = ?", 1)
-            .expect_err("带业务参数必须用 {FILTER}");
+        let error = ensure_injection_point("SELECT 1 FROM t WHERE a = ?", 1).expect_err("带业务参数必须用 {FILTER}");
         assert!(matches!(error, DbError::InvalidValue(_)), "实际 {error:?}");
 
         let error = ensure_injection_point("SELECT 1 FROM t WHERE {FILTER} AND b = ? {FILTER}", 1)
             .expect_err("{FILTER} 只允许一次");
         assert!(matches!(error, DbError::InvalidValue(_)), "实际 {error:?}");
-        println!(
-            "[守卫] FILTER 标记三条注入规则：有标记→替换；无标记无参数→追加；无标记有参数→报错 ✓"
-        );
+        println!("[守卫] FILTER 标记三条注入规则：有标记→替换；无标记无参数→追加；无标记有参数→报错 ✓");
     }
 
     /// 硬门槛：五类范围各打印一次生成的 SQL（评审证据，`--nocapture` 可见）。
@@ -1165,12 +1109,7 @@ mod tests {
                 false,
             ),
             ("④ SELF", ScopeKind::SelfOnly, vec![], true),
-            (
-                "⑤ CUSTOM",
-                ScopeKind::Custom,
-                vec![uid(0xE4), uid(0xE5)],
-                false,
-            ),
+            ("⑤ CUSTOM", ScopeKind::Custom, vec![uid(0xE4), uid(0xE5)], false),
         ];
         println!("\n========== 五种范围生成的 SQL（S2–S8 评审证据） ==========");
         for (name, kind, dept_ids, self_only) in cases {
@@ -1187,10 +1126,7 @@ mod tests {
             );
             println!("      count: {count_sql}");
             println!("      data : {data_sql}");
-            assert!(
-                !data_sql.contains("WITH RECURSIVE"),
-                "{name} 不得内嵌递归 CTE"
-            );
+            assert!(!data_sql.contains("WITH RECURSIVE"), "{name} 不得内嵌递归 CTE");
         }
         println!("=========================================================\n");
     }
@@ -1202,14 +1138,8 @@ mod tests {
             forbidden_clause("SELECT 1 FROM t WHERE a = 1 ORDER BY created_at DESC"),
             Some("ORDER BY")
         );
-        assert_eq!(
-            forbidden_clause("SELECT 1 FROM t WHERE a = 1 limit 10"),
-            Some("LIMIT")
-        );
-        assert_eq!(
-            forbidden_clause("SELECT limit_value FROM t WHERE a = 1"),
-            None
-        );
+        assert_eq!(forbidden_clause("SELECT 1 FROM t WHERE a = 1 limit 10"), Some("LIMIT"));
+        assert_eq!(forbidden_clause("SELECT limit_value FROM t WHERE a = 1"), None);
         assert_eq!(forbidden_clause("SELECT 1 FROM t WHERE a = 1"), None);
         println!("[守卫] base_sql 里出现 ORDER BY / LIMIT → DbError::InvalidValue ✓");
     }
@@ -1294,10 +1224,7 @@ mod tests {
             ScopeKind::SelfOnly,
             ScopeKind::Custom,
         ] {
-            let filter = filter_for(
-                &principal(kind, vec![uid(0xF1)], false, Some(uid(0xF1)), false),
-                target,
-            );
+            let filter = filter_for(&principal(kind, vec![uid(0xF1)], false, Some(uid(0xF1)), false), target);
             assert_eq!(filter.sql(), " AND 1 = 1", "范围={}", kind.code());
             assert!(filter.params().is_empty(), "范围={}", kind.code());
             assert!(filter.is_noop(), "范围={}", kind.code());

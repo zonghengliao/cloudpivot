@@ -130,8 +130,7 @@ async fn cleanup_fixtures() {
     // 跨用例累积（实测：5 条残留 → B2 报 1030 的差，看起来像出库把账做坏了）
     let _ = db()
         .exec_sql(
-            "DELETE FROM biz_voucher WHERE source_type = 'SERIAL_BATCH' AND source_no = 'SEED-IN'"
-                .to_string(),
+            "DELETE FROM biz_voucher WHERE source_type = 'SERIAL_BATCH' AND source_no = 'SEED-IN'".to_string(),
             vec![],
         )
         .await;
@@ -211,16 +210,9 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
     )
     .await
     .expect("期初入库：成本账");
-    crate::business::erp::stockin_model::apply_location_qty(
-        db(),
-        material_id,
-        warehouse_id,
-        None,
-        qty,
-        now,
-    )
-    .await
-    .expect("期初入库：库位账");
+    crate::business::erp::stockin_model::apply_location_qty(db(), material_id, warehouse_id, None, qty, now)
+        .await
+        .expect("期初入库：库位账");
     crate::business::erp::stockin_model::write_txn(
         db(),
         material_id,
@@ -240,10 +232,9 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
     let inventory = voucher::account_required(db(), voucher::DEFAULT_INVENTORY_CODE, "库存商品")
         .await
         .expect("科目 1405 必须存在（V0137 种子）");
-    let counterpart =
-        voucher::account_required(db(), voucher::ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢")
-            .await
-            .expect("科目 1901 必须存在（V0160 种子）");
+    let counterpart = voucher::account_required(db(), voucher::ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢")
+        .await
+        .expect("科目 1901 必须存在（V0160 种子）");
     voucher::post_voucher(
         db(),
         &voucher::PostVoucher {
@@ -349,12 +340,9 @@ async fn inventory_account_balance() -> Decimal {
 /// 库存总金额（全部物料）。仅用于人工排查，保留作诊断工具。
 #[allow(dead_code)]
 async fn inventory_total_amount() -> Decimal {
-    db().scalar_sql(
-        "SELECT coalesce(sum(amount),0) FROM biz_inventory".to_string(),
-        vec![],
-    )
-    .await
-    .expect("读库存金额")
+    db().scalar_sql("SELECT coalesce(sum(amount),0) FROM biz_inventory".to_string(), vec![])
+        .await
+        .expect("读库存金额")
 }
 
 /// B1 / B4 / C1 三条不变式（与 `erp_invariants.py` 同口径；B2 单独判，因为它受全局库存影响）。
@@ -372,10 +360,7 @@ async fn assert_ledgers_green(material_id: Uuid, warehouse_id: Uuid, ctx: &str) 
         txn.round_dp(4),
         "[{ctx}] B4 违约：成本账 {cost_qty} ≠ 流水累计 {txn}"
     );
-    assert!(
-        cost_qty >= Decimal::ZERO,
-        "[{ctx}] C1 违约：库存为负 {cost_qty}"
-    );
+    assert!(cost_qty >= Decimal::ZERO, "[{ctx}] C1 违约：库存为负 {cost_qty}");
 }
 
 /// B2：Σ 库存金额 = 1405 余额（容差 0.0001，与巡检 TOL 一致）。
@@ -412,13 +397,7 @@ async fn assert_b2_green(material_id: Uuid, ctx: &str) {
 }
 
 /// 造一张出库单（不走 HTTP）。
-async fn make_doc(
-    out_type: &str,
-    warehouse_id: Uuid,
-    material_id: Uuid,
-    qty: Decimal,
-    reason: &str,
-) -> Uuid {
+async fn make_doc(out_type: &str, warehouse_id: Uuid, material_id: Uuid, qty: Decimal, reason: &str) -> Uuid {
     let req = super::super::stockout_dto::CreateStockOutReq {
         out_type: Some(out_type.to_string()),
         warehouse_id: Some(warehouse_id.to_string()),
@@ -467,11 +446,7 @@ async fn dc13_full_chain_keeps_six_ledgers_green() {
         .expect("盘亏过账");
 
     let (qty, amount) = cost_ledger(material, warehouse).await;
-    assert_eq!(
-        qty.round_dp(4),
-        Decimal::from(55),
-        "账面数量应为 100-30-10-5=55"
-    );
+    assert_eq!(qty.round_dp(4), Decimal::from(55), "账面数量应为 100-30-10-5=55");
     assert_eq!(
         amount.round_dp(4),
         Decimal::from(550),
@@ -531,16 +506,8 @@ async fn dc13_negative_stock_is_blocked_and_rolled_back() {
         crate::shared::error_code::ERP_STOCK_OUT_NEGATIVE,
         "必须用 66034 而不是通用冲突码"
     );
-    assert!(
-        error.msg.contains("DC13-M2"),
-        "报文必须点名物料编码：{}",
-        error.msg
-    );
-    assert!(
-        error.msg.contains("20"),
-        "报文必须给出可用量（20）：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("DC13-M2"), "报文必须点名物料编码：{}", error.msg);
+    assert!(error.msg.contains("20"), "报文必须给出可用量（20）：{}", error.msg);
 
     // 整笔回滚：单据仍是草稿，账没动，也没有流水
     let row = super::find(doc).await.expect("查单").expect("单据存在");
@@ -548,11 +515,7 @@ async fn dc13_negative_stock_is_blocked_and_rolled_back() {
     let (after_qty, after_amount) = cost_ledger(material, warehouse).await;
     assert_eq!(after_qty, before_qty, "失败不得改动账面数量");
     assert_eq!(after_amount, before_amount, "失败不得改动账面金额");
-    assert_eq!(
-        txn_total(material, warehouse).await,
-        before_qty,
-        "失败不得写流水"
-    );
+    assert_eq!(txn_total(material, warehouse).await, before_qty, "失败不得写流水");
     assert!(row.voucher_id.is_none(), "失败不得留半张凭证");
     println!("[DC-13] 负库存拦截通过：409/66034 + 整笔回滚");
 }
@@ -568,14 +531,7 @@ async fn dc13_allow_negative_warehouse_lets_qty_go_negative_but_amount_clamps() 
     let warehouse = uuid(WAREHOUSE_NEG);
     seed_inbound(material, warehouse, Decimal::from(10), Decimal::from(3)).await;
 
-    let doc = make_doc(
-        "OTHER",
-        warehouse,
-        material,
-        Decimal::from(15),
-        "负库存仓放行",
-    )
-    .await;
+    let doc = make_doc("OTHER", warehouse, material, Decimal::from(15), "负库存仓放行").await;
     super::super::stockout_handler::post_stock_out(doc, None, None)
         .await
         .expect("允许负库存的仓库必须放行");
@@ -611,24 +567,13 @@ async fn dc13_cancel_restores_ledgers_and_reverses_voucher() {
     let warehouse = uuid(WAREHOUSE);
     seed_inbound(material, warehouse, Decimal::from(100), Decimal::from(10)).await;
 
-    let doc = make_doc(
-        "ISSUE",
-        warehouse,
-        material,
-        Decimal::from(40),
-        "领用后撤回",
-    )
-    .await;
+    let doc = make_doc("ISSUE", warehouse, material, Decimal::from(40), "领用后撤回").await;
     super::super::stockout_handler::post_stock_out(doc, None, None)
         .await
         .expect("过账");
     let posted = super::find(doc).await.expect("查单").expect("单据存在");
     let blue_voucher = posted.voucher_id.expect("过账必有蓝字凭证");
-    assert_eq!(
-        cost_ledger(material, warehouse).await.0,
-        Decimal::from(60),
-        "过账后 60"
-    );
+    assert_eq!(cost_ledger(material, warehouse).await.0, Decimal::from(60), "过账后 60");
 
     // 作废必须写原因（空原因 → 400，不落库）
     let empty = super::super::stockout_handler::cancel_stock_out(doc, "   ", None).await;
@@ -724,13 +669,8 @@ async fn dc13_state_machine_and_guards() {
     assert_eq!(error.status, 409);
 
     // ④ 状态机纯逻辑：边表与文案
-    assert!(super::super::stockout_base::can_transition(
-        "DRAFT", "POSTED"
-    ));
-    assert!(!super::super::stockout_base::can_transition(
-        "CANCELLED",
-        "POSTED"
-    ));
+    assert!(super::super::stockout_base::can_transition("DRAFT", "POSTED"));
+    assert!(!super::super::stockout_base::can_transition("CANCELLED", "POSTED"));
     let message = super::super::stockout_base::transition_rejected_message("CANCELLED", "POSTED");
     assert!(message.contains("终态"), "终态文案：{message}");
 
@@ -778,11 +718,7 @@ async fn dc13_state_machine_and_guards() {
         .await
         .expect_err("报废必须写原因");
     assert_eq!(error.status, 400);
-    assert!(
-        error.msg.contains("1901"),
-        "文案要点出挂 1901：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("1901"), "文案要点出挂 1901：{}", error.msg);
 }
 
 /// 权限码与迁移逐字一致（注解写错一个字母就是 403，且只有非超管会撞上）。

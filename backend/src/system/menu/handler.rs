@@ -33,18 +33,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 参数非法返回 400，数据库异常返回 500。
-#[nik::permission(
-    path = "/system/menu/tree",
-    method = "GET",
-    permission = "system:menu:list"
-)]
+#[nik::permission(path = "/system/menu/tree", method = "GET", permission = "system:menu:list")]
 #[nik::get("/system/menu/tree")]
 pub async fn tree(Query(query): Query<MenuQuery>) -> ResResult<Vec<MenuRes>> {
     // 仅「无任何过滤条件」时走缓存：带过滤的结果集不确定，缓存价值低且易漏失效
-    let no_filter = query.name.is_none()
-        && query.status.is_none()
-        && query.menu_type.is_none()
-        && query.module_code.is_none();
+    let no_filter =
+        query.name.is_none() && query.status.is_none() && query.menu_type.is_none() && query.module_code.is_none();
     if no_filter && let Some(cached) = model::load_cached_tree().await {
         return Ok(Res::ok(cached));
     }
@@ -70,11 +64,7 @@ pub async fn tree(Query(query): Query<MenuQuery>) -> ResResult<Vec<MenuRes>> {
 ///
 /// - 400：ID 格式非法；
 /// - 404：菜单不存在。
-#[nik::permission(
-    path = "/system/menu/{id}",
-    method = "GET",
-    permission = "system:menu:list"
-)]
+#[nik::permission(path = "/system/menu/{id}", method = "GET", permission = "system:menu:list")]
 #[nik::get("/system/menu/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<MenuRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -106,11 +96,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<MenuRes> {
 /// # 异常情况
 ///
 /// 参数非法返回 400，父菜单不存在返回 404，数据库异常返回 500。
-#[nik::permission(
-    path = "/system/menu",
-    method = "POST",
-    permission = "system:menu:create"
-)]
+#[nik::permission(path = "/system/menu", method = "POST", permission = "system:menu:create")]
 #[nik::post("/system/menu")]
 pub async fn create(
     headers: HeaderMap,
@@ -119,9 +105,7 @@ pub async fn create(
     ValidatedJson(req): ValidatedJson<MenuCreateReq>,
 ) -> ResResult<MenuRes> {
     let mut menu = build_model(&req, None, utils::current_user_uuid(&claims)).await?;
-    menu.insert(db())
-        .await
-        .map_err(|e| utils::db_error(e, "新建菜单"))?;
+    menu.insert(db()).await.map_err(|e| utils::db_error(e, "新建菜单"))?;
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,
@@ -167,11 +151,7 @@ pub async fn create(
 /// - 404：菜单或父菜单不存在；
 /// - 409：把菜单挂到自身之下；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/menu/{id}",
-    method = "PUT",
-    permission = "system:menu:update"
-)]
+#[nik::permission(path = "/system/menu/{id}", method = "PUT", permission = "system:menu:update")]
 #[nik::put("/system/menu/{id}")]
 pub async fn update(
     Path(id): Path<String>,
@@ -206,12 +186,8 @@ pub async fn update(
     let tx_menu = to_save.clone();
     db().transaction(|tx| async move {
         tx_menu.update(&tx).await?;
-        crate::system::user::model::bump_token_version_of_menu_holders_in(
-            &tx,
-            tx_menu.id,
-            constants::ADMIN_USERNAME,
-        )
-        .await?;
+        crate::system::user::model::bump_token_version_of_menu_holders_in(&tx, tx_menu.id, constants::ADMIN_USERNAME)
+            .await?;
         Ok(())
     })
     .await
@@ -228,11 +204,7 @@ pub async fn update(
     // 但**重登时读的是 `perm:user_perms:{uid}` 缓存** —— 不清它，用户重登后
     // 仍拿到旧权限码，最长 300 s 继续 403。这两条必须配对出现。
     crate::system::auth::model::invalidate_menu_holders(&to_save.id).await;
-    crate::support::online::model::revoke_after_permission_change(
-        "menu_update",
-        &[constants::ADMIN_USERNAME],
-    )
-    .await;
+    crate::support::online::model::revoke_after_permission_change("menu_update", &[constants::ADMIN_USERNAME]).await;
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,
@@ -279,11 +251,7 @@ pub async fn update(
 /// - 404：菜单不存在；
 /// - 409：存在子菜单；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/menu/{id}",
-    method = "DELETE",
-    permission = "system:menu:delete"
-)]
+#[nik::permission(path = "/system/menu/{id}", method = "DELETE", permission = "system:menu:delete")]
 #[nik::delete("/system/menu/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
@@ -318,17 +286,9 @@ pub async fn delete(
     // 已删除菜单的旧权限码，最长 300 s 继续 403。
     let menu_holders = crate::system::auth::model::menu_holder_ids(&id).await;
     db().transaction(|tx| async move {
-        crate::system::user::model::bump_token_version_of_menu_holders_in(
-            &tx,
-            id,
-            constants::ADMIN_USERNAME,
-        )
-        .await?;
-        tx.execute_with_params(
-            "DELETE FROM sys_role_menu WHERE menu_id = ?",
-            vec![Value::from(id)],
-        )
-        .await?;
+        crate::system::user::model::bump_token_version_of_menu_holders_in(&tx, id, constants::ADMIN_USERNAME).await?;
+        tx.execute_with_params("DELETE FROM sys_role_menu WHERE menu_id = ?", vec![Value::from(id)])
+            .await?;
         SysMenuModel::of(id).delete(&tx).await?;
         Ok(())
     })
@@ -349,11 +309,7 @@ pub async fn delete(
             crate::system::auth::model::invalidate_all_principals().await;
         }
     }
-    crate::support::online::model::revoke_after_permission_change(
-        "menu_delete",
-        &[constants::ADMIN_USERNAME],
-    )
-    .await;
+    crate::support::online::model::revoke_after_permission_change("menu_delete", &[constants::ADMIN_USERNAME]).await;
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,
@@ -439,11 +395,7 @@ async fn build_model(
             .map_err(|e| utils::db_error(e, "校验父菜单"))?
             .is_some();
         if !exists {
-            return Err(ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "父菜单不存在",
-            ));
+            return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "父菜单不存在"));
         }
     }
 
@@ -469,11 +421,7 @@ async fn build_model(
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string),
-        module_code: req
-            .module_code
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string),
+        module_code: req.module_code.as_deref().map(str::trim).map(str::to_string),
         created_at: now,
         updated_at: now,
         create_by: operator,

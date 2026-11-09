@@ -77,27 +77,18 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
 ///
 /// **新增裸接口先想清楚**：进白名单等于承认「这个接口不需要权限码」，reviewer 会问。
 const NO_PERMISSION_ROUTES: &[(&str, &str)] = &[
-    (
-        "POST /system/auth/login",
-        "① 匿名：登录本身，凭账号口令自证",
-    ),
+    ("POST /system/auth/login", "① 匿名：登录本身，凭账号口令自证"),
     (
         "POST /system/auth/refresh",
         "① 匿名：刷新令牌，凭 refresh 自证（轮换后旧的立刻失效）",
     ),
-    (
-        "POST /system/auth/logout",
-        "② 自助：只吊销令牌里的 jti（本人）",
-    ),
+    ("POST /system/auth/logout", "② 自助：只吊销令牌里的 jti（本人）"),
     ("GET /system/auth/me", "② 自助：本人画像 + 权限快照"),
     (
         "GET /system/auth/menus",
         "② 自助：本人可见菜单（本身就是授权结果，无跨人入口）",
     ),
-    (
-        "PUT /system/auth/profile",
-        "② 自助：只写 claims.sub 指向的本人资料",
-    ),
+    ("PUT /system/auth/profile", "② 自助：只写 claims.sub 指向的本人资料"),
     (
         "PUT /system/auth/password",
         "② 自助：只改本人口令（旧口令校验在 handler 内）",
@@ -124,10 +115,7 @@ const NO_PERMISSION_ROUTES: &[(&str, &str)] = &[
         "POST /business/task/{id}/comment",
         "③ 双身份：AI 任务令牌 + handler 内 resolve_reader→principal（读权限 + 可见性）",
     ),
-    (
-        "POST /business/task/{id}/attachment",
-        "③ 双身份：同上（AI 上传附件）",
-    ),
+    ("POST /business/task/{id}/attachment", "③ 双身份：同上（AI 上传附件）"),
     (
         "PATCH /business/task/{id}/ai-progress",
         "③ 只接受任务令牌：人类会话直接 403（63304），无跨任务入口",
@@ -403,10 +391,7 @@ fn permission_of_route(text: &str, pos: usize) -> Option<String> {
 
 /// 一行的下一个换行符之后（行尾，不含换行符本身）；没有换行则文件末尾。
 fn line_end(text: &str, from: usize) -> usize {
-    text[from..]
-        .find('\n')
-        .map(|i| from + i)
-        .unwrap_or(text.len())
+    text[from..].find('\n').map(|i| from + i).unwrap_or(text.len())
 }
 
 /// `pos` 所在行的行首。
@@ -551,16 +536,11 @@ const SEED_AT_RUN_START: &str = "created_at < ? AND name !~ ?";
 
 /// 库里**种子**菜单行（审计判据范围）：`(auth_code, name, menu_type)`。
 async fn menu_auth_codes() -> Vec<(String, String, i16)> {
-    let sql = format!(
-        "SELECT auth_code, name, menu_type FROM sys_menu WHERE {AUDITABLE_ROWS} AND {SEED_AT_RUN_START}"
-    );
+    let sql = format!("SELECT auth_code, name, menu_type FROM sys_menu WHERE {AUDITABLE_ROWS} AND {SEED_AT_RUN_START}");
     let rows = db()
         .find_with_params(
             &sql,
-            vec![
-                Value::from(ts::run_epoch()),
-                Value::from(ts::FIXTURE_PREFIX_REGEX),
-            ],
+            vec![Value::from(ts::run_epoch()), Value::from(ts::FIXTURE_PREFIX_REGEX)],
         )
         .await
         .expect("查菜单权限码失败");
@@ -578,15 +558,10 @@ async fn menu_auth_codes() -> Vec<(String, String, i16)> {
 /// 被判据范围排除的行数（**本次 run 造的夹具** + 历史夹具残留），只用于把「排除了多少」
 /// 打在输出里 —— 排除是显式的、可核对的，不是悄悄放宽。
 async fn fixture_rows_excluded() -> i64 {
-    let sql = format!(
-        "SELECT count(*) AS v FROM sys_menu WHERE {AUDITABLE_ROWS} AND NOT ({SEED_AT_RUN_START})"
-    );
+    let sql = format!("SELECT count(*) AS v FROM sys_menu WHERE {AUDITABLE_ROWS} AND NOT ({SEED_AT_RUN_START})");
     db().scalar_with_params(
         &sql,
-        vec![
-            Value::from(ts::run_epoch()),
-            Value::from(ts::FIXTURE_PREFIX_REGEX),
-        ],
+        vec![Value::from(ts::run_epoch()), Value::from(ts::FIXTURE_PREFIX_REGEX)],
     )
     .await
     .unwrap_or_else(|error| panic!("统计审计排除行失败：{error}\nSQL: {sql}"))
@@ -862,10 +837,7 @@ fn n17_scanner_detects_planted_dead_code() {
         .iter()
         .find(|f| f.rel == "mod/dead.rs")
         .expect("应读到 dead.rs");
-    assert!(
-        dead_file.raw.contains(dead_code),
-        "夹具写错了：原文里应有 {dead_code}"
-    );
+    assert!(dead_file.raw.contains(dead_code), "夹具写错了：原文里应有 {dead_code}");
     assert!(
         repo.code_refs(dead_code).is_empty(),
         "扫描器把注释里的权限码当成落地了（strip_comments 失效）"
@@ -1073,10 +1045,7 @@ async fn n19_approval_node_role_assignees_have_approve_permission() {
         )
         .await
         .expect("查审批节点角色指派总数失败");
-    let assigned = total
-        .first()
-        .and_then(|r| r.get_typed::<i64>("n").ok())
-        .unwrap_or(0);
+    let assigned = total.first().and_then(|r| r.get_typed::<i64>("n").ok()).unwrap_or(0);
     assert!(
         assigned > 0,
         "[N19] 库里查不到任何「ROLE 指派的审批节点」—— 扫描口径失效（种子流程没装 / 版本表不匹配），\

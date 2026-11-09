@@ -71,11 +71,7 @@ pub enum RequiredAt {
 
 impl RequiredAt {
     /// 全部动作。
-    pub const ALL: [RequiredAt; 3] = [
-        RequiredAt::Submit,
-        RequiredAt::Confirm,
-        RequiredAt::Activate,
-    ];
+    pub const ALL: [RequiredAt; 3] = [RequiredAt::Submit, RequiredAt::Confirm, RequiredAt::Activate];
 
     /// 数据库字面值（`required_at` 列）。
     pub fn as_str(self) -> &'static str {
@@ -140,12 +136,7 @@ impl AttachmentRule {
 
     /// 要求的人话名：`remark` → 角色中文名 → 「附件」。
     pub fn requirement_name(&self) -> String {
-        if let Some(remark) = self
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|t| !t.is_empty())
-        {
+        if let Some(remark) = self.remark.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
             return remark.to_string();
         }
         if let Some(role) = self.file_role.as_deref() {
@@ -162,11 +153,7 @@ impl AttachmentRule {
     /// 卡面验收②的逐字文案就是这条拼出来的：
     /// `发票` + `必须上传` + `发票影像` + `（pdf/ofd/xml）`。
     pub fn requirement(&self) -> String {
-        let mut text = format!(
-            "{}必须上传{}",
-            self.doc_type.label(),
-            self.requirement_name()
-        );
+        let mut text = format!("{}必须上传{}", self.doc_type.label(), self.requirement_name());
         if let Some(exts) = self.allow_exts.as_deref()
             && !exts.is_empty()
         {
@@ -247,11 +234,7 @@ impl RuleViolation {
         // ① 一个都没有（`total` 是规则范围内的附件总数，不含别的角色的）
         if self.total == 0 {
             return if need_text.is_empty() {
-                format!(
-                    "缺少{}（至少 {} 个）",
-                    self.requirement_name(),
-                    self.min_count
-                )
+                format!("缺少{}（至少 {} 个）", self.requirement_name(), self.min_count)
             } else {
                 format!("缺少{}（{need_text}）", self.requirement_name())
             };
@@ -331,11 +314,7 @@ impl RuleViolation {
             role_text,
             self.min_count,
             self.matched,
-            if role_text.is_empty() {
-                ""
-            } else {
-                "该角色"
-            },
+            if role_text.is_empty() { "" } else { "该角色" },
             self.total,
             self.shortfall()
         );
@@ -395,9 +374,7 @@ impl AttachRuleError {
     }
 
     /// `Result<(), AttachRuleError>` → `Result<(), ApiError>`（handler 里一行 `?`）。
-    pub fn into_api_result(
-        result: std::result::Result<(), AttachRuleError>,
-    ) -> std::result::Result<(), ApiError> {
+    pub fn into_api_result(result: std::result::Result<(), AttachRuleError>) -> std::result::Result<(), ApiError> {
         result.map_err(AttachRuleError::into_api_error)
     }
 }
@@ -455,9 +432,7 @@ pub fn ext_of(extension: Option<&str>, display_name: &str) -> String {
         return ext.trim_start_matches('.').to_ascii_lowercase();
     }
     match display_name.rsplit_once('.') {
-        Some((_, ext)) if !ext.trim().is_empty() && !ext.contains('/') => {
-            ext.trim().to_ascii_lowercase()
-        }
+        Some((_, ext)) if !ext.trim().is_empty() && !ext.contains('/') => ext.trim().to_ascii_lowercase(),
         _ => String::new(),
     }
 }
@@ -476,10 +451,7 @@ pub struct AttachmentFact {
 /// # 异常情况
 ///
 /// 数据库异常 → [`AttachRuleError::Db`]。
-pub async fn attachments_of(
-    kind: DocKind,
-    doc_id: &Uuid,
-) -> std::result::Result<Vec<AttachmentFact>, AttachRuleError> {
+pub async fn attachments_of(kind: DocKind, doc_id: &Uuid) -> std::result::Result<Vec<AttachmentFact>, AttachRuleError> {
     let rows = db()
         .find_with_params(
             "SELECT a.file_role, \
@@ -517,10 +489,7 @@ pub async fn attachments_of(
 /// # 异常情况
 ///
 /// 数据库异常 → [`AttachRuleError::Db`]。
-pub async fn load_rules(
-    kind: DocKind,
-    at: RequiredAt,
-) -> std::result::Result<Vec<AttachmentRule>, AttachRuleError> {
+pub async fn load_rules(kind: DocKind, at: RequiredAt) -> std::result::Result<Vec<AttachmentRule>, AttachRuleError> {
     let sql = format!(
         "SELECT id, doc_type, file_role, required_at, min_count, max_count, \
                 allow_exts, condition_sql, remark \
@@ -591,10 +560,7 @@ pub async fn condition_applies(
     let Some(fragment) = condition_sql_is_safe(condition).map_err(AttachRuleError::Db)? else {
         return Ok(true);
     };
-    let sql = format!(
-        "SELECT 1 FROM {} WHERE id = ?::uuid AND ({fragment})",
-        kind.table()
-    );
+    let sql = format!("SELECT 1 FROM {} WHERE id = ?::uuid AND ({fragment})", kind.table());
     let rows = db()
         .find_with_params(&sql, vec![Value::from(doc_id)])
         .await
@@ -733,11 +699,7 @@ pub async fn check_attachments(
 /// ```ignore
 /// rule::ensure_attachments(DocKind::Invoice, id, RequiredAt::Submit).await?;
 /// ```
-pub async fn ensure_attachments(
-    doc_type: DocKind,
-    doc_id: Uuid,
-    at: RequiredAt,
-) -> std::result::Result<(), ApiError> {
+pub async fn ensure_attachments(doc_type: DocKind, doc_id: Uuid, at: RequiredAt) -> std::result::Result<(), ApiError> {
     AttachRuleError::into_api_result(assert_attachments(doc_type, doc_id, at).await)
 }
 
@@ -788,11 +750,7 @@ mod tests {
     fn parse_exts_normalizes() {
         assert_eq!(
             parse_exts(Some(" PDF, .Ofd ,xml,pdf ")),
-            Some(vec![
-                "pdf".to_string(),
-                "ofd".to_string(),
-                "xml".to_string()
-            ])
+            Some(vec!["pdf".to_string(), "ofd".to_string(), "xml".to_string()])
         );
         assert_eq!(parse_exts(Some(" , ,")), None);
         assert_eq!(parse_exts(None), None);
@@ -819,16 +777,8 @@ mod tests {
             condition_sql_is_safe(Some(" invoice_code IS NULL ")),
             Ok(Some("invoice_code IS NULL".to_string()))
         );
-        for bad in [
-            "1=1; DROP TABLE x",
-            "1=1 -- x",
-            "1=1 /* x */",
-            "invoice_code = ?",
-        ] {
-            assert!(
-                condition_sql_is_safe(Some(bad)).is_err(),
-                "{bad} 必须被拒绝"
-            );
+        for bad in ["1=1; DROP TABLE x", "1=1 -- x", "1=1 /* x */", "invoice_code = ?"] {
+            assert!(condition_sql_is_safe(Some(bad)).is_err(), "{bad} 必须被拒绝");
         }
     }
 
@@ -851,10 +801,7 @@ mod tests {
         let facts = [fact("DEFAULT", "jpg")];
         let violation = evaluate(&rule(Some("pdf,ofd,xml"), 1, None), &facts).expect("必须违例");
         let message = violation.message();
-        assert!(
-            message.starts_with("发票必须上传发票影像（pdf/ofd/xml）"),
-            "{message}"
-        );
+        assert!(message.starts_with("发票必须上传发票影像（pdf/ofd/xml）"), "{message}");
         assert!(
             message.contains("现有附件是 jpg 格式，不在白名单内，请上传 pdf/ofd/xml 格式"),
             "{message}"
@@ -875,17 +822,9 @@ mod tests {
         let facts = [fact("DEFAULT", "pdf")];
         let violation = evaluate(&rule(Some("pdf"), 2, None), &facts).expect("必须违例");
         assert_eq!(violation.shortfall(), 1);
-        assert!(
-            violation.message().contains("还差 1 个"),
-            "{}",
-            violation.message()
-        );
+        assert!(violation.message().contains("还差 1 个"), "{}", violation.message());
 
-        let facts = [
-            fact("DEFAULT", "pdf"),
-            fact("DEFAULT", "pdf"),
-            fact("DEFAULT", "pdf"),
-        ];
+        let facts = [fact("DEFAULT", "pdf"), fact("DEFAULT", "pdf"), fact("DEFAULT", "pdf")];
         let violation = evaluate(&rule(Some("pdf"), 1, Some(2)), &facts).expect("必须违例");
         assert!(
             violation.message().contains("最多允许 2 个附件，当前 3 个"),
@@ -930,11 +869,7 @@ mod tests {
         let violation = evaluate(&rule(None, 2, None), &facts).expect("必须违例");
         assert_eq!(violation.shortfall(), 1);
         // 不限格式时不该出现「格式不对」的误导性后缀
-        assert!(
-            !violation.message().contains("不在白名单内"),
-            "{}",
-            violation.message()
-        );
+        assert!(!violation.message().contains("不在白名单内"), "{}", violation.message());
     }
 
     /// 文案第一段完全由 `remark` 驱动（改表就是改文案）。
@@ -1008,21 +943,11 @@ mod tests {
     fn hint_covers_count_bounds() {
         let facts = [fact("DEFAULT", "pdf")];
         let violation = evaluate(&rule(Some("pdf"), 2, None), &facts).expect("必须违例");
-        assert_eq!(
-            violation.hint(),
-            "发票影像还差 1 个（需 pdf 格式，已有 1/2）"
-        );
+        assert_eq!(violation.hint(), "发票影像还差 1 个（需 pdf 格式，已有 1/2）");
 
-        let facts = [
-            fact("DEFAULT", "pdf"),
-            fact("DEFAULT", "pdf"),
-            fact("DEFAULT", "pdf"),
-        ];
+        let facts = [fact("DEFAULT", "pdf"), fact("DEFAULT", "pdf"), fact("DEFAULT", "pdf")];
         let violation = evaluate(&rule(Some("pdf"), 1, Some(2)), &facts).expect("必须违例");
-        assert_eq!(
-            violation.hint(),
-            "发票影像最多 2 个（当前 3 个，请先删掉多余的）"
-        );
+        assert_eq!(violation.hint(), "发票影像最多 2 个（当前 3 个，请先删掉多余的）");
     }
 
     /// 不限格式时不出现「需  格式」的空括号。
@@ -1032,10 +957,7 @@ mod tests {
         assert_eq!(violation.hint(), "缺少发票影像（至少 1 个）");
         let facts = [fact("DEFAULT", "zip")];
         let violation = evaluate(&rule(None, 2, None), &facts).expect("必须违例");
-        assert_eq!(
-            violation.hint(),
-            "发票影像还差 1 个（至少 2 个，当前 1 个）"
-        );
+        assert_eq!(violation.hint(), "发票影像还差 1 个（至少 2 个，当前 1 个）");
         for hint in [violation.hint()] {
             assert!(!hint.contains("  "), "不该出现双空格：{hint}");
         }
@@ -1049,10 +971,7 @@ mod tests {
         bank.required_at = RequiredAt::Activate;
         bank.remark = Some("银行回单".to_string());
         let violation = evaluate(&bank, &[]).expect("必须违例");
-        assert_eq!(
-            violation.requirement,
-            "付款单必须上传银行回单（pdf/jpg/png）"
-        );
+        assert_eq!(violation.requirement, "付款单必须上传银行回单（pdf/jpg/png）");
         assert_eq!(violation.hint(), "缺少银行回单（需 pdf/jpg/png 格式）");
 
         // 没有 remark、靠角色中文名时同理

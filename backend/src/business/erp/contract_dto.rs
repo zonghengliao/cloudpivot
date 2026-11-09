@@ -38,9 +38,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::contract_model::{
-    self, ContractRow, STATUS_DRAFT, STATUSES, USABLE_FOR_ORDER,
-};
+use crate::business::erp::contract_model::{self, ContractRow, STATUS_DRAFT, STATUSES, USABLE_FOR_ORDER};
 use crate::business::shared::state_machine::Entity;
 use crate::shared::error_code;
 
@@ -102,11 +100,7 @@ fn pick_name<'a>(name: Option<&'a str>, contract_name: Option<&'a str>) -> Optio
 }
 
 /// 文本字段：必填 + 长度上限（按**字符数**，不是字节数）。
-fn require_text(
-    value: Option<&str>,
-    field: &str,
-    max: usize,
-) -> std::result::Result<String, ApiError> {
+fn require_text(value: Option<&str>, field: &str, max: usize) -> std::result::Result<String, ApiError> {
     let Some(text) = value.map(str::trim).filter(|text| !text.is_empty()) else {
         return Err(bad_request(format!("{field} 不能为空")));
     };
@@ -120,11 +114,7 @@ fn require_text(
 }
 
 /// 选填文本：`None` / 空串放过；有值则限长（超长同样拒，避免被 `VARCHAR(n)` 静默截断）。
-fn check_optional_text(
-    value: Option<&str>,
-    field: &str,
-    max: usize,
-) -> std::result::Result<(), ApiError> {
+fn check_optional_text(value: Option<&str>, field: &str, max: usize) -> std::result::Result<(), ApiError> {
     match value.map(str::trim) {
         Some(text) if !text.is_empty() && text.chars().count() > max => Err(bad_request(format!(
             "{field} 最长 {max} 个字符（当前 {} 个）",
@@ -165,17 +155,12 @@ pub fn ensure_supported_type(contract_type: &str) -> std::result::Result<(), Api
 ///
 /// * 400 + `10001`：值与合同类型要求的类型冲突（含 `SERVICE` / `LEASE` 传 `CUSTOMER`）；
 /// * 400 + `10001`：不是 `SUPPLIER` / `CUSTOMER` 的第三个值。
-pub fn ensure_party_b_type(
-    contract_type: &str,
-    party_b_type: &str,
-) -> std::result::Result<&'static str, ApiError> {
+pub fn ensure_party_b_type(contract_type: &str, party_b_type: &str) -> std::result::Result<&'static str, ApiError> {
     let required = contract_model::required_party_b_type(contract_type);
     if party_b_type == required {
         return Ok(required);
     }
-    if party_b_type == contract_model::PARTY_B_SUPPLIER
-        || party_b_type == contract_model::PARTY_B_CUSTOMER
-    {
+    if party_b_type == contract_model::PARTY_B_SUPPLIER || party_b_type == contract_model::PARTY_B_CUSTOMER {
         return Err(party_type_conflict(contract_type, required, party_b_type));
     }
     Err(bad_request(format!(
@@ -402,11 +387,7 @@ fn parse_date(raw: Option<&str>, field: &str) -> std::result::Result<Option<Naiv
         None => Ok(None),
         Some(text) => NaiveDate::parse_from_str(text, "%Y-%m-%d")
             .map(Some)
-            .map_err(|err| {
-                bad_request(format!(
-                    "{field} 不是合法日期 `{text}`（YYYY-MM-DD）：{err}"
-                ))
-            }),
+            .map_err(|err| bad_request(format!("{field} 不是合法日期 `{text}`（YYYY-MM-DD）：{err}"))),
     }
 }
 
@@ -416,15 +397,11 @@ pub fn parse_uuid_text(raw: &str, field: &str) -> std::result::Result<Uuid, ApiE
     if text.is_empty() {
         return Err(bad_request(format!("{field} 不能为空")));
     }
-    Uuid::parse_str(text)
-        .map_err(|err| bad_request(format!("{field} 不是合法 UUID `{text}`：{err}")))
+    Uuid::parse_str(text).map_err(|err| bad_request(format!("{field} 不是合法 UUID `{text}`：{err}")))
 }
 
 /// 选填 UUID：空 / 缺省 → `None`；非法 → 400。
-pub fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
         Some(text) => parse_uuid_text(text, field).map(Some),
@@ -522,13 +499,7 @@ impl CreateContractReq {
         require_one_of(&contract_type, &CONTRACT_TYPES, "contract_type")?;
         // 类型闸（业务开没开）：CTR-02-F1 起四类全放行，但闸保留给未来新枚举
         ensure_supported_type(&contract_type)?;
-        if self
-            .party_b_id
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-        {
+        if self.party_b_id.as_deref().map(str::trim).unwrap_or("").is_empty() {
             return Err(bad_request("party_b_id 不能为空"));
         }
         let Some(amount) = self.amount else {
@@ -547,10 +518,7 @@ impl CreateContractReq {
 
     /// 合同类型（已 trim）。
     pub fn contract_type_value(&self) -> &str {
-        self.contract_type
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or_default()
+        self.contract_type.as_deref().map(str::trim).unwrap_or_default()
     }
 
     /// 乙方类型：客户端显式给了就校验，没给按合同类型推导。
@@ -719,12 +687,7 @@ impl ContractStatusReq {
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
-            .or_else(|| {
-                self.status
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-            })
+            .or_else(|| self.status.as_deref().map(str::trim).filter(|text| !text.is_empty()))
             .ok_or_else(|| bad_request("target_status 不能为空"))?;
         require_one_of(raw, &STATUSES, "target_status")?;
         Ok(raw)
@@ -732,10 +695,7 @@ impl ContractStatusReq {
 
     /// 原因（去空白、空串视为没给）。
     pub fn reason_text(&self) -> Option<&str> {
-        self.reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
+        self.reason.as_deref().map(str::trim).filter(|text| !text.is_empty())
     }
 }
 
@@ -1096,10 +1056,7 @@ mod tests {
             contract_model::PARTY_B_SUPPLIER,
             None,
         );
-        assert_eq!(
-            new.party_b_name, "服务端读到的供应商名",
-            "名称必须是服务端读到的快照"
-        );
+        assert_eq!(new.party_b_name, "服务端读到的供应商名", "名称必须是服务端读到的快照");
         assert_eq!(new.party_b_id, party_b_id);
         assert_eq!(new.contract_type, "PURCHASE");
         assert_eq!(new.currency_code, DEFAULT_CURRENCY, "币种缺省 CNY");
@@ -1199,9 +1156,7 @@ mod tests {
                 party_b_type: Some(contract_model::PARTY_B_CUSTOMER.to_string()),
                 ..base_req()
             };
-            let err = req
-                .resolve_party_b_type()
-                .expect_err("服务/租赁的乙方固定供应商");
+            let err = req.resolve_party_b_type().expect_err("服务/租赁的乙方固定供应商");
             assert_eq!(err.status, 400, "{contract_type}");
             assert_eq!(err.code, error_code::PARAM_INVALID, "{contract_type}");
             assert!(
@@ -1216,12 +1171,10 @@ mod tests {
             );
 
             // 纯函数出口同样拒（PUT 走的就是它）
-            let pure = ensure_party_b_type(contract_type, contract_model::PARTY_B_CUSTOMER)
-                .expect_err("纯函数同样拒");
+            let pure = ensure_party_b_type(contract_type, contract_model::PARTY_B_CUSTOMER).expect_err("纯函数同样拒");
             assert_eq!(pure.status, 400);
             assert_eq!(
-                ensure_party_b_type(contract_type, contract_model::PARTY_B_SUPPLIER)
-                    .expect("供应商放行"),
+                ensure_party_b_type(contract_type, contract_model::PARTY_B_SUPPLIER).expect("供应商放行"),
                 contract_model::PARTY_B_SUPPLIER
             );
             // 第三个值也不许过
@@ -1254,11 +1207,7 @@ mod tests {
             ..Default::default()
         };
         let err = cancelled.parse().expect_err("CANCELLED 不是合法状态");
-        assert!(
-            err.msg.contains("TERMINATED"),
-            "文案要点名可用状态：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("TERMINATED"), "文案要点名可用状态：{}", err.msg);
 
         let bad_date = ContractFilter {
             sign_date_from: Some("2026/01/01".to_string()),
@@ -1330,10 +1279,7 @@ mod tests {
     fn list_row_exposes_both_name_spellings() {
         let row = contract_row_with_type("PURCHASE");
         let res = ContractRes::from(&row);
-        assert_eq!(
-            res.name, res.contract_name,
-            "name 与 contract_name 必须同值"
-        );
+        assert_eq!(res.name, res.contract_name, "name 与 contract_name 必须同值");
         assert_eq!(res.status_label, "草稿");
         assert_eq!(res.party_b_name, "乙方快照", "快照列");
         assert_eq!(
@@ -1368,11 +1314,7 @@ mod tests {
                 contract_model::COMMITMENT_SCOPE_NOT_APPLICABLE,
                 "{contract_type} 不挂订单 → 口径不适用"
             );
-            assert_eq!(
-                detail.committed_amount,
-                Decimal::ZERO,
-                "不适用时 0 是正确值"
-            );
+            assert_eq!(detail.committed_amount, Decimal::ZERO, "不适用时 0 是正确值");
             assert_eq!(detail.remaining_amount, detail.base.amount, "剩余 = 合同额");
             assert_eq!(detail.open_order_count, 0);
             assert!(detail.open_order_nos.is_empty());

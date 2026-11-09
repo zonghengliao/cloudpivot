@@ -20,8 +20,7 @@ use crate::business::impexp::definition::{
 };
 
 use super::{
-    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, conflict_clause, duplicate_strategy, flag_of,
-    operator_text, status_of,
+    BATCH_SIZE, MAX_ROWS, STATUS_ITEMS, conflict_clause, duplicate_strategy, flag_of, operator_text, status_of,
 };
 
 /// 仓库类型（落库码值与 `ck_biz_warehouse_type` 一致）。
@@ -228,11 +227,7 @@ impl ImportDefinition for WarehouseImport {
             )
             .await?;
         if strategy == DuplicateStrategy::Upsert && affected as usize != rows.len() {
-            return Err(super::missing_rows_error(
-                rows.len(),
-                affected as usize,
-                "请重新上传",
-            ));
+            return Err(super::missing_rows_error(rows.len(), affected as usize, "请重新上传"));
         }
         Ok(affected as usize)
     }
@@ -254,10 +249,7 @@ mod tests {
     fn upsert_never_touches_tree_columns() {
         // 改层级必须在仓库管理页做（子仓库搬移 = 整棵子树改路径）；导入只更新描述性字段
         for column in ["warehouse_path", "parent_id", "level", "is_leaf"] {
-            assert!(
-                !UPSERT_SET.contains(column),
-                "upsert 不应更新树结构列 {column}"
-            );
+            assert!(!UPSERT_SET.contains(column), "upsert 不应更新树结构列 {column}");
         }
         assert!(UPSERT_SET.contains("warehouse_name"));
     }

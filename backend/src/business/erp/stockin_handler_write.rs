@@ -18,8 +18,7 @@ use crate::business::erp::separation;
 use crate::business::erp::stockin_bridge;
 use crate::business::erp::stockin_dto::{CreateStockInReq, StockInDetailRes};
 use crate::business::erp::stockin_model::{
-    self, NewStockIn, NewStockInLine, STATUS_DRAFT, STATUS_PENDING_CANCEL, STATUS_PENDING_POST,
-    Totals, status_label,
+    self, NewStockIn, NewStockInLine, STATUS_DRAFT, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, Totals, status_label,
 };
 use crate::business::shared::state_machine;
 use crate::utils;
@@ -64,15 +63,12 @@ pub async fn create_stock_in(
     let op = operator.into();
     let mut request = req.clone();
     resolve_purchase_order(&mut request)?;
-    let source_order_id =
-        parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
+    let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
     // ★ P3-07 采购 ≠ 验收（可配开关，默认关闭）：采购员不能验收自己采的货。
     guard_purchase_accept(source_order_id, op.id).await?;
     if request.items.is_empty() {
         let Some(order_id) = source_order_id else {
-            return Err(bad_request(
-                "items 不能为空：没有来源采购单时至少要有一行明细",
-            ));
+            return Err(bad_request("items 不能为空：没有来源采购单时至少要有一行明细"));
         };
         request.items = pull_lines_from_purchase(order_id).await?;
     }
@@ -356,15 +352,12 @@ pub async fn update_stock_in(
 
     let mut request = req.clone();
     resolve_purchase_order(&mut request)?;
-    let source_order_id =
-        parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
+    let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
     // ★ P3-07：改单同样算「验收」（改数量 / 换来源单都会改变收到什么）。
     guard_purchase_accept(source_order_id, operator).await?;
     if request.items.is_empty() {
         let Some(order_id) = source_order_id else {
-            return Err(bad_request(
-                "items 不能为空：没有来源采购单时至少要有一行明细",
-            ));
+            return Err(bad_request("items 不能为空：没有来源采购单时至少要有一行明细"));
         };
         request.items = pull_lines_from_purchase(order_id).await?;
     }
@@ -461,10 +454,7 @@ pub async fn stock_in_update(
 /// **一并终止**（`stockin_bridge::cancel_approval_of`）。DRAFT 单据按当前状态机不可能
 /// 挂着审批单，但这条兜底是仓库「删单 ≠ 留孤儿待办」的机器化承诺 —— 哪天放开
 /// 「审批中的单据也能删」，这里不会漏。
-pub async fn delete_stock_in(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_stock_in(id: Uuid, operator: Option<Uuid>) -> std::result::Result<(), ApiError> {
     let row = stockin_model::find_stock_in(id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货入库单"))?

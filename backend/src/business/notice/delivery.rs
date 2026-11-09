@@ -28,9 +28,7 @@
 use nik::prelude::*;
 
 use crate::business::notice::ChannelState;
-use crate::business::notice::dto::{
-    CHANNEL_EMAIL, CHANNEL_INBOX, CHANNEL_MAX, CHANNEL_SMS, CHANNEL_WEBHOOK,
-};
+use crate::business::notice::dto::{CHANNEL_EMAIL, CHANNEL_INBOX, CHANNEL_MAX, CHANNEL_SMS, CHANNEL_WEBHOOK};
 use crate::business::notice::model::{self, ChannelSettings, Executor};
 
 /// 站内信状态：必投且即落库，恒为 `DELIVERED`。
@@ -119,11 +117,7 @@ pub fn plan_channels(template_mask: Option<u16>, requested_mask: u16) -> u16 {
 ///
 /// 状态字符串（落库值）。
 pub fn status_for(configured: bool) -> &'static str {
-    if configured {
-        STATUS_PENDING
-    } else {
-        STATUS_SKIPPED
-    }
+    if configured { STATUS_PENDING } else { STATUS_SKIPPED }
 }
 
 /// 按生效掩码逐通道写投递记录（**在 `dispatch` 的事务内调用**）。
@@ -163,8 +157,7 @@ pub async fn deliver(
                 rows: inbox_rows,
             }),
             ChannelKind::PerReceiver => {
-                let rows =
-                    model::insert_receiver_deliveries(ex, notice_id, spec.name, configured).await?;
+                let rows = model::insert_receiver_deliveries(ex, notice_id, spec.name, configured).await?;
                 states.push(ChannelState {
                     channel: spec.name.to_string(),
                     status: status_for(configured).to_string(),
@@ -172,14 +165,8 @@ pub async fn deliver(
                 });
             }
             ChannelKind::NoticeLevel => {
-                let rows = model::insert_notice_delivery(
-                    ex,
-                    notice_id,
-                    spec.name,
-                    &settings.webhook_url,
-                    configured,
-                )
-                .await?;
+                let rows =
+                    model::insert_notice_delivery(ex, notice_id, spec.name, &settings.webhook_url, configured).await?;
                 states.push(ChannelState {
                     channel: spec.name.to_string(),
                     status: status_for(configured).to_string(),
@@ -208,11 +195,7 @@ mod tests {
     fn template_inbox_plus_requested_email_keeps_both() {
         let mask = plan_channels(Some(CHANNEL_INBOX), CHANNEL_EMAIL);
         assert_eq!(mask & CHANNEL_INBOX, CHANNEL_INBOX, "站内信必投");
-        assert_eq!(
-            mask & CHANNEL_EMAIL,
-            CHANNEL_EMAIL,
-            "调用方要的邮件要在计划里"
-        );
+        assert_eq!(mask & CHANNEL_EMAIL, CHANNEL_EMAIL, "调用方要的邮件要在计划里");
         assert_eq!(mask, CHANNEL_INBOX | CHANNEL_EMAIL);
     }
 
@@ -220,10 +203,7 @@ mod tests {
     #[test]
     fn template_channels_are_unioned_not_replaced() {
         let mask = plan_channels(Some(CHANNEL_WEBHOOK | CHANNEL_SMS), CHANNEL_EMAIL);
-        assert_eq!(
-            mask,
-            CHANNEL_INBOX | CHANNEL_EMAIL | CHANNEL_WEBHOOK | CHANNEL_SMS
-        );
+        assert_eq!(mask, CHANNEL_INBOX | CHANNEL_EMAIL | CHANNEL_WEBHOOK | CHANNEL_SMS);
     }
 
     /// 越界位被裁掉（掩码只会来自 `ensure_channel_mask` 校验过的值，这里兜底）。

@@ -27,9 +27,7 @@ async fn cancel_parent(parent: Uuid, me: Uuid) -> Vec<CancelCascade> {
         reject_reason: None,
         cancel_reason: Some(CASCADE_CANCEL_REASON.to_string()),
     };
-    let affected = apply_status(&tx, parent, &update, me)
-        .await
-        .expect("父任务取消失败");
+    let affected = apply_status(&tx, parent, &update, me).await.expect("父任务取消失败");
     assert_eq!(affected, 1, "父任务必须存在");
     let out = cascade_cancel_descendants(&tx, parent, me, CASCADE_CANCEL_REASON)
         .await
@@ -77,12 +75,9 @@ async fn drop_block_trigger() {
     )
     .await
     .expect("清触发器失败");
-    db().exec_sql(
-        "DROP FUNCTION IF EXISTS t11_block_cancel()".to_string(),
-        Vec::new(),
-    )
-    .await
-    .expect("清触发器函数失败");
+    db().exec_sql("DROP FUNCTION IF EXISTS t11_block_cancel()".to_string(), Vec::new())
+        .await
+        .expect("清触发器函数失败");
 }
 
 // ---------- ⑫ 纯逻辑（不连库）：守卫只在「父已取消 + 子要推进」时拦 ----------
@@ -90,18 +85,9 @@ async fn drop_block_trigger() {
 #[test]
 fn guard_blocks_only_advance_under_cancelled_parent() {
     // 父已取消 → 推进一律拦
-    assert!(blocks_child_advance(
-        Some(TaskStatus::Cancelled),
-        TaskStatus::Doing
-    ));
-    assert!(blocks_child_advance(
-        Some(TaskStatus::Cancelled),
-        TaskStatus::Review
-    ));
-    assert!(blocks_child_advance(
-        Some(TaskStatus::Cancelled),
-        TaskStatus::Done
-    ));
+    assert!(blocks_child_advance(Some(TaskStatus::Cancelled), TaskStatus::Doing));
+    assert!(blocks_child_advance(Some(TaskStatus::Cancelled), TaskStatus::Review));
+    assert!(blocks_child_advance(Some(TaskStatus::Cancelled), TaskStatus::Done));
     // 子任务自己去 CANCELLED → 放行（幂等收敛，不是推进）
     assert!(!blocks_child_advance(
         Some(TaskStatus::Cancelled),
@@ -145,11 +131,7 @@ async fn cancel_parent_cancels_doing_child() {
     );
     assert_eq!(out.len(), 1);
     assert_eq!(out[0].task_id, child);
-    assert_eq!(
-        out[0].from,
-        TaskStatus::Doing,
-        "变更日志要能说清从哪个状态取消的"
-    );
+    assert_eq!(out[0].from, TaskStatus::Doing, "变更日志要能说清从哪个状态取消的");
     assert_eq!(
         cancel_reason_of(child).await.as_deref(),
         Some(CASCADE_CANCEL_REASON),
@@ -393,11 +375,7 @@ async fn cascade_failure_rolls_back_parent_cancel() {
         "级联失败 → 父任务的取消也必须回滚（不接受「父 CANCELLED、子 DOING」）"
     );
     assert_eq!(status_of(blocked).await, TaskStatus::Doing);
-    assert_eq!(
-        status_of(other).await,
-        TaskStatus::Todo,
-        "同批子任务一起回滚"
-    );
+    assert_eq!(status_of(other).await, TaskStatus::Todo, "同批子任务一起回滚");
     drop_block_trigger().await;
 }
 

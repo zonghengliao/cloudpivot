@@ -267,14 +267,7 @@ pub async fn count_config_code(
             )
             .await
         }
-        None => {
-            SysStorageConfigModel::count_by(
-                db(),
-                "config_code = ? AND deleted_at IS NULL",
-                (config_code,),
-            )
-            .await
-        }
+        None => SysStorageConfigModel::count_by(db(), "config_code = ? AND deleted_at IS NULL", (config_code,)).await,
     }
 }
 
@@ -291,9 +284,7 @@ pub async fn count_config_code(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_by_code(
-    config_code: &str,
-) -> std::result::Result<Option<SysStorageConfigModel>, DbError> {
+pub async fn find_by_code(config_code: &str) -> std::result::Result<Option<SysStorageConfigModel>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT * FROM sys_storage_config WHERE config_code = ? AND deleted_at IS NULL LIMIT 1",
@@ -323,9 +314,7 @@ pub async fn load_enabled_configs() -> std::result::Result<Vec<SysStorageConfigM
             Vec::new(),
         )
         .await?;
-    rows.into_iter()
-        .map(SysStorageConfigModel::from_row)
-        .collect()
+    rows.into_iter().map(SysStorageConfigModel::from_row).collect()
 }
 
 /// 统计引用某后端的有效文件数（删除前的占用校验）。
@@ -503,9 +492,7 @@ pub async fn page_policies(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_policy_by_category(
-    category: &str,
-) -> std::result::Result<Option<SysStoragePolicyModel>, DbError> {
+pub async fn find_policy_by_category(category: &str) -> std::result::Result<Option<SysStoragePolicyModel>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT * FROM sys_storage_policy WHERE category = ? AND deleted_at IS NULL LIMIT 1",
@@ -538,21 +525,10 @@ pub async fn count_policy_category(
 ) -> std::result::Result<i64, DbError> {
     match exclude_id {
         Some(id) => {
-            SysStoragePolicyModel::count_by(
-                db(),
-                "category = ? AND deleted_at IS NULL AND id <> ?",
-                (category, id),
-            )
-            .await
+            SysStoragePolicyModel::count_by(db(), "category = ? AND deleted_at IS NULL AND id <> ?", (category, id))
+                .await
         }
-        None => {
-            SysStoragePolicyModel::count_by(
-                db(),
-                "category = ? AND deleted_at IS NULL",
-                (category,),
-            )
-            .await
-        }
+        None => SysStoragePolicyModel::count_by(db(), "category = ? AND deleted_at IS NULL", (category,)).await,
     }
 }
 
@@ -606,9 +582,7 @@ impl PolicyViolation {
     pub fn http_status(&self) -> u16 {
         match self {
             Self::SizeExceeded { .. } | Self::DirectUploadDisabled { .. } => 422,
-            Self::ExtensionNotAllowed { .. }
-            | Self::ExtensionForbidden { .. }
-            | Self::MimeNotAllowed { .. } => 400,
+            Self::ExtensionNotAllowed { .. } | Self::ExtensionForbidden { .. } | Self::MimeNotAllowed { .. } => 400,
         }
     }
 
@@ -620,9 +594,7 @@ impl PolicyViolation {
     pub fn code(&self) -> i32 {
         match self {
             Self::SizeExceeded { .. } => error_code::STORAGE_SIZE_EXCEEDED,
-            Self::ExtensionNotAllowed { .. } | Self::ExtensionForbidden { .. } => {
-                error_code::STORAGE_TYPE_NOT_ALLOWED
-            }
+            Self::ExtensionNotAllowed { .. } | Self::ExtensionForbidden { .. } => error_code::STORAGE_TYPE_NOT_ALLOWED,
             Self::MimeNotAllowed { .. } => error_code::STORAGE_MIME_NOT_ALLOWED,
             Self::DirectUploadDisabled { .. } => error_code::STORAGE_DIRECT_UPLOAD_DISABLED,
         }
@@ -645,9 +617,9 @@ impl PolicyViolation {
             Self::ExtensionNotAllowed { extension, allowed } => {
                 format!("不支持的文件类型 .{extension}，允许的类型：{allowed}")
             }
-            Self::ExtensionForbidden { extension } => format!(
-                "禁止上传可执行/脚本文件 .{extension}：该类型在硬禁止黑名单内，任何分类都不放行"
-            ),
+            Self::ExtensionForbidden { extension } => {
+                format!("禁止上传可执行/脚本文件 .{extension}：该类型在硬禁止黑名单内，任何分类都不放行")
+            }
             Self::MimeNotAllowed { mime, allowed } => {
                 format!("文件内容类型 {mime} 与允许的类型不符（{allowed}）")
             }
@@ -685,8 +657,8 @@ impl PolicyViolation {
 /// 扩展名完全漏网。服务端脚本的风险不比 exe 低（很多部署会把上传目录挂在
 /// Web 根下），因此按**同级**并入本清单：宁可让运维显式改代码，也不给一次配置事故留口子。
 pub const FORBIDDEN_EXECUTABLE_EXTENSIONS: &[&str] = &[
-    "exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js", "vbs", "msi", "cmd", "com", "scr",
-    "psm1", "wasm", "apk",
+    "exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js", "vbs", "msi", "cmd", "com", "scr", "psm1", "wasm",
+    "apk",
     // 服务端脚本（BUG-D-09）：Web 根目录可达即执行 —— 与本地可执行文件同级的风险。
     // 旧清单只挡「客户端能双击运行」的类型，漏掉了 php/jsp/aspx 这一整类
     // 「上传到站点即成后门」的扩展名；而内置 `default_policy` 的白名单为空
@@ -718,11 +690,7 @@ pub fn is_forbidden_extension(extension: &str) -> bool {
 ///
 /// 有扩展名返回 `Some("pdf")`；无扩展名或点号在首位返回 `None`。
 pub fn extension_of(file_name: &str) -> Option<String> {
-    let leaf = file_name
-        .rsplit(['/', '\\'])
-        .next()
-        .unwrap_or(file_name)
-        .trim();
+    let leaf = file_name.rsplit(['/', '\\']).next().unwrap_or(file_name).trim();
     match leaf.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => Some(ext.to_ascii_lowercase()),
         _ => None,
@@ -835,9 +803,7 @@ pub fn check_upload(
 /// # 异常情况
 ///
 /// `direct_upload = false` 时返回 [`PolicyViolation::DirectUploadDisabled`]。
-pub fn check_direct_upload(
-    policy: &SysStoragePolicyModel,
-) -> std::result::Result<(), PolicyViolation> {
+pub fn check_direct_upload(policy: &SysStoragePolicyModel) -> std::result::Result<(), PolicyViolation> {
     if policy.direct_upload {
         Ok(())
     } else {
@@ -904,9 +870,7 @@ pub fn validate_policy_fields(
             continue;
         }
         if !item.contains('/') {
-            return Err(format!(
-                "MIME 白名单项缺少主类型：{item}（应写成 image/png）"
-            ));
+            return Err(format!("MIME 白名单项缺少主类型：{item}（应写成 image/png）"));
         }
     }
     Ok(())
@@ -1065,9 +1029,7 @@ pub fn can_read_file(file: &StorageFileModel, viewer: Option<uuid::Uuid>) -> boo
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_active_file(
-    id: &uuid::Uuid,
-) -> std::result::Result<Option<StorageFileModel>, DbError> {
+pub async fn find_active_file(id: &uuid::Uuid) -> std::result::Result<Option<StorageFileModel>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT * FROM sys_file WHERE id = ? AND deleted_at IS NULL LIMIT 1",
@@ -1085,14 +1047,9 @@ pub async fn find_active_file(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_any_file(
-    id: &uuid::Uuid,
-) -> std::result::Result<Option<StorageFileModel>, DbError> {
+pub async fn find_any_file(id: &uuid::Uuid) -> std::result::Result<Option<StorageFileModel>, DbError> {
     let rows = db()
-        .find_with_params(
-            "SELECT * FROM sys_file WHERE id = ? LIMIT 1",
-            vec![Value::from(*id)],
-        )
+        .find_with_params("SELECT * FROM sys_file WHERE id = ? LIMIT 1", vec![Value::from(*id)])
         .await?;
     match rows.into_iter().next() {
         Some(row) => Ok(Some(StorageFileModel::from_row(row)?)),
@@ -1105,9 +1062,7 @@ pub async fn find_any_file(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_reusable_file(
-    file_hash: &str,
-) -> std::result::Result<Option<StorageFileModel>, DbError> {
+pub async fn find_reusable_file(file_hash: &str) -> std::result::Result<Option<StorageFileModel>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT * FROM sys_file WHERE file_hash = ? AND deleted_at IS NULL AND status = 1 LIMIT 1",
@@ -1196,10 +1151,7 @@ pub async fn page_storage_files(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn soft_delete_file(
-    id: &uuid::Uuid,
-    operator: Option<uuid::Uuid>,
-) -> std::result::Result<u64, DbError> {
+pub async fn soft_delete_file(id: &uuid::Uuid, operator: Option<uuid::Uuid>) -> std::result::Result<u64, DbError> {
     let affected = db()
         .execute_with_params(
             "UPDATE sys_file SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, update_by = ? WHERE id = ? AND deleted_at IS NULL",
@@ -1316,24 +1268,14 @@ mod tests {
     #[test]
     fn policy_rejects_oversize() {
         let policy = sample_policy();
-        let violation = check_upload(
-            &policy,
-            "big.pdf",
-            51 * 1024 * 1024,
-            Some("application/pdf"),
-        )
-        .expect_err("超限必须被拒绝");
+        let violation =
+            check_upload(&policy, "big.pdf", 51 * 1024 * 1024, Some("application/pdf")).expect_err("超限必须被拒绝");
         assert_eq!(violation.http_status(), 422);
         assert_eq!(violation.code(), error_code::STORAGE_SIZE_EXCEEDED);
         assert!(violation.message().contains("51.00 MB"));
         // 恰好等于上限应放行（off-by-one 回归）
         assert_eq!(
-            check_upload(
-                &policy,
-                "edge.pdf",
-                50 * 1024 * 1024,
-                Some("application/pdf")
-            ),
+            check_upload(&policy, "edge.pdf", 50 * 1024 * 1024, Some("application/pdf")),
             Ok(())
         );
     }
@@ -1344,20 +1286,13 @@ mod tests {
         let policy = sample_policy();
 
         // 非黑名单、但不在白名单 → ExtensionNotAllowed（「这个分类不收」）
-        let violation =
-            check_upload(&policy, "evil.xyz", 10, None).expect_err("白名单外必须被拒绝");
-        assert!(matches!(
-            violation,
-            PolicyViolation::ExtensionNotAllowed { .. }
-        ));
+        let violation = check_upload(&policy, "evil.xyz", 10, None).expect_err("白名单外必须被拒绝");
+        assert!(matches!(violation, PolicyViolation::ExtensionNotAllowed { .. }));
         assert_eq!(violation.code(), error_code::STORAGE_TYPE_NOT_ALLOWED);
 
         // 黑名单命中 → ExtensionForbidden（「任何分类都不许」），码值同为 60004
         let violation = check_upload(&policy, "evil.exe", 10, None).expect_err("exe 必须被拒绝");
-        assert!(matches!(
-            violation,
-            PolicyViolation::ExtensionForbidden { .. }
-        ));
+        assert!(matches!(violation, PolicyViolation::ExtensionForbidden { .. }));
         assert_eq!(violation.http_status(), 400);
         assert_eq!(violation.code(), error_code::STORAGE_TYPE_NOT_ALLOWED);
         assert!(violation.message().contains(".exe"));
@@ -1384,10 +1319,7 @@ mod tests {
             );
             assert!(is_forbidden_extension(ext));
             // 大小写 / 空白归一化
-            assert!(is_forbidden_extension(&format!(
-                "  {}  ",
-                ext.to_uppercase()
-            )));
+            assert!(is_forbidden_extension(&format!("  {}  ", ext.to_uppercase())));
         }
         // 常见文档类型不受影响（黑名单不能顺手误伤合法类型）
         for ext in ["pdf", "md", "csv", "json", "zip", "log", "png", "docx"] {
@@ -1406,12 +1338,8 @@ mod tests {
         policy.allowed_extensions = "md,sh,py".to_string();
         policy.allowed_mimes = String::new();
 
-        let violation =
-            check_upload(&policy, "deploy.sh", 10, None).expect_err("白名单里写了 sh 也必须拒");
-        assert!(matches!(
-            violation,
-            PolicyViolation::ExtensionForbidden { .. }
-        ));
+        let violation = check_upload(&policy, "deploy.sh", 10, None).expect_err("白名单里写了 sh 也必须拒");
+        assert!(matches!(violation, PolicyViolation::ExtensionForbidden { .. }));
         assert_eq!(violation.http_status(), 400);
         assert_eq!(violation.code(), error_code::STORAGE_TYPE_NOT_ALLOWED);
         assert!(violation.message().contains(".sh"));
@@ -1433,17 +1361,10 @@ mod tests {
 
         assert_eq!(check_upload(&ai, "report.md", 1024, None), Ok(()));
         assert_eq!(check_upload(&ai, "build.log", 1024, None), Ok(()));
-        assert_eq!(
-            check_upload(&ai, "huge.log", 100 * 1024 * 1024, None),
-            Ok(())
-        );
+        assert_eq!(check_upload(&ai, "huge.log", 100 * 1024 * 1024, None), Ok(()));
         for name in ["run.sh", "run.py", "run.js", "app.jar", "lib.so"] {
-            let violation =
-                check_upload(&ai, name, 10, None).expect_err("AI 产出里的可执行/脚本必须被拒绝");
-            assert!(matches!(
-                violation,
-                PolicyViolation::ExtensionForbidden { .. }
-            ));
+            let violation = check_upload(&ai, name, 10, None).expect_err("AI 产出里的可执行/脚本必须被拒绝");
+            assert!(matches!(violation, PolicyViolation::ExtensionForbidden { .. }));
         }
         // 不在白名单（也非黑名单）的 docx 被白名单拒掉 —— 白名单比 task 更严的那部分
         assert!(matches!(
@@ -1461,14 +1382,10 @@ mod tests {
         task.category = "task".to_string();
         task.max_size_mb = 50;
         task.allowed_extensions =
-            "jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,md,csv,json,zip,7z,rar"
-                .to_string();
+            "jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,md,csv,json,zip,7z,rar".to_string();
         task.allowed_mimes = String::new();
 
-        assert_eq!(
-            check_upload(&task, "包.zip", 50 * 1024 * 1024, None),
-            Ok(())
-        );
+        assert_eq!(check_upload(&task, "包.zip", 50 * 1024 * 1024, None), Ok(()));
         assert!(matches!(
             check_upload(&task, "包.7z", 50 * 1024 * 1024 + 1, None),
             Err(PolicyViolation::SizeExceeded { .. })
@@ -1482,11 +1399,9 @@ mod tests {
     /// 保存侧：白名单里写可执行扩展名直接报错（别等上传时才拒）。
     #[test]
     fn validate_rejects_forbidden_extension_in_whitelist() {
-        let err = validate_policy_fields(50, 900, "jpg,sh", "image/jpeg")
-            .expect_err("白名单含 sh 必须被拒绝");
+        let err = validate_policy_fields(50, 900, "jpg,sh", "image/jpeg").expect_err("白名单含 sh 必须被拒绝");
         assert!(err.contains("硬禁止"), "错误文案应点名硬禁止：{err}");
-        let err =
-            validate_policy_fields(100, 900, "md,png,js", "").expect_err("白名单含 js 必须被拒绝");
+        let err = validate_policy_fields(100, 900, "md,png,js", "").expect_err("白名单含 js 必须被拒绝");
         assert!(err.contains("js"));
         // 合法清单照常通过
         assert!(validate_policy_fields(50, 900, "jpg,png,pdf", "image/png").is_ok());
@@ -1496,18 +1411,14 @@ mod tests {
     #[test]
     fn policy_rejects_mime_mismatch() {
         let policy = sample_policy();
-        let violation =
-            check_upload(&policy, "a.pdf", 10, Some("text/html")).expect_err("MIME 不符必须被拒绝");
+        let violation = check_upload(&policy, "a.pdf", 10, Some("text/html")).expect_err("MIME 不符必须被拒绝");
         assert_eq!(violation.http_status(), 400);
         assert_eq!(violation.code(), error_code::STORAGE_MIME_NOT_ALLOWED);
 
         // image/* 通配：image/webp 在允许范围内
         let mut wildcard = policy.clone();
         wildcard.allowed_mimes = "image/*".to_string();
-        assert_eq!(
-            check_upload(&wildcard, "a.png", 10, Some("image/webp")),
-            Ok(())
-        );
+        assert_eq!(check_upload(&wildcard, "a.png", 10, Some("image/webp")), Ok(()));
         assert!(check_upload(&wildcard, "a.png", 10, Some("text/plain")).is_err());
 
         // 未声明 MIME 时跳过该校验（真实类型由 complete 阶段 stat 复核）
@@ -1520,10 +1431,7 @@ mod tests {
         let mut policy = sample_policy();
         policy.allowed_extensions = String::new();
         policy.allowed_mimes = String::new();
-        assert_eq!(
-            check_upload(&policy, "anything.xyz", 10, Some("a/b")),
-            Ok(())
-        );
+        assert_eq!(check_upload(&policy, "anything.xyz", 10, Some("a/b")), Ok(()));
     }
 
     /// 错误分支：未开直传时明确拒绝（60006）。

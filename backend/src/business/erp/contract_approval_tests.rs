@@ -155,10 +155,7 @@ fn uuid_in(ids: &[Uuid]) -> String {
 
 /// `IN ('<uuid>', …)`（`biz_id` 是 text 弱引用列）。
 fn text_in(ids: &[Uuid]) -> String {
-    ids.iter()
-        .map(|id| format!("'{id}'"))
-        .collect::<Vec<_>>()
-        .join(", ")
+    ids.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", ")
 }
 
 /// 本模块夹具的合同 id 集合（`A2AP-` 是**模块独占**的合同名号段，别处不会造）。
@@ -204,11 +201,7 @@ async fn purge_fixtures() {
                 uuid_in(&notices)
             ))
             .await;
-            exec(&format!(
-                "DELETE FROM sys_notice WHERE id IN ({})",
-                uuid_in(&notices)
-            ))
-            .await;
+            exec(&format!("DELETE FROM sys_notice WHERE id IN ({})", uuid_in(&notices))).await;
         }
         // 弱引用先解开（自引用无 ON DELETE）
         exec(&format!(
@@ -240,10 +233,7 @@ async fn purge_fixtures() {
     }
 
     // 供应商 / 夹具账号：都是固定 UUID，按 id 删（不按前缀扫库）。
-    exec(&format!(
-        "DELETE FROM biz_supplier WHERE id = '{SUPPLIER}'::uuid"
-    ))
-    .await;
+    exec(&format!("DELETE FROM biz_supplier WHERE id = '{SUPPLIER}'::uuid")).await;
     exec(&format!(
         "DELETE FROM sys_user_role WHERE user_id IN \
          ('{U_MAKER}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
@@ -454,12 +444,7 @@ async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
         .await
         .expect("读待办失败");
     rows.iter()
-        .map(|row| {
-            (
-                row.get_typed("id").unwrap(),
-                row.get_typed("assignee_id").unwrap(),
-            )
-        })
+        .map(|row| (row.get_typed("id").unwrap(), row.get_typed("assignee_id").unwrap()))
         .collect()
 }
 
@@ -486,11 +471,9 @@ async fn pending_tasks_of_fixtures(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
 /// 以某人身份同意一条待办（**只动引擎**，业务回调由调用点自己调 —— 与
 /// `flow::handler::approve_task` 的顺序一致：先审批事务，再回调）。
 async fn approve(task_id: Uuid, operator: Uuid) -> engine::ActionOut {
-    db().transaction(|tx| async move {
-        engine::approve(&tx, task_id, operator, Some("同意（A2AP 单测）")).await
-    })
-    .await
-    .unwrap_or_else(|err| panic!("审批同意失败：{err}"))
+    db().transaction(|tx| async move { engine::approve(&tx, task_id, operator, Some("同意（A2AP 单测）")).await })
+        .await
+        .unwrap_or_else(|err| panic!("审批同意失败：{err}"))
 }
 
 /// 以某人身份驳回并终止一条待办。
@@ -764,9 +747,7 @@ async fn draft_cannot_be_signed_or_activated_without_approval() {
     let id = make_contract("NOSIGN", dec("50000.00")).await;
 
     for target in ["SIGNED", "ACTIVE"] {
-        let err = submit_with_target(id, target)
-            .await
-            .expect_err("{target} 必须被拒");
+        let err = submit_with_target(id, target).await.expect_err("{target} 必须被拒");
         assert_eq!(err.status, 409, "{target}：{err:?}");
         assert_eq!(err.code, error_code::ERP_CONTRACT_STATUS_ILLEGAL);
         assert!(
@@ -790,10 +771,7 @@ async fn draft_cannot_be_signed_or_activated_without_approval() {
 }
 
 /// 以任意目标态调一次状态流转（用例内部用）。
-async fn submit_with_target(
-    id: Uuid,
-    target: &str,
-) -> std::result::Result<ContractDetailRes, ApiError> {
+async fn submit_with_target(id: Uuid, target: &str) -> std::result::Result<ContractDetailRes, ApiError> {
     contract_change_status(
         Extension(AuthClaims(claims_of(U_MAKER))),
         Path(id.to_string()),
@@ -849,11 +827,7 @@ async fn submit_without_published_flow_returns_409() {
     let err = result.expect_err("没流程必须 409（不许静默直接生效）");
     assert_eq!(err.status, 409);
     assert_eq!(err.code, error_code::APPROVAL_FLOW_NOT_CONFIGURED);
-    assert!(
-        err.msg.contains("contract_approve"),
-        "文案要点名流程编码：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("contract_approve"), "文案要点名流程编码：{}", err.msg);
     assert_eq!(status_of(id).await, "DRAFT", "被拒后仍是草稿");
     // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
     restore_borrowed_bindings().await;
@@ -867,10 +841,7 @@ async fn zz_teardown_purges_fixtures() {
     let id = make_contract("TEARDOWN", dec("50000.00")).await;
     submit(id).await.expect("提交审批应成功");
     let instance = running_instance(id).await;
-    assert!(
-        !pending_tasks(instance).await.is_empty(),
-        "清场前应确有在跑待办"
-    );
+    assert!(!pending_tasks(instance).await.is_empty(), "清场前应确有在跑待办");
 
     // 清场前先把**本模块**的 id 记下来 —— 清完就查不到它们了，这样断言才是「真的删干净了」
     // 而不是「本来就没有」。

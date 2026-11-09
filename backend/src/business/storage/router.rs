@@ -150,10 +150,7 @@ impl StorageRouter {
     ///
     /// 没有默认后端时返回 `None`。
     pub fn default_code(&self) -> Option<String> {
-        self.default_code
-            .read()
-            .ok()
-            .and_then(|guard| guard.clone())
+        self.default_code.read().ok().and_then(|guard| guard.clone())
     }
 
     /// 按编码取后端。
@@ -166,10 +163,7 @@ impl StorageRouter {
     ///
     /// 命中返回实例，未命中返回 `None`。
     pub fn by_code(&self, code: &str) -> Option<Arc<dyn ObjectStore>> {
-        self.stores
-            .read()
-            .ok()
-            .and_then(|guard| guard.get(code).cloned())
+        self.stores.read().ok().and_then(|guard| guard.get(code).cloned())
     }
 
     /// 已装载的后端编码（升序，便于日志与前端下拉）。
@@ -193,10 +187,7 @@ impl StorageRouter {
     ///
     /// 后端实例数。
     pub fn len(&self) -> usize {
-        self.stores
-            .read()
-            .map(|guard| guard.len())
-            .unwrap_or_default()
+        self.stores.read().map(|guard| guard.len()).unwrap_or_default()
     }
 
     /// 路由表是否为空。
@@ -222,10 +213,7 @@ impl StorageRouter {
     ///
     /// - 策略指定的后端不存在 / 已停用 → 409 [`error_code::STORAGE_BACKEND_UNAVAILABLE`]；
     /// - 没有默认后端 → 同样 409（提示运维在存储配置页设置默认后端）。
-    pub fn pick(
-        &self,
-        policy: Option<&SysStoragePolicyModel>,
-    ) -> std::result::Result<Arc<dyn ObjectStore>, ApiError> {
+    pub fn pick(&self, policy: Option<&SysStoragePolicyModel>) -> std::result::Result<Arc<dyn ObjectStore>, ApiError> {
         let requested = policy
             .and_then(|policy| policy.storage_code.as_deref())
             .map(str::trim)
@@ -281,10 +269,7 @@ pub fn build_store(
     use crate::business::storage::store::StoreError;
 
     match config.backend_type.as_str() {
-        "LOCAL" => Ok(Arc::new(LocalStore::new(
-            config.config_code.clone(),
-            &config.base_path,
-        ))),
+        "LOCAL" => Ok(Arc::new(LocalStore::new(config.config_code.clone(), &config.base_path))),
         "S3" => {
             let (access_key, secret_key) = decrypt_credentials(config, key)?;
             let store = S3Store::new(S3StoreParams {
@@ -432,14 +417,9 @@ mod tests {
         router.insert(Arc::new(MemoryStore::new("backup")));
         assert!(router.set_default("local-default"));
         assert_eq!(router.len(), 2);
-        assert_eq!(
-            router.codes(),
-            vec!["backup".to_string(), "local-default".to_string()]
-        );
+        assert_eq!(router.codes(), vec!["backup".to_string(), "local-default".to_string()]);
 
-        let store = router
-            .pick(Some(&policy_with(None)))
-            .expect("应回退到默认后端");
+        let store = router.pick(Some(&policy_with(None))).expect("应回退到默认后端");
         assert_eq!(store.config_code(), "local-default");
         // 无策略时同样走默认
         assert_eq!(
@@ -507,9 +487,8 @@ mod tests {
     /// 正常路径：配置装载只收启用中的后端，默认后端取 `is_default` 行。
     #[test]
     fn router_replace_loads_enabled_configs() {
-        let key =
-            MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-                .expect("测试主密钥应合法");
+        let key = MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+            .expect("测试主密钥应合法");
         let mut disabled = config_with("disabled-one", "LOCAL", false);
         disabled.status = EnableStatus::disabled;
 
@@ -532,9 +511,8 @@ mod tests {
     /// 错误分支：S3 配置缺密钥时构造失败（该后端不装载，其它后端不受影响）。
     #[test]
     fn router_skips_s3_without_credentials() {
-        let key =
-            MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-                .expect("测试主密钥应合法");
+        let key = MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+            .expect("测试主密钥应合法");
         let mut broken = config_with("s3-broken", "S3", false);
         broken.endpoint = Some("http://minio.local:9000".to_string());
         broken.bucket = Some("mybucket".to_string());

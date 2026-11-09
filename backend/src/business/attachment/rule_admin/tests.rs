@@ -106,21 +106,13 @@ fn validate_rejects_unknown_enums_with_readable_message() {
     assert_eq!(err.status, 400);
     assert_eq!(err.code, error_code::PARAM_INVALID);
     assert!(err.msg.contains("doc_type"), "{}", err.msg);
-    assert!(
-        err.msg.contains("INVOICE"),
-        "消息里要列出可选值：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("INVOICE"), "消息里要列出可选值：{}", err.msg);
 
     let mut req = valid_req();
     req.required_at = "APPROVE".to_string();
     let err = dto::validate(&req).expect_err("未知动作必须被拒");
     assert_eq!(err.status, 400);
-    assert!(
-        err.msg.contains("SUBMIT"),
-        "消息里要列出可选值：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("SUBMIT"), "消息里要列出可选值：{}", err.msg);
 }
 
 /// 数量区间：`min_count = 0`（永不校验）与 `max_count < min_count`（永不成立）都必须拒。
@@ -190,11 +182,7 @@ fn parse_file_role_normalizes_and_rejects() {
     );
     let err = dto::parse_file_role(Some("SCAN")).expect_err("未知角色必须被拒");
     assert_eq!(err.status, 400);
-    assert!(
-        err.msg.contains("DEFAULT"),
-        "消息里要列出可选值：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("DEFAULT"), "消息里要列出可选值：{}", err.msg);
 }
 
 /// `condition_sql`：注入片段（`;` / `--` / `/*`）与超长都必须 400。
@@ -228,16 +216,12 @@ fn validate_rejects_overlong_remark() {
 /// 超管判定：角色短路 / 通配权限都认；普通用户 403 且说明为什么。
 #[test]
 fn ensure_super_admin_accepts_role_or_wildcard() {
-    dto::ensure_super_admin(&claims_of(&[SUPER_ADMIN_ROLE_CODE], &[]), "编辑")
-        .expect("超管角色必须通过");
+    dto::ensure_super_admin(&claims_of(&[SUPER_ADMIN_ROLE_CODE], &[]), "编辑").expect("超管角色必须通过");
     dto::ensure_super_admin(&claims_of(&["user"], &["*:*:*"]), "编辑").expect("通配权限必须通过");
     dto::ensure_super_admin(&claims_of(&["user"], &["*"]), "编辑").expect("通配 * 必须通过");
 
-    let err = dto::ensure_super_admin(
-        &claims_of(&["AUDITOR"], &[dto::PERM_LIST, dto::PERM_CREATE]),
-        "编辑",
-    )
-    .expect_err("非超管必须 403");
+    let err = dto::ensure_super_admin(&claims_of(&["AUDITOR"], &[dto::PERM_LIST, dto::PERM_CREATE]), "编辑")
+        .expect_err("非超管必须 403");
     assert_eq!(err.status, 403);
     assert_eq!(err.code, error_code::PERMISSION_DENIED);
     assert!(err.msg.contains(SUPER_ADMIN_ROLE_CODE), "{}", err.msg);
@@ -299,17 +283,10 @@ fn options_come_from_enums() {
     assert_eq!(options.required_ats.len(), RequiredAt::ALL.len());
     assert_eq!(options.file_roles.len(), FileRole::ALL.len());
 
-    let values: Vec<&str> = options
-        .doc_types
-        .iter()
-        .map(|option| option.value.as_str())
-        .collect();
+    let values: Vec<&str> = options.doc_types.iter().map(|option| option.value.as_str()).collect();
     assert_eq!(
         values,
-        DocKind::ALL
-            .iter()
-            .map(|kind| kind.as_str())
-            .collect::<Vec<_>>()
+        DocKind::ALL.iter().map(|kind| kind.as_str()).collect::<Vec<_>>()
     );
     let ats: Vec<&str> = options
         .required_ats
@@ -336,12 +313,7 @@ fn permission_codes_are_stable() {
     assert_eq!(dto::PERM_DELETE, "support:attachment-rule:delete");
     // 路由宏里的字面值必须与常量相同（两条路走的是同一份权限点）
     let source = include_str!("handler.rs");
-    for code in [
-        dto::PERM_LIST,
-        dto::PERM_CREATE,
-        dto::PERM_UPDATE,
-        dto::PERM_DELETE,
-    ] {
+    for code in [dto::PERM_LIST, dto::PERM_CREATE, dto::PERM_UPDATE, dto::PERM_DELETE] {
         assert!(
             source.contains(&format!("permission = \"{code}\"")),
             "handler.rs 里缺少 permission = \"{code}\""
@@ -448,24 +420,17 @@ async fn admin_crud_roundtrip_takes_effect_immediately() {
 
     // ② 列表可见（管理面含禁用行，但这里是启用态）
     let list = model::list_all().await.expect("列表必须可读");
-    assert!(
-        list.iter().any(|item| item.id == id),
-        "新建的规则必须出现在列表里"
-    );
+    assert!(list.iter().any(|item| item.id == id), "新建的规则必须出现在列表里");
 
     // ③ 同键再建：闸门前置查询必须把它认出来（handler 转 409 的依据）
     assert_eq!(
-        model::find_conflict(&draft, None)
-            .await
-            .expect("查冲突不能报错"),
+        model::find_conflict(&draft, None).await.expect("查冲突不能报错"),
         Some(id),
         "同键必须被识别为冲突"
     );
     // 编辑自己不算冲突
     assert_eq!(
-        model::find_conflict(&draft, Some(&id))
-            .await
-            .expect("查冲突不能报错"),
+        model::find_conflict(&draft, Some(&id)).await.expect("查冲突不能报错"),
         None
     );
 
@@ -473,18 +438,10 @@ async fn admin_crud_roundtrip_takes_effect_immediately() {
     let gated = att_rule::load_rules(DocKind::SalesReturn, RequiredAt::Activate)
         .await
         .expect("闸门读规则不能报错");
-    assert!(
-        gated.iter().any(|rule| rule.id == id),
-        "新建规则必须参与校验"
-    );
+    assert!(gated.iter().any(|rule| rule.id == id), "新建规则必须参与校验");
 
     // ⑤ 禁用 → 闸门立刻看不到（**无缓存**，卡面验收③）
-    assert_eq!(
-        model::set_enabled(&claims, &id, false)
-            .await
-            .expect("禁用必须成功"),
-        1
-    );
+    assert_eq!(model::set_enabled(&claims, &id, false).await.expect("禁用必须成功"), 1);
     let gated = att_rule::load_rules(DocKind::SalesReturn, RequiredAt::Activate)
         .await
         .expect("闸门读规则不能报错");
@@ -501,12 +458,7 @@ async fn admin_crud_roundtrip_takes_effect_immediately() {
     assert!(!shown.enabled);
 
     // ⑥ 重新启用 → 又参与校验
-    assert_eq!(
-        model::set_enabled(&claims, &id, true)
-            .await
-            .expect("启用必须成功"),
-        1
-    );
+    assert_eq!(model::set_enabled(&claims, &id, true).await.expect("启用必须成功"), 1);
     let gated = att_rule::load_rules(DocKind::SalesReturn, RequiredAt::Activate)
         .await
         .expect("闸门读规则不能报错");
@@ -520,18 +472,13 @@ async fn admin_crud_roundtrip_takes_effect_immediately() {
     };
     let edited_draft = dto::validate(&edited).expect("合法入参");
     assert_eq!(
-        model::update(&claims, &id, &edited_draft)
-            .await
-            .expect("编辑必须成功"),
+        model::update(&claims, &id, &edited_draft).await.expect("编辑必须成功"),
         1
     );
     let gated = att_rule::load_rules(DocKind::SalesReturn, RequiredAt::Activate)
         .await
         .expect("闸门读规则不能报错");
-    let current = gated
-        .iter()
-        .find(|rule| rule.id == id)
-        .expect("编辑后规则仍在闸门里");
+    let current = gated.iter().find(|rule| rule.id == id).expect("编辑后规则仍在闸门里");
     assert_eq!(
         current.allow_exts.as_deref(),
         Some(["png".to_string()].as_slice()),
@@ -540,17 +487,10 @@ async fn admin_crud_roundtrip_takes_effect_immediately() {
     assert_eq!(current.requirement_name(), "改成只收 png");
 
     // ⑧ 软删 → 管理面 / 闸门都看不到，同键可以重建（唯一索引带 WHERE deleted_at IS NULL）
-    assert_eq!(
-        model::soft_delete(&claims, &id)
-            .await
-            .expect("软删必须成功"),
-        1
-    );
+    assert_eq!(model::soft_delete(&claims, &id).await.expect("软删必须成功"), 1);
     assert!(model::find(&id).await.expect("查询不能报错").is_none());
     assert_eq!(
-        model::soft_delete(&claims, &id)
-            .await
-            .expect("重复软删不能报错"),
+        model::soft_delete(&claims, &id).await.expect("重复软删不能报错"),
         0,
         "已删的行再删影响 0 行（handler 据此回 404）"
     );
@@ -559,15 +499,11 @@ async fn admin_crud_roundtrip_takes_effect_immediately() {
         .expect("闸门读规则不能报错");
     assert!(!gated.iter().any(|rule| rule.id == id));
     assert_eq!(
-        model::find_conflict(&draft, None)
-            .await
-            .expect("查冲突不能报错"),
+        model::find_conflict(&draft, None).await.expect("查冲突不能报错"),
         None,
         "软删后同键不再算冲突"
     );
-    let rebuilt = model::insert(&claims, &draft)
-        .await
-        .expect("同键重建必须成功");
+    let rebuilt = model::insert(&claims, &draft).await.expect("同键重建必须成功");
     assert_ne!(rebuilt, id, "重建是一条新行");
 
     purge_fixtures().await;
@@ -650,9 +586,7 @@ async fn seed_rules_are_visible() {
         );
     }
     assert_eq!(
-        list.iter()
-            .filter(|row| row.doc_type == DocKind::Invoice)
-            .count(),
+        list.iter().filter(|row| row.doc_type == DocKind::Invoice).count(),
         2,
         "发票按电子 / 纸质拆成两条"
     );

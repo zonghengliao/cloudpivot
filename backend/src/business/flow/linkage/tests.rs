@@ -70,11 +70,7 @@ fn whitelist_has_eight_or_more_actions() {
         for param in action.params {
             assert!(!keys.contains(&param.key), "{code} 参数 {} 重复", param.key);
             keys.push(param.key);
-            assert!(
-                !param.note.trim().is_empty(),
-                "{code}.{} 缺参数说明",
-                param.key
-            );
+            assert!(!param.note.trim().is_empty(), "{code}.{} 缺参数说明", param.key);
             assert!(
                 !spec::is_forbidden_key(param.key),
                 "{code}.{} 命中了 SQL 禁用键清单",
@@ -110,10 +106,7 @@ fn forbidden_sql_keys_are_rejected() {
     // 大小写变体也要拦（有人会写 `SQL` / `Sql`）
     for key in ["SQL", "Sql", "Query"] {
         let params = serde_json::json!({ key: "select 1" });
-        assert!(
-            spec::validate_params(action, &params).is_err(),
-            "{key} 未被拦下"
-        );
+        assert!(spec::validate_params(action, &params).is_err(), "{key} 未被拦下");
     }
 }
 
@@ -121,8 +114,7 @@ fn forbidden_sql_keys_are_rejected() {
 #[test]
 fn unknown_param_key_is_rejected() {
     let action = spec::spec_of(spec::ACTION_SEND_NOTICE).expect("SEND_NOTICE 必须在白名单里");
-    let error = spec::validate_params(action, &serde_json::json!({ "bogus": 1 }))
-        .expect_err("未声明的键必须被拒");
+    let error = spec::validate_params(action, &serde_json::json!({ "bogus": 1 })).expect_err("未声明的键必须被拒");
     assert!(error.contains("不接受参数 `bogus`"), "实际：{error}");
     assert!(error.contains("允许："), "错误文案要列出允许的键：{error}");
 }
@@ -147,12 +139,8 @@ fn params_must_be_object() {
 #[test]
 fn required_params_are_enforced() {
     let action = spec::spec_of(spec::ACTION_UPDATE_RECEIVED_QTY).expect("动作必须在白名单里");
-    let error = spec::validate_params(action, &serde_json::json!({}))
-        .expect_err("缺 source_item_id 必须被拒");
-    assert!(
-        error.contains("缺少必需参数 `source_item_id`"),
-        "实际：{error}"
-    );
+    let error = spec::validate_params(action, &serde_json::json!({})).expect_err("缺 source_item_id 必须被拒");
+    assert!(error.contains("缺少必需参数 `source_item_id`"), "实际：{error}");
     let error = spec::validate_params(
         action,
         &serde_json::json!({ "source_item_id": "0d2d0000-0000-4000-8000-000000000002" }),
@@ -160,26 +148,17 @@ fn required_params_are_enforced() {
     .expect_err("缺 qty 必须被拒");
     assert!(error.contains("缺少必需参数 `qty`"), "实际：{error}");
     // null 等同缺失
-    let error = spec::validate_params(
-        action,
-        &serde_json::json!({ "source_item_id": null, "qty": 1 }),
-    )
-    .expect_err("null 等同缺失");
-    assert!(
-        error.contains("缺少必需参数 `source_item_id`"),
-        "实际：{error}"
-    );
+    let error = spec::validate_params(action, &serde_json::json!({ "source_item_id": null, "qty": 1 }))
+        .expect_err("null 等同缺失");
+    assert!(error.contains("缺少必需参数 `source_item_id`"), "实际：{error}");
 }
 
 /// 类型 / 枚举 / 区间 / 长度都要查。
 #[test]
 fn param_types_are_enforced() {
     let rq = spec::spec_of(spec::ACTION_UPDATE_RECEIVED_QTY).expect("动作必须在白名单里");
-    let bad_uuid = spec::validate_params(
-        rq,
-        &serde_json::json!({ "source_item_id": "not-a-uuid", "qty": 1 }),
-    )
-    .expect_err("非法 UUID 必须被拒");
+    let bad_uuid = spec::validate_params(rq, &serde_json::json!({ "source_item_id": "not-a-uuid", "qty": 1 }))
+        .expect_err("非法 UUID 必须被拒");
     assert!(bad_uuid.contains("不是合法的 UUID"), "实际：{bad_uuid}");
 
     let bad_decimal = spec::validate_params(
@@ -187,10 +166,7 @@ fn param_types_are_enforced() {
         &serde_json::json!({ "source_item_id": "0d2d0000-0000-4000-8000-000000000002", "qty": "abc" }),
     )
     .expect_err("非数字必须被拒");
-    assert!(
-        bad_decimal.contains("不是合法的十进制数"),
-        "实际：{bad_decimal}"
-    );
+    assert!(bad_decimal.contains("不是合法的十进制数"), "实际：{bad_decimal}");
 
     // 数字字符串是合法的（前端常按字符串传金额/数量）
     assert!(
@@ -202,14 +178,13 @@ fn param_types_are_enforced() {
     );
 
     let notice = spec::spec_of(spec::ACTION_SEND_NOTICE).expect("动作必须在白名单里");
-    let bad_enum = spec::validate_params(notice, &serde_json::json!({ "mode": "TAKEOVER_NOW" }))
-        .expect_err("枚举越界必须被拒");
+    let bad_enum =
+        spec::validate_params(notice, &serde_json::json!({ "mode": "TAKEOVER_NOW" })).expect_err("枚举越界必须被拒");
     assert!(bad_enum.contains("不在允许值里"), "实际：{bad_enum}");
-    let bad_bool = spec::validate_params(notice, &serde_json::json!({ "force": "yes" }))
-        .expect_err("布尔必须被拒");
+    let bad_bool = spec::validate_params(notice, &serde_json::json!({ "force": "yes" })).expect_err("布尔必须被拒");
     assert!(bad_bool.contains("布尔"), "实际：{bad_bool}");
-    let too_long = spec::validate_params(notice, &serde_json::json!({ "title": "x".repeat(201) }))
-        .expect_err("超长必须被拒");
+    let too_long =
+        spec::validate_params(notice, &serde_json::json!({ "title": "x".repeat(201) })).expect_err("超长必须被拒");
     assert!(too_long.contains("最长 200 个字符"), "实际：{too_long}");
     let bad_int = spec::validate_params(
         spec::spec_of("CREATE_TASK").expect("动作必须在白名单里"),
@@ -236,11 +211,7 @@ fn after_commit_actions_are_never_critical() {
     // 两个已实现动作的事务归属是卡面点名的
     let send = spec::spec_of(spec::ACTION_SEND_NOTICE).expect("动作必须在白名单里");
     assert_eq!(send.phase, Phase::AfterCommit, "发通知必须在事务提交之后");
-    assert_eq!(
-        send.severity,
-        Severity::NonCritical,
-        "发通知失败不许回滚业务"
-    );
+    assert_eq!(send.severity, Severity::NonCritical, "发通知失败不许回滚业务");
     let qty = spec::spec_of(spec::ACTION_UPDATE_RECEIVED_QTY).expect("动作必须在白名单里");
     assert_eq!(qty.phase, Phase::InTx, "回写累计量必须在事务内");
     assert_eq!(qty.severity, Severity::Critical, "回写累计量失败必须回滚");
@@ -270,18 +241,14 @@ fn migration_check_covers_every_action_code() {
 fn triggers_cover_state_machine_entities() {
     for entity in state_machine::Entity::ALL {
         assert!(
-            spec::is_known_trigger(entity.as_str())
-                || spec::TRIGGER_EXEMPT.contains(&entity.as_str()),
+            spec::is_known_trigger(entity.as_str()) || spec::TRIGGER_EXEMPT.contains(&entity.as_str()),
             "状态机实体 {} 既不在联动触发点白名单里、也没登记在 TRIGGER_EXEMPT（漏登记 = 挂不上联动）",
             entity.as_str()
         );
     }
     // 例外清单必须自我一致：不许和真白名单重复、每一项都得是真实实体
     for exempt in spec::TRIGGER_EXEMPT {
-        assert!(
-            !spec::is_known_trigger(exempt),
-            "{exempt} 同时在白名单与例外清单里"
-        );
+        assert!(!spec::is_known_trigger(exempt), "{exempt} 同时在白名单与例外清单里");
         assert!(
             state_machine::Entity::ALL
                 .iter()
@@ -326,8 +293,8 @@ fn shape_notice_defaults_are_identical() {
     assert!(diffs.contains(&"title") && diffs.contains(&"force") && diffs.contains(&"recipients"));
 
     // 收件人策略指向一个「没有这个人」的场景 → 跳过（不静默发空通知）
-    let ctx_empty = LinkageContext::new(spec::TRIGGER_TASK, "DOING", Uuid::now_v7(), "T-0", None)
-        .with_notice(sample_draft());
+    let ctx_empty =
+        LinkageContext::new(spec::TRIGGER_TASK, "DOING", Uuid::now_v7(), "T-0", None).with_notice(sample_draft());
     let error = actions::shape_notice(&base, &setting, &ctx_empty).expect_err("无收件人必须跳过");
     assert!(matches!(error, ActionError::Skipped(_)));
 }
@@ -478,10 +445,7 @@ async fn cleanup() {
             "DELETE FROM biz_purchase_order_item WHERE order_id = '{}'",
             fixture_po()
         ),
-        format!(
-            "DELETE FROM biz_purchase_order WHERE id = '{}'",
-            fixture_po()
-        ),
+        format!("DELETE FROM biz_purchase_order WHERE id = '{}'", fixture_po()),
         format!("DELETE FROM biz_flow_linkage_rule WHERE name LIKE '{PREFIX}%'"),
         format!(
             "DELETE FROM sys_notice WHERE biz_id IN ('{}', '{}', '{}')",
@@ -625,15 +589,9 @@ fn sample_draft() -> NoticeDraft {
 
 /// 样例上下文（收件人用夹具 uuid，不查库；只给纯逻辑用例用）。
 fn sample_ctx() -> LinkageContext<'static> {
-    LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    )
-    .with_people(Some(uuid_of("0aa01")), Some(uuid_of("0aa02")), None)
-    .with_notice(sample_draft())
+    LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None)
+        .with_people(Some(uuid_of("0aa01")), Some(uuid_of("0aa02")), None)
+        .with_notice(sample_draft())
 }
 
 /// 真库用例的草稿：收件人用**库里真实存在的** admin（第 3 层会校验收件人存活，
@@ -691,11 +649,7 @@ async fn upsert_rejects_params_with_sql_key() {
     .await
     .expect_err("SQL 键必须被拒");
     assert_eq!(error.status, 400, "实际：{error:?}");
-    assert!(
-        error.msg.contains("禁止在联动配置里写 SQL"),
-        "实际：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("禁止在联动配置里写 SQL"), "实际：{}", error.msg);
     tx.rollback().await.expect("回滚");
 
     // 数据库层的第二道闸：绕过 API 直接写库也必须失败
@@ -752,27 +706,15 @@ async fn upsert_rejects_not_implemented_action() {
 async fn upsert_rejects_unknown_trigger() {
     let Some(_guard) = setup().await else { return };
     let tx = db().begin().await.expect("开事务");
-    let mut bad_entity = patch(
-        "bad-entity",
-        spec::ACTION_SEND_NOTICE,
-        serde_json::json!({}),
-    );
+    let mut bad_entity = patch("bad-entity", spec::ACTION_SEND_NOTICE, serde_json::json!({}));
     bad_entity.trigger_entity = "NOT_A_DOC".to_string();
     let error = model::upsert_rule(&tx, &super_claims(), &bad_entity)
         .await
         .expect_err("未知触发点必须被拒");
     assert_eq!(error.status, 400);
-    assert!(
-        error.msg.contains("未知的触发单据类型"),
-        "实际：{}",
-        error.msg
-    );
+    assert!(error.msg.contains("未知的触发单据类型"), "实际：{}", error.msg);
 
-    let mut bad_status = patch(
-        "bad-status",
-        spec::ACTION_SEND_NOTICE,
-        serde_json::json!({}),
-    );
+    let mut bad_status = patch("bad-status", spec::ACTION_SEND_NOTICE, serde_json::json!({}));
     bad_status.trigger_status = "DOING_NOT_EXIST".to_string();
     let error = model::upsert_rule(&tx, &super_claims(), &bad_status)
         .await
@@ -797,11 +739,7 @@ async fn upsert_requires_super_admin_and_confirm() {
     assert_eq!(error.status, 403, "实际：{error:?}");
     assert!(error.msg.contains("SUPER_ADMIN"), "实际：{}", error.msg);
 
-    let mut no_confirm = patch(
-        "no-confirm",
-        spec::ACTION_SEND_NOTICE,
-        serde_json::json!({}),
-    );
+    let mut no_confirm = patch("no-confirm", spec::ACTION_SEND_NOTICE, serde_json::json!({}));
     no_confirm.confirm = false;
     let error = model::upsert_rule(&tx, &super_claims(), &no_confirm)
         .await
@@ -840,10 +778,7 @@ async fn upsert_then_load_roundtrip() {
     let again = model::upsert_rule(&tx, &super_claims(), &updated)
         .await
         .expect("更新应成功");
-    assert_eq!(
-        again.id, saved.id,
-        "唯一键 (entity,status,action) 必须复用同一行"
-    );
+    assert_eq!(again.id, saved.id, "唯一键 (entity,status,action) 必须复用同一行");
     assert_eq!(again.seq, 30);
 
     // 审计（biz_status_log / FLOW_LINKAGE_CFG）写了改前与改后
@@ -857,16 +792,9 @@ async fn upsert_then_load_roundtrip() {
         )
         .await
         .expect("查配置审计");
-    assert!(
-        logs.len() >= 2,
-        "保存 + 更新应各留一行审计，实际 {} 行",
-        logs.len()
-    );
+    assert!(logs.len() >= 2, "保存 + 更新应各留一行审计，实际 {} 行", logs.len());
     let reason: String = logs[0].get_typed("reason").expect("reason");
-    assert!(
-        reason.contains("改前") && reason.contains("改后"),
-        "实际：{reason}"
-    );
+    assert!(reason.contains("改前") && reason.contains("改后"), "实际：{reason}");
 
     tx.rollback().await.expect("回滚"); // 审计行也一起回滚（真库验收时另有 e2e 证据）
 }
@@ -889,13 +817,7 @@ async fn engine_skips_disabled_rules() {
         .expect("保存规则");
     assert!(!rule.enabled);
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    );
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None);
     let run = engine::run(&tx, &ctx).await.expect("引擎不该报错");
     assert!(
         run.runs.iter().all(|item| item.rule_id != rule.id),
@@ -915,11 +837,7 @@ async fn engine_skips_disabled_rules() {
             vec![Value::from(&fixture_item1())],
         )
         .await;
-    assert_eq!(
-        received.expect("查已收数量"),
-        "0.0000",
-        "禁用规则不许改数据"
-    );
+    assert_eq!(received.expect("查已收数量"), "0.0000", "禁用规则不许改数据");
     tx.rollback().await.expect("回滚");
 }
 
@@ -956,13 +874,7 @@ async fn engine_runs_in_seq_order() {
     .await
     .expect("直接插占位规则");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    );
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None);
     let run = engine::run(&tx, &ctx).await.expect("引擎不该报错");
     assert_eq!(run.runs.len(), 2, "两条规则都要有执行记录");
     assert_eq!(run.runs[0].seq, 5, "seq 小的先跑");
@@ -990,10 +902,7 @@ async fn engine_runs_in_seq_order() {
         )
         .await
         .expect("查已收数量");
-    assert_eq!(
-        qty1, "0.0000",
-        "派生口径：动作不落库，值只由已过账收货单决定"
-    );
+    assert_eq!(qty1, "0.0000", "派生口径：动作不落库，值只由已过账收货单决定");
     tx.rollback().await.expect("回滚");
 }
 
@@ -1028,13 +937,7 @@ async fn engine_critical_failure_rolls_back() {
         .await
         .expect("保存第二条");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    );
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None);
     let error = engine::run(&tx, &ctx)
         .await
         .expect_err("超收是关键动作失败，必须返回 Err");
@@ -1079,13 +982,7 @@ async fn engine_skips_missing_target() {
     .await
     .expect("保存规则");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    );
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None);
     let run = engine::run(&tx, &ctx).await.expect("target 不存在不该报错");
     assert_eq!(run.runs.len(), 1);
     assert!(
@@ -1114,13 +1011,7 @@ async fn engine_skips_placeholder_action() {
     .await
     .expect("直接插库应通过 CHECK（动作码在白名单里）");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    );
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None);
     let run = engine::run(&tx, &ctx).await.expect("占位动作不该报错");
     assert_eq!(run.runs.len(), 1);
     assert!(
@@ -1157,13 +1048,7 @@ async fn engine_is_fail_safe_when_table_missing() {
     assert!(rules.is_empty(), "表不存在时必须降级为空规则集");
 
     // 事务仍可用：紧接着的业务写不能因为「读过一次不存在的表」而 aborted
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_a(),
-        "D2L-T-1",
-        None,
-    );
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_a(), "D2L-T-1", None);
     let run = engine::run(&tx, &ctx).await.expect("降级路径不该报错");
     assert!(run.is_empty());
     tx.execute_with_params(
@@ -1191,21 +1076,11 @@ async fn engine_is_fail_safe_when_table_missing() {
 async fn status_notice_without_rule_is_legacy() {
     let Some(_guard) = setup().await else { return };
     let admin = admin_id().await;
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_b(),
-        "D2L-T-2",
-        None,
-    )
-    .with_notice(draft_for(fixture_doc_b(), admin));
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_b(), "D2L-T-2", None)
+        .with_notice(draft_for(fixture_doc_b(), admin));
     let route = engine::status_notice(&ctx).await;
     assert_eq!(route, NoticeRoute::Legacy { compare: None });
-    assert_eq!(
-        notice_rows(fixture_doc_b()).await,
-        0,
-        "没配置时不该多发通知"
-    );
+    assert_eq!(notice_rows(fixture_doc_b()).await, 0, "没配置时不该多发通知");
 }
 
 /// 影子模式：旧逻辑照发，配置只做对比（`matched = true`）。
@@ -1225,23 +1100,11 @@ async fn status_notice_shadow_keeps_legacy() {
     .await
     .expect("保存影子规则");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_b(),
-        "D2L-T-2",
-        None,
-    )
-    .with_notice(draft_for(fixture_doc_b(), admin));
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_b(), "D2L-T-2", None)
+        .with_notice(draft_for(fixture_doc_b(), admin));
     match engine::status_notice(&ctx).await {
-        NoticeRoute::Legacy {
-            compare: Some(compare),
-        } => {
-            assert!(
-                compare.matched,
-                "默认参数下对比必须一致，差异：{:?}",
-                compare.diffs
-            );
+        NoticeRoute::Legacy { compare: Some(compare) } => {
+            assert!(compare.matched, "默认参数下对比必须一致，差异：{:?}", compare.diffs);
         }
         other => panic!("影子模式应返回 Legacy + compare，实际：{other:?}"),
     }
@@ -1252,12 +1115,9 @@ async fn status_notice_shadow_keeps_legacy() {
     );
 
     // 清掉规则，避免污染后续用例（setup 也会清，这里显式一次更好读）
-    db().execute_with_params(
-        "DELETE FROM biz_flow_linkage_rule WHERE name = 'D2L-shadow'",
-        vec![],
-    )
-    .await
-    .expect("清理影子规则");
+    db().execute_with_params("DELETE FROM biz_flow_linkage_rule WHERE name = 'D2L-shadow'", vec![])
+        .await
+        .expect("清理影子规则");
 }
 
 /// 接管模式：配置发通知（旧逻辑不发），通知内容与旧逻辑逐字段一致。
@@ -1280,19 +1140,11 @@ async fn status_notice_takeover_sends_configured_notice() {
     .await
     .expect("保存接管规则");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "DOING",
-        fixture_doc_c(),
-        "D2L-T-3",
-        Some(admin),
-    )
-    .with_notice(base.clone());
+    let ctx = LinkageContext::new(spec::TRIGGER_TASK, "DOING", fixture_doc_c(), "D2L-T-3", Some(admin))
+        .with_notice(base.clone());
     match engine::status_notice(&ctx).await {
         NoticeRoute::Configured {
-            dispatched,
-            compare,
-            ..
+            dispatched, compare, ..
         } => {
             assert!(dispatched, "接管模式必须真的发出去");
             assert!(
@@ -1345,25 +1197,15 @@ async fn status_notice_bad_params_fall_back_to_legacy() {
     .await
     .expect("脏参数能写进库（绕过 API 的形态）");
 
-    let ctx = LinkageContext::new(
-        spec::TRIGGER_TASK,
-        "REVIEW",
-        fixture_doc_b(),
-        "D2L-T-2",
-        None,
-    )
-    .with_notice(sample_draft());
+    let ctx =
+        LinkageContext::new(spec::TRIGGER_TASK, "REVIEW", fixture_doc_b(), "D2L-T-2", None).with_notice(sample_draft());
     let route = engine::status_notice(&ctx).await;
     assert_eq!(
         route,
         NoticeRoute::Legacy { compare: None },
         "参数非法时必须退回旧逻辑（通知不能丢）"
     );
-    assert_eq!(
-        notice_rows(fixture_doc_b()).await,
-        0,
-        "退回旧逻辑时引擎自己不发"
-    );
+    assert_eq!(notice_rows(fixture_doc_b()).await, 0, "退回旧逻辑时引擎自己不发");
 }
 
 /// 通知行数（按 biz_id 数；`sys_notice.biz_id` 是 **varchar(64)**，不能绑 uuid）。
@@ -1502,11 +1344,7 @@ async fn voucher_action_params_are_validated_on_write() {
     let Some(_guard) = setup().await else { return };
     let tx = db().begin().await.expect("开事务");
     let cases: Vec<(&str, serde_json::Value, &str)> = vec![
-        (
-            "缺必填 biz_type",
-            serde_json::json!({ "mode": "TAKEOVER" }),
-            "biz_type",
-        ),
+        ("缺必填 biz_type", serde_json::json!({ "mode": "TAKEOVER" }), "biz_type"),
         (
             "mode 不在枚举",
             serde_json::json!({ "biz_type": "PURCHASE_IN", "mode": "TAKEOVER_XXX" }),
@@ -1638,9 +1476,7 @@ async fn voucher_new_path_matches_legacy_field_by_field() {
     let legacy_id = voucher::create_for_stock_in(&tx, &header, material_lines, None, Utc::now())
         .await
         .expect("旧路生成凭证");
-    let legacy = voucher::snapshot_of(&tx, legacy_id)
-        .await
-        .expect("旧路凭证快照");
+    let legacy = voucher::snapshot_of(&tx, legacy_id).await.expect("旧路凭证快照");
     tx.rollback().await.expect("回滚旧路");
 
     // ---- 路 2：配置路径（TAKEOVER）----
@@ -1651,23 +1487,16 @@ async fn voucher_new_path_matches_legacy_field_by_field() {
     .await;
     let ctx = stock_in_ctx(fixture_si_ok(), "D2L-SI-1");
     let tx2 = db().begin().await.expect("开事务（配置路）");
-    let route = engine::stockin_voucher(&tx2, &ctx)
-        .await
-        .expect("配置路不该失败");
+    let route = engine::stockin_voucher(&tx2, &ctx).await.expect("配置路不该失败");
     let configured_id = match route {
         engine::VoucherRoute::Configured { voucher_id, .. } => voucher_id,
         other => panic!("TAKEOVER 必须由配置落账，实际：{other:?}"),
     };
-    let configured = voucher::snapshot_of(&tx2, configured_id)
-        .await
-        .expect("配置路凭证快照");
+    let configured = voucher::snapshot_of(&tx2, configured_id).await.expect("配置路凭证快照");
     tx2.rollback().await.expect("回滚配置路");
 
     let diffs = voucher::compare_snapshots(&configured, &legacy);
-    assert!(
-        diffs.is_empty(),
-        "新旧两路凭证必须逐字段一致，差异：{diffs:?}"
-    );
+    assert!(diffs.is_empty(), "新旧两路凭证必须逐字段一致，差异：{diffs:?}");
     // 8 项以上硬断言（卡面要求，别只靠 compare 的空数组）
     assert_eq!(configured.voucher_count, 1, "凭证张数");
     assert_eq!(configured.voucher_word, legacy.voucher_word, "凭证字");
@@ -1686,11 +1515,7 @@ async fn voucher_new_path_matches_legacy_field_by_field() {
             .iter()
             .map(|l| l.account_code.clone())
             .collect::<Vec<_>>(),
-        legacy
-            .lines
-            .iter()
-            .map(|l| l.account_code.clone())
-            .collect::<Vec<_>>(),
+        legacy.lines.iter().map(|l| l.account_code.clone()).collect::<Vec<_>>(),
         "逐行科目编码"
     );
     assert!(
@@ -1716,13 +1541,10 @@ async fn voucher_shadow_rolls_back_and_compares() {
     let ctx = stock_in_ctx(fixture_si_ok2(), "D2L-SI-2");
 
     let tx = db().begin().await.expect("开事务");
-    let route = engine::stockin_voucher(&tx, &ctx)
-        .await
-        .expect("影子不该失败");
+    let route = engine::stockin_voucher(&tx, &ctx).await.expect("影子不该失败");
     let shadow = match route {
         engine::VoucherRoute::Legacy {
-            shadow: Some(shadow),
-            ..
+            shadow: Some(shadow), ..
         } => shadow,
         other => panic!("SHADOW 必须退回旧逻辑并带影子快照，实际：{other:?}"),
     };
@@ -1749,11 +1571,7 @@ async fn voucher_shadow_rolls_back_and_compares() {
         .await
         .expect("旧路生成凭证");
     let compare = engine::finish_stockin_voucher_shadow(&tx, &ctx, &shadow, legacy_id).await;
-    assert!(
-        compare.matched,
-        "影子与旧路径必须一致，差异：{:?}",
-        compare.diffs
-    );
+    assert!(compare.matched, "影子与旧路径必须一致，差异：{:?}", compare.diffs);
     assert!(compare.diffs.is_empty());
     tx.rollback().await.expect("回滚");
 }
@@ -1799,11 +1617,7 @@ async fn voucher_action_fails_and_rolls_back_when_period_closed() {
     );
     tx.rollback().await.expect("整笔回滚");
 
-    assert_eq!(
-        vouchers_of(fixture_si_ok()).await,
-        0,
-        "关键动作失败后不许留下半张凭证"
-    );
+    assert_eq!(vouchers_of(fixture_si_ok()).await, 0, "关键动作失败后不许留下半张凭证");
     let logs: i64 = db()
         .scalar_sql(
             "SELECT count(*) FROM biz_status_log WHERE entity_id = ?::uuid".to_string(),

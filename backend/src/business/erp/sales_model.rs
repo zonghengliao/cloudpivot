@@ -158,11 +158,7 @@ pub fn is_valid_so_no(value: &str) -> bool {
 // ==================== 金额 / 数量守卫（纯逻辑） ====================
 
 /// 单头金额三项是否**非负**（DDL 的 `ck_sales_order_amount_nonneg` 是兜底，入口先拒）。
-pub fn amounts_non_negative(
-    total_amount: Decimal,
-    total_tax: Decimal,
-    total_with_tax: Decimal,
-) -> bool {
+pub fn amounts_non_negative(total_amount: Decimal, total_tax: Decimal, total_with_tax: Decimal) -> bool {
     total_amount >= Decimal::ZERO && total_tax >= Decimal::ZERO && total_with_tax >= Decimal::ZERO
 }
 
@@ -171,11 +167,7 @@ pub fn amounts_non_negative(
 /// 与 `ck_sales_order_amount` 同口径：库里是精确 CHECK，入口也必须精确比对，
 /// 否则「入口放过、库拒绝」就是 23514（对用户是 500 手感）。金额一律 4 位小数，
 /// 舍入在**逐行**发生时做（与采购单/入库单同款：先舍入再相加，禁止先加总再舍入）。
-pub fn totals_consistent(
-    total_amount: Decimal,
-    total_tax: Decimal,
-    total_with_tax: Decimal,
-) -> bool {
+pub fn totals_consistent(total_amount: Decimal, total_tax: Decimal, total_with_tax: Decimal) -> bool {
     total_with_tax == total_amount + total_tax
 }
 
@@ -231,9 +223,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个销售订单号（周期键按北京时间）。
@@ -305,10 +295,7 @@ mod tests {
         // 流水超过 6 位：长一位，不截断（截断就撞号了）
         assert_eq!(format_so_no("20261106", 1234567), "SO-20261106-1234567");
 
-        assert_eq!(
-            parse_so_no("SO-20261106-000007"),
-            Some(("20261106".to_string(), 7))
-        );
+        assert_eq!(parse_so_no("SO-20261106-000007"), Some(("20261106".to_string(), 7)));
         assert_eq!(
             parse_so_no("SO-20261106-1234567"),
             Some(("20261106".to_string(), 1234567))
@@ -351,28 +338,16 @@ mod tests {
     /// 金额恒等：精确相等（不是「差不多」）；非负另有一条守卫。
     #[test]
     fn totals_consistency_is_exact() {
-        assert!(totals_consistent(
-            Decimal::ZERO,
-            Decimal::ZERO,
-            Decimal::ZERO
-        ));
+        assert!(totals_consistent(Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
         assert!(totals_consistent(dec("100"), dec("13"), dec("113")));
-        assert!(totals_consistent(
-            dec("100.0000"),
-            dec("13.0000"),
-            dec("113.0000")
-        ));
+        assert!(totals_consistent(dec("100.0000"), dec("13.0000"), dec("113.0000")));
         // 差 1 分也必须判否（库里 CHECK 就是精确相等）
         assert!(!totals_consistent(dec("100"), dec("13"), dec("113.0001")));
         assert!(!totals_consistent(dec("100"), dec("13"), dec("112.9999")));
         // 负数能「恒等」但不合法 → 由非负守卫拦
         assert!(totals_consistent(dec("-1"), dec("0"), dec("-1")));
         assert!(!amounts_non_negative(dec("-1"), Decimal::ZERO, dec("-1")));
-        assert!(amounts_non_negative(
-            Decimal::ZERO,
-            Decimal::ZERO,
-            Decimal::ZERO
-        ));
+        assert!(amounts_non_negative(Decimal::ZERO, Decimal::ZERO, Decimal::ZERO));
     }
 
     /// 已发货数量边界：`[0, qty]` 闭区间。
@@ -494,8 +469,7 @@ mod tests {
         // 号在库里是「已用最大值」：biz_seq.current_no 必须 ≥ 刚取到的流水
         let rows = db()
             .query_sql(
-                "SELECT current_no, period_key FROM biz_seq WHERE seq_type = 'SO' AND deleted_at IS NULL"
-                    .to_string(),
+                "SELECT current_no, period_key FROM biz_seq WHERE seq_type = 'SO' AND deleted_at IS NULL".to_string(),
                 vec![],
             )
             .await
@@ -579,8 +553,7 @@ mod tests {
         .expect("最简明细应可插入");
         let items = db()
             .query_sql(
-                "SELECT delivered_qty::text AS d, line_no FROM biz_sales_order_item WHERE so_id = ?"
-                    .to_string(),
+                "SELECT delivered_qty::text AS d, line_no FROM biz_sales_order_item WHERE so_id = ?".to_string(),
                 vec![Value::from(order_id)],
             )
             .await
@@ -617,12 +590,9 @@ mod tests {
         .expect_err("同一单内行号必须唯一");
 
         // 级联：物理删单头 → 明细一起消失
-        db().execute_with_params(
-            "DELETE FROM biz_sales_order WHERE id = ?",
-            vec![Value::from(order_id)],
-        )
-        .await
-        .expect("删单头应成功");
+        db().execute_with_params("DELETE FROM biz_sales_order WHERE id = ?", vec![Value::from(order_id)])
+            .await
+            .expect("删单头应成功");
         let left = db()
             .query_sql(
                 "SELECT count(*) AS n FROM biz_sales_order_item WHERE so_id = ?".to_string(),
@@ -644,9 +614,7 @@ mod tests {
     async fn so_no_unique_among_live_rows_only() {
         let Some(_guard) = setup().await else { return };
         let so_no = format!("{NO_PREFIX_TEST}UK-0001");
-        insert_order(&so_no, "0", "0", "0")
-            .await
-            .expect("首插应成功");
+        insert_order(&so_no, "0", "0", "0").await.expect("首插应成功");
         insert_order(&so_no, "0", "0", "0")
             .await
             .expect_err("存活行重号必须被 uk_biz_sales_order_no 拒绝");
@@ -667,14 +635,8 @@ mod tests {
     #[test]
     fn period_key_uses_beijing_day() {
         use chrono::TimeZone;
-        let utc_before_midnight = Utc
-            .with_ymd_and_hms(2026, 11, 6, 15, 59, 0)
-            .single()
-            .expect("合法时刻"); // 北京 23:59
-        let utc_after = Utc
-            .with_ymd_and_hms(2026, 11, 6, 16, 1, 0)
-            .single()
-            .expect("合法时刻"); // 北京次日 00:01
+        let utc_before_midnight = Utc.with_ymd_and_hms(2026, 11, 6, 15, 59, 0).single().expect("合法时刻"); // 北京 23:59
+        let utc_after = Utc.with_ymd_and_hms(2026, 11, 6, 16, 1, 0).single().expect("合法时刻"); // 北京次日 00:01
         assert_eq!(period_key_of(utc_before_midnight), "20261106");
         assert_eq!(period_key_of(utc_after), "20261107");
         let _ = NaiveDate::from_ymd_opt(2026, 11, 6);

@@ -22,9 +22,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::serial_model::{
-    ALL_STATUSES, MAX_BATCH_COUNT, SOURCE_TYPES, SerialRow, SerialScanRow,
-};
+use crate::business::erp::serial_model::{ALL_STATUSES, MAX_BATCH_COUNT, SOURCE_TYPES, SerialRow, SerialScanRow};
 use crate::business::erp::stockin_model;
 
 /// `unit_cost` 的入参形态：**number 与字符串都收**（前端 `t-input-number` 给 number、
@@ -133,11 +131,7 @@ impl BatchGenerateReq {
         if let Some(batch_no) = trimmed(self.batch_no.as_deref())
             && batch_no.chars().count() > 64
         {
-            return Err(ApiError::new(
-                400,
-                error_code_param(),
-                "batch_no 最长 64 个字符",
-            ));
+            return Err(ApiError::new(400, error_code_param(), "batch_no 最长 64 个字符"));
         }
         if let Some(source_type) = trimmed(self.source_type.as_deref())
             && !SOURCE_TYPES.contains(&source_type)
@@ -179,13 +173,9 @@ impl BatchGenerateReq {
                 "unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）",
             )
         })?;
-        let value = raw.to_decimal().map_err(|text| {
-            ApiError::new(
-                400,
-                error_code_param(),
-                format!("unit_cost 不是合法数字：「{text}」"),
-            )
-        })?;
+        let value = raw
+            .to_decimal()
+            .map_err(|text| ApiError::new(400, error_code_param(), format!("unit_cost 不是合法数字：「{text}」")))?;
         let unit_cost = stockin_model::unit_price(value);
         if unit_cost <= Decimal::ZERO {
             return Err(ApiError::new(
@@ -330,10 +320,7 @@ impl SerialFilter {
             return Err(ApiError::new(
                 400,
                 error_code_param(),
-                format!(
-                    "status 只能是 {} 之一（收到 {status}）",
-                    ALL_STATUSES.join(" / ")
-                ),
+                format!("status 只能是 {} 之一（收到 {status}）", ALL_STATUSES.join(" / ")),
             ));
         }
         Ok(self)
@@ -505,11 +492,7 @@ fn trimmed(value: Option<&str>) -> Option<&str> {
 fn require_uuid(value: &str, field: &str) -> std::result::Result<(), ApiError> {
     let text = value.trim();
     if text.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code_param(),
-            format!("{field} 不能为空"),
-        ));
+        return Err(ApiError::new(400, error_code_param(), format!("{field} 不能为空")));
     }
     if nik::uuid::Uuid::parse_str(text).is_err() {
         return Err(ApiError::new(
@@ -575,10 +558,7 @@ mod tests {
         assert_eq!(err.code, error_code_param());
         assert_eq!(err.msg, "unit_cost 不是合法数字：「abc」");
 
-        for (input, shown) in [
-            (Decimal::ZERO, "0"),
-            (Decimal::from_str("-1.5").unwrap(), "-1.5"),
-        ] {
+        for (input, shown) in [(Decimal::ZERO, "0"), (Decimal::from_str("-1.5").unwrap(), "-1.5")] {
             let mut req = batch_req(1);
             req.unit_cost = Some(OptionalDecimal::Num(input));
             let err = req.validate().expect_err("≤0 必须 400");
@@ -596,10 +576,7 @@ mod tests {
         req.unit_cost = Some(OptionalDecimal::Num(Decimal::from(MAX_UNIT_COST)));
         let err = req.validate().expect_err("≥1e11 必须 400");
         assert_eq!(err.code, error_code_param());
-        assert_eq!(
-            err.msg,
-            "unit_cost 超出可记账范围（须 < 100000000000）：100000000000"
-        );
+        assert_eq!(err.msg, "unit_cost 超出可记账范围（须 < 100000000000）：100000000000");
 
         // 字符串形态（"12.34"）与 number 形态等价，且 6 位四舍五入（与 PG ROUND 同口径）
         let mut req = batch_req(5);
@@ -610,9 +587,7 @@ mod tests {
             "6 位四舍五入（MidpointAwayFromZero）"
         );
         let mut req = batch_req(5);
-        req.unit_cost = Some(OptionalDecimal::Num(
-            Decimal::from_str("0.0000004").unwrap(),
-        ));
+        req.unit_cost = Some(OptionalDecimal::Num(Decimal::from_str("0.0000004").unwrap()));
         assert!(
             req.parse_unit_cost().is_err(),
             "6 位下舍成 0 的单价必须拒（否则等于零成本入库）"
@@ -629,8 +604,7 @@ mod tests {
         for raw in [serde_json::json!(12.34), serde_json::json!("12.34")] {
             let mut body = base.clone();
             body["unit_cost"] = raw.clone();
-            let req: BatchGenerateReq =
-                serde_json::from_value(body).unwrap_or_else(|e| panic!("{raw} 解析失败：{e}"));
+            let req: BatchGenerateReq = serde_json::from_value(body).unwrap_or_else(|e| panic!("{raw} 解析失败：{e}"));
             assert_eq!(
                 req.parse_unit_cost().expect("合法"),
                 Decimal::from_str("12.34").unwrap()
@@ -711,10 +685,7 @@ mod tests {
         };
         let err = in_stock.target_status().expect_err("IN_STOCK 不是合法目标");
         assert_eq!(err.status, 400);
-        assert_eq!(
-            err.code,
-            crate::shared::error_code::ERP_SERIAL_STATUS_INVALID
-        );
+        assert_eq!(err.code, crate::shared::error_code::ERP_SERIAL_STATUS_INVALID);
         assert!(err.msg.contains("新的序列号"), "{}", err.msg);
 
         let bogus = SerialStatusReq {

@@ -331,10 +331,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "期初写入冲突（唯一约束{}）：同一期间同一科目/物料只能有一行，请刷新后重试",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -381,10 +378,7 @@ fn first_day_of(period: &str) -> std::result::Result<NaiveDate, ApiError> {
 ///
 /// * 期间不存在 → 400（未开账就不能录期初）；
 /// * `NOT_OPENED` / `CLOSED` → **409**（卡面 ⑥ ④「结账后录入 → 409」）。
-async fn lock_period(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> std::result::Result<String, ApiError> {
+async fn lock_period(ex: &impl SqlExecutor, period_code: &str) -> std::result::Result<String, ApiError> {
     let row = ex
         .query_first_sql(
             "SELECT status FROM biz_accounting_period WHERE period_code = ? FOR UPDATE".to_string(),
@@ -415,10 +409,7 @@ async fn lock_period(
 // ==================== 读 ====================
 
 /// 科目期初行。
-async fn load_balance_rows(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> DbResult<Vec<OpeningEntryRes>> {
+async fn load_balance_rows(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Vec<OpeningEntryRes>> {
     // SCOPE-EXEMPT: 期初台账无归属列（见模块文档）。
     let sql = format!(
         "SELECT b.account_id, b.account_code, \
@@ -431,9 +422,7 @@ async fn load_balance_rows(
           WHERE b.period_code = ? \
           ORDER BY b.account_code"
     );
-    let rows = ex
-        .query_sql(sql, vec![Value::Text(period_code.to_string())])
-        .await?;
+    let rows = ex.query_sql(sql, vec![Value::Text(period_code.to_string())]).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         out.push(OpeningEntryRes {
@@ -453,10 +442,7 @@ async fn load_balance_rows(
 }
 
 /// 库存期初行。
-async fn load_inventory_rows(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> DbResult<Vec<OpeningInventoryRes>> {
+async fn load_inventory_rows(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Vec<OpeningInventoryRes>> {
     // SCOPE-EXEMPT: 期初台账无归属列（见模块文档）。
     let sql = format!(
         "SELECT o.material_id, COALESCE(m.material_code, o.material_id::text) AS material_code, \
@@ -470,9 +456,7 @@ async fn load_inventory_rows(
           WHERE o.period_code = ? \
           ORDER BY 2, 5"
     );
-    let rows = ex
-        .query_sql(sql, vec![Value::Text(period_code.to_string())])
-        .await?;
+    let rows = ex.query_sql(sql, vec![Value::Text(period_code.to_string())]).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         out.push(OpeningInventoryRes {
@@ -496,15 +480,11 @@ async fn inventory_amount_of(ex: &impl SqlExecutor, period_code: &str) -> DbResu
         "SELECT COALESCE(SUM(amount), 0)::numeric(20,4) AS total FROM {TABLE_INVENTORY} \
           WHERE period_code = ?"
     );
-    ex.scalar_sql(sql, vec![Value::Text(period_code.to_string())])
-        .await
+    ex.scalar_sql(sql, vec![Value::Text(period_code.to_string())]).await
 }
 
 /// 该期间的期初凭证（最多一张，库层面有部分唯一索引兜着）。
-async fn load_opening_voucher(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> DbResult<Option<OpeningVoucherRes>> {
+async fn load_opening_voucher(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Option<OpeningVoucherRes>> {
     let sql = format!(
         "SELECT id, voucher_no, voucher_date, status, total_debit, total_credit, entry_count \
            FROM {} \
@@ -606,14 +586,9 @@ pub async fn load_opening_in(
         );
     }
     if locked {
-        hints.push(format!(
-            "会计期间 {period_code} 已结账：期初余额只读，要改必须先反结账"
-        ));
+        hints.push(format!("会计期间 {period_code} 已结账：期初余额只读，要改必须先反结账"));
     }
-    if entries
-        .iter()
-        .any(|row| row.account_category == "PROFIT_LOSS")
-    {
+    if entries.iter().any(|row| row.account_category == "PROFIT_LOSS") {
         hints.push(
             "损益类科目（收入 / 费用）没有期初余额：报表的「本期 / 本年累计」都不含期初，\
              录了只会进「期末累计」列。确认是历史未结转余额才保留"
@@ -704,9 +679,7 @@ fn build_lines(
 /// 对方科目读 `sys_config.inventory_opening_equity_account`（缺省 [`ACCOUNT_INVENTORY_OFFSET`]
 /// = 3103 本年利润）。配置成不存在的科目 / 汇总科目 → 400 点名字段，别让它静默回落到 3103
 /// （静默回落会让「改了配置却没生效」这种事查不出来）。
-async fn inventory_accounts(
-    ex: &impl SqlExecutor,
-) -> std::result::Result<(AccountRef, AccountRef), ApiError> {
+async fn inventory_accounts(ex: &impl SqlExecutor) -> std::result::Result<(AccountRef, AccountRef), ApiError> {
     let debit = voucher::account_by_code(ex, ACCOUNT_INVENTORY)
         .await
         .map_err(|error| write_error(error, "解析库存科目 1405"))?
@@ -812,10 +785,7 @@ async fn regenerate_voucher_in(
                 Value::Text(credit.to_string()),
                 Value::from(entry_count),
                 Value::Text(source_no),
-                Value::Text(
-                    "期初余额结转（覆盖式更新：同一期间只有一张期初凭证，凭证号保持不变）"
-                        .to_string(),
-                ),
+                Value::Text("期初余额结转（覆盖式更新：同一期间只有一张期初凭证，凭证号保持不变）".to_string()),
                 Value::from(now),
                 Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(&id),
@@ -912,10 +882,7 @@ pub(crate) async fn write_year_end_opening_in(
 }
 
 /// 清空某期间的科目期初（反年结用；返回删掉的行数）。
-pub(crate) async fn clear_opening_in(
-    tx: &impl SqlExecutor,
-    period_code: &str,
-) -> std::result::Result<u64, ApiError> {
+pub(crate) async fn clear_opening_in(tx: &impl SqlExecutor, period_code: &str) -> std::result::Result<u64, ApiError> {
     tx.exec_sql(
         format!("DELETE FROM {TABLE_BALANCE} WHERE period_code = ?"),
         vec![Value::Text(period_code.to_string())],
@@ -925,10 +892,7 @@ pub(crate) async fn clear_opening_in(
 }
 
 /// 该期间的科目期初里有没有年结生成的行（有 → 手工保存必须拒绝）。
-async fn guard_not_year_end(
-    ex: &impl SqlExecutor,
-    period_code: &str,
-) -> std::result::Result<(), ApiError> {
+async fn guard_not_year_end(ex: &impl SqlExecutor, period_code: &str) -> std::result::Result<(), ApiError> {
     let count: i64 = ex
         .scalar_sql(
             format!(
@@ -1054,16 +1018,10 @@ fn ensure_balanced(
         debit += row.debit;
         credit += row.credit;
         if row.debit > Decimal::ZERO {
-            debit_parts.push(format!(
-                "{} {} {}",
-                row.account.code, row.account.name, row.debit
-            ));
+            debit_parts.push(format!("{} {} {}", row.account.code, row.account.name, row.debit));
         }
         if row.credit > Decimal::ZERO {
-            credit_parts.push(format!(
-                "{} {} {}",
-                row.account.code, row.account.name, row.credit
-            ));
+            credit_parts.push(format!("{} {} {}", row.account.code, row.account.name, row.credit));
         }
     }
     if let Some((debit_account, _)) = inventory_accounts
@@ -1218,9 +1176,7 @@ pub async fn save_opening_in(
     let inventory_rows = load_inventory_rows(tx, period_code)
         .await
         .map_err(|error| write_error(error, "读库存期初"))?;
-    let inventory_amount = inventory_rows
-        .iter()
-        .fold(Decimal::ZERO, |sum, row| sum + row.amount);
+    let inventory_amount = inventory_rows.iter().fold(Decimal::ZERO, |sum, row| sum + row.amount);
     let accounts = if inventory_amount > Decimal::ZERO {
         Some(inventory_accounts(tx).await?)
     } else {
@@ -1311,8 +1267,7 @@ async fn resolve_inventory_item(
 
     let warehouse = ex
         .query_first_sql(
-            "SELECT warehouse_code FROM biz_warehouse WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT warehouse_code FROM biz_warehouse WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&warehouse_id)],
         )
         .await
@@ -1499,15 +1454,12 @@ pub async fn save_inventory_in(
     let old_rows = load_inventory_rows(tx, period_code)
         .await
         .map_err(|error| write_error(error, "读旧库存期初"))?;
-    let mut old_map: std::collections::BTreeMap<(Uuid, Uuid), (Decimal, Decimal)> =
-        std::collections::BTreeMap::new();
+    let mut old_map: std::collections::BTreeMap<(Uuid, Uuid), (Decimal, Decimal)> = std::collections::BTreeMap::new();
     for row in &old_rows {
-        let material_id = Uuid::parse_str(&row.material_id).map_err(|_| {
-            DbError::InvalidValue(format!("旧库存期初的物料 id 非法：{}", row.material_id))
-        })?;
-        let warehouse_id = Uuid::parse_str(&row.warehouse_id).map_err(|_| {
-            DbError::InvalidValue(format!("旧库存期初的仓库 id 非法：{}", row.warehouse_id))
-        })?;
+        let material_id = Uuid::parse_str(&row.material_id)
+            .map_err(|_| DbError::InvalidValue(format!("旧库存期初的物料 id 非法：{}", row.material_id)))?;
+        let warehouse_id = Uuid::parse_str(&row.warehouse_id)
+            .map_err(|_| DbError::InvalidValue(format!("旧库存期初的仓库 id 非法：{}", row.warehouse_id)))?;
         old_map.insert((material_id, warehouse_id), (row.qty, row.amount));
     }
 
@@ -1546,15 +1498,11 @@ pub async fn save_inventory_in(
         .await
         .map_err(|error| write_error(error, "读旧库存期初的库位桶"))?;
     let mut new_keys: std::collections::BTreeSet<(Uuid, Uuid)> = std::collections::BTreeSet::new();
-    let mut bucket_of: std::collections::BTreeMap<(Uuid, Uuid), Option<Uuid>> =
-        std::collections::BTreeMap::new();
+    let mut bucket_of: std::collections::BTreeMap<(Uuid, Uuid), Option<Uuid>> = std::collections::BTreeMap::new();
     for row in &flat {
         let key = (row.material_id, row.warehouse_id);
         new_keys.insert(key);
-        let (old_qty, old_amount) = old_map
-            .get(&key)
-            .copied()
-            .unwrap_or((Decimal::ZERO, Decimal::ZERO));
+        let (old_qty, old_amount) = old_map.get(&key).copied().unwrap_or((Decimal::ZERO, Decimal::ZERO));
         let delta_qty = row.qty - old_qty;
         let delta_amount = row.amount - old_amount;
         // 桶：已记录的沿用（Δ 冲回同一个桶）；新行才按「仓库默认库位桶」解析。
@@ -1574,32 +1522,14 @@ pub async fn save_inventory_in(
             amount: delta_amount,
             unit_cost: row.unit_cost,
         };
-        let applied = stockin_model::apply_cost(
-            tx,
-            row.material_id,
-            row.warehouse_id,
-            location_row,
-            cost,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "库存期初写入成本账"))?;
-        stockin_model::apply_location_qty(
-            tx,
-            row.material_id,
-            row.warehouse_id,
-            location_row,
-            delta_qty,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "库存期初写入库位账"))?;
+        let applied = stockin_model::apply_cost(tx, row.material_id, row.warehouse_id, location_row, cost, now)
+            .await
+            .map_err(|error| write_error(error, "库存期初写入成本账"))?;
+        stockin_model::apply_location_qty(tx, row.material_id, row.warehouse_id, location_row, delta_qty, now)
+            .await
+            .map_err(|error| write_error(error, "库存期初写入库位账"))?;
 
-        let txn_type = if delta_qty >= Decimal::ZERO {
-            "IN"
-        } else {
-            "OUT"
-        };
+        let txn_type = if delta_qty >= Decimal::ZERO { "IN" } else { "OUT" };
         // P2-5A：流水 SQL 收口到唯一写入口 [`inventory_writer::insert_txn`]。
         let remark = format!("库存期初（{doc_no}）");
         inventory_writer::insert_txn(
@@ -1648,20 +1578,12 @@ pub async fn save_inventory_in(
             amount: -*old_amount,
             unit_cost,
         };
-        let applied =
-            stockin_model::apply_cost(tx, *material_id, *warehouse_id, location_row, cost, now)
-                .await
-                .map_err(|error| write_error(error, "库存期初退回成本账"))?;
-        stockin_model::apply_location_qty(
-            tx,
-            *material_id,
-            *warehouse_id,
-            location_row,
-            -*old_qty,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "库存期初退回库位账"))?;
+        let applied = stockin_model::apply_cost(tx, *material_id, *warehouse_id, location_row, cost, now)
+            .await
+            .map_err(|error| write_error(error, "库存期初退回成本账"))?;
+        stockin_model::apply_location_qty(tx, *material_id, *warehouse_id, location_row, -*old_qty, now)
+            .await
+            .map_err(|error| write_error(error, "库存期初退回库位账"))?;
         // P2-5A：流水 SQL 收口到唯一写入口 [`inventory_writer::insert_txn`]。
         let remark = format!("库存期初取消（{doc_no}）");
         inventory_writer::insert_txn(
@@ -1798,12 +1720,7 @@ pub async fn opening_save_handler(
 ) -> ResResult<OpeningBalanceRes> {
     period::ensure_permission(&claims, PERM_WRITE, "录入科目期初")?;
     Ok(Res::ok(
-        save_opening(
-            req.period.as_deref(),
-            &req.entries,
-            utils::current_user_uuid(&claims),
-        )
-        .await?,
+        save_opening(req.period.as_deref(), &req.entries, utils::current_user_uuid(&claims)).await?,
     ))
 }
 
@@ -1820,12 +1737,7 @@ pub async fn opening_inventory_handler(
 ) -> ResResult<OpeningBalanceRes> {
     period::ensure_permission(&claims, PERM_INVENTORY, "录入库存期初")?;
     Ok(Res::ok(
-        save_inventory(
-            req.period.as_deref(),
-            &req.items,
-            utils::current_user_uuid(&claims),
-        )
-        .await?,
+        save_inventory(req.period.as_deref(), &req.items, utils::current_user_uuid(&claims)).await?,
     ))
 }
 // ==================== 单测（真库，15 条）====================
@@ -1947,10 +1859,8 @@ mod tests {
         ))
         .await;
         // 状态日志没有外键，必须按期间编码先删（期间行一删就查不到 id）
-        sql(
-            "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
-             AND (entity_no LIKE '2034-%' OR entity_no LIKE '2035-%')",
-        )
+        sql("DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
+             AND (entity_no LIKE '2034-%' OR entity_no LIKE '2035-%')")
         .await;
         // 分录随凭证 CASCADE
         // 凭证的状态日志（无外键）：必须在删凭证之前按 id 清，否则每轮留一批孤儿（`fixture_hygiene`）
@@ -1959,15 +1869,11 @@ mod tests {
                                 WHERE period LIKE '2034-%' OR period LIKE '2035-%')")
         .await;
         sql("DELETE FROM biz_voucher WHERE period LIKE '2034-%' OR period LIKE '2035-%'").await;
-        sql(
-            "DELETE FROM biz_opening_balance WHERE period_code LIKE '2034-%' \
-             OR period_code LIKE '2035-%'",
-        )
+        sql("DELETE FROM biz_opening_balance WHERE period_code LIKE '2034-%' \
+             OR period_code LIKE '2035-%'")
         .await;
-        sql(
-            "DELETE FROM biz_opening_inventory WHERE period_code LIKE '2034-%' \
-             OR period_code LIKE '2035-%'",
-        )
+        sql("DELETE FROM biz_opening_inventory WHERE period_code LIKE '2034-%' \
+             OR period_code LIKE '2035-%'")
         .await;
         // 库存三本账按夹具物料收敛（biz_inventory 无 deleted_at，物理删）。
         // FK 顺序（FIX-4 起期初会落「默认库位桶」，成本账的 location_id 指向库位账行）：
@@ -1985,10 +1891,8 @@ mod tests {
         // FIX-4 夹具库位（默认库位桶用例造的）：biz_location 对 warehouse 是弱引用，先按库位编码清
         sql("DELETE FROM biz_location WHERE location_code LIKE 'R5-LOC-%'").await;
         sql("DELETE FROM biz_warehouse WHERE warehouse_code LIKE 'R5-%'").await;
-        sql(
-            "DELETE FROM biz_accounting_period WHERE period_code LIKE '2034-%' \
-             OR period_code LIKE '2035-%'",
-        )
+        sql("DELETE FROM biz_accounting_period WHERE period_code LIKE '2034-%' \
+             OR period_code LIKE '2035-%'")
         .await;
     }
 
@@ -2069,10 +1973,7 @@ mod tests {
     async fn voucher_count(period_code: &str, kind: &str) -> i64 {
         db().scalar_with_params(
             "SELECT COUNT(*) FROM biz_voucher WHERE period = ? AND voucher_type = ?",
-            vec![
-                Value::Text(period_code.to_string()),
-                Value::Text(kind.to_string()),
-            ],
+            vec![Value::Text(period_code.to_string()), Value::Text(kind.to_string())],
         )
         .await
         .expect("统计凭证")
@@ -2261,12 +2162,7 @@ mod tests {
         )
         .await
         .expect("第一次保存");
-        let first_no = first
-            .voucher
-            .as_ref()
-            .expect("第一次就该有期初凭证")
-            .voucher_no
-            .clone();
+        let first_no = first.voucher.as_ref().expect("第一次就该有期初凭证").voucher_no.clone();
         let first_id = first.voucher.as_ref().map(|v| v.id.clone()).unwrap();
 
         let second = save_opening(
@@ -2287,11 +2183,7 @@ mod tests {
         assert_eq!(voucher.id, first_id, "覆盖的是同一张凭证");
         assert_eq!(voucher.total_debit, dec("60000"), "金额被覆盖成新值");
         assert_eq!(voucher.entry_count, 2, "分录整组替换，不是累加");
-        assert_eq!(
-            balance_rows("2034-03").await,
-            2,
-            "科目期初也是覆盖，不是新增"
-        );
+        assert_eq!(balance_rows("2034-03").await, 2, "科目期初也是覆盖，不是新增");
     }
 
     /// ④ 结账后录入 → 409。
@@ -2318,18 +2210,11 @@ mod tests {
         // 库存期初同样被拦
         let material = make_material("R5-M-004", false).await;
         let warehouse = make_warehouse("R5-WH1").await;
-        let err = save_inventory(
-            Some("2034-04"),
-            &[item(material, warehouse, "10", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect_err("已结账期间的库存期初同样不许改");
+        let err = save_inventory(Some("2034-04"), &[item(material, warehouse, "10", "10")], Some(uid()))
+            .await
+            .expect_err("已结账期间的库存期初同样不许改");
         assert_eq!(err.status, 409);
-        assert!(
-            cost_row(material, warehouse).await.is_none(),
-            "一分库存都不该动"
-        );
+        assert!(cost_row(material, warehouse).await.is_none(), "一分库存都不该动");
     }
 
     // ==================== ② 期初凭证 ====================
@@ -2359,26 +2244,15 @@ mod tests {
             .expect("读凭证");
         assert_eq!(rows.len(), 1, "该期间只有一张期初凭证");
         let row = &rows[0];
+        assert_eq!(row.get_typed::<String>("voucher_type").unwrap(), VOUCHER_TYPE_OPENING);
         assert_eq!(
-            row.get_typed::<String>("voucher_type").unwrap(),
-            VOUCHER_TYPE_OPENING
-        );
-        assert_eq!(
-            row.get_typed::<NaiveDate>("voucher_date")
-                .unwrap()
-                .to_string(),
+            row.get_typed::<NaiveDate>("voucher_date").unwrap().to_string(),
             "2034-05-01",
             "期初凭证日期 = 期间第一天"
         );
         assert_eq!(row.get_typed::<String>("summary").unwrap(), SUMMARY_OPENING);
-        assert_eq!(
-            row.get_typed::<String>("source_type").unwrap(),
-            SOURCE_TYPE_OPENING
-        );
-        assert_eq!(
-            row.get_typed::<String>("source_no").unwrap(),
-            "OPENING-2034-05"
-        );
+        assert_eq!(row.get_typed::<String>("source_type").unwrap(), SOURCE_TYPE_OPENING);
+        assert_eq!(row.get_typed::<String>("source_no").unwrap(), "OPENING-2034-05");
         assert_eq!(row.get_typed::<String>("status").unwrap(), "POSTED");
     }
 
@@ -2424,10 +2298,7 @@ mod tests {
         assert_eq!(total_debit, dec("50000"));
         assert_eq!(total_debit, total_credit, "单头借贷平衡");
         assert_eq!(entry_debit, entry_credit, "分录借贷平衡");
-        assert_eq!(
-            entry_debit, total_debit,
-            "分录合计 = 单头合计（A2 不变量的口径）"
-        );
+        assert_eq!(entry_debit, total_debit, "分录合计 = 单头合计（A2 不变量的口径）");
         assert_eq!(row.get_typed::<i32>("entry_count").unwrap(), 3);
     }
 
@@ -2473,11 +2344,7 @@ mod tests {
             .iter()
             .find(|row| row.item_code == "REVENUE")
             .expect("利润表必须有营业收入行");
-        assert_eq!(
-            revenue.current,
-            Decimal::ZERO,
-            "硬红线 3：期初不进「本期发生额」"
-        );
+        assert_eq!(revenue.current, Decimal::ZERO, "硬红线 3：期初不进「本期发生额」");
         assert_eq!(revenue.ytd, Decimal::ZERO, "硬红线 3：期初不进「本年累计」");
 
         let account = snap
@@ -2505,13 +2372,9 @@ mod tests {
         let material = make_material("R5-M-008", false).await;
         let warehouse = make_warehouse("R5-WH1").await;
 
-        let res = save_inventory(
-            Some("2034-08"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("库存期初应保存成功");
+        let res = save_inventory(Some("2034-08"), &[item(material, warehouse, "100", "10")], Some(uid()))
+            .await
+            .expect("库存期初应保存成功");
 
         let (qty, amount, avg_cost) = cost_row(material, warehouse).await.expect("成本账应有一行");
         assert_eq!(qty, dec("100"));
@@ -2532,13 +2395,9 @@ mod tests {
         let material = make_material("R5-M-009", false).await;
         let warehouse = make_warehouse("R5-WH1").await;
 
-        save_inventory(
-            Some("2034-09"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("库存期初应保存成功");
+        save_inventory(Some("2034-09"), &[item(material, warehouse, "100", "10")], Some(uid()))
+            .await
+            .expect("库存期初应保存成功");
 
         assert_eq!(
             location_qty(material, warehouse).await,
@@ -2557,18 +2416,9 @@ mod tests {
         assert_eq!(rows.len(), 1, "一条期初只写一条流水");
         let row = &rows[0];
         assert_eq!(row.get_typed::<String>("txn_type").unwrap(), "IN");
-        assert_eq!(
-            row.get_typed::<String>("biz_type").unwrap(),
-            BIZ_TYPE_OPENING
-        );
-        assert_eq!(
-            row.get_typed::<String>("doc_type").unwrap(),
-            DOC_TYPE_OPENING
-        );
-        assert_eq!(
-            row.get_typed::<String>("doc_no").unwrap(),
-            "OPENING-2034-09"
-        );
+        assert_eq!(row.get_typed::<String>("biz_type").unwrap(), BIZ_TYPE_OPENING);
+        assert_eq!(row.get_typed::<String>("doc_type").unwrap(), DOC_TYPE_OPENING);
+        assert_eq!(row.get_typed::<String>("doc_no").unwrap(), "OPENING-2034-09");
         assert_eq!(row.get_typed::<Decimal>("qty").unwrap(), dec("100"));
         assert_eq!(row.get_typed::<Decimal>("amount").unwrap(), dec("1000"));
         assert_eq!(row.get_typed::<String>("period_code").unwrap(), "2034-09");
@@ -2652,13 +2502,9 @@ mod tests {
         let warehouse = make_warehouse("R5-WH16").await;
         let dict = make_default_location(warehouse, "R5-LOC-16").await;
 
-        save_inventory(
-            Some("2034-08"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("库存期初应保存成功");
+        save_inventory(Some("2034-08"), &[item(material, warehouse, "100", "10")], Some(uid()))
+            .await
+            .expect("库存期初应保存成功");
 
         // ① 只有一个桶，且是默认库位桶（不是「未分配桶」）
         let buckets = buckets_of(material, warehouse).await;
@@ -2674,11 +2520,7 @@ mod tests {
                    JOIN biz_inventory_location il ON il.id = i.location_id \
                   WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid \
                     AND il.location_id = ?::uuid",
-                vec![
-                    Value::from(&material),
-                    Value::from(&warehouse),
-                    Value::from(&dict),
-                ],
+                vec![Value::from(&material), Value::from(&warehouse), Value::from(&dict)],
             )
             .await
             .expect("读成本账");
@@ -2692,11 +2534,7 @@ mod tests {
                 "SELECT il.id FROM biz_inventory_location il \
                   WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid \
                     AND il.location_id = ?::uuid",
-                vec![
-                    Value::from(&material),
-                    Value::from(&warehouse),
-                    Value::from(&dict),
-                ],
+                vec![Value::from(&material), Value::from(&warehouse), Value::from(&dict)],
             )
             .await
             .expect("读库位账行");
@@ -2707,13 +2545,9 @@ mod tests {
         );
 
         // ④ 重录成 80：差额 20 从**同一个桶**退回（不是新开一个未分配桶）
-        save_inventory(
-            Some("2034-08"),
-            &[item(material, warehouse, "80", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("期初重录");
+        save_inventory(Some("2034-08"), &[item(material, warehouse, "80", "10")], Some(uid()))
+            .await
+            .expect("期初重录");
         assert_eq!(
             buckets_of(material, warehouse).await,
             vec![(Some(dict), dec("80"))],
@@ -2755,22 +2589,16 @@ mod tests {
         let material = make_material("R5-M-017", false).await;
         let warehouse = make_warehouse("R5-WH17").await;
 
-        save_inventory(
-            Some("2034-11"),
-            &[item(material, warehouse, "30", "5")],
-            Some(uid()),
-        )
-        .await
-        .expect("库存期初应保存成功");
+        save_inventory(Some("2034-11"), &[item(material, warehouse, "30", "5")], Some(uid()))
+            .await
+            .expect("库存期初应保存成功");
 
         assert_eq!(
             location_qty(material, warehouse).await,
             dec("30"),
             "没有默认库位时仍落「未分配库位桶」（与收货过账的兜底一致）"
         );
-        let (qty, amount, _) = cost_row(material, warehouse)
-            .await
-            .expect("成本账汇总桶行必须存在");
+        let (qty, amount, _) = cost_row(material, warehouse).await.expect("成本账汇总桶行必须存在");
         assert_eq!(qty, dec("30"));
         assert_eq!(amount, dec("150"));
     }
@@ -2793,13 +2621,9 @@ mod tests {
         )
         .await
         .expect("科目期初");
-        let res = save_inventory(
-            Some("2034-10"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("库存期初");
+        let res = save_inventory(Some("2034-10"), &[item(material, warehouse, "100", "10")], Some(uid()))
+            .await
+            .expect("库存期初");
 
         assert_eq!(
             voucher_entry_of("2034-10", ACCOUNT_INVENTORY, "debit").await,
@@ -2820,10 +2644,7 @@ mod tests {
             "科目期初 + 库存期初仍然只有一张期初凭证"
         );
         let voucher = res.voucher.expect("应有期初凭证");
-        assert_eq!(
-            voucher.entry_count, 4,
-            "1002 借 / 1405 借 / 3001 贷 / 3103 贷"
-        );
+        assert_eq!(voucher.entry_count, 4, "1002 借 / 1405 借 / 3001 贷 / 3103 贷");
         assert_eq!(voucher.total_debit, dec("51000"));
     }
 
@@ -2839,19 +2660,11 @@ mod tests {
         let warehouse = make_warehouse("R5-WH1B").await;
 
         set_equity_config("3101").await;
-        let saved = save_inventory(
-            Some("2035-07"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await;
+        let saved = save_inventory(Some("2035-07"), &[item(material, warehouse, "100", "10")], Some(uid())).await;
         restore_equity_config().await;
         let res = saved.expect("库存期初应保存成功");
 
-        assert_eq!(
-            res.inventory_credit_account, "3101",
-            "返回体必须回显配置的对方科目"
-        );
+        assert_eq!(res.inventory_credit_account, "3101", "返回体必须回显配置的对方科目");
         assert_eq!(
             voucher_entry_of("2035-07", "3101", "credit").await,
             dec("1000"),
@@ -2880,31 +2693,19 @@ mod tests {
         let material = make_material("R5-M-013", false).await;
         let warehouse = make_warehouse("R5-WH1").await;
 
-        save_inventory(
-            Some("2035-01"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("第一次录 100 件");
-        save_inventory(
-            Some("2035-01"),
-            &[item(material, warehouse, "150", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect("第二次录 150 件（覆盖）");
+        save_inventory(Some("2035-01"), &[item(material, warehouse, "100", "10")], Some(uid()))
+            .await
+            .expect("第一次录 100 件");
+        save_inventory(Some("2035-01"), &[item(material, warehouse, "150", "10")], Some(uid()))
+            .await
+            .expect("第二次录 150 件（覆盖）");
 
         let (qty, amount, avg_cost) = cost_row(material, warehouse).await.expect("成本账");
         assert_eq!(qty, dec("150"), "覆盖后数量是 150 而不是 250");
         assert_eq!(amount, dec("1500"));
         assert_eq!(avg_cost, dec("10"));
         assert_eq!(location_qty(material, warehouse).await, dec("150"));
-        assert_eq!(
-            txn_count(material, BIZ_TYPE_OPENING).await,
-            2,
-            "100 进 + 50 进"
-        );
+        assert_eq!(txn_count(material, BIZ_TYPE_OPENING).await, 2, "100 进 + 50 进");
         assert_eq!(inventory_rows("2035-01").await, 1, "台账也是一行");
         assert_eq!(
             voucher_entry_of("2035-01", ACCOUNT_INVENTORY, "debit").await,
@@ -2919,11 +2720,7 @@ mod tests {
         assert_eq!(qty, Decimal::ZERO, "数量退回 0");
         assert_eq!(amount, Decimal::ZERO, "金额退回 0");
         assert_eq!(location_qty(material, warehouse).await, Decimal::ZERO);
-        assert_eq!(
-            txn_count(material, BIZ_TYPE_OPENING).await,
-            3,
-            "清空补一条 OUT"
-        );
+        assert_eq!(txn_count(material, BIZ_TYPE_OPENING).await, 3, "清空补一条 OUT");
         assert_eq!(inventory_rows("2035-01").await, 0);
         assert!(res.voucher.is_none(), "期初全清后凭证也撤掉");
         assert_eq!(voucher_count("2035-01", VOUCHER_TYPE_OPENING).await, 0);
@@ -2939,20 +2736,13 @@ mod tests {
         let material = make_material("R5-M-014", true).await;
         let warehouse = make_warehouse("R5-WH1").await;
 
-        let err = save_inventory(
-            Some("2035-02"),
-            &[item(material, warehouse, "10", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect_err("一物一码物料必须被拒");
+        let err = save_inventory(Some("2035-02"), &[item(material, warehouse, "10", "10")], Some(uid()))
+            .await
+            .expect_err("一物一码物料必须被拒");
 
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("一物一码"), "消息要点明原因：{}", err.msg);
-        assert!(
-            cost_row(material, warehouse).await.is_none(),
-            "一分库存都不该动"
-        );
+        assert!(cost_row(material, warehouse).await.is_none(), "一分库存都不该动");
     }
 
     /// ⑮ 库存期初与手工 1405 / 3103 期初互斥（否则 1405 会被计两次）。
@@ -2973,13 +2763,9 @@ mod tests {
         .await
         .expect("手工录 1405 期初是允许的（没有库存期初时）");
 
-        let err = save_inventory(
-            Some("2035-03"),
-            &[item(material, warehouse, "100", "10")],
-            Some(uid()),
-        )
-        .await
-        .expect_err("手工 1405 + 库存期初必须被拒");
+        let err = save_inventory(Some("2035-03"), &[item(material, warehouse, "100", "10")], Some(uid()))
+            .await
+            .expect_err("手工 1405 + 库存期初必须被拒");
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("1405"), "消息要点名科目：{}", err.msg);
         assert!(cost_row(material, warehouse).await.is_none());
@@ -3160,10 +2946,7 @@ mod tests {
 
         match result {
             Err(DbError::InvalidValue(message)) => {
-                assert!(
-                    message.contains("期初余额不平衡"),
-                    "必须点名期初不平衡：{message}"
-                );
+                assert!(message.contains("期初余额不平衡"), "必须点名期初不平衡：{message}");
                 assert!(message.contains("100"), "必须报差额：{message}");
             }
             other => panic!("不平衡的期初不许出表，实际：{other:?}"),
@@ -3226,21 +3009,14 @@ mod tests {
             .await
             .expect("查清场后日志")
             .unwrap_or(0);
-        assert_eq!(
-            left, 0,
-            "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）"
-        );
+        assert_eq!(left, 0, "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）");
 
         // 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
         // 兜底：整库最终不许留 PAYABLE / VOUCHER 的孤儿行。
         // 并行跑时别的模块可能正处在「单据已删、它自己的日志还没删」的毫秒级中间态，
         // 一次断言会把别人的中间态判成本模块假红 ⇒ 收敛式判定（`settle_orphans`）：
         // 真孤儿等多久都还在，仍然会红；只吸收别人正在删的瞬时窗口。
-        let left = fixture_hygiene::settle_orphans(
-            fixture_hygiene::FINANCE,
-            std::time::Duration::from_secs(5),
-        )
-        .await;
+        let left = fixture_hygiene::settle_orphans(fixture_hygiene::FINANCE, std::time::Duration::from_secs(5)).await;
         assert_eq!(
             left, 0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"

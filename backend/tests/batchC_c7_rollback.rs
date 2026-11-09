@@ -33,10 +33,7 @@ const TAG: &str = "c7-";
 async fn connect() -> Option<Db> {
     let url = if let Ok(url) = std::env::var("C7_DB_URL") {
         url
-    } else if let (Ok(user), Ok(name)) = (
-        std::env::var("NIK_DATABASE_USER"),
-        std::env::var("NIK_DATABASE_NAME"),
-    ) {
+    } else if let (Ok(user), Ok(name)) = (std::env::var("NIK_DATABASE_USER"), std::env::var("NIK_DATABASE_NAME")) {
         let host = std::env::var("NIK_DATABASE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
         let port = std::env::var("NIK_DATABASE_PORT").unwrap_or_else(|_| "5432".into());
         let password = std::env::var("NIK_DATABASE_PASSWORD").unwrap_or_default();
@@ -110,10 +107,7 @@ async fn rollback_leaves_zero_residue() {
         probe.recorded,
         "record 必须真的写入（Skipped 说明输入前后相等，探针无效）"
     );
-    assert!(
-        probe.is_zero_residue(),
-        "is_zero_residue 与 flat() 必须同口径"
-    );
+    assert!(probe.is_zero_residue(), "is_zero_residue 与 flat() 必须同口径");
 
     // 独立再查一次，排除「探针自己算错了」的可能
     let residue = model::count_for_object(&db, "sys_user", &resource_id)

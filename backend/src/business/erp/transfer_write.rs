@@ -48,11 +48,7 @@ pub async fn create(
     params.extend(date_param);
     params.extend(vec![
         Value::Text(new.reason.unwrap_or_default().to_string()),
-        Value::Text(
-            new.applicant_id
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
-        ),
+        Value::Text(new.applicant_id.map(|id| id.to_string()).unwrap_or_default()),
         Value::Text(new.applicant_name.unwrap_or_default().to_string()),
         Value::Text(total_qty.to_string()),
         Value::Text(new.remark.unwrap_or_default().to_string()),
@@ -118,16 +114,8 @@ pub(super) async fn insert_items(
                     Value::from(&transfer_id),
                     Value::from(line_no),
                     Value::from(&item.material_id),
-                    Value::Text(
-                        item.from_location_id
-                            .map(|id| id.to_string())
-                            .unwrap_or_default(),
-                    ),
-                    Value::Text(
-                        item.to_location_id
-                            .map(|id| id.to_string())
-                            .unwrap_or_default(),
-                    ),
+                    Value::Text(item.from_location_id.map(|id| id.to_string()).unwrap_or_default()),
+                    Value::Text(item.to_location_id.map(|id| id.to_string()).unwrap_or_default()),
                     Value::Text(item.qty.to_string()),
                     Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
                     Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
@@ -184,10 +172,7 @@ pub async fn update(
         None => ("transfer_date", Vec::new()),
     };
     let operator_text = Value::Text(operator.map(|uuid| uuid.to_string()).unwrap_or_default());
-    let mut params = vec![
-        Value::from(&new.from_warehouse_id),
-        Value::from(&new.to_warehouse_id),
-    ];
+    let mut params = vec![Value::from(&new.from_warehouse_id), Value::from(&new.to_warehouse_id)];
     params.extend(date_param);
     params.extend(vec![
         Value::Text(new.reason.unwrap_or_default().to_string()),
@@ -243,12 +228,7 @@ pub(super) async fn replace_items(
 }
 
 /// 软删（调用方先判 `DRAFT` / `CANCELLED`）；返回受影响行数。
-pub async fn soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TRANSFER_TABLE} \
@@ -299,8 +279,7 @@ pub async fn apply_status(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
-    let uuid_text =
-        |value: Option<Uuid>| Value::Text(value.map(|id| id.to_string()).unwrap_or_default());
+    let uuid_text = |value: Option<Uuid>| Value::Text(value.map(|id| id.to_string()).unwrap_or_default());
     let (sql, params) = match effect.status {
         STATUS_PENDING => (
             format!(

@@ -52,8 +52,8 @@ use crate::business::erp::sales_return_model;
 use crate::business::erp::shipment_model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
-    self, OrderMetaField, ReturnContext, ReturnContextArgs, ReturnDocKind, ReturnItem,
-    format_money, format_quantity, yuan_to_fen,
+    self, OrderMetaField, ReturnContext, ReturnContextArgs, ReturnDocKind, ReturnItem, format_money, format_quantity,
+    yuan_to_fen,
 };
 use crate::utils;
 
@@ -273,9 +273,7 @@ pub async fn purchase_return_context(id: Uuid) -> std::result::Result<ReturnCont
             OrderMetaField::new("原单号（入库）", row.stock_in_no.clone()),
             OrderMetaField::new(
                 "原单号（采购订单）",
-                row.purchase_order_no
-                    .clone()
-                    .unwrap_or_else(|| "—".to_string()),
+                row.purchase_order_no.clone().unwrap_or_else(|| "—".to_string()),
             ),
             OrderMetaField::new(
                 "已生成出库单",
@@ -380,18 +378,9 @@ pub async fn sales_return_context(id: Uuid) -> std::result::Result<ReturnContext
             OrderMetaField::new("退回仓库", warehouse),
             OrderMetaField::new("经办人", operator),
             // 验收③：原单号（销售订单 + 发货单）
-            OrderMetaField::new(
-                "原单号（销售订单）",
-                so_no.unwrap_or_else(|| "—".to_string()),
-            ),
-            OrderMetaField::new(
-                "原单号（发货单）",
-                shipment_no.unwrap_or_else(|| "—".to_string()),
-            ),
-            OrderMetaField::new(
-                "退货类型",
-                sales_return_model::return_type_label(&row.return_type),
-            ),
+            OrderMetaField::new("原单号（销售订单）", so_no.unwrap_or_else(|| "—".to_string())),
+            OrderMetaField::new("原单号（发货单）", shipment_no.unwrap_or_else(|| "—".to_string())),
+            OrderMetaField::new("退货类型", sales_return_model::return_type_label(&row.return_type)),
         ],
         reason,
         items,
@@ -413,10 +402,7 @@ pub async fn sales_return_context(id: Uuid) -> std::result::Result<ReturnContext
 /// - 400 [`crate::shared::error_code::ERP_FILTER_INVALID`]：id 非法；
 /// - 404：单据不存在；
 /// - 422 / 503 / 504：模板 / 渲染引擎异常。
-pub async fn export_return(
-    kind: ReturnDocKind,
-    id_raw: &str,
-) -> std::result::Result<RenderedDoc, ApiError> {
+pub async fn export_return(kind: ReturnDocKind, id_raw: &str) -> std::result::Result<RenderedDoc, ApiError> {
     let id = doc_pdf_model::parse_doc_id(id_raw)?;
     let context = match kind {
         ReturnDocKind::Purchase => purchase_return_context(id).await?,
@@ -465,14 +451,7 @@ pub async fn purchase_return_pdf(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
 ) -> Response {
-    export_http(
-        ReturnDocKind::Purchase,
-        &headers,
-        &connect_info,
-        &claims,
-        &id,
-    )
-    .await
+    export_http(ReturnDocKind::Purchase, &headers, &connect_info, &claims, &id).await
 }
 
 /// 销售退货单 PDF（`GET /api/business/erp/sales-return/{id}/pdf`）。
@@ -508,28 +487,19 @@ async fn export_http(
     let started = Instant::now();
     match export_return(kind, id_raw).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            kind = kind.label(),
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "退货单 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
-            audit(
-                kind,
-                headers,
-                connect_info,
-                claims,
-                id_raw,
-                &rendered,
-                started,
-            );
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        kind = kind.label(),
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "退货单 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
+            audit(kind, headers, connect_info, claims, id_raw, &rendered, started);
             response
         }
         Err(error) => error.into_response(),
@@ -645,12 +615,7 @@ mod tests {
         let unit_id = Uuid::now_v7();
         let location = Uuid::now_v7();
         let sources = vec![
-            purchase_item(
-                material_id,
-                unit_id,
-                Some(location),
-                Decimal::new(278_884, 4),
-            ),
+            purchase_item(material_id, unit_id, Some(location), Decimal::new(278_884, 4)),
             purchase_item(material_id, unit_id, None, Decimal::new(278_884, 4)),
         ];
         let mut materials = HashMap::new();
@@ -670,10 +635,7 @@ mod tests {
         assert_eq!(items[0].price, "12.34");
         assert_eq!(items[0].amount, "24.68");
         assert_eq!(items[0].tax_rate, "13");
-        assert_eq!(
-            items[0].tax_amount, "3.21",
-            "金额列按分四舍五入（2 位小数）"
-        );
+        assert_eq!(items[0].tax_amount, "3.21", "金额列按分四舍五入（2 位小数）");
         assert_eq!(items[0].with_tax, "27.89");
         assert_eq!(items[0].location, "A-01-03");
         assert_eq!(items[0].serials, "", "采购退货没有序列号列");
@@ -755,22 +717,13 @@ mod tests {
     /// 两个入口的操作码 / 权限码 / 路径段一一对应（点错名字就是点错权限）。
     #[test]
     fn kind_metadata_is_complete() {
-        assert_eq!(
-            export_operation(ReturnDocKind::Purchase),
-            "EXPORT_PURCHASE_RETURN_PDF"
-        );
-        assert_eq!(
-            export_operation(ReturnDocKind::Sales),
-            "EXPORT_SALES_RETURN_PDF"
-        );
+        assert_eq!(export_operation(ReturnDocKind::Purchase), "EXPORT_PURCHASE_RETURN_PDF");
+        assert_eq!(export_operation(ReturnDocKind::Sales), "EXPORT_SALES_RETURN_PDF");
         assert_eq!(
             permission_code(ReturnDocKind::Purchase),
             "business:erp:purchase-return:list"
         );
-        assert_eq!(
-            permission_code(ReturnDocKind::Sales),
-            "business:erp:sales-return:list"
-        );
+        assert_eq!(permission_code(ReturnDocKind::Sales), "business:erp:sales-return:list");
         assert_eq!(path_segment(ReturnDocKind::Purchase), "purchase-return");
         assert_eq!(path_segment(ReturnDocKind::Sales), "sales-return");
         // 两个 kind 不许撞车
@@ -854,6 +807,17 @@ mod db_tests {
                 }
             })
             .await
+    }
+
+    /// 表头文案存在性：**不绑定 `th` 上有没有 class**。
+    ///
+    /// PDF-04（提交 2ac33d11）把退货单表头改成 `<th class="c-…">文案</th>`——
+    /// `table-layout: fixed` 只认首行单元格的 width，列宽 class 必须留在 `th` 上。
+    /// 旧断言逐字匹配 `<th>文案</th>`，模板一加 class 就必然假红（产品行为没变）。
+    /// 这里只固定三件事：标签名是 `th`、属性随便、正文恰好是该文案。
+    fn th_has_label(html: &str, label: &str) -> bool {
+        let pattern = format!(r"<th\b[^>]*>\s*{}\s*</th>", regex::escape(label));
+        regex::Regex::new(&pattern).expect("表头正则编译失败").is_match(html)
     }
 
     async fn exec(sql: &str, params: Vec<Value>, label: &str) {
@@ -1112,14 +1076,8 @@ mod db_tests {
             .map(|field| (field.label.clone(), field.value.clone()))
             .collect();
         // 验收③：原单号
-        assert!(
-            meta.contains(&("原单号（入库）".into(), IN_NO.into())),
-            "{meta:?}"
-        );
-        assert!(
-            meta.contains(&("原单号（采购订单）".into(), PO_NO.into())),
-            "{meta:?}"
-        );
+        assert!(meta.contains(&("原单号（入库）".into(), IN_NO.into())), "{meta:?}");
+        assert!(meta.contains(&("原单号（采购订单）".into(), PO_NO.into())), "{meta:?}");
         // 验收③：退货原因
         assert!(ctx.reason.contains("砂眼"));
         assert!(meta.contains(&("供应商".into(), "PDF04 退货供应商".into())));
@@ -1147,7 +1105,10 @@ mod db_tests {
         assert!(html.contains(PO_NO));
         assert!(html.contains("退货原因："));
         assert!(html.contains("砂眼"));
-        assert!(html.contains("<th>价税合计</th>"));
+        assert!(
+            th_has_label(&html, "价税合计"),
+            "采购退货明细表头必须有「价税合计」列（th 带列宽 class 也算）"
+        );
         purge().await;
     }
 
@@ -1158,9 +1119,7 @@ mod db_tests {
             return;
         };
         seed_sales_return().await;
-        let ctx = sales_return_context(SALES_RETURN)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = sales_return_context(SALES_RETURN).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, SR_NO);
         assert_eq!(ctx.doc_title, "销 售 退 货 单");
@@ -1170,14 +1129,8 @@ mod db_tests {
             .flatten()
             .map(|field| (field.label.clone(), field.value.clone()))
             .collect();
-        assert!(
-            meta.contains(&("原单号（销售订单）".into(), SO_NO.into())),
-            "{meta:?}"
-        );
-        assert!(
-            meta.contains(&("原单号（发货单）".into(), SH_NO.into())),
-            "{meta:?}"
-        );
+        assert!(meta.contains(&("原单号（销售订单）".into(), SO_NO.into())), "{meta:?}");
+        assert!(meta.contains(&("原单号（发货单）".into(), SH_NO.into())), "{meta:?}");
         // 退货原因 = 退货类型
         assert!(ctx.reason.contains("质量"), "{}", ctx.reason);
         assert!(ctx.reason.contains("QUALITY"));
@@ -1197,8 +1150,14 @@ mod db_tests {
         assert!(html.contains(SO_NO));
         assert!(html.contains(SH_NO));
         assert!(html.contains("PDF04-SN-1"));
-        assert!(html.contains("<th>序列号</th>"));
-        assert!(!html.contains("<th>价税合计</th>"));
+        assert!(
+            th_has_label(&html, "序列号"),
+            "销售退货明细表头必须有「序列号」列（th 带列宽 class 也算）"
+        );
+        assert!(
+            !th_has_label(&html, "价税合计"),
+            "销售退货没有行级价税合计列（模板按 kind 不渲染该 th）"
+        );
         purge().await;
     }
 
@@ -1210,12 +1169,8 @@ mod db_tests {
         };
         seed_purchase_return().await;
         seed_sales_return().await;
-        let purchase_ctx = purchase_return_context(PURCHASE_RETURN)
-            .await
-            .expect("采购上下文");
-        let sales_ctx = sales_return_context(SALES_RETURN)
-            .await
-            .expect("销售上下文");
+        let purchase_ctx = purchase_return_context(PURCHASE_RETURN).await.expect("采购上下文");
+        let sales_ctx = sales_return_context(SALES_RETURN).await.expect("销售上下文");
 
         for (kind, doc_id, doc_no, rows, amount) in [
             (
@@ -1261,10 +1216,7 @@ mod db_tests {
                 .find_with_params(
                     "SELECT operation, target_type, detail FROM operation_logs \
                       WHERE target_id = ? AND request_id = ?",
-                    vec![
-                        Value::Text(doc_id.to_string()),
-                        Value::Text(request_id.to_string()),
-                    ],
+                    vec![Value::Text(doc_id.to_string()), Value::Text(request_id.to_string())],
                 )
                 .await
                 .expect("回查审计行");
@@ -1273,10 +1225,7 @@ mod db_tests {
                 found[0].get_typed::<String>("operation").unwrap(),
                 export_operation(kind)
             );
-            assert_eq!(
-                found[0].get_typed::<String>("target_type").unwrap(),
-                kind.table()
-            );
+            assert_eq!(found[0].get_typed::<String>("target_type").unwrap(), kind.table());
             let detail: serde_json::Value = found[0].get_typed("detail").expect("detail");
             assert_eq!(detail["doc_type"], kind.doc_kind_str());
         }
@@ -1314,9 +1263,7 @@ mod db_tests {
             "软删销售退货单",
         )
         .await;
-        let error = sales_return_context(SALES_RETURN)
-            .await
-            .expect_err("软删单必须 404");
+        let error = sales_return_context(SALES_RETURN).await.expect_err("软删单必须 404");
         assert_eq!(error.status, 404);
         assert!(error.msg.contains("销售退货单"));
         purge().await;
@@ -1329,9 +1276,7 @@ mod db_tests {
             return;
         }
         for kind in [ReturnDocKind::Purchase, ReturnDocKind::Sales] {
-            let error = export_return(kind, "not-a-uuid")
-                .await
-                .expect_err("必须 400");
+            let error = export_return(kind, "not-a-uuid").await.expect_err("必须 400");
             assert_eq!(error.status, 400);
             assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
         }

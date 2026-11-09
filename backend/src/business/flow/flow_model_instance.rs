@@ -23,9 +23,7 @@ use nik::uuid::Uuid;
 pub fn new_instance_no(now: chrono::DateTime<chrono::Utc>) -> String {
     let id = Uuid::now_v7().to_string();
     let tail: String = id.chars().filter(|c| *c != '-').collect::<String>();
-    let tail = tail
-        .get(tail.len().saturating_sub(8)..)
-        .unwrap_or("00000000");
+    let tail = tail.get(tail.len().saturating_sub(8)..).unwrap_or("00000000");
     format!("FLW-{}-{}", now.format("%Y%m%d"), tail.to_ascii_uppercase())
 }
 
@@ -90,9 +88,7 @@ pub async fn find_instance(id: Uuid) -> DbResult<Option<InstanceRow>> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn lock_instance(ex: &Transaction, id: Uuid) -> DbResult<Option<InstanceRow>> {
-    let sql = format!(
-        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i WHERE i.id = ?::uuid FOR UPDATE"
-    );
+    let sql = format!("SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i WHERE i.id = ?::uuid FOR UPDATE");
     let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(InstanceRow::from_row).transpose()
 }
@@ -152,10 +148,7 @@ pub async fn bump_instance(
 ///
 /// 会签提前通过 / 驳回时，其余待办会被置 `CANCELLED` 并写上系统文案
 /// （「该节点已满足通过条件，无需再投」）。那不是审批意见，不能盖掉真正的人话。
-pub async fn latest_verdict_comment(
-    ex: &Transaction,
-    instance_id: Uuid,
-) -> DbResult<Option<String>> {
+pub async fn latest_verdict_comment(ex: &Transaction, instance_id: Uuid) -> DbResult<Option<String>> {
     let rows = ex
         .find_with_params(
             "SELECT t.comment FROM biz_flow_task t \
@@ -209,11 +202,7 @@ pub async fn biz_instance_running(biz_type: &str, biz_id: Uuid) -> DbResult<bool
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn biz_instance_running_in(
-    ex: &impl SqlExecutor,
-    biz_type: &str,
-    biz_id: Uuid,
-) -> DbResult<bool> {
+pub async fn biz_instance_running_in(ex: &impl SqlExecutor, biz_type: &str, biz_id: Uuid) -> DbResult<bool> {
     let total: i64 = ex
         .scalar_sql(
             "SELECT count(*) AS total FROM biz_flow_instance \

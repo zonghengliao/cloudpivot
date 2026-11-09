@@ -56,9 +56,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
-use crate::business::erp::payable_aging::{
-    self, AgingBucketAmountRes, AgingBucketDef, AsOf, BUCKETS, DETAIL_LIMIT,
-};
+use crate::business::erp::payable_aging::{self, AgingBucketAmountRes, AgingBucketDef, AsOf, BUCKETS, DETAIL_LIMIT};
 use crate::business::erp::receivable;
 use crate::business::erp::report::period_name_of;
 use crate::business::erp::voucher;
@@ -270,10 +268,7 @@ pub fn pivot_customers(rows: Vec<CustomerBucketRow>) -> Vec<CustomerAgingRes> {
             cell.doc_count += row.doc_count;
         }
     }
-    let mut out: Vec<CustomerAgingRes> = order
-        .into_iter()
-        .filter_map(|id| index.remove(&id))
-        .collect();
+    let mut out: Vec<CustomerAgingRes> = order.into_iter().filter_map(|id| index.remove(&id)).collect();
     out.sort_by(|left, right| {
         right
             .total_unsettled
@@ -392,11 +387,7 @@ fn base_cte() -> String {
 }
 
 /// 按客户 × 档位聚合。
-pub async fn load_cells(
-    tx: &Transaction,
-    as_of: NaiveDate,
-    period_key: &str,
-) -> DbResult<Vec<CustomerBucketRow>> {
+pub async fn load_cells(tx: &Transaction, as_of: NaiveDate, period_key: &str) -> DbResult<Vec<CustomerBucketRow>> {
     // 分档表达式**由应付账龄的常量生成**，本模块不另写一份阈值
     let bucket = payable_aging::bucket_case_sql("overdue_days");
     let sql = format!(
@@ -411,10 +402,7 @@ pub async fn load_cells(
         base = base_cte()
     );
     let rows = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(as_of), Value::Text(period_key.to_string())],
-        )
+        .find_with_params(&sql, vec![Value::from(as_of), Value::Text(period_key.to_string())])
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -436,14 +424,7 @@ pub async fn load_totals_and_details(
     tx: &Transaction,
     as_of: NaiveDate,
     period_key: &str,
-) -> DbResult<(
-    Decimal,
-    Decimal,
-    Decimal,
-    i64,
-    i64,
-    Vec<ReceivableAgingDetailRow>,
-)> {
+) -> DbResult<(Decimal, Decimal, Decimal, i64, i64, Vec<ReceivableAgingDetailRow>)> {
     let sql = format!(
         "{base} \
          SELECT COALESCE(SUM(amount), 0) AS total_amount, \
@@ -455,10 +436,7 @@ pub async fn load_totals_and_details(
         base = base_cte()
     );
     let row = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(as_of), Value::Text(period_key.to_string())],
-        )
+        .find_with_params(&sql, vec![Value::from(as_of), Value::Text(period_key.to_string())])
         .await?
         .into_iter()
         .next();
@@ -483,10 +461,7 @@ pub async fn load_totals_and_details(
         base = base_cte()
     );
     let rows = tx
-        .find_with_params(
-            &sql,
-            vec![Value::from(as_of), Value::Text(period_key.to_string())],
-        )
+        .find_with_params(&sql, vec![Value::from(as_of), Value::Text(period_key.to_string())])
         .await?;
     let mut details = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -518,11 +493,7 @@ pub async fn load_totals_and_details(
 }
 
 /// 在 REPEATABLE READ 快照里取全套数据。
-pub async fn build_snapshot(
-    tx: &Transaction,
-    as_of: NaiveDate,
-    period_key: &str,
-) -> DbResult<ReceivableAgingSnapshot> {
+pub async fn build_snapshot(tx: &Transaction, as_of: NaiveDate, period_key: &str) -> DbResult<ReceivableAgingSnapshot> {
     let cells = load_cells(tx, as_of, period_key).await?;
     let (total_amount, total_received, total_unsettled, doc_count, customer_count, details) =
         load_totals_and_details(tx, as_of, period_key).await?;
@@ -675,13 +646,10 @@ pub fn assemble(
 // ==================== 接口层 ====================
 
 /// 参数校验 + 快照事务统一入口。
-async fn build_report(
-    query: &ReceivableAgingQuery,
-) -> std::result::Result<ReceivableAgingRes, ApiError> {
+async fn build_report(query: &ReceivableAgingQuery) -> std::result::Result<ReceivableAgingRes, ApiError> {
     let today = voucher::today_cst(Utc::now());
     // 基准日解析复用应付账龄的同一个实现（as_of 优先 → period 末日 → 今天）
-    let as_of =
-        payable_aging::resolve_as_of(query.as_of.as_deref(), query.period.as_deref(), today)?;
+    let as_of = payable_aging::resolve_as_of(query.as_of.as_deref(), query.period.as_deref(), today)?;
     let period = query
         .period
         .as_deref()
@@ -696,10 +664,7 @@ async fn build_report(
         .await
         .map_err(|error| utils::db_error(error, "开启应收账龄快照事务"))?;
     // 整张表在一个 REPEATABLE READ 快照里算完（与应付账龄同口径）
-    if let Err(error) = tx
-        .execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .await
-    {
+    if let Err(error) = tx.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").await {
         let _ = tx.rollback().await;
         return Err(utils::db_error(error, "设置账龄报表事务隔离级别"));
     }
@@ -724,13 +689,7 @@ async fn build_report(
         return Err(utils::db_error(error, "提交应收账龄快照事务"));
     }
     let company = company_name().await;
-    Ok(assemble(
-        as_of,
-        period.as_deref(),
-        period_status,
-        snapshot,
-        &company,
-    ))
+    Ok(assemble(as_of, period.as_deref(), period_status, snapshot, &company))
 }
 
 /// 应收账款账龄分析表。
@@ -742,9 +701,7 @@ async fn build_report(
     permission = "business:erp:receivable:aging"
 )]
 #[nik::get("/business/erp/receivable/aging")]
-pub async fn receivable_aging_handler(
-    Query(query): Query<ReceivableAgingQuery>,
-) -> ResResult<ReceivableAgingRes> {
+pub async fn receivable_aging_handler(Query(query): Query<ReceivableAgingQuery>) -> ResResult<ReceivableAgingRes> {
     Ok(Res::ok(build_report(&query).await?))
 }
 
@@ -815,51 +772,32 @@ mod tests {
         assert!(cte.contains("r.status IN ('OPEN', 'PARTIAL')"));
         assert!(cte.contains("r.unsettled_amount > 0"));
         assert!(cte.contains("r.period_code <= ?"));
-        assert!(
-            !cte.contains("PARTIAL_PAID"),
-            "payable 的域值不许出现在应收口径里"
-        );
+        assert!(!cte.contains("PARTIAL_PAID"), "payable 的域值不许出现在应收口径里");
         assert!(!cte.contains("WRITTEN_OFF"), "坏账不应纳入账龄");
         assert!(
             !cte.contains("CANCELLED"),
             "出库作废冲销（V0290）不进账龄：那笔销售根本没发生"
         );
         // 白名单钉死：账龄只认 OPEN / PARTIAL，不是「排除坏账」这种反向判据
-        assert_eq!(
-            AGING_STATUSES,
-            [receivable::STATUS_OPEN, receivable::STATUS_PARTIAL]
-        );
+        assert_eq!(AGING_STATUSES, [receivable::STATUS_OPEN, receivable::STATUS_PARTIAL]);
         for terminal in [
             receivable::STATUS_SETTLED,
             receivable::STATUS_WRITTEN_OFF,
             receivable::STATUS_CANCELLED,
         ] {
-            assert!(
-                !AGING_STATUSES.contains(&terminal),
-                "`{terminal}` 是终态，不许纳入账龄"
-            );
+            assert!(!AGING_STATUSES.contains(&terminal), "`{terminal}` 是终态，不许纳入账龄");
         }
     }
 
     /// ③ 逾期天数与基准日解析：全部复用应付账龄的实现（同一组断言值）。
     #[test]
     fn overdue_and_as_of_are_shared_with_payable() {
-        assert_eq!(
-            payable_aging::overdue_days(date("2026-11-05"), date("2026-11-05")),
-            0
-        );
-        assert_eq!(
-            payable_aging::overdue_days(date("2026-11-05"), date("2026-10-06")),
-            30
-        );
-        assert_eq!(
-            payable_aging::overdue_days(date("2026-11-05"), date("2026-11-10")),
-            -5
-        );
+        assert_eq!(payable_aging::overdue_days(date("2026-11-05"), date("2026-11-05")), 0);
+        assert_eq!(payable_aging::overdue_days(date("2026-11-05"), date("2026-10-06")), 30);
+        assert_eq!(payable_aging::overdue_days(date("2026-11-05"), date("2026-11-10")), -5);
 
         let today = date("2026-11-05");
-        let by_query =
-            payable_aging::resolve_as_of(Some("2026-09-30"), Some("2026-10"), today).unwrap();
+        let by_query = payable_aging::resolve_as_of(Some("2026-09-30"), Some("2026-10"), today).unwrap();
         assert_eq!(by_query.date, date("2026-09-30"));
         assert_eq!(by_query.source, payable_aging::AS_OF_QUERY);
         let by_period = payable_aging::resolve_as_of(None, Some("2026-02"), today).unwrap();
@@ -1022,13 +960,7 @@ mod tests {
                 mk_detail("AR-20261001-000002", "2026-11-04", "300.00"),
             ],
         };
-        let report = assemble(
-            as_of,
-            Some("2026-10"),
-            Some("OPEN".to_string()),
-            snapshot,
-            "云枢",
-        );
+        let report = assemble(as_of, Some("2026-10"), Some("OPEN".to_string()), snapshot, "云枢");
         assert_eq!(report.report_code, "RECEIVABLE_AGING");
         assert_eq!(report.report_name, "应收账款账龄分析表");
         assert_eq!(report.total_unsettled, dec("400.00"));
@@ -1141,10 +1073,7 @@ mod tests {
         exec("DELETE FROM biz_receivable", vec![]).await;
         exec("DELETE FROM biz_customer WHERE code LIKE 'QR13-%'", vec![]).await;
         // uuid 一律内联成字面量：`Value::Text` 绑到 `?::uuid` 在 nik-db 上序列化失败（实测）
-        for (id, code, name) in [
-            (CUSTOMER_A, "QR13-A", "甲客户"),
-            (CUSTOMER_B, "QR13-B", "乙客户"),
-        ] {
+        for (id, code, name) in [(CUSTOMER_A, "QR13-A", "甲客户"), (CUSTOMER_B, "QR13-B", "乙客户")] {
             exec(
                 &format!(
                     "INSERT INTO biz_customer (id, code, name, status) \
@@ -1155,94 +1084,17 @@ mod tests {
             .await;
         }
         let rows: [(&str, &str, &str, &str, &str, &str); 11] = [
-            (
-                "QR13-0001",
-                CUSTOMER_A,
-                "OPEN",
-                "100",
-                "2026-11-05",
-                "2026-11",
-            ),
-            (
-                "QR13-0002",
-                CUSTOMER_A,
-                "OPEN",
-                "200",
-                "2026-11-04",
-                "2026-11",
-            ),
-            (
-                "QR13-0003",
-                CUSTOMER_A,
-                "PARTIAL",
-                "300",
-                "2026-10-06",
-                "2026-10",
-            ),
-            (
-                "QR13-0004",
-                CUSTOMER_B,
-                "OPEN",
-                "400",
-                "2026-10-05",
-                "2026-10",
-            ),
-            (
-                "QR13-0005",
-                CUSTOMER_B,
-                "OPEN",
-                "500",
-                "2026-09-06",
-                "2026-09",
-            ),
-            (
-                "QR13-0006",
-                CUSTOMER_B,
-                "OPEN",
-                "600",
-                "2026-09-05",
-                "2026-09",
-            ),
-            (
-                "QR13-0007",
-                CUSTOMER_A,
-                "OPEN",
-                "700",
-                "2026-08-07",
-                "2026-08",
-            ),
-            (
-                "QR13-0008",
-                CUSTOMER_B,
-                "OPEN",
-                "800",
-                "2026-08-06",
-                "2026-08",
-            ),
-            (
-                "QR13-0009",
-                CUSTOMER_B,
-                "SETTLED",
-                "0",
-                "2026-10-01",
-                "2026-10",
-            ),
-            (
-                "QR13-000a",
-                CUSTOMER_B,
-                "WRITTEN_OFF",
-                "900",
-                "2026-10-01",
-                "2026-10",
-            ),
-            (
-                "QR13-000b",
-                CUSTOMER_A,
-                "OPEN",
-                "1100",
-                "2026-11-20",
-                "2026-11",
-            ),
+            ("QR13-0001", CUSTOMER_A, "OPEN", "100", "2026-11-05", "2026-11"),
+            ("QR13-0002", CUSTOMER_A, "OPEN", "200", "2026-11-04", "2026-11"),
+            ("QR13-0003", CUSTOMER_A, "PARTIAL", "300", "2026-10-06", "2026-10"),
+            ("QR13-0004", CUSTOMER_B, "OPEN", "400", "2026-10-05", "2026-10"),
+            ("QR13-0005", CUSTOMER_B, "OPEN", "500", "2026-09-06", "2026-09"),
+            ("QR13-0006", CUSTOMER_B, "OPEN", "600", "2026-09-05", "2026-09"),
+            ("QR13-0007", CUSTOMER_A, "OPEN", "700", "2026-08-07", "2026-08"),
+            ("QR13-0008", CUSTOMER_B, "OPEN", "800", "2026-08-06", "2026-08"),
+            ("QR13-0009", CUSTOMER_B, "SETTLED", "0", "2026-10-01", "2026-10"),
+            ("QR13-000a", CUSTOMER_B, "WRITTEN_OFF", "900", "2026-10-01", "2026-10"),
+            ("QR13-000b", CUSTOMER_A, "OPEN", "1100", "2026-11-20", "2026-11"),
         ];
         for (no, customer, status, unsettled, due, period) in rows {
             // SETTLED 行也必须满足 ck_biz_ar_amount（amount > 0）⇒ 收清行给 50/50/0
@@ -1294,18 +1146,11 @@ mod tests {
             snapshot
                 .details
                 .iter()
-                .filter(|row| {
-                    payable_aging::bucket_of(payable_aging::overdue_days(as_of, row.due_date))
-                        == bucket
-                })
+                .filter(|row| payable_aging::bucket_of(payable_aging::overdue_days(as_of, row.due_date)) == bucket)
                 .map(|row| row.unsettled_amount)
                 .sum()
         };
-        assert_eq!(
-            by_amount("NOT_DUE"),
-            dec("1200"),
-            "到期当天 100 + 未到期 1100"
-        );
+        assert_eq!(by_amount("NOT_DUE"), dec("1200"), "到期当天 100 + 未到期 1100");
         assert_eq!(by_amount("D0_30"), dec("500"), "1 天 + 30 天");
         assert_eq!(by_amount("D31_60"), dec("900"), "31 天 + 60 天");
         assert_eq!(by_amount("D61_90"), dec("1300"), "61 天 + 90 天");
@@ -1318,10 +1163,7 @@ mod tests {
         }
         for bucket in BUCKETS {
             let rust_side = by_amount(bucket.key);
-            let sql_side = sql_by_bucket
-                .get(bucket.key)
-                .copied()
-                .unwrap_or(Decimal::ZERO);
+            let sql_side = sql_by_bucket.get(bucket.key).copied().unwrap_or(Decimal::ZERO);
             assert_eq!(
                 sql_side, rust_side,
                 "档位 {} 的 SQL 聚合({sql_side}) 与 Rust 现算({rust_side}) 不一致 —— 分档漂移",
@@ -1373,11 +1215,7 @@ mod tests {
         let mut sorted = due_dates.clone();
         sorted.sort();
         assert_eq!(due_dates, sorted, "明细必须按到期日升序");
-        assert_eq!(
-            report.details[0].due_date,
-            date("2026-08-06"),
-            "最久逾期的在最前"
-        );
+        assert_eq!(report.details[0].due_date, date("2026-08-06"), "最久逾期的在最前");
         assert_eq!(report.details[0].bucket, "OVER_90");
         assert_eq!(report.details[0].customer_name, "乙客户", "客户名 JOIN 上");
     }
@@ -1391,15 +1229,9 @@ mod tests {
         let tx = db().begin().await.unwrap();
         let snapshot = build_snapshot(&tx, as_of, "2026-10").await.unwrap();
         tx.commit().await.unwrap();
-        assert_eq!(
-            snapshot.doc_count, 6,
-            "8 月—10 月的 6 张（SETTLED/坏账已排除）"
-        );
+        assert_eq!(snapshot.doc_count, 6, "8 月—10 月的 6 张（SETTLED/坏账已排除）");
         assert!(
-            snapshot
-                .details
-                .iter()
-                .all(|row| row.period_code.as_str() <= "2026-10"),
+            snapshot.details.iter().all(|row| row.period_code.as_str() <= "2026-10"),
             "期间晚于基准月的单据必须被截掉"
         );
 
@@ -1412,10 +1244,7 @@ mod tests {
         let not_due = snapshot
             .details
             .iter()
-            .filter(|row| {
-                payable_aging::bucket_of(payable_aging::overdue_days(as_of, row.due_date))
-                    == "NOT_DUE"
-            })
+            .filter(|row| payable_aging::bucket_of(payable_aging::overdue_days(as_of, row.due_date)) == "NOT_DUE")
             .count();
         // 2026-11-20（000b）在 11-30 已到期 10 天 ⇒ 未到期只剩……
         // 0001(11-05)/0002(11-04)/000b(11-20) 都已到期，故 0 张未到期

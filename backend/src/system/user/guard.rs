@@ -121,10 +121,7 @@ pub(crate) fn evaluate_grant(input: GrantCheckInput) -> std::result::Result<(), 
 ///
 /// `super_admin_role_id` 为 `None` 表示库中不存在 `SUPER_ADMIN` 角色（未初始化），
 /// 此时不存在「授予超管」的可能，返回 false。
-pub(crate) fn grants_super_admin_role(
-    role_ids: &[uuid::Uuid],
-    super_admin_role_id: Option<uuid::Uuid>,
-) -> bool {
+pub(crate) fn grants_super_admin_role(role_ids: &[uuid::Uuid], super_admin_role_id: Option<uuid::Uuid>) -> bool {
     match super_admin_role_id {
         Some(id) => role_ids.contains(&id),
         None => false,
@@ -305,10 +302,7 @@ mod tests {
             adds_role_operator_lacks: true,
             ..baseline()
         };
-        assert!(
-            evaluate_grant(input).is_ok(),
-            "超管必须仍能建超管号 / 改超管密码"
-        );
+        assert!(evaluate_grant(input).is_ok(), "超管必须仍能建超管号 / 改超管密码");
     }
 
     // ── 用例 5：非超管 + 授予普通角色 → 允许（不误伤正常业务）──
@@ -321,10 +315,7 @@ mod tests {
         };
         assert!(evaluate_grant(input).is_ok(), "非超管授予普通角色不得被拦");
         // 建号场景（无目标用户）同样放行
-        assert!(
-            evaluate_grant(baseline()).is_ok(),
-            "非超管建普通账号不得被拦"
-        );
+        assert!(evaluate_grant(baseline()).is_ok(), "非超管建普通账号不得被拦");
     }
 
     // ── 用例 6a：边界——role_ids 为空 ──
@@ -341,10 +332,7 @@ mod tests {
             grants_super_admin_role: grants_super_admin_role(&[], Some(super_role)),
             ..baseline()
         };
-        assert!(
-            evaluate_grant(input).is_ok(),
-            "清空角色（分配给普通用户）应放行"
-        );
+        assert!(evaluate_grant(input).is_ok(), "清空角色（分配给普通用户）应放行");
     }
 
     // ── 用例 6b：边界——目标用户不存在 ──
@@ -384,16 +372,10 @@ mod tests {
         let c = uuid::Uuid::now_v7();
         let held = vec![a, b];
 
-        assert!(
-            !adds_role_operator_lacks(&held, &[a, b]),
-            "原样保留不得判为提权"
-        );
+        assert!(!adds_role_operator_lacks(&held, &[a, b]), "原样保留不得判为提权");
         assert!(!adds_role_operator_lacks(&held, &[b]), "移除角色不算提权");
         assert!(!adds_role_operator_lacks(&held, &[]), "清空角色不算提权");
-        assert!(
-            adds_role_operator_lacks(&held, &[a, c]),
-            "新增未持有角色应判为提权"
-        );
+        assert!(adds_role_operator_lacks(&held, &[a, c]), "新增未持有角色应判为提权");
     }
 
     // ── 附加：超管角色判定（含库中未初始化 SUPER_ADMIN 的兜底）──
@@ -401,14 +383,8 @@ mod tests {
     fn grants_super_admin_role_matches_role_id() {
         let super_role = uuid::Uuid::now_v7();
         let other = uuid::Uuid::now_v7();
-        assert!(grants_super_admin_role(
-            &[other, super_role],
-            Some(super_role)
-        ));
+        assert!(grants_super_admin_role(&[other, super_role], Some(super_role)));
         assert!(!grants_super_admin_role(&[other], Some(super_role)));
-        assert!(
-            !grants_super_admin_role(&[other], None),
-            "库中无超管角色时不得误判"
-        );
+        assert!(!grants_super_admin_role(&[other], None), "库中无超管角色时不得误判");
     }
 }

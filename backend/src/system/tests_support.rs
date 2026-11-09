@@ -154,11 +154,7 @@ pub(crate) fn headers() -> HeaderMap {
 
 /// `ConnectInfo` 提取器（真实客户端 IP 的来源；审计日志会读它）。
 pub(crate) fn connect_info() -> ConnectInfo<SocketAddr> {
-    ConnectInfo(
-        "127.0.0.1:54321"
-            .parse::<SocketAddr>()
-            .expect("固定地址必须可解析"),
-    )
+    ConnectInfo("127.0.0.1:54321".parse::<SocketAddr>().expect("固定地址必须可解析"))
 }
 
 /// 构造令牌声明。
@@ -181,11 +177,7 @@ pub(crate) fn claims(user_id: &str, username: &str, permissions: &[&str]) -> Aut
 
 /// 超管声明（`*:*:*`），用于调用「需要超管豁免」的 handler 分支。
 pub(crate) fn super_claims() -> AuthClaims {
-    claims(
-        "00000000-0000-7000-8000-0000000000ff",
-        constants_admin(),
-        &["*:*:*"],
-    )
+    claims("00000000-0000-7000-8000-0000000000ff", constants_admin(), &["*:*:*"])
 }
 
 /// 内置管理员用户名（与 `constants::ADMIN_USERNAME` 保持一致）。
@@ -377,26 +369,18 @@ async fn sweep_entity(
         let params = vec![Value::from(like.clone()); *arity];
         let rows = cleanup_sql(&format!("{}→{dep_label}", report.label), sql, params).await;
         if rows > 0 {
-            println!(
-                "[cleanup] {} 先清引用行 {dep_label}：{rows} 行",
-                report.label
-            );
+            println!("[cleanup] {} 先清引用行 {dep_label}：{rows} 行", report.label);
         }
     }
 
     let ids_sql = format!("SELECT id::text AS v FROM {table} WHERE {column} LIKE ?");
-    let ids = match db()
-        .find_with_params(&ids_sql, vec![Value::from(like)])
-        .await
-    {
+    let ids = match db().find_with_params(&ids_sql, vec![Value::from(like)]).await {
         Ok(rows) => rows
             .iter()
             .filter_map(|row| row.get_typed::<Option<String>>("v").unwrap_or(None))
             .collect::<Vec<_>>(),
         Err(error) => {
-            report
-                .failed
-                .push(format!("查询待清行失败：{error}｜SQL: {ids_sql}"));
+            report.failed.push(format!("查询待清行失败：{error}｜SQL: {ids_sql}"));
             println!("WARN[cleanup] {} 查询待清行失败：{error}", report.label);
             return report;
         }
@@ -404,10 +388,7 @@ async fn sweep_entity(
 
     for id in ids {
         let sql = format!("DELETE FROM {table} WHERE id = ?::text::uuid");
-        match db()
-            .execute_with_params(&sql, vec![Value::from(id.clone())])
-            .await
-        {
+        match db().execute_with_params(&sql, vec![Value::from(id.clone())]).await {
             Ok(_) => report.deleted += 1,
             Err(error) => {
                 let text = error.to_string();
@@ -416,10 +397,7 @@ async fn sweep_entity(
                     let soft = format!(
                         "UPDATE {table} SET deleted_at = now() WHERE id = ?::text::uuid AND deleted_at IS NULL"
                     );
-                    match db()
-                        .execute_with_params(&soft, vec![Value::from(id.clone())])
-                        .await
-                    {
+                    match db().execute_with_params(&soft, vec![Value::from(id.clone())]).await {
                         Ok(_) => {
                             println!(
                                 "WARN[cleanup] {} 行 {id} 被业务表 {pinned_by} 引用，已软删（硬删会破坏业务引用）",
@@ -429,10 +407,7 @@ async fn sweep_entity(
                         }
                         Err(soft_error) => {
                             report.failed.push(format!("{id} 软删失败：{soft_error}"));
-                            println!(
-                                "WARN[cleanup] {} 行 {id} 软删也失败：{soft_error}",
-                                report.label
-                            );
+                            println!("WARN[cleanup] {} 行 {id} 软删也失败：{soft_error}", report.label);
                         }
                     }
                     continue;
@@ -590,17 +565,13 @@ pub(crate) async fn sweep_depts(prefix: &str) -> SweepReport {
 /// 只是还没到清理那一步。用例一结束（`Fixture` 被 Drop）身份即注销，
 /// 它留下的行立刻重新纳入残留判据 —— 口径没有放宽，只是不再把「在途」当「泄漏」。
 fn active_registry() -> &'static std::sync::Mutex<Vec<String>> {
-    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
-        std::sync::OnceLock::new();
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> = std::sync::OnceLock::new();
     REGISTRY.get_or_init(|| std::sync::Mutex::new(Vec::new()))
 }
 
 /// 当前仍在运行的用例身份（快照）。
 pub(crate) fn active_tags() -> Vec<String> {
-    active_registry()
-        .lock()
-        .map(|guard| guard.clone())
-        .unwrap_or_default()
+    active_registry().lock().map(|guard| guard.clone()).unwrap_or_default()
 }
 
 fn register_tag(tag: &str) {
@@ -649,10 +620,7 @@ impl Fixture {
             .flat_map(|report| report.failed.iter().cloned())
             .collect();
         if !failed.is_empty() {
-            println!(
-                "WARN[cleanup] 用例身份 {} 清理未完全成功：{failed:?}",
-                self.tag
-            );
+            println!("WARN[cleanup] 用例身份 {} 清理未完全成功：{failed:?}", self.tag);
         }
     }
 }
@@ -680,20 +648,13 @@ fn uuid_literals(ids: &[String]) -> String {
         out.push_str("'::uuid");
         first = false;
     }
-    if out.is_empty() {
-        "NULL".to_string()
-    } else {
-        out
-    }
+    if out.is_empty() { "NULL".to_string() } else { out }
 }
 
 /// 按身份列捞 id（两段式的第一段）。
 async fn ids_like(table: &str, column: &str, tag: &str) -> Vec<String> {
     let sql = format!("SELECT id::text AS v FROM {table} WHERE {column} LIKE ?");
-    match db()
-        .find_with_params(&sql, vec![Value::from(format!("{tag}%"))])
-        .await
-    {
+    match db().find_with_params(&sql, vec![Value::from(format!("{tag}%"))]).await {
         Ok(rows) => rows
             .iter()
             .filter_map(|row| row.get_typed::<Option<String>>("v").unwrap_or(None))
@@ -724,18 +685,12 @@ async fn delete_by_ids(label: &str, table: &str, ids: &[String]) -> SweepReport 
             return report;
         }
         Err(error) => {
-            println!(
-                "WARN[cleanup] {} 整批删除失败，退化逐行：{error}",
-                report.label
-            );
+            println!("WARN[cleanup] {} 整批删除失败，退化逐行：{error}", report.label);
         }
     }
     for id in ids {
         let sql = format!("DELETE FROM {table} WHERE id = ?::text::uuid");
-        match db()
-            .execute_with_params(&sql, vec![Value::from(id.clone())])
-            .await
-        {
+        match db().execute_with_params(&sql, vec![Value::from(id.clone())]).await {
             Ok(_) => report.deleted += 1,
             Err(error) => {
                 let text = error.to_string();
@@ -743,10 +698,7 @@ async fn delete_by_ids(label: &str, table: &str, ids: &[String]) -> SweepReport 
                     let soft = format!(
                         "UPDATE {table} SET deleted_at = now() WHERE id = ?::text::uuid AND deleted_at IS NULL"
                     );
-                    match db()
-                        .execute_with_params(&soft, vec![Value::from(id.clone())])
-                        .await
-                    {
+                    match db().execute_with_params(&soft, vec![Value::from(id.clone())]).await {
                         Ok(_) => {
                             println!(
                                 "WARN[cleanup] {} 行 {id} 被业务表 {pinned_by} 引用，已软删",
@@ -796,27 +748,19 @@ pub(crate) async fn sweep_scope(tag: &str) -> Vec<SweepReport> {
     let dependents = [
         (
             "sys_role_menu",
-            format!(
-                "DELETE FROM sys_role_menu WHERE role_id IN ({role_sql}) OR menu_id IN ({menu_sql})"
-            ),
+            format!("DELETE FROM sys_role_menu WHERE role_id IN ({role_sql}) OR menu_id IN ({menu_sql})"),
         ),
         (
             "sys_user_role",
-            format!(
-                "DELETE FROM sys_user_role WHERE user_id IN ({user_sql}) OR role_id IN ({role_sql})"
-            ),
+            format!("DELETE FROM sys_user_role WHERE user_id IN ({user_sql}) OR role_id IN ({role_sql})"),
         ),
         (
             "sys_role_dept",
-            format!(
-                "DELETE FROM sys_role_dept WHERE role_id IN ({role_sql}) OR dept_id IN ({dept_sql})"
-            ),
+            format!("DELETE FROM sys_role_dept WHERE role_id IN ({role_sql}) OR dept_id IN ({dept_sql})"),
         ),
         (
             "sys_role_mutex",
-            format!(
-                "DELETE FROM sys_role_mutex WHERE role_a_id IN ({role_sql}) OR role_b_id IN ({role_sql})"
-            ),
+            format!("DELETE FROM sys_role_mutex WHERE role_a_id IN ({role_sql}) OR role_b_id IN ({role_sql})"),
         ),
         (
             "sys_user_preference",
@@ -882,8 +826,7 @@ pub(crate) fn try_run_epoch() -> Option<chrono::DateTime<chrono::Utc>> {
 
 /// 同 [`try_run_epoch`]；未初始化视为测试基建错误（审计断言会因此失去范围界定 ⇒ 必须炸，不能静默放宽）。
 pub(crate) fn run_epoch() -> chrono::DateTime<chrono::Utc> {
-    try_run_epoch()
-        .expect("run_epoch 未初始化：必须先 ensure_db() 成功（它负责在首次连库时钉住 run 起点）")
+    try_run_epoch().expect("run_epoch 未初始化：必须先 ensure_db() 成功（它负责在首次连库时钉住 run 起点）")
 }
 
 fn run_epoch_cell() -> &'static std::sync::OnceLock<chrono::DateTime<chrono::Utc>> {
@@ -1002,9 +945,7 @@ pub(crate) async fn count_fixture_residue(before: chrono::DateTime<chrono::Utc>)
 ///
 /// 这是自检用例的「自愈」半步：历史上因为 panic / `let _ =` 攒下来的行，
 /// 在清理逻辑修好之后能被一次性收干，而不是永远要人工 psql。
-pub(crate) async fn purge_fixture_residue(
-    before: chrono::DateTime<chrono::Utc>,
-) -> Vec<SweepReport> {
+pub(crate) async fn purge_fixture_residue(before: chrono::DateTime<chrono::Utc>) -> Vec<SweepReport> {
     // 引用行：按依赖顺序先清（不限于本卡前缀 —— 只清指向夹具实体的引用）
     let dependent_sqls = [
         (
@@ -1062,14 +1003,10 @@ pub(crate) async fn purge_fixture_residue(
         ("sys_dept", "dept_code", "夹具部门"),
     ];
     for (table, column, label) in entity_sql {
-        let ids_sql = format!(
-            "SELECT id::text AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ?"
-        );
+        let ids_sql =
+            format!("SELECT id::text AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ?");
         let ids = db()
-            .find_with_params(
-                &ids_sql,
-                vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)],
-            )
+            .find_with_params(&ids_sql, vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)])
             .await
             .unwrap_or_else(|error| panic!("查询残留 id 失败：{error}\nSQL: {ids_sql}"));
         let mut report = SweepReport {
@@ -1081,17 +1018,12 @@ pub(crate) async fn purge_fixture_residue(
                 continue;
             };
             let sql = format!("DELETE FROM {table} WHERE id = ?::text::uuid");
-            match db()
-                .execute_with_params(&sql, vec![Value::from(id.clone())])
-                .await
-            {
+            match db().execute_with_params(&sql, vec![Value::from(id.clone())]).await {
                 Ok(_) => report.deleted += 1,
                 Err(error) => {
                     let text = error.to_string();
                     if let Some(pinned_by) = business_pin(&text) {
-                        println!(
-                            "WARN[cleanup] {table} 行 {id} 被业务表 {pinned_by} 引用，保留（硬删会破坏业务引用）"
-                        );
+                        println!("WARN[cleanup] {table} 行 {id} 被业务表 {pinned_by} 引用，保留（硬删会破坏业务引用）");
                         report.kept_by_business.push(format!("{id}←{pinned_by}"));
                     } else {
                         println!("WARN[cleanup] {table} 行 {id} 硬删失败：{text}");

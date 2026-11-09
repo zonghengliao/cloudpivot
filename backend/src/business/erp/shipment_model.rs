@@ -94,12 +94,7 @@ pub const STATUS_POSTED: &str = "POSTED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 状态域白名单（与 `ck_shipment_status` **逐字同序**，单测钉住）。
-pub const STATUSES: [&str; 4] = [
-    STATUS_DRAFT,
-    STATUS_PENDING_POST,
-    STATUS_POSTED,
-    STATUS_CANCELLED,
-];
+pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, STATUS_CANCELLED];
 
 /// 「未过账但已占用未发量」的状态：这两个状态的明细要从可发量里扣掉。
 ///
@@ -198,23 +193,14 @@ impl SoItemAvailability {
 /// [`qty_within_remaining`]（`qty <= remaining`）负责，负剩余必然拒。
 pub fn remaining_qty(ordered: Decimal, delivered: Decimal, reserved: Decimal) -> Decimal {
     let left = ordered - delivered - reserved;
-    if left < Decimal::ZERO {
-        Decimal::ZERO
-    } else {
-        left
-    }
+    if left < Decimal::ZERO { Decimal::ZERO } else { left }
 }
 
 /// 本单行数量是否允许：`qty > 0` **且** `qty <= 未发货量`。
 ///
 /// 两个条件对应卡面「qty > 0，且不超过订单行未发货量」；库层只兜住了前一条
 /// （`ck_biz_shipment_item_qty`），后一条是跨表的，只能在这里判。
-pub fn qty_within_remaining(
-    qty: Decimal,
-    ordered: Decimal,
-    delivered: Decimal,
-    reserved: Decimal,
-) -> bool {
+pub fn qty_within_remaining(qty: Decimal, ordered: Decimal, delivered: Decimal, reserved: Decimal) -> bool {
     qty > Decimal::ZERO && qty <= remaining_qty(ordered, delivered, reserved)
 }
 
@@ -262,9 +248,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个发货单号（周期键按北京时间）。
@@ -295,9 +279,7 @@ pub async fn lock_so_item(ex: &impl SqlExecutor, so_item_id: Uuid) -> DbResult<(
         )
         .await?;
     if rows.is_empty() {
-        return Err(DbError::InvalidValue(format!(
-            "销售订单行不存在：{so_item_id}"
-        )));
+        return Err(DbError::InvalidValue(format!("销售订单行不存在：{so_item_id}")));
     }
     Ok(())
 }
@@ -336,9 +318,7 @@ pub async fn availability_of(
         )
         .await?;
     let Some(row) = rows.first() else {
-        return Err(DbError::InvalidValue(format!(
-            "销售订单行不存在：{so_item_id}"
-        )));
+        return Err(DbError::InvalidValue(format!("销售订单行不存在：{so_item_id}")));
     };
     let text = |column: &str| -> Decimal {
         row.get_typed::<String>(column)
@@ -364,9 +344,7 @@ pub async fn ensure_qty_within_remaining(
     exclude_shipment: Option<Uuid>,
 ) -> DbResult<SoItemAvailability> {
     if qty <= Decimal::ZERO {
-        return Err(DbError::InvalidValue(format!(
-            "发货数量必须大于 0（实际 {qty}）"
-        )));
+        return Err(DbError::InvalidValue(format!("发货数量必须大于 0（实际 {qty}）")));
     }
     let snapshot = availability_of(ex, so_item_id, exclude_shipment).await?;
     if qty > snapshot.remaining {
@@ -383,10 +361,7 @@ pub async fn ensure_qty_within_remaining(
 ///
 /// 只返回 `remaining > 0` 的行；`reserved` 只算**其他**未过账发货单的占用
 /// （订单本身还没有发货单，所以这里一般等于 0，除了「同一订单分多张单」的情形）。
-pub async fn shippable_items(
-    ex: &impl SqlExecutor,
-    so_id: Uuid,
-) -> DbResult<Vec<ShippableItemRow>> {
+pub async fn shippable_items(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Vec<ShippableItemRow>> {
     // SCOPE-EXEMPT: 订单行 / 发货单都是 ERP 单据表，无归属列。
     let rows = ex
         .query_sql(
@@ -646,10 +621,7 @@ pub struct NewShipment<'a> {
 
 /// 明细数量合计（纯逻辑，建单与改单共用；**先逐行 trim 再求和**不改变精度）。
 pub fn total_qty_of(items: &[NewShipmentItem]) -> Decimal {
-    items
-        .iter()
-        .fold(Decimal::ZERO, |acc, item| acc + item.qty)
-        .round_dp(4)
+    items.iter().fold(Decimal::ZERO, |acc, item| acc + item.qty).round_dp(4)
 }
 
 /// 库存缺口（过账前置检查的结果行）。
@@ -679,11 +651,8 @@ pub async fn find_shipment(id: Uuid) -> DbResult<Option<ShipmentRow>> {
 
 /// 取一张发货单的明细（订单行号升序；订单行没了排最后）。
 pub async fn items_of(shipment_id: Uuid) -> DbResult<Vec<ShipmentItemRow>> {
-    let sql =
-        format!("{ITEM_SELECT} WHERE si.shipment_id = ? ORDER BY COALESCE(oi.line_no, 0), si.id");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(shipment_id)])
-        .await?;
+    let sql = format!("{ITEM_SELECT} WHERE si.shipment_id = ? ORDER BY COALESCE(oi.line_no, 0), si.id");
+    let rows = db().find_with_params(&sql, vec![Value::from(shipment_id)]).await?;
     rows.iter().map(ShipmentItemRow::from_row).collect()
 }
 
@@ -728,10 +697,7 @@ pub async fn shipment_page(
 
 /// 订单行的 `(material_id, line_no)`：建单时**物料从订单行取**，不信请求体
 /// （否则可以给 A 物料的订单行开一张 B 物料的发货单，库存扣到别的物料上）。
-pub async fn so_item_brief(
-    ex: &impl SqlExecutor,
-    so_item_id: Uuid,
-) -> DbResult<Option<(Uuid, i32)>> {
+pub async fn so_item_brief(ex: &impl SqlExecutor, so_item_id: Uuid) -> DbResult<Option<(Uuid, i32)>> {
     // SCOPE-EXEMPT: 订单行明细表，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
@@ -742,10 +708,7 @@ pub async fn so_item_brief(
     let Some(row) = rows.first() else {
         return Ok(None);
     };
-    Ok(Some((
-        row.get_typed("material_id")?,
-        row.get_typed("line_no")?,
-    )))
+    Ok(Some((row.get_typed("material_id")?, row.get_typed("line_no")?)))
 }
 
 /// 订单状态（建单 / 提交时的状态闸用；订单不存在或已删 → `None`）。
@@ -753,14 +716,11 @@ pub async fn so_status_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Option
     // SCOPE-EXEMPT: 销售订单，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT status FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT status FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(so_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed::<String>("status"))
-        .transpose()
+    rows.first().map(|row| row.get_typed::<String>("status")).transpose()
 }
 
 /// 订单单号（详情 / 列表回显用；订单不存在或已软删 → `None`，不报错）。
@@ -772,14 +732,11 @@ pub async fn so_no_of(ex: &impl SqlExecutor, so_id: Uuid) -> DbResult<Option<Str
     // SCOPE-EXEMPT: 销售订单，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT so_no FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT so_no FROM biz_sales_order WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(so_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed::<String>("so_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed::<String>("so_no")).transpose()
 }
 
 /// 批量取「订单 id → 订单号」，分页列表一次往返补齐（避免 N+1）。
@@ -811,10 +768,7 @@ pub async fn so_no_labels(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<Vec<(
 ///
 /// 软删仓库不出现在结果里（调用方按缺失处理 = 两列留 `None`），
 /// 与 `sales_order_model::customer_labels` 同口径：历史单据照常显示，只是不再显示已删仓库的名字。
-pub async fn warehouse_labels(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<Vec<(Uuid, String, String)>> {
+pub async fn warehouse_labels(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<Vec<(Uuid, String, String)>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -829,26 +783,17 @@ pub async fn warehouse_labels(
     let rows = ex.query_sql(sql, params).await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
-        out.push((
-            row.get_typed("id")?,
-            row.get_typed("code")?,
-            row.get_typed("name")?,
-        ));
+        out.push((row.get_typed("id")?, row.get_typed("code")?, row.get_typed("name")?));
     }
     Ok(out)
 }
 
 /// 订单行是否属于该订单（防止把别的订单的行挂到本单上）。
-pub async fn so_item_belongs(
-    ex: &impl SqlExecutor,
-    so_item_id: Uuid,
-    so_id: Uuid,
-) -> DbResult<bool> {
+pub async fn so_item_belongs(ex: &impl SqlExecutor, so_item_id: Uuid, so_id: Uuid) -> DbResult<bool> {
     // SCOPE-EXEMPT: 销售订单行，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT 1 AS hit FROM biz_sales_order_item WHERE id = ?::uuid AND so_id = ?::uuid"
-                .to_string(),
+            "SELECT 1 AS hit FROM biz_sales_order_item WHERE id = ?::uuid AND so_id = ?::uuid".to_string(),
             vec![Value::from(so_item_id), Value::from(so_id)],
         )
         .await?;
@@ -859,21 +804,15 @@ pub async fn so_item_belongs(
 ///
 /// 只读、单表：发货单详情要显示「关联出库单号」，这里给一个不回链 model 之外的查询入口。
 /// 口径与 [`stock_out_no_labels`]（列表批量补齐）逐字一致（同样带 `deleted_at IS NULL`）。
-pub async fn stock_out_no_of(
-    ex: &impl SqlExecutor,
-    stock_out_id: Uuid,
-) -> DbResult<Option<String>> {
+pub async fn stock_out_no_of(ex: &impl SqlExecutor, stock_out_id: Uuid) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: 出库单，ERP 单据，无归属列。
     let rows = ex
         .query_sql(
-            "SELECT out_no FROM biz_stock_out WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT out_no FROM biz_stock_out WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(stock_out_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed::<String>("out_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed::<String>("out_no")).transpose()
 }
 
 /// 批量取「出库单 id → 出库单号」，分页列表一次往返补齐（避免 N+1）。
@@ -881,10 +820,7 @@ pub async fn stock_out_no_of(
 /// 与 [`so_no_labels`] / [`warehouse_labels`] 同形同口径：去重后一条 `IN (…)`，
 /// 软删出库单不出现在结果里（调用方按缺失处理 = `stock_out_no` 留 `None`）。
 /// 未过账的发货单没有 `stock_out_id`，调用方先过滤，本函数对空入参直接短路（不多发一条 SQL）。
-pub async fn stock_out_no_labels(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-) -> DbResult<Vec<(Uuid, String)>> {
+pub async fn stock_out_no_labels(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<Vec<(Uuid, String)>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -905,10 +841,7 @@ pub async fn stock_out_no_labels(
 }
 
 /// 仓库是否存在且未软删（弱引用，没外键兜）。返回 `(编码, 名称)`。
-pub async fn warehouse_label(
-    ex: &impl SqlExecutor,
-    warehouse_id: Uuid,
-) -> DbResult<Option<(String, String)>> {
+pub async fn warehouse_label(ex: &impl SqlExecutor, warehouse_id: Uuid) -> DbResult<Option<(String, String)>> {
     // SCOPE-EXEMPT: 仓库主数据，无归属列（可见性由权限码控制）。
     let rows = ex
         .query_sql(
@@ -939,13 +872,8 @@ pub async fn stock_shortfalls(
 ) -> DbResult<Vec<StockShortfall>> {
     let mut out = Vec::new();
     for item in items {
-        let plan = crate::business::erp::stockout_model::fifo_plan(
-            ex,
-            item.material_id,
-            warehouse_id,
-            item.qty,
-        )
-        .await?;
+        let plan =
+            crate::business::erp::stockout_model::fifo_plan(ex, item.material_id, warehouse_id, item.qty).await?;
         if plan.shortfall > Decimal::ZERO {
             out.push(StockShortfall {
                 so_item_id: item.so_item_id,
@@ -975,12 +903,7 @@ pub async fn create_shipment(
 ) -> DbResult<(Uuid, String)> {
     let ship_no = next_ship_no(ex, now).await?;
     let id = Uuid::now_v7();
-    let operator_text = Value::Text(
-        operator
-            .id
-            .map(|value| value.to_string())
-            .unwrap_or_default(),
-    );
+    let operator_text = Value::Text(operator.id.map(|value| value.to_string()).unwrap_or_default());
     ex.exec_sql(
         format!(
             "INSERT INTO {SHIP_TABLE} \
@@ -1025,11 +948,7 @@ pub async fn create_shipment(
 ///
 /// `serial_nos` 走 `string_to_array` + 一个 text 参数：驱动没有 `text[]` 编码器，
 /// 直绑 `?::text[]` 会 `error serializing parameter`（`serial_model` 实测坑）。
-async fn insert_items(
-    ex: &impl SqlExecutor,
-    shipment_id: Uuid,
-    items: &[NewShipmentItem],
-) -> DbResult<()> {
+async fn insert_items(ex: &impl SqlExecutor, shipment_id: Uuid, items: &[NewShipmentItem]) -> DbResult<()> {
     for item in items {
         ex.exec_sql(
             format!(
@@ -1043,11 +962,7 @@ async fn insert_items(
                 Value::from(&item.so_item_id),
                 Value::from(&item.material_id),
                 Value::Text(item.qty.to_string()),
-                Value::Text(
-                    item.location_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(item.location_id.map(|id| id.to_string()).unwrap_or_default()),
                 Value::Text(item.serial_nos.join(",")),
                 Value::Text(item.remark.clone().unwrap_or_default()),
             ],
@@ -1140,10 +1055,7 @@ mod tests {
         assert_eq!(format_ship_no("20261106", 7), "SH-20261106-000007");
         assert_eq!(format_ship_no("20261106", 123456), "SH-20261106-123456");
         assert_eq!(format_ship_no("20261106", 1234567), "SH-20261106-1234567");
-        assert_eq!(
-            parse_ship_no("SH-20261106-000007"),
-            Some(("20261106".to_string(), 7))
-        );
+        assert_eq!(parse_ship_no("SH-20261106-000007"), Some(("20261106".to_string(), 7)));
         for no in [1_i64, 2, 999, 1000, 999_999, 1_000_000] {
             let text = format_ship_no("20261106", no);
             assert_eq!(parse_ship_no(&text), Some(("20261106".to_string(), no)));
@@ -1173,27 +1085,18 @@ mod tests {
             assert_eq!(parse_ship_no(bad), None, "`{bad}` 不应被当成合法单号");
             assert!(!is_valid_ship_no(bad));
         }
-        assert!(
-            is_valid_ship_no("SH-20240229-000001"),
-            "闰年 2 月 29 日合法"
-        );
+        assert!(is_valid_ship_no("SH-20240229-000001"), "闰年 2 月 29 日合法");
     }
 
     /// 未发货量 = 订单 − 已发 − 未过账占用；负数夹到 0。
     #[test]
     fn remaining_qty_subtracts_delivered_and_reserved() {
         // 干净行：可发 10
-        assert_eq!(
-            remaining_qty(dec("10"), Decimal::ZERO, Decimal::ZERO),
-            dec("10")
-        );
+        assert_eq!(remaining_qty(dec("10"), Decimal::ZERO, Decimal::ZERO), dec("10"));
         // 已发 4、另有草稿单占用 3 ⇒ 可发 3
         assert_eq!(remaining_qty(dec("10"), dec("4"), dec("3")), dec("3"));
         // 发完了 ⇒ 0
-        assert_eq!(
-            remaining_qty(dec("10"), dec("10"), Decimal::ZERO),
-            Decimal::ZERO
-        );
+        assert_eq!(remaining_qty(dec("10"), dec("10"), Decimal::ZERO), Decimal::ZERO);
         // 瞬时超扣（并发/脏数据）⇒ 夹到 0，不外溢负数
         assert_eq!(remaining_qty(dec("10"), dec("8"), dec("5")), Decimal::ZERO);
         // 4 位小数精度：0.0001 也算数
@@ -1207,12 +1110,7 @@ mod tests {
     #[test]
     fn qty_within_remaining_boundary() {
         // 剩余 10：10 放行、10.0001 拒、0 拒、负数拒
-        assert!(qty_within_remaining(
-            dec("10"),
-            dec("10"),
-            Decimal::ZERO,
-            Decimal::ZERO
-        ));
+        assert!(qty_within_remaining(dec("10"), dec("10"), Decimal::ZERO, Decimal::ZERO));
         assert!(!qty_within_remaining(
             dec("10.0001"),
             dec("10"),
@@ -1232,12 +1130,7 @@ mod tests {
             Decimal::ZERO
         ));
         // 已发 + 占用吃掉全部剩余 ⇒ 再多 0.0001 也拒
-        assert!(!qty_within_remaining(
-            dec("0.0001"),
-            dec("10"),
-            dec("7"),
-            dec("3")
-        ));
+        assert!(!qty_within_remaining(dec("0.0001"), dec("10"), dec("7"), dec("3")));
         // 剩余 0 ⇒ 一切正数都拒（防止「库层 qty>0 放行、业务超发」）
         assert!(!qty_within_remaining(
             dec("0.0001"),
@@ -1437,8 +1330,7 @@ mod tests {
 
         let rows = db()
             .query_sql(
-                "SELECT current_no, period_key FROM biz_seq WHERE seq_type = 'SH' AND deleted_at IS NULL"
-                    .to_string(),
+                "SELECT current_no, period_key FROM biz_seq WHERE seq_type = 'SH' AND deleted_at IS NULL".to_string(),
                 vec![],
             )
             .await
@@ -1505,19 +1397,15 @@ mod tests {
             .await
             .expect_err("qty = 0 必须被 ck_biz_shipment_item_qty 拒绝");
         assert!(
-            format!("{err}").contains("ck_biz_shipment_item_qty")
-                || format!("{err}").contains("violat"),
+            format!("{err}").contains("ck_biz_shipment_item_qty") || format!("{err}").contains("violat"),
             "错误应指向 CHECK 约束，实际：{err}"
         );
 
         // 正常明细 + 级联：删单头 → 明细一起消失
         insert_item(ship_id, item_a, "2").await;
-        db().execute_with_params(
-            "DELETE FROM biz_shipment WHERE id = ?",
-            vec![Value::from(ship_id)],
-        )
-        .await
-        .expect("删单头应成功");
+        db().execute_with_params("DELETE FROM biz_shipment WHERE id = ?", vec![Value::from(ship_id)])
+            .await
+            .expect("删单头应成功");
         let left = db()
             .query_sql(
                 "SELECT count(*) AS n FROM biz_shipment_item WHERE shipment_id = ?".to_string(),
@@ -1554,10 +1442,7 @@ mod tests {
             .expect("发剩余 6 应放行");
         assert_eq!(snapshot.remaining, dec("6"));
         assert_eq!(snapshot.delivered, dec("4"));
-        println!(
-            "[SO-08] 超发探针：订单 10 / 已发 4 ⇒ 未发 {}",
-            snapshot.remaining
-        );
+        println!("[SO-08] 超发探针：订单 10 / 已发 4 ⇒ 未发 {}", snapshot.remaining);
 
         // 超 0.0001 就拒（不是「差一点也行」）
         let err = ensure_qty_within_remaining(db(), item_a, dec("6.0001"), None)
@@ -1565,10 +1450,7 @@ mod tests {
             .expect_err("发 6.0001 必须被拒（未发只有 6）");
         let text = format!("{err}");
         assert!(text.contains("超发"), "错误文案应说明超发，实际：{text}");
-        assert!(
-            text.contains("未发货量仅 6"),
-            "文案应回显剩余量，实际：{text}"
-        );
+        assert!(text.contains("未发货量仅 6"), "文案应回显剩余量，实际：{text}");
 
         // 非正数量也拒（库层 qty>0 的应用层同款，给 400 而不是 23514）
         ensure_qty_within_remaining(db(), item_a, Decimal::ZERO, None)
@@ -1623,9 +1505,7 @@ mod tests {
         .await
         .expect("回写 delivered_qty 应成功");
 
-        let snapshot = availability_of(db(), item_a, None)
-            .await
-            .expect("读可发量应成功");
+        let snapshot = availability_of(db(), item_a, None).await.expect("读可发量应成功");
         assert_eq!(snapshot.delivered, dec("4"), "已发 = 过账累计");
         assert_eq!(
             snapshot.reserved,
@@ -1643,9 +1523,7 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let (customer, so_id, item_a, item_b) = fixture().await;
 
-        let items = shippable_items(db(), so_id)
-            .await
-            .expect("读可发明细应成功");
+        let items = shippable_items(db(), so_id).await.expect("读可发明细应成功");
         assert_eq!(items.len(), 2, "两行都没发 ⇒ 两行都可发");
         assert_eq!(items[0].line_no, 1, "按行号升序");
         assert_eq!(items[0].so_item_id, item_a);
@@ -1668,9 +1546,7 @@ mod tests {
         .await
         .expect("回写 delivered_qty 应成功");
 
-        let items = shippable_items(db(), so_id)
-            .await
-            .expect("再读可发明细应成功");
+        let items = shippable_items(db(), so_id).await.expect("再读可发明细应成功");
         assert_eq!(items.len(), 1, "A 发完后不该再出现");
         assert_eq!(items[0].so_item_id, item_b);
 
@@ -1689,8 +1565,7 @@ mod tests {
     async fn fixture_warehouse() -> Uuid {
         let rows = db()
             .query_sql(
-                "SELECT id FROM biz_warehouse WHERE warehouse_code = ? AND deleted_at IS NULL"
-                    .to_string(),
+                "SELECT id FROM biz_warehouse WHERE warehouse_code = ? AND deleted_at IS NULL".to_string(),
                 vec![Value::from(WAREHOUSE_CODE)],
             )
             .await
@@ -1769,19 +1644,12 @@ mod tests {
                 remark: Some("第二行".to_string()),
             },
         ];
-        let (id, ship_no) =
-            create_shipment(db(), &new, &items, state_machine::Operator::default(), now)
-                .await
-                .expect("建单应成功");
-        assert!(
-            is_valid_ship_no(&ship_no),
-            "单号必须合 SH-yyyyMMdd-NNNNNN：{ship_no}"
-        );
-
-        let row = find_shipment(id)
+        let (id, ship_no) = create_shipment(db(), &new, &items, state_machine::Operator::default(), now)
             .await
-            .expect("查单头应成功")
-            .expect("单头必须存在");
+            .expect("建单应成功");
+        assert!(is_valid_ship_no(&ship_no), "单号必须合 SH-yyyyMMdd-NNNNNN：{ship_no}");
+
+        let row = find_shipment(id).await.expect("查单头应成功").expect("单头必须存在");
         assert_eq!(row.ship_no, ship_no);
         assert_eq!(row.status, STATUS_DRAFT, "新单必须是草稿");
         assert_eq!(row.total_qty, dec("6.5"), "total_qty = Σqty");
@@ -1840,10 +1708,7 @@ mod tests {
             .await
             .expect("首次流转应成功");
         assert_eq!(hit, 1, "CAS 首次命中 1 行");
-        let row = find_shipment(id)
-            .await
-            .expect("查单头应成功")
-            .expect("单头存在");
+        let row = find_shipment(id).await.expect("查单头应成功").expect("单头存在");
         assert_eq!(row.status, STATUS_PENDING_POST);
 
         let miss = apply_status(db(), id, STATUS_DRAFT, STATUS_PENDING_POST, None, now)

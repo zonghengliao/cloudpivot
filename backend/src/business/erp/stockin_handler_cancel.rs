@@ -303,17 +303,9 @@ pub(super) async fn withdraw_cancel_tx(
         None,
     )
     .await?;
-    let affected = stockin_model::apply_status(
-        tx,
-        id,
-        STATUS_PENDING_CANCEL,
-        STATUS_POSTED,
-        None,
-        Some(operator),
-        now,
-    )
-    .await
-    .map_err(|error| write_error(error, "收货单撤回作废"))?;
+    let affected = stockin_model::apply_status(tx, id, STATUS_PENDING_CANCEL, STATUS_POSTED, None, Some(operator), now)
+        .await
+        .map_err(|error| write_error(error, "收货单撤回作废"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单 {} 的状态在本次撤回期间已被改动（期望 {STATUS_PENDING_CANCEL}），请刷新后重试",
@@ -390,17 +382,9 @@ pub async fn restore_after_cancel_approval(
             None,
         )
         .await?;
-        let affected = stockin_model::apply_status(
-            &tx,
-            id,
-            STATUS_PENDING_CANCEL,
-            STATUS_POSTED,
-            None,
-            operator,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "收货单作废打回"))?;
+        let affected = stockin_model::apply_status(&tx, id, STATUS_PENDING_CANCEL, STATUS_POSTED, None, operator, now)
+            .await
+            .map_err(|error| write_error(error, "收货单作废打回"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "收货入库单 {} 的状态在本次打回期间已被改动（期望 {STATUS_PENDING_CANCEL}），请刷新后重试",
@@ -472,17 +456,9 @@ pub(super) async fn cancel_in_tx(
     )
     .await?;
 
-    let affected = stockin_model::apply_status(
-        ex,
-        id,
-        &row.status,
-        STATUS_CANCELLED,
-        reason,
-        operator.id,
-        now,
-    )
-    .await
-    .map_err(|error| write_error(error, "收货入库单状态流转"))?;
+    let affected = stockin_model::apply_status(ex, id, &row.status, STATUS_CANCELLED, reason, operator.id, now)
+        .await
+        .map_err(|error| write_error(error, "收货入库单状态流转"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单状态在本次流转期间已被改动（期望 {}），请刷新后重试",
@@ -528,10 +504,7 @@ pub(super) async fn cancel_in_tx(
         let plan = stockin_model::cancel_plan_of(ex, id, &row.in_no, row.warehouse_id)
             .await
             .map_err(|error| cancel_write_error(error, "作废：读取过账流水"))?;
-        let doc = stockin_model::CancelDoc {
-            id,
-            in_no: &row.in_no,
-        };
+        let doc = stockin_model::CancelDoc { id, in_no: &row.in_no };
         // ② 退序列号（一物一码）：本单生成的号必须全部仍在库，否则 409；在库则软删
         //    （`deleted_at` 置位、行保留 —— 审计痕迹不丢，同号可被重新贴用）。
         //    放在库存冲减**之前**：一物一码物料的「货已出库」最硬的证据是序列号状态，
@@ -543,16 +516,10 @@ pub(super) async fn cancel_in_tx(
         let mut reversed_qty = Decimal::ZERO;
         let mut reversed_amount = Decimal::ZERO;
         for line in &plan {
-            let applied = stockin_model::reverse_cost(
-                ex,
-                line.material_id,
-                row.warehouse_id,
-                line.location_id,
-                line,
-                now,
-            )
-            .await
-            .map_err(|error| cancel_write_error(error, "作废：库存反向冲减"))?;
+            let applied =
+                stockin_model::reverse_cost(ex, line.material_id, row.warehouse_id, line.location_id, line, now)
+                    .await
+                    .map_err(|error| cancel_write_error(error, "作废：库存反向冲减"))?;
             stockin_model::reverse_location_qty(
                 ex,
                 line.material_id,
@@ -586,17 +553,9 @@ pub(super) async fn cancel_in_tx(
         // 退回可继续收的态。以前这里要先逐行 `revert_received_qty` 再重算，
         // 那是维护第二份数；现在数只有一份，重算读到的就是退完之后的真实值。
         if let Some(order_id) = row.source_order_id {
-            stockin_model::sync_purchase_status(
-                ex,
-                order_id,
-                &row.in_no,
-                "收货作废",
-                operator.id,
-                now,
-                linkage_outbox,
-            )
-            .await
-            .map_err(|error| write_error(error, "作废：回退采购单状态"))?;
+            stockin_model::sync_purchase_status(ex, order_id, &row.in_no, "收货作废", operator.id, now, linkage_outbox)
+                .await
+                .map_err(|error| write_error(error, "作废：回退采购单状态"))?;
         }
         tracing::info!(
             stock_in_id = %id,

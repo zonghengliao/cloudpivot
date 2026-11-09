@@ -176,11 +176,7 @@ pub fn normalize_with_mode(
 }
 
 /// [`normalize_with_mode`] 的简化版：只要百分数，不要模式。
-pub fn normalize(
-    value: Decimal,
-    mode: TaxRateMode,
-    field: &str,
-) -> std::result::Result<Decimal, ApiError> {
+pub fn normalize(value: Decimal, mode: TaxRateMode, field: &str) -> std::result::Result<Decimal, ApiError> {
     Ok(normalize_with_mode(value, mode, field)?.percent)
 }
 
@@ -191,8 +187,7 @@ pub fn to_decimal(percent: Decimal) -> Decimal {
 
 /// 由不含税金额与百分数税率算税额（4 位定标，四舍五入）。
 pub fn tax_of(amount: Decimal, percent: Decimal) -> Decimal {
-    (amount * percent / Decimal::ONE_HUNDRED)
-        .round_dp_with_strategy(SCALE, RoundingStrategy::MidpointAwayFromZero)
+    (amount * percent / Decimal::ONE_HUNDRED).round_dp_with_strategy(SCALE, RoundingStrategy::MidpointAwayFromZero)
 }
 
 /// 价税合计 = 不含税 + 税额。
@@ -271,36 +266,21 @@ mod tests {
     /// ① 百分数模式：13 就是 13%，范围 0–100，越界 400。
     #[test]
     fn percent_mode_accepts_0_to_100() {
-        assert_eq!(
-            normalize(dec("13"), TaxRateMode::Percent, "t").unwrap(),
-            dec("13")
-        );
-        assert_eq!(
-            normalize(dec("6"), TaxRateMode::Percent, "t").unwrap(),
-            dec("6")
-        );
+        assert_eq!(normalize(dec("13"), TaxRateMode::Percent, "t").unwrap(), dec("13"));
+        assert_eq!(normalize(dec("6"), TaxRateMode::Percent, "t").unwrap(), dec("6"));
         assert!(normalize(dec("100"), TaxRateMode::Percent, "t").is_ok());
         assert!(normalize(dec("0"), TaxRateMode::Percent, "t").is_ok());
         assert!(normalize(dec("100.0001"), TaxRateMode::Percent, "t").is_err());
         assert!(normalize(dec("-1"), TaxRateMode::Percent, "t").is_err());
         // 百分数模式下 0.13 是「0.13%」，不是 13% —— 0.13 合法但语义不同
-        assert_eq!(
-            normalize(dec("0.13"), TaxRateMode::Percent, "t").unwrap(),
-            dec("0.13")
-        );
+        assert_eq!(normalize(dec("0.13"), TaxRateMode::Percent, "t").unwrap(), dec("0.13"));
     }
 
     /// ② 小数模式：0.13 → 13%，1 → 100%，超过 1 直接拒（不猜）。
     #[test]
     fn decimal_mode_scales_up_and_rejects_percent_input() {
-        assert_eq!(
-            normalize(dec("0.13"), TaxRateMode::Decimal, "t").unwrap(),
-            dec("13")
-        );
-        assert_eq!(
-            normalize(dec("1"), TaxRateMode::Decimal, "t").unwrap(),
-            dec("100")
-        );
+        assert_eq!(normalize(dec("0.13"), TaxRateMode::Decimal, "t").unwrap(), dec("13"));
+        assert_eq!(normalize(dec("1"), TaxRateMode::Decimal, "t").unwrap(), dec("100"));
         assert!(normalize(dec("13"), TaxRateMode::Decimal, "t").is_err());
         assert!(normalize(dec("-0.1"), TaxRateMode::Decimal, "t").is_err());
     }
@@ -317,10 +297,7 @@ mod tests {
         assert_eq!(plain.mode, MODE_PERCENT, "13 已是百分数，落 PERCENT");
 
         // 边界：1 在过渡期被当成 100%（歧义值一律 ×100，卡面口径）
-        assert_eq!(
-            normalize(dec("1"), TaxRateMode::Legacy, "t").unwrap(),
-            dec("100")
-        );
+        assert_eq!(normalize(dec("1"), TaxRateMode::Legacy, "t").unwrap(), dec("100"));
         // 0 = 免税，永远不放大
         let zero = normalize_with_mode(dec("0"), TaxRateMode::Legacy, "t").unwrap();
         assert_eq!(zero.percent, Decimal::ZERO);
@@ -383,14 +360,8 @@ mod tests {
     fn mode_parse() {
         assert_eq!(TaxRateMode::parse(None).unwrap(), TaxRateMode::Legacy);
         assert_eq!(TaxRateMode::parse(Some("  ")).unwrap(), TaxRateMode::Legacy);
-        assert_eq!(
-            TaxRateMode::parse(Some("percent")).unwrap(),
-            TaxRateMode::Percent
-        );
-        assert_eq!(
-            TaxRateMode::parse(Some("DECIMAL")).unwrap(),
-            TaxRateMode::Decimal
-        );
+        assert_eq!(TaxRateMode::parse(Some("percent")).unwrap(), TaxRateMode::Percent);
+        assert_eq!(TaxRateMode::parse(Some("DECIMAL")).unwrap(), TaxRateMode::Decimal);
         assert!(TaxRateMode::parse(Some("PCT")).is_err());
         assert_eq!(TaxRateMode::Percent.as_str(), Some(MODE_PERCENT));
         assert_eq!(TaxRateMode::Legacy.as_str(), None);

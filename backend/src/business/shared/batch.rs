@@ -59,10 +59,7 @@ pub struct BatchIdsReq {
 impl BatchIdsReq {
     /// 去空白后的原因（空串 → `None`）。
     pub fn reason_text(&self) -> Option<&str> {
-        self.reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
+        self.reason.as_deref().map(str::trim).filter(|text| !text.is_empty())
     }
 }
 
@@ -118,9 +115,7 @@ pub fn parse_ids(raw: &[String]) -> std::result::Result<Vec<Uuid>, ApiError> {
         }
     }
     if out.is_empty() {
-        return Err(ApiError::bad_request(
-            "ids 不能为空：批量操作至少要勾选一条",
-        ));
+        return Err(ApiError::bad_request("ids 不能为空：批量操作至少要勾选一条"));
     }
     Ok(out)
 }
@@ -173,10 +168,7 @@ impl BatchResult {
 
     /// 记一条成功。
     pub fn ok(&mut self, id: Uuid, no: Option<String>) {
-        self.succeeded.push(BatchOkItem {
-            id: id.to_string(),
-            no,
-        });
+        self.succeeded.push(BatchOkItem { id: id.to_string(), no });
         self.success_count = self.succeeded.len();
     }
 
@@ -192,13 +184,7 @@ impl BatchResult {
     }
 
     /// 记一条失败（自带码与文案；用于「主键不存在」这类批量层自己发现的情况）。
-    pub fn fail_with(
-        &mut self,
-        id: Uuid,
-        no: Option<String>,
-        code: i32,
-        message: impl Into<String>,
-    ) {
+    pub fn fail_with(&mut self, id: Uuid, no: Option<String>, code: i32, message: impl Into<String>) {
         self.failed.push(BatchFailItem {
             id: id.to_string(),
             no,
@@ -264,11 +250,7 @@ where
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn labels_of(
-    table: &str,
-    column: &str,
-    ids: &[Uuid],
-) -> std::result::Result<HashMap<Uuid, String>, DbError> {
+pub async fn labels_of(table: &str, column: &str, ids: &[Uuid]) -> std::result::Result<HashMap<Uuid, String>, DbError> {
     let sql = format!(
         "SELECT id::text AS id, {column}::text AS no FROM {table} \
          WHERE id = ANY(?::text::uuid[])"
@@ -280,10 +262,7 @@ pub async fn labels_of(
 ///
 /// 要求：选出 `id`（主键，`text`）与 `no`（展示用单号 / 标题，`text`）两列，
 /// 且 SQL 里留着 `?::text::uuid[]` 这个唯一参数位。
-pub async fn labels_from(
-    sql: &str,
-    ids: &[Uuid],
-) -> std::result::Result<HashMap<Uuid, String>, DbError> {
+pub async fn labels_from(sql: &str, ids: &[Uuid]) -> std::result::Result<HashMap<Uuid, String>, DbError> {
     if ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -291,9 +270,8 @@ pub async fn labels_from(
     let mut out = HashMap::with_capacity(rows.len());
     for row in rows {
         let raw: String = row.get_typed("id")?;
-        let id = Uuid::parse_str(&raw).map_err(|error| {
-            DbError::InvalidValue(format!("id 不是合法 UUID（{raw}）：{error}"))
-        })?;
+        let id = Uuid::parse_str(&raw)
+            .map_err(|error| DbError::InvalidValue(format!("id 不是合法 UUID（{raw}）：{error}")))?;
         let no: Option<String> = row.get_typed("no").ok();
         if let Some(no) = no.filter(|text| !text.trim().is_empty()) {
             out.insert(id, no);
@@ -329,11 +307,7 @@ mod tests {
     fn empty_ids_is_bad_request() {
         let error = parse_ids(&[]).expect_err("空 ids 必须 400");
         assert_eq!(error.status, 400);
-        assert!(
-            error.msg.contains("勾选一条"),
-            "报文要能照做：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("勾选一条"), "报文要能照做：{}", error.msg);
     }
 
     #[test]
@@ -385,10 +359,7 @@ mod tests {
 
     #[test]
     fn array_literal_is_pg_text_form() {
-        let ids = vec![
-            Uuid::parse_str(A).expect("A"),
-            Uuid::parse_str(B).expect("B"),
-        ];
+        let ids = vec![Uuid::parse_str(A).expect("A"), Uuid::parse_str(B).expect("B")];
         match array_literal(&ids) {
             Value::Text(text) => assert_eq!(text, format!("{{{A},{B}}}")),
             other => panic!("必须是文本字面量：{other:?}"),

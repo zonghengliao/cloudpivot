@@ -97,9 +97,8 @@ impl DepBatchStatusChange {
     fn ctx(&self) -> linkage::LinkageContext<'_> {
         // 状态中文名只从 `spec::TRIGGER_SPECS` 取一份（配置页下拉用的就是它），
         // 取不到再退回状态编码（新状态忘了登记时也能发出可排障的文案）。
-        let label =
-            linkage::spec::status_label_of(state_machine::ENTITY_DEPRECIATION, &self.status)
-                .unwrap_or(self.status.as_str());
+        let label = linkage::spec::status_label_of(state_machine::ENTITY_DEPRECIATION, &self.status)
+            .unwrap_or(self.status.as_str());
         // `biz_dep_batch` 只有 `run_by`，没有 create_by：唯一稳定的人是**操作人**
         // （谁点的计提 / 红冲就通知谁）。`owner` 也取操作人，使配置里
         // `recipient = OWNER` 时不至于空收件人。
@@ -167,9 +166,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::DEPRECIATION_EXCLUDED_ACTIONS)
-            .await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::DEPRECIATION_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             batch_id = %change.batch_id,

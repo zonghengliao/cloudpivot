@@ -76,11 +76,7 @@ async fn x02_assign_second_mutex_role_rejected() {
         let err = mutex_guard::ensure_no_mutex(&user, &[a, b])
             .await
             .expect_err("双持必须被拒绝");
-        assert_eq!(
-            err.status, 409,
-            "状态码应为 409，实际 {}：{}",
-            err.status, err.msg
-        );
+        assert_eq!(err.status, 409, "状态码应为 409，实际 {}：{}", err.status, err.msg);
         assert_eq!(
             err.code, 61009,
             "错误码应为 ROLE_MUTEX_CONFLICT(61009)，实际 {}",
@@ -88,17 +84,11 @@ async fn x02_assign_second_mutex_role_rejected() {
         );
 
         // 只授予其中一个 → 放行
-        assert!(
-            mutex_guard::ensure_no_mutex(&user, &[a]).await.is_ok(),
-            "单角色被误拒"
-        );
+        assert!(mutex_guard::ensure_no_mutex(&user, &[a]).await.is_ok(), "单角色被误拒");
         // 「一次调用里把 A 换成 B」同样被拒：assign_roles 是全量替换，请求里同时出现 A、B。
         // 这是模块文档「并集」一节**有意保留**的行为（解除动作要显式留痕，管理员分两步走）。
         let swap = mutex_guard::ensure_no_mutex(&user, &[b]).await;
-        assert!(
-            swap.is_err(),
-            "已持有 A 时同一请求内换成 B 应被拒（两步走），实际通过"
-        );
+        assert!(swap.is_err(), "已持有 A 时同一请求内换成 B 应被拒（两步走），实际通过");
         // 两步走第二步：先解绑 A（库里删绑定）再授予 B → 通过
         c::exec_with(
             "DELETE FROM sys_user_role WHERE user_id = ?::uuid",
@@ -150,12 +140,7 @@ async fn x04_existing_dual_holder_detected() {
         c::bind_role(user, b).await; // 模拟历史违规
 
         let hits = mutex_checker::user_conflicts(&user).await.expect("体检");
-        assert_eq!(
-            hits.len(),
-            1,
-            "单用户体检未报出双持（实际命中 {} 组）",
-            hits.len()
-        );
+        assert_eq!(hits.len(), 1, "单用户体检未报出双持（实际命中 {} 组）", hits.len());
 
         // 全量扫描里也要出现该用户（不是只看单用户）
         let scan = mutex_checker::scan().await.expect("全量扫描");
@@ -194,9 +179,7 @@ async fn x05_mutex_covers_erp_maker_checker() {
         assert_eq!(err.code, 61009);
 
         // 现状说明（ERP 侧是否另有独立校验由 K08 覆盖）：本断言只钉住「互斥基座可用」
-        let held = mutex_model::held_role_ids(&user)
-            .await
-            .expect("查询已持有角色");
+        let held = mutex_model::held_role_ids(&user).await.expect("查询已持有角色");
         assert_eq!(held, vec![maker], "有效持有集合应只含制单角色");
     })
     .await;
@@ -256,16 +239,8 @@ async fn h01_help_doc_crud() {
         )
         .await
         .expect("保存文档");
-        assert_eq!(
-            doc.version, 0,
-            "新建文档 version 应为 0，实际 {}",
-            doc.version
-        );
-        assert_eq!(
-            saved.version, 1,
-            "首次保存后 version 应为 1，实际 {}",
-            saved.version
-        );
+        assert_eq!(doc.version, 0, "新建文档 version 应为 0，实际 {}", doc.version);
+        assert_eq!(saved.version, 1, "首次保存后 version 应为 1，实际 {}", saved.version);
         assert_eq!(
             c::count(
                 "SELECT count(*) AS n FROM sys_help_doc_version WHERE doc_id = ?::uuid",
@@ -327,9 +302,7 @@ async fn h02_help_search() {
         )
         .await
         .expect("建文档");
-        help_model::publish_doc(&doc.id, None, None)
-            .await
-            .expect("发布");
+        help_model::publish_doc(&doc.id, None, None).await.expect("发布");
 
         // 搜索命中：关键词只匹配 title / content_md（**不含 keywords 列**，见 model::search 的 SQL）
         let hit = help_model::search(
@@ -363,10 +336,7 @@ async fn h02_help_search() {
         )
         .await
         .expect("搜索");
-        assert_eq!(
-            kw_only.total, 0,
-            "keywords 列若已接入检索，请更新本断言与报告 BUG-D-12"
-        );
+        assert_eq!(kw_only.total, 0, "keywords 列若已接入检索，请更新本断言与报告 BUG-D-12");
 
         let miss = help_model::search(
             &help_model::SearchFilter {
@@ -383,10 +353,7 @@ async fn h02_help_search() {
         assert_eq!(miss.total, 0, "无关关键词不该命中");
 
         // 空关键词 → split_terms 空（handler 层直接返回空页，不查库）
-        assert!(
-            help_model::split_terms("   ").is_empty(),
-            "空白关键词应被切成空词表"
-        );
+        assert!(help_model::split_terms("   ").is_empty(), "空白关键词应被切成空词表");
     })
     .await;
 }
@@ -437,17 +404,12 @@ async fn h03_help_content_xss_sanitized() {
         c::exec_with(
             "UPDATE sys_help_doc SET content_html = ? WHERE id = ?::uuid",
             vec![
-                Value::Text(
-                    "<p>ok</p><script>alert(1)</script><img src=x onerror=alert(2)>".to_string(),
-                ),
+                Value::Text("<p>ok</p><script>alert(1)</script><img src=x onerror=alert(2)>".to_string()),
                 Value::from(&doc.id),
             ],
         )
         .await;
-        let row = help_model::find_doc(&doc.id)
-            .await
-            .unwrap()
-            .expect("文档存在");
+        let row = help_model::find_doc(&doc.id).await.unwrap().expect("文档存在");
         // 详情出参的唯一出口是 handler::detail_html（见 help/handler.rs 闸 3），这里复算同一净化
         let purified = content_api::sanitize_html(&row.content_html, content_api::Recipe::Help);
         assert!(
@@ -484,9 +446,7 @@ async fn ai01_robot_user_gets_only_role_permissions() {
         assert!(!tc.is_super_admin(), "AI 用户不该是超管");
 
         // 数据范围按其角色解析（4 = 仅本人），不比人类账号更宽
-        let principal = principal::resolve_for_claims(&tc)
-            .await
-            .expect("解析数据范围");
+        let principal = principal::resolve_for_claims(&tc).await.expect("解析数据范围");
         assert!(!principal.is_super(), "AI 用户被解析成了超管");
         assert_eq!(
             principal.kind(),
@@ -556,11 +516,7 @@ async fn ai02_robot_operation_traced_in_changelog() {
             1
         );
 
-        c::exec_with(
-            "DELETE FROM sys_change_log WHERE id = ?::uuid",
-            vec![Value::from(id)],
-        )
-        .await;
+        c::exec_with("DELETE FROM sys_change_log WHERE id = ?::uuid", vec![Value::from(id)]).await;
     })
     .await;
 }
@@ -590,16 +546,10 @@ async fn mo01_monitor_collectors_on_real_proc() {
     let usage = monitor_model::usage(100, 1000);
     assert_eq!(usage.percent, 10.0, "使用率换算错误：{}", usage.percent);
     let full = monitor_model::usage(2000, 1000);
-    assert!(
-        full.percent <= 100.0,
-        "超量使用率未收敛到 100：{}",
-        full.percent
-    );
+    assert!(full.percent <= 100.0, "超量使用率未收敛到 100：{}", full.percent);
 
     // Redis INFO 解析（离线文本，不依赖 Redis 在跑）
-    let info = monitor_model::parse_redis_info(
-        "# Server\r\nredis_version:7.2.0\r\nused_memory:1048576\r\n",
-    );
+    let info = monitor_model::parse_redis_info("# Server\r\nredis_version:7.2.0\r\nused_memory:1048576\r\n");
     assert_eq!(info.version, "7.2.0");
     assert_eq!(info.used_memory_bytes, 1048576);
 }

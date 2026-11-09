@@ -13,8 +13,7 @@ use crate::business::erp::form_snapshot;
 use crate::business::erp::separation;
 use crate::business::erp::transfer_dto::{TransferDetailRes, TransferStatusReq};
 use crate::business::erp::transfer_model::{
-    self, ALL_STATUSES, STATUS_PENDING, SettleError, TransferRow, transition_effect,
-    transition_rejected_message,
+    self, ALL_STATUSES, STATUS_PENDING, SettleError, TransferRow, transition_effect, transition_rejected_message,
 };
 use crate::business::flow::linkage;
 use crate::business::flow::{engine, model as flow_model, task_bridge as flow_task_bridge};
@@ -85,12 +84,7 @@ pub(super) async fn apply_transition(
         None,
     )
     .await
-    .map_err(|error| {
-        SettleError::Db(DbError::InvalidValue(format!(
-            "[{}] {}",
-            error.code, error.msg
-        )))
-    })?;
+    .map_err(|error| SettleError::Db(DbError::InvalidValue(format!("[{}] {}", error.code, error.msg))))?;
     let mut approval_instance_id = None;
     if let Some(start) = ctx.start.as_ref() {
         // ⚠️ 引擎的业务拒绝（65018 派不出审批人 / 65019 自审被禁）必须**当硬错误**：
@@ -99,12 +93,10 @@ pub(super) async fn apply_transition(
         //    重提不了（门闸认为审批在跑）、撤不干净（卡 t_0127714a 同根因）。
         //    `start_in_tx` 把拒绝翻成 `SettleError::Approval`（带原始 ApiError + 65018
         //    结构化载荷）⇒ 调用方整笔回滚，调拨单保持提交前状态。
-        let out = engine::start_in_tx(tx, start)
-            .await
-            .map_err(|failure| match failure {
-                engine::StartFailure::Rejected(error) => SettleError::Approval(error),
-                engine::StartFailure::Db(error) => SettleError::Db(error),
-            })?;
+        let out = engine::start_in_tx(tx, start).await.map_err(|failure| match failure {
+            engine::StartFailure::Rejected(error) => SettleError::Approval(error),
+            engine::StartFailure::Db(error) => SettleError::Db(error),
+        })?;
         approval_instance_id = Some(out.instance_id.unwrap_or(start.instance_id));
         tracing::info!(
             transfer_id = %ctx.id,
@@ -131,13 +123,8 @@ pub(super) async fn apply_transition(
     // 撤回：调拨单从 PENDING 变 CANCELLED 时把在跑的审批单一起终止（否则
     // uk_biz_flow_instance_biz_active 会让「取消后重新提交」永久 409）
     if affected > 0 && ctx.effect.cancelled && ctx.from == transfer_model::STATUS_PENDING {
-        let cancelled = flow_model::cancel_pending_of_biz(
-            tx,
-            ctx.id,
-            ctx.transfer_no,
-            "调拨单已撤回，审批单自动终止",
-        )
-        .await?;
+        let cancelled =
+            flow_model::cancel_pending_of_biz(tx, ctx.id, ctx.transfer_no, "调拨单已撤回，审批单自动终止").await?;
         if cancelled.instances > 0 {
             tracing::info!(
                 transfer_id = %ctx.id,
@@ -264,10 +251,7 @@ pub(super) async fn transfer_form_data(row: &TransferRow) -> serde_json::Value {
     if let Some(object) = form.as_object_mut() {
         match from {
             Ok(Some(name)) => {
-                object.insert(
-                    "from_warehouse_name".to_string(),
-                    serde_json::Value::String(name),
-                );
+                object.insert("from_warehouse_name".to_string(), serde_json::Value::String(name));
             }
             Ok(None) => {}
             Err(error) => {
@@ -276,10 +260,7 @@ pub(super) async fn transfer_form_data(row: &TransferRow) -> serde_json::Value {
         }
         match to {
             Ok(Some(name)) => {
-                object.insert(
-                    "to_warehouse_name".to_string(),
-                    serde_json::Value::String(name),
-                );
+                object.insert("to_warehouse_name".to_string(), serde_json::Value::String(name));
             }
             Ok(None) => {}
             Err(error) => {
@@ -348,9 +329,7 @@ pub async fn change_transfer_status(
     let mut transit_warehouse_id = None;
     // ★ ERP-B2：制单 ≠ 过账（可配开关，默认关闭）——调拨的「发货 / 收货」就是动库存那两步，
     //   与收货单过账同一口径：制单人不能自己把货发出去、也不能自己确认收到。
-    if effect.status == transfer_model::STATUS_IN_TRANSIT
-        || effect.status == transfer_model::STATUS_DONE
-    {
+    if effect.status == transfer_model::STATUS_IN_TRANSIT || effect.status == transfer_model::STATUS_DONE {
         separation::guard(
             separation::Duty::Post,
             row.create_by,

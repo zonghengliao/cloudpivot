@@ -121,10 +121,7 @@ mod tests {
         let patch = parse(r#"{"palette":"deep-sea","theme_mode":"dark","side_compact":true}"#)
             .into_patch()
             .expect("旧形态必须被接受");
-        assert_eq!(
-            keys(&patch),
-            vec!["ui.palette", "ui.side_compact", "ui.theme_mode"]
-        );
+        assert_eq!(keys(&patch), vec!["ui.palette", "ui.side_compact", "ui.theme_mode"]);
         assert_eq!(patch[0].1, serde_json::json!("deep-sea"));
         assert_eq!(patch[2].1, serde_json::json!("dark"));
     }
@@ -142,10 +139,9 @@ mod tests {
     /// 两代形态同时出现：**items 优先**（旧字段不得把新值覆盖回去）。
     #[test]
     fn items_wins_over_legacy() {
-        let patch =
-            parse(r#"{"palette":"deep-sea","items":{"ui.palette":"jade","ui.theme_mode":"dark"}}"#)
-                .into_patch()
-                .expect("混合形态必须被接受");
+        let patch = parse(r#"{"palette":"deep-sea","items":{"ui.palette":"jade","ui.theme_mode":"dark"}}"#)
+            .into_patch()
+            .expect("混合形态必须被接受");
         assert_eq!(patch.len(), 2, "palette 被 items 吸收，不应产生重复键");
         assert_eq!(patch[0].0, "ui.palette");
         assert_eq!(patch[0].1, serde_json::json!("jade"));
@@ -156,11 +152,7 @@ mod tests {
     fn empty_payload_is_rejected() {
         for body in [r#"{}"#, r#"{"items":{}}"#, r#"{"palette":null}"#] {
             let err = parse(body).into_patch().expect_err("空请求必须被拒绝");
-            assert_eq!(
-                err.code,
-                error_code::PREFERENCE_PAYLOAD_EMPTY,
-                "body={body}"
-            );
+            assert_eq!(err.code, error_code::PREFERENCE_PAYLOAD_EMPTY, "body={body}");
             assert_eq!(err.code, 62023);
         }
     }
@@ -174,11 +166,7 @@ mod tests {
         )
         .into_patch()
         .expect("多余字段不应导致失败");
-        assert_eq!(
-            keys(&patch),
-            vec!["ui.palette"],
-            "body 里的 user_id 不得进入写入集合"
-        );
+        assert_eq!(keys(&patch), vec!["ui.palette"], "body 里的 user_id 不得进入写入集合");
         assert!(!keys(&patch).iter().any(|key| key.contains("user")));
     }
 }

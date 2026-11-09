@@ -48,9 +48,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::contract_linkage;
-use crate::business::erp::contract_model::{
-    self, STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SIGNED,
-};
+use crate::business::erp::contract_model::{self, STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SIGNED};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
 use crate::business::shared::state_machine;
@@ -278,13 +276,7 @@ async fn settle(instance_id: Uuid, verdict: ContractVerdict) -> DbResult<Option<
             instance_ref,
         )
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("合同状态回写失败：{error}"),
-            )
-        })?;
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("合同状态回写失败：{error}")))?;
         if affected == 0 {
             return Err(ApiError::new(
                 409,
@@ -300,9 +292,7 @@ async fn settle(instance_id: Uuid, verdict: ContractVerdict) -> DbResult<Option<
         //    就被判成 `AlreadySettled`（合同已是 SIGNED）→ `settle()` 直接 `Ok(None)` 返回，
         //    根本走不到这一行；单据侧先推进（`PATCH /status` 直达 SIGNED）时，本回调同样
         //    在 ⑤ 被挡。所以「状态列 CAS 成功」== 「联动恰好跑一次」。
-        let change =
-            contract_linkage::run_in_tx(&tx, contract_id, &row.contract_no, to_status, approver)
-                .await?;
+        let change = contract_linkage::run_in_tx(&tx, contract_id, &row.contract_no, to_status, approver).await?;
         Ok::<contract_linkage::ContractStatusChange, ApiError>(change)
     }
     .await;
@@ -376,30 +366,17 @@ pub async fn cancel_approval_of(
 /// （待办照常可见、留痕），真正的否决在这里。
 ///
 /// 与本业务无关的待办（其它 `biz_type`）直接放行，零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -407,9 +384,7 @@ pub async fn guard_self_approval(
         return Ok(());
     }
     // ERP-B2：「制单与审批分离」开关（默认开 = 改动前的内控闸；关掉 = 小团队允许本人自审）
-    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve)
-        .await
-    {
+    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve).await {
         return Ok(());
     }
     let Some(contract_id) = instance.biz_id else {
@@ -426,9 +401,7 @@ pub async fn guard_self_approval(
                 "不能审批自己提交的合同：合同 {} 由你本人提交（内控要求制单与审批分离），\
                  请交给其他有审批权限的账号处理{}",
                 row.contract_no,
-                crate::business::erp::separation::approval_hint(
-                    crate::business::erp::separation::Duty::Approve
-                )
+                crate::business::erp::separation::approval_hint(crate::business::erp::separation::Duty::Approve)
             ),
         ));
     }
@@ -508,10 +481,7 @@ mod tests {
     #[test]
     fn verdict_maps_only_final_states() {
         assert_eq!(contract_verdict("APPROVED"), Some(ContractVerdict::Approve));
-        assert_eq!(
-            contract_verdict(" approved "),
-            Some(ContractVerdict::Approve)
-        );
+        assert_eq!(contract_verdict(" approved "), Some(ContractVerdict::Approve));
         for status in ["REJECTED", "WITHDRAWN", "CANCELLED"] {
             assert_eq!(
                 contract_verdict(status),

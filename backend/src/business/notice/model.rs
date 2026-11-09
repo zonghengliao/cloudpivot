@@ -343,11 +343,7 @@ pub async fn insert_notice(ex: &Executor<'_>, new: &NewNotice<'_>) -> DbResult<b
                 Value::from(new.template_code.unwrap_or("")),
                 // JSONB 列必须用 `Value::Json`（驱动按 jsonb 类型编码）；
                 // 空值用 `{}` 而不是 SQL NULL —— 语义等价且绕开「Null 绑强类型占位符」的编码失败
-                Value::Json(
-                    new.template_vars_json
-                        .clone()
-                        .unwrap_or_else(|| "{}".to_string()),
-                ),
+                Value::Json(new.template_vars_json.clone().unwrap_or_else(|| "{}".to_string())),
                 Value::from(opt_uuid_text(new.sender_id)),
                 Value::from(new.sender_name.unwrap_or("")),
                 Value::from(new.target_type),
@@ -371,18 +367,13 @@ pub async fn insert_notice(ex: &Executor<'_>, new: &NewNotice<'_>) -> DbResult<b
 ///
 /// 命中返回模型，未命中 / 已软删返回 `None`。
 pub async fn find_notice(id: &uuid::Uuid) -> DbResult<Option<SysNoticeModel>> {
-    let sql = format!(
-        "SELECT {NOTICE_COLUMNS} FROM sys_notice WHERE id = ?::uuid AND deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {NOTICE_COLUMNS} FROM sys_notice WHERE id = ?::uuid AND deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(*id)]).await?;
     rows.first().map(map_notice).transpose()
 }
 
 /// 按幂等键查通知（重放时回吐首次结果用；`ex` 可传事务以读到未提交行）。
-pub async fn find_notice_by_idempotency(
-    ex: &Executor<'_>,
-    key: &str,
-) -> DbResult<Option<SysNoticeModel>> {
+pub async fn find_notice_by_idempotency(ex: &Executor<'_>, key: &str) -> DbResult<Option<SysNoticeModel>> {
     let sql = format!(
         "SELECT {NOTICE_COLUMNS} FROM sys_notice \
          WHERE idempotency_key = ? AND deleted_at IS NULL LIMIT 1"
@@ -432,10 +423,7 @@ pub async fn find_due_notice_ids(limit: i64) -> DbResult<Vec<uuid::Uuid>> {
 ///
 /// 命中（仍是 `PENDING` 且已到点）返回模型；已被别的实例抢走 / 已被取消 / 未到点
 /// 返回 `None`（调用方直接跳过）。
-pub async fn lock_due_notice(
-    ex: &Executor<'_>,
-    id: &uuid::Uuid,
-) -> DbResult<Option<SysNoticeModel>> {
+pub async fn lock_due_notice(ex: &Executor<'_>, id: &uuid::Uuid) -> DbResult<Option<SysNoticeModel>> {
     let sql = format!(
         "SELECT {NOTICE_COLUMNS} FROM sys_notice \
          WHERE id = ?::uuid AND dispatch_status = 'PENDING' \
@@ -693,15 +681,8 @@ impl BizWithdrawReport {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（由调用方事务回滚，公告的软删一并撤销）。
-pub async fn withdraw_by_biz(
-    ex: &Executor<'_>,
-    biz_type: &str,
-    biz_id: &str,
-) -> DbResult<BizWithdrawReport> {
-    let params = vec![
-        Value::from(biz_type.to_string()),
-        Value::from(biz_id.to_string()),
-    ];
+pub async fn withdraw_by_biz(ex: &Executor<'_>, biz_type: &str, biz_id: &str) -> DbResult<BizWithdrawReport> {
+    let params = vec![Value::from(biz_type.to_string()), Value::from(biz_id.to_string())];
 
     // ① 主体：置 deleted_at。谓词 `deleted_at IS NULL` 保证幂等。
     let notices = ex
@@ -748,9 +729,7 @@ pub async fn receiver_stats(notice_id: &uuid::Uuid) -> DbResult<ReceiverStats> {
                COUNT(*) FILTER (WHERE read_flag) AS read_count, \
                COUNT(*) FILTER (WHERE is_deleted) AS deleted_count \
                FROM sys_notice_receiver WHERE notice_id = ?::uuid";
-    let rows = db()
-        .find_with_params(sql, vec![Value::from(*notice_id)])
-        .await?;
+    let rows = db().find_with_params(sql, vec![Value::from(*notice_id)]).await?;
     match rows.first() {
         Some(row) => Ok(ReceiverStats {
             total: row.get_typed("total")?,
@@ -973,8 +952,7 @@ pub async fn page_templates(
 ) -> DbResult<Page<SysNoticeTemplateModel>> {
     // 闸① 唯一入口：`sys_notice_template` 是全局资产（§2.5 / 附录 C #16），
     // 可见性由权限码 `business:notice:template:*` 控制，不注入数据范围 → 显式 unscoped。
-    let mut sql =
-        format!("SELECT {TEMPLATE_COLUMNS} FROM sys_notice_template WHERE deleted_at IS NULL");
+    let mut sql = format!("SELECT {TEMPLATE_COLUMNS} FROM sys_notice_template WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.keyword.as_deref()) {
         sql.push_str(" AND (template_code LIKE ? OR template_name LIKE ?)");
@@ -1079,12 +1057,7 @@ pub async fn insert_template(id: &uuid::Uuid, fields: &TemplateFields<'_>) -> Db
             Value::from(fields.content_format),
             Value::from(fields.link_template.unwrap_or("")),
             Value::from(fields.channels),
-            Value::Json(
-                fields
-                    .variables_json
-                    .clone()
-                    .unwrap_or_else(|| "[]".to_string()),
-            ),
+            Value::Json(fields.variables_json.clone().unwrap_or_else(|| "[]".to_string())),
             TypeMapper::to_value(&fields.status),
             Value::from(fields.remark.unwrap_or("")),
             Value::from(opt_uuid_text(fields.operator)),
@@ -1114,12 +1087,7 @@ pub async fn update_template(id: &uuid::Uuid, fields: &TemplateFields<'_>) -> Db
             Value::from(fields.content_format),
             Value::from(fields.link_template.unwrap_or("")),
             Value::from(fields.channels),
-            Value::Json(
-                fields
-                    .variables_json
-                    .clone()
-                    .unwrap_or_else(|| "[]".to_string()),
-            ),
+            Value::Json(fields.variables_json.clone().unwrap_or_else(|| "[]".to_string())),
             TypeMapper::to_value(&fields.status),
             Value::from(fields.remark.unwrap_or("")),
             Value::from(opt_uuid_text(fields.operator)),
@@ -1278,12 +1246,7 @@ pub async fn online_receivers(
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let ids = serde_json::Value::from(
-        user_ids
-            .iter()
-            .map(uuid::Uuid::to_string)
-            .collect::<Vec<String>>(),
-    );
+    let ids = serde_json::Value::from(user_ids.iter().map(uuid::Uuid::to_string).collect::<Vec<String>>());
     let rows = db()
         .find_with_params(
             "SELECT r.user_id, r.id FROM sys_notice_receiver r \
@@ -1463,10 +1426,7 @@ fn opt_time_text(time: Option<chrono::DateTime<chrono::Utc>>) -> String {
 
 /// 参数值是否表达「真」。
 fn is_truthy(raw: &str) -> bool {
-    matches!(
-        raw.trim().to_ascii_lowercase().as_str(),
-        "true" | "1" | "yes" | "on"
-    )
+    matches!(raw.trim().to_ascii_lowercase().as_str(), "true" | "1" | "yes" | "on")
 }
 
 /// URL 掩码：保留协议与主机首段，其余打码（不泄露完整 Webhook 地址）。

@@ -118,12 +118,7 @@ pub async fn instance_visibility(
     let user_id = principal.user_id();
     let mine = my_instance_ids(user_id).await?;
     let scope = crate::business::shared::scope::filter_for(principal, INSTANCE_TARGET);
-    let scope_sql = scope
-        .sql()
-        .trim()
-        .trim_start_matches("AND ")
-        .trim()
-        .to_string();
+    let scope_sql = scope.sql().trim().trim_start_matches("AND ").trim().to_string();
     let mut params: Vec<Value> = scope.params().to_vec();
     params.push(Value::from(&user_id));
     params.push(crate::business::flow::assignee::array_param(&mine));
@@ -189,10 +184,7 @@ pub async fn page_instances(
     page_params.push(Value::from(((page.saturating_sub(1)) * page_size) as i64));
 
     let rows = db().find_with_params(&sql, page_params).await?;
-    let list = rows
-        .iter()
-        .map(InstanceRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let list = rows.iter().map(InstanceRow::from_row).collect::<DbResult<Vec<_>>>()?;
     Ok(InstancePage {
         list,
         total: total.max(0) as u64,
@@ -208,8 +200,7 @@ pub const MY_TODO_STATUSES: &[&str] = &["PENDING"];
 pub const MY_DONE_STATUSES: &[&str] = &["APPROVED", "REJECTED", "TRANSFERRED"];
 
 /// 「我发起的」where 片段（**身份口径 `initiator_id`**，不看数据范围 / 待办 / 抄送）。
-pub(super) const MY_INSTANCE_WHERE: &str =
-    " WHERE i.initiator_id = ?::uuid AND i.deleted_at IS NULL";
+pub(super) const MY_INSTANCE_WHERE: &str = " WHERE i.initiator_id = ?::uuid AND i.deleted_at IS NULL";
 
 /// 「抄送我的」where 片段（**身份口径 `biz_flow_cc.receiver_id`**）。
 pub(super) const MY_CC_WHERE: &str = " WHERE c.receiver_id = ?::uuid";
@@ -247,10 +238,7 @@ pub async fn page_my_instances(user_id: Uuid, page: u64, page_size: u64) -> DbRe
             ],
         )
         .await?;
-    let list = rows
-        .iter()
-        .map(InstanceRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let list = rows.iter().map(InstanceRow::from_row).collect::<DbResult<Vec<_>>>()?;
     Ok(InstancePage {
         list,
         total: total.max(0) as u64,
@@ -380,11 +368,7 @@ pub async fn page_my_tasks(
     // / `cancel_on_task_deleted`），这里再按实例状态兜一层：历史脏数据（实例已终态、
     // 待办还 PENDING）不该出现在审批人的待办里 —— 那是一条点不动的孤儿（老板报的 TSK-149）。
     // 列表与计数用**同一个**谓词，否则会出现「显示 3 条、total 说 5 条」。
-    let live_sql = if live_only {
-        " AND i.status = 'PENDING'"
-    } else {
-        ""
-    };
+    let live_sql = if live_only { " AND i.status = 'PENDING'" } else { "" };
     let where_sql = format!(
         " WHERE t.assignee_id = ?::uuid AND t.status IN ({status_list}) \
            AND t.task_kind IN ({kind_list}){live_sql}"

@@ -50,8 +50,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::order_pdf_model::{self, ExportLog, MaterialInfo};
 use crate::business::erp::{customer_model, purchase_model, sales_order_model};
 use crate::business::pdf::template::{
-    self, OrderContext, OrderContextArgs, OrderDocKind, OrderItem, OrderMetaField, format_money,
-    format_quantity, yuan_to_fen,
+    self, OrderContext, OrderContextArgs, OrderDocKind, OrderItem, OrderMetaField, format_money, format_quantity,
+    yuan_to_fen,
 };
 use crate::business::pdf::{engine, handler as pdf_handler};
 use crate::shared::error_code;
@@ -66,11 +66,7 @@ use crate::utils;
 fn parse_id(raw: &str) -> std::result::Result<Uuid, ApiError> {
     let text = raw.trim();
     if text.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::ERP_FILTER_INVALID,
-            "id 不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::ERP_FILTER_INVALID, "id 不能为空"));
     }
     Uuid::parse_str(text).map_err(|_| {
         ApiError::new(
@@ -95,8 +91,7 @@ fn not_found(kind: OrderDocKind) -> ApiError {
 /// 服务器时区不可控（容器里常常是 UTC），所以**显式**用 +08:00 ——
 /// 单据上印的「打印时间」必须是给中国人看的当地时间。
 fn printed_at_now() -> String {
-    let offset =
-        nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
+    let offset = nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("+08:00 一定是合法偏移");
     nik::prelude::chrono::Utc::now()
         .with_timezone(&offset)
         .format("%Y-%m-%d %H:%M")
@@ -107,12 +102,7 @@ fn printed_at_now() -> String {
 fn sanitize_filename(text: &str) -> String {
     text.chars()
         .map(|ch| {
-            if ch.is_control()
-                || matches!(
-                    ch,
-                    '/' | '\\' | '"' | '\'' | ':' | '*' | '?' | '<' | '>' | '|'
-                )
-            {
+            if ch.is_control() || matches!(ch, '/' | '\\' | '"' | '\'' | ':' | '*' | '?' | '<' | '>' | '|') {
                 '_'
             } else {
                 ch
@@ -275,10 +265,7 @@ pub async fn purchase_order_context(id: Uuid) -> std::result::Result<OrderContex
                 .map(|date| date.format("%Y-%m-%d").to_string())
                 .unwrap_or_default(),
         ),
-        (
-            "合同号",
-            row.contract_no_snapshot.clone().unwrap_or_default(),
-        ),
+        ("合同号", row.contract_no_snapshot.clone().unwrap_or_default()),
         (
             "项目",
             match row.project_id {
@@ -338,11 +325,7 @@ pub async fn sales_order_context(id: Uuid) -> std::result::Result<OrderContext, 
     let units = order_pdf_model::unit_names_of(&unit_ids)
         .await
         .map_err(|error| utils::db_error(error, "查询销售订单单位"))?;
-    let people: Vec<Uuid> = row
-        .salesperson_id
-        .into_iter()
-        .chain(row.create_by)
-        .collect();
+    let people: Vec<Uuid> = row.salesperson_id.into_iter().chain(row.create_by).collect();
     let users = order_pdf_model::user_names_of(&people)
         .await
         .map_err(|error| utils::db_error(error, "查询销售订单经办人"))?;
@@ -385,13 +368,11 @@ pub async fn sales_order_context(id: Uuid) -> std::result::Result<OrderContext, 
         (
             "合同号",
             match row.contract_id {
-                Some(contract_id) => {
-                    crate::business::erp::contract_model::contract_find(contract_id)
-                        .await
-                        .map_err(|error| utils::db_error(error, "查询销售订单合同"))?
-                        .map(|contract| contract.contract_no)
-                        .unwrap_or_default()
-                }
+                Some(contract_id) => crate::business::erp::contract_model::contract_find(contract_id)
+                    .await
+                    .map_err(|error| utils::db_error(error, "查询销售订单合同"))?
+                    .map(|contract| contract.contract_no)
+                    .unwrap_or_default(),
                 None => String::new(),
             },
         ),
@@ -455,11 +436,7 @@ pub async fn render_order_pdf(
     context: &OrderContext,
 ) -> std::result::Result<RenderedOrder, ApiError> {
     let html = template::render_order(context).map_err(|error| error.into_api())?;
-    let filename = format!(
-        "{}-{}.pdf",
-        context.doc_kind_label,
-        sanitize_filename(&context.doc_no)
-    );
+    let filename = format!("{}-{}.pdf", context.doc_kind_label, sanitize_filename(&context.doc_no));
     let opts = template::order_pdf_opts(kind, &context.doc_no, Some(filename.clone()));
     let started = Instant::now();
     let bytes = engine::render_pdf(&html, &opts)
@@ -535,14 +512,7 @@ pub async fn purchase_order_pdf(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
 ) -> Response {
-    export_http(
-        OrderDocKind::Purchase,
-        &headers,
-        &connect_info,
-        &claims,
-        &id,
-    )
-    .await
+    export_http(OrderDocKind::Purchase, &headers, &connect_info, &claims, &id).await
 }
 
 /// 销售订单 PDF（`GET /api/business/erp/sales-order/{id}/pdf`）。
@@ -583,15 +553,7 @@ async fn export_http(
     match rendered {
         Ok(rendered) => {
             let response = respond(kind, &rendered);
-            audit(
-                kind,
-                headers,
-                connect_info,
-                claims,
-                id_raw,
-                &rendered,
-                started,
-            );
+            audit(kind, headers, connect_info, claims, id_raw, &rendered, started);
             response
         }
         Err(error) => error.into_response(),
@@ -801,19 +763,13 @@ mod tests {
             &materials,
             &units,
         );
-        assert_eq!(
-            without_line[0].unit, "米",
-            "销售单没有明细单位 → 物料默认单位"
-        );
+        assert_eq!(without_line[0].unit, "米", "销售单没有明细单位 → 物料默认单位");
     }
 
     /// 文件名里的危险字符必须被替换（单号来自库，但库里的值不能直接进响应头）。
     #[test]
     fn filename_is_sanitized() {
-        assert_eq!(
-            sanitize_filename("PO-20261108-000001"),
-            "PO-20261108-000001"
-        );
+        assert_eq!(sanitize_filename("PO-20261108-000001"), "PO-20261108-000001");
         assert_eq!(sanitize_filename("a/b\\c:d*e?f"), "a_b_c_d_e_f");
         assert_eq!(sanitize_filename("PO\n1"), "PO_1");
     }
@@ -1048,19 +1004,8 @@ mod db_tests {
                 "139.442",
                 "急件",
             ),
-            (
-                2,
-                MATERIAL_B,
-                "2.5",
-                "100.000000",
-                "250",
-                "32.5",
-                "282.5",
-                "",
-            ),
-            (
-                3, MATERIAL_A, "1", "0.050000", "0.05", "0.0065", "0.0565", "",
-            ),
+            (2, MATERIAL_B, "2.5", "100.000000", "250", "32.5", "282.5", ""),
+            (3, MATERIAL_A, "1", "0.050000", "0.05", "0.0065", "0.0565", ""),
         ];
         for (line_no, material, qty, price, amount, tax, with_tax, remark) in lines {
             exec(
@@ -1103,11 +1048,7 @@ mod db_tests {
         )
         .await;
         for line_no in 1..=50i32 {
-            let material = if line_no % 2 == 0 {
-                MATERIAL_A
-            } else {
-                MATERIAL_B
-            };
+            let material = if line_no % 2 == 0 { MATERIAL_A } else { MATERIAL_B };
             exec(
                 "INSERT INTO biz_sales_order_item
                     (id, so_id, line_no, material_id, qty, price, amount, tax_rate, tax_amount,
@@ -1139,9 +1080,7 @@ mod db_tests {
             return;
         };
         seed_purchase_order().await;
-        let ctx = purchase_order_context(PO)
-            .await
-            .expect("上下文必须组装成功");
+        let ctx = purchase_order_context(PO).await.expect("上下文必须组装成功");
 
         assert_eq!(ctx.doc_no, PO_NO);
         assert_eq!(ctx.doc_title, "采 购 订 单");
@@ -1183,11 +1122,7 @@ mod db_tests {
         assert_eq!(ctx.total_with_tax_cn, "肆佰贰拾贰元整");
         assert!(ctx.currency_cn == "人民币");
         // 备注：交期（单据头没这栏，塞进备注）+ 用户原备注
-        assert!(
-            ctx.remark.contains("交期：2026-11-20"),
-            "实际：{}",
-            ctx.remark
-        );
+        assert!(ctx.remark.contains("交期：2026-11-20"), "实际：{}", ctx.remark);
         assert!(ctx.remark.contains("按合同分批发货"));
 
         // 模板渲染（不碰 chromium）：结构 + 用户数据都在
@@ -1217,10 +1152,7 @@ mod db_tests {
         assert_eq!(ctx.total_with_tax, "565.00");
         assert_eq!(ctx.total_with_tax_cn, "伍佰陆拾伍元整");
         // 销售明细没有 unit_id → 必须回落物料默认单位（不是「—」）
-        assert!(
-            ctx.items.iter().all(|item| item.unit == "台"),
-            "单位必须解析出来"
-        );
+        assert!(ctx.items.iter().all(|item| item.unit == "台"), "单位必须解析出来");
         assert_eq!(ctx.items[49].seq, 50, "序号必须连续到 50");
         // 销售单不指定仓库：如实打「—」
         let warehouse = ctx
@@ -1230,11 +1162,7 @@ mod db_tests {
             .find(|field| field.label == "仓库")
             .map(|field| field.value.clone());
         assert_eq!(warehouse.as_deref(), Some("—"));
-        assert!(
-            ctx.remark.contains("交期：2026-11-30"),
-            "实际：{}",
-            ctx.remark
-        );
+        assert!(ctx.remark.contains("交期：2026-11-30"), "实际：{}", ctx.remark);
 
         // 50 行的 HTML 必须有 50 个序号单元格（跨页由浏览器切，不是截断）
         let html = template::render_order(&ctx).expect("模板必须渲染成功");
@@ -1275,10 +1203,7 @@ mod db_tests {
                 "SELECT request_id, user_id, username, operation, target_type, target_id,
                         detail, ip::text AS ip, request_method, status_code, duration_ms
                    FROM operation_logs WHERE target_id = ? AND request_id = ?",
-                vec![
-                    Value::Text(PO.to_string()),
-                    Value::Text(request_id.to_string()),
-                ],
+                vec![Value::Text(PO.to_string()), Value::Text(request_id.to_string())],
             )
             .await
             .expect("回查审计行");
@@ -1288,24 +1213,14 @@ mod db_tests {
             row.get_typed::<String>("operation").unwrap(),
             "EXPORT_PURCHASE_ORDER_PDF"
         );
-        assert_eq!(
-            row.get_typed::<String>("target_type").unwrap(),
-            "biz_purchase_order"
-        );
-        assert_eq!(
-            row.get_typed::<String>("target_id").unwrap(),
-            PO.to_string()
-        );
+        assert_eq!(row.get_typed::<String>("target_type").unwrap(), "biz_purchase_order");
+        assert_eq!(row.get_typed::<String>("target_id").unwrap(), PO.to_string());
         assert_eq!(row.get_typed::<String>("username").unwrap(), "pdf02.op");
         assert_eq!(row.get_typed::<Uuid>("user_id").unwrap(), OPERATOR);
         assert_eq!(row.get_typed::<String>("request_method").unwrap(), "GET");
         assert_eq!(row.get_typed::<i32>("status_code").unwrap(), 200);
         assert_eq!(row.get_typed::<i32>("duration_ms").unwrap(), 168);
-        assert!(
-            row.get_typed::<String>("ip")
-                .unwrap()
-                .starts_with("127.0.0.1")
-        );
+        assert!(row.get_typed::<String>("ip").unwrap().starts_with("127.0.0.1"));
         // detail（jsonb）里要能读到「哪张单 / 多少行 / 多少钱 / 多大」
         let detail: serde_json::Value = row.get_typed("detail").expect("detail 必须是 jsonb");
         assert_eq!(detail["doc_no"], PO_NO);
@@ -1330,9 +1245,7 @@ mod db_tests {
             "软删采购订单",
         )
         .await;
-        let error = purchase_order_context(PO)
-            .await
-            .expect_err("软删单必须 404");
+        let error = purchase_order_context(PO).await.expect_err("软删单必须 404");
         assert_eq!(error.status, 404);
         assert!(error.msg.contains("采购订单"));
         purge().await;
@@ -1345,9 +1258,7 @@ mod db_tests {
         if !ensure_db().await {
             return;
         }
-        let error = export_purchase_order("not-a-uuid")
-            .await
-            .expect_err("必须 400");
+        let error = export_purchase_order("not-a-uuid").await.expect_err("必须 400");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::ERP_FILTER_INVALID);
     }

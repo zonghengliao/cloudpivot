@@ -42,9 +42,7 @@ async fn items_draft_vouchers_list_every_doc() {
         owners = OwnerResolver::new();
         expected = owners.resolve(db(), PERM_VOUCHER_POST).await.expect("反查");
     }
-    let expected_role = expected
-        .expect("补上授权后必须能反查到持有过账权限的角色")
-        .role_code;
+    let expected_role = expected.expect("补上授权后必须能反查到持有过账权限的角色").role_code;
 
     let (count, items) = draft_voucher_items(db(), &period, &mut owners)
         .await
@@ -59,8 +57,7 @@ async fn items_draft_vouchers_list_every_doc() {
         assert_eq!(item.action_label, "去过账");
         assert_eq!(item.amount, Some(Decimal::new(100, 0)), "金额取单头借方");
         assert!(
-            item.route
-                .starts_with("/business/erp/voucher?voucher_no=P2-V-"),
+            item.route.starts_with("/business/erp/voucher?voucher_no=P2-V-"),
             "路由必须带凭证号直达：{}",
             item.route
         );
@@ -204,11 +201,7 @@ async fn unfinished_items_are_capped_at_fifty_across_types() {
         .find(|item| item.kind == BLOCKER_DOC_UNFINISHED)
         .expect("应有未完成单据阻塞项");
     assert_eq!(blocker.count, Some(60), "条数是全量 COUNT(*)，照实报 60");
-    assert_eq!(
-        blocker.items.len(),
-        50,
-        "三类合一个 blocker，明细上限仍必须是 50 条"
-    );
+    assert_eq!(blocker.items.len(), 50, "三类合一个 blocker，明细上限仍必须是 50 条");
     assert!(
         blocker.message.contains("仅显示前 50 张"),
         "超限必须在文案里说明：{}",
@@ -284,11 +277,7 @@ async fn owner_name_only_when_role_has_single_user() {
 
     // ① 角色下没有启用用户 → 只给角色，不给具体人
     let mut owners = OwnerResolver::new();
-    let nobody = owners
-        .resolve(db(), code)
-        .await
-        .expect("反查")
-        .expect("有角色");
+    let nobody = owners.resolve(db(), code).await.expect("反查").expect("有角色");
     assert!(nobody.user_id.is_none(), "没人时不能编出处理人：{nobody:?}");
     assert!(nobody.user_name.is_none());
 
@@ -296,11 +285,7 @@ async fn owner_name_only_when_role_has_single_user() {
     let first = support::seed_user("p2.one", "李四").await;
     support::assign(first, role).await;
     let mut owners = OwnerResolver::new();
-    let single = owners
-        .resolve(db(), code)
-        .await
-        .expect("反查")
-        .expect("有角色");
+    let single = owners.resolve(db(), code).await.expect("反查").expect("有角色");
     assert_eq!(single.user_id, Some(first), "唯一用户就是处理人");
     assert_eq!(single.user_name.as_deref(), Some("李四"));
 
@@ -308,11 +293,7 @@ async fn owner_name_only_when_role_has_single_user() {
     let second = support::seed_user("p2.two", "王五").await;
     support::assign(second, role).await;
     let mut owners = OwnerResolver::new();
-    let many = owners
-        .resolve(db(), code)
-        .await
-        .expect("反查")
-        .expect("有角色");
+    let many = owners.resolve(db(), code).await.expect("反查").expect("有角色");
     assert!(many.user_id.is_none(), "多人时不指定具体人：{many:?}");
     assert!(many.user_name.is_none());
 }
@@ -328,10 +309,7 @@ async fn owner_role_is_null_when_no_role_holds_permission() {
         .resolve(db(), "business:erp:period:not-a-real-code")
         .await
         .expect("反查不该报错");
-    assert!(
-        none.is_none(),
-        "不存在的权限码必须返回 None，不能随便找个角色顶上"
-    );
+    assert!(none.is_none(), "不存在的权限码必须返回 None，不能随便找个角色顶上");
 
     // 空权限码（不变量类明细用空串表示「系统不指定人」）同样返回 None
     assert!(owners.resolve(db(), "").await.expect("空码").is_none());
@@ -344,10 +322,7 @@ async fn owner_role_is_null_when_no_role_holds_permission() {
         .expect("取不变量明细");
     assert!(!items.is_empty(), "分录不平必须给出明细");
     for item in &items {
-        assert!(
-            item.owner_role.is_none(),
-            "不变量明细不指定处理人：{item:?}"
-        );
+        assert!(item.owner_role.is_none(), "不变量明细不指定处理人：{item:?}");
         assert!(item.owner_user_id.is_none());
         assert_eq!(item.action_label, "去看凭证");
     }
@@ -372,22 +347,14 @@ async fn items_invariant_blocker_points_to_broken_vouchers() {
         .find(|item| item.kind == BLOCKER_INVARIANT)
         .expect("应有不变量阻塞项");
     assert!(
-        check
-            .blockers
-            .iter()
-            .any(|item| item.kind == BLOCKER_UNBALANCED),
+        check.blockers.iter().any(|item| item.kind == BLOCKER_UNBALANCED),
         "分录 60/40 同时应触发试算不平：{:?}",
-        check
-            .blockers
-            .iter()
-            .map(|item| &item.kind)
-            .collect::<Vec<_>>()
+        check.blockers.iter().map(|item| &item.kind).collect::<Vec<_>>()
     );
     assert_eq!(invariant.items.len(), 1, "一张坏凭证一条明细（不重复列）");
     assert_eq!(invariant.items[0].doc_no, "P2-V-901");
     assert!(
-        invariant.items[0].status_label.contains("不平")
-            || invariant.items[0].status_label.contains("不一致"),
+        invariant.items[0].status_label.contains("不平") || invariant.items[0].status_label.contains("不一致"),
         "状态标签要说明坏在哪：{}",
         invariant.items[0].status_label
     );
@@ -429,9 +396,7 @@ async fn empty_period_has_no_items_and_no_error() {
         return;
     };
     let row = support::open_case_period(8).await;
-    let check = period::close_check(row.id)
-        .await
-        .expect("空期间预检不该报错");
+    let check = period::close_check(row.id).await.expect("空期间预检不该报错");
     assert!(check.can_close, "空期间应可结账：{:?}", check.blockers);
     assert!(check.blockers.is_empty());
 
@@ -447,8 +412,7 @@ async fn can_close_is_unaffected_by_items() {
     };
     let row = support::open_case_period(9).await;
     let period = row.period_code.clone();
-    let voucher_id =
-        support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+    let voucher_id = support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
 
     let blocked = period::close_check(row.id).await.expect("预检");
     assert!(!blocked.can_close);
@@ -460,20 +424,12 @@ async fn can_close_is_unaffected_by_items() {
     // 它们的「必须有草稿挡路」断言就随机红。
     support::set_voucher_status(voucher_id, "POSTED").await;
     let cleared = period::close_check(row.id).await.expect("预检");
-    assert!(
-        cleared.can_close,
-        "处理完单据后必须可结账：{:?}",
-        cleared.blockers
-    );
+    assert!(cleared.can_close, "处理完单据后必须可结账：{:?}", cleared.blockers);
     let reloaded = period::load_period_row(db(), row.id)
         .await
         .expect("读期间")
         .expect("期间存在");
-    assert_eq!(
-        reloaded.status,
-        period::STATUS_OPEN,
-        "预检只读，不该改期间状态"
-    );
+    assert_eq!(reloaded.status, period::STATUS_OPEN, "预检只读，不该改期间状态");
 }
 
 // ==================== ⑤ 纯逻辑（不连库） ====================
@@ -487,10 +443,7 @@ fn next_action_table_is_stable() {
     assert_eq!(purchase_order_next("DRAFT").action_label, "去提交");
     assert_eq!(purchase_order_next("SUBMITTED").action_label, "去审批");
     assert_eq!(purchase_order_next("APPROVED").action_label, "去收货");
-    assert_eq!(
-        purchase_order_next("PARTIAL_RECEIVED").action_label,
-        "去收货"
-    );
+    assert_eq!(purchase_order_next("PARTIAL_RECEIVED").action_label, "去收货");
 
     assert_eq!(stock_in_next("DRAFT").action_label, "去过账");
     assert_eq!(stock_in_next("PENDING_POST").action_label, "去过账");

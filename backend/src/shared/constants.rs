@@ -456,10 +456,7 @@ mod tests {
         // 注意：不能把口令字面量直接写进断言——它自己也是源码的一部分（会被
         // include_str 读到）。这里在运行期拼出 needle，避免自证。
         let needle = ["Admin@", "123456"].concat();
-        assert!(
-            !source.contains(&needle),
-            "constants.rs 中不允许出现内置缺省管理员口令"
-        );
+        assert!(!source.contains(&needle), "constants.rs 中不允许出现内置缺省管理员口令");
         assert!(
             source.contains("ADMIN_PASSWORD_ENV"),
             "必须保留管理员口令的环境变量名常量（唯一合法入口）"

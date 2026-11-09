@@ -125,9 +125,7 @@ pub struct TransitionEffect {
 
 /// 这条边合不合法（**纯函数**，6 条边之外一律 `false`）。
 pub fn can_transition(from: &str, to: &str) -> bool {
-    LEGAL_EDGES
-        .iter()
-        .any(|(start, end)| *start == from && *end == to)
+    LEGAL_EDGES.iter().any(|(start, end)| *start == from && *end == to)
 }
 
 /// 非法流转的中文文案（`409`，点名当前态 → 目标态 + 列出合法去向）。
@@ -140,11 +138,7 @@ pub fn transition_rejected_message(from: &str, to: &str) -> String {
     let next = if allowed.is_empty() {
         format!("{}（{from}）是终态，不能再流转", status_label(from))
     } else {
-        format!(
-            "{}（{from}）可以流转到：{}",
-            status_label(from),
-            allowed.join(" / ")
-        )
+        format!("{}（{from}）可以流转到：{}", status_label(from), allowed.join(" / "))
     };
     format!(
         "非法状态流转：{} → {to}（{}）。{next}",
@@ -191,7 +185,8 @@ pub fn transition_effect(from: &str, to: &str) -> Option<TransitionEffect> {
 }
 
 /// 审批门闸的拦截文案（`409 + 65030`；handler 直接用它当 `ApiError.msg`）。
-pub const FLOW_GATE_BLOCKED_MESSAGE: &str = "调拨单正在审批中，请等待审批结果（到「审批中心」处理该待办）。如需人工放行，请先撤回审批再操作";
+pub const FLOW_GATE_BLOCKED_MESSAGE: &str =
+    "调拨单正在审批中，请等待审批结果（到「审批中心」处理该待办）。如需人工放行，请先撤回审批再操作";
 
 /// 人工路径是否被**审批门闸**拦住（`409 + 65030`，纯函数）。
 ///
@@ -258,27 +253,9 @@ pub struct StateTimestamps {
 /// 提前在纯逻辑层抓住「少写一个时间戳」这类必然 500 的实现错误。
 pub fn state_check_holds(status: &str, ts: &StateTimestamps) -> bool {
     match status {
-        STATUS_DRAFT => {
-            !ts.submitted_at
-                && !ts.approved_at
-                && !ts.shipped_at
-                && !ts.received_at
-                && !ts.cancelled_at
-        }
-        STATUS_PENDING => {
-            ts.submitted_at
-                && !ts.approved_at
-                && !ts.shipped_at
-                && !ts.received_at
-                && !ts.cancelled_at
-        }
-        STATUS_APPROVED => {
-            ts.submitted_at
-                && ts.approved_at
-                && !ts.shipped_at
-                && !ts.received_at
-                && !ts.cancelled_at
-        }
+        STATUS_DRAFT => !ts.submitted_at && !ts.approved_at && !ts.shipped_at && !ts.received_at && !ts.cancelled_at,
+        STATUS_PENDING => ts.submitted_at && !ts.approved_at && !ts.shipped_at && !ts.received_at && !ts.cancelled_at,
+        STATUS_APPROVED => ts.submitted_at && ts.approved_at && !ts.shipped_at && !ts.received_at && !ts.cancelled_at,
         STATUS_IN_TRANSIT => {
             ts.submitted_at
                 && ts.approved_at
@@ -582,9 +559,7 @@ pub(super) async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResul
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个调拨单号（周期键按北京时间）。

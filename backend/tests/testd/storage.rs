@@ -20,9 +20,7 @@ use crate::testd::common::{self as c, Ctx};
 /// 建一个只属于本用例的物理根目录。
 async fn temp_root(ctx: &Ctx) -> std::path::PathBuf {
     let root = std::env::temp_dir().join(format!("td-testd-storage-{}", ctx.prefix));
-    tokio::fs::create_dir_all(&root)
-        .await
-        .expect("建临时根目录");
+    tokio::fs::create_dir_all(&root).await.expect("建临时根目录");
     root
 }
 
@@ -68,24 +66,13 @@ async fn f01_local_store_roundtrip_integrity() {
         let root = temp_root(&ctx).await;
         let store = LocalStore::with_root("LOCAL_TEST", &root);
 
-        let payload = format!(
-            "{} 文件内容：中文 + emoji 🚀 与二进制边界 \u{1}\u{2}",
-            ctx.tag
-        )
-        .into_bytes();
+        let payload = format!("{} 文件内容：中文 + emoji 🚀 与二进制边界 \u{1}\u{2}", ctx.tag).into_bytes();
         let key = format!("td/{}/roundtrip.txt", ctx.tag);
-        store
-            .put(&key, &payload, "text/plain")
-            .await
-            .expect("写入对象");
+        store.put(&key, &payload, "text/plain").await.expect("写入对象");
 
         // 落盘路径在 root 之内
         let physical = root.join(&key);
-        assert!(
-            physical.exists(),
-            "对象没有落到预期路径：{}",
-            physical.display()
-        );
+        assert!(physical.exists(), "对象没有落到预期路径：{}", physical.display());
         let on_disk = tokio::fs::read(&physical).await.expect("读物理文件");
         assert_eq!(on_disk, payload, "物理文件内容与写入不一致");
 
@@ -119,23 +106,18 @@ async fn f02_oversize_upload_rejected() {
         assert_eq!(policy.max_size_mb, 50, "内置默认上限变了，请复核本用例");
 
         let too_big = 51 * 1024 * 1024_u64;
-        let violation =
-            storage_model::check_upload(&policy, "big.pdf", too_big, Some("application/pdf"))
-                .expect_err("超上限必须被拒");
+        let violation = storage_model::check_upload(&policy, "big.pdf", too_big, Some("application/pdf"))
+            .expect_err("超上限必须被拒");
         println!("[F02] 超限拒绝：{violation:?}");
         assert!(
-            matches!(
-                violation,
-                storage_model::PolicyViolation::SizeExceeded { .. }
-            ),
+            matches!(violation, storage_model::PolicyViolation::SizeExceeded { .. }),
             "拒绝原因不是 SizeExceeded：{violation:?}"
         );
 
         // 正好等于上限 → 放行（边界值不能误杀）
         let exact = 50 * 1024 * 1024_u64;
         assert!(
-            storage_model::check_upload(&policy, "exact.pdf", exact, Some("application/pdf"))
-                .is_ok(),
+            storage_model::check_upload(&policy, "exact.pdf", exact, Some("application/pdf")).is_ok(),
             "恰好等于上限被误拒"
         );
 
@@ -155,14 +137,8 @@ async fn f02_oversize_upload_rejected() {
 async fn f03_dangerous_extension_rejected() {
     let Some(()) = c::ready().await else { return };
     c::case("F03", |_ctx| async move {
-
-        for ext in [
-            "exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js", "vbs", "msi",
-        ] {
-            assert!(
-                storage_model::is_forbidden_extension(ext),
-                "{ext} 未被列入硬禁止黑名单"
-            );
+        for ext in ["exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js", "vbs", "msi"] {
+            assert!(storage_model::is_forbidden_extension(ext), "{ext} 未被列入硬禁止黑名单");
         }
         // 服务端脚本扩展名（BUG-D-09 已修）：Web 根目录可达即执行的类型，必须与 exe 同级被拦。
         // 旧清单只有客户端可执行类型，php/jsp/aspx/cgi 一整类漏网；这里把「必须全拦」钉死。
@@ -227,22 +203,15 @@ async fn f03_dangerous_extension_rejected() {
         let violation = storage_model::check_upload(&policy, "evil.sh", 10, None)
             .expect_err("危险类型必须被拒（黑名单是全局下限）");
         assert!(
-            matches!(
-                violation,
-                storage_model::PolicyViolation::ExtensionForbidden { .. }
-            ),
+            matches!(violation, storage_model::PolicyViolation::ExtensionForbidden { .. }),
             "拒绝原因不对：{violation:?}"
         );
 
         // 大小写 / 全角无关：Windows 上传大写扩展名同样拦
         assert!(storage_model::check_upload(&policy, "EVIL.EXE", 10, None).is_err());
         // 双扩展名：看最后一段
-        assert_eq!(
-            storage_model::extension_of("report.pdf.exe").as_deref(),
-            Some("exe")
-        );
+        assert_eq!(storage_model::extension_of("report.pdf.exe").as_deref(), Some("exe"));
         assert!(storage_model::check_upload(&policy, "report.pdf.exe", 10, None).is_err());
-
     })
     .await;
 }
@@ -259,12 +228,7 @@ async fn f04_path_traversal_rejected() {
         let root = temp_root(&ctx).await;
         let store = LocalStore::with_root("LOCAL_TRAV", &root);
 
-        for key in [
-            "../../etc/passwd",
-            "td/../../etc/passwd",
-            "bad\0key.txt",
-            "",
-        ] {
+        for key in ["../../etc/passwd", "td/../../etc/passwd", "bad\0key.txt", ""] {
             assert!(
                 store::sanitize_key(key).is_err(),
                 "非法对象键未被拦下：{key:?} → {:?}",
@@ -278,10 +242,7 @@ async fn f04_path_traversal_rejected() {
         // 这是安全的设计取舍（不是穿越），因此断言它落在 root 之内。
         let absolute = store::sanitize_key("/etc/passwd").expect("前导斜杠应被规整");
         assert_eq!(absolute, "etc/passwd");
-        assert!(
-            root.join(&absolute).starts_with(&root),
-            "规整后的键逃出了根目录"
-        );
+        assert!(root.join(&absolute).starts_with(&root), "规整后的键逃出了根目录");
 
         // 反斜杠形态（Windows 风格）：Linux 上不会穿越（`\` 是普通文件名字符），
         // 规整后仍落在 root 之内 —— 安全，但与 `/` 语义不一致（报告 BUG-D-10，P3：
@@ -289,10 +250,7 @@ async fn f04_path_traversal_rejected() {
         let backslash = store::sanitize_key("..\\..\\windows\\system32\\cmd.exe");
         if let Ok(key) = backslash {
             // 已被拒也是安全，所以这里只断言「规整后仍在根内」
-            assert!(
-                root.join(&key).starts_with(&root),
-                "反斜杠键逃出了根目录：{key}"
-            );
+            assert!(root.join(&key).starts_with(&root), "反斜杠键逃出了根目录：{key}");
         }
 
         // 合法键只是被规整（去前导 /），不改变语义
@@ -301,9 +259,7 @@ async fn f04_path_traversal_rejected() {
         // 物理上确认没有文件逃出根目录
         assert!(
             tokio::fs::metadata("/tmp/td-escaped.txt").await.is_err()
-                && tokio::fs::metadata(root.join("../td-escaped.txt"))
-                    .await
-                    .is_err(),
+                && tokio::fs::metadata(root.join("../td-escaped.txt")).await.is_err(),
             "穿越写成功（存在根目录之外的文件）"
         );
 
@@ -375,10 +331,7 @@ async fn f05_download_owner_isolation() {
         );
 
         // 判据层（纯函数）：本人放行、他人拒绝、无身份拒绝
-        assert!(
-            storage_model::can_read_file(&record, Some(owner)),
-            "上传人本人必须可读"
-        );
+        assert!(storage_model::can_read_file(&record, Some(owner)), "上传人本人必须可读");
         assert!(
             !storage_model::can_read_file(&record, Some(other)),
             "他人不得读取私有文件（BUG-D-08 的核心判据）"
@@ -389,14 +342,8 @@ async fn f05_download_owner_isolation() {
         );
 
         // ① 他人下载 → 403（修前这里是 200）
-        let denied =
-            storage_handler::download(Path(file_id.to_string()), c::claims(other, "other", &perms))
-                .await;
-        assert_eq!(
-            denied.status(),
-            403,
-            "他人下载私有文件必须 403（BUG-D-08 未修或回归）"
-        );
+        let denied = storage_handler::download(Path(file_id.to_string()), c::claims(other, "other", &perms)).await;
+        assert_eq!(denied.status(), 403, "他人下载私有文件必须 403（BUG-D-08 未修或回归）");
         let body = axum::body::to_bytes(denied.into_body(), usize::MAX)
             .await
             .expect("读错误体");
@@ -408,13 +355,9 @@ async fn f05_download_owner_isolation() {
         );
 
         // ② 本人下载 → 200，内容逐字节一致
-        let ok =
-            storage_handler::download(Path(file_id.to_string()), c::claims(owner, "owner", &perms))
-                .await;
+        let ok = storage_handler::download(Path(file_id.to_string()), c::claims(owner, "owner", &perms)).await;
         assert_eq!(ok.status(), 200, "本人下载自己的文件必须 200");
-        let streamed = axum::body::to_bytes(ok.into_body(), usize::MAX)
-            .await
-            .expect("读正文");
+        let streamed = axum::body::to_bytes(ok.into_body(), usize::MAX).await.expect("读正文");
         assert_eq!(
             streamed.to_vec(),
             payload,
@@ -432,16 +375,8 @@ async fn f05_download_owner_isolation() {
         )
         .await;
 
-        let shared_ok = storage_handler::download(
-            Path(shared_id.to_string()),
-            c::claims(other, "other", &perms),
-        )
-        .await;
-        assert_eq!(
-            shared_ok.status(),
-            200,
-            "共享文件他人必须可下载（共享标记失效）"
-        );
+        let shared_ok = storage_handler::download(Path(shared_id.to_string()), c::claims(other, "other", &perms)).await;
+        assert_eq!(shared_ok.status(), 200, "共享文件他人必须可下载（共享标记失效）");
         let shared_bytes = axum::body::to_bytes(shared_ok.into_body(), usize::MAX)
             .await
             .expect("读共享正文");
@@ -449,21 +384,17 @@ async fn f05_download_owner_isolation() {
 
         // ---------- 分类默认共享口径 ----------
         assert!(
-            storage_model::category_is_shared("avatar")
-                && storage_model::category_is_shared(" Template "),
+            storage_model::category_is_shared("avatar") && storage_model::category_is_shared(" Template "),
             "avatar / template 应默认共享（含空白与大写归一）"
         );
         assert!(
-            !storage_model::category_is_shared("document")
-                && !storage_model::category_is_shared("attachment"),
+            !storage_model::category_is_shared("document") && !storage_model::category_is_shared("attachment"),
             "document / attachment 不得默认共享"
         );
 
         // ---------- 既有的 404 口径不变 ----------
         let missing = Uuid::now_v7();
-        let not_found =
-            storage_handler::download(Path(missing.to_string()), c::claims(other, "other", &perms))
-                .await;
+        let not_found = storage_handler::download(Path(missing.to_string()), c::claims(other, "other", &perms)).await;
         assert_eq!(not_found.status(), 404, "不存在的文件仍应是 404");
 
         println!(
@@ -489,10 +420,7 @@ async fn f06_both_backends_core_paths() {
         let root = temp_root(&ctx).await;
         let local = LocalStore::with_root("LOCAL_A", &root);
         let body = b"local-backend-payload".to_vec();
-        local
-            .put("a/b.txt", &body, "text/plain")
-            .await
-            .expect("put");
+        local.put("a/b.txt", &body, "text/plain").await.expect("put");
         assert_eq!(local.get("a/b.txt").await.expect("get"), body);
         local.delete("a/b.txt").await.expect("delete");
         assert!(local.get("a/b.txt").await.is_err(), "删除后仍能读到");
@@ -513,11 +441,7 @@ async fn f06_both_backends_core_paths() {
             region: "us-east-1",
             now: chrono::Utc::now(),
         });
-        assert!(
-            outcome.url.contains("X-Amz-Signature="),
-            "URL 缺签名：{}",
-            outcome.url
-        );
+        assert!(outcome.url.contains("X-Amz-Signature="), "URL 缺签名：{}", outcome.url);
         assert!(outcome.url.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256"));
         assert!(
             outcome.url.contains("X-Amz-Expires=900"),
@@ -628,18 +552,12 @@ async fn f08_delete_is_soft_delete() {
 
         // 读路径不再返回
         assert!(
-            storage_model::find_active_file(&file_id)
-                .await
-                .expect("查询")
-                .is_none(),
+            storage_model::find_active_file(&file_id).await.expect("查询").is_none(),
             "软删后 find_active_file 仍返回记录"
         );
         // 但「任意记录」查询能看到（清理任务靠它回收物理对象）
         assert!(
-            storage_model::find_any_file(&file_id)
-                .await
-                .expect("查询")
-                .is_some(),
+            storage_model::find_any_file(&file_id).await.expect("查询").is_some(),
             "find_any_file 看不到软删记录（物理回收会漏）"
         );
 
@@ -787,14 +705,8 @@ async fn zz_no_fixture_residue_after_full_suite() {
             return;
         }
         if waited >= max_wait {
-            println!(
-                "[Z01] TD- 前缀残留：{:?}（等待 {:?} 仍未收敛）",
-                rows, waited
-            );
-            panic!(
-                "测试库存在本目标夹具残留（{}）：用例没有自清理干净",
-                dirty.join(", ")
-            );
+            println!("[Z01] TD- 前缀残留：{:?}（等待 {:?} 仍未收敛）", rows, waited);
+            panic!("测试库存在本目标夹具残留（{}）：用例没有自清理干净", dirty.join(", "));
         }
         // 用阻塞 sleep：每个 `#[tokio::test]` 是独立 runtime，本函数内没有别的任务要调度。
         std::thread::sleep(step);

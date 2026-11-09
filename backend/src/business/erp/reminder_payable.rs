@@ -76,8 +76,7 @@ pub fn message_of(candidate: &PayableCandidate, finance: &[Uuid]) -> Option<Remi
         content,
         vars,
         recipients,
-        recipient_rule: "供应商对应采购员（采购单/收货单/应付单制单人逐级回退）+ 财务经理/财务总监"
-            .to_string(),
+        recipient_rule: "供应商对应采购员（采购单/收货单/应付单制单人逐级回退）+ 财务经理/财务总监".to_string(),
     })
 }
 
@@ -217,16 +216,8 @@ mod tests {
         let finance = vec![Uuid::parse_str("0199cccc-0000-7000-8000-000000000021").unwrap()];
         let message = message_of(&candidate(3), &finance).expect("D-3 应产出消息");
         assert_eq!(message.stage, "D-3");
-        assert!(
-            message.title.contains("AP-20261103-000001"),
-            "{}",
-            message.title
-        );
-        assert!(
-            message.title.contains('3'),
-            "标题要写剩余天数：{}",
-            message.title
-        );
+        assert!(message.title.contains("AP-20261103-000001"), "{}", message.title);
+        assert!(message.title.contains('3'), "标题要写剩余天数：{}", message.title);
         for fact in [
             "AP-20261103-000001",
             "上海示例供应商",
@@ -234,11 +225,7 @@ mod tests {
             "2026-11-06",
             "安排付款",
         ] {
-            assert!(
-                message.content.contains(fact),
-                "正文缺 `{fact}`：{}",
-                message.content
-            );
+            assert!(message.content.contains(fact), "正文缺 `{fact}`：{}", message.content);
         }
         assert_eq!(message.vars["daysLeft"], "3");
         assert_eq!(message.vars["unpaidAmount"], "1234.5");
@@ -261,10 +248,7 @@ mod tests {
         only.created_by = None;
         let message = message_of(&only, &[]).expect("仍应产出消息（收件人由上层判定）");
         assert!(message.recipients.is_empty());
-        assert!(
-            message.recipient_rule.contains("采购员"),
-            "WARN 里要写清试过哪些规则"
-        );
+        assert!(message.recipient_rule.contains("采购员"), "WARN 里要写清试过哪些规则");
     }
 
     /// ⑤ 解析日期失败要给可读错误（不是 panic）。
@@ -277,10 +261,7 @@ mod tests {
     /// ⑥ 时间基准：`business_day` 决定档位，北京 07:10 与 UTC 23:10 不能差一天。
     #[test]
     fn stage_uses_business_day() {
-        let now = Utc
-            .with_ymd_and_hms(2026, 11, 3, 23, 10, 0)
-            .single()
-            .unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 11, 3, 23, 10, 0).single().unwrap();
         let day = reminder::business_day(now);
         assert_eq!(day.to_string(), "2026-11-04", "UTC 23:10 = 北京次日 07:10");
     }

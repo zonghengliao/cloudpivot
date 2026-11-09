@@ -67,10 +67,7 @@ pub struct ContractExpireCandidate {
 }
 
 /// 组装一条提醒消息；不在档位上返回 `None`（防御性：SQL 已过滤）。
-pub fn message_of(
-    candidate: &ContractExpireCandidate,
-    managers: &[Uuid],
-) -> Option<ReminderMessage> {
+pub fn message_of(candidate: &ContractExpireCandidate, managers: &[Uuid]) -> Option<ReminderMessage> {
     let stage = stage_of(candidate.days_left)?;
     let recipients = reminder::merge_recipients(
         std::iter::once(candidate.created_by)
@@ -130,9 +127,7 @@ pub async fn scan(now: DateTime<Utc>) -> DbResult<Vec<ReminderMessage>> {
 pub async fn scan_candidates(day: NaiveDate) -> DbResult<Vec<ContractExpireCandidate>> {
     let mut params = Vec::with_capacity(STAGES.len() + 1);
     for (days, _) in STAGES {
-        params.push(Value::Text(
-            (day + Duration::days(days)).format("%Y-%m-%d").to_string(),
-        ));
+        params.push(Value::Text((day + Duration::days(days)).format("%Y-%m-%d").to_string()));
     }
     params.push(Value::I64(SCAN_BATCH));
     // SCOPE-EXEMPT: 合同虽带 dept_id，但提醒是「谁签的谁续」的作业口径 ——
@@ -155,9 +150,8 @@ pub async fn scan_candidates(day: NaiveDate) -> DbResult<Vec<ContractExpireCandi
     let mut out = Vec::with_capacity(rows.len());
     for row in rows.iter() {
         let raw: String = row.get_typed("end_date")?;
-        let end_date = NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|error| {
-            DbError::InvalidValue(format!("合同到期日解析失败（{raw}）：{error}"))
-        })?;
+        let end_date = NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d")
+            .map_err(|error| DbError::InvalidValue(format!("合同到期日解析失败（{raw}）：{error}")))?;
         out.push(ContractExpireCandidate {
             id: row.get_typed("id")?,
             contract_no: row.get_typed("contract_no")?,
@@ -207,11 +201,7 @@ mod tests {
         let managers = vec![Uuid::parse_str("0199eeee-0000-7000-8000-000000000021").unwrap()];
         let message = message_of(&candidate(30), &managers).expect("D-30 应产出消息");
         assert_eq!(message.stage, "D-30");
-        assert!(
-            message.title.contains("HT-20260101-000001"),
-            "{}",
-            message.title
-        );
+        assert!(message.title.contains("HT-20260101-000001"), "{}", message.title);
         for fact in [
             "HT-20260101-000001",
             "2026 年度原料采购框架协议",
@@ -219,11 +209,7 @@ mod tests {
             "2026-12-03",
             "续签",
         ] {
-            assert!(
-                message.content.contains(fact),
-                "正文缺 `{fact}`：{}",
-                message.content
-            );
+            assert!(message.content.contains(fact), "正文缺 `{fact}`：{}", message.content);
         }
         assert_eq!(message.vars["daysLeft"], "30");
         // 制单人 + 负责人 + 采购经理

@@ -108,15 +108,9 @@ pub async fn material_unit_ref(material_id: Uuid) -> DbResult<Option<MaterialUni
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn material_unit_ref_in(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-) -> DbResult<Option<MaterialUnitRef>> {
+pub async fn material_unit_ref_in(ex: &impl SqlExecutor, material_id: Uuid) -> DbResult<Option<MaterialUnitRef>> {
     let rows = ex
-        .query_sql(
-            MATERIAL_UNIT_SQL.to_string(),
-            vec![Value::from(&material_id)],
-        )
+        .query_sql(MATERIAL_UNIT_SQL.to_string(), vec![Value::from(&material_id)])
         .await?;
     match rows.first() {
         None => Ok(None),
@@ -248,14 +242,7 @@ fn not_base_message(
     base_unit_name: &str,
     qty: Decimal,
 ) -> String {
-    not_base_line_message(
-        line_no,
-        Some(material_code),
-        unit_name,
-        rate,
-        base_unit_name,
-        qty,
-    )
+    not_base_line_message(line_no, Some(material_code), unit_name, rate, base_unit_name, qty)
 }
 
 /// 「单位行查不到」的统一报错文案（数据损坏，要人看，不是用户操作问题）。
@@ -287,11 +274,7 @@ fn unit_missing_message(line_no: usize, material_code: Option<&str>) -> String {
 /// # 异常情况
 ///
 /// 数据库异常 → [`ApiError`]（`500`，走 `?` 的统一出口）。
-pub async fn ensure_base_unit(
-    material_id: Uuid,
-    line_no: usize,
-    qty: Decimal,
-) -> std::result::Result<(), ApiError> {
+pub async fn ensure_base_unit(material_id: Uuid, line_no: usize, qty: Decimal) -> std::result::Result<(), ApiError> {
     ensure_base_unit_in(db(), material_id, line_no, qty).await
 }
 
@@ -431,10 +414,7 @@ pub async fn ensure_unit_row_is_base(
 ///
 /// - `Ok(())`：基本单位；
 /// - `Err(400 + ERP_UNIT_NOT_BASE)`：折算单位。
-pub fn ensure_material_unit_is_base(
-    is_base: i16,
-    unit_name: &str,
-) -> std::result::Result<(), ApiError> {
+pub fn ensure_material_unit_is_base(is_base: i16, unit_name: &str) -> std::result::Result<(), ApiError> {
     if is_base == 1 {
         return Ok(());
     }
@@ -512,8 +492,7 @@ mod tests {
         );
 
         // 带物料编码时与建单期口径**逐字一致**（同一个实现）
-        let with_code =
-            not_base_line_message(1, Some("W1B-M-003"), "箱", dec("12"), "个", dec("2"));
+        let with_code = not_base_line_message(1, Some("W1B-M-003"), "箱", dec("12"), "个", dec("2"));
         assert_eq!(
             with_code,
             not_base_message(1, "W1B-M-003", "箱", dec("12"), "个", dec("2"))
@@ -550,10 +529,7 @@ mod tests {
         assert!(with_code.contains("重选计量单位"), "{with_code}");
 
         let plain = unit_missing_message(0, None);
-        assert!(
-            plain.starts_with("items[0] 单位在 biz_unit 里查不到"),
-            "{plain}"
-        );
+        assert!(plain.starts_with("items[0] 单位在 biz_unit 里查不到"), "{plain}");
     }
 
     /// ⑦ 折算建议保留 4 位并四舍五入：`12.123456 × 1` → `12.1235`（不是浮点尾巴一堆 0）。
@@ -588,10 +564,7 @@ mod tests {
     fn line_no_is_echoed_verbatim() {
         for line_no in [0usize, 9, 12, 999] {
             let text = not_base_message(line_no, "M-1", "箱", dec("12"), "个", dec("1"));
-            assert!(
-                text.starts_with(&format!("items[{line_no}] 物料 M-1：")),
-                "{text}"
-            );
+            assert!(text.starts_with(&format!("items[{line_no}] 物料 M-1：")), "{text}");
         }
     }
 
@@ -613,18 +586,11 @@ mod tests {
     /// ⑫ `trim_decimal` 的性能边界：大数不丢精度、负数与整数值不出现 `.0` / `-0`。
     #[test]
     fn trim_decimal_handles_large_negative_and_integer_values() {
-        assert_eq!(
-            trim_decimal(dec("1234567890123.120000")),
-            "1234567890123.12"
-        );
+        assert_eq!(trim_decimal(dec("1234567890123.120000")), "1234567890123.12");
         assert_eq!(trim_decimal(dec("12000006.000000")), "12000006");
         assert_eq!(trim_decimal(dec("-1.500000")), "-1.5");
         assert_eq!(trim_decimal(dec("0.000000")), "0");
-        assert_eq!(
-            trim_decimal(dec("1.000001")),
-            "1.000001",
-            "有效小数不许被裁掉"
-        );
+        assert_eq!(trim_decimal(dec("1.000001")), "1.000001", "有效小数不许被裁掉");
     }
 
     /// ⑬ 单位查不到文案的行号与主体：给了物料编码点名物料，没给就只说「单位」。
@@ -636,14 +602,8 @@ mod tests {
             "{with_code}"
         );
         let plain = unit_missing_message(7, None);
-        assert!(
-            plain.starts_with("items[7] 单位在 biz_unit 里查不到"),
-            "{plain}"
-        );
-        assert!(
-            !plain.contains("物料 "),
-            "没有编码时不许编一个物料出来：{plain}"
-        );
+        assert!(plain.starts_with("items[7] 单位在 biz_unit 里查不到"), "{plain}");
+        assert!(!plain.contains("物料 "), "没有编码时不许编一个物料出来：{plain}");
     }
 
     /// ⑭ 折算率恰好 1 时也照原文渲染（`1 个 = 1 个`），不特判、不改口径。

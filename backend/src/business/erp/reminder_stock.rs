@@ -119,12 +119,7 @@ pub fn message_of(candidate: &LowStockCandidate, keepers: &[Uuid]) -> ReminderMe
     let content = format!(
         "物料 {} {} 在仓库「{}」的当前库存 {}，低于安全库存 {}，缺口 {}。\n\
          请安排补货（下采购单）或复核安全库存值是否该调整，避免断料停线。",
-        candidate.material_code,
-        candidate.material_name,
-        candidate.warehouse_name,
-        current_qty,
-        safety_stock,
-        gap_qty
+        candidate.material_code, candidate.material_name, candidate.warehouse_name, current_qty, safety_stock, gap_qty
     );
     let vars = serde_json::json!({
         "materialCode": candidate.material_code,
@@ -233,11 +228,7 @@ mod tests {
         assert_eq!(message.stage, "LOW");
         assert!(message.title.contains("M-0001"), "{}", message.title);
         for fact in ["M-0001", "冷轧钢板", "原料仓", "12", "50", "38", "补货"] {
-            assert!(
-                message.content.contains(fact),
-                "正文缺 `{fact}`：{}",
-                message.content
-            );
+            assert!(message.content.contains(fact), "正文缺 `{fact}`：{}", message.content);
         }
         assert_eq!(message.vars["gapQty"], "38");
         assert_eq!(message.vars["currentQty"], "12");

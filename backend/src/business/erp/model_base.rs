@@ -53,8 +53,7 @@ pub(super) fn ids_array_param(ids: &[Uuid]) -> Value {
 /// 非法 UUID → `DbError::InvalidValue`（handler 转 400）：**不静默跳过条件**
 /// ——跳过会让「按仓库筛库位」变成「返回全部库位」，是静默错数据。
 pub(super) fn parse_id(value: &str) -> DbResult<Uuid> {
-    Uuid::parse_str(value.trim())
-        .map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
+    Uuid::parse_str(value.trim()).map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
 }
 
 /// 分页取数的共用实现（13 个 `*_page` 都走这里）。
@@ -79,8 +78,7 @@ pub(super) async fn page_of<T>(
     map: fn(&Row) -> DbResult<T>,
 ) -> DbResult<(Vec<T>, i64)> {
     let (page, page_size) = normalize_page(page, page_size);
-    let result =
-        scope::paginate_unscoped(target, &sql, params, Some(order_by), page, page_size).await?;
+    let result = scope::paginate_unscoped(target, &sql, params, Some(order_by), page, page_size).await?;
     let rows = result.list.iter().map(map).collect::<DbResult<Vec<T>>>()?;
     Ok((rows, i64::try_from(result.total).unwrap_or(i64::MAX)))
 }

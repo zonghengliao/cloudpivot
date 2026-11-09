@@ -162,12 +162,7 @@ async fn lnk08_close_triggers_closed_notice() {
     };
     let row = open_period(PERIOD_CLOSE, user).await;
     assert_eq!(row.status, period::STATUS_OPEN);
-    add_rule(
-        period::STATUS_CLOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_OPERATOR,
-    )
-    .await;
+    add_rule(period::STATUS_CLOSED, spec::ACTION_SEND_NOTICE, NOTICE_OPERATOR).await;
 
     let res = period::close_period(row.id, Some("LNK-08 用例结账"), operator_of(user))
         .await
@@ -197,12 +192,7 @@ async fn lnk08_reopen_triggers_open_notice() {
         return;
     };
     let row = open_period(PERIOD_REOPEN, user).await;
-    add_rule(
-        period::STATUS_OPEN,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_OPERATOR,
-    )
-    .await;
+    add_rule(period::STATUS_OPEN, spec::ACTION_SEND_NOTICE, NOTICE_OPERATOR).await;
     period::close_period(row.id, None, operator_of(user))
         .await
         .unwrap_or_else(|err| panic!("前置结账失败：{} {}", err.code, err.msg));
@@ -251,24 +241,13 @@ async fn lnk08_rolled_back_tx_never_sends_notice() {
         return;
     };
     let row = open_period(PERIOD_ROLLBACK, user).await;
-    add_rule(
-        period::STATUS_CLOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_OPERATOR,
-    )
-    .await;
+    add_rule(period::STATUS_CLOSED, spec::ACTION_SEND_NOTICE, NOTICE_OPERATOR).await;
 
     // ---- ① 事务内：通知只在 deferred 里 ----
     let tx = db().begin().await.expect("开事务");
-    let change = period_linkage::run_in_tx(
-        &tx,
-        row.id,
-        &row.period_code,
-        period::STATUS_CLOSED,
-        Some(user),
-    )
-    .await
-    .expect("事务内跑联动");
+    let change = period_linkage::run_in_tx(&tx, row.id, &row.period_code, period::STATUS_CLOSED, Some(user))
+        .await
+        .expect("事务内跑联动");
     assert_eq!(
         change.run.deferred.len(),
         1,
@@ -295,15 +274,9 @@ async fn lnk08_rolled_back_tx_never_sends_notice() {
 
     // ---- ③ 正向对照：commit 之后 flush 才会发 ----
     let tx = db().begin().await.expect("开事务");
-    let change = period_linkage::run_in_tx(
-        &tx,
-        row.id,
-        &row.period_code,
-        period::STATUS_CLOSED,
-        Some(user),
-    )
-    .await
-    .expect("事务内跑联动");
+    let change = period_linkage::run_in_tx(&tx, row.id, &row.period_code, period::STATUS_CLOSED, Some(user))
+        .await
+        .expect("事务内跑联动");
     tx.commit().await.expect("提交事务");
     period_linkage::run_deferred_after_commit(change).await;
     assert_eq!(
@@ -331,12 +304,7 @@ async fn lnk08_commit_failure_keeps_period_open_and_silent() {
         return;
     };
     let row = open_period(PERIOD_ROLLBACK, user).await;
-    add_rule(
-        period::STATUS_CLOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_OPERATOR,
-    )
-    .await;
+    add_rule(period::STATUS_CLOSED, spec::ACTION_SEND_NOTICE, NOTICE_OPERATOR).await;
 
     // 注入：该期间被 UPDATE 成 CLOSED 时，在 **commit 那一刻** 抛错
     exec(
@@ -401,12 +369,7 @@ async fn lnk08_repeat_close_does_not_trigger_twice() {
         return;
     };
     let row = open_period(PERIOD_CLOSE, user).await;
-    add_rule(
-        period::STATUS_CLOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_OPERATOR,
-    )
-    .await;
+    add_rule(period::STATUS_CLOSED, spec::ACTION_SEND_NOTICE, NOTICE_OPERATOR).await;
 
     period::close_period(row.id, None, operator_of(user))
         .await
@@ -453,12 +416,7 @@ async fn lnk08_excluded_ledger_actions_never_run() {
         return;
     };
     let row = open_period(PERIOD_EXCLUDED, user).await;
-    add_rule(
-        period::STATUS_CLOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_OPERATOR,
-    )
-    .await;
+    add_rule(period::STATUS_CLOSED, spec::ACTION_SEND_NOTICE, NOTICE_OPERATOR).await;
     add_rule(
         period::STATUS_CLOSED,
         spec::ACTION_GENERATE_VOUCHER,

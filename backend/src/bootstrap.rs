@@ -139,10 +139,7 @@ async fn seed_demo_users() {
     use crate::system::setup::model as setup;
 
     if !setup::demo_users_enabled() {
-        tracing::info!(
-            env = setup::ENV_SEED_DEMO_USERS,
-            "演示账号种子未开启（生产默认），跳过"
-        );
+        tracing::info!(env = setup::ENV_SEED_DEMO_USERS, "演示账号种子未开启（生产默认），跳过");
         return;
     }
     if try_db().is_none() {
@@ -230,10 +227,7 @@ async fn sse_query_token_guard() {
 async fn ensure_accounting_periods() {
     match crate::business::erp::period::ensure_current_year_periods().await {
         Ok(0) => tracing::info!("会计期间保底：当年 12 期已齐，无需补建"),
-        Ok(created) => tracing::info!(
-            created,
-            "会计期间保底：已补齐当年缺失的会计期间（status = OPEN）"
-        ),
+        Ok(created) => tracing::info!(created, "会计期间保底：已补齐当年缺失的会计期间（status = OPEN）"),
         Err(error) => tracing::warn!("会计期间保底无法完成（继续启动）：{error}"),
     }
 }
@@ -258,9 +252,7 @@ async fn test_residue_guard() {
     match crate::shared::startup_guard::count_test_residue().await {
         Ok(residue) => match crate::shared::startup_guard::test_residue_warning(residue) {
             Some(message) => tracing::warn!("{message}"),
-            None => tracing::info!(
-                "测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"
-            ),
+            None => tracing::info!("测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"),
         },
         Err(error) => tracing::warn!("测试残留自检无法完成（继续启动）：{error}"),
     }
@@ -365,10 +357,7 @@ async fn preflight_permission_guard() {
         eprintln!("FATAL: {message}");
         std::process::exit(1);
     }
-    tracing::warn!(
-        "数据权限自检不通过（非 prod，继续启动）：{}",
-        report.summary()
-    );
+    tracing::warn!("数据权限自检不通过（非 prod，继续启动）：{}", report.summary());
 }
 
 /// 装载运行时参数快照（`sys_config` → 进程内 `RwLock<HashMap>`）。
@@ -453,13 +442,7 @@ async fn seed_super_admin() {
     };
 
     // 内置超级管理员角色由种子迁移创建，此处只查询其主键用于绑定。
-    let role = match SysRoleModel::find_first_by(
-        db,
-        "role_code",
-        (constants::SUPER_ADMIN_ROLE_CODE,),
-    )
-    .await
-    {
+    let role = match SysRoleModel::find_first_by(db, "role_code", (constants::SUPER_ADMIN_ROLE_CODE,)).await {
         Ok(Some(role)) => role,
         Ok(None) => {
             tracing::error!(
@@ -493,13 +476,8 @@ async fn seed_super_admin() {
 ///
 /// 查询失败、密码哈希失败或插入失败时返回 [`DbError`]。
 async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError> {
-    if let Some(user) =
-        SysUserModel::find_first_by(db, "username", (constants::ADMIN_USERNAME,)).await?
-    {
-        tracing::info!(
-            username = constants::ADMIN_USERNAME,
-            "管理员账号已存在，跳过创建"
-        );
+    if let Some(user) = SysUserModel::find_first_by(db, "username", (constants::ADMIN_USERNAME,)).await? {
+        tracing::info!(username = constants::ADMIN_USERNAME, "管理员账号已存在，跳过创建");
         return Ok(user);
     }
 
@@ -531,12 +509,11 @@ async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError
 
     // 口令哈希：Argon2 为 CPU 密集慢哈希，放入阻塞线程池执行，
     // 避免占据异步执行器线程。
-    let password = tokio::task::spawn_blocking(move || {
-        Crypto::hash_password(&password_plain).map_err(|e| e.to_string())
-    })
-    .await
-    .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希任务失败: {e}")))?
-    .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希失败: {e}")))?;
+    let password =
+        tokio::task::spawn_blocking(move || Crypto::hash_password(&password_plain).map_err(|e| e.to_string()))
+            .await
+            .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希任务失败: {e}")))?
+            .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希失败: {e}")))?;
 
     let now = chrono::Utc::now();
     let mut user = SysUserModel {
@@ -565,10 +542,7 @@ async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError
     };
     user.insert(db).await?;
 
-    tracing::info!(
-        username = constants::ADMIN_USERNAME,
-        "已写入管理员账号种子数据"
-    );
+    tracing::info!(username = constants::ADMIN_USERNAME, "已写入管理员账号种子数据");
     Ok(user)
 }
 
@@ -592,13 +566,9 @@ async fn ensure_admin_role_binding(
     user_id: &uuid::Uuid,
     role_id: &uuid::Uuid,
 ) -> std::result::Result<(), DbError> {
-    let existing =
-        SysUserRoleModel::count_by(db, "user_id = ? AND role_id = ?", (user_id, role_id)).await?;
+    let existing = SysUserRoleModel::count_by(db, "user_id = ? AND role_id = ?", (user_id, role_id)).await?;
     if existing > 0 {
-        tracing::info!(
-            username = constants::ADMIN_USERNAME,
-            "管理员角色绑定已存在，跳过创建"
-        );
+        tracing::info!(username = constants::ADMIN_USERNAME, "管理员角色绑定已存在，跳过创建");
         return Ok(());
     }
 
@@ -662,10 +632,7 @@ mod tests {
     #[test]
     fn generated_password_has_requested_length_and_charset() {
         let password = generate_password(constants::GENERATED_ADMIN_PASSWORD_LEN);
-        assert_eq!(
-            password.chars().count(),
-            constants::GENERATED_ADMIN_PASSWORD_LEN
-        );
+        assert_eq!(password.chars().count(), constants::GENERATED_ADMIN_PASSWORD_LEN);
         assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
     }
 

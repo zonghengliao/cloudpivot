@@ -37,10 +37,7 @@ pub(super) fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, Ap
 }
 
 /// 可空 UUID：空串 / 缺席都是 `None`。
-pub(super) fn optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub(super) fn optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => parse_uuid(text, field).map(Some),
         None => Ok(None),
@@ -54,11 +51,7 @@ pub(super) fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
 
 /// 不存在统一 404。
 pub(super) fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 /// 状态冲突统一 409（非法流转 / 非 DRAFT 改单 / 非 DRAFT|CANCELLED 删除）。
@@ -110,10 +103,7 @@ pub(super) fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "调拨单号重复（唯一约束{}）：取号器与库里的号段不一致，请联系运维排查 biz_seq",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -128,10 +118,7 @@ pub(super) fn write_error(err: DbError, ctx: &str) -> ApiError {
         DbError::ForeignKeyViolation { constraint, .. } => ApiError::new(
             400,
             error_code::ERP_REFERENCE_MISSING,
-            format!(
-                "引用的数据不存在（外键 {}）",
-                constraint.as_deref().unwrap_or("<未知>")
-            ),
+            format!("引用的数据不存在（外键 {}）", constraint.as_deref().unwrap_or("<未知>")),
         ),
         other => utils::db_error(other, ctx),
     }
@@ -156,9 +143,7 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
             format!(
                 "调出仓库存不足：物料 {material_code} 本次需要 {required}，当前可用 {available}{}。\
                  另一张调拨单可能刚扣走同一批库存，请刷新库存后重新提交",
-                location
-                    .map(|label| format!("（{label}）"))
-                    .unwrap_or_default()
+                location.map(|label| format!("（{label}）")).unwrap_or_default()
             ),
         ),
         // FIX-4 问题 2：明细点名了调出库位、该库位却没有这个物料的库存账 —— 明确报错，
@@ -177,8 +162,7 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
                  {required}，该库位可用 0）{}：调拨不会改扣整仓汇总桶。请把这一行的库位改成有货的库位、\
                  先把货收进该库位，或去掉库位按整仓汇总桶记账",
                 match summary_available {
-                    Some(available) =>
-                        format!("；整仓汇总桶上该物料还有 {available}"),
+                    Some(available) => format!("；整仓汇总桶上该物料还有 {available}"),
                     None => String::new(),
                 }
             ),
@@ -197,11 +181,7 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
             ),
         ),
 
-        SettleError::SerialMismatch {
-            line_no,
-            qty,
-            serials,
-        } => ApiError::new(
+        SettleError::SerialMismatch { line_no, qty, serials } => ApiError::new(
             400,
             error_code::PARAM_INVALID,
             format!(
@@ -226,11 +206,9 @@ pub(super) fn settle_error(err: SettleError) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!("调拨结算后不变式校验失败：{message}"),
         ),
-        SettleError::EmptyItems => ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "调拨单没有明细，无法结算".to_string(),
-        ),
+        SettleError::EmptyItems => {
+            ApiError::new(400, error_code::PARAM_INVALID, "调拨单没有明细，无法结算".to_string())
+        }
         // DC-09 补口：单位止血闸已经组好 400 + ERP_UNIT_NOT_BASE 与折算建议，原样透出
         SettleError::UnitGuard(inner) => inner,
         // LNK-01：联动引擎已经组好「哪条规则 / 哪个动作 / 为什么失败」，原样透出

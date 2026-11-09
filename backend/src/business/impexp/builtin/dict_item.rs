@@ -23,8 +23,8 @@ use async_trait::async_trait;
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{
-    ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter, FkSpec, ImportColumn,
-    ImportCtx, ImportDefinition, RowValues,
+    ColumnKind, EnumItem, ExportColumn, ExportDefinition, ExportFilter, FkSpec, ImportColumn, ImportCtx,
+    ImportDefinition, RowValues,
 };
 
 /// 状态枚举：Excel 写中文，落库 `'1'/'0'`。
@@ -165,10 +165,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
     ExportColumn {
         key: "sort_order",
         header: "排序号",
-        kind: ColumnKind::Int {
-            min: None,
-            max: None,
-        },
+        kind: ColumnKind::Int { min: None, max: None },
         width: Some(8),
         table: "sys_dict_item",
         sensitive: false,
@@ -289,11 +286,7 @@ impl ImportDefinition for DictItemImport {
         let (sql, params) = match ctx.operator {
             Some(operator) => (
                 SQL_WITH_OPERATOR,
-                vec![
-                    Value::from(operator),
-                    Value::from(operator),
-                    Value::Json(payload),
-                ],
+                vec![Value::from(operator), Value::from(operator), Value::Json(payload)],
             ),
             None => (SQL_WITHOUT_OPERATOR, vec![Value::from(payload)]),
         };
@@ -381,9 +374,8 @@ impl ExportDefinition for DictItemExport {
             // `?::uuid` 位置必须绑 uuid 值：传 `Value::Text`（字符串）会在驱动侧就
             // 「error serializing parameter」失败（A4 实测：10 万行导出的第 2 页必挂，
             // 因为第一页之后才开始带 after_id）。
-            let after = uuid::Uuid::parse_str(after).map_err(|error| {
-                DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}"))
-            })?;
+            let after = uuid::Uuid::parse_str(after)
+                .map_err(|error| DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}")))?;
             sql.push_str(" AND i.id > ?::uuid");
             params.push(Value::from(after));
         }
@@ -442,10 +434,7 @@ mod tests {
         }
         assert_eq!(DictItemImport.template_version(), 1);
         assert_eq!(
-            DictItemImport.columns()[0]
-                .fk
-                .expect("字典编码应有外键")
-                .table,
+            DictItemImport.columns()[0].fk.expect("字典编码应有外键").table,
             "sys_dict_type"
         );
     }

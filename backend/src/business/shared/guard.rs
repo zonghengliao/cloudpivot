@@ -151,10 +151,7 @@ pub fn ensure_scope_grant_allowed(
     Err(ApiError::new(
         403,
         error_code::DATA_SCOPE_EXCEED_LIMIT,
-        format!(
-            "新数据范围超出你自身的可见部门范围，越界部门：{}",
-            exceeded.join(", ")
-        ),
+        format!("新数据范围超出你自身的可见部门范围，越界部门：{}", exceeded.join(", ")),
     ))
 }
 
@@ -301,12 +298,7 @@ mod tests {
         Uuid::from_u128(n)
     }
 
-    fn principal(
-        kind: ScopeKind,
-        dept_ids: Vec<Uuid>,
-        self_only: bool,
-        is_super: bool,
-    ) -> ScopedPrincipal {
+    fn principal(kind: ScopeKind, dept_ids: Vec<Uuid>, self_only: bool, is_super: bool) -> ScopedPrincipal {
         ScopedPrincipal::for_test(
             uid(0x9001),
             dept_ids.first().copied(),
@@ -330,8 +322,7 @@ mod tests {
 
         // 越界一个 → 403 / 61002，且消息里点名越界部门
         let intruder = uid(0x9199);
-        let error = ensure_scope_grant_allowed(&operator, &[visible[0], intruder])
-            .expect_err("越界必须拒绝");
+        let error = ensure_scope_grant_allowed(&operator, &[visible[0], intruder]).expect_err("越界必须拒绝");
         assert_eq!(error.status, 403);
         assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
         assert!(
@@ -378,9 +369,7 @@ mod tests {
             "缺列必须被发现：{missing:?}"
         );
         assert!(
-            missing
-                .iter()
-                .any(|item| item.starts_with("operation_logs(表不存在)")),
+            missing.iter().any(|item| item.starts_with("operation_logs(表不存在)")),
             "缺表必须被发现：{missing:?}"
         );
         assert!(
@@ -406,10 +395,7 @@ mod tests {
         assert!(!report.is_ok());
         assert!(report.summary().contains("sys_user.dept_id"));
         assert!(report.summary().contains("SUPER_ADMIN"));
-        println!(
-            "[自检] 缺列/缺表被发现；齐全时不报缺；报告摘要 = {}",
-            report.summary()
-        );
+        println!("[自检] 缺列/缺表被发现；齐全时不报缺；报告摘要 = {}", report.summary());
     }
 
     /// 附加：`invalidate_user_scope` 在缓存不可用时是 no-op（不 panic）。
@@ -434,9 +420,6 @@ mod tests {
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::PASSWORD_CHANGE_LOGS));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COMMISSION_SETTLEMENT));
-        println!(
-            "[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓",
-            SCOPED_TABLES.len()
-        );
+        println!("[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓", SCOPED_TABLES.len());
     }
 }

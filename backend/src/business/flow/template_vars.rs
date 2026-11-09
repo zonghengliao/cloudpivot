@@ -78,9 +78,7 @@ impl TemplateVars {
             }
         }
         if dotted.get("prev.approver_name").is_none() {
-            warnings.push(
-                "上一审批人（prev.approver_name）为空：本节点之前没有已通过的审批节点".to_string(),
-            );
+            warnings.push("上一审批人（prev.approver_name）为空：本节点之前没有已通过的审批节点".to_string());
         }
         Self {
             dotted: Json::Object(dotted),
@@ -129,19 +127,13 @@ pub async fn build(
     }
 
     // ── instance.* ──
-    dotted.insert(
-        "instance.biz_type".to_string(),
-        Json::String(instance.biz_type.clone()),
-    );
+    dotted.insert("instance.biz_type".to_string(), Json::String(instance.biz_type.clone()));
     if let Some(biz_no) = &instance.biz_no {
         dotted.insert("instance.biz_no".to_string(), Json::String(biz_no.clone()));
     } else {
         warnings.push("业务单号（instance.biz_no）为空：本流程没有关联业务单号".to_string());
     }
-    dotted.insert(
-        "instance.title".to_string(),
-        Json::String(instance.title.clone()),
-    );
+    dotted.insert("instance.title".to_string(), Json::String(instance.title.clone()));
 
     // ── initiator.* ──
     dotted.insert(
@@ -152,10 +144,7 @@ pub async fn build(
         dotted.insert("initiator.name".to_string(), Json::String(name.clone()));
     }
     if let Some(dept) = instance.initiator_dept_id {
-        dotted.insert(
-            "initiator.dept_id".to_string(),
-            Json::String(dept.to_string()),
-        );
+        dotted.insert("initiator.dept_id".to_string(), Json::String(dept.to_string()));
     }
 
     // ── node.*（只有模板能用，条件 DSL 白名单里没有这两个） ──
@@ -216,11 +205,7 @@ pub async fn build(
 ///
 /// 数据库异常 → [`DbError`]。
 // SCOPE-EXEMPT: 实例内取「上一审批人」一个字段（instance_id + round 由调用方确定，LIMIT 1），不产出行集；调用 template_vars.rs:166（渲染流程变量），实例 id 由已鉴权的业务流程持有。
-pub async fn prev_approver(
-    ex: &impl SqlExecutor,
-    instance_id: Uuid,
-    round: i32,
-) -> DbResult<Option<(String, Uuid)>> {
+pub async fn prev_approver(ex: &impl SqlExecutor, instance_id: Uuid, round: i32) -> DbResult<Option<(String, Uuid)>> {
     let rows = ex
         .query_sql(
             "SELECT u.real_name, u.username, u.id \
@@ -272,8 +257,7 @@ pub fn fill_missing_with_placeholders(vars: &Json, templates: &[&str]) -> (Json,
     for template in templates {
         // 语法错误在这里**吞掉**：它由调用方用 `collect_placeholders_paths` 单独报 65036，
         // 这里只负责「缺变量的可见化」。
-        let Ok(paths) = crate::business::notice::render::collect_placeholders_paths(template)
-        else {
+        let Ok(paths) = crate::business::notice::render::collect_placeholders_paths(template) else {
             continue;
         };
         for path in paths {
@@ -340,15 +324,10 @@ mod tests {
     #[test]
     fn fill_missing_uses_visible_placeholders() {
         let vars = json!({"form.amount": 1});
-        let (filled, missing) = fill_missing_with_placeholders(
-            &vars,
-            &["{{form.amount}} / {{form.supplier_name}} / {{node.name}}"],
-        );
+        let (filled, missing) =
+            fill_missing_with_placeholders(&vars, &["{{form.amount}} / {{form.supplier_name}} / {{node.name}}"]);
         assert_eq!(filled["form.amount"], json!(1), "已有的值不许被覆盖");
-        assert_eq!(
-            filled["form.supplier_name"],
-            json!("〔form.supplier_name〕")
-        );
+        assert_eq!(filled["form.supplier_name"], json!("〔form.supplier_name〕"));
         assert_eq!(filled["node.name"], json!("〔node.name〕"));
         assert_eq!(
             missing,

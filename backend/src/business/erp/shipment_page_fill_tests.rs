@@ -204,11 +204,7 @@ async fn create_shipment(so_id: Uuid, status: &str, stock_out_id: Option<Uuid>) 
             Value::from(&uuid(WAREHOUSE)),
             Value::Text(status.to_string()),
             Value::Text(dec("10").to_string()),
-            Value::Text(
-                stock_out_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(stock_out_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::Text(format!("{TAG} 发货单 {status}")),
         ],
     )
@@ -316,14 +312,8 @@ async fn page_row_carries_so_no_and_stock_out_no_like_detail() {
     // ③ 与详情逐字相等（列表 / 详情同口径，前端不必为每一行再发一次详情请求）
     let draft_detail = detail(draft_id).await;
     let posted_detail = detail(posted_id).await;
-    assert_eq!(
-        draft_row.so_no, draft_detail.so_no,
-        "列表与详情的 so_no 必须逐字相等"
-    );
-    assert_eq!(
-        posted_row.so_no, posted_detail.so_no,
-        "列表与详情的 so_no 必须逐字相等"
-    );
+    assert_eq!(draft_row.so_no, draft_detail.so_no, "列表与详情的 so_no 必须逐字相等");
+    assert_eq!(posted_row.so_no, posted_detail.so_no, "列表与详情的 so_no 必须逐字相等");
     assert_eq!(
         draft_row.stock_out_no, draft_detail.stock_out_no,
         "列表与详情的 stock_out_no 必须逐字相等"
@@ -375,14 +365,8 @@ async fn soft_deleted_order_or_stock_out_is_null_on_both_list_and_detail() {
     let posted_id = create_shipment(so_id, "POSTED", Some(out_id)).await;
 
     // 基线：都在
-    assert_eq!(
-        page_rows(so_id).await[0].so_no.as_deref(),
-        Some(so_no.as_str())
-    );
-    assert_eq!(
-        detail(posted_id).await.stock_out_no.as_deref(),
-        Some(out_no.as_str())
-    );
+    assert_eq!(page_rows(so_id).await[0].so_no.as_deref(), Some(so_no.as_str()));
+    assert_eq!(detail(posted_id).await.stock_out_no.as_deref(), Some(out_no.as_str()));
 
     // 订单软删 ⇒ 列表与详情同时 null
     db().execute_with_params(
@@ -437,17 +421,11 @@ async fn batch_labels_dedupe_and_skip_soft_deleted() {
     };
     // 空入参：不发 SQL、返回空
     assert!(
-        shipment_model::so_no_labels(db(), &[])
-            .await
-            .unwrap()
-            .is_empty(),
+        shipment_model::so_no_labels(db(), &[]).await.unwrap().is_empty(),
         "空入参必须短路返回空 vec"
     );
     assert!(
-        shipment_model::stock_out_no_labels(db(), &[])
-            .await
-            .unwrap()
-            .is_empty(),
+        shipment_model::stock_out_no_labels(db(), &[]).await.unwrap().is_empty(),
         "空入参必须短路返回空 vec"
     );
 
@@ -484,9 +462,7 @@ async fn batch_labels_dedupe_and_skip_soft_deleted() {
 
     // 单条与批量判据一致（同一张单，两个入口都不能给值）
     assert_eq!(
-        shipment_model::so_no_of(db(), so_id)
-            .await
-            .expect("单条取订单号"),
+        shipment_model::so_no_of(db(), so_id).await.expect("单条取订单号"),
         None,
         "单条入口与批量入口的判据必须一致（都带 deleted_at IS NULL）"
     );

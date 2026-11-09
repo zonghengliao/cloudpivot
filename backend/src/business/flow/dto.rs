@@ -29,8 +29,7 @@ use nik::uuid::Uuid;
 
 use crate::business::flow::expression;
 use crate::business::flow::graph::{
-    self, ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, Issue,
-    NodeSpec, NodeType,
+    self, ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, Issue, NodeSpec, NodeType,
 };
 use crate::shared::error_code;
 
@@ -484,10 +483,7 @@ impl GraphSaveReq {
                     .map(|kind| kind.as_str())
                     .collect::<Vec<_>>()
                     .join("/");
-                format!(
-                    "节点 {key} 的类型 {} 非法（只允许 {allowed}）",
-                    raw.node_type
-                )
+                format!("节点 {key} 的类型 {} 非法（只允许 {allowed}）", raw.node_type)
             })?;
             let name = normalize_name(&raw.name)?;
             let subprocess_def_id = parse_subprocess_def(&key, raw.subprocess_def_id.as_deref())?;
@@ -503,9 +499,10 @@ impl GraphSaveReq {
             let approval_mode = match raw.approval_mode.as_deref() {
                 None => None,
                 Some(text) if text.trim().is_empty() => None,
-                Some(text) => Some(ApprovalMode::parse(text).ok_or_else(|| {
-                    format!("节点 {key} 的签名方式 {text} 非法（只允许 ALL/RATIO/ANY）")
-                })?),
+                Some(text) => Some(
+                    ApprovalMode::parse(text)
+                        .ok_or_else(|| format!("节点 {key} 的签名方式 {text} 非法（只允许 ALL/RATIO/ANY）"))?,
+                ),
             };
             let join_mode = parse_gateway(raw.join_mode.as_deref(), "汇聚方式", &key)?;
             let fork_mode = parse_gateway(raw.fork_mode.as_deref(), "分叉方式", &key)?;
@@ -516,14 +513,10 @@ impl GraphSaveReq {
                 match raw.approve_ratio {
                     Some(ratio) if ratio > 0.0 && ratio <= 1.0 => {}
                     Some(ratio) => {
-                        return Err(format!(
-                            "节点 {key} 的通过比例必须在 (0,1] 之间（当前 {ratio}）"
-                        ));
+                        return Err(format!("节点 {key} 的通过比例必须在 (0,1] 之间（当前 {ratio}）"));
                     }
                     None => {
-                        return Err(format!(
-                            "节点 {key} 选择了「按比例」会签，但没填通过比例（如 0.6）"
-                        ));
+                        return Err(format!("节点 {key} 选择了「按比例」会签，但没填通过比例（如 0.6）"));
                     }
                 }
             }
@@ -589,11 +582,8 @@ impl GraphSaveReq {
                 "REMIND",
             )?;
 
-            let (fallback_user_id, fallback_role_id) = parse_fallback(
-                &key,
-                raw.fallback_user_id.as_deref(),
-                raw.fallback_role_id.as_deref(),
-            )?;
+            let (fallback_user_id, fallback_role_id) =
+                parse_fallback(&key, raw.fallback_user_id.as_deref(), raw.fallback_role_id.as_deref())?;
 
             nodes.push(NodeSpec {
                 key,
@@ -634,12 +624,10 @@ impl GraphSaveReq {
             });
         }
 
-        let keys: std::collections::HashSet<&str> =
-            nodes.iter().map(|node| node.key.as_str()).collect();
+        let keys: std::collections::HashSet<&str> = nodes.iter().map(|node| node.key.as_str()).collect();
         let mut edges: Vec<EdgeSpec> = Vec::with_capacity(self.edges.len());
         let mut edge_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut pairs: std::collections::HashSet<(String, String)> =
-            std::collections::HashSet::new();
+        let mut pairs: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
         for raw in &self.edges {
             let key = check_key(&raw.key, "连线 key")?;
             if !edge_keys.insert(key.clone()) {
@@ -654,14 +642,10 @@ impl GraphSaveReq {
                 return Err(format!("连线 {key} 的终点 {to} 不存在"));
             }
             if from == to {
-                return Err(format!(
-                    "连线 {key} 是自环（{from} → {to}），流程不允许自环"
-                ));
+                return Err(format!("连线 {key} 是自环（{from} → {to}），流程不允许自环"));
             }
             if !pairs.insert((from.clone(), to.clone())) {
-                return Err(format!(
-                    "连线 {from} → {to} 重复（两个节点之间只允许一条连线）"
-                ));
+                return Err(format!("连线 {from} → {to} 重复（两个节点之间只允许一条连线）"));
             }
             edges.push(EdgeSpec {
                 key,
@@ -737,9 +721,9 @@ fn parse_fallback(
 fn parse_subprocess_def(node_key: &str, raw: Option<&str>) -> Result<Option<Uuid>, String> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
-        Some(text) => Uuid::parse_str(text).map(Some).map_err(|_| {
-            format!("节点 {node_key} 的子流程定义 {text} 不是合法 id（应为流程定义的 UUID）")
-        }),
+        Some(text) => Uuid::parse_str(text)
+            .map(Some)
+            .map_err(|_| format!("节点 {node_key} 的子流程定义 {text} 不是合法 id（应为流程定义的 UUID）")),
     }
 }
 
@@ -747,8 +731,9 @@ fn parse_gateway(raw: Option<&str>, label: &str, node_key: &str) -> Result<Gatew
     match raw {
         None => Ok(GatewayMode::And),
         Some(text) if text.trim().is_empty() => Ok(GatewayMode::And),
-        Some(text) => GatewayMode::parse(text)
-            .ok_or_else(|| format!("节点 {node_key} 的{label} {text} 非法（只允许 AND/OR）")),
+        Some(text) => {
+            GatewayMode::parse(text).ok_or_else(|| format!("节点 {node_key} 的{label} {text} 非法（只允许 AND/OR）"))
+        }
     }
 }
 
@@ -790,10 +775,7 @@ pub fn validate_expression_nodes(graph: &FlowGraph) -> Result<(), ApiError> {
             return Err(ApiError::new(
                 400,
                 error_code::FLOW_CONDITION_INVALID,
-                format!(
-                    "节点 {}（{}）的审批人表达式不合法：{reason}",
-                    node.key, node.name
-                ),
+                format!("节点 {}（{}）的审批人表达式不合法：{reason}", node.key, node.name),
             ));
         }
     }
@@ -1344,18 +1326,10 @@ pub struct DraftRes {
 // 枚举大写（与库 CHECK 逐字一致）、可空文本降级空串。
 
 /// 实例状态全集（与 `biz_flow_instance.status` 的 CHECK 逐字一致）。
-pub const INSTANCE_STATUSES: [&str; 5] =
-    ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "WITHDRAWN"];
+pub const INSTANCE_STATUSES: [&str; 5] = ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "WITHDRAWN"];
 
 /// 待办状态全集（与 `biz_flow_task.status` 的 CHECK 逐字一致）。
-pub const TASK_STATUSES: [&str; 6] = [
-    "PENDING",
-    "APPROVED",
-    "REJECTED",
-    "CANCELLED",
-    "SKIPPED",
-    "TRANSFERRED",
-];
+pub const TASK_STATUSES: [&str; 6] = ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "SKIPPED", "TRANSFERRED"];
 
 /// 待办种类全集。
 pub const TASK_KINDS: [&str; 2] = ["APPROVAL", "RESUBMIT"];
@@ -1391,9 +1365,7 @@ pub fn normalize_instance_title(raw: &str) -> Result<String, String> {
         return Err("审批单标题不能为空".to_string());
     }
     if collapsed.chars().count() > MAX_INSTANCE_TITLE_CHARS {
-        return Err(format!(
-            "审批单标题不能超过 {MAX_INSTANCE_TITLE_CHARS} 个字符"
-        ));
+        return Err(format!("审批单标题不能超过 {MAX_INSTANCE_TITLE_CHARS} 个字符"));
     }
     Ok(collapsed)
 }
@@ -2133,10 +2105,7 @@ mod tests {
 
     #[test]
     fn flow_code_is_normalized_to_lowercase() {
-        assert_eq!(
-            normalize_flow_code("  Task_Accept ").unwrap(),
-            "task_accept"
-        );
+        assert_eq!(normalize_flow_code("  Task_Accept ").unwrap(), "task_accept");
         assert!(normalize_flow_code("1abc").is_err(), "不能以数字开头");
         assert!(normalize_flow_code("a").is_err(), "至少 2 个字符");
         assert!(normalize_flow_code("task-accept").is_err(), "不许短横线");
@@ -2236,10 +2205,7 @@ mod tests {
         }];
         let req = GraphSaveReq {
             nodes: vec![node("n_start", "START"), approve, node("n_end", "END")],
-            edges: vec![
-                edge("e1", "n_start", "n_approve"),
-                edge("e2", "n_approve", "n_end"),
-            ],
+            edges: vec![edge("e1", "n_start", "n_approve"), edge("e2", "n_approve", "n_end")],
             change_note: None,
         };
         let graph = req.into_graph().expect("只给 assignees 必须能保存");
@@ -2269,10 +2235,7 @@ mod tests {
         }];
         let req = GraphSaveReq {
             nodes: vec![node("n_start", "START"), approve, node("n_end", "END")],
-            edges: vec![
-                edge("e1", "n_start", "n_approve"),
-                edge("e2", "n_approve", "n_end"),
-            ],
+            edges: vec![edge("e1", "n_start", "n_approve"), edge("e2", "n_approve", "n_end")],
             change_note: None,
         };
         let graph = req.into_graph().expect("显式来源仍然合法");
@@ -2303,10 +2266,7 @@ mod tests {
         ];
         let req = GraphSaveReq {
             nodes: vec![node("n_start", "START"), approve, node("n_end", "END")],
-            edges: vec![
-                edge("e1", "n_start", "n_approve"),
-                edge("e2", "n_approve", "n_end"),
-            ],
+            edges: vec![edge("e1", "n_start", "n_approve"), edge("e2", "n_approve", "n_end")],
             change_note: None,
         };
         let err = req.into_graph().expect_err("混用来源必须拒绝");
@@ -2447,10 +2407,7 @@ mod expression_tests {
             "保存期必须接受 EXPRESSION（历史文案只列 10 种，用户会拿到自相矛盾的报错）"
         );
         assert!(node.assignees.is_empty(), "EXPRESSION 不落审批人行");
-        assert!(
-            validate_expression_nodes(&graph).is_ok(),
-            "合法表达式必须放行"
-        );
+        assert!(validate_expression_nodes(&graph).is_ok(), "合法表达式必须放行");
     }
 
     #[test]
@@ -2478,11 +2435,7 @@ mod expression_tests {
         let error = validate_expression_nodes(&graph).expect_err("结构非法必须报错");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, 65016);
-        assert!(
-            error.msg.contains("rules"),
-            "必须带上 §3.4 的结构原因：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("rules"), "必须带上 §3.4 的结构原因：{}", error.msg);
     }
 
     #[test]

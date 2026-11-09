@@ -177,9 +177,7 @@ impl VoucherPageQuery {
         if let Some(period) = blank_to_none(self.period.as_deref())
             && !is_month_key(&period)
         {
-            return Err(bad_request(format!(
-                "period 必须是 yyyy-MM，收到「{period}」"
-            )));
+            return Err(bad_request(format!("period 必须是 yyyy-MM，收到「{period}」")));
         }
         Ok(())
     }
@@ -187,9 +185,7 @@ impl VoucherPageQuery {
 
 /// 空白串 → `None`（`?period=` 不该变成「筛期间 = 空串」）。
 fn blank_to_none(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// `yyyy-MM` 形态校验（长度 7、第 5 位是 `-`、月份 01–12）。
@@ -577,9 +573,7 @@ pub async fn voucher_page(q: &VoucherFilter) -> DbResult<(Vec<VoucherRow>, i64)>
         params.push(Value::from(pattern));
     }
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result =
-        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
-            .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -590,20 +584,15 @@ pub async fn voucher_page(q: &VoucherFilter) -> DbResult<(Vec<VoucherRow>, i64)>
 
 /// 单张凭证（未删除）。
 pub async fn find_voucher(id: Uuid) -> DbResult<Option<VoucherRow>> {
-    let sql =
-        format!("SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
+    let sql = format!("SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
     let row = db().query_first_sql(sql, vec![Value::from(id)]).await?;
     row.as_ref().map(VoucherRow::from_row).transpose()
 }
 
 /// 某张凭证的全部分录（`line_no` 升序）。
 pub async fn entries_of(voucher_id: Uuid) -> DbResult<Vec<VoucherEntryRow>> {
-    let sql = format!(
-        "SELECT {ENTRY_COLUMNS} FROM {ENTRY_TABLE} WHERE voucher_id = ?::uuid ORDER BY line_no"
-    );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(voucher_id)])
-        .await?;
+    let sql = format!("SELECT {ENTRY_COLUMNS} FROM {ENTRY_TABLE} WHERE voucher_id = ?::uuid ORDER BY line_no");
+    let rows = db().find_with_params(&sql, vec![Value::from(voucher_id)]).await?;
     rows.iter().map(VoucherEntryRow::from_row).collect()
 }
 
@@ -612,22 +601,12 @@ pub async fn voucher_detail(id: Uuid) -> std::result::Result<VoucherDetailRes, A
     let row = find_voucher(id)
         .await
         .map_err(|error| utils::db_error(error, "查询凭证"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "凭证不存在或已删除".to_string(),
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "凭证不存在或已删除".to_string()))?;
     let entries = entries_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询凭证分录"))?;
-    let entry_total_debit = entries
-        .iter()
-        .fold(Decimal::ZERO, |acc, line| acc + line.debit_amount);
-    let entry_total_credit = entries
-        .iter()
-        .fold(Decimal::ZERO, |acc, line| acc + line.credit_amount);
+    let entry_total_debit = entries.iter().fold(Decimal::ZERO, |acc, line| acc + line.debit_amount);
+    let entry_total_credit = entries.iter().fold(Decimal::ZERO, |acc, line| acc + line.credit_amount);
     if entry_total_debit != row.total_debit || entry_total_credit != row.total_credit {
         return Err(unbalanced_error(
             "凭证",
@@ -676,21 +655,14 @@ pub fn unbalanced_error(
     permission = "business:erp:voucher:list"
 )]
 #[nik::get("/business/erp/voucher/page")]
-pub async fn voucher_page_handler(
-    Query(query): Query<VoucherPageQuery>,
-) -> ResResult<PageData<Vec<VoucherRes>>> {
+pub async fn voucher_page_handler(Query(query): Query<VoucherPageQuery>) -> ResResult<PageData<Vec<VoucherRes>>> {
     query.validate()?;
     let (rows, total) = voucher_page(&query.to_filter())
         .await
         .map_err(|error| utils::db_error(error, "分页查询凭证"))?;
     let list = rows.iter().map(VoucherRes::from_row).collect();
     let (page, page_size) = normalize_page(query.page, query.page_size);
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 凭证详情（含全部分录）。
@@ -824,66 +796,11 @@ pub(crate) mod tests {
             exec(sql).await;
         }
         for (no, date, period, status, debit_a, credit_a, debit_b, credit_b, red, reverse) in [
-            (
-                "0001",
-                "2026-09-10",
-                "2026-09",
-                "POSTED",
-                100,
-                0,
-                0,
-                100,
-                0,
-                "",
-            ),
-            (
-                "0002",
-                "2026-10-05",
-                "2026-10",
-                "POSTED",
-                50,
-                0,
-                0,
-                50,
-                0,
-                "",
-            ),
-            (
-                "0003",
-                "2026-10-08",
-                "2026-10",
-                "POSTED",
-                30,
-                0,
-                0,
-                30,
-                0,
-                "",
-            ),
-            (
-                "0004",
-                "2026-10-12",
-                "2026-10",
-                "DRAFT",
-                999,
-                0,
-                0,
-                999,
-                0,
-                "",
-            ),
-            (
-                "0005",
-                "2026-10-15",
-                "2026-10",
-                "POSTED",
-                0,
-                50,
-                50,
-                0,
-                1,
-                "0002",
-            ),
+            ("0001", "2026-09-10", "2026-09", "POSTED", 100, 0, 0, 100, 0, ""),
+            ("0002", "2026-10-05", "2026-10", "POSTED", 50, 0, 0, 50, 0, ""),
+            ("0003", "2026-10-08", "2026-10", "POSTED", 30, 0, 0, 30, 0, ""),
+            ("0004", "2026-10-12", "2026-10", "DRAFT", 999, 0, 0, 999, 0, ""),
+            ("0005", "2026-10-15", "2026-10", "POSTED", 0, 50, 50, 0, 1, "0002"),
             ("0006", "2026-11-03", "2026-11", "POSTED", 7, 0, 0, 7, 0, ""),
         ] {
             let id = format!("d2d10001-0000-4000-8000-00000000{no}");
@@ -935,11 +852,7 @@ pub(crate) mod tests {
     pub(crate) const FIXTURE_PREFIX: &str = "P2D1-";
 
     /// 夹具筛选：给定条件 + 「凭证号 / 来源单号带 [`FIXTURE_PREFIX`]」。
-    fn fixture_filter(
-        period: Option<&str>,
-        status: Option<&str>,
-        source_type: Option<&str>,
-    ) -> VoucherFilter {
+    fn fixture_filter(period: Option<&str>, status: Option<&str>, source_type: Option<&str>) -> VoucherFilter {
         VoucherFilter {
             period: period.map(str::to_string),
             status: status.map(str::to_string),
@@ -1165,10 +1078,7 @@ pub(crate) mod tests {
     /// ① `reverse_reason` 必须从行透出（前端在「红冲审批中」徽标的 tooltip 里显示原因）。
     #[test]
     fn pflow3b_res_carries_reverse_reason() {
-        let res = VoucherRes::from_row(&reverse_pending_row(
-            Some(Uuid::now_v7()),
-            Some("凭证金额录错"),
-        ));
+        let res = VoucherRes::from_row(&reverse_pending_row(Some(Uuid::now_v7()), Some("凭证金额录错")));
         assert_eq!(res.reverse_reason.as_deref(), Some("凭证金额录错"));
         let json = serde_json::to_value(&res).expect("序列化");
         assert_eq!(
@@ -1194,12 +1104,9 @@ pub(crate) mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        db().execute_with_params(
-            "DELETE FROM biz_account WHERE account_code LIKE 'P2D1%'",
-            vec![],
-        )
-        .await
-        .expect("清场删夹具科目失败");
+        db().execute_with_params("DELETE FROM biz_account WHERE account_code LIKE 'P2D1%'", vec![])
+            .await
+            .expect("清场删夹具科目失败");
         let left: i64 = db()
             .scalar_sql(
                 "SELECT count(*) FROM biz_account WHERE account_code LIKE 'P2D1%'".to_string(),

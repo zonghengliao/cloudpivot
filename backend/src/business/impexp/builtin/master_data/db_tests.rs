@@ -19,15 +19,13 @@ use std::time::Instant;
 use nik::prelude::*;
 
 use crate::business::impexp::builtin::master_data::{
-    account::AccountImport, location::LocationImport, material::MaterialImport,
-    supplier::SupplierImport, unit::UnitImport, warehouse::WarehouseImport,
+    account::AccountImport, location::LocationImport, material::MaterialImport, supplier::SupplierImport,
+    unit::UnitImport, warehouse::WarehouseImport,
 };
 use crate::business::impexp::definition::{
     DuplicateStrategy, ImportColumn, ImportCtx, ImportDefinition, ImportMode, RowValues,
 };
-use crate::business::impexp::validate::{
-    DbFkResolver, PrecheckReport, ValidationOutcome, global_dicts,
-};
+use crate::business::impexp::validate::{DbFkResolver, PrecheckReport, ValidationOutcome, global_dicts};
 
 /// 真库用例串行（共用进程级 `db()`）。
 static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -176,10 +174,7 @@ fn bytes_of(definition: &dyn ImportDefinition, rows: Vec<Vec<&str>>) -> Vec<u8> 
         .map(|values| {
             let mut map = HashMap::new();
             for (index, header) in headers.iter().enumerate() {
-                map.insert(
-                    header.clone(),
-                    values.get(index).copied().unwrap_or("").to_string(),
-                );
+                map.insert(header.clone(), values.get(index).copied().unwrap_or("").to_string());
             }
             map
         })
@@ -188,11 +183,7 @@ fn bytes_of(definition: &dyn ImportDefinition, rows: Vec<Vec<&str>>) -> Vec<u8> 
 }
 
 /// 跑一遍框架的完整预检（结构 + 逐行 + 外键 + 业务规则）。
-async fn precheck(
-    definition: Arc<dyn ImportDefinition>,
-    bytes: &[u8],
-    ctx: &ImportCtx,
-) -> ValidationOutcome {
+async fn precheck(definition: Arc<dyn ImportDefinition>, bytes: &[u8], ctx: &ImportCtx) -> ValidationOutcome {
     crate::business::impexp::validate::validate(
         definition.as_ref(),
         bytes,
@@ -239,9 +230,7 @@ fn ctx_of(task_id: uuid::Uuid, mode: ImportMode) -> ImportCtx {
 }
 
 async fn count(sql: &str) -> i64 {
-    db().scalar_with_params(sql, vec![])
-        .await
-        .expect("计数查询")
+    db().scalar_with_params(sql, vec![]).await.expect("计数查询")
 }
 
 fn row(row_no: u32, pairs: &[(&'static str, &str)]) -> RowValues {
@@ -276,16 +265,7 @@ async fn supplier_import_is_idempotent_and_reports_row_numbers() {
             "100000",
             "启用",
         ],
-        vec![
-            "P16MD-SUP2",
-            "上海乙贸易",
-            "",
-            "",
-            "",
-            "91310000MA1FL0000X",
-            "",
-            "停用",
-        ],
+        vec!["P16MD-SUP2", "上海乙贸易", "", "", "", "91310000MA1FL0000X", "", "停用"],
         vec!["P16MD-SUP3", "广州丙实业", "", "", "", "", "0", ""],
     ];
 
@@ -297,16 +277,7 @@ async fn supplier_import_is_idempotent_and_reports_row_numbers() {
 
     // 重复导入同一份文件：行数不变（幂等），内容按编码更新
     let rows_changed = vec![
-        vec![
-            "P16MD-SUP1",
-            "北京甲供应链（改）",
-            "",
-            "",
-            "",
-            "",
-            "200000",
-            "启用",
-        ],
+        vec!["P16MD-SUP1", "北京甲供应链（改）", "", "", "", "", "200000", "启用"],
         vec!["P16MD-SUP2", "上海乙贸易", "", "", "", "", "", "停用"],
         vec!["P16MD-SUP3", "广州丙实业", "", "", "", "", "0", ""],
     ];
@@ -608,15 +579,7 @@ async fn account_import_derives_level_and_revives_soft_deleted_rows() {
     let (_, affected) = import(
         Arc::clone(&definition),
         vec![
-            vec![
-                "P16MD.01",
-                "测试二级科目",
-                "资产",
-                "借",
-                "是",
-                "P16MD",
-                "启用",
-            ],
+            vec!["P16MD.01", "测试二级科目", "资产", "借", "是", "P16MD", "启用"],
             vec!["P16MD", "测试一级科目", "资产", "借", "否", "", "启用"],
         ],
         &ctx,
@@ -653,39 +616,20 @@ async fn account_import_derives_level_and_revives_soft_deleted_rows() {
     let (_, again) = import(
         Arc::clone(&definition),
         vec![
-            vec![
-                "P16MD.01",
-                "测试二级科目",
-                "资产",
-                "借",
-                "是",
-                "P16MD",
-                "启用",
-            ],
+            vec!["P16MD.01", "测试二级科目", "资产", "借", "是", "P16MD", "启用"],
             vec!["P16MD", "测试一级科目", "资产", "借", "否", "", "启用"],
         ],
         &ctx,
     )
     .await;
     assert_eq!(again, 2);
-    let alive = count(
-        "SELECT COUNT(*) FROM biz_account WHERE account_code LIKE 'P16MD%' AND deleted_at IS NULL",
-    )
-    .await;
+    let alive = count("SELECT COUNT(*) FROM biz_account WHERE account_code LIKE 'P16MD%' AND deleted_at IS NULL").await;
     assert_eq!(alive, 2, "重导应把软删行复活，而不是留下 1 条死行");
 
     // 上级科目是自身 → 规则错误（带行号 + 列名）
     let bytes = bytes_of(
         definition.as_ref(),
-        vec![vec![
-            "P16MD.LOOP",
-            "自引用",
-            "资产",
-            "借",
-            "是",
-            "P16MD.LOOP",
-            "启用",
-        ]],
+        vec![vec!["P16MD.LOOP", "自引用", "资产", "借", "是", "P16MD.LOOP", "启用"]],
     );
     let outcome = precheck(Arc::clone(&definition), &bytes, &ctx).await;
     assert_eq!(outcome.report.error, 1);
@@ -739,11 +683,7 @@ async fn warehouse_import_writes_materialized_path() {
     let first = &rows[0];
     let path: String = first.get_typed("path").expect("path");
     assert!(path.starts_with('/') && path.ends_with('/'));
-    assert_eq!(
-        path.matches('/').count(),
-        2,
-        "物化路径应是 /id/ 形态：{path}"
-    );
+    assert_eq!(path.matches('/').count(), 2, "物化路径应是 /id/ 形态：{path}");
     assert_eq!(first.get_typed::<String>("level").expect("level"), "1");
     assert_eq!(first.get_typed::<String>("leaf").expect("leaf"), "1");
     assert_eq!(first.get_typed::<String>("negative").expect("neg"), "1");
@@ -807,15 +747,7 @@ async fn location_import_requires_leaf_warehouse_and_single_default() {
     let (_, affected) = import(
         Arc::clone(&definition),
         vec![
-            vec![
-                "P16MD-L1",
-                "P16MD-WC",
-                "A 区一排一列",
-                "存储",
-                "是",
-                "1000",
-                "启用",
-            ],
+            vec!["P16MD-L1", "P16MD-WC", "A 区一排一列", "存储", "是", "1000", "启用"],
             vec!["P16MD-L2", "P16MD-WC", "A 区一排二列", "", "否", "", "启用"],
         ],
         &ctx,
@@ -826,15 +758,7 @@ async fn location_import_requires_leaf_warehouse_and_single_default() {
     let (_, _) = import(
         Arc::clone(&definition),
         vec![
-            vec![
-                "P16MD-L1",
-                "P16MD-WC",
-                "A 区一排一列",
-                "存储",
-                "否",
-                "1000",
-                "启用",
-            ],
+            vec!["P16MD-L1", "P16MD-WC", "A 区一排一列", "存储", "否", "1000", "启用"],
             vec!["P16MD-L2", "P16MD-WC", "A 区一排二列", "", "是", "", "启用"],
         ],
         &ctx,
@@ -849,10 +773,7 @@ async fn location_import_requires_leaf_warehouse_and_single_default() {
         .await
         .expect("读回默认库位");
     assert_eq!(defaults.len(), 1, "每仓最多一个默认库位");
-    assert_eq!(
-        defaults[0].get_typed::<String>("code").expect("code"),
-        "P16MD-L2"
-    );
+    assert_eq!(defaults[0].get_typed::<String>("code").expect("code"), "P16MD-L2");
 
     // 同一份文件里两行都标默认 → 前置报错（不做半截写入）
     let error = persist_rows(
@@ -880,10 +801,7 @@ async fn location_import_requires_leaf_warehouse_and_single_default() {
     .await
     .expect_err("同仓两个默认库位应报错");
     let text = format!("{error}");
-    assert!(
-        text.contains("第 6 行") && text.contains("第 9 行"),
-        "文案：{text}"
-    );
+    assert!(text.contains("第 6 行") && text.contains("第 9 行"), "文案：{text}");
 
     cleanup().await;
 }

@@ -109,9 +109,7 @@ pub(crate) fn resolve_reader(
 ///
 /// 提成函数是因为详情路径进了 `#[nik::no_auth]` 白名单（AI 令牌要能读），
 /// 权限层因此不再覆盖它 —— 这条判定必须由 handler 补上，且**只补人类侧**。
-pub(super) fn ensure_task_read_permission(
-    claims: &TokenClaims,
-) -> std::result::Result<(), ApiError> {
+pub(super) fn ensure_task_read_permission(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
     if claims.has_permission(dto::PERM_TASK_READ) {
         return Ok(());
     }
@@ -126,9 +124,7 @@ pub(super) fn ensure_task_read_permission(
 ///
 /// 复制 = 建单（D9 硬红线 5），所以复制走这一个码。与 [`ensure_task_read_permission`]
 /// 同样提成函数：路由注解已拦一次，这里再判一次，单测才能直接证明「无码 → 403」。
-pub(super) fn ensure_task_create_permission(
-    claims: &TokenClaims,
-) -> std::result::Result<(), ApiError> {
+pub(super) fn ensure_task_create_permission(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
     if claims.has_permission(COPY_PERMISSION) {
         return Ok(());
     }
@@ -177,11 +173,7 @@ pub(super) async fn require_task(id: Uuid) -> std::result::Result<TaskDetailRow,
 pub(super) fn normalize_title(raw: &str) -> std::result::Result<String, ApiError> {
     let collapsed = dto::collapse_whitespace(raw);
     if collapsed.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::TASK_TITLE_INVALID,
-            "任务标题不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::TASK_TITLE_INVALID, "任务标题不能为空"));
     }
     if collapsed.chars().count() > dto::MAX_TITLE_CHARS {
         return Err(ApiError::new(
@@ -194,9 +186,7 @@ pub(super) fn normalize_title(raw: &str) -> std::result::Result<String, ApiError
 }
 
 /// 描述归一化：空白视为未填；超长截断（不报错，避免用户丢内容）。
-pub(super) fn normalize_description(
-    raw: Option<&str>,
-) -> std::result::Result<Option<String>, ApiError> {
+pub(super) fn normalize_description(raw: Option<&str>) -> std::result::Result<Option<String>, ApiError> {
     match raw {
         None => Ok(None),
         Some(text) => {
@@ -204,10 +194,7 @@ pub(super) fn normalize_description(
             if trimmed.is_empty() {
                 return Ok(None);
             }
-            Ok(Some(dto::truncate_chars(
-                trimmed,
-                dto::MAX_DESCRIPTION_CHARS,
-            )))
+            Ok(Some(dto::truncate_chars(trimmed, dto::MAX_DESCRIPTION_CHARS)))
         }
     }
 }
@@ -289,10 +276,7 @@ pub(super) fn normalize_reason(raw: Option<&str>) -> std::result::Result<Option<
         return Ok(None);
     }
     if trimmed.chars().count() > dto::MAX_REASON_CHARS {
-        return Err(param_invalid(format!(
-            "原因不能超过 {} 个字符",
-            dto::MAX_REASON_CHARS
-        )));
+        return Err(param_invalid(format!("原因不能超过 {} 个字符", dto::MAX_REASON_CHARS)));
     }
     Ok(Some(trimmed.to_string()))
 }
@@ -350,11 +334,8 @@ pub(super) fn change_status_tx_error(
     if blocked {
         return parent_cancelled();
     }
-    let is_flow_conflict =
-        matches!(&error, DbError::InvalidValue(msg) if msg == FLOW_CONFLICT_SENTINEL);
-    if is_flow_conflict
-        && let Some(error) = flow_conflict.lock().ok().and_then(|mut slot| slot.take())
-    {
+    let is_flow_conflict = matches!(&error, DbError::InvalidValue(msg) if msg == FLOW_CONFLICT_SENTINEL);
+    if is_flow_conflict && let Some(error) = flow_conflict.lock().ok().and_then(|mut slot| slot.take()) {
         return error;
     }
     // 「验收即发起审批」被引擎业务拒绝（65018 派不出人 / 65019 自审）：原始码与结构化载荷
@@ -374,21 +355,17 @@ pub(super) fn change_status_tx_error(
 /// - 其余（跳级 / 终态直取 / 同状态 / 需验收却直接完成）→ `409 + 63010`（状态冲突）。
 pub(super) fn transition_error(error: state::TransitionError) -> ApiError {
     match &error {
-        state::TransitionError::RejectReasonRequired { .. } => ApiError::new(
-            400,
-            error_code::TASK_REJECT_REASON_REQUIRED,
-            error.message(),
-        ),
+        state::TransitionError::RejectReasonRequired { .. } => {
+            ApiError::new(400, error_code::TASK_REJECT_REASON_REQUIRED, error.message())
+        }
         state::TransitionError::Forbidden { .. } => {
             ApiError::new(403, error_code::TASK_STATUS_FORBIDDEN, error.message())
         }
         state::TransitionError::SameStatus
         | state::TransitionError::IllegalPair
-        | state::TransitionError::ReviewRequired => ApiError::new(
-            409,
-            error_code::TASK_STATUS_TRANSITION_INVALID,
-            error.message(),
-        ),
+        | state::TransitionError::ReviewRequired => {
+            ApiError::new(409, error_code::TASK_STATUS_TRANSITION_INVALID, error.message())
+        }
     }
 }
 
@@ -397,10 +374,7 @@ pub(super) fn transition_error(error: state::TransitionError) -> ApiError {
 /// 取令牌里的 `username`：审计表要的是「人看得懂的名字」，`sub` 是兜底
 /// （令牌缺 `username` 时至少不写空串）。
 pub(crate) fn display_name(claims: &TokenClaims) -> String {
-    claims
-        .username
-        .clone()
-        .unwrap_or_else(|| claims.sub.clone())
+    claims.username.clone().unwrap_or_else(|| claims.sub.clone())
 }
 
 /// 手动进度按状态联动（核心设计 §三）。
@@ -415,12 +389,9 @@ pub(crate) fn display_name(claims: &TokenClaims) -> String {
 /// # 异常情况
 ///
 /// 已取消除 → `409 + 63010`。
-pub(super) fn requested_progress(
-    status: TaskStatus,
-    requested: i32,
-) -> std::result::Result<i16, ApiError> {
-    let requested = i16::try_from(requested)
-        .map_err(|_| param_invalid(format!("进度必须在 0 ~ 100 之间（收到 {requested}）")))?;
+pub(super) fn requested_progress(status: TaskStatus, requested: i32) -> std::result::Result<i16, ApiError> {
+    let requested =
+        i16::try_from(requested).map_err(|_| param_invalid(format!("进度必须在 0 ~ 100 之间（收到 {requested}）")))?;
     match status {
         TaskStatus::Doing => Ok(state::clamp_progress(requested.max(10))),
         TaskStatus::Review | TaskStatus::Done => Ok(100),

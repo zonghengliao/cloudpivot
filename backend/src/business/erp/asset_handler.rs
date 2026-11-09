@@ -43,9 +43,9 @@ use crate::business::attachment::rule::{self as attach_rule, RequiredAt as Attac
 use crate::business::erp::asset_bridge;
 use crate::business::erp::asset_compute;
 use crate::business::erp::asset_dto::{
-    self, AssetDetailRes, AssetFilter, AssetRes, CategoryFilter, CategoryReq, CategoryRes,
-    ChangeRes, CreateAssetReq, CustodianReq, DepDetailRes, DisposeReq, IdRes, StatusChangeReq,
-    TransferReq, UpdateAssetReq, conflict, invalid, normalize_page, parse_uuid_text, status_label,
+    self, AssetDetailRes, AssetFilter, AssetRes, CategoryFilter, CategoryReq, CategoryRes, ChangeRes, CreateAssetReq,
+    CustodianReq, DepDetailRes, DisposeReq, IdRes, StatusChangeReq, TransferReq, UpdateAssetReq, conflict, invalid,
+    normalize_page, parse_uuid_text, status_label,
 };
 use crate::business::erp::asset_linkage;
 use crate::business::erp::asset_model::{self, AssetInsert, ChangeInsert};
@@ -62,19 +62,11 @@ fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
 }
 
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "资产卡片不存在或已删除",
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "资产卡片不存在或已删除")
 }
 
 fn category_not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "资产分类不存在或已删除",
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "资产分类不存在或已删除")
 }
 
 /// 岗位用 db_error（500 + 原始错误进 internal_detail）。
@@ -103,12 +95,7 @@ pub async fn asset_category_page(
         .await
         .map_err(|error| db_err(error, "分页查询资产分类"))?;
     let list: Vec<CategoryRes> = rows.iter().map(CategoryRes::from).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 启用分类（建卡下拉，不分页）。
@@ -118,9 +105,7 @@ pub async fn asset_category_page(
     permission = "business:erp:asset-category:list"
 )]
 #[nik::get("/business/erp/asset-category/list")]
-pub async fn asset_category_list(
-    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
-) -> ResResult<Vec<CategoryRes>> {
+pub async fn asset_category_list(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<Vec<CategoryRes>> {
     let rows = asset_model::category_active()
         .await
         .map_err(|error| db_err(error, "查询资产分类"))?;
@@ -185,10 +170,7 @@ pub async fn asset_category_next_code(
 ///
 /// **不动**任何已有分类（`ELEC` / `FURNITURE` / `VEHICLE` … 这些手工编码照旧），
 /// 本函数只影响「此后新建且没填编码」的档案。
-pub async fn create_asset_category(
-    operator: Option<Uuid>,
-    req: CategoryReq,
-) -> Result<CategoryRes, ApiError> {
+pub async fn create_asset_category(operator: Option<Uuid>, req: CategoryReq) -> Result<CategoryRes, ApiError> {
     let mut spec = asset_dto::validate_category(&req)?;
     // ① 手工编码：有值就保留（先查重，给出「编码 XXX 已存在」的人话错误）
     // CODE-08：开关关闭时填了编码直接 400（读在 begin 之前，被拒不占号）
@@ -216,17 +198,9 @@ pub async fn create_asset_category(
             .await
             .map_err(|error| code_seq_error(error, "新建资产分类"))?;
     }
-    asset_model::category_insert(
-        &tx,
-        id,
-        &spec,
-        asset_account,
-        accum_account,
-        expense_account,
-        operator,
-    )
-    .await
-    .map_err(|error| category_write_error(error, &spec.category_code))?;
+    asset_model::category_insert(&tx, id, &spec, asset_account, accum_account, expense_account, operator)
+        .await
+        .map_err(|error| category_write_error(error, &spec.category_code))?;
     tx.commit()
         .await
         .map_err(|error| db_err(error, "提交新建资产分类事务"))?;
@@ -361,9 +335,7 @@ pub async fn asset_category_delete(
 }
 
 /// 分类的三个科目：未指定时用默认编码（1601 / 1602 / 5602.01），并校验末级 + 启用。
-async fn resolve_category_accounts(
-    spec: &asset_dto::CategorySpec,
-) -> Result<(Uuid, Uuid, Uuid), ApiError> {
+async fn resolve_category_accounts(spec: &asset_dto::CategorySpec) -> Result<(Uuid, Uuid, Uuid), ApiError> {
     let asset_account = pick_account(spec.asset_account_id, "1601", "原值科目").await?;
     let accum_account = pick_account(spec.accum_account_id, "1602", "累计折旧科目").await?;
     let expense_account = pick_account(spec.expense_account_id, "5602.01", "折旧费用科目").await?;
@@ -371,11 +343,7 @@ async fn resolve_category_accounts(
 }
 
 /// 显式科目优先，缺省按编码取（都要末级 + 启用）。
-async fn pick_account(
-    explicit: Option<Uuid>,
-    code: &'static str,
-    what: &'static str,
-) -> Result<Uuid, ApiError> {
+async fn pick_account(explicit: Option<Uuid>, code: &'static str, what: &'static str) -> Result<Uuid, ApiError> {
     let account = match explicit {
         Some(id) => voucher_multi::ensure_leaf(db(), id)
             .await
@@ -408,12 +376,7 @@ pub async fn asset_page(
         .await
         .map_err(|error| db_err(error, "分页查询资产卡片"))?;
     let list: Vec<AssetRes> = rows.iter().map(AssetRes::from).collect();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 卡片详情（变动时间线 + 折旧明细 + 在跑处置审批）。
@@ -497,17 +460,11 @@ pub async fn asset_create(
         Some(supplier_id) => Some(supplier_name_of(supplier_id).await?),
         None => None,
     };
-    let (residual, base, monthly) = asset_dto::derive_amounts(
-        spec.original_value,
-        category.salvage_rate,
-        category.useful_life_months,
-    );
+    let (residual, base, monthly) =
+        asset_dto::derive_amounts(spec.original_value, category.salvage_rate, category.useful_life_months);
     let start_date = asset_compute::start_depreciation_date(spec.purchase_date);
 
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启建卡事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启建卡事务"))?;
     let outcome = async {
         let asset_no = asset_model::next_asset_no(&tx, now)
             .await
@@ -539,8 +496,7 @@ pub async fn asset_create(
                 other => db_err(other, "写入资产卡片"),
             })?;
         // 购入凭证（ARCH-6 §5.3.3 的两种口径）
-        let voucher_id =
-            post_acquisition_voucher(&tx, &id, &asset_no, &spec, &category, now, operator).await?;
+        let voucher_id = post_acquisition_voucher(&tx, &id, &asset_no, &spec, &category, now, operator).await?;
         asset_model::asset_set_voucher(&tx, id, voucher_id)
             .await
             .map_err(|error| db_err(error, "回写购入凭证"))?;
@@ -565,9 +521,7 @@ pub async fn asset_create(
             return Err(error);
         }
     };
-    tx.commit()
-        .await
-        .map_err(|error| db_err(error, "提交建卡事务"))?;
+    tx.commit().await.map_err(|error| db_err(error, "提交建卡事务"))?;
     tracing::info!(%id, asset_no = %asset_no, %voucher_id, "固定资产卡片已建立（含购入凭证）");
     Ok(Res::ok(IdRes {
         id: id.to_string(),
@@ -623,8 +577,7 @@ async fn post_acquisition_voucher(
             )
         })?;
         debits.push(
-            voucher_multi::DebitGroup::new(tax, spec.tax_amount, None)
-                .with_summary(format!("{asset_no} 可抵扣进项税")),
+            voucher_multi::DebitGroup::new(tax, spec.tax_amount, None).with_summary(format!("{asset_no} 可抵扣进项税")),
         );
         credit_amount += spec.tax_amount;
     }
@@ -734,10 +687,9 @@ pub async fn asset_delete(
     // **建卡即生成购入凭证**（`FIXED_ASSET_ACQ`，借 1601）：删卡片不会动那张凭证，
     // 1601 余额与卡片台账从此永久差这笔原值，而且界面上没有任何入口能把它找回来。
     // 所以「没计提到」不等于「能删」—— 有凭证就只能走处置，让账跟着凭证一起走。
-    if let Some(acq) =
-        crate::business::erp::voucher::find_voucher_by_source(db(), "FIXED_ASSET_ACQ", id)
-            .await
-            .map_err(|error| db_err(error, "查询购入凭证"))?
+    if let Some(acq) = crate::business::erp::voucher::find_voucher_by_source(db(), "FIXED_ASSET_ACQ", id)
+        .await
+        .map_err(|error| db_err(error, "查询购入凭证"))?
     {
         return Err(conflict(format!(
             "资产 {} 已生成购入凭证 {}（借 1601 原值）：不能删。\
@@ -778,10 +730,7 @@ pub async fn asset_transfer(
     let today = voucher_today();
     let spec = asset_dto::validate_transfer(&req, today)?;
     let operator_name = operator_name_of(&claims);
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启转移事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启转移事务"))?;
     let outcome = async {
         let row = asset_model::asset_lock_in(&tx, id)
             .await
@@ -801,16 +750,9 @@ pub async fn asset_transfer(
             )));
         }
         let to_dept_name = dept_name_of(spec.to_dept_id).await?;
-        asset_model::asset_set_dept(
-            &tx,
-            id,
-            &row.status,
-            spec.to_dept_id,
-            &to_dept_name,
-            operator,
-        )
-        .await
-        .map_err(|error| db_err(error, "更新资产使用部门"))?;
+        asset_model::asset_set_dept(&tx, id, &row.status, spec.to_dept_id, &to_dept_name, operator)
+            .await
+            .map_err(|error| db_err(error, "更新资产使用部门"))?;
         asset_model::insert_change(
             &tx,
             id,
@@ -857,9 +799,7 @@ pub async fn asset_transfer(
     .await;
     match outcome {
         Ok(()) => {
-            tx.commit()
-                .await
-                .map_err(|error| db_err(error, "提交转移事务"))?;
+            tx.commit().await.map_err(|error| db_err(error, "提交转移事务"))?;
             tracing::info!(%id, "资产部门转移完成（下月起折旧费用归新部门）");
             Ok(Res::ok(detail_of(id).await?))
         }
@@ -886,10 +826,7 @@ pub async fn asset_custodian(
     let operator = operator_of(&claims);
     let today = voucher_today();
     let spec = asset_dto::validate_custodian(&req, today)?;
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启变更事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启变更事务"))?;
     let outcome = async {
         let row = asset_model::asset_lock_in(&tx, id)
             .await
@@ -906,16 +843,9 @@ pub async fn asset_custodian(
             return Err(invalid("新使用人与当前使用人相同：原地变更不是变动"));
         }
         let to_user_name = user_name_of(spec.to_user_id).await?;
-        asset_model::asset_set_custodian(
-            &tx,
-            id,
-            &row.status,
-            spec.to_user_id,
-            &to_user_name,
-            operator,
-        )
-        .await
-        .map_err(|error| db_err(error, "更新资产使用人"))?;
+        asset_model::asset_set_custodian(&tx, id, &row.status, spec.to_user_id, &to_user_name, operator)
+            .await
+            .map_err(|error| db_err(error, "更新资产使用人"))?;
         asset_model::insert_change(
             &tx,
             id,
@@ -951,9 +881,7 @@ pub async fn asset_custodian(
             operator,
             Some(&format!(
                 "使用人变更 {} → {}：{}",
-                row.custodian_name
-                    .clone()
-                    .unwrap_or_else(|| "（空）".to_string()),
+                row.custodian_name.clone().unwrap_or_else(|| "（空）".to_string()),
                 to_user_name,
                 spec.reason
             )),
@@ -965,9 +893,7 @@ pub async fn asset_custodian(
     .await;
     match outcome {
         Ok(()) => {
-            tx.commit()
-                .await
-                .map_err(|error| db_err(error, "提交变更事务"))?;
+            tx.commit().await.map_err(|error| db_err(error, "提交变更事务"))?;
             Ok(Res::ok(detail_of(id).await?))
         }
         Err(error) => {
@@ -1129,10 +1055,7 @@ pub async fn asset_dispose(
     let mut out = {
         // 发起审批单要在事务里（`engine::start` 只吃 `&Transaction`）：
         // 实例 + 节点 + 待办要么一起落库，要么一起不落。
-        let tx = db()
-            .begin()
-            .await
-            .map_err(|error| db_err(error, "开启处置审批事务"))?;
+        let tx = db().begin().await.map_err(|error| db_err(error, "开启处置审批事务"))?;
         // ⚠️ 引擎的业务拒绝（65018 没有可用审批人 / 65019 自审被禁）必须在**事务内**
         //    当硬错误处理：`engine::start` 拒绝时已经写了一张 PENDING 实例却没有待办，
         //    先 commit 再判 `out.rejected` 会留下「半截审批单」——该实例占着
@@ -1153,9 +1076,7 @@ pub async fn asset_dispose(
                 return Err(db_err(error, "发起处置审批单"));
             }
         };
-        tx.commit()
-            .await
-            .map_err(|error| db_err(error, "提交处置审批事务"))?;
+        tx.commit().await.map_err(|error| db_err(error, "提交处置审批事务"))?;
         out
     };
     let effects = out.effects.take();
@@ -1181,10 +1102,7 @@ pub async fn asset_dispose(
 }
 
 /// 处置表单（`form_data` 契约：字段名与 `asset_bridge::disposal_spec_of` 逐字对应）。
-fn disposal_form_data(
-    row: &asset_model::AssetRow,
-    spec: &asset_dto::DisposeSpec,
-) -> serde_json::Value {
+fn disposal_form_data(row: &asset_model::AssetRow, spec: &asset_dto::DisposeSpec) -> serde_json::Value {
     json!({
         "asset_no": row.asset_no,
         "asset_name": row.asset_name,
@@ -1223,10 +1141,7 @@ pub async fn asset_dispose_cancel(
         .filter(|text| !text.is_empty())
         .ok_or_else(|| invalid("作废处置必须填原因（至少 2 个字）"))?
         .to_string();
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启作废处置事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启作废处置事务"))?;
     let outcome = async {
         let row = asset_model::asset_lock_in(&tx, id)
             .await
@@ -1308,23 +1223,14 @@ pub async fn asset_dispose_cancel(
         //    GENERATE_VOUCHER / REVERSE_VOUCHER，见 asset_linkage 文件头）。
         //    目标态 = IN_USE：`FIXED_ASSET/IN_USE` 上的规则由「作废处置」与「启用」两处触发
         //    （建卡是建行、不接）；`event_ref` = ④ 的变动行 id ⇒ 幂等键按事件区分。
-        let change = asset_linkage::run_in_tx(
-            &tx,
-            id,
-            &row.asset_no,
-            asset_dto::STATUS_IN_USE,
-            operator,
-            event_ref,
-        )
-        .await?;
+        let change =
+            asset_linkage::run_in_tx(&tx, id, &row.asset_no, asset_dto::STATUS_IN_USE, operator, event_ref).await?;
         Ok::<(usize, asset_linkage::AssetStatusChange), ApiError>((reds.len(), change))
     }
     .await;
     match outcome {
         Ok((count, change)) => {
-            tx.commit()
-                .await
-                .map_err(|error| db_err(error, "提交作废处置事务"))?;
+            tx.commit().await.map_err(|error| db_err(error, "提交作废处置事务"))?;
             // 铁律：通知 / 建任务只能在事务提交**之后**发（提交失败 = 作废没做成）
             asset_linkage::run_deferred_after_commit(change).await;
             tracing::info!(%id, red_count = count, "资产处置已作废（凭证红冲 + 资产恢复在役）");
@@ -1423,10 +1329,9 @@ pub async fn asset_status_change(
         )
         .await?;
         // ⑤ CAS 回写（WHERE status = row.status）：0 行 = 锁后仍被改，必须报错不能静默
-        let affected =
-            asset_model::apply_asset_status(&tx, id, &row.status, spec.target_status, operator)
-                .await
-                .map_err(|error| db_err(error, "回写资产状态"))?;
+        let affected = asset_model::apply_asset_status(&tx, id, &row.status, spec.target_status, operator)
+            .await
+            .map_err(|error| db_err(error, "回写资产状态"))?;
         if affected == 0 {
             return Err(conflict("资产状态在停用 / 启用期间被改动，请刷新后重试"));
         }
@@ -1435,10 +1340,7 @@ pub async fn asset_status_change(
         //    （映射只写在 `asset_dto::change_type_of` 一处，这里再钉一道防漂移断言）。
         let change_type = asset_dto::change_type_of(spec.target_status);
         debug_assert!(
-            matches!(
-                change_type,
-                asset_dto::CHANGE_IDLE | asset_dto::CHANGE_ENABLE
-            ),
+            matches!(change_type, asset_dto::CHANGE_IDLE | asset_dto::CHANGE_ENABLE),
             "停用 / 启用的变动类型只可能是 IDLE / ENABLE"
         );
         let event_ref = asset_model::insert_change(
@@ -1468,15 +1370,7 @@ pub async fn asset_status_change(
         .await
         .map_err(|error| db_err(error, "写停用 / 启用留痕"))?;
         // ⑦ 跨单据联动（事务内；`event_ref` = ⑥ 的变动行 id ⇒ 可逆边第二次照样发通知）
-        let change = asset_linkage::run_in_tx(
-            &tx,
-            id,
-            &row.asset_no,
-            spec.target_status,
-            operator,
-            event_ref,
-        )
-        .await?;
+        let change = asset_linkage::run_in_tx(&tx, id, &row.asset_no, spec.target_status, operator, event_ref).await?;
         Ok::<asset_linkage::AssetStatusChange, ApiError>(change)
     }
     .await;
@@ -1519,9 +1413,7 @@ pub async fn dept_name_of(dept_id: Uuid) -> Result<String, ApiError> {
         None => Err(invalid(format!(
             "部门 {dept_id} 不存在或已删除：资产必须挂在真实部门上（折旧费用要按部门核算）"
         ))),
-        Some(row) => row
-            .get_typed("dept_name")
-            .map_err(|error| db_err(error, "读取部门名")),
+        Some(row) => row.get_typed("dept_name").map_err(|error| db_err(error, "读取部门名")),
     }
 }
 
@@ -1539,9 +1431,7 @@ async fn user_name_of(user_id: Uuid) -> Result<String, ApiError> {
         .map_err(|error| db_err(error, "查询用户"))?;
     match rows.first() {
         None => Err(invalid(format!("使用人 {user_id} 不存在或已删除"))),
-        Some(row) => row
-            .get_typed("name")
-            .map_err(|error| db_err(error, "读取使用人姓名")),
+        Some(row) => row.get_typed("name").map_err(|error| db_err(error, "读取使用人姓名")),
     }
 }
 
@@ -1650,8 +1540,7 @@ mod tests {
     /// 当前 AC 号段的 `current_no`（判断「有没有真的推进」用）。
     async fn ac_current_no() -> i64 {
         db().query_first_sql(
-            "SELECT current_no FROM biz_seq WHERE seq_type = 'AC' AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT current_no FROM biz_seq WHERE seq_type = 'AC' AND deleted_at IS NULL".to_string(),
             vec![],
         )
         .await
@@ -1679,30 +1568,17 @@ mod tests {
             by_none.category_code
         );
         let row = category_row(&by_none.id).await;
-        assert_eq!(
-            row.category_code, by_none.category_code,
-            "自动编码必须真落库"
-        );
+        assert_eq!(row.category_code, by_none.category_code, "自动编码必须真落库");
 
-        let by_empty =
-            create_asset_category(None, category_req(Some(""), "CODE04 自动分类（空串）"))
-                .await
-                .expect("空串应自动取号");
-        assert!(
-            is_auto_ac_code(&by_empty.category_code),
-            "{}",
-            by_empty.category_code
-        );
+        let by_empty = create_asset_category(None, category_req(Some(""), "CODE04 自动分类（空串）"))
+            .await
+            .expect("空串应自动取号");
+        assert!(is_auto_ac_code(&by_empty.category_code), "{}", by_empty.category_code);
 
-        let by_spaces =
-            create_asset_category(None, category_req(Some("   "), "CODE04 自动分类（空白）"))
-                .await
-                .expect("纯空白应自动取号");
-        assert!(
-            is_auto_ac_code(&by_spaces.category_code),
-            "{}",
-            by_spaces.category_code
-        );
+        let by_spaces = create_asset_category(None, category_req(Some("   "), "CODE04 自动分类（空白）"))
+            .await
+            .expect("纯空白应自动取号");
+        assert!(is_auto_ac_code(&by_spaces.category_code), "{}", by_spaces.category_code);
 
         // 三个号互不相同，且号段正好推进 3
         let mut codes = vec![
@@ -1717,11 +1593,7 @@ mod tests {
 
         // 存量分类一条不动
         let after = asset_model::category_active().await.expect("存量分类");
-        assert_eq!(
-            after.len(),
-            seeded.len() + 3,
-            "只应有新建的 3 条，存量分类不许被改"
-        );
+        assert_eq!(after.len(), seeded.len() + 3, "只应有新建的 3 条，存量分类不许被改");
 
         for created in [&by_none, &by_empty, &by_spaces] {
             drop_category(&created.id).await;
@@ -1744,32 +1616,18 @@ mod tests {
             manual.to_ascii_uppercase(),
             "手工编码必须原样保留（只转大写）"
         );
-        assert!(
-            !is_auto_ac_code(&created.category_code),
-            "手工编码不该被改写成交号形态"
-        );
+        assert!(!is_auto_ac_code(&created.category_code), "手工编码不该被改写成交号形态");
         let row = category_row(&created.id).await;
-        assert_eq!(
-            row.category_code,
-            manual.to_ascii_uppercase(),
-            "手工编码真落库"
-        );
-        assert_eq!(
-            ac_current_no().await,
-            before,
-            "手工编码不消耗号段（取号器不该被调用）"
-        );
+        assert_eq!(row.category_code, manual.to_ascii_uppercase(), "手工编码真落库");
+        assert_eq!(ac_current_no().await, before, "手工编码不消耗号段（取号器不该被调用）");
 
         // 预览接口口径：peek 不消耗号，拿到的号可以直接当手工编码保存
-        let peeked = seq::peek_master_code(db(), "AC")
-            .await
-            .expect("预览 AC 编码");
+        let peeked = seq::peek_master_code(db(), "AC").await.expect("预览 AC 编码");
         assert!(is_auto_ac_code(&peeked), "预览必须给 AC-NN 形态：{peeked}");
         assert_eq!(ac_current_no().await, before, "预览不能推进号段");
-        let from_peek =
-            create_asset_category(None, category_req(Some(&peeked), "CODE04 预览号分类"))
-                .await
-                .expect("预览号应当能直接保存");
+        let from_peek = create_asset_category(None, category_req(Some(&peeked), "CODE04 预览号分类"))
+            .await
+            .expect("预览号应当能直接保存");
         assert_eq!(from_peek.category_code, peeked);
 
         drop_category(&created.id).await;
@@ -1788,10 +1646,7 @@ mod tests {
         let second = create_asset_category(None, category_req(None, "CODE04 连号分类 B"))
             .await
             .expect("第二次取号");
-        assert_ne!(
-            first.category_code, second.category_code,
-            "两次自动编码不能相同"
-        );
+        assert_ne!(first.category_code, second.category_code, "两次自动编码不能相同");
         let n1 = first
             .category_code
             .strip_prefix("AC-")

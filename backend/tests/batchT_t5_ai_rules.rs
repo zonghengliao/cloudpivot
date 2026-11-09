@@ -36,9 +36,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use cloudpivot::business::changelog::model::NewChangeLog;
-use cloudpivot::business::changelog::{
-    self, Action, ChangeCtx, ChangeTarget, DiffInput, OperatorType,
-};
+use cloudpivot::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput, OperatorType};
 
 // ==================== 夹具 ====================
 
@@ -72,10 +70,7 @@ fn human_id() -> Uuid {
 async fn connect() -> Option<Db> {
     let url = if let Ok(url) = std::env::var("T5_DB_URL") {
         url
-    } else if let (Ok(user), Ok(name)) = (
-        std::env::var("NIK_DATABASE_USER"),
-        std::env::var("NIK_DATABASE_NAME"),
-    ) {
+    } else if let (Ok(user), Ok(name)) = (std::env::var("NIK_DATABASE_USER"), std::env::var("NIK_DATABASE_NAME")) {
         let host = std::env::var("NIK_DATABASE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
         let port = std::env::var("NIK_DATABASE_PORT").unwrap_or_else(|_| "5432".into());
         let password = std::env::var("NIK_DATABASE_PASSWORD").unwrap_or_default();
@@ -126,10 +121,7 @@ async fn cleanup(db: &Db) {
 /// 虽然本测试不起服务、不跑启动自检，但留下一个「ROBOT 无配置」的行会让
 /// 下一次真正启动 test 实例时自检报警 —— 自己造的脏数据自己收拾干净。
 async fn seed_operators(db: &Db) -> DbResult<()> {
-    for (id, username, user_type) in [
-        (robot_id(), "t5_bot", "ROBOT"),
-        (human_id(), "t5_human", "HUMAN"),
-    ] {
+    for (id, username, user_type) in [(robot_id(), "t5_bot", "ROBOT"), (human_id(), "t5_human", "HUMAN")] {
         db.exec_sql(
             "INSERT INTO sys_user (id, username, password, real_name, status, user_type) \
              VALUES (?::uuid, ?::text, ?::text, ?::text, 1, ?::text) \
@@ -183,9 +175,7 @@ async fn record_once(db: &Db, ctx: &ChangeCtx<'_>) -> DbResult<()> {
                 DiffInput::update(&before, &after),
             )
             .await
-            .map_err(|error| {
-                DbError::InvalidValue(format!("record 失败 [{}]：{}", error.code, error.msg))
-            })?;
+            .map_err(|error| DbError::InvalidValue(format!("record 失败 [{}]：{}", error.code, error.msg)))?;
             Ok(())
         }
     })
@@ -226,9 +216,7 @@ async fn migration_shape() {
         .await
         .expect("查 information_schema");
 
-    let row = rows
-        .first()
-        .expect("V0111 未应用：sys_change_log.operator_type 不存在");
+    let row = rows.first().expect("V0111 未应用：sys_change_log.operator_type 不存在");
     let data_type: String = row.get_typed("data_type").expect("data_type");
     let max_len: Option<i32> = row.get_typed("character_maximum_length").ok().flatten();
     let nullable: String = row.get_typed("is_nullable").expect("is_nullable");
@@ -241,10 +229,7 @@ async fn migration_shape() {
     assert_eq!(data_type, "character varying");
     assert_eq!(max_len, Some(16));
     assert_eq!(nullable, "NO", "operator_type 必须 NOT NULL");
-    assert!(
-        default.unwrap_or_default().contains("HUMAN"),
-        "默认值必须是 HUMAN"
-    );
+    assert!(default.unwrap_or_default().contains("HUMAN"), "默认值必须是 HUMAN");
 
     // CHECK 约束
     let check: i64 = db
@@ -323,9 +308,7 @@ async fn operator_type_of_defaults() {
     let human = changelog::model::operator_type_of(&db, Some(human_id()))
         .await
         .expect("解析 HUMAN");
-    let system = changelog::model::operator_type_of(&db, None)
-        .await
-        .expect("解析 None");
+    let system = changelog::model::operator_type_of(&db, None).await.expect("解析 None");
     let ghost = changelog::model::operator_type_of(&db, Some(Uuid::now_v7()))
         .await
         .expect("解析不存在的账号");
@@ -358,8 +341,7 @@ async fn explicit_operator_type_skips_lookup() {
     seed_operators(&db).await.expect("造操作人");
 
     // 用 HUMAN 账号，但显式声明成 ROBOT：证明显式值压过查库结果
-    let ctx =
-        ChangeCtx::api(Some(human_id()), Some("t5_human")).with_operator_type(OperatorType::Robot);
+    let ctx = ChangeCtx::api(Some(human_id()), Some("t5_human")).with_operator_type(OperatorType::Robot);
     record_once(&db, &ctx).await.expect("record（显式 ROBOT）");
     let value = read_operator_type(&db).await.expect("读回 operator_type");
     println!("[changelog] 显式指定后 operator_type = {value}（账号本身是 HUMAN）");

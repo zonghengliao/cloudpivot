@@ -33,8 +33,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::purchase_return_dto::{
-    ReturnFilter, ReturnItemRes, ReturnRowRes, STATUS_APPROVED, STATUS_CANCELLED, STATUS_CONFIRMED,
-    STATUS_DRAFT,
+    ReturnFilter, ReturnItemRes, ReturnRowRes, STATUS_APPROVED, STATUS_CANCELLED, STATUS_CONFIRMED, STATUS_DRAFT,
 };
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::scope;
@@ -413,11 +412,7 @@ pub async fn page_returns(filter: &ReturnFilter) -> DbResult<(Vec<ReturnRow>, u6
         filter.page_size,
     )
     .await?;
-    let rows = page
-        .list
-        .iter()
-        .map(read_head)
-        .collect::<DbResult<Vec<_>>>()?;
+    let rows = page.list.iter().map(read_head).collect::<DbResult<Vec<_>>>()?;
     Ok((rows, page.total))
 }
 
@@ -471,10 +466,7 @@ pub async fn items_of(return_id: Uuid) -> DbResult<Vec<ItemRow>> {
 }
 
 /// 锁读来源入库明细（`FOR UPDATE`：防两个退货单并发把同一行退超）。
-pub async fn lock_source_items(
-    ex: &impl SqlExecutor,
-    stock_in_id: Uuid,
-) -> DbResult<Vec<SourceItem>> {
+pub async fn lock_source_items(ex: &impl SqlExecutor, stock_in_id: Uuid) -> DbResult<Vec<SourceItem>> {
     let rows = ex
         .query_sql(
             "SELECT id, line_no, source_item_id, material_id, unit_id, qty, price, \
@@ -639,11 +631,7 @@ pub async fn insert_return(
                 Value::from(&id),
                 Value::from(item.line_no),
                 Value::from(&item.stock_in_item_id),
-                Value::Text(
-                    item.purchase_order_item_id
-                        .map(|v| v.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(item.purchase_order_item_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(&item.material_id),
                 Value::from(&item.unit_id),
                 Value::Text(item.qty.to_string()),
@@ -776,12 +764,7 @@ pub async fn mark_confirmed(
         vec![
             Value::from(&links.stock_out_id),
             Value::Text(links.payable_id.map(|v| v.to_string()).unwrap_or_default()),
-            Value::Text(
-                links
-                    .supplier_receivable_id
-                    .map(|v| v.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(links.supplier_receivable_id.map(|v| v.to_string()).unwrap_or_default()),
             Value::from(&links.voucher_id),
             Value::from(now),
             Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
@@ -897,8 +880,7 @@ pub fn to_row_res(row: &ReturnRow) -> ReturnRowRes {
         warehouse_name: row.warehouse_name.clone(),
         return_date: row.return_date,
         status: row.status.clone(),
-        status_label: crate::business::erp::purchase_return_dto::status_label(&row.status)
-            .to_string(),
+        status_label: crate::business::erp::purchase_return_dto::status_label(&row.status).to_string(),
         total_qty: row.total_qty,
         total_amount: row.total_amount,
         total_tax: row.total_tax,

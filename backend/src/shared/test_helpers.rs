@@ -299,16 +299,12 @@ pub async fn ensure_fixture_dept() -> Uuid {
 pub async fn ensure_any_dept() -> Uuid {
     let rows = db()
         .query_sql(
-            "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                .to_string(),
+            "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1".to_string(),
             vec![],
         )
         .await
         .unwrap_or_else(|err| panic!("查部门失败：{err}"));
-    if let Some(id) = rows
-        .first()
-        .and_then(|row| row.get_typed::<Uuid>("id").ok())
-    {
+    if let Some(id) = rows.first().and_then(|row| row.get_typed::<Uuid>("id").ok()) {
         return id;
     }
     ensure_fixture_dept().await
@@ -320,16 +316,12 @@ pub async fn ensure_any_dept() -> Uuid {
 pub async fn ensure_any_user() -> Uuid {
     let rows = db()
         .query_sql(
-            "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
-                .to_string(),
+            "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1".to_string(),
             vec![],
         )
         .await
         .unwrap_or_else(|err| panic!("查在职用户失败：{err}"));
-    if let Some(id) = rows
-        .first()
-        .and_then(|row| row.get_typed::<Uuid>("id").ok())
-    {
+    if let Some(id) = rows.first().and_then(|row| row.get_typed::<Uuid>("id").ok()) {
         return id;
     }
     ensure_user("tst02b.user", "TST 夹具账号", None).await
@@ -426,16 +418,12 @@ pub async fn ensure_dept_user() -> (Uuid, Uuid, String) {
 pub async fn ensure_two_users() -> (Uuid, Uuid) {
     let rows = db()
         .query_sql(
-            "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 2"
-                .to_string(),
+            "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 2".to_string(),
             vec![],
         )
         .await
         .unwrap_or_else(|err| panic!("查在职用户失败：{err}"));
-    let mut ids: Vec<Uuid> = rows
-        .iter()
-        .filter_map(|row| row.get_typed::<Uuid>("id").ok())
-        .collect();
+    let mut ids: Vec<Uuid> = rows.iter().filter_map(|row| row.get_typed::<Uuid>("id").ok()).collect();
     let mut seq = 0usize;
     while ids.len() < 2 {
         seq += 1;
@@ -460,10 +448,7 @@ pub async fn bind_role(user: Uuid, role_code: &str) {
         "INSERT INTO sys_user_role (id, user_id, role_id) VALUES (?, ?, ?) \
          ON CONFLICT (user_id, role_id) DO NOTHING",
         vec![
-            Value::from(&fixture_uuid(&format!(
-                "user_role:{}:{role_code}",
-                user.as_u128()
-            ))),
+            Value::from(&fixture_uuid(&format!("user_role:{}:{role_code}", user.as_u128()))),
             Value::from(&user),
             Value::from(&role),
         ],
@@ -577,10 +562,6 @@ mod fixture_tests {
             b'8',
             "UUID 字符串里第 15 位是版本号（人眼可校验）"
         );
-        assert_eq!(
-            a.get_variant(),
-            uuid::Variant::RFC4122,
-            "variant 位必须是 RFC 4122"
-        );
+        assert_eq!(a.get_variant(), uuid::Variant::RFC4122, "variant 位必须是 RFC 4122");
     }
 }

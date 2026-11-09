@@ -156,11 +156,7 @@ pub async fn limit_of(ex: &impl SqlExecutor, supplier_id: Uuid) -> DbResult<Opti
 ///
 /// 口径三条：`status <> 'CANCELLED'`（作废=撤回承诺）、`deleted_at IS NULL`（软删不算）、
 /// 含税合计 `total_with_tax`（供应商要的是钱，不是不含税额）。
-pub async fn committed_exposure(
-    ex: &impl SqlExecutor,
-    supplier_id: Uuid,
-    exclude: Option<Uuid>,
-) -> DbResult<Decimal> {
+pub async fn committed_exposure(ex: &impl SqlExecutor, supplier_id: Uuid, exclude: Option<Uuid>) -> DbResult<Decimal> {
     let mut sql = "SELECT COALESCE(SUM(total_with_tax), 0)::text AS total \
                    FROM biz_purchase_order \
                   WHERE supplier_id = ?::uuid AND status <> 'CANCELLED' AND deleted_at IS NULL"
@@ -188,11 +184,7 @@ pub async fn committed_exposure(
 pub async fn verdict_of(ex: &impl SqlExecutor, row: &PurchaseOrderRow) -> DbResult<CreditVerdict> {
     let committed = committed_exposure(ex, row.supplier_id, Some(row.id)).await?;
     match limit_of(ex, row.supplier_id).await? {
-        Some(limit) => Ok(CreditVerdict::evaluate(
-            limit,
-            committed,
-            row.total_with_tax,
-        )),
+        Some(limit) => Ok(CreditVerdict::evaluate(limit, committed, row.total_with_tax)),
         None => Ok(CreditVerdict::unassessable(committed, row.total_with_tax)),
     }
 }
@@ -202,11 +194,7 @@ pub async fn verdict_of(ex: &impl SqlExecutor, row: &PurchaseOrderRow) -> DbResu
 /// `credit_exposure` 写成 `NULL` 之外的值 是「已评估」的唯一标记：`NULL` = 从未提交过。
 /// 所以 `over_credit_limit = false` + `credit_exposure IS NULL` 的读法是「没查过」，
 /// 不是「查过没问题」—— 详情/列表要按这个口径显示，别把两者混为一谈。
-pub async fn write_verdict(
-    ex: &impl SqlExecutor,
-    order_id: Uuid,
-    verdict: &CreditVerdict,
-) -> DbResult<u64> {
+pub async fn write_verdict(ex: &impl SqlExecutor, order_id: Uuid, verdict: &CreditVerdict) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE biz_purchase_order \
             SET over_credit_limit = ?, credit_exposure = ?::text::numeric, \
@@ -254,16 +242,8 @@ mod tests {
         assert!(verdict.over, "{}", verdict.describe());
         assert!(!verdict.unlimited);
         assert_eq!(verdict.exposure, dec("20000"));
-        assert!(
-            verdict.describe().contains("10000"),
-            "{}",
-            verdict.describe()
-        );
-        assert!(
-            verdict.describe().contains("超出"),
-            "{}",
-            verdict.describe()
-        );
+        assert!(verdict.describe().contains("10000"), "{}", verdict.describe());
+        assert!(verdict.describe().contains("超出"), "{}", verdict.describe());
     }
 
     /// ② 卡面必测：额度为空（库里就是 `0`）→ **不校验**。
@@ -284,17 +264,9 @@ mod tests {
     #[test]
     fn boundary_equal_is_not_over() {
         let verdict = CreditVerdict::evaluate(dec("10000"), dec("6000"), dec("4000"));
-        assert!(
-            !verdict.over,
-            "累计恰好等于额度不该判超限：{}",
-            verdict.describe()
-        );
+        assert!(!verdict.over, "累计恰好等于额度不该判超限：{}", verdict.describe());
         assert_eq!(verdict.exposure, dec("10000"));
-        assert!(
-            verdict.describe().contains("剩余 0"),
-            "{}",
-            verdict.describe()
-        );
+        assert!(verdict.describe().contains("剩余 0"), "{}", verdict.describe());
     }
 
     /// ④ 一分钱就超：金额比较不能有四舍五入的余量。
@@ -320,11 +292,7 @@ mod tests {
         assert!(!verdict.over);
         assert!(verdict.unlimited);
         assert_eq!(verdict.exposure, dec("25000"));
-        assert!(
-            verdict.describe().contains("不限"),
-            "{}",
-            verdict.describe()
-        );
+        assert!(verdict.describe().contains("不限"), "{}", verdict.describe());
     }
 
     /// ⑦ 未评估 vs 评估过：`credit_exposure IS NULL` 才是「没查过」。

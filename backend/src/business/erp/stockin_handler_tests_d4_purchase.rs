@@ -26,11 +26,7 @@ async fn d4_pending_fresh_order_equals_ordered() {
     assert_eq!(pending.items.len(), 1);
     assert_eq!(pending.items[0].ordered_qty, dec("100"));
     assert_eq!(pending.items[0].received_qty, dec("0"));
-    assert_eq!(
-        pending.items[0].pending_qty,
-        dec("100"),
-        "没收过 → 待收 = 订单"
-    );
+    assert_eq!(pending.items[0].pending_qty, dec("100"), "没收过 → 待收 = 订单");
     assert_eq!(pending.items[0].material_code, "P2B1-M1", "带出物料编码");
     assert_eq!(pending.order.supplier_id, SUPPLIER, "带出供应商（O1）");
     assert_eq!(pending.order.warehouse_id, WAREHOUSE, "带出仓库（O1）");
@@ -115,9 +111,7 @@ async fn d4_pending_ignores_draft_stock_in() {
     assert_eq!(pending.stock_ins.len(), 1);
     assert!(!pending.stock_ins[0].posted, "草稿要标成未过账");
     // 过账后才算
-    change_stock_in_status(draft, &post_req(), None)
-        .await
-        .unwrap();
+    change_stock_in_status(draft, &post_req(), None).await.unwrap();
     let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
@@ -167,10 +161,7 @@ async fn d4_draft_order_cannot_receive() {
         .unwrap();
     assert!(!pending.can_receive);
     assert!(
-        pending
-            .blocked_reason
-            .unwrap_or_default()
-            .contains("不能收货"),
+        pending.blocked_reason.unwrap_or_default().contains("不能收货"),
         "待收接口也要说清为什么不能收"
     );
 }
@@ -280,20 +271,12 @@ async fn d4_delete_draft_does_not_change_order() {
     request.source_order_id = Some(order_id.to_string());
     let id = create_stock_in(&request, None).await.unwrap();
     delete_stock_in(id, None).await.unwrap();
-    assert_eq!(
-        d4_po_status(order_id).await,
-        "SUBMITTED",
-        "删草稿不该动采购单"
-    );
+    assert_eq!(d4_po_status(order_id).await, "SUBMITTED", "删草稿不该动采购单");
     assert_eq!(d4_ledger_received(item_id).await, dec("0"));
     let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
-    assert_eq!(
-        pending.items[0].pending_qty,
-        dec("100"),
-        "删草稿后待收回到满额"
-    );
+    assert_eq!(pending.items[0].pending_qty, dec("100"), "删草稿后待收回到满额");
     assert!(pending.stock_ins.is_empty(), "软删的收货单不该出现在反查里");
 }
 
@@ -314,11 +297,7 @@ async fn d4_cancel_posted_restores_pending() {
     assert_eq!(d4_ledger_received(item_id).await, dec("100"));
 
     cancel(id, "收错了要退").await;
-    assert_eq!(
-        d4_ledger_received(item_id).await,
-        dec("0"),
-        "作废必须把已收数量退回去"
-    );
+    assert_eq!(d4_ledger_received(item_id).await, dec("0"), "作废必须把已收数量退回去");
     assert_eq!(
         d4_po_status(order_id).await,
         "PARTIAL_RECEIVED",
@@ -335,9 +314,7 @@ async fn d4_cancel_posted_restores_pending() {
     let mut again = req(Vec::new());
     again.source_order_id = Some(order_id.to_string());
     let second = create_stock_in(&again, None).await.unwrap();
-    change_stock_in_status(second, &post_req(), None)
-        .await
-        .unwrap();
+    change_stock_in_status(second, &post_req(), None).await.unwrap();
     assert_eq!(d4_po_status(order_id).await, "RECEIVED");
 }
 
@@ -458,11 +435,7 @@ async fn d4_received_qty_has_single_truth() {
         .await
         .unwrap()
         .expect("明细行必须存在");
-    assert_eq!(
-        pending_after.items[0].received_qty,
-        dec("20"),
-        "作废后只算剩下的"
-    );
+    assert_eq!(pending_after.items[0].received_qty, dec("20"), "作废后只算剩下的");
     assert_eq!(items_after[0].received_qty, dec("20"));
     assert_eq!(one_after.received_qty, dec("20"));
     assert_eq!(pending_after.items[0].pending_qty, dec("80"));

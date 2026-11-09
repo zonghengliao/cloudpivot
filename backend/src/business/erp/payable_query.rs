@@ -196,9 +196,7 @@ impl PayablePageQuery {
 
 /// 空白串 → `None`（`?status=` 不该变成「筛状态 = 空串」）。
 fn blank_to_none(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// 参数类 400（`10001`）。
@@ -418,9 +416,7 @@ pub fn status_label(status: &str) -> &str {
 
 /// 是否逾期：到期日早于 `today`、仍有未付金额、且未作废。
 pub fn is_overdue(row: &PayableRow, today: NaiveDate) -> bool {
-    row.status != payable::STATUS_CANCELLED
-        && row.unpaid_amount > Decimal::ZERO
-        && row.due_date < today
+    row.status != payable::STATUS_CANCELLED && row.unpaid_amount > Decimal::ZERO && row.due_date < today
 }
 
 // ==================== 数据层 ====================
@@ -455,9 +451,7 @@ pub async fn payable_page(q: &PayableFilter) -> DbResult<(Vec<PayableRow>, i64)>
         params.push(Value::Text(to.to_string()));
     }
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result =
-        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
-            .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -468,8 +462,7 @@ pub async fn payable_page(q: &PayableFilter) -> DbResult<(Vec<PayableRow>, i64)>
 
 /// 单张应付单（未删除）。
 pub async fn find_payable(id: Uuid) -> DbResult<Option<PayableRow>> {
-    let sql =
-        format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
+    let sql = format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.id = ?::uuid AND p.deleted_at IS NULL");
     let row = db().query_first_sql(sql, vec![Value::from(id)]).await?;
     row.as_ref().map(PayableRow::from_row).transpose()
 }
@@ -477,11 +470,8 @@ pub async fn find_payable(id: Uuid) -> DbResult<Option<PayableRow>> {
 /// 凭证号（凭证已软删 / 不存在 → `None`，不阻断详情）。
 pub async fn voucher_no_of(voucher_id: Uuid) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: biz_voucher 是会计台账，没有归属列（见模块文档）。
-    let sql =
-        format!("SELECT voucher_no FROM {VOUCHER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
-    let row = db()
-        .query_first_sql(sql, vec![Value::from(voucher_id)])
-        .await?;
+    let sql = format!("SELECT voucher_no FROM {VOUCHER_TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
+    let row = db().query_first_sql(sql, vec![Value::from(voucher_id)]).await?;
     match row.as_ref() {
         Some(row) => Ok(Some(row.get_typed("voucher_no")?)),
         None => Ok(None),
@@ -493,13 +483,7 @@ pub async fn payable_detail(id: Uuid) -> std::result::Result<PayableDetailRes, A
     let row = find_payable(id)
         .await
         .map_err(|error| utils::db_error(error, "查询应付单"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                "应付单不存在或已删除".to_string(),
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "应付单不存在或已删除".to_string()))?;
     let voucher_no = match row.voucher_id {
         Some(voucher_id) => voucher_no_of(voucher_id)
             .await
@@ -518,9 +502,7 @@ pub async fn payable_detail(id: Uuid) -> std::result::Result<PayableDetailRes, A
 /// 今天（CST）：与取号 / 账期同口径（`AP-yyyyMMdd` 按 CST 滚动）。
 fn today_cst() -> NaiveDate {
     Utc::now()
-        .with_timezone(
-            &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
-        )
+        .with_timezone(&nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"))
         .date_naive()
 }
 
@@ -533,26 +515,16 @@ fn today_cst() -> NaiveDate {
     permission = "business:erp:payable:list"
 )]
 #[nik::get("/business/erp/payable/page")]
-pub async fn payable_page_handler(
-    Query(query): Query<PayablePageQuery>,
-) -> ResResult<PageData<Vec<PayableRes>>> {
+pub async fn payable_page_handler(Query(query): Query<PayablePageQuery>) -> ResResult<PageData<Vec<PayableRes>>> {
     query.validate()?;
     let filter = query.to_filter()?;
     let (rows, total) = payable_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询应付单"))?;
     let today = today_cst();
-    let list = rows
-        .iter()
-        .map(|row| PayableRes::from_row(row, today))
-        .collect();
+    let list = rows.iter().map(|row| PayableRes::from_row(row, today)).collect();
     let (page, page_size) = normalize_page(query.page, query.page_size);
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 /// 应付单详情（含关联凭证号）。
@@ -784,10 +756,7 @@ pub(crate) mod tests {
             ..PayableFilter::default()
         };
         let (rows, total) = payable_page(&filter).await.expect("默认列表");
-        assert!(
-            total >= 5,
-            "默认列表应至少含 5 张 P2C2 应付单，实际 {total}"
-        );
+        assert!(total >= 5, "默认列表应至少含 5 张 P2C2 应付单，实际 {total}");
         let fixtures = rows
             .iter()
             .filter(|row| row.payable_no.starts_with("P2C2-AP-"))
@@ -820,10 +789,7 @@ pub(crate) mod tests {
         let (rows, total) = payable_page(&filter).await.expect("状态筛选");
         assert_eq!(total, 2, "供应商甲下 OPEN 应有 2 张");
         assert!(rows.iter().all(|row| row.status == "OPEN"));
-        let mut nos = rows
-            .iter()
-            .map(|row| row.payable_no.as_str())
-            .collect::<Vec<_>>();
+        let mut nos = rows.iter().map(|row| row.payable_no.as_str()).collect::<Vec<_>>();
         nos.sort_unstable();
         assert_eq!(nos, vec!["P2C2-AP-0001", "P2C2-AP-0005"]);
         println!("[P2C2-②] status=OPEN 筛选 ✓");
@@ -844,10 +810,7 @@ pub(crate) mod tests {
         let (rows, total) = payable_page(&filter).await.expect("供应商筛选");
         assert_eq!(total, 2, "供应商乙应有 2 张");
         assert!(rows.iter().all(|row| row.supplier_name == "P2C2 供应商乙"));
-        assert!(
-            rows.iter()
-                .all(|row| row.supplier_id.to_string() == SUPPLIER_B)
-        );
+        assert!(rows.iter().all(|row| row.supplier_id.to_string() == SUPPLIER_B));
         println!("[P2C2-③] supplier_id 筛选 ✓");
     }
 
@@ -857,11 +820,9 @@ pub(crate) mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        let detail = payable_detail(
-            Uuid::parse_str("c2c20001-0000-4000-8000-0000c2c20001").expect("夹具 UUID"),
-        )
-        .await
-        .expect("应付详情");
+        let detail = payable_detail(Uuid::parse_str("c2c20001-0000-4000-8000-0000c2c20001").expect("夹具 UUID"))
+            .await
+            .expect("应付详情");
         assert_eq!(detail.payable.payable_no, "P2C2-AP-0001");
         assert_eq!(detail.payable.supplier_id, SUPPLIER_A);
         assert_eq!(detail.payable.supplier_name, "P2C2 供应商甲");
@@ -873,25 +834,17 @@ pub(crate) mod tests {
         assert_eq!(detail.payable.status, "OPEN");
         assert_eq!(detail.payable.status_label, "未付");
         assert_eq!(detail.payable.voucher_id.as_deref(), Some(VOUCHER_1));
-        assert_eq!(
-            detail.voucher_no.as_deref(),
-            Some("P2C2-V-0001"),
-            "详情带关联凭证号"
-        );
+        assert_eq!(detail.voucher_no.as_deref(), Some("P2C2-V-0001"), "详情带关联凭证号");
         // 没有凭证的那张：voucher_no 为 None，不报错。
-        let plain = payable_detail(
-            Uuid::parse_str("c2c20001-0000-4000-8000-0000c2c20002").expect("夹具 UUID"),
-        )
-        .await
-        .expect("应付详情（无凭证）");
+        let plain = payable_detail(Uuid::parse_str("c2c20001-0000-4000-8000-0000c2c20002").expect("夹具 UUID"))
+            .await
+            .expect("应付详情（无凭证）");
         assert!(plain.voucher_no.is_none());
         assert_eq!(plain.payable.status_label, "部分已付");
         // 不存在 / 已删除 → 404。
-        let err = payable_detail(
-            Uuid::parse_str("c2c20001-0000-4000-8000-00000000ffff").expect("夹具 UUID"),
-        )
-        .await
-        .expect_err("不存在的应付单");
+        let err = payable_detail(Uuid::parse_str("c2c20001-0000-4000-8000-00000000ffff").expect("夹具 UUID"))
+            .await
+            .expect_err("不存在的应付单");
         assert_eq!(err.status, 404);
         println!("[P2C2-④] 详情完整字段 + 凭证号 + 404 ✓");
     }
@@ -1032,10 +985,7 @@ pub(crate) mod tests {
         };
         assert!(ok.validate().is_ok());
         assert_eq!(
-            ok.to_filter()
-                .expect("合法")
-                .supplier_id
-                .map(|id| id.to_string()),
+            ok.to_filter().expect("合法").supplier_id.map(|id| id.to_string()),
             Some(SUPPLIER_A.to_string())
         );
         // 状态标签。
@@ -1081,10 +1031,7 @@ pub(crate) mod tests {
         };
         let today = NaiveDate::from_ymd_opt(2026, 11, 2).expect("固定日期");
         let res = PayableRes::from_row(&row, today);
-        assert_eq!(
-            res.cancel_instance_id.as_deref(),
-            Some(instance.to_string().as_str())
-        );
+        assert_eq!(res.cancel_instance_id.as_deref(), Some(instance.to_string().as_str()));
         assert_eq!(res.cancel_reason.as_deref(), Some("供应商发票开错"));
 
         // JSON 契约：两个键必须在（值为 null 也要在），前端按可选字段接

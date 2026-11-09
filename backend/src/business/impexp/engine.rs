@@ -135,10 +135,7 @@ impl SheetReader {
     /// # 异常情况
     ///
     /// 见 [`EngineError`]。
-    pub fn open(
-        bytes: &[u8],
-        columns: &'static [ImportColumn],
-    ) -> std::result::Result<Self, EngineError> {
+    pub fn open(bytes: &[u8], columns: &'static [ImportColumn]) -> std::result::Result<Self, EngineError> {
         if bytes.len() < 4 {
             return Err(EngineError::NotXlsx);
         }
@@ -149,8 +146,8 @@ impl SheetReader {
             return Err(EngineError::NotXlsx);
         }
 
-        let mut workbook: Xlsx<Cursor<&[u8]>> = Xlsx::new(Cursor::new(bytes))
-            .map_err(|error| EngineError::Broken(error.to_string()))?;
+        let mut workbook: Xlsx<Cursor<&[u8]>> =
+            Xlsx::new(Cursor::new(bytes)).map_err(|error| EngineError::Broken(error.to_string()))?;
         // 「数据」sheet 优先（模板的第 1 个 sheet），否则用第一个 sheet：
         // 用户另存 / 重命名 sheet 后仍然能导入，报错文案里的行号也仍然是 Excel 行号。
         let names = workbook.sheet_names().to_vec();
@@ -175,11 +172,7 @@ impl SheetReader {
         if range.height() <= 1 {
             return Err(EngineError::NoDataRows);
         }
-        Ok(Self {
-            range,
-            header,
-            columns,
-        })
+        Ok(Self { range, header, columns })
     }
 
     /// 表头映射结果。
@@ -274,11 +267,7 @@ impl SheetReader {
 }
 
 /// 表头行 → [`HeaderMap`]。
-fn build_header(
-    header_row: RawRow<'_>,
-    columns: &'static [ImportColumn],
-    sheet_name: &str,
-) -> HeaderMap {
+fn build_header(header_row: RawRow<'_>, columns: &'static [ImportColumn], sheet_name: &str) -> HeaderMap {
     let mut indexes = vec![None; columns.len()];
     let mut matched_order: Vec<usize> = Vec::new();
     let mut extra_headers = Vec::new();
@@ -289,10 +278,7 @@ fn build_header(
         if normalized.is_empty() {
             continue;
         }
-        match columns
-            .iter()
-            .position(|column| column.header == normalized)
-        {
+        match columns.iter().position(|column| column.header == normalized) {
             Some(column_index) => {
                 if indexes[column_index].is_none() {
                     indexes[column_index] = Some(position);
@@ -373,18 +359,16 @@ pub fn cell_text(cell: &Data) -> String {
             }
         }
         Data::Bool(value) => value.to_string(),
-        Data::DateTime(value) => {
-            match crate::business::impexp::definition::excel_serial_to_datetime(value.as_f64()) {
-                Some(datetime) => {
-                    if datetime.time() == chrono::NaiveTime::MIN {
-                        datetime.format("%Y-%m-%d").to_string()
-                    } else {
-                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                    }
+        Data::DateTime(value) => match crate::business::impexp::definition::excel_serial_to_datetime(value.as_f64()) {
+            Some(datetime) => {
+                if datetime.time() == chrono::NaiveTime::MIN {
+                    datetime.format("%Y-%m-%d").to_string()
+                } else {
+                    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
                 }
-                None => value.as_f64().to_string(),
             }
-        }
+            None => value.as_f64().to_string(),
+        },
         Data::DateTimeIso(text) | Data::DurationIso(text) => text.clone(),
         Data::Error(error) => format!("{error:?}"),
     }
@@ -471,17 +455,9 @@ pub fn format_export_rows(
 /// # 异常情况
 ///
 /// 写入失败（底层 `rust_xlsxwriter` 报错）返回 500。
-pub fn write_sheet(
-    headers: &[&str],
-    rows: &[HashMap<String, String>],
-) -> std::result::Result<Vec<u8>, ApiError> {
-    Export::to_xlsx_bytes(headers, rows).map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("生成 Excel 失败：{error}"),
-        )
-    })
+pub fn write_sheet(headers: &[&str], rows: &[HashMap<String, String>]) -> std::result::Result<Vec<u8>, ApiError> {
+    Export::to_xlsx_bytes(headers, rows)
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("生成 Excel 失败：{error}")))
 }
 
 /// 多 sheet 写入的入参。
@@ -530,18 +506,10 @@ impl<'a> WorkbookSheet<'a> {
 pub fn write_workbook(sheets: &[WorkbookSheet<'_>]) -> std::result::Result<Vec<u8>, ApiError> {
     let built = sheets
         .iter()
-        .map(|sheet| {
-            XlsxSheet::new(sheet.name, sheet.headers, sheet.rows)
-                .with_validations(sheet.validations)
-        })
+        .map(|sheet| XlsxSheet::new(sheet.name, sheet.headers, sheet.rows).with_validations(sheet.validations))
         .collect::<Vec<_>>();
-    Export::to_xlsx_workbook(&built).map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("生成 Excel 失败：{error}"),
-        )
-    })
+    Export::to_xlsx_workbook(&built)
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("生成 Excel 失败：{error}")))
 }
 
 #[cfg(test)]
@@ -617,10 +585,7 @@ mod tests {
     fn opens_real_xlsx_and_maps_headers() {
         let bytes = build_xlsx(
             &["编码", "名称", "状态"],
-            vec![
-                vec!["MAT-000001", "螺丝", "启用"],
-                vec!["MAT-000002", "螺母", "停用"],
-            ],
+            vec![vec!["MAT-000001", "螺丝", "启用"], vec!["MAT-000002", "螺母", "停用"]],
         );
         let reader = SheetReader::open(&bytes, COLUMNS).expect("应能打开");
         assert_eq!(reader.data_len(), 2);
@@ -634,10 +599,7 @@ mod tests {
 
     #[test]
     fn header_with_star_and_reordered_columns_is_accepted_with_warning() {
-        let bytes = build_xlsx(
-            &["名称*", "状态", "编码＊"],
-            vec![vec!["螺丝", "启用", "MAT-000001"]],
-        );
+        let bytes = build_xlsx(&["名称*", "状态", "编码＊"], vec![vec!["螺丝", "启用", "MAT-000001"]]);
         let reader = SheetReader::open(&bytes, COLUMNS).expect("应能打开");
         assert_eq!(reader.header().indexes, vec![Some(2), Some(0), Some(1)]);
         assert!(reader.header().order_mismatch, "列顺序不一致应被标记");
@@ -648,9 +610,7 @@ mod tests {
     #[test]
     fn missing_required_header_is_rejected() {
         let bytes = build_xlsx(&["编码", "状态"], vec![vec!["MAT-1", "启用"]]);
-        let error = SheetReader::open(&bytes, COLUMNS)
-            .err()
-            .expect("缺必填列应拒绝");
+        let error = SheetReader::open(&bytes, COLUMNS).err().expect("缺必填列应拒绝");
         match error {
             EngineError::MissingHeaders(headers) => assert_eq!(headers, vec!["名称"]),
             other => panic!("错误类型不符: {other:?}"),
@@ -670,18 +630,14 @@ mod tests {
     #[test]
     fn header_only_file_reports_no_data_rows() {
         let bytes = build_xlsx(&["编码", "名称"], vec![]);
-        let error = SheetReader::open(&bytes, COLUMNS)
-            .err()
-            .expect("只有表头应报错");
+        let error = SheetReader::open(&bytes, COLUMNS).err().expect("只有表头应报错");
         assert!(matches!(error, EngineError::NoDataRows));
         assert_eq!(error.into_api_error().status, 422);
     }
 
     #[test]
     fn non_xlsx_magic_is_rejected() {
-        let error = SheetReader::open(b"not a zip file", COLUMNS)
-            .err()
-            .expect("魔数不符");
+        let error = SheetReader::open(b"not a zip file", COLUMNS).err().expect("魔数不符");
         assert!(matches!(error, EngineError::NotXlsx));
         let legacy = SheetReader::open(&[0xD0, 0xCF, 0x11, 0xE0, 0, 0], COLUMNS)
             .err()
@@ -747,9 +703,8 @@ mod tests {
         }];
         let mut row = HashMap::new();
         row.insert("status", "1".to_string());
-        let formatted =
-            format_export_rows(EXPORT_COLUMNS, &[row], &HashMap::new(), &MaskSet::empty())
-                .expect("非敏感列不需要脱敏规则");
+        let formatted = format_export_rows(EXPORT_COLUMNS, &[row], &HashMap::new(), &MaskSet::empty())
+            .expect("非敏感列不需要脱敏规则");
         assert_eq!(formatted[0].get("状态").map(String::as_str), Some("启用"));
         assert_eq!(export_headers(EXPORT_COLUMNS), vec!["状态"]);
     }
@@ -786,32 +741,21 @@ mod tests {
             crate::business::masking::masker::MaskType::Mobile,
             None,
         );
-        let masked = format_export_rows(COLUMNS, &[row.clone()], &HashMap::new(), &mask)
-            .expect("有规则应成功");
+        let masked = format_export_rows(COLUMNS, &[row.clone()], &HashMap::new(), &mask).expect("有规则应成功");
         assert_eq!(masked[0].get("用户名").map(String::as_str), Some("alice"));
-        assert_eq!(
-            masked[0].get("手机号").map(String::as_str),
-            Some("138****5678")
-        );
+        assert_eq!(masked[0].get("手机号").map(String::as_str), Some("138****5678"));
 
         // ② 没有规则 → 明确报错（61008），绝不返回明文
         let error = format_export_rows(COLUMNS, &[row.clone()], &HashMap::new(), &MaskSet::empty())
             .expect_err("敏感列没有规则必须失败");
         assert_eq!(error.error_code(), error_code::FIELD_MASK_RULE_MISSING);
         assert_eq!(error.http_status(), 422);
-        assert!(
-            error.message().contains("sys_user.mobile"),
-            "{}",
-            error.message()
-        );
+        assert!(error.message().contains("sys_user.mobile"), "{}", error.message());
 
         // ③ 豁免（超管 / 明版权限）→ 明文，且**不**触发 fail-closed（架构 §3.6）
         let exempt = crate::business::masking::registry::resolve_super();
-        let plain = format_export_rows(COLUMNS, &[row], &HashMap::new(), &exempt)
-            .expect("豁免用户导出不应 fail-closed");
-        assert_eq!(
-            plain[0].get("手机号").map(String::as_str),
-            Some("13812345678")
-        );
+        let plain =
+            format_export_rows(COLUMNS, &[row], &HashMap::new(), &exempt).expect("豁免用户导出不应 fail-closed");
+        assert_eq!(plain[0].get("手机号").map(String::as_str), Some("13812345678"));
     }
 }

@@ -27,9 +27,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::erp::stockin_dto::{
-    CreateStockInReq, StockInItemReq, StockInLineSerials, StockInStatusReq,
-};
+use cloudpivot::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInLineSerials, StockInStatusReq};
 use cloudpivot::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
 use cloudpivot::business::flow::dto as flow_dto;
 use cloudpivot::business::flow::handler as flow_handler;
@@ -152,8 +150,7 @@ async fn cancel_instance_of(stock_in_id: Uuid) -> Option<Uuid> {
         )
         .await
         .unwrap_or_else(|error| panic!("查作废审批实例失败：{error}"));
-    rows.first()
-        .map(|row| row.get_typed::<Uuid>("id").expect("实例 id"))
+    rows.first().map(|row| row.get_typed::<Uuid>("id").expect("实例 id"))
 }
 
 /// 走**生产路径**让作废审批落终态：把 PENDING 待办逐条「同意」，直到实例不再 PENDING。
@@ -205,9 +202,7 @@ async fn approve_cancel_instance(instance_id: Uuid) {
 async fn cancel_with_approval(ctx: &Ctx, id: Uuid, reason: &str) {
     change_stock_in_status(id, &cancel_req(Some(reason)), Some(ctx.worker))
         .await
-        .unwrap_or_else(|error| {
-            panic!("{}：发起作废审批失败 {} {}", ctx.tag, error.code, error.msg)
-        });
+        .unwrap_or_else(|error| panic!("{}：发起作废审批失败 {} {}", ctx.tag, error.code, error.msg));
     assert_eq!(
         status_of(id).await,
         "PENDING_CANCEL",
@@ -252,9 +247,7 @@ async fn voucher_ids_of(stock_in_id: Uuid) -> Vec<Uuid> {
 }
 
 /// 本单产生的应付单 `(id, status, amount, paid_amount)`。
-async fn payable_of(
-    stock_in_id: Uuid,
-) -> Option<(Uuid, String, rust_decimal::Decimal, rust_decimal::Decimal)> {
+async fn payable_of(stock_in_id: Uuid) -> Option<(Uuid, String, rust_decimal::Decimal, rust_decimal::Decimal)> {
     let rows = db()
         .find_with_params(
             "SELECT id, status, amount, paid_amount FROM biz_payable \
@@ -267,10 +260,8 @@ async fn payable_of(
         (
             row.get_typed::<Uuid>("id").expect("应付 id"),
             row.get_typed::<String>("status").expect("应付状态"),
-            row.get_typed::<rust_decimal::Decimal>("amount")
-                .expect("应付金额"),
-            row.get_typed::<rust_decimal::Decimal>("paid_amount")
-                .expect("已付金额"),
+            row.get_typed::<rust_decimal::Decimal>("amount").expect("应付金额"),
+            row.get_typed::<rust_decimal::Decimal>("paid_amount").expect("已付金额"),
         )
     })
 }
@@ -330,11 +321,7 @@ async fn s01_post_writes_all_six_ledgers() {
     change_stock_in_status(id, &post_req(), Some(ctx.worker))
         .await
         .unwrap_or_else(|error| panic!("S01：过账失败 {} {}", error.code, error.msg));
-    assert_eq!(
-        status_of(id).await,
-        "POSTED",
-        "S01：过账后状态必须是 POSTED"
-    );
+    assert_eq!(status_of(id).await, "POSTED", "S01：过账后状态必须是 POSTED");
 
     let (inv, loc, txn, vou) = common::four_ledger_snapshot(ctx.mat, ctx.wh_from).await;
     common::assert_dec(inv, common::dec("10"), "S01：库存数量");
@@ -395,26 +382,14 @@ async fn s02_voucher_is_balanced_with_expected_accounts() {
     }
     common::assert_dec(debit_sum, credit_sum, "S02：Σ借 = Σ贷（借贷必须平衡）");
 
-    let find = |code: &str| {
-        by_code
-            .iter()
-            .find(|(c, _, _)| c == code)
-            .map(|(_, d, c)| (*d, *c))
-    };
-    let (d1405, c1405) =
-        find("1405").unwrap_or_else(|| panic!("S02：缺少 1405 库存商品分录：{by_code:?}"));
-    common::assert_dec(
-        d1405,
-        common::dec("20"),
-        "S02：借 1405 金额（10 × 2 不含税）",
-    );
+    let find = |code: &str| by_code.iter().find(|(c, _, _)| c == code).map(|(_, d, c)| (*d, *c));
+    let (d1405, c1405) = find("1405").unwrap_or_else(|| panic!("S02：缺少 1405 库存商品分录：{by_code:?}"));
+    common::assert_dec(d1405, common::dec("20"), "S02：借 1405 金额（10 × 2 不含税）");
     common::assert_dec(c1405, common::dec("0"), "S02：1405 不许有贷方");
-    let (d_tax, c_tax) =
-        find("2221.01").unwrap_or_else(|| panic!("S02：缺少 2221.01 进项税分录：{by_code:?}"));
+    let (d_tax, c_tax) = find("2221.01").unwrap_or_else(|| panic!("S02：缺少 2221.01 进项税分录：{by_code:?}"));
     common::assert_dec(d_tax, common::dec("2.6"), "S02：借 2221.01 进项税额");
     common::assert_dec(c_tax, common::dec("0"), "S02：2221.01 不许有贷方");
-    let (d2202, c2202) =
-        find("2202").unwrap_or_else(|| panic!("S02：缺少 2202 应付账款分录：{by_code:?}"));
+    let (d2202, c2202) = find("2202").unwrap_or_else(|| panic!("S02：缺少 2202 应付账款分录：{by_code:?}"));
     common::assert_dec(d2202, common::dec("0"), "S02：2202 不许有借方");
     common::assert_dec(c2202, common::dec("22.6"), "S02：贷 2202 价税合计");
     ctx.cleanup().await;
@@ -434,10 +409,7 @@ async fn s03_payable_amount_equals_stock_in_total() {
     let with_tax = with_tax_of(id).await;
     let (_, _, amount, _) = payable_of(id).await.expect("S03：必须生成应付单");
     common::assert_dec(amount, with_tax, "S03：应付金额 = 收货单价税合计");
-    assert!(
-        with_tax > common::dec("0"),
-        "S03：价税合计必须为正，实际 {with_tax}"
-    );
+    assert!(with_tax > common::dec("0"), "S03：价税合计必须为正，实际 {with_tax}");
     ctx.cleanup().await;
 }
 
@@ -472,10 +444,7 @@ async fn s04_post_creates_serials_for_serial_material() {
         vec![Value::from(&id), Value::from(&ctx.wh_from)],
     )
     .await;
-    assert_eq!(
-        stored, 3,
-        "S04：新生成的序列号必须是 IN_STOCK，且落在本用例仓库里"
-    );
+    assert_eq!(stored, 3, "S04：新生成的序列号必须是 IN_STOCK，且落在本用例仓库里");
     // 反向：不变量 —— 序列号件数必须等于库存数量（一物一码的账实一致）
     let (inv, _, _, _) = common::four_ledger_snapshot(ctx.mat_sn, ctx.wh_from).await;
     common::assert_dec(
@@ -705,10 +674,7 @@ async fn s10_cancel_cancels_payable() {
         "S10：作废收货单必须同时作废应付单（否则财务会重复付款）"
     );
     common::assert_dec(paid, common::dec("0"), "S10：作废的应付已付金额仍是 0");
-    assert!(
-        amount > common::dec("0"),
-        "S10：作废不减金额（审计保留原额）"
-    );
+    assert!(amount > common::dec("0"), "S10：作废不减金额（审计保留原额）");
     ctx.cleanup().await;
 }
 
@@ -836,19 +802,13 @@ async fn s13_cancel_without_reason_is_bad_request() {
     let error = change_stock_in_status(id, &cancel_req(None), Some(ctx.worker))
         .await
         .expect_err("S13：已过账的收货单不给 reason 必须被拒");
-    assert_eq!(
-        error.status, 400,
-        "S13：缺 reason 是参数问题 → 400，实际 {error:?}"
-    );
+    assert_eq!(error.status, 400, "S13：缺 reason 是参数问题 → 400，实际 {error:?}");
     assert_eq!(status_of(id).await, "POSTED", "S13：被拒后状态不许变");
     // 空白 reason 与不给等价
     let blank = change_stock_in_status(id, &cancel_req(Some("   ")), Some(ctx.worker))
         .await
         .expect_err("S13：空白 reason 也必须被拒");
-    assert_eq!(
-        blank.status, 400,
-        "S13：空白 reason 同样 400，实际 {blank:?}"
-    );
+    assert_eq!(blank.status, 400, "S13：空白 reason 同样 400，实际 {blank:?}");
     ctx.cleanup().await;
 }
 
@@ -883,11 +843,7 @@ async fn s14_cancel_after_shipping_is_conflict() {
         "S14：文案必须说清「货已出库/库存不足」，实际：{}",
         error.msg
     );
-    assert_eq!(
-        status_of(id).await,
-        "POSTED",
-        "S14：被拒后单据必须仍是 POSTED"
-    );
+    assert_eq!(status_of(id).await, "POSTED", "S14：被拒后单据必须仍是 POSTED");
     ctx.cleanup().await;
 }
 
@@ -989,10 +945,6 @@ async fn s16_failed_cancel_rolls_back_everything() {
         payable_before,
         "S16：作废失败不许提前把应付作废"
     );
-    assert_eq!(
-        status_of(id).await,
-        "POSTED",
-        "S16：单据状态必须仍是 POSTED"
-    );
+    assert_eq!(status_of(id).await, "POSTED", "S16：单据状态必须仍是 POSTED");
     ctx.cleanup().await;
 }

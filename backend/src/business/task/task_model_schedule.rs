@@ -40,10 +40,7 @@ pub async fn find_schedule_row(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Opti
 /// **不在这里过滤状态**：`DONE` / `CANCELLED` 是否算「已解除」的唯一判据是
 /// [`crate::business::task::dep::is_blocking_status`]（纯逻辑，可单测）。
 // SCOPE-EXEMPT: 按 task_id 取「我依赖谁」的 FS 边（校验用的关系集合）；调用方 schedule.rs:566。注入 scope 会把看不见的前置过滤掉 → 改期校验静默漏判（比越权更难发现），可见性/写权限已在 schedule.rs:517 / :524 判定。
-pub async fn schedule_prerequisites(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-) -> DbResult<Vec<PeerSchedule>> {
+pub async fn schedule_prerequisites(ex: &impl SqlExecutor, task_id: Uuid) -> DbResult<Vec<PeerSchedule>> {
     let rows = ex
         .query_sql(
             format!(
@@ -61,10 +58,7 @@ pub async fn schedule_prerequisites(
 
 /// 后继（谁依赖我；`depends_on_id = 我`）。
 // SCOPE-EXEMPT: 按 task_id 取「谁依赖我」的 FS 边（同上，校验用关系集合）；调用方 schedule.rs:567，注入 scope 会让看不见的后继被漏判；权限点 schedule.rs:517 / :524。
-pub async fn schedule_successors(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-) -> DbResult<Vec<PeerSchedule>> {
+pub async fn schedule_successors(ex: &impl SqlExecutor, task_id: Uuid) -> DbResult<Vec<PeerSchedule>> {
     let rows = ex
         .query_sql(
             format!(
@@ -82,10 +76,7 @@ pub async fn schedule_successors(
 
 /// 父任务的排期（本任务没有父任务 / 父任务已软删 → `None`）。
 // SCOPE-EXEMPT: 按 parent_id 取父任务排期单行（父子区间校验用）；调用方 schedule.rs:569，权限点 schedule.rs:517 / :524。
-pub async fn schedule_parent(
-    ex: &impl SqlExecutor,
-    parent_id: Uuid,
-) -> DbResult<Option<PeerSchedule>> {
+pub async fn schedule_parent(ex: &impl SqlExecutor, parent_id: Uuid) -> DbResult<Option<PeerSchedule>> {
     let rows = ex
         .query_sql(
             format!(
@@ -104,10 +95,7 @@ pub async fn schedule_parent(
 
 /// 子任务的排期（本卡**不级联**：父任务改期时用它做「别把子任务甩出去」的校验）。
 // SCOPE-EXEMPT: 按 task_id 取子任务排期集合（「别把子任务甩出父区间」校验用）；调用方 schedule.rs:572，权限点 schedule.rs:517 / :524；产出行集仅用于校验，不返回给前端。
-pub async fn schedule_children(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-) -> DbResult<Vec<PeerSchedule>> {
+pub async fn schedule_children(ex: &impl SqlExecutor, task_id: Uuid) -> DbResult<Vec<PeerSchedule>> {
     let rows = ex
         .query_sql(
             format!(

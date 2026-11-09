@@ -179,13 +179,9 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
                 return Ok(None);
             }
             // 真作废：复用 P9 的 cancel_in_tx（六本账回滚），一个事务里做完
-            let reason = row
-                .cancel_reason
-                .clone()
-                .unwrap_or_else(|| "作废审批通过".to_string());
+            let reason = row.cancel_reason.clone().unwrap_or_else(|| "作废审批通过".to_string());
             let operator = approver.or(row.create_by);
-            let outcome =
-                stockin_handler::cancel_after_approval(stock_in_id, &row, &reason, operator).await;
+            let outcome = stockin_handler::cancel_after_approval(stock_in_id, &row, &reason, operator).await;
             match outcome {
                 Ok(()) => Ok(Some(stock_in_id)),
                 Err(error) => {
@@ -201,13 +197,7 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
         }
         Verdict::Restore => {
             // 驳回 / 撤回 / 终止：单据回到已过账，账一动没动
-            let outcome = stockin_handler::restore_after_cancel_approval(
-                stock_in_id,
-                &row,
-                verdict,
-                approver,
-            )
-            .await;
+            let outcome = stockin_handler::restore_after_cancel_approval(stock_in_id, &row, verdict, approver).await;
             match outcome {
                 Ok(()) => Ok(Some(stock_in_id)),
                 Err(error) => {
@@ -283,10 +273,7 @@ pub async fn reconcile_orphan_cancels() -> DbResult<u64> {
         let stock_in_id: Uuid = row.get_typed("stock_in_id")?;
         let in_no: Option<String> = row.get_typed("biz_no")?;
         let in_no = in_no.unwrap_or_else(|| "(无单号)".to_string());
-        let reason = if row
-            .get_typed::<Option<DateTime<Utc>>>("stock_deleted_at")?
-            .is_some()
-        {
+        let reason = if row.get_typed::<Option<DateTime<Utc>>>("stock_deleted_at")?.is_some() {
             "收货单已删除，作废审批自动终止"
         } else {
             "收货单已不处于作废审批中，作废审批自动终止"
@@ -478,9 +465,7 @@ async fn settle_post(instance_id: Uuid, verdict: PostVerdict) -> DbResult<Option
                 );
                 return Ok(None);
             }
-            match stockin_handler::post_after_approval(stock_in_id, approver.or(row.create_by))
-                .await
-            {
+            match stockin_handler::post_after_approval(stock_in_id, approver.or(row.create_by)).await {
                 Ok(()) => Ok(Some(stock_in_id)),
                 // ★ BUG-01（同源）：审批已 APPROVED，过账却失败 —— 单据停在 PENDING_POST
                 //   时**没有任何待办会来推进它**，也没有人工过账接口，就是死单。
@@ -562,29 +547,16 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// 审批入口的内控闸（**事务之前**调）：过账审批的制单人 / 发起人不能批自己那一票 → 403。
 ///
 /// 判据只认 `STOCK_IN_POST` 类的实例，与其它业务的待办零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };

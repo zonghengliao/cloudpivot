@@ -52,8 +52,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::aiagent::dto::{
-    AiUserCreateReq, AiUserCredentialRes, AiUserDeleteRes, AiUserRes, AiUserStatusRes,
-    AiUserUpdateReq, normalize_description,
+    AiUserCreateReq, AiUserCredentialRes, AiUserDeleteRes, AiUserRes, AiUserStatusRes, AiUserUpdateReq,
+    normalize_description,
 };
 use crate::business::aiagent::hermes::Hermes;
 use crate::business::aiagent::model::{self, AiAgentRow, AiUserBrief};
@@ -104,11 +104,7 @@ use crate::utils;
 /// - 500 + `64014`：profile 级凭据不可用（全局 `.env` 与进程环境都没有 provider key，
 ///   或 `.env` 权限不是 600）——**已回滚，磁盘与库零残留**；
 /// - 500 + `64009`：回滚未完全成功（消息里逐条列出残留项）。
-#[nik::permission(
-    path = "/system/user/ai",
-    method = "POST",
-    permission = "system:user:create"
-)]
+#[nik::permission(path = "/system/user/ai", method = "POST", permission = "system:user:create")]
 #[nik::post("/system/user/ai")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -128,12 +124,7 @@ pub async fn create(
         .map(str::trim)
         .filter(|v| !v.is_empty())
         .map(str::to_string);
-    let template = match req
-        .clone_from
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
+    let template = match req.clone_from.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
         Some(raw) => {
             // 模板名同样进命令参数，必须同样校验（第二条注入面）；
             // 允许 `default`（Hermes 内置模板）—— 见 Hermes::validate_template_name。
@@ -249,29 +240,13 @@ pub async fn create(
         .create_profile(&username, template.as_deref(), &description)
         .await
     {
-        return Err(compensate(
-            &hermes,
-            &user_id,
-            &username,
-            profile_created,
-            workspace_created,
-            e,
-        )
-        .await);
+        return Err(compensate(&hermes, &user_id, &username, profile_created, workspace_created, e).await);
     }
     profile_created = true;
 
     // ---- ③ SOUL.md 落盘（内容已在 ① 写进库；这里写磁盘，失败同样整体补偿）
     if let Err(e) = hermes.write_soul(&username, &row.soul_md).await {
-        return Err(compensate(
-            &hermes,
-            &user_id,
-            &username,
-            profile_created,
-            workspace_created,
-            e,
-        )
-        .await);
+        return Err(compensate(&hermes, &user_id, &username, profile_created, workspace_created, e).await);
     }
 
     // ---- ④ workspace（`hermes profile create` 不建 workspace，卡面要求建号即建目录）
@@ -281,15 +256,7 @@ pub async fn create(
             row.workspace_path = path.to_string_lossy().to_string();
         }
         Err(e) => {
-            return Err(compensate(
-                &hermes,
-                &user_id,
-                &username,
-                profile_created,
-                workspace_created,
-                e,
-            )
-            .await);
+            return Err(compensate(&hermes, &user_id, &username, profile_created, workspace_created, e).await);
         }
     }
 
@@ -319,24 +286,12 @@ pub async fn create(
                 &username,
                 profile_created,
                 workspace_created,
-                ApiError::new(
-                    500,
-                    error_code::AI_AGENT_CREDENTIAL_MISSING,
-                    check.failure_message(),
-                ),
+                ApiError::new(500, error_code::AI_AGENT_CREDENTIAL_MISSING, check.failure_message()),
             )
             .await);
         }
         Err(e) => {
-            return Err(compensate(
-                &hermes,
-                &user_id,
-                &username,
-                profile_created,
-                workspace_created,
-                e,
-            )
-            .await);
+            return Err(compensate(&hermes, &user_id, &username, profile_created, workspace_created, e).await);
         }
     }
 
@@ -467,11 +422,7 @@ pub async fn update(
 /// # 异常情况
 ///
 /// - 404 + `64001`：该用户不是 AI 用户 / 已删除。
-#[nik::permission(
-    path = "/system/user/ai/{user_id}",
-    method = "GET",
-    permission = "system:user:list"
-)]
+#[nik::permission(path = "/system/user/ai/{user_id}", method = "GET", permission = "system:user:list")]
 #[nik::get("/system/user/ai/{user_id}")]
 pub async fn detail(Path(user_id): Path<String>) -> ResResult<AiUserRes> {
     let id = utils::require_uuid(&user_id, "user_id")?;
@@ -570,9 +521,7 @@ pub async fn repair_credentials(
         .ok_or_else(|| ai_not_found(&id))?;
 
     let sync = hermes.ensure_profile_env(&row.hermes_profile).await?;
-    let check = hermes
-        .verify_profile_credentials(&row.hermes_profile)
-        .await?;
+    let check = hermes.verify_profile_credentials(&row.hermes_profile).await?;
     tracing::info!(
         user_id = %id,
         profile = %row.hermes_profile,
@@ -658,17 +607,11 @@ pub async fn delete(
 
     // ③ 删 profile（失败即中止：库里仍是「有效 AI 用户」，运维可重试）
     hermes.delete_profile(&row.hermes_profile).await?;
-    let profile_removed = !hermes
-        .profile_dir_exists(&row.hermes_profile)
-        .await
-        .unwrap_or(true);
+    let profile_removed = !hermes.profile_dir_exists(&row.hermes_profile).await.unwrap_or(true);
 
     // ④ 删 workspace（幂等；失败只记日志，不阻断软删 —— 目录残留不影响账号语义）
     let workspace_removed = match hermes.remove_workspace(&row.hermes_profile).await {
-        Ok(()) => !hermes
-            .workspace_path_exists(&row.hermes_profile)
-            .await
-            .unwrap_or(false),
+        Ok(()) => !hermes.workspace_path_exists(&row.hermes_profile).await.unwrap_or(false),
         Err(e) => {
             tracing::warn!(
                 profile = %row.hermes_profile,
@@ -719,13 +662,8 @@ pub async fn delete(
 /// - 401 + `20004`：令牌里没有可用的用户 ID（`sub` 不是 UUID）；
 /// - 500：查账号类型时数据库异常。
 async fn forbid_robot(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
-    let operator_id = utils::current_user_uuid(claims).ok_or_else(|| {
-        ApiError::new(
-            401,
-            error_code::AUTH_TOKEN_MISSING,
-            "令牌缺少有效的用户标识",
-        )
-    })?;
+    let operator_id = utils::current_user_uuid(claims)
+        .ok_or_else(|| ApiError::new(401, error_code::AUTH_TOKEN_MISSING, "令牌缺少有效的用户标识"))?;
     let user_type = user_model::find_user_type(&operator_id)
         .await
         .map_err(|error| utils::db_error(error, "查询操作者账号类型"))?;
@@ -773,10 +711,7 @@ struct SafetyRestoreAudit {
 /// # 异常情况
 ///
 /// 数据库异常原样上抛 → 业务事务一起回滚（宁可这次编辑失败，也不留「恢复了但没凭证」）。
-async fn write_safety_restore_audit(
-    ex: &impl SqlExecutor,
-    audit: &SafetyRestoreAudit,
-) -> DbResult<()> {
+async fn write_safety_restore_audit(ex: &impl SqlExecutor, audit: &SafetyRestoreAudit) -> DbResult<()> {
     // 操作人类型同事务查库判定（不硬编码 HUMAN：将来若放开 AI 改配置，这里不会说谎）
     let operator_type = changelog_model::operator_type_of(ex, audit.operator_id).await?;
     let changed_fields = vec!["soul_md".to_string()];
@@ -919,11 +854,8 @@ async fn hard_delete_records(user_id: &Uuid) -> std::result::Result<(), DbError>
             vec![Value::from(&id)],
         )
         .await?;
-        tx.exec_sql(
-            "DELETE FROM sys_user WHERE id = ?".to_string(),
-            vec![Value::from(&id)],
-        )
-        .await?;
+        tx.exec_sql("DELETE FROM sys_user WHERE id = ?".to_string(), vec![Value::from(&id)])
+            .await?;
         Ok(())
     })
     .await
@@ -960,10 +892,7 @@ fn to_res(hermes: &Hermes, row: &AiAgentRow, brief: Option<&AiUserBrief>) -> AiU
             .unwrap_or_else(|| "ROBOT".to_string()),
         hermes_profile: row.hermes_profile.clone(),
         workspace_path: row.workspace_path.clone(),
-        soul_path: hermes
-            .soul_path(&row.hermes_profile)
-            .to_string_lossy()
-            .to_string(),
+        soul_path: hermes.soul_path(&row.hermes_profile).to_string_lossy().to_string(),
         agent_description: row.agent_description.clone().unwrap_or_default(),
         soul_md: row.soul_md.clone(),
         model_override: row.model_override.clone(),
@@ -987,14 +916,11 @@ fn ai_not_found(user_id: &Uuid) -> ApiError {
 /// 没人知道的随机值 —— 绝不能用固定串（那等于给所有机器人开了同一个后门口令）。
 fn robot_password_hash() -> std::result::Result<String, ApiError> {
     let raw = format!("{}{}", Uuid::now_v7().simple(), Uuid::now_v7().simple());
-    Crypto::hash_password(&raw)
-        .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "机器人账号口令加密失败"))
+    Crypto::hash_password(&raw).map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "机器人账号口令加密失败"))
 }
 
 /// 规整模型覆盖：`null` → `None`；其它必须是 JSON 对象（如 `{"model":"deepseek-v4.1-flash"}`）。
-fn normalize_model(
-    raw: Option<serde_json::Value>,
-) -> std::result::Result<Option<serde_json::Value>, ApiError> {
+fn normalize_model(raw: Option<serde_json::Value>) -> std::result::Result<Option<serde_json::Value>, ApiError> {
     match raw {
         None => Ok(None),
         Some(serde_json::Value::Null) => Ok(None),
@@ -1019,11 +945,7 @@ mod tests {
     #[test]
     fn normalize_model_accepts_only_object_or_null() {
         assert!(normalize_model(None).expect("None").is_none());
-        assert!(
-            normalize_model(Some(serde_json::Value::Null))
-                .expect("null")
-                .is_none()
-        );
+        assert!(normalize_model(Some(serde_json::Value::Null)).expect("null").is_none());
         let obj = serde_json::json!({"model": "deepseek-v4.1-flash"});
         assert_eq!(normalize_model(Some(obj.clone())).expect("对象"), Some(obj));
         for bad in [
@@ -1052,10 +974,7 @@ mod tests {
         // 刚好等于上限必须通过（边界值不误伤）
         let edge = "职".repeat(hermes::DESCRIPTION_MAX_CHARS);
         assert_eq!(
-            normalize_description(Some(&edge))
-                .expect("边界值")
-                .chars()
-                .count(),
+            normalize_description(Some(&edge)).expect("边界值").chars().count(),
             hermes::DESCRIPTION_MAX_CHARS
         );
     }

@@ -73,9 +73,7 @@ pub(super) fn build_filters(filter: &TaskFilter, params: &mut Vec<Value>) -> Str
         //
         // 参数顺序红线：本片段位于业务过滤**最前**，`?` 的文本顺序与 push 顺序
         // 一一对应；`statuses` 非空时直接跳过下面的单值 `status`（优先，不是叠加）。
-        let holders = std::iter::repeat_n("?", list.len())
-            .collect::<Vec<_>>()
-            .join(",");
+        let holders = std::iter::repeat_n("?", list.len()).collect::<Vec<_>>().join(",");
         sql.push_str(&format!(" AND t.status IN ({holders})"));
         for status in list {
             params.push(Value::Text(status.clone()));
@@ -187,9 +185,7 @@ pub async fn page_visible(
     .await?;
 
     let rows = mark_is_new(
-        list.iter()
-            .map(TaskCardRow::from_row)
-            .collect::<DbResult<Vec<_>>>()?,
+        list.iter().map(TaskCardRow::from_row).collect::<DbResult<Vec<_>>>()?,
         principal.user_id(),
     );
     Ok(VisiblePage {
@@ -360,10 +356,7 @@ pub(super) fn detail_from_row(row: &Row) -> DbResult<TaskDetailRow> {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn list_children(
-    principal: &ScopedPrincipal,
-    parent_id: Uuid,
-) -> DbResult<Vec<TaskCardRow>> {
+pub async fn list_children(principal: &ScopedPrincipal, parent_id: Uuid) -> DbResult<Vec<TaskCardRow>> {
     assert_scope_fragment(principal)?;
     let fragment = scope::filter_for(principal, TASK_TARGET);
     let tail = VISIBLE_OR_TAIL.replacen(scope::FILTER_MARKER, fragment.sql().trim(), 1);
@@ -412,9 +405,7 @@ pub async fn list_children_for_document(parent_id: Uuid) -> DbResult<Vec<TaskCar
     sql.push_str(CARD_FROM);
     sql.push_str(" WHERE t.deleted_at IS NULL AND t.parent_id = ?::uuid");
     sql.push_str(" ORDER BY t.created_at ASC, t.id ASC");
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&parent_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&parent_id)]).await?;
     rows.iter().map(TaskCardRow::from_row).collect()
 }
 
@@ -504,10 +495,7 @@ pub async fn my_tasks(me: Uuid) -> DbResult<Vec<TaskCardRow>> {
         open_states_sql()
     ));
     let rows = db().find_with_params(&sql, vec![Value::from(&me)]).await?;
-    let rows = rows
-        .iter()
-        .map(TaskCardRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let rows = rows.iter().map(TaskCardRow::from_row).collect::<DbResult<Vec<_>>>()?;
     // F2：口径与「全部」列表 / 菜单徽标一致（同一张卡片、同一个 NEW 标记）。
     Ok(mark_is_new(rows, me))
 }
@@ -656,10 +644,7 @@ pub async fn user_exists(user_id: Uuid) -> DbResult<bool> {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub(super) async fn child_rows_with(
-    ex: &impl SqlExecutor,
-    parent_id: Uuid,
-) -> DbResult<Vec<ChildRow>> {
+pub(super) async fn child_rows_with(ex: &impl SqlExecutor, parent_id: Uuid) -> DbResult<Vec<ChildRow>> {
     let rows = ex
         .query_sql(
             "SELECT id, status, progress, estimate_hours::float8 AS estimate_hours \

@@ -9,9 +9,7 @@
 use super::db_tests_fixtures::*;
 use super::*;
 use crate::business::erp::transfer_model::{self, STATUS_PENDING};
-use crate::business::erp::transfer_model::{
-    STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_IN_TRANSIT,
-};
+use crate::business::erp::transfer_model::{STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_IN_TRANSIT};
 use crate::shared::error_code;
 use nik::prelude::chrono::Utc;
 use nik::prelude::rust_decimal::Decimal;
@@ -45,16 +43,8 @@ async fn settle_rejects_non_base_unit_material() {
     let error = receive(id).await.expect_err("折算单位不许结算");
     assert_eq!(error.status, 400, "{}", error.msg);
     assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
-    assert!(
-        error.msg.contains("单位「箱」不是基本单位"),
-        "{}",
-        error.msg
-    );
-    assert!(
-        error.msg.contains("本版本不支持多单位换算"),
-        "{}",
-        error.msg
-    );
+    assert!(error.msg.contains("单位「箱」不是基本单位"), "{}", error.msg);
+    assert!(error.msg.contains("本版本不支持多单位换算"), "{}", error.msg);
     // 5 件折算成 5 箱 × 12 = 60（建议值按本行数量算，不是拼死的 12）
     assert!(error.msg.contains("1 箱 = 12 个 → 录 60"), "{}", error.msg);
     assert!(error.msg.contains("W3B-M-PLAIN"), "{}", error.msg);
@@ -67,11 +57,7 @@ async fn settle_rejects_non_base_unit_material() {
         "被拒的结算不能把单据推到 DONE"
     );
     assert_eq!(needed(M_PLAIN, WH_FROM).await, qty_before, "调出仓不许扣");
-    assert_eq!(
-        bucket_amount(M_PLAIN, WH_FROM).await,
-        amount_before,
-        "调出仓金额不许动"
-    );
+    assert_eq!(bucket_amount(M_PLAIN, WH_FROM).await, amount_before, "调出仓金额不许动");
     assert_eq!(needed(M_PLAIN, WH_TO).await, to_qty_before, "调入仓不许加");
     assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
 
@@ -122,11 +108,7 @@ async fn approved_transfer_continues_to_done_and_settles_inventory() {
     assert!(row.received_at.is_some());
 
     // ⑩ W3c 的库存双写没被本卡破坏：调出仓 100-5=95、调入仓 10+5=15，两条流水
-    assert_dec_eq(
-        inventory_qty(M_PLAIN, WH_FROM).await,
-        "95",
-        "⑩ 调出仓扣减 5",
-    );
+    assert_dec_eq(inventory_qty(M_PLAIN, WH_FROM).await, "95", "⑩ 调出仓扣减 5");
     assert_dec_eq(inventory_qty(M_PLAIN, WH_TO).await, "15", "⑩ 调入仓增加 5");
     assert_dec_eq(
         inventory_amount(M_PLAIN, WH_FROM).await,
@@ -168,16 +150,8 @@ async fn w3c_settle_moves_qty_between_warehouses() {
     let from_before = needed(M_PLAIN, WH_FROM).await;
     let to_before = needed(M_PLAIN, WH_TO).await;
     receive_ok(id).await;
-    assert_eq!(
-        needed(M_PLAIN, WH_FROM).await,
-        from_before - dec("5"),
-        "调出仓必须 -5"
-    );
-    assert_eq!(
-        needed(M_PLAIN, WH_TO).await,
-        to_before + dec("5"),
-        "调入仓必须 +5"
-    );
+    assert_eq!(needed(M_PLAIN, WH_FROM).await, from_before - dec("5"), "调出仓必须 -5");
+    assert_eq!(needed(M_PLAIN, WH_TO).await, to_before + dec("5"), "调入仓必须 +5");
     assert_eq!(refresh(id).await.status, STATUS_DONE);
 }
 
@@ -218,10 +192,7 @@ async fn w3c_settle_writes_out_txn_row() {
     let no = refresh(id).await.transfer_no;
     receive_ok(id).await;
     let txns = txns_of(id).await;
-    let out: Vec<&Row> = txns
-        .iter()
-        .filter(|row| row_text(row, "txn_type") == "OUT")
-        .collect();
+    let out: Vec<&Row> = txns.iter().filter(|row| row_text(row, "txn_type") == "OUT").collect();
     assert_eq!(out.len(), 1, "调出流水必须正好 1 条");
     let row = out[0];
     assert_eq!(row_text(row, "biz_type"), "TRANSFER_OUT");
@@ -233,11 +204,7 @@ async fn w3c_settle_writes_out_txn_row() {
         "调出流水挂在调出仓"
     );
     assert_eq!(txn_text(row, "qty"), "5.0000", "qty 恒正（禁负数）");
-    assert_eq!(
-        txn_text(row, "unit_cost"),
-        "12.500000",
-        "原价 = 调出仓均价快照"
-    );
+    assert_eq!(txn_text(row, "unit_cost"), "12.500000", "原价 = 调出仓均价快照");
     assert_eq!(txn_text(row, "amount"), "62.5000");
 }
 
@@ -250,10 +217,7 @@ async fn w3c_settle_writes_in_txn_row() {
     let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
     receive_ok(id).await;
     let txns = txns_of(id).await;
-    let r#in: Vec<&Row> = txns
-        .iter()
-        .filter(|row| row_text(row, "txn_type") == "IN")
-        .collect();
+    let r#in: Vec<&Row> = txns.iter().filter(|row| row_text(row, "txn_type") == "IN").collect();
     assert_eq!(r#in.len(), 1, "调入流水必须正好 1 条");
     let row = r#in[0];
     assert_eq!(row_text(row, "biz_type"), "TRANSFER_IN");
@@ -330,10 +294,7 @@ async fn w3c_settle_creates_missing_target_row() {
         return;
     };
     // M_SN 在总仓本来没有库存行（夹具只给分仓建了）
-    assert!(
-        bucket_qty(M_SN, WH_TO).await.is_none(),
-        "前置：总仓没有 M_SN 的库存行"
-    );
+    assert!(bucket_qty(M_SN, WH_TO).await.is_none(), "前置：总仓没有 M_SN 的库存行");
     let mut line = item(M_SN, "2");
     line.serial_ids = vec![SERIAL_1.to_string(), SERIAL_2.to_string()];
     let id = create_and_ship(vec![line]).await;
@@ -415,10 +376,7 @@ async fn w3c_settle_handles_three_lines_in_one_doc() {
     assert_eq!(txns_of(id).await.len(), 6, "三行必须各写进/出两条流水");
     let detail = detail_of(id).await.expect("详情");
     assert!(
-        detail
-            .items
-            .iter()
-            .all(|item| item.received_qty == item.qty),
+        detail.items.iter().all(|item| item.received_qty == item.qty),
         "三行都必须回填 received_qty"
     );
 }
@@ -457,25 +415,14 @@ async fn w3c_settle_concurrent_transfers_only_one_wins() {
     }
     statuses.sort_by_key(|(_, status)| *status);
     assert_eq!(
-        statuses
-            .iter()
-            .map(|(_, status)| *status)
-            .collect::<Vec<_>>(),
+        statuses.iter().map(|(_, status)| *status).collect::<Vec<_>>(),
         vec![200, 409],
         "库存 8、两笔各扣 5：必须一个成功一个 409，实际 {statuses:?}"
     );
     assert_eq!(needed(M_PLAIN, WH_FROM).await, dec("3"), "只能扣掉一笔");
     // 成功那张单是 DONE，失败那张单仍在 IN_TRANSIT（回滚）
-    let done = statuses
-        .iter()
-        .find(|(_, s)| *s == 200)
-        .expect("成功的那张")
-        .0;
-    let lost = statuses
-        .iter()
-        .find(|(_, s)| *s == 409)
-        .expect("失败的那张")
-        .0;
+    let done = statuses.iter().find(|(_, s)| *s == 200).expect("成功的那张").0;
+    let lost = statuses.iter().find(|(_, s)| *s == 409).expect("失败的那张").0;
     assert_eq!(refresh(done).await.status, STATUS_DONE);
     assert_eq!(refresh(lost).await.status, STATUS_IN_TRANSIT);
 }
@@ -580,17 +527,11 @@ async fn w3c_settle_rejects_serial_count_mismatch() {
         "删一条序列号关联",
     )
     .await;
-    let err = receive(id)
-        .await
-        .expect_err("序列号 1 个 vs 数量 2 必须 400");
+    let err = receive(id).await.expect_err("序列号 1 个 vs 数量 2 必须 400");
     assert_eq!(err.status, 400, "{}", err.msg);
     assert!(err.msg.contains("序列号"), "{}", err.msg);
     assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
-    assert_eq!(
-        needed(M_SN, WH_FROM).await,
-        dec("2"),
-        "校验失败不得先扣库存"
-    );
+    assert_eq!(needed(M_SN, WH_FROM).await, dec("2"), "校验失败不得先扣库存");
 }
 
 // ---------- W3c ⑭ 幂等：结算两次不重复扣 ----------
@@ -642,13 +583,9 @@ async fn w3c_done_is_sticky_and_other_states_rejected() {
     assert_eq!(needed(M_PLAIN, WH_FROM).await, qty_after, "不得二次扣");
 
     // 取消单不能收货
-    let cancelled = create_transfer(
-        &body(vec![item(M_PLAIN, "1")]),
-        Some(uuid(U_APPLICANT)),
-        None,
-    )
-    .await
-    .expect("建单");
+    let cancelled = create_transfer(&body(vec![item(M_PLAIN, "1")]), Some(uuid(U_APPLICANT)), None)
+        .await
+        .expect("建单");
     change_transfer_status(
         cancelled,
         &status_req(STATUS_CANCELLED, Some("不调了")),
@@ -660,13 +597,9 @@ async fn w3c_done_is_sticky_and_other_states_rejected() {
     assert_eq!(err.status, 409);
 
     // 草稿不能跳级收货
-    let draft = create_transfer(
-        &body(vec![item(M_PLAIN, "1")]),
-        Some(uuid(U_APPLICANT)),
-        None,
-    )
-    .await
-    .expect("建单");
+    let draft = create_transfer(&body(vec![item(M_PLAIN, "1")]), Some(uuid(U_APPLICANT)), None)
+        .await
+        .expect("建单");
     let err = receive(draft).await.expect_err("DRAFT 不能收货");
     assert_eq!(err.status, 409);
 }
@@ -709,22 +642,14 @@ async fn w3c_settle_fills_item_shipped_received_and_cost() {
     };
     let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
     let before = transfer_model::items_of(id).await.expect("明细");
-    assert_eq!(
-        before[0].shipped_qty,
-        Decimal::ZERO,
-        "IN_TRANSIT 时还没回填"
-    );
+    assert_eq!(before[0].shipped_qty, Decimal::ZERO, "IN_TRANSIT 时还没回填");
     receive_ok(id).await;
     let items = transfer_model::items_of(id).await.expect("明细");
     assert_eq!(items[0].shipped_qty, dec("5"), "shipped_qty = qty");
     assert_eq!(items[0].received_qty, dec("5"), "received_qty = qty");
     assert_eq!(items[0].unit_cost, dec("12.5"), "unit_cost = 原价快照");
     assert_eq!(items[0].amount, dec("62.5"), "amount = 数量 × 原价");
-    assert_eq!(
-        refresh(id).await.total_amount,
-        dec("62.5"),
-        "单据头金额合计"
-    );
+    assert_eq!(refresh(id).await.total_amount, dec("62.5"), "单据头金额合计");
     // 接口视图（详情）也要能看到已发/已收
     let detail = detail_of(id).await.expect("详情");
     assert_eq!(detail.items[0].shipped_qty, dec("5"));
@@ -740,10 +665,7 @@ async fn w3c_settle_uses_location_row_when_no_bucket() {
     // 把 M_PLAIN 的整仓汇总桶换成两个库位行（模拟纯库位记账的仓）
     exec(
         "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ANY(?::text::uuid[])",
-        vec![
-            Value::from(&uuid(M_PLAIN)),
-            array_param(&[uuid(WH_FROM), uuid(WH_TO)]),
-        ],
+        vec![Value::from(&uuid(M_PLAIN)), array_param(&[uuid(WH_FROM), uuid(WH_TO)])],
         "清掉汇总桶",
     )
     .await;
@@ -785,14 +707,8 @@ async fn w3c_settle_uses_location_row_when_no_bucket() {
         vec![Value::from(&uuid(LOC_FROM))],
     )
     .await;
-    assert_eq!(
-        from_row[0].get_typed::<Decimal>("qty").expect("qty"),
-        dec("4")
-    );
-    assert_eq!(
-        from_row[0].get_typed::<Decimal>("amount").expect("amount"),
-        dec("16")
-    );
+    assert_eq!(from_row[0].get_typed::<Decimal>("qty").expect("qty"), dec("4"));
+    assert_eq!(from_row[0].get_typed::<Decimal>("amount").expect("amount"), dec("16"));
     // 调入：LOC_TO 建档 qty 3 / 均价 4 / 金额 12
     let to_row = query(
         "SELECT qty::numeric(18,4) AS qty, amount::numeric(18,4) AS amount, \
@@ -801,20 +717,9 @@ async fn w3c_settle_uses_location_row_when_no_bucket() {
         vec![Value::from(&uuid(LOC_TO))],
     )
     .await;
-    assert_eq!(
-        to_row[0].get_typed::<Decimal>("qty").expect("qty"),
-        dec("3")
-    );
-    assert_eq!(
-        to_row[0].get_typed::<Decimal>("amount").expect("amount"),
-        dec("12")
-    );
-    assert_eq!(
-        to_row[0]
-            .get_typed::<Decimal>("avg_cost")
-            .expect("avg_cost"),
-        dec("4")
-    );
+    assert_eq!(to_row[0].get_typed::<Decimal>("qty").expect("qty"), dec("3"));
+    assert_eq!(to_row[0].get_typed::<Decimal>("amount").expect("amount"), dec("12"));
+    assert_eq!(to_row[0].get_typed::<Decimal>("avg_cost").expect("avg_cost"), dec("4"));
 }
 
 // ---------- W3c ⑲ 结算金额与流水金额一致（ROUND 口径） ----------
@@ -966,12 +871,7 @@ async fn p003_settle_deducts_the_same_bucket_in_both_books() {
 ///
 /// 返回 `(库位字典 id, 库位账行 id)`；数量为 0 时只建库位账行、**不建成本账行**
 /// （= 「该库位没有这个物料的库存账」，FIX-4 报错路径的触发条件）。
-async fn seed_plain_location_bucket(
-    dict_id: &str,
-    dict_code: &str,
-    row_id: &str,
-    qty: Option<&str>,
-) -> (Uuid, Uuid) {
+async fn seed_plain_location_bucket(dict_id: &str, dict_code: &str, row_id: &str, qty: Option<&str>) -> (Uuid, Uuid) {
     exec(
         "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type, \
                                    is_default, capacity, status, sort_order) \
@@ -1016,10 +916,7 @@ async fn seed_plain_location_bucket(
         exec(
             "UPDATE biz_inventory_location SET qty = NULLIF(?::text,'')::numeric, updated_at = now() \
               WHERE id = ?::uuid",
-            vec![
-                Value::Text(qty.to_string()),
-                Value::from(&uuid(row_id)),
-            ],
+            vec![Value::Text(qty.to_string()), Value::from(&uuid(row_id))],
             "FIX-4 夹具库位账数量",
         )
         .await;
@@ -1139,11 +1036,7 @@ async fn fix4_settle_rejects_when_specified_location_short() {
     assert_eq!(cost, Some((dec("6"), dec("24"))), "指定库位桶成本账不许动");
     assert_eq!(ledger, dec("6"), "指定库位桶库位账不许动");
     let (summary_cost, summary_ledger) = bucket_snapshot(None).await;
-    assert_eq!(
-        summary_cost,
-        Some((dec("100"), dec("1250"))),
-        "整仓汇总桶不许被改扣"
-    );
+    assert_eq!(summary_cost, Some((dec("100"), dec("1250"))), "整仓汇总桶不许被改扣");
     assert_eq!(summary_ledger, dec("100"), "整仓汇总桶库位账不许被改扣");
     assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
 }
@@ -1176,11 +1069,7 @@ async fn fix4_settle_rejects_when_specified_location_has_no_bucket() {
     );
     assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
     let (summary_cost, summary_ledger) = bucket_snapshot(None).await;
-    assert_eq!(
-        summary_cost,
-        Some((dec("100"), dec("1250"))),
-        "整仓汇总桶不许被改扣"
-    );
+    assert_eq!(summary_cost, Some((dec("100"), dec("1250"))), "整仓汇总桶不许被改扣");
     assert_eq!(summary_ledger, dec("100"), "整仓汇总桶库位账不许被改扣");
     assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
 }
@@ -1194,10 +1083,7 @@ async fn fix4_settle_deducts_the_only_location_bucket_when_unspecified() {
     // 纯库位记账的仓：没有整仓汇总桶，只有 LOC_FROM 这一行
     exec(
         "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ANY(?::text::uuid[])",
-        vec![
-            Value::from(&uuid(M_PLAIN)),
-            array_param(&[uuid(WH_FROM), uuid(WH_TO)]),
-        ],
+        vec![Value::from(&uuid(M_PLAIN)), array_param(&[uuid(WH_FROM), uuid(WH_TO)])],
         "清掉汇总桶",
     )
     .await;
@@ -1249,10 +1135,7 @@ async fn fix4_settle_rejects_ambiguous_bucket_when_unspecified() {
     // 两个库位桶，没有整仓汇总桶
     exec(
         "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ANY(?::text::uuid[])",
-        vec![
-            Value::from(&uuid(M_PLAIN)),
-            array_param(&[uuid(WH_FROM), uuid(WH_TO)]),
-        ],
+        vec![Value::from(&uuid(M_PLAIN)), array_param(&[uuid(WH_FROM), uuid(WH_TO)])],
         "清掉汇总桶",
     )
     .await;
@@ -1293,4 +1176,3 @@ async fn fix4_settle_rejects_ambiguous_bucket_when_unspecified() {
     assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
     assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
 }
-

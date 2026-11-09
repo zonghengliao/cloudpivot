@@ -154,17 +154,11 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
         .get_typed::<Option<Uuid>>("approval_instance_id")
         .ok()
         .flatten()
-        .zip(
-            row.get_typed::<Option<String>>("approval_status")
-                .ok()
-                .flatten(),
-        ) {
+        .zip(row.get_typed::<Option<String>>("approval_status").ok().flatten())
+    {
         Some((instance_id, status)) => {
-            let mut pending_approvers = split_approvers(
-                row.get_typed::<Option<String>>("pending_approver_text")
-                    .ok()
-                    .flatten(),
-            );
+            let mut pending_approvers =
+                split_approvers(row.get_typed::<Option<String>>("pending_approver_text").ok().flatten());
             if status != "PENDING" {
                 // 终态实例上残留的 PENDING 待办（脏数据 / 终止竞态）不得冒充「等审批」
                 pending_approvers.clear();
@@ -200,11 +194,7 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
             .flatten()
             .unwrap_or_default(),
         node_name: row.get_typed("node_name").unwrap_or_default(),
-        round: row
-            .get_typed::<Option<i32>>("flow_round")
-            .ok()
-            .flatten()
-            .unwrap_or(1),
+        round: row.get_typed::<Option<i32>>("flow_round").ok().flatten().unwrap_or(1),
         node_status: row.get_typed("node_status").unwrap_or_default(),
         on_complete: switch_field(
             task_config.as_ref(),

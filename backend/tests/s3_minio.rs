@@ -25,9 +25,7 @@ use tokio::io::AsyncReadExt;
 
 /// 读取环境变量（缺失时返回 `None`）。
 fn env(name: &str) -> Option<String> {
-    std::env::var(name)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
+    std::env::var(name).ok().filter(|value| !value.trim().is_empty())
 }
 
 /// 生成唯一后缀（不引入额外依赖：纳秒时间戳 + 进程内计数器）。
@@ -91,11 +89,7 @@ async fn s3_minio_real_roundtrip() {
     assert_eq!(fetched, payload);
     assert_eq!(sha256_hex(&fetched), sha256_hex(payload));
 
-    let stat = store
-        .stat(&key)
-        .await
-        .expect("HEAD 应成功")
-        .expect("对象应存在");
+    let stat = store.stat(&key).await.expect("HEAD 应成功").expect("对象应存在");
     assert_eq!(stat.size, payload.len() as u64);
     assert!(stat.etag.is_some(), "HEAD 应返回 ETag");
     assert!(store.exists(&key).await);
@@ -115,10 +109,7 @@ async fn s3_minio_real_roundtrip() {
     );
     // 重复删除幂等
     store.delete(&key).await.expect("重复 DELETE 应成功");
-    println!(
-        "OK s3_minio_real_roundtrip key={key} sha256={}",
-        sha256_hex(payload)
-    );
+    println!("OK s3_minio_real_roundtrip key={key} sha256={}", sha256_hex(payload));
 }
 
 /// S3 分片上传（≥ 8 MB 走 mutipart）：内容哈希必须逐字节一致。
@@ -139,11 +130,7 @@ async fn s3_minio_multipart_upload_matches() {
         .await
         .expect("分片 PUT 应成功");
 
-    let stat = store
-        .stat(&key)
-        .await
-        .expect("HEAD 应成功")
-        .expect("对象应存在");
+    let stat = store.stat(&key).await.expect("HEAD 应成功").expect("对象应存在");
     assert_eq!(stat.size, size as u64);
 
     let fetched = store.get(&key).await.expect("GET 应成功");

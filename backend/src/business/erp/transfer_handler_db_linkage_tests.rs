@@ -123,11 +123,7 @@ async fn done_status_triggers_linkage_notice_once() {
 
     let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
     receive_ok(id).await;
-    assert_eq!(
-        refresh(id).await.status,
-        STATUS_DONE,
-        "前置：单据必须真的收货完成"
-    );
+    assert_eq!(refresh(id).await.status, STATUS_DONE, "前置：单据必须真的收货完成");
 
     let key = format!("LNK:STOCK_TRANSFER:{STATUS_DONE}:{id}");
     assert_eq!(
@@ -143,18 +139,9 @@ async fn done_status_triggers_linkage_notice_once() {
     )
     .await;
     let row = rows.first().expect("通知行");
-    assert_eq!(
-        row.get_typed::<String>("title").expect("title"),
-        "调拨单已完成"
-    );
-    assert_eq!(
-        row.get_typed::<String>("biz_type").expect("biz_type"),
-        "STOCK_TRANSFER"
-    );
-    assert_eq!(
-        row.get_typed::<String>("target_type").expect("target_type"),
-        "USER"
-    );
+    assert_eq!(row.get_typed::<String>("title").expect("title"), "调拨单已完成");
+    assert_eq!(row.get_typed::<String>("biz_type").expect("biz_type"), "STOCK_TRANSFER");
+    assert_eq!(row.get_typed::<String>("target_type").expect("target_type"), "USER");
     assert!(
         row.get_typed::<String>("link_url")
             .expect("link_url")
@@ -191,11 +178,7 @@ async fn repeated_settle_does_not_trigger_linkage_twice() {
         )
         .await
     };
-    assert_eq!(
-        tasks("首次收货后建任务").await,
-        1,
-        "正常触发一次：建 1 个任务"
-    );
+    assert_eq!(tasks("首次收货后建任务").await, 1, "正常触发一次：建 1 个任务");
 
     // ②a 再推一次 DONE：非法边 → 409，状态没变就不该再触发
     let applicant = uuid(U_APPLICANT);
@@ -224,11 +207,7 @@ async fn repeated_settle_does_not_trigger_linkage_twice() {
         1,
         "重复 settle 不许再触发一次联动（任务数从 1 变 2 = 引擎在 settle 里被重复调用）"
     );
-    assert_eq!(
-        txns_of(id).await.len(),
-        2,
-        "库存流水仍然只有 2 条（没被二次落账）"
-    );
+    assert_eq!(txns_of(id).await.len(), 2, "库存流水仍然只有 2 条（没被二次落账）");
 
     teardown().await;
 }
@@ -284,10 +263,7 @@ async fn excluded_actions_are_not_executed_by_the_generic_engine() {
         1,
         "不带排除清单时那条规则必须被引擎读到（否则 ③a 的断言是假绿）"
     );
-    assert_eq!(
-        unfiltered.runs[0].action_code,
-        spec::ACTION_GENERATE_VOUCHER
-    );
+    assert_eq!(unfiltered.runs[0].action_code, spec::ACTION_GENERATE_VOUCHER);
     assert!(
         !unfiltered.runs[0].outcome.is_success(),
         "调拨不该生成凭证（该动作只接管 STOCK_IN 取数），实际：{}",
@@ -295,11 +271,7 @@ async fn excluded_actions_are_not_executed_by_the_generic_engine() {
     );
 
     // ③c 落账面：调拨收货只写两条流水、不抛凭证
-    assert_eq!(
-        txns_of(id).await.len(),
-        2,
-        "调拨结算只写 2 条流水，不许被引擎二次落账"
-    );
+    assert_eq!(txns_of(id).await.len(), 2, "调拨结算只写 2 条流水，不许被引擎二次落账");
     assert_eq!(
         count_of(
             "SELECT count(*) FROM biz_voucher WHERE source_id = ?::uuid",

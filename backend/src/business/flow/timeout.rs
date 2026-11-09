@@ -191,21 +191,14 @@ pub fn urge_decision(
             return UrgeDecision::Wait;
         }
     }
-    UrgeDecision::Remind {
-        count: urge_count + 1,
-    }
+    UrgeDecision::Remind { count: urge_count + 1 }
 }
 
 /// 催办通知的幂等键：**带催办次数**。
 ///
 /// `sys_notice.idempotency_key` 上有唯一索引 `uk_sys_notice_idem`，键里不带次数的话
 /// 第 2、3 次催办会被当成「重发」静默吞掉。
-pub fn urge_idempotency_key(
-    instance_id: &Uuid,
-    node_key: &str,
-    round: i32,
-    urge_count: i16,
-) -> String {
+pub fn urge_idempotency_key(instance_id: &Uuid, node_key: &str, round: i32, urge_count: i16) -> String {
     format!("FLOW:URGE:{instance_id}:{node_key}:{round}:{urge_count}")
 }
 
@@ -311,9 +304,7 @@ pub async fn run_once() -> std::result::Result<TimeoutReport, String> {
     let mut seen: HashSet<Uuid> = HashSet::new();
 
     for _ in 0..MAX_BATCHES {
-        let due = scan()
-            .await
-            .map_err(|error| format!("扫描到期待办失败：{error}"))?;
+        let due = scan().await.map_err(|error| format!("扫描到期待办失败：{error}"))?;
         if due.is_empty() {
             break;
         }
@@ -393,10 +384,7 @@ async fn handle_one(
         },
         // REMIND / ESCALATE（升级加签属 P1，先按提醒处理）
         TimeoutAction::Remind | TimeoutAction::Escalate => {
-            match remind(task, &node)
-                .await
-                .map_err(|error| error.to_string())?
-            {
+            match remind(task, &node).await.map_err(|error| error.to_string())? {
                 Some(_notice) => report.reminded += 1,
                 None => report.skipped += 1,
             }
@@ -462,9 +450,7 @@ async fn load_snapshot(version_id: Uuid) -> std::result::Result<Snapshot, String
     let Some(row) = rows.first() else {
         return Err(format!("流程版本 {version_id} 不存在"));
     };
-    let text: Option<String> = row
-        .get_typed("snapshot_text")
-        .map_err(|error| error.to_string())?;
+    let text: Option<String> = row.get_typed("snapshot_text").map_err(|error| error.to_string())?;
     let Some(text) = text.filter(|value| !value.trim().is_empty()) else {
         return Err(format!("流程版本 {version_id} 没有快照"));
     };
@@ -505,10 +491,7 @@ async fn remind(task: &DueTask, node: &NodeTimeout) -> DbResult<Option<i16>> {
     let updated = db()
         .execute_with_params(
             SQL_URGE_CAS,
-            vec![
-                Value::from(&task.task_id),
-                Value::from(task.urge_count as i32),
-            ],
+            vec![Value::from(&task.task_id), Value::from(task.urge_count as i32)],
         )
         .await?;
     if updated == 0 {
@@ -561,9 +544,7 @@ async fn auto_decide(task: &DueTask, approve: bool) -> DbResult<bool> {
         .transaction(|tx| async move { engine::auto_decide(&tx, task_id, approve, comment).await })
         .await?;
     if let Some(error) = outcome.rejected {
-        if error.code == error_code::FLOW_TASK_NOT_FOUND
-            || error.code == error_code::FLOW_INSTANCE_NOT_PENDING
-        {
+        if error.code == error_code::FLOW_TASK_NOT_FOUND || error.code == error_code::FLOW_INSTANCE_NOT_PENDING {
             return Ok(false);
         }
         tracing::warn!(%task_id, code = error.code, msg = %error.msg, "系统代点被拒绝");
@@ -596,8 +577,7 @@ mod tests {
 
     /// 固定时基（避免单测用 `now()` 造成边界抖动）。
     fn at(offset_minutes: i64) -> DateTime<Utc> {
-        Utc.with_ymd_and_hms(2026, 10, 30, 8, 0, 0).unwrap()
-            + chrono::Duration::minutes(offset_minutes)
+        Utc.with_ymd_and_hms(2026, 10, 30, 8, 0, 0).unwrap() + chrono::Duration::minutes(offset_minutes)
     }
 
     #[test]
@@ -612,14 +592,8 @@ mod tests {
     #[test]
     fn action_parsing_defaults_to_remind() {
         assert_eq!(TimeoutAction::parse("REMIND"), TimeoutAction::Remind);
-        assert_eq!(
-            TimeoutAction::parse(" auto_approve "),
-            TimeoutAction::AutoApprove
-        );
-        assert_eq!(
-            TimeoutAction::parse("AUTO_REJECT"),
-            TimeoutAction::AutoReject
-        );
+        assert_eq!(TimeoutAction::parse(" auto_approve "), TimeoutAction::AutoApprove);
+        assert_eq!(TimeoutAction::parse("AUTO_REJECT"), TimeoutAction::AutoReject);
         assert_eq!(TimeoutAction::parse("ESCALATE"), TimeoutAction::Escalate);
         // 未知值 / 空值 → 默认提醒（绝不默认自动通过）
         assert_eq!(TimeoutAction::parse(""), TimeoutAction::Remind);
@@ -652,11 +626,7 @@ mod tests {
             .into_iter()
             .map(|offset| {
                 // 只有第一次真的把 urge_count 推进到 1、last_urge_at 落到 t0
-                let (count, last) = if offset == 0 {
-                    (0, None)
-                } else {
-                    (1, Some(at(0)))
-                };
+                let (count, last) = if offset == 0 { (0, None) } else { (1, Some(at(0))) };
                 urge_decision(count, last, at(offset), 3, 1)
             })
             .collect();
@@ -673,10 +643,7 @@ mod tests {
     #[test]
     fn remind_stops_at_three() {
         // 间隔已过 → 继续催到第 3 次
-        assert_eq!(
-            urge_decision(0, None, at(0), 3, 1),
-            UrgeDecision::Remind { count: 1 }
-        );
+        assert_eq!(urge_decision(0, None, at(0), 3, 1), UrgeDecision::Remind { count: 1 });
         assert_eq!(
             urge_decision(1, Some(at(-120)), at(0), 3, 1),
             UrgeDecision::Remind { count: 2 }
@@ -686,20 +653,14 @@ mod tests {
             UrgeDecision::Remind { count: 3 }
         );
         // 第 3 次之后永久停止（哪怕间隔早就过了）
-        assert_eq!(
-            urge_decision(3, Some(at(-10_000)), at(0), 3, 1),
-            UrgeDecision::Stop
-        );
+        assert_eq!(urge_decision(3, Some(at(-10_000)), at(0), 3, 1), UrgeDecision::Stop);
         assert_eq!(urge_decision(9, None, at(0), 3, 1), UrgeDecision::Stop);
     }
 
     #[test]
     fn urge_interval_respected_after_elapsed() {
         // 24h 超时 → 12h 间隔：11h59m 等，12h 催
-        assert_eq!(
-            urge_decision(1, Some(at(0)), at(719), 3, 12),
-            UrgeDecision::Wait
-        );
+        assert_eq!(urge_decision(1, Some(at(0)), at(719), 3, 12), UrgeDecision::Wait);
         assert_eq!(
             urge_decision(1, Some(at(0)), at(720), 3, 12),
             UrgeDecision::Remind { count: 2 }
@@ -711,10 +672,7 @@ mod tests {
         let instance = Uuid::nil();
         let first = urge_idempotency_key(&instance, "approve_1", 1, 1);
         let second = urge_idempotency_key(&instance, "approve_1", 1, 2);
-        assert_ne!(
-            first, second,
-            "第 2 次催办必须换幂等键，否则被 uk_sys_notice_idem 吞掉"
-        );
+        assert_ne!(first, second, "第 2 次催办必须换幂等键，否则被 uk_sys_notice_idem 吞掉");
         assert!(first.starts_with("FLOW:URGE:"));
         assert!(first.contains(":approve_1:1:1"));
     }
@@ -722,15 +680,9 @@ mod tests {
     #[test]
     fn scan_sql_is_batched_and_guarded() {
         assert!(SQL_SCAN.contains("LIMIT ?"), "扫描必须分批（LIMIT 500）");
-        assert!(
-            SQL_SCAN.contains("make_interval(mins => ?)"),
-            "同一轮不重复捞同一批行"
-        );
+        assert!(SQL_SCAN.contains("make_interval(mins => ?)"), "同一轮不重复捞同一批行");
         assert!(SQL_SCAN.contains("t.status = 'PENDING'"));
-        assert!(
-            SQL_SCAN.contains("allow_auto_approve"),
-            "全局闸必须随扫描取回"
-        );
+        assert!(SQL_SCAN.contains("allow_auto_approve"), "全局闸必须随扫描取回");
         assert!(SQL_URGE_CAS.contains("urge_count = urge_count + 1"));
         assert!(SQL_URGE_CAS.contains("urge_count = ?"), "幂等必须靠 CAS");
     }

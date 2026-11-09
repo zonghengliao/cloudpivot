@@ -37,12 +37,7 @@ async fn remind_sends_to_owner_and_counts_are_consistent() {
         return;
     };
     support::open_test_period(2).await;
-    support::ensure_role_for(
-        period_items::PERM_VOUCHER_POST,
-        "P2-ROLE-POST",
-        &[("p2.owner", "李四")],
-    )
-    .await;
+    support::ensure_role_for(period_items::PERM_VOUCHER_POST, "P2-ROLE-POST", &[("p2.owner", "李四")]).await;
     for no in ["P2-V-001", "P2-V-002"] {
         support::seed_voucher("2033-02", no, "DRAFT", ("10", "10"), ("10", "10")).await;
     }
@@ -108,10 +103,7 @@ async fn remind_sends_to_owner_and_counts_are_consistent() {
     assert!(title.contains("2033-02"), "标题要点名期间：{title}");
     assert!(title.contains("结账待处理"), "标题：{title}");
     assert!(content.contains("P2-V-"), "正文要点名单号：{content}");
-    assert!(
-        content.contains("请去过账"),
-        "正文要写下一步动作：{content}"
-    );
+    assert!(content.contains("请去过账"), "正文要写下一步动作：{content}");
     assert!(content.contains("已等待"), "正文要写等了多久：{content}");
     assert!(
         link.unwrap_or_default()
@@ -127,14 +119,7 @@ async fn remind_skips_items_without_owner() {
         return;
     };
     support::open_test_period(3).await;
-    support::seed_voucher(
-        "2033-03",
-        "P2-V-901",
-        "POSTED",
-        ("100", "100"),
-        ("60", "40"),
-    )
-    .await;
+    support::seed_voucher("2033-03", "P2-V-901", "POSTED", ("100", "100"), ("60", "40")).await;
     let period_id = period_of("2033-03").await;
 
     let res = remind_period(
@@ -168,12 +153,7 @@ async fn remind_dedupes_within_24_hours() {
         return;
     };
     support::open_test_period(4).await;
-    support::ensure_role_for(
-        period_items::PERM_VOUCHER_POST,
-        "P2-ROLE-POST",
-        &[("p2.owner", "李四")],
-    )
-    .await;
+    support::ensure_role_for(period_items::PERM_VOUCHER_POST, "P2-ROLE-POST", &[("p2.owner", "李四")]).await;
     support::seed_voucher("2033-04", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
     let period_id = period_of("2033-04").await;
     let request = RemindReq {
@@ -197,11 +177,7 @@ async fn remind_dedupes_within_24_hours() {
         second.skipped_recent, first.sent,
         "重复的应记 skipped_recent：{second:?}"
     );
-    assert_eq!(
-        notice_count("2033-04").await,
-        first.sent,
-        "库里通知条数不能增长"
-    );
+    assert_eq!(notice_count("2033-04").await, first.sent, "库里通知条数不能增长");
     assert!(
         second.message.contains("已催过") || second.message.contains("不重复打扰"),
         "结论要说清为什么没发：{}",
@@ -242,14 +218,8 @@ async fn remind_only_selected_items() {
         return;
     };
     support::open_test_period(6).await;
-    support::ensure_role_for(
-        period_items::PERM_VOUCHER_POST,
-        "P2-ROLE-POST",
-        &[("p2.owner", "李四")],
-    )
-    .await;
-    let first =
-        support::seed_voucher("2033-06", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+    support::ensure_role_for(period_items::PERM_VOUCHER_POST, "P2-ROLE-POST", &[("p2.owner", "李四")]).await;
+    let first = support::seed_voucher("2033-06", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
     support::seed_voucher("2033-06", "P2-V-002", "DRAFT", ("10", "10"), ("10", "10")).await;
     let period_id = period_of("2033-06").await;
 
@@ -290,11 +260,7 @@ async fn remind_on_clean_period_is_noop() {
         .expect("干净期间催办应成功返回");
     assert_eq!(res.total, 0);
     assert_eq!(res.sent, 0);
-    assert!(
-        res.message.contains("没有可催办"),
-        "结论要说清：{}",
-        res.message
-    );
+    assert!(res.message.contains("没有可催办"), "结论要说清：{}", res.message);
 }
 
 /// 期间 id 不存在 → 404。
@@ -318,17 +284,11 @@ async fn remind_permission_is_enforced_and_seeded() {
         return;
     };
     let no_perm = crate::system::tests_support::claims(support::TEST_UID, "pc-no-perm", &[]);
-    let err = period::ensure_permission(&no_perm.0, PERM_REMIND, "催办结账待办")
-        .expect_err("无码必须 403");
+    let err = period::ensure_permission(&no_perm.0, PERM_REMIND, "催办结账待办").expect_err("无码必须 403");
     assert_eq!(err.status, 403);
-    assert!(
-        err.msg.contains(PERM_REMIND),
-        "文案要点名权限码：{}",
-        err.msg
-    );
+    assert!(err.msg.contains(PERM_REMIND), "文案要点名权限码：{}", err.msg);
 
-    let with_perm =
-        crate::system::tests_support::claims(support::TEST_UID, "pc-finance", &[PERM_REMIND]);
+    let with_perm = crate::system::tests_support::claims(support::TEST_UID, "pc-finance", &[PERM_REMIND]);
     assert!(period::ensure_permission(&with_perm.0, PERM_REMIND, "催办结账待办").is_ok());
 
     // 权限码必须有 sys_menu 节点，否则注解守的是一个不存在的码，勾给角色永远不生效
@@ -370,29 +330,14 @@ fn draft_template_matches_card() {
     let draft = build_draft("2033-08", &item, Utc::now(), &operator).expect("有 owner 就该有草稿");
 
     assert_eq!(draft.title, "2033-08 月结账待处理：IN-2033-08-001");
-    assert!(
-        draft.content.contains("王五"),
-        "正文要点名制单人：{}",
-        draft.content
-    );
+    assert!(draft.content.contains("王五"), "正文要点名制单人：{}", draft.content);
     assert!(draft.content.contains("收货单 IN-2033-08-001"));
-    assert!(
-        draft.content.contains("1234"),
-        "金额要写进去：{}",
-        draft.content
-    );
+    assert!(draft.content.contains("1234"), "金额要写进去：{}", draft.content);
     assert!(draft.content.contains("挡住了 2033-08 的结账"));
     assert!(draft.content.contains("请去过账"));
-    assert!(
-        draft.content.contains("已等待 3 天"),
-        "等了多久要写：{}",
-        draft.content
-    );
+    assert!(draft.content.contains("已等待 3 天"), "等了多久要写：{}", draft.content);
     assert_eq!(draft.biz_type.as_deref(), Some(BIZ_TYPE));
-    assert_eq!(
-        draft.biz_id.as_deref(),
-        Some(Uuid::nil().to_string().as_str())
-    );
+    assert_eq!(draft.biz_id.as_deref(), Some(Uuid::nil().to_string().as_str()));
     assert!(draft.force, "结账被挡是必须处理的一类，强制送达");
     assert!(
         draft
@@ -463,8 +408,7 @@ fn pick_items_filters_by_kind_and_ids() {
     let picked = pick_items(&blockers, Some(BLOCKER_DRAFT_VOUCHER), &[]).expect("挑选");
     assert_eq!(picked.len(), 2);
     // 按类 + 按 id：只要第一条
-    let picked =
-        pick_items(&blockers, Some(BLOCKER_DRAFT_VOUCHER), &[first.to_string()]).expect("挑选");
+    let picked = pick_items(&blockers, Some(BLOCKER_DRAFT_VOUCHER), &[first.to_string()]).expect("挑选");
     assert_eq!(picked.len(), 1);
     assert_eq!(picked[0].doc_no, "P2-V-001");
     // 类为空 → 全部
@@ -522,10 +466,7 @@ fn ledger_row_maps_all_columns() {
     assert_eq!(row.doc_id, doc_id);
     assert_eq!(row.doc_no, Some("TR-2033-11-009"));
     assert_eq!(row.remind_kind, "PERIOD_REMIND");
-    assert_eq!(
-        row.stage, "2033-11",
-        "stage 写期间码，台账里一眼看出为哪个月催的"
-    );
+    assert_eq!(row.stage, "2033-11", "stage 写期间码，台账里一眼看出为哪个月催的");
     assert_eq!(
         row.remind_date.to_string(),
         "2026-11-06",
@@ -547,14 +488,8 @@ async fn remind_writes_ledger_and_ledger_alone_blocks_repeat() {
         return;
     };
     support::open_test_period(8).await;
-    support::ensure_role_for(
-        period_items::PERM_VOUCHER_POST,
-        "P2-ROLE-POST",
-        &[("p2.owner", "李四")],
-    )
-    .await;
-    let voucher_id =
-        support::seed_voucher("2033-08", "P2-V-801", "DRAFT", ("10", "10"), ("10", "10")).await;
+    support::ensure_role_for(period_items::PERM_VOUCHER_POST, "P2-ROLE-POST", &[("p2.owner", "李四")]).await;
+    let voucher_id = support::seed_voucher("2033-08", "P2-V-801", "DRAFT", ("10", "10"), ("10", "10")).await;
     let period_id = period_of("2033-08").await;
     let request = RemindReq {
         blocker_kind: Some(BLOCKER_DRAFT_VOUCHER.to_string()),
@@ -581,18 +516,11 @@ async fn remind_writes_ledger_and_ledger_alone_blocks_repeat() {
         )
         .await
         .expect("读台账");
-    assert_eq!(
-        rows.len(),
-        1,
-        "一次催办只该有一行台账（幂等键是 单据×类型×业务日）"
-    );
+    assert_eq!(rows.len(), 1, "一次催办只该有一行台账（幂等键是 单据×类型×业务日）");
     let row = &rows[0];
     assert_eq!(row.get_typed::<String>("doc_type").unwrap(), "VOUCHER");
     assert_eq!(row.get_typed::<String>("doc_no").unwrap(), "P2-V-801");
-    assert_eq!(
-        row.get_typed::<String>("remind_kind").unwrap(),
-        LEDGER_KIND_PERIOD
-    );
+    assert_eq!(row.get_typed::<String>("remind_kind").unwrap(), LEDGER_KIND_PERIOD);
     assert_eq!(row.get_typed::<String>("stage").unwrap(), "2033-08");
     assert_eq!(
         row.get_typed::<String>("remind_date").unwrap(),
@@ -601,10 +529,7 @@ async fn remind_writes_ledger_and_ledger_alone_blocks_repeat() {
     );
     let notice_id: Uuid = row.get_typed("notice_id").expect("notice_id 要回填");
     let receiver_count: i64 = row.get_typed("receiver_count").expect("receiver_count");
-    assert!(
-        receiver_count >= 1,
-        "收件人数要记实际扇出数：{receiver_count}"
-    );
+    assert!(receiver_count >= 1, "收件人数要记实际扇出数：{receiver_count}");
 
     // 台账里的 notice_id 必须是真发出去的那条通知
     let stored_notice: i64 = db()

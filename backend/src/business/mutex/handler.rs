@@ -36,8 +36,8 @@ use std::net::SocketAddr;
 
 use crate::business::mutex::checker;
 use crate::business::mutex::dto::{
-    MutexConflictQuery, MutexConflictRes, MutexCreateReq, MutexForceQuery, MutexHolderRes,
-    MutexPageQuery, MutexRes, MutexScanItemRes, MutexScanRes, MutexUpdateReq,
+    MutexConflictQuery, MutexConflictRes, MutexCreateReq, MutexForceQuery, MutexHolderRes, MutexPageQuery, MutexRes,
+    MutexScanItemRes, MutexScanRes, MutexUpdateReq,
 };
 use crate::business::mutex::guard;
 use crate::business::mutex::model::{self, MutexRow, RoleBrief};
@@ -72,11 +72,7 @@ async fn filled(mut res: MutexRes) -> MutexRes {
 ///
 /// - 400 + `10001`：`role_id` 不是合法 UUID / `status` 不是 0、1；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/mutex/page",
-    method = "GET",
-    permission = "system:role-mutex:list"
-)]
+#[nik::permission(path = "/business/mutex/page", method = "GET", permission = "system:role-mutex:list")]
 #[nik::get("/business/mutex/page")]
 pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec<MutexRes>>> {
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
@@ -96,21 +92,15 @@ pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec
         None => None,
     };
     let keyword = utils::like_pattern(query.keyword.as_deref());
-    let (rows, total) =
-        model::page_mutexes(role_id, keyword.as_deref(), status, page_no, page_size)
-            .await
-            .map_err(|error| utils::db_error(error, "分页查询互斥规则"))?;
+    let (rows, total) = model::page_mutexes(role_id, keyword.as_deref(), status, page_no, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询互斥规则"))?;
     let mut list: Vec<MutexRes> = rows.iter().map(MutexRes::from_row).collect();
     // AUD-02：创建人姓名，整页一次
     crate::business::shared::user_name::fill_person_names(&mut list)
         .await
         .unwrap_or_default();
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page_no,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page_no, page_size))
 }
 
 // ==================== 新建 ====================
@@ -134,11 +124,7 @@ pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec
 /// - 409 + `61011`：该对的互斥关系已存在（**含反向**，不是 500）；
 /// - 409 + `61010`：已有用户同时持有这两个角色（消息含用户数与示例用户名）；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/mutex",
-    method = "POST",
-    permission = "system:role-mutex:create"
-)]
+#[nik::permission(path = "/business/mutex", method = "POST", permission = "system:role-mutex:create")]
 #[nik::post("/business/mutex")]
 pub async fn create(
     headers: HeaderMap,
@@ -172,13 +158,7 @@ pub async fn create(
             "force=true：跳过存量双持阻断（配置以存在违规为前提落库）"
         );
     } else {
-        guard::ensure_pair_has_no_holders(
-            &role_a_id,
-            &role_b_id,
-            &role_a.role_name,
-            &role_b.role_name,
-        )
-        .await?;
+        guard::ensure_pair_has_no_holders(&role_a_id, &role_b_id, &role_a.role_name, &role_b.role_name).await?;
     }
 
     let operator = current_user_id(&claims)?;
@@ -414,13 +394,8 @@ pub async fn delete(
 )]
 #[nik::get("/business/mutex/conflict")]
 pub async fn conflict(Query(query): Query<MutexConflictQuery>) -> ResResult<MutexConflictRes> {
-    let raw = utils::trimmed(query.user_id.as_deref()).ok_or_else(|| {
-        ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "请提供 user_id 参数（要体检的用户 ID）",
-        )
-    })?;
+    let raw = utils::trimmed(query.user_id.as_deref())
+        .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "请提供 user_id 参数（要体检的用户 ID）"))?;
     let user_id = utils::require_uuid(raw, "user_id")?;
     let user = model::find_user_brief(&user_id)
         .await
@@ -523,13 +498,7 @@ async fn require_mutex(id: &Uuid) -> std::result::Result<MutexRow, ApiError> {
     model::find_mutex(id)
         .await
         .map_err(|error| utils::db_error(error, "查询互斥规则"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::RESOURCE_NOT_FOUND,
-                format!("互斥关系不存在：{id}"),
-            )
-        })
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("互斥关系不存在：{id}")))
 }
 
 /// 校验互斥理由（必填，最长 255 与列宽一致）。
@@ -610,10 +579,7 @@ mod tests {
     /// 理由：空白 / 全空格被拒，两侧空格被 trim。
     #[test]
     fn reason_is_trimmed_and_blank_rejected() {
-        assert_eq!(
-            require_reason("  合规要求  ").expect("有效理由"),
-            "合规要求"
-        );
+        assert_eq!(require_reason("  合规要求  ").expect("有效理由"), "合规要求");
         let error = require_reason("   ").expect_err("空理由必须被拒");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::PARAM_INVALID);

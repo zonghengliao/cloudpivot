@@ -38,9 +38,7 @@
 
 use nik::prelude::*;
 
-use crate::business::notice::model::{
-    BIZ_TYPE_ANNOUNCEMENT, BizWithdrawReport, Executor as NoticeExecutor,
-};
+use crate::business::notice::model::{BIZ_TYPE_ANNOUNCEMENT, BizWithdrawReport, Executor as NoticeExecutor};
 use crate::business::shared::scope;
 use crate::shared::error_code;
 
@@ -420,10 +418,7 @@ pub async fn count_unread(audience: &Audience) -> DbResult<i64> {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn check_visibility(
-    audience: &Audience,
-    announcement_id: &uuid::Uuid,
-) -> DbResult<Visibility> {
+pub async fn check_visibility(audience: &Audience, announcement_id: &uuid::Uuid) -> DbResult<Visibility> {
     // 占位符文本顺序：① ROLE 数组 ② DEPT 数组 ③ USER uuid —— 三者都在 **SELECT 投影**
     // （scope_ok 表达式）里，因此排在 FROM/JOIN 的占位符**之前**；
     // ④ JOIN 的 user_id ⑤ WHERE 的公告 id。
@@ -510,10 +505,7 @@ pub async fn check_visibility(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn mark_read(
-    announcement_id: &uuid::Uuid,
-    user_id: &uuid::Uuid,
-) -> DbResult<(bool, i32)> {
+pub async fn mark_read(announcement_id: &uuid::Uuid, user_id: &uuid::Uuid) -> DbResult<(bool, i32)> {
     let inserted = db()
         .execute_with_params(
             "INSERT INTO sys_announcement_read (announcement_id, user_id, read_at, created_at) \
@@ -1028,11 +1020,7 @@ pub fn build_ann_no(now: chrono::DateTime<chrono::Utc>, id: &uuid::Uuid) -> Stri
 /// SCOPE-EXEMPT: 公告不在数据权限范畴（架构 §2.3.3）：能进管理页的人已持有
 /// `business:announcement:list`（元权限），且公告表没有部门归属列。这里走
 /// `scope::paginate_unscoped` 的显式 `unscoped` 锚点（闸① 仍走唯一入口）。
-pub async fn page_manage(
-    filter: &ManageFilter,
-    page: u64,
-    page_size: u64,
-) -> DbResult<Page<ManageCardRow>> {
+pub async fn page_manage(filter: &ManageFilter, page: u64, page_size: u64) -> DbResult<Page<ManageCardRow>> {
     let mut sql = String::from(
         "SELECT a.id, a.ann_no, a.title, a.summary, a.level, a.scope_type, a.status, \
                 a.is_top, a.top_expire_at, a.publish_at, a.expire_at, \
@@ -1216,11 +1204,7 @@ pub async fn list_scope_ids(announcement_id: &uuid::Uuid) -> DbResult<Vec<uuid::
 /// # 异常情况
 ///
 /// - 数据库异常（含 `uk_sys_announcement_no` 冲突）返回 [`DbError`]。
-pub async fn insert_announcement(
-    ex: &Transaction,
-    new: &NewAnnouncement<'_>,
-    operator: uuid::Uuid,
-) -> DbResult<()> {
+pub async fn insert_announcement(ex: &Transaction, new: &NewAnnouncement<'_>, operator: uuid::Uuid) -> DbResult<()> {
     let id = new.id;
     let ann_no = new.ann_no.to_string();
     let title = new.title.to_string();
@@ -1347,36 +1331,30 @@ pub async fn update_announcement(
 
     if let Some(items) = attachments {
         ex.execute_with_params(
-                "DELETE FROM sys_announcement_attachment \
+            "DELETE FROM sys_announcement_attachment \
                   WHERE announcement_id = ?::uuid \
                     AND file_id NOT IN (SELECT (x)::uuid FROM jsonb_array_elements_text(?::jsonb) AS x)",
-                vec![
-                    Value::from(&id),
-                    Value::Json(
-                        serde_json::Value::Array(
-                            items
-                                .iter()
-                                .map(|(file_id, _)| {
-                                    serde_json::Value::String(file_id.to_string())
-                                })
-                                .collect(),
-                        )
-                        .to_string(),
-                    ),
-                ],
-            )
-            .await?;
+            vec![
+                Value::from(&id),
+                Value::Json(
+                    serde_json::Value::Array(
+                        items
+                            .iter()
+                            .map(|(file_id, _)| serde_json::Value::String(file_id.to_string()))
+                            .collect(),
+                    )
+                    .to_string(),
+                ),
+            ],
+        )
+        .await?;
         insert_attachment_rows(ex, &id, &items).await?;
     }
     Ok(())
 }
 
 /// 往事务里写范围明细（单条 `INSERT ... SELECT jsonb_array_elements_text`）。
-async fn insert_scope_rows(
-    ex: &Transaction,
-    announcement_id: &uuid::Uuid,
-    scope_ids: &[uuid::Uuid],
-) -> DbResult<()> {
+async fn insert_scope_rows(ex: &Transaction, announcement_id: &uuid::Uuid, scope_ids: &[uuid::Uuid]) -> DbResult<()> {
     if scope_ids.is_empty() {
         return Ok(());
     }
@@ -1394,10 +1372,7 @@ async fn insert_scope_rows(
            FROM sys_announcement a, jsonb_array_elements_text(?::jsonb) AS x \
           WHERE a.id = ?::uuid AND a.scope_type <> 'ALL' \
          ON CONFLICT (announcement_id, scope_type, target_id) DO NOTHING",
-        vec![
-            Value::Json(payload),
-            Value::from(announcement_id),
-        ],
+        vec![Value::Json(payload), Value::from(announcement_id)],
     )
     .await?;
     Ok(())
@@ -1491,12 +1466,8 @@ pub async fn soft_delete_with_notice(
         return Ok((0, BizWithdrawReport::default()));
     }
     let notice_tx = NoticeExecutor::Tx(ex);
-    let report = crate::business::notice::model::withdraw_by_biz(
-        &notice_tx,
-        BIZ_TYPE_ANNOUNCEMENT,
-        &id.to_string(),
-    )
-    .await?;
+    let report =
+        crate::business::notice::model::withdraw_by_biz(&notice_tx, BIZ_TYPE_ANNOUNCEMENT, &id.to_string()).await?;
     Ok((affected, report))
 }
 
@@ -1563,11 +1534,7 @@ pub async fn apply_publish(
 /// `ck_sys_announcement_counts` 要求 `read_count <= receiver_count`。补偿重放时接收人集合
 /// 可能比首次小（期间有人被停用），直接把 `receiver_count` 写小会撞约束 → 500。
 /// 取两者较大值保证不变量成立，且不会「抹掉」已经发生的已读。
-pub async fn backfill_notice(
-    id: &uuid::Uuid,
-    notice_id: &uuid::Uuid,
-    receiver_count: i64,
-) -> DbResult<()> {
+pub async fn backfill_notice(id: &uuid::Uuid, notice_id: &uuid::Uuid, receiver_count: i64) -> DbResult<()> {
     db().execute_with_params(
         "UPDATE sys_announcement \
             SET notice_id = ?::uuid, \
@@ -1589,11 +1556,7 @@ pub async fn backfill_notice(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn apply_offline(
-    ex: &Transaction,
-    id: &uuid::Uuid,
-    operator: uuid::Uuid,
-) -> DbResult<()> {
+pub async fn apply_offline(ex: &Transaction, id: &uuid::Uuid, operator: uuid::Uuid) -> DbResult<()> {
     ex.execute_with_params(
         "UPDATE sys_announcement \
             SET status = 'OFFLINE', updated_at = now(), update_by = ?::uuid \
@@ -1830,10 +1793,7 @@ pub async fn fanout_enabled() -> bool {
         Ok(rows) => match rows.first() {
             Some(row) => {
                 let raw: String = row.get_typed("config_value").unwrap_or_default();
-                !matches!(
-                    raw.trim().to_ascii_lowercase().as_str(),
-                    "false" | "0" | "off" | "no"
-                )
+                !matches!(raw.trim().to_ascii_lowercase().as_str(), "false" | "0" | "off" | "no")
             }
             None => true,
         },
@@ -2019,10 +1979,7 @@ pub async fn expand_dept_ids(dept_ids: &[uuid::Uuid]) -> DbResult<Vec<uuid::Uuid
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn resolve_scope_ids(
-    scope_type: &str,
-    scope_ids: &[uuid::Uuid],
-) -> DbResult<Vec<uuid::Uuid>> {
+pub async fn resolve_scope_ids(scope_type: &str, scope_ids: &[uuid::Uuid]) -> DbResult<Vec<uuid::Uuid>> {
     if scope_type == "DEPT" {
         return expand_dept_ids(scope_ids).await;
     }
@@ -2109,17 +2066,10 @@ mod manage_tests {
     #[test]
     fn expire_must_be_after_publish() {
         let publish_at = now();
-        let error = ensure_expire_after_publish(Some(publish_at), Some(publish_at))
-            .expect_err("等于发布时间必须拒绝");
+        let error = ensure_expire_after_publish(Some(publish_at), Some(publish_at)).expect_err("等于发布时间必须拒绝");
         assert_eq!((error.status, error.code), (400, 62008));
         assert!(ensure_expire_after_publish(Some(publish_at), None).is_ok());
-        assert!(
-            ensure_expire_after_publish(
-                Some(publish_at),
-                Some(publish_at + chrono::Duration::days(1))
-            )
-            .is_ok()
-        );
+        assert!(ensure_expire_after_publish(Some(publish_at), Some(publish_at + chrono::Duration::days(1))).is_ok());
         // 草稿（无发布时间）不限制
         assert!(ensure_expire_after_publish(None, Some(now())).is_ok());
     }
@@ -2222,10 +2172,7 @@ mod tests {
             "s.scope_type = 'DEPT'",
             "s.scope_type = 'USER'",
         ] {
-            assert!(
-                VISIBLE_PREDICATE.contains(needle),
-                "可见性谓词缺条件：{needle}"
-            );
+            assert!(VISIBLE_PREDICATE.contains(needle), "可见性谓词缺条件：{needle}");
         }
         assert_eq!(VISIBLE_PREDICATE.matches('?').count(), 3);
     }

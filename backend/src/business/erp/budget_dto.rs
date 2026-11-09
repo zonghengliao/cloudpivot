@@ -40,14 +40,7 @@ pub const MAX_REMARK_LEN: usize = 2000;
 pub const MAX_REASON_LEN: usize = 500;
 
 /// 预算状态白名单（与 `state_machine::Entity::Budget` 的边表同源）。
-pub const STATUSES: [&str; 6] = [
-    "DRAFT",
-    "SUBMITTED",
-    "ACTIVE",
-    "SUPERSEDED",
-    "CLOSED",
-    "CANCELLED",
-];
+pub const STATUSES: [&str; 6] = ["DRAFT", "SUBMITTED", "ACTIVE", "SUPERSEDED", "CLOSED", "CANCELLED"];
 
 /// 参数错误（400 + `10001`）。
 pub fn invalid(msg: impl Into<String>) -> ApiError {
@@ -94,10 +87,7 @@ pub struct BudgetFilter {
 impl BudgetFilter {
     /// 归一化后的分页参数。
     pub fn paging(&self) -> (u64, u64) {
-        normalize_page(
-            self.page.unwrap_or(1),
-            self.page_size.unwrap_or(DEFAULT_PAGE_SIZE),
-        )
+        normalize_page(self.page.unwrap_or(1), self.page_size.unwrap_or(DEFAULT_PAGE_SIZE))
     }
 }
 
@@ -223,8 +213,7 @@ pub fn validate_periods(
                 out.push((code, month, amount, item.remark.clone()));
             }
             // 缺月：12 行都在但月份不全是可能的（重复被上面拦住后，这里只可能是漏月）
-            if let Some(missing) = (1..=12).find(|m| !month_seen[usize::try_from(*m).unwrap_or(0)])
-            {
+            if let Some(missing) = (1..=12).find(|m| !month_seen[usize::try_from(*m).unwrap_or(0)]) {
                 return Err(invalid(format!(
                     "缺少 {fiscal_year}-{missing:02} 的额度（12 个月必须齐全）"
                 )));
@@ -242,14 +231,12 @@ pub fn validate_periods(
     }
     Ok(rows
         .into_iter()
-        .map(
-            |(period_code, period_month, amount, remark)| budget_model::NewPeriod {
-                period_code,
-                period_month,
-                amount,
-                remark,
-            },
-        )
+        .map(|(period_code, period_month, amount, remark)| budget_model::NewPeriod {
+            period_code,
+            period_month,
+            amount,
+            remark,
+        })
         .collect())
 }
 
@@ -723,10 +710,7 @@ pub struct MappingReq {
 /// `ref_code` 上（大小写不敏感）。撞键由 handler 翻成 409。
 pub fn validate_mapping(req: &MappingReq) -> std::result::Result<(), ApiError> {
     let map_type = req.map_type.trim();
-    if !matches!(
-        map_type,
-        "MATERIAL" | "MATERIAL_TYPE" | "WAREHOUSE" | "DEFAULT"
-    ) {
+    if !matches!(map_type, "MATERIAL" | "MATERIAL_TYPE" | "WAREHOUSE" | "DEFAULT") {
         return Err(invalid(format!(
             "map_type={} 非法（只能是 MATERIAL / MATERIAL_TYPE / WAREHOUSE / DEFAULT）",
             req.map_type
@@ -737,9 +721,7 @@ pub fn validate_mapping(req: &MappingReq) -> std::result::Result<(), ApiError> {
     match map_type {
         "DEFAULT" => {
             if ref_id.is_some() {
-                return Err(invalid(
-                    "DEFAULT 映射不许给 ref_id（它是全公司兜底，不指向任何目标）",
-                ));
+                return Err(invalid("DEFAULT 映射不许给 ref_id（它是全公司兜底，不指向任何目标）"));
             }
             if ref_code.is_some() {
                 return Err(invalid(
@@ -783,9 +765,7 @@ pub fn validate_mapping(req: &MappingReq) -> std::result::Result<(), ApiError> {
     if let Some(status) = req.status
         && !matches!(status, 0 | 1)
     {
-        return Err(invalid(format!(
-            "status={status} 非法（只能是 0 停用 / 1 启用）"
-        )));
+        return Err(invalid(format!("status={status} 非法（只能是 0 停用 / 1 启用）")));
     }
     Ok(())
 }
@@ -883,10 +863,7 @@ pub fn parse_uuid_text(raw: &str, field: &str) -> std::result::Result<Uuid, ApiE
 }
 
 /// 可空的 `Uuid` 文本解析（空串 → `None`）。
-pub fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(None),
         Some(text) => Ok(Some(parse_uuid_text(text, field)?)),

@@ -77,14 +77,7 @@ async fn reset(me: Uuid) {
     .expect("夹具清理失败");
 }
 
-async fn insert_task(
-    id: Uuid,
-    tag: &str,
-    parent: Option<Uuid>,
-    status: &str,
-    progress: i16,
-    me: Uuid,
-) {
+async fn insert_task(id: Uuid, tag: &str, parent: Option<Uuid>, status: &str, progress: i16, me: Uuid) {
     let affected = db()
         .execute_with_params(
             "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, parent_id, \
@@ -185,10 +178,7 @@ fn repair_limit_is_clamped() {
     assert_eq!(normalize_repair_limit(Some(0)), 1);
     assert_eq!(normalize_repair_limit(Some(-5)), 1);
     assert_eq!(normalize_repair_limit(Some(50)), 50);
-    assert_eq!(
-        normalize_repair_limit(Some(REPAIR_SCAN_LIMIT * 100)),
-        REPAIR_SCAN_LIMIT
-    );
+    assert_eq!(normalize_repair_limit(Some(REPAIR_SCAN_LIMIT * 100)), REPAIR_SCAN_LIMIT);
 }
 
 // ---------- ⑥ 真库：造 3 个不一致 → 干跑报 3 条 → 实修后都正确 ----------
@@ -209,15 +199,7 @@ async fn scan_reports_then_repairs_three_gaps() {
     ];
     let gap_status = ["DOING", "TODO", "DOING"];
     for (index, parent) in gap_parents.iter().enumerate() {
-        insert_task(
-            uuid(parent),
-            &format!("R{index}-父"),
-            None,
-            gap_status[index],
-            0,
-            me,
-        )
-        .await;
+        insert_task(uuid(parent), &format!("R{index}-父"), None, gap_status[index], 0, me).await;
         insert_task(
             uuid(&format!("7a8a0000-0000-4000-8000-0000000003b{index}")),
             &format!("R{index}-子完成"),

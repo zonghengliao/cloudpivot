@@ -40,17 +40,8 @@ async fn dc03_posting_rejected_when_source_order_cancelled() {
         .await
         .expect_err("采购单已取消，过账必须被拦");
     assert_eq!(err.status, 409, "{}", err.msg);
-    assert_eq!(
-        err.code,
-        error_code::ERP_SI_PO_NOT_RECEIVABLE,
-        "{}",
-        err.msg
-    );
-    assert!(
-        err.msg.contains(&order_no),
-        "报文必须点名采购单号：{}",
-        err.msg
-    );
+    assert_eq!(err.code, error_code::ERP_SI_PO_NOT_RECEIVABLE, "{}", err.msg);
+    assert!(err.msg.contains(&order_no), "报文必须点名采购单号：{}", err.msg);
     assert!(
         err.msg.contains("已取消") && err.msg.contains("CANCELLED"),
         "报文必须带当前状态：{}",
@@ -122,17 +113,9 @@ async fn dc03_second_open_receipt_is_rejected_with_available_qty() {
     assert!(err.msg.contains("订单 100"), "{}", err.msg);
     assert!(err.msg.contains("已过账收货 60"), "{}", err.msg);
 
-    assert_eq!(
-        posting_footprint(b).await,
-        before_b,
-        "被拒的 B 不许留下任何账"
-    );
+    assert_eq!(posting_footprint(b).await, before_b, "被拒的 B 不许留下任何账");
     assert_eq!(stock_in_status(b).await, STATUS_DRAFT);
-    assert_eq!(
-        d4_ledger_received(item_id).await,
-        dec("60"),
-        "采购已收只算 A 的 60"
-    );
+    assert_eq!(d4_ledger_received(item_id).await, dec("60"), "采购已收只算 A 的 60");
     assert_eq!(inventory_of(MATERIAL_A).await.0, dec("60"));
 }
 
@@ -227,9 +210,7 @@ async fn lockorder_concurrent_post_and_cancel_no_deadlock() {
         let qty_before = inventory_of(MATERIAL_A).await.0;
         change_stock_in_status(victim, &post_req(), None)
             .await
-            .unwrap_or_else(|err| {
-                panic!("第 {round} 轮：victim 过账失败 {} {}", err.code, err.msg)
-            });
+            .unwrap_or_else(|err| panic!("第 {round} 轮：victim 过账失败 {} {}", err.code, err.msg));
         // 只发起作废审批（POSTED → PENDING_CANCEL，账一动没动、也不加任何业务锁）
         cancel_request(victim, "并发用例：同物料同仓库并发作废").await;
 
@@ -258,19 +239,12 @@ async fn lockorder_concurrent_post_and_cancel_no_deadlock() {
                 Ok(Some(row)) => row,
                 other => panic!("作废任务查单失败：{other:?}"),
             };
-            cancel_after_approval(
-                victim,
-                &row,
-                "并发用例：同物料同仓库并发作废",
-                Some(uuid_keeper()),
-            )
-            .await
+            cancel_after_approval(victim, &row, "并发用例：同物料同仓库并发作废", Some(uuid_keeper())).await
         });
         let waited_b = wait_waiters(8_000, 1).await;
 
         // ③ A（过账）入场；等它也落到锁上（改前：库存行排队；改后：采购单行排队）
-        let post_task =
-            tokio::spawn(async move { change_stock_in_status(poster, &post_req(), None).await });
+        let post_task = tokio::spawn(async move { change_stock_in_status(poster, &post_req(), None).await });
         let waited_a = wait_waiters(8_000, 2).await;
 
         // ④ 松手：改前的环在这里闭合，改后 B 直接跑完
@@ -300,17 +274,8 @@ async fn lockorder_concurrent_post_and_cancel_no_deadlock() {
             );
         }
         // 账实一致（本轮增量）：victim 过账 +60、可能作废 −60；poster 过账 +40（若成功）
-        let expected_delta = dec("60")
-            + dec(if poster_status == STATUS_POSTED {
-                "40"
-            } else {
-                "0"
-            })
-            - dec(if victim_status == STATUS_CANCELLED {
-                "60"
-            } else {
-                "0"
-            });
+        let expected_delta = dec("60") + dec(if poster_status == STATUS_POSTED { "40" } else { "0" })
+            - dec(if victim_status == STATUS_CANCELLED { "60" } else { "0" });
         assert_eq!(
             inventory_of(MATERIAL_A).await.0 - qty_before,
             expected_delta,
@@ -318,15 +283,8 @@ async fn lockorder_concurrent_post_and_cancel_no_deadlock() {
              —— 被中止的一笔必须整笔回滚"
         );
         // 采购已收：每轮都是**新采购行**（从 0 起），可以断言绝对值
-        let expected = dec(if poster_status == STATUS_POSTED {
-            "40"
-        } else {
-            "0"
-        }) + dec(if victim_status == STATUS_CANCELLED {
-            "0"
-        } else {
-            "60"
-        });
+        let expected = dec(if poster_status == STATUS_POSTED { "40" } else { "0" })
+            + dec(if victim_status == STATUS_CANCELLED { "0" } else { "60" });
         assert_eq!(
             d4_ledger_received(item_id).await,
             expected,

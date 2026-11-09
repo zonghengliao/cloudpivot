@@ -73,8 +73,7 @@ use super::stockout_base::*;
 
 /// 按主键取单头（未删除）。
 pub async fn find(id: Uuid) -> DbResult<Option<StockOutRow>> {
-    let sql =
-        format!("SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
+    let sql = format!("SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(StockOutRow::from_row).transpose()
 }
@@ -141,9 +140,7 @@ pub async fn page(q: &StockOutFilter) -> DbResult<(Vec<StockOutRow>, i64)> {
         params.push(Value::from(date_to));
     }
     let (page, page_size) = normalize_page(q.page, q.page_size);
-    let result =
-        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
-            .await?;
+    let result = scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size).await?;
     let rows = result
         .list
         .iter()
@@ -154,8 +151,7 @@ pub async fn page(q: &StockOutFilter) -> DbResult<(Vec<StockOutRow>, i64)> {
 
 /// DTO 里的 id 是 `String`：非法 UUID 一律报错（不静默跳过条件）。
 pub(super) fn parse_id(value: &str) -> DbResult<Uuid> {
-    Uuid::parse_str(value.trim())
-        .map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
+    Uuid::parse_str(value.trim()).map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
 }
 
 /// 物料展示信息（错误文案 / 详情用：编码 + 名称 + 基础单位）。
@@ -179,10 +175,7 @@ impl MaterialInfo {
 }
 
 /// 单查物料（不存在 / 已删 → `None`）。
-pub async fn material_info(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-) -> DbResult<Option<MaterialInfo>> {
+pub async fn material_info(ex: &impl SqlExecutor, material_id: Uuid) -> DbResult<Option<MaterialInfo>> {
     let row = ex
         .query_first_sql(
             "SELECT material_code, material_name, unit_id, serial_required FROM biz_material \
@@ -214,10 +207,7 @@ pub struct WarehousePolicy {
 }
 
 /// 单查仓库的策略（不存在 / 已删 → `None`）。
-pub async fn warehouse_policy(
-    ex: &impl SqlExecutor,
-    warehouse_id: Uuid,
-) -> DbResult<Option<WarehousePolicy>> {
+pub async fn warehouse_policy(ex: &impl SqlExecutor, warehouse_id: Uuid) -> DbResult<Option<WarehousePolicy>> {
     let row = ex
         .query_first_sql(
             "SELECT warehouse_code, warehouse_name, allow_negative FROM biz_warehouse \
@@ -250,11 +240,7 @@ pub async fn next_out_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbResult<
 }
 
 /// 插明细（建单 / 改单共用），行号从 1 连续。
-async fn insert_items(
-    ex: &impl SqlExecutor,
-    stock_out_id: Uuid,
-    lines: &[NewStockOutLine],
-) -> DbResult<()> {
+async fn insert_items(ex: &impl SqlExecutor, stock_out_id: Uuid, lines: &[NewStockOutLine]) -> DbResult<()> {
     for (index, line) in lines.iter().enumerate() {
         ex.exec_sql(
             format!(
@@ -316,11 +302,7 @@ pub async fn create(
             // 来源（V0285）：手工建单两个都空 → NULL，不参与 uk_biz_so_source。
             // ⚠ 可空 uuid 一律 `NULLIF(?::text,'')::uuid`：驱动不接受空串直绑 uuid。
             Value::Text(new.source_type.unwrap_or_default().to_string()),
-            Value::Text(
-                new.source_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(new.source_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::from(now),
             Value::from(now),
             operator_text.clone(),
@@ -393,12 +375,7 @@ pub async fn update(
 }
 
 /// 软删（**仅 DRAFT 由调用方保证**），返回 `affected`。
-pub async fn soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET deleted_at = ?, updated_at = ?, \
@@ -505,12 +482,7 @@ pub async fn apply_status(
 }
 
 /// 回写凭证引用（弱引用，无外键；作废后指向红字凭证）。
-pub async fn link_voucher(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    voucher_id: Uuid,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn link_voucher(ex: &impl SqlExecutor, id: Uuid, voucher_id: Uuid, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET voucher_id = ?::uuid, updated_at = ? \
@@ -522,12 +494,7 @@ pub async fn link_voucher(
 }
 
 /// 回写单头金额合计（过账时按账上真实差额写入）。
-pub async fn set_total_amount(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    amount: Decimal,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn set_total_amount(ex: &impl SqlExecutor, id: Uuid, amount: Decimal, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET total_amount = NULLIF(?::text,'')::numeric, updated_at = ? \
@@ -818,11 +785,7 @@ pub fn allocate_fifo(buckets: &[FifoBucket], qty: Decimal) -> (Vec<FifoPick>, De
 /// FIFO 的排序键是 `biz_inventory_location.created_at`（= 该库位**第一次**收到这个物料的时间），
 /// 并列时按行 id。这是当前库位账能做出来的最近似口径 —— 逐笔入库时间没有落在库位账上
 /// （`biz_inventory_txn` 没有 location 列），真正的批次库龄 FIFO 要等批次卡，这里不假装它是。
-pub async fn fifo_buckets(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-    warehouse_id: Uuid,
-) -> DbResult<Vec<FifoBucket>> {
+pub async fn fifo_buckets(ex: &impl SqlExecutor, material_id: Uuid, warehouse_id: Uuid) -> DbResult<Vec<FifoBucket>> {
     let rows = ex
         .query_sql(
             "SELECT il.id, il.qty, il.location_id, \
@@ -843,9 +806,7 @@ pub async fn fifo_buckets(
         let ledger_dict: Option<Uuid> = row.get_typed("location_id")?;
         let location_code: String = row.get_typed("location_code")?;
         buckets.push(FifoBucket {
-            location_row_id: ledger_dict
-                .map(|_| row.get_typed::<Uuid>("id"))
-                .transpose()?,
+            location_row_id: ledger_dict.map(|_| row.get_typed::<Uuid>("id")).transpose()?,
             location_code,
             available: row.get_typed("qty")?,
         });
@@ -877,10 +838,7 @@ pub async fn fifo_plan(
 /// 库位账行 id → 库位编码（用于「该库位不够」的 409 文案）。
 ///
 /// `None`（未分配桶）或行已不存在 → 「未分配」/「已删除的库位账行」。
-pub async fn location_label(
-    ex: &impl SqlExecutor,
-    location_row_id: Option<Uuid>,
-) -> DbResult<String> {
+pub async fn location_label(ex: &impl SqlExecutor, location_row_id: Option<Uuid>) -> DbResult<String> {
     let Some(row_id) = location_row_id else {
         return Ok("未分配".to_string());
     };
@@ -1020,8 +978,7 @@ pub async fn restore_cost(
     now: DateTime<Utc>,
 ) -> DbResult<()> {
     // P2-5A：回加 SQL（按桶键加 + 缺行建档）收口到 [`inventory_writer::restore_cost`]。
-    inventory_writer::restore_cost(ex, material_id, warehouse_id, location_id, qty, amount, now)
-        .await
+    inventory_writer::restore_cost(ex, material_id, warehouse_id, location_id, qty, amount, now).await
 }
 
 /// 库位账回加（作废出库单）。
@@ -1038,8 +995,7 @@ pub async fn restore_location_qty(
 ) -> DbResult<()> {
     // P2-5A：回加 SQL（按行 id / 未分配桶两条分支 + 缺行建档）收口到
     // [`inventory_writer::restore_location_qty`]。
-    inventory_writer::restore_location_qty(ex, material_id, warehouse_id, location_id, qty, now)
-        .await
+    inventory_writer::restore_location_qty(ex, material_id, warehouse_id, location_id, qty, now).await
 }
 
 /// 写作废冲销流水（`txn_type='IN'` + `biz_type='STOCK_OUT_CANCEL'`）。
@@ -1102,10 +1058,7 @@ pub async fn write_cancel_txn(
 ///
 /// 返回每条明细「过账流水合计数量」与明细数量是否一致的报告；不一致 / 缺流水
 /// 一律让调用方报 409 —— **绝不按现价估算**（那是污染成本的捷径）。
-pub async fn txn_report(
-    ex: &impl SqlExecutor,
-    doc_id: Uuid,
-) -> DbResult<Vec<(i32, Decimal, Decimal, i64)>> {
+pub async fn txn_report(ex: &impl SqlExecutor, doc_id: Uuid) -> DbResult<Vec<(i32, Decimal, Decimal, i64)>> {
     // SCOPE-EXEMPT: 库存流水是仓储台账，无归属列。
     // biz_type 列表直接取自 `stockout_base::OUT_TXN_BIZ_TYPES`（含销售出库的 SALE_OUT）：
     // 漏一个值 = 作废前完整性闸看不见那条流水（FIX-7），所以不在这里再抄一遍清单。
@@ -1142,32 +1095,22 @@ pub async fn txn_report(
 }
 
 /// 库位账行归属校验（明细上的 `location_id` 必须属于本次的物料 / 仓库）。
-pub async fn location_ref(
-    ex: &impl SqlExecutor,
-    location_row_id: Uuid,
-) -> DbResult<Option<(Uuid, Uuid)>> {
+pub async fn location_ref(ex: &impl SqlExecutor, location_row_id: Uuid) -> DbResult<Option<(Uuid, Uuid)>> {
     // SCOPE-EXEMPT: 库存是仓储数据，无归属列。
     let row = ex
         .query_first_sql(
-            "SELECT material_id, warehouse_id FROM biz_inventory_location WHERE id = ?::uuid"
-                .to_string(),
+            "SELECT material_id, warehouse_id FROM biz_inventory_location WHERE id = ?::uuid".to_string(),
             vec![Value::from(&location_row_id)],
         )
         .await?;
     match row {
         None => Ok(None),
-        Some(row) => Ok(Some((
-            row.get_typed("material_id")?,
-            row.get_typed("warehouse_id")?,
-        ))),
+        Some(row) => Ok(Some((row.get_typed("material_id")?, row.get_typed("warehouse_id")?))),
     }
 }
 
 /// 单据出库日期对应会计期间是否已结账（过账闸，错在入口而不是在凭证层）。
-pub async fn period_closed(
-    ex: &impl SqlExecutor,
-    date: NaiveDate,
-) -> DbResult<Option<(String, String)>> {
+pub async fn period_closed(ex: &impl SqlExecutor, date: NaiveDate) -> DbResult<Option<(String, String)>> {
     let period = voucher::period_of(ex, date).await?;
     let status = voucher::period_status(ex, &period).await?;
     Ok(status.map(|status| (period, status)))

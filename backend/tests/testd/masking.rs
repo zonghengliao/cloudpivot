@@ -74,17 +74,9 @@ async fn x02_detail_masked_for_plain_user() {
         .expect("查详情");
         let detail = detail.data.expect("详情 data");
 
-        assert_eq!(
-            detail.mobile, "138****5678",
-            "手机号未脱敏：{}",
-            detail.mobile
-        );
+        assert_eq!(detail.mobile, "138****5678", "手机号未脱敏：{}", detail.mobile);
         assert_eq!(detail.real_name, "张**", "姓名未脱敏：{}", detail.real_name);
-        assert!(
-            detail.email.starts_with("z***@"),
-            "邮箱未脱敏：{}",
-            detail.email
-        );
+        assert!(detail.email.starts_with("z***@"), "邮箱未脱敏：{}", detail.email);
         assert!(
             !detail.mobile.contains("1234") && !detail.real_name.contains("三丰"),
             "详情里仍能看到明文片段"
@@ -123,27 +115,12 @@ async fn x03_sync_export_masked() {
             }),
         )
         .await;
-        assert_eq!(
-            response.status(),
-            200,
-            "导出应成功（HTTP {}）",
-            response.status()
-        );
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("读产物");
+        assert_eq!(response.status(), 200, "导出应成功（HTTP {}）", response.status());
+        let body = to_bytes(response.into_body(), usize::MAX).await.expect("读产物");
 
         let cells = crate::testd::xlsx::read_xlsx(&body);
-        let flat: String = cells
-            .iter()
-            .flatten()
-            .cloned()
-            .collect::<Vec<_>>()
-            .join("|");
-        assert!(
-            flat.contains(&target_name),
-            "导出文件里没有夹具用户：{flat}"
-        );
+        let flat: String = cells.iter().flatten().cloned().collect::<Vec<_>>().join("|");
+        assert!(flat.contains(&target_name), "导出文件里没有夹具用户：{flat}");
         assert!(
             !flat.contains("13812345678"),
             "导出文件里出现了明文手机号（脱敏失效）：{flat}"
@@ -152,14 +129,8 @@ async fn x03_sync_export_masked() {
             !flat.contains("zhangsan@example.com"),
             "导出文件里出现了明文邮箱（脱敏失效）：{flat}"
         );
-        assert!(
-            !flat.contains("张三丰"),
-            "导出文件里出现了明文姓名（脱敏失效）"
-        );
-        assert!(
-            flat.contains("138****5678"),
-            "导出文件里没有掩码手机号：{flat}"
-        );
+        assert!(!flat.contains("张三丰"), "导出文件里出现了明文姓名（脱敏失效）");
+        assert!(flat.contains("138****5678"), "导出文件里没有掩码手机号：{flat}");
 
         // 导出任务行必须留痕 mask_applied（审计）
         println!("[X03] 同步导出掩码值命中：138****5678");
@@ -226,10 +197,7 @@ async fn x04_missing_rule_fails_closed() {
             Vec::new(),
         )
         .await;
-        println!(
-            "[X04] 库里全局脱敏规则数：{globals}，本角色规则数：{}",
-            mask.len()
-        );
+        println!("[X04] 库里全局脱敏规则数：{globals}，本角色规则数：{}", mask.len());
         let definition = cloudpivot::business::impexp::global_registry()
             .export_definition("system.user")
             .expect("用户导出定义");
@@ -247,22 +215,12 @@ async fn x04_missing_rule_fails_closed() {
         )
         .await;
         let status = response.status();
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("读响应");
+        let body = to_bytes(response.into_body(), usize::MAX).await.expect("读响应");
         if status == 200 {
             let text = String::from_utf8_lossy(&body).to_string();
             let cells = crate::testd::xlsx::read_xlsx(&body);
-            let flat = cells
-                .iter()
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join("|");
-            println!(
-                "[X04] 接口层返回 200（body {} 字节），单元格：{flat}",
-                text.len()
-            );
+            let flat = cells.iter().flatten().cloned().collect::<Vec<_>>().join("|");
+            println!("[X04] 接口层返回 200（body {} 字节），单元格：{flat}", text.len());
             assert!(
                 !flat.contains("13812345678") && !flat.contains("zhangsan@example.com"),
                 "无脱敏规则却导出了明文（fail-closed 被绕过）：{flat}"
@@ -308,9 +266,7 @@ async fn x05_plain_permission_exempt_and_audited() {
         )
         .await;
         assert_eq!(response.status(), 200, "明版权限导出应成功");
-        let body = to_bytes(response.into_body(), usize::MAX)
-            .await
-            .expect("读产物");
+        let body = to_bytes(response.into_body(), usize::MAX).await.expect("读产物");
         let flat: String = crate::testd::xlsx::read_xlsx(&body)
             .iter()
             .flatten()
@@ -366,10 +322,7 @@ async fn x05_plain_permission_exempt_and_audited() {
             &serde_json::json!({"event": "FIELD_MASK_PLAIN_READ", "route": "testd"}).to_string(),
         )
         .await;
-        assert!(
-            direct.is_ok(),
-            "留痕写入函数在真库上失败（BUG-D-13 回归）：{direct:?}"
-        );
+        assert!(direct.is_ok(), "留痕写入函数在真库上失败（BUG-D-13 回归）：{direct:?}");
         let now_count = c::count(
             "SELECT count(*) AS n FROM audit_logs WHERE operation = 'FIELD_MASK_PLAIN_READ'",
             Vec::new(),
@@ -389,7 +342,6 @@ async fn x05_plain_permission_exempt_and_audited() {
         println!(
             "[X05] 明文导出留痕：FIELD_MASK_PLAIN_READ {before} → {now_count}（含直接调用 1 条，等待 {waited} ms）"
         );
-
     })
     .await;
 }

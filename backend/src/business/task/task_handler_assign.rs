@@ -16,8 +16,8 @@ use super::task_handler_notice::*;
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
 use crate::business::shared::principal::{self};
 use crate::business::task::dto::{
-    self, TaskAssignReq, TaskAssignRes, TaskMemberAddReq, TaskMemberAddRes, TaskMemberRemoveRes,
-    TaskMemberRes, TaskMembersRes,
+    self, TaskAssignReq, TaskAssignRes, TaskMemberAddReq, TaskMemberAddRes, TaskMemberRemoveRes, TaskMemberRes,
+    TaskMembersRes,
 };
 use crate::business::task::model::{self};
 use crate::shared::ai_actor;
@@ -41,12 +41,7 @@ pub(super) enum ActorRole {
 ///
 /// 优先级：创建人 > 负责人 > 分派人。一个人同时是「创建人 + 负责人」时按创建人算
 /// —— 与 `state::TaskPeople::role_mask` 的位掩码口径一致（那边是全选，这边取最左侧）。
-pub(super) fn actor_role(
-    me: Uuid,
-    creator_id: Uuid,
-    owner_id: Uuid,
-    assigner_id: Option<Uuid>,
-) -> ActorRole {
+pub(super) fn actor_role(me: Uuid, creator_id: Uuid, owner_id: Uuid, assigner_id: Option<Uuid>) -> ActorRole {
     if me == creator_id {
         ActorRole::Creator
     } else if me == owner_id {
@@ -80,11 +75,7 @@ pub(super) fn may_manage_members(role: ActorRole, has_permission: bool) -> bool 
 /// 口径（卡面 §二 规则 1）：**操作人非创建人时记操作人**；创建人自己派活时沿用原值
 /// —— 创建人本来就是这条任务的源头，把 `assigner_id` 指向他反而让「谁派的」变成
 /// 冗余信息（`creator_id` 已经说明了一切）。
-pub(super) fn next_assigner(
-    operator: Uuid,
-    creator_id: Uuid,
-    current: Option<Uuid>,
-) -> Option<Uuid> {
+pub(super) fn next_assigner(operator: Uuid, creator_id: Uuid, current: Option<Uuid>) -> Option<Uuid> {
     if operator == creator_id {
         current
     } else {
@@ -157,10 +148,7 @@ pub(super) fn forbidden_member(is_robot: bool) -> ApiError {
 ///
 /// 幂等重复提交不该占额度：一个 50 人的任务再提交「把这 50 人加一遍」，实际
 /// 新增 0 人，不该报上限错误（前端整表提交时会经常发生）。
-pub(super) fn ensure_member_quota(
-    existing: usize,
-    adding: usize,
-) -> std::result::Result<(), ApiError> {
+pub(super) fn ensure_member_quota(existing: usize, adding: usize) -> std::result::Result<(), ApiError> {
     let total = existing as i64 + adding as i64;
     if total > dto::MAX_MEMBERS_PER_TASK {
         return Err(ApiError::new(
@@ -254,12 +242,7 @@ pub async fn assign(
     let current = require_task(task_id).await?;
 
     // ① 权限矩阵：行级关系 ∪ 权限码
-    let role = actor_role(
-        me,
-        current.creator_id,
-        current.card.owner_id,
-        current.assigner_id,
-    );
+    let role = actor_role(me, current.creator_id, current.card.owner_id, current.assigner_id);
     if !may_assign(role, claims.has_permission(dto::PERM_ASSIGN)) {
         return Err(forbidden_assign(is_robot(me).await?));
     }
@@ -331,33 +314,17 @@ pub async fn assign(
             }
             let auto_member = old_owner_id != new_owner;
             if auto_member {
-                model::add_member(
-                    &tx,
-                    task_id,
-                    old_owner_id,
-                    dto::MEMBER_ROLE_COLLABORATOR,
-                    me,
-                )
-                .await?;
+                model::add_member(&tx, task_id, old_owner_id, dto::MEMBER_ROLE_COLLABORATOR, me).await?;
             }
-            let comment_id =
-                model::insert_comment(&tx, task_id, me, &content, model::COMMENT_TYPE_ASSIGN, me)
-                    .await?;
+            let comment_id = model::insert_comment(&tx, task_id, me, &content, model::COMMENT_TYPE_ASSIGN, me).await?;
             changelog::record(
                 &tx,
                 &ChangeCtx::api(Some(me), Some(&operator_name_tx)),
-                ChangeTarget::of(
-                    "biz_task",
-                    task_id.to_string(),
-                    Action::Assign,
-                    "分派 / 转派",
-                ),
+                ChangeTarget::of("biz_task", task_id.to_string(), Action::Assign, "分派 / 转派"),
                 DiffInput::update(&before, &after),
             )
             .await
-            .map_err(|error| {
-                DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
-            })?;
+            .map_err(|error| DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg)))?;
             Ok((comment_id, affected, auto_member))
         })
         .await
@@ -468,12 +435,7 @@ pub async fn add_members(
     let me = current_user(&claims)?;
     let task_id = parse_uuid_field(&id, "任务")?;
     let current = require_task(task_id).await?;
-    let role = actor_role(
-        me,
-        current.creator_id,
-        current.card.owner_id,
-        current.assigner_id,
-    );
+    let role = actor_role(me, current.creator_id, current.card.owner_id, current.assigner_id);
     if !may_manage_members(role, claims.has_permission(dto::PERM_MEMBER)) {
         return Err(forbidden_member(is_robot(me).await?));
     }
@@ -493,10 +455,7 @@ pub async fn add_members(
         return Err(ApiError::new(
             400,
             error_code::TASK_MEMBER_INVALID,
-            format!(
-                "以下用户不存在或已停用，不能加为协作人：{}",
-                invalid.join(", ")
-            ),
+            format!("以下用户不存在或已停用，不能加为协作人：{}", invalid.join(", ")),
         ));
     }
 
@@ -596,12 +555,7 @@ pub async fn remove_member(
     let task_id = parse_uuid_field(&id, "任务")?;
     let target = parse_uuid_field(&user_id, "协作人")?;
     let current = require_task(task_id).await?;
-    let role = actor_role(
-        me,
-        current.creator_id,
-        current.card.owner_id,
-        current.assigner_id,
-    );
+    let role = actor_role(me, current.creator_id, current.card.owner_id, current.assigner_id);
     if !may_manage_members(role, claims.has_permission(dto::PERM_MEMBER)) {
         return Err(forbidden_member(is_robot(me).await?));
     }

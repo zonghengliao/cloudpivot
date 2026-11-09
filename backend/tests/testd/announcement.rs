@@ -11,14 +11,11 @@ use axum::http::HeaderMap;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::announcement::dto::{
-    AnnouncementOfflineReq, AnnouncementSaveReq, ReaderState, ReadersQuery,
-};
+use cloudpivot::business::announcement::dto::{AnnouncementOfflineReq, AnnouncementSaveReq, ReaderState, ReadersQuery};
 use cloudpivot::business::announcement::{handler as ann_handler, model as ann_model};
 use cloudpivot::business::notice::dto::{ContentFormat, NoticeLevel, NoticeType};
 use cloudpivot::business::notice::{
-    DispatchResult, NoticeDraft, NoticeTarget, dispatch, model as notice_model,
-    render as notice_render,
+    DispatchResult, NoticeDraft, NoticeTarget, dispatch, model as notice_model, render as notice_render,
 };
 
 use crate::testd::common::{self as c, Ctx};
@@ -41,10 +38,7 @@ fn offline_req() -> AnnouncementOfflineReq {
 }
 
 /// 通知分页过滤条件。
-fn notice_filter(
-    _ctx: &Ctx,
-    keyword: Option<String>,
-) -> cloudpivot::business::notice::dto::NoticeFilter {
+fn notice_filter(_ctx: &Ctx, keyword: Option<String>) -> cloudpivot::business::notice::dto::NoticeFilter {
     cloudpivot::business::notice::dto::NoticeFilter {
         keyword,
         notice_type: Some("SYSTEM".to_string()),
@@ -71,11 +65,7 @@ async fn draft(_publisher: Uuid, ctx: &Ctx, audience: &[Uuid]) -> AnnouncementSa
 }
 
 /// 建 + 发布，返回公告 id / 通知 id / 接收人数。
-async fn create_and_publish(
-    publisher: Uuid,
-    ctx: &Ctx,
-    audience: &[Uuid],
-) -> (Uuid, Option<Uuid>, i64) {
+async fn create_and_publish(publisher: Uuid, ctx: &Ctx, audience: &[Uuid]) -> (Uuid, Option<Uuid>, i64) {
     let req = draft(publisher, ctx, audience).await;
     let created = ann_handler::create(
         headers(),
@@ -96,10 +86,7 @@ async fn create_and_publish(
     .await
     .expect("发布公告");
     let published = published.data.expect("发布 data");
-    let notice_id = published
-        .notice_id
-        .as_deref()
-        .and_then(|raw| Uuid::parse_str(raw).ok());
+    let notice_id = published.notice_id.as_deref().and_then(|raw| Uuid::parse_str(raw).ok());
     (id, notice_id, published.receiver_count)
 }
 
@@ -128,9 +115,7 @@ async fn g01_published_announcement_visible_to_target() {
         assert!(notice_id.is_some(), "发布未扇出通知");
 
         // 目标用户能看到
-        let audience = ann_model::load_audience(&target)
-            .await
-            .expect("目标用户可见集");
+        let audience = ann_model::load_audience(&target).await.expect("目标用户可见集");
         let unread = ann_model::count_unread(&audience).await.expect("未读数");
         assert!(unread >= 1, "目标用户未读数应 >= 1，实际 {unread}");
         let visible = ann_model::page_visible(
@@ -150,9 +135,7 @@ async fn g01_published_announcement_visible_to_target() {
         );
 
         // 非目标用户看不到
-        let other = ann_model::load_audience(&outsider)
-            .await
-            .expect("无关用户可见集");
+        let other = ann_model::load_audience(&outsider).await.expect("无关用户可见集");
         let other_page = ann_model::page_visible(
             &other,
             &ann_model::VisibleFilter {
@@ -487,8 +470,7 @@ async fn g05_notice_fanout_multiple_targets() {
             biz_id: Some(ctx.key("biz")),
             template_code: None,
             template_vars: serde_json::Value::Null,
-            target: NoticeTarget::parse("USER", &[u1.to_string(), u2.to_string()])
-                .expect("目标解析"),
+            target: NoticeTarget::parse("USER", &[u1.to_string(), u2.to_string()]).expect("目标解析"),
             channel_mask: 1, // 仅站内信
             idempotency_key: Some(ctx.key("idem")),
             expire_at: None,
@@ -560,23 +542,10 @@ async fn g06_mark_read_decrements_unread() {
         )
         .await
         .expect("收件行");
-        assert!(
-            notice_model::mark_read(&receiver_id, &u1)
-                .await
-                .expect("标记已读")
-        );
-        assert_eq!(
-            notice_model::count_unread(&u1).await.unwrap(),
-            0,
-            "已读后未读数应为 0"
-        );
+        assert!(notice_model::mark_read(&receiver_id, &u1).await.expect("标记已读"));
+        assert_eq!(notice_model::count_unread(&u1).await.unwrap(), 0, "已读后未读数应为 0");
         // 重复标记不报错也不重复计数
-        assert!(
-            !notice_model::mark_read(&receiver_id, &u1)
-                .await
-                .expect("重复标记")
-        );
-
+        assert!(!notice_model::mark_read(&receiver_id, &u1).await.expect("重复标记"));
     })
     .await;
 }
@@ -643,11 +612,7 @@ async fn g07_template_variable_substitution() {
             vec![Value::from(&result.notice_id)],
         )
         .await;
-        assert_eq!(
-            title,
-            format!("你好 {}", ctx.key("张三")),
-            "标题变量未替换：{title}"
-        );
+        assert_eq!(title, format!("你好 {}", ctx.key("张三")), "标题变量未替换：{title}");
         assert_eq!(
             content,
             format!("{} 的账号已开通", ctx.key("张三")),
@@ -655,11 +620,7 @@ async fn g07_template_variable_substitution() {
         );
 
         // 缺变量 → 渲染失败（不能把 {{name}} 原样发给用户）
-        let missing = notice_render::render_content(
-            "你好 {{name}}",
-            &serde_json::json!({}),
-            ContentFormat::Text,
-        );
+        let missing = notice_render::render_content("你好 {{name}}", &serde_json::json!({}), ContentFormat::Text);
         assert!(missing.is_err(), "缺变量时渲染应失败");
     })
     .await;
@@ -721,10 +682,7 @@ async fn g08_channel_failure_visible() {
             vec![Value::from(&result.notice_id)],
         )
         .await;
-        assert_eq!(
-            inbox_delivery, 0,
-            "只勾邮件时不该有站内信投递记录（通道掩码失效）"
-        );
+        assert_eq!(inbox_delivery, 0, "只勾邮件时不该有站内信投递记录（通道掩码失效）");
 
         // 投递记录必须存在且状态可读（未配置通道 = SKIPPED，不是静默丢失）
         let email_status = c::text(
@@ -751,10 +709,7 @@ async fn g08_channel_failure_visible() {
             .find(|state| state.channel.eq_ignore_ascii_case("INBOX"))
             .expect("站内信通道恒在（plan_channels 强制 OR）");
         assert_eq!(inbox_state.status, "DELIVERED");
-        println!(
-            "[G08] 通道状态：{email_status} / INBOX={}",
-            inbox_state.status
-        );
+        println!("[G08] 通道状态：{email_status} / INBOX={}", inbox_state.status);
     })
     .await;
 }
@@ -856,28 +811,18 @@ async fn g10_notice_search_filter_paging() {
         assert_eq!(miss.total, 0, "无关关键词不该命中");
 
         // 用户侧「我的通知」分页同口径
-        let mine = notice_model::page_my_notices(&u1, None, 1, 10)
-            .await
-            .expect("我的通知");
+        let mine = notice_model::page_my_notices(&u1, None, 1, 10).await.expect("我的通知");
         assert!(mine.total >= 3, "我的通知应 >= 3 条，实际 {}", mine.total);
 
         // 管理端分页查询（按发送人范围收口：用发送人自己的 principal）
         let sender_principal = cloudpivot::business::shared::principal::resolve(&sender)
             .await
             .expect("解析发送人范围");
-        let by_admin = notice_model::page_notices(
-            &notice_filter(&ctx, Some(ctx.key("notice"))),
-            1,
-            10,
-            &sender_principal,
-        )
-        .await
-        .expect("管理端分页");
-        assert!(
-            by_admin.total >= 3,
-            "管理端分页应 >= 3 条，实际 {}",
-            by_admin.total
-        );
+        let by_admin =
+            notice_model::page_notices(&notice_filter(&ctx, Some(ctx.key("notice"))), 1, 10, &sender_principal)
+                .await
+                .expect("管理端分页");
+        assert!(by_admin.total >= 3, "管理端分页应 >= 3 条，实际 {}", by_admin.total);
     })
     .await;
 }

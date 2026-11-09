@@ -117,10 +117,7 @@ pub fn idempotency_key(transfer_id: &Uuid, alert_seq: i16) -> String {
 /// 「自己批的单没落地」。
 pub fn recipients_of(candidate: &OverdueCandidate) -> Vec<Uuid> {
     let mut ids = Vec::with_capacity(2);
-    for id in [candidate.applicant_id, candidate.approver_id]
-        .into_iter()
-        .flatten()
-    {
+    for id in [candidate.applicant_id, candidate.approver_id].into_iter().flatten() {
         if !ids.contains(&id) {
             ids.push(id);
         }
@@ -154,10 +151,7 @@ pub fn notice_draft(
     } else {
         String::new()
     };
-    let title = format!(
-        "在途调拨超期 {elapsed} 天未收货：{}{round}",
-        candidate.transfer_no
-    );
+    let title = format!("在途调拨超期 {elapsed} 天未收货：{}{round}", candidate.transfer_no);
     let content = format!(
         "调拨单 {} 于 {} 发货，已压 {elapsed} 天仍未收货（阈值 {threshold_days} 天）。\n\
          调出仓：{from_name}\n调入仓：{to_name}\n\
@@ -219,9 +213,7 @@ pub async fn scan_once(now: DateTime<Utc>) -> std::result::Result<ScanReport, Db
         ids.push(candidate.from_warehouse_id);
         ids.push(candidate.to_warehouse_id);
     }
-    let names = transfer_model::warehouse_names(&ids)
-        .await
-        .unwrap_or_default();
+    let names = transfer_model::warehouse_names(&ids).await.unwrap_or_default();
     let name_of = |id: Uuid| names.get(&id).cloned().unwrap_or_else(|| id.to_string());
 
     for candidate in &candidates {
@@ -261,14 +253,7 @@ pub async fn scan_once(now: DateTime<Utc>) -> std::result::Result<ScanReport, Db
         }
 
         // ② 再记台账（CAS：计数仍是我读到的旧值才 +1）
-        match transfer_model::mark_overdue_alerted(
-            db(),
-            candidate.id,
-            candidate.overdue_alert_count,
-            now,
-        )
-        .await
-        {
+        match transfer_model::mark_overdue_alerted(db(), candidate.id, candidate.overdue_alert_count, now).await {
             Ok(1) => report.alerted += 1,
             Ok(_) => {
                 // 被别的扫描抢先记了台账（通知侧已经幂等，不会重复推）
@@ -324,18 +309,12 @@ mod tests {
         OverdueCandidate {
             id: Uuid::parse_str("0199aaaa-0000-7000-8000-000000000001").expect("固定 uuid"),
             transfer_no: "TK-20261001-000007".to_string(),
-            applicant_id: Some(
-                Uuid::parse_str("0199aaaa-0000-7000-8000-000000000011").expect("固定 uuid"),
-            ),
-            approver_id: Some(
-                Uuid::parse_str("0199aaaa-0000-7000-8000-000000000012").expect("固定 uuid"),
-            ),
+            applicant_id: Some(Uuid::parse_str("0199aaaa-0000-7000-8000-000000000011").expect("固定 uuid")),
+            approver_id: Some(Uuid::parse_str("0199aaaa-0000-7000-8000-000000000012").expect("固定 uuid")),
             shipped_at: Utc::now() - Duration::days(30),
             overdue_alert_count: count,
-            from_warehouse_id: Uuid::parse_str("0199aaaa-0000-7000-8000-000000000021")
-                .expect("固定 uuid"),
-            to_warehouse_id: Uuid::parse_str("0199aaaa-0000-7000-8000-000000000022")
-                .expect("固定 uuid"),
+            from_warehouse_id: Uuid::parse_str("0199aaaa-0000-7000-8000-000000000021").expect("固定 uuid"),
+            to_warehouse_id: Uuid::parse_str("0199aaaa-0000-7000-8000-000000000022").expect("固定 uuid"),
         }
     }
 
@@ -364,11 +343,7 @@ mod tests {
 
         let mut same = candidate(0);
         same.approver_id = same.applicant_id;
-        assert_eq!(
-            recipients_of(&same).len(),
-            1,
-            "申请人与审批人相同时不重复推"
-        );
+        assert_eq!(recipients_of(&same).len(), 1, "申请人与审批人相同时不重复推");
 
         let mut none = candidate(0);
         none.applicant_id = None;
@@ -384,28 +359,16 @@ mod tests {
     #[test]
     fn notice_draft_carries_facts() {
         let now = Utc::now();
-        let draft =
-            notice_draft(&candidate(0), now, 7, "调出仓 A", "调入仓 B").expect("应产出草稿");
+        let draft = notice_draft(&candidate(0), now, 7, "调出仓 A", "调入仓 B").expect("应产出草稿");
         assert_eq!(draft.notice_type, NoticeType::Alert);
         assert_eq!(draft.level, NoticeLevel::Warn);
         assert!(draft.force, "压货告警必须强制送达");
         let title = &draft.title;
-        assert!(
-            title.contains("TK-20261001-000007"),
-            "标题要带单号：{title}"
-        );
+        assert!(title.contains("TK-20261001-000007"), "标题要带单号：{title}");
         assert!(title.contains("超期"), "标题要写清是超期：{title}");
-        assert!(
-            title.chars().count() <= 255,
-            "标题超列宽：{}",
-            title.chars().count()
-        );
+        assert!(title.chars().count() <= 255, "标题超列宽：{}", title.chars().count());
         for fact in ["TK-20261001-000007", "阈值 7 天", "调出仓 A", "调入仓 B"] {
-            assert!(
-                draft.content.contains(fact),
-                "正文缺事实 `{fact}`：{}",
-                draft.content
-            );
+            assert!(draft.content.contains(fact), "正文缺事实 `{fact}`：{}", draft.content);
         }
         assert_eq!(draft.biz_type.as_deref(), Some(BIZ_TYPE));
         let expected_id = candidate(0).id.to_string();
@@ -451,11 +414,7 @@ mod tests {
     fn task_metadata_is_stable() {
         assert_eq!(TASK_NAME, "transfer_overdue_scan");
         assert_eq!(TASK_CRON, "0 5 * * * *");
-        assert_eq!(
-            TASK_CRON.split_whitespace().count(),
-            6,
-            "必须是 6 段 cron（第 1 段秒）"
-        );
+        assert_eq!(TASK_CRON.split_whitespace().count(), 6, "必须是 6 段 cron（第 1 段秒）");
         assert_eq!(LINK_URL, "/business/erp/transfer");
     }
 }

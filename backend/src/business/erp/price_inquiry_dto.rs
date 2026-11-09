@@ -48,12 +48,7 @@ pub const STATUS_AWARDED: &str = "AWARDED";
 pub const STATUS_CONVERTED: &str = "CONVERTED";
 
 /// 全部状态（与 `ck_biz_piq_status` 逐字一致）。
-pub const STATUSES: [&str; 4] = [
-    STATUS_DRAFT,
-    STATUS_QUOTING,
-    STATUS_AWARDED,
-    STATUS_CONVERTED,
-];
+pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_QUOTING, STATUS_AWARDED, STATUS_CONVERTED];
 
 /// 多家比价后定标。
 pub const AWARD_MODE_MULTI: &str = "MULTI";
@@ -159,21 +154,14 @@ pub struct PriceInquiryFilter {
 impl PriceInquiryPageQuery {
     /// 入参校验 + 归一化（域值乱码一律 400，不静默忽略）。
     pub fn filter(&self) -> std::result::Result<PriceInquiryFilter, ApiError> {
-        let status = match self
-            .status
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-        {
+        let status = match self.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
             Some(raw) => Some(normalize_status(raw)?),
             None => None,
         };
         if let (Some(from), Some(to)) = (self.date_from, self.date_to)
             && from > to
         {
-            return Err(bad_request(format!(
-                "date_from（{from}）不能晚于 date_to（{to}）"
-            )));
+            return Err(bad_request(format!("date_from（{from}）不能晚于 date_to（{to}）")));
         }
         Ok(PriceInquiryFilter {
             page: self.page.unwrap_or(1),
@@ -290,10 +278,7 @@ pub struct AwardPlan {
 /// * 请求必须覆盖**全部**明细行（部分定标会让转单逻辑无从判断剩余行，宁可 400）；
 /// * 同一明细不能出现两次（用 `BTreeSet` 判重）；
 /// * 两种写法都为空 → 400 指名要什么。
-pub fn resolve_award(
-    req: &AwardReq,
-    item_ids: &[Uuid],
-) -> std::result::Result<Vec<AwardPair>, ApiError> {
+pub fn resolve_award(req: &AwardReq, item_ids: &[Uuid]) -> std::result::Result<Vec<AwardPair>, ApiError> {
     if item_ids.is_empty() {
         return Err(bad_request("询价单没有任何明细，无法定标"));
     }
@@ -301,12 +286,8 @@ pub fn resolve_award(
     if !req.items.is_empty() {
         let mut seen: BTreeSet<Uuid> = BTreeSet::new();
         for (index, item) in req.items.iter().enumerate() {
-            let item_id =
-                parse_uuid_field(item.item_id.as_deref(), &format!("items[{index}].item_id"))?;
-            let supplier_id = parse_uuid_field(
-                item.supplier_id.as_deref(),
-                &format!("items[{index}].supplier_id"),
-            )?;
+            let item_id = parse_uuid_field(item.item_id.as_deref(), &format!("items[{index}].item_id"))?;
+            let supplier_id = parse_uuid_field(item.supplier_id.as_deref(), &format!("items[{index}].supplier_id"))?;
             if !item_ids.contains(&item_id) {
                 return Err(bad_request(format!(
                     "items[{index}].item_id（{item_id}）不属于本询价单"
@@ -317,10 +298,7 @@ pub fn resolve_award(
                     "items[{index}].item_id（{item_id}）重复出现：一条明细只能有一个中标供应商"
                 )));
             }
-            pairs.push(AwardPair {
-                item_id,
-                supplier_id,
-            });
+            pairs.push(AwardPair { item_id, supplier_id });
         }
         let covered: BTreeSet<Uuid> = pairs.iter().map(|pair| pair.item_id).collect();
         let missing: Vec<String> = item_ids
@@ -349,10 +327,7 @@ pub fn resolve_award(
 /// 报价家数不足 2 的明细（按 `awards` 里出现的明细判断）。
 ///
 /// `per_item_suppliers` = 每条明细「报过价的供应商集合」（来自库，不是请求）。
-pub fn single_source_items(
-    per_item_suppliers: &BTreeMap<Uuid, BTreeSet<Uuid>>,
-    awards: &[AwardPair],
-) -> Vec<Uuid> {
+pub fn single_source_items(per_item_suppliers: &BTreeMap<Uuid, BTreeSet<Uuid>>, awards: &[AwardPair]) -> Vec<Uuid> {
     awards
         .iter()
         .filter(|pair| {
@@ -384,18 +359,13 @@ pub fn price_incl_of(price_excl: Decimal, tax_rate: Decimal) -> Decimal {
 pub fn check_tax(raw: Option<Decimal>) -> std::result::Result<Decimal, ApiError> {
     let value = raw.unwrap_or_default();
     if value.is_sign_negative() || value > Decimal::from(100) {
-        return Err(bad_request(format!(
-            "tax_rate 必须在 0–100 之间（收到 {value}）"
-        )));
+        return Err(bad_request(format!("tax_rate 必须在 0–100 之间（收到 {value}）")));
     }
     Ok(value.round_dp(4))
 }
 
 /// 单价校验：≥ 0，6 位标度。
-pub fn check_price(
-    price_excl: Option<Decimal>,
-    field: &str,
-) -> std::result::Result<Decimal, ApiError> {
+pub fn check_price(price_excl: Option<Decimal>, field: &str) -> std::result::Result<Decimal, ApiError> {
     let value = price_excl.ok_or_else(|| bad_request(format!("{field} 必填")))?;
     if value.is_sign_negative() {
         return Err(bad_request(format!("{field} 不能为负（收到 {value}）")));
@@ -417,18 +387,14 @@ pub fn check_qty(qty: Option<Decimal>, field: &str) -> std::result::Result<Decim
 /// 交期天数校验：≥ 0。
 pub fn check_delivery_days(raw: Option<i32>) -> std::result::Result<Option<i32>, ApiError> {
     match raw {
-        Some(value) if value < 0 => Err(bad_request(format!(
-            "delivery_days 不能为负（收到 {value}）"
-        ))),
+        Some(value) if value < 0 => Err(bad_request(format!("delivery_days 不能为负（收到 {value}）"))),
         other => Ok(other),
     }
 }
 
 /// 单源例外理由校验：给定就必须 ≥10 字（与 `ck_biz_piq_award_reason` 同口径）。
 pub fn check_award_reason(raw: Option<&str>) -> Option<String> {
-    raw.map(str::trim)
-        .filter(|text| !text.is_empty())
-        .map(str::to_string)
+    raw.map(str::trim).filter(|text| !text.is_empty()).map(str::to_string)
 }
 
 /// 理由是否满足单源例外的最小长度。
@@ -445,10 +411,7 @@ pub fn reason_is_long_enough(reason: Option<&str>) -> bool {
 pub fn group_by_supplier(pairs: &[AwardPair]) -> BTreeMap<Uuid, Vec<Uuid>> {
     let mut grouped: BTreeMap<Uuid, Vec<Uuid>> = BTreeMap::new();
     for pair in pairs {
-        grouped
-            .entry(pair.supplier_id)
-            .or_default()
-            .push(pair.item_id);
+        grouped.entry(pair.supplier_id).or_default().push(pair.item_id);
     }
     grouped
 }
@@ -753,10 +716,7 @@ mod tests {
         assert!(check_qty(Some(dec("0")), "items[0].qty").is_err());
         assert!(check_qty(Some(dec("-1")), "items[0].qty").is_err());
         assert!(check_qty(None, "items[0].qty").is_err());
-        assert_eq!(
-            check_qty(Some(dec("3.5")), "items[0].qty").unwrap(),
-            dec("3.5000")
-        );
+        assert_eq!(check_qty(Some(dec("3.5")), "items[0].qty").unwrap(), dec("3.5000"));
     }
 
     #[test]
@@ -788,10 +748,7 @@ mod tests {
         let pairs = resolve_award(&req, &items).unwrap();
         assert_eq!(pairs.len(), 3);
         assert!(pairs.iter().all(|pair| pair.supplier_id == uuid(9)));
-        assert_eq!(
-            pairs.iter().map(|pair| pair.item_id).collect::<Vec<_>>(),
-            items
-        );
+        assert_eq!(pairs.iter().map(|pair| pair.item_id).collect::<Vec<_>>(), items);
     }
 
     #[test]
@@ -828,11 +785,7 @@ mod tests {
             ..Default::default()
         };
         let error = resolve_award(&req, &items).unwrap_err();
-        assert!(
-            error.msg.contains("必须覆盖全部明细"),
-            "实际：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("必须覆盖全部明细"), "实际：{}", error.msg);
     }
 
     #[test]
@@ -851,12 +804,7 @@ mod tests {
             ],
             ..Default::default()
         };
-        assert!(
-            resolve_award(&dup, &items)
-                .unwrap_err()
-                .msg
-                .contains("重复出现")
-        );
+        assert!(resolve_award(&dup, &items).unwrap_err().msg.contains("重复出现"));
 
         let foreign = AwardReq {
             items: vec![AwardItemReq {
@@ -909,9 +857,7 @@ mod tests {
 
     #[test]
     fn unmatched_awards_flag_supplier_without_quote() {
-        let quoted: BTreeSet<(Uuid, Uuid)> = [(uuid(1), uuid(7)), (uuid(2), uuid(8))]
-            .into_iter()
-            .collect();
+        let quoted: BTreeSet<(Uuid, Uuid)> = [(uuid(1), uuid(7)), (uuid(2), uuid(8))].into_iter().collect();
         let awards = vec![
             AwardPair {
                 item_id: uuid(1),
@@ -933,9 +879,7 @@ mod tests {
         assert!(!reason_is_long_enough(None));
         assert!(!reason_is_long_enough(Some("   ")));
         assert!(!reason_is_long_enough(Some("独家代理")));
-        assert!(reason_is_long_enough(Some(
-            "唯一授权代理商，无第二家可报价"
-        )));
+        assert!(reason_is_long_enough(Some("唯一授权代理商，无第二家可报价")));
         // 中文字符按字符数算，不是字节数（10 个汉字 = 30 字节）
         assert!(reason_is_long_enough(Some("一二三四五六七八九十")));
     }

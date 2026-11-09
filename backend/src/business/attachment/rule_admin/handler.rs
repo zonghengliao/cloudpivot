@@ -41,9 +41,7 @@ use crate::shared::error_code;
 use crate::support::log;
 use crate::utils;
 
-use super::dto::{
-    self, RuleDeleteRes, RuleItemRes, RuleListRes, RuleOptionsRes, RuleSaveReq, RuleToggleReq,
-};
+use super::dto::{self, RuleDeleteRes, RuleItemRes, RuleListRes, RuleOptionsRes, RuleSaveReq, RuleToggleReq};
 use super::model;
 
 // ==================== 接口 ====================
@@ -95,9 +93,7 @@ pub async fn list(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResRe
     permission = "support:attachment-rule:list"
 )]
 #[nik::get("/support/attachment-rule/options")]
-pub async fn options(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<RuleOptionsRes> {
+pub async fn options(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<RuleOptionsRes> {
     dto::ensure_super_admin(&claims, "查看")?;
     Ok(Res::ok(dto::options()))
 }
@@ -140,11 +136,9 @@ pub async fn create(
         return Err(dto::rule_key_conflict(&draft, &existing));
     }
 
-    let id = model::insert(&claims, &draft).await.map_err(|error| {
-        model::write_error(error, "新建", || {
-            dto::rule_key_conflict(&draft, &id_unknown())
-        })
-    })?;
+    let id = model::insert(&claims, &draft)
+        .await
+        .map_err(|error| model::write_error(error, "新建", || dto::rule_key_conflict(&draft, &id_unknown())))?;
     let Some(row) = model::find(&id).await? else {
         // 刚插进去的行读不回来只可能是并发软删：如实报 500，不返回半成品
         return Err(ApiError::new(
@@ -203,18 +197,16 @@ pub async fn update(
 ) -> ResResult<RuleItemRes> {
     dto::ensure_super_admin(&claims, "编辑")?;
     let id = utils::require_uuid(&id, "id")?;
-    let before = model::find(&id)
-        .await?
-        .ok_or_else(|| dto::rule_not_found(&id))?;
+    let before = model::find(&id).await?.ok_or_else(|| dto::rule_not_found(&id))?;
     let draft = dto::validate(&req)?;
 
     if let Some(existing) = model::find_conflict(&draft, Some(&id)).await? {
         return Err(dto::rule_key_conflict(&draft, &existing));
     }
 
-    let affected = model::update(&claims, &id, &draft).await.map_err(|error| {
-        model::write_error(error, "编辑", || dto::rule_key_conflict(&draft, &id))
-    })?;
+    let affected = model::update(&claims, &id, &draft)
+        .await
+        .map_err(|error| model::write_error(error, "编辑", || dto::rule_key_conflict(&draft, &id)))?;
     if affected == 0 {
         // 校验与 UPDATE 之间被并发软删
         return Err(dto::rule_not_found(&id));
@@ -268,9 +260,7 @@ pub async fn set_enabled(
 ) -> ResResult<RuleItemRes> {
     dto::ensure_super_admin(&claims, if req.enabled { "启用" } else { "禁用" })?;
     let id = utils::require_uuid(&id, "id")?;
-    let before = model::find(&id)
-        .await?
-        .ok_or_else(|| dto::rule_not_found(&id))?;
+    let before = model::find(&id).await?.ok_or_else(|| dto::rule_not_found(&id))?;
 
     let affected = model::set_enabled(&claims, &id, req.enabled).await?;
     if affected == 0 {
@@ -319,9 +309,7 @@ pub async fn delete(
 ) -> ResResult<RuleDeleteRes> {
     dto::ensure_super_admin(&claims, "删除")?;
     let id = utils::require_uuid(&id, "id")?;
-    let before = model::find(&id)
-        .await?
-        .ok_or_else(|| dto::rule_not_found(&id))?;
+    let before = model::find(&id).await?.ok_or_else(|| dto::rule_not_found(&id))?;
 
     let affected = model::soft_delete(&claims, &id).await?;
     if affected == 0 {

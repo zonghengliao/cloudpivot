@@ -32,12 +32,7 @@ use super::task_model_rows::*;
 /// # 异常情况
 ///
 /// - 数据库异常（含 `uk_biz_task_task_no` 冲突）→ [`DbError`]。
-pub async fn create_task(
-    ex: &Transaction,
-    new: &NewTask,
-    operator: Uuid,
-    month: &str,
-) -> DbResult<String> {
+pub async fn create_task(ex: &Transaction, new: &NewTask, operator: Uuid, month: &str) -> DbResult<String> {
     let task_no = next_task_no(ex, month).await?;
 
     ex.execute_with_params(
@@ -122,13 +117,7 @@ pub(crate) async fn next_task_no(ex: &Transaction, month: &str) -> DbResult<Stri
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn add_member(
-    ex: &Transaction,
-    task_id: Uuid,
-    user_id: Uuid,
-    role: &str,
-    operator: Uuid,
-) -> DbResult<()> {
+pub async fn add_member(ex: &Transaction, task_id: Uuid, user_id: Uuid, role: &str, operator: Uuid) -> DbResult<()> {
     ex.execute_with_params(
         "INSERT INTO biz_task_member (task_id, user_id, role, created_at, create_by) \
               VALUES (?::uuid, ?::uuid, ?, now(), ?::uuid) \
@@ -153,12 +142,7 @@ pub async fn add_member(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn update_task(
-    ex: &Transaction,
-    id: Uuid,
-    patch: &TaskPatch,
-    operator: Uuid,
-) -> DbResult<u64> {
+pub async fn update_task(ex: &Transaction, id: Uuid, patch: &TaskPatch, operator: Uuid) -> DbResult<u64> {
     let mut sets: Vec<&'static str> = Vec::new();
     let mut params: Vec<Value> = Vec::new();
 
@@ -278,8 +262,7 @@ pub async fn soft_delete(ex: &Transaction, id: Uuid, operator: Uuid) -> DbResult
 // SCOPE-EXEMPT: 软删任务时按 id **双向**清依赖边（DELETE … WHERE task_id = ? OR depends_on_id = ?），写路径、只返回受影响行数；调用 soft_delete（task_model_write.rs:246）← handler.rs:716 delete （:735 require_task 取行 + :737 负责人/创建人/超管 403 判定）。
 pub async fn purge_dependencies(ex: &impl SqlExecutor, id: Uuid) -> DbResult<u64> {
     ex.exec_sql(
-        "DELETE FROM biz_task_dependency WHERE task_id = ?::uuid OR depends_on_id = ?::uuid"
-            .to_string(),
+        "DELETE FROM biz_task_dependency WHERE task_id = ?::uuid OR depends_on_id = ?::uuid".to_string(),
         vec![Value::from(&id), Value::from(&id)],
     )
     .await
@@ -297,12 +280,7 @@ pub async fn purge_dependencies(ex: &impl SqlExecutor, id: Uuid) -> DbResult<u64
 /// # 异常情况
 ///
 /// 数据库异常（含 `ck_biz_task_status` 违约）→ [`DbError`]。
-pub async fn apply_status(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    update: &StatusUpdate,
-    operator: Uuid,
-) -> DbResult<u64> {
+pub async fn apply_status(ex: &impl SqlExecutor, id: Uuid, update: &StatusUpdate, operator: Uuid) -> DbResult<u64> {
     let mut sets: Vec<&'static str> = vec!["status = ?"];
     let mut params: Vec<Value> = vec![Value::Text(update.to.clone())];
 
@@ -349,20 +327,11 @@ pub async fn apply_status(
 /// # 异常情况
 ///
 /// 数据库异常（含 `ck_biz_task_progress` 越界）→ [`DbError`]。
-pub async fn set_progress(
-    ex: &Transaction,
-    id: Uuid,
-    progress: i16,
-    operator: Uuid,
-) -> DbResult<u64> {
+pub async fn set_progress(ex: &Transaction, id: Uuid, progress: i16, operator: Uuid) -> DbResult<u64> {
     ex.execute_with_params(
         "UPDATE biz_task SET progress = ?::smallint, updated_at = now(), update_by = ?::uuid \
           WHERE id = ?::uuid AND deleted_at IS NULL",
-        vec![
-            Value::I16(progress),
-            Value::from(&operator),
-            Value::from(&id),
-        ],
+        vec![Value::I16(progress), Value::from(&operator), Value::from(&id)],
     )
     .await
 }
@@ -495,12 +464,7 @@ pub async fn assign_owner(ex: &Transaction, change: &OwnerChange) -> DbResult<u6
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn insert_members(
-    ex: &Transaction,
-    task_id: Uuid,
-    user_ids: &[Uuid],
-    operator: Uuid,
-) -> DbResult<Vec<Uuid>> {
+pub async fn insert_members(ex: &Transaction, task_id: Uuid, user_ids: &[Uuid], operator: Uuid) -> DbResult<Vec<Uuid>> {
     if user_ids.is_empty() {
         return Ok(Vec::new());
     }

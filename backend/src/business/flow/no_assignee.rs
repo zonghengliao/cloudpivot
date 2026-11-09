@@ -117,11 +117,7 @@ impl Signal {
 
 /// 节点配置里该来源配了几个目标（角色 / 部门 / 用户）。
 fn configured_targets(spec: &SnapshotNode) -> usize {
-    match spec
-        .assignee_type
-        .as_deref()
-        .map(|raw| AssigneeKind::parse(raw.trim()))
-    {
+    match spec.assignee_type.as_deref().map(|raw| AssigneeKind::parse(raw.trim())) {
         Some(Some(AssigneeKind::Role)) => assignee::role_ids_of(spec).len(),
         Some(Some(AssigneeKind::DeptLeader)) => assignee::dept_ids_of(spec).len(),
         Some(Some(AssigneeKind::User)) => assignee::user_ids_of(spec).len(),
@@ -215,46 +211,30 @@ impl Reason {
     /// 「下一步怎么办」——一句话，带**具体去哪**。
     pub fn hint(self, role_name: &str) -> String {
         match self {
-            Reason::NodeNotConfigured => {
-                "请到「流程定义 → 本流程 → 该节点」把审批人设为具体角色或人员".to_string()
-            }
+            Reason::NodeNotConfigured => "请到「流程定义 → 本流程 → 该节点」把审批人设为具体角色或人员".to_string(),
             Reason::RoleNotFound => {
-                "节点绑定的角色已不存在：请到「流程定义 → 本流程 → 该节点」重新选择审批角色"
-                    .to_string()
+                "节点绑定的角色已不存在：请到「流程定义 → 本流程 → 该节点」重新选择审批角色".to_string()
             }
             Reason::RoleNoMember => format!(
                 "请为角色「{role_name}」指派至少一名在职成员（角色管理 → 成员），或为节点指定固定审批人；\
                  开发 / 测试环境也可一键创建演示账号"
             ),
-            Reason::RoleMemberUnavailable => format!(
-                "角色「{role_name}」的成员都已停用或已删除：请恢复 / 新增在职成员，或为该节点另选角色"
-            ),
-            Reason::RobotOnly => {
-                "请给该节点配置真人审批人，或在节点上打开「允许机器人审批」".to_string()
+            Reason::RoleMemberUnavailable => {
+                format!("角色「{role_name}」的成员都已停用或已删除：请恢复 / 新增在职成员，或为该节点另选角色")
             }
+            Reason::RobotOnly => "请给该节点配置真人审批人，或在节点上打开「允许机器人审批」".to_string(),
             Reason::SelfOnly => format!(
                 "角色「{role_name}」解析出的审批人全部是制单人 / 发起人本人：请再指派一名**其他**成员，\
                  或改由他人提交本单"
             ),
-            Reason::UserUnavailable => {
-                "请到「流程定义 → 本流程 → 该节点」重新指定在职人员".to_string()
-            }
-            Reason::DeptNoLeader => {
-                "请到「组织架构」给该部门设置负责人，或改由角色 / 指定人员审批".to_string()
-            }
+            Reason::UserUnavailable => "请到「流程定义 → 本流程 → 该节点」重新指定在职人员".to_string(),
+            Reason::DeptNoLeader => "请到「组织架构」给该部门设置负责人，或改由角色 / 指定人员审批".to_string(),
             Reason::SuperiorNotFound => {
-                "请给发起人所在部门设置负责人（或上溯层级的部门负责人），或把节点改成其它审批人来源"
-                    .to_string()
+                "请给发起人所在部门设置负责人（或上溯层级的部门负责人），或把节点改成其它审批人来源".to_string()
             }
-            Reason::TaskPartyMissing => {
-                "请检查关联任务是否存在、对应的人员字段是否已填写".to_string()
-            }
-            Reason::FormVarMissing => {
-                "请在表单里选择审批人（该节点按表单变量取人），或改由角色审批".to_string()
-            }
-            Reason::NoCandidate => {
-                "请检查该节点的审批人配置，并确认对应角色下有在职成员".to_string()
-            }
+            Reason::TaskPartyMissing => "请检查关联任务是否存在、对应的人员字段是否已填写".to_string(),
+            Reason::FormVarMissing => "请在表单里选择审批人（该节点按表单变量取人），或改由角色审批".to_string(),
+            Reason::NoCandidate => "请检查该节点的审批人配置，并确认对应角色下有在职成员".to_string(),
         }
     }
 }
@@ -616,10 +596,7 @@ mod tests {
             candidates: 0,
             ..Signal::default()
         };
-        assert_eq!(
-            classify("ROLE", true, 3, signal),
-            Reason::RoleMemberUnavailable
-        );
+        assert_eq!(classify("ROLE", true, 3, signal), Reason::RoleMemberUnavailable);
     }
 
     /// ④ 候选全是停用 → ROLE_MEMBER_UNAVAILABLE（不是「没配」）
@@ -632,10 +609,7 @@ mod tests {
             eligible: 0,
             non_self: 0,
         };
-        assert_eq!(
-            classify("ROLE", true, 2, signal),
-            Reason::RoleMemberUnavailable
-        );
+        assert_eq!(classify("ROLE", true, 2, signal), Reason::RoleMemberUnavailable);
     }
 
     /// ⑤ 候选全是机器人且节点不允许 → ROBOT_ONLY
@@ -670,22 +644,13 @@ mod tests {
     fn other_sources_have_specific_reasons() {
         let empty = Signal::default();
         assert_eq!(classify("USER", false, 0, empty), Reason::UserUnavailable);
-        assert_eq!(
-            classify("DEPT_LEADER", false, 0, empty),
-            Reason::DeptNoLeader
-        );
+        assert_eq!(classify("DEPT_LEADER", false, 0, empty), Reason::DeptNoLeader);
         assert_eq!(
             classify("INITIATOR_SUPERIOR", false, 0, empty),
             Reason::SuperiorNotFound
         );
-        assert_eq!(
-            classify("TASK_OWNER", false, 0, empty),
-            Reason::TaskPartyMissing
-        );
-        assert_eq!(
-            classify("FORM_VAR", false, 0, empty),
-            Reason::FormVarMissing
-        );
+        assert_eq!(classify("TASK_OWNER", false, 0, empty), Reason::TaskPartyMissing);
+        assert_eq!(classify("FORM_VAR", false, 0, empty), Reason::FormVarMissing);
         assert_eq!(
             classify("", false, 0, empty),
             Reason::NodeNotConfigured,
@@ -700,11 +665,7 @@ mod tests {
         let initiator = Uuid::now_v7();
         let mut me = cand("发起人", false, true);
         me.user_id = initiator;
-        let candidates = vec![
-            me,
-            cand("停用的人", false, false),
-            cand("机器人", true, true),
-        ];
+        let candidates = vec![me, cand("停用的人", false, false), cand("机器人", true, true)];
         let signal = Signal::of(&spec, &candidates, initiator);
         assert_eq!(signal.candidates, 3);
         assert_eq!(signal.alive, 2, "停用的那位不算");

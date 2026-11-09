@@ -157,10 +157,7 @@ struct OutSource {
 }
 
 /// 读一张出库单的来源三要素（**不加锁**：调用方已经在过账事务里持有单头行锁）。
-async fn out_source_of(
-    ex: &impl SqlExecutor,
-    stock_out_id: Uuid,
-) -> std::result::Result<Option<OutSource>, ApiError> {
+async fn out_source_of(ex: &impl SqlExecutor, stock_out_id: Uuid) -> std::result::Result<Option<OutSource>, ApiError> {
     // SCOPE-EXEMPT: 出库单是 ERP 单据表（无归属列），过账链路内部读。
     let row = ex
         .query_first_sql(
@@ -209,8 +206,7 @@ async fn shipment_customer_and_lines(
     // SCOPE-EXEMPT: 发货单是 ERP 单据表（无归属列），过账链路内部读。
     let shipment = ex
         .query_first_sql(
-            "SELECT customer_id FROM biz_shipment WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT customer_id FROM biz_shipment WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&shipment_id)],
         )
         .await
@@ -219,9 +215,7 @@ async fn shipment_customer_and_lines(
             ApiError::new(
                 409,
                 error_code::RESOURCE_CONFLICT,
-                format!(
-                    "出库单的来源发货单 {shipment_id} 不存在或已删除：无法确定应收的客户与金额，过账已回滚"
-                ),
+                format!("出库单的来源发货单 {shipment_id} 不存在或已删除：无法确定应收的客户与金额，过账已回滚"),
             )
         })?;
     let customer_id: Uuid = shipment
@@ -306,15 +300,11 @@ async fn order_currency_of(
 }
 
 /// 客户账期天数（`biz_customer.credit_days`，V0289）；客户不存在 / 已软删 → 409。
-async fn credit_days_of(
-    ex: &impl SqlExecutor,
-    customer_id: Uuid,
-) -> std::result::Result<i32, ApiError> {
+async fn credit_days_of(ex: &impl SqlExecutor, customer_id: Uuid) -> std::result::Result<i32, ApiError> {
     // SCOPE-EXEMPT: 客户主数据（全局），过账链路内部读。
     let row = ex
         .query_first_sql(
-            "SELECT credit_days FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT credit_days FROM biz_customer WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&customer_id)],
         )
         .await
@@ -496,10 +486,7 @@ pub async fn post_in_tx(
 }
 
 /// 某张出库单挂出来的应收（`None` = 没挂过）。列表 / 详情回显与单测用。
-pub async fn receivable_of(
-    ex: &impl SqlExecutor,
-    stock_out_id: Uuid,
-) -> DbResult<Option<receivable::ReceivableRow>> {
+pub async fn receivable_of(ex: &impl SqlExecutor, stock_out_id: Uuid) -> DbResult<Option<receivable::ReceivableRow>> {
     receivable::find_by_source(ex, SOURCE_TYPE_SALES_OUT, stock_out_id).await
 }
 
@@ -561,8 +548,7 @@ pub async fn cancel_in_tx(
         }));
     }
 
-    let cancelled =
-        receivable::cancel_for_stock_out(ex, existing.id, reason, operator, now).await?;
+    let cancelled = receivable::cancel_for_stock_out(ex, existing.id, reason, operator, now).await?;
     tracing::info!(
         stock_out_id = %stock_out_id,
         out_no = %source.out_no,
@@ -611,23 +597,11 @@ mod tests {
     /// 含税金额 = 不含税 + 税额；税率为 0 时就是 `price × qty`。
     #[test]
     fn line_taxed_amount_adds_tax() {
-        assert_eq!(
-            line_taxed_amount(dec("10"), dec("100"), dec("13")),
-            dec("1130")
-        );
-        assert_eq!(
-            line_taxed_amount(dec("1"), dec("99.99"), dec("13")),
-            dec("112.9887")
-        );
-        assert_eq!(
-            line_taxed_amount(dec("10"), dec("100"), Decimal::ZERO),
-            dec("1000")
-        );
+        assert_eq!(line_taxed_amount(dec("10"), dec("100"), dec("13")), dec("1130"));
+        assert_eq!(line_taxed_amount(dec("1"), dec("99.99"), dec("13")), dec("112.9887"));
+        assert_eq!(line_taxed_amount(dec("10"), dec("100"), Decimal::ZERO), dec("1000"));
         // 小数数量：3 × 1.5 = 4.5，税额 4.5 × 13% = 0.585
-        assert_eq!(
-            line_taxed_amount(dec("1.5"), dec("3"), dec("13")),
-            dec("5.085")
-        );
+        assert_eq!(line_taxed_amount(dec("1.5"), dec("3"), dec("13")), dec("5.085"));
     }
 
     /// 整单含税 = 逐行定标后求和（不是「先求和再乘税率」）。
@@ -790,24 +764,12 @@ mod tests {
             "DELETE FROM biz_voucher WHERE source_type = 'STOCK_OUT' AND source_id IN {stock_outs}"
         ))
         .await;
-        sql(&format!(
-            "DELETE FROM biz_stock_out WHERE source_id IN {shipments}"
-        ))
-        .await;
+        sql(&format!("DELETE FROM biz_stock_out WHERE source_id IN {shipments}")).await;
         sql(&format!("DELETE FROM biz_shipment WHERE so_id IN {orders}")).await;
-        sql(&format!(
-            "DELETE FROM biz_sales_order WHERE customer_id IN {customers}"
-        ))
-        .await;
+        sql(&format!("DELETE FROM biz_sales_order WHERE customer_id IN {customers}")).await;
         sql("DELETE FROM biz_customer WHERE code LIKE 'SO14T-%'").await;
-        sql(&format!(
-            "DELETE FROM biz_inventory_txn WHERE material_id IN ({MATS})"
-        ))
-        .await;
-        sql(&format!(
-            "DELETE FROM biz_inventory WHERE material_id IN ({MATS})"
-        ))
-        .await;
+        sql(&format!("DELETE FROM biz_inventory_txn WHERE material_id IN ({MATS})")).await;
+        sql(&format!("DELETE FROM biz_inventory WHERE material_id IN ({MATS})")).await;
         sql(&format!(
             "DELETE FROM biz_inventory_location WHERE material_id IN ({MATS})"
         ))
@@ -878,17 +840,10 @@ mod tests {
     }
 
     /// 一张审批通过的订单 + 一行明细（`amount` / `tax_amount` 按 `line_amounts` 现算落库）。
-    async fn fixture_order(
-        customer: Uuid,
-        qty: &str,
-        price: &str,
-        tax_rate: &str,
-        status: &str,
-    ) -> (Uuid, Uuid) {
+    async fn fixture_order(customer: Uuid, qty: &str, price: &str, tax_rate: &str, status: &str) -> (Uuid, Uuid) {
         let so_id = Uuid::now_v7();
         let so_no = format!("SO14T-SO-{}", &so_id.to_string()[24..]);
-        let (amount, tax_amount) =
-            sales_order_model::line_amounts(dec(qty), dec(price), dec(tax_rate));
+        let (amount, tax_amount) = sales_order_model::line_amounts(dec(qty), dec(price), dec(tax_rate));
         db().execute_with_params(
             "INSERT INTO biz_sales_order (id, so_no, customer_id, order_date, status) \
              VALUES (?, ?, ?, CURRENT_DATE, ?)",
@@ -924,13 +879,7 @@ mod tests {
     }
 
     /// 直接落一张 `PENDING_POST` 的发货单（绕过建单守卫；本卡验的是过账挂账）。
-    async fn fixture_shipment(
-        customer: Uuid,
-        so_id: Uuid,
-        so_item_id: Uuid,
-        qty: &str,
-        ship_date_offset: i64,
-    ) -> Uuid {
+    async fn fixture_shipment(customer: Uuid, so_id: Uuid, so_item_id: Uuid, qty: &str, ship_date_offset: i64) -> Uuid {
         let id = Uuid::now_v7();
         db().execute_with_params(
             "INSERT INTO biz_shipment \
@@ -964,9 +913,7 @@ mod tests {
     }
 
     /// 过账（走 handler 公开入口：状态机 + 事务 + 库存 + 凭证 + 挂账一条龙）。
-    async fn post_shipment(
-        ship_id: Uuid,
-    ) -> std::result::Result<shipment_handler::ShipmentRes, ApiError> {
+    async fn post_shipment(ship_id: Uuid) -> std::result::Result<shipment_handler::ShipmentRes, ApiError> {
         shipment_handler::change_shipment_status(
             None,
             &ship_id.to_string(),
@@ -1084,10 +1031,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("过账应成功：{} {}", error.code, error.msg));
 
         let out_id = stock_out_of(ship_id).await.expect("出库单");
-        let row = receivable_of(db(), out_id)
-            .await
-            .expect("查应收")
-            .expect("必须挂应收");
+        let row = receivable_of(db(), out_id).await.expect("查应收").expect("必须挂应收");
         let out_date = text_of(
             "SELECT out_date::text FROM biz_stock_out WHERE id = ?::uuid",
             vec![Value::from(&out_id)],
@@ -1121,11 +1065,7 @@ mod tests {
             .await
             .expect_err("客户不存在，过账必须失败（不能挂一张没有客户的应收）");
         assert_eq!(error.code, error_code::RESOURCE_CONFLICT, "应是 409 冲突");
-        assert!(
-            error.msg.contains("客户"),
-            "错误文案要点名客户，实际 {}",
-            error.msg
-        );
+        assert!(error.msg.contains("客户"), "错误文案要点名客户，实际 {}", error.msg);
 
         assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存必须原封不动");
         assert_eq!(receivable_count(ship_id).await, 0, "不许留下半截应收");
@@ -1161,15 +1101,9 @@ mod tests {
         let first = receivable_count(ship_id).await;
         assert_eq!(first, 1, "第一次过账后应有 1 张应收");
 
-        let error = post_shipment(ship_id)
-            .await
-            .expect_err("重复过账必须被幂等闸挡住");
+        let error = post_shipment(ship_id).await.expect_err("重复过账必须被幂等闸挡住");
         assert_eq!(error.code, error_code::RESOURCE_CONFLICT);
-        assert_eq!(
-            receivable_count(ship_id).await,
-            1,
-            "重复过账不许挂第二张应收"
-        );
+        assert_eq!(receivable_count(ship_id).await, 1, "重复过账不许挂第二张应收");
         assert_eq!(cost_qty(MAT_A).await, dec("10"), "库存只扣一次");
 
         // 直接从桥接层再调一次：幂等闸①命中已有行，返回 created=false
@@ -1212,16 +1146,9 @@ mod tests {
             remark: None,
         }];
         let totals = crate::business::erp::stockout_base::Totals::of(&lines);
-        let out_id = crate::business::erp::stockout_model::create(
-            db(),
-            &new,
-            &lines,
-            &totals,
-            operator.clone(),
-            now,
-        )
-        .await
-        .expect("建手工出库单");
+        let out_id = crate::business::erp::stockout_model::create(db(), &new, &lines, &totals, operator.clone(), now)
+            .await
+            .expect("建手工出库单");
         crate::business::erp::stockout_handler::post_stock_out(out_id, operator, None)
             .await
             .unwrap_or_else(|error| panic!("手工出库过账应成功：{} {}", error.code, error.msg));
@@ -1285,11 +1212,7 @@ mod tests {
             "作废后应收状态必须是 CANCELLED（不是 WRITTEN_OFF 坏账）"
         );
         assert_eq!(after.received_amount, Decimal::ZERO, "一分没收");
-        assert_eq!(
-            after.unsettled_amount,
-            dec("1130"),
-            "金额不动，恒等式仍成立"
-        );
+        assert_eq!(after.unsettled_amount, dec("1130"), "金额不动，恒等式仍成立");
         assert!(
             after.settled_at.is_some(),
             "作废要落 settled_at（封账时间），台账才看得出什么时候终止的"
@@ -1299,10 +1222,7 @@ mod tests {
             remark.contains(receivable::CANCEL_REASON_PREFIX) && remark.contains(REASON),
             "备注要留冲销前缀与上游作废原因，实际 {remark}"
         );
-        assert!(
-            !remark.contains("坏账"),
-            "作废不许留下坏账字样（坏账报表会串味）"
-        );
+        assert!(!remark.contains("坏账"), "作废不许留下坏账字样（坏账报表会串味）");
 
         // 状态日志：OPEN → CANCELLED + 原因（谁、为什么）
         let log = text_of(
@@ -1347,10 +1267,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("过账应成功：{} {}", error.code, error.msg));
 
         let out_id = stock_out_of(ship_id).await.expect("出库单");
-        let ar = receivable_of(db(), out_id)
-            .await
-            .expect("查应收")
-            .expect("应收");
+        let ar = receivable_of(db(), out_id).await.expect("查应收").expect("应收");
         // 模拟已经收过 40 元（收款模块尚未落地，直接造 PARTIAL 形态）
         sql(&format!(
             "UPDATE biz_receivable SET received_amount = 40, unsettled_amount = 1090, \
@@ -1359,13 +1276,9 @@ mod tests {
         ))
         .await;
 
-        let error = crate::business::erp::stockout_handler::cancel_stock_out(
-            out_id,
-            "客户取消订单，货退回仓库",
-            None,
-        )
-        .await
-        .expect_err("应收已收款，作废必须 409");
+        let error = crate::business::erp::stockout_handler::cancel_stock_out(out_id, "客户取消订单，货退回仓库", None)
+            .await
+            .expect_err("应收已收款，作废必须 409");
         assert_eq!(error.status, 409);
         assert!(
             error.msg.contains("已收") || error.msg.contains("收款"),
@@ -1385,10 +1298,7 @@ mod tests {
             "作废失败后出库单必须留在 POSTED（不许半截作废）"
         );
         assert_eq!(cost_qty(MAT_A).await, dec("10"), "三本账必须原封不动");
-        let still = receivable_of(db(), out_id)
-            .await
-            .expect("查应收")
-            .expect("应收");
+        let still = receivable_of(db(), out_id).await.expect("查应收").expect("应收");
         assert_eq!(still.status, receivable::STATUS_PARTIAL);
         assert_eq!(still.received_amount, dec("40"));
         let red = db()
@@ -1435,10 +1345,7 @@ mod tests {
             .expect("应返回那张已作废的应收");
         assert!(!again.cancelled, "第二次必须走幂等分支");
 
-        let ar = receivable_of(db(), out_id)
-            .await
-            .expect("查应收")
-            .expect("应收");
+        let ar = receivable_of(db(), out_id).await.expect("查应收").expect("应收");
         assert_eq!(ar.status, receivable::STATUS_CANCELLED);
         let logs = db()
             .scalar_with_params::<i64>(
@@ -1449,14 +1356,7 @@ mod tests {
             .await
             .expect("数状态日志");
         assert_eq!(logs, 1, "只许留一条作废轨迹（幂等）");
-        assert_eq!(
-            cost_qty(MAT_A).await,
-            dec("20"),
-            "库存只回滚一次，不会被退两次"
-        );
-        println!(
-            "[SO-14 遗留] 幂等：重复作废 409，应收 {} 只冲销一次",
-            ar.ar_no
-        );
+        assert_eq!(cost_qty(MAT_A).await, dec("20"), "库存只回滚一次，不会被退两次");
+        println!("[SO-14 遗留] 幂等：重复作废 409，应收 {} 只冲销一次", ar.ar_no);
     }
 }

@@ -44,20 +44,10 @@ pub async fn create_transfer(
         from_warehouse_id,
         to_warehouse_id,
         transfer_date: req.transfer_date,
-        reason: req
-            .reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
-        remark: req
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
+        reason: req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty()),
+        remark: req.remark.as_deref().map(str::trim).filter(|text| !text.is_empty()),
         applicant_id: operator,
-        applicant_name: applicant_name
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
+        applicant_name: applicant_name.map(str::trim).filter(|text| !text.is_empty()),
     };
     let now = Utc::now();
     let tx = db()
@@ -180,9 +170,7 @@ pub async fn copy_transfer(id: Uuid, claims: &TokenClaims) -> std::result::Resul
         .collect();
     let total_qty = lines
         .iter()
-        .fold(nik::prelude::rust_decimal::Decimal::ZERO, |acc, line| {
-            acc + line.qty
-        });
+        .fold(nik::prelude::rust_decimal::Decimal::ZERO, |acc, line| acc + line.qty);
     let new = NewTransfer {
         from_warehouse_id: origin.from_warehouse_id,
         to_warehouse_id: origin.to_warehouse_id,
@@ -262,16 +250,8 @@ pub async fn update_transfer(
         from_warehouse_id,
         to_warehouse_id,
         transfer_date: req.transfer_date,
-        reason: req
-            .reason
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
-        remark: req
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty()),
+        reason: req.reason.as_deref().map(str::trim).filter(|text| !text.is_empty()),
+        remark: req.remark.as_deref().map(str::trim).filter(|text| !text.is_empty()),
         applicant_id: current.applicant_id,
         applicant_name: current.applicant_name.as_deref(),
     };

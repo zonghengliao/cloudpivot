@@ -397,9 +397,7 @@ impl DocKind {
 
     /// 路径段 → 业务对象（只认 [`DocKind::route`] 的规范写法）。
     pub fn parse_route(raw: &str) -> Option<DocKind> {
-        DocKind::ALL
-            .into_iter()
-            .find(|item| item.route() == Some(raw))
+        DocKind::ALL.into_iter().find(|item| item.route() == Some(raw))
     }
 }
 
@@ -647,9 +645,7 @@ impl FlowBizType {
 
     /// 字符串 → 审批业务类型（严格全等）。
     pub fn parse(raw: &str) -> Option<FlowBizType> {
-        FlowBizType::ALL
-            .into_iter()
-            .find(|item| item.as_str() == raw)
+        FlowBizType::ALL.into_iter().find(|item| item.as_str() == raw)
     }
 }
 
@@ -818,9 +814,7 @@ impl TxnBizType {
             | TxnBizType::OtherOut
             | TxnBizType::StockOutCancel => DocKind::StockOut,
             TxnBizType::AdjustIn | TxnBizType::AdjustOut => DocKind::StockTake,
-            TxnBizType::StockTakeGain | TxnBizType::StockTakeLoss | TxnBizType::StockTakeCancel => {
-                DocKind::StockTake
-            }
+            TxnBizType::StockTakeGain | TxnBizType::StockTakeLoss | TxnBizType::StockTakeCancel => DocKind::StockTake,
             TxnBizType::TransferOut | TxnBizType::TransferIn => DocKind::StockTransfer,
             TxnBizType::Opening => DocKind::Inventory,
         }
@@ -828,9 +822,7 @@ impl TxnBizType {
 
     /// 字符串 → 动账类型（严格全等）。
     pub fn parse(raw: &str) -> Option<TxnBizType> {
-        TxnBizType::ALL
-            .into_iter()
-            .find(|item| item.as_str() == raw)
+        TxnBizType::ALL.into_iter().find(|item| item.as_str() == raw)
     }
 }
 
@@ -916,9 +908,7 @@ impl TxnDocType {
 
     /// 字符串 → 来源类型（严格全等）。
     pub fn parse(raw: &str) -> Option<TxnDocType> {
-        TxnDocType::ALL
-            .into_iter()
-            .find(|item| item.as_str() == raw)
+        TxnDocType::ALL.into_iter().find(|item| item.as_str() == raw)
     }
 }
 
@@ -1061,14 +1051,10 @@ impl VoucherSourceType {
             VoucherSourceType::Opening => DocKind::AccountingPeriod,
             VoucherSourceType::YearEnd => DocKind::AccountingYear,
             VoucherSourceType::Manual => return None,
-            VoucherSourceType::FixedAssetAcq | VoucherSourceType::FixedAssetDisposal => {
-                DocKind::FixedAsset
-            }
+            VoucherSourceType::FixedAssetAcq | VoucherSourceType::FixedAssetDisposal => DocKind::FixedAsset,
             VoucherSourceType::Depreciation => DocKind::Depreciation,
             // 入账与付款两张凭证都挂在报销单上（付款记录不是独立业务对象）
-            VoucherSourceType::ExpenseReport | VoucherSourceType::ExpensePayment => {
-                DocKind::ExpenseReport
-            }
+            VoucherSourceType::ExpenseReport | VoucherSourceType::ExpensePayment => DocKind::ExpenseReport,
             VoucherSourceType::Receipt => DocKind::Receipt,
             VoucherSourceType::ReceiptRefund => DocKind::ReceiptRefund,
             VoucherSourceType::Invoice => DocKind::Invoice,
@@ -1081,9 +1067,7 @@ impl VoucherSourceType {
 
     /// 字符串 → 来源（严格全等）。
     pub fn parse(raw: &str) -> Option<VoucherSourceType> {
-        VoucherSourceType::ALL
-            .into_iter()
-            .find(|item| item.as_str() == raw)
+        VoucherSourceType::ALL.into_iter().find(|item| item.as_str() == raw)
     }
 }
 
@@ -1160,9 +1144,7 @@ impl SerialSourceType {
 
     /// 字符串 → 来源（严格全等）。
     pub fn parse(raw: &str) -> Option<SerialSourceType> {
-        SerialSourceType::ALL
-            .into_iter()
-            .find(|item| item.as_str() == raw)
+        SerialSourceType::ALL.into_iter().find(|item| item.as_str() == raw)
     }
 }
 
@@ -1245,9 +1227,7 @@ impl DocSubtype {
 
     /// 字符串 → 子类型（严格全等；`OTHER` 归入库侧，出库侧由列名区分）。
     pub fn parse(raw: &str) -> Option<DocSubtype> {
-        DocSubtype::ALL
-            .into_iter()
-            .find(|item| item.as_str() == raw)
+        DocSubtype::ALL.into_iter().find(|item| item.as_str() == raw)
     }
 
     /// 全部子类型（`OTHER` 两轴共用同一个字面量，故只出现一次）。
@@ -1429,14 +1409,7 @@ const TAKE_TYPE_VALUES: [&str; 2] = ["FULL", "PARTIAL"];
 // ===== FIN-1 预算（ARCH-6 第三章）=====
 
 /// `biz_budget.status` 的取值域（与 `state_machine::BUDGET_EDGES` 的节点集合一致）。
-const BUDGET_STATUS_VALUES: [&str; 6] = [
-    "DRAFT",
-    "SUBMITTED",
-    "ACTIVE",
-    "SUPERSEDED",
-    "CLOSED",
-    "CANCELLED",
-];
+const BUDGET_STATUS_VALUES: [&str; 6] = ["DRAFT", "SUBMITTED", "ACTIVE", "SUPERSEDED", "CLOSED", "CANCELLED"];
 
 /// `biz_budget_usage.status` 的取值域（占用生命周期，ARCH-6 §3.1.3）。
 const BUDGET_USAGE_STATUS_VALUES: [&str; 3] = ["OCCUPIED", "CONSUMED", "RELEASED"];

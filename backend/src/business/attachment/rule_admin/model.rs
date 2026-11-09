@@ -76,11 +76,8 @@ impl RuleRow {
     /// 管理页面必须显式报错而不是把该行静默藏掉（藏掉 = 界面上「少了条规则」查不出原因）。
     pub fn from_row(row: &Row) -> DbResult<Self> {
         let doc_type_raw: String = row.get_typed("doc_type")?;
-        let doc_type = DocKind::parse(&doc_type_raw).ok_or_else(|| {
-            DbError::InvalidValue(format!(
-                "规则 doc_type「{doc_type_raw}」不在 DocKind 词表内"
-            ))
-        })?;
+        let doc_type = DocKind::parse(&doc_type_raw)
+            .ok_or_else(|| DbError::InvalidValue(format!("规则 doc_type「{doc_type_raw}」不在 DocKind 词表内")))?;
         let required_at_raw: String = row.get_typed("required_at")?;
         let required_at = RequiredAt::parse(&required_at_raw).ok_or_else(|| {
             DbError::InvalidValue(format!(
@@ -183,9 +180,7 @@ pub async fn find_conflict(draft: &RuleDraft, exclude: Option<&Uuid>) -> DbResul
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed::<Uuid>("id"))
-        .transpose()
+    rows.first().map(|row| row.get_typed::<Uuid>("id")).transpose()
 }
 
 /// 新建一条规则，返回主键。
@@ -379,17 +374,10 @@ pub fn write_error(error: DbError, ctx: &str, conflict: impl FnOnce() -> ApiErro
             error_code::PARAM_INVALID,
             format!(
                 "{ctx}附件规则不满足数据库约束{}：请检查数量区间 / 扩展名白名单 / 条件片段",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
-        _ => ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("{ctx}附件规则失败：{error}"),
-        ),
+        _ => ApiError::new(500, error_code::INTERNAL_ERROR, format!("{ctx}附件规则失败：{error}")),
     }
 }
 

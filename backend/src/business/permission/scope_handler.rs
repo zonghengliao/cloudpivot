@@ -77,9 +77,7 @@ pub async fn role_scope_detail(Path(role_id): Path<String>) -> ResResult<RoleSco
     let holders = scope_model::count_role_holders(&role_id)
         .await
         .map_err(|error| utils::db_error(error, "统计角色持有者"))?;
-    Ok(Res::ok(scope_model::role_scope_res(
-        &role, &custom, holders,
-    )))
+    Ok(Res::ok(scope_model::role_scope_res(&role, &custom, holders)))
 }
 
 // ==================== 设角色范围配置 ====================
@@ -161,11 +159,7 @@ pub async fn role_scope_update(
                 error_code::DATA_SCOPE_DEPT_NOT_FOUND,
                 format!(
                     "以下部门不存在或已删除，不能加入自定义范围：{}",
-                    missing
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join("、")
+                    missing.iter().map(ToString::to_string).collect::<Vec<_>>().join("、")
                 ),
             ));
         }
@@ -185,10 +179,7 @@ pub async fn role_scope_update(
         return Err(ApiError::new(
             403,
             error_code::DATA_SCOPE_SELF_ROLE_LOCKED,
-            format!(
-                "不能修改自己持有角色「{}」的数据范围（避免自我扩权）",
-                role.role_name
-            ),
+            format!("不能修改自己持有角色「{}」的数据范围（避免自我扩权）", role.role_name),
         ));
     }
 
@@ -271,9 +262,7 @@ pub async fn role_scope_update(
     permission = "business:permission:scope:read"
 )]
 #[nik::get("/business/permission/scope/dept-tree")]
-pub async fn dept_tree(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<DeptTreeRes> {
+pub async fn dept_tree(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<DeptTreeRes> {
     let user_id = current_user_id(&claims)?;
     let operator = principal::resolve(&user_id)
         .await
@@ -330,9 +319,7 @@ pub async fn dept_tree(
     permission = "business:permission:scope:self-check"
 )]
 #[nik::get("/business/permission/scope/self-check")]
-pub async fn self_check(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<SelfCheckRes> {
+pub async fn self_check(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<SelfCheckRes> {
     let user_id = current_user_id(&claims)?;
     let operator = principal::resolve(&user_id)
         .await
@@ -386,10 +373,7 @@ pub async fn self_check(
         dept_ids: dept_ids.iter().map(ToString::to_string).collect(),
         depts: scope_model::to_briefs(&visible_rows),
         self_only: operator.self_only(),
-        roles: roles
-            .iter()
-            .map(scope_model::RoleScope::to_source_role)
-            .collect(),
+        roles: roles.iter().map(scope_model::RoleScope::to_source_role).collect(),
         tables,
         cache: crate::business::permission::dto::CacheInfo {
             hits: stats.hits,

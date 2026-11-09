@@ -265,9 +265,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 取一个申请单号（周期键按北京时间）。
@@ -314,11 +312,7 @@ pub async fn create_requisition(
                 optional_text(head.dept_name.as_deref()),
                 uuid_text(head.applicant_id),
                 optional_text(head.applicant_name.as_deref()),
-                Value::Text(
-                    head.demand_date
-                        .map(|date| date.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(head.demand_date.map(|date| date.to_string()).unwrap_or_default()),
                 Value::from(&head.warehouse_id),
                 Value::Text(head.est_amount.to_string()),
                 optional_text(head.remark.as_deref()),
@@ -366,11 +360,7 @@ async fn insert_items(ex: &impl SqlExecutor, req_id: Uuid, items: &[NewItem]) ->
                 Value::Text(item.qty.to_string()),
                 Value::Text(item.est_price.to_string()),
                 Value::Text(item.tax_rate.to_string()),
-                Value::Text(
-                    item.demand_date
-                        .map(|date| date.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(item.demand_date.map(|date| date.to_string()).unwrap_or_default()),
                 uuid_text(item.suggest_supplier_id),
                 optional_text(item.remark.as_deref()),
             ],
@@ -386,10 +376,7 @@ async fn insert_items(ex: &impl SqlExecutor, req_id: Uuid, items: &[NewItem]) ->
 ///
 /// 用一条**不带 JOIN** 的语句加锁：PG 不允许 `FOR UPDATE` 作用在外连接的可空侧，
 /// 而详情用的 `req_select_sql` 带 `LEFT JOIN`。
-pub async fn lock_requisition(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> DbResult<Option<(String, Option<Uuid>)>> {
+pub async fn lock_requisition(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> {
     // SCOPE-EXEMPT: 按主键取单行状态并加行锁，不涉及数据范围。
     let rows = ex
         .query_sql(
@@ -463,16 +450,7 @@ pub async fn mark_approved(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
-    apply_status(
-        ex,
-        id,
-        STATUS_SUBMITTED,
-        STATUS_APPROVED,
-        reason,
-        operator,
-        now,
-    )
-    .await
+    apply_status(ex, id, STATUS_SUBMITTED, STATUS_APPROVED, reason, operator, now).await
 }
 
 /// 审批结论回写：`SUBMITTED → DRAFT`（驳回 / 撤回打回草稿，清实例与提交痕迹）。
@@ -670,10 +648,7 @@ pub async fn mark_converted(
 }
 
 /// 把「申请明细 → 采购订单明细」的对应关系写回明细行（同一事务由调用方持有）。
-pub async fn attach_po_items(
-    ex: &impl SqlExecutor,
-    mapping: &BTreeMap<Uuid, Uuid>,
-) -> DbResult<u64> {
+pub async fn attach_po_items(ex: &impl SqlExecutor, mapping: &BTreeMap<Uuid, Uuid>) -> DbResult<u64> {
     let mut affected = 0u64;
     for (req_item_id, po_item_id) in mapping {
         affected += ex
@@ -789,11 +764,7 @@ pub async fn page_requisitions(filter: &RequisitionFilter) -> DbResult<(Vec<Requ
         filter.page_size,
     )
     .await?;
-    let rows = page
-        .list
-        .iter()
-        .map(read_req_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let rows = page.list.iter().map(read_req_row).collect::<DbResult<Vec<_>>>()?;
     Ok((rows, page.total))
 }
 
@@ -851,9 +822,7 @@ pub async fn dept_name_of(ex: &impl SqlExecutor, dept_id: Uuid) -> DbResult<Opti
             vec![Value::from(&dept_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("dept_name"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("dept_name")).transpose()
 }
 
 /// 采购订单号（转单成功后回显；查不到给 `None`）。
@@ -861,14 +830,11 @@ pub async fn po_no_of(ex: &impl SqlExecutor, po_id: Uuid) -> DbResult<Option<Str
     // SCOPE-EXEMPT: 按主键取 1 行单号，不分页、不裁剪。
     let rows = ex
         .query_sql(
-            "SELECT order_no FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL"
-                .to_string(),
+            "SELECT order_no FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
             vec![Value::from(&po_id)],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("order_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("order_no")).transpose()
 }
 
 /// 物料编码 / 名称（转单响应里回填 `material_code` / `material_name`；查不到给 `None`）。
@@ -877,10 +843,7 @@ pub async fn po_no_of(ex: &impl SqlExecutor, po_id: Uuid) -> DbResult<Option<Str
 /// （`merge_by_material`），那一步只有 `material_id`。响应契约里 `material_code` /
 /// `material_name` 是必填字段，不回填就只能给空串 —— 前端「转单结果」页按这两列展示，
 /// 空串等于把「合并了哪些物料」藏起来，用户只能对着 UUID 猜。
-pub async fn material_ref_of(
-    ex: &impl SqlExecutor,
-    material_id: Uuid,
-) -> DbResult<Option<(String, String)>> {
+pub async fn material_ref_of(ex: &impl SqlExecutor, material_id: Uuid) -> DbResult<Option<(String, String)>> {
     // SCOPE-EXEMPT: 按主键取 1 行主数据（编码 + 名称），不分页、不裁剪。
     let rows = ex
         .query_sql(
@@ -893,10 +856,7 @@ pub async fn material_ref_of(
     let Some(row) = rows.first() else {
         return Ok(None);
     };
-    Ok(Some((
-        row.get_typed("material_code")?,
-        row.get_typed("material_name")?,
-    )))
+    Ok(Some((row.get_typed("material_code")?, row.get_typed("material_name")?)))
 }
 
 // ==================== 小工具 ====================
@@ -940,10 +900,7 @@ mod tests {
     fn optional_values_fold_to_empty_text() {
         assert_eq!(uuid_text(None), Value::Text(String::new()));
         assert_eq!(optional_text(Some("  ")), Value::Text(String::new()));
-        assert_eq!(
-            optional_text(Some(" 备注 ")),
-            Value::Text("备注".to_string())
-        );
+        assert_eq!(optional_text(Some(" 备注 ")), Value::Text("备注".to_string()));
     }
 
     /// 状态常量必须与 DDL 的 CHECK 逐字一致（错一个字就是库层违约）。

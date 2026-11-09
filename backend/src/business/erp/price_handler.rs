@@ -75,9 +75,7 @@ fn customer_not_found() -> ApiError {
 ///
 /// 顺序不可调整：先确认物料/客户真实存在，再按 ①→④ 逐级取；
 /// 每级只在**上一级没有命中**时才查库（短路，少两次查询也少两次误命中机会）。
-pub async fn resolve_price(
-    query: PriceResolveQuery,
-) -> std::result::Result<PriceResolveRes, ApiError> {
+pub async fn resolve_price(query: PriceResolveQuery) -> std::result::Result<PriceResolveRes, ApiError> {
     let req = query.validate()?;
     let outcome = resolve_validated(&req).await?;
     Ok(PriceResolveRes {
@@ -136,9 +134,7 @@ async fn resolve_validated(req: &PriceResolveReq) -> std::result::Result<Resolve
     permission = "business:erp:price:resolve"
 )]
 #[nik::get("/business/erp/price/resolve")]
-pub async fn price_resolve_api(
-    Query(query): Query<PriceResolveQuery>,
-) -> ResResult<PriceResolveRes> {
+pub async fn price_resolve_api(Query(query): Query<PriceResolveQuery>) -> ResResult<PriceResolveRes> {
     Ok(Res::ok(resolve_price(query).await?))
 }
 

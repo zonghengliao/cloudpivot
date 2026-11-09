@@ -73,9 +73,7 @@ pub async fn batch_task_status(
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty())
-        .ok_or_else(|| {
-            ApiError::bad_request("status 不能为空（TODO / DOING / REVIEW / DONE / CANCELLED）")
-        })?
+        .ok_or_else(|| ApiError::bad_request("status 不能为空（TODO / DOING / REVIEW / DONE / CANCELLED）"))?
         .to_string();
     let labels = batch::labels_of("biz_task", "task_no", &ids)
         .await
@@ -89,13 +87,9 @@ pub async fn batch_task_status(
             reason: reason.clone(),
         };
         async move {
-            change_status(
-                Extension(AuthClaims(claims)),
-                Path(id.to_string()),
-                Json(body),
-            )
-            .await
-            .map(|_| ())
+            change_status(Extension(AuthClaims(claims)), Path(id.to_string()), Json(body))
+                .await
+                .map(|_| ())
         }
     })
     .await)
@@ -127,13 +121,9 @@ pub async fn batch_task_assign(
             reason: reason.clone(),
         };
         async move {
-            assign(
-                Extension(AuthClaims(claims)),
-                Path(id.to_string()),
-                Json(body),
-            )
-            .await
-            .map(|_| ())
+            assign(Extension(AuthClaims(claims)), Path(id.to_string()), Json(body))
+                .await
+                .map(|_| ())
         }
     })
     .await)

@@ -31,9 +31,7 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
         "SELECT {NODE_COLUMNS} FROM biz_flow_node n WHERE n.version_id = ?::uuid \
          ORDER BY n.sort_order, n.node_key"
     );
-    let node_rows = db()
-        .find_with_params(&node_sql, vec![Value::from(&version_id)])
-        .await?;
+    let node_rows = db().find_with_params(&node_sql, vec![Value::from(&version_id)]).await?;
 
     let edge_rows = db()
         .find_with_params(
@@ -60,18 +58,14 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
         )
         .await?;
 
-    let mut assignees_by_node: std::collections::HashMap<Uuid, Vec<AssigneeRef>> =
-        std::collections::HashMap::new();
+    let mut assignees_by_node: std::collections::HashMap<Uuid, Vec<AssigneeRef>> = std::collections::HashMap::new();
     for row in &assignee_rows {
         let node_id: Uuid = row.get_typed("node_id")?;
-        assignees_by_node
-            .entry(node_id)
-            .or_default()
-            .push(AssigneeRef {
-                kind: row.get_typed("assignee_type")?,
-                ref_id: row.get_typed::<Uuid>("ref_id")?.to_string(),
-                sort_order: row.get_typed("sort_order")?,
-            });
+        assignees_by_node.entry(node_id).or_default().push(AssigneeRef {
+            kind: row.get_typed("assignee_type")?,
+            ref_id: row.get_typed::<Uuid>("ref_id")?.to_string(),
+            sort_order: row.get_typed("sort_order")?,
+        });
     }
 
     let mut nodes: Vec<NodeSpec> = Vec::with_capacity(node_rows.len());
@@ -102,8 +96,7 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
         let config = serde_json::from_str(&config_text).unwrap_or(serde_json::Value::Null);
         let mut assignees = assignees_by_node.remove(&id).unwrap_or_default();
         assignees.sort_by(|left, right| {
-            (left.kind.as_str(), left.ref_id.as_str())
-                .cmp(&(right.kind.as_str(), right.ref_id.as_str()))
+            (left.kind.as_str(), left.ref_id.as_str()).cmp(&(right.kind.as_str(), right.ref_id.as_str()))
         });
         nodes.push(NodeSpec {
             key: row.get_typed("node_key")?,
@@ -141,14 +134,14 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
     let mut edges: Vec<EdgeSpec> = Vec::with_capacity(edge_rows.len());
     for row in &edge_rows {
         let condition_text: Option<String> = row.get_typed("condition_text")?;
-        let condition =
-            match condition_text.as_deref() {
-                None => None,
-                Some(text) if text.trim().is_empty() || text.trim() == "null" => None,
-                Some(text) => Some(serde_json::from_str(text).map_err(|error| {
-                    DbError::InvalidValue(format!("condition_expr 非法：{error}"))
-                })?),
-            };
+        let condition = match condition_text.as_deref() {
+            None => None,
+            Some(text) if text.trim().is_empty() || text.trim() == "null" => None,
+            Some(text) => Some(
+                serde_json::from_str(text)
+                    .map_err(|error| DbError::InvalidValue(format!("condition_expr 非法：{error}")))?,
+            ),
+        };
         edges.push(EdgeSpec {
             key: row.get_typed("edge_key")?,
             from: row.get_typed("from_key")?,
@@ -318,10 +311,7 @@ pub async fn replace_graph(ex: &Transaction, version_id: Uuid, graph: &FlowGraph
     }
 
     for edge in &graph.edges {
-        let (Some(from_id), Some(to_id)) = (
-            node_ids.get(edge.from.as_str()),
-            node_ids.get(edge.to.as_str()),
-        ) else {
+        let (Some(from_id), Some(to_id)) = (node_ids.get(edge.from.as_str()), node_ids.get(edge.to.as_str())) else {
             return Err(DbError::InvalidValue(format!(
                 "连线 {} 指向不存在的节点（{} → {}）",
                 edge.key, edge.from, edge.to
@@ -384,11 +374,7 @@ pub async fn apply_publish(ex: &Transaction, write: &PublishWrite<'_>) -> DbResu
                                       ELSE version_status END, \
                 updated_at = now(), update_by = ?::uuid \
           WHERE def_id = ?::uuid AND id <> ?::uuid AND (is_current OR version_status = 'PUBLISHED')",
-        vec![
-            Value::from(&operator),
-            Value::from(&def_id),
-            Value::from(&version_id),
-        ],
+        vec![Value::from(&operator), Value::from(&def_id), Value::from(&version_id)],
     )
     .await?;
 
@@ -457,10 +443,7 @@ pub async fn copy_version_to_draft(
                 n.timeout_hours, n.timeout_action, n.remind_before_hours, n.max_remind_times, \
                 n.cc_on_approved, n.position_x, n.position_y, n.sort_order, n.config \
            FROM biz_flow_node n WHERE n.version_id = ?::uuid",
-        vec![
-            Value::from(&new_version_id),
-            Value::from(&source_version_id),
-        ],
+        vec![Value::from(&new_version_id), Value::from(&source_version_id)],
     )
     .await?;
 
@@ -473,10 +456,7 @@ pub async fn copy_version_to_draft(
              ON target.version_id = ?::uuid AND target.node_key = source.node_key \
           WHERE source.version_id = ?::uuid \
          ON CONFLICT DO NOTHING",
-        vec![
-            Value::from(&new_version_id),
-            Value::from(&source_version_id),
-        ],
+        vec![Value::from(&new_version_id), Value::from(&source_version_id)],
     )
     .await?;
 

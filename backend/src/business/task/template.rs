@@ -371,9 +371,7 @@ pub fn subtasks_to_json(items: &[TemplateSubtaskRes]) -> String {
 ///
 /// - 400 + `63502`：模板名 / 标题 / 优先级 / 工时 / 子任务非法；
 /// - 400 + `63503`：cron 表达式非法。
-pub fn normalize_save_req(
-    req: &TaskTemplateSaveReq,
-) -> std::result::Result<NormalizedTemplate, ApiError> {
+pub fn normalize_save_req(req: &TaskTemplateSaveReq) -> std::result::Result<NormalizedTemplate, ApiError> {
     let name = req.name.trim();
     if name.is_empty() {
         return Err(template_invalid("模板名不能为空".to_string()));
@@ -390,16 +388,13 @@ pub fn normalize_save_req(
     }
     let priority = match req.priority.as_deref().map(str::trim) {
         None | Some("") => "P2".to_string(),
-        Some(raw) => dto::normalize_priority(Some(raw)).ok_or_else(|| {
-            template_invalid(format!("优先级取值非法：{raw}（应为 P0 / P1 / P2 / P3）"))
-        })?,
+        Some(raw) => dto::normalize_priority(Some(raw))
+            .ok_or_else(|| template_invalid(format!("优先级取值非法：{raw}（应为 P0 / P1 / P2 / P3）")))?,
     };
     if let Some(hours) = req.estimate_hours
         && (!hours.is_finite() || !(0.0..=9999.0).contains(&hours))
     {
-        return Err(template_invalid(format!(
-            "预估工时非法：{hours}（应为 0 ~ 9999 小时）"
-        )));
+        return Err(template_invalid(format!("预估工时非法：{hours}（应为 0 ~ 9999 小时）")));
     }
     let mut subtasks: Vec<TemplateSubtaskRes> = Vec::new();
     if let Some(items) = req.subtasks.as_ref() {
@@ -417,9 +412,7 @@ pub fn normalize_save_req(
             let child_priority = match item.priority.as_deref().map(str::trim) {
                 None | Some("") => priority.clone(),
                 Some(raw) => dto::normalize_priority(Some(raw)).ok_or_else(|| {
-                    template_invalid(format!(
-                        "子任务优先级取值非法：{raw}（应为 P0 / P1 / P2 / P3）"
-                    ))
+                    template_invalid(format!("子任务优先级取值非法：{raw}（应为 P0 / P1 / P2 / P3）"))
                 })?,
             };
             subtasks.push(TemplateSubtaskRes {
@@ -496,11 +489,7 @@ pub fn template_invalid(message: String) -> ApiError {
 
 /// 404 + `63501`（模板不存在 / 已软删）。
 pub fn template_not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::TASK_TEMPLATE_NOT_FOUND,
-        "任务模板不存在或已删除",
-    )
+    ApiError::new(404, error_code::TASK_TEMPLATE_NOT_FOUND, "任务模板不存在或已删除")
 }
 
 /// 按字符数截断（不切坏 UTF-8）。
@@ -518,12 +507,8 @@ pub fn truncate_chars(raw: &str, limit: usize) -> String {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn list_templates(
-    keyword: Option<&str>,
-    enabled_only: bool,
-) -> DbResult<Vec<TemplateRow>> {
-    let mut sql =
-        format!("SELECT {TEMPLATE_COLUMNS} FROM biz_task_template WHERE deleted_at IS NULL");
+pub async fn list_templates(keyword: Option<&str>, enabled_only: bool) -> DbResult<Vec<TemplateRow>> {
+    let mut sql = format!("SELECT {TEMPLATE_COLUMNS} FROM biz_task_template WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(raw) = keyword.map(str::trim).filter(|text| !text.is_empty()) {
         let pattern = format!("%{}%", model::escape_like(raw));
@@ -716,27 +701,23 @@ pub async fn create_from_template(
     };
     // 负责人三级兜底：请求体 → 模板 owner_id → 模板创建人 → 操作人
     let owner_id = match req.owner_id.as_deref().map(str::trim) {
-        Some(raw) if !raw.is_empty() => Uuid::parse_str(raw)
-            .map_err(|_| DbError::InvalidValue(format!("负责人 ID 不是合法 UUID：{raw}")))?,
+        Some(raw) if !raw.is_empty() => {
+            Uuid::parse_str(raw).map_err(|_| DbError::InvalidValue(format!("负责人 ID 不是合法 UUID：{raw}")))?
+        }
         _ => tpl.owner_id.or(tpl.create_by).unwrap_or(actor),
     };
     let project_id = match req.project_id.as_deref().map(str::trim) {
-        Some(raw) if !raw.is_empty() => Some(
-            Uuid::parse_str(raw)
-                .map_err(|_| DbError::InvalidValue(format!("项目 ID 不是合法 UUID：{raw}")))?,
-        ),
+        Some(raw) if !raw.is_empty() => {
+            Some(Uuid::parse_str(raw).map_err(|_| DbError::InvalidValue(format!("项目 ID 不是合法 UUID：{raw}")))?)
+        }
         _ => tpl.project_id,
     };
     if !model::user_exists(owner_id).await? {
-        return Err(DbError::InvalidValue(format!(
-            "负责人不存在或已停用：{owner_id}"
-        )));
+        return Err(DbError::InvalidValue(format!("负责人不存在或已停用：{owner_id}")));
     }
     let dept_id = model::user_dept(owner_id).await?;
     let today = model::today_cst();
-    let due_date = req
-        .due_date
-        .or_else(|| Some(model::default_due_date(today)));
+    let due_date = req.due_date.or_else(|| Some(model::default_due_date(today)));
     let start_date = req.start_date;
 
     let parent_id = Uuid::now_v7();
@@ -827,22 +808,15 @@ pub async fn create_from_template(
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/task/templates",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/templates", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/templates")]
 pub async fn list(
     Extension(AuthClaims(_claims)): Extension<AuthClaims>,
     Query(query): Query<TaskTemplateListQuery>,
 ) -> ResResult<TaskTemplateListRes> {
-    let rows = list_templates(
-        query.keyword.as_deref(),
-        query.enabled_only.unwrap_or(false),
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "查询任务模板"))?;
+    let rows = list_templates(query.keyword.as_deref(), query.enabled_only.unwrap_or(false))
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务模板"))?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
         list.push(template_res(row));
@@ -992,9 +966,7 @@ pub async fn delete(
         return Err(template_not_found());
     }
     tracing::info!(template_id = %template_id, operator = %me, "任务模板已软删");
-    Ok(Res::ok(
-        serde_json::json!({ "id": template_id.to_string() }),
-    ))
+    Ok(Res::ok(serde_json::json!({ "id": template_id.to_string() })))
 }
 
 /// 一键建任务（含子任务）。
@@ -1024,9 +996,7 @@ pub async fn from_template(
     let created = create_from_template(&tpl, me, &req, SOURCE_TEMPLATE)
         .await
         .map_err(|error| match error {
-            DbError::InvalidValue(message) => {
-                ApiError::new(400, error_code::TASK_OWNER_INVALID, message)
-            }
+            DbError::InvalidValue(message) => ApiError::new(400, error_code::TASK_OWNER_INVALID, message),
             other => utils::db_error(other, "按模板创建任务"),
         })?;
     Ok(Res::ok(created))
@@ -1061,10 +1031,7 @@ fn template_res(row: &TemplateRow) -> TaskTemplateRes {
 /// # 异常情况
 ///
 /// 非法 UUID → 400 + `10001`。
-fn parse_optional_uuid(
-    raw: Option<&str>,
-    label: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+fn parse_optional_uuid(raw: Option<&str>, label: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim) {
         None | Some("") => Ok(None),
         Some(value) => Ok(Some(parse_uuid_field(value, label)?)),
@@ -1098,16 +1065,9 @@ mod tests {
     #[test]
     fn subtasks_json_rejects_non_array_and_handles_empty() {
         assert!(parse_subtasks_json("").expect("空串 → 空列表").is_empty());
-        assert!(
-            parse_subtasks_json("null")
-                .expect("null → 空列表")
-                .is_empty()
-        );
+        assert!(parse_subtasks_json("null").expect("null → 空列表").is_empty());
         assert!(parse_subtasks_json("[]").expect("[] → 空列表").is_empty());
-        assert!(
-            parse_subtasks_json(r#"{"title":"x"}"#).is_err(),
-            "对象不是数组"
-        );
+        assert!(parse_subtasks_json(r#"{"title":"x"}"#).is_err(), "对象不是数组");
         assert!(parse_subtasks_json("not-json").is_err(), "非 JSON 必须报错");
     }
 

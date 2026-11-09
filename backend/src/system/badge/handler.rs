@@ -42,9 +42,7 @@ use crate::utils;
 ///
 /// 不写业务日志：前端每 30 秒轮询一次，每次进页面都会打，写日志就是噪声。
 #[nik::get("/system/badge/counts")]
-pub async fn counts(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<BadgeCounts> {
+pub async fn counts(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<BadgeCounts> {
     let user_id = utils::require_uuid(&claims.sub, "sub")?;
     let counts = model::load(user_id)
         .await

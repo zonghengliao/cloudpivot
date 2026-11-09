@@ -74,10 +74,7 @@ pub fn current_user_uuid(claims: &TokenClaims) -> Option<uuid::Uuid> {
 /// # 异常情况
 ///
 /// 提供了值但格式非法时返回 400 参数错误。
-pub fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<uuid::Uuid>, ApiError> {
+pub fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<uuid::Uuid>, ApiError> {
     match raw.map(str::trim) {
         None | Some("") => Ok(None),
         Some(s) => require_uuid(s, field).map(Some),
@@ -149,10 +146,7 @@ pub fn like_pattern(keyword: Option<&str>) -> Option<String> {
 /// # 返回值
 ///
 /// 解析到有效客户端 IP 时返回 `Some`，否则 `None`。
-pub fn client_ip(
-    headers: &axum::http::HeaderMap,
-    connect_info: Option<&SocketAddr>,
-) -> Option<IpAddr> {
+pub fn client_ip(headers: &axum::http::HeaderMap, connect_info: Option<&SocketAddr>) -> Option<IpAddr> {
     // 未提供连接信息时以未指定地址占位，仅影响「无任何可信头」分支的兜底值
     let fallback = SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 0));
     nik_utils::extract_client_ip(headers, connect_info.unwrap_or(&fallback))
@@ -242,8 +236,7 @@ where
     FSort: Fn(&T) -> i32,
     FSet: Fn(&mut T, Vec<T>),
 {
-    let mut children_map: std::collections::HashMap<String, Vec<T>> =
-        std::collections::HashMap::new();
+    let mut children_map: std::collections::HashMap<String, Vec<T>> = std::collections::HashMap::new();
     let mut roots: Vec<T> = Vec::new();
 
     for node in nodes {

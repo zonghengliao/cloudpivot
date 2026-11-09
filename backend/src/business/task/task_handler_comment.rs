@@ -106,9 +106,8 @@ pub async fn post_comment(
     Json(req): Json<TaskPostCommentReq>,
 ) -> ResResult<TaskCommentRes> {
     let task_id = parse_uuid_field(&id, "任务")?;
-    let author = utils::current_user_uuid(&claims).ok_or_else(|| {
-        ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识")
-    })?;
+    let author = utils::current_user_uuid(&claims)
+        .ok_or_else(|| ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识"))?;
     // 能看见任务就能评论；看不见一律 404。
     let (_scope, task) = crate::business::task::collab::visible_task(&claims, task_id).await?;
     // 红线：用户不许伪造 `comment_type`。
@@ -236,14 +235,8 @@ pub(super) async fn persist_comment(
 
     // T6b：@ 提及 = 强制通知（修正 8）。评论已落库，通知失败只记 warn。
     if !targets.is_empty() {
-        let notified = crate::business::task::collab::notify_mentions(
-            task,
-            &content,
-            &targets,
-            author,
-            author_name,
-        )
-        .await;
+        let notified =
+            crate::business::task::collab::notify_mentions(task, &content, &targets, author, author_name).await;
         tracing::info!(
             task_id = %task_id,
             comment_id = %comment_id,
@@ -278,17 +271,10 @@ pub(crate) const MAX_USER_COMMENT_CHARS: usize = 5_000;
 ///
 /// - [`CommentLimit::Strict`]：超长 → 400（人类入口）；
 /// - [`CommentLimit::Truncate`]：超长 → 截断（AI 入口）。
-pub(super) fn normalize_comment_content(
-    raw: &str,
-    limit: &CommentLimit,
-) -> std::result::Result<String, ApiError> {
+pub(super) fn normalize_comment_content(raw: &str, limit: &CommentLimit) -> std::result::Result<String, ApiError> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::TASK_FIELD_INVALID,
-            "评论正文不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::TASK_FIELD_INVALID, "评论正文不能为空"));
     }
     match limit {
         CommentLimit::Truncate(max) => Ok(dto::truncate_chars(trimmed, *max)),

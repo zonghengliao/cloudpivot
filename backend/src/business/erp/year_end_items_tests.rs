@@ -69,21 +69,14 @@ async fn items_list_every_blocking_doc_across_the_year() {
         .await
         .expect("读角色码");
 
-    let blockers = collect_blockers(db(), support::YEAR)
-        .await
-        .expect("年结预检");
+    let blockers = collect_blockers(db(), support::YEAR).await.expect("年结预检");
     let blocker = blockers
         .iter()
         .find(|item| item.kind == BLOCKER_DOC_UNFINISHED)
         .expect("必须报 DOC_UNFINISHED");
 
     assert_eq!(blocker.count, Some(4), "条数是全量 COUNT(*)（4 张）");
-    assert_eq!(
-        blocker.items.len(),
-        4,
-        "明细必须一张一行：{:#?}",
-        blocker.items
-    );
+    assert_eq!(blocker.items.len(), 4, "明细必须一张一行：{:#?}", blocker.items);
     assert_eq!(
         blocker.samples.len(),
         3,
@@ -108,11 +101,7 @@ async fn items_list_every_blocking_doc_across_the_year() {
         Some(po_role_code.as_str()),
         "处理角色 = 持有 purchase-order:status 的角色"
     );
-    assert_eq!(
-        po1.owner_name.as_deref(),
-        Some("采购主管"),
-        "角色下唯一用户就点名"
-    );
+    assert_eq!(po1.owner_name.as_deref(), Some("采购主管"), "角色下唯一用户就点名");
     assert!(po1.waiting_since.is_some(), "要有「已等多久」的基准");
 
     let si1 = blocker
@@ -156,20 +145,14 @@ async fn unfinished_items_are_capped_at_fifty_across_twelve_months() {
         }
     }
 
-    let blockers = collect_blockers(db(), support::YEAR)
-        .await
-        .expect("年结预检");
+    let blockers = collect_blockers(db(), support::YEAR).await.expect("年结预检");
     let blocker = blockers
         .iter()
         .find(|item| item.kind == BLOCKER_DOC_UNFINISHED)
         .expect("必须报 DOC_UNFINISHED");
 
     assert_eq!(blocker.count, Some(60), "条数是全量，照实报 60");
-    assert_eq!(
-        blocker.items.len(),
-        50,
-        "明细上限 50 条（不能 12 个月 × 50 = 600）"
-    );
+    assert_eq!(blocker.items.len(), 50, "明细上限 50 条（不能 12 个月 × 50 = 600）");
     assert!(
         blocker.message.contains("共 60 张") && blocker.message.contains("仅显示前 50 张"),
         "超限文案要点名总数与上限：{}",
@@ -196,9 +179,7 @@ async fn invariant_items_point_to_broken_vouchers_without_owner() {
     support::open_and_close().await;
     support::seed_broken_voucher("YE-V-901", 3).await;
 
-    let blockers = collect_blockers(db(), support::YEAR)
-        .await
-        .expect("年结预检");
+    let blockers = collect_blockers(db(), support::YEAR).await.expect("年结预检");
     let invariant = blockers
         .iter()
         .find(|item| item.kind == BLOCKER_INVARIANT)
@@ -219,8 +200,7 @@ async fn invariant_items_point_to_broken_vouchers_without_owner() {
         item.status_label
     );
     assert!(
-        item.route
-            .starts_with("/business/erp/voucher?voucher_no=YE-V-901"),
+        item.route.starts_with("/business/erp/voucher?voucher_no=YE-V-901"),
         "凭证路由要带单号直达：{}",
         item.route
     );
@@ -245,15 +225,10 @@ async fn owner_is_null_when_no_role_holds_the_permission() {
         .await
         .expect("权限节点必须存在（V0150 种子）");
     let saved = support::grants_of(menu).await;
-    support::sql(&format!(
-        "DELETE FROM sys_role_menu WHERE menu_id = '{menu}'"
-    ))
-    .await;
+    support::sql(&format!("DELETE FROM sys_role_menu WHERE menu_id = '{menu}'")).await;
 
     support::seed_po("YE-PO-900", 4, "SUBMITTED").await;
-    let blockers = collect_blockers(db(), support::YEAR)
-        .await
-        .expect("年结预检");
+    let blockers = collect_blockers(db(), support::YEAR).await.expect("年结预检");
     let blocker = blockers
         .iter()
         .find(|item| item.kind == BLOCKER_DOC_UNFINISHED)
@@ -295,20 +270,12 @@ async fn every_year_end_blocker_serializes_items_array() {
     let blockers = json["blockers"].as_array().expect("blockers 是数组");
     assert!(!blockers.is_empty());
     for blocker in blockers {
-        assert!(
-            blocker.get("items").is_some(),
-            "每个阻塞项都要有 items 键：{blocker}"
-        );
+        assert!(blocker.get("items").is_some(), "每个阻塞项都要有 items 键：{blocker}");
         assert!(blocker["items"].is_array());
     }
     // 期间类阻塞项（没有单据级明细）必须是空数组
-    let period_blocker = blockers
-        .iter()
-        .find(|blocker| blocker["type"] == "PERIOD_NOT_CLOSED");
-    assert!(
-        period_blocker.is_none(),
-        "12 个月都封了，不该有「期间未结账」阻塞项"
-    );
+    let period_blocker = blockers.iter().find(|blocker| blocker["type"] == "PERIOD_NOT_CLOSED");
+    assert!(period_blocker.is_none(), "12 个月都封了，不该有「期间未结账」阻塞项");
     support::teardown().await;
 }
 
@@ -351,11 +318,7 @@ async fn can_close_is_unaffected_by_items() {
 
     support::sql("DELETE FROM biz_purchase_order WHERE order_no = 'YE-PO-001'").await;
     let cleared = check_year(support::YEAR).await.expect("处理完单据后预检");
-    assert!(
-        cleared.can_close,
-        "单据处理掉之后必须能年结：{:?}",
-        cleared.blockers
-    );
+    assert!(cleared.can_close, "单据处理掉之后必须能年结：{:?}", cleared.blockers);
     support::teardown().await;
 }
 
@@ -372,9 +335,7 @@ async fn year_and_period_invariant_items_agree() {
     support::seed_broken_voucher("YE-V-902", 9).await;
 
     let year_items = {
-        let blockers = collect_blockers(db(), support::YEAR)
-            .await
-            .expect("年结预检");
+        let blockers = collect_blockers(db(), support::YEAR).await.expect("年结预检");
         blockers
             .into_iter()
             .find(|item| item.kind == BLOCKER_INVARIANT)
@@ -397,13 +358,7 @@ async fn year_and_period_invariant_items_agree() {
         "年结与期间的明细条数必须一致（同一份 SQL）"
     );
     let year_no: Vec<&str> = year_items.iter().map(|item| item.doc_no.as_str()).collect();
-    let period_no: Vec<&str> = period_list
-        .iter()
-        .map(|item| item.doc_no.as_str())
-        .collect();
-    assert_eq!(
-        year_no, period_no,
-        "单号清单必须一致：{year_no:?} vs {period_no:?}"
-    );
+    let period_no: Vec<&str> = period_list.iter().map(|item| item.doc_no.as_str()).collect();
+    assert_eq!(year_no, period_no, "单号清单必须一致：{year_no:?} vs {period_no:?}");
     support::teardown().await;
 }

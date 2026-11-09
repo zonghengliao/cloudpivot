@@ -378,8 +378,7 @@ pub async fn dispatch(
     let task_id = task.card.id;
     let board = board();
     let (token, token_hash) = crate::middleware::task_token::new_token();
-    let expires_at =
-        Utc::now() + Duration::seconds(MAX_RUNTIME_SECS) + Duration::hours(TOKEN_TTL_SLACK_HOURS);
+    let expires_at = Utc::now() + Duration::seconds(MAX_RUNTIME_SECS) + Duration::hours(TOKEN_TTL_SLACK_HOURS);
 
     // ① 先登记令牌（明文进 body、hash 进库）：create 失败会删掉它
     model::upsert_ai_token(db(), task_id, &token_hash, expires_at)
@@ -396,17 +395,14 @@ pub async fn dispatch(
         //    Hermes 的 `profile create` 只复制 SOUL.md，worker 的 HERMES_HOME 指向 profile 目录
         //    —— 没有 config.yaml 时 worker 一启动就退出（144 实测），派活会变成「假成功」。
         //    这里补一次复制；失败直接挡住派活（比让 AI 静默跑不起来强）。
-        hermes
-            .ensure_profile_config(profile)
-            .await
-            .map_err(|error| {
-                tracing::error!(profile, error = %error.msg, "AI profile 缺模型凭据，拒绝派活");
-                ApiError::new(
-                    500,
-                    error.code,
-                    format!("AI profile 缺少模型凭据，派活会变成假成功：{}", error.msg),
-                )
-            })?;
+        hermes.ensure_profile_config(profile).await.map_err(|error| {
+            tracing::error!(profile, error = %error.msg, "AI profile 缺模型凭据，拒绝派活");
+            ApiError::new(
+                500,
+                error.code,
+                format!("AI profile 缺少模型凭据，派活会变成假成功：{}", error.msg),
+            )
+        })?;
 
         // ③ 拼 body（含交付要求与令牌明文）
         let body = render_body(&DispatchBody {
@@ -448,23 +444,14 @@ pub async fn dispatch(
                 let board = board.clone();
                 let hermes_task_id = hermes_task_id.clone();
                 async move {
-                    model::mark_dispatched(&tx, task_id, &board, &hermes_task_id, "ready", operator)
-                        .await?;
-                    let mut content = format!(
-                        "已派发给 AI 员工（profile：{profile}），Hermes 任务 {hermes_task_id}（看板 {board}）"
-                    );
+                    model::mark_dispatched(&tx, task_id, &board, &hermes_task_id, "ready", operator).await?;
+                    let mut content =
+                        format!("已派发给 AI 员工（profile：{profile}），Hermes 任务 {hermes_task_id}（看板 {board}）");
                     if let Some(reason) = reason.map(str::trim).filter(|text| !text.is_empty()) {
                         content.push_str(&format!("；说明：{reason}"));
                     }
-                    model::insert_comment(
-                        &tx,
-                        task_id,
-                        operator,
-                        &content,
-                        model::COMMENT_TYPE_PLAIN,
-                        operator,
-                    )
-                    .await?;
+                    model::insert_comment(&tx, task_id, operator, &content, model::COMMENT_TYPE_PLAIN, operator)
+                        .await?;
                     Ok(())
                 }
             })
@@ -492,18 +479,9 @@ pub async fn dispatch(
                     let failure = failure.clone();
                     async move {
                         model::delete_ai_token(&tx, task_id).await?;
-                        let content = format!(
-                            "派活到 Hermes 失败（任务仍留在当前状态，可重新派活）：{failure}"
-                        );
-                        model::insert_comment(
-                            &tx,
-                            task_id,
-                            operator,
-                            &content,
-                            model::COMMENT_TYPE_PLAIN,
-                            operator,
-                        )
-                        .await?;
+                        let content = format!("派活到 Hermes 失败（任务仍留在当前状态，可重新派活）：{failure}");
+                        model::insert_comment(&tx, task_id, operator, &content, model::COMMENT_TYPE_PLAIN, operator)
+                            .await?;
                         Ok(())
                     }
                 })
@@ -629,10 +607,7 @@ pub async fn poll_once() -> std::result::Result<PollReport, ApiError> {
 }
 
 /// 单个任务的状态同步。返回 `true` 表示「有落库动作」。
-async fn sync_one(
-    target: &SyncTargetRow,
-    snapshot: &KanbanSnapshot,
-) -> std::result::Result<bool, ApiError> {
+async fn sync_one(target: &SyncTargetRow, snapshot: &KanbanSnapshot) -> std::result::Result<bool, ApiError> {
     let action = map_status(&snapshot.status);
     // 去重：同一个 Hermes 状态只处理一次（评论 / 通知 / 附件上传都是副作用，重放会翻倍）。
     // **`done` 不例外**：REVIEW 不是终态，任务下一轮仍在扫描集合里，
@@ -643,30 +618,15 @@ async fn sync_one(
             if unchanged {
                 return Ok(false);
             }
-            model::sync_progress_of_ai(
-                db(),
-                target.id,
-                &snapshot.status,
-                None,
-                None,
-                target.owner_id,
-            )
-            .await
-            .map_err(|error| utils::db_error(error, "记录 Hermes 排队状态"))?;
+            model::sync_progress_of_ai(db(), target.id, &snapshot.status, None, None, target.owner_id)
+                .await
+                .map_err(|error| utils::db_error(error, "记录 Hermes 排队状态"))?;
             Ok(true)
         }
         SyncAction::Running => {
             // 只前进不后退：REVIEW 中的任务被返工时可能又 running，那也不该打回 TODO
-            let cloud_status = if target.status == "TODO" {
-                Some("DOING")
-            } else {
-                None
-            };
-            let progress = if target.status == "TODO" {
-                Some(10_i16)
-            } else {
-                None
-            };
+            let cloud_status = if target.status == "TODO" { Some("DOING") } else { None };
+            let progress = if target.status == "TODO" { Some(10_i16) } else { None };
             model::sync_progress_of_ai(
                 db(),
                 target.id,
@@ -741,10 +701,7 @@ fn status_unchanged(previous: Option<&str>, current: &str) -> bool {
 ///    - 路径 B（兜底）：`metadata.new_files` 是本机 workspace 下的真实文件 → 云枢读盘上传
 ///      （`category='task_ai'`）并绑定附件；
 ///    - 路径 C（找不到）：写一条警告评论，**不阻塞**流转。
-async fn relay_done(
-    target: &SyncTargetRow,
-    snapshot: &KanbanSnapshot,
-) -> std::result::Result<(), ApiError> {
+async fn relay_done(target: &SyncTargetRow, snapshot: &KanbanSnapshot) -> std::result::Result<(), ApiError> {
     let report = snapshot.report_text();
     let metadata = snapshot.metadata.clone();
 
@@ -757,8 +714,7 @@ async fn relay_done(
     let declared = snapshot.new_files();
     if declared.is_empty() && existing_ai == 0 {
         warnings.push(
-            "AI 未提供产出文件（既没有用令牌上传附件，metadata.new_files 也是空的），请验收人确认交付内容"
-                .to_string(),
+            "AI 未提供产出文件（既没有用令牌上传附件，metadata.new_files 也是空的），请验收人确认交付内容".to_string(),
         );
     }
     let profile = ai_profile_of(target.owner_id).await;
@@ -802,9 +758,7 @@ async fn relay_done(
                         )
                         .await
                         {
-                            warnings.push(format!(
-                                "AI 产出「{upload_name}」已上传但绑定附件失败：{error}"
-                            ));
+                            warnings.push(format!("AI 产出「{upload_name}」已上传但绑定附件失败：{error}"));
                         } else {
                             uploaded.push(format!("{upload_name}（{}）", path.display()));
                         }
@@ -852,9 +806,7 @@ async fn relay_done(
                 .await?;
             }
             let profile_label = profile.as_deref().unwrap_or("未登记 profile");
-            let mut tail = format!(
-                "AI 已完成执行（profile：{profile_label}，Hermes 状态 done），任务已进入「待验收」"
-            );
+            let mut tail = format!("AI 已完成执行（profile：{profile_label}，Hermes 状态 done），任务已进入「待验收」");
             if !uploaded.is_empty() {
                 tail.push_str(&format!(
                     "；本次回传 {} 个产出文件：{}",
@@ -911,10 +863,7 @@ async fn relay_done(
 }
 
 /// `failed`：保持 `DOING`，写错误评论 + 通知分派人。
-async fn handle_failed(
-    target: &SyncTargetRow,
-    snapshot: &KanbanSnapshot,
-) -> std::result::Result<(), ApiError> {
+async fn handle_failed(target: &SyncTargetRow, snapshot: &KanbanSnapshot) -> std::result::Result<(), ApiError> {
     let reason = snapshot
         .run_error
         .clone()
@@ -924,8 +873,7 @@ async fn handle_failed(
     model::sync_progress_of_ai(db(), target.id, "failed", None, None, target.owner_id)
         .await
         .map_err(|error| utils::db_error(error, "记录 AI 失败状态"))?;
-    let content =
-        format!("AI 执行失败：{reason}\n\n任务保持「进行中」，请分派人决定重派或转人工。");
+    let content = format!("AI 执行失败：{reason}\n\n任务保持「进行中」，请分派人决定重派或转人工。");
     model::insert_comment(
         db(),
         target.id,
@@ -957,10 +905,7 @@ async fn handle_failed(
 }
 
 /// `blocked`：写「需人工协助」评论 + 通知分派人（状态不动）。
-async fn handle_blocked(
-    target: &SyncTargetRow,
-    snapshot: &KanbanSnapshot,
-) -> std::result::Result<(), ApiError> {
+async fn handle_blocked(target: &SyncTargetRow, snapshot: &KanbanSnapshot) -> std::result::Result<(), ApiError> {
     let reason = snapshot
         .report_text()
         .or_else(|| snapshot.run_error.clone())
@@ -1212,11 +1157,7 @@ pub fn register_builtin(scheduler: &Scheduler) {
             })
         },
     );
-    tracing::info!(
-        task = TASK_NAME,
-        cron = SYNC_CRON,
-        "AI 任务状态同步任务已注册（T5b）"
-    );
+    tracing::info!(task = TASK_NAME, cron = SYNC_CRON, "AI 任务状态同步任务已注册（T5b）");
 }
 
 #[cfg(test)]
@@ -1287,13 +1228,10 @@ mod tests {
         assert!(body.contains("优先级：P1"));
         assert!(body.contains("预估工时：2.5 小时"));
         assert!(body.contains("截止时间：未设置"));
-        assert!(body.contains(
-            "http://172.18.10.144/api/business/task/0199f0a0-2222-7000-8000-000000000002/attachment"
-        ));
         assert!(
-            body.contains("cpai_deadbeef"),
-            "令牌必须写进 body（1A 契约）"
+            body.contains("http://172.18.10.144/api/business/task/0199f0a0-2222-7000-8000-000000000002/attachment")
         );
+        assert!(body.contains("cpai_deadbeef"), "令牌必须写进 body（1A 契约）");
         // 端到端实测踩过：把 URL 写成 `{base}"/api/…"`（多一个引号）时，curl 会把
         // 引号当成主机名的一部分，AI 侧反复失败直到迭代预算耗尽 —— 而上面那条 substring
         // 断言因为**示例块里的正确 URL** 依然通过。所以这里专门盯「主机名后紧跟引号」。
@@ -1377,10 +1315,7 @@ mod tests {
             base_url: "http://host",
             profile: "agent-x",
         });
-        assert!(
-            body.starts_with("# 第一行 第二行"),
-            "标题应压成单行：{body}"
-        );
+        assert!(body.starts_with("# 第一行 第二行"), "标题应压成单行：{body}");
         assert!(body.contains("（云枢任务未填写描述"));
     }
 

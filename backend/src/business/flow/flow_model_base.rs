@@ -389,8 +389,7 @@ impl InstanceRow {
             initiator_id: row.get_typed("initiator_id")?,
             initiator_name: row.get_typed("initiator_name")?,
             initiator_dept_id: row.get_typed("initiator_dept_id")?,
-            form_data: serde_json::from_str(&form_text)
-                .unwrap_or_else(|_| Json::Object(Default::default())),
+            form_data: serde_json::from_str(&form_text).unwrap_or_else(|_| Json::Object(Default::default())),
             result_comment: row.get_typed("result_comment")?,
             auto_passed_nodes: row.get_typed("auto_passed_nodes")?,
             round_total: row.get_typed("round_total")?,
@@ -503,10 +502,7 @@ impl NodeRow {
 
     /// 是否已经结束（终态）。
     pub fn is_terminal(&self) -> bool {
-        matches!(
-            self.status.as_str(),
-            "APPROVED" | "REJECTED" | "SKIPPED" | "CANCELLED"
-        )
+        matches!(self.status.as_str(), "APPROVED" | "REJECTED" | "SKIPPED" | "CANCELLED")
     }
 }
 
@@ -594,8 +590,7 @@ impl TaskRow {
             is_self_approval: row.get_typed("is_self_approval")?,
             is_auto: row.get_typed("is_auto")?,
             comment: row.get_typed("comment")?,
-            attachments: serde_json::from_str(&attachments_text)
-                .unwrap_or_else(|_| Json::Array(Vec::new())),
+            attachments: serde_json::from_str(&attachments_text).unwrap_or_else(|_| Json::Array(Vec::new())),
             transferred_from: row.get_typed("transferred_from")?,
             transferred_to: row.get_typed("transferred_to")?,
             due_at: row.get_typed("due_at")?,

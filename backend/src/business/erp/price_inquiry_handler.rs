@@ -55,18 +55,15 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::price_inquiry_dto::{
-    AWARD_MODE_MULTI, AWARD_MODE_SINGLE_SOURCE, AwardPair, AwardReq, CompareQuoteRes,
-    CompareRowRes, CreatePriceInquiryReq, CreatedPurchaseOrderRes, MAX_LINES,
-    PRICE_INQUIRY_PERMISSIONS, PriceInquiryDetailRes, PriceInquiryItemRes, PriceInquiryPageQuery,
-    PriceInquiryRowRes, PriceQuoteRes, QuoteReq, STATUS_AWARDED, STATUS_CONVERTED, STATUS_DRAFT,
-    STATUS_QUOTING, ToPoReq, ToPoRes, award_mode_label, check_award_reason, check_delivery_days,
-    check_price, check_qty, check_tax, clean_remark, group_by_supplier, parse_uuid_field,
-    price_incl_of, reason_is_long_enough, resolve_award, single_source_items, status_label,
-    today_cst, unmatched_awards,
+    AWARD_MODE_MULTI, AWARD_MODE_SINGLE_SOURCE, AwardPair, AwardReq, CompareQuoteRes, CompareRowRes,
+    CreatePriceInquiryReq, CreatedPurchaseOrderRes, MAX_LINES, PRICE_INQUIRY_PERMISSIONS, PriceInquiryDetailRes,
+    PriceInquiryItemRes, PriceInquiryPageQuery, PriceInquiryRowRes, PriceQuoteRes, QuoteReq, STATUS_AWARDED,
+    STATUS_CONVERTED, STATUS_DRAFT, STATUS_QUOTING, ToPoReq, ToPoRes, award_mode_label, check_award_reason,
+    check_delivery_days, check_price, check_qty, check_tax, clean_remark, group_by_supplier, parse_uuid_field,
+    price_incl_of, reason_is_long_enough, resolve_award, single_source_items, status_label, today_cst,
+    unmatched_awards,
 };
-use crate::business::erp::price_inquiry_model::{
-    self as model, ItemRow, NewInquiry, NewItem, NewQuote, QuoteRow,
-};
+use crate::business::erp::price_inquiry_model::{self as model, ItemRow, NewInquiry, NewItem, NewQuote, QuoteRow};
 use crate::business::erp::purchase_dto::{CreatePurchaseOrderReq, PurchaseOrderItemReq};
 use crate::business::erp::purchase_handler;
 use crate::business::erp::purchase_model::{self, PRICE_MODE_EXCL};
@@ -138,12 +135,7 @@ pub async fn create_inquiry(
     }
 
     // 采购员：缺省 = 当前登录人；姓名一律服务端快照（前端传的名字不可信）
-    let buyer_id = match req
-        .buyer_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let buyer_id = match req.buyer_id.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         Some(raw) => Some(parse_uuid_field(Some(raw), "buyer_id")?),
         None => operator,
     };
@@ -154,10 +146,7 @@ pub async fn create_inquiry(
 
     let mut items = Vec::with_capacity(req.items.len());
     for (index, line) in req.items.iter().enumerate() {
-        let material_id = parse_uuid_field(
-            line.material_id.as_deref(),
-            &format!("items[{index}].material_id"),
-        )?;
+        let material_id = parse_uuid_field(line.material_id.as_deref(), &format!("items[{index}].material_id"))?;
         let qty = check_qty(line.qty, &format!("items[{index}].qty"))?;
         let material = purchase_model::material_ref(material_id)
             .await
@@ -286,10 +275,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PriceInquiryDetailRes, A
 /// 转单前置判定（详情页按钮可用性 + to-po 的同一份口径）。
 fn to_po_gate(status: &str, items: &[ItemRow], quotes: &[QuoteRow]) -> (bool, Option<String>) {
     if status == STATUS_CONVERTED {
-        return (
-            false,
-            Some("该询价单已转采购订单，不能重复转单".to_string()),
-        );
+        return (false, Some("该询价单已转采购订单，不能重复转单".to_string()));
     }
     if status != STATUS_AWARDED {
         return (
@@ -315,11 +301,7 @@ fn to_po_gate(status: &str, items: &[ItemRow], quotes: &[QuoteRow]) -> (bool, Op
             false,
             Some(format!(
                 "以下明细没有中标报价，无法转单：第 {} 行",
-                missing
-                    .iter()
-                    .map(i32::to_string)
-                    .collect::<Vec<_>>()
-                    .join("、")
+                missing.iter().map(i32::to_string).collect::<Vec<_>>().join("、")
             )),
         );
     }
@@ -336,11 +318,7 @@ fn build_comparison(items: &[ItemRow], quotes: &[QuoteRow]) -> Vec<CompareRowRes
         .iter()
         .map(|item| {
             let rows = by_item.get(&item.id).cloned().unwrap_or_default();
-            let lowest = rows
-                .iter()
-                .map(|quote| quote.price_excl)
-                .min()
-                .unwrap_or(Decimal::ZERO);
+            let lowest = rows.iter().map(|quote| quote.price_excl).min().unwrap_or(Decimal::ZERO);
             CompareRowRes {
                 item_id: item.id.to_string(),
                 line_no: item.line_no,
@@ -439,8 +417,7 @@ pub async fn record_quote(
     let mut quotes = Vec::with_capacity(req.items.len());
     let mut seen: std::collections::BTreeSet<Uuid> = std::collections::BTreeSet::new();
     for (index, line) in req.items.iter().enumerate() {
-        let item_id =
-            parse_uuid_field(line.item_id.as_deref(), &format!("items[{index}].item_id"))?;
+        let item_id = parse_uuid_field(line.item_id.as_deref(), &format!("items[{index}].item_id"))?;
         if !item_ids.contains(&item_id) {
             return Err(bad_request(format!(
                 "items[{index}].item_id（{item_id}）不属于询价单 {}",
@@ -533,14 +510,11 @@ pub async fn award_inquiry(
     let quotes = model::list_quotes(inquiry_id)
         .await
         .map_err(|error| utils::db_error(error, "查询报价"))?;
-    let quoted: std::collections::BTreeSet<(Uuid, Uuid)> = quotes
-        .iter()
-        .map(|quote| (quote.item_id, quote.supplier_id))
-        .collect();
+    let quoted: std::collections::BTreeSet<(Uuid, Uuid)> =
+        quotes.iter().map(|quote| (quote.item_id, quote.supplier_id)).collect();
     let unmatched = unmatched_awards(&quoted, &pairs);
     if !unmatched.is_empty() {
-        let line_of: BTreeMap<Uuid, i32> =
-            items.iter().map(|item| (item.id, item.line_no)).collect();
+        let line_of: BTreeMap<Uuid, i32> = items.iter().map(|item| (item.id, item.line_no)).collect();
         let detail = unmatched
             .iter()
             .map(|pair| {
@@ -567,8 +541,7 @@ pub async fn award_inquiry(
         AWARD_MODE_MULTI
     } else {
         if !reason_is_long_enough(reason.as_deref()) {
-            let line_of: BTreeMap<Uuid, i32> =
-                items.iter().map(|item| (item.id, item.line_no)).collect();
+            let line_of: BTreeMap<Uuid, i32> = items.iter().map(|item| (item.id, item.line_no)).collect();
             let lines = gaps
                 .iter()
                 .map(|id| line_of.get(id).copied().unwrap_or(0).to_string())
@@ -586,18 +559,14 @@ pub async fn award_inquiry(
     };
 
     // 单一供应商定标才写 award_supplier_id（多供应商定标以明细 is_awarded 为准）
-    let distinct: std::collections::BTreeSet<Uuid> =
-        pairs.iter().map(|pair| pair.supplier_id).collect();
+    let distinct: std::collections::BTreeSet<Uuid> = pairs.iter().map(|pair| pair.supplier_id).collect();
     let primary_supplier = if distinct.len() == 1 {
         distinct.iter().next().copied()
     } else {
         None
     };
 
-    let rows: Vec<(Uuid, Uuid)> = pairs
-        .iter()
-        .map(|pair| (pair.item_id, pair.supplier_id))
-        .collect();
+    let rows: Vec<(Uuid, Uuid)> = pairs.iter().map(|pair| (pair.item_id, pair.supplier_id)).collect();
     let affected = model::award(
         inquiry_id,
         &rows,
@@ -718,12 +687,7 @@ pub async fn to_purchase_orders(
     let groups = group_by_supplier(&pairs);
 
     let order_date = req.order_date.unwrap_or_else(today_cst);
-    let warehouse_id = match req
-        .warehouse_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
+    let warehouse_id = match req.warehouse_id.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
         Some(raw) => parse_uuid_field(Some(raw), "warehouse_id")?,
         None => head.warehouse_id,
     };
@@ -764,18 +728,10 @@ pub async fn to_purchase_orders(
                 price_excl: Some(quote.price_excl),
                 price_incl: None,
                 tax_rate: Some(quote.tax_rate),
-                remark: Some(format!(
-                    "询价单 {} 第 {} 行（中标报价）",
-                    head.inquiry_no, item.line_no
-                )),
+                remark: Some(format!("询价单 {} 第 {} 行（中标报价）", head.inquiry_no, item.line_no)),
             });
         }
-        let remark = match req
-            .remark
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-        {
+        let remark = match req.remark.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
             Some(text) => format!("{text}（由询价单 {} 转单）", head.inquiry_no),
             None => format!("由询价单 {} 定标转单（供应商分组）", head.inquiry_no),
         };
@@ -850,9 +806,7 @@ pub async fn price_inquiry_to_po(
 ) -> ResResult<ToPoRes> {
     let id = parse_uuid_field(Some(&id), "id")?;
     let operator = utils::current_user_uuid(&claims);
-    Ok(Res::ok(
-        to_purchase_orders(id, &req, operator, Utc::now()).await?,
-    ))
+    Ok(Res::ok(to_purchase_orders(id, &req, operator, Utc::now()).await?))
 }
 
 // ==================== 出参转换 ====================
@@ -873,10 +827,7 @@ fn to_row_res(row: &model::InquiryRow) -> PriceInquiryRowRes {
         award_mode: row.award_mode.clone(),
         award_mode_label: award_mode_label(row.award_mode.as_deref()).to_string(),
         award_supplier_id: row.award_supplier_id.map(|id| id.to_string()),
-        award_supplier_name: row
-            .award_supplier_name
-            .clone()
-            .filter(|name| !name.is_empty()),
+        award_supplier_name: row.award_supplier_name.clone().filter(|name| !name.is_empty()),
         remark: row.remark.clone(),
         awarded_at: row.awarded_at.map(|value| value.to_rfc3339()),
         po_refs: row.po_refs.clone(),

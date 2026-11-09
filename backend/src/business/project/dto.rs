@@ -436,14 +436,8 @@ mod tests {
         assert!(normalize_code("项目一").is_err(), "中文不允许");
         assert!(normalize_code("a/b").is_err(), "斜杠不允许");
         assert!(normalize_code("").is_err());
-        assert!(
-            normalize_code(&"A".repeat(MAX_CODE_CHARS + 1)).is_err(),
-            "超长必须拒绝"
-        );
-        assert!(
-            normalize_code(&"A".repeat(MAX_CODE_CHARS)).is_ok(),
-            "边界长度应通过"
-        );
+        assert!(normalize_code(&"A".repeat(MAX_CODE_CHARS + 1)).is_err(), "超长必须拒绝");
+        assert!(normalize_code(&"A".repeat(MAX_CODE_CHARS)).is_ok(), "边界长度应通过");
     }
 
     /// 名称：折叠空白、拒绝空、拒绝超长。
@@ -460,10 +454,7 @@ mod tests {
     fn normalize_description_rules() {
         assert_eq!(normalize_description(None), Ok(None));
         assert_eq!(normalize_description(Some("   ")), Ok(None));
-        assert_eq!(
-            normalize_description(Some("  hi ")),
-            Ok(Some("hi".to_string()))
-        );
+        assert_eq!(normalize_description(Some("  hi ")), Ok(Some("hi".to_string())));
         assert!(normalize_description(Some(&"x".repeat(MAX_DESCRIPTION_CHARS + 1))).is_err());
     }
 
@@ -478,10 +469,7 @@ mod tests {
     /// 成员角色：缺省 MEMBER，非法值 None。
     #[test]
     fn normalize_member_role_rules() {
-        assert_eq!(
-            normalize_member_role(None).as_deref(),
-            Some(MEMBER_ROLE_MEMBER)
-        );
+        assert_eq!(normalize_member_role(None).as_deref(), Some(MEMBER_ROLE_MEMBER));
         assert_eq!(
             normalize_member_role(Some(" viewer ")).as_deref(),
             Some(MEMBER_ROLE_VIEWER)
@@ -514,8 +502,7 @@ mod tests {
     /// 双重 Option 的三种 JSON 形态：缺席 / null / 有值。
     #[test]
     fn update_req_distinguishes_absent_and_null() {
-        let absent: ProjectUpdateReq =
-            serde_json::from_str(r#"{"name":"改名"}"#).expect("JSON 合法");
+        let absent: ProjectUpdateReq = serde_json::from_str(r#"{"name":"改名"}"#).expect("JSON 合法");
         assert_eq!(absent.description, None, "缺席 = 不改");
         assert_eq!(absent.owner_id, None);
 
@@ -525,8 +512,7 @@ mod tests {
         assert_eq!(cleared.owner_id, Some(None));
 
         let valued: ProjectUpdateReq =
-            serde_json::from_str(r#"{"description":"有值","status":"ARCHIVED"}"#)
-                .expect("JSON 合法");
+            serde_json::from_str(r#"{"description":"有值","status":"ARCHIVED"}"#).expect("JSON 合法");
         assert_eq!(valued.description, Some(Some("有值".to_string())));
         assert_eq!(valued.status.as_deref(), Some("ARCHIVED"));
     }
@@ -537,13 +523,11 @@ mod tests {
         let absent: TaskProjectReq = serde_json::from_str("{}").expect("JSON 合法");
         assert!(absent.project_id.is_none(), "缺席必须与 null 区分开");
 
-        let removed: TaskProjectReq =
-            serde_json::from_str(r#"{"project_id":null}"#).expect("JSON 合法");
+        let removed: TaskProjectReq = serde_json::from_str(r#"{"project_id":null}"#).expect("JSON 合法");
         assert_eq!(removed.project_id, Some(None));
 
         let assigned: TaskProjectReq =
-            serde_json::from_str(r#"{"project_id":"01920000-0000-7000-8000-000000000001"}"#)
-                .expect("JSON 合法");
+            serde_json::from_str(r#"{"project_id":"01920000-0000-7000-8000-000000000001"}"#).expect("JSON 合法");
         assert!(matches!(assigned.project_id, Some(Some(_))));
     }
 }

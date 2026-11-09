@@ -160,21 +160,12 @@ pub const CUSTOMER_ORDER: &str = "ORDER BY code ASC";
 
 /// 按主键取客户（软删行不返回）。
 pub async fn customer_find_by_id(id: Uuid) -> DbResult<Option<CustomerRow>> {
-    find_by_id(
-        "biz_customer",
-        CUSTOMER_COLUMNS,
-        id,
-        true,
-        CustomerRow::from_row,
-    )
-    .await
+    find_by_id("biz_customer", CUSTOMER_COLUMNS, id, true, CustomerRow::from_row).await
 }
 
 /// 按业务编码取存活客户（编码唯一性校验与回读共用）。
 pub async fn customer_find_by_code(code: &str) -> DbResult<Option<CustomerRow>> {
-    let sql = format!(
-        "SELECT {CUSTOMER_COLUMNS} FROM biz_customer WHERE code = ? AND deleted_at IS NULL LIMIT 1"
-    );
+    let sql = format!("SELECT {CUSTOMER_COLUMNS} FROM biz_customer WHERE code = ? AND deleted_at IS NULL LIMIT 1");
     let rows = db().find_with_params(&sql, vec![Value::from(code)]).await?;
     rows.first().map(CustomerRow::from_row).transpose()
 }
@@ -184,8 +175,7 @@ pub async fn customer_find_by_code(code: &str) -> DbResult<Option<CustomerRow>> 
 /// 用 `COUNT(*)` 而不是「查一行再比」：部分唯一索引只约束存活行，
 /// 这里也只看 `deleted_at IS NULL`，口径与 `uk_biz_customer_code` 一致。
 pub async fn customer_code_taken(code: &str, exclude: Option<Uuid>) -> DbResult<bool> {
-    let mut sql =
-        String::from("SELECT COUNT(*) FROM biz_customer WHERE code = ? AND deleted_at IS NULL");
+    let mut sql = String::from("SELECT COUNT(*) FROM biz_customer WHERE code = ? AND deleted_at IS NULL");
     let mut params = vec![Value::from(code)];
     if let Some(id) = exclude {
         sql.push_str(" AND id <> ?::uuid");
@@ -262,11 +252,7 @@ pub struct CustomerWrite {
 ///
 /// 编码唯一性在 handler 里先查一次（给人话文案），这里是**最后一道**：
 /// 并发下仍可能撞 `uk_biz_customer_code`，由 handler 的 `write_error` 翻成 `409 + 66001`。
-pub async fn customer_insert(
-    id: Uuid,
-    write: &CustomerWrite,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn customer_insert(id: Uuid, write: &CustomerWrite, operator: Option<Uuid>) -> DbResult<u64> {
     customer_insert_ex(db(), id, write, operator).await
 }
 
@@ -307,11 +293,7 @@ pub async fn customer_insert_ex(
 }
 
 /// 整行覆盖编辑（软删行不命中 → 返回 0）。
-pub async fn customer_update(
-    id: Uuid,
-    write: &CustomerWrite,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn customer_update(id: Uuid, write: &CustomerWrite, operator: Option<Uuid>) -> DbResult<u64> {
     db().execute_with_params(
         "UPDATE biz_customer SET code = ?, name = ?, tax_no = ?, contact_name = ?, \
              contact_phone = ?, address = ?, credit_days = ?, credit_limit = ?::text::numeric, \
@@ -390,9 +372,7 @@ mod tests {
         assert!(credit_limit_allowed(
             Decimal::from_str("12345678901234.5678").expect("定点可解析")
         ));
-        assert!(!credit_limit_allowed(
-            Decimal::from_str("-0.0001").expect("定点可解析")
-        ));
+        assert!(!credit_limit_allowed(Decimal::from_str("-0.0001").expect("定点可解析")));
         assert!(!credit_limit_allowed(Decimal::from(-1)));
     }
 
@@ -427,10 +407,7 @@ mod tests {
             "update_by",
             "deleted_at",
         ] {
-            assert!(
-                CUSTOMER_COLUMNS.contains(column),
-                "CUSTOMER_COLUMNS 缺列 `{column}`"
-            );
+            assert!(CUSTOMER_COLUMNS.contains(column), "CUSTOMER_COLUMNS 缺列 `{column}`");
         }
     }
 }

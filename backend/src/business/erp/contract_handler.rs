@@ -66,8 +66,8 @@ use crate::business::changelog::{self, Action as ChangeAction, ChangeTarget, Dif
 use crate::business::erp::approval_gate;
 use crate::business::erp::contract_bridge;
 use crate::business::erp::contract_dto::{
-    ContractDetailRes, ContractFilter, ContractRes, ContractStatusReq, CreateContractReq,
-    UpdateContractReq, ensure_party_b_type, normalize_page, parse_optional_uuid, parse_uuid_text,
+    ContractDetailRes, ContractFilter, ContractRes, ContractStatusReq, CreateContractReq, UpdateContractReq,
+    ensure_party_b_type, normalize_page, parse_optional_uuid, parse_uuid_text,
 };
 use crate::business::erp::contract_linkage;
 use crate::business::erp::contract_model::{self, ContractMut, STATUS_DRAFT};
@@ -93,13 +93,7 @@ pub const PERM_STATUS: &str = "business:erp:contract:status";
 /// 与迁移**逐字对应**：`V0241__erp_contract_permission_prefix_unify.up.sql` 改名后的 5 条
 /// `sys_menu` 行就是这个数组。任一侧改动而另一侧没跟，`contract_permissions_match_menu`
 /// 用例会红。
-pub const PERMISSIONS: [&str; 5] = [
-    PERM_LIST,
-    PERM_CREATE,
-    PERM_UPDATE,
-    PERM_DELETE,
-    PERM_STATUS,
-];
+pub const PERMISSIONS: [&str; 5] = [PERM_LIST, PERM_CREATE, PERM_UPDATE, PERM_DELETE, PERM_STATUS];
 
 /// 合同域历史权限码（P2-4 前缀统一前的 `erp:contract:*`）。
 ///
@@ -185,10 +179,7 @@ fn in_use(contract_no: &str, order_nos: &[String]) -> ApiError {
 /// 引用守卫的**纯判定**（无 DB，单测直接钉）：有引用 → `66018`，无引用 → `Ok(())`。
 ///
 /// `None` = `biz_purchase_order` 还没有 `contract_id` 列（A3 未落地）→ 跳过检查。
-fn reference_guard(
-    contract_no: &str,
-    referencing: Option<&[String]>,
-) -> std::result::Result<(), ApiError> {
+fn reference_guard(contract_no: &str, referencing: Option<&[String]>) -> std::result::Result<(), ApiError> {
     match referencing {
         Some([]) | None => Ok(()),
         Some(order_nos) => Err(in_use(contract_no, order_nos)),
@@ -233,9 +224,7 @@ fn write_error(error: DbError, ctx: &str) -> ApiError {
             ApiError::new(
                 400,
                 error_code::PARAM_INVALID,
-                format!(
-                    "{ctx} 被数据库约束拒绝：字段组合不合法（amount>0 / 日期顺序 / 状态白名单）"
-                ),
+                format!("{ctx} 被数据库约束拒绝：字段组合不合法（amount>0 / 日期顺序 / 状态白名单）"),
             )
         }
         other => utils::db_error(other, ctx),
@@ -284,11 +273,7 @@ async fn fill_approval_no(rows: &mut [ContractRes]) {
     if ids.is_empty() {
         return;
     }
-    let joined = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     let found = db()
         .find_with_params(
             "SELECT id, instance_no FROM biz_flow_instance \
@@ -336,9 +321,7 @@ async fn fill_approval_no(rows: &mut [ContractRes]) {
     permission = "business:erp:contract:list"
 )]
 #[nik::get("/business/erp/contract/page")]
-pub async fn contract_page(
-    Query(filter): Query<ContractFilter>,
-) -> ResResult<PageData<Vec<ContractRes>>> {
+pub async fn contract_page(Query(filter): Query<ContractFilter>) -> ResResult<PageData<Vec<ContractRes>>> {
     let query = filter.parse()?;
     let (page, page_size) = normalize_page(query.page, query.page_size);
     let (rows, total) = contract_model::contract_page(&query)
@@ -346,12 +329,7 @@ pub async fn contract_page(
         .map_err(|error| utils::db_error(error, "分页查询合同"))?;
     let mut list: Vec<ContractRes> = rows.iter().map(ContractRes::from).collect();
     fill_approval_no(&mut list).await;
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 // ==================== ② 详情 ====================
@@ -545,12 +523,7 @@ pub async fn contract_update(
 
     // 乙方：换了就重新解析（快照跟着更新）；没换就保留原快照，
     // 也**不重新校验**其存在性（V-11：停用只拦新签，不拦改其它字段）
-    let (party_b_id, party_b_name) = match req
-        .party_b_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let (party_b_id, party_b_name) = match req.party_b_id.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         None => (current.party_b_id, current.party_b_name.clone()),
         Some(raw) => {
             let new_id = parse_uuid_text(raw, "party_b_id")?;
@@ -665,10 +638,7 @@ fn validate_mutation(merged: &ContractMut) -> std::result::Result<(), ApiError> 
         return Err(ApiError::new(
             400,
             error_code::PARAM_INVALID,
-            format!(
-                "amount 必须大于 0（当前 {}）：ck_biz_contract_amount",
-                merged.amount
-            ),
+            format!("amount 必须大于 0（当前 {}）：ck_biz_contract_amount", merged.amount),
         ));
     }
     if let (Some(start), Some(end)) = (merged.start_date, merged.end_date)
@@ -759,9 +729,8 @@ pub async fn contract_change_status(
     // ③ 边判定：注册表是唯一真相（不是 handler 里的 match）
     let entity = state_machine::Entity::Contract;
     if !entity.can_transition(&row.status, &target) {
-        let message = reveal_approval_requirement(&row, &target).unwrap_or_else(|| {
-            state_machine::rejection_message(state_machine::ENTITY_CONTRACT, &row.status, &target)
-        });
+        let message = reveal_approval_requirement(&row, &target)
+            .unwrap_or_else(|| state_machine::rejection_message(state_machine::ENTITY_CONTRACT, &row.status, &target));
         let _ = tx.rollback().await;
         return Err(illegal_transition(message));
     }
@@ -826,16 +795,9 @@ pub async fn contract_change_status(
     }
 
     // ⑤ 审批中 → 草稿（手动撤回）：先终止在跑的审批，别留孤儿实例
-    if row.status == contract_model::STATUS_PENDING_APPROVAL
-        && target == contract_model::STATUS_DRAFT
-    {
-        match contract_bridge::cancel_approval_of(
-            &tx,
-            id,
-            &row.contract_no,
-            "合同撤回审批（操作人主动把单据改回草稿）",
-        )
-        .await
+    if row.status == contract_model::STATUS_PENDING_APPROVAL && target == contract_model::STATUS_DRAFT {
+        match contract_bridge::cancel_approval_of(&tx, id, &row.contract_no, "合同撤回审批（操作人主动把单据改回草稿）")
+            .await
         {
             Ok(_) => {}
             Err(error) => {
@@ -895,15 +857,7 @@ pub async fn contract_change_status(
     //      否则合同挂在「草稿 + 旧实例」上，下次提交会撞 `uk_biz_flow_instance_biz_active`；
     //    * 其余边（`SIGNED→ACTIVE` 等）只写状态，`approval_instance_id` 保留作审计。
     let write = if row.status == contract_model::STATUS_PENDING_APPROVAL {
-        contract_model::contract_apply_approval_transition(
-            &tx,
-            id,
-            &row.status,
-            &target,
-            operator,
-            None,
-        )
-        .await
+        contract_model::contract_apply_approval_transition(&tx, id, &row.status, &target, operator, None).await
     } else {
         contract_model::contract_write_status(&tx, id, &row.status, &target, operator).await
     };
@@ -934,9 +888,7 @@ pub async fn contract_change_status(
             }
         };
         let merged = contract_model::termination_remark(existing.as_deref(), reason_text);
-        if let Err(error) =
-            contract_model::contract_write_termination_remark(&tx, id, &merged).await
-        {
+        if let Err(error) = contract_model::contract_write_termination_remark(&tx, id, &merged).await {
             let _ = tx.rollback().await;
             return Err(write_error(error, "回写合同终止原因"));
         }
@@ -944,14 +896,13 @@ pub async fn contract_change_status(
     // ⑥ 联动（LNK-07）：生效 / 完成 / 终止 / 撤回（`PENDING_APPROVAL → DRAFT`）四条边
     //    都在这里收口 —— 只有**状态机过闸 + CAS 写成功**之后才触发，重复点第二次时
     //    上面的边判定已经把请求挡掉，联动不会跑第二遍。
-    let linkage_change =
-        match contract_linkage::run_in_tx(&tx, id, &row.contract_no, &target, operator).await {
-            Ok(change) => change,
-            Err(error) => {
-                let _ = tx.rollback().await;
-                return Err(error);
-            }
-        };
+    let linkage_change = match contract_linkage::run_in_tx(&tx, id, &row.contract_no, &target, operator).await {
+        Ok(change) => change,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
     tx.commit()
         .await
         .map_err(|error| utils::db_error(error, "提交合同状态流转事务"))?;
@@ -968,10 +919,7 @@ pub async fn contract_change_status(
 ///
 /// 为什么单独一个函数：文案要带合同号与当前状态，还要点名「提交到哪个目标态」，
 /// 塞进 `match` 里会把 handler 撑成第二张边表（P10 铁律③的坑）。
-fn reveal_approval_requirement(
-    row: &contract_model::ContractStateRow,
-    target: &str,
-) -> Option<String> {
+fn reveal_approval_requirement(row: &contract_model::ContractStateRow, target: &str) -> Option<String> {
     if row.status != contract_model::STATUS_DRAFT {
         return None;
     }
@@ -1382,10 +1330,7 @@ mod tests {
                 .strip_prefix(PERMISSION_PREFIX)
                 .and_then(|rest| rest.strip_prefix(':'))
                 .unwrap_or_default();
-            assert!(
-                !action.is_empty(),
-                "{code} 缺动作段 / 前缀不是 {PERMISSION_PREFIX}"
-            );
+            assert!(!action.is_empty(), "{code} 缺动作段 / 前缀不是 {PERMISSION_PREFIX}");
             assert!(!action.contains(':'), "{code} 的动作段不得再含冒号");
             assert!(
                 action.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
@@ -1460,28 +1405,19 @@ mod tests {
         assert_eq!(contract_model::LEGAL_EDGES.len(), 7);
         let entity = state_machine::Entity::Contract;
         for (from, to) in contract_model::LEGAL_EDGES {
-            assert!(
-                entity.can_transition(from, to),
-                "{from}→{to} 在注册表里不合法"
-            );
+            assert!(entity.can_transition(from, to), "{from}→{to} 在注册表里不合法");
         }
         // 卡面写的 DRAFT→ACTIVE（跳过签订）必须是非法边
         assert!(!entity.can_transition("DRAFT", "ACTIVE"));
-        assert!(
-            !entity.can_transition("DRAFT", "CANCELLED"),
-            "没有 CANCELLED 态"
-        );
+        assert!(!entity.can_transition("DRAFT", "CANCELLED"), "没有 CANCELLED 态");
     }
 
     /// ④ 新建缺必填 → 400（卡面验收第 2 条；validate 在连库之前就拦下）。
     #[tokio::test]
     async fn create_without_required_fields_returns_400() {
-        let err = contract_create(
-            Extension(AuthClaims(claims())),
-            Json(CreateContractReq::default()),
-        )
-        .await
-        .expect_err("空请求必须拒");
+        let err = contract_create(Extension(AuthClaims(claims())), Json(CreateContractReq::default()))
+            .await
+            .expect_err("空请求必须拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::PARAM_INVALID);
     }
@@ -1648,10 +1584,7 @@ mod tests {
             .await
             .expect("装载权限失败");
         for code in PERMISSIONS {
-            assert!(
-                perms.contains(&code.to_string()),
-                "缺规范码 {code}：{perms:?}"
-            );
+            assert!(perms.contains(&code.to_string()), "缺规范码 {code}：{perms:?}");
         }
         for code in LEGACY_PERMISSIONS {
             assert!(
@@ -1663,22 +1596,15 @@ mod tests {
         assert!(
             !perms
                 .iter()
-                .any(|c| c.starts_with("business:erp:contract:")
-                    && !PERMISSIONS.contains(&c.as_str())),
+                .any(|c| c.starts_with("business:erp:contract:") && !PERMISSIONS.contains(&c.as_str())),
             "不得凭前缀凭空扩码：{perms:?}"
         );
         println!("[P2-4] 授权 5 个新码 → load_permissions 返回 10 个（新 5 + 旧 5）✓");
 
         // 清场（授权 → 用户角色 → 用户 → 角色；sys_role_menu 先删以免外键拦住）
         for (sql, param) in [
-            (
-                "DELETE FROM sys_role_menu WHERE role_id = ?::uuid",
-                &role_id,
-            ),
-            (
-                "DELETE FROM sys_user_role WHERE user_id = ?::uuid",
-                &user_id,
-            ),
+            ("DELETE FROM sys_role_menu WHERE role_id = ?::uuid", &role_id),
+            ("DELETE FROM sys_user_role WHERE user_id = ?::uuid", &user_id),
             ("DELETE FROM sys_user WHERE id = ?::uuid", &user_id),
             ("DELETE FROM sys_role WHERE id = ?::uuid", &role_id),
         ] {
@@ -1742,18 +1668,12 @@ mod tests {
         )
         .await
         .unwrap_or_else(|err| panic!("清理合同状态日志失败：{err}"));
-        db().execute_with_params(
-            "DELETE FROM biz_contract WHERE contract_name LIKE 'A2C-%'",
-            vec![],
-        )
-        .await
-        .unwrap_or_else(|err| panic!("清理合同失败：{err}"));
-        db().execute_with_params(
-            "DELETE FROM biz_supplier WHERE supplier_code LIKE 'A2CM-%'",
-            vec![],
-        )
-        .await
-        .unwrap_or_else(|err| panic!("清理供应商失败：{err}"));
+        db().execute_with_params("DELETE FROM biz_contract WHERE contract_name LIKE 'A2C-%'", vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理合同失败：{err}"));
+        db().execute_with_params("DELETE FROM biz_supplier WHERE supplier_code LIKE 'A2CM-%'", vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理供应商失败：{err}"));
         // AUD-02：人员姓名用例造的账号（见 `make_user`），用例失败也不留痕。
         db().execute_with_params("DELETE FROM sys_user WHERE username LIKE 'A2CM-U%'", vec![])
             .await
@@ -1789,11 +1709,7 @@ mod tests {
         db().execute_with_params(
             "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status) \
              VALUES (?::uuid, ?, ?, 1)",
-            vec![
-                Value::from(&id),
-                Value::Text(code),
-                Value::Text(name.clone()),
-            ],
+            vec![Value::from(&id), Value::Text(code), Value::Text(name.clone())],
         )
         .await
         .unwrap_or_else(|err| panic!("造供应商失败：{err}"));
@@ -1819,17 +1735,14 @@ mod tests {
     async fn create_ok(tag: &str) -> (Uuid, String) {
         let (supplier_id, supplier_name) = make_supplier(tag).await;
         let detail = data(
-            contract_create(
-                Extension(AuthClaims(claims())),
-                Json(create_req(tag, supplier_id)),
-            )
-            .await
-            .unwrap_or_else(|err| {
-                panic!(
-                    "建合同失败：{} {}（内部细节：{:?}）",
-                    err.code, err.msg, err.internal_detail
-                )
-            }),
+            contract_create(Extension(AuthClaims(claims())), Json(create_req(tag, supplier_id)))
+                .await
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "建合同失败：{} {}（内部细节：{:?}）",
+                        err.code, err.msg, err.internal_detail
+                    )
+                }),
         );
         let id = Uuid::parse_str(&detail.base.id).expect("id 是 uuid");
         (id, supplier_name)
@@ -1876,16 +1789,8 @@ mod tests {
         );
         // ② 三个字段都给人名，不是 UUID
         assert_eq!(detail.owner_name.as_deref(), Some("张负责"), "负责人姓名");
-        assert_eq!(
-            detail.create_by_name.as_deref(),
-            Some("王制单"),
-            "制单人姓名"
-        );
-        assert_eq!(
-            detail.update_by_name.as_deref(),
-            Some("李修改"),
-            "修改人姓名"
-        );
+        assert_eq!(detail.create_by_name.as_deref(), Some("王制单"), "制单人姓名");
+        assert_eq!(detail.update_by_name.as_deref(), Some("李修改"), "修改人姓名");
 
         // ④ 实时 join：改名后详情立刻是新名
         db().execute_with_params(
@@ -1912,12 +1817,9 @@ mod tests {
 
         // 清场：合同行由 `cleanup()` 统一删，账号这里删（用户无角色关联）
         for id in [&owner, &creator, &updater] {
-            db().execute_with_params(
-                "DELETE FROM sys_user WHERE id = ?::uuid",
-                vec![Value::from(id)],
-            )
-            .await
-            .unwrap_or_else(|err| panic!("清理账号失败：{err}"));
+            db().execute_with_params("DELETE FROM sys_user WHERE id = ?::uuid", vec![Value::from(id)])
+                .await
+                .unwrap_or_else(|err| panic!("清理账号失败：{err}"));
         }
     }
 
@@ -1927,12 +1829,9 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let (supplier_id, supplier_name) = make_supplier("OK").await;
         let detail = data(
-            contract_create(
-                Extension(AuthClaims(claims())),
-                Json(create_req("NEW", supplier_id)),
-            )
-            .await
-            .expect("新建合同"),
+            contract_create(Extension(AuthClaims(claims())), Json(create_req("NEW", supplier_id)))
+                .await
+                .expect("新建合同"),
         );
 
         assert!(!detail.base.id.is_empty(), "必须给 id");
@@ -1966,12 +1865,9 @@ mod tests {
     async fn create_with_unknown_party_b_returns_66021() {
         let Some(_guard) = setup().await else { return };
         let ghost = Uuid::now_v7();
-        let err = contract_create(
-            Extension(AuthClaims(claims())),
-            Json(create_req("GHOST", ghost)),
-        )
-        .await
-        .expect_err("不存在的乙方必须拒");
+        let err = contract_create(Extension(AuthClaims(claims())), Json(create_req("GHOST", ghost)))
+            .await
+            .expect_err("不存在的乙方必须拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_CONTRACT_PARTY_INVALID);
     }
@@ -2004,10 +1900,7 @@ mod tests {
         assert_eq!(detail.base.name, format!("{CONTRACT_PREFIX}UPD-改后"));
         assert_eq!(detail.base.amount, Decimal::new(777_700, 2));
         assert_eq!(detail.base.party_b_id, other_id.to_string());
-        assert_eq!(
-            detail.base.party_b_name, other_name,
-            "换乙方后快照必须是新主档的名字"
-        );
+        assert_eq!(detail.base.party_b_name, other_name, "换乙方后快照必须是新主档的名字");
         assert_eq!(detail.remark.as_deref(), Some("改后备注"));
         assert_eq!(detail.base.status, "DRAFT", "改单不动状态");
     }
@@ -2066,8 +1959,7 @@ mod tests {
         );
         assert_eq!(row.get_typed::<String>("action").expect("action"), "UPDATE");
         assert_eq!(
-            row.get_typed::<String>("action_label")
-                .expect("action_label"),
+            row.get_typed::<String>("action_label").expect("action_label"),
             "修改合同"
         );
         assert_eq!(
@@ -2090,17 +1982,13 @@ mod tests {
             "客户端 IP 取自 ConnectInfo（回环/私网会被归零，夹具用 TEST-NET-3）"
         );
         let diff: serde_json::Value =
-            serde_json::from_str(&row.get_typed::<String>("diff").expect("diff"))
-                .expect("diff json");
+            serde_json::from_str(&row.get_typed::<String>("diff").expect("diff")).expect("diff json");
         assert_eq!(
             diff["fields"]["amount"]["b"],
             serde_json::json!("5000.0000"),
             "改前值必须留下来（CTR-01 当时丢的就是它）"
         );
-        assert_eq!(
-            diff["fields"]["amount"]["a"],
-            serde_json::json!("5500.0000")
-        );
+        assert_eq!(diff["fields"]["amount"]["a"], serde_json::json!("5500.0000"));
 
         // 同值再改一次：不许写空日志
         contract_update(
@@ -2181,11 +2069,7 @@ mod tests {
         insert_po(id, &format!("PO-CTR02-{tag}-2"), "100.00", "RECEIVED").await;
         insert_po(id, &format!("PO-CTR02-{tag}-3"), "999.00", "CANCELLED").await;
 
-        let detail = data(
-            contract_detail(Path(id.to_string()))
-                .await
-                .expect("合同详情"),
-        );
+        let detail = data(contract_detail(Path(id.to_string())).await.expect("合同详情"));
         assert_eq!(
             detail.committed_amount,
             Decimal::new(3_400_000, 2),
@@ -2299,17 +2183,10 @@ mod tests {
         .expect_err("跳签必须拒");
         assert_eq!(err.status, 409);
         assert_eq!(err.code, error_code::ERP_CONTRACT_STATUS_ILLEGAL);
-        assert!(
-            err.msg.contains("SIGNED"),
-            "文案要点名合法去向：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("SIGNED"), "文案要点名合法去向：{}", err.msg);
 
         // 数据库里状态没动
-        let row = contract_model::contract_find(id)
-            .await
-            .expect("查")
-            .expect("行在");
+        let row = contract_model::contract_find(id).await.expect("查").expect("行在");
         assert_eq!(row.status, "DRAFT", "非法边不得改状态");
     }
 
@@ -2363,14 +2240,9 @@ mod tests {
                 .await
                 .expect("软删"),
         );
-        assert_eq!(
-            deleted.get("deleted").and_then(|value| value.as_bool()),
-            Some(true)
-        );
+        assert_eq!(deleted.get("deleted").and_then(|value| value.as_bool()), Some(true));
 
-        let err = contract_detail(Path(id.to_string()))
-            .await
-            .expect_err("软删后必须 404");
+        let err = contract_detail(Path(id.to_string())).await.expect_err("软删后必须 404");
         assert_eq!(err.status, 404);
         assert_eq!(err.code, error_code::ERP_CONTRACT_NOT_USABLE);
 
@@ -2424,11 +2296,7 @@ mod tests {
             ..Default::default()
         };
         let page = data(contract_page(Query(oversized)).await.expect("超限分页"));
-        assert_eq!(
-            (page.page, page.page_size),
-            (1, 100),
-            "page/page_size 都要归一化"
-        );
+        assert_eq!((page.page, page.page_size), (1, 100), "page/page_size 都要归一化");
     }
 
     /// 验收第 11 条（防御式）：A3 之前 `biz_purchase_order.contract_id` 不存在 →

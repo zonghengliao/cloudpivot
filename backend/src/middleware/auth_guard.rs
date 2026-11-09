@@ -123,10 +123,7 @@ fn unauthorized(msg: &str) -> Response {
         .unwrap_or_else(|_| r#"{"code":401,"msg":"请重新登录"}"#.to_string());
     (
         StatusCode::UNAUTHORIZED,
-        [(
-            axum::http::header::CONTENT_TYPE,
-            "application/json; charset=utf-8",
-        )],
+        [(axum::http::header::CONTENT_TYPE, "application/json; charset=utf-8")],
         Body::from(body),
     )
         .into_response()

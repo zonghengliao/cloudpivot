@@ -83,10 +83,7 @@ async fn ensure_db() -> bool {
 async fn cleanup() {
     for user in [USER_A, USER_B] {
         let _ = db()
-            .execute_with_params(
-                "DELETE FROM sys_user WHERE id = ?::uuid",
-                vec![Value::from(uuid(user))],
-            )
+            .execute_with_params("DELETE FROM sys_user WHERE id = ?::uuid", vec![Value::from(uuid(user))])
             .await;
     }
 }
@@ -177,23 +174,14 @@ async fn preference_db_behaviour() {
         Some("\"jade\""),
         "没传的键必须原样保留"
     );
-    assert_eq!(
-        raw_value(USER_A, "ui.page_size").await.as_deref(),
-        Some("50")
-    );
+    assert_eq!(raw_value(USER_A, "ui.page_size").await.as_deref(), Some("50"));
     assert_eq!(row_count(USER_A).await, 2, "此时 A 应恰有 2 行");
     println!("② 局部更新：palette 保持 jade，page_size=50 ✓");
 
     // ---------- ③ 越权隔离 ----------
-    assert_eq!(
-        raw_value(USER_B, "ui.palette").await,
-        None,
-        "B 不得看到 A 的偏好"
-    );
+    assert_eq!(raw_value(USER_B, "ui.palette").await, None, "B 不得看到 A 的偏好");
     let defs = model::load_defs(db()).await.expect("读取偏好字典");
-    let stored_b = model::load_values(db(), &uuid(USER_B))
-        .await
-        .expect("读取 B 的偏好");
+    let stored_b = model::load_values(db(), &uuid(USER_B)).await.expect("读取 B 的偏好");
     assert!(stored_b.is_empty(), "B 的已设置集合必须为空");
     let merged_b = model::assemble(&defs, &stored_b).expect("合并默认值");
     assert_eq!(merged_b.palette, "mist-blue", "B 应拿到字典默认配色");
@@ -210,10 +198,7 @@ async fn preference_db_behaviour() {
         Some("\"rouge\""),
         "旧形态三字段必须能落库"
     );
-    assert_eq!(
-        raw_value(USER_B, "ui.theme_mode").await.as_deref(),
-        Some("\"dark\"")
-    );
+    assert_eq!(raw_value(USER_B, "ui.theme_mode").await.as_deref(), Some("\"dark\""));
     println!("③ 越权隔离：A=jade / B=rouge，互不可见 ✓");
 
     // ---------- ④ 真库字典自检（8 项 + 22 套色板） ----------
@@ -222,23 +207,15 @@ async fn preference_db_behaviour() {
         .iter()
         .find(|def| def.pref_key == "ui.palette")
         .expect("字典里必须有 ui.palette");
-    let rule = palette_def
-        .validator
-        .as_deref()
-        .expect("ui.palette 必须有 oneof 校验");
-    let allowed = rule
-        .strip_prefix("oneof:")
-        .expect("ui.palette 校验应为 oneof");
+    let rule = palette_def.validator.as_deref().expect("ui.palette 必须有 oneof 校验");
+    let allowed = rule.strip_prefix("oneof:").expect("ui.palette 校验应为 oneof");
     assert_eq!(
         allowed.split(',').count(),
         22,
         "ui.palette 的 oneof 必须正好 22 套色板（与 style/palettes.ts 一致）"
     );
     for id in ["mist-blue", "deep-blue-orange", "clear-mist"] {
-        assert!(
-            allowed.split(',').any(|item| item == id),
-            "oneof 缺色板 {id}"
-        );
+        assert!(allowed.split(',').any(|item| item == id), "oneof 缺色板 {id}");
     }
     println!("④ 真库字典：8 项预置 + ui.palette oneof 22 套色板 ✓");
 

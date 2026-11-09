@@ -80,13 +80,9 @@ impl CleanupOptions {
     pub fn from_runtime() -> Self {
         Self {
             stale_seconds: env_i64("CLOUDPIVOT_IMPEXP_STALE_SECONDS", DEFAULT_STALE_SECONDS).max(1),
-            batch: env_i64("CLOUDPIVOT_IMPEXP_CLEANUP_BATCH", DEFAULT_CLEANUP_BATCH)
-                .clamp(1, 10_000),
-            import_retention_days: env_i64(
-                "CLOUDPIVOT_IMPEXP_IMPORT_RETENTION_DAYS",
-                DEFAULT_IMPORT_RETENTION_DAYS,
-            )
-            .max(1),
+            batch: env_i64("CLOUDPIVOT_IMPEXP_CLEANUP_BATCH", DEFAULT_CLEANUP_BATCH).clamp(1, 10_000),
+            import_retention_days: env_i64("CLOUDPIVOT_IMPEXP_IMPORT_RETENTION_DAYS", DEFAULT_IMPORT_RETENTION_DAYS)
+                .max(1),
         }
     }
 }
@@ -174,24 +170,15 @@ pub struct ExpiredArtifact {
 ///
 /// - `scheduler`：全局调度器。
 pub fn register_builtin(scheduler: &Scheduler) {
-    scheduler.register_cron(
-        TASK_NAME,
-        TASK_CRON,
-        "系统任务：导入导出任务回收",
-        || {
-            tokio::spawn(async {
-                match run_once().await {
-                    Ok(report) => tracing::info!(summary = %report.summary(), "导入导出清理完成"),
-                    Err(error) => tracing::error!(error = %error, "导入导出清理失败"),
-                }
-            })
-        },
-    );
-    tracing::info!(
-        task = TASK_NAME,
-        cron = TASK_CRON,
-        "已注册内置定时任务（导入导出清理）"
-    );
+    scheduler.register_cron(TASK_NAME, TASK_CRON, "系统任务：导入导出任务回收", || {
+        tokio::spawn(async {
+            match run_once().await {
+                Ok(report) => tracing::info!(summary = %report.summary(), "导入导出清理完成"),
+                Err(error) => tracing::error!(error = %error, "导入导出清理失败"),
+            }
+        })
+    });
+    tracing::info!(task = TASK_NAME, cron = TASK_CRON, "已注册内置定时任务（导入导出清理）");
 }
 
 /// 执行一次清理（cron 路径）。
@@ -292,10 +279,7 @@ pub async fn run_once_with(options: &CleanupOptions) -> std::result::Result<Clea
 /// SCOPE-EXEMPT: 僵尸任务回收是**后台定时任务**（无请求者身份），按 `heartbeat_at`
 /// 扫描 `RUNNING` 的导出任务做全局回收；与用户数据权限无关（注入范围会让别人的
 /// 僵尸任务永远回收不掉，反而制造永久 `RUNNING` 状态）。
-pub async fn reclaim_stale(
-    stale_seconds: i64,
-    batch: i64,
-) -> std::result::Result<Vec<ReclaimedTask>, DbError> {
+pub async fn reclaim_stale(stale_seconds: i64, batch: i64) -> std::result::Result<Vec<ReclaimedTask>, DbError> {
     // 阈值时刻在应用侧算好再绑定（`? * INTERVAL` 会被 PG 推断成 double precision，
     // 与驱动的整数编码对不上；A4 实测踩过）
     let cutoff = chrono::Utc::now() - chrono::Duration::seconds(stale_seconds.max(1));
@@ -423,10 +407,7 @@ pub async fn expire_artifacts(batch: i64) -> std::result::Result<Vec<ExpiredArti
 ///
 /// SCOPE-EXEMPT: 上传文件回收同为**后台定时任务**（无请求者身份），按保留期全局扫描
 /// 终态任务；注入范围会让其他部门的历史文件永远堆在磁盘上。
-pub async fn purge_import_files(
-    retention_days: i64,
-    batch: i64,
-) -> std::result::Result<(usize, usize), DbError> {
+pub async fn purge_import_files(retention_days: i64, batch: i64) -> std::result::Result<(usize, usize), DbError> {
     let cutoff = chrono::Utc::now() - chrono::Duration::days(retention_days.max(1));
     let rows = db()
         .find_with_params(

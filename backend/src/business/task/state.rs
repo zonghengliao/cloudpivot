@@ -271,9 +271,7 @@ impl ProgressEffect {
         match self {
             ProgressEffect::Keep => None,
             ProgressEffect::AtLeast(floor) => Some(current.max(floor)),
-            ProgressEffect::Reset(value) | ProgressEffect::Force(value) => {
-                Some(clamp_progress(value))
-            }
+            ProgressEffect::Reset(value) | ProgressEffect::Force(value) => Some(clamp_progress(value)),
         }
     }
 }
@@ -545,9 +543,7 @@ pub fn authorize(
     if transition.requires_reject_reason {
         let chars = reason.map(count_chars).unwrap_or(0);
         if chars < REJECT_REASON_MIN_CHARS {
-            return Err(TransitionError::RejectReasonRequired {
-                actual_chars: chars,
-            });
+            return Err(TransitionError::RejectReasonRequired { actual_chars: chars });
         }
     }
     Ok(transition)
@@ -609,11 +605,7 @@ pub fn flow_gate_blocked(
     if approval_instance_id.is_none() {
         return false;
     }
-    instance_status.is_some_and(|status| {
-        status
-            .trim()
-            .eq_ignore_ascii_case(APPROVAL_INSTANCE_PENDING)
-    })
+    instance_status.is_some_and(|status| status.trim().eq_ignore_ascii_case(APPROVAL_INSTANCE_PENDING))
 }
 
 /// 门闸 + 状态机的联合判定结果。
@@ -774,20 +766,14 @@ pub fn aggregate_progress(children: &[ChildSnapshot]) -> Option<i16> {
         return None;
     }
     // D5：子任务全 DONE → 父任务进度 100（状态不动）
-    if children
-        .iter()
-        .all(|child| child.status == TaskStatus::Done)
-    {
+    if children.iter().all(|child| child.status == TaskStatus::Done) {
         return Some(100);
     }
     let weighted = children
         .iter()
         .all(|child| child.estimate_hours.is_some_and(|hours| hours > 0.0));
     let value = if weighted {
-        let total_hours: f64 = children
-            .iter()
-            .filter_map(|child| child.estimate_hours)
-            .sum();
+        let total_hours: f64 = children.iter().filter_map(|child| child.estimate_hours).sum();
         if total_hours > 0.0 {
             children
                 .iter()
@@ -814,10 +800,7 @@ fn equal_weight_average(children: &[ChildSnapshot]) -> f64 {
 /// 用于两条闸：① 进入 `DONE` 前（设计 §三「父任务 DONE 前置检查」）；
 /// ② 父任务「待汇总」通知的触发条件（降为 0 且全部 DONE）。
 pub fn open_children(children: &[ChildSnapshot]) -> Vec<&ChildSnapshot> {
-    children
-        .iter()
-        .filter(|child| !child.status.is_terminal())
-        .collect()
+    children.iter().filter(|child| !child.status.is_terminal()).collect()
 }
 
 /// 父任务进度是否被「子任务汇总」锁定（有子任务就不许手改）。
@@ -829,10 +812,7 @@ pub fn progress_locked(children: &[ChildSnapshot]) -> bool {
 
 /// 父任务是否「可结项」（全部子任务 DONE 且进度 100）—— 只用于通知文案，不自动改状态。
 pub fn ready_to_close(children: &[ChildSnapshot]) -> bool {
-    !children.is_empty()
-        && children
-            .iter()
-            .all(|child| child.status == TaskStatus::Done)
+    !children.is_empty() && children.iter().all(|child| child.status == TaskStatus::Done)
 }
 
 /// 聚合口径的中文名（写进 `PROGRESS_AUTO` 评论，事后核对「80% 是怎么算出来的」）。
@@ -932,14 +912,12 @@ mod tests {
             (TaskStatus::Done, TaskStatus::Cancelled), // 终态不能直接取消
             (TaskStatus::Review, TaskStatus::Todo),    // 不能退回待开始
         ] {
-            let error = authorize(from, to, 0b1111, false, Some("随便写五个字"))
-                .expect_err("非法流转必须被拒");
+            let error = authorize(from, to, 0b1111, false, Some("随便写五个字")).expect_err("非法流转必须被拒");
             assert_eq!(error, TransitionError::IllegalPair);
         }
         // 自环单独一条（提示更准确）
         for status in TaskStatus::ALL {
-            let error =
-                authorize(status, status, 0b1111, false, None).expect_err("同状态流转必须被拒");
+            let error = authorize(status, status, 0b1111, false, None).expect_err("同状态流转必须被拒");
             assert_eq!(error, TransitionError::SameStatus);
         }
     }
@@ -949,11 +927,7 @@ mod tests {
         let mut seen = std::collections::BTreeSet::new();
         for transition in TRANSITIONS {
             assert_ne!(transition.from, transition.to, "白名单里不许有自环");
-            assert!(
-                transition.actors != 0,
-                "{} 的角色掩码不能为空",
-                transition.label
-            );
+            assert!(transition.actors != 0, "{} 的角色掩码不能为空", transition.label);
             assert!(
                 seen.insert((transition.from, transition.to)),
                 "{} → {} 重复登记",
@@ -975,8 +949,8 @@ mod tests {
         let people = who(1, 2, Some(3));
         let owner_mask = people.role_mask(&actor(1, false));
         assert_eq!(owner_mask, ROLE_OWNER);
-        let error = authorize(TaskStatus::Review, TaskStatus::Done, owner_mask, true, None)
-            .expect_err("负责人没有验收权");
+        let error =
+            authorize(TaskStatus::Review, TaskStatus::Done, owner_mask, true, None).expect_err("负责人没有验收权");
         assert_eq!(
             error,
             TransitionError::Forbidden {
@@ -1016,38 +990,14 @@ mod tests {
             authorize(TaskStatus::Done, TaskStatus::Doing, ROLE_OWNER, false, None),
             Err(TransitionError::Forbidden { .. })
         ));
-        assert!(
-            authorize(
-                TaskStatus::Done,
-                TaskStatus::Doing,
-                ROLE_CREATOR,
-                false,
-                None
-            )
-            .is_ok()
-        );
+        assert!(authorize(TaskStatus::Done, TaskStatus::Doing, ROLE_CREATOR, false, None).is_ok());
         assert!(authorize(TaskStatus::Done, TaskStatus::Doing, ROLE_ADMIN, false, None).is_ok());
         // CANCELLED → TODO：同样只认创建人 / 管理员
         assert!(matches!(
-            authorize(
-                TaskStatus::Cancelled,
-                TaskStatus::Todo,
-                ROLE_OWNER,
-                false,
-                None
-            ),
+            authorize(TaskStatus::Cancelled, TaskStatus::Todo, ROLE_OWNER, false, None),
             Err(TransitionError::Forbidden { .. })
         ));
-        assert!(
-            authorize(
-                TaskStatus::Cancelled,
-                TaskStatus::Todo,
-                ROLE_ADMIN,
-                false,
-                None
-            )
-            .is_ok()
-        );
+        assert!(authorize(TaskStatus::Cancelled, TaskStatus::Todo, ROLE_ADMIN, false, None).is_ok());
     }
 
     // ---------- 状态机：need_review ----------
@@ -1059,28 +1009,10 @@ mod tests {
             .expect_err("需验收的任务不能跳过 REVIEW");
         assert_eq!(error, TransitionError::ReviewRequired);
         // need_review = true ⇒ DOING → REVIEW 正常
-        assert!(
-            authorize(
-                TaskStatus::Doing,
-                TaskStatus::Review,
-                ROLE_OWNER,
-                true,
-                None
-            )
-            .is_ok()
-        );
+        assert!(authorize(TaskStatus::Doing, TaskStatus::Review, ROLE_OWNER, true, None).is_ok());
         // need_review = false ⇒ 两条都通
         assert!(authorize(TaskStatus::Doing, TaskStatus::Done, ROLE_OWNER, false, None).is_ok());
-        assert!(
-            authorize(
-                TaskStatus::Doing,
-                TaskStatus::Review,
-                ROLE_OWNER,
-                false,
-                None
-            )
-            .is_ok()
-        );
+        assert!(authorize(TaskStatus::Doing, TaskStatus::Review, ROLE_OWNER, false, None).is_ok());
     }
 
     // ---------- 状态机：打回原因 ----------
@@ -1095,8 +1027,8 @@ mod tests {
             (Some("太差"), 2usize),
             (Some("四个字符"), 4usize),
         ] {
-            let error = authorize(TaskStatus::Review, TaskStatus::Doing, mask, true, reason)
-                .expect_err("原因不足必须被拒");
+            let error =
+                authorize(TaskStatus::Review, TaskStatus::Doing, mask, true, reason).expect_err("原因不足必须被拒");
             assert_eq!(
                 error,
                 TransitionError::RejectReasonRequired {
@@ -1105,16 +1037,7 @@ mod tests {
             );
         }
         // 恰好 5 个字（中文按 char 计）通过
-        assert!(
-            authorize(
-                TaskStatus::Review,
-                TaskStatus::Doing,
-                mask,
-                true,
-                Some("五个字符啊")
-            )
-            .is_ok()
-        );
+        assert!(authorize(TaskStatus::Review, TaskStatus::Doing, mask, true, Some("五个字符啊")).is_ok());
         // 前后空白不算
         assert!(
             authorize(
@@ -1127,16 +1050,7 @@ mod tests {
             .is_ok()
         );
         // 其它流转不要求原因
-        assert!(
-            authorize(
-                TaskStatus::Doing,
-                TaskStatus::Review,
-                ROLE_OWNER,
-                true,
-                None
-            )
-            .is_ok()
-        );
+        assert!(authorize(TaskStatus::Doing, TaskStatus::Review, ROLE_OWNER, true, None).is_ok());
     }
 
     // ---------- 状态机：副作用 ----------
@@ -1201,10 +1115,7 @@ mod tests {
     fn role_mask_unions_and_admin_is_independent() {
         let people = who(1, 1, Some(2));
         // 负责人 = 创建人（自建自干）→ 两位并存
-        assert_eq!(
-            people.role_mask(&actor(1, false)),
-            ROLE_OWNER | ROLE_CREATOR
-        );
+        assert_eq!(people.role_mask(&actor(1, false)), ROLE_OWNER | ROLE_CREATOR);
         // 分派人
         assert_eq!(people.role_mask(&actor(2, false)), ROLE_ASSIGNER);
         // 无关用户：0
@@ -1216,10 +1127,7 @@ mod tests {
             ROLE_OWNER | ROLE_CREATOR | ROLE_ADMIN
         );
         assert_eq!(TaskPeople::describe(0), "无（协作人 / 关注者 / 无关用户）");
-        assert_eq!(
-            TaskPeople::describe(ROLE_OWNER | ROLE_CREATOR),
-            "负责人 / 创建人"
-        );
+        assert_eq!(TaskPeople::describe(ROLE_OWNER | ROLE_CREATOR), "负责人 / 创建人");
     }
 
     // ---------- 进度：加权 / 等权 ----------
@@ -1285,10 +1193,7 @@ mod tests {
         assert_eq!(aggregate_progress(&[]), None);
         assert!(!progress_locked(&[]));
         // 单子任务直接继承其进度
-        assert_eq!(
-            aggregate_progress(&[child(TaskStatus::Doing, 42, Some(3.0))]),
-            Some(42)
-        );
+        assert_eq!(aggregate_progress(&[child(TaskStatus::Doing, 42, Some(3.0))]), Some(42));
         // 四舍五入（不是截断）：两条 1h 子任务 33 / 34 → 33.5 → 34
         let rounding = [
             child(TaskStatus::Doing, 33, Some(1.0)),
@@ -1308,11 +1213,7 @@ mod tests {
             child(TaskStatus::Done, 100, Some(1.0)),
             child(TaskStatus::Cancelled, 10, Some(1.0)),
         ];
-        assert_eq!(
-            open_children(&children).len(),
-            3,
-            "TODO/DOING/REVIEW 才算未完成"
-        );
+        assert_eq!(open_children(&children).len(), 3, "TODO/DOING/REVIEW 才算未完成");
         assert!(!ready_to_close(&children));
         assert!(open_children(&[]).is_empty());
     }
@@ -1365,12 +1266,7 @@ mod gate_tests {
         // 没挂单就不管：即便实例状态被误传成 PENDING 也不拦
         for to in [TaskStatus::Done, TaskStatus::Doing, TaskStatus::Cancelled] {
             assert!(!flow_gate_blocked(TaskStatus::Review, to, None, None));
-            assert!(!flow_gate_blocked(
-                TaskStatus::Review,
-                to,
-                None,
-                Some("PENDING")
-            ));
+            assert!(!flow_gate_blocked(TaskStatus::Review, to, None, Some("PENDING")));
         }
         // 状态机口径不变：创建人 / 分派人 / 管理员可验收通过
         for mask in [ROLE_CREATOR, ROLE_ASSIGNER, ROLE_ADMIN] {

@@ -151,10 +151,7 @@ pub async fn batch_stock_in_delete(
         .await
         .map_err(|error| utils::db_error(error, "查询收货单号"))?;
     let operator = utils::current_user_uuid(claims);
-    Ok(batch::run(&ids, &labels, |id| async move {
-        delete_stock_in(id, operator).await
-    })
-    .await)
+    Ok(batch::run(&ids, &labels, |id| async move { delete_stock_in(id, operator).await }).await)
 }
 
 /// 采购订单批量状态流转（取消 / 关闭；`status=SUBMITTED` 走审批入口）。
@@ -285,14 +282,7 @@ pub async fn batch_export_doc(
         status_code,
         ids: Vec::new(),
     };
-    batch_export::create_by_ids(
-        biz_type,
-        &ids,
-        filter,
-        utils::current_user_uuid(claims),
-        None,
-    )
-    .await
+    batch_export::create_by_ids(biz_type, &ids, filter, utils::current_user_uuid(claims), None).await
 }
 
 // ==================== HTTP 入口 ====================
@@ -425,9 +415,7 @@ pub async fn voucher_batch_export(
 mod tests {
     use super::*;
     use crate::business::erp::fixture_hygiene;
-    use crate::business::erp::stockin_model::{
-        self, NewStockIn, NewStockInLine, STATUS_CANCELLED, Totals,
-    };
+    use crate::business::erp::stockin_model::{self, NewStockIn, NewStockInLine, STATUS_CANCELLED, Totals};
     use nik::prelude::chrono::{NaiveDate, Utc};
     use nik::prelude::rust_decimal::Decimal;
     use nik::uuid::Uuid;
@@ -583,11 +571,7 @@ mod tests {
     }
 
     fn full_claims() -> TokenClaims {
-        claims_with(&[
-            PERM_STOCK_IN_STATUS,
-            PERM_STOCK_IN_DELETE,
-            PERM_STOCK_IN_LIST,
-        ])
+        claims_with(&[PERM_STOCK_IN_STATUS, PERM_STOCK_IN_DELETE, PERM_STOCK_IN_LIST])
     }
 
     fn dec(value: i64) -> Decimal {
@@ -628,14 +612,13 @@ mod tests {
             "d7-batch",
         );
         let tx = db().begin().await.expect("begin");
-        let id =
-            match stockin_model::create(&tx, &new, &[line], &totals, operator, Utc::now()).await {
-                Ok(id) => id,
-                Err(error) => {
-                    let _ = tx.rollback().await;
-                    panic!("造草稿单失败：{error}");
-                }
-            };
+        let id = match stockin_model::create(&tx, &new, &[line], &totals, operator, Utc::now()).await {
+            Ok(id) => id,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                panic!("造草稿单失败：{error}");
+            }
+        };
         tx.commit().await.expect("commit");
         id
     }
@@ -683,11 +666,7 @@ mod tests {
             .await
             .expect("批量过账应 200（单条失败进 failed）");
         assert_eq!(outcome.total, 5);
-        assert_eq!(
-            outcome.success_count, 5,
-            "5 张草稿应全部过账：{:?}",
-            outcome.failed
-        );
+        assert_eq!(outcome.success_count, 5, "5 张草稿应全部过账：{:?}", outcome.failed);
         assert_eq!(outcome.fail_count, 0);
         assert!(outcome.all_ok());
         assert_eq!(outcome.succeeded.len(), 5);
@@ -761,11 +740,7 @@ mod tests {
                 "失败原因必须是原文：{}",
                 item.error
             );
-            assert!(
-                item.no.as_deref().is_some(),
-                "失败行也要点名单号：{:?}",
-                item
-            );
+            assert!(item.no.as_deref().is_some(), "失败行也要点名单号：{:?}", item);
         }
         cleanup().await;
     }
@@ -876,22 +851,14 @@ mod tests {
             status: Some("POSTED".to_string()),
             reason: None,
         };
-        let first = batch_stock_in_status(&full_claims(), &req)
-            .await
-            .expect("首次");
+        let first = batch_stock_in_status(&full_claims(), &req).await.expect("首次");
         assert_eq!(first.success_count, 2);
-        let second = batch_stock_in_status(&full_claims(), &req)
-            .await
-            .expect("第二次");
+        let second = batch_stock_in_status(&full_claims(), &req).await.expect("第二次");
         assert_eq!(second.success_count, 0, "重复点不能把库存加两遍");
         assert_eq!(second.fail_count, 2);
         for item in &second.failed {
             assert_eq!(item.code, crate::shared::error_code::RESOURCE_CONFLICT);
-            assert!(
-                item.error.contains("已过账"),
-                "幂等失败原因要可读：{}",
-                item.error
-            );
+            assert!(item.error.contains("已过账"), "幂等失败原因要可读：{}", item.error);
         }
         // 单据仍是已过账（一次生效）
         for id in &ids {
@@ -1008,10 +975,7 @@ mod tests {
             .expect("查状态日志")
             .unwrap_or(0)
         };
-        for (label, entity_type, target) in [
-            ("PAYABLE", "PAYABLE", payable_id),
-            ("VOUCHER", "VOUCHER", voucher_id),
-        ] {
+        for (label, entity_type, target) in [("PAYABLE", "PAYABLE", payable_id), ("VOUCHER", "VOUCHER", voucher_id)] {
             assert!(
                 count_logs(entity_type, target).await > 0,
                 "清场前必须有 {label} 状态日志，否则这条用例证明不了什么"
@@ -1021,10 +985,7 @@ mod tests {
         // 走模块真实的清场
         cleanup().await;
 
-        for (label, entity_type, target) in [
-            ("PAYABLE", "PAYABLE", payable_id),
-            ("VOUCHER", "VOUCHER", voucher_id),
-        ] {
+        for (label, entity_type, target) in [("PAYABLE", "PAYABLE", payable_id), ("VOUCHER", "VOUCHER", voucher_id)] {
             assert_eq!(
                 count_logs(entity_type, target).await,
                 0,

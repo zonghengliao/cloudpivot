@@ -14,9 +14,7 @@ use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 use crate::business::storage::cipher::{self, MasterKey};
-use crate::business::storage::model::{
-    StorageFileModel, SysStorageConfigModel, SysStoragePolicyModel,
-};
+use crate::business::storage::model::{StorageFileModel, SysStorageConfigModel, SysStoragePolicyModel};
 
 /// 存储配置分页查询参数。
 #[derive(Debug, Clone, Deserialize)]
@@ -168,11 +166,7 @@ impl StorageConfigRes {
     ///
     /// 响应对象。
     pub fn from_model(model: &SysStorageConfigModel, master_key: Option<&MasterKey>) -> Self {
-        let (ak_masked, has_secret) = match (
-            model.ak_cipher.as_deref(),
-            model.ak_nonce.as_deref(),
-            master_key,
-        ) {
+        let (ak_masked, has_secret) = match (model.ak_cipher.as_deref(), model.ak_nonce.as_deref(), master_key) {
             (Some(cipher_text), Some(nonce), Some(key)) => {
                 match cipher::decrypt(key, cipher_text, nonce) {
                     Some(ak) => (cipher::mask_secret(&ak), true),
@@ -482,10 +476,7 @@ impl StorageFileRes {
             extension: model.extension.clone().unwrap_or_default(),
             category: model.category.clone().unwrap_or_default(),
             status: model.status.as_i16(),
-            uploaded_by: model
-                .uploaded_by
-                .map(|id| id.to_string())
-                .unwrap_or_default(),
+            uploaded_by: model.uploaded_by.map(|id| id.to_string()).unwrap_or_default(),
             uploader_name: String::new(),
             created_at: model.created_at,
             url: format!("/api/business/storage/download/{}", model.id),
@@ -548,10 +539,8 @@ mod tests {
 
     /// 构造一条已配置密钥的 S3 后端配置。
     fn s3_config(key: &MasterKey) -> SysStorageConfigModel {
-        let (ak_cipher, ak_nonce) =
-            cipher::encrypt(key, "CPAKFixtureValue9f2c").expect("加密应成功");
-        let (sk_cipher, sk_nonce) =
-            cipher::encrypt(key, "PlainSecretKeyValueNeverLeak").expect("加密应成功");
+        let (ak_cipher, ak_nonce) = cipher::encrypt(key, "CPAKFixtureValue9f2c").expect("加密应成功");
+        let (sk_cipher, sk_nonce) = cipher::encrypt(key, "PlainSecretKeyValueNeverLeak").expect("加密应成功");
         let now = chrono::Utc::now();
         SysStorageConfigModel {
             id: uuid::Uuid::now_v7(),
@@ -585,8 +574,7 @@ mod tests {
     }
 
     fn test_key() -> MasterKey {
-        MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
-            .expect("测试主密钥应合法")
+        MasterKey::parse("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef").expect("测试主密钥应合法")
     }
 
     /// 安全（§5.4 `mask_ak_never_leaks`）：序列化后的响应体不含任何明文凭据。
@@ -611,9 +599,8 @@ mod tests {
     #[test]
     fn dto_masked_ak_falls_back_when_key_mismatch() {
         let key = test_key();
-        let other =
-            MasterKey::parse("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
-                .expect("测试主密钥应合法");
+        let other = MasterKey::parse("fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210")
+            .expect("测试主密钥应合法");
         let model = s3_config(&key);
         let res = StorageConfigRes::from_model(&model, Some(&other));
         assert_eq!(res.ak_masked, "****");

@@ -87,9 +87,7 @@ fn decode(raw: &str) -> Option<(i32, bool)> {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（缓存侧错误一律降级为查库，不向上传播）。
-pub(crate) async fn load_session_flags(
-    user_id: &uuid::Uuid,
-) -> std::result::Result<Option<(i32, bool)>, DbError> {
+pub(crate) async fn load_session_flags(user_id: &uuid::Uuid) -> std::result::Result<Option<(i32, bool)>, DbError> {
     let key = cache_key(user_id);
     // 缓存只是加速：读失败、未命中、闸门欠账都直接回查库（库是唯一真源）
     if GATE.cache_readable()

@@ -137,13 +137,7 @@ pub const KIND_REFUND: &str = "REFUND";
 pub const KIND_WRITE_OFF: &str = "WRITE_OFF";
 
 /// 事件类型白名单（出参过滤 / 单测用）。
-pub const KINDS: [&str; 5] = [
-    KIND_INVOICE,
-    KIND_RETURN,
-    KIND_RECEIPT,
-    KIND_REFUND,
-    KIND_WRITE_OFF,
-];
+pub const KINDS: [&str; 5] = [KIND_INVOICE, KIND_RETURN, KIND_RECEIPT, KIND_REFUND, KIND_WRITE_OFF];
 
 /// 对账确认状态：已签发。
 pub const STATUS_SENT: &str = "SENT";
@@ -618,10 +612,7 @@ pub fn parse_period(
 }
 
 /// 币种解析：单一币种自动取；多币种必须显式指定；指定了但不存在 → 400。
-pub fn resolve_currency(
-    available: &[String],
-    requested: Option<&str>,
-) -> std::result::Result<String, ApiError> {
+pub fn resolve_currency(available: &[String], requested: Option<&str>) -> std::result::Result<String, ApiError> {
     let requested = requested
         .map(str::trim)
         .filter(|text| !text.is_empty())
@@ -682,8 +673,7 @@ pub fn validate_dispute_reason(raw: &str) -> std::result::Result<String, ApiErro
     let text = raw.trim();
     if text.chars().count() < 4 {
         return Err(bad_request(
-            "dispute_reason 必填：异议原因至少 4 个字（客户凭什么不认这张对账单，要能追溯）"
-                .to_string(),
+            "dispute_reason 必填：异议原因至少 4 个字（客户凭什么不认这张对账单，要能追溯）".to_string(),
         ));
     }
     Ok(text.to_string())
@@ -702,10 +692,7 @@ pub fn ensure_pending(status: &str, action: &str) -> std::result::Result<(), Api
 }
 
 /// 附件 id 归一（空白 = 无附件；非法 UUID → 400）。
-pub fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => Ok(Some(parse_uuid_param(text, field)?)),
         None => Ok(None),
@@ -740,12 +727,7 @@ pub fn assemble(mut inputs: StatementInputs) -> std::result::Result<StatementRes
     sort_events(&mut inputs.events);
     let opening = sum_before(&inputs.events, inputs.from);
     let items = build_items(opening, &inputs.events, inputs.from, inputs.to);
-    let identity = build_identity(
-        opening,
-        inputs.opening_by_ledger,
-        &items,
-        inputs.closing_by_ledger,
-    );
+    let identity = build_identity(opening, inputs.opening_by_ledger, &items, inputs.closing_by_ledger);
     if !identity.passed {
         return Err(ApiError::new(
             500,
@@ -894,11 +876,7 @@ fn event_params(customer: Uuid, currency: &str) -> Vec<Value> {
 }
 
 /// 读该客户某币种的**全部**事件（日期升序、类型权重、单据号）。
-pub async fn load_events(
-    ex: &impl SqlExecutor,
-    customer: Uuid,
-    currency: &str,
-) -> DbResult<Vec<StatementEvent>> {
+pub async fn load_events(ex: &impl SqlExecutor, customer: Uuid, currency: &str) -> DbResult<Vec<StatementEvent>> {
     let sql = format!(
         "{cte} SELECT ev.dt, ev.rank, ev.kind, ev.doc_no, ev.memo, ev.amt FROM ev \
          ORDER BY ev.dt, ev.rank, ev.doc_no",
@@ -920,12 +898,7 @@ pub async fn load_events(
 }
 
 /// 台账口径的余额：`dt < = until` 的合计（独立 SQL 聚合，供自校验对照）。
-pub async fn sum_until(
-    ex: &impl SqlExecutor,
-    customer: Uuid,
-    currency: &str,
-    until: NaiveDate,
-) -> DbResult<Decimal> {
+pub async fn sum_until(ex: &impl SqlExecutor, customer: Uuid, currency: &str, until: NaiveDate) -> DbResult<Decimal> {
     let sql = format!(
         "{cte} SELECT COALESCE(SUM(ev.amt), 0) AS total FROM ev WHERE ev.dt <= ?::date",
         cte = events_cte()
@@ -964,10 +937,7 @@ pub async fn customer_currencies(ex: &impl SqlExecutor, customer: Uuid) -> DbRes
 }
 
 /// 读客户展示信息（不存在 / 已删 → 404）。
-pub async fn load_customer(
-    ex: &impl SqlExecutor,
-    customer: Uuid,
-) -> DbResult<Option<StatementCustomerRow>> {
+pub async fn load_customer(ex: &impl SqlExecutor, customer: Uuid) -> DbResult<Option<StatementCustomerRow>> {
     // SCOPE-EXEMPT: 客户主数据（全局），无归属列。
     let row = ex
         .query_first_sql(
@@ -992,9 +962,7 @@ pub async fn load_customer(
 // ==================== 组装入口（查询 / 导出 / 签发共用） ====================
 
 /// 计算对账单（查询、导出、签发三条路径的唯一入口，口径不可能分叉）。
-pub async fn build_statement(
-    query: &StatementQuery,
-) -> std::result::Result<StatementRes, ApiError> {
+pub async fn build_statement(query: &StatementQuery) -> std::result::Result<StatementRes, ApiError> {
     let customer_id = parse_uuid_param(&query.customer_id, "customer_id")?;
     let today = crate::business::erp::voucher::today_cst(Utc::now());
     let (from, to) = parse_period(&query.period_from, query.period_to.as_deref(), today)?;
@@ -1017,14 +985,9 @@ pub async fn build_statement(
     let events = load_events(db(), customer_id, &currency)
         .await
         .map_err(|error| utils::db_error(error, "读取对账事件"))?;
-    let opening_by_ledger = sum_until(
-        db(),
-        customer_id,
-        &currency,
-        from.pred_opt().unwrap_or(from),
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "聚合期初余额"))?;
+    let opening_by_ledger = sum_until(db(), customer_id, &currency, from.pred_opt().unwrap_or(from))
+        .await
+        .map_err(|error| utils::db_error(error, "聚合期初余额"))?;
     let closing_by_ledger = sum_until(db(), customer_id, &currency, to)
         .await
         .map_err(|error| utils::db_error(error, "聚合期末余额"))?;
@@ -1053,10 +1016,7 @@ pub fn export_table(statement: &StatementRes) -> (Vec<&'static str>, Vec<HashMap
     let mut head: HashMap<String, String> = HashMap::with_capacity(EXPORT_HEADERS.len());
     head.insert(
         "日期".to_string(),
-        format!(
-            "客户：{} {}",
-            statement.customer.code, statement.customer.name
-        ),
+        format!("客户：{} {}", statement.customer.code, statement.customer.name),
     );
     head.insert("类型".to_string(), "对账单".to_string());
     head.insert("单据号".to_string(), statement.customer.tax_no.clone());
@@ -1097,15 +1057,9 @@ pub fn export_table(statement: &StatementRes) -> (Vec<&'static str>, Vec<HashMap
     closing.insert("单据号".to_string(), String::new());
     closing.insert(
         "摘要".to_string(),
-        format!(
-            "期末余额（期初 + 本期发生 = {} 笔）",
-            statement.detail.item_count
-        ),
+        format!("期末余额（期初 + 本期发生 = {} 笔）", statement.detail.item_count),
     );
-    closing.insert(
-        "发生额".to_string(),
-        money_text(statement.detail.net_change),
-    );
+    closing.insert("发生额".to_string(), money_text(statement.detail.net_change));
     closing.insert("余额".to_string(), money_text(statement.closing_balance));
     rows.push(closing);
     (headers, rows)
@@ -1133,9 +1087,7 @@ pub async fn statement_handler(Query(query): Query<StatementQuery>) -> ResResult
     permission = "business:erp:statement:export"
 )]
 #[nik::get("/business/erp/receivable/statement/export")]
-pub async fn statement_export_handler(
-    Query(query): Query<StatementQuery>,
-) -> std::result::Result<Response, ApiError> {
+pub async fn statement_export_handler(Query(query): Query<StatementQuery>) -> std::result::Result<Response, ApiError> {
     parse_format(query.format.as_deref())?;
     let statement = build_statement(&query).await?;
     let (headers, rows) = export_table(&statement);
@@ -1215,13 +1167,7 @@ pub async fn statement_confirm_handler(
                 Value::Text(STATUS_CONFIRMED.to_string()),
                 Value::Text(confirmed_by),
                 Value::Text(attachment.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(
-                    req.remark
-                        .as_deref()
-                        .map(str::trim)
-                        .unwrap_or_default()
-                        .to_string(),
-                ),
+                Value::Text(req.remark.as_deref().map(str::trim).unwrap_or_default().to_string()),
                 Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(id),
                 Value::Text(STATUS_SENT.to_string()),
@@ -1230,9 +1176,7 @@ pub async fn statement_confirm_handler(
         .await
         .map_err(|error| utils::db_error(error, "确认对账单"))?;
     if affected == 0 {
-        return Err(conflict(
-            "该对账单状态已被改动（并发回执）：请刷新后重试".to_string(),
-        ));
+        return Err(conflict("该对账单状态已被改动（并发回执）：请刷新后重试".to_string()));
     }
     Ok(Res::ok(load_confirm(id).await?))
 }
@@ -1275,9 +1219,7 @@ pub async fn statement_dispute_handler(
         .await
         .map_err(|error| utils::db_error(error, "登记对账异议"))?;
     if affected == 0 {
-        return Err(conflict(
-            "该对账单状态已被改动（并发回执）：请刷新后重试".to_string(),
-        ));
+        return Err(conflict("该对账单状态已被改动（并发回执）：请刷新后重试".to_string()));
     }
     Ok(Res::ok(load_confirm(id).await?))
 }
@@ -1349,9 +1291,7 @@ async fn load_confirm(id: Uuid) -> std::result::Result<StatementConfirmRes, ApiE
         .await
         .map_err(|error| utils::db_error(error, "读取对账确认台账"))?;
     match row.as_ref() {
-        Some(row) => {
-            confirm_from_row(row).map_err(|error| utils::db_error(error, "读对账确认台账"))
-        }
+        Some(row) => confirm_from_row(row).map_err(|error| utils::db_error(error, "读对账确认台账")),
         None => Err(ApiError::new(
             404,
             error_code::RESOURCE_NOT_FOUND,
@@ -1464,9 +1404,7 @@ async fn upsert_confirm(
 }
 
 /// 分页查询台账。
-pub async fn confirm_page(
-    query: &StatementConfirmPageQuery,
-) -> std::result::Result<StatementConfirmPageRes, ApiError> {
+pub async fn confirm_page(query: &StatementConfirmPageQuery) -> std::result::Result<StatementConfirmPageRes, ApiError> {
     let (page, page_size) = normalize_page(query.page, query.page_size);
     let mut where_sql = String::from(" WHERE p.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
@@ -1532,9 +1470,7 @@ pub async fn confirm_page(
 
     let mut list_params = params;
     list_params.push(Value::I64(i64::try_from(page_size).unwrap_or(i64::MAX)));
-    list_params.push(Value::I64(
-        i64::try_from((page - 1) * page_size).unwrap_or(0),
-    ));
+    list_params.push(Value::I64(i64::try_from((page - 1) * page_size).unwrap_or(0)));
     let list_sql = format!(
         "SELECT {CONFIRM_COLUMNS} FROM {CONFIRM_TABLE} p \
            LEFT JOIN {CUSTOMER_TABLE} c ON c.id = p.customer_id AND c.deleted_at IS NULL \
@@ -1548,8 +1484,7 @@ pub async fn confirm_page(
         .map_err(|error| utils::db_error(error, "查询对账确认台账"))?;
     let mut items = Vec::with_capacity(rows.len());
     for row in &rows {
-        items
-            .push(confirm_from_row(row).map_err(|error| utils::db_error(error, "读对账确认台账"))?);
+        items.push(confirm_from_row(row).map_err(|error| utils::db_error(error, "读对账确认台账"))?);
     }
     Ok(StatementConfirmPageRes {
         total: u64::try_from(total).unwrap_or(0),
@@ -1604,12 +1539,7 @@ mod tests {
     #[test]
     fn events_sort_by_date_then_kind_rank() {
         let mut events = vec![
-            event(
-                "2026-10-01",
-                KIND_RECEIPT,
-                "RC-20261001-000001",
-                dec("-100"),
-            ),
+            event("2026-10-01", KIND_RECEIPT, "RC-20261001-000001", dec("-100")),
             event("2026-10-01", KIND_INVOICE, "AR-20261001-000002", dec("500")),
             event("2026-09-30", KIND_INVOICE, "AR-20260930-000001", dec("900")),
             event("2026-10-01", KIND_INVOICE, "AR-20261001-000001", dec("300")),
@@ -1774,11 +1704,7 @@ mod tests {
     fn currency_resolution() {
         let one = vec!["CNY".to_string()];
         assert_eq!(resolve_currency(&one, None).unwrap(), "CNY");
-        assert_eq!(
-            resolve_currency(&one, Some("cny")).unwrap(),
-            "CNY",
-            "大小写不敏感"
-        );
+        assert_eq!(resolve_currency(&one, Some("cny")).unwrap(), "CNY", "大小写不敏感");
 
         let multi = vec!["CNY".to_string(), "USD".to_string()];
         let error = resolve_currency(&multi, None).expect_err("多币种必须显式指定");
@@ -1787,16 +1713,11 @@ mod tests {
         assert!(error.msg.contains("USD"));
         assert_eq!(resolve_currency(&multi, Some("USD")).unwrap(), "USD");
 
-        let error =
-            resolve_currency(&multi, Some("EUR")).expect_err("没有的币种要 400，不能返回空单");
+        let error = resolve_currency(&multi, Some("EUR")).expect_err("没有的币种要 400，不能返回空单");
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("EUR"));
 
-        assert_eq!(
-            resolve_currency(&[], None).unwrap(),
-            "CNY",
-            "零往来给 CNY 空单"
-        );
+        assert_eq!(resolve_currency(&[], None).unwrap(), "CNY", "零往来给 CNY 空单");
         assert_eq!(
             resolve_currency(&[], Some("CNY"))
                 .expect_err("零往来不能指定币种")
@@ -1824,30 +1745,18 @@ mod tests {
     #[test]
     fn receipt_validation() {
         assert_eq!(validate_confirmed_by("  张三 ").unwrap(), "张三");
-        assert_eq!(
-            validate_confirmed_by("张").expect_err("1 个字太短").status,
-            400
-        );
-        assert_eq!(
-            validate_confirmed_by("   ").expect_err("空要 400").status,
-            400
-        );
+        assert_eq!(validate_confirmed_by("张").expect_err("1 个字太短").status, 400);
+        assert_eq!(validate_confirmed_by("   ").expect_err("空要 400").status, 400);
 
         assert_eq!(validate_dispute_reason("金额差 200").unwrap(), "金额差 200");
         assert_eq!(validate_dispute_reason("差").expect_err("太短").status, 400);
 
         assert_eq!(parse_optional_uuid(None, "attachment_id").unwrap(), None);
-        assert_eq!(
-            parse_optional_uuid(Some("  "), "attachment_id").unwrap(),
-            None
-        );
+        assert_eq!(parse_optional_uuid(Some("  "), "attachment_id").unwrap(), None);
         assert!(
-            parse_optional_uuid(
-                Some("0b9d5c62-0000-4000-8000-000000000001"),
-                "attachment_id"
-            )
-            .unwrap()
-            .is_some()
+            parse_optional_uuid(Some("0b9d5c62-0000-4000-8000-000000000001"), "attachment_id")
+                .unwrap()
+                .is_some()
         );
         assert_eq!(
             parse_optional_uuid(Some("not-a-uuid"), "attachment_id")
@@ -1878,14 +1787,9 @@ mod tests {
         .expect("自校验通过");
         let (headers, rows) = export_table(&statement);
         assert_eq!(headers, EXPORT_HEADERS.to_vec());
-        assert_eq!(
-            rows.len(),
-            statement.items.len() + 3,
-            "信息行 + 期初 + 明细 + 期末"
-        );
+        assert_eq!(rows.len(), statement.items.len() + 3, "信息行 + 期初 + 明细 + 期末");
 
-        let text =
-            |row: &HashMap<String, String>, key: &str| row.get(key).cloned().unwrap_or_default();
+        let text = |row: &HashMap<String, String>, key: &str| row.get(key).cloned().unwrap_or_default();
         assert!(text(&rows[0], "日期").contains("CUS-000001"));
         assert!(text(&rows[0], "摘要").contains("2026-10-01 ~ 2026-10-31"));
         assert_eq!(text(&rows[1], "类型"), "期初");
@@ -1926,10 +1830,7 @@ mod tests {
             4,
             "挂账 / 退货 / 收款 / 退款四路都要剔除作废应收（坏账那路只取 WRITTEN_OFF）"
         );
-        assert!(
-            cte.contains("r.status = 'WRITTEN_OFF'"),
-            "坏账核销事件只认 WRITTEN_OFF"
-        );
+        assert!(cte.contains("r.status = 'WRITTEN_OFF'"), "坏账核销事件只认 WRITTEN_OFF");
         assert!(cte.contains("sr.status = 'POSTED'"), "只认已过账退货");
         assert!(!cte.contains("'DRAFT'"), "草稿退货/收款不许进对账单");
         // 参数个数与五个分支对齐（每分支 customer + currency）

@@ -266,26 +266,17 @@ pub async fn stored(ex: &impl SqlExecutor, customer_id: Uuid) -> DbResult<Option
         )
         .await?;
     let text: Option<String> = rows.first().and_then(|row| row.get_typed("used").ok());
-    Ok(text
-        .as_deref()
-        .and_then(|value| value.trim().parse::<Decimal>().ok()))
+    Ok(text.as_deref().and_then(|value| value.trim().parse::<Decimal>().ok()))
 }
 
 /// 管道占用：已提交待审批订单的含税合计（提交守卫用，不进 `credit_used`）。
 ///
 /// `exclude` = 编辑 / 提交时把「本单自己」排除（否则已提交的单会把自己算两遍）。
-pub async fn pending_credit(
-    ex: &impl SqlExecutor,
-    customer_id: Uuid,
-    exclude: Option<Uuid>,
-) -> DbResult<Decimal> {
+pub async fn pending_credit(ex: &impl SqlExecutor, customer_id: Uuid, exclude: Option<Uuid>) -> DbResult<Decimal> {
     let mut sql = "SELECT COALESCE(SUM(total_with_tax), 0)::text AS pending FROM biz_sales_order \
           WHERE customer_id = ?::uuid AND deleted_at IS NULL AND status = ?"
         .to_string();
-    let mut params = vec![
-        Value::from(&customer_id),
-        Value::Text(PENDING_STATUSES[0].to_string()),
-    ];
+    let mut params = vec![Value::from(&customer_id), Value::Text(PENDING_STATUSES[0].to_string())];
     if let Some(id) = exclude {
         sql.push_str(" AND id <> ?::uuid");
         params.push(Value::from(&id));
@@ -323,11 +314,7 @@ impl CreditSync {
             self.before.round_dp(2),
             self.after.round_dp(2),
             self.delta(),
-            if self.repaired {
-                "已修正"
-            } else {
-                "无变化"
-            }
+            if self.repaired { "已修正" } else { "无变化" }
         )
     }
 }
@@ -339,12 +326,7 @@ impl CreditSync {
 ///
 /// 容差内相等 → 不写库、不记台账（幂等：重放同一个事件不产生噪音）。
 /// 客户不存在 / 已软删 → 原样返回 0，不报错（单据可能指向已删客户，那不该 500）。
-pub async fn sync(
-    ex: &impl SqlExecutor,
-    customer_id: Uuid,
-    cause: &str,
-    ref_no: &str,
-) -> DbResult<CreditSync> {
+pub async fn sync(ex: &impl SqlExecutor, customer_id: Uuid, cause: &str, ref_no: &str) -> DbResult<CreditSync> {
     // 并发重试：CAS 失配说明另一个会话刚改过同一客户（收款与退货并行），重读再算即可。
     for _ in 0..3 {
         let Some(before) = stored(ex, customer_id).await? else {
@@ -385,16 +367,7 @@ pub async fn sync(
             // 被并发改了：下一轮重读重算
             continue;
         }
-        record(
-            ex,
-            customer_id,
-            before,
-            after,
-            cause,
-            ref_no,
-            trigger_source_of(cause),
-        )
-        .await?;
+        record(ex, customer_id, before, after, cause, ref_no, trigger_source_of(cause)).await?;
         tracing::info!(
             customer_id = %customer_id,
             before = %before.round_dp(2),
@@ -424,11 +397,7 @@ pub async fn sync(
 
 /// 触发来源：重算记 `JOB`，其余事件记 `API`（人工动作 / 单据动作）。
 fn trigger_source_of(cause: &str) -> &'static str {
-    if cause == CAUSE_RECOMPUTE {
-        "JOB"
-    } else {
-        "API"
-    }
+    if cause == CAUSE_RECOMPUTE { "JOB" } else { "API" }
 }
 
 /// 写一条额度变动台账（与业务同事务）。
@@ -467,11 +436,7 @@ async fn record(
 /// 订单侧入口：按订单号反查客户再 [`sync`]（订单状态流转调用）。
 ///
 /// 返回 `Ok(None)` = 订单不存在 / 已软删（并发删除），调用方不必因此失败。
-pub async fn sync_order(
-    ex: &impl SqlExecutor,
-    order_id: Uuid,
-    cause: &str,
-) -> DbResult<Option<CreditSync>> {
+pub async fn sync_order(ex: &impl SqlExecutor, order_id: Uuid, cause: &str) -> DbResult<Option<CreditSync>> {
     let rows = ex
         .query_sql(
             "SELECT customer_id::text AS customer_id, so_no \
@@ -529,10 +494,7 @@ pub async fn recompute_all(trigger_source: &str) -> DbResult<RecomputeReport> {
 /// 候选客户 = 「缓存列非 0」∪「有有效订单」∪「有已核销应收」∪「有已过账退货」：
 /// 只扫**可能占着额度**的客户，不是全表。每修正一个就记一条 `RECOMPUTE` 台账 + WARN 日志
 /// （卡面要求「告警 + 修正 + 记 changelog」）。
-pub async fn recompute_with(
-    ex: &impl SqlExecutor,
-    trigger_source: &str,
-) -> DbResult<RecomputeReport> {
+pub async fn recompute_with(ex: &impl SqlExecutor, trigger_source: &str) -> DbResult<RecomputeReport> {
     let placeholders = vec!["?"; OCCUPYING_STATUSES.len()].join(", ");
     let params: Vec<Value> = OCCUPYING_STATUSES
         .iter()
@@ -652,51 +614,24 @@ mod tests {
     #[test]
     fn is_same_uses_one_cent_tolerance() {
         assert!(is_same(dec("100.00"), dec("100.00")));
-        assert!(
-            is_same(dec("100.00"), dec("100.004")),
-            "4 位标度的零头算相等"
-        );
-        assert!(
-            is_same(dec("100.00"), dec("100.01")),
-            "容差边界 0.01 仍算相等"
-        );
+        assert!(is_same(dec("100.00"), dec("100.004")), "4 位标度的零头算相等");
+        assert!(is_same(dec("100.00"), dec("100.01")), "容差边界 0.01 仍算相等");
         assert!(!is_same(dec("100.00"), dec("100.02")), "超过 0.01 = 漂移");
         assert!(!is_same(dec("0"), dec("0.02")));
     }
 
     #[test]
     fn cause_of_transition_covers_occupy_and_release() {
-        assert_eq!(
-            cause_of_transition("SUBMITTED", "APPROVED"),
-            CAUSE_ORDER_OCCUPY
-        );
+        assert_eq!(cause_of_transition("SUBMITTED", "APPROVED"), CAUSE_ORDER_OCCUPY);
         assert_eq!(cause_of_transition("DRAFT", "APPROVED"), CAUSE_ORDER_OCCUPY);
-        assert_eq!(
-            cause_of_transition("APPROVED", "CANCELLED"),
-            CAUSE_ORDER_RELEASE
-        );
-        assert_eq!(
-            cause_of_transition("APPROVED", "CLOSED"),
-            CAUSE_ORDER_RELEASE
-        );
-        assert_eq!(
-            cause_of_transition("OUTBOUND", "CLOSED"),
-            CAUSE_ORDER_RELEASE
-        );
+        assert_eq!(cause_of_transition("APPROVED", "CANCELLED"), CAUSE_ORDER_RELEASE);
+        assert_eq!(cause_of_transition("APPROVED", "CLOSED"), CAUSE_ORDER_RELEASE);
+        assert_eq!(cause_of_transition("OUTBOUND", "CLOSED"), CAUSE_ORDER_RELEASE);
         // 集合内互迁：额度不变，但要留痕（发货推进）
-        assert_eq!(
-            cause_of_transition("APPROVED", "PARTIAL_OUT"),
-            CAUSE_ORDER_STATUS
-        );
-        assert_eq!(
-            cause_of_transition("PARTIAL_OUT", "OUTBOUND"),
-            CAUSE_ORDER_STATUS
-        );
+        assert_eq!(cause_of_transition("APPROVED", "PARTIAL_OUT"), CAUSE_ORDER_STATUS);
+        assert_eq!(cause_of_transition("PARTIAL_OUT", "OUTBOUND"), CAUSE_ORDER_STATUS);
         // 待审单不进集合
-        assert_eq!(
-            cause_of_transition("DRAFT", "SUBMITTED"),
-            CAUSE_ORDER_STATUS
-        );
+        assert_eq!(cause_of_transition("DRAFT", "SUBMITTED"), CAUSE_ORDER_STATUS);
     }
 
     #[test]
@@ -801,20 +736,20 @@ mod tests {
     async fn fixture_order(customer: Uuid, status: &str, taxed: &str) -> Uuid {
         let id = Uuid::now_v7();
         exec(
-                "INSERT INTO biz_sales_order \
+            "INSERT INTO biz_sales_order \
                     (id, so_no, customer_id, order_date, status, total_amount, total_tax, total_with_tax) \
                  VALUES (?::uuid, ?, ?::uuid, CURRENT_DATE, ?, ?::text::numeric, 0, ?::text::numeric)",
-                vec![
-                    Value::from(&id),
-                    Value::from(format!("SO38-{}", &id.to_string()[24..])),
-                    Value::from(&customer),
-                    Value::Text(status.to_string()),
-                    Value::Text(taxed.to_string()),
-                    Value::Text(taxed.to_string()),
-                ],
-            )
-            .await
-            .expect("插夹具订单");
+            vec![
+                Value::from(&id),
+                Value::from(format!("SO38-{}", &id.to_string()[24..])),
+                Value::from(&customer),
+                Value::Text(status.to_string()),
+                Value::Text(taxed.to_string()),
+                Value::Text(taxed.to_string()),
+            ],
+        )
+        .await
+        .expect("插夹具订单");
         id
     }
 
@@ -830,24 +765,24 @@ mod tests {
             "PARTIAL"
         };
         exec(
-                "INSERT INTO biz_receivable \
+            "INSERT INTO biz_receivable \
                     (id, ar_no, customer_id, source_type, source_id, source_no, amount, \
                      received_amount, unsettled_amount, credit_days, period_code, due_date, status) \
                  VALUES (?::uuid, ?, ?::uuid, 'MANUAL', gen_random_uuid(), 'MANUAL', \
                          ?::text::numeric, ?::text::numeric, ?::text::numeric, 30, '2026-11', \
                          CURRENT_DATE + 30, ?)",
-                vec![
-                    Value::from(&id),
-                    Value::from(format!("AR-SO38-{}", &id.to_string()[24..])),
-                    Value::from(&customer),
-                    Value::Text(amount.to_string()),
-                    Value::Text(received.to_string()),
-                    Value::Text(unsettled.to_string()),
-                    Value::Text(status.to_string()),
-                ],
-            )
-            .await
-            .expect("插夹具应收");
+            vec![
+                Value::from(&id),
+                Value::from(format!("AR-SO38-{}", &id.to_string()[24..])),
+                Value::from(&customer),
+                Value::Text(amount.to_string()),
+                Value::Text(received.to_string()),
+                Value::Text(unsettled.to_string()),
+                Value::Text(status.to_string()),
+            ],
+        )
+        .await
+        .expect("插夹具应收");
         id
     }
 
@@ -892,10 +827,10 @@ mod tests {
         )
         .await;
         let _ = exec(
-                "DELETE FROM biz_sales_return WHERE customer_id = ?::uuid AND return_no LIKE 'SR-SO38-%'",
-                vec![Value::from(&customer)],
-            )
-            .await;
+            "DELETE FROM biz_sales_return WHERE customer_id = ?::uuid AND return_no LIKE 'SR-SO38-%'",
+            vec![Value::from(&customer)],
+        )
+        .await;
         let _ = exec(
             "DELETE FROM biz_customer WHERE id = ?::uuid",
             vec![Value::from(&customer)],
@@ -927,10 +862,7 @@ mod tests {
             .expect("同步占用");
         assert_eq!(synced.after, dec("1000"));
         assert!(synced.repaired);
-        assert_eq!(
-            stored(db(), customer).await.expect("读缓存"),
-            Some(dec("1000"))
-        );
+        assert_eq!(stored(db(), customer).await.expect("读缓存"), Some(dec("1000")));
 
         // 幂等：同一事件重放不产生第二条台账
         let again = sync(db(), customer, CAUSE_ORDER_OCCUPY, "SO38-T1")
@@ -1099,10 +1031,7 @@ mod tests {
         assert!(report.scanned >= 1);
         assert!(report.repaired >= 1, "重算必须发现漂移");
         assert!(
-            report
-                .lines
-                .iter()
-                .any(|line| line.starts_with("CR38-DRIFT")),
+            report.lines.iter().any(|line| line.starts_with("CR38-DRIFT")),
             "报告要指名哪个客户被修正：{:?}",
             report.lines
         );
@@ -1120,10 +1049,7 @@ mod tests {
                        FROM {LOG_TABLE} WHERE customer_id = ?::uuid AND cause = ? \
                       ORDER BY created_at DESC LIMIT 1"
                 ),
-                vec![
-                    Value::from(&customer),
-                    Value::Text(CAUSE_RECOMPUTE.to_string()),
-                ],
+                vec![Value::from(&customer), Value::Text(CAUSE_RECOMPUTE.to_string())],
             )
             .await
             .expect("查重算台账");
@@ -1136,10 +1062,7 @@ mod tests {
         // 再跑一次：已经一致，不再修正（幂等）
         let again = recompute_with(db(), "JOB").await.expect("二次重算");
         assert!(
-            !again
-                .lines
-                .iter()
-                .any(|line| line.starts_with("CR38-DRIFT")),
+            !again.lines.iter().any(|line| line.starts_with("CR38-DRIFT")),
             "一致后不该再报这条客户"
         );
         teardown(customer).await;

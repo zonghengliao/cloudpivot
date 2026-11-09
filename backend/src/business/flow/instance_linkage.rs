@@ -193,11 +193,7 @@ fn draft_of(instance: &flow_model::InstanceRow, status: &str) -> notice::NoticeD
 /// # 失败
 ///
 /// 永不返回 `Err`：审批已提交，配置 / 引擎问题只记 WARN，不把审批接口变成 500。
-pub async fn fire_after_commit(
-    instance_id: Option<Uuid>,
-    status: &str,
-    operator: Option<Uuid>,
-) -> usize {
+pub async fn fire_after_commit(instance_id: Option<Uuid>, status: &str, operator: Option<Uuid>) -> usize {
     let Some(status) = canonical_status(status) else {
         return 0;
     };
@@ -249,9 +245,7 @@ pub async fn fire_after_commit(
     .with_people(None, Some(instance.initiator_id), None)
     .with_notice(draft_of(&instance, status));
 
-    let run = match linkage::engine::run_excluding(db(), &ctx, spec::FLOW_INSTANCE_EXCLUDED_ACTIONS)
-        .await
-    {
+    let run = match linkage::engine::run_excluding(db(), &ctx, spec::FLOW_INSTANCE_EXCLUDED_ACTIONS).await {
         Ok(run) => run,
         Err(error) => {
             // 关键动作失败才会到这里；本触发点在配置期已禁止全部 InTx 动作，
@@ -309,8 +303,7 @@ mod tests {
     /// 就会造出「能保存、能启用、永远不触发」的规则（P1-FIX-5C 的病）。
     #[test]
     fn statuses_match_fired_verdicts() {
-        let decl =
-            spec::trigger_spec(spec::TRIGGER_FLOW_INSTANCE).expect("FLOW_INSTANCE 必须在接线表里");
+        let decl = spec::trigger_spec(spec::TRIGGER_FLOW_INSTANCE).expect("FLOW_INSTANCE 必须在接线表里");
         let labels: Vec<&str> = decl.status_labels.iter().map(|(code, _)| *code).collect();
         assert_eq!(
             labels, TERMINAL_STATUSES,
@@ -356,11 +349,7 @@ mod tests {
         assert_eq!(a, b, "状态大小写不能改变幂等键");
         assert_eq!(a, notice_key(instance, "APPROVED"), "重放必须同一个键");
         assert_ne!(a, notice_key(instance, "REJECTED"), "不同结论必须不同键");
-        assert_ne!(
-            a,
-            notice_key(Uuid::now_v7(), "APPROVED"),
-            "不同实例必须不同键"
-        );
+        assert_ne!(a, notice_key(Uuid::now_v7(), "APPROVED"), "不同实例必须不同键");
         assert!(a.starts_with("LNK:FLOW_INSTANCE:APPROVED:"));
     }
 
@@ -400,10 +389,7 @@ mod tests {
             }
         }
         // 两个已接管的 InTx 动作必须确实被禁（配置期 + 运行时各一道）
-        for code in [
-            spec::ACTION_GENERATE_VOUCHER,
-            spec::ACTION_UPDATE_RECEIVED_QTY,
-        ] {
+        for code in [spec::ACTION_GENERATE_VOUCHER, spec::ACTION_UPDATE_RECEIVED_QTY] {
             assert!(
                 spec::FLOW_INSTANCE_EXCLUDED_ACTIONS.contains(&code),
                 "运行时排除清单漏了 {code}：它与业务桥的专用实现重复落账"
@@ -425,18 +411,14 @@ mod tests {
     /// 配置期禁令必须给出**说人话的理由**（配置页 / 保存接口都读这一份文案）。
     #[test]
     fn forbidden_reason_is_human_readable() {
-        let reason = spec::forbidden_action_reason(
-            spec::TRIGGER_FLOW_INSTANCE,
-            spec::ACTION_GENERATE_VOUCHER,
-        )
-        .expect("FLOW_INSTANCE + GENERATE_VOUCHER 必须被禁");
+        let reason = spec::forbidden_action_reason(spec::TRIGGER_FLOW_INSTANCE, spec::ACTION_GENERATE_VOUCHER)
+            .expect("FLOW_INSTANCE + GENERATE_VOUCHER 必须被禁");
         assert!(
             reason.contains("两遍") && reason.contains("凭证"),
             "理由要点明「同一笔账落两遍」并给出后果：{reason}"
         );
         assert!(
-            spec::forbidden_action_reason(spec::TRIGGER_FLOW_INSTANCE, spec::ACTION_SEND_NOTICE)
-                .is_none(),
+            spec::forbidden_action_reason(spec::TRIGGER_FLOW_INSTANCE, spec::ACTION_SEND_NOTICE).is_none(),
             "SEND_NOTICE 不能被禁"
         );
         assert!(

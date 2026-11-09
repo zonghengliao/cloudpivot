@@ -283,14 +283,7 @@ pub async fn spawn(
     // ⑦ 协作人（其余解析出来的人）：`biz_task_member` 已存在且 `ON CONFLICT DO NOTHING`。
     let mut member_count = 0usize;
     for candidate in &members {
-        task_model::add_member(
-            ex,
-            task_id,
-            candidate.user_id,
-            "COLLABORATOR",
-            instance.initiator_id,
-        )
-        .await?;
+        task_model::add_member(ex, task_id, candidate.user_id, "COLLABORATOR", instance.initiator_id).await?;
         member_count += 1;
     }
 
@@ -307,10 +300,7 @@ pub async fn spawn(
     });
     let record = changelog::record(
         ex,
-        &ChangeCtx::api(
-            Some(instance.initiator_id),
-            instance.initiator_name.as_deref(),
-        ),
+        &ChangeCtx::api(Some(instance.initiator_id), instance.initiator_name.as_deref()),
         ChangeTarget::of(
             "biz_task",
             task_id.to_string(),
@@ -348,10 +338,7 @@ pub async fn spawn(
 }
 
 /// 渲染标题（**严格模式**：缺变量即失败，不静默留空）。
-fn render_title(
-    vars: &template_vars::TemplateVars,
-    cfg: &TaskNodeConfig,
-) -> std::result::Result<String, ApiError> {
+fn render_title(vars: &template_vars::TemplateVars, cfg: &TaskNodeConfig) -> std::result::Result<String, ApiError> {
     let title = render::render_paths(&cfg.title_template, &vars.dotted, ContentFormat::Text)?;
     let chars = title.chars().count();
     if chars > node_config::MAX_TITLE_TEMPLATE_CHARS {
@@ -368,10 +355,7 @@ fn render_title(
 }
 
 /// 渲染描述（长度上限 8000 字符）。
-fn render_description(
-    vars: &template_vars::TemplateVars,
-    template: &str,
-) -> std::result::Result<String, ApiError> {
+fn render_description(vars: &template_vars::TemplateVars, template: &str) -> std::result::Result<String, ApiError> {
     let text = render::render_paths(template, &vars.dotted, ContentFormat::Text)?;
     let chars = text.chars().count();
     if chars > node_config::MAX_DESCRIPTION_TEMPLATE_CHARS {
@@ -417,11 +401,7 @@ pub fn compute_due(due: &DueConfig, form_data: &Json, now: chrono::DateTime<Utc>
     let today = cst_today(now);
     match due.mode {
         DueMode::Absolute => {
-            let date = due
-                .date
-                .as_deref()
-                .and_then(parse_iso_date)
-                .unwrap_or(today);
+            let date = due.date.as_deref().and_then(parse_iso_date).unwrap_or(today);
             if date < today {
                 tracing::warn!(
                     date = %date,
@@ -553,12 +533,7 @@ pub fn cst_today(now: chrono::DateTime<Utc>) -> NaiveDate {
 
 /// 幂等前置查询：同一实例 + 同一节点 + 同一轮是否已有未软删的任务。
 // SCOPE-EXEMPT: 事务内幂等判重（按 flow_instance_id + node_key + round 取已有任务 id，LIMIT 1）；任务由流程引擎在审批节点上生成，没有请求操作人可注入数据范围；调用 task_node.rs:121 / :256，均在同一事务 ex 上。
-async fn find_existing(
-    ex: &Transaction,
-    instance_id: Uuid,
-    node_key: &str,
-    round: i32,
-) -> DbResult<Option<Uuid>> {
+async fn find_existing(ex: &Transaction, instance_id: Uuid, node_key: &str, round: i32) -> DbResult<Option<Uuid>> {
     let rows = ex
         .find_with_params(
             "SELECT id FROM biz_task \
@@ -758,10 +733,7 @@ mod tests {
             sunday(),
         );
         // 09:00 CST + 6h = 15:00 CST，仍是同一天
-        assert_eq!(
-            hour,
-            NaiveDate::from_ymd_opt(2026, 11, 1).expect("合法日期")
-        );
+        assert_eq!(hour, NaiveDate::from_ymd_opt(2026, 11, 1).expect("合法日期"));
         let day = compute_due(
             &due(DueMode::Relative, Some(3), Some(DueUnit::Day), None, None),
             &row.form_data,
@@ -769,20 +741,11 @@ mod tests {
         );
         assert_eq!(day, NaiveDate::from_ymd_opt(2026, 11, 4).expect("合法日期"));
         let workday = compute_due(
-            &due(
-                DueMode::Relative,
-                Some(3),
-                Some(DueUnit::Workday),
-                None,
-                None,
-            ),
+            &due(DueMode::Relative, Some(3), Some(DueUnit::Workday), None, None),
             &row.form_data,
             sunday(),
         );
-        assert_eq!(
-            workday,
-            NaiveDate::from_ymd_opt(2026, 11, 4).expect("合法日期")
-        );
+        assert_eq!(workday, NaiveDate::from_ymd_opt(2026, 11, 4).expect("合法日期"));
     }
 
     /// ABSOLUTE 已过期 → 落到当天（不报错，只 WARN，设计 §8.4）。
@@ -794,10 +757,7 @@ mod tests {
             &row.form_data,
             sunday(),
         );
-        assert_eq!(
-            date,
-            NaiveDate::from_ymd_opt(2026, 11, 1).expect("合法日期")
-        );
+        assert_eq!(date, NaiveDate::from_ymd_opt(2026, 11, 1).expect("合法日期"));
     }
 
     /// FIELD 从表单取日期；取不到 → 当天。
@@ -809,10 +769,7 @@ mod tests {
             &row.form_data,
             sunday(),
         );
-        assert_eq!(
-            date,
-            NaiveDate::from_ymd_opt(2026, 11, 15).expect("合法日期")
-        );
+        assert_eq!(date, NaiveDate::from_ymd_opt(2026, 11, 15).expect("合法日期"));
 
         let empty = instance(json!({}));
         let fallback = compute_due(
@@ -820,9 +777,6 @@ mod tests {
             &empty.form_data,
             sunday(),
         );
-        assert_eq!(
-            fallback,
-            NaiveDate::from_ymd_opt(2026, 11, 1).expect("合法日期")
-        );
+        assert_eq!(fallback, NaiveDate::from_ymd_opt(2026, 11, 1).expect("合法日期"));
     }
 }

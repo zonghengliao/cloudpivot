@@ -237,11 +237,8 @@ async fn make_asset_named(creator: Uuid, prefix: &str, name: &str) -> (Uuid, Str
     let spec = asset_dto::validate_create(&req).expect("夹具建卡请求必须通过校验");
     let id = Uuid::now_v7();
     let asset_no = format!("{prefix}-{}", &id.to_string()[..8]);
-    let (residual, base, monthly) = asset_dto::derive_amounts(
-        spec.original_value,
-        category.salvage_rate,
-        category.useful_life_months,
-    );
+    let (residual, base, monthly) =
+        asset_dto::derive_amounts(spec.original_value, category.salvage_rate, category.useful_life_months);
     asset_model::asset_insert(
         db(),
         id,
@@ -439,12 +436,7 @@ async fn lnk09_disposal_triggers_disposed_notice() {
     };
     let (asset_id, asset_no) = make_asset(user).await;
     let instance = seed_approved_instance(asset_id, &asset_no, user).await;
-    add_rule(
-        asset_dto::STATUS_DISPOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::STATUS_DISPOSED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     let executed = asset_bridge::on_disposal_settled(Some(instance), "APPROVED").await;
     assert_eq!(
@@ -480,12 +472,7 @@ async fn lnk09_repeat_disposal_does_not_trigger_twice() {
     };
     let (asset_id, asset_no) = make_asset(user).await;
     let first = seed_approved_instance(asset_id, &asset_no, user).await;
-    add_rule(
-        asset_dto::STATUS_DISPOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::STATUS_DISPOSED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     assert_eq!(
         asset_bridge::on_disposal_settled(Some(first), "APPROVED").await,
@@ -538,12 +525,7 @@ async fn lnk09_cancel_disposal_triggers_restore_notice() {
     let blue = disposal_vouchers_of(asset_id).await;
     assert!(blue >= 1, "前置处置必须出凭证");
 
-    add_rule(
-        asset_dto::STATUS_IN_USE,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::STATUS_IN_USE, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
     // 处置不该触发 IN_USE 上的规则（触发点按**变更后**的状态匹配）
     assert_eq!(
         notices_of(asset_dto::STATUS_IN_USE, asset_id).await,
@@ -592,12 +574,7 @@ async fn lnk09_rolled_back_tx_never_sends_notice() {
         return;
     };
     let (asset_id, asset_no) = make_asset(user).await;
-    add_rule(
-        asset_dto::STATUS_DISPOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::STATUS_DISPOSED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
 
     // ---- ① 事务内：通知只在 deferred 里 ----
     let tx = db().begin().await.expect("开事务");
@@ -676,12 +653,7 @@ async fn lnk09_excluded_voucher_actions_never_run() {
     };
     let (asset_id, asset_no) = make_asset(user).await;
     let instance = seed_approved_instance(asset_id, &asset_no, user).await;
-    add_rule(
-        asset_dto::STATUS_DISPOSED,
-        spec::ACTION_SEND_NOTICE,
-        NOTICE_CREATOR,
-    )
-    .await;
+    add_rule(asset_dto::STATUS_DISPOSED, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
     add_rule(
         asset_dto::STATUS_DISPOSED,
         spec::ACTION_GENERATE_VOUCHER,
@@ -699,10 +671,9 @@ async fn lnk09_excluded_voucher_actions_never_run() {
     );
     let tx = db().begin().await.expect("开事务");
     let without_exclusion = linkage::engine::run(&tx, &ctx).await.expect("跑引擎");
-    let with_exclusion =
-        linkage::engine::run_excluding(&tx, &ctx, spec::FIXED_ASSET_EXCLUDED_ACTIONS)
-            .await
-            .expect("跑引擎（带排除清单）");
+    let with_exclusion = linkage::engine::run_excluding(&tx, &ctx, spec::FIXED_ASSET_EXCLUDED_ACTIONS)
+        .await
+        .expect("跑引擎（带排除清单）");
     tx.rollback().await.expect("回滚");
     assert!(
         without_exclusion
@@ -896,28 +867,18 @@ async fn st02_idle_triggers_once() {
     let logs = status_logs_of(asset_id).await;
     assert_eq!(
         logs,
-        vec![(
-            asset_dto::STATUS_IN_USE.to_string(),
-            asset_dto::STATUS_IDLE.to_string()
-        )],
+        vec![(asset_dto::STATUS_IN_USE.to_string(), asset_dto::STATUS_IDLE.to_string())],
         "状态日志必须恰好一行 IN_USE → IDLE：{logs:?}"
     );
 
     let changes = changes_of(asset_id).await;
     assert_eq!(changes.len(), 1, "停用必须恰好写一行变动留痕：{asset_no}");
     let row = &changes[0];
-    assert_eq!(
-        row.change_type,
-        asset_dto::CHANGE_IDLE,
-        "停用的变动类型是 IDLE"
-    );
+    assert_eq!(row.change_type, asset_dto::CHANGE_IDLE, "停用的变动类型是 IDLE");
     assert_eq!(row.from_status.as_deref(), Some(asset_dto::STATUS_IN_USE));
     assert_eq!(row.to_status.as_deref(), Some(asset_dto::STATUS_IDLE));
     assert_eq!(row.reason, reason, "原因必须原样落库（内控留痕）");
-    assert!(
-        row.people_null,
-        "停用变动的是状态，不是部门 / 使用人：四组必须全 NULL"
-    );
+    assert!(row.people_null, "停用变动的是状态，不是部门 / 使用人：四组必须全 NULL");
 
     assert_eq!(
         notices_of(asset_dto::STATUS_IDLE, asset_id).await,
@@ -946,14 +907,9 @@ async fn st02_enable_triggers_once() {
         NOTICE_CREATOR,
     )
     .await;
-    status_change(
-        user,
-        asset_id,
-        asset_dto::STATUS_IDLE,
-        "先停用，便于验证启用",
-    )
-    .await
-    .unwrap_or_else(|err| panic!("前置停用失败：{} {}", err.code, err.msg));
+    status_change(user, asset_id, asset_dto::STATUS_IDLE, "先停用，便于验证启用")
+        .await
+        .unwrap_or_else(|err| panic!("前置停用失败：{} {}", err.code, err.msg));
     assert_eq!(
         notices_of(asset_dto::STATUS_IN_USE, asset_id).await,
         0,
@@ -972,11 +928,7 @@ async fn st02_enable_triggers_once() {
     assert_eq!(changes.len(), 2, "停用 + 启用 = 两行留痕：{asset_no}");
     assert_eq!(changes[0].change_type, asset_dto::CHANGE_IDLE);
     let enable = &changes[1];
-    assert_eq!(
-        enable.change_type,
-        asset_dto::CHANGE_ENABLE,
-        "启用的变动类型是 ENABLE"
-    );
+    assert_eq!(enable.change_type, asset_dto::CHANGE_ENABLE, "启用的变动类型是 ENABLE");
     assert_eq!(enable.from_status.as_deref(), Some(asset_dto::STATUS_IDLE));
     assert_eq!(enable.to_status.as_deref(), Some(asset_dto::STATUS_IN_USE));
     assert!(enable.people_null, "启用同样不动部门 / 使用人");
@@ -998,8 +950,7 @@ async fn st02_repeat_idle_conflicts() {
     let Some((_guard, user)) = setup().await else {
         return;
     };
-    let (asset_id, _asset_no) =
-        make_asset_named(user, ST02_ASSET_PREFIX, "ST02 重复停用夹具").await;
+    let (asset_id, _asset_no) = make_asset_named(user, ST02_ASSET_PREFIX, "ST02 重复停用夹具").await;
     add_rule_named(
         ST02_RULE_PREFIX,
         asset_dto::STATUS_IDLE,
@@ -1026,22 +977,14 @@ async fn st02_repeat_idle_conflicts() {
         "必须用 66046（66040 是「处置审批在跑」，会把排障指错方向）：{}",
         err.msg
     );
-    assert!(
-        err.msg.contains("闲置"),
-        "报文要点名当前状态的中文名：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("闲置"), "报文要点名当前状态的中文名：{}", err.msg);
 
     assert_eq!(
         status_of(asset_id).await.as_deref(),
         Some(asset_dto::STATUS_IDLE),
         "被拒的重复停用不许改坏状态"
     );
-    assert_eq!(
-        notices_total(asset_id).await,
-        notices_before,
-        "重复停用不许再发通知"
-    );
+    assert_eq!(notices_total(asset_id).await, notices_before, "重复停用不许再发通知");
     assert_eq!(
         changes_of(asset_id).await.len(),
         changes_before,
@@ -1062,8 +1005,7 @@ async fn st02_excluded_actions_not_run() {
     let Some((_guard, user)) = setup().await else {
         return;
     };
-    let (asset_id, _asset_no) =
-        make_asset_named(user, ST02_ASSET_PREFIX, "ST02 排除动作夹具").await;
+    let (asset_id, _asset_no) = make_asset_named(user, ST02_ASSET_PREFIX, "ST02 排除动作夹具").await;
     add_rule_named(
         ST02_RULE_PREFIX,
         asset_dto::STATUS_IDLE,
@@ -1089,10 +1031,9 @@ async fn st02_excluded_actions_not_run() {
     );
     let tx = db().begin().await.expect("开事务");
     let without_exclusion = linkage::engine::run(&tx, &ctx).await.expect("跑引擎");
-    let with_exclusion =
-        linkage::engine::run_excluding(&tx, &ctx, spec::FIXED_ASSET_EXCLUDED_ACTIONS)
-            .await
-            .expect("跑引擎（带排除清单）");
+    let with_exclusion = linkage::engine::run_excluding(&tx, &ctx, spec::FIXED_ASSET_EXCLUDED_ACTIONS)
+        .await
+        .expect("跑引擎（带排除清单）");
     tx.rollback().await.expect("回滚");
     assert!(
         without_exclusion
@@ -1142,13 +1083,7 @@ async fn st02_reversible_edges_notify_twice() {
     };
     let (asset_id, _asset_no) = make_asset_named(user, ST02_ASSET_PREFIX, "ST02 可逆边夹具").await;
     for status in [asset_dto::STATUS_IDLE, asset_dto::STATUS_IN_USE] {
-        add_rule_named(
-            ST02_RULE_PREFIX,
-            status,
-            spec::ACTION_SEND_NOTICE,
-            NOTICE_CREATOR,
-        )
-        .await;
+        add_rule_named(ST02_RULE_PREFIX, status, spec::ACTION_SEND_NOTICE, NOTICE_CREATOR).await;
     }
 
     for (target, reason) in [
@@ -1176,11 +1111,7 @@ async fn st02_reversible_edges_notify_twice() {
         2,
         "两次停用是两个不同事件（不同变动行），必须两条通知"
     );
-    assert_eq!(
-        notices_of(asset_dto::STATUS_IN_USE, asset_id).await,
-        1,
-        "启用一条"
-    );
+    assert_eq!(notices_of(asset_dto::STATUS_IN_USE, asset_id).await, 1, "启用一条");
     assert_eq!(
         changes_of(asset_id).await.len(),
         3,

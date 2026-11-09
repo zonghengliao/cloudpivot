@@ -42,9 +42,8 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::business::erp::model::{
-    AccountRow, DEFAULT_PAGE_SIZE, InventoryLocationRow, InventoryRow, InventoryTxnRow,
-    LocationRow, MaterialRow, PeriodRow, PurchaseOrderItemRow, PurchaseOrderRow, SeqRow,
-    SupplierRow, UnitRow, WarehouseRow,
+    AccountRow, DEFAULT_PAGE_SIZE, InventoryLocationRow, InventoryRow, InventoryTxnRow, LocationRow, MaterialRow,
+    PeriodRow, PurchaseOrderItemRow, PurchaseOrderRow, SeqRow, SupplierRow, UnitRow, WarehouseRow,
 };
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::shared::error_code;
@@ -54,14 +53,7 @@ use crate::shared::error_code;
 /// 仓库类型（`ck_biz_warehouse_type`）。
 pub const WAREHOUSE_TYPES: [&str; 5] = ["NORMAL", "RAW", "FINISHED", "SCRAP", "IN_TRANSIT"];
 /// 库位类型（`ck_biz_location_type`）。
-pub const LOCATION_TYPES: [&str; 6] = [
-    "STORAGE",
-    "PICKING",
-    "RECEIVING",
-    "SHIPPING",
-    "QUARANTINE",
-    "SCRAP",
-];
+pub const LOCATION_TYPES: [&str; 6] = ["STORAGE", "PICKING", "RECEIVING", "SHIPPING", "QUARANTINE", "SCRAP"];
 /// 物料类型 / 物料分类（`ck_biz_material_type`，ERP-S1 V0187 由 4 值扩到 7 值）。
 ///
 /// 对应关系：`RAW` 原材料 / `SEMI` 半成品 / `FINISHED` 产成品 / `PACKAGING` 包装物 /
@@ -126,11 +118,7 @@ fn require_text(value: &str, field: &str, max: usize) -> std::result::Result<(),
 }
 
 /// 选填文本：`None` / 空串放过；有值则限长（超长同样拒，避免被 `VARCHAR(n)` 静默截断）。
-fn check_optional_text(
-    value: Option<&str>,
-    field: &str,
-    max: usize,
-) -> std::result::Result<(), ApiError> {
+fn check_optional_text(value: Option<&str>, field: &str, max: usize) -> std::result::Result<(), ApiError> {
     match value.map(str::trim) {
         Some(text) if !text.is_empty() && text.chars().count() > max => Err(bad_request(format!(
             "{field} 最长 {max} 个字符（当前 {} 个）",
@@ -536,9 +524,7 @@ impl CreateWarehouseReq {
         }
         match (self.parent_id.is_some(), self.level) {
             (false, 1) | (true, 2..=3) => Ok(()),
-            (false, _) => Err(bad_request(
-                "顶级仓库（parent_id 为空）的 level 必须是 1".to_string(),
-            )),
+            (false, _) => Err(bad_request("顶级仓库（parent_id 为空）的 level 必须是 1".to_string())),
             (true, _) => Err(bad_request(
                 "有上级仓库时 level 必须是 2 或 3（总仓没有上级）".to_string(),
             )),
@@ -1340,11 +1326,7 @@ impl CreateSupplierReq {
         check_optional_text(self.address.as_deref(), "address", 255)?;
         check_optional_text(self.invoice_title.as_deref(), "invoice_title", 200)?;
         check_optional_text(self.invoice_bank_name.as_deref(), "invoice_bank_name", 200)?;
-        check_optional_text(
-            self.invoice_bank_account.as_deref(),
-            "invoice_bank_account",
-            64,
-        )?;
+        check_optional_text(self.invoice_bank_account.as_deref(), "invoice_bank_account", 64)?;
         if self.credit_days < 0 {
             return Err(bad_request(format!(
                 "credit_days 不能为负数（当前 {}）",
@@ -1420,9 +1402,7 @@ impl UpdateSupplierReq {
         if let Some(credit_days) = self.credit_days
             && credit_days < 0
         {
-            return Err(bad_request(format!(
-                "credit_days 不能为负数（当前 {credit_days}）"
-            )));
+            return Err(bad_request(format!("credit_days 不能为负数（当前 {credit_days}）")));
         }
         if let Some(credit_limit) = self.credit_limit {
             require_non_negative(credit_limit, "credit_limit")?;
@@ -1602,30 +1582,17 @@ impl CreateAccountReq {
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
         require_text(&self.account_code, "account_code", 30)?;
         require_text(&self.account_name, "account_name", 120)?;
-        require_one_of(
-            &self.account_category,
-            &ACCOUNT_CATEGORIES,
-            "account_category",
-        )?;
-        require_one_of(
-            &self.balance_direction,
-            &BALANCE_DIRECTIONS,
-            "balance_direction",
-        )?;
+        require_one_of(&self.account_category, &ACCOUNT_CATEGORIES, "account_category")?;
+        require_one_of(&self.balance_direction, &BALANCE_DIRECTIONS, "balance_direction")?;
         require_flag(self.status, "status")?;
         require_flag(self.is_leaf, "is_leaf")?;
         check_optional_text(self.aux_dimensions.as_deref(), "aux_dimensions", 120)?;
         if self.level < 1 {
-            return Err(bad_request(format!(
-                "level 必须 >= 1（当前 {}）",
-                self.level
-            )));
+            return Err(bad_request(format!("level 必须 >= 1（当前 {}）", self.level)));
         }
         match (self.parent_id.is_some(), self.level) {
             (false, 1) | (true, 2..=i16::MAX) => Ok(()),
-            (false, _) => Err(bad_request(
-                "一级科目（parent_id 为空）的 level 必须是 1".to_string(),
-            )),
+            (false, _) => Err(bad_request("一级科目（parent_id 为空）的 level 必须是 1".to_string())),
             (true, _) => Err(bad_request("有上级科目时 level 必须 >= 2".to_string())),
         }
     }
@@ -2010,10 +1977,7 @@ impl CreateSeqReq {
         require_one_of(&self.date_pattern, &DATE_PATTERNS, "date_pattern")?;
         check_optional_text(Some(&self.separator), "separator", 4)?;
         if self.step <= 0 {
-            return Err(bad_request(format!(
-                "step 必须大于 0（当前 {}）",
-                self.step
-            )));
+            return Err(bad_request(format!("step 必须大于 0（当前 {}）", self.step)));
         }
         require_flag(self.status, "status")
     }
@@ -2271,9 +2235,7 @@ impl UpdatePurchaseOrderReq {
         if let Some(credit_days) = self.credit_days
             && credit_days < 0
         {
-            return Err(bad_request(format!(
-                "credit_days 不能为负数（当前 {credit_days}）"
-            )));
+            return Err(bad_request(format!("credit_days 不能为负数（当前 {credit_days}）")));
         }
         Ok(())
     }
@@ -2364,9 +2326,7 @@ impl PurchaseOrderFilter {
         if let (Some(from), Some(to)) = (self.date_from, self.date_to)
             && from > to
         {
-            return Err(bad_request(format!(
-                "date_from（{from}）不能晚于 date_to（{to}）"
-            )));
+            return Err(bad_request(format!("date_from（{from}）不能晚于 date_to（{to}）")));
         }
         Ok(())
     }
@@ -2619,10 +2579,7 @@ impl CreatePurchaseOrderItemReq {
         require_text(&self.material_id, "material_id", 36)?;
         require_text(&self.unit_id, "unit_id", 36)?;
         if self.line_no < 1 {
-            return Err(bad_request(format!(
-                "line_no 必须 >= 1（当前 {}）",
-                self.line_no
-            )));
+            return Err(bad_request(format!("line_no 必须 >= 1（当前 {}）", self.line_no)));
         }
         require_positive(self.qty, "qty")?;
         require_non_negative(self.price, "price")?;
@@ -2809,11 +2766,7 @@ impl CreateInventoryReq {
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
         require_text(&self.material_id, "material_id", 36)?;
         require_text(&self.warehouse_id, "warehouse_id", 36)?;
-        for (value, field) in [
-            (self.qty, "qty"),
-            (self.avg_cost, "avg_cost"),
-            (self.amount, "amount"),
-        ] {
+        for (value, field) in [(self.qty, "qty"), (self.avg_cost, "avg_cost"), (self.amount, "amount")] {
             if let Some(value) = value {
                 require_non_negative(value, field)?;
             }
@@ -3157,10 +3110,7 @@ impl CreateInventoryTxnReq {
         require_text(&self.period_code, "period_code", 7)?;
         require_positive(self.qty, "qty")?;
         if self.line_no < 1 {
-            return Err(bad_request(format!(
-                "line_no 必须 >= 1（当前 {}）",
-                self.line_no
-            )));
+            return Err(bad_request(format!("line_no 必须 >= 1（当前 {}）", self.line_no)));
         }
         for (value, field) in [(self.unit_cost, "unit_cost"), (self.amount, "amount")] {
             if let Some(value) = value {
@@ -3223,9 +3173,7 @@ impl InventoryTxnFilter {
         if let (Some(from), Some(to)) = (self.date_from, self.date_to)
             && from > to
         {
-            return Err(bad_request(format!(
-                "date_from（{from}）不能晚于 date_to（{to}）"
-            )));
+            return Err(bad_request(format!("date_from（{from}）不能晚于 date_to（{to}）")));
         }
         Ok(())
     }
@@ -3354,11 +3302,7 @@ impl From<&InventoryTxnRow> for InventoryTxnRes {
 /// AUD-02：库存流水「操作人姓名」回填（`operator_id` → `operator_name`）。
 impl crate::business::shared::user_name::PersonNameRow for InventoryTxnRes {
     fn person_ids(&self, out: &mut Vec<Uuid>) {
-        if let Some(id) = self
-            .operator_id
-            .as_deref()
-            .and_then(|raw| Uuid::parse_str(raw).ok())
-        {
+        if let Some(id) = self.operator_id.as_deref().and_then(|raw| Uuid::parse_str(raw).ok()) {
             out.push(id);
         }
     }
@@ -3411,18 +3355,11 @@ mod tests {
         // 只有格式不合法的才拒（含空格/中文标点等字符集外的输入）。
         let mut material = material_req();
         material.material_code = Some(String::new());
-        assert!(
-            material.validate().is_ok(),
-            "物料编码留空 = 自动取号，不能拒"
-        );
+        assert!(material.validate().is_ok(), "物料编码留空 = 自动取号，不能拒");
         material.material_code = Some("M 001".to_string());
         let err = material.validate().expect_err("字符集外的编码必须被拒");
         assert_eq!(err.code, error_code::PARAM_INVALID);
-        assert!(
-            err.msg.contains("material_code"),
-            "文案要点名字段：{}",
-            err.msg
-        );
+        assert!(err.msg.contains("material_code"), "文案要点名字段：{}", err.msg);
     }
 
     /// Acceptance ⑤-2：超长名称被拒（与 `VARCHAR(50)` 同口径）。
@@ -3431,11 +3368,7 @@ mod tests {
         let mut req = unit_req();
         req.unit_name = "个".repeat(51);
         let err = req.validate().expect_err("超长名称必须被拒");
-        assert!(
-            err.msg.contains("unit_name") && err.msg.contains("50"),
-            "{}",
-            err.msg
-        );
+        assert!(err.msg.contains("unit_name") && err.msg.contains("50"), "{}", err.msg);
 
         // 边界：正好 50 个字符要放过（不多拒）
         let mut ok = unit_req();
@@ -3517,10 +3450,7 @@ mod tests {
         // ERP-S1（V0187）：分类由 4 值扩到 7 值，新增的三个必须能过校验
         for added in ["PACKAGING", "CONSUMABLE", "OFFICE"] {
             material.material_type = added.to_string();
-            assert!(
-                material.validate().is_ok(),
-                "{added} 是 V0187 新增的物料分类，必须合法"
-            );
+            assert!(material.validate().is_ok(), "{added} 是 V0187 新增的物料分类，必须合法");
         }
         material.material_type = "RAW".to_string();
         material.costing_method = "LIFO".to_string();
@@ -3532,10 +3462,7 @@ mod tests {
         material.tax_rate = Some(dec("13"));
         assert!(material.validate().is_ok(), "13 = 13%（百分数）");
         material.tax_rate = Some(dec("0.13"));
-        assert!(
-            material.validate().is_ok(),
-            "0.13 在 0–100 内（0.13%，归一在 handler）"
-        );
+        assert!(material.validate().is_ok(), "0.13 在 0–100 内（0.13%，归一在 handler）");
     }
 
     /// 成本法收敛（V0201 / ARCH-3 DC-10）：只有移动加权可选。
@@ -3553,9 +3480,7 @@ mod tests {
 
         for retired in ["FIFO", "STANDARD"] {
             material.costing_method = retired.to_string();
-            let err = material
-                .validate()
-                .expect_err("本版本只有移动加权，{retired} 必须被拒");
+            let err = material.validate().expect_err("本版本只有移动加权，{retired} 必须被拒");
             assert_eq!(err.status, 400, "成本法不合规是参数错误（400）");
             assert_eq!(err.code, error_code::PARAM_INVALID, "业务码 10001");
             assert!(
@@ -3654,18 +3579,15 @@ mod tests {
     #[test]
     fn update_absent_means_unchanged() {
         // 缺席：remark 保持 None（不改）
-        let absent: UpdateMaterialReq =
-            serde_json::from_str(r#"{"material_name":"新名字"}"#).unwrap();
+        let absent: UpdateMaterialReq = serde_json::from_str(r#"{"material_name":"新名字"}"#).unwrap();
         assert_eq!(absent.remark, None);
         assert_eq!(absent.spec, None);
         // 显式 null：Some(None)（清空）
-        let cleared: UpdateMaterialReq =
-            serde_json::from_str(r#"{"remark":null,"spec":null}"#).unwrap();
+        let cleared: UpdateMaterialReq = serde_json::from_str(r#"{"remark":null,"spec":null}"#).unwrap();
         assert_eq!(cleared.remark, Some(None));
         assert_eq!(cleared.spec, Some(None));
         // 有值：Some(Some(v))
-        let updated: UpdateMaterialReq =
-            serde_json::from_str(r#"{"remark":"有值","spec":"M8"}"#).unwrap();
+        let updated: UpdateMaterialReq = serde_json::from_str(r#"{"remark":"有值","spec":"M8"}"#).unwrap();
         assert_eq!(updated.remark, Some(Some("有值".to_string())));
         assert_eq!(updated.spec, Some(Some("M8".to_string())));
     }
@@ -3709,10 +3631,7 @@ mod tests {
         assert!(txn.validate().is_err(), "未知方向被拒");
         txn.txn_type = "OUT".to_string();
         txn.qty = dec("-5");
-        assert!(
-            txn.validate().is_err(),
-            "流水数量必须为正（方向由 txn_type 表达）"
-        );
+        assert!(txn.validate().is_err(), "流水数量必须为正（方向由 txn_type 表达）");
     }
 
     // ---------- 夹具 ----------
@@ -3789,10 +3708,7 @@ mod tests {
             precision: Some(9),
             ..Default::default()
         };
-        assert!(
-            update.validate().is_err(),
-            "编辑时的 precision 越界也要 400"
-        );
+        assert!(update.validate().is_err(), "编辑时的 precision 越界也要 400");
         let update = UpdateUnitReq {
             precision: Some(3),
             ..Default::default()

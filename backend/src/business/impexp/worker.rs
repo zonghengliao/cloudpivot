@@ -130,25 +130,13 @@ impl WorkerOptions {
             // 在任意 cwd 下打开（相对路径要求进程 cwd 永不变化，运维重启换目录就全断）
             export_dir: absolute_dir(&Path::new(nik::upload_path()).join("impexp").join("export")),
             ttl_seconds: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_TTL_SECONDS", DEFAULT_TTL_SECONDS),
-            max_attempts: env_i64(
-                "CLOUDPIVOT_IMPEXP_EXPORT_MAX_ATTEMPTS",
-                i64::from(DEFAULT_MAX_ATTEMPTS),
-            )
-            .clamp(1, i16::MAX as i64) as i16,
-            backoff_seconds: env_i64(
-                "CLOUDPIVOT_IMPEXP_EXPORT_BACKOFF_SECONDS",
-                DEFAULT_BACKOFF_SECONDS,
-            ),
-            batch_size: env_i64(
-                "CLOUDPIVOT_IMPEXP_EXPORT_BATCH_SIZE",
-                DEFAULT_BATCH_SIZE as i64,
-            )
-            .clamp(1, 50_000) as usize,
-            claim_limit: env_i64(
-                "CLOUDPIVOT_IMPEXP_EXPORT_CLAIM_LIMIT",
-                DEFAULT_CLAIM_LIMIT as i64,
-            )
-            .clamp(1, 32) as usize,
+            max_attempts: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_MAX_ATTEMPTS", i64::from(DEFAULT_MAX_ATTEMPTS))
+                .clamp(1, i16::MAX as i64) as i16,
+            backoff_seconds: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_BACKOFF_SECONDS", DEFAULT_BACKOFF_SECONDS),
+            batch_size: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_BATCH_SIZE", DEFAULT_BATCH_SIZE as i64).clamp(1, 50_000)
+                as usize,
+            claim_limit: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_CLAIM_LIMIT", DEFAULT_CLAIM_LIMIT as i64).clamp(1, 32)
+                as usize,
             max_rows: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_MAX_ROWS", DEFAULT_MAX_ROWS).max(1),
         }
     }
@@ -223,26 +211,21 @@ fn default_worker_id() -> String {
 /// 追加注册」会被随后的 `reload()` 清空。因此注册点固定在
 /// [`crate::task::Scheduler::register_builtin`]。
 pub fn register_builtin(scheduler: &Scheduler) {
-    scheduler.register_cron(
-        TASK_NAME,
-        TASK_CRON,
-        "系统任务：导入导出任务执行",
-        || {
-            tokio::spawn(async {
-                match run_once().await {
-                    Ok(report) => {
-                        // 没有任务可认领时不刷日志（每 5 秒一条会把日志冲爆）
-                        if report.claimed > 0 {
-                            tracing::info!(summary = %report.summary(), "导出任务执行完成");
-                        } else {
-                            tracing::debug!("无待执行导出任务");
-                        }
+    scheduler.register_cron(TASK_NAME, TASK_CRON, "系统任务：导入导出任务执行", || {
+        tokio::spawn(async {
+            match run_once().await {
+                Ok(report) => {
+                    // 没有任务可认领时不刷日志（每 5 秒一条会把日志冲爆）
+                    if report.claimed > 0 {
+                        tracing::info!(summary = %report.summary(), "导出任务执行完成");
+                    } else {
+                        tracing::debug!("无待执行导出任务");
                     }
-                    Err(error) => tracing::error!(error = %error, "导出任务执行失败"),
                 }
-            })
-        },
-    );
+                Err(error) => tracing::error!(error = %error, "导出任务执行失败"),
+            }
+        })
+    });
     tracing::info!(
         task = TASK_NAME,
         cron = TASK_CRON,
@@ -452,14 +435,11 @@ async fn export_one(task: &ExportTask, options: &WorkerOptions) -> Outcome {
                     file: file_path,
                 },
                 // 产物已写好但库里没落成：按可重试失败处理（下次会重新生成同一份文件）
-                Err(error) => {
-                    fail_and_retry(task, options, &format!("回写导出结果失败: {error}")).await
-                }
+                Err(error) => fail_and_retry(task, options, &format!("回写导出结果失败: {error}")).await,
             }
         }
         Err(ExportFailure::Canceled) => {
-            if let Err(error) =
-                model::mark_export_canceled(&task.id, "用户取消（已在批次边界中止）").await
+            if let Err(error) = model::mark_export_canceled(&task.id, "用户取消（已在批次边界中止）").await
             {
                 tracing::error!(task_id = %task.id, error = %error, "回写取消状态失败");
             }
@@ -509,18 +489,13 @@ async fn fail_and_retry(task: &ExportTask, options: &WorkerOptions, reason: &str
 /// - [`ExportFailure::Canceled`]：分块边界读到取消标记；
 /// - [`ExportFailure::Terminal`]：定义未注册 / 0 行 / 超上限；
 /// - [`ExportFailure::Retryable`]：取数、字典装载、写盘失败。
-async fn do_export(
-    task: &ExportTask,
-    options: &WorkerOptions,
-) -> std::result::Result<ExportArtifact, ExportFailure> {
-    let definition = global_registry()
-        .export_definition(&task.biz_type)
-        .ok_or_else(|| {
-            ExportFailure::Terminal(format!(
-                "导出定义「{}」未注册或已停用，无法执行（请确认对应模块已启动）",
-                task.biz_type
-            ))
-        })?;
+async fn do_export(task: &ExportTask, options: &WorkerOptions) -> std::result::Result<ExportArtifact, ExportFailure> {
+    let definition = global_registry().export_definition(&task.biz_type).ok_or_else(|| {
+        ExportFailure::Terminal(format!(
+            "导出定义「{}」未注册或已停用，无法执行（请确认对应模块已启动）",
+            task.biz_type
+        ))
+    })?;
 
     let mut filter = filter_from_params(task.query_params.as_deref());
     // 卡 t_93cba3f4：快照里的状态条件可能已经与当前定义不符（码被下线 / 定义改版），
@@ -536,9 +511,11 @@ async fn do_export(
     // 并且**每次执行都重新解析**规则——任务可能跑 10 分钟，期间管理员可能收紧了规则；
     // 用当前规则宁可在任务完成前改变结果，也不要出一份「按旧规则」的明文文件。
     let principal = match task.create_by {
-        Some(user_id) => Some(principal::resolve(&user_id).await.map_err(|error| {
-            ExportFailure::Retryable(format!("解析发起人数据范围失败: {error}"))
-        })?),
+        Some(user_id) => Some(
+            principal::resolve(&user_id)
+                .await
+                .map_err(|error| ExportFailure::Retryable(format!("解析发起人数据范围失败: {error}")))?,
+        ),
         None => None,
     };
     let mask = crate::business::masking::resolve(principal.as_ref(), None)
@@ -570,9 +547,10 @@ async fn do_export(
         if let ColumnKind::Dict(code) = column.kind
             && !dicts.contains_key(code)
         {
-            let translation = global_dicts().get(code).await.map_err(|error| {
-                ExportFailure::Retryable(format!("装载字典 {code} 失败: {error}"))
-            })?;
+            let translation = global_dicts()
+                .get(code)
+                .await
+                .map_err(|error| ExportFailure::Retryable(format!("装载字典 {code} 失败: {error}")))?;
             dicts.insert(code.to_string(), translation.as_ref().clone());
         }
     }
@@ -635,12 +613,11 @@ async fn do_export(
         .iter()
         .map(|column| column.header)
         .collect::<Vec<_>>();
-    let formatted = engine::format_export_rows(definition.columns(), &rows, &dicts, &mask)
-        .map_err(|error| {
-            // 脱敏失败 → 终止任务（Terminal）。重试没有意义（规则不会自己变好），
-            // 而且**绝不允许**退回明文产物。
-            ExportFailure::Terminal(error.message())
-        })?;
+    let formatted = engine::format_export_rows(definition.columns(), &rows, &dicts, &mask).map_err(|error| {
+        // 脱敏失败 → 终止任务（Terminal）。重试没有意义（规则不会自己变好），
+        // 而且**绝不允许**退回明文产物。
+        ExportFailure::Terminal(error.message())
+    })?;
     let format = task.format.to_ascii_uppercase();
     let bytes = match format.as_str() {
         "CSV" => build_csv(&headers, &formatted),
@@ -675,9 +652,7 @@ async fn is_cancel_requested(task: &ExportTask) -> std::result::Result<bool, Exp
     match model::export_cancel_requested(&task.id).await {
         Ok(Some(flag)) => Ok(flag),
         Ok(None) => Ok(true),
-        Err(error) => Err(ExportFailure::Retryable(format!(
-            "读取取消标记失败: {error}"
-        ))),
+        Err(error) => Err(ExportFailure::Retryable(format!("读取取消标记失败: {error}"))),
     }
 }
 
@@ -836,15 +811,8 @@ fn truncate_chars(value: &str, limit: usize) -> String {
 ///
 /// 可直接落盘的字节流。
 pub fn build_csv(headers: &[&str], rows: &[HashMap<String, String>]) -> Vec<u8> {
-    let mut out =
-        String::with_capacity(rows.len().saturating_mul(headers.len()).saturating_mul(16));
-    out.push_str(
-        &headers
-            .iter()
-            .map(|item| csv_field(item))
-            .collect::<Vec<_>>()
-            .join(","),
-    );
+    let mut out = String::with_capacity(rows.len().saturating_mul(headers.len()).saturating_mul(16));
+    out.push_str(&headers.iter().map(|item| csv_field(item)).collect::<Vec<_>>().join(","));
     out.push_str("\r\n");
     for row in rows {
         let line = headers
@@ -979,10 +947,7 @@ mod tests {
         let bytes = build_csv(&headers, &[row]);
         assert!(bytes.starts_with(CSV_BOM), "缺 BOM");
         let text = String::from_utf8_lossy(&bytes[CSV_BOM.len()..]).to_string();
-        assert_eq!(
-            text, "B,A\r\n2,1\r\n",
-            "列顺序必须按定义而不是 HashMap 顺序"
-        );
+        assert_eq!(text, "B,A\r\n2,1\r\n", "列顺序必须按定义而不是 HashMap 顺序");
     }
 
     #[test]
@@ -1006,9 +971,7 @@ mod tests {
     fn filter_from_params_parses_status_code() {
         // 卡 t_93cba3f4：异步任务的快照必须带着文本状态码回来，
         // 否则 worker 执行时会「按无过滤」导全量（正是本卡的静默错导）
-        let filter = filter_from_params(Some(
-            "{\"keyword\":\"\",\"status\":null,\"status_code\":\" POSTED \"}",
-        ));
+        let filter = filter_from_params(Some("{\"keyword\":\"\",\"status\":null,\"status_code\":\" POSTED \"}"));
         assert_eq!(filter.status_code.as_deref(), Some("POSTED"));
         assert!(filter.keyword.is_none());
         assert!(filter.status.is_none());

@@ -155,8 +155,7 @@ impl StatementContext {
             total_amount_cn: amount_upper(total_amount_fen),
             sign_maker: "李四".to_string(),
             sign_checker: "王五".to_string(),
-            remark: "对账无误请于 7 个工作日内盖章回传；逾期视为确认。《合同》第 12 条、附件二……"
-                .to_string(),
+            remark: "对账无误请于 7 个工作日内盖章回传；逾期视为确认。《合同》第 12 条、附件二……".to_string(),
             engine: "Chromium · CDP printToPDF".to_string(),
         }
     }
@@ -176,8 +175,8 @@ impl StatementContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败（缺变量 / 语法错）。
 pub fn render_statement(ctx: &StatementContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("对账单上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("对账单上下文序列化失败：{error}")))?;
     tera()
         .render(STATEMENT_NAME, &context)
         .map_err(|error| PdfError::Template(format!("对账单模板渲染失败：{error}")))
@@ -367,11 +366,7 @@ impl OrderContext {
             doc_title: args.kind.title().to_string(),
             doc_kind_label: args.kind.label().to_string(),
             doc_no: args.doc_no,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             currency: if currency_code.is_empty() {
                 "CNY".to_string()
             } else {
@@ -382,11 +377,7 @@ impl OrderContext {
             } else {
                 format!("{currency_code} ")
             },
-            currency_cn: if is_cny {
-                "人民币".to_string()
-            } else {
-                String::new()
-            },
+            currency_cn: if is_cny { "人民币".to_string() } else { String::new() },
             items: args.items,
             row_count,
             total_qty: format_quantity(args.total_qty),
@@ -407,8 +398,8 @@ impl OrderContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败（缺变量 / 语法错）。
 pub fn render_order(ctx: &OrderContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("单据上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("单据上下文序列化失败：{error}")))?;
     tera()
         .render(ORDER_NAME, &context)
         .map_err(|error| PdfError::Template(format!("单据模板渲染失败：{error}")))
@@ -540,7 +531,8 @@ pub const REPORT_AMOUNT_NAME: &str = "report_amount.html";
 /// 卡面把「实盘数量／差异／备注 三栏留空供现场手写」定为验收①。
 /// 文案与列名分散在模板与单测里，改名时必然漏一处；抽成常量后，
 /// 模板渲染与单测断言引用同一份字符串。
-pub const STOCK_TAKE_BLANK_HINT: &str = "「实盘数量」「差异」「备注」三栏留空，由盘点人在现场手写（本表为现场盘点用表，不预印系统值）。";
+pub const STOCK_TAKE_BLANK_HINT: &str =
+    "「实盘数量」「差异」「备注」三栏留空，由盘点人在现场手写（本表为现场盘点用表，不预印系统值）。";
 
 /// 合同没有单独的「付款方式」列时打在 PDF 上的兜底文案。
 ///
@@ -557,8 +549,7 @@ pub const CONTRACT_BODY_EMPTY_HINT: &str =
     "本合同未在系统中录入条款正文；条款以双方签章的纸质合同为准（扫描件见下方附件清单）。";
 
 /// 合同没有关联附件时的提示。
-pub const CONTRACT_ATTACHMENT_EMPTY_HINT: &str =
-    "（暂无关联附件；如需归档请在合同详情页上传扫描件或补充协议）";
+pub const CONTRACT_ATTACHMENT_EMPTY_HINT: &str = "（暂无关联附件；如需归档请在合同详情页上传扫描件或补充协议）";
 
 /// 签署页的骑缝章提示（**措辞本身是条件式的**：多页才需要骑缝章）。
 ///
@@ -692,11 +683,7 @@ impl ContractContext {
             doc_label: "合同".to_string(),
             doc_no: args.doc_no,
             contract_name: args.contract_name,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             party_a_rows: args.party_a,
             party_b_rows: args.party_b,
             party_a_name: args.party_a_name,
@@ -711,11 +698,7 @@ impl ContractContext {
             } else {
                 format!("{currency_code} ")
             },
-            currency_cn: if is_cny {
-                "人民币".to_string()
-            } else {
-                String::new()
-            },
+            currency_cn: if is_cny { "人民币".to_string() } else { String::new() },
             amount: format_money(amount_fen),
             amount_cn: amount_upper(amount_fen),
             term_range: args.term_range,
@@ -739,8 +722,8 @@ impl ContractContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败（缺变量 / 语法错）。
 pub fn render_contract(ctx: &ContractContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("合同上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("合同上下文序列化失败：{error}")))?;
     tera()
         .render(CONTRACT_NAME, &context)
         .map_err(|error| PdfError::Template(format!("合同模板渲染失败：{error}")))
@@ -1065,11 +1048,7 @@ impl StockContext {
             doc_title: args.kind.title().to_string(),
             doc_label: args.kind.label().to_string(),
             doc_no: args.doc_no,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             has_serials: !args.serial_groups.is_empty(),
             serial_groups: args.serial_groups,
             row_count: format_int(args.items.len() as i64),
@@ -1099,11 +1078,7 @@ impl StockContext {
             } else {
                 format!("{currency_code} ")
             },
-            currency_cn: if is_cny {
-                "人民币".to_string()
-            } else {
-                String::new()
-            },
+            currency_cn: if is_cny { "人民币".to_string() } else { String::new() },
             reason: args.reason,
             remark: args.remark,
             sign_caps: args.kind.sign_caps(),
@@ -1148,10 +1123,7 @@ fn doc_pdf_opts(footer: String, filename: Option<String>) -> crate::business::pd
 }
 
 /// 合同 PDF 的渲染参数（A4 纵向 + 页脚：页码 + 骑缝章提示位）。
-pub fn contract_pdf_opts(
-    doc_no: &str,
-    filename: Option<String>,
-) -> crate::business::pdf::dto::PdfOpts {
+pub fn contract_pdf_opts(doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
     doc_pdf_opts(contract_footer(doc_no), filename)
 }
 
@@ -1249,11 +1221,7 @@ pub fn sample_stock(kind: StockDocKind, rows: u32) -> StockContext {
         items.push(StockItem {
             seq: index + 1,
             material_code: format!("MAT-{:05}", index % 97 + 1),
-            material_name: format!(
-                "{}Φ{}mm 不锈钢法兰",
-                names[(index % 4) as usize],
-                index % 90 + 10
-            ),
+            material_name: format!("{}Φ{}mm 不锈钢法兰", names[(index % 4) as usize], index % 90 + 10),
             spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
             unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
             qty: format_quantity(qty),
@@ -1442,11 +1410,7 @@ impl TransferContext {
             doc_title: "调 拨 单".to_string(),
             doc_label: "调拨单".to_string(),
             doc_no: args.doc_no,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             from_warehouse: args.from_warehouse,
             to_warehouse: args.to_warehouse,
             transit_warehouse: args.transit_warehouse.unwrap_or_default(),
@@ -1480,8 +1444,8 @@ impl TransferContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败。
 pub fn render_transfer(ctx: &TransferContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("调拨单上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("调拨单上下文序列化失败：{error}")))?;
     tera()
         .render(TRANSFER_NAME, &context)
         .map_err(|error| PdfError::Template(format!("调拨单模板渲染失败：{error}")))
@@ -1501,10 +1465,7 @@ pub fn transfer_footer(doc_no: &str) -> String {
 }
 
 /// 调拨单 PDF 的渲染参数（A4 纵向）。
-pub fn transfer_pdf_opts(
-    doc_no: &str,
-    filename: Option<String>,
-) -> crate::business::pdf::dto::PdfOpts {
+pub fn transfer_pdf_opts(doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
     doc_pdf_opts(transfer_footer(doc_no), filename)
 }
 
@@ -1523,11 +1484,7 @@ pub fn sample_transfer(rows: u32) -> TransferContext {
         items.push(TransferItem {
             seq: index + 1,
             material_code: format!("MAT-{:05}", index % 97 + 1),
-            material_name: format!(
-                "{}Φ{}mm 不锈钢法兰",
-                names[(index % 4) as usize],
-                index % 90 + 10
-            ),
+            material_name: format!("{}Φ{}mm 不锈钢法兰", names[(index % 4) as usize], index % 90 + 10),
             spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
             unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
             qty: format_quantity(qty),
@@ -1665,18 +1622,13 @@ impl StockTakeContext {
     /// 只有**库里已经有差异**（单据已过账 / 已录实盘）时才打印盘盈盘亏合计，
     /// 否则一张全空白的盘点表上出现「盘盈 0 / 盘亏 0」会让人误以为已经盘过。
     pub fn new(args: StockTakeContextArgs) -> Self {
-        let has_diff =
-            !args.gain_qty.is_zero() || !args.loss_qty.is_zero() || !args.diff_amount.is_zero();
+        let has_diff = !args.gain_qty.is_zero() || !args.loss_qty.is_zero() || !args.diff_amount.is_zero();
         Self {
             company: COMPANY_NAME.to_string(),
             doc_title: "盘 点 表".to_string(),
             doc_label: "盘点单".to_string(),
             doc_no: args.doc_no,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             row_count: format_int(args.items.len() as i64),
             items: args.items,
             total_book_qty: format_quantity(args.total_book_qty),
@@ -1712,8 +1664,8 @@ impl StockTakeContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败。
 pub fn render_stock_take(ctx: &StockTakeContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("盘点单上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("盘点单上下文序列化失败：{error}")))?;
     tera()
         .render(STOCK_TAKE_NAME, &context)
         .map_err(|error| PdfError::Template(format!("盘点单模板渲染失败：{error}")))
@@ -1733,10 +1685,7 @@ pub fn stock_take_footer(doc_no: &str) -> String {
 }
 
 /// 盘点单 PDF 的渲染参数（A4 纵向 —— 现场盘点必须能夹在写字板上）。
-pub fn stock_take_pdf_opts(
-    doc_no: &str,
-    filename: Option<String>,
-) -> crate::business::pdf::dto::PdfOpts {
+pub fn stock_take_pdf_opts(doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
     doc_pdf_opts(stock_take_footer(doc_no), filename)
 }
 
@@ -1751,11 +1700,7 @@ pub fn sample_stock_take(rows: u32) -> StockTakeContext {
         items.push(StockTakeItem {
             seq: index + 1,
             material_code: format!("MAT-{:05}", index % 97 + 1),
-            material_name: format!(
-                "{}Φ{}mm 不锈钢法兰",
-                names[(index % 4) as usize],
-                index % 90 + 10
-            ),
+            material_name: format!("{}Φ{}mm 不锈钢法兰", names[(index % 4) as usize], index % 90 + 10),
             spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
             unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
             location: format!("A-{:02}-{:02}", index % 6 + 1, index % 12 + 1),
@@ -1976,11 +1921,7 @@ impl ReturnContext {
             doc_title: args.kind.title().to_string(),
             doc_label: args.kind.label().to_string(),
             doc_no: args.doc_no,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             reason: args.reason,
             row_count: format_int(args.items.len() as i64),
             items: args.items,
@@ -2009,8 +1950,8 @@ impl ReturnContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败。
 pub fn render_return_doc(ctx: &ReturnContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("退货单上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("退货单上下文序列化失败：{error}")))?;
     tera()
         .render(RETURN_NAME, &context)
         .map_err(|error| PdfError::Template(format!("退货单模板渲染失败：{error}")))
@@ -2058,11 +1999,7 @@ pub fn sample_return(kind: ReturnDocKind, rows: u32) -> ReturnContext {
         items.push(ReturnItem {
             seq: index + 1,
             material_code: format!("MAT-{:05}", index % 97 + 1),
-            material_name: format!(
-                "{}Φ{}mm 不锈钢法兰",
-                names[(index % 4) as usize],
-                index % 90 + 10
-            ),
+            material_name: format!("{}Φ{}mm 不锈钢法兰", names[(index % 4) as usize], index % 90 + 10),
             spec: format!("DN{}/PN16", 50 + (index % 8) * 10),
             unit: ["件", "台", "套", "米"][(index % 4) as usize].to_string(),
             qty: format_quantity(qty),
@@ -2238,11 +2175,7 @@ impl ApprovalContext {
             doc_no: args.doc_no,
             status: args.status,
             status_kind: args.status_kind,
-            meta_rows: args
-                .meta
-                .chunks(3)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(3).map(<[OrderMetaField]>::to_vec).collect(),
             trace_count,
             degree_count,
             traces: args.traces,
@@ -2260,8 +2193,8 @@ impl ApprovalContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败。
 pub fn render_approval(ctx: &ApprovalContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("审批单上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("审批单上下文序列化失败：{error}")))?;
     tera()
         .render(APPROVAL_NAME, &context)
         .map_err(|error| PdfError::Template(format!("审批单模板渲染失败：{error}")))
@@ -2281,10 +2214,7 @@ pub fn approval_footer(doc_no: &str) -> String {
 }
 
 /// 审批单 PDF 的渲染参数（A4 纵向：轨迹 6 列 + 意见列吃剩余宽度）。
-pub fn approval_pdf_opts(
-    doc_no: &str,
-    filename: Option<String>,
-) -> crate::business::pdf::dto::PdfOpts {
+pub fn approval_pdf_opts(doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
     doc_pdf_opts(approval_footer(doc_no), filename)
 }
 
@@ -2505,11 +2435,7 @@ impl TaskContext {
             subject: args.subject,
             status: args.status,
             status_kind: args.status_kind,
-            meta_rows: args
-                .meta
-                .chunks(2)
-                .map(<[OrderMetaField]>::to_vec)
-                .collect(),
+            meta_rows: args.meta.chunks(2).map(<[OrderMetaField]>::to_vec).collect(),
             has_description: !args.description.trim().is_empty(),
             description: args.description,
             has_checklist: !args.checklist.is_empty(),
@@ -2528,8 +2454,8 @@ impl TaskContext {
 ///
 /// - [`PdfError::Template`]：模板渲染失败。
 pub fn render_task(ctx: &TaskContext) -> Result<String, PdfError> {
-    let context = Context::from_serialize(ctx)
-        .map_err(|error| PdfError::Template(format!("派工单上下文序列化失败：{error}")))?;
+    let context =
+        Context::from_serialize(ctx).map_err(|error| PdfError::Template(format!("派工单上下文序列化失败：{error}")))?;
     tera()
         .render(TASK_NAME, &context)
         .map_err(|error| PdfError::Template(format!("派工单模板渲染失败：{error}")))
@@ -3081,12 +3007,7 @@ pub struct AmountReportRow {
 
 impl AmountReportRow {
     /// 按行类型推出样式类（`kind` 与 `cls` 由同一处产生，模板不必写判断）。
-    pub fn styled(
-        code: impl Into<String>,
-        label: impl Into<String>,
-        kind: &str,
-        level: u8,
-    ) -> Self {
+    pub fn styled(code: impl Into<String>, label: impl Into<String>, kind: &str, level: u8) -> Self {
         let level_cls = match level {
             0 | 1 => "l1",
             2 => "l2",
@@ -3178,11 +3099,7 @@ pub fn report_footer(doc_label: &str, doc_no: &str) -> String {
 }
 
 /// 财务报表 PDF 的渲染参数（A4 纵向：与会计凭证、账簿装订同一尺寸）。
-pub fn report_pdf_opts(
-    doc_label: &str,
-    doc_no: &str,
-    filename: Option<String>,
-) -> crate::business::pdf::dto::PdfOpts {
+pub fn report_pdf_opts(doc_label: &str, doc_no: &str, filename: Option<String>) -> crate::business::pdf::dto::PdfOpts {
     let mut opts = doc_pdf_opts(report_footer(doc_label, doc_no), filename);
     // 6 列（资产负债表）要在 210mm 里排下，左右边距收到 8mm（模板 @page 同值）
     opts.margins.left_mm = 8.0;
@@ -3215,9 +3132,7 @@ pub fn sample_balance_report() -> BalanceReportContext {
     ];
     for index in 0..left.len().max(right.len()) {
         let cell = |source: &[(&str, &str)], index: usize| match source.get(index) {
-            Some((label, cls)) => {
-                ReportCell::new(*label, "1,234,567.89", "1,000,000.00").with_cls(cls)
-            }
+            Some((label, cls)) => ReportCell::new(*label, "1,234,567.89", "1,000,000.00").with_cls(cls),
             None => ReportCell::blank(),
         };
         rows.push(BalanceReportRow {
@@ -3264,13 +3179,11 @@ pub fn sample_amount_report(kind: AmountReportKind) -> AmountReportContext {
         AmountReportKind::CashFlow => ("现金流量表", "CASH_FLOW-2026-11", "现 金 流 量 表"),
     };
     let rows = vec![
-        AmountReportRow::styled("REVENUE", "一、营业收入", "section", 1)
-            .with_amounts("1,234,567.89", "9,876,543.21"),
+        AmountReportRow::styled("REVENUE", "一、营业收入", "section", 1).with_amounts("1,234,567.89", "9,876,543.21"),
         AmountReportRow::styled("COST_OF_SALES", "  减：营业成本", "line", 2)
             .with_amounts("800,000.00", "6,400,000.00"),
         AmountReportRow::styled("ADMIN_EXPENSE", "  管理费用", "line", 2).with_amounts("-", "-"),
-        AmountReportRow::styled("NET_PROFIT", "二、净利润", "total", 1)
-            .with_amounts("434,567.89", "3,476,543.21"),
+        AmountReportRow::styled("NET_PROFIT", "二、净利润", "total", 1).with_amounts("434,567.89", "3,476,543.21"),
     ];
     AmountReportContext {
         head: ReportHead {
@@ -3350,12 +3263,7 @@ mod tests {
             (10020, "壹佰元贰角整"),
         ];
         for (fen, expected) in cases {
-            assert_eq!(
-                amount_upper(fen),
-                expected,
-                "金额 {fen} 分（{}）",
-                format_money(fen)
-            );
+            assert_eq!(amount_upper(fen), expected, "金额 {fen} 分（{}）", format_money(fen));
         }
     }
 
@@ -3373,19 +3281,10 @@ mod tests {
         let html = render_statement(&ctx).expect("模板渲染必须成功");
 
         assert!(html.contains("<html lang=\"zh-CN\">"));
-        assert!(
-            html.contains("display: table-header-group"),
-            "表头重复规则必须在"
-        );
-        assert!(
-            html.contains("break-inside: avoid"),
-            "合计/签字栏防断裂规则必须在"
-        );
+        assert!(html.contains("display: table-header-group"), "表头重复规则必须在");
+        assert!(html.contains("break-inside: avoid"), "合计/签字栏防断裂规则必须在");
         assert!(html.contains("tabular-nums"), "等宽数字必须在");
-        assert!(
-            html.contains("Noto Sans SC"),
-            "字体族必须是静态 glyf 的 Noto Sans SC"
-        );
+        assert!(html.contains("Noto Sans SC"), "字体族必须是静态 glyf 的 Noto Sans SC");
         assert!(html.contains("对 账 单"));
         assert!(html.contains("球阀Φ10mm"), "明细行内容必须渲染");
         assert_eq!(
@@ -3429,10 +3328,7 @@ mod tests {
         let mut ctx = sample_statement(1);
         ctx.items[0].name = "<script>alert(1)</script>".to_string();
         let html = render_statement(&ctx).expect("渲染必须成功");
-        assert!(
-            !html.contains("<script>alert(1)</script>"),
-            "脚本标签必须被转义"
-        );
+        assert!(!html.contains("<script>alert(1)</script>"), "脚本标签必须被转义");
         assert!(html.contains("&lt;script&gt;"), "转义后应为实体");
     }
 
@@ -3465,10 +3361,7 @@ mod tests {
         assert!(html.contains("<html lang=\"zh-CN\">"));
         assert!(html.contains("采 购 订 单"), "页眉标题必须渲染");
         assert!(html.contains(COMPANY_NAME), "页眉公司名必须在");
-        assert!(
-            html.contains("display: table-header-group"),
-            "跨页表头重复规则必须在"
-        );
+        assert!(html.contains("display: table-header-group"), "跨页表头重复规则必须在");
         assert!(html.contains("break-inside: avoid"), "防断裂规则必须在");
         assert!(html.contains("tabular-nums"), "等宽数字必须在");
         assert!(html.contains("Noto Sans SC"), "中文字体族必须在");
@@ -3478,16 +3371,7 @@ mod tests {
             assert!(html.contains(label), "单据头缺字段：{label}");
         }
         // 明细九列的表头
-        for head in [
-            "物料编码",
-            "物料名称",
-            "规格",
-            "单位",
-            "数量",
-            "单价",
-            "金额",
-            "备注",
-        ] {
+        for head in ["物料编码", "物料名称", "规格", "单位", "数量", "单价", "金额", "备注"] {
             assert!(html.contains(head), "明细表缺列：{head}");
         }
         // 合计四要素 + 大写
@@ -3576,10 +3460,7 @@ mod tests {
             // 零：0.00
             (0, "零元整"),
             // 大额：123,456,789,012.34（跨亿位，中间有零节）
-            (
-                12345678901234,
-                "壹仟贰佰叁拾肆亿伍仟陆佰柒拾捌万玖仟零壹拾贰元叁角肆分",
-            ),
+            (12345678901234, "壹仟贰佰叁拾肆亿伍仟陆佰柒拾捌万玖仟零壹拾贰元叁角肆分"),
         ];
         for (fen, expected) in cases {
             assert_eq!(amount_upper(fen), expected, "金额 {fen} 分大写不对");
@@ -3621,10 +3502,7 @@ mod tests {
         assert_eq!(format_quantity(Decimal::new(120000, 4)), "12"); // 12.0000
         assert_eq!(format_quantity(Decimal::new(12345000, 4)), "1,234.5"); // 1234.5000
         assert_eq!(format_quantity(Decimal::new(2500, 4)), "0.25");
-        assert_eq!(
-            format_quantity(Decimal::new(12345670001, 4)),
-            "1,234,567.0001"
-        );
+        assert_eq!(format_quantity(Decimal::new(12345670001, 4)), "1,234,567.0001");
         assert_eq!(format_quantity(Decimal::new(-1500, 4)), "-0.15");
     }
 
@@ -3659,10 +3537,7 @@ mod tests {
         assert!(opts.footer_template.is_some());
         assert!(opts.margins.bottom_mm >= 14.0, "页脚要有打印区");
         assert!(!opts.prefer_css_page_size, "纸张由后端参数决定");
-        assert_eq!(
-            opts.filename.as_deref(),
-            Some("采购订单-PO-20261108-000001.pdf")
-        );
+        assert_eq!(opts.filename.as_deref(), Some("采购订单-PO-20261108-000001.pdf"));
     }
 
     /// 明细里的用户数据必须被转义（物料名里出现 `<script>` 不能真的执行）。
@@ -3752,14 +3627,8 @@ mod tests {
 
         assert!(html.contains("tabular-nums"), "等宽数字必须在");
         assert!(html.contains("Noto Sans SC"));
-        assert!(
-            html.contains("break-inside: avoid"),
-            "盖章位防断裂规则必须在"
-        );
-        assert!(
-            !html.contains("class=\"pageNumber\""),
-            "页码必须交给 footerTemplate"
-        );
+        assert!(html.contains("break-inside: avoid"), "盖章位防断裂规则必须在");
+        assert!(!html.contains("class=\"pageNumber\""), "页码必须交给 footerTemplate");
     }
 
     /// 正文很长（多段 + 空行）时**一字不丢**：40 段全部出现，顺序不变。
@@ -3824,15 +3693,10 @@ mod tests {
     #[test]
     fn payment_terms_extraction() {
         assert_eq!(
-            payment_terms_of(Some(
-                "第四条 付款方式：货到验收后 30 日内电汇付清\n第五条 …"
-            )),
+            payment_terms_of(Some("第四条 付款方式：货到验收后 30 日内电汇付清\n第五条 …")),
             "货到验收后 30 日内电汇付清"
         );
-        assert_eq!(
-            payment_terms_of(Some("结算方式 - 月结 60 天")),
-            "月结 60 天"
-        );
+        assert_eq!(payment_terms_of(Some("结算方式 - 月结 60 天")), "月结 60 天");
         assert_eq!(payment_terms_of(Some("1. 付款条件: 预付 30%")), "预付 30%");
         // 没有这个字段 / 只有标签没有值 → 兜底文案
         assert_eq!(
@@ -3874,20 +3738,14 @@ mod tests {
     /// 合同渲染参数：A4 纵向 + 页脚开 + 下边距 ≥ 14mm。
     #[test]
     fn contract_pdf_opts_are_a4_with_footer() {
-        let opts = contract_pdf_opts(
-            "HT-20261108-000001",
-            Some("合同-HT-20261108-000001.pdf".to_string()),
-        );
+        let opts = contract_pdf_opts("HT-20261108-000001", Some("合同-HT-20261108-000001.pdf".to_string()));
         assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
         assert!(!opts.landscape);
         assert!(opts.display_header_footer);
         assert!(opts.footer_template.is_some());
         assert!(opts.margins.bottom_mm >= 14.0);
         assert!(!opts.prefer_css_page_size);
-        assert_eq!(
-            opts.filename.as_deref(),
-            Some("合同-HT-20261108-000001.pdf")
-        );
+        assert_eq!(opts.filename.as_deref(), Some("合同-HT-20261108-000001.pdf"));
     }
 
     // ==================== 出入库单模板（PDF-03） ====================
@@ -3900,15 +3758,7 @@ mod tests {
 
         assert!(html.contains("收 货 入 库 单"));
         assert!(html.contains(COMPANY_NAME));
-        for label in [
-            "单号",
-            "日期",
-            "状态",
-            "供应商",
-            "仓库",
-            "来源单据号",
-            "经办人",
-        ] {
+        for label in ["单号", "日期", "状态", "供应商", "仓库", "来源单据号", "经办人"] {
             assert!(html.contains(label), "单据头缺字段：{label}");
         }
         assert!(html.contains("PO-20261108-000004"), "来源单据号必须打印");
@@ -3934,28 +3784,18 @@ mod tests {
             "3 行明细必须各出一个序号单元格"
         );
         // 合计四要素 + 大写
-        for total in [
-            "数量合计",
-            "金额合计",
-            "税额",
-            "价税合计",
-            "价税合计（大写）",
-        ] {
+        for total in ["数量合计", "金额合计", "税额", "价税合计", "价税合计（大写）"] {
             assert!(html.contains(total), "合计行缺：{total}");
         }
         assert!(html.contains("人民币"));
         // 收货签字栏
-        for cap in ["收货人：", "质检：", "仓管：", "供应商送货人：", "制单："]
-        {
+        for cap in ["收货人：", "质检：", "仓管：", "供应商送货人：", "制单："] {
             assert!(html.contains(cap), "签字栏缺：{cap}");
         }
         // 序列号清单（一物一码）
         assert!(html.contains("序列号清单（一物一码）"));
         assert!(html.contains("SN-20261108-000001"));
-        assert!(
-            html.contains("display: table-header-group"),
-            "跨页表头重复规则必须在"
-        );
+        assert!(html.contains("display: table-header-group"), "跨页表头重复规则必须在");
         assert!(!html.contains("class=\"pageNumber\""));
     }
 
@@ -3968,20 +3808,13 @@ mod tests {
         assert!(html.contains("出 库 单"));
         assert!(!html.contains("收 货 入 库 单"));
         assert!(html.contains("客户"));
-        assert!(
-            html.contains("SH-20261108-000003"),
-            "出库单必须打印来源单据号"
-        );
+        assert!(html.contains("SH-20261108-000003"), "出库单必须打印来源单据号");
         assert!(html.contains("领用"), "出库类型必须打印");
         assert!(html.contains("成本结转合计"));
         assert!(html.contains("成本金额（大写）"));
-        assert!(
-            !html.contains("价税合计"),
-            "出库单没有税额口径，不许出现价税合计"
-        );
+        assert!(!html.contains("价税合计"), "出库单没有税额口径，不许出现价税合计");
         assert!(!html.contains("税额"), "出库单不许出现税额行");
-        for cap in ["发货人：", "领用人／收货人：", "仓管：", "审核：", "制单："]
-        {
+        for cap in ["发货人：", "领用人／收货人：", "仓管：", "审核：", "制单："] {
             assert!(html.contains(cap), "发货签字栏缺：{cap}");
         }
         assert_eq!(
@@ -4013,11 +3846,7 @@ mod tests {
         assert!(footer.contains("出库单 OUT-20261108-000001"));
         assert!(footer.contains("font-size:8pt"));
 
-        let opts = stock_pdf_opts(
-            StockDocKind::StockIn,
-            "IN-1",
-            Some("收货入库单-IN-1.pdf".to_string()),
-        );
+        let opts = stock_pdf_opts(StockDocKind::StockIn, "IN-1", Some("收货入库单-IN-1.pdf".to_string()));
         assert_eq!(opts.page, crate::business::pdf::dto::PageSize::A4);
         assert!(opts.display_header_footer);
         assert!(opts.margins.bottom_mm >= 14.0);
@@ -4092,14 +3921,10 @@ mod tests {
         assert!(html.contains("成本金额（大写）"));
         assert!(!html.contains("价税合计"), "调拨是原价转移，不该有价税合计");
         // 两仓签字栏
-        for cap in ["调出仓管：", "调入仓管：", "经办人：", "审核：", "制单："]
-        {
+        for cap in ["调出仓管：", "调入仓管：", "经办人：", "审核：", "制单："] {
             assert!(html.contains(cap), "签字栏缺：{cap}");
         }
-        assert!(
-            html.contains("display: table-header-group"),
-            "跨页表头重复规则必须在"
-        );
+        assert!(html.contains("display: table-header-group"), "跨页表头重复规则必须在");
         assert!(!html.contains("class=\"pageNumber\""));
     }
 
@@ -4257,11 +4082,7 @@ mod tests {
         // 明细：采购退货逐行有价税合计，没有序列号列（th 带列宽 class，table-layout: fixed 需要）
         assert!(html.contains("<th class=\"c-with-tax\">价税合计</th>"));
         assert!(!html.contains("class=\"c-sn\">序列号"));
-        assert_eq!(
-            html.matches("<td class=\"c-seq\">").count(),
-            2,
-            "2 行明细必须全部渲染"
-        );
+        assert_eq!(html.matches("<td class=\"c-seq\">").count(), 2, "2 行明细必须全部渲染");
         for head in ["数量", "单价", "金额", "税率(%)", "税额", "库位"] {
             assert!(html.contains(head), "明细表缺列：{head}");
         }
@@ -4270,8 +4091,7 @@ mod tests {
             assert!(html.contains(label), "合计行缺：{label}");
         }
         assert!(html.contains("人民币"));
-        for cap in ["退货经办：", "仓管：", "质检：", "供应商签收：", "制单："]
-        {
+        for cap in ["退货经办：", "仓管：", "质检：", "供应商签收：", "制单："] {
             assert!(html.contains(cap), "签字栏缺：{cap}");
         }
         assert!(html.contains("display: table-header-group"));
@@ -4447,11 +4267,7 @@ mod tests {
         assert!(html.contains("总经理驳回：单价高于年度框架协议"));
         assert!(html.contains("单价比框架协议高 8%，先与供应商重谈。"));
         assert_eq!(html.matches("class=\"trace-row\"").count(), 1);
-        assert_eq!(
-            html.matches("class=\"tag-row").count(),
-            0,
-            "无降级 → 无标记行"
-        );
+        assert_eq!(html.matches("class=\"tag-row").count(), 0, "无降级 → 无标记行");
     }
 
     /// 退回轮次要能看出来（同一节点第 2 轮 = 另一条轨迹），空轨迹给提示不印空表。
@@ -4516,15 +4332,7 @@ mod tests {
         assert!(html.contains("任务号 TSK-202611-000123"));
 
         // 任务信息：卡面点名的 7 个字段一个不能少
-        for label in [
-            "任务号",
-            "优先级",
-            "截止日期",
-            "负责人",
-            "协作人",
-            "所属项目",
-            "状态",
-        ] {
+        for label in ["任务号", "优先级", "截止日期", "负责人", "协作人", "所属项目", "状态"] {
             assert!(
                 html.contains(&format!("<td class=\"label\">{label}</td>")),
                 "任务信息缺字段：{label}"
@@ -4545,10 +4353,7 @@ mod tests {
             3
         );
         assert!(!html.contains('☑'), "勾选框必须留空，不许预印已勾");
-        assert!(
-            !html.contains('☐'),
-            "勾选框用 CSS 画框，不依赖字体里的 ☐ 字形"
-        );
+        assert!(!html.contains('☐'), "勾选框用 CSS 画框，不依赖字体里的 ☐ 字形");
         assert!(!html.contains("已完成"), "检查项不许印子任务状态");
 
         // 签字栏：4 格，标签 + 预印提示，签名区全空
@@ -4617,9 +4422,7 @@ mod tests {
     #[test]
     fn task_long_description_is_verbatim() {
         let mut ctx = sample_task(0);
-        let lines: Vec<String> = (1..=120)
-            .map(|i| format!("第 {i:03} 行：现场检查记录"))
-            .collect();
+        let lines: Vec<String> = (1..=120).map(|i| format!("第 {i:03} 行：现场检查记录")).collect();
         ctx.description = lines.join("\n");
         let html = render_task(&ctx).expect("渲染必须成功");
         for line in &lines {
@@ -4634,10 +4437,7 @@ mod tests {
             !desc_css.contains("break-inside"),
             "描述块不许加 break-inside: avoid（长描述会整块被挤到下一页）：{desc_css}"
         );
-        assert!(
-            desc_css.contains("white-space: pre-wrap"),
-            "换行要靠 pre-wrap 保留"
-        );
+        assert!(desc_css.contains("white-space: pre-wrap"), "换行要靠 pre-wrap 保留");
     }
 
     /// 派工单页脚与渲染参数（A4 纵向）。
@@ -4684,10 +4484,7 @@ mod tests {
         // 六列 = 6 个 <col>，且金额用等宽数字
         assert_eq!(html.matches("<col style=\"width:").count(), 6);
         assert!(html.contains("tabular-nums"));
-        assert!(
-            html.contains("display: table-header-group"),
-            "换页要重复表头"
-        );
+        assert!(html.contains("display: table-header-group"), "换页要重复表头");
     }
 
     /// 利润表 / 现金流量表模板：项目 / 本期金额 / 本年累计 三列 + 合计行加粗。
@@ -4705,9 +4502,7 @@ mod tests {
             assert!(html.contains(">制表人：<") || html.contains("制表人："));
             assert_eq!(html.matches("<col style=\"width:").count(), 3);
             // `note` 行必须跨三列（不印金额）
-            assert!(
-                html.contains("colspan=\"3\"") || !ctx.rows.iter().any(|row| row.kind == "note")
-            );
+            assert!(html.contains("colspan=\"3\"") || !ctx.rows.iter().any(|row| row.kind == "note"));
         }
     }
 
@@ -4730,9 +4525,6 @@ mod tests {
         assert_eq!(opts.margins.left_mm, 8.0, "6 列要在 210mm 里排下");
         assert_eq!(opts.margins.right_mm, 8.0);
         assert!(opts.margins.bottom_mm >= 14.0, "页脚要有打印区");
-        assert_eq!(
-            opts.filename.as_deref(),
-            Some("资产负债表-BALANCE_SHEET-2026-11.pdf")
-        );
+        assert_eq!(opts.filename.as_deref(), Some("资产负债表-BALANCE_SHEET-2026-11.pdf"));
     }
 }

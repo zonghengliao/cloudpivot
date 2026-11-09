@@ -16,12 +16,9 @@ use std::net::SocketAddr;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::support::dict::dto::{
-    DictItemPageQuery, DictItemRes, DictItemSaveReq, DictTypePageQuery, DictTypeRes,
-    DictTypeSaveReq,
+    DictItemPageQuery, DictItemRes, DictItemSaveReq, DictTypePageQuery, DictTypeRes, DictTypeSaveReq,
 };
-use crate::support::dict::model::{
-    self, DictItemFilter, DictTypeFilter, SysDictItemModel, SysDictTypeModel,
-};
+use crate::support::dict::model::{self, DictItemFilter, DictTypeFilter, SysDictItemModel, SysDictTypeModel};
 use crate::support::log;
 use crate::utils;
 
@@ -40,15 +37,9 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 状态值非法返回 400，数据库异常返回 500。
-#[nik::permission(
-    path = "/support/dict/type/page",
-    method = "GET",
-    permission = "support:dict:list"
-)]
+#[nik::permission(path = "/support/dict/type/page", method = "GET", permission = "support:dict:list")]
 #[nik::get("/support/dict/type/page")]
-pub async fn type_page(
-    Query(query): Query<DictTypePageQuery>,
-) -> ResResult<PageData<Vec<DictTypeRes>>> {
+pub async fn type_page(Query(query): Query<DictTypePageQuery>) -> ResResult<PageData<Vec<DictTypeRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let status = query.status.map(EnableStatus::from_i16).transpose()?;
     let filter = DictTypeFilter {
@@ -60,11 +51,7 @@ pub async fn type_page(
     let result = model::page_dict_types(&filter, page, page_size)
         .await
         .map_err(|e| utils::db_error(e, "分页查询字典类型"))?;
-    let list = result
-        .list
-        .iter()
-        .map(DictTypeRes::from)
-        .collect::<Vec<_>>();
+    let list = result.list.iter().map(DictTypeRes::from).collect::<Vec<_>>();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -82,11 +69,7 @@ pub async fn type_page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：字典类型不存在。
-#[nik::permission(
-    path = "/support/dict/type/{id}",
-    method = "GET",
-    permission = "support:dict:list"
-)]
+#[nik::permission(path = "/support/dict/type/{id}", method = "GET", permission = "support:dict:list")]
 #[nik::get("/support/dict/type/{id}")]
 pub async fn type_detail(Path(id): Path<String>) -> ResResult<DictTypeRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -120,11 +103,7 @@ pub async fn type_detail(Path(id): Path<String>) -> ResResult<DictTypeRes> {
 /// - 400：参数非法；
 /// - 409：字典编码已存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/dict/type",
-    method = "POST",
-    permission = "support:dict:create"
-)]
+#[nik::permission(path = "/support/dict/type", method = "POST", permission = "support:dict:create")]
 #[nik::post("/support/dict/type")]
 pub async fn type_create(
     headers: HeaderMap,
@@ -138,11 +117,7 @@ pub async fn type_create(
         .map_err(|e| utils::db_error(e, "校验字典编码唯一性"))?
         > 0
     {
-        return Err(ApiError::new(
-            409,
-            error_code::DICT_CODE_EXISTS,
-            "字典编码已存在",
-        ));
+        return Err(ApiError::new(409, error_code::DICT_CODE_EXISTS, "字典编码已存在"));
     }
 
     let mut dict_type = build_type_model(&req, None, utils::current_user_uuid(&claims))?;
@@ -195,11 +170,7 @@ pub async fn type_create(
 /// - 404：字典类型不存在；
 /// - 409：字典编码与他人重复；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/dict/type/{id}",
-    method = "PUT",
-    permission = "support:dict:update"
-)]
+#[nik::permission(path = "/support/dict/type/{id}", method = "PUT", permission = "support:dict:update")]
 #[nik::put("/support/dict/type/{id}")]
 pub async fn type_update(
     Path(id): Path<String>,
@@ -221,11 +192,7 @@ pub async fn type_update(
             .map_err(|e| utils::db_error(e, "校验字典编码唯一性"))?
             > 0
     {
-        return Err(ApiError::new(
-            409,
-            error_code::DICT_CODE_EXISTS,
-            "字典编码已存在",
-        ));
+        return Err(ApiError::new(409, error_code::DICT_CODE_EXISTS, "字典编码已存在"));
     }
 
     // 保留创建审计字段，仅更新业务字段
@@ -306,11 +273,7 @@ pub async fn type_delete(
         .await
         .map_err(|e| utils::db_error(e, "查询待删除字典类型"))?
     else {
-        return Err(ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "字典类型不存在",
-        ));
+        return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "字典类型不存在"));
     };
 
     if model::count_items_by_type(&id)
@@ -366,23 +329,12 @@ pub async fn type_delete(
 ///
 /// - 400：`dict_type_id` 或状态值非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/dict/item/page",
-    method = "GET",
-    permission = "support:dict:list"
-)]
+#[nik::permission(path = "/support/dict/item/page", method = "GET", permission = "support:dict:list")]
 #[nik::get("/support/dict/item/page")]
-pub async fn item_page(
-    Query(query): Query<DictItemPageQuery>,
-) -> ResResult<PageData<Vec<DictItemRes>>> {
+pub async fn item_page(Query(query): Query<DictItemPageQuery>) -> ResResult<PageData<Vec<DictItemRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
 
-    let dict_type_id = match query
-        .dict_type_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    let dict_type_id = match query.dict_type_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(raw) => Some(utils::require_uuid(raw, "dict_type_id")?),
         None => None,
     };
@@ -402,11 +354,7 @@ pub async fn item_page(
     let result = model::page_dict_items(&filter, page, page_size)
         .await
         .map_err(|e| utils::db_error(e, "分页查询字典项"))?;
-    let list = result
-        .list
-        .iter()
-        .map(DictItemRes::from)
-        .collect::<Vec<_>>();
+    let list = result.list.iter().map(DictItemRes::from).collect::<Vec<_>>();
     Ok(Res::page(list, result.total, result.page, result.size))
 }
 
@@ -424,11 +372,7 @@ pub async fn item_page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：字典项不存在。
-#[nik::permission(
-    path = "/support/dict/item/{id}",
-    method = "GET",
-    permission = "support:dict:list"
-)]
+#[nik::permission(path = "/support/dict/item/{id}", method = "GET", permission = "support:dict:list")]
 #[nik::get("/support/dict/item/{id}")]
 pub async fn item_detail(Path(id): Path<String>) -> ResResult<DictItemRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -463,11 +407,7 @@ pub async fn item_detail(Path(id): Path<String>) -> ResResult<DictItemRes> {
 /// - 404：所属字典类型不存在；
 /// - 409：同一字典下字典值已存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/dict/item",
-    method = "POST",
-    permission = "support:dict:create"
-)]
+#[nik::permission(path = "/support/dict/item", method = "POST", permission = "support:dict:create")]
 #[nik::post("/support/dict/item")]
 pub async fn item_create(
     headers: HeaderMap,
@@ -478,8 +418,7 @@ pub async fn item_create(
     let dict_type_id = utils::require_uuid(&req.dict_type_id, "dict_type_id")?;
     ensure_dict_type_exists(&dict_type_id).await?;
 
-    let mut dict_item =
-        build_item_model(&req, dict_type_id, None, utils::current_user_uuid(&claims))?;
+    let mut dict_item = build_item_model(&req, dict_type_id, None, utils::current_user_uuid(&claims))?;
     if model::count_dict_item_value(&dict_item.dict_type_id, &dict_item.item_value, None)
         .await
         .map_err(|e| utils::db_error(e, "校验字典项值唯一性"))?
@@ -542,11 +481,7 @@ pub async fn item_create(
 /// - 404：字典项或所属字典类型不存在；
 /// - 409：同一字典下字典值与他人重复；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/support/dict/item/{id}",
-    method = "PUT",
-    permission = "support:dict:update"
-)]
+#[nik::permission(path = "/support/dict/item/{id}", method = "PUT", permission = "support:dict:update")]
 #[nik::put("/support/dict/item/{id}")]
 pub async fn item_update(
     Path(id): Path<String>,
@@ -564,14 +499,8 @@ pub async fn item_update(
     let dict_type_id = utils::require_uuid(&req.dict_type_id, "dict_type_id")?;
     ensure_dict_type_exists(&dict_type_id).await?;
 
-    let mut to_save = build_item_model(
-        &req,
-        dict_type_id,
-        Some(id),
-        utils::current_user_uuid(&claims),
-    )?;
-    let is_changed =
-        to_save.dict_type_id != existing.dict_type_id || to_save.item_value != existing.item_value;
+    let mut to_save = build_item_model(&req, dict_type_id, Some(id), utils::current_user_uuid(&claims))?;
+    let is_changed = to_save.dict_type_id != existing.dict_type_id || to_save.item_value != existing.item_value;
     if is_changed
         && model::count_dict_item_value(&to_save.dict_type_id, &to_save.item_value, Some(&id))
             .await
@@ -663,11 +592,7 @@ pub async fn item_delete(
         .await
         .map_err(|e| utils::db_error(e, "查询待删除字典项"))?
     else {
-        return Err(ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "字典项不存在",
-        ));
+        return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "字典项不存在"));
     };
 
     SysDictItemModel::of(id)
@@ -781,11 +706,7 @@ fn build_type_model(
         id: id.unwrap_or_else(uuid::Uuid::now_v7),
         dict_code: req.dict_code.trim().to_string(),
         dict_name: req.dict_name.trim().to_string(),
-        description: req
-            .description
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string),
+        description: req.description.as_deref().map(str::trim).map(str::to_string),
         status,
         sort_order: req.sort_order.unwrap_or(0),
         remark: req.remark.as_deref().map(str::trim).map(str::to_string),
@@ -829,11 +750,7 @@ fn build_item_model(
         dict_type_id,
         item_value: req.item_value.trim().to_string(),
         item_label: req.item_label.trim().to_string(),
-        description: req
-            .description
-            .as_deref()
-            .map(str::trim)
-            .map(str::to_string),
+        description: req.description.as_deref().map(str::trim).map(str::to_string),
         sort_order: req.sort_order.unwrap_or(0),
         is_default: req.is_default.unwrap_or(false),
         status,
@@ -865,11 +782,7 @@ async fn ensure_dict_type_exists(dict_type_id: &uuid::Uuid) -> std::result::Resu
         .map_err(|e| utils::db_error(e, "校验字典类型"))?
         .is_some();
     if !exists {
-        return Err(ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "字典类型不存在",
-        ));
+        return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "字典类型不存在"));
     }
     Ok(())
 }

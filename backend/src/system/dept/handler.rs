@@ -15,9 +15,7 @@ use crate::business::shared::{guard as scope_guard, principal, scope};
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::support::log;
-use crate::system::dept::dto::{
-    DeptDetailRes, DeptMigrateReq, DeptNode, DeptSaveReq, DeptTreeQuery,
-};
+use crate::system::dept::dto::{DeptDetailRes, DeptMigrateReq, DeptNode, DeptSaveReq, DeptTreeQuery};
 use crate::system::dept::model::{self, SysDeptModel};
 use crate::system::user::model::SysUserModel;
 use crate::utils;
@@ -30,10 +28,7 @@ use crate::utils;
 /// 不是每个字段一次。查不到只留 `None`（前端显示 `—`），**绝不回填 leader_id**。
 async fn detail_res(dept: &SysDeptModel) -> DeptDetailRes {
     let mut res = DeptDetailRes::from(dept);
-    let leader_id = res
-        .leader_id
-        .as_deref()
-        .and_then(|raw| uuid::Uuid::parse_str(raw).ok());
+    let leader_id = res.leader_id.as_deref().and_then(|raw| uuid::Uuid::parse_str(raw).ok());
     if let Some(id) = leader_id {
         match model::find_user_display_names(&[id]).await {
             Ok(names) => res.leader_name = names.get(&id).cloned(),
@@ -58,11 +53,7 @@ async fn detail_res(dept: &SysDeptModel) -> DeptDetailRes {
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[nik::permission(
-    path = "/system/dept/tree",
-    method = "GET",
-    permission = "system:dept:list"
-)]
+#[nik::permission(path = "/system/dept/tree", method = "GET", permission = "system:dept:list")]
 #[nik::get("/system/dept/tree")]
 pub async fn tree(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -121,8 +112,7 @@ pub async fn tree(
     // 裁剪后「上级不可见」的节点必须**提升为根**，否则 `build_tree` 会把它连同
     // 整棵子树静默丢掉（它按「父节点存在」挂载）。语义：可见范围之外的上层
     // 结构对本用户不存在，他要看的那片就是自己的树顶。
-    let visible_ids: std::collections::HashSet<String> =
-        nodes.iter().map(|n| n.id.clone()).collect();
+    let visible_ids: std::collections::HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
     for node in &mut nodes {
         if let Some(parent) = node.parent_id.as_deref()
             && !parent.is_empty()
@@ -162,11 +152,7 @@ pub async fn tree(
 /// - 400：ID 格式非法；
 /// - 404：部门不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/dept/{id}",
-    method = "GET",
-    permission = "system:dept:list"
-)]
+#[nik::permission(path = "/system/dept/{id}", method = "GET", permission = "system:dept:list")]
 #[nik::get("/system/dept/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<DeptDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -198,11 +184,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<DeptDetailRes> {
 /// - 404：父部门不存在；
 /// - 409：部门编码已存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/dept",
-    method = "POST",
-    permission = "system:dept:create"
-)]
+#[nik::permission(path = "/system/dept", method = "POST", permission = "system:dept:create")]
 #[nik::post("/system/dept")]
 pub async fn create(
     headers: HeaderMap,
@@ -244,9 +226,7 @@ pub async fn create(
         update_by: operator,
         deleted_at: None,
     };
-    dept.insert(db())
-        .await
-        .map_err(|e| utils::db_error(e, "新建部门"))?;
+    dept.insert(db()).await.map_err(|e| utils::db_error(e, "新建部门"))?;
     model::invalidate_tree_cache().await;
     // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树结构变更 → `INCR` epoch，
     // **O(1) 全量失效**所有用户的数据范围缓存（子树结果对所有用户都变了）。
@@ -295,11 +275,7 @@ pub async fn create(
 /// - 404：部门或父部门不存在；
 /// - 409：部门编码已存在，或试图把部门挂到自身 / 其子部门之下；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/dept/{id}",
-    method = "PUT",
-    permission = "system:dept:update"
-)]
+#[nik::permission(path = "/system/dept/{id}", method = "PUT", permission = "system:dept:update")]
 #[nik::put("/system/dept/{id}")]
 pub async fn update(
     Path(id): Path<String>,
@@ -327,10 +303,7 @@ pub async fn update(
     let dept_path = match parent_id {
         Some(pid) => {
             let parent = load_parent(&pid).await?;
-            let parent_path = parent
-                .dept_path
-                .clone()
-                .unwrap_or_else(|| format!("/{pid}/"));
+            let parent_path = parent.dept_path.clone().unwrap_or_else(|| format!("/{pid}/"));
             // 父部门路径中含有「自身 id」说明自身是父部门的祖先，即父部门位于自身子树内
             if parent_path.contains(&format!("/{id}/")) {
                 return Err(ApiError::new(
@@ -367,9 +340,7 @@ pub async fn update(
         update_by: utils::current_user_uuid(&claims),
         deleted_at: None,
     };
-    dept.update(db())
-        .await
-        .map_err(|e| utils::db_error(e, "更新部门"))?;
+    dept.update(db()).await.map_err(|e| utils::db_error(e, "更新部门"))?;
     model::invalidate_tree_cache().await;
     // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树结构变更 → `INCR` epoch，
     // **O(1) 全量失效**所有用户的数据范围缓存（子树结果对所有用户都变了）。
@@ -422,11 +393,7 @@ pub async fn update(
 /// - 404：部门不存在；
 /// - 409：存在子部门（`DEPT_HAS_CHILDREN`）或部门下存在用户；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/dept/{id}",
-    method = "DELETE",
-    permission = "system:dept:delete"
-)]
+#[nik::permission(path = "/system/dept/{id}", method = "DELETE", permission = "system:dept:delete")]
 #[nik::delete("/system/dept/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
@@ -545,8 +512,7 @@ pub async fn migrate_and_delete(
     }
 
     // 校验目标部门：可空（迁出至无部门）；非空时必须存在且不能是自身
-    let target_id =
-        utils::parse_optional_uuid(req.migrate_to_dept_id.as_deref(), "migrate_to_dept_id")?;
+    let target_id = utils::parse_optional_uuid(req.migrate_to_dept_id.as_deref(), "migrate_to_dept_id")?;
     if let Some(target) = target_id {
         if target == id {
             return Err(ApiError::new(
@@ -560,11 +526,7 @@ pub async fn migrate_and_delete(
             .map_err(|e| utils::db_error(e, "查询目标部门"))?
             .is_none()
         {
-            return Err(ApiError::new(
-                404,
-                error_code::DEPT_NOT_FOUND,
-                "目标部门不存在",
-            ));
+            return Err(ApiError::new(404, error_code::DEPT_NOT_FOUND, "目标部门不存在"));
         }
     }
 
@@ -695,10 +657,7 @@ async fn load_parent(id: &uuid::Uuid) -> std::result::Result<SysDeptModel, ApiEr
 ///
 /// - 409：部门编码已存在（`DEPT_CODE_EXISTS`）；
 /// - 500：数据库异常。
-async fn ensure_dept_code_unique(
-    dept_code: &str,
-    exclude: Option<uuid::Uuid>,
-) -> std::result::Result<(), ApiError> {
+async fn ensure_dept_code_unique(dept_code: &str, exclude: Option<uuid::Uuid>) -> std::result::Result<(), ApiError> {
     let count = model::count_depts_by_code(dept_code, exclude)
         .await
         .map_err(|e| utils::db_error(e, "校验部门编码唯一性"))?;

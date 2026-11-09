@@ -39,11 +39,10 @@ use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
 use crate::business::notice::dto::{
-    ChannelConfigRes, ContentFormat, DeliverySummaryRes, MyNoticeQuery, MyNoticeRes,
-    NoticeDetailRes, NoticeFilter, NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq,
-    NoticeType, StreamQuery, StreamStatsRes, TemplateFilter, TemplatePageQuery, TemplatePreviewReq,
-    TemplatePreviewRes, TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes,
-    parse_var_decls,
+    ChannelConfigRes, ContentFormat, DeliverySummaryRes, MyNoticeQuery, MyNoticeRes, NoticeDetailRes, NoticeFilter,
+    NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq, NoticeType, StreamQuery, StreamStatsRes, TemplateFilter,
+    TemplatePageQuery, TemplatePreviewReq, TemplatePreviewRes, TemplateRes, TemplateSaveReq, TemplateVarDecl,
+    UnreadCountRes, parse_var_decls,
 };
 use crate::business::notice::model::{self, TemplateFields};
 use crate::business::notice::render;
@@ -80,11 +79,7 @@ use crate::utils;
 /// - 404：模板不存在或停用；
 /// - 422：渲染失败（缺变量 / 语法 / 超长）、接收人超上限；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/notice",
-    method = "POST",
-    permission = "business:notice:send"
-)]
+#[nik::permission(path = "/business/notice", method = "POST", permission = "business:notice:send")]
 #[nik::post("/business/notice")]
 pub async fn send(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -148,11 +143,7 @@ pub async fn send(
 /// - 400：类型 / 级别取值非法；
 /// - 403：无 `business:notice:list`；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/notice/page",
-    method = "GET",
-    permission = "business:notice:list"
-)]
+#[nik::permission(path = "/business/notice/page", method = "GET", permission = "business:notice:list")]
 #[nik::get("/business/notice/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -196,11 +187,7 @@ pub async fn page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：通知不存在或已删除。
-#[nik::permission(
-    path = "/business/notice/{id}",
-    method = "GET",
-    permission = "business:notice:list"
-)]
+#[nik::permission(path = "/business/notice/{id}", method = "GET", permission = "business:notice:list")]
 #[nik::get("/business/notice/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<NoticeDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -221,10 +208,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<NoticeDetailRes> {
         read_count: stats.read_count,
         unread_count: stats.total - stats.read_count,
         deleted_count: stats.deleted_count,
-        deliveries: deliveries
-            .iter()
-            .map(DeliverySummaryRes::from_row)
-            .collect(),
+        deliveries: deliveries.iter().map(DeliverySummaryRes::from_row).collect(),
     }))
 }
 
@@ -251,11 +235,7 @@ pub async fn delete(Path(id): Path<String>) -> ResResult<()> {
         .await
         .map_err(|error| utils::db_error(error, "删除通知"))?;
     if affected == 0 {
-        return Err(ApiError::new(
-            404,
-            error_code::NOTICE_NOT_FOUND,
-            "通知不存在或已删除",
-        ));
+        return Err(ApiError::new(404, error_code::NOTICE_NOT_FOUND, "通知不存在或已删除"));
     }
     Ok(Res::ok(()))
 }
@@ -277,11 +257,7 @@ pub async fn delete(Path(id): Path<String>) -> ResResult<()> {
 ///
 /// - 403：无 `business:notice:mine`（`V0045` 已授予所有角色）；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/notice/mine",
-    method = "GET",
-    permission = "business:notice:mine"
-)]
+#[nik::permission(path = "/business/notice/mine", method = "GET", permission = "business:notice:mine")]
 #[nik::get("/business/notice/mine")]
 pub async fn mine(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -308,9 +284,7 @@ pub async fn mine(
     permission = "business:notice:mine"
 )]
 #[nik::get("/business/notice/unread-count")]
-pub async fn unread_count(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<UnreadCountRes> {
+pub async fn unread_count(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<UnreadCountRes> {
     let user_id = current_user(&claims)?;
     let unread_count = model::count_unread(&user_id)
         .await
@@ -363,9 +337,7 @@ pub async fn mark_read(
     permission = "business:notice:mine"
 )]
 #[nik::put("/business/notice/read-all")]
-pub async fn mark_all_read(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<serde_json::Value> {
+pub async fn mark_all_read(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<serde_json::Value> {
     let user_id = current_user(&claims)?;
     let affected = model::mark_all_read(&user_id)
         .await
@@ -412,9 +384,7 @@ pub async fn delete_mine(
     permission = "business:notice:template:list"
 )]
 #[nik::get("/business/notice/template/page")]
-pub async fn template_page(
-    Query(query): Query<TemplatePageQuery>,
-) -> ResResult<PageData<Vec<TemplateRes>>> {
+pub async fn template_page(Query(query): Query<TemplatePageQuery>) -> ResResult<PageData<Vec<TemplateRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let status = query.status.map(EnableStatus::from_i16).transpose()?;
     let filter = TemplateFilter {
@@ -455,11 +425,7 @@ pub async fn template_create(
     let existed = model::count_template_code(fields.template_code, None)
         .await
         .map_err(|error| utils::db_error(error, "校验模板编码唯一性"))?;
-    utils::ensure_unique(
-        existed,
-        error_code::NOTICE_TEMPLATE_DUPLICATE,
-        "模板编码已存在",
-    )?;
+    utils::ensure_unique(existed, error_code::NOTICE_TEMPLATE_DUPLICATE, "模板编码已存在")?;
 
     let id = uuid::Uuid::now_v7();
     model::insert_template(&id, &fields)
@@ -468,13 +434,7 @@ pub async fn template_create(
     let created = model::find_template(&id)
         .await
         .map_err(|error| utils::db_error(error, "读取新建的通知模板"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                500,
-                error_code::NOTICE_TEMPLATE_NOT_FOUND,
-                "模板创建后未读到记录",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(500, error_code::NOTICE_TEMPLATE_NOT_FOUND, "模板创建后未读到记录"))?;
     Ok(Res::ok(TemplateRes::from_model(&created)))
 }
 
@@ -500,23 +460,13 @@ pub async fn template_update(
     model::find_template(&id)
         .await
         .map_err(|error| utils::db_error(error, "查询待修改的通知模板"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::NOTICE_TEMPLATE_NOT_FOUND,
-                "通知模板不存在或已删除",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::NOTICE_TEMPLATE_NOT_FOUND, "通知模板不存在或已删除"))?;
 
     let fields = build_template_fields(&req, operator)?;
     let existed = model::count_template_code(fields.template_code, Some(&id))
         .await
         .map_err(|error| utils::db_error(error, "校验模板编码唯一性"))?;
-    utils::ensure_unique(
-        existed,
-        error_code::NOTICE_TEMPLATE_DUPLICATE,
-        "模板编码已存在",
-    )?;
+    utils::ensure_unique(existed, error_code::NOTICE_TEMPLATE_DUPLICATE, "模板编码已存在")?;
 
     let affected = model::update_template(&id, &fields)
         .await
@@ -531,13 +481,7 @@ pub async fn template_update(
     let updated = model::find_template(&id)
         .await
         .map_err(|error| utils::db_error(error, "读取修改后的通知模板"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::NOTICE_TEMPLATE_NOT_FOUND,
-                "通知模板不存在或已删除",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::NOTICE_TEMPLATE_NOT_FOUND, "通知模板不存在或已删除"))?;
     Ok(Res::ok(TemplateRes::from_model(&updated)))
 }
 
@@ -553,13 +497,7 @@ pub async fn template_delete(Path(id): Path<String>) -> ResResult<()> {
     let template = model::find_template(&id)
         .await
         .map_err(|error| utils::db_error(error, "查询待删除的通知模板"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::NOTICE_TEMPLATE_NOT_FOUND,
-                "通知模板不存在或已删除",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::NOTICE_TEMPLATE_NOT_FOUND, "通知模板不存在或已删除"))?;
 
     let used = model::count_notices_using_template(&template.template_code)
         .await
@@ -610,28 +548,14 @@ pub async fn template_preview(
     let template = model::find_template(&id)
         .await
         .map_err(|error| utils::db_error(error, "查询待预览的通知模板"))?
-        .ok_or_else(|| {
-            ApiError::new(
-                404,
-                error_code::NOTICE_TEMPLATE_NOT_FOUND,
-                "通知模板不存在或已删除",
-            )
-        })?;
+        .ok_or_else(|| ApiError::new(404, error_code::NOTICE_TEMPLATE_NOT_FOUND, "通知模板不存在或已删除"))?;
 
-    let vars = req
-        .vars
-        .filter(|value| !value.is_null())
-        .unwrap_or_else(|| {
-            let decls = parse_var_decls(template.variables_json.as_deref());
-            render::sample_vars(&decls)
-        });
+    let vars = req.vars.filter(|value| !value.is_null()).unwrap_or_else(|| {
+        let decls = parse_var_decls(template.variables_json.as_deref());
+        render::sample_vars(&decls)
+    });
     let format = ContentFormat::parse(&template.content_format)?;
-    let (title, content) = render::render_notice(
-        &template.title_template,
-        &template.content_template,
-        &vars,
-        format,
-    )?;
+    let (title, content) = render::render_notice(&template.title_template, &template.content_template, &vars, format)?;
     Ok(Res::ok(TemplatePreviewRes { title, content }))
 }
 
@@ -714,12 +638,7 @@ pub async fn stream(
     let user_id = match utils::current_user_uuid(&claims) {
         Some(user_id) => user_id,
         None => {
-            return ApiError::new(
-                401,
-                error_code::AUTH_TOKEN_INVALID,
-                "当前凭证缺少有效的用户标识",
-            )
-            .into_response();
+            return ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前凭证缺少有效的用户标识").into_response();
         }
     };
     tracing::info!(user_id = %user_id, "SSE 订阅请求已受理");
@@ -753,13 +672,8 @@ pub async fn stream_stats() -> ResResult<StreamStatsRes> {
 ///
 /// `claims.sub` 非法 → 401（正常签发的令牌不会走到这里）。
 fn current_user(claims: &TokenClaims) -> std::result::Result<uuid::Uuid, ApiError> {
-    utils::current_user_uuid(claims).ok_or_else(|| {
-        ApiError::new(
-            401,
-            error_code::AUTH_TOKEN_INVALID,
-            "登录状态无效，请重新登录",
-        )
-    })
+    utils::current_user_uuid(claims)
+        .ok_or_else(|| ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "登录状态无效，请重新登录"))
 }
 
 /// 校验模板编码格式（`^[A-Za-z][A-Za-z0-9_]{1,63}$`，与迁移 CHECK 一致）。
@@ -840,12 +754,7 @@ fn build_template_fields(
 
     // 保存前试渲染：变量值取声明的 sample / label，缺省用变量名（保证「保存即能发」）
     let sample_vars = render::sample_vars(&decls);
-    render::render_notice(
-        title_template,
-        content_template,
-        &sample_vars,
-        content_format,
-    )?;
+    render::render_notice(title_template, content_template, &sample_vars, content_format)?;
 
     Ok(TemplateFields {
         template_code: code,

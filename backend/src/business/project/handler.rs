@@ -106,13 +106,7 @@ pub async fn page(
     let list = result
         .list
         .iter()
-        .map(|row| {
-            project_res(
-                row,
-                lookup_stats(&stats, row.id),
-                lookup_count(&members, row.id),
-            )
-        })
+        .map(|row| project_res(row, lookup_stats(&stats, row.id), lookup_count(&members, row.id)))
         .collect();
     Ok(Res::ok(dto::ProjectPageRes {
         list,
@@ -123,18 +117,14 @@ pub async fn page(
 }
 
 /// 把查询参数归一化成 [`model::ProjectFilter`]（非法枚举值 → 400）。
-fn build_filter(
-    query: &dto::ProjectPageQuery,
-) -> std::result::Result<model::ProjectFilter, ApiError> {
-    let status = match query.status.as_deref().map(str::trim) {
-        None | Some("") => None,
-        Some(raw) => Some(dto::normalize_status(raw).ok_or_else(|| {
-            field_invalid(format!(
-                "项目状态取值非法：{raw}（应为 {}）",
-                dto::STATUSES.join(" / ")
-            ))
-        })?),
-    };
+fn build_filter(query: &dto::ProjectPageQuery) -> std::result::Result<model::ProjectFilter, ApiError> {
+    let status =
+        match query.status.as_deref().map(str::trim) {
+            None | Some("") => None,
+            Some(raw) => Some(dto::normalize_status(raw).ok_or_else(|| {
+                field_invalid(format!("项目状态取值非法：{raw}（应为 {}）", dto::STATUSES.join(" / ")))
+            })?),
+        };
     let owner_id = match query.owner_id.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(raw) => Some(task_handler::parse_uuid_field(raw, "负责人")?),
@@ -218,11 +208,7 @@ pub async fn detail(
 /// - 400 + `63402`：编码已被占用；
 /// - 400 + `10001`：`owner_id` 不是合法 UUID；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/business/project",
-    method = "POST",
-    permission = "business:project:create"
-)]
+#[nik::permission(path = "/business/project", method = "POST", permission = "business:project:create")]
 #[nik::post("/business/project")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -231,8 +217,7 @@ pub async fn create(
     let me = task_handler::current_user(&claims)?;
     let name = dto::normalize_name(&req.name).map_err(field_invalid)?;
     let code = dto::normalize_code(&req.code).map_err(field_invalid)?;
-    let description =
-        dto::normalize_description(req.description.as_deref()).map_err(field_invalid)?;
+    let description = dto::normalize_description(req.description.as_deref()).map_err(field_invalid)?;
     ensure_date_order(req.start_date, req.due_date)?;
 
     let owner_id = match req.owner_id.as_deref().map(str::trim) {
@@ -300,9 +285,7 @@ pub async fn update(
     let rows = principal::resolve_for_claims(&claims).await?;
     let project_id = task_handler::parse_uuid_field(&id, "项目")?;
     if req.is_empty() {
-        return Err(task_handler::param_invalid(
-            "请求体没有任何可修改字段".to_string(),
-        ));
+        return Err(task_handler::param_invalid("请求体没有任何可修改字段".to_string()));
     }
     let current = require_visible(&rows, project_id).await?;
     ensure_writable(
@@ -329,8 +312,7 @@ pub async fn update(
         patch.code = Some(code);
     }
     if let Some(description) = req.description.as_ref() {
-        patch.description =
-            Some(dto::normalize_description(description.as_deref()).map_err(field_invalid)?);
+        patch.description = Some(dto::normalize_description(description.as_deref()).map_err(field_invalid)?);
     }
     if let Some(owner) = req.owner_id.as_ref() {
         match owner {
@@ -343,12 +325,10 @@ pub async fn update(
         }
     }
     if let Some(raw) = req.status.as_deref() {
-        patch.status = Some(dto::normalize_status(raw).ok_or_else(|| {
-            field_invalid(format!(
-                "项目状态取值非法：{raw}（应为 {}）",
-                dto::STATUSES.join(" / ")
-            ))
-        })?);
+        patch.status =
+            Some(dto::normalize_status(raw).ok_or_else(|| {
+                field_invalid(format!("项目状态取值非法：{raw}（应为 {}）", dto::STATUSES.join(" / ")))
+            })?);
     }
     if let Some(start_date) = req.start_date.as_ref() {
         patch.start_date = Some(*start_date);
@@ -555,11 +535,9 @@ pub async fn assign_task_project(
     }
 
     let project_id = target_project.as_ref().map(|row| row.id);
-    db().transaction(
-        |tx| async move { model::set_task_project(&tx, task_id, project_id, me).await },
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "把任务归入项目"))?;
+    db().transaction(|tx| async move { model::set_task_project(&tx, task_id, project_id, me).await })
+        .await
+        .map_err(|error| utils::db_error(error, "把任务归入项目"))?;
 
     Ok(Res::ok(dto::TaskProjectRes {
         task_id: task_id.to_string(),
@@ -630,12 +608,8 @@ pub async fn add_member(
     )?;
 
     let user_id = task_handler::parse_uuid_field(&req.user_id, "成员")?;
-    let role = dto::normalize_member_role(req.role.as_deref()).ok_or_else(|| {
-        field_invalid(format!(
-            "成员角色取值非法（应为 {}）",
-            dto::MEMBER_ROLES.join(" / ")
-        ))
-    })?;
+    let role = dto::normalize_member_role(req.role.as_deref())
+        .ok_or_else(|| field_invalid(format!("成员角色取值非法（应为 {}）", dto::MEMBER_ROLES.join(" / "))))?;
     if !task_model::user_exists(user_id)
         .await
         .map_err(|error| utils::db_error(error, "校验项目成员"))?
@@ -648,9 +622,7 @@ pub async fn add_member(
     }
 
     let changed = db()
-        .transaction(
-            |tx| async move { model::add_member(&tx, project_id, user_id, &role, me).await },
-        )
+        .transaction(|tx| async move { model::add_member(&tx, project_id, user_id, &role, me).await })
         .await
         .map_err(|error| utils::db_error(error, "添加项目成员"))?;
     let list = model::list_members(project_id)
@@ -716,10 +688,7 @@ pub async fn remove_member(
 // ==================== 内部工具 ====================
 
 /// 取可见项目（不存在 / 不可见 → 404 `63401`）。
-async fn require_visible(
-    principal: &ScopedPrincipal,
-    id: Uuid,
-) -> std::result::Result<model::ProjectRow, ApiError> {
+async fn require_visible(principal: &ScopedPrincipal, id: Uuid) -> std::result::Result<model::ProjectRow, ApiError> {
     model::find_visible(principal, id)
         .await
         .map_err(|error| utils::db_error(error, "查询项目"))?
@@ -764,9 +733,7 @@ fn ensure_date_order(
     if let (Some(start), Some(end)) = (start, end)
         && start > end
     {
-        return Err(field_invalid(
-            "日期非法：项目开始日不能晚于结束日".to_string(),
-        ));
+        return Err(field_invalid("日期非法：项目开始日不能晚于结束日".to_string()));
     }
     Ok(())
 }
@@ -812,11 +779,7 @@ fn lookup_count(counts: &[(Uuid, i64)], id: Uuid) -> i64 {
 }
 
 /// 行 → 列表项 / 详情头部 DTO。
-fn project_res(
-    row: &model::ProjectRow,
-    stats: model::ProjectStats,
-    member_count: i64,
-) -> dto::ProjectRes {
+fn project_res(row: &model::ProjectRow, stats: model::ProjectStats, member_count: i64) -> dto::ProjectRes {
     dto::ProjectRes {
         id: row.id.to_string(),
         code: row.code.clone(),

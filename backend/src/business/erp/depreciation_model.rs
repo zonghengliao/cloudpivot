@@ -79,10 +79,7 @@ pub struct DebitAgg {
 pub fn aggregate_debits(details: &[DepInsert]) -> Vec<DebitAgg> {
     let mut map: BTreeMap<(String, String), DebitAgg> = BTreeMap::new();
     for detail in details {
-        let key = (
-            detail.expense_account_code.clone(),
-            detail.dept_name.clone(),
-        );
+        let key = (detail.expense_account_code.clone(), detail.dept_name.clone());
         let entry = map.entry(key).or_insert_with(|| DebitAgg {
             account_id: detail.expense_account_id,
             account_code: detail.expense_account_code.clone(),
@@ -150,9 +147,7 @@ pub async fn run_batch(
     let period = match period_code.map(str::trim).filter(|text| !text.is_empty()) {
         Some(text) => {
             if !asset_compute::is_valid_period(text) {
-                return Err(asset_dto::invalid(format!(
-                    "计提期间必须是 yyyy-MM（当前 {text}）"
-                )));
+                return Err(asset_dto::invalid(format!("计提期间必须是 yyyy-MM（当前 {text}）")));
             }
             text.to_string()
         }
@@ -222,10 +217,7 @@ pub async fn run_batch(
                     batch.batch_no,
                     batch.status,
                     if batch.status == asset_dto::DEP_SKIPPED {
-                        format!(
-                            "（跳过原因：{}）",
-                            batch.skip_reason.clone().unwrap_or_default()
-                        )
+                        format!("（跳过原因：{}）", batch.skip_reason.clone().unwrap_or_default())
                     } else {
                         String::new()
                     }
@@ -273,18 +265,9 @@ pub async fn run_batch(
             .await
             .map_err(|error| db_err(error, "取折旧批次号"))?;
         let id = Uuid::now_v7();
-        asset_model::batch_insert(
-            db(),
-            id,
-            &batch_no,
-            &period,
-            0,
-            Decimal::ZERO,
-            operator,
-            remark,
-        )
-        .await
-        .map_err(|error| db_err(error, "写折旧批次"))?;
+        asset_model::batch_insert(db(), id, &batch_no, &period, 0, Decimal::ZERO, operator, remark)
+            .await
+            .map_err(|error| db_err(error, "写折旧批次"))?;
         asset_model::batch_set_status(
             db(),
             id,
@@ -305,18 +288,13 @@ pub async fn run_batch(
             outcome: DepRunKind::Skipped,
             total_amount: Decimal::ZERO,
             asset_count: 0,
-            message: format!(
-                "期间 {period} 没有应提折旧的资产（全部提足 / 未到起提日），批次已跳过"
-            ),
+            message: format!("期间 {period} 没有应提折旧的资产（全部提足 / 未到起提日），批次已跳过"),
             batch: batch.as_ref().map(asset_dto::DepBatchRes::from),
         });
     }
 
     // ⑤ 一个事务里：批次 + 明细 + 凭证 + 回写卡片
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启计提事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启计提事务"))?;
     let outcome = async {
         let (batch_id, batch_no) = match existing.as_ref() {
             Some(batch) if rerun => {
@@ -482,9 +460,7 @@ pub async fn run_batch(
             operator,
         )
         .await?;
-        Ok::<(Uuid, Uuid, depreciation_linkage::DepBatchStatusChange), ApiError>((
-            batch_id, voucher_id, change,
-        ))
+        Ok::<(Uuid, Uuid, depreciation_linkage::DepBatchStatusChange), ApiError>((batch_id, voucher_id, change))
     }
     .await;
 
@@ -495,9 +471,7 @@ pub async fn run_batch(
             return Err(error);
         }
     };
-    tx.commit()
-        .await
-        .map_err(|error| db_err(error, "提交计提事务"))?;
+    tx.commit().await.map_err(|error| db_err(error, "提交计提事务"))?;
     // 提交之后的联动动作（通知 / 建任务）：批次是大批量长事务，必须在 commit 后才发 ——
     // 事务内发通知一旦回滚就是「财务收到某月已计提、实际没提」
     depreciation_linkage::run_deferred_after_commit(change).await;
@@ -526,10 +500,7 @@ pub async fn run_batch(
                 details.len()
             )
         } else {
-            format!(
-                "期间 {period} 计提完成：{} 台 / 合计 {total}",
-                details.len()
-            )
+            format!("期间 {period} 计提完成：{} 台 / 合计 {total}", details.len())
         },
         batch: batch.as_ref().map(asset_dto::DepBatchRes::from),
     })
@@ -573,11 +544,7 @@ pub async fn reverse_batch(
         .await
         .map_err(|error| db_err(error, "查询折旧批次"))?
     else {
-        return Err(ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "折旧批次不存在",
-        ));
+        return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "折旧批次不存在"));
     };
     if batch.status != asset_dto::DEP_POSTED {
         return Err(ApiError::new(
@@ -607,10 +574,7 @@ pub async fn reverse_batch(
         .await
         .map_err(|error| db_err(error, "查询折旧明细"))?;
     let now = Utc::now();
-    let tx = db()
-        .begin()
-        .await
-        .map_err(|error| db_err(error, "开启红冲事务"))?;
+    let tx = db().begin().await.map_err(|error| db_err(error, "开启红冲事务"))?;
     let outcome = async {
         // ② 红字凭证（借贷互换、金额恒正）
         let ids = asset_model::voucher_ids_of_source(&tx, SOURCE_DEPRECIATION, batch_id, true)
@@ -719,9 +683,7 @@ pub async fn reverse_batch(
             return Err(error);
         }
     };
-    tx.commit()
-        .await
-        .map_err(|error| db_err(error, "提交红冲事务"))?;
+    tx.commit().await.map_err(|error| db_err(error, "提交红冲事务"))?;
     // 提交之后的联动动作（通知 / 建任务）：红冲同样是长事务（红字凭证 + 逐台回滚卡片），
     // 必须在 commit 后才发 —— 事务内发通知一旦回滚就是「财务收到某月已红冲、实际没冲」
     depreciation_linkage::run_deferred_after_commit(change).await;
@@ -738,18 +700,12 @@ pub fn in_depreciation_scope(status: &str) -> bool {
 }
 
 /// 批次详情（批次 + 明细 + 合计）。
-pub async fn batch_detail(
-    batch_id: Uuid,
-) -> std::result::Result<asset_dto::DepBatchDetailRes, ApiError> {
+pub async fn batch_detail(batch_id: Uuid) -> std::result::Result<asset_dto::DepBatchDetailRes, ApiError> {
     let Some(batch) = asset_model::batch_find(batch_id)
         .await
         .map_err(|error| db_err(error, "查询折旧批次"))?
     else {
-        return Err(ApiError::new(
-            404,
-            error_code::RESOURCE_NOT_FOUND,
-            "折旧批次不存在",
-        ));
+        return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "折旧批次不存在"));
     };
     let details = asset_model::details_of(batch_id)
         .await
@@ -818,11 +774,7 @@ pub fn register_builtin(scheduler: &crate::task::Scheduler) {
 }
 
 fn db_err(error: DbError, ctx: &str) -> ApiError {
-    ApiError::new(
-        500,
-        error_code::INTERNAL_ERROR,
-        format!("{ctx}失败：{error}"),
-    )
+    ApiError::new(500, error_code::INTERNAL_ERROR, format!("{ctx}失败：{error}"))
 }
 
 fn voucher_error(error: DbError, ctx: &str) -> ApiError {
@@ -914,8 +866,7 @@ mod tests {
             useful_life_months: 60,
             salvage_rate: dec!(0.05),
             monthly_depreciation: dec!(1583.3333),
-            start_depreciation_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 1)
-                .unwrap(),
+            start_depreciation_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 1).unwrap(),
             accumulated_depreciation: dec!(93416.6647),
             net_value: dec!(6583.3353),
             depreciation_months_done: 58,

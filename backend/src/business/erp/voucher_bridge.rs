@@ -242,9 +242,7 @@ async fn settle(instance_id: Uuid, verdict: ReverseVerdict) -> DbResult<Option<U
                 );
                 return Ok(None);
             }
-            match crate::business::erp::voucher_write::reverse_after_approval(voucher_id, approver)
-                .await
-            {
+            match crate::business::erp::voucher_write::reverse_after_approval(voucher_id, approver).await {
                 Ok(red_id) => {
                     tracing::info!(%voucher_id, %red_id, "红冲审批已通过：红字凭证已生成");
                     Ok(Some(voucher_id))
@@ -261,10 +259,8 @@ async fn settle(instance_id: Uuid, verdict: ReverseVerdict) -> DbResult<Option<U
             }
         }
         ReverseVerdict::Restore => {
-            match crate::business::erp::voucher_write::restore_after_reverse_rejection(
-                voucher_id, verdict, approver,
-            )
-            .await
+            match crate::business::erp::voucher_write::restore_after_reverse_rejection(voucher_id, verdict, approver)
+                .await
             {
                 Ok(()) => Ok(Some(voucher_id)),
                 Err(error) => {
@@ -309,30 +305,17 @@ pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<U
 /// 审批入口的内控闸（**事务之前**调）：红冲审批的制单人 / 发起人不能批自己那一票 → 403。
 ///
 /// 判据只认 `VOUCHER_REVERSE` 类的实例，与其它业务的待办零影响。
-pub async fn guard_self_approval(
-    task_id: Uuid,
-    operator: Uuid,
-) -> std::result::Result<(), ApiError> {
-    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
-        ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!("查询待办失败：{error}"),
-        )
-    })?
+pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id)
+        .await
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询待办失败：{error}")))?
     else {
         // 待办不存在交给后续流程报 404（这里不抢它的错）
         return Ok(());
     };
     let Some(instance) = flow_model::find_instance(task.instance_id)
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询审批单失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询审批单失败：{error}")))?
     else {
         return Ok(());
     };
@@ -348,13 +331,7 @@ pub async fn guard_self_approval(
     };
     let creator = internal_control_creator(Some(voucher_id))
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("查询凭证制单人失败：{error}"),
-            )
-        })?;
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("查询凭证制单人失败：{error}")))?;
     let Ok(Some(row)) = crate::business::erp::voucher::find_voucher(db(), voucher_id).await else {
         return Ok(());
     };
@@ -528,14 +505,8 @@ mod tests {
         assert_eq!(BIZ_TYPE, "VOUCHER_REVERSE");
         assert_eq!(FLOW_CODE, "voucher_reverse");
         assert_eq!(BIZ_TYPE, BIZ_TYPE.to_uppercase());
-        assert_eq!(
-            BIZ_TYPE,
-            crate::business::erp::voucher_write::REVERSE_BIZ_TYPE
-        );
-        assert_eq!(
-            FLOW_CODE,
-            crate::business::erp::voucher_write::REVERSE_FLOW_CODE
-        );
+        assert_eq!(BIZ_TYPE, crate::business::erp::voucher_write::REVERSE_BIZ_TYPE);
+        assert_eq!(FLOW_CODE, crate::business::erp::voucher_write::REVERSE_FLOW_CODE);
     }
 
     /// ③ 凭证状态常量不能写错；「审批中」**不是**一个状态（卡面硬红线 3）。

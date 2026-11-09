@@ -125,10 +125,7 @@ impl std::error::Error for CacheBackendError {}
 ///
 /// - `Ok(())`：profile 不在 [`CACHE_REDIS_REQUIRED_PROFILES`]，或已是 redis（大小写不敏感）
 /// - `Err(CacheBackendError)`：prod / dev 下使用了非 redis 缓存
-pub fn check_cache_backend(
-    profile: &str,
-    cache_type: &str,
-) -> std::result::Result<(), CacheBackendError> {
+pub fn check_cache_backend(profile: &str, cache_type: &str) -> std::result::Result<(), CacheBackendError> {
     if !CACHE_REDIS_REQUIRED_PROFILES.contains(&profile) {
         return Ok(());
     }
@@ -393,12 +390,7 @@ pub fn auth_enabled_in_files(config_dir: &str, profile: &str) -> Option<bool> {
 /// 与 nik-config 0.4.2 `env::parse_args` 同源；这些模式不会绑定端口、不会挂载认证层，
 /// 因此预检必须放行，否则 `cargo run -- print-config` 会被误杀。
 fn is_config_only_mode() -> bool {
-    std::env::args().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "gen-config" | "generate-config" | "print-config"
-        )
-    })
+    std::env::args().any(|arg| matches!(arg.as_str(), "gen-config" | "generate-config" | "print-config"))
 }
 
 /// 存储主密钥校验错误。
@@ -461,10 +453,7 @@ impl std::error::Error for StorageKeyGuardError {}
 /// - `Ok(())`：密钥存在且为 64 位十六进制；
 /// - `Err(StorageKeyGuardError::Missing)`：未注入或全空白；
 /// - `Err(StorageKeyGuardError::Invalid)`：长度 / 字符集不合法。
-pub fn check_storage_master_key(
-    profile: &str,
-    raw: Option<&str>,
-) -> std::result::Result<(), StorageKeyGuardError> {
+pub fn check_storage_master_key(profile: &str, raw: Option<&str>) -> std::result::Result<(), StorageKeyGuardError> {
     let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
         return Err(StorageKeyGuardError::Missing {
             profile: profile.to_string(),
@@ -474,12 +463,7 @@ pub fn check_storage_master_key(
         .map(|_| ())
         .map_err(|error| StorageKeyGuardError::Invalid {
             profile: profile.to_string(),
-            reason: error
-                .to_string()
-                .lines()
-                .next()
-                .unwrap_or_default()
-                .to_string(),
+            reason: error.to_string().lines().next().unwrap_or_default().to_string(),
         })
 }
 
@@ -969,18 +953,14 @@ pub async fn count_test_residue() -> std::result::Result<TestResidue, Error> {
 
     let defs: i64 = db()
         .scalar_with_params(
-            &format!(
-                "SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
-            ),
+            &format!("SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
             vec![],
         )
         .await
         .map_err(|e| Error::Config(format!("测试残留自检无法完成（查 biz_flow_def）：{e}")))?;
     let instances: i64 = db()
         .scalar_with_params(
-            &format!(
-                "SELECT count(*) FROM biz_flow_instance WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
-            ),
+            &format!("SELECT count(*) FROM biz_flow_instance WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
             vec![],
         )
         .await
@@ -1052,34 +1032,18 @@ mod tests {
             message.contains("scripts/datafix/e2e_residue/apply.sh"),
             "文案必须给出清理入口：{message}"
         );
-        assert!(
-            message.contains("--strict"),
-            "文案必须给出复核口径：{message}"
-        );
+        assert!(message.contains("--strict"), "文案必须给出复核口径：{message}");
     }
 
     /// 只有定义、没有实例（或反过来）同样算残留 —— 半截状态正是「删到一半」的典型。
     #[test]
     fn test_residue_partial_counts_still_warn() {
-        assert!(
-            test_residue_warning(TestResidue {
-                defs: 1,
-                instances: 0
-            })
-            .is_some()
-        );
-        assert!(
-            test_residue_warning(TestResidue {
-                defs: 0,
-                instances: 1
-            })
-            .is_some()
-        );
+        assert!(test_residue_warning(TestResidue { defs: 1, instances: 0 }).is_some());
+        assert!(test_residue_warning(TestResidue { defs: 0, instances: 1 }).is_some());
     }
 
     /// 测试用 64 位十六进制密钥（形状与 `openssl rand -hex 32` 一致，非真实密钥）。
-    const VALID_SECRET_HEX64: &str =
-        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const VALID_SECRET_HEX64: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
     // ────────────── check_auth_secret：规则本身 ──────────────
 
@@ -1227,10 +1191,7 @@ enabled = false
     #[test]
     fn toml_scan_returns_none_when_absent() {
         assert_eq!(auth_enabled_in_toml("[server]\nlisten = \"8023\"\n"), None);
-        assert_eq!(
-            auth_enabled_in_toml("[middleware.auth]\nignore_paths = []\n"),
-            None
-        );
+        assert_eq!(auth_enabled_in_toml("[middleware.auth]\nignore_paths = []\n"), None);
         assert_eq!(auth_enabled_in_toml(""), None);
     }
 
@@ -1240,14 +1201,8 @@ enabled = false
     fn merge_semantics_or_base_and_profile() {
         // 用仓库里真实的四份配置回归：config.toml 关闭，dev/prod/test 覆盖为开启
         assert_eq!(auth_enabled_in_files(DEFAULT_CONFIG_DIR, "dev"), Some(true));
-        assert_eq!(
-            auth_enabled_in_files(DEFAULT_CONFIG_DIR, "prod"),
-            Some(true)
-        );
-        assert_eq!(
-            auth_enabled_in_files(DEFAULT_CONFIG_DIR, "test"),
-            Some(true)
-        );
+        assert_eq!(auth_enabled_in_files(DEFAULT_CONFIG_DIR, "prod"), Some(true));
+        assert_eq!(auth_enabled_in_files(DEFAULT_CONFIG_DIR, "test"), Some(true));
         // 未知 profile：只有基础配置（enabled = false）
         assert_eq!(
             auth_enabled_in_files(DEFAULT_CONFIG_DIR, "no-such-profile"),
@@ -1273,19 +1228,12 @@ enabled = false
     #[test]
     fn cache_backend_rejects_local_for_prod_and_dev() {
         for profile in ["prod", "dev"] {
-            let err = check_cache_backend(profile, "local")
-                .expect_err("prod/dev 使用 local 缓存必须被拒绝");
+            let err = check_cache_backend(profile, "local").expect_err("prod/dev 使用 local 缓存必须被拒绝");
             assert_eq!(err.profile, profile);
             assert_eq!(err.cache_type, "local");
             let text = err.to_string();
-            assert!(
-                text.contains("必须为 \"redis\""),
-                "错误文案缺修复指引: {text}"
-            );
-            assert!(
-                text.contains("吊销"),
-                "错误文案缺危害说明（吊销会静默失效）: {text}"
-            );
+            assert!(text.contains("必须为 \"redis\""), "错误文案缺修复指引: {text}");
+            assert!(text.contains("吊销"), "错误文案缺危害说明（吊销会静默失效）: {text}");
         }
     }
 
@@ -1294,10 +1242,7 @@ enabled = false
     /// 正常路径：64 位十六进制主密钥放行。
     #[test]
     fn storage_master_key_accepts_hex64() {
-        assert_eq!(
-            check_storage_master_key("dev", Some(VALID_SECRET_HEX64)),
-            Ok(())
-        );
+        assert_eq!(check_storage_master_key("dev", Some(VALID_SECRET_HEX64)), Ok(()));
         // 首尾空白容忍（env 文件里常带引号或换行）
         let padded = format!("  {VALID_SECRET_HEX64}\n");
         assert_eq!(check_storage_master_key("dev", Some(&padded)), Ok(()));
@@ -1347,19 +1292,13 @@ enabled = false
         let auth = AuthSecretGuardError::Empty {
             profile: "dev".to_string(),
         };
-        assert_eq!(
-            StartupViolation::from(auth.clone()).to_string(),
-            auth.to_string()
-        );
+        assert_eq!(StartupViolation::from(auth.clone()).to_string(), auth.to_string());
     }
 
     /// 孤儿任务依赖的告警判定（E7）：0 条不告警，>0 告警且点名数量。
     #[test]
     fn orphan_dependency_warning_only_fires_when_positive() {
-        assert!(
-            orphan_dependency_warning(0).is_none(),
-            "0 条孤儿不应产生告警文案"
-        );
+        assert!(orphan_dependency_warning(0).is_none(), "0 条孤儿不应产生告警文案");
 
         let one = orphan_dependency_warning(1).expect("1 条孤儿必须告警");
         assert!(one.contains('1'), "{one}");

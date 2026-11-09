@@ -120,8 +120,7 @@ pub async fn load_rule_rows(ex: &impl SqlExecutor) -> DbResult<Vec<LinkageRuleRo
     const SAVEPOINT: &str = "d2_linkage_read";
     let in_tx = ex.post_commit_queue().is_some();
     if in_tx {
-        ex.exec_sql(format!("SAVEPOINT {SAVEPOINT}"), vec![])
-            .await?;
+        ex.exec_sql(format!("SAVEPOINT {SAVEPOINT}"), vec![]).await?;
     }
     let result = ex
         .query_sql(
@@ -148,19 +147,11 @@ pub async fn load_rule_rows(ex: &impl SqlExecutor) -> DbResult<Vec<LinkageRuleRo
 ///
 /// **永远不返回 Err**：读失败 / 表不存在 → 空 Vec + 节流 WARN（= 不接管任何联动，
 /// 业务回到改动前的行为）。这是引擎挂在主链路上唯一可接受的降级方式。
-pub async fn rules_for(
-    ex: &impl SqlExecutor,
-    trigger_entity: &str,
-    trigger_status: &str,
-) -> Vec<LinkageRuleRow> {
+pub async fn rules_for(ex: &impl SqlExecutor, trigger_entity: &str, trigger_status: &str) -> Vec<LinkageRuleRow> {
     match load_rule_rows(ex).await {
         Ok(rows) => rows
             .into_iter()
-            .filter(|row| {
-                row.enabled
-                    && row.trigger_entity == trigger_entity
-                    && row.trigger_status == trigger_status
-            })
+            .filter(|row| row.enabled && row.trigger_entity == trigger_entity && row.trigger_status == trigger_status)
             .collect(),
         Err(error) => {
             warn_throttled(
@@ -176,10 +167,7 @@ pub async fn rules_for(
 }
 
 /// 配置页用的查询（**含禁用行**，读失败如实报错——管理界面不能静默显示「0 条规则」）。
-pub async fn list_rules(
-    ex: &impl SqlExecutor,
-    trigger_entity: Option<&str>,
-) -> DbResult<Vec<LinkageRuleRow>> {
+pub async fn list_rules(ex: &impl SqlExecutor, trigger_entity: Option<&str>) -> DbResult<Vec<LinkageRuleRow>> {
     let rows = match trigger_entity.map(str::trim).filter(|v| !v.is_empty()) {
         Some(entity) => {
             ex.query_sql(
@@ -325,8 +313,7 @@ pub async fn upsert_rule(
         return Err(ApiError::new(
             400,
             error_code::PARAM_INVALID,
-            "改联动规则需要二次确认（confirm = true）：规则决定「单据状态变了以后还会动哪些账」"
-                .to_string(),
+            "改联动规则需要二次确认（confirm = true）：规则决定「单据状态变了以后还会动哪些账」".to_string(),
         ));
     }
 
@@ -467,10 +454,7 @@ pub async fn upsert_rule(
 
     let now = Utc::now();
     let operator = state_machine::Operator::from(claims);
-    let operator_id = operator
-        .id
-        .map(|value| value.to_string())
-        .unwrap_or_default();
+    let operator_id = operator.id.map(|value| value.to_string()).unwrap_or_default();
     let id: Uuid = ex
         .query_first_sql(
             "INSERT INTO biz_flow_linkage_rule \
@@ -504,13 +488,7 @@ pub async fn upsert_rule(
             ],
         )
         .await
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("写联动规则失败：{error}"),
-            )
-        })?
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("写联动规则失败：{error}")))?
         .ok_or_else(|| {
             ApiError::new(
                 500,
@@ -519,13 +497,7 @@ pub async fn upsert_rule(
             )
         })?
         .get_typed("id")
-        .map_err(|error| {
-            ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("读联动规则主键失败：{error}"),
-            )
-        })?;
+        .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("读联动规则主键失败：{error}")))?;
 
     let after = find_rule(ex, id)
         .await
@@ -555,12 +527,7 @@ pub async fn upsert_rule(
 }
 
 /// 软删一条规则（= 这条联动不再执行）。超管 + 二次确认 + 留痕。
-pub async fn delete_rule(
-    ex: &impl SqlExecutor,
-    claims: &TokenClaims,
-    id: Uuid,
-    confirm: bool,
-) -> Result<(), ApiError> {
+pub async fn delete_rule(ex: &impl SqlExecutor, claims: &TokenClaims, id: Uuid, confirm: bool) -> Result<(), ApiError> {
     ensure_config_admin(claims, "删除")?;
     if !confirm {
         return Err(ApiError::new(
@@ -591,12 +558,7 @@ pub async fn delete_rule(
             vec![
                 Value::from(now),
                 Value::from(now),
-                Value::Text(
-                    operator
-                        .id
-                        .map(|value| value.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(operator.id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::from(&id),
             ],
         )
@@ -627,14 +589,8 @@ pub async fn delete_rule(
 
 /// 改配置的门：**只有超管**。
 fn ensure_config_admin(claims: &TokenClaims, action: &str) -> Result<(), ApiError> {
-    let is_super = claims
-        .roles
-        .iter()
-        .any(|role| role == SUPER_ADMIN_ROLE_CODE)
-        || claims
-            .permissions
-            .iter()
-            .any(|code| code == "*" || code == "*:*:*");
+    let is_super = claims.roles.iter().any(|role| role == SUPER_ADMIN_ROLE_CODE)
+        || claims.permissions.iter().any(|code| code == "*" || code == "*:*:*");
     if is_super {
         return Ok(());
     }
@@ -682,11 +638,7 @@ async fn write_config_audit(
         ),
     };
     let reason = match after {
-        Some(_) => format!(
-            "改前 {{{}}} → 改后 {{{}}}",
-            describe(before),
-            describe(after)
-        ),
+        Some(_) => format!("改前 {{{}}} → 改后 {{{}}}", describe(before), describe(after)),
         None => format!("删除规则 {{ {} }}", describe(before)),
     };
     let to_status = if after.is_some() { "UPSERT" } else { "DELETED" };

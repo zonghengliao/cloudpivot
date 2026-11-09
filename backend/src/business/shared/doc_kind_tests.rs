@@ -34,8 +34,7 @@ fn repo_root() -> std::path::PathBuf {
 /// 读前端镜像文件全文。
 fn read_frontend_mirror() -> String {
     let path = repo_root().join("frontend/src/api/business/erp/doc-kinds.ts");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("读不到前端词表镜像 {}：{err}", path.display()))
+    std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到前端词表镜像 {}：{err}", path.display()))
 }
 
 /// 从前端 TS 里抠出 `export const NAME = [ ... ] as const;` 的字符串元素（保序）。
@@ -46,9 +45,7 @@ fn ts_array(text: &str, name: &str) -> Vec<String> {
         .unwrap_or_else(|| panic!("前端镜像里找不到 {marker}"))
         + marker.len();
     let rest = &text[start..];
-    let end = rest
-        .find(']')
-        .unwrap_or_else(|| panic!("{name} 的数组没有闭合"));
+    let end = rest.find(']').unwrap_or_else(|| panic!("{name} 的数组没有闭合"));
     rest[..end]
         .split(',')
         .map(|item| item.trim().trim_matches('\'').trim())
@@ -100,21 +97,9 @@ fn every_axis_value_is_uppercase_underscore() {
     let all: Vec<(&str, &str)> = DocKind::ALL
         .iter()
         .map(|item| ("DocKind", item.as_str()))
-        .chain(
-            FlowBizType::ALL
-                .iter()
-                .map(|item| ("FlowBizType", item.as_str())),
-        )
-        .chain(
-            TxnBizType::ALL
-                .iter()
-                .map(|item| ("TxnBizType", item.as_str())),
-        )
-        .chain(
-            TxnDocType::ALL
-                .iter()
-                .map(|item| ("TxnDocType", item.as_str())),
-        )
+        .chain(FlowBizType::ALL.iter().map(|item| ("FlowBizType", item.as_str())))
+        .chain(TxnBizType::ALL.iter().map(|item| ("TxnBizType", item.as_str())))
+        .chain(TxnDocType::ALL.iter().map(|item| ("TxnDocType", item.as_str())))
         .chain(
             VoucherSourceType::ALL
                 .iter()
@@ -125,11 +110,7 @@ fn every_axis_value_is_uppercase_underscore() {
                 .iter()
                 .map(|item| ("SerialSourceType", item.as_str())),
         )
-        .chain(
-            DocSubtype::ALL
-                .iter()
-                .map(|item| ("DocSubtype", item.as_str())),
-        )
+        .chain(DocSubtype::ALL.iter().map(|item| ("DocSubtype", item.as_str())))
         .chain(TakeType::ALL.iter().map(|item| ("TakeType", item.as_str())))
         .collect();
     for (axis, value) in all {
@@ -190,32 +171,18 @@ fn domain_consts_match_enums() {
     assert_eq!(doc, DocKind::ALL.map(DocKind::as_str).to_vec(), "DocKind");
 
     let flow: Vec<&str> = FLOW_BIZ_TYPE_VALUES.to_vec();
-    assert_eq!(
-        flow,
-        FlowBizType::ALL.map(FlowBizType::as_str).to_vec(),
-        "FlowBizType"
-    );
+    assert_eq!(flow, FlowBizType::ALL.map(FlowBizType::as_str).to_vec(), "FlowBizType");
 
     let txn: Vec<&str> = TXN_BIZ_TYPE_VALUES.to_vec();
-    assert_eq!(
-        txn,
-        TxnBizType::ALL.map(TxnBizType::as_str).to_vec(),
-        "TxnBizType"
-    );
+    assert_eq!(txn, TxnBizType::ALL.map(TxnBizType::as_str).to_vec(), "TxnBizType");
 
     let tdoc: Vec<&str> = TXN_DOC_TYPE_VALUES.to_vec();
-    assert_eq!(
-        tdoc,
-        TxnDocType::ALL.map(TxnDocType::as_str).to_vec(),
-        "TxnDocType"
-    );
+    assert_eq!(tdoc, TxnDocType::ALL.map(TxnDocType::as_str).to_vec(), "TxnDocType");
 
     let voucher: Vec<&str> = VOUCHER_SOURCE_VALUES.to_vec();
     assert_eq!(
         voucher,
-        VoucherSourceType::ALL
-            .map(VoucherSourceType::as_str)
-            .to_vec(),
+        VoucherSourceType::ALL.map(VoucherSourceType::as_str).to_vec(),
         "VoucherSourceType"
     );
 
@@ -241,18 +208,13 @@ fn domain_consts_match_enums() {
     );
 
     let takes: Vec<&str> = TAKE_TYPE_VALUES.to_vec();
-    assert_eq!(
-        takes,
-        TakeType::ALL.map(TakeType::as_str).to_vec(),
-        "TakeType"
-    );
+    assert_eq!(takes, TakeType::ALL.map(TakeType::as_str).to_vec(), "TakeType");
 }
 
 /// 十一根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
 #[test]
 fn domain_columns_exist_and_cover_all_axes() {
-    let axes: std::collections::BTreeSet<&str> =
-        COLUMN_DOMAINS.iter().map(|item| item.axis).collect();
+    let axes: std::collections::BTreeSet<&str> = COLUMN_DOMAINS.iter().map(|item| item.axis).collect();
     assert_eq!(
         axes.len(),
         11,
@@ -314,11 +276,7 @@ fn domain_columns_exist_and_cover_all_axes() {
 /// 前端 `doc-kinds.ts` 的七根轴数组与 Rust 枚举逐字一致（顺序也一致）。
 #[test]
 fn frontend_ts_mirror_matches_rust() {
-    assert_mirror(
-        "DocKind::ALL",
-        "DOC_KINDS",
-        &DocKind::ALL.map(DocKind::as_str),
-    );
+    assert_mirror("DocKind::ALL", "DOC_KINDS", &DocKind::ALL.map(DocKind::as_str));
     assert_mirror(
         "FlowBizType::ALL",
         "FLOW_BIZ_TYPES",
@@ -354,11 +312,7 @@ fn frontend_ts_mirror_matches_rust() {
         "OUT_TYPES",
         &DocSubtype::OUT_TYPES.map(DocSubtype::as_str),
     );
-    assert_mirror(
-        "TakeType::ALL",
-        "TAKE_TYPES",
-        &TakeType::ALL.map(TakeType::as_str),
-    );
+    assert_mirror("TakeType::ALL", "TAKE_TYPES", &TakeType::ALL.map(TakeType::as_str));
 }
 
 /// 前端 `ATTACHMENT_DOC_TYPES` 与 `ATTACHMENT_DOC_KINDS` 逐字一致（顺序也一致）。
@@ -386,10 +340,7 @@ fn frontend_ts_labels_match_rust() {
     }
     check(
         ts_map(&text, "DOC_KIND_LABELS"),
-        DocKind::ALL
-            .iter()
-            .map(|item| (item.as_str(), item.label()))
-            .collect(),
+        DocKind::ALL.iter().map(|item| (item.as_str(), item.label())).collect(),
         "DOC_KIND_LABELS",
     );
     check(
@@ -468,22 +419,15 @@ fn flow_health_list_matches_registry() {
 #[test]
 fn approval_entries_use_registered_biz_types() {
     use crate::business::erp::{
-        contract_bridge, payable_bridge, purchase_bridge, stockin_query, stocktake_bridge,
-        voucher_bridge,
+        contract_bridge, payable_bridge, purchase_bridge, stockin_query, stocktake_bridge, voucher_bridge,
     };
     let registered: Vec<&str> = FlowBizType::ALL.iter().map(|item| item.as_str()).collect();
     for (name, value) in [
         ("purchase_bridge::BIZ_TYPE", purchase_bridge::BIZ_TYPE),
         ("stockin_query::POST_BIZ_TYPE", stockin_query::POST_BIZ_TYPE),
-        (
-            "stockin_query::CANCEL_BIZ_TYPE",
-            stockin_query::CANCEL_BIZ_TYPE,
-        ),
+        ("stockin_query::CANCEL_BIZ_TYPE", stockin_query::CANCEL_BIZ_TYPE),
         ("payable_bridge::BIZ_TYPE", payable_bridge::BIZ_TYPE),
-        (
-            "payable_bridge::CANCEL_BIZ_TYPE",
-            payable_bridge::CANCEL_BIZ_TYPE,
-        ),
+        ("payable_bridge::CANCEL_BIZ_TYPE", payable_bridge::CANCEL_BIZ_TYPE),
         ("voucher_bridge::BIZ_TYPE", voucher_bridge::BIZ_TYPE),
         ("contract_bridge::BIZ_TYPE", contract_bridge::BIZ_TYPE),
         ("stocktake_bridge::BIZ_TYPE", stocktake_bridge::BIZ_TYPE),
@@ -521,11 +465,7 @@ fn routes_are_unique_and_round_trip() {
         let Some(route) = kind.route() else {
             continue;
         };
-        assert!(
-            seen.insert(route),
-            "路径段 {route} 被两个对象共用（{}）",
-            kind.as_str()
-        );
+        assert!(seen.insert(route), "路径段 {route} 被两个对象共用（{}）", kind.as_str());
         assert!(
             route
                 .chars()
@@ -586,18 +526,10 @@ fn cross_axis_mappings_are_consistent() {
     // 可做存在性校验，所以判据改成「有目标表」。变成 `is_document()` 就会挡住
     // 「营业执照挂在供应商上」这个真实需求。
     for kind in ATTACHMENT_DOC_KINDS {
-        assert!(
-            kind.table().is_some(),
-            "{} 没有实体表，不能挂附件",
-            kind.as_str()
-        );
+        assert!(kind.table().is_some(), "{} 没有实体表，不能挂附件", kind.as_str());
     }
     for kind in REMINDER_DOC_KINDS {
-        assert!(
-            DocKind::ALL.contains(&kind),
-            "{} 不在 DocKind 域内",
-            kind.as_str()
-        );
+        assert!(DocKind::ALL.contains(&kind), "{} 不在 DocKind 域内", kind.as_str());
     }
 }
 
@@ -640,14 +572,8 @@ fn parse_is_strict() {
     for raw in ["stock_in", "StockIn", "stock-in"] {
         assert_eq!(DocKind::parse(raw), None, "{raw} 不该被归一");
     }
-    assert_eq!(
-        FlowBizType::parse("PO_APPROVE"),
-        Some(FlowBizType::PoApprove)
-    );
-    assert_eq!(
-        DocKind::parse("STOCK_TRANSFER"),
-        Some(DocKind::StockTransfer)
-    );
+    assert_eq!(FlowBizType::parse("PO_APPROVE"), Some(FlowBizType::PoApprove));
+    assert_eq!(DocKind::parse("STOCK_TRANSFER"), Some(DocKind::StockTransfer));
 }
 
 // ==================== 测试残留口径（t_61dca492） ====================
@@ -659,22 +585,11 @@ fn parse_is_strict() {
 #[test]
 fn test_residue_predicate_matches_python_and_sql() {
     // 真阳性：e2e 脚本写进生产库的那两种形态
-    assert!(crate::business::shared::doc_kind::is_test_residue(
-        "E2E_AP_E2EMVUARCAT"
-    ));
+    assert!(crate::business::shared::doc_kind::is_test_residue("E2E_AP_E2EMVUARCAT"));
     assert!(crate::business::shared::doc_kind::is_test_residue("E2E_"));
-    assert!(crate::business::shared::doc_kind::is_test_residue(
-        "D2_SMOKE"
-    ));
+    assert!(crate::business::shared::doc_kind::is_test_residue("D2_SMOKE"));
     // 真阴性：内置流程 / 客户自定义流程 / 形似但不是
-    for raw in [
-        "PO_APPROVE",
-        "TASK_ACCEPT",
-        "OTHER",
-        "E2EX",
-        "e2e_ap_x",
-        "D2_SMOKE_X",
-    ] {
+    for raw in ["PO_APPROVE", "TASK_ACCEPT", "OTHER", "E2EX", "e2e_ap_x", "D2_SMOKE_X"] {
         assert!(
             !crate::business::shared::doc_kind::is_test_residue(raw),
             "{raw} 不该被当成测试残留"
@@ -712,8 +627,7 @@ fn test_residue_predicate_matches_python_and_sql() {
 /// 所以这里把 SQL 当数据解析，逐行与 Rust 比对（P2-6b）。
 fn read_snapshot_checks_sql() -> String {
     let path = repo_root().join("docs/architecture/snapshot-drift/10_checks.sql");
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|err| panic!("读不到巡检 SQL {}：{err}", path.display()))
+    std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到巡检 SQL {}：{err}", path.display()))
 }
 
 /// 从一个 VALUES 行里抠出前几个字段（`'字符串'` 或裸 `NULL`）。
@@ -879,9 +793,7 @@ fn voucher_source_target_table(value: &str) -> Option<&'static str> {
         "INVOICE" => "biz_invoice",
         // 销售链 SO-36：佣金计提 / 发放两张凭证都挂在结算单上
         "COMMISSION" => "biz_commission_settlement",
-        other => panic!(
-            "VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"
-        ),
+        other => panic!("VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"),
     })
 }
 
@@ -897,17 +809,9 @@ fn txn_doc_map_matches_snapshot_registry() {
     let rows = registry_rows(&sql, "TXN_DOC");
     let mut expected: Vec<(String, Option<String>)> = TXN_DOC_TYPE_VALUES
         .iter()
-        .map(|value| {
-            (
-                (*value).to_string(),
-                txn_doc_target_table(value).map(str::to_string),
-            )
-        })
+        .map(|value| ((*value).to_string(), txn_doc_target_table(value).map(str::to_string)))
         .collect();
-    expected.push((
-        "PURCHASE_ORDER".to_string(),
-        Some("biz_purchase_order".to_string()),
-    ));
+    expected.push(("PURCHASE_ORDER".to_string(), Some("biz_purchase_order".to_string())));
     assert_eq!(
         rows.len(),
         expected.len(),
@@ -983,11 +887,7 @@ fn flow_cc_source_map_matches_snapshot_registry() {
         ("FORM_VAR", None),
         ("EXPRESSION", None),
     ];
-    assert_eq!(
-        rows.len(),
-        expected.len(),
-        "FLOW_CC_SOURCE 登记行数不符：{rows:?}"
-    );
+    assert_eq!(rows.len(), expected.len(), "FLOW_CC_SOURCE 登记行数不符：{rows:?}");
     for (ref_type, table) in expected {
         let row = rows
             .iter()

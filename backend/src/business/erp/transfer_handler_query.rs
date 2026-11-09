@@ -8,8 +8,8 @@
 
 use super::transfer_handler_common::*;
 use crate::business::erp::transfer_dto::{
-    TransferDetailRes, TransferFilter, TransferItemRes, TransferOverdueSummaryRes, TransferRes,
-    TransferSerialGroupRes, TransferSerialRes, TransferSerialsRes,
+    TransferDetailRes, TransferFilter, TransferItemRes, TransferOverdueSummaryRes, TransferRes, TransferSerialGroupRes,
+    TransferSerialRes, TransferSerialsRes,
 };
 use crate::business::erp::transfer_model::{self, TransferQuery};
 use crate::utils;
@@ -24,9 +24,7 @@ use nik::uuid::Uuid;
     permission = "business:erp:transfer:list"
 )]
 #[nik::get("/business/erp/transfer/page")]
-pub async fn transfer_page(
-    Query(filter): Query<TransferFilter>,
-) -> ResResult<PageData<Vec<TransferRes>>> {
+pub async fn transfer_page(Query(filter): Query<TransferFilter>) -> ResResult<PageData<Vec<TransferRes>>> {
     let filter = filter.validated()?;
     // 阈值读一次：分页 SQL 的 WHERE 与返回值的 `in_transit_overdue` 必须是同一口径
     let overdue_days = transfer_model::overdue_threshold_days().await;
@@ -63,14 +61,8 @@ pub async fn transfer_page(
             .with_overdue(row, now, overdue_days)
         })
         .collect();
-    let (page, page_size) =
-        crate::business::erp::model::normalize_page(filter.page, filter.page_size);
-    Ok(Res::page(
-        list,
-        u64::try_from(total).unwrap_or(0),
-        page,
-        page_size,
-    ))
+    let (page, page_size) = crate::business::erp::model::normalize_page(filter.page, filter.page_size);
+    Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
 }
 
 // ==================== ② 详情 ====================
@@ -87,8 +79,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<TransferDetailRes, ApiEr
     let serials = transfer_model::serials_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询调拨序列号"))?;
-    let mut by_item: std::collections::BTreeMap<Uuid, Vec<String>> =
-        std::collections::BTreeMap::new();
+    let mut by_item: std::collections::BTreeMap<Uuid, Vec<String>> = std::collections::BTreeMap::new();
     for serial in &serials {
         by_item
             .entry(serial.item_id)
@@ -177,8 +168,7 @@ pub async fn serials_of_transfer(id: Uuid) -> std::result::Result<TransferSerial
     let serials = transfer_model::serials_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询调拨序列号"))?;
-    let mut by_item: std::collections::BTreeMap<Uuid, Vec<TransferSerialRes>> =
-        std::collections::BTreeMap::new();
+    let mut by_item: std::collections::BTreeMap<Uuid, Vec<TransferSerialRes>> = std::collections::BTreeMap::new();
     for serial in &serials {
         by_item
             .entry(serial.item_id)

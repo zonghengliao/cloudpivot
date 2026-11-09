@@ -53,10 +53,7 @@ impl PageSize {
             Self::A4 => (210.0, 297.0),
             Self::A5 => (148.0, 210.0),
             Self::Letter => (215.9, 279.4),
-            Self::Custom {
-                width_mm,
-                height_mm,
-            } => (*width_mm, *height_mm),
+            Self::Custom { width_mm, height_mm } => (*width_mm, *height_mm),
         }
     }
 
@@ -196,11 +193,7 @@ impl PdfOpts {
     pub fn paper_inches(&self) -> (f64, f64) {
         let (w_mm, h_mm) = self.page.size_mm();
         let (w_in, h_in) = (w_mm / MM_PER_INCH, h_mm / MM_PER_INCH);
-        if self.landscape {
-            (h_in, w_in)
-        } else {
-            (w_in, h_in)
-        }
+        if self.landscape { (h_in, w_in) } else { (w_in, h_in) }
     }
 
     /// 校验取值边界。
@@ -253,10 +246,7 @@ impl PdfOpts {
                 format!("缩放必须在 0.1–2.0 之间，当前 {}", self.scale),
             ));
         }
-        if self.display_header_footer
-            && self.header_template.is_none()
-            && self.footer_template.is_none()
-        {
+        if self.display_header_footer && self.header_template.is_none() && self.footer_template.is_none() {
             return Err(ApiError::new(
                 400,
                 error_code::PDF_OPTIONS_INVALID,
@@ -302,20 +292,10 @@ impl PdfError {
                 error_code::PDF_RENDER_UNAVAILABLE,
                 format!("PDF 渲染服务不可用：{message}"),
             ),
-            Self::Timeout(ms) => ApiError::new(
-                504,
-                error_code::PDF_RENDER_TIMEOUT,
-                format!("PDF 渲染超时（>{ms}ms）"),
-            ),
-            Self::Template(message) => {
-                ApiError::new(422, error_code::PDF_TEMPLATE_INVALID, message)
-            }
+            Self::Timeout(ms) => ApiError::new(504, error_code::PDF_RENDER_TIMEOUT, format!("PDF 渲染超时（>{ms}ms）")),
+            Self::Template(message) => ApiError::new(422, error_code::PDF_TEMPLATE_INVALID, message),
             Self::Invalid(message) => ApiError::new(400, error_code::PDF_OPTIONS_INVALID, message),
-            Self::Render(message) => ApiError::new(
-                500,
-                error_code::INTERNAL_ERROR,
-                format!("PDF 渲染失败：{message}"),
-            ),
+            Self::Render(message) => ApiError::new(500, error_code::INTERNAL_ERROR, format!("PDF 渲染失败：{message}")),
         }
     }
 
@@ -445,10 +425,7 @@ pub fn build_opts(
     scale: Option<f64>,
     filename: Option<&str>,
 ) -> std::result::Result<PdfOpts, ApiError> {
-    let page_code = page
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("A4");
+    let page_code = page.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("A4");
     let mut size = PageSize::parse(page_code)?;
     if page_code.eq_ignore_ascii_case("CUSTOM") {
         match (width_mm, height_mm) {
@@ -480,10 +457,7 @@ pub fn build_opts(
         display_header_footer: false,
         header_template: None,
         footer_template: None,
-        filename: filename
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
+        filename: filename.map(str::trim).filter(|s| !s.is_empty()).map(str::to_string),
     };
     opts.validate()?;
     Ok(opts)
@@ -499,10 +473,7 @@ mod tests {
         let opts = PdfOpts::default();
         let (w, h) = opts.paper_inches();
         assert!((w - 8.2677).abs() < 1e-3, "A4 宽应为 8.2677 英寸，实际 {w}");
-        assert!(
-            (h - 11.6929).abs() < 1e-3,
-            "A4 高应为 11.6929 英寸，实际 {h}"
-        );
+        assert!((h - 11.6929).abs() < 1e-3, "A4 高应为 11.6929 英寸，实际 {h}");
     }
 
     /// 横向 = 纵向交换宽高（不是把纸转 90° 后再缩放）。
@@ -551,10 +522,7 @@ mod tests {
     fn validate_rejects_out_of_range() {
         let mut opts = PdfOpts::default();
         opts.scale = 0.05;
-        assert_eq!(
-            opts.validate().unwrap_err().code,
-            error_code::PDF_OPTIONS_INVALID
-        );
+        assert_eq!(opts.validate().unwrap_err().code, error_code::PDF_OPTIONS_INVALID);
 
         let mut opts = PdfOpts::default();
         opts.scale = 2.5;
@@ -645,8 +613,7 @@ mod tests {
     /// `page=CUSTOM` 缺宽高必须 400。
     #[test]
     fn build_opts_requires_custom_dimensions() {
-        let error =
-            build_opts(Some("CUSTOM"), None, Some(210.0), None, None, None, None).unwrap_err();
+        let error = build_opts(Some("CUSTOM"), None, Some(210.0), None, None, None, None).unwrap_err();
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("width_mm"));
     }
@@ -660,26 +627,10 @@ mod tests {
                 503,
                 error_code::PDF_RENDER_UNAVAILABLE,
             ),
-            (
-                PdfError::Timeout(20000),
-                504,
-                error_code::PDF_RENDER_TIMEOUT,
-            ),
-            (
-                PdfError::Template("x".into()),
-                422,
-                error_code::PDF_TEMPLATE_INVALID,
-            ),
-            (
-                PdfError::Invalid("x".into()),
-                400,
-                error_code::PDF_OPTIONS_INVALID,
-            ),
-            (
-                PdfError::Render("x".into()),
-                500,
-                error_code::INTERNAL_ERROR,
-            ),
+            (PdfError::Timeout(20000), 504, error_code::PDF_RENDER_TIMEOUT),
+            (PdfError::Template("x".into()), 422, error_code::PDF_TEMPLATE_INVALID),
+            (PdfError::Invalid("x".into()), 400, error_code::PDF_OPTIONS_INVALID),
+            (PdfError::Render("x".into()), 500, error_code::INTERNAL_ERROR),
         ];
         for (error, status, code) in cases {
             let api = error.into_api();

@@ -18,9 +18,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::dto::{
-    AccountFilter, InventoryFilter, InventoryLocationFilter, InventoryTxnFilter, LocationFilter,
-    MaterialFilter, PeriodFilter, PurchaseOrderFilter, PurchaseOrderItemFilter, SeqFilter,
-    SupplierFilter, UnitFilter, WarehouseFilter,
+    AccountFilter, InventoryFilter, InventoryLocationFilter, InventoryTxnFilter, LocationFilter, MaterialFilter,
+    PeriodFilter, PurchaseOrderFilter, PurchaseOrderItemFilter, SeqFilter, SupplierFilter, UnitFilter, WarehouseFilter,
 };
 
 use super::*;
@@ -256,10 +255,7 @@ async fn unit_row_maps_key_field() {
         Some(guard) => guard,
         None => return,
     };
-    let row = unit_find_by_id(uuid(U_ID))
-        .await
-        .unwrap()
-        .expect("单位应存在");
+    let row = unit_find_by_id(uuid(U_ID)).await.unwrap().expect("单位应存在");
     assert_eq!(row.unit_code, "W1B-PCS");
     assert_eq!(row.is_base, 1);
     assert!(row.base_unit_id.is_none());
@@ -274,17 +270,11 @@ async fn warehouse_row_maps_level_and_path() {
         Some(guard) => guard,
         None => return,
     };
-    let leaf = warehouse_find_by_id(uuid(W_LEAF_ID))
-        .await
-        .unwrap()
-        .unwrap();
+    let leaf = warehouse_find_by_id(uuid(W_LEAF_ID)).await.unwrap().unwrap();
     assert_eq!(leaf.level, 3);
     assert_eq!(leaf.is_leaf, 1);
     assert_eq!(leaf.warehouse_type, "FINISHED");
-    assert_eq!(
-        leaf.warehouse_path,
-        format!("/{W_ROOT_ID}/{W_SUB_ID}/{W_LEAF_ID}/")
-    );
+    assert_eq!(leaf.warehouse_path, format!("/{W_ROOT_ID}/{W_SUB_ID}/{W_LEAF_ID}/"));
     assert_eq!(leaf.parent_id, Some(uuid(W_SUB_ID)));
 }
 
@@ -316,10 +306,7 @@ async fn material_row_maps_type_and_tax() {
         Some(guard) => guard,
         None => return,
     };
-    let row = material_find_by_code("W1B-M-001")
-        .await
-        .unwrap()
-        .expect("物料应存在");
+    let row = material_find_by_code("W1B-M-001").await.unwrap().expect("物料应存在");
     assert_eq!(row.material_type, "RAW");
     assert_eq!(row.costing_method, "MOVING_AVG");
     assert_eq!(row.tax_rate, dec("0.13"));
@@ -333,10 +320,7 @@ async fn supplier_row_maps_credit_limit() {
         Some(guard) => guard,
         None => return,
     };
-    let row = supplier_find_by_id(uuid(SUPPLIER_ID))
-        .await
-        .unwrap()
-        .unwrap();
+    let row = supplier_find_by_id(uuid(SUPPLIER_ID)).await.unwrap().unwrap();
     assert_eq!(row.supplier_code, "W1B-SUP-001");
     assert_eq!(row.credit_days, 30);
     assert_eq!(row.credit_limit, dec("12345.6789"));
@@ -392,10 +376,7 @@ async fn purchase_order_row_maps_amounts_and_currency() {
         Some(guard) => guard,
         None => return,
     };
-    let row = purchase_order_find_by_no("W1B-PO-0001")
-        .await
-        .unwrap()
-        .unwrap();
+    let row = purchase_order_find_by_no("W1B-PO-0001").await.unwrap().unwrap();
     assert_eq!(row.status, "DRAFT");
     assert_eq!(row.currency_code, "CNY", "CHAR(3) 已 ::text，不带补位空格");
     assert_eq!(row.total_qty, dec("5"));
@@ -439,9 +420,7 @@ async fn inventory_row_maps_avg_cost() {
     assert_eq!(row.qty, dec("5"));
     assert_eq!(row.avg_cost, dec("20"), "均价 NUMERIC(18,6)");
     assert_eq!(row.amount, dec("100"));
-    let missing = inventory_find(uuid(M_SEMI_ID), uuid(W_LEAF_ID))
-        .await
-        .unwrap();
+    let missing = inventory_find(uuid(M_SEMI_ID), uuid(W_LEAF_ID)).await.unwrap();
     assert!(missing.is_none(), "没库存的物料返回 None，而不是空行");
 }
 
@@ -451,9 +430,7 @@ async fn inventory_location_row_maps_qty_per_location() {
         Some(guard) => guard,
         None => return,
     };
-    let rows = inventory_locations(uuid(M_RAW_ID), uuid(W_LEAF_ID))
-        .await
-        .unwrap();
+    let rows = inventory_locations(uuid(M_RAW_ID), uuid(W_LEAF_ID)).await.unwrap();
     assert_eq!(rows.len(), 2);
     assert_eq!(rows[0].id, uuid(INV_LOC_A1_ID));
     assert_eq!(rows[0].location_id, Some(uuid(L_A1_ID)));
@@ -533,11 +510,7 @@ async fn warehouse_child_counts_and_children() {
         .unwrap();
     assert_eq!(counts.get(&uuid(W_ROOT_ID)), Some(&1));
     assert_eq!(counts.get(&uuid(W_SUB_ID)), Some(&1));
-    assert_eq!(
-        counts.get(&uuid(W_OTHER_ID)),
-        None,
-        "无子节点不出现在 map 里"
-    );
+    assert_eq!(counts.get(&uuid(W_OTHER_ID)), None, "无子节点不出现在 map 里");
     let children = warehouse_children(uuid(W_ROOT_ID)).await.unwrap();
     assert_eq!(children.len(), 1);
     assert_eq!(children[0].id, uuid(W_SUB_ID));
@@ -650,12 +623,9 @@ async fn material_page_serial_required_filter_tracks_column_existence() {
 
     if !had_column {
         // 恢复原样：不把「模拟 V0138」的列留在库里
-        db().execute_with_params(
-            "ALTER TABLE biz_material DROP COLUMN serial_required",
-            vec![],
-        )
-        .await
-        .expect("回滚造列");
+        db().execute_with_params("ALTER TABLE biz_material DROP COLUMN serial_required", vec![])
+            .await
+            .expect("回滚造列");
     }
 }
 
@@ -673,16 +643,10 @@ async fn inventory_two_level_ledger_is_consistent() {
         .expect("两级账应存在");
     assert_eq!(balance.inventory.qty, dec("5"), "成本账数量");
     assert_eq!(balance.locations.len(), 2, "数量账按库位拆成 2 行");
-    assert_eq!(
-        balance.location_qty_sum(),
-        dec("5"),
-        "库位数量之和 == 成本账数量"
-    );
+    assert_eq!(balance.location_qty_sum(), dec("5"), "库位数量之和 == 成本账数量");
     assert!(balance.is_consistent());
 
-    let missing = inventory_balance(uuid(M_FIN_ID), uuid(W_LEAF_ID))
-        .await
-        .unwrap();
+    let missing = inventory_balance(uuid(M_FIN_ID), uuid(W_LEAF_ID)).await.unwrap();
     assert!(missing.is_none(), "无库存记录 → None");
 }
 
@@ -726,10 +690,7 @@ async fn decimal_12345_6789_roundtrips_without_loss() {
         None => return,
     };
     // 供应商信用额度列是 NUMERIC(18,4)：写 12345.6789 → 读回必须逐位一致
-    let row = supplier_find_by_id(uuid(SUPPLIER_ID))
-        .await
-        .unwrap()
-        .unwrap();
+    let row = supplier_find_by_id(uuid(SUPPLIER_ID)).await.unwrap().unwrap();
     assert_eq!(row.credit_limit, dec("12345.6789"));
     assert_eq!(
         row.credit_limit.to_string(),
@@ -740,25 +701,16 @@ async fn decimal_12345_6789_roundtrips_without_loss() {
     // 写入侧同样定点：更新成 0.0001（4 位小数的最小单位）再读回
     db().execute_with_params(
         "UPDATE biz_supplier SET credit_limit = ? WHERE id = ?",
-        vec![
-            TypeMapper::to_value(&dec("0.0001")),
-            Value::from(uuid(SUPPLIER_ID)),
-        ],
+        vec![TypeMapper::to_value(&dec("0.0001")), Value::from(uuid(SUPPLIER_ID))],
     )
     .await
     .expect("写入 0.0001");
-    let after = supplier_find_by_id(uuid(SUPPLIER_ID))
-        .await
-        .unwrap()
-        .unwrap();
+    let after = supplier_find_by_id(uuid(SUPPLIER_ID)).await.unwrap().unwrap();
     assert_eq!(after.credit_limit, dec("0.0001"));
     // 复原，避免影响同库其它用例的断言
     db().execute_with_params(
         "UPDATE biz_supplier SET credit_limit = ? WHERE id = ?",
-        vec![
-            TypeMapper::to_value(&dec("12345.6789")),
-            Value::from(uuid(SUPPLIER_ID)),
-        ],
+        vec![TypeMapper::to_value(&dec("12345.6789")), Value::from(uuid(SUPPLIER_ID))],
     )
     .await
     .expect("复原信用额度");
@@ -899,12 +851,9 @@ async fn zz_teardown_purges_fixture_accounts() {
     let Some(_guard) = setup().await else {
         return;
     };
-    db().execute_with_params(
-        "DELETE FROM biz_account WHERE account_code LIKE 'W1B%'",
-        vec![],
-    )
-    .await
-    .expect("清场删夹具科目失败");
+    db().execute_with_params("DELETE FROM biz_account WHERE account_code LIKE 'W1B%'", vec![])
+        .await
+        .expect("清场删夹具科目失败");
     let left: i64 = db()
         .scalar_sql(
             "SELECT count(*) FROM biz_account WHERE account_code LIKE 'W1B%'".to_string(),

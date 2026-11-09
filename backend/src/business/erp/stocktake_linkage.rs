@@ -123,8 +123,7 @@ pub(crate) async fn run_in_tx(
         run: linkage::LinkageRun::default(),
     };
     let ctx = change.ctx();
-    change.run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::STOCKTAKE_EXCLUDED_ACTIONS).await?;
+    change.run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::STOCKTAKE_EXCLUDED_ACTIONS).await?;
     if !change.run.is_empty() {
         tracing::info!(
             take_id = %change.take_id,

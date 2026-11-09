@@ -34,8 +34,7 @@ use nik::uuid::Uuid;
 use super::voucher;
 use super::voucher_linkage;
 use super::voucher_write::{
-    CreateVoucherReq, ManualEntryReq, audit_voucher, create_manual_voucher, post_audited_voucher,
-    reverse_voucher,
+    CreateVoucherReq, ManualEntryReq, audit_voucher, create_manual_voucher, post_audited_voucher, reverse_voucher,
 };
 use crate::business::flow::linkage::{model as linkage_model, spec};
 use crate::business::shared::state_machine;
@@ -167,10 +166,7 @@ async fn new_draft(creator: Uuid) -> (Uuid, voucher::VoucherRow) {
     let req = CreateVoucherReq {
         voucher_date: None,
         summary: Some(format!("{TAG} 联动用例")),
-        entries: Some(vec![
-            entry(&inventory, "100", "0"),
-            entry(&payable_account, "0", "100"),
-        ]),
+        entries: Some(vec![entry(&inventory, "100", "0"), entry(&payable_account, "0", "100")]),
         remark: Some(format!("{TAG} 单测夹具")),
     };
     let detail = create_manual_voucher(&req, Some(creator))
@@ -275,11 +271,7 @@ async fn lnk06_generate_voucher_rule_is_rejected_on_save() {
         .await
         .expect_err("凭证上配 GENERATE_VOUCHER 必须被拒绝（否则就是「凭证生凭证」的死循环）");
     assert_eq!(err.code, error_code::PARAM_INVALID, "应当 400 参数错误");
-    assert!(
-        err.msg.contains("死循环"),
-        "400 文案必须点明死循环，实际：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("死循环"), "400 文案必须点明死循环，实际：{}", err.msg);
 
     let saved = linkage_model::find_rule_by_key(
         db(),

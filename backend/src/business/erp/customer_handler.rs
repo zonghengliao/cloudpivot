@@ -52,8 +52,7 @@ use serde_json::json;
 
 use crate::business::erp::code_policy;
 use crate::business::erp::customer_model::{
-    self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status,
-    normalize_code,
+    self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status, normalize_code,
 };
 use crate::business::erp::seq;
 use crate::shared::error_code;
@@ -96,11 +95,7 @@ fn require_text(value: &str, field: &str, max: usize) -> std::result::Result<(),
 }
 
 /// 选填文本：`None` / 空白放过；有值则限长（超长同样拒，避免被 `VARCHAR(n)` 静默截断）。
-fn check_optional_text(
-    value: Option<&str>,
-    field: &str,
-    max: usize,
-) -> std::result::Result<(), ApiError> {
+fn check_optional_text(value: Option<&str>, field: &str, max: usize) -> std::result::Result<(), ApiError> {
     match value.map(str::trim) {
         Some(text) if !text.is_empty() && text.chars().count() > max => Err(bad_request(format!(
             "{field} 最长 {max} 个字符（当前 {} 个）",
@@ -161,11 +156,7 @@ fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
 
 /// 客户不存在 / 已软删（404）。
 fn not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "客户不存在或已删除".to_string(),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "客户不存在或已删除".to_string())
 }
 
 /// 编码重复（409 + `66001`）：文案与供应商 / 物料同一套口径（已软删的编码可复用）。
@@ -192,10 +183,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "客户编码已存在（唯一约束{}）：同一范围内不允许重复编码，已软删的编码可以复用",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::CheckViolation { constraint, .. } => ApiError::new(
@@ -203,10 +191,7 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             error_code::PARAM_INVALID,
             format!(
                 "数据不满足数据库约束{}（信用额度 >= 0 / 状态域 ACTIVE|FROZEN）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         _ => utils::db_error(err, ctx),
@@ -323,12 +308,7 @@ impl CreateCustomerReq {
         if let Some(credit_limit) = self.credit_limit {
             require_credit_limit(credit_limit)?;
         }
-        if let Some(status) = self
-            .status
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        if let Some(status) = self.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             require_status(status)?;
         }
         Ok(())
@@ -389,12 +369,7 @@ impl UpdateCustomerReq {
         if let Some(credit_limit) = self.credit_limit {
             require_credit_limit(credit_limit)?;
         }
-        if let Some(status) = self
-            .status
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        if let Some(status) = self.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             require_status(status)?;
         }
         Ok(())
@@ -454,11 +429,7 @@ impl From<&CustomerRow> for CustomerRes {
                 None
             } else {
                 let rest = row.credit_limit - row.credit_used;
-                Some(if rest < Decimal::ZERO {
-                    Decimal::ZERO
-                } else {
-                    rest
-                })
+                Some(if rest < Decimal::ZERO { Decimal::ZERO } else { rest })
             },
             status: row.status.clone(),
             remark: row.remark.clone(),
@@ -582,10 +553,7 @@ pub async fn update_customer(
 }
 
 /// 软删客户（已删 / 不存在 → 404）。
-pub async fn delete_customer(
-    operator: Option<Uuid>,
-    id_raw: &str,
-) -> std::result::Result<(), ApiError> {
+pub async fn delete_customer(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<(), ApiError> {
     let id = parse_uuid(id_raw, "id")?;
     let affected = customer_model::customer_soft_delete(id, operator)
         .await
@@ -607,16 +575,9 @@ pub async fn get_customer(id_raw: &str) -> std::result::Result<CustomerRes, ApiE
 }
 
 /// 客户分页。
-pub async fn page_customer(
-    filter: CustomerFilter,
-) -> std::result::Result<PageData<Vec<CustomerRes>>, ApiError> {
+pub async fn page_customer(filter: CustomerFilter) -> std::result::Result<PageData<Vec<CustomerRes>>, ApiError> {
     // `status` 传了非法值 → 400（静默忽略会把「冻结客户」筛成「全部客户」，是假数据）。
-    if let Some(status) = filter
-        .status
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(status) = filter.status.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         require_status(status)?;
     }
     let (rows, total) = customer_model::customer_page(
@@ -698,9 +659,7 @@ fn clean_optional(value: Option<String>) -> Option<String> {
     permission = "business:erp:customer:list"
 )]
 #[nik::get("/business/erp/customer/page")]
-pub async fn customer_page(
-    Query(filter): Query<CustomerFilter>,
-) -> ResResult<PageData<Vec<CustomerRes>>> {
+pub async fn customer_page(Query(filter): Query<CustomerFilter>) -> ResResult<PageData<Vec<CustomerRes>>> {
     Ok(Res::ok(page_customer(filter).await?))
 }
 
@@ -715,9 +674,7 @@ pub async fn customer_page(
     permission = "business:erp:customer:create"
 )]
 #[nik::get("/business/erp/customer/next-code")]
-pub async fn customer_next_code(
-    Extension(AuthClaims(_claims)): Extension<AuthClaims>,
-) -> ResResult<serde_json::Value> {
+pub async fn customer_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims>) -> ResResult<serde_json::Value> {
     Ok(Res::ok(json!({ "code": preview_customer_code().await? })))
 }
 
@@ -862,10 +819,7 @@ mod tests {
             "DELETE FROM biz_customer WHERE code LIKE ?",
         ];
         for sql in deletes {
-            if let Err(err) = db()
-                .execute_with_params(sql, vec![Value::from(pattern.clone())])
-                .await
-            {
+            if let Err(err) = db().execute_with_params(sql, vec![Value::from(pattern.clone())]).await {
                 panic!("清理夹具失败：{err}\nSQL: {sql}");
             }
         }
@@ -912,10 +866,7 @@ mod tests {
         // 回读走详情接口，确认真的落库（不是只在返回值里拼出来的）
         let detail = get_customer(&res.id).await.expect("详情应可读");
         assert_eq!(detail.id, res.id);
-        assert_eq!(
-            detail.address.as_deref(),
-            Some("北京市海淀区中关村大街 1 号")
-        );
+        assert_eq!(detail.address.as_deref(), Some("北京市海淀区中关村大街 1 号"));
         cleanup().await;
     }
 
@@ -968,18 +919,12 @@ mod tests {
         let Some(_guard) = setup().await else { return };
         let mut frozen = req(&format!("{CODE_PREFIX}PG-0003"), "分页测试冻结客户");
         frozen.status = Some("FROZEN".to_string());
-        create_customer(
-            None,
-            req(&format!("{CODE_PREFIX}PG-0001"), "分页测试客户甲"),
-        )
-        .await
-        .expect("建甲");
-        create_customer(
-            None,
-            req(&format!("{CODE_PREFIX}PG-0002"), "分页测试客户乙"),
-        )
-        .await
-        .expect("建乙");
+        create_customer(None, req(&format!("{CODE_PREFIX}PG-0001"), "分页测试客户甲"))
+            .await
+            .expect("建甲");
+        create_customer(None, req(&format!("{CODE_PREFIX}PG-0002"), "分页测试客户乙"))
+            .await
+            .expect("建乙");
         create_customer(None, frozen).await.expect("建丙（冻结）");
 
         let all = page_customer(CustomerFilter {
@@ -1039,13 +984,9 @@ mod tests {
         let created = create_customer(None, req(&code, "软删测试客户"))
             .await
             .expect("创建应成功");
-        delete_customer(None, &created.id)
-            .await
-            .expect("软删应成功");
+        delete_customer(None, &created.id).await.expect("软删应成功");
 
-        let err = get_customer(&created.id)
-            .await
-            .expect_err("软删后详情应 404");
+        let err = get_customer(&created.id).await.expect_err("软删后详情应 404");
         assert_eq!(err.status, 404);
         assert_eq!(err.code, error_code::RESOURCE_NOT_FOUND);
 
@@ -1057,9 +998,7 @@ mod tests {
         .expect("分页应成功");
         assert_eq!(page.total, 0, "软删行不得出现在分页里");
 
-        let err = delete_customer(None, &created.id)
-            .await
-            .expect_err("重复软删应 404");
+        let err = delete_customer(None, &created.id).await.expect_err("重复软删应 404");
         assert_eq!(err.status, 404);
 
         // 物理行仍在（软删不是删除）
@@ -1098,16 +1037,8 @@ mod tests {
         .await
         .expect("编辑应成功");
         assert_eq!(updated.name, "改名后");
-        assert_eq!(
-            updated.code,
-            format!("{CODE_PREFIX}UP-0001"),
-            "没传 code 不应改动"
-        );
-        assert_eq!(
-            updated.credit_limit,
-            Decimal::from(1000),
-            "没传额度不应改动"
-        );
+        assert_eq!(updated.code, format!("{CODE_PREFIX}UP-0001"), "没传 code 不应改动");
+        assert_eq!(updated.credit_limit, Decimal::from(1000), "没传额度不应改动");
         assert_eq!(updated.status, "ACTIVE", "没传状态不应改动");
         assert_eq!(updated.remark, None, "空串应清空为 NULL");
 
@@ -1158,10 +1089,7 @@ mod tests {
         // `?::uuid` 只收 UUID 值，绑 `&str` 会撞「cannot bind parameter to column type uuid」
         let uuid = Uuid::parse_str(id).unwrap_or_else(|_| panic!("id 不是 UUID：{id}"));
         let affected = db()
-            .execute_with_params(
-                "DELETE FROM biz_customer WHERE id = ?::uuid",
-                vec![Value::from(&uuid)],
-            )
+            .execute_with_params("DELETE FROM biz_customer WHERE id = ?::uuid", vec![Value::from(&uuid)])
             .await
             .expect("物理删客户夹具");
         assert_eq!(affected, 1, "夹具行必须删掉（id={id}）");
@@ -1194,9 +1122,7 @@ mod tests {
         // 纯空白（用户随手敲了空格）
         let mut blank = auto_req("自动编码客户（空白）");
         blank.code = Some("   ".to_string());
-        let by_blank = create_customer(None, blank)
-            .await
-            .expect("纯空白应自动取号");
+        let by_blank = create_customer(None, blank).await.expect("纯空白应自动取号");
         assert!(is_auto_code(&by_blank.code, "CUS"), "{}", by_blank.code);
         assert_ne!(by_blank.code, by_empty.code, "三次自动取号两两不同");
 
@@ -1223,12 +1149,8 @@ mod tests {
     #[tokio::test]
     async fn auto_code_increments_consecutively() {
         let Some(_guard) = setup().await else { return };
-        let first = create_customer(None, auto_req("连续取号甲"))
-            .await
-            .expect("建甲");
-        let second = create_customer(None, auto_req("连续取号乙"))
-            .await
-            .expect("建乙");
+        let first = create_customer(None, auto_req("连续取号甲")).await.expect("建甲");
+        let second = create_customer(None, auto_req("连续取号乙")).await.expect("建乙");
         assert_eq!(
             seq_no(&second.code),
             seq_no(&first.code) + 1,
@@ -1254,11 +1176,7 @@ mod tests {
             .expect_err("重复手工编码必须被拒");
         assert_eq!(err.status, 409);
         assert_eq!(err.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            err.msg.contains(&manual),
-            "错误文案要点名具体编码：{}",
-            err.msg
-        );
+        assert!(err.msg.contains(&manual), "错误文案要点名具体编码：{}", err.msg);
 
         hard_delete(&created.id).await;
     }
@@ -1269,15 +1187,9 @@ mod tests {
         let Some(_guard) = setup().await else { return };
 
         let first = preview_customer_code().await.expect("预览应成功");
-        assert!(
-            is_auto_code(&first, "CUS"),
-            "预览必须是 CUS-0001 形态，实际 {first}"
-        );
+        assert!(is_auto_code(&first, "CUS"), "预览必须是 CUS-0001 形态，实际 {first}");
         let second = preview_customer_code().await.expect("再预览应成功");
-        assert_eq!(
-            first, second,
-            "预览不得推进 biz_seq（方案 B：点了又取消不能浪费号）"
-        );
+        assert_eq!(first, second, "预览不得推进 biz_seq（方案 B：点了又取消不能浪费号）");
 
         // 保存时才真取号：留空编码建单拿到的正是刚才预览的号
         let created = create_customer(None, auto_req("预览后建单客户"))
@@ -1321,11 +1233,7 @@ mod tests {
             .expect_err("已占用的编码必须被拒");
         assert_eq!(conflict.status, 409);
         assert_eq!(conflict.code, error_code::ERP_CODE_CONFLICT, "66001");
-        assert!(
-            conflict.msg.contains(&previewed),
-            "文案要点名编码：{}",
-            conflict.msg
-        );
+        assert!(conflict.msg.contains(&previewed), "文案要点名编码：{}", conflict.msg);
 
         hard_delete(&created.id).await;
     }
@@ -1336,10 +1244,7 @@ mod tests {
         let codes = all_permissions();
         assert_eq!(codes.len(), 4);
         for (index, code) in codes.iter().enumerate() {
-            assert!(
-                code.starts_with("business:erp:customer:"),
-                "权限码前缀不对：{code}"
-            );
+            assert!(code.starts_with("business:erp:customer:"), "权限码前缀不对：{code}");
             assert!(!codes[index + 1..].contains(code), "权限码重复：{code}");
         }
     }

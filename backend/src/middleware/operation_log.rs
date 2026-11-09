@@ -111,10 +111,7 @@ pub async fn record(request: Request, next: Next) -> Response {
     let started = Instant::now();
     let path = request.uri().path().to_string();
     // 连接对端地址由框架的 into_make_service_with_connect_info 注入
-    let connect_info = request
-        .extensions()
-        .get::<ConnectInfo<SocketAddr>>()
-        .map(|info| info.0);
+    let connect_info = request.extensions().get::<ConnectInfo<SocketAddr>>().map(|info| info.0);
     let ip = utils::client_ip(request.headers(), connect_info.as_ref());
     let user_agent = utils::user_agent(request.headers());
     // 优先沿用上游注入的 request_id，缺失时自行生成
@@ -185,10 +182,7 @@ pub async fn record(request: Request, next: Next) -> Response {
 /// # 返回值
 ///
 /// 重组后的请求与脱敏后的 JSON；未捕获时为 `None`。
-async fn capture_request_body(
-    parts: axum::http::request::Parts,
-    body: Body,
-) -> (Request, Option<JsonValue>) {
+async fn capture_request_body(parts: axum::http::request::Parts, body: Body) -> (Request, Option<JsonValue>) {
     let content_length = parts
         .headers
         .get(header::CONTENT_LENGTH)

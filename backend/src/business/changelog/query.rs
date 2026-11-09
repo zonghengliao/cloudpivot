@@ -238,10 +238,8 @@ impl ChangeLogRow {
         let diff: Json = serde_json::from_str(&diff_text)
             .map_err(|error| DbError::InvalidValue(format!("diff 不是合法 JSON：{error}")))?;
         let changed_fields_text = row.get_typed::<String>("changed_fields_json")?;
-        let changed_fields: Vec<String> =
-            serde_json::from_str(&changed_fields_text).map_err(|error| {
-                DbError::InvalidValue(format!("changed_fields 不是合法数组：{error}"))
-            })?;
+        let changed_fields: Vec<String> = serde_json::from_str(&changed_fields_text)
+            .map_err(|error| DbError::InvalidValue(format!("changed_fields 不是合法数组：{error}")))?;
         Ok(Self {
             id: row.get_typed::<Uuid>("id")?,
             created_at: row.get_typed::<chrono::DateTime<chrono::Utc>>("created_at")?,
@@ -257,11 +255,7 @@ impl ChangeLogRow {
             operator_type: row
                 .get_typed::<Option<String>>("operator_type")?
                 .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| {
-                    crate::business::changelog::OperatorType::Human
-                        .code()
-                        .to_string()
-                }),
+                .unwrap_or_else(|| crate::business::changelog::OperatorType::Human.code().to_string()),
             operator_dept_id: row.get_typed::<Option<Uuid>>("operator_dept_id")?,
             client_ip: row.get_typed::<Option<String>>("client_ip")?,
             diff,
@@ -280,8 +274,7 @@ impl ChangeLogRow {
             .and_then(Json::as_object)
             .map(|fields| {
                 fields.values().any(|field| {
-                    field.get("masked").and_then(Json::as_bool).unwrap_or(false)
-                        || field.get("redacted").is_some()
+                    field.get("masked").and_then(Json::as_bool).unwrap_or(false) || field.get("redacted").is_some()
                 })
             })
             .unwrap_or(false)
@@ -322,10 +315,7 @@ pub async fn page(filter: &Filter, page: u64, page_size: u64) -> DbResult<Page<C
         page_size,
     )
     .await?;
-    let list = list
-        .iter()
-        .map(ChangeLogRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let list = list.iter().map(ChangeLogRow::from_row).collect::<DbResult<Vec<_>>>()?;
     Ok(Page {
         list,
         total,
@@ -438,14 +428,9 @@ pub async fn timeline(
 ///
 /// - `ex`：执行器；
 /// - `resource` / `resource_id`：对象坐标。
-pub async fn count_for_object(
-    ex: &impl SqlExecutor,
-    resource: &str,
-    resource_id: &str,
-) -> DbResult<i64> {
+pub async fn count_for_object(ex: &impl SqlExecutor, resource: &str, resource_id: &str) -> DbResult<i64> {
     ex.scalar_sql(
-        "SELECT COUNT(*) FROM sys_change_log WHERE resource = ?::text AND resource_id = ?::text"
-            .to_string(),
+        "SELECT COUNT(*) FROM sys_change_log WHERE resource = ?::text AND resource_id = ?::text".to_string(),
         vec![Value::from(resource), Value::from(resource_id)],
     )
     .await
@@ -559,11 +544,7 @@ async fn buckets(ex: &impl SqlExecutor, sql: &str, params: Vec<Value>) -> DbResu
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn export_rows(
-    ex: &impl SqlExecutor,
-    filter: &Filter,
-    limit: u64,
-) -> DbResult<Vec<ChangeLogRow>> {
+pub async fn export_rows(ex: &impl SqlExecutor, filter: &Filter, limit: u64) -> DbResult<Vec<ChangeLogRow>> {
     let (where_sql, mut params) = filter.where_clause();
     params.push(Value::from(limit as i64));
     let sql = format!(
@@ -635,10 +616,7 @@ mod tests {
     fn default_window_is_90_days_and_open_ended() {
         let mut filter = Filter::default();
         filter.apply_default_window(fixed_now());
-        assert_eq!(
-            filter.start_time,
-            Some(fixed_now() - chrono::Duration::days(90))
-        );
+        assert_eq!(filter.start_time, Some(fixed_now() - chrono::Duration::days(90)));
         assert!(filter.end_time.is_none(), "终点缺省 = 到现在，不该补");
     }
 
@@ -650,10 +628,7 @@ mod tests {
             ..Filter::default()
         };
         filter.apply_default_window(fixed_now());
-        assert_eq!(
-            filter.start_time,
-            Some(fixed_now() - chrono::Duration::days(3))
-        );
+        assert_eq!(filter.start_time, Some(fixed_now() - chrono::Duration::days(3)));
     }
 
     /// 占位符个数必须与参数个数一致，且片段以 " AND " 开头。
@@ -675,11 +650,7 @@ mod tests {
             keyword: Some("手机".to_string()),
         };
         let (sql, params) = filter.where_clause();
-        assert_eq!(
-            sql.matches('?').count(),
-            params.len(),
-            "占位符与参数必须等长"
-        );
+        assert_eq!(sql.matches('?').count(), params.len(), "占位符与参数必须等长");
         assert_eq!(
             sql.matches('?').count(),
             13,
@@ -747,10 +718,7 @@ mod tests {
             let unique: std::collections::BTreeSet<&&str> = fields.iter().collect();
             assert_eq!(unique.len(), fields.len(), "{table} 白名单有重复字段");
             for field in *big {
-                assert!(
-                    fields.contains(field),
-                    "{table}.{field} 是大字段但不在白名单里"
-                );
+                assert!(fields.contains(field), "{table}.{field} 是大字段但不在白名单里");
             }
         }
     }

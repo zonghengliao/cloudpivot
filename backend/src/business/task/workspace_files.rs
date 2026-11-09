@@ -311,11 +311,7 @@ fn param_invalid(message: impl Into<String>) -> ApiError {
 
 /// 404：文件不存在 / 不是普通文件。
 fn file_not_found() -> ApiError {
-    ApiError::new(
-        404,
-        error_code::FILE_NOT_FOUND,
-        "文件不存在或已从 workspace 移除",
-    )
+    ApiError::new(404, error_code::FILE_NOT_FOUND, "文件不存在或已从 workspace 移除")
 }
 
 /// 把用户给的文件名解析成 workspace 内的**可读文件**。
@@ -345,21 +341,12 @@ pub fn resolve_readable(root: &StdPath, name: &str) -> std::result::Result<PathB
         )));
     }
 
-    let root_canon = root.canonicalize().map_err(|_| {
-        ApiError::new(
-            404,
-            error_code::FILE_NOT_FOUND,
-            "该 AI 的 workspace 目录不存在",
-        )
-    })?;
-    let candidate_canon = root_canon
-        .join(name)
+    let root_canon = root
         .canonicalize()
-        .map_err(|_| file_not_found())?;
+        .map_err(|_| ApiError::new(404, error_code::FILE_NOT_FOUND, "该 AI 的 workspace 目录不存在"))?;
+    let candidate_canon = root_canon.join(name).canonicalize().map_err(|_| file_not_found())?;
 
-    if !candidate_canon.starts_with(&root_canon)
-        || candidate_canon.parent() != Some(root_canon.as_path())
-    {
+    if !candidate_canon.starts_with(&root_canon) || candidate_canon.parent() != Some(root_canon.as_path()) {
         // 走到这里说明磁盘上真的有一条指向 workspace 外的软链接（字符白名单已经
         // 挡掉了 `..`）。按「路径越界」拒绝，并把事实记进日志供运维排查。
         tracing::warn!(
@@ -368,9 +355,7 @@ pub fn resolve_readable(root: &StdPath, name: &str) -> std::result::Result<PathB
             resolved = %candidate_canon.display(),
             "AI workspace 文件名解析到 workspace 之外，已拒绝"
         );
-        return Err(param_invalid(
-            "文件路径越界（只能是 workspace 根下的一级文件）",
-        ));
+        return Err(param_invalid("文件路径越界（只能是 workspace 根下的一级文件）"));
     }
 
     let meta = std::fs::metadata(&candidate_canon).map_err(|_| file_not_found())?;
@@ -419,10 +404,7 @@ async fn task_workspace_dir(
 }
 
 /// 解析 AI profile（见 [`task_workspace_dir`] 的三步）。
-async fn resolve_ai_profile(
-    task_id: Uuid,
-    owner_id: Uuid,
-) -> std::result::Result<String, ApiError> {
+async fn resolve_ai_profile(task_id: Uuid, owner_id: Uuid) -> std::result::Result<String, ApiError> {
     let rows = db()
         .find_with_params(
             "SELECT hermes_profile FROM sys_ai_agent \
@@ -538,12 +520,7 @@ async fn list_workspace(
     }
 
     // 最近改过的排前面（AI 刚写出来的报告就是用户要找的那份），同时间按名字升序稳定排序。
-    list.sort_by(|left, right| {
-        right
-            .mtime
-            .cmp(&left.mtime)
-            .then_with(|| left.name.cmp(&right.name))
-    });
+    list.sort_by(|left, right| right.mtime.cmp(&left.mtime).then_with(|| left.name.cmp(&right.name)));
     Ok((list, true))
 }
 
@@ -635,9 +612,7 @@ async fn download_inner(
 ) -> std::result::Result<Response, ApiError> {
     let (_profile, dir) = task_workspace_dir(claims, raw_task_id).await?;
     let path = resolve_readable(&dir, name)?;
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(|_| file_not_found())?;
+    let file = tokio::fs::File::open(&path).await.map_err(|_| file_not_found())?;
     let size = file.metadata().await.map(|meta| meta.len()).unwrap_or(0);
 
     let mut response = Response::new(Body::from_stream(ReaderStream::new(file)));
@@ -645,8 +620,7 @@ async fn download_inner(
     let headers = response.headers_mut();
     headers.insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(mime_of(name))
-            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(mime_of(name)).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
     headers.insert(
         header::CONTENT_LENGTH,
@@ -659,10 +633,7 @@ async fn download_inner(
         HeaderValue::from_str(&format!("attachment; filename=\"{name}\""))
             .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
     );
-    headers.insert(
-        header::X_CONTENT_TYPE_OPTIONS,
-        HeaderValue::from_static("nosniff"),
-    );
+    headers.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
     Ok(response)
 }
 
@@ -868,15 +839,9 @@ mod tests {
         assert_eq!(escape.unwrap_err().status, 400);
         // 扩展名
         std::fs::write(workspace.join("evil.exe"), b"MZ").expect("写 exe");
-        assert_eq!(
-            resolve_readable(&workspace, "evil.exe").unwrap_err().status,
-            400
-        );
+        assert_eq!(resolve_readable(&workspace, "evil.exe").unwrap_err().status, 400);
         // 不存在
-        assert_eq!(
-            resolve_readable(&workspace, "none.md").unwrap_err().status,
-            404
-        );
+        assert_eq!(resolve_readable(&workspace, "none.md").unwrap_err().status, 404);
         // 子目录里的文件（父目录不是 workspace 根）
         std::fs::create_dir_all(workspace.join("sub")).expect("建子目录");
         std::fs::write(workspace.join("sub/deep.md"), b"x").expect("写子目录文件");
@@ -933,9 +898,7 @@ mod tests {
         std::fs::write(workspace.join("malware.exe"), b"MZ").expect("写 exe");
         std::fs::write(workspace.join("notes.json"), b"{}").expect("写 json");
 
-        let (list, exists) = list_workspace(&workspace, "t5b-agent")
-            .await
-            .expect("列目录");
+        let (list, exists) = list_workspace(&workspace, "t5b-agent").await.expect("列目录");
         assert!(exists);
         let names: Vec<&str> = list.iter().map(|item| item.name.as_str()).collect();
         assert_eq!(names.len(), 3, "exe 必须被扩展名白名单挡掉：{names:?}");

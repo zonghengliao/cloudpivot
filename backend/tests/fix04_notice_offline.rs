@@ -241,22 +241,14 @@ async fn t1_delete_offlines_notice_and_receivers() {
     let f = seed("PUBLISHED", true, "SENT").await;
     let operator = Uuid::now_v7();
 
-    let (affected, report) = delete_in_tx(f.announcement_id, operator)
-        .await
-        .expect("删公告成功");
+    let (affected, report) = delete_in_tx(f.announcement_id, operator).await.expect("删公告成功");
     assert_eq!(affected, 1, "公告本身要软删 1 行");
     assert_eq!(report.notices, 1, "关联通知要下线 1 行");
     assert_eq!(report.receivers, 2, "两个接收人都要标用户侧删除");
 
     let (gone, _) = notice_row(f.notice_id).await;
-    assert!(
-        gone,
-        "T1: sys_notice.deleted_at 必须有值（BUG-D-05 的原始症状点）"
-    );
-    assert!(
-        announcement_deleted(f.announcement_id).await,
-        "T1: 公告必须软删"
-    );
+    assert!(gone, "T1: sys_notice.deleted_at 必须有值（BUG-D-05 的原始症状点）");
+    assert!(announcement_deleted(f.announcement_id).await, "T1: 公告必须软删");
 
     let left: i64 = db()
         .scalar_with_params(
@@ -312,10 +304,7 @@ async fn t2_read_receipt_is_preserved() {
     let after_read: i64 = after[0].get_typed("read_rows").expect("read_rows");
     let after_read_at: i64 = after[0].get_typed("read_at_rows").expect("read_at_rows");
 
-    assert_eq!(
-        after_total, before_total,
-        "T2: 接收行**一条都不许删**（审计要）"
-    );
+    assert_eq!(after_total, before_total, "T2: 接收行**一条都不许删**（审计要）");
     assert_eq!(after_read, before_read, "T2: read_flag 不许改");
     assert_eq!(after_read_at, after_read, "T2: 已读必有 read_at，不许丢");
 
@@ -326,10 +315,7 @@ async fn t2_read_receipt_is_preserved() {
         )
         .await
         .expect("数公告已读");
-    assert_eq!(
-        receipt, 1,
-        "T2: 公告已读回执（sys_announcement_read）必须还在"
-    );
+    assert_eq!(receipt, 1, "T2: 公告已读回执（sys_announcement_read）必须还在");
 
     // 已读那一位的 read_flag / read_at 必须原样还在（按人核对，不是只看总数）
     let (read_flag, has_read_at): (bool, bool) = {
@@ -349,9 +335,7 @@ async fn t2_read_receipt_is_preserved() {
     };
     assert!(read_flag, "T2: 已读那一位的 read_flag 必须仍是 TRUE");
     assert!(has_read_at, "T2: 已读那一位的 read_at 必须还在");
-    println!(
-        "[PASS] t2_read_receipt_is_preserved: receivers={after_total} read={after_read} 未删未改"
-    );
+    println!("[PASS] t2_read_receipt_is_preserved: receivers={after_total} read={after_read} 未删未改");
     cleanup().await;
 }
 
@@ -373,10 +357,7 @@ async fn t3_unread_badge_drops() {
         .expect("删公告成功");
 
     let after = notice::count_unread(&f.user_unread).await.expect("未读数");
-    assert_eq!(
-        after, 0,
-        "T3: 删公告后徽标必须减到 0（不能留「列表空 + 徽标 1」）"
-    );
+    assert_eq!(after, 0, "T3: 删公告后徽标必须减到 0（不能留「列表空 + 徽标 1」）");
     println!("[PASS] t3_unread_badge_drops: 1 → 0");
     cleanup().await;
 }
@@ -420,9 +401,7 @@ async fn t5_second_delete_is_idempotent() {
     let f = seed("PUBLISHED", true, "SENT").await;
     let operator = Uuid::now_v7();
 
-    let first = delete_in_tx(f.announcement_id, operator)
-        .await
-        .expect("首次删公告成功");
+    let first = delete_in_tx(f.announcement_id, operator).await.expect("首次删公告成功");
     assert_eq!(first.0, 1);
     assert_eq!(first.1.notices, 1);
 
@@ -430,10 +409,7 @@ async fn t5_second_delete_is_idempotent() {
         .await
         .expect("二次删公告不应该报错");
     assert_eq!(second.0, 0, "T5: 公告已删，第二次应影响 0 行");
-    assert!(
-        second.1.is_empty(),
-        "T5: 第二次不应再改动任何通知行（幂等）"
-    );
+    assert!(second.1.is_empty(), "T5: 第二次不应再改动任何通知行（幂等）");
     println!("[PASS] t5_second_delete_is_idempotent: 第二次 0 行、报告为空");
     cleanup().await;
 }
@@ -587,10 +563,7 @@ async fn t9_announcement_without_notice_is_noop() {
         .expect("删无通知的公告不应报错");
     assert_eq!(affected, 1, "T9: 公告本身要软删");
     assert!(report.is_empty(), "T9: 没有通知行 → 报告为空");
-    assert!(
-        announcement_deleted(f.announcement_id).await,
-        "T9: 公告必须软删"
-    );
+    assert!(announcement_deleted(f.announcement_id).await, "T9: 公告必须软删");
     println!("[PASS] t9_announcement_without_notice_is_noop: 0 通知、不报错");
     cleanup().await;
 }

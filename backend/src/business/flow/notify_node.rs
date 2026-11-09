@@ -65,9 +65,7 @@ use nik::uuid::Uuid;
 use crate::business::flow::assignee::{self, InstanceCtx, Resolution};
 use crate::business::flow::graph::{EvalContext, SnapshotAssignee, SnapshotNode};
 use crate::business::flow::model;
-use crate::business::flow::node_config::{
-    self, NotifyNodeConfig, NotifyTemplate, NotifyWhen, SkipIfEmpty,
-};
+use crate::business::flow::node_config::{self, NotifyNodeConfig, NotifyTemplate, NotifyWhen, SkipIfEmpty};
 use crate::business::flow::template_vars;
 use crate::business::notice::dto::{ContentFormat, NoticeLevel, NoticeType};
 use crate::business::notice::{NoticeDraft, NoticeTarget};
@@ -181,14 +179,12 @@ pub async fn build(
     let recipients: Vec<Uuid> = users.into_iter().collect();
     if recipients.is_empty() {
         if cfg.skip_if_empty == SkipIfEmpty::Error {
-            return Ok(NotifyOutcome::Failed(node_config::notify_template_invalid(
-                format!(
-                    "通知节点 {}（{}）没有解析出任何收件人，且 skip_if_empty=ERROR：{}",
-                    spec.key,
-                    spec.name,
-                    trace.join("; ")
-                ),
-            )));
+            return Ok(NotifyOutcome::Failed(node_config::notify_template_invalid(format!(
+                "通知节点 {}（{}）没有解析出任何收件人，且 skip_if_empty=ERROR：{}",
+                spec.key,
+                spec.name,
+                trace.join("; ")
+            ))));
         }
         return Ok(NotifyOutcome::Nobody {
             trace,
@@ -216,16 +212,14 @@ pub async fn build(
             let format = ContentFormat::parse(content_format).unwrap_or(ContentFormat::Text);
             // ★ 渲染失败 = 配置错误 → 400（不是运行时故障）。这一条必须硬失败：
             //   放过去会让「每次走到这个节点都发不出去」，比 500 更难发现。
-            let rendered_title = match render_or_fail(spec, "inline.title", title, &dotted, format)
-            {
+            let rendered_title = match render_or_fail(spec, "inline.title", title, &dotted, format) {
                 Ok(text) => text,
                 Err(error) => return Ok(NotifyOutcome::Failed(error)),
             };
-            let rendered_content =
-                match render_or_fail(spec, "inline.content", content, &dotted, format) {
-                    Ok(text) => text,
-                    Err(error) => return Ok(NotifyOutcome::Failed(error)),
-                };
+            let rendered_content = match render_or_fail(spec, "inline.content", content, &dotted, format) {
+                Ok(text) => text,
+                Err(error) => return Ok(NotifyOutcome::Failed(error)),
+            };
             let mut draft = NoticeDraft::text(
                 NoticeType::Workflow,
                 notice_level(cfg),
@@ -294,14 +288,8 @@ fn render_or_fail(
 /// 把 `nodeKey` / `nodeName` 塞进模板变量（实例详情按它聚合「已发通知 N 人」）。
 fn with_node_marks(vars: &serde_json::Value, spec: &SnapshotNode) -> serde_json::Value {
     let mut object = vars.as_object().cloned().unwrap_or_default();
-    object.insert(
-        "nodeKey".to_string(),
-        serde_json::Value::String(spec.key.clone()),
-    );
-    object.insert(
-        "nodeName".to_string(),
-        serde_json::Value::String(spec.name.clone()),
-    );
+    object.insert("nodeKey".to_string(), serde_json::Value::String(spec.key.clone()));
+    object.insert("nodeName".to_string(), serde_json::Value::String(spec.name.clone()));
     serde_json::Value::Object(object)
 }
 
@@ -322,11 +310,7 @@ fn with_node_marks(vars: &serde_json::Value, spec: &SnapshotNode) -> serde_json:
 /// **八个键恒定存在**（不用的给空串）：`render()` 对缺失变量是 422 硬失败，
 /// 「这个模板用不到所以不传」会让模板改一个字就整条通知发不出去（与 `notify::FlowNotice`
 /// 的 `template_vars` 同一条纪律）。
-fn with_flow_aliases(
-    vars: serde_json::Value,
-    instance: &model::InstanceRow,
-    spec: &SnapshotNode,
-) -> serde_json::Value {
+fn with_flow_aliases(vars: serde_json::Value, instance: &model::InstanceRow, spec: &SnapshotNode) -> serde_json::Value {
     let mut object = vars.as_object().cloned().unwrap_or_default();
     let mut put = |key: &str, value: String| {
         object.insert(key.to_string(), serde_json::Value::String(value));
@@ -334,10 +318,7 @@ fn with_flow_aliases(
     put("flowName", instance.flow_name.clone());
     put("instanceNo", instance.instance_no.clone());
     put("nodeName", spec.name.clone());
-    put(
-        "initiatorName",
-        instance.initiator_name.clone().unwrap_or_default(),
-    );
+    put("initiatorName", instance.initiator_name.clone().unwrap_or_default());
     put("title", instance.title.clone());
     put("resultText", String::new());
     put("comment", String::new());
@@ -547,13 +528,7 @@ pub async fn run_due_once() -> std::result::Result<usize, String> {
         let key_for_tx = node_key.clone();
         let outcome = db()
             .transaction(move |tx| async move {
-                crate::business::flow::engine::fire_notify_node(
-                    &tx,
-                    instance_id,
-                    &key_for_tx,
-                    round,
-                )
-                .await
+                crate::business::flow::engine::fire_notify_node(&tx, instance_id, &key_for_tx, round).await
             })
             .await;
         let mut outcome = match outcome {
@@ -697,19 +672,10 @@ mod tests {
     fn idempotency_key_is_scoped_and_short() {
         let id = uuid(0x1234);
         let base = idempotency_key(id, "n_notify", 1, NotifyWhen::OnEnter);
-        assert_eq!(
-            base,
-            idempotency_key(id, "n_notify", 1, NotifyWhen::OnEnter)
-        );
-        assert_ne!(
-            base,
-            idempotency_key(id, "n_notify", 2, NotifyWhen::OnEnter)
-        );
+        assert_eq!(base, idempotency_key(id, "n_notify", 1, NotifyWhen::OnEnter));
+        assert_ne!(base, idempotency_key(id, "n_notify", 2, NotifyWhen::OnEnter));
         assert_ne!(base, idempotency_key(id, "n_other", 1, NotifyWhen::OnEnter));
-        assert_ne!(
-            base,
-            idempotency_key(id, "n_notify", 1, NotifyWhen::OnLeave)
-        );
+        assert_ne!(base, idempotency_key(id, "n_notify", 1, NotifyWhen::OnLeave));
         assert!(base.starts_with("FLOW:NOTIFY:E:"));
         // 最长情形：64 字符节点 key + 3 位轮次 → 必须 ≤ 128（`sys_notice.idempotency_key`）
         let longest = idempotency_key(id, &"n".repeat(64), i32::MAX, NotifyWhen::OnTimeout);
@@ -753,15 +719,8 @@ mod tests {
         )
         .expect_err("未闭合的占位符必须失败");
         assert_eq!(error.status, 400, "渲染失败必须是 400 而不是 500");
-        assert_eq!(
-            error.code,
-            crate::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID
-        );
-        assert!(
-            error.msg.contains("n_notify"),
-            "文案要点名节点：{}",
-            error.msg
-        );
+        assert_eq!(error.code, crate::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
+        assert!(error.msg.contains("n_notify"), "文案要点名节点：{}", error.msg);
     }
 
     /// 缺变量也是渲染失败（`render_paths` 的规则 2：不静默替换成空串）。
@@ -874,11 +833,7 @@ mod tests {
         }
         assert_eq!(vars["flowName"], json!("采购审批"));
         assert_eq!(vars["nodeName"], json!("通知发起人"));
-        assert_eq!(
-            vars["instance_title"],
-            json!("采购申请"),
-            "原有扁平键不能丢"
-        );
+        assert_eq!(vars["instance_title"], json!("采购申请"), "原有扁平键不能丢");
     }
 }
 
@@ -894,9 +849,7 @@ mod tests {
 mod db_tests {
     use super::*;
     use crate::business::flow::engine;
-    use crate::business::flow::graph::{
-        SNAPSHOT_SCHEMA_VERSION, Snapshot, SnapshotEdge, SnapshotNode,
-    };
+    use crate::business::flow::graph::{SNAPSHOT_SCHEMA_VERSION, Snapshot, SnapshotEdge, SnapshotNode};
     use serde_json::json;
 
     /// 真库用例**串行**（共用一个库 + 固定用户名前缀）。
@@ -941,11 +894,7 @@ mod db_tests {
     }
 
     /// 一条通知节点的快照节点。
-    fn notify_spec(
-        key: &str,
-        notify: serde_json::Value,
-        timeout_hours: Option<i32>,
-    ) -> SnapshotNode {
+    fn notify_spec(key: &str, notify: serde_json::Value, timeout_hours: Option<i32>) -> SnapshotNode {
         SnapshotNode {
             key: key.to_string(),
             name: "通知发起人".to_string(),
@@ -1033,12 +982,7 @@ mod db_tests {
     }
 
     impl Scenario {
-        async fn new(
-            tag: &str,
-            seed: u128,
-            nodes: Vec<SnapshotNode>,
-            edges: Vec<SnapshotEdge>,
-        ) -> Self {
+        async fn new(tag: &str, seed: u128, nodes: Vec<SnapshotNode>, edges: Vec<SnapshotEdge>) -> Self {
             let suffix = format!("p2{tag}");
             let def_id = uid(seed * 100 + 1);
             let version_id = uid(seed * 100 + 2);
@@ -1103,11 +1047,7 @@ mod db_tests {
             )
             .await;
 
-            for (id, name) in [
-                (initiator, "发起人"),
-                (user_a, "指定用户A"),
-                (user_b, "指定用户B"),
-            ] {
+            for (id, name) in [(initiator, "发起人"), (user_a, "指定用户A"), (user_b, "指定用户B")] {
                 exec(
                     "INSERT INTO sys_user (id, username, password, real_name, status) \
                      VALUES (?::uuid, ?, 'x', ?, 1)",
@@ -1161,9 +1101,7 @@ mod db_tests {
                 form_data: json!({}),
             };
             let tx = db().begin().await.expect("开启事务");
-            let mut out = engine::start(&tx, &req)
-                .await
-                .expect("引擎动作不应报数据库错误");
+            let mut out = engine::start(&tx, &req).await.expect("引擎动作不应报数据库错误");
             tx.commit().await.expect("提交事务");
             engine::flush_effects(out.effects.take()).await;
             engine::flush_drafts(out.effects.take_drafts()).await;
@@ -1239,13 +1177,7 @@ mod db_tests {
                 .collect()
         }
 
-        async fn purge(
-            def_id: Uuid,
-            version_id: Uuid,
-            instance_id: Uuid,
-            suffix: &str,
-            role_code: &str,
-        ) {
+        async fn purge(def_id: Uuid, version_id: Uuid, instance_id: Uuid, suffix: &str, role_code: &str) {
             let instance_text = instance_id.to_string();
             for sql in [
                 "DELETE FROM sys_notice_receiver WHERE notice_id IN \
@@ -1265,9 +1197,7 @@ mod db_tests {
                 "DELETE FROM biz_flow_instance WHERE id = ?::uuid",
                 "DELETE FROM biz_flow_def WHERE id = ?::uuid",
             ] {
-                let _ = db()
-                    .execute_with_params(sql, vec![Value::from(&instance_id)])
-                    .await;
+                let _ = db().execute_with_params(sql, vec![Value::from(&instance_id)]).await;
             }
             let _ = db()
                 .execute_with_params(
@@ -1358,10 +1288,7 @@ mod db_tests {
         );
 
         // ① 节点立即 APPROVED（非阻塞）
-        assert_eq!(
-            scenario.node_status("n_notify", 1).await.as_deref(),
-            Some("APPROVED")
-        );
+        assert_eq!(scenario.node_status("n_notify", 1).await.as_deref(), Some("APPROVED"));
         // ② 驱动下游直到实例结束
         assert_eq!(out.instance_status, "APPROVED");
         assert_eq!(scenario.instance_status().await, "APPROVED");
@@ -1400,19 +1327,13 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
 
         let out = scenario.start().await;
         assert!(out.rejected.is_none());
-        assert_eq!(
-            scenario.node_status("n_notify", 1).await.as_deref(),
-            Some("APPROVED")
-        );
+        assert_eq!(scenario.node_status("n_notify", 1).await.as_deref(), Some("APPROVED"));
         assert_eq!(scenario.instance_status().await, "APPROVED");
         assert_eq!(scenario.notices().await.len(), 1, "ON_LEAVE 也必须发");
         // 幂等键的时机段是 L（与 ON_ENTER 的 E 区分开）
@@ -1454,33 +1375,21 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
 
         let out = scenario.start().await;
         assert!(out.rejected.is_none());
         // 进入时不发、节点停在 ACTIVE、实例仍在跑
-        assert_eq!(
-            scenario.node_status("n_notify", 1).await.as_deref(),
-            Some("ACTIVE")
-        );
+        assert_eq!(scenario.node_status("n_notify", 1).await.as_deref(), Some("ACTIVE"));
         assert_eq!(scenario.instance_status().await, "PENDING");
-        assert!(
-            scenario.notices().await.is_empty(),
-            "ON_TIMEOUT 进入时不该发"
-        );
+        assert!(scenario.notices().await.is_empty(), "ON_TIMEOUT 进入时不该发");
 
         // 没到点 → 扫描捞不到
         let fired = run_due_once().await.expect("扫描不应报错");
         assert_eq!(fired, 0, "没到超时时间不该被放行");
-        assert_eq!(
-            scenario.node_status("n_notify", 1).await.as_deref(),
-            Some("ACTIVE")
-        );
+        assert_eq!(scenario.node_status("n_notify", 1).await.as_deref(), Some("ACTIVE"));
 
         // 把激活时间往前挪 5 小时（> timeout_hours=4）→ 应当被捞到并发送
         exec(
@@ -1493,10 +1402,7 @@ mod db_tests {
         .await;
         let fired = run_due_once().await.expect("扫描不应报错");
         assert_eq!(fired, 1, "到点后必须放行一个");
-        assert_eq!(
-            scenario.node_status("n_notify", 1).await.as_deref(),
-            Some("APPROVED")
-        );
+        assert_eq!(scenario.node_status("n_notify", 1).await.as_deref(), Some("APPROVED"));
         assert_eq!(scenario.instance_status().await, "APPROVED");
         assert_eq!(scenario.notices().await.len(), 1);
 
@@ -1532,10 +1438,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
 
@@ -1543,15 +1446,9 @@ mod db_tests {
         // ★ 关键断言：流程照常走完，发起动作**没有**被通知失败拖垮
         assert!(out.rejected.is_none(), "投递失败不该让发起失败");
         assert_eq!(scenario.instance_status().await, "APPROVED");
-        assert_eq!(
-            scenario.node_status("n_notify", 1).await.as_deref(),
-            Some("APPROVED")
-        );
+        assert_eq!(scenario.node_status("n_notify", 1).await.as_deref(), Some("APPROVED"));
         // 通知确实没落库（失败了），但业务已经提交
-        assert!(
-            scenario.notices().await.is_empty(),
-            "模板不存在时不该有通知行"
-        );
+        assert!(scenario.notices().await.is_empty(), "模板不存在时不该有通知行");
 
         scenario.cleanup().await;
     }
@@ -1580,10 +1477,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
 
@@ -1605,9 +1499,7 @@ mod db_tests {
         };
         // 与 handler 同口径：业务拒绝 → 整笔回滚
         let tx = db().begin().await.expect("开启事务");
-        let out = engine::start(&tx, &req)
-            .await
-            .expect("引擎不该报数据库错误");
+        let out = engine::start(&tx, &req).await.expect("引擎不该报数据库错误");
         if out.rejected.is_some() {
             tx.rollback().await.expect("回滚");
         } else {
@@ -1615,10 +1507,7 @@ mod db_tests {
         }
         let error = out.rejected.expect("缺变量必须被拒");
         assert_eq!(error.status, 400, "渲染失败必须是 400（配置错误）");
-        assert_eq!(
-            error.code,
-            crate::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID
-        );
+        assert_eq!(error.code, crate::shared::error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
         assert!(
             error.msg.contains("渲染失败") && error.msg.contains("n_notify"),
             "文案要点名节点：{}",
@@ -1660,10 +1549,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
         scenario.start().await;
@@ -1698,10 +1584,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
         scenario.start().await;
@@ -1736,10 +1619,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
         scenario.start().await;
@@ -1778,10 +1658,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
         scenario.start().await;
@@ -1822,10 +1699,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
         scenario.start().await;
@@ -1872,10 +1746,7 @@ mod db_tests {
                 ),
                 plain_spec("n_end", "结束", "END"),
             ],
-            vec![
-                edge("e1", "n_start", "n_notify"),
-                edge("e2", "n_notify", "n_end"),
-            ],
+            vec![edge("e1", "n_start", "n_notify"), edge("e2", "n_notify", "n_end")],
         )
         .await;
         scenario.start().await;

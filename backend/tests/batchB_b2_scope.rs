@@ -110,10 +110,7 @@ async fn ensure_db() -> bool {
 
 /// 灌入夹具（幂等）。
 async fn seed() -> bool {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tests/sql/batchb/b2_scope_fixture.sql"
-    );
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/sql/batchb/b2_scope_fixture.sql");
     let Ok(sql) = std::fs::read_to_string(path) else {
         println!("SKIP: 读不到夹具 {path}");
         return false;
@@ -169,10 +166,7 @@ async fn count_users(principal: &ScopedPrincipal) -> u64 {
 /// 「超管 / ALL 范围看到全部用户」的判据是**等于库里的实际总人数**，不是等于某个常量。
 async fn all_users_in_db() -> u64 {
     let count: i64 = db()
-        .scalar_with_params(
-            "SELECT count(*) FROM sys_user WHERE deleted_at IS NULL",
-            vec![],
-        )
+        .scalar_with_params("SELECT count(*) FROM sys_user WHERE deleted_at IS NULL", vec![])
         .await
         .expect("统计 sys_user 总数失败");
     count as u64
@@ -246,14 +240,10 @@ async fn b2_real_database_acceptance() {
     let u_child = resolve_and_log("u_child", fixture::U_CHILD).await;
     assert_eq!(u_child.kind(), ScopeKind::DeptAndChild);
     let subtree: BTreeSet<String> = u_child.dept_ids().iter().map(|id| id.to_string()).collect();
-    let expected: BTreeSet<String> = [
-        fixture::DEPT_D1_1,
-        fixture::DEPT_D1_1_1,
-        fixture::DEPT_D1_1_2,
-    ]
-    .iter()
-    .map(|id| id.to_string())
-    .collect();
+    let expected: BTreeSet<String> = [fixture::DEPT_D1_1, fixture::DEPT_D1_1_1, fixture::DEPT_D1_1_2]
+        .iter()
+        .map(|id| id.to_string())
+        .collect();
     assert_eq!(subtree, expected, "子树必须恰好是 B2-D1-1 及其 2 个子部门");
     assert_eq!(count_users(&u_child).await, 5, "子树内 5 个用户");
 
@@ -266,11 +256,7 @@ async fn b2_real_database_acceptance() {
     // 2.5 CUSTOM（B2-D2 + B2-D2-1）
     let u_custom = resolve_and_log("u_custom", fixture::U_CUSTOM).await;
     assert_eq!(u_custom.kind(), ScopeKind::Custom);
-    let custom: BTreeSet<String> = u_custom
-        .dept_ids()
-        .iter()
-        .map(|id| id.to_string())
-        .collect();
+    let custom: BTreeSet<String> = u_custom.dept_ids().iter().map(|id| id.to_string()).collect();
     let expected_custom: BTreeSet<String> = [fixture::DEPT_D2, fixture::DEPT_D2_1]
         .iter()
         .map(|id| id.to_string())
@@ -282,27 +268,15 @@ async fn b2_real_database_acceptance() {
     let u_multi = resolve_and_log("u_multi", fixture::U_MULTI).await;
     assert_eq!(u_multi.kind(), ScopeKind::Dept, "并集的主导范围仍是部门类");
     assert!(u_multi.self_only(), "并集里出现 SELF → self_only=true");
-    assert_eq!(
-        count_users(&u_multi).await,
-        3,
-        "本人已在部门内，并集不放大也不缩小"
-    );
+    assert_eq!(count_users(&u_multi).await, 3, "本人已在部门内，并集不放大也不缩小");
 
     // ---------- ④ 三条降级（安全侧） ----------
     let u_nodept = resolve_and_log("u_nodept", fixture::U_NODEPT).await;
-    assert_eq!(
-        u_nodept.kind(),
-        ScopeKind::SelfOnly,
-        "无部门 → 降级为仅本人"
-    );
+    assert_eq!(u_nodept.kind(), ScopeKind::SelfOnly, "无部门 → 降级为仅本人");
     assert_eq!(count_users(&u_nodept).await, 1);
 
     let u_norole = resolve_and_log("u_norole", fixture::U_NOROLE).await;
-    assert_eq!(
-        u_norole.kind(),
-        ScopeKind::SelfOnly,
-        "无角色 → 降级为仅本人"
-    );
+    assert_eq!(u_norole.kind(), ScopeKind::SelfOnly, "无角色 → 降级为仅本人");
     assert_eq!(
         u_norole.own_dept_id(),
         Some(uuid(fixture::DEPT_D1)),
@@ -311,11 +285,7 @@ async fn b2_real_database_acceptance() {
     assert_eq!(count_users(&u_norole).await, 1);
 
     let u_branch = resolve_and_log("u_branch", fixture::U_BRANCH).await;
-    assert_eq!(
-        u_branch.kind(),
-        ScopeKind::SelfOnly,
-        "过期绑定不算持有 → 降级为仅本人"
-    );
+    assert_eq!(u_branch.kind(), ScopeKind::SelfOnly, "过期绑定不算持有 → 降级为仅本人");
     assert_eq!(count_users(&u_branch).await, 1);
 
     // ---------- ⑤ `sys_dept` 也要按范围裁剪 ----------
@@ -331,21 +301,10 @@ async fn b2_real_database_acceptance() {
     .await
     .expect("sys_dept 分页失败");
     assert_eq!(dept_page.total, 3, "部门树按子树裁剪：3 个部门");
-    let self_dept_page = scope::paginate(
-        ScopeTarget::SYS_DEPT,
-        BASE_DEPT_SQL,
-        vec![],
-        None,
-        1,
-        50,
-        &u_self,
-    )
-    .await
-    .expect("sys_dept(SELF) 分页失败");
-    assert_eq!(
-        self_dept_page.total, 1,
-        "仅本人 → 只能看到本人所在部门这一行"
-    );
+    let self_dept_page = scope::paginate(ScopeTarget::SYS_DEPT, BASE_DEPT_SQL, vec![], None, 1, 50, &u_self)
+        .await
+        .expect("sys_dept(SELF) 分页失败");
+    assert_eq!(self_dept_page.total, 1, "仅本人 → 只能看到本人所在部门这一行");
 
     // ---------- ⑥ count 语句可直接执行（S12：无 ORDER BY），且与数据页一致 ----------
     let filter = scope::filter_for(&u_child, ScopeTarget::SYS_USER);
@@ -359,16 +318,9 @@ async fn b2_real_database_acceptance() {
         .await
         .expect("count 语句必须可执行");
     assert_eq!(manual_total as u64, count_users(&u_child).await);
-    assert!(
-        !count_sql.to_uppercase().contains("ORDER BY"),
-        "count 不得含 ORDER BY"
-    );
+    assert!(!count_sql.to_uppercase().contains("ORDER BY"), "count 不得含 ORDER BY");
     println!("\n[S12] 真库 count 语句（无 ORDER BY，可执行）：\n  {count_sql}");
-    println!(
-        "[S12] 片段：`{}` binds={}",
-        filter.sql(),
-        filter.bind_count()
-    );
+    println!("[S12] 片段：`{}` binds={}", filter.sql(), filter.bind_count());
 
     // ---------- ⑦ 参数顺序契约（S8/S13）：带业务参数的查询必须用 {FILTER} ----------
     // u_child 子树 + 用户名 LIKE '%leaf%' → 只有 b2_u_leaf1/b2_u_leaf2 命中。
@@ -394,9 +346,7 @@ async fn b2_real_database_acceptance() {
         .map(|row| row.get_typed::<String>("username").unwrap_or_default())
         .collect();
     assert_eq!(names, vec!["b2_u_leaf1", "b2_u_leaf2"]);
-    println!(
-        "\n[S8/S13] FILTER 标记 + 业务参数 `AND u.username LIKE ?` → total=2 rows={names:?} ✓"
-    );
+    println!("\n[S8/S13] FILTER 标记 + 业务参数 `AND u.username LIKE ?` → total=2 rows={names:?} ✓");
 
     // 反向：带业务参数却没有 `{FILTER}` → 必须报错（否则参数会静默错位）
     let error = scope::paginate(
@@ -441,10 +391,7 @@ async fn b2_real_database_acceptance() {
     assert!(allowed.is_ok(), "子树内的部门可以授权");
     let denied = guard::ensure_scope_grant_allowed(&u_child, &[uuid(fixture::DEPT_D2)]);
     assert!(denied.is_err(), "跨树部门必须拒绝");
-    println!(
-        "[S14] 子树内→Ok；跨树 B2-D2 → {} ✓",
-        denied.err().unwrap().msg
-    );
+    println!("[S14] 子树内→Ok；跨树 B2-D2 → {} ✓", denied.err().unwrap().msg);
 
     println!("\n================ B2 真库验收全部通过 ================\n");
 }

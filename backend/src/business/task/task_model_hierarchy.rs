@@ -78,9 +78,7 @@ pub async fn validate_parent(parent_id: Uuid, self_id: Option<Uuid>) -> DbResult
     }
     // 祖先链（**一次**递归 CTE）：父任务自身是第 1 层
     let chain_sql = ancestor_chain_sql();
-    let chain_rows = db()
-        .find_with_params(&chain_sql, vec![Value::from(&parent_id)])
-        .await?;
+    let chain_rows = db().find_with_params(&chain_sql, vec![Value::from(&parent_id)]).await?;
     let mut seen: std::collections::BTreeSet<Uuid> = std::collections::BTreeSet::new();
     let mut chain_len: usize = 0;
     for chain_row in &chain_rows {
@@ -99,9 +97,7 @@ pub async fn validate_parent(parent_id: Uuid, self_id: Option<Uuid>) -> DbResult
     if let Some(self_id) = self_id
         && seen.contains(&self_id)
     {
-        return Err(DbError::InvalidValue(
-            "父任务不能是自己的子任务（会成环）".to_string(),
-        ));
+        return Err(DbError::InvalidValue("父任务不能是自己的子任务（会成环）".to_string()));
     }
     // 深度：新任务 = 第 chain_len + 1 层
     if chain_len >= MAX_TASK_DEPTH {
@@ -146,11 +142,7 @@ pub async fn validate_parent(parent_id: Uuid, self_id: Option<Uuid>) -> DbResult
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]（由调用方的事务整体回滚）。
-pub async fn recalc_ancestors(
-    ex: &Transaction,
-    start: Uuid,
-    operator: Uuid,
-) -> DbResult<Vec<ProgressRecalc>> {
+pub async fn recalc_ancestors(ex: &Transaction, start: Uuid, operator: Uuid) -> DbResult<Vec<ProgressRecalc>> {
     let mut results = Vec::new();
     let mut visited = std::collections::BTreeSet::new();
     let mut cursor = parent_of(ex, start).await?;
@@ -283,11 +275,7 @@ pub(super) async fn scalar_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<O
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]（由调用方的事务整体回滚）。
-pub async fn cascade_parent_status(
-    ex: &impl SqlExecutor,
-    start: Uuid,
-    operator: Uuid,
-) -> DbResult<Vec<StatusCascade>> {
+pub async fn cascade_parent_status(ex: &impl SqlExecutor, start: Uuid, operator: Uuid) -> DbResult<Vec<StatusCascade>> {
     let mut results = Vec::new();
     // `visited` 从 `start` 起算：`A → B → A` 这种环在第二次回到 `A` 时立刻停
     let mut visited = std::collections::BTreeSet::new();
@@ -408,10 +396,7 @@ pub async fn cascade_parent_status(
 ///
 /// 数据库异常 → [`DbError`]。库里状态不是 5 态之一的行（历史脏值）**跳过不猜**。
 // SCOPE-EXEMPT: 产出的是「父任务状态不一致」的**运维诊断清单**（父任务 id + 样本子任务），不是业务行集展示；唯一读者是批量修数接口 handler.rs:4689 repair_parent_status —— 中间件 business:task:update + handler.rs:4697 is_super_admin（非超管 403 + 63002），而超管的 scope 恒为「全部」，注入片段是 no-op；文档口径亦明确「这是跨全库的批量修数接口，不按单个任务的数据范围做闸」。
-pub async fn scan_parent_status_gaps(
-    ex: &impl SqlExecutor,
-    limit: i64,
-) -> DbResult<Vec<ParentStatusGap>> {
+pub async fn scan_parent_status_gaps(ex: &impl SqlExecutor, limit: i64) -> DbResult<Vec<ParentStatusGap>> {
     let terminal = TERMINAL_STATUS_CODES
         .iter()
         .map(|code| format!("'{code}'"))
@@ -577,11 +562,7 @@ pub async fn cascade_cancel_descendants(
         let task_no: String = row.get_typed("task_no")?;
         let raw: String = row.get_typed("status")?;
         match TaskStatus::parse(&raw) {
-            Some(from) => out.push(CancelCascade {
-                task_id,
-                task_no,
-                from,
-            }),
+            Some(from) => out.push(CancelCascade { task_id, task_no, from }),
             // 状态不是 5 态之一（脏数据）：取消已经落库，但这一行没法写「从什么状态来的」，
             // 打 WARN 让运维看见，不 panic（不能因为一行脏数据把整笔取消回滚）。
             None => tracing::warn!(

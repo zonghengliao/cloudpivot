@@ -89,10 +89,7 @@ pub fn build_stock_take_items(
                     .map(|info| info.name.clone())
                     .unwrap_or_else(|| "（物料已删除）".to_string()),
                 spec: material.map(|info| info.spec.clone()).unwrap_or_default(),
-                unit: units
-                    .get(&source.unit_id)
-                    .cloned()
-                    .unwrap_or_else(|| "—".to_string()),
+                unit: units.get(&source.unit_id).cloned().unwrap_or_else(|| "—".to_string()),
                 location: match source.location_id {
                     None => "未分配".to_string(),
                     Some(id) => locations
@@ -251,18 +248,17 @@ pub async fn stock_take_pdf(
     let started = Instant::now();
     match export_stock_take(&id).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "盘点单 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "盘点单 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
             audit(&id, &headers, &connect_info, &claims, &rendered, started);
             response
         }
@@ -320,12 +316,7 @@ mod tests {
         }
     }
 
-    fn source(
-        material_id: Uuid,
-        unit_id: Uuid,
-        location: Option<Uuid>,
-        book: Decimal,
-    ) -> StockTakeItemRow {
+    fn source(material_id: Uuid, unit_id: Uuid, location: Option<Uuid>, book: Decimal) -> StockTakeItemRow {
         StockTakeItemRow {
             id: Uuid::now_v7(),
             take_id: Uuid::now_v7(),
@@ -380,8 +371,7 @@ mod tests {
             Some(Uuid::now_v7()),
             Decimal::ZERO,
         )];
-        let items =
-            build_stock_take_items(&sources, &HashMap::new(), &HashMap::new(), &HashMap::new());
+        let items = build_stock_take_items(&sources, &HashMap::new(), &HashMap::new(), &HashMap::new());
         assert_eq!(items[0].material_code, "（物料已删除）");
         assert_eq!(items[0].unit, "—");
         assert_eq!(items[0].location, "已删除的库位账行");
@@ -616,10 +606,7 @@ mod db_tests {
 
         let html = template::render_stock_take(&ctx).expect("模板必须渲染成功");
         // 三列手写栏：每行三个空格；库里已有的实盘数（102 / 0.5）不许出现
-        assert_eq!(
-            html.matches("<td class=\"w-actual blank\"></td>").count(),
-            2
-        );
+        assert_eq!(html.matches("<td class=\"w-actual blank\"></td>").count(), 2);
         assert_eq!(html.matches("<td class=\"w-diff blank\"></td>").count(), 2);
         assert_eq!(html.matches("<td class=\"w-note blank\"></td>").count(), 2);
         assert!(!html.contains("w-actual blank\">102"));
@@ -684,22 +671,13 @@ mod db_tests {
             .find_with_params(
                 "SELECT operation, target_type, detail FROM operation_logs \
                   WHERE target_id = ? AND request_id = ?",
-                vec![
-                    Value::Text(TAKE.to_string()),
-                    Value::Text(request_id.to_string()),
-                ],
+                vec![Value::Text(TAKE.to_string()), Value::Text(request_id.to_string())],
             )
             .await
             .expect("回查审计行");
         assert_eq!(rows.len(), 1);
-        assert_eq!(
-            rows[0].get_typed::<String>("operation").unwrap(),
-            EXPORT_OPERATION
-        );
-        assert_eq!(
-            rows[0].get_typed::<String>("target_type").unwrap(),
-            "biz_stock_take"
-        );
+        assert_eq!(rows[0].get_typed::<String>("operation").unwrap(), EXPORT_OPERATION);
+        assert_eq!(rows[0].get_typed::<String>("target_type").unwrap(), "biz_stock_take");
         let detail: serde_json::Value = rows[0].get_typed("detail").expect("detail 必须是 jsonb");
         assert_eq!(detail["doc_type"], "STOCK_TAKE");
         assert_eq!(detail["row_count"], 2);

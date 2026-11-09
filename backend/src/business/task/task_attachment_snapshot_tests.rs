@@ -83,9 +83,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     // 清理（外键顺序：附件 → 文件 → 任务 → 用户）
     for sql in [
         format!("DELETE FROM biz_task_attachment WHERE task_id = '{TASK_ID}'::uuid"),
-        format!(
-            "DELETE FROM sys_file WHERE id IN ('{FILE_HUMAN}'::uuid, '{FILE_AI}'::uuid, '{FILE_LEGACY}'::uuid)"
-        ),
+        format!("DELETE FROM sys_file WHERE id IN ('{FILE_HUMAN}'::uuid, '{FILE_AI}'::uuid, '{FILE_LEGACY}'::uuid)"),
         format!("DELETE FROM biz_task WHERE id = '{TASK_ID}'::uuid"),
         format!("DELETE FROM sys_user WHERE id = '{U_ME}'::uuid"),
     ] {
@@ -107,11 +105,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     db().execute_with_params(
         "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id) \
          VALUES (?::uuid, 'AUD01-TASK-0001', 'AUD-01 附件姓名快照夹具', ?::uuid, ?::uuid)",
-        vec![
-            Value::from(&uid(TASK_ID)),
-            Value::from(&me),
-            Value::from(&me),
-        ],
+        vec![Value::from(&uid(TASK_ID)), Value::from(&me), Value::from(&me)],
     )
     .await
     .expect("夹具任务写入失败");
@@ -156,25 +150,14 @@ async fn db_task_attachment_uploader_name_is_snapshot() {
         .await
         .expect("绑定人工附件");
     // ② AI 产出：同样带快照（AI 以任务负责人身份落库）
-    let ai = model::bind_ai_attachment(
-        db(),
-        task,
-        uid(FILE_AI),
-        Some("ai-worker"),
-        me,
-        Some("上传人甲"),
-    )
-    .await
-    .expect("绑定 AI 附件");
+    let ai = model::bind_ai_attachment(db(), task, uid(FILE_AI), Some("ai-worker"), me, Some("上传人甲"))
+        .await
+        .expect("绑定 AI 附件");
     // ③ 历史行（V0352 之前的行 / 夹具）：姓名列为空，只有 create_by
     db().execute_with_params(
         "INSERT INTO biz_task_attachment (id, task_id, file_id, sort_order, source, created_at, create_by) \
          VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 99, 'HUMAN', now(), ?::uuid)",
-        vec![
-            Value::from(&task),
-            Value::from(&uid(FILE_LEGACY)),
-            Value::from(&me),
-        ],
+        vec![Value::from(&task), Value::from(&uid(FILE_LEGACY)), Value::from(&me)],
     )
     .await
     .expect("插入历史行夹具");
@@ -187,23 +170,15 @@ async fn db_task_attachment_uploader_name_is_snapshot() {
     .await
     .expect("改用户姓名失败");
 
-    let rows = collab::list_attachment_rows(task)
-        .await
-        .expect("查任务附件列表");
+    let rows = collab::list_attachment_rows(task).await.expect("查任务附件列表");
     assert_eq!(rows.len(), 3, "三条附件都应在列表里：{rows:?}");
 
-    let human_row = rows
-        .iter()
-        .find(|row| row.id == human)
-        .expect("人工附件在列表里");
+    let human_row = rows.iter().find(|row| row.id == human).expect("人工附件在列表里");
     assert_eq!(
         human_row.uploader_name, "上传人甲",
         "快照生效：改名后旧附件必须显示上传当时的名字"
     );
-    let ai_row = rows
-        .iter()
-        .find(|row| row.id == ai)
-        .expect("AI 附件在列表里");
+    let ai_row = rows.iter().find(|row| row.id == ai).expect("AI 附件在列表里");
     assert_eq!(ai_row.uploader_name, "上传人甲", "AI 附件同样走快照");
     assert_eq!(ai_row.source, "AI");
 
@@ -231,10 +206,7 @@ async fn db_task_attachment_uploader_name_is_snapshot() {
     let rows = collab::list_attachment_rows(task)
         .await
         .expect("查任务附件列表（复活后）");
-    let revived_row = rows
-        .iter()
-        .find(|row| row.id == revived)
-        .expect("复活的行在列表里");
+    let revived_row = rows.iter().find(|row| row.id == revived).expect("复活的行在列表里");
     assert_eq!(
         revived_row.uploader_name, "上传人乙",
         "复活后上传人姓名必须跟着换成这次上传的人（否则 id 与姓名不一致）"

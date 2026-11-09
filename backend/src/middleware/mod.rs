@@ -90,12 +90,7 @@ pub mod json_rejection {
             format!("请求体参数校验失败：{detail}")
         };
         let payload = serde_json::to_string(&Res::<()>::fail(error_code::PARAM_INVALID, message))
-            .unwrap_or_else(|_| {
-                format!(
-                    r#"{{"code":{},"msg":"请求体参数校验失败"}}"#,
-                    error_code::PARAM_INVALID
-                )
-            });
+            .unwrap_or_else(|_| format!(r#"{{"code":{},"msg":"请求体参数校验失败"}}"#, error_code::PARAM_INVALID));
         // 状态码保持不变（422 仍是 422：前端/监控的重试与告警口径不变），
         // 只把 body 换成统一结构并声明 JSON；其余响应头（如 `x-request-id`）原样保留。
         let mut response = (status, payload).into_response();
@@ -106,9 +101,7 @@ pub mod json_rejection {
             HeaderValue::from_static("application/json; charset=utf-8"),
         );
         for (name, value) in parts.headers.iter() {
-            if name.as_str() != header::CONTENT_TYPE.as_str()
-                && name.as_str() != header::CONTENT_LENGTH.as_str()
-            {
+            if name.as_str() != header::CONTENT_TYPE.as_str() && name.as_str() != header::CONTENT_LENGTH.as_str() {
                 response.headers_mut().insert(name.clone(), value.clone());
             }
         }
@@ -121,9 +114,7 @@ pub mod json_rejection {
     fn is_extractor_rejection(response: &Response) -> bool {
         if !matches!(
             response.status(),
-            StatusCode::BAD_REQUEST
-                | StatusCode::UNSUPPORTED_MEDIA_TYPE
-                | StatusCode::UNPROCESSABLE_ENTITY
+            StatusCode::BAD_REQUEST | StatusCode::UNSUPPORTED_MEDIA_TYPE | StatusCode::UNPROCESSABLE_ENTITY
         ) {
             return false;
         }

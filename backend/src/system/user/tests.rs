@@ -118,10 +118,7 @@ async fn u01_password_never_stored_in_plaintext() {
         stored.starts_with("$argon2"),
         "口令必须是 Argon2 PHC 哈希（$argon2id$…），实际 {stored:?}"
     );
-    assert!(
-        !stored.contains(plain),
-        "哈希串里不能包含明文片段，实际 {stored:?}"
-    );
+    assert!(!stored.contains(plain), "哈希串里不能包含明文片段，实际 {stored:?}");
 
     // 且该哈希能被真实校验（不是随手拼的假串）
     assert!(
@@ -305,10 +302,7 @@ async fn u05_repeated_login_failures_lock_account() {
         vec![Value::from(id.clone())],
     )
     .await;
-    assert_eq!(
-        locked, 1,
-        "连续失败 {max_fail} 次后账号必须被锁定（否则可以无限撞库）"
-    );
+    assert_eq!(locked, 1, "连续失败 {max_fail} 次后账号必须被锁定（否则可以无限撞库）");
     let fail_count = ts::scalar_i64(
         "SELECT login_fail_count AS v FROM sys_user WHERE id = ?::text::uuid",
         vec![Value::from(id)],
@@ -406,20 +400,14 @@ async fn u07_delete_user_keeps_business_rows() {
         vec![Value::from(id.clone())],
     )
     .await;
-    assert_eq!(
-        still, 1,
-        "用户必须软删（行仍在，deleted_at 置位），不能物理删"
-    );
+    assert_eq!(still, 1, "用户必须软删（行仍在，deleted_at 置位），不能物理删");
 
     let fk_rows = ts::scalar_i64(
         "SELECT count(*) AS v FROM biz_project WHERE id = ?::text::uuid",
         vec![Value::from(project_id.to_string())],
     )
     .await;
-    assert_eq!(
-        fk_rows, 1,
-        "该用户创建的业务单据不得因删号消失（外键不能破）"
-    );
+    assert_eq!(fk_rows, 1, "该用户创建的业务单据不得因删号消失（外键不能破）");
 
     // 角色绑定是硬删表：软删用户时必须一并清理，否则角色会“挂”在已删用户上
     let bindings = ts::scalar_i64(
@@ -528,10 +516,7 @@ async fn u08_dept_change_updates_data_scope_immediately() {
     ts::cleanup_sql(
         &format!("U08→sys_dept({dept_a},{dept_b})"),
         "DELETE FROM sys_dept WHERE id IN (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(dept_a.to_string()),
-            Value::from(dept_b.to_string()),
-        ],
+        vec![Value::from(dept_a.to_string()), Value::from(dept_b.to_string())],
     )
     .await;
     fx.sweep().await;
@@ -564,10 +549,7 @@ async fn u09_user_list_search_and_pagination() {
         .expect("分页查询失败")
         .data
         .expect("page 必须返回 data");
-    assert_eq!(
-        first.total, 3,
-        "本次夹具共 3 条（按本用例身份过滤，不用全局 COUNT）"
-    );
+    assert_eq!(first.total, 3, "本次夹具共 3 条（按本用例身份过滤，不用全局 COUNT）");
     assert_eq!(first.list.len(), 2, "第一页应为 2 条");
     assert_eq!(first.page, 1);
     assert_eq!(first.page_size, 2);
@@ -635,10 +617,7 @@ async fn u10_builtin_admin_cannot_be_deleted() {
         vec![Value::from(admin_id)],
     )
     .await;
-    assert_eq!(
-        alive, 1,
-        "admin 必须仍在（拒绝删除是真拒绝，不是「删了才报错」）"
-    );
+    assert_eq!(alive, 1, "admin 必须仍在（拒绝删除是真拒绝，不是「删了才报错」）");
     println!("[U10] 删除内置 admin → 409「{}」，账号仍在 ✓", error.msg);
 }
 
@@ -680,10 +659,7 @@ async fn u11_builtin_admin_cannot_be_disabled() {
     )
     .await;
     assert_eq!(status, 1, "admin 必须仍为启用");
-    println!(
-        "[U11] 停用内置 admin → 409「{}」，状态仍为启用 ✓",
-        error.msg
-    );
+    println!("[U11] 停用内置 admin → 409「{}」，状态仍为启用 ✓", error.msg);
 }
 
 // ==================== U12 非超管不能给自己加角色 ====================

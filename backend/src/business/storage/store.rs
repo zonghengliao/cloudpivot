@@ -224,9 +224,7 @@ pub fn sanitize_key(key: &str) -> Result<String, StoreError> {
         .components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
-        return Err(StoreError::Invalid(
-            "对象键不允许包含上级目录引用（..）".to_string(),
-        ));
+        return Err(StoreError::Invalid("对象键不允许包含上级目录引用（..）".to_string()));
     }
     Ok(trimmed.to_string())
 }
@@ -287,11 +285,7 @@ pub fn ensure_endpoint_allowed(endpoint: &str, use_tls: bool) -> Result<(), Stor
     if let Ok(ip) = hostname.parse::<std::net::IpAddr>() {
         let forbidden = match ip {
             std::net::IpAddr::V4(v4) => {
-                v4.is_loopback()
-                    || v4.is_private()
-                    || v4.is_link_local()
-                    || v4.is_unspecified()
-                    || v4.is_broadcast()
+                v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || v4.is_broadcast()
             }
             std::net::IpAddr::V6(v6) => {
                 v6.is_loopback()
@@ -489,8 +483,7 @@ impl ObjectStore for LocalStore {
     async fn health(&self) -> Result<(), StoreError> {
         let probe = format!(".health-probe-{}", uuid::Uuid::now_v7());
         let payload = vec![0u8; 1024];
-        self.put(&probe, &payload, "application/octet-stream")
-            .await?;
+        self.put(&probe, &payload, "application/octet-stream").await?;
         let written = self.get(&probe).await?;
         self.delete(&probe).await?;
         if written.len() != payload.len() {
@@ -511,9 +504,7 @@ impl ObjectStore for LocalStore {
 ///
 /// 命中返回 `true`。
 pub fn host_in_allowlist(hostname: &str, allowlist: &[String]) -> bool {
-    allowlist
-        .iter()
-        .any(|allowed| allowed.eq_ignore_ascii_case(hostname))
+    allowlist.iter().any(|allowed| allowed.eq_ignore_ascii_case(hostname))
 }
 
 /// 读取 SSRF 例外白名单（`CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST`，逗号分隔）。
@@ -624,9 +615,7 @@ impl S3Response {
     /// S3 对象 GET 带上 `Range` 后一定回 `Content-Length`，缺了说明对端不是 S3。
     fn into_stream(self) -> Result<ObjectStream, StoreError> {
         let length = self.content_length().ok_or_else(|| {
-            StoreError::Backend(
-                "对象响应缺少 Content-Length（不支持分块传输的流式下载）".to_string(),
-            )
+            StoreError::Backend("对象响应缺少 Content-Length（不支持分块传输的流式下载）".to_string())
         })?;
         let reader = PrefixReader {
             prefix: self.buffered,
@@ -649,11 +638,7 @@ struct PrefixReader {
 
 impl AsyncRead for PrefixReader {
     /// 先读缓存，缓存读空后转给连接。
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<std::io::Result<()>> {
         if self.position < self.prefix.len() {
             let start = self.position;
             let available = self.prefix.len() - start;
@@ -681,9 +666,7 @@ pub(crate) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || haystack.len() < needle.len() {
         return None;
     }
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
+    haystack.windows(needle.len()).position(|window| window == needle)
 }
 
 /// 从 S3 XML（错误体 / 分片响应）里取一个简单标签的文本。
@@ -726,18 +709,11 @@ fn decode_chunked(data: &[u8]) -> Result<Vec<u8>, StoreError> {
         let line_end = match find_bytes(&data[index..], b"\r\n") {
             Some(end) => index + end,
             None => {
-                return Err(StoreError::Backend(
-                    "分块正文被截断（缺少块长度行）".to_string(),
-                ));
+                return Err(StoreError::Backend("分块正文被截断（缺少块长度行）".to_string()));
             }
         };
         let line = String::from_utf8_lossy(&data[index..line_end]).to_string();
-        let size_text = line
-            .split(';')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+        let size_text = line.split(';').next().unwrap_or_default().trim().to_string();
         let size = usize::from_str_radix(&size_text, 16)
             .map_err(|_| StoreError::Backend(format!("分块长度非法：{size_text}")))?;
         index = line_end + 2;
@@ -746,9 +722,7 @@ fn decode_chunked(data: &[u8]) -> Result<Vec<u8>, StoreError> {
         }
         let end = index.saturating_add(size);
         if end > data.len() {
-            return Err(StoreError::Backend(
-                "分块正文被截断（块体不足）".to_string(),
-            ));
+            return Err(StoreError::Backend("分块正文被截断（块体不足）".to_string()));
         }
         out.extend_from_slice(&data[index..end]);
         index = end + 2; // 跳过块尾 CRLF
@@ -945,11 +919,8 @@ impl S3Store {
         let outcome = self.presign_list(sigv4::MIN_TTL_SECS);
         if self.scheme != "http" {
             let address = format!("{}:443", self.host_no_port());
-            return match tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                tokio::net::lookup_host(&address),
-            )
-            .await
+            return match tokio::time::timeout(std::time::Duration::from_secs(5), tokio::net::lookup_host(&address))
+                .await
             {
                 Ok(Ok(mut addrs)) => match addrs.next() {
                     Some(_) => Ok(()),
@@ -976,13 +947,10 @@ impl S3Store {
             sigv4::request_host(&self.host, &self.bucket, self.path_style)
         );
 
-        let mut stream = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            TcpStream::connect(&self.host),
-        )
-        .await
-        .map_err(|_| StoreError::Backend("连接存储端点超时".to_string()))?
-        .map_err(|e| StoreError::Backend(format!("连接存储端点失败: {e}")))?;
+        let mut stream = tokio::time::timeout(std::time::Duration::from_secs(5), TcpStream::connect(&self.host))
+            .await
+            .map_err(|_| StoreError::Backend("连接存储端点超时".to_string()))?
+            .map_err(|e| StoreError::Backend(format!("连接存储端点失败: {e}")))?;
 
         stream
             .write_all(request.as_bytes())
@@ -1015,11 +983,7 @@ impl S3Store {
 
     /// 去掉端点里的端口（仅用于 https 域名解析探测）。
     fn host_no_port(&self) -> String {
-        self.host
-            .split(':')
-            .next()
-            .unwrap_or(&self.host)
-            .to_string()
+        self.host.split(':').next().unwrap_or(&self.host).to_string()
     }
 
     // ==================== A2：真实对象 I/O（手写 SigV4 + HTTP/1.1） ====================
@@ -1138,10 +1102,7 @@ impl S3Store {
         head.push_str(" HTTP/1.1\r\n");
         head.push_str(&format!("Host: {host}\r\n"));
         head.push_str(&format!("x-amz-date: {}\r\n", signed.amz_date));
-        head.push_str(&format!(
-            "x-amz-content-sha256: {}\r\n",
-            signed.payload_hash
-        ));
+        head.push_str(&format!("x-amz-content-sha256: {}\r\n", signed.payload_hash));
         head.push_str(&format!("Authorization: {}\r\n", signed.authorization));
         for (name, value) in extra_headers {
             head.push_str(name);
@@ -1194,9 +1155,7 @@ impl S3Store {
                 break position + 4;
             }
             if buffer.len() > 64 * 1024 {
-                return Err(StoreError::Backend(
-                    "响应头超过 64 KB，疑似非 S3 响应".to_string(),
-                ));
+                return Err(StoreError::Backend("响应头超过 64 KB，疑似非 S3 响应".to_string()));
             }
         };
 
@@ -1210,9 +1169,8 @@ impl S3Store {
             .ok_or_else(|| StoreError::Backend("存储端点返回非 HTTP 响应".to_string()))?;
         let headers: Vec<(String, String)> = lines
             .filter_map(|line| {
-                line.split_once(':').map(|(name, value)| {
-                    (name.trim().to_ascii_lowercase(), value.trim().to_string())
-                })
+                line.split_once(':')
+                    .map(|(name, value)| (name.trim().to_ascii_lowercase(), value.trim().to_string()))
             })
             .collect();
 
@@ -1246,12 +1204,7 @@ impl S3Store {
     /// # 异常情况
     ///
     /// 非 2xx 返回 [`StoreError::Backend`]。
-    async fn put_single(
-        &self,
-        key: &str,
-        data: &[u8],
-        content_type: &str,
-    ) -> Result<(), StoreError> {
+    async fn put_single(&self, key: &str, data: &[u8], content_type: &str) -> Result<(), StoreError> {
         let (uri, _) = self.object_uri(key)?;
         let headers: Vec<(&str, String)> = if content_type.trim().is_empty() {
             Vec::new()
@@ -1284,33 +1237,21 @@ impl S3Store {
     /// - 初始化失败（缺少 `UploadId`）：[`StoreError::Backend`]，并尽力 `AbortMultipartUpload`；
     /// - 任一分片失败：[`StoreError::Backend`]，同样尽力中止会话；
     /// - 完成阶段返回 `<Error>`（S3 在 200 里报错的老坑）：[`StoreError::Backend`]。
-    async fn put_multipart(
-        &self,
-        key: &str,
-        data: &[u8],
-        content_type: &str,
-    ) -> Result<(), StoreError> {
+    async fn put_multipart(&self, key: &str, data: &[u8], content_type: &str) -> Result<(), StoreError> {
         let (uri, _) = self.object_uri(key)?;
         let mut init_headers: Vec<(&str, String)> = Vec::new();
         if !content_type.trim().is_empty() {
             init_headers.push(("content-type", content_type.trim().to_string()));
         }
         let init_query = vec![("uploads".to_string(), String::new())];
-        let init = self
-            .send("POST", &uri, &init_query, &init_headers, None)
-            .await?;
+        let init = self.send("POST", &uri, &init_query, &init_headers, None).await?;
         let init_status = init.status;
         let init_body = init.read_all().await.unwrap_or_default();
         if !(200..300).contains(&init_status) {
-            return Err(Self::backend_error(
-                "初始化分片上传",
-                init_status,
-                &init_body,
-            ));
+            return Err(Self::backend_error("初始化分片上传", init_status, &init_body));
         }
-        let upload_id = xml_tag(&init_body, "UploadId").ok_or_else(|| {
-            StoreError::Backend("初始化分片上传失败（响应缺少 UploadId）".to_string())
-        })?;
+        let upload_id = xml_tag(&init_body, "UploadId")
+            .ok_or_else(|| StoreError::Backend("初始化分片上传失败（响应缺少 UploadId）".to_string()))?;
 
         // 分片大小：≥ 5 MB（S3 硬约束），片数不超过 1000
         let part_size = std::cmp::max(MIN_PART_SIZE, data.len().div_ceil(MAX_PARTS));
@@ -1332,11 +1273,7 @@ impl S3Store {
                 let status = response.status;
                 let body = response.read_all().await.unwrap_or_default();
                 self.abort_multipart(&uri, &upload_id).await;
-                return Err(Self::backend_error(
-                    &format!("上传第 {number} 个分片"),
-                    status,
-                    &body,
-                ));
+                return Err(Self::backend_error(&format!("上传第 {number} 个分片"), status, &body));
             }
             let etag = response
                 .header("etag")
@@ -1355,13 +1292,7 @@ impl S3Store {
         let complete_query = vec![("uploadId".to_string(), upload_id.clone())];
         let complete_headers = [("content-type", "application/xml".to_string())];
         let response = self
-            .send(
-                "POST",
-                &uri,
-                &complete_query,
-                &complete_headers,
-                Some(xml.as_bytes()),
-            )
+            .send("POST", &uri, &complete_query, &complete_headers, Some(xml.as_bytes()))
             .await?;
         let status = response.status;
         let body = response.read_all().await.unwrap_or_default();
@@ -1558,10 +1489,7 @@ impl MemoryStore {
 
     /// 当前对象数量（测试断言用）。
     pub fn object_count(&self) -> usize {
-        self.objects
-            .lock()
-            .map(|guard| guard.len())
-            .unwrap_or_default()
+        self.objects.lock().map(|guard| guard.len()).unwrap_or_default()
     }
 }
 
@@ -1602,9 +1530,7 @@ impl ObjectStore for MemoryStore {
             .ok()
             .and_then(|guard| guard.get(&key).cloned())
             .ok_or_else(|| StoreError::NotFound(key.clone()))?;
-        let start = usize::try_from(offset)
-            .unwrap_or(usize::MAX)
-            .min(data.len());
+        let start = usize::try_from(offset).unwrap_or(usize::MAX).min(data.len());
         let payload = data[start..].to_vec();
         let (mut writer, reader) = tokio::io::duplex(64 * 1024);
         tokio::spawn(async move {
@@ -1625,12 +1551,7 @@ impl ObjectStore for MemoryStore {
     async fn exists(&self, key: &str) -> bool {
         sanitize_key(key)
             .ok()
-            .and_then(|key| {
-                self.objects
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.contains_key(&key))
-            })
+            .and_then(|key| self.objects.lock().ok().map(|guard| guard.contains_key(&key)))
             .unwrap_or(false)
     }
 
@@ -1725,8 +1646,11 @@ mod tests {
         assert_eq!(xml_tag(body, "UploadId"), None);
         assert_eq!(xml_tag(b"<Code>  </Code>", "Code"), None);
         assert_eq!(
-            xml_tag(b"<InitiateMultipartUploadResult><UploadId>abc-123</UploadId></InitiateMultipartUploadResult>", "UploadId")
-                .as_deref(),
+            xml_tag(
+                b"<InitiateMultipartUploadResult><UploadId>abc-123</UploadId></InitiateMultipartUploadResult>",
+                "UploadId"
+            )
+            .as_deref(),
             Some("abc-123")
         );
     }
@@ -1736,10 +1660,7 @@ mod tests {
     fn decode_chunked_roundtrip_and_truncated() {
         let encoded = b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
         assert_eq!(decode_chunked(encoded).expect("应解码成功"), b"hello world");
-        assert!(matches!(
-            decode_chunked(b"5\r\nhel"),
-            Err(StoreError::Backend(_))
-        ));
+        assert!(matches!(decode_chunked(b"5\r\nhel"), Err(StoreError::Backend(_))));
         assert!(matches!(
             decode_chunked(b"zz\r\nhello\r\n"),
             Err(StoreError::Backend(_))
@@ -1776,10 +1697,7 @@ mod tests {
             use_tls: true,
         })
         .expect("构造应成功");
-        assert_eq!(
-            virtual_host.connect_addr(),
-            "mybucket.oss-cn-hangzhou.aliyuncs.com:443"
-        );
+        assert_eq!(virtual_host.connect_addr(), "mybucket.oss-cn-hangzhou.aliyuncs.com:443");
     }
 
     /// A2：对象 URI —— path 风格带桶名，virtual-host 不带；`base_path` 参与拼接。
@@ -1801,10 +1719,7 @@ mod tests {
         assert_eq!(uri, "/mybucket/files/2026/10/28/a.png");
         assert_eq!(host, "127.0.0.1:9000");
         // 越权键必须被拒（目录穿越防护）
-        assert!(matches!(
-            store.object_uri("../etc/passwd"),
-            Err(StoreError::Invalid(_))
-        ));
+        assert!(matches!(store.object_uri("../etc/passwd"), Err(StoreError::Invalid(_))));
     }
 
     /// A2：https 端点不允许服务端代理 I/O —— 必须明确返回「不支持」而不是假装成功。
@@ -1823,10 +1738,7 @@ mod tests {
         })
         .expect("构造应成功");
         let result = store.put("a.txt", b"x", "text/plain").await;
-        assert!(
-            matches!(result, Err(StoreError::Unsupported(_))),
-            "{result:?}"
-        );
+        assert!(matches!(result, Err(StoreError::Unsupported(_))), "{result:?}");
     }
 
     /// 构造一个临时根目录（单测结束即删除）。
@@ -1846,10 +1758,7 @@ mod tests {
             .expect("写入应成功");
         assert!(store.exists("public/2026/10/28/a.txt").await);
         assert_eq!(
-            store
-                .get("public/2026/10/28/a.txt")
-                .await
-                .expect("读取应成功"),
+            store.get("public/2026/10/28/a.txt").await.expect("读取应成功"),
             b"hello"
         );
         let stat = store
@@ -1859,10 +1768,7 @@ mod tests {
             .expect("对象应存在");
         assert_eq!(stat.size, 5);
 
-        store
-            .delete("public/2026/10/28/a.txt")
-            .await
-            .expect("删除应成功");
+        store.delete("public/2026/10/28/a.txt").await.expect("删除应成功");
         assert!(!store.exists("public/2026/10/28/a.txt").await);
         assert!(
             store
@@ -1885,10 +1791,7 @@ mod tests {
             Err(StoreError::Unsupported(_))
         ));
         // 预签名下载返回 None（由调用方回落流式下载）
-        assert_eq!(
-            store.presign_get("a.txt", 900).await.expect("不应失败"),
-            None
-        );
+        assert_eq!(store.presign_get("a.txt", 900).await.expect("不应失败"), None);
     }
 
     /// 安全：对象键越权（`..` / 绝对路径）必须被拒绝。
@@ -1936,13 +1839,9 @@ mod tests {
             use_tls: true,
         })
         .expect("构造应成功");
-        let (url, _) = path_style
-            .presign_download("a/b.txt", 900)
-            .expect("预签名应成功");
+        let (url, _) = path_style.presign_download("a/b.txt", 900).expect("预签名应成功");
         assert!(
-            url.starts_with(
-                "http://minio.local:9000/mybucket/public/a/b.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"
-            ),
+            url.starts_with("http://minio.local:9000/mybucket/public/a/b.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256"),
             "{url}"
         );
         assert!(url.contains("X-Amz-Signature="));
@@ -1959,9 +1858,7 @@ mod tests {
             use_tls: true,
         })
         .expect("构造应成功");
-        let (url, _) = virtual_host
-            .presign_download("a.txt", 900)
-            .expect("预签名应成功");
+        let (url, _) = virtual_host.presign_download("a.txt", 900).expect("预签名应成功");
         assert!(
             url.starts_with("https://mybucket.oss-cn-hangzhou.aliyuncs.com/a.txt?X-Amz-Algorithm="),
             "{url}"

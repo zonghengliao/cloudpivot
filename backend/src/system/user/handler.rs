@@ -21,8 +21,8 @@ use crate::support::log::{self, PasswordChangeLogInput};
 use crate::system::dept::model::SysDeptModel;
 use crate::system::role::model::SysRoleModel;
 use crate::system::user::dto::{
-    RoleBriefRes, UserBatchDeptReq, UserCreateReq, UserDetailRes, UserPageQuery, UserPasswordReq,
-    UserRes, UserRoleAssignReq, UserStatusReq, UserUpdateReq,
+    RoleBriefRes, UserBatchDeptReq, UserCreateReq, UserDetailRes, UserPageQuery, UserPasswordReq, UserRes,
+    UserRoleAssignReq, UserStatusReq, UserUpdateReq,
 };
 use crate::system::user::guard;
 use crate::system::user::model::{self, SysUserModel, SysUserRoleModel};
@@ -44,11 +44,7 @@ use crate::utils;
 ///
 /// - 400：分页或部门 ID 参数非法；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/user/page",
-    method = "GET",
-    permission = "system:user:list"
-)]
+#[nik::permission(path = "/system/user/page", method = "GET", permission = "system:user:list")]
 #[nik::get("/system/user/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -125,12 +121,7 @@ pub async fn page(
     for item in &mut list {
         crate::business::masking::Maskable::mask(item, &mask);
     }
-    Ok(Res::page(
-        list,
-        page_data.total,
-        page_data.page,
-        page_data.size,
-    ))
+    Ok(Res::page(list, page_data.total, page_data.page, page_data.size))
 }
 
 /// 用户详情。
@@ -148,11 +139,7 @@ pub async fn page(
 /// - 400：ID 格式非法；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/user/{id}",
-    method = "GET",
-    permission = "system:user:list"
-)]
+#[nik::permission(path = "/system/user/{id}", method = "GET", permission = "system:user:list")]
 #[nik::get("/system/user/{id}")]
 pub async fn detail(
     Path(id): Path<String>,
@@ -212,11 +199,7 @@ pub async fn detail(
 /// - 403：无权授予超级管理员角色（权限上限，见 [`guard`]）；
 /// - 409：用户名已存在；
 /// - 500：密码加密或数据库异常。
-#[nik::permission(
-    path = "/system/user",
-    method = "POST",
-    permission = "system:user:create"
-)]
+#[nik::permission(path = "/system/user", method = "POST", permission = "system:user:create")]
 #[nik::post("/system/user")]
 pub async fn create(
     headers: HeaderMap,
@@ -343,11 +326,7 @@ pub async fn create(
 /// - 403：无权操作超级管理员账号（权限上限，见 [`guard`]）；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/user/{id}",
-    method = "PUT",
-    permission = "system:user:update"
-)]
+#[nik::permission(path = "/system/user/{id}", method = "PUT", permission = "system:user:update")]
 #[nik::put("/system/user/{id}")]
 pub async fn update(
     Path(id): Path<String>,
@@ -491,11 +470,7 @@ pub async fn update(
 /// - 404：用户不存在；
 /// - 409：目标为内置管理员账号；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/user/{id}",
-    method = "DELETE",
-    permission = "system:user:delete"
-)]
+#[nik::permission(path = "/system/user/{id}", method = "DELETE", permission = "system:user:delete")]
 #[nik::delete("/system/user/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
@@ -760,12 +735,7 @@ pub async fn change_password(
             user_id: id,
             username: user.username.clone(),
             change_type: "RESET".to_string(),
-            operator_type: if operator_id == Some(id) {
-                "SELF"
-            } else {
-                "ADMIN"
-            }
-            .to_string(),
+            operator_type: if operator_id == Some(id) { "SELF" } else { "ADMIN" }.to_string(),
             operator_id,
             change_status: "SUCCESS".to_string(),
             error_message: None,
@@ -807,11 +777,7 @@ pub async fn change_password(
 /// - 400：ID 格式非法；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/user/{id}/roles",
-    method = "GET",
-    permission = "system:user:list"
-)]
+#[nik::permission(path = "/system/user/{id}/roles", method = "GET", permission = "system:user:list")]
 #[nik::get("/system/user/{id}/roles")]
 pub async fn roles(Path(id): Path<String>) -> ResResult<Vec<String>> {
     let id = utils::require_uuid(&id, "id")?;
@@ -819,12 +785,7 @@ pub async fn roles(Path(id): Path<String>) -> ResResult<Vec<String>> {
     let bindings = SysUserRoleModel::find_by(db(), "user_id", (&id,))
         .await
         .map_err(|e| utils::db_error(e, "查询用户角色"))?;
-    Ok(Res::ok(
-        bindings
-            .into_iter()
-            .map(|b| b.role_id.to_string())
-            .collect(),
-    ))
+    Ok(Res::ok(bindings.into_iter().map(|b| b.role_id.to_string()).collect()))
 }
 
 /// 分配用户角色（事务内先清空全部绑定再重建；空数组表示清空）。
@@ -858,11 +819,7 @@ pub async fn roles(Path(id): Path<String>) -> ResResult<Vec<String>> {
 ///
 /// 角色变化直接改变用户权限，成功后强制下线该用户全部在线令牌，令其重新登录
 /// 获取最新权限。
-#[nik::permission(
-    path = "/system/user/{id}/roles",
-    method = "PUT",
-    permission = "system:user:role"
-)]
+#[nik::permission(path = "/system/user/{id}/roles", method = "PUT", permission = "system:user:role")]
 #[nik::put("/system/user/{id}/roles")]
 pub async fn assign_roles(
     Path(id): Path<String>,
@@ -950,11 +907,7 @@ pub async fn assign_roles(
 /// - 400：用户 ID 或部门 ID 格式非法、未选择用户；
 /// - 404：目标部门不存在；
 /// - 500：数据库异常（事务回滚）。
-#[nik::permission(
-    path = "/system/user/batch-dept",
-    method = "PUT",
-    permission = "system:user:update"
-)]
+#[nik::permission(path = "/system/user/batch-dept", method = "PUT", permission = "system:user:update")]
 #[nik::put("/system/user/batch-dept")]
 pub async fn batch_update_dept(
     headers: HeaderMap,
@@ -969,11 +922,7 @@ pub async fn batch_update_dept(
         .map_err(|e| utils::db_error(e, "查询目标部门"))?
         .is_some();
     if !dept_exists {
-        return Err(ApiError::new(
-            404,
-            error_code::DEPT_NOT_FOUND,
-            "目标部门不存在",
-        ));
+        return Err(ApiError::new(404, error_code::DEPT_NOT_FOUND, "目标部门不存在"));
     }
 
     let mut user_ids = Vec::with_capacity(req.user_ids.len());
@@ -1102,8 +1051,7 @@ async fn revoke_online_sessions(user_id: &uuid::Uuid, context: &'static str) {
     // FIX-05：用 `detach_user_sessions`（只摘登记、**不写** access 黑名单）而不是
     // `force_logout_user`。旧令牌已由库侧 `token_version` 判死，写黑名单只会让框架
     // 认证层抢先回「Token 已登出」，把 `20008「您的权限已变更」` 盖掉。
-    if let Err(e) = crate::support::online::model::detach_user_sessions(&user_id.to_string()).await
-    {
+    if let Err(e) = crate::support::online::model::detach_user_sessions(&user_id.to_string()).await {
         tracing::error!(
             error = %e,
             user_id = %user_id,
@@ -1128,10 +1076,7 @@ async fn revoke_online_sessions(user_id: &uuid::Uuid, context: &'static str) {
 ///
 /// - 409：用户名已存在（`USERNAME_EXISTS`）；
 /// - 500：数据库异常。
-async fn ensure_username_unique(
-    username: &str,
-    exclude: Option<uuid::Uuid>,
-) -> std::result::Result<(), ApiError> {
+async fn ensure_username_unique(username: &str, exclude: Option<uuid::Uuid>) -> std::result::Result<(), ApiError> {
     let count = model::count_users_by_username(username, exclude)
         .await
         .map_err(|e| utils::db_error(e, "校验用户名唯一性"))?;
@@ -1177,9 +1122,7 @@ async fn dept_name_of(dept_id: Option<uuid::Uuid>) -> std::result::Result<String
 /// - 400：角色 ID 格式非法；
 /// - 404：某个角色不存在或已删除（`ROLE_NOT_FOUND`）；
 /// - 500：数据库异常。
-async fn parse_and_check_roles(
-    raw_ids: &[String],
-) -> std::result::Result<Vec<uuid::Uuid>, ApiError> {
+async fn parse_and_check_roles(raw_ids: &[String]) -> std::result::Result<Vec<uuid::Uuid>, ApiError> {
     let mut role_ids = Vec::with_capacity(raw_ids.len());
     for raw in raw_ids {
         let role_id = utils::require_uuid(raw, "role_ids")?;
@@ -1188,11 +1131,7 @@ async fn parse_and_check_roles(
             .map_err(|e| utils::db_error(e, "校验角色"))?
             .is_some();
         if !exists {
-            return Err(ApiError::new(
-                404,
-                error_code::ROLE_NOT_FOUND,
-                "角色不存在或已删除",
-            ));
+            return Err(ApiError::new(404, error_code::ROLE_NOT_FOUND, "角色不存在或已删除"));
         }
         role_ids.push(role_id);
     }
@@ -1212,9 +1151,7 @@ async fn parse_and_check_roles(
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-async fn role_map_of(
-    user_ids: &[uuid::Uuid],
-) -> std::result::Result<HashMap<uuid::Uuid, Vec<RoleBriefRes>>, ApiError> {
+async fn role_map_of(user_ids: &[uuid::Uuid]) -> std::result::Result<HashMap<uuid::Uuid, Vec<RoleBriefRes>>, ApiError> {
     let rows = model::find_user_roles_for_users(user_ids)
         .await
         .map_err(|e| utils::db_error(e, "查询用户角色"))?;

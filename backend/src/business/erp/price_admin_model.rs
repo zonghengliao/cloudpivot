@@ -386,16 +386,7 @@ pub async fn tier_page(
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern));
     }
-    page_of(
-        TIER_TARGET,
-        sql,
-        params,
-        TIER_ORDER,
-        page,
-        page_size,
-        TierRow::from_row,
-    )
-    .await
+    page_of(TIER_TARGET, sql, params, TIER_ORDER, page, page_size, TierRow::from_row).await
 }
 
 /// 按主键取协议价（软删行不返回）。
@@ -526,12 +517,7 @@ pub async fn agreed_insert(id: Uuid, write: &AgreedWrite, operator: Option<Uuid>
             Value::Text(write.price.to_string()),
             Value::Text(write.min_qty.to_string()),
             Value::Text(write.effective_from.to_string()),
-            Value::Text(
-                write
-                    .effective_to
-                    .map(|date| date.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(write.effective_to.map(|date| date.to_string()).unwrap_or_default()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
             uuid_text(operator),
@@ -555,12 +541,7 @@ pub async fn agreed_update(id: Uuid, write: &AgreedWrite, operator: Option<Uuid>
             Value::Text(write.price.to_string()),
             Value::Text(write.min_qty.to_string()),
             Value::Text(write.effective_from.to_string()),
-            Value::Text(
-                write
-                    .effective_to
-                    .map(|date| date.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(write.effective_to.map(|date| date.to_string()).unwrap_or_default()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
             uuid_text(operator),
@@ -597,20 +578,10 @@ pub async fn tier_insert(id: Uuid, write: &TierWrite, operator: Option<Uuid>) ->
             uuid_text(write.customer_id),
             Value::from(write.tier_type.clone()),
             Value::Text(write.min_qty.to_string()),
-            Value::Text(
-                write
-                    .max_qty
-                    .map(|qty| qty.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(write.max_qty.map(|qty| qty.to_string()).unwrap_or_default()),
             Value::Text(write.price.to_string()),
             Value::Text(write.effective_from.to_string()),
-            Value::Text(
-                write
-                    .effective_to
-                    .map(|date| date.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(write.effective_to.map(|date| date.to_string()).unwrap_or_default()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
             uuid_text(operator),
@@ -637,12 +608,7 @@ pub async fn tier_update(id: Uuid, write: &TierWrite, operator: Option<Uuid>) ->
             Value::Text(write.max_qty.map(|qty| qty.to_string()).unwrap_or_default()),
             Value::Text(write.price.to_string()),
             Value::Text(write.effective_from.to_string()),
-            Value::Text(
-                write
-                    .effective_to
-                    .map(|date| date.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(write.effective_to.map(|date| date.to_string()).unwrap_or_default()),
             Value::from(write.status.clone()),
             Value::from(write.remark.clone()),
             uuid_text(operator),

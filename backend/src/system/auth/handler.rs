@@ -22,13 +22,11 @@ use crate::shared::token_revocation::{BlacklistKind, BlacklistReason};
 use crate::support::log::dto::LogPageQuery;
 use crate::support::log::model::{JsonLogTable, page_json_logs};
 use crate::support::log::{
-    self, AuditLogInput, AuthLogInput, AuthStatus, AuthType, PasswordChangeLogInput,
-    SecurityLogInput,
+    self, AuditLogInput, AuthLogInput, AuthStatus, AuthType, PasswordChangeLogInput, SecurityLogInput,
 };
 use crate::support::online::model::{OnlineSession, OnlineSessionModel, RefreshSession};
 use crate::system::auth::dto::{
-    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq,
-    TokenRes, UpdateProfileReq,
+    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq, TokenRes, UpdateProfileReq,
 };
 use crate::system::auth::model;
 use crate::system::menu::dto::MenuRes;
@@ -82,11 +80,7 @@ pub async fn login(
     };
     // 校验器只保证原始长度 >= 1，纯空白串 trim 后为空，需在此拦下
     if req.username.is_empty() || req.password.is_empty() {
-        return Err(ApiError::new(
-            400,
-            error_code::PARAM_INVALID,
-            "用户名或密码不能为空",
-        ));
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "用户名或密码不能为空"));
     }
 
     let mut timer = LoginTimer::new();
@@ -103,19 +97,8 @@ pub async fn login(
         Ok(Some(user)) => user,
         Ok(None) => {
             timer.mark("load_user");
-            log_login_failure(
-                &headers,
-                &connect_info,
-                &req.username,
-                None,
-                "用户不存在",
-                &timer,
-            );
-            return Err(ApiError::new(
-                401,
-                error_code::AUTH_BAD_CREDENTIALS,
-                "用户名或密码错误",
-            ));
+            log_login_failure(&headers, &connect_info, &req.username, None, "用户不存在", &timer);
+            return Err(ApiError::new(401, error_code::AUTH_BAD_CREDENTIALS, "用户名或密码错误"));
         }
         Err(e) => return Err(utils::db_error(e, "查询登录用户")),
     };
@@ -176,10 +159,7 @@ pub async fn login(
         SysUserModel::of(user.id)
             .set(SysUserModel::is_locked(), false)
             .set(SysUserModel::login_fail_count(), 0i16)
-            .set(
-                SysUserModel::lock_time(),
-                None::<chrono::DateTime<chrono::Utc>>,
-            )
+            .set(SysUserModel::lock_time(), None::<chrono::DateTime<chrono::Utc>>)
             .update(db())
             .await
             .map(|_| ())
@@ -222,19 +202,8 @@ pub async fn login(
             "密码错误"
         };
         timer.mark("record_failure");
-        log_login_failure(
-            &headers,
-            &connect_info,
-            &req.username,
-            Some(user.id),
-            reason,
-            &timer,
-        );
-        return Err(ApiError::new(
-            401,
-            error_code::AUTH_BAD_CREDENTIALS,
-            "用户名或密码错误",
-        ));
+        log_login_failure(&headers, &connect_info, &req.username, Some(user.id), reason, &timer);
+        return Err(ApiError::new(401, error_code::AUTH_BAD_CREDENTIALS, "用户名或密码错误"));
     }
 
     // 登录成功：重置失败计数、清除锁定并记录最后登录时间
@@ -242,10 +211,7 @@ pub async fn login(
     SysUserModel::of(user.id)
         .set(SysUserModel::login_fail_count(), 0i16)
         .set(SysUserModel::is_locked(), false)
-        .set(
-            SysUserModel::lock_time(),
-            None::<chrono::DateTime<chrono::Utc>>,
-        )
+        .set(SysUserModel::lock_time(), None::<chrono::DateTime<chrono::Utc>>)
         .set(SysUserModel::last_login_at(), Some(chrono::Utc::now()))
         .update(db())
         .await
@@ -320,13 +286,9 @@ pub async fn refresh(
     ValidatedJson(req): ValidatedJson<RefreshTokenReq>,
 ) -> ResResult<TokenRes> {
     let jwt = JWT::from_config();
-    let claims = jwt.validate(&req.refresh_token).map_err(|_| {
-        ApiError::new(
-            401,
-            error_code::AUTH_REFRESH_TOKEN_INVALID,
-            "刷新令牌无效或已过期",
-        )
-    })?;
+    let claims = jwt
+        .validate(&req.refresh_token)
+        .map_err(|_| ApiError::new(401, error_code::AUTH_REFRESH_TOKEN_INVALID, "刷新令牌无效或已过期"))?;
 
     if claims.token_type != Some(TokenType::Refresh) {
         return Err(ApiError::new(
@@ -382,11 +344,7 @@ pub async fn refresh(
             return Ok(Res::ok(replayed));
         }
         tracing::info!(user_id = %claims.sub, "幂等缓存对应的会话已被吊销，拒绝回放");
-        return Err(ApiError::new(
-            401,
-            error_code::AUTH_TOKEN_REVOKED,
-            "刷新令牌已被撤销",
-        ));
+        return Err(ApiError::new(401, error_code::AUTH_TOKEN_REVOKED, "刷新令牌已被撤销"));
     }
 
     // ③ 血缘检查：该 refresh 已经轮换过 → 有人在重放旧令牌（CODE-16 B4）
@@ -398,11 +356,7 @@ pub async fn refresh(
     match auth_guard::check_revoked(Some(old_jti.as_str())).await {
         Ok(false) => {}
         Ok(true) => {
-            return Err(ApiError::new(
-                401,
-                error_code::AUTH_TOKEN_REVOKED,
-                "刷新令牌已被撤销",
-            ));
+            return Err(ApiError::new(401, error_code::AUTH_TOKEN_REVOKED, "刷新令牌已被撤销"));
         }
         Err(reason) => {
             tracing::error!(
@@ -461,9 +415,7 @@ pub async fn refresh(
 
     // 令牌版本号比对：改密 / 改角色 / 停用 / 删除会自增 token_version，
     // 旧 refresh token 即使没被逐个拉黑，也在此处整体失效（安全审计 CODE-05 / CODE-08）。
-    let token_version = claims
-        .extra_i64(constants::CLAIM_TOKEN_VERSION)
-        .unwrap_or(0);
+    let token_version = claims.extra_i64(constants::CLAIM_TOKEN_VERSION).unwrap_or(0);
     if token_version != i64::from(user.token_version) {
         log::record_auth(
             &headers,
@@ -600,16 +552,11 @@ pub async fn logout(
     // 同时吊销请求体带来的 refresh token（兼容只提交旧令牌的客户端）：
     // 按 jti 再兜底拉黑一次，失败同样必须让调用方看到。
     if let Some(Json(req)) = payload
-        && let Some(raw) = req
-            .refresh_token
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
+        && let Some(raw) = req.refresh_token.as_deref().map(str::trim).filter(|v| !v.is_empty())
     {
         match jwt.validate(raw) {
             Ok(refresh_claims)
-                if refresh_claims.token_type == Some(TokenType::Refresh)
-                    && refresh_claims.sub == claims.sub =>
+                if refresh_claims.token_type == Some(TokenType::Refresh) && refresh_claims.sub == claims.sub =>
             {
                 if let Some(jti) = refresh_claims.jti.as_deref()
                     && let Err(e) = crate::shared::token_revocation::revoke(
@@ -712,9 +659,7 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 ///
 /// 数据库异常返回 500。
 #[nik::get("/system/auth/menus")]
-pub async fn menus(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
-) -> ResResult<Vec<MenuRes>> {
+pub async fn menus(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<Vec<MenuRes>> {
     let user_id = utils::require_uuid(&claims.sub, "sub")?;
     let super_admin = claims.is_super_admin();
     let nodes = model::load_user_menus(&user_id, super_admin)
@@ -778,14 +723,7 @@ pub async fn update_profile(
     log::record_audit(
         &headers,
         &connect_info,
-        log::audit_input(
-            &claims,
-            "PROFILE_UPDATE",
-            "User",
-            user_id.to_string(),
-            None,
-            None,
-        ),
+        log::audit_input(&claims, "PROFILE_UPDATE", "User", user_id.to_string(), None, None),
     );
     Ok(Res::ok_msg("个人资料已更新"))
 }
@@ -844,11 +782,7 @@ pub async fn change_password(
                 error_message: Some("原密码错误".to_string()),
             },
         );
-        return Err(ApiError::new(
-            401,
-            error_code::AUTH_BAD_CREDENTIALS,
-            "原密码错误",
-        ));
+        return Err(ApiError::new(401, error_code::AUTH_BAD_CREDENTIALS, "原密码错误"));
     }
 
     let hashed = Crypto::hash_password(&req.new_password)
@@ -874,8 +808,7 @@ pub async fn change_password(
     // `token_version` 自增（认证层逐请求比对、刷新路径也比对），旧 access / refresh
     // 在数据库这一侧已经作废；此时回 500 只会让「密码其实已改成功」的操作看起来失败，
     // 反而诱发无意义的重复改密。失败仍以 `error` 级日志留痕（不静默）。
-    if let Err(e) = crate::support::online::model::detach_user_sessions(&user_id.to_string()).await
-    {
+    if let Err(e) = crate::support::online::model::detach_user_sessions(&user_id.to_string()).await {
         tracing::error!(
             user_id = %user_id,
             error = %e,
@@ -936,12 +869,7 @@ pub async fn login_logs(
     )
     .await
     .map_err(|e| utils::db_error(e, "查询登录日志"))?;
-    Ok(Res::page(
-        result.list,
-        result.total,
-        result.page,
-        result.size,
-    ))
+    Ok(Res::page(result.list, result.total, result.page, result.size))
 }
 
 // ==================== 公共辅助 ====================
@@ -990,11 +918,7 @@ impl LoginTimer {
 
     /// 输出分段耗时日志。
     fn report(&self) {
-        let detail: Vec<String> = self
-            .steps
-            .iter()
-            .map(|(label, ms)| format!("{label}={ms}ms"))
-            .collect();
+        let detail: Vec<String> = self.steps.iter().map(|(label, ms)| format!("{label}={ms}ms")).collect();
         tracing::info!(total = ?self.total_ms(), steps = ?detail, "登录耗时分解");
     }
 }
@@ -1103,10 +1027,7 @@ async fn issue_token(
             .permissions(&permissions)
             // 令牌版本号：认证层（middleware/session_guard.rs）逐请求与库中值比对，
             // 改密 / 改角色 / 停用即整体作废旧令牌（安全审计 CODE-08）
-            .claim_i64(
-                constants::CLAIM_TOKEN_VERSION,
-                i64::from(user.token_version),
-            )
+            .claim_i64(constants::CLAIM_TOKEN_VERSION, i64::from(user.token_version))
             // 会话标识与创建时刻：refresh 轮换时原样继承，构成绝对上限基准（CODE-16 B1）
             .claim_str(constants::CLAIM_SESSION_ID, session.sid.clone())
             .claim_i64(constants::CLAIM_SESSION_ISSUED_AT, session.siat)
@@ -1353,14 +1274,7 @@ async fn persist_rotation(
             "写轮换血缘标记失败，已跳过（一次性 refresh 退化为统计保证）"
         );
     }
-    if let Err(e) = Cache::set_ex(
-        store,
-        &replay_key,
-        pair,
-        constants::TOKEN_ROTATION_REPLAY_GRACE_SECS,
-    )
-    .await
-    {
+    if let Err(e) = Cache::set_ex(store, &replay_key, pair, constants::TOKEN_ROTATION_REPLAY_GRACE_SECS).await {
         tracing::warn!(
             error = %e,
             old_jti,
@@ -1437,11 +1351,7 @@ async fn reuse_detected(
         },
     );
 
-    ApiError::new(
-        401,
-        error_code::AUTH_TOKEN_REVOKED,
-        "登录状态已失效，请重新登录",
-    )
+    ApiError::new(401, error_code::AUTH_TOKEN_REVOKED, "登录状态已失效，请重新登录")
 }
 
 /// 登记在线会话（登录 / 刷新成功后调用）。
@@ -1456,11 +1366,7 @@ async fn reuse_detected(
 ///
 /// 归属地仅读缓存（不外呼），保证请求路径不被网络 I/O 阻塞；登记失败只记告警，
 /// **不影响登录结果**（在线列表属于旁路观测能力）。
-async fn register_online_session(
-    headers: &HeaderMap,
-    connect_info: &SocketAddr,
-    claims: &TokenClaims,
-) {
+async fn register_online_session(headers: &HeaderMap, connect_info: &SocketAddr, claims: &TokenClaims) {
     let Some(token_id) = claims.jti.as_deref() else {
         tracing::warn!(user_id = %claims.sub, "访问令牌缺少 jti，跳过在线会话登记");
         return;
@@ -1767,16 +1673,8 @@ mod tests {
     /// 断言某次检查被限流（429 + TOO_MANY_REQUESTS）。
     fn assert_429(result: std::result::Result<(), ApiError>) {
         let err = result.expect_err("应被限流（429）");
-        assert_eq!(
-            err.status, 429,
-            "HTTP 状态码必须是 429，实际 {}",
-            err.status
-        );
-        assert_eq!(
-            err.code,
-            error_code::TOO_MANY_REQUESTS,
-            "业务错误码必须是 10005"
-        );
+        assert_eq!(err.status, 429, "HTTP 状态码必须是 429，实际 {}", err.status);
+        assert_eq!(err.code, error_code::TOO_MANY_REQUESTS, "业务错误码必须是 10005");
     }
 
     /// 卡面验收 ①：同一账号 + IP 连续 `MAX_ATTEMPTS` 次放行，第 `MAX+1` 次 429。
@@ -1836,12 +1734,7 @@ mod tests {
     async fn login_rate_ignores_stale_counter_without_window_key() {
         let cache = local_cache();
         let max = constants::LOGIN_RATE_MAX_ATTEMPTS;
-        let key = format!(
-            "{}{}:{}",
-            constants::CACHE_KEY_PREFIX_LOGIN,
-            "u_stale",
-            "5.6.7.8"
-        );
+        let key = format!("{}{}:{}", constants::CACHE_KEY_PREFIX_LOGIN, "u_stale", "5.6.7.8");
 
         // 造事故现场：计数已远超阈值，且（旧实现是 incr 建键）永不过期
         for _ in 0..(max + 47) {
@@ -1870,9 +1763,7 @@ mod tests {
         let max = constants::LOGIN_RATE_MAX_ATTEMPTS;
 
         for _ in 1..=max {
-            check_login_rate_on(&cache, "u_key", "1.1.1.1", 60, max)
-                .await
-                .unwrap();
+            check_login_rate_on(&cache, "u_key", "1.1.1.1", 60, max).await.unwrap();
         }
         assert_429(check_login_rate_on(&cache, "u_key", "1.1.1.1", 60, max).await);
 

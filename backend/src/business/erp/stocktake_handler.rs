@@ -49,23 +49,18 @@ use super::stocktake_bridge as bridge;
 #[path = "stocktake_linkage.rs"]
 mod stocktake_linkage;
 use super::stocktake_dto::{
-    CreateStockTakeReq, StockTakeDetailRes, StockTakeEnvelope, StockTakePageQuery,
-    StockTakePageRes, StockTakeRes, StockTakeStatusReq, UpdateStockTakeReq,
+    CreateStockTakeReq, StockTakeDetailRes, StockTakeEnvelope, StockTakePageQuery, StockTakePageRes, StockTakeRes,
+    StockTakeStatusReq, UpdateStockTakeReq,
 };
 use super::stocktake_model::{
-    self as model, DiffApplied, NEGATIVE_PREFIX, NewStockTake, NewStockTakeLine, STATUS_CANCELLED,
-    STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockTakeItemRow, StockTakeRow, VoucherPair,
-    status_label,
+    self as model, DiffApplied, NEGATIVE_PREFIX, NewStockTake, NewStockTakeLine, STATUS_CANCELLED, STATUS_DRAFT,
+    STATUS_PENDING_POST, STATUS_POSTED, StockTakeItemRow, StockTakeRow, VoucherPair, status_label,
 };
 
 // ==================== 错误构造 ====================
 
 fn not_found(what: &str) -> ApiError {
-    ApiError::new(
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        format!("{what}不存在或已删除"),
-    )
+    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, format!("{what}不存在或已删除"))
 }
 
 fn bad_request(message: impl Into<String>) -> ApiError {
@@ -92,10 +87,7 @@ fn write_error(error: DbError, ctx: &str) -> ApiError {
             error_code::ERP_CODE_CONFLICT,
             format!(
                 "{ctx}：违反唯一约束{}（单号或行号冲突，请刷新重试）",
-                constraint
-                    .as_deref()
-                    .map(|name| format!(" {name}"))
-                    .unwrap_or_default()
+                constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
             ),
         ),
         DbError::InvalidValue(message) => {
@@ -162,10 +154,9 @@ pub async fn create_stock_take(
                 .await
                 .map_err(|error| utils::db_error(error, "查询物料"))?
                 .ok_or_else(|| reference_missing(format!("物料 {material_id} 不存在或已删除")))?;
-            let (book_qty, unit_cost) =
-                model::book_of_bucket(db(), material_id, warehouse_id, location_id)
-                    .await
-                    .map_err(|error| utils::db_error(error, "快照账面数"))?;
+            let (book_qty, unit_cost) = model::book_of_bucket(db(), material_id, warehouse_id, location_id)
+                .await
+                .map_err(|error| utils::db_error(error, "快照账面数"))?;
             lines.push(NewStockTakeLine {
                 material_id,
                 unit_id: material.unit_id,
@@ -427,10 +418,7 @@ async fn submit_for_approval(
             .await
             .map_err(|error| utils::db_error(error, "查询盘点明细"))?;
         if items.is_empty() {
-            return Err(bad_request(format!(
-                "盘点单 {} 没有任何明细，不能提交",
-                header.take_no
-            )));
+            return Err(bad_request(format!("盘点单 {} 没有任何明细，不能提交", header.take_no)));
         }
         // ① 制单 ≠ 盘点确认（P3-07，可配开关，默认关闭）
         //
@@ -473,11 +461,7 @@ async fn submit_for_approval(
                     Some(claims) => approval_gate::ApprovalGate::new(&req.gate, claims),
                     None => approval_gate::ApprovalGate::none(),
                 };
-                let merged = approval_gate::authorize_missing_flow(
-                    bridge::BIZ_TYPE,
-                    bridge::FLOW_CODE,
-                    &gate,
-                )?;
+                let merged = approval_gate::authorize_missing_flow(bridge::BIZ_TYPE, bridge::FLOW_CODE, &gate)?;
                 skip_reason = Some(merged);
             }
         }
@@ -515,9 +499,9 @@ async fn submit_for_approval(
                 initiator_dept_id,
                 form_data: stock_take_form_data(&header, &items),
             };
-            let mut out = engine::start(&tx, &start).await.map_err(|error| {
-                conflict(format!("发起盘点审批单失败（{}）：{error}", header.take_no))
-            })?;
+            let mut out = engine::start(&tx, &start)
+                .await
+                .map_err(|error| conflict(format!("发起盘点审批单失败（{}）：{error}", header.take_no)))?;
             if let Some(rejected) = out.rejected.take() {
                 // FIX-1：原样透传（不要用 `ApiError::new(..)` 重建，那会丢 65018 的结构化载荷）
                 return Err(rejected);
@@ -579,9 +563,7 @@ async fn submit_for_approval(
     .await;
     match outcome {
         Ok(()) => {
-            tx.commit()
-                .await
-                .map_err(|error| utils::db_error(error, "提交事务"))?;
+            tx.commit().await.map_err(|error| utils::db_error(error, "提交事务"))?;
             engine::flush_effects(effects).await;
             Ok(())
         }
@@ -598,19 +580,11 @@ async fn submit_for_approval(
 /// `"1234.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边
 /// （把 <1 万的盘点静默升级成两级审批，或反过来把大额降级成单级 —— 审批最不该出错的地方）。
 fn stock_take_form_data(header: &StockTakeRow, items: &[StockTakeItemRow]) -> serde_json::Value {
-    let amount =
-        header.total_gain_amount.max(Decimal::ZERO) + header.total_loss_amount.max(Decimal::ZERO);
+    let amount = header.total_gain_amount.max(Decimal::ZERO) + header.total_loss_amount.max(Decimal::ZERO);
     // 提交时差异金额还是 0（过账才算真金额），此时用「数量 × 账面成本」估一个
     // 金额给分级用：宁可估高走两级审批，也不要在提交时静默降级。
-    let estimated: Decimal = items
-        .iter()
-        .map(|item| item.diff_qty.abs() * item.unit_cost)
-        .sum();
-    let basis = if amount > Decimal::ZERO {
-        amount
-    } else {
-        estimated
-    };
+    let estimated: Decimal = items.iter().map(|item| item.diff_qty.abs() * item.unit_cost).sum();
+    let basis = if amount > Decimal::ZERO { amount } else { estimated };
     let number = basis
         .round_dp(4)
         .to_string()
@@ -676,17 +650,9 @@ async fn withdraw(
             None,
         )
         .await?;
-        let affected = model::apply_status(
-            &tx,
-            id,
-            STATUS_PENDING_POST,
-            STATUS_DRAFT,
-            Some(text),
-            operator.id,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "撤回到草稿"))?;
+        let affected = model::apply_status(&tx, id, STATUS_PENDING_POST, STATUS_DRAFT, Some(text), operator.id, now)
+            .await
+            .map_err(|error| write_error(error, "撤回到草稿"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "盘点单 {} 的状态在本次撤回期间被改动，请刷新后重试",
@@ -841,10 +807,7 @@ async fn post_tx(
         .await
         .map_err(|error| utils::db_error(error, "查询盘点明细"))?;
     if items.is_empty() {
-        return Err(bad_request(format!(
-            "盘点单 {} 没有任何明细，不能过账",
-            header.take_no
-        )));
+        return Err(bad_request(format!("盘点单 {} 没有任何明细，不能过账", header.take_no)));
     }
 
     // ② 状态机唯一入口 + CAS
@@ -861,17 +824,9 @@ async fn post_tx(
         None,
     )
     .await?;
-    let affected = model::apply_status(
-        ex,
-        id,
-        STATUS_PENDING_POST,
-        STATUS_POSTED,
-        reason,
-        operator.id,
-        now,
-    )
-    .await
-    .map_err(|error| write_error(error, "盘点单过账改状态"))?;
+    let affected = model::apply_status(ex, id, STATUS_PENDING_POST, STATUS_POSTED, reason, operator.id, now)
+        .await
+        .map_err(|error| write_error(error, "盘点单过账改状态"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "盘点单 {} 的状态在本次过账期间被改动（期望 {}），请刷新后重试",
@@ -1058,17 +1013,9 @@ async fn cancel_tx(
         None,
     )
     .await?;
-    let affected = model::apply_status(
-        ex,
-        id,
-        &from_status,
-        STATUS_CANCELLED,
-        Some(reason),
-        operator.id,
-        now,
-    )
-    .await
-    .map_err(|error| write_error(error, "盘点单作废改状态"))?;
+    let affected = model::apply_status(ex, id, &from_status, STATUS_CANCELLED, Some(reason), operator.id, now)
+        .await
+        .map_err(|error| write_error(error, "盘点单作废改状态"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "盘点单 {} 的状态在本次作废期间被改动（期望 {}），请刷新后重试",
@@ -1258,8 +1205,7 @@ pub async fn stock_take_update(
     Path(id): Path<String>,
     Json(req): Json<UpdateStockTakeReq>,
 ) -> ResResult<StockTakeEnvelope> {
-    let id = Uuid::parse_str(id.trim())
-        .map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
+    let id = Uuid::parse_str(id.trim()).map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
     update_stock_take(id, &req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
@@ -1275,8 +1221,7 @@ pub async fn stock_take_delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
 ) -> ResResult<()> {
-    let id = Uuid::parse_str(id.trim())
-        .map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
+    let id = Uuid::parse_str(id.trim()).map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
     delete_stock_take(id, &claims).await?;
     Ok(Res::ok(()))
 }
@@ -1293,8 +1238,7 @@ pub async fn stock_take_change_status(
     Path(id): Path<String>,
     Json(req): Json<StockTakeStatusReq>,
 ) -> ResResult<StockTakeEnvelope> {
-    let id = Uuid::parse_str(id.trim())
-        .map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
+    let id = Uuid::parse_str(id.trim()).map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
     change_status(id, &req, Some(&claims), &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
@@ -1318,7 +1262,6 @@ pub async fn stock_take_page(Query(q): Query<StockTakePageQuery>) -> ResResult<S
 )]
 #[nik::get("/business/erp/stock-take/{id}")]
 pub async fn stock_take_detail(Path(id): Path<String>) -> ResResult<StockTakeDetailRes> {
-    let id = Uuid::parse_str(id.trim())
-        .map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
+    let id = Uuid::parse_str(id.trim()).map_err(|err| bad_request(format!("id 不是合法 UUID：{err}")))?;
     Ok(Res::ok(detail_of(id).await?))
 }

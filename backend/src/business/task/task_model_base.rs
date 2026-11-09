@@ -22,8 +22,7 @@ use crate::business::task::state::{self, ChildSnapshot, TaskStatus};
 /// 别名固定为 `t`：`{FILTER}` 片段会以 `t.dept_id` / `t.owner_id` 的形式拼进来，
 /// SQL 里**不得**给 `biz_task` 用别的别名（`shared/scope.rs` 的 §2.6 规则 1：
 /// 片段只锚定主体表）。
-pub const TASK_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::new("biz_task", "t", Some("dept_id"), Some("owner_id"));
+pub const TASK_TARGET: scope::ScopeTarget = scope::ScopeTarget::new("biz_task", "t", Some("dept_id"), Some("owner_id"));
 
 /// 可见性谓词：**数据范围 ∪ 参与 id 数组**（决策 D6）。
 ///
@@ -114,9 +113,7 @@ pub fn check_fragment_shape(sql: &str) -> DbResult<()> {
     let trimmed = sql.trim();
     let accepted = trimmed.eq_ignore_ascii_case("1 = 1")
         || trimmed.eq_ignore_ascii_case("1 = 0")
-        || trimmed
-            .get(..3)
-            .is_some_and(|head| head.eq_ignore_ascii_case("AND"));
+        || trimmed.get(..3).is_some_and(|head| head.eq_ignore_ascii_case("AND"));
     if accepted {
         return Ok(());
     }
@@ -230,12 +227,7 @@ pub const NEW_TASK_WINDOW_DAYS: i32 = 7;
 ///
 /// 口径只在这里定义一份，[`page_visible`]（列表 + 看板）、[`my_tasks`]（只看我的）
 /// 与 [`gantt_tasks`]（甘特）三处调用。
-pub fn is_new_task(
-    status: &str,
-    owner_id: Uuid,
-    created_at: chrono::DateTime<Utc>,
-    viewer: Uuid,
-) -> bool {
+pub fn is_new_task(status: &str, owner_id: Uuid, created_at: chrono::DateTime<Utc>, viewer: Uuid) -> bool {
     is_new_task_at(status, owner_id, created_at, viewer, Utc::now())
 }
 
@@ -292,9 +284,7 @@ pub(super) const CARD_FROM: &str = " FROM biz_task t \
 
 /// 转义 `ILIKE` 通配符（用户搜 `%` / `_` 时不该变成「匹配一切」）。
 pub fn escape_like(raw: &str) -> String {
-    raw.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+    raw.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 /// 附件显示名（人可读）：优先 `sys_file.original_name`，否则取 `file_name` 的 basename。
@@ -407,11 +397,7 @@ pub fn cascade_target(parent: TaskStatus, children: &[ChildSnapshot]) -> Option<
     let all_terminal = state::open_children(children).is_empty();
     let target = if all_terminal {
         TaskStatus::Review
-    } else if parent == TaskStatus::Todo
-        && children
-            .iter()
-            .any(|child| child.status != TaskStatus::Todo)
-    {
+    } else if parent == TaskStatus::Todo && children.iter().any(|child| child.status != TaskStatus::Todo) {
         TaskStatus::Doing
     } else {
         return None;
@@ -546,9 +532,7 @@ pub fn stats_window_error(start: NaiveDate, end: NaiveDate) -> Option<String> {
     }
     let days = (end - start).num_days() + 1;
     if days > MAX_STATS_WINDOW_DAYS {
-        return Some(format!(
-            "统计窗口过长：{days} 天，最多 {MAX_STATS_WINDOW_DAYS} 天"
-        ));
+        return Some(format!("统计窗口过长：{days} 天，最多 {MAX_STATS_WINDOW_DAYS} 天"));
     }
     None
 }

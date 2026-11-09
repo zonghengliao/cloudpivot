@@ -44,11 +44,7 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[nik::permission(
-    path = "/system/role/page",
-    method = "GET",
-    permission = "system:role:list"
-)]
+#[nik::permission(path = "/system/role/page", method = "GET", permission = "system:role:list")]
 #[nik::get("/system/role/page")]
 pub async fn page(Query(query): Query<RolePageQuery>) -> ResResult<PageData<Vec<RoleRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
@@ -63,12 +59,7 @@ pub async fn page(Query(query): Query<RolePageQuery>) -> ResResult<PageData<Vec<
         .map_err(|e| utils::db_error(e, "分页查询角色"))?;
 
     let list: Vec<RoleRes> = page_data.list.iter().map(RoleRes::from).collect();
-    Ok(Res::page(
-        list,
-        page_data.total,
-        page_data.page,
-        page_data.size,
-    ))
+    Ok(Res::page(list, page_data.total, page_data.page, page_data.size))
 }
 
 /// 查询全部启用角色（按排序值升序，供下拉选择）。
@@ -80,11 +71,7 @@ pub async fn page(Query(query): Query<RolePageQuery>) -> ResResult<PageData<Vec<
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[nik::permission(
-    path = "/system/role/list",
-    method = "GET",
-    permission = "system:role:list"
-)]
+#[nik::permission(path = "/system/role/list", method = "GET", permission = "system:role:list")]
 #[nik::get("/system/role/list")]
 pub async fn list() -> ResResult<Vec<RoleRes>> {
     // 启用角色下拉是高频热点查询，优先读缓存
@@ -114,11 +101,7 @@ pub async fn list() -> ResResult<Vec<RoleRes>> {
 /// - 400：ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role/{id}",
-    method = "GET",
-    permission = "system:role:list"
-)]
+#[nik::permission(path = "/system/role/{id}", method = "GET", permission = "system:role:list")]
 #[nik::get("/system/role/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<RoleRes> {
     let id = utils::require_uuid(&id, "id")?;
@@ -149,11 +132,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<RoleRes> {
 /// - 400：参数非法；
 /// - 409：角色编码已存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role",
-    method = "POST",
-    permission = "system:role:create"
-)]
+#[nik::permission(path = "/system/role", method = "POST", permission = "system:role:create")]
 #[nik::post("/system/role")]
 pub async fn create(
     headers: HeaderMap,
@@ -171,8 +150,7 @@ pub async fn create(
     let now = chrono::Utc::now();
     let operator = utils::current_user_uuid(&claims);
     let role_id = uuid::Uuid::now_v7();
-    let escalation_role_id =
-        resolve_escalation_role(req.escalation_role_id.as_deref(), role_id, None).await?;
+    let escalation_role_id = resolve_escalation_role(req.escalation_role_id.as_deref(), role_id, None).await?;
     let role = SysRoleModel {
         id: role_id,
         role_code,
@@ -198,12 +176,7 @@ pub async fn create(
         changelog::record_in(
             &tx,
             &ctx.ctx(),
-            ChangeTarget::of(
-                "sys_role",
-                tx_role.id.to_string(),
-                Action::Create,
-                "新增角色",
-            ),
+            ChangeTarget::of("sys_role", tx_role.id.to_string(), Action::Create, "新增角色"),
             DiffInput::create(&snapshot),
         )
         .await?;
@@ -255,11 +228,7 @@ pub async fn create(
 /// - 404：角色不存在；
 /// - 409：角色编码已存在，或试图禁用内置超级管理员角色；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role/{id}",
-    method = "PUT",
-    permission = "system:role:update"
-)]
+#[nik::permission(path = "/system/role/{id}", method = "PUT", permission = "system:role:update")]
 #[nik::put("/system/role/{id}")]
 pub async fn update(
     Path(id): Path<String>,
@@ -312,12 +281,8 @@ pub async fn update(
         status,
         data_scope,
         sort_order: req.sort_order.unwrap_or(existing.sort_order),
-        escalation_role_id: resolve_escalation_role(
-            req.escalation_role_id.as_deref(),
-            id,
-            existing.escalation_role_id,
-        )
-        .await?,
+        escalation_role_id: resolve_escalation_role(req.escalation_role_id.as_deref(), id, existing.escalation_role_id)
+            .await?,
         remark: req.remark.map(|v| v.trim().to_string()),
         // 保留创建审计字段，仅更新业务字段
         created_at: existing.created_at,
@@ -340,21 +305,12 @@ pub async fn update(
         changelog::record_in(
             &tx,
             &ctx.ctx(),
-            ChangeTarget::of(
-                "sys_role",
-                tx_role.id.to_string(),
-                Action::Update,
-                "修改角色",
-            ),
+            ChangeTarget::of("sys_role", tx_role.id.to_string(), Action::Update, "修改角色"),
             DiffInput::update(&before_snapshot, &after_snapshot),
         )
         .await?;
-        crate::system::user::model::bump_token_version_of_role_holders_in(
-            &tx,
-            tx_role.id,
-            constants::ADMIN_USERNAME,
-        )
-        .await?;
+        crate::system::user::model::bump_token_version_of_role_holders_in(&tx, tx_role.id, constants::ADMIN_USERNAME)
+            .await?;
         Ok(())
     })
     .await
@@ -376,11 +332,7 @@ pub async fn update(
     // 缓存侧的在线会话清理只是卫生动作：持有者的 `token_version` 已在上面的事务里推进
     // （库侧失效），这里失败不回 500 —— 角色确实改完了，回 500 会让管理员重试
     // （BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
-    crate::support::online::model::revoke_after_permission_change(
-        "role_update",
-        &[constants::ADMIN_USERNAME],
-    )
-    .await;
+    crate::support::online::model::revoke_after_permission_change("role_update", &[constants::ADMIN_USERNAME]).await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -428,11 +380,7 @@ pub async fn update(
 /// - 404：角色不存在；
 /// - 409：内置角色或角色已分配给用户；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role/{id}",
-    method = "DELETE",
-    permission = "system:role:delete"
-)]
+#[nik::permission(path = "/system/role/{id}", method = "DELETE", permission = "system:role:delete")]
 #[nik::delete("/system/role/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
@@ -454,11 +402,7 @@ pub async fn delete(
         .await
         .map_err(|e| utils::db_error(e, "统计角色分配"))?;
     if assigned > 0 {
-        return Err(ApiError::new(
-            409,
-            error_code::ROLE_IN_USE,
-            "角色已分配给用户",
-        ));
+        return Err(ApiError::new(409, error_code::ROLE_IN_USE, "角色已分配给用户"));
     }
 
     // 事务：软删角色 + 物理清理其菜单授权绑定，避免角色已删而授权残留
@@ -518,11 +462,7 @@ pub async fn delete(
 /// - 400：ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role/{id}/menus",
-    method = "GET",
-    permission = "system:role:list"
-)]
+#[nik::permission(path = "/system/role/{id}/menus", method = "GET", permission = "system:role:list")]
 #[nik::get("/system/role/{id}/menus")]
 pub async fn menus(Path(id): Path<String>) -> ResResult<Vec<String>> {
     let id = utils::require_uuid(&id, "id")?;
@@ -530,12 +470,7 @@ pub async fn menus(Path(id): Path<String>) -> ResResult<Vec<String>> {
     let bindings = SysRoleMenuModel::find_by(db(), "role_id", (&id,))
         .await
         .map_err(|e| utils::db_error(e, "查询角色菜单授权"))?;
-    Ok(Res::ok(
-        bindings
-            .into_iter()
-            .map(|b| b.menu_id.to_string())
-            .collect(),
-    ))
+    Ok(Res::ok(bindings.into_iter().map(|b| b.menu_id.to_string()).collect()))
 }
 
 /// 保存角色菜单授权（先清空全部授权，再逐条重建；空数组表示清空）。
@@ -562,11 +497,7 @@ pub async fn menus(Path(id): Path<String>) -> ResResult<Vec<String>> {
 /// - 400：ID 或菜单 ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role/{id}/menus",
-    method = "PUT",
-    permission = "system:role:menu"
-)]
+#[nik::permission(path = "/system/role/{id}/menus", method = "PUT", permission = "system:role:menu")]
 #[nik::put("/system/role/{id}/menus")]
 pub async fn assign_menus(
     Path(id): Path<String>,
@@ -613,11 +544,8 @@ pub async fn assign_menus(
     // 缓存侧的在线会话清理只是卫生动作：授权写在上面的事务里，且同一事务已推进
     // 持有者的 `token_version`（库侧失效，`middleware::session_guard` 逐请求比对）。
     // 因此缓存不可用不再回 500（BUG-SYS-03），失败以 warn + pending_compensation 留痕。
-    crate::support::online::model::revoke_after_permission_change(
-        "role_assign_menu",
-        &[constants::ADMIN_USERNAME],
-    )
-    .await;
+    crate::support::online::model::revoke_after_permission_change("role_assign_menu", &[constants::ADMIN_USERNAME])
+        .await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -649,11 +577,7 @@ pub async fn assign_menus(
 /// - 400：ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[nik::permission(
-    path = "/system/role/{id}/users",
-    method = "GET",
-    permission = "system:role:list"
-)]
+#[nik::permission(path = "/system/role/{id}/users", method = "GET", permission = "system:role:list")]
 #[nik::get("/system/role/{id}/users")]
 pub async fn users(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -677,10 +601,7 @@ pub async fn users(
         .map_err(|e| utils::db_error(e, "查询用户角色"))?;
     let mut role_names: HashMap<uuid::Uuid, Vec<String>> = HashMap::new();
     for row in role_rows {
-        role_names
-            .entry(row.user_id)
-            .or_default()
-            .push(row.role_name);
+        role_names.entry(row.user_id).or_default().push(row.role_name);
     }
 
     let list: Vec<RoleUserRes> = page_data
@@ -695,12 +616,7 @@ pub async fn users(
             roles: role_names.get(&u.id).cloned().unwrap_or_default(),
         })
         .collect();
-    Ok(Res::page(
-        list,
-        page_data.total,
-        page_data.page,
-        page_data.size,
-    ))
+    Ok(Res::page(list, page_data.total, page_data.page, page_data.size))
 }
 
 // ==================== 公共辅助 ====================
@@ -750,22 +666,13 @@ async fn load_role(id: &uuid::Uuid) -> std::result::Result<SysRoleModel, ApiErro
 /// - 403：授予了操作者未持有的权限码；
 /// - 404：某个菜单不存在或已删除；
 /// - 500：数据库异常。
-async fn ensure_menus_grantable(
-    claims: &TokenClaims,
-    menu_ids: &[uuid::Uuid],
-) -> std::result::Result<(), ApiError> {
+async fn ensure_menus_grantable(claims: &TokenClaims, menu_ids: &[uuid::Uuid]) -> std::result::Result<(), ApiError> {
     let super_admin = claims.is_super_admin();
     for menu_id in menu_ids {
         let menu = SysMenuModel::find_or_none(db(), menu_id)
             .await
             .map_err(|e| utils::db_error(e, "校验菜单"))?
-            .ok_or_else(|| {
-                ApiError::new(
-                    404,
-                    error_code::RESOURCE_NOT_FOUND,
-                    "菜单不存在或已删除".to_string(),
-                )
-            })?;
+            .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "菜单不存在或已删除".to_string()))?;
         if super_admin {
             continue;
         }
@@ -796,10 +703,7 @@ async fn ensure_menus_grantable(
 ///
 /// - 409：角色编码已存在（`ROLE_CODE_EXISTS`）；
 /// - 500：数据库异常。
-async fn ensure_role_code_unique(
-    role_code: &str,
-    exclude: Option<uuid::Uuid>,
-) -> std::result::Result<(), ApiError> {
+async fn ensure_role_code_unique(role_code: &str, exclude: Option<uuid::Uuid>) -> std::result::Result<(), ApiError> {
     let count = model::count_roles_by_code(role_code, exclude)
         .await
         .map_err(|e| utils::db_error(e, "校验角色编码唯一性"))?;
@@ -833,13 +737,8 @@ fn parse_escalation_input(raw: Option<&str>) -> std::result::Result<EscalationIn
             if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("null") {
                 return Ok(EscalationInput::Clear);
             }
-            let id = uuid::Uuid::parse_str(trimmed).map_err(|_| {
-                ApiError::new(
-                    400,
-                    error_code::ROLE_INVALID,
-                    format!("上级角色 id 非法：{trimmed}"),
-                )
-            })?;
+            let id = uuid::Uuid::parse_str(trimmed)
+                .map_err(|_| ApiError::new(400, error_code::ROLE_INVALID, format!("上级角色 id 非法：{trimmed}")))?;
             Ok(EscalationInput::Set(id))
         }
     }
@@ -855,16 +754,9 @@ fn parse_escalation_input(raw: Option<&str>) -> std::result::Result<EscalationIn
 ///
 /// 历史脏数据里的环（比如直接改库造出来的）走到重复节点即停：那是运行时要报 65040 的事，
 /// 不应该让「改个角色名」也失败。
-async fn ensure_escalation_valid(
-    target: uuid::Uuid,
-    self_id: uuid::Uuid,
-) -> std::result::Result<(), ApiError> {
+async fn ensure_escalation_valid(target: uuid::Uuid, self_id: uuid::Uuid) -> std::result::Result<(), ApiError> {
     if target == self_id {
-        return Err(ApiError::new(
-            400,
-            error_code::ROLE_INVALID,
-            "上级角色不能是本角色自己",
-        ));
+        return Err(ApiError::new(400, error_code::ROLE_INVALID, "上级角色不能是本角色自己"));
     }
     if model::escalation_parent_of(target)
         .await
@@ -1160,12 +1052,7 @@ mod tests {
         Uuid::from_u128(n)
     }
 
-    fn principal(
-        kind: ScopeKind,
-        dept_ids: Vec<Uuid>,
-        self_only: bool,
-        is_super: bool,
-    ) -> ScopedPrincipal {
+    fn principal(kind: ScopeKind, dept_ids: Vec<Uuid>, self_only: bool, is_super: bool) -> ScopedPrincipal {
         ScopedPrincipal::for_test(
             uid(0xB3_0001),
             dept_ids.first().copied(),
@@ -1277,13 +1164,9 @@ mod tests {
             ScopeKind::Custom,
             ScopeKind::All,
         ] {
-            let error = ensure_data_scope_grantable_with(
-                &self_only,
-                Some(ScopeKind::SelfOnly.as_i16()),
-                widen.as_i16(),
-                &[],
-            )
-            .expect_err("仅本人操作者不得授出更宽范围");
+            let error =
+                ensure_data_scope_grantable_with(&self_only, Some(ScopeKind::SelfOnly.as_i16()), widen.as_i16(), &[])
+                    .expect_err("仅本人操作者不得授出更宽范围");
             assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT, "{widen:?}");
         }
         // 收紧（自己 → 自己）允许
@@ -1322,18 +1205,9 @@ mod tests {
         );
 
         // ⑤ 新建角色（无现值基准）：只看操作者自身等级
-        assert!(
-            ensure_data_scope_grantable_with(
-                &dept_manager,
-                None,
-                ScopeKind::DeptAndChild.as_i16(),
-                &[],
-            )
-            .is_ok()
-        );
-        let error =
-            ensure_data_scope_grantable_with(&dept_manager, None, ScopeKind::All.as_i16(), &[])
-                .expect_err("新建角色也不得授出 ALL");
+        assert!(ensure_data_scope_grantable_with(&dept_manager, None, ScopeKind::DeptAndChild.as_i16(), &[],).is_ok());
+        let error = ensure_data_scope_grantable_with(&dept_manager, None, ScopeKind::All.as_i16(), &[])
+            .expect_err("新建角色也不得授出 ALL");
         assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
 
         // ⑥ 自定义部门集合越界 → 61002（B4 传 custom_dept_ids 后即生效）
@@ -1357,17 +1231,14 @@ mod tests {
             .is_ok()
         );
 
-        println!(
-            "[上限] 部门类→ALL 拒；同级放宽拒；SELF→部门类拒；收紧放行；超管与 ALL 放行；自定义部门越界拒 ✓"
-        );
+        println!("[上限] 部门类→ALL 拒；同级放宽拒；SELF→部门类拒；收紧放行；超管与 ALL 放行；自定义部门越界拒 ✓");
     }
 
     /// 非法 `data_scope` 直接写库前就被拦（不经 `resolve_data_scope` 的路径也必须拦）。
     #[test]
     fn invalid_scope_rejected_by_grant_check() {
         let dept_manager = principal(ScopeKind::Dept, vec![uid(0xB3_0201)], false, false);
-        let error = ensure_data_scope_grantable_with(&dept_manager, Some(1), 9, &[])
-            .expect_err("非法范围必须报错");
+        let error = ensure_data_scope_grantable_with(&dept_manager, Some(1), 9, &[]).expect_err("非法范围必须报错");
         assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
         assert_eq!(error.status, 400);
         println!("[上限] data_scope=9 → 400/61001 ✓");

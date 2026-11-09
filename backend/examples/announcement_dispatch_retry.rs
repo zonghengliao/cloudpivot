@@ -34,13 +34,9 @@ use nik::prelude::*;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let url = std::env::var("C3_DB_URL").map_err(|_| {
-        "缺少 C3_DB_URL（形如 postgres://user:pass@127.0.0.1:5432/cloudpivot）".to_string()
-    })?;
-    let rounds: usize = std::env::args()
-        .nth(1)
-        .and_then(|raw| raw.parse().ok())
-        .unwrap_or(1);
+    let url = std::env::var("C3_DB_URL")
+        .map_err(|_| "缺少 C3_DB_URL（形如 postgres://user:pass@127.0.0.1:5432/cloudpivot）".to_string())?;
+    let rounds: usize = std::env::args().nth(1).and_then(|raw| raw.parse().ok()).unwrap_or(1);
     let connection = Db::connect(&url).await?;
     set_db(connection).map_err(|error| error.to_string())?;
 

@@ -212,12 +212,7 @@ pub fn table_coverage() -> Vec<TableCoverage> {
 }
 
 /// 单行投影（抽出来是为了让 `exempted` 分支能被单测直接覆盖）。
-fn coverage_row(
-    target: &ScopeTarget,
-    status: WiringStatus,
-    no_paginate: bool,
-    reason: &str,
-) -> TableCoverage {
+fn coverage_row(target: &ScopeTarget, status: WiringStatus, no_paginate: bool, reason: &str) -> TableCoverage {
     TableCoverage {
         table: target.table.to_string(),
         dept_col: target.dept_col.map(str::to_string),
@@ -321,10 +316,7 @@ pub fn validate_custom_scope(
 /// | 仅本人 / 无部门 | `DEPT` / `DEPT_AND_CHILD` | `403 + 61002` |
 /// | 其它 | `SELF` | `Ok`（只收紧） |
 /// | 其它 | `CUSTOM` | `Ok`（由集合包含关系判） |
-pub fn ensure_kind_grantable(
-    operator: &ScopedPrincipal,
-    kind: ScopeKind,
-) -> std::result::Result<(), ApiError> {
+pub fn ensure_kind_grantable(operator: &ScopedPrincipal, kind: ScopeKind) -> std::result::Result<(), ApiError> {
     if operator.is_super() || operator.kind() == ScopeKind::All {
         return Ok(());
     }
@@ -378,10 +370,7 @@ pub fn missing_dept_ids(requested: &[Uuid], existing: &[Uuid]) -> Vec<Uuid> {
 /// 保序去重（不排序：前端提交的顺序即用户选择的顺序，回显时不该跳来跳去）。
 pub fn dedupe(ids: &[Uuid]) -> Vec<Uuid> {
     let mut seen: BTreeSet<Uuid> = BTreeSet::new();
-    ids.iter()
-        .copied()
-        .filter(|id| seen.insert(*id))
-        .collect::<Vec<_>>()
+    ids.iter().copied().filter(|id| seen.insert(*id)).collect::<Vec<_>>()
 }
 
 // ==================== 纯逻辑：部门树裁剪 ====================
@@ -458,9 +447,7 @@ pub fn build_tree(rows: Vec<DeptRow>) -> Vec<DeptTreeNode> {
 
 /// 统计树上的节点总数（含所有层级）。
 pub fn count_nodes(tree: &[DeptTreeNode]) -> usize {
-    tree.iter()
-        .map(|node| 1 + count_nodes(&node.children))
-        .sum()
+    tree.iter().map(|node| 1 + count_nodes(&node.children)).sum()
 }
 
 // ==================== 纯逻辑：响应组装 ====================
@@ -496,10 +483,7 @@ pub fn describe_depts(ids: &[Uuid], rows: &[DeptRow]) -> String {
     if ids.is_empty() {
         return "（无）".to_string();
     }
-    let names: BTreeMap<Uuid, &str> = rows
-        .iter()
-        .map(|row| (row.id, row.dept_name.as_str()))
-        .collect();
+    let names: BTreeMap<Uuid, &str> = rows.iter().map(|row| (row.id, row.dept_name.as_str())).collect();
     ids.iter()
         .map(|id| match names.get(id) {
             Some(name) => format!("{name}（{id}）"),
@@ -686,9 +670,7 @@ pub async fn find_role_holder_ids(role_id: &Uuid) -> DbResult<Vec<Uuid>> {
             vec![Value::from(role_id)],
         )
         .await?;
-    rows.into_iter()
-        .map(|row| row.get_typed("user_id"))
-        .collect()
+    rows.into_iter().map(|row| row.get_typed("user_id")).collect()
 }
 
 /// 用户是否持有该角色（有效绑定：未过期）。用于「不能改自己持有角色的范围」。
@@ -789,11 +771,7 @@ pub async fn save_role_scope(
             .execute_with_params(
                 "UPDATE sys_role SET data_scope = ?, updated_at = CURRENT_TIMESTAMP, update_by = ? \
                  WHERE id = ? AND deleted_at IS NULL",
-                vec![
-                    Value::I16(kind_value),
-                    Value::from(operator),
-                    Value::from(role_id),
-                ],
+                vec![Value::I16(kind_value), Value::from(operator), Value::from(role_id)],
             )
             .await?;
         if affected == 0 {
@@ -813,11 +791,7 @@ pub async fn save_role_scope(
             tx.execute_with_params(
                 "INSERT INTO sys_role_dept (role_id, dept_id, create_by) VALUES (?, ?, ?) \
                  ON CONFLICT (role_id, dept_id) DO NOTHING",
-                vec![
-                    Value::from(role_id),
-                    Value::from(dept_id),
-                    Value::from(operator),
-                ],
+                vec![Value::from(role_id), Value::from(dept_id), Value::from(operator)],
             )
             .await?;
         }
@@ -886,8 +860,8 @@ mod tests {
     fn d1_custom_scope_accepts_non_empty_set() {
         let a = uid(0xD101);
         let b = uid(0xD102);
-        let normalized = validate_custom_scope(ScopeKind::Custom, Some(&[a, b, a]))
-            .expect("自定义范围 + 非空集合必须通过");
+        let normalized =
+            validate_custom_scope(ScopeKind::Custom, Some(&[a, b, a])).expect("自定义范围 + 非空集合必须通过");
         assert_eq!(normalized, Some(vec![a, b]), "去重且保序");
         println!("[D1] data_scope=5 + [{a},{b},{a}] → 去重后 2 个 ✓");
     }
@@ -896,8 +870,7 @@ mod tests {
     #[test]
     fn d2_custom_scope_rejects_empty_set() {
         for case in [Some(Vec::new().as_slice()), None] {
-            let error = validate_custom_scope(ScopeKind::Custom, case)
-                .expect_err("自定义范围但没选部门必须报错");
+            let error = validate_custom_scope(ScopeKind::Custom, case).expect_err("自定义范围但没选部门必须报错");
             assert_eq!(error.status, 400);
             assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
             assert!(
@@ -913,8 +886,8 @@ mod tests {
     #[test]
     fn d3_non_custom_scope_set_handling() {
         let a = uid(0xD301);
-        let error = validate_custom_scope(ScopeKind::DeptAndChild, Some(&[a]))
-            .expect_err("非自定义范围提交非空集合必须报错");
+        let error =
+            validate_custom_scope(ScopeKind::DeptAndChild, Some(&[a])).expect_err("非自定义范围提交非空集合必须报错");
         assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
         assert_eq!(
             validate_custom_scope(ScopeKind::DeptAndChild, Some(&[])).unwrap(),
@@ -933,14 +906,7 @@ mod tests {
     #[test]
     fn d4_kind_grant_limit() {
         let own = uid(0xD401);
-        let self_only = ScopedPrincipal::for_test(
-            uid(0xD400),
-            None,
-            false,
-            ScopeKind::SelfOnly,
-            Vec::new(),
-            true,
-        );
+        let self_only = ScopedPrincipal::for_test(uid(0xD400), None, false, ScopeKind::SelfOnly, Vec::new(), true);
         // 仅本人 → ALL / DEPT 都越界
         for kind in [ScopeKind::All, ScopeKind::Dept, ScopeKind::DeptAndChild] {
             let error = ensure_kind_grantable(&self_only, kind).expect_err("越界必须拒绝");
@@ -952,37 +918,16 @@ mod tests {
         assert!(ensure_kind_grantable(&self_only, ScopeKind::Custom).is_ok());
 
         // 部门级操作者 → DEPT / DEPT_AND_CHILD / SELF / CUSTOM 都可，ALL 不可
-        let dept_scope = ScopedPrincipal::for_test(
-            uid(0xD402),
-            Some(own),
-            false,
-            ScopeKind::Dept,
-            vec![own],
-            false,
-        );
+        let dept_scope = ScopedPrincipal::for_test(uid(0xD402), Some(own), false, ScopeKind::Dept, vec![own], false);
         assert!(ensure_kind_grantable(&dept_scope, ScopeKind::Dept).is_ok());
         assert!(ensure_kind_grantable(&dept_scope, ScopeKind::DeptAndChild).is_ok());
         let error = ensure_kind_grantable(&dept_scope, ScopeKind::All).expect_err("ALL 必须拒绝");
         assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
 
         // 超管与范围=ALL 的操作者不受限
-        let super_admin = ScopedPrincipal::for_test(
-            uid(0xD403),
-            Some(own),
-            true,
-            ScopeKind::All,
-            Vec::new(),
-            false,
-        );
+        let super_admin = ScopedPrincipal::for_test(uid(0xD403), Some(own), true, ScopeKind::All, Vec::new(), false);
         assert!(ensure_kind_grantable(&super_admin, ScopeKind::All).is_ok());
-        let all_scope = ScopedPrincipal::for_test(
-            uid(0xD404),
-            Some(own),
-            false,
-            ScopeKind::All,
-            Vec::new(),
-            false,
-        );
+        let all_scope = ScopedPrincipal::for_test(uid(0xD404), Some(own), false, ScopeKind::All, Vec::new(), false);
         assert!(ensure_kind_grantable(&all_scope, ScopeKind::All).is_ok());
         println!("[D4] 仅本人→ALL/DEPT 403/61002；部门级→ALL 403；超管/ALL 不限 ✓");
     }
@@ -1010,10 +955,7 @@ mod tests {
         let rows = vec![dept(outside, None, "战略部", 1)];
         let text = describe_depts(&exceeded, &rows);
         assert!(text.contains("战略部"), "点名要带部门名：{text}");
-        assert!(
-            text.contains(&outside.to_string()),
-            "点名要带部门 ID：{text}"
-        );
+        assert!(text.contains(&outside.to_string()), "点名要带部门 ID：{text}");
         assert_eq!(describe_depts(&[], &rows), "（无）");
         println!("[D5] 越界={exceeded:?}；点名 = {text} ✓");
     }
@@ -1050,10 +992,7 @@ mod tests {
         let tree = build_tree(cropped);
         assert_eq!(tree.len(), 2, "两个根：研发一组、研发二组（都被提升）");
         assert_eq!(count_nodes(&tree), 3, "节点总数不变（一个都不许丢）");
-        let child_node = tree
-            .iter()
-            .find(|node| node.id == child.to_string())
-            .unwrap();
+        let child_node = tree.iter().find(|node| node.id == child.to_string()).unwrap();
         assert_eq!(child_node.children.len(), 1, "可见父仍带子节点");
         assert_eq!(child_node.children[0].dept_name, "研发一组小队");
         println!(
@@ -1077,11 +1016,7 @@ mod tests {
         let tree = build_tree(rows);
         assert_eq!(tree.len(), 1);
         assert_eq!(tree[0].dept_name, "总部");
-        let names: Vec<&str> = tree[0]
-            .children
-            .iter()
-            .map(|node| node.dept_name.as_str())
-            .collect();
+        let names: Vec<&str> = tree[0].children.iter().map(|node| node.dept_name.as_str()).collect();
         assert_eq!(names, vec!["一组", "二组"], "同级按 sort_order 升序");
         println!("[D7] 组树：{} → {:?} ✓", tree[0].dept_name, names);
     }
@@ -1090,11 +1025,7 @@ mod tests {
     #[test]
     fn d8_coverage_matches_registry() {
         let coverage = table_coverage();
-        assert_eq!(
-            coverage.len(),
-            SCOPED_TABLES.len(),
-            "投影必须覆盖全部登记表"
-        );
+        assert_eq!(coverage.len(), SCOPED_TABLES.len(), "投影必须覆盖全部登记表");
         for (item, target) in coverage.iter().zip(SCOPED_TABLES.iter()) {
             assert_eq!(item.table, target.table);
             assert_eq!(item.dept_col.as_deref(), target.dept_col);
@@ -1125,9 +1056,7 @@ mod tests {
         );
         for wiring in TABLE_WIRING {
             assert!(
-                SCOPED_TABLES
-                    .iter()
-                    .any(|target| target.table == wiring.table),
+                SCOPED_TABLES.iter().any(|target| target.table == wiring.table),
                 "TABLE_WIRING 里的 {} 不在 SCOPED_TABLES 登记表中",
                 wiring.table
             );
@@ -1161,12 +1090,7 @@ mod tests {
     #[test]
     fn d8b_exempted_row_projection() {
         let target = ScopeTarget::unscoped("synthetic_tbl");
-        let row = coverage_row(
-            &target,
-            WiringStatus::Exempted,
-            false,
-            "SCOPE-EXEMPT: 合成用例",
-        );
+        let row = coverage_row(&target, WiringStatus::Exempted, false, "SCOPE-EXEMPT: 合成用例");
         assert_eq!(row.status, "exempted");
         assert!(row.wired, "exempted 视为已处理，否则会被误报成 uncovered");
         assert_eq!(row.reason, "SCOPE-EXEMPT: 合成用例");
@@ -1192,10 +1116,7 @@ mod tests {
         }
         let mut files = Vec::new();
         walk(std::path::Path::new("src"), &mut files);
-        assert!(
-            !files.is_empty(),
-            "找不到 src/ 下的 rs 文件（单测须以 crate 根为 CWD）"
-        );
+        assert!(!files.is_empty(), "找不到 src/ 下的 rs 文件（单测须以 crate 根为 CWD）");
         let wired: Vec<&TableWiring> = TABLE_WIRING
             .iter()
             .filter(|wiring| wiring.status == WiringStatus::Wired)
@@ -1239,10 +1160,7 @@ mod tests {
         assert_eq!(res.holder_count, 3);
 
         // 库里的非法值（CHECK 被手工绕过）→ 回显兜底为 ALL，不让 GET 500
-        let broken = RoleScope {
-            data_scope: 9,
-            ..role
-        };
+        let broken = RoleScope { data_scope: 9, ..role };
         assert_eq!(role_scope_res(&broken, &[], 0).data_scope_code, "ALL");
         println!("[D9] CUSTOM 回显 = {res:?} ✓；脏值兜底 ✓");
     }

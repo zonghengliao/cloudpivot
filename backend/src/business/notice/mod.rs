@@ -83,9 +83,7 @@ pub use fanout::NoticeTarget;
 use nik::prelude::*;
 use serde::Serialize;
 
-use crate::business::notice::dto::{
-    CHANNEL_INBOX, ContentFormat, NoticeLevel, NoticeType, channel_mask_of_csv,
-};
+use crate::business::notice::dto::{CHANNEL_INBOX, ContentFormat, NoticeLevel, NoticeType, channel_mask_of_csv};
 use crate::business::notice::model::Executor;
 use crate::shared::error_code;
 use crate::utils;
@@ -320,10 +318,7 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 let format = ContentFormat::parse(&template.content_format)?;
                 // 模板声明的通道：与调用方通道取**并集**（见 delivery::plan_channels）
                 template_mask = Some(channel_mask_of_csv(&template.channels));
-                let link = draft
-                    .link_url
-                    .clone()
-                    .or_else(|| template.link_template.clone());
+                let link = draft.link_url.clone().or_else(|| template.link_template.clone());
                 let notice_type = if draft.notice_type == NoticeType::System {
                     NoticeType::parse(&template.notice_type).unwrap_or(NoticeType::System)
                 } else {
@@ -380,8 +375,8 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
         serde_json::Value::Null => serde_json::json!({}),
         other => other.clone(),
     };
-    let (title, content) = render::render_notice(&title_source, &content_source, &vars, format)
-        .map_err(DispatchError::Api)?;
+    let (title, content) =
+        render::render_notice(&title_source, &content_source, &vars, format).map_err(DispatchError::Api)?;
 
     // ---------- 4. 扇出规模预演（超 5 万先拒，不先插再回滚） ----------
     // 偏好分流（修正 8）：`force = false` 时把关了 `notify.inbox` 的收件人整条剔除。
@@ -458,16 +453,8 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
             content: &content,
             content_format: format.as_str(),
             link_url: link_url.as_deref(),
-            biz_type: draft
-                .biz_type
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty()),
-            biz_id: draft
-                .biz_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|v| !v.is_empty()),
+            biz_type: draft.biz_type.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+            biz_id: draft.biz_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
             template_code: template_code.as_deref(),
             template_vars_json: template_vars_json.clone(),
             sender_id: draft.sender_id,
@@ -533,16 +520,8 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 content: &content,
                 content_format: format.as_str(),
                 link_url: link_url.as_deref(),
-                biz_type: draft
-                    .biz_type
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty()),
-                biz_id: draft
-                    .biz_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty()),
+                biz_type: draft.biz_type.as_deref().map(str::trim).filter(|v| !v.is_empty()),
+                biz_id: draft.biz_id.as_deref().map(str::trim).filter(|v| !v.is_empty()),
                 template_code: template_code.as_deref(),
                 template_vars_json,
                 sender_id: draft.sender_id,
@@ -563,11 +542,7 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 let key = idempotency_key.clone().unwrap_or_default();
                 let existing = model::find_notice_by_idempotency(&ex, &key).await?;
                 return Ok(Outcome::Duplicate(existing.map(|notice| {
-                    (
-                        notice.id,
-                        notice.notice_no,
-                        i64::from(notice.receiver_count),
-                    )
+                    (notice.id, notice.notice_no, i64::from(notice.receiver_count))
                 })));
             }
 
@@ -723,10 +698,7 @@ pub(crate) async fn push_realtime(notice_id: &uuid::Uuid, seed: &sse_hub::Notice
 
 /// `Uuid` 序列化为字符串（`uuid` crate 在本项目未开 `serde` feature，
 /// 而 API 契约里主键一律是字符串，与其它 DTO 保持一致）。
-fn serialize_uuid<S: serde::Serializer>(
-    id: &uuid::Uuid,
-    serializer: S,
-) -> std::result::Result<S::Ok, S::Error> {
+fn serialize_uuid<S: serde::Serializer>(id: &uuid::Uuid, serializer: S) -> std::result::Result<S::Ok, S::Error> {
     serializer.serialize_str(&id.to_string())
 }
 
@@ -803,13 +775,7 @@ mod tests {
         {
         }
 
-        let draft = NoticeDraft::text(
-            NoticeType::Todo,
-            NoticeLevel::Info,
-            "t",
-            "c",
-            NoticeTarget::All,
-        );
+        let draft = NoticeDraft::text(NoticeType::Todo, NoticeLevel::Info, "t", "c", NoticeTarget::All);
         assert_eq!(draft.channel_mask, CHANNEL_INBOX);
         assert!(draft.idempotency_key.is_none());
         assert_eq!(draft.notice_type, NoticeType::Todo);
@@ -843,10 +809,7 @@ mod tests {
     fn resolve_schedule_falls_back_to_immediate() {
         assert_eq!(resolve_schedule(None).expect("None 应放行"), None);
         let past = chrono::Utc::now() - chrono::Duration::minutes(5);
-        assert_eq!(
-            resolve_schedule(Some(past)).expect("过期时间按立即发送处理"),
-            None
-        );
+        assert_eq!(resolve_schedule(Some(past)).expect("过期时间按立即发送处理"), None);
     }
 
     /// 错误分支：超过上限（366 天）→ 400 + 10001，不允许建任务。

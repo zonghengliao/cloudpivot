@@ -110,10 +110,7 @@ pub async fn has_skip_trace(instance_id: Uuid, prefix: &str) -> DbResult<bool> {
             "SELECT count(*) AS total FROM biz_flow_task t \
               WHERE t.instance_id = ?::uuid AND t.status = 'SKIPPED' \
                 AND t.is_auto = true AND t.comment LIKE ?::text",
-            vec![
-                Value::from(&instance_id),
-                Value::Text(format!("%{prefix}%")),
-            ],
+            vec![Value::from(&instance_id), Value::Text(format!("%{prefix}%"))],
         )
         .await?;
     match rows.first() {
@@ -135,9 +132,7 @@ pub async fn timeline(instance_id: Uuid) -> DbResult<Vec<TaskRow>> {
         "SELECT {TASK_COLUMNS} FROM biz_flow_task t \
           WHERE t.instance_id = ?::uuid ORDER BY t.round, t.created_at, t.id"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&instance_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&instance_id)]).await?;
     rows.iter().map(TaskRow::from_row).collect()
 }
 
@@ -196,9 +191,7 @@ pub async fn cc_of(instance_id: Uuid) -> DbResult<Vec<CcRow>> {
         "SELECT {CC_COLUMNS} FROM biz_flow_cc c \
           WHERE c.instance_id = ?::uuid ORDER BY c.created_at"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::from(&instance_id)])
-        .await?;
+    let rows = db().find_with_params(&sql, vec![Value::from(&instance_id)]).await?;
     rows.iter().map(CcRow::from_row).collect()
 }
 
@@ -228,12 +221,7 @@ pub async fn pending_assignees(ex: &Transaction, instance_id: Uuid) -> DbResult<
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn cc_receivers(
-    ex: &Transaction,
-    instance_id: Uuid,
-    node_key: &str,
-    round: i32,
-) -> DbResult<Vec<Uuid>> {
+pub async fn cc_receivers(ex: &Transaction, instance_id: Uuid, node_key: &str, round: i32) -> DbResult<Vec<Uuid>> {
     let rows = ex
         .find_with_params(
             "SELECT receiver_id FROM biz_flow_cc \
@@ -295,10 +283,7 @@ pub async fn user_profile(id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> 
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn user_profile_in(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> DbResult<Option<(String, Option<Uuid>)>> {
+pub async fn user_profile_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> {
     let Some(row) = ex
         .query_first_sql(
             "SELECT COALESCE(NULLIF(u.real_name, ''), u.username, '') AS name, u.dept_id \
@@ -352,20 +337,13 @@ pub async fn flow_tasks_of(instance_id: Uuid) -> DbResult<Vec<FlowTaskRow>> {
                 owner_id: row.get_typed("owner_id")?,
                 owner_name: row.get_typed("owner_name").unwrap_or_default(),
                 need_review: row.get_typed("need_review").unwrap_or(false),
-                due_date: row
-                    .get_typed::<Option<chrono::NaiveDate>>("due_date")
-                    .ok()
-                    .flatten(),
+                due_date: row.get_typed::<Option<chrono::NaiveDate>>("due_date").ok().flatten(),
                 flow_node_key: row
                     .get_typed::<Option<String>>("flow_node_key")
                     .ok()
                     .flatten()
                     .unwrap_or_default(),
-                flow_round: row
-                    .get_typed::<Option<i32>>("flow_round")
-                    .ok()
-                    .flatten()
-                    .unwrap_or(1),
+                flow_round: row.get_typed::<Option<i32>>("flow_round").ok().flatten().unwrap_or(1),
                 created_at: row.get_typed("created_at")?,
             })
         })

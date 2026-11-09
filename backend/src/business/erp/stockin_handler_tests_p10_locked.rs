@@ -135,11 +135,7 @@ async fn p10_posted_total_amount_field_alone_is_conflict() {
     let err = update_stock_in(id, &payload, None).await.unwrap_err();
     assert_eq!(err.status, 409, "{}", err.msg);
     assert!(err.msg.contains("单据已入账"), "{}", err.msg);
-    assert!(
-        err.msg.contains("total_amount"),
-        "文案要点名被改的字段：{}",
-        err.msg
-    );
+    assert!(err.msg.contains("total_amount"), "文案要点名被改的字段：{}", err.msg);
     // 库里金额一个字节都不能动
     let stored: Decimal = db()
         .scalar_with_params(
@@ -213,23 +209,16 @@ async fn p10_receipt_advances_order_and_logs_ref() {
         .unwrap();
     assert_eq!(rows.len(), 1, "推进一次 = 一行日志（不许自环重复写）");
     let row = &rows[0];
-    assert_eq!(
-        row.get_typed::<String>("entity_type").unwrap(),
-        "PURCHASE_ORDER"
-    );
+    assert_eq!(row.get_typed::<String>("entity_type").unwrap(), "PURCHASE_ORDER");
     assert_eq!(row.get_typed::<String>("from_status").unwrap(), "SUBMITTED");
     assert_eq!(row.get_typed::<String>("to_status").unwrap(), "RECEIVED");
     assert_eq!(
-        row.get_typed::<Option<String>>("biz_ref_no")
-            .unwrap()
-            .as_deref(),
+        row.get_typed::<Option<String>>("biz_ref_no").unwrap().as_deref(),
         Some(in_no.as_str()),
         "日志必须能追到是哪张收货单推的"
     );
     assert_eq!(
-        row.get_typed::<Option<String>>("biz_ref_type")
-            .unwrap()
-            .as_deref(),
+        row.get_typed::<Option<String>>("biz_ref_type").unwrap().as_deref(),
         Some("STOCK_IN")
     );
 }

@@ -142,11 +142,9 @@ async fn create_task(tag: &str) -> Uuid {
 
 /// 建一条 FS 依赖：`task` 依赖 `prerequisite`（库里一行 `(task_id=task, depends_on_id=prerequisite)`）。
 async fn add_dependency(task: Uuid, prerequisite: Uuid) {
-    db().transaction(|tx| async move {
-        model::insert_dependency(&tx, task, prerequisite, 0, uuid(USER)).await
-    })
-    .await
-    .expect("建依赖");
+    db().transaction(|tx| async move { model::insert_dependency(&tx, task, prerequisite, 0, uuid(USER)).await })
+        .await
+        .expect("建依赖");
 }
 
 /// 走**生产路径**软删（`model::soft_delete`，handler 的 `delete` 就是包在事务里调它）。
@@ -200,11 +198,7 @@ async fn soft_delete_purges_dependencies_and_guard_counts_orphans() {
     add_dependency(c, d).await;
     add_dependency(e, f).await;
     assert_eq!(dependency_rows(a, b).await, 1, "前置检查：a→b 应已建立");
-    assert_eq!(
-        total_fixture_dependencies().await,
-        3,
-        "前置检查：应有 3 条依赖"
-    );
+    assert_eq!(total_fixture_dependencies().await, 3, "前置检查：应有 3 条依赖");
 
     // ① 软删**前置** B → a→b 消失，另两条不受影响
     assert_eq!(soft_delete(b).await, 1, "软删 B 应命中 1 行");

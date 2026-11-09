@@ -32,13 +32,7 @@ use crate::system::tests_support as ts;
 // ==================== 夹具 ====================
 
 /// 造一个菜单请求体（名称 / 权限码带本次唯一前缀）。
-fn req(
-    name: &str,
-    menu_type: i16,
-    auth_code: &str,
-    parent: Option<&str>,
-    sort: i32,
-) -> MenuCreateReq {
+fn req(name: &str, menu_type: i16, auth_code: &str, parent: Option<&str>, sort: i32) -> MenuCreateReq {
     MenuCreateReq {
         name: name.to_string(),
         menu_type,
@@ -179,17 +173,11 @@ async fn n01_tree_nested_structure_and_sort() {
     assert_eq!(root.id, dir, "根节点是该目录");
     assert_eq!(root.menu_type, 1);
     assert_eq!(root.children.len(), 2, "目录下应有 2 个菜单");
-    assert_eq!(
-        root.children[0].id, m_a,
-        "同级按 sort_order 升序：A(21) 在 B(22) 前"
-    );
+    assert_eq!(root.children[0].id, m_a, "同级按 sort_order 升序：A(21) 在 B(22) 前");
     assert_eq!(root.children[1].id, m_b);
     assert_eq!(root.children[0].children.len(), 1, "按钮挂在菜单 A 之下");
     assert_eq!(root.children[0].children[0].id, btn);
-    assert_eq!(
-        root.children[0].children[0].menu_type, 3,
-        "按钮类型必须原样下发"
-    );
+    assert_eq!(root.children[0].children[0].menu_type, 3, "按钮类型必须原样下发");
     println!("[N01] 目录→菜单→按钮 3 层树，同级 sort_order 生效 ✓");
 
     cleanup(&prefix).await;
@@ -221,11 +209,7 @@ async fn n02_keyword_matches_name_and_auth_code() {
 
     // 不存在的关键词 → 空数组（不是 404、不是全量）
     let none = tree_by_name(&format!("{prefix}-不存在")).await;
-    assert!(
-        none.is_empty(),
-        "无命中必须返回空列表，实际 {} 条",
-        none.len()
-    );
+    assert!(none.is_empty(), "无命中必须返回空列表，实际 {} 条", none.len());
     println!("[N02] 关键词同时命中 name / auth_code，无命中返回空列表 ✓");
 
     cleanup(&prefix).await;
@@ -263,12 +247,7 @@ async fn n03_invalid_menu_type_rejected() {
     let query_error = handler::tree(axum::extract::Query(query))
         .await
         .expect_err("menu_type=0 查询必须 400");
-    ts::assert_err(
-        &query_error,
-        400,
-        error_code::PARAM_INVALID,
-        "N03 查询非法类型",
-    );
+    ts::assert_err(&query_error, 400, error_code::PARAM_INVALID, "N03 查询非法类型");
 
     let leaked = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_menu WHERE name LIKE ?",
@@ -301,12 +280,7 @@ async fn n04_create_with_missing_parent_404() {
     )
     .await
     .expect_err("父菜单不存在必须报错");
-    ts::assert_err(
-        &error,
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "N04 父菜单不存在",
-    );
+    ts::assert_err(&error, 404, error_code::RESOURCE_NOT_FOUND, "N04 父菜单不存在");
 
     let leaked = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_menu WHERE name LIKE ?",
@@ -340,12 +314,7 @@ async fn n05_update_self_as_parent_rejected() {
     )
     .await
     .expect_err("自挂为父必须 409");
-    ts::assert_err(
-        &error,
-        409,
-        error_code::RESOURCE_CONFLICT,
-        "N05 菜单挂到自己之下",
-    );
+    ts::assert_err(&error, 409, error_code::RESOURCE_CONFLICT, "N05 菜单挂到自己之下");
 
     // 原记录不能被改坏
     let parent = ts::scalar_text(
@@ -353,10 +322,7 @@ async fn n05_update_self_as_parent_rejected() {
         vec![Value::from(id.clone())],
     )
     .await;
-    assert!(
-        parent.is_none(),
-        "被拒后 parent_id 必须仍为 NULL，实际 {parent:?}"
-    );
+    assert!(parent.is_none(), "被拒后 parent_id 必须仍为 NULL，实际 {parent:?}");
     println!("[N05] 自挂父节点 → 409，原记录未被改坏 ✓");
     cleanup(&prefix).await;
 }
@@ -391,12 +357,7 @@ async fn n06_delete_with_children_rejected() {
     )
     .await
     .expect_err("有子菜单必须拒绝删除");
-    ts::assert_err(
-        &error,
-        409,
-        error_code::MENU_HAS_CHILDREN,
-        "N06 删除有子菜单的菜单",
-    );
+    ts::assert_err(&error, 409, error_code::MENU_HAS_CHILDREN, "N06 删除有子菜单的菜单");
 
     let alive = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_menu WHERE id = ?::text::uuid AND deleted_at IS NULL",
@@ -436,7 +397,11 @@ async fn n07_delete_cascades_role_menu_binding() {
     let role_id = uuid::Uuid::now_v7();
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) VALUES (?::text::uuid, ?, ?, 1, 1)",
-        vec![Value::from(role_id.to_string()), Value::from(format!("{prefix}_ROLE")), Value::from(format!("{prefix}-角色"))],
+        vec![
+            Value::from(role_id.to_string()),
+            Value::from(format!("{prefix}_ROLE")),
+            Value::from(format!("{prefix}-角色")),
+        ],
     )
     .await;
     ts::exec(
@@ -459,10 +424,7 @@ async fn n07_delete_cascades_role_menu_binding() {
         vec![Value::from(menu.clone())],
     )
     .await;
-    assert_eq!(
-        after, 0,
-        "删菜单必须级联清理 sys_role_menu（实际残留 {after} 行）"
-    );
+    assert_eq!(after, 0, "删菜单必须级联清理 sys_role_menu（实际残留 {after} 行）");
     let soft = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_menu WHERE id = ?::text::uuid AND deleted_at IS NOT NULL",
         vec![Value::from(menu)],
@@ -534,10 +496,7 @@ async fn n08_menu_paths_all_resolve_in_frontend_router() {
             }
         }
     }
-    assert!(
-        !registered.is_empty(),
-        "前端路由表解析结果为空，解析逻辑需更新"
-    );
+    assert!(!registered.is_empty(), "前端路由表解析结果为空，解析逻辑需更新");
 
     let rows = db()
         .find_with_params(
@@ -564,10 +523,7 @@ async fn n08_menu_paths_all_resolve_in_frontend_router() {
         "以下菜单前端未注册路由，点进去必然 404：\n{}",
         missing.join("\n")
     );
-    println!(
-        "[N08] {} 条菜单路径全部能在前端路由里解析 ✓",
-        registered.len()
-    );
+    println!("[N08] {} 条菜单路径全部能在前端路由里解析 ✓", registered.len());
 }
 
 // ==================== N09 菜单图标必须真实存在 ====================
@@ -589,10 +545,7 @@ async fn n09_menu_icons_exist_in_tdesign() {
     }
     let icons_dir = frontend_root().join("node_modules/tdesign-icons-vue-next/esm/components");
     let Ok(entry) = std::fs::read_dir(&icons_dir) else {
-        println!(
-            "SKIP: 找不到图标目录 {}（未装 node_modules）",
-            icons_dir.display()
-        );
+        println!("SKIP: 找不到图标目录 {}（未装 node_modules）", icons_dir.display());
         return;
     };
     let available: Vec<String> = entry
@@ -602,11 +555,7 @@ async fn n09_menu_icons_exist_in_tdesign() {
             name.strip_suffix(".js").map(str::to_string)
         })
         .collect();
-    assert!(
-        available.len() > 500,
-        "图标集解析异常，仅 {} 个",
-        available.len()
-    );
+    assert!(available.len() > 500, "图标集解析异常，仅 {} 个", available.len());
 
     let rows = db()
         .find_with_params(
@@ -751,28 +700,30 @@ async fn n11_user_menus_filtered_by_role() {
     let user_id = uuid::Uuid::now_v7();
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) VALUES (?::text::uuid, ?, ?, 1, 1)",
-        vec![Value::from(role_id.to_string()), Value::from(format!("{prefix}_ROLE")), Value::from(format!("{prefix}-角色"))],
+        vec![
+            Value::from(role_id.to_string()),
+            Value::from(format!("{prefix}_ROLE")),
+            Value::from(format!("{prefix}-角色")),
+        ],
     )
     .await;
     ts::exec(
         "INSERT INTO sys_user (id, username, password, real_name, status) VALUES (?::text::uuid, ?, 'x', ?, 1)",
-        vec![Value::from(user_id.to_string()), Value::from(format!("{prefix}_user")), Value::from(format!("{prefix}-用户"))],
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(format!("{prefix}_user")),
+            Value::from(format!("{prefix}-用户")),
+        ],
     )
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(user_id.to_string()), Value::from(role_id.to_string())],
     )
     .await;
     ts::exec(
         "INSERT INTO sys_role_menu (role_id, menu_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(role_id.to_string()),
-            Value::from(granted.clone()),
-        ],
+        vec![Value::from(role_id.to_string()), Value::from(granted.clone())],
     )
     .await;
 
@@ -786,10 +737,7 @@ async fn n11_user_menus_filtered_by_role() {
         "未授权菜单绝不能出现在菜单接口里（前端据此隐藏入口），实际 {ids:?}"
     );
     // 本次夹具只造了 1 条授权，但库里可能还有别的角色授权；按前缀过滤后断言
-    let mine = visible
-        .iter()
-        .filter(|m| m.name.starts_with(&prefix))
-        .count();
+    let mine = visible.iter().filter(|m| m.name.starts_with(&prefix)).count();
     assert_eq!(mine, 1, "本夹具内可见菜单应恰为 1 条，实际 {mine}");
     println!("[N11] 非超管菜单按 sys_role_menu 过滤：授权可见 / 未授权不可见 ✓");
 
@@ -873,12 +821,7 @@ async fn n12_detail_errors_and_cache_invalidation() {
     let ghost = handler::detail(Path(uuid::Uuid::now_v7().to_string()))
         .await
         .expect_err("不存在的菜单必须 404");
-    ts::assert_err(
-        &ghost,
-        404,
-        error_code::RESOURCE_NOT_FOUND,
-        "N12 菜单不存在",
-    );
+    ts::assert_err(&ghost, 404, error_code::RESOURCE_NOT_FOUND, "N12 菜单不存在");
 
     // 先热一次全量树（无过滤 → 会写缓存），再建菜单并确认能查到（缓存已失效）
     let _ = handler::tree(axum::extract::Query(MenuQuery::default()))
@@ -894,11 +837,7 @@ async fn n12_detail_errors_and_cache_invalidation() {
     )
     .await;
     let tree = tree_by_name(&prefix).await;
-    assert_eq!(
-        tree.len(),
-        1,
-        "新建后树查询必须能看到新菜单（树缓存需失效）"
-    );
+    assert_eq!(tree.len(), 1, "新建后树查询必须能看到新菜单（树缓存需失效）");
     assert_eq!(tree[0].id, id);
 
     let detail = handler::detail(Path(id.clone())).await.expect("详情应可查");
@@ -958,15 +897,7 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
     let prefix = format!("N13-{tag}");
     let claims = ts::super_claims();
 
-    let menu = create_menu(
-        &claims,
-        &format!("{prefix}-按钮"),
-        3,
-        &format!("{prefix}:btn"),
-        None,
-        0,
-    )
-    .await;
+    let menu = create_menu(&claims, &format!("{prefix}-按钮"), 3, &format!("{prefix}:btn"), None, 0).await;
 
     // 角色 + 授权 + 持有者
     let role_id = uuid::Uuid::now_v7();
@@ -988,10 +919,7 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
     let holder = create_user(&format!("{prefix}_holder")).await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(holder.to_string()),
-            Value::from(role_id.to_string()),
-        ],
+        vec![Value::from(holder.to_string()), Value::from(role_id.to_string())],
     )
     .await;
 
@@ -1016,13 +944,7 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(claims.clone()),
-        ValidatedJson::<MenuUpdateReq>(req(
-            &format!("{prefix}-按钮改"),
-            3,
-            &format!("{prefix}:btn"),
-            None,
-            0,
-        )),
+        ValidatedJson::<MenuUpdateReq>(req(&format!("{prefix}-按钮改"), 3, &format!("{prefix}:btn"), None, 0)),
     )
     .await
     .unwrap_or_else(|e| {
@@ -1069,10 +991,7 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
     ts::cleanup_sql(
         &format!("N13→sys_user_role({prefix})"),
         "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(holder.to_string()),
-            Value::from(bystander.to_string()),
-        ],
+        vec![Value::from(holder.to_string()), Value::from(bystander.to_string())],
     )
     .await;
     ts::cleanup_sql(
@@ -1131,15 +1050,7 @@ async fn n14_writes_succeed_without_cache() {
         .expect("无缓存时菜单树仍必须可查（缓存只是读优化）");
 
     // ② 建：写库成功后的缓存回填失败不影响返回
-    let id = create_menu(
-        &claims,
-        &format!("{prefix}-按钮"),
-        3,
-        &format!("{prefix}:btn"),
-        None,
-        0,
-    )
-    .await;
+    let id = create_menu(&claims, &format!("{prefix}-按钮"), 3, &format!("{prefix}:btn"), None, 0).await;
 
     // ③ 改：缓存失效失败不得转成 500（BUG-SYS-03 的原始 500 点之一）
     handler::update(
@@ -1147,13 +1058,7 @@ async fn n14_writes_succeed_without_cache() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(claims.clone()),
-        ValidatedJson::<MenuUpdateReq>(req(
-            &format!("{prefix}-按钮改"),
-            3,
-            &format!("{prefix}:btn"),
-            None,
-            0,
-        )),
+        ValidatedJson::<MenuUpdateReq>(req(&format!("{prefix}-按钮改"), 3, &format!("{prefix}:btn"), None, 0)),
     )
     .await
     .unwrap_or_else(|e| {

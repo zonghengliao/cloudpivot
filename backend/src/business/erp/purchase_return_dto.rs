@@ -138,11 +138,7 @@ pub fn line_amounts(
 /// `already_returned` 由调用方用 SQL 汇总（**排除本单自己**，见 model 的 `returned_qty_of`）。
 pub fn returnable_qty(received: Decimal, already_returned: Decimal) -> Decimal {
     let left = received - already_returned;
-    if left < Decimal::ZERO {
-        Decimal::ZERO
-    } else {
-        left
-    }
+    if left < Decimal::ZERO { Decimal::ZERO } else { left }
 }
 
 /// **防超退**（卡面 §④ a，本卡的核心守卫）。
@@ -292,9 +288,7 @@ pub fn clean_remark(raw: Option<&str>) -> std::result::Result<Option<String>, Ap
     };
     let count = text.chars().count();
     if count > MAX_REMARK_LEN {
-        return Err(bad_request(format!(
-            "备注最多 {MAX_REMARK_LEN} 字（收到 {count} 字）"
-        )));
+        return Err(bad_request(format!("备注最多 {MAX_REMARK_LEN} 字（收到 {count} 字）")));
     }
     Ok(Some(text.to_string()))
 }
@@ -314,15 +308,11 @@ pub fn parse_uuid_field(raw: Option<&str>, field: &str) -> std::result::Result<U
     if text.is_empty() {
         return Err(bad_request(format!("{field} 不能为空（需要 UUID）")));
     }
-    Uuid::parse_str(text)
-        .map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到 {text}）")))
+    Uuid::parse_str(text).map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到 {text}）")))
 }
 
 /// UUID 字段（可选；空串 = 没传）。
-pub fn parse_optional_uuid(
-    raw: Option<&str>,
-    field: &str,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+pub fn parse_optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
     let text = raw.map(str::trim).unwrap_or_default();
     if text.is_empty() {
         return Ok(None);
@@ -432,21 +422,14 @@ pub struct ReturnFilter {
 impl ReturnPageQuery {
     /// 入参校验 + 归一化（域值乱码一律 400）。
     pub fn filter(&self) -> std::result::Result<ReturnFilter, ApiError> {
-        let status = match self
-            .status
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-        {
+        let status = match self.status.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
             Some(raw) => Some(normalize_status(raw)?),
             None => None,
         };
         if let (Some(from), Some(to)) = (self.date_from, self.date_to)
             && from > to
         {
-            return Err(bad_request(format!(
-                "date_from（{from}）不能晚于 date_to（{to}）"
-            )));
+            return Err(bad_request(format!("date_from（{from}）不能晚于 date_to（{to}）")));
         }
         let keyword = self
             .keyword
@@ -677,11 +660,7 @@ mod tests {
         assert!(check_returnable(d("100"), d("100"), d("0"), "M1").is_ok());
         let error = check_returnable(d("101"), d("100"), d("0"), "M1").expect_err("超退必须被拦");
         assert_eq!(error.code, error_code::ERP_PURCHASE_RETURN_OVER_RETURN);
-        assert!(
-            error.msg.contains("可退只剩 100"),
-            "报文要指出可退多少：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("可退只剩 100"), "报文要指出可退多少：{}", error.msg);
 
         // 入库 100，已退 30：可退 70 —— 退 70 允许、退 80 拒绝（验收场景 ③）
         assert_eq!(returnable_qty(d("100"), d("30")), d("70"));
@@ -704,8 +683,7 @@ mod tests {
         assert!(check_price_locked(None, d("10"), d("11.3"), "M1").is_ok());
         assert!(check_price_locked(Some(d("10")), d("10"), d("11.3"), "M1").is_ok());
         assert!(check_price_locked(Some(d("11.3")), d("10"), d("11.3"), "M1").is_ok());
-        let error =
-            check_price_locked(Some(d("9")), d("10"), d("11.3"), "M1").expect_err("改价必须被拦");
+        let error = check_price_locked(Some(d("9")), d("10"), d("11.3"), "M1").expect_err("改价必须被拦");
         assert_eq!(error.code, error_code::ERP_PURCHASE_RETURN_PRICE_LOCKED);
     }
 
@@ -777,10 +755,7 @@ mod tests {
             ..Default::default()
         };
         // 小写归一（前端下拉偶尔给小写）
-        assert_eq!(
-            query.filter().expect("小写应归一").status.as_deref(),
-            Some("CONFIRMED")
-        );
+        assert_eq!(query.filter().expect("小写应归一").status.as_deref(), Some("CONFIRMED"));
         let query = ReturnPageQuery {
             status: Some("POSTED".to_string()),
             ..Default::default()
@@ -795,9 +770,6 @@ mod tests {
         assert_eq!(RETURN_PERMISSIONS[0], "business:erp:purchase-return:list");
         assert_eq!(RETURN_PERMISSIONS[1], "business:erp:purchase-return:create");
         assert_eq!(RETURN_PERMISSIONS[2], "business:erp:purchase-return:submit");
-        assert_eq!(
-            RETURN_PERMISSIONS[3],
-            "business:erp:purchase-return:confirm"
-        );
+        assert_eq!(RETURN_PERMISSIONS[3], "business:erp:purchase-return:confirm");
     }
 }

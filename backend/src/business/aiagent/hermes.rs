@@ -162,16 +162,9 @@ impl HermesConfig {
             ),
             hermes_home: env_path("CLOUDPIVOT_AIAGENT_HERMES_HOME", "/root/.hermes"),
             profiles_root: env_path("CLOUDPIVOT_AIAGENT_PROFILES_ROOT", "/root/.hermes/profiles"),
-            workspace_root: env_path(
-                "CLOUDPIVOT_AIAGENT_WORKSPACE_ROOT",
-                "/root/.hermes/workspace",
-            ),
-            backup_dir: env_path(
-                "CLOUDPIVOT_AIAGENT_BACKUP_DIR",
-                "/root/.hermes/aiagent-soul-backups",
-            ),
-            clone_from: env_non_empty("CLOUDPIVOT_AIAGENT_CLONE_FROM")
-                .unwrap_or_else(|| "default".to_string()),
+            workspace_root: env_path("CLOUDPIVOT_AIAGENT_WORKSPACE_ROOT", "/root/.hermes/workspace"),
+            backup_dir: env_path("CLOUDPIVOT_AIAGENT_BACKUP_DIR", "/root/.hermes/aiagent-soul-backups"),
+            clone_from: env_non_empty("CLOUDPIVOT_AIAGENT_CLONE_FROM").unwrap_or_else(|| "default".to_string()),
             timeout: Duration::from_secs(timeout_secs),
         }
     }
@@ -271,10 +264,7 @@ impl CredentialCheck {
     /// 自检不通过时的错误消息（`ok=true` 时返回一个兜底描述）。
     pub fn failure_message(&self) -> String {
         match &self.detail {
-            Some(detail) => format!(
-                "AI 员工凭据自检不通过（{}）：worker 会因 AuthError 跑不起来",
-                detail
-            ),
+            Some(detail) => format!("AI 员工凭据自检不通过（{}）：worker 会因 AuthError 跑不起来", detail),
             None => format!("AI 员工凭据自检不通过：{}", self.env_path),
         }
     }
@@ -369,11 +359,7 @@ impl Hermes {
     }
 
     fn profile_name_error(message: &str) -> ApiError {
-        ApiError::new(
-            400,
-            error_code::AI_AGENT_PROFILE_INVALID,
-            message.to_string(),
-        )
+        ApiError::new(400, error_code::AI_AGENT_PROFILE_INVALID, message.to_string())
     }
 
     /// 路径拼接（**只在名字已校验后调用**）。
@@ -426,11 +412,7 @@ impl Hermes {
             // 但**允许 `default`** —— 它是内置模板，见 validate_template_name 的说明。
             Self::validate_template_name(template)?;
         }
-        let mut argv = vec![
-            "profile".to_string(),
-            "create".to_string(),
-            name.to_string(),
-        ];
+        let mut argv = vec!["profile".to_string(), "create".to_string(), name.to_string()];
         if let Some(template) = clone_from {
             argv.push("--clone-from".to_string());
             argv.push(template.to_string());
@@ -521,11 +503,7 @@ impl Hermes {
     /// 读回 profile 描述（验收用；也用于「库里与 profile 不一致」自检）。
     pub async fn read_description(&self, name: &str) -> Result<String, ApiError> {
         Self::validate_profile_name(name)?;
-        let argv = vec![
-            "profile".to_string(),
-            "describe".to_string(),
-            name.to_string(),
-        ];
+        let argv = vec!["profile".to_string(), "describe".to_string(), name.to_string()];
         let out = self.run_hermes(argv, None).await?;
         if !out.ok {
             return Err(Self::cli_failed("读取 profile 描述", &out));
@@ -668,11 +646,7 @@ impl Hermes {
     /// # 异常情况
     ///
     /// 见上；错误一律是 `500 + AI_AGENT_HERMES_FAILED`（带 stderr 摘录）。
-    pub async fn kanban_show(
-        &self,
-        board: &str,
-        task_id: &str,
-    ) -> Result<Option<KanbanSnapshot>, ApiError> {
+    pub async fn kanban_show(&self, board: &str, task_id: &str) -> Result<Option<KanbanSnapshot>, ApiError> {
         validate_board_slug(board)?;
         validate_kanban_task_id(task_id)?;
         let argv = vec![
@@ -686,25 +660,22 @@ impl Hermes {
         let out = self.run_hermes(argv, None).await?;
         if !out.ok {
             let combined = format!("{}\n{}", out.stdout, out.stderr).to_ascii_lowercase();
-            if combined.contains("no such task")
-                || combined.contains("not found")
-                || combined.contains("no task with")
+            if combined.contains("no such task") || combined.contains("not found") || combined.contains("no task with")
             {
                 return Ok(None);
             }
             return Err(Self::cli_failed("读取 Hermes 任务状态", &out));
         }
-        let parsed: serde_json::Value =
-            serde_json::from_str(out.stdout.trim()).map_err(|error| {
-                ApiError::new(
-                    500,
-                    error_code::AI_AGENT_HERMES_FAILED,
-                    format!(
-                        "读取 Hermes 任务状态失败：输出无法解析（{error}）；原始输出：{}",
-                        excerpt(&out.stdout)
-                    ),
-                )
-            })?;
+        let parsed: serde_json::Value = serde_json::from_str(out.stdout.trim()).map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::AI_AGENT_HERMES_FAILED,
+                format!(
+                    "读取 Hermes 任务状态失败：输出无法解析（{error}）；原始输出：{}",
+                    excerpt(&out.stdout)
+                ),
+            )
+        })?;
         Ok(Some(KanbanSnapshot::from_json(&parsed)?))
     }
 
@@ -796,22 +767,12 @@ impl Hermes {
             ));
         }
         let target = self.soul_path(name);
-        let tmp = dir.join(format!(
-            ".SOUL.md.tmp-{}-{}",
-            std::process::id(),
-            now_nanos()
-        ));
+        let tmp = dir.join(format!(".SOUL.md.tmp-{}-{}", std::process::id(), now_nanos()));
         match &self.cfg.transport {
             Transport::Local => {
-                tokio::fs::write(&tmp, content.as_bytes())
-                    .await
-                    .map_err(|e| {
-                        ApiError::new(
-                            500,
-                            error_code::AI_AGENT_SOUL_IO_FAILED,
-                            format!("写临时文件失败：{e}"),
-                        )
-                    })?;
+                tokio::fs::write(&tmp, content.as_bytes()).await.map_err(|e| {
+                    ApiError::new(500, error_code::AI_AGENT_SOUL_IO_FAILED, format!("写临时文件失败：{e}"))
+                })?;
                 tokio::fs::rename(&tmp, &target).await.map_err(|e| {
                     ApiError::new(
                         500,
@@ -900,15 +861,13 @@ impl Hermes {
                         format!("全局模型配置是空的：{}", global.display()),
                     ));
                 }
-                tokio::fs::write(&target, content.as_bytes())
-                    .await
-                    .map_err(|e| {
-                        ApiError::new(
-                            500,
-                            error_code::AI_AGENT_SOUL_IO_FAILED,
-                            format!("写 profile config.yaml 失败：{e}"),
-                        )
-                    })?;
+                tokio::fs::write(&target, content.as_bytes()).await.map_err(|e| {
+                    ApiError::new(
+                        500,
+                        error_code::AI_AGENT_SOUL_IO_FAILED,
+                        format!("写 profile config.yaml 失败：{e}"),
+                    )
+                })?;
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -922,10 +881,7 @@ impl Hermes {
             Transport::Ssh { .. } => {
                 // 已存在就不动（`test -f` 用退出码表达真假）
                 let probe = self
-                    .run_remote_raw(
-                        format!("test -f {}", shell_quote(&path_string(&target))),
-                        None,
-                    )
+                    .run_remote_raw(format!("test -f {}", shell_quote(&path_string(&target))), None)
                     .await?;
                 if probe.status {
                     return Ok(false);
@@ -946,10 +902,7 @@ impl Hermes {
                     return Err(Self::cli_failed("写 profile config.yaml", &out));
                 }
                 let out = self
-                    .run_remote(
-                        format!("chmod 600 {}", shell_quote(&path_string(&target))),
-                        None,
-                    )
+                    .run_remote(format!("chmod 600 {}", shell_quote(&path_string(&target))), None)
                     .await?;
                 if !out.ok {
                     return Err(Self::cli_failed("设置 profile config.yaml 权限", &out));
@@ -1044,17 +997,13 @@ impl Hermes {
         let key_available = match &required_key {
             Some(key) => {
                 env_lookup(&profile_pairs, key).is_some()
-                    || incoming
-                        .iter()
-                        .any(|(k, v)| k == key && !v.trim().is_empty())
+                    || incoming.iter().any(|(k, v)| k == key && !v.trim().is_empty())
             }
             // provider 解析不出来时退一步：至少要搬进来一个凭据键
             None => !parse_env_pairs(&existing).is_empty() || !incoming.is_empty(),
         };
         if !key_available {
-            let key = required_key
-                .clone()
-                .unwrap_or_else(|| "*_API_KEY".to_string());
+            let key = required_key.clone().unwrap_or_else(|| "*_API_KEY".to_string());
             return Err(ApiError::new(
                 500,
                 error_code::AI_AGENT_CREDENTIAL_MISSING,
@@ -1103,10 +1052,7 @@ impl Hermes {
     /// # 返回值里的密码纪律
     ///
     /// [`CredentialCheck::present_keys`] **只含键名**，键值永不进返回值、日志或错误消息。
-    pub async fn verify_profile_credentials(
-        &self,
-        name: &str,
-    ) -> Result<CredentialCheck, ApiError> {
+    pub async fn verify_profile_credentials(&self, name: &str) -> Result<CredentialCheck, ApiError> {
         Self::validate_profile_name(name)?;
         let env_path = self.env_file_path(name);
         let text = self.read_text_opt(&env_path).await?;
@@ -1130,9 +1076,7 @@ impl Hermes {
         } else if !key_ok {
             Some(format!(
                 "缺少 {}（现有键：{}）",
-                required_key
-                    .clone()
-                    .unwrap_or_else(|| "*_API_KEY".to_string()),
+                required_key.clone().unwrap_or_else(|| "*_API_KEY".to_string()),
                 if present_keys.is_empty() {
                     "无".to_string()
                 } else {
@@ -1142,8 +1086,7 @@ impl Hermes {
         } else if !mode_ok {
             Some(format!(
                 "凭据文件权限是 {}（要求 600）",
-                mode.map(|m| format!("{m:o}"))
-                    .unwrap_or_else(|| "未知".to_string())
+                mode.map(|m| format!("{m:o}")).unwrap_or_else(|| "未知".to_string())
             ))
         } else {
             None
@@ -1244,10 +1187,7 @@ impl Hermes {
                 // 「stat 坏了」区分开：输出为空 = 不存在，解析失败也算不存在（自检会判红）
                 let out = self
                     .run_remote(
-                        format!(
-                            "stat -c %a {} 2>/dev/null || true",
-                            shell_quote(&path_string(path))
-                        ),
+                        format!("stat -c %a {} 2>/dev/null || true", shell_quote(&path_string(path))),
                         None,
                     )
                     .await?;
@@ -1259,37 +1199,29 @@ impl Hermes {
 
     /// 原子写凭据文件：同目录临时文件 → `chmod 600` → `rename` 覆盖。
     async fn write_env_text(&self, path: &Path, content: &str) -> Result<(), ApiError> {
-        let dir = path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf();
+        let dir = path.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
         let tmp = dir.join(format!(".env.tmp-{}-{}", std::process::id(), now_nanos()));
         match &self.cfg.transport {
             Transport::Local => {
-                tokio::fs::write(&tmp, content.as_bytes())
-                    .await
-                    .map_err(|e| {
-                        ApiError::new(
-                            500,
-                            error_code::AI_AGENT_SOUL_IO_FAILED,
-                            format!("写凭据临时文件失败：{e}"),
-                        )
-                    })?;
+                tokio::fs::write(&tmp, content.as_bytes()).await.map_err(|e| {
+                    ApiError::new(
+                        500,
+                        error_code::AI_AGENT_SOUL_IO_FAILED,
+                        format!("写凭据临时文件失败：{e}"),
+                    )
+                })?;
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    tokio::fs::set_permissions(
-                        &tmp,
-                        std::fs::Permissions::from_mode(CREDENTIAL_FILE_MODE),
-                    )
-                    .await
-                    .map_err(|e| {
-                        ApiError::new(
-                            500,
-                            error_code::AI_AGENT_SOUL_IO_FAILED,
-                            format!("设置凭据文件权限 600 失败：{e}"),
-                        )
-                    })?;
+                    tokio::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(CREDENTIAL_FILE_MODE))
+                        .await
+                        .map_err(|e| {
+                            ApiError::new(
+                                500,
+                                error_code::AI_AGENT_SOUL_IO_FAILED,
+                                format!("设置凭据文件权限 600 失败：{e}"),
+                            )
+                        })?;
                 }
                 tokio::fs::rename(&tmp, path).await.map_err(|e| {
                     ApiError::new(
@@ -1338,15 +1270,9 @@ impl Hermes {
                         format!("创建备份目录失败：{e}"),
                     )
                 })?;
-                tokio::fs::write(&target, content.as_bytes())
-                    .await
-                    .map_err(|e| {
-                        ApiError::new(
-                            500,
-                            error_code::AI_AGENT_SOUL_IO_FAILED,
-                            format!("写备份文件失败：{e}"),
-                        )
-                    })?;
+                tokio::fs::write(&target, content.as_bytes()).await.map_err(|e| {
+                    ApiError::new(500, error_code::AI_AGENT_SOUL_IO_FAILED, format!("写备份文件失败：{e}"))
+                })?;
             }
             Transport::Ssh { .. } => {
                 let script = format!("mkdir -p {}", shell_quote(&path_string(&dir)));
@@ -1516,11 +1442,7 @@ impl Hermes {
     // ==================== 进程执行（内部） ====================
 
     /// 跑一条 `hermes` 子命令。
-    async fn run_hermes(
-        &self,
-        argv: Vec<String>,
-        stdin: Option<String>,
-    ) -> Result<CliOutput, ApiError> {
+    async fn run_hermes(&self, argv: Vec<String>, stdin: Option<String>) -> Result<CliOutput, ApiError> {
         match &self.cfg.transport {
             Transport::Local => self.spawn_local(&self.cfg.hermes_bin, &argv, stdin).await,
             Transport::Ssh { host } => {
@@ -1532,11 +1454,7 @@ impl Hermes {
 
     /// 跑一条**只涉及路径**的远端 shell 命令（Ssh 形态）；Local 形态直接报错——
     /// 本地实现走 `tokio::fs`，不可能走到这里。
-    async fn run_remote(
-        &self,
-        script: String,
-        stdin: Option<String>,
-    ) -> Result<CliOutput, ApiError> {
+    async fn run_remote(&self, script: String, stdin: Option<String>) -> Result<CliOutput, ApiError> {
         match &self.cfg.transport {
             Transport::Ssh { host } => self.spawn_ssh(host, script, stdin).await,
             Transport::Local => Err(ApiError::new(
@@ -1548,11 +1466,7 @@ impl Hermes {
     }
 
     /// 同 [`Self::run_remote`]，但只看退出码（`test -d` 这类用退出码表达真假的命令）。
-    async fn run_remote_raw(
-        &self,
-        script: String,
-        stdin: Option<String>,
-    ) -> Result<ExitStatus, ApiError> {
+    async fn run_remote_raw(&self, script: String, stdin: Option<String>) -> Result<ExitStatus, ApiError> {
         let out = self.run_remote(script, stdin).await?;
         Ok(ExitStatus {
             status: out.ok,
@@ -1568,10 +1482,7 @@ impl Hermes {
     fn remote_hermes_script(&self, argv: &[String]) -> String {
         let mut parts = vec![
             "env".to_string(),
-            format!(
-                "HERMES_HOME={}",
-                shell_quote(&path_string(&self.cfg.hermes_home))
-            ),
+            format!("HERMES_HOME={}", shell_quote(&path_string(&self.cfg.hermes_home))),
             shell_quote(&path_string(&self.cfg.hermes_bin)),
         ];
         parts.extend(argv.iter().map(|a| shell_quote(a)));
@@ -1579,12 +1490,7 @@ impl Hermes {
     }
 
     /// 起本地进程（参数数组，永不经过 shell）。
-    async fn spawn_local(
-        &self,
-        program: &Path,
-        argv: &[String],
-        stdin: Option<String>,
-    ) -> Result<CliOutput, ApiError> {
+    async fn spawn_local(&self, program: &Path, argv: &[String], stdin: Option<String>) -> Result<CliOutput, ApiError> {
         if tokio::fs::metadata(program).await.is_err() {
             return Err(ApiError::new(
                 500,
@@ -1595,25 +1501,15 @@ impl Hermes {
         let mut cmd = Command::new(program);
         cmd.args(argv)
             .env("HERMES_HOME", &self.cfg.hermes_home)
-            .stdin(if stdin.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
+            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        self.wait_with_timeout(cmd, stdin, program.display().to_string())
-            .await
+        self.wait_with_timeout(cmd, stdin, program.display().to_string()).await
     }
 
     /// 起 ssh 进程。远端命令作为**单个参数**交给 ssh（它自己会拼给远端 shell）。
-    async fn spawn_ssh(
-        &self,
-        host: &str,
-        script: String,
-        stdin: Option<String>,
-    ) -> Result<CliOutput, ApiError> {
+    async fn spawn_ssh(&self, host: &str, script: String, stdin: Option<String>) -> Result<CliOutput, ApiError> {
         let mut cmd = Command::new("ssh");
         cmd.arg("-o")
             .arg("BatchMode=yes")
@@ -1626,16 +1522,11 @@ impl Hermes {
             .arg(host)
             .arg(script)
             .env("LC_ALL", "C")
-            .stdin(if stdin.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
+            .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        self.wait_with_timeout(cmd, stdin, format!("ssh {host}"))
-            .await
+        self.wait_with_timeout(cmd, stdin, format!("ssh {host}")).await
     }
 
     /// 统一的「喂 stdin → 等结果 → 超时 kill → 抽 stderr 摘录」。
@@ -1785,9 +1676,7 @@ impl KanbanSnapshot {
             .map(|value| value.to_string());
         let run_error = last.and_then(|run| text_field(run, "error"));
         let run_summary = last.and_then(|run| text_field(run, "summary"));
-        let metadata = last
-            .and_then(|run| run.get("metadata"))
-            .and_then(normalize_metadata);
+        let metadata = last.and_then(|run| run.get("metadata")).and_then(normalize_metadata);
         Ok(Self {
             status,
             latest_summary,
@@ -1875,9 +1764,7 @@ pub fn validate_board_slug(slug: &str) -> Result<(), ApiError> {
     Err(ApiError::new(
         400,
         error_code::TASK_FIELD_INVALID,
-        format!(
-            "Hermes 看板 slug 不合法：{slug:?}（小写字母开头，只含小写字母/数字/连字符，1–32 字符）"
-        ),
+        format!("Hermes 看板 slug 不合法：{slug:?}（小写字母开头，只含小写字母/数字/连字符，1–32 字符）"),
     ))
 }
 
@@ -2294,11 +2181,7 @@ mod tests {
     use super::*;
 
     fn temp_root(tag: &str) -> PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "l1-aiagent-{tag}-{}-{}",
-            std::process::id(),
-            now_nanos()
-        ));
+        let base = std::env::temp_dir().join(format!("l1-aiagent-{tag}-{}-{}", std::process::id(), now_nanos()));
         std::fs::create_dir_all(&base).expect("建临时目录");
         base
     }
@@ -2319,14 +2202,7 @@ mod tests {
     /// profile 名校验（红线）：合法名通过，注入 / 大小写 / 越界一律拒绝。
     #[test]
     fn profile_name_validation_rejects_injection() {
-        for ok in [
-            "ab",
-            "abc",
-            "a1",
-            "a-b",
-            "agent-01",
-            "abcdefghijklmnopqrstuvwxyz12345",
-        ] {
+        for ok in ["ab", "abc", "a1", "a-b", "agent-01", "abcdefghijklmnopqrstuvwxyz12345"] {
             assert!(Hermes::validate_profile_name(ok).is_ok(), "应通过：{ok}");
         }
         let bad = [
@@ -2353,13 +2229,8 @@ mod tests {
             "ảbc",
         ];
         for name in bad {
-            let err =
-                Hermes::validate_profile_name(name).expect_err(&format!("必须拒绝：{name:?}"));
-            assert_eq!(
-                err.code,
-                error_code::AI_AGENT_PROFILE_INVALID,
-                "错误码：{name:?}"
-            );
+            let err = Hermes::validate_profile_name(name).expect_err(&format!("必须拒绝：{name:?}"));
+            assert_eq!(err.code, error_code::AI_AGENT_PROFILE_INVALID, "错误码：{name:?}");
         }
     }
 
@@ -2421,11 +2292,7 @@ mod tests {
                 .output()
                 .expect("跑 sh");
             assert!(output.status.success(), "sh 失败：{raw:?}");
-            assert_eq!(
-                String::from_utf8_lossy(&output.stdout),
-                raw,
-                "还原不一致：{raw:?}"
-            );
+            assert_eq!(String::from_utf8_lossy(&output.stdout), raw, "还原不一致：{raw:?}");
         }
     }
 
@@ -2508,9 +2375,7 @@ mod tests {
         );
         // 反复写也只能有一份区块（不重复追加）
         assert_eq!(
-            second
-                .matches(crate::business::aiagent::safety::SAFETY_BEGIN)
-                .count(),
+            second.matches(crate::business::aiagent::safety::SAFETY_BEGIN).count(),
             1
         );
 
@@ -2523,10 +2388,7 @@ mod tests {
         assert!(leftovers.is_empty(), "临时文件残留：{leftovers:?}");
 
         // profile 目录不存在时必须报 404，而不是「写到一个随机位置」
-        let err = hermes
-            .write_soul("agent-99", "x")
-            .await
-            .expect_err("应失败");
+        let err = hermes.write_soul("agent-99", "x").await.expect_err("应失败");
         assert_eq!(err.code, error_code::AI_AGENT_PROFILE_MISSING);
 
         std::fs::remove_dir_all(&root).ok();
@@ -2539,10 +2401,7 @@ mod tests {
         let hermes = Hermes::new(local_config(&root, root.join("hermes")));
         std::fs::create_dir_all(root.join("profiles/agent-01")).expect("建目录");
         let big = "x".repeat(SOUL_MAX_BYTES + 1);
-        let err = hermes
-            .write_soul("agent-01", &big)
-            .await
-            .expect_err("应拒绝");
+        let err = hermes.write_soul("agent-01", &big).await.expect_err("应拒绝");
         assert_eq!(err.code, error_code::AI_AGENT_SOUL_INVALID);
         assert!(!root.join("profiles/agent-01/SOUL.md").exists());
         std::fs::remove_dir_all(&root).ok();
@@ -2562,8 +2421,7 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755))
-                .expect("加执行位");
+            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755)).expect("加执行位");
         }
         let hermes = Hermes::new(local_config(&root, fake_bin.clone()));
 
@@ -2602,17 +2460,13 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755))
-                .expect("加执行位");
+            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755)).expect("加执行位");
         }
         let mut cfg = local_config(&root, fake_bin);
         cfg.timeout = Duration::from_millis(300);
         let hermes = Hermes::new(cfg);
         let started = std::time::Instant::now();
-        let err = hermes
-            .create_profile("agent-01", None, "")
-            .await
-            .expect_err("必须超时");
+        let err = hermes.create_profile("agent-01", None, "").await.expect_err("必须超时");
         assert!(
             started.elapsed() < Duration::from_secs(3),
             "超时保护失效，耗时 {:?}",
@@ -2632,14 +2486,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755))
-                .expect("加执行位");
+            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755)).expect("加执行位");
         }
         let hermes = Hermes::new(local_config(&root, fake_bin));
-        let err = hermes
-            .create_profile("agent-01", None, "")
-            .await
-            .expect_err("必须失败");
+        let err = hermes.create_profile("agent-01", None, "").await.expect_err("必须失败");
         assert_eq!(err.code, error_code::AI_AGENT_HERMES_FAILED);
         assert!(err.msg.contains("目录不存在"), "{}", err.msg);
         std::fs::remove_dir_all(&root).ok();
@@ -2662,32 +2512,13 @@ mod tests {
     async fn workspace_lifecycle_is_idempotent() {
         let root = temp_root("ws");
         let hermes = Hermes::new(local_config(&root, root.join("hermes")));
-        assert!(
-            !hermes
-                .workspace_path_exists("agent-01")
-                .await
-                .expect("探活")
-        );
-        let dir = hermes
-            .ensure_workspace("agent-01")
-            .await
-            .expect("建 workspace");
+        assert!(!hermes.workspace_path_exists("agent-01").await.expect("探活"));
+        let dir = hermes.ensure_workspace("agent-01").await.expect("建 workspace");
         assert!(dir.is_dir());
-        assert!(
-            hermes
-                .workspace_path_exists("agent-01")
-                .await
-                .expect("探活")
-        );
-        hermes
-            .remove_workspace("agent-01")
-            .await
-            .expect("删 workspace");
+        assert!(hermes.workspace_path_exists("agent-01").await.expect("探活"));
+        hermes.remove_workspace("agent-01").await.expect("删 workspace");
         assert!(!dir.exists());
-        hermes
-            .remove_workspace("agent-01")
-            .await
-            .expect("重复删必须幂等");
+        hermes.remove_workspace("agent-01").await.expect("重复删必须幂等");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -2696,21 +2527,11 @@ mod tests {
     async fn backup_soul_writes_content() {
         let root = temp_root("backup");
         let hermes = Hermes::new(local_config(&root, root.join("hermes")));
-        let path = hermes
-            .backup_soul("agent-01", "# 备份内容\n")
-            .await
-            .expect("备份");
-        let name = path
-            .file_name()
-            .expect("文件名")
-            .to_string_lossy()
-            .to_string();
+        let path = hermes.backup_soul("agent-01", "# 备份内容\n").await.expect("备份");
+        let name = path.file_name().expect("文件名").to_string_lossy().to_string();
         assert!(name.starts_with("agent-01-"), "备份名：{name}");
         assert!(name.ends_with(".md"));
-        assert_eq!(
-            std::fs::read_to_string(&path).expect("读备份"),
-            "# 备份内容\n"
-        );
+        assert_eq!(std::fs::read_to_string(&path).expect("读备份"), "# 备份内容\n");
         std::fs::remove_dir_all(&root).ok();
     }
 
@@ -2739,10 +2560,7 @@ mod tests {
             description.to_string(),
         ]);
         assert!(script.starts_with("env HERMES_HOME='/root/.hermes' '/root/.hermes/hermes-agent/venv/bin/hermes' 'profile' 'create' 'agent-01' '--description' "));
-        assert!(
-            script.contains("'\\''"),
-            "自由文本里的单引号必须被转义：{script}"
-        );
+        assert!(script.contains("'\\''"), "自由文本里的单引号必须被转义：{script}");
         // 自由文本必须整体被 shell_quote 包住：命令字符串的结尾就是它的引号形式。
         // 注意不能断言「不含 $(id)」—— 单引号内 $(id) 本就是普通字符，这样断言的
         // 是「没有引号包裹」的反面证据，判据应看引号而非内容。
@@ -2861,10 +2679,7 @@ EMPTY_KEY=
         // 幂等：同样的输入再合并一次，不产生任何写入
         let (again, written_again) = merge_env_text(&merged, &incoming);
         assert_eq!(again, merged);
-        assert!(
-            written_again.is_empty(),
-            "第二次合并不应再写：{written_again:?}"
-        );
+        assert!(written_again.is_empty(), "第二次合并不应再写：{written_again:?}");
     }
 
     /// `config.yaml` 解析：只认 `model:` 块；`fallback_providers` 里的 `provider:` 不算。
@@ -2932,28 +2747,19 @@ fallback_providers:
         seed_global_env(&root, "# 全局凭据\nDEEPSEEK_API_KEY=sk-global-0001\n");
 
         // 同步前：自检不通过（这就是事故现场的状态）
-        let before = hermes
-            .verify_profile_credentials("agent-01")
-            .await
-            .expect("自检");
+        let before = hermes.verify_profile_credentials("agent-01").await.expect("自检");
         assert!(!before.ok, "缺 key 时必须判红");
         assert_eq!(before.required_key.as_deref(), Some("DEEPSEEK_API_KEY"));
         assert_eq!(before.provider.as_deref(), Some("deepseek"));
         assert!(before.present_keys.is_empty());
 
-        let sync = hermes
-            .ensure_profile_env("agent-01")
-            .await
-            .expect("同步凭据");
+        let sync = hermes.ensure_profile_env("agent-01").await.expect("同步凭据");
         assert_eq!(sync.provider.as_deref(), Some("deepseek"));
         assert_eq!(sync.required_key, "DEEPSEEK_API_KEY");
         assert_eq!(sync.written_keys, vec!["DEEPSEEK_API_KEY".to_string()]);
         assert_eq!(sync.env_file_mode, Some(0o600));
 
-        let after = hermes
-            .verify_profile_credentials("agent-01")
-            .await
-            .expect("自检");
+        let after = hermes.verify_profile_credentials("agent-01").await.expect("自检");
         assert!(after.ok, "补齐后必须判绿：{after:?}");
         assert_eq!(after.present_keys, vec!["DEEPSEEK_API_KEY".to_string()]);
 
@@ -2961,26 +2767,16 @@ fallback_providers:
         let env_path = root.join("profiles/agent-01/.env");
         let text = std::fs::read_to_string(&env_path).expect("读 .env");
         assert!(text.contains("DEEPSEEK_API_KEY=sk-global-0001"), "{text}");
-        assert!(
-            text.contains("# Per-profile secrets"),
-            "原有注释必须保留：{text}"
-        );
+        assert!(text.contains("# Per-profile secrets"), "原有注释必须保留：{text}");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&env_path)
-                .expect("metadata")
-                .permissions()
-                .mode()
-                & 0o777;
+            let mode = std::fs::metadata(&env_path).expect("metadata").permissions().mode() & 0o777;
             assert_eq!(mode, 0o600, "凭据文件权限必须 600");
         }
 
         // 幂等：第二次不写任何键
-        let again = hermes
-            .ensure_profile_env("agent-01")
-            .await
-            .expect("二次同步");
+        let again = hermes.ensure_profile_env("agent-01").await.expect("二次同步");
         assert!(again.written_keys.is_empty(), "{:?}", again.written_keys);
 
         std::fs::remove_dir_all(&root).ok();
@@ -3009,20 +2805,14 @@ fallback_providers:
         }
         seed_global_env(&root, "DEEPSEEK_API_KEY=sk-global-0001\n");
 
-        let check = hermes
-            .verify_profile_credentials("agent-01")
-            .await
-            .expect("自检");
+        let check = hermes.verify_profile_credentials("agent-01").await.expect("自检");
         assert!(check.ok);
 
         let sync = hermes.ensure_profile_env("agent-01").await.expect("同步");
         assert!(sync.written_keys.is_empty(), "{:?}", sync.written_keys);
         let text = std::fs::read_to_string(root.join("profiles/agent-01/.env")).expect("读");
         assert!(text.contains("sk-dedicated-0007"), "{text}");
-        assert!(
-            !text.contains("sk-global-0001"),
-            "全局值不得顶掉专用 key：{text}"
-        );
+        assert!(!text.contains("sk-global-0001"), "全局值不得顶掉专用 key：{text}");
 
         std::fs::remove_dir_all(&root).ok();
     }
@@ -3036,26 +2826,17 @@ fallback_providers:
         // 全局 .env 只有无关变量（不是凭据键）
         seed_global_env(&root, "THS_USERNAME=nobody\n");
 
-        let err = hermes
-            .ensure_profile_env("agent-01")
-            .await
-            .expect_err("必须失败");
+        let err = hermes.ensure_profile_env("agent-01").await.expect_err("必须失败");
         assert_eq!(err.code, error_code::AI_AGENT_CREDENTIAL_MISSING);
         assert!(err.msg.contains("DEEPSEEK_API_KEY"), "{}", err.msg);
         assert!(err.msg.contains("profile 级凭据"), "{}", err.msg);
         // 夹具的 .env 未被改写
         let text = std::fs::read_to_string(root.join("profiles/agent-01/.env")).expect("读");
-        assert!(
-            !text.contains("THS_USERNAME"),
-            "无关变量不得搬进 profile：{text}"
-        );
+        assert!(!text.contains("THS_USERNAME"), "无关变量不得搬进 profile：{text}");
 
         // 全局 .env 干脆不存在也走同一条失败路径（不是 panic / 不是静默成功）
         std::fs::remove_file(root.join("home/.env")).ok();
-        let err = hermes
-            .ensure_profile_env("agent-01")
-            .await
-            .expect_err("必须失败");
+        let err = hermes.ensure_profile_env("agent-01").await.expect_err("必须失败");
         assert_eq!(err.code, error_code::AI_AGENT_CREDENTIAL_MISSING);
 
         std::fs::remove_dir_all(&root).ok();
@@ -3073,14 +2854,10 @@ fallback_providers:
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o644))
-                .expect("改权限");
+            std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o644)).expect("改权限");
         }
 
-        let check = hermes
-            .verify_profile_credentials("agent-01")
-            .await
-            .expect("自检");
+        let check = hermes.verify_profile_credentials("agent-01").await.expect("自检");
         #[cfg(unix)]
         {
             assert!(!check.ok, "644 必须判红");
@@ -3096,10 +2873,7 @@ fallback_providers:
         assert_eq!(sync.env_file_mode, Some(0o600));
 
         // profile 目录不存在：404 + 64004
-        let err = hermes
-            .ensure_profile_env("agent-99")
-            .await
-            .expect_err("必须 404");
+        let err = hermes.ensure_profile_env("agent-99").await.expect_err("必须 404");
         assert_eq!(err.code, error_code::AI_AGENT_PROFILE_MISSING);
         assert_eq!(err.status, 404);
 
@@ -3131,13 +2905,9 @@ fallback_providers:
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755))
-                .expect("加执行位");
+            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755)).expect("加执行位");
         }
-        seed_global_env(
-            &root,
-            "DEEPSEEK_API_KEY=sk-global-0001\nARK_API_KEY=ark-global-0002\n",
-        );
+        seed_global_env(&root, "DEEPSEEK_API_KEY=sk-global-0001\nARK_API_KEY=ark-global-0002\n");
         std::fs::write(
             root.join("home/config.yaml"),
             "model:\n  provider: deepseek\n  default: deepseek-flash\n",
@@ -3151,10 +2921,7 @@ fallback_providers:
             .expect("建号必须成功");
 
         // 成果：.env 里有 DEEPSEEK_API_KEY（以及顺带搬来的 ARK_API_KEY），权限 600
-        let check = hermes
-            .verify_profile_credentials("agent-01")
-            .await
-            .expect("自检");
+        let check = hermes.verify_profile_credentials("agent-01").await.expect("自检");
         assert!(check.ok, "建号后凭据必须可用：{check:?}");
         assert!(check.present_keys.contains(&"DEEPSEEK_API_KEY".to_string()));
         assert!(check.present_keys.contains(&"ARK_API_KEY".to_string()));

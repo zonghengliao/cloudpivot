@@ -346,14 +346,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  专用路径落账，必须排除，否则重复扣库存 + 一张单两张凭证），commit 后 \
                  post_stock_out 调 stockout_linkage::run_deferred_linkage → run_deferred",
         proofs: &[
-            (
-                "src/business/erp/stockout_handler.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/stockout_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/stockout_handler.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/stockout_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -377,14 +371,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  run_in_tx + commit 后 run_deferred（不接这条，配了已发布流程的生产环境里 \
                  STOCK_TRANSFER/APPROVED 的规则永远不触发）",
         proofs: &[
-            (
-                "src/business/erp/transfer_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/transfer_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/transfer_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/transfer_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -409,14 +397,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  这条边永远不触发。通知 / 建任务这类 AfterCommit 动作由调用方在 commit 之后 \
                  调 LinkageOutbox::flush → linkage::engine::run_deferred",
         proofs: &[
-            (
-                "src/business/erp/purchase_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/purchase_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/purchase_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/purchase_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -440,23 +422,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  linkage::engine::run_deferred。状态没变（PARTIAL_PAID → PARTIAL_PAID）\
                  不触发",
         proofs: &[
-            (
-                "src/business/erp/payable_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/payable_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/payable_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/payable_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_VOUCHER,
-        status_labels: &[
-            ("DRAFT", "草稿"),
-            ("AUDITED", "已审核"),
-            ("POSTED", "已记账"),
-        ],
+        status_labels: &[("DRAFT", "草稿"), ("AUDITED", "已审核"), ("POSTED", "已记账")],
         wired: true,
         wiring: "已接线（LNK-06）：erp/voucher_linkage.rs 是唯一 hook。凭证自己的状态推进点全部走\
                  它（都是事务入口，且都自己 commit）：手工凭证落草稿 manual_in_tx → DRAFT、审核 \
@@ -470,23 +442,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  voucher::post_voucher 里自动落 POSTED 的凭证不再触发一次 —— 那条路径本身跑在\
                  别的单据的联动事务里，嵌套调引擎会让同一次业务动作跑两遍联动。",
         proofs: &[
-            (
-                "src/business/erp/voucher_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/voucher_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/voucher_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/voucher_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
         entity: state_machine::ENTITY_PERIOD,
-        status_labels: &[
-            ("NOT_OPENED", "未开启"),
-            ("OPEN", "已开启"),
-            ("CLOSED", "已结账"),
-        ],
+        status_labels: &[("NOT_OPENED", "未开启"), ("OPEN", "已开启"), ("CLOSED", "已结账")],
         wired: true,
         wiring: "已接线（LNK-08）：erp/period_linkage.rs 是唯一 hook，接在两个状态推进点上 —— \
                  ① 结账 erp/period.rs::close_period（四项校验 + 期末汇兑重估 + 状态 CAS 成功后，\
@@ -502,14 +464,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  ensure_year_periods 建行）**不接**：那是建行 / 批量补行，挂上就是启动扇出 N 条通知。\
                  要按「开账」通知请走单月开账后的其它触发点",
         proofs: &[
-            (
-                "src/business/erp/period_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/period_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/period_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/period_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -533,14 +489,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  通知另有幂等键 LNK:ACCOUNTING_YEAR:<状态>:<年度>:<本次事件凭证 id> —— \
                  同一笔年结重放只发一条，反年结后重结（新凭证）会再发一条",
         proofs: &[
-            (
-                "src/business/erp/year_end_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/year_end_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/year_end_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/year_end_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -569,14 +519,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  settle_guard（AlreadySettled）或边判定处就被挡掉，联动只跑一次；通知另有 \
                  幂等键 LNK:CONTRACT:<状态>:<合同 id> 兜底。",
         proofs: &[
-            (
-                "src/business/erp/contract_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/contract_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/contract_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/contract_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -599,10 +543,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                 "src/business/erp/stocktake_linkage.rs",
                 "linkage::engine::run_excluding",
             ),
-            (
-                "src/business/erp/stocktake_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/stocktake_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -624,14 +565,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  （LNK:FIXED_ASSET:<状态>:<卡片 id>:<变动行 id>），所以可逆边（停用/启用、\
                  处置/作废处置）重复发生会各发一条。",
         proofs: &[
-            (
-                "src/business/erp/asset_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/asset_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/asset_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/asset_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -689,14 +624,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  每个入口都在自己的事务 commit 之后调 \
                  expense_linkage::run_deferred_after_commit → linkage::engine::run_deferred",
         proofs: &[
-            (
-                "src/business/erp/expense_linkage.rs",
-                "linkage::engine::run_excluding",
-            ),
-            (
-                "src/business/erp/expense_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/erp/expense_linkage.rs", "linkage::engine::run_excluding"),
+            ("src/business/erp/expense_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
     TriggerSpec {
@@ -762,11 +691,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         //
         // 留下三个 = 审批的三种结论，与 `instance_linkage::TERMINAL_STATUSES` 逐字一致
         // （单测 `statuses_match_fired_verdicts` 钉住）。
-        status_labels: &[
-            ("APPROVED", "已通过"),
-            ("REJECTED", "已驳回"),
-            ("WITHDRAWN", "已撤回"),
-        ],
+        status_labels: &[("APPROVED", "已通过"), ("REJECTED", "已驳回"), ("WITHDRAWN", "已撤回")],
         wired: true,
         wiring: "已接线：flow/instance_linkage.rs::fire_after_commit —— 审批实例落终态\
                  （APPROVED / REJECTED / WITHDRAWN）之后，在**审批事务提交之后**跑通用引擎：\
@@ -782,19 +707,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                 "src/business/flow/instance_linkage.rs",
                 "linkage::engine::run_excluding",
             ),
-            (
-                "src/business/flow/instance_linkage.rs",
-                "linkage::engine::run_deferred",
-            ),
+            ("src/business/flow/instance_linkage.rs", "linkage::engine::run_deferred"),
         ],
     },
 ];
 
 /// 取触发点的接线声明（不在白名单 → `None`）。
 pub fn trigger_spec(entity: &str) -> Option<&'static TriggerSpec> {
-    TRIGGER_SPECS
-        .iter()
-        .find(|spec| spec.entity == entity.trim())
+    TRIGGER_SPECS.iter().find(|spec| spec.entity == entity.trim())
 }
 
 /// 某个触发状态的**中文名**（`None` = 这个状态不在该触发点的状态集里）。
@@ -945,11 +865,7 @@ pub const STOCKOUT_EXCLUDED_ACTIONS: &[&str] = &[
 /// 排除清单放在**调用方**（这里导出、`erp::transfer_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::transfer_status_wires_generic_engine_and_excludes_inventory`。
-pub const TRANSFER_EXCLUDED_ACTIONS: &[&str] = &[
-    "WRITE_INVENTORY",
-    "WRITE_INVENTORY_TXN",
-    ACTION_GENERATE_VOUCHER,
-];
+pub const TRANSFER_EXCLUDED_ACTIONS: &[&str] = &["WRITE_INVENTORY", "WRITE_INVENTORY_TXN", ACTION_GENERATE_VOUCHER];
 
 /// **采购订单**的专用路由排除清单（LNK-02）。
 ///
@@ -1030,11 +946,7 @@ pub const PURCHASE_RETURN_EXCLUDED_ACTIONS: &[&str] = &[
 /// 排除清单放在**调用方**（这里导出、`erp::stocktake_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::stocktake_wires_generic_engine_and_excludes_inventory`。
-pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &[
-    "WRITE_INVENTORY",
-    "WRITE_INVENTORY_TXN",
-    ACTION_GENERATE_VOUCHER,
-];
+pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &["WRITE_INVENTORY", "WRITE_INVENTORY_TXN", ACTION_GENERATE_VOUCHER];
 
 /// **合同**（`CONTRACT`）的专用路由排除清单（LNK-07）。
 ///
@@ -1796,11 +1708,7 @@ pub fn validate_params(spec: &ActionSpec, params: &serde_json::Value) -> Result<
 }
 
 /// 单个参数的值校验。
-fn check_value(
-    spec: &ActionSpec,
-    param: &'static ParamSpec,
-    value: &serde_json::Value,
-) -> Result<(), String> {
+fn check_value(spec: &ActionSpec, param: &'static ParamSpec, value: &serde_json::Value) -> Result<(), String> {
     let reject = |why: String| -> Result<(), String> {
         Err(format!(
             "动作 {} 的参数 `{}` 不合法：{why}（期望 {}）",
@@ -1822,10 +1730,7 @@ fn check_value(
                 return Ok(());
             }
             if trimmed.chars().count() > max {
-                return reject(format!(
-                    "最长 {max} 个字符，当前 {}",
-                    trimmed.chars().count()
-                ));
+                return reject(format!("最长 {max} 个字符，当前 {}", trimmed.chars().count()));
             }
             Ok(())
         }
@@ -1924,11 +1829,7 @@ mod tests {
     /// 那会给管理员一个「能选、但永远等不到」的状态。所以两个方向都判。
     #[test]
     fn status_labels_cover_known_statuses() {
-        assert_eq!(
-            TRIGGER_SPECS.len(),
-            TRIGGERS.len(),
-            "触发点表与白名单必须等长"
-        );
+        assert_eq!(TRIGGER_SPECS.len(), TRIGGERS.len(), "触发点表与白名单必须等长");
         for spec in TRIGGER_SPECS {
             let known = model::known_statuses(spec.entity);
             assert!(!known.is_empty(), "{} 的状态集不能为空", spec.entity);
@@ -1955,12 +1856,7 @@ mod tests {
         for spec in TRIGGER_SPECS {
             let mut seen: Vec<&str> = Vec::new();
             for &(code, label) in spec.status_labels {
-                assert_eq!(
-                    code,
-                    code.trim(),
-                    "{}：编码不许带空白 `{code}`",
-                    spec.entity
-                );
+                assert_eq!(code, code.trim(), "{}：编码不许带空白 `{code}`", spec.entity);
                 assert!(!code.is_empty(), "{}：编码不能为空", spec.entity);
                 assert!(
                     code.chars()
@@ -1968,17 +1864,8 @@ mod tests {
                     "{}：编码 `{code}` 必须是大写下划线形式（与库 CHECK 逐字一致）",
                     spec.entity
                 );
-                assert!(
-                    !label.trim().is_empty(),
-                    "{}：`{code}` 的中文名不能为空",
-                    spec.entity
-                );
-                assert_eq!(
-                    label,
-                    label.trim(),
-                    "{}：`{code}` 的中文名不许带空白",
-                    spec.entity
-                );
+                assert!(!label.trim().is_empty(), "{}：`{code}` 的中文名不能为空", spec.entity);
+                assert_eq!(label, label.trim(), "{}：`{code}` 的中文名不许带空白", spec.entity);
                 assert!(
                     !seen.contains(&code),
                     "{}：状态 `{code}` 重复登记（下拉会出现两个一样的选项）",
@@ -1998,33 +1885,18 @@ mod tests {
     #[test]
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
-            asset_dto, contract_model, expense_dto, payable_query, purchase_model, stocktake_model,
-            voucher_query,
+            asset_dto, contract_model, expense_dto, payable_query, purchase_model, stocktake_model, voucher_query,
         };
 
         fn doc_module_label(entity: &str, status: &str) -> Option<String> {
             let label = match entity {
-                e if e == state_machine::ENTITY_PURCHASE_ORDER => {
-                    purchase_model::status_label(status).to_string()
-                }
-                e if e == state_machine::ENTITY_PAYABLE => {
-                    payable_query::status_label(status).to_string()
-                }
-                e if e == state_machine::ENTITY_VOUCHER => {
-                    voucher_query::status_label(status).to_string()
-                }
-                e if e == state_machine::ENTITY_CONTRACT => {
-                    contract_model::status_label(status).to_string()
-                }
-                e if e == state_machine::ENTITY_STOCK_TAKE => {
-                    stocktake_model::status_label(status).to_string()
-                }
-                e if e == state_machine::ENTITY_FIXED_ASSET => {
-                    asset_dto::status_label(status).to_string()
-                }
-                e if e == state_machine::ENTITY_EXPENSE => {
-                    expense_dto::status_label(status).to_string()
-                }
+                e if e == state_machine::ENTITY_PURCHASE_ORDER => purchase_model::status_label(status).to_string(),
+                e if e == state_machine::ENTITY_PAYABLE => payable_query::status_label(status).to_string(),
+                e if e == state_machine::ENTITY_VOUCHER => voucher_query::status_label(status).to_string(),
+                e if e == state_machine::ENTITY_CONTRACT => contract_model::status_label(status).to_string(),
+                e if e == state_machine::ENTITY_STOCK_TAKE => stocktake_model::status_label(status).to_string(),
+                e if e == state_machine::ENTITY_FIXED_ASSET => asset_dto::status_label(status).to_string(),
+                e if e == state_machine::ENTITY_EXPENSE => expense_dto::status_label(status).to_string(),
                 e if e == state_machine::ENTITY_PURCHASE_RETURN => {
                     crate::business::erp::purchase_return_dto::status_label(status).to_string()
                 }
@@ -2064,10 +1936,7 @@ mod tests {
             status_label_of(state_machine::ENTITY_STOCK_IN, " POSTED "),
             Some("已过账")
         );
-        assert_eq!(
-            status_label_of(state_machine::ENTITY_STOCK_IN, "NOT_A_STATUS"),
-            None
-        );
+        assert_eq!(status_label_of(state_machine::ENTITY_STOCK_IN, "NOT_A_STATUS"), None);
         assert_eq!(status_label_of("NOT_AN_ENTITY", "POSTED"), None);
     }
 }

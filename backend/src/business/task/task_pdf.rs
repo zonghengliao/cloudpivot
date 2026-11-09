@@ -318,10 +318,7 @@ pub fn build_context(
 /// - 400 [`error_code::PARAM_INVALID`]：id 不是 UUID；
 /// - 404 [`error_code::TASK_NOT_FOUND`]：任务不存在 / 已软删 / **对本用户不可见**；
 /// - 500：数据库异常。
-pub async fn load_context(
-    principal: &ScopedPrincipal,
-    id_raw: &str,
-) -> std::result::Result<TaskContext, ApiError> {
+pub async fn load_context(principal: &ScopedPrincipal, id_raw: &str) -> std::result::Result<TaskContext, ApiError> {
     let id = parse_uuid_field(id_raw, "任务")?;
     let row = model::find_detail(principal, id)
         .await
@@ -353,10 +350,7 @@ pub async fn load_context(
 ///   这里再判一次 —— 单测可直接证明「无码 → 403」）；
 /// - 400 / 404 / 500：见 [`load_context`]；
 /// - 422 / 503 / 504：模板 / 渲染引擎异常。
-pub async fn export_task(
-    id_raw: &str,
-    claims: &TokenClaims,
-) -> std::result::Result<RenderedDoc, ApiError> {
+pub async fn export_task(id_raw: &str, claims: &TokenClaims) -> std::result::Result<RenderedDoc, ApiError> {
     if !claims.has_permission(PERMISSION) {
         return Err(ApiError::new(
             403,
@@ -370,15 +364,9 @@ pub async fn export_task(
     let html = template::render_task(&context).map_err(|error| error.into_api())?;
     let filename = doc_pdf_render::pdf_filename(&context.doc_label, &context.doc_no);
     let opts = template::task_pdf_opts(&context.doc_no, Some(filename));
-    doc_pdf_render::render_document(
-        &html,
-        &context.doc_no,
-        &opts,
-        context.checklist.len(),
-        Decimal::ZERO,
-    )
-    .await
-    .map_err(|error| error.into_api())
+    doc_pdf_render::render_document(&html, &context.doc_no, &opts, context.checklist.len(), Decimal::ZERO)
+        .await
+        .map_err(|error| error.into_api())
 }
 
 /// 派工单 PDF（`GET /api/business/task/{id}/pdf`）。
@@ -390,11 +378,7 @@ pub async fn export_task(
 /// - 403 [`error_code::TASK_FORBIDDEN`]：claims 里没有该码（handler 兜底）；
 /// - 404 [`error_code::TASK_NOT_FOUND`]：任务不存在或与本用户无关；
 /// - 400 / 422 / 503 / 504：见 [`export_task`]。
-#[nik::permission(
-    path = "/business/task/{id}/pdf",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[nik::permission(path = "/business/task/{id}/pdf", method = "GET", permission = "business:task:read")]
 #[nik::get("/business/task/{id}/pdf")]
 pub async fn task_pdf(
     headers: HeaderMap,
@@ -405,18 +389,17 @@ pub async fn task_pdf(
     let started = Instant::now();
     match export_task(&id, &claims).await {
         Ok(rendered) => {
-            let response =
-                match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
-                    Ok(response) => response,
-                    Err(error) => {
-                        tracing::error!(
-                            doc_no = %rendered.doc_no,
-                            bytes = rendered.bytes.len(),
-                            "派工单 PDF 响应组装失败"
-                        );
-                        return error.into_response();
-                    }
-                };
+            let response = match pdf_handler::pdf_response(&rendered.bytes, Some(&rendered.filename)) {
+                Ok(response) => response,
+                Err(error) => {
+                    tracing::error!(
+                        doc_no = %rendered.doc_no,
+                        bytes = rendered.bytes.len(),
+                        "派工单 PDF 响应组装失败"
+                    );
+                    return error.into_response();
+                }
+            };
             audit(&id, &headers, &connect_info, &claims, &rendered, started);
             response
         }
@@ -493,14 +476,8 @@ mod tests {
             project_name: "泵站改造".to_string(),
             doc_type: None,
             doc_id: None,
-            created_at: Utc
-                .with_ymd_and_hms(2026, 11, 8, 1, 0, 0)
-                .single()
-                .expect("夹具时间"),
-            updated_at: Utc
-                .with_ymd_and_hms(2026, 11, 8, 1, 0, 0)
-                .single()
-                .expect("夹具时间"),
+            created_at: Utc.with_ymd_and_hms(2026, 11, 8, 1, 0, 0).single().expect("夹具时间"),
+            updated_at: Utc.with_ymd_and_hms(2026, 11, 8, 1, 0, 0).single().expect("夹具时间"),
             flow_instance_id: None,
             flow_node_key: None,
             flow_round: None,
@@ -540,10 +517,7 @@ mod tests {
             user_id: Uuid::now_v7(),
             user_name: name.to_string(),
             role: role.to_string(),
-            created_at: Utc
-                .with_ymd_and_hms(2026, 11, 8, 2, 0, 0)
-                .single()
-                .expect("夹具时间"),
+            created_at: Utc.with_ymd_and_hms(2026, 11, 8, 2, 0, 0).single().expect("夹具时间"),
         }
     }
 
@@ -658,10 +632,7 @@ mod tests {
 
         let mut no_review = detail_row();
         no_review.card.need_review = false;
-        assert_eq!(
-            sign_cells_of(&no_review)[2].hint,
-            "无需验收（完成后直接归档）"
-        );
+        assert_eq!(sign_cells_of(&no_review)[2].hint, "无需验收（完成后直接归档）");
     }
 
     /// 上下文：卡面点名的字段全部就位，描述原文不做任何改写。
@@ -802,8 +773,7 @@ mod db_tests {
         static READY: OnceCell<bool> = OnceCell::const_new();
         *READY
             .get_or_init(|| async {
-                let Ok(url) = std::env::var("ERP_DB_URL").or_else(|_| std::env::var("TASK_DB_URL"))
-                else {
+                let Ok(url) = std::env::var("ERP_DB_URL").or_else(|_| std::env::var("TASK_DB_URL")) else {
                     println!("SKIP: 未设置 ERP_DB_URL / TASK_DB_URL（不连真实数据库）");
                     return false;
                 };
@@ -904,20 +874,8 @@ mod db_tests {
         // 子任务 A（正常，**负责人是 STRANGER** —— 用来证明「检查项不按数据范围过滤」）
         // + 子任务 B（已取消 → 不该进检查项）
         for (id, no, parent_title, status, owner) in [
-            (
-                CHILD_A,
-                "PDF06-TSK-000101",
-                "核对到货数量",
-                "TODO",
-                STRANGER,
-            ),
-            (
-                CHILD_B,
-                "PDF06-TSK-000102",
-                "已取消的事项",
-                "CANCELLED",
-                OWNER,
-            ),
+            (CHILD_A, "PDF06-TSK-000101", "核对到货数量", "TODO", STRANGER),
+            (CHILD_B, "PDF06-TSK-000102", "已取消的事项", "CANCELLED", OWNER),
         ] {
             exec(
                 "INSERT INTO biz_task (id, task_no, title, status, priority, progress, \
@@ -940,11 +898,7 @@ mod db_tests {
         for (user, role) in [(OWNER, "COLLABORATOR"), (FOLLOWER, "FOLLOWER")] {
             exec(
                 "INSERT INTO biz_task_member (task_id, user_id, role) VALUES (?::uuid, ?::uuid, ?)",
-                vec![
-                    Value::from(&TASK),
-                    Value::from(&user),
-                    Value::Text(role.to_string()),
-                ],
+                vec![Value::from(&TASK), Value::from(&user), Value::Text(role.to_string())],
                 "夹具协作人",
             )
             .await;
@@ -1037,12 +991,9 @@ mod db_tests {
         assert!(ok.is_ok(), "负责人必须可见");
 
         // 不存在的任务 → 404（同一码）
-        let error = load_context(
-            &principal_all(OWNER),
-            "0f620000-0000-4000-8000-0000000009ff",
-        )
-        .await
-        .expect_err("不存在的任务必须 404");
+        let error = load_context(&principal_all(OWNER), "0f620000-0000-4000-8000-0000000009ff")
+            .await
+            .expect_err("不存在的任务必须 404");
         assert_eq!(error.code, error_code::TASK_NOT_FOUND);
     }
 
@@ -1095,10 +1046,7 @@ mod db_tests {
             row.get_typed::<String>("operation").expect("operation"),
             EXPORT_OPERATION
         );
-        assert_eq!(
-            row.get_typed::<String>("target_type").expect("target_type"),
-            "biz_task"
-        );
+        assert_eq!(row.get_typed::<String>("target_type").expect("target_type"), "biz_task");
         assert_eq!(row.get_typed::<String>("source").expect("source"), "PDF-06");
         assert_eq!(row.get_typed::<String>("doc_no").expect("doc_no"), TASK_NO);
         assert_eq!(row.get_typed::<String>("cnt").expect("cnt"), "1");

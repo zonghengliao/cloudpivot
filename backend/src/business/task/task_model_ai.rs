@@ -85,19 +85,12 @@ pub async fn mark_dispatched(
 // SCOPE-EXEMPT: 轮询目标是**系统级扫描**（所有 AI 任务都必须同步），按 exec_mode /
 // hermes_task_id 过滤，没有「当前用户」语义；注入数据范围会让别人的 AI 任务永远停在 DOING。
 /// 记录 Hermes 原始状态（**不改云枢状态**），用于去重与排障。
-pub async fn touch_hermes(
-    ex: &impl SqlExecutor,
-    task_id: Uuid,
-    hermes_status: &str,
-) -> DbResult<u64> {
+pub async fn touch_hermes(ex: &impl SqlExecutor, task_id: Uuid, hermes_status: &str) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE biz_task SET hermes_status = ?, hermes_synced_at = now() \
           WHERE id = ?::uuid AND deleted_at IS NULL"
             .to_string(),
-        vec![
-            Value::Text(hermes_status.to_string()),
-            Value::from(&task_id),
-        ],
+        vec![Value::Text(hermes_status.to_string()), Value::from(&task_id)],
     )
     .await
 }
@@ -238,8 +231,7 @@ pub async fn bind_ai_attachment(
 ) -> DbResult<Uuid> {
     if let Some(existing) = ex
         .query_sql(
-            "SELECT id FROM biz_task_attachment WHERE task_id = ?::uuid AND file_id = ?::uuid"
-                .to_string(),
+            "SELECT id FROM biz_task_attachment WHERE task_id = ?::uuid AND file_id = ?::uuid".to_string(),
             vec![Value::from(&task_id), Value::from(&file_id)],
         )
         .await?
@@ -271,8 +263,7 @@ pub async fn bind_ai_attachment(
     let id = Uuid::now_v7();
     let sort_order: i64 = ex
         .scalar_sql(
-            "SELECT COALESCE(max(sort_order), -1) + 1 FROM biz_task_attachment WHERE task_id = ?::uuid"
-                .to_string(),
+            "SELECT COALESCE(max(sort_order), -1) + 1 FROM biz_task_attachment WHERE task_id = ?::uuid".to_string(),
             vec![Value::from(&task_id)],
         )
         .await
@@ -318,8 +309,7 @@ pub async fn bind_human_attachment(
 ) -> DbResult<Uuid> {
     if let Some(existing) = ex
         .query_sql(
-            "SELECT id FROM biz_task_attachment WHERE task_id = ?::uuid AND file_id = ?::uuid"
-                .to_string(),
+            "SELECT id FROM biz_task_attachment WHERE task_id = ?::uuid AND file_id = ?::uuid".to_string(),
             vec![Value::from(&task_id), Value::from(&file_id)],
         )
         .await?
@@ -345,8 +335,7 @@ pub async fn bind_human_attachment(
     let id = Uuid::now_v7();
     let sort_order: i64 = ex
         .scalar_sql(
-            "SELECT COALESCE(max(sort_order), -1) + 1 FROM biz_task_attachment WHERE task_id = ?::uuid"
-                .to_string(),
+            "SELECT COALESCE(max(sort_order), -1) + 1 FROM biz_task_attachment WHERE task_id = ?::uuid".to_string(),
             vec![Value::from(&task_id)],
         )
         .await

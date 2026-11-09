@@ -97,8 +97,7 @@ pub(crate) async fn run_in_tx(
     creator: Option<Uuid>,
 ) -> std::result::Result<linkage::LinkageRun, ApiError> {
     let ctx = status_ctx(doc_id, doc_no, status, operator, creator);
-    let run =
-        linkage::engine::run_excluding(ex, &ctx, linkage::spec::TRANSFER_EXCLUDED_ACTIONS).await?;
+    let run = linkage::engine::run_excluding(ex, &ctx, linkage::spec::TRANSFER_EXCLUDED_ACTIONS).await?;
     if !run.is_empty() {
         tracing::info!(
             transfer_id = %doc_id,

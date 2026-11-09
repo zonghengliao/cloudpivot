@@ -283,11 +283,7 @@ pub async fn enabled(duty: Duty) -> bool {
 /// 面向业务人员的完整中文提示（前端直接弹这句话）。
 pub fn rejection_text(duty: Duty, subject: &str) -> String {
     let subject = subject.trim();
-    let subject = if subject.is_empty() {
-        "这张单"
-    } else {
-        subject
-    };
+    let subject = if subject.is_empty() { "这张单" } else { subject };
     format!(
         "系统已开启「{}」，{subject} {}，不能自己{}。\
          请交给其他有权限的账号处理，或在系统参数中关闭该开关（{}）。",
@@ -620,20 +616,10 @@ mod tests {
     #[test]
     fn default_off_lets_creator_post() {
         let resolution = resolve(Duty::Post, None, None);
-        assert!(
-            !resolution.enabled,
-            "post 默认必须是关闭的（不影响存量用户）"
-        );
+        assert!(!resolution.enabled, "post 默认必须是关闭的（不影响存量用户）");
         assert_eq!(resolution.source, Source::Default);
         assert!(
-            check(
-                Duty::Post,
-                resolution.enabled,
-                Some(ME),
-                Some(ME),
-                "收货入库单 IN-T"
-            )
-            .is_ok(),
+            check(Duty::Post, resolution.enabled, Some(ME), Some(ME), "收货入库单 IN-T").is_ok(),
             "默认关闭时制单人必须能过账"
         );
     }
@@ -665,11 +651,7 @@ mod tests {
             "文案要点名单据：{}",
             error.msg
         );
-        assert!(
-            error.msg.contains("不能自己过账"),
-            "文案要说清动作：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("不能自己过账"), "文案要说清动作：{}", error.msg);
         assert!(
             error.msg.contains("关闭该开关"),
             "文案必须给出放行办法（O5）：{}",
@@ -701,8 +683,7 @@ mod tests {
     fn approve_duty_blocks_creator_by_default() {
         let resolution = resolve(Duty::Approve, None, None);
         assert!(resolution.enabled, "approve 默认开（= 改动前的内控闸）");
-        let error = check(Duty::Approve, true, Some(ME), Some(ME), "采购单 PO-T")
-            .expect_err("制单人自审必须被拦");
+        let error = check(Duty::Approve, true, Some(ME), Some(ME), "采购单 PO-T").expect_err("制单人自审必须被拦");
         assert_eq!(error.status, 409);
         assert!(error.msg.contains("制单与审批分离"), "{}", error.msg);
         assert!(error.msg.contains("不能自己审批"), "{}", error.msg);
@@ -717,8 +698,7 @@ mod tests {
     fn pay_duty_blocks_creator_by_default() {
         let resolution = resolve(Duty::Pay, None, None);
         assert!(resolution.enabled);
-        let error = check(Duty::Pay, true, Some(ME), Some(ME), "付款单 PAY-T")
-            .expect_err("制单人自付必须被拦");
+        let error = check(Duty::Pay, true, Some(ME), Some(ME), "付款单 PAY-T").expect_err("制单人自付必须被拦");
         assert!(error.msg.contains("制单与付款分离"), "{}", error.msg);
         assert!(error.msg.contains("付款审批"), "{}", error.msg);
         assert!(
@@ -837,14 +817,7 @@ mod tests {
         assert!(!off.enabled, "approve_execute 默认必须关闭（不改存量行为）");
         assert_eq!(off.source, Source::Default);
         assert!(
-            check(
-                Duty::ApproveExecute,
-                off.enabled,
-                Some(ME),
-                Some(ME),
-                "付款单 PM-T"
-            )
-            .is_ok(),
+            check(Duty::ApproveExecute, off.enabled, Some(ME), Some(ME), "付款单 PM-T").is_ok(),
             "开关关闭时审批人必须能自己执行"
         );
 
@@ -852,26 +825,13 @@ mod tests {
         let on = resolve(Duty::ApproveExecute, Some("true"), None);
         assert!(on.enabled);
         assert_eq!(on.source, Source::Own);
-        let error = check(
-            Duty::ApproveExecute,
-            on.enabled,
-            Some(ME),
-            Some(ME),
-            "付款单 PM-T",
-        )
-        .expect_err("审批人自己执行必须被拦");
+        let error = check(Duty::ApproveExecute, on.enabled, Some(ME), Some(ME), "付款单 PM-T")
+            .expect_err("审批人自己执行必须被拦");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
         // 换人放行
         assert!(
-            check(
-                Duty::ApproveExecute,
-                on.enabled,
-                Some(ME),
-                Some(OTHER),
-                "付款单 PM-T"
-            )
-            .is_ok(),
+            check(Duty::ApproveExecute, on.enabled, Some(ME), Some(OTHER), "付款单 PM-T").is_ok(),
             "换一个执行人必须放行"
         );
     }
@@ -882,38 +842,18 @@ mod tests {
         let off = resolve(Duty::Stocktake, None, None);
         assert!(!off.enabled, "stocktake 默认必须关闭");
         assert!(
-            check(
-                Duty::Stocktake,
-                off.enabled,
-                Some(ME),
-                Some(ME),
-                "盘点单 PD-T"
-            )
-            .is_ok(),
+            check(Duty::Stocktake, off.enabled, Some(ME), Some(ME), "盘点单 PD-T").is_ok(),
             "开关关闭时制单人必须能确认自己的盘点单"
         );
 
         let on = resolve(Duty::Stocktake, Some("1"), None);
         assert!(on.enabled);
-        let error = check(
-            Duty::Stocktake,
-            on.enabled,
-            Some(ME),
-            Some(ME),
-            "盘点单 PD-T",
-        )
-        .expect_err("制单人确认自己的盘点单必须被拦");
+        let error = check(Duty::Stocktake, on.enabled, Some(ME), Some(ME), "盘点单 PD-T")
+            .expect_err("制单人确认自己的盘点单必须被拦");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
         assert!(
-            check(
-                Duty::Stocktake,
-                on.enabled,
-                Some(ME),
-                Some(OTHER),
-                "盘点单 PD-T"
-            )
-            .is_ok(),
+            check(Duty::Stocktake, on.enabled, Some(ME), Some(OTHER), "盘点单 PD-T").is_ok(),
             "换一个确认人必须放行"
         );
     }
@@ -924,38 +864,18 @@ mod tests {
         let off = resolve(Duty::PurchaseAccept, None, None);
         assert!(!off.enabled, "purchase_accept 默认必须关闭");
         assert!(
-            check(
-                Duty::PurchaseAccept,
-                off.enabled,
-                Some(ME),
-                Some(ME),
-                "采购订单 PO-T"
-            )
-            .is_ok(),
+            check(Duty::PurchaseAccept, off.enabled, Some(ME), Some(ME), "采购订单 PO-T").is_ok(),
             "开关关闭时采购员必须能自己收货"
         );
 
         let on = resolve(Duty::PurchaseAccept, Some("true"), None);
         assert!(on.enabled);
-        let error = check(
-            Duty::PurchaseAccept,
-            on.enabled,
-            Some(ME),
-            Some(ME),
-            "采购订单 PO-T",
-        )
-        .expect_err("采购员验收自己采的货必须被拦");
+        let error = check(Duty::PurchaseAccept, on.enabled, Some(ME), Some(ME), "采购订单 PO-T")
+            .expect_err("采购员验收自己采的货必须被拦");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
         assert!(
-            check(
-                Duty::PurchaseAccept,
-                on.enabled,
-                Some(ME),
-                Some(OTHER),
-                "采购订单 PO-T"
-            )
-            .is_ok(),
+            check(Duty::PurchaseAccept, on.enabled, Some(ME), Some(OTHER), "采购订单 PO-T").is_ok(),
             "换一个验收人必须放行"
         );
     }
@@ -970,8 +890,8 @@ mod tests {
             let resolution = resolve(duty, None, Some("true"));
             assert!(resolution.enabled, "总闸打开时 {} 必须默认开", duty.key());
             assert_eq!(resolution.source, Source::Master, "{}", duty.key());
-            let error = check(duty, resolution.enabled, Some(ME), Some(ME), "单据 T")
-                .expect_err("总闸打开后必须默认拦");
+            let error =
+                check(duty, resolution.enabled, Some(ME), Some(ME), "单据 T").expect_err("总闸打开后必须默认拦");
             assert_eq!(error.status, 409);
             assert_eq!(error.code, error_code::ERP_SEPARATION_OF_DUTIES);
             // 显式关掉某一项仍然优先于总闸（小团队只放宽这一项）
@@ -985,38 +905,14 @@ mod tests {
     #[test]
     fn new_duties_error_text_names_the_duty_pair() {
         let cases = [
-            (
-                Duty::ApproveExecute,
-                "审批与执行分离",
-                "由你本人审批",
-                "不能自己执行",
-            ),
-            (
-                Duty::Stocktake,
-                "制单与盘点确认分离",
-                "由你本人制作",
-                "不能自己确认",
-            ),
-            (
-                Duty::PurchaseAccept,
-                "采购与验收分离",
-                "由你本人采购",
-                "不能自己验收",
-            ),
+            (Duty::ApproveExecute, "审批与执行分离", "由你本人审批", "不能自己执行"),
+            (Duty::Stocktake, "制单与盘点确认分离", "由你本人制作", "不能自己确认"),
+            (Duty::PurchaseAccept, "采购与验收分离", "由你本人采购", "不能自己验收"),
         ];
         for (duty, pair, clause, action) in cases {
-            let error =
-                check(duty, true, Some(ME), Some(ME), "单据 X-1").expect_err("打开后必须拦");
-            assert!(
-                error.msg.contains(pair),
-                "文案要点名职责对「{pair}」：{}",
-                error.msg
-            );
-            assert!(
-                error.msg.contains(clause),
-                "文案要说清对端角色：{}",
-                error.msg
-            );
+            let error = check(duty, true, Some(ME), Some(ME), "单据 X-1").expect_err("打开后必须拦");
+            assert!(error.msg.contains(pair), "文案要点名职责对「{pair}」：{}", error.msg);
+            assert!(error.msg.contains(clause), "文案要说清对端角色：{}", error.msg);
             assert!(error.msg.contains(action), "文案要说清动作：{}", error.msg);
             assert!(
                 error.msg.contains(duty.key()),
@@ -1034,38 +930,17 @@ mod tests {
         let approvers = [ME, OTHER];
         // 第一个审批人（历史上投过票）去执行 → 拦
         assert!(
-            check_among(
-                Duty::ApproveExecute,
-                true,
-                &approvers,
-                Some(ME),
-                "盘点单 PD-T"
-            )
-            .is_err(),
+            check_among(Duty::ApproveExecute, true, &approvers, Some(ME), "盘点单 PD-T").is_err(),
             "早期审批人执行也要拦"
         );
         assert!(
-            check_among(
-                Duty::ApproveExecute,
-                true,
-                &approvers,
-                Some(OTHER),
-                "盘点单 PD-T"
-            )
-            .is_err(),
+            check_among(Duty::ApproveExecute, true, &approvers, Some(OTHER), "盘点单 PD-T").is_err(),
             "最后一个审批人执行也要拦"
         );
         // 第三个人执行 → 放行
         let third = Uuid::from_u128(0x5e9a_0000_0000_0000_0000_0000_0000_0003);
         assert!(
-            check_among(
-                Duty::ApproveExecute,
-                true,
-                &approvers,
-                Some(third),
-                "盘点单 PD-T"
-            )
-            .is_ok(),
+            check_among(Duty::ApproveExecute, true, &approvers, Some(third), "盘点单 PD-T").is_ok(),
             "没批过这张单的人执行必须放行"
         );
         // 空审批人列表（没走审批）→ 放行
@@ -1074,16 +949,7 @@ mod tests {
             "没走审批的单据不许被这个闸拦"
         );
         // 开关关闭 → 一律放行
-        assert!(
-            check_among(
-                Duty::ApproveExecute,
-                false,
-                &approvers,
-                Some(ME),
-                "盘点单 PD-T"
-            )
-            .is_ok()
-        );
+        assert!(check_among(Duty::ApproveExecute, false, &approvers, Some(ME), "盘点单 PD-T").is_ok());
         // 单主体版与多主体版判据一致（check 是 check_among 的特例）
         assert_eq!(
             check(Duty::ApproveExecute, true, Some(ME), Some(ME), "s").is_err(),
@@ -1102,11 +968,7 @@ mod tests {
         let mut labels: Vec<&str> = Duty::ALL.iter().map(|duty| duty.label()).collect();
         labels.sort_unstable();
         labels.dedup();
-        assert_eq!(
-            labels.len(),
-            Duty::ALL.len(),
-            "中文名不能重复（前端分组展示）"
-        );
+        assert_eq!(labels.len(), Duty::ALL.len(), "中文名不能重复（前端分组展示）");
 
         for duty in Duty::ALL {
             assert!(

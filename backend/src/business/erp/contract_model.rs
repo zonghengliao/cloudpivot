@@ -109,7 +109,8 @@ pub const STATUS_TERMINATED: &str = "TERMINATED";
 pub const USABLE_FOR_ORDER: [&str; 2] = [STATUS_SIGNED, STATUS_ACTIVE];
 
 /// 供应商解析 SQL（改单 / 详情：只要求存在且未软删）。
-const SUPPLIER_REF_SQL: &str = "SELECT supplier_name AS party_b_name FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL";
+const SUPPLIER_REF_SQL: &str =
+    "SELECT supplier_name AS party_b_name FROM biz_supplier WHERE id = ?::uuid AND deleted_at IS NULL";
 
 /// 供应商解析 SQL（新签：额外要求启用中，V-11）。
 const SUPPLIER_REF_NEW_SQL: &str = "SELECT supplier_name AS party_b_name FROM biz_supplier \
@@ -577,8 +578,7 @@ pub struct ContractStateRow {
 /// 因此不需要转义，也不可能被注入）；含其它字符（`%` / 引号）时**不加**前缀加权，
 /// 退回纯 `created_at DESC` —— 宁可排序朴素，也不把用户输入拼进 SQL。
 pub async fn contract_page(q: &ContractQuery) -> DbResult<(Vec<ContractRow>, i64)> {
-    let mut sql =
-        format!("SELECT {CONTRACT_LIST_COLUMNS} {CONTRACT_JOIN} WHERE c.deleted_at IS NULL");
+    let mut sql = format!("SELECT {CONTRACT_LIST_COLUMNS} {CONTRACT_JOIN} WHERE c.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
 
     if let Some(contract_no) = q.contract_no.as_deref() {
@@ -630,15 +630,7 @@ pub async fn contract_page(q: &ContractQuery) -> DbResult<(Vec<ContractRow>, i64
         .and_then(prefix_boost_order)
         .unwrap_or_else(|| CONTRACT_ORDER.to_string());
 
-    let result = scope::paginate_unscoped(
-        CONTRACT_TARGET,
-        &sql,
-        params,
-        Some(&order_by),
-        q.page,
-        q.page_size,
-    )
-    .await?;
+    let result = scope::paginate_unscoped(CONTRACT_TARGET, &sql, params, Some(&order_by), q.page, q.page_size).await?;
     let rows = result
         .list
         .iter()
@@ -669,9 +661,7 @@ fn prefix_boost_order(raw: &str) -> Option<String> {
 
 /// 按主键取合同（软删行视为不存在 → `None`）。
 pub async fn contract_find(id: Uuid) -> DbResult<Option<ContractRow>> {
-    let sql = format!(
-        "SELECT {CONTRACT_LIST_COLUMNS} {CONTRACT_JOIN} WHERE c.id = ?::uuid AND c.deleted_at IS NULL"
-    );
+    let sql = format!("SELECT {CONTRACT_LIST_COLUMNS} {CONTRACT_JOIN} WHERE c.id = ?::uuid AND c.deleted_at IS NULL");
     let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
     rows.first().map(ContractRow::from_row).transpose()
 }
@@ -765,9 +755,7 @@ async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i6
             ],
         )
         .await?;
-    rows.first()
-        .map(|row| row.get_typed("current_no"))
-        .transpose()
+    rows.first().map(|row| row.get_typed("current_no")).transpose()
 }
 
 /// 组装合同号（`HT-{周期键}-{6 位流水}`）。
@@ -793,12 +781,7 @@ pub async fn next_contract_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbRe
 ///
 /// * `id` —— 先由 handler 生成（`Uuid::now_v7()`），便于插入后无需 `RETURNING`
 /// * `contract_no` —— [`next_contract_no`] 的返回值（同一事务里取）
-pub async fn contract_insert(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    contract_no: &str,
-    new: &NewContract,
-) -> DbResult<u64> {
+pub async fn contract_insert(ex: &impl SqlExecutor, id: Uuid, contract_no: &str, new: &NewContract) -> DbResult<u64> {
     ex.exec_sql(
         "INSERT INTO biz_contract \
             (id, contract_no, contract_name, contract_type, party_a_id, party_a_name, \
@@ -940,11 +923,7 @@ pub async fn contract_remark_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Opt
 /// 与状态变更同事务调用 —— 写失败整笔回滚，不留「状态已终止、备注没留原因」的半截单。
 /// 不做状态 CAS：调用点已经用 `contract_write_status` / `contract_apply_approval_transition`
 /// 做过 CAS 且 `affected > 0`，再加一层只会让并发语义变模糊。
-pub async fn contract_write_termination_remark(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    remark: &str,
-) -> DbResult<u64> {
+pub async fn contract_write_termination_remark(ex: &impl SqlExecutor, id: Uuid, remark: &str) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE biz_contract SET remark = ?, updated_at = now() \
           WHERE id = ?::uuid AND deleted_at IS NULL"
@@ -996,11 +975,7 @@ pub async fn contract_apply_approval_transition(
 /// # 返回值
 ///
 /// 受影响行数：`0` = 不存在 / 已删。
-pub async fn contract_soft_delete(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> DbResult<u64> {
+pub async fn contract_soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
     ex.exec_sql(
         "UPDATE biz_contract SET deleted_at = now(), updated_at = now(), \
                 update_by = NULLIF(?::text,'')::uuid \
@@ -1036,10 +1011,7 @@ pub async fn contract_reference_column_exists(ex: &impl SqlExecutor) -> DbResult
 /// * `Ok(None)` —— `biz_purchase_order` 还没有 `contract_id` 列（A3 未落地），守卫跳过
 /// * `Ok(Some(vec![]))` —— 列在、无引用
 /// * `Ok(Some(order_nos))` —— 有引用（最多 20 个，够用户处理；超出会在文案里提示）
-pub async fn contract_referencing_orders(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> DbResult<Option<Vec<String>>> {
+pub async fn contract_referencing_orders(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Vec<String>>> {
     if !contract_reference_column_exists(ex).await? {
         return Ok(None);
     }
@@ -1182,10 +1154,7 @@ impl ContractCommitment {
 ///
 /// 数据库异常原样上抛（`DbError`），由 handler 折成 500 —— 详情页宁可报错，
 /// 也不显示一个「已执行 0.00」的假数字。
-pub async fn commitment_of(
-    ex: &impl SqlExecutor,
-    contract_id: Uuid,
-) -> DbResult<ContractCommitment> {
+pub async fn commitment_of(ex: &impl SqlExecutor, contract_id: Uuid) -> DbResult<ContractCommitment> {
     use crate::business::erp::{purchase_model, sales_order_model};
 
     let purchase_committed = purchase_model::committed_amount(ex, contract_id, None).await?;
@@ -1209,10 +1178,7 @@ pub async fn commitment_of(
           LIMIT {OPEN_ORDER_LIST_LIMIT}"
     );
     let rows = ex
-        .query_sql(
-            sql,
-            vec![Value::from(&contract_id), Value::from(&contract_id)],
-        )
+        .query_sql(sql, vec![Value::from(&contract_id), Value::from(&contract_id)])
         .await?;
     let mut open_order_count = 0_i64;
     let mut open_orders = Vec::with_capacity(rows.len());
@@ -1285,12 +1251,9 @@ mod tests {
 
     /// 物理删掉本模块造的主数据（真库用例外不留痕）。
     async fn cleanup() {
-        db().execute_with_params(
-            "DELETE FROM biz_supplier WHERE supplier_code LIKE 'A1CM-%'",
-            vec![],
-        )
-        .await
-        .unwrap_or_else(|err| panic!("清理 biz_supplier 夹具失败：{err}"));
+        db().execute_with_params("DELETE FROM biz_supplier WHERE supplier_code LIKE 'A1CM-%'", vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理 biz_supplier 夹具失败：{err}"));
         db().execute_with_params("DELETE FROM biz_customer WHERE code LIKE 'A1CM-%'", vec![])
             .await
             .unwrap_or_else(|err| panic!("清理 biz_customer 夹具失败：{err}"));
@@ -1394,10 +1357,7 @@ mod tests {
         // 冻结客户在通用解析器里**照样**能取到名字（改备注不该被冻结挡住）
         let (frozen_id, frozen_name) = make_customer("FRZ", "FROZEN").await;
         assert_eq!(
-            party_b_ref(PARTY_B_CUSTOMER, frozen_id)
-                .await
-                .unwrap()
-                .as_deref(),
+            party_b_ref(PARTY_B_CUSTOMER, frozen_id).await.unwrap().as_deref(),
             Some(frozen_name.as_str()),
             "FROZEN 只拦新签，不拦改单（V-11）"
         );
@@ -1447,17 +1407,13 @@ mod tests {
             "ACTIVE 客户可以新签销售合同"
         );
         assert_eq!(
-            party_b_ref_for_new(PARTY_B_CUSTOMER, frozen_id)
-                .await
-                .unwrap(),
+            party_b_ref_for_new(PARTY_B_CUSTOMER, frozen_id).await.unwrap(),
             None,
             "FROZEN（冻结）客户不得新签（V-11；status 是字符串域值，写成 status = 1 会恒判 0 行）"
         );
         // 同一把 id 当成供应商查不到名字（两条主档分支不串）
         assert_eq!(
-            party_b_ref_for_new(PARTY_B_SUPPLIER, active_id)
-                .await
-                .unwrap(),
+            party_b_ref_for_new(PARTY_B_SUPPLIER, active_id).await.unwrap(),
             None,
             "客户 id 不能当供应商 id 用"
         );
@@ -1473,18 +1429,13 @@ mod tests {
 
         // 通用解析器不看 status：停用供应商的行仍在库里，改其它字段时要能取到名字
         assert_eq!(
-            party_b_ref(PARTY_B_SUPPLIER, disabled_id)
-                .await
-                .unwrap()
-                .as_deref(),
+            party_b_ref(PARTY_B_SUPPLIER, disabled_id).await.unwrap().as_deref(),
             Some(disabled_name.as_str()),
             "通用解析器不按 status 过滤（否则供应商一停用，连合同备注都改不了，V-11 末段）"
         );
         // 新签闸口才看 status
         assert_eq!(
-            party_b_ref_for_new(PARTY_B_SUPPLIER, disabled_id)
-                .await
-                .unwrap(),
+            party_b_ref_for_new(PARTY_B_SUPPLIER, disabled_id).await.unwrap(),
             None,
             "停用供应商不得新签（V-11）"
         );
@@ -1498,9 +1449,7 @@ mod tests {
         );
         // CUSTOMER 分支按客户表解析：拿供应商 id 去查客户表必然查不到（两条主档不串）
         assert_eq!(
-            party_b_ref_for_new(PARTY_B_CUSTOMER, enabled_id)
-                .await
-                .unwrap(),
+            party_b_ref_for_new(PARTY_B_CUSTOMER, enabled_id).await.unwrap(),
             None,
             "供应商 id 不能当客户 id 用（CUSTOMER 分支查 biz_customer）"
         );
@@ -1510,10 +1459,7 @@ mod tests {
     #[test]
     fn termination_remark_merges_without_losing_old_text() {
         // 原备注为空 → 只落原因
-        assert_eq!(
-            termination_remark(None, "客户要求提前终止"),
-            "【终止】客户要求提前终止"
-        );
+        assert_eq!(termination_remark(None, "客户要求提前终止"), "【终止】客户要求提前终止");
         assert_eq!(
             termination_remark(Some("   "), "客户要求提前终止"),
             "【终止】客户要求提前终止",
@@ -1553,10 +1499,7 @@ mod tests {
             );
         }
         // 未登记的类型默认不参与履约率（宁可低估覆盖，也不伪造进度）
-        assert_eq!(
-            commitment_scope_of("FRAMEWORK"),
-            COMMITMENT_SCOPE_NOT_APPLICABLE
-        );
+        assert_eq!(commitment_scope_of("FRAMEWORK"), COMMITMENT_SCOPE_NOT_APPLICABLE);
 
         assert_eq!(required_party_b_type("PURCHASE"), PARTY_B_SUPPLIER);
         assert_eq!(required_party_b_type("SALES"), PARTY_B_CUSTOMER);
@@ -1638,12 +1581,8 @@ mod ctr02_tests {
             .keys()
             .cloned()
             .collect();
-        let whitelist: std::collections::BTreeSet<String> =
-            BIZ_CONTRACT.fields.iter().map(|f| f.to_string()).collect();
-        assert_eq!(
-            keys, whitelist,
-            "快照键必须与 diff::BIZ_CONTRACT 白名单逐字相等"
-        );
+        let whitelist: std::collections::BTreeSet<String> = BIZ_CONTRACT.fields.iter().map(|f| f.to_string()).collect();
+        assert_eq!(keys, whitelist, "快照键必须与 diff::BIZ_CONTRACT 白名单逐字相等");
         assert_eq!(
             after.as_object().map(|o| o.len()),
             Some(whitelist.len()),

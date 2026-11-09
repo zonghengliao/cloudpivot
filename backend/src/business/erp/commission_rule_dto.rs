@@ -113,8 +113,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 
 /// 解析 uuid 参数（空串 / 非法值都是 400，文案带字段名）。
 pub fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到「{raw}」）")))
+    Uuid::parse_str(raw.trim()).map_err(|_| bad_request(format!("{field} 不是合法的 UUID（收到「{raw}」）")))
 }
 
 /// 解析 `YYYY-MM-DD` 日期（前端日期控件就是这个形状）。
@@ -131,9 +130,7 @@ pub fn parse_date(raw: &str, field: &str) -> std::result::Result<NaiveDate, ApiE
         && bytes[5..7].iter().all(u8::is_ascii_digit)
         && bytes[8..].iter().all(u8::is_ascii_digit);
     if !shaped {
-        return Err(bad_request(format!(
-            "{field} 必须是 YYYY-MM-DD（收到「{raw}」）"
-        )));
+        return Err(bad_request(format!("{field} 必须是 YYYY-MM-DD（收到「{raw}」）")));
     }
     NaiveDate::parse_from_str(text, "%Y-%m-%d")
         .map_err(|_| bad_request(format!("{field} 不是合法的日期（收到「{raw}」）")))
@@ -236,14 +233,9 @@ pub fn check_rate(calc_type: &str, rate: Decimal) -> std::result::Result<(), Api
 }
 
 /// 校验金额：起算额 ≥ 0、封顶 ≥ 起算额、都装得进 `NUMERIC(18,4)`。
-pub fn check_amounts(
-    min_amount: Decimal,
-    max_amount: Option<Decimal>,
-) -> std::result::Result<(), ApiError> {
+pub fn check_amounts(min_amount: Decimal, max_amount: Option<Decimal>) -> std::result::Result<(), ApiError> {
     if min_amount < Decimal::ZERO {
-        return Err(bad_request(format!(
-            "min_amount 不能为负（收到 {min_amount}）"
-        )));
+        return Err(bad_request(format!("min_amount 不能为负（收到 {min_amount}）")));
     }
     if !fits_numeric(min_amount, AMOUNT_PRECISION.0, AMOUNT_PRECISION.1) {
         return Err(bad_request(format!(
@@ -260,19 +252,14 @@ pub fn check_amounts(
             )));
         }
         if !fits_numeric(max, AMOUNT_PRECISION.0, AMOUNT_PRECISION.1) {
-            return Err(bad_request(format!(
-                "max_amount 超出 NUMERIC(18,4)（收到 {max}）"
-            )));
+            return Err(bad_request(format!("max_amount 超出 NUMERIC(18,4)（收到 {max}）")));
         }
     }
     Ok(())
 }
 
 /// 校验生效区间：`effective_to ≥ effective_from`（两端口都是**含**的，与 V0309 注释一致）。
-pub fn check_effective(
-    from: NaiveDate,
-    to: Option<NaiveDate>,
-) -> std::result::Result<(), ApiError> {
+pub fn check_effective(from: NaiveDate, to: Option<NaiveDate>) -> std::result::Result<(), ApiError> {
     if let Some(end) = to
         && end < from
     {
@@ -284,10 +271,7 @@ pub fn check_effective(
 }
 
 /// 归一化规则状态（缺省 = `fallback`；域值大小写不敏感）。
-pub fn normalize_status(
-    raw: Option<&str>,
-    fallback: &str,
-) -> std::result::Result<String, ApiError> {
+pub fn normalize_status(raw: Option<&str>, fallback: &str) -> std::result::Result<String, ApiError> {
     match raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => Ok(fallback.to_string()),
         Some(value) => {
@@ -295,9 +279,7 @@ pub fn normalize_status(
             if RULE_STATUSES.contains(&status.as_str()) {
                 Ok(status)
             } else {
-                Err(bad_request(format!(
-                    "status 只认 {RULE_STATUSES:?}（收到「{value}」）"
-                )))
+                Err(bad_request(format!("status 只认 {RULE_STATUSES:?}（收到「{value}」）")))
             }
         }
     }
@@ -472,10 +454,7 @@ pub struct RuleUpdateReq {
 }
 
 /// 新建入参 → 归一化规则（不含库查：范围对象是否存在由 handler 查）。
-pub fn spec_from_create(
-    req: &RuleCreateReq,
-    today: NaiveDate,
-) -> std::result::Result<RuleSpec, ApiError> {
+pub fn spec_from_create(req: &RuleCreateReq, today: NaiveDate) -> std::result::Result<RuleSpec, ApiError> {
     let rate = req
         .rate
         .ok_or_else(|| bad_request("rate 必填（PERCENT 填百分数 0–100；FIXED 填金额）"))?;
@@ -507,10 +486,7 @@ pub fn spec_from_create(
 }
 
 /// 编辑入参 + 当前值 → 归一化规则（部分更新合并，合并结果再整体校验）。
-pub fn spec_from_update(
-    current: &RuleSpec,
-    req: &RuleUpdateReq,
-) -> std::result::Result<RuleSpec, ApiError> {
+pub fn spec_from_update(current: &RuleSpec, req: &RuleUpdateReq) -> std::result::Result<RuleSpec, ApiError> {
     let scope_type_raw = req
         .scope_type
         .as_deref()
@@ -527,12 +503,7 @@ pub fn spec_from_update(
         Some(Some(value)) => Some(value.clone()),
     };
     let (scope_type, scope_id) = normalize_scope(&scope_type_raw, scope_id_raw.as_deref())?;
-    let calc_type = match req
-        .calc_type
-        .as_deref()
-        .map(str::trim)
-        .filter(|text| !text.is_empty())
-    {
+    let calc_type = match req.calc_type.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
         Some(value) => normalize_calc(value)?,
         None => current.calc_type.clone(),
     };
@@ -696,9 +667,7 @@ impl RulePageQuery {
             Some(value) => {
                 let upper = value.to_ascii_uppercase();
                 if !RULE_STATUSES.contains(&upper.as_str()) {
-                    return Err(bad_request(format!(
-                        "status 只认 {RULE_STATUSES:?}（收到「{value}」）"
-                    )));
+                    return Err(bad_request(format!("status 只认 {RULE_STATUSES:?}（收到「{value}」）")));
                 }
                 Some(upper)
             }
@@ -774,8 +743,8 @@ mod tests {
         assert_eq!(id, None);
         // 空白串视同没传
         assert_eq!(normalize_scope("ALL", Some("   ")).unwrap().1, None);
-        let err = normalize_scope("ALL", Some("e3600000-0000-4000-8000-000000000011"))
-            .expect_err("ALL 不允许 scope_id");
+        let err =
+            normalize_scope("ALL", Some("e3600000-0000-4000-8000-000000000011")).expect_err("ALL 不允许 scope_id");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::PARAM_INVALID);
     }
@@ -798,15 +767,10 @@ mod tests {
         }
         // 乱码 uuid / 未知范围
         assert_eq!(
-            normalize_scope(SCOPE_SALESPERSON, Some("nope"))
-                .unwrap_err()
-                .status,
+            normalize_scope(SCOPE_SALESPERSON, Some("nope")).unwrap_err().status,
             400
         );
-        assert_eq!(
-            normalize_scope("DEPARTMENT", Some(id)).unwrap_err().status,
-            400
-        );
+        assert_eq!(normalize_scope("DEPARTMENT", Some(id)).unwrap_err().status, 400);
     }
 
     // ---------- 比率 ----------
@@ -826,15 +790,9 @@ mod tests {
         check_rate(CALC_FIXED, dec("9999.9999")).expect("列宽上限内");
         assert_eq!(check_rate(CALC_FIXED, dec("-1")).unwrap_err().status, 400);
         // NUMERIC(8,4) 装不下：10000 元整就溢出了
-        assert_eq!(
-            check_rate(CALC_FIXED, dec("10000")).unwrap_err().status,
-            400
-        );
+        assert_eq!(check_rate(CALC_FIXED, dec("10000")).unwrap_err().status, 400);
         // 5 位小数会被库静默四舍五入 → 入口拒
-        assert_eq!(
-            check_rate(CALC_FIXED, dec("1.23456")).unwrap_err().status,
-            400
-        );
+        assert_eq!(check_rate(CALC_FIXED, dec("1.23456")).unwrap_err().status, 400);
     }
 
     // ---------- 金额 ----------
@@ -848,10 +806,7 @@ mod tests {
         assert_eq!(err.status, 400);
         assert!(err.msg.contains("min_amount"), "{}", err.msg);
         assert_eq!(check_amounts(dec("-0.0001"), None).unwrap_err().status, 400);
-        assert_eq!(
-            check_amounts(dec("0"), Some(dec("-1"))).unwrap_err().status,
-            400
-        );
+        assert_eq!(check_amounts(dec("0"), Some(dec("-1"))).unwrap_err().status, 400);
         // 小数位与列宽
         assert_eq!(check_amounts(dec("1.00001"), None).unwrap_err().status, 400);
     }
@@ -867,30 +822,17 @@ mod tests {
 
     #[test]
     fn date_parsing_is_strict() {
-        assert_eq!(
-            parse_date(" 2026-11-07 ", "effective_from").unwrap(),
-            dt("2026-11-07")
-        );
+        assert_eq!(parse_date(" 2026-11-07 ", "effective_from").unwrap(), dt("2026-11-07"));
         for bad in ["2026/11/07", "2026-11-7", "20261107", ""] {
-            assert_eq!(
-                parse_date(bad, "effective_from").unwrap_err().status,
-                400,
-                "{bad}"
-            );
+            assert_eq!(parse_date(bad, "effective_from").unwrap_err().status, 400, "{bad}");
         }
     }
 
     #[test]
     fn status_domain_is_normalized() {
         assert_eq!(normalize_status(None, RULE_ACTIVE).unwrap(), RULE_ACTIVE);
-        assert_eq!(
-            normalize_status(Some("  "), RULE_ACTIVE).unwrap(),
-            RULE_ACTIVE
-        );
-        assert_eq!(
-            normalize_status(Some("inactive"), RULE_ACTIVE).unwrap(),
-            RULE_INACTIVE
-        );
+        assert_eq!(normalize_status(Some("  "), RULE_ACTIVE).unwrap(), RULE_ACTIVE);
+        assert_eq!(normalize_status(Some("inactive"), RULE_ACTIVE).unwrap(), RULE_INACTIVE);
         let err = normalize_status(Some("DELETED"), RULE_ACTIVE).expect_err("域外值");
         assert_eq!(err.status, 400);
     }
@@ -1025,8 +967,7 @@ mod tests {
         assert!(absent.scope_id.is_none());
         // 显式 null → Some(None)（清空）
         let nulled: RuleUpdateReq =
-            serde_json::from_str(r#"{"max_amount":null,"effective_to":null,"scope_id":null}"#)
-                .expect("解析");
+            serde_json::from_str(r#"{"max_amount":null,"effective_to":null,"scope_id":null}"#).expect("解析");
         assert_eq!(nulled.max_amount, Some(None));
         assert_eq!(nulled.effective_to, Some(None));
         assert_eq!(nulled.scope_id, Some(None));

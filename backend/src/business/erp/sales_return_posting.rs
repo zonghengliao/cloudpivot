@@ -73,15 +73,12 @@ use crate::business::erp::invoice;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
 use crate::business::erp::sales_return_model::{self as model, ReturnItemRow, ReturnRow};
-use crate::business::erp::stockin_base::{
-    AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN,
-};
+use crate::business::erp::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
 use crate::business::erp::stockout_base::{DOC_TYPE_STOCK_OUT, TXN_TYPE_OUT};
 use crate::business::erp::stockout_model::{self as stock_out};
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{
-    self, ACCOUNT_AR, ACCOUNT_MAIN_COST, ACCOUNT_OUTPUT_TAX, ACCOUNT_REVENUE, EntryLine,
-    PostVoucher, VOUCHER_TYPE_AUTO,
+    self, ACCOUNT_AR, ACCOUNT_MAIN_COST, ACCOUNT_OUTPUT_TAX, ACCOUNT_REVENUE, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO,
 };
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -340,10 +337,7 @@ fn not_found(message: String) -> ApiError {
 // ==================== 读 ====================
 
 /// 锁退货单（并发过账在这里串行化）。
-async fn lock_return(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<Option<ReturnRow>, ApiError> {
+async fn lock_return(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<Option<ReturnRow>, ApiError> {
     // SCOPE-EXEMPT: 退货单是 ERP 单据表，无归属列（可见性靠权限码）。
     let rows = ex
         .query_sql(
@@ -481,10 +475,7 @@ async fn create_stock_in(
     let id = Uuid::now_v7();
     let total_qty: Decimal = lines.iter().map(|line| line.qty).sum();
     let total_amount: Decimal = lines.iter().map(|line| line.amount).sum();
-    let operator_text = operator
-        .id
-        .map(|value| value.to_string())
-        .unwrap_or_default();
+    let operator_text = operator.id.map(|value| value.to_string()).unwrap_or_default();
     let remark = format!("销售退货入库 {}（客户 {}）", row.return_no, row.customer_id);
     ex.exec_sql(
         "INSERT INTO biz_stock_in \
@@ -534,27 +525,23 @@ async fn create_stock_in(
                  ?::text::numeric, 0, ?::text::numeric, ?::text::numeric, \
                  NULLIF(?::text,'')::uuid, NULLIF(?::text,''), ?, ?)"
                 .to_string(),
-        vec![
-            Value::from(&id),
-            Value::from(line.line_no),
-            Value::Text(
-                line.so_item_id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
-            Value::from(&line.material_id),
-            Value::from(&line.unit_id),
-            Value::Text(line.qty.round_dp(4).to_string()),
-            Value::Text(line.unit_cost.to_string()),
-            Value::Text(line.unit_cost.to_string()),
-            Value::Text(line.amount.round_dp(4).to_string()),
-            Value::Text(line.amount.round_dp(4).to_string()),
-            Value::Text(line.unit_cost.to_string()),
-            Value::Text(line.location_dict_id.map(|v| v.to_string()).unwrap_or_default()),
-            Value::Text(line.remark.clone().unwrap_or_default()),
-            Value::from(now),
-            Value::from(now),
-        ],
+            vec![
+                Value::from(&id),
+                Value::from(line.line_no),
+                Value::Text(line.so_item_id.map(|value| value.to_string()).unwrap_or_default()),
+                Value::from(&line.material_id),
+                Value::from(&line.unit_id),
+                Value::Text(line.qty.round_dp(4).to_string()),
+                Value::Text(line.unit_cost.to_string()),
+                Value::Text(line.unit_cost.to_string()),
+                Value::Text(line.amount.round_dp(4).to_string()),
+                Value::Text(line.amount.round_dp(4).to_string()),
+                Value::Text(line.unit_cost.to_string()),
+                Value::Text(line.location_dict_id.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(line.remark.clone().unwrap_or_default()),
+                Value::from(now),
+                Value::from(now),
+            ],
         )
         .await
         .map_err(|error| write_error(error, "生成退货入库明细"))?;
@@ -608,16 +595,10 @@ async fn post_inventory(
             amount: line.amount.round_dp(4),
             unit_cost: line.unit_cost,
         };
-        let applied: AppliedInventory = crate::business::erp::stockin_model::apply_cost(
-            ex,
-            material_id,
-            row.warehouse_id,
-            location_row,
-            cost,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "回库：成本账加法"))?;
+        let applied: AppliedInventory =
+            crate::business::erp::stockin_model::apply_cost(ex, material_id, row.warehouse_id, location_row, cost, now)
+                .await
+                .map_err(|error| write_error(error, "回库：成本账加法"))?;
         crate::business::erp::stockin_model::apply_location_qty(
             ex,
             material_id,
@@ -766,13 +747,8 @@ async fn write_cost_voucher(
     // 入库单 → 凭证回链（与采购过账 `link_voucher_and_payable` 同口径：只回写 voucher_id，
     // 退货入库没有应付单）
     ex.exec_sql(
-        "UPDATE biz_stock_in SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"
-            .to_string(),
-        vec![
-            Value::from(&voucher_id),
-            Value::from(now),
-            Value::from(&in_id),
-        ],
+        "UPDATE biz_stock_in SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid".to_string(),
+        vec![Value::from(&voucher_id), Value::from(now), Value::from(&in_id)],
     )
     .await
     .map_err(|error| write_error(error, "回写入库单凭证"))?;
@@ -881,10 +857,7 @@ async fn write_revenue_voucher(
 // ==================== 写：应收 / 发票 / 订单行 ====================
 
 /// 锁应收单（并发收款 / 反复冲减在这里串行化）。
-async fn lock_receivable(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-) -> std::result::Result<Option<ReceivableRow>, ApiError> {
+async fn lock_receivable(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<Option<ReceivableRow>, ApiError> {
     // SCOPE-EXEMPT: 应收台账无归属列（见 receivable 模块文档）。
     let rows = ex
         .query_sql(
@@ -1033,10 +1006,7 @@ async fn offset_receivable(
 }
 
 /// 已开票金额（`status <> VOID` 的发票合计；红票也算在内 —— 负数自然抵减）。
-async fn invoiced_of(
-    ex: &impl SqlExecutor,
-    receivable_id: Uuid,
-) -> std::result::Result<Decimal, ApiError> {
+async fn invoiced_of(ex: &impl SqlExecutor, receivable_id: Uuid) -> std::result::Result<Decimal, ApiError> {
     invoice::invoiced_total(ex, receivable_id, None)
         .await
         .map_err(|error| utils::db_error(error, "统计应收已开票金额"))
@@ -1061,9 +1031,7 @@ async fn create_red_invoice(
         );
         return Ok(None);
     }
-    let Some((amount, tax, total)) =
-        red_invoice_amounts(row.total_amount, row.total_tax, row.total_with_tax)
-    else {
+    let Some((amount, tax, total)) = red_invoice_amounts(row.total_amount, row.total_tax, row.total_with_tax) else {
         tracing::warn!(
             return_no = %row.return_no,
             total_amount = %row.total_amount,
@@ -1075,10 +1043,7 @@ async fn create_red_invoice(
         .await
         .map_err(|error| utils::db_error(error, "取红字发票号"))?;
     let tax_rate = invoice_tax_rate(row.total_amount, row.total_tax);
-    let operator_text = operator
-        .id
-        .map(|value| value.to_string())
-        .unwrap_or_default();
+    let operator_text = operator.id.map(|value| value.to_string()).unwrap_or_default();
     let remark = format!(
         "销售退货 {} 红冲（原应收 {}）",
         row.return_no,
@@ -1177,13 +1142,8 @@ async fn create_red_invoice(
     let voucher_id = write_revenue_voucher(ex, row, invoice_id, &invoice_no, operator, now).await?;
     if let Some(voucher_id) = voucher_id {
         ex.exec_sql(
-            "UPDATE biz_invoice SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid"
-                .to_string(),
-            vec![
-                Value::from(&voucher_id),
-                Value::from(now),
-                Value::from(&invoice_id),
-            ],
+            "UPDATE biz_invoice SET voucher_id = ?::uuid, updated_at = ? WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&voucher_id), Value::from(now), Value::from(&invoice_id)],
         )
         .await
         .map_err(|error| write_error(error, "红字发票回写凭证"))?;
@@ -1303,10 +1263,7 @@ pub async fn post_in_tx(
         .await
         .map_err(|error| utils::db_error(error, "查询销售退货单明细"))?;
     if items.is_empty() {
-        return Err(bad_request(format!(
-            "退货单 {} 没有明细，不能过账",
-            row.return_no
-        )));
+        return Err(bad_request(format!("退货单 {} 没有明细，不能过账", row.return_no)));
     }
 
     // ② 超退闸重跑（此时本单还没算「已退」，必须 exclude 自己 —— 与提单时同一口径）
@@ -1314,21 +1271,14 @@ pub async fn post_in_tx(
         let Some(so_item_id) = item.so_item_id else {
             continue;
         };
-        model::ensure_qty_within_returnable(
-            ex,
-            row.shipment_id,
-            so_item_id,
-            item.qty,
-            Some(row.id),
-        )
-        .await
-        .map_err(|error| match error {
-            DbError::InvalidValue(message) => conflict(format!(
-                "退货单 {} 过账前复核超退失败：{message}",
-                row.return_no
-            )),
-            other => utils::db_error(other, "复核退货可退量"),
-        })?;
+        model::ensure_qty_within_returnable(ex, row.shipment_id, so_item_id, item.qty, Some(row.id))
+            .await
+            .map_err(|error| match error {
+                DbError::InvalidValue(message) => {
+                    conflict(format!("退货单 {} 过账前复核超退失败：{message}", row.return_no))
+                }
+                other => utils::db_error(other, "复核退货可退量"),
+            })?;
     }
 
     // ③ 期间闸（凭证日期 = 退货日期，已结账的月份不许再落账）
@@ -1358,12 +1308,7 @@ pub async fn post_in_tx(
         let info = stock_out::material_info(ex, item.material_id)
             .await
             .map_err(|error| utils::db_error(error, "查询退货明细的物料"))?
-            .ok_or_else(|| {
-                bad_request(format!(
-                    "退货明细引用的物料不存在或已删除：{}",
-                    item.material_id
-                ))
-            })?;
+            .ok_or_else(|| bad_request(format!("退货明细引用的物料不存在或已删除：{}", item.material_id)))?;
         if info.serial_required {
             return Err(bad_request(format!(
                 "物料 {} 是一物一码物料，退货回库要走序列号状态流转（本卡只做普通物料回库）",
@@ -1413,24 +1358,20 @@ pub async fn post_in_tx(
     );
 
     // ⑦ 红字入库凭证（借 1405 / 贷 6401）
-    let cost_voucher_id =
-        write_cost_voucher(ex, &row, stock_in_id, &stock_in_no, &lines, operator, now).await?;
+    let cost_voucher_id = write_cost_voucher(ex, &row, stock_in_id, &stock_in_no, &lines, operator, now).await?;
 
     // ⑧ 冲减应收（无原出库单 / 没挂应收 → 跳过）
-    let (receivable_id, receivable_unsettled) =
-        match offset_receivable(ex, &row, stock_out_id, operator, now).await? {
-            Some((id, unsettled)) => (Some(id), Some(unsettled)),
-            None => (None, None),
-        };
+    let (receivable_id, receivable_unsettled) = match offset_receivable(ex, &row, stock_out_id, operator, now).await? {
+        Some((id, unsettled)) => (Some(id), Some(unsettled)),
+        None => (None, None),
+    };
 
     // ⑨ 已开票 → 红字发票 + 收入冲减凭证
     let (red_invoice_id, red_invoice_no, revenue_voucher_id) = match receivable_id {
-        Some(receivable_id) => {
-            match create_red_invoice(ex, &row, receivable_id, operator, now).await? {
-                Some((id, no, voucher_id)) => (Some(id), Some(no), voucher_id),
-                None => (None, None, None),
-            }
-        }
+        Some(receivable_id) => match create_red_invoice(ex, &row, receivable_id, operator, now).await? {
+            Some((id, no, voucher_id)) => (Some(id), Some(no), voucher_id),
+            None => (None, None, None),
+        },
         None => (None, None, None),
     };
 
@@ -1438,16 +1379,7 @@ pub async fn post_in_tx(
     let delivered_lines = reduce_delivered(ex, &items, now).await?;
 
     // ⑪ 回填退货单三个回链列
-    link_returns(
-        ex,
-        id,
-        stock_in_id,
-        receivable_id,
-        red_invoice_id,
-        operator,
-        now,
-    )
-    .await?;
+    link_returns(ex, id, stock_in_id, receivable_id, red_invoice_id, operator, now).await?;
 
     tracing::info!(
         return_no = %row.return_no,
@@ -1462,14 +1394,9 @@ pub async fn post_in_tx(
     // 此刻本单状态已是 POSTED（handler 的状态 CAS 在调用本函数之前、同一事务内），
     // 公式按 POSTED 计入 ⇒ 同事务同步就是「货退回来了，额度当场还回去」。
     // 非 POSTED 的退货（草稿 / 待审）不计入释放，见 `credit::usage_of`。
-    credit::sync(
-        ex,
-        row.customer_id,
-        credit::CAUSE_RETURN_POSTED,
-        &row.return_no,
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "同步客户信用额度（退货过账）"))?;
+    credit::sync(ex, row.customer_id, credit::CAUSE_RETURN_POSTED, &row.return_no)
+        .await
+        .map_err(|error| utils::db_error(error, "同步客户信用额度（退货过账）"))?;
 
     Ok(ReturnPostOutcome {
         stock_in_id,
@@ -1523,10 +1450,7 @@ mod tests {
     /// ① 入库单事由 / 凭证摘要 / 应收备注都要能反查退货单号（对账靠它）。
     #[test]
     fn labels_carry_return_no() {
-        assert_eq!(
-            stock_in_reason("SR-20261107-000001"),
-            "销售退货 SR-20261107-000001"
-        );
+        assert_eq!(stock_in_reason("SR-20261107-000001"), "销售退货 SR-20261107-000001");
         assert!(cost_voucher_summary("SR-1").contains("SR-1"));
         assert!(cost_voucher_summary("SR-1").contains("成本冲减"));
         assert!(revenue_voucher_summary("SR-1").contains("收入冲减"));
@@ -1558,14 +1482,8 @@ mod tests {
     /// ④ 部分退货：应收金额与未收同额减少，状态不越级。
     #[test]
     fn receivable_partial_offset() {
-        let after = receivable_after(
-            "AR-1",
-            receivable::STATUS_OPEN,
-            dec("1130"),
-            Decimal::ZERO,
-            dec("339"),
-        )
-        .expect("部分退货应放行");
+        let after = receivable_after("AR-1", receivable::STATUS_OPEN, dec("1130"), Decimal::ZERO, dec("339"))
+            .expect("部分退货应放行");
         assert_eq!(after.amount, dec("791"));
         assert_eq!(after.unsettled, dec("791"));
         assert!(!after.cancel && !after.settled);
@@ -1584,14 +1502,8 @@ mod tests {
     /// ⑤ 全额退货 + 一分没收 → 整张应收作废（`OPEN → CANCELLED`，只有这条边）。
     #[test]
     fn receivable_full_offset_cancels_when_unpaid() {
-        let after = receivable_after(
-            "AR-1",
-            receivable::STATUS_OPEN,
-            dec("1130"),
-            Decimal::ZERO,
-            dec("1130"),
-        )
-        .expect("全额退货应放行");
+        let after = receivable_after("AR-1", receivable::STATUS_OPEN, dec("1130"), Decimal::ZERO, dec("1130"))
+            .expect("全额退货应放行");
         assert!(after.cancel, "全额退货必须走作废分支");
         assert_eq!(after.amount, Decimal::ZERO);
         assert_eq!(
@@ -1599,28 +1511,16 @@ mod tests {
             receivable::STATUS_CANCELLED
         );
         // 收过钱的整单退货不许作废：退货额 1130 > 未收 1030（应收 1130 − 已收 100）
-        let err = receivable_after(
-            "AR-1",
-            receivable::STATUS_PARTIAL,
-            dec("1130"),
-            dec("100"),
-            dec("1130"),
-        )
-        .unwrap_err();
+        let err =
+            receivable_after("AR-1", receivable::STATUS_PARTIAL, dec("1130"), dec("100"), dec("1130")).unwrap_err();
         assert!(err.contains("收款退款单"), "{err}");
     }
 
     /// ⑥ 退货金额超过未收：409 文案要点名「已收多少 / 未收多少 / 走退款单」。
     #[test]
     fn receivable_rejects_over_unsettled() {
-        let err = receivable_after(
-            "AR-9",
-            receivable::STATUS_PARTIAL,
-            dec("1130"),
-            dec("1000"),
-            dec("339"),
-        )
-        .unwrap_err();
+        let err =
+            receivable_after("AR-9", receivable::STATUS_PARTIAL, dec("1130"), dec("1000"), dec("339")).unwrap_err();
         assert!(err.contains("AR-9"), "{err}");
         assert!(err.contains("未收金额"), "{err}");
         assert!(err.contains("收款退款单"), "{err}");
@@ -1630,8 +1530,7 @@ mod tests {
     #[test]
     fn receivable_rejects_terminal_states_and_zero() {
         for status in [receivable::STATUS_CANCELLED, receivable::STATUS_WRITTEN_OFF] {
-            let err =
-                receivable_after("AR-1", status, dec("100"), Decimal::ZERO, dec("10")).unwrap_err();
+            let err = receivable_after("AR-1", status, dec("100"), Decimal::ZERO, dec("10")).unwrap_err();
             assert!(err.contains("AR-1"), "{err}");
         }
         assert!(
@@ -1644,30 +1543,15 @@ mod tests {
             )
             .is_err()
         );
-        assert!(
-            receivable_after(
-                "AR-1",
-                receivable::STATUS_OPEN,
-                dec("100"),
-                Decimal::ZERO,
-                dec("-1")
-            )
-            .is_err()
-        );
+        assert!(receivable_after("AR-1", receivable::STATUS_OPEN, dec("100"), Decimal::ZERO, dec("-1")).is_err());
     }
 
     /// ⑧ 冲减后恰好收清 → SETTLED（`PARTIAL → SETTLED` 是合法边）。
     #[test]
     fn receivable_offset_can_settle() {
         // 应收 1000，已收 400，退货 600 → amount 400 = received 400
-        let after = receivable_after(
-            "AR-1",
-            receivable::STATUS_PARTIAL,
-            dec("1000"),
-            dec("400"),
-            dec("600"),
-        )
-        .expect("冲减后正好收清");
+        let after = receivable_after("AR-1", receivable::STATUS_PARTIAL, dec("1000"), dec("400"), dec("600"))
+            .expect("冲减后正好收清");
         assert_eq!(after.amount, dec("400"));
         assert_eq!(after.unsettled, Decimal::ZERO);
         assert!(after.settled && !after.cancel);
@@ -1680,15 +1564,11 @@ mod tests {
     /// ⑨ 红字发票三金额全负，且价税恒等；零金额（会撞 `ck_biz_invoice_sign`）一律不造票。
     #[test]
     fn red_invoice_amounts_are_negative_and_balanced() {
-        let (amount, tax, total) =
-            red_invoice_amounts(dec("1000"), dec("130"), dec("1130")).expect("正常红票");
+        let (amount, tax, total) = red_invoice_amounts(dec("1000"), dec("130"), dec("1130")).expect("正常红票");
         assert_eq!(amount, dec("-1000"));
         assert_eq!(tax, dec("-130"));
         assert_eq!(total, dec("-1130"));
-        assert!(
-            amount < Decimal::ZERO && tax <= Decimal::ZERO,
-            "OUT_RED 的符号约束"
-        );
+        assert!(amount < Decimal::ZERO && tax <= Decimal::ZERO, "OUT_RED 的符号约束");
         assert_eq!(total, amount + tax, "ck_biz_invoice_amount 恒等");
 
         // 不含税金额为 0（纯税额退货 / 零价退货）→ 不造票
@@ -1713,14 +1593,8 @@ mod tests {
     #[test]
     fn credit_release_never_goes_negative() {
         use crate::business::erp::sales_order_model::credited_after_returns;
-        assert_eq!(
-            credited_after_returns(dec("2429.5"), dec("339")),
-            dec("2090.5")
-        );
-        assert_eq!(
-            credited_after_returns(dec("100"), dec("100")),
-            Decimal::ZERO
-        );
+        assert_eq!(credited_after_returns(dec("2429.5"), dec("339")), dec("2090.5"));
+        assert_eq!(credited_after_returns(dec("100"), dec("100")), Decimal::ZERO);
         assert_eq!(
             credited_after_returns(dec("100"), dec("130")),
             Decimal::ZERO,
@@ -1733,10 +1607,7 @@ mod tests {
     fn constants_match_database_domains() {
         // 入库性质仍在既有域值里（ck_biz_si_type 只认 PURCHASE/RETURN/OTHER）
         assert_eq!(IN_TYPE_RETURN, "RETURN");
-        assert_ne!(
-            IN_TYPE_RETURN,
-            crate::business::erp::stockin_base::IN_TYPE_PURCHASE
-        );
+        assert_ne!(IN_TYPE_RETURN, crate::business::erp::stockin_base::IN_TYPE_PURCHASE);
         // 来源类型不是 in_type（两个维度，不许互相替代）
         assert_eq!(SOURCE_TYPE_SALES_RETURN, "SALES_RETURN");
         assert_ne!(SOURCE_TYPE_SALES_RETURN, IN_TYPE_RETURN);

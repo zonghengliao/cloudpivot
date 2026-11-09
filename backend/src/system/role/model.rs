@@ -281,9 +281,7 @@ pub(crate) async fn escalation_parent_of(
         .await?;
     match rows.first() {
         None => Ok(None),
-        Some(row) => Ok(Some(
-            row.get_typed::<Option<uuid::Uuid>>("escalation_role_id")?,
-        )),
+        Some(row) => Ok(Some(row.get_typed::<Option<uuid::Uuid>>("escalation_role_id")?)),
     }
 }
 
@@ -306,14 +304,7 @@ pub(crate) async fn count_roles_by_code(
     exclude: Option<uuid::Uuid>,
 ) -> std::result::Result<i64, DbError> {
     match exclude {
-        Some(id) => {
-            SysRoleModel::count_by(
-                db(),
-                "role_code = ? AND id <> ?",
-                (Value::from(role_code), &id),
-            )
-            .await
-        }
+        Some(id) => SysRoleModel::count_by(db(), "role_code = ? AND id <> ?", (Value::from(role_code), &id)).await,
         None => SysRoleModel::count_by(db(), "role_code", (Value::from(role_code),)).await,
     }
 }
@@ -355,12 +346,7 @@ pub(crate) async fn replace_role_menus(
             };
             binding.insert(&tx).await?;
         }
-        crate::system::user::model::bump_token_version_of_role_holders_in(
-            &tx,
-            *role_id,
-            except_username,
-        )
-        .await?;
+        crate::system::user::model::bump_token_version_of_role_holders_in(&tx, *role_id, except_username).await?;
         Ok(())
     })
     .await?;
@@ -392,9 +378,7 @@ pub(crate) async fn replace_role_menus(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]（调用方通常降级为只告警）。
-pub(crate) async fn find_role_holder_ids(
-    role_id: &uuid::Uuid,
-) -> std::result::Result<Vec<uuid::Uuid>, DbError> {
+pub(crate) async fn find_role_holder_ids(role_id: &uuid::Uuid) -> std::result::Result<Vec<uuid::Uuid>, DbError> {
     let rows = db()
         .find_with_params(
             "SELECT DISTINCT user_id FROM sys_user_role WHERE role_id = ?",

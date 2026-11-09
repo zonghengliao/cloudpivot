@@ -189,10 +189,7 @@ pub(crate) async fn flush() {
         tracing::warn!("日志总线已关闭，跳过刷盘");
         return;
     }
-    if tokio::time::timeout(FLUSH_TIMEOUT, ack_receiver)
-        .await
-        .is_err()
-    {
+    if tokio::time::timeout(FLUSH_TIMEOUT, ack_receiver).await.is_err() {
         tracing::warn!("等待日志刷盘超时，部分日志可能尚未落库");
     }
 }
@@ -357,11 +354,7 @@ async fn build_auth_model(event: AuthEvent) -> AuthLogModel {
     let (device_type, browser_type, os_type) = match event.user_agent.as_deref() {
         Some(raw) => {
             let info = nik_utils::parse_user_agent(raw);
-            (
-                Some(info.device_type),
-                Some(info.browser_type),
-                Some(info.os_type),
-            )
+            (Some(info.device_type), Some(info.browser_type), Some(info.os_type))
         }
         None => (None, None, None),
     };

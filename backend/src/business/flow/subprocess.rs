@@ -254,10 +254,7 @@ pub fn parse_config(value: &Json) -> std::result::Result<SubConfig, SubConfigErr
 }
 
 /// 解析 `param_mapping` / `result_mapping`：对象，值是「表单路径」字符串。
-fn parse_mapping(
-    value: Option<&Json>,
-    label: &str,
-) -> std::result::Result<BTreeMap<String, String>, SubConfigError> {
+fn parse_mapping(value: Option<&Json>, label: &str) -> std::result::Result<BTreeMap<String, String>, SubConfigError> {
     let Some(value) = value else {
         return Ok(BTreeMap::new());
     };
@@ -312,10 +309,7 @@ pub enum NestingProblem {
 ///
 /// `children` 是「流程定义 → 它的子流程定义列表」（只含已经查到的部分；缺的按「无子流程」处理）。
 /// 成环一律 [`NestingProblem::Cycle`]：环的后果不是「慢」而是**无限发起**。
-pub fn nesting_depth(
-    root: Uuid,
-    children: &BTreeMap<Uuid, Vec<Uuid>>,
-) -> std::result::Result<u32, NestingProblem> {
+pub fn nesting_depth(root: Uuid, children: &BTreeMap<Uuid, Vec<Uuid>>) -> std::result::Result<u32, NestingProblem> {
     fn walk(
         node: Uuid,
         depth: u32,
@@ -491,10 +485,7 @@ pub async fn validate_publish(graph: &FlowGraph, def_id: Uuid) -> DbResult<Vec<I
                     Issue::new(
                         "R27",
                         error_code::FLOW_SUBPROCESS_RECURSION,
-                        format!(
-                            "子流程引用成环（{}）—— 环上的流程会在发起时无限嵌套",
-                            join_ids(&path)
-                        ),
+                        format!("子流程引用成环（{}）—— 环上的流程会在发起时无限嵌套", join_ids(&path)),
                     )
                     .with_nodes(subprocess_nodes),
                 );
@@ -520,10 +511,7 @@ pub async fn validate_publish(graph: &FlowGraph, def_id: Uuid) -> DbResult<Vec<I
 
 /// 把流程定义 id 链拼成人读文案。
 fn join_ids(ids: &[Uuid]) -> String {
-    ids.iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(" → ")
+    ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(" → ")
 }
 
 /// 流程定义的一行（发布校验 / 发起子实例共用）。
@@ -693,10 +681,7 @@ pub async fn spawn_child(
             return Err(spawn_error::Error::api(ApiError::new(
                 422,
                 error_code::FLOW_SUBPROCESS_START_FAILED,
-                format!(
-                    "子流程「{}」在节点 {} 发起失败：{}",
-                    def.flow_code, spec.key, error.msg
-                ),
+                format!("子流程「{}」在节点 {} 发起失败：{}", def.flow_code, spec.key, error.msg),
             )));
         }
         Err(StartFailure::Db(error)) => return Err(spawn_error::Error::db(error)),
@@ -771,11 +756,7 @@ pub mod spawn_error {
 /// 按 (版本, 节点 key) 读子流程定义指针（`biz_flow_node.subprocess_def_id`）。
 ///
 /// 读列而不是读快照：见 [`spawn_child`] 的 ② 段注释（PUBLISHED 版本的节点行是冻结的）。
-async fn node_subprocess_def(
-    ex: &Transaction,
-    version_id: Uuid,
-    node_key: &str,
-) -> DbResult<Option<Uuid>> {
+async fn node_subprocess_def(ex: &Transaction, version_id: Uuid, node_key: &str) -> DbResult<Option<Uuid>> {
     let rows = ex
         .find_with_params(
             "SELECT subprocess_def_id FROM biz_flow_node \
@@ -861,11 +842,7 @@ async fn resolve_version(
 }
 
 /// 同一父实例同一节点已经发起过的子实例，它绑的版本号（`PIN_CURRENT` 用）。
-async fn pinned_child_version(
-    ex: &Transaction,
-    parent_id: Uuid,
-    node_key: &str,
-) -> DbResult<Option<Uuid>> {
+async fn pinned_child_version(ex: &Transaction, parent_id: Uuid, node_key: &str) -> DbResult<Option<Uuid>> {
     let rows = ex
         .find_with_params(
             "SELECT version_id FROM biz_flow_instance \
@@ -1022,9 +999,7 @@ pub async fn on_instance_settled(instance_id: Option<Uuid>, status: &str) -> Opt
         return None;
     }
     let parent_id = match db()
-        .transaction(
-            |tx| async move { engine::resume_parent_after_subprocess(&tx, instance_id).await },
-        )
+        .transaction(|tx| async move { engine::resume_parent_after_subprocess(&tx, instance_id).await })
         .await
     {
         Ok(parent_id) => parent_id,
@@ -1109,9 +1084,7 @@ mod tests {
             Some("expense.amount")
         );
         assert_eq!(
-            cfg.result_mapping
-                .get("budget_approved")
-                .map(String::as_str),
+            cfg.result_mapping.get("budget_approved").map(String::as_str),
             Some("approved")
         );
         assert!(cfg.spawn_task);

@@ -298,18 +298,12 @@ pub fn plan_of(node: &SnapshotNode) -> SourcePlan {
         Some(AssigneeKind::User) => SourcePlan::Users(ids_of(node, AssigneeKind::User)),
         Some(AssigneeKind::Role) => SourcePlan::Roles(ids_of(node, AssigneeKind::Role)),
         Some(AssigneeKind::Initiator) => SourcePlan::Initiator,
-        Some(AssigneeKind::InitiatorSuperior) => {
-            SourcePlan::InitiatorSuperior(node.superior_levels.clamp(1, 10))
-        }
-        Some(AssigneeKind::DeptLeader) => {
-            SourcePlan::DeptLeaders(ids_of(node, AssigneeKind::DeptLeader))
-        }
+        Some(AssigneeKind::InitiatorSuperior) => SourcePlan::InitiatorSuperior(node.superior_levels.clamp(1, 10)),
+        Some(AssigneeKind::DeptLeader) => SourcePlan::DeptLeaders(ids_of(node, AssigneeKind::DeptLeader)),
         Some(AssigneeKind::TaskOwner) => SourcePlan::TaskParty(TaskParty::Owner),
         Some(AssigneeKind::TaskCreator) => SourcePlan::TaskParty(TaskParty::Creator),
         Some(AssigneeKind::TaskAssigner) => SourcePlan::TaskParty(TaskParty::Assigner),
-        Some(AssigneeKind::FormVar) => {
-            SourcePlan::FormVar(node.form_var_key.clone().unwrap_or_default())
-        }
+        Some(AssigneeKind::FormVar) => SourcePlan::FormVar(node.form_var_key.clone().unwrap_or_default()),
         Some(AssigneeKind::Admin) => SourcePlan::Admins,
         // `EXPRESSION` 不走这里：求值需要 `EvalContext`（`plan_of` 是纯配置翻译，没有上下文），
         // 由 `resolve()` 的表达式分支单独处理（见 `expression_plans`）。
@@ -491,10 +485,9 @@ fn apply_empty_policy(finalized: &mut Finalized, empty_policy: EmptyPolicy) {
             ));
         }
         EmptyPolicy::FallbackAdmin => {
-            finalized.notes.push(
-                "本节点没有有效审批人，empty_assignee=FALLBACK_ADMIN → 回退给平台管理员"
-                    .to_string(),
-            );
+            finalized
+                .notes
+                .push("本节点没有有效审批人，empty_assignee=FALLBACK_ADMIN → 回退给平台管理员".to_string());
             finalized.fallback_admin = true;
         }
     }
@@ -521,12 +514,7 @@ fn apply_empty_policy(finalized: &mut Finalized, empty_policy: EmptyPolicy) {
 /// 同一个人只降级一次（`self_limit_blocks` 去重）：本函数在 `resolve()` 里会被调两遍
 /// —— 升级链之前一次、「FALLBACK_ADMIN 回退超管」之后一次（**超管兜底**可能又把发起人
 /// 自己兜回来，那一票同样不许签）。
-fn demote_over_limit(
-    finalized: &mut Finalized,
-    initiator: Uuid,
-    amount: Option<f64>,
-    threshold: f64,
-) -> usize {
+fn demote_over_limit(finalized: &mut Finalized, initiator: Uuid, amount: Option<f64>, threshold: f64) -> usize {
     let Some(amount) = amount else {
         return 0;
     };
@@ -564,9 +552,7 @@ fn demote_over_limit(
             amount,
             threshold,
         };
-        finalized
-            .notes
-            .push(format!("{} {}", candidate.name, block.comment()));
+        finalized.notes.push(format!("{} {}", candidate.name, block.comment()));
         tracing::info!(
             user_id = %candidate.user_id,
             amount,
@@ -608,12 +594,10 @@ fn fail_closed_on_amount_limit(finalized: &mut Finalized, node_name: &str) -> bo
         return false;
     };
     let dispatch = dispatch_hint(finalized.escalation.as_ref(), finalized.fallback.as_ref());
-    let message =
-        self_approval::over_limit_message(node_name, block.amount, block.threshold, &dispatch);
-    finalized.notes.push(
-        "自审金额超限且升级链 / 兜底人都没找到其他审批人 → 422 + 65044（绝不允许自动通过）"
-            .to_string(),
-    );
+    let message = self_approval::over_limit_message(node_name, block.amount, block.threshold, &dispatch);
+    finalized
+        .notes
+        .push("自审金额超限且升级链 / 兜底人都没找到其他审批人 → 422 + 65044（绝不允许自动通过）".to_string());
     finalized.auto_pass = false;
     finalized.fallback_admin = false;
     finalized.error = Some(self_approval::over_limit_error(message));
@@ -636,11 +620,10 @@ pub fn finalize(
     initiator: Uuid,
 ) -> Finalized {
     let mut notes: Vec<String> = Vec::new();
-    let filtered =
-        match filter_candidates(candidates, self_policy, allow_robot, initiator, &mut notes) {
-            Ok(filtered) => filtered,
-            Err(error) => return Finalized::failed(error, notes),
-        };
+    let filtered = match filter_candidates(candidates, self_policy, allow_robot, initiator, &mut notes) {
+        Ok(filtered) => filtered,
+        Err(error) => return Finalized::failed(error, notes),
+    };
     let mut finalized = Finalized {
         approvers: filtered.approvers,
         skipped: filtered.skipped,
@@ -675,11 +658,7 @@ pub struct InstanceCtx {
 /// 文本数组绑定（本栈驱动不支持 `Value::Array`，统一转 `{uuid,uuid}` 字面量 +
 /// `?::text::uuid[]`；见 `business/shared/scope.rs` 文件头的实测）。
 pub fn array_param(ids: &[Uuid]) -> Value {
-    let body = ids
-        .iter()
-        .map(|id| id.to_string())
-        .collect::<Vec<_>>()
-        .join(",");
+    let body = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
     Value::Text(format!("{{{body}}}"))
 }
 
@@ -806,10 +785,7 @@ pub async fn resolve(
             Ok(plans) => plans,
             Err(error) => {
                 return Ok(Resolution {
-                    finalized: Finalized::failed(
-                        error,
-                        vec![format!("节点 {} 的审批人表达式无法解析", node.key)],
-                    ),
+                    finalized: Finalized::failed(error, vec![format!("节点 {} 的审批人表达式无法解析", node.key)]),
                     trace,
                 });
             }
@@ -919,12 +895,7 @@ pub async fn resolve(
             amount, self_max_amount
         ));
     }
-    demote_over_limit(
-        &mut finalized,
-        ctx.initiator_id,
-        self_limit_amount,
-        self_max_amount,
-    );
+    demote_over_limit(&mut finalized, ctx.initiator_id, self_limit_amount, self_max_amount);
 
     // ④ 升级链（P3-02）：**只在「有角色来源且被剔光」时才走**
     //
@@ -944,16 +915,7 @@ pub async fn resolve(
             None
         };
         if let (Some(reason), false) = (reason, start_roles.is_empty()) {
-            match escalate(
-                ex,
-                &start_roles,
-                reason,
-                node.allow_robot,
-                ctx.initiator_id,
-                &mut trace,
-            )
-            .await?
-            {
+            match escalate(ex, &start_roles, reason, node.allow_robot, ctx.initiator_id, &mut trace).await? {
                 EscalationOutcome::Applied(escalation, approvers) => {
                     trace.push(format!(
                         "升级链接管：原角色 {}（{}）→ 上级「{}」{} 人",
@@ -982,10 +944,9 @@ pub async fn resolve(
                 EscalationOutcome::Exhausted(escalation) => {
                     // 到顶仍无人：**不在这里报 422**（交给 empty_assignee / 引擎统一处置），
                     // 但把链路带出去 —— 报文与结构化诊断都要能回答「找过谁、各有几个人」。
-                    finalized.notes.push(format!(
-                        "升级链已走完，仍无可用审批人：{}",
-                        escalation.chain_text()
-                    ));
+                    finalized
+                        .notes
+                        .push(format!("升级链已走完，仍无可用审批人：{}", escalation.chain_text()));
                     finalized.escalation = Some(escalation);
                 }
                 EscalationOutcome::Invalid(error) => {
@@ -1007,10 +968,9 @@ pub async fn resolve(
         match apply_fallback(ex, node, node.allow_robot, ctx.initiator_id, &mut trace).await? {
             FallbackOutcome::NotConfigured => {
                 // 只留痕；报文由下面的 `dispatch_hint` 统一拼（「升级链与兜底人均未配置」）
-                finalized.notes.push(
-                    "本节点没有兜底人配置（fallback_user_id / fallback_role_id 均为空）"
-                        .to_string(),
-                );
+                finalized
+                    .notes
+                    .push("本节点没有兜底人配置（fallback_user_id / fallback_role_id 均为空）".to_string());
             }
             FallbackOutcome::Applied(fallback, approvers) => {
                 trace.push(format!(
@@ -1019,10 +979,9 @@ pub async fn resolve(
                     fallback.reason,
                     approvers.len()
                 ));
-                finalized.notes.push(format!(
-                    "升级链走完仍无人，已由兜底人「{}」接管",
-                    fallback.target
-                ));
+                finalized
+                    .notes
+                    .push(format!("升级链走完仍无人，已由兜底人「{}」接管", fallback.target));
                 finalized.approvers = approvers;
                 finalized.auto_pass = false;
                 finalized.fallback_admin = false;
@@ -1108,12 +1067,7 @@ pub async fn resolve(
     //   （`empty_assignee=SKIP` 的自动通过在这里必须被打断：大额单据没人签就生效，
     //    比自审更坏）。
     if self_max_amount > 0.0 {
-        demote_over_limit(
-            &mut finalized,
-            ctx.initiator_id,
-            self_limit_amount,
-            self_max_amount,
-        );
+        demote_over_limit(&mut finalized, ctx.initiator_id, self_limit_amount, self_max_amount);
     }
     fail_closed_on_amount_limit(&mut finalized, &node.name);
 
@@ -1157,11 +1111,7 @@ async fn load_plan(
     let candidates = match plan {
         SourcePlan::Users(ids) => {
             let candidates = load_users(ex, ids, AssigneeKind::User).await?;
-            trace.push(format!(
-                "USER 命中 {} 行（配置 {} 个）",
-                candidates.len(),
-                ids.len()
-            ));
+            trace.push(format!("USER 命中 {} 行（配置 {} 个）", candidates.len(), ids.len()));
             candidates
         }
         SourcePlan::Roles(role_ids) => {
@@ -1301,11 +1251,7 @@ fn task_source(party: TaskParty) -> AssigneeKind {
 // SCOPE-EXEMPT: 详见 `docs/批次D-工作流审批-技术架构.md` §4.3（8 种来源）与 §9.1（实例可见性另算）。
 
 /// 按 id 批量取用户（软删不返回；停用返回但 `active = false`，由 [`finalize`] 剔除并留痕）。
-async fn load_users(
-    ex: &impl SqlExecutor,
-    ids: &[Uuid],
-    source: AssigneeKind,
-) -> DbResult<Vec<Candidate>> {
+async fn load_users(ex: &impl SqlExecutor, ids: &[Uuid], source: AssigneeKind) -> DbResult<Vec<Candidate>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -1507,10 +1453,7 @@ pub enum EscalationOutcome {
 }
 
 /// 查一个角色（未软删）的 id / code / name / 上级；查不到返回 `None`。
-async fn load_role_chain_node(
-    ex: &impl SqlExecutor,
-    role_id: Uuid,
-) -> DbResult<Option<RoleChainNode>> {
+async fn load_role_chain_node(ex: &impl SqlExecutor, role_id: Uuid) -> DbResult<Option<RoleChainNode>> {
     let rows = ex
         .query_sql(
             "SELECT id, role_code, role_name, escalation_role_id \
@@ -1654,8 +1597,7 @@ pub async fn escalate(
         for node in &nodes {
             level_members.push((node.id, load_role_members(ex, &[node.id]).await?));
         }
-        let (level_rows, hit) =
-            decide_level(&nodes, &level_members, allow_robot, initiator, depth, trace);
+        let (level_rows, hit) = decide_level(&nodes, &level_members, allow_robot, initiator, depth, trace);
         escalation.levels.extend(level_rows);
         if let Some(approvers) = hit {
             escalation.applied = true;
@@ -1681,10 +1623,7 @@ pub async fn escalate(
             ),
         )));
     }
-    trace.push(format!(
-        "升级链已走完，仍无可用审批人：{}",
-        escalation.chain_text()
-    ));
+    trace.push(format!("升级链已走完，仍无可用审批人：{}", escalation.chain_text()));
     Ok(EscalationOutcome::Exhausted(escalation))
 }
 
@@ -1722,13 +1661,7 @@ fn decide_level(
         let mut notes: Vec<String> = Vec::new();
         // 升级后的每一级一律按 SKIP 处理自审：发起人就是不能自己审，与节点上的
         // `self_approval` 无关（FORBID 在 filter 阶段就已经整单失败了，走不到这里）。
-        let usable = match filter_candidates(
-            candidates,
-            SelfPolicy::Skip,
-            allow_robot,
-            initiator,
-            &mut notes,
-        ) {
+        let usable = match filter_candidates(candidates, SelfPolicy::Skip, allow_robot, initiator, &mut notes) {
             Ok(filtered) => filtered.approvers,
             // Skip 策略不会产生 65019；真出现了说明策略被改坏了，按 0 人处理并留痕
             Err(_) => Vec::new(),
@@ -1959,13 +1892,7 @@ pub async fn apply_fallback(
             )));
         }
         let mut notes: Vec<String> = Vec::new();
-        let filtered = match filter_candidates(
-            vec![candidate],
-            SelfPolicy::Skip,
-            allow_robot,
-            initiator,
-            &mut notes,
-        ) {
+        let filtered = match filter_candidates(vec![candidate], SelfPolicy::Skip, allow_robot, initiator, &mut notes) {
             Ok(filtered) => filtered,
             // Skip 策略不会产生 65019；真出现说明策略被改坏了，按「不可用」处理并留痕
             Err(error) => return Ok(FallbackOutcome::Invalid(error)),
@@ -1973,14 +1900,8 @@ pub async fn apply_fallback(
 
         // 自审：兜底人 == 发起人 → 内控不允许，直接 422（不是「静默换人」也不是「放行」）
         if filtered.skipped.iter().any(|c| c.user_id == initiator) {
-            let name = filtered
-                .skipped
-                .first()
-                .map(|c| c.name.clone())
-                .unwrap_or_default();
-            trace.push(format!(
-                "兜底人「{name}」就是发起人本人，内控不允许自审 → 422"
-            ));
+            let name = filtered.skipped.first().map(|c| c.name.clone()).unwrap_or_default();
+            trace.push(format!("兜底人「{name}」就是发起人本人，内控不允许自审 → 422"));
             return Ok(FallbackOutcome::SelfConflict(
                 ApiError::new(
                     422,
@@ -2020,10 +1941,7 @@ pub async fn apply_fallback(
                 ),
             )));
         };
-        trace.push(format!(
-            "兜底人「{}」接管（第 ⑦ 步：升级链走完仍无人）",
-            candidate.name
-        ));
+        trace.push(format!("兜底人「{}」接管（第 ⑦ 步：升级链走完仍无人）", candidate.name));
         return Ok(FallbackOutcome::Applied(
             Fallback {
                 target: candidate.name.clone(),
@@ -2090,10 +2008,7 @@ pub async fn apply_fallback(
             target: role.role_name,
             by_role: true,
             applied: true,
-            reason: format!(
-                "兜底角色展开 {} 人（在位 {member_rows} 人）",
-                filtered.approvers.len()
-            ),
+            reason: format!("兜底角色展开 {} 人（在位 {member_rows} 人）", filtered.approvers.len()),
         },
         filtered.approvers,
     ))
@@ -2238,11 +2153,7 @@ async fn load_superior(
 
 /// 关联任务的某一方（只有 `biz_type = TASK_ACCEPT` 且 `biz_id` 非空才解析，
 /// 否则**返回空** → 走空审批人策略，不静默通过）。
-async fn task_party_ids(
-    ex: &impl SqlExecutor,
-    ctx: &InstanceCtx,
-    party: TaskParty,
-) -> DbResult<Vec<Uuid>> {
+async fn task_party_ids(ex: &impl SqlExecutor, ctx: &InstanceCtx, party: TaskParty) -> DbResult<Vec<Uuid>> {
     if !ctx.biz_type.eq_ignore_ascii_case("TASK_ACCEPT") {
         return Ok(Vec::new());
     }
@@ -2491,10 +2402,7 @@ pub async fn load_active_delegations(
                 AND (d.scope IS NULL OR upper(d.scope) = upper(?::text)) \
               ORDER BY d.delegator_id, d.start_at DESC, d.created_at DESC"
                 .to_string(),
-            vec![
-                array_param(delegator_ids),
-                Value::Text(biz_type.to_string()),
-            ],
+            vec![array_param(delegator_ids), Value::Text(biz_type.to_string())],
         )
         .await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -2553,11 +2461,7 @@ pub async fn apply_delegation(
     if hits.is_empty() {
         return Ok(());
     }
-    trace.push(format!(
-        "委托命中 {} 档（业务 {}）",
-        hits.len(),
-        ctx.biz_type
-    ));
+    trace.push(format!("委托命中 {} 档（业务 {}）", hits.len(), ctx.biz_type));
 
     // 受托人信息一次批量取（软删用户不会返回，所以「查不到」= 已删除 / id 写坏）
     let delegate_ids: Vec<Uuid> = hits.iter().map(|hit| hit.delegate_id).collect();
@@ -2574,11 +2478,7 @@ pub async fn apply_delegation(
     let mut applied_delegate_ids: Vec<Uuid> = Vec::new();
 
     for candidate in std::mem::take(&mut finalized.approvers) {
-        let Some(hit) = hits
-            .iter()
-            .find(|hit| hit.delegator_id == candidate.user_id)
-            .cloned()
-        else {
+        let Some(hit) = hits.iter().find(|hit| hit.delegator_id == candidate.user_id).cloned() else {
             // 没被委托的人原样保留（顺带做一次跨来源去重：委托可能把两条并成一条）
             if seen.insert(candidate.user_id) {
                 out.push(candidate);
@@ -2606,10 +2506,7 @@ pub async fn apply_delegation(
         };
 
         // ① 受托人不可用（已删除 / 已停用 / ROBOT 未开 allow_robot）→ 委托整体不生效，仍派给委托人
-        let Some(delegate) = delegate_rows
-            .iter()
-            .find(|row| row.user_id == hit.delegate_id)
-        else {
+        let Some(delegate) = delegate_rows.iter().find(|row| row.user_id == hit.delegate_id) else {
             record.reason = "受托人不存在（已删除或 id 非法）".to_string();
             notes.push(format!(
                 "委托「{} → {}」不生效：{}；本次仍派给 {}",
@@ -2680,10 +2577,7 @@ pub async fn apply_delegation(
                 delegate.user_id,
                 RowMeta {
                     assigned_by_rule: None,
-                    comment: Some(format!(
-                        "代 {} 审批被内控剔除：{reason}",
-                        hit.delegator_name
-                    )),
+                    comment: Some(format!("代 {} 审批被内控剔除：{reason}", hit.delegator_name)),
                 },
             );
             continue;
@@ -2826,10 +2720,7 @@ mod tests {
             plan_of(&with_assignee(node("DEPT_LEADER"), "DEPT_LEADER", dept)),
             SourcePlan::DeptLeaders(vec![dept])
         );
-        assert_eq!(
-            plan_of(&node("TASK_OWNER")),
-            SourcePlan::TaskParty(TaskParty::Owner)
-        );
+        assert_eq!(plan_of(&node("TASK_OWNER")), SourcePlan::TaskParty(TaskParty::Owner));
         assert_eq!(
             plan_of(&node("TASK_CREATOR")),
             SourcePlan::TaskParty(TaskParty::Creator)
@@ -2838,10 +2729,7 @@ mod tests {
             plan_of(&node("TASK_ASSIGNER")),
             SourcePlan::TaskParty(TaskParty::Assigner)
         );
-        assert_eq!(
-            plan_of(&node("FORM_VAR")),
-            SourcePlan::FormVar("approver".to_string())
-        );
+        assert_eq!(plan_of(&node("FORM_VAR")), SourcePlan::FormVar("approver".to_string()));
         assert_eq!(plan_of(&node("ADMIN")), SourcePlan::Admins);
 
         // EXPRESSION 是 P1：必须落到 Unsupported（调用方返回 501），绝不能当空审批人
@@ -2870,13 +2758,7 @@ mod tests {
             Candidate::new(same, "张三", AssigneeKind::InitiatorSuperior).with_ref(Some(uid(31))),
             Candidate::new(uid(3), "李四", AssigneeKind::Role),
         ];
-        let out = finalize(
-            candidates,
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let out = finalize(candidates, SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert!(out.error.is_none());
         assert_eq!(out.approvers.len(), 2, "3 条候选去重成 2 个人");
         let ids: Vec<Uuid> = out.approvers.iter().map(|c| c.user_id).collect();
@@ -2896,13 +2778,7 @@ mod tests {
             Candidate::new(same, "张三", AssigneeKind::Role),
             Candidate::new(same, "张三", AssigneeKind::User),
         ];
-        let out = finalize(
-            candidates,
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let out = finalize(candidates, SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert_eq!(out.approvers.len(), 1);
         assert_eq!(
             out.approvers[0].source,
@@ -2915,18 +2791,8 @@ mod tests {
     fn self_approval_skip_keeps_a_skipped_row_and_counts() {
         // 验收 15：发起人 = 部门主管 → 落一条 SKIPPED 待办（不是静默），且节点自动通过。
         let initiator = uid(1);
-        let candidates = vec![Candidate::new(
-            initiator,
-            "我自己",
-            AssigneeKind::DeptLeader,
-        )];
-        let out = finalize(
-            candidates,
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let candidates = vec![Candidate::new(initiator, "我自己", AssigneeKind::DeptLeader)];
+        let out = finalize(candidates, SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert!(out.error.is_none());
         assert!(out.approvers.is_empty());
         assert_eq!(out.skipped.len(), 1, "SKIPPED 必须留痕（坑 3）");
@@ -2942,13 +2808,7 @@ mod tests {
             Candidate::new(initiator, "我自己", AssigneeKind::Role),
             Candidate::new(uid(2), "别的人", AssigneeKind::Role),
         ];
-        let out = finalize(
-            candidates,
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let out = finalize(candidates, SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert_eq!(out.approvers.len(), 1, "发起人被剔除后仍有 1 个审批人");
         assert_eq!(out.skipped.len(), 1);
         assert!(!out.auto_pass, "还有人审 → 节点不能自动跳过");
@@ -2968,13 +2828,7 @@ mod tests {
         assert_eq!(allow.approvers.len(), 1, "ALLOW：保留（UI 打自审标）");
         assert!(allow.skipped.is_empty());
 
-        let forbid = finalize(
-            candidates,
-            SelfPolicy::Forbid,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let forbid = finalize(candidates, SelfPolicy::Forbid, EmptyPolicy::Skip, false, initiator);
         let error = forbid.error.expect("FORBID 必须报错");
         assert_eq!(error.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
         assert_eq!(error.status, 422);
@@ -2984,27 +2838,12 @@ mod tests {
     fn empty_assignee_policies() {
         // 验收 16：角色里 0 人 → 节点跳过 + auto_passed_nodes + 1（调用方计数）
         let initiator = uid(1);
-        let skip = finalize(
-            Vec::new(),
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let skip = finalize(Vec::new(), SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert!(skip.auto_pass);
         assert!(skip.error.is_none());
 
-        let error = finalize(
-            Vec::new(),
-            SelfPolicy::Skip,
-            EmptyPolicy::Error,
-            false,
-            initiator,
-        );
-        assert_eq!(
-            error.error.expect("ERROR 必须报错").code,
-            error_code::FLOW_NO_ASSIGNEE
-        );
+        let error = finalize(Vec::new(), SelfPolicy::Skip, EmptyPolicy::Error, false, initiator);
+        assert_eq!(error.error.expect("ERROR 必须报错").code, error_code::FLOW_NO_ASSIGNEE);
 
         let fallback = finalize(
             Vec::new(),
@@ -3041,10 +2880,7 @@ mod tests {
             false,
             initiator,
         );
-        assert!(
-            filtered.approvers.is_empty(),
-            "隐式来源里的 ROBOT 必须被过滤"
-        );
+        assert!(filtered.approvers.is_empty(), "隐式来源里的 ROBOT 必须被过滤");
         assert!(filtered.auto_pass);
         assert!(filtered.notes.iter().any(|note| note.contains("机器人")));
 
@@ -3053,27 +2889,11 @@ mod tests {
             source_ref: None,
             ..robot.clone()
         };
-        let allowed = finalize(
-            vec![explicit],
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let allowed = finalize(vec![explicit], SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert_eq!(allowed.approvers.len(), 1, "显式 USER 指定 ROBOT 必须放行");
 
-        let node_allows = finalize(
-            vec![robot],
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            true,
-            initiator,
-        );
-        assert_eq!(
-            node_allows.approvers.len(),
-            1,
-            "allow_robot=true 时隐式来源也放行"
-        );
+        let node_allows = finalize(vec![robot], SelfPolicy::Skip, EmptyPolicy::Skip, true, initiator);
+        assert_eq!(node_allows.approvers.len(), 1, "allow_robot=true 时隐式来源也放行");
     }
 
     #[test]
@@ -3087,13 +2907,7 @@ mod tests {
             is_robot: false,
             active: false,
         };
-        let out = finalize(
-            vec![candidate],
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            initiator,
-        );
+        let out = finalize(vec![candidate], SelfPolicy::Skip, EmptyPolicy::Skip, false, initiator);
         assert!(out.approvers.is_empty());
         assert!(out.notes.iter().any(|note| note.contains("已停用")));
     }
@@ -3157,10 +2971,7 @@ mod tests {
         assert!(comment.contains("超出自审金额上限"), "{comment}");
         // 留痕里能看出「这是降级，不是普通 SKIP」
         assert!(
-            finalized
-                .notes
-                .iter()
-                .any(|note| note.contains("超出自审金额上限")),
+            finalized.notes.iter().any(|note| note.contains("超出自审金额上限")),
             "notes: {:?}",
             finalized.notes
         );
@@ -3207,10 +3018,7 @@ mod tests {
             approvers: vec![Candidate::new(other, "别人", AssigneeKind::Role)],
             ..Finalized::default()
         };
-        assert_eq!(
-            demote_over_limit(&mut others, me, Some(9_999.0), 1_000.0),
-            0
-        );
+        assert_eq!(demote_over_limit(&mut others, me, Some(9_999.0), 1_000.0), 0);
         assert_eq!(others.approvers.len(), 1);
         assert!(others.skipped.is_empty());
     }
@@ -3220,16 +3028,10 @@ mod tests {
     fn demotion_is_idempotent_across_recheck() {
         let me = uid(106);
         let mut finalized = allow_only_initiator(me);
-        assert_eq!(
-            demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0),
-            1
-        );
+        assert_eq!(demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0), 1);
         // 模拟 FALLBACK_ADMIN 又把发起人兜回来
         finalized.approvers = vec![Candidate::new(me, "发起人甲", AssigneeKind::Role)];
-        assert_eq!(
-            demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0),
-            0
-        );
+        assert_eq!(demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0), 0);
         assert!(finalized.approvers.is_empty(), "兜回来的那一票同样不许签");
         assert_eq!(finalized.skipped.len(), 1, "留痕只许一条");
         assert_eq!(finalized.self_limit_blocks.len(), 1);
@@ -3266,10 +3068,7 @@ mod tests {
             ],
             ..Finalized::default()
         };
-        assert_eq!(
-            demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0),
-            1
-        );
+        assert_eq!(demote_over_limit(&mut finalized, me, Some(5_000.0), 1_000.0), 1);
         assert!(!fail_closed_on_amount_limit(&mut finalized, "部门经理审批"));
         assert!(finalized.error.is_none());
         assert_eq!(finalized.approvers.len(), 1);
@@ -3336,12 +3135,8 @@ mod expression_tests {
 
     #[test]
     fn expression_hits_first_rule_and_uses_its_then() {
-        let plans = expression_plans(
-            &config(expression_json()),
-            &eval(Some(12000)),
-            &resolve_ctx(),
-        )
-        .expect("合法表达式必须解析成功");
+        let plans = expression_plans(&config(expression_json()), &eval(Some(12000)), &resolve_ctx())
+            .expect("合法表达式必须解析成功");
 
         assert_eq!(
             plans.rule_id.as_deref(),
@@ -3355,10 +3150,7 @@ mod expression_tests {
             "ROLE 必须翻译成 RoleCodes（code→id 的查询在 assignee.rs 里做，§8.3 方案 B）"
         );
         assert!(
-            plans
-                .trace
-                .iter()
-                .any(|line| line.contains("命中规则 r_big")),
+            plans.trace.iter().any(|line| line.contains("命中规则 r_big")),
             "trace 必须记录命中了哪条规则（排障「为什么是他」），实际 {:#?}",
             plans.trace
         );
@@ -3367,12 +3159,8 @@ mod expression_tests {
     #[test]
     fn expression_first_hit_wins_and_later_rules_are_not_consulted() {
         // amount=12000 同时满足 r_big 与 r_small；**首条即定**，不许被后者覆盖。
-        let plans = expression_plans(
-            &config(expression_json()),
-            &eval(Some(12000)),
-            &resolve_ctx(),
-        )
-        .expect("合法表达式必须解析成功");
+        let plans = expression_plans(&config(expression_json()), &eval(Some(12000)), &resolve_ctx())
+            .expect("合法表达式必须解析成功");
         assert_eq!(plans.rule_id.as_deref(), Some("r_big"));
         assert!(
             !plans.trace.iter().any(|line| line.contains("r_small")),
@@ -3411,19 +3199,12 @@ mod expression_tests {
 
     #[test]
     fn expression_no_match_without_otherwise_yields_no_target() {
-        let plans = expression_plans(
-            &config(no_match_expression()),
-            &eval(Some(1)),
-            &resolve_ctx(),
-        )
-        .expect("合法表达式必须解析成功");
+        let plans = expression_plans(&config(no_match_expression()), &eval(Some(1)), &resolve_ctx())
+            .expect("合法表达式必须解析成功");
         assert_eq!(plans.rule_id, None, "没有命中任何规则 → 没有 rule_id");
         assert!(plans.targets.is_empty(), "没有 otherwise → 0 个目标");
         assert!(
-            plans
-                .trace
-                .iter()
-                .any(|line| line.contains("无规则命中且无兜底")),
+            plans.trace.iter().any(|line| line.contains("无规则命中且无兜底")),
             "trace 必须写明「无规则命中且无兜底 → 空审批人」，实际 {:#?}",
             plans.trace
         );
@@ -3432,13 +3213,7 @@ mod expression_tests {
     #[test]
     fn expression_no_match_follows_empty_policy_skip() {
         // 目标为空 → 候选为空 → finalize 走 empty_assignee=SKIP（自动通过并计数）
-        let finalized = finalize(
-            Vec::new(),
-            SelfPolicy::Skip,
-            EmptyPolicy::Skip,
-            false,
-            uid(1),
-        );
+        let finalized = finalize(Vec::new(), SelfPolicy::Skip, EmptyPolicy::Skip, false, uid(1));
         assert!(finalized.auto_pass, "SKIP 必须自动通过");
         assert!(finalized.node_is_skipped(), "没有 error ⇒ 节点跳过");
         assert_eq!(finalized.rule_id, None);
@@ -3446,17 +3221,8 @@ mod expression_tests {
 
     #[test]
     fn expression_no_match_follows_empty_policy_error() {
-        let finalized = finalize(
-            Vec::new(),
-            SelfPolicy::Skip,
-            EmptyPolicy::Error,
-            false,
-            uid(1),
-        );
-        let error = finalized
-            .error
-            .as_ref()
-            .expect("ERROR 策略必须给出业务拒绝");
+        let finalized = finalize(Vec::new(), SelfPolicy::Skip, EmptyPolicy::Error, false, uid(1));
+        let error = finalized.error.as_ref().expect("ERROR 策略必须给出业务拒绝");
         assert_eq!(error.code, error_code::FLOW_NO_ASSIGNEE);
         assert_eq!(error.status, 422);
         assert!(!finalized.node_is_skipped(), "ERROR 不许静默跳过");
@@ -3464,13 +3230,7 @@ mod expression_tests {
 
     #[test]
     fn expression_no_match_follows_empty_policy_fallback_admin() {
-        let finalized = finalize(
-            Vec::new(),
-            SelfPolicy::Skip,
-            EmptyPolicy::FallbackAdmin,
-            false,
-            uid(1),
-        );
+        let finalized = finalize(Vec::new(), SelfPolicy::Skip, EmptyPolicy::FallbackAdmin, false, uid(1));
         assert!(finalized.fallback_admin, "FALLBACK_ADMIN 必须标记回退超管");
         assert!(finalized.error.is_none());
     }
@@ -3496,10 +3256,7 @@ mod expression_tests {
             Some(expression::OTHERWISE_RULE_ID),
             "求值出错 = 该规则不成立，必须继续走下去（落到 otherwise）"
         );
-        assert_eq!(
-            plans.targets,
-            vec![ResolvedTarget::Plan(SourcePlan::Initiator)]
-        );
+        assert_eq!(plans.targets, vec![ResolvedTarget::Plan(SourcePlan::Initiator)]);
         assert!(
             plans
                 .trace
@@ -3516,12 +3273,8 @@ mod expression_tests {
     fn expression_hit_but_zero_people_does_not_fall_through() {
         // amount=12000 命中 r_big（财务总监），但假设该角色 0 成员 → 候选为空。
         // D-E6：**不顺延到 r_small**，直接走 empty_assignee，并保留 r_big 作为 rule_id。
-        let plans = expression_plans(
-            &config(expression_json()),
-            &eval(Some(12000)),
-            &resolve_ctx(),
-        )
-        .expect("合法表达式必须解析成功");
+        let plans = expression_plans(&config(expression_json()), &eval(Some(12000)), &resolve_ctx())
+            .expect("合法表达式必须解析成功");
         assert_eq!(plans.rule_id.as_deref(), Some("r_big"));
         assert_eq!(plans.targets.len(), 1, "目标存在（只是查不出人）");
 
@@ -3547,15 +3300,8 @@ mod expression_tests {
     #[test]
     fn expression_candidates_keep_underlying_source() {
         // 表达式命中 ROLE → 待办行的 assignee_source 必须是 ROLE（不是 EXPRESSION）
-        let candidates =
-            vec![Candidate::new(uid(2), "财务总监", AssigneeKind::Role).with_ref(Some(uid(7)))];
-        let finalized = finalize(
-            candidates,
-            SelfPolicy::Allow,
-            EmptyPolicy::Skip,
-            false,
-            uid(1),
-        );
+        let candidates = vec![Candidate::new(uid(2), "财务总监", AssigneeKind::Role).with_ref(Some(uid(7)))];
+        let finalized = finalize(candidates, SelfPolicy::Allow, EmptyPolicy::Skip, false, uid(1));
         assert_eq!(finalized.approvers.len(), 1);
         assert_eq!(
             finalized.approvers[0].source,
@@ -3574,19 +3320,11 @@ mod expression_tests {
 
     #[test]
     fn expression_missing_config_is_unsupported_501() {
-        let error = expression_plans(
-            &Json::Object(Default::default()),
-            &eval(Some(1)),
-            &resolve_ctx(),
-        )
-        .expect_err("EXPRESSION 节点没有 config.expression 必须报错，不能当空审批人");
+        let error = expression_plans(&Json::Object(Default::default()), &eval(Some(1)), &resolve_ctx())
+            .expect_err("EXPRESSION 节点没有 config.expression 必须报错，不能当空审批人");
         assert_eq!(error.status, 501);
         assert_eq!(error.code, error_code::FLOW_EXPRESSION_UNSUPPORTED);
-        assert!(
-            error.msg.contains("expression"),
-            "文案要点名缺什么：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("expression"), "文案要点名缺什么：{}", error.msg);
     }
 
     #[test]
@@ -3601,10 +3339,7 @@ mod expression_tests {
         });
         let error = expression_plans(&config(reserved), &eval(Some(5)), &resolve_ctx())
             .expect_err("保留词 PREV_APPROVER 必须被拒");
-        assert_eq!(
-            error.status, 400,
-            "运行期透传 400（发布期就该拦，这里只兜底）"
-        );
+        assert_eq!(error.status, 400, "运行期透传 400（发布期就该拦，这里只兜底）");
         assert_eq!(error.code, error_code::FLOW_EXPRESSION_INVALID);
         assert!(error.msg.contains("PREV_APPROVER"), "{}", error.msg);
     }
@@ -3612,8 +3347,7 @@ mod expression_tests {
     #[test]
     fn expression_invalid_structure_is_501_with_reason() {
         let bad = json!({"version": 99, "rules": []});
-        let error = expression_plans(&config(bad), &eval(Some(1)), &resolve_ctx())
-            .expect_err("版本不认识必须报错");
+        let error = expression_plans(&config(bad), &eval(Some(1)), &resolve_ctx()).expect_err("版本不认识必须报错");
         assert_eq!(error.status, 501);
         assert_eq!(error.code, error_code::FLOW_EXPRESSION_UNSUPPORTED);
     }
@@ -3635,8 +3369,7 @@ mod expression_tests {
                 ]
             }]
         });
-        let plans = expression_plans(&config(expr), &eval(Some(5)), &resolve_ctx())
-            .expect("合法表达式必须解析成功");
+        let plans = expression_plans(&config(expr), &eval(Some(5)), &resolve_ctx()).expect("合法表达式必须解析成功");
         assert_eq!(
             plans.targets,
             vec![
@@ -3736,14 +3469,7 @@ mod escalation_tests {
             ],
         )];
         let mut trace = Vec::new();
-        let (rows, hit) = decide_level(
-            std::slice::from_ref(&boss),
-            &members,
-            false,
-            initiator,
-            0,
-            &mut trace,
-        );
+        let (rows, hit) = decide_level(std::slice::from_ref(&boss), &members, false, initiator, 0, &mut trace);
         let approvers = hit.expect("上级角色有 2 个可用成员，必须命中");
         assert_eq!(approvers.len(), 2, "待办 2 行（发起人被剔掉）");
         assert_eq!(rows.len(), 1);
@@ -3826,10 +3552,7 @@ mod escalation_tests {
         assert!(text.contains("销售员"), "{text}");
         assert!(text.contains("销售主管"), "{text}");
         assert!(text.contains("0/0 人"), "成员 0 行要能看出来：{text}");
-        assert!(
-            text.contains("0/1 人"),
-            "有成员但全被过滤也要能看出来：{text}"
-        );
+        assert!(text.contains("0/1 人"), "有成员但全被过滤也要能看出来：{text}");
         assert_eq!(escalation.reason_label(), "自审跳过");
         assert!(!escalation.applied);
     }
@@ -4520,16 +4243,8 @@ mod fallback_db_tests {
         let mut want = vec![fx.fb1, fx.fb2, fx.fb3];
         want.sort();
         assert_eq!(ids, want, "兜底角色 3 个在职成员必须全部落行");
-        assert_eq!(
-            finalized.assigned_by_rule.as_deref(),
-            Some(ASSIGNED_BY_FALLBACK)
-        );
-        assert!(
-            finalized
-                .fallback
-                .as_ref()
-                .is_some_and(|fb| fb.by_role && fb.applied)
-        );
+        assert_eq!(finalized.assigned_by_rule.as_deref(), Some(ASSIGNED_BY_FALLBACK));
+        assert!(finalized.fallback.as_ref().is_some_and(|fb| fb.by_role && fb.applied));
         teardown(&fx).await;
     }
 
@@ -4552,10 +4267,7 @@ mod fallback_db_tests {
             error.msg
         );
         // 结构化诊断仍要带（前端按它弹「指派审批人」引导）
-        assert!(
-            error.data.is_some(),
-            "422 必须继续带 payload（no_assignee 结构化诊断）"
-        );
+        assert!(error.data.is_some(), "422 必须继续带 payload（no_assignee 结构化诊断）");
         teardown(&fx).await;
     }
 
@@ -4709,10 +4421,7 @@ mod delegation_db_tests {
                  ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid)",
                 fx.initiator, fx.approver, fx.fallback
             ),
-            format!(
-                "DELETE FROM sys_user_role WHERE user_id = '{0}'::uuid",
-                fx.approver
-            ),
+            format!("DELETE FROM sys_user_role WHERE user_id = '{0}'::uuid", fx.approver),
             format!(
                 "DELETE FROM sys_user WHERE id IN ('{0}'::uuid,'{1}'::uuid,'{2}'::uuid,'{3}'::uuid)",
                 fx.initiator, fx.approver, fx.delegate, fx.fallback
@@ -4721,10 +4430,7 @@ mod delegation_db_tests {
                 "UPDATE sys_role SET escalation_role_id = NULL WHERE id = '{0}'::uuid",
                 fx.approver_role
             ),
-            format!(
-                "DELETE FROM sys_role WHERE id = '{0}'::uuid",
-                fx.approver_role
-            ),
+            format!("DELETE FROM sys_role WHERE id = '{0}'::uuid", fx.approver_role),
         ] {
             exec(&sql).await;
         }
@@ -4811,14 +4517,9 @@ mod delegation_db_tests {
         let fx = setup("a").await;
         add_delegate(fx.approver, fx.delegate, -2, 72, None).await;
         let node = node_of(fx.approver_role, None);
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
         assert!(
             finalized.error.is_none(),
@@ -4833,20 +4534,14 @@ mod delegation_db_tests {
             "ROLE",
             "assignee_source 必须保留原来源（这一票本来是按 ROLE 派给 A 的）"
         );
-        let meta = finalized
-            .row_meta
-            .get(&fx.delegate)
-            .expect("委托行必须带逐行留痕");
+        let meta = finalized.row_meta.get(&fx.delegate).expect("委托行必须带逐行留痕");
         assert_eq!(
             meta.assigned_by_rule.as_deref(),
             Some(ASSIGNED_BY_DELEGATION),
             "派单规则必须是 DELEGATED"
         );
         let comment = meta.comment.as_deref().unwrap_or_default();
-        assert!(
-            comment.starts_with("代 P3-04 审批人甲 审批"),
-            "comment：{comment}"
-        );
+        assert!(comment.starts_with("代 P3-04 审批人甲 审批"), "comment：{comment}");
         assert!(comment.contains("委托至"), "comment：{comment}");
         assert!(
             finalized.row_meta.get(&fx.approver).is_none(),
@@ -4882,25 +4577,14 @@ mod delegation_db_tests {
         .await;
 
         let node = node_of(fx.approver_role, None);
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
         assert!(finalized.error.is_none(), "{:?}", finalized.error);
         assert_eq!(finalized.approvers.len(), 1);
-        assert_eq!(
-            finalized.approvers[0].user_id, fx.approver,
-            "委托期外必须仍派给委托人"
-        );
-        assert!(
-            finalized.row_meta.is_empty(),
-            "没有委托生效就不该有任何逐行改写"
-        );
+        assert_eq!(finalized.approvers[0].user_id, fx.approver, "委托期外必须仍派给委托人");
+        assert!(finalized.row_meta.is_empty(), "没有委托生效就不该有任何逐行改写");
         assert!(finalized.delegations.is_empty(), "期外的委托不该被查出来");
         teardown(&fx).await;
     }
@@ -4915,14 +4599,9 @@ mod delegation_db_tests {
         let fx = setup("c").await;
         add_delegate(fx.approver, fx.initiator, -2, 72, None).await;
         let node = node_of(fx.approver_role, Some(fx.fallback));
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
         assert!(
             finalized.error.is_none(),
@@ -4985,14 +4664,9 @@ mod delegation_db_tests {
         let fx = setup("e").await;
         add_delegate(fx.approver, fx.delegate, -2, 72, Some("PURCHASE_ORDER")).await;
         let node = node_of(fx.approver_role, None);
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
         assert!(finalized.error.is_none(), "{:?}", finalized.error);
         assert_eq!(
@@ -5012,14 +4686,9 @@ mod delegation_db_tests {
         let fx = setup("f").await;
         add_delegate(fx.approver, fx.delegate, -2, 72, Some("p304ut")).await;
         let node = node_of(fx.approver_role, None);
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
         assert_eq!(
             finalized.approvers[0].user_id, fx.delegate,
@@ -5039,14 +4708,9 @@ mod delegation_db_tests {
         // B 自己也把票委托给 C（C 就用兜底人那个账号，避免再造一套夹具）
         add_delegate(fx.delegate, fx.fallback, -2, 72, None).await;
         let node = node_of(fx.approver_role, None);
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
         assert_eq!(
             finalized.approvers[0].user_id, fx.delegate,
@@ -5074,30 +4738,18 @@ mod delegation_db_tests {
         ))
         .await;
         let node = node_of(fx.approver_role, None);
-        let resolution = resolve(
-            db(),
-            &node,
-            &ctx_of(fx.initiator, "P304UT"),
-            &EvalContext::default(),
-        )
-        .await
-        .expect("resolve 不该出 DbError");
+        let resolution = resolve(db(), &node, &ctx_of(fx.initiator, "P304UT"), &EvalContext::default())
+            .await
+            .expect("resolve 不该出 DbError");
         let finalized = resolution.finalized;
-        assert_eq!(
-            finalized.approvers[0].user_id, fx.approver,
-            "受托人停用 → 回落到委托人"
-        );
+        assert_eq!(finalized.approvers[0].user_id, fx.approver, "受托人停用 → 回落到委托人");
         let delegation = finalized
             .delegations
             .iter()
             .find(|item| item.delegator_id == fx.approver)
             .expect("痕迹");
         assert!(!delegation.applied);
-        assert!(
-            delegation.reason.contains("已停用"),
-            "{}",
-            delegation.reason
-        );
+        assert!(delegation.reason.contains("已停用"), "{}", delegation.reason);
         teardown(&fx).await;
     }
 }

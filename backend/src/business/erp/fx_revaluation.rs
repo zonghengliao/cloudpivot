@@ -409,11 +409,7 @@ pub async fn revalue_period(
         });
     }
 
-    let net: Decimal = lines
-        .iter()
-        .map(|line| line.diff)
-        .sum::<Decimal>()
-        .round_dp(4);
+    let net: Decimal = lines.iter().map(|line| line.diff).sum::<Decimal>().round_dp(4);
 
     // ③ 差额合计为 0：不记账（借贷同额会互相抵消，凭证没有信息量），但台账照写留痕
     if lines.is_empty() || net.abs() < tolerance() {
@@ -422,10 +418,7 @@ pub async fn revalue_period(
         }
         if lines.is_empty() {
             // 没有外币未核销应收：正常月份的常态，不刷 WARN
-            tracing::debug!(
-                period = period_code,
-                "期末汇兑重估：本期没有未核销的外币应收，无需调整"
-            );
+            tracing::debug!(period = period_code, "期末汇兑重估：本期没有未核销的外币应收，无需调整");
         } else {
             tracing::warn!(
                 period = period_code,
@@ -446,8 +439,7 @@ pub async fn revalue_period(
     }
 
     // ④ 生成调整分录：一张凭证两行（1122 应收账款 / 5603 财务费用-汇兑损益）
-    let ar_account =
-        voucher::account_required(ex, ACCOUNT_AR, "汇兑重估凭证的 1122 应收账款").await?;
+    let ar_account = voucher::account_required(ex, ACCOUNT_AR, "汇兑重估凭证的 1122 应收账款").await?;
     let fx_account = voucher::account_required(
         ex,
         ACCOUNT_FX_GAIN_LOSS,
@@ -574,9 +566,7 @@ mod tests {
 
     #[test]
     fn month_end_rejects_malformed_periods() {
-        for bad in [
-            "2026-13", "2026-00", "26-01", "202601", "2026-1", "abcd-01", "",
-        ] {
+        for bad in ["2026-13", "2026-00", "26-01", "202601", "2026-1", "abcd-01", ""] {
             assert_eq!(month_end_of(bad), None, "非法期间码 {bad} 必须返回 None");
         }
     }
@@ -628,10 +618,7 @@ mod tests {
             "4 位定标后相等 ⇒ 不产生调整行"
         );
         // 差正好 1 个最小单位的量级：重估 999.9999 - 账面 1000.0001 = -0.0002
-        assert_eq!(
-            diff_of(dec("999.9999"), Decimal::ONE, dec("1000.0001")),
-            dec("-0.0002")
-        );
+        assert_eq!(diff_of(dec("999.9999"), Decimal::ONE, dec("1000.0001")), dec("-0.0002"));
     }
 
     #[test]
@@ -659,9 +646,7 @@ mod tests {
     // （唯一索引 uk_biz_ar_no / uk_biz_period_code）。与 `voucher::tests` 共用同一把锁，
     // 免得两模块同时改 `biz_accounting_period` 的 2050-xx 期间。
     async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
-        let guard = crate::business::erp::voucher_query::tests::DB_LOCK
-            .lock()
-            .await;
+        let guard = crate::business::erp::voucher_query::tests::DB_LOCK.lock().await;
         if !ensure_db().await {
             return None;
         }
@@ -715,13 +700,7 @@ mod tests {
     }
 
     /// 造一条外币应收（未核销）+ 期末汇率 + 开放期间。
-    async fn fixtures_with(
-        currency: &str,
-        base_with_tax: &str,
-        amount: &str,
-        settled: &str,
-        tag: &str,
-    ) {
+    async fn fixtures_with(currency: &str, base_with_tax: &str, amount: &str, settled: &str, tag: &str) {
         db().exec_sql(
             format!(
                 "INSERT INTO biz_customer (id, code, name, status) \
@@ -837,18 +816,9 @@ mod tests {
         let debit_acc: String = rows[0].get_typed("account_code").expect("科目");
         let credit_acc: String = rows[1].get_typed("account_code").expect("科目");
         assert_eq!(debit_acc, ACCOUNT_AR, "应收调增在借方");
-        assert_eq!(
-            credit_acc, ACCOUNT_FX_GAIN_LOSS,
-            "汇兑收益在贷方（财务费用冲减）"
-        );
-        assert_eq!(
-            rows[0].get_typed::<Decimal>("debit_amount").unwrap(),
-            dec("800")
-        );
-        assert_eq!(
-            rows[1].get_typed::<Decimal>("credit_amount").unwrap(),
-            dec("800")
-        );
+        assert_eq!(credit_acc, ACCOUNT_FX_GAIN_LOSS, "汇兑收益在贷方（财务费用冲减）");
+        assert_eq!(rows[0].get_typed::<Decimal>("debit_amount").unwrap(), dec("800"));
+        assert_eq!(rows[1].get_typed::<Decimal>("credit_amount").unwrap(), dec("800"));
 
         let sl = db()
             .query_first_sql(
@@ -860,15 +830,9 @@ mod tests {
             .expect("台账必须留痕");
         assert_eq!(sl.get_typed::<Decimal>("open_amount").unwrap(), dec("1000"));
         assert_eq!(sl.get_typed::<Decimal>("book_base").unwrap(), dec("7100"));
-        assert_eq!(
-            sl.get_typed::<Decimal>("revalued_base").unwrap(),
-            dec("7900")
-        );
+        assert_eq!(sl.get_typed::<Decimal>("revalued_base").unwrap(), dec("7900"));
         assert_eq!(sl.get_typed::<Decimal>("diff_base").unwrap(), dec("800"));
-        assert_eq!(
-            sl.get_typed::<Decimal>("book_rate").unwrap(),
-            dec("7.10000000")
-        );
+        assert_eq!(sl.get_typed::<Decimal>("book_rate").unwrap(), dec("7.10000000"));
 
         cleanup().await;
         println!("[SO41-①] 真库 USD 应收重估：借 1122 800 / 贷 5603 800，台账留痕 ✓");
@@ -901,18 +865,9 @@ mod tests {
             rows[0].get_typed::<String>("account_code").unwrap(),
             ACCOUNT_FX_GAIN_LOSS
         );
-        assert_eq!(
-            rows[1].get_typed::<String>("account_code").unwrap(),
-            ACCOUNT_AR
-        );
-        assert_eq!(
-            rows[0].get_typed::<Decimal>("debit_amount").unwrap(),
-            dec("600")
-        );
-        assert_eq!(
-            rows[1].get_typed::<Decimal>("credit_amount").unwrap(),
-            dec("600")
-        );
+        assert_eq!(rows[1].get_typed::<String>("account_code").unwrap(), ACCOUNT_AR);
+        assert_eq!(rows[0].get_typed::<Decimal>("debit_amount").unwrap(), dec("600"));
+        assert_eq!(rows[1].get_typed::<Decimal>("credit_amount").unwrap(), dec("600"));
         cleanup().await;
         println!("[SO41-②] 真库汇率下跌：借 5603 600 / 贷 1122 600 ✓");
     }
@@ -935,10 +890,7 @@ mod tests {
 
         let count_sql = format!("SELECT count(*) FROM {TABLE} WHERE period_code = ?");
         let leaked = db()
-            .scalar_with_params::<Option<i64>>(
-                count_sql.as_str(),
-                vec![Value::Text(PERIOD.to_string())],
-            )
+            .scalar_with_params::<Option<i64>>(count_sql.as_str(), vec![Value::Text(PERIOD.to_string())])
             .await
             .expect("查台账")
             .unwrap_or(0);
@@ -1065,9 +1017,7 @@ mod tests {
         let summary: String = voucher.get_typed("summary").expect("摘要");
         assert!(summary.contains("汇兑重估"), "摘要必须可辨认：{summary}");
         assert_eq!(
-            voucher
-                .get_typed::<NaiveDate>("voucher_date")
-                .expect("凭证日期"),
+            voucher.get_typed::<NaiveDate>("voucher_date").expect("凭证日期"),
             date(2050, 1, 31),
             "重估凭证日期必须是期末（月末）"
         );
@@ -1081,16 +1031,11 @@ mod tests {
             .expect("查台账")
             .expect("台账必须有行");
         assert_eq!(
-            linked
-                .get_typed::<Option<Uuid>>("voucher_id")
-                .expect("凭证引用"),
+            linked.get_typed::<Option<Uuid>>("voucher_id").expect("凭证引用"),
             Some(voucher_id),
             "台账必须挂上重估凭证 id（可回溯）"
         );
-        assert_eq!(
-            linked.get_typed::<Decimal>("diff_base").expect("差额"),
-            dec("800")
-        );
+        assert_eq!(linked.get_typed::<Decimal>("diff_base").expect("差额"), dec("800"));
 
         cleanup().await;
         println!("[SO41-⑦] 真库结账链路：close_period → FX 凭证 + 台账挂凭证 + 期间 CLOSED ✓");
@@ -1129,9 +1074,7 @@ mod tests {
         assert_eq!(rows.len(), 2, "台账必须逐笔留痕：{rows:?}");
         for row in &rows {
             assert!(
-                row.get_typed::<Option<Uuid>>("voucher_id")
-                    .expect("凭证引用")
-                    .is_none(),
+                row.get_typed::<Option<Uuid>>("voucher_id").expect("凭证引用").is_none(),
                 "没有凭证时台账的 voucher_id 必须为 NULL"
             );
         }

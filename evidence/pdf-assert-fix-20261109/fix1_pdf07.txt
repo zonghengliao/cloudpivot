@@ -1,0 +1,24 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 26s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... FAILED
+
+failures:
+
+---- business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape stdout ----
+
+thread 'business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape' (2235181) panicked at src/business/erp/report_pdf.rs:1223:9:
+assertion `left == right` failed: 上期无凭证 → 期初列必须印「-」
+  left: "600.00"
+ right: "-"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3862 filtered out; finished in 0.43s
+
+error: test failed, to rerun pass `--lib`

@@ -51,8 +51,7 @@ use crate::business::flow::model as flow_model;
 /// 「制单人不可自审」的留痕原因（写进 `biz_flow_task.comment`，审批详情直接展示）。
 pub const CREATOR_REASON: &str = "内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕";
 /// 「发起人不可自审」的留痕原因。
-pub const INITIATOR_REASON: &str =
-    "内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕";
+pub const INITIATOR_REASON: &str = "内控：审批单发起人不可审批自己发起的审批（职责分离），已跳过并留痕";
 
 /// 一条内控排除（谁 + 为什么）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,9 +122,7 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
     // ERP-B2：审批侧的排除同样受「制单与审批分离」开关管辖（默认开 = 改动前行为）。
     // 关掉它 = 小团队允许本人自审：既不排除（不落 SKIPPED），403 闸也同时放行 ——
     // 两处读同一个开关，不存在「待办被 SKIP 了但闸说可以批」的自相矛盾状态。
-    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve)
-        .await
-    {
+    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve).await {
         return Ok(Control::default());
     }
     let mut exclusions: Vec<Exclusion> = Vec::new();
@@ -136,14 +133,12 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         true
     } else if biz_type == crate::business::erp::requisition_bridge::BIZ_TYPE {
         // P2-02：采购申请的 `biz_id` 是**申请单 id**（提单人不能批自己提的需求）
-        let creator =
-            crate::business::erp::requisition_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::requisition_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::purchase_return_bridge::BIZ_TYPE {
         // P2-03：采购退货的 `biz_id` 是**退货单 id**（制单人不能批自己的退货）
-        let creator =
-            crate::business::erp::purchase_return_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::purchase_return_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == stockin_bridge::POST_BIZ_TYPE || biz_type == stockin_bridge::BIZ_TYPE {
@@ -161,26 +156,22 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         true
     } else if biz_type == crate::business::erp::receipt_refund_bridge::BIZ_TYPE {
         // SO-14 遗留 D10：收款退款审批的 `biz_id` 是**退款单 id**（制单人不能批自己的退款）
-        let creator =
-            crate::business::erp::receipt_refund_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::receipt_refund_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::voucher_bridge::BIZ_TYPE {
         // P-FLOW-3B：凭证红冲审批的 `biz_id` 是**凭证 id**
-        let creator =
-            crate::business::erp::voucher_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::voucher_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::contract_bridge::BIZ_TYPE {
         // ARCH-3 R-P1-1：合同审批的 `biz_id` 是**合同 id**（制单人不能批自己拟的合同）
-        let creator =
-            crate::business::erp::contract_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::contract_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::stocktake_bridge::BIZ_TYPE {
         // ARCH-3 DC-14：盘点过账审批的 `biz_id` 是**盘点单 id**（盘的人不能批自己盘的账）
-        let creator =
-            crate::business::erp::stocktake_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::stocktake_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::budget_bridge::BIZ_TYPE {
@@ -190,8 +181,7 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         true
     } else if biz_type == crate::business::erp::expense_bridge::BIZ_TYPE {
         // FIN-3：费用报销的 `biz_id` 是**报销单 id**（报销人不能批自己的单）
-        let creator =
-            crate::business::erp::expense_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::expense_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::asset_bridge::BIZ_TYPE {
@@ -201,8 +191,7 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         true
     } else if biz_type == crate::business::erp::sales_approval_bridge::BIZ_TYPE {
         // SO-06：销售订单审批的 `biz_id` 是**销售订单 id**（制单人不能批自己提交的单）
-        let creator =
-            crate::business::erp::sales_approval_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::sales_approval_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else {
@@ -211,20 +200,14 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
     if governed {
         push_exclusion(&mut exclusions, Some(initiator_id), INITIATOR_REASON);
     }
-    Ok(Control {
-        governed,
-        exclusions,
-    })
+    Ok(Control { governed, exclusions })
 }
 
 /// 把审批人列表按内控切成「该落 `PENDING` 的」与「该落 `SKIPPED` 留痕的」（**纯函数**）。
 ///
 /// 返回 `(保留的审批人, [(被排除的人, 原因)])`；顺序保持入参顺序（与 `finalize` 的排序一致，
 /// 待办 / 留痕行的展示顺序因此可复现）。
-pub fn partition(
-    approvers: Vec<Candidate>,
-    control: &Control,
-) -> (Vec<Candidate>, Vec<(Candidate, String)>) {
+pub fn partition(approvers: Vec<Candidate>, control: &Control) -> (Vec<Candidate>, Vec<(Candidate, String)>) {
     if !control.governed || control.exclusions.is_empty() {
         return (approvers, Vec::new());
     }
@@ -271,10 +254,7 @@ mod tests {
         let creator = Uuid::from_u128(11);
         let other = Uuid::from_u128(12);
         let control = control_of(&[(creator, CREATOR_REASON)]);
-        let (kept, excluded) = partition(
-            vec![cand(creator, "制单人"), cand(other, "审批人")],
-            &control,
-        );
+        let (kept, excluded) = partition(vec![cand(creator, "制单人"), cand(other, "审批人")], &control);
         assert_eq!(kept.len(), 1, "非内控人员必须留在 PENDING");
         assert_eq!(kept[0].user_id, other);
         assert_eq!(excluded.len(), 1, "制单人必须被排除");
@@ -462,9 +442,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
      cargo test --lib 'business::flow::' -- --test-threads=1 --skip business::flow::internal_control::db_tests\n"
                         );
                     }
-                    println!(
-                        "[internal_control] 复用同进程已初始化的全局 db()（库：{current}，与 P0FIX_DB_URL 一致）"
-                    );
+                    println!("[internal_control] 复用同进程已初始化的全局 db()（库：{current}，与 P0FIX_DB_URL 一致）");
                     return true;
                 }
                 let mut config = DatabaseConfig::from_url(&url);
@@ -490,12 +468,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
     /// 因此忽略协议/账号/端口/查询参数，只比路径最后一段。
     fn db_name_of(url: &str) -> String {
         let without_query = url.split(['?', '#']).next().unwrap_or(url);
-        without_query
-            .rsplit('/')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_string()
+        without_query.rsplit('/').next().unwrap_or_default().trim().to_string()
     }
 
     /// 当前全局连接**实际**连的库名（`SELECT current_database()`）。
@@ -516,11 +489,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
     }
 
     /// 一条审批 / 会签节点的快照节点（审批人由调用方给）。
-    fn approve_spec(
-        node_type: &str,
-        assignee_type: &str,
-        assignees: &[(Uuid, &str)],
-    ) -> SnapshotNode {
+    fn approve_spec(node_type: &str, assignee_type: &str, assignees: &[(Uuid, &str)]) -> SnapshotNode {
         SnapshotNode {
             key: "n1".to_string(),
             name: "内控审批".to_string(),
@@ -620,35 +589,21 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
 
     impl Scenario {
         /// 造场景并**发起实例**（发起被拒 → panic；「发起应当失败」的用例用 [`Self::build`]）。
-        async fn start(
-            tag: &str,
-            seed: u128,
-            approvers: &[(Uuid, &str)],
-            role_members: &[Uuid],
-        ) -> Self {
+        async fn start(tag: &str, seed: u128, approvers: &[(Uuid, &str)], role_members: &[Uuid]) -> Self {
             let scenario = Self::build(tag, seed, approvers, role_members).await;
             scenario.run_start().await;
             scenario
         }
 
         /// 只造场景与流程定义，**不发起**实例。
-        async fn build(
-            tag: &str,
-            seed: u128,
-            approvers: &[(Uuid, &str)],
-            role_members: &[Uuid],
-        ) -> Self {
+        async fn build(tag: &str, seed: u128, approvers: &[(Uuid, &str)], role_members: &[Uuid]) -> Self {
             let instance_id = uid(seed * 100 + 1);
             let def_id = uid(seed * 100 + 2);
             let version_id = uid(seed * 100 + 3);
             let order_id = uid(seed * 100 + 4);
             let creator = uid(seed * 100 + 5);
             let initiator = uid(seed * 100 + 6);
-            let users = [
-                uid(seed * 100 + 11),
-                uid(seed * 100 + 12),
-                uid(seed * 100 + 13),
-            ];
+            let users = [uid(seed * 100 + 11), uid(seed * 100 + 12), uid(seed * 100 + 13)];
             let role_id = (!role_members.is_empty()).then(|| uid(seed * 100 + 21));
             let suffix = format!("p0fix_{tag}");
 
@@ -926,10 +881,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             db().scalar_with_params::<Option<String>>(
                 "SELECT status FROM biz_flow_instance_node \
                   WHERE instance_id = ?::uuid AND node_key = ? AND round = 1 LIMIT 1",
-                vec![
-                    Value::from(&self.instance_id),
-                    Value::Text(node_key.to_string()),
-                ],
+                vec![Value::from(&self.instance_id), Value::Text(node_key.to_string())],
             )
             .await
             .expect("读节点")
@@ -940,10 +892,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             db().scalar_with_params::<Option<i32>>(
                 "SELECT approver_count FROM biz_flow_instance_node \
                   WHERE instance_id = ?::uuid AND node_key = ? AND round = 1 LIMIT 1",
-                vec![
-                    Value::from(&self.instance_id),
-                    Value::Text(node_key.to_string()),
-                ],
+                vec![Value::from(&self.instance_id), Value::Text(node_key.to_string())],
             )
             .await
             .expect("读节点人数")
@@ -976,9 +925,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
                 "DELETE FROM biz_flow_instance_node WHERE instance_id = ?::uuid",
                 "DELETE FROM biz_flow_instance WHERE id = ?::uuid",
             ] {
-                let _ = db()
-                    .execute_with_params(sql, vec![Value::from(&instance_id)])
-                    .await;
+                let _ = db().execute_with_params(sql, vec![Value::from(&instance_id)]).await;
             }
             let _ = db()
                 .execute_with_params(
@@ -1013,10 +960,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
                 .await;
             if let Some(role_id) = role_id {
                 let _ = db()
-                    .execute_with_params(
-                        "DELETE FROM sys_role WHERE id = ?::uuid",
-                        vec![Value::from(&role_id)],
-                    )
+                    .execute_with_params("DELETE FROM sys_role WHERE id = ?::uuid", vec![Value::from(&role_id)])
                     .await;
             }
         }
@@ -1057,10 +1001,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         .await
         .expect("读我的待办");
         assert_eq!(page.total, 0, "内控排除的人不该在待办列表里看到它");
-        assert!(
-            page.list.is_empty(),
-            "list 也必须为空（不能出现「total 0 但有行」）"
-        );
+        assert!(page.list.is_empty(), "list 也必须为空（不能出现「total 0 但有行」）");
 
         // 对照：能批的人看得到 —— 证明查询本身是有效的（不是恒空）
         let page = crate::business::flow::model::page_my_tasks(
@@ -1089,13 +1030,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         let creator = uid(seed * 100 + 5);
         let a = uid(seed * 100 + 11);
         let b = uid(seed * 100 + 12);
-        let sc = Scenario::start(
-            "one_skip",
-            seed,
-            &[(creator, "USER"), (a, "USER"), (b, "USER")],
-            &[],
-        )
-        .await;
+        let sc = Scenario::start("one_skip", seed, &[(creator, "USER"), (a, "USER"), (b, "USER")], &[]).await;
 
         assert_eq!(sc.status_of(creator).await.as_deref(), Some("SKIPPED"));
         assert_eq!(
@@ -1162,13 +1097,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         let seed = 3u128;
         let creator = uid(seed * 100 + 5);
         let initiator = uid(seed * 100 + 6);
-        let sc = Scenario::build(
-            "all_skip",
-            seed,
-            &[(creator, "USER"), (initiator, "USER")],
-            &[],
-        )
-        .await;
+        let sc = Scenario::build("all_skip", seed, &[(creator, "USER"), (initiator, "USER")], &[]).await;
 
         let error = sc.try_start().await.expect("全部被内控排除必须发起失败");
         assert_eq!(error.status, 422, "发起应当 422：{}", error.msg);
@@ -1183,11 +1112,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             "报文要说清是内控排除导致的：{}",
             error.msg
         );
-        assert!(
-            error.msg.contains("内控审批"),
-            "报文要点名节点名：{}",
-            error.msg
-        );
+        assert!(error.msg.contains("内控审批"), "报文要点名节点名：{}", error.msg);
         assert!(
             error.msg.contains("指派给非制单人"),
             "报文要给可执行的出路：{}",
@@ -1195,15 +1120,8 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         );
 
         // 回滚：没有实例、没有待办（不留半截审批单）
-        assert_eq!(
-            sc.instance_status_opt().await,
-            None,
-            "发起失败后不许留下实例行"
-        );
-        assert!(
-            sc.tasks().await.is_empty(),
-            "发起失败后不许留下待办 / 留痕行"
-        );
+        assert_eq!(sc.instance_status_opt().await, None, "发起失败后不许留下实例行");
+        assert!(sc.tasks().await.is_empty(), "发起失败后不许留下待办 / 留痕行");
     }
 
     /// ⑨ `engine::start_in_tx`（业务入口的新口径）：**业务拒绝 = 硬错误 + 整笔回滚**。
@@ -1231,13 +1149,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         let seed = 8u128;
         let creator = uid(seed * 100 + 5);
         let initiator = uid(seed * 100 + 6);
-        let sc = Scenario::build(
-            "start_tx_reject",
-            seed,
-            &[(creator, "USER"), (initiator, "USER")],
-            &[],
-        )
-        .await;
+        let sc = Scenario::build("start_tx_reject", seed, &[(creator, "USER"), (initiator, "USER")], &[]).await;
 
         let error = sc
             .try_start_in_tx()
@@ -1262,10 +1174,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             None,
             "start_in_tx 拒绝后不许留下实例行（否则单据会被实例占住、批不动也重提不了）"
         );
-        assert!(
-            sc.tasks().await.is_empty(),
-            "start_in_tx 拒绝后不许留下待办 / 留痕行"
-        );
+        assert!(sc.tasks().await.is_empty(), "start_in_tx 拒绝后不许留下待办 / 留痕行");
         let nodes: i64 = db()
             .scalar_with_params(
                 "SELECT count(*) FROM biz_flow_instance_node WHERE instance_id = ?::uuid",
@@ -1312,26 +1221,17 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
 
         // ① 事务前的内控闸（handler 的入口）对当事人一律 403
         let creator_task = sc.task_id_of(creator).await;
-        let error =
-            crate::business::erp::purchase_bridge::guard_self_approval(creator_task, creator)
-                .await
-                .expect_err("制单人必须被拦");
+        let error = crate::business::erp::purchase_bridge::guard_self_approval(creator_task, creator)
+            .await
+            .expect_err("制单人必须被拦");
         assert_eq!(error.status, 403);
-        assert_eq!(
-            error.code,
-            crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN
-        );
-        assert!(
-            error.msg.contains("不能审批自己提交的采购订单"),
-            "{}",
-            error.msg
-        );
+        assert_eq!(error.code, crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+        assert!(error.msg.contains("不能审批自己提交的采购订单"), "{}", error.msg);
 
         let initiator_task = sc.task_id_of(initiator).await;
-        let error =
-            crate::business::erp::purchase_bridge::guard_self_approval(initiator_task, initiator)
-                .await
-                .expect_err("发起人必须被拦");
+        let error = crate::business::erp::purchase_bridge::guard_self_approval(initiator_task, initiator)
+            .await
+            .expect_err("发起人必须被拦");
         assert_eq!(error.status, 403);
 
         // ② 与内控无关的审批人：闸放行
@@ -1345,11 +1245,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         let out = sc.approve(creator).await;
         assert!(out.idempotent, "已 SKIPPED 的票只能幂等返回");
         assert_eq!(sc.status_of(creator).await.as_deref(), Some("SKIPPED"));
-        assert_eq!(
-            sc.instance_status().await,
-            before,
-            "状态不许因他的「审批」而推进"
-        );
+        assert_eq!(sc.instance_status().await, before, "状态不许因他的「审批」而推进");
     }
 
     /// ⑨ 内控排除后，能批的人正常批（票数 / 意见 / 状态都对）。
@@ -1398,11 +1294,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
             tasks.iter().all(|(_, status, _)| status == "PENDING"),
             "配置改对之后不该有人被排除：{tasks:?}"
         );
-        assert!(
-            tasks
-                .iter()
-                .all(|(id, _, _)| *id != creator && *id != initiator)
-        );
+        assert!(tasks.iter().all(|(id, _, _)| *id != creator && *id != initiator));
         assert_eq!(sc.node_approver_count("n1").await, 2);
         assert_eq!(sc.instance_status().await, "PENDING");
     }

@@ -233,11 +233,7 @@ pub(super) async fn notify_status_change(
         &task.card.task_no,
         Some(operator),
     )
-    .with_people(
-        Some(task.card.owner_id),
-        Some(task.creator_id),
-        task.assigner_id,
-    )
+    .with_people(Some(task.card.owner_id), Some(task.creator_id), task.assigner_id)
     .with_notice(draft.clone());
     match crate::business::flow::linkage::engine::status_notice(&ctx).await {
         crate::business::flow::linkage::NoticeRoute::Legacy { .. } => {
@@ -259,11 +255,7 @@ pub(super) async fn notify_status_change(
 ///
 /// 只在**这次重算把父任务推到 100%** 时发一次（`old != 100 && new == 100`），
 /// 避免同一次批量流转里对同一个父任务重复通知。
-pub(super) async fn notify_ready_to_close(
-    recalcs: &[model::ProgressRecalc],
-    operator: Uuid,
-    operator_name: &str,
-) {
+pub(super) async fn notify_ready_to_close(recalcs: &[model::ProgressRecalc], operator: Uuid, operator_name: &str) {
     for recalc in recalcs {
         if !recalc.all_done || recalc.new != 100 || recalc.old == 100 {
             continue;
@@ -305,12 +297,7 @@ pub(super) async fn notify_ready_to_close(
 /// - 只通知**还没结束**（非 `DONE` / `CANCELLED`）的后继：给已完成的任务发「可以开始了」是纯噪音；
 /// - 每个后继发**一条**站内信（链到后继任务，不是前置任务 —— 收件人要处理的是自己那条）；
 /// - 通知失败只记 WARN，不影响业务（与其它任务通知同一口径）。
-pub(super) async fn notify_dependents(
-    task: &TaskDetailRow,
-    to: TaskStatus,
-    operator: Uuid,
-    operator_name: &str,
-) {
+pub(super) async fn notify_dependents(task: &TaskDetailRow, to: TaskStatus, operator: Uuid, operator_name: &str) {
     let successors = match model::list_successors(task.card.id).await {
         Ok(rows) => rows,
         Err(error) => {

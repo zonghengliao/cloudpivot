@@ -194,10 +194,7 @@ pub(super) async fn submit_post_approval(
         .map_err(|error| utils::db_error(error, "查询发起人"))?
         .unwrap_or((String::new(), None));
     let instance_id = Uuid::now_v7();
-    let title = format!("{} 收货过账", row.in_no)
-        .chars()
-        .take(200)
-        .collect::<String>();
+    let title = format!("{} 收货过账", row.in_no).chars().take(200).collect::<String>();
     let mut form_data = stock_in_form_data(row).await;
     // E2E-03：把本单的「自定义序列号」冻进审批快照，供 `post_after_approval` 取回。
     // 键 `serials: [{line_no, serial_ids}]`；未填序列号时不写该键（自动取号口径不变）。
@@ -268,8 +265,7 @@ pub(super) async fn submit_post_approval(
             //   PENDING_POST，必须能在日志里查到）。
             Err(error) => {
                 let reason = format!("免审过账失败：{}，已打回草稿", error.msg);
-                if let Err(restore_error) =
-                    restore_after_post_rejection(row.id, row, &reason, Some(operator_id)).await
+                if let Err(restore_error) = restore_after_post_rejection(row.id, row, &reason, Some(operator_id)).await
                 {
                     tracing::error!(
                         stock_in_id = %row.id,
@@ -325,9 +321,8 @@ pub(super) async fn submit_post_tx(
     if let Some(rejected) = out.rejected.take() {
         // FIX-1：用 `appended` 而不是 `ApiError::new(..)` 重建 —— 后者会把 65018 的
         // 结构化载荷（前端「指派审批人」引导框）连同 `internal_detail` 一起丢掉。
-        return Err(rejected.appended(
-            "（内控要求：过账复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
-        ));
+        return Err(rejected
+            .appended("（内控要求：过账复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）"));
     }
     let instance_id = out
         .instance_id
@@ -359,10 +354,7 @@ pub(super) async fn submit_post_tx(
 /// 复用 [`post_in_tx`]（六本账唯一实现），只把起始状态换成 `PENDING_POST`：
 /// 库存 / 库位账 / 流水 / 序列号 / 采购已收数量 / 凭证 / 应付全在同一个事务里，
 /// 任一步失败整笔回滚（单据仍是过账审批中，等人工或下一轮重试）。
-pub async fn post_after_approval(
-    id: Uuid,
-    operator: Option<Uuid>,
-) -> std::result::Result<(), ApiError> {
+pub async fn post_after_approval(id: Uuid, operator: Option<Uuid>) -> std::result::Result<(), ApiError> {
     post_after_approval_with_reason(id, operator, None).await
 }
 
@@ -418,9 +410,7 @@ pub async fn post_after_approval_with_reason(
     // ★ DC-09 补口：审批通过这条过账入口同样按明细快照的 unit_id 复检（与直接过账同一把尺子）
     guard_posting_units(&items).await?;
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
-    ordered.sort_by(|a, b| {
-        (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
-    });
+    ordered.sort_by(|a, b| (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no)));
     let now = Utc::now();
     // LNK-02：采购单状态联动（PARTIAL_RECEIVED / RECEIVED）的 outbox
     let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
@@ -515,10 +505,9 @@ pub async fn repost_stock_in(
         )));
     }
     // ② 审批实例必须已通过（还没批完就重试 = 绕过复核）
-    let instance_status =
-        crate::business::flow::task_bridge::instance_status_of(row.approval_instance_id)
-            .await
-            .map_err(|error| utils::db_error(error, "查询收货单审批实例状态"))?;
+    let instance_status = crate::business::flow::task_bridge::instance_status_of(row.approval_instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货单审批实例状态"))?;
     match instance_status.as_deref() {
         Some(status) if status.eq_ignore_ascii_case("APPROVED") => {}
         Some(status) => {
@@ -573,17 +562,9 @@ pub async fn restore_after_post_rejection(
             None,
         )
         .await?;
-        let affected = stockin_model::apply_status(
-            &tx,
-            id,
-            STATUS_PENDING_POST,
-            STATUS_DRAFT,
-            None,
-            operator,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "收货单过账审批打回草稿"))?;
+        let affected = stockin_model::apply_status(&tx, id, STATUS_PENDING_POST, STATUS_DRAFT, None, operator, now)
+            .await
+            .map_err(|error| write_error(error, "收货单过账审批打回草稿"))?;
         if affected == 0 {
             return Err(conflict(format!(
                 "收货入库单 {} 的状态在本次打回期间已被改动（期望 {STATUS_PENDING_POST}），请刷新后重试",
@@ -624,9 +605,7 @@ pub(super) async fn post_stock_in(
 
     // PRD §3.2.6：多行按 material_id 升序加锁（再按库位 / 行号，保证全序），避免两个收货单互相死锁
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
-    ordered.sort_by(|a, b| {
-        (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
-    });
+    ordered.sort_by(|a, b| (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no)));
 
     let now = Utc::now();
     // LNK-02：采购单状态联动（PARTIAL_RECEIVED / RECEIVED）的 outbox ——
@@ -733,10 +712,9 @@ pub(super) async fn post_in_tx(
         None,
     )
     .await?;
-    let affected =
-        stockin_model::apply_status(ex, id, from_status, STATUS_POSTED, reason, operator.id, now)
-            .await
-            .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
+    let affected = stockin_model::apply_status(ex, id, from_status, STATUS_POSTED, reason, operator.id, now)
+        .await
+        .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单 {} 已被过账（并发），本次未生效",
@@ -750,20 +728,13 @@ pub(super) async fn post_in_tx(
     // 草稿单不该凭空建出 0 数量的账行（会把「库位库存」Tab 撑出空行）。所以建单只存
     // **用户意图**（`location_dict_id`），过账才按它建账并把行 id 回写 `location_id`
     // —— 下游（成本账 / 库位账 / 序列号 / 作废回滚）看到的仍是原来的「库位账行 id」。
-    let mut plan: Vec<(&stockin_model::StockInItemRow, Option<Uuid>)> =
-        Vec::with_capacity(ordered.len());
+    let mut plan: Vec<(&stockin_model::StockInItemRow, Option<Uuid>)> = Vec::with_capacity(ordered.len());
     for item in ordered {
         let location_row = match item.location_dict_id {
             Some(dict_id) => Some(
-                stockin_model::ensure_location_row(
-                    ex,
-                    item.material_id,
-                    header.warehouse_id,
-                    dict_id,
-                    now,
-                )
-                .await
-                .map_err(|error| write_error(error, "过账：按库位建账"))?,
+                stockin_model::ensure_location_row(ex, item.material_id, header.warehouse_id, dict_id, now)
+                    .await
+                    .map_err(|error| write_error(error, "过账：按库位建账"))?,
             ),
             // 旧口径 / 未分配桶：沿用明细上已有（或为空）的库位账行 id
             None => item.location_id,
@@ -779,36 +750,20 @@ pub(super) async fn post_in_tx(
     }
     // 锁顺序（PRD §3.2.6）：`material_id` 升序 → 库位账行升序 → 行号。
     // 两张收货单并发收同一物料时只会在同一把锁上排队，不会交叉等待。
-    plan.sort_by(|(a, a_loc), (b, b_loc)| {
-        (a.material_id, *a_loc, a.line_no).cmp(&(b.material_id, *b_loc, b.line_no))
-    });
+    plan.sort_by(|(a, a_loc), (b, b_loc)| (a.material_id, *a_loc, a.line_no).cmp(&(b.material_id, *b_loc, b.line_no)));
 
     // ③ 逐行：库存加法 + 流水（成本口径 = 不含税金额）
     for (item, location_row) in plan {
         let cost = CostBasis::of(item.qty, item.amount);
-        let applied = stockin_model::apply_cost(
-            ex,
-            item.material_id,
-            header.warehouse_id,
-            location_row,
-            cost,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "过账：库存加法"))?;
+        let applied = stockin_model::apply_cost(ex, item.material_id, header.warehouse_id, location_row, cost, now)
+            .await
+            .map_err(|error| write_error(error, "过账：库存加法"))?;
         // ③b 库位账（数量账）：与成本账**同一事务**同步加，否则违反不变式③
         //     （SUM(库位账) = 成本账 qty）。锁顺序：成本账已锁 → 这里只锁库位账一行，
         //     明细在调用方已按 material_id 升序排好，故两个收货单并发不会交叉等待。
-        stockin_model::apply_location_qty(
-            ex,
-            item.material_id,
-            header.warehouse_id,
-            location_row,
-            item.qty,
-            now,
-        )
-        .await
-        .map_err(|error| write_error(error, "过账：库位账加法"))?;
+        stockin_model::apply_location_qty(ex, item.material_id, header.warehouse_id, location_row, item.qty, now)
+            .await
+            .map_err(|error| write_error(error, "过账：库位账加法"))?;
         stockin_model::write_txn(
             ex,
             item.material_id,
@@ -825,11 +780,7 @@ pub(super) async fn post_in_tx(
         .map_err(|error| write_error(error, "过账：写库存流水"))?;
 
         // ④ 一物一码：落 / 生成序列号
-        if serial_required
-            .get(&item.material_id)
-            .copied()
-            .unwrap_or(false)
-        {
+        if serial_required.get(&item.material_id).copied().unwrap_or(false) {
             let serial_ids = provided.get(&item.line_no).cloned().unwrap_or_default();
             stockin_model::generate_serials(
                 ex,
@@ -854,10 +805,7 @@ pub(super) async fn post_in_tx(
                     error_code::ERP_CODE_CONFLICT,
                     format!(
                         "序列号重复（唯一约束{}）：这个码已经入过库，不能重复入库",
-                        constraint
-                            .as_deref()
-                            .map(|name| format!(" {name}"))
-                            .unwrap_or_default()
+                        constraint.as_deref().map(|name| format!(" {name}")).unwrap_or_default()
                     ),
                 ),
                 other => write_error(other, "过账：生成序列号"),
@@ -901,15 +849,14 @@ pub(super) async fn post_in_tx(
     // 同一物料的多行合并（金额 / 数量相加、行号取区间端点）。口径与配置路径
     // （`stockin_query::material_lines_of` 的一条聚合 SQL）逐字一致 —— 两条路生成的凭证
     // 行数、行序、行金额必须一样，否则 D3 影子对比会报差异。
-    let material_lines = voucher::VoucherMaterialLine::normalize(ordered.iter().map(|item| {
-        voucher::VoucherMaterialLine {
+    let material_lines =
+        voucher::VoucherMaterialLine::normalize(ordered.iter().map(|item| voucher::VoucherMaterialLine {
             material_id: item.material_id,
             qty: item.qty,
             amount: item.amount,
             line_from: item.line_no,
             line_to: item.line_no,
-        }
-    }));
+        }));
     tracing::info!(
         stock_in_id = %id,
         in_no = %locked.in_no,
@@ -927,18 +874,11 @@ pub(super) async fn post_in_tx(
     let voucher_id = match linkage::engine::stockin_voucher(ex, &voucher_ctx).await {
         Ok(linkage::engine::VoucherRoute::Configured { voucher_id, .. }) => voucher_id,
         Ok(linkage::engine::VoucherRoute::Legacy { reason, shadow }) => {
-            let legacy_id =
-                voucher::create_for_stock_in(ex, &locked, material_lines, operator.id, now)
-                    .await
-                    .map_err(|error| write_error(error, "过账：生成凭证"))?;
+            let legacy_id = voucher::create_for_stock_in(ex, &locked, material_lines, operator.id, now)
+                .await
+                .map_err(|error| write_error(error, "过账：生成凭证"))?;
             if let Some(shadow) = shadow {
-                linkage::engine::finish_stockin_voucher_shadow(
-                    ex,
-                    &voucher_ctx,
-                    &shadow,
-                    legacy_id,
-                )
-                .await;
+                linkage::engine::finish_stockin_voucher_shadow(ex, &voucher_ctx, &shadow, legacy_id).await;
             } else {
                 tracing::debug!(reason = %reason, "收货过账：凭证仍走旧逻辑（联动未接管）");
             }
@@ -976,8 +916,7 @@ pub(super) async fn post_in_tx(
     // 关键动作失败 → `Err` → 调用方整笔回滚（与本函数其它步骤同一口径）。
     let linkage_ctx = stockin_post_linkage_ctx(&locked, operator);
     let linkage_run =
-        linkage::engine::run_excluding(ex, &linkage_ctx, &[linkage::spec::ACTION_GENERATE_VOUCHER])
-            .await?;
+        linkage::engine::run_excluding(ex, &linkage_ctx, &[linkage::spec::ACTION_GENERATE_VOUCHER]).await?;
     if !linkage_run.runs.is_empty() || !linkage_run.deferred.is_empty() {
         tracing::info!(
             stock_in_id = %id,
@@ -1003,10 +942,7 @@ fn stockin_post_linkage_ctx<'a>(
         crate::business::notice::dto::NoticeType::Todo,
         crate::business::notice::dto::NoticeLevel::Info,
         "收货单已过账",
-        format!(
-            "收货单「{}」已过账：库存、凭证与应付已在同一事务里落库",
-            row.in_no
-        ),
+        format!("收货单「{}」已过账：库存、凭证与应付已在同一事务里落库", row.in_no),
         crate::business::notice::NoticeTarget::User(row.create_by.into_iter().collect()),
     );
     draft.link_url = Some(format!("/business/erp/stock-in?id={}", row.id));
@@ -1118,8 +1054,7 @@ pub(super) fn request_serials(
     if req.serials.is_empty() {
         return Ok(map);
     }
-    let by_line: HashMap<i32, &stockin_model::StockInItemRow> =
-        items.iter().map(|item| (item.line_no, item)).collect();
+    let by_line: HashMap<i32, &stockin_model::StockInItemRow> = items.iter().map(|item| (item.line_no, item)).collect();
     for entry in &req.serials {
         let Some(item) = by_line.get(&entry.line_no) else {
             return Err(bad_request(format!(
@@ -1153,10 +1088,7 @@ pub(super) fn request_serials(
         }
         let mut seen = std::collections::HashSet::with_capacity(cleaned.len());
         if let Some(dup) = cleaned.iter().find(|serial_no| !seen.insert(*serial_no)) {
-            return Err(bad_request(format!(
-                "第 {} 行的序列号重复：`{dup}`",
-                entry.line_no
-            )));
+            return Err(bad_request(format!("第 {} 行的序列号重复：`{dup}`", entry.line_no)));
         }
         if map.insert(entry.line_no, cleaned).is_some() {
             return Err(bad_request(format!(

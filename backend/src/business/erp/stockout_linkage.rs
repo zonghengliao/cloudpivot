@@ -41,10 +41,7 @@ pub(super) fn post_linkage_ctx<'a>(
         NoticeType::Todo,
         NoticeLevel::Info,
         "出库单已过账",
-        format!(
-            "出库单「{}」已过账：库存与成本结转凭证已在同一事务里落库",
-            row.out_no
-        ),
+        format!("出库单「{}」已过账：库存与成本结转凭证已在同一事务里落库", row.out_no),
         notice::NoticeTarget::User(row.create_by.into_iter().collect()),
     );
     draft.link_url = Some(format!("/business/erp/stock-out?id={}", row.id));
