@@ -1,0 +1,36 @@
+==============================================================================
+业务类型词表值域巡检 —— 24 列 / 1803 行（库 cloudpivot@127.0.0.1:5432/cloudpivot_dev）
+==============================================================================
+[PASS] ① 业务对象      biz_status_log.entity_type               取值 24 种
+[PASS] ① 业务对象      biz_doc_attachment.doc_type              取值 8 种
+[PASS] ① 业务对象      biz_reminder_log.doc_type                取值 3 种
+[FAIL] ② 审批动作      biz_flow_def.biz_type                    取值 18 种
+       ✗ 域外值 'PR_APPROVE' × 1
+       ✗ 域外值 'SO_APPROVE' × 1
+       ✗ 域外值 'PRT_APPROVE' × 1
+[FAIL] ② 审批动作      biz_flow_instance.biz_type               取值 15 种
+       ✗ 域外值 'PR_APPROVE' × 6
+       ✗ 域外值 'SO_APPROVE' × 5
+       ✗ 域外值 'PRT_APPROVE' × 1
+[PASS] ③ 库存变动动作  biz_inventory_txn.biz_type               取值 13 种
+[PASS] ③ 库存变动动作  biz_voucher_rule.biz_type                取值 5 种
+[PASS] ④ 流水来源单据  biz_inventory_txn.doc_type               取值 7 种
+[FAIL] ⑤ 凭证来源      biz_voucher.source_type                  取值 19 种
+       ✗ 域外值 'FX_REVALUATION' × 1
+[PASS] ⑤ 凭证来源      biz_payable.source_type                  取值 1 种
+[PASS] ⑥ 序列号来源    biz_material_serial.source_type          取值 0 种
+[PASS] ⑦ 单据子类型    biz_stock_in.in_type                     取值 3 种
+[PASS] ⑦ 单据子类型    biz_stock_out.out_type                   取值 2 种
+[PASS] ⑦ 单据子类型    biz_stock_take.take_type                 取值 2 种
+[PASS] ⑧ 预算状态      biz_budget.status                        取值 3 种
+[PASS] ⑧ 预算状态      biz_budget_usage.status                  取值 3 种
+[PASS] ⑨ 预算占用来源  biz_budget_usage.source_type             取值 1 种
+[PASS] ⑩ 资产状态      biz_fixed_asset.status                   取值 2 种
+[PASS] ⑩ 资产状态      biz_fixed_asset.disposal_type            取值 1 种
+[PASS] ⑩ 资产状态      biz_fixed_asset_change.change_type       取值 5 种
+[PASS] ⑩ 资产状态      biz_depreciation_batch.status            取值 1 种
+[PASS] ⑪ 报销状态      biz_expense_report.status                取值 5 种
+[PASS] ⑪ 报销状态      biz_expense_report.pay_status            取值 2 种
+[PASS] ⑪ 报销状态      biz_expense_payment.status               取值 1 种
+------------------------------------------------------------------------------
+结果：FAIL（3 列有域外值）

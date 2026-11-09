@@ -1,0 +1,4 @@
+d172367b docs(ops): I-5 清演练库 + 干净验收基线（孤儿应收软删 / 库存假差异证伪 / acceptance_gate 硬前置）
+ create mode 100644 docs/evidence/home5-20261109/ui/report.json
+ create mode 100644 frontend/src/views/dashboard/components/ApprovalTodoCard.vue
+5662a698 fix(erp): 补登记 SALES_RETURN_IN（E4b 真 BLOCKER）+ E4 登记闸扩成三层 + 孤儿应收口径写死
