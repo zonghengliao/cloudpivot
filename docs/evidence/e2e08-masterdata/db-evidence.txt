@@ -1,12 +1,12 @@
-===== E2E-08 主数据域 · DB 证据（2026-11-09 12:05:43 CST） =====
+===== E2E-08 主数据域 · DB 证据（2026-11-09 12:07:11 CST） =====
 
 -- 1. 取号器六条规则（纯流水 / 不计日期 / 永不重置）
-AC|AC|-|2|none|GLOBAL|29
-CUS|CUS|-|4|none|GLOBAL|28
-ET|ET|-|2|none|GLOBAL|22
-MAT|MAT|-|4|none|GLOBAL|23
-SUP|SUP|-|4|none|GLOBAL|36
-WH|WH|-|2|none|GLOBAL|23
+AC|AC|-|2|none|GLOBAL|32
+CUS|CUS|-|4|none|GLOBAL|31
+ET|ET|-|2|none|GLOBAL|25
+MAT|MAT|-|4|none|GLOBAL|26
+SUP|SUP|-|4|none|GLOBAL|42
+WH|WH|-|2|none|GLOBAL|26
 
 -- 2. 本卡演练行（E2E08 前缀）存活计数
 biz_customer|5

@@ -85,6 +85,14 @@ auto_matrix() { # tag path respfield seqtype table col mk label
   api "long_$tag" POST "$path" "$T_ADMIN" "$($mk "\"$(printf 'A%.0s' $(seq 1 41))\"" "$label 超长")"
   check "⑩${label} 超长编码 HTTP" "$HTTP" "400"
 
+  # 前端「生成编码」按钮的真实契约：预览出号 → 用户保存时把该号当手工编码提交 → 必须原值落库且号段不再前进
+  api "btnprev_$tag" GET "$path/next-code" "$T_ADMIN"
+  local p3 seqb; p3=$(data '.data.code'); seqb=$(seqof "$seqtype")
+  api "btn_$tag" POST "$path" "$T_ADMIN" "$($mk "\"$p3\"" "$label 预览号填单")"
+  check "⑩b${label} 预览号当手工码提交 HTTP" "$HTTP" "200"
+  check "⑩b${label} 预览号原值落库（按钮填充闭环）" "$(data ".data.$field")" "$p3"
+  check "⑩b${label} 该路径不再推进号段" "$(seqof "$seqtype")" "$seqb"
+
   # 落库与列表
   check "⑪${label} 库内编码 = 接口返回" "$(SQ "select $col from $table where id='$(eval echo \$ID_$tag)'")" "$c1"
   check "⑪${label} 库内行未软删" "$(SQ "select (deleted_at is null)::text from $table where id='$(eval echo \$ID_$tag)'")" "true"
