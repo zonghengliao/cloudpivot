@@ -645,6 +645,71 @@ test('changeSummary：状态留痕行（部门 / 使用人全 null）自动输�
   );
 });
 
+test('【E2E05-FIX-3】changeSummary：原地动作只列真正变了的字段，不出现「在役 → 在役」', () => {
+  // 部门转移：部门变了，使用人与状态都没变（from == to）→ 只显示部门
+  const transfer = {
+    id: 'c2',
+    change_type: 'TRANSFER',
+    change_label: '部门转移',
+    change_date: '2026-11-09',
+    from_dept_name: '研发部',
+    to_dept_name: '财务部',
+    from_user_name: '张三',
+    to_user_name: '张三',
+    from_status: 'IN_USE',
+    to_status: 'IN_USE',
+    reason: '组织调整',
+    voucher_id: null,
+    approval_instance_id: null,
+    operator_name: '管理员',
+    remark: null,
+    created_at: '2026-11-09T02:00:00Z',
+  } as AssetChange;
+  assert.equal(changeSummary(transfer), '研发部 → 财务部');
+
+  // 使用人变更：只有人变了 → 只显示人
+  assert.equal(
+    changeSummary({
+      ...transfer,
+      change_type: 'CUSTODIAN',
+      change_label: '使用人变更',
+      to_dept_name: '研发部',
+      from_user_name: '张三',
+      to_user_name: '李四',
+      reason: '离职交接',
+    }),
+    '张三 → 李四',
+  );
+
+  // 状态留痕（停用 / 启用）仍要显示状态对：from ≠ to 才是状态流转
+  assert.equal(
+    changeSummary({
+      ...transfer,
+      change_type: 'IDLE',
+      change_label: '停用',
+      to_dept_name: '研发部',
+      from_user_name: '张三',
+      to_user_name: '张三',
+      to_status: 'IDLE',
+      reason: '设备封存',
+    }),
+    '在役 → 闲置',
+  );
+
+  // 三组都没变（理论上不该出现）→ 退回原因，至少不是一句「— → —」
+  assert.equal(
+    changeSummary({
+      ...transfer,
+      change_type: 'REMARK',
+      change_label: '备注',
+      to_dept_name: '研发部',
+      to_user_name: '张三',
+      reason: '补充说明',
+    }),
+    '补充说明',
+  );
+});
+
 test('原因校验：普通原因非空，红冲原因 ≥ 2 字', () => {
   assert.ok(requireReasonError('   ', '转移原因'));
   assert.equal(requireReasonError('组织调整', '转移原因'), null);

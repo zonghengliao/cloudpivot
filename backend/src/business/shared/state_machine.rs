@@ -2512,6 +2512,7 @@ async fn write_config_audit(
         &Operator::from(claims),
         Some(&reason),
         None,
+        None,
     )
     .await
     .map(|_| ())
@@ -2978,6 +2979,11 @@ pub struct StatusLogRow {
     pub from_status: Option<String>,
     /// 变更后。
     pub to_status: String,
+    /// 业务动作码（E2E05-FIX-3 ①）：`None` = 真正的状态流转（`from → to`）；
+    /// `Some(TRANSFER)` / `Some(CUSTODIAN)` = 状态**没变**的业务动作（部门转移 / 使用人变更）。
+    /// 没有这一列时，任何按 `from → to` 渲染时间线的消费者只能把这类行读成
+    /// 「IN_USE → IN_USE」，看起来像脏数据（V0365 加的列）。
+    pub action: Option<String>,
     /// 操作人 id。
     pub operator_id: Option<Uuid>,
     /// 操作人名字。
@@ -3209,6 +3215,7 @@ pub async fn transition(
         &operator,
         reason,
         biz_ref,
+        None,
     )
     .await?;
     Ok(TransitionOutcome {
@@ -3305,6 +3312,7 @@ pub async fn log_created(
         &operator,
         reason.map(str::trim).filter(|text| !text.is_empty()),
         None,
+        None,
     )
     .await
 }
@@ -3347,6 +3355,7 @@ pub async fn note_edge_config(
         &operator,
         Some(reason),
         None,
+        None,
     )
     .await
     .map(|_| ())
@@ -3367,8 +3376,16 @@ pub async fn note_edge_config(
 ///
 /// 这一条 `from = to` 的日志在时间线上读起来是「6 月 3 日 由 研发部 转到 产品部」——
 /// 正是内控想看到的；它不会被 `state_machine::can_transition` 认成一条边。
+///
+/// # `action`：把「业务动作」和「状态流转」在数据层分开（E2E05-FIX-3 ①）
+///
+/// `from_status = to_status` 的行光看状态两列是「IN_USE → IN_USE」，任何按
+/// `from → to` 渲染时间线的消费者都只能把它当脏数据。`action` 是这些事件的
+/// **动作码**（`TRANSFER` / `CUSTODIAN`，与 `biz_fixed_asset_change.change_type`
+/// 同字面），前端据此显示「部门转移」「使用人变更」；`None` = 未分类的业务事件。
+/// 真正的状态流转由 [`transition`] 写，`action` 恒为 `NULL`。
 // 与 `transition` 同一组参数（实体 + 单据 + 状态 + 操作人 + 原因 + 关联单据），
-// 两者签名刻意保持一致，调用方才能在「状态变了」与「状态没变」之间一处切换。
+// 多出来的 `action` 只描述「这是哪种业务动作」，不参与状态判定。
 #[allow(clippy::too_many_arguments)]
 pub async fn log_event(
     ex: &impl SqlExecutor,
@@ -3376,6 +3393,7 @@ pub async fn log_event(
     entity_id: Uuid,
     entity_no: &str,
     status: &str,
+    action: Option<&str>,
     operator: impl Into<Operator>,
     reason: Option<&str>,
     biz_ref: Option<(&str, &str)>,
@@ -3399,6 +3417,7 @@ pub async fn log_event(
         &operator.into(),
         reason,
         biz_ref,
+        action,
     )
     .await
 }
@@ -3415,6 +3434,7 @@ async fn insert_log(
     operator: &Operator,
     reason: Option<&str>,
     biz_ref: Option<(&str, &str)>,
+    action: Option<&str>,
 ) -> Result<Uuid, ApiError> {
     let id = Uuid::now_v7();
     let (ref_type, ref_no) = match biz_ref {
@@ -3460,10 +3480,10 @@ async fn insert_log(
     ex.exec_sql(
         "INSERT INTO biz_status_log \
             (id, entity_type, entity_id, entity_no, from_status, to_status, \
-             operator_id, operator_name, reason, biz_ref_type, biz_ref_no, created_at) \
+             operator_id, operator_name, reason, biz_ref_type, biz_ref_no, created_at, action) \
          VALUES (?, ?, ?::uuid, ?, NULLIF(?::text,''), ?, NULLIF(?::text,'')::uuid, \
                  NULLIF(?::text,''), NULLIF(?::text,''), NULLIF(?::text,''), \
-                 NULLIF(?::text,''), ?)"
+                 NULLIF(?::text,''), ?, NULLIF(?::text,''))"
             .to_string(),
         vec![
             Value::from(&id),
@@ -3483,6 +3503,7 @@ async fn insert_log(
             Value::Text(ref_type),
             Value::Text(ref_no),
             Value::from(Utc::now()),
+            Value::Text(action.unwrap_or_default().to_string()),
         ],
     )
     .await
@@ -3533,8 +3554,8 @@ pub fn ensure_writable(entity_type: &str, status: &str, entity_no: &str) -> Resu
 pub async fn trail_of_no(ex: &impl SqlExecutor, entity_no: &str) -> DbResult<Vec<StatusLogRow>> {
     let rows = ex
         .query_sql(
-            "SELECT id, entity_type, entity_id, entity_no, from_status, to_status, operator_id, \
-                    operator_name, reason, biz_ref_type, biz_ref_no, created_at \
+            "SELECT id, entity_type, entity_id, entity_no, from_status, to_status, action, \
+                    operator_id, operator_name, reason, biz_ref_type, biz_ref_no, created_at \
                FROM biz_status_log WHERE entity_no = ? ORDER BY created_at ASC, id ASC"
                 .to_string(),
             vec![Value::Text(entity_no.to_string())],
@@ -3553,6 +3574,7 @@ impl StatusLogRow {
             entity_no: row.get_typed("entity_no")?,
             from_status: row.get_typed::<Option<String>>("from_status")?,
             to_status: row.get_typed("to_status")?,
+            action: row.get_typed::<Option<String>>("action")?,
             operator_id: row.get_typed::<Option<Uuid>>("operator_id")?,
             operator_name: row.get_typed::<Option<String>>("operator_name")?,
             reason: row.get_typed::<Option<String>>("reason")?,

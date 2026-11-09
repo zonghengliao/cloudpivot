@@ -572,6 +572,12 @@ pub struct UpdateAssetReq {
     pub location: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 原值（**只读**：本结构体接收它只为「传了、且和现值不同」时显式报错，
+    /// 见 [`reject_immutable_update`]；serde 默认丢未知字段会让「金额已改」变成
+    /// 一次静默的假成功 —— E2E05-FIX-3 ②）。
+    pub original_value: Option<Decimal>,
+    /// 资产分类（**只读**：同上）。
+    pub category_id: Option<String>,
 }
 
 /// 修改校验的输出（四个可空字段，用结构体而不是 4 元组：
@@ -608,6 +614,90 @@ pub fn validate_update(req: &UpdateAssetReq) -> Result<UpdateAssetFields, ApiErr
         location: req.location.clone(),
         remark: req.remark.clone(),
     })
+}
+
+/// **只读字段**（原值 / 分类）被带上来了 → 显式 400（E2E05-FIX-3 ②）。
+///
+/// # 为什么要有这个函数
+///
+/// [`UpdateAssetReq`] 以前不声明 `original_value` / `category_id`，serde 默认
+/// **丢弃未知字段**：调用方传 `"original_value": "999999"` 拿到 200，库里还是
+/// 120000 —— 只有去查库才能发现「金额没改」。这类「静默假成功」比直接报错更贵：
+/// 二开 / 接口使用者会照着自己的假设继续往下走。
+///
+/// 现在的口径（卡面「方案 B」：精准报错，不误伤其它扩展字段）：
+///
+/// | 请求里带了 | 与现值比较 | 结果 |
+/// |---|---|---|
+/// | 没带 / 空串 | — | 放行（前端整表回填的 `""` 不算「要改」） |
+/// | 带了 | 相同 | 放行（幂等：整表单回传现值不该 400） |
+/// | 带了 | 不同 | **400**，点名「不可修改 + 该走哪条路」 |
+///
+/// 不选 `#[serde(deny_unknown_fields)]`（卡面「方案 A」）：那会把**所有**未知字段
+/// 一起拒掉，未来加字段 / 前端带冗余字段都会炸，误伤面太大。
+///
+/// # 参数
+///
+/// - `current_original_value` / `current_category_id`：卡片**当前**值（调用方查库传入；
+///   本函数保持纯函数，便于单测）。
+pub fn reject_immutable_update(
+    req: &UpdateAssetReq,
+    current_original_value: Decimal,
+    current_category_id: Uuid,
+) -> Result<(), ApiError> {
+    if let Some(requested) = req.original_value {
+        // 库里是 numeric(18,4)：按 4 位比较，`120000` 与 `120000.0000` 视为同一个值
+        if requested.round_dp(4) != current_original_value.round_dp(4) {
+            return Err(invalid(format!(
+                "原值不可修改（当前 {}，请求 {}）：原值决定已计提折旧的口径，\
+                 改了会让「累计折旧 = Σ 明细」永久失真。要改金额请作废按新价重建卡片",
+                current_original_value.round_dp(4),
+                requested.round_dp(4)
+            )));
+        }
+    }
+    match req
+        .category_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        None => {}
+        Some(raw) => {
+            // 解析失败也要拒：它显然不等于现值，「不可修改」比「非法 UUID」更贴近真实意图
+            match Uuid::parse_str(raw) {
+                Ok(requested) if requested == current_category_id => {}
+                _ => {
+                    return Err(invalid(format!(
+                        "资产分类不可修改（当前 {}，请求 {raw}）：分类决定折旧年限与\
+                         计提科目，换分类等于换了一套折旧口径。请在新建卡片时选对分类",
+                        current_category_id
+                    )));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 作废处置时**变动留痕**用的日期（E2E05-FIX-3 ③）。
+///
+/// # 为什么不能直接用「今天」
+///
+/// 作废处置写的是 `biz_fixed_asset_change` 的 `ENABLE` 行（`DISPOSED → IN_USE`）。
+/// 改造前这里取 `today`：一张 2028-05-25 报废、随后作废的单据，变动日期会落成
+/// 「今天」（2026-11-09）—— 按会计期间筛「本期资产变动」时，这条既不在处置的
+/// 期间、也不在真正恢复的期间，**两边都查不到**。
+///
+/// 口径：**优先用调用方显式给的 `change_date`，缺省用原处置日**（`asset.disposal_date`），
+/// 只有两者都没有（异常数据：已处置却没有处置日）才退回今天 —— 那种情况下
+/// 「落在今天」至少不会错到别的期间里去，且 `tracing::warn!` 会点名。
+pub fn cancel_disposal_change_date(
+    requested: Option<NaiveDate>,
+    disposal_date: Option<NaiveDate>,
+    today: NaiveDate,
+) -> NaiveDate {
+    requested.or(disposal_date).unwrap_or(today)
 }
 
 /// 部门转移。
@@ -1664,5 +1754,124 @@ mod tests {
         assert_eq!(normalize_page(0, 0), (1, DEFAULT_PAGE_SIZE));
         assert_eq!(normalize_page(3, 10_000), (3, MAX_PAGE_SIZE));
         assert_eq!(normalize_page(2, 50), (2, 50));
+    }
+
+    /// ⑬ 只读字段（原值 / 分类）被带上来了且与现值不同 → 400（E2E05-FIX-3 ②）。
+    ///
+    /// 改造前这两个字段根本不在 `UpdateAssetReq` 里：serde 静默丢弃 ⇒ 传
+    /// `"original_value":"999999"` 拿到 200、库里还是 120000。**静默假成功**比报错贵得多：
+    /// 调用方会照着「已改」的假设继续往下走。本测试钉住三条口径：
+    /// 不传 / 传现值（含四位等价写法）放行；传了且变了 → 400 点名；非 UUID 字面量也拒。
+    #[test]
+    fn update_rejects_immutable_fields() {
+        let current_value = dec!(120000);
+        let current_category = Uuid::parse_str("11111111-1111-4111-8111-111111111111").expect("uuid");
+
+        // 完全不传（前端改名只发 4 个可改字段）→ 放行
+        assert!(
+            reject_immutable_update(&UpdateAssetReq::default(), current_value, current_category).is_ok(),
+            "不带只读字段是正常请求"
+        );
+
+        // 整表单回传现值 → 放行（幂等：传 `120000` / `120000.0000` 视为同一个值）
+        let same = UpdateAssetReq {
+            original_value: Some(dec!(120000.0000)),
+            category_id: Some(current_category.to_string()),
+            ..Default::default()
+        };
+        assert!(
+            reject_immutable_update(&same, current_value, current_category).is_ok(),
+            "回传现值不该 400"
+        );
+
+        // 改金额 → 400，点名「原值不可修改」且给出新旧值（只说「非法」等于把人晾在原地）
+        let changed_value = UpdateAssetReq {
+            original_value: Some(dec!(999999)),
+            ..Default::default()
+        };
+        let err = reject_immutable_update(&changed_value, current_value, current_category).expect_err("改原值必须拒绝");
+        assert_eq!(err.status, 400, "参数问题不是状态冲突");
+        assert!(err.msg.contains("原值不可修改"), "报文要点名：{}", err.msg);
+        assert!(
+            err.msg.contains("999999") && err.msg.contains("120000"),
+            "报文要给出「当前 → 请求」两个值：{}",
+            err.msg
+        );
+
+        // 改分类 → 400
+        let other_category = Uuid::parse_str("22222222-2222-4222-8222-222222222222").expect("uuid");
+        let changed_category = UpdateAssetReq {
+            category_id: Some(other_category.to_string()),
+            ..Default::default()
+        };
+        let err =
+            reject_immutable_update(&changed_category, current_value, current_category).expect_err("改分类必须拒绝");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("资产分类不可修改"), "报文要点名：{}", err.msg);
+
+        // 空串（前端整表单回填的 ""）= 没传 → 放行；非 UUID 字面量一定不等于现值 → 拒绝
+        let blank = UpdateAssetReq {
+            category_id: Some("   ".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            reject_immutable_update(&blank, current_value, current_category).is_ok(),
+            "空串不算「要改分类」"
+        );
+        let garbage = UpdateAssetReq {
+            category_id: Some("abc".to_string()),
+            ..Default::default()
+        };
+        let err = reject_immutable_update(&garbage, current_value, current_category)
+            .expect_err("非 UUID 不等于现值，必须拒绝");
+        assert!(err.msg.contains("资产分类不可修改"), "{}", err.msg);
+    }
+
+    /// ⑭ `UpdateAssetReq` 真的**收得到**这两个字段（改造前 serde 静默丢弃 ⇒ 假成功）。
+    ///
+    /// ⑬ 测的是「收到之后怎么判」，本条测「收得到」——少了这条，把字段从 DTO 里删掉
+    /// ⑬ 仍然全绿（`Default` 的 `None` 恰好放行），静默忽略就会偷偷回来。
+    #[test]
+    fn update_req_deserializes_immutable_fields() {
+        let req: UpdateAssetReq = serde_json::from_str(
+            r#"{"asset_name":"新名字","original_value":"999999",
+                "category_id":"22222222-2222-4222-8222-222222222222"}"#,
+        )
+        .expect("反序列化");
+        assert_eq!(
+            req.original_value,
+            Some(dec!(999999)),
+            "传了原值必须能被 handler 看见，不能被 serde 丢掉"
+        );
+        assert_eq!(req.category_id.as_deref(), Some("22222222-2222-4222-8222-222222222222"));
+        assert_eq!(req.asset_name.as_deref(), Some("新名字"), "可改字段照旧生效");
+    }
+
+    /// ⑮ 作废处置的留痕日期：显式指定 > 原处置日 > 今天（E2E05-FIX-3 ③）。
+    ///
+    /// 改造前恒取「今天」：2028-05-25 报废的卡作废后，变动行落在今天的期间 ⇒
+    /// 按会计期间筛本期资产变动时，处置期间与恢复期间**两边都查不到**。
+    #[test]
+    fn cancel_disposal_date_prefers_original_disposal_date() {
+        let disposal = NaiveDate::from_ymd_opt(2028, 5, 25).expect("日期");
+        let today = NaiveDate::from_ymd_opt(2026, 11, 9).expect("日期");
+        assert_eq!(
+            cancel_disposal_change_date(None, Some(disposal), today),
+            disposal,
+            "缺省必须回到原处置日，不能是今天"
+        );
+
+        let explicit = NaiveDate::from_ymd_opt(2026, 12, 1).expect("日期");
+        assert_eq!(
+            cancel_disposal_change_date(Some(explicit), Some(disposal), today),
+            explicit,
+            "调用方显式指定优先"
+        );
+
+        assert_eq!(
+            cancel_disposal_change_date(None, None, today),
+            today,
+            "异常数据（已处置却没有处置日）才退回今天"
+        );
     }
 }

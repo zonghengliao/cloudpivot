@@ -913,17 +913,46 @@ export function errorText(error: unknown): string {
 
 // ==================== 变动时间线文案 ====================
 
+/**
+ * 一项「变了」的字段 → `旧 → 新`；两边**相同**或都为空 → `null`（不渲染）。
+ *
+ * # 为什么必须过滤 `from == to`（E2E05-FIX-3 ①）
+ *
+ * 部门转移 / 使用人变更**不改状态**：变动行里 `from_status = to_status = IN_USE`，
+ * 且转移时使用人没动（`from_user_name == to_user_name`）、变更使用人时部门没动。
+ * 改造前这里无脑把三组都拼上，时间线就变成
+ * 「在役 → 在役；研发部 → 研发部；张三 → 李四」——看起来像脏数据。
+ * 行的标题（`change_label`）已经写明「部门转移 / 使用人变更」，摘要只需要列出**真正变了的东西**。
+ * 判据放在前端（数据层 `biz_fixed_asset_change` 的 `from_*` / `to_*` 是留痕快照，不改写历史行）。
+ */
+function movedPair(
+  from: string | null | undefined,
+  to: string | null | undefined,
+  label: (raw: string | null | undefined) => string,
+): string | null {
+  if (!from && !to) {
+    return null;
+  }
+  if ((from ?? '') === (to ?? '')) {
+    return null;
+  }
+  return `${label(from)} → ${label(to)}`;
+}
+
 /** 变动记录 → 一句人话（时间线行）。 */
 export function changeSummary(change: AssetChange): string {
   const parts: string[] = [];
-  if (change.from_dept_name || change.to_dept_name) {
-    parts.push(`${change.from_dept_name ?? '—'} → ${change.to_dept_name ?? '—'}`);
+  const dept = movedPair(change.from_dept_name, change.to_dept_name, (raw) => raw ?? '—');
+  if (dept) {
+    parts.push(dept);
   }
-  if (change.from_user_name || change.to_user_name) {
-    parts.push(`${change.from_user_name ?? '—'} → ${change.to_user_name ?? '—'}`);
+  const user = movedPair(change.from_user_name, change.to_user_name, (raw) => raw ?? '—');
+  if (user) {
+    parts.push(user);
   }
-  if (change.from_status || change.to_status) {
-    parts.push(`${assetStatusLabel(change.from_status)} → ${assetStatusLabel(change.to_status)}`);
+  const status = movedPair(change.from_status, change.to_status, assetStatusLabel);
+  if (status) {
+    parts.push(status);
   }
   return parts.join('；') || change.reason;
 }

@@ -58,7 +58,9 @@ use nik::uuid::Uuid;
 
 use super::asset_bridge;
 use super::asset_dto::{self, AssetDetailRes, CreateAssetReq, StatusChangeReq};
-use super::asset_handler::{CancelDisposalReq, asset_dispose_cancel, asset_status_change};
+use super::asset_handler::{
+    CancelDisposalReq, asset_custodian, asset_dispose_cancel, asset_status_change, asset_transfer, asset_update,
+};
 use super::asset_linkage;
 use super::asset_model::{self, AssetInsert};
 use crate::business::erp::period_test_support as support;
@@ -118,6 +120,9 @@ fn in_texts(ids: &[Uuid]) -> String {
 /// 顺序：通知 → 凭证（分录随 CASCADE）→ 变动留痕 → 状态日志 → 审批实例 → 卡片。
 /// 审批实例按**本卡号段**取（`FLW-LNK09-` / `biz_no LIKE 'FA-LNK09-%'` / 夹具发起人），
 /// 这样即使上一个 run 在「插实例」中途 panic（卡片还没建）也能清干净。
+///
+/// 号段：`FA-LNK09-`（联动）/ `FA-ST02-`（停用启用）/ `FA-FIX03-`（E2E05-FIX-3 的
+/// 状态日志 · 只读字段 · 留痕日期用例）—— 三条线按前缀分开，互不删除对方在跑的夹具。
 async fn purge() {
     exec("DELETE FROM biz_flow_linkage_rule WHERE name LIKE 'LNK09-%'").await;
     // FIN-ASSET-ST02 的规则号段（与本文件 LNK09 段分开清，两条线互不干扰）
@@ -129,7 +134,8 @@ async fn purge() {
     // 按本文件的两个号段找残留（`FA-LNK09-` / `FA-ST02-` 前缀是本文件独占的卡片号）
     let assets = uuids_of(
         "SELECT id FROM biz_fixed_asset \
-          WHERE asset_no LIKE 'FA-LNK09-%' OR asset_no LIKE 'FA-ST02-%'",
+          WHERE asset_no LIKE 'FA-LNK09-%' OR asset_no LIKE 'FA-ST02-%' \
+             OR asset_no LIKE 'FA-FIX03-%'",
     )
     .await;
     if !assets.is_empty() {
@@ -173,6 +179,7 @@ async fn purge() {
             AND (instance_no LIKE 'FLW-LNK09-%' \
                  OR biz_no LIKE 'FA-LNK09-%' \
                  OR biz_no LIKE 'FA-ST02-%' \
+                 OR biz_no LIKE 'FA-FIX03-%' \
                  OR initiator_id IN (SELECT id FROM sys_user WHERE username LIKE 'p2.lnk09%'))"
     ))
     .await;
@@ -561,6 +568,8 @@ async fn lnk09_cancel_disposal_triggers_restore_notice() {
         Path(asset_id.to_string()),
         Json(CancelDisposalReq {
             reason: Some("LNK-09 用例：处置依据不成立，作废".to_string()),
+            // 不传：留痕日期缺省 = 原处置日（E2E05-FIX-3 ③）
+            change_date: None,
         }),
     )
     .await
@@ -1302,6 +1311,8 @@ async fn st02_dispose_restore_dispose_notifies_twice() {
         Path(asset_id.to_string()),
         Json(CancelDisposalReq {
             reason: Some("ST02 用例：处置依据不成立，作废".to_string()),
+            // 不传：留痕日期缺省 = 原处置日（E2E05-FIX-3 ③）
+            change_date: None,
         }),
     )
     .await
@@ -1324,6 +1335,315 @@ async fn st02_dispose_restore_dispose_notifies_twice() {
         "处置 → 作废 → 再处置必须发两条 DISPOSED 通知（旧键会只剩 1 条：LNK-09 遗留 bug）"
     );
     purge().await;
+}
+
+// ==================== E2E05-FIX-3：动作码 / 只读字段 / 留痕日期 ====================
+
+/// FIX-03 用例的卡片号段（[`purge`] 按 `FA-FIX03-%` 清）。
+const FIX03_ASSET_PREFIX: &str = "FA-FIX03";
+/// 部门转移的转入部门（固定 code ⇒ 重复跑不会堆部门）。
+const FIX03_DEPT_CODE: &str = "TST-FIX03";
+
+/// 状态日志的 `(from, to, action)`（按写入顺序）。
+///
+/// 顺序用 `created_at, id`：同一事务里连写两行时 `created_at` 可能相等，
+/// `id` 是 UUIDv7 ⇒ 与写入顺序一致（与 `trail_of_no` 同口径）。
+async fn status_log_actions_of(asset_id: Uuid) -> Vec<(String, String, Option<String>)> {
+    let rows = db()
+        .query_sql(
+            "SELECT from_status, to_status, action FROM biz_status_log \
+              WHERE entity_type = 'FIXED_ASSET' AND entity_id = ?::uuid \
+              ORDER BY created_at, id"
+                .to_string(),
+            vec![Value::from(&asset_id)],
+        )
+        .await
+        .expect("查状态日志");
+    rows.iter()
+        .map(|row| {
+            (
+                row.get_typed::<Option<String>>("from_status")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                row.get_typed::<Option<String>>("to_status")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                row.get_typed::<Option<String>>("action").ok().flatten(),
+            )
+        })
+        .collect()
+}
+
+/// 变动留痕的 `(change_type, change_date)`（按写入顺序）。
+async fn change_dates_of(asset_id: Uuid) -> Vec<(String, NaiveDate)> {
+    let rows = db()
+        .query_sql(
+            "SELECT change_type, change_date FROM biz_fixed_asset_change \
+              WHERE asset_id = ?::uuid ORDER BY created_at, id"
+                .to_string(),
+            vec![Value::from(&asset_id)],
+        )
+        .await
+        .expect("查变动留痕日期");
+    rows.iter()
+        .map(|row| {
+            (
+                row.get_typed::<String>("change_type").expect("change_type"),
+                row.get_typed::<NaiveDate>("change_date").expect("change_date"),
+            )
+        })
+        .collect()
+}
+
+/// ① 部门转移 / 使用人变更的状态日志带动作码，且 `trail_of_no` 读得出来（E2E05-FIX-3 ①）。
+///
+/// 改造前：两条日志 `from = to = IN_USE` 且没有任何字段说明「这是业务动作」⇒
+/// 任何按 `from → to` 渲染时间线的消费者只能显示「IN_USE → IN_USE」（像脏数据）。
+/// 现在 `action` 在数据层就把「业务动作」与「状态流转」分开，前端不需要猜 `reason` 前缀。
+#[tokio::test]
+async fn fix03_transfer_and_custodian_log_action_codes() {
+    let Some((_guard, user)) = setup().await else {
+        return;
+    };
+    let (asset_id, asset_no) = make_asset_named(user, FIX03_ASSET_PREFIX, "FIX03 动作码夹具").await;
+    let to_dept = seed_guard::ensure_dept(FIX03_DEPT_CODE, "FIX03 转入部门").await;
+    let holder = support::seed_user("p2.lnk09_holder", "FIX03 承接人").await;
+    let today = NaiveDate::from_ymd_opt(2026, 11, 9).expect("日期");
+
+    // ① 部门转移：状态不变（仍 IN_USE），只换部门
+    let detail = asset_transfer(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(asset_dto::TransferReq {
+            to_dept_id: Some(to_dept.to_string()),
+            change_date: Some(today),
+            reason: Some("FIX03 用例：组织调整".to_string()),
+        }),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("转移失败：{} {}", err.code, err.msg))
+    .data
+    .expect("转移必须返回详情");
+    assert_eq!(
+        detail.asset.use_dept_id,
+        to_dept.to_string(),
+        "转移后使用部门必须变（这是转移的**业务**结果）"
+    );
+    assert_eq!(
+        detail.asset.status,
+        asset_dto::STATUS_IN_USE,
+        "转移不改状态：这正是「IN_USE → IN_USE」的来源"
+    );
+
+    // ② 使用人变更：状态同样不变
+    let detail = asset_custodian(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(asset_dto::CustodianReq {
+            to_user_id: Some(holder.to_string()),
+            change_date: Some(today),
+            reason: Some("FIX03 用例：离职交接".to_string()),
+        }),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("使用人变更失败：{} {}", err.code, err.msg))
+    .data
+    .expect("使用人变更必须返回详情");
+    assert_eq!(
+        detail.asset.custodian_id.as_deref(),
+        Some(holder.to_string().as_str()),
+        "使用人变更后承接人必须换"
+    );
+
+    let logs = status_log_actions_of(asset_id).await;
+    assert_eq!(logs.len(), 2, "两个业务动作各写一条日志：{logs:?}");
+    for (from, to, _) in &logs {
+        assert_eq!(
+            (from.as_str(), to.as_str()),
+            (asset_dto::STATUS_IN_USE, asset_dto::STATUS_IN_USE),
+            "两条都是原地动作（from = to = IN_USE），光看状态两列无法区分：{logs:?}"
+        );
+    }
+    assert_eq!(
+        logs[0].2.as_deref(),
+        Some(asset_dto::CHANGE_TRANSFER),
+        "部门转移必须带 action=TRANSFER（否则时间线只能显示 IN_USE → IN_USE）"
+    );
+    assert_eq!(
+        logs[1].2.as_deref(),
+        Some(asset_dto::CHANGE_CUSTODIAN),
+        "使用人变更必须带 action=CUSTODIAN"
+    );
+
+    // 只写不读等于没修：生产查询 `trail_of_no` 必须把 action 带出来
+    let trail = state_machine::trail_of_no(db(), &asset_no).await.expect("读状态轨迹");
+    assert_eq!(trail.len(), 2, "轨迹两行：{trail:?}");
+    assert_eq!(
+        trail[0].action.as_deref(),
+        Some(asset_dto::CHANGE_TRANSFER),
+        "trail_of_no 读不到 action 的话，前端还是只能看到 IN_USE → IN_USE"
+    );
+    assert_eq!(trail[1].action.as_deref(), Some(asset_dto::CHANGE_CUSTODIAN));
+    assert_eq!(
+        trail[0].from_status.as_deref(),
+        Some(asset_dto::STATUS_IN_USE),
+        "状态两列保持原样（不伪造 from/to）"
+    );
+}
+
+/// ② `PUT /asset/{id}` 带只读字段（原值 / 分类）→ **400 明确提示**，不是静默忽略（E2E05-FIX-3 ②）。
+///
+/// 改造前 DTO 不声明这两个字段，serde 丢弃 ⇒ 传 `original_value=999999` 拿到 200、
+/// 库里还是 120000（「静默假成功」）。现在：传了且与现值不同 → 400 点名；
+/// 传了现值（整表单回传）→ 照常 200，不误伤。
+#[tokio::test]
+async fn fix03_update_rejects_readonly_fields() {
+    let Some((_guard, user)) = setup().await else {
+        return;
+    };
+    let (asset_id, _asset_no) = make_asset_named(user, FIX03_ASSET_PREFIX, "FIX03 只读字段夹具").await;
+    let before = asset_model::asset_find(asset_id)
+        .await
+        .expect("查卡片")
+        .expect("卡片必须存在");
+
+    // ① 改原值 → 400，报文点名，且库里一分没动
+    let err = asset_update(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(asset_dto::UpdateAssetReq {
+            original_value: Some(dec("999999")),
+            ..Default::default()
+        }),
+    )
+    .await
+    .expect_err("带不同的原值必须 400，不能被静默忽略");
+    assert_eq!(err.status, 400, "参数问题不是状态冲突：{}", err.msg);
+    assert!(err.msg.contains("原值不可修改"), "报文要点名：{}", err.msg);
+    let after = asset_model::asset_find(asset_id)
+        .await
+        .expect("查卡片")
+        .expect("卡片必须存在");
+    assert_eq!(
+        after.original_value, before.original_value,
+        "400 之后库里原值必须原封不动"
+    );
+
+    // ② 改分类 → 400
+    let err = asset_update(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(asset_dto::UpdateAssetReq {
+            category_id: Some(Uuid::now_v7().to_string()),
+            ..Default::default()
+        }),
+    )
+    .await
+    .expect_err("带不同的分类必须 400");
+    assert_eq!(err.status, 400);
+    assert!(err.msg.contains("资产分类不可修改"), "报文要点名：{}", err.msg);
+
+    // ③ 回传现值 + 改名 → 200（整表单回传不该被误伤）
+    let detail = asset_update(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(asset_dto::UpdateAssetReq {
+            asset_name: Some("FIX03 改名后".to_string()),
+            original_value: Some(before.original_value),
+            category_id: Some(before.category_id.to_string()),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("回传现值不该被拒：{} {}", err.code, err.msg))
+    .data
+    .expect("改名必须返回详情");
+    assert_eq!(detail.asset.asset_name, "FIX03 改名后", "可改字段照旧生效");
+    let after = asset_model::asset_find(asset_id)
+        .await
+        .expect("查卡片")
+        .expect("卡片必须存在");
+    assert_eq!(after.original_value, before.original_value, "金额不能被静默改");
+    assert_eq!(after.category_id, before.category_id, "分类不能被静默改");
+}
+
+/// ③ 作废处置的留痕日期 = 原处置日（显式指定优先），不是「今天」（E2E05-FIX-3 ③）。
+///
+/// 改造前恒取 `voucher_today()`：2099-03-15 报废的卡作废后，`ENABLE` 行落在
+/// 「今天」（2026-11）—— 按会计期间筛本期资产变动时，处置期间与恢复期间**两边都查不到**。
+#[tokio::test]
+async fn fix03_cancel_disposal_keeps_disposal_date() {
+    let Some((_guard, user)) = setup().await else {
+        return;
+    };
+    let (asset_id, asset_no) = make_asset_named(user, FIX03_ASSET_PREFIX, "FIX03 作废日期夹具").await;
+    let disposal_date = NaiveDate::from_ymd_opt(2099, 3, 15).expect("日期");
+
+    let first = seed_approved_instance(asset_id, &asset_no, user).await;
+    assert_eq!(
+        asset_bridge::on_disposal_settled(Some(first), "APPROVED").await,
+        Some(asset_id),
+        "处置必须成功"
+    );
+    assert!(
+        change_dates_of(asset_id)
+            .await
+            .iter()
+            .any(|(kind, date)| kind == asset_dto::CHANGE_DISPOSAL && *date == disposal_date),
+        "前提：处置行自身落的就是处置日 2099-03-15"
+    );
+
+    // ① 不传 change_date → 原处置日
+    asset_dispose_cancel(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(CancelDisposalReq {
+            reason: Some("FIX03 用例：处置依据不成立，作废".to_string()),
+            change_date: None,
+        }),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("作废处置失败：{} {}", err.code, err.msg));
+    let enables: Vec<NaiveDate> = change_dates_of(asset_id)
+        .await
+        .into_iter()
+        .filter(|(kind, _)| kind == asset_dto::CHANGE_ENABLE)
+        .map(|(_, date)| date)
+        .collect();
+    assert_eq!(enables.len(), 1, "作废处置写一行 ENABLE 留痕");
+    assert_eq!(
+        enables[0], disposal_date,
+        "缺省必须落原处置日（2099-03-15），不能是今天——否则按期间筛资产变动两边都查不到"
+    );
+
+    // ② 显式传 change_date → 用传的（调用方要按「今天」记也能做到）
+    let second = seed_approved_instance(asset_id, &asset_no, user).await;
+    assert_eq!(
+        asset_bridge::on_disposal_settled(Some(second), "APPROVED").await,
+        Some(asset_id),
+        "再处置必须成功"
+    );
+    let explicit = NaiveDate::from_ymd_opt(2026, 11, 5).expect("日期");
+    asset_dispose_cancel(
+        Extension(AuthClaims(claims_of(user))),
+        Path(asset_id.to_string()),
+        Json(CancelDisposalReq {
+            reason: Some("FIX03 用例：第二次作废，显式指定日期".to_string()),
+            change_date: Some(explicit),
+        }),
+    )
+    .await
+    .unwrap_or_else(|err| panic!("第二次作废处置失败：{} {}", err.code, err.msg));
+    let enables: Vec<NaiveDate> = change_dates_of(asset_id)
+        .await
+        .into_iter()
+        .filter(|(kind, _)| kind == asset_dto::CHANGE_ENABLE)
+        .map(|(_, date)| date)
+        .collect();
+    assert_eq!(enables.len(), 2, "两次作废各一行 ENABLE：{enables:?}");
+    assert_eq!(enables[1], explicit, "显式指定的 change_date 优先");
 }
 
 /// 以某个真实用户身份造 claims（`asset_dispose_cancel` 带 `#[nik::permission]`，需 SUPER_ADMIN）。

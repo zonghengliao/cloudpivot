@@ -640,6 +640,9 @@ pub async fn asset_update(
         )));
     }
     let fields = asset_dto::validate_update(&req)?;
+    // 只读字段（原值 / 分类）被带上来且与现值不同 → 400（E2E05-FIX-3 ②）。
+    // 放在 DB 更新**之前**：不能让「传了金额」的请求走到 UPDATE 之后才报错。
+    asset_dto::reject_immutable_update(&req, row.original_value, row.category_id)?;
     let affected = asset_model::asset_update(
         db(),
         id,
@@ -781,13 +784,17 @@ pub async fn asset_transfer(
         )
         .await
         .map_err(|error| db_err(error, "写转移留痕"))?;
-        // 状态没变（仍是 IN_USE / IDLE）：写「业务事件」日志而不是状态流转
+        // 状态没变（仍是 IN_USE / IDLE）：写「业务事件」日志而不是状态流转。
+        // `action=TRANSFER` 让这条 `from = to` 的日志在数据层就能与状态流转区分
+        // （`biz_status_log.action`，V0365）——否则任何按 `from → to` 渲染时间线的
+        // 消费者只能看到「IN_USE → IN_USE」。
         state_machine::log_event(
             &tx,
             state_machine::ENTITY_FIXED_ASSET,
             id,
             &row.asset_no,
             &row.status,
+            Some(asset_dto::CHANGE_TRANSFER),
             operator,
             Some(&format!(
                 "部门转移 {} → {}：{}",
@@ -880,6 +887,7 @@ pub async fn asset_custodian(
             id,
             &row.asset_no,
             &row.status,
+            Some(asset_dto::CHANGE_CUSTODIAN),
             operator,
             Some(&format!(
                 "使用人变更 {} → {}：{}",
@@ -1143,6 +1151,8 @@ pub async fn asset_dispose_cancel(
         .filter(|text| !text.is_empty())
         .ok_or_else(|| invalid("作废处置必须填原因（至少 2 个字）"))?
         .to_string();
+    // 调用方显式指定的留痕日期（缺省 = 原处置日，见 ④）
+    let requested_change_date = req.change_date;
     let tx = db().begin().await.map_err(|error| db_err(error, "开启作废处置事务"))?;
     let outcome = async {
         let row = asset_model::asset_lock_in(&tx, id)
@@ -1195,12 +1205,22 @@ pub async fn asset_dispose_cancel(
         }
         // ④ 变动留痕（ENABLE：恢复在役；词表里没有 UNDISPOSE，理由写进 reason）。
         //    返回的变动行 id = **本次事件标识**：进通知幂等键（可逆边第二次事件要能发）。
+        //
+        //    `change_date`：**缺省用原处置日**（E2E05-FIX-3 ③）。改造前写的是
+        //    `voucher_today()` —— 2028-05-25 报废的卡作废后，变动日期落成「今天」，
+        //    按会计期间筛本期资产变动时，处置期间与恢复期间都查不到这条。
+        let change_date =
+            asset_dto::cancel_disposal_change_date(requested_change_date, row.disposal_date, voucher_today());
+        if requested_change_date.is_none() && row.disposal_date.is_none() {
+            // 异常数据（已处置却没有处置日）：退回今天，但必须留痕便于排查
+            tracing::warn!(%id, asset_no = %row.asset_no, "作废处置缺少原处置日，变动日期退回今天");
+        }
         let event_ref = asset_model::insert_change(
             &tx,
             id,
             &ChangeInsert {
                 change_type: asset_dto::CHANGE_ENABLE,
-                change_date: voucher_today(),
+                change_date,
                 from_dept_id: Some(row.use_dept_id),
                 from_dept_name: Some(row.use_dept_name.as_str()),
                 to_dept_id: Some(row.use_dept_id),
@@ -1740,6 +1760,13 @@ fn voucher_today() -> nik::prelude::chrono::NaiveDate {
 pub struct CancelDisposalReq {
     /// 原因（必填）。
     pub reason: Option<String>,
+    /// 变动留痕日期（**缺省 = 原处置日**，E2E05-FIX-3 ③）。
+    ///
+    /// 作废处置写的是 `biz_fixed_asset_change` 的 `ENABLE` 行：它记录的是
+    /// 「这次处置被撤销」这件事，业务日理应回到**原处置日**，否则按会计期间
+    /// 筛资产变动时这条会落在今天的期间里（处置期间反而查不到）。
+    /// 需要按「今天」记录的调用方显式传本字段即可。
+    pub change_date: Option<nik::prelude::chrono::NaiveDate>,
 }
 
 #[cfg(test)]
