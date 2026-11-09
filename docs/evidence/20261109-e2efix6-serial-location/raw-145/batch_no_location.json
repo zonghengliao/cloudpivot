@@ -13,55 +13,55 @@
       "count": 3,
       "period_key": "20261109",
       "serial_nos": [
-        "SN-20261109-000001",
-        "SN-20261109-000002",
-        "SN-20261109-000003"
+        "SN-20261109-000007",
+        "SN-20261109-000008",
+        "SN-20261109-000009"
       ],
       "list": [
         {
-          "id": "01a1bf18-a2d5-70c8-b683-afed90176d11",
-          "serial_no": "SN-20261109-000001",
+          "id": "01a1bf20-23d8-72fa-aac6-ba5889929cde",
+          "serial_no": "SN-20261109-000007",
           "material_id": "e2f60001-0000-4000-8000-000000000011",
           "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
-          "location_id": "01a1bf18-a2d4-771a-a35d-c6f194920964",
+          "location_id": "01a1bf20-23d6-764a-8f8d-69cb53ffacd8",
           "batch_no": null,
           "status": "IN_STOCK",
-          "inbound_at": "2026-11-09T06:57:05.235698Z",
+          "inbound_at": "2026-11-09T07:05:17.014130Z",
           "outbound_at": null,
           "source_type": null,
           "source_id": null,
-          "created_at": "2026-11-09T06:57:05.235698Z",
-          "updated_at": "2026-11-09T06:57:05.235698Z"
+          "created_at": "2026-11-09T07:05:17.014130Z",
+          "updated_at": "2026-11-09T07:05:17.014130Z"
         },
         {
-          "id": "01a1bf18-a2d5-70c8-b683-afee2c12bbfa",
-          "serial_no": "SN-20261109-000002",
+          "id": "01a1bf20-23d8-72fa-aac6-ba597eca4a3d",
+          "serial_no": "SN-20261109-000008",
           "material_id": "e2f60001-0000-4000-8000-000000000011",
           "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
-          "location_id": "01a1bf18-a2d4-771a-a35d-c6f194920964",
+          "location_id": "01a1bf20-23d6-764a-8f8d-69cb53ffacd8",
           "batch_no": null,
           "status": "IN_STOCK",
-          "inbound_at": "2026-11-09T06:57:05.235698Z",
+          "inbound_at": "2026-11-09T07:05:17.014130Z",
           "outbound_at": null,
           "source_type": null,
           "source_id": null,
-          "created_at": "2026-11-09T06:57:05.235698Z",
-          "updated_at": "2026-11-09T06:57:05.235698Z"
+          "created_at": "2026-11-09T07:05:17.014130Z",
+          "updated_at": "2026-11-09T07:05:17.014130Z"
         },
         {
-          "id": "01a1bf18-a2d5-70c8-b683-afefc58b97a4",
-          "serial_no": "SN-20261109-000003",
+          "id": "01a1bf20-23d8-72fa-aac6-ba5a492081fa",
+          "serial_no": "SN-20261109-000009",
           "material_id": "e2f60001-0000-4000-8000-000000000011",
           "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
-          "location_id": "01a1bf18-a2d4-771a-a35d-c6f194920964",
+          "location_id": "01a1bf20-23d6-764a-8f8d-69cb53ffacd8",
           "batch_no": null,
           "status": "IN_STOCK",
-          "inbound_at": "2026-11-09T06:57:05.235698Z",
+          "inbound_at": "2026-11-09T07:05:17.014130Z",
           "outbound_at": null,
           "source_type": null,
           "source_id": null,
-          "created_at": "2026-11-09T06:57:05.235698Z",
-          "updated_at": "2026-11-09T06:57:05.235698Z"
+          "created_at": "2026-11-09T07:05:17.014130Z",
+          "updated_at": "2026-11-09T07:05:17.014130Z"
         }
       ],
       "unit_cost": "12.500000",

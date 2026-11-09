@@ -14,39 +14,39 @@
       "count": 2,
       "period_key": "20261109",
       "serial_nos": [
-        "SN-20261109-000004",
-        "SN-20261109-000005"
+        "SN-20261109-000010",
+        "SN-20261109-000011"
       ],
       "list": [
         {
-          "id": "01a1bf18-a395-7347-9191-e4aed64c2334",
-          "serial_no": "SN-20261109-000004",
+          "id": "01a1bf20-24a0-75c7-b118-cd8ec2200b68",
+          "serial_no": "SN-20261109-000010",
           "material_id": "e2f60001-0000-4000-8000-000000000011",
           "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
-          "location_id": "01a1bf18-a395-7347-9191-e4adf3ccaec3",
+          "location_id": "01a1bf20-249f-703f-b3d1-e733a7ecbe08",
           "batch_no": null,
           "status": "IN_STOCK",
-          "inbound_at": "2026-11-09T06:57:05.428495Z",
+          "inbound_at": "2026-11-09T07:05:17.215238Z",
           "outbound_at": null,
           "source_type": null,
           "source_id": null,
-          "created_at": "2026-11-09T06:57:05.428495Z",
-          "updated_at": "2026-11-09T06:57:05.428495Z"
+          "created_at": "2026-11-09T07:05:17.215238Z",
+          "updated_at": "2026-11-09T07:05:17.215238Z"
         },
         {
-          "id": "01a1bf18-a395-7347-9191-e4aff58ed665",
-          "serial_no": "SN-20261109-000005",
+          "id": "01a1bf20-24a0-75c7-b118-cd8f12c3badd",
+          "serial_no": "SN-20261109-000011",
           "material_id": "e2f60001-0000-4000-8000-000000000011",
           "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
-          "location_id": "01a1bf18-a395-7347-9191-e4adf3ccaec3",
+          "location_id": "01a1bf20-249f-703f-b3d1-e733a7ecbe08",
           "batch_no": null,
           "status": "IN_STOCK",
-          "inbound_at": "2026-11-09T06:57:05.428495Z",
+          "inbound_at": "2026-11-09T07:05:17.215238Z",
           "outbound_at": null,
           "source_type": null,
           "source_id": null,
-          "created_at": "2026-11-09T06:57:05.428495Z",
-          "updated_at": "2026-11-09T06:57:05.428495Z"
+          "created_at": "2026-11-09T07:05:17.215238Z",
+          "updated_at": "2026-11-09T07:05:17.215238Z"
         }
       ],
       "unit_cost": "10.000000",

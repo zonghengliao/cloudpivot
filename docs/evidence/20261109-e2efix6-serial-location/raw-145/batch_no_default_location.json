@@ -13,23 +13,23 @@
       "count": 1,
       "period_key": "20261109",
       "serial_nos": [
-        "SN-20261109-000006"
+        "SN-20261109-000012"
       ],
       "list": [
         {
-          "id": "01a1bf18-a433-737c-bd0f-bd2d552a098d",
-          "serial_no": "SN-20261109-000006",
+          "id": "01a1bf20-254f-74f8-b17a-2fa6a07d2aed",
+          "serial_no": "SN-20261109-000012",
           "material_id": "e2f60001-0000-4000-8000-000000000011",
           "warehouse_id": "e2f60001-0000-4000-8000-000000000004",
           "location_id": null,
           "batch_no": null,
           "status": "IN_STOCK",
-          "inbound_at": "2026-11-09T06:57:05.586475Z",
+          "inbound_at": "2026-11-09T07:05:17.391025Z",
           "outbound_at": null,
           "source_type": null,
           "source_id": null,
-          "created_at": "2026-11-09T06:57:05.586475Z",
-          "updated_at": "2026-11-09T06:57:05.586475Z"
+          "created_at": "2026-11-09T07:05:17.391025Z",
+          "updated_at": "2026-11-09T07:05:17.391025Z"
         }
       ],
       "unit_cost": "10.000000",
