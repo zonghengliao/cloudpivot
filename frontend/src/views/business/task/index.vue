@@ -1080,10 +1080,33 @@ function handlePageChange(pageInfo: { current: number; pageSize: number }): void
 }
 
 /** 切换「我的任务」：两种口径的数据源不同，切换即重拉 */
-watch(myMode, () => {
+watch(myMode, (on) => {
+  // 开关与 URL 的 `?mine=1` 保持同步：工作台卡片带参数进来，用户手动关掉后
+  // 刷新页面不该又被拉回「我的任务」。
+  const inUrl = route.query.mine === '1';
+  if (on !== inUrl) {
+    const nextQuery = { ...route.query };
+    if (on) {
+      nextQuery.mine = '1';
+    } else {
+      delete nextQuery.mine;
+    }
+    void router.replace({ query: nextQuery });
+  }
   pagination.current = 1;
   void loadList();
 });
+
+/** 浏览器前进 / 后退改了 `?mine=` → 开关跟着回同步 */
+watch(
+  () => route.query.mine,
+  (value) => {
+    const next = value === '1';
+    if (next !== myMode.value) {
+      myMode.value = next;
+    }
+  },
+);
 
 /** 新建 */
 function openCreate(): void {
@@ -1173,13 +1196,20 @@ onMounted(() => {
     viewingId.value = queryId;
     detailVisible.value = true;
   }
+  // 工作台「今日任务 / 逾期」卡带 `?mine=1` → 直接切到「我的任务」数据源。
+  // 这里只改开关，重拉由 `watch(myMode)` 负责（翻页回 1 并 loadList），
+  // 所以下面的 `loadList()` 要跳过，避免首屏同一份数据请求两次。
+  const mineFromQuery = route.query.mine === '1';
+  if (mineFromQuery) {
+    myMode.value = true;
+  }
   // 从 URL 读项目筛选（项目页「打开任务」带 `?project_id=`，刷新也要保持）
   if (typeof route.query.project_id === 'string' && route.query.project_id) {
     query.project_id = route.query.project_id;
   }
   // 看板视图由 TaskBoard 自己在 onMounted 里拉五列，这里只负责列表
   void loadProjectOptions();
-  if (view.value === 'list') {
+  if (view.value === 'list' && !mineFromQuery) {
     void loadList();
   }
 });

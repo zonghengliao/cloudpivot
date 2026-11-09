@@ -1,0 +1,124 @@
+admin cards: [
+ {
+  "key": "my_todo_count",
+  "value": "9",
+  "unit": "项",
+  "label": "待办审批",
+  "extra": "点击去审批",
+  "color": "rgb(87, 119, 172)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ },
+ {
+  "key": "my_done_week",
+  "value": "3",
+  "unit": "项",
+  "label": "本周已办",
+  "extra": "本周已审批",
+  "color": "rgb(111, 138, 184)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ },
+ {
+  "key": "my_task_today",
+  "value": "2",
+  "unit": "项",
+  "label": "今日任务",
+  "extra": "已完成 1",
+  "color": "rgb(87, 119, 172)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ },
+ {
+  "key": "my_overdue",
+  "value": "1",
+  "unit": "项",
+  "label": "逾期",
+  "extra": "需要处理",
+  "color": "rgb(193, 123, 126)",
+  "borderLeft": "2px rgb(193, 123, 126)",
+  "danger": true,
+  "static": false
+ }
+]
+PASS ① 有 4 张统计卡
+PASS ① 待办审批 = 9（与 /flow/task/todo total 一致） :: 9
+PASS ① 本周已办 = 3（与 /flow/task/done?since 一致） :: 3
+PASS ① 今日任务 = 2（今天到期 1 + 逾期 1） :: 2
+PASS ① 今日任务附加数 = 已完成 1 :: 已完成 1
+PASS ① 逾期 = 1 :: 1
+PASS ① 四张卡单位都是「项」
+PASS ① 标签干净（单位不再挤在标签里）
+PASS ② 逾期卡带 is-danger :: true
+PASS ② 逾期数字 = danger 主题色 :: rgb(193, 123, 126) vs rgb(193, 123, 126)
+PASS ② 逾期卡左侧 2px 红边 :: 2px rgb(193, 123, 126)
+PASS ② 非逾期卡不标红
+PASS ③ 本周已办 → /flow/task?tab=done :: http://127.0.0.1:5398/flow/task?tab=done
+PASS ③ 落地即「我已审批」Tab :: 我已审批
+PASS ③ 逾期 → /task/list?mine=1 :: http://127.0.0.1:5398/task/list?mine=1
+PASS ③ 落地即「我的任务」开关打开
+PASS ③ 待办审批 → 审批中心默认「待我审批」 :: http://127.0.0.1:5398/flow/task
+PASS ③ 今日任务 → /task/list?mine=1 :: http://127.0.0.1:5398/task/list?mine=1
+PASS 控制台 0 error
+PASS 接口 0 个意外 4xx/5xx
+viewer cards: [
+ {
+  "key": "my_todo_count",
+  "value": "0",
+  "unit": "项",
+  "label": "待办审批",
+  "extra": "暂无待办",
+  "color": "rgb(87, 119, 172)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ },
+ {
+  "key": "my_done_week",
+  "value": "0",
+  "unit": "项",
+  "label": "本周已办",
+  "extra": "本周还没审批",
+  "color": "rgb(111, 138, 184)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ },
+ {
+  "key": "my_task_today",
+  "value": "1",
+  "unit": "项",
+  "label": "今日任务",
+  "extra": "今天到期 · 含逾期",
+  "color": "rgb(87, 119, 172)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ },
+ {
+  "key": "my_overdue",
+  "value": "0",
+  "unit": "项",
+  "label": "逾期",
+  "extra": "没有逾期",
+  "color": "rgb(76, 82, 92)",
+  "borderLeft": "1px rgb(204, 211, 217)",
+  "danger": false,
+  "static": false
+ }
+]
+PASS ④ 非超管也有 4 张卡
+PASS ④ 非超管看到自己的今日任务 = 1 :: 1
+PASS ④ 非超管待办 = 0（自己的数） :: 0
+PASS ④ 逾期为 0 时不标红
+PASS ④ 逾期 0 时数字不是危险色 :: rgb(76, 82, 92) vs rgb(193, 123, 126)
+PASS ④ 工作台没有系统级指标区块
+PASS ④ 工作台没有「角色总数」这类超管口径
+PASS ④ 非超管控制台 0 error
+PASS ④ 非超管接口 0 个意外 4xx/5xx
+
+===== 29/29 passed, 0 failed =====
+rc=0

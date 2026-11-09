@@ -1,0 +1,80 @@
+### my-metrics.json
+{
+  "code": 0,
+  "metrics": [
+    {
+      "key": "my_todo_count",
+      "label": "待办审批",
+      "value": 9,
+      "extra": 0,
+      "unit": "项",
+      "icon": "task",
+      "theme": "blue"
+    },
+    {
+      "key": "my_done_week",
+      "label": "本周已办",
+      "value": 3,
+      "extra": 0,
+      "unit": "项",
+      "icon": "check-circle",
+      "theme": "green"
+    },
+    {
+      "key": "my_task_today",
+      "label": "今日任务",
+      "value": 0,
+      "extra": 0,
+      "unit": "项",
+      "icon": "calendar",
+      "theme": "blue"
+    },
+    {
+      "key": "my_overdue",
+      "label": "逾期",
+      "value": 0,
+      "extra": 0,
+      "unit": "项",
+      "icon": "error-circle",
+      "theme": "red"
+    }
+  ]
+}
+
+### todo.json
+{
+  "code": 0,
+  "todo_total": 9
+}
+
+### done-week.json
+{
+  "code": 0,
+  "done_week_total": 3
+}
+
+### done-today.json
+{
+  "code": 0,
+  "done_today_total": 3
+}
+
+### done-all.json
+{
+  "code": 0,
+  "done_all_total": 4
+}
+
+### task-my.json
+{
+  "code": 0,
+  "counts": {
+    "overdue": 0,
+    "today": 0,
+    "this_week": 0,
+    "later": 0,
+    "no_due": 0
+  },
+  "total": 0
+}
+

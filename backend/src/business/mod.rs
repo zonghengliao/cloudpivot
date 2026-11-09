@@ -17,6 +17,7 @@
 //! | [`changelog`] | 变更日志（批次 C · C5/C6）：白名单登记、diff 引擎、脱敏、分区运维 |
 //! | [`erp`] | ERP 主数据与仓储（批次 D · W1b）：13 张 biz 表的行结构 / 基础查询 / DTO 契约 |
 //! | [`task`] | 工作任务管理（批次 C+ · T1）：7 张表、任务 CRUD、可见性（scope ∪ 参与关系） |
+//! | [`dashboard`] | 工作台「我的指标」（HOME-6）：个人口径的 4 张统计卡，登录即可访问 |
 //! | [`attachment`] | 业务单据附件（ARCH-3 DC-17）：`biz_doc_attachment` 桥接表 + 4 个通用端点（复用 storage） |
 //! | [`aiagent`] | AI 用户（云枢 × Hermes · L1）：profile 自动创建、SOUL.md 编辑、事务性回滚 |
 //! | [`pdf`] | PDF 导出（PDF-01）：Chromium CDP 渲染引擎、对账单模板、金额大写 |
@@ -25,6 +26,7 @@ pub mod aiagent;
 pub mod announcement;
 pub mod attachment;
 pub mod changelog;
+pub mod dashboard;
 pub mod erp;
 pub mod flow;
 pub mod help;

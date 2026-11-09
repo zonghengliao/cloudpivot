@@ -202,8 +202,8 @@
  * `arrived_at`，所以卡片上的流程名、发起人、当前节点中文名全部直接取字段，
  * 「当前节点」不再显示 `node_key`，时间口径统一用 `arrived_at`。
  */
-import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, ref, watch } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import {
   addSignFlowTask,
@@ -240,6 +240,7 @@ import type { StatusDomain } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 
+const route = useRoute();
 const router = useRouter();
 
 /** 统一卡片形状（四类列表字段各不相同，这里归一成「首页要展示什么」） */
@@ -296,8 +297,20 @@ interface CardItem {
   formData?: Record<string, unknown>;
 }
 
-/** 当前 Tab（`t-tab-panel` 的 value） */
-const activeTab = ref('todo');
+/** 当前 Tab（`t-tab-panel` 的 value）。
+ *
+ * 工作台「本周已办」卡带 `?tab=done` 直接落到「我已审批」：
+ * URL 优先，非法值回落 `todo`（不认的值不静默忽略成随机 Tab）。
+ */
+const TAB_VALUES = ['todo', 'done', 'mine', 'cc'] as const;
+
+/** 从 URL `?tab=` 解析初始 Tab */
+function tabFromQuery(): string {
+  const raw = typeof route.query.tab === 'string' ? route.query.tab : '';
+  return (TAB_VALUES as readonly string[]).includes(raw) ? raw : 'todo';
+}
+
+const activeTab = ref<string>(tabFromQuery());
 /** 卡片 */
 const cards = ref<CardItem[]>([]);
 /** 加载中 */
@@ -613,8 +626,25 @@ async function loadCurrent(): Promise<void> {
 
 /** 切 Tab */
 function onTabChange(): void {
+  // Tab 写回 URL（`todo` 是默认值 → 删参数保持 URL 干净）：
+  // 刷新 / 前进后退 / 分享链接都能回到同一个 Tab，工作台卡片就是这样落地的。
+  const nextQuery = { ...route.query };
+  if (activeTab.value === 'todo') {
+    delete nextQuery.tab;
+  } else {
+    nextQuery.tab = activeTab.value;
+  }
+  void router.replace({ query: nextQuery });
   void loadCurrent();
 }
+
+// 浏览器前进 / 后退改了 `?tab=` → Tab 跟着回同步（replace 不会多打一条历史栈）
+watch(tabFromQuery, (next) => {
+  if (next !== activeTab.value) {
+    activeTab.value = next;
+    void loadCurrent();
+  }
+});
 
 /** 打开详情 */
 function openDetail(card: CardItem): void {

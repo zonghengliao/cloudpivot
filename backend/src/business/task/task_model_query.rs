@@ -500,6 +500,46 @@ pub async fn my_tasks(me: Uuid) -> DbResult<Vec<TaskCardRow>> {
     Ok(mark_is_new(rows, me))
 }
 
+/// 我在 `[from, to)` 区间内完成的任务数（按 `done_at`）。
+///
+/// 首页工作台「今日任务」卡的附加数（今天已完成）用它：区间边界在**调用方**按 CST
+/// 算好（见 `business::dashboard::model::cst_day_bounds_utc`），本函数只认半开时间区间，
+/// 不猜时区 —— 这样「今天」的口径只有一处定义，不会和 `today_cst` 漂移。
+///
+/// 只数 `status = 'DONE'` 且 `done_at` 非空：`ck` 约束保证 DONE 必有 `done_at`，
+/// 但历史数据不做假设，条件写全了才能走 `idx_biz_task_done_at` 这类索引。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn count_done_between(
+    me: Uuid,
+    from: chrono::DateTime<chrono::Utc>,
+    to: chrono::DateTime<chrono::Utc>,
+) -> DbResult<i64> {
+    let row = db()
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_task t \
+              WHERE t.owner_id = ?::uuid \
+                AND t.status = 'DONE' \
+                AND t.deleted_at IS NULL \
+                AND t.done_at >= ?::text::timestamptz \
+                AND t.done_at <  ?::text::timestamptz",
+            vec![
+                Value::from(&me),
+                Value::Text(from.to_rfc3339()),
+                Value::Text(to.to_rfc3339()),
+            ],
+        )
+        .await?
+        .into_iter()
+        .next();
+    match row {
+        Some(row) => row.get_typed("total"),
+        None => Ok(0),
+    }
+}
+
 /// 逾期扫描（未终态 ∧ `due_date < today`）。
 ///
 /// # 为什么这个函数本卡就写、但接口属 T7

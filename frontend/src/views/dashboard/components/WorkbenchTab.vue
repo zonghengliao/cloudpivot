@@ -10,6 +10,14 @@
     </section>
 
     <!--
+      ⬇⬇ HOME-6「我的指标」四张统计卡（问候语下方、两栏主体之上）⬇⬇
+      待办审批 / 本周已办 / 今日任务 / 逾期，全部是**我自己的**口径（独立接口
+      `/business/dashboard/my-metrics`，登录即可）。系统级指标只在超管的「系统信息」Tab 里，
+      两套互不混用 —— 非超管看不到任何系统级数字，超管也不会在工作台看到「角色总数」。
+    -->
+    <MyMetricsRow />
+
+    <!--
       主体两栏：左侧「工作任务 + 快捷入口」按自身内容高度排列，右侧固定 360px 放公告与消息。
       两个必需项——左栏 min-width:0（否则 flex item 的 min-width:auto 会被宽内容撑开，
       把右栏挤到下一行）；<1200px 时靠媒体查询切成上下堆叠。
@@ -327,6 +335,7 @@ import dayjs from 'dayjs';
 import { MessagePlugin } from 'tdesign-vue-next';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
 import ApprovalTodoCard from './ApprovalTodoCard.vue';
+import MyMetricsRow from './MyMetricsRow.vue';
 import {
   downloadAnnouncementAttachment,
   getAnnouncementDetail,

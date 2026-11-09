@@ -59,3 +59,17 @@ export function fetchOverview(): Promise<OverviewRes> {
   // 漏写前缀会被 Vite 的 SPA fallback 回成 index.html，表现为「报表永远不显示」。
   return get<OverviewRes>('/api/support/dashboard/overview');
 }
+
+/**
+ * 我的指标：工作台顶部四张个人统计卡（待办审批 / 本周已办 / 今日任务 / 逾期）。
+ *
+ * 与 `fetchOverview` 的 `metrics` **不是一套东西**：overview 是系统级口径（超管在
+ * 「系统信息」Tab 看），这里是「我自己」的身份口径。后端是两个独立接口
+ * （`/business/dashboard/my-metrics`），互不影响 —— 别把它并进 overview 的响应里，
+ * 否则超管视图会同时出现「角色总数」和「我的待办」两种语义。
+ *
+ * 登录即可访问（不挂权限码）：返回的每个数都只按令牌里的用户 id 过滤，没有入参。
+ */
+export function fetchMyMetrics(): Promise<MetricCard[]> {
+  return get<MetricCard[]>('/api/business/dashboard/my-metrics');
+}

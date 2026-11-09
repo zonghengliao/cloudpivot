@@ -1,0 +1,151 @@
+{
+  "total": 29,
+  "failed": 0,
+  "results": [
+    {
+      "name": "① 有 4 张统计卡",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "① 待办审批 = 9（与 /flow/task/todo total 一致）",
+      "pass": true,
+      "extra": "9"
+    },
+    {
+      "name": "① 本周已办 = 3（与 /flow/task/done?since 一致）",
+      "pass": true,
+      "extra": "3"
+    },
+    {
+      "name": "① 今日任务 = 2（今天到期 1 + 逾期 1）",
+      "pass": true,
+      "extra": "2"
+    },
+    {
+      "name": "① 今日任务附加数 = 已完成 1",
+      "pass": true,
+      "extra": "已完成 1"
+    },
+    {
+      "name": "① 逾期 = 1",
+      "pass": true,
+      "extra": "1"
+    },
+    {
+      "name": "① 四张卡单位都是「项」",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "① 标签干净（单位不再挤在标签里）",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "② 逾期卡带 is-danger",
+      "pass": true,
+      "extra": "true"
+    },
+    {
+      "name": "② 逾期数字 = danger 主题色",
+      "pass": true,
+      "extra": "rgb(193, 123, 126) vs rgb(193, 123, 126)"
+    },
+    {
+      "name": "② 逾期卡左侧 2px 红边",
+      "pass": true,
+      "extra": "2px rgb(193, 123, 126)"
+    },
+    {
+      "name": "② 非逾期卡不标红",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "③ 本周已办 → /flow/task?tab=done",
+      "pass": true,
+      "extra": "http://127.0.0.1:5398/flow/task?tab=done"
+    },
+    {
+      "name": "③ 落地即「我已审批」Tab",
+      "pass": true,
+      "extra": "我已审批"
+    },
+    {
+      "name": "③ 逾期 → /task/list?mine=1",
+      "pass": true,
+      "extra": "http://127.0.0.1:5398/task/list?mine=1"
+    },
+    {
+      "name": "③ 落地即「我的任务」开关打开",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "③ 待办审批 → 审批中心默认「待我审批」",
+      "pass": true,
+      "extra": "http://127.0.0.1:5398/flow/task"
+    },
+    {
+      "name": "③ 今日任务 → /task/list?mine=1",
+      "pass": true,
+      "extra": "http://127.0.0.1:5398/task/list?mine=1"
+    },
+    {
+      "name": "控制台 0 error",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "接口 0 个意外 4xx/5xx",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "④ 非超管也有 4 张卡",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "④ 非超管看到自己的今日任务 = 1",
+      "pass": true,
+      "extra": "1"
+    },
+    {
+      "name": "④ 非超管待办 = 0（自己的数）",
+      "pass": true,
+      "extra": "0"
+    },
+    {
+      "name": "④ 逾期为 0 时不标红",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "④ 逾期 0 时数字不是危险色",
+      "pass": true,
+      "extra": "rgb(76, 82, 92) vs rgb(193, 123, 126)"
+    },
+    {
+      "name": "④ 工作台没有系统级指标区块",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "④ 工作台没有「角色总数」这类超管口径",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "④ 非超管控制台 0 error",
+      "pass": true,
+      "extra": ""
+    },
+    {
+      "name": "④ 非超管接口 0 个意外 4xx/5xx",
+      "pass": true,
+      "extra": ""
+    }
+  ]
+}

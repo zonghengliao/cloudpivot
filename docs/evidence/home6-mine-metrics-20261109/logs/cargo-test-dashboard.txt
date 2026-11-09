@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 4 tests
+test business::dashboard::model::tests::zero_counts_stay_zero ... ok
+test business::dashboard::model::tests::day_bounds_cover_exactly_one_day ... ok
+test business::dashboard::model::tests::week_start_is_monday_midnight_cst ... ok
+test business::dashboard::model::tests::cards_have_fixed_keys_and_order ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 4017 filtered out; finished in 0.00s
+
+rc=0
