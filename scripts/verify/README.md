@@ -817,3 +817,36 @@ DB=cp_fix4_e2e BASE=http://127.0.0.1:8034/api bash scripts/verify/e2e07_fix4_pro
 （实测 `cloudpivot:uv:<id>`），改库后要按 pattern 删键否则 `403 首登未改密`；全新库只有
 `admin`，审批节点按角色展开时采购经理为空 → 提交 `422 + 65018`，探针自建 `fix4_appr`
 （`PURCHASE_MANAGER`）。
+
+## 性能基线套件（`perf/`，卡 N-8 / `t_dd421965`）
+
+**这不是「功能是否对」的验证，而是「数据量上去会不会崩」的验证** —— 与上面的 `verify.py`
+互不相关，单独一套（需要 10 万行数据集，跑一次分钟级）。
+
+```bash
+# ① 造数（幂等递增：同一个库可 1千 → 1万 → 10万 逐级长大）
+psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_perf -v target=100000 \
+     -f scripts/verify/perf/gen_perf_data.sql
+
+# ② 单请求计时（预热 1 次 + 3 次取中位 → CSV）
+PERF_BASE_URL=http://127.0.0.1:18099 bash scripts/verify/perf/measure.sh 100000 /tmp/perf_100k.csv
+
+# ③ 并发压测（5 个 k6 脚本，按接口卡 p95；退出码 0 = 全部达标）
+K6_BASE_URL=http://127.0.0.1:18099 bash scripts/verify/perf/run_perf_suite.sh /tmp/k6_out
+
+# ④ 慢查询取证（14 条被测 SQL 的 EXPLAIN ANALYZE, BUFFERS）
+psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_perf -f scripts/verify/perf/explain_100k.sql
+```
+
+| 文件 | 作用 |
+|---|---|
+| `perf/gen_perf_data.sql` | 5 张关键表批量造数（`generate_series`，行带 `N8PERF` 前缀，末尾 `ANALYZE`） |
+| `perf/measure.sh` | 真实令牌 + HTTP 端到端计时，14 个接口 × 3 次取中位 |
+| `perf/k6_lib.js` | 5 个 k6 脚本的公共库（登录、tag、断言） |
+| `perf/k6_task_list.js` / `k6_voucher_list.js` / `k6_trial_balance.js` / `k6_report_bs.js` / `k6_login.js` | 分接口压测，每个自带 `thresholds`（p95 上限），不达标 k6 返回 99 |
+| `perf/run_perf_suite.sh` | 一次跑完 5 个脚本，打印「退出码 / 结论 / 实测 p95」 |
+| `perf/explain_100k.sql` | 把各接口的 SQL 原样提出来 `EXPLAIN (ANALYZE, BUFFERS)`，用于找 seq scan 与索引缺口 |
+
+基线数字、容量红线、已知慢查询与处置口径全部在
+**[`docs/运维规程-性能基线.md`](../../docs/运维规程-性能基线.md)**；本轮原始证据在
+`docs/evidence/20261110-n8-perf-baseline/`。

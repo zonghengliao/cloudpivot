@@ -1,0 +1,71 @@
+K6_BASE_URL=http://127.0.0.1:18099  PERIOD=2026-11  输出=/tmp/n8/k6_final2
+脚本           退出码 结论     摘要文件
+k6_task_list     0        达标     /tmp/n8/k6_final2/k6_task_list.json
+k6_voucher_list  0        达标     /tmp/n8/k6_final2/k6_voucher_list.json
+k6_trial_balance 0        达标     /tmp/n8/k6_final2/k6_trial_balance.json
+k6_report_bs     0        达标     /tmp/n8/k6_final2/k6_report_bs.json
+k6_login         0        达标     /tmp/n8/k6_final2/k6_login.json
+
+== 各脚本的实测值 / threshold（从 summary json 取；退出码为准）==
+k6_task_list:
+  http_req_failed{endpoint:task_list}: med=- p95=- p99=- rate=- count=-
+  http_req_duration{expected_response:true}: med=53.285745500000004 p95=68.4702379 p99=- rate=- count=-
+  http_req_duration{endpoint:task_list}: med=53.282086 p95=68.4404175 p99=- rate=- count=-
+  checks: med=- p95=- p99=- rate=- count=-
+  http_reqs: med=- p95=- p99=- rate=90.19693933196552 count=1832
+  iterations: med=- p95=- p99=- rate=90.14770519477558 count=1831
+  阈值 http_req_failed{endpoint:task_list}: rate<0.001
+  阈值 http_req_duration{endpoint:task_list}: p(95)<300
+  阈值 http_req_duration{endpoint:task_list}: p(99)<800
+  阈值 checks: rate>0.99
+k6_voucher_list:
+  iterations: med=- p95=- p99=- rate=395.9939235250406 count=8035
+  http_req_failed{endpoint:voucher_detail}: med=- p95=- p99=- rate=- count=-
+  http_req_duration{endpoint:voucher_detail}: med=5.0895835 p95=8.4319722 p99=- rate=- count=-
+  http_req_duration{endpoint:voucher_list}: med=11.042888 p95=14.597200299999999 p99=- rate=- count=-
+  http_reqs: med=- p95=- p99=- rate=475.38984272838104 count=9646
+  http_req_failed{endpoint:voucher_list}: med=- p95=- p99=- rate=- count=-
+  checks: med=- p95=- p99=- rate=- count=-
+  http_req_duration{expected_response:true}: med=10.607261000000001 p95=14.385895 p99=- rate=- count=-
+  阈值 http_req_failed{endpoint:voucher_detail}: rate<0.001
+  阈值 http_req_duration{endpoint:voucher_detail}: p(99)<400
+  阈值 http_req_duration{endpoint:voucher_detail}: p(95)<150
+  阈值 http_req_duration{endpoint:voucher_list}: p(95)<150
+  阈值 http_req_duration{endpoint:voucher_list}: p(99)<400
+  阈值 http_req_failed{endpoint:voucher_list}: rate<0.001
+  阈值 checks: rate>0.99
+k6_trial_balance:
+  http_req_failed{endpoint:trial_balance}: med=- p95=- p99=- rate=- count=-
+  iterations: med=- p95=- p99=- rate=26.413931905406525 count=538
+  http_req_duration{expected_response:true}: med=111.223525 p95=134.10464570000002 p99=- rate=- count=-
+  checks: med=- p95=- p99=- rate=- count=-
+  http_req_duration{endpoint:trial_balance}: med=111.169266 p95=133.9913228 p99=- rate=- count=-
+  http_reqs: med=- p95=- p99=- rate=26.46302843311174 count=539
+  阈值 http_req_failed{endpoint:trial_balance}: rate<0.001
+  阈值 checks: rate>0.99
+  阈值 http_req_duration{endpoint:trial_balance}: p(95)<400
+  阈值 http_req_duration{endpoint:trial_balance}: p(99)<1000
+k6_report_bs:
+  iterations: med=- p95=- p99=- rate=8.646730731539263 count=176
+  http_req_duration{endpoint:report_bs}: med=226.6471065 p95=250.79929525 p99=- rate=- count=-
+  http_req_failed{endpoint:report_bs}: med=- p95=- p99=- rate=- count=-
+  checks: med=- p95=- p99=- rate=- count=-
+  http_req_duration{expected_response:true}: med=226.740778 p95=251.6615362 p99=- rate=- count=-
+  http_reqs: med=- p95=- p99=- rate=8.695859883423008 count=177
+  阈值 http_req_duration{endpoint:report_bs}: p(99)<2000
+  阈值 http_req_duration{endpoint:report_bs}: p(95)<800
+  阈值 http_req_failed{endpoint:report_bs}: rate<0.001
+  阈值 checks: rate>0.99
+k6_login:
+  http_req_failed{endpoint:login}: med=- p95=- p99=- rate=- count=-
+  iterations: med=- p95=- p99=- rate=13.871889827148259 count=8
+  http_req_duration{expected_response:true}: med=280.0962055 p95=302.7831746 p99=- rate=- count=-
+  checks: med=- p95=- p99=- rate=- count=-
+  http_req_duration{endpoint:login}: med=280.0962055 p95=302.7831746 p99=- rate=- count=-
+  http_reqs: med=- p95=- p99=- rate=13.871889827148259 count=8
+  阈值 http_req_failed{endpoint:login}: rate<0.001
+  阈值 checks: rate>0.99
+  阈值 http_req_duration{endpoint:login}: p(95)<800
+  阈值 http_req_duration{endpoint:login}: p(99)<1500
+
+RESULT: PASS —— 5/5 脚本全部达标（日志在 /tmp/n8/k6_final2）

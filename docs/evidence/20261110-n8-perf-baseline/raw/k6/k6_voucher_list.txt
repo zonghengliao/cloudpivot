@@ -1,0 +1,136 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /tmp/n8/perf/k6_voucher_list.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 5 max VUs, 25s max duration (incl. graceful stop):
+              * voucher_list: 5 looping VUs for 20s (gracefulStop: 5s)
+
+
+running (01.0s), 5/5 VUs, 285 complete and 0 interrupted iterations
+voucher_list   [   4% ] 5 VUs  00.7s/20s
+
+running (02.0s), 5/5 VUs, 683 complete and 0 interrupted iterations
+voucher_list   [   9% ] 5 VUs  01.7s/20s
+
+running (03.0s), 5/5 VUs, 1077 complete and 0 interrupted iterations
+voucher_list   [  14% ] 5 VUs  02.7s/20s
+
+running (04.0s), 5/5 VUs, 1478 complete and 0 interrupted iterations
+voucher_list   [  19% ] 5 VUs  03.7s/20s
+
+running (05.0s), 5/5 VUs, 1880 complete and 0 interrupted iterations
+voucher_list   [  24% ] 5 VUs  04.7s/20s
+
+running (06.0s), 5/5 VUs, 2281 complete and 0 interrupted iterations
+voucher_list   [  29% ] 5 VUs  05.7s/20s
+
+running (07.0s), 5/5 VUs, 2684 complete and 0 interrupted iterations
+voucher_list   [  34% ] 5 VUs  06.7s/20s
+
+running (08.0s), 5/5 VUs, 3095 complete and 0 interrupted iterations
+voucher_list   [  39% ] 5 VUs  07.7s/20s
+
+running (09.0s), 5/5 VUs, 3494 complete and 0 interrupted iterations
+voucher_list   [  44% ] 5 VUs  08.7s/20s
+
+running (10.0s), 5/5 VUs, 3892 complete and 0 interrupted iterations
+voucher_list   [  49% ] 5 VUs  09.7s/20s
+
+running (11.0s), 5/5 VUs, 4291 complete and 0 interrupted iterations
+voucher_list   [  54% ] 5 VUs  10.7s/20s
+
+running (12.0s), 5/5 VUs, 4693 complete and 0 interrupted iterations
+voucher_list   [  59% ] 5 VUs  11.7s/20s
+
+running (13.0s), 5/5 VUs, 5093 complete and 0 interrupted iterations
+voucher_list   [  64% ] 5 VUs  12.7s/20s
+
+running (14.0s), 5/5 VUs, 5495 complete and 0 interrupted iterations
+voucher_list   [  69% ] 5 VUs  13.7s/20s
+
+running (15.0s), 5/5 VUs, 5892 complete and 0 interrupted iterations
+voucher_list   [  74% ] 5 VUs  14.7s/20s
+
+running (16.0s), 5/5 VUs, 6287 complete and 0 interrupted iterations
+voucher_list   [  79% ] 5 VUs  15.7s/20s
+
+running (17.0s), 5/5 VUs, 6695 complete and 0 interrupted iterations
+voucher_list   [  84% ] 5 VUs  16.7s/20s
+
+running (18.0s), 5/5 VUs, 7104 complete and 0 interrupted iterations
+voucher_list   [  89% ] 5 VUs  17.7s/20s
+
+running (19.0s), 5/5 VUs, 7508 complete and 0 interrupted iterations
+voucher_list   [  94% ] 5 VUs  18.7s/20s
+
+running (20.0s), 5/5 VUs, 7915 complete and 0 interrupted iterations
+voucher_list   [  99% ] 5 VUs  19.7s/20s
+
+
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration{endpoint:voucher_detail}
+    ✓ 'p(95)<150' p(95)=8.43ms
+    ✓ 'p(99)<400' p(99)=9.57ms
+
+    http_req_duration{endpoint:voucher_list}
+    ✓ 'p(95)<150' p(95)=14.59ms
+    ✓ 'p(99)<400' p(99)=16.33ms
+
+    http_req_failed{endpoint:voucher_detail}
+    ✓ 'rate<0.001' rate=0.00%
+
+    http_req_failed{endpoint:voucher_list}
+    ✓ 'rate<0.001' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 20902   1030.126321/s
+    checks_succeeded...: 100.00% 20902 out of 20902
+    checks_failed......: 0.00%   0 out of 20902
+
+    ✓ 登录返回 200
+    ✓ 登录响应带 access_token
+    ✓ voucher_list: HTTP 200
+    ✓ voucher_list: body.code=0
+    ✓ voucher_list: 拿到可用的凭证主键
+    ✓ voucher_detail: HTTP 200
+    ✓ voucher_detail: body.code=0
+
+    HTTP
+    http_req_duration...............: avg=10.28ms min=1.95ms med=10.6ms  max=277.8ms p(90)=13.49ms p(95)=14.38ms
+      { endpoint:voucher_detail }...: avg=5.31ms  min=1.95ms med=5.08ms  max=11.88ms p(90)=7.56ms  p(95)=8.43ms 
+      { endpoint:voucher_list }.....: avg=11.24ms min=6.74ms med=11.04ms max=21.09ms p(90)=13.77ms p(95)=14.59ms
+      { expected_response:true }....: avg=10.28ms min=1.95ms med=10.6ms  max=277.8ms p(90)=13.49ms p(95)=14.38ms
+    http_req_failed.................: 0.00%  0 out of 9646
+      { endpoint:voucher_detail }...: 0.00%  0 out of 1610
+      { endpoint:voucher_list }.....: 0.00%  0 out of 8035
+    http_reqs.......................: 9646   475.389843/s
+
+    EXECUTION
+    iteration_duration..............: avg=12.44ms min=6.81ms med=11.73ms max=25.54ms p(90)=16.93ms p(95)=18.6ms 
+    iterations......................: 8035   395.993924/s
+    vus.............................: 5      min=5         max=5
+    vus_max.........................: 5      min=5         max=5
+
+    NETWORK
+    data_received...................: 130 MB 6.4 MB/s
+    data_sent.......................: 6.2 MB 303 kB/s
+
+
+
+
+running (20.3s), 0/5 VUs, 8035 complete and 0 interrupted iterations
+voucher_list ✓ [ 100% ] 5 VUs  20s

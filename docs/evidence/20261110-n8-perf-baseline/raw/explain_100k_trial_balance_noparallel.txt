@@ -1,0 +1,68 @@
+                                                                                QUERY PLAN                                                                                 
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Nested Loop Left Join  (cost=27329.77..27416.21 rows=66 width=131) (actual time=179.212..179.584 rows=66.00 loops=1)
+   Join Filter: (cu.account_id = a.id)
+   Rows Removed by Join Filter: 1888
+   Buffers: shared hit=12962
+   ->  Nested Loop Left Join  (cost=15780.03..15830.69 rows=66 width=115) (actual time=137.585..137.772 rows=66.00 loops=1)
+         Join Filter: (o.account_id = a.id)
+         Rows Removed by Join Filter: 1785
+         Buffers: shared hit=7473
+         ->  Index Scan using uk_biz_account_code on biz_account a  (cost=0.14..15.69 rows=66 width=51) (actual time=0.005..0.019 rows=66.00 loops=1)
+               Filter: (deleted_at IS NULL)
+               Index Searches: 1
+               Buffers: shared hit=10
+         ->  Materialize  (cost=15779.88..15780.93 rows=35 width=80) (actual time=2.084..2.085 rows=27.59 loops=66)
+               Storage: Memory  Maximum Storage: 19kB
+               Buffers: shared hit=7463
+               ->  Subquery Scan on o  (cost=15779.88..15780.76 rows=35 width=80) (actual time=137.554..137.570 rows=38.00 loops=1)
+                     Buffers: shared hit=7463
+                     ->  HashAggregate  (cost=15779.88..15780.41 rows=35 width=80) (actual time=137.553..137.565 rows=38.00 loops=1)
+                           Group Key: e.account_id
+                           Batches: 1  Memory Usage: 56kB
+                           Buffers: shared hit=7463
+                           ->  Hash Join  (cost=4710.13..13838.73 rows=258820 width=23) (actual time=22.187..96.434 rows=258887.00 loops=1)
+                                 Hash Cond: (e.voucher_id = v.id)
+                                 Buffers: shared hit=7463
+                                 ->  Seq Scan on biz_voucher_entry e  (cost=0.00..8339.81 rows=300481 width=39) (actual time=0.009..17.427 rows=300492.00 loops=1)
+                                       Buffers: shared hit=5335
+                                 ->  Hash  (cost=3631.16..3631.16 rows=86317 width=16) (actual time=21.993..21.994 rows=86313.00 loops=1)
+                                       Buckets: 131072  Batches: 1  Memory Usage: 5070kB
+                                       Buffers: shared hit=2128
+                                       ->  Seq Scan on biz_voucher v  (cost=0.00..3631.16 rows=86317 width=16) (actual time=0.011..14.011 rows=86313.00 loops=1)
+                                             Filter: ((deleted_at IS NULL) AND (voucher_date < '2026-11-01'::date) AND ((status)::text = 'POSTED'::text))
+                                             Rows Removed by Filter: 13898
+                                             Buffers: shared hit=2128
+   ->  Materialize  (cost=11549.74..11550.79 rows=35 width=80) (actual time=0.630..0.632 rows=29.21 loops=66)
+         Storage: Memory  Maximum Storage: 19kB
+         Buffers: shared hit=5489
+         ->  Subquery Scan on cu  (cost=11549.74..11550.62 rows=35 width=80) (actual time=41.592..41.607 rows=42.00 loops=1)
+               Buffers: shared hit=5489
+               ->  HashAggregate  (cost=11549.74..11550.27 rows=35 width=80) (actual time=41.592..41.603 rows=42.00 loops=1)
+                     Group Key: e_1.account_id
+                     Batches: 1  Memory Usage: 56kB
+                     Buffers: shared hit=5489
+                     ->  Hash Join  (cost=2364.02..11492.62 rows=7616 width=23) (actual time=0.845..40.299 rows=7625.00 loops=1)
+                           Hash Cond: (e_1.voucher_id = v_1.id)
+                           Buffers: shared hit=5489
+                           ->  Seq Scan on biz_voucher_entry e_1  (cost=0.00..8339.81 rows=300481 width=39) (actual time=0.012..16.042 rows=300492.00 loops=1)
+                                 Buffers: shared hit=5335
+                           ->  Hash  (cost=2332.27..2332.27 rows=2540 width=16) (actual time=0.772..0.772 rows=2560.00 loops=1)
+                                 Buckets: 4096  Batches: 1  Memory Usage: 152kB
+                                 Buffers: shared hit=154
+                                 ->  Bitmap Heap Scan on biz_voucher v_1  (cost=41.17..2332.27 rows=2540 width=16) (actual time=0.073..0.556 rows=2560.00 loops=1)
+                                       Recheck Cond: ((voucher_date >= '2026-11-01'::date) AND (voucher_date <= '2026-11-30'::date))
+                                       Filter: ((deleted_at IS NULL) AND ((status)::text = 'POSTED'::text))
+                                       Rows Removed by Filter: 276
+                                       Heap Blocks: exact=149
+                                       Buffers: shared hit=154
+                                       ->  Bitmap Index Scan on idx_biz_voucher_date  (cost=0.00..40.53 rows=2824 width=0) (actual time=0.056..0.056 rows=2836.00 loops=1)
+                                             Index Cond: ((voucher_date >= '2026-11-01'::date) AND (voucher_date <= '2026-11-30'::date))
+                                             Index Searches: 1
+                                             Buffers: shared hit=5
+ Planning:
+   Buffers: shared hit=615
+ Planning Time: 0.826 ms
+ Execution Time: 179.748 ms
+(64 rows)
+

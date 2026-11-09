@@ -1,0 +1,124 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /tmp/n8/perf/k6_report_bs.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 2 max VUs, 35s max duration (incl. graceful stop):
+              * report_bs: 2 looping VUs for 20s (gracefulStop: 15s)
+
+
+running (01.0s), 2/2 VUs, 5 complete and 0 interrupted iterations
+report_bs   [   4% ] 2 VUs  00.7s/20s
+
+running (02.0s), 2/2 VUs, 14 complete and 0 interrupted iterations
+report_bs   [   9% ] 2 VUs  01.7s/20s
+
+running (03.0s), 2/2 VUs, 23 complete and 0 interrupted iterations
+report_bs   [  14% ] 2 VUs  02.7s/20s
+
+running (04.0s), 2/2 VUs, 32 complete and 0 interrupted iterations
+report_bs   [  19% ] 2 VUs  03.7s/20s
+
+running (05.0s), 2/2 VUs, 40 complete and 0 interrupted iterations
+report_bs   [  24% ] 2 VUs  04.7s/20s
+
+running (06.0s), 2/2 VUs, 49 complete and 0 interrupted iterations
+report_bs   [  29% ] 2 VUs  05.7s/20s
+
+running (07.0s), 2/2 VUs, 58 complete and 0 interrupted iterations
+report_bs   [  34% ] 2 VUs  06.7s/20s
+
+running (08.0s), 2/2 VUs, 66 complete and 0 interrupted iterations
+report_bs   [  39% ] 2 VUs  07.7s/20s
+
+running (09.0s), 2/2 VUs, 76 complete and 0 interrupted iterations
+report_bs   [  44% ] 2 VUs  08.7s/20s
+
+running (10.0s), 2/2 VUs, 84 complete and 0 interrupted iterations
+report_bs   [  49% ] 2 VUs  09.7s/20s
+
+running (11.0s), 2/2 VUs, 93 complete and 0 interrupted iterations
+report_bs   [  54% ] 2 VUs  10.7s/20s
+
+running (12.0s), 2/2 VUs, 102 complete and 0 interrupted iterations
+report_bs   [  59% ] 2 VUs  11.7s/20s
+
+running (13.0s), 2/2 VUs, 110 complete and 0 interrupted iterations
+report_bs   [  64% ] 2 VUs  12.7s/20s
+
+running (14.0s), 2/2 VUs, 119 complete and 0 interrupted iterations
+report_bs   [  69% ] 2 VUs  13.7s/20s
+
+running (15.0s), 2/2 VUs, 127 complete and 0 interrupted iterations
+report_bs   [  74% ] 2 VUs  14.7s/20s
+
+running (16.0s), 2/2 VUs, 137 complete and 0 interrupted iterations
+report_bs   [  79% ] 2 VUs  15.7s/20s
+
+running (17.0s), 2/2 VUs, 146 complete and 0 interrupted iterations
+report_bs   [  84% ] 2 VUs  16.7s/20s
+
+running (18.0s), 2/2 VUs, 155 complete and 0 interrupted iterations
+report_bs   [  89% ] 2 VUs  17.7s/20s
+
+running (19.0s), 2/2 VUs, 163 complete and 0 interrupted iterations
+report_bs   [  94% ] 2 VUs  18.7s/20s
+
+running (20.0s), 2/2 VUs, 172 complete and 0 interrupted iterations
+report_bs   [  99% ] 2 VUs  19.7s/20s
+
+
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration{endpoint:report_bs}
+    ✓ 'p(95)<800' p(95)=250.79ms
+    ✓ 'p(99)<2000' p(99)=256.11ms
+
+    http_req_failed{endpoint:report_bs}
+    ✓ 'rate<0.001' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 354     17.39172/s
+    checks_succeeded...: 100.00% 354 out of 354
+    checks_failed......: 0.00%   0 out of 354
+
+    ✓ 登录返回 200
+    ✓ 登录响应带 access_token
+    ✓ report_bs: HTTP 200
+    ✓ report_bs: body.code=0
+
+    HTTP
+    http_req_duration..............: avg=228.18ms min=192.25ms med=226.74ms max=289.47ms p(90)=247.7ms  p(95)=251.66ms
+      { endpoint:report_bs }.......: avg=227.83ms min=192.25ms med=226.64ms max=261.65ms p(90)=247.5ms  p(95)=250.79ms
+      { expected_response:true }...: avg=228.18ms min=192.25ms med=226.74ms max=289.47ms p(90)=247.7ms  p(95)=251.66ms
+    http_req_failed................: 0.00%  0 out of 177
+      { endpoint:report_bs }.......: 0.00%  0 out of 176
+    http_reqs......................: 177    8.69586/s
+
+    EXECUTION
+    iteration_duration.............: avg=227.99ms min=192.39ms med=226.9ms  max=261.78ms p(90)=247.64ms p(95)=250.93ms
+    iterations.....................: 176    8.646731/s
+    vus............................: 2      min=2        max=2
+    vus_max........................: 2      min=2        max=2
+
+    NETWORK
+    data_received..................: 2.2 MB 107 kB/s
+    data_sent......................: 113 kB 5.5 kB/s
+
+
+
+
+running (20.4s), 0/2 VUs, 176 complete and 0 interrupted iterations
+report_bs ✓ [ 100% ] 2 VUs  20s

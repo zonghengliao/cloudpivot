@@ -1,0 +1,124 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /tmp/n8/perf/k6_trial_balance.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 3 max VUs, 30s max duration (incl. graceful stop):
+              * trial_balance: 3 looping VUs for 20s (gracefulStop: 10s)
+
+
+running (01.0s), 3/3 VUs, 13 complete and 0 interrupted iterations
+trial_balance   [   4% ] 3 VUs  00.7s/20s
+
+running (02.0s), 3/3 VUs, 40 complete and 0 interrupted iterations
+trial_balance   [   9% ] 3 VUs  01.7s/20s
+
+running (03.0s), 3/3 VUs, 67 complete and 0 interrupted iterations
+trial_balance   [  14% ] 3 VUs  02.7s/20s
+
+running (04.0s), 3/3 VUs, 94 complete and 0 interrupted iterations
+trial_balance   [  19% ] 3 VUs  03.7s/20s
+
+running (05.0s), 3/3 VUs, 121 complete and 0 interrupted iterations
+trial_balance   [  24% ] 3 VUs  04.7s/20s
+
+running (06.0s), 3/3 VUs, 150 complete and 0 interrupted iterations
+trial_balance   [  29% ] 3 VUs  05.7s/20s
+
+running (07.0s), 3/3 VUs, 176 complete and 0 interrupted iterations
+trial_balance   [  34% ] 3 VUs  06.7s/20s
+
+running (08.0s), 3/3 VUs, 202 complete and 0 interrupted iterations
+trial_balance   [  39% ] 3 VUs  07.7s/20s
+
+running (09.0s), 3/3 VUs, 230 complete and 0 interrupted iterations
+trial_balance   [  44% ] 3 VUs  08.7s/20s
+
+running (10.0s), 3/3 VUs, 257 complete and 0 interrupted iterations
+trial_balance   [  49% ] 3 VUs  09.7s/20s
+
+running (11.0s), 3/3 VUs, 284 complete and 0 interrupted iterations
+trial_balance   [  54% ] 3 VUs  10.7s/20s
+
+running (12.0s), 3/3 VUs, 310 complete and 0 interrupted iterations
+trial_balance   [  59% ] 3 VUs  11.7s/20s
+
+running (13.0s), 3/3 VUs, 338 complete and 0 interrupted iterations
+trial_balance   [  64% ] 3 VUs  12.7s/20s
+
+running (14.0s), 3/3 VUs, 365 complete and 0 interrupted iterations
+trial_balance   [  69% ] 3 VUs  13.7s/20s
+
+running (15.0s), 3/3 VUs, 392 complete and 0 interrupted iterations
+trial_balance   [  74% ] 3 VUs  14.7s/20s
+
+running (16.0s), 3/3 VUs, 418 complete and 0 interrupted iterations
+trial_balance   [  79% ] 3 VUs  15.7s/20s
+
+running (17.0s), 3/3 VUs, 446 complete and 0 interrupted iterations
+trial_balance   [  84% ] 3 VUs  16.7s/20s
+
+running (18.0s), 3/3 VUs, 473 complete and 0 interrupted iterations
+trial_balance   [  89% ] 3 VUs  17.7s/20s
+
+running (19.0s), 3/3 VUs, 500 complete and 0 interrupted iterations
+trial_balance   [  94% ] 3 VUs  18.7s/20s
+
+running (20.0s), 3/3 VUs, 526 complete and 0 interrupted iterations
+trial_balance   [  99% ] 3 VUs  19.7s/20s
+
+
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration{endpoint:trial_balance}
+    ✓ 'p(95)<400' p(95)=133.99ms
+    ✓ 'p(99)<1000' p(99)=152.99ms
+
+    http_req_failed{endpoint:trial_balance}
+    ✓ 'rate<0.001' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1078    52.926057/s
+    checks_succeeded...: 100.00% 1078 out of 1078
+    checks_failed......: 0.00%   0 out of 1078
+
+    ✓ 登录返回 200
+    ✓ 登录响应带 access_token
+    ✓ trial_balance: HTTP 200
+    ✓ trial_balance: body.code=0
+
+    HTTP
+    http_req_duration..............: avg=112.08ms min=80.39ms med=111.22ms max=270.08ms p(90)=128.86ms p(95)=134.1ms 
+      { endpoint:trial_balance }...: avg=111.79ms min=80.39ms med=111.16ms max=171.6ms  p(90)=128.55ms p(95)=133.99ms
+      { expected_response:true }...: avg=112.08ms min=80.39ms med=111.22ms max=270.08ms p(90)=128.86ms p(95)=134.1ms 
+    http_req_failed................: 0.00%  0 out of 539
+      { endpoint:trial_balance }...: 0.00%  0 out of 538
+    http_reqs......................: 539    26.463028/s
+
+    EXECUTION
+    iteration_duration.............: avg=111.98ms min=80.68ms med=111.35ms max=171.86ms p(90)=128.67ms p(95)=134.13ms
+    iterations.....................: 538    26.413932/s
+    vus............................: 3      min=3        max=3
+    vus_max........................: 3      min=3        max=3
+
+    NETWORK
+    data_received..................: 12 MB  575 kB/s
+    data_sent......................: 344 kB 17 kB/s
+
+
+
+
+running (20.4s), 0/3 VUs, 538 complete and 0 interrupted iterations
+trial_balance ✓ [ 100% ] 3 VUs  20s

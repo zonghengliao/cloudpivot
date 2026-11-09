@@ -1,0 +1,60 @@
+
+         /\      Grafana   /‾‾/  
+    /\  /  \     |\  __   /  /   
+   /  \/    \    | |/ /  /   ‾‾\ 
+  /          \   |   (  |  (‾)  |
+ / __________ \  |_|\_\  \_____/ 
+
+
+     execution: local
+        script: /tmp/n8/perf/k6_login.js
+        output: -
+
+     scenarios: (100.00%) 1 scenario, 4 max VUs, 1m5s max duration (incl. graceful stop):
+              * login: 2 iterations for each of 4 VUs (maxDuration: 1m0s, gracefulStop: 5s)
+
+
+
+  █ THRESHOLDS 
+
+    checks
+    ✓ 'rate>0.99' rate=100.00%
+
+    http_req_duration{endpoint:login}
+    ✓ 'p(95)<800' p(95)=302.78ms
+    ✓ 'p(99)<1500' p(99)=303.14ms
+
+    http_req_failed{endpoint:login}
+    ✓ 'rate<0.001' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 16      27.74378/s
+    checks_succeeded...: 100.00% 16 out of 16
+    checks_failed......: 0.00%   0 out of 16
+
+    ✓ 登录 200
+    ✓ 带 access_token
+
+    HTTP
+    http_req_duration..............: avg=283.97ms min=272.31ms med=280.09ms max=303.23ms p(90)=302.32ms p(95)=302.78ms
+      { endpoint:login }...........: avg=283.97ms min=272.31ms med=280.09ms max=303.23ms p(90)=302.32ms p(95)=302.78ms
+      { expected_response:true }...: avg=283.97ms min=272.31ms med=280.09ms max=303.23ms p(90)=302.32ms p(95)=302.78ms
+    http_req_failed................: 0.00%  0 out of 8
+      { endpoint:login }...........: 0.00%  0 out of 8
+    http_reqs......................: 8      13.87189/s
+
+    EXECUTION
+    iteration_duration.............: avg=284.29ms min=272.37ms med=280.58ms max=303.77ms p(90)=302.86ms p(95)=303.31ms
+    iterations.....................: 8      13.87189/s
+
+    NETWORK
+    data_received..................: 14 kB  24 kB/s
+    data_sent......................: 1.5 kB 2.6 kB/s
+
+
+
+
+running (0m00.6s), 0/4 VUs, 8 complete and 0 interrupted iterations
+login ✓ [ 100% ] 4 VUs  0m00.6s/1m0s  8/8 iters, 2 per VU

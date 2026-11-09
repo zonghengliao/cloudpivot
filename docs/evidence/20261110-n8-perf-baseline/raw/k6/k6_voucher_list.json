@@ -1,0 +1,224 @@
+{
+    "root_group": {
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {
+            "setup": {
+                "name": "setup",
+                "path": "::setup",
+                "id": "5c0f8025f7e0b6654089e5b00e950f1a",
+                "groups": {},
+                "checks": {
+                        "登录返回 200": {
+                            "passes": 1,
+                            "fails": 0,
+                            "name": "登录返回 200",
+                            "path": "::setup::登录返回 200",
+                            "id": "0a02a0c6a2654493d26a42ab9f34e736"
+                        },
+                        "登录响应带 access_token": {
+                            "id": "267a3b764a88e1b4276d3792b25d2a67",
+                            "passes": 1,
+                            "fails": 0,
+                            "name": "登录响应带 access_token",
+                            "path": "::setup::登录响应带 access_token"
+                        }
+                    }
+            }
+        },
+        "checks": {
+            "voucher_list: HTTP 200": {
+                "name": "voucher_list: HTTP 200",
+                "path": "::voucher_list: HTTP 200",
+                "id": "d05aad551fbba839dc8bca5cafab07dc",
+                "passes": 8035,
+                "fails": 0
+            },
+            "voucher_list: body.code=0": {
+                "id": "47182440b00af7e73ccff2aa1d8877dc",
+                "passes": 8035,
+                "fails": 0,
+                "name": "voucher_list: body.code=0",
+                "path": "::voucher_list: body.code=0"
+            },
+            "voucher_list: 拿到可用的凭证主键": {
+                "name": "voucher_list: 拿到可用的凭证主键",
+                "path": "::voucher_list: 拿到可用的凭证主键",
+                "id": "053ae4c2eac1fe47d40aec6329575818",
+                "passes": 1610,
+                "fails": 0
+            },
+            "voucher_detail: HTTP 200": {
+                "name": "voucher_detail: HTTP 200",
+                "path": "::voucher_detail: HTTP 200",
+                "id": "41bf7052da736cb08ec4cd1fbf873c2a",
+                "passes": 1610,
+                "fails": 0
+            },
+            "voucher_detail: body.code=0": {
+                "name": "voucher_detail: body.code=0",
+                "path": "::voucher_detail: body.code=0",
+                "id": "121973dcdb9b474fcebc411191e93b46",
+                "passes": 1610,
+                "fails": 0
+            }
+        },
+        "name": "",
+        "path": ""
+    },
+    "metrics": {
+        "iterations": {
+            "count": 8035,
+            "rate": 395.9939235250406
+        },
+        "vus": {
+            "value": 5,
+            "min": 5,
+            "max": 5
+        },
+        "http_req_failed{endpoint:voucher_detail}": {
+            "passes": 0,
+            "fails": 1610,
+            "thresholds": {
+                "rate<0.001": false
+            },
+            "value": 0
+        },
+        "vus_max": {
+            "value": 5,
+            "min": 5,
+            "max": 5
+        },
+        "http_req_blocked": {
+            "avg": 0.001765938938420092,
+            "min": 0.000625,
+            "med": 0.001292,
+            "max": 0.897014,
+            "p(90)": 0.001917,
+            "p(95)": 0.002251
+        },
+        "http_req_duration{endpoint:voucher_detail}": {
+            "avg": 5.314426597515534,
+            "min": 1.955078,
+            "med": 5.0895835,
+            "max": 11.886322,
+            "p(90)": 7.5683072000000005,
+            "p(95)": 8.4319722,
+            "thresholds": {
+                "p(99)<400": false,
+                "p(95)<150": false
+            }
+        },
+        "http_req_duration{endpoint:voucher_list}": {
+            "max": 21.09626,
+            "p(90)": 13.7746162,
+            "p(95)": 14.597200299999999,
+            "avg": 11.242610982451755,
+            "min": 6.743497,
+            "med": 11.042888,
+            "thresholds": {
+                "p(95)<150": false,
+                "p(99)<400": false
+            }
+        },
+        "http_reqs": {
+            "count": 9646,
+            "rate": 475.38984272838104
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_waiting": {
+            "avg": 10.230512907422728,
+            "min": 1.889283,
+            "med": 10.558697500000001,
+            "max": 277.661421,
+            "p(90)": 13.440517,
+            "p(95)": 14.336005249999998
+        },
+        "data_sent": {
+            "count": 6155719,
+            "rate": 303376.14423492714
+        },
+        "data_received": {
+            "rate": 6395021.490389152,
+            "count": 129759561
+        },
+        "http_req_failed{endpoint:voucher_list}": {
+            "passes": 0,
+            "fails": 8035,
+            "thresholds": {
+                "rate<0.001": false
+            },
+            "value": 0
+        },
+        "http_req_duration": {
+            "p(95)": 14.385895,
+            "avg": 10.280780547584467,
+            "min": 1.955078,
+            "med": 10.607261000000001,
+            "max": 277.803096,
+            "p(90)": 13.4988515
+        },
+        "http_req_receiving": {
+            "p(95)": 0.051711,
+            "avg": 0.04320750476881614,
+            "min": 0.007501,
+            "med": 0.025544,
+            "max": 3.692313,
+            "p(90)": 0.041919
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 9646,
+            "value": 0
+        },
+        "iteration_duration": {
+            "max": 25.546239,
+            "p(90)": 16.9322174,
+            "p(95)": 18.6073989,
+            "avg": 12.447057820161822,
+            "min": 6.813709,
+            "med": 11.730726
+        },
+        "http_req_connecting": {
+            "avg": 0.0000503132904831018,
+            "min": 0,
+            "med": 0,
+            "max": 0.118091,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_sending": {
+            "avg": 0.007060135392908896,
+            "min": 0.002125,
+            "med": 0.00425,
+            "max": 2.864887,
+            "p(90)": 0.006959,
+            "p(95)": 0.009375
+        },
+        "checks": {
+            "passes": 20902,
+            "fails": 0,
+            "thresholds": {
+                "rate>0.99": false
+            },
+            "value": 1
+        },
+        "http_req_duration{expected_response:true}": {
+            "avg": 10.280780547584467,
+            "min": 1.955078,
+            "med": 10.607261000000001,
+            "max": 277.803096,
+            "p(90)": 13.4988515,
+            "p(95)": 14.385895
+        }
+    },
+    "setup_data": {
+        "token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJjODZlMDZjYy0zYzJmLTQyMTMtODIxNy05MzExNzZlYzkzZDQiLCJzdWIiOiIwMWExN2MzYi00Zjc4LTc3YzMtYmJjNS0xYzFjMmE0MTIxOTUiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiRkxPV19DT05GSUdfQVBQUk9WRVIiLCJTVVBFUl9BRE1JTiJdLCJwZXJtaXNzaW9ucyI6WyIqOio6KiJdLCJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzk0MjU4NzY0LCJpYXQiOjE3OTQyNTc4NjQsInZlciI6Mywic2lkIjoiNTYyYTdkZGUtMjY2Yi00OGM1LWJhZTAtMjg4NjM1ZjQ3YzljIiwic2lhdCI6MTc5NDI1Nzg2NH0.e2ZD_7euA73RWpZdylzeJbAPCEFQ0dn2an_-M2Tqt48"
+    }
+}
