@@ -73,7 +73,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::business::erp::code_policy;
-use crate::business::erp::dto;
 use crate::business::erp::dto::{
     AccountFilter, AccountRes, CreateLocationReq, CreateMaterialReq, CreateSupplierReq, CreateUnitReq,
     CreateWarehouseReq, InventoryFilter, InventoryLocationFilter, InventoryLocationRes, InventoryRes,
@@ -1513,17 +1512,15 @@ pub async fn unit_next_code(Extension(AuthClaims(_claims)): Extension<AuthClaims
 
 /// 「计量单位不提供自动取号」的统一错误（`400 + 10001`）。
 ///
-/// 与 [`dto::UNIT_CODE_REQUIRED`] 是**一对**：一个说「建单必须自己填编码」，
+/// 与 [`crate::business::erp::dto::UNIT_CODE_REQUIRED`] 是**一对**：一个说「建单必须自己填编码」，
 /// 一个说「别指望这里能取号」，两条文案合起来才是完整的单位编码口径。
 pub fn unit_code_not_auto() -> ApiError {
     ApiError::new(
         400,
         error_code::PARAM_INVALID,
-        format!(
-            "计量单位不提供自动取号：请在新建时手工填写 unit_code（{}）。\
-             其余五类主数据（供应商 / 客户 / 物料 / 仓库 / 资产分类 / 费用类型）才有 next-code 端点",
-            dto::UNIT_CODE_REQUIRED
-        ),
+        "计量单位不提供自动取号：新建时请手工填写 unit_code（`PCS` / `KG` / `M` 这类行业标准码，\
+         系统不会替你编）。有 next-code 端点的是供应商 / 客户 / 物料 / 仓库 / 资产分类 / 费用类型 六类"
+            .to_string(),
     )
 }
 
