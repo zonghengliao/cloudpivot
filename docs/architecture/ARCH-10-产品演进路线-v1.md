@@ -1389,6 +1389,344 @@ system:ai-dev:deploy:apply         申请部署
 
 ---
 
+### G8 统一 Runtime：服务器上装一个 Hermes Agent（用户 2026-11-09 拍板）
+
+**用户原话**：
+> 「对的。就是在服务器上装一个 hermes agent。AI 开发和 AI 员工都是用它。」
+
+**这是整个 G/H 两章的架构基石**：不自己造 agent runtime，复用 Hermes Agent。
+
+---
+
+#### G8.1 为什么这个决策是对的
+
+| 对比 | 自己造 runtime | 装一个 Hermes Agent |
+|---|---|---|
+| 开发量 | 3-4 周（工具系统/cron/记忆/会话/多模型） | **0 周**（现成） |
+| 成熟度 | 从零验证 | **已被我们验证 44 张卡 + 13 域演练** |
+| 多 agent | 自己设计 | **27 个 profile 已经在跑** |
+| 定时任务 | 自己写调度 | **cron 已在跑**（auto_push/test_deploy/deploy_gate） |
+| 记忆 | 自己设计 | **MEMORY.md/USER.md 已成熟** |
+| 换模型 | 自己抽象 | **已支持多 provider** |
+| 商用许可 | 自己的 | **MIT（可商用、可改、可分）** ✅ |
+
+**最关键的一条**：**我们（laoliu）就是活证据**。
+
+```
+今天这一天发生的事：
+· 13 域演练（3034 断言）—— Hermes Agent 跑脚本 + 分析
+· 100 条问题清单 + 3.45/5 评审 —— Hermes Agent 产出
+· 44 张修复卡（拆+派+验）—— Hermes Agent 执行
+· 定时任务（auto_push / test_deploy / deploy_gate）—— Hermes cron
+
+这些能力，客户装上 Hermes Agent 就都有了。
+```
+
+---
+
+#### G8.2 许可证核实（关键，已实测）
+
+```
+$ head -5 /root/.hermes/hermes-agent/LICENSE
+MIT License
+Copyright (c) 2025 Nous Research
+
+$ grep license /root/.hermes/hermes-agent/pyproject.toml
+license = "MIT"
+
+结论：✅ MIT 许可证
+  ✅ 可以商用（卖钱）
+  ✅ 可以修改（改成云枢定制版）
+  ✅ 可以分发（装到客户服务器）
+  ✅ 可以闭源集成
+  ⚠ 唯一义务：保留 LICENSE 文件 + 版权声明
+```
+
+**所以商业模式上完全 OK。**
+
+---
+
+#### G8.3 架构：一套 Hermes，多个 profile
+
+```
+┌──────────────────────────────────────────────────────┐
+│  客户服务器                                            │
+│                                                       │
+│  ┌────────────────────────────────────────────────┐  │
+│  │ 云枢主服务（:8023）                              │  │
+│  │  · AI 工作台（3 Tab）                            │  │
+│  │  · 业务模块（采购/销售/库存/财务…）               │  │
+│  │  · 流程引擎（部署审批流）                         │  │
+│  └────────────────────────────────────────────────┘  │
+│              ↕ HTTP API（云枢 ↔ Hermes gateway）      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │ Hermes Agent（一套进程，多 profile）              │  │
+│  │                                                 │  │
+│  │  ┌──────────────────────────────────────────┐  │  │
+│  │  │ profile: cloudpivot-dev       ← AI 开发   │  │  │
+│  │  │  · 读需求单 → 理解 → 拆卡 → 改代码         │  │  │
+│  │  │  · 跑门禁 → 推 staging                    │  │  │
+│  │  └──────────────────────────────────────────┘  │  │
+│  │  ┌──────────────────────────────────────────┐  │  │
+│  │  │ profile: cloudpivot-qa-bot    ← 质检机器人│  │  │
+│  │  │  · 每天跑 152 组勾稽 + 80 项不变量        │  │  │
+│  │  └──────────────────────────────────────────┘  │  │
+│  │  ┌──────────────────────────────────────────┐  │  │
+│  │  │ profile: cloudpivot-fin-bot   ← 财务机器人│  │  │
+│  │  │  · 凭证预审 / 自动对账 / 应收催收          │  │  │
+│  │  └──────────────────────────────────────────┘  │  │
+│  │  ┌──────────────────────────────────────────┐  │  │
+│  │  │ profile: cloudpivot-pur-bot   ← 采购机器人│  │  │
+│  │  └──────────────────────────────────────────┘  │  │
+│  │                                                 │  │
+│  │  共用能力（Hermes 自带，零开发）：                 │  │
+│  │  · 工具系统（terminal/file/git/bash/sql…）      │  │
+│  │  · cron 定时调度                                │  │
+│  │  · 持久记忆（MEMORY.md / USER.md）              │  │
+│  │  · 会话（Bot Chat = 机器人待办）                 │  │
+│  │  · 多模型（DeepSeek / Qwen / Claude / 本地）     │  │
+│  │  · A2A（agent 之间协作）                        │  │
+│  └────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────┘
+```
+
+**一套 Hermes 同时干两件事**：
+```
+AI 开发（G 章）→ profile: cloudpivot-dev
+AI 员工（H 章）→ profile: cloudpivot-*-bot
+```
+
+---
+
+#### G8.4 概念映射（云枢 ↔ Hermes）
+
+| 云枢概念 | Hermes 概念 | 说明 |
+|---|---|---|
+| `sys_agent.agent_code` | **profile 名** | `cloudpivot-fin-bot` |
+| 机器人权限 | **profile 的 tools 白名单** | 财务机器人不给 `terminal` |
+| 机器人任务 | **发给 profile 的消息** | Bot Chat / API |
+| 机器人定时 | **hermes cron** | 每个 profile 独立 cron |
+| 机器人记忆 | **MEMORY.md / USER.md** | 「上次这个供应商的发票有问题」 |
+| 机器人审计 | **会话记录 + sys_agent_run_log** | 双向留痕 |
+| AI 开发的需求单 | **消息内容 + biz_ai_requirement** | 云枢存业务状态，Hermes 存对话 |
+| 部署审批 | **复用云枢流程引擎** | 不走 Hermes（比 Hermes 的强） |
+
+**关键设计**：
+```
+云枢管「业务状态」（需求单/部署申请/审计）
+Hermes 管「执行」（理解/改码/跑门禁）
+两者通过 API + 回写对接，职责清晰
+```
+
+---
+
+#### G8.5 需要开发什么（桥接层，这才是工作量）
+
+**① 云枢 → Hermes 投递**
+
+```rust
+// 云枢后端（新增）
+POST /api/system/ai-dev/requirement
+  → 写 biz_ai_requirement
+  → 调 Hermes gateway API:
+     POST http://127.0.0.1:<hermes_port>/api/send
+     {
+       "profile": "cloudpivot-dev",
+       "message": "新需求 DEV-xxx，请读 biz_ai_requirement 表 id=xxx",
+       "expects_reply": true
+     }
+```
+
+**要确认**：Hermes gateway 的实际 API 形态（`gateway/run_api.py` 已存在，要读它）。
+
+**② Hermes → 云枢 回写**
+
+```
+agent 干完活，通过两种方式回写：
+A. 调云枢业务 API（agent_token）
+   PATCH /api/system/ai-dev/requirement/{id}
+   {status: "DEVELOPING", progress: "3/8"}
+
+B. 直接写库（不推荐，绕过审计）
+```
+
+**推荐 A**（有审计、有权限校验、有业务校验）。
+
+**③ 云枢业务工具（给 Hermes 用）**
+
+```
+这是 H 章 sys_agent_action 的落地形态。
+
+给 Hermes 注册一组「云枢工具」（Hermes plugin）：
+  cloudpivot.voucher.check     凭证预审
+  cloudpivot.voucher.post      凭证过账（HIGH 风险，要人确认）
+  cloudpivot.ar.collect        应收催收
+  cloudpivot.stock.query       库存查询
+  cloudpivot.invariant.run     跑不变量/勾稽
+  cloudpivot.deploy.staging    推 staging
+  cloudpivot.deploy.gate       跑 15 道门禁
+
+每个工具内部：
+  · 用 agent_token 调云枢 API
+  · 云枢校验 sys_agent_permission
+  · 写 sys_agent_run_log
+  · HIGH 风险 → 返回「需人工确认」而不是直接执行
+```
+
+**实现方式（三种，实测 Hermes 都支持，**推荐 B**）**：
+
+```
+A. Hermes plugin（/root/.hermes/plugins/）—— 已存在，可加载
+   ⚠ 缺点：绑定 Hermes，换 agent 就要重写
+
+B. MCP server（Model Context Protocol）—— **推荐** ✅
+   · Hermes 已支持（mcp_servers 配置已存在，实测）
+   · 云枢写一个 MCP server，暴露 ~30 个业务工具
+   · Hermes 作为 MCP client 直接调用
+   · 优点：云枢不用适配任何 agent，标准协议
+   · 附带好处：客户的 Claude Desktop / Cursor / 其它 agent 都能用
+
+C. 直接给 agent 一个 bash 工具，让它 curl 云枢 API
+   ⚠ 太野（无类型、无校验、难审计）
+```
+
+**为什么推荐 MCP（这是设计上的关键选择）**：
+
+```
+① 解耦：云枢不绑定 Hermes
+   今天用 Hermes，明天客户想用别的 agent → 云枢不用改
+
+② 标准：MCP 是 Anthropic 提的开放协议，生态在长
+
+③ 双向复用：
+   云枢暴露 MCP server → Hermes 用
+   云枢也可以作为 MCP client → 用别人的 MCP server（如数据库查询/GitHub）
+
+④ 实测 Hermes 支持：
+   /root/.hermes/hermes-agent 里有 mcp_servers 配置项和 MCP 相关代码
+```
+
+**云枢 MCP Server 要暴露的工具（初版 12 个）**：
+
+| 工具 | 风险 | 说明 |
+|---|---|---|
+| `cloudpivot.voucher.query` | LOW | 查凭证 |
+| `cloudpivot.voucher.check` | LOW | 凭证预审（只读校验） |
+| `cloudpivot.voucher.create` | MEDIUM | 建凭证草稿 |
+| `cloudpivot.voucher.post` | **HIGH** | 过账（要人确认） |
+| `cloudpivot.stock.query` | LOW | 查库存 |
+| `cloudpivot.inventory_txn.query` | LOW | 查库存流水 |
+| `cloudpivot.ar.list_overdue` | LOW | 查超期应收 |
+| `cloudpivot.ar.collect` | MEDIUM | 发起催收 |
+| `cloudpivot.invariant.run` | LOW | 跑 80 项不变量 |
+| `cloudpivot.linkage.run` | LOW | 跑 152 组勾稽 |
+| `cloudpivot.deploy.gate` | LOW | 跑 15 道门禁 |
+| `cloudpivot.deploy.staging` | **HIGH** | 部署到测试区 |
+
+**每个工具的调用链**：
+```
+agent 调 cloudpivot.voucher.post
+  ↓ MCP protocol
+云枢 MCP server（独立进程，:8101）
+  ↓ 校验 agent_token + sys_agent_permission
+  ↓ 查 risk_level
+  ↓ HIGH → 返回 {status: "NEED_CONFIRM", confirm_url: "..."}
+  ↓ 不走实际业务逻辑
+  ↓ 写 sys_agent_run_log
+  ↓ 人确认后 → 才真正执行
+```
+
+**④ agent_token（机器人身份）**
+
+```
+现状：Hermes 用 API key 调模型，但没有「云枢业务身份」
+
+要做：
+· 建 sys_agent 时自动生成 agent_token（长期有效但可吊销）
+· agent_token 绑定 sys_agent_permission
+· 云枢的鉴权中间件要支持三种主体：
+  user_token（人）
+  agent_token（机器人）
+  system_token（内部服务）
+```
+
+---
+
+#### G8.6 部署形态
+
+```
+客户服务器（一台或几台）：
+
+① 云枢主服务
+   · 二进制 + 前端产物
+   · systemd: cloudpivot.service
+   · 端口 8023
+
+② Hermes Agent
+   · pip 安装（或 venv）
+   · systemd: hermes-agent.service
+   · 端口 8100（内部，只监听 127.0.0.1）
+   · profile 目录 /root/.hermes/profiles/<agent_code>/
+   · 每个 profile 独立：config / MEMORY.md / cron
+
+③ 数据
+   · PG（prod_db + staging_db + sandbox_db）
+   · Redis
+
+④ 环境隔离（G3.1）
+   · staging 服务 8033
+   · agent 只能访问 staging + 云枢 API
+   · 绝对不能访问 prod
+```
+
+**安装脚本（B 章 install.sh 扩展）**：
+```
+install.sh 要加：
+  · 装 Hermes（pip install hermes-agent 或从源头）
+  · 建 profile（cloudpivot-dev / qa-bot / fin-bot）
+  · 配模型 API key（交互式输入 或 用客户自己的）
+  · 配 cron（质检机器人每天跑）
+  · 起 systemd 服务
+  · 冒烟（agent 能收到测试消息并回复）
+```
+
+---
+
+#### G8.7 风险（关键）
+
+| 风险 | 说明 | 对策 |
+|---|---|---|
+| **agent 越权** | Hermes 的 `terminal` 工具能跑任意命令 | profile 层面禁掉 `terminal`（只给业务工具）；财务机器人只给 `cloudpivot.*` |
+| **agent 改错文件** | AI 开发时误改生产代码 | G3.1 三层隔离 + deploy key 只授 staging |
+| **token 成本失控** | agent 无限循环调用 LLM | Hermes 有次数限制；云枢侧加「单需求 token 上限」 |
+| **agent 记忆污染** | 记错了导致下次错 | 记忆可审查可清除；关键决策不依赖记忆 |
+| **Hermes 升级破坏** | 版本升级接口变了 | 锁版本 + 升级前跑回归 |
+| **客户不信任** | 「AI 会不会乱来」 | 从只读机器人（质检）开始；HIGH 风险要人确认 |
+
+**最重要的一条**：
+```
+⚠ **agent 绝对不能有 terminal 工具访问生产机**
+  财务机器人配: tools = [cloudpivot.*]         ← 没有 terminal
+  AI 开发 profile 配: tools = [file, git, bash]  ← 但工作目录锁在 sandbox
+```
+
+---
+
+#### G8.8 验收（补充）
+
+```
+① 客户服务器装完 Hermes Agent，能起 systemd 服务
+② 云枢 AI 工作台提交需求 → Hermes dev profile 收到消息
+③ agent 干完活调云枢 API 回写进度（biz_ai_dev_task 有数据）
+④ 财务机器人 profile 只有 cloudpivot.* 工具（无 terminal，实测被拒）
+⑤ 质检机器人 cron 每天跑，结果写 sys_agent_run_log
+⑥ agent_token 能吊销（吊销后立刻 403）
+⑦ 杀掉 Hermes 进程 → 云枢主服务照常运行（不崩）
+⑧ 装 Hermes 的磁盘/内存开销实测（预期 <500MB）
+```
+
+---
+
 ## H. AI 机器人用户（数字员工）
 
 ### H1 目标
@@ -1683,6 +2021,21 @@ v1.4  2026-11-09  新增 G7 客户交互界面（回答用户「是在云枢上�
       · G7.7 验收 8 项
       · 关键设计：LLM 在独立 Agent 服务里调，不在云枢主进程（不污染/可关闭/可换模型/成本可控）
       · 关键设计：客户必须先确认「AI 理解的结构化需求」才能开干
+
+v1.5  2026-11-09  新增 G8 统一 Runtime（用户拍板：服务器上装一个 Hermes Agent）
+      · G8.1 为什么不自己造 runtime（省 3-4 周；laoliu 本人是活证据）
+      · G8.2 **许可证实测：MIT**（Nous Research，可商用/可改/可分，只需保留版权）
+      · G8.3 架构：一套 Hermes 多 profile（cloudpivot-dev / qa-bot / fin-bot / pur-bot）
+      · G8.4 概念映射（sys_agent ↔ profile / 权限 ↔ tools 白名单 / 审计 ↔ 会话+run_log）
+      · G8.5 桥接层设计：**推荐云枢做 MCP Server**（不绑定 Hermes，标准协议）
+        - 实测 Hermes 支持 mcp_servers
+        - 初版 12 个 MCP 工具（含风险分级，HIGH 要人确认）
+        - agent_token 三种主体（user/agent/system）
+      · G8.6 部署形态（cloudpivot.service + hermes-agent.service + 三套 DB）
+      · G8.7 风险（agent 越权/改错文件/token 失控/记忆污染/升级破坏/不信任）
+        - **最重要：agent 绝对不能有 terminal 访问生产机**
+      · G8.8 验收 8 项
+      · 关键选择：MCP 而非 Hermes plugin（解耦 + 标准 + 可双向复用）
 ```
 
 ---
