@@ -223,13 +223,13 @@ step4() {
   PERIOD=2026-08   # 该期间库内无既有库存期初（2026-09/10/11 已被别的演练占用，整期覆盖会误伤）
   save PERIOD "$PERIOD"
   api a4_cfg_get GET "/support/config/page?page=1&page_size=10&keyword=inventory_opening_equity_account" "$T_ADMIN"
-  CFG_ID=$(data '.data.list[0].id // .data.records[0].id // empty')
-  if [ -z "$CFG_ID" ]; then CFG_ID=$(PSQLQ -c "select id from sys_config where config_key='inventory_opening_equity_account';"); fi
+  CFG_ID=$(PSQLQ -c "select id from sys_config where config_key='inventory_opening_equity_account';")
   save CFG_ID "$CFG_ID"
   check "配置项 id 存在" "$([ -n "$CFG_ID" ] && echo yes)" "yes"
+  CFG_OLD=$(PSQLQ -c "select config_value from sys_config where config_key='inventory_opening_equity_account';")
   api a4_cfg_detail GET "/support/config/$CFG_ID" "$T_ADMIN"
-  CFG_OLD=$(data '.data.config_value')
-  save CFG_OLD "$CFG_OLD"; ok "期初对方科目当前值 = $CFG_OLD"
+  check "配置详情键名" "$(data '.data.config_key')" "inventory_opening_equity_account"
+  save CFG_OLD "$CFG_OLD"; ok "期初对方科目当前值 = $CFG_OLD（DB 与接口同源）"
   CFG_JSON=$(printf '%s' "$BODY" | jq -c '.data | {config_key, config_type, description, category, sort_order, config_level, is_modifiable, is_encrypted, is_restart, status, ref_value, select_value}')
   CFG_BODY=$(printf '%s' "$CFG_JSON" | jq -c '. + {config_value:"3101"}')
   CFG_BODY2=$(printf '%s' "$CFG_JSON" | jq -c --arg v "$CFG_OLD" '. + {config_value:$v}')
@@ -237,12 +237,11 @@ step4() {
   [ "$CODE" = 0 ] && ok "改配置 inventory_opening_equity_account = 3101（FIX-6 可配）" || bad "改配置 http=$HTTP $(show)"
   api a4_open POST /business/erp/opening-balance/inventory "$T_ADMIN" "{\"period\":\"$PERIOD\",\"items\":[{\"material_id\":\"$MAT1\",\"warehouse_id\":\"$WH_A\",\"qty\":100,\"unit_cost\":10,\"remark\":\"E2E-03 期初 M1\"}]}"
   [ "$CODE" = 0 ] && ok "库存期初录入 2026-08 M1 100@10" || bad "库存期初 http=$HTTP $(show)"
-  say "     出参: $(printf '%s' "$BODY" | jq -c '.data|{state,total_inventory_qty:.inventory_amount,voucher:.voucher.voucher_no,inventory_debit_account,inventory_credit_account}')"
+  OV=$(data '.data.voucher.id // empty'); save OV "$OV"
+  say "     出参: $(printf '%s' "$BODY" | jq -c '.data|{state,inventory_amount,voucher_no:.voucher.voucher_no,inventory_debit_account,inventory_credit_account}')"
   check "期初台账落库" "$(PSQLQ -c "select qty::numeric(20,4)||'|'||unit_cost::numeric(20,2) from biz_opening_inventory where period_code='$PERIOD' and material_id='$MAT1';")" "100.0000|10.00"
   check "期初台账记了库位桶" "$(PSQLQ -c "select (location_row_id is not null)::text from biz_opening_inventory where period_code='$PERIOD' and material_id='$MAT1';")" "true"
-  OV=$(PSQLQ -c "select voucher_id from biz_opening_balance where period_code='$PERIOD' limit 1;")
-  [ -z "$OV" ] && OV=$(PSQLQ -c "select v.id from biz_voucher v where v.period_code='$PERIOD' and v.voucher_type='OPENING' order by created_at desc limit 1;")
-  save OV "$OV"
+  check "期初凭证 id 已返回" "$([ -n "$OV" ] && echo yes)" "yes"
   say "     期初凭证 1405/对方科目: $(PSQLQ -c "select account_code||' '||debit_amount::numeric(20,2)||'/'||credit_amount::numeric(20,2) from biz_voucher_entry where voucher_id='$OV' order by line_no;" | tr '\n' ' ')"
   check "FIX-6 贷方科目 = 3101（配置生效）" "$(PSQLQ -c "select count(*) from biz_voucher_entry where voucher_id='$OV' and account_code='3101' and credit_amount=1000;")" "1"
   check "期初凭证借贷平衡" "$(voucher_balance "$OV")" "1000.00|1000.00"
@@ -256,6 +255,7 @@ step4() {
   [ "$CODE" = 0 ] && ok "配置恢复 $CFG_OLD" || bad "恢复配置 http=$HTTP $(show)"
   api a4_open2 POST /business/erp/opening-balance/inventory "$T_ADMIN" "{\"period\":\"$PERIOD\",\"items\":[{\"material_id\":\"$MAT1\",\"warehouse_id\":\"$WH_A\",\"qty\":100,\"unit_cost\":10,\"remark\":\"E2E-03 期初 M1\"},{\"material_id\":\"$MAT2\",\"warehouse_id\":\"$WH_A\",\"qty\":20,\"unit_cost\":5,\"remark\":\"E2E-03 期初 M2\"}]}"
   [ "$CODE" = 0 ] && ok "期初二次录入（M1 不动 + M2 新增，差额法）" || bad "期初二次录入 http=$HTTP $(show)"
+  OV=$(data '.data.voucher.id // empty'); [ -n "$OV" ] && save OV "$OV"
   check "M1 期初未重复记（仍 100）" "$(inv_qty "$MAT1" "$WH_A")" "100.0000"
   check "M2 期初 20" "$(inv_qty "$MAT2" "$WH_A")" "20.0000"
   check "M2 期初落同一默认库位桶" "$(loc_qty "$MAT2" "$WH_A" "$LOC_A1")" "20.0000"

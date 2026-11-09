@@ -91,6 +91,21 @@ post_stockin() { # post_stockin <id> <tag> [serials_json] → 打印最终状态
   printf '%s' "$st"
 }
 
+# ---- 附件夹具（盘点单提交审批要求「盘点表或盈亏说明」≥1 个）----
+mkpng() {
+  local f="$WORK/e2e03-attach.png"
+  printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+4wAAAABJRU5ErkJggg==' | base64 -d > "$f"
+  printf '%s' "$f"
+}
+attach_upload() { # attach_upload <name> <doc_type> <doc_id> <file> [file_role]
+  local name=$1 dtype=$2 did=$3 file=$4 role=${5:-DEFAULT} out="$RAW/$1.json"
+  HTTP=$(curl -s -m 60 -o "$out" -w '%{http_code}' -X POST "$BASE/business/attachment/upload" \
+    --oauth2-bearer "$T_ADMIN" \
+    -F "doc_type=$dtype" -F "doc_id=$did" -F "file_role=$role" -F "remark=E2E-03 演练附件" -F "file=@$file;type=image/png")
+  BODY=$(cat "$out" 2>/dev/null)
+  CODE=$(printf '%s' "$BODY" | jq -r '.code // empty' 2>/dev/null)
+}
+
 # ---- 库存/账务取数助手 ----
 inv_qty() { # inv_qty <material_id> <warehouse_id>
   PSQLQ -c "select coalesce(sum(qty),0)::numeric(20,4)::text from biz_inventory where material_id='$1' and warehouse_id='$2';"
