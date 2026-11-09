@@ -132,13 +132,13 @@ check "两条绑定共用同一个 sys_file（file_id 相同）" "$FID_B" "$FID_
 say "### 4) 列表 API 各自返回自己的名字（验收③④）"
 api list_a GET "/business/attachment/list?doc_type=CONTRACT&doc_id=$C_A" "$T_ADMIN"
 check "合同 A 列表 HTTP/CODE" "$HTTP/c$CODE" "200/c0"
-check "合同 A 列表 file_name" "$(data ".list[] | select(.id==\"$BID_A\") | .file_name")" "$NAME_A"
+check "合同 A 列表 file_name" "$(data ".data.list[] | select(.id==\"$BID_A\") | .file_name")" "$NAME_A"
 api list_b GET "/business/attachment/list?doc_type=CONTRACT&doc_id=$C_B" "$T_ADMIN"
 check "合同 B 列表 HTTP/CODE" "$HTTP/c$CODE" "200/c0"
 check "合同 B 列表 file_name（原 bug：会是 $NAME_A）" \
-  "$(data ".list[] | select(.id==\"$BID_B\") | .file_name")" "$NAME_B"
+  "$(data ".data.list[] | select(.id==\"$BID_B\") | .file_name")" "$NAME_B"
 check "合同 B 列表 file_id（仍是秒传复用的那条）" \
-  "$(data ".list[] | select(.id==\"$BID_B\") | .file_id")" "$FID_B"
+  "$(data ".data.list[] | select(.id==\"$BID_B\") | .file_id")" "$FID_B"
 
 say "### 5) 库内不变量 + 真秒传证据"
 check "两条绑定同 file_id" \
@@ -164,11 +164,11 @@ say "### 7) 回落口径：把 B 那行的快照置空（模拟未回填的历�
 SQ "update biz_doc_attachment set file_name=null where id='$BID_B'" > /dev/null
 api list_b_null GET "/business/attachment/list?doc_type=CONTRACT&doc_id=$C_B" "$T_ADMIN"
 check "置空后列表回落到 sys_file.original_name（= A 的名字，正是原 bug 的表现）" \
-  "$(data ".list[] | select(.id==\"$BID_B\") | .file_name")" "$NAME_A"
+  "$(data ".data.list[] | select(.id==\"$BID_B\") | .file_name")" "$NAME_A"
 SQ "update biz_doc_attachment set file_name='$NAME_B' where id='$BID_B'" > /dev/null
 api list_b_back GET "/business/attachment/list?doc_type=CONTRACT&doc_id=$C_B" "$T_ADMIN"
 check "恢复快照后又是自己的名字" \
-  "$(data ".list[] | select(.id==\"$BID_B\") | .file_name")" "$NAME_B"
+  "$(data ".data.list[] | select(.id==\"$BID_B\") | .file_name")" "$NAME_B"
 
 say "### 8) 超长文件名（256 字符）→ 400（不静默截断、不 500）"
 LONG=$(python3 -c "print('汉'*256)")

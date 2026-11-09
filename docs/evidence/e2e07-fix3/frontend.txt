@@ -1,0 +1,3 @@
+=== pnpm typecheck && pnpm build（99，无前端改动；此卡只改后端） ===
+typecheck_rc=0
+build_rc=0

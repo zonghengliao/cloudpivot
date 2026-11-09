@@ -1,0 +1,40 @@
+### 0) 登录
+  ✅ admin 登录
+### 1) 迁移 V0362 已应用 + 存量回填无空值（验收①②）
+  ✅ V0362 在 schema_migrations 里 = 1
+  ✅ file_name 列（varchar(255)）存在 = 1
+  ✅ 存量空值行数（验收②：必须 0） = 0
+### 2) 建两张合同（附件挂靠点）
+  ✅ 建单 A（HTTP/CODE） = 200/c0
+  ✅ 建单 B（HTTP/CODE） = 200/c0
+### 3) 同一份字节，两个不同文件名，分别上传到两张合同（真秒传）
+  ✅ A/B 两份上传文件字节一致（sha256 前 12 位） = 0da3f20fe37f
+  ✅ 上传 A（HTTP/CODE） = 200/c0
+  ✅ 上传 A 的显示名 = e2e07-contract-scan-1109170748.pdf
+  ✅ 上传 B（HTTP/CODE） = 200/c0
+  ✅ 上传 B 的显示名（旧实现会显示 A 的名字） = drill-invoice-1109170748.pdf
+  ✅ 秒传命中（duplicated） = true
+  ✅ 两条绑定共用同一个 sys_file（file_id 相同） = 01a1bf90-516e-71b0-b987-bd87599c499d
+### 4) 列表 API 各自返回自己的名字（验收③④）
+  ✅ 合同 A 列表 HTTP/CODE = 200/c0
+  ✅ 合同 A 列表 file_name = e2e07-contract-scan-1109170748.pdf
+  ✅ 合同 B 列表 HTTP/CODE = 200/c0
+  ✅ 合同 B 列表 file_name（原 bug：会是 e2e07-contract-scan-1109170748.pdf） = drill-invoice-1109170748.pdf
+  ✅ 合同 B 列表 file_id（仍是秒传复用的那条） = 01a1bf90-516e-71b0-b987-bd87599c499d
+### 5) 库内不变量 + 真秒传证据
+  ✅ 两条绑定同 file_id = 1
+  ✅ 两条绑定两个不同的 file_name = 2
+  ✅ sys_file 里该内容只有 1 行（秒传） = 1
+  ✅ sys_file.original_name = 第一个上传者的名字（bug 的成因） = e2e07-contract-scan-1109170748.pdf
+### 6) 审计留痕：第二次上传记的必须是 B 自己的名字
+  ✅ operation_logs(DOC_ATTACHMENT_UPLOAD) detail.file_name = drill-invoice-1109170748.pdf
+  ✅ operation_logs detail.original_name（本次提交的文件名） = drill-invoice-1109170748.pdf
+### 7) 回落口径：把 B 那行的快照置空（模拟未回填的历史行）→ 回落 sys_file 名字
+  ✅ 置空后列表回落到 sys_file.original_name（= A 的名字，正是原 bug 的表现） = e2e07-contract-scan-1109170748.pdf
+  ✅ 恢复快照后又是自己的名字 = drill-invoice-1109170748.pdf
+### 8) 超长文件名（256 字符）→ 400（不静默截断、不 500）
+  ✅ 超长文件名 HTTP/CODE = 400/c10001
+  ✅ 报文点明上限 255
+
+================ PASS=28 FAIL=0 ================
+证据目录：/tmp/e2e07fix3/raw（每次请求的原始响应）
