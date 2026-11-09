@@ -15,6 +15,8 @@ import {
   isLoginUnreadShown,
   LOGIN_UNREAD_SHOWN_KEY,
   markLoginUnreadShown,
+  permittedUnreadKeys,
+  pickUnreadLoaders,
   summarizeUnread,
   totalUnread,
   UNREAD_SOURCES,
@@ -133,5 +135,70 @@ test('类别清单是四条且键名与后端取数一一对应', () => {
   assert.deepEqual(
     UNREAD_SOURCES.map((source) => source.icon),
     ['mail', 'notification', 'task', 'check-circle'],
+  );
+});
+
+// ===== HOME-6：按权限发请求（无权限的类别既不请求也不出现在弹窗行里）=====
+
+test('权限码逐字对应后端注解（改码就是 403，三处必须同步）', () => {
+  assert.deepEqual(
+    UNREAD_SOURCES.map((source) => [source.key, source.permission]),
+    [
+      ['notice', 'business:notice:mine'],
+      ['announcement', 'business:announcement:read'],
+      ['task', 'business:task:read'],
+      ['approval', 'business:flow:instance:read'],
+    ],
+  );
+});
+
+test('permittedUnreadKeys：只返回有权限的类别，保持原顺序', () => {
+  const all = permittedUnreadKeys(() => true);
+  assert.deepEqual(all, ['notice', 'announcement', 'task', 'approval'], '超管（*:*:* 恒真）四类全查');
+
+  // EMPLOYEE 这类账号：只有 task / approval
+  const employee = permittedUnreadKeys((code) =>
+    ['business:task:read', 'business:flow:instance:read'].includes(code),
+  );
+  assert.deepEqual(employee, ['task', 'approval']);
+
+  // 四类都无权限 → 空数组（调用方据此整框不弹、一个请求都不发）
+  assert.deepEqual(permittedUnreadKeys(() => false), []);
+});
+
+test('pickUnreadLoaders：无权限类别的 loader 被整条剔除，collectUnread 不会去调它', async () => {
+  const called: string[] = [];
+  const loaders: UnreadLoaders = {
+    notice: async () => {
+      called.push('notice');
+      return 9;
+    },
+    announcement: async () => {
+      called.push('announcement');
+      return 9;
+    },
+    task: async () => {
+      called.push('task');
+      return 2;
+    },
+    approval: async () => {
+      called.push('approval');
+      return 3;
+    },
+  };
+  const counts = await collectUnread(pickUnreadLoaders(loaders, ['task', 'approval']));
+  assert.deepEqual(called, ['task', 'approval'], '只调有权限的两路');
+  assert.deepEqual(counts, { notice: 0, announcement: 0, task: 2, approval: 3 });
+  assert.equal(totalUnread(counts), 5);
+});
+
+test('summarizeUnread 传 keys：无权限的行根本不出现（不是置灰）', () => {
+  const rows = summarizeUnread({ notice: 3, announcement: 2, task: 1, approval: 0 }, ['task', 'approval']);
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.label, row.count]),
+    [
+      ['task', '工作任务', 1],
+      ['approval', '审批待办', 0],
+    ],
   );
 });

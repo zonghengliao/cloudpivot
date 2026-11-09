@@ -1,5 +1,6 @@
 <template>
   <t-popup
+    v-if="canReadNotice"
     v-model:visible="visible"
     trigger="click"
     placement="bottom-right"
@@ -53,10 +54,21 @@ import { useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { pageMyNotices, markAllNoticeRead, type MyNoticeRes } from '@/api/business/notice';
 import { useNoticeStore } from '@/stores/notice';
+import { useUserStore } from '@/stores/user';
+import { PERM } from '@/constants/permissions';
 import { formatDateTime } from '@/utils/format';
 
 const router = useRouter();
 const noticeStore = useNoticeStore();
+const userStore = useUserStore();
+
+/**
+ * 是否有站内信权限（`business:notice:mine`）。
+ *
+ * 无权限时**整只铃铛不渲染**：角标恒 0、面板里一次 `pageMyNotices` 也不会发出
+ * （那个接口同样 403）。渲染一个点开必 403 的铃铛只是把红色报错从首屏挪到点击后。
+ */
+const canReadNotice = computed(() => userStore.hasPermission(PERM.noticeMine));
 
 const visible = ref(false);
 const loading = ref(false);

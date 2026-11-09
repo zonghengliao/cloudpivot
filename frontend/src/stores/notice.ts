@@ -13,6 +13,8 @@ import {
   type NoticePopupItem,
 } from '@/utils/notice-popup';
 import { openNoticeStream, type SseFrame } from '@/utils/notice-stream';
+import { useUserStore } from '@/stores/user';
+import { PERM } from '@/constants/permissions';
 
 /** 未读数轮询间隔（实时通道不可用时的兜底；30 秒足够，不给后端添压力） */
 const POLL_INTERVAL_MS = 30_000;
@@ -59,6 +61,17 @@ export const useNoticeStore = defineStore('notice', () => {
   let lastKnownUnread: number | null = null;
   /** 「最新消息」累加器：去重 / 新的在前 / 上限 5 条（规则与单测都在 utils/notice-popup.ts） */
   const accumulator = new NoticeAccumulator();
+
+  /**
+   * 当前账号是否有站内信权限（`business:notice:mine`，与后端 `#[nik::permission]` 逐字一致）。
+   *
+   * 没有这个码时 `/notice/stream`、`/notice/unread-count`、`/notice/page` **全部 403**：
+   * 建立连接 = 往控制台刷红。所以整条订阅（SSE + 轮询 + 拉最新）都先过这一道闸。
+   * 判据只认 `userStore.hasPermission`（超管持 `*:*:*` 自然为 true），不另写第二套。
+   */
+  function canReadNotice(): boolean {
+    return useUserStore().hasPermission(PERM.noticeMine);
+  }
 
   /** 直接覆写未读数（拉接口成功后调用） */
   function setUnreadCount(count: number): void {
@@ -114,6 +127,9 @@ export const useNoticeStore = defineStore('notice', () => {
    *   「新消息 5 条」却全是半小时前的旧消息（本卡第一轮真机验收实测过这个 bug）。
    */
   async function pullLatest(sinceMs?: number): Promise<void> {
+    if (!canReadNotice()) {
+      return;
+    }
     try {
       const data = await pageMyNotices({ page: 1, page_size: MAX_POPUP_ITEMS, read_flag: false });
       const rows = sinceMs ? filterArrivedSince(data.list, sinceMs) : data.list;
@@ -130,6 +146,11 @@ export const useNoticeStore = defineStore('notice', () => {
    * 于是补拉最新 5 条把浮层弹出来（首次拉取只建立基线，不弹）。
    */
   async function refreshUnread(): Promise<void> {
+    if (!canReadNotice()) {
+      // 无权限：不请求（必然 403），角标恒 0
+      unreadCount.value = 0;
+      return;
+    }
     try {
       const res = await fetchUnreadCount();
       const next = Math.max(0, res.unread_count);
@@ -275,6 +296,14 @@ export const useNoticeStore = defineStore('notice', () => {
    * 带头流与普通接口同一套认证，既不需要白名单，也不会产生这条噪声。
    */
   function connect(): void {
+    if (!canReadNotice()) {
+      // 无 `business:notice:mine`：SSE 握手与未读数都会 403 —— 一条连接都不建，
+      // 角标恒 0、浮层无数据。先清掉可能残留的上一个账号的角标与浮层批次。
+      disconnect();
+      unreadCount.value = 0;
+      resetPopupBatch();
+      return;
+    }
     if (streamRunning || streamAbort) {
       return;
     }

@@ -16,17 +16,58 @@
  * ⚠ 卡面写的 `GET /business/flow/task/page?status=PENDING` **不存在**（实测 `404 请求的资源不存在`），
  * 待办走的是 `/flow/task/todo`（后端就是「只返回 PENDING 的 APPROVAL + RESUBMIT」）。
  * 工作任务也没有独立 count 接口，用 `page_size=1` 取 `total`。
+ *
+ * # 权限（2026-11-09 HOME-6）
+ *
+ * 四类接口各有自己的 `#[nik::permission]` 权限码，见 {@link UNREAD_SOURCES} 的 `permission` 字段。
+ * **没这个权限码的账号，那一路请求必然 403**（例：种子 `EMPLOYEE` 角色没有
+ * `business:notice:mine` / `business:announcement:read`，登录一次控制台红两条）。
+ * 所以登录弹窗只对「有权限」的类别发请求，也只列出有权限的行 —— 判据见
+ * {@link permittedUnreadKeys}，别在组件里另写一套。
  */
+import { PERM } from '@/constants/permissions';
 
 /** sessionStorage 标记键：本次登录已经弹过（刷新不重复弹） */
 export const LOGIN_UNREAD_SHOWN_KEY = 'login-unread-shown';
 
-/** 登录汇总弹窗的四个类别（顺序即界面行顺序） */
+/**
+ * 登录汇总弹窗的四个类别（顺序即界面行顺序）。
+ *
+ * `permission` 是取该类未读数所需的后端权限码，**逐字**对应 `#[nik::permission]`：
+ * - 站内信 `/notice/unread-count` → `business:notice:mine`
+ * - 公告 `/announcement/unread-count` → `business:announcement:read`
+ * - 工作任务 `/task/page` → `business:task:read`
+ * - 审批待办 `/flow/task/todo` → `business:flow:instance:read`
+ */
 export const UNREAD_SOURCES = [
-  { key: 'notice', label: '站内信', icon: 'mail', path: '/business/notice/message' },
-  { key: 'announcement', label: '公告', icon: 'notification', path: '/announcement' },
-  { key: 'task', label: '工作任务', icon: 'task', path: '/task/list' },
-  { key: 'approval', label: '审批待办', icon: 'check-circle', path: '/flow/task' },
+  {
+    key: 'notice',
+    label: '站内信',
+    icon: 'mail',
+    path: '/business/notice/message',
+    permission: PERM.noticeMine,
+  },
+  {
+    key: 'announcement',
+    label: '公告',
+    icon: 'notification',
+    path: '/announcement',
+    permission: PERM.announcementRead,
+  },
+  {
+    key: 'task',
+    label: '工作任务',
+    icon: 'task',
+    path: '/task/list',
+    permission: PERM.taskRead,
+  },
+  {
+    key: 'approval',
+    label: '审批待办',
+    icon: 'check-circle',
+    path: '/flow/task',
+    permission: PERM.flowInstanceRead,
+  },
 ] as const;
 
 /** 类别键：`notice` / `announcement` / `task` / `approval` */
@@ -70,6 +111,36 @@ function toCount(value: unknown): number {
 }
 
 /**
+ * 当前账号**有权限**取数的类别（无权限的类别按「0 条」处理）。
+ *
+ * 这是「未读弹窗不发注定 403 的请求」的唯一判据：不在返回结果里的类别
+ * **既不请求，也不出现在弹窗行里**（无权限 = 看不到那一类，行留着只会点进去再撞 403）。
+ *
+ * @param has 权限判定函数，组件里传 `userStore.hasPermission`
+ * @returns 保持 {@link UNREAD_SOURCES} 的原顺序
+ */
+export function permittedUnreadKeys(has: (code: string) => boolean): UnreadKey[] {
+  return UNREAD_SOURCES.filter((source) => has(source.permission)).map((source) => source.key);
+}
+
+/**
+ * 只保留有权限类别的取数器（其余整条剔除，`collectUnread` 就不会去调它们）。
+ */
+export function pickUnreadLoaders(
+  loaders: UnreadLoaders,
+  keys: readonly UnreadKey[],
+): UnreadLoaders {
+  const picked: UnreadLoaders = {};
+  for (const key of keys) {
+    const loader = loaders[key];
+    if (loader) {
+      picked[key] = loader;
+    }
+  }
+  return picked;
+}
+
+/**
  * 并行取四类未读数。
  *
  * 单类失败（无权限 403 / 接口 404）按 **0** 计：登录弹窗是**提示**，不能因为其中一个接口
@@ -99,9 +170,18 @@ export function totalUnread(counts: UnreadCounts): number {
   return UNREAD_SOURCES.reduce((sum, source) => sum + toCount(counts[source.key]), 0);
 }
 
-/** 汇总成弹窗行（**4 行恒定返回**，0 条的行由界面置灰，便于用户知道「这一类我一条没落」） */
-export function summarizeUnread(counts: UnreadCounts): UnreadRow[] {
-  return UNREAD_SOURCES.map((source) => ({
+/**
+ * 汇总成弹窗行。
+ *
+ * 默认 4 行恒定返回（0 条的行由界面置灰，便于用户知道「这一类我一条没落」）；
+ * 传 `keys` 时只返回这些类别 —— 登录弹窗用「有权限的类别」作参数，
+ * 让无权限的行根本不出现。
+ */
+export function summarizeUnread(counts: UnreadCounts, keys?: readonly UnreadKey[]): UnreadRow[] {
+  const sources = keys
+    ? UNREAD_SOURCES.filter((source) => keys.includes(source.key))
+    : UNREAD_SOURCES;
+  return sources.map((source) => ({
     key: source.key,
     label: source.label,
     icon: source.icon,

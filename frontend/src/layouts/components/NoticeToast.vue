@@ -2,7 +2,7 @@
   <teleport to="body">
     <transition name="notice-toast">
       <section
-        v-if="visible && items.length > 0"
+        v-if="canReadNotice && visible && items.length > 0"
         class="notice-toast"
         data-testid="notice-toast"
         role="complementary"
@@ -86,6 +86,8 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useNoticeStore } from '@/stores/notice';
+import { useUserStore } from '@/stores/user';
+import { PERM } from '@/constants/permissions';
 import {
   AutoCloseTimer,
   formatRelativeTime,
@@ -96,6 +98,15 @@ import {
 
 const router = useRouter();
 const noticeStore = useNoticeStore();
+const userStore = useUserStore();
+
+/**
+ * 是否有站内信权限（`business:notice:mine`）。
+ *
+ * 浮层本身不请求接口（数据全部来自 store），但换账号 / 退出重登时 store 里可能还留着
+ * 上一个账号的消息 —— 加这道闸，无权限账号连浮层都不渲染。
+ */
+const canReadNotice = computed(() => userStore.hasPermission(PERM.noticeMine));
 
 /** 浮层是否显示 */
 const visible = ref(false);
