@@ -27,11 +27,14 @@
 //! `ScopeTarget::new(TABLE, "a", Some("use_dept_id"), None)` 并让 handler 走
 //! `scope::paginate(…, &principal)` 即可（`budget_model` 是现成的例子）。
 
+use std::collections::HashMap;
+
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::asset_dto;
 use crate::business::erp::asset_dto::{AssetFilter, CategoryFilter, CategorySpec, CreateAssetSpec, DepBatchFilter};
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::scope;
@@ -1030,6 +1033,156 @@ pub async fn changes_of(asset_id: Uuid) -> DbResult<Vec<AssetChangeRow>> {
         )
         .await?;
     rows.iter().map(AssetChangeRow::from_row).collect()
+}
+
+// ==================== ③' 期间归属部门（补提历史折旧用） ====================
+
+/// 部门快照（只用于「这一期属于哪个部门」的还原）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeptSnapshot {
+    /// 部门 id。
+    pub dept_id: Uuid,
+    /// 部门名（`biz_fixed_asset_change` 的 `*_dept_name` 快照列）。
+    ///
+    /// 留痕写入时一定带上名字（`asset_handler::asset_transfer` 先查 `sys_dept` 再写），
+    /// 但列本身可空（历史数据 / 手插行），所以是 `Option`：解析时兜底查 `sys_dept`，
+    /// 再兜底给一个带 id 前 8 位的占位名（绝不能回落到「卡片当前部门名」—— 那会让
+    /// 摘要读起来像另一件事）。
+    pub dept_name: Option<String>,
+}
+
+impl DeptSnapshot {
+    /// 摘要/日志里用的部门名：快照名 → 占位名（`部门 <uuid 前 8 位>`）。
+    fn display_name(&self) -> String {
+        match self.dept_name.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
+            Some(name) => name.to_string(),
+            None => {
+                let text = self.dept_id.to_string();
+                format!("部门 {}", text.get(..8).unwrap_or(&text))
+            }
+        }
+    }
+}
+
+/// 「某台资产在某个期末属于哪个部门」的还原线索。
+///
+/// 两个端点各取一次（都是 `DISTINCT ON`，一次批量查询，**不随资产数增加往返**）：
+///
+/// * [`Self::at_or_before`]：`change_date <= period_end` 的**最后一次** TRANSFER 的**转入**部门；
+/// * [`Self::first_after`]：`change_date > period_end` 的**第一次** TRANSFER 的**转出**部门。
+#[derive(Debug, Clone, Default)]
+pub struct DeptAtPeriod {
+    /// 期末（含）前最后一次转移的转入部门。键 = 资产 id。
+    pub at_or_before: HashMap<Uuid, DeptSnapshot>,
+    /// 期末之后第一次转移的转出部门。键 = 资产 id。
+    pub first_after: HashMap<Uuid, DeptSnapshot>,
+}
+
+impl DeptAtPeriod {
+    /// 资产在 `period_end` 那天结束时所属的部门 → `(部门 id, 部门名)`。
+    ///
+    /// 优先级（卡 `t_abb4bb0b` 的边界口径，逐条对应）：
+    ///
+    /// 1. **期末（含）之前有过转移** → 最后一次转移的**转入**部门。
+    ///    期间内转移（如 2/15 转）按 `change_date <= period_end` 判：整月算新部门 ——
+    ///    这是「费用归属」口径，与「当月减少当月照提」的**资产**口径不是一回事
+    ///    （后者决定提不提，前者决定记哪个部门）。
+    /// 2. **期末之后才转移** → 那次转移的**转出**部门（那一期还没转出去，用的是旧部门）。
+    ///    没有这一条，补提「转移前那个月」会退化成卡片当前部门（= 新部门），本卡的 bug 就还在。
+    /// 3. **从没转移过** → 卡片当前 `use_dept_id`（保持原行为，无转移的资产完全不受影响）。
+    pub fn resolve(&self, asset_id: &Uuid, current_dept_id: Uuid, current_dept_name: &str) -> (Uuid, String) {
+        match self
+            .at_or_before
+            .get(asset_id)
+            .or_else(|| self.first_after.get(asset_id))
+        {
+            Some(snapshot) => (snapshot.dept_id, snapshot.display_name()),
+            None => (current_dept_id, current_dept_name.to_string()),
+        }
+    }
+}
+
+/// `{a,b,c}` 形态的 uuid 数组字面量（`ANY(?::text::uuid[])` 用）。
+fn uuid_array(ids: &[Uuid]) -> Value {
+    let joined = ids.iter().map(|id| id.to_string()).collect::<Vec<_>>().join(",");
+    Value::Text(format!("{{{joined}}}"))
+}
+
+/// 批量取「这些资产在 `period_end` 时属于哪个部门」的线索（**只取 TRANSFER 留痕**）。
+///
+/// 两次批量查询（不是每台一次）：折旧批跑一次几百台，逐台查转移留痕就是 N+1。
+/// 名字优先用留痕快照（`to_dept_name` / `from_dept_name`），为空再 left join
+/// `sys_dept` 取现名（**不过滤 `deleted_at`**：部门被删了也要读得出当时叫什么）。
+pub async fn dept_at_period_hint(
+    ex: &impl SqlExecutor,
+    asset_ids: &[Uuid],
+    period_end: NaiveDate,
+) -> DbResult<DeptAtPeriod> {
+    let mut hint = DeptAtPeriod::default();
+    if asset_ids.is_empty() {
+        return Ok(hint);
+    }
+    let ids = uuid_array(asset_ids);
+    let end = Value::Text(period_end.to_string());
+    // SCOPE-EXEMPT: 折旧批跑按资产 id 集合取变动留痕（不分页、不产生行集权限）。
+    let before = ex
+        .query_sql(
+            format!(
+                "SELECT DISTINCT ON (c.asset_id) c.asset_id, c.to_dept_id AS dept_id, \
+                        COALESCE(NULLIF(c.to_dept_name, ''), d.dept_name) AS dept_name \
+                   FROM {CHANGE_TABLE} c LEFT JOIN sys_dept d ON d.id = c.to_dept_id \
+                  WHERE c.asset_id = ANY(?::text::uuid[]) \
+                    AND c.change_type = ? \
+                    AND c.change_date <= ?::text::date \
+                  ORDER BY c.asset_id, c.change_date DESC, c.created_at DESC"
+            ),
+            vec![
+                ids.clone(),
+                Value::Text(asset_dto::CHANGE_TRANSFER.to_string()),
+                end.clone(),
+            ],
+        )
+        .await?;
+    for row in before.iter() {
+        let Some(dept_id) = row.get_typed::<Option<Uuid>>("dept_id")? else {
+            continue;
+        };
+        hint.at_or_before.insert(
+            row.get_typed("asset_id")?,
+            DeptSnapshot {
+                dept_id,
+                dept_name: row.get_typed("dept_name")?,
+            },
+        );
+    }
+    // SCOPE-EXEMPT: 同上（期末之后第一次转移的转出部门）。
+    let after = ex
+        .query_sql(
+            format!(
+                "SELECT DISTINCT ON (c.asset_id) c.asset_id, c.from_dept_id AS dept_id, \
+                        COALESCE(NULLIF(c.from_dept_name, ''), d.dept_name) AS dept_name \
+                   FROM {CHANGE_TABLE} c LEFT JOIN sys_dept d ON d.id = c.from_dept_id \
+                  WHERE c.asset_id = ANY(?::text::uuid[]) \
+                    AND c.change_type = ? \
+                    AND c.change_date > ?::text::date \
+                  ORDER BY c.asset_id, c.change_date ASC, c.created_at ASC"
+            ),
+            vec![ids, Value::Text(asset_dto::CHANGE_TRANSFER.to_string()), end],
+        )
+        .await?;
+    for row in after.iter() {
+        let Some(dept_id) = row.get_typed::<Option<Uuid>>("dept_id")? else {
+            continue;
+        };
+        hint.first_after.insert(
+            row.get_typed("asset_id")?,
+            DeptSnapshot {
+                dept_id,
+                dept_name: row.get_typed("dept_name")?,
+            },
+        );
+    }
+    Ok(hint)
 }
 
 // ==================== ④ 折旧批次 ====================

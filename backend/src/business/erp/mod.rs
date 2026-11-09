@@ -152,6 +152,9 @@ pub mod currency_admin_handler;
 pub mod currency_admin_model;
 pub mod customer_handler;
 pub mod customer_model;
+/// E2E05-FIX-1：补提历史折旧按「期间归属部门」记费用（转移留痕还原）的真库用例。
+#[cfg(test)]
+mod depreciation_dept_tests;
 pub mod depreciation_handler;
 /// LNK-10 的**唯一**联动接线（过账 / 红冲两条路共用 `depreciation_model::run_batch` /
 /// `reverse_batch` 内部的 `run_in_tx` / `run_deferred_after_commit`）。

@@ -22,6 +22,17 @@
 //!
 //! 差异写进证据 README（D-2）。
 //!
+//! # 补提历史期间：费用按「那一期所属部门」记，不是卡片当前部门
+//!
+//! 第 ③ 步逐台算明细时，部门取**期末那天**归属的部门：`asset_model::dept_at_period_hint`
+//! 按 `biz_fixed_asset_change` 的 TRANSFER 留痕还原（`change_date <= period_end` 的最后一次
+//! 转移取转入部门；期末之后才转移的取转出部门；没转移过用卡片当前部门）。
+//!
+//! 为什么不能用 `biz_fixed_asset.use_dept_id`：卡片只存**当前**值。资产 2028-02-01 从设备部
+//! 转到采购部之后，再补跑 2028-01 的折旧，用当前值会把 1 900 记到采购部 —— `5622.01` 的
+//! DEPT 辅助核算与部门损益整月偏（E2E-05 演练实测，卡 `t_abb4bb0b`）。按月准时计提时不触发
+//! （当月部门还是对的），所以这个 bug 只在补提历史期间冒出来。
+//!
 //! # 红冲后重跑（§5.5.5）
 //!
 //! `REVERSED → CALCULATED` 复用**同一批次行**（不能新建：`period_code` 唯一），
@@ -74,12 +85,15 @@ pub struct DebitAgg {
 /// 不同部门                → 拆行
 /// ```
 ///
-/// 排序固定 `(account_code, dept_name)`：凭证分录的行序必须可复现，
+/// 键是**部门 id**（不是部门名）：部门改名 / 两个部门同名时，按名字合并会把两个
+/// `aux_dept_id` 不同的辅助项并成一行，凭证的部门辅助核算就错了。名字只用于摘要。
+///
+/// 排序固定 `(account_code, dept_id)`：凭证分录的行序必须可复现，
 /// 否则同一批数据重跑出来的凭证与红冲凭证行序不一致，人工对账会怀疑漏行。
 pub fn aggregate_debits(details: &[DepInsert]) -> Vec<DebitAgg> {
-    let mut map: BTreeMap<(String, String), DebitAgg> = BTreeMap::new();
+    let mut map: BTreeMap<(String, Uuid), DebitAgg> = BTreeMap::new();
     for detail in details {
-        let key = (detail.expense_account_code.clone(), detail.dept_name.clone());
+        let key = (detail.expense_account_code.clone(), detail.dept_id);
         let entry = map.entry(key).or_insert_with(|| DebitAgg {
             account_id: detail.expense_account_id,
             account_code: detail.expense_account_code.clone(),
@@ -94,12 +108,18 @@ pub fn aggregate_debits(details: &[DepInsert]) -> Vec<DebitAgg> {
 
 /// 逐资产算出本期折旧明细（纯函数：给卡片与分类，返回待写明细）。
 ///
+/// `dept` = **该期间结束时所属部门**（`(id, 名)`），由
+/// [`asset_model::dept_at_period_hint`] 按 `biz_fixed_asset_change` 的 TRANSFER 留痕还原，
+/// 正常情况下就是卡片当前 `use_dept_id`，只有「转移过 + 补提转移前的月份」时才不同。
+/// **不要**在这里读 `asset.use_dept_id` 兜底：补提历史期间的部门损益全靠这个入参。
+///
 /// 返回 `None` = 这台本期不提（提足 / 金额为 0 / 未到起提日）。
 pub fn compute_detail(
     asset: &asset_model::AssetRow,
     expense_account_id: Uuid,
     expense_account_code: &str,
     period_code: &str,
+    dept: (Uuid, &str),
 ) -> Option<DepInsert> {
     // 规则①：当月增加当月不提（起提日 > 期末 的不在扫描结果里，这里再判一次是为了
     // 「直接调用 compute_detail 的用例」也能自证）
@@ -124,8 +144,8 @@ pub fn compute_detail(
         asset_id: asset.id,
         asset_no: asset.asset_no.clone(),
         asset_name: asset.asset_name.clone(),
-        dept_id: asset.use_dept_id,
-        dept_name: asset.use_dept_name.clone(),
+        dept_id: dept.0,
+        dept_name: dept.1.to_string(),
         expense_account_id,
         expense_account_code: expense_account_code.to_string(),
         amount,
@@ -237,6 +257,14 @@ pub async fn run_batch(
         .into_iter()
         .map(|row| (row.id, row))
         .collect();
+    // ③' 期间归属部门：按 `biz_fixed_asset_change` 的 TRANSFER 留痕还原「期末那天属于谁」，
+    // **不能**直接拿卡片当下的 `use_dept_id` —— 补提转移前那个月会把费用记到新部门，
+    // 5622.01 的 DEPT 辅助核算 / 部门损益就全偏了（E2E-05 演练实测，卡 t_abb4bb0b）。
+    // 两次批量查询（不是每台一次）；解析顺序见 `asset_model::DeptAtPeriod::resolve`。
+    let asset_ids: Vec<Uuid> = assets.iter().map(|asset| asset.id).collect();
+    let dept_hint = asset_model::dept_at_period_hint(db(), &asset_ids, period_end)
+        .await
+        .map_err(|error| db_err(error, "查询期间归属部门（转移留痕）"))?;
     let mut details: Vec<DepInsert> = Vec::with_capacity(assets.len());
     let mut credit_account_id: Option<Uuid> = None;
     for asset in &assets {
@@ -251,7 +279,23 @@ pub async fn run_batch(
         };
         // 费用科目编码（凭证与明细都要快照它）
         let code = account_code_of(category.expense_account_id).await?;
-        if let Some(detail) = compute_detail(asset, category.expense_account_id, &code, &period) {
+        let dept = dept_hint.resolve(&asset.id, asset.use_dept_id, &asset.use_dept_name);
+        if dept.0 != asset.use_dept_id {
+            tracing::info!(
+                asset_no = %asset.asset_no,
+                period = %period,
+                dept = %dept.1,
+                current_dept = %asset.use_dept_name,
+                "补提折旧：该期间归属部门与卡片当前部门不同（按转移留痕还原）"
+            );
+        }
+        if let Some(detail) = compute_detail(
+            asset,
+            category.expense_account_id,
+            &code,
+            &period,
+            (dept.0, dept.1.as_str()),
+        ) {
             // 贷方 1602 取「第一台被计提资产」的分类快照（§5.5.3：贷方汇总一行）
             credit_account_id.get_or_insert(category.accum_account_id);
             details.push(detail);
@@ -887,7 +931,10 @@ mod tests {
             created_at: Utc::now(),
         };
         let account = Uuid::now_v7();
-        let first = compute_detail(&asset, account, "5602.01", "2026-12").expect("第 59 月仍计提");
+        // 名字先克隆：下面 `..asset` 会把 asset 整个移进新结构体，借用不能跨过移动
+        let dept_name = asset.use_dept_name.clone();
+        let dept = (asset.use_dept_id, dept_name.as_str());
+        let first = compute_detail(&asset, account, "5602.01", "2026-12", dept).expect("第 59 月仍计提");
         assert_eq!(first.amount, dec!(1583.3333));
         assert!(!first.is_last_month);
 
@@ -900,11 +947,206 @@ mod tests {
             account,
             "5602.01",
             "2027-01",
+            dept,
         )
         .expect("第 60 月补齐尾差");
         assert_eq!(last.amount, dec!(1583.3353));
         assert!(last.is_last_month);
         assert_eq!(last.accumulated_after, dec!(95000.0000));
         assert_eq!(last.net_value_after, dec!(5000.0000), "提足后净值 = 残值");
+    }
+
+    // ==================== ④ 期间归属部门（E2E05-FIX-1 / 卡 t_abb4bb0b） ====================
+    //
+    // 这一组是 `run_batch` ③' 步的**纯函数**部分：`DeptAtPeriod` 由两次 SQL 填好两个端点
+    // （`at_or_before` = 期末含之前最后一次转移的转入部门；`first_after` = 期末之后第一次
+    // 转移的转出部门），`resolve` 按优先级挑一个。真机（有 SQL、有凭证）的版本见
+    // `depreciation_dept_tests.rs`。
+
+    fn snapshot(dept_id: Uuid, name: &str) -> asset_model::DeptSnapshot {
+        asset_model::DeptSnapshot {
+            dept_id,
+            dept_name: Some(name.to_string()),
+        }
+    }
+
+    /// 无转移 → 用卡片当前部门（保持原行为，无转移的资产不受任何影响）。
+    #[test]
+    fn dept_at_period_falls_back_to_current_without_transfer() {
+        let asset_id = Uuid::now_v7();
+        let current = Uuid::now_v7();
+        let hint = asset_model::DeptAtPeriod::default();
+        assert_eq!(
+            hint.resolve(&asset_id, current, "设备部"),
+            (current, "设备部".to_string()),
+            "没有转移留痕时必须原样用卡片当前部门"
+        );
+        // 别的资产的留痕不能串到这台身上
+        let mut other = asset_model::DeptAtPeriod::default();
+        other
+            .at_or_before
+            .insert(Uuid::now_v7(), snapshot(Uuid::now_v7(), "采购部"));
+        assert_eq!(
+            other.resolve(&asset_id, current, "设备部"),
+            (current, "设备部".to_string())
+        );
+    }
+
+    /// 期间**内 / 之前**转移 → 新部门（期末前最后一次转移的转入部门）。
+    ///
+    /// 「期间内」的判据在 SQL（`change_date <= period_end`）：2/15 转的那条会落进
+    /// `at_or_before`，于是 2 月整月算新部门 —— 这是**费用归属**口径，与
+    /// 「当月减少当月照提」的资产口径分开（后者决定提不提，这里决定记哪个部门）。
+    #[test]
+    fn dept_at_period_uses_new_dept_when_transferred_at_or_before_period_end() {
+        let asset_id = Uuid::now_v7();
+        let new = Uuid::now_v7();
+        let mut hint = asset_model::DeptAtPeriod::default();
+        hint.at_or_before.insert(asset_id, snapshot(new, "采购部"));
+        assert_eq!(
+            hint.resolve(&asset_id, new, "采购部"),
+            (new, "采购部".to_string()),
+            "期间内转移（2/15）→ 整月算新部门"
+        );
+    }
+
+    /// 期间**之后**才转移 → 旧部门（那次转移的转出部门）。
+    ///
+    /// 这是本卡的核心 bug：卡片当前部门已经是「采购部」，补跑转移前那个月必须记「设备部」。
+    #[test]
+    fn dept_at_period_uses_old_dept_when_transfer_is_after_period() {
+        let asset_id = Uuid::now_v7();
+        let old_dep = Uuid::now_v7();
+        let new = Uuid::now_v7();
+        let mut hint = asset_model::DeptAtPeriod::default();
+        hint.first_after.insert(asset_id, snapshot(old_dep, "设备部"));
+        assert_eq!(
+            hint.resolve(&asset_id, new, "采购部"),
+            (old_dep, "设备部".to_string()),
+            "期末之后才转移 → 那一期还算旧部门（不能退化成卡片当前部门）"
+        );
+    }
+
+    /// 多段转移：期末前有、期末后也有 → 期末前最后一段（`at_or_before` 优先，不被后面覆盖）。
+    #[test]
+    fn dept_at_period_prefers_last_transfer_at_or_before() {
+        let asset_id = Uuid::now_v7();
+        let a = Uuid::now_v7();
+        let b = Uuid::now_v7();
+        let c = Uuid::now_v7();
+        let mut hint = asset_model::DeptAtPeriod::default();
+        hint.at_or_before.insert(asset_id, snapshot(b, "采购部"));
+        hint.first_after.insert(asset_id, snapshot(c, "行政部"));
+        assert_eq!(
+            hint.resolve(&asset_id, c, "行政部"),
+            (b, "采购部".to_string()),
+            "期末前的最后一段转移说了算；期末后的那段是「以后的事」"
+        );
+        // 三条转移（a → b → c）里 a 早已被 b 覆盖：SQL 用 DISTINCT ON 只回最后一条
+        assert_ne!(hint.resolve(&asset_id, c, "行政部").0, a);
+    }
+
+    /// 留痕里没有部门名时给占位名（带 id 前 8 位），**绝不**回落到卡片当前部门名。
+    #[test]
+    fn dept_snapshot_without_name_uses_placeholder_not_current_name() {
+        let asset_id = Uuid::now_v7();
+        let old_dep = Uuid::parse_str("11111111-2222-4333-8444-555555555555").expect("夹具 uuid");
+        let mut hint = asset_model::DeptAtPeriod::default();
+        hint.at_or_before.insert(
+            asset_id,
+            asset_model::DeptSnapshot {
+                dept_id: old_dep,
+                dept_name: None,
+            },
+        );
+        let (dept_id, name) = hint.resolve(&asset_id, Uuid::now_v7(), "采购部");
+        assert_eq!(dept_id, old_dep, "id 必须准");
+        assert_eq!(name, "部门 11111111", "名字缺失时给可追溯的占位名");
+        assert_ne!(name, "采购部", "不能拿卡片当前部门名冒充历史部门名");
+    }
+
+    /// 聚合键是**部门 id**：两个同名但不同 id 的部门不能并成一行（否则 aux_dept_id 丢一个）。
+    #[test]
+    fn aggregate_keeps_same_name_different_dept_apart() {
+        let a = detail("5602.01", "设备部", dec!(1900));
+        // 同名不同 id（部门改名后重建了一个同名部门的现实情形）
+        let b = detail("5602.01", "设备部", dec!(300));
+        let aggs = aggregate_debits(&[a.clone(), b.clone()]);
+        assert_eq!(aggs.len(), 2, "部门 id 不同必须拆两行，哪怕名字一样");
+        assert_ne!(a.dept_id, b.dept_id);
+        // 同 id 同科目才合并
+        let same_dept = DepInsert {
+            dept_id: a.dept_id,
+            dept_name: a.dept_name.clone(),
+            ..b
+        };
+        let merged = aggregate_debits(&[a, same_dept]);
+        assert_eq!(merged.len(), 1, "同科目 + 同部门 id 合并成一行");
+        assert_eq!(merged[0].amount, dec!(2200));
+    }
+
+    /// `compute_detail` 用的是**传进来的期间部门**，不是卡片的当前部门。
+    ///
+    /// 这是 `run_batch` 的接缝：部门由调用方按转移留痕还原后传进来，纯函数只管记账。
+    #[test]
+    fn compute_detail_uses_period_dept_not_current_dept() {
+        let asset = asset_model::AssetRow {
+            id: Uuid::now_v7(),
+            asset_no: "FA-2028-0001".to_string(),
+            asset_name: "A 台".to_string(),
+            category_id: Uuid::now_v7(),
+            category_code: "EQP".to_string(),
+            spec: None,
+            // 卡片当前部门 = 采购部（2028-02-01 已经转过去了）
+            use_dept_id: Uuid::now_v7(),
+            use_dept_name: "采购部".to_string(),
+            custodian_id: None,
+            custodian_name: None,
+            location: None,
+            original_value: dec!(60000),
+            tax_amount: Decimal::ZERO,
+            residual_value: dec!(0),
+            depreciable_base: dec!(60000),
+            depreciation_method: "STRAIGHT_LINE".to_string(),
+            useful_life_months: 60,
+            salvage_rate: Decimal::ZERO,
+            monthly_depreciation: dec!(1000),
+            start_depreciation_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2028, 1, 1).unwrap(),
+            accumulated_depreciation: Decimal::ZERO,
+            net_value: dec!(60000),
+            depreciation_months_done: 0,
+            last_depreciation_period: None,
+            purchase_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2027, 12, 20).unwrap(),
+            source_type: "MANUAL".to_string(),
+            source_id: None,
+            source_no: None,
+            buy_mode: None,
+            supplier_id: None,
+            supplier_name: None,
+            voucher_id: None,
+            status: "IN_USE".to_string(),
+            disposal_type: None,
+            disposal_date: None,
+            disposal_voucher_id: None,
+            remark: None,
+            created_at: Utc::now(),
+        };
+        let old_dep = Uuid::now_v7();
+        let insert =
+            compute_detail(&asset, Uuid::now_v7(), "5602.01", "2028-01", (old_dep, "设备部")).expect("2028-01 应计提");
+        assert_eq!(insert.dept_id, old_dep, "明细的部门 id 必须来自期间归属部门");
+        assert_eq!(insert.dept_name, "设备部", "明细的部门名同上");
+        assert_ne!(insert.dept_id, asset.use_dept_id, "不能是卡片当前部门");
+
+        // 反向对照：不传历史部门（= 当前部门）时才等于卡片值 —— 证明差异真由参数决定
+        let current = compute_detail(
+            &asset,
+            Uuid::now_v7(),
+            "5602.01",
+            "2028-02",
+            (asset.use_dept_id, "采购部"),
+        )
+        .expect("2028-02 应计提");
+        assert_eq!(current.dept_id, asset.use_dept_id);
     }
 }
