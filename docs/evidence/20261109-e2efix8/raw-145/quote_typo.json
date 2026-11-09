@@ -1,0 +1,1 @@
+{"code":10001,"msg":"未知查询参数 `from_currnecy`：汇率预览只接受 from_currency / to_currency / date（`currency_code` 是已废弃别名，等价于 from_currency）"}

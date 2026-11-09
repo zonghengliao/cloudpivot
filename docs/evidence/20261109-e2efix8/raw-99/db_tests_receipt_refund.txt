@@ -1,0 +1,29 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 22 tests
+test business::erp::receipt_refund::tests::amount_validation_rejects_zero_and_negative ... ok
+test business::erp::receipt_refund::tests::approval_columns_are_filled_from_the_same_source_as_detail ... ok
+test business::erp::receipt_refund::tests::approval_status_labels_cover_the_engine_vocabulary ... ok
+test business::erp::receipt_refund::tests::edges_are_the_registered_ones_and_posted_is_terminal ... ok
+test business::erp::receipt_refund::tests::list_columns_cover_row_fields ... ok
+test business::erp::receipt_refund::tests::method_must_be_in_whitelist ... ok
+test business::erp::receipt_refund::tests::page_query_validates_status_and_dates ... ok
+test business::erp::receipt_refund::tests::reason_is_required_and_bounded ... ok
+test business::erp::receipt_refund::tests::receivable_downward_edges_are_registered ... ok
+test business::erp::receipt_refund::tests::receivable_status_follows_received_amount ... ok
+test business::erp::receipt_refund::tests::refund_approval_chain_posts_on_approve_and_stays_confirmed_on_reject ... ok
+test business::erp::receipt_refund::tests::refund_rejects_over_refund_and_cross_customer ... ok
+test business::erp::receipt_refund::tests::refund_restores_receivable_to_open_and_posts_voucher ... ok
+test business::erp::receipt_refund::tests::refundable_cap_is_enforced ... ok
+test business::erp::receipt_refund::tests::seeded_flow_graph_hash_matches_its_rows ... ok
+test business::erp::receipt_refund::tests::status_and_method_vocabularies_match_the_db_constraints ... ok
+test business::erp::receipt_refund::tests::voucher_source_is_registered_with_its_doc_kind ... ok
+test business::erp::receipt_refund_bridge::tests::biz_type_matches_the_doc_kind_registry ... ok
+test business::erp::receipt_refund_bridge::tests::form_data_carries_amount_as_json_number ... ok
+test business::erp::receipt_refund_bridge::tests::instance_status_maps_to_the_two_verdicts ... ok
+test business::erp::receipt_refund_bridge::tests::json_number_handles_fixed_point_text ... ok
+test business::erp::receipt_refund_bridge::tests::posted_and_confirmed_constants_come_from_the_module ... ok
+
+test result: ok. 22 passed; 0 failed; 0 ignored; 0 measured; 3904 filtered out; finished in 6.61s
+

@@ -1,0 +1,1 @@
+{"code":10001,"msg":"to_currency 只支持账套本位币 `CNY`（当前 `HKD`）：本接口不做交叉汇率，请先按 from_currency → CNY 折算再换第二段"}

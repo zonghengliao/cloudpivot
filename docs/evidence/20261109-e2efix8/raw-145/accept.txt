@@ -1,0 +1,57 @@
+== 0) 登录取 token
+{"code":0,"msg":"ok","has_token":true}
+  [PASS] 登录成功（token 长度 492）
+
+===== ③ 汇率预览参数（对齐 + 未知参数 400） =====
+GET ?from_currency=USD → HTTP 200
+{"code":0,"data":{"from_currency":"USD","to_currency":"CNY","exchange_rate":"7.10000000","source":"SPOT"}}
+  [PASS] 正确参数名 from_currency 被接受（HTTP 200）
+  [PASS] 回显 from_currency = USD（不再静默回本位币）
+  [PASS] source=SPOT（不是 BASE 兜底）
+GET ?from_currnecy=USD（拼错）→ HTTP 400
+{"code":10001,"msg":"未知查询参数 `from_currnecy`：汇率预览只接受 from_currency / to_currency / date（`currency_code` 是已废弃别名，等价于 from_currency）"}
+  [PASS] 拼错参数 → HTTP 400
+  [PASS] 业务码 10001（PARAM_INVALID）
+  [PASS] 报文点名「未知查询参数」
+  [PASS] 报文回显了错误参数名 from_currnecy
+GET ?currency_code=USD（废弃别名）→ HTTP 200
+{"code":0,"from_currency":"USD","source":"SPOT"}
+  [PASS] 废弃别名 currency_code 仍可用（老脚本不炸）
+GET ?from_currency=USD&to_currency=HKD（交叉汇率）→ HTTP 400
+{"code":10001,"msg":"to_currency 只支持账套本位币 `CNY`（当前 `HKD`）：本接口不做交叉汇率，请先按 from_currency → CNY 折算再换第二段"}
+  [PASS] 交叉汇率明确 400（不硬算倒数）
+GET 无参数 → HTTP 200
+{"code":0,"data":{"from_currency":"CNY","exchange_rate":"1","source":"BASE"}}
+  [PASS] 无参数 = 本位币报价（source=BASE）
+
+===== ② 退款单列表带审批状态（一条 SQL，无需二次查询） =====
+GET /receipt-refund/page → HTTP 200
+{"refund_no":"RR-20261109-000005","status":"POSTED","approval_instance_id":"01a1bddb-c206-7268-b6e0-984ba9d1215d","approval_instance_no":"FLW-20261109-90CF88CA","approval_status":"APPROVED","approval_status_label":"已通过"}
+  [PASS] 列表行含 approval_status / approval_instance_no / approval_status_label 三字段
+  [PASS] 至少 1 行带出非空审批状态（共 2 行）
+   DB 侧对照：
+RR-20261109-000005|t
+RR-20261109-000004|t
+   列表/DB 一致性：
+   列表 approval_instance_id=01a1bddb-c206-7268-b6e0-984ba9d1215d / approval_instance_no=FLW-20261109-90CF88CA
+  [PASS] 列表能直接显示审批单号（FLW-20261109-90CF88CA），前端无需二次查询
+
+===== ⑤ 盘点单缺附件 → 闸门 can_proceed=false + 红字（自建自删草稿） =====
+建草稿盘点单 ST-20261109-000027（01a1bf57-2e4c-7742-ae92-70c948f38d69）→ HTTP 200
+该单现有附件数 = 0
+GET /attachment/check?doc_type=STOCK_TAKE&at=CONFIRM → HTTP 200
+{"code":0,"can_proceed":false,"at_label":"确认","hint":"缺少盘点表或盈亏说明（需 pdf/jpg/png 格式）"}
+  [PASS] 缺附件 → can_proceed=false（前端按钮禁用 + 红字的唯一依据）
+  [PASS] 红字提示非空：缺少盘点表或盈亏说明（需 pdf/jpg/png 格式）
+PATCH /status=PENDING_POST（不带附件）→ HTTP 400
+{"code":10001,"msg":"盘点单必须上传盘点表或盈亏说明（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个"}
+  [PASS] 后端闸门仍然兜底（HTTP 400，绕过前端也会被拦）
+清理草稿 → HTTP 200
+  [PASS] 验收草稿已删除（不留夹具）
+
+===== ④ 调拨不出凭证（库侧口径） =====
+biz_voucher source_type=STOCK_TRANSFER 张数 = 0
+biz_stock_transfer.voucher_id 列数 = 0
+调拨流水不配对行数 = 0
+
+== 汇总：PASS=17 FAIL=0
