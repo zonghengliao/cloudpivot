@@ -312,12 +312,14 @@ def main():
         f"HTTP {status} / {msg_of(payload) if status != 200 else closed.get('closed_at')}",
     )
 
-    # ── ⑤ 结账后建凭证 → 400「期间已结账」 ───────────────────
+    # ── ⑤ 结账后建凭证 → 409 + 10003「期间已结账」 ───────────────────
+    # E2E04-FIX-3 ①：手工凭证入口曾返 400/10001（参数错误），与期初录入 / 红冲的
+    # 409/10003 不一致；「期间已封账」是状态冲突，前端该引导去反结账而不是高亮字段。
     status, payload = post_voucher("P1E2E 结账后凭证")
     check(
-        "⑤ 结账后建凭证 → 400 + 「已结账」",
-        status == 400 and "已结账" in msg_of(payload),
-        f"HTTP {status} / {msg_of(payload)[:200]}",
+        "⑤ 结账后建凭证 → 409 + `10003` + 「已结账」",
+        status == 409 and payload.get("code") == 10003 and "已结账" in msg_of(payload),
+        f"HTTP {status} / code={payload.get('code')} / {msg_of(payload)[:200]}",
     )
 
     # ── ⑥ 反结账：先拦「原因不足」，再成功 ───────────────────

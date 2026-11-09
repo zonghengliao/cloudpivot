@@ -36,7 +36,8 @@ api c10_close_bad POST "/business/erp/period/$P06/close" "$T_ADMIN" '{"reason":"
 check "重复结账 → 409" "$HTTP" "409"
 api c10_vch_closed POST /business/erp/voucher "$T_ADMIN" "{\"voucher_date\":\"2022-06-10\",\"summary\":\"E2E-04 演练：往已结账期间记账\",\"entries\":[
   {\"account_id\":\"$ACC_1001\",\"debit\":\"1\"},{\"account_id\":\"$ACC_1002\",\"credit\":\"1\"}]}"
-check "已结账期间记账被拦（400）" "$HTTP" "400"
+check "已结账期间记账被拦（409 状态冲突 / 10003）" "$HTTP" "409"
+check "错误码 10003（不是 10001 参数错误）" "$CODE" "10003"
 printf '%s' "$BODY" | jq -r '.msg' | grep -q "已结账" && ok "拦截文案点名「已结账」" || bad "拦截文案未提已结账：$(data '.msg' | head -c 120)"
 check "已结账期间未落凭证" "$(PSQLQ -c "select count(*) from biz_voucher where summary like '%往已结账期间记账%';")" "0"
 api c10_cc_closed GET "/business/erp/period/$P06/close-check" "$T_ADMIN"
@@ -191,7 +192,11 @@ say "C 段 step14：FIX-6 回归（留抵重分类 / tax_rate 标度）"
 say "=============================================================="
 # tax_rate 标度：本卡写入的物料必须是百分数口径 + 有 mode 标注
 check "biz_invoice 无 (0,1] 未标注税率" "$(PSQLQ -c "select count(*) from biz_invoice where tax_rate > 0 and tax_rate <= 1 and tax_rate_mode is null;")" "0"
-say "  · 库内历史 (0,1] 未标注物料（其它卡直插夹具，非接口写入）：$(PSQLQ -c "select count(*) from biz_material where tax_rate > 0 and tax_rate <= 1 and tax_rate_mode is null;") 行"
+# E2E04-FIX-3 ③：物料侧同判据由「只报数」升级为**硬断言** ——
+# 145 dev 库那 10 行（W1B-* / W2*-*，别的卡直插 SQL 的夹具，0.13 且 mode 为空）
+# 已由 scripts/verify/e2e04fix3_data_hygiene.sh --fix 归一成 13 + PERCENT；
+# 再出现就是又有人裸 SQL 直插，必须当场红（而不是在旁边记一行「历史行数」）。
+check "biz_material 无 (0,1] 未标注税率（税率只有百分数一套口径）" "$(PSQLQ -c "select count(*) from biz_material where tax_rate > 0 and tax_rate <= 1 and tax_rate_mode is null;")" "0"
 # 新建单位+物料，验证 0.13 → 13（DECIMAL 过渡期）+ 上界 100
 api c14_unit POST /business/erp/unit "$T_ADMIN" '{"unit_code":"E2E04-PCS","unit_name":"个(E2E04)","is_base":true,"status":1,"precision":0}'
 UNIT_ID=$(data '.data.id')
@@ -214,7 +219,7 @@ say "=============================================================="
 say "C 段 step15：全库不变量（收尾基线）"
 say "=============================================================="
 check "全库凭证借贷平衡（不平张数）" "$(vch_unbalanced)" "0"
-check "全库 POSTED 凭证均有分录（排除他人残留 P2C2-V-0001）" "$(PSQLQ -c "select count(*) from biz_voucher v where v.deleted_at is null and v.status='POSTED' and v.voucher_no<>'P2C2-V-0001' and not exists (select 1 from biz_voucher_entry e where e.voucher_id=v.id);")" "0"
+check "全库 POSTED 凭证均有分录（不再有白名单）" "$(PSQLQ -c "select count(*) from biz_voucher v where v.deleted_at is null and v.status='POSTED' and not exists (select 1 from biz_voucher_entry e where e.voucher_id=v.id);")" "0"
 check "凭证期间必有期间行" "$(PSQLQ -c "select count(*) from biz_voucher v where v.deleted_at is null and not exists (select 1 from biz_accounting_period p where p.period_code=v.period);")" "0"
 check "2022 全年凭证借贷合计相等" "$(PSQLQ -c "select abs(coalesce(sum(case when v.status='POSTED' then (select sum(debit_amount) from biz_voucher_entry e where e.voucher_id=v.id) else 0 end),0) - coalesce(sum(case when v.status='POSTED' then (select sum(credit_amount) from biz_voucher_entry e where e.voucher_id=v.id) else 0 end),0))::numeric(20,2)::text from biz_voucher v where v.deleted_at is null and v.period between '2022-01' and '2022-12';")" "0.00"
 check "2022 无停在 DRAFT/AUDITED 的凭证" "$(PSQLQ -c "select count(*) from biz_voucher where deleted_at is null and period like '2022-%' and status<>'POSTED';")" "0"
