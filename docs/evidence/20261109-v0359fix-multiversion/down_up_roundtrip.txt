@@ -1,0 +1,54 @@
+=== 回滚前 ===
+    flow_code     | version_no | version_status | is_current | current_version_no 
+------------------+------------+----------------+------------+--------------------
+ contract_approve |          1 | ARCHIVED       | f          |                  2
+ contract_approve |          2 | PUBLISHED      | t          |                  2
+ po_approve       |          1 | ARCHIVED       | f          |                  5
+ po_approve       |          2 | ARCHIVED       | f          |                  5
+ po_approve       |          3 | DRAFT          | f          |                  5
+ po_approve       |          4 | DRAFT          | f          |                  5
+ po_approve       |          5 | PUBLISHED      | t          |                  5
+(7 rows)
+
+v0367_versions=12
+=== 执行 down ===
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 payable_pay 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 stock_transfer 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 stock_in_cancel 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 po_approve 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 stock_in_post 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 contract_approve 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 budget_approve 已回滚到 v2（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 asset_disposal 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 stock_take_post 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 so_approve 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 pr_approve 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down：流程 prt_approve 已回滚到 v1（旧版的 APPROVAL 节点恢复为全员会签）
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.down.sql:74: NOTICE:  V0367 down 完成：删除 12 个本迁移发布的版本
+=== 回滚后（po_approve 应回到 v2 PUBLISHED，v5 已删） ===
+    flow_code     | version_no | version_status | is_current | current_version_no 
+------------------+------------+----------------+------------+--------------------
+ contract_approve |          1 | PUBLISHED      | t          |                  1
+ po_approve       |          1 | ARCHIVED       | f          |                  2
+ po_approve       |          2 | PUBLISHED      | t          |                  2
+ po_approve       |          3 | DRAFT          | f          |                  2
+ po_approve       |          4 | DRAFT          | f          |                  2
+(5 rows)
+
+v0367_versions=0
+bad_nodes_after_down=17
+=== 再执行 up（应重新发版） ===
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.up.sql:362: NOTICE:  V0367 完成：共处理 12 个流程 / 17 个「角色型审批被配成全员会签」节点
+psql:/tmp/V0367__flow_all_role_approval_to_any_multiversion.up.sql:387: NOTICE:  V0367 收口自检通过：PUBLISHED 当前版本里 APPROVAL+ROLE+ALL = 0
+    flow_code     | version_no | version_status | is_current | current_version_no 
+------------------+------------+----------------+------------+--------------------
+ contract_approve |          1 | ARCHIVED       | f          |                  2
+ contract_approve |          2 | PUBLISHED      | t          |                  2
+ po_approve       |          1 | ARCHIVED       | f          |                  5
+ po_approve       |          2 | ARCHIVED       | f          |                  5
+ po_approve       |          3 | DRAFT          | f          |                  5
+ po_approve       |          4 | DRAFT          | f          |                  5
+ po_approve       |          5 | PUBLISHED      | t          |                  5
+(7 rows)
+
+bad_nodes_after_reup=0

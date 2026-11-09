@@ -77,6 +77,7 @@ stock_take_post n_fin,n_gm,n_wh · stock_transfer n_approve          = 12 流程
 | ③ | **真实迁移器 + 全量升级**（144 备份副本） | `cloudpivot_preview2` | 启动期 `应用 5 个迁移`、`health=200`；无 unique violation；再启动 `应用 0 个迁移` |
 | ④ | **幂等**（145 正常库） | `cloudpivot_dev` | `V0367 完成：0 个流程需要处理` |
 | 附 | **反证**：先删手工跳过记录再部署 | `cloudpivot_preview3` | `FATAL: 服务启动失败 ... uk_biz_flow_def_version` ⇒ 证明 ⑦ 不能删记录（见 §五） |
+| 附 | **down / up 往返** | `cloudpivot_preview` | down：删 12 个版本、`po_approve` 复位到 **v2 PUBLISHED**（不是 DRAFT）、错配节点回到 17；up：重新发 v5、收口 0（`down_up_roundtrip.txt`） |
 
 ### ③ 真实迁移器日志（`preview2_runner_run1_apply.txt`）
 
@@ -116,6 +117,7 @@ stock_take_post n_fin,n_gm,n_wh · stock_transfer n_approve          = 12 流程
 | `preview2_runner_run2_idempotent.txt` | ③ 二次启动 `应用 0 个迁移` |
 | `dev145_psql_idempotent.txt` | ④ 145 正常库跑 V0367 = 0 个流程 |
 | `verify_preview_psql_path.out` / `verify_preview2_runner_path.out` | ②③ 的 9 组验证 SQL 输出（两份完全相同） |
+| `down_up_roundtrip.txt` | 附：down（删 12 版、复位到 v2）→ 再 up（重发 v5）的往返验证 |
 | `sql/q_targets.sql` | 动态目标清单 + `COUNTERSIGN` 分组统计（实施前扫描） |
 | `sql/q_verify.sql` | 验证 ①–⑨（版本列表 / is_current 唯一 / 前后对比 / 图完整性 / hash 自洽） |
 | `scripts/v0367_repro.sh` | 复现脚本（恢复 144 备份 → 跑 V0359） |
