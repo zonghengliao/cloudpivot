@@ -655,26 +655,42 @@ pub async fn create_order(
     Ok((id, so_no))
 }
 
+/// 改单入参（**单头覆盖 + 明细整表替换**的完整口径）。
+///
+/// 除了执行器 `ex` 之外的部分全部收在这里：`id` / 新单头 / 新明细 / 合计 / 锁定汇率 /
+/// 操作人 / 时间。这样调用点读起来就是「改哪张单、改成什么」，也不必再挂
+/// `#[allow(clippy::too_many_arguments)]`（阈值 7，散参数原本是 8）。
+#[derive(Debug, Clone, Copy)]
+pub struct UpdateOrderInput<'a> {
+    /// 单据主键（`WHERE id = ?`）。
+    pub id: Uuid,
+    /// 新的单头字段（整块覆盖）。
+    pub new: &'a NewSalesOrder<'a>,
+    /// 新的明细（旧明细整表删除后按此重插）。
+    pub items: &'a [NewItem],
+    /// 单头合计（调用方算好：`Totals::of(items)`）。
+    pub totals: &'a Totals,
+    /// 锁定汇率（SO-40：草稿阶段允许换币种 → 改单时重新锁定）。
+    pub locked: &'a currency::LockedRate,
+    /// 操作人（落 `update_by`；`None` = 系统/测试）。
+    pub operator: Option<Uuid>,
+    /// 业务时间（落 `updated_at`）。
+    pub now: DateTime<Utc>,
+}
+
 /// 改单（**调用方保证只有 DRAFT 能改**）：单头覆盖 + 明细「删旧插新」。
 ///
 /// 返回 `affected`（0 = 读状态与写状态之间被别人推走，调用方按 409 处理）。
-///
-/// `#[allow(clippy::too_many_arguments)]` 的理由：这 8 个参数是「单头覆盖 + 明细
-/// 整表替换」的完整口径（主键 / 新单头 / 新明细 / 合计 / 锁定汇率 / 操作人 / 时间），
-/// 拆 struct 会同时改掉所有调用方（`sales_order_handler` 及其测试），属独立重构；
-/// 见跟进卡「sales_order_model::update_order 参数收口为 struct」。这里先只允许，
-/// 不在这里做半截重构。
-#[allow(clippy::too_many_arguments)]
-pub async fn update_order(
-    ex: &impl SqlExecutor,
-    id: Uuid,
-    new: &NewSalesOrder<'_>,
-    items: &[NewItem],
-    totals: &Totals,
-    locked: &currency::LockedRate,
-    operator: Option<Uuid>,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
+pub async fn update_order(ex: &impl SqlExecutor, input: UpdateOrderInput<'_>) -> DbResult<u64> {
+    let UpdateOrderInput {
+        id,
+        new,
+        items,
+        totals,
+        locked,
+        operator,
+        now,
+    } = input;
     let base_amounts = currency::BaseAmounts::of(totals.amount, totals.tax, locked.exchange_rate);
     let operator_text = Value::Text(operator.map(|value| value.to_string()).unwrap_or_default());
     let affected = ex
@@ -1291,13 +1307,15 @@ mod tests {
         let totals2 = Totals::of(&second);
         let affected = update_order(
             db(),
-            id,
-            &new_order(customer, "改单后"),
-            &second,
-            &totals2,
-            &test_locked(),
-            None,
-            Utc::now(),
+            UpdateOrderInput {
+                id,
+                new: &new_order(customer, "改单后"),
+                items: &second,
+                totals: &totals2,
+                locked: &test_locked(),
+                operator: None,
+                now: Utc::now(),
+            },
         )
         .await
         .expect("改单应成功");
@@ -1317,13 +1335,15 @@ mod tests {
         tx.commit().await.expect("提交事务");
         let affected = update_order(
             db(),
-            id,
-            &new_order(customer, "非草稿改单"),
-            &second,
-            &totals2,
-            &test_locked(),
-            None,
-            Utc::now(),
+            UpdateOrderInput {
+                id,
+                new: &new_order(customer, "非草稿改单"),
+                items: &second,
+                totals: &totals2,
+                locked: &test_locked(),
+                operator: None,
+                now: Utc::now(),
+            },
         )
         .await
         .expect("改单 SQL 应执行成功（只是 0 行）");
@@ -1620,9 +1640,20 @@ mod tests {
         // 改单不传销售员 = 解绑（与 contract_id 同口径：空 ⇒ NULL）
         let unbound = new_order(customer, "SO-35 解绑销售员");
         let tx = db().begin().await.expect("开事务");
-        let affected = update_order(&tx, id, &unbound, &items, &totals, &test_locked(), None, Utc::now())
-            .await
-            .expect("改单");
+        let affected = update_order(
+            &tx,
+            UpdateOrderInput {
+                id,
+                new: &unbound,
+                items: &items,
+                totals: &totals,
+                locked: &test_locked(),
+                operator: None,
+                now: Utc::now(),
+            },
+        )
+        .await
+        .expect("改单");
         assert_eq!(affected, 1);
         tx.commit().await.expect("提交");
         let row = find_order(id).await.expect("查单").expect("必须存在");

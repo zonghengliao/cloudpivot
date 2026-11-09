@@ -1,0 +1,38 @@
+## 三处已收口的 #[allow] 必须 0 命中
+-- src/business/erp/sales_order_model.rs
+800:#[allow(clippy::too_many_arguments)]
+-- src/business/attachment/model.rs
+(无 #[allow(clippy::too_many_arguments) 属性)
+-- src/business/flow/flow_model_inbox.rs
+(无 #[allow(clippy::too_many_arguments) 属性)
+
+## 注意：sales_order_model.rs:800 的 allow 属于 apply_status_with_instance（HEAD 上就有，不在本卡范围）
+///
+/// 调用方必须先过 `state_machine::transition`（边表校验 + 写 `biz_status_log`）。
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    approval_instance_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+
+## 测试夹具 self_approval::tests::add_task 的 #[allow] 按要求保留
+1033:    #[allow(clippy::too_many_arguments)]
+1034-    async fn add_instance(fx: &Fixture, no: &str, status: &str, ended: Option<&str>, form: serde_json::Value) -> Uuid {
+1035-        let id = Uuid::now_v7();
+--
+1082:    /// `#[allow(clippy::too_many_arguments)]`：这是测试夹具的「一行全列」写入器，
+1083-    /// 参数与 `biz_flow_task` 的必填列一一对应；拆 struct 只会让 20+ 处调用点更难读。
+1084:    #[allow(clippy::too_many_arguments)]
+1085-    async fn add_task(
+1086-        instance_id: Uuid,
+
+## 结构体定义位置
+src/business/erp/sales_order_model.rs:664:pub struct UpdateOrderInput<'a> {
+src/business/flow/flow_model_inbox.rs:343:pub struct MyTaskQueryParams<'a> {
+src/business/attachment/model.rs:844:pub struct NewAttachmentBinding<'a> {

@@ -195,16 +195,16 @@ pub async fn upload(
     // 绑定行带上**本次上传的文件名快照**。返回值里的 `file_name` 是**库里那条行**的值：
     // 同一张单据重复上传同一份字节时命中幂等分支、沿用既有行的名字（不回写），
     // 响应必须跟它走 —— 否则「上传返回 file2.pdf、列表显示 file1.pdf」。
-    let binding = model::insert_with_uploader(
-        meta.doc_type,
-        &meta.doc_id,
-        &record.id,
-        meta.file_role,
-        meta.remark.as_deref(),
-        operator,
-        uploader_name.as_deref(),
-        Some(&submitted_name),
-    )
+    let binding = model::insert_with_uploader(model::NewAttachmentBinding {
+        kind: meta.doc_type,
+        doc_id: &meta.doc_id,
+        file_id: &record.id,
+        role: meta.file_role,
+        remark: meta.remark.as_deref(),
+        uploaded_by: operator,
+        uploader_name: uploader_name.as_deref(),
+        file_name: Some(&submitted_name),
+    })
     .await
     .map_err(|error| utils::db_error(error, "写入附件绑定"))?;
     let binding_id = binding.id;

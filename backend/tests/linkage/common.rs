@@ -747,18 +747,18 @@ pub async fn flow_nodes_of(instance_id: Uuid) -> Vec<(String, String)> {
 /// 与生产接口 `flow::handler::my_todo` **同参数**：`live_only = true`
 /// （P11：待办只认实例还在跑的单子，历史脏数据的 PENDING 待办不进列表）。
 pub async fn todo_of(assignee: Uuid, instance_no: &str) -> Vec<(Uuid, String)> {
-    let page = cloudpivot::business::flow::model::page_my_tasks(
-        assignee,
-        cloudpivot::business::flow::model::MY_TODO_STATUSES,
-        &["APPROVAL", "RESUBMIT"],
-        cloudpivot::business::flow::model::MyTaskOrder::Arrived,
-        1,
-        200,
-        true,
-        // 待办没有 `completed_at`，`since`（最后第 8 个参数）只对「我的已办」有意义
+    let page = cloudpivot::business::flow::model::page_my_tasks(cloudpivot::business::flow::model::MyTaskQueryParams {
+        user_id: assignee,
+        statuses: cloudpivot::business::flow::model::MY_TODO_STATUSES,
+        kinds: &["APPROVAL", "RESUBMIT"],
+        order: cloudpivot::business::flow::model::MyTaskOrder::Arrived,
+        page: 1,
+        page_size: 200,
+        live_only: true,
+        // 待办没有 `completed_at`，`since` 只对「我的已办」有意义
         // —— 与生产 `flow::handler::my_todo` 同口径（那边也传 None）。
-        None,
-    )
+        completed_since: None,
+    })
     .await
     .unwrap_or_else(|err| panic!("查我的待办失败：{err}"));
     page.list

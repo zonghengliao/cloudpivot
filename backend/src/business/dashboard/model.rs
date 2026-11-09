@@ -82,31 +82,31 @@ pub fn week_start_cst(day: NaiveDate) -> DateTime<Utc> {
 pub async fn load_counts(me: Uuid) -> DbResult<MyMetricCounts> {
     // ① 待办审批：与审批中心「待我审批」同一条谓词（只认实例还在跑的，P11）。
     //    `page_size = 1` 是为了拿 `total`，不是要那一条数据。
-    let todo_page = flow_model::page_my_tasks(
-        me,
-        flow_model::MY_TODO_STATUSES,
-        &flow_dto::TASK_KINDS,
-        flow_model::MyTaskOrder::Arrived,
-        1,
-        1,
-        true,
-        None,
-    )
+    let todo_page = flow_model::page_my_tasks(flow_model::MyTaskQueryParams {
+        user_id: me,
+        statuses: flow_model::MY_TODO_STATUSES,
+        kinds: &flow_dto::TASK_KINDS,
+        order: flow_model::MyTaskOrder::Arrived,
+        page: 1,
+        page_size: 1,
+        live_only: true,
+        completed_since: None,
+    })
     .await?;
 
     // ② 本周已办：`completed_at >= 本周一 00:00 (CST)`。
     //    已办是历史记录，不看实例是否结束（与 `/task/done` 的 `live_only = false` 一致）。
     let today = task_model::today_cst();
-    let done_page = flow_model::page_my_tasks(
-        me,
-        flow_model::MY_DONE_STATUSES,
-        &flow_dto::TASK_KINDS,
-        flow_model::MyTaskOrder::Operated,
-        1,
-        1,
-        false,
-        Some(week_start_cst(today)),
-    )
+    let done_page = flow_model::page_my_tasks(flow_model::MyTaskQueryParams {
+        user_id: me,
+        statuses: flow_model::MY_DONE_STATUSES,
+        kinds: &flow_dto::TASK_KINDS,
+        order: flow_model::MyTaskOrder::Operated,
+        page: 1,
+        page_size: 1,
+        live_only: false,
+        completed_since: Some(week_start_cst(today)),
+    })
     .await?;
 
     // ③ 任务的三个数：一次取回「我负责的未终态任务」，用与 `/business/task/my`

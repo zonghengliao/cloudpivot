@@ -3080,16 +3080,16 @@ mod tests {
         assert!(form["amount"].is_number(), "amount 必须是数字：{form}");
 
         // 验收标准 3：待办列表行自带同一份 form_data（`TaskRes.form_data`）。
-        let todo = crate::business::flow::model::page_my_tasks(
-            uid(U_DEPT),
-            crate::business::flow::model::MY_TODO_STATUSES,
-            &crate::business::flow::dto::TASK_KINDS,
-            crate::business::flow::model::MyTaskOrder::Arrived,
-            1,
-            20,
-            true,
-            None,
-        )
+        let todo = crate::business::flow::model::page_my_tasks(crate::business::flow::model::MyTaskQueryParams {
+            user_id: uid(U_DEPT),
+            statuses: crate::business::flow::model::MY_TODO_STATUSES,
+            kinds: &crate::business::flow::dto::TASK_KINDS,
+            order: crate::business::flow::model::MyTaskOrder::Arrived,
+            page: 1,
+            page_size: 20,
+            live_only: true,
+            completed_since: None,
+        })
         .await
         .expect("查我的待办");
         let mine = todo

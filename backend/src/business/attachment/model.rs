@@ -834,10 +834,36 @@ pub struct BindingOutcome {
     pub file_name: Option<String>,
 }
 
+/// 一条附件绑定的全部入参（**除 id / created_at / sort_order 以外**的每一列）。
+///
+/// 收进结构体而不是 8 个散参数：一是散参数已越过 `clippy::too_many_arguments`
+/// 的阈值（7），二是绑定要写哪几列在调用点一眼可见 —— 尤其 `uploader_name` /
+/// `file_name` 这两列快照，散参数时最容易漏传（漏了界面上就是 UUID / 别人的文件名）。
+/// 字段语义见 [`insert_with_uploader`] 的「参数」段。
+#[derive(Debug, Clone, Copy)]
+pub struct NewAttachmentBinding<'a> {
+    /// 单据类型（决定 `doc_type` 列，也是「单据存在性」校验的入口）。
+    pub kind: DocKind,
+    /// 单据主键。
+    pub doc_id: &'a Uuid,
+    /// `sys_file.id`（调用方已确认该记录有效）。
+    pub file_id: &'a Uuid,
+    /// 文件角色。
+    pub role: FileRole,
+    /// 备注。
+    pub remark: Option<&'a str>,
+    /// 上传人 id（行级删除判据用它）。
+    pub uploaded_by: Option<Uuid>,
+    /// 上传人**姓名快照**（写进库后永不回改）。
+    pub uploader_name: Option<&'a str>,
+    /// 本次上传的**文件名快照**（不等同 `sys_file.original_name`，秒传时会分叉）。
+    pub file_name: Option<&'a str>,
+}
+
 /// 绑定一行，并**落库上传人姓名快照**（`biz_doc_attachment.uploader_name`，AUD-01）
 /// 与**文件名快照**（`biz_doc_attachment.file_name`，E2E07-FIX-3）。
 ///
-/// # 参数
+/// # 参数（[`NewAttachmentBinding`]）
 ///
 /// - `kind` / `doc_id`：单据；
 /// - `file_id`：`sys_file.id`（调用方已确认该记录有效）；
@@ -877,20 +903,17 @@ pub struct BindingOutcome {
 ///
 /// 数据库异常返回 [`DbError`]（外键失败说明 `file_id` 不存在，调用方应先校验）。
 ///
-/// `#[allow(clippy::too_many_arguments)]` 的理由：8 个参数就是一条附件绑定行的全部
-/// 必填口径（单据 / 文件 / 角色 / 备注 / 上传人 id+姓名快照 / 文件名），收口成 struct
-/// 要改全部调用方，属独立重构；见跟进卡「too_many_arguments 参数收口为 struct」。
-#[allow(clippy::too_many_arguments)]
-pub async fn insert_with_uploader(
-    kind: DocKind,
-    doc_id: &Uuid,
-    file_id: &Uuid,
-    role: FileRole,
-    remark: Option<&str>,
-    uploaded_by: Option<Uuid>,
-    uploader_name: Option<&str>,
-    file_name: Option<&str>,
-) -> DbResult<BindingOutcome> {
+pub async fn insert_with_uploader(binding: NewAttachmentBinding<'_>) -> DbResult<BindingOutcome> {
+    let NewAttachmentBinding {
+        kind,
+        doc_id,
+        file_id,
+        role,
+        remark,
+        uploaded_by,
+        uploader_name,
+        file_name,
+    } = binding;
     let rows = db()
         .find_with_params(
             "INSERT INTO biz_doc_attachment \
@@ -967,9 +990,18 @@ pub async fn insert(
     remark: Option<&str>,
     uploaded_by: Option<Uuid>,
 ) -> DbResult<Uuid> {
-    insert_with_uploader(kind, doc_id, file_id, role, remark, uploaded_by, None, None)
-        .await
-        .map(|outcome| outcome.id)
+    insert_with_uploader(NewAttachmentBinding {
+        kind,
+        doc_id,
+        file_id,
+        role,
+        remark,
+        uploaded_by,
+        uploader_name: None,
+        file_name: None,
+    })
+    .await
+    .map(|outcome| outcome.id)
 }
 
 /// 按单据列附件（未删）。

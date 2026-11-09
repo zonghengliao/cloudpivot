@@ -1006,7 +1006,19 @@ pub async fn update_sales_order(
         let _ = tx.rollback().await;
         return Err(error);
     }
-    let affected = model::update_order(&tx, id, &new, &items, &totals, &locked, operator, Utc::now()).await;
+    let affected = model::update_order(
+        &tx,
+        model::UpdateOrderInput {
+            id,
+            new: &new,
+            items: &items,
+            totals: &totals,
+            locked: &locked,
+            operator,
+            now: Utc::now(),
+        },
+    )
+    .await;
     let affected = match affected {
         Ok(value) => value,
         Err(error) => {

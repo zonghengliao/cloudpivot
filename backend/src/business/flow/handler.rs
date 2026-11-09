@@ -2283,18 +2283,18 @@ pub async fn my_todo(
 ) -> ResResult<dto::TaskPageRes> {
     let me = me_of(&claims)?;
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
-    let result = model::page_my_tasks(
-        me,
-        model::MY_TODO_STATUSES,
-        &dto::TASK_KINDS,
-        model::MyTaskOrder::Arrived,
-        page_no,
+    let result = model::page_my_tasks(model::MyTaskQueryParams {
+        user_id: me,
+        statuses: model::MY_TODO_STATUSES,
+        kinds: &dto::TASK_KINDS,
+        order: model::MyTaskOrder::Arrived,
+        page: page_no,
         page_size,
         // P11：待办只认实例还在跑的单子（历史脏数据不进审批人的列表）
-        true,
+        live_only: true,
         // 待办还没有 `completed_at`，`since` 只对「我的已办」有意义
-        None,
-    )
+        completed_since: None,
+    })
     .await
     .map_err(|error| utils::db_error(error, "查询我的待办"))?;
     Ok(Res::ok(dto::TaskPageRes {
@@ -2330,17 +2330,17 @@ pub async fn my_done(
         Some(raw) if !raw.trim().is_empty() => Some(parse_since_field(raw, "since")?),
         _ => None,
     };
-    let result = model::page_my_tasks(
-        me,
-        model::MY_DONE_STATUSES,
-        &dto::TASK_KINDS,
-        model::MyTaskOrder::Operated,
-        page_no,
+    let result = model::page_my_tasks(model::MyTaskQueryParams {
+        user_id: me,
+        statuses: model::MY_DONE_STATUSES,
+        kinds: &dto::TASK_KINDS,
+        order: model::MyTaskOrder::Operated,
+        page: page_no,
         page_size,
         // 已办是历史记录：实例结束与否都要显示（不受 P11 的「只看在跑」约束）
-        false,
-        since,
-    )
+        live_only: false,
+        completed_since: since,
+    })
     .await
     .map_err(|error| utils::db_error(error, "查询我的已办"))?;
     Ok(Res::ok(dto::TaskPageRes {

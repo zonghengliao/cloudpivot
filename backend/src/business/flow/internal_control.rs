@@ -989,32 +989,32 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         );
 
         // 制单人的「我的待办」里查不到这条（status 只认 PENDING）
-        let page = crate::business::flow::model::page_my_tasks(
-            creator,
-            &["PENDING"],
-            &["APPROVAL"],
-            crate::business::flow::model::MyTaskOrder::Arrived,
-            1,
-            200,
-            true,
-            None,
-        )
+        let page = crate::business::flow::model::page_my_tasks(crate::business::flow::model::MyTaskQueryParams {
+            user_id: creator,
+            statuses: &["PENDING"],
+            kinds: &["APPROVAL"],
+            order: crate::business::flow::model::MyTaskOrder::Arrived,
+            page: 1,
+            page_size: 200,
+            live_only: true,
+            completed_since: None,
+        })
         .await
         .expect("读我的待办");
         assert_eq!(page.total, 0, "内控排除的人不该在待办列表里看到它");
         assert!(page.list.is_empty(), "list 也必须为空（不能出现「total 0 但有行」）");
 
         // 对照：能批的人看得到 —— 证明查询本身是有效的（不是恒空）
-        let page = crate::business::flow::model::page_my_tasks(
-            keeper,
-            &["PENDING"],
-            &["APPROVAL"],
-            crate::business::flow::model::MyTaskOrder::Arrived,
-            1,
-            200,
-            true,
-            None,
-        )
+        let page = crate::business::flow::model::page_my_tasks(crate::business::flow::model::MyTaskQueryParams {
+            user_id: keeper,
+            statuses: &["PENDING"],
+            kinds: &["APPROVAL"],
+            order: crate::business::flow::model::MyTaskOrder::Arrived,
+            page: 1,
+            page_size: 200,
+            live_only: true,
+            completed_since: None,
+        })
         .await
         .expect("读我的待办");
         assert_eq!(page.total, 1, "能批的人必须看到 1 条待办");

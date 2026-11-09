@@ -1329,16 +1329,16 @@ async fn db_uploader_name_is_snapshot_and_survives_rename() {
     let owner = uid(U_OWNER);
 
     // ① 生产路径：`insert_with_uploader`（handler 走的就是它）带姓名快照
-    let with_snapshot = model::insert_with_uploader(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        &uid(FILE_A),
-        FileRole::ContractScan,
-        None,
-        Some(owner),
-        Some("张三"),
-        None,
-    )
+    let with_snapshot = model::insert_with_uploader(model::NewAttachmentBinding {
+        kind: DocKind::Contract,
+        doc_id: &uid(DOC_CONTRACT),
+        file_id: &uid(FILE_A),
+        role: FileRole::ContractScan,
+        remark: None,
+        uploaded_by: Some(owner),
+        uploader_name: Some("张三"),
+        file_name: None,
+    })
     .await
     .expect("绑定附件（带姓名快照）")
     .id;
@@ -1415,29 +1415,29 @@ async fn db_file_name_snapshot_survives_seconds_upload() {
     let other = uid(U_OTHER);
 
     // ① A 上传（写入 sys_file 的名字是夹具的「合同扫描件.png」）
-    let first = model::insert_with_uploader(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        &uid(FILE_A),
-        FileRole::ContractScan,
-        None,
-        Some(owner),
-        Some("附件上传人"),
-        Some("drill-invoice.pdf"),
-    )
+    let first = model::insert_with_uploader(model::NewAttachmentBinding {
+        kind: DocKind::Contract,
+        doc_id: &uid(DOC_CONTRACT),
+        file_id: &uid(FILE_A),
+        role: FileRole::ContractScan,
+        remark: None,
+        uploaded_by: Some(owner),
+        uploader_name: Some("附件上传人"),
+        file_name: Some("drill-invoice.pdf"),
+    })
     .await
     .expect("A 的绑定");
     // ② B 上传同一份内容（秒传：同一个 file_id，不同单据），名字不同
-    let second = model::insert_with_uploader(
-        DocKind::PurchaseOrder,
-        &uid(DOC_PO),
-        &uid(FILE_A),
-        FileRole::Default,
-        None,
-        Some(other),
-        Some("附件旁观者"),
-        Some("e2e07-contract-scan.pdf"),
-    )
+    let second = model::insert_with_uploader(model::NewAttachmentBinding {
+        kind: DocKind::PurchaseOrder,
+        doc_id: &uid(DOC_PO),
+        file_id: &uid(FILE_A),
+        role: FileRole::Default,
+        remark: None,
+        uploaded_by: Some(other),
+        uploader_name: Some("附件旁观者"),
+        file_name: Some("e2e07-contract-scan.pdf"),
+    })
     .await
     .expect("B 的绑定（秒传复用）");
 
@@ -1495,16 +1495,16 @@ async fn db_file_name_snapshot_survives_seconds_upload() {
 
     // ⑦ 幂等分支：同一张单据重复上传同一份字节 → 沿用既有行**与既有名字**，
     //    响应（handler 用返回值）与列表因此同源，不会「上传返回 X、列表显示 Y」。
-    let again = model::insert_with_uploader(
-        DocKind::Contract,
-        &uid(DOC_CONTRACT),
-        &uid(FILE_A),
-        FileRole::ContractScan,
-        None,
-        Some(owner),
-        Some("附件上传人"),
-        Some("第二次上传-改个名.pdf"),
-    )
+    let again = model::insert_with_uploader(model::NewAttachmentBinding {
+        kind: DocKind::Contract,
+        doc_id: &uid(DOC_CONTRACT),
+        file_id: &uid(FILE_A),
+        role: FileRole::ContractScan,
+        remark: None,
+        uploaded_by: Some(owner),
+        uploader_name: Some("附件上传人"),
+        file_name: Some("第二次上传-改个名.pdf"),
+    })
     .await
     .expect("重复上传（幂等）");
     assert_eq!(again.id, first.id, "同一张单据 + 同一份文件 = 同一行");

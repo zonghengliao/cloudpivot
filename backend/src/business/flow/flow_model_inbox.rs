@@ -334,6 +334,31 @@ pub struct MyCcPage {
     pub total: u64,
 }
 
+/// 「我的待办 / 已办」的查询入参（一条查询的全部筛选轴）。
+///
+/// 收进结构体而不是 8 个散参数：一是散参数已越过 `clippy::too_many_arguments`
+/// 的阈值（7），二是三处调用（待办 / 已办 / 首页工作台）读起来能直接看出
+/// 「谁的、哪些状态、哪些单据类型、怎么排、第几页、要不要只认在跑的实例」。
+#[derive(Debug, Clone, Copy)]
+pub struct MyTaskQueryParams<'a> {
+    /// 我是谁（身份口径 `t.assignee_id = me`）。
+    pub user_id: Uuid,
+    /// 任务状态集（`t.status IN (...)`；只由本模块常量传入，不是用户输入）。
+    pub statuses: &'a [&'a str],
+    /// 单据类型集（`t.task_kind IN (...)`）。
+    pub kinds: &'a [&'a str],
+    /// 排序口径（待办按到达时间 / 已办按操作时间）。
+    pub order: MyTaskOrder,
+    /// 第几页（1 起；调用方已 `normalize_page`）。
+    pub page: u64,
+    /// 每页条数（调用方已 `normalize_page`）。
+    pub page_size: u64,
+    /// P11：只认实例还在跑（`i.status = 'PENDING'`）的待办。
+    pub live_only: bool,
+    /// 完成时间下界（`t.completed_at >= ?`；只对「我的已办」有意义）。
+    pub completed_since: Option<chrono::DateTime<chrono::Utc>>,
+}
+
 /// 我的待办 / 已办（**身份口径：`assignee_id = me`**，与实例可见性无关）。
 ///
 /// - 待办：`status = PENDING`，按到达时间倒序；
@@ -351,20 +376,17 @@ pub struct MyCcPage {
 ///
 /// 数据库异常 → [`DbError`]。
 ///
-/// `#[allow(clippy::too_many_arguments)]` 的理由：8 个参数是一条「我的任务」查询的
-/// 全部筛选轴（用户 / 状态集 / 单据类型集 / 排序 / 分页 / 只看进行中 / 完成时间下界），
-/// 收口成 struct 要改全部调用方与测试，属独立重构；见跟进卡「too_many_arguments 参数收口为 struct」。
-#[allow(clippy::too_many_arguments)]
-pub async fn page_my_tasks(
-    user_id: Uuid,
-    statuses: &[&str],
-    kinds: &[&str],
-    order: MyTaskOrder,
-    page: u64,
-    page_size: u64,
-    live_only: bool,
-    completed_since: Option<chrono::DateTime<chrono::Utc>>,
-) -> DbResult<MyTaskPage> {
+pub async fn page_my_tasks(params: MyTaskQueryParams<'_>) -> DbResult<MyTaskPage> {
+    let MyTaskQueryParams {
+        user_id,
+        statuses,
+        kinds,
+        order,
+        page,
+        page_size,
+        live_only,
+        completed_since,
+    } = params;
     let status_list = statuses
         .iter()
         .map(|status| format!("'{status}'"))
