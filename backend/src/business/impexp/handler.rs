@@ -670,6 +670,7 @@ pub async fn import_confirm(
         return Err(ApiError::new(409, error_code::IMPORT_STATUS_INVALID, message));
     }
 
+    let mut persist_failed = 0usize;
     for (batch_index, batch) in outcome.rows.chunks(batch_size).enumerate() {
         let rows = batch.to_vec();
         let definition_ref = std::sync::Arc::clone(&definition);
@@ -692,25 +693,64 @@ pub async fn import_confirm(
                         .map_err(|db_error| utils::db_error(db_error, "回写入库结果"))?;
                     return Err(ApiError::new(422, error_code::IMPORT_BATCH_FAILED, message));
                 }
+                // PARTIAL 模式：**整批失败不能静默丢行**（AGENTS.md 约定 11 的同类缺陷）。
+                // 原实现只 `warn!` 一句就把整批（最多 batch_size 行）丢掉，接口仍回
+                // PARTIAL + imported_rows=0，用户既不知道哪些行没进库、也没有任何补救入口
+                // （2026-11-09 E2E-13 实测：1 行「基准单位不存在」把同批 2 行合法数据一起吞掉）。
+                // 这里降级为**逐行入库**：能进的照常进，进不去的行落成错误明细（失败明细页可见）。
                 tracing::warn!(
                     task_id = %task.id,
                     batch = batch_index + 1,
                     error = %error,
-                    "PARTIAL 模式：跳过失败批次"
+                    "PARTIAL 模式：整批入库失败，降级为逐行入库"
                 );
+                let mut failed_rows: Vec<RowIssue> = Vec::new();
+                for row in batch {
+                    let one = vec![row.clone()];
+                    let definition_ref = std::sync::Arc::clone(&definition);
+                    let ctx_ref = ctx.clone();
+                    let single = db()
+                        .transaction(|tx| async move { definition_ref.persist(&tx, &one, &ctx_ref).await })
+                        .await;
+                    match single {
+                        Ok(affected) => imported += affected,
+                        Err(row_error) => failed_rows.push(RowIssue {
+                            row_no: row.row_no,
+                            column_key: None,
+                            column_header: None,
+                            raw_value: None,
+                            kind: definition::ErrorKind::Rule,
+                            message: format!("入库失败（Excel 行 {}）：{row_error}", row.row_no),
+                        }),
+                    }
+                }
+                if !failed_rows.is_empty() {
+                    model::insert_task_errors(&task.id, &failed_rows)
+                        .await
+                        .map_err(|db_error| utils::db_error(db_error, "写入入库失败明细"))?;
+                    persist_failed += failed_rows.len();
+                }
             }
         }
     }
 
-    let status = if mode == ImportMode::Partial && outcome.report.error > 0 {
+    let has_problem = outcome.report.error > 0 || persist_failed > 0;
+    let status = if mode == ImportMode::Partial && has_problem {
         "PARTIAL"
     } else {
         "SUCCESS"
     };
-    let message = format!(
-        "共 {total_batches} 批，入库 {imported} 行（校验失败 {} 行已跳过）",
-        outcome.report.error
-    );
+    let message = if persist_failed > 0 {
+        format!(
+            "共 {total_batches} 批，入库 {imported} 行（校验失败 {} 行、入库失败 {persist_failed} 行已跳过）",
+            outcome.report.error
+        )
+    } else {
+        format!(
+            "共 {total_batches} 批，入库 {imported} 行（校验失败 {} 行已跳过）",
+            outcome.report.error
+        )
+    };
     model::update_import_result(&task.id, status, imported as i32, Some(&message))
         .await
         .map_err(|error| utils::db_error(error, "回写入库结果"))?;
