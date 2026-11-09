@@ -108,5 +108,7 @@ pub mod task_bridge;
 pub mod task_node;
 pub mod template_vars;
 #[cfg(test)]
+pub mod terminate_db_tests; // 管理员人工终止（E2E01-FIX-3）的真库用例
+#[cfg(test)]
 pub mod test_support; // 单测共用夹具：把审批实例推到终态（会签 N 人也要批完）
 pub mod timeout;

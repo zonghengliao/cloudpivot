@@ -417,6 +417,12 @@ fn describe_operation(method: &str, path: &str) -> (String, Option<String>) {
         return (action, Some("Job".to_string()));
     }
 
+    // ── 审批流（实例子动作优先于通用 CRUD） ────────────────────────
+    if p.contains("/business/flow/instance/") && p.ends_with("/terminate") {
+        // 流程管理员人工终止（E2E01-FIX-3）：日志页要能一眼看出「谁终止了哪张单」
+        return ("终止审批实例".to_string(), Some("FlowInstance".to_string()));
+    }
+
     // ── 日志清理 ───────────────────────────────────────────────────
     if p.contains("/support/log/") {
         return ("清理日志".to_string(), Some("Log".to_string()));

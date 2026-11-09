@@ -1467,6 +1467,35 @@ pub struct WithdrawReq {
     pub reason: Option<String>,
 }
 
+/// 终止请求（流程管理员人工终止在跑的实例）。
+///
+/// # 为什么 reason 必填
+///
+/// 终止是**不可逆**的破坏性动作：实例落 `CANCELLED`、待办全撤、关联业务单据被打回草稿。
+/// 没有原因的终止在事后审计里等于「某人某天让一张单消失了」——`operation_logs` 里
+/// 只有 `POST /…/terminate` 一行，追不回动机。与驳回意见同口径：必填、限长。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TerminateReq {
+    /// 终止原因（必填，1–1000 字；写进实例的 `result_comment` 与操作日志）。
+    pub reason: String,
+}
+
+/// 归一化终止原因（**必填**、去首尾空白、限长）。
+///
+/// # 异常情况
+///
+/// 空 / 纯空白 → `Err("终止原因不能为空…")`；超长 → `Err`。
+pub fn normalize_terminate_reason(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("终止原因不能为空（会写进操作日志与审批单的结束说明）".to_string());
+    }
+    if trimmed.chars().count() > MAX_FLOW_COMMENT_CHARS {
+        return Err(format!("终止原因不能超过 {MAX_FLOW_COMMENT_CHARS} 个字符"));
+    }
+    Ok(trimmed.to_string())
+}
+
 /// 同意请求。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ApproveReq {

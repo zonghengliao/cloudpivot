@@ -216,6 +216,37 @@ pub async fn pending_assignees(ex: &Transaction, instance_id: Uuid) -> DbResult<
     Ok(out)
 }
 
+/// 实例里**已经审批过**的人（管理员终止时通知他们）。
+///
+/// # 为什么要通知「已审批过的人」
+///
+/// 会签 / 多节点流程里，某人投过票之后就把单子交出去了；管理员事后把整张单终止，
+/// 那些投过票的人不会收到任何待办，界面上那张单也从他们的列表里消失 —— 不说一声
+/// 就是「我批过的单凭空没了」。与 `pending_assignees`（撤回时通知「还没表态的人」）
+/// 成对：**被终止时，正在等的人要撤、已经表态的人要知道**。
+///
+/// 只认 `APPROVED`（真投了同意票的）；`REJECTED` 的人由驳回路径通知，`SKIPPED` /
+/// `TRANSFERRED` 的人没投票（与 [`reviewed_count`] 的口径一致）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn approved_approvers(ex: &Transaction, instance_id: Uuid) -> DbResult<Vec<Uuid>> {
+    let rows = ex
+        .find_with_params(
+            "SELECT DISTINCT assignee_id FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status = 'APPROVED'",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(row.get_typed("assignee_id")?);
+    }
+    out.sort();
+    Ok(out)
+}
+
 /// 某节点某轮次的抄送收件人（抄送节点落库后发通知用）。
 ///
 /// # 异常情况

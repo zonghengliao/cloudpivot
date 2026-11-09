@@ -1090,6 +1090,19 @@ export function withdrawFlowInstance(id: string, reason?: string): Promise<FlowA
   return post<FlowActionRes>(`/api/business/flow/instance/${id}/withdraw`, { reason: reason ?? null });
 }
 
+/**
+ * 流程管理员人工终止（`POST /business/flow/instance/{id}/terminate`，需 `business:flow:admin`）。
+ *
+ * 存在的理由：会签节点缺人时单子永远批不完，`withdraw` 又因「已有人审批」被 409 拦下。
+ * 终止 = 实例落 `CANCELLED`（行政终止）+ 待办全撤 + **关联业务单据退回草稿**
+ * （后端 `terminate_by_admin` + 全量业务桥按 `CANCELLED` 补偿，见 ARCH-8 约定 11）。
+ *
+ * 失败口径：原因必填 → 400 + 65005；单已结束 → 400 + 65024；无权限 → 403。
+ */
+export function terminateFlowInstance(id: string, reason: string): Promise<FlowActionRes> {
+  return post<FlowActionRes>(`/api/business/flow/instance/${id}/terminate`, { reason });
+}
+
 /** 我的待办（`GET /business/flow/task/todo`，`APPROVAL` + `RESUBMIT`，只返回 PENDING）。 */
 export function listTodoTasks(query: { page?: number; page_size?: number } = {}): Promise<PageData<FlowTaskItem>> {
   return get<PageData<FlowTaskItem>>('/api/business/flow/task/todo', asParams(query));

@@ -1735,6 +1735,88 @@ pub async fn terminate_instance(
     })
 }
 
+// ==================== 管理员人工终止 ====================
+
+/// 流程管理员**人工终止**在跑的实例（事务内）。
+///
+/// # 与 [`terminate_instance`] 的关系
+///
+/// 复用同一套终止实现（`CANCELLED` = 行政终止），只多做两件事：
+/// ① 把「**已审批过的人**」并入结果通知 —— 他们投过票，单子被终止必须知道
+///    （[`terminate_instance`] 只通知发起人）；
+/// ② 留一条带 operator / 原因的结构化日志。
+///
+/// 这就是 E2E-01 演练的痛点：会签节点缺人 → 提交后永远批不完 → `withdraw` 因为
+/// 「已有人审批」被 409 拦下（`65023` 的文案本来就写着「请联系流程管理员终止」）——
+/// 而在此之前**没有任何 HTTP 入口能终止**，只能改库。
+///
+/// # 为什么实例落 `CANCELLED` 而不是 `TERMINATED`
+///
+/// `biz_flow_instance.status` 的 CHECK 只允许
+/// `PENDING / APPROVED / REJECTED / CANCELLED / WITHDRAWN`（V0122），
+/// `CANCELLED` 在本仓的语义就是「行政终止」（见 `instance_linkage.rs` 文件头 ③
+/// 与 `expense_bridge::cancel_approval`）；全部 15 个业务桥的回调判据都是
+/// `REJECTED | WITHDRAWN | CANCELLED → 单据退回`。新增一个 `TERMINATED` 字面量
+/// 要改 DDL + 每个业务桥的判据 + 前端状态表，且会让「审批单到底为什么结束」
+/// 分裂成两个码 —— 零收益、高回归面。
+///
+/// # 异常情况
+///
+/// 同 [`terminate_instance`]：实例不存在 → `404`、已结束 → `409`（以 `rejected` 返回，
+/// 不写库）；数据库异常 → [`DbError`]（整笔回滚）。
+pub async fn terminate_by_admin(
+    ex: &Transaction,
+    instance_id: Uuid,
+    operator: Uuid,
+    reason: &str,
+) -> DbResult<ActionOut> {
+    let mut out = terminate_instance(ex, instance_id, "CANCELLED", reason).await?;
+    if out.rejected.is_some() {
+        return Ok(out);
+    }
+
+    // 已审批过的人（去掉操作人自己：终止的人不需要收到「我终止了」的通知）
+    let approvers: Vec<Uuid> = model::approved_approvers(ex, instance_id)
+        .await?
+        .into_iter()
+        .filter(|id| *id != operator)
+        .collect();
+
+    if out.effects.notices.is_empty() {
+        // 兜底：`terminate_instance` 只在发起人存在时落通知；这里保证「终止」一定有人知道
+        if let Some(instance) = model::lock_instance(ex, instance_id).await? {
+            let mut recipients = approvers.clone();
+            recipients.push(instance.initiator_id);
+            out.effects.notice(
+                recipients,
+                format!("流程已终止：{}", instance.title),
+                format!(
+                    "流程实例 {}（{}）已被流程管理员终止：{}",
+                    instance.instance_no, instance.flow_name, reason
+                ),
+                format!("/flow/instance/{}", instance.id),
+                instance.id,
+                true,
+            );
+        }
+    } else {
+        for notice in &mut out.effects.notices {
+            notice.recipients.extend(approvers.iter().copied());
+            notice.recipients.sort();
+            notice.recipients.dedup();
+        }
+    }
+
+    tracing::info!(
+        instance_id = %instance_id,
+        %operator,
+        approved_approvers = approvers.len(),
+        reason,
+        "审批实例已由流程管理员人工终止（CANCELLED）"
+    );
+    Ok(out)
+}
+
 // ==================== 转办 ====================
 
 /// 转办（**事务内**，架构 D12 / §4.8.1）：旧行 `TRANSFERRED` 留痕，新行 `transferred_from` 指向旧行。

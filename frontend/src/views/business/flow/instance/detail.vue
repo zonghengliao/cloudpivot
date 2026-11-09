@@ -233,6 +233,19 @@
             <t-button variant="outline" block :loading="withdrawing" @click="onWithdraw">撤回审批</t-button>
             <p class="action-tip">只有「还没有人审批」时才能撤回；已有人表态请联系管理员终止。</p>
           </t-card>
+
+          <!-- 流程管理员人工终止（E2E01-FIX-3）：
+               会签节点缺人 / 审批人离职时，单子「批不完也撤不回」——这是唯一的出路。
+               权限 `business:flow:admin`（与后端注解逐字一致），实例 PENDING 才显示。 -->
+          <t-card v-if="canTerminate" :bordered="false" class="card action-card">
+            <div class="section-title">流程管理</div>
+            <t-button theme="danger" variant="outline" block :loading="terminating" @click="openTerminate">
+              终止审批
+            </t-button>
+            <p class="action-tip">
+              终止后审批单落「已取消（终止）」、未处理待办全部撤销，关联业务单据退回草稿。原因必填。
+            </p>
+          </t-card>
         </t-col>
       </t-row>
 
@@ -259,6 +272,33 @@
         <t-form-item label="驳回意见（至少 5 个字）" required>
           <t-textarea v-model="rejectForm.comment" :autosize="{ minRows: 4, maxRows: 8 }" placeholder="说明驳回原因" :maxlength="500" />
           <p class="action-tip">{{ rejectForm.comment.trim().length }}/5 字</p>
+        </t-form-item>
+      </t-form>
+    </t-drawer>
+
+    <!-- 终止抽屉（E2E01-FIX-3：流程管理员人工终止，原因必填） -->
+    <t-drawer
+      v-model:visible="terminateVisible"
+      header="终止审批"
+      size="420px"
+      :confirm-btn="{ content: '确认终止', theme: 'danger', loading: terminating }"
+      @confirm="submitTerminate"
+    >
+      <t-alert
+        theme="warning"
+        :message="`终止后不可恢复：未处理待办全部撤销，关联业务单据退回草稿。${
+          detail?.instance?.biz_no ? `（关联单据 ${detail.instance.biz_no}）` : ''
+        }`"
+      />
+      <t-form label-align="top" style="margin-top: 12px">
+        <t-form-item label="终止原因（必填）" required>
+          <t-textarea
+            v-model="terminateReason"
+            :autosize="{ minRows: 4, maxRows: 8 }"
+            :maxlength="500"
+            show-limit
+            placeholder="例如：会签节点缺人（3 人会签只有 1 人在职），无法批完，人工终止"
+          />
         </t-form-item>
       </t-form>
     </t-drawer>
@@ -333,6 +373,7 @@ import {
   pageFlowDefs,
   rejectFlowTask,
   transferFlowTask,
+  terminateFlowInstance,
   withdrawFlowInstance,
   type FlowEdge,
   type FlowInstanceDetail,
@@ -632,6 +673,28 @@ const canWithdraw = computed(() => {
   );
 });
 
+/**
+ * 我是否可以终止这张审批单（E2E01-FIX-3）。
+ *
+ * 判据两条，缺一不可：
+ * ① 持有 `business:flow:admin` —— 与后端 `#[nik::permission]` 逐字一致
+ *    （该码在 V0124 的注释里就写着「流程管理员（退回任意节点 / 终止）」，默认只授 SUPER_ADMIN）；
+ * ② 实例还在跑（`PENDING` / `RUNNING`）—— 终态单子的终止按钮点了只会拿到 400。
+ *
+ * 前端只做「显不显示」；真正的 403 / 400 判定一律在后端（SUPER_ADMIN 短路也在那边）。
+ */
+const TERMINATE_PERMISSION = 'business:flow:admin';
+const canTerminate = computed(() => {
+  const instance = detail.value?.instance;
+  if (!instance) {
+    return false;
+  }
+  const status = (instance.status ?? '').toUpperCase();
+  return (
+    (status === 'PENDING' || status === 'RUNNING') && userStore.hasPermission(TERMINATE_PERMISSION)
+  );
+});
+
 /** 时间格式化 */
 function formatTime(value: string): string {
   if (!value) {
@@ -886,6 +949,44 @@ async function onWithdraw(): Promise<void> {
     MessagePlugin.error(error instanceof ApiError ? error.message : '撤回失败');
   } finally {
     withdrawing.value = false;
+  }
+}
+
+/** 终止中 */
+const terminating = ref(false);
+/** 终止抽屉 */
+const terminateVisible = ref(false);
+/** 终止原因（必填） */
+const terminateReason = ref('');
+
+/** 打开终止抽屉 */
+function openTerminate(): void {
+  terminateReason.value = '';
+  terminateVisible.value = true;
+}
+
+/**
+ * 提交终止（E2E01-FIX-3）。
+ *
+ * 原因必填（后端 `normalize_terminate_reason` 同样拦）：终止是不可逆动作，
+ * 事后只能靠 `result_comment` + `operation_logs.request_params` 追溯。
+ */
+async function submitTerminate(): Promise<void> {
+  const reason = terminateReason.value.trim();
+  if (!reason) {
+    MessagePlugin.warning('请填写终止原因');
+    return;
+  }
+  terminating.value = true;
+  try {
+    await terminateFlowInstance(instanceId.value, reason);
+    terminateVisible.value = false;
+    MessagePlugin.success('已终止，关联业务单据已退回');
+    await loadDetail();
+  } catch (error) {
+    MessagePlugin.error(error instanceof ApiError ? error.message : '终止失败');
+  } finally {
+    terminating.value = false;
   }
 }
 

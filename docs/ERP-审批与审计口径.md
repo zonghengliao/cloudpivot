@@ -111,6 +111,51 @@ operator.name 为空、operator.id 有值                    → 主键查 sys_u
 
 ---
 
+## 6. 审批实例卡住时的标准处置流程（E2E01-FIX-3）
+
+> 「卡住」= 实例还是 `PENDING`，但**再也批不完、也撤不回**：最典型的是会签节点缺人
+> （3 人会签，其中 2 人离职/停用），其次是审批人注销、角色被清空、子流程挂死。
+> 这类单在界面上没有任何可点的按钮，以前**只能改库**。
+
+### 谁可以处理
+
+`business:flow:admin`（流程管理员）。默认只授 `SUPER_ADMIN`（V0239 §③），
+可在「角色管理 → 审批中心 → 终止」勾给其它角色。**不是**发起人，也**不是**审批人。
+
+### 处置顺序（照这个顺序走，别跳步）
+
+| 步 | 动作 | 接口 / 位置 | 说明 |
+|---|---|---|---|
+| 1 | 能撤回就先撤回 | `POST /api/business/flow/instance/{id}/withdraw` | 只允许**发起人**且**零人已审**；有人投过票会回 `409 + 65023`「已有人审批，不能撤回；请联系流程管理员终止」 |
+| 2 | 缺人但还没人投票 → 补齐人 | 流程定义编辑器改节点审批人 / 给角色加成员 → 发布新版本 | 只影响**新发起**的实例；在跑的实例走发起时的快照，改配置救不了它 |
+| 3 | 撤不回 → **管理员终止** | `POST /api/business/flow/instance/{id}/terminate`，body `{"reason":"…"}` | 原因必填。实例落 `CANCELLED`、未处理待办全部撤销、**关联业务单据退回草稿** |
+| 4 | 单据没跟着退 → 提缺陷 | — | 按 ARCH-8 约定 11，「流程已终止、单据停在 `PENDING_*`」是**代码缺陷**，不许改库绕过 |
+
+### 终止接口到底做了什么（`flow::handler::terminate_instance`）
+
+1. 校验：实例存在（否则 `404 + 65002`）、仍在跑（否则 `400 + 65024`）、原因非空（否则 `400 + 65005`）、
+   调用者有 `business:flow:admin`（否则 403）；
+2. 事务内 `engine::terminate_by_admin`：实例 `PENDING → CANCELLED` + `ended_at` + `result_comment = 原因`，
+   `PENDING` 待办 → `CANCELLED`，`ACTIVE` 节点 → `CANCELLED`，已投过的票**原样保留**（审计要看「谁批过」）；
+3. 事务提交后逐条跑**全部业务桥**（`CANCELLED` 分支 = 单据退回），这是「单据不许停在中间态」的落点；
+4. 通知：**发起人 + 已审批过的人**（排除操作人）；子流程实例还会回调父流程，避免父节点干等一张死单；
+5. 操作日志：`operation_logs` 里一行「终止审批实例」（`request_params` 带原因、`target_id` 是实例 id）。
+
+### 为什么实例状态是 `CANCELLED` 而不是 `TERMINATED`
+
+`biz_flow_instance.status` 的 CHECK 只允许 `PENDING / APPROVED / REJECTED / CANCELLED / WITHDRAWN`，
+全仓 15 个业务桥的回调判据都把 `CANCELLED` 当「行政终止」。新增 `TERMINATED` 字面量要改 DDL +
+每个桥的判据 + 前端状态表，收益为零、回归面很大。前端 `flow-instance` 域把它显示成**「已取消」**，
+详情页底部「结束说明」显示终止原因。
+
+### 已知仍会「卡住」的形态（终止是兜底，不是修复）
+
+- **会签 `ALL` + 角色里有人永远不签**：终止能收掉单子，但根因是流程配置。发布校验 R28（`65048`）
+  要求 `ALL` 必须有 `timeout_hours` 或 fallback；`scripts/verify/flow_countersign_invariants.sh` 是常驻体检。
+- **`APPROVAL + ROLE + ALL` 错配**（一人签字即可的节点被冻成委员会）：见 V0359 系列迁移的修法。
+
+---
+
 ## 附：这几条各自的验收脚本指向
 
 | 口径 | 真库用例 |
@@ -119,3 +164,4 @@ operator.name 为空、operator.id 有值                    → 主键查 sys_u
 | 意见回写实例 | `flow::edge_admin_tests::approval_comment_written_back_to_instance_result_comment` |
 | 姓名快照 | `shared::state_machine::tests::operator_name_snapshot_filled_when_only_id_given` |
 | 凭证摘要物料编码 | `erp::voucher::tests::fix9_voucher_summary_uses_material_code_without_inventory_account` |
+| 审批实例终止（管理员） | `flow::terminate_db_tests`（真库，`ERP_DB_URL` 开关）+ `scripts/verify/e2e01fix3_terminate.py`（145 真机） |

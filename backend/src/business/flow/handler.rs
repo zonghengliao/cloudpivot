@@ -1078,6 +1078,7 @@ pub async fn create_draft(
 // | 13 | GET | `/business/flow/instance/page` | `business:flow:instance:read` |
 // | 14 | GET | `/business/flow/instance/{id}` | `business:flow:instance:read` |
 // | 15 | POST | `/business/flow/instance/{id}/withdraw` | `business:flow:instance:withdraw` |
+// | 15b | POST | `/business/flow/instance/{id}/terminate` | `business:flow:admin` |（管理员人工终止，E2E01-FIX-3）
 // | 16 | POST | `/business/flow/task/{id}/approve` | `business:flow:approve` |
 // | 17 | POST | `/business/flow/task/{id}/reject` | `business:flow:approve` |
 // | 18 | POST | `/business/flow/task/{id}/transfer` | `business:flow:approve` |
@@ -1672,6 +1673,113 @@ pub async fn withdraw_instance(
     crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
     // D3：也可能是「状态机配置变更」单 → 配置一分不动（撤回 = 不改流程规则）
     crate::business::flow::edge_admin::on_settled(Some(instance_id), "WITHDRAWN").await;
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 15b. 终止（流程管理员人工终止） ====================
+
+/// 人工终止在跑的审批单（`business:flow:admin`）。
+///
+/// # 为什么必须有它（E2E-01 演练实测的痛点）
+///
+/// 会签节点缺人 → 提交后永远批不完。此时 `withdraw` 会被 `409 + 65023` 拦下
+/// （文案原文就是「…请联系流程管理员终止」），而在此之前**没有任何 HTTP 入口**能终止 ——
+/// 只能改库。本接口就是那句文案的兑现：只要能拿到 `business:flow:admin`，就能把
+/// 「卡住的实例」收掉，并且**关联业务单据必须跟着退回**（ARCH-8 约定 11 的延伸：
+/// 不只是「失败要兜底」，还要「卡住了要有出路」）。
+///
+/// # 权限码为什么复用 `business:flow:admin`
+///
+/// 它在 V0124 里的原始注释就写着「流程管理员（退回任意节点 / **终止**）」，
+/// 是唯一已种进 `sys_menu`（…0804）且默认只授 SUPER_ADMIN 的管理码；
+/// `reject` 的「驳回并终止」分支也用它做行级判定。新开一个
+/// `business:flow:instance:terminate` 需要额外迁移 + 角色授权决策，
+/// 效果与现在完全一样（没有角色被授予时同样只有超管能用），只是多一个码要维护。
+///
+/// # 实例落 `CANCELLED`
+///
+/// DDL 的 CHECK 只有 `PENDING/APPROVED/REJECTED/CANCELLED/WITHDRAWN`，`CANCELLED`
+/// 在全仓的语义就是「行政终止」，15 个业务桥的回调判据都包含它。详见
+/// [`engine::terminate_by_admin`] 的头注释（为什么不新增 `TERMINATED` 字面量）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：原因空 / 超长、id 格式非法；
+/// - 404 + `65002`：审批单不存在；
+/// - 400 + `65024`：审批单已结束（终态不可再终止，卡面验收⑥）；
+/// - 403：没有 `business:flow:admin`。
+#[nik::permission(
+    path = "/business/flow/instance/{id}/terminate",
+    method = "POST",
+    permission = "business:flow:admin"
+)]
+#[nik::post("/business/flow/instance/{id}/terminate")]
+pub async fn terminate_instance(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<dto::TerminateReq>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let instance_id = parse_uuid_field(&id, "审批单 id")?;
+    let reason = dto::normalize_terminate_reason(&req.reason).map_err(field_invalid)?;
+
+    // ① 先做一次「还在不在跑」的显式判定（事务外，读一致性足够）：
+    //    终态 → 400 + 65024。引擎里还有一次 `is_pending` + revision CAS 兜并发，
+    //    这里早拦是为了给前端一个明确的 400（而不是等引擎回 409）。
+    let current = model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "终止审批单"))?
+        .ok_or_else(|| ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "流程实例不存在"))?;
+    if !current.is_pending() {
+        return Err(ApiError::new(
+            400,
+            error_code::FLOW_INSTANCE_NOT_PENDING,
+            format!("流程实例已结束（{}），不能终止", current.status),
+        ));
+    }
+
+    let reason_in_tx = reason.clone();
+    let mut out = db()
+        .transaction(|tx| async move { engine::terminate_by_admin(&tx, instance_id, operator, &reason_in_tx).await })
+        .await
+        .map_err(|error| utils::db_error(error, "终止审批单"))?;
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+
+    // ★ 事务已提交（实例 = CANCELLED）。下面每一步都是「提交后补偿」：
+    //   失败只记日志、不回滚审批单 —— 与 withdraw / approve 同一口径。
+    //   全量调用（不按 biz_type 分流）：每一张桥自己判「这单是不是我的」，
+    //   判据里 `REJECTED | WITHDRAWN | CANCELLED` 一律「单据退回」。
+    //   这就是 ARCH-8 约定 11 的硬要求：**流程终止，单据不许停在 PENDING_\***。
+    crate::business::erp::stockin_bridge::on_cancel_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::stockin_bridge::on_post_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::requisition_bridge::on_pr_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::purchase_return_bridge::on_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::budget_bridge::on_budget_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::asset_bridge::on_disposal_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::expense_bridge::on_expense_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::stocktake_bridge::on_stock_take_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::receipt_refund_bridge::on_refund_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::flow::edge_admin::on_settled(Some(instance_id), "CANCELLED").await;
+    // 子流程实例被终止 → 父流程必须知道（否则父节点永远等一个不可能再有结论的子单）
+    crate::business::flow::subprocess::on_instance_settled(Some(instance_id), "CANCELLED").await;
+    // 任务验收类审批单被终止 → 任务侧不做状态推进（settle_target 不认 CANCELLED），
+    // 但 `biz_flow_task` / 节点已由引擎的 `cancel_flow_tasks` 收尾，这里只对齐留痕。
+    task_bridge::on_instance_settled(Some(instance_id), "CANCELLED").await;
+
+    tracing::info!(
+        %instance_id,
+        %operator,
+        reason = %reason,
+        "审批单已由流程管理员人工终止（CANCELLED）"
+    );
     Ok(Res::ok(action_res(out)))
 }
 
