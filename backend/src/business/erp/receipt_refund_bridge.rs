@@ -489,6 +489,7 @@ mod tests {
             bank_account: None,
             status: receipt_refund::STATUS_CONFIRMED.to_string(),
             voucher_id: None,
+            approval_instance_id: None,
             reason: "客户退货，货款原路退回".to_string(),
             remark: None,
             create_by: Some(Uuid::now_v7()),

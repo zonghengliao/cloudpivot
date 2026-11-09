@@ -14,7 +14,7 @@
 //! | PUT | `/business/erp/exchange-rate/{id}` | `business:erp:fx-rate:update` | 编辑（撞同键 409） |
 //! | DELETE | `/business/erp/exchange-rate/{id}` | `business:erp:fx-rate:delete` | 物理删 |
 //! | POST | `/business/erp/exchange-rate/batch-month` | `business:erp:fx-rate:batch` | 按月批量录入（upsert 到月末日） |
-//! | GET | `/business/erp/exchange-rate/quote` | `business:erp:fx-rate:quote` | 汇率预览（币种 + 日期 → 最近 SPOT） |
+//! | GET | `/business/erp/exchange-rate/quote` | `business:erp:fx-rate:quote` | 汇率预览（`from_currency` + `to_currency` + 日期 → 最近 SPOT；未知参数 400） |
 //!
 //! # 与建单锁定的分工（别混）
 //!
@@ -44,6 +44,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::business::erp::currency;
 use crate::business::erp::currency_admin_model::{self as model, CurrencyRow, RateRow};
@@ -518,9 +519,13 @@ pub struct BatchMonthRes {
 /// 汇率预览（开单选币种时用）：**只读**，不落库。
 #[derive(Debug, Clone, Serialize)]
 pub struct QuoteRes {
-    /// 请求币种。
+    /// 要折的币种（= 老字段 `currency_code` 的新名字）。
+    pub from_currency: String,
+    /// 折成的币种（= 老字段 `base_currency` 的新名字；本接口恒为本位币）。
+    pub to_currency: String,
+    /// 请求币种（**废弃别名**，值恒等于 `from_currency`；老前端 / 老脚本仍在读）。
     pub currency_code: String,
-    /// 账套本位币。
+    /// 账套本位币（**废弃别名**，值恒等于 `to_currency`）。
     pub base_currency: String,
     /// 锁定汇率（`1 原币 = exchange_rate 本位币`；本位币恒 1）。
     pub exchange_rate: Decimal,
@@ -1090,17 +1095,34 @@ pub async fn batch_month_rates(
 ///
 /// 复用 [`currency::lock`]：页面上看到的预览值 = 建单时锁进单据行的值，不会「预览 7.1、
 /// 落库 7.0」。
+///
+/// # 参数口径（E2E-02 / E2E-FIX-8 ③）
+///
+/// * `from_currency`：要折的币种（缺省 = 本位币）；
+/// * `to_currency`：折成什么（缺省 = 本位币，且**只能是本位币** —— 交叉汇率本接口不做，
+///   给了别的币种 400 而不是硬算一个没人核过的倒数）；
+/// * `date`：取数日期（缺省 = 今天 CST）；
+/// * `currency_code`：**已废弃别名**（等价于 `from_currency`，老脚本还能用；
+///   同时给两个且不一致 → 400）。
+///
+/// 未知 / 拼错的参数由 [`parse_quote_query`] 拦成 400 —— 历史实现是 serde 静默忽略，
+/// 于是 `?from_currency=USD` 会按「未指定币种」回本位币 1，排查时被误判成「汇率没维护」。
 pub async fn quote_rate(
-    currency_code_raw: Option<&str>,
+    from_currency_raw: Option<&str>,
+    to_currency_raw: Option<&str>,
     on_date_raw: Option<&str>,
 ) -> std::result::Result<QuoteRes, ApiError> {
     let on_date = match on_date_raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => today_cst(),
         Some(text) => parse_date(text, "date")?,
     };
-    let requested = match currency_code_raw.map(str::trim).filter(|text| !text.is_empty()) {
+    let requested = match from_currency_raw.map(str::trim).filter(|text| !text.is_empty()) {
         None => None,
-        Some(text) => Some(parse_code(text, "currency_code")?),
+        Some(text) => Some(parse_code(text, "from_currency")?),
+    };
+    let target = match to_currency_raw.map(str::trim).filter(|text| !text.is_empty()) {
+        None => None,
+        Some(text) => Some(parse_code(text, "to_currency")?),
     };
     // 本位币由 `currency::lock` 一并返回（它内部取账套本位币），这里不重复查一遍
     let outcome = currency::lock(db(), requested.as_deref(), on_date)
@@ -1108,6 +1130,7 @@ pub async fn quote_rate(
         .map_err(|error| utils::db_error(error, "预览汇率"))?;
     match outcome {
         currency::LockOutcome::Locked(locked) => {
+            ensure_target_currency(target.as_deref(), &locked.base_currency)?;
             let is_base = locked.currency_code == locked.base_currency;
             let effective_date = if is_base {
                 None
@@ -1118,6 +1141,8 @@ pub async fn quote_rate(
                     .map(|(date, _)| date.to_string())
             };
             Ok(QuoteRes {
+                from_currency: locked.currency_code.clone(),
+                to_currency: locked.base_currency.clone(),
                 currency_code: locked.currency_code,
                 base_currency: locked.base_currency,
                 exchange_rate: locked.exchange_rate,
@@ -1130,15 +1155,97 @@ pub async fn quote_rate(
             currency_code,
             base_currency,
             ..
-        } => Ok(QuoteRes {
-            currency_code,
-            base_currency,
-            exchange_rate: Decimal::ZERO,
-            on_date: on_date.to_string(),
-            source: "MISSING".to_string(),
-            effective_date: None,
-        }),
+        } => {
+            ensure_target_currency(target.as_deref(), &base_currency)?;
+            Ok(QuoteRes {
+                from_currency: currency_code.clone(),
+                to_currency: base_currency.clone(),
+                currency_code,
+                base_currency,
+                exchange_rate: Decimal::ZERO,
+                on_date: on_date.to_string(),
+                source: "MISSING".to_string(),
+                effective_date: None,
+            })
+        }
     }
+}
+
+/// `to_currency` 只能是账套本位币（交叉汇率本接口不做）。
+///
+/// 为什么不做倒数：汇率取数是「1 外币 = 多少本位币」，本系统没有任何地方锁定过
+/// 本位币→外币的牌价；用 `1/rate` 现算会在 4 位小数舍入上与财务手工维护的牌价对不上，
+/// 报价页显示的数与建单落库的数就不再是「同一把尺」（本模块的核心承诺）。
+fn ensure_target_currency(target: Option<&str>, base_currency: &str) -> std::result::Result<(), ApiError> {
+    match target {
+        Some(code) if code != base_currency => Err(bad_request(format!(
+            "to_currency 只支持账套本位币 `{base_currency}`（当前 `{code}`）：\
+             本接口不做交叉汇率，请先按 from_currency → {base_currency} 折算再换第二段"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// 预览查询串（**参数名对齐**，见 [`quote_rate`] 的口径）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct QuoteQuery {
+    /// 要折的币种（缺省 = 本位币）。
+    pub from_currency: Option<String>,
+    /// 折成的币种（缺省 / 只能是本位币）。
+    pub to_currency: Option<String>,
+    /// 取数日期（`yyyy-MM-dd`，缺省 = 今天 CST）。
+    pub date: Option<String>,
+}
+
+/// 预览接口接受的查询参数（错误文案 / 单测共用一份，改这里就是改契约）。
+pub const QUOTE_QUERY_PARAMS: [&str; 4] = ["from_currency", "to_currency", "date", "currency_code"];
+
+/// 把原始查询串解析成 [`QuoteQuery`]：**未知参数一律 400**（不静默忽略）。
+///
+/// 为什么不用 `serde(deny_unknown_fields)`：serde 的拒绝走 axum 默认 rejection，
+/// 返回体不是本项目的 `{code, message}` 信封，前端要另写一套解析。这里是显式校验，
+/// 报文能点名「哪个参数不认识 + 允许哪些」。
+pub fn parse_quote_query(params: &HashMap<String, String>) -> std::result::Result<QuoteQuery, ApiError> {
+    let mut unknown: Vec<&str> = params
+        .keys()
+        .map(String::as_str)
+        .filter(|name| !QUOTE_QUERY_PARAMS.contains(name))
+        .collect();
+    if !unknown.is_empty() {
+        unknown.sort_unstable();
+        let listed = unknown
+            .iter()
+            .map(|name| format!("`{name}`"))
+            .collect::<Vec<_>>()
+            .join("、");
+        return Err(bad_request(format!(
+            "未知查询参数 {listed}：汇率预览只接受 from_currency / to_currency / date\
+             （`currency_code` 是已废弃别名，等价于 from_currency）"
+        )));
+    }
+    let alias = clean_query_value(params.get("currency_code"));
+    let primary = clean_query_value(params.get("from_currency"));
+    let from_currency = match (primary, alias) {
+        (Some(primary), Some(alias)) if !primary.eq_ignore_ascii_case(&alias) => {
+            return Err(bad_request(format!(
+                "from_currency（`{primary}`）与废弃别名 currency_code（`{alias}`）不一致：\
+                 只传 from_currency 即可"
+            )));
+        }
+        (Some(primary), _) => Some(primary),
+        (None, Some(alias)) => Some(alias),
+        (None, None) => None,
+    };
+    Ok(QuoteQuery {
+        from_currency,
+        to_currency: clean_query_value(params.get("to_currency")),
+        date: clean_query_value(params.get("date")),
+    })
+}
+
+/// 查询串取值：去空白，空白等同「没传」。
+fn clean_query_value(raw: Option<&String>) -> Option<String> {
+    raw.map(|text| text.trim().to_string()).filter(|text| !text.is_empty())
 }
 
 // ==================== HTTP 入口 ====================
@@ -1280,27 +1387,23 @@ pub async fn rate_batch_month_api(
     Ok(Res::ok(batch_month_rates(operator, req).await?))
 }
 
-/// 汇率预览（只读）。
+/// 汇率预览（只读）。**未知参数一律 400**（见 [`parse_quote_query`]）。
 #[nik::permission(
     path = "/business/erp/exchange-rate/quote",
     method = "GET",
     permission = "business:erp:fx-rate:quote"
 )]
 #[nik::get("/business/erp/exchange-rate/quote")]
-pub async fn rate_quote_api(Query(query): Query<QuoteQuery>) -> ResResult<QuoteRes> {
+pub async fn rate_quote_api(Query(params): Query<HashMap<String, String>>) -> ResResult<QuoteRes> {
+    let query = parse_quote_query(&params)?;
     Ok(Res::ok(
-        quote_rate(query.currency_code.as_deref(), query.date.as_deref()).await?,
+        quote_rate(
+            query.from_currency.as_deref(),
+            query.to_currency.as_deref(),
+            query.date.as_deref(),
+        )
+        .await?,
     ))
-}
-
-/// 预览查询串。
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default)]
-pub struct QuoteQuery {
-    /// 币种码（缺省 = 本位币）。
-    pub currency_code: Option<String>,
-    /// 取数日期（缺省 = 今天 CST）。
-    pub date: Option<String>,
 }
 
 // ==================== 单测（纯逻辑；真库行为由 curl 实测留证） ====================
@@ -1385,5 +1488,84 @@ mod tests {
         assert_eq!(parse_uuid(&id.to_string(), "id").expect("合法"), id);
         assert!(parse_uuid("not-a-uuid", "id").is_err());
         assert!(parse_uuid("  ", "id").is_err());
+    }
+
+    // ---------- 汇率预览参数（E2E-FIX-8 ③：参数名对齐 + 未知参数 400） ----------
+
+    fn query(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn quote_query_accepts_aligned_param_names() {
+        let parsed = parse_quote_query(&query(&[
+            ("from_currency", " usd "),
+            ("to_currency", "CNY"),
+            ("date", "2026-11-09"),
+        ]))
+        .expect("对齐后的参数名必须被接受");
+        // 这一层只去空白；大小写规范化由 `quote_rate` 的 `parse_code` 做（错误文案要回显原文）
+        assert_eq!(
+            parsed,
+            QuoteQuery {
+                from_currency: Some("usd".to_string()),
+                to_currency: Some("CNY".to_string()),
+                date: Some("2026-11-09".to_string()),
+            }
+        );
+    }
+
+    /// 卡面靶心：历史实现把 `?from_currency=USD` 静默忽略 → 回本位币 1。
+    #[test]
+    fn quote_query_rejects_unknown_or_misspelled_params() {
+        let err = parse_quote_query(&query(&[("from_currnecy", "USD")])).expect_err("拼错必须 400");
+        assert_eq!(err.status, 400, "未知参数必须是 400");
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(
+            err.msg.contains("from_currnecy") && err.msg.contains("from_currency"),
+            "报文要点名「哪个不认识」+「允许哪些」：{}",
+            err.msg
+        );
+        // 只有白名单里的名字才放行；`currency` / `to` 这类近似名同样 400
+        for name in ["currency", "to", "exchange_rate"] {
+            let rejected = parse_quote_query(&query(&[(name, "USD")]));
+            assert!(
+                rejected.is_err(),
+                "`{name}` 不是合法参数，必须 400（当前返回 {rejected:?}）"
+            );
+        }
+    }
+
+    #[test]
+    fn quote_query_keeps_currency_code_as_deprecated_alias() {
+        // 老前端 / 老脚本还传 currency_code：等价于 from_currency
+        let parsed = parse_quote_query(&query(&[("currency_code", "hkd")])).expect("别名仍可用");
+        assert_eq!(parsed.from_currency.as_deref(), Some("hkd"));
+
+        // 两个都给且一致 → 走 from_currency；不一致 → 400（不猜用户想要哪个）
+        let same = parse_quote_query(&query(&[("from_currency", "USD"), ("currency_code", "usd")]))
+            .expect("大小写不同但语义相同");
+        assert_eq!(same.from_currency.as_deref(), Some("USD"));
+
+        let err = parse_quote_query(&query(&[("from_currency", "USD"), ("currency_code", "HKD")]))
+            .expect_err("两个名字给了不同币种，必须 400");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("不一致"), "报文要说清冲突：{}", err.msg);
+    }
+
+    #[test]
+    fn quote_query_treats_blank_as_absent() {
+        let parsed = parse_quote_query(&query(&[("from_currency", "   "), ("to_currency", ""), ("date", " ")]))
+            .expect("空白值等同没传（沿用老口径）");
+        assert_eq!(parsed, QuoteQuery::default());
+    }
+
+    #[test]
+    fn empty_query_is_allowed_and_defaults_to_base_currency() {
+        let parsed = parse_quote_query(&HashMap::new()).expect("不带参数 = 本位币报价");
+        assert_eq!(parsed, QuoteQuery::default());
     }
 }

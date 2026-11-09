@@ -838,6 +838,13 @@ pub(super) async fn post_in_tx(
     //    金额全部取自单头（header.total_*），不重算（硬红线 5）。
     //    顺序：先凭证（应付要引用 voucher_id）→ 再应付 → 最后回写收货单两列。
     //
+    //    ★ 口径（E2E-FIX-8 ①，`docs/ERP-库存对账口径.md` §5.1）：本步骤对
+    //      `in_type = PURCHASE` **与** `SOURCELESS` 一视同仁 —— 「无源」= 没有采购单，
+    //      不是没有供应商（`ck_biz_si_supplier_scope` 要求 SOURCELESS 必须有供应商），
+    //      所以无源入库照样 借 存货/进项税、贷 2202 应付。期初不走这条表
+    //      （`opening.rs`：借 1405 / 贷 3103），销售退货走 `sales_return_posting`
+    //      （借 1405 / 贷 6401，不挂应付）。**不要**在这里加「无源不挂应付」分支。
+    //
     //    【D3】凭证这一步现在由**联动配置路由**（`linkage::engine::stockin_voucher`）：
     //      · 没有 GENERATE_VOUCHER 规则 → 老路 `voucher::create_for_stock_in`（逐字不变）；
     //      · mode=SHADOW → 配置路径在 SAVEPOINT 里试算并回滚，老路照旧落账，事后逐字段对比；

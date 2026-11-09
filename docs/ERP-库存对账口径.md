@@ -184,6 +184,47 @@ SELECT SUM(i.qty)
 其余必须没有」。V0330 同时把存量无源单的 `in_type` 从 `PURCHASE` 迁到 `SOURCELESS`，
 所以按 `in_type` 统计采购入库不会再把「没走采购的货」算进去。
 
+### 5.1 无源入库照样挂应付（口径 B：视同采购 · E2E-FIX-8 ①）
+
+**结论**：`is_sourceless = true` 的入库单过账后**照旧**生成「借 存货（1405 等）/ 借 进项税 /
+贷 2202 应付账款」的凭证与一张应付单。**不要**加「无源 → 不挂应付」的分支。
+
+三条依据（都能在代码/DDL 里直接核）：
+
+1. **「无源」= 没有采购单，不是没有供应商。** 同一条 `ck_biz_si_supplier_scope` 要求
+   `SOURCELESS` **必须有** `supplier_id`，DTO 层还要求无源单写 `remark` 说明来源
+   （`stockin_dto.rs`：AP-4 `66027` / AP-5 `66029`）。所以「欠款给谁」有明确答案 ——
+   单头上的供应商，凭证贷方行的辅助核算挂的也是它（`purchase_in_lines` 的 `ctx.supplier_id`）。
+2. **期初根本不走这张表。** 库存期初是 `POST /business/erp/opening-balance/inventory`
+   （`biz_opening_inventory`，凭证 `借 1405 / 贷 3103`，见 `opening.rs`），不生成应付。
+   所以「期初类无源入库不挂应付」的前提不成立：无源入库是「**有**供应商、**没**采购单」的
+   补录（老系统迁来的未结清货款、货到票未到、样机/赠品补录……），货款确实要付。
+3. **不挂应付会把缺陷变成人工。** 只借 1405 不贷记任何负债 → 试算平衡缺口、应付账龄与
+   现金流量表各漏一笔真实负债，财务只能手工补一张应付单；而手工单与原始入库单没有
+   `payable.voucher_id` / `biz_payable.source_no` 的勾稽，以后对账还得再核一次。
+
+**选路表**（别再让「无源」当成筐；每行都在代码/库里有据）：
+
+| 场景 | 走哪条路 | 挂应付？ |
+|---|---|---|
+| 旧系统期初的库存 | `POST /opening-balance/inventory`（期初凭证 1405/3103） | 不挂（本来就没有这笔负债） |
+| 有采购单的收货 | 收货过账 `post_in_tx`，`in_type = PURCHASE` | 挂，供应商由采购单带出 |
+| **无采购单但有供应商的补录** | 收货过账 `post_in_tx`，`in_type = SOURCELESS` | **挂（本口径）** |
+| 销售退货回库 | **另一条过账事务** `sales_return_posting::post_in_tx`（`in_type = RETURN`，凭证 借 1405 / 贷 6401） | 不挂；145 dev 实测 `IN-20261109-000243` 就是这张形态（有凭证、无应付） |
+| 杂项（`in_type = OTHER`） | 收货 API 不再落这个类型（`stockin_base::in_type_of` 只出 `PURCHASE` / `SOURCELESS`）；历史行若走 ⑦ | 不挂：`payable::create_for_stock_in` 对「无供应商」直接报错，不会静默生成一张挂不上辅助核算的应付 |
+
+> 所以「无源入库挂应付」不是 `post_in_tx` 无差别对待所有类型的结果 —— 它是
+> **收货过账这一条路**（PURCHASE + SOURCELESS，二者都必须有供应商）的固有语义。
+> 销售退货有自己的过账事务与贷方科目（6401），不受本口径影响。
+
+> 如果产品以后确实要「无源不挂应付」，改法**不是**关掉分支：得同时定「贷方记什么科目」
+> （如 3103 本年利润 / 以前年度损益调整）、改 `B2`（库存金额 = 1405 余额）/`B3` 巡检口径，
+> 并处理存量无源单已生成的应付。只关分支等于制造不平衡的凭证。
+
+**回归钉住**：`receipt_refund` 那类「加列 + 口径」的变更都有纯逻辑用例；本条的判据在真库
+（过账事务），由 `stockin_handler` 的过账用例覆盖（需 `ERP_DB_URL`），本卡未改代码，
+只把口径写进本节与 `stockin_handler_post.rs` ⑦ 的注释指针。
+
 ---
 
 ## 6. 库存巡检（不变式③）：`book_qty` 口径与修复语义
@@ -255,7 +296,69 @@ ADR-20261031 起「一物一码批量生成 = 一笔无来源入库」：成本�
 
 ---
 
-## 7. 相关文件
+## 7. 调拨**不出**会计凭证（E2E-FIX-8 ④ · 合理设计，不是漏做）
+
+**结论**：仓库间调拨单（`biz_stock_transfer`）**不生成会计凭证**，表上也没有 `voucher_id` 列，
+`biz_voucher.source_type` 里**没有** `STOCK_TRANSFER` 这个来源。巡检 / 审计看到「调拨单没有凭证」
+请按本节判「正常」，不要当缺陷提单。
+
+**为什么本来就没有 GL 影响**：
+
+1. **借贷同科目**：调出仓与调入仓的存货都记 `1405`，仓间移位等于「借 1405 / 贷 1405」，
+   对总账零影响；落一张这样的凭证只会污染 `biz_voucher` 与凭证号序列，没有任何信息量。
+2. **成本按原价平移**：过账时 `transfer_settle::settle_transfer` 用调出桶的 `unit_cost`
+   结转（`biz_stock_transfer.total_amount` / 明细金额快照），调入仓 `credit_inventory_row`
+   按同一 `unit_cost` 入账 —— 金额在公司层面不变，不产生损益。
+3. **结构上就没有钩子**：`backend/src/business/shared/doc_kind.rs::VoucherSourceType` 的 19 个
+   来源里没有调拨；`biz_stock_transfer` 的 DDL（V0140）只有 `approval_instance_id`（流程弱引用），
+   没有 `voucher_id`；`transfer_settle.rs` / `transfer_handler.rs` 里 `voucher` 出现 **0** 次。
+
+调拨**会**动的是库存三本账 + 两条流水（方向相反、数量相等、`doc_type='STOCK_TRANSFER'`）：
+
+| 表 | 调拨做了什么 |
+|---|---|
+| `biz_inventory`（成本账） | 调出仓 `-qty/-amount`、调入仓 `+qty/+amount`（同 `unit_cost`） |
+| `biz_inventory_location`（库位账） | 与成本账**同一个桶**扣/加（`out_bucket.location_id` / `in_bucket_location`） |
+| `biz_inventory_txn`（流水） | `biz_type='TRANSFER_OUT'`（`txn_type='OUT'`）+ `'TRANSFER_IN'`（`'IN'`），同 `doc_id` |
+
+**审计怎么核（可直接抄）**：
+
+```sql
+-- ① 调拨单不应有凭证来源（期望 0；非 0 = 有人绕过口径生成了凭证，要查）
+SELECT count(*) FROM biz_voucher WHERE source_type = 'STOCK_TRANSFER';
+
+-- ② 调拨流水必须成对且数量相等（期望 0 行）
+SELECT doc_no, out_qty, in_qty FROM (
+    SELECT doc_no,
+           SUM(CASE WHEN biz_type = 'TRANSFER_OUT' THEN qty ELSE 0 END) AS out_qty,
+           SUM(CASE WHEN biz_type = 'TRANSFER_IN'  THEN qty ELSE 0 END) AS in_qty
+      FROM biz_inventory_txn
+     WHERE doc_type = 'STOCK_TRANSFER'
+     GROUP BY doc_no
+) t WHERE out_qty <> in_qty;
+
+-- ③ 成本守恒：同一调拨单调出金额 = 调入金额（`transfer_settle` 不变式第 3 条，期望 0 行）
+SELECT doc_no, out_amt, in_amt FROM (
+    SELECT doc_no,
+           SUM(CASE WHEN biz_type = 'TRANSFER_OUT' THEN amount ELSE 0 END) AS out_amt,
+           SUM(CASE WHEN biz_type = 'TRANSFER_IN'  THEN amount ELSE 0 END) AS in_amt
+      FROM biz_inventory_txn
+     WHERE doc_type = 'STOCK_TRANSFER'
+     GROUP BY doc_no
+) t WHERE out_amt <> in_amt;
+```
+
+145 dev 库实测（2026-11-09）：`source_type='STOCK_TRANSFER'` 凭证 **0** 张、`biz_stock_transfer`
+无 `voucher_id` 列、DONE 单 3 张、调拨流水不配对 **0** 行。
+
+**唯一的例外情形**（写清楚免得日后被「为什么不做」问倒）：跨法人 / 跨账套调拨、内部加价调拨
+在会计上是内部交易（视同销售 / 内部往来），**需要**凭证；本系统当前不支持这两种形态，
+现有 `biz_stock_transfer` 只表达「同一账套内的仓间移位」。真要做，得先加「内部结算价 /
+往来科目」字段，而不是给现在的调拨单硬挂一张 1405/1405 的空凭证。
+
+---
+
+## 8. 相关文件
 
 | 文件 | 作用 |
 |---|---|
@@ -266,3 +369,6 @@ ADR-20261031 起「一物一码批量生成 = 一笔无来源入库」：成本�
 | `backend/src/business/shared/doc_kind.rs` | 业务类型词表唯一真相 |
 | `docs/evidence/20261107-p003-inventory-chain/09_reconcile.sql` / `13_final_reconcile.sql` | P0-03 演练对账 SQL（**已是正确口径**，与本文一致） |
 | `backend/migrations/business/V0330__inventory_biz_type_and_sourceless_in_type.up.sql` | 本卡迁移（销售出库 `SALE_OUT` 回填 + `SOURCELESS` 语义） |
+| `backend/src/business/erp/stockin_handler_post.rs` | 收货过账 ⑦：PURCHASE / SOURCELESS 生成应付 + 凭证（§5.1 口径；注释里有指针） |
+| `backend/src/business/erp/sales_return_posting.rs` | 销售退货回库的**另一条**过账事务（借 1405 / 贷 6401，不挂应付） |
+| `backend/src/business/erp/transfer_settle.rs` | 调拨过账：两条成对流水 + 三本账，**不生成凭证**（§7） |

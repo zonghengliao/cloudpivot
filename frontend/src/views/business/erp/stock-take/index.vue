@@ -626,11 +626,24 @@
       data-testid="stocktake-confirm-dialog"
     >
       <p class="dialog-text" data-testid="stocktake-confirm-text">{{ confirmText }}</p>
+      <!--
+        E2E-FIX-8 ⑤：提交审批（DRAFT → PENDING_POST）时盘点表 / 盈亏说明必传。
+        详情页的动作按钮已经有闸门，这里再兜一层：弹窗打开后附件可能被删、或闸门当时还在查
+        —— 点「提交审批」时重查一次，缺附件就直接在弹窗里红字拦住，不用等后端 400 才知道。
+      -->
+      <p
+        v-if="confirmGateHint"
+        class="dialog-error"
+        data-testid="stocktake-confirm-gate-hint"
+      >
+        {{ confirmGateHint }}
+      </p>
       <p v-if="confirmError" class="dialog-error" data-testid="stocktake-confirm-error">{{ confirmError }}</p>
       <div class="dialog-footer">
         <t-button
           theme="primary"
           :loading="acting"
+          :disabled="confirmGateBlocked"
           :data-testid="confirmTarget === 'POSTED' ? 'btn-stocktake-post-confirm' : 'btn-stocktake-submit-confirm'"
           @click="confirmTransition"
         >
@@ -1366,13 +1379,49 @@ function startAction(action: StockTakeActionSpec): void {
     confirmTarget.value = action.status;
     confirmError.value = '';
     confirmVisible.value = true;
+    // 提交审批这一条边：打开弹窗就重查一次附件（详情页那次查询可能已经过期）
+    if (action.status === 'PENDING_POST') {
+      void refreshAttachGate();
+    }
     return;
   }
   void runStatus(action.status, null);
 }
 
-function confirmTransition(): void {
-  void runStatus(confirmTarget.value, null, true);
+/**
+ * 提交审批弹窗里的附件闸门（E2E-FIX-8 ⑤）。
+ *
+ * 只认**后端给的明确判定**（`resolved && !canProceed`）—— 查询中 / 查询失败仍然放行，
+ * 与 `attachment-gate-pure.ts` 的降级口径一致（真正的闸门在后端，绕过前端也会 400）。
+ */
+const confirmGateBlocked = computed(
+  () =>
+    confirmTarget.value === 'PENDING_POST' &&
+    attachGate.value.resolved &&
+    !attachGate.value.canProceed,
+);
+
+/** 弹窗里的红字：缺什么附件（后端拼好的 hint，前端不另编文案）。 */
+const confirmGateHint = computed(() => (confirmGateBlocked.value ? attachGate.value.hint : null));
+
+/**
+ * 点「提交审批」：**先重查一次附件**再提交。
+ *
+ * 详情页按钮已经禁用，但弹窗开着的时候用户可能在别处删掉附件 / 闸门当时还在查
+ * （`pendingGate` 是放行的）—— 所以提交前再判一次，缺附件就在弹窗里红字拦住，
+ * 不让用户白点一次再吃后端 400（E2E-FIX-8 ⑤ 的原现场）。
+ */
+async function confirmTransition(): Promise<void> {
+  if (confirmTarget.value === 'PENDING_POST') {
+    await refreshAttachGate();
+    if (attachGate.value.resolved && !attachGate.value.canProceed) {
+      confirmError.value =
+        attachGate.value.hint ?? '提交审批前必须上传盘点表或盈亏说明（pdf/jpg/png）';
+      return;
+    }
+  }
+  confirmError.value = '';
+  await runStatus(confirmTarget.value, null, true);
 }
 
 async function confirmCancel(): Promise<void> {

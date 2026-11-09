@@ -199,23 +199,33 @@ pub const REASON_MIN_CHARS: usize = 4;
 /// 退款原因最长长度（`reason` 是 TEXT，这里只是不给「一大段粘贴」）。
 pub const REASON_MAX_CHARS: usize = 500;
 
-/// `biz_receipt_refund` 列清单（与 V0294 逐列对应）。
+/// `biz_receipt_refund` 列清单（与 V0294 逐列对应；`approval_instance_id` 由 V0361 补）。
 pub const COLUMNS: &str = "id, refund_no, customer_id, source_receipt_id, refund_date, amount, \
                            allocated_amount, method, bank_account, status, voucher_id, reason, \
-                           remark, created_at, updated_at, create_by";
+                           remark, approval_instance_id, created_at, updated_at, create_by";
 
-/// 分页列清单（连带客户名；别名 `c` = biz_customer）。
+/// 分页列清单（连带客户名 + **审批状态**；别名 `c` = biz_customer，`fi` = biz_flow_instance）。
 ///
 /// **必须覆盖 [`RefundRow::from_row`] 读的每一列**：分页与详情共用同一个 Row 映射，
 /// 少一列就是整页 500（E2E-02 实测：漏 `create_by` → `GET /receipt-refund/page` 报
 /// `column create_by not found in row`）。单测 `list_columns_cover_row_fields` 钉住。
+///
+/// `approval_status` / `approval_instance_no` **只在本查询里读**（由 [`LIST_FROM`] 的
+/// LEFT JOIN 带出），不进 `RefundRow` —— 详情路径另有 `latest_approval_of` 现查，
+/// 两边共用的行映射不该依赖「某一条 SQL 恰好有这列」（E2E-FIX-8 ②）。
 pub const LIST_COLUMNS: &str = "p.id, p.refund_no, p.customer_id, COALESCE(c.name, '') AS customer_name, \
                                 p.source_receipt_id, p.refund_date, p.amount, p.allocated_amount, \
                                 p.method, p.bank_account, p.status, p.voucher_id, p.reason, p.remark, \
+                                p.approval_instance_id, fi.instance_no AS approval_instance_no, \
+                                fi.status AS approval_status, \
                                 p.created_at, p.updated_at, p.create_by";
 
-/// 分页 FROM（客户左连：客户软删后历史退款单仍要能列出来）。
-pub const LIST_FROM: &str = "FROM biz_receipt_refund p LEFT JOIN biz_customer c ON c.id = p.customer_id";
+/// 分页 FROM（客户左连：客户软删后历史退款单仍要能列出来；
+/// 审批实例左连：一个 JOIN 带出审批状态，避免前端逐行回查详情）。
+pub const LIST_FROM: &str = "FROM biz_receipt_refund p \
+                             LEFT JOIN biz_customer c ON c.id = p.customer_id \
+                             LEFT JOIN biz_flow_instance fi ON fi.id = p.approval_instance_id \
+                                                          AND fi.deleted_at IS NULL";
 
 /// 分页排序（新建在前）。
 pub const LIST_ORDER: &str = "ORDER BY p.created_at DESC, p.refund_no DESC";
@@ -238,6 +248,21 @@ pub fn status_label(status: &str) -> &str {
         STATUS_POSTED => "已过账",
         STATUS_CANCELLED => "已作废",
         _ => "未知状态",
+    }
+}
+
+/// 审批状态中文（前端列表 / 详情 tag 的唯一来源）。
+///
+/// 五个值与流程引擎 `biz_flow_instance.status` 逐字一致（与 `payable_payment::approval_status_label`
+/// 同口径）。返回值给中文，`None`（从未提交）由调用方处理，**不在这里编造「无审批」**。
+pub fn approval_status_label(status: &str) -> &str {
+    match status {
+        "PENDING" => "审批中",
+        "APPROVED" => "已通过",
+        "REJECTED" => "已驳回",
+        "WITHDRAWN" => "已撤回",
+        "CANCELLED" => "已终止",
+        other => other,
     }
 }
 
@@ -438,6 +463,11 @@ pub struct RefundRow {
     pub status: String,
     /// 退款凭证。
     pub voucher_id: Option<Uuid>,
+    /// 最近一次提交的审批实例（弱引用 `biz_flow_instance.id`；`None` = 从未提交过审批）。
+    ///
+    /// 审批**不是单据状态**（`status` 仍是四个值），这一列只是「最近提的那一轮」的指针，
+    /// 让列表页能一条 SQL 带出审批状态（V0361 / E2E-FIX-8 ②）。
+    pub approval_instance_id: Option<Uuid>,
     /// 退款原因。
     pub reason: String,
     /// 备注。
@@ -465,6 +495,7 @@ impl RefundRow {
             bank_account: row.get_typed("bank_account")?,
             status: row.get_typed("status")?,
             voucher_id: row.get_typed("voucher_id")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
             reason: row.get_typed("reason")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
@@ -700,8 +731,32 @@ pub async fn voucher_no_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<
     }
 }
 
+/// 分页行（头 + 客户名 + **审批状态**）。
+///
+/// 审批两列只由列表 SQL 的 LEFT JOIN 带出，所以不进 [`RefundRow`]（详情路径没有这两列，
+/// 共用行映射会把详情打 500）。把它们单独拎出来，映射点就只有一处。
+#[derive(Debug, Clone)]
+pub struct RefundListRow {
+    /// 单头。
+    pub row: RefundRow,
+    /// 客户名称。
+    pub customer_name: String,
+    /// 审批单号（`FLW-…`；从未提交 / 实例被清理 → `None`）。
+    pub approval_instance_no: Option<String>,
+    /// 审批状态（`PENDING` / `APPROVED` / …；从未提交 → `None`）。
+    pub approval_status: Option<String>,
+}
+
+impl RefundListRow {
+    /// 转出参。
+    pub fn into_res(self) -> RefundRes {
+        RefundRes::from_row(&self.row, &self.customer_name)
+            .with_approval_columns(self.approval_instance_no, self.approval_status)
+    }
+}
+
 /// 分页（全部状态；财务要对账，作废的也要看得见）。
-pub async fn refund_page(q: &RefundFilter) -> DbResult<(Vec<(RefundRow, String)>, i64)> {
+pub async fn refund_page(q: &RefundFilter) -> DbResult<(Vec<RefundListRow>, i64)> {
     let mut sql = format!("SELECT {LIST_COLUMNS} {LIST_FROM} WHERE p.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
     if let Some(status) = q.status.as_deref() {
@@ -735,9 +790,14 @@ pub async fn refund_page(q: &RefundFilter) -> DbResult<(Vec<(RefundRow, String)>
         .iter()
         .map(|row| {
             let name: String = row.get_typed("customer_name")?;
-            Ok((RefundRow::from_row(row)?, name))
+            Ok(RefundListRow {
+                row: RefundRow::from_row(row)?,
+                customer_name: name,
+                approval_instance_no: row.get_typed("approval_instance_no")?,
+                approval_status: row.get_typed("approval_status")?,
+            })
         })
-        .collect::<DbResult<Vec<(RefundRow, String)>>>()?;
+        .collect::<DbResult<Vec<RefundListRow>>>()?;
     Ok((rows, i64::try_from(result.total).unwrap_or(i64::MAX)))
 }
 
@@ -958,6 +1018,15 @@ pub struct RefundRes {
     pub status_label: String,
     /// 凭证 id。
     pub voucher_id: Option<String>,
+    /// 最近一次提交的审批实例 id（`null` = 从未提交过审批）。
+    pub approval_instance_id: Option<String>,
+    /// 审批单号（`FLW-yyyyMMdd-XXXXXXXX`；实例被清理 / 从未提交时为 `null`）。
+    pub approval_instance_no: Option<String>,
+    /// 审批状态（`PENDING` / `APPROVED` / `REJECTED` / `WITHDRAWN` / `CANCELLED`；
+    /// `null` = 从未提交过审批）。**列表页直接用这个字段显示审批状态**，不必回查详情。
+    pub approval_status: Option<String>,
+    /// 审批状态中文（与 `approval_status` 一一对应；`null` = 从未提交过审批）。
+    pub approval_status_label: Option<String>,
     /// 退款原因。
     pub reason: String,
     /// 备注。
@@ -987,11 +1056,48 @@ impl RefundRes {
             status: row.status.clone(),
             status_label: status_label(&row.status).to_string(),
             voucher_id: row.voucher_id.map(|id| id.to_string()),
+            // 审批三段默认空：列表由 `refund_page` 用 JOIN 出来的两列补，
+            // 详情由 `detail_with` 用 `latest_approval_of` 补（两条路都不做额外查询）
+            approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
+            approval_instance_no: None,
+            approval_status: None,
+            approval_status_label: None,
             reason: row.reason.clone(),
             remark: row.remark.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
+    }
+
+    /// 用**列表 SQL JOIN 出来的两列**补审批状态（`refund_page` 用；不产生额外查询）。
+    ///
+    /// `instance_no` / `status` 都来自 `LEFT JOIN biz_flow_instance fi`：实例被清理或
+    /// 从未提交时两列都是 `None` → 前端显示「未提交审批」。
+    pub fn with_approval_columns(mut self, instance_no: Option<String>, status: Option<String>) -> Self {
+        self.approval_status_label = status.as_deref().map(approval_status_label).map(str::to_string);
+        self.approval_status = status;
+        self.approval_instance_no = instance_no;
+        self
+    }
+
+    /// 用审批桥的「最近一条实例」摘要补审批状态（详情路径用；不产生额外查询）。
+    pub fn with_approval_brief(mut self, brief: Option<&receipt_refund_bridge::ApprovalBrief>) -> Self {
+        match brief {
+            None => {
+                // 没提交过（或实例被清理）：三段归零，别留半截旧值
+                self.approval_instance_id = None;
+                self.approval_instance_no = None;
+                self.approval_status = None;
+                self.approval_status_label = None;
+            }
+            Some(brief) => {
+                self.approval_instance_id = Some(brief.instance_id.to_string());
+                self.approval_instance_no = Some(brief.instance_no.clone());
+                self.approval_status = Some(brief.status.clone());
+                self.approval_status_label = Some(approval_status_label(&brief.status).to_string());
+            }
+        }
+        self
     }
 }
 
@@ -1110,13 +1216,14 @@ pub async fn detail_with(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result
     };
     let approval = receipt_refund_bridge::latest_approval_of(ex, row.id)
         .await
-        .map_err(|error| utils::db_error(error, "查询退款审批实例"))?
-        .map(|brief| RefundApprovalRes::from_brief(&brief));
+        .map_err(|error| utils::db_error(error, "查询退款审批实例"))?;
+    // 单头也带上审批三段（列表 / 详情字段集一致：前端一套渲染逻辑）
+    let header = RefundRes::from_row(&row, &name).with_approval_brief(approval.as_ref());
     Ok(RefundDetailRes {
-        header: RefundRes::from_row(&row, &name),
+        header,
         voucher_no,
         allocations: allocations.iter().map(RefundAllocationRes::from_row).collect(),
-        approval,
+        approval: approval.as_ref().map(RefundApprovalRes::from_brief),
     })
 }
 
@@ -1971,6 +2078,14 @@ async fn start_approval(
             format!("退款审批单发起后状态是 {status}（应为 PENDING）：流程定义可能没有可执行的审批节点"),
         ));
     }
+    // 把「最近一轮审批实例」写回单头（V0361）：列表页一条 SQL 就能显示审批状态，
+    // 前端不必逐行回查详情。与实例**同一事务**，不会出现「实例建了、指针没落」。
+    tx.execute_with_params(
+        &format!("UPDATE {TABLE} SET approval_instance_id = ?::uuid WHERE id = ?::uuid AND deleted_at IS NULL"),
+        vec![Value::from(&instance_id), Value::from(&row.id)],
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "回写退款单审批实例"))?;
     tx.commit()
         .await
         .map_err(|error| utils::db_error(error, "提交退款审批事务"))?;
@@ -2122,7 +2237,7 @@ pub async fn receipt_refund_page_handler(Query(query): Query<RefundPageQuery>) -
     let (rows, total) = refund_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询收款退款单"))?;
-    let list = rows.iter().map(|(row, name)| RefundRes::from_row(row, name)).collect();
+    let list = rows.into_iter().map(RefundListRow::into_res).collect();
     Ok(Res::page(
         list,
         u64::try_from(total).unwrap_or(0),
@@ -2201,6 +2316,29 @@ mod tests {
         Decimal::from_str(raw).expect("夹具金额非法")
     }
 
+    /// 内存里的退款单头（纯逻辑用例用；不落库，不依赖 ERP_DB_URL）。
+    fn refund_row_for_test() -> RefundRow {
+        RefundRow {
+            id: Uuid::now_v7(),
+            refund_no: "RR-20261109-000001".to_string(),
+            customer_id: Uuid::now_v7(),
+            source_receipt_id: None,
+            refund_date: NaiveDate::from_ymd_opt(2026, 11, 9).expect("固定日期合法"),
+            amount: dec("100"),
+            allocated_amount: dec("100"),
+            method: Some(METHOD_BANK_TRANSFER.to_string()),
+            bank_account: None,
+            status: STATUS_CONFIRMED.to_string(),
+            voucher_id: None,
+            approval_instance_id: None,
+            reason: "客户退货，货款原路退回".to_string(),
+            remark: None,
+            created_at: None,
+            updated_at: None,
+            create_by: Some(Uuid::now_v7()),
+        }
+    }
+
     // ---------- 纯逻辑用例（不连库） ----------
 
     /// 分页列清单必须覆盖 `RefundRow::from_row` 读的每一列（漏一列 = 整页 500）。
@@ -2218,6 +2356,7 @@ mod tests {
             "bank_account",
             "status",
             "voucher_id",
+            "approval_instance_id",
             "reason",
             "remark",
             "created_at",
@@ -2230,6 +2369,62 @@ mod tests {
             );
         }
         assert!(LIST_COLUMNS.contains("customer_name"), "列表要带客户名");
+        // E2E-FIX-8 ②：列表必须一条 SQL 就带出审批状态（否则前端逐行回查详情）
+        assert!(
+            LIST_COLUMNS.contains("approval_status") && LIST_COLUMNS.contains("approval_instance_no"),
+            "列表要带审批状态/单号：{LIST_COLUMNS}"
+        );
+        assert!(
+            LIST_FROM.contains("biz_flow_instance"),
+            "审批状态必须由 LIST_FROM 的 LEFT JOIN 带出：{LIST_FROM}"
+        );
+    }
+
+    /// 审批三段（E2E-FIX-8 ②）：列表 / 详情共用同一套中英文映射。
+    #[test]
+    fn approval_columns_are_filled_from_the_same_source_as_detail() {
+        let row = refund_row_for_test();
+        // 未提交过审批：三段全空（不编造「无审批」）
+        let fresh = RefundRes::from_row(&row, "客户甲").with_approval_columns(None, None);
+        assert!(fresh.approval_instance_no.is_none() && fresh.approval_status.is_none());
+        assert!(fresh.approval_status_label.is_none());
+
+        // 列表路径：JOIN 出来的两列
+        let listed = RefundRes::from_row(&row, "客户甲")
+            .with_approval_columns(Some("FLW-20261109-00000001".into()), Some("PENDING".into()));
+        assert_eq!(listed.approval_status.as_deref(), Some("PENDING"));
+        assert_eq!(listed.approval_status_label.as_deref(), Some("审批中"));
+        assert_eq!(listed.approval_instance_no.as_deref(), Some("FLW-20261109-00000001"));
+
+        // 详情路径：审批桥的摘要 → 同样的三段
+        let brief = receipt_refund_bridge::ApprovalBrief {
+            instance_id: row.approval_instance_id.unwrap_or_else(Uuid::now_v7),
+            instance_no: "FLW-20261109-00000002".into(),
+            status: "REJECTED".into(),
+            pending_tasks: 0,
+        };
+        let detailed = RefundRes::from_row(&row, "客户甲").with_approval_brief(Some(&brief));
+        assert_eq!(
+            detailed.approval_instance_id.as_deref(),
+            Some(brief.instance_id.to_string().as_str())
+        );
+        assert_eq!(detailed.approval_status_label.as_deref(), Some("已驳回"));
+        assert_eq!(detailed.approval_instance_no.as_deref(), Some("FLW-20261109-00000002"));
+
+        // 「实例被清理」→ 指针归零（不留半截旧值）
+        let cleared = detailed.with_approval_brief(None);
+        assert!(cleared.approval_instance_id.is_none() && cleared.approval_status.is_none());
+    }
+
+    #[test]
+    fn approval_status_labels_cover_the_engine_vocabulary() {
+        assert_eq!(approval_status_label("PENDING"), "审批中");
+        assert_eq!(approval_status_label("APPROVED"), "已通过");
+        assert_eq!(approval_status_label("REJECTED"), "已驳回");
+        assert_eq!(approval_status_label("WITHDRAWN"), "已撤回");
+        assert_eq!(approval_status_label("CANCELLED"), "已终止");
+        // 未知值原样透出（不吞、不编造中文）
+        assert_eq!(approval_status_label("SOMETHING_NEW"), "SOMETHING_NEW");
     }
 
     #[test]
@@ -2934,6 +3129,36 @@ mod tests {
             approval.pending_tasks
         );
         let instance_id = Uuid::parse_str(&approval.instance_id).expect("实例 id 非法");
+        // E2E-FIX-8 ②：单头也要带上审批三段（详情一次查询搞定，前端不用再查实例）
+        assert_eq!(
+            submitted.header.approval_instance_id.as_deref(),
+            Some(approval.instance_id.as_str()),
+            "提交审批必须把实例 id 写回单头"
+        );
+        assert_eq!(submitted.header.approval_status.as_deref(), Some("PENDING"));
+        assert_eq!(submitted.header.approval_status_label.as_deref(), Some("审批中"));
+        // E2E-FIX-8 ② 靶心：**列表页**一条 SQL 就带出审批状态（不用逐行回查详情）
+        let filter = RefundFilter {
+            customer_id: Some(customer),
+            page: 1,
+            page_size: 50,
+            ..RefundFilter::default()
+        };
+        let (listed, _total) = refund_page(&filter).await.expect("列表查询失败");
+        let listed_row = listed
+            .iter()
+            .find(|item| item.row.id == refund_id)
+            .expect("刚建的退款单必须出现在列表里");
+        assert_eq!(
+            listed_row.approval_status.as_deref(),
+            Some("PENDING"),
+            "列表必须带审批状态（否则前端要 N 次二次查询）"
+        );
+        assert_eq!(
+            listed_row.approval_instance_no.as_deref(),
+            Some(approval.instance_no.as_str()),
+            "列表必须带审批单号"
+        );
 
         // 审批中不许重复提交
         let again = submit_approval(

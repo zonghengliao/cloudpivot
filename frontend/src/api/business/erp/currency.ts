@@ -234,7 +234,13 @@ export interface BatchMonthResult {
 
 /** 汇率预览（开单选币种时查；**只读**，与建单锁定同一把尺） */
 export interface RateQuote {
+  /** 要折的币种（后端主字段）。 */
+  from_currency: string;
+  /** 折成的币种（= 本位币；本接口不做交叉汇率）。 */
+  to_currency: string;
+  /** @deprecated 与 `from_currency` 同值，仅为老代码保留；新代码请读 `from_currency`。 */
   currency_code: string;
+  /** @deprecated 与 `to_currency` 同值，仅为老代码保留。 */
   base_currency: string;
   /** 本位币恒 1；`source = 'MISSING'` 时为 0（**不是**可用汇率） */
   exchange_rate: DecimalText;
@@ -282,10 +288,19 @@ export function batchMonthRates(payload: BatchMonthPayload): Promise<BatchMonthR
   return post<BatchMonthResult>(`${BASE}/exchange-rate/batch-month`, payload);
 }
 
-/** 汇率预览（权限 `business:erp:fx-rate:quote`；只读，不落库） */
-export function quoteRate(currencyCode?: string, date?: string): Promise<RateQuote> {
+/**
+ * 汇率预览（权限 `business:erp:fx-rate:quote`；只读，不落库）。
+ *
+ * 参数名与后端对齐为 `from_currency` / `to_currency`（E2E-FIX-8 ③）：
+ * 旧实现传的是 `currency_code`，后端 serde 静默忽略未知参数 ⇒ 一律回本位币 1，
+ * 排查时会被误判成「汇率没维护」。后端现在对未知参数直接 400。
+ *
+ * @param fromCurrency 要折的币种（`undefined` = 本位币）
+ * @param date 取数日期（`YYYY-MM-DD`，缺省 = 今天 CST）
+ */
+export function quoteRate(fromCurrency?: string, date?: string): Promise<RateQuote> {
   return get<RateQuote>(`${BASE}/exchange-rate/quote`, {
-    currency_code: currencyCode,
+    from_currency: fromCurrency,
     date,
   });
 }
