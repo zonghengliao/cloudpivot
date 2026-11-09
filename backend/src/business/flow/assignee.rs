@@ -4544,7 +4544,7 @@ mod delegation_db_tests {
         assert!(comment.starts_with("代 P3-04 审批人甲 审批"), "comment：{comment}");
         assert!(comment.contains("委托至"), "comment：{comment}");
         assert!(
-            finalized.row_meta.get(&fx.approver).is_none(),
+            !finalized.row_meta.contains_key(&fx.approver),
             "委托人自己不该再有待办（待办只有一行：受托人的）"
         );
         let delegation = finalized

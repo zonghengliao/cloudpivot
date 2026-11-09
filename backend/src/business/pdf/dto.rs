@@ -520,29 +520,39 @@ mod tests {
     /// 越界参数必须挡在入口（CDP 对越界值静默出空白纸）。
     #[test]
     fn validate_rejects_out_of_range() {
-        let mut opts = PdfOpts::default();
-        opts.scale = 0.05;
+        let opts = PdfOpts {
+            scale: 0.05,
+            ..Default::default()
+        };
         assert_eq!(opts.validate().unwrap_err().code, error_code::PDF_OPTIONS_INVALID);
 
-        let mut opts = PdfOpts::default();
-        opts.scale = 2.5;
+        let opts = PdfOpts {
+            scale: 2.5,
+            ..Default::default()
+        };
         assert!(opts.validate().is_err());
 
-        let mut opts = PdfOpts::default();
-        opts.margins = PdfMargins::all(120.0);
+        let opts = PdfOpts {
+            margins: PdfMargins::all(120.0),
+            ..Default::default()
+        };
         assert!(opts.validate().is_err());
 
-        let mut opts = PdfOpts::default();
-        opts.page = PageSize::Custom {
-            width_mm: 10.0,
-            height_mm: 297.0,
+        let opts = PdfOpts {
+            page: PageSize::Custom {
+                width_mm: 10.0,
+                height_mm: 297.0,
+            },
+            ..Default::default()
         };
         assert!(opts.validate().is_err(), "纸宽 10mm 必须拒绝");
 
-        let mut opts = PdfOpts::default();
-        opts.page = PageSize::Custom {
-            width_mm: f64::NAN,
-            height_mm: 297.0,
+        let opts = PdfOpts {
+            page: PageSize::Custom {
+                width_mm: f64::NAN,
+                height_mm: 297.0,
+            },
+            ..Default::default()
         };
         assert!(opts.validate().is_err(), "NaN 尺寸必须拒绝");
     }
@@ -550,16 +560,18 @@ mod tests {
     /// 边距吃掉整张纸时必须拒绝（否则 CDP 返回空内容）。
     #[test]
     fn validate_rejects_margins_larger_than_paper() {
-        let mut opts = PdfOpts::default();
-        opts.page = PageSize::Custom {
-            width_mm: 100.0,
-            height_mm: 100.0,
-        };
-        opts.margins = PdfMargins {
-            top_mm: 10.0,
-            right_mm: 60.0,
-            bottom_mm: 10.0,
-            left_mm: 60.0,
+        let opts = PdfOpts {
+            page: PageSize::Custom {
+                width_mm: 100.0,
+                height_mm: 100.0,
+            },
+            margins: PdfMargins {
+                top_mm: 10.0,
+                right_mm: 60.0,
+                bottom_mm: 10.0,
+                left_mm: 60.0,
+            },
+            ..Default::default()
         };
         assert!(opts.validate().is_err());
     }
@@ -567,8 +579,10 @@ mod tests {
     /// 页眉页脚开关为真却没有任何模板 → 400（CDP 会静默忽略，出无页眉的 PDF）。
     #[test]
     fn header_footer_requires_template() {
-        let mut opts = PdfOpts::default();
-        opts.display_header_footer = true;
+        let mut opts = PdfOpts {
+            display_header_footer: true,
+            ..Default::default()
+        };
         assert!(opts.validate().is_err());
         opts.footer_template = Some("<div class='pageNumber'></div>".into());
         assert!(opts.validate().is_ok());

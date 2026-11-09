@@ -2570,7 +2570,7 @@ mod tests {
             "取消期初后数量必须归零（实际 {buckets:?}）"
         );
         assert!(
-            buckets.iter().all(|(loc, _)| *loc != None),
+            buckets.iter().all(|(loc, _)| loc.is_some()),
             "取消期初不许凭空造出「未分配库位桶」（实际 {buckets:?}）"
         );
         assert_eq!(

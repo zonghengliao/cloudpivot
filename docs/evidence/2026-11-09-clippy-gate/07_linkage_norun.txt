@@ -1,0 +1,4 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 15s
+  Executable tests/linkage.rs (target/debug/deps/linkage-6e2cdbae470334b4)
+RC=0

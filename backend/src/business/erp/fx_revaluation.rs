@@ -765,13 +765,12 @@ mod tests {
 
     async fn seed_rate(currency: &str, on_date: &str, rate: &str) {
         db().exec_sql(
-            format!(
-                "INSERT INTO biz_exchange_rate \
+            "INSERT INTO biz_exchange_rate \
                     (from_currency, to_currency, rate_type, effective_date, rate) \
                  VALUES (?, 'CNY', 'SPOT', ?::text::date, ?::text::numeric) \
                  ON CONFLICT (from_currency, to_currency, rate_type, effective_date) \
                  DO UPDATE SET rate = EXCLUDED.rate"
-            ),
+                .to_string(),
             vec![
                 Value::Text(currency.to_string()),
                 Value::Text(on_date.to_string()),

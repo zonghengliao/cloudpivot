@@ -1,7 +1,7 @@
 ---
 name: cloudpivot
 description: >-
-  云枢通用后台系统 基础版（CloudPivot）项目级 AI 知识包：Rust+alun 后端 / Vue3+TDesign 前端。
+  云枢通用后台系统 基础版（CloudPivot）项目级 AI 知识包：Rust+nik 后端 / Vue3+TDesign 前端。
   当需要在 cloudpivot 下编写/审查/调试后端 Rust、前端 Vue、迁移 SQL、新增业务模块、鉴权/JWT 时加载，优先于逐文件检索，节省 token。
 agent_created: true
 ---
@@ -19,16 +19,16 @@ cd frontend && pnpm install && pnpm dev   # :5173
 bash scripts/dev.sh                # 依赖容器+后端+前端
 bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
 ```
-默认账号 `admin`（口令无缺省值，由 `ALUN_ADMIN_PASSWORD` 注入，首登强制改密）；接口前缀 `/api`；健康检查 `/health`（免鉴权）。
+默认账号 `admin`（口令无缺省值，由 `NIK_ADMIN_PASSWORD` 注入，首登强制改密）；接口前缀 `/api`；健康检查 `/health`（免鉴权）。
 
 ## 后端核心约定
 - **四件套**：每模块 `mod.rs+handler.rs+dto.rs+model.rs`；业务编排 handler、数据访问 model，**不设 service 层**。
 - **二开容器 `business/`**：后端 `src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`；与 `system/`、`support/` 平级，不侵入底座；菜单种子 `module_code='business'`。
-- **依赖铁律**：`Cargo.toml` 只声明 `alun`（必要时 `alun-utils`）；**不写** `alun-db/alun-db-core/alun-web/alun-config`。业务代码 `use alun::prelude::*`。
+- **依赖铁律**：`Cargo.toml` 只声明 `nik`（必要时 `nik-utils`）；**不写** `nik-db/nik-db-core/nik-web/nik-config`（旧名 `alun*` 全部作废，照抄编译不过）。业务代码 `use nik::prelude::*`。
 - **feature**：默认集 `core`（非 full）。用 DB 须显式 `postgres/mysql/sqlite`。预设 `mini⊂lite⊂full`，常用 `lite`（core+postgres+cache+plugin+fs-local）。点单：`fs-local`/`fs-minio`、`xlsx`、`sse`、`metrics`、`template`、`xss`。
-- **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `alun::Result<T>`；handler 内 `DbError/io::Error/alun_core::Error` 直接 `?`，勿写多余 `.map_err(ApiError::internal(...))`。
+- **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`；handler 内 `DbError/io::Error/nik::Error` 直接 `?`，勿写多余 `.map_err(ApiError::internal(...))`。
 - **迁移号段**（动手前 `ls backend/migrations/*/` 核对）：基础版 `V0017` 封顶；4 位补零，已应用迁移指纹校验不可改；种子 `ON CONFLICT` 幂等。
-- **路由宏**：`#[alun::get/post(...)]` + `#[alun::permission(path,method,permission)]`；路径不含 `/api`；`/health` 手动注册。
+- **路由宏**：`#[nik::get/post(...)]` + `#[nik::permission(path,method,permission)]`；路径不含 `/api`；`/health` 手动注册。
 - **事务 RAII**：`db().transaction(|tx| async move { ... }).await`，`Err` 自动回滚。
 
 ## 前端核心约定
@@ -49,4 +49,4 @@ bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
 - 配置：`backend/config/config.toml`
 - 工程脚本：`scripts/{dev,check,build,deploy,init-db}.sh`
 - 二开文档集：`docs/README.md`
-- 框架源码（同级）：`../../../alun/`
+- 框架源码（仓库内 vendored）：`backend/vendor/nik/`（姊妹 crate `nik-web` / `nik-db` / `nik-db-core` / `nik-utils` … 同在 `backend/vendor/`）

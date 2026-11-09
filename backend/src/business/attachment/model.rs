@@ -876,6 +876,11 @@ pub struct BindingOutcome {
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]（外键失败说明 `file_id` 不存在，调用方应先校验）。
+///
+/// `#[allow(clippy::too_many_arguments)]` 的理由：8 个参数就是一条附件绑定行的全部
+/// 必填口径（单据 / 文件 / 角色 / 备注 / 上传人 id+姓名快照 / 文件名），收口成 struct
+/// 要改全部调用方，属独立重构；见跟进卡「too_many_arguments 参数收口为 struct」。
+#[allow(clippy::too_many_arguments)]
 pub async fn insert_with_uploader(
     kind: DocKind,
     doc_id: &Uuid,

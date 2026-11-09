@@ -5064,7 +5064,7 @@ mod tests {
             code: "P2C1.1405".to_string(),
             name: "P2C1 测试存货科目".to_string(),
         };
-        let map = material_inventory_accounts(db(), Some(&rule_account), &[material_line.clone()])
+        let map = material_inventory_accounts(db(), Some(&rule_account), std::slice::from_ref(&material_line))
             .await
             .expect("逐物料科目解析");
         let resolved = map.get(&material_line.material_id).expect("物料必须解析出结果");
@@ -5091,7 +5091,7 @@ mod tests {
                 material_id: None,
                 supplier_id: None,
             },
-            &[material_line.clone()],
+            std::slice::from_ref(&material_line),
             &map,
             "P2C1-IN-1",
         )

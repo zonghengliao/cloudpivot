@@ -200,8 +200,8 @@ async fn notice_content(status: &str) -> String {
 async fn carry_vouchers() -> i64 {
     scalar_i64(&format!(
         "SELECT count(*) FROM biz_voucher \
-          WHERE voucher_type = 'YEAR_END' AND period = '{}' AND deleted_at IS NULL",
-        format!("{}-12", support::YEAR)
+          WHERE voucher_type = 'YEAR_END' AND period = '{}-12' AND deleted_at IS NULL",
+        support::YEAR
     ))
     .await
 }

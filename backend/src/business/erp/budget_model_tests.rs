@@ -90,7 +90,7 @@ fn month_summary_shows_month_over_while_year_is_fine() {
         "年度可用 = 12000 − 1500 = 10500（没超）"
     );
     assert!(
-        !(row.available() < Decimal::ZERO),
+        row.available() >= Decimal::ZERO,
         "年度 over = false（保持年度口径：DTO 里就是 available < 0）"
     );
     assert!(row.month.over, "月度 over = true（主列要能看出来）");

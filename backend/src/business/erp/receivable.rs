@@ -777,8 +777,8 @@ impl CancelRevenue {
 
 /// 销售退货全额冲减 ⇒ 作废应收（**不**红冲原收入凭证）。
 ///
-/// 与 [`cancel_for_stock_out`] 的差别只有一处：退货过账已经生成红字发票
-/// + 收入冲减凭证（借 5001 / 借 2221.02 / 贷 1122），收入侧已经冲干净，
+/// 与 [`cancel_for_stock_out`] 的差别只有一处：退货过账已经生成红字发票、
+/// 收入冲减凭证（借 5001 / 借 2221.02 / 贷 1122），收入侧已经冲干净，
 /// 这里只把应收台账推到 `CANCELLED`，不再碰总账。
 pub async fn cancel_for_sales_return(
     ex: &impl SqlExecutor,

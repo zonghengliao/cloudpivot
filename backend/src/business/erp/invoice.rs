@@ -1909,7 +1909,7 @@ pub struct PointerCandidate {
 ///
 /// `exclude` 是刚作废的那张（调用方在事务里已经把它的 `status` 改成 `VOID`，
 /// 这里再显式排除一次，避免「状态还没落库」的调用顺序把它选回来）。
-pub fn surviving_pointer<'a>(candidates: &'a [PointerCandidate], exclude: Uuid) -> Option<&'a PointerCandidate> {
+pub fn surviving_pointer(candidates: &[PointerCandidate], exclude: Uuid) -> Option<&PointerCandidate> {
     candidates
         .iter()
         .filter(|row| row.id != exclude && matches!(row.status.as_str(), STATUS_ISSUED | STATUS_POSTED))

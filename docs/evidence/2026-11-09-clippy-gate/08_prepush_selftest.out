@@ -1,0 +1,22 @@
+### A. 只删远端分支（local_sha 全 0）→ 应跳过
+▶ pre-push：本次只删除远端分支，跳过编译期门禁
+RC=0
+
+### B. SKIP_PREPUSH=1 → 应只打告警并放行
+! pre-push: SKIP_PREPUSH=1 → 跳过 fmt / clippy / typecheck（已记录到 stderr）
+RC=0
+
+### C. 正常推送（真跑 fmt + clippy + typecheck）
+▶ pre-push ①/③ cargo fmt -- --check
+▶ pre-push ②/③ cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.32s
+▶ pre-push ③/③ 前端 pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+✓ pre-push 门禁全部通过（fmt / clippy --all-targets / typecheck）
+RC=0
+
+### core.hooksPath = .githooks

@@ -34,7 +34,7 @@ else
   if [ "$rc" -ne 0 ]; then
     echo "" >&2
     echo "✘ 提交被拒绝：疑似密钥/口令明文。" >&2
-    echo "  处理方式：把密钥移出代码，改由环境变量注入（cloudpivot 约定 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 等），" >&2
+    echo "  处理方式：把密钥移出代码，改由环境变量注入（cloudpivot 约定 NIK_MIDDLEWARE_AUTH_JWT_SECRET 等），" >&2
     echo "  密钥文件放 /etc/cloudpivot/<env>.env 并 chmod 600；详见 .gitleaks.toml 顶部说明。" >&2
     exit "$rc"
   fi

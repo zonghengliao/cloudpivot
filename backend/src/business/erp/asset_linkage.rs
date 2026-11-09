@@ -397,7 +397,7 @@ mod tests {
             );
         }
         assert!(
-            PRESET_UP.contains(&format!("trigger_entity = 'FIXED_ASSET'")),
+            PRESET_UP.contains("trigger_entity = 'FIXED_ASSET'"),
             "迁移的自检块必须按 FIXED_ASSET 过滤"
         );
     }

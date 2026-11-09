@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════════════
+# cloudpivot pre-push — 推送前机械强制门禁（2026-11-09 加入，卡 REVIEW-FIX-4）
+#
+# 为什么需要它：`scripts/check.sh` 一直是「靠人记得跑」。实测 HEAD 上
+# `cargo clippy --all-targets -- -D warnings` 与 `cargo fmt --check` 都红着，
+# 而提交照样推得上去 —— 门禁等于没有。pre-commit 只查 rustfmt（且只查暂存区
+# 的 .rs），拦不住 clippy 的语义类告警。这里把「能秒级跑完的编译期门禁」
+# 挪到 push 前，做最后一道机械拦截。
+#
+# 检查项（与 scripts/check.sh 的核心项同口径，**不跑**连库/慢检查）：
+#   ① backend: cargo fmt -- --check
+#   ② backend: cargo clippy --all-targets -- -D warnings
+#      （--all-targets 覆盖 lib + bins + tests + examples；clippy 自带 cargo check，
+#        故不再单跑一遍 cargo check，省 30s）
+#   ③ frontend: pnpm typecheck（有 `frontend/node_modules` 时才跑，CI 里没有依赖树属正常）
+# 不在这里跑：cargo test / 真库用例 / ERP 不变量 / 快照巡检 —— 那些要库、要几分钟，
+# 属于 `bash scripts/check.sh`（CHECK_WITH_DB=1）与 CI 的职责。
+#
+# 安装（每个克隆执行一次；本仓库已设置）：
+#     git config core.hooksPath .githooks
+# 校验：
+#     git config --get core.hooksPath   # 应输出 .githooks
+#
+# 绕过（仅限紧急，且必须写进卡内说明）：
+#     SKIP_PREPUSH=1 git push
+#     SKIP_PREPUSH_TYPECHECK=1 git push   # 只跳过前端 typecheck
+#
+# 设计：fail closed —— 工具缺失（cargo 不存在）时拒绝推送并给出绕过方式，
+#       而不是「没找到 cargo 就当绿」。
+# ═══════════════════════════════════════════════════════════════════════════
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+
+# ---------------------------------------------------------------------------
+# 0. 只删除远端分支的 push（local_sha 全 0）不需要检查代码
+# ---------------------------------------------------------------------------
+skip_all=0
+saw_ref=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ -n "${local_ref:-}" ] || continue
+    saw_ref=1
+    case "$local_sha" in
+        *[!0]*) : ;;                 # 非全 0 → 真的在推内容
+        *) skip_all=1 ;;             # 全 0 → 删除远端 ref
+    esac
+done
+if [ "$saw_ref" = "1" ] && [ "$skip_all" = "1" ]; then
+    echo "▶ pre-push：本次只删除远端分支，跳过编译期门禁"
+    exit 0
+fi
+
+if [ "${SKIP_PREPUSH:-0}" = "1" ]; then
+    echo "! pre-push: SKIP_PREPUSH=1 → 跳过 fmt / clippy / typecheck（已记录到 stderr）" >&2
+    exit 0
+fi
+
+fail=0
+fail_items=""
+
+# ---------------------------------------------------------------------------
+# 1. 后端 fmt
+# ---------------------------------------------------------------------------
+echo "▶ pre-push ①/③ cargo fmt -- --check"
+if ! ( cd "$ROOT/backend" && cargo fmt -- --check ); then
+    fail=1; fail_items="${fail_items}  · cargo fmt（修：cd backend && cargo fmt）\n"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. 后端 clippy --all-targets -D warnings
+# ---------------------------------------------------------------------------
+echo "▶ pre-push ②/③ cargo clippy --all-targets -- -D warnings"
+if ! ( cd "$ROOT/backend" && cargo clippy --all-targets -- -D warnings ); then
+    fail=1; fail_items="${fail_items}  · cargo clippy --all-targets -D warnings（修：见上面的 lint 名与行号）\n"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. 前端 typecheck
+# ---------------------------------------------------------------------------
+if [ "${SKIP_PREPUSH_TYPECHECK:-0}" = "1" ]; then
+    echo "! pre-push ③/③ 前端 pnpm typecheck：SKIP_PREPUSH_TYPECHECK=1 → 跳过" >&2
+elif ! command -v pnpm >/dev/null 2>&1; then
+    echo "ℹ pre-push ③/③ 前端 pnpm typecheck：本机没有 pnpm → 跳过（CI 会跑）"
+elif [ ! -d "$ROOT/frontend/node_modules" ]; then
+    echo "ℹ pre-push ③/③ 前端 pnpm typecheck：frontend/node_modules 不存在 → 跳过（先 pnpm install；CI 会跑）"
+else
+    echo "▶ pre-push ③/③ 前端 pnpm typecheck"
+    if ! ( cd "$ROOT/frontend" && pnpm typecheck ); then
+        fail=1; fail_items="${fail_items}  · pnpm typecheck（修：cd frontend && pnpm typecheck 看报错）\n"
+    fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo "" >&2
+    echo "✘ push 被拒绝：编译期门禁未通过" >&2
+    printf "%b" "$fail_items" >&2
+    echo "" >&2
+    echo "  这些检查与 CI 同口径，推上去也会红。修完重新 push 即可。" >&2
+    echo "  紧急绕过（须在卡内写明理由）：SKIP_PREPUSH=1 git push" >&2
+    exit 1
+fi
+
+echo "✓ pre-push 门禁全部通过（fmt / clippy --all-targets / typecheck）"
+exit 0

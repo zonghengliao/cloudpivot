@@ -1078,6 +1078,10 @@ mod db_tests {
     }
 
     /// 造一张票（`completed` = `completed_at` 的 SQL 表达式）。
+    ///
+    /// `#[allow(clippy::too_many_arguments)]`：这是测试夹具的「一行全列」写入器，
+    /// 参数与 `biz_flow_task` 的必填列一一对应；拆 struct 只会让 20+ 处调用点更难读。
+    #[allow(clippy::too_many_arguments)]
     async fn add_task(
         instance_id: Uuid,
         node_id: Uuid,
@@ -1197,7 +1201,7 @@ mod db_tests {
         assert_eq!(row.get_typed::<Uuid>("user_id").expect("user_id"), fx.initiator);
         assert_eq!(
             row.get_typed::<Option<String>>("username").expect("username"),
-            Some(format!("p305_log_init")),
+            Some("p305_log_init".to_string()),
             "账号列必须由 record 补齐（日志页可直接按账号检索）"
         );
         assert_eq!(

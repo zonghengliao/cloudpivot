@@ -1,0 +1,8 @@
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+src/business/attachment/model.rs:879:1: error: this function has too many arguments (8/7)
+src/business/erp/invoice.rs:1912:26: error: the following explicit lifetimes could be elided: 'a
+src/business/erp/receivable.rs:782:5: error: doc list item without indentation
+src/business/erp/sales_order_model.rs:661:1: error: this function has too many arguments (8/7)
+src/business/flow/flow_model_inbox.rs:353:1: error: this function has too many arguments (8/7)
+error: could not compile `cloudpivot` (lib) due to 5 previous errors
+RC=101

@@ -755,6 +755,9 @@ pub async fn todo_of(assignee: Uuid, instance_no: &str) -> Vec<(Uuid, String)> {
         1,
         200,
         true,
+        // 待办没有 `completed_at`，`since`（最后第 8 个参数）只对「我的已办」有意义
+        // —— 与生产 `flow::handler::my_todo` 同口径（那边也传 None）。
+        None,
     )
     .await
     .unwrap_or_else(|err| panic!("查我的待办失败：{err}"));

@@ -841,7 +841,7 @@ mod tests {
         // 一个都没有 → 必须显式指定
         let plain = input(M1, R1, I1, "1", "1", "0");
         assert_eq!(
-            resolve_merge_supplier(&[plain.clone()], None),
+            resolve_merge_supplier(std::slice::from_ref(&plain), None),
             Err(MergeError::SupplierRequired)
         );
         // 两家不同 → 候选列出来让人选

@@ -1,0 +1,23 @@
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+src/business/flow/edge_admin_tests.rs:335:1: error: empty line after doc comment
+src/business/attachment/rule.rs:969:9: error: for loop over a single element
+src/business/erp/asset_linkage.rs:400:33: error: useless use of `format!`: help: consider using `.to_string()`: `"trigger_entity = 'FIXED_ASSET'".to_string()`
+src/business/erp/budget_model_tests.rs:93:9: error: this boolean expression can be simplified: help: try: `(row.available() >= Decimal::ZERO)`
+src/business/erp/fx_revaluation.rs:768:13: error: useless use of `format!`
+src/business/erp/opening.rs:2573:43: error: binary comparison to literal `Option::None`: help: use `Option::is_some()` instead: `loc.is_some()`
+src/business/erp/purchase_requisition_dto.rs:844:36: error: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&plain)`
+src/business/erp/voucher.rs:5067:74: error: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&material_line)`
+src/business/erp/voucher.rs:5094:13: error: this call to `clone` can be replaced with `std::slice::from_ref`: help: try: `std::slice::from_ref(&material_line)`
+src/business/erp/year_end_linkage_tests.rs:201:17: error: `format!` in `format!` args
+src/business/flow/assignee.rs:4547:32: error: unnecessary use of `get(&fx.approver).is_none()`
+src/business/flow/self_approval.rs:1081:5: error: this function has too many arguments (8/7)
+src/business/flow/self_approval.rs:1200:18: error: useless use of `format!`: help: consider using `.to_string()`: `"p305_log_init".to_string()`
+src/business/pdf/dto.rs:524:9: error: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:528:9: error: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:532:9: error: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:536:9: error: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:543:9: error: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:554:9: error: field assignment outside of initializer for an instance created with Default::default()
+src/business/pdf/dto.rs:571:9: error: field assignment outside of initializer for an instance created with Default::default()
+error: could not compile `cloudpivot` (lib test) due to 20 previous errors
+RC=101

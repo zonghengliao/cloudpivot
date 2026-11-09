@@ -966,9 +966,8 @@ mod tests {
         let facts = [fact("DEFAULT", "zip")];
         let violation = evaluate(&rule(None, 2, None), &facts).expect("必须违例");
         assert_eq!(violation.hint(), "发票影像还差 1 个（至少 2 个，当前 1 个）");
-        for hint in [violation.hint()] {
-            assert!(!hint.contains("  "), "不该出现双空格：{hint}");
-        }
+        let hint = violation.hint();
+        assert!(!hint.contains("  "), "不该出现双空格：{hint}");
     }
 
     /// `hint` 里的需求名必须与 `requirement` 第一段同源（剥前缀剥括号不能剥错）。

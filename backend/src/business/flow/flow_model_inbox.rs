@@ -350,6 +350,11 @@ pub struct MyCcPage {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+///
+/// `#[allow(clippy::too_many_arguments)]` 的理由：8 个参数是一条「我的任务」查询的
+/// 全部筛选轴（用户 / 状态集 / 单据类型集 / 排序 / 分页 / 只看进行中 / 完成时间下界），
+/// 收口成 struct 要改全部调用方与测试，属独立重构；见跟进卡「too_many_arguments 参数收口为 struct」。
+#[allow(clippy::too_many_arguments)]
 pub async fn page_my_tasks(
     user_id: Uuid,
     statuses: &[&str],

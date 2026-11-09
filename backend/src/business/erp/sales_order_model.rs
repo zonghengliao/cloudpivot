@@ -658,6 +658,13 @@ pub async fn create_order(
 /// 改单（**调用方保证只有 DRAFT 能改**）：单头覆盖 + 明细「删旧插新」。
 ///
 /// 返回 `affected`（0 = 读状态与写状态之间被别人推走，调用方按 409 处理）。
+///
+/// `#[allow(clippy::too_many_arguments)]` 的理由：这 8 个参数是「单头覆盖 + 明细
+/// 整表替换」的完整口径（主键 / 新单头 / 新明细 / 合计 / 锁定汇率 / 操作人 / 时间），
+/// 拆 struct 会同时改掉所有调用方（`sales_order_handler` 及其测试），属独立重构；
+/// 见跟进卡「sales_order_model::update_order 参数收口为 struct」。这里先只允许，
+/// 不在这里做半截重构。
+#[allow(clippy::too_many_arguments)]
 pub async fn update_order(
     ex: &impl SqlExecutor,
     id: Uuid,
