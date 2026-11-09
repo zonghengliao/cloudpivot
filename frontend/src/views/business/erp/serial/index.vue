@@ -305,6 +305,26 @@
           />
         </t-form-item>
 
+        <!-- 入库库位（E2E-FIX-6）：之前没有这个字段、请求也不带库位 ⇒ 库存永远落「未分配」桶，
+             而收货/期初落「默认库位」桶 → 同物料同仓两桶并存（库位库存页显示「(未分配)」、扫码看不到库位） -->
+        <t-form-item label="入库库位" name="location_dict_id" :tips="batchErrors.location_dict_id">
+          <t-select
+            v-model="batchForm.location_dict_id"
+            :options="locationSelectOptions"
+            :loading="locationLoading"
+            :disabled="!batchForm.warehouse_id"
+            placeholder="不选则按该仓库默认库位记账"
+            filterable
+            clearable
+            data-testid="batch-location"
+          />
+          <template #help>
+            <span class="dlg-help">
+              {{ batchLocationHint }}
+            </span>
+          </template>
+        </t-form-item>
+
         <t-form-item
           label="数量"
           name="count"
@@ -384,16 +404,18 @@ import BatchActionBar from '@/components/BatchActionBar.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   batchGenerateSerials,
+  fetchLocationList,
   fetchMaterialPage,
   fetchSerialPage,
   fetchWarehousePage,
   scanSerial,
   updateSerialStatus,
   type MaterialRow,
+  type Location,
   type SerialRow,
   type SerialScanRow,
   type SerialStatus,
@@ -411,6 +433,7 @@ import {
   buildBatchPayload,
   buildSerialQuery,
   dash,
+  defaultLocationIdOf,
   emptyBatchForm,
   emptySerialFilter,
   formatBatchAmount,
@@ -419,6 +442,7 @@ import {
   hasBatchFormError,
   isSerialFiltered,
   isSerialNotFound,
+  locationAfterWarehouseSwitch,
   serialActionHint,
   serialStatusLabel,
   serialStatusTheme,
@@ -810,9 +834,95 @@ const batchResultText = ref('');
 /** 入库金额预览（`数量 × 单价`，4 位小数；非法输入显示 `—`） */
 const batchPreviewAmount = computed(() => formatBatchAmount(batchForm));
 
+// ==================== 入库库位（E2E-FIX-6） ====================
+
+/** 当前仓库可选库位（只列启用的；空 = 还没选仓库 / 该仓没有库位） */
+const locationOptions = ref<Location[]>([]);
+/** 库位下拉 loading */
+const locationLoading = ref(false);
+
+/** 库位下拉项：`A-01-03 A区一排三列（默认）` */
+const locationSelectOptions = computed(() =>
+  locationOptions.value.map((item) => ({
+    label: `${item.location_code}${item.location_name ? ` ${item.location_name}` : ''}${
+      item.is_default ? '（默认）' : ''
+    }`,
+    value: item.id,
+  })),
+);
+
+/** 库位下拉的说明文字：把「不选会发生什么」写出来，别让用户猜 */
+const batchLocationHint = computed(() => {
+  if (!batchForm.warehouse_id) {
+    return '先选仓库：库位按仓库过滤';
+  }
+  if (locationLoading.value) {
+    return '正在加载该仓库的库位…';
+  }
+  if (locationOptions.value.length === 0) {
+    return '该仓库还没有库位：本次入库会记到「未分配」库位（与收货一致），建议先在库位管理里建一个默认库位';
+  }
+  if (!batchForm.location_dict_id) {
+    return `不选则按该仓库默认库位记账：${
+      defaultLocationIdOf(locationOptions.value) ? '已带出默认库位' : '该仓库没有默认库位（会记到「未分配」）'
+    }`;
+  }
+  return '这批序列号的库存记到该库位（成本账 / 库位账 / 序列号三处一致）';
+});
+
+/**
+ * 按仓库加载库位，并自动带出默认库位。
+ *
+ * 切仓时用 `locationAfterWarehouseSwitch` 决定保留还是换默认值 ——
+ * 上次选中的库位若不属于新仓库，继续留着会让提交直接 400（后端校验库位属于本仓）。
+ */
+async function loadBatchLocations(warehouseId: string): Promise<void> {
+  if (!warehouseId) {
+    locationOptions.value = [];
+    batchForm.location_dict_id = '';
+    return;
+  }
+  locationLoading.value = true;
+  try {
+    // `include_disabled = false`：停用库位不能入库（后端也会拒），别让用户选了再被打回
+    const list = await fetchLocationList(warehouseId, false);
+    locationOptions.value = list ?? [];
+    batchForm.location_dict_id = locationAfterWarehouseSwitch(
+      locationOptions.value,
+      batchForm.location_dict_id,
+    );
+  } catch {
+    // 库位拉不到不挡提交：留空由后端按「仓库默认库位」兜底，比直接 500 弹红条好
+    locationOptions.value = [];
+    batchForm.location_dict_id = '';
+  } finally {
+    locationLoading.value = false;
+  }
+}
+
+// 切仓库 → 重新拉库位（弹窗关闭时也会触发，代价只是一次列表查询）
+watch(
+  () => batchForm.warehouse_id,
+  (warehouseId) => {
+    void loadBatchLocations(warehouseId);
+  },
+);
+
+/** 本次提交实际选的库位标签（成功提示里点明落到哪个库位） */
+function batchLocationLabel(): string {
+  const id = batchForm.location_dict_id;
+  if (!id) {
+    return '';
+  }
+  const hit = locationSelectOptions.value.find((item) => item.value === id);
+  return hit?.label ?? '';
+}
+
 /** 打开弹窗（表单重置，避免上一次的残留） */
 function openBatchDialog(): void {
   Object.assign(batchForm, emptyBatchForm());
+  // 库位下拉跟着仓库走：仓库清空了，选项也得清（watch 在同值时不会触发）
+  locationOptions.value = [];
   batchErrors.value = {};
   batchSubmitError.value = '';
   batchVisible.value = true;
@@ -830,7 +940,11 @@ async function submitBatch(): Promise<void> {
   try {
     const result = await batchGenerateSerials(buildBatchPayload(batchForm));
     // 摘要里直接用后端回显的字符串（amount/unit_cost/qty），不在前端重算金额
-    batchResultText.value = formatBatchResultText(result);
+    // 入库库位点明：操作人当场能核对「这批货记到哪个库位」（未选则由后端按默认库位兜底）
+    const locationLabel = batchLocationLabel();
+    batchResultText.value = `${formatBatchResultText(result)}${
+      locationLabel ? `；入库库位：${locationLabel}` : ''
+    }`;
     MessagePlugin.success(batchResultText.value);
     batchVisible.value = false;
     current.value = 1;

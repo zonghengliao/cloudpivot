@@ -67,8 +67,25 @@ pub struct BatchGenerateReq {
     #[serde(default)]
     pub warehouse_id: Option<String>,
     /// 库位库存行 id（可空；指向 `biz_inventory_location.id`）。
+    ///
+    /// **旧口径**：这是「某物料在某库位上的库存账行」，批量生成前通常还不存在，
+    /// 前端选库位时拿不到它 —— 新客户端请用 [`Self::location_dict_id`]。
+    /// 两者同时给 ⇒ 400（语义不唯一）。
     #[serde(default)]
     pub location_id: Option<String>,
+    /// 入库库位（可空；指向 `biz_location.id`，即用户在下拉里选的那个**库位字典**）。
+    ///
+    /// E2E-FIX-6 新增。口径与收货入库（P2-4）**完全一致**：
+    /// ```text
+    /// 传库位字典 → 按 (物料, 仓库, 库位) find-or-create 库位账行，成本账 / 库位账 / 序列号
+    ///              三处 location_id 都落这一行
+    /// 不传       → 用该仓库的默认库位（`biz_location.is_default = 1`）做同样的事
+    /// 仓库也没有默认库位 → 全部落「未分配」桶（`location_id IS NULL`，与收货同）并给前端提示位
+    /// ```
+    /// 不这样做的话，批量生成会永远落「未分配」桶，而收货 / 期初落默认库位桶 ——
+    /// 同物料同仓两个桶并存（库位库存页显示「(未分配)」、扫码看不到库位、巡检报假差异）。
+    #[serde(default)]
+    pub location_dict_id: Option<String>,
     /// 批次号（可空，≤64）。
     #[serde(default)]
     pub batch_no: Option<String>,
@@ -113,6 +130,15 @@ impl BatchGenerateReq {
         require_uuid(&self.material_id, "material_id")?;
         check_optional_uuid(self.warehouse_id.as_deref(), "warehouse_id")?;
         check_optional_uuid(self.location_id.as_deref(), "location_id")?;
+        check_optional_uuid(self.location_dict_id.as_deref(), "location_dict_id")?;
+        if self.location_id.is_some() && self.location_dict_id.is_some() {
+            return Err(ApiError::new(
+                400,
+                error_code_param(),
+                "location_id（库位账行）与 location_dict_id（库位字典）只能给一个：\
+                 前者是历史口径的库存账行主键，后者是用户在下拉里选的库位",
+            ));
+        }
         check_optional_uuid(self.source_id.as_deref(), "source_id")?;
         if self.count == 0 {
             return Err(ApiError::new(400, error_code_param(), "count 必须 ≥ 1"));
@@ -527,6 +553,7 @@ mod tests {
             material_id: "b2b00004-0000-4000-8000-000000000001".to_string(),
             warehouse_id: None,
             location_id: None,
+            location_dict_id: None,
             batch_no: None,
             count,
             unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),

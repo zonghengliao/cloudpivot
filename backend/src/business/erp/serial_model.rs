@@ -1109,6 +1109,42 @@ pub async fn batch_generate(
 
 // ==================== 查询 ====================
 
+/// 批量生成的**库位落账口径**：库位字典 → 库位账行 id（find-or-create）。
+///
+/// 背景（E2E-FIX-6 / ADR-20261031）：批量生成原来只认「库位账行 id」，
+/// 而传不传都由前端决定，前端从来没传 ⇒ 成本账、库位账、序列号全落
+/// **未分配桶**（`location_id IS NULL`）；收货 / 期初落**默认库位桶** ⇒
+/// 同物料同仓两桶并存（库位库存页显示「(未分配)」、扫码看不到库位、
+/// `erp_invariants.py` 报假差异）。
+///
+/// 本函数把口径收到一处，与收货入库（`stockin_location`）**完全一致**：
+///
+/// ```text
+/// Some(库位字典 id)  → 按 (物料, 仓库, 这个库位) find-or-create 账行
+/// None               → 该仓库的默认库位（is_default = 1）做同样的事
+/// 仓库没有默认库位    → None（= 未分配桶，与收货「两列都空」同口径）
+/// ```
+///
+/// 会写库（`ensure_location_row` 是 upsert），必须传**调用方的事务**：
+/// 建账行与随后的取号 / 记账 / 凭证必须在同一个事务里，否则失败会留下空账行。
+pub async fn ensure_batch_location_row(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_dict_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Option<Uuid>> {
+    let dict = match location_dict_id {
+        Some(id) => stockin_model::location_dict_of(id).await?,
+        None => stockin_model::default_location_in(ex, warehouse_id).await?,
+    };
+    let Some(dict) = dict else {
+        return Ok(None);
+    };
+    let row_id = stockin_model::ensure_location_row(ex, material_id, warehouse_id, dict.id, now).await?;
+    Ok(Some(row_id))
+}
+
 /// 物料的一物一码开关（`None` = 物料不存在或已软删）。
 ///
 /// 单独查一次而不复用 `erp::model::MaterialRow`：`MaterialRow` 的 18 个字段是 V0137 的

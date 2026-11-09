@@ -668,6 +668,17 @@ export interface BatchGenerateSerialReq {
   warehouse_id: string;
   /** 库位库存行 id（可空；必须是同仓库的行） */
   location_id?: string | null;
+  /**
+   * 入库库位（可空；指向 `biz_location.id`，即用户在「入库库位」下拉里选的那个库位字典）。
+   *
+   * E2E-FIX-6 新增，与收货入库 `location_dict_id` 同口径：
+   * 传 → 成本账 / 库位账 / 序列号都落该库位的账行（按 (物料, 仓库, 库位) find-or-create）；
+   * 不传 → 后端用该仓库的**默认库位**兜底；
+   * 仓库连默认库位都没有 → 落「未分配」桶（`location_id IS NULL`，与收货一致）。
+   *
+   * 不要与 `location_id` 同时发（后端 400）：前者是库位**账行**，后者是库位**字典**。
+   */
+  location_dict_id?: string | null;
   /** 批次号（可空，≤64） */
   batch_no?: string | null;
   /** 生成条数（1..=1000，`serial_model::MAX_BATCH_COUNT`） */

@@ -27,6 +27,7 @@
 //! ```
 
 use axum::Json;
+use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Deserialize;
@@ -36,6 +37,7 @@ use crate::business::erp::serial_dto::{
     BatchGenerateReq, SerialBatchRes, SerialFilter, SerialRes, SerialScanRes, SerialStatusReq,
 };
 use crate::business::erp::serial_model::{self, GenerateParams, TransitionOutcome};
+use crate::business::erp::stockin_model;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -178,6 +180,30 @@ pub async fn generate_serials(
         }
     }
 
+    // 入库库位（库位字典 `biz_location.id`，用户在下拉里选的那个）—— E2E-FIX-6。
+    // 校验三件（与收货 P2-4 同口径）：未软删 / 属于本仓 / 已启用。
+    // 不传就交给模型层按「仓库默认库位」兜底，**不允许**再默默落未分配桶。
+    let location_dict_id = optional_uuid(req.location_dict_id.as_deref(), "location_dict_id")?;
+    if let Some(dict_id) = location_dict_id {
+        let dict = stockin_model::location_dict_of(dict_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询库位"))?
+            .ok_or_else(|| reference_missing("库位不存在或已删除：location_dict_id 指向 biz_location.id"))?;
+        if dict.deleted {
+            return Err(reference_missing("库位已删除：不能在已软删的库位上入库"));
+        }
+        if dict.warehouse_id != warehouse_id {
+            return Err(reference_missing(
+                "库位不属于所选仓库：一次批量生成只能落在同一个仓库的库位上",
+            ));
+        }
+        if dict.status != 1 {
+            return Err(reference_missing(
+                "库位已停用：请启用该库位，或改选该仓库的其它库位",
+            ));
+        }
+    }
+
     let batch_no = req.batch_no.as_deref().map(str::trim).filter(|text| !text.is_empty());
     let source_type = req
         .source_type
@@ -195,16 +221,6 @@ pub async fn generate_serials(
             other => utils::db_error(other, "校验序列号来源单据"),
         })?;
 
-    let params = GenerateParams {
-        material_id,
-        warehouse_id: Some(warehouse_id),
-        location_id,
-        batch_no,
-        source_type,
-        source_id,
-        count: i64::try_from(req.count).unwrap_or(serial_model::MAX_BATCH_COUNT),
-        unit_cost,
-    };
     let period_key = serial_model::today_period_key();
     // 事务边界在接口层（W2c-1 · 不变式②）：取号 → 落号 → 两本账 → 凭证 → 流水 必须原子。
     // 模型层吃 `&tx`（同一个 `SqlExecutor`），事务里不再开新事务。
@@ -212,6 +228,40 @@ pub async fn generate_serials(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启序列号生成事务"))?;
+    // 库位落账口径（E2E-FIX-6）：显式给了库位账行 → 用它；
+    // 否则按「库位字典 / 仓库默认库位」find-or-create 账行 —— 与收货入库同一口径。
+    // 仓库连默认库位都没有时才是 `None`（未分配桶，收货也允许这种仓）。
+    // 建账行放在同一个事务里：失败了连同号段 / 账目一起回滚，不留空账行。
+    let location_row = match location_id {
+        Some(row) => Some(row),
+        None => {
+            let resolved = serial_model::ensure_batch_location_row(
+                &tx,
+                material_id,
+                warehouse_id,
+                location_dict_id,
+                Utc::now(),
+            )
+            .await;
+            match resolved {
+                Ok(row) => row,
+                Err(error) => {
+                    let _ = tx.rollback().await;
+                    return Err(write_error(error, "解析入库库位"));
+                }
+            }
+        }
+    };
+    let params = GenerateParams {
+        material_id,
+        warehouse_id: Some(warehouse_id),
+        location_id: location_row,
+        batch_no,
+        source_type,
+        source_id,
+        count: i64::try_from(req.count).unwrap_or(serial_model::MAX_BATCH_COUNT),
+        unit_cost,
+    };
     let outcome = match serial_model::batch_generate(&tx, &params, &period_key, operator).await {
         Ok(outcome) => {
             tx.commit()
@@ -445,6 +495,32 @@ mod tests {
          VALUES ('b2b00003-0000-4000-8000-000000000001', 'W2B-A-01', 'W2B A 区一号',
                  'b2b00002-0000-4000-8000-000000000001', 'STORAGE', 0, 100.0000, 1, 1)
          ON CONFLICT DO NOTHING",
+        // ---- E2E-FIX-6 夹具：独立仓库 WH-W2DEF（**只有它**有默认库位）。
+        //      为什么不复用 WH-W2B-1：t11_t12_t20 那条混桶用例特意用「不传库位」造 NULL 汇总桶，
+        //      给 W2B-1 配默认库位会把它的语义改掉（那是另一张卡的口径，不动）。
+        "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_type,
+                                    allow_negative, status, sort_order, parent_id, level,
+                                    warehouse_path, is_leaf)
+         VALUES ('b2b00002-0000-4000-8000-0000000000d2', 'WH-W2DEF', 'W2DEF 默认库位仓', 'NORMAL', 0, 1, 4,
+                 NULL, 1, '/b2b00002-0000-4000-8000-0000000000d2/', 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
+                                   is_default, capacity, status, sort_order)
+         VALUES ('b2b00003-0000-4000-8000-0000000000d1', 'W2DEF-A-01', 'W2DEF 默认库位',
+                 'b2b00002-0000-4000-8000-0000000000d2', 'STORAGE', 1, NULL, 1, 1),
+                ('b2b00003-0000-4000-8000-0000000000d3', 'W2DEF-B-01', 'W2DEF 非默认库位',
+                 'b2b00002-0000-4000-8000-0000000000d2', 'STORAGE', 0, NULL, 1, 2),
+                ('b2b00003-0000-4000-8000-0000000000e2', 'W2B2-A-01', 'W2B 二号仓库位',
+                 'b2b00002-0000-4000-8000-000000000002', 'STORAGE', 0, NULL, 1, 1)
+         -- 必须按主键 upsert 而不是 DO NOTHING：本卡开发期中间版本曾把 d1 建成 W2B-1 的默认库位，
+         -- 留在这张表里的旧行会让「W2B-1 没有默认库位」的前提失效（t11 混桶用例当场红）。
+         ON CONFLICT (id) DO UPDATE
+            SET location_code = EXCLUDED.location_code,
+                location_name = EXCLUDED.location_name,
+                warehouse_id  = EXCLUDED.warehouse_id,
+                is_default    = EXCLUDED.is_default,
+                status        = 1,
+                deleted_at    = NULL",
         "INSERT INTO biz_material (id, material_code, material_name, spec, unit_id, material_type,
                                    safety_stock, costing_method, tax_rate, status, serial_required)
          VALUES ('b2b00004-0000-4000-8000-000000000001', 'W2B-M-SN', 'W2B 一物一码物料', 'SN 设备',
@@ -595,6 +671,7 @@ mod tests {
             material_id: material_id.to_string(),
             warehouse_id: Some(W_ID.to_string()),
             location_id: Some(IL_ID.to_string()),
+            location_dict_id: None,
             batch_no: Some("W2B-BATCH-1".to_string()),
             count,
             // ADR-20261031：批量生成 = 无来源入库，必须录成本单价（夹具统一 10.000000）
@@ -619,6 +696,7 @@ mod tests {
             material_id: M_LINK_ID.to_string(),
             warehouse_id: Some(W_LINK_ID.to_string()),
             location_id: None,
+            location_dict_id: None,
             batch_no: Some("W2C1-BATCH".to_string()),
             count,
             unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
@@ -1788,6 +1866,7 @@ mod tests {
                 material_id: M_PLAIN_LINK_ID.to_string(),
                 warehouse_id: Some(W_LINK_ID.to_string()),
                 location_id: None,
+                location_dict_id: None,
                 batch_no: None,
                 count: 1,
                 unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
@@ -2671,5 +2750,236 @@ mod tests {
             0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
         );
+    }
+
+    // ---------- E2E-FIX-6：批量生成的库位落账口径 ----------
+    //
+    // 缺陷：`POST /serial/batch-generate` 不传库位时，成本账 / 库位账 / 序列号全落
+    // 「未分配桶」（`location_id IS NULL`），而收货 / 期初落「默认库位桶」⇒
+    // 同物料同仓两桶并存（库位库存页显示「(未分配)」、扫码看不到库位、巡检报假差异）。
+    // 收口后：不传 → 仓库默认库位；传库位字典 → 该库位；仓库没有默认库位 → 未分配桶（与收货同）。
+
+    /// E2E-FIX-6 专用仓库（**只有它**有默认库位）。
+    const W_DEF_ID: &str = "b2b00002-0000-4000-8000-0000000000d2";
+    /// W2DEF 仓的默认库位（夹具 `is_default = 1`）。
+    const DEF_LOC_ID: &str = "b2b00003-0000-4000-8000-0000000000d1";
+    /// W2DEF 仓的非默认库位（显式选库位的用例用）。
+    const ALT_LOC_ID: &str = "b2b00003-0000-4000-8000-0000000000d3";
+    /// W2B-2 的库位（跨仓校验用：不是 W2DEF 的库位）。
+    const W_OTHER_LOC_ID: &str = "b2b00003-0000-4000-8000-0000000000e2";
+
+    /// 只填必填项的批量生成请求：**两个库位字段都不给**，交给后端按仓库默认库位兜底。
+    /// 落在独立的 W2DEF 仓（它才有默认库位；W2B-1 故意没有，混桶用例要用 NULL 桶）。
+    fn req_default_location(material_id: &str, count: u64) -> BatchGenerateReq {
+        BatchGenerateReq {
+            material_id: material_id.to_string(),
+            warehouse_id: Some(W_DEF_ID.to_string()),
+            location_id: None,
+            location_dict_id: None,
+            batch_no: Some("E2EFIX6-BATCH".to_string()),
+            count,
+            unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
+            source_type: None,
+            source_id: None,
+        }
+    }
+
+    /// `(物料, 仓库, 库位字典)` → 库位账行 id（没有就 `None`）。
+    async fn ledger_row_of(material_id: &str, warehouse_id: &str, dict_id: &str) -> Option<Uuid> {
+        db().find_with_params(
+            "SELECT id FROM biz_inventory_location \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id = ?::uuid",
+            vec![
+                Value::from(&uuid(material_id)),
+                Value::from(&uuid(warehouse_id)),
+                Value::from(&uuid(dict_id)),
+            ],
+        )
+        .await
+        .expect("查库位账行")
+        .first()
+        .map(|row| row.get_typed("id").expect("id"))
+    }
+
+    /// 单值 `numeric` → `Decimal`（缺行 / NULL 记 0）。
+    async fn decimal_scalar(sql: &str, params: Vec<Value>) -> Decimal {
+        let text: Option<String> = db()
+            .scalar_with_params::<Option<String>>(sql, params)
+            .await
+            .expect("读 numeric");
+        text.map(|value| Decimal::from_str_exact(&value).expect("decimal")).unwrap_or(Decimal::ZERO)
+    }
+
+    /// E2E-FIX-6 ①：**不传任何库位** → 落仓库默认库位桶，且不再产生「未分配」桶。
+    #[tokio::test]
+    async fn batch_generate_without_location_lands_in_default_bucket() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_serials(&req_default_location(M_SN_ID, 4), None)
+            .await
+            .expect("不传库位的批量生成应当成功（按仓库默认库位兜底）");
+        assert_eq!(body.count, 4);
+
+        // ① 库位账行必须按「默认库位字典」建出来，后面的三处 location_id 都指向它
+        let row = ledger_row_of(M_SN_ID, W_DEF_ID, DEF_LOC_ID)
+            .await
+            .expect("不传库位时必须按仓库默认库位 find-or-create 库位账行");
+        let expected = row.to_string();
+        assert!(
+            body.list.iter().all(|item| item.location_id.as_deref() == Some(expected.as_str())),
+            "序列号必须落在默认库位账行上，而不是未分配桶（location_id IS NULL）"
+        );
+
+        // ② 成本账：同一桶 qty = 4、avg_cost = 10（不是另开一个 NULL 桶）
+        let qty = decimal_scalar(
+            "SELECT qty::text FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id = ?::uuid",
+            vec![
+                Value::from(&uuid(M_SN_ID)),
+                Value::from(&uuid(W_DEF_ID)),
+                Value::from(&row),
+            ],
+        )
+        .await;
+        assert_eq!(qty, Decimal::from(4), "默认库位桶的成本账数量必须 = 生成件数");
+        let avg = decimal_scalar(
+            "SELECT avg_cost::text FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id = ?::uuid",
+            vec![
+                Value::from(&uuid(M_SN_ID)),
+                Value::from(&uuid(W_DEF_ID)),
+                Value::from(&row),
+            ],
+        )
+        .await;
+        assert_eq!(avg, Decimal::from(10), "均价必须等于录入的成本单价");
+        let unassigned = decimal_scalar(
+            "SELECT COALESCE(SUM(qty), 0)::text FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(M_SN_ID)), Value::from(&uuid(W_DEF_ID))],
+        )
+        .await;
+        assert_eq!(unassigned, Decimal::ZERO, "不许再往未分配桶记数量（这正是两桶并存的根因）");
+
+        // ③ 库位账：同一行 qty = 4（B1：库位账合计 = 成本账合计）
+        let loc_qty = decimal_scalar(
+            "SELECT qty::text FROM biz_inventory_location WHERE id = ?::uuid",
+            vec![Value::from(&row)],
+        )
+        .await;
+        assert_eq!(loc_qty, Decimal::from(4), "库位账数量必须与成本账一致（巡检 B1）");
+
+        // ④ 扫码能看到库位（验收④：扫码结果带库位名称，不是空）
+        let scan = scan_one(Some(&body.serial_nos[0])).await.expect("扫码必须命中");
+        assert_eq!(
+            scan.location_name.as_deref(),
+            Some("W2DEF 默认库位"),
+            "扫码必须能看出库位（落未分配桶时这里是 None）"
+        );
+        assert_eq!(scan.location_id.as_deref(), Some(expected.as_str()));
+
+        assert_invariant(M_SN_ID, W_DEF_ID, "不传库位批量生成后").await;
+    }
+
+    /// E2E-FIX-6 ②：传**库位字典**（非默认库位）→ 落该库位的账行（find-or-create，不重复建账）。
+    #[tokio::test]
+    async fn batch_generate_with_location_dict_uses_that_bucket() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let mut req = req_default_location(M_SN_ID, 3);
+        // W2DEF-B-01（非默认库位）：批量生成前该 (物料, 仓库, 库位) 的账行**不存在**，
+        // 正好验证「按库位字典 find-or-create 账行」这条路（前端下拉传的就是字典）。
+        req.location_dict_id = Some(ALT_LOC_ID.to_string());
+        let body = generate_serials(&req, None).await.expect("指定库位字典应当成功");
+        let row = ledger_row_of(M_SN_ID, W_DEF_ID, ALT_LOC_ID)
+            .await
+            .expect("指定库位字典后必须建出该库位的账行");
+        let expected = row.to_string();
+        assert!(
+            body.list.iter().all(|item| item.location_id.as_deref() == Some(expected.as_str())),
+            "指定库位字典后，序列号必须落该库位的账行（不是默认库位、也不是未分配桶）"
+        );
+        let loc_qty = decimal_scalar(
+            "SELECT qty::text FROM biz_inventory_location WHERE id = ?::uuid",
+            vec![Value::from(&row)],
+        )
+        .await;
+        assert_eq!(loc_qty, Decimal::from(3), "指定库位桶的库位账数量 = 生成件数");
+        // 默认库位桶必须仍为 0（没有被「顺手」记进去）
+        let default_qty = decimal_scalar(
+            "SELECT COALESCE(SUM(qty), 0)::text FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id = ?::uuid",
+            vec![
+                Value::from(&uuid(M_SN_ID)),
+                Value::from(&uuid(W_DEF_ID)),
+                Value::from(&uuid(DEF_LOC_ID)),
+            ],
+        )
+        .await;
+        assert_eq!(default_qty, Decimal::ZERO, "显式选库位时不许再往默认库位桶记");
+        assert_invariant(M_SN_ID, W_DEF_ID, "指定库位字典批量生成后").await;
+    }
+
+    /// E2E-FIX-6 ③：库位字典不属于所选仓库 → 400，且**不落号**（校验先于取号）。
+    #[tokio::test]
+    async fn batch_generate_rejects_location_of_other_warehouse() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let before = in_stock_count(uuid(M_SN_ID), uuid(W_DEF_ID)).await;
+        let mut req = req_default_location(M_SN_ID, 2);
+        req.location_dict_id = Some(W_OTHER_LOC_ID.to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("别的仓库的库位必须被拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+        assert_eq!(
+            in_stock_count(uuid(M_SN_ID), uuid(W_DEF_ID)).await,
+            before,
+            "库位校验在取号之前：一条序列号都不许落"
+        );
+    }
+
+    /// E2E-FIX-6 ④：仓库**没有默认库位**时仍落未分配桶（与收货「两列都空」同口径）。
+    #[tokio::test]
+    async fn batch_generate_without_default_location_falls_back_to_unassigned() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // W_LINK 这个仓库一个库位都没有（夹具如此）
+        let body = generate_link(3).await.expect("没有默认库位的仓库也可以生成");
+        assert!(
+            body.list.iter().all(|item| item.location_id.is_none()),
+            "仓库没有默认库位时只能落未分配桶（location_id IS NULL）"
+        );
+        let unassigned = decimal_scalar(
+            "SELECT COALESCE(SUM(qty), 0)::text FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(M_LINK_ID)), Value::from(&uuid(W_LINK_ID))],
+        )
+        .await;
+        assert_eq!(unassigned, Decimal::from(3));
+        assert_invariant(M_LINK_ID, W_LINK_ID, "无默认库位仓批量生成后").await;
+    }
+
+    /// E2E-FIX-6 ⑤：两个库位字段同时给 → 400（语义不唯一，纯入参校验）。
+    #[test]
+    fn batch_req_rejects_both_location_fields() {
+        let mut req = req_default_location(M_SN_ID, 1);
+        req.location_id = Some(IL_ID.to_string());
+        req.location_dict_id = Some(DEF_LOC_ID.to_string());
+        let err = req.validate().expect_err("两个库位字段不能同时给");
+        assert_eq!(err.status, 400);
+        // 只给字典是合法的（前端实际用的就是这条路）
+        let mut ok = req_default_location(M_SN_ID, 1);
+        ok.location_dict_id = Some(DEF_LOC_ID.to_string());
+        assert!(ok.validate().is_ok());
     }
 }

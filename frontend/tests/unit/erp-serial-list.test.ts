@@ -26,11 +26,13 @@ import {
   buildBatchPayload,
   buildSerialQuery,
   canTransition,
+  defaultLocationIdOf,
   emptyBatchForm,
   emptySerialFilter,
   formatBatchAmount,
   formatBatchResultText,
   isSerialNotFound,
+  locationAfterWarehouseSwitch,
   serialActionHint,
   serialStatusLabel,
   serialStatusTheme,
@@ -183,7 +185,15 @@ test('批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000
 
   assert.deepEqual(
     buildBatchPayload(
-      { material_id: 'm-1', warehouse_id: 'w-1', count: 5, unit_cost: '12.34', source_type: '', batch_no: '  ' },
+      {
+        material_id: 'm-1',
+        warehouse_id: 'w-1',
+        location_dict_id: '',
+        count: 5,
+        unit_cost: '12.34',
+        source_type: '',
+        batch_no: '  ',
+      },
     ),
     { material_id: 'm-1', warehouse_id: 'w-1', count: 5, unit_cost: 12.34 },
   );
@@ -192,6 +202,7 @@ test('批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000
       {
         material_id: 'm-1',
         warehouse_id: 'w-1',
+        location_dict_id: '',
         count: 5,
         unit_cost: '0.000001',
         source_type: 'PURCHASE',
@@ -200,6 +211,46 @@ test('批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000
     ),
     { material_id: 'm-1', warehouse_id: 'w-1', count: 5, unit_cost: 0.000001, source_type: 'PURCHASE', batch_no: 'B001' },
   );
+});
+
+test('E2E-FIX-6 批量生成请求体带上入库库位（库位字典 id，与收货同口径）', () => {
+  const base = {
+    material_id: 'm-1',
+    warehouse_id: 'w-1',
+    count: 3,
+    unit_cost: '10',
+    source_type: '' as const,
+    batch_no: '',
+  };
+  // ① 选了库位 → 发 location_dict_id（**不是** location_id：那是库位账行 id，前端拿不到）
+  const withLocation = buildBatchPayload({ ...base, location_dict_id: ' loc-1 ' }) as Record<string, unknown>;
+  assert.equal(withLocation.location_dict_id, 'loc-1');
+  assert.equal('location_id' in withLocation, false);
+
+  // ② 没选库位 → 整键缺席（后端按仓库默认库位兜底）
+  const without = buildBatchPayload({ ...base, location_dict_id: '' }) as Record<string, unknown>;
+  assert.equal('location_dict_id' in without, false);
+});
+
+test('E2E-FIX-6 库位下拉：默认带出仓库默认库位，切仓不覆盖用户已选库位', () => {
+  const locations = [
+    { id: 'loc-a', is_default: false, status: 1 },
+    { id: 'loc-def', is_default: true, status: 1 },
+    { id: 'loc-off', is_default: false, status: 0 },
+  ];
+  assert.equal(defaultLocationIdOf(locations), 'loc-def');
+  // 默认库位停用 ⇒ 不带出（后端也只认启用的）
+  assert.equal(defaultLocationIdOf([{ id: 'x', is_default: true, status: 0 }]), '');
+  // 没有默认库位 ⇒ 留空，交给后端兜底，不编造
+  assert.equal(defaultLocationIdOf([{ id: 'x', is_default: false, status: 1 }]), '');
+  assert.equal(defaultLocationIdOf([]), '');
+
+  // 切仓：旧选择不在新仓库列表里 → 换成新仓默认库位
+  assert.equal(locationAfterWarehouseSwitch(locations, 'loc-other'), 'loc-def');
+  // 旧选择仍在列表里 → 保留用户选择（不被默认值悄悄覆盖）
+  assert.equal(locationAfterWarehouseSwitch(locations, 'loc-a'), 'loc-a');
+  // 没选仓库（列表为空）→ 清空
+  assert.equal(locationAfterWarehouseSwitch([], 'loc-a'), '');
 });
 
 test('批量生成表单：成本单价四条校验（空 / 非数字 / ≤0 / 7 位小数），口径照后端 parse_unit_cost', () => {

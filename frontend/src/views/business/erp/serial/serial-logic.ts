@@ -240,6 +240,18 @@ export interface BatchGenerateFormState {
   material_id: string;
   /** 仓库 id（后端不变式①要求必填） */
   warehouse_id: string;
+  /**
+   * 入库库位（库位字典 `biz_location.id`，`''` = 不指定 → 后端按仓库默认库位兜底）。
+   *
+   * E2E-FIX-6：原来表单没有这个字段，提交也不发 `location_id` ⇒ 批量生成的库存
+   * 永远落「未分配」桶，而收货 / 期初落「默认库位」桶 —— 同物料同仓两桶并存
+   * （库位库存页显示「(未分配)」、扫码看不到库位、巡检报假差异）。
+   *
+   * 注意这里存的是**库位字典** id（`biz_location.id`），不是「库位库存行」id
+   * （`biz_inventory_location.id`，批量生成前通常还不存在）；请求体字段名是
+   * `location_dict_id`，与收货入库 `location_dict_id` 同口径。
+   */
+  location_dict_id: string;
   /** 数量 */
   count: number;
   /**
@@ -261,7 +273,51 @@ export type BatchFormErrors = Partial<Record<keyof BatchGenerateFormState, strin
 
 /** 空表单（新建时用） */
 export function emptyBatchForm(): BatchGenerateFormState {
-  return { material_id: '', warehouse_id: '', count: 10, unit_cost: '', source_type: '', batch_no: '' };
+  return {
+    material_id: '',
+    warehouse_id: '',
+    location_dict_id: '',
+    count: 10,
+    unit_cost: '',
+    source_type: '',
+    batch_no: '',
+  };
+}
+
+/**
+ * 从某仓库的库位列表里挑出「默认库位」，供批量生成表单**自动带出**。
+ *
+ * 口径与后端 `stockin_location::default_location_of` 一致：只看 `is_default = true`
+ * 且**已启用**（`status === 1`）且未删除的行；每仓最多一个（库侧部分唯一索引兜底），
+ * 万一有多行就取排序最靠前的那一行（与后端 `ORDER BY` 兜底行为一致）。
+ *
+ * 找不到就返回 `''` —— 表单留空，提交时后端按「仓库默认库位」再兜一次；
+ * 仓库连默认库位都没有时两边都落「未分配」桶（收货也是这个行为，不在这里编造库位）。
+ */
+export function defaultLocationIdOf(
+  locations: ReadonlyArray<{ id: string; is_default?: boolean; status?: number }>,
+): string {
+  const hit = locations.find((item) => item.is_default === true && (item.status ?? 1) === 1);
+  return hit?.id ?? '';
+}
+
+/**
+ * 仓库切换后，表单里的库位应该变成什么。
+ *
+ * - 没选仓库 → 清空（库位选择依赖仓库）；
+ * - 选了仓库 → 默认带出该仓默认库位；
+ * - 上一个库位仍在新仓库的列表里（切回来 / 多仓库同名）→ 保留用户的选择。
+ *
+ * 顺序很重要：先看「旧值是否还在列表里」，否则用户手选的库位会被默认值悄悄覆盖。
+ */
+export function locationAfterWarehouseSwitch(
+  locations: ReadonlyArray<{ id: string; is_default?: boolean; status?: number }>,
+  current: string,
+): string {
+  if (current && locations.some((item) => item.id === current)) {
+    return current;
+  }
+  return defaultLocationIdOf(locations);
 }
 
 /**
@@ -343,6 +399,7 @@ export function hasBatchFormError(errors: BatchFormErrors): boolean {
 export function buildBatchPayload(form: BatchGenerateFormState): {
   material_id: string;
   warehouse_id: string;
+  location_dict_id?: string;
   count: number;
   unit_cost: number;
   source_type?: SerialSourceType;
@@ -351,6 +408,7 @@ export function buildBatchPayload(form: BatchGenerateFormState): {
   const payload: {
     material_id: string;
     warehouse_id: string;
+    location_dict_id?: string;
     count: number;
     unit_cost: number;
     source_type?: SerialSourceType;
@@ -363,6 +421,13 @@ export function buildBatchPayload(form: BatchGenerateFormState): {
     // 字符串 → number 只是请求体的 JSON 形态，后端 `OptionalDecimal::Num/ Raw` 两种都收。
     unit_cost: Number(form.unit_cost),
   };
+  // 入库库位（库位字典 id）：选了就发，没选就整键缺席 —— 后端按「仓库默认库位」兜底，
+  // 与收货入库同一口径（E2E-FIX-6）。**不要**发空串：后端把空串当「没传」没问题，
+  // 但 `location_dict_id: ''` 在日志/抓包里看起来像「传了一个空库位」，容易误判。
+  const locationDictId = (form.location_dict_id ?? '').trim();
+  if (locationDictId) {
+    payload.location_dict_id = locationDictId;
+  }
   if (form.source_type) {
     payload.source_type = form.source_type;
   }
