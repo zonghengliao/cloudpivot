@@ -15,11 +15,15 @@
  * - `received_qty` 是收货过账回写的累计值，可能大于 `qty`（超收由后端拦，
  *   前端只如实显示，不截断成 100%）。
  *
- * # 为什么筛选只有两个 id
+ * # 为什么筛选原本只有两个 id，现在多一个 keyword
  *
- * 后端 `dto.rs::PurchaseOrderItemFilter` 只有 `order_id` / `material_id` 两个**精确**
+ * 后端 `dto.rs::PurchaseOrderItemFilter` 原本只有 `order_id` / `material_id` 两个**精确**
  * 匹配条件 + 分页；没有 keyword、没有日期区间、没有排序参数。
  * 前端多造一个筛选框就等于发一个后端不认的参数（看起来能查，实际没过滤）。
+ *
+ * 卡 E2E01-FIX-2 起后端补了 `keyword`：`ILIKE '%…%'` 命中**任一**即算 ——
+ * 采购单号 / 物料编码 / 物料名称（一次 JOIN 两张表，见
+ * `model::purchase_order_item_page`）。前端这才有搜索框可加。
  */
 
 import type { PurchaseOrderItemLine } from '@/api/business/erp';
@@ -31,16 +35,18 @@ export interface ItemFilterState {
   order_id: string;
   /** 物料 id */
   material_id: string;
+  /** 关键词（单号 / 物料编码 / 物料名称，模糊、大小写不敏感） */
+  keyword: string;
 }
 
 /** 空筛选 */
 export function emptyItemFilter(): ItemFilterState {
-  return { order_id: '', material_id: '' };
+  return { order_id: '', material_id: '', keyword: '' };
 }
 
 /** 筛选是否有内容 */
 export function isItemFiltered(filter: ItemFilterState): boolean {
-  return Boolean(filter.order_id) || Boolean(filter.material_id);
+  return Boolean(filter.order_id) || Boolean(filter.material_id) || Boolean(filter.keyword.trim());
 }
 
 /**
@@ -48,13 +54,28 @@ export function isItemFiltered(filter: ItemFilterState): boolean {
  *
  * 空串一律不发：后端把 `?order_id=` 当「order_id 等于空串」过滤，
  * 直接查 0 行（`asParams` 也会兜，但入参对象本身应当干净，单测才好断言）。
+ *
+ * `keyword` 额外**去首尾空格**：`"  DEMO-P1 "` 与 `"DEMO-P1"` 是同一个搜索
+ * （后端 `utils::like_pattern` 也会 trim，两边口径一致）。
  */
 export function buildItemQuery(
   filter: ItemFilterState,
   page = 1,
   pageSize = 20,
-): { order_id?: string; material_id?: string; page: number; page_size: number } {
-  const query: { order_id?: string; material_id?: string; page: number; page_size: number } = {
+): {
+  order_id?: string;
+  material_id?: string;
+  keyword?: string;
+  page: number;
+  page_size: number;
+} {
+  const query: {
+    order_id?: string;
+    material_id?: string;
+    keyword?: string;
+    page: number;
+    page_size: number;
+  } = {
     page,
     page_size: pageSize,
   };
@@ -63,6 +84,10 @@ export function buildItemQuery(
   }
   if (filter.material_id) {
     query.material_id = filter.material_id;
+  }
+  const keyword = filter.keyword.trim();
+  if (keyword) {
+    query.keyword = keyword;
   }
   return query;
 }

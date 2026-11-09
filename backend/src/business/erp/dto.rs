@@ -2672,6 +2672,12 @@ pub struct PurchaseOrderItemFilter {
     pub order_id: Option<String>,
     /// 物料。
     pub material_id: Option<String>,
+    /// 关键词（模糊匹配，大小写不敏感）。
+    ///
+    /// 命中**任一**即算匹配：采购单号（`biz_purchase_order.order_no`）、
+    /// 物料编码（`biz_material.material_code`）、物料名称（`biz_material.material_name`）。
+    /// 空白 / 不传 = 不加条件（与加这个参数之前的行为完全一致）。
+    pub keyword: Option<String>,
     /// 页码。
     pub page: u64,
     /// 每页条数。
@@ -2683,6 +2689,7 @@ impl Default for PurchaseOrderItemFilter {
         Self {
             order_id: None,
             material_id: None,
+            keyword: None,
             page: 1,
             page_size: DEFAULT_PAGE_SIZE,
         }
@@ -3842,5 +3849,38 @@ mod tests {
         seen.sort_unstable();
         seen.dedup();
         assert_eq!(seen.len(), 7, "分类枚举不能有重复值");
+    }
+
+    /// E2E01-FIX-2：采购明细筛选新增 `keyword`，且**必须可选**。
+    ///
+    /// 老前端 / 老脚本不传 `keyword` 时行为不能变（`?order_id=` 那条路照旧），
+    /// 所以这里钉两件事：JSON 里没有该字段 → `None`；有该字段 → 原样保留
+    /// （空串 / 纯空白不在 DTO 层拦，交给 `utils::like_pattern` 归一成「不加条件」，
+    /// 这样 `?keyword=%20%20` 与不传等价，不会变成 `ILIKE '%%'` 全表命中）。
+    #[test]
+    fn purchase_order_item_filter_keyword_is_optional() {
+        let filter: PurchaseOrderItemFilter =
+            serde_json::from_str(r#"{"page":2,"page_size":50}"#).expect("不传 keyword 必须能解析（老客户端兼容）");
+        assert!(filter.keyword.is_none());
+        assert!(filter.order_id.is_none() && filter.material_id.is_none());
+        assert_eq!(filter.page, 2);
+        assert_eq!(filter.page_size, 50);
+
+        let filter: PurchaseOrderItemFilter =
+            serde_json::from_str(r#"{"keyword":"DEMO-P1"}"#).expect("keyword 必须能解析");
+        assert_eq!(filter.keyword.as_deref(), Some("DEMO-P1"));
+        assert_eq!(filter.page, 1, "缺省页码 1");
+        assert_eq!(filter.page_size, DEFAULT_PAGE_SIZE, "缺省每页条数走模块口径");
+
+        // 空白关键词在 model 侧归一成「不加条件」（不是 `%  %`）
+        assert_eq!(crate::utils::like_pattern(Some("   ")), None);
+        assert_eq!(
+            crate::utils::like_pattern(Some(" demo-p1 ")).as_deref(),
+            Some("%demo-p1%"),
+            "去空格后包 %…%（大小写交给 SQL 的 ILIKE）"
+        );
+        // 默认构造与「不传」等价
+        let default = PurchaseOrderItemFilter::default();
+        assert!(default.keyword.is_none());
     }
 }

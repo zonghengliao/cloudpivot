@@ -83,9 +83,38 @@ test('buildItemQuery：空筛选只发分页（不发 ?order_id=）', () => {
 });
 
 test('buildItemQuery：两个 id 都给了就都发', () => {
-  const query = buildItemQuery({ order_id: 'o-1', material_id: 'm-1' }, 1, 20);
+  const query = buildItemQuery({ order_id: 'o-1', material_id: 'm-1', keyword: '' }, 1, 20);
   assert.deepEqual(query, { order_id: 'o-1', material_id: 'm-1', page: 1, page_size: 20 });
-  assert.equal(isItemFiltered({ order_id: 'o-1', material_id: '' }), true);
+  assert.equal(isItemFiltered({ order_id: 'o-1', material_id: '', keyword: '' }), true);
+});
+
+test('buildItemQuery：keyword 去首尾空格后照发（后端 ILIKE 也 trim，两边一致）', () => {
+  assert.deepEqual(buildItemQuery({ order_id: '', material_id: '', keyword: '  DEMO-P1 ' }, 1, 20), {
+    keyword: 'DEMO-P1',
+    page: 1,
+    page_size: 20,
+  });
+});
+
+test('buildItemQuery：空白 keyword 一律不发（不发 ?keyword= 空串，后端不会全表 ILIKE）', () => {
+  for (const blank of ['', '   ', '\t\n']) {
+    assert.deepEqual(
+      buildItemQuery({ order_id: '', material_id: '', keyword: blank }, 1, 20),
+      { page: 1, page_size: 20 },
+      `keyword=${JSON.stringify(blank)} 必须当成「全部」`,
+    );
+    assert.equal(isItemFiltered({ order_id: '', material_id: '', keyword: blank }), false);
+  }
+});
+
+test('buildItemQuery：keyword 与 id 条件同时发（后端是 AND）', () => {
+  assert.deepEqual(buildItemQuery({ order_id: 'o-1', material_id: '', keyword: 'PO-2026' }, 3, 20), {
+    order_id: 'o-1',
+    keyword: 'PO-2026',
+    page: 3,
+    page_size: 20,
+  });
+  assert.equal(isItemFiltered({ order_id: '', material_id: '', keyword: '物料P1' }), true);
 });
 
 test('labelOf：主数据缺行时退回短 id，绝不留白', () => {

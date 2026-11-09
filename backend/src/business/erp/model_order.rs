@@ -368,13 +368,52 @@ pub async fn purchase_order_item_find_by_id(id: Uuid) -> DbResult<Option<Purchas
     rows.first().map(PurchaseOrderItemRow::from_row).transpose()
 }
 
-/// 采购明细分页（按订单 / 按物料），供「物料采购记录」类页面使用。
+/// 采购明细分页（按订单 / 按物料 / 关键词），供「物料采购记录」类页面使用。
+///
+/// # 关键词口径（卡 E2E01-FIX-2）
+///
+/// `keyword` 命中**任一**即算匹配，三列跨两张表：
+///
+/// | 列 | 表 | 说明 |
+/// |---|---|---|
+/// | `order_no` | `biz_purchase_order o` | 订单单号，如 `PO-20261109-000001` |
+/// | `material_code` | `biz_material m` | 物料编码，如 `DEMO-P1` |
+/// | `material_name` | `biz_material m` | 物料名称，如 `物料P1` |
+///
+/// 实现要点（改动前先读，别退化成 N+1 或全表串行）：
+///
+/// 1. **一次 join 完**：只加 `LEFT JOIN`，不逐行回查。两张表都是按主键 join，
+///    一对多不存在，`COUNT(*)` 子查询口径不变（`scope::paginate` 用
+///    `SELECT COUNT(*) FROM (…base_sql…)`，join 不会放大行数）。
+/// 2. **`LEFT JOIN` 而不是 `INNER`**：物料 / 单头被软删（或历史脏数据）时
+///    明细行仍应出现 —— 关键词只是「多一种筛选」，不该改变「哪些明细可见」。
+/// 3. **`ILIKE` + `%…%`**：大小写不敏感（`demo-p1` 能搜到 `DEMO-P1`）。
+///    模式串由 `utils::like_pattern` 规整：空白 / `None` 返回 `None` →
+///    **不加任何条件**，与原行为逐字一致。
+/// 4. **排序**：带关键词时按 `o.order_no` 再按行号（跨单搜索时结果成组可读）；
+///    不带关键词时保持 `ORDER BY i.line_no`（原口径，翻页顺序不变）。
+///
+/// # 异常情况
+///
+/// `order_id` / `material_id` 非法 UUID → `DbError::InvalidValue`（handler 转 400）；
+/// 数据库异常原样上抛。
 pub async fn purchase_order_item_page(q: &PurchaseOrderItemFilter) -> DbResult<(Vec<PurchaseOrderItemRow>, i64)> {
+    // 关键词只算一次：既用来决定要不要 join，也用来绑 3 个参数
+    let keyword = utils::like_pattern(q.keyword.as_deref());
+    let join_headers = keyword.is_some();
     let mut sql = format!(
-        "SELECT {} FROM biz_purchase_order_item i WHERE 1 = 1",
+        "SELECT {} FROM biz_purchase_order_item i",
         purchase_order_item_columns()
     );
     let mut params: Vec<Value> = Vec::new();
+    if join_headers {
+        // 两个别名固定为 o（单头）/ m（物料），下面的条件与排序都靠它们
+        sql.push_str(
+            " LEFT JOIN biz_purchase_order o ON o.id = i.order_id \
+              LEFT JOIN biz_material m ON m.id = i.material_id",
+        );
+    }
+    sql.push_str(" WHERE 1 = 1");
     if let Some(order_id) = q.order_id.as_deref() {
         sql.push_str(" AND i.order_id = ?");
         params.push(Value::from(parse_id(order_id)?));
@@ -383,11 +422,23 @@ pub async fn purchase_order_item_page(q: &PurchaseOrderItemFilter) -> DbResult<(
         sql.push_str(" AND i.material_id = ?");
         params.push(Value::from(parse_id(material_id)?));
     }
+    if let Some(pattern) = keyword {
+        sql.push_str(" AND (o.order_no ILIKE ? OR m.material_code ILIKE ? OR m.material_name ILIKE ?)");
+        params.push(Value::from(pattern.clone()));
+        params.push(Value::from(pattern.clone()));
+        params.push(Value::from(pattern));
+    }
+    // 带关键词（= 已 join o）时按单号分组；否则维持原来的「行号升序」
+    let order_by = if join_headers {
+        "ORDER BY o.order_no ASC, i.line_no ASC"
+    } else {
+        PURCHASE_ORDER_ITEM_ORDER
+    };
     page_of(
         scope::ScopeTarget::unscoped("biz_purchase_order_item"),
         sql,
         params,
-        PURCHASE_ORDER_ITEM_ORDER,
+        order_by,
         q.page,
         q.page_size,
         PurchaseOrderItemRow::from_row,

@@ -10,6 +10,17 @@
 
         <span class="tool-row__spacer" />
 
+        <t-input
+          v-model="filter.keyword"
+          class="tool-row__keyword"
+          placeholder="搜索单号 / 物料编码 / 物料名称"
+          clearable
+          data-testid="item-filter-keyword"
+          @enter="handleSearch"
+          @clear="handleKeywordClear"
+        >
+          <template #prefix-icon><t-icon name="search" /></template>
+        </t-input>
         <t-select
           v-model="orderModel"
           class="tool-row__order"
@@ -147,7 +158,7 @@
         <t-icon name="order-list" class="panel-empty__icon" />
         <p class="panel-empty__title">{{ filtered ? '没有匹配的采购明细' : '暂无采购明细' }}</p>
         <p class="panel-empty__desc">
-          {{ filtered ? '换个采购单或物料再试' : '采购单建单后，明细行会自动出现在这里' }}
+          {{ filtered ? '换个关键词、采购单或物料再试' : '采购单建单后，明细行会自动出现在这里' }}
         </p>
       </div>
     </t-card>
@@ -256,6 +267,10 @@
  *
  * 采购单 / 物料 / 单位都是**弱引用**（只存 id）。这里按 200 条拉一次建 Map，
  * 拉不到就退回短 id 显示 —— 名称列退化，但列表绝不给空白（见 `labelOf`）。
+ *
+ * 关键词搜索（卡 E2E01-FIX-2）会命中**全表**，命中行可能落在「最新 200 条主数据」
+ * 之外 —— 那种行的单号 / 物料名会显示成短 id。这是已知的显示上限（后端列表 DTO 不返
+ * 单号与物料名），不是筛选错了：筛选结果本身是全的，可点「详情」核对金额 / 行号。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
@@ -455,6 +470,18 @@ function handleSearch(): void {
   void loadItems(1);
 }
 
+/**
+ * 清空关键词 → 恢复全量。
+ *
+ * 不能直接复用 `handleSearch`：`clear` 事件与 `update:modelValue` 的先后顺序由组件
+ * 内部决定，掐不清时可能拿旧关键词再查一次（界面清空了、结果还是过滤后的）。
+ * 这里显式把 keyword 归零再查，口径不依赖事件顺序。
+ */
+function handleKeywordClear(): void {
+  filter.keyword = '';
+  void loadItems(1);
+}
+
 /** 重置 */
 function handleReset(): void {
   Object.assign(filter, emptyItemFilter());
@@ -514,6 +541,10 @@ onMounted(() => {
 
 .tool-row__order {
   width: 220px;
+}
+
+.tool-row__keyword {
+  width: 260px;
 }
 
 .tool-row__material {

@@ -3339,9 +3339,14 @@ export function fetchInventoryAudit(dryRun = true): Promise<InventoryAuditReport
  * 采购明细分页（`GET /erp/purchase-order-item/page`，权限
  * `business:erp:purchase-order-item:list`）。
  *
- * 后端筛选（`dto.rs::PurchaseOrderItemFilter`）只有两个**精确**匹配的 id 条件：
- * `order_id` / `material_id`；没有 keyword / 日期区间，也没有排序参数
- * （`model::purchase_order_item_page` 固定 `ORDER BY order_id, line_no`）。
+ * 后端筛选（`dto.rs::PurchaseOrderItemFilter`）：
+ * - `order_id` / `material_id`：**精确**匹配；
+ * - `keyword`（卡 E2E01-FIX-2）：`ILIKE '%…%'` 模糊匹配，命中**任一**即算
+ *   —— 采购单号（`biz_purchase_order.order_no`）、物料编码（`biz_material.material_code`）、
+ *   物料名称（`biz_material.material_name`）；不传 / 空白 = 不加条件。
+ *
+ * 没有日期区间，也没有排序参数（排序由后端固定：带 keyword 时按单号 + 行号，
+ * 不带时按行号）。
  *
  * 与 {@link fetchPurchaseOrderItems} 的区别：
  * - 本函数给的是**跨订单**的分页列表（「采购明细」菜单页要看的全量台账）；
@@ -3350,6 +3355,7 @@ export function fetchInventoryAudit(dryRun = true): Promise<InventoryAuditReport
 export function fetchPurchaseOrderItemPage(query: {
   order_id?: string;
   material_id?: string;
+  keyword?: string;
   page?: number;
   page_size?: number;
 }): Promise<PageData<PurchaseOrderItemLine>> {

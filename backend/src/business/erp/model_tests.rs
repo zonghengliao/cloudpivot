@@ -837,6 +837,101 @@ async fn list_pages_respect_filters() {
     assert_eq!(items[0].id, uuid(PO_ITEM_ID));
 }
 
+/// ㉖ 采购明细关键词搜索（卡 E2E01-FIX-2）。
+///
+/// 钉住四条口径（都是「写错了也能编译过」的那类）：
+/// - 三列**任一**命中即算匹配：单号 / 物料编码 / 物料名称；
+/// - `ILIKE` 大小写不敏感（`w1b-m-001` 能搜到 `W1B-M-001`）；
+/// - 空白关键词 = 不加条件（总数与不传一致，不是 0 行）；
+/// - 关键词与 `order_id` 是 **AND**（不是「或在其中」）。
+///
+/// 断言用「包含夹具行 + 每行都满足该条件」而不是「总数恰好 N」：
+/// 真库里可能还有别的用例/演练数据，写死总数会随环境飘。
+#[tokio::test]
+async fn purchase_order_item_page_keyword_matches_no_code_and_name() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+
+    // ① 按单号
+    let (rows, total) = purchase_order_item_page(&PurchaseOrderItemFilter {
+        keyword: Some("W1B-PO-0001".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert!(total >= 1, "按单号必须至少命中夹具的 1 行");
+    assert!(
+        rows.iter().any(|row| row.id == uuid(PO_ITEM_ID)),
+        "按单号搜索必须命中夹具明细行"
+    );
+    assert!(
+        rows.iter().all(|row| row.order_id == uuid(PO_ID)),
+        "命中单号的行必须都属于该单（不能把别的单带出来）"
+    );
+
+    // ② 按物料编码，且**大小写混合**（ILIKE，不是 LIKE）
+    let (rows, total) = purchase_order_item_page(&PurchaseOrderItemFilter {
+        keyword: Some("w1b-m-001".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert!(total >= 1, "小写编码必须命中（ILIKE）");
+    assert!(rows.iter().any(|row| row.id == uuid(PO_ITEM_ID)));
+    assert!(
+        rows.iter().all(|row| row.material_id == uuid(M_RAW_ID)),
+        "按编码命中时行必须都是该物料"
+    );
+
+    // ③ 按物料名称（中文、含空格）
+    let (rows, total) = purchase_order_item_page(&PurchaseOrderItemFilter {
+        keyword: Some("W1B 螺栓".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert!(total >= 1, "中文物料名称必须能搜到");
+    assert!(rows.iter().any(|row| row.id == uuid(PO_ITEM_ID)));
+    assert!(rows.iter().all(|row| row.material_id == uuid(M_RAW_ID)));
+
+    // ④ 空白 / 空串 = 不加条件：总数与「完全不传」逐字一致
+    let (_, all_total) = purchase_order_item_page(&PurchaseOrderItemFilter::default())
+        .await
+        .unwrap();
+    for blank in ["", "   "] {
+        let (_, blank_total) = purchase_order_item_page(&PurchaseOrderItemFilter {
+            keyword: Some(blank.to_string()),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+        assert_eq!(blank_total, all_total, "关键词 `{blank}` 必须等价于不传（不加条件）");
+    }
+
+    // ⑤ 关键词 + order_id 是 AND：单号对上但订单不对 → 0 行
+    let (rows, total) = purchase_order_item_page(&PurchaseOrderItemFilter {
+        order_id: Some(Uuid::now_v7().to_string()),
+        keyword: Some("W1B-PO-0001".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(total, 0, "order_id 与 keyword 必须同时满足");
+    assert!(rows.is_empty());
+
+    // ⑥ 没命中 → 0 行（不是报错，也不是全量）
+    let (rows, total) = purchase_order_item_page(&PurchaseOrderItemFilter {
+        keyword: Some("W1B-NO-SUCH-THING-ZZZ".to_string()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(total, 0);
+    assert!(rows.is_empty(), "查不到就是空列表");
+}
+
 /// ㉔ 收尾清场：本模块的**科目夹具**必须删掉（t_06c528fc）。
 ///
 /// 为什么：`cash_flow::tests::r3_real_config_covers_all_accounts` 按「`biz_account` 全表」
