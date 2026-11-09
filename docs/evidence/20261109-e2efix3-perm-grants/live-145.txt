@@ -1,0 +1,91 @@
+# 145 隔离库 cp_e2efix3 + 隔离端口 18319 实测输出
+# 采集时间：2026-11-09 12:52:25 CST  主机：ubuntu-svr
+# 运行：cd /opt/cloudpivot && bash docs/evidence/20261109-e2efix3-perm-grants/live-145.sh
+
+==== 0. 隔离库 + 隔离实例（env 文件 /etc/cloudpivot/cloudpivot.env）
+  pid=2616522 bin=/opt/cloudpivot/backend/target/release/cloudpivot health=200
+  库指纹：迁移 289 条 / V0356 1 行
+  ✅ V0356 已随迁移落地（schema_migrations 有 doc_core_perm_grants）
+  本迁移授权行：10（期望 10）
+==== 1. admin 登录（全新库首登带 must_change_password）
+  改密 http=200 msg=密码已修改
+  ✅ admin 已登录
+==== 2. 演练账号（销售员 / 销售主管+财务 / 采购）
+  部门 01a1bea5-104f-74a9-a2ee-75c4eff48701
+  角色：CLERK=20000000-0000-4000-8000-0000000f0008 SUP=20000000-0000-4000-8000-0000000f0007 FIN=20000000-0000-4000-8000-0000000f0005 BUY=20000000-0000-4000-8000-0000000f0002
+  用户：sp=01a1bea5-10f0-746a-9cae-108aa1ec6c7d appr=01a1bea5-110d-72e1-a2e2-9061c1faca9d buyer=01a1bea5-112b-7287-8cd9-e620952319e4
+  ✅ 三个演练账号已建
+==== 3. 造 4 张草稿退货单（admin，超管短路；后面分别给主管/销售员做权限对照）
+  warehouse=d1370001-0000-4000-8000-000000000001 material=d1370003-0000-4000-8000-000000000001 customer=d0260000-0000-4000-8000-000000000001
+  草稿：01a1bea5-119d-7463-b9b8-e01fca4f4d8d / 01a1bea5-11ab-7701-bfc8-ce0072d875a5 / 01a1bea5-11b7-759c-b58f-f662f1e6de86 / 01a1bea5-11c3-744b-bad3-c8c498328652（http=200）
+  ✅ 草稿退货单已建（超管）
+==== 4. ① 复现现场：跑 V0356 down（撤掉本迁移授的 10 行）→ 就是 E2E-02 演练当天的库
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.down.sql:13: NOTICE:  table "_dpg_matrix" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.down.sql:70: NOTICE:  V0356 down：已撤销本迁移插入的 10 行授权（其它迁移授的同码行未动）
+  销售员查列表 http=403
+  ✅ 修复前：SALES_CLERK 查列表 403（缺陷复现）
+  销售主管 PATCH 状态 http=403 msg=无权限访问，需要权限: business:erp:sales-return:status
+  ✅ 修复前：销售主管 PATCH 状态 403（卡面症状复现：审批只能超管自批）
+  ④ 不变量闸打「修复前」的库：
+单据核心权限码零授予闸  （库 cp_e2efix3）
+  ERP 核心码 98 个，有非超管授权 91 个
+  ❌ 零授予（除超管外无人可用）7 个：
+    · business:erp:receipt-refund:create
+    · business:erp:receipt-refund:list
+    · business:erp:receipt-refund:status
+    · business:erp:sales-return:create
+    · business:erp:sales-return:list
+    · business:erp:sales-return:status
+    · business:erp:unit:create
+  修法：发迁移给合适的业务角色补授权（单据建单与审批要分属不同角色 —— 职责分离），不要往白名单里塞。
+  ℹ 非 ERP 域零授予 39 个（不判红：平台治理/配置面可能故意只给超管）：
+  ✅ 修复前：core_perm_grants.py rc=1（闸能发现缺失授权）
+==== 5. ② 修复：跑 V0356 up（补 10 行授权；token_version 推进后需重新登录）
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.up.sql:75: NOTICE:  table "_dpg_matrix" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.up.sql:232: NOTICE:  table "_dpg_sel" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.up.sql:232: NOTICE:  V0356 完成：矩阵 10 对（销售退货 建单/审批分离 + 收款退款 财务 + 计量单位新增），本次新增授权 10 行，推进 token_version 3 人
+  ✅ 销售员重新登录（token_version 已推进）
+  ---- 验收 ②：SALES_CLERK 建单 + 查列表 ----
+  http=200 return_no=SR-20261109-000005 id=01a1bea5-12fc-7483-a004-0be6fb38ccd9 msg=ok
+  ✅ 销售员建退货单成功（http=200）SR-20261109-000005
+  http=200 total=5
+  ✅ 销售员查列表 200（total=5）
+  详情 http=200 status=DRAFT
+  ✅ 销售员查详情 200
+  可退明细接口 http=404（无发货单 → 预期 4xx 业务错，不是 403 权限错）
+  ---- 验收 ①：销售主管 PATCH 退货单状态 → 200（不再 403）----
+  http=200 status=CANCELLED msg=ok
+  ✅ 销售主管 PATCH 状态 → 200（status=CANCELLED）
+  D3 提交 http=400 msg=销售退货单必须上传退货单或物流凭证（pdf/jpg/png）：至少要 1 个，当前 0 个（该单据共 0 个附件），还差 1 个（ATT-06 附件闸可能 400 —— 关键是**不是 403**）
+  ✅ 提交不再是 403（http=400：权限已通过，剩下的都是业务闸）
+  ---- 职责分离：销售员**不得**能审批（V0356 不给 CLERK sales-return:status）----
+  http=403 msg=无权限访问，需要权限: business:erp:sales-return:status
+  ✅ 销售员 PATCH 状态 403（自建自批被堵死，职责分离成立）
+  ---- 残余观察（本卡不改，如实记录）：销售员能不能选物料/仓库 ----
+    /material/page  http=403（SALES_CLERK 的角色矩阵里没有 material:list）
+    /warehouse/page http=403（同样没有 warehouse:list）
+    → 退货页前端 Promise.allSettled 会吞掉这两个 403：页面能开，但物料/仓库下拉为空、明细只显示 id。
+  ---- 同类补齐：收款退款单（财务）+ 计量单位新增（采购）----
+  收款退款单列表 http=200（财务经理）
+  ✅ FINANCE_MANAGER 能用收款退款单（原 403）
+  计量单位新增 http=200 msg=ok
+  ✅ PURCHASE_MANAGER 能建计量单位（原 403）
+  ---- ④ 不变量闸打「修复后」的库 ----
+单据核心权限码零授予闸  （库 cp_e2efix3）
+  ERP 核心码 98 个，有非超管授权 98 个
+  ✅ 所有 ERP 核心码都至少授予了 1 个非超管角色
+  ℹ 非 ERP 域零授予 39 个（不判红：平台治理/配置面可能故意只给超管）：
+  ✅ 修复后：core_perm_grants.py rc=0（ERP 核心码 98/98 有非超管授权）
+==== 6. 权限快照（库里实际授予关系）
+business:erp:receipt-refund:allocate -> FINANCE_MANAGER
+business:erp:receipt-refund:create -> FINANCE_MANAGER
+business:erp:receipt-refund:detail -> FINANCE_MANAGER
+business:erp:receipt-refund:list -> FINANCE_MANAGER
+business:erp:receipt-refund:status -> FINANCE_MANAGER
+business:erp:sales-return:create -> SALES_CLERK
+business:erp:sales-return:list -> SALES_CLERK,SALES_SUPERVISOR
+business:erp:sales-return:status -> SALES_SUPERVISOR
+business:erp:unit:create -> PURCHASE_MANAGER
+==== 7. 收尾：停实例（库保留供人工复核）
+
+================ 汇总：PASS=17 FAIL=0 ================

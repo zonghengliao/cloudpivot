@@ -1,0 +1,92 @@
+############################ 1. 后端真库用例（cargo test）
+### cargo test --lib system::menu::permission_audit_tests（SYS_DB_URL=cp_e2efix3，V0356 已应用）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (backend/target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 7 tests
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 3864 filtered out; finished in 7.15s
+
+rc=0
+
+### N20 打「修复前」的库（cp_e2efix1，V0356 未应用）—— 证 Rust 侧闸有牙（期望 FAILED，点名 7 个码）
+---- system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role stdout ----
+测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role' (2489760) panicked at src/system/menu/permission_audit_tests.rs:1134:5:
+[N20] 以下 ERP 单据核心权限码**只授给了超管或谁都没授**（除超管外全员 403，其「审批」只能超管自批 → 职责分离失效）：
+business:erp:receipt-refund:create
+business:erp:receipt-refund:list
+business:erp:receipt-refund:status
+business:erp:sales-return:create
+business:erp:sales-return:list
+business:erp:sales-return:status
+business:erp:unit:create
+修法：发迁移把码授给合适的业务角色（**建单与审批必须分属不同角色**），不要往白名单里塞；现场口径见 V0356 头注释。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 3870 filtered out; finished in 0.16s
+
+error: test failed, to rerun pass `--lib`
+rc=101（非 0 = 用例红了，正是「有牙」）
+
+############################ 2. 静态闸 core_perm_grants.py
+### --self-test
+  ✅ system:change-log:list 不命中（非 ERP）
+  ✅ business:erp:unit:detailed 不命中（前缀伪装）
+自检结果：PASS
+rc=0
+
+### 打「修复前」的库 cp_e2efix1（expect rc=1，点名 7 个码）
+单据核心权限码零授予闸  （库 cp_e2efix1）
+  ERP 核心码 98 个，有非超管授权 91 个
+  ❌ 零授予（除超管外无人可用）7 个：
+    · business:erp:receipt-refund:create
+    · business:erp:receipt-refund:list
+    · business:erp:receipt-refund:status
+    · business:erp:sales-return:create
+    · business:erp:sales-return:list
+    · business:erp:sales-return:status
+    · business:erp:unit:create
+  修法：发迁移给合适的业务角色补授权（单据建单与审批要分属不同角色 —— 职责分离），不要往白名单里塞。
+  ℹ 非 ERP 域零授予 39 个（不判红：平台治理/配置面可能故意只给超管）：
+    · business:flow:create
+    · business:flow:linkage:list
+rc=1
+
+### 打「修复后」的库 cp_e2efix3（expect rc=0）
+单据核心权限码零授予闸  （库 cp_e2efix3）
+  ERP 核心码 98 个，有非超管授权 98 个
+  ✅ 所有 ERP 核心码都至少授予了 1 个非超管角色
+rc=0
+
+############################ 3. 迁移幂等 / 回滚（库 cp_e2efix3）
+### 先 down（撤本迁移的 10 行）
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.down.sql:70: NOTICE:  V0356 down：已撤销本迁移插入的 10 行授权（其它迁移授的同码行未动）
+### down 之后打闸（expect rc=1，7 个码）
+  ERP 核心码 98 个，有非超管授权 91 个
+  ❌ 零授予（除超管外无人可用）7 个：
+rc=1
+
+### up（首次）
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.up.sql:232: NOTICE:  V0356 完成：矩阵 10 对（销售退货 建单/审批分离 + 收款退款 财务 + 计量单位新增），本次新增授权 10 行，推进 token_version 0 人
+### up 幂等重放（expect 新增 0 行）
+psql:/opt/cloudpivot/backend/migrations/business/V0356__doc_core_perm_grants.up.sql:232: NOTICE:  V0356 完成：矩阵 10 对（销售退货 建单/审批分离 + 收款退款 财务 + 计量单位新增），本次新增授权 0 行，推进 token_version 0 人
+### up 之后打闸（expect rc=0）
+  ERP 核心码 98 个，有非超管授权 98 个
+  ✅ 所有 ERP 核心码都至少授予了 1 个非超管角色
+rc=0
+
+############################ 4. 前端（本卡无前端改动，仍跑一遍证明未破）
+pnpm typecheck + pnpm build：见卡内汇报（exit 0；build 产物 dist/ 已被 .gitignore 忽略）

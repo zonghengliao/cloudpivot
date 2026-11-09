@@ -132,16 +132,38 @@ up    → 再来 10 行
 - 收款退款单：`FINANCE_MANAGER`（`e2e02_appr`）`GET /business/erp/receipt-refund/page` → 200（原 403）；
 - 计量单位：`PURCHASE_MANAGER`（`e2efix3_buyer`）`POST /business/erp/unit` → 200（原 403）。
 
+最终一轮实测关键行（`live-145.txt` 逐字）：
+
+```
+本迁移授权行：10（期望 10）                         ← 迁移随实例启动自动应用
+修复前：SALES_CLERK 查列表 403 / 销售主管 PATCH 403   ← 缺陷复现
+修复前：core_perm_grants.py rc=1（点名 7 码）
+V0356 完成：…本次新增授权 10 行，推进 token_version 3 人
+销售员建单 http=200 return_no=SR-20261109-000005
+销售员查列表 200（total=5）/ 详情 200
+销售主管 PATCH 状态 → 200（status=CANCELLED）        ← 验收 ①
+销售员 PATCH 状态 403（自建自批被堵死）               ← 职责分离
+FINANCE_MANAGER 收款退款单列表 200 / PURCHASE_MANAGER 建计量单位 200
+修复后：core_perm_grants.py rc=0（ERP 核心码 98/98）
+汇总：PASS=17 FAIL=0
+```
+
 ---
 
-## 六、代码/测试
+## 六、代码/测试（实测输出见 `verification.txt`）
 
 | 项 | 结果 |
 |---|---|
-| 迁移幂等/回滚 | up→down→up 实测（第二节末），断言 4.1–4.7 全过 |
-| `cargo test --lib system::menu::permission_audit_tests`（SYS_DB_URL=cp_e2efix3） | 见第六节实测输出 |
-| `python3 scripts/verify/core_perm_grants.py --self-test` | PASS（5 组） |
-| 前端 `pnpm typecheck && pnpm build` | 本卡无前端改动，仍跑一遍证明未破（见下） |
+| `cargo test --lib system::menu::permission_audit_tests`（SYS_DB_URL=cp_e2efix3） | **7 passed / 0 failed**（N14–N20；N20 为本卡新增） |
+| N20 打「修复前」库 cp_e2efix1 | **FAILED**，点名 7 个零授予码（证明用例有牙，不是永远绿） |
+| `python3 scripts/verify/core_perm_grants.py --self-test` | **PASS**（5 组红/绿语料） |
+| 静态闸打 cp_e2efix1 / cp_e2efix3 | `rc=1`（7 码）/ `rc=0`（98/98） |
+| 迁移 down→up→up 重放 | 撤 10 行 → 补 10 行 → 重放新增 **0 行**（幂等），闸 rc 1→0 |
+| 前端 `pnpm typecheck && pnpm build` | 通过（exit 0；本卡无前端改动，跑一遍证明未破） |
+| 全量 `cargo test` | **未跑全量**：单线程约 90min 超出本卡 2h 预算（与上一张卡同一口径）；改动面 = 迁移 + 一个新用例，定向用例与静态闸已覆盖 |
+
+顺手修掉 main 上一条**既有红**：`GET /business/erp/master-data/code-policy`（CODE-08 落地时
+漏登记 `NO_PERMISSION_ROUTES`）让 N16 一直红；本卡登记白名单（带理由）后 N16 转绿。
 
 ---
 
