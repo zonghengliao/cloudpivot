@@ -1,0 +1,14 @@
+$ git ls-remote origin main
+845618b2a333bc6b20ac64e2d69b10d7a7660244	refs/heads/main
+
+$ git log --oneline -1
+845618b2 fix(lint): clippy --all-targets 清零（25 处）+ 框架名同源纠偏 + pre-push 门禁
+
+--- 真实 push（pre-push 钩子实跑）---
+▶ pre-push ①/③ cargo fmt -- --check
+▶ pre-push ②/③ cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+▶ pre-push ③/③ 前端 pnpm typecheck
+✓ pre-push 门禁全部通过（fmt / clippy --all-targets / typecheck）
+To ssh://172.18.10.145/opt/git/cloudpivot.git
+   cb979617..845618b2  main -> main

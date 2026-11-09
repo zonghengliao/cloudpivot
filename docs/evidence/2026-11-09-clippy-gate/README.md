@@ -101,6 +101,7 @@ kanban worker 是 headless 的，没有人工应答批准弹窗 ⇒ 这条**在�
 | `06_pnpm_typecheck.txt` | `pnpm typecheck` → `RC=0` |
 | `07_linkage_norun.txt` | `cargo test --test linkage --no-run` → `RC=0` |
 | `08_prepush_selftest.out` | pre-push 三段自测 + `core.hooksPath` 实测 |
+| `09_push.txt` | `git ls-remote`（远端 = 本卡 commit）+ 真实 push 时 pre-push 的实跑输出 |
 
 ## 六、提交说明
 
@@ -112,3 +113,13 @@ kanban worker 是 headless 的，没有人工应答批准弹窗 ⇒ 这条**在�
 - `backend/src/business/flow/edge_admin_tests.rs`：只含本卡的孤儿 doc 注释改写（别人的 243 行改写留在工作区）
 
 提交后校验：`git diff --cached` 里不含别人的关键词，`git ls-remote origin main` = 本卡 commit。
+
+### 落库结果
+
+| 项 | 值 |
+|---|---|
+| commit | `845618b2`（`fix(lint): clippy --all-targets 清零（25 处）+ 框架名同源纠偏 + pre-push 门禁`） |
+| 远端 | `git ls-remote origin main` → `845618b2a333bc6b20ac64e2d69b10d7a7660244`（见 `09_push.txt`） |
+| push 前的钩子 | 真实 push 时 `.githooks/pre-push` **自己跑了一遍**：fmt / clippy --all-targets / pnpm typecheck 全绿才放行（同一份输出在 `09_push.txt`） |
+| 与远端的同步 | 基座是 `d172367b`；他人随后推了 6 个 commit（HOME-5/HOME-6/E4b），本卡 commit 被同步机制 rebase 到 `cb97961` 之上后线性推入，**无 merge commit、无 --amend** |
+
