@@ -12,8 +12,8 @@
 
 | # | 验收项 | 结果 | 证据文件 |
 |---|---|---|---|
-| ① | 144 生产手工跑一次 → dump + 校验 + `.meta` | **PASS** | `backup_144_prod.log`、`prod_144.meta`、`prod_144.dump.sha256` |
-| ② | 145 测试同上 | **PASS** | `backup_145_test.log` |
+| ① | 144 生产手工跑一次 → dump + 校验 + `.meta` | **PASS** | `backup_144_prod.log`、`prod_144.meta`、`prod_144.dump.sha256`、`cron_run_144.log`（cron 等价环境真跑一次） |
+| ② | 145 测试同上 | **PASS** | `backup_145_test.log`、`cron_run_145.log`（cron 等价环境真跑一次） |
 | ③ | 把 144 的 dump 恢复到 145 临时库 → 表数/migrations/行数一致 | **PASS**（9 项基线全 OK） | `restore_drill_145.log` |
 | ④ | 恢复后能登录（用恢复出来的账号） | **PASS**（登录 200 + 5 个接口 200；口令口径见下） | `login_smoke_145.log`、`login_smoke_145.sh` |
 | ⑤ | cron 已装（144 + 145 各一条） | **PASS** | `cron_install_144.log`、`cron_install_145.log` |
@@ -96,6 +96,16 @@ RESULT: PASS
 ```
 
 安装用幂等脚本（先备份 root crontab 到 `/var/backups/crontab.bak-<date>`，再 grep -v 去重后追加），并在 **cron 等价环境**（`env -i HOME=/root PATH=/usr/bin:/bin`）跑 `--dry-run` 验证：env 文件探测、pg_dump 版本、连通性、磁盘余量全部通过（见 `cron_install_144.log` / `cron_install_145.log`）。
+
+进一步用 **cron 完全等价环境真跑一次**（不是 dry-run）：
+
+```
+144: env -i HOME=/root PATH=/usr/bin:/bin SHELL=/bin/sh bash /opt/cloudpivot/scripts/ops/backup_db.sh --keep 14
+     → /root/db-backup/cloudpivot-20261109-221715.dump（1509164 字节，TOC 2332 条，校验 PASS，保留 4/14），rc=0
+145: env -i HOME=/root PATH=/usr/bin:/bin SHELL=/bin/sh bash /opt/cloudpivot/scripts/ops/backup_db.sh --keep 7
+     → /root/db-backup/cloudpivot_dev-20261109-221716.dump（2870872 字节，TOC 2205 条，校验 PASS，保留 4/7），rc=0
+```
+日志：`cron_run_144.log` / `cron_run_145.log`。
 
 ## ⑥ 运维手册
 
