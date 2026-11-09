@@ -102,6 +102,13 @@ kanban worker 是 headless 的，没有人工应答批准弹窗 ⇒ 这条**在�
 | `07_linkage_norun.txt` | `cargo test --test linkage --no-run` → `RC=0` |
 | `08_prepush_selftest.out` | pre-push 三段自测 + `core.hooksPath` 实测 |
 | `09_push.txt` | `git ls-remote`（远端 = 本卡 commit）+ 真实 push 时 pre-push 的实跑输出 |
+| `10_145_health.txt` | 145 dev 环境存活探针（`/health` code=0；`/api/system/auth/login` 对假账号回 401 ⇒ 路由在、鉴权在） |
+
+> **为什么没做「真实 token 登录 + 业务 curl」**：本卡没有改任何 handler / DTO / SQL / 迁移
+> —— 25 处全是 lint 等价改写（20 处在 `#[cfg(test)]`）+ 2 处 `#[allow]` + 1 处测试辅助函数补参数，
+> 另加文档与钩子。行为的证据是 `cargo test --lib 4021 passed / 0 failed`（覆盖全部 lib 用例）
+> 与 `pnpm typecheck`；`10_145_health.txt` 只用来确认演练环境本身活着，不构成业务回归证据。
+
 
 ## 六、提交说明
 

@@ -1,0 +1,5 @@
+$ curl -s http://172.18.10.145/health
+{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"dev","time":"2026-11-09T16:19:41.999498306+00:00"}}
+
+$ curl -o /dev/null -w "%{http_code}" -X POST http://172.18.10.145/api/system/auth/login -d {bogus}
+HTTP=401
