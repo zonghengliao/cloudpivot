@@ -21,7 +21,7 @@ bash scripts/deploy/deploy.sh --tag hotfix-1020    # 自定义备份/构建标�
 ssh root@172.18.10.144 'bash /opt/cloudpivot/scripts/deploy/deploy.sh --dry-run'
 ```
 
-## 它做了什么（8 步）
+## 它做了什么（9 步）
 
 | 步 | 动作 | 关键判据 |
 |---|---|---|
@@ -31,8 +31,9 @@ ssh root@172.18.10.144 'bash /opt/cloudpivot/scripts/deploy/deploy.sh --dry-run'
 | 4 | **后端需重做时**（`backend/` 有 diff **或 二进制 mtime < 最近一次后端提交时间**）：`cargo build --release`（默认 `CARGO_BUILD_JOBS=1`）—— **只编译，不重启** | 编译失败即停（此时线上仍是旧二进制 + 旧 schema，一致状态） |
 | 5 | 待跑迁移逐条应用（调 `scripts/verify/deploya_migrate.sh --assert-pending`，按 nik-db 引擎口径记账，`source` 记文件真实子目录） | 失败即停；**三道自检**：① 对账 `applied 增量 == 待跑条数`；② `applied_via` 全表 ∈ `executed/imported/baseline`；③ 集合差为空（磁盘上有、库里没记账的为 0） |
 | 6 | 换二进制（`cp → .new` + `mv -f`）→ `systemctl restart` → 轮询 `/health` | 失败自动回滚二进制；`/proc/<pid>/exe` 的 md5 必须等于磁盘二进制 |
-| 7 | **前端需重做时**（`frontend/` 有 diff **或 dist mtime < 最近一次前端提交时间**）：`pnpm typecheck`（0 错）→ `vite build --outDir dist-<TAG>` → 双 rename | 新 dist 入口 chunk 必须等于 `curl http://127.0.0.1/` 的入口 chunk；不等则自动回滚 dist |
-| 8 | 收口核对 | 主仓 HEAD == origin/main、迁移最大版本、服务 active、`/health`、进程==磁盘、线上入口 |
+| 7 | **账务巡检重跑**（NEAR-FIX-4）：`python3 scripts/ops/invariant_rerun.py`（结论不早于最后一次迁移就跳过，幂等） | 新结论 `run_at` 必须不早于 `max(schema_migrations.applied_at)`；**非致命**：失败只显红，不回滚发版（告警侧同时降级为「结论过期待重跑」而不是「账已错」）。`--skip-invariant` 跳过 |
+| 8 | **前端需重做时**（`frontend/` 有 diff **或 dist mtime < 最近一次前端提交时间**）：`pnpm typecheck`（0 错）→ `vite build --outDir dist-<TAG>` → 双 rename | 新 dist 入口 chunk 必须等于 `curl http://127.0.0.1/` 的入口 chunk；不等则自动回滚 dist |
+| 9 | 收口核对 | 主仓 HEAD == origin/main、迁移最大版本、服务 active、`/health`、进程==磁盘、线上入口、巡检结论摘要 |
 
 > 为什么「先编译再迁移」而不是反过来：编译要 5–10 分钟，而删列类迁移（如 V0217 删
 > `received_qty`）一落地，**仍在服务的旧二进制**就会因为引用已删列而 500。先编好再迁移，

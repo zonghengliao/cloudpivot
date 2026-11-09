@@ -1,0 +1,23 @@
+
+### 1) 演练库铺回 A 场景（结论 17h 前 FAIL + 之后一条无关迁移）
+结论 FAIL blockers=1 17h 前
+
+### 2) 起一个假 /metrics（只提供 4 条 cloudpivot_invariant_* gauge）
+   # HELP cloudpivot_invariant_ok 最近一次巡检是否通过
+   cloudpivot_invariant_ok 0
+
+### 3) alert_check --only invariant（数据源应变成 /metrics，判定应为 WARN「待重跑」）
+   [2026-11-10T03:35:04+08:00] 库连接就绪：cloudpivot@127.0.0.1:5432/cp_drill_inv4（env=/tmp/drill-inv.env）
+   [2026-11-10T03:35:04+08:00] === 告警巡检开始 host=172.18.10.144 base=http://127.0.0.1:18099 检查=[invariant] dry_run=1 ===
+   [2026-11-10T03:35:04+08:00] invariant: 数据源 = /metrics（cloudpivot_invariant_*）（FAIL|1|2|61200|54000）
+   [2026-11-10T03:35:04+08:00] invariant: WARN — 巡检结论早于最后一次迁移，待重跑（暂不判「账已错」）
+   [2026-11-10T03:35:04+08:00] === 巡检结束：1 项告警，开始派发 ===
+   [2026-11-10T03:35:04+08:00]   ↳ dry-run：本该建卡/发飞书（WARN 巡检结论早于最后一次迁移，待重跑（暂不判「账已错」））
+
+### 4) psql 不可用时（env 文件不存在）→ 不能崩，且必须显式说明「无法判断是否过期」，按旧口径判
+   [2026-11-10T03:35:04+08:00] === 告警巡检开始 host=172.18.10.144 base=http://127.0.0.1:18099 检查=[invariant] dry_run=1 ===
+   [2026-11-10T03:35:04+08:00] invariant: 无法判断结论是否早于最后一次迁移（psql 不可用）→ 按旧口径判定
+   [2026-11-10T03:35:04+08:00] invariant: 数据源 = /metrics（cloudpivot_invariant_*）（FAIL|1|2|61200|0）
+   [2026-11-10T03:35:04+08:00] invariant: ALERT — 账务巡检有 1 个 BLOCKER（账已错）
+   [2026-11-10T03:35:04+08:00] === 巡检结束：1 项告警，开始派发 ===
+   [2026-11-10T03:35:04+08:00]   ↳ dry-run：本该建卡/发飞书（ALERT 账务巡检有 1 个 BLOCKER（账已错））

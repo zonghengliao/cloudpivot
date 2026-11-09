@@ -19,11 +19,19 @@
 #   --skip-migrate    不跑新迁移（默认：自动检测并逐条跑）
 #   --skip-backend    不编译/不重启后端
 #   --skip-frontend   不构建/不替换前端 dist
+#   --skip-invariant  不重跑账务巡检（默认：迁移/发布后自动重跑，见下）
 #   --force-frontend  无视「前端无改动」判据，强制 typecheck + build + 换 dist
 #                     （补装前端 / 复现 build 问题时用；仍受 --skip-frontend 压制）
 #   --dry-run         只打印计划
 #   --tag <label>     备份与构建目录标签
 #   -h|--help
+#
+# 关于「巡检重跑」（NEAR-FIX-4，第 [7/9] 步）：
+#   巡检结论是快照，内置 cron 一天只落一条（10:20 CST）。「修账的迁移」与「告警读的结论」
+#   之间原本没有先后判断：11-09 22:23 的 V0366 修好了 H6/H5，告警却拿着 10:20 的旧 FAIL
+#   喊到次日。所以每次部署在**迁移 + 重启之后**都会跑一次
+#   `scripts/ops/invariant_rerun.py`（结论不旧就跳过，幂等）。这一步**不影响部署结果**：
+#   失败只显红 + 提示「告警侧会继续报结论过期待重跑」，不回滚已经成功的发版。
 #
 # 环境变量：
 #   DEPLOY_REPO        仓库路径，默认 /opt/cloudpivot
@@ -55,6 +63,7 @@ TAG="$(date +%Y%m%d-%H%M%S)"
 SKIP_MIGRATE=0
 SKIP_BACKEND=0
 SKIP_FRONTEND=0
+SKIP_INVARIANT=0
 FORCE_FRONTEND=0
 DRY_RUN=0
 # 前端 build 的 node 堆上限：不设就吃默认（这台 7GB/aarch64 上 ~2GB，本轮实测 OOM）
@@ -65,6 +74,7 @@ while [ $# -gt 0 ]; do
     --skip-migrate)  SKIP_MIGRATE=1 ;;
     --skip-backend)  SKIP_BACKEND=1 ;;
     --skip-frontend) SKIP_FRONTEND=1 ;;
+    --skip-invariant) SKIP_INVARIANT=1 ;;
     --force-frontend) FORCE_FRONTEND=1 ;;
     --dry-run)       DRY_RUN=1 ;;
     --tag)           TAG="${2:?--tag 需要值}"; shift ;;
@@ -123,7 +133,7 @@ die() {
 }
 
 # ----------------------------------------------------------------------------
-step "[0/8] 前置检查"
+step "[0/9] 前置检查"
 # 用 rev-parse 而不是 [ -d "$REPO/.git" ]：worktree 里 .git 是文件不是目录
 git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 || die "找不到 git 仓库 $REPO（本脚本要在生产机上跑）"
 [ -f "$ENV_FILE" ] || die "找不到生产环境变量 $ENV_FILE"
@@ -158,7 +168,7 @@ say "仓库 $REPO，库 $DB_NAME，服务 $SERVICE，标签 $TAG"
 [ "$DRY_RUN" = "1" ] && say ">>> dry-run：只体检与打印计划，不写文件、不动服务 <<<"
 
 # ----------------------------------------------------------------------------
-step "[1/8] 查清待上线内容（git fetch + 差异清单）"
+step "[1/9] 查清待上线内容（git fetch + 差异清单）"
 cd "$REPO" || die "cd $REPO 失败"
 git fetch --quiet origin || die "git fetch 失败"
 OLD_HEAD="$(git rev-parse HEAD)"
@@ -250,7 +260,7 @@ if [ "$PENDING_LOW_N" -gt 0 ]; then
 fi
 
 # ----------------------------------------------------------------------------
-step "[2/8] 备份（库 dump + 线上二进制 + 现有 dist）"
+step "[2/9] 备份（库 dump + 线上二进制 + 现有 dist）"
 if [ "$DRY_RUN" = "1" ]; then
   say "dry-run：将备份到 $BACKUP_DIR/{db.dump,cloudpivot,dist/}"
 else
@@ -276,7 +286,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[3/8] 同步代码（git merge --ff-only）"
+step "[3/9] 同步代码（git merge --ff-only）"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   git status --short --untracked-files=no | sed 's/^/    /'
   die "生产工作区有未提交的已跟踪改动，脚本不替你 stash（可能是别人在跑的任务）。请先处理：git -C $REPO status"
@@ -313,7 +323,7 @@ DID_FF=1
 # 迁移一落地，**仍在服务的旧二进制**就可能因为引用已删列而 500，
 # 旧二进制会带着错误撑到编译完。先编好再迁移，把「旧二进制 × 新 schema」
 # 的窗口从「编译耗时」压到「迁移耗时」（秒级）。
-step "[4/8] 后端编译（只编译不重启）"
+step "[4/9] 后端编译（只编译不重启）"
 BIN_BUILT=0
 if [ -z "$BE_CHANGED" ]; then
   say "无后端改动，跳过编译"
@@ -330,7 +340,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[5/8] 数据库迁移（逐条跑 + 按引擎口径记账 + 跑完对账）"
+step "[5/9] 数据库迁移（逐条跑 + 按引擎口径记账 + 跑完对账）"
 if [ "$SKIP_MIGRATE" = "1" ]; then
   say "--skip-migrate：跳过"
 elif [ "${#PENDING_PAIRS[@]}" -eq 0 ]; then
@@ -376,7 +386,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[6/8] 启用新二进制（换文件 → 重启 → /health → 进程==磁盘 → 记账自检）"
+step "[6/9] 启用新二进制（换文件 → 重启 → /health → 进程==磁盘 → 记账自检）"
 if [ -z "$BE_CHANGED" ]; then
   say "无后端改动，不动服务"
 elif [ "$DRY_RUN" = "1" ]; then
@@ -439,7 +449,44 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[7/8] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）"
+step "[7/9] 账务巡检重跑（NEAR-FIX-4：迁移/发布落地后，结论必须追上事实）"
+# 为什么放在这里：迁移已跑完（[5/9]）、新二进制已起（[6/9]），此时脚本与库都是「发布后」的
+# 样子，跑出来的结论才有意义。放在迁移之前会拿旧树/旧库跑；放在更早的步骤则「脚本读得到
+# 新迁移文件、库还没应用」，同样是自己的幻觉。
+#
+# 幂等：结论不早于最后一次迁移就跳过（不刷无意义的行），要看真实动作加 --force。
+# 非致命：这一步失败**不回滚发版**（发版已经成功），只在收口与日志里显红 —— 此时告警侧会
+# 报「结论早于最后一次迁移、待重跑」（alert_check.sh 的同批修复），不会再喊「账已错」。
+DID_INVARIANT_FAIL=0
+INV_SUMMARY=""
+if [ "$SKIP_INVARIANT" = "1" ]; then
+  say "--skip-invariant：跳过（告警侧会继续按旧结论判定）"
+elif [ "$DRY_RUN" = "1" ]; then
+  say "dry-run：将跑 python3 scripts/ops/invariant_rerun.py（结论早于最后一次迁移时重跑并落一行 MANUAL；幂等）"
+else
+  cd "$REPO" || die "cd $REPO 失败"
+  INV_LOG="/var/log/cloudpivot-deploy-$TAG.invariant.log"
+  # 本脚本是 set -uo pipefail（**没有** errexit）：别在这里 set -e 兜底，那会给后面所有步骤
+  # 突然打开 errexit，改变原有失败语义。
+  python3 "$REPO/scripts/ops/invariant_rerun.py" --repo "$REPO" --env-file "$ENV_FILE" \
+    --base-url "http://127.0.0.1:8023" >"$INV_LOG" 2>&1
+  INV_RC=$?
+  tail -6 "$INV_LOG" | sed 's/^/    /'
+  INV_SUMMARY="$(grep -m1 '^INVARIANT_RERUN ' "$INV_LOG" || true)"
+  case "$INV_RC" in
+    0) INV_SUMMARY="${INV_SUMMARY:-结论不旧，无需重跑}"
+       ok "巡检结论已追上事实：${INV_SUMMARY}" ;;
+    3) bad "巡检跑了但结论是 ERROR（脚本没跑成，已落 ERROR 行）—— 账务没被复核，详见 $INV_LOG"
+       DID_INVARIANT_FAIL=1 ;;
+    4) bad "结论仍早于最后一次迁移（期间又落了迁移？）—— 告警会继续报「结论过期待重跑」，详见 $INV_LOG"
+       DID_INVARIANT_FAIL=1 ;;
+    *) bad "巡检重跑失败（rc=$INV_RC）—— 告警会继续报「结论过期待重跑」，详见 $INV_LOG"
+       DID_INVARIANT_FAIL=1 ;;
+  esac
+fi
+
+# ----------------------------------------------------------------------------
+step "[8/9] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）"
 if [ -z "$FE_CHANGED" ]; then
   say "无前端改动，跳过 dist 构建（要强制重建加 --force-frontend）"
 elif [ "$DRY_RUN" = "1" ]; then
@@ -488,7 +535,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[8/8] 收口核对"
+step "[9/9] 收口核对"
 if [ "$DRY_RUN" = "1" ]; then
   say "dry-run 结束：未做任何变更"
   exit 0
@@ -512,6 +559,8 @@ say "/health            $(curl -s -m 5 "$HEALTH_URL")"
 PID=$(systemctl show -p MainPID --value "$SERVICE")
 say "进程==磁盘         $([ "$(md5sum /proc/$PID/exe 2>/dev/null | cut -d' ' -f1)" = "$(md5sum "$BACKEND_DIR/target/release/cloudpivot" | cut -d' ' -f1)" ] && echo yes || echo NO)"
 say "线上前端入口       $(curl -s -m 5 "$WEB_URL" | grep -o 'assets/index-[^"]*\.js' | head -1)（dist/index.html: $(grep -o 'assets/index-[^"]*\.js' "$FRONTEND_DIR/dist/index.html" | head -1)）"
+say "账务巡检结论       ${INV_SUMMARY:-（本轮未重跑：--skip-invariant / dry-run / 未执行）}"
+[ "$DID_INVARIANT_FAIL" = "1" ] && bad "账务巡检重跑未成功（见 ${INV_LOG:-日志}）：告警侧会报「结论早于最后一次迁移、待重跑」"
 say "备份目录           $BACKUP_DIR"
 echo
 echo "================= 部署完成 ================="

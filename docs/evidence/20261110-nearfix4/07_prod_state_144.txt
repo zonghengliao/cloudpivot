@@ -1,0 +1,8 @@
+== sys_invariant_result 最近 3 行 ==
+2026-11-10 03:35:05 | MANUAL | OK | total=80 passed=80 blockers=0
+2026-11-10 03:33:36 | MANUAL | OK | total=80 passed=80 blockers=0
+2026-11-10 03:23:15 | MANUAL | OK | total=80 passed=80 blockers=0
+== schema_migrations.applied_at 单位分布（毫秒行是历史脏数据）==
+ms 行 4 / s 行 294
+naive max(applied_at)=1794232856000 → to_timestamp=58826-12-23 07:33:20+08（毫秒行把时间顶到 58826 年）
+归一后 max=2026-11-10 01:16:38

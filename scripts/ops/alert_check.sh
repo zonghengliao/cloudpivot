@@ -8,6 +8,9 @@
 #   ① health        服务挂了            GET /health 非 200 或 data.status != ok
 #   ② deps          依赖挂了            GET /health/deps 任一依赖 ok=false
 #   ③ invariant     账已错 / 巡检没跑   最近一次 sys_invariant_result 非 OK、有 BLOCKER、或过期
+#                     └ 但若**结论早于最后一次迁移**（修账的迁移落在结论之后），不判「账已错」，
+#                       而是报「结论过期、待重跑」：旧结论对它之后的迁移一无所知（NEAR-FIX-4），
+#                       这类误报一直是每 5 分钟扣一次「账已错」，直到次日的定时任务才可能自愈。
 #   ④ disk          磁盘将满            df 使用率 ≥ 阈值（默认 85%，75% 先 WARN）
 #   ⑤ secret_expiry 证书/密钥将过期     TLS 证书剩余天数 < 阈值（没有证书则显式跳过）
 #   ⑥ backlog       导入导出积压        未终态任务最早一张已等 > 30 分钟，或总数 ≥ 10
@@ -97,7 +100,8 @@ err()  { printf '[%s] ERROR %s\n' "$(STAMP)" "$*" >&2; }
 die()  { err "$*"; exit 2; }
 
 usage() {
-  sed -n '2,70p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  # 别写死行号（头部注释一长就会把代码打出来）：打到 `set -uo pipefail` 前一行，去掉 # 前缀
+  sed -n '2,/^set -uo pipefail/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
   exit "${1:-0}"
 }
 
@@ -163,16 +167,40 @@ print(("ALERT|依赖不可用（"+", ".join(bad)+"）|"+json.dumps(d,ensure_asci
   printf '%s\n' "$verdict"
 }
 
-# ③ 账务巡检。入参：<status>|<blockers>|<failed>|<age_seconds>，空串 = 从未跑过
+# ③ 账务巡检。入参：<status>|<blockers>|<failed>|<age_seconds>[|<migration_newer_seconds>]
+#    第 5 段 = max(schema_migrations.applied_at) − 最后一次巡检 run_at（秒）。
+#      > 0 ⇒ 结论早于最后一次迁移（修账的迁移落在结论之后），此时**不能**据此断言「账已错」；
+#      缺省 / 空 / 非数字 ⇒ 未知，按旧口径判定（不臆测）。
+#    NEAR-FIX-4 的病根就是没有这一段：11-09 22:23 的 V0366 修掉了 H6/H5，告警却一直对着
+#    11-09 10:20 的旧 FAIL 喊「账已错」，直到次日 10:20 的定时任务才可能自愈。
 decide_invariant() {
-  local row="$1" status blockers failed age limit
+  local row="$1" status blockers failed age newer limit
   limit=$(( INVARIANT_MAX_AGE_HOURS * 3600 ))
   if [ -z "$row" ]; then
     D INFO "巡检从未跑过（sys_invariant_result 无记录）" "没有结论不等于账是对的：先确认 invariant_audit 任务（每天 02:20）有没有被注册/执行"
     return
   fi
-  IFS='|' read -r status blockers failed age <<<"$row"
+  IFS='|' read -r status blockers failed age newer <<<"$row"
   status="${status:-UNKNOWN}"; blockers="${blockers:-0}"; failed="${failed:-0}"; age="${age:-0}"
+  # 非数字 / 负数一律当「未知」（负数可能是时钟回拨，不当成过期也不当成新鲜）
+  case "${newer:-}" in ''|*[!0-9]*) newer=0 ;; esac
+  if [ "$newer" -gt 0 ] 2>/dev/null; then
+    # 结论早于最后一次迁移：先看「过期」这条，再说账对不对 —— 顺序不能反，
+    # 否则修账之后的那半天里每 5 分钟都会把「账已错」再扣一次（本次误报）。
+    if [ "$age" -gt "$limit" ] 2>/dev/null; then
+      D ALERT "巡检结论早于最后一次迁移且已 $(( age / 3600 )) 小时未重跑（账务无人复核）" \
+        "最后结论 status=${status} blockers=${blockers} failed=${failed}，已 ${age}s（阈值 ${INVARIANT_MAX_AGE_HOURS}h）；最后一次迁移比它晚 $(( newer / 60 )) 分钟 ⇒ 发布/迁移后没重跑巡检，先跑 scripts/ops/invariant_rerun.sh"
+      return
+    fi
+    if [ "$blockers" -gt 0 ] 2>/dev/null || [ "$status" != "OK" ]; then
+      D WARN "巡检结论早于最后一次迁移，待重跑（暂不判「账已错」）" \
+        "最后结论 status=${status} blockers=${blockers} failed=${failed}（${age}s 前）；最后一次迁移比它晚 $(( newer / 60 )) 分钟 ⇒ 该结论可能已被那次迁移修掉，先重跑：bash scripts/ops/invariant_rerun.sh（发布/迁移后会自动跑）"
+      return
+    fi
+    D INFO "巡检结论早于最后一次迁移（结论是 OK，但新迁移后的库没被复核过）" \
+      "status=OK（${age}s 前）；最后一次迁移比它晚 $(( newer / 60 )) 分钟 ⇒ 迁移动过的数据还没被巡检看过，建议重跑 scripts/ops/invariant_rerun.sh"
+    return
+  fi
   if [ "$blockers" -gt 0 ] 2>/dev/null; then
     D ALERT "账务巡检有 ${blockers} 个 BLOCKER（账已错）" "最近一次巡检 status=${status} failed=${failed} blockers=${blockers}；明细见「账务巡检看板」或 scripts/verify/erp_invariants.py"
     return
@@ -364,8 +392,17 @@ check_deps() {
   record deps "$(decide_deps "$HTTP_CODE" "$HTTP_BODY")"
 }
 
+# ── 迁移时间口径（NEAR-FIX-4）─────────────────────────────────────────────────
+# `schema_migrations.applied_at` 契约是 **epoch 秒**（引擎 `history.rs` 写的就是秒），但历史上
+# 手工 psql 补记账的行写成了 **毫秒**（144 实测 4 行；`to_timestamp(applied_at)` 出来是 58826 年）。
+# 混单位直接比大小 ⇒ 毫秒值永远大于结论的秒值 ⇒ **每一条结论都被判成「过期」**，
+# 于是判定会被永久降级成 WARN/false。所以比较前必须先归一：
+#   > 1e11 一律视为毫秒（1e11 秒 = 5138 年、1e11 毫秒 = 1973 年，两种单位不重叠）。
+MIG_EPOCH_MS_FLOOR=100000000000
+MIG_EPOCH_SQL="CASE WHEN applied_at > ${MIG_EPOCH_MS_FLOOR} THEN applied_at / 1000 ELSE applied_at END"
+
 check_invariant() {
-  local ok blockers failed age row="" have=0 src=""
+  local ok blockers failed age newer row="" have=0 src=""
   # 优先 /metrics（应用自己采的，不依赖本脚本的库口令）；缺失再退回只读 SQL
   http_fetch "${METRICS_URL}"
   ok="$(printf '%s' "$HTTP_BODY" | awk '$1 ~ /^cloudpivot_invariant_ok/ {print $2; exit}')"
@@ -373,12 +410,19 @@ check_invariant() {
     blockers="$(printf '%s' "$HTTP_BODY" | awk '$1 ~ /^cloudpivot_invariant_blockers/ {print $2; exit}')"
     failed="$(printf '%s' "$HTTP_BODY" | awk '$1 ~ /^cloudpivot_invariant_failed/ {print $2; exit}')"
     age="$(printf '%s' "$HTTP_BODY" | awk '$1 ~ /^cloudpivot_invariant_age_seconds/ {print $2; exit}')"
-    row="$([ "$ok" = "1" ] && echo OK || echo FAIL)|${blockers:-0}|${failed:-0}|${age:-0}"
+    # 指标里没有「最后一次迁移」这一维（不归后端采样器管），另查一次库；查不到就按未知处理
+    newer="$(psql_scalar "SELECT GREATEST(COALESCE((SELECT max(${MIG_EPOCH_SQL}) FROM schema_migrations WHERE success), 0) - EXTRACT(EPOCH FROM (SELECT run_at FROM sys_invariant_result ORDER BY run_at DESC LIMIT 1))::bigint, 0)" 2>/dev/null || true)"
+    if [ -z "$newer" ]; then
+      log "invariant: 无法判断结论是否早于最后一次迁移（psql 不可用）→ 按旧口径判定"
+      newer=0
+    fi
+    row="$([ "$ok" = "1" ] && echo OK || echo FAIL)|${blockers:-0}|${failed:-0}|${age:-0}|${newer:-0}"
     have=1
     src="/metrics（cloudpivot_invariant_*）"
   else
     local raw
-    if raw="$(psql_scalar "SELECT status || '|' || blockers || '|' || failed || '|' || GREATEST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - run_at))::bigint, 0) FROM sys_invariant_result ORDER BY run_at DESC LIMIT 1")"; then
+    # 一条 SQL 同时取「最后结论」与「它是否早于最后一次迁移」——分两次查会有竞态（期间落一条迁移/结论）。
+    if raw="$(psql_scalar "SELECT r.status || '|' || r.blockers || '|' || r.failed || '|' || GREATEST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - r.run_at))::bigint, 0) || '|' || GREATEST(COALESCE((SELECT max(${MIG_EPOCH_SQL}) FROM schema_migrations WHERE success), 0) - EXTRACT(EPOCH FROM r.run_at)::bigint, 0) FROM sys_invariant_result r ORDER BY r.run_at DESC LIMIT 1")"; then
       row="$raw"
       have=1
       src="sys_invariant_result（psql 只读）"
@@ -629,6 +673,14 @@ self_test() {
   expect "ERROR → ALERT（没跑成不是通过）" ALERT "$(level_of "$(decide_invariant 'ERROR|0|0|600')")"
   expect "过期 48h → ALERT"    ALERT "$(level_of "$(decide_invariant 'OK|0|0|172800')")"
   expect "无记录 → INFO"       INFO  "$(level_of "$(decide_invariant '')")"
+  # NEAR-FIX-4：第 5 段 = 最后一次迁移比结论晚多少秒。>0 时不能断言「账已错」（本次误报的病根）
+  expect "FAIL+BLOCKER 但结论早于最后一次迁移 → WARN（不判账已错）" WARN "$(level_of "$(decide_invariant 'FAIL|1|2|73800|14600')")"
+  expect "FAIL 无 BLOCKER + 迁移比结论晚 → WARN"                    WARN "$(level_of "$(decide_invariant 'FAIL|0|3|600|60')")"
+  expect "OK + 迁移比结论晚（结论仍新鲜）→ INFO"                    INFO "$(level_of "$(decide_invariant 'OK|0|0|600|60')")"
+  expect "OK + 迁移比结论晚 + 已 48h 没重跑 → ALERT（无人复核）"    ALERT "$(level_of "$(decide_invariant 'OK|0|0|172800|60')")"
+  expect "迁移不比结论晚（0）→ 旧口径：FAIL+BLOCKER → ALERT"        ALERT "$(level_of "$(decide_invariant 'FAIL|1|2|3600|0')")"
+  expect "第 5 段是垃圾 → 当未知，仍判账已错 → ALERT"               ALERT "$(level_of "$(decide_invariant 'FAIL|1|2|3600|abc')")"
+  expect "第 5 段是负数（时钟回拨）→ 当未知 → ALERT"                ALERT "$(level_of "$(decide_invariant 'FAIL|1|2|3600|-100')")"
 
   echo "== ④ disk =="
   expect "52% → OK"    OK    "$(level_of "$(decide_disk 52 /)")"
