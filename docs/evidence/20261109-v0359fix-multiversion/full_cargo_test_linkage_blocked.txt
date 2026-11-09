@@ -1,0 +1,32 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+error[E0061]: this function takes 8 arguments but 7 arguments were supplied
+   --> tests/linkage/common.rs:750:16
+    |
+750 |       let page = cloudpivot::business::flow::model::page_my_tasks(
+    |  ________________^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^-
+751 | |         assignee,
+752 | |         cloudpivot::business::flow::model::MY_TODO_STATUSES,
+753 | |         &["APPROVAL", "RESUBMIT"],
+...   |
+757 | |         true,
+758 | |     )
+    | |_____- argument #8 of type `Option<nik::prelude::chrono::DateTime<Utc>>` is missing
+    |
+note: function defined here
+   --> src/business/flow/flow_model_inbox.rs:353:14
+    |
+353 | pub async fn page_my_tasks(
+    |              ^^^^^^^^^^^^^
+help: provide the argument
+    |
+750 |     let page = cloudpivot::business::flow::model::page_my_tasks(
+...
+757 |         true,
+758 ~         /* Option<nik::prelude::chrono::DateTime<Utc>> */,
+759 ~     )
+    |
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `cloudpivot` (test "linkage") due to 1 previous error
+EXIT=101

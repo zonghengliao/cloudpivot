@@ -184,3 +184,22 @@ ssh root@172.18.10.144 "psql -d cloudpivot -tAc \"
    任何「归档旧版 → 发新版」的迁移都必须 `MAX(version_no)+1`，并且用形状（而不是 flow_code 清单）筛目标。
 4. **手工 `INSERT INTO schema_migrations` 应急是「止疼药」不是「解药」**：
    它让服务起来，但业务隐患（全员会签 → 停用一个人就卡死）还在，必须补一个真正幂等的迁移来收口。
+
+---
+
+## 七、验证边界（诚实登记）
+
+| 项 | 结果 |
+|---|---|
+| `cargo test --lib` | **4017 passed / 0 failed**（`EXIT=0`） |
+| `cargo test --test flow_all_role_multiversion_migration` | **7 passed**（本卡新增的静态不变量） |
+| 全量 `cargo test` | **跑不了**：编译 `tests/linkage` 时 `error[E0061]` —— 共享工作区里另一位 worker 的在途改动给 `flow_model_inbox::page_my_tasks` 加了第 8 个参数（`completed_since`），而 `tests/linkage/common.rs:750` 仍按 7 个参调用。`git show origin/main:backend/src/business/flow/flow_model_inbox.rs` 仍是 7 参 ⇒ **提交树自洽**，这是工作区脏导致的编译期失败，与 V0367（只新增迁移 + 新测试文件）无关；对方提交时会同步改调用点。 |
+
+数据前提（144 生产备份副本实测，决定了「归档旧版」不会搁浅在途单）：
+
+* 18 个流程全部 `status=PUBLISHED` / `is_system=t`；
+* **当前版本上 0 张在途审批单**（`biz_flow_instance.version_id = current_version_id` 计数全 0）；
+* 所有当前版本 `graph_snapshot.nodes` 数量 == `biz_flow_node` 行数（18/18 一致，见 verify ⑧）。
+* 迁移器记录的 `checksum` 就是迁移文件的 sha256：`V0367` 在 preview2 里记录为
+  `5480dec73130bdad…`，与 `sha256sum backend/migrations/business/V0367__…up.sql` **完全相同**
+  ⇒ 预演跑的就是已提交的那份文件。
