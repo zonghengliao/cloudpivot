@@ -61,7 +61,7 @@ check "over=false（年度口径不变）" "$(fld "$ROW_W" '.over')" "false"
 chknum "available = 12000 − 1500 = 10500（年度）" "$(fld "$ROW_W" '.available')" "10500"
 
 # ---- ⑤ 与提交侧同源：报表的月度超支额 == 提交时冻结的 over_amount ----
-DB_OVER=$(SQ "select coalesce(max(over_amount),0)::text from biz_budget_usage where dept_id='$DEPT'::uuid and account_id='$ACC_COMM'::uuid and fiscal_year=2027 and over_budget and deleted_at is null")
+DB_OVER=$(SQ "select coalesce(max(over_amount),0)::text from biz_budget_usage where dept_id='$DEPT'::uuid and account_id='$ACC_COMM'::uuid and fiscal_year=2027 and over_budget = 1 and deleted_at is null")
 chknum "报表 month_over_amount == 提交侧冻结的 over_amount（DB=$DB_OVER）" \
   "$(fld "$ROW_W" '.month_over_amount')" "$DB_OVER"
 # 分月明细仍在（不是把 months 换成月度口径，是**加**了一列）
