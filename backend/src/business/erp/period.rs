@@ -254,9 +254,9 @@ pub fn reopen_conflict_message(period_code: &str, period_year: i16, conflicts: &
             .collect::<Vec<_>>()
             .join("、");
         parts.push(format!(
-            "跨年度挡路 —— 更晚的会计年度 {years} 已年结：年结凭证与下一年度期初是按 \
+            "跨年度挡路 —— 更晚的会计年度 {years}已年结：年结凭证与下一年度期初是按 \
              {period_year} 年期末结转的，回撤 {period_code} 会让报表期初与年初期初台账\
-             对不上，请先在「年结」页反年结 {years} 再回来反结账"
+             对不上，请先在「年结」页反年结 {years}再回来反结账"
         ));
     }
     Some(format!("不能反结账 {period_code}：{}", parts.join("；")))
