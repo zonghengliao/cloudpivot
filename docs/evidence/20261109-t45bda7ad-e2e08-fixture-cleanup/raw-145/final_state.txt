@@ -1,0 +1,25 @@
+HEAD=532b2527 docs(evidence): t_45bda7ad 补代码状态指纹（145 @ 8e16457b，清场脚本 hash 与提交一致）
+== 终态（145 cloudpivot_dev）==
+biz_inventory_location 总数 = 22
+孤儿库位账 = 0
+孤儿成本账 = 0
+孤儿流水 = 0
+E2E08 残留（物料/仓库/序列号）= 0/0/0
+SERIAL_BATCH 凭证总数 = 1（孤儿 0）
+== datafix_p17_doomed 留痕 ==
+          tbl           | count 
+------------------------+-------
+ biz_inventory_location |     2
+ biz_status_log         |     7
+ biz_voucher            |     7
+ biz_voucher_entry      |    14
+(4 rows)
+
+== p17 验收门 ==
+=== P17 验收 ===
+ orphan_location_rows | orphan_batch_vouchers | serial_batch_vouchers_alive | location_rows_total | cost_ledger_rows 
+                    0 |                     0 |                           1 |                  22 |               21
+psql:/opt/cloudpivot/scripts/datafix/p17/30_verify.up.sql:38: NOTICE:  P17 验收通过：孤儿库位账 0 / 孤儿批次凭证 0（存量 VOUCHER 状态日志孤儿 123 条，属别的卡，未在处理范围）
+ 1405         | 1250978.3333 | 720542.3333 | 530436.0000
+ 1901         |      32.0000 |    203.3333 |   -171.3333
+ 28811.0000
