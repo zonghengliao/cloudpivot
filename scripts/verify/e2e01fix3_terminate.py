@@ -497,9 +497,10 @@ def main():
             "items": [{"material_id": material, "qty": "1", "price_excl": "10", "tax_rate": "13"}],
         })
     if po:
-        po_id = po["id"]
-        check("7.3 建单后是 DRAFT", (po.get("base") or po).get("status") == "DRAFT",
-              f"status={(po.get('base') or po).get('status')}")
+        po_base = po.get("order") or po
+        po_id = po_base.get("id")
+        check("7.3 建单后是 DRAFT", po_base.get("status") == "DRAFT",
+              f"status={po_base.get('status')}")
         submitted = ok_call("7.4 提交审批（DRAFT → SUBMITTED）", "POST",
                             f"/business/erp/purchase-order/{po_id}/submit-approval", admin, {})
         po_inst = sql_one("SELECT id FROM biz_flow_instance "
@@ -540,9 +541,10 @@ def main():
         psql(f"DELETE FROM operation_logs WHERE target_id = '{inst}'")
     for inst in instances:
         psql(f"DELETE FROM biz_flow_instance WHERE id = '{inst}'::uuid")
-    if po and po.get("id"):
-        psql(f"DELETE FROM biz_purchase_order_item WHERE order_id = '{po['id']}'::uuid")
-        psql(f"DELETE FROM biz_purchase_order WHERE id = '{po['id']}'::uuid")
+    if po and po.get("order", {}).get("id"):
+        po_id_clean = po["order"]["id"]
+        psql(f"DELETE FROM biz_purchase_order_item WHERE order_id = '{po_id_clean}'::uuid")
+        psql(f"DELETE FROM biz_purchase_order WHERE id = '{po_id_clean}'::uuid")
     for d, v in defs:
         psql(f"DELETE FROM biz_flow_node_assignee WHERE node_id IN "
              f"(SELECT id FROM biz_flow_node WHERE version_id = '{v}'::uuid)")
@@ -577,6 +579,13 @@ def main():
     psql("DELETE FROM sys_user_role WHERE user_id IN "
          "(SELECT id FROM sys_user WHERE username LIKE 'term3\\_%')")
     psql("DELETE FROM sys_user WHERE username LIKE 'term3\\_%'")
+    # 采购联动夹具（remark 前缀专属）：先清审批实例，再删单头明细
+    po_mark = "E2E01-FIX-3 终止联动夹具%"
+    psql("DELETE FROM biz_flow_instance WHERE biz_type = 'PO_APPROVE' AND biz_id IN "
+         f"(SELECT id FROM biz_purchase_order WHERE remark LIKE '{po_mark}')")
+    psql("DELETE FROM biz_purchase_order_item WHERE order_id IN "
+         f"(SELECT id FROM biz_purchase_order WHERE remark LIKE '{po_mark}')")
+    psql(f"DELETE FROM biz_purchase_order WHERE remark LIKE '{po_mark}'")
 
     residual = sql_one("SELECT count(*) FROM biz_flow_instance "
                        f"WHERE title = 'T3 会签缺人 {SUFFIX}'")
@@ -588,6 +597,10 @@ def main():
     check("8.3 零残留：流程定义已删净",
           sql_one(f"SELECT count(*) FROM biz_flow_def WHERE flow_code = '{FLOW_CODE}'") == "0",
           f"flow_code={FLOW_CODE}")
+    check("8.4 零残留：采购联动夹具已删净",
+          sql_one("SELECT count(*) FROM biz_purchase_order "
+                  "WHERE remark LIKE 'E2E01-FIX-3 终止联动夹具%'") == "0",
+          "biz_purchase_order 0 行")
 
     print()
     print("=" * 78)
