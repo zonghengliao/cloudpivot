@@ -215,10 +215,14 @@ pub const COLUMNS: &str = "id, refund_no, customer_id, source_receipt_id, refund
                            remark, created_at, updated_at, create_by";
 
 /// 分页列清单（连带客户名；别名 `c` = biz_customer）。
+///
+/// **必须覆盖 [`RefundRow::from_row`] 读的每一列**：分页与详情共用同一个 Row 映射，
+/// 少一列就是整页 500（E2E-02 实测：漏 `create_by` → `GET /receipt-refund/page` 报
+/// `column create_by not found in row`）。单测 `list_columns_cover_row_fields` 钉住。
 pub const LIST_COLUMNS: &str = "p.id, p.refund_no, p.customer_id, COALESCE(c.name, '') AS customer_name, \
                                 p.source_receipt_id, p.refund_date, p.amount, p.allocated_amount, \
                                 p.method, p.bank_account, p.status, p.voucher_id, p.reason, p.remark, \
-                                p.created_at, p.updated_at";
+                                p.created_at, p.updated_at, p.create_by";
 
 /// 分页 FROM（客户左连：客户软删后历史退款单仍要能列出来）。
 pub const LIST_FROM: &str =
@@ -2281,6 +2285,35 @@ mod tests {
     }
 
     // ---------- 纯逻辑用例（不连库） ----------
+
+    /// 分页列清单必须覆盖 `RefundRow::from_row` 读的每一列（漏一列 = 整页 500）。
+    #[test]
+    fn list_columns_cover_row_fields() {
+        for col in [
+            "id",
+            "refund_no",
+            "customer_id",
+            "source_receipt_id",
+            "refund_date",
+            "amount",
+            "allocated_amount",
+            "method",
+            "bank_account",
+            "status",
+            "voucher_id",
+            "reason",
+            "remark",
+            "created_at",
+            "updated_at",
+            "create_by",
+        ] {
+            assert!(
+                LIST_COLUMNS.contains(col),
+                "LIST_COLUMNS 缺列 {col}（分页会 500）：{LIST_COLUMNS}"
+            );
+        }
+        assert!(LIST_COLUMNS.contains("customer_name"), "列表要带客户名");
+    }
 
     #[test]
     fn status_and_method_vocabularies_match_the_db_constraints() {

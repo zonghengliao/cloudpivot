@@ -146,9 +146,9 @@ step11() {
     [ "$CODE" = 0 ] || { bad "达成率($basis) http=$HTTP $(show)"; continue; }
     say "  [$basis] $(data ".data[]? | select(.scope==\"E2E02 销售员甲\") | \"目标=\"+.target_amount+\" 实际=\"+.actual_amount+\" 达成率=\"+.achievement_rate+\"% 缺口=\"+.gap")"
   done
-  local ord=$(PSQLQ -c "select coalesce(sum(total_with_tax),0)::numeric(20,2)::text from biz_sales_order where salesperson_id='$SP_ID' and deleted_at is null and status in ('APPROVED','PARTIAL_OUT','OUTBOUND','CLOSED');")
+  local ord=$(PSQLQ -c "select coalesce(sum(CASE WHEN base_total_with_tax>0 THEN base_total_with_tax ELSE total_with_tax END),0)::numeric(20,2)::text from biz_sales_order where salesperson_id='$SP_ID' and deleted_at is null and status in ('APPROVED','PARTIAL_OUT','OUTBOUND','CLOSED');")
   api s11_ach_order2 GET "/business/erp/sales-target/achievement?period_code=2026-11&scope_type=SALESPERSON&basis=ORDER" "$T_ADMIN"
-  check "订单口径实际 = Σ订单价税合计（原币，含美元单 $ord）" "$(data ".data[]? | select(.scope==\"E2E02 销售员甲\") | .actual_amount" 2>/dev/null)" "1808.00"
+  check "订单口径实际 = Σ订单本位币含税($ord)" "$(data ".data[]? | select(.scope==\"E2E02 销售员甲\") | .actual_amount" 2>/dev/null)" "$ord"
   api s11_ach_r GET "/business/erp/sales-target/achievement?period_code=2026-11&scope_type=SALESPERSON&basis=RECEIPT" "$T_ADMIN"
   check "收款口径实际 = Σ应收已收(800)" "$(data ".data[]? | select(.scope==\"E2E02 销售员甲\") | .actual_amount" 2>/dev/null)" "800.00"
   say "  （DB Σ应收已收 = $(PSQLQ -c "select coalesce(sum(received_amount),0) from biz_receivable where customer_id='$CUST1' and deleted_at is null;")）"
@@ -241,13 +241,53 @@ step99() {
   check "1122 净额与「已开票−已收+退款−退货红字」一致" "$net1122" "1383.20"
   say "  说明：1122 ≠ Σ应收未收(2160.60)，差 777.40 = 未开票部分 556.00 + 美元票汇兑 22.60 + 已收款对应未开票部分（设计口径：开票才确认收入）"
   say "-- ⑨ 销售目标达成率 vs 库层口径"
-  PSQLQ -c "select '订单口径(原币合计)='||coalesce(sum(total_with_tax),0)||' 收款口径='||(select coalesce(sum(received_amount),0) from biz_receivable where customer_id='$CUST1' and deleted_at is null) from biz_sales_order where salesperson_id='$SP_ID' and deleted_at is null and status in ('APPROVED','PARTIAL_OUT','OUTBOUND','CLOSED');" | sed 's/^/  /'
+  PSQLQ -c "select '订单口径(本位币合计)='||coalesce(sum(CASE WHEN base_total_with_tax>0 THEN base_total_with_tax ELSE total_with_tax END),0)::numeric(20,2)||' 收款口径='||(select coalesce(sum(received_amount),0) from biz_receivable where customer_id='$CUST1' and deleted_at is null) from biz_sales_order where salesperson_id='$SP_ID' and deleted_at is null and status in ('APPROVED','PARTIAL_OUT','OUTBOUND','CLOSED');" | sed 's/^/  /'
   say "-- ⑩ 佣金基数 = 应收已收（不含未收款订单）"
   PSQLQ -c "select '基数='||coalesce(sum(base_amount),0)||' 佣金='||coalesce(sum(commission),0) from biz_commission_item where settlement_id='$SET1';" | sed 's/^/  /'
   summary
 }
 
+step97() {
+  say "== step97 13 个页面只读巡检（GET 全量，验证读接口可用 + 关键字段）"
+  g() { # g <名> <path> <jq表达式>
+    api "s97_$1" GET "$2" "$T_ADMIN"
+    if [ "$CODE" = 0 ]; then ok "$1 http=$HTTP $(data "$3" 2>/dev/null)"; else bad "$1 http=$HTTP $(show)"; fi
+  }
+  g customer_page "/business/erp/customer/page?page=1&page_size=5&code=E2E02" '"total="+(.data.total|tostring)'
+  g customer_detail "/business/erp/customer/$CUST1" '.data.code+" "+.data.name+" "+.data.status+" 联系人="+.data.contact_name'
+  g price_agreed_page "/business/erp/price/agreed/page?page=1&page_size=5" '"total="+(.data.total|tostring)'
+  g price_tier_page "/business/erp/price/tier/page?page=1&page_size=5" '"total="+(.data.total|tostring)'
+  g price_resolve "/business/erp/price/resolve?material_id=$MAT1&qty=10&customer_id=$CUST1&date=2026-11-09" '.data.price+" / "+.data.source'
+  g sales_order_page "/business/erp/sales-order/page?page=1&page_size=5&customer_id=$CUST1" '"total="+(.data.total|tostring)'
+  g sales_order_detail "/business/erp/sales-order/$SO1" '.data.so_no+" "+.data.status+" "+.data.total_with_tax'
+  g shipment_page "/business/erp/shipment/page?page=1&page_size=5&so_id=$SO1" '"total="+(.data.total|tostring)'
+  g shipment_detail "/business/erp/shipment/$SHIP1" '.data.ship_no+" "+.data.status'
+  g stockout_detail "/business/erp/stock-out/$SOUT1" '.data.out_no+" "+.data.status+" src="+.data.source_type+" 成本="+.data.total_amount'
+  g receivable_page "/business/erp/receivable/page?page=1&page_size=5&customer_id=$CUST1" '"total="+(.data.total|tostring)'
+  g receivable_detail "/business/erp/receivable/$AR1" '.data.ar_no+" "+.data.status+" amt="+.data.amount+" recv="+.data.received_amount+" unpaid="+.data.unsettled_amount'
+  g aging "/business/erp/receivable/aging?as_of=2026-11-30" '"客户="+(.data.customers|length|tostring)'
+  g receipt_page "/business/erp/receipt/page?page=1&page_size=5&customer_id=$CUST1" '"total="+(.data.total|tostring)'
+  g receipt_detail "/business/erp/receipt/$RC1" '.data.receipt_no+" "+.data.status+" 核销="+.data.allocated_amount'
+  g refund_page "/business/erp/receipt-refund/page?page=1&page_size=5&customer_id=$CUST1" '"total="+(.data.total|tostring)'
+  g refund_detail "/business/erp/receipt-refund/$RF1" '.data.refund_no+" "+.data.status'
+  g invoice_page "/business/erp/invoice/page?page=1&page_size=10&receivable_id=$AR1" '"total="+(.data.total|tostring)'
+  g invoice_detail "/business/erp/invoice/$INV2" '.data.invoice_no+" "+.data.status+" "+.data.total_with_tax'
+  g return_page "/business/erp/sales-return/page?page=1&page_size=5&customer_id=$CUST1" '"total="+(.data.total|tostring)'
+  g return_detail "/business/erp/sales-return/$RET1" '.data.return_no+" "+.data.status+" "+.data.total_with_tax'
+  g returnable "/business/erp/sales-return/returnable/$SHIP1" '(.data|length|tostring)+" 行可退"'
+  g target_page "/business/erp/sales-target/page?page=1&page_size=5&period_code=2026-11" '"total="+(.data.total|tostring)'
+  g achievement_order "/business/erp/sales-target/achievement?period_code=2026-11&scope_type=SALESPERSON&basis=ORDER" '(.data[] | select(.scope=="E2E02 销售员甲") | "ORDER 实际="+.actual_amount+" 达成率="+.achievement_rate)'
+  g achievement_receipt "/business/erp/sales-target/achievement?period_code=2026-11&scope_type=SALESPERSON&basis=RECEIPT" '(.data[] | select(.scope=="E2E02 销售员甲") | "RECEIPT 实际="+.actual_amount+" 达成率="+.achievement_rate)'
+  g rule_page "/business/erp/commission-rule/page?page=1&page_size=10" '"total="+(.data.total|tostring)'
+  g commission_page "/business/erp/commission/page?page=1&page_size=5" '"total="+(.data.total|tostring)'
+  g commission_detail "/business/erp/commission/$SET1" '.data.settlement_no+" "+.data.status+" 佣金="+.data.total_commission'
+  g currency_list "/business/erp/currency/list" '[.data[] | select(.is_base==true) | .code] | "本位币="+join(",")'
+  g fx_page "/business/erp/exchange-rate/page?page=1&page_size=10&from_currency=USD" '"total="+(.data.total|tostring)'
+  g fx_quote "/business/erp/exchange-rate/quote?from_currency=USD&date=2026-11-16" '.data.rate+" @"+.data.effective_date'
+  summary
+}
+
 case "${1:-}" in
-  step10) step10 ;; step11) step11 ;; step12) step12 ;; step13) step13 ;; step99) step99 ;;
-  *) echo "用法: $0 {step10|step11|step12|step13|step99}"; exit 2 ;;
+  step10) step10 ;; step11) step11 ;; step12) step12 ;; step13) step13 ;; step97) step97 ;; step99) step99 ;;
+  *) echo "用法: $0 {step10|step11|step12|step13|step97|step99}"; exit 2 ;;
 esac
