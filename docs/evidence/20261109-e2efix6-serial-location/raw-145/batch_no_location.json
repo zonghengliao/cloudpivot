@@ -1,0 +1,76 @@
+{
+  "request": {
+    "material_id": "e2f60001-0000-4000-8000-000000000011",
+    "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+    "count": 3,
+    "unit_cost": 12.5
+  },
+  "status": 200,
+  "response": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "count": 3,
+      "period_key": "20261109",
+      "serial_nos": [
+        "SN-20261109-000001",
+        "SN-20261109-000002",
+        "SN-20261109-000003"
+      ],
+      "list": [
+        {
+          "id": "01a1bf18-a2d5-70c8-b683-afed90176d11",
+          "serial_no": "SN-20261109-000001",
+          "material_id": "e2f60001-0000-4000-8000-000000000011",
+          "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+          "location_id": "01a1bf18-a2d4-771a-a35d-c6f194920964",
+          "batch_no": null,
+          "status": "IN_STOCK",
+          "inbound_at": "2026-11-09T06:57:05.235698Z",
+          "outbound_at": null,
+          "source_type": null,
+          "source_id": null,
+          "created_at": "2026-11-09T06:57:05.235698Z",
+          "updated_at": "2026-11-09T06:57:05.235698Z"
+        },
+        {
+          "id": "01a1bf18-a2d5-70c8-b683-afee2c12bbfa",
+          "serial_no": "SN-20261109-000002",
+          "material_id": "e2f60001-0000-4000-8000-000000000011",
+          "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+          "location_id": "01a1bf18-a2d4-771a-a35d-c6f194920964",
+          "batch_no": null,
+          "status": "IN_STOCK",
+          "inbound_at": "2026-11-09T06:57:05.235698Z",
+          "outbound_at": null,
+          "source_type": null,
+          "source_id": null,
+          "created_at": "2026-11-09T06:57:05.235698Z",
+          "updated_at": "2026-11-09T06:57:05.235698Z"
+        },
+        {
+          "id": "01a1bf18-a2d5-70c8-b683-afefc58b97a4",
+          "serial_no": "SN-20261109-000003",
+          "material_id": "e2f60001-0000-4000-8000-000000000011",
+          "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+          "location_id": "01a1bf18-a2d4-771a-a35d-c6f194920964",
+          "batch_no": null,
+          "status": "IN_STOCK",
+          "inbound_at": "2026-11-09T06:57:05.235698Z",
+          "outbound_at": null,
+          "source_type": null,
+          "source_id": null,
+          "created_at": "2026-11-09T06:57:05.235698Z",
+          "updated_at": "2026-11-09T06:57:05.235698Z"
+        }
+      ],
+      "unit_cost": "12.500000",
+      "amount": "37.5000",
+      "inventory": {
+        "qty": "3.0000",
+        "amount": "37.5000",
+        "avg_cost": "12.500000"
+      }
+    }
+  }
+}

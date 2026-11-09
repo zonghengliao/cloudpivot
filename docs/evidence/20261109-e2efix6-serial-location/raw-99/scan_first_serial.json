@@ -1,0 +1,23 @@
+{
+  "serial_no": "SN-20261109-006325",
+  "status": 200,
+  "response": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "id": "01a1bf0a-8cce-77f1-87e4-0f806c5a6183",
+      "serial_no": "SN-20261109-006325",
+      "material_id": "e2f60001-0000-4000-8000-000000000011",
+      "material_code": "M-E2F6-SN",
+      "material_name": "E2F6 一物一码物料",
+      "warehouse_id": "e2f60001-0000-4000-8000-000000000001",
+      "warehouse_name": "E2F6 默认库位仓",
+      "location_id": "01a1bf0a-8cce-77f1-87e4-0f7f8c05bbc2",
+      "location_name": "E2F6 默认库位",
+      "batch_no": null,
+      "status": "IN_STOCK",
+      "inbound_at": "2026-11-09T06:41:42.093595Z",
+      "outbound_at": null
+    }
+  }
+}

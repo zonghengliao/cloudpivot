@@ -1,0 +1,15 @@
+{
+  "status": 200,
+  "response": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "dry_run": true,
+      "checked": 2,
+      "mismatched": 0,
+      "items": [],
+      "fixed": 0,
+      "unfixable": 0
+    }
+  }
+}

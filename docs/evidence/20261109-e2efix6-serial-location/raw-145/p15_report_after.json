@@ -1,0 +1,4 @@
+{
+  "rc": 0,
+  "out": " material_code |   material_name   | serial_required | warehouse_code |  warehouse_name   | null_qty | null_amount | null_avg_cost | has_default_location | default_location_code | has_default_bucket | null_serial_cnt | target_ledger_row_hint \n---------------+-------------------+-----------------+----------------+-------------------+----------+-------------+---------------+----------------------+-----------------------+--------------------+-----------------+------------------------\n M-E2F6-SN     | E2F6 一物一码物料 | t               | WH-E2F6-NODEF  | E2F6 无默认库位仓 |   1.0000 |     10.0000 |     10.000000 | f                    |                       | f                  |               1 | \n(1 row)\n\n"
+}
