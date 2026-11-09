@@ -37,8 +37,16 @@ pub const YEAR: i16 = 2037;
 /// 下一年度（年结要往它写期初，必须先开账）。
 pub const NEXT_YEAR: i16 = 2038;
 
-/// 真库用例串行跑（与其它模块各自一把锁；统一用 `--test-threads=1` 跑）。
-pub static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// 真库用例串行跑（**与 `period_test_support::DB_LOCK` 是同一把锁**；统一用 `--test-threads=1` 跑）。
+///
+/// # 为什么后来改成共享一把锁（E2E04-FIX-2）
+///
+/// `period::reopen_period` 现在会判「**更晚的年度**是否已年结」（跨年度挡路），而本模块的
+/// 夹具正是把 `<YEAR> 年` 标成 `ACCOUNTING_YEAR=CLOSED`。两把独立的锁意味着
+/// `cargo test --lib` 并行跑时，本模块刚写下的 2037 年结状态会被 2031 的反结账用例看见
+/// → 那不是缺陷，是夹具串扰造成的假红。共享一把锁把两者互斥掉（顺带也挡住
+/// 期间 / 凭证 / 单据夹具的互删）。
+pub use crate::business::erp::period_test_support::DB_LOCK;
 
 /// 夹具操作人 id（`closed_by` / `sender_id` 是弱引用，不要求真实用户）。
 pub const TEST_UID: &str = "00000000-0000-7000-8000-0000000000c7";
@@ -116,13 +124,15 @@ pub async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 ///
 /// # 为什么「只在 setup 清」不够
 ///
-/// `period::tests` 的反结账用例会做一次**全库**判据：“比我晚的期间不能有已结账的”
-/// （`SELECT period_code FROM biz_accounting_period WHERE period_code > ? AND status='CLOSED'`）。
-/// 本模块把 2037 全年封了来测年结，如果这一行留在库里，下一轮跑 `cargo test --lib`
-/// （`period` 在前、`year_end` 在后）时反结账用例就会 409 —— 实测红过两次
+/// 本模块把 2037 全年封了来测年结。历史成因：`period::tests` 的反结账判据曾经是
+/// **全库无界**的（`period_code > ? AND status='CLOSED'`），2037 的封账残留会让
+/// 下一轮跑 `cargo test --lib` 时 2031 的反结账用例 409 —— 实测红过两次
 /// （`p1_reopen_clears_closed_marks` / `p1_reopen_restores_posting`）。
 ///
-/// 所以每个用例**结束时也清一遍**：留下的是「干净库」，而不是「看运气的库」。
+/// E2E04-FIX-2 起判据收敛到同一会计年度（`period_year = ?`），2037 的封账**不再**挡
+/// 2031；但本模块的残留仍会污染跨年度口径（跨年试算平衡 / 报表累计 / `period_year+1`
+/// 的年结判断），所以每个用例**结束时还是清一遍**：留下的是「干净库」，而不是
+/// 「看运气的库」。
 pub async fn teardown() {
     cleanup().await;
 }
