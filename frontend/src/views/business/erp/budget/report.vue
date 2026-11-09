@@ -188,15 +188,14 @@
           <span v-else class="muted">—</span>
         </template>
         <template #over="{ row }">
-          <t-tag
-            size="small"
-            variant="light"
-            :theme="badge(row).theme"
+          <!-- 原生 title 挂在 span 上（`t-tag` 不透传 title 属性）：悬停说清是哪个口径 -->
+          <span
             :title="badge(row).hint"
             :data-testid="`budget-report-badge-${row.budget_id}`"
+            class="badge-cell"
           >
-            {{ badge(row).text }}
-          </t-tag>
+            <t-tag size="small" variant="light" :theme="badge(row).theme">{{ badge(row).text }}</t-tag>
+          </span>
         </template>
         <template #expandedRow="{ row }">
           <div class="month-expand" :data-testid="`budget-report-months-${row.budget_id}`">
@@ -301,7 +300,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'available', title: '可用', width: 110, align: 'right' },
   { colKey: 'month', title: '本月', width: 132, align: 'right' },
   { colKey: 'exec_ratio', title: '执行率', width: 128 },
-  { colKey: 'over', title: '预算', width: 104 },
+  { colKey: 'over', title: '预算', width: 124 },
 ];
 
 const monthColumns: PrimaryTableCol[] = [
@@ -540,6 +539,11 @@ onMounted(() => {
   flex-direction: column;
   line-height: 1.35;
   align-items: flex-end;
+}
+
+.badge-cell {
+  display: inline-flex;
+  cursor: help;
 }
 
 .ratio-cell {

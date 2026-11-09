@@ -59,9 +59,20 @@ FY2023 预算（effective_from=2026-12-01）→ 报表 fiscal_year=2023 → effe
 
 - 新增「本月」列：`month_available`（超支标红）+ `month_period` + `超 N`；
 - 「预算」列徽标**月度优先**（月度闸才是实际控制的闸门）：
-  `本月超 500.00` > `年度超` > `未生效` > `正常`，悬停说明写清是哪个口径；
+  `本月超 500.00` > `年度超` > `未生效` > `正常`，悬停说明写清是哪个口径
+  （原生 `title` 挂在包一层的 `<span>` 上 —— `t-tag` 不透传 `title`，直接写在组件上会静默丢失，实测发现后修的）；
 - 汇总卡片分开数：`年度超支 N 个 · 本月超 M 个`（`summarizeReport.monthOverCount`）；
 - 执行率进度条：年度或月度任一超支都标红。
+
+**真实浏览器实测**（不是只看编译过）：145 后端 + 99 上 dev server，admin 登录后打开报表页：
+
+```
+FY2027  5602.05 → 本月 -500.00（红）/ 2027-02 · 超 500.00    预算 = 本月超 500.00（红）
+FY2027  5602.02 → 本月 9,320.00 / 2027-02                    预算 = 正常
+汇总卡片 → 年度超支 0 个 · 本月超 1 个   ← 验收 ②：年度没超、月度超，主列就能看出来
+FY2023  5602.02 → 未生效（黄）           ← 验收 ④
+```
+截图见 `ui_report_fy2027.png` / `ui_report_fy2023.png`，逐字输出见 `ui_badge_tooltip.out`。
 
 ---
 
@@ -78,6 +89,9 @@ FY2023 预算（effective_from=2026-12-01）→ 报表 fiscal_year=2023 → effe
 | `cargo_test.out` | 99 本机 `cargo test --lib`：**3898 passed / 0 failed** |
 | `frontend_unit.out` | 新增前端单测：7/7 通过 |
 | `frontend_typecheck.out` / `frontend_build_tail.out` | `pnpm typecheck` / `pnpm build` 通过 |
+| `ui_report_fy2027.png` | 真实浏览器（145 后端 + dev server）FY2027 报表页：「本月」列 `-500.00 / 2027-02 · 超 500.00`，「预算」列红标 `本月超 500.00`，汇总「年度超支 0 个 · 本月超 1 个」 |
+| `ui_report_fy2023.png` | 同页 FY2023：`未生效` 黄标（`effective_from=2026-12-01 > 2023 年末`），本月列 `5,000.00 / 2023-01` |
+| `ui_badge_tooltip.out` | 徽标悬停文案实测（`2027-02 月度已用 1,500.00 / 额度 1,000.00，超 500.00（提交侧月度闸同口径）`） |
 
 ### 关键报文（原文摘自 `report_curl.out`）
 
