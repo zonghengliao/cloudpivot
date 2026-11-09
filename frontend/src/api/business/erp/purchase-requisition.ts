@@ -21,6 +21,8 @@
  */
 import { get, post, type PageData } from '@/api/request';
 
+import type { DocMeta } from './doc-meta';
+
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/erp';
 
@@ -207,13 +209,28 @@ export interface MergedLine {
   po_item_id: string | null;
 }
 
-/** 转单结果 */
+/** 转单结果（`purchase_requisition_dto.rs::ToPoRes`） */
 export interface ToPoResult {
-  /** 生成的采购订单 */
+  /**
+   * 单头（统一三段式口径 `data.header`，E2E01-FIX-4）：生成的采购订单
+   *
+   * 前端一律读这个字段；`purchase_order` 是兼容期保留的旧名，不要再用。
+   */
+  header: CreatedPurchaseOrder;
+  /** 明细（统一口径 `data.items`）：合并后的明细行 */
+  items: MergedLine[];
+  /** 附属信息（统一口径 `data.meta`）：合并张数 / 参与合并的单号 */
+  meta: DocMeta;
+  /**
+   * @deprecated 与 `header` 同值，兼容期保留（后端删它要单独规划）。
+   * 新代码读 `header`。
+   */
   purchase_order: CreatedPurchaseOrder;
   /** 参与合并的申请单号 */
   requisition_nos: string[];
-  /** 合并后的明细 */
+  /**
+   * @deprecated 与 `items` 同值，兼容期保留。新代码读 `items`。
+   */
   lines: MergedLine[];
   /** 合并了多少张申请单 */
   merged_count: number;

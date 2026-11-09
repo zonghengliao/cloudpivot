@@ -369,16 +369,54 @@ pub struct MergedLineRes {
 }
 
 /// 转单结果。
+///
+/// # 出参口径（E2E01-FIX-4）
+///
+/// 新字段 `header` / `items` / `meta` 是本卡统一的三段式；`purchase_order` / `lines`
+/// 是**兼容期保留的旧字段**（值与新字段完全一致 —— 由 [`ToPoRes::new`] 从同一份数据
+/// clone 出来，不是两套逻辑）。旧字段在彻底统一前不会删，理由与迁移清单见
+/// `docs/编码规范.md` §1.12。
 #[derive(Debug, Clone, Serialize)]
 pub struct ToPoRes {
-    /// 生成的采购订单。
+    /// 单头（新口径）：生成的采购订单。
+    pub header: CreatedPurchaseOrderRes,
+    /// 明细（新口径）：参与合并的明细行。
+    pub items: Vec<MergedLineRes>,
+    /// 附属信息（新口径）：合并张数 / 参与合并的单号。
+    pub meta: crate::business::erp::doc_shape::DocMeta,
+    /// **已废弃（兼容期保留）**：请改读 `header`。
     pub purchase_order: CreatedPurchaseOrderRes,
+    /// **已废弃（兼容期保留）**：请改读 `items`。
+    pub lines: Vec<MergedLineRes>,
     /// 参与合并的申请单号（按请求顺序）。
     pub requisition_nos: Vec<String>,
-    /// 合并后的明细。
-    pub lines: Vec<MergedLineRes>,
     /// 合并了多少张申请单。
     pub merged_count: usize,
+}
+
+impl ToPoRes {
+    /// 唯一构造函数：`header`/`items` 与旧字段在这里一次 clone 出来。
+    ///
+    /// **不要**在别处手写结构体字面量 —— 那样新老字段就有两条赋值路径了，
+    /// 本卡验收 ② 要求「旧字段值 = 新字段值」。
+    #[must_use]
+    pub fn new(
+        header: CreatedPurchaseOrderRes,
+        items: Vec<MergedLineRes>,
+        meta: crate::business::erp::doc_shape::DocMeta,
+        requisition_nos: Vec<String>,
+        merged_count: usize,
+    ) -> Self {
+        Self {
+            header: header.clone(),
+            items: items.clone(),
+            meta,
+            purchase_order: header,
+            lines: items,
+            requisition_nos,
+            merged_count,
+        }
+    }
 }
 
 // ==================== 纯函数 ====================

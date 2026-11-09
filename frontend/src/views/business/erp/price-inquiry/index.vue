@@ -399,27 +399,27 @@
         <!-- 单头 -->
         <t-descriptions :column="3" size="small" class="head-desc" data-testid="piq-detail-head">
           <t-descriptions-item label="询价单号">
-            <span class="mono">{{ detail.head.inquiry_no }}</span>
+            <span class="mono">{{ detail.header.inquiry_no }}</span>
           </t-descriptions-item>
-          <t-descriptions-item label="询价日期">{{ detail.head.inquiry_date }}</t-descriptions-item>
+          <t-descriptions-item label="询价日期">{{ detail.header.inquiry_date }}</t-descriptions-item>
           <t-descriptions-item label="状态">
-            <t-tag size="small" variant="light" :theme="statusTheme(detail.head.status)">
-              {{ detail.head.status_label }}
+            <t-tag size="small" variant="light" :theme="statusTheme(detail.header.status)">
+              {{ detail.header.status_label }}
             </t-tag>
           </t-descriptions-item>
-          <t-descriptions-item label="采购员">{{ detail.head.buyer_name || '—' }}</t-descriptions-item>
-          <t-descriptions-item label="收货仓库">{{ detail.head.warehouse_name || '—' }}</t-descriptions-item>
-          <t-descriptions-item label="报价供应商">{{ detail.head.supplier_count }} 家</t-descriptions-item>
+          <t-descriptions-item label="采购员">{{ detail.header.buyer_name || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="收货仓库">{{ detail.header.warehouse_name || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="报价供应商">{{ detail.header.supplier_count }} 家</t-descriptions-item>
           <t-descriptions-item label="定标方式">
-            {{ detail.head.award_mode_label || '—' }}
+            {{ detail.header.award_mode_label || '—' }}
           </t-descriptions-item>
           <t-descriptions-item label="中标供应商">
-            {{ detail.head.award_supplier_name || awardSupplierText(detail.head) }}
+            {{ detail.header.award_supplier_name || awardSupplierText(detail.header) }}
           </t-descriptions-item>
           <t-descriptions-item label="采购订单">
-            <span class="mono">{{ poRefsText(detail.head.po_refs) }}</span>
+            <span class="mono">{{ poRefsText(detail.header.po_refs) }}</span>
           </t-descriptions-item>
-          <t-descriptions-item label="备注" :span="3">{{ detail.head.remark || '—' }}</t-descriptions-item>
+          <t-descriptions-item label="备注" :span="3">{{ detail.header.remark || '—' }}</t-descriptions-item>
         </t-descriptions>
 
         <!-- 比价表 -->
@@ -591,9 +591,9 @@
             </t-tooltip>
             <t-button
               variant="outline"
-              :disabled="!canQuote || detail.head.status === 'CONVERTED'"
+              :disabled="!canQuote || detail.header.status === 'CONVERTED'"
               data-testid="btn-piq-quote-from-detail"
-              @click="openQuoteFor(detail.head.id)"
+              @click="openQuoteFor(detail.header.id)"
             >
               录入报价
             </t-button>
@@ -644,7 +644,7 @@
               :options="warehouseOptions"
               filterable
               clearable
-              :placeholder="`默认用询价单的仓库：${detail?.head.warehouse_name ?? '—'}`"
+              :placeholder="`默认用询价单的仓库：${detail?.header.warehouse_name ?? '—'}`"
               data-testid="piq-to-po-warehouse"
             />
           </t-form-item>
@@ -918,7 +918,7 @@ async function submitCreate(): Promise<void> {
   try {
     const detail = await createPriceInquiry(buildCreatePayload(createForm));
     createVisible.value = false;
-    MessagePlugin.success(`询价单 ${detail.head.inquiry_no} 已创建（${detail.items.length} 行），下一步录入报价`);
+    MessagePlugin.success(`询价单 ${detail.header.inquiry_no} 已创建（${detail.items.length} 行），下一步录入报价`);
     page.value = 1;
     await loadList();
     // 建完直接进详情，省一次点击（详情里能直接录入报价）
@@ -940,11 +940,11 @@ const awardError = ref('');
 const awarding = ref(false);
 
 const detailHeader = computed(() =>
-  detail.value ? `${detail.value.head.inquiry_no} · ${detail.value.head.status_label}` : '询价单详情',
+  detail.value ? `${detail.value.header.inquiry_no} · ${detail.value.header.status_label}` : '询价单详情',
 );
 const compareSuppliers = computed(() => (detail.value ? compareSuppliersOf(detail.value) : []));
 const awardLocked = computed(() =>
-  detail.value ? detail.value.head.status === 'AWARDED' || detail.value.head.status === 'CONVERTED' : true,
+  detail.value ? detail.value.header.status === 'AWARDED' || detail.value.header.status === 'CONVERTED' : true,
 );
 const awardSummary = computed(() => (detail.value ? awardSummaryOf(detail.value, awardPick.value) : []));
 const singleSourceMessage = computed(() => {
@@ -1012,7 +1012,7 @@ async function submitAward(): Promise<void> {
   }
   awarding.value = true;
   awardError.value = '';
-  const inquiryId = detail.value.head.id;
+  const inquiryId = detail.value.header.id;
   try {
     const next = await awardPriceInquiry(
       inquiryId,
@@ -1021,7 +1021,7 @@ async function submitAward(): Promise<void> {
     detail.value = next;
     awardPick.value = awardPickOf(next);
     MessagePlugin.success(
-      next.head.award_mode === 'SINGLE_SOURCE'
+      next.header.award_mode === 'SINGLE_SOURCE'
         ? '已定标（单源例外，理由已留痕），可以转采购订单'
         : '已定标，可以转采购订单',
     );
@@ -1042,7 +1042,7 @@ const quoting = ref(false);
 const quoteInquiryId = ref('');
 
 const quoteHeader = computed(() =>
-  detail.value ? `录入报价 · ${detail.value.head.inquiry_no}` : '录入报价',
+  detail.value ? `录入报价 · ${detail.value.header.inquiry_no}` : '录入报价',
 );
 const quoteReplacing = computed(() => {
   if (!detail.value || !quoteForm.supplier_id) {
@@ -1053,7 +1053,7 @@ const quoteReplacing = computed(() => {
 
 async function openQuoteFor(id: string): Promise<void> {
   try {
-    const next = detail.value?.head.id === id ? detail.value : await fetchPriceInquiryDetail(id);
+    const next = detail.value?.header.id === id ? detail.value : await fetchPriceInquiryDetail(id);
     detail.value = next;
     quoteInquiryId.value = id;
     Object.assign(quoteForm, emptyQuoteForm(next));
@@ -1131,7 +1131,7 @@ function openToPo(): void {
  */
 async function openToPoFor(id: string): Promise<void> {
   try {
-    const next = detail.value?.head.id === id ? detail.value : await fetchPriceInquiryDetail(id);
+    const next = detail.value?.header.id === id ? detail.value : await fetchPriceInquiryDetail(id);
     detail.value = next;
     awardPick.value = awardPickOf(next);
     openToPo();
@@ -1144,7 +1144,7 @@ async function submitToPo(): Promise<void> {
   if (!detail.value) {
     return;
   }
-  const inquiryId = detail.value.head.id;
+  const inquiryId = detail.value.header.id;
   converting.value = true;
   toPoError.value = '';
   try {

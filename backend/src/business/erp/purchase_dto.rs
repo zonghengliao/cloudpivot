@@ -533,12 +533,39 @@ pub fn ensure_submittable_lines(lines: &[PurchaseOrderItemRow]) -> std::result::
 // ==================== 出参 ====================
 
 /// 建单 / 改单 / 流转的返回：单头 + 口径 + 明细。
+///
+/// # 出参口径（E2E01-FIX-4）
+///
+/// `header` / `items` / `meta` 是统一三段式；`order` 是**兼容期保留的旧字段**
+/// （与 `header` 同值，由 [`PurchaseOrderDetailRes::new`] 一次 clone 出来）。
+/// `items` 本来就叫这个名字，所以它是「天生的新字段」，老前端不受影响。
 #[derive(Debug, Clone, Serialize)]
 pub struct PurchaseOrderDetailRes {
-    /// 单头（含 `total_*` 三金额与 `price_mode`）。
-    pub order: PurchaseOrderRes,
+    /// 单头（新口径）。
+    pub header: PurchaseOrderRes,
     /// 明细（行号升序，含三金额）。
     pub items: Vec<PurchaseOrderLineRes>,
+    /// 附属信息（新口径）：审批实例号 / 实例状态。
+    pub meta: crate::business::erp::doc_shape::DocMeta,
+    /// **已废弃（兼容期保留）**：请改读 `header`。
+    pub order: PurchaseOrderRes,
+}
+
+impl PurchaseOrderDetailRes {
+    /// 唯一构造函数：`header` 与旧字段 `order` 在这里一次 clone 出来。
+    #[must_use]
+    pub fn new(
+        header: PurchaseOrderRes,
+        items: Vec<PurchaseOrderLineRes>,
+        meta: crate::business::erp::doc_shape::DocMeta,
+    ) -> Self {
+        Self {
+            header: header.clone(),
+            items,
+            meta,
+            order: header,
+        }
+    }
 }
 
 /// 明细行出参。

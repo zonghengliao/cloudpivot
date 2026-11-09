@@ -877,14 +877,15 @@ async function handleToPo() {
   converting.value = true;
   try {
     const result = await convertRequisitionToPo(toPoAnchor.value, buildToPoPayload(toPoForm));
+    // 统一出参口径（E2E01-FIX-4）：读 header / items，不再读 purchase_order / lines
     MessagePlugin.success(
-      `已生成 ${result.purchase_order.po_no}（${result.merged_count} 张申请单合并为 ${
-        result.lines.length
-      } 行，价税合计 ${rowDecimalText(result.purchase_order.total_with_tax)}）`,
+      `已生成 ${result.header.po_no}（${result.merged_count} 张申请单合并为 ${
+        result.items.length
+      } 行，价税合计 ${rowDecimalText(result.header.total_with_tax)}）`,
     );
     toPoVisible.value = false;
     selectedKeys.value = [];
-    mergeHint.value = `最近一次合并：${result.requisition_nos.join(' + ')} → ${result.purchase_order.po_no}`;
+    mergeHint.value = `最近一次合并：${result.requisition_nos.join(' + ')} → ${result.header.po_no}`;
     await loadList();
   } catch (err) {
     MessagePlugin.error(errorText(err, '转采购订单失败'));

@@ -21,6 +21,8 @@
  */
 import { get, post, type PageData } from '@/api/request';
 
+import type { DocMeta } from './doc-meta';
+
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/erp';
 
@@ -230,12 +232,22 @@ export interface CompareRow {
   quotes: CompareQuote[];
 }
 
-/** 询价单详情 */
+/** 询价单详情（`price_inquiry_dto.rs::PriceInquiryDetailRes`） */
 export interface PriceInquiryDetail {
-  /** 单头 */
-  head: PriceInquiryRow;
+  /**
+   * 单头（统一三段式口径 `data.header`，E2E01-FIX-4）
+   *
+   * 前端一律读这个字段；`head` 是兼容期保留的旧名，不要再用。
+   */
+  header: PriceInquiryRow;
   /** 明细 */
   items: PriceInquiryItem[];
+  /** 附属信息（`data.meta`）：报价条数 / 比价行数 / 是否可转单 */
+  meta: DocMeta;
+  /**
+   * @deprecated 与 `header` 同值，兼容期保留。新代码读 `header`。
+   */
+  head: PriceInquiryRow;
   /** 全部报价（扁平） */
   quotes: PriceQuoteRow[];
   /** 比价表 */

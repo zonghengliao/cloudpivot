@@ -164,6 +164,11 @@ pub mod depreciation_model;
 pub mod doc_pdf_model;
 /// PDF-04 起的渲染收尾共用件：HTML → 字节 + 文件名 + 行数 + 金额 + 耗时。
 pub mod doc_pdf_render;
+/// E2E01-FIX-4：单据出参三段式口径（`header` / `items` / `meta`）的唯一定义处。
+pub mod doc_shape;
+/// E2E01-FIX-4 验收 ②：三个接口的新旧字段**同值**断言（序列化后逐字段比对）。
+#[cfg(test)]
+mod doc_shape_tests;
 pub mod dto;
 pub mod expense_bridge;
 pub mod expense_compute;

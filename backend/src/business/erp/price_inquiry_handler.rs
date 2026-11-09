@@ -262,14 +262,15 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PriceInquiryDetailRes, A
 
     let comparison = build_comparison(&items, &quotes);
     let (can_to_po, blocked) = to_po_gate(&head.status, &items, &quotes);
-    Ok(PriceInquiryDetailRes {
-        head: to_row_res(&head),
-        items: items.iter().map(to_item_res).collect(),
-        quotes: quotes.iter().map(to_quote_res).collect(),
+    // 出参三段式（E2E01-FIX-4）：header/items/meta 与旧字段 head 由 `new` 一次成型
+    Ok(PriceInquiryDetailRes::new(
+        to_row_res(&head),
+        items.iter().map(to_item_res).collect(),
+        quotes.iter().map(to_quote_res).collect(),
         comparison,
         can_to_po,
-        to_po_blocked_reason: blocked,
-    })
+        blocked,
+    ))
 }
 
 /// 转单前置判定（详情页按钮可用性 + to-po 的同一份口径）。

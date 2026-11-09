@@ -39,6 +39,8 @@
 
 import service, { del, get, patch, post, put, type PageData } from '@/api/request';
 
+import type { DocMeta } from './doc-meta';
+
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/erp';
 
@@ -1460,10 +1462,20 @@ export interface PurchaseOrderLine {
 
 /** 建单 / 改单 / 流转的返回（`purchase_dto.rs::PurchaseOrderDetailRes`：单头 + 明细） */
 export interface PurchaseOrderDetail {
-  /** 单头 */
-  order: PurchaseOrderRow;
+  /**
+   * 单头（统一三段式口径 `data.header`，E2E01-FIX-4）
+   *
+   * 前端一律读这个字段；`order` 是兼容期保留的旧名，不要再用。
+   */
+  header: PurchaseOrderRow;
   /** 明细 */
   items: PurchaseOrderLine[];
+  /** 附属信息（`data.meta`）：审批实例号 / 实例状态；没走审批时是 `{}` */
+  meta: DocMeta;
+  /**
+   * @deprecated 与 `header` 同值，兼容期保留。新代码读 `header`。
+   */
+  order: PurchaseOrderRow;
 }
 
 /**

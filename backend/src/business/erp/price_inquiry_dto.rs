@@ -615,12 +615,23 @@ pub struct CompareRowRes {
 }
 
 /// 询价单详情。
+///
+/// # 出参口径（E2E01-FIX-4）
+///
+/// `header` / `items` / `meta` 是统一三段式；`head` 是**兼容期保留的旧字段**
+/// （与 `header` 同值，由 [`PriceInquiryDetailRes::new`] 一次 clone 出来）。
+/// `quotes` / `comparison` 这类**大体量**附属数据留在顶层不动（`meta` 里只给计数），
+/// 避免把同一份报价数组下发两遍。
 #[derive(Debug, Clone, Serialize)]
 pub struct PriceInquiryDetailRes {
-    /// 单头。
-    pub head: PriceInquiryRowRes,
+    /// 单头（新口径）。
+    pub header: PriceInquiryRowRes,
     /// 明细。
     pub items: Vec<PriceInquiryItemRes>,
+    /// 附属信息（新口径）：报价条数 / 比价行数 / 是否可转单。
+    pub meta: crate::business::erp::doc_shape::DocMeta,
+    /// **已废弃（兼容期保留）**：请改读 `header`。
+    pub head: PriceInquiryRowRes,
     /// 全部报价（扁平）。
     pub quotes: Vec<PriceQuoteRes>,
     /// 比价表（横向）。
@@ -629,6 +640,35 @@ pub struct PriceInquiryDetailRes {
     pub can_to_po: bool,
     /// 不能转单的原因（可以转时为 `None`）。
     pub to_po_blocked_reason: Option<String>,
+}
+
+impl PriceInquiryDetailRes {
+    /// 唯一构造函数：`header` 与旧字段 `head` 在这里一次 clone 出来，
+    /// `meta` 的统计值也在这里从同一份入参算出来（不另起一套逻辑）。
+    #[must_use]
+    pub fn new(
+        head: PriceInquiryRowRes,
+        items: Vec<PriceInquiryItemRes>,
+        quotes: Vec<PriceQuoteRes>,
+        comparison: Vec<CompareRowRes>,
+        can_to_po: bool,
+        to_po_blocked_reason: Option<String>,
+    ) -> Self {
+        let meta = crate::business::erp::doc_shape::DocMeta::empty()
+            .with_extra("quote_count", serde_json::json!(quotes.len()))
+            .with_extra("comparison_count", serde_json::json!(comparison.len()))
+            .with_extra("can_to_po", serde_json::json!(can_to_po));
+        Self {
+            header: head.clone(),
+            items,
+            meta,
+            head,
+            quotes,
+            comparison,
+            can_to_po,
+            to_po_blocked_reason,
+        }
+    }
 }
 
 /// 转单生成的一张采购订单。

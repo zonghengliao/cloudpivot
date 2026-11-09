@@ -516,10 +516,51 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
     fill_warehouse_name_current(std::slice::from_mut(&mut order)).await;
     // FIX-2 ①：预算尚未生效的提示（草稿 / 审批中 / 未到生效日），只提示不阻断
     order.budget_warnings = budget_warnings_of(&row).await;
-    Ok(PurchaseOrderDetailRes {
+    let meta = approval_meta_of(&order).await;
+    Ok(PurchaseOrderDetailRes::new(
         order,
-        items: items.iter().map(PurchaseOrderLineRes::from).collect(),
-    })
+        items.iter().map(PurchaseOrderLineRes::from).collect(),
+        meta,
+    ))
+}
+
+/// 出参 `meta` 段（E2E01-FIX-4）：实例号直接取单头已回填的字段，`flow_status` 现查实例。
+///
+/// 只有单据挂着审批实例时才多一次主键查询（草稿单零开销）；查询失败**不阻断详情**
+/// —— 降级为不下发 `flow_status`，并留一条 warn（与 [`budget_warnings_of`] 同一套降级口径）。
+async fn approval_meta_of(order: &PurchaseOrderRes) -> crate::business::erp::doc_shape::DocMeta {
+    let Some(raw_id) = order.approval_instance_id.as_deref() else {
+        return crate::business::erp::doc_shape::DocMeta::empty();
+    };
+    let flow_status = match Uuid::parse_str(raw_id) {
+        Ok(instance_id) => match flow_model::find_instance(instance_id).await {
+            Ok(Some(instance)) => Some(instance.status),
+            Ok(None) => None,
+            Err(error) => {
+                tracing::warn!(
+                    order_no = %order.order_no,
+                    instance_id = %raw_id,
+                    %error,
+                    "查询审批实例状态失败（出参 meta.flow_status 降级为不下发）"
+                );
+                None
+            }
+        },
+        Err(error) => {
+            tracing::warn!(
+                order_no = %order.order_no,
+                instance_id = %raw_id,
+                %error,
+                "单头 approval_instance_id 不是合法 UUID（出参 meta.flow_status 降级为不下发）"
+            );
+            None
+        }
+    };
+    crate::business::erp::doc_shape::DocMeta::empty().with_instance(
+        Some(raw_id.to_string()),
+        order.approval_instance_no.clone(),
+        flow_status,
+    )
 }
 
 /// 该采购单「预算尚未生效」的提示（FIX-2 ①：只提示、不阻断）。

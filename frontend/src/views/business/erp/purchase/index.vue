@@ -1692,8 +1692,9 @@ async function save(mode: 'draft' | 'submit'): Promise<void> {
   try {
     const payload = buildPurchasePayload(form);
     const detail = isEdit ? await updatePurchaseOrder(form.id, payload) : await createPurchaseOrder(payload);
-    const orderId = detail.order.id;
-    const orderNo = detail.order.order_no;
+    // 统一出参口径（E2E01-FIX-4）：读 header，不再读 order
+    const orderId = detail.header.id;
+    const orderNo = detail.header.order_no;
 
     if (mode === 'submit') {
       try {

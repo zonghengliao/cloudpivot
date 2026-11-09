@@ -433,7 +433,7 @@ export function validateAward(
   pick: AwardPick,
   reason: string,
 ): string | null {
-  if (detail.head.status === 'AWARDED' || detail.head.status === 'CONVERTED') {
+  if (detail.header.status === 'AWARDED' || detail.header.status === 'CONVERTED') {
     return '这张询价单已经定标过了（重复定标会被后端 409 挡住）';
   }
   if (detail.comparison.length === 0) {
@@ -524,10 +524,10 @@ export function buildToPoPayload(form: ToPoForm): ToPoPayload {
 
 /** 转单按钮的可用性 + 不可用原因（`can_to_po` 来自后端，前端只做展示） */
 export function toPoStateOf(detail: PriceInquiryDetail): { enabled: boolean; hint: string } {
-  if (detail.head.status === 'CONVERTED') {
+  if (detail.header.status === 'CONVERTED') {
     return { enabled: false, hint: '已转采购订单，不能重复转（幂等闸）' };
   }
-  if (detail.head.status !== 'AWARDED') {
+  if (detail.header.status !== 'AWARDED') {
     return { enabled: false, hint: '请先定标：转单要用中标供应商与中标单价' };
   }
   if (!detail.can_to_po) {

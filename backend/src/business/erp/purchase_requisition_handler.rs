@@ -931,37 +931,39 @@ pub async fn to_purchase_order(
         "采购申请合并转采购订单完成"
     );
 
-    Ok(ToPoRes {
-        purchase_order: crate::business::erp::purchase_requisition_dto::CreatedPurchaseOrderRes {
-            po_id: po_id.to_string(),
-            po_no,
-            supplier_id: supplier_id.to_string(),
-            supplier_name,
-            line_count: merged.len(),
-            total_with_tax,
-        },
-        requisition_nos: req_nos,
-        lines: {
-            // 合并结果是纯函数产物（只有 material_id），响应契约里的物料编码/名称在这里回填
-            let mut materials: BTreeMap<Uuid, (String, String)> = BTreeMap::new();
-            for line in &merged {
-                if materials.contains_key(&line.material_id) {
-                    continue;
-                }
-                let pair = model::material_ref_of(db(), line.material_id)
-                    .await
-                    .map_err(|error| utils::db_error(error, "查询合并明细的物料编码"))?
-                    .unwrap_or_default();
-                materials.insert(line.material_id, pair);
+    // 出参三段式（E2E01-FIX-4）：先把新口径的两个值算出来，再由 `ToPoRes::new`
+    // 一次性 clone 出旧字段 —— 新旧字段永远同一份数据。
+    let header = crate::business::erp::purchase_requisition_dto::CreatedPurchaseOrderRes {
+        po_id: po_id.to_string(),
+        po_no,
+        supplier_id: supplier_id.to_string(),
+        supplier_name,
+        line_count: merged.len(),
+        total_with_tax,
+    };
+    let items: Vec<crate::business::erp::purchase_requisition_dto::MergedLineRes> = {
+        // 合并结果是纯函数产物（只有 material_id），响应契约里的物料编码/名称在这里回填
+        let mut materials: BTreeMap<Uuid, (String, String)> = BTreeMap::new();
+        for line in &merged {
+            if materials.contains_key(&line.material_id) {
+                continue;
             }
-            merged
-                .iter()
-                .enumerate()
-                .map(|(index, line)| to_merged_res(index, line, &po_item_of_material, &materials))
-                .collect()
-        },
-        merged_count: rows.len(),
-    })
+            let pair = model::material_ref_of(db(), line.material_id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询合并明细的物料编码"))?
+                .unwrap_or_default();
+            materials.insert(line.material_id, pair);
+        }
+        merged
+            .iter()
+            .enumerate()
+            .map(|(index, line)| to_merged_res(index, line, &po_item_of_material, &materials))
+            .collect()
+    };
+    let meta = crate::business::erp::doc_shape::DocMeta::empty()
+        .with_extra("merged_count", serde_json::json!(rows.len()))
+        .with_extra("requisition_nos", serde_json::json!(req_nos));
+    Ok(ToPoRes::new(header, items, meta, req_nos, rows.len()))
 }
 
 /// 合并失败 → 409（前端按码区分「合并规则拒绝」，不是泛化的状态冲突）。
