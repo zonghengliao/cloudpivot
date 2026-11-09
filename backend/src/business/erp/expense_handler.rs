@@ -404,7 +404,12 @@ async fn resolve_account(account_id: Uuid) -> Result<voucher::AccountRef, ApiErr
     }
     let account = voucher_multi::ensure_leaf(db(), account_id)
         .await
-        .map_err(|error| db_err(error, "校验借方科目"))?;
+        .map_err(|error| match error {
+            // 科目非末级 / 已停用 / 不存在是**用户可纠正的入参问题**，必须 400 指名科目；
+            // 以前一律走 `db_err` → 500「服务器内部错误」，前端只能看到「未知错误」。
+            DbError::InvalidValue(message) => invalid(message),
+            other => db_err(other, "校验借方科目"),
+        })?;
     // SCOPE-EXEMPT: 科目按主键取 1 行。
     let rows = db()
         .query_sql(
