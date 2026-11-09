@@ -16,14 +16,15 @@
 配套的另一半在 `scripts/ops/alert_check.sh`：即使没人重跑，判定侧也会认「结论早于最后一次
 迁移」，降级成「结论过期、待重跑」而不是断言「账已错」。
 
-两条执行路径（优先 HTTP，失败退回脚本 + 落库）
-==============================================
-1. `POST /api/support/invariant/run`（需 admin 会话）→ **真跑 `run_and_store(Manual)`**，
-   与看板「立即执行」同一条路。这条路依赖 `NIK_ADMIN_*` 口令正确；144 上该口令曾漂移
-   （卡 t_c9c2cd5f），所以不能是唯一路径。
-2. 退回：直接跑闸③ 同一个脚本 `scripts/verify/erp_invariants.py --json`，按
+两条执行路径（默认脚本 + 落库；`--http` 才走接口）
+==================================================
+1. 默认：直接跑闸③ 同一个脚本 `scripts/verify/erp_invariants.py --json`，按
    `runner::parse_report` 的口径从 `results` 重算计数，再落一行 `trigger_type='MANUAL'`。
    **口径不放宽**：解析规则、计数规则、ERROR 行语义与 Rust runner 逐条对齐（见下）。
+2. `--http`（显式开启）：`POST /api/support/invariant/run`（需 admin 会话）→ 真
+   `run_and_store(Manual)`，与看板「立即执行」同一条路。**默认不开**：144 的 admin 口令
+   漂移（卡 t_c9c2cd5f），每试一次就给 admin 记一次登录失败（5 次锁 30 分钟，实测
+   2026-11-10 03:33~03:35 被自己的探测锁掉）—— 例行部署不该拿生产账号试口令。
 
 与 Rust runner 的对齐点（改任何一边都要同步另一边的自检）
 ==========================================================
@@ -39,8 +40,13 @@
     python3 scripts/ops/invariant_rerun.py                 # 结论比最后一次迁移旧才重跑（幂等）
     python3 scripts/ops/invariant_rerun.py --force         # 无条件重跑
     python3 scripts/ops/invariant_rerun.py --dry-run       # 只体检并打印计划，不跑不写
-    python3 scripts/ops/invariant_rerun.py --db-only       # 不试 HTTP，直接脚本 + 落库
+    python3 scripts/ops/invariant_rerun.py --http          # 先试 HTTP（需 admin 口令正确，见下）
     python3 scripts/ops/invariant_rerun.py --self-test     # 自检（解析/计数/单位归一/新鲜度）
+
+默认走**脚本 + 落库**那条路，不碰 admin 登录。`--http` 才去试 `POST /api/support/invariant/run`：
+登录失败会给 admin 记一次失败（`sys_config` 的 `max_login_fail_count` 次即锁，
+实测 2026-11-10 03:33~03:35 三次探测把 admin 锁了 30 分钟）——所以只有口令确认可用时才该开它。
+口令漂移的处置见卡 t_c9c2cd5f，别在这里反复试。
 
 部署脚本里由 `scripts/deploy/deploy.sh` 第 [7/9] 步调用（非致命：失败只 WARN，不回滚发版）。
 
@@ -421,8 +427,11 @@ def main() -> int:
                         help="服务地址（HTTP 路径用）")
     parser.add_argument("--script", default=None, help="巡检脚本路径（默认 <repo>/scripts/verify/erp_invariants.py）")
     parser.add_argument("--force", action="store_true", help="无条件重跑（默认：结论不旧就跳过）")
-    parser.add_argument("--db-only", action="store_true", help="不试 HTTP，直接跑脚本 + 落库")
-    parser.add_argument("--http-only", action="store_true", help="只走 HTTP，失败即退出（不落库兜底）")
+    parser.add_argument("--http", action="store_true",
+                        help="先试 HTTP（POST /api/support/invariant/run，需 admin 口令可用）。"
+                             "默认不试：登录失败会给 admin 记一次失败，5 次即锁 30 分钟")
+    parser.add_argument("--db-only", action="store_true", help="（已是默认，保留兼容）不试 HTTP")
+    parser.add_argument("--http-only", action="store_true", help="只走 HTTP（隐含 --http），失败即退出（不落库兜底）")
     parser.add_argument("--dry-run", action="store_true", help="只体检并打印计划，不跑不写")
     parser.add_argument("--self-test", action="store_true", help="自检（不需要服务/库）")
     args = parser.parse_args()
@@ -455,8 +464,9 @@ def main() -> int:
     conclusion = None
     reason = ""
 
-    # 路径 ① HTTP（真 runner）：口令漂移时自然失败并退回路径 ②
-    if not args.db_only:
+    # 路径 ① HTTP（真 runner）：**默认不走**。144 的 admin 口令漂移（t_c9c2cd5f），
+    # 每试一次就给 admin 记一次登录失败，5 次锁 30 分钟 —— 例行部署不该拿生产账号试口令。
+    if args.http or args.http_only:
         ok, payload = http_run_invariant(args.base_url, conf)
         if ok and isinstance(payload, dict):
             method = "http"
