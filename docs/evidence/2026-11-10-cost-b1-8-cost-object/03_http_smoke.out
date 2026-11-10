@@ -1,0 +1,13 @@
+1) 登录 admin：token 长度 461
+   夹具：product=d1370003-0000-4000-8000-000000000005 warehouse=d1370001-0000-4000-8000-000000000001 dept=20000000-0000-4000-8000-0000000f0366
+2) POST /cost-object（新建）=> code=0 object_no=CB-20261110-000001 status=OPEN plan_qty=100.0000 product_name=成品E（种子） dept=总部 next=['CLOSED', 'CANCELLED']
+   object id = 01a1c5eb-c86a-736b-ab18-1091efb2541a
+3) GET /cost-object（列表）=> code=0 total=1 page=1 page_size=10 首行=CB-20261110-000001
+4) GET /cost-object/{id}（详情）=> code=0 status=OPEN collect_summary={'mat': '0', 'labor': '0', 'oh': '0', 'total': '0'} period_items=0 legal_edges=[['OPEN', 'CLOSED'], ['OPEN', 'CANCELLED']]
+5) PUT /cost-object/{id}（改单）=> code=0 plan_qty=150.0000 remark=B1-8 HTTP 改单
+6) POST /cost-object/{id}/close（有未归集领料）=> HTTP 409
+   code=66055 msg=成本对象 CB-20261110-000001 不能关批：[UNCOLLECTED_STOCK_OUT] 还有 1 张领料出库单已过账但**没有归集**到本成本对象：先归集再关批，否则这批材料成本永远进不了成本计算单
+7) POST /cost-object/{id}/close（补归集后）=> code=0 status=CLOSED closed_at=2026-11-10T14:45:26.468057+00:00 next=[]
+8a) 重复关批 => HTTP 409 code=10003
+8b) 已关批改单 => HTTP 409 code=10003
+9) 冒烟数据已清理

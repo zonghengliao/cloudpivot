@@ -24,6 +24,28 @@
 
 ## 实测输出
 
+### ⓿ HTTP 冒烟（真实例 `127.0.0.1:18024`，空库首启 308 个迁移，admin 真登录）
+
+见 `03_http_smoke.out` —— **5 个接口全通，且是 HTTP 层、带鉴权**：
+
+```
+2) POST   /business/erp/cost-object            code=0  object_no=CB-20261110-000001 status=OPEN
+                                                  plan_qty=100.0000 product_name=成品E（种子）
+                                                  dept=总部 next=['CLOSED','CANCELLED']
+3) GET    /business/erp/cost-object?keyword=…   code=0  total=1 page=1 page_size=10
+4) GET    /business/erp/cost-object/{id}        code=0  collect_summary={mat,labor,oh,total}
+                                                  legal_edges=[['OPEN','CLOSED'],['OPEN','CANCELLED']]
+5) PUT    /business/erp/cost-object/{id}        code=0  plan_qty=150.0000
+6) POST   /business/erp/cost-object/{id}/close   HTTP 409  code=66055
+      msg=… [UNCOLLECTED_STOCK_OUT] 还有 1 张领料出库单已过账但没有归集到本成本对象…
+7) POST   …/close（补归集后）                    code=0  status=CLOSED closed_at=… next=[]
+8a) 重复关批                                     HTTP 409 code=10003
+8b) 已关批改单                                   HTTP 409 code=10003
+```
+
+未经鉴权请求同一批路径返回 **401**，未知路径返回 **404** —— 说明 5 条路由确实注册到了
+router（不是「文件写了但没挂上」）。
+
 ### ① 真库用例（8/8，库 = `mig_replay_costb18`，空库全链重放 295/295 后的库）
 
 见 `01_real_db_tests.out`：
