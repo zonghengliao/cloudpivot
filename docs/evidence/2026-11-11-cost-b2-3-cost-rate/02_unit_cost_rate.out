@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.30s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 16 tests
+test business::erp::cost_rate_dto::tests::cost_object_beats_dept_and_company ... ok
+test business::erp::cost_rate_dto::tests::company_only_falls_back_to_company ... ok
+test business::erp::cost_rate_dto::tests::dept_beats_company_regardless_of_effective_date ... ok
+test business::erp::cost_rate_dto::tests::labels_are_stable ... ok
+test business::erp::cost_rate_dto::tests::disabled_rate_is_ignored ... ok
+test business::erp::cost_rate_dto::tests::company_row_with_scope_id_is_not_a_match ... ok
+test business::erp::cost_rate_dto::tests::effective_window_must_cover_the_work_date ... ok
+test business::erp::cost_rate_dto::tests::newer_version_wins_within_the_same_scope ... ok
+test business::erp::cost_rate_dto::tests::machine_request_uses_machine_rates ... ok
+test business::erp::cost_rate_dto::tests::missing_rate_is_a_loud_error_never_zero ... ok
+test business::erp::cost_rate_dto::tests::other_dept_and_other_object_rates_do_not_apply ... ok
+test business::erp::cost_rate_dto::tests::rate_type_must_match ... ok
+test business::erp::cost_rate_dto::tests::unknown_scope_is_skipped ... ok
+test business::erp::cost_rate_dto::tests::zero_rate_is_a_legit_value_not_a_miss ... ok
+test business::erp::cost_rate_dto::tests::tie_break_is_deterministic ... ok
+test business::erp::cost_rate_handler::tests::module_uses_the_documented_constants ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 4273 filtered out; finished in 0.00s
+

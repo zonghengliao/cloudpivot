@@ -160,6 +160,10 @@ mod cost_object_db_tests;
 pub mod cost_object_dto;
 pub mod cost_object_handler;
 pub mod cost_object_model;
+/// B2-3 费率取数（ARCH-9 §4.5.4）：`biz_cost_rate` 三级优先级 + 缺费率报错（无 HTTP 入口，供工时台账复用）。
+pub mod cost_rate_dto;
+pub mod cost_rate_handler;
+pub mod cost_rate_model;
 pub mod credit;
 pub mod currency;
 pub mod currency_admin_handler;

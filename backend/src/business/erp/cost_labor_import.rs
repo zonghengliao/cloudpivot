@@ -32,12 +32,12 @@
 //! 「别人报上来的数」，先落 `DRAFT` 让人复核（前端 `BatchActionBar` 批量确认，B2-13），
 //! 否则一次误传就把当期人工成本推进结算，只能走红冲（R-8）。
 //!
-//! # 与设计的两处偏差（都在卡内报告过）
+//! # 两处实现口径（都有卡内说明）
 //!
-//! 1. **工资率列留空**：设计 §4.5.3 写「空 → 按 §4.5.4 的优先级自动取」，
-//!    但费率取数（对象 > 车间 > 公司）是 **B2-3** 的活，`biz_cost_rate` 目前没有
-//!    任何读写代码。本模块留空即该行报错并点名 B2-3 —— **不默认按 0 计**
-//!    （设计 D-7：编造出来的人工成本比算不出来更危险）。
+//! 1. **工资率列留空** = 按设计 §4.5.4 自动取数（`成本对象 > 车间 > 公司`，B2-3）：
+//!    取数发生在引用校验之后（要对象的 id、车间的 id、工作日期），
+//!    三级都没配到 ⇒ **该行报错**（列 = 工资率，报文点名缺哪一级、缺哪一天），
+//!    **绝不默认按 0 计**（设计 D-7：编造出来的人工成本比算不出来更危险）。
 //! 2. **员工工号**：`biz_employee` 属 ARCH9-2，尚未上线。工号留空 = 按班组计
 //!    （`employee_id` 为 NULL，设计 §4.5.3 允许）；填了则在 `biz_employee` 存在时
 //!    解析工号，表不存在时该行报错并要求留空 —— 不静默丢弃工号。
@@ -62,6 +62,7 @@ use crate::business::erp::cost_labor_dto::{
 };
 use crate::business::erp::cost_labor_model::{self as model};
 use crate::business::erp::cost_object_dto;
+use crate::business::erp::cost_rate_dto::{self, RateRequest, RateSubject};
 use crate::business::impexp::definition::{ColumnKind, ImportColumn, parse_date};
 use crate::business::impexp::engine::{SheetReader, WorkbookSheet, write_workbook};
 use crate::shared::error_code;
@@ -195,7 +196,7 @@ static COLUMNS: &[ImportColumn] = &[
         fk: None,
         example: "50",
         width: Some(12),
-        remark: "工资率（元/小时），≥ 0，最多 6 位小数；自动取数（对象 > 车间 > 公司）属 B2-3，当前必须填写",
+        remark: "工资率（元/小时），≥ 0，最多 6 位小数；留空 = 按「成本对象 > 车间 > 公司」自动取数（缺费率该行报错，不会按 0 计）",
     },
 ];
 
@@ -212,7 +213,7 @@ const GUIDE_LINES: [&str; 7] = [
     "3. 单次最多 5000 行，超出请按月 / 按车间拆分；",
     "4. 导入是全有或全无：任何一行有错，整批都不入库，错误按「Excel 行号 + 列名 + 原因」返回；",
     "5. 日期必须落在所选会计期间内；成本对象号必须存在且状态为 OPEN（未关批）；",
-    "6. 工资率当前必须填写（自动取数属 B2-3）；员工工号可留空（按班组计）；",
+    "6. 工资率可留空（按「成本对象 > 车间 > 公司」自动取数，三级都没配到则该行报错）；员工工号可留空（按班组计）；",
     "7. 保存为 .xlsx 格式上传（不支持 .xls 旧格式）。",
 ];
 
@@ -365,7 +366,9 @@ fn cell(reader: &SheetReader, row: &[calamine::Data], index: usize) -> String {
 
 /// 一行解析后的结果。
 ///
-/// 不变量：`issues` 为空 ⇔ 所有 `Option` 字段都是 `Some`（由 [`parse_rows`] 保证）。
+/// 不变量：`issues` 为空 ⇔ 所有 `Option` 字段都是 `Some`
+/// （`rate` 例外：留空的行要等 [`attach_rate_issues`] 取数后才变 `Some`，
+/// 由 [`build_specs`] 在落库前再核一次）。
 #[derive(Debug, Clone)]
 pub struct ParsedRow {
     /// Excel 真实行号。
@@ -386,8 +389,10 @@ pub struct ParsedRow {
     pub hours: Option<Decimal>,
     /// 机器工时（缺省 0）。
     pub machine_hours: Option<Decimal>,
-    /// 工资率。
+    /// 工资率（留空 ⇒ 引用校验后自动取数，见 [`attach_rate_issues`]）。
     pub rate: Option<Decimal>,
+    /// 工资率列是否**留空**（留空才自动取数；填错数字不走取数，直接报格式错）。
+    pub rate_blank: bool,
     /// 这一行已经发现的问题。
     pub issues: Vec<ImportIssue>,
 }
@@ -419,10 +424,10 @@ impl ParsedRow {
             dept_name: dept_name.to_string(),
             hours: self.hours.expect("校验通过的行一定有人工工时"),
             machine_hours: self.machine_hours.unwrap_or(Decimal::ZERO),
-            rate: self.rate.expect("校验通过的行一定有工资率"),
+            rate: self.rate.expect("校验阶段已取数（留空的行由 attach_rate_issues 回填）"),
             amount: cost_labor_dto::expected_amount(
                 self.hours.expect("校验通过的行一定有人工工时"),
-                self.rate.expect("校验通过的行一定有工资率"),
+                self.rate.expect("校验阶段已取数"),
             )
             .expect("校验通过的行一定能算出金额"),
             // 导入写 IMPORT（设计 §3.1 ④ 值域），状态落 DRAFT 等人工复核。
@@ -461,6 +466,7 @@ fn parse_row(raw: &RawRow, period_code: Option<&str>) -> ParsedRow {
         hours: None,
         machine_hours: None,
         rate: None,
+        rate_blank: false,
         issues: Vec::new(),
     };
 
@@ -569,13 +575,11 @@ fn parse_row(raw: &RawRow, period_code: Option<&str>) -> ParsedRow {
         ),
     };
 
-    // ---------- 工资率 ----------
+    // ---------- 工资率（留空 ⇒ 引用校验后按 §4.5.4 自动取数；填了就按填的） ----------
     parsed.rate = match cost_labor_dto::clean_optional(Some(raw.rate.clone())) {
         None => {
-            parsed.push_issue(
-                HEADER_RATE,
-                "不能为空：自动取数（成本对象 > 车间 > 公司）属 B2-3，当前请明确填写工资率；不会默认按 0 计（否则人工成本凭空少一块）",
-            );
+            // 留空不是错：取数要对象 id / 车间 id / 工作日期，得等引用校验跑完（attach_rate_issues）
+            parsed.rate_blank = true;
             None
         }
         Some(text) => numeric_column(
@@ -777,6 +781,7 @@ async fn validate_refs(parsed: &mut [ParsedRow]) -> std::result::Result<RefIndex
     attach_object_issues(parsed, &mut refs).await?;
     attach_dept_issues(parsed, &mut refs).await?;
     attach_employee_issues(parsed, &mut refs).await?;
+    attach_rate_issues(parsed, &refs).await?;
     Ok(refs)
 }
 
@@ -899,6 +904,53 @@ async fn attach_employee_issues(parsed: &mut [ParsedRow], refs: &mut RefIndex) -
     Ok(())
 }
 
+/// 工资率取数（B2-3）：**留空的行**按 `成本对象 > 车间 > 公司` 自动取（设计 §4.5.4）。
+///
+/// 为什么放在引用校验之后：取数要「对象的 id + 车间的 id + 工作日期」，
+/// 而这三样要等 `attach_object_issues` / `attach_dept_issues` 解析完才有。
+///
+/// 一次查库（[`cost_rate_handler::candidates`]），逐行用纯函数判定 —— 5000 行导入
+/// 也只有 1 次往返。三级都没配到 ⇒ 该行在「工资率」列报错（`66059` 的同一条人话），
+/// 整批照样「全有或全无」拒绝，**不按 0 计**。
+async fn attach_rate_issues(parsed: &mut [ParsedRow], refs: &RefIndex) -> std::result::Result<(), ApiError> {
+    // 没有留空的行就一次库都不查（填了费率的导入与本卡无关）
+    let needs_rate = parsed
+        .iter()
+        .any(|row| row.rate_blank && row.rate.is_none() && row.issues.is_empty());
+    if !needs_rate {
+        return Ok(());
+    }
+    let rates = crate::business::erp::cost_rate_handler::candidates(cost_rate_dto::RATE_TYPE_LABOR).await?;
+    for row in parsed.iter_mut() {
+        // 已经有错的行不去取数：它的对象 / 车间 / 日期本身可能就不成立，
+        // 拿它去查费率只会再刷一条噪音错误（真正要改的只有第一条）
+        if !row.rate_blank || row.rate.is_some() || !row.issues.is_empty() {
+            continue;
+        }
+        let (Some(work_date), Some(object), Some(dept)) = (
+            row.work_date,
+            refs.objects.get(&row.object_no),
+            refs.depts.get(&row.dept),
+        ) else {
+            // 引用没解析出来 ⇒ 该行已有 issue（上面跳过不了到这里），兜底不 panic
+            continue;
+        };
+        match cost_rate_dto::resolve(
+            &rates,
+            &RateRequest::labor(object.id, dept.id, work_date),
+            &RateSubject {
+                cost_object_no: &row.object_no,
+                dept_name: &dept.dept_name,
+            },
+        ) {
+            Ok(resolved) => row.rate = Some(resolved.rate),
+            // 报错文案与单条录入完全一致（同一个纯函数产出）
+            Err(error) => row.push_issue(HEADER_RATE, error.msg),
+        }
+    }
+    Ok(())
+}
+
 /// 组装落库规格（引用索引来自 [`validate_refs`]，此处同步拼装，不再查库）。
 fn build_specs(parsed: &[ParsedRow], refs: &RefIndex) -> std::result::Result<Vec<(Uuid, CostLaborSpec)>, ApiError> {
     let mut out = Vec::with_capacity(parsed.len());
@@ -921,6 +973,18 @@ fn build_specs(parsed: &[ParsedRow], refs: &RefIndex) -> std::result::Result<Vec
             .employee_no
             .as_deref()
             .and_then(|no| refs.employees.get(no).copied());
+        // 留空的费率必须已经在 attach_rate_issues 取到；走到这里还空说明编排漏了一步
+        // （编程错误：宁可 500 让人看见，也不许按 0 落库）
+        if row.rate.is_none() {
+            return Err(ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!(
+                    "第 {} 行的工资率取数结果在拼装阶段丢失（本应已按「成本对象 > 车间 > 公司」取到）",
+                    row.line
+                ),
+            ));
+        }
         out.push((
             Uuid::now_v7(),
             row.to_spec(object.id, dept.id, &dept.dept_name, employee_id),
@@ -1239,16 +1303,27 @@ mod tests {
     }
 
     #[test]
-    fn empty_rate_points_at_b2_3_instead_of_defaulting_to_zero() {
+    fn empty_rate_is_marked_for_auto_lookup_not_reported_as_error() {
         let mut row = raw(2);
         row.rate = String::new();
         let parsed = parse_rows(&[row], None);
+        // B2-3 之后：留空 = 待取数，语法层不该报错（取数在引用校验之后，三级全空才报 66059）
+        assert!(parsed[0].is_clean(), "{:?}", messages(&parsed[0]));
+        assert_eq!(parsed[0].rate, None);
+        assert!(parsed[0].rate_blank, "留空的行必须打上「待取数」标记");
+    }
+
+    /// 填了数字但不是合法费率 ⇒ 照旧报格式错，**不走**自动取数（错数字不能被取数掩盖）。
+    #[test]
+    fn filled_but_invalid_rate_is_still_a_format_error() {
+        let mut row = raw(2);
+        row.rate = "abc".to_string();
+        let parsed = parse_rows(&[row], None);
         assert!(!parsed[0].is_clean());
+        assert!(!parsed[0].rate_blank, "填错了不是「留空」，不能自动补");
         let text = messages(&parsed[0]).join(" / ");
         assert!(text.contains(HEADER_RATE), "{text}");
-        assert!(text.contains("B2-3"), "必须点名 B2-3：{text}");
-        assert!(text.contains("不会默认按 0 计"), "{text}");
-        assert_eq!(parsed[0].rate, None);
+        assert!(text.contains("不是合法数字"), "{text}");
     }
 
     #[test]

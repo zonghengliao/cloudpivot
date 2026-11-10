@@ -49,6 +49,8 @@ use crate::business::erp::cost_labor_dto::{
 use crate::business::erp::cost_labor_import::{self as import, CostLaborImportRes, ImportContext};
 use crate::business::erp::cost_labor_model::{self as model, CostLaborRow};
 use crate::business::erp::cost_object_dto;
+use crate::business::erp::cost_rate_dto::RateSubject;
+use crate::business::erp::cost_rate_handler;
 use crate::business::erp::model_base::normalize_page;
 use crate::business::impexp::handler::xlsx_response;
 use crate::business::shared::principal::{self, ScopedPrincipal};
@@ -73,13 +75,13 @@ pub const LABOR_PERMISSIONS: [&str; 5] = [PERM_LIST, PERM_CREATE, PERM_UPDATE, P
 
 // ==================== 引用校验（建 / 改的查库部分） ====================
 
-/// 成本对象必须存在且是 `OPEN`。
+/// 成本对象必须存在且是 `OPEN`；返回**对象号**（费率取数 / 报错文案要用）。
 ///
 /// 两条不同的错：
 /// * 不存在 / 已删 → **400 + `66002`**（入参指错了：改 id 或换对象）；
 /// * 存在但非 `OPEN` → **409 + `66057`**（业务规则拒绝：已关批的成本已结转）。
 ///   前端提示与用户下一步动作完全不同，所以码不能合并。
-async fn ensure_cost_object_open(cost_object_id: Uuid) -> std::result::Result<(), ApiError> {
+async fn ensure_cost_object_open(cost_object_id: Uuid) -> std::result::Result<String, ApiError> {
     let object = model::cost_object_ref(cost_object_id)
         .await
         .map_err(|error| utils::db_error(error, "校验工时的成本对象"))?;
@@ -92,7 +94,7 @@ async fn ensure_cost_object_open(cost_object_id: Uuid) -> std::result::Result<()
         Some((object_no, status)) if status != cost_object_dto::STATUS_OPEN => {
             Err(cost_labor_dto::object_not_open(&object_no, &status))
         }
-        Some(_) => Ok(()),
+        Some((object_no, _)) => Ok(object_no),
     }
 }
 
@@ -130,6 +132,9 @@ fn to_list_res(row: &CostLaborRow) -> CostLaborListRes {
         hours: row.hours.to_string(),
         machine_hours: row.machine_hours.to_string(),
         rate: row.rate.to_string(),
+        // 取数来源只在建单回单里回填（见 dto 字段注释）；列表 / 详情恒为 None
+        rate_scope: None,
+        rate_scope_label: None,
         amount: row.amount.to_string(),
         source_type: row.source_type.clone(),
         status: row.status.clone(),
@@ -159,21 +164,49 @@ async fn load(id: Uuid) -> std::result::Result<CostLaborRow, ApiError> {
 // ==================== 业务逻辑（单测 / 真库用例直接调这些） ====================
 
 /// 新建工时（§5.2 #11）。
+///
+/// # 工资率
+///
+/// `rate` 留空 ⇒ 按设计 §4.5.4 自动取数（`成本对象 > 车间 > 公司`，B2-3），
+/// 取到的费率会当成「显式费率」走同一套校验（精度 / 金额 = 工时×费率），
+/// 并在出参 `rate_scope` / `rate_scope_label` 里回填来源（§6.2.4 要求界面显示来源）。
+/// 三级都取不到 ⇒ `422` + `66059`，**不按 0 计**（设计 D-7）。
 pub async fn create_labor(
     operator: Option<Uuid>,
-    req: CostLaborCreateReq,
+    mut req: CostLaborCreateReq,
 ) -> std::result::Result<CostLaborListRes, ApiError> {
     // 先拿成本对象 / 部门（查库校验），再拿它们的人话名字去拼规格
     let cost_object_id = cost_labor_dto::require_uuid(req.cost_object_id.as_deref(), "cost_object_id")?;
-    ensure_cost_object_open(cost_object_id).await?;
+    let cost_object_no = ensure_cost_object_open(cost_object_id).await?;
     let dept_id = cost_labor_dto::require_uuid(req.dept_id.as_deref(), "dept_id")?;
     let dept_name = ensure_dept(dept_id).await?;
+    // 费率留空 ⇒ 三级取数；取到后写回 req，后面与手工填费率走**同一条**校验与算金额路径
+    let resolved = match req.rate {
+        Some(_) => None,
+        None => {
+            let work_date = cost_labor_dto::require_date(req.work_date.as_deref(), "work_date")?;
+            let resolved =
+                cost_rate_handler::resolve_labor_rate(cost_object_id, dept_id, work_date, &cost_object_no, &dept_name)
+                    .await?;
+            req.rate = Some(resolved.rate);
+            Some(resolved)
+        }
+    };
     let spec = cost_labor_dto::spec_from_create(&req, &dept_name)?;
     let id = Uuid::now_v7();
     model::insert(id, &spec, operator)
         .await
         .map_err(|error| cost_labor_dto::map_write_error(error, &spec, "新建工时台账"))?;
-    row_of(id).await
+    let mut res = row_of(id).await?;
+    // 只有**本次自动取数**才回填来源：费率是快照，库里没有「从哪一级取的」这一列
+    if let Some(resolved) = resolved {
+        res.rate_scope = Some(resolved.scope.clone());
+        res.rate_scope_label = Some(resolved.scope_detail(&RateSubject {
+            cost_object_no: &cost_object_no,
+            dept_name: &dept_name,
+        }));
+    }
+    Ok(res)
 }
 
 /// 编辑工时（§5.2 #12）：仅 `DRAFT`，金额按合并后的工时 × 费率重算。
@@ -190,7 +223,7 @@ pub async fn update_labor(
     let mut spec = cost_labor_dto::spec_from_update(&row.to_spec(), &req)?;
     // 换了成本对象 ⇒ 新的对象也必须是 OPEN（旧对象的状态不能当成新对象的通行证）
     if spec.cost_object_id != row.cost_object_id {
-        ensure_cost_object_open(spec.cost_object_id).await?;
+        let _ = ensure_cost_object_open(spec.cost_object_id).await?;
     }
     // 换了工作中心 ⇒ 刷新快照（没换就保留原快照，快照是「当时记的」）
     if spec.dept_id != row.dept_id {

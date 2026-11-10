@@ -172,11 +172,10 @@ pub struct CostLaborCreateReq {
     pub hours: Option<Decimal>,
     /// 机器工时（可空，缺省 0，≥ 0，最多 2 位小数）。
     pub machine_hours: Option<Decimal>,
-    /// 工资率（必填，≥ 0，最多 6 位小数）。
+    /// 工资率（**留空 ⇒ 服务端按 §4.5.4 自动取数**：成本对象 > 车间 > 公司，B2-3）。
     ///
-    /// 为什么必填：自动取数（对象 > 车间 > 公司）是 **B2-3** 的活。本卡只做
-    /// 「录进来的这张单对不对」，缺费率就让 B2-3 补 —— 在这里偷偷取 0 会让
-    /// 人工成本凭空少一块（设计 D-7：不猜）。
+    /// 显式给了费率就以它为准（覆盖自动取数）；留空且三级都没配到 ⇒ `422` + `66059`，
+    /// **不会默认按 0 计**（设计 D-7：编造出来的人工成本比算不出来更危险）。
     pub rate: Option<Decimal>,
     /// 金额核对值（**可选**）：给了就必须等于 `round(hours × rate, 4)`。
     pub amount: Option<Decimal>,
@@ -204,7 +203,8 @@ pub struct CostLaborUpdateReq {
     pub hours: Option<Decimal>,
     /// 机器工时。
     pub machine_hours: Option<Decimal>,
-    /// 工资率。
+    /// 工资率（留空 = 沿用当前快照；**编辑不会自动重新取数** —— 换车间时旧费率
+    /// 是「当时记的」，要按新车间口径算请显式给 `rate`，避免金额被静默改写）。
     pub rate: Option<Decimal>,
     /// 金额核对值（可选，同建单）。
     pub amount: Option<Decimal>,
@@ -283,6 +283,14 @@ pub struct CostLaborListRes {
     pub machine_hours: String,
     /// 工资率（字符串）。
     pub rate: String,
+    /// 费率的**取数来源**：`COST_OBJECT` / `DEPT` / `COMPANY`。
+    ///
+    /// 只在「本次建单是自动取数」的回单里回填（§6.2.4：界面上要把来源显示在费率右侧）；
+    /// 列表 / 详情里恒为 `None` —— 费率是快照，`biz_cost_labor` 没有存来源列，
+    /// 事后无法还原，所以不猜。
+    pub rate_scope: Option<String>,
+    /// 取数来源的人话，如 `车间（机加工车间）` / `公司（全公司）`（同上，仅回单有值）。
+    pub rate_scope_label: Option<String>,
     /// 金额（字符串；= round(hours × rate, 4)）。
     pub amount: String,
     /// 来源类型。
@@ -625,8 +633,8 @@ pub fn spec_from_create(req: &CostLaborCreateReq, dept_name: &str) -> std::resul
     let rate = ensure_decimal(
         req.rate.ok_or_else(|| {
             bad_request(
-                "rate（工资率）不能为空：自动取数（成本对象 > 车间 > 公司）属 B2-3，\
-                     本接口要求录入时明确费率，不会默认按 0 计",
+                "rate（工资率）不能为空：留空时应先按「成本对象 > 车间 > 公司」自动取数（B2-3），\
+                 走到本层仍为空说明取数没有执行 —— 请检查调用链（不会默认按 0 计，缺费率应是 66059）",
             )
         })?,
         "rate",
@@ -784,6 +792,22 @@ mod tests {
             amount: None,
             remark: None,
         }
+    }
+
+    /// 入参 JSON 的三种形态：省字段 / `null` / 数字 —— 都应落成「按 B2-3 自动取数」。
+    ///
+    /// 前端「工资率留空」大多发 `null` 或不带字段；`Option<Decimal>` 两者都收。
+    /// 这条测试锁住「留空 ≠ 报错 ≠ 按 0」，是 B2-3 之后的核心语义。
+    #[test]
+    fn create_req_treats_absent_and_null_rate_as_auto_lookup() {
+        let absent: CostLaborCreateReq = serde_json::from_str(r#"{"period_code":"2026-11"}"#).expect("省略 rate");
+        assert_eq!(absent.rate, None);
+        let null: CostLaborCreateReq =
+            serde_json::from_str(r#"{"period_code":"2026-11","rate":null}"#).expect("rate = null");
+        assert_eq!(null.rate, None);
+        let given: CostLaborCreateReq =
+            serde_json::from_str(r#"{"period_code":"2026-11","rate":"55.5"}"#).expect("rate = 数字");
+        assert_eq!(given.rate, Some(dec("55.5")), "数字（含字符串数字）仍按显式费率处理");
     }
 
     /// 值域与 V0371 的 CHECK 逐字一致（迁移不可改 ⇒ 这里也不能动）。

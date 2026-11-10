@@ -33,6 +33,20 @@
 //! | 15 | [`employee_number_is_rejected_until_arch9_2_is_online`] | 工号无处可存时**报错**，不静默丢字段 |
 //! | 16 | [`duplicated_dept_name_requires_the_code_instead_of_guessing`] | 部门重名 → 要求改填编码，不猜车间 |
 //!
+//! ## B2-3 费率取数（`biz_cost_rate` 三级优先级）
+//!
+//! | # | 用例 | 覆盖 |
+//! |---|---|---|
+//! | 17 | [`company_rate_fills_blank_rate`] | **验收项**「只有公司级」：留空取到公司级 + 出参回填来源；显式费率不被覆盖 |
+//! | 18 | [`dept_rate_beats_company_rate`] | **验收项**「有车间级」：车间级压过公司级 |
+//! | 19 | [`cost_object_rate_beats_dept_and_company`] | **验收项**「有对象级」：对象级压过车间级 / 公司级 |
+//! | 20 | [`missing_rate_fails_loudly_and_writes_nothing`] | **验收项**「缺费率报错不按 0」：`422` + `66059` + 零落库 |
+//! | 21 | [`another_depts_rate_is_not_reused`] | 别的车间的费率不许串味（报文说明有几条被跳过） |
+//! | 22 | [`expired_future_and_disabled_rates_are_ignored`] | 生效期两端 + 停用状态都算「没命中」 |
+//! | 23 | [`newest_effective_version_wins`] | 同一级里生效更晚的版本赢 |
+//! | 24 | [`import_fills_blank_rate_per_row`] | 导入留空 ⇒ 逐行取数（车间级 55 而非公司级 40），金额按取到的费率算 |
+//! | 25 | [`import_rejects_the_batch_when_rate_cannot_be_resolved`] | 导入三级全空 ⇒ 整批拒绝，错误落在「工资率」列 |
+//!
 //! # 夹具纪律
 //!
 //! 全部用 `costb21-<唯一后缀>` 前缀造，清场**按 id** 删（绝不按前缀扫全库）；
@@ -979,5 +993,437 @@ mod db {
             )
             .await;
         fx.cleanup(&[object]).await;
+    }
+
+    // ==================== B2-3 费率取数（对象 > 车间 > 公司） ====================
+    //
+    // 这一组用例必须**串行**跑：`uk_biz_cost_rate` 是
+    // `(rate_type, scope, coalesce(scope_id, 0), effective_from)`，公司级行的
+    // `scope_id` 恒空 ⇒ 两个用例同时插「公司级 + 2026-01-01」会撞唯一索引；
+    // 更糟的是「缺费率报错」用例会被别的用例留下的公司级费率污染（恒有兜底）。
+    // 所以用进程内互斥锁串行 + 前后各清一遍 B2-3 造的费率行（按 remark 前缀认）。
+
+    use crate::business::erp::cost_rate_dto::{RATE_TYPE_LABOR, SCOPE_COMPANY, SCOPE_COST_OBJECT, SCOPE_DEPT};
+
+    /// 费率用例的串行锁。
+    static RATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// 取锁（返回值必须活到用例结束）。
+    async fn rate_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        RATE_LOCK.lock().await
+    }
+
+    /// B2-3 造的费率行标记（清场按它认，绝不按前缀扫全表）。
+    const RATE_MARK: &str = "B2-3 真库用例";
+
+    /// 清掉 B2-3 留下的费率行（用例前后各一次 ⇒ 重复跑也干净）。
+    async fn wipe_test_rates() {
+        let _ = db()
+            .exec_sql(
+                format!("DELETE FROM biz_cost_rate WHERE remark LIKE '{RATE_MARK}%'"),
+                vec![],
+            )
+            .await;
+    }
+
+    /// 造一个**本用例专用**的部门（不与其它用例 / 历史数据共享，避免费率串味）。
+    async fn new_dept(suffix: &str, tag: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        let tail = fx_suffix_code(suffix);
+        db().exec_sql(
+            "INSERT INTO sys_dept (id, dept_code, dept_name, status, sort_order, created_at, updated_at) \
+             VALUES (?::uuid, ?, ?, 1, 0, now(), now())"
+                .to_string(),
+            vec![
+                Value::from(&id),
+                Value::Text(format!("FXR{tag}{tail}")),
+                Value::Text(format!("费率夹具车间 {tag} {tail}")),
+            ],
+        )
+        .await
+        .expect("造费率夹具车间");
+        id
+    }
+
+    /// 删掉本用例造的部门。
+    async fn drop_dept(id: Uuid) {
+        let _ = db()
+            .exec_sql(
+                "DELETE FROM sys_dept WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&id)],
+            )
+            .await;
+    }
+
+    /// 造一条工资率（`scope_id`：`COMPANY` 必须为空）。
+    ///
+    /// 费率 / 日期 / 状态直接写成 SQL 字面量：`Value` 只对文本 / UUID 有直通转换，
+    /// 绑 numeric 会被驱动拒（`cannot bind parameter to column type numeric`）；
+    /// 这里的值全是本文件里的常量夹具，不存在注入面。
+    async fn insert_rate(
+        scope: &str,
+        scope_id: Option<Uuid>,
+        rate: &str,
+        from: &str,
+        to: Option<&str>,
+        status: i16,
+        suffix: &str,
+    ) -> Uuid {
+        let id = Uuid::now_v7();
+        let scope_id_sql = scope_id.map_or_else(|| "NULL".to_string(), |id| format!("'{id}'::uuid"));
+        let to_sql = to.map_or_else(|| "NULL".to_string(), |text| format!("'{text}'::date"));
+        db().exec_sql(
+            format!(
+                "INSERT INTO biz_cost_rate (id, rate_type, scope, scope_id, rate, effective_from, \
+                                          effective_to, status, remark) \
+                 VALUES (?::uuid, ?, ?, {scope_id_sql}, {rate}::numeric, '{from}'::date, {to_sql}, {status}, ?)"
+            ),
+            vec![
+                Value::from(&id),
+                Value::Text(RATE_TYPE_LABOR.to_string()),
+                Value::Text(scope.to_string()),
+                Value::Text(format!("{RATE_MARK} {suffix}")),
+            ],
+        )
+        .await
+        .expect("造费率夹具");
+        id
+    }
+
+    /// 「留空费率」的建单请求（B2-3 的主场景）。
+    fn blank_rate_req(fx: &Fixture, object: Uuid, dept: Uuid) -> CostLaborCreateReq {
+        let mut req = fx.create_req(object, dept);
+        req.rate = None;
+        req
+    }
+
+    /// **验收项 ①**：只有公司级费率 ⇒ 留空时用公司级，出参回填来源，金额按取到的费率算。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn company_rate_fills_blank_rate() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "C1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        insert_rate(SCOPE_COMPANY, None, "42.5", "2026-01-01", None, 1, &fx.suffix).await;
+
+        let created = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect("公司级兜底");
+        assert_eq!(created.rate, "42.500000", "取到公司级费率（库标度 6 位）");
+        assert_eq!(created.amount, "340.0000", "金额 = 8 × 42.5，仍由服务端算");
+        assert_eq!(created.rate_scope.as_deref(), Some(SCOPE_COMPANY));
+        assert_eq!(created.rate_scope_label.as_deref(), Some("公司（全公司）"));
+
+        // 显式填了费率 ⇒ 以填的为准（取数只补空，不覆盖人工判断）
+        let mut explicit = blank_rate_req(&fx, object, dept);
+        explicit.rate = Some(dec("50"));
+        let created = handler::create_labor(None, explicit).await.expect("显式费率");
+        assert_eq!(created.rate, "50.000000");
+        assert_eq!(created.amount, "400.0000");
+        assert_eq!(created.rate_scope, None, "人工填的费率没有「取数来源」");
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        wipe_test_rates().await;
+    }
+
+    /// **验收项 ②**：有车间级 ⇒ 车间级压过公司级。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn dept_rate_beats_company_rate() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "D1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        insert_rate(SCOPE_COMPANY, None, "40", "2026-01-01", None, 1, &fx.suffix).await;
+        insert_rate(SCOPE_DEPT, Some(dept), "55", "2026-01-01", None, 1, &fx.suffix).await;
+
+        let created = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect("车间级");
+        assert_eq!(created.rate, "55.000000", "车间级优先于公司级");
+        assert_eq!(created.amount, "440.0000");
+        assert_eq!(created.rate_scope.as_deref(), Some(SCOPE_DEPT));
+        let label = created.rate_scope_label.clone().expect("来源文案");
+        assert!(label.starts_with("车间（"), "{label}");
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        wipe_test_rates().await;
+    }
+
+    /// **验收项 ③**：有对象级 ⇒ 对象级压过车间级与公司级。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn cost_object_rate_beats_dept_and_company() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "O1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        insert_rate(SCOPE_COMPANY, None, "40", "2026-01-01", None, 1, &fx.suffix).await;
+        insert_rate(SCOPE_DEPT, Some(dept), "55", "2026-01-01", None, 1, &fx.suffix).await;
+        insert_rate(SCOPE_COST_OBJECT, Some(object), "70", "2026-01-01", None, 1, &fx.suffix).await;
+
+        let created = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect("对象级");
+        assert_eq!(created.rate, "70.000000", "对象级优先于车间级 / 公司级");
+        assert_eq!(created.amount, "560.0000");
+        assert_eq!(created.rate_scope.as_deref(), Some(SCOPE_COST_OBJECT));
+        assert!(
+            created
+                .rate_scope_label
+                .as_deref()
+                .is_some_and(|label| label.starts_with("成本对象（")),
+            "{:?}",
+            created.rate_scope_label
+        );
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        wipe_test_rates().await;
+    }
+
+    /// **验收项 ④**：三级全空 ⇒ `422` + `66059` 明确报错，**一行都不落库、不按 0 计**。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn missing_rate_fails_loudly_and_writes_nothing() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "M1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+
+        let error = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect_err("三级全空必须报错");
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, 66059);
+        // 报文要点名「谁 / 哪天 / 查了哪几级 / 怎么修」
+        assert!(error.msg.contains("CB21-"), "要点名成本对象：{}", error.msg);
+        assert!(error.msg.contains("2026-11-06"), "要点名日期：{}", error.msg);
+        assert!(error.msg.contains("成本对象 → 车间 → 公司"), "{}", error.msg);
+        assert!(error.msg.contains("怎么修"), "{}", error.msg);
+        assert!(!error.msg.contains("0 元"), "不许按 0 计：{}", error.msg);
+        assert_eq!(live_rows(object).await, 0, "报错时不许落库（更不许落一个 0 费率行）");
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+    }
+
+    /// 别的车间的费率不许串到本车间（串了成本单价就是错的，且没人看得出来）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_depts_rate_is_not_reused() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "X1").await;
+        let other = new_dept(&fx.suffix, "X2").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        insert_rate(SCOPE_DEPT, Some(other), "66", "2026-01-01", None, 1, &fx.suffix).await;
+
+        let error = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect_err("别的车间的费率不算数");
+        assert_eq!(error.code, 66059);
+        assert!(
+            error.msg.contains("同类型费率共 1 条"),
+            "要说明有一条被跳过：{}",
+            error.msg
+        );
+        assert_eq!(live_rows(object).await, 0);
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        drop_dept(other).await;
+        wipe_test_rates().await;
+    }
+
+    /// 生效期：过期 / 未生效 / 已停用都不参与取数（只认覆盖工作日期且启用中）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn expired_future_and_disabled_rates_are_ignored() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "E1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        // 已过期（10-31 结束，工作日期 11-06）
+        insert_rate(
+            SCOPE_COMPANY,
+            None,
+            "40",
+            "2026-01-01",
+            Some("2026-10-31"),
+            1,
+            &fx.suffix,
+        )
+        .await;
+        // 还没生效
+        insert_rate(SCOPE_COMPANY, None, "41", "2026-12-01", None, 1, &fx.suffix).await;
+        // 停用
+        insert_rate(SCOPE_COMPANY, None, "42", "2026-01-02", None, 0, &fx.suffix).await;
+
+        let error = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect_err("三条都不该被采用");
+        assert_eq!(error.code, 66059);
+        assert!(error.msg.contains("同类型费率共 3 条"), "{}", error.msg);
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        wipe_test_rates().await;
+    }
+
+    /// 版本化：同一级里**生效更晚的版本**赢（费率涨了以后新工时用新费率）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn newest_effective_version_wins() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "V1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        insert_rate(SCOPE_COMPANY, None, "40", "2026-01-01", None, 1, &fx.suffix).await;
+        insert_rate(SCOPE_COMPANY, None, "50", "2026-11-01", None, 1, &fx.suffix).await;
+
+        let created = handler::create_labor(None, blank_rate_req(&fx, object, dept))
+            .await
+            .expect("最新版本");
+        assert_eq!(created.rate, "50.000000", "11 月的工时用 11-01 起生效的 50");
+        assert_eq!(created.amount, "400.0000");
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        wipe_test_rates().await;
+    }
+
+    /// 导入：工资率列留空 ⇒ 逐行按「对象 > 车间 > 公司」取数（同一批可以不同车间不同费率）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn import_fills_blank_rate_per_row() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "I1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        insert_rate(SCOPE_COMPANY, None, "40", "2026-01-01", None, 1, &fx.suffix).await;
+        insert_rate(SCOPE_DEPT, Some(dept), "55", "2026-01-01", None, 1, &fx.suffix).await;
+
+        let object_no: String = db()
+            .scalar_with_params(
+                "SELECT object_no FROM biz_cost_object WHERE id = ?::uuid",
+                vec![Value::from(&object)],
+            )
+            .await
+            .expect("取对象号");
+        let dept_code: String = db()
+            .scalar_with_params(
+                "SELECT dept_code FROM sys_dept WHERE id = ?::uuid",
+                vec![Value::from(&dept)],
+            )
+            .await
+            .expect("取部门编码");
+
+        // 工资率列留空（第 8 列传空串）
+        let rows = vec![import_row(&object_no, &dept_code, "2026-11-02", "王五", "7.5", "3", "")];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(&bytes, &ImportContext::default())
+            .await
+            .expect("导入");
+        assert_eq!((result.success, result.failed), (1, 0), "{:?}", result.rows);
+
+        let imported_row = db()
+            .find_with_params(
+                "SELECT rate, amount FROM biz_cost_labor WHERE cost_object_id = ?::uuid AND deleted_at IS NULL",
+                vec![Value::from(&object)],
+            )
+            .await
+            .expect("查导入行")
+            .into_iter()
+            .next()
+            .expect("导入行存在");
+        let rate: Decimal = imported_row.get_typed("rate").expect("rate");
+        let amount: Decimal = imported_row.get_typed("amount").expect("amount");
+        assert_eq!(rate, dec("55"), "车间级取得 55（不是公司级 40）");
+        assert_eq!(amount, dec("412.5"), "round(7.5 × 55, 4) = 412.5000");
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
+        wipe_test_rates().await;
+    }
+
+    /// 导入：留空且三级全空 ⇒ 整批拒绝，错误落在「工资率」列（行号 + 人话）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn import_rejects_the_batch_when_rate_cannot_be_resolved() {
+        if !ensure_db().await {
+            return;
+        }
+        let _lock = rate_lock().await;
+        wipe_test_rates().await;
+
+        let fx = Fixture::build().await;
+        let dept = new_dept(&fx.suffix, "J1").await;
+        let object = fx.object_in(dept, "OPEN").await;
+        let object_no: String = db()
+            .scalar_with_params(
+                "SELECT object_no FROM biz_cost_object WHERE id = ?::uuid",
+                vec![Value::from(&object)],
+            )
+            .await
+            .expect("取对象号");
+        let dept_code: String = db()
+            .scalar_with_params(
+                "SELECT dept_code FROM sys_dept WHERE id = ?::uuid",
+                vec![Value::from(&dept)],
+            )
+            .await
+            .expect("取部门编码");
+
+        let rows = vec![import_row(&object_no, &dept_code, "2026-11-02", "王五", "7.5", "3", "")];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(&bytes, &ImportContext::default())
+            .await
+            .expect("导入（业务拒绝不是错误）");
+        assert_eq!((result.success, result.failed), (0, 1), "{:?}", result.rows);
+        assert_eq!(result.rows[0].column, "工资率");
+        assert!(
+            result.rows[0].message.contains("成本对象 → 车间 → 公司"),
+            "{}",
+            result.rows[0].message
+        );
+        assert_eq!(live_rows(object).await, 0, "整批拒绝时一行都不许落库");
+
+        fx.cleanup(&[object]).await;
+        drop_dept(dept).await;
     }
 }
