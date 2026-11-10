@@ -331,14 +331,54 @@ pub async fn allocated_periods(rule_id: Uuid) -> DbResult<Option<String>> {
 
 /// 全部启用且未删除的规则（试算的版本选择原料；规则量级很小，一次取回）。
 pub async fn active_rules() -> DbResult<Vec<CostAllocRuleRow>> {
+    active_rules_in(db()).await
+}
+
+/// 事务内版本：与 [`active_rules`] 同一 SQL，供 calc 编排方在自己的事务里复用。
+pub async fn active_rules_in(ex: &impl SqlExecutor) -> DbResult<Vec<CostAllocRuleRow>> {
     let sql = format!(
         "{} WHERE t.deleted_at IS NULL AND t.status = {} \
          ORDER BY t.source_dept_id, t.account_code, t.effective_from DESC, t.rule_code ASC",
         select_sql(),
         cost_alloc_rule_dto::STATUS_ACTIVE
     );
-    let rows = db().query_sql(sql, vec![]).await?;
+    let rows = ex.query_sql(sql, vec![]).await?;
     rows.iter().map(CostAllocRuleRow::from_row).collect()
+}
+
+/// 从候选规则里选出「该期间适用」的版本：每 `(车间, 科目)` 族取生效最晚的一条。
+///
+/// **纯函数**（不碰库），试算（B2-5）与 calc 第 5 段（B2-10）共用同一份选版口径 ——
+/// 两份实现会让「试算看到的数」与「真摊下去的数」在换版那个月分叉。
+///
+/// 排序：`priority` 升序（数字小=先摊）→ `rule_code` 升序（输出稳定）。
+pub fn select_versions(candidates: &[CostAllocRuleRow], from: NaiveDate, to: NaiveDate) -> Vec<&CostAllocRuleRow> {
+    let mut families: std::collections::BTreeMap<(Uuid, String), Vec<RuleVersion>> = std::collections::BTreeMap::new();
+    for row in candidates {
+        if row.status != cost_alloc_rule_dto::STATUS_ACTIVE {
+            continue;
+        }
+        families
+            .entry((row.source_dept_id, row.account_code.clone()))
+            .or_default()
+            .push(row.to_version());
+    }
+    let by_id: std::collections::HashMap<Uuid, &CostAllocRuleRow> =
+        candidates.iter().map(|row| (row.id, row)).collect();
+    let mut selected: Vec<&CostAllocRuleRow> = Vec::new();
+    for versions in families.values() {
+        if let Some(version) = cost_alloc_rule_dto::pick_latest_version(versions, from, to)
+            && let Some(row) = by_id.get(&version.rule_id)
+        {
+            selected.push(*row);
+        }
+    }
+    selected.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then_with(|| left.rule_code.cmp(&right.rule_code))
+    });
+    selected
 }
 
 // ==================== 池（按车间 + 科目） ====================
@@ -490,7 +530,7 @@ pub struct ParticipantRow {
 /// `biz_cost_collect`（calc 归集结果）或 `biz_cost_labor`（工时台账原始行）。
 /// 试算的用途正是「calc 还没跑之前先看摊多少」——只认归集行会让试算在
 /// calc 之前永远报「无在产对象」。
-pub async fn participants(period_code: &str, dept_id: Uuid) -> DbResult<Vec<ParticipantRow>> {
+pub async fn participants(ex: &impl SqlExecutor, period_code: &str, dept_id: Uuid) -> DbResult<Vec<ParticipantRow>> {
     let sql = "\
         SELECT o.id, o.object_no, o.status \
           FROM biz_cost_object o \
@@ -508,7 +548,7 @@ pub async fn participants(period_code: &str, dept_id: Uuid) -> DbResult<Vec<Part
         Value::Text(period_code.to_string()),
         Value::Text(period_code.to_string()),
     ];
-    let rows = db().query_sql(sql.to_string(), params).await?;
+    let rows = ex.query_sql(sql.to_string(), params).await?;
     rows.iter()
         .map(|row| {
             Ok(ParticipantRow {
@@ -532,8 +572,8 @@ pub struct LaborBasisRow {
 }
 
 /// 当期该车间的工时基数（一次查两列，避免每对象两次往返）。
-pub async fn labor_basis(period_code: &str, dept_id: Uuid) -> DbResult<Vec<LaborBasisRow>> {
-    let rows = db()
+pub async fn labor_basis(ex: &impl SqlExecutor, period_code: &str, dept_id: Uuid) -> DbResult<Vec<LaborBasisRow>> {
+    let rows = ex
         .query_sql(
             "SELECT cost_object_id, SUM(hours) AS labor_hours, SUM(machine_hours) AS machine_hours \
                FROM biz_cost_labor \
@@ -565,8 +605,8 @@ pub struct ObjectAmountRow {
 }
 
 /// 材料成本基数：`Σ biz_cost_collect.amount WHERE element='MATERIAL'`。
-pub async fn material_basis(period_code: &str) -> DbResult<Vec<ObjectAmountRow>> {
-    let rows = db()
+pub async fn material_basis(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Vec<ObjectAmountRow>> {
+    let rows = ex
         .query_sql(
             "SELECT cost_object_id, SUM(amount) AS amount FROM biz_cost_collect \
               WHERE period_code = ? AND element = 'MATERIAL' AND deleted_at IS NULL \
@@ -591,8 +631,8 @@ pub async fn material_basis(period_code: &str) -> DbResult<Vec<ObjectAmountRow>>
 /// 只认**未被作废/红冲**的批次（`status NOT IN ('REVERSED','CANCELLED')`）；
 /// 当期没算过 calc 时返回空 —— 这是「试算在 calc 之前」的正常形态，
 /// 由 handler 用 `basis_total = 0` 的 409 文案引导用户。
-pub async fn completed_qty(period_code: &str) -> DbResult<Vec<ObjectAmountRow>> {
-    let rows = db()
+pub async fn completed_qty(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Vec<ObjectAmountRow>> {
+    let rows = ex
         .query_sql(
             "SELECT pi.cost_object_id, SUM(pi.completed_qty) AS amount \
                FROM biz_cost_period_item pi \
@@ -773,6 +813,72 @@ mod tests {
             dept_name_live: Some("一车间（新名）".to_string()),
             account_name: Some("制造费用-水电费".to_string()),
         }
+    }
+
+    /// 造一条规则行（`select_versions` 的输入；只给选版用得到的字段）。
+    fn row_of(
+        id: u128,
+        code: &str,
+        dept: u128,
+        account: &str,
+        from: &str,
+        status: i16,
+        priority: i32,
+    ) -> CostAllocRuleRow {
+        let mut row = sample_row();
+        row.id = Uuid::from_u128(id);
+        row.rule_code = code.to_string();
+        row.source_dept_id = Uuid::from_u128(dept);
+        row.account_code = account.to_string();
+        row.effective_from = date(from);
+        row.effective_to = None;
+        row.status = status;
+        row.priority = priority;
+        row
+    }
+
+    /// 同族多版本 → 取覆盖该期间且生效最晚的那一条（试算与 calc 共用同一口径）。
+    #[test]
+    fn select_versions_picks_latest_covering_version() {
+        let rows = vec![
+            row_of(1, "WL-OLD", 3, "4101.02", "2026-01-01", 1, 10),
+            row_of(2, "WL-NEW", 3, "4101.02", "2026-11-01", 1, 10),
+            row_of(3, "WL-FUTURE", 3, "4101.02", "2027-01-01", 1, 10),
+        ];
+        let november = select_versions(&rows, date("2026-11-01"), date("2026-11-30"));
+        assert_eq!(november.len(), 1);
+        assert_eq!(november[0].id, Uuid::from_u128(2), "11 月取 11-01 的版本");
+        let october = select_versions(&rows, date("2026-10-01"), date("2026-10-31"));
+        assert_eq!(october[0].id, Uuid::from_u128(1), "10 月回落旧版本");
+    }
+
+    /// 停用版本不参与；不同 (车间, 科目) 各自出一条（不是「每族只留一条」）。
+    #[test]
+    fn select_versions_skips_disabled_and_keeps_distinct_families() {
+        let rows = vec![
+            row_of(1, "WL-OFF", 3, "4101.02", "2026-11-01", 0, 10),
+            row_of(2, "WL-ON", 3, "4101.02", "2026-01-01", 1, 10),
+            row_of(3, "WL-OTHER", 3, "4101.03", "2026-01-01", 1, 10),
+            row_of(4, "WL-DEPT2", 4, "4101.02", "2026-01-01", 1, 10),
+        ];
+        let selected = select_versions(&rows, date("2026-11-01"), date("2026-11-30"));
+        let ids = selected.iter().map(|row| row.id).collect::<Vec<_>>();
+        assert_eq!(ids.len(), 3, "停用那条不参与：{ids:?}");
+        assert!(!ids.contains(&Uuid::from_u128(1)));
+        assert!(ids.contains(&Uuid::from_u128(3)) && ids.contains(&Uuid::from_u128(4)));
+    }
+
+    /// 排序：priority 小的先摊，同优先级按规则编码（输出稳定，不随行序漂移）。
+    #[test]
+    fn select_versions_sorts_by_priority_then_code() {
+        let rows = vec![
+            row_of(1, "WL-B", 3, "4101.02", "2026-01-01", 1, 20),
+            row_of(2, "WL-C", 3, "4101.03", "2026-01-01", 1, 10),
+            row_of(3, "WL-A", 3, "4101.04", "2026-01-01", 1, 10),
+        ];
+        let selected = select_versions(&rows, date("2026-11-01"), date("2026-11-30"));
+        let codes = selected.iter().map(|row| row.rule_code.as_str()).collect::<Vec<_>>();
+        assert_eq!(codes, vec!["WL-A", "WL-C", "WL-B"]);
     }
 
     #[test]

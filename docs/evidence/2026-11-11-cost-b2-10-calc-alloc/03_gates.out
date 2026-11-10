@@ -1,0 +1,9 @@
+=== cargo fmt -- --check ===
+clean
+
+=== cargo clippy --all-targets -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+
+=== cargo test（全仓，33 目标）===
+test_result_lines=33 passed=4884 failed=0
+EXIT=0

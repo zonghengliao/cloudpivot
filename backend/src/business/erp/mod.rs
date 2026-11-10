@@ -146,6 +146,10 @@ pub(crate) mod contract_linkage;
 pub mod contract_model;
 /// 合同 PDF 导出（PDF-03）：条款正文 + 签章位 + 附件清单 + 骑缝章提示。
 pub mod contract_pdf;
+/// calc 第 5 段「分摊计算」的纯逻辑（守恒断言 / 未覆盖池诊断 / 落库后回查），B2-10。
+pub mod cost_alloc_calc_dto;
+/// 分摊结果数据层（`biz_cost_alloc_result` + 分摊转入的 `ALLOC` 归集行），B2-10。
+pub mod cost_alloc_result_model;
 /// B2-5 的真库用例（`ERP_DB_URL` 开关）：四件套 + 生效期选版本 + 四种标准试算。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_alloc_rule_db_tests;
@@ -153,6 +157,11 @@ mod cost_alloc_rule_db_tests;
 pub mod cost_alloc_rule_dto;
 pub mod cost_alloc_rule_handler;
 pub mod cost_alloc_rule_model;
+/// calc 第 5 段：分摊计算（ARCH-9 §4.4.3 · 四标准基数 + 最大余数法 + 守恒断言 + 整删重灌）。
+pub mod cost_calc_alloc;
+/// B2-10 的真库用例（`ERP_DB_URL` 开关）：四标准逐对象核数 / 尾差只落一行 / 池 0 与基数 0 边界 / 重算幂等。
+#[cfg(test)]
+mod cost_calc_alloc_db_tests;
 /// calc 第 2 段：工归集（ARCH-9 §4.3 · 扫当期已确认工时 → 幂等写 `biz_cost_collect`）。
 pub mod cost_calc_labor;
 /// B2-7 的真库用例（`ERP_DB_URL` 开关）：只取 CONFIRMED + 金额取台账 + 缺费率进未归集清单。

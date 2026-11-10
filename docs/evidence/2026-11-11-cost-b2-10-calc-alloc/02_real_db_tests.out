@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 8 tests
+test business::erp::cost_calc_alloc_db_tests::db::four_bases_allocate_per_object ... ok
+test business::erp::cost_calc_alloc_db_tests::db::locked_period_cannot_be_recomputed ... ok
+test business::erp::cost_calc_alloc_db_tests::db::pool_without_participant_is_409 ... ok
+test business::erp::cost_calc_alloc_db_tests::db::recompute_is_idempotent_and_repools ... ok
+test business::erp::cost_calc_alloc_db_tests::db::remainder_lands_on_one_stored_row ... ok
+test business::erp::cost_calc_alloc_db_tests::db::uncovered_pool_is_diagnosed ... ok
+test business::erp::cost_calc_alloc_db_tests::db::zero_basis_total_is_409 ... ok
+test business::erp::cost_calc_alloc_db_tests::db::zero_pool_rule_is_skipped ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4537 filtered out; finished in 12.80s
+

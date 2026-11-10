@@ -1,0 +1,64 @@
+=== cargo test --lib cost_alloc_calc_dto ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 14 tests
+test business::erp::cost_alloc_calc_dto::tests::locked_period_message_points_to_the_fix ... ok
+test business::erp::cost_alloc_calc_dto::tests::exact_division_is_conserved ... ok
+test business::erp::cost_alloc_calc_dto::tests::missing_cent_is_rejected ... ok
+test business::erp::cost_alloc_calc_dto::tests::money4_keeps_trailing_zeros ... ok
+test business::erp::cost_alloc_calc_dto::tests::negative_alloc_is_rejected ... ok
+test business::erp::cost_alloc_calc_dto::tests::covered_pool_produces_no_diagnostic ... ok
+test business::erp::cost_alloc_calc_dto::tests::readback_catches_short_write ... ok
+test business::erp::cost_alloc_calc_dto::tests::remainder_lands_on_exactly_one_row ... ok
+test business::erp::cost_alloc_calc_dto::tests::readback_matches_when_sum_equals_pool ... ok
+test business::erp::cost_alloc_calc_dto::tests::readback_catches_stale_rows ... ok
+test business::erp::cost_alloc_calc_dto::tests::rounding_total_must_match_shortfall ... ok
+test business::erp::cost_alloc_calc_dto::tests::split_remainder_is_rejected ... ok
+test business::erp::cost_alloc_calc_dto::tests::zero_pool_reason_names_the_period ... ok
+test business::erp::cost_alloc_calc_dto::tests::uncovered_pool_is_reported_not_swallowed ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 4531 filtered out; finished in 0.00s
+
+
+=== cargo test --lib cost_alloc_result_model ===
+
+running 5 tests
+test business::erp::cost_alloc_result_model::tests::alloc_collect_line_no_is_zero ... ok
+test business::erp::cost_alloc_result_model::tests::columns_cover_every_amount_field ... ok
+test business::erp::cost_alloc_result_model::tests::redoable_statuses_are_exactly_the_three ... ok
+test business::erp::cost_alloc_result_model::tests::purge_deletes_collect_before_results ... ok
+test business::erp::cost_alloc_result_model::tests::alloc_collect_uses_the_check_allowed_values ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4540 filtered out; finished in 0.00s
+
+
+=== cargo test --lib select_versions ===
+
+running 3 tests
+test business::erp::cost_alloc_rule_model::tests::select_versions_picks_latest_covering_version ... ok
+test business::erp::cost_alloc_rule_model::tests::select_versions_sorts_by_priority_then_code ... ok
+test business::erp::cost_alloc_rule_model::tests::select_versions_skips_disabled_and_keeps_distinct_families ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4542 filtered out; finished in 0.00s
+
+
+=== cargo test --lib cost_calc_alloc（含 8 条真库用例，无 ERP_DB_URL 时 SKIP）===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 11 tests
+test business::erp::cost_calc_alloc::tests::period_state_gate_matches_the_redoable_list ... ok
+test business::erp::cost_calc_alloc::tests::amount_map_keeps_zero_amounts ... ok
+test business::erp::cost_calc_alloc::tests::bad_period_is_rejected_before_any_query ... ok
+test business::erp::cost_calc_alloc_db_tests::db::pool_without_participant_is_409 ... ok
+test business::erp::cost_calc_alloc_db_tests::db::four_bases_allocate_per_object ... ok
+test business::erp::cost_calc_alloc_db_tests::db::locked_period_cannot_be_recomputed ... ok
+test business::erp::cost_calc_alloc_db_tests::db::uncovered_pool_is_diagnosed ... ok
+test business::erp::cost_calc_alloc_db_tests::db::recompute_is_idempotent_and_repools ... ok
+test business::erp::cost_calc_alloc_db_tests::db::remainder_lands_on_one_stored_row ... ok
+test business::erp::cost_calc_alloc_db_tests::db::zero_basis_total_is_409 ... ok
+test business::erp::cost_calc_alloc_db_tests::db::zero_pool_rule_is_skipped ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4534 filtered out; finished in 0.00s
+

@@ -332,33 +332,8 @@ pub async fn preview_allocations(req: CostAllocPreviewReq) -> std::result::Resul
             .await
             .map_err(|error| utils::db_error(error, "查询启用的分摊规则"))?,
     };
-    let mut families: std::collections::BTreeMap<(Uuid, String), Vec<dto::RuleVersion>> =
-        std::collections::BTreeMap::new();
-    for row in &candidates {
-        if row.status != dto::STATUS_ACTIVE {
-            continue;
-        }
-        families
-            .entry((row.source_dept_id, row.account_code.clone()))
-            .or_default()
-            .push(row.to_version());
-    }
-    let by_id: std::collections::HashMap<Uuid, &CostAllocRuleRow> =
-        candidates.iter().map(|row| (row.id, row)).collect();
-    let mut selected: Vec<&CostAllocRuleRow> = Vec::new();
-    for versions in families.values() {
-        if let Some(version) = dto::pick_latest_version(versions, period_from, period_to)
-            && let Some(row) = by_id.get(&version.rule_id)
-        {
-            selected.push(row);
-        }
-    }
-    // 优先级小的先摊（同优先级按规则编码，保证输出稳定）
-    selected.sort_by(|left, right| {
-        left.priority
-            .cmp(&right.priority)
-            .then_with(|| left.rule_code.cmp(&right.rule_code))
-    });
+    // 版本选择：每 (车间, 科目) 族取覆盖该期间且生效最晚的一条（纯函数，与 calc 第 5 段共用）
+    let selected = model::select_versions(&candidates, period_from, period_to);
 
     // ---------- ② 池 ----------
     let pools = model::pool_rows(&period_code)
@@ -434,7 +409,7 @@ pub async fn preview_allocations(req: CostAllocPreviewReq) -> std::result::Resul
             .get(&(rule.source_dept_id, rule.account_code.clone()))
             .copied()
             .unwrap_or_default();
-        let participants = model::participants(&period_code, rule.source_dept_id)
+        let participants = model::participants(db(), &period_code, rule.source_dept_id)
             .await
             .map_err(|error| utils::db_error(error, "查询参与分摊的成本对象"))?;
         let basis_map = basis_map_of(&period_code, rule).await?;
@@ -527,7 +502,7 @@ async fn basis_map_of(
     let mut map: std::collections::HashMap<Uuid, ObjectBasis> = std::collections::HashMap::new();
     match rule.basis.as_str() {
         dto::BASIS_LABOR_HOURS | dto::BASIS_MACHINE_HOURS => {
-            for row in model::labor_basis(period_code, rule.source_dept_id)
+            for row in model::labor_basis(db(), period_code, rule.source_dept_id)
                 .await
                 .map_err(|error| utils::db_error(error, "汇总工时基数"))?
             {
@@ -537,7 +512,7 @@ async fn basis_map_of(
             }
         }
         dto::BASIS_OUTPUT_QTY => {
-            for row in model::completed_qty(period_code)
+            for row in model::completed_qty(db(), period_code)
                 .await
                 .map_err(|error| utils::db_error(error, "汇总完工数量基数"))?
             {
@@ -545,7 +520,7 @@ async fn basis_map_of(
             }
         }
         dto::BASIS_MATERIAL_COST => {
-            for row in model::material_basis(period_code)
+            for row in model::material_basis(db(), period_code)
                 .await
                 .map_err(|error| utils::db_error(error, "汇总材料成本基数"))?
             {
