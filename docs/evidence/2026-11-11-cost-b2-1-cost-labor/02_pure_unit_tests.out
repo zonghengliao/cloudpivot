@@ -1,0 +1,55 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 47 tests
+test business::erp::cost_labor_db_tests::db::db_check_maps_amount_mismatch_to_66058 ... ok
+test business::erp::cost_labor_db_tests::db::crud_confirm_flow_end_to_end ... ok
+test business::erp::cost_labor_db_tests::db::confirm_twice_does_not_double ... ok
+test business::erp::cost_labor_db_tests::db::confirmed_row_is_readonly ... ok
+test business::erp::cost_labor_db_tests::db::declared_amount_mismatch_is_rejected_at_entry ... ok
+test business::erp::cost_labor_db_tests::db::list_is_scoped_by_dept ... ok
+test business::erp::cost_labor_db_tests::db::object_must_exist_and_be_open ... ok
+test business::erp::cost_labor_db_tests::db::period_and_work_date_must_agree ... ok
+test business::erp::cost_labor_db_tests::db::repeating_rate_rounds_to_four_decimals ... ok
+test business::erp::cost_labor_db_tests::db::soft_deleted_draft_disappears_from_list ... ok
+test business::erp::cost_labor_dto::tests::confirm_action_is_idempotent ... ok
+test business::erp::cost_labor_dto::tests::create_requires_rate_and_mentions_b2_3 ... ok
+test business::erp::cost_labor_dto::tests::create_fills_defaults_and_computes_amount ... ok
+test business::erp::cost_labor_dto::tests::create_rejects_missing_required_fields ... ok
+test business::erp::cost_labor_dto::tests::declared_amount_mismatch_is_66058 ... ok
+test business::erp::cost_labor_dto::tests::amount_check_violation_maps_to_400_66058 ... ok
+test business::erp::cost_labor_dto::tests::expected_amount_matches_design_examples ... ok
+test business::erp::cost_labor_dto::tests::dept_name_is_validated ... ok
+test business::erp::cost_labor_dto::tests::hours_must_be_positive_machine_hours_may_be_zero ... ok
+test business::erp::cost_labor_dto::tests::over_precision_is_rejected_not_rounded ... ok
+test business::erp::cost_labor_dto::tests::period_format_and_date_range_are_checked ... ok
+test business::erp::cost_labor_dto::tests::update_recomputes_amount_from_merged_values ... ok
+test business::erp::cost_labor_dto::tests::update_rechecks_period_and_amount ... ok
+test business::erp::cost_labor_dto::tests::value_domains_match_migration_checks ... ok
+test business::erp::cost_labor_dto::tests::wrong_status_message_says_how_to_fix ... ok
+test business::erp::cost_labor_dto::tests::update_three_state_fields ... ok
+test business::erp::cost_labor_handler::tests::confirm_reuses_update_permission ... ok
+test business::erp::cost_labor_handler::tests::confirm_on_confirmed_row_never_writes ... ok
+test business::erp::cost_labor_handler::tests::confirm_sql_only_flips_status ... ok
+test business::erp::cost_labor_handler::tests::filter_normalizes_period_status_and_paging ... ok
+test business::erp::cost_labor_handler::tests::filter_rejects_unknown_period_status_and_uuid ... ok
+test business::erp::cost_labor_handler::tests::labor_list_is_scoped_by_workshop ... ok
+test business::erp::cost_labor_handler::tests::idempotency_expectation_is_documented ... ok
+test business::erp::cost_labor_handler::tests::object_not_open_message_points_to_next_action ... ok
+test business::erp::cost_labor_handler::tests::permission_codes_match_design_5_3 ... ok
+test business::erp::cost_labor_handler::tests::list_res_carries_names_and_string_amounts ... ok
+test business::erp::cost_labor_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::cost_labor_model::tests::labor_target_is_registered_and_scoped ... ok
+test business::erp::cost_labor_model::tests::amount_is_computed_by_sql_not_bound ... ok
+test business::erp::cost_labor_model::tests::mutating_sql_is_guarded_by_draft_status ... ok
+test business::erp::cost_labor_model::tests::like_pattern_escapes_wildcards ... ok
+test business::erp::cost_labor_model::tests::opt_uuid_text_matches_nullif_contract ... ok
+test business::erp::cost_labor_model::tests::order_by_ends_with_id_for_stable_paging ... ok
+test business::erp::cost_labor_model::tests::row_to_spec_keeps_snapshot_not_live_name ... ok
+test business::erp::cost_labor_model::tests::page_base_sql_has_single_filter_marker_before_business_params ... ok
+test business::erp::cost_labor_model::tests::select_sql_joins_every_name_source ... ok
+test business::erp::cost_labor_model::tests::select_sql_prefixes_every_column_with_alias ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 4177 filtered out; finished in 0.00s
+
+DONE_TWO

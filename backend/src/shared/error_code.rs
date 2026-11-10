@@ -1608,6 +1608,17 @@ pub const ERP_LOT_NO_DUPLICATE: i32 = 66056;
 /// 本码的动作是「换一个还在制的对象 / 重新开一批」，前端按码给不同引导。
 pub const ERP_COST_OBJECT_NOT_OPEN: i32 = 66057;
 
+/// 成本核算 · 工时台账「工时 × 工资率」与金额不符（`66058`，ARCH-9 §3.1 ④）。
+///
+/// 触发点两处，文案与码一致：
+/// 1. 入口核对 —— 客户端传了 `amount` 但 ≠ `round(hours × rate, 4)`；
+/// 2. 库层兜底 —— `ck_biz_cost_labor_amount` 抛 23514（并发 / 手工 SQL / 导入）。
+///
+/// **不复用** [`error_code`] 的 `PARAM_INVALID`（`10001`）：那个码是「参数格式不对」，
+/// 用户动作是「改格式」；本码的动作是「改工时或工资率，别手填金额」，前端
+/// 需要给出「差额是多少、期望值是多少」的引导（报文里已经算好了）。
+pub const ERP_COST_LABOR_AMOUNT_MISMATCH: i32 = 66058;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -1757,6 +1768,8 @@ mod tests {
             (ERP_LOT_NO_DUPLICATE, 66056),
             // 成本核算·领料挂的对象非 OPEN（66057；建单校验 + 过账复算兜底）
             (ERP_COST_OBJECT_NOT_OPEN, 66057),
+            // 成本核算·工时「工时×费率」与金额不符（66058；入口核对 + ck_biz_cost_labor_amount）
+            (ERP_COST_LABOR_AMOUNT_MISMATCH, 66058),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

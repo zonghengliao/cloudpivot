@@ -192,6 +192,13 @@ pub const TABLE_WIRING: &[TableWiring] = &[
         anchor: "BIZ_COST_OBJECT",
         reason: "成本对象分页走 scope::paginate(BIZ_COST_OBJECT)，部门列 workshop_dept_id（business/erp/cost_object_model.rs::page）；无归属列 ⇒ SELF 范围安全侧降级为「本人所在部门」（成本对象是车间的生产批，不对个人）",
     },
+    TableWiring {
+        table: "biz_cost_labor",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "BIZ_COST_LABOR",
+        reason: "工时台账分页走 scope::paginate(BIZ_COST_LABOR)，部门列 dept_id（工作中心；business/erp/cost_labor_model.rs::page）；无归属列 ⇒ SELF 范围安全侧降级为「本人所在部门」（工时是车间的人工成本原始凭证，不对个人）",
+    },
 ];
 
 /// 取某张表的登记项（未登记 → `None`）。

@@ -278,6 +278,17 @@ impl ScopeTarget {
     /// 设计 §5.4 点名这张表要走 `scope::ScopeTarget`（`dept_col='workshop_dept_id'`），
     /// **不要**改成 `unscoped`：车间之间互相看得到对方的在产成本，是数据越权。
     pub const BIZ_COST_OBJECT: Self = Self::new("biz_cost_object", "t", Some("workshop_dept_id"), None);
+
+    /// `biz_cost_labor`（成本核算 ARCH-9）：工时台账按**工作中心**裁剪。
+    ///
+    /// 部门列是 `dept_id`（工作中心；注意工时台账里这一列**不叫** `workshop_dept_id`
+    /// —— 那是 `biz_cost_object` 的列名，两张表按同一个部门维度裁剪但列名不同）。
+    /// 归属列给 `None`：工时台账记的是「活干了多少」，不是「谁的单据」，没有
+    /// 「本人」语义，SELF 范围由 [`filter_for`] 安全侧降级为「本人所在部门」。
+    ///
+    /// 设计 D-18 点名这张表要登记：A 车间的工时台账不该被 B 车间的统计员看见
+    /// —— 它是人工成本的原始凭证，不是参考信息。
+    pub const BIZ_COST_LABOR: Self = Self::new("biz_cost_labor", "t", Some("dept_id"), None);
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
@@ -302,6 +313,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::SYS_FILE,
     ScopeTarget::BIZ_COMMISSION_SETTLEMENT,
     ScopeTarget::BIZ_COST_OBJECT,
+    ScopeTarget::BIZ_COST_LABOR,
 ];
 
 // ==================== 片段 ====================

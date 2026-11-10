@@ -1,0 +1,65 @@
+===== 1. 登录 admin =====
+PASS 登录成功（token 长度 461）
+
+===== 1b. 首次登录必须先改初始密码（否则除改密外全部 403） =====
+PUT /system/auth/password => HTTP 200 code=0
+PASS 初始密码改密成功
+PASS 用新口令重新登录成功
+
+===== 2. 建一张在制成本对象（工时行的父行） =====
+PASS 建成本对象 CB-20261111-000001（id=01a1c662-4cdb-7693-a481-8e886f7507a2）
+
+===== 3. POST /business/erp/cost-labor（建工时，客户端不传金额） =====
+{"id":"01a1c662-4d05-71a1-8c7e-48dc64e395c1","status":"DRAFT","source_type":"MANUAL","hours":"8.00","machine_hours":"2.00","rate":"50.000000","amount":"400.0000","cost_object_no":"CB-20261111-000001","product_name":"成品E（种子）","dept_name":"总部","work_date":"2026-11-06"}
+PASS 建工时成功（金额由服务端算）
+
+===== 4. GET /business/erp/cost-labor（列表：期间 + 对象筛选） =====
+{"code":0,"total":1,"page":1,"page_size":10,"first_row":{"employee_name":"张三","status":"DRAFT","amount":"400.0000","dept_name":"总部"}}
+PASS 列表命中 1 条（total/page/page_size 形状与仓库一致）
+
+===== 5. PUT /business/erp/cost-labor/{id}（只改工时 ⇒ 金额重算） =====
+{"hours":"9.50","rate":"50.000000","amount":"475.0000","status":"DRAFT"}
+PASS 金额按新工时重算（9.5 × 50 = 475.0000）
+
+===== 6. POST /{id}/confirm（确认） =====
+{"status":"CONFIRMED","amount":"475.0000","updated_at":"2026-11-10T16:54:53.500541+00:00"}
+PASS 确认成功 DRAFT → CONFIRMED
+
+===== 7. 重复确认（幂等：金额不翻倍、updated_at 不动） =====
+{"status":"CONFIRMED","amount":"475.0000","updated_at":"2026-11-10T16:54:53.500541+00:00"}
+PASS 重复确认金额不变（475.0000 === 475.0000，未翻倍）
+PASS 重复确认不写库（updated_at 未变）
+PASS 库里仍只有 1 行（行数 1）
+
+===== 8. 已确认的行改 / 删 ⇒ 409 =====
+PUT  => HTTP 409 10003 只有草稿（DRAFT）状态的工时才能修改，当前状态是 CONFIRMED。
+PASS 已确认不许改（409）
+DEL  => HTTP 409 10003
+PASS 已确认不许删（409）
+
+===== 9. 金额核对值不符 ⇒ 400 + 66058「工时×费率与金额不符」 =====
+POST => HTTP 400 code=66058 msg=工时×费率与金额不符：8 小时 × 50 元/小时 = 400 元（round(工时×费率, 4)），但金额是 401 元。
+PASS 金额不符 → 400 + 66058
+
+===== 10. 跨月工时（日期不在所选期间）⇒ 400 =====
+POST => HTTP 400 code=10001 msg=work_date（2026-12-01）不在所选期间 period_code（2026-11）内：工时按会计期间归集，跨月补录请把 period_code 选成工作日期所属的那个月
+PASS 跨月 → 400
+
+===== 11. 草稿行删掉（软删） =====
+DELETE => HTTP 200 code=0
+PASS 草稿软删成功（列表回到 1 行）
+
+===== 12. 对象非 OPEN ⇒ 409 + 66057 =====
+关批 => HTTP 200 code=0
+POST(已关批对象) => HTTP 409 code=66057 msg=成本对象 CB-20261111-000001 当前是「已关批」（CLOSED），不能录工时：只有 OPEN（在制）的对象可以归集人工成本。
+PASS 已关批对象录工时 → 409 + 66057
+
+===== 13. 未鉴权 / 未知路径（证明路由真挂在 router 上） =====
+未鉴权 => HTTP 401 ；未知路径 => HTTP 404
+PASS 未鉴权 401（路由存在且鉴权生效）
+PASS 未知路径 404（没有把 SPA fallback 当接口）
+
+===== 14. 清场：删掉冒烟数据（工时 / 成本对象） =====
+残留行数=0
+
+===== 汇总：PASS=19 FAIL=0 =====

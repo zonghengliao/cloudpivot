@@ -146,6 +146,13 @@ pub(crate) mod contract_linkage;
 pub mod contract_model;
 /// 合同 PDF 导出（PDF-03）：条款正文 + 签章位 + 附件清单 + 骑缝章提示。
 pub mod contract_pdf;
+/// B2-1 的真库用例（`ERP_DB_URL` 开关）：CRUD + 确认幂等 + 金额 CHECK 映射。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_labor_db_tests;
+/// 工时台账（ARCH-9 §3.1 ④ / §5.2 #10–#14）：`biz_cost_labor` CRUD + 确认（幂等）。
+pub mod cost_labor_dto;
+pub mod cost_labor_handler;
+pub mod cost_labor_model;
 /// B1-8 的真库用例（`ERP_DB_URL` 开关）：5 个接口 + 关批 5 条前置。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_object_db_tests;
