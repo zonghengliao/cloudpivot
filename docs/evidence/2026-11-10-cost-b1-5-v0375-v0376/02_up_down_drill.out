@@ -1,0 +1,148 @@
+
+===== 0. 环境 =====
+db=mig_costb15_drill
+PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26
+biz_stock_in=biz_stock_in
+biz_stock_out=biz_stock_out
+biz_cost_object=biz_cost_object（V0370 前置）
+biz_cost_period=biz_cost_period（V0373 前置）
+
+===== 0b. 造存量探针行（本卡之前就合法的 4 种 in_type / 4 种 out_type） =====
+  → 8 行存量探针已写入
+存量指纹(前)  in=38c68d95dfc8ce9ac968f927742477d2
+存量指纹(前) out=48967fea3be13134b7a2e9235faf43e8
+stock_in_rows=4
+stock_out_rows=4
+
+===== 1. up 首轮（V0375 出库加列 → V0376 入库 PRODUCTION + 两列） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.up.sql:107: NOTICE:  V0375 形态断言通过：cost_object_id(UUID, 可空, 无默认) + idx_biz_so_cost_obj(局部) + 存量零填充 + 零外键
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:180: NOTICE:  V0376 形态断言通过：两列(UUID 可空无默认) + ck_biz_si_type 5 值 + ck_biz_si_production 四要素 + supplier_scope 未破 + 2 条局部索引 + 存量零改动
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：PRODUCTION 完工入库单写入成功 ⇒ in_type 值域已放宽（卡面验收）
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：无采购单的完工入库被拦（new row for relation "biz_stock_in" violates check constraint "ck_biz_si_sourceless_pair"）。已知开放问题：ck_biz_si_sourceless_pair(V0199) 与 §3.3 ck_biz_si_production 冲突，结算卡（B3-4）前必须用新迁移放宽
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言通过：PRODUCTION 可写 / 带供应商被拒 / 无源被拒 / 缺批次被拒 / 采购入库照旧
+  exit=0
+
+===== 2. 第二、三轮 up（幂等：重复执行结果不变） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.up.sql:107: NOTICE:  V0375 形态断言通过：cost_object_id(UUID, 可空, 无默认) + idx_biz_so_cost_obj(局部) + 存量零填充 + 零外键
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:180: NOTICE:  V0376 形态断言通过：两列(UUID 可空无默认) + ck_biz_si_type 5 值 + ck_biz_si_production 四要素 + supplier_scope 未破 + 2 条局部索引 + 存量零改动
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：PRODUCTION 完工入库单写入成功 ⇒ in_type 值域已放宽（卡面验收）
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：无采购单的完工入库被拦（new row for relation "biz_stock_in" violates check constraint "ck_biz_si_sourceless_pair"）。已知开放问题：ck_biz_si_sourceless_pair(V0199) 与 §3.3 ck_biz_si_production 冲突，结算卡（B3-4）前必须用新迁移放宽
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言通过：PRODUCTION 可写 / 带供应商被拒 / 无源被拒 / 缺批次被拒 / 采购入库照旧
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.up.sql:107: NOTICE:  V0375 形态断言通过：cost_object_id(UUID, 可空, 无默认) + idx_biz_so_cost_obj(局部) + 存量零填充 + 零外键
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:180: NOTICE:  V0376 形态断言通过：两列(UUID 可空无默认) + ck_biz_si_type 5 值 + ck_biz_si_production 四要素 + supplier_scope 未破 + 2 条局部索引 + 存量零改动
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：PRODUCTION 完工入库单写入成功 ⇒ in_type 值域已放宽（卡面验收）
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：无采购单的完工入库被拦（new row for relation "biz_stock_in" violates check constraint "ck_biz_si_sourceless_pair"）。已知开放问题：ck_biz_si_sourceless_pair(V0199) 与 §3.3 ck_biz_si_production 冲突，结算卡（B3-4）前必须用新迁移放宽
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言通过：PRODUCTION 可写 / 带供应商被拒 / 无源被拒 / 缺批次被拒 / 采购入库照旧
+  exit=0
+
+===== 3. 结构快照：新列 =====
+biz_stock_in.cost_object_id :: uuid nullable=YES default=<无>
+biz_stock_in.cost_period_id :: uuid nullable=YES default=<无>
+biz_stock_out.cost_object_id :: uuid nullable=YES default=<无>
+
+===== 4. 结构快照：in_type 值域 + 完工入库约束 + 未动的供应商约束 =====
+ck_biz_si_production :: CHECK ((((in_type)::text <> 'PRODUCTION'::text) OR ((cost_object_id IS NOT NULL) AND (cost_period_id IS NOT NULL) AND (supplier_id IS NULL) AND (is_sourceless = false))))
+ck_biz_si_sourceless_pair :: CHECK (((is_sourceless = (source_order_id IS NULL)) IS TRUE))
+ck_biz_si_supplier :: CHECK ((((in_type)::text <> 'PURCHASE'::text) OR (supplier_id IS NOT NULL)))
+ck_biz_si_supplier_scope :: CHECK (
+CASE
+    WHEN ((in_type)::text = ANY ((ARRAY['PURCHASE'::character varying, 'SOURCELESS'::character varying])::text[])) THEN (supplier_id IS NOT NULL)
+    ELSE (supplier_id IS NULL)
+END)
+ck_biz_si_type :: CHECK (((in_type)::text = ANY ((ARRAY['PURCHASE'::character varying, 'RETURN'::character varying, 'OTHER'::character varying, 'SOURCELESS'::character varying, 'PRODUCTION'::character varying])::text[])))
+
+===== 5. 结构快照：三条局部索引 =====
+idx_biz_si_cost_obj :: CREATE INDEX idx_biz_si_cost_obj ON public.biz_stock_in USING btree (cost_object_id) WHERE (cost_object_id IS NOT NULL)
+idx_biz_si_cost_period :: CREATE INDEX idx_biz_si_cost_period ON public.biz_stock_in USING btree (cost_period_id) WHERE (cost_period_id IS NOT NULL)
+idx_biz_so_cost_obj :: CREATE INDEX idx_biz_so_cost_obj ON public.biz_stock_out USING btree (cost_object_id) WHERE (cost_object_id IS NOT NULL)
+
+===== 6. ★ 存量数据不受影响：指纹对比（加列后必须逐字节相等） =====
+存量指纹(后)  in=38c68d95dfc8ce9ac968f927742477d2  → 相等 ✅
+存量指纹(后) out=48967fea3be13134b7a2e9235faf43e8  → 相等 ✅
+legacy_cost_object_filled=0（期望 0：加列不许给存量填值）
+stock_in_rows=4（期望 4）
+
+===== 7. ★ 卡面验收：biz_stock_in.in_type 允许 'PRODUCTION'（活体插入 → 删除） =====
+  → PRODUCTION 入库单插入成功 ✅（验收通过）
+production_rows=1（期望 1）
+DRILL-B15-OK in_type=PRODUCTION cost_obj=true cost_period=true
+
+===== 8. ★ 已知开放问题复现：无采购单的完工入库（结算口径）被 V0199 ck_biz_si_sourceless_pair 拦 =====
+→ 期望失败：PRODUCTION + 无 source_order_id + is_sourceless=FALSE（§4.7 结算就是这么写的）
+ERROR:  new row for relation "biz_stock_in" violates check constraint "ck_biz_si_sourceless_pair"
+→ 期望失败：PRODUCTION + 供应商
+ERROR:  new row for relation "biz_stock_in" violates check constraint "ck_biz_si_production"
+→ 期望失败：PRODUCTION + 缺 cost_period_id
+ERROR:  new row for relation "biz_stock_in" violates check constraint "ck_biz_si_production"
+→ 期望失败：PRODUCTION 当无源单（is_sourceless=TRUE）
+ERROR:  new row for relation "biz_stock_in" violates check constraint "ck_biz_si_production"
+
+===== 9. ★ down 数据护栏：库里还有 PRODUCTION 单时，回滚必须拒绝并点名 =====
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:34: ERROR:  V0376 down 拒绝执行：还有 1 张完工入库单（in_type=PRODUCTION）。旧值域只有 4 个值，回滚会把这些单据变成非法行（或直接删掉它们的成本对象/批次归属）。请先作废/删除这些单据（或把状态与归属清干净）后再回滚
+CONTEXT:  PL/pgSQL function inline_code_block line 7 at RAISE
+  exit=3
+
+===== 10. 出库侧护栏：有单据挂着成本对象时，V0375 down 必须拒绝并点名 =====
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.down.sql:38: ERROR:  V0375 down 拒绝执行：还有 1 张出库单挂着成本对象（cost_object_id 非空）。删列会丢掉「哪个成本对象领的料」，请先把这些单据打回草稿/清空该字段后再回滚
+CONTEXT:  PL/pgSQL function inline_code_block line 17 at RAISE
+  exit=3
+
+===== 11. 清掉演练行，正常回滚（V0376 → V0375） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:103: NOTICE:  V0376 down 完成：ck_biz_si_production 已删、值域回到 4 值、两列与两条索引已删
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.down.sql:67: NOTICE:  V0375 down 完成：cost_object_id 与 idx_biz_so_cost_obj 已删除，其余列与数据未动
+  exit=0
+
+===== 12. down 幂等（再各来一遍） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:37: NOTICE:  constraint "ck_biz_si_production" of relation "biz_stock_in" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:49: NOTICE:  index "idx_biz_si_cost_obj" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:50: NOTICE:  index "idx_biz_si_cost_period" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:51: NOTICE:  column "cost_object_id" of relation "biz_stock_in" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:52: NOTICE:  column "cost_period_id" of relation "biz_stock_in" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.down.sql:103: NOTICE:  V0376 down 完成：ck_biz_si_production 已删、值域回到 4 值、两列与两条索引已删
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.down.sql:38: NOTICE:  V0375 down：cost_object_id 已不存在（重复回滚），跳过数据护栏
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.down.sql:41: NOTICE:  index "idx_biz_so_cost_obj" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.down.sql:42: NOTICE:  column "cost_object_id" of relation "biz_stock_out" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.down.sql:67: NOTICE:  V0375 down 完成：cost_object_id 与 idx_biz_so_cost_obj 已删除，其余列与数据未动
+  exit=0
+
+===== 13. 回滚后结构：新列 / 新索引 / 新约束必须全没了，老约束回来 =====
+new_cols_left=0（期望 0）
+new_idx_left=0（期望 0）
+ck_production_left=0（期望 0）
+ck_biz_si_supplier_scope :: CHECK (
+CASE
+    WHEN ((in_type)::text = ANY ((ARRAY['PURCHASE'::character varying, 'SOURCELESS'::character varying])::text[])) THEN (supplier_id IS NOT NULL)
+    ELSE (supplier_id IS NULL)
+END)
+ck_biz_si_type :: CHECK (((in_type)::text = ANY ((ARRAY['PURCHASE'::character varying, 'RETURN'::character varying, 'OTHER'::character varying, 'SOURCELESS'::character varying])::text[])))
+
+===== 14. 回滚后存量数据仍完好（指纹必须与最初相等） =====
+存量指纹(回滚后)  in=38c68d95dfc8ce9ac968f927742477d2  → 相等 ✅
+存量指纹(回滚后) out=48967fea3be13134b7a2e9235faf43e8  → 相等 ✅
+stock_in_rows=4（期望 4：回滚只删列不删行）
+stock_out_rows=4（期望 4）
+
+===== 15. 回滚后重放（down → up 必须能重建，存量仍不受影响） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0375__stock_out_cost_object.up.sql:107: NOTICE:  V0375 形态断言通过：cost_object_id(UUID, 可空, 无默认) + idx_biz_so_cost_obj(局部) + 存量零填充 + 零外键
+  exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:55: NOTICE:  constraint "ck_biz_si_production" of relation "biz_stock_in" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:180: NOTICE:  V0376 形态断言通过：两列(UUID 可空无默认) + ck_biz_si_type 5 值 + ck_biz_si_production 四要素 + supplier_scope 未破 + 2 条局部索引 + 存量零改动
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：PRODUCTION 完工入库单写入成功 ⇒ in_type 值域已放宽（卡面验收）
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言：无采购单的完工入库被拦（new row for relation "biz_stock_in" violates check constraint "ck_biz_si_sourceless_pair"）。已知开放问题：ck_biz_si_sourceless_pair(V0199) 与 §3.3 ck_biz_si_production 冲突，结算卡（B3-4）前必须用新迁移放宽
+psql:/opt/cloudpivot/backend/migrations/business/V0376__stock_in_production.up.sql:296: NOTICE:  V0376 行为断言通过：PRODUCTION 可写 / 带供应商被拒 / 无源被拒 / 缺批次被拒 / 采购入库照旧
+  exit=0
+存量指纹(重放后)  in=38c68d95dfc8ce9ac968f927742477d2  → 相等 ✅
+存量指纹(重放后) out=48967fea3be13134b7a2e9235faf43e8  → 相等 ✅
+ck_biz_si_type 含 PRODUCTION=true
+
+===== 16. 收尾：清演练数据并核对零残留 =====
+residue_in=0（期望 0）
+residue_out=0（期望 0）
+
+== 演练结束（终态：V0375/V0376 已 up 在位）==

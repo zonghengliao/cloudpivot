@@ -1,0 +1,28 @@
+== 隔离工作树 /root/wt-b15 @ 783d7b7f（只有本卡提交的文件，无并发卡未提交文件）==
+== cargo fmt -- --check ==
+FMT_OK
+== cargo check ==
+   Compiling cloudpivot v0.1.0 (/root/wt-b15/backend)
+    Checking nik v0.4.2 (/root/wt-b15/backend/vendor/nik)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 24s
+== cargo test --test cost_b1_5_stock_out_in_cost_object_migration ==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 36s
+     Running tests/cost_b1_5_stock_out_in_cost_object_migration.rs (/opt/cloudpivot/backend/target/debug/deps/cost_b1_5_stock_out_in_cost_object_migration-17f76477e145bb57)
+
+running 13 tests
+test v0375_down_guards_data_before_dropping_column ... ok
+test v0375_adds_exactly_one_nullable_column_idempotently ... ok
+test v0375_index_is_partial ... ok
+test v0375_v0376_self_checks_raise_exceptions ... ok
+test v0375_v0376_up_and_down_exist ... ok
+test v0376_dml_is_only_self_check_probes_and_is_cleaned_up ... ok
+test v0375_v0376_touch_only_their_own_tables ... ok
+test v0376_down_guards_data_before_rolling_back_type_domain ... ok
+test v0376_adds_two_nullable_columns_idempotently ... ok
+test v0375_v0376_split_cleanly_with_engine_splitter ... ok
+test v0376_production_constraint_matches_design_verbatim ... ok
+test v0376_indexes_are_partial_and_not_unique ... ok
+test v0376_widens_in_type_domain_keeping_all_history ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
