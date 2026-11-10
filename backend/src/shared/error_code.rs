@@ -1660,6 +1660,22 @@ pub const ERP_COST_OVERHEAD_ACCOUNT: i32 = 66060;
 /// 「费用台账只记正数金额，负数/冲回走凭证红字」的引导，而不是笼统的「参数错误」。
 pub const ERP_COST_OVERHEAD_AMOUNT: i32 = 66061;
 
+/// 成本核算 · 分摊「池有金额但当期无在产成本对象」（HTTP 409，ARCH-9 §4.4.3 / B2-5 · `66062`）。
+///
+/// 设计 §4.4.3 明写：一条都不满足时**报错**，不做「挂在池里留到下期」的静默处理
+/// （那正是上期漏摊、4101 余额永远清不掉的来源）。
+///
+/// **不复用** [`ERP_COST_ALLOC_BASIS_ZERO`]（`66063`）：两者的修法不同 ——
+/// 66062 是「当期确实没生产 / 漏录领料工时」，66063 是「这个分配标准的数据源是空的
+/// （例如按机器工时摊但没人填机器工时）」。前端给的下一条动作不一样。
+pub const ERP_COST_ALLOC_NO_OBJECT: i32 = 66062;
+
+/// 成本核算 · 分摊「该标准下基数合计为 0，无法按比例摊」（HTTP 409，ARCH-9 §4.4.3 / B2-5 · `66063`）。
+///
+/// 池 > 0 而 `basis_total = 0` 时守恒断言 `Σ alloc = pool` 不可能成立；
+/// 按 0 摊会让界面显示「池 4000、摊 0」而结算时 4101 清不掉。报文点名标准与缺什么数据。
+pub const ERP_COST_ALLOC_BASIS_ZERO: i32 = 66063;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -1813,6 +1829,9 @@ mod tests {
             (ERP_COST_LABOR_AMOUNT_MISMATCH, 66058),
             // 成本核算·费率取数三级全空（66059；对象 > 车间 > 公司 都没命中，不按 0 计）
             (ERP_COST_RATE_MISSING, 66059),
+            // 成本核算·分摊池无在产对象 / 基数合计为 0（66062–66063；B2-5 试算与 calc 第 5 段共用）
+            (ERP_COST_ALLOC_NO_OBJECT, 66062),
+            (ERP_COST_ALLOC_BASIS_ZERO, 66063),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

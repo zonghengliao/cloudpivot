@@ -1,0 +1,11 @@
+test business::erp::cost_alloc_rule_db_tests::db::pool_sources_are_all_three ... ok
+test business::erp::cost_alloc_rule_db_tests::db::preview_refuses_pool_without_object_or_basis ... ok
+test business::erp::cost_alloc_rule_db_tests::db::preview_rounds_remainder_onto_one_row ... ok
+test business::erp::cost_alloc_rule_db_tests::db::preview_uses_all_four_bases ... ok
+test business::erp::cost_alloc_rule_db_tests::db::referenced_rule_cannot_be_edited_or_deleted ... ok
+test business::erp::cost_alloc_rule_db_tests::db::rule_crud_and_effective_version_selection ... ok
+test business::erp::cost_alloc_rule_db_tests::db::unassigned_pool_is_reported_not_swallowed ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4376 filtered out; finished in 11.69s
+
+### 重跑（修正错误文案转义后，2026-11-11）
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4376 filtered out; finished in 11.32s

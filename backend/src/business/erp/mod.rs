@@ -146,6 +146,13 @@ pub(crate) mod contract_linkage;
 pub mod contract_model;
 /// 合同 PDF 导出（PDF-03）：条款正文 + 签章位 + 附件清单 + 骑缝章提示。
 pub mod contract_pdf;
+/// B2-5 的真库用例（`ERP_DB_URL` 开关）：四件套 + 生效期选版本 + 四种标准试算。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_alloc_rule_db_tests;
+/// 分摊规则（ARCH-9 §3.1 ⑦ / §4.4 / §5.2 #20–#24）：四件套 + 生效期版本选择 + 试算（不落库）。
+pub mod cost_alloc_rule_dto;
+pub mod cost_alloc_rule_handler;
+pub mod cost_alloc_rule_model;
 /// B2-1 的真库用例（`ERP_DB_URL` 开关）：CRUD + 确认幂等 + 金额 CHECK 映射。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_labor_db_tests;

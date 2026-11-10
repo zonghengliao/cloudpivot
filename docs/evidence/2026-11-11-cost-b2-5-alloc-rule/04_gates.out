@@ -1,0 +1,9 @@
+### cargo fmt -- --check
+clean (EXIT=0)
+
+### cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 13s
+
+### cargo test --lib cost_alloc_rule (纯逻辑 51 条 + 真库 7 条跳过)
+test result: ok. 58 passed; 0 failed; 0 ignored; 0 measured; 4325 filtered out; finished in 0.01s

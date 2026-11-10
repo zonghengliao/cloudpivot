@@ -1,0 +1,41 @@
+1) 登录 admin
+   login code=0 token 长度 461  must_change_password=True
+   改密 code=0
+   新 token 长度 461
+   车间（部门）id = 20000000-0000-4000-8000-0000000f0366
+2) GET /business/erp/cost-alloc-rule（空列表）
+   code=0 total=0 page_size=20
+3) POST 建旧版本（2026-01-01 生效，按人工工时）
+   code=0 rule=WL-919554-V1 basis=LABOR_HOURS/按人工工时分摊 生效=2026-01-01~None 车间=总部 科目=4101.02/制造费用-水电费 状态=启用
+4) POST 建新版本（2026-11-01 生效，按机器工时）
+   code=0 rule=WL-919554-V2 basis=MACHINE_HOURS/按机器工时分摊 priority=20 生效=2026-11-01
+5) GET 列表（period_code=2026-11 + 车间 + 科目）
+   code=0 total=2 规则=[('WL-919554-V1', 'LABOR_HOURS', '2026-01-01'), ('WL-919554-V2', 'MACHINE_HOURS', '2026-11-01')]
+6) POST /preview（2026-11 —— 版本选择：必须取 11-01 那条 = 01a1c71a-70fa-7428-85cd-798b585cf505）
+   code=0 groups=1 total_pool=0.0000 total_alloc=0.0000 unallocated=0
+   选中规则=WL-919554-V2 basis=MACHINE_HOURS/按机器工时分摊 pool=0.0000 basis_total=0.0000 rows=0
+   ✓ 版本选择正确：11 月取 2026-11-01 的版本（01a1c71a-70fa-7428-85cd-798b585cf505）
+7) POST /preview（2026-10 —— 必须回落旧版本 = 01a1c71a-70d1-741a-90d1-e080fc5208ed）
+   选中规则 id=01a1c71a-70d1-741a-90d1-e080fc5208ed（basis=LABOR_HOURS）
+   ✓ 历史期间不被新版本改口径
+8) PUT /business/erp/cost-alloc-rule/{id}（改名 + 停用）
+   code=0 name=一车间水电（改名） status=0/停用
+9) POST /preview（停用新版本后，11 月回落到旧版本）
+   ✓ 停用后回落到 01a1c71a-70d1-741a-90d1-e080fc5208ed
+10) DELETE /business/erp/cost-alloc-rule/{id}（软删两条）
+   DELETE 01a1c71a-70d1-741a-90d1-e080fc5208ed → HTTP 200
+   DELETE 01a1c71a-70fa-7428-85cd-798b585cf505 → HTTP 200
+   软删后列表 total=0
+11) 反证：科目不在 4101.* → HTTP 400 + 66060
+   HTTP 400
+   code=66060 msg=account_code「5602.01」不是制造费用科目：分摊规则只摊 `4101.*` 下面的费用（如 4101.01 折旧费 / 4101.02 水电费 / 4101.09 其他）。
+12) 反证：期间不合法 → HTTP 400
+   HTTP 400
+   code=10001 msg=period_code 的月份必须是 01–12（收到「2026-13」）
+13) 反证：无 token → HTTP 401
+   GET list → HTTP 401
+   POST preview → HTTP 401
+14) 反证：未知路径 → HTTP 404
+   GET /business/erp/cost-alloc-rule-none → HTTP 404
+
+冒烟完成

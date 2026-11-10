@@ -1,0 +1,59 @@
+### cargo test --lib cost_alloc_rule_dto
+test business::erp::cost_alloc_rule_dto::tests::allocation_b1_exact_division ... ok
+test business::erp::cost_alloc_rule_dto::tests::allocation_conserves_with_many_objects ... ok
+test business::erp::cost_alloc_rule_dto::tests::allocation_ties_prefer_larger_basis_then_smaller_id ... ok
+test business::erp::cost_alloc_rule_dto::tests::basis_labor_hours_takes_labor_hours ... ok
+test business::erp::cost_alloc_rule_dto::tests::allocation_b2_remainder_lands_on_one_row ... ok
+test business::erp::cost_alloc_rule_dto::tests::basis_machine_hours_takes_machine_hours ... ok
+test business::erp::cost_alloc_rule_dto::tests::basis_material_cost_takes_material_cost ... ok
+test business::erp::cost_alloc_rule_dto::tests::basis_output_qty_takes_completed_qty ... ok
+test business::erp::cost_alloc_rule_dto::tests::effective_range_rejects_reverse ... ok
+test business::erp::cost_alloc_rule_dto::tests::closed_version_no_longer_eligible ... ok
+test business::erp::cost_alloc_rule_dto::tests::disabled_and_out_of_range_versions_are_skipped ... ok
+test business::erp::cost_alloc_rule_dto::tests::latest_version_wins_within_the_period ... ok
+test business::erp::cost_alloc_rule_dto::tests::period_bounds_cover_the_whole_month ... ok
+test business::erp::cost_alloc_rule_dto::tests::bases_match_the_db_check ... ok
+test business::erp::cost_alloc_rule_dto::tests::manufacturing_account_matches_the_db_check ... ok
+test business::erp::cost_alloc_rule_dto::tests::pool_with_zero_basis_is_a_hard_error ... ok
+test business::erp::cost_alloc_rule_dto::tests::negative_pool_or_basis_is_rejected ... ok
+test business::erp::cost_alloc_rule_dto::tests::pool_without_objects_is_a_hard_error ... ok
+test business::erp::cost_alloc_rule_dto::tests::rule_code_is_normalized_and_bounded ... ok
+test business::erp::cost_alloc_rule_dto::tests::priority_and_status_defaults ... ok
+test business::erp::cost_alloc_rule_dto::tests::same_day_versions_are_deterministic ... ok
+test business::erp::cost_alloc_rule_dto::tests::rule_ids_parse ... ok
+test business::erp::cost_alloc_rule_dto::tests::spec_from_create_normalizes_everything ... ok
+test business::erp::cost_alloc_rule_dto::tests::spec_from_update_keeps_absent_fields_and_clears_empty_end_date ... ok
+test business::erp::cost_alloc_rule_dto::tests::trunc4_truncates_instead_of_rounding ... ok
+test business::erp::cost_alloc_rule_dto::tests::unknown_basis_yields_zero_instead_of_panic ... ok
+test business::erp::cost_alloc_rule_dto::tests::spec_from_create_rejects_missing_required_fields ... ok
+test business::erp::cost_alloc_rule_dto::tests::zero_pool_allocates_zeros_and_keeps_basis_total ... ok
+test business::erp::cost_alloc_rule_dto::tests::write_errors_are_translated ... ok
+test business::erp::cost_alloc_rule_dto::tests::spec_from_update_requires_name_when_dept_changes ... ok
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 4353 filtered out; finished in 0.01s
+
+### cargo test --lib cost_alloc_rule_model
+test business::erp::cost_alloc_rule_model::tests::order_by_ends_with_id_for_stable_paging ... ok
+test business::erp::cost_alloc_rule_model::tests::display_dept_name_prefers_live_then_snapshot ... ok
+test business::erp::cost_alloc_rule_model::tests::like_pattern_escapes_wildcards ... ok
+test business::erp::cost_alloc_rule_model::tests::dates_are_bound_as_text_then_cast ... ok
+test business::erp::cost_alloc_rule_model::tests::pool_sql_derives_account_from_every_pool_source ... ok
+test business::erp::cost_alloc_rule_model::tests::rule_table_is_deliberately_unscoped ... ok
+test business::erp::cost_alloc_rule_model::tests::pool_source_tables_are_the_expected_ones ... ok
+test business::erp::cost_alloc_rule_model::tests::soft_delete_is_guarded ... ok
+test business::erp::cost_alloc_rule_model::tests::select_sql_prefixes_every_column_with_alias ... ok
+test business::erp::cost_alloc_rule_model::tests::to_spec_round_trips_every_field ... ok
+test business::erp::cost_alloc_rule_model::tests::to_version_carries_selection_fields ... ok
+test business::erp::cost_alloc_rule_model::tests::select_sql_joins_every_name_source ... ok
+test business::erp::cost_alloc_rule_model::tests::write_params_align_with_sql_placeholders ... ok
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4370 filtered out; finished in 0.00s
+
+### cargo test --lib cost_alloc_rule_handler
+test business::erp::cost_alloc_rule_handler::tests::list_res_carries_names_and_labels ... ok
+test business::erp::cost_alloc_rule_handler::tests::filter_normalizes_period_basis_and_paging ... ok
+test business::erp::cost_alloc_rule_handler::tests::list_res_shows_closed_effective_range ... ok
+test business::erp::cost_alloc_rule_handler::tests::filter_rejects_bad_values ... ok
+test business::erp::cost_alloc_rule_handler::tests::preview_errors_name_dept_account_and_amount ... ok
+test business::erp::cost_alloc_rule_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::cost_alloc_rule_handler::tests::rule_in_use_message_guides_to_new_version ... ok
+test business::erp::cost_alloc_rule_handler::tests::permission_codes_match_design_5_3 ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4375 filtered out; finished in 0.00s
