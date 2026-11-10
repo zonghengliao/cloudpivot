@@ -39,6 +39,7 @@ pnpm typecheck                  # vue-tsc --noEmit
 bash scripts/dev.sh             # 依赖容器 + 后端 + 前端
 bash scripts/check.sh           # 提交前检查
 bash scripts/build.sh           # 构建 release + 前端 dist
+bash scripts/demo_seed.sh       # 一键灌演示数据（--clean 只删演示数据，--dry-run 只预演）
 docker compose -f docker/docker-compose.yml up -d   # PG + Redis
 ```
 
