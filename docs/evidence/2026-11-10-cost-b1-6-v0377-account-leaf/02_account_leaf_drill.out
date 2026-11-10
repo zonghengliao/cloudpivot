@@ -1,0 +1,124 @@
+==> 演练库：mig_costb16_drill_1110215938
+
+== S0 基线：跑到 V0376 为止
+psql:/opt/cloudpivot/backend/migrations/business/V0154__erp_menu_reorg_business_lines.up.sql:5: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0155__erp_menu_title_icon_fix.up.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0156__remove_erp_top_menu.up.sql:9: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0170__menu_icons_and_titles_fix.up.sql:29: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0173__remove_dead_permission_codes.up.sql:41: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+  基线迁移数：296 条（< V377）
+  ✓ 4001/4101/2211 都在且都是末级（3）
+  ✓ 三科目下子科目数（基线应为 0）（0）
+  ✓ 9 个末级编码（基线上应全不存在）（0）
+
+== S1 有历史分录 ⇒ 迁移必须 RAISE EXCEPTION 且库零变化
+  ✓ 已造历史分录：4001（1）
+  ✓ up 在 4001 有分录时失败（exit=3）（3）
+    ┌ 迁移自身抛的错（原文）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:153: ERROR:  V0377 拒绝执行：4001 有 1 条分录 —— 这些汇总科目还有历史分录，翻成非末级后这些金额会记在汇总科目上（报表按末级取数、年结按末级结转，会被漏结 ⇒ 跨年试算不平）。请先把这些分录改记到新的末级科目（4001.01~03 / 4101.01~04,09 / 2211.01）或把它们红冲/作废后再执行本迁移
+    └
+  ✓ 拒绝信息点名（含科目与条数）
+  ✓ 拒绝信息点名了 4001 的具体条数
+  ✓ 失败后三个汇总科目仍是末级（整份迁移回滚）（3）
+  ✓ 失败后 9 个末级编码仍未种下（0）
+  ✓ 已造历史分录：4101（1）
+  ✓ up 在 4101 有分录时失败（exit=3）（3）
+    ┌ 迁移自身抛的错（原文）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:153: ERROR:  V0377 拒绝执行：4101 有 1 条分录 —— 这些汇总科目还有历史分录，翻成非末级后这些金额会记在汇总科目上（报表按末级取数、年结按末级结转，会被漏结 ⇒ 跨年试算不平）。请先把这些分录改记到新的末级科目（4001.01~03 / 4101.01~04,09 / 2211.01）或把它们红冲/作废后再执行本迁移
+    └
+  ✓ 拒绝信息点名（含科目与条数）
+  ✓ 拒绝信息点名了 4101 的具体条数
+  ✓ 失败后三个汇总科目仍是末级（整份迁移回滚）（3）
+  ✓ 失败后 9 个末级编码仍未种下（0）
+  ✓ 已造历史分录：2211（1）
+  ✓ up 在 2211 有分录时失败（exit=3）（3）
+    ┌ 迁移自身抛的错（原文）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:153: ERROR:  V0377 拒绝执行：2211 有 1 条分录 —— 这些汇总科目还有历史分录，翻成非末级后这些金额会记在汇总科目上（报表按末级取数、年结按末级结转，会被漏结 ⇒ 跨年试算不平）。请先把这些分录改记到新的末级科目（4001.01~03 / 4101.01~04,09 / 2211.01）或把它们红冲/作废后再执行本迁移
+    └
+  ✓ 拒绝信息点名（含科目与条数）
+  ✓ 拒绝信息点名了 2211 的具体条数
+  ✓ 失败后三个汇总科目仍是末级（整份迁移回滚）（3）
+  ✓ 失败后 9 个末级编码仍未种下（0）
+  ✓ 清掉探针分录后分录表归零（0）
+
+== S2 干净库 ⇒ up 成功，9 个末级科目形态正确
+  ✓ up 退出码（0）
+  ✓ 形态自检通过
+  ✓ 口径自检通过
+    ┌ 迁移自身的三条日志（原文）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:153: NOTICE:  V0377 前置护栏通过：三科目存在且未软删、历史分录为 0、9 个末级编码无冲突
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:308: NOTICE:  V0377 形态断言通过：4001/4101/2211 已翻非末级 + 9 个末级科目（编码/父级/级次/类别/方向/末级位/启用位 逐条核对）+ 无裂树 + 汇总科目零分录
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:379: NOTICE:  V0377 口径断言通过：汇总科目 3 个被记账闸拦、9 个末级科目可记账、存货报表项含 4001/4101（新叶子按前缀自动并入）、本迁移未写任何分录
+    └
+  ✓ 翻非末级的科目数（3）
+  ✓ 9 个末级科目全部种下且是末级（9）
+  ✓ 9 个末级科目的父级/级次/类别/方向全部正确（9）
+
+  -- 9 个末级科目（编码 / 名称 / 父级 / 级次 / 类别 / 方向 / 末级）
+     2211.01  应付职工薪酬-工资       ← 2211  level=2  LIABILITY/CREDIT  is_leaf=1
+     4001.01  生产成本-直接材料       ← 4001  level=2  COST/DEBIT  is_leaf=1
+     4001.02  生产成本-直接人工       ← 4001  level=2  COST/DEBIT  is_leaf=1
+     4001.03  生产成本-制造费用       ← 4001  level=2  COST/DEBIT  is_leaf=1
+     4101.01  制造费用-折旧费        ← 4101  level=2  COST/DEBIT  is_leaf=1
+     4101.02  制造费用-水电费        ← 4101  level=2  COST/DEBIT  is_leaf=1
+     4101.03  制造费用-修理费        ← 4101  level=2  COST/DEBIT  is_leaf=1
+     4101.04  制造费用-车间管理费      ← 4101  level=2  COST/DEBIT  is_leaf=1
+     4101.09  制造费用-其他         ← 4101  level=2  COST/DEBIT  is_leaf=1
+
+  -- 与设计稿的编码/名称/父级三元组比对
+  ✓ 编码/名称/父级与 §3.3 逐字一致（不符条数）（0）
+  ✓ 记账闸：汇总科目 3 个都会被拒（3）
+  ✓ 记账闸：9 个末级科目都可记账（9）
+  科目形态指纹（S2）：6288e7bfa97e2d9b48145e2fa98304bc
+
+== S3 幂等：再 up 一次，形态一字节不变
+  ✓ 第二次 up 退出码（0）
+  ✓ 两次 up 后科目形态指纹一致（6288e7bfa97e2d9b48145e2fa98304bc）
+  ✓ 9 个末级编码没有重复行（9）
+  ✓ 整表裂树节点数（末级挂子）（0）
+
+== S4 down 护栏：末级科目上有分录 ⇒ 拒绝回滚
+  ✓ down 在 4001.01 有分录时失败（exit=3）（3）
+  ✓ 拒绝信息点名
+  ✓ 点名 4001.01 的条数
+  ✓ 拒绝后 9 个末级科目仍在（9）
+
+== S5 down 正常：9 个科目删净、三科目翻回末级
+  ✓ down 退出码（0）
+  ✓ down 反向自检通过
+  ✓ 9 个末级编码全部删除（0）
+  ✓ 4001/4101/2211 翻回末级（3）
+  ✓ 回滚后裂树节点数（0）
+  ✓ 回滚后孤立分录数（0）
+
+== S6 down 幂等 + 回滚后重放
+  ✓ 第二次 down 退出码（幂等）（0）
+  ✓ 回滚后重放 up 退出码（0）
+  ✓ 重放后的形态指纹与 S2 一致（6288e7bfa97e2d9b48145e2fa98304bc）
+  科目形态指纹（S6 重放后）：6288e7bfa97e2d9b48145e2fa98304bc
+
+== S7 客户已自建形态正确的 4001.01 ⇒ 复用（ON CONFLICT 幂等，不覆盖客户数据）
+  ✓ 已有形态正确的 4001.01 时 up 退出码（0）
+  ✓ up 后 4001.01 仍只有 1 行（没种出重复科目）（1）
+  ✓ 客户那行没被本迁移覆盖（remark 仍是客户的）（客户手工建（演练用））
+  ✓ 9 个末级编码齐备（9）
+
+== S8 客户自建的同码科目形态不对 ⇒ 拒绝并点名（不改已有科目行）
+  ✓ down 后 4001.01 已清空（为 S8 造反例）（0）
+  ✓ 形态不符时 up 失败（exit=3）（3）
+    ┌ 迁移自身抛的错（原文）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0377__cost_accounts.up.sql:153: ERROR:  V0377 拒绝执行：末级科目编码已被占用且形态不符 —— 4001.01(父级=4101（应为 4001）)。本迁移不改已有的科目行（改名/改父级属于科目维护，得人来定），请人工核对后在「会计科目」里修正这些行，再重跑本迁移
+    └
+  ✓ 拒绝信息点名「编码已被占用且形态不符」
+  ✓ 拒绝信息指出 4001.01 挂在了 4101 下
+  ✓ 拒绝后 4001 仍是末级（库零变化）（1）
+  ✓ 拒绝后客户那行原样保留（本迁移不改已有科目行）（客户手工建（演练用·错挂））
+  ✓ 清掉反例后重放 up 退出码（0）
+  ✓ S8 收尾后的形态指纹与 S2 一致（6288e7bfa97e2d9b48145e2fa98304bc）
+
+==> 演练结论：全部断言通过
