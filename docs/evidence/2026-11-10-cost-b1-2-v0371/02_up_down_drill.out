@@ -1,0 +1,105 @@
+
+===== 0. 环境 =====
+db=mig_replay_costb1_01
+PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26
+biz_cost_object=biz_cost_object（V0370 前置）
+
+===== 1. 首轮 up（本库首次应用） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:404: NOTICE:  V0371 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:680: NOTICE:  V0371 完成：归集四表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+
+===== 2. 第二、三轮 up（重复执行必须结果不变） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:404: NOTICE:  V0371 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:680: NOTICE:  V0371 完成：归集四表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:404: NOTICE:  V0371 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:680: NOTICE:  V0371 完成：归集四表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+
+===== 3. 幂等证据：探针零残留 + 表/索引/约束数量不变 =====
+rows_collect=0
+rows_labor=0
+rows_overhead=0
+rows_rate=0
+probe_leftover=0
+idx=14
+checks=24
+fks=3
+
+===== 4. 快照：唯一索引谓词（必须带软删条件） =====
+uk_biz_cost_collect_src :: CREATE UNIQUE INDEX uk_biz_cost_collect_src ON public.biz_cost_collect USING btree (source_type, source_id, line_no) WHERE ((deleted_at IS NULL) AND (source_id IS NOT NULL))
+uk_biz_cost_rate :: CREATE UNIQUE INDEX uk_biz_cost_rate ON public.biz_cost_rate USING btree (rate_type, scope, COALESCE(scope_id, '00000000-0000-0000-0000-000000000000'::uuid), effective_from) WHERE (deleted_at IS NULL)
+
+===== 5. 快照：外键及其删除动作（confdeltype 必须是 r=RESTRICT） =====
+biz_cost_collect -> biz_cost_object confdeltype=r :: FOREIGN KEY (cost_object_id) REFERENCES biz_cost_object(id) ON DELETE RESTRICT
+biz_cost_labor -> biz_cost_object confdeltype=r :: FOREIGN KEY (cost_object_id) REFERENCES biz_cost_object(id) ON DELETE RESTRICT
+biz_cost_overhead -> biz_cost_object confdeltype=r :: FOREIGN KEY (cost_object_id) REFERENCES biz_cost_object(id) ON DELETE RESTRICT
+
+===== 6. 快照：金额 / 数量列精度（设计 §3.1：金额数量 18,4、单价费率 18,6） =====
+biz_cost_collect.amount = numeric(18,4)
+biz_cost_collect.qty = numeric(18,4)
+biz_cost_collect.unit_price = numeric(18,6)
+biz_cost_labor.amount = numeric(18,4)
+biz_cost_labor.hours = numeric(10,2)
+biz_cost_labor.machine_hours = numeric(10,2)
+biz_cost_labor.rate = numeric(18,6)
+biz_cost_overhead.amount = numeric(18,4)
+biz_cost_rate.rate = numeric(18,6)
+
+===== 7. 卡面「金额 numeric(20,2)」的反证：scale=2 装不下 4 位小数（设计取 18,4 的依据） =====
+→ 同一份代码、只把 amount 换成 numeric(20,2)：工资率 33.333333 的工时行（期望 check 违反）
+ERROR:  new row for relation "zz_prec_probe" violates check constraint "ck_zz_amount"
+DETAIL:  Failing row contains (1.00, 33.333333, 33.33).
+scale2_table_rows=0（期望 0 ⇒ 20,2 下真实工资率的工时行插不进去）
+→ 同样的数据写进 numeric(18,4) 的 biz_cost_labor（期望成功）：
+  → 18,4 落库成功
+labor_scale4_rows=1
+
+===== 8. 业务语义验真：软删后同来源行可重新归集 / 活行重号被拦 / 池行允许无对象 =====
+→ 首次归集：OK
+→ 软删后重新归集：OK
+→ 活行重号应报 unique_violation（期望失败）：
+ERROR:  duplicate key value violates unique constraint "uk_biz_cost_collect_src"
+DETAIL:  Key (source_type, source_id, line_no)=(STOCK_OUT, 00000000-0000-0000-0000-0000000c05c3, 1) already exists.
+→ 领料行不挂成本对象应报 check_violation（期望失败）：
+ERROR:  new row for relation "biz_cost_collect" violates check constraint "ck_biz_cost_collect_obj"
+DETAIL:  Failing row contains (2a0738c0-ee73-415a-9e64-c7982fb30dd9, null, 2026-02, MATERIAL, STOCK_OUT, null, null, 0, 2026-02-01, 350396a5-fa03-4339-ae57-f49d67ca725c, 1.0000, null, 10.0000, null, null, V0371-SELFCHECK, 2026-11-10 20:47:21.822989+08, 2026-11-10 20:47:21.822989+08, null, null, null).
+→ 车间费用池（折旧、不挂对象）允许：OK
+→ 有归集行时删成本对象应被 RESTRICT 拦（期望失败）：
+ERROR:  update or delete on table "biz_cost_object" violates RESTRICT setting of foreign key constraint "biz_cost_collect_cost_object_id_fkey" on table "biz_cost_collect"
+DETAIL:  Key (id)=(00000000-0000-0000-0000-0000000c05c2) is referenced from table "biz_cost_collect".
+
+===== 9. 清理演练行 =====
+leftover=0
+
+===== 10. down 回滚 =====
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:63: NOTICE:  V0371 down 完成：归集四表及其索引、注释已全部删除（零残留）
+exit=0
+
+===== 11. down 后零残留断言 =====
+collect=NULL labor=NULL overhead=NULL rate=NULL cost_object=biz_cost_object
+idx_left=0
+
+===== 12. down 再跑一次（幂等） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:34: NOTICE:  table "biz_cost_collect" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:35: NOTICE:  table "biz_cost_labor" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:36: NOTICE:  table "biz_cost_overhead" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:37: NOTICE:  table "biz_cost_rate" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:63: NOTICE:  V0371 down 完成：归集四表及其索引、注释已全部删除（零残留）
+exit=0
+
+===== 13. 回滚后重新 up（可重放） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:404: NOTICE:  V0371 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.up.sql:680: NOTICE:  V0371 完成：归集四表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+replay tables=4
+
+===== 14. 下游护栏反证：下游表 FK 到本卡表时 down 必须拒绝 =====
+→ 期望 down 被拒：
+psql:/opt/cloudpivot/backend/migrations/business/V0371__cost_collect_four_tables.down.sql:32: ERROR:  V0371 down 拒绝执行：下游成本表仍在（zz_downstream），请先回滚建立它们的迁移（V0372 及之后），再回滚 V0371
+CONTEXT:  PL/pgSQL function inline_code_block line 14 at RAISE
+
+===== 15. 收尾（保持四表在位，供后续卡使用） =====
+final tables=4 fks=3
+== DRILL END ==
