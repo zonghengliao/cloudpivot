@@ -1,0 +1,83 @@
+# B1-7 隔离工作树 L1 门禁原始输出（worktree @ 93b96b83，target 独立）
+# 生成：2026-11-10 23:2x
+
+=== cargo fmt -- --check
+=== cargo fmt --check
+FMT_EXIT=0
+FMT_EXIT=0
+
+=== cargo clippy --all-targets -- -D warnings
+=== cargo clippy --all-targets -D warnings
+    Checking unicode-segmentation v1.13.3
+    Checking tera v1.20.1
+    Checking chromiumoxide v0.9.1
+    Checking nik v0.4.2 (/root/wt-b17/backend/vendor/nik)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5m 34s
+CLIPPY_EXIT=0
+
+=== cargo check
+=== cargo check
+   Compiling cloudpivot v0.1.0 (/root/wt-b17/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 08s
+=== cargo test
+
+=== cargo test（全量，31 个目标）
+  test result: ok. 4115 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+  test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+  test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+  test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+  test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 150.98s
+  test result: ok. 1 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+汇总：passed=4439 failed=0
+CARGO_TEST_EXIT=0
+
+=== 本卡目标测试明细
+     Running tests/cost_b1_7_cost_seed_migrations.rs (target/debug/deps/cost_b1_7_cost_seed_migrations-ba7be81255ea7631)
+
+running 18 tests
+test cost_b1_7_does_not_reapply_earlier_cost_migrations ... ok
+test v0378_down_deletes_grants_before_menus_and_has_guards ... ok
+test v0378_guards_against_customer_owned_same_path_or_code ... ok
+test cost_b1_7_migrations_keep_single_transaction_and_have_down ... ok
+test v0378_does_not_touch_business_tables_or_disable_transactions ... ok
+test v0378_menu_seed_is_idempotent_by_fixed_uuid ... ok
+test v0378_grants_are_complete_and_orphan_free ... ok
+test v0378_selfcheck_covers_invariants_that_the_gate_will_check_later ... ok
+test v0379_dict_is_one_type_with_seven_items_and_single_default ... ok
+test v0379_down_blocks_when_numbers_were_issued ... ok
+test v0379_seq_conflict_target_is_seq_type_not_id ... ok
+test v0380_bad_lot_report_is_notice_not_blocking ... ok
+test v0380_backfill_is_idempotent_and_trims_lot_no ... ok
+test v0380_prechecks_source_tables_exist ... ok
+test v0380_down_only_deletes_backfill_rows ... ok
+test v0380_reads_all_three_legacy_lot_sources ... ok
+test v0378_seeds_six_pages_with_design_exact_shape ... ok
+test v0378_seeds_twenty_buttons_each_under_its_page ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
