@@ -259,6 +259,31 @@
           </div>
         </t-form-item>
 
+        <t-form-item label="成本对象" name="cost_object_id">
+          <div class="cost-object-field">
+            <t-select
+              v-if="allowsCostObject(form.out_type)"
+              v-model="form.cost_object_id"
+              :options="costObjectSelectOptions"
+              placeholder="可选：把这次领料归到某个生产批（只列在制的）"
+              filterable
+              clearable
+              data-testid="stockout-form-cost-object"
+            />
+            <span class="cost-object-field__hint" data-testid="stockout-debit-hint">
+              <template v-if="allowsCostObject(form.out_type)">
+                过账借方：<strong>{{ debitPreview.code }} {{ debitPreview.name }}</strong>
+                <template v-if="form.cost_object_id">（挂了成本对象，料费归集到 4001.01）</template>
+                <template v-else>（不挂对象走 6401；想按生产批归集材料成本请选一个对象）</template>
+              </template>
+              <template v-else>
+                报废 / 盘亏不挂成本对象，过账借方恒为
+                <strong>{{ debitPreview.code }} {{ debitPreview.name }}</strong>
+              </template>
+            </span>
+          </div>
+        </t-form-item>
+
         <t-form-item label="备注" name="remark">
           <t-textarea
             v-model="form.remark"
@@ -418,6 +443,19 @@
             </span>
           </div>
           <div class="detail-field"><span class="detail-field__label">出库事由</span><span class="detail-field__value" data-testid="stockout-detail-reason">{{ dash(detail.reason) }}</span></div>
+          <div class="detail-field">
+            <span class="detail-field__label">成本对象</span>
+            <span class="detail-field__value mono" data-testid="stockout-detail-cost-object">
+              {{ detail.cost_object_no || '—（未挂对象：不进生产成本归集）' }}
+            </span>
+          </div>
+          <div class="detail-field">
+            <span class="detail-field__label">过账借方</span>
+            <span class="detail-field__value mono" data-testid="stockout-detail-debit">
+              {{ detail.debit_account_code || debitAccountHint(detail.out_type, detail.cost_object_id).code }}
+              {{ detail.debit_account_name || debitAccountHint(detail.out_type, detail.cost_object_id).name }}
+            </span>
+          </div>
           <div class="detail-field"><span class="detail-field__label">凭证</span><span class="detail-field__value mono">{{ detail.voucher_id ? shortId(detail.voucher_id) : '—（未过账 / 零成本无凭证）' }}</span></div>
           <div class="detail-field detail-field--wide"><span class="detail-field__label">备注</span><span class="detail-field__value">{{ dash(detail.remark) }}</span></div>
           <div v-if="detail.cancel_reason" class="detail-field detail-field--wide">
@@ -492,7 +530,7 @@
       <p class="dialog-text">
         过账后会把 <strong>{{ detail?.out_no }}</strong> 的明细从三本账（成本账 / 库位账 / 流水）里扣减，
         并按账上移动加权单价生成<strong>成本结转凭证</strong>（借
-        {{ detail?.out_type === 'SCRAP' || detail?.out_type === 'LOSS' ? '1901' : '6401' }}，贷 1405）。
+        {{ detail?.debit_account_code || debitAccountHint(detail?.out_type, detail?.cost_object_id).code }}，贷 1405）。
         过账<strong>不可撤销</strong>，要走回头路只能「作废」（按明细快照回滚 + 红冲凭证）。
       </p>
       <p v-if="postError" class="dialog-error" data-testid="stockout-post-error">{{ postError }}</p>
@@ -552,10 +590,12 @@ import DocPdfButton from '@/components/DocPdfButton.vue';
 import {
   createStockOut,
   deleteStockOut,
+  fetchStockOutCostObjectOptions,
   fetchStockOutDetail,
   fetchStockOutPage,
   updateStockOut,
   updateStockOutStatus,
+  type StockOutCostObjectOption,
   type StockOutDetail,
   type StockOutRow,
 } from '@/api/business/erp/stock-out';
@@ -566,12 +606,14 @@ import {
   STOCK_OUT_MAX_REMARK,
   STOCK_OUT_PAGE_SIZE,
   STOCK_OUT_STATUS_FILTER_OPTIONS,
+  allowsCostObject,
   buildCancelPayload,
   buildStockOutPayload,
   buildStockOutQuery,
   canDelete,
   canEdit,
   dash,
+  debitAccountHint,
   detailToForm,
   emptyStockOutFilter,
   emptyStockOutForm,
@@ -779,6 +821,40 @@ const submitting = ref(false);
 const submitError = ref('');
 let lineSeed = 1;
 
+// ==================== 成本对象（ARCH-9 B1-10 / B1-12） ====================
+/** 可选成本对象（**只有 OPEN**；数据源是 `/stock-out/cost-object-options`） */
+const costObjectOptions = ref<StockOutCostObjectOption[]>([]);
+/** 编辑旧单时那个「已经不在下拉里」的对象（草稿期间被关批 / 作废） */
+const staleCostObject = ref<StockOutCostObjectOption | null>(null);
+
+/** 下拉项：`对象号 · 产品名`；旧单的对象不在 OPEN 列表里时补一条并标注原因 */
+const costObjectSelectOptions = computed(() => {
+  const options = costObjectOptions.value.map((item) => ({
+    label: item.product_name ? `${item.object_no} · ${item.product_name}` : item.object_no,
+    value: item.id,
+  }));
+  const stale = staleCostObject.value;
+  if (stale && !options.some((item) => item.value === stale.id)) {
+    options.unshift({
+      label: `${stale.object_no}（已关批 / 已作废，不可再选）`,
+      value: stale.id,
+    });
+  }
+  return options;
+});
+
+/** 借方科目**预览**（选完成本对象这里会变；过账口径以详情下发的为准） */
+const debitPreview = computed(() => debitAccountHint(form.out_type, form.cost_object_id));
+
+/** 拉可选成本对象（拉不到不挡建单：下拉空，用户仍可保存不挂对象的单） */
+async function loadCostObjects(): Promise<void> {
+  try {
+    costObjectOptions.value = await fetchStockOutCostObjectOptions();
+  } catch {
+    costObjectOptions.value = [];
+  }
+}
+
 /** 事由框的占位 / 提示随类型变（报废 / 盘亏必填） */
 const reasonPlaceholder = computed(() =>
   requiresReason(form.out_type) ? '必填：报废 / 盘亏要挂 1901，凭证摘要靠它说明原因' : '选填：领用用途（车间领用 / 项目用料 …）',
@@ -795,10 +871,12 @@ function resetForm(next: StockOutFormState): void {
   submitError.value = '';
   lineSeed = form.items.length + 1;
   locationRowCache.clear();
+  staleCostObject.value = null;
 }
 
 function openCreate(): void {
   resetForm(emptyStockOutForm());
+  void loadCostObjects();
   formVisible.value = true;
 }
 
@@ -810,6 +888,19 @@ async function openEdit(row: StockOutRow): Promise<void> {
       return;
     }
     resetForm(detailToForm(detail));
+    // 旧单挂的对象可能已经关批 / 作废（不在 OPEN 下拉里）——补一条并标注，别让回显变成一串 id
+    if (detail.cost_object_id && detail.cost_object_no) {
+      staleCostObject.value = {
+        id: detail.cost_object_id,
+        object_no: detail.cost_object_no,
+        product_id: '',
+        product_code: null,
+        product_name: null,
+        plan_qty: '0',
+        start_date: null,
+      };
+    }
+    void loadCostObjects();
     // 编辑态：把每行的库位账行下拉先补上，否则回显是短 id
     await Promise.all(form.items.map((item) => loadLocationRows(item)));
     formVisible.value = true;
@@ -839,6 +930,10 @@ function itemError(index: number, field: 'material_id' | 'qty'): string {
 
 function handleTypeChange(value: string | number | boolean): void {
   form.out_type = String(value) as StockOutFormState['out_type'];
+  // 只有领用能挂成本对象：类型改走就清掉残留选择（后端对非 ISSUE 挂对象 400）
+  if (!allowsCostObject(form.out_type)) {
+    form.cost_object_id = '';
+  }
 }
 
 function handleWarehouseChange(): void {
@@ -1309,6 +1404,24 @@ onMounted(() => {
 .reason-field__hint {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/* 成本对象选择器 + 借方科目预览（B1-12） */
+.cost-object-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+
+.cost-object-field__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.cost-object-field__hint strong {
+  color: var(--td-brand-color);
+  font-family: var(--td-font-family-mono, monospace);
 }
 
 .section-title {

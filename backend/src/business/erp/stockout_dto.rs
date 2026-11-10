@@ -366,6 +366,55 @@ impl StockOutPageQuery {
     }
 }
 
+// ==================== 成本对象下拉（B1-12：出库单表单的选择器） ====================
+
+/// 「可挂对象的成本对象」下拉查询。
+///
+/// 只服务出库单表单的成本对象选择器：**只列 `OPEN`** —— 非 OPEN 的对象挂上去会被
+/// `ensure_cost_object_usable` 409 拦掉（`66057`），列出来等于给用户挖坑。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct CostObjectOptionQuery {
+    /// 关键字：对象号 / 产品编码 / 产品名称（模糊）。
+    pub keyword: Option<String>,
+}
+
+impl CostObjectOptionQuery {
+    /// 关键字（trim 后空串 → `None`）。
+    pub fn keyword_text(&self) -> Option<String> {
+        self.keyword
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    }
+}
+
+/// 成本对象下拉项（**只给选择器要用的字段**：对象号 + 产品 + 计划量 + 开工日）。
+///
+/// 不复用 `cost_object_dto::CostObjectListRes`：那张行结构是给成本对象页用的
+/// （15 个字段 + 归集汇总），下拉只要 4 列；多传一份就是多一份要维护的口径。
+#[derive(Debug, Clone, Serialize)]
+pub struct CostObjectOptionRes {
+    /// 主键。
+    pub id: String,
+    /// 对象号 `CB-yyyyMMdd-NNNNNN`（下拉显示 + 回填都用它）。
+    pub object_no: String,
+    /// 产品（物料）。
+    pub product_id: String,
+    /// 产品编码（`biz_material` 实时 join）。
+    pub product_code: Option<String>,
+    /// 产品名称（`biz_material` 实时 join）。
+    pub product_name: Option<String>,
+    /// 计划数量（numeric，四位小数字符串）。
+    pub plan_qty: String,
+    /// 开工日期 `YYYY-MM-DD`。
+    pub start_date: Option<String>,
+}
+
+/// 下拉上限（一次领料不会挑 200 个批；与 `lot_dto::OPTIONS_LIMIT` 同口径）。
+pub const COST_OBJECT_OPTION_LIMIT: i64 = 200;
+
 // ==================== 出参 ====================
 
 /// 列表行。
@@ -900,5 +949,62 @@ mod tests {
         row.cost_object_id = None;
         let value = serde_json::to_value(StockOutRes::of(&row)).expect("序列化");
         assert!(value["cost_object_id"].is_null());
+    }
+
+    // ---------- B1-12：成本对象下拉 ----------
+
+    /// 关键字归一化：`None` / 空白 → `None`；有值 → trim 后的串。
+    #[test]
+    fn cost_object_option_keyword_is_trimmed() {
+        let query = CostObjectOptionQuery::default();
+        assert_eq!(query.keyword_text(), None, "缺省 = 不筛");
+
+        let query = CostObjectOptionQuery {
+            keyword: Some("   ".to_string()),
+        };
+        assert_eq!(query.keyword_text(), None, "全空白 = 不筛（否则会查出 0 行）");
+
+        let query = CostObjectOptionQuery {
+            keyword: Some("  CB-2026  ".to_string()),
+        };
+        assert_eq!(query.keyword_text().as_deref(), Some("CB-2026"));
+    }
+
+    /// 下拉上限与批次下拉同口径（200），且不能为 0（否则下拉永远空）。
+    #[test]
+    fn cost_object_option_limit_matches_lot_options() {
+        assert_eq!(COST_OBJECT_OPTION_LIMIT, 200);
+        assert_eq!(
+            COST_OBJECT_OPTION_LIMIT,
+            super::super::lot_dto::OPTIONS_LIMIT,
+            "两条下拉同一个上限口径"
+        );
+    }
+
+    /// 出参 JSON 键名钉死（前端 `stock-out-logic.ts` / `lot.ts` 按这些键取值）。
+    #[test]
+    fn cost_object_option_res_serializes_expected_keys() {
+        let value = serde_json::to_value(CostObjectOptionRes {
+            id: "11111111-1111-4111-8111-111111111111".to_string(),
+            object_no: "CB-20261101-000001".to_string(),
+            product_id: "22222222-2222-4222-8222-222222222222".to_string(),
+            product_code: Some("M-001".to_string()),
+            product_name: Some("钢轴".to_string()),
+            plan_qty: "100.0000".to_string(),
+            start_date: Some("2026-11-01".to_string()),
+        })
+        .expect("序列化");
+        for key in [
+            "id",
+            "object_no",
+            "product_id",
+            "product_code",
+            "product_name",
+            "plan_qty",
+            "start_date",
+        ] {
+            assert!(value.get(key).is_some(), "下拉出参缺键 {key}：{value}");
+        }
+        assert_eq!(value["object_no"], "CB-20261101-000001");
     }
 }

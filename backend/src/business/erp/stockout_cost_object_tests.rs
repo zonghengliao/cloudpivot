@@ -441,3 +441,65 @@ async fn posting_refuses_when_object_closed_after_draft() {
     assert_eq!(stock_qty().await.round_dp(4), dec("50"), "账一分没动");
     println!("[B1-10] 关批后过账被拦且回滚：{} {}", error.code, error.msg);
 }
+
+// ==================== B1-12：成本对象下拉（出库表单的选择器数据源） ====================
+
+/// ⑦ 下拉只列 `OPEN`：CLOSED / CANCELLED 一律不出现，产品名 join 出来。
+///
+/// 为什么要有这条：前端把「只列 OPEN」当验收项，但那句话成不成立只看**这个接口**。
+/// 如果在 SQL 里漏了 `status = 'OPEN'`，用户会在下拉里选中一个已关批的批，
+/// 提交时才吃 409 + 66057 —— 白填一整张单。
+#[tokio::test]
+async fn options_list_only_open_objects_with_product_name() {
+    let Some(_guard) = setup().await else { return };
+    let options = stockout_handler::cost_object_options(&Default::default())
+        .await
+        .expect("下拉");
+
+    let ids: Vec<&str> = options.iter().map(|item| item.id.as_str()).collect();
+    assert!(ids.contains(&OBJECT_OPEN), "OPEN 对象必须在下拉里：{ids:?}");
+    for closed in [OBJECT_CLOSED, OBJECT_CANCELLED] {
+        assert!(!ids.contains(&closed), "非 OPEN 对象不许出现在下拉里：{ids:?}");
+    }
+
+    let hit = options.iter().find(|item| item.id == OBJECT_OPEN).expect("OPEN 对象");
+    assert_eq!(hit.object_no, "CB-B110-000001");
+    assert_eq!(hit.product_name.as_deref(), Some("B1-10 产成品"), "产品名 join");
+    assert_eq!(hit.product_code.as_deref(), Some("B10-P1"));
+    assert_eq!(hit.plan_qty.parse::<Decimal>().expect("计划数量"), dec("100"));
+    assert_eq!(hit.start_date.as_deref(), Some("2026-11-01"));
+    println!("[B1-12] 下拉 {} 条，只含 OPEN（{}）", options.len(), hit.object_no);
+}
+
+/// ⑧ 关键字命中对象号 / 产品编码 / 产品名称（三列任一即可），且仍只含 OPEN。
+#[tokio::test]
+async fn options_filter_by_keyword_on_object_no_and_product() {
+    let Some(_guard) = setup().await else { return };
+
+    for (keyword, label) in [
+        ("CB-B110-000001", "对象号"),
+        ("B10-P1", "产品编码"),
+        ("产成品", "产品名称"),
+    ] {
+        let query = crate::business::erp::stockout_dto::CostObjectOptionQuery {
+            keyword: Some(keyword.to_string()),
+        };
+        let options = stockout_handler::cost_object_options(&query)
+            .await
+            .unwrap_or_else(|error| panic!("下拉（{label}）失败：{} {}", error.code, error.msg));
+        let ids: Vec<&str> = options.iter().map(|item| item.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![OBJECT_OPEN],
+            "{label}「{keyword}」应只命中 OPEN 那条：{ids:?}"
+        );
+    }
+
+    // 命中 CLOSED 对象号 → 空列表（关批的批不因为能被搜到就出现）
+    let query = crate::business::erp::stockout_dto::CostObjectOptionQuery {
+        keyword: Some("CB-B110-000002".to_string()),
+    };
+    let options = stockout_handler::cost_object_options(&query).await.expect("下拉");
+    assert!(options.is_empty(), "已关批对象的号搜出来也必须是空：{options:?}");
+    println!("[B1-12] 关键字三列命中 OK，关批对象搜不到");
+}

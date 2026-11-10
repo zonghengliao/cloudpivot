@@ -704,6 +704,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '成本对象', permission: 'business:erp:cost-object:list' },
       },
       {
+        // ==================== ERP 成本：批次管理（COST-B1-12 / ARCH-9 §6.1 #6） ====================
+        // `sys_menu` 种子（V0378 …c006）path = `/business/erp/lot`、component
+        // `business/erp/lot/index`，权限码 `business:erp:lot:list`，挂在「仓库管理」（`…e01`）sort 95。
+        // 与成本对象页同款：路由手工注册，漏了 = 点菜单进 404。
+        path: 'business/erp/lot',
+        name: 'BusinessErpLot',
+        component: () => import('@/views/business/erp/lot/index.vue'),
+        meta: { title: '批次管理', permission: 'business:erp:lot:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）

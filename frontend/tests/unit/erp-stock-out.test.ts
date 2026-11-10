@@ -25,11 +25,13 @@ import {
   STOCK_OUT_MAX_LINES,
   STOCK_OUT_PAGE_SIZE,
   STOCK_OUT_STATUS_FILTER_OPTIONS,
+  allowsCostObject,
   buildCancelPayload,
   buildStockOutPayload,
   buildStockOutQuery,
   canDelete,
   canEdit,
+  debitAccountHint,
   detailToForm,
   emptyStockOutFilter,
   emptyStockOutForm,
@@ -437,4 +439,89 @@ test('API 层 6 个接口都写全了 /api 前缀（漏了会命中 SPA fallback
   for (const fn of ['fetchStockOutPage', 'fetchStockOutDetail', 'createStockOut', 'updateStockOut', 'deleteStockOut', 'updateStockOutStatus']) {
     assert.ok(source.includes(`export function ${fn}`), `缺少导出函数 ${fn}`);
   }
+});
+
+// ==================== 成本对象（ARCH-9 B1-10 / B1-12） ====================
+
+test('只有领用能挂成本对象（报废 / 盘亏必进 1901）', () => {
+  assert.equal(allowsCostObject('ISSUE'), true);
+  for (const outType of ['SCRAP', 'LOSS', 'OTHER']) {
+    assert.equal(allowsCostObject(outType), false, `${outType} 不能挂成本对象`);
+  }
+});
+
+test('借方科目预览与后端 debit_account_of_doc 同一张表', () => {
+  // ISSUE + 挂对象 → 4001.01 生产成本-直接材料
+  assert.deepEqual(debitAccountHint('ISSUE', 'obj-1'), {
+    code: '4001.01',
+    name: '生产成本-直接材料',
+  });
+  // ISSUE 不挂 → 6401 主营
+  assert.deepEqual(debitAccountHint('ISSUE', ''), { code: '6401', name: '主营业务成本' });
+  // 报废 / 盘亏恒 1901（即便带了对象 id —— 后端会直接 400，这里只是展示口径）
+  assert.deepEqual(debitAccountHint('SCRAP', null), { code: '1901', name: '待处理财产损溢' });
+  assert.deepEqual(debitAccountHint('LOSS', 'obj-1'), { code: '1901', name: '待处理财产损溢' });
+  // 其他 → 6401
+  assert.deepEqual(debitAccountHint('OTHER', null), { code: '6401', name: '主营业务成本' });
+});
+
+test('建单报文带 cost_object_id；换成报废后残留的选择必须被清成 null', () => {
+  const form = validForm();
+  form.out_type = 'ISSUE';
+  form.cost_object_id = 'obj-1';
+  assert.equal(buildStockOutPayload(form).cost_object_id, 'obj-1');
+
+  // 不选 = null（不是空串：后端把空串当非法 UUID → 400）
+  form.cost_object_id = '';
+  assert.equal(buildStockOutPayload(form).cost_object_id, null);
+
+  // 选了对象又把类型改成报废：请求体里必须是 null（否则后端 400）
+  form.cost_object_id = 'obj-1';
+  form.out_type = 'SCRAP';
+  assert.equal(buildStockOutPayload(form).cost_object_id, null);
+});
+
+test('详情 → 表单 会回填成本对象（改单不丢）', () => {
+  const detail = {
+    id: 'doc-1',
+    out_no: 'OUT-20261103-000001',
+    out_type: 'ISSUE',
+    out_type_label: '领用',
+    warehouse_id: 'wh-1',
+    out_date: '2026-11-03',
+    status: 'DRAFT',
+    status_label: '草稿',
+    total_qty: '30.0000',
+    total_amount: '0.0000',
+    voucher_id: null,
+    reason: null,
+    remark: null,
+    created_at: '2026-11-03T02:00:00Z',
+    create_by: null,
+    cost_object_id: 'obj-1',
+    cost_object_no: 'CB-20261101-000001',
+    debit_account_code: '4001.01',
+    debit_account_name: '生产成本-直接材料',
+    items: [],
+    posted_at: null,
+    cancelled_at: null,
+    cancel_reason: null,
+    next_statuses: [],
+    legal_edges: [],
+  } as unknown as Parameters<typeof detailToForm>[0];
+
+  assert.equal(detailToForm(detail).cost_object_id, 'obj-1');
+  assert.equal(detailToForm({ ...detail, cost_object_id: null }).cost_object_id, '');
+});
+
+test('成本对象下拉必须走 /stock-out/cost-object-options（仓管也有该权限码）', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = readFileSync(resolve(here, '../../src/api/business/erp/stock-out.ts'), 'utf8');
+  assert.ok(
+    source.includes('`${BASE}/stock-out/cost-object-options`'),
+    '缺少成本对象下拉接口路径',
+  );
+  assert.ok(source.includes('export function fetchStockOutCostObjectOptions'));
+  // 不许改去查成本对象页那个接口（仓管没有 cost-object:list）
+  assert.equal(source.includes('${BASE}/cost-object?status=OPEN'), false);
 });

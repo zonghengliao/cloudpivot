@@ -48,8 +48,9 @@ use crate::business::flow::linkage;
 
 use super::stockout_base::*;
 use super::stockout_dto::{
-    CreateStockOutReq, StockOutDetailRes, StockOutEnvelope, StockOutPageQuery, StockOutPageRes, StockOutStatusReq,
-    ensure_cost_object_usable, ensure_draft, fill_cost_object_labels, list_res, materials_of,
+    CostObjectOptionQuery, CostObjectOptionRes, CreateStockOutReq, StockOutDetailRes, StockOutEnvelope,
+    StockOutPageQuery, StockOutPageRes, StockOutStatusReq, ensure_cost_object_usable, ensure_draft,
+    fill_cost_object_labels, list_res, materials_of,
 };
 use super::stockout_model::{self as stock_out, MaterialInfo};
 
@@ -1424,6 +1425,21 @@ pub async fn page_of(q: &StockOutPageQuery) -> std::result::Result<StockOutPageR
     })
 }
 
+// ==================== 成本对象下拉（B1-12） ====================
+
+/// 出库表单可选的成本对象（**只 `OPEN`**）。
+///
+/// 权限码用 `business:erp:stock-out:list`（不是 `cost-object:list`）：
+/// V0378 把 `cost-object:list` 只授给财务角色，而开这张单的是仓管 —— 见
+/// `stockout_model::open_cost_objects` 的头注释。
+pub async fn cost_object_options(
+    query: &CostObjectOptionQuery,
+) -> std::result::Result<Vec<CostObjectOptionRes>, ApiError> {
+    let keyword = query.keyword_text();
+    let rows = stock_out::open_cost_objects(db(), keyword.as_deref()).await?;
+    Ok(rows.iter().map(stock_out::CostObjectOptionRow::to_res).collect())
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 新建出库单（`status = DRAFT`，单号 `OUT-yyyyMMdd-000001`）。
@@ -1520,4 +1536,19 @@ pub async fn stock_out_page(Query(q): Query<StockOutPageQuery>) -> ResResult<Sto
 pub async fn stock_out_detail(Path(id): Path<String>) -> ResResult<StockOutDetailRes> {
     let id = parse_uuid(&id, "id")?;
     Ok(Res::ok(detail_of(id).await?))
+}
+
+/// 出库表单可选的成本对象（**只 `OPEN`**；领料单挂对象的选择器数据源）。
+///
+/// 路由与 `/stock-out/{id}` 同前缀：静态段优先匹配（与 `/lot/options` 同款）。
+#[nik::permission(
+    path = "/business/erp/stock-out/cost-object-options",
+    method = "GET",
+    permission = "business:erp:stock-out:list"
+)]
+#[nik::get("/business/erp/stock-out/cost-object-options")]
+pub async fn stock_out_cost_object_options(
+    Query(query): Query<CostObjectOptionQuery>,
+) -> ResResult<Vec<CostObjectOptionRes>> {
+    Ok(Res::ok(cost_object_options(&query).await?))
 }

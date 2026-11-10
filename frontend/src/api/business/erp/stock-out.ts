@@ -108,6 +108,43 @@ export interface StockOutRow {
   create_by: string | null;
   /** 制单人姓名（AUD-02 起后端批量 join 下发；不再把 id 当显示名） */
   create_by_name?: string | null;
+  /**
+   * 成本对象（ARCH-9 B1-10；`null` = 未挂 = 存量口径）。
+   *
+   * **只有领用（`ISSUE`）单能挂**：后端对报废 / 盘亏挂对象直接 400
+   * （资产损失必进 1901，料只按 `ISSUE` 归集）。
+   */
+  cost_object_id?: string | null;
+  /** 成本对象号 `CB-yyyyMMdd-NNNNNN`（实时取；未挂 / 已删 → `null`） */
+  cost_object_no?: string | null;
+  /**
+   * **过账借方科目**编码（后端 `stockout_base::debit_account_of_doc` 复算下发）。
+   *
+   * 挂对象 + 领用 ⇒ `4001.01` 生产成本-直接材料；否则 `6401` / `1901`。
+   * 前端**不自己算过账科目**，只拿它显示（表单里那句「选完借方会变」的预览除外，
+   * 见 `stock-out-logic.ts::debitAccountHint`，那边注明了两边同源）。
+   */
+  debit_account_code?: string;
+  /** 借方科目名称（`生产成本-直接材料` / `主营业务成本` / `待处理财产损溢`） */
+  debit_account_name?: string;
+}
+
+/** 出库表单「成本对象」下拉项（`GET /erp/stock-out/cost-object-options`，只列 OPEN） */
+export interface StockOutCostObjectOption {
+  /** 成本对象 id */
+  id: string;
+  /** 对象号 `CB-yyyyMMdd-NNNNNN` */
+  object_no: string;
+  /** 产品 id */
+  product_id: string;
+  /** 产品编码（实时 join） */
+  product_code: string | null;
+  /** 产品名称（实时 join） */
+  product_name: string | null;
+  /** 计划数量（字符串） */
+  plan_qty: string;
+  /** 开工日期 `YYYY-MM-DD` */
+  start_date: string | null;
 }
 
 /** 明细行（逐字抄 `StockOutItemRes`） */
@@ -189,6 +226,16 @@ export interface CreateStockOutReq {
   reason?: string | null;
   /** 备注（≤ 500 字） */
   remark?: string | null;
+  /**
+   * 成本对象（ARCH-9 §4.7.1；**只有领用 `ISSUE` 能挂**）。
+   *
+   * - 缺省 / `null` = 不挂 ⇒ 借方按原逻辑 `6401`（报废 / 盘亏恒 `1901`）；
+   * - 传 id = 挂到该成本对象 ⇒ 借方 `4001.01` 生产成本-直接材料。
+   *
+   * 改单是**整单覆盖**：不传 = 清空（与 `reason` / `remark` 同口径）。
+   * 对象必须是 `OPEN`，否则 409 + `66057`。
+   */
+  cost_object_id?: string | null;
   /** 明细（1–200 行） */
   items: StockOutItemReq[];
 }
@@ -231,6 +278,22 @@ export function fetchStockOutPage(query: {
 /** 出库单详情（`GET /erp/stock-out/{id}`，**扁平**：没有 `header` 包一层） */
 export function fetchStockOutDetail(id: string): Promise<StockOutDetail> {
   return get<StockOutDetail>(`${BASE}/stock-out/${id}`);
+}
+
+/**
+ * 领料单可选的成本对象（`GET /erp/stock-out/cost-object-options`，**只列 `OPEN`**）。
+ *
+ * 为什么不用成本对象页那个列表接口（`GET /cost-object?status=OPEN`）：
+ * 那条走 `business:erp:cost-object:list`，V0378 只授给财务角色；
+ * 开领料单的是仓管（`stock-out:*`），去查它会 403 → 下拉永远空。
+ * 本接口按 `business:erp:stock-out:list` 授权，仓管开单就能选。
+ *
+ * 上限 200 条（后端 `COST_OBJECT_OPTION_LIMIT`），超量靠 `filterable` 搜索。
+ */
+export function fetchStockOutCostObjectOptions(params: { keyword?: string } = {}): Promise<
+  StockOutCostObjectOption[]
+> {
+  return get<StockOutCostObjectOption[]>(`${BASE}/stock-out/cost-object-options`, asParams(params));
 }
 
 /**

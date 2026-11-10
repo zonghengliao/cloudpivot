@@ -114,6 +114,43 @@ export function requiresReason(outType: StockOutType | string | null | undefined
   return REQUIRES_REASON_TYPES.includes(outType as StockOutType);
 }
 
+/**
+ * 该出库类型是否可以挂成本对象。
+ *
+ * 只有**领用**能挂（ARCH-9 §4.3：料只按 `ISSUE` 归集；报废 / 盘亏必进 1901）。
+ * 后端对非 ISSUE 挂对象直接 400（`stockout_dto::ensure_cost_object_usable`），
+ * 所以表单在非 ISSUE 时**根本不显示**这个下拉，提交时也不会带它（见 `buildStockOutPayload`）。
+ */
+export function allowsCostObject(outType: StockOutType | string | null | undefined): boolean {
+  return outType === 'ISSUE';
+}
+
+/**
+ * 借方科目的**表单预览**（选完成本对象后那句提示）。
+ *
+ * ⚠️ 口径与后端 `stockout_base::debit_account_of_doc` **逐字一致**：
+ * ```text
+ * ISSUE + 挂了成本对象 → 4001.01 生产成本-直接材料
+ * SCRAP / LOSS         → 1901 待处理财产损溢
+ * 其余（含 ISSUE 不挂） → 6401 主营业务成本
+ * ```
+ * 真正的过账科目以**后端下发**的 `debit_account_code/name` 为准（详情里就有），
+ * 这里只是「还没保存时也能看到会怎么记」的预览 —— 改后端那张表时这里必须同步
+ * （`tests/unit/erp-stock-out.test.ts` 有四条对照断言钉住）。
+ */
+export function debitAccountHint(
+  outType: StockOutType | string | null | undefined,
+  costObjectId: string | null | undefined,
+): { code: string; name: string } {
+  if (allowsCostObject(outType) && costObjectId) {
+    return { code: '4001.01', name: '生产成本-直接材料' };
+  }
+  if (outType === 'SCRAP' || outType === 'LOSS') {
+    return { code: '1901', name: '待处理财产损溢' };
+  }
+  return { code: '6401', name: '主营业务成本' };
+}
+
 /** 列表筛选状态 */
 export interface StockOutFilterState {
   /** 单号 / 事由 / 备注（模糊） */
@@ -159,6 +196,13 @@ export interface StockOutFormState {
   reason: string;
   /** 备注 */
   remark: string;
+  /**
+   * 成本对象 id（`''` = 不挂）。
+   *
+   * 只有领用（`ISSUE`）能挂；表单在非 ISSUE 时不渲染下拉，提交时也会强制为 `null`
+   * （`buildStockOutPayload`），避免「先选对象再把类型改成报废」带出一个 400。
+   */
+  cost_object_id: string;
   /** 明细 */
   items: StockOutItemForm[];
 }
@@ -186,6 +230,7 @@ export function emptyStockOutForm(now: Date = new Date()): StockOutFormState {
     out_date: todayString(now),
     reason: '',
     remark: '',
+    cost_object_id: '',
     items: [emptyStockOutItem('line-1')],
   };
 }
@@ -199,6 +244,7 @@ export function detailToForm(detail: StockOutDetail): StockOutFormState {
     out_date: detail.out_date,
     reason: detail.reason ?? '',
     remark: detail.remark ?? '',
+    cost_object_id: detail.cost_object_id ?? '',
     items:
       detail.items.length > 0
         ? detail.items.map((item, index) => ({
@@ -306,6 +352,9 @@ export function buildStockOutPayload(form: StockOutFormState): CreateStockOutReq
     out_date: form.out_date,
     reason: form.reason.trim() ? form.reason.trim() : null,
     remark: form.remark.trim() ? form.remark.trim() : null,
+    // 只有领用能挂对象：切过类型（ISSUE → SCRAP）后残留的选择必须清掉，
+    // 否则后端 400（资产损失不进 4001.01），用户还得自己发现是哪个字段的锅。
+    cost_object_id: allowsCostObject(form.out_type) && form.cost_object_id ? form.cost_object_id : null,
     items,
   };
 }

@@ -293,6 +293,118 @@ pub async fn cost_object_labels(
     Ok(map)
 }
 
+/// 成本对象下拉行（B1-12 出库单表单的选择器；**只有 `OPEN`**）。
+#[derive(Debug, Clone)]
+pub struct CostObjectOptionRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 对象号。
+    pub object_no: String,
+    /// 产品（物料）。
+    pub product_id: Uuid,
+    /// 产品编码（实时 join）。
+    pub product_code: Option<String>,
+    /// 产品名称（实时 join）。
+    pub product_name: Option<String>,
+    /// 计划数量。
+    pub plan_qty: Decimal,
+    /// 开工日期。
+    pub start_date: Option<NaiveDate>,
+}
+
+impl CostObjectOptionRow {
+    /// 行 → 出参。
+    pub fn to_res(&self) -> super::stockout_dto::CostObjectOptionRes {
+        super::stockout_dto::CostObjectOptionRes {
+            id: self.id.to_string(),
+            object_no: self.object_no.clone(),
+            product_id: self.product_id.to_string(),
+            product_code: self.product_code.clone(),
+            product_name: self.product_name.clone(),
+            plan_qty: self.plan_qty.round_dp(4).to_string(),
+            start_date: self.start_date.map(|date| date.to_string()),
+        }
+    }
+}
+
+/// 「可挂对象的成本对象」下拉（只 `OPEN`；`keyword` 命中对象号 / 产品编码 / 产品名称）。
+///
+/// # 为什么这条查询在出库模块，而不在 `cost_object_model`
+///
+/// 这张下拉服务的是**出库单表单**，权限码走 `business:erp:stock-out:list`。
+/// V0378 的授权矩阵把 `cost-object:list` 只授给财务角色（仓管没有），
+/// 若下拉去查成本对象页那个接口，仓管打开出库单会吃 403 —— 于是这里给一条
+/// 「按出库单权限就能读的最小投影」：只 `OPEN`、只 4 列、上限
+/// [`super::stockout_dto::COST_OBJECT_OPTION_LIMIT`] 条。
+///
+/// 已关批 / 已作废的对象**不出现在下拉里**：挂上去会被 `ensure_cost_object_usable`
+/// 409 拦掉（`66057`），列出来只是让用户白点一次。
+pub async fn open_cost_objects(ex: &impl SqlExecutor, keyword: Option<&str>) -> DbResult<Vec<CostObjectOptionRow>> {
+    let mut sql = String::from(
+        "SELECT o.id, o.object_no, o.product_id, m.material_code AS product_code, \
+                m.material_name AS product_name, o.plan_qty, o.start_date \
+           FROM biz_cost_object o \
+           LEFT JOIN biz_material m ON m.id = o.product_id AND m.deleted_at IS NULL \
+          WHERE o.deleted_at IS NULL AND o.status = 'OPEN'",
+    );
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(pattern) = like_pattern(keyword) {
+        sql.push_str(
+            " AND (o.object_no LIKE ? OR COALESCE(m.material_code, '') LIKE ? \
+               OR COALESCE(m.material_name, '') LIKE ?)",
+        );
+        for _ in 0..3 {
+            params.push(Value::from(pattern.clone()));
+        }
+    }
+    // 新开的批排前面（同一天开工按对象号兜底，保证顺序稳定）
+    sql.push_str(" ORDER BY o.start_date DESC NULLS LAST, o.object_no LIMIT ?");
+    params.push(Value::I64(super::stockout_dto::COST_OBJECT_OPTION_LIMIT));
+    let rows = ex.query_sql(sql, params).await?;
+    rows.iter()
+        .map(|row| {
+            Ok(CostObjectOptionRow {
+                id: row.get_typed("id")?,
+                object_no: row.get_typed("object_no")?,
+                product_id: row.get_typed("product_id")?,
+                product_code: row.get_typed("product_code")?,
+                product_name: row.get_typed("product_name")?,
+                plan_qty: row.get_typed("plan_qty")?,
+                start_date: row.get_typed("start_date")?,
+            })
+        })
+        .collect()
+}
+
+/// 关键字 → LIKE 模式（与 `lot_model::like_pattern` 同口径，`%` / `_` 先转义）。
+fn like_pattern(keyword: Option<&str>) -> Option<String> {
+    keyword
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!("%{}%", text.replace('%', "\\%").replace('_', "\\_")))
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::like_pattern;
+
+    /// 空白关键字 = 不筛（否则 `%  %` 会查出 0 行，用户以为没数据）。
+    #[test]
+    fn blank_keyword_yields_no_filter() {
+        assert_eq!(like_pattern(None), None);
+        assert_eq!(like_pattern(Some("")), None);
+        assert_eq!(like_pattern(Some("   ")), None);
+    }
+
+    /// 通配符先转义再包 `%`：用户输入 `50%` 不能变成「任意」。
+    #[test]
+    fn wildcard_characters_are_escaped() {
+        assert_eq!(like_pattern(Some(" CB-2026 ")).as_deref(), Some("%CB-2026%"));
+        assert_eq!(like_pattern(Some("A_B")).as_deref(), Some("%A\\_B%"));
+        assert_eq!(like_pattern(Some("50%")).as_deref(), Some("%50\\%%"));
+    }
+}
+
 // ==================== 写入：建单 / 改单 / 软删 ====================
 
 /// 取一个出库单号（`OUT-yyyyMMdd-000001`，按天 CST 滚动）。
