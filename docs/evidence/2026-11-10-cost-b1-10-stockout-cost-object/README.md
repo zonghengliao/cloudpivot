@@ -54,9 +54,9 @@
 |---|---|
 | `01_pure_tests.out` | 纯逻辑：`stockout_base` 3 条 + `stockout_dto` 9 条 + 66057 码表守卫 —— 15 passed / 0 failed |
 | `02_real_db_tests.out` | 真库 6 条（`--nocapture`，报文与凭证分录都在里面）—— 6 passed / 0 failed |
-| `04_isolated_gate.log` | 隔离工作树 `@434aad42`：`cargo fmt --check` FMT_EXIT=0 / `cargo clippy --all-targets -D warnings` 0 告警（5m22s）/ **全量 `cargo test` TEST_EXIT=0，31 个目标 4494 passed / 0 failed** |
+| `04_isolated_gate.out` | 隔离工作树 `@434aad42`：`cargo fmt --check` FMT_EXIT=0 / `cargo clippy --all-targets -D warnings` 0 告警（5m22s）/ **全量 `cargo test` TEST_EXIT=0，31 个目标 4494 passed / 0 failed** |
 | `05_isolated_real_db.out` | 同一隔离工作树里再跑一遍真库 6 条（`ERP_DB_URL=mig_replay_b110cost`）—— 6 passed / 0 failed |
-| `03_full_test_raw.log` | **共享工作区**跑全量 test 的原始日志：红在并发卡（B2-1 工时台账）未提交的 `cost_labor_db_tests.rs`（`&str` vs `String`），**不是本卡**；本卡的全绿证据看 `04` |
+| `03_shared_workspace_full_test.out` | **共享工作区**跑全量 test 的原始日志：红在并发卡（B2-1 工时台账）未提交的 `cost_labor_db_tests.rs`（`&str` vs `String`），**不是本卡**；本卡的全绿证据看 `04` |
 
 真库怎么跑（`mig_replay_b110cost` = 空库全链重放 300/300 得到的干净库）：
 
@@ -89,6 +89,6 @@ ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/mig_replay_b110cost" \
 4. **遗留库** `mig_replay_b110cost`（本机，供复跑；不含生产数据），隔离工作树 `/root/wt-b110`
    与 `/root/wt-b110-target` 用完已 `git worktree remove`。
 5. **共享工作区门禁**：`cargo test` 全仓会红在并发卡（B2-1 工时台账）的未提交文件；
-   本卡全绿证据在隔离工作树 `@434aad42`（`04_isolated_gate.log`：31 目标 4494 passed / 0 failed，
+   本卡全绿证据在隔离工作树 `@434aad42`（`04_isolated_gate.out`：31 目标 4494 passed / 0 failed，
    fmt / clippy 全绿，`05_isolated_real_db.out` 真库 6/6）。pre-push 同理用
    `SKIP_PREPUSH=1` 跳过工作区级 L1（原因同 B1-5）。
