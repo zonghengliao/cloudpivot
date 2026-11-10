@@ -1,0 +1,30 @@
+1) 登录 admin
+   login code=0 token 长度 461  must_change_password=False
+2) 造夹具物料（psql 直插，编码前缀 COSTB19-179432429211905）
+   material=0341ba97-8605-4194-afb2-2cb499c1fd71  unit=f760626c-a193-41f0-ab42-cc53afe44eb9
+3) POST /business/erp/lot（新建）
+   code=0 lot_no=COSTB19-LOT-179432429211905 status=1 qc=PASSED material_name=批次冒烟物料 179432429211905 material_code=COSTB19-179432429211905 prod=2026-11-01 expire=2027-11-01
+   lot id = 01a1c60f-ea1e-7246-a6f5-40805dbda3ed
+4) GET /business/erp/lot（列表，按物料 + 关键字）
+   code=0 total=1 page=1 page_size=20 首行=COSTB19-LOT-179432429211905
+5) GET /business/erp/lot/options?material_id=（按物料取批号）
+   code=0 条数=1 批号=['COSTB19-LOT-179432429211905'] 质检=['PASSED']
+6) PUT /business/erp/lot/{id}（改批号 + 质检 + 清空失效日期 + 停用）
+   code=0 lot_no=COSTB19-LOT-179432429211905-2 qc=REJECTED expire=None status=0 remark=B1-9 冒烟改单
+7) GET /lot/options（停用后应从下拉消失）
+   code=0 条数=0
+8) POST /lot（同物料同批号 ⇒ 应 409 + 66056 友好文案）
+   HTTP 409
+   code=66056 msg=批号「COSTB19-LOT-179432429211905-2」在物料「COSTB19-179432429211905 批次冒烟物料 179432429211905」下已存在：同一物料不能有两个相同批号。
+请改用其它批号，或到「批次管理」里编辑已有那一行（已软删的批号可以复用）
+9) POST /lot（物料不存在 ⇒ 应 400 指名）
+   HTTP 400
+   code=10001 msg=material_id（4822f946-aff2-4950-818e-4569eecad777）指向的物料不存在或已删除
+10) 未鉴权 / 未知路径（证明路由真挂上了，不是文件写了没挂）
+   GET  /lot 无 token => 401
+   GET  /lot/options 无 token => 401
+   POST /lot 无 token => 401
+   PUT  /lot/{id} 无 token => 401
+   GET  /business/erp/lot-not-exist => 404（404 = 没有被通配吞掉）
+11) 清理冒烟数据
+   残留批次数=0

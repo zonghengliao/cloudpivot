@@ -1,0 +1,18 @@
+== cargo test --lib lot_dto
+test business::erp::lot_dto::tests::unique_violation_maps_to_409_66056 ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4137 filtered out; finished in 0.00s
+
+== cargo test --lib lot_model
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4144 filtered out; finished in 0.00s
+
+== cargo test --lib lot_handler
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4145 filtered out; finished in 0.00s
+
+== cargo test --lib error_code
+test shared::error_code::tests::task_error_codes_are_stable ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4141 filtered out; finished in 0.01s
+

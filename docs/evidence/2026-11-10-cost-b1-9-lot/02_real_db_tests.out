@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 7 tests
+test business::erp::lot_db_tests::db::create_page_update_and_options_flow ... ok
+test business::erp::lot_db_tests::db::db_unique_index_still_catches_concurrent_insert ... ok
+test business::erp::lot_db_tests::db::duplicate_lot_no_on_same_material_is_friendly_409 ... ok
+test business::erp::lot_db_tests::db::options_require_material_and_reject_unknown ... ok
+test business::erp::lot_db_tests::db::refs_and_dates_are_rejected_with_field_names ... ok
+test business::erp::lot_db_tests::db::same_lot_no_allowed_on_another_material ... ok
+test business::erp::lot_db_tests::db::update_into_existing_lot_no_is_friendly_409 ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4145 filtered out; finished in 5.28s
+

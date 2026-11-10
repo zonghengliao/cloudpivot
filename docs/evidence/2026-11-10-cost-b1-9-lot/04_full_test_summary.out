@@ -1,0 +1,5 @@
+== 全量 cargo test（无 ERP_DB_URL，真库用例 SKIP）
+测试目标数=31  passed=4476  failed=0
+
+all doctests ran in 18.70s; merged doctests compilation took 18.67s
+EXIT=0
