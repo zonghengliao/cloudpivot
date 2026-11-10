@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 8 tests
+test business::erp::cost_object_db_tests::db::close_blocked_by_draft_labor ... ok
+test business::erp::cost_object_db_tests::db::close_blocked_by_locked_period ... ok
+test business::erp::cost_object_db_tests::db::close_blocked_by_uncollected_stock_out ... ok
+test business::erp::cost_object_db_tests::db::close_blocked_by_unposted_stock_out ... ok
+test business::erp::cost_object_db_tests::db::close_succeeds_when_five_checks_pass ... ok
+test business::erp::cost_object_db_tests::db::create_page_detail_update_flow ... ok
+test business::erp::cost_object_db_tests::db::update_rejects_after_close_and_product_change_with_collect ... ok
+test business::erp::cost_object_db_tests::db::wip_requires_force_confirmation ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4107 filtered out; finished in 14.79s
+

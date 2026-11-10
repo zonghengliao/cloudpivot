@@ -825,6 +825,14 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 审批通过后的过账是**流程回调**（`receipt_refund_bridge::on_refund_settled`），
     // 不是单据联动规则，所以也不进 `TRIGGER_SPECS`。
     state_machine::ENTITY_RECEIPT_REFUND,
+    // 成本核算 ARCH-9 · B1-8：成本对象（生产批）的状态流转入口
+    // （`cost_object_handler::close_object`）**不调联动引擎** ——
+    // 关批的后果全在成本域内（不再领料报工、参与后续期间期初在制），
+    // 没有「另一张单据跟着变状态」的语义；跨域联动（完工入库 / 凭证）发生在
+    // **成本核算批次结算**（`biz_cost_period` 的 SETTLED，B3 卡）那一步，不是关批。
+    // 真要按关批触发（例如关批后提醒车间盘点余料）时，移进 `TRIGGER_SPECS`
+    // 并给 `wired = true` + `proofs`（漂移守卫会同时要求两者）。
+    state_machine::ENTITY_COST_OBJECT,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

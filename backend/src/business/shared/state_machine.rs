@@ -1547,6 +1547,47 @@ pub fn critical_edge(entity: Entity, from: &str, to: &str) -> Option<&'static Cr
         .find(|item| item.entity == entity && item.from == from && item.to == to)
 }
 
+// ==================== 成本核算 · 成本对象（ARCH-9 §4.1） ====================
+
+/// 实体类型：成本对象（生产批）`biz_cost_object`。
+///
+/// 做法同 `ENTITY_FIXED_ASSET`：落库值取 [`DocKind::CostObject`]（`"COST_OBJECT"`），
+/// 不是手写字面量 —— `doc_kind_tests::entity_registry_is_covered_by_doc_kind`
+/// 要求注册表里每个实体都在 `DocKind` 域内。
+pub const ENTITY_COST_OBJECT: &str = DocKind::CostObject.as_str();
+
+/// 成本对象合法边（ARCH-9 §4.1，只有 2 条）。
+///
+/// ```text
+/// OPEN ──关批──▶ CLOSED        成本已结转，历史数据全保留
+/// OPEN ──作废──▶ CANCELLED     建错了（前置：无归集行、无入库、无结算明细）
+/// ```
+///
+/// **没有 `CLOSED → OPEN`**：设计 §4.1 写死「成本已结转，重开会破坏已结算期间的
+/// 归集基线；要复工就新建批」。这条缺失是**故意的**，别在调用点补。
+///
+/// **没有 `CANCELLED → *`**：作废是终态（只读）。
+pub const COST_OBJECT_EDGES: [(&str, &str); 2] = [("OPEN", "CLOSED"), ("OPEN", "CANCELLED")];
+
+/// 需要 reason 的成本对象边：**只有作废**。
+///
+/// 关批的备注（`remark`）是可选的业务说明，不是「影响已入账数据」的解释；
+/// 作废则是把「建错的批」从核算范围里拿掉，必须留下为什么作废（审计口径）。
+pub const COST_OBJECT_REASON_EDGES: [(&str, &str); 1] = [("OPEN", "CANCELLED")];
+
+/// 成本对象「不可改」状态：关批 / 作废之后只读
+/// （`ensure_writable` 用它拦「已关批还被改基本信息」）。
+pub const COST_OBJECT_LOCKED: [&str; 2] = ["CLOSED", "CANCELLED"];
+
+/// 成本对象的 BASE_EDGES（与 [`COST_OBJECT_EDGES`] 逐条对应，顺序一致）。
+///
+/// 两条全 mandatory：关批与作废都是**改动核算基线**的动作，
+/// 配置层不许把它们关掉（关掉等于对象永远停在 OPEN、永远结算不下去）。
+pub const COST_OBJECT_BASE: [BaseEdge; 2] = [
+    BaseEdge::mandatory("OPEN", "CLOSED", "关批（成本已结转）", false),
+    BaseEdge::mandatory("OPEN", "CANCELLED", "作废（建错了）", true),
+];
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -1611,11 +1652,17 @@ pub enum Entity {
     /// `DRAFT / SUBMITTED / APPROVED → CANCELLED`。确认（出库回冲 + 应付红字 +
     /// 供应商应退款 + 冲销凭证）在 `APPROVED → CONFIRMED` 的同一事务里完成。
     PurchaseReturn,
+    /// 成本对象（生产批）`biz_cost_object`（成本核算 ARCH-9 §4.1）。
+    ///
+    /// 状态域三值 `OPEN`/`CLOSED`/`CANCELLED`，边表见 [`COST_OBJECT_EDGES`]。
+    /// 与别的实体不同：它**不是审批单据**，状态变更全部来自成本核算侧
+    /// （关批 = 不再领料报工），所以没有 `SUBMITTED` / `APPROVED` 这些中间态。
+    CostObject,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 22] = [
+    pub const ALL: [Entity; 23] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1638,6 +1685,8 @@ impl Entity {
         Entity::Invoice,
         Entity::SalesReturn,
         Entity::PurchaseReturn,
+        // 成本核算（ARCH-9）
+        Entity::CostObject,
     ];
 
     /// 落库的 `entity_type`。
@@ -1665,6 +1714,7 @@ impl Entity {
             Entity::Invoice => ENTITY_INVOICE,
             Entity::SalesReturn => ENTITY_SALES_RETURN,
             Entity::PurchaseReturn => ENTITY_PURCHASE_RETURN,
+            Entity::CostObject => ENTITY_COST_OBJECT,
         }
     }
 
@@ -1698,6 +1748,7 @@ impl Entity {
             Entity::Invoice => "销售发票",
             Entity::SalesReturn => "销售退货单",
             Entity::PurchaseReturn => "采购退货单",
+            Entity::CostObject => "成本对象",
         }
     }
 
@@ -1726,6 +1777,7 @@ impl Entity {
             Entity::Invoice => &INVOICE_EDGES,
             Entity::SalesReturn => &SALES_RETURN_EDGES,
             Entity::PurchaseReturn => &PURCHASE_RETURN_EDGES,
+            Entity::CostObject => &COST_OBJECT_EDGES,
         }
     }
 
@@ -1757,6 +1809,7 @@ impl Entity {
             Entity::Invoice => &INVOICE_BASE,
             Entity::SalesReturn => &SALES_RETURN_BASE,
             Entity::PurchaseReturn => &PURCHASE_RETURN_BASE,
+            Entity::CostObject => &COST_OBJECT_BASE,
         }
     }
 
@@ -1790,6 +1843,7 @@ impl Entity {
             Entity::Invoice => &INVOICE_REASON_EDGES,
             Entity::SalesReturn => &SALES_RETURN_REASON_EDGES,
             Entity::PurchaseReturn => &PURCHASE_RETURN_REASON_EDGES,
+            Entity::CostObject => &COST_OBJECT_REASON_EDGES,
         }
     }
 
@@ -1818,6 +1872,7 @@ impl Entity {
             Entity::Invoice => &INVOICE_LOCKED,
             Entity::SalesReturn => &SALES_RETURN_LOCKED,
             Entity::PurchaseReturn => &PURCHASE_RETURN_LOCKED,
+            Entity::CostObject => &COST_OBJECT_LOCKED,
         }
     }
 
@@ -4890,13 +4945,14 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            22,
+            23,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
              → 17（RECEIVABLE，销售链 SO-13）→ 18（RECEIPT，销售链 SO-17）\
              → 19（RECEIPT_REFUND，销售链 SO-14 遗留 D10）→ 20（INVOICE，销售链 SO-20）\
-             → 21（SALES_RETURN，销售链 SO-29）→ 22（PURCHASE_RETURN，采购链 P2-03）"
+             → 21（SALES_RETURN，销售链 SO-29）→ 22（PURCHASE_RETURN，采购链 P2-03）\
+             → 23（COST_OBJECT，成本核算 ARCH-9 §4.1）"
         );
 
         // ③ as_str

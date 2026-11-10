@@ -184,6 +184,14 @@ pub const TABLE_WIRING: &[TableWiring] = &[
         anchor: "BIZ_COMMISSION_SETTLEMENT",
         reason: "佣金结算单分页走 scope::paginate(BIZ_COMMISSION_SETTLEMENT)，归属列 salesperson_id（business/erp/commission_model.rs:469）；无 dept_id ⇒ 部门类范围安全侧降级为「仅本人」（提成对个人不对部门）",
     },
+    // ---- business/erp（成本核算 ARCH-9 · B1-8） ----
+    TableWiring {
+        table: "biz_cost_object",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "BIZ_COST_OBJECT",
+        reason: "成本对象分页走 scope::paginate(BIZ_COST_OBJECT)，部门列 workshop_dept_id（business/erp/cost_object_model.rs::page）；无归属列 ⇒ SELF 范围安全侧降级为「本人所在部门」（成本对象是车间的生产批，不对个人）",
+    },
 ];
 
 /// 取某张表的登记项（未登记 → `None`）。

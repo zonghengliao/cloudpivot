@@ -268,6 +268,16 @@ impl ScopeTarget {
     /// 「仅本人」。这是佣金的正确语义：提成对个人，不对部门。
     pub const BIZ_COMMISSION_SETTLEMENT: Self =
         Self::new("biz_commission_settlement", "t", None, Some("salesperson_id"));
+
+    /// `biz_cost_object`（成本核算 ARCH-9）：成本对象（生产批）按**车间**裁剪。
+    ///
+    /// 部门列是 `workshop_dept_id`（生产车间）；归属列给 `None` —— 成本对象没有
+    /// 「本人」语义（它不是某个人名下的提成单据，而是一个车间的生产批），
+    /// SELF 范围由 [`filter_for`] 安全侧降级为「本人所在部门」。
+    ///
+    /// 设计 §5.4 点名这张表要走 `scope::ScopeTarget`（`dept_col='workshop_dept_id'`），
+    /// **不要**改成 `unscoped`：车间之间互相看得到对方的在产成本，是数据越权。
+    pub const BIZ_COST_OBJECT: Self = Self::new("biz_cost_object", "t", Some("workshop_dept_id"), None);
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
@@ -291,6 +301,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::SYS_NOTICE,
     ScopeTarget::SYS_FILE,
     ScopeTarget::BIZ_COMMISSION_SETTLEMENT,
+    ScopeTarget::BIZ_COST_OBJECT,
 ];
 
 // ==================== 片段 ====================

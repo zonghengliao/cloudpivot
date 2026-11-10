@@ -69,6 +69,7 @@ export const DOC_KINDS = [
   'SUPPLIER',
   'CUSTOMER',
   'OPENING_BALANCE',
+  'COST_OBJECT',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -106,6 +107,8 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   SUPPLIER: '供应商',
   CUSTOMER: '客户',
   OPENING_BALANCE: '期初余额',
+  // 成本核算（ARCH-9）
+  COST_OBJECT: '成本对象',
 };
 
 /**
@@ -150,6 +153,8 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   SUPPLIER: 'biz_supplier',
   CUSTOMER: 'biz_customer',
   OPENING_BALANCE: 'biz_voucher',
+  // 成本核算（ARCH-9）：生产批主表
+  COST_OBJECT: 'biz_cost_object',
 };
 
 /**

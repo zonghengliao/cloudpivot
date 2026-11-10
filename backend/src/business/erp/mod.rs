@@ -146,6 +146,12 @@ pub(crate) mod contract_linkage;
 pub mod contract_model;
 /// 合同 PDF 导出（PDF-03）：条款正文 + 签章位 + 附件清单 + 骑缝章提示。
 pub mod contract_pdf;
+/// B1-8 的真库用例（`ERP_DB_URL` 开关）：5 个接口 + 关批 5 条前置。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_object_db_tests;
+pub mod cost_object_dto;
+pub mod cost_object_handler;
+pub mod cost_object_model;
 pub mod credit;
 pub mod currency;
 pub mod currency_admin_handler;

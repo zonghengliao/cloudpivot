@@ -179,11 +179,22 @@ pub enum DocKind {
     /// 期初是「按期间整体覆盖」的录入动作，没有单头行可挂，挂到期初凭证才是
     /// 「这份依据属于哪一期期初」的唯一稳定锚点。
     OpeningBalance,
+    /// 成本对象（生产批）`biz_cost_object`（成本核算 ARCH-9 §3.1 ②）。
+    ///
+    /// 状态域三值 `OPEN`/`CLOSED`/`CANCELLED`，边表在
+    /// `state_machine::COST_OBJECT_EDGES`（只有 `OPEN → CLOSED` 与 `OPEN → CANCELLED`
+    /// 两条；`CLOSED` 是终态，设计 §4.1 明确「不可回 OPEN」）。
+    ///
+    /// **不登记 `is_document`**：它不是可审批单据（审批发生在成本核算批次
+    /// `biz_cost_period` 上），作废只是建错时的终态。列在这里是因为它确实有实体表、
+    /// 有状态机、会写 `biz_status_log` —— 不登记则 `state_machine` 注册表与
+    /// `DocKind` 域对不上（`doc_kind_tests::entity_registry_is_covered_by_doc_kind` 会红）。
+    CostObject,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 29] = [
+    pub const ALL: [DocKind; 30] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -215,6 +226,8 @@ impl DocKind {
         DocKind::Supplier,
         DocKind::Customer,
         DocKind::OpeningBalance,
+        // 成本核算（ARCH-9）：成本对象（生产批）
+        DocKind::CostObject,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -250,6 +263,8 @@ impl DocKind {
             DocKind::Supplier => "SUPPLIER",
             DocKind::Customer => "CUSTOMER",
             DocKind::OpeningBalance => "OPENING_BALANCE",
+            // 成本核算（ARCH-9）
+            DocKind::CostObject => "COST_OBJECT",
         }
     }
 
@@ -286,6 +301,8 @@ impl DocKind {
             DocKind::Supplier => "供应商",
             DocKind::Customer => "客户",
             DocKind::OpeningBalance => "期初余额",
+            // 成本核算（ARCH-9）
+            DocKind::CostObject => "成本对象",
         }
     }
 
@@ -321,6 +338,8 @@ impl DocKind {
             DocKind::Supplier => "biz_supplier",
             DocKind::Customer => "biz_customer",
             DocKind::OpeningBalance => "biz_voucher",
+            // 成本核算（ARCH-9）：生产批主表
+            DocKind::CostObject => "biz_cost_object",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -1310,7 +1329,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 29] = [
+const DOC_KIND_VALUES: [&str; 30] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1340,6 +1359,7 @@ const DOC_KIND_VALUES: [&str; 29] = [
     "SUPPLIER",
     "CUSTOMER",
     "OPENING_BALANCE",
+    "COST_OBJECT",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [

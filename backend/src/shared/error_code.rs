@@ -1574,6 +1574,15 @@ pub const ERP_PURCHASE_RETURN_PRICE_LOCKED: i32 = 66053;
 /// 两种情况的引导完全不同。留空仍然合法（= 自动取号），不受本码影响。
 pub const ERP_MANUAL_CODE_FORBIDDEN: i32 = 66054;
 
+/// 成本对象关批被前置校验拦下（HTTP 409，成本核算 ARCH-9 §4.1 · `66055`）。
+///
+/// 与 `RESOURCE_CONFLICT`（10003）分开的理由：前端要按这条码把「5 条前置」逐条
+/// 列给用户（哪张领料单没归集、哪条工时还是草稿、哪个期间已锁定），而不是
+/// 一句「冲突了」。报文里已经带了逐条说明，前端按 `msg` 展示即可。
+///
+/// 5 条前置见 `business::erp::cost_object_dto::evaluate_close`（纯函数，单测钉住）。
+pub const ERP_COST_OBJECT_CLOSE_BLOCKED: i32 = 66055;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -1717,6 +1726,8 @@ mod tests {
             (ERP_PURCHASE_RETURN_PRICE_LOCKED, 66053),
             // CODE-08 主数据编码开关（66054；与「编码格式不合法」10001 分开，前端引导不同）
             (ERP_MANUAL_CODE_FORBIDDEN, 66054),
+            // 成本核算·关批前置闸（66055；ARCH-9 §4.1 的 5 条前置，逐条进报文）
+            (ERP_COST_OBJECT_CLOSE_BLOCKED, 66055),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");
