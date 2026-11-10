@@ -199,20 +199,40 @@ SELECT v.id::uuid, v.username, a.password, v.real_name,
   FROM (VALUES
         ('de300000-0000-4000-8000-000000000601', 'zhang.ming', '张明'),
         ('de300000-0000-4000-8000-000000000602', 'li.na',      '李娜'),
-        ('de300000-0000-4000-8000-000000000603', 'wang.lei',   '王磊')
+        ('de300000-0000-4000-8000-000000000603', 'wang.lei',   '王磊'),
+        ('de300000-0000-4000-8000-000000000604', 'chen.li',    '陈立')
        ) AS v(id, username, real_name)
   JOIN sys_user a ON a.username = 'admin' AND a.deleted_at IS NULL
 ON CONFLICT (id) DO NOTHING;
 
+-- 角色矩阵：**每个审批岗都要有人**（首登向导会检查「审批岗是否配人」，
+-- 空着的角色会让客户以为系统没配好）。同一行 = 一个人的岗位集合。
+-- id 用 gen_random_uuid()：一个人的多个角色不能共用同一个 id（sys_user_role 的 PK 是 id，
+-- 复用会被 ON CONFLICT 静默丢掉，只留下第一个角色 —— 踩过）。幂等靠 (user_id, role_id) 唯一键。
 INSERT INTO sys_user_role (id, user_id, role_id)
-SELECT v.uid::uuid, v.uid::uuid, pg_temp.role(v.role_code)
+SELECT gen_random_uuid(), v.uid::uuid, pg_temp.role(v.role_code)
   FROM (VALUES
+        -- 张明：采购经理 + 部门主管 + 仓管主管 + 员工自助
         ('de300000-0000-4000-8000-000000000601', 'PURCHASE_MANAGER'),
+        ('de300000-0000-4000-8000-000000000601', 'DEPT_LEADER'),
+        ('de300000-0000-4000-8000-000000000601', 'WAREHOUSE_MANAGER'),
+        ('de300000-0000-4000-8000-000000000601', 'EMPLOYEE'),
+        -- 李娜：销售主管 + 销售员 + 部门主管 + 员工自助
+        ('de300000-0000-4000-8000-000000000602', 'SALES_SUPERVISOR'),
+        ('de300000-0000-4000-8000-000000000602', 'SALES_CLERK'),
         ('de300000-0000-4000-8000-000000000602', 'DEPT_LEADER'),
-        ('de300000-0000-4000-8000-000000000603', 'FINANCE_MANAGER')
+        ('de300000-0000-4000-8000-000000000602', 'EMPLOYEE'),
+        -- 王磊：财务经理 + 财务总监 + 员工自助
+        ('de300000-0000-4000-8000-000000000603', 'FINANCE_MANAGER'),
+        ('de300000-0000-4000-8000-000000000603', 'FINANCE_DIRECTOR'),
+        ('de300000-0000-4000-8000-000000000603', 'EMPLOYEE'),
+        -- 陈立：总经理 + 流程配置复核 + 员工自助
+        ('de300000-0000-4000-8000-000000000604', 'GENERAL_MANAGER'),
+        ('de300000-0000-4000-8000-000000000604', 'FLOW_CONFIG_APPROVER'),
+        ('de300000-0000-4000-8000-000000000604', 'EMPLOYEE')
        ) AS v(uid, role_code)
  WHERE pg_temp.role(v.role_code) IS NOT NULL
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (user_id, role_id) DO NOTHING;
 
 -- ===========================================================================
 -- ② 基础数据
@@ -1347,7 +1367,7 @@ SELECT rpad(label, 22) || lpad(n::text, 6) || coalesce('   ' || note, '')
     UNION ALL SELECT 19, '公告 / 站内消息', (SELECT count(*) FROM sys_announcement WHERE id::text LIKE 'de300000-%'),
               (SELECT count(*)::text FROM sys_notice WHERE id::text LIKE 'de300000-%') || ' 条消息'
     UNION ALL SELECT 20, '状态轨迹', count(*), NULL FROM biz_status_log WHERE id::text LIKE 'de300000-%'
-    UNION ALL SELECT 21, '演示账号', count(*), 'zhang.ming / li.na / wang.lei（口令继承 admin）'
+    UNION ALL SELECT 21, '演示账号', count(*), 'zhang.ming / li.na / wang.lei / chen.li（口令继承 admin）'
       FROM sys_user WHERE id::text LIKE 'de300000-%'
   ) s
  ORDER BY ord;
@@ -1525,7 +1545,7 @@ main() {
         echo "   · 审批中心 3 条待办（采购 / 销售 / 报销，可直接同意或驳回）"
         echo "   · 工作任务 5 个（1 个逾期）、公告 3 条、站内消息 5 条"
         echo "   · 凭证 10 张（采购入库 3 / 付款 1 / 销售成本 1 / 应收 1 / 收款 1 / 手工 3）"
-        echo "   · 演示账号 zhang.ming、li.na、wang.lei 的口令 = 当前 admin 的口令（登录后请改密）"
+        echo "   · 演示账号 zhang.ming / li.na / wang.lei / chen.li 的口令 = 当前 admin 的口令（登录后请改密）"
         echo "   撤销全部演示数据：bash scripts/demo_seed.sh --clean"
     fi
 }
