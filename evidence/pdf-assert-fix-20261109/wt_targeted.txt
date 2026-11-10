@@ -1,0 +1,35 @@
+   Compiling cloudpivot v0.1.0 (/root/pdf07assert-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 05s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 3 tests
+test business::erp::report_pdf::tests::pdf07_real_missing_period_is_400_66010 ... ok
+test business::erp::report_pdf::tests::pdf07_real_report_items_seeded_for_all_three ... ok
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 3860 filtered out; finished in 1.58s
+
+=== round2 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 3 tests
+test business::erp::report_pdf::tests::pdf07_real_missing_period_is_400_66010 ... ok
+test business::erp::report_pdf::tests::pdf07_real_report_items_seeded_for_all_three ... ok
+test business::erp::report_pdf::tests::pdf07_real_three_reports_agree_on_shape ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 3860 filtered out; finished in 1.54s
+
+=== return_pdf ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 5 tests
+test business::erp::return_pdf::db_tests::export_rejects_bad_uuid_before_query ... ok
+test business::erp::return_pdf::db_tests::export_writes_operation_log_rows ... ok
+test business::erp::return_pdf::db_tests::purchase_return_context_has_source_numbers_and_reason ... ok
+test business::erp::return_pdf::db_tests::sales_return_context_has_source_numbers_and_reason ... ok
+test business::erp::return_pdf::db_tests::soft_deleted_returns_are_not_found ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 3858 filtered out; finished in 18.60s
+

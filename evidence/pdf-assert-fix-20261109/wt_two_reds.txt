@@ -1,0 +1,18 @@
+   Compiling cloudpivot v0.1.0 (/root/pdf07assert-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 03s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test shared::startup_guard::tests::merge_semantics_or_base_and_profile ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3862 filtered out; finished in 0.00s
+
+=== n16 ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-a19442a4a9667e2d)
+
+running 1 test
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 3862 filtered out; finished in 0.75s
+
