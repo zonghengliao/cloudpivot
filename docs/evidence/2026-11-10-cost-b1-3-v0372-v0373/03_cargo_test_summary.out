@@ -1,0 +1,69 @@
+# cargo test 全仓汇总（生成于 2026-11-10T21:04:38+08:00）
+# 完整日志：/root/.hermes/profiles/backend-developer/cache/scratch/b13_cargo_test.log
+
+== 每个测试目标的 test result 行（27 条，全部 ok）==
+Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+test result: ok. 4074 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s
+Running unittests src/main.rs (target/debug/deps/cloudpivot-19d2f3321e049fde)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchB_b2_scope.rs (target/debug/deps/batchB_b2_scope-70e0baac1436fde6)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchB_b7_mutex.rs (target/debug/deps/batchB_b7_mutex-f2e6b4da2e8423a9)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchC_c3_dispatch.rs (target/debug/deps/batchC_c3_dispatch-5ee8bd9508c96acf)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchC_c4_help.rs (target/debug/deps/batchC_c4_help-66d3393819174b00)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchC_c5_changelog.rs (target/debug/deps/batchC_c5_changelog-8a38f02fa19f9c78)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchC_c6_changelog.rs (target/debug/deps/batchC_c6_changelog-81d3ee6ef87db3da)
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchC_c7_rollback.rs (target/debug/deps/batchC_c7_rollback-4ba7600378926e82)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchE_e7_dep_cleanup.rs (target/debug/deps/batchE_e7_dep_cleanup-cbaf1bc50ddc0a00)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchT_t1_task.rs (target/debug/deps/batchT_t1_task-18976525ced9af2c)
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/batchT_t5_ai_rules.rs (target/debug/deps/batchT_t5_ai_rules-72b31cbbe367c228)
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/cost_b1_2_cost_collect_ddl_migration.rs (target/debug/deps/cost_b1_2_cost_collect_ddl_migration-65e72ba80822fbaf)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+Running tests/cost_b1_3_alloc_and_period_ddl_migration.rs (target/debug/deps/cost_b1_3_alloc_and_period_ddl_migration-f6721602641dafa5)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+Running tests/cost_b1_cost_ddl_migration.rs (target/debug/deps/cost_b1_cost_ddl_migration-4ffcfb7db7151872)
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+Running tests/fix04_notice_offline.rs (target/debug/deps/fix04_notice_offline-08bacc6e0d862b06)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/flow_all_role_multiversion_migration.rs (target/debug/deps/flow_all_role_multiversion_migration-9f751f4420f8da49)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+Running tests/impexp_worker.rs (target/debug/deps/impexp_worker-c6244f212e5ec219)
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/invariant_registry.rs (target/debug/deps/invariant_registry-d3dddf6d2d58d705)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/linkage.rs (target/debug/deps/linkage-6e2cdbae470334b4)
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+Running tests/pflow1a.rs (target/debug/deps/pflow1a-9b4e77f1352018b3)
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/pflow1b.rs (target/debug/deps/pflow1b-ecee08b8175526c9)
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/pflow5.rs (target/debug/deps/pflow5-99e89bc64d518b6b)
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/pref_preference.rs (target/debug/deps/pref_preference-12519b9ed1d4ad96)
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/s3_minio.rs (target/debug/deps/s3_minio-8d34d618a8e24fbb)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+Running tests/testd.rs (target/debug/deps/testd-02007536ec34ef45)
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 147.01s
+Doc-tests cloudpivot
+test result: ok. 1 passed; 0 failed; 15 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+== 新增测试目标（本卡）==
+     Running tests/cost_b1_3_alloc_and_period_ddl_migration.rs (target/debug/deps/cost_b1_3_alloc_and_period_ddl_migration-f6721602641dafa5)
+
+running 12 tests
+
+== 汇总 ==
+targets_ok=27 targets_failed=0
+passed_total=4344
+failed_total=0
+compile_errors=0

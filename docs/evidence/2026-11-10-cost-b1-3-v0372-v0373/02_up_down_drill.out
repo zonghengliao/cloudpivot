@@ -1,0 +1,151 @@
+
+===== 0. 环境 =====
+db=mig_replay_costb1_01
+PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26
+biz_cost_object=biz_cost_object（V0370 前置）
+biz_cost_collect=biz_cost_collect（V0371 前置）
+
+===== 1. 首轮 up（V0372 分摊两表 → V0373 期间两表） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:264: NOTICE:  V0372 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:486: NOTICE:  V0372 完成：分摊两表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:351: NOTICE:  V0373 形态断言通过（★ 唯一键已排除 REVERSED / CANCELLED）
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:643: NOTICE:  V0373 完成：期间两表建成，形态断言 + 9 组行为断言全过（★ 同期间 REVERSED + SETTLED 共存、活跃批次唯一），探针已清理
+exit=0
+
+===== 2. 第二、三轮 up（重复执行必须结果不变） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:264: NOTICE:  V0372 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:486: NOTICE:  V0372 完成：分摊两表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:351: NOTICE:  V0373 形态断言通过（★ 唯一键已排除 REVERSED / CANCELLED）
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:643: NOTICE:  V0373 完成：期间两表建成，形态断言 + 9 组行为断言全过（★ 同期间 REVERSED + SETTLED 共存、活跃批次唯一），探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:264: NOTICE:  V0372 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:486: NOTICE:  V0372 完成：分摊两表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:351: NOTICE:  V0373 形态断言通过（★ 唯一键已排除 REVERSED / CANCELLED）
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:643: NOTICE:  V0373 完成：期间两表建成，形态断言 + 9 组行为断言全过（★ 同期间 REVERSED + SETTLED 共存、活跃批次唯一），探针已清理
+exit=0
+
+===== 3. 幂等证据：表 / 索引 / 约束数量 + 探针零残留 =====
+tables=4（期望 4）
+idx=13（期望 13 = 9 业务索引 + 4 PK）
+checks=24（期望 24 = 5+3+9+7）
+fks=4（期望 4 = 2 分摊 + 2 期间）
+probe_leftover=0（期望 0）
+
+===== 4. ★ 快照：唯一索引谓词（uk_biz_cost_period 必须排除 REVERSED/CANCELLED） =====
+uk_biz_cost_alloc_result :: CREATE UNIQUE INDEX uk_biz_cost_alloc_result ON public.biz_cost_alloc_result USING btree (period_code, rule_id, cost_object_id, account_code)
+uk_biz_cost_item :: CREATE UNIQUE INDEX uk_biz_cost_item ON public.biz_cost_period_item USING btree (period_id, cost_object_id)
+uk_biz_cost_period :: CREATE UNIQUE INDEX uk_biz_cost_period ON public.biz_cost_period USING btree (org_id, period_code) WHERE ((deleted_at IS NULL) AND ((status)::text <> ALL ((ARRAY['REVERSED'::character varying, 'CANCELLED'::character varying])::text[])))
+uk_biz_cost_period_no :: CREATE UNIQUE INDEX uk_biz_cost_period_no ON public.biz_cost_period USING btree (batch_no) WHERE (deleted_at IS NULL)
+uk_biz_cost_rule_code :: CREATE UNIQUE INDEX uk_biz_cost_rule_code ON public.biz_cost_alloc_rule USING btree (rule_code) WHERE (deleted_at IS NULL)
+
+===== 5. ★ 卡面验收活体验证：同期间一条 REVERSED + 一条 SETTLED → 不冲突 =====
+  → 探针成本对象已建
+  → ① REVERSED 行（2026-01）插入成功
+  → ② 同期间 SETTLED 行插入成功 ⇒ 不冲突（验收通过）
+period_2026_01_rows=2（期望 2：一条 REVERSED + 一条 SETTLED）
+→ 期望失败：同期间第三条**活跃**批次（唯一键必须拦，否则同月双结算）
+ERROR:  duplicate key value violates unique constraint "uk_biz_cost_period"
+DETAIL:  Key (org_id, period_code)=(00000000-0000-0000-0000-000000000000, 2026-01) already exists.
+  → ③ 同期间第二条 REVERSED 插入成功（红冲留痕可多条）
+period_2026_01_rows_now=3（期望 3 = 2 REVERSED + 1 SETTLED）
+→ 期望失败：SETTLED 不带 settled_at / finish_voucher_id（假结算死单防线）
+ERROR:  new row for relation "biz_cost_period" violates check constraint "ck_biz_cost_period_settle"
+DETAIL:  Failing row contains (ebb7d726-1532-4dac-9f32-365712de8e94, 00000000-0000-0000-0000-000000000000, 2026-05, DRILL-B3-CS-0501, SETTLED, MANUAL, 0, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 00000000-0000-0000-0000-0000000c0b3a, null, null, null, null, null, null, null, null, null, DRILL-B3, 2026-11-10 20:57:51.009177+08, 2026-11-10 20:57:51.009177+08, null, null, null).
+
+===== 6. 快照：外键删除动作（period_item→period 必须 c=CASCADE；→cost_object 必须 r=RESTRICT） =====
+biz_cost_alloc_result -> biz_cost_alloc_rule confdeltype=r
+biz_cost_alloc_result -> biz_cost_object confdeltype=r
+biz_cost_period_item -> biz_cost_object confdeltype=r
+biz_cost_period_item -> biz_cost_period confdeltype=c
+
+===== 7. 快照：金额 / 数量列精度（设计 §3.1：18,4；单价费率 18,6；完工进度 5,2） =====
+biz_cost_alloc_result.alloc_amount = numeric(18,4)
+biz_cost_alloc_result.basis_total = numeric(18,4)
+biz_cost_alloc_result.basis_value = numeric(18,4)
+biz_cost_alloc_result.pool_amount = numeric(18,4)
+biz_cost_alloc_result.rounding_adj = numeric(18,4)
+biz_cost_period.total_cost = numeric(18,4)
+biz_cost_period.total_finished = numeric(18,4)
+biz_cost_period.total_labor = numeric(18,4)
+biz_cost_period.total_material = numeric(18,4)
+biz_cost_period.total_overhead = numeric(18,4)
+biz_cost_period.total_wip = numeric(18,4)
+biz_cost_period_item.completed_qty = numeric(18,4)
+biz_cost_period_item.completion_pct = numeric(5,2)
+biz_cost_period_item.equiv_conversion = numeric(18,4)
+biz_cost_period_item.equiv_material = numeric(18,4)
+biz_cost_period_item.finished_cost = numeric(18,4)
+biz_cost_period_item.labor_cur = numeric(18,4)
+biz_cost_period_item.mat_cur = numeric(18,4)
+biz_cost_period_item.oh_cur = numeric(18,4)
+biz_cost_period_item.unit_finished_cost = numeric(18,6)
+biz_cost_period_item.unit_labor = numeric(18,6)
+biz_cost_period_item.unit_material = numeric(18,6)
+biz_cost_period_item.unit_overhead = numeric(18,6)
+biz_cost_period_item.wip_beg_cost = numeric(18,4)
+biz_cost_period_item.wip_beg_qty = numeric(18,4)
+biz_cost_period_item.wip_end_cost = numeric(18,4)
+biz_cost_period_item.wip_end_qty = numeric(18,4)
+
+===== 8. 业务语义验真：分摊结果唯一 / 基数 0 不许摊钱 / 计算单成本守恒 / 批次删除级联 =====
+  → 分摊规则建成功
+  → 分摊结果插入成功
+→ 期望失败：同 (期间,规则,对象,科目) 第二条分摊结果
+ERROR:  duplicate key value violates unique constraint "uk_biz_cost_alloc_result"
+DETAIL:  Key (period_code, rule_id, cost_object_id, account_code)=(2026-01, 00000000-0000-0000-0000-0000000c0b34, 00000000-0000-0000-0000-0000000c0b31, 4101.01) already exists.
+→ 期望失败：basis_total=0 却摊 100 元（凭空分摊）
+ERROR:  new row for relation "biz_cost_alloc_result" violates check constraint "ck_biz_cost_alloc_base"
+DETAIL:  Failing row contains (b91a5ea4-d73a-449f-8686-8cb8ee218d59, 2026-01, 00000000-0000-0000-0000-0000000c0b34, 00000000-0000-0000-0000-0000000c0b31, 5504149e-b6e1-40f8-a951-68ee008c456b, 演练车间, 4101.02, 0.0000, 0.0000, 1000.0000, 100.0000, 0.0000, 2026-11-10 20:57:51.167867+08, null).
+  → 计算单（料100+工60+费40=200=完工150+在制50）插入成功：守恒通过
+→ 期望失败：计算单不守恒（完工 150 + 在制 40 ≠ 200）
+ERROR:  new row for relation "biz_cost_period_item" violates check constraint "ck_biz_cost_item_cons"
+DETAIL:  Failing row contains (cb472be3-0096-4552-9bdf-a81284057b9b, 00000000-0000-0000-0000-0000000c0b32, 00000000-0000-0000-0000-0000000c0b31, be5ce688-a3ad-4a1a-873d-8266ad5d9182, 0.0000, 0.0000, 0.0000, 0.0000, 0.00, 0.0000, 0.0000, 100.0000, 60.0000, 40.0000, 0.000000, 0.000000, 0.000000, 150.0000, 40.0000, 0.000000, null, CALC, 2026-11-10 20:57:51.220361+08, 2026-11-10 20:57:51.220361+08).
+  → 删除批次（CASCADE 期望：计算单跟着走）
+items_after_cascade=0（期望 0）
+→ 期望失败：有分摊结果时删成本对象（RESTRICT）
+ERROR:  update or delete on table "biz_cost_object" violates RESTRICT setting of foreign key constraint "biz_cost_alloc_result_cost_object_id_fkey" on table "biz_cost_alloc_result"
+DETAIL:  Key (id)=(00000000-0000-0000-0000-0000000c0b31) is referenced from table "biz_cost_alloc_result".
+
+===== 9. 清理演练行 =====
+leftover=0（期望 0）
+
+===== 10. down 回滚（V0373 → V0372，逆序） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.down.sql:56: NOTICE:  V0373 down 完成：期间两表及其索引、注释已全部删除（零残留）
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.down.sql:56: NOTICE:  V0372 down 完成：分摊两表及其索引、注释已全部删除（零残留）
+exit=0
+
+===== 11. down 后零残留断言 =====
+period=NULL period_item=NULL alloc_rule=NULL alloc_result=NULL cost_object=biz_cost_object（最后一项必须还在）
+idx_left=0（期望 0）
+
+===== 12. down 再跑一次（幂等） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.down.sql:31: NOTICE:  table "biz_cost_period_item" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.down.sql:32: NOTICE:  table "biz_cost_period" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.down.sql:56: NOTICE:  V0373 down 完成：期间两表及其索引、注释已全部删除（零残留）
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.down.sql:31: NOTICE:  table "biz_cost_alloc_result" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.down.sql:32: NOTICE:  table "biz_cost_alloc_rule" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.down.sql:56: NOTICE:  V0372 down 完成：分摊两表及其索引、注释已全部删除（零残留）
+exit=0
+
+===== 13. 回滚后重新 up（可重放） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:264: NOTICE:  V0372 形态断言通过
+psql:/opt/cloudpivot/backend/migrations/business/V0372__cost_alloc_tables.up.sql:486: NOTICE:  V0372 完成：分摊两表建成，形态断言 + 9 组行为断言全过，探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:351: NOTICE:  V0373 形态断言通过（★ 唯一键已排除 REVERSED / CANCELLED）
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.up.sql:643: NOTICE:  V0373 完成：期间两表建成，形态断言 + 9 组行为断言全过（★ 同期间 REVERSED + SETTLED 共存、活跃批次唯一），探针已清理
+exit=0
+replay tables=4（期望 4）
+
+===== 14. 下游护栏反证：外部表 FK 到期间表时 down 必须拒绝执行 =====
+→ 期望 V0373 down 被拒（提示先回滚下游迁移）：
+psql:/opt/cloudpivot/backend/migrations/business/V0373__cost_period_tables.down.sql:29: ERROR:  V0373 down 拒绝执行：下游表仍在引用期间两表（zz_downstream），请先回滚建立它们的迁移，再回滚 V0373
+CONTEXT:  PL/pgSQL function inline_code_block line 12 at RAISE
+
+===== 15. 收尾（保持四表在位，供后续卡使用） =====
+final tables=4
+== DRILL END ==
