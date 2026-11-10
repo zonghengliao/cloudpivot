@@ -693,6 +693,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '折旧计提', permission: 'business:erp:depreciation:list' },
       },
       {
+        // ==================== ERP 成本：成本对象（生产批）（COST-B1-11 / ARCH-9 §6.1 #1） ====================
+        // `sys_menu` 种子（V0378 …c001）path = `/business/erp/cost-object`、component
+        // `business/erp/cost-object/index`，权限码 `business:erp:cost-object:list`，
+        // 挂在「财务管理」（`…e02`）sort 60。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404（`system::menu::tests::n08` 真库档也会当场红）。
+        path: 'business/erp/cost-object',
+        name: 'BusinessErpCostObject',
+        component: () => import('@/views/business/erp/cost-object/index.vue'),
+        meta: { title: '成本对象', permission: 'business:erp:cost-object:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）
