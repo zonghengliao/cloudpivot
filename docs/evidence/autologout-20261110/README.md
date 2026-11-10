@@ -57,6 +57,28 @@ CONFIG_IDLE_TIMEOUT_UPDATE|5|60|false|idle_t282134     ← 普通管理员 5 →
 列依次为：`operation | before.config_value | after.config_value | operator_is_super_admin | username`。
 「谁 / 什么时候（created_at）/ 从什么改到什么 / 是否超管」四要素齐全。
 
+## 种子迁移幂等（对照组实测）
+
+卡面要求「迁移幂等（加配置项用 ON CONFLICT）」。新键用的是
+`ON CONFLICT (config_key) WHERE deleted_at IS NULL DO NOTHING`（本文件其它三行是
+`DO UPDATE`），理由：**这个文件是指纹驱动的「可重复迁移」，内容一变就整份重跑**，
+而 `auth.idle_timeout_minutes` 是安全策略，超管可能已经改成 5/30/0，重跑种子不该把
+管理员的决定冲回默认值。
+
+145 上的对照实验（改种子文件指纹 → 重启 → 看两个键）：
+
+```
+== 1) 管理员改值：idle=30（安全策略，DO NOTHING 应保住）；lock=45（对照，DO UPDATE 会被冲回）
+== 2) 改种子文件指纹（追加一行注释）后重启实例 → 种子整份重跑
+2026-11-10T03:52:49.404949Z  INFO nik_db::migrate: 可重复迁移内容已变化，重新执行 migration=config_data kind=seed
+2026-11-10T03:52:49.414282Z  INFO nik_web::app: 数据库迁移完成: 应用 1 个迁移
+== 3) 重跑后的值
+auth.idle_timeout_minutes = 30      ← DO NOTHING：管理员改成 30 保住了
+auth.lock_minutes = 30              ← DO UPDATE：45 被冲回种子默认 30（对照组，证明种子确实重跑了）
+```
+
+收尾：种子文件 `git checkout` 还原、`idle=15`、`lock=30`、实例 kill、`git status` 干净。
+
 ## 手工复核命令（复现口径）
 
 ```bash

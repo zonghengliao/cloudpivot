@@ -24,6 +24,7 @@ import {
   IDLE_REDIRECT_KEY,
   USER_ACTIVE_HEADER,
   idleMillis,
+  idlePhase,
   isRecentlyActive,
   lastActivity,
   markActivity,
@@ -113,6 +114,37 @@ test('idle-activity: resetActivity 等价于「此刻刚刚有操作」', () => 
   const later = NOW + 30 * 60_000;
   resetActivity(later);
   assert.equal(idleMillis(later), 0);
+});
+
+test('idlePhase: 两段式判定（active → warn → expired）（④⑤⑥⑦）', () => {
+  // 超时 15 分钟、提示窗口 60 秒
+  const TOTAL = 15 * 60_000;
+  assert.equal(idlePhase(0, 15, 60), 'active');
+  assert.equal(idlePhase(TOTAL - 61_000, 15, 60), 'active', '差 61 秒还不该弹窗');
+  assert.equal(idlePhase(TOTAL - 60_000, 15, 60), 'warn', '正好进入 60 秒窗口 → 弹「即将退出」');
+  assert.equal(idlePhase(TOTAL - 1, 15, 60), 'warn');
+  assert.equal(idlePhase(TOTAL, 15, 60), 'expired', '到点即过期');
+  assert.equal(idlePhase(TOTAL + 5_000, 15, 60), 'expired');
+});
+
+test('idlePhase: 0 = 禁用时永远 active（②）', () => {
+  // 禁用后哪怕挂机一整天也不该弹窗/退出
+  assert.equal(idlePhase(24 * 3600 * 1000, 0, 0), 'active');
+  assert.equal(idlePhase(1000, 0, 60), 'active', '禁用时提示窗口也不生效');
+});
+
+test('idlePhase: warnSeconds = 0 时到点直接过期（不弹窗）', () => {
+  assert.equal(idlePhase(14 * 60_000, 15, 0), 'active');
+  assert.equal(idlePhase(15 * 60_000, 15, 0), 'expired');
+});
+
+test('idlePhase: 1 分钟超时 + 20 秒窗口（后端 min warn 的实际组合）', () => {
+  assert.equal(idlePhase(39_000, 1, 20), 'active');
+  assert.equal(idlePhase(41_000, 1, 20), 'warn', '40 秒后进入提示窗口');
+  assert.equal(idlePhase(60_000, 1, 20), 'expired');
+  // 脏输入不该造出「立刻过期」：负数 / NaN 一律按 0 处理
+  assert.equal(idlePhase(-1, 1, 20), 'active');
+  assert.equal(idlePhase(Number.NaN, 1, 20), 'active');
 });
 
 test('idle-activity: 存储键与请求头名是与后端约定的契约', () => {

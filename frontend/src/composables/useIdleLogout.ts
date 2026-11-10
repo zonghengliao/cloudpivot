@@ -37,6 +37,7 @@ import {
   IDLE_ACTIVITY_KEY,
   IDLE_LOGOUT_BROADCAST_KEY,
   idleMillis,
+  idlePhase,
   markActivity,
   resetActivity,
   saveIdleRedirect,
@@ -208,13 +209,14 @@ export function useIdleLogout(): IdleLogoutState {
       closeWarning();
       return;
     }
-    const idle = idleMillis();
-    const total = timeoutSeconds() * 1000;
-    if (idle >= total) {
+    // 两段式判定集中在一个纯函数里（见 idlePhase）：active / warn / expired。
+    // 这样「什么时候弹窗、什么时候真踢」能被 Node 单测钉死，不必起浏览器。
+    const phase = idlePhase(idleMillis(), timeoutMinutes.value, warnSeconds);
+    if (phase === 'expired') {
       void doLogout('timeout');
       return;
     }
-    if (warnSeconds > 0 && idle >= total - warnSeconds * 1000) {
+    if (phase === 'warn') {
       openWarning();
     } else if (warningVisible.value) {
       // 用户点了「继续使用」或在别的标签里操作过 → 提示自动消失

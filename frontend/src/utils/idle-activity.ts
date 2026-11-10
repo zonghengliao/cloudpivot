@@ -130,6 +130,41 @@ export function isRecentlyActive(at: number = Date.now()): boolean {
   return idleMillis(at) <= ACTIVE_REQUEST_WINDOW_MS;
 }
 
+/**
+ * 空闲判定的三段状态（两段式超时的判定核心，纯函数）。
+ *
+ * - `'active'`：还没到提示窗口，正常使用；
+ * - `'warn'`：已进入「即将退出」窗口（距超时 ≤ `warnSeconds`），应弹提示并可「继续使用」；
+ * - `'expired'`：已到点，必须退出（调 logout 吊销令牌）。
+ *
+ * 抽成纯函数的理由：这条判定决定「什么时候弹窗 / 什么时候真踢人」，
+ * 错一次就是「正常干活被踢」或「该踢不踢」。放这里才能被 Node 单测钉死，
+ * 不必起浏览器。
+ *
+ * @param idleMs 距上次用户操作的毫秒数
+ * @param timeoutMinutes 生效的超时分钟数；`0` = 禁用（永远 `active`）
+ * @param warnSeconds 提前提示窗口（秒）；`0` = 不提示、到点直接过期
+ */
+export function idlePhase(
+  idleMs: number,
+  timeoutMinutes: number,
+  warnSeconds: number,
+): 'active' | 'warn' | 'expired' {
+  if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) {
+    return 'active';
+  }
+  const totalMs = timeoutMinutes * 60_000;
+  const idle = Number.isFinite(idleMs) ? Math.max(0, idleMs) : 0;
+  if (idle >= totalMs) {
+    return 'expired';
+  }
+  const warnMs = Math.max(0, warnSeconds) * 1000;
+  if (warnMs > 0 && idle >= totalMs - warnMs) {
+    return 'warn';
+  }
+  return 'active';
+}
+
 /** 广播「本标签已因空闲退出」，让其它标签一起退。 */
 export function broadcastLogout(at: number = Date.now()): void {
   safeStorage('local')?.setItem(IDLE_LOGOUT_BROADCAST_KEY, String(at));
