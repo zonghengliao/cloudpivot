@@ -153,6 +153,11 @@ mod cost_alloc_rule_db_tests;
 pub mod cost_alloc_rule_dto;
 pub mod cost_alloc_rule_handler;
 pub mod cost_alloc_rule_model;
+/// calc 第 2 段：工归集（ARCH-9 §4.3 · 扫当期已确认工时 → 幂等写 `biz_cost_collect`）。
+pub mod cost_calc_labor;
+/// B2-7 的真库用例（`ERP_DB_URL` 开关）：只取 CONFIRMED + 金额取台账 + 缺费率进未归集清单。
+#[cfg(test)]
+mod cost_calc_labor_db_tests;
 /// calc 第 1 段：料归集（ARCH-9 §4.3 · 扫当期已过账领料 → 幂等写 `biz_cost_collect`）。
 pub mod cost_calc_material;
 /// B2-6 的真库用例（`ERP_DB_URL` 开关）：只扫已过账+挂对象的领料 + 幂等 + 金额取账上真实值。
@@ -162,6 +167,8 @@ mod cost_calc_material_db_tests;
 pub mod cost_collect_dto;
 /// 成本归集明细（`biz_cost_collect`）的数据层：候选扫描 / 已归集行 / 幂等写入 / 软删。
 pub mod cost_collect_model;
+/// calc 第 2 段「工归集」的纯逻辑（幂等键 / 行校验 / 增量计划 / 未归集清单），B2-7。
+pub mod cost_labor_collect_dto;
 /// B2-1 的真库用例（`ERP_DB_URL` 开关）：CRUD + 确认幂等 + 金额 CHECK 映射。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_labor_db_tests;

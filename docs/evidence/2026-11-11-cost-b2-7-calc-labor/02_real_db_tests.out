@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 7 tests
+test business::erp::cost_calc_labor_db_tests::db::collects_only_confirmed_labor_of_the_period ... ok
+test business::erp::cost_calc_labor_db_tests::db::labor_segment_ignores_material_rows_of_the_same_period ... ok
+test business::erp::cost_calc_labor_db_tests::db::missing_rate_rows_go_to_the_uncollected_list ... ok
+test business::erp::cost_calc_labor_db_tests::db::period_without_confirmed_labor_is_a_clean_noop ... ok
+test business::erp::cost_calc_labor_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_labor_db_tests::db::relinked_cost_object_moves_the_collected_amount ... ok
+test business::erp::cost_calc_labor_db_tests::db::rerun_does_not_duplicate_and_leaves_rows_untouched ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4435 filtered out; finished in 4.70s
+

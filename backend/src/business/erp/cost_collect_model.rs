@@ -24,6 +24,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost_collect_dto::{self as dto, CollectKey, ExistingCollectRow, MaterialLine};
+use crate::business::erp::cost_labor_collect_dto::{self as labor_dto, LaborLine};
 
 /// 归集表名。
 pub const COLLECT_TABLE: &str = "biz_cost_collect";
@@ -239,6 +240,194 @@ pub async fn soft_delete_row(ex: &impl SqlExecutor, id: Uuid, operator: Option<U
         .await
 }
 
+// ==================== 工归集（calc 第 2 段 · B2-7） ====================
+//
+// 与料行同一张表、同一套幂等键，只换 `element` / `source_type` / 取数来源。
+// 各段各守自己的 (element, source_type) 组合，互不踩（料段只看 MATERIAL+STOCK_OUT，
+// 工段只看 LABOR+LABOR_TICKET）。
+
+/// 候补工时行的取数 SQL（设计 §4.3 工行口径，逐条落在 WHERE 里）。
+///
+/// | 条件 | 为什么 |
+/// |---|---|
+/// | `l.status = 'CONFIRMED'` | 验收项：结算只取已确认的工时（DRAFT 还能改，归集它等于归集一个会变的数） |
+/// | `l.period_code = ?` | 期间归属按台账上选的期间（§4.3 口径说明 ②：跨月补录按录入时选的期间） |
+/// | `l.deleted_at IS NULL` | 软删的旧行不参与 |
+///
+/// 金额列直接取 `l.amount`（`ck_biz_cost_labor_amount` 已钉死 `= round(hours × rate, 4)`），
+/// **不在 SQL 里再乘一遍**：多一个乘点就多一个舍入点，且会让「台账金额」与「归集金额」有分毫差的可能。
+pub const LABOR_SOURCE_SQL: &str = "\
+    SELECT l.id             AS labor_id, \
+           l.work_date      AS work_date, \
+           l.cost_object_id AS cost_object_id, \
+           o.object_no      AS cost_object_no, \
+           l.employee_name  AS employee_name, \
+           l.dept_id        AS dept_id, \
+           COALESCE(d.dept_name, l.dept_name) AS dept_name, \
+           l.hours          AS hours, \
+           l.machine_hours  AS machine_hours, \
+           l.rate           AS rate, \
+           l.amount         AS amount, \
+           l.source_type    AS source_type \
+      FROM biz_cost_labor l \
+      LEFT JOIN biz_cost_object o ON o.id = l.cost_object_id \
+      LEFT JOIN sys_dept d ON d.id = l.dept_id \
+     WHERE l.deleted_at IS NULL \
+       AND l.status = 'CONFIRMED' \
+       AND l.period_code = ? \
+     ORDER BY l.work_date ASC, l.id ASC";
+
+/// 写一条工归集行的 SQL（幂等：撞 `uk_biz_cost_collect_src` 就跳过）。
+///
+/// 与料行的区别（都受库层 CHECK 约束）：`material_id` / `qty` / `unit_price` 必须为 NULL
+/// （`ck_biz_cost_collect_mat`：工行不许挂物料），`source_no` 为 NULL（工时台账没有单号列，
+/// 设计 §3.1 ④），人话上下文写 `remark`。
+pub const INSERT_LABOR_SQL: &str = "\
+    INSERT INTO biz_cost_collect \
+        (id, cost_object_id, period_code, element, source_type, source_id, source_no, line_no, \
+         occur_date, material_id, qty, unit_price, amount, dept_id, dept_name, remark, \
+         created_at, updated_at, create_by, update_by) \
+    VALUES (?::uuid, ?::uuid, ?, ?, ?, ?::uuid, NULL, ?, ?::text::date, \
+            NULL, NULL, NULL, ?::text::numeric, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+            NULLIF(?::text,''), \
+            now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
+    ON CONFLICT (source_type, source_id, line_no) \
+        WHERE deleted_at IS NULL AND source_id IS NOT NULL \
+    DO NOTHING";
+
+impl LaborLine {
+    /// 由 [`LABOR_SOURCE_SQL`] 的行构造。
+    fn from_labor_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            labor_id: row.get_typed("labor_id")?,
+            work_date: row.get_typed("work_date")?,
+            cost_object_id: row.get_typed("cost_object_id")?,
+            cost_object_no: row.get_typed("cost_object_no")?,
+            employee_name: row.get_typed("employee_name")?,
+            dept_id: row.get_typed("dept_id")?,
+            dept_name: row.get_typed("dept_name")?,
+            hours: row.get_typed("hours")?,
+            machine_hours: row.get_typed("machine_hours")?,
+            rate: row.get_typed("rate")?,
+            amount: row.get_typed("amount")?,
+            source_type: row.get_typed("source_type")?,
+        })
+    }
+}
+
+/// 扫描期间内**全部**候补工时行（口径见 [`LABOR_SOURCE_SQL`]）。
+pub async fn labor_source_lines(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Vec<LaborLine>> {
+    let rows = ex
+        .query_sql(LABOR_SOURCE_SQL.to_string(), vec![Value::Text(period_code.to_string())])
+        .await?;
+    rows.iter().map(LaborLine::from_labor_row).collect()
+}
+
+/// 当期已归集的**工行**（软删的不算；`source_id` 为空的行不可能来自工时，一并排除）。
+pub async fn labor_collect_rows_of_period(
+    ex: &impl SqlExecutor,
+    period_code: &str,
+) -> DbResult<Vec<ExistingCollectRow>> {
+    let sql = format!(
+        "SELECT id, source_type, source_id, line_no, source_no, amount, cost_object_id \
+           FROM {COLLECT_TABLE} \
+          WHERE period_code = ? AND element = ? AND source_type = ? \
+            AND deleted_at IS NULL AND source_id IS NOT NULL \
+          ORDER BY source_id ASC, id ASC"
+    );
+    let rows = ex
+        .query_sql(
+            sql,
+            vec![
+                Value::Text(period_code.to_string()),
+                Value::Text(labor_dto::ELEMENT_LABOR.to_string()),
+                Value::Text(labor_dto::SOURCE_LABOR_TICKET.to_string()),
+            ],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(ExistingCollectRow {
+                id: row.get_typed("id")?,
+                key: CollectKey {
+                    source_type: row.get_typed("source_type")?,
+                    source_id: row.get_typed("source_id")?,
+                    line_no: row.get_typed("line_no")?,
+                },
+                source_no: row.get_typed("source_no")?,
+                amount: row.get_typed("amount")?,
+                cost_object_id: row.get_typed("cost_object_id")?,
+            })
+        })
+        .collect()
+}
+
+/// 写一条工归集行（幂等：已存在则 0 行）。
+pub async fn insert_labor_line(
+    ex: &impl SqlExecutor,
+    period_code: &str,
+    line: &LaborLine,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        INSERT_LABOR_SQL.to_string(),
+        vec![
+            Value::from(&Uuid::now_v7()),
+            Value::from(&line.cost_object_id),
+            Value::Text(period_code.to_string()),
+            Value::Text(labor_dto::ELEMENT_LABOR.to_string()),
+            Value::Text(labor_dto::SOURCE_LABOR_TICKET.to_string()),
+            Value::from(&line.labor_id),
+            Value::I32(labor_dto::LABOR_LINE_NO),
+            Value::Text(line.work_date.to_string()),
+            Value::Text(line.amount.to_string()),
+            Value::Text(dto::opt_uuid_text(Some(line.dept_id))),
+            Value::Text(line.dept_name.clone().unwrap_or_default()),
+            Value::Text(line.remark()),
+            Value::Text(dto::opt_uuid_text(operator)),
+            Value::Text(dto::opt_uuid_text(operator)),
+        ],
+    )
+    .await
+}
+
+/// 批量写（**调用方负责事务**；返回受影响行数之和 = 真实新增行数）。
+pub async fn insert_labor_lines(
+    ex: &impl SqlExecutor,
+    period_code: &str,
+    lines: &[LaborLine],
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    let mut inserted = 0u64;
+    for line in lines {
+        inserted += insert_labor_line(ex, period_code, line, operator).await?;
+    }
+    Ok(inserted)
+}
+
+/// 写后回查：当期工归集的行数与金额合计（「人工进了多少成本」就取这个数）。
+pub async fn collected_labor_total(ex: &impl SqlExecutor, period_code: &str) -> DbResult<(i64, Decimal)> {
+    let sql = format!(
+        "SELECT COUNT(*) AS rows, COALESCE(SUM(amount), 0) AS amount \
+           FROM {COLLECT_TABLE} \
+          WHERE period_code = ? AND element = ? AND source_type = ? AND deleted_at IS NULL"
+    );
+    let rows = ex
+        .query_sql(
+            sql,
+            vec![
+                Value::Text(period_code.to_string()),
+                Value::Text(labor_dto::ELEMENT_LABOR.to_string()),
+                Value::Text(labor_dto::SOURCE_LABOR_TICKET.to_string()),
+            ],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok((row.get_typed("rows")?, row.get_typed("amount")?)),
+        None => Ok((0, Decimal::ZERO)),
+    }
+}
+
 // ==================== 单测（不需要数据库：只钉 SQL 形状与列清单） ====================
 
 #[cfg(test)]
@@ -287,5 +476,52 @@ mod tests {
         assert!(COLLECT_COLUMNS.contains("source_id"));
         assert!(COLLECT_COLUMNS.contains("line_no"));
         assert!(COLLECT_COLUMNS.contains("amount"));
+    }
+
+    // ---------- 工归集（B2-7） ----------
+
+    /// 验收项「只取 CONFIRMED 状态」：取数 SQL 里必须有状态闸，且按期间过滤。
+    #[test]
+    fn labor_source_sql_only_takes_confirmed_rows_of_the_period() {
+        assert!(LABOR_SOURCE_SQL.contains("l.status = 'CONFIRMED'"));
+        assert!(LABOR_SOURCE_SQL.contains("l.period_code = ?"));
+        assert!(LABOR_SOURCE_SQL.contains("l.deleted_at IS NULL"));
+        assert!(!LABOR_SOURCE_SQL.contains("l.status <> 'CONFIRMED'"));
+    }
+
+    /// 金额取台账上的 `amount`（`round(hours × rate, 4)` 已由库层 CHECK 钉死），不重算。
+    #[test]
+    fn labor_source_sql_takes_the_ledger_amount_not_a_recomputation() {
+        assert!(LABOR_SOURCE_SQL.contains("l.amount"));
+        assert!(LABOR_SOURCE_SQL.contains("AS amount"));
+        assert!(!LABOR_SOURCE_SQL.to_uppercase().contains("HOURS *"));
+        assert!(!LABOR_SOURCE_SQL.to_uppercase().contains("ROUND("));
+    }
+
+    /// 工行的库层约束：`material_id` / `qty` / `unit_price` 必须写 NULL（`ck_biz_cost_collect_mat`）。
+    #[test]
+    fn labor_insert_sql_leaves_material_columns_null() {
+        assert!(INSERT_LABOR_SQL.contains("NULL, NULL, NULL"));
+        assert!(INSERT_LABOR_SQL.contains("NULL, ?, ?::text::date"));
+        assert!(!INSERT_LABOR_SQL.contains("material_id)"));
+    }
+
+    /// 幂等插入的 `ON CONFLICT` 目标必须与部分索引谓词逐字一致（与料行同一索引）。
+    #[test]
+    fn labor_insert_sql_matches_the_partial_unique_index() {
+        assert!(INSERT_LABOR_SQL.contains("ON CONFLICT (source_type, source_id, line_no)"));
+        assert!(INSERT_LABOR_SQL.contains("WHERE deleted_at IS NULL AND source_id IS NOT NULL"));
+        assert!(INSERT_LABOR_SQL.contains("DO NOTHING"));
+    }
+
+    /// 两段的要素 / 来源组合不同（各扫各的，互不踩）。
+    #[test]
+    fn material_and_labor_segments_use_disjoint_elements() {
+        assert_eq!(labor_dto::ELEMENT_LABOR, "LABOR");
+        assert_eq!(labor_dto::SOURCE_LABOR_TICKET, "LABOR_TICKET");
+        assert_ne!(labor_dto::ELEMENT_LABOR, dto::ELEMENT_MATERIAL);
+        assert_ne!(labor_dto::SOURCE_LABOR_TICKET, dto::SOURCE_STOCK_OUT);
+        // 设计 §4.3 幂等键第三段：工 0、料 1
+        assert_ne!(labor_dto::LABOR_LINE_NO, dto::MATERIAL_LINE_NO);
     }
 }
