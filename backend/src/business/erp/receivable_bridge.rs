@@ -1136,6 +1136,7 @@ mod tests {
             remark: None,
             source_type: None,
             source_id: None,
+            cost_object_id: None,
         };
         let lines = vec![crate::business::erp::stockout_base::NewStockOutLine {
             material_id: uuid(MAT_A),

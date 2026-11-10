@@ -252,6 +252,7 @@ async fn out_doc_lines(items: Vec<StockOutItemReq>) -> Uuid {
         out_date: None,
         reason: Some("P1-FIX-2 FIFO 用例".to_string()),
         remark: None,
+        cost_object_id: None,
         items,
     };
     stockout_handler::create_stock_out(&req, None)
@@ -609,6 +610,7 @@ async fn fifo_negative_warehouse_still_posts_short() {
         out_date: None,
         reason: Some("P1-FIX-2 负库存仓".to_string()),
         remark: None,
+        cost_object_id: None,
         items: vec![StockOutItemReq {
             material_id: MATERIAL.to_string(),
             qty: dec("20"),

@@ -162,13 +162,40 @@ pub fn out_type_label(out_type: &str) -> &'static str {
 /// 该类型走哪个借方科目（`6401 主营业务成本` / `1901 待处理财产损溢`）。
 ///
 /// 报废与盘亏是**资产损失**（先挂待处理财产损溢，等审批定性后再转出），
-/// 领用与其他是**营业消耗**（直接进成本）。这条映射是 `stockout_handler::post_out_tx`
-/// 唯一取科目口径的地方，凭证函数不再自己判一遍。
+/// 领用与其他是**营业消耗**（直接进成本）。**只看 `out_type`**（不看出库单是否
+/// 挂了成本对象）—— 生产领料的借方分流走 [`debit_account_of_doc`]，别在这里加分支。
 pub fn debit_account_of(out_type: &str) -> (&'static str, &'static str) {
     match out_type {
         OUT_TYPE_SCRAP | OUT_TYPE_LOSS => (voucher::ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢"),
         _ => (voucher::ACCOUNT_MAIN_COST, "主营业务成本"),
     }
+}
+
+/// （`out_type`, `cost_object_id`）→ 借方科目 —— **出库过账唯一取借方科目的入口**。
+///
+/// ARCH-9 §4.7.1：出库单挂了成本对象（`cost_object_id` 非空，即「生产领料」），
+/// 借方从 `6401 主营业务成本` 改成 `4001.01 生产成本-直接材料`
+/// —— 料钱进在制（生产成本），不再直接进损益。
+///
+/// # 为什么还要看 `out_type`
+///
+/// 只有**领用（`ISSUE`）**才是生产投料。报废 / 盘亏是资产损失，无论挂没挂对象
+/// 都必须走 `1901`（挂了对象也归集不到料上：`biz_cost_collect` 的料只扫
+/// `out_type='ISSUE'`，见 ARCH-9 §4.3）。两层防线：
+///
+/// ① 写入侧：`stockout_dto::ensure_cost_object_usable` 拒绝非 `ISSUE` 单挂对象；
+/// ② 记账侧：本函数对非 `ISSUE` 单**永不**返回 `4001.01`（历史数据 / 人工改库兜底）。
+///
+/// 存量口径：`cost_object_id IS NULL`（V0375 加列时没有回填任何历史单据）⇒
+/// 走 [`debit_account_of`] 的原逻辑，历史单据记账科目一个字都不变。
+pub fn debit_account_of_doc(out_type: &str, cost_object_id: Option<Uuid>) -> (&'static str, &'static str) {
+    if cost_object_id.is_some() && out_type == OUT_TYPE_ISSUE {
+        return (
+            voucher::ACCOUNT_PRODUCTION_MATERIAL,
+            voucher::ACCOUNT_PRODUCTION_MATERIAL_NAME,
+        );
+    }
+    debit_account_of(out_type)
 }
 
 /// `out_type` → 流水业务类型（**手工出库单**的四种类型各一个值）。
@@ -249,6 +276,11 @@ pub struct NewStockOut<'a> {
     pub source_type: Option<&'a str>,
     /// 来源单据 id（销售链 = `biz_shipment.id`）。
     pub source_id: Option<Uuid>,
+    /// 成本对象（ARCH-9 B1-10；`Some` = 生产领料，过账借方落 `4001.01`）。
+    ///
+    /// 只有 `out_type = ISSUE` 的单据允许挂（`stockout_dto::ensure_cost_object_usable`
+    /// 拦非领用单）；对象必须是 `status = 'OPEN'`。`None` = 不挂（存量口径）。
+    pub cost_object_id: Option<Uuid>,
 }
 
 /// 建单 / 改单的一行明细。
@@ -297,7 +329,7 @@ impl Totals {
 /// `source_type='SALES'`，接口返回 `null`）。
 pub const HEADER_COLUMNS: &str = "id, out_no, out_type, warehouse_id, out_date, status, \
      total_qty, total_amount, voucher_id, reason, remark, posted_at, posted_by, \
-     cancelled_at, cancelled_by, cancel_reason, source_type, source_id, \
+     cancelled_at, cancelled_by, cancel_reason, source_type, source_id, cost_object_id, \
      created_at, updated_at, create_by, update_by";
 
 /// 单头行。
@@ -339,6 +371,8 @@ pub struct StockOutRow {
     pub source_type: Option<String>,
     /// 来源单据 id（销售链 = `biz_shipment.id`）。
     pub source_id: Option<Uuid>,
+    /// 成本对象（ARCH-9 B1-10；V0375 加列，可空无默认 —— `None` = 不挂，走原 6401 逻辑）。
+    pub cost_object_id: Option<Uuid>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -371,6 +405,7 @@ impl StockOutRow {
             cancel_reason: row.get_typed("cancel_reason")?,
             source_type: row.get_typed("source_type")?,
             source_id: row.get_typed("source_id")?,
+            cost_object_id: row.get_typed("cost_object_id")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             create_by: row.get_typed("create_by")?,
@@ -494,5 +529,58 @@ mod tests {
         assert_eq!(biz_type_of_doc(OUT_TYPE_OTHER, None), "OTHER_OUT");
         // 未登记的类型按领用兜底（历史行为，保持不变）
         assert_eq!(biz_type_of("WHATEVER"), BIZ_TYPE_ISSUE);
+    }
+
+    // ==================== B1-10：出库借方科目复算（挂成本对象 → 4001.01） ====================
+
+    /// 挂成本对象的**领用**单 → 借 `4001.01 生产成本-直接材料`（ARCH-9 §4.7.1）。
+    ///
+    /// 这条是卡面验收的靶心：料钱进在制，不再直接进损益（6401）。
+    #[test]
+    fn issue_with_cost_object_debits_production_material() {
+        let object = Uuid::now_v7();
+        let (code, name) = debit_account_of_doc(OUT_TYPE_ISSUE, Some(object));
+        assert_eq!(code, "4001.01", "挂了成本对象的领用单借方必须是末级科目 4001.01");
+        assert_eq!(name, "生产成本-直接材料");
+        // 与科目常量同源（`V0377` 种子逐字一致，改一处就红）
+        assert_eq!(code, voucher::ACCOUNT_PRODUCTION_MATERIAL);
+        assert_eq!(name, voucher::ACCOUNT_PRODUCTION_MATERIAL_NAME);
+    }
+
+    /// 不挂成本对象（含全部存量单据）→ **原逻辑**，一个字节都不变。
+    #[test]
+    fn no_cost_object_keeps_legacy_debit_account() {
+        assert_eq!(debit_account_of_doc(OUT_TYPE_ISSUE, None), ("6401", "主营业务成本"));
+        assert_eq!(debit_account_of_doc(OUT_TYPE_OTHER, None), ("6401", "主营业务成本"));
+        // 与改造前的纯 `out_type` 映射逐项等价（存量行为零变化）
+        for out_type in OUT_TYPES {
+            assert_eq!(
+                debit_account_of_doc(out_type, None),
+                debit_account_of(out_type),
+                "不挂对象时 {out_type} 必须走原逻辑"
+            );
+        }
+    }
+
+    /// 报废 / 盘亏即使挂了对象也必须借 `1901`（资产损失不许记成生产投料）。
+    ///
+    /// 写入侧本来就拒绝非 `ISSUE` 挂对象；这条是记账侧的兜底（历史数据 / 人工改库）。
+    #[test]
+    fn scrap_and_loss_never_debit_production_material() {
+        let object = Uuid::now_v7();
+        assert_eq!(
+            debit_account_of_doc(OUT_TYPE_SCRAP, Some(object)),
+            ("1901", "待处理财产损溢"),
+            "报废是资产损失：挂了对象也不能借 4001.01"
+        );
+        assert_eq!(
+            debit_account_of_doc(OUT_TYPE_LOSS, Some(object)),
+            ("1901", "待处理财产损溢")
+        );
+        // 其他出库（含销售出库，out_type=OTHER）同样保持 6401
+        assert_eq!(
+            debit_account_of_doc(OUT_TYPE_OTHER, Some(object)),
+            ("6401", "主营业务成本")
+        );
     }
 }

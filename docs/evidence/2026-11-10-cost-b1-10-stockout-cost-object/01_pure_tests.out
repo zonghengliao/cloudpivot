@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.91s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 15 tests
+test business::erp::stockout_base::tests::issue_with_cost_object_debits_production_material ... ok
+test business::erp::stockout_base::tests::manual_out_types_keep_their_own_biz_type ... ok
+test business::erp::stockout_base::tests::no_cost_object_keeps_legacy_debit_account ... ok
+test business::erp::stockout_base::tests::sales_stock_out_is_sale_out_not_other_out ... ok
+test business::erp::stockout_base::tests::scrap_and_loss_never_debit_production_material ... ok
+test business::erp::stockout_base::tests::stock_out_vocabulary_matches_doc_kind ... ok
+test business::erp::stockout_dto::tests::cancelled_cost_object_is_rejected_with_409 ... ok
+test business::erp::stockout_dto::tests::closed_cost_object_is_rejected_with_409 ... ok
+test business::erp::stockout_dto::tests::cost_object_id_value_handles_three_states ... ok
+test business::erp::stockout_dto::tests::issue_with_open_cost_object_is_accepted ... ok
+test business::erp::stockout_dto::tests::missing_cost_object_is_rejected_with_400 ... ok
+test business::erp::stockout_dto::tests::no_cost_object_is_always_accepted ... ok
+test business::erp::stockout_dto::tests::non_issue_doc_cannot_attach_cost_object ... ok
+test business::erp::stockout_dto::tests::response_debit_account_reflects_cost_object ... ok
+test shared::error_code::tests::erp_error_codes_are_stable ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4154 filtered out; finished in 0.02s
+

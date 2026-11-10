@@ -229,6 +229,70 @@ pub async fn warehouse_policy(ex: &impl SqlExecutor, warehouse_id: Uuid) -> DbRe
     }
 }
 
+/// 成本对象的**只读引用**（校验 / 展示用：对象号 + 状态）。
+///
+/// 为什么不复用 `cost_object_model::CostObjectRow`：那张行结构要 join 产品 / 仓库 /
+/// 库位 / 客户 / 车间五张表（详情页用），而出库单只需要「对象号 + 状态」两列 ——
+/// 建单校验走这条窄查询，列表填充走 [`cost_object_labels`]（整页一次）。
+#[derive(Debug, Clone)]
+pub struct CostObjectRef {
+    /// 对象号（`CB-yyyyMMdd-NNNNNN`，用户认的就是它 —— `biz_cost_object` 没有独立的「名称」列）。
+    pub object_no: String,
+    /// 状态（`OPEN` / `CLOSED` / `CANCELLED`，与 `ck_biz_cost_object_status` 同值域）。
+    pub status: String,
+}
+
+/// 单查成本对象（不存在 / 已删 → `None`）。
+pub async fn cost_object_ref(ex: &impl SqlExecutor, cost_object_id: Uuid) -> DbResult<Option<CostObjectRef>> {
+    let row = ex
+        .query_first_sql(
+            "SELECT object_no, status FROM biz_cost_object \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&cost_object_id)],
+        )
+        .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => Ok(Some(CostObjectRef {
+            object_no: row.get_typed("object_no")?,
+            status: row.get_typed("status")?,
+        })),
+    }
+}
+
+/// 批量取「成本对象 id → 对象号」（列表 / 详情填展示名用，**一次查询**防 N+1）。
+///
+/// 约定 13：主数据关联类字段返回实时名 —— 对象号是 `biz_cost_object` 的业务键，
+/// 改号（本版本只读，但二开可能放开）后列表要立刻跟着变。
+pub async fn cost_object_labels(
+    ex: &impl SqlExecutor,
+    ids: &[Uuid],
+) -> DbResult<std::collections::HashMap<Uuid, String>> {
+    let mut unique: Vec<Uuid> = ids.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    if unique.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    // 与 `user_name::names_of` 同一个写法：`= ANY(?::text::uuid[])`，整页**一条 SQL**。
+    let joined = unique.iter().map(Uuid::to_string).collect::<Vec<_>>().join(",");
+    let rows = ex
+        .query_sql(
+            "SELECT id, object_no FROM biz_cost_object \
+              WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in &rows {
+        let id: Uuid = row.get_typed("id")?;
+        map.insert(id, row.get_typed("object_no")?);
+    }
+    Ok(map)
+}
+
 // ==================== 写入：建单 / 改单 / 软删 ====================
 
 /// 取一个出库单号（`OUT-yyyyMMdd-000001`，按天 CST 滚动）。
@@ -283,11 +347,11 @@ pub async fn create(
         format!(
             "INSERT INTO {TABLE} \
                 (id, out_no, out_type, warehouse_id, out_date, status, total_qty, total_amount, \
-                 reason, remark, source_type, source_id, \
+                 reason, remark, source_type, source_id, cost_object_id, \
                  created_at, updated_at, create_by, update_by) \
              VALUES (?, ?, ?, ?::uuid, ?, '{STATUS_DRAFT}', \
                  NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,''), NULLIF(?::text,''), \
-                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid, \
+                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
         ),
         vec![
@@ -303,6 +367,8 @@ pub async fn create(
             // ⚠ 可空 uuid 一律 `NULLIF(?::text,'')::uuid`：驱动不接受空串直绑 uuid。
             Value::Text(new.source_type.unwrap_or_default().to_string()),
             Value::Text(new.source_id.map(|value| value.to_string()).unwrap_or_default()),
+            // 成本对象（V0375）：不挂 → NULL（存量口径，过账借方仍 6401）
+            Value::Text(new.cost_object_id.map(|value| value.to_string()).unwrap_or_default()),
             Value::from(now),
             Value::from(now),
             operator_text.clone(),
@@ -344,7 +410,8 @@ pub async fn update(
                 "UPDATE {TABLE} \
                     SET out_type = ?, warehouse_id = ?::uuid, out_date = ?, \
                         total_qty = NULLIF(?::text,'')::numeric, total_amount = 0, \
-                        reason = NULLIF(?::text,''), remark = NULLIF(?::text,''), updated_at = ?, \
+                        reason = NULLIF(?::text,''), remark = NULLIF(?::text,''), \
+                        cost_object_id = NULLIF(?::text,'')::uuid, updated_at = ?, \
                         update_by = NULLIF(?::text,'')::uuid \
                   WHERE id = ?::uuid AND status = '{STATUS_DRAFT}' AND deleted_at IS NULL"
             ),
@@ -355,6 +422,8 @@ pub async fn update(
                 Value::Text(totals.qty.round_dp(4).to_string()),
                 Value::Text(new.reason.unwrap_or_default().to_string()),
                 Value::Text(new.remark.unwrap_or_default().to_string()),
+                // 三态：`None` = 清空成本对象（改单是**整单覆盖**，与 reason/remark 同口径）
+                Value::Text(new.cost_object_id.map(|value| value.to_string()).unwrap_or_default()),
                 Value::from(now),
                 operator_text,
                 Value::from(&id),
@@ -1192,3 +1261,8 @@ mod tests;
 #[cfg(test)]
 #[path = "stockout_fifo_tests.rs"]
 mod fifo_tests;
+
+/// B1-10：领料单挂成本对象（对象 OPEN 校验 + 借方科目复算 + 过账 4001.01）。只在 `cargo test` 时编译。
+#[cfg(test)]
+#[path = "stockout_cost_object_tests.rs"]
+mod cost_object_tests;

@@ -202,6 +202,16 @@ pub const ACCOUNT_PENDING_GAIN_LOSS: &str = "1901";
 /// 科目编码：主营业务成本（序列号出库结转存货成本的借方）。
 pub const ACCOUNT_MAIN_COST: &str = "6401";
 
+// ---- 成本核算（ARCH-9 §4.7.1）用到的末级科目 ----
+//
+// `4001` 在 `V0377__cost_accounts` 里已翻成**非末级**（`is_leaf = 0`），
+// 记账只能落 `4001.01~03`。生产领料（出库单挂了 `cost_object_id`）的借方
+// 因此必须是下面这个末级编码 —— 写 `4001` 会被 [`post_voucher`] 的末级闸拒掉。
+/// 科目编码：生产成本-直接材料（生产领料借方，ARCH-9 §4.7.1 的改造点）。
+pub const ACCOUNT_PRODUCTION_MATERIAL: &str = "4001.01";
+/// 科目名称：生产成本-直接材料（与 `V0377` 种子逐字一致；摘要 / 分录名同源）。
+pub const ACCOUNT_PRODUCTION_MATERIAL_NAME: &str = "生产成本-直接材料";
+
 // ---- 销售收入确认（ARCH-7 SO-22）用到的三个科目 ----
 //
 // 稿面（ARCH-7 §5.5 / §7.2）写的是「贷 6001 主营业务收入」，但**本仓科目表里没有 6001**：

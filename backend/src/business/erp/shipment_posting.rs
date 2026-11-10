@@ -366,6 +366,8 @@ pub async fn post_effects(
         remark: Some(&remark),
         source_type: Some(SOURCE_TYPE_SALES),
         source_id: Some(shipment_row.id),
+        // 销售出库不挂成本对象（只有生产领料挂；ARCH-9 §4.7.1）
+        cost_object_id: None,
     };
     let totals = Totals::of(&lines);
     let stock_out_id = stock_out::create(ex, &new, &lines, &totals, operator.clone(), now)

@@ -407,6 +407,7 @@ async fn make_doc(out_type: &str, warehouse_id: Uuid, material_id: Uuid, qty: De
         out_date: None,
         reason: Some(reason.to_string()),
         remark: None,
+        cost_object_id: None,
         items: vec![super::super::stockout_dto::StockOutItemReq {
             material_id: material_id.to_string(),
             qty,
@@ -684,6 +685,7 @@ async fn dc13_state_machine_and_guards() {
         out_date: None,
         reason: Some("一物一码".to_string()),
         remark: None,
+        cost_object_id: None,
         items: vec![super::super::stockout_dto::StockOutItemReq {
             material_id: MATERIAL_SERIAL.to_string(),
             qty: Decimal::from(1),
@@ -709,6 +711,7 @@ async fn dc13_state_machine_and_guards() {
         out_date: None,
         reason: None,
         remark: None,
+        cost_object_id: None,
         items: vec![super::super::stockout_dto::StockOutItemReq {
             material_id: MATERIAL_A.to_string(),
             qty: Decimal::from(1),

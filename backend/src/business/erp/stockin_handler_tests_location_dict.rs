@@ -71,6 +71,7 @@ async fn out_doc(material: &str, qty: &str, location_row: Option<Uuid>) -> Uuid 
         out_date: None,
         reason: Some("P2-4 出库库位用例".to_string()),
         remark: None,
+        cost_object_id: None,
         items: vec![StockOutItemReq {
             material_id: material.to_string(),
             qty: dec(qty),

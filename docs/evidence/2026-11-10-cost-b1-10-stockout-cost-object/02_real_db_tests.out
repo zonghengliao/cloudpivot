@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::stockout_model::cost_object_tests::create_with_closed_or_cancelled_object_is_rejected ... [B1-10] CLOSED 对象被拦：66057 成本对象 CB-B110-000002 当前是「已关批」（CLOSED），不能投料：只有 OPEN（在制）的对象可以挂领料单。已关批的对象成本已经结转过，再投料会与企业所得税口径的在制余额对不上；请换一个在制的成本对象，或新建一批
+[B1-10] CANCELLED 对象被拦：66057 成本对象 CB-B110-000003 当前是「已作废」（CANCELLED），不能投料：只有 OPEN（在制）的对象可以挂领料单。已关批的对象成本已经结转过，再投料会与企业所得税口径的在制余额对不上；请换一个在制的成本对象，或新建一批
+ok
+test business::erp::stockout_model::cost_object_tests::create_with_open_cost_object_reports_production_debit ... [B1-10] 挂 OPEN 对象建单 OK：借方 4001.01
+ok
+test business::erp::stockout_model::cost_object_tests::non_issue_doc_cannot_attach_object ... [B1-10] 报废单挂对象被拦：10001 只有领用单（out_type=ISSUE）可以挂成本对象：本单是报废单。报废 / 盘亏是资产损失（借 1901 待处理财产损溢），也不进成本核算的料归集
+ok
+test business::erp::stockout_model::cost_object_tests::posting_refuses_when_object_closed_after_draft ... [B1-10] 关批后过账被拦且回滚：66057 成本对象 CB-B110-000001 当前是「已关批」（CLOSED），不能投料：只有 OPEN（在制）的对象可以挂领料单。已关批的对象成本已经结转过，再投料会与企业所得税口径的在制余额对不上；请换一个在制的成本对象，或新建一批
+ok
+test business::erp::stockout_model::cost_object_tests::posting_splits_debit_by_cost_object ... [B1-10] 挂对象 过账凭证：借 4001.01 / 贷 1405 100.0000
+[B1-10] 不挂 过账凭证：借 6401 / 贷 1405 100.0000
+ok
+test business::erp::stockout_model::cost_object_tests::update_sets_and_clears_cost_object ... [B1-10] 改单三态 OK（不挂 → 挂 → 清空）
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4163 filtered out; finished in 12.72s
+

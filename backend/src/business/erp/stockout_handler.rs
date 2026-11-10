@@ -49,7 +49,7 @@ use crate::business::flow::linkage;
 use super::stockout_base::*;
 use super::stockout_dto::{
     CreateStockOutReq, StockOutDetailRes, StockOutEnvelope, StockOutPageQuery, StockOutPageRes, StockOutStatusReq,
-    ensure_draft, list_res, materials_of,
+    ensure_cost_object_usable, ensure_draft, fill_cost_object_labels, list_res, materials_of,
 };
 use super::stockout_model::{self as stock_out, MaterialInfo};
 
@@ -126,6 +126,7 @@ async fn plan(
         nik::prelude::chrono::NaiveDate,
         Vec<NewStockOutLine>,
         HashMap<Uuid, MaterialInfo>,
+        Option<Uuid>,
     ),
     ApiError,
 > {
@@ -139,6 +140,18 @@ async fn plan(
         .map_err(|error| utils::db_error(error, "查询出库仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
     let out_date = req.out_date_value();
+
+    // 成本对象（ARCH-9 B1-10）：只有领用单能挂，且对象必须 OPEN。
+    // 判定是**纯函数**（`ensure_cost_object_usable`，三种情况各一条单测），
+    // 这里只负责把「查库结果」递进去 —— 校验逻辑不再和 SQL 混在一起。
+    let cost_object_id = req.cost_object_id_value()?;
+    let object = match cost_object_id {
+        Some(id) => stock_out::cost_object_ref(db(), id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询成本对象"))?,
+        None => None,
+    };
+    ensure_cost_object_usable(&out_type, cost_object_id, object.as_ref())?;
 
     let mut lines = Vec::with_capacity(req.items.len());
     let mut materials: HashMap<Uuid, MaterialInfo> = HashMap::new();
@@ -273,7 +286,7 @@ async fn plan(
             )));
         }
     }
-    Ok((out_type, warehouse_id, out_date, lines, materials))
+    Ok((out_type, warehouse_id, out_date, lines, materials, cost_object_id))
 }
 
 /// 建单核心（endpoint 与单测共用，只跳过认证）。
@@ -282,7 +295,7 @@ pub async fn create_stock_out(
     operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<Uuid, ApiError> {
     let op = operator.into();
-    let (out_type, warehouse_id, out_date, lines, _) = plan(req).await?;
+    let (out_type, warehouse_id, out_date, lines, _, cost_object_id) = plan(req).await?;
     let totals = Totals::of(&lines);
     let new = NewStockOut {
         out_type: &out_type,
@@ -293,6 +306,8 @@ pub async fn create_stock_out(
         // 手工建单没有来源单据（销售链的建单走 `shipment_posting`，不经本函数）
         source_type: None,
         source_id: None,
+        // 成本对象（ARCH-9 B1-10）：已在 plan() 里校验过「领用 + 对象 OPEN」
+        cost_object_id,
     };
     let now = Utc::now();
     let tx = db()
@@ -320,7 +335,7 @@ pub async fn update_stock_out(
     operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<(), ApiError> {
     let op = operator.into();
-    let (out_type, warehouse_id, out_date, lines, _) = plan(req).await?;
+    let (out_type, warehouse_id, out_date, lines, _, cost_object_id) = plan(req).await?;
     let totals = Totals::of(&lines);
     let new = NewStockOut {
         out_type: &out_type,
@@ -331,6 +346,8 @@ pub async fn update_stock_out(
         // 手工建单没有来源单据（销售链的建单走 `shipment_posting`，不经本函数）
         source_type: None,
         source_id: None,
+        // 成本对象（ARCH-9 B1-10）：已在 plan() 里校验过「领用 + 对象 OPEN」
+        cost_object_id,
     };
     let now = Utc::now();
     let tx = db()
@@ -508,6 +525,18 @@ async fn post_out_tx(
         &format!("出库单 {}", header.out_no),
     )
     .await?;
+
+    // ①d 成本对象闸（ARCH-9 B1-10）：挂了对象的单在过账前再确认一次「对象还在制」。
+    //
+    // 为什么建单校验过还要查一遍：草稿可以放几天。期间对象可能被关批（`close` 的前置 ④
+    // 会拦「还有未过账领料」，但那是**关批侧**的检查 —— 并发下两边都可能先读到旧状态）。
+    // 过账是唯一动账的入口，这里不拦就会把料记到已结转的对象上（4001.01 进了已结批）。
+    if let Some(cost_object_id) = header.cost_object_id {
+        let object = stock_out::cost_object_ref(ex, cost_object_id)
+            .await
+            .map_err(|error| utils::db_error(error, "过账：查询成本对象"))?;
+        ensure_cost_object_usable(&header.out_type, Some(cost_object_id), object.as_ref())?;
+    }
 
     let items = stock_out::items_of(ex, id)
         .await
@@ -744,7 +773,11 @@ async fn post_out_tx(
         .map_err(|error| write_error(error, "过账：回写单头金额"))?;
 
     // ⑤ 成本结转凭证（借 6401 / 1901，贷 1405；差额 ≤ 0 内部跳过并 WARN）
-    let (debit_code, debit_name) = debit_account_of(&header.out_type);
+    //
+    // ★ ARCH-9 §4.7.1 的唯一改动点：挂了成本对象（生产领料）→ 借 4001.01 生产成本-直接材料。
+    // 取科目的口径只在 `debit_account_of_doc` 里判一次（含「非 ISSUE 不准借 4001.01」的兜底），
+    // 金额 / 按物料拆行 / 尾差吸收一行不改。
+    let (debit_code, debit_name) = debit_account_of_doc(&header.out_type, header.cost_object_id);
     let summary = format!(
         "{}出库 {} 结转成本 {}",
         out_type_label(&header.out_type),
@@ -1266,6 +1299,10 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockOutDetailRes, ApiEr
     // ★ P1-FIX-2：草稿 / 待过账的单据附带「哪一行不够、差多少、现有货在哪些库位」。
     let warnings = stock_warnings(&row, &items, &materials).await?;
     let mut detail = super::stockout_dto::detail_of(&row, items, &materials, &edges, warnings);
+    // 成本对象号（B1-10；实时取一次，1 条 SQL；未挂 → None）
+    fill_cost_object_labels(std::slice::from_mut(&mut detail.header))
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象"))?;
     // AUD-02：制单人姓名（单条同一入口，1 条 SQL）
     crate::business::shared::user_name::fill_person_names(std::slice::from_mut(&mut detail.header))
         .await
@@ -1371,6 +1408,10 @@ pub async fn page_of(q: &StockOutPageQuery) -> std::result::Result<StockOutPageR
         .await
         .map_err(|error| utils::db_error(error, "查询出库单列表"))?;
     let mut list = list_res(&rows);
+    // 成本对象号（B1-10）：整页一次 SQL，不逐行查
+    fill_cost_object_labels(&mut list)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象"))?;
     // AUD-02：制单人姓名，整页一次
     crate::business::shared::user_name::fill_person_names(&mut list)
         .await

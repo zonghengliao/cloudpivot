@@ -35,13 +35,13 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::stockout_model::{self as model, MaterialInfo};
+use crate::business::erp::stockout_model::{self as model, CostObjectRef, MaterialInfo};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
 use super::stockout_base::{
-    OUT_TYPES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockOutFilter, StockOutItemRow,
-    StockOutRow, out_type_label, status_label,
+    OUT_TYPE_ISSUE, OUT_TYPES, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, StockOutFilter,
+    StockOutItemRow, StockOutRow, debit_account_of_doc, out_type_label, status_label,
 };
 
 /// 明细行上限。
@@ -90,6 +90,13 @@ pub struct CreateStockOutReq {
     pub reason: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 成本对象（ARCH-9 B1-10）：挂了就是**生产领料**，过账借方落 `4001.01`
+    /// 生产成本-直接材料（不挂 → 原 6401 逻辑，存量行为零变化）。
+    ///
+    /// 建单必须是 `status = 'OPEN'` 的成本对象（`ensure_cost_object_usable` 校验），
+    /// 且只有 `out_type = ISSUE` 的单据允许挂（报废 / 盘亏是资产损失，要进 1901）。
+    /// 改单是**整单覆盖**：不传 / 传空串 = 清空（与 `reason` / `remark` 同口径）。
+    pub cost_object_id: Option<String>,
     /// 明细（1–200 行）。
     pub items: Vec<StockOutItemReq>,
 }
@@ -169,6 +176,91 @@ impl CreateStockOutReq {
         }
         Ok(())
     }
+
+    /// 成本对象 id（空白 / `None` → `None` = 不挂；非法 UUID → 400）。
+    pub fn cost_object_id_value(&self) -> std::result::Result<Option<uuid::Uuid>, ApiError> {
+        match self
+            .cost_object_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        {
+            None => Ok(None),
+            Some(text) => Ok(Some(crate::business::erp::cost_object_dto::parse_uuid(
+                text,
+                "cost_object_id",
+            )?)),
+        }
+    }
+}
+
+// ==================== 成本对象校验（ARCH-9 B1-10） ====================
+
+/// 成本对象状态的**中文名**（错误文案用）。
+///
+/// 值域来自 `cost_object_dto::STATUSES`（与 `ck_biz_cost_object_status` 逐字一致）；
+/// 文案刻意与「关批」区分：`CLOSED` 说「已关批」而不是「已关闭」，用户才知道
+/// 是「这批已经结完成本了，不能再往里投料」。
+pub fn cost_object_status_label(status: &str) -> &'static str {
+    match status {
+        super::cost_object_dto::STATUS_OPEN => "在制",
+        super::cost_object_dto::STATUS_CLOSED => "已关批",
+        super::cost_object_dto::STATUS_CANCELLED => "已作废",
+        _ => "未知状态",
+    }
+}
+
+/// 领料单挂成本对象的**纯逻辑**校验（不查库，查库结果由 handler 传进来）。
+///
+/// # 三条规则（ARCH-9 §4.7.1 + §4.3）
+///
+/// | 规则 | 结果 | 依据 |
+/// |---|---|---|
+/// | 不挂对象（`None`） | 放行 | 存量行为：过账借 6401，不进成本核算 |
+/// | 只有 `ISSUE` 能挂 | 400 `10001` | 报废 / 盘亏是资产损失（进 1901），且料归集只扫 `out_type='ISSUE'`，挂了也永远归集不到 |
+/// | 对象必须存在 | 400 `66002` | 弱引用，库层没有物理外键 |
+/// | 对象必须 `status = 'OPEN'` | 409 `66057` | 已关批 / 已作废的对象不能再投料（关批后成本已结转） |
+///
+/// 为什么「存在性」与「状态」给不同 HTTP 码：前者是**入参指错了**（客户端 bug /
+/// 单据已删），后者是**业务规则拒绝**（对象确实存在，就是不让挂）—— 前端提示与
+/// 用户下一步动作完全不同（改 id vs 换对象）。
+pub fn ensure_cost_object_usable(
+    out_type: &str,
+    cost_object_id: Option<uuid::Uuid>,
+    object: Option<&CostObjectRef>,
+) -> std::result::Result<(), ApiError> {
+    let Some(cost_object_id) = cost_object_id else {
+        return Ok(());
+    };
+    if out_type != OUT_TYPE_ISSUE {
+        return Err(bad_request(format!(
+            "只有领用单（out_type=ISSUE）可以挂成本对象：本单是{}单。\
+             报废 / 盘亏是资产损失（借 1901 待处理财产损溢），也不进成本核算的料归集",
+            out_type_label(out_type)
+        )));
+    }
+    let Some(object) = object else {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_REFERENCE_MISSING,
+            format!("cost_object_id 指向的成本对象 {cost_object_id} 不存在或已删除"),
+        ));
+    };
+    if object.status != super::cost_object_dto::STATUS_OPEN {
+        return Err(ApiError::new(
+            409,
+            error_code::ERP_COST_OBJECT_NOT_OPEN,
+            format!(
+                "成本对象 {} 当前是「{}」（{}），不能投料：只有 OPEN（在制）的对象可以挂领料单。\
+                 已关批的对象成本已经结转过，再投料会与企业所得税口径的在制余额对不上；\
+                 请换一个在制的成本对象，或新建一批",
+                object.object_no,
+                cost_object_status_label(&object.status),
+                object.status
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// 一行明细的入参（**没有单价 / 金额 / 单位**：由服务端按物料与账上均价决定）。
@@ -312,6 +404,20 @@ pub struct StockOutRes {
     pub source_type: Option<String>,
     /// 来源单据 id（销售链 = 发货单 id）。
     pub source_id: Option<String>,
+    /// 成本对象（ARCH-9 B1-10；`null` = 未挂，即存量口径）。
+    pub cost_object_id: Option<String>,
+    /// 成本对象号（`CB-yyyyMMdd-NNNNNN`，实时取；主数据已删 / 未挂 → `null`）。
+    ///
+    /// 约定 13「主数据关联 → join 实时取名」：`biz_cost_object` 没有独立名称列，
+    /// 对象号就是用户认的那个名字，所以这里只补对象号（不另造 name）。
+    pub cost_object_no: Option<String>,
+    /// **复算出来的过账借方科目**编码（`4001.01` 挂对象 / `6401` | `1901` 不挂）。
+    ///
+    /// 给前端「选完成本对象借方科目提示会变」用（B1-12）：口径与过账完全同一份：
+    /// `stockout_base::debit_account_of_doc`（不另写一份映射，避免前后端两套）。
+    pub debit_account_code: String,
+    /// 借方科目名称（`生产成本-直接材料` / `主营业务成本` / `待处理财产损溢`）。
+    pub debit_account_name: String,
     /// 创建时间（RFC 3339）。
     pub created_at: String,
     /// 制单人。
@@ -323,6 +429,8 @@ pub struct StockOutRes {
 impl StockOutRes {
     /// 行 → 列表项。
     pub fn of(row: &StockOutRow) -> Self {
+        // 借方科目**复算**（ARCH-9 §4.7.1）：挂成本对象的领用单 → 4001.01，其余原逻辑。
+        let (debit_account_code, debit_account_name) = debit_account_of_doc(&row.out_type, row.cost_object_id);
         Self {
             id: row.id.to_string(),
             out_no: row.out_no.clone(),
@@ -339,6 +447,11 @@ impl StockOutRes {
             remark: row.remark.clone(),
             source_type: row.source_type.clone(),
             source_id: row.source_id.map(|id| id.to_string()),
+            cost_object_id: row.cost_object_id.map(|id| id.to_string()),
+            // 对象号由 `fill_cost_object_labels` 批量回填（列表 / 详情各一次 SQL）
+            cost_object_no: None,
+            debit_account_code: debit_account_code.to_string(),
+            debit_account_name: debit_account_name.to_string(),
             created_at: row.created_at.to_rfc3339(),
             create_by: row.create_by.map(|id| id.to_string()),
             create_by_name: None,
@@ -567,7 +680,225 @@ pub async fn materials_of(
     Ok(map)
 }
 
+/// 批量回填成本对象号（`cost_object_id` → `cost_object_no`），**整页一次 SQL**。
+///
+/// 与 `user_name::fill_person_names` 同一个模式：收集 id → 查一次 → 回填，
+/// 绝不在循环里查库（列表一页 100 张单 = 100 次查询是典型的 N+1）。
+/// 主数据已删 / 未挂 → 保持 `None`（前端显示 `-`，绝不显示 UUID —— 约定 13）。
+pub async fn fill_cost_object_labels(list: &mut [StockOutRes]) -> DbResult<()> {
+    let ids: Vec<uuid::Uuid> = list
+        .iter()
+        .filter_map(|row| row.cost_object_id.as_deref())
+        .filter_map(|raw| uuid::Uuid::parse_str(raw).ok())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let names = model::cost_object_labels(db(), &ids).await?;
+    for row in list.iter_mut() {
+        if let Some(id) = row
+            .cost_object_id
+            .as_deref()
+            .and_then(|raw| uuid::Uuid::parse_str(raw).ok())
+        {
+            row.cost_object_no = names.get(&id).cloned();
+        }
+    }
+    Ok(())
+}
+
 /// 当前操作时间（测试里可替换；目前恒为 `Utc::now()`）。
 pub fn now() -> DateTime<Utc> {
     Utc::now()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn object_no(status: &str) -> CostObjectRef {
+        CostObjectRef {
+            object_no: "CB-20261110-000001".to_string(),
+            status: status.to_string(),
+        }
+    }
+
+    /// 挂一个 **OPEN** 的成本对象 → 放行（卡面验收「可选成本对象」）。
+    #[test]
+    fn issue_with_open_cost_object_is_accepted() {
+        let object = object_no(super::super::cost_object_dto::STATUS_OPEN);
+        ensure_cost_object_usable(OUT_TYPE_ISSUE, Some(uuid::Uuid::now_v7()), Some(&object))
+            .expect("OPEN 对象必须放行");
+    }
+
+    /// 不挂对象 → 放行（存量行为；不查库、不看 out_type）。
+    #[test]
+    fn no_cost_object_is_always_accepted() {
+        for out_type in OUT_TYPES {
+            ensure_cost_object_usable(out_type, None, None)
+                .unwrap_or_else(|error| panic!("{out_type} 不挂对象必须放行：{} {}", error.code, error.msg));
+        }
+    }
+
+    /// 挂**已关批**（CLOSED）的对象 → 409 + 66057，报文点名对象号与状态。
+    #[test]
+    fn closed_cost_object_is_rejected_with_409() {
+        let error = ensure_cost_object_usable(
+            OUT_TYPE_ISSUE,
+            Some(uuid::Uuid::now_v7()),
+            Some(&object_no(super::super::cost_object_dto::STATUS_CLOSED)),
+        )
+        .expect_err("已关批对象必须被拒");
+        assert_eq!(error.status, 409, "业务规则拒绝用 409（不是参数错）");
+        assert_eq!(error.code, error_code::ERP_COST_OBJECT_NOT_OPEN);
+        assert_eq!(error.code, 66057);
+        assert!(
+            error.msg.contains("CB-20261110-000001"),
+            "报文必须点名成本对象：{}",
+            error.msg
+        );
+        assert!(error.msg.contains("已关批"), "报文必须说清状态：{}", error.msg);
+        println!("[B1-10] 已关批对象被拦：{} {}", error.code, error.msg);
+    }
+
+    /// 挂**已作废**（CANCELLED）的对象 → 同样 409 + 66057。
+    #[test]
+    fn cancelled_cost_object_is_rejected_with_409() {
+        let error = ensure_cost_object_usable(
+            OUT_TYPE_ISSUE,
+            Some(uuid::Uuid::now_v7()),
+            Some(&object_no(super::super::cost_object_dto::STATUS_CANCELLED)),
+        )
+        .expect_err("已作废对象必须被拒");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_COST_OBJECT_NOT_OPEN);
+        assert!(error.msg.contains("已作废"), "{}", error.msg);
+    }
+
+    /// 对象不存在 → 400 + 66002（弱引用缺失，与「状态不对」分开）。
+    #[test]
+    fn missing_cost_object_is_rejected_with_400() {
+        let error = ensure_cost_object_usable(OUT_TYPE_ISSUE, Some(uuid::Uuid::now_v7()), None)
+            .expect_err("不存在的对象必须被拒");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(error.msg.contains("不存在或已删除"), "{}", error.msg);
+    }
+
+    /// 非领用单挂对象 → 400（报废 / 盘亏是资产损失，进去也归集不到料）。
+    #[test]
+    fn non_issue_doc_cannot_attach_cost_object() {
+        let object = object_no(super::super::cost_object_dto::STATUS_OPEN);
+        for out_type in ["SCRAP", "LOSS", "OTHER"] {
+            let error = ensure_cost_object_usable(out_type, Some(uuid::Uuid::now_v7()), Some(&object))
+                .expect_err("非领用单挂对象必须被拒");
+            assert_eq!(error.status, 400, "{out_type}");
+            assert_eq!(error.code, error_code::PARAM_INVALID);
+        }
+    }
+
+    /// 入参三态：空串 / 空白 = 不挂；非法 UUID = 400；合法 = `Some`。
+    #[test]
+    fn cost_object_id_value_handles_three_states() {
+        let mut req = CreateStockOutReq::default();
+        assert_eq!(req.cost_object_id_value().expect("缺省"), None);
+        req.cost_object_id = Some("   ".to_string());
+        assert_eq!(req.cost_object_id_value().expect("空白"), None);
+        req.cost_object_id = Some("not-a-uuid".to_string());
+        assert_eq!(req.cost_object_id_value().expect_err("非法").status, 400);
+        let id = uuid::Uuid::now_v7();
+        req.cost_object_id = Some(id.to_string());
+        assert_eq!(req.cost_object_id_value().expect("合法"), Some(id));
+    }
+
+    /// 出参的借方科目**复算**：挂对象 → 4001.01；不挂 → 原逻辑（6401 / 1901）。
+    #[test]
+    fn response_debit_account_reflects_cost_object() {
+        let mut row = StockOutRow {
+            id: uuid::Uuid::now_v7(),
+            out_no: "OUT-TEST-000001".to_string(),
+            out_type: OUT_TYPE_ISSUE.to_string(),
+            warehouse_id: uuid::Uuid::now_v7(),
+            out_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 10).expect("日期"),
+            status: STATUS_DRAFT.to_string(),
+            total_qty: Decimal::ZERO,
+            total_amount: Decimal::ZERO,
+            voucher_id: None,
+            reason: None,
+            remark: None,
+            posted_at: None,
+            posted_by: None,
+            cancelled_at: None,
+            cancelled_by: None,
+            cancel_reason: None,
+            source_type: None,
+            source_id: None,
+            cost_object_id: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            create_by: None,
+            update_by: None,
+        };
+        let plain = StockOutRes::of(&row);
+        assert_eq!(plain.debit_account_code, "6401", "不挂对象沿用原逻辑");
+        assert_eq!(plain.cost_object_id, None);
+        assert_eq!(plain.cost_object_no, None);
+
+        row.cost_object_id = Some(uuid::Uuid::now_v7());
+        let attached = StockOutRes::of(&row);
+        assert_eq!(attached.debit_account_code, "4001.01", "挂对象 → 生产成本-直接材料");
+        assert_eq!(attached.debit_account_name, "生产成本-直接材料");
+        assert!(attached.cost_object_id.is_some());
+
+        // 报废单挂了对象也不改借方（1901 是资产损失）
+        row.out_type = "SCRAP".to_string();
+        assert_eq!(StockOutRes::of(&row).debit_account_code, "1901");
+    }
+
+    /// 出参 JSON 的**键名**就是前端契约（B1-12 要直接读这 4 个字段）。
+    ///
+    /// `serde` 默认按字段名序列化，改字段名等于改契约 —— 这条钉住键名，避免
+    /// 「后端改了名、前端拿到 null、界面上借方科目提示永远不变」这类静默漂移。
+    #[test]
+    fn response_json_exposes_cost_object_and_debit_keys() {
+        let mut row = StockOutRow {
+            id: uuid::Uuid::now_v7(),
+            out_no: "OUT-TEST-000002".to_string(),
+            out_type: OUT_TYPE_ISSUE.to_string(),
+            warehouse_id: uuid::Uuid::now_v7(),
+            out_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 10).expect("日期"),
+            status: STATUS_DRAFT.to_string(),
+            total_qty: Decimal::ZERO,
+            total_amount: Decimal::ZERO,
+            voucher_id: None,
+            reason: None,
+            remark: None,
+            posted_at: None,
+            posted_by: None,
+            cancelled_at: None,
+            cancelled_by: None,
+            cancel_reason: None,
+            source_type: None,
+            source_id: None,
+            cost_object_id: Some(uuid::Uuid::now_v7()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            create_by: None,
+            update_by: None,
+        };
+        let value = serde_json::to_value(StockOutRes::of(&row)).expect("序列化");
+        for key in [
+            "cost_object_id",
+            "cost_object_no",
+            "debit_account_code",
+            "debit_account_name",
+        ] {
+            assert!(value.get(key).is_some(), "出参 JSON 缺键 {key}：{value}");
+        }
+        assert_eq!(value["debit_account_code"], "4001.01");
+        // 未挂时 cost_object_id 是 null（不是空串 —— 前端 `if (!id)` 两种都能判，但契约要稳）
+        row.cost_object_id = None;
+        let value = serde_json::to_value(StockOutRes::of(&row)).expect("序列化");
+        assert!(value["cost_object_id"].is_null());
+    }
 }
