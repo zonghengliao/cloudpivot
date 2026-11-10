@@ -1,0 +1,89 @@
+==> 演练库：mig_costb32_drill_1111012706
+  基线迁移数：300 条（< V0381）
+== S0 基线（无 V0381）
+  ✓ 基线：cost_settle_approve 不存在（0）
+  ✓ 基线：流程五表就绪（5）
+  ✓ 基线：两个财务审批角色在（2）
+== S1 首次 up
+  ✓ up 自检通过
+  ✓ def 1 条 PUBLISHED/is_default/不免审（1）
+  ✓ version 1 条 v1 PUBLISHED/is_current（1）
+  ✓ 节点 4 / 边 3 / 审批人 2（4/3/2）
+  ✓ 审批节点：2 个 APPROVAL 且都是 ROLE+ANY+兜底（2）
+  ✓ 节点绑角色：n_fm→FINANCE_MANAGER / n_fd→FINANCE_DIRECTOR（n_fm→FINANCE_MANAGER,n_fd→FINANCE_DIRECTOR）
+  ✓ 免审直过闸：allow_auto_approve = false（false）
+  ✓ S1 指纹 22f4588e4b614563b21f637484f97c3b
+== S2 再跑一次 up（幂等）
+  ✓ 第二次 up 仍自检通过（顺带证明上一遍的行没漂移）
+  ✓ def 仍 1 条（1）
+  ✓ version 仍 1 条（没发 v2）（1）
+  ✓ 节点仍 4 / 边仍 3（4/3）
+  ✓ S2 指纹 = S1 指纹（重复执行结果不变）（22f4588e4b614563b21f637484f97c3b）
+== S3 down（含幂等）
+  ✓ down 安全阀通过
+  ✓ down 后：def 0 / version 0 / 节点 0 / 边 0 / 审批人 0（0/0/0/0/0）
+  ✓ 第二次 down 幂等（零异常）
+  ✓ 第二次 down 没有 ERROR
+== S4 down 之后重新 up
+  ✓ 重放自检通过
+  ✓ S4 指纹 = S1 指纹（回滚后重放逐字节一致）（22f4588e4b614563b21f637484f97c3b）
+== S5 守卫①：客户自建同名流程
+INSERT 0 1
+  ✓ 守卫① 提示
+  ✓ 自检说明跳过（库里那条是客户的）
+  ✓ 客户流程没被覆盖（名字与状态不变）（客户自建结算审批/DRAFT）
+  ✓ 本卡 def id 未插入（0）
+  ✓ 本卡版本未插入（0）
+  ✓ 本卡节点未插入（0）
+DELETE 1
+== S6 守卫②：同 biz_type 已有默认流
+INSERT 0 1
+  ✓ 守卫② 提示
+  ✓ 本卡 def 未插入（同 biz_type 已有默认流）（0）
+  ✓ COST_SETTLE 默认流仍只有客户那一条（1）
+DELETE 1
+== S7 守卫③：审批角色缺失
+UPDATE 1
+  ✓ 守卫③ 提示（角色只找到 1/2）
+  ✓ 角色缺失时本卡 def 未插入（0）
+UPDATE 1
+  ✓ 角色恢复后 up 成功
+  ✓ 恢复后 version v1 就位（1）
+== S8 守卫④：版本递增（def 已有客户 v1，本卡版本尚未种）
+INSERT 0 1
+INSERT 0 1
+  ✓ 递增 up 没有 ERROR
+  ✓ 版本数 2（客户 v1 保留 + 本卡 v2 新增）（2）
+  ✓ 版本号 = 1,2（MAX+1，不撞 uk_biz_flow_def_version）（1,2）
+  ✓ is_current 仍只有 1 条（不抢客户当前版本）（1）
+  ✓ 本卡 v2 是 PUBLISHED 且有快照 / 4 节点（1）
+  ✓ 本卡 v2 的节点/边按 version_id 落齐（4/3）
+  ✓ 客户 v1 一个字没动（hash 仍是演练值）（0000000000000000000000000000000000000000000000000000000000000000）
+  ✓ 自检说明被客户改过
+  ✓ def 指针仍指向客户 v1（不被抢）（20000000-0000-4000-8000-0000000b9f03）
+DELETE 2
+DELETE 3
+DELETE 4
+DELETE 2
+DELETE 1
+  ✓ 清场后重种成功
+  ✓ 重种回到出厂形态（单版本 v1 / is_current）（1）
+== S9 down 安全阀：结算批次已挂审批实例
+INSERT 0 1
+  ✓ 拒绝回滚（错误信息点名结算批次）
+  ✓ 拒绝后 def 仍在（库零变化）（1）
+  ✓ 拒绝后节点仍在（4）
+DELETE 1
+  ✓ 清掉结算批次后 down 成功
+== S10 down 安全阀：本流程下还有别的版本
+INSERT 0 1
+  ✓ 拒绝回滚（点名额外版本）
+  ✓ 拒绝后 def 仍在（1）
+DELETE 1
+== S11 收尾：down 干净、无残留
+  ✓ down 完成
+  ✓ 残留行全 0（0/0/0/0）
+  ✓ 演练临时行已清空（biz_def 只回到基线）（0）
+  ✓ biz_cost_period 演练行已删（0）
+  ✓ 角色软删已复原（2）
+=== 结果：0 条断言失败 ===

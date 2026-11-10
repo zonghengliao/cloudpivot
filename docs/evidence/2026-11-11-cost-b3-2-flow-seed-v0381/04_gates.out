@@ -1,0 +1,26 @@
+# B3-2 门禁原始输出（隔离工作树 /root/wt-b32 = HEAD 2fcb89f6 + 本卡 4 个文件）
+# 为什么用隔离工作树：共享工作区 /opt/cloudpivot 里有并发卡（B2-2 工时导入）未提交的半成品，
+#   本卡开工时它编译不过（cost_labor_model.rs: trait bound SqlBound not satisfied），与我的文件无关。
+
+## 1) rustfmt --check（只看本卡两个测试文件）
+exit=0
+
+## 2) cargo clippy --test cost_b3_2_flow_seed --test cost_b3_2_flow_seed_db -- -D warnings
+   Compiling cloudpivot v0.1.0 (/root/wt-b32/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 30.54s
+exit=0
+
+## 3) 全量 cargo test（33 个目标）
+targets=33 passed=4563 failed=0
+failed_targets=0
+exit=0
+33
+
+## 4) 本卡新增的两个测试目标（从全量里摘出来）
+     Running tests/cost_b3_2_flow_seed.rs (/root/wt-b32-target/debug/deps/cost_b3_2_flow_seed-a45ee7f1ef74037c)
+
+running 12 tests
+--
+     Running tests/cost_b3_2_flow_seed_db.rs (/root/wt-b32-target/debug/deps/cost_b3_2_flow_seed_db-32946934feabb908)
+
+running 3 tests

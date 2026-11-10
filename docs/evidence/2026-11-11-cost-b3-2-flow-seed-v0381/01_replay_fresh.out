@@ -1,0 +1,15 @@
+==> 重放库：mig_costb32_fresh_1111012654
+  重放迁移数：301 条
+  ✓ 重放迁移数 301 条（B1-7 时 300，+1）（301）
+  ✓ 流程定义 1 条且 PUBLISHED / is_default / 不免审（1）
+  ✓ def.current_version_id 指向本卡版本（20000000-0000-4000-8000-0000000b0382）
+  ✓ 版本 1 条：PUBLISHED / is_current / 4 节点 / 3 边（1）
+  ✓ 节点 4 条（4）
+  ✓ 边 3 条（3）
+  ✓ 审批人绑定 2 条（角色型）（2）
+  ✓ 两级审批 = 2 个 APPROVAL 节点（2）
+  ✓ 审批节点全是或签 ANY（全员会签 ALL 为 0 条）（2/0）
+  ✓ 节点顺序：START→财务经理→财务总监→END（开始→财务经理审批→财务总监审批→结束）
+  ✓ graph_hash = sha256(canonical(快照))（迁移自检 §6.4 已重算，这里核常量）（8a4fbd64cf5fb5cfc3b133ef2e4ff6103cd14a9afbabfae2b6f63f5845eb4171）
+  ✓ COST_SETTLE 默认流程全库唯一（uk_biz_flow_def_default）（1）
+=== 结果：0 条断言失败 ===

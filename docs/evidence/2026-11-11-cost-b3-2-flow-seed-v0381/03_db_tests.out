@@ -1,0 +1,15 @@
+# 真库用例（ERP_DB_URL 指向 301 条迁移重放出来的空库 mig_replay_b32db）
+# 命令：ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/mig_replay_b32db cargo test --test cost_b3_2_flow_seed_db -- --test-threads=1
+
+   Compiling cloudpivot v0.1.0 (/root/wt-b32/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 56.02s
+     Running tests/cost_b3_2_flow_seed_db.rs (/root/wt-b32-target/debug/deps/cost_b3_2_flow_seed_db-32946934feabb908)
+
+running 3 tests
+test definition_is_published_and_discoverable ... B3-2 已连接验证库
+ok
+test graph_passes_engine_validation_and_hash_matches_rows ... ok
+test nodes_are_two_levels_bound_to_roles ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.81s
+
