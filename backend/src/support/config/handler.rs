@@ -168,7 +168,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<ConfigRes> {
 ///
 /// # 异常情况
 ///
-/// - 400：参数非法；
+/// - 400：参数非法（含「空闲自动退出」键的角色 / 区间校验）；
 /// - 409：配置键已存在；
 /// - 500：数据库异常。
 #[nik::permission(path = "/support/config", method = "POST", permission = "support:config:create")]
@@ -180,6 +180,9 @@ pub async fn create(
     ValidatedJson(req): ValidatedJson<ConfigSaveReq>,
 ) -> ResResult<ConfigRes> {
     let config_key = req.config_key.trim();
+    // 安全策略键的写入硬约束（0 仅超管 / 上限 60）：新建路径同样要拦，
+    // 否则「删掉重建」就绕过了 PUT 上的角色校验。
+    check_idle_timeout_write(config_key, req.config_value.as_deref(), &claims).await?;
     if model::count_config_key(config_key, None)
         .await
         .map_err(|e| utils::db_error(e, "校验配置键唯一性"))?
@@ -227,8 +230,13 @@ pub async fn create(
 ///
 /// # 日志
 ///
-/// 成功后写入 `audit_logs`（`CONFIG_UPDATE`，变更前 / 后快照均仅记录配置键 / 类型 / 分类
-/// 等非敏感元数据，**不含** `config_value`）；日志写入失败不影响业务结果。
+/// 成功后写入 `audit_logs`（`CONFIG_UPDATE`，变更前 / 后快照均仅记录配置键 / 类型 /
+/// 分类等非敏感元数据，**不含** `config_value`）；日志写入失败不影响业务结果。
+///
+/// 「空闲自动退出」参数（[`constants::CONFIG_KEY_IDLE_TIMEOUT`]）是例外：它的值本身
+/// 就是安全策略，且用户明确要求「任何修改都写 operation_log（谁 / 什么时候 / 从什么
+/// 改到什么 / 是否超管）」，因此该键走 `CONFIG_IDLE_TIMEOUT_UPDATE` 并**记录新旧值**
+/// 与是否为超管操作（数值不敏感，记录不会泄漏什么）。
 ///
 /// # 返回值
 ///
@@ -236,11 +244,16 @@ pub async fn create(
 ///
 /// # 异常情况
 ///
-/// - 400：ID 或状态值非法；
+/// - 400：ID 或状态值非法；空闲超时参数越界 / 非超管设 0 / 试图改键名；
 /// - 403：该参数不允许修改；
 /// - 404：系统参数不存在；
 /// - 409：配置键与他人重复；
 /// - 500：数据库异常。
+///
+/// # 不接入审批流（用户 2026-11-10）
+///
+/// 这个接口**直接生效**，不生成审批实例；同时把「0 只能超管设」「上限 60」
+/// 写在处理器里硬拦 —— 因此也不存在「走审批流把这个值改成 0」的路径。
 #[nik::permission(path = "/support/config/{id}", method = "PUT", permission = "support:config:update")]
 #[nik::put("/support/config/{id}")]
 pub async fn update(
@@ -265,6 +278,18 @@ pub async fn update(
     }
 
     let config_key = req.config_key.trim();
+    let is_idle_key = existing.config_key == constants::CONFIG_KEY_IDLE_TIMEOUT;
+    // 不允许把安全策略键改名：改名后就地变成「普通参数」，0 值校验、审计口径、
+    // 前端特殊渲染全部失效（等于用一次改名把功能关掉）。要停用请超管直接设 0。
+    if is_idle_key && config_key != constants::CONFIG_KEY_IDLE_TIMEOUT {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "自动退出登录参数的键名不允许修改",
+        ));
+    }
+    // 硬约束：0 仅超管、上限 60 分钟（对所有角色生效）
+    check_idle_timeout_write(config_key, req.config_value.as_deref(), &claims).await?;
     if config_key != existing.config_key
         && model::count_config_key(config_key, Some(&id))
             .await
@@ -284,25 +309,50 @@ pub async fn update(
         .map(|_| ())
         .map_err(|e| utils::db_error(e, "更新系统参数"))?;
     model::after_write().await;
+
+    // 空闲超时参数：审计要能回答「谁在什么时候把自动退出从 X 改成 Y、他是不是超管」，
+    // 因此单独带值留痕（普通参数仍按老口径不落 config_value）。
+    let (operation, before_data, after_data) = if is_idle_key {
+        let is_super = caller_is_super_admin(&claims).await?;
+        (
+            "CONFIG_IDLE_TIMEOUT_UPDATE",
+            serde_json::json!({
+                "config_key": existing.config_key,
+                "config_value": existing.config_value,
+                "operator_is_super_admin": is_super,
+            }),
+            serde_json::json!({
+                "config_key": to_save.config_key,
+                "config_value": to_save.config_value,
+                "operator_is_super_admin": is_super,
+            }),
+        )
+    } else {
+        (
+            "CONFIG_UPDATE",
+            serde_json::json!({
+                "config_key": existing.config_key,
+                "config_type": existing.config_type,
+                "category": existing.category,
+            }),
+            // 变更后的 config_value 亦不记录，避免加密密钥或敏感配置外泄
+            serde_json::json!({
+                "config_key": to_save.config_key,
+                "config_type": to_save.config_type,
+                "category": to_save.category,
+            }),
+        )
+    };
     log::record_audit(
         &headers,
         &connect_info,
         log::audit_input(
             &claims,
-            "CONFIG_UPDATE",
+            operation,
             "Config",
             to_save.id.to_string(),
-            Some(serde_json::json!({
-                "config_key": existing.config_key,
-                "config_type": existing.config_type,
-                "category": existing.category,
-            })),
-            // 变更后的 config_value 亦不记录，避免加密密钥或敏感配置外泄
-            Some(serde_json::json!({
-                "config_key": to_save.config_key,
-                "config_type": to_save.config_type,
-                "category": to_save.category,
-            })),
+            Some(before_data),
+            Some(after_data),
         ),
     );
     Ok(Res::ok(ConfigRes::from_model(&to_save)?))
@@ -350,6 +400,16 @@ pub async fn delete(
     else {
         return Err(ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "系统参数不存在"));
     };
+
+    // 安全策略键不允许删除：删掉后读取侧会回退默认 15 分钟（不算关闭功能），
+    // 但「先删再建」会绕过 PUT 上的角色校验与带值审计。要停用只能超管显式设 0。
+    if existing.config_key == constants::CONFIG_KEY_IDLE_TIMEOUT {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "自动退出登录参数不允许删除（如需关闭自动退出，请超级管理员把值改为 0）",
+        ));
+    }
 
     SysConfigModel::of(id)
         .delete(db())
@@ -473,6 +533,131 @@ pub async fn enums() -> Res<crate::shared::enums::EnumsRes> {
 
 // ==================== 公共辅助 ====================
 
+/// 「空闲自动退出」参数的写入硬约束（用户 2026-11-10 第二次修正）。
+///
+/// # 参数
+///
+/// - `config_key`：本次写入的配置键；不是 [`constants::CONFIG_KEY_IDLE_TIMEOUT`] 时直接放行。
+/// - `raw`：写入的文本值（`config_value`）。
+/// - `claims`：调用者令牌声明（据此回库取角色）。
+///
+/// # 返回值
+///
+/// 通过返回 `Ok(())`；违反约束返回 400 [`ApiError`]，消息直接给用户看。
+///
+/// # 三条硬约束
+///
+/// 1. **0（禁用）只有 `SUPER_ADMIN` 能设** —— 其他角色一律 400，不管有没有
+///    `support:config:update` 权限。用户原话：「0=禁用不是谁都能设，除了超管，
+///    其他人都不允许设置为 0」。否则第一个嫌弹窗烦的管理员就会把它关掉，
+///    整个功能形同虚设。
+/// 2. **上限 60 分钟** —— 超管也受此限制（70 / 120 / 1440 全部拒绝）。把超时设成
+///    一天等于换个方式关掉功能。
+/// 3. **不走审批流** —— 校验在处理器里硬拦，不看任何审批实例；这个键也不进流程引擎，
+///    所以不存在「发起申请 → 审批通过 → 生效」的路径。
+///
+/// # 校验顺序
+///
+/// 先做纯值校验（整数 / 区间），只有值为 0 时才回库查角色：越界值和脏值不该
+/// 额外产生一次数据库查询。
+pub(crate) async fn check_idle_timeout_write(
+    config_key: &str,
+    raw: Option<&str>,
+    claims: &TokenClaims,
+) -> std::result::Result<(), ApiError> {
+    if config_key != constants::CONFIG_KEY_IDLE_TIMEOUT {
+        return Ok(());
+    }
+    let value = parse_idle_timeout_value(raw)?;
+    validate_idle_timeout_range(value)?;
+    if value == 0 && !caller_is_super_admin(claims).await? {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "只有超级管理员可以禁用自动退出登录",
+        ));
+    }
+    Ok(())
+}
+
+/// 解析「空闲自动退出」参数的文本值。
+///
+/// # 参数
+///
+/// - `raw`：`config_value`（可能为 `None` / 空串 / 非数字）。
+///
+/// # 返回值
+///
+/// 解析成功返回整数；空值或非整数返回 400 [`ApiError`]。
+pub(crate) fn parse_idle_timeout_value(raw: Option<&str>) -> std::result::Result<i64, ApiError> {
+    let text = raw.map(str::trim).unwrap_or_default();
+    if text.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "自动退出时间不能为空（1-60 分钟，0=禁用仅超管可设）",
+        ));
+    }
+    text.parse::<i64>().map_err(|_| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "自动退出时间必须是整数分钟（1-60，0=禁用仅超管可设）",
+        )
+    })
+}
+
+/// 校验取值区间（纯函数，便于单测；0 的角色约束由调用方另行判定）。
+///
+/// # 参数
+///
+/// - `value`：解析后的分钟数。
+///
+/// # 返回值
+///
+/// `0` 或 `1..=60` 通过；负数与 `>60` 返回 400。
+pub(crate) fn validate_idle_timeout_range(value: i64) -> std::result::Result<(), ApiError> {
+    if value == 0 || (constants::MIN_IDLE_TIMEOUT_MINUTES..=constants::MAX_IDLE_TIMEOUT_MINUTES).contains(&value) {
+        return Ok(());
+    }
+    Err(idle_range_error())
+}
+
+/// 越界 / 负数的统一错误（所有角色、含超管）。
+fn idle_range_error() -> ApiError {
+    ApiError::new(
+        400,
+        error_code::PARAM_INVALID,
+        "自动退出时间必须在 1-60 分钟之间（0=禁用仅超管可设）",
+    )
+}
+
+/// 调用者是否持有 `SUPER_ADMIN` 角色。
+///
+/// # 为什么回库而不是看令牌快照
+///
+/// 令牌里的 `roles` / `permissions` 是签发那一刻的快照。会话守卫虽然已经用库里的
+/// 角色复核过通配权限（BUG-SYS-04），但「能不能关闭自动退出」是更高一级的授权，
+/// 值得再点查一次角色表 —— 代价只是一次索引查询，且这个键一年改不了几次。
+///
+/// # 参数
+///
+/// - `claims`：调用者令牌声明。
+///
+/// # 返回值
+///
+/// 是超管返回 `true`；取不到用户 ID 或查库失败返回错误（fail-closed：
+/// 查不出角色就当不是超管，宁可拒绝也不要放行）。
+pub(crate) async fn caller_is_super_admin(claims: &TokenClaims) -> std::result::Result<bool, ApiError> {
+    let Some(user_id) = utils::current_user_uuid(claims) else {
+        return Ok(false);
+    };
+    let role_codes = crate::system::user::model::load_role_codes(&user_id)
+        .await
+        .map_err(|e| utils::db_error(e, "校验操作者角色"))?;
+    Ok(role_codes.iter().any(|code| code == constants::SUPER_ADMIN_ROLE_CODE))
+}
+
 /// 由系统参数请求构造模型字段（新建 / 更新共用，不访问数据库）。
 ///
 /// # 参数
@@ -542,4 +727,54 @@ fn build_model(
         update_by: operator,
         deleted_at: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    //! 「空闲自动退出」参数写入校验的单测。
+    //!
+    //! 只测**纯函数**（解析 / 区间）：角色判定要查库，属于真库用例范畴，由
+    //! `ERP_DB_URL` 开关下的集成实测覆盖（卡内附 curl 证据）。这样 `cargo test`
+    //! 在没有数据库的环境里也能全绿。
+    use super::*;
+
+    /// 非本键一律放行解析（普通参数不受空闲超时约束影响）。
+    #[test]
+    fn parses_plain_integers() {
+        assert_eq!(parse_idle_timeout_value(Some("15")).unwrap(), 15);
+        assert_eq!(parse_idle_timeout_value(Some(" 60 ")).unwrap(), 60);
+        assert_eq!(parse_idle_timeout_value(Some("0")).unwrap(), 0);
+    }
+
+    /// 空值 / 非数字一律 400（卡面验收 ③：abc 必须拒绝）。
+    #[test]
+    fn rejects_empty_and_non_numeric() {
+        for raw in [None, Some(""), Some("   "), Some("abc"), Some("1.5"), Some("15m")] {
+            let err = parse_idle_timeout_value(raw).expect_err("应拒绝");
+            assert_eq!(err.status, 400, "raw={raw:?}");
+            assert_eq!(err.code, error_code::PARAM_INVALID);
+        }
+    }
+
+    /// 区间：0 与 1..=60 合法；负数与 >60 拒绝（超管同样受上限约束）。
+    #[test]
+    fn range_boundaries() {
+        for value in [0, 1, 15, 30, 60] {
+            assert!(validate_idle_timeout_range(value).is_ok(), "value={value}");
+        }
+        for value in [-1, -60, 61, 70, 120, 1440, i64::MAX] {
+            let err = validate_idle_timeout_range(value).expect_err("应拒绝");
+            assert_eq!(err.status, 400, "value={value}");
+            assert!(err.msg.contains("1-60"), "错误文案要写清区间：{}", err.msg);
+        }
+    }
+
+    /// 上限就是 `constants::MAX_IDLE_TIMEOUT_MINUTES`（60），常量被改大时这条会红。
+    #[test]
+    fn max_timeout_is_one_hour() {
+        assert_eq!(constants::MAX_IDLE_TIMEOUT_MINUTES, 60);
+        assert_eq!(constants::MIN_IDLE_TIMEOUT_MINUTES, 1);
+        assert_eq!(constants::DEFAULT_IDLE_TIMEOUT_MINUTES, 15);
+        assert!(validate_idle_timeout_range(61).is_err(), "61 分钟必须拒绝");
+    }
 }

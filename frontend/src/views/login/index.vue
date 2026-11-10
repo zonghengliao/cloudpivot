@@ -36,6 +36,9 @@
         </header>
 
         <t-alert v-if="errorMessage" class="login__alert" theme="error" :message="errorMessage" />
+        <!-- 空闲超时被踢回：登录页必须说清原因，否则用户以为是系统故障（卡面验收 ⑦） -->
+        <t-alert v-else-if="idleNotice" class="login__alert" theme="warning" :message="idleNoticeText" />
+
 
         <t-form :data="formData" :rules="formRules" label-width="0" @submit="handleSubmit">
           <t-form-item name="username">
@@ -76,12 +79,14 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import type { FormRules } from 'tdesign-vue-next';
 import type { LoginParams } from '@/api/system/auth-api';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
+import { clearLogoutBroadcast, resetActivity, takeIdleRedirect } from '@/utils/idle-activity';
+import { safeRedirect } from '@/utils/safe-redirect';
 
 const route = useRoute();
 const router = useRouter();
@@ -99,7 +104,25 @@ const submitting = ref(false);
 /** 登录失败提示 */
 const errorMessage = ref('');
 
-/** 提交登录：失败提示留在表单内，成功后按 redirect 参数回跳 */
+/**
+ * 是否因空闲超时 / 主动退出被送回来（`?reason=idle|manual`）。
+ *
+ * 空闲退出由前端计时器、服务端 401（20009）与其它标签的广播三条路触发，它们都会带
+ * `reason`。提示语写人话，不出现 "idle timeout" 这种字眼。
+ */
+const idleNotice = computed<boolean>(() => route.query.reason === 'idle' || route.query.reason === 'manual');
+/** 提示文案 */
+const idleNoticeText = computed<string>(() =>
+  route.query.reason === 'manual' ? '您已退出登录' : '因长时间未操作已自动退出，请重新登录',
+);
+
+/**
+ * 提交登录：失败提示留在表单内，成功后回到「空闲退出前所在页面」。
+ *
+ * 回跳优先级：`sessionStorage.idle_logout_redirect`（空闲退出时记下）> URL `?redirect=`
+ * > 工作台。两者都是可篡改输入，统一过 {@link safeRedirect} 防开放重定向
+ * （卡面验收 ⑰⑱：`//evil.com` / `http://evil.com` 必须回首页，不能出站）。
+ */
 async function handleSubmit(): Promise<void> {
   // 账号密码去掉首尾空白（复制粘贴常带上不可见空格），后端登录接口同样会 trim 兜底
   const username = formData.username.trim();
@@ -108,8 +131,12 @@ async function handleSubmit(): Promise<void> {
   errorMessage.value = '';
   try {
     await userStore.login({ username, password });
-    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard';
-    await router.replace(redirect);
+    const savedRedirect = takeIdleRedirect();
+    const queryRedirect = typeof route.query.redirect === 'string' ? route.query.redirect : '';
+    // 新一轮会话：重置空闲计时起点，并清掉上一轮的退出广播
+    resetActivity();
+    clearLogoutBroadcast();
+    await router.replace(safeRedirect(savedRedirect || queryRedirect));
   } catch (error) {
     errorMessage.value = error instanceof ApiError ? error.message : '登录失败，请稍后重试';
   } finally {

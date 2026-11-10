@@ -99,6 +99,16 @@ export interface CurrentUserRes {
   must_change_password: boolean;
 }
 
+/** 空闲自动退出策略（`GET /api/system/auth/idle-policy`）。 */
+export interface IdlePolicyRes {
+  /** 生效的空闲超时分钟数；0 = 已禁用自动退出 */
+  timeout_minutes: number;
+  /** 超时前多少秒弹「即将退出」提示；0 = 禁用时不提示 */
+  warn_seconds: number;
+  /** 当前用户是否超级管理员（参数配置页据此决定是否显示「禁用」选项） */
+  is_super_admin: boolean;
+}
+
 /** 登录（认证）日志行：后端以 `to_jsonb` 下发整行，字段可能随表结构变化 */
 export interface AuthLogRow {
   /** 日志 id */
@@ -164,6 +174,16 @@ export function fetchMenus(): Promise<MenuNode[]> {
   return get<MenuNode[]>('/api/system/auth/menus');
 }
 
+/**
+ * 查询空闲自动退出策略（登录即可读，不需要任何权限码）。
+ *
+ * 前端用它取「生效的超时分钟数 + 提示窗口」；`timeout_minutes === 0` 表示
+ * 超管已显式禁用自动退出，此时不启动任何计时。
+ */
+export function fetchIdlePolicy(): Promise<IdlePolicyRes> {
+  return get<IdlePolicyRes>('/api/system/auth/idle-policy');
+}
+
 /** 更新当前登录用户的个人资料（姓名 / 邮箱 / 手机号） */
 export function updateProfile(data: UpdateProfileReq): Promise<null> {
   return put<null>('/api/system/auth/profile', data);
@@ -191,6 +211,7 @@ export const authApi = {
   logout,
   fetchMe,
   fetchMenus,
+  fetchIdlePolicy,
   updateProfile,
   changePassword,
   fetchMyLoginLogs,

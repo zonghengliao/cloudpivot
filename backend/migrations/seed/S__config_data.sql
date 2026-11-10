@@ -42,3 +42,26 @@ DO UPDATE SET config_value = EXCLUDED.config_value,
               status = EXCLUDED.status,
               sort_order = EXCLUDED.sort_order,
               updated_at = CURRENT_TIMESTAMP;
+
+-- ======================================================
+-- 空闲自动退出登录（AUTO-LOGOUT，2026-11-10）
+--
+-- 语义（用户口径）：
+--   · 1-60 分钟：空闲超过该时长即拒绝该会话的一切请求（401 / 20009）；
+--   · 0        ：禁用自动退出，**只有超级管理员**能设；
+--   · 上限 60  ：超管也设不了 70/120/1440。
+--
+-- 角色校验与区间校验在 `support::config::handler::check_idle_timeout_write`
+-- 里硬拦（接口层，不看任何审批实例）—— 这个键**不接入流程引擎**，
+-- 不存在「审批通过就把自动退出关掉」的路径。
+--
+-- 冲突策略是 DO NOTHING（本文件其它三行是 DO UPDATE）：
+-- 本文件指纹变化会整份重跑，而这一行是**安全策略**，超管可能已经把它改成
+-- 5 / 30 / 0；重跑种子不该把管理员的决定冲回默认值。键不存在时才插入默认 15。
+-- ======================================================
+INSERT INTO sys_config (id, config_key, config_value, config_type, description,
+                        category, config_level, is_modifiable, is_encrypted, is_restart, status, sort_order)
+VALUES (gen_random_uuid(), 'auth.idle_timeout_minutes', '15', 'NUMBER',
+        '无操作自动退出登录的等待时长（分钟）：1-60；0=禁用自动退出（仅超级管理员可设）', 'auth', 1, TRUE, FALSE, FALSE, 1, 40)
+ON CONFLICT (config_key) WHERE deleted_at IS NULL
+DO NOTHING;

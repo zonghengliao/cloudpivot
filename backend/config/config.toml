@@ -101,7 +101,7 @@ enabled = true
 # 前端开发服务器（frontend / vite）默认端口
 allow_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
 allow_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
-allow_headers = ["Content-Type", "Authorization", "X-Nonce", "x-idempotency-key"]
+allow_headers = ["Content-Type", "Authorization", "X-Nonce", "x-idempotency-key", "X-Request-Id", "X-User-Active"]
 allow_credentials = true
 max_age_secs = 86400
 

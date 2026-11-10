@@ -156,7 +156,7 @@ pub const CLAIM_TOKEN_VERSION: &str = "ver";
 
 /// `must_change_password = true` 时**仍允许**访问的接口（不含全局前缀）。
 ///
-/// 除此之外的一切接口一律 403，使初始口令无法用于任何业务操作
+/// 除此外的一切接口一律 403，使初始口令无法用于任何业务操作
 /// （安全审计 CODE-06）。
 pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] = &[
     // me / menus 是前端渲染改密页所必需的最小身份与导航数据（只读、非业务数据）
@@ -164,6 +164,9 @@ pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] = &[
     "/system/auth/menus",
     "/system/auth/password",
     "/system/auth/logout",
+    // 空闲超时策略（只读：当前用户生效的超时分钟数 + 是否超管）：改密页也要跑空闲计时，
+    // 否则「首登未改密就挂机」这条路会绕过自动退出
+    "/system/auth/idle-policy",
 ];
 
 /// 未注入 [`ADMIN_PASSWORD_ENV`] 时随机生成的初始口令字符数。
@@ -256,6 +259,41 @@ pub const CONFIG_KEY_LOGIN_MAX_FAIL: &str = "auth.max_login_fail_count";
 
 /// `sys_config` 中控制账号自动解锁时长的参数键。
 pub const CONFIG_KEY_LOGIN_LOCK_MINUTES: &str = "auth.lock_minutes";
+
+/// `sys_config` 中控制「空闲自动退出登录」时长的参数键（单位：分钟）。
+///
+/// 取值语义（用户 2026-11-10 第二次修正，比初版更严）：
+/// - `1..=60`：空闲超过该分钟数即视为会话已失效（普通管理员可设）；
+/// - `0`：**禁用**空闲自动退出 —— **只有 `SUPER_ADMIN` 可以设置**，其他角色一律 400
+///   （见 [`crate::support::config::handler::check_idle_timeout_write`]）；
+/// - 上限 **60 分钟**，超管也受此限制（70 / 120 / 1440 全部拒绝）。
+///
+/// 缺省（参数缺失 / 脏值 / 被停用）时按 [`DEFAULT_IDLE_TIMEOUT_MINUTES`] 生效。
+///
+/// # 不接入审批流
+///
+/// 这个键**不进流程引擎**：不存在「申请禁用自动退出 → 审批通过 → 生效」的路径。
+/// 角色校验写在 PUT 处理器里直接硬拦，任何审批实例都绕不过去（用户原话：
+/// 「走流程审计也不行」）。
+pub const CONFIG_KEY_IDLE_TIMEOUT: &str = "auth.idle_timeout_minutes";
+
+/// 空闲自动退出的默认时长（分钟）。
+///
+/// 用户口径（2026-11-10）：「默认 15 分钟无操作就退出登录」。参数缺失时按它兜底，
+/// 因此删掉参数不会把功能关掉 —— 关掉只能显式设 0（超管专属动作）。
+pub const DEFAULT_IDLE_TIMEOUT_MINUTES: i64 = 15;
+
+/// 空闲自动退出允许设置的最小非零值（分钟）。
+///
+/// 普通管理员的下限：**不允许 0**（0 = 关闭功能，见 [`CONFIG_KEY_IDLE_TIMEOUT`]）。
+pub const MIN_IDLE_TIMEOUT_MINUTES: i64 = 1;
+
+/// 空闲自动退出允许设置的最大值（分钟）。
+///
+/// 用户原话（2026-11-10）：「最大不能超过 60 分钟」—— 上限对**所有角色**生效，
+/// 超管也设不了 70/120/1440。理由与「禁用只能超管设」同源：把超时设成一天
+/// 等价于把功能关掉，只是绕了个弯。
+pub const MAX_IDLE_TIMEOUT_MINUTES: i64 = 60;
 
 /// 参数加密存储使用的密钥注入环境变量名。
 ///
@@ -479,7 +517,7 @@ mod tests {
         );
         assert_eq!(
             contract,
-            "ver|/system/auth/me,/system/auth/menus,/system/auth/password,/system/auth/logout|24"
+            "ver|/system/auth/me,/system/auth/menus,/system/auth/password,/system/auth/logout,/system/auth/idle-policy|24"
         );
     }
 }

@@ -117,3 +117,18 @@ pub struct CurrentUserRes {
     /// 是否必须修改密码（`true` 时除改密 / 登出外全部接口 403）。
     pub must_change_password: bool,
 }
+
+/// 空闲自动退出策略响应（`GET /system/auth/idle-policy`）。
+///
+/// 前端据此做两件事：按生效分钟数计时、按 `warn_seconds` 决定提前多久弹
+/// 「即将退出」提示。取这个接口而不是读参数配置页，是因为**绝大多数账号没有**
+/// `support:config:list` 权限，却必须能拿到自己会话的安全策略。
+#[derive(Debug, Serialize)]
+pub struct IdlePolicyRes {
+    /// 生效的空闲超时分钟数；`0` = 已禁用自动退出（超管显式设置）。
+    pub timeout_minutes: i64,
+    /// 超时前多少秒弹出「即将退出」提示；`0` = 禁用时不提示。
+    pub warn_seconds: i64,
+    /// 调用者是否超级管理员（参数配置页据此决定是否显示「禁用」选项）。
+    pub is_super_admin: bool,
+}

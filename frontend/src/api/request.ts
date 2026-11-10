@@ -1,5 +1,11 @@
 import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { offerAssigneeFix } from '@/utils/flow-assignee-guard';
+import {
+  broadcastLogout,
+  isRecentlyActive,
+  saveIdleRedirect,
+  USER_ACTIVE_HEADER,
+} from '@/utils/idle-activity';
 import { newRequestId, resolveRequestId, withRequestId, REQUEST_ID_HEADER } from './request-id';
 
 // 请求 ID 的生成 / 解析 / 文案拼装都在 `./request-id`（纯逻辑，可被 Node 单测直接 import）；
@@ -38,6 +44,16 @@ const BASE_URL = import.meta.env.VITE_APP_BASE_API || '';
 
 /** 刷新令牌接口路径（免登录，401 时自动调用） */
 const REFRESH_PATH = '/api/system/auth/refresh';
+
+/**
+ * 后端错误码：会话因长时间未操作已自动退出（`AUTH_IDLE_TIMEOUT`，见
+ * `backend/src/shared/error_code.rs`）。
+ *
+ * 这类 401 **不能走刷新流程**：服务端在判超时的同时已经吊销了该会话名下的 refresh
+ * 令牌（`revoke_refresh_by_sid`），刷新必然失败；而且用户要看到的是「因长时间未操作
+ * 已自动退出」而不是「登录状态已失效」。
+ */
+const AUTH_IDLE_TIMEOUT_CODE = 20009;
 
 /** 登录页路径，令牌彻底失效后跳转至此 */
 const LOGIN_PATH = `${import.meta.env.VITE_APP_CONTEXT_PATH || '/'}login`.replace(/\/{2,}/g, '/');
@@ -121,6 +137,10 @@ service.interceptors.request.use((config) => {
   if (!config.headers[REQUEST_ID_HEADER]) {
     config.headers[REQUEST_ID_HEADER] = newRequestId();
   }
+  // 空闲超时（AUTO-LOGOUT）：只有「刚刚有真实操作」的请求才打标，后端据此续期。
+  // 首页未读数 / 看板刷新这类自动轮询**不打标** —— 否则打开首页挂机永远不超时
+  // （卡面验收 ⑪）。判定只看 DOM 事件与路由，不看请求本身。
+  config.headers[USER_ACTIVE_HEADER] = isRecentlyActive() ? '1' : '0';
   return config;
 });
 
@@ -129,6 +149,16 @@ service.interceptors.response.use(
   (response) => response,
   async (error: AxiosError<ApiResult>) => {
     const config = error.config as RetriableConfig | undefined;
+    // 空闲超时（401 + 20009）：服务端已判定本会话长时间未操作，refresh 会话也已被
+    // 吊销。这里不再尝试刷新，直接记下当场路由、广播给其它标签、清令牌回登录页
+    // （带 reason=idle，登录页据此显示「因长时间未操作已自动退出」）。
+    if (isIdleTimeout(error)) {
+      saveIdleRedirect(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+      broadcastLogout();
+      clearTokens();
+      redirectToLogin('idle');
+      return Promise.reject(toApiError(error));
+    }
     if (shouldRefresh(error, config)) {
       // 标记已重放，避免刷新成功但接口仍返回 401 时陷入死循环
       config._retried = true;
@@ -159,6 +189,20 @@ function shouldRefresh(error: AxiosError<ApiResult>, config?: RetriableConfig): 
   }
   // 刷新接口自身返回 401 时不再递归刷新
   return config.url !== REFRESH_PATH;
+}
+
+/**
+ * 是否是「会话空闲超时」401（`code = 20009`）。
+ *
+ * 与普通 401 的处置不同：不刷新、不清缓存就跳登录，而是要带上「因长时间未操作已自动
+ * 退出」的提示，并把当前路由留给登录后跳回（卡面验收 ⑥⑦⑰）。
+ */
+function isIdleTimeout(error: AxiosError<ApiResult>): boolean {
+  if (error.response?.status !== 401) {
+    return false;
+  }
+  const body = error.response.data;
+  return Boolean(body && typeof body === 'object' && body.code === AUTH_IDLE_TIMEOUT_CODE);
 }
 
 /** 进行中的刷新请求，用于把并发 401 合并成一次刷新 */
@@ -204,12 +248,16 @@ async function doRefresh(): Promise<string | null> {
   }
 }
 
-/** 令牌彻底失效时跳转登录页（replace 避免把失效页面留在历史记录里） */
-function redirectToLogin(): void {
+/**
+ * 令牌彻底失效时跳转登录页（replace 避免把失效页面留在历史记录里）。
+ *
+ * @param reason 登录页展示的提示原因：`idle` = 因长时间未操作已自动退出
+ */
+function redirectToLogin(reason?: 'idle'): void {
   if (window.location.pathname.endsWith('/login')) {
     return;
   }
-  window.location.replace(LOGIN_PATH);
+  window.location.replace(reason ? `${LOGIN_PATH}?reason=${reason}` : LOGIN_PATH);
 }
 
 /** 把 axios 的各类失败（网络、超时、非 2xx）转换为带可读消息的 ApiError */

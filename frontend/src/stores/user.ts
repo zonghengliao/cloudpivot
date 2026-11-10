@@ -12,6 +12,7 @@ import {
 import { clearTokens, REFRESH_TOKEN_KEY, saveTokens, TOKEN_KEY } from '@/api/request';
 import { syncPreferenceFromServer } from '@/composables/usePalette';
 import { clearLoginUnreadShown } from '@/utils/login-unread';
+import { broadcastLogout } from '@/utils/idle-activity';
 
 /** 超级管理员通配权限码 */
 const SUPER_PERMISSION = '*:*:*';
@@ -141,6 +142,9 @@ export const useUserStore = defineStore('user', () => {
       // 后端登出失败（如令牌已过期）不影响前端清理，忽略即可
     }
     reset();
+    // 广播给其它标签：一个标签退出，其余标签也要跟着回登录页（卡面验收 ⑨），
+    // 否则「这个窗口退了、那个窗口还能点」就是假退出。
+    broadcastLogout();
     // 清「登录未读提示已弹过」标记：下次登录要重新提示（不清的话同一标签页里换账号登录就再也不弹）
     clearLoginUnreadShown();
   }

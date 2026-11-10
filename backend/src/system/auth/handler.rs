@@ -26,7 +26,8 @@ use crate::support::log::{
 };
 use crate::support::online::model::{OnlineSession, OnlineSessionModel, RefreshSession};
 use crate::system::auth::dto::{
-    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq, TokenRes, UpdateProfileReq,
+    ChangePasswordReq, CurrentUserRes, IdlePolicyRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq, TokenRes,
+    UpdateProfileReq,
 };
 use crate::system::auth::model;
 use crate::system::menu::dto::MenuRes;
@@ -562,6 +563,14 @@ pub async fn logout(
         );
         return Err(revocation_persist_failed("吊销本次会话的刷新令牌"));
     }
+    // 会话已结束：清掉空闲计时键（不参与「登出后旧 token 401」的判定 —— 那条靠
+    // 吊销名单，这里只是不留垃圾）
+    if let Some(sid) = claims
+        .extra_str(constants::CLAIM_SESSION_ID)
+        .filter(|value| !value.is_empty())
+    {
+        crate::shared::idle_session::forget(&sid).await;
+    }
 
     // 同时吊销请求体带来的 refresh token（兼容只提交旧令牌的客户端）：
     // 按 jti 再兜底拉黑一次，失败同样必须让调用方看到。
@@ -656,6 +665,39 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
         roles: codes,
         permissions,
         must_change_password: user.must_change_password,
+    }))
+}
+
+/// 空闲自动退出策略（前端计时用，登录即可读、不需要任何权限码）。
+///
+/// # 为什么单独开一个接口
+///
+/// 前端要按**生效值**做空闲计时，而 `auth.idle_timeout_minutes` 存在 `sys_config`
+/// 里：绝大多数账号没有 `support:config:list` 权限，读不到参数配置页。这里把
+/// 「生效分钟数 + 提示窗口 + 调用者是否超管」一次性下发，前端不必猜默认值。
+///
+/// 本接口**只读**，且已列入 [`constants::MUST_CHANGE_PASSWORD_ALLOWED_PATHS`]：
+/// 首登未改密的会话同样要跑空闲计时，否则「挂在改密页不动」能绕过自动退出。
+///
+/// # 参数
+///
+/// - `claims`：认证中间件注入的令牌声明。
+///
+/// # 返回值
+///
+/// [`IdlePolicyRes`]：`timeout_minutes`（0 = 已禁用）、`warn_seconds`、
+/// `is_super_admin`。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 500。
+#[nik::get("/system/auth/idle-policy")]
+pub async fn idle_policy(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<IdlePolicyRes> {
+    let timeout_minutes = crate::shared::idle_session::timeout_minutes().await;
+    Ok(Res::ok(IdlePolicyRes {
+        timeout_minutes,
+        warn_seconds: crate::shared::idle_session::warn_seconds(timeout_minutes),
+        is_super_admin: crate::support::config::handler::caller_is_super_admin(&claims).await?,
     }))
 }
 

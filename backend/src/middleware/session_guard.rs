@@ -9,7 +9,7 @@
 //! > 若改用 `App::layer_from_fn`（链外），请求期读不到 `AuthClaims`（该层在认证层
 //! > 之外），只能自行再验一次签名，且拿不到认证层的 401 语义。
 //!
-//! # 三条判定
+//! # 四条判定
 //!
 //! 1. **令牌版本**（安全审计 CODE-05 / CODE-08 + BUG-SYS-04 / FIX-05）：令牌 claim `ver`
 //!    必须等于 `sys_user.token_version`。改密 / 改角色 / 停用 / 删除会使版本号自增，
@@ -24,6 +24,10 @@
 //! 3. **通配权限复核**（BUG-SYS-04）：令牌声明了 `*` / `*:*:*` 时必须真持有
 //!    `SUPER_ADMIN` 角色，否则 401 —— 接口级 403 只认令牌快照不查库，
 //!    这条是「JWT 密钥泄漏 = 可自签超管」的唯一库侧拦口。
+//! 4. **空闲超时**（AUTO-LOGOUT，2026-11-10）：会话按 `sid` 记「最后一次用户操作」，
+//!    超过 `sys_config.auth.idle_timeout_minutes` 未操作 → `401 + 20009`，并吊销该会话
+//!    名下的 refresh 令牌。**只有用户操作（写方法 / 带 `x-user-active: 1` 的请求）才续期**，
+//!    自动轮询（GET）不续期 —— 见 [`crate::shared::idle_session`]。
 //!
 //! # 值从哪里读（FIX-05 的性能改造）
 //!
@@ -41,7 +45,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
-use crate::shared::{constants, error_code, session_cache};
+use crate::shared::{constants, error_code, idle_session, session_cache};
 use crate::system::user::model;
 
 /// 会话守卫本体（用 `axum::middleware::from_fn` 包一层后交给 `App::route_layer`）。
@@ -131,6 +135,34 @@ pub async fn guard(request: Request, next: Next) -> Response {
             // fail-closed：查不出角色就不放行通配权限
             tracing::error!(error = %e, user_id = %user_id, "通配权限复核查询失败，拒绝请求");
             return server_error("权限声明校验失败");
+        }
+    }
+
+    // 4) 空闲超时（AUTO-LOGOUT）：会话超过 `auth.idle_timeout_minutes` 没有用户操作 → 401。
+    //
+    // 这是「真的退出」的服务端一半：前端计时可以被绕过（改 localStorage / 禁 JS /
+    // 直接 curl 旧 token），服务端时间戳才是硬约束。什么样的请求算「用户操作」由
+    // [`idle_session::is_user_activity`] 判定 —— **自动轮询（GET）不续期**，
+    // 否则打开首页挂机永远不会超时。
+    if let Some(sid) = claims
+        .extra_str(constants::CLAIM_SESSION_ID)
+        .filter(|value| !value.is_empty())
+    {
+        let user_active = idle_session::is_user_activity(request.method(), request.headers());
+        if let idle_session::Verdict::Idle { idle_secs } = idle_session::check_and_touch(&sid, user_active).await {
+            tracing::info!(
+                user_id = %user_id,
+                sid = %sid,
+                idle_secs,
+                path = %request.uri().path(),
+                "会话空闲超时，拒绝请求（自动退出登录）"
+            );
+            // 顺手吊销该会话名下的 refresh 令牌：否则客户端还能用 refresh 续出新
+            // access token，把「已空闲超时」变成「每 15 分钟自动复活」。
+            if let Err(e) = crate::support::online::model::revoke_refresh_by_sid(&sid).await {
+                tracing::warn!(user_id = %user_id, sid = %sid, error = %e, "空闲超时吊销 refresh 会话失败");
+            }
+            return unauthorized_with(error_code::AUTH_IDLE_TIMEOUT, "因长时间未操作已自动退出，请重新登录");
         }
     }
 

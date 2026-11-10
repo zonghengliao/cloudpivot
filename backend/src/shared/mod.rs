@@ -19,6 +19,7 @@ pub mod cache_gate;
 pub mod constants;
 pub mod enums;
 pub mod error_code;
+pub mod idle_session;
 pub mod permission_alias;
 pub mod session_cache;
 pub mod startup_guard;

@@ -98,6 +98,15 @@ pub const AUTH_REFRESH_TOKEN_INVALID: i32 = 20007;
 /// 权限快照已过期**。前端据此文案提示「权限已变更，请重新登录」并直接跳登录页。
 pub const AUTH_PERMISSION_CHANGED: i32 = 20008;
 
+/// 因长时间未操作已自动退出登录（HTTP 401）。
+///
+/// 触发面：会话空闲时长超过 `sys_config.auth.idle_timeout_minutes`
+/// （见 `shared::idle_session` 与 `middleware::session_guard`）。
+///
+/// 前端据此**不再尝试刷新令牌**（刷新同样会被拒），直接清状态回登录页并提示
+/// 「因长时间未操作已自动退出」，登录成功后回到原页面。
+pub const AUTH_IDLE_TIMEOUT: i32 = 20009;
+
 // ==================== 3000x：授权 ====================
 
 /// 无权限访问该资源（HTTP 403）。

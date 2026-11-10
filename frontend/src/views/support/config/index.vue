@@ -70,9 +70,26 @@
             <div class="config-body">
               <div class="config-value-row">
                 <div class="config-value-area">
+                  <!-- 空闲自动退出（AUTO-LOGOUT）：安全策略参数，单独渲染。
+                       超管：下拉框（含「禁用」）；非超管：1-60 数字框，**不出现**「禁用」选项。
+                       后端接口层还会硬校验（0 仅超管、上限 60），这里是第一道拦截。 -->
+                  <t-select
+                    v-if="isIdleTimeoutKey(item) && userStore.isSuperAdmin"
+                    v-model="idleValueMap[item.id]"
+                    :options="IDLE_TIMEOUT_OPTIONS"
+                    :disabled="!item.is_modifiable"
+                  />
+                  <t-input-number
+                    v-else-if="isIdleTimeoutKey(item)"
+                    v-model="idleValueMap[item.id]"
+                    theme="normal"
+                    :min="1"
+                    :max="60"
+                    :disabled="!item.is_modifiable"
+                  />
                   <!-- 按值类型渲染对应的内联编辑器：类型口径见 editorKind -->
                   <t-input
-                    v-if="editorKind(item.config_type) === 'text'"
+                    v-else-if="editorKind(item.config_type) === 'text'"
                     v-model="textValueMap[item.id]"
                     :disabled="!item.is_modifiable"
                   />
@@ -95,6 +112,14 @@
                     :autosize="{ minRows: 2, maxRows: 6 }"
                   />
                   <t-input v-else v-model="textValueMap[item.id]" :disabled="!item.is_modifiable" />
+                  <!-- 口径提示：把「0 只有超管能设 / 上限 60」写在控件旁边，减少误操作 -->
+                  <p v-if="isIdleTimeoutKey(item)" class="config-idle-hint">
+                    {{
+                      userStore.isSuperAdmin
+                        ? '1-60 分钟；选「禁用自动退出」后系统不再因空闲踢人（仅超管可设，改动会记审计）'
+                        : '可设 1-60 分钟；禁用自动退出仅超级管理员可操作'
+                    }}
+                  </p>
                 </div>
                 <div class="config-actions">
                   <template v-if="item.is_modifiable">
@@ -213,10 +238,38 @@ import {
 import type { StatusValue } from '@/api/system/user-api';
 import { ApiError } from '@/api/request';
 import { useDictStore } from '@/stores/dict';
+import { useUserStore } from '@/stores/user';
 import { useModuleEnums } from '@/composables/useModuleEnums';
 
 /** 分类视图按前端分组过滤需全量数据，这里一次性拉取较大的分页 */
 const FULL_PAGE_SIZE = 1000;
+
+/**
+ * 空闲自动退出登录的参数键（与后端 `constants::CONFIG_KEY_IDLE_TIMEOUT` 逐字一致）。
+ *
+ * 这个键是**安全策略**，不走普通参数的类型渲染：
+ * - 超管：下拉框（5/10/15/30/60 分钟 / 禁用）—— 「禁用」（0）只有超管能选；
+ * - 非超管：1-60 数字框，**不出现**「禁用」选项。
+ *
+ * 两个限制都由后端接口层硬校验兜底（`check_idle_timeout_write`），前端只是第一道
+ * 拦截 + 更好的交互；绕过前端直接 PUT 一样会被 400。
+ */
+const IDLE_TIMEOUT_KEY = 'auth.idle_timeout_minutes';
+
+/** 超管可选值（普通角色只能填数字，因此不含 0） */
+const IDLE_TIMEOUT_OPTIONS = [
+  { label: '5 分钟', value: 5 },
+  { label: '10 分钟', value: 10 },
+  { label: '15 分钟（默认）', value: 15 },
+  { label: '30 分钟', value: 30 },
+  { label: '60 分钟（上限）', value: 60 },
+  { label: '禁用自动退出', value: 0 },
+];
+
+/** 判断是否空闲自动退出参数 */
+function isIdleTimeoutKey(item: ConfigRes): boolean {
+  return item.config_key === IDLE_TIMEOUT_KEY;
+}
 
 /** 系统参数分类字典编码：用于把 category 编码渲染为中文页签 */
 const DICT_CONFIG_CATEGORY = 'config_category';
@@ -295,7 +348,11 @@ const dictStore = useDictStore();
 const textValueMap = reactive<Record<string, string>>({});
 const numberValueMap = reactive<Record<string, number>>({});
 const booleanValueMap = reactive<Record<string, boolean>>({});
+/** 空闲自动退出参数的值（超管选下拉项 / 非超管填 1-60 数字，共用一份） */
+const idleValueMap = reactive<Record<string, number>>({});
 const savingMap = reactive<Record<string, boolean>>({});
+/** 当前用户（判断是否超管，决定「禁用」选项是否出现） */
+const userStore = useUserStore();
 
 /** 分类展示名：优先取字典中文，未命中回退原始编码；空分类归为“未分类” */
 function categoryLabel(category: string): string {
@@ -362,6 +419,16 @@ const sections = computed<ConfigSection[]>(() => {
 
 /** 按值类型初始化内联编辑值（类型口径：STRING / NUMBER / BOOLEAN / JSON） */
 function initEditValue(item: ConfigRes): void {
+  // 空闲自动退出：值走独立 map（超管下拉 / 非超管数字框），并按角色做边界纠正
+  if (isIdleTimeoutKey(item)) {
+    const raw = Number(item.config_value);
+    idleValueMap[item.id] = Number.isFinite(raw) ? raw : 15;
+    // 非超管的「禁用」（0）来自超管的历史设置：显示成下限 1，避免看起来像可选项
+    if (!userStore.isSuperAdmin && idleValueMap[item.id] < 1) {
+      idleValueMap[item.id] = 1;
+    }
+    return;
+  }
   if (editorKind(item.config_type) === 'boolean') {
     booleanValueMap[item.id] = item.config_value === 'true' || item.config_value === '1';
   } else if (editorKind(item.config_type) === 'number') {
@@ -385,6 +452,10 @@ async function loadData(): Promise<void> {
 
 /** 将内联编辑值按值类型序列化为后端所需的字符串 */
 function serializeEditValue(item: ConfigRes): string {
+  if (isIdleTimeoutKey(item)) {
+    const value = idleValueMap[item.id] ?? 0;
+    return String(Number.isFinite(value) ? value : 1);
+  }
   if (editorKind(item.config_type) === 'boolean') {
     return booleanValueMap[item.id] ? 'true' : 'false';
   }
@@ -395,7 +466,31 @@ function serializeEditValue(item: ConfigRes): string {
   return textValueMap[item.id] ?? '';
 }
 
+/**
+ * 提交前的前端校验：空闲自动退出参数（后端仍会兜底，这里是双保险）。
+ *
+ * @returns 校验通过返回 `true`；不通过时已弹出提示
+ */
+function validateIdleTimeout(item: ConfigRes): boolean {
+  if (!isIdleTimeoutKey(item)) {
+    return true;
+  }
+  const value = idleValueMap[item.id];
+  if (!Number.isInteger(value) || value < 0 || value > 60) {
+    void MessagePlugin.error('自动退出时间必须在 1-60 分钟之间');
+    return false;
+  }
+  if (value === 0 && !userStore.isSuperAdmin) {
+    void MessagePlugin.error('只有超级管理员可以禁用自动退出登录');
+    return false;
+  }
+  return true;
+}
+
 async function handleSave(item: ConfigRes): Promise<void> {
+  if (!validateIdleTimeout(item)) {
+    return;
+  }
   savingMap[item.id] = true;
   try {
     const configValue = serializeEditValue(item);
@@ -708,6 +803,14 @@ onMounted(() => {
 
 .config-value-area {
   width: 60%;
+}
+
+/* 空闲自动退出参数的口径提示（「0 仅超管」「上限 60」） */
+.config-idle-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-placeholder, #00000066);
 }
 
 .config-actions {
