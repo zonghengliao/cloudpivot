@@ -163,15 +163,40 @@ test result: ok. 4 passed; 0 failed
 **`max_timeout_is_one_hour`** 直接断言 `MAX_IDLE_TIMEOUT_MINUTES == 60`，
 **`range_boundaries`** 断言 1 和 60 通过、61 拒绝。
 
-### 环境问题
+### 环境问题与处置（2026-11-10 修正）
 
-| 机器 | 内存 | 能否跑后端测试 |
-|---|---|---|
-| 145 | 7.2GB（swap 3.8GB 已用 1.7GB） | ❌ rustc OOM（release 与 debug 都挂） |
-| 144 | 7.2GB（可用 5.8GB） | 未尝试（生产，不跑测试） |
-| 99 | 15GB（可用 11GB） | ✅ 2 jobs 通过 |
+**用户指示**：「后端测试不要固定在 99 跑，145 就是测试机，后端测试 + 编译部署 + 接口实测都在 145 上跑。」
 
-**结论**：后端测试应在 99 跑，不要在 145 跑（145 只做编译部署与接口实测）。
+**初次失败原因**：145 内存 7.2GB、swap 仅 3.8GB（已用 1.7GB），rustc 峰值 anon-rss 6.9GB → OOM kill。
+
+**已处置（2026-11-10 15:2x）**：
+
+| 动作 | 结果 |
+|---|---|
+| 加 8GB swap（`/swapfile-8g`，写入 fstab） | swap 3.8G → **11.8G** |
+| 清 `backend/target/debug`（历次 cargo test 残留） | 释放 **73G** |
+| 清历史演练副本（pdf01/pdf04-app/pdf06-app/att04-app/pdf07-app/att09b-bin/pdf03-bin/cp-e2e05fix2） | 释放 **52G** |
+| journal 日志 vacuum 到 100M | 释放 **478M** |
+| apt 缓存 | 已清 |
+
+**磁盘**：150G → **35G**（可用 104G → **219G**）
+
+**145 上跑后端测试的标准姿势**（省内存 + 省磁盘）：
+
+```bash
+export PATH=/root/.cargo/bin:$PATH
+cd /opt/cloudpivot/backend
+CARGO_BUILD_JOBS=1 \
+CARGO_PROFILE_DEV_DEBUG=0 \
+CARGO_PROFILE_TEST_DEBUG=0 \
+cargo test --lib <过滤>
+```
+
+- `CARGO_BUILD_JOBS=1`：单任务，避免多 rustc 同时吃内存
+- `CARGO_PROFILE_DEV_DEBUG=0` / `CARGO_PROFILE_TEST_DEBUG=0`：不生成调试信息，产物体积与内存峰值都大幅下降
+- 不要用 `--release`（release 链接阶段内存峰值更高，最容易 OOM）
+
+**注意**：`cargo test` 会产生 `target/debug`，定期清理（每次跑完或超过 20G 时删）。
 
 ---
 
