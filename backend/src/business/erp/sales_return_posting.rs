@@ -128,10 +128,7 @@ pub fn revenue_voucher_summary(return_no: &str, customer: &str) -> String {
 }
 
 /// 退货单客户的显示名（凭证摘要用；主数据被物理删 → `客户已删除(短 id)`）。
-async fn customer_label(
-    ex: &impl SqlExecutor,
-    customer_id: Uuid,
-) -> std::result::Result<String, ApiError> {
+async fn customer_label(ex: &impl SqlExecutor, customer_id: Uuid) -> std::result::Result<String, ApiError> {
     let name = form_snapshot::customer_name(ex, customer_id)
         .await
         .map_err(|error| utils::db_error(error, "读退货单客户名称"))?;

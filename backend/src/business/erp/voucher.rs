@@ -5120,10 +5120,7 @@ mod tests {
             "北京云枢科技"
         );
         // 空白名字等同「没名字」（主数据名字被清空 / 空串）
-        assert_eq!(
-            party_label(Some("   ".to_string()), "客户", id),
-            "客户已删除(01a1bdda)"
-        );
+        assert_eq!(party_label(Some("   ".to_string()), "客户", id), "客户已删除(01a1bdda)");
         assert_eq!(party_label(None, "供应商", id), "供应商已删除(01a1bdda)");
         let fallback = party_label(None, "客户", id);
         assert!(
@@ -5235,12 +5232,10 @@ mod tests {
         assert_eq!(rows.len(), 2, "一张退货单的两张凭证都要查得到");
         assert_eq!(total, 2);
         assert!(
-            rows.iter()
-                .all(|row| row.source_doc_no.as_deref() == Some(business_no)),
+            rows.iter().all(|row| row.source_doc_no.as_deref() == Some(business_no)),
             "返回行的业务单据号必须都是退货单号"
         );
-        let mut source_nos: Vec<String> =
-            rows.iter().filter_map(|row| row.source_no.clone()).collect();
+        let mut source_nos: Vec<String> = rows.iter().filter_map(|row| row.source_no.clone()).collect();
         source_nos.sort();
         assert_eq!(source_nos, vec!["P2C1-DOCNO-IN2", "P2C1-DOCNO-IV2"]);
 

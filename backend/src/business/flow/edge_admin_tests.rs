@@ -43,14 +43,8 @@ static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// ① 审批结论的映射口径：只有 APPROVED 才动配置。
 #[test]
 fn change_verdict_maps_terminal_states() {
-    assert_eq!(
-        edge_admin::change_verdict("APPROVED"),
-        Some(ChangeVerdict::Apply)
-    );
-    assert_eq!(
-        edge_admin::change_verdict(" approved "),
-        Some(ChangeVerdict::Apply)
-    );
+    assert_eq!(edge_admin::change_verdict("APPROVED"), Some(ChangeVerdict::Apply));
+    assert_eq!(edge_admin::change_verdict(" approved "), Some(ChangeVerdict::Apply));
     for status in ["REJECTED", "WITHDRAWN", "CANCELLED"] {
         assert_eq!(
             edge_admin::change_verdict(status),
@@ -59,11 +53,7 @@ fn change_verdict_maps_terminal_states() {
         );
     }
     for status in ["PENDING", "", "UNKNOWN"] {
-        assert_eq!(
-            edge_admin::change_verdict(status),
-            None,
-            "{status} 不该动配置"
-        );
+        assert_eq!(edge_admin::change_verdict(status), None, "{status} 不该动配置");
     }
 }
 
@@ -96,14 +86,8 @@ fn form_data_round_trips_both_actions() {
             assert!(!patch.enabled, "enabled=false 不能丢");
             assert!(patch.requires_reason);
             assert_eq!(patch.label.as_deref(), Some("直接过账（停用）"));
-            assert_eq!(
-                patch.auth_code.as_deref(),
-                Some("business:erp:stock-out:status")
-            );
-            assert!(
-                patch.confirm,
-                "回调里一律 confirm=true（审批通过本身就是二次确认）"
-            );
+            assert_eq!(patch.auth_code.as_deref(), Some("business:erp:stock-out:status"));
+            assert!(patch.confirm, "回调里一律 confirm=true（审批通过本身就是二次确认）");
             assert!(
                 patch.confirm_critical,
                 "【E2E-FIX-1】confirm_critical 丢了 → 回调重放禁用主链路边会被内核 400"
@@ -132,9 +116,7 @@ fn form_data_round_trips_both_actions() {
 #[test]
 fn form_data_rejects_dirty_payload() {
     assert!(EdgeChange::from_form_data(&json!({})).is_none());
-    assert!(
-        EdgeChange::from_form_data(&json!({"action": "UPSERT", "entity": "STOCK_OUT"})).is_none()
-    );
+    assert!(EdgeChange::from_form_data(&json!({"action": "UPSERT", "entity": "STOCK_OUT"})).is_none());
     assert!(
         EdgeChange::from_form_data(&json!({
             "action": "DROP_TABLE", "entity": "STOCK_OUT", "from_status": "DRAFT", "to_status": "POSTED"
@@ -157,19 +139,11 @@ fn biz_id_is_stable_per_edge() {
         from: "DRAFT".to_string(),
         to: "CANCELLED".to_string(),
     };
-    assert_eq!(
-        a.biz_id(),
-        b.biz_id(),
-        "同一 (entity, from, to) 必须永远同一个 id"
-    );
+    assert_eq!(a.biz_id(), b.biz_id(), "同一 (entity, from, to) 必须永远同一个 id");
     assert_ne!(a.biz_id(), c.biz_id(), "不同的边必须是不同的 id");
     let id = a.biz_id();
     let bytes = id.as_bytes();
-    assert_eq!(
-        bytes[6] >> 4,
-        8,
-        "版本位应为 8（自定义 uuid，不是 v4 随机）"
-    );
+    assert_eq!(bytes[6] >> 4, 8, "版本位应为 8（自定义 uuid，不是 v4 随机）");
     assert_eq!(bytes[8] >> 6, 2, "variant 位应为 RFC 4122");
 }
 
@@ -208,10 +182,7 @@ fn seed_migration_matches_code_constants() {
         "FLOW_CONFIG_APPROVER",
         "20000000-0000-4000-8000-0000000e0206",
     ] {
-        assert!(
-            sql.contains(text),
-            "V0206 里找不到 `{text}`：迁移与代码已经漂移"
-        );
+        assert!(sql.contains(text), "V0206 里找不到 `{text}`：迁移与代码已经漂移");
     }
     // 两个权限码必须是**按钮级**（menu_type 3）+ 隐藏（is_visible FALSE）
     assert!(sql.contains("'business:flow:state-edge:list', 3,"));
@@ -485,12 +456,9 @@ async fn guard_published_flow_graph() {
         Some(row)
             if row.get_typed::<String>("node_type").ok().as_deref() == Some("APPROVAL")
                 && row.get_typed::<String>("assignee_type").ok().as_deref() == Some("ROLE")
-                && row.get_typed::<String>("empty_assignee").ok().as_deref()
-                    == Some("FALLBACK_ADMIN")
+                && row.get_typed::<String>("empty_assignee").ok().as_deref() == Some("FALLBACK_ADMIN")
                 && row.get_typed::<String>("join_mode").ok().as_deref() == Some("AND") => {}
-        _ => pollution(
-            "`n_cfg` 的节点配置变了（基线 APPROVAL / ROLE / FALLBACK_ADMIN / AND）".to_string(),
-        ),
+        _ => pollution("`n_cfg` 的节点配置变了（基线 APPROVAL / ROLE / FALLBACK_ADMIN / AND）".to_string()),
     }
     if assignee_text != vec![format!("n_cfg:ROLE:{role}")] {
         pollution(format!(
@@ -672,11 +640,7 @@ async fn list_view_reports_base_config_and_effective() {
     assert_eq!(view.entity, "STOCK_OUT");
     assert_eq!(view.base_edges.len(), base, "BASE 边一条不能少");
     assert!(view.configs.is_empty(), "干净库里没有配置行");
-    assert_eq!(
-        view.effective_edges.len(),
-        base,
-        "没有配置时有效边 == BASE 边"
-    );
+    assert_eq!(view.effective_edges.len(), base, "没有配置时有效边 == BASE 边");
     assert!(
         view.effective_edges
             .iter()
@@ -713,11 +677,7 @@ async fn critical_edge_disable_needs_confirmation() {
         .await
         .expect_err("禁用主链路边不确认 → 必须 400");
     assert_eq!(err.status, 400, "报文：{}", err.msg);
-    for needle in [
-        "主链路必需边",
-        "销售出库无法直接过账",
-        "confirm_critical",
-    ] {
+    for needle in ["主链路必需边", "销售出库无法直接过账", "confirm_critical"] {
         assert!(
             err.msg.contains(needle),
             "报文必须包含「{needle}」（要点名业务后果 + 告诉调用方怎么继续）：{}",
@@ -727,8 +687,7 @@ async fn critical_edge_disable_needs_confirmation() {
     // 被挡下的请求不许留审批单，配置也不许动
     let instances: i64 = db()
         .scalar_sql(
-            "SELECT count(*) AS v FROM biz_flow_instance WHERE biz_type = 'FLOW_EDGE_CFG'"
-                .to_string(),
+            "SELECT count(*) AS v FROM biz_flow_instance WHERE biz_type = 'FLOW_EDGE_CFG'".to_string(),
             vec![],
         )
         .await
@@ -740,12 +699,9 @@ async fn critical_edge_disable_needs_confirmation() {
     );
 
     // 带了确认 → 照常送审（确认位只放开「禁用主链路边」这一件事，不放宽其他校验）
-    let res = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(claims)),
-        Json(disable_stock_out_post()),
-    )
-    .await
-    .unwrap_or_else(|err| panic!("确认后应能送审：{} {}", err.code, err.msg));
+    let res = edge_admin::upsert_state_edge(Extension(AuthClaims(claims)), Json(disable_stock_out_post()))
+        .await
+        .unwrap_or_else(|err| panic!("确认后应能送审：{} {}", err.code, err.msg));
     assert!(
         !res.data.expect("响应必须带 data").applied,
         "有已发布流程 → 送审，不直接生效"
@@ -764,12 +720,9 @@ async fn change_takes_effect_only_after_approval() {
     assert!(stock_out_allows_direct_post().await, "基线：允许直接过账");
 
     let claims = super_claims().await;
-    let res = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(claims.clone())),
-        Json(disable_stock_out_post()),
-    )
-    .await
-    .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+    let res = edge_admin::upsert_state_edge(Extension(AuthClaims(claims.clone())), Json(disable_stock_out_post()))
+        .await
+        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
     let change: EdgeChangeRes = res.data.expect("响应必须带 data");
     assert!(!change.applied, "有已发布流程时必须送审，不能直接生效");
     let instance_id: Uuid = change
@@ -780,19 +733,12 @@ async fn change_takes_effect_only_after_approval() {
         .expect("instance id");
     assert_eq!(change.instance_status.as_deref(), Some("PENDING"));
     assert!(
-        change
-            .instance_no
-            .as_deref()
-            .unwrap_or_default()
-            .starts_with("FLW-"),
+        change.instance_no.as_deref().unwrap_or_default().starts_with("FLW-"),
         "审批单号要能直接去审批中心搜：{:?}",
         change.instance_no
     );
     // 提交后：配置**还没**生效
-    assert!(
-        stock_out_allows_direct_post().await,
-        "审批通过之前配置不能生效"
-    );
+    assert!(stock_out_allows_direct_post().await, "审批通过之前配置不能生效");
     let pending = edge_admin::list_state_edges(Query(StateEdgeQuery {
         entity: Some("STOCK_OUT".to_string()),
     }))
@@ -805,12 +751,9 @@ async fn change_takes_effect_only_after_approval() {
     );
 
     // 同一条边再提交一次 → 409（不许两张并行的审批单）
-    let dup = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(claims.clone())),
-        Json(disable_stock_out_post()),
-    )
-    .await
-    .expect_err("同一条边不允许两张在跑的审批单");
+    let dup = edge_admin::upsert_state_edge(Extension(AuthClaims(claims.clone())), Json(disable_stock_out_post()))
+        .await
+        .expect_err("同一条边不允许两张在跑的审批单");
     assert_eq!(dup.status, 409, "报文：{}", dup.msg);
 
     // 审批通过 → 回调落库
@@ -861,12 +804,9 @@ async fn rejected_change_does_not_take_effect() {
     assert!(stock_out_allows_direct_post().await);
 
     let claims = super_claims().await;
-    let res = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(claims)),
-        Json(disable_stock_out_post()),
-    )
-    .await
-    .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+    let res = edge_admin::upsert_state_edge(Extension(AuthClaims(claims)), Json(disable_stock_out_post()))
+        .await
+        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
     let submitted = res.data.expect("响应必须带 data");
     let instance_id: Uuid = submitted
         .instance_id
@@ -932,19 +872,17 @@ async fn bad_patch_is_rejected_before_any_approval() {
     // ① 没有二次确认 → 400
     let mut req = disable_stock_out_post();
     req.confirm = false;
-    let error =
-        edge_admin::upsert_state_edge(Extension(AuthClaims(super_claims().await)), Json(req))
-            .await
-            .expect_err("confirm 缺失必须 400");
+    let error = edge_admin::upsert_state_edge(Extension(AuthClaims(super_claims().await)), Json(req))
+        .await
+        .expect_err("confirm 缺失必须 400");
     assert_eq!(error.status, 400, "报文：{}", error.msg);
 
     // ② 禁用 mandatory 边 → 400（内核判，本层只透传）
     let mut req = disable_stock_out_post();
     req.to_status = "CANCELLED".to_string();
-    let error =
-        edge_admin::upsert_state_edge(Extension(AuthClaims(super_claims().await)), Json(req))
-            .await
-            .expect_err("禁用 mandatory 边必须 400");
+    let error = edge_admin::upsert_state_edge(Extension(AuthClaims(super_claims().await)), Json(req))
+        .await
+        .expect_err("禁用 mandatory 边必须 400");
     assert_eq!(error.status, 400, "报文：{}", error.msg);
     assert!(
         error.msg.contains("硬约束") || error.msg.contains("不能禁用"),
@@ -953,19 +891,15 @@ async fn bad_patch_is_rejected_before_any_approval() {
     );
 
     // ③ 非超管 → 403
-    let error = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(plain_claims())),
-        Json(disable_stock_out_post()),
-    )
-    .await
-    .expect_err("非超管必须 403");
+    let error = edge_admin::upsert_state_edge(Extension(AuthClaims(plain_claims())), Json(disable_stock_out_post()))
+        .await
+        .expect_err("非超管必须 403");
     assert_eq!(error.status, 403, "报文：{}", error.msg);
 
     // 一条审批单都不该留（试写是回滚的）
     let instances: i64 = db()
         .scalar_sql(
-            "SELECT count(*) AS v FROM biz_flow_instance WHERE biz_type = 'FLOW_EDGE_CFG'"
-                .to_string(),
+            "SELECT count(*) AS v FROM biz_flow_instance WHERE biz_type = 'FLOW_EDGE_CFG'".to_string(),
             vec![],
         )
         .await
@@ -1002,11 +936,8 @@ async fn delete_config_also_goes_through_approval() {
     )
     .await
     .unwrap_or_else(|err| panic!("铺底配置失败：{} {}", err.code, err.msg));
-    let allows_close = |edges: Vec<state_machine::Edge>| {
-        edges
-            .iter()
-            .any(|edge| edge.from == "SUBMITTED" && edge.to == "CLOSED")
-    };
+    let allows_close =
+        |edges: Vec<state_machine::Edge>| edges.iter().any(|edge| edge.from == "SUBMITTED" && edge.to == "CLOSED");
     assert!(
         !allows_close(state_machine::effective_edges(db(), Entity::PurchaseOrder).await),
         "基线：直接关闭已被禁用"
@@ -1111,20 +1042,14 @@ async fn list_view_marks_configured_edges() {
     .expect("查配置");
     let view = res.data.expect("data").list.remove(0);
     assert_eq!(view.configs.len(), 1, "存活配置行应当被列出来");
-    assert_eq!(
-        view.configs[0].label.as_deref(),
-        Some("作废红冲（必须写原因）")
-    );
+    assert_eq!(view.configs[0].label.as_deref(), Some("作废红冲（必须写原因）"));
     let edge = view
         .effective_edges
         .iter()
         .find(|item| item.from == "POSTED" && item.to == "CANCELLED")
         .expect("有效边里必须有这条");
     assert!(edge.configured, "配过的边要标 configured=true");
-    assert!(
-        edge.requires_reason,
-        "配置追加的「必须填原因」要出现在有效边里"
-    );
+    assert!(edge.requires_reason, "配置追加的「必须填原因」要出现在有效边里");
     assert_eq!(edge.label, "作废红冲（必须写原因）", "文案以配置为准");
     // 没配过的边不能标 configured
     let untouched = view
@@ -1160,24 +1085,18 @@ async fn offline_flow_falls_back_to_explicit_skip() {
         skip_approval: true,
         skip_reason: Some("短".to_string()),
     };
-    let without_skip = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(claims.clone())),
-        Json(disable_stock_out_post()),
-    )
-    .await
-    .expect_err("流程下线 + 没请求跳过 → 默认拒绝");
-    let short_reason = edge_admin::upsert_state_edge(
-        Extension(AuthClaims(claims.clone())),
-        Json(skip_req.clone()),
-    )
-    .await
-    .expect_err("请求跳过但理由不足 → 400");
+    let without_skip =
+        edge_admin::upsert_state_edge(Extension(AuthClaims(claims.clone())), Json(disable_stock_out_post()))
+            .await
+            .expect_err("流程下线 + 没请求跳过 → 默认拒绝");
+    let short_reason = edge_admin::upsert_state_edge(Extension(AuthClaims(claims.clone())), Json(skip_req.clone()))
+        .await
+        .expect_err("请求跳过但理由不足 → 400");
     let mut good_skip = skip_req.clone();
     if let Some(reason) = good_skip.skip.skip_reason.as_mut() {
         *reason = "月底关账，这条捷径本次停用（D3 单测）".to_string();
     }
-    let applied =
-        edge_admin::upsert_state_edge(Extension(AuthClaims(claims)), Json(good_skip)).await;
+    let applied = edge_admin::upsert_state_edge(Extension(AuthClaims(claims)), Json(good_skip)).await;
     // 先恢复流程，再断言（避免「断言失败把流程永久留成 DISABLED」污染后续用例）
     exec(
         "UPDATE biz_flow_def SET status = 'PUBLISHED', updated_at = now() \
@@ -1197,8 +1116,7 @@ async fn offline_flow_falls_back_to_explicit_skip() {
         "理由不足要说清门槛：{}",
         short_reason.msg
     );
-    let applied =
-        applied.unwrap_or_else(|err| panic!("持码 + 理由齐全应放行：{} {}", err.code, err.msg));
+    let applied = applied.unwrap_or_else(|err| panic!("持码 + 理由齐全应放行：{} {}", err.code, err.msg));
     let data = applied.data.expect("data");
     assert!(data.applied, "跳过审批时直接生效（不产生审批单）");
     assert!(data.instance_id.is_none(), "跳过路径不该有审批单");
@@ -1291,10 +1209,7 @@ async fn pending_task_of(instance_id: Uuid) -> Uuid {
 /// 所以一律批到终态并断言真的 `APPROVED`。
 async fn approve_all(instance_id: Uuid) {
     let outs = crate::business::flow::test_support::approve_all_pending(instance_id, "同意").await;
-    assert!(
-        !outs.is_empty(),
-        "审批单必须有 PENDING 待办可批（实例 {instance_id}）"
-    );
+    assert!(!outs.is_empty(), "审批单必须有 PENDING 待办可批（实例 {instance_id}）");
     for out in outs {
         // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
         edge_admin::on_settled(out.instance_id, &out.instance_status).await;
@@ -1408,14 +1323,9 @@ async fn batch_task_writes_edge_after_approval() {
     let task_id = pending_task_of(instance_id).await;
     assert_eq!(live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await, 0);
 
-    let out = batch_tasks(
-        super_claims().await,
-        vec![task_id.to_string()],
-        "APPROVE",
-        None,
-    )
-    .await
-    .unwrap_or_else(|err| panic!("批量同意失败：{} {}", err.code, err.msg));
+    let out = batch_tasks(super_claims().await, vec![task_id.to_string()], "APPROVE", None)
+        .await
+        .unwrap_or_else(|err| panic!("批量同意失败：{} {}", err.code, err.msg));
     assert_eq!(out.total, 1);
     assert_eq!(out.succeeded, 1, "逐条结果：{:?}", out.items);
     assert!(out.items[0].ok, "这一条必须成功：{:?}", out.items[0]);
@@ -1500,11 +1410,7 @@ async fn batch_task_invalid_uuid_only_fails_that_item() {
     assert!(out.items[0].ok, "合法的那条必须成功");
     assert!(!out.items[1].ok);
     assert_eq!(out.items[1].code, error_code::FLOW_FIELD_INVALID);
-    assert!(
-        out.items[1].message.contains("格式非法"),
-        "{:?}",
-        out.items[1]
-    );
+    assert!(out.items[1].message.contains("格式非法"), "{:?}", out.items[1]);
     assert!(!out.items[2].ok, "空串也算格式非法");
     assert_eq!(out.items[2].code, error_code::FLOW_FIELD_INVALID);
     assert_eq!(
@@ -1558,9 +1464,7 @@ async fn batch_task_error_code_matches_single_approve() {
     let single = crate::business::flow::handler::approve_task(
         Extension(AuthClaims(claims.clone())),
         axum::extract::Path(ghost.to_string()),
-        Some(Json(crate::business::flow::dto::ApproveReq {
-            comment: None,
-        })),
+        Some(Json(crate::business::flow::dto::ApproveReq { comment: None })),
     )
     .await
     .expect_err("不存在的待办必须报错");
@@ -1592,14 +1496,9 @@ async fn batch_task_reject_requires_five_char_comment() {
 
     let instance_id = submit_change("STOCK_OUT", "DRAFT", "POSTED").await;
     let task_id = pending_task_of(instance_id).await;
-    let error = batch_tasks(
-        super_claims().await,
-        vec![task_id.to_string()],
-        "REJECT",
-        Some("不行"),
-    )
-    .await
-    .expect_err("驳回意见不足 5 字必须被拒");
+    let error = batch_tasks(super_claims().await, vec![task_id.to_string()], "REJECT", Some("不行"))
+        .await
+        .expect_err("驳回意见不足 5 字必须被拒");
     assert_eq!(error.status, 400);
     assert_eq!(error.code, error_code::FLOW_FIELD_INVALID);
     assert_eq!(live_config_rows("STOCK_OUT", "DRAFT", "POSTED").await, 0);
@@ -1614,14 +1513,9 @@ async fn batch_task_requires_approve_permission() {
         return;
     }
     let _guard = DB_LOCK.lock().await;
-    let error = batch_tasks(
-        plain_claims(),
-        vec![Uuid::now_v7().to_string()],
-        "APPROVE",
-        None,
-    )
-    .await
-    .expect_err("缺权限码必须 403");
+    let error = batch_tasks(plain_claims(), vec![Uuid::now_v7().to_string()], "APPROVE", None)
+        .await
+        .expect_err("缺权限码必须 403");
     assert_eq!(error.status, 403, "报文：{}", error.msg);
 }
 
@@ -1639,14 +1533,9 @@ async fn batch_task_rejects_oversized_batch_and_illegal_action() {
     assert_eq!(too_many.status, 400);
     assert_eq!(too_many.code, error_code::FLOW_FIELD_INVALID);
 
-    let illegal = batch_tasks(
-        super_claims().await,
-        vec![Uuid::now_v7().to_string()],
-        "DELETE",
-        None,
-    )
-    .await
-    .expect_err("动作非法必须 400");
+    let illegal = batch_tasks(super_claims().await, vec![Uuid::now_v7().to_string()], "DELETE", None)
+        .await
+        .expect_err("动作非法必须 400");
     assert_eq!(illegal.status, 400);
     assert_eq!(illegal.code, error_code::FLOW_FIELD_INVALID);
 }

@@ -345,8 +345,7 @@ pub const DEPRECIATION_EDGES: [(&str, &str); 4] = [
 ];
 
 /// 需要 reason 的折旧边：红冲与重跑都要写清为什么。
-pub const DEPRECIATION_REASON_EDGES: [(&str, &str); 2] =
-    [("POSTED", "REVERSED"), ("REVERSED", "CALCULATED")];
+pub const DEPRECIATION_REASON_EDGES: [(&str, &str); 2] = [("POSTED", "REVERSED"), ("REVERSED", "CALCULATED")];
 
 /// 折旧「不可改」状态：已过账 / 已红冲的批次行不许再改金额
 /// （重跑走 `REVERSED → CALCULATED` 显式流转）。
@@ -585,11 +584,7 @@ pub const SHIPMENT_EDGES: [(&str, &str); 4] = [
 /// - `POSTED → *`：过账即生成凭证，退回必须红冲凭证（`voucher::reverse_posted`），
 ///   不是状态机的一条边（与应付 `SETTLED` 之后同理）；
 /// - `* → DRAFT`：没有任何边回到草稿（回归语义会让「已确认」的审计链断掉）。
-pub const RECEIPT_EDGES: [(&str, &str); 3] = [
-    ("DRAFT", "CONFIRMED"),
-    ("CONFIRMED", "POSTED"),
-    ("DRAFT", "CANCELLED"),
-];
+pub const RECEIPT_EDGES: [(&str, &str); 3] = [("DRAFT", "CONFIRMED"), ("CONFIRMED", "POSTED"), ("DRAFT", "CANCELLED")];
 
 /// 销售发票合法边（ARCH-7 §4.5，4 条，唯一真相）。
 ///
@@ -721,11 +716,8 @@ pub const RECEIVABLE_EDGES: [(&str, &str); 9] = [
 /// **故意没有 `POSTED → *`**：钱已付出且凭证已记账，退款单不能作废 ——
 /// 要抹掉只能由客户重新回一张收款单（钱又回来了），或在凭证层红冲
 /// （`voucher::reverse_posted`）。与收款单「`CONFIRMED → CANCELLED` 也没有边」同一套理由。
-pub const RECEIPT_REFUND_EDGES: [(&str, &str); 3] = [
-    ("DRAFT", "CONFIRMED"),
-    ("CONFIRMED", "POSTED"),
-    ("DRAFT", "CANCELLED"),
-];
+pub const RECEIPT_REFUND_EDGES: [(&str, &str); 3] =
+    [("DRAFT", "CONFIRMED"), ("CONFIRMED", "POSTED"), ("DRAFT", "CANCELLED")];
 
 /// 应付单合法边（P7 的付款累计 + 作废；P-FLOW-3B 加 3 条作废审批边）。
 ///
@@ -779,11 +771,7 @@ pub const PAYABLE_EDGES: [(&str, &str); 7] = [
 /// 收货 / 付款 / 盘盈亏 / 年结 / 红冲产生的凭证是**系统记账**（`post_voucher` 直接落
 /// `POSTED`），不是「某个人制的单」，不存在双人复核的前提；它们的复核由上游单据
 /// （过账审批 / 付款审批 / 作废审批）承担。
-pub const VOUCHER_EDGES: [(&str, &str); 3] = [
-    ("DRAFT", "AUDITED"),
-    ("AUDITED", "DRAFT"),
-    ("AUDITED", "POSTED"),
-];
+pub const VOUCHER_EDGES: [(&str, &str); 3] = [("DRAFT", "AUDITED"), ("AUDITED", "DRAFT"), ("AUDITED", "POSTED")];
 
 /// 会计期间的合法边（ERP-P1）。
 ///
@@ -795,11 +783,7 @@ pub const VOUCHER_EDGES: [(&str, &str); 3] = [
 ///
 /// **没有** `CLOSED → CLOSED` / `OPEN → OPEN`：重复结账 / 重复开账不是状态变更，
 /// 由调用方在入口给出 409 文案（「已开账」/「已结账」），不走状态机。
-pub const PERIOD_EDGES: [(&str, &str); 3] = [
-    ("NOT_OPENED", "OPEN"),
-    ("OPEN", "CLOSED"),
-    ("CLOSED", "OPEN"),
-];
+pub const PERIOD_EDGES: [(&str, &str); 3] = [("NOT_OPENED", "OPEN"), ("OPEN", "CLOSED"), ("CLOSED", "OPEN")];
 
 /// 需要 reason 的期间边：只有反结账（撤销已封账的月份，必须留原因）。
 ///
@@ -906,18 +890,15 @@ pub const INVOICE_REASON_EDGES: [(&str, &str); 2] = [("DRAFT", "VOID"), ("ISSUED
 ///
 /// 草稿作废不要原因（从未提交过、也没占到任何账务）；提交之后作废意味着
 /// 「这单本来要退的货不退了」—— 审计要能回答为什么，所以强制原因。
-pub const SALES_RETURN_REASON_EDGES: [(&str, &str); 2] =
-    [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
+pub const SALES_RETURN_REASON_EDGES: [(&str, &str); 2] = [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
 /// 需要 reason 的采购退货单边：提交后 / 批准后作废。
 ///
 /// 与销售退货同口径：草稿作废不要原因（从未提交、没占任何账务）；
 /// 提交之后作废意味着「这单本来要退的货不退了」，审计要能回答为什么。
-pub const PURCHASE_RETURN_REASON_EDGES: [(&str, &str); 2] =
-    [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
+pub const PURCHASE_RETURN_REASON_EDGES: [(&str, &str); 2] = [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
 
 /// 需要 reason 的边：调拨单取消。
-pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
-    [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
+pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] = [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
 /// 需要 reason 的边：应付作废（会计上作废必须留痕）。
 ///
 /// P-FLOW-3B：作废拆成「发起（OPEN → PENDING_CANCEL）」与「执行（PENDING_CANCEL → CANCELLED）」
@@ -953,8 +934,7 @@ pub const PURCHASE_ORDER_LOCKED: [&str; 2] = ["RECEIVED", "PARTIAL_RECEIVED"];
 /// `SUBMITTED` 不锁：审批中的单子在**改单入口**已被 `status = DRAFT` 拦死
 /// （销售订单只有草稿能改，见 `sales_order_handler::update_sales_order`），
 /// 这里列的是「一旦命中就绝不能再按普通改单写」的状态。
-pub const SALES_ORDER_LOCKED: [&str; 5] =
-    ["APPROVED", "PARTIAL_OUT", "OUTBOUND", "CLOSED", "CANCELLED"];
+pub const SALES_ORDER_LOCKED: [&str; 5] = ["APPROVED", "PARTIAL_OUT", "OUTBOUND", "CLOSED", "CANCELLED"];
 /// 发货单入账态：过账（库存已动 / 已回写 delivered_qty）与作废两个终态。
 ///
 /// `PENDING_POST` **不在**入账态：提交待过账只是「排队」，改数量 / 改库位都没动过账，
@@ -1060,8 +1040,7 @@ pub const CONTRACT_PENDING_APPROVAL: &str = "PENDING_APPROVAL";
 ///
 /// 终止原因同时写 `biz_status_log.reason` 与 `biz_contract.remark`（V-18），
 /// 不新增列（§2.1「为什么没有这些列」）。
-pub const CONTRACT_REASON_EDGES: [(&str, &str); 2] =
-    [("SIGNED", "TERMINATED"), ("ACTIVE", "TERMINATED")];
+pub const CONTRACT_REASON_EDGES: [(&str, &str); 2] = [("SIGNED", "TERMINATED"), ("ACTIVE", "TERMINATED")];
 
 /// 合同的「非草稿」状态集合：`SIGNED` 之后关键字段冻结（§5.3）。
 ///
@@ -1075,13 +1054,7 @@ pub const CONTRACT_REASON_EDGES: [(&str, &str); 2] =
 /// 审批中如果还能改金额 / 乙方 / 日期，审批人批的就是一份**已经变过的数据**
 /// （审批对象 ≠ 执行对象），复核等于没做。真正的写库闸是 `contract_apply` 的
 /// `WHERE status = 'DRAFT'`（非草稿一律改不动），本表只影响前端置灰与文案。
-pub const CONTRACT_LOCKED: [&str; 5] = [
-    "PENDING_APPROVAL",
-    "SIGNED",
-    "ACTIVE",
-    "COMPLETED",
-    "TERMINATED",
-];
+pub const CONTRACT_LOCKED: [&str; 5] = ["PENDING_APPROVAL", "SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
 
 // ==================== 第 1 层：BASE_EDGES（硬约束白名单） ====================
 //
@@ -1305,12 +1278,7 @@ pub const SALES_RETURN_BASE: [BaseEdge; 7] = [
     BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交", false),
     BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
     BaseEdge::mandatory("APPROVED", "PENDING_POST", "进入待过账", false),
-    BaseEdge::mandatory(
-        "PENDING_POST",
-        "POSTED",
-        "过账（回库 + 冲应收 + 红字凭证）",
-        false,
-    ),
+    BaseEdge::mandatory("PENDING_POST", "POSTED", "过账（回库 + 冲应收 + 红字凭证）", false),
     BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
     BaseEdge::mandatory("SUBMITTED", "CANCELLED", "提交后作废", true),
     BaseEdge::mandatory("APPROVED", "CANCELLED", "批准后作废", true),
@@ -1323,12 +1291,7 @@ pub const SALES_RETURN_BASE: [BaseEdge; 7] = [
 pub const PURCHASE_RETURN_BASE: [BaseEdge; 6] = [
     BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交审批", false),
     BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
-    BaseEdge::mandatory(
-        "APPROVED",
-        "CONFIRMED",
-        "确认退货（出库 + 冲应付 + 凭证）",
-        false,
-    ),
+    BaseEdge::mandatory("APPROVED", "CONFIRMED", "确认退货（出库 + 冲应付 + 凭证）", false),
     BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
     BaseEdge::mandatory("SUBMITTED", "CANCELLED", "审批中作废", true),
     BaseEdge::mandatory("APPROVED", "CANCELLED", "批准后作废", true),
@@ -1433,12 +1396,7 @@ pub const DEPRECIATION_BASE: [BaseEdge; 4] = [
     BaseEdge::mandatory("CALCULATED", "POSTED", "生成凭证并回写卡片", false),
     BaseEdge::mandatory("POSTED", "REVERSED", "红冲（红字凭证 + 回滚卡片）", true),
     BaseEdge::mandatory("CALCULATED", "SKIPPED", "跳过（本期无应提折旧）", false),
-    BaseEdge::mandatory(
-        "REVERSED",
-        "CALCULATED",
-        "红冲后重跑（复用同一批次行）",
-        true,
-    ),
+    BaseEdge::mandatory("REVERSED", "CALCULATED", "红冲后重跑（复用同一批次行）", true),
 ];
 
 /// 出库单的 BASE_EDGES（与 [`STOCK_OUT_EDGES`] 逐条对应，顺序一致）。
@@ -1511,12 +1469,7 @@ pub struct CriticalEdge {
 
 impl CriticalEdge {
     /// 构造（全部 const，编译期就能查重）。
-    const fn new(
-        entity: Entity,
-        from: &'static str,
-        to: &'static str,
-        impact: &'static str,
-    ) -> Self {
+    const fn new(entity: Entity, from: &'static str, to: &'static str, impact: &'static str) -> Self {
         Self {
             entity,
             from,
@@ -1533,40 +1486,15 @@ impl CriticalEdge {
 /// `DRAFT→PENDING→APPROVED→IN_TRANSIT→DONE`），这里按真实边表补成四段。
 pub const CRITICAL_EDGES: &[CriticalEdge] = &[
     // 销售出库（E2E-02 断链的那一条就是它）
-    CriticalEdge::new(
-        Entity::StockOut,
-        "DRAFT",
-        "PENDING_POST",
-        "销售出库无法提交过账审批",
-    ),
-    CriticalEdge::new(
-        Entity::StockOut,
-        "PENDING_POST",
-        "POSTED",
-        "销售出库无法过账",
-    ),
+    CriticalEdge::new(Entity::StockOut, "DRAFT", "PENDING_POST", "销售出库无法提交过账审批"),
+    CriticalEdge::new(Entity::StockOut, "PENDING_POST", "POSTED", "销售出库无法过账"),
     CriticalEdge::new(Entity::StockOut, "DRAFT", "POSTED", "销售出库无法直接过账"),
     // 采购收货
-    CriticalEdge::new(
-        Entity::StockIn,
-        "DRAFT",
-        "PENDING_POST",
-        "采购收货无法提交过账审批",
-    ),
-    CriticalEdge::new(
-        Entity::StockIn,
-        "PENDING_POST",
-        "POSTED",
-        "采购收货无法过账",
-    ),
+    CriticalEdge::new(Entity::StockIn, "DRAFT", "PENDING_POST", "采购收货无法提交过账审批"),
+    CriticalEdge::new(Entity::StockIn, "PENDING_POST", "POSTED", "采购收货无法过账"),
     CriticalEdge::new(Entity::StockIn, "DRAFT", "POSTED", "采购收货无法直接过账"),
     // 采购订单
-    CriticalEdge::new(
-        Entity::PurchaseOrder,
-        "DRAFT",
-        "SUBMITTED",
-        "采购订单无法提交审批",
-    ),
+    CriticalEdge::new(Entity::PurchaseOrder, "DRAFT", "SUBMITTED", "采购订单无法提交审批"),
     CriticalEdge::new(
         Entity::PurchaseOrder,
         "SUBMITTED",
@@ -1579,84 +1507,29 @@ pub const CRITICAL_EDGES: &[CriticalEdge] = &[
         "PARTIAL_RECEIVED",
         "采购订单无法继续收货",
     ),
-    CriticalEdge::new(
-        Entity::PurchaseOrder,
-        "APPROVED",
-        "RECEIVED",
-        "采购订单无法收货完成",
-    ),
+    CriticalEdge::new(Entity::PurchaseOrder, "APPROVED", "RECEIVED", "采购订单无法收货完成"),
     // 销售订单
-    CriticalEdge::new(
-        Entity::SaleOrder,
-        "DRAFT",
-        "SUBMITTED",
-        "销售订单无法提交审批",
-    ),
+    CriticalEdge::new(Entity::SaleOrder, "DRAFT", "SUBMITTED", "销售订单无法提交审批"),
     CriticalEdge::new(
         Entity::SaleOrder,
         "SUBMITTED",
         "APPROVED",
         "销售订单无法审批通过（后续发货全部卡住）",
     ),
-    CriticalEdge::new(
-        Entity::SaleOrder,
-        "APPROVED",
-        "PARTIAL_OUT",
-        "销售订单无法部分出库",
-    ),
-    CriticalEdge::new(
-        Entity::SaleOrder,
-        "APPROVED",
-        "OUTBOUND",
-        "销售订单无法出库完成",
-    ),
-    CriticalEdge::new(
-        Entity::SaleOrder,
-        "PARTIAL_OUT",
-        "OUTBOUND",
-        "销售订单无法出库完成",
-    ),
+    CriticalEdge::new(Entity::SaleOrder, "APPROVED", "PARTIAL_OUT", "销售订单无法部分出库"),
+    CriticalEdge::new(Entity::SaleOrder, "APPROVED", "OUTBOUND", "销售订单无法出库完成"),
+    CriticalEdge::new(Entity::SaleOrder, "PARTIAL_OUT", "OUTBOUND", "销售订单无法出库完成"),
     // 发货单
-    CriticalEdge::new(
-        Entity::Shipment,
-        "DRAFT",
-        "PENDING_POST",
-        "发货单无法提交待过账",
-    ),
+    CriticalEdge::new(Entity::Shipment, "DRAFT", "PENDING_POST", "发货单无法提交待过账"),
     CriticalEdge::new(Entity::Shipment, "PENDING_POST", "POSTED", "发货单无法过账"),
     // 库存调拨
     CriticalEdge::new(Entity::Transfer, "DRAFT", "PENDING", "库存调拨无法提交审批"),
-    CriticalEdge::new(
-        Entity::Transfer,
-        "PENDING",
-        "APPROVED",
-        "库存调拨无法审批通过",
-    ),
-    CriticalEdge::new(
-        Entity::Transfer,
-        "APPROVED",
-        "IN_TRANSIT",
-        "库存调拨无法发货",
-    ),
-    CriticalEdge::new(
-        Entity::Transfer,
-        "IN_TRANSIT",
-        "DONE",
-        "库存调拨无法收货完成",
-    ),
+    CriticalEdge::new(Entity::Transfer, "PENDING", "APPROVED", "库存调拨无法审批通过"),
+    CriticalEdge::new(Entity::Transfer, "APPROVED", "IN_TRANSIT", "库存调拨无法发货"),
+    CriticalEdge::new(Entity::Transfer, "IN_TRANSIT", "DONE", "库存调拨无法收货完成"),
     // 盘点
-    CriticalEdge::new(
-        Entity::StockTake,
-        "DRAFT",
-        "PENDING_POST",
-        "盘点单无法提交审批",
-    ),
-    CriticalEdge::new(
-        Entity::StockTake,
-        "PENDING_POST",
-        "POSTED",
-        "盘点单无法过账",
-    ),
+    CriticalEdge::new(Entity::StockTake, "DRAFT", "PENDING_POST", "盘点单无法提交审批"),
+    CriticalEdge::new(Entity::StockTake, "PENDING_POST", "POSTED", "盘点单无法过账"),
     // 凭证（记账链）
     CriticalEdge::new(Entity::Voucher, "DRAFT", "AUDITED", "凭证无法审核"),
     CriticalEdge::new(
@@ -1889,9 +1762,7 @@ impl Entity {
 
     /// 按 `(from, to)` 找 BASE 边（找不到 = 这条边在代码里就不存在）。
     pub fn base_edge(self, from: &str, to: &str) -> Option<&'static BaseEdge> {
-        self.base_edges()
-            .iter()
-            .find(|edge| edge.from == from && edge.to == to)
+        self.base_edges().iter().find(|edge| edge.from == from && edge.to == to)
     }
 
     /// 需要 reason 的边。
@@ -1966,9 +1837,7 @@ impl Entity {
 
     /// 这条边是否必须有 reason。
     pub fn needs_reason(self, from: &str, to: &str) -> bool {
-        self.reason_edges()
-            .iter()
-            .any(|(f, t)| *f == from && *t == to)
+        self.reason_edges().iter().any(|(f, t)| *f == from && *t == to)
     }
 
     /// 该状态是否入账态。
@@ -2106,9 +1975,7 @@ impl EdgeResolution {
 
     /// 取一条有效边。
     pub fn get(&self, from: &str, to: &str) -> Option<&Edge> {
-        self.edges
-            .iter()
-            .find(|edge| edge.from == from && edge.to == to)
+        self.edges.iter().find(|edge| edge.from == from && edge.to == to)
     }
 
     /// 某状态当前能去的下一个状态（配置禁用过的不会出现在这里）。
@@ -2267,8 +2134,7 @@ pub async fn load_edge_config_rows(ex: &impl SqlExecutor) -> DbResult<Vec<EdgeCo
     const SAVEPOINT: &str = "d1_edge_config_read";
     let in_tx = ex.post_commit_queue().is_some();
     if in_tx {
-        ex.exec_sql(format!("SAVEPOINT {SAVEPOINT}"), vec![])
-            .await?;
+        ex.exec_sql(format!("SAVEPOINT {SAVEPOINT}"), vec![]).await?;
     }
     let result = ex
         .query_sql(
@@ -2424,15 +2290,8 @@ fn ensure_config_admin(claims: &TokenClaims, action: &str) -> Result<(), ApiErro
 }
 
 /// 校验 + 规整一个可空文本配置项（空白视作未配置，超长 400）。
-fn normalize_config_text(
-    raw: Option<&String>,
-    field: &str,
-    max: usize,
-) -> Result<Option<String>, ApiError> {
-    let Some(text) = raw
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    else {
+fn normalize_config_text(raw: Option<&String>, field: &str, max: usize) -> Result<Option<String>, ApiError> {
+    let Some(text) = raw.map(|value| value.trim()).filter(|value| !value.is_empty()) else {
         return Ok(None);
     };
     if text.chars().count() > max {
@@ -2674,10 +2533,7 @@ pub async fn upsert_edge_config(
             ApiError::new(
                 500,
                 error_code::INTERNAL_ERROR,
-                format!(
-                    "写状态机配置失败（{} {from}→{to}）：{error}",
-                    entity.as_str()
-                ),
+                format!("写状态机配置失败（{} {from}→{to}）：{error}", entity.as_str()),
             )
         })?
         .ok_or_else(|| {
@@ -2794,10 +2650,7 @@ pub async fn delete_edge_config(
             ApiError::new(
                 500,
                 error_code::INTERNAL_ERROR,
-                format!(
-                    "删除状态机配置失败（{} {from}→{to}）：{error}",
-                    entity.as_str()
-                ),
+                format!("删除状态机配置失败（{} {from}→{to}）：{error}", entity.as_str()),
             )
         })?;
     if affected == 0 {
@@ -2810,11 +2663,7 @@ pub async fn delete_edge_config(
         from,
         to,
         before.id,
-        if before.enabled {
-            "ENABLED"
-        } else {
-            "DISABLED"
-        },
+        if before.enabled { "ENABLED" } else { "DISABLED" },
         "DELETED",
         Some(&before),
         None,
@@ -2824,10 +2673,7 @@ pub async fn delete_edge_config(
 }
 
 /// 列出现有配置（管理端 / 排障用；`entity = None` 表示全量）。
-pub async fn list_edge_config(
-    ex: &impl SqlExecutor,
-    entity: Option<Entity>,
-) -> DbResult<Vec<EdgeConfigRow>> {
+pub async fn list_edge_config(ex: &impl SqlExecutor, entity: Option<Entity>) -> DbResult<Vec<EdgeConfigRow>> {
     let rows = ex
         .query_sql(
             "SELECT id, entity, from_status, to_status, enabled, requires_reason, label, auth_code \
@@ -2874,10 +2720,7 @@ impl AuthSnapshot {
         self.roles
             .iter()
             .any(|role| role == crate::shared::constants::SUPER_ADMIN_ROLE_CODE)
-            || self
-                .permissions
-                .iter()
-                .any(|code| code == "*" || code == "*:*:*")
+            || self.permissions.iter().any(|code| code == "*" || code == "*:*:*")
     }
 
     /// 持有某个权限码（超管短路）。
@@ -2917,11 +2760,7 @@ impl Operator {
         let name = name.trim();
         Self {
             id,
-            name: if name.is_empty() {
-                None
-            } else {
-                Some(name.to_string())
-            },
+            name: if name.is_empty() { None } else { Some(name.to_string()) },
             auth: None,
         }
     }
@@ -3492,12 +3331,7 @@ async fn insert_log(
             Value::Text(entity_no.to_string()),
             Value::Text(from_status.unwrap_or_default().to_string()),
             Value::Text(to_status.to_string()),
-            Value::Text(
-                operator
-                    .id
-                    .map(|value| value.to_string())
-                    .unwrap_or_default(),
-            ),
+            Value::Text(operator.id.map(|value| value.to_string()).unwrap_or_default()),
             Value::Text(operator_name),
             Value::Text(reason.unwrap_or_default().to_string()),
             Value::Text(ref_type),
@@ -3521,9 +3355,7 @@ async fn insert_log(
 
 /// 入账态只读的 409 文案。
 pub fn locked_message(entity_type: &str, status: &str, entity_no: &str) -> String {
-    let label = Entity::parse(entity_type)
-        .map(|item| item.label())
-        .unwrap_or("单据");
+    let label = Entity::parse(entity_type).map(|item| item.label()).unwrap_or("单据");
     format!(
         "单据已入账（状态 {status}），金额/数量/明细不可修改。\n 如需更正请先作废或红冲后重开。\
          （{label} {entity_no}；白名单：remark / status / updated_at / update_by / 系统回写字段）"
@@ -3641,18 +3473,12 @@ mod tests {
     }
 
     async fn cleanup() {
-        db().execute_with_params(
-            "DELETE FROM biz_status_log WHERE entity_no LIKE 'P10SM-%'",
-            vec![],
-        )
-        .await
-        .unwrap_or_else(|err| panic!("清理状态日志失败：{err}"));
-        db().execute_with_params(
-            "DELETE FROM biz_status_log WHERE entity_no LIKE 'P10SMV-%'",
-            vec![],
-        )
-        .await
-        .unwrap();
+        db().execute_with_params("DELETE FROM biz_status_log WHERE entity_no LIKE 'P10SM-%'", vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理状态日志失败：{err}"));
+        db().execute_with_params("DELETE FROM biz_status_log WHERE entity_no LIKE 'P10SMV-%'", vec![])
+            .await
+            .unwrap();
     }
 
     fn op() -> Operator {
@@ -3856,11 +3682,7 @@ mod tests {
         .unwrap_err();
         assert_eq!(err.status, 500, "{}", err.msg);
         assert!(err.msg.contains("未知的单据类型"), "{}", err.msg);
-        assert!(
-            err.msg.contains(ENTITY_PURCHASE_ORDER),
-            "要点名注册表：{}",
-            err.msg
-        );
+        assert!(err.msg.contains(ENTITY_PURCHASE_ORDER), "要点名注册表：{}", err.msg);
     }
 
     /// ⑥ 按 entity_no 能查完整轨迹（多单据互不串）。
@@ -3872,11 +3694,7 @@ mod tests {
         };
         let no_a = format!("{PREFIX}F1");
         let no_b = format!("{PREFIX}F2");
-        for (no, to) in [
-            (&no_a, "SUBMITTED"),
-            (&no_a, "CLOSED"),
-            (&no_b, "SUBMITTED"),
-        ] {
+        for (no, to) in [(&no_a, "SUBMITTED"), (&no_a, "CLOSED"), (&no_b, "SUBMITTED")] {
             let from = if to == "CLOSED" { "SUBMITTED" } else { "DRAFT" };
             transition(
                 db(),
@@ -3959,11 +3777,7 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, 409, "{}", err.msg);
-        assert!(
-            err.msg.contains("DRAFT") && err.msg.contains("RECEIVED"),
-            "{}",
-            err.msg
-        );
+        assert!(err.msg.contains("DRAFT") && err.msg.contains("RECEIVED"), "{}", err.msg);
         assert_eq!(count_of(&format!("{PREFIX}H")).await, 0);
     }
 
@@ -4110,12 +3924,9 @@ mod tests {
             .unwrap();
         assert_eq!(summary, "测试摘要", "409 时不能真改库");
 
-        db().execute_with_params(
-            "DELETE FROM biz_voucher WHERE id = ?::uuid",
-            vec![Value::from(&id)],
-        )
-        .await
-        .unwrap();
+        db().execute_with_params("DELETE FROM biz_voucher WHERE id = ?::uuid", vec![Value::from(&id)])
+            .await
+            .unwrap();
     }
     // ==================== 【D1】第 1 层：BASE_EDGES ====================
 
@@ -4213,19 +4024,9 @@ mod tests {
     fn disabled_optional_edge_disappears() {
         let rows = [d1_row(ENTITY_STOCK_IN, "DRAFT", "POSTED", false)];
         let resolution = resolve_edges(Entity::StockIn, &rows);
-        assert!(
-            !resolution.allows("DRAFT", "POSTED"),
-            "禁用的可选边不能出现在有效边里"
-        );
-        assert!(
-            resolution.allows("DRAFT", "PENDING_POST"),
-            "同状态的其他边不受影响"
-        );
-        assert_eq!(
-            resolution.edges.len(),
-            STOCK_IN_BASE.len() - 1,
-            "只少了这一条"
-        );
+        assert!(!resolution.allows("DRAFT", "POSTED"), "禁用的可选边不能出现在有效边里");
+        assert!(resolution.allows("DRAFT", "PENDING_POST"), "同状态的其他边不受影响");
+        assert_eq!(resolution.edges.len(), STOCK_IN_BASE.len() - 1, "只少了这一条");
         assert!(
             resolution.warnings.is_empty(),
             "合法禁用不该有 WARN：{:?}",
@@ -4243,10 +4044,7 @@ mod tests {
             "硬约束边（红冲）不许被配置删掉"
         );
         assert!(
-            resolution
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("mandatory")),
+            resolution.warnings.iter().any(|warning| warning.contains("mandatory")),
             "必须留下 WARN 说明配置被忽略：{:?}",
             resolution.warnings
         );
@@ -4261,10 +4059,7 @@ mod tests {
         ];
         let resolution = resolve_edges(Entity::StockIn, &rows);
         assert!(!resolution.allows("DRAFT", "PENDING_CANCEL"));
-        assert!(
-            !resolution.allows("CANCELLED", "POSTED"),
-            "不能改方向 / 不能从终态复活"
-        );
+        assert!(!resolution.allows("CANCELLED", "POSTED"), "不能改方向 / 不能从终态复活");
         assert_eq!(
             resolution.warnings.len(),
             2,
@@ -4311,10 +4106,7 @@ mod tests {
         assert!(edge.requires_reason, "配置可以加「必填原因」");
         assert_eq!(edge.auth_code.as_deref(), Some("erp:stock-in:submit"));
         // 其它边不受影响
-        assert_eq!(
-            resolution.get("DRAFT", "CANCELLED").unwrap().label,
-            "草稿作废"
-        );
+        assert_eq!(resolution.get("DRAFT", "CANCELLED").unwrap().label, "草稿作废");
     }
 
     /// ❽ 只许加严：配置把「代码要求原因」的边写成 `requires_reason = false` 也照样要求。
@@ -4324,10 +4116,7 @@ mod tests {
         row.requires_reason = false;
         let resolution = resolve_edges(Entity::StockIn, &[row]);
         assert!(
-            resolution
-                .get("POSTED", "CANCELLED")
-                .unwrap()
-                .requires_reason,
+            resolution.get("POSTED", "CANCELLED").unwrap().requires_reason,
             "红冲必须给原因，配置关不掉"
         );
     }
@@ -4412,9 +4201,7 @@ mod tests {
         // ② 没二次确认
         let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
         patch.confirm = false;
-        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
-            .await
-            .unwrap_err();
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch).await.unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("二次确认"), "{}", err.msg);
 
@@ -4432,17 +4219,13 @@ mod tests {
         // ④ 禁用 mandatory 边
         let mut patch = d1_patch(ENTITY_STOCK_IN, "POSTED", "CANCELLED");
         patch.enabled = false;
-        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
-            .await
-            .unwrap_err();
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch).await.unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("硬约束边"), "{}", err.msg);
 
         // ⑤ 把「代码要求原因」的边放宽
         let patch = d1_patch(ENTITY_STOCK_IN, "POSTED", "CANCELLED");
-        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
-            .await
-            .unwrap_err();
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch).await.unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("放宽"), "{}", err.msg);
 
@@ -4455,18 +4238,12 @@ mod tests {
         let Some((_guard, tx)) = d1_tx().await else {
             return;
         };
-        let row = upsert_edge_config(
-            &tx,
-            &d1_super_claims(),
-            &d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED"),
-        )
-        .await
-        .expect("超管 + confirm 应写入成功");
+        let row = upsert_edge_config(&tx, &d1_super_claims(), &d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED"))
+            .await
+            .expect("超管 + confirm 应写入成功");
         assert!(row.enabled);
 
-        let listed = list_edge_config(&tx, Some(Entity::StockIn))
-            .await
-            .expect("读配置");
+        let listed = list_edge_config(&tx, Some(Entity::StockIn)).await.expect("读配置");
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].from_status, "DRAFT");
         assert_eq!(listed[0].to_status, "POSTED");
@@ -4519,9 +4296,7 @@ mod tests {
         // ① 不传 confirm_critical → 400（主链路边禁用要第三次确认）
         let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
         patch.enabled = false;
-        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
-            .await
-            .unwrap_err();
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch).await.unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("主链路必需边"), "{}", err.msg);
         assert!(
@@ -4568,11 +4343,7 @@ mod tests {
             "文案要给出下一步（找管理员）：{}",
             err.msg
         );
-        assert!(
-            !err.msg.contains(&no),
-            "用户侧报文不许暴露内部单号：{}",
-            err.msg
-        );
+        assert!(!err.msg.contains(&no), "用户侧报文不许暴露内部单号：{}", err.msg);
         assert!(
             !err.msg.contains("DRAFT") && !err.msg.contains("POSTED"),
             "用户侧报文不许出现状态机状态名：{}",
@@ -4788,10 +4559,7 @@ mod tests {
             "脏配置禁用 mandatory 边必须被忽略"
         );
         assert!(
-            resolution
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("mandatory")),
+            resolution.warnings.iter().any(|warning| warning.contains("mandatory")),
             "{:?}",
             resolution.warnings
         );
@@ -4942,10 +4710,7 @@ mod tests {
             None,
         )
         .await;
-        let trail = trail_of_no(&tx, &no)
-            .await
-            .map(|rows| rows.len())
-            .unwrap_or(0);
+        let trail = trail_of_no(&tx, &no).await.map(|rows| rows.len()).unwrap_or(0);
         let _ = tx.rollback().await;
 
         assert_eq!(
@@ -4979,10 +4744,7 @@ mod tests {
             .expect("改文案应成功");
 
         let resolution = edge_resolution(&tx, Entity::StockIn).await;
-        assert_eq!(
-            resolution.get("DRAFT", "PENDING_POST").unwrap().label,
-            "报批"
-        );
+        assert_eq!(resolution.get("DRAFT", "PENDING_POST").unwrap().label, "报批");
         let _ = tx.rollback().await;
     }
 
@@ -5157,19 +4919,11 @@ mod contract_tests {
         // 注册表不变式：as_str 全局唯一（撞串会让 parse 静默认错实体）
         let mut seen = std::collections::BTreeSet::new();
         for entity in Entity::ALL {
-            assert!(
-                seen.insert(entity.as_str()),
-                "实体类型串重复：{}",
-                entity.as_str()
-            );
+            assert!(seen.insert(entity.as_str()), "实体类型串重复：{}", entity.as_str());
         }
         let mut labels = std::collections::BTreeSet::new();
         for entity in Entity::ALL {
-            assert!(
-                labels.insert(entity.label()),
-                "中文名重复：{}",
-                entity.label()
-            );
+            assert!(labels.insert(entity.label()), "中文名重复：{}", entity.label());
         }
     }
 
@@ -5182,10 +4936,7 @@ mod contract_tests {
             "ARCH-3 R-P1-1：A1 的 5 条边 + 「提交审批」与「审批落地/回位」两条 → 7 条"
         );
         for (from, to) in EXPECTED_EDGES {
-            assert!(
-                Entity::Contract.can_transition(from, to),
-                "合法边 {from} → {to} 被拒了"
-            );
+            assert!(Entity::Contract.can_transition(from, to), "合法边 {from} → {to} 被拒了");
             assert!(
                 Entity::Contract.next_statuses(from).contains(&to),
                 "{from} 的可选去向里应有 {to}"
@@ -5202,10 +4953,7 @@ mod contract_tests {
             vec!["SIGNED", "DRAFT"],
             "审批中：审批通过 → SIGNED；驳回/撤回 → DRAFT"
         );
-        assert_eq!(
-            Entity::Contract.next_statuses("SIGNED"),
-            vec!["ACTIVE", "TERMINATED"]
-        );
+        assert_eq!(Entity::Contract.next_statuses("SIGNED"), vec!["ACTIVE", "TERMINATED"]);
         assert_eq!(
             Entity::Contract.next_statuses("ACTIVE"),
             vec!["COMPLETED", "TERMINATED"]
@@ -5303,8 +5051,7 @@ mod contract_tests {
                 assert!(Entity::Contract.next_statuses(from).is_empty());
             }
         }
-        let has_incoming =
-            |target: &str| Entity::Contract.edges().iter().any(|(_, to)| *to == target);
+        let has_incoming = |target: &str| Entity::Contract.edges().iter().any(|(_, to)| *to == target);
         assert!(
             has_incoming("DRAFT"),
             "R-P1-1：DRAFT 有入边（PENDING_APPROVAL → DRAFT 是驳回/撤回回位），不再是纯起始态"
@@ -5333,10 +5080,7 @@ mod contract_tests {
             ("SIGNED", "ACTIVE"),
             ("ACTIVE", "COMPLETED"),
         ] {
-            assert!(
-                !Entity::Contract.needs_reason(from, to),
-                "{from} → {to} 不该强制填原因"
-            );
+            assert!(!Entity::Contract.needs_reason(from, to), "{from} → {to} 不该强制填原因");
         }
         // reason_edges 必须是 edges 的子集（登记了不存在的边 = 永远触发不了）
         for (from, to) in Entity::Contract.reason_edges() {
@@ -5352,21 +5096,12 @@ mod contract_tests {
     fn contract_locked_statuses_start_after_draft() {
         assert_eq!(Entity::Contract.locked_statuses(), &CONTRACT_LOCKED[..]);
         assert!(!Entity::Contract.is_locked("DRAFT"), "草稿可改");
-        for status in [
-            "PENDING_APPROVAL",
-            "SIGNED",
-            "ACTIVE",
-            "COMPLETED",
-            "TERMINATED",
-        ] {
+        for status in ["PENDING_APPROVAL", "SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"] {
             assert!(Entity::Contract.is_locked(status), "{status} 应判为已冻结");
         }
         // locked 只能取状态白名单里的值（写错值等于永不生效）
         for status in Entity::Contract.locked_statuses() {
-            assert!(
-                CONTRACT_STATUSES.contains(status),
-                "locked 里的 {status} 不是合同状态"
-            );
+            assert!(CONTRACT_STATUSES.contains(status), "locked 里的 {status} 不是合同状态");
         }
     }
 
@@ -5377,10 +5112,7 @@ mod contract_tests {
         assert!(msg.contains("合同"), "文案要带单据中文名：{msg}");
         assert!(msg.contains("DRAFT"), "文案要带当前态：{msg}");
         assert!(msg.contains("ACTIVE"), "文案要带被拒的目标态：{msg}");
-        assert!(
-            msg.contains("PENDING_APPROVAL"),
-            "文案要给出合法去向：{msg}"
-        );
+        assert!(msg.contains("PENDING_APPROVAL"), "文案要给出合法去向：{msg}");
         assert_eq!(
             error_code::ERP_CONTRACT_STATUS_ILLEGAL,
             66015,

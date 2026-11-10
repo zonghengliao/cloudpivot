@@ -59,9 +59,7 @@ use serde_json::Value as JsonValue;
 
 use crate::business::erp::approval_gate;
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::state_machine::{
-    self, BaseEdge, Edge, EdgeConfigPatch, EdgeConfigRow, Entity, Operator,
-};
+use crate::business::shared::state_machine::{self, BaseEdge, Edge, EdgeConfigPatch, EdgeConfigRow, Entity, Operator};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -361,9 +359,7 @@ impl EdgeChangeRes {
             instance_id: Some(instance_id.to_string()),
             instance_no: Some(instance_no.clone()),
             instance_status: Some(status),
-            message: format!(
-                "{summary}：已提交审批 {instance_no}，审批通过后才会生效（驳回或撤回则配置不变）"
-            ),
+            message: format!("{summary}：已提交审批 {instance_no}，审批通过后才会生效（驳回或撤回则配置不变）"),
         }
     }
 
@@ -399,12 +395,7 @@ impl EdgeChangeRes {
 )]
 #[nik::get("/business/flow/state-edge")]
 pub async fn list_state_edges(Query(query): Query<StateEdgeQuery>) -> ResResult<StateEdgeListRes> {
-    let entity = match query
-        .entity
-        .as_deref()
-        .map(str::trim)
-        .filter(|raw| !raw.is_empty())
-    {
+    let entity = match query.entity.as_deref().map(str::trim).filter(|raw| !raw.is_empty()) {
         None => None,
         Some(raw) => Some(parse_entity(raw)?),
     };
@@ -427,11 +418,7 @@ pub async fn list_state_edges(Query(query): Query<StateEdgeQuery>) -> ResResult<
 }
 
 /// 组装单个实体的视图（有效边走内核的 `effective_edges`，不在这里合并）。
-async fn entity_view(
-    entity: Entity,
-    configs: &[EdgeConfigRow],
-    pending: &[PendingChangeRes],
-) -> EntityEdgesRes {
+async fn entity_view(entity: Entity, configs: &[EdgeConfigRow], pending: &[PendingChangeRes]) -> EntityEdgesRes {
     let effective = state_machine::effective_edges(db(), entity).await;
     let rows: Vec<ConfigRowRes> = configs
         .iter()
@@ -442,9 +429,7 @@ async fn entity_view(
     let effective_edges: Vec<EdgeRes> = effective
         .iter()
         .map(|edge| {
-            let configured = rows
-                .iter()
-                .any(|row| row.from == edge.from && row.to == edge.to);
+            let configured = rows.iter().any(|row| row.from == edge.from && row.to == edge.to);
             EdgeRes::of_effective(entity, edge, configured)
         })
         .collect();
@@ -668,20 +653,10 @@ impl EdgeChange {
                 if patch.requires_reason {
                     parts.push("要求填原因".to_string());
                 }
-                if let Some(label) = patch
-                    .label
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                {
+                if let Some(label) = patch.label.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
                     parts.push(format!("文案「{label}」"));
                 }
-                if let Some(code) = patch
-                    .auth_code
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                {
+                if let Some(code) = patch.auth_code.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
                     parts.push(format!("权限码 {code}"));
                 }
                 format!(
@@ -737,11 +712,7 @@ impl EdgeChange {
                 .filter(|value| !value.is_empty())
                 .map(str::to_string)
         };
-        let flag = |key: &str| {
-            data.get(key)
-                .and_then(|value| value.as_bool())
-                .unwrap_or(false)
-        };
+        let flag = |key: &str| data.get(key).and_then(|value| value.as_bool()).unwrap_or(false);
         let entity = text("entity")?;
         let from = text("from_status")?;
         let to = text("to_status")?;
@@ -750,10 +721,7 @@ impl EdgeChange {
                 entity,
                 from_status: from,
                 to_status: to,
-                enabled: data
-                    .get("enabled")
-                    .and_then(|value| value.as_bool())
-                    .unwrap_or(true),
+                enabled: data.get("enabled").and_then(|value| value.as_bool()).unwrap_or(true),
                 requires_reason: flag("requires_reason"),
                 label: text("label"),
                 auth_code: text("auth_code"),
@@ -938,9 +906,9 @@ pub async fn start_change_approval(
     if let Some(rejected) = out.rejected.take() {
         let _ = tx.rollback().await;
         // FIX-1：用 `appended` 保留 65018 的结构化载荷（否则前端只剩一句红字）
-        return Err(rejected.appended(
-            "（配置变更审批的复核人：请把 `FLOW_CONFIG_APPROVER` 角色绑一个不是发起人的账号）",
-        ));
+        return Err(
+            rejected.appended("（配置变更审批的复核人：请把 `FLOW_CONFIG_APPROVER` 角色绑一个不是发起人的账号）")
+        );
     }
     let instance_id = out.instance_id.unwrap_or_default();
     let instance_status = out.instance_status.clone();
@@ -1040,10 +1008,7 @@ pub async fn on_settled(instance_id: Option<Uuid>, instance_status: &str) -> Opt
 }
 
 /// [`on_settled`] 的实现体（可失败，由调用方吞掉错误）。
-async fn settle(
-    instance_id: Uuid,
-    verdict: ChangeVerdict,
-) -> std::result::Result<Option<Uuid>, ApiError> {
+async fn settle(instance_id: Uuid, verdict: ChangeVerdict) -> std::result::Result<Option<Uuid>, ApiError> {
     let Some(instance) = flow_model::find_instance(instance_id)
         .await
         .map_err(|error| utils::db_error(error, "读审批实例"))?
@@ -1125,11 +1090,9 @@ async fn settle(
         EdgeChange::Upsert(patch) => state_machine::upsert_edge_config(db(), &claims, patch)
             .await
             .map(|_| ()),
-        EdgeChange::Delete { entity, from, to } => {
-            state_machine::delete_edge_config(db(), &claims, entity, from, to)
-                .await
-                .map(|_| ())
-        }
+        EdgeChange::Delete { entity, from, to } => state_machine::delete_edge_config(db(), &claims, entity, from, to)
+            .await
+            .map(|_| ()),
     };
     match applied {
         Ok(()) => {
@@ -1190,10 +1153,7 @@ async fn note_approval(
     state: &str,
     reason: &str,
 ) {
-    let operator = Operator::named(
-        Some(instance.initiator_id),
-        instance_title(&instance.initiator_name),
-    );
+    let operator = Operator::named(Some(instance.initiator_id), instance_title(&instance.initiator_name));
     if let Err(error) = state_machine::note_edge_config(
         db(),
         entity,
@@ -1327,10 +1287,7 @@ fn parse_entity(raw: &str) -> std::result::Result<Entity, ApiError> {
 }
 
 /// 按内核口径**试写一次再回滚**：把 400 / 403 提前到提交阶段。
-async fn dry_run_upsert(
-    claims: &TokenClaims,
-    patch: &EdgeConfigPatch,
-) -> std::result::Result<(), ApiError> {
+async fn dry_run_upsert(claims: &TokenClaims, patch: &EdgeConfigPatch) -> std::result::Result<(), ApiError> {
     let tx = db()
         .begin()
         .await
@@ -1393,9 +1350,7 @@ async fn instance_no_of(instance_id: Uuid) -> std::result::Result<String, ApiErr
 }
 
 /// 在跑的配置变更审批单（管理端「这条边正在审批中」）。
-async fn pending_changes(
-    entity: Option<Entity>,
-) -> std::result::Result<Vec<PendingChangeRes>, ApiError> {
+async fn pending_changes(entity: Option<Entity>) -> std::result::Result<Vec<PendingChangeRes>, ApiError> {
     let rows = db()
         .find_with_params(
             "SELECT id, instance_no, title, form_data, initiator_name, started_at \

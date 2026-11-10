@@ -198,9 +198,7 @@ pub async fn generate_serials(
             ));
         }
         if dict.status != 1 {
-            return Err(reference_missing(
-                "库位已停用：请启用该库位，或改选该仓库的其它库位",
-            ));
+            return Err(reference_missing("库位已停用：请启用该库位，或改选该仓库的其它库位"));
         }
     }
 
@@ -235,14 +233,9 @@ pub async fn generate_serials(
     let location_row = match location_id {
         Some(row) => Some(row),
         None => {
-            let resolved = serial_model::ensure_batch_location_row(
-                &tx,
-                material_id,
-                warehouse_id,
-                location_dict_id,
-                Utc::now(),
-            )
-            .await;
+            let resolved =
+                serial_model::ensure_batch_location_row(&tx, material_id, warehouse_id, location_dict_id, Utc::now())
+                    .await;
             match resolved {
                 Ok(row) => row,
                 Err(error) => {
@@ -2813,7 +2806,8 @@ mod tests {
             .scalar_with_params::<Option<String>>(sql, params)
             .await
             .expect("读 numeric");
-        text.map(|value| Decimal::from_str_exact(&value).expect("decimal")).unwrap_or(Decimal::ZERO)
+        text.map(|value| Decimal::from_str_exact(&value).expect("decimal"))
+            .unwrap_or(Decimal::ZERO)
     }
 
     /// E2E-FIX-6 ①：**不传任何库位** → 落仓库默认库位桶，且不再产生「未分配」桶。
@@ -2834,7 +2828,9 @@ mod tests {
             .expect("不传库位时必须按仓库默认库位 find-or-create 库位账行");
         let expected = row.to_string();
         assert!(
-            body.list.iter().all(|item| item.location_id.as_deref() == Some(expected.as_str())),
+            body.list
+                .iter()
+                .all(|item| item.location_id.as_deref() == Some(expected.as_str())),
             "序列号必须落在默认库位账行上，而不是未分配桶（location_id IS NULL）"
         );
 
@@ -2867,7 +2863,11 @@ mod tests {
             vec![Value::from(&uuid(M_SN_ID)), Value::from(&uuid(W_DEF_ID))],
         )
         .await;
-        assert_eq!(unassigned, Decimal::ZERO, "不许再往未分配桶记数量（这正是两桶并存的根因）");
+        assert_eq!(
+            unassigned,
+            Decimal::ZERO,
+            "不许再往未分配桶记数量（这正是两桶并存的根因）"
+        );
 
         // ③ 库位账：同一行 qty = 4（B1：库位账合计 = 成本账合计）
         let loc_qty = decimal_scalar(
@@ -2906,7 +2906,9 @@ mod tests {
             .expect("指定库位字典后必须建出该库位的账行");
         let expected = row.to_string();
         assert!(
-            body.list.iter().all(|item| item.location_id.as_deref() == Some(expected.as_str())),
+            body.list
+                .iter()
+                .all(|item| item.location_id.as_deref() == Some(expected.as_str())),
             "指定库位字典后，序列号必须落该库位的账行（不是默认库位、也不是未分配桶）"
         );
         let loc_qty = decimal_scalar(
@@ -2940,9 +2942,7 @@ mod tests {
         let before = in_stock_count(uuid(M_SN_ID), uuid(W_DEF_ID)).await;
         let mut req = req_default_location(M_SN_ID, 2);
         req.location_dict_id = Some(W_OTHER_LOC_ID.to_string());
-        let err = generate_serials(&req, None)
-            .await
-            .expect_err("别的仓库的库位必须被拒");
+        let err = generate_serials(&req, None).await.expect_err("别的仓库的库位必须被拒");
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
         assert_eq!(
