@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 报告安全漏洞（请勿公开）
+    url: https://github.com/zonghengliao/cloudpivot/security/advisories/new
+    about: 安全漏洞请走私密渠道，不要开公开 Issue。详见 SECURITY.md
+  - name: 💬 使用问题 / 讨论
+    url: https://github.com/zonghengliao/cloudpivot/discussions
+    about: 不确定是不是 Bug、用法咨询、想法交流，请到 Discussions
+  - name: 📖 二开文档
+    url: https://github.com/zonghengliao/cloudpivot/blob/main/docs/README.md
+    about: 项目结构、设计亮点、前后端二开指南、编码规范
+  - name: 🤝 贡献指南
+    url: https://github.com/zonghengliao/cloudpivot/blob/main/CONTRIBUTING.md
+    about: 提交前必读：迁移规则、流程不硬编码、PR 要求
