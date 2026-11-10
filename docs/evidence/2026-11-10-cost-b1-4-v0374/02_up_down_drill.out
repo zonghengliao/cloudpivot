@@ -1,0 +1,137 @@
+
+===== 0. 环境 =====
+db=mig_replay_costb1_01
+PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26
+biz_cost_object=biz_cost_object（V0370 前置）
+biz_cost_standard=biz_cost_standard（本卡目标）
+
+===== 1. 首轮 up =====
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:358: NOTICE:  V0374 形态断言通过（三表 / 12 条 CHECK / 3 条外键删除动作 / 精度）
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:678: NOTICE:  V0374 完成：二期三表建成，形态断言 + 11 组行为断言全过（★ 六类差异符号约定 + §4.9.2 两因素恒等式活体验证），探针已清理
+exit=0
+
+===== 2. 第二、三轮 up（重复执行必须结果不变） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:358: NOTICE:  V0374 形态断言通过（三表 / 12 条 CHECK / 3 条外键删除动作 / 精度）
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:678: NOTICE:  V0374 完成：二期三表建成，形态断言 + 11 组行为断言全过（★ 六类差异符号约定 + §4.9.2 两因素恒等式活体验证），探针已清理
+exit=0
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:358: NOTICE:  V0374 形态断言通过（三表 / 12 条 CHECK / 3 条外键删除动作 / 精度）
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:678: NOTICE:  V0374 完成：二期三表建成，形态断言 + 11 组行为断言全过（★ 六类差异符号约定 + §4.9.2 两因素恒等式活体验证），探针已清理
+exit=0
+
+===== 3. 幂等证据：表 / 索引 / 约束计数 + 探针零残留 =====
+tables=3（期望 3）
+idx=7（期望 7 = 4 业务索引 + 3 PK）
+checks=12（期望 12 = 5+2+5）
+fks=3（期望 3 = 1 明细→卡头 + 2 差异→(对象,卡头)）
+probe_leftover=0（期望 0）
+
+===== 4. ★ 快照：唯一索引谓词（uk_biz_cost_std 必须带软删条件） =====
+idx_biz_cost_var_obj :: CREATE INDEX idx_biz_cost_var_obj ON public.biz_cost_variance USING btree (cost_object_id, period_code)
+idx_biz_cost_var_period :: CREATE INDEX idx_biz_cost_var_period ON public.biz_cost_variance USING btree (period_code, variance_type)
+uk_biz_cost_std :: CREATE UNIQUE INDEX uk_biz_cost_std ON public.biz_cost_standard USING btree (material_id, effective_from) WHERE (deleted_at IS NULL)
+uk_biz_cost_std_item :: CREATE UNIQUE INDEX uk_biz_cost_std_item ON public.biz_cost_standard_item USING btree (standard_id, line_no)
+
+===== 5. 快照：列精度（标准价/费率 18,6；差异金额 18,4；标准工时 18,4） =====
+biz_cost_standard.std_labor_cost = numeric(18,6)
+biz_cost_standard.std_labor_hours = numeric(18,4)
+biz_cost_standard.std_labor_rate = numeric(18,6)
+biz_cost_standard.std_material_cost = numeric(18,6)
+biz_cost_standard.std_overhead_cost = numeric(18,6)
+biz_cost_standard.std_total_cost = numeric(18,6)
+biz_cost_standard_item.std_amount = numeric(18,6)
+biz_cost_standard_item.std_price = numeric(18,6)
+biz_cost_standard_item.std_qty = numeric(18,6)
+biz_cost_variance.actual_price = numeric(18,6)
+biz_cost_variance.actual_qty = numeric(18,6)
+biz_cost_variance.amount = numeric(18,4)
+biz_cost_variance.std_price = numeric(18,6)
+biz_cost_variance.std_qty = numeric(18,6)
+
+===== 6. 快照：外键删除动作（item→standard 必须 c=CASCADE；variance→(object,standard) 必须 r=RESTRICT） =====
+biz_cost_standard_item -> biz_cost_standard confdeltype=c
+biz_cost_variance -> biz_cost_object confdeltype=r
+biz_cost_variance -> biz_cost_standard confdeltype=r
+
+===== 7. 业务语义验真：标准卡唯一 / 卡头三要素自洽 / 明细金额自洽 / 差异符号约定 =====
+  → 探针成本对象已建（算例 C：完工 800 件）
+  标准卡是**单位**口径：料 1.1×12=13.20、工 0.10h×50=5.00、合计 18.20；
+  乘完工 800 件 ⇒ 材料 10560 / 人工 4000（与 §4.9.2 算例 C 一致）
+  → 标准卡插入成功（单位标准成本 13.20 / 5.00 / 0 = 18.20）
+→ 期望失败：同物料同生效日第二张活卡（uk_biz_cost_std）
+ERROR:  duplicate key value violates unique constraint "uk_biz_cost_std"
+DETAIL:  Key (material_id, effective_from)=(00000000-0000-0000-0000-0000000d0410, 2026-01-01) already exists.
+→ 期望失败：卡头总计 ≠ 料+工+费（ck_biz_cost_std_sum：料 100 工 0 费 0 却写 200）
+ERROR:  new row for relation "biz_cost_standard" violates check constraint "ck_biz_cost_std_sum"
+DETAIL:  Failing row contains (a26bece2-dae1-43d8-8d5c-33e936f16fa5, 846dd020-5a55-4c99-bbf5-ff214c804fc6, 1, 2026-02-01, null, 100.000000, 0.000000, 0.000000, 200.000000, 0.0000, 0.000000, 1, DRILL-B4, 2026-11-10 21:11:34.689904+08, 2026-11-10 21:11:34.689904+08, null, null, null).
+→ 期望失败：标准人工成本 ≠ 工时×工资率（ck_biz_cost_std_labor）
+ERROR:  new row for relation "biz_cost_standard" violates check constraint "ck_biz_cost_std_labor"
+DETAIL:  Failing row contains (28068aea-a573-4309-84c6-7c47379f316e, e97af6fc-089d-4508-ad3a-5d2009402324, 1, 2026-02-01, null, 0.000000, 70.000000, 0.000000, 70.000000, 2.0000, 30.000000, 1, DRILL-B4, 2026-11-10 21:11:34.714419+08, 2026-11-10 21:11:34.714419+08, null, null, null).
+  → 卡明细插入成功（标准用量 1.1 × 12.00 = 13.20）
+→ 期望失败：明细金额 ≠ 用量×单价（ck_biz_cost_std_item_cal）
+ERROR:  new row for relation "biz_cost_standard_item" violates check constraint "ck_biz_cost_std_item_cal"
+DETAIL:  Failing row contains (cd0a43b5-9ba8-49fe-ba28-b8a25ea46537, 00000000-0000-0000-0000-0000000d0402, 2, 8baad8d8-458a-4c57-90ef-0655c2d0c3ba, 1.100000, 12.000000, 13.500000, 2026-11-10 21:11:34.765066+08).
+→ 期望失败：标准用量 = 0（ck_biz_cost_std_item_num）
+ERROR:  new row for relation "biz_cost_standard_item" violates check constraint "ck_biz_cost_std_item_num"
+DETAIL:  Failing row contains (ebca4019-d683-4277-a5fc-72df201a754d, 00000000-0000-0000-0000-0000000d0402, 2, 0713c70a-0b54-4ce8-984b-66635884b0b9, 0.000000, 12.000000, 0.000000, 2026-11-10 21:11:34.7892+08).
+
+===== 8. ★ 卡面/设计 §4.9.2：六类差异落表 + 两因素恒等式（算例 C） =====
+  标准材料 800×1.1×12=10560；实际 1200×12.50=15000；价差 +600、量差 +3840，合计 4440 = 15000−10560
+  → 四条差异插入成功（材料价差+600 / 量差+3840 / 人工率差−180 / 效差+500）
+材料两因素之和=4440.0000（必须 = 15000−10560 = 4440）
+人工两因素之和=320.0000（必须 = 4320−4000 = 320）
+材料恒等式 PASS
+人工恒等式 PASS
+→ 期望失败：direction=UNFAVORABLE 但 amount<0（ck_biz_cost_var_sign）
+ERROR:  new row for relation "biz_cost_variance" violates check constraint "ck_biz_cost_var_sign"
+DETAIL:  Failing row contains (2c2671d0-9456-4442-86f2-26afbe66f90e, 2026-01, null, null, MAT_QTY, MATERIAL, null, null, null, null, null, -100.0000, UNFAVORABLE, DRILL-B4, 2026-11-10 21:11:34.94076+08, null).
+→ 期望失败：六类之外的差异类型 MAT_MIX（ck_biz_cost_var_type）
+ERROR:  new row for relation "biz_cost_variance" violates check constraint "ck_biz_cost_var_type"
+DETAIL:  Failing row contains (2522f041-d554-4b6e-8119-429e93438295, 2026-01, null, null, MAT_MIX, MATERIAL, null, null, null, null, null, 100.0000, UNFAVORABLE, DRILL-B4, 2026-11-10 21:11:34.965537+08, null).
+→ 期望失败：期间格式 2026-13（ck_biz_cost_var_period）
+ERROR:  new row for relation "biz_cost_variance" violates check constraint "ck_biz_cost_var_period"
+DETAIL:  Failing row contains (8cc3f002-cd25-4fe8-afe9-05e1f37128e5, 2026-13, null, null, MAT_QTY, MATERIAL, null, null, null, null, null, 100.0000, UNFAVORABLE, DRILL-B4, 2026-11-10 21:11:34.989841+08, null).
+
+===== 9. 外键 RESTRICT：有差异记录时删标准卡 / 删成本对象都必须被拦 =====
+→ 期望失败：删标准卡（variance→standard RESTRICT）
+ERROR:  update or delete on table "biz_cost_standard" violates RESTRICT setting of foreign key constraint "biz_cost_variance_standard_id_fkey" on table "biz_cost_variance"
+DETAIL:  Key (id)=(00000000-0000-0000-0000-0000000d0402) is referenced from table "biz_cost_variance".
+→ 期望失败：删成本对象（variance→cost_object RESTRICT）
+ERROR:  update or delete on table "biz_cost_object" violates RESTRICT setting of foreign key constraint "biz_cost_variance_cost_object_id_fkey" on table "biz_cost_variance"
+DETAIL:  Key (id)=(00000000-0000-0000-0000-0000000d0401) is referenced from table "biz_cost_variance".
+
+===== 10. CASCADE：删标准卡 ⇒ 卡明细跟着走 =====
+before_cascade=1
+items_after_cascade=0（期望 0）
+
+===== 11. 清理演练行 =====
+leftover=0（期望 0）
+
+===== 12. down 回滚 =====
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.down.sql:61: NOTICE:  V0374 down 完成：二期三表及其索引、注释已全部删除（零残留）
+exit=0
+
+===== 13. down 后零残留断言 =====
+standard=NULL item=NULL variance=NULL cost_object=biz_cost_object（最后一项必须还在）
+idx_left=0（期望 0）
+
+===== 14. down 再跑一次（幂等） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.down.sql:35: NOTICE:  table "biz_cost_variance" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.down.sql:36: NOTICE:  table "biz_cost_standard_item" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.down.sql:37: NOTICE:  table "biz_cost_standard" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.down.sql:61: NOTICE:  V0374 down 完成：二期三表及其索引、注释已全部删除（零残留）
+exit=0
+
+===== 15. 回滚后重新 up（可重放） =====
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:358: NOTICE:  V0374 形态断言通过（三表 / 12 条 CHECK / 3 条外键删除动作 / 精度）
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.up.sql:678: NOTICE:  V0374 完成：二期三表建成，形态断言 + 11 组行为断言全过（★ 六类差异符号约定 + §4.9.2 两因素恒等式活体验证），探针已清理
+exit=0
+replay tables=3（期望 3）
+
+===== 16. 下游护栏反证：外部表 FK 到标准卡时 down 必须拒绝执行 =====
+→ 期望 V0374 down 被拒（提示先回滚下游迁移）：
+psql:/opt/cloudpivot/backend/migrations/business/V0374__cost_standard_tables.down.sql:33: ERROR:  V0374 down 拒绝执行：下游表仍在引用二期三表（zz_downstream），请先回滚建立它们的迁移，再回滚 V0374
+CONTEXT:  PL/pgSQL function inline_code_block line 12 at RAISE
+
+===== 17. 收尾（保持三表在位，供二期 S-* 卡使用） =====
+final tables=3
+== DRILL END ==
