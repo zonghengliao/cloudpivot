@@ -1,0 +1,258 @@
+==> 闸门库：mig_costb17_gate_1110225254（全链重放 /root/wt-b17）
+  迁移数：300
+
+########## [全链（含 V0378 成本菜单）] ① menu_invariants.sh
+═══ 菜单结构不变量 ═══
+库: mig_costb17_gate_1110225254
+① 孤儿 parent:           9  ❌
+    ↳ parent 不存在的子节点（前 10 条）：
+       20000000-0000-0000-0000-0000000a0901|support:attachment-rule|/support/attachment-rule|10000000-0000-0000-0000-000000000022
+       20000000-0000-0000-0000-000000000730|变更日志|/system/change-log|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000600|数据权限|/system/data-scope|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000610|字段脱敏|/system/field-mask|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000620|角色互斥|/system/role-mutex|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-00000000f001|business:pdf:render:export||10000000-0000-0000-0000-000000000050
+       20000000-0000-0000-0000-000000003401|system:setup:read||10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000001|business:monitor:server-status||10000000-0000-0000-0000-000000000050
+       20000000-0000-0000-0000-000000003402|system:setup:manage||10000000-0000-0000-0000-000000000001
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            411  ✅ (400-460)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/root/wt-b17/frontend/src/components/IconSelect/icons.ts（2356 个名字）；库里 (icon,path) 去重后 95 条，全部命中
+结果: 1 条不变量不通过 ❌（①孤儿parent）
+rc=1
+########## [全链（含 V0378 成本菜单）] ② perm_menu_gate.py（闸⑥ 死权限码）
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：494 个非测试 .rs（跳过测试文件 96 个、cfg(test) 项内夹具码 0 处）→ 注解码 350 个（562 处）
+菜单侧：367 个活跃 auth_code（db=mig_costb17_gate_1110225254@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 20  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · support:config:delete
+      用在这：backend/src/support/config/handler.rs:387
+  · support:config:list
+      用在这：backend/src/support/config/handler.rs:457
+  · support:config:update
+      用在这：backend/src/support/config/handler.rs:500
+  · support:dashboard:list
+      用在这：backend/src/support/dashboard/handler.rs:33
+  · support:dict:delete
+      用在这：backend/src/support/dict/handler.rs:262, backend/src/support/dict/handler.rs:581
+  · support:dict:list
+      用在这：backend/src/support/dict/handler.rs:646
+  · support:file:list
+      用在这：backend/src/support/file/handler.rs:346
+  · support:file:upload
+      用在这：backend/src/support/file/handler.rs:122, backend/src/support/file/handler.rs:167
+  · support:invariant:list
+      用在这：backend/src/support/invariant/handler.rs:41, backend/src/support/invariant/handler.rs:99, backend/src/support/invariant/handler.rs:130
+  · support:invariant:run
+      用在这：backend/src/support/invariant/handler.rs:156
+  · support:job:trigger
+      用在这：backend/src/support/job/handler.rs:382
+  · support:job:update
+      用在这：backend/src/support/job/handler.rs:304
+  · support:online:force
+      用在这：backend/src/support/online/handler.rs:75
+  · system:dept:delete
+      用在这：backend/src/system/dept/handler.rs:489
+  · system:server-status:view
+      用在这：backend/src/business/monitor/handler.rs:69
+  · system:user:delete
+      用在这：backend/src/business/aiagent/handler.rs:572
+  · system:user:list
+      用在这：backend/src/business/aiagent/handler.rs:457
+  · system:user:password
+      用在这：backend/src/system/user/handler.rs:693
+  · system:user:status
+      用在这：backend/src/system/user/handler.rs:582
+  · system:user:update
+      用在这：backend/src/business/aiagent/handler.rs:342, backend/src/business/aiagent/handler.rs:508
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 37  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:35
+  · business:erp:cost-alloc-rule:create 源码零引用（纯前端权限点）
+  · business:erp:cost-alloc-rule:delete 源码零引用（纯前端权限点）
+  · business:erp:cost-alloc-rule:list  源码零引用（纯前端权限点）
+  · business:erp:cost-alloc-rule:preview 源码零引用（纯前端权限点）
+  · business:erp:cost-alloc-rule:update 源码零引用（纯前端权限点）
+  · business:erp:cost-labor:create     源码零引用（纯前端权限点）
+  · business:erp:cost-labor:delete     源码零引用（纯前端权限点）
+  · business:erp:cost-labor:import     源码零引用（纯前端权限点）
+  · business:erp:cost-labor:list       源码零引用（纯前端权限点）
+  · business:erp:cost-labor:update     源码零引用（纯前端权限点）
+  · business:erp:cost-object:delete    行级/常量引用  backend/src/business/erp/cost_object_handler.rs:67
+  · business:erp:cost-overhead:create  源码零引用（纯前端权限点）
+  · business:erp:cost-overhead:delete  源码零引用（纯前端权限点）
+  · business:erp:cost-overhead:list    源码零引用（纯前端权限点）
+  · business:erp:cost-period:calc      源码零引用（纯前端权限点）
+  · business:erp:cost-period:list      源码零引用（纯前端权限点）
+  · business:erp:cost-period:reverse   源码零引用（纯前端权限点）
+  · business:erp:cost-period:settle    源码零引用（纯前端权限点）
+  · business:erp:cost-period:submit    源码零引用（纯前端权限点）
+  · business:erp:lot:create            源码零引用（纯前端权限点）
+  · business:erp:lot:list              源码零引用（纯前端权限点）
+  · business:erp:lot:update            源码零引用（纯前端权限点）
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:notice:send               行级/常量引用  backend/src/business/notice/handler.rs:82
+  · business:project:create            行级/常量引用  backend/src/business/project/handler.rs:211
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1401
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1398
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1087
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:101
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1404
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:help:doc:create             行级/常量引用  backend/src/business/help/handler.rs:240
+  · system:role-mutex:list             行级/常量引用  backend/src/business/mutex/handler.rs:75
+  · system:setup:read                  行级/常量引用  backend/src/system/setup/handler.rs:44
+============================================================================================
+==> 闸：FAIL
+rc=1
+########## [全链（含 V0378 成本菜单）] ③ orphan_button_gate.py（闸⑦ 孤儿按钮）
+============================================================================================
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+============================================================================================
+扫描面：活跃 sys_menu 411 行 / 带码父页的按钮节点 301 个 / 按钮授权 503 行
+--------------------------------------------------------------------------------------------
+✗ 孤儿 (角色,码) = 2  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · SALES_CLERK            business:erp:statement:export      不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+  · SALES_CLERK            business:erp:statement:view        不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+  修法：① 该角色确实该看该页面 ⇒ 补授父页码（新迁移，按码判重 + down）；
+        ② 不该看 ⇒ 把按钮挂到别的父页（改 sys_menu.parent_id，零授权变化，如 V0259）。
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-cascade @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-impact @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+rc=1
+########## [全链（含 V0378 成本菜单）] 形态
+菜单总数=411
+成本块=26
+成本授权=48
+
+########## 基线对照：down 掉 V0380/V0379/V0378 后再跑一遍（证明红线都是基线既有）
+
+########## [基线（已 down 掉本卡三件）] ① menu_invariants.sh
+═══ 菜单结构不变量 ═══
+库: mig_costb17_gate_1110225254
+① 孤儿 parent:           9  ❌
+    ↳ parent 不存在的子节点（前 10 条）：
+       20000000-0000-0000-0000-0000000a0901|support:attachment-rule|/support/attachment-rule|10000000-0000-0000-0000-000000000022
+       20000000-0000-0000-0000-000000000730|变更日志|/system/change-log|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000600|数据权限|/system/data-scope|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000610|字段脱敏|/system/field-mask|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000620|角色互斥|/system/role-mutex|10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-00000000f001|business:pdf:render:export||10000000-0000-0000-0000-000000000050
+       20000000-0000-0000-0000-000000003401|system:setup:read||10000000-0000-0000-0000-000000000001
+       20000000-0000-0000-0000-000000000001|business:monitor:server-status||10000000-0000-0000-0000-000000000050
+       20000000-0000-0000-0000-000000003402|system:setup:manage||10000000-0000-0000-0000-000000000001
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            385  ❌ (期望 400-460)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/root/wt-b17/frontend/src/components/IconSelect/icons.ts（2356 个名字）；库里 (icon,path) 去重后 89 条，全部命中
+结果: 2 条不变量不通过 ❌（①孤儿parent,⑤菜单总数）
+rc=1
+########## [基线（已 down 掉本卡三件）] ② perm_menu_gate.py（闸⑥ 死权限码）
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：494 个非测试 .rs（跳过测试文件 96 个、cfg(test) 项内夹具码 0 处）→ 注解码 350 个（562 处）
+菜单侧：341 个活跃 auth_code（db=mig_costb17_gate_1110225254@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 24  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · business:erp:cost-object:close
+      用在这：backend/src/business/erp/cost_object_handler.rs:532
+  · business:erp:cost-object:create
+      用在这：backend/src/business/erp/cost_object_handler.rs:501
+  · business:erp:cost-object:list
+      用在这：backend/src/business/erp/cost_object_handler.rs:474, backend/src/business/erp/cost_object_handler.rs:489
+  · business:erp:cost-object:update
+      用在这：backend/src/business/erp/cost_object_handler.rs:516
+  · support:config:delete
+      用在这：backend/src/support/config/handler.rs:387
+  · support:config:list
+      用在这：backend/src/support/config/handler.rs:457
+  · support:config:update
+      用在这：backend/src/support/config/handler.rs:500
+  · support:dashboard:list
+      用在这：backend/src/support/dashboard/handler.rs:33
+  · support:dict:delete
+      用在这：backend/src/support/dict/handler.rs:262, backend/src/support/dict/handler.rs:581
+  · support:dict:list
+      用在这：backend/src/support/dict/handler.rs:646
+  · support:file:list
+      用在这：backend/src/support/file/handler.rs:346
+  · support:file:upload
+      用在这：backend/src/support/file/handler.rs:122, backend/src/support/file/handler.rs:167
+  · support:invariant:list
+      用在这：backend/src/support/invariant/handler.rs:41, backend/src/support/invariant/handler.rs:99, backend/src/support/invariant/handler.rs:130
+  · support:invariant:run
+      用在这：backend/src/support/invariant/handler.rs:156
+  · support:job:trigger
+      用在这：backend/src/support/job/handler.rs:382
+  · support:job:update
+      用在这：backend/src/support/job/handler.rs:304
+  · support:online:force
+      用在这：backend/src/support/online/handler.rs:75
+  · system:dept:delete
+      用在这：backend/src/system/dept/handler.rs:489
+  · system:server-status:view
+      用在这：backend/src/business/monitor/handler.rs:69
+  · system:user:delete
+      用在这：backend/src/business/aiagent/handler.rs:572
+  · system:user:list
+      用在这：backend/src/business/aiagent/handler.rs:457
+  · system:user:password
+      用在这：backend/src/system/user/handler.rs:693
+  · system:user:status
+      用在这：backend/src/system/user/handler.rs:582
+  · system:user:update
+      用在这：backend/src/business/aiagent/handler.rs:342, backend/src/business/aiagent/handler.rs:508
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 15  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:35
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:notice:send               行级/常量引用  backend/src/business/notice/handler.rs:82
+  · business:project:create            行级/常量引用  backend/src/business/project/handler.rs:211
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1401
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1398
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1087
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:101
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1404
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:help:doc:create             行级/常量引用  backend/src/business/help/handler.rs:240
+  · system:role-mutex:list             行级/常量引用  backend/src/business/mutex/handler.rs:75
+  · system:setup:read                  行级/常量引用  backend/src/system/setup/handler.rs:44
+============================================================================================
+==> 闸：FAIL
+rc=1
+########## [基线（已 down 掉本卡三件）] ③ orphan_button_gate.py（闸⑦ 孤儿按钮）
+============================================================================================
+孤儿按钮常驻闸 · orphan_button_gate.py（角色拿到的按钮码 ⇒ 至少有一个可达父页）
+============================================================================================
+扫描面：活跃 sys_menu 385 行 / 带码父页的按钮节点 281 个 / 按钮授权 466 行
+--------------------------------------------------------------------------------------------
+✗ 孤儿 (角色,码) = 2  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · SALES_CLERK            business:erp:statement:export      不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+  · SALES_CLERK            business:erp:statement:view        不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+  修法：① 该角色确实该看该页面 ⇒ 补授父页码（新迁移，按码判重 + down）；
+        ② 不该看 ⇒ 把按钮挂到别的父页（改 sys_menu.parent_id，零授权变化，如 V0259）。
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-cascade @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+ℹ 冗余节点授权（同码另有可达节点，不判红）：WAREHOUSE_MANAGER business:erp:doc:cancel-impact @ /business/erp/payable(business:erp:payable:list)（2/3 个节点可达）
+rc=1
+########## [基线（已 down 掉本卡三件）] 形态
+菜单总数=385
+成本块=0
+成本授权=0
