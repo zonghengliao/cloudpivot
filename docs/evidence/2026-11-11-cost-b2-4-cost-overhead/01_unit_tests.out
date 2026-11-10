@@ -1,0 +1,55 @@
+# 纯逻辑单测（三件套 + 错误码稳定性）
+
+$ cargo test --lib cost_overhead_dto
+test business::erp::cost_overhead_dto::tests::conflict_messages_point_to_next_action ... ok
+test business::erp::cost_overhead_dto::tests::amount_precision_is_not_silently_rounded ... ok
+test business::erp::cost_overhead_dto::tests::amount_must_be_positive ... ok
+test business::erp::cost_overhead_dto::tests::expense_item_labels_match_the_dictionary_seed ... ok
+test business::erp::cost_overhead_dto::tests::manufacturing_account_matches_the_db_check ... ok
+test business::erp::cost_overhead_dto::tests::blank_debit_falls_back_to_default_account ... ok
+test business::erp::cost_overhead_dto::tests::non_4101_debit_is_rejected_with_66060 ... ok
+test business::erp::cost_overhead_dto::tests::missing_fields_are_named ... ok
+test business::erp::cost_overhead_dto::tests::db_check_violations_map_to_the_same_codes ... ok
+test business::erp::cost_overhead_dto::tests::value_domains_match_the_ddl ... ok
+test business::erp::cost_overhead_dto::tests::expense_item_is_normalized_and_whitelisted ... ok
+test business::erp::cost_overhead_dto::tests::spec_from_create_normalizes_every_field ... ok
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4313 filtered out; finished in 0.00s
+
+$ cargo test --lib cost_overhead_model
+test business::erp::cost_overhead_model::tests::collect_source_matches_design ... ok
+test business::erp::cost_overhead_model::tests::order_by_ends_with_id_for_stable_paging ... ok
+test business::erp::cost_overhead_model::tests::display_names_prefer_live_then_snapshot ... ok
+test business::erp::cost_overhead_model::tests::pool_row_is_the_one_without_cost_object ... ok
+test business::erp::cost_overhead_model::tests::overhead_table_is_deliberately_unscoped ... ok
+test business::erp::cost_overhead_model::tests::insert_params_align_with_sql_placeholders ... ok
+test business::erp::cost_overhead_model::tests::like_pattern_escapes_wildcards ... ok
+test business::erp::cost_overhead_model::tests::select_sql_prefixes_every_column_with_alias ... ok
+test business::erp::cost_overhead_model::tests::select_sql_joins_every_name_source ... ok
+test business::erp::cost_overhead_model::tests::soft_delete_is_guarded_and_idempotent_by_rows ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4315 filtered out; finished in 0.00s
+
+$ cargo test --lib cost_overhead_handler
+test business::erp::cost_overhead_handler::tests::list_res_carries_names_and_string_amounts ... ok
+test business::erp::cost_overhead_handler::tests::amount_is_echoed_verbatim ... ok
+test business::erp::cost_overhead_handler::tests::filter_normalizes_period_item_and_paging ... ok
+test business::erp::cost_overhead_handler::tests::permission_codes_match_design_5_3 ... ok
+test business::erp::cost_overhead_handler::tests::filter_rejects_unknown_period_item_and_uuid ... ok
+test business::erp::cost_overhead_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::cost_overhead_handler::tests::pool_row_has_null_object_and_keeps_object_fields_empty ... ok
+test business::erp::cost_overhead_handler::tests::there_is_no_update_permission_on_purpose ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4317 filtered out; finished in 0.00s
+
+$ cargo test --lib error_code
+test shared::error_code::tests::ai_agent_error_codes_are_stable ... ok
+test shared::error_code::pdf_error_codes_are_stable::pdf_error_codes_are_stable ... ok
+test business::notice::render::render_paths_tests::render_paths_error_codes_match_render ... ok
+test shared::error_code::tests::ai_executor_error_codes_are_stable ... ok
+test shared::error_code::tests::batch_b_error_codes_are_stable ... ok
+test shared::error_code::tests::batch_c_error_codes_are_stable ... ok
+test business::flow::edge_admin_tests::batch_task_error_code_matches_single_approve ... ok
+test shared::error_code::tests::project_error_codes_are_stable ... ok
+test shared::error_code::tests::erp_error_codes_are_stable ... ok
+test shared::error_code::tests::flow_error_codes_are_stable ... ok
+test shared::error_code::tests::task_error_codes_are_stable ... ok
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4314 filtered out; finished in 0.00s
+EXIT1=0

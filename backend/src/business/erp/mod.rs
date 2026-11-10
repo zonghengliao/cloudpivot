@@ -160,6 +160,13 @@ mod cost_object_db_tests;
 pub mod cost_object_dto;
 pub mod cost_object_handler;
 pub mod cost_object_model;
+/// B2-4 的真库用例（`ERP_DB_URL` 开关）：科目合法性 + 金额 > 0 + 归集后不许删。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_overhead_db_tests;
+/// 手工费用台账（ARCH-9 §3.1 ⑤ / §5.2 #17–#19）：`biz_cost_overhead` 列表 / 新增 / 软删。
+pub mod cost_overhead_dto;
+pub mod cost_overhead_handler;
+pub mod cost_overhead_model;
 /// B2-3 费率取数（ARCH-9 §4.5.4）：`biz_cost_rate` 三级优先级 + 缺费率报错（无 HTTP 入口，供工时台账复用）。
 pub mod cost_rate_dto;
 pub mod cost_rate_handler;

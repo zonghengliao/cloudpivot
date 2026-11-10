@@ -1,0 +1,15 @@
+# 提交前门禁：fmt / clippy / 全量回归
+
+$ cargo fmt -- --check
+clean
+
+$ cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 14s
+EXIT=0
+
+# cargo test（全量，无 ERP_DB_URL：真库用例自动 SKIP，与本仓其它 ERP 用例同口径）
+测试目标数 = 33 ｜ passed = 4664 ｜ failed = 0
+无失败目标
+all doctests ran in 13.90s; merged doctests compilation took 13.86s
+EXIT=0

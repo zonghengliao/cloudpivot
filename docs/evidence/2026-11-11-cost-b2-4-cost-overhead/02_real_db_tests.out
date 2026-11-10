@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::cost_overhead_db_tests::db::amount_must_be_positive_at_entry_and_in_the_db ... ok
+test business::erp::cost_overhead_db_tests::db::cost_object_must_exist_and_be_open ... ok
+test business::erp::cost_overhead_db_tests::db::create_list_delete_flow_end_to_end ... ok
+test business::erp::cost_overhead_db_tests::db::debit_account_must_exist_be_leaf_and_enabled ... ok
+test business::erp::cost_overhead_db_tests::db::debit_account_outside_4101_is_rejected ... ok
+test business::erp::cost_overhead_db_tests::db::deleting_a_collected_row_is_refused ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4319 filtered out; finished in 5.02s
+
+EXIT2=0
