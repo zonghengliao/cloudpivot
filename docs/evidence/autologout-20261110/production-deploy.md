@@ -127,6 +127,54 @@ idle-activity × 2    Node 环境无 localStorage 不抛错
 
 ---
 
+## 五之二、后端单测（99 上跑，11 个全过）
+
+> 145 只有 7.2GB，`cargo test --release` 与 debug 均在 rustc 阶段被 OOM kill（anon-rss 6.8GB）。
+> 改在 99（15GB）跑，编译通过、测试全绿。
+
+### `shared::idle_session`（7 个）
+
+```
+test shared::idle_session::tests::key_ttl_outlives_max_timeout      ... ok
+test shared::idle_session::tests::normalise_falls_back_to_default_not_zero ... ok
+test shared::idle_session::tests::normalise_keeps_valid_values      ... ok
+test shared::idle_session::tests::warn_window_scales_and_clamps     ... ok
+test shared::idle_session::tests::cache_key_shape                   ... ok
+test shared::idle_session::tests::write_methods_count_as_activity   ... ok
+test shared::idle_session::tests::user_activity_detection           ... ok
+
+test result: ok. 7 passed; 0 failed
+```
+
+**`normalise_falls_back_to_default_not_zero` 是安全关键**：
+脏值（空/越界/非数字）必须回落到默认 15，**绝不能回落到 0** —— 回落成 0 等于静默禁用整个功能。
+
+### `support::config`（4 个）
+
+```
+test support::config::handler::tests::max_timeout_is_one_hour        ... ok
+test support::config::handler::tests::range_boundaries               ... ok
+test support::config::handler::tests::parses_plain_integers          ... ok
+test support::config::handler::tests::rejects_empty_and_non_numeric  ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+**`max_timeout_is_one_hour`** 直接断言 `MAX_IDLE_TIMEOUT_MINUTES == 60`，
+**`range_boundaries`** 断言 1 和 60 通过、61 拒绝。
+
+### 环境问题
+
+| 机器 | 内存 | 能否跑后端测试 |
+|---|---|---|
+| 145 | 7.2GB（swap 3.8GB 已用 1.7GB） | ❌ rustc OOM（release 与 debug 都挂） |
+| 144 | 7.2GB（可用 5.8GB） | 未尝试（生产，不跑测试） |
+| 99 | 15GB（可用 11GB） | ✅ 2 jobs 通过 |
+
+**结论**：后端测试应在 99 跑，不要在 145 跑（145 只做编译部署与接口实测）。
+
+---
+
 ## 六、未验证项（需浏览器手动）
 
 | # | 场景 | 为什么没验 |
@@ -143,8 +191,8 @@ idle-activity × 2    Node 环境无 localStorage 不抛错
 
 | # | 问题 | 影响 |
 |---|---|---|
-| 1 | `cargo test --release` 在 145 上被 OOM kill（rustc 吃 6.8GB / 机器 7.2GB） | 无法用 release 跑全量后端测试；改 debug + 单 job |
-| 2 | 145 无 swap 扩容空间（3.8G 已用 1.7G） | 大项目 release 编译不稳 |
+| 1 | 145 上 rustc OOM（release 与 debug 均挂，anon-rss 6.8GB / 机器 7.2GB） | **后端测试改在 99 跑**（15GB 通过）；145 只做编译部署与接口实测 |
+| 2 | 145 swap 3.8G 已用 1.7G | 大项目编译不稳，建议后续给 145 扩内存或加 swap |
 | 3 | 生产未实测非超管设 0 | 无可用测试账号；代码 + 单测覆盖 |
 
 ---
