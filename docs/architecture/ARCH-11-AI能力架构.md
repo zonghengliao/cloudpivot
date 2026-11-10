@@ -1,8 +1,8 @@
 # ARCH-11 AI 能力架构（AI 用户 + AI 员工）
 
 > 状态：**设计稿，等用户确认。没有明确指令不派卡。**
-> 日期：2026-11-10
-> 来源：从 ARCH-10 提出 H 章 + TBD-1 合并重写
+> 日期：2026-11-10（v2，基于现有代码盘点后重写）
+> 来源：从 ARCH-10 提出 H 章 + TBD-1 合并
 > 用户原话：「把 ARCH-10 的 H 提出来，跟 TBD-1 合并重写成一个『AI 能力架构』文档（含 AI 用户实体 + AI 员工）。AI 开发风险还是很大，先不做。没有我的明确指令不派卡。」
 
 ---
@@ -16,96 +16,125 @@
 | **D3** | **AI 开发先不做**（风险大） | 「AI开发风险还是很大，先不做。」 |
 | **D4** | **没有明确指令不派卡** | 「没有我的明确指令不派卡。」 |
 
-**D1 的深层含义**：AI 用户是**业务实体**（云枢里的一条数据），不是运维概念（Hermes profile 是运维细节）。这个区分很重要 —— 客户看到的是「财务机器人」这个用户，不是「profile cloudpivot-fin-bot」。
-
 ---
 
-## 1. 核心概念：AI 用户 = `sys_user(user_type='ROBOT')`
+## 1. 现状盘点（重要：已有 60%，不是从零）
 
-### 1.1 关键发现：不需要新建 `sys_agent` 表
+**盘点时间**：2026-11-10 10:42，实测代码与库。
 
-**实测**：现有 `sys_user` 已有 `user_type` 字段，值是 `HUMAN` / `ROBOT`（`V0102__add_sys_user_type`）。
+### 1.1 已经做完的（✅ 不要重做）
 
-```
-→ 「AI 用户」不是新概念，是**已经建模好的**
-→ 复用 sys_user 的好处：
-   · 权限走 sys_user_role + sys_role_menu（现成）
-   · 登录走 /api/system/auth/login（现成）
-   · 审计走 operation_logs（现成，actor_id 就是 user_id）
-   · 菜单可见性、数据权限全部现成
-   · **不用改一行鉴权代码**
-```
-
-**所以 ARCH-10 H 章的 `sys_agent` 表设计作废**（那是冗余的）。
-
-### 1.2 只需要补一张配置表
-
-```sql
--- AI 用户专属配置（sys_user 存公共属性，这张存 AI 特有属性）
-CREATE TABLE biz_agent_config (
-    user_id         uuid PRIMARY KEY REFERENCES sys_user(id) ON DELETE CASCADE,
-    agent_type      varchar(32) NOT NULL,          -- QA / FINANCE / PURCHASE / SERVICE
-    hermes_profile  varchar(64) NOT NULL,          -- Hermes 的 profile 名（运维映射）
-    run_mode        varchar(16) DEFAULT 'CRON',    -- CRON / EVENT / MANUAL
-    cron_expr       varchar(64),                   -- 定时表达式
-    event_trigger   jsonb,                         -- 事件触发条件（如 {"type":"AR_OVERDUE","days":30}）
-    config          jsonb,                         -- 机器人专属配置（阈值/白名单等）
-    max_actions_per_run  int DEFAULT 100,          -- 单次运行最大动作数（防失控）
-    max_runtime_seconds  int DEFAULT 300,          -- 单次运行超时
-    created_at      timestamptz DEFAULT now(),
-    updated_at      timestamptz DEFAULT now()
-);
-```
-
-**为什么单独一张表**：
-```
-· sys_user 是「所有用户」的公共表，不该塞 AI 专属字段
-· biz_ 前缀表示业务范畴（跟 sys_ 的系统范畴分开）
-· 删 AI 用户时 CASCADE 掉配置，不留孤儿
-```
-
-### 1.3 与 Hermes profile 的映射
-
-```
-一个 AI 用户 ↔ 一个 Hermes profile
-
-创建 AI 用户时的流程：
-① 云枢建 sys_user(user_type='ROBOT', username='bot_finance_01')
-② 云枢建 biz_agent_config(hermes_profile='cloudpivot-fin-bot', ...)
-③ 云枢调 Hermes API 建 profile（或者提示运维手工建）
-④ 配 profile 的 tools 白名堂（只给 cloudpivot.* 工具，禁 terminal）
-```
-
-**D1 的落地方式**：**不预置 27 个 profile**，而是：
-```
-· 内置 4 个「模板」（qa/finance/purchase/service）的 profile 定义
-· 客户建 AI 用户时，按模板生成 profile（10 秒）
-· 客户不建 = 磁盘上 0 个 AI profile（干净）
-```
-
----
-
-## 2. 数据模型（4 张表）
-
-| 表 | 作用 | 新建/复用 |
+| 能力 | 实现位置 | 状态 |
 |---|---|---|
-| `sys_user` | AI 用户本体（`user_type='ROBOT'`） | **复用**（已存在） |
-| `biz_agent_config` | AI 用户专属配置 | 新建 |
-| `sys_agent_action` | 动作白名单 + 风险分级 | 新建 |
-| `sys_agent_run_log` | 运行审计 | 新建 |
-| `sys_agent_confirm` | 待人工确认队列 | 新建 |
+| **`sys_ai_agent` 表** | 迁移（含 `hermes_profile` / `gateway_status` / `agent_description` / 软删） | ✅ 已建 |
+| **profile 名白名单** | `hermes.rs` `PROFILE_NAME_PATTERN` + 表级 CHECK 约束 `^[a-z][a-z0-9-]{1,30}$` | ✅ 双层防护 |
+| **AI 用户 CRUD（6 个 API）** | `aiagent/handler.rs` | ✅ 完整 |
+| | `POST /system/user/ai` | 建（建 profile + 写 SOUL） |
+| | `GET /system/user/ai/{id}` | 详情 |
+| | `PUT /system/user/ai/{id}` | 更新 |
+| | `GET /system/user/ai/{id}/status` | 状态（gateway 是否在线） |
+| | `POST /system/user/ai/{id}/repair` | 修复凭据 |
+| | `DELETE /system/user/ai/{id}` | 删（先备份 SOUL） |
+| **19 条安全红线** | `aiagent/safety.rs` `SAFETY_BLOCK` | ✅ 强制注入 + 自动补回 + 审计 |
+| | 版本化标记 `<!-- CLOUDPIVOT-SAFETY-BEGIN v1 -->` | |
+| | 启动自检 `check_ai_agent_missing_safety_block` | |
+| **Hermes 集成** | `aiagent/hermes.rs` | ✅ |
+| | `create_profile` / `delete_profile` / `write_soul` | |
+| | `ensure_profile_config` / `ensure_profile_env`（写 provider API key） | |
+| | SOUL.md 走 **stdin**（不进命令行参数，防泄漏） | |
+| **前端** | `views/system/user/components/AiUserForm.vue` | ✅ |
+| | `views/system/user/components/SoulEditor.vue`（SOUL 编辑器） | |
+| | `api/system/ai-user-api.ts`（5 个函数） | |
 
-### 2.1 `sys_agent_action`（动作白名单，关键）
+**19 条安全红线的覆盖面**（`safety.rs` 实测）：
+```
+一、数据安全（4 条）：禁止未授权 SQL / 禁止删库删表 / 禁止删文件 / 禁止改审计日志
+二、系统安全（6 条）：禁止改系统配置 / 禁止提权 / 禁止装软件 / 禁止读凭据 / 禁止外联 / 禁止杀进程
+三、权限边界（3 条）：只操作自己任务 / 禁止改自己 SOUL / 禁止批量导出
+四、产出纪律（3 条）：文件名带任务号 / 不得含凭据 / 破坏性操作先确认
+五、诚实纪律（3 条）：不确定就停 / 失败如实报 / 不伪造证据
+```
+
+### 1.2 还没做的（❌ 本设计要补齐的）
+
+| 缺什么 | 影响 |
+|---|---|
+| **❌ MCP Server** | Hermes 没有「调云枢 API」的正式通道（现在只能靠 SOUL.md 里的文字指引） |
+| **❌ 动作白名单** | 无法限制「AI 用户能调哪些接口」 |
+| **❌ 运行日志** | 无法回答「AI 员工在 10:00 做了什么、为什么」 |
+| **❌ 人环确认** | HIGH 风险动作没有「先提议、等人批」的机制 |
+| **❌ 调度** | 没有 CRON / EVENT 触发（AI 用户建了但不会自己动） |
+| **❌ 4 个 AI 员工实现** | 质检/财务/采购/客服的具体能力 |
+| **❌ 菜单入口** | AI 用户藏在「用户管理」里，客户找不到 |
+
+### 1.3 一个已修复的历史坑（记录备查）
+
+```
+t_3b74de23：建 AI 用户时必须把 provider API key 写进 profile 的 .env
+           否则 worker 起不来（已修）
+t_c3b4d40d：创建 AI 员工时强制注入 19 条安全红线到 SOUL.md（不可删除）
+           已实现 safety.rs
+```
+
+---
+
+## 2. 要补齐的 6 块（按依赖顺序）
+
+### 块 1：MCP Server（把云枢能力暴露给 Hermes）
+
+**为什么必须有**：
+```
+现在的状态：AI 用户建好了、profile 建好了、SOUL 写好了
+但 AI 用户**没法调云枢 API**（SOUL.md 里只能写文字指引，没有工具）
+
+→ 就像一个员工入职了、工位有了、规则讲清了，但没有系统账号
+```
+
+**设计**（`backend/src/business/aiagent/mcp.rs` 或独立 crate）：
+
+```
+云枢暴露一个 MCP Server（:8101，只监听 127.0.0.1）
+Hermes 作为 MCP client 连上来
+
+初版 12 个工具（带风险分级）：
+
+| 工具 | 方法 | 路径 | 风险 |
+|---|---|---|---|
+| cloudpivot.voucher.query | GET | /api/business/erp/voucher/page | LOW |
+| cloudpivot.voucher.check | POST | /api/business/erp/voucher/{id}/check | LOW |
+| cloudpivot.voucher.create | POST | /api/business/erp/voucher | MEDIUM |
+| cloudpivot.voucher.post | POST | /api/business/erp/voucher/{id}/post | **HIGH** |
+| cloudpivot.stock.query | GET | /api/business/erp/inventory-location/page | LOW |
+| cloudpivot.inventory_txn.query | GET | /api/business/erp/inventory-txn/page | LOW |
+| cloudpivot.ar.list_overdue | GET | /api/business/erp/receivable/overdue | LOW |
+| cloudpivot.ar.collect | POST | /api/business/erp/receivable/{id}/collect | MEDIUM |
+| cloudpivot.invariant.run | POST | /api/support/invariant/run | LOW |
+| cloudpivot.linkage.run | POST | /api/business/flow/linkage/check | LOW |
+| cloudpivot.task.create | POST | /api/business/task | MEDIUM |
+| cloudpivot.notice.send | POST | /api/business/notice/send | MEDIUM |
+```
+
+**调用链**：
+```
+Hermes agent → MCP protocol → 云枢 MCP Server
+  ↓ 校验 agent_token（AI 用户的 token）
+  ↓ 查 sys_agent_action 白名单（这个 agent_type 能不能调这个动作）
+  ↓ 查 risk_level
+  ↓ HIGH → 写 sys_agent_confirm（返回 NEED_CONFIRM，不执行）
+  ↓ LOW/MEDIUM → 代调云枢 API
+  ↓ 写 sys_agent_run_log
+```
+
+### 块 2：动作白名单（`sys_agent_action`）
 
 ```sql
 CREATE TABLE sys_agent_action (
     id              uuid PRIMARY KEY,
-    agent_type      varchar(32) NOT NULL,          -- 按类型授权（不是按单个用户）
-    action_code     varchar(64) NOT NULL,          -- FIN_CHECK_VOUCHER
-    action_name     varchar(128) NOT NULL,
+    agent_type      varchar(32) NOT NULL,          -- QA / FINANCE / PURCHASE / SERVICE
+    action_code     varchar(64) NOT NULL,          -- voucher.post
     http_method     varchar(8) NOT NULL,
-    http_path       varchar(255) NOT NULL,         -- /api/business/erp/voucher/{id}/check
-    params_schema   jsonb,                          -- 参数校验
+    http_path       varchar(255) NOT NULL,
+    params_schema   jsonb,
     risk_level      varchar(8) NOT NULL,           -- LOW / MEDIUM / HIGH
     need_confirm    boolean DEFAULT false,
     enabled         boolean DEFAULT true,
@@ -114,27 +143,22 @@ CREATE TABLE sys_agent_action (
 );
 ```
 
-**核心设计**：
-```
-· 机器人**不能直接调 API**，只能调动作库里登记过的
-· 按 agent_type 授权（不是按单个用户）→ 一次配好，所有同类型机器人共享
-· 每个动作有 risk_level → HIGH 的自动 need_confirm=true
-```
+**按 `agent_type` 授权**（不是按单个用户）：一次配好，所有同类型 AI 员工共享。
 
-### 2.2 `sys_agent_run_log`（审计，比人更严）
+### 块 3：运行日志（`sys_agent_run_log`）
 
 ```sql
 CREATE TABLE sys_agent_run_log (
     id              uuid PRIMARY KEY,
-    run_id          uuid NOT NULL,                 -- 一次运行（含多个动作）
+    run_id          uuid NOT NULL,
     agent_user_id   uuid REFERENCES sys_user(id),
     trigger_type    varchar(16) NOT NULL,          -- CRON / EVENT / MANUAL
-    trigger_source  varchar(128),                  -- cron expr / event id / 谁点的手工
+    trigger_source  varchar(128),
     started_at      timestamptz NOT NULL,
     ended_at        timestamptz,
     status          varchar(16),                   -- RUNNING / SUCCESS / PARTIAL / FAILED / KILLED
     actions         jsonb,                          -- [{action_code, target_id, result, reason}]
-    output_summary  text,                           -- 「处理 12 张凭证，8 通过，4 转人工」
+    output_summary  text,                           -- 人话总结
     error           text,
     trace_id        varchar(64),
     created_at      timestamptz DEFAULT now()
@@ -143,22 +167,22 @@ CREATE TABLE sys_agent_run_log (
 
 **关键字段**：
 ```
-· reason：为什么这么做（引用了哪条规则/哪个数据）
-· trace_id：能串起 LLM 调用 + SQL + 下游 API
-· output_summary：人话总结（给客户看的）
+· reason      为什么这么做（引用了哪条规则/哪个数据）
+· trace_id    串起 LLM 调用 + SQL + 下游 API
+· output_summary  人话总结（给客户看的）
 ```
 
-### 2.3 `sys_agent_confirm`（人环确认队列）
+### 块 4：人环确认（`sys_agent_confirm`）
 
 ```sql
 CREATE TABLE sys_agent_confirm (
     id              uuid PRIMARY KEY,
     run_id          uuid NOT NULL,
     action_code     varchar(64) NOT NULL,
-    target_type     varchar(32),                   -- 目标单据类型
-    target_id       varchar(64),                   -- 目标单据 id
+    target_type     varchar(32),
+    target_id       varchar(64),
     payload         jsonb,                          -- 机器人想做什么（完整参数）
-    reason          text,                           -- 为什么想做
+    reason          text,
     risk_level      varchar(8),
     status          varchar(16) DEFAULT 'PENDING', -- PENDING / APPROVED / REJECTED / EXPIRED
     confirmed_by    uuid REFERENCES sys_user(id),
@@ -171,57 +195,86 @@ CREATE TABLE sys_agent_confirm (
 **流程**：
 ```
 机器人想 POST 过账（HIGH）→ 不直接做 → 写一条 PENDING
-→ 有权限的人看到「待确认」（首页待办 + 消息）
-→ 人点批准 → 才真正执行
-→ 超 24 小时未处理 → EXPIRED（不执行）
+→ 有权限的人在「首页待办」看到
+→ 点批准 → 才真正执行
+→ 超 24h 未处理 → EXPIRED（不执行，记日志）
 ```
 
----
-
-## 3. 权限模型（复用 + 一个扩展）
-
-```
-复用：sys_user_role + sys_role_menu（角色 → 菜单/权限码）
-扩展：sys_agent_action 的 need_confirm 字段（不是权限，是执行方式）
-```
-
-**示例（财务 AI 用户）**：
-
-| 权限码 | 有权限 | 执行方式 |
-|---|---|---|
-| `business:erp:voucher:list` | ✅ | 直接执行 |
-| `business:erp:voucher:read` | ✅ | 直接执行 |
-| `business:erp:voucher:create` | ✅ | 直接执行 |
-| `business:erp:voucher:post` | ✅ | **写 sys_agent_confirm，等人批** |
-| `business:erp:payment:create` | ✅ | **写 sys_agent_confirm，等人批** |
-| `business:erp:voucher:delete` | ❌ | 无权限（角色里不给） |
-
-**关键**：**「有权限」和「直接执行」是两件事**。
-```
-有权限 = 角色里有这个码
-直接执行 = 动作库里 need_confirm=false
-
-所以：机器人有权限做，但 HIGH 风险的仍然要人批。
-```
-
----
-
-## 4. 调度（复用 `sys_job`）
+### 块 5：调度（复用 `sys_job`）
 
 ```
 三种触发：
-① CRON     每天 9:00 跑财务巡检        → 复用 sys_job（已有 cron 框架）
-② EVENT    应收超期 30 天 → 催收       → 新事件总线（或轮询）
-③ MANUAL   用户点「让机器人跑一次」      → API 触发
+① CRON     复用现有 sys_job（已有 cron 框架）
+② EVENT    轮询（每 5 分钟扫 event_trigger 条件，用 run_log 去重）
+③ MANUAL   用户点「让机器人跑一次」
 ```
 
-**EVENT 的实现**（一期简化）：
+**EVENT 一期用轮询**（不做真事件总线）：
 ```
-不做真事件总线，用「轮询 + 时间窗口」：
-· 每 5 分钟扫一次 biz_agent_config 里 run_mode='EVENT' 的
+· 每 5 分钟扫 biz_agent_config 里 run_mode='EVENT' 的
 · 检查 event_trigger 条件（如 AR_OVERDUE days=30）
-· 满足 → 触发运行
-· 用 sys_agent_run_log 去重（同一个目标 24h 内不重复触发）
+· 满足 → 触发，同一目标 24h 内不重复（查 run_log）
+```
+
+### 块 6：四个 AI 员工（按 ROI 排序）
+
+| AI 员工 | agent_type | 做什么 | 价值 | 权限 |
+|---|---|---|---|---|
+| **质检机器人** `bot_qa` | QA | 每天跑 152 组勾稽 + 80 项不变量，有红就报告 | 无人值守兜底 | 只读（`invariant.run` + `*:list`） |
+| **财务机器人** `bot_finance` | FINANCE | 凭证预审、自动对账、应收催收 | 会计省 2h/天 | `voucher.create` 直接，`voucher.post` 要确认 |
+| **采购机器人** `bot_purchase` | PURCHASE | 安全库存预警 → 采购申请、询价催办 | 减少断货 | `purchase-request.create` 直接，`order.create` 要确认 |
+| **客服机器人** `bot_service` | SERVICE | 工单分类 + 派单 + 首次响应 | 响应加速 | `ticket.*` 直接，对外发送要确认 |
+
+**推广顺序**：**质检（只读，最安全）→ 财务 → 采购 → 客服**
+
+---
+
+## 3. 数据模型（补 4 张表，不动现有的）
+
+| 表 | 状态 |
+|---|---|
+| `sys_ai_agent` | **已有**（不新建） |
+| `biz_agent_config` | 新建（AI 用户专属配置：agent_type / run_mode / cron / event_trigger / 限额） |
+| `sys_agent_action` | 新建（动作白名单） |
+| `sys_agent_run_log` | 新建（运行审计） |
+| `sys_agent_confirm` | 新建（人环确认） |
+
+**`biz_agent_config` 设计**（关联 `sys_user`）：
+
+```sql
+CREATE TABLE biz_agent_config (
+    user_id         uuid PRIMARY KEY REFERENCES sys_user(id) ON DELETE CASCADE,
+    agent_type      varchar(32) NOT NULL,          -- QA / FINANCE / PURCHASE / SERVICE
+    run_mode        varchar(16) DEFAULT 'MANUAL',  -- CRON / EVENT / MANUAL
+    cron_expr       varchar(64),
+    event_trigger   jsonb,
+    config          jsonb,
+    max_actions_per_run  int DEFAULT 100,
+    max_runtime_seconds  int DEFAULT 300,
+    created_at      timestamptz DEFAULT now(),
+    updated_at      timestamptz DEFAULT now()
+);
+```
+
+**注意**：`sys_ai_agent` 已经存了 `hermes_profile`，这张表只存「运行配置」，不重复。
+
+---
+
+## 4. 权限模型（复用 + 两个扩展）
+
+```
+复用：sys_user_role + sys_role_menu（角色 → 权限码）
+扩展 1：sys_agent_action 的 risk_level（决定要不要人确认）
+扩展 2：need_confirm 是「执行方式」不是「权限」
+```
+
+**关键区分**：
+```
+有权限       = 角色里有这个权限码（能不能做）
+直接执行     = 动作库里 need_confirm=false（做完等不等批）
+
+所以：AI 用户可以有 voucher:post 权限，但动作库设 need_confirm=true
+→ 结果：能发起过账，但要人批
 ```
 
 ---
@@ -234,166 +287,125 @@ CREATE TABLE sys_agent_confirm (
 │                                                       │
 │  ┌────────────────────────────────────────────────┐  │
 │  │ 云枢主服务 :8023                                │  │
-│  │  · 系统管理 → AI 用户（CRUD）                    │  │
-│  │  · 待确认队列                                   │  │
-│  │  · AI 运行日志                                  │  │
+│  │  · 系统管理 → AI 用户（已有，补菜单入口）         │  │
+│  │  · AI 运行日志（新）                             │  │
+│  │  · 待确认队列（新）                              │  │
 │  └────────────────────────────────────────────────┘  │
-│              ↕ HTTP API                               │
+│              ↕ HTTP / MCP                             │
 │  ┌────────────────────────────────────────────────┐  │
-│  │ Hermes Agent（:8100，一套）                     │  │
-│  │                                                 │  │
-│  │  按需创建的 profile（不是 27 个）：              │  │
-│  │   · cloudpivot-qa-bot        ← 质检             │  │
-│  │   · cloudpivot-fin-bot       ← 财务             │  │
-│  │   · cloudpivot-pur-bot       ← 采购             │  │
-│  │   · cloudpivot-svc-bot       ← 客服             │  │
-│  │                                                 │  │
-│  │  每个 profile：                                 │  │
-│  │   · tools = [cloudpivot.*]（**无 terminal**）    │  │
-│  │   · 独立的 MEMORY.md                            │  │
-│  │   · 独立 cron                                   │  │
+│  │ MCP Server :8101（新）                          │  │
+│  │  · 12 个工具（带风险分级）                        │  │
+│  │  · 校验 agent_token + 白名单 + 写 run_log        │  │
 │  └────────────────────────────────────────────────┘  │
-│                                                       │
+│              ↕ MCP protocol                           │
 │  ┌────────────────────────────────────────────────┐  │
-│  │ MCP Server :8101（云枢暴露给 Hermes 的工具）     │  │
-│  │  · cloudpivot.voucher.query / check / create   │  │
-│  │  · cloudpivot.voucher.post（HIGH，要人确认）     │  │
-│  │  · cloudpivot.invariant.run                    │  │
-│  │  · ...                                         │  │
+│  │ Hermes Agent :8100（已有，PID 在跑）             │  │
+│  │  profile 按需建（不复制 99 的 27 个）：           │  │
+│  │   · bot_qa      ← 质检                           │  │
+│  │   · bot_finance ← 财务                           │  │
+│  │   · bot_purchase← 采购                           │  │
+│  │   · bot_service ← 客服                           │  │
+│  │  每个 profile：                                  │  │
+│  │   · tools = [mcp:cloudpivot.*]（**无 terminal**） │  │
+│  │   · SOUL.md 含 19 条安全红线（已有机制）          │  │
 │  └────────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────────┘
 ```
 
-**D1 的关键点**：
-```
-❌ 不复制 99 的 27 个 profile
-✅ 只建「AI 员工需要的」profile（4 个模板 → 按需实例化）
-✅ 每个 profile 的 tools 白名单里**没有 terminal**
-```
+**D1 的落地**：不预置 27 个 profile，只建 AI 员工要的 4 个（按需）。
 
 ---
 
-## 6. 四个首发 AI 员工（按 ROI 排序）
+## 6. 安全边界（六条，其中 3 条已有）
 
-| AI 用户 | 做什么 | 价值 | 风险 | 权限 |
-|---|---|---|---|---|
-| **质检机器人** `bot_qa` | 每天跑 152 组勾稽 + 80 项不变量，有红就报告 | 无人值守兜底 | 低（**只读**） | 只给 `*:list` + `invariant:run` |
-| **财务机器人** `bot_finance` | 凭证预审（勾稽+科目异常）、自动对账、应收催收 | 会计省 2h/天 | 中（过账要人确认） | 给 `voucher:list/read/create`，`post` 要确认 |
-| **采购机器人** `bot_purchase` | 安全库存预警 → 生成采购申请、询价催办 | 减少断货 | 中（下单要人确认） | 给 `purchase-request:create`，`order:create` 要确认 |
-| **客服机器人** `bot_service` | 工单自动分类 + 派单 + 首次响应 | 响应从小时到分钟 | 低（外部沟通要人审） | 给 `ticket:*`，对外发送要确认 |
-
-**推广顺序**：**质检（只读）→ 财务 → 采购 → 客服**（风险从低到高，逐步建立信任）。
-
----
-
-## 7. 安全边界（六条硬约束）
-
-```
-① 动作白名单
-   机器人只能调 sys_agent_action 里登记的动作
-   → 不是「有这个权限就能做」，是「调这个动作才允许」
-
-② HIGH 风险必须人确认
-   risk_level='HIGH' → 自动写 sys_agent_confirm，等批
-   → 过账/付款/删除/对外发送 都是 HIGH
-
-③ 无 terminal
-   Hermes profile 的 tools 白名单里**不含 terminal**
-   → 防 prompt injection 后跑 rm -rf
-
-④ 独立凭据
-   AI 用户有自己的 token（不是 admin 的）
-   · 有效期 24h（auto renew via agent credential）
-   · 可吊销（sys_user.status=0）
-   · IP 限制（只能从 127.0.0.1 调）
-
-⑤ Kill switch
-   单个：sys_user.status = 0 → 立刻停
-   全局：一个开关停所有机器人（sys_config 里一个布尔）
-
-⑥ 速率 + 超时
-   max_actions_per_run（默认 100）
-   max_runtime_seconds（默认 300）
-   → 防循环/重试风暴
-```
-
----
-
-## 8. 验收（10 项）
-
-```
-【基础】
-① sys_user 能建 user_type='ROBOT' 的用户
-② biz_agent_config + sys_agent_action + sys_agent_run_log + sys_agent_confirm 四张表建好
-③ 系统管理 → AI 用户 页面能 CRUD
-
-【权限】
-④ 财务 AI 用户只能调白名单动作（不在白名单 → 403）
-⑤ HIGH 风险动作写 sys_agent_confirm（不直接执行）
-⑥ 人批准后才真正执行（实测）
-
-【运行】
-⑦ 质检机器人按 cron 跑，写 run_log（含 reason + trace_id）
-⑧ 人为造一个勾稽红 → 机器人发现 → 报告
-
-【安全】
-⑨ Kill switch 生效（停单个 + 停全局）
-⑩ 审计能查「机器人 X 在 10:00 做了什么、为什么、谁批的」
-```
-
----
-
-## 9. 工作量（不派卡，仅估算）
-
-| 卡 | 内容 | 工时 |
+| # | 约束 | 状态 |
 |---|---|---|
-| AIUSER-01 | 四张表 + 迁移 + DDL | 3h |
-| AIUSER-02 | AI 用户 CRUD（复用 sys_user + 扩展配置） | 3h |
-| AIUSER-03 | 动作库 CRUD + 风险分级 UI | 4h |
-| AIUSER-04 | MCP Server（云枢暴露 ~12 个工具） | 5h |
-| AIUSER-05 | 调度（CRON 复用 sys_job + EVENT 轮询） | 4h |
-| AIUSER-06 | 审计（run_log + reason + trace_id） | 3h |
-| AIUSER-07 | 人环确认（confirm 队列 + 首页待办 + 批准） | 4h |
-| AIUSER-08 | Kill switch（单个 + 全局） | 2h |
-| AIUSER-09 | Hermes profile 模板（4 个）+ 按需实例化 | 3h |
-| AIUSER-10 | 质检机器人（首发，只读，验证框架） | 4h |
-| AIUSER-11 | 财务机器人（预审凭证） | 5h |
+| ① | **19 条安全红线**（注入 SOUL.md，自动补回） | ✅ 已有（`safety.rs`） |
+| ② | **profile 名白名单**（防命令注入） | ✅ 已有（正则 + CHECK 约束） |
+| ③ | **SOUL.md 走 stdin**（不进命令行） | ✅ 已有（`hermes.rs`） |
+| ④ | **动作白名单**（只能调登记过的） | ❌ 待做（块 2） |
+| ⑤ | **HIGH 风险人确认** | ❌ 待做（块 4） |
+| ⑥ | **Kill switch + 速率/超时** | ❌ 待做（`biz_agent_config` 的限额 + `sys_user.status`） |
 
-**合计约 40 小时**
+**追加一条（重要）**：
+```
+⑦ AI 用户的 Hermes profile **tools 白名单里不含 terminal**
+   → 防 prompt injection 后跑 rm -rf
+   → 实现：建 profile 时写 config.yaml 的 toolsets 白名单
+```
 
 ---
 
-## 10. AI 开发（G 章）：暂不做（用户 D3）
+## 7. 验收（12 项）
+
+```
+【已有功能回归】
+① AI 用户 CRUD 仍正常（建/查/改/删/状态/修凭据）
+② SOUL.md 的 19 条红线删了能自动补回
+③ profile 名非法（含空格/大写/超长）被拒
+
+【新增：MCP + 白名单】
+④ MCP Server 起来，Hermes 能连上并列出 12 个工具
+⑤ AI 用户只能调白名单里的动作（不在 → 403）
+⑥ 调 HIGH 风险动作 → 不执行，写 sys_agent_confirm
+
+【新增：人环确认】
+⑦ 人在首页待办看到「待确认」→ 批准 → 才真正执行
+⑧ 超 24h 未处理 → EXPIRED（不执行）
+
+【新增：调度与运行】
+⑨ 质检机器人按 cron 跑，写 run_log（含 reason + trace_id + output_summary）
+⑩ 人为造一个勾稽红 → 机器人发现 → 报告
+⑪ Kill switch：停单个 AI 用户（status=0）→ 立刻不跑；全局开关同理
+
+【审计】
+⑫ 能查「机器人 X 在 10:00 做了什么、为什么、谁批的」
+```
+
+---
+
+## 8. 工作量（**不派卡**，仅估算）
+
+| 卡 | 内容 | 工时 | 依据 |
+|---|---|---|---|
+| AIAGT-01 | `biz_agent_config` + `sys_agent_action` + `sys_agent_run_log` + `sys_agent_confirm` 四张表 + 迁移 | 3h | 新建 |
+| AIAGT-02 | MCP Server（12 个工具 + agent_token 校验） | 6h | 新建（核心） |
+| AIAGT-03 | 动作白名单 CRUD + 风险分级 UI | 4h | 新建 |
+| AIAGT-04 | 调度（CRON 复用 sys_job + EVENT 轮询） | 4h | 新建 |
+| AIAGT-05 | 审计（run_log 写入 + 查询页） | 3h | 新建 |
+| AIAGT-06 | 人环确认（confirm 队列 + 首页待办 + 批准） | 4h | 新建 |
+| AIAGT-07 | Kill switch + 速率/超时限额 | 2h | 新建 |
+| AIAGT-08 | profile 模板（4 个 agent_type）+ tools 白名单（无 terminal） | 3h | 补 `hermes.rs` |
+| AIAGT-09 | 质检机器人（首发，只读，验证框架） | 4h | 新建 |
+| AIAGT-10 | 财务机器人（预审凭证） | 5h | 新建 |
+| AIAGT-11 | AI 用户菜单入口（从「用户管理」提到一级） | 1h | 小改 |
+
+**合计约 39 小时**
+
+**为什么比原 H 章的 34h 多 5h**：加了 MCP Server（6h，原设计没有），减掉了已完成的 AI 用户 CRUD（原 H 章 4h）。
+
+---
+
+## 9. AI 开发（ARCH-10 的 G 章）：暂不做
 
 **用户原话**：「AI开发风险还是很大，先不做。」
 
-**风险点（我的分析，供以后决策参考）**：
+**风险分析（供以后决策）**：
 
 ```
-① 代码安全
-   AI 改的代码进入主干 → 一个 prompt injection 就可能植入后门
-   
-② 数据安全
-   AI 读业务数据时可能外泄（LLM 调用要出网）
-
-③ 责任归属
-   AI 改错了导致客户损失 → 谁负责？
-
-④ 审批依赖
-   需要客户有技术负责人 + 业务负责人 + 决策人三级审批
-   → 中小企业根本没有这个组织
-
-⑤ 工程复杂度
-   三层隔离（sandbox/staging/prod）+ 部署审批流
-   → 运维成本高
+① 代码安全：AI 改的代码进主干 → prompt injection 可能植入后门
+② 数据安全：AI 读业务数据时可能外泄（LLM 调用要出网）
+③ 责任归属：AI 改错了导致客户损失 → 谁负责？
+④ 审批依赖：需要客户有技术/业务/决策三级审批（中小企业没有）
+⑤ 工程复杂度：三层隔离 + 部署审批流 → 运维成本高
 ```
 
 **用户在 2026-11-10 讨论过的两个方向**（记录备查，**不实施**）：
 
 | 方向 | 内容 | 特点 |
 |---|---|---|
-| **a. 「我的应用」目录** | 用户调 AI 开发的小工具，放在云枢「我的应用」下，与官方完全隔离（前后端都不动官方） | 隔离彻底、零升级风险，但技术难度高（要插件热加载/微前端/schema 隔离） |
-| **b. 沙箱 + 流程审批** | 沙箱改官方代码 → 测试环境验证 → 部署审批流 → 合并上生产 | 就是 G 章原设计，技术成熟（现有流程产品化），但改主干有冲突风险 |
+| **a. 「我的应用」目录** | 用户调 AI 开发的小工具，放在云枢「我的应用」下，与官方**完全隔离**（前后端都不动官方） | 隔离彻底、零升级风险；技术难度高（要插件热加载/微前端/schema 隔离） |
+| **b. 沙箱 + 流程审批** | 沙箱改官方代码 → 测试环境验证 → 部署审批流 → 合并上生产 | 就是 G 章原设计；技术成熟，但改主干有冲突风险 |
 
 **我的建议（供以后参考）**：如果将来要做，先做 a 的简化版（A2：前端页面 + 自定义只读查询），覆盖 80% 长尾需求，不动官方代码。
 
@@ -401,35 +413,37 @@ CREATE TABLE sys_agent_confirm (
 
 ---
 
-## 11. 待定事项
+## 10. 待定事项
 
-| # | 事项 | 状态 |
-|---|---|---|
-| **TBD-A** | 四个机器人先做哪几个？还是全做？ | 等用户 |
-| **TBD-B** | EVENT 触发要不要做真事件总线（还是轮询够） | 建议先轮询 |
-| **TBD-C** | AI 用户的 KPI 怎么统计（做了多少事、省了多少时间） | 等用户 |
-| **TBD-D** | 客户不信任怎么办（先从只读开始？） | 建议从质检开始 |
-| **TBD-E** | AI 员工的「工资」怎么算（token 成本谁出） | 等用户 |
-
----
-
-## 12. 与 ARCH-10 的关系
-
-```
-ARCH-10 的 H 章（AI 机器人用户）：**已迁移到本文档**
-ARCH-10 的 G 章（AI 快速二次开发）：**标注为「暂停，风险大，等指令」**
-ARCH-10 的 TBD-1（144 多 agent 用途）：**已并入本文档 D1/D2**
-
-ARCH-10 保留：
-  A 凭证溯源 / B 一键交付 / C 智能填单 / D 大表分区 / E 错误码 / F H5 移动端
-```
+| # | 事项 | 我的建议 | 状态 |
+|---|---|---|---|
+| **TBD-A** | 四个 AI 员工先做哪几个？ | 先做质检（只读，最安全，能验证框架） | 等用户 |
+| **TBD-B** | EVENT 用真事件总线还是轮询 | 先轮询（5 分钟一次够用，不用引入 MQ） | 等用户 |
+| **TBD-C** | AI 用户的 KPI 怎么统计 | 从 run_log 聚合（做了多少事/省了多少时间） | 等用户 |
+| **TBD-D** | 客户不信任怎么办 | 从只读的质检机器人开始，逐步放开 | 等用户 |
+| **TBD-E** | token 成本谁出 | 客户自己的 API key（已支持 `ensure_profile_env`） | 等用户 |
+| **TBD-F** | AI 用户的菜单放哪 | 建议一级菜单「AI 员工」（现在藏在用户管理里） | 等用户 |
 
 ---
 
-## 13. 状态
+## 11. 与 ARCH-10 的关系
 
 ```
-✅ 本文件 = 设计稿（含 AI 用户实体 + AI 员工）
+ARCH-10 的 H 章（AI 机器人用户）：**已迁移到本文档**（ARCH-10 里已加迁移标注）
+ARCH-10 的 G 章（AI 快速二次开发）：**暂停**（ARCH-10 里已加暂停标注）
+ARCH-10 的 TBD-1（144 多 agent 用途）：**已并入本文档 §0 D1/D2**
+
+ARCH-10 保留：A 凭证溯源 / B 一键交付 / C 智能填单 / D 大表分区 / E 错误码 / F H5 移动端
+```
+
+---
+
+## 12. 状态
+
+```
+✅ 本文件 = 设计稿 v2（基于现有代码盘点，明确了「已有 60% / 缺 40%」）
 ⏸ 未派卡（用户 D4：没有明确指令不派卡）
-⏳ 等用户确认第 11 节的 5 个 TBD + 是否开始实施
+⏳ 等用户确认：
+   · §8 的 11 张卡要不要开始
+   · §10 的 6 个 TBD（特别是 TBD-A 先做哪个机器人）
 ```
