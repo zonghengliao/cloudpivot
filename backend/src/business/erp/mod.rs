@@ -168,6 +168,11 @@ pub mod cost_calc_overhead;
 /// B2-8 的真库用例（`ERP_DB_URL` 开关）：三路来源口径 + 池按 (车间, 科目) 汇总 + 直接行。
 #[cfg(test)]
 mod cost_calc_overhead_db_tests;
+/// calc 第 4 段：池与 `4101.*` 对账（ARCH-9 §4.11 C-COST-1 · 逐 (车间, 科目) 求差，差额列凭证号）。
+pub mod cost_calc_reconcile;
+/// B2-9 的真库用例（`ERP_DB_URL` 开关）：逐组对账 / 旁路记账点凭证 / 红冲与红字不计 / 阶段口径。
+#[cfg(test)]
+mod cost_calc_reconcile_db_tests;
 /// 成本归集明细的纯逻辑（幂等键 / 行校验 / 增量计划），B2-6 起用，后续 calc 各段共用。
 pub mod cost_collect_dto;
 /// 成本归集明细（`biz_cost_collect`）的数据层：候选扫描 / 已归集行 / 幂等写入 / 软删。
@@ -203,6 +208,10 @@ pub mod cost_overhead_model;
 pub mod cost_rate_dto;
 pub mod cost_rate_handler;
 pub mod cost_rate_model;
+/// calc 第 4 段「池与 4101 对账」的纯逻辑（分组 / 求差 / 差额凭证号报文），B2-9。
+pub mod cost_reconcile_dto;
+/// 对账取数（`biz_cost_collect` 池行按来源反查科目 + `biz_voucher_entry` 的 4101.* 借方），B2-9。
+pub mod cost_reconcile_model;
 pub mod credit;
 pub mod currency;
 pub mod currency_admin_handler;

@@ -1,0 +1,7 @@
+=== cargo fmt -- --check ===
+FMT_EXIT=0
+
+=== cargo clippy --all-targets -- -D warnings ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 17s
+CLIPPY_EXIT=0

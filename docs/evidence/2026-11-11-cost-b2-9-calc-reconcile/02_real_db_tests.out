@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 10 tests
+test business::erp::cost_calc_reconcile_db_tests::db::bypass_voucher_is_flagged_with_its_voucher_no ... 【66065 报文】
+费用池与总账 4101.* 借方发生额对不平（期间 2100-01，计算口径）：池 1000，应已入账 1000，账面 1200，差额 -200（= 应已入账 − 账面，负数表示账面多），共 1 组不平。
+· 总部 / 4101.04：池 0（应已入账 0，待结算过账 0），账面 200，差额 -200｜凭证：B29-2353A73909D7-2100010｜账面多（旁路记账）
+账面多出来的 4101.* 分录是绕过成本模块直接记的制造费用，成本核算看不见它们，结算后 4101 清不掉。请把这类费用改走「费用台账（无单据）」或「费用报销」后重算本期成本；若该笔本来就不是制造费用，请改记对应费用科目。账面少的那部分说明费用已在成本模块归集、4101 凭证却没生成，请检查来源单据是否已过账。
+ok
+test business::erp::cost_calc_reconcile_db_tests::db::empty_period_is_balanced ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::every_booked_route_is_balanced_and_manual_ticket_is_pending ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::offsetting_groups_do_not_cancel_out ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::partial_booking_is_a_mismatch ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::pool_by_source_matches_the_collect_segment_pool ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::previous_period_voucher_does_not_leak ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::reversed_red_draft_and_non_4101_vouchers_are_ignored ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::settle_stage_requires_the_manual_ticket_to_be_booked ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::voucher_without_department_is_flagged ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4502 filtered out; finished in 13.79s
+

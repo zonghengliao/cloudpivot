@@ -1,0 +1,53 @@
+=== cargo fmt -- --check ===
+FMT_EXIT=0
+
+=== cargo test --lib cost_reconcile ===
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.38s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 19 tests
+test business::erp::cost_reconcile_dto::tests::account_prefix_is_shared_with_the_collect_segment ... ok
+test business::erp::cost_reconcile_dto::tests::empty_period_is_balanced ... ok
+test business::erp::cost_reconcile_dto::tests::manual_ticket_becomes_a_blocker_at_settle_stage ... ok
+test business::erp::cost_reconcile_dto::tests::ledger_line_without_dept_forms_its_own_group ... ok
+test business::erp::cost_reconcile_dto::tests::money_formatting_keeps_meaningful_decimals ... ok
+test business::erp::cost_reconcile_dto::tests::ledger_only_group_is_flagged_with_voucher_numbers ... ok
+test business::erp::cost_reconcile_dto::tests::mismatch_uses_the_dedicated_error_code ... ok
+test business::erp::cost_reconcile_dto::tests::same_account_in_two_workshops_is_not_merged ... ok
+test business::erp::cost_reconcile_dto::tests::pool_matching_ledger_is_balanced_and_manual_ticket_is_pending ... ok
+test business::erp::cost_reconcile_dto::tests::offsetting_groups_do_not_cancel_out ... ok
+test business::erp::cost_reconcile_dto::tests::message_truncates_after_the_detail_limit ... ok
+test business::erp::cost_reconcile_dto::tests::stage_decides_which_sources_need_voucher_backing ... ok
+test business::erp::cost_reconcile_dto::tests::unequal_amounts_are_a_mismatch_not_a_match ... ok
+test business::erp::cost_reconcile_model::tests::ledger_sql_carries_voucher_no_and_department ... ok
+test business::erp::cost_reconcile_model::tests::ledger_sql_keeps_the_four_hard_filters ... ok
+test business::erp::cost_reconcile_model::tests::pool_sql_reverse_looks_the_account_from_each_source_table ... ok
+test business::erp::cost_reconcile_dto::tests::voucher_numbers_are_deduped_and_sorted ... ok
+test business::erp::cost_reconcile_model::tests::pool_params_match_the_placeholders ... ok
+test business::erp::cost_reconcile_model::tests::pool_sql_keeps_the_pool_filters ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 4493 filtered out; finished in 0.00s
+
+
+=== cargo test --lib cost_calc_reconcile ===
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 13 tests
+test business::erp::cost_calc_reconcile::tests::manual_ticket_does_not_block_the_calc_stage ... ok
+test business::erp::cost_calc_reconcile::tests::ensure_balanced_turns_a_difference_into_a_409 ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::bypass_voucher_is_flagged_with_its_voucher_no ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::every_booked_route_is_balanced_and_manual_ticket_is_pending ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::empty_period_is_balanced ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::offsetting_groups_do_not_cancel_out ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::partial_booking_is_a_mismatch ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::pool_by_source_matches_the_collect_segment_pool ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::previous_period_voucher_does_not_leak ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::reversed_red_draft_and_non_4101_vouchers_are_ignored ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::settle_stage_requires_the_manual_ticket_to_be_booked ... ok
+test business::erp::cost_calc_reconcile::tests::bad_period_is_rejected_before_any_query ... ok
+test business::erp::cost_calc_reconcile_db_tests::db::voucher_without_department_is_flagged ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4499 filtered out; finished in 0.00s
+
