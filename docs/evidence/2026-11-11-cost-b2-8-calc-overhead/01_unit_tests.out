@@ -1,0 +1,35 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 38s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 26 tests
+test business::erp::cost_overhead_collect_dto::tests::constants_match_the_ddl_and_design ... ok
+test business::erp::cost_overhead_collect_dto::tests::direct_flag_is_derived_from_cost_object ... ok
+test business::erp::cost_overhead_collect_dto::tests::error_constructors_keep_code_and_status ... ok
+test business::erp::cost_overhead_collect_dto::tests::duplicated_candidates_collapse_to_one_row ... ok
+test business::erp::cost_overhead_collect_dto::tests::empty_input_yields_empty_pool ... ok
+test business::erp::cost_overhead_collect_dto::tests::incremental_run_inserts_only_missing_rows ... ok
+test business::erp::cost_overhead_collect_dto::tests::first_run_inserts_every_candidate_and_splits_pool_from_direct ... ok
+test business::erp::cost_overhead_collect_dto::tests::rerun_skips_already_collected_rows ... ok
+test business::erp::cost_overhead_collect_dto::tests::remark_carries_human_context_within_column_width ... ok
+test business::erp::cost_overhead_collect_dto::tests::rows_whose_attribution_or_amount_changed_are_rewritten ... ok
+test business::erp::cost_overhead_collect_dto::tests::rows_whose_source_disappeared_are_marked_stale ... ok
+test business::erp::cost_overhead_collect_dto::tests::key_is_disjoint_across_the_three_sources ... ok
+test business::erp::cost_overhead_collect_dto::tests::zero_amount_rows_go_to_uncollected_and_purge_their_old_rows ... ok
+test business::erp::cost_overhead_collect_dto::tests::uncollected_rows_are_ordered_deterministically ... ok
+test business::erp::cost_overhead_collect_dto::tests::pool_groups_by_dept_and_account_and_excludes_direct_rows ... ok
+test business::erp::cost_overhead_collect_dto::tests::validation_rejects_broken_source_rows ... ok
+test business::erp::cost_overhead_collect_model::tests::depreciation_sql_takes_the_posted_amount ... ok
+test business::erp::cost_overhead_collect_model::tests::account_prefix_matches_the_ddl ... ok
+test business::erp::cost_overhead_collect_model::tests::depreciation_sql_keeps_the_three_hard_filters ... ok
+test business::erp::cost_overhead_collect_model::tests::existing_rows_sql_excludes_alloc_rows ... ok
+test business::erp::cost_overhead_collect_model::tests::expense_sql_keeps_the_hard_filters ... ok
+test business::erp::cost_overhead_collect_model::tests::expense_sql_takes_the_report_dept_not_the_employee_dept ... ok
+test business::erp::cost_overhead_collect_model::tests::insert_sql_matches_the_partial_unique_index ... ok
+test business::erp::cost_overhead_collect_model::tests::no_source_sql_filters_out_direct_rows ... ok
+test business::erp::cost_overhead_collect_model::tests::overhead_ticket_sql_keeps_the_hard_filters ... ok
+test business::erp::cost_overhead_collect_model::tests::pool_sql_derives_account_from_every_pool_source ... ok
+
+test result: ok. 26 passed; 0 failed; 0 ignored; 0 measured; 4454 filtered out; finished in 0.00s
+
+EXIT=0

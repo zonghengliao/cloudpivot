@@ -163,6 +163,11 @@ pub mod cost_calc_material;
 /// B2-6 的真库用例（`ERP_DB_URL` 开关）：只扫已过账+挂对象的领料 + 幂等 + 金额取账上真实值。
 #[cfg(test)]
 mod cost_calc_material_db_tests;
+/// calc 第 3 段：费归集（ARCH-9 §4.3 费三路 · 折旧/报销/手工 → 池行 + 直接行）。
+pub mod cost_calc_overhead;
+/// B2-8 的真库用例（`ERP_DB_URL` 开关）：三路来源口径 + 池按 (车间, 科目) 汇总 + 直接行。
+#[cfg(test)]
+mod cost_calc_overhead_db_tests;
 /// 成本归集明细的纯逻辑（幂等键 / 行校验 / 增量计划），B2-6 起用，后续 calc 各段共用。
 pub mod cost_collect_dto;
 /// 成本归集明细（`biz_cost_collect`）的数据层：候选扫描 / 已归集行 / 幂等写入 / 软删。
@@ -183,6 +188,10 @@ mod cost_object_db_tests;
 pub mod cost_object_dto;
 pub mod cost_object_handler;
 pub mod cost_object_model;
+/// calc 第 3 段「费归集」的纯逻辑（幂等键 / 行校验 / 增量计划 / 池汇总 / 未归集清单），B2-8。
+pub mod cost_overhead_collect_dto;
+/// 费归集（`biz_cost_collect` 的 OVERHEAD 段）数据层：三路取数 + 幂等写入 + 池汇总。
+pub mod cost_overhead_collect_model;
 /// B2-4 的真库用例（`ERP_DB_URL` 开关）：科目合法性 + 金额 > 0 + 归集后不许删。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_overhead_db_tests;

@@ -1,0 +1,21 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 38s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 12 tests
+test business::erp::cost_calc_overhead::tests::bad_period_is_rejected_before_any_query ... ok
+test business::erp::cost_calc_overhead::tests::entry_point_rejects_bad_period_without_touching_db ... ok
+test business::erp::cost_calc_overhead::tests::pool_total_sums_rows ... ok
+test business::erp::cost_calc_overhead::tests::segment_only_writes_overhead_from_the_three_sources ... ok
+test business::erp::cost_calc_overhead_db_tests::db::collects_the_three_sources_and_builds_the_pool ... ok
+test business::erp::cost_calc_overhead_db_tests::db::empty_period_is_a_clean_noop ... ok
+test business::erp::cost_calc_overhead_db_tests::db::hand_ledger_with_cost_object_is_collected_directly ... ok
+test business::erp::cost_calc_overhead_db_tests::db::ignores_non_posted_and_non_4101_sources ... ok
+test business::erp::cost_calc_overhead_db_tests::db::pool_matches_b2_5_preview_and_scanned_lines ... ok
+test business::erp::cost_calc_overhead_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_overhead_db_tests::db::rerun_is_idempotent_and_leaves_rows_untouched ... ok
+test business::erp::cost_calc_overhead_db_tests::db::zero_amount_rows_go_to_the_uncollected_list ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 4468 filtered out; finished in 10.76s
+
+EXIT=0

@@ -1,0 +1,4 @@
+FMT_EXIT=0
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 11s
+EXIT=0
