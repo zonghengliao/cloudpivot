@@ -164,6 +164,11 @@ Rust 测试 ④ 也把 9 个三元组逐条钉在源码里（设计稿改了而�
    （`code == token || code.starts_with("token.")`），`4001` 的 token 会自动吃到 `4001.01~03`，
    所以 V0183 的「存货」项（`'1401,…,4001,4101'`）一行不改就能把新叶子并进去。
    迁移的口径自检里断言了这条映射**必须还在**（有人删了就会掉出存货报表）。
+7. **共享工作区的 `cargo test` 有 2 红，与本卡零交集**：并发卡（成本对象 B1 系列）往
+   `scope.rs::SCOPED_TABLES` 加了 `biz_cost_object`，但 `TABLE_WIRING` / `guard` 的登记表
+   还没同步（改到一半）⇒ `d8_coverage_matches_registry` 与 `preflight_uses_the_registry` 红。
+   本卡的 L1 在**隔离工作树**上全绿（`04_isolated_gate.out`），归因与原始输出见
+   `03_cargo_test_summary.out`。
 
 ## 6. 复现命令
 

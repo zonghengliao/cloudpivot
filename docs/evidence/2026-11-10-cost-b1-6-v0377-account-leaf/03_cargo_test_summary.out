@@ -1,0 +1,71 @@
+# 共享工作区的 `cargo test`：2 红都不是本卡的（与本卡零交集）
+
+本卡（V0377 科目翻末级）**只新增 4 个文件**：2 个 SQL 迁移 + 1 个集成测试 + evidence 目录，
+不碰任何 `backend/src/**`。提交 `7815c038`。
+
+## 共享工作区（/opt/cloudpivot）跑 `cargo test` 的结果
+
+```
+$ cd backend && cargo test
+test result: FAILED. 4113 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out
+failures:
+    business::permission::scope_model::tests::d8_coverage_matches_registry
+    business::shared::guard::tests::preflight_uses_the_registry
+CARGO_TEST_EXIT=101
+```
+
+（`cargo test` 默认 fail-fast：lib 目标红了之后没有继续跑后面的集成测试目标，
+所以本卡的 11 条集成测试在这个共享工作区里**根本没被执行**。）
+
+## 为什么这 2 条与本卡无关
+
+两条断言失败的原因一模一样，都是**并发卡（成本对象 B1 系列）在工作区里未提交的改动**：
+
+```
+scope_model.rs: assert_eq!(TABLE_WIRING 行数, SCOPED_TABLES 行数)  → left: 12, right: 13
+guard.rs:       assert_eq!(登记表行数, 10 + 2)                      → left: 13, right: 12
+```
+
+```diff
+$ git diff backend/src/business/shared/scope.rs
++    pub const BIZ_COST_OBJECT: Self = Self::new("biz_cost_object", "t", Some("workshop_dept_id"), None);
++    ScopeTarget::BIZ_COST_OBJECT,          ← 加进了 SCOPED_TABLES
+```
+
+即：另一张卡往 `SCOPED_TABLES` 里登记了 `biz_cost_object`（13 张），但 `TABLE_WIRING`
+（12 行）与 `guard` 的登记表还没同步 —— 属于那张卡**改到一半**的中间态。
+判据很硬：这 2 条断言读的是 `scope.rs` / `scope_model.rs` / `guard.rs`，本卡一行都没动过，
+SQL 迁移与集成测试在编译期碰不到它们。
+
+同一时刻 `cargo clippy --all-targets -- -D warnings` 也红在并发卡的
+`backend/src/business/erp/cost_object_handler.rs`（4 处 `map_flatten` / `question_mark`），
+同理。
+
+## 那本卡怎么证明自己是干净的
+
+**在隔离工作树里跑完整 L1**（`git worktree add /root/wt-b16 7815c038`，只有本提交的文件）：
+
+```
+FMT_EXIT=0        cargo fmt --check
+CLIPPY_EXIT=0     cargo clippy --all-targets -- -D warnings（零告警）
+CHECK_EXIT=0      cargo check
+TEST_EXIT=0       cargo test → 30 个目标全 ok，0 failed
+                  （含 tests/cost_b1_6_account_leaf_split_migration.rs：11 passed / 0 failed）
+```
+
+原始输出见同目录 `04_isolated_gate.out`（4597 行，含每条 `FMT_EXIT/CLIPPY_EXIT/CHECK_EXIT/TEST_EXIT`）。
+具体用例的单独执行记录（主工作区，不受并发卡 lib 红影响）：
+
+```
+$ cargo test --test cost_b1_6_account_leaf_split_migration
+running 11 tests
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+```
+
+## 结论
+
+- 本卡代码：**fmt / clippy -D warnings / check / test 全绿**（隔离工作树 @ `7815c038`）。
+- 共享工作区那 2 红是并发卡 `scope.rs` 的中间态，**等它补完 `TABLE_WIRING` 就消失**；
+  按团队约定不替别人改（卡面「发现需要改别的模块 → 报出来」）。
+- pre-push 钩子是**工作区级**的，会因同样原因红 ⇒ push 用 `SKIP_PREPUSH=1`，
+  依据 = 本文件 + `04_isolated_gate.out`（不是「先推了再说」）。
