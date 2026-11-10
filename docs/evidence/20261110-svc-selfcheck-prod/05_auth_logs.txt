@@ -1,0 +1,29 @@
+# auth_logs 最近 20 条 svc_selfcheck 登录
+2026-11-10 08:48:03.613|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:46:58.498|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.365|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.334|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.301|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.268|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.234|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.202|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:45:53.110|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:43:07.076|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:41:54.757|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:47.143|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:47.105|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:47.071|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:47.036|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:46.999|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:46.963|svc_selfcheck|LOGIN|SUCCESS|-|-
+2026-11-10 08:40:46.848|svc_selfcheck|LOGIN|SUCCESS|-|-
+
+# 按账号汇总（今日）
+admin|FAIL|10
+admin|SUCCESS|16
+henry.liao|SUCCESS|29
+no_such_ops_user|FAIL|1
+svc_selfcheck|SUCCESS|18
+
+# henry.liao 今日登录（本卡未改他的账号/口令/角色）
+2026-11-10 07:23:48|29

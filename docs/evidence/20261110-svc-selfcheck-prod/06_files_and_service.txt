@@ -1,0 +1,22 @@
+# env / README / 凭据文件权限
+600 root:root /etc/cloudpivot/cloudpivot.env
+600 root:root /etc/cloudpivot/README
+600 root:root /root/svc_selfcheck.cred
+
+# env 里的运维账号键（口令脱敏）
+CLOUDPIVOT_OPS_USER=svc_selfcheck
+CLOUDPIVOT_OPS_PASSWORD=<redacted>
+
+# 备份
+-rw------- 1 root root 2144 Nov 10 08:40 /etc/cloudpivot/cloudpivot.env.bak-20261110-084342
+
+/root/svc-selfcheck-backup-20261110-084029:
+total 184
+-rw-r--r-- 1 root root    326 Nov 10 08:40 MANIFEST.txt
+-rw-r--r-- 1 root root     72 Nov 10 08:40 auth_tables.err
+-rw-r--r-- 1 root root 178023 Nov 10 08:40 auth_tables.sql
+-rw-r--r-- 1 root root      0 Nov 10 08:40 pre_state.txt
+
+# 服务未重启（PID 与启动时间）
+ActiveEnterTimestamp=Tue 2026-11-10 06:00:41 CST
+MainPID=2861341

@@ -17,7 +17,10 @@
 #   【提示，不失败】dev/test 脚本里出现 P1/P2/P3：那里 admin 口令通常确实等于种子，
 #     不算坏；但会列出来，作为后续收敛的存量债务（见 docs/运维规程-凭据与自查账号.md §7）。
 #
-# 例外（白名单只管「允许出现种子口令」）：bootstrap / dev 环境准备 / 迁移夹具 / 本 lint 自身。
+# 例外（白名单只管「允许出现种子口令 / 固定 admin 登录体」）：bootstrap / dev 环境准备 /
+# 迁移夹具 / 本 lint 自身，以及**经人工书面授权的一次性建号脚本**
+# （scripts/ops/svc_selfcheck/apply_api.py —— 卡 t_882d48c8：它必须拿 SUPER_ADMIN 会话
+#   才能建最小权限账号；只登一次、失败即停、--apply 还要 --allow-admin-session 明确授权）。
 #
 # 用法：bash scripts/ops/check_cred_convention.sh [-v]
 # 退出码：0 = 生产向脚本无违规；1 = 有生产向违规；2 = 用法错误
@@ -52,6 +55,7 @@ scripts/verify/e2e_isolated_instance.sh
 scripts/ops/check_cred_convention.sh
 scripts/ops/invariant_rerun.py
 scripts/ops/ops_cred.sh
+scripts/ops/svc_selfcheck/apply_api.py
 "
 
 is_allowed() {

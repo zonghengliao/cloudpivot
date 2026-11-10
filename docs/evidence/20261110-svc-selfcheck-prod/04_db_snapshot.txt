@@ -1,0 +1,28 @@
+== 1. 账号属性（admin / svc_selfcheck） ==
+admin|type=HUMAN|status=1|must_change=false|locked=false|fails=0|dept=01a18381-b7c4-753c-8fe6-d39684ead5cd|pwd_prefix=$argon2id$
+svc_selfcheck|type=HUMAN|status=1|must_change=false|locked=false|fails=0|dept=01a18381-b7c4-753c-8fe6-d39684ead5cd|pwd_prefix=$argon2id$
+== 2. svc_selfcheck 的角色（应恰好 1 个 OPS_SELFCHECK / scope=1） ==
+OPS_SELFCHECK|scope=1|status=1|menus=10
+== 3. 角色数（应为 1） ==
+1
+== 4. 授权码清单 ==
+/business/erp/finance-mgmt  (目录,无码)
+/business/erp/inventory-location  business:erp:inventory-location:list
+/business/erp/master-data  (目录,无码)
+/business/erp/sales-mgmt  (目录,无码)
+/business/erp/sales-order  business:erp:sale-order:list
+/business/erp/seq  business:erp:seq:list
+/business/erp/voucher  business:erp:voucher:list
+/business/erp/warehouse-mgmt  (目录,无码)
+/task  business:task:read
+/task/list  business:task:read
+== 5. 非只读码（必须 (none)） ==
+(none)
+== 6. 授权节点数 / 菜单总数 / 用户总数 ==
+10 节点 / 432 菜单 / 4 用户 / 12 角色
+== 7. 最近登录审计（auth_logs 最近 8 条） ==
+  (auth_logs 表名/列名不同，跳过)
+== 8. env 权限与键 ==
+600 root:root /etc/cloudpivot/cloudpivot.env
+CLOUDPIVOT_OPS_USER=svc_selfcheck
+CLOUDPIVOT_OPS_PASSWORD=<redacted>

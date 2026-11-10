@@ -1,0 +1,23 @@
+════ 生产自查 2026-11-10 08:46:58 ════
+== 0. 口径
+  BASE=http://127.0.0.1:8023
+  凭据: 账号=svc_selfcheck 来源=CLOUDPIVOT_OPS_* 口令长度=32   env=/etc/cloudpivot/cloudpivot.env
+  登录策略: 失败 5 次锁 30 分钟；限流 10 次 / 60 秒（本脚本单次尝试，失败即停）
+== 1. health
+  ✅ health 200
+== 2. 登录（单次尝试，失败不重试）
+  ✅ 登录 200（账号 svc_selfcheck，token 655 字符）
+== 3. 业务接口（以登录账号的角色可见性为准）
+  ✅ prod 200  /api/business/task/page?page=1&page_size=2
+  ✅ prod 200  /api/business/erp/sales-order/page?page=1&page_size=2
+  ✅ prod 200  /api/business/erp/voucher/page?page=1&page_size=2
+== 4. 菜单可见性（按 svc_selfcheck 的角色过滤，仅供参考）
+  菜单节点: 10
+  ✅ /business/erp/seq 父=基础数据
+  ✅ /business/erp/inventory-location 父=仓库管理
+  · /system/data-scope 父=(不在)
+== 5. 库侧锁定状态（admin / 运维账号）
+  ✅ admin is_locked=false / login_fail_count=0
+  ✅ svc_selfcheck is_locked=false / login_fail_count=0
+== 汇总
+  自查通过（硬失败 0 / 告警 0）

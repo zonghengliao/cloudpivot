@@ -5,8 +5,9 @@
 > ① 他一改密，所有自查立刻 401（本类故障复发）；
 > ② `auth_logs` 里分不清「机器自查」与「henry 本人操作」。
 > 本目录把这两个问题一起解掉：**专用账号 + 只读角色 + 一条可复跑的命令**。
+> **2026-11-10 08:40 已在生产 144 落地**（接口路 `apply_api.py`，验收全绿；见 §2）。
 
-## 1. 落地结果（生产副本实测，2026-11-10）
+## 1. 落地结果（生产 144 实测，2026-11-10）
 
 | 项 | 值 |
 |---|---|
@@ -24,6 +25,33 @@
 「`/business/erp/seq` 父=基础数据」这类定位信息。
 
 ## 2. 一条命令落地
+
+两条路，**结果等价、互为校验**：
+
+### 2.1 接口路（推荐；生产 144 就是这么建的）
+
+```bash
+# 只体检 + 打印计划（不写库、不写 env；会做一次 admin 登录）
+python3 scripts/ops/svc_selfcheck/apply_api.py --dry-run
+
+# 真正落库 + 写 env（必须显式确认「已获人工授权用 SUPER_ADMIN 会话」）
+python3 scripts/ops/svc_selfcheck/apply_api.py --apply --allow-admin-session
+#   等价写法：SVCC_AUTHORIZED=1 python3 .../apply_api.py --apply
+
+# 只落库、不改 env（隔离演练）
+python3 .../apply_api.py --apply --allow-admin-session --no-env
+```
+
+- 前提：一个 **SUPER_ADMIN 会话**（口令取自 `--admin-password-file`，缺省读 env 的
+  `NIK_ADMIN_PASSWORD`）。**只登一次**，401 立刻停（别重试，5 次锁 30 分钟）。
+- 权限由后端 guard 判：`ensure_role_grant_allowed` / `ensure_menus_grantable` / `ensure_no_mutex`；
+  脚本**不直写** `sys_user/sys_role/sys_role_menu/sys_user_role`，也不自己算 argon2id。
+- 建号走 `POST /api/system/user` → 后端固定 `must_change_password=false`（管理员代建语义）。
+- 幂等：复跑不新建行，只把「菜单授权集 / 角色绑定集」整批对齐到期望值。
+- **不支持改密**：`PATCH /api/system/user/{id}/password` 由管理员代改会把
+  `must_change_password` 置 `true`，与本卡要求冲突 → 改密用 DBA 路 `apply.sh --rotate`。
+
+### 2.2 DBA 路（等价备用；改密 / 回滚用它）
 
 ```bash
 # 生产（144）：读 /etc/cloudpivot/cloudpivot.env 的 NIK_DATABASE_*，写 env 的 CLOUDPIVOT_OPS_*
