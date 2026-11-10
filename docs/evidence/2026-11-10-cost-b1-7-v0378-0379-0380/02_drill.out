@@ -1,0 +1,166 @@
+==> 演练库：mig_costb17_drill_1110225103
+
+== S0 基线：跑到 V0377 为止
+psql:/opt/cloudpivot/backend/migrations/business/V0154__erp_menu_reorg_business_lines.up.sql:5: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0155__erp_menu_title_icon_fix.up.sql:16: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0156__remove_erp_top_menu.up.sql:9: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0170__menu_icons_and_titles_fix.up.sql:29: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+psql:/opt/cloudpivot/backend/migrations/business/V0173__remove_dead_permission_codes.up.sql:41: WARNING:  there is already a transaction in progress
+WARNING:  there is no transaction in progress
+  基线迁移数：297 条（< V378）
+  ✓ 基线：成本块菜单 0 条（0）
+  ✓ 基线：成本号段 0 条（0）
+  ✓ 基线：费用项目字典 0 条（0）
+  ✓ 基线：biz_lot 0 行（0）
+  ✓ 基线：菜单总数 385 条（menu_invariants ⑤ 的下限 400 靠本卡补齐）（385）
+  ✓ 基线：财务管理(e02)下已有 sort 10/20/21/22/30/40/45/46/47/48/49，60 起是空档（0）
+  ✓ 基线：仓库管理(e01)下 sort 80/90 已被出库单/盘点单占用（2）
+
+== S1 V0378 up：6 页 + 20 按钮 + 角色授权
+  ✓ up 成功（exit=0）（0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0378__cost_menu_and_perm.up.sql:224: NOTICE:  V0378：角色 SUPER_ADMIN 不存在 → 跳过它的授权（自检另打提示）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0378__cost_menu_and_perm.up.sql:224: NOTICE:  V0378：角色 ADMIN 不存在 → 跳过它的授权（自检另打提示）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0378__cost_menu_and_perm.up.sql:388: NOTICE:  V0378：角色 SUPER_ADMIN 不存在（空库首启 SUPER_ADMIN/ADMIN 由 seed 后建）→ 本迁移跳过它的授权
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0378__cost_menu_and_perm.up.sql:388: NOTICE:  V0378：角色 ADMIN 不存在（空库首启 SUPER_ADMIN/ADMIN 由 seed 后建）→ 本迁移跳过它的授权
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0378__cost_menu_and_perm.up.sql:388: NOTICE:  V0378：成本块 6 页 + 20 按钮已就绪，菜单总数 411 条（上限 460）
+  ✓ 页面菜单 6 条（menu_type=2）（6）
+  ✓ 按钮权限 20 条（menu_type=3）（20）
+  ✓ 5 个成本页面挂在财务管理 e02（5）
+  ✓ 批次管理挂在仓库管理 e01、sort=95（设计写 80 与出库单撞，见卡内偏差）（95）
+  ✓ 财务管理下新菜单 sort = 60/62/64/66/68（60,62,64,66,68）
+  ✓ 同父 sort 撞车 0 组（e01/e02）（0）
+  ✓ 页面 title 超 12 字 0 条（0）
+  ✓ 页面 icon 全非空（0）
+  ✓ 角色授权 48 条（财务经理 22 + 财务总监 23 + 仓管 3；空库无 SUPER_ADMIN/ADMIN）（48）
+  ✓ 财务经理拿到 22 条且不含红冲（22）
+  ✓ 财务总监拿到 23 条（含红冲 c144）（23）
+  ✓ 红冲结算只授给财务总监（财务经理无 c144）（0）
+  ✓ 仓管拿到 3 条（批次管理 1 页 + 2 按钮）（3）
+  ✓ 无孤儿：每个被授按钮的父页也授给了同一角色（0）
+  ── menu_invariants.sh 结果：
+    │ ═══ 菜单结构不变量 ═══
+    │ 库: mig_costb17_drill_1110225103
+    │ ① 孤儿 parent:           9  ❌
+    │     ↳ parent 不存在的子节点（前 10 条）：
+    │        20000000-0000-0000-0000-0000000a0901|support:attachment-rule|/support/attachment-rule|10000000-0000-0000-0000-000000000022
+    │        20000000-0000-0000-0000-000000000730|变更日志|/system/change-log|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000600|数据权限|/system/data-scope|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000610|字段脱敏|/system/field-mask|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000620|角色互斥|/system/role-mutex|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-00000000f001|business:pdf:render:export||10000000-0000-0000-0000-000000000050
+    │        20000000-0000-0000-0000-000000003401|system:setup:read||10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000001|business:monitor:server-status||10000000-0000-0000-0000-000000000050
+    │        20000000-0000-0000-0000-000000003402|system:setup:manage||10000000-0000-0000-0000-000000000001
+    │ ② /system/ 归属:         0  ✅
+    │ ③ /business/ 归属:       0  ✅
+    │     ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+    │ ④ path 唯一性:           0  ✅
+    │ ⑤ 菜单总数:            411  ✅ (400-460)
+    │ ⑥ title 长度:            0  ✅ (≤12 字)
+    │ ⑦ 同父 sort 唯一:        0  ✅
+    │ ⑧ icon 名合法:           0  ✅
+    │     ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 95 条，全部命中
+    │ 结果: 1 条不变量不通过 ❌（①孤儿parent）
+
+== S2 V0378 幂等：再 up 一次，指纹不变、0 行插入
+  ✓ 第二次 up 成功（exit=0）（0）
+  ✓ 菜单指纹不变（26/d3a66f071d7ba65f1bd78980b0f3afdd）
+  ✓ 授权指纹不变（48/8ffa2de91037a9e5491134afed6dddd9）
+  ✓ 第二次 up 0 行插入
+
+== S3 V0378 down：删净 26 条菜单 + 授权，回到基线
+  ✓ down 成功（exit=0）（0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0378__cost_menu_and_perm.down.sql:70: NOTICE:  V0378.down：已删除 48 条授权、6 条菜单（按钮+页面共 26）
+  ✓ 成本块菜单删净（0）
+  ✓ 成本块授权删净（0）
+  ✓ 菜单总数回到 385（385）
+  ✓ down 幂等：再跑一次不报错（exit=0）（0）
+
+== S4 V0379 up：号段 CB/CS + 费用项目字典 7 项
+  ✓ up 成功（exit=0）（0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0379__cost_seq_and_dict.up.sql:178: NOTICE:  V0379：号段 CB/CS + 费用项目字典 7 项 已就绪
+  ✓ 号段 COST_OBJECT = CB/yyyyMMdd/current_no=0（CB/yyyyMMdd/0）
+  ✓ 号段 COST_PERIOD = CS/yyyyMM/current_no=0（CS/yyyyMM/0）
+  ✓ 字典项 7 条（7）
+  ✓ 默认项唯一且为折旧费（DEPRECIATION）
+  ✓ 第二次 up 成功（exit=0）（0）
+  ✓ 第二次 up 0 行插入
+
+== S5 V0379 down 护栏：已发号被拦 / 清零后能删
+  ✓ 已发号时 down 失败（exit=3）（3）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0379__cost_seq_and_dict.down.sql:60: ERROR:  V0379.down 拒绝执行：号段已发过号（COST_OBJECT(current_no=3)）—— 删除后新号会从 000001 重来造成重号。请先确认没有在用的成本对象/成本批次单号
+  ✓ 拒绝信息点名号段与 current_no
+  ✓ 失败后库零变化：号段仍在（2）
+  ✓ 失败后库零变化：字典项仍在（7）
+  ✓ 清零后 down 成功（exit=0）（0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0379__cost_seq_and_dict.down.sql:60: NOTICE:  V0379.down：已删除 7 个字典项、1 个字典类型、2 条号段
+  ✓ 号段删净（0）
+  ✓ 字典类型删净（0）
+
+== S6 V0380 up：三处来源回填 + 不合规清单 + 幂等
+  ✓ 种子：入库明细 3 条 / 出库 2 条 / 序列号 2 条（含 1 条软删）（3/2/2）
+  ✓ up 成功（exit=0）（0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.up.sql:128: NOTICE:  V0380 待清理批号 #1：物料=20000000-0000-4000-8000-0000000b1701 批号=[ B17-LOT-A ] 来源=STOCK_IN 问题=首尾含空格
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.up.sql:128: NOTICE:  V0380 待清理批号 #2：物料=20000000-0000-4000-8000-0000000b1703 批号=[B17-LOT-C] 来源=STOCK_IN 问题=物料不存在或已软删
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.up.sql:128: NOTICE:  V0380 不合规批号合计 2 条（含空格 1 / 超长 0 / 物料失联 1；明细打印 2 行，上限 200）—— 不阻断迁移，请进运维报告跟进源单据
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.up.sql:161: NOTICE:  V0380：本次回填 4 行（已存在的活批次不覆盖；第二次执行应为 0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.up.sql:212: NOTICE:  V0380：批号回填自检通过（源批号全部落地、批号已归一、回填行形态固定）
+  ✓ 回填 4 行（A/C/D/E；B 已被客户自建占位）
+  ✓ 不合规清单：含首尾空格的批号被点名
+  ✓ 不合规清单：物料软删的批号被点名
+  ✓ 不合规清单合计 2 条且明确不阻断
+  ✓ biz_lot 5 行（4 回填 + 1 客户自建）（5）
+  ✓ 客户自建批次 B 未被覆盖（仍是 PRODUCTION/COST_PERIOD）（PRODUCTION/COST_PERIOD）
+  ✓ 含空格批号落库已 btrim（无 ' B17-LOT-A '）（0）
+  ✓ 软删序列号的批号没进批次（B17-LOT-GONE 不存在）（0）
+  ✓ 回填行形态固定（MANUAL/BACKFILL）（4）
+  ✓ 第二次 up 成功（exit=0）（0）
+  ✓ 第二次 up 回填 0 行（幂等）
+  ✓ biz_lot 行数不变（5）（5）
+
+== S7 V0380 down：只删回填行，客户自建批次保留
+  ✓ down 成功（exit=0）（0）
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.down.sql:41: WARNING:  V0380.down：1 条回填批次已被成本对象引用（biz_cost_object.lot_no），删除后这些成本对象只剩批号文本、没有批次主数据行
+    │ psql:/opt/cloudpivot/backend/migrations/business/V0380__cost_lot_backfill.down.sql:41: NOTICE:  V0380.down：已删除 4 条回填批次；保留 0 条已人工改过来源类型的回填行
+  ✓ 被成本对象引用的回填批次 → WARNING 点名
+  ✓ 回填行删净（0）
+  ✓ 客户自建批次保留（B17-LOT-B 仍在）（1）
+  ✓ down 幂等：再跑一次不报错（exit=0）（0）
+
+== S8 全链：三件按序 up（= 真实升级）→ menu_invariants → 逆序 down 回基线
+  ✓ 全链后：成本块菜单 26 条（26）
+  ✓ 全链后：号段 2 条 / 字典 7 项（2/7）
+  ✓ 全链后：菜单总数 411（385 + 26，落在 menu_invariants ⑤ 的 400-460）（411）
+  ── menu_invariants.sh 结果：
+    │ ═══ 菜单结构不变量 ═══
+    │ 库: mig_costb17_drill_1110225103
+    │ ① 孤儿 parent:           9  ❌
+    │     ↳ parent 不存在的子节点（前 10 条）：
+    │        20000000-0000-0000-0000-0000000a0901|support:attachment-rule|/support/attachment-rule|10000000-0000-0000-0000-000000000022
+    │        20000000-0000-0000-0000-000000000730|变更日志|/system/change-log|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000600|数据权限|/system/data-scope|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000610|字段脱敏|/system/field-mask|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000620|角色互斥|/system/role-mutex|10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-00000000f001|business:pdf:render:export||10000000-0000-0000-0000-000000000050
+    │        20000000-0000-0000-0000-000000003401|system:setup:read||10000000-0000-0000-0000-000000000001
+    │        20000000-0000-0000-0000-000000000001|business:monitor:server-status||10000000-0000-0000-0000-000000000050
+    │        20000000-0000-0000-0000-000000003402|system:setup:manage||10000000-0000-0000-0000-000000000001
+    │ ② /system/ 归属:         0  ✅
+    │ ③ /business/ 归属:       0  ✅
+    │     ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+    │ ④ path 唯一性:           0  ✅
+    │ ⑤ 菜单总数:            411  ✅ (400-460)
+    │ ⑥ title 长度:            0  ✅ (≤12 字)
+    │ ⑦ 同父 sort 唯一:        0  ✅
+    │ ⑧ icon 名合法:           0  ✅
+    │     ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 95 条，全部命中
+    │ 结果: 1 条不变量不通过 ❌（①孤儿parent）
+  ✓ 逆序 down 后：成本块 0 条菜单（0）
+  ✓ 逆序 down 后：菜单总数回 385（385）
+  ✓ 逆序 down 后：号段/字典/biz_lot 全空（0/0/1）
+
+=== 结果：0 条断言失败 ===
