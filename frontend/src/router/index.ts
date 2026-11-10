@@ -714,6 +714,36 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '批次管理', permission: 'business:erp:lot:list' },
       },
       {
+        // ==================== ERP 成本：工时台账（COST-B2-13 / ARCH-9 §6.1 #2） ====================
+        // `sys_menu` 种子（V0378 …c002）path = `/business/erp/cost-labor`、component
+        // `business/erp/cost-labor/index`，权限码 `business:erp:cost-labor:list`，
+        // 挂在「财务管理」（`…e02`）sort 62。路由手工注册，漏了 = 点菜单进 404。
+        path: 'business/erp/cost-labor',
+        name: 'BusinessErpCostLabor',
+        component: () => import('@/views/business/erp/cost-labor/index.vue'),
+        meta: { title: '工时台账', permission: 'business:erp:cost-labor:list' },
+      },
+      {
+        // ==================== ERP 成本：费用台账（COST-B2-13 / ARCH-9 §6.1 #3） ====================
+        // `sys_menu` 种子（V0378 …c003）path = `/business/erp/cost-overhead`、component
+        // `business/erp/cost-overhead/index`，权限码 `business:erp:cost-overhead:list`，
+        // 挂在「财务管理」sort 64。
+        path: 'business/erp/cost-overhead',
+        name: 'BusinessErpCostOverhead',
+        component: () => import('@/views/business/erp/cost-overhead/index.vue'),
+        meta: { title: '费用台账', permission: 'business:erp:cost-overhead:list' },
+      },
+      {
+        // ==================== ERP 成本：分摊规则（COST-B2-13 / ARCH-9 §6.1 #4） ====================
+        // `sys_menu` 种子（V0378 …c004）path = `/business/erp/cost-alloc-rule`、component
+        // `business/erp/cost-alloc-rule/index`，权限码 `business:erp:cost-alloc-rule:list`，
+        // 挂在「财务管理」sort 66。试算弹窗在本页内（无独立路由）。
+        path: 'business/erp/cost-alloc-rule',
+        name: 'BusinessErpCostAllocRule',
+        component: () => import('@/views/business/erp/cost-alloc-rule/index.vue'),
+        meta: { title: '分摊规则', permission: 'business:erp:cost-alloc-rule:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）

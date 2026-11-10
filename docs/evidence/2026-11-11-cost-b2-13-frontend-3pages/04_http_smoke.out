@@ -1,0 +1,28 @@
+  [OK]   登录拿到令牌
+  [OK]   GET /cost-labor → HTTP 200
+  [OK]     /cost-labor 出参是 {list,total,page,page_size}
+  [OK]   GET /cost-overhead → HTTP 200
+  [OK]     /cost-overhead 出参是 {list,total,page,page_size}
+  [OK]   GET /cost-alloc-rule → HTTP 200
+  [OK]     /cost-alloc-rule 出参是 {list,total,page,page_size}
+  [OK]   GET /cost-labor/template → HTTP 200
+  [OK]     模板 content-type 是 xlsx（8611 字节）
+  [OK]   POST /cost-object（造夹具） → HTTP 200
+  [OK]   POST /cost-labor（rate 留空） → HTTP 422
+  [OK]     业务码 = 66059（费率三级全空，不按 0 计）
+  [OK]     报文含「怎么修」
+  [OK]   POST /cost-labor（rate=50） → HTTP 200
+  [OK]     金额 = 400.0000（8 × 50）
+  [OK]   POST /cost-labor/{id}/confirm → HTTP 200
+  [OK]     状态 DRAFT → CONFIRMED
+  [OK]   POST /cost-overhead（不挂对象） → HTTP 200
+  [OK]     cost_object_id = null（= 车间费用池）
+  [OK]     费用项目名来自字典（水电费）
+  [OK]   POST /cost-alloc-rule（rule_code 小写） → HTTP 200
+  [OK]     rule_code 归一为大写 SMOKE_UTILITY
+  [OK]     basis_label 回填
+  [OK]   POST /cost-alloc-rule/preview → HTTP 200
+  [OK]     守恒：池 0.0000 == 分摊 0.0000
+  [i] 组数 2 / 未分摊 0（本期未跑 calc，池为 0 属预期）
+
+ALL SMOKE CHECKS PASSED
