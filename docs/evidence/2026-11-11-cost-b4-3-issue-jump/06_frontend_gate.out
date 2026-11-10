@@ -1,0 +1,17 @@
+# pnpm typecheck
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+TC_EXIT=0
+
+# pnpm test:unit
+# tests 1380
+# suites 0
+# pass 1380
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 8977.49034
+
+# pnpm build（本轮已跑过，exit 0）

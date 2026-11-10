@@ -384,6 +384,132 @@ fn like_pattern(keyword: Option<&str>) -> Option<String> {
         .map(|text| format!("%{}%", text.replace('%', "\\%").replace('_', "\\_")))
 }
 
+// ==================== 一键领料预填（B4-3） ====================
+
+/// 预填的**物料范围**一行：该成本对象历史领用过的物料 + 最近一次的领用数量。
+#[derive(Debug, Clone)]
+pub struct IssuePrefillMaterialRow {
+    /// 物料。
+    pub material_id: Uuid,
+    /// 物料编码（实时 join）。
+    pub material_code: Option<String>,
+    /// 物料名称（实时 join）。
+    pub material_name: Option<String>,
+    /// 最近一次的领用数量。
+    pub qty: Decimal,
+    /// 最近一次的出库日期。
+    pub last_out_date: Option<NaiveDate>,
+}
+
+impl IssuePrefillMaterialRow {
+    /// 行 → 出参。
+    pub fn to_res(&self) -> super::stockout_dto::IssuePrefillMaterialRes {
+        super::stockout_dto::IssuePrefillMaterialRes {
+            material_id: self.material_id.to_string(),
+            material_code: self.material_code.clone(),
+            material_name: self.material_name.clone(),
+            qty: self.qty.round_dp(4).to_string(),
+            last_out_date: self.last_out_date.map(|date| date.to_string()),
+        }
+    }
+}
+
+/// 「一键领料」的物料范围：**该成本对象历史上领用过的物料**（每个物料取最近一次）。
+///
+/// # 为什么是「历史」而不是 BOM
+///
+/// 设计 §8.3 R-12 明确一期**不做 BOM 定额控制**，没有 BOM 就没有「这批该领什么」的
+/// 客观来源。凭空生成物料行等于替用户编数据（R-1 那类「算出来但不准」的成因），
+/// 所以只把事实上领过的料摆出来当默认值，数量也照抄上一次 —— 用户改数比他核对
+/// 一串凭空出现的物料便宜。
+///
+/// # 口径
+///
+/// * 只认 `out_type='ISSUE'`（其他类型归集不到料，§4.3）；
+/// * `CANCELLED` 的作废单不参与（那笔料没进车间）；
+/// * 软删的物料**剔除**（`JOIN biz_material … AND deleted_at IS NULL`）：物料被删后
+///   出库单会 400，预填一个删掉的物料等于挖坑；
+/// * 按 `so.out_date DESC, so.created_at DESC, i.line_no DESC` 取「最近一次」，
+///   同一天多单用创建时间兜底，保证结果稳定（同一份数据两次调用必须一样）。
+pub async fn issue_prefill_materials(
+    ex: &impl SqlExecutor,
+    cost_object_id: Uuid,
+) -> DbResult<Vec<IssuePrefillMaterialRow>> {
+    let rows = ex
+        .query_sql(
+            "SELECT DISTINCT ON (i.material_id) i.material_id, m.material_code, m.material_name, \
+                    i.qty, so.out_date \
+               FROM biz_stock_out_item i \
+               JOIN biz_stock_out so ON so.id = i.stock_out_id \
+               JOIN biz_material m ON m.id = i.material_id AND m.deleted_at IS NULL \
+              WHERE so.cost_object_id = ?::uuid \
+                AND so.deleted_at IS NULL \
+                AND so.out_type = 'ISSUE' \
+                AND so.status <> 'CANCELLED' \
+              ORDER BY i.material_id, so.out_date DESC, so.created_at DESC, i.line_no DESC \
+              LIMIT ?"
+                .to_string(),
+            vec![
+                Value::from(&cost_object_id),
+                Value::I64(super::stockout_dto::ISSUE_PREFILL_MATERIAL_LIMIT),
+            ],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(IssuePrefillMaterialRow {
+                material_id: row.get_typed("material_id")?,
+                material_code: row.get_typed("material_code")?,
+                material_name: row.get_typed("material_name")?,
+                qty: row.get_typed("qty")?,
+                last_out_date: row.get_typed("out_date")?,
+            })
+        })
+        .collect()
+}
+
+/// 预填的建议出库仓库：该成本对象**上一次领料的仓库**（含 `id` + 名称）。
+#[derive(Debug, Clone)]
+pub struct IssuePrefillWarehouseRow {
+    /// 仓库。
+    pub warehouse_id: Uuid,
+    /// 仓库名称（实时 join，主数据删了就是 `None`）。
+    pub warehouse_name: Option<String>,
+}
+
+/// 取该对象上一次领料的仓库（没有历史领料 → `None`，前端让用户自己选）。
+///
+/// 为什么是「上次的领料仓库」而不是成本对象的目标仓（`target_warehouse_id`）：
+/// 目标仓是**完工入库**的去处（成品仓），领料是从**原料仓**出 —— 拿成品的仓去预填
+/// 领料，用户第一次保存就会被「库存不足」拦下（还可能误开一张跨仓脏单）。
+pub async fn last_issue_warehouse(
+    ex: &impl SqlExecutor,
+    cost_object_id: Uuid,
+) -> DbResult<Option<IssuePrefillWarehouseRow>> {
+    let row = ex
+        .query_first_sql(
+            "SELECT so.warehouse_id, w.warehouse_name \
+               FROM biz_stock_out so \
+               LEFT JOIN biz_warehouse w ON w.id = so.warehouse_id AND w.deleted_at IS NULL \
+              WHERE so.cost_object_id = ?::uuid \
+                AND so.deleted_at IS NULL \
+                AND so.out_type = 'ISSUE' \
+                AND so.status <> 'CANCELLED' \
+              ORDER BY so.out_date DESC, so.created_at DESC \
+              LIMIT 1"
+                .to_string(),
+            vec![Value::from(&cost_object_id)],
+        )
+        .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => Ok(Some(IssuePrefillWarehouseRow {
+            warehouse_id: row.get_typed("warehouse_id")?,
+            warehouse_name: row.get_typed("warehouse_name")?,
+        })),
+    }
+}
+
 #[cfg(test)]
 mod option_tests {
     use super::like_pattern;

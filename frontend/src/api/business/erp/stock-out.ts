@@ -147,6 +147,55 @@ export interface StockOutCostObjectOption {
   start_date: string | null;
 }
 
+/** 一键领料预填里的一行物料（`materials[]`） */
+export interface StockOutIssuePrefillMaterial {
+  /** 物料 id */
+  material_id: string;
+  /** 物料编码（实时 join） */
+  material_code: string | null;
+  /** 物料名称（实时 join） */
+  material_name: string | null;
+  /** 该物料**上一次**的领用数量（字符串；不是建议领多少 —— 一期无 BOM 定额） */
+  qty: string;
+  /** 上一次领用的出库日期 `YYYY-MM-DD` */
+  last_out_date: string | null;
+}
+
+/**
+ * 一键领料预填（`GET /erp/stock-out/cost-object-issue-prefill?cost_object_id=…`）。
+ *
+ * 成本对象详情页点「领料」→ 出库单新建页，表单按它预填：
+ * 成本对象 / 车间（出库单无车间列，进事由 + 只读展示）/ 物料范围（历史已领物料）。
+ */
+export interface StockOutIssuePrefill {
+  /** 成本对象 id */
+  cost_object_id: string;
+  /** 对象号 `CB-yyyyMMdd-NNNNNN` */
+  object_no: string;
+  /** 产出品 id */
+  product_id: string;
+  /** 产出品编码 */
+  product_code: string | null;
+  /** 产出品名称 */
+  product_name: string | null;
+  /** 生产车间 id（`sys_dept.id`） */
+  workshop_dept_id: string;
+  /** 生产车间名 */
+  workshop_dept_name: string;
+  /** 建议出库仓库（该对象上一次领料的仓库；无历史 → `null`） */
+  suggested_warehouse_id: string | null;
+  /** 建议出库仓库名 */
+  suggested_warehouse_name: string | null;
+  /** 出库类型（恒 `ISSUE`） */
+  out_type: StockOutType;
+  /** 事由预填文案（≤ 255 字） */
+  reason: string;
+  /** 物料范围（历史已领物料；空数组 = 这一批还没领过料） */
+  materials: StockOutIssuePrefillMaterial[];
+  /** 是否有历史领料 */
+  has_history: boolean;
+}
+
 /** 明细行（逐字抄 `StockOutItemRes`） */
 export interface StockOutItemLine {
   /** 主键 */
@@ -294,6 +343,20 @@ export function fetchStockOutCostObjectOptions(params: { keyword?: string } = {}
   StockOutCostObjectOption[]
 > {
   return get<StockOutCostObjectOption[]>(`${BASE}/stock-out/cost-object-options`, asParams(params));
+}
+
+/**
+ * 成本对象详情页「领料」的预填数据（`GET /erp/stock-out/cost-object-issue-prefill`）。
+ *
+ * 权限是 `business:erp:stock-out:create`（开单的人才能拿预填）；
+ * 对象已关批 / 已作废 → 409 + `66057`，不存在 → 400 + `66002`。
+ * 上游入口：`cost-object/index.vue` 的「领料」按钮（带 `cost_object_id` 跳到本页）。
+ */
+export function fetchStockOutIssuePrefill(costObjectId: string): Promise<StockOutIssuePrefill> {
+  return get<StockOutIssuePrefill>(
+    `${BASE}/stock-out/cost-object-issue-prefill`,
+    asParams({ cost_object_id: costObjectId }),
+  );
 }
 
 /**

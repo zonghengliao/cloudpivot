@@ -32,6 +32,7 @@ import {
   canCloseObject,
   canCloseRow,
   canEditObject,
+  canIssueMaterial,
   closeErrorText,
   closeSummaryOf,
   emptyCostObjectForm,
@@ -115,7 +116,24 @@ test('权限码与 V0378 种子逐字一致，四个码互不相同', () => {
   assert.equal(COST_OBJECT_PERMISSIONS.update, 'business:erp:cost-object:update');
   assert.equal(COST_OBJECT_PERMISSIONS.close, 'business:erp:cost-object:close');
   const codes = Object.values(COST_OBJECT_PERMISSIONS);
-  assert.equal(new Set(codes).size, 4, '能看 ≠ 能建 ≠ 能改 ≠ 能关批');
+  assert.equal(new Set(codes).size, 5, '能看 ≠ 能建 ≠ 能改 ≠ 能关批 ≠ 能领料');
+});
+
+test('「领料」按钮的权限码是出库单建单权限（不是成本对象的权限）', () => {
+  // B4-3：点下去最终发的是 POST /business/erp/stock-out；预填接口也按这个码授权
+  assert.equal(COST_OBJECT_PERMISSIONS.issue, 'business:erp:stock-out:create');
+  assert.equal(
+    COST_OBJECT_PERMISSIONS.issue,
+    'business:erp:stock-out:create',
+    '写成 cost-object:* 会让仓管看到按钮却保存 403',
+  );
+});
+
+test('「领料」只在 OPEN 对象上出现（CLOSED / CANCELLED 不给按钮）', () => {
+  assert.equal(canIssueMaterial({ status: 'OPEN' }), true);
+  assert.equal(canIssueMaterial({ status: 'CLOSED' }), false, '已关批不能领料（后端 409+66057）');
+  assert.equal(canIssueMaterial({ status: 'CANCELLED' }), false);
+  assert.equal(canIssueMaterial(null), false);
 });
 
 test('状态 / 投料方式词表与 DDL CHECK 逐字一致', () => {

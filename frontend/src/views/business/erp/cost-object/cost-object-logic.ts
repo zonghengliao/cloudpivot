@@ -46,6 +46,14 @@ export const COST_OBJECT_PERMISSIONS = {
   update: 'business:erp:cost-object:update',
   /** 关批 */
   close: 'business:erp:cost-object:close',
+  /**
+   * 一键领料（B4-3）：跳到出库单新建页预填。
+   *
+   * 刻意用**出库单的建单权限**而不是成本对象的权限：这个按钮的最终动作是
+   * `POST /business/erp/stock-out`，没有建单权限的人点进去只会在保存时 403。
+   * 预填接口 `/stock-out/cost-object-issue-prefill` 也是按同一个码授权的。
+   */
+  issue: 'business:erp:stock-out:create',
 } as const;
 
 /** 列表默认每页条数（与后端 `DEFAULT_PAGE_SIZE` 同口径） */
@@ -422,6 +430,19 @@ export function canCloseObject(
 /** 行级：列表行没有 `next_statuses`，按状态判断（与后端 §4.1 三条边一致） */
 export function canCloseRow(row: Pick<CostObjectRow, 'status'> | null | undefined): boolean {
   return row?.status === 'OPEN';
+}
+
+/**
+ * 能否一键领料（B4-3）：只有 `OPEN`（在制）的对象能领料。
+ *
+ * 依据：§4.1 状态表「`OPEN` → 可领料」；`CLOSED` 的成本已结转到完工入库，
+ * 再领料会与在制余额对不上（后端建单侧 409 + `66057` 还会再拦一次，这里只是
+ * 不给按钮 —— 点了必然失败的事不该让用户点）。
+ */
+export function canIssueMaterial(
+  object: Pick<CostObjectDetail, 'status'> | Pick<CostObjectRow, 'status'> | null | undefined,
+): boolean {
+  return object?.status === 'OPEN';
 }
 
 /** 是否有归集（`collect_summary.total != 0` 即认为有；数量与金额都用字符串比） */

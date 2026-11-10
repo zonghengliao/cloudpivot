@@ -18,6 +18,13 @@
 //! | 5 | [`posting_splits_debit_by_cost_object`] | 过账实证：挂对象借 4001.01，不挂仍借 6401，贷都是 1405 |
 //! | 6 | [`posting_refuses_when_object_closed_after_draft`] | 过账兜底：草稿期间对象被关批 ⇒ 409 + 66057，单仍是 DRAFT、账一分没动 |
 //!
+//! # B4-3 追加：一键领料预填（`cost_object_issue_prefill`）
+//!
+//! | # | 用例 | 覆盖 |
+//! |---|---|---|
+//! | 9 | [`issue_prefill_without_history_returns_object_and_workshop_only`] | 无历史：对象号 / 车间 / 事由齐，物料范围为空（不凭空编料） |
+//! | 10 | [`issue_prefill_reuses_last_issue_materials_and_warehouse`] | 有历史：物料 + 上次数量 + 上次领料仓库 |
+//!
 //! # 夹具纪律
 //!
 //! 全部用 `d2b10c00-*` 固定 UUID（与 `d2030100-*` / `d2f1f200-*` 两套既有夹具不重叠），
@@ -35,7 +42,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::*;
-use crate::business::erp::stockout_dto::{CreateStockOutReq, StockOutItemReq};
+use crate::business::erp::stockout_dto::{CreateStockOutReq, IssuePrefillQuery, StockOutItemReq};
 use crate::business::erp::stockout_handler;
 use crate::business::erp::stockout_model;
 use crate::business::erp::voucher;
@@ -502,4 +509,141 @@ async fn options_filter_by_keyword_on_object_no_and_product() {
     let options = stockout_handler::cost_object_options(&query).await.expect("下拉");
     assert!(options.is_empty(), "已关批对象的号搜出来也必须是空：{options:?}");
     println!("[B1-12] 关键字三列命中 OK，关批对象搜不到");
+}
+
+// ==================== 一键领料预填（B4-3） ====================
+
+fn prefill_query(object: &str) -> IssuePrefillQuery {
+    IssuePrefillQuery {
+        cost_object_id: Some(object.to_string()),
+    }
+}
+
+/// ⑨ 没有历史领料：预填仍要给出成本对象 / 车间 / 事由，但物料范围为空。
+///
+/// 这条钉住的是「不要凭空编物料」——一期没有 BOM（§8.3 R-12），
+/// 服务端只能把事实上领过的料摆出来。
+#[tokio::test]
+async fn issue_prefill_without_history_returns_object_and_workshop_only() {
+    let Some(_guard) = setup().await else { return };
+    let prefill = stockout_handler::cost_object_issue_prefill(&prefill_query(OBJECT_OPEN))
+        .await
+        .unwrap_or_else(|error| panic!("预填失败：{} {}", error.code, error.msg));
+
+    assert_eq!(
+        prefill.cost_object_id, OBJECT_OPEN,
+        "成本对象必须回传（保存时靠它回挂）"
+    );
+    assert_eq!(prefill.object_no, "CB-B110-000001");
+    assert_eq!(prefill.out_type, "ISSUE", "一键领料恒为领用单");
+    assert_eq!(prefill.product_code.as_deref(), Some("B10-P1"));
+    assert!(
+        !prefill.workshop_dept_name.trim().is_empty(),
+        "车间必须预填（出库单没有车间列）"
+    );
+    assert_eq!(prefill.suggested_warehouse_id, None, "没领过料就别猜仓库");
+    assert!(
+        prefill.materials.is_empty(),
+        "没有历史 → 物料范围为空：{:?}",
+        prefill.materials
+    );
+    assert!(!prefill.has_history);
+    assert!(
+        prefill.reason.contains("CB-B110-000001") && prefill.reason.contains("生产领料"),
+        "事由要带上对象号：{}",
+        prefill.reason
+    );
+    println!("[B4-3] 无历史预填 OK：{}", prefill.reason);
+}
+
+/// ⑩ 有过一次领料：物料范围 = 上次领过的物料 + 上次数量；仓库 = 上次领料的仓库。
+#[tokio::test]
+async fn issue_prefill_reuses_last_issue_materials_and_warehouse() {
+    let Some(_guard) = setup().await else { return };
+    seed_inbound("100", "10").await;
+    // 先按「一键领料」的方式建一张挂对象的领用单（数量由 req() 给了 10）
+    let first = stockout_handler::create_stock_out(&req("ISSUE", Some(OBJECT_OPEN)), None)
+        .await
+        .expect("建单");
+    assert_eq!(stored_cost_object(first).await, Some(uuid(OBJECT_OPEN)));
+
+    let prefill = stockout_handler::cost_object_issue_prefill(&prefill_query(OBJECT_OPEN))
+        .await
+        .expect("预填");
+
+    assert!(prefill.has_history, "刚领过料，必须有历史");
+    assert_eq!(prefill.materials.len(), 1, "只有一种物料：{:?}", prefill.materials);
+    let line = &prefill.materials[0];
+    assert_eq!(line.material_id, MATERIAL, "物料范围 = 上次领过的物料");
+    assert_eq!(line.material_code.as_deref(), Some("B10-M1"), "物料编码要 join 出来");
+    assert_eq!(line.qty, "10.0000", "数量照抄上一次（四位小数字符串）");
+    assert_eq!(
+        prefill.suggested_warehouse_id.as_deref(),
+        Some(WAREHOUSE),
+        "仓库 = 上次领料的仓库（不是成本对象的完工入库仓）"
+    );
+    assert_eq!(prefill.suggested_warehouse_name.as_deref(), Some("B1-10 出库仓"));
+    println!(
+        "[B4-3] 有历史预填 OK：{} 种物料，仓库 {:?}",
+        prefill.materials.len(),
+        prefill.suggested_warehouse_name
+    );
+}
+
+/// ⑪ 已关批 / 已作废的对象点「领料」：当场 409 + 66057（不等填完单再拦）。
+#[tokio::test]
+async fn issue_prefill_of_non_open_object_is_rejected_with_409() {
+    let Some(_guard) = setup().await else { return };
+    for (object, label) in [(OBJECT_CLOSED, "CLOSED"), (OBJECT_CANCELLED, "CANCELLED")] {
+        let error = stockout_handler::cost_object_issue_prefill(&prefill_query(object))
+            .await
+            .expect_err("非 OPEN 对象必须被拒");
+        assert_eq!(error.status, 409, "{label}");
+        assert_eq!(error.code, error_code::ERP_COST_OBJECT_NOT_OPEN, "{label}");
+        assert!(error.msg.contains("CB-B110-00000"), "报文要点名对象：{}", error.msg);
+        println!("[B4-3] {label} 对象领料被拦：{} {}", error.code, error.msg);
+    }
+    // 不存在的对象 → 400 + 66002（引用缺失，与「状态不对」分开）
+    let error = stockout_handler::cost_object_issue_prefill(&prefill_query("d2b10c00-0000-4000-8000-0000000000ff"))
+        .await
+        .expect_err("不存在的对象必须被拒");
+    assert_eq!(error.status, 400);
+    assert_eq!(error.code, error_code::ERP_REFERENCE_MISSING);
+}
+
+/// ⑫ 作废的领用单不进物料范围（那笔料没进车间），且缺参 400。
+#[tokio::test]
+async fn issue_prefill_ignores_cancelled_docs_and_requires_id() {
+    let Some(_guard) = setup().await else { return };
+    seed_inbound("100", "10").await;
+    let id = stockout_handler::create_stock_out(&req("ISSUE", Some(OBJECT_OPEN)), None)
+        .await
+        .expect("建单");
+    stockout_handler::change_status(
+        id,
+        &crate::business::erp::stockout_dto::StockOutStatusReq {
+            status: Some("CANCELLED".to_string()),
+            target_status: None,
+            reason: Some("B4-3 用例：作废后不该再被预填".to_string()),
+        },
+        None,
+    )
+    .await
+    .expect("作废");
+
+    let prefill = stockout_handler::cost_object_issue_prefill(&prefill_query(OBJECT_OPEN))
+        .await
+        .expect("预填");
+    assert!(
+        prefill.materials.is_empty(),
+        "作废单的物料不进物料范围：{:?}",
+        prefill.materials
+    );
+    assert!(!prefill.has_history);
+
+    let error = stockout_handler::cost_object_issue_prefill(&IssuePrefillQuery::default())
+        .await
+        .expect_err("缺参必须 400");
+    assert_eq!(error.status, 400);
+    println!("[B4-3] 作废单不参与物料范围 + 缺参 400 OK");
 }

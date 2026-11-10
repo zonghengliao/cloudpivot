@@ -415,6 +415,126 @@ pub struct CostObjectOptionRes {
 /// 下拉上限（一次领料不会挑 200 个批；与 `lot_dto::OPTIONS_LIMIT` 同口径）。
 pub const COST_OBJECT_OPTION_LIMIT: i64 = 200;
 
+// ==================== 一键领料预填（B4-3：成本对象 → 新建出库单） ====================
+
+/// 「一键领料」预填查询（`GET /business/erp/stock-out/cost-object-issue-prefill`）。
+///
+/// 只有一个入参：**成本对象 id**。车间 / 物料范围 / 事由都由服务端从对象本身与
+/// 它的历史领料推出来 —— 让客户端传这些等于允许它伪造「这批该领什么料」。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct IssuePrefillQuery {
+    /// 成本对象 id（必填）。
+    pub cost_object_id: Option<String>,
+}
+
+impl IssuePrefillQuery {
+    /// 取成本对象 id：`None` / 空白 / 非法 UUID 一律 400。
+    ///
+    /// 不做「缺省取第一个在制对象」这类猜测：领错批的代价是成本归错对象，
+    /// 事后只能关批重建（§4.1 关批不可逆）。
+    pub fn cost_object_id_value(&self) -> std::result::Result<uuid::Uuid, ApiError> {
+        let Some(raw) = self
+            .cost_object_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+        else {
+            return Err(bad_request("cost_object_id 必填：一键领料要先知道料归到哪个成本对象"));
+        };
+        uuid::Uuid::parse_str(raw).map_err(|err| bad_request(format!("cost_object_id 不是合法 UUID：{err}")))
+    }
+}
+
+/// 预填的**物料范围**里的一行（该对象历史领用过的某个物料 + 最近一次数量）。
+///
+/// 数量是「上次领了多少」，不是建议领多少 —— 一期没有 BOM 定额（§8.3 R-12），
+/// 服务端没有资格算「该领多少」，只把事实摆出来让用户改。
+#[derive(Debug, Clone, Serialize)]
+pub struct IssuePrefillMaterialRes {
+    /// 物料 id。
+    pub material_id: String,
+    /// 物料编码（实时 join）。
+    pub material_code: Option<String>,
+    /// 物料名称（实时 join）。
+    pub material_name: Option<String>,
+    /// 该物料上一次的领用数量（四位小数字符串）。
+    pub qty: String,
+    /// 该物料上一次领用的出库日期 `YYYY-MM-DD`（用户判断「这数字旧不旧」）。
+    pub last_out_date: Option<String>,
+}
+
+/// 「一键领料」预填出参（成本对象详情页「领料」→ 出库单新建表单）。
+///
+/// # 为什么车间 / 物料范围要由后端给
+///
+/// 出库单表（`biz_stock_out`）**没有车间列**（V0203：单头只有仓库 / 日期 / 事由 /
+/// 状态）。车间只在成本对象上（`workshop_dept_id`），属于「这张领料单为哪个车间开的」
+/// 的展示信息：它进事由文案，不作为出库单字段落库。由后端统一下发，
+/// 前端不自己拼口径（否则换个人写页面就会漏掉车间名快照 vs 实时名之分）。
+#[derive(Debug, Clone, Serialize)]
+pub struct IssuePrefillRes {
+    /// 成本对象 id。
+    pub cost_object_id: String,
+    /// 对象号 `CB-yyyyMMdd-NNNNNN`。
+    pub object_no: String,
+    /// 产出品物料 id。
+    pub product_id: String,
+    /// 产出品编码。
+    pub product_code: Option<String>,
+    /// 产出品名称。
+    pub product_name: Option<String>,
+    /// 生产车间（`sys_dept.id`）。
+    pub workshop_dept_id: String,
+    /// 生产车间名（实时名优先，落空回落到建单快照）。
+    pub workshop_dept_name: String,
+    /// 建议出库仓库（该对象上一次领料的仓库；没有历史领料 → `null`）。
+    pub suggested_warehouse_id: Option<String>,
+    /// 建议出库仓库名。
+    pub suggested_warehouse_name: Option<String>,
+    /// 出库类型（恒 `ISSUE`：只有领用能挂成本对象）。
+    pub out_type: String,
+    /// 事由预填文案（≤ 255 字，可直接落 `biz_stock_out.reason`）。
+    pub reason: String,
+    /// 物料范围（历史已领用物料；**空数组** = 该批还没领过料，让用户自己选）。
+    pub materials: Vec<IssuePrefillMaterialRes>,
+    /// 是否有历史领料（前端据此决定提示「沿用上次的料」还是「这一批还没领过料」）。
+    pub has_history: bool,
+}
+
+/// 物料范围上限（出库明细上限 200 行；预填只给最近几十个物料，超量请手工加行）。
+pub const ISSUE_PREFILL_MATERIAL_LIMIT: i64 = 50;
+
+/// 事由长度上限（`biz_stock_out.reason VARCHAR(255)` + `MAX_REASON_LEN`）。
+pub const ISSUE_PREFILL_REASON_MAX: usize = 255;
+
+/// 事由预填文案（纯函数）：`生产领料：CB-…（产品名）车间名`。
+///
+/// 为什么要塞车间：出库单没有车间列，凭证摘要 + 事由是唯一能看出「这批料给哪个
+/// 车间领的」的地方；报废 / 盘亏的事由本来就是人工填的（§4.7.2），领用同理。
+///
+/// 按**字符**截断到 [`ISSUE_PREFILL_REASON_MAX`]：`VARCHAR(255)` 数的是字符数，
+/// 按字节截会把中文切成半个字（落库即 22001）。截断后仍 ≤ 255，直接可落库。
+pub fn issue_prefill_reason(object_no: &str, product_name: Option<&str>, workshop_dept_name: Option<&str>) -> String {
+    let mut text = format!("生产领料：{}", object_no.trim());
+    if let Some(product) = product_name.map(str::trim).filter(|text| !text.is_empty()) {
+        text.push_str(&format!("（{product}）"));
+    }
+    if let Some(dept) = workshop_dept_name.map(str::trim).filter(|text| !text.is_empty()) {
+        text.push(' ');
+        text.push_str(dept);
+    }
+    truncate_chars(&text, ISSUE_PREFILL_REASON_MAX)
+}
+
+/// 按字符截断（不开 `truncate(true)` 的字节语义：中文一字三字节）。
+fn truncate_chars(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_string();
+    }
+    text.chars().take(max).collect()
+}
+
 // ==================== 出参 ====================
 
 /// 列表行。
@@ -1006,5 +1126,111 @@ mod tests {
             assert!(value.get(key).is_some(), "下拉出参缺键 {key}：{value}");
         }
         assert_eq!(value["object_no"], "CB-20261101-000001");
+    }
+
+    // ---------- B4-3：一键领料预填 ----------
+
+    /// 事由文案：对象号 + 产品 + 车间，全中文全角括号（凭证摘要里最好认）。
+    #[test]
+    fn issue_prefill_reason_joins_object_product_and_workshop() {
+        let reason = issue_prefill_reason("CB-20261110-000001", Some("钢轴"), Some("一车间"));
+        assert_eq!(reason, "生产领料：CB-20261110-000001（钢轴） 一车间");
+    }
+
+    /// 产品名 / 车间缺失（主数据被删、历史行没有快照）→ 不留下空括号和多余空格。
+    #[test]
+    fn issue_prefill_reason_skips_blank_parts() {
+        assert_eq!(
+            issue_prefill_reason("CB-20261110-000002", None, None),
+            "生产领料：CB-20261110-000002"
+        );
+        assert_eq!(
+            issue_prefill_reason("  CB-20261110-000003  ", Some("   "), Some(" 二车间 ")),
+            "生产领料：CB-20261110-000003 二车间"
+        );
+    }
+
+    /// 超长（长产品名 + 长车间名）按**字符**截到 255：落库不会 22001，也不会切半个汉字。
+    #[test]
+    fn issue_prefill_reason_truncates_by_chars_to_column_width() {
+        let product = "钢".repeat(200);
+        let dept = "车".repeat(120);
+        let reason = issue_prefill_reason("CB-20261110-000004", Some(&product), Some(&dept));
+        assert_eq!(reason.chars().count(), ISSUE_PREFILL_REASON_MAX);
+        assert_eq!(ISSUE_PREFILL_REASON_MAX, 255, "列宽就是 VARCHAR(255)");
+        assert!(reason.starts_with("生产领料：CB-20261110-000004（钢"));
+        // 字节数必然大于字符数（中文一字 3 字节）—— 证明没有按字节截
+        assert!(reason.len() > reason.chars().count());
+    }
+
+    /// 入参三态：缺省 / 空白 → 400；非法 UUID → 400；合法 → 解析成功。
+    #[test]
+    fn issue_prefill_query_requires_uuid() {
+        assert_eq!(
+            IssuePrefillQuery::default()
+                .cost_object_id_value()
+                .expect_err("缺省必须 400")
+                .status,
+            400
+        );
+        let blank = IssuePrefillQuery {
+            cost_object_id: Some("   ".to_string()),
+        };
+        assert_eq!(blank.cost_object_id_value().expect_err("空白").status, 400);
+        let bad = IssuePrefillQuery {
+            cost_object_id: Some("not-a-uuid".to_string()),
+        };
+        assert_eq!(bad.cost_object_id_value().expect_err("非法").status, 400);
+        let id = uuid::Uuid::now_v7();
+        let ok = IssuePrefillQuery {
+            cost_object_id: Some(format!(" {id} ")),
+        };
+        assert_eq!(ok.cost_object_id_value().expect("合法"), id);
+    }
+
+    /// 出参 JSON 键名钉死（前端 `stock-out.ts` 的类型按这些键写）。
+    #[test]
+    fn issue_prefill_res_serializes_expected_keys() {
+        let value = serde_json::to_value(IssuePrefillRes {
+            cost_object_id: "11111111-1111-4111-8111-111111111111".to_string(),
+            object_no: "CB-20261110-000001".to_string(),
+            product_id: "22222222-2222-4222-8222-222222222222".to_string(),
+            product_code: Some("M-001".to_string()),
+            product_name: Some("钢轴".to_string()),
+            workshop_dept_id: "33333333-3333-4333-8333-333333333333".to_string(),
+            workshop_dept_name: "一车间".to_string(),
+            suggested_warehouse_id: Some("44444444-4444-4444-8444-444444444444".to_string()),
+            suggested_warehouse_name: Some("原料仓".to_string()),
+            out_type: OUT_TYPE_ISSUE.to_string(),
+            reason: "生产领料：CB-20261110-000001（钢轴） 一车间".to_string(),
+            materials: vec![IssuePrefillMaterialRes {
+                material_id: "55555555-5555-4555-8555-555555555555".to_string(),
+                material_code: Some("M-002".to_string()),
+                material_name: Some("圆钢".to_string()),
+                qty: "12.5000".to_string(),
+                last_out_date: Some("2026-11-09".to_string()),
+            }],
+            has_history: true,
+        })
+        .expect("序列化");
+        for key in [
+            "cost_object_id",
+            "object_no",
+            "product_id",
+            "product_code",
+            "product_name",
+            "workshop_dept_id",
+            "workshop_dept_name",
+            "suggested_warehouse_id",
+            "suggested_warehouse_name",
+            "out_type",
+            "reason",
+            "materials",
+            "has_history",
+        ] {
+            assert!(value.get(key).is_some(), "预填出参缺键 {key}：{value}");
+        }
+        assert_eq!(value["out_type"], "ISSUE", "预填永远是领用单");
+        assert_eq!(value["materials"][0]["qty"], "12.5000");
     }
 }

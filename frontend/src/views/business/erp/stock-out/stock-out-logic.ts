@@ -633,3 +633,89 @@ export function isNegativeStockError(error: unknown): boolean {
 export function isCancelBlockedError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && (error as ErrorLike).code === 66035);
 }
+
+// ==================== 一键领料预填（B4-3） ====================
+
+/** 预填后页面要额外展示的「这一单从哪来」信息（不提交给后端） */
+export interface IssuePrefillBanner {
+  /** 成本对象号 */
+  object_no: string;
+  /** 生产车间名 */
+  workshop_dept_name: string;
+  /** 物料范围来源：`HISTORY` 沿用上次领的料 / `EMPTY` 这一批还没领过料 */
+  material_source: 'HISTORY' | 'EMPTY';
+  /** 物料行数（0 = 让用户自己选） */
+  material_count: number;
+}
+
+/**
+ * 把「一键领料」预填套到新建表单上（纯函数，返回新对象，不改入参）。
+ *
+ * # 预填什么、不预填什么
+ *
+ * | 字段 | 处理 | 依据 |
+ * |---|---|---|
+ * | `out_type` | 恒 `ISSUE` | 只有领用能挂成本对象（后端 `ensure_cost_object_usable`） |
+ * | `cost_object_id` | 用预填的对象 —— **保存后自动关联回成本对象**就靠它 | B1-10 |
+ * | `warehouse_id` | 有历史领料 → 上次的仓库；没有 → 留空让用户选 | 目标仓是完工入库仓，不能拿来领料 |
+ * | `reason` | 后端给的事由文案（含对象号 + 车间，≤255 字） | 出库单没有车间列，事由是唯一载体 |
+ * | `items` | 每个历史物料一行（带上一次数量）；没有历史 → 一行空明细 | 一期无 BOM（R-12），不凭空编物料 |
+ * | `remark` | 不动 | 用户自己写 |
+ *
+ * 为什么数量要 `Number()` 一次：后端给的是四位小数字符串（`12.5000`），
+ * `t-input-number` 绑的是 number；不转会让输入框显示空。
+ */
+export function applyIssuePrefill(
+  prefill: IssuePrefillFromApi,
+  now: Date = new Date(),
+): { form: StockOutFormState; banner: IssuePrefillBanner } {
+  const items: StockOutItemForm[] = prefill.materials.map((line, index) => ({
+    key: `prefill-${index + 1}`,
+    material_id: line.material_id,
+    qty: Number(line.qty) || undefined,
+    location_id: undefined,
+  }));
+  const form: StockOutFormState = {
+    id: null,
+    out_type: 'ISSUE',
+    warehouse_id: prefill.suggested_warehouse_id ?? '',
+    out_date: todayString(now),
+    reason: prefill.reason.slice(0, STOCK_OUT_MAX_REASON),
+    remark: '',
+    cost_object_id: prefill.cost_object_id,
+    items: items.length > 0 ? items : [emptyStockOutItem('line-1')],
+  };
+  return {
+    form,
+    banner: {
+      object_no: prefill.object_no,
+      workshop_dept_name: prefill.workshop_dept_name,
+      material_source: prefill.has_history ? 'HISTORY' : 'EMPTY',
+      material_count: prefill.materials.length,
+    },
+  };
+}
+
+/**
+ * 预填入参的最小形状（只声明本函数用到的字段）。
+ *
+ * 不从 `@/api/business/erp/stock-out` 值导入类型以外的东西：单测（tsx --test）
+ * 跑在 node 里，`api/request.ts` 顶层读 `import.meta.env` 会直接崩 —— 所以这里
+ * 用结构类型而不是 import type 之后的实参。
+ */
+export interface IssuePrefillFromApi {
+  /** 成本对象 id（保存后落库的关联键） */
+  cost_object_id: string;
+  /** 成本对象号（展示用） */
+  object_no: string;
+  /** 生产车间名（展示用） */
+  workshop_dept_name: string;
+  /** 建议仓库（无历史领料 → null） */
+  suggested_warehouse_id: string | null;
+  /** 事由预填文案 */
+  reason: string;
+  /** 物料范围 */
+  materials: ReadonlyArray<{ material_id: string; qty: string }>;
+  /** 是否有历史领料 */
+  has_history: boolean;
+}

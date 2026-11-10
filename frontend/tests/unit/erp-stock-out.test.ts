@@ -23,9 +23,11 @@ import {
   OUT_TYPE_OPTIONS,
   REQUIRES_REASON_TYPES,
   STOCK_OUT_MAX_LINES,
+  STOCK_OUT_MAX_REASON,
   STOCK_OUT_PAGE_SIZE,
   STOCK_OUT_STATUS_FILTER_OPTIONS,
   allowsCostObject,
+  applyIssuePrefill,
   buildCancelPayload,
   buildStockOutPayload,
   buildStockOutQuery,
@@ -524,4 +526,103 @@ test('成本对象下拉必须走 /stock-out/cost-object-options（仓管也有�
   assert.ok(source.includes('export function fetchStockOutCostObjectOptions'));
   // 不许改去查成本对象页那个接口（仓管没有 cost-object:list）
   assert.equal(source.includes('${BASE}/cost-object?status=OPEN'), false);
+});
+
+// ==================== 一键领料预填（B4-3） ====================
+
+/** 一份「有历史领料」的预填（两个物料 + 建议仓库） */
+function prefillWithHistory() {
+  return {
+    cost_object_id: 'obj-1',
+    object_no: 'CB-20261110-000001',
+    workshop_dept_name: '一车间',
+    suggested_warehouse_id: 'wh-raw',
+    reason: '生产领料：CB-20261110-000001（钢轴） 一车间',
+    materials: [
+      { material_id: 'mat-1', qty: '12.5000' },
+      { material_id: 'mat-2', qty: '3.0000' },
+    ],
+    has_history: true,
+  };
+}
+
+test('一键领料预填：成本对象 / 事由 / 仓库 / 明细全部带上（保存后自动关联）', () => {
+  const applied = applyIssuePrefill(prefillWithHistory(), new Date('2026-11-10T02:00:00Z'));
+  assert.equal(applied.form.out_type, 'ISSUE', '预填恒为领用单');
+  assert.equal(applied.form.cost_object_id, 'obj-1', '成本对象必须预填：它就是保存后回挂的关联键');
+  assert.equal(applied.form.warehouse_id, 'wh-raw', '有历史领料 → 用上次的领料仓库');
+  assert.equal(applied.form.reason, '生产领料：CB-20261110-000001（钢轴） 一车间');
+  assert.equal(applied.form.out_date, '2026-11-10', '出库日期 = 今天（CST）');
+  assert.equal(applied.form.items.length, 2, '每个历史物料一行');
+  assert.deepEqual(
+    applied.form.items.map((item) => [item.material_id, item.qty]),
+    [
+      ['mat-1', 12.5],
+      ['mat-2', 3],
+    ],
+    '数量按上次的数量预填（字符串 → number）',
+  );
+  assert.deepEqual(applied.banner, {
+    object_no: 'CB-20261110-000001',
+    workshop_dept_name: '一车间',
+    material_source: 'HISTORY',
+    material_count: 2,
+  });
+});
+
+test('一键领料预填：没有历史领料 → 一行空明细 + 仓库留空 + 横幅说清楚', () => {
+  const applied = applyIssuePrefill(
+    {
+      cost_object_id: 'obj-2',
+      object_no: 'CB-20261110-000002',
+      workshop_dept_name: '二车间',
+      suggested_warehouse_id: null,
+      reason: '生产领料：CB-20261110-000002 二车间',
+      materials: [],
+      has_history: false,
+    },
+    new Date('2026-11-10T02:00:00Z'),
+  );
+  assert.equal(applied.form.items.length, 1, '没有历史也要给一行空明细（不然表格是空的）');
+  assert.equal(applied.form.items[0].material_id, '');
+  assert.equal(applied.form.warehouse_id, '', '没有历史仓库 → 留空让用户选，不猜');
+  assert.equal(applied.form.cost_object_id, 'obj-2');
+  assert.equal(applied.banner.material_source, 'EMPTY');
+  assert.equal(applied.banner.material_count, 0);
+});
+
+test('一键领料预填：不改入参、事由按 255 字截断、不预填库位账行', () => {
+  const prefill = prefillWithHistory();
+  prefill.reason = 'x'.repeat(300);
+  const snapshot = JSON.stringify(prefill);
+  const applied = applyIssuePrefill(prefill, new Date('2026-11-10T02:00:00Z'));
+  assert.equal(JSON.stringify(prefill), snapshot, '纯函数不许改入参');
+  assert.equal(applied.form.reason.length, STOCK_OUT_MAX_REASON, '事由按后端上限截断（否则 400）');
+  assert.equal(
+    applied.form.items.every((item) => item.location_id === undefined),
+    true,
+    '库位账行不预填：历史桶可能已被并桶，填了会 400',
+  );
+  // 预填出来的表单本身要通过校验（用户只需改数量 / 选仓库）
+  const errors = validateStockOutForm({ ...applied.form, warehouse_id: 'wh-raw' });
+  assert.deepEqual(Object.keys(errors), [], `预填表单不该自带校验错：${JSON.stringify(errors)}`);
+});
+
+test('一键领料预填接口路径与权限口径钉死', () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const api = readFileSync(resolve(here, '../../src/api/business/erp/stock-out.ts'), 'utf8');
+  assert.ok(
+    api.includes('`${BASE}/stock-out/cost-object-issue-prefill`'),
+    '缺少一键领料预填接口路径',
+  );
+  assert.ok(api.includes('export function fetchStockOutIssuePrefill'));
+  const page = readFileSync(
+    resolve(here, '../../src/views/business/erp/stock-out/index.vue'),
+    'utf8',
+  );
+  assert.ok(
+    page.includes('applyRouteIssuePrefill'),
+    '页面必须处理 ?cost_object_id= 入口（否则按钮跳过来是空表单）',
+  );
+  assert.ok(page.includes('router.replace({ path: route.path })'), '预填后必须摘掉 query，防幽灵重开');
 });

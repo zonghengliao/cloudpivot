@@ -46,11 +46,12 @@ mod linkage_hook;
 
 use crate::business::flow::linkage;
 
+use super::cost_object_model as cost_object;
 use super::stockout_base::*;
 use super::stockout_dto::{
-    CostObjectOptionQuery, CostObjectOptionRes, CreateStockOutReq, StockOutDetailRes, StockOutEnvelope,
-    StockOutPageQuery, StockOutPageRes, StockOutStatusReq, ensure_cost_object_usable, ensure_draft,
-    fill_cost_object_labels, list_res, materials_of,
+    CostObjectOptionQuery, CostObjectOptionRes, CreateStockOutReq, IssuePrefillQuery, IssuePrefillRes,
+    StockOutDetailRes, StockOutEnvelope, StockOutPageQuery, StockOutPageRes, StockOutStatusReq,
+    ensure_cost_object_usable, ensure_draft, fill_cost_object_labels, issue_prefill_reason, list_res, materials_of,
 };
 use super::stockout_model::{self as stock_out, MaterialInfo};
 
@@ -1440,6 +1441,69 @@ pub async fn cost_object_options(
     Ok(rows.iter().map(stock_out::CostObjectOptionRow::to_res).collect())
 }
 
+// ==================== 一键领料预填（B4-3） ====================
+
+/// 成本对象详情页「领料」按钮的预填数据（成本对象 → 新建出库单）。
+///
+/// # 三条验收在服务端的落点
+///
+/// | 卡面验收 | 实现 |
+/// |---|---|
+/// | 预填成本对象 | 出参 `cost_object_id` / `object_no`（前端直接塞进表单的成本对象选择器） |
+/// | 预填车间 | 出参 `workshop_dept_id` / `workshop_dept_name`（出库单**没有车间列**，进事由 + 只读展示） |
+/// | 预填物料范围 | 出参 `materials`：该对象历史领用过的物料 + 上次数量（一期无 BOM，见 R-12） |
+///
+/// 「保存后自动关联回成本对象」由 B1-10 的 `CreateStockOutReq.cost_object_id` 承担：
+/// 预填把这个 id 一并写进表单，保存时随建单请求落库 —— 不需要第二条关联语句
+/// （领料单与成本对象的唯一关联就是 `biz_stock_out.cost_object_id`）。
+///
+/// # 异常
+///
+/// * 400 `10001`：`cost_object_id` 缺失 / 非法 UUID；
+/// * 400 `66002`：对象不存在（弱引用，库层无外键）；
+/// * 409 `66057`：对象不是 `OPEN`（已关批 / 已作废的对象不能再领料，与建单同口径）。
+pub async fn cost_object_issue_prefill(query: &IssuePrefillQuery) -> std::result::Result<IssuePrefillRes, ApiError> {
+    let cost_object_id = query.cost_object_id_value()?;
+    let object = cost_object::find_by_id(cost_object_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象"))?
+        .ok_or_else(|| reference_missing(format!("cost_object_id 指向的成本对象 {cost_object_id} 不存在或已删除")))?;
+    // 与建单 / 改单 / 过账三处同一个纯函数：只有 OPEN 的对象能领料。
+    // 在这里拦一次，用户点「领料」当场就知道这批已关批，而不是填完单才吃 409。
+    ensure_cost_object_usable(
+        OUT_TYPE_ISSUE,
+        Some(cost_object_id),
+        Some(&stock_out::CostObjectRef {
+            object_no: object.object_no.clone(),
+            status: object.status.clone(),
+        }),
+    )?;
+
+    let materials = stock_out::issue_prefill_materials(db(), cost_object_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象的历史领料"))?;
+    let warehouse = stock_out::last_issue_warehouse(db(), cost_object_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象的领料仓库"))?;
+    let workshop = object.dept_display();
+    let reason = issue_prefill_reason(&object.object_no, object.product_name.as_deref(), workshop.as_deref());
+    Ok(IssuePrefillRes {
+        cost_object_id: cost_object_id.to_string(),
+        object_no: object.object_no.clone(),
+        product_id: object.product_id.to_string(),
+        product_code: object.product_code.clone(),
+        product_name: object.product_name.clone(),
+        workshop_dept_id: object.workshop_dept_id.to_string(),
+        workshop_dept_name: workshop.clone().unwrap_or_else(|| object.workshop_dept_name.clone()),
+        suggested_warehouse_id: warehouse.as_ref().map(|row| row.warehouse_id.to_string()),
+        suggested_warehouse_name: warehouse.as_ref().and_then(|row| row.warehouse_name.clone()),
+        out_type: OUT_TYPE_ISSUE.to_string(),
+        reason,
+        materials: materials.iter().map(|row| row.to_res()).collect(),
+        has_history: !materials.is_empty(),
+    })
+}
+
 // ==================== HTTP 入口 ====================
 
 /// 新建出库单（`status = DRAFT`，单号 `OUT-yyyyMMdd-000001`）。
@@ -1551,4 +1615,19 @@ pub async fn stock_out_cost_object_options(
     Query(query): Query<CostObjectOptionQuery>,
 ) -> ResResult<Vec<CostObjectOptionRes>> {
     Ok(Res::ok(cost_object_options(&query).await?))
+}
+
+/// 成本对象详情页「领料」的预填数据（B4-3：成本对象 → 新建出库单）。
+///
+/// 权限码用 `business:erp:stock-out:create`（不是 `:list`）：这个接口的唯一用途是
+/// **开一张领料单**，没有建单权限的人拿到预填也没处用；前端「领料」按钮用同一个码
+/// 做显隐（见 `cost-object/index.vue` 的 `v-privilege`）。
+#[nik::permission(
+    path = "/business/erp/stock-out/cost-object-issue-prefill",
+    method = "GET",
+    permission = "business:erp:stock-out:create"
+)]
+#[nik::get("/business/erp/stock-out/cost-object-issue-prefill")]
+pub async fn stock_out_cost_object_issue_prefill(Query(query): Query<IssuePrefillQuery>) -> ResResult<IssuePrefillRes> {
+    Ok(Res::ok(cost_object_issue_prefill(&query).await?))
 }

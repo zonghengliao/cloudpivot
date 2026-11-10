@@ -192,6 +192,26 @@
         </template>
       </t-alert>
 
+      <!-- 一键领料（B4-3）：从成本对象详情页「领料」跳进来时显示来源 -->
+      <t-alert
+        v-if="prefillBanner"
+        theme="success"
+        class="dlg-alert"
+        data-testid="stockout-prefill-banner"
+      >
+        <template #message>
+          来自成本对象 <strong>{{ prefillBanner.object_no }}</strong> ·
+          生产车间 <strong>{{ prefillBanner.workshop_dept_name }}</strong>。
+          <template v-if="prefillBanner.material_source === 'HISTORY'">
+            已按上次领料预填 {{ prefillBanner.material_count }} 种物料，数量请按本次实际改。
+          </template>
+          <template v-else>
+            这一批还没领过料，物料请手动选（一期没有 BOM 定额）。
+          </template>
+          保存后自动挂回该成本对象，过账借方 <strong>4001.01 生产成本-直接材料</strong>。
+        </template>
+      </t-alert>
+
       <t-form :data="form" label-width="96px" class="form">
         <t-form-item
           label="出库类型"
@@ -280,6 +300,16 @@
                 报废 / 盘亏不挂成本对象，过账借方恒为
                 <strong>{{ debitPreview.code }} {{ debitPreview.name }}</strong>
               </template>
+            </span>
+          </div>
+        </t-form-item>
+
+        <t-form-item v-if="prefillBanner" label="生产车间">
+          <div class="cost-object-field">
+            <t-input :value="prefillBanner.workshop_dept_name" readonly data-testid="stockout-form-workshop" />
+            <span class="cost-object-field__hint" data-testid="stockout-workshop-hint">
+              来自成本对象 <strong>{{ prefillBanner.object_no }}</strong>。出库单没有车间列，
+              保存时这个车间已写进出库事由（凭证摘要会带上）
             </span>
           </div>
         </t-form-item>
@@ -577,6 +607,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   fetchInventoryLocationPage,
@@ -592,6 +623,7 @@ import {
   deleteStockOut,
   fetchStockOutCostObjectOptions,
   fetchStockOutDetail,
+  fetchStockOutIssuePrefill,
   fetchStockOutPage,
   updateStockOut,
   updateStockOutStatus,
@@ -607,6 +639,7 @@ import {
   STOCK_OUT_PAGE_SIZE,
   STOCK_OUT_STATUS_FILTER_OPTIONS,
   allowsCostObject,
+  applyIssuePrefill,
   buildCancelPayload,
   buildStockOutPayload,
   buildStockOutQuery,
@@ -634,6 +667,7 @@ import {
   stockOutStatusTheme,
   validateCancelReason,
   validateStockOutForm,
+  type IssuePrefillBanner,
   type StockOutActionSpec,
   type StockOutFilterState,
   type StockOutFormErrors,
@@ -711,6 +745,14 @@ const serialMaterialIds = computed(() =>
   materials.value.filter((item) => item.serial_required).map((item) => item.id),
 );
 
+// ---- 一键领料预填（B4-3：从成本对象详情页跳进来） ----
+/** 预填横幅（对象号 / 车间 / 物料范围来源），`null` = 不是从成本对象跳进来的 */
+const prefillBanner = ref<IssuePrefillBanner | null>(null);
+/** 预填物料的补充下拉项（历史物料不在前 200 条主数据里时补上，别显示裸 id） */
+const prefillMaterialOptions = ref<Array<{ label: string; value: string }>>([]);
+/** 预填的成本对象（可能不在 OPEN 下拉的前 200 条里 → 补一条，否则回显是裸 id） */
+const prefillObject = ref<StockOutCostObjectOption | null>(null);
+
 const warehouseOptions = computed(() =>
   warehouses.value.map((item) => ({
     label: `${item.warehouse_code} ${item.warehouse_name}`,
@@ -719,14 +761,22 @@ const warehouseOptions = computed(() =>
 );
 
 /** 物料下拉：**提前过滤掉一物一码物料**（别让用户填完一行才吃 400） */
-const materialOptions = computed(() =>
-  materials.value
+const materialOptions = computed(() => {
+  const options = materials.value
     .filter((item) => !item.serial_required)
     .map((item) => ({
       label: `${item.material_code} ${item.material_name}`,
       value: item.id,
-    })),
-);
+    }));
+  // 一键领料预填的物料可能不在「前 200 条」主数据里（老物料 / 历史领过但列表没拉到）
+  // → 补进下拉，否则选择器会把 id 裸着显示
+  for (const extra of prefillMaterialOptions.value) {
+    if (!options.some((item) => item.value === extra.value)) {
+      options.push(extra);
+    }
+  }
+  return options;
+});
 
 /** 仓库 id → 名称 */
 function warehouseNameOf(warehouseId: string | null | undefined): string {
@@ -840,6 +890,14 @@ const costObjectSelectOptions = computed(() => {
       value: stale.id,
     });
   }
+  // 一键领料预填的对象（下拉前 200 条里可能没有）→ 补一条正常可选的项
+  const prefill = prefillObject.value;
+  if (prefill && !options.some((item) => item.value === prefill.id)) {
+    options.unshift({
+      label: prefill.product_name ? `${prefill.object_no} · ${prefill.product_name}` : prefill.object_no,
+      value: prefill.id,
+    });
+  }
   return options;
 });
 
@@ -874,10 +932,72 @@ function resetForm(next: StockOutFormState): void {
   staleCostObject.value = null;
 }
 
+/** 清掉「一键领料」的一切痕迹（手点「新建」或预填失败时） */
+function clearIssuePrefill(): void {
+  prefillBanner.value = null;
+  prefillMaterialOptions.value = [];
+  prefillObject.value = null;
+}
+
 function openCreate(): void {
   resetForm(emptyStockOutForm());
+  clearIssuePrefill();
   void loadCostObjects();
   formVisible.value = true;
+}
+
+const route = useRoute();
+const router = useRouter();
+
+/**
+ * 一键领料入口（B4-3）：成本对象详情页「领料」→ `?cost_object_id=…`。
+ *
+ * 顺序上先 `router.replace` 把 query 摘掉再去请求：
+ * ① 用户关掉抽屉 / 刷新页面时不该再弹一次同样的预填（那是「幽灵重开」）；
+ * ② 预填失败（对象已关批）也不该留着一个会反复触发的参数。
+ *
+ * 失败路径只弹提示、**不打开表单**：对象不是 OPEN 时表单里的成本对象下拉也选不到它，
+ * 强行开一张空单只会让用户白填一遍再吃 409。
+ */
+async function applyRouteIssuePrefill(): Promise<void> {
+  const raw = route.query.cost_object_id;
+  const costObjectId = (Array.isArray(raw) ? raw[0] : raw) ?? '';
+  if (typeof costObjectId !== 'string' || !costObjectId.trim()) {
+    return;
+  }
+  await router.replace({ path: route.path });
+  try {
+    const prefill = await fetchStockOutIssuePrefill(costObjectId.trim());
+    const applied = applyIssuePrefill(prefill);
+    resetForm(applied.form);
+    prefillBanner.value = applied.banner;
+    prefillMaterialOptions.value = prefill.materials.map((line) => ({
+      label:
+        `${line.material_code ?? ''} ${line.material_name ?? ''}`.trim() || shortId(line.material_id),
+      value: line.material_id,
+    }));
+    prefillObject.value = {
+      id: prefill.cost_object_id,
+      object_no: prefill.object_no,
+      product_id: prefill.product_id,
+      product_code: prefill.product_code,
+      product_name: prefill.product_name,
+      plan_qty: '0',
+      start_date: null,
+    };
+    void loadCostObjects();
+    if (form.warehouse_id) {
+      void loadLocations();
+    }
+    formVisible.value = true;
+    MessagePlugin.success(
+      prefill.has_history
+        ? `已按成本对象 ${prefill.object_no} 预填 ${prefill.materials.length} 种物料，请核对数量`
+        : `已带入成本对象 ${prefill.object_no}：这一批还没领过料，请选物料`,
+    );
+  } catch (error) {
+    MessagePlugin.error(errorText(error));
+  }
 }
 
 async function openEdit(row: StockOutRow): Promise<void> {
@@ -888,6 +1008,7 @@ async function openEdit(row: StockOutRow): Promise<void> {
       return;
     }
     resetForm(detailToForm(detail));
+    clearIssuePrefill();
     // 旧单挂的对象可能已经关批 / 作废（不在 OPEN 下拉里）——补一条并标注，别让回显变成一串 id
     if (detail.cost_object_id && detail.cost_object_no) {
       staleCostObject.value = {
@@ -1235,9 +1356,11 @@ async function runStatus(
   }
 }
 
-onMounted(() => {
-  void loadBasics();
+onMounted(async () => {
+  await loadBasics();
   void loadOrders(1);
+  // 一键领料：成本对象详情页「领料」跳进来时带 ?cost_object_id=…
+  await applyRouteIssuePrefill();
 });
 </script>
 

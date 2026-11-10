@@ -451,6 +451,21 @@
             </template>
           </t-table>
 
+          <div v-if="canIssueMaterial(detail)" class="detail-actions">
+            <t-button
+              v-privilege="[PERM.issue]"
+              theme="primary"
+              variant="outline"
+              data-testid="co-detail-btn-issue"
+              @click="goIssue(detail)"
+            >
+              领料
+            </t-button>
+            <span class="muted">
+              跳到出库单新建页，预填成本对象 / 车间 / 物料范围；保存后自动挂回本对象（过账借方 4001.01）
+            </span>
+          </div>
+
           <div v-if="canCloseObject(detail)" class="detail-actions">
             <t-button
               v-privilege="[PERM.close]"
@@ -546,6 +561,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import {
@@ -577,6 +593,7 @@ import {
   PAGE_SIZE,
   OPTION_LIMIT,
   canCloseObject,
+  canIssueMaterial,
   canCloseRow,
   canEditObject,
   closeErrorText,
@@ -603,6 +620,8 @@ import {
 
 /** 本页权限码（V0378 种子逐一对应；`delete` 后端无路由，故不列） */
 const PERM = COST_OBJECT_PERMISSIONS;
+
+const router = useRouter();
 
 // ==================== 列表 ====================
 
@@ -946,6 +965,20 @@ async function openDetail(row: CostObjectRow): Promise<void> {
   } finally {
     detailLoading.value = false;
   }
+}
+
+// ==================== 一键领料（B4-3） ====================
+
+/**
+ * 详情抽屉「领料」→ 出库单新建页（带 `cost_object_id`）。
+ *
+ * 预填与预校验都在对面页面做（那边有串行的「拉预填 → 查是否 OPEN → 开表单」），
+ * 这里只负责跳转：成本对象页不该重复实现一套领料表单。抽屉先关掉，
+ * 否则返回时它还盖在页面上（用户会以为没跳）。
+ */
+function goIssue(object: CostObjectDetail): void {
+  detailVisible.value = false;
+  void router.push({ path: '/business/erp/stock-out', query: { cost_object_id: object.id } });
 }
 
 // ==================== 关批 ====================

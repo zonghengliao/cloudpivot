@@ -1,0 +1,20 @@
+test business::erp::stockout_dto::tests::cancelled_cost_object_is_rejected_with_409 ... ok
+test business::erp::stockout_dto::tests::closed_cost_object_is_rejected_with_409 ... ok
+test business::erp::stockout_dto::tests::cost_object_id_value_handles_three_states ... ok
+test business::erp::stockout_dto::tests::cost_object_option_keyword_is_trimmed ... ok
+test business::erp::stockout_dto::tests::cost_object_option_limit_matches_lot_options ... ok
+test business::erp::stockout_dto::tests::cost_object_option_res_serializes_expected_keys ... ok
+test business::erp::stockout_dto::tests::issue_prefill_reason_joins_object_product_and_workshop ... ok
+test business::erp::stockout_dto::tests::issue_prefill_query_requires_uuid ... ok
+test business::erp::stockout_dto::tests::issue_prefill_reason_skips_blank_parts ... ok
+test business::erp::stockout_dto::tests::issue_prefill_reason_truncates_by_chars_to_column_width ... ok
+test business::erp::stockout_dto::tests::issue_with_open_cost_object_is_accepted ... ok
+test business::erp::stockout_dto::tests::no_cost_object_is_always_accepted ... ok
+test business::erp::stockout_dto::tests::non_issue_doc_cannot_attach_cost_object ... ok
+test business::erp::stockout_dto::tests::issue_prefill_res_serializes_expected_keys ... ok
+test business::erp::stockout_dto::tests::missing_cost_object_is_rejected_with_400 ... ok
+test business::erp::stockout_dto::tests::response_debit_account_reflects_cost_object ... ok
+test business::erp::stockout_dto::tests::response_json_exposes_cost_object_and_debit_keys ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4272 filtered out; finished in 0.00s
+
