@@ -1,0 +1,14 @@
+   Compiling cloudpivot v0.1.0 (/root/wt-b110/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.63s
+     Running unittests src/lib.rs (/root/wt-b110-target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::stockout_model::cost_object_tests::create_with_closed_or_cancelled_object_is_rejected ... ok
+test business::erp::stockout_model::cost_object_tests::create_with_open_cost_object_reports_production_debit ... ok
+test business::erp::stockout_model::cost_object_tests::non_issue_doc_cannot_attach_object ... ok
+test business::erp::stockout_model::cost_object_tests::posting_refuses_when_object_closed_after_draft ... ok
+test business::erp::stockout_model::cost_object_tests::posting_splits_debit_by_cost_object ... ok
+test business::erp::stockout_model::cost_object_tests::update_sets_and_clears_cost_object ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4164 filtered out; finished in 9.77s
+
