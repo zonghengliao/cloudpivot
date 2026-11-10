@@ -1,0 +1,12 @@
+# COST-B2-6 门禁：fmt / clippy / 全仓 cargo test
+# 2026-11-11T05:07:09+08:00
+
+$ cargo fmt -- --check
+FMT_EXIT=0
+
+$ cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+
+$ cargo test（全仓 33 目标）
+targets=33 passed=4749 failed=0
+TEST_EXIT=0

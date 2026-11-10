@@ -1,0 +1,35 @@
+# COST-B2-6 纯逻辑单测（无 ERP_DB_URL ⇒ 真库用例 SKIP）
+# 2026-11-11T05:06:54+08:00
+
+$ cargo test --lib cost_collect
+test business::erp::cost_collect_dto::tests::constants_match_the_ddl ... ok
+test business::erp::cost_collect_dto::tests::error_constructors_keep_code_and_status ... ok
+test business::erp::cost_collect_dto::tests::key_is_stable_for_the_same_item ... ok
+test business::erp::cost_collect_dto::tests::incremental_run_inserts_only_the_missing_rows ... ok
+test business::erp::cost_collect_dto::tests::duplicated_candidates_collapse_to_one_row ... ok
+test business::erp::cost_collect_dto::tests::first_run_inserts_every_candidate ... ok
+test business::erp::cost_collect_dto::tests::rerun_skips_already_collected_rows ... ok
+test business::erp::cost_collect_dto::tests::rows_whose_object_or_amount_changed_are_rewritten ... ok
+test business::erp::cost_collect_dto::tests::rows_whose_source_disappeared_are_marked_stale ... ok
+test business::erp::cost_collect_dto::tests::scale_check_normalizes_trailing_zeros ... ok
+test business::erp::cost_collect_dto::tests::validation_accepts_normal_rows ... ok
+test business::erp::cost_collect_dto::tests::stale_rows_are_ordered_deterministically ... ok
+test business::erp::cost_collect_model::tests::insert_binds_element_and_source_from_constants ... ok
+test business::erp::cost_collect_model::tests::existing_row_columns_are_all_selected ... ok
+test business::erp::cost_collect_dto::tests::zero_amount_lines_are_collected_and_reported ... ok
+test business::erp::cost_collect_dto::tests::validation_rejects_broken_source_rows ... ok
+test business::erp::cost_collect_model::tests::insert_sql_matches_the_partial_unique_index ... ok
+test business::erp::cost_collect_model::tests::source_sql_keeps_the_three_hard_filters ... ok
+test business::erp::cost_collect_model::tests::source_sql_takes_the_posted_amount_not_a_recomputation ... ok
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 4391 filtered out; finished in 0.00s
+
+$ cargo test --lib cost_calc_material
+test business::erp::cost_calc_material::tests::segment_only_writes_material_from_stock_out ... ok
+test business::erp::cost_calc_material::tests::bad_period_is_rejected_before_any_query ... ok
+test business::erp::cost_calc_material_db_tests::db::period_without_posted_issue_is_a_clean_noop ... ok
+test business::erp::cost_calc_material_db_tests::db::relinked_cost_object_moves_the_collected_amount ... ok
+test business::erp::cost_calc_material_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_material_db_tests::db::collects_only_posted_issue_with_cost_object ... ok
+test business::erp::cost_calc_material_db_tests::db::rerun_does_not_duplicate_and_leaves_rows_untouched ... ok
+test business::erp::cost_calc_material_db_tests::db::zero_amount_lines_are_collected_and_counted ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4402 filtered out; finished in 0.00s

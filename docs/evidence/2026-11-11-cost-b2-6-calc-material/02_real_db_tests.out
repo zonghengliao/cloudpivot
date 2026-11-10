@@ -1,0 +1,20 @@
+# COST-B2-6 真库用例（ARCH-9 §4.3 料归集）
+# 2026-11-11T05:06:57+08:00
+# 库：costb26_drill_1625844（空库首启自动迁移 167 张表，biz_cost_collect 21 列、biz_stock_out.cost_object_id 已就位）
+
+$ ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/costb26_drill_1625844 cargo test --lib cost_calc_material_db -- --test-threads=1 --nocapture
+
+running 6 tests
+test business::erp::cost_calc_material_db_tests::db::collects_only_posted_issue_with_cost_object ... ok
+test business::erp::cost_calc_material_db_tests::db::period_without_posted_issue_is_a_clean_noop ... ok
+test business::erp::cost_calc_material_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_material_db_tests::db::relinked_cost_object_moves_the_collected_amount ... ok
+test business::erp::cost_calc_material_db_tests::db::rerun_does_not_duplicate_and_leaves_rows_untouched ... ok
+test business::erp::cost_calc_material_db_tests::db::zero_amount_lines_are_collected_and_counted ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4404 filtered out; finished in 6.25s
+
+
+# 跑完零残留（按前缀核 5 张表）
+ collect=0 / stock_out=0 / item=0 / object=0 / material=0 / warehouse=0
+

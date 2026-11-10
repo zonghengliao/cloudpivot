@@ -1,0 +1,17 @@
+# 首次全仓跑的唯一失败：testd::impexp::i14（与本卡无关的既有 flake）
+# 2026-11-11T05:07:16+08:00
+
+---- testd::impexp::i14_tampered_import_file_rejected stdout ----
+
+thread 'testd::impexp::i14_tampered_import_file_rejected' (1662882) panicked at tests/testd/impexp.rs:95:6:
+写导入任务行: UniqueViolation { column: None, constraint: Some("uk_sys_import_task_no"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23505), message: "duplicate key value violates unique constraint \"uk_sys_import_task_no\"", detail: Some("Key (task_no)=(IMP20261110-402C) already exists."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_import_task"), column: None, datatype: None, constraint: Some("uk_sys_import_task_no"), file: Some("nbtinsert.c"), line: Some(666), routine: Some("_bt_check_unique") }) }) }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+# 库里那行残留（cloudpivot_test，昨天 22:35 留下的）：
+ IMP20261110-402C | 2026-11-10 22:35:25.740587+08
+
+
+# 单独重跑该用例（同一库、同一二进制）：
+$ cargo test --test testd impexp::i14
+test testd::impexp::i14_tampered_import_file_rejected ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 66 filtered out; finished in 7.03s
