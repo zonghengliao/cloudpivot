@@ -1,0 +1,85 @@
+===== 1. 登录 admin =====
+PASS 登录成功（token 长度 461）
+
+===== 1b. 首次登录必须改初始密码 =====
+PUT /system/auth/password => HTTP 200 code=0
+PASS 初始密码改密成功
+PASS 用新口令重新登录成功
+
+===== 2. 建两张成本对象（一张 OPEN、一张随后关批） =====
+PASS 建成本对象 CB-20261111-000001（部门=总部）
+PASS 建并关批对象 CB-20261111-000002（status=CLOSED）
+
+===== 3. GET /business/erp/cost-labor/template（下载 8 列模板） =====
+HTTP=200 content_type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet size=8577 magic=PK
+PASS 模板下载 HTTP 200
+PASS 模板是 xlsx（zip 容器 PK 头）
+PASS 模板体积 8577 字节（含说明 sheet）
+Archive:  /tmp/b22_smoke/template.xlsx
+  Length      Date    Time    Name
+---------  ---------- -----   ----
+     1439  1980-01-01 00:00   [Content_Types].xml
+      587  1980-01-01 00:00   _rels/.rels
+      979  1980-01-01 00:00   xl/_rels/workbook.xml.rels
+     6995  1980-01-01 00:00   xl/theme/theme1.xml
+     1173  1980-01-01 00:00   xl/styles.xml
+      654  1980-01-01 00:00   xl/workbook.xml
+     1657  1980-01-01 00:00   xl/worksheets/sheet1.xml
+     2617  1980-01-01 00:00   xl/worksheets/sheet2.xml
+     1111  1980-01-01 00:00   xl/worksheets/sheet3.xml
+
+===== 3b. 模板本身回传（只有示例行）⇒ 422 没有数据行 =====
+HTTP 422 => {"code":60020,"msg":"文件里没有可导入的数据行（空行与模板示例行会被跳过），请填写后重新上传"}
+PASS 只有示例行 → 422（示例行被自动跳过）
+PASS 报错文案点明「没有可导入的数据行」
+
+===== 4. POST /import（干净文件：3 行） =====
+{"code":0,"success":3,"failed":0,"rows":[]}
+PASS 导入接口 code=0
+PASS success=3（三行全入库）
+PASS failed=0
+PASS 成功时 rows 为空
+
+===== 5. GET /cost-labor（列表核对：金额 / 来源 / 状态） =====
+{"total":3,"rows":[{"employee_name":"赵六","hours":"70.00","machine_hours":"0.00","rate":"33.333333","amount":"2333.3333","source_type":"IMPORT","status":"DRAFT","dept_name":"总部"},{"employee_name":"王五","hours":"8.00","machine_hours":"0.00","rate":"50.000000","amount":"400.0000","source_type":"IMPORT","status":"DRAFT","dept_name":"总部"},{"employee_name":"李四","hours":"7.50","machine_hours":"3.00","rate":"48.500000","amount":"363.7500","source_type":"IMPORT","status":"DRAFT","dept_name":"总部"}]}
+PASS 列表 total=3
+PASS 来源全是 IMPORT
+PASS 状态全是 DRAFT（等人工确认）
+PASS 李四金额 363.7500（7.5 × 48.5，服务端算）
+PASS 机器工时留空 → 0.00
+PASS 除不尽费率 2333.3333（round(70×33.333333,4)）
+
+===== 6. POST /import（坏文件：1 好 3 坏）⇒ 逐行错误，一条都不入库 =====
+{"code":0,"success":0,"failed":3,"rows":[{"line":3,"column":"成本对象号","message":"成本对象「CB-NOT-EXIST-9」不存在（或已删除）：导入不会自动建对象，请先在成本对象页建批后再导"},{"line":4,"column":"人工工时","message":"人工工时 最多 2 位小数（收到 8.555）：数据库列就是这个精度，多出来的位会被静默四舍五入，金额 CHECK 就与实际填的数对不上了。请自行取舍后再提交"},{"line":5,"column":"工资率","message":"不能为空：自动取数（成本对象 > 车间 > 公司）属 B2-3，当前请明确填写工资率；不会默认按 0 计（否则人工成本凭空少一块）"}]}
+PASS success=0（全有或全无）
+PASS failed=3（三行有错）
+PASS 行号 3/4/5（Excel 真实行号）
+PASS 第 3 行报「成本对象号」列
+   行3 [成本对象号] 成本对象「CB-NOT-EXIST-9」不存在（或已删除）：导入不会自动建对象，请先在成本对象页建批后再导
+   行4 [人工工时] 人工工时 最多 2 位小数（收到 8.555）：数据库列就是这个精度，多出来的位会被静默四舍五入，金额 CHECK 就与实际填的数对不上了。请自行取舍后再提交
+   行5 [工资率] 不能为空：自动取数（成本对象 > 车间 > 公司）属 B2-3，当前请明确填写工资率；不会默认按 0 计（否则人工成本凭空少一块）
+
+===== 7. 列表仍是 3 行（整批拒绝后没有半批数据） =====
+PASS total 仍是 3（坏批一条都没进来）
+
+===== 8. 期间不符（period_code=2026-10）⇒ 逐行报「日期不在期间」 =====
+PASS 3 行全部报期间不符
+PASS 报错列是「日期」
+2026-11-02 不在本次导入的会计期间 2026-10 内：工时按会计期间归集，跨月补录请把期间选成 2026-11
+
+===== 9. 已关批对象 ⇒ 逐行报「只有 OPEN」 =====
+PASS 关批对象 3 行全部被拒
+成本对象「CB-20261111-000002」当前状态是 已关批，只有 OPEN（未关批）的对象能记工时 —— 已关批的成本已结转，改它会让账对不上
+
+===== 10. 非 xlsx 文件 ⇒ 400 格式错 =====
+HTTP 400 => {"code":60020,"msg":"文件格式不支持，请上传 Excel 文件（.xlsx）"}
+PASS 非 xlsx → 400
+
+===== 11. 未鉴权 / 缺文件字段 =====
+未鉴权 HTTP 401
+PASS 未鉴权 → 401
+缺 file 字段 HTTP 400 => {"code":10001,"msg":"缺少文件字段 file（xlsx）"}
+PASS 缺文件字段 → 400
+
+==================== 汇总 ====================
+PASS=31 FAIL=0

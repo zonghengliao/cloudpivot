@@ -1,0 +1,8 @@
+### cargo test（全量，33 个测试目标）
+targets=33 passed=4592 failed=0
+EXIT: EXIT=0
+
+### 本次新增/改动的目标
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 4253 tests

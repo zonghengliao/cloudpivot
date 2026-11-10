@@ -375,30 +375,64 @@ pub(crate) fn confirm_sql() -> String {
 
 /// 建工时行（`hours` / `rate` 已由 dto 校验；金额由 SQL 算，见模块头注释）。
 pub async fn insert(id: Uuid, spec: &CostLaborSpec, operator: Option<Uuid>) -> DbResult<u64> {
-    db().exec_sql(
-        insert_sql(),
-        vec![
-            Value::from(&id),
-            Value::Text(spec.period_code.clone()),
-            Value::Text(spec.work_date.to_string()),
-            Value::from(&spec.cost_object_id),
-            Value::Text(opt_uuid_text(spec.employee_id)),
-            Value::Text(spec.employee_name.clone()),
-            Value::from(&spec.dept_id),
-            Value::Text(spec.dept_name.clone()),
-            Value::Text(spec.hours.to_string()),
-            Value::Text(spec.machine_hours.to_string()),
-            Value::Text(spec.rate.to_string()),
-            Value::Text(spec.hours.to_string()),
-            Value::Text(spec.rate.to_string()),
-            Value::Text(spec.source_type.clone()),
-            Value::Text(spec.status.clone()),
-            Value::Text(spec.remark.clone().unwrap_or_default()),
-            Value::Text(opt_uuid_text(operator)),
-            Value::Text(opt_uuid_text(operator)),
-        ],
-    )
-    .await
+    insert_with(db(), id, spec, operator).await
+}
+
+/// 建工时行（可指定执行器：单条录入走连接池，批量导入走事务）。
+pub async fn insert_with(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    spec: &CostLaborSpec,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(insert_sql(), insert_params(id, spec, operator)).await
+}
+
+/// 建单参数（与 [`insert_sql`] 的 `?` 顺序逐位对应）。
+///
+/// 抽出来是为了让「单条录入」与「批量导入」用**同一份**参数拼装 —— 两处各写一遍
+/// 迟早会漏一个 `hours` 绑定，而漏绑的后果是金额由别的列算出来（`ck_biz_cost_labor_amount`
+/// 会拦，但报错信息指向的是约束名，不是「某某行的参数漏了」）。
+pub(crate) fn insert_params(id: Uuid, spec: &CostLaborSpec, operator: Option<Uuid>) -> Vec<Value> {
+    vec![
+        Value::from(&id),
+        Value::Text(spec.period_code.clone()),
+        Value::Text(spec.work_date.to_string()),
+        Value::from(&spec.cost_object_id),
+        Value::Text(opt_uuid_text(spec.employee_id)),
+        Value::Text(spec.employee_name.clone()),
+        Value::from(&spec.dept_id),
+        Value::Text(spec.dept_name.clone()),
+        Value::Text(spec.hours.to_string()),
+        Value::Text(spec.machine_hours.to_string()),
+        Value::Text(spec.rate.to_string()),
+        // 金额表达式的两个入参（hours, rate）
+        Value::Text(spec.hours.to_string()),
+        Value::Text(spec.rate.to_string()),
+        Value::Text(spec.source_type.clone()),
+        Value::Text(spec.status.clone()),
+        Value::Text(spec.remark.clone().unwrap_or_default()),
+        Value::Text(opt_uuid_text(operator)),
+        Value::Text(opt_uuid_text(operator)),
+    ]
+}
+
+/// 批量建工时行（**调用方负责事务**：导入是「全有或全无」，任一行失败必须整批回滚）。
+///
+/// # 返回值
+///
+/// 受影响行数之和（正常等于 `rows.len()`）。
+pub async fn insert_batch(
+    ex: &impl SqlExecutor,
+    rows: &[(Uuid, CostLaborSpec)],
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    let sql = insert_sql();
+    let mut affected = 0u64;
+    for (id, spec) in rows {
+        affected += ex.exec_sql(sql.clone(), insert_params(*id, spec, operator)).await?;
+    }
+    Ok(affected)
 }
 
 /// 覆盖写可改字段：**只动 DRAFT**（`WHERE ... AND status = 'DRAFT'`）。
@@ -461,6 +495,113 @@ pub async fn confirm(id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
 /// 可空 UUID → 绑定文本（空 = `NULLIF(?::text,'')::uuid` 里的空串）。
 fn opt_uuid_text(value: Option<Uuid>) -> String {
     value.map(|id| id.to_string()).unwrap_or_default()
+}
+
+// ==================== 导入：批量查引用（一次查库，不做 N+1） ====================
+
+/// `IN (...)` 单批最大元素数（PG 单条语句参数上限 65535，500 足够且便于排查）。
+const IN_CHUNK: usize = 500;
+
+/// 生成 `?,?,?`（与 `Value::Text` 参数按序绑定）。
+fn in_clause(size: usize) -> String {
+    let mut out = String::with_capacity(size * 2);
+    for index in 0..size {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push('?');
+    }
+    out
+}
+
+/// 成本对象号 → `(object_no, id, status)`（软删的不返回，等价于「不存在」）。
+///
+/// 导入校验要回答两件事：对象存不存在、是不是 `OPEN`。两条都从这一批查出来，
+/// 避免「30 行 × 2 次查库」的 N+1。
+pub async fn object_refs_by_no(nos: &[String]) -> DbResult<Vec<(String, Uuid, String)>> {
+    let mut out = Vec::new();
+    for chunk in nos.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT object_no, id, status FROM biz_cost_object \
+              WHERE deleted_at IS NULL AND object_no IN ({})",
+            in_clause(chunk.len())
+        );
+        let rows = db()
+            .query_sql(sql, chunk.iter().map(|no| Value::Text(no.clone())).collect())
+            .await?;
+        for row in rows {
+            out.push((
+                row.get_typed("object_no")?,
+                row.get_typed("id")?,
+                row.get_typed("status")?,
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// 部门键（编码或名称）→ `(id, dept_code, dept_name)`。
+///
+/// 一次查出**编码命中或名称命中**的行，交给 `cost_labor_import::index_depts`
+/// 判定「唯一命中 / 不存在 / 重名」——重名不猜，由调用方报错要求改填编码。
+pub async fn dept_refs_by_keys(keys: &[String]) -> DbResult<Vec<(Uuid, String, String)>> {
+    let mut out = Vec::new();
+    for chunk in keys.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT id, dept_code, dept_name FROM sys_dept \
+              WHERE deleted_at IS NULL AND (dept_code IN ({place}) OR dept_name IN ({place}))",
+            place = in_clause(chunk.len())
+        );
+        let mut params: Vec<Value> = chunk.iter().map(|key| Value::Text(key.clone())).collect();
+        params.extend(chunk.iter().map(|key| Value::Text(key.clone())));
+        let rows = db().query_sql(sql, params).await?;
+        for row in rows {
+            out.push((
+                row.get_typed("id")?,
+                row.get_typed("dept_code")?,
+                row.get_typed("dept_name")?,
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// 员工主数据表（`biz_employee`，ARCH9-2）是否存在。
+///
+/// 用 `to_regclass` 而不是 `SELECT ... FROM biz_employee`：表不存在时前者返回 NULL
+/// 而不是抛 42P01（后者会让整次导入 500，而用户只想「工号留空也能导」）。
+pub async fn employee_table_present() -> DbResult<bool> {
+    let rows = db()
+        .query_sql(
+            "SELECT (to_regclass('public.biz_employee') IS NOT NULL)::text AS present".to_string(),
+            vec![],
+        )
+        .await?;
+    Ok(rows
+        .first()
+        .map(|row| row.get_typed::<String>("present"))
+        .transpose()?
+        .is_some_and(|value| value == "true"))
+}
+
+/// 员工工号 → `(employee_no, id)`（`biz_employee` 未上线时调用方应当先问
+/// [`employee_table_present`]，本函数假定表存在）。
+pub async fn employee_ids_by_no(nos: &[String]) -> DbResult<Vec<(String, Uuid)>> {
+    let mut out = Vec::new();
+    for chunk in nos.chunks(IN_CHUNK) {
+        let sql = format!(
+            "SELECT employee_no, id FROM biz_employee \
+              WHERE deleted_at IS NULL AND employee_no IN ({})",
+            in_clause(chunk.len())
+        );
+        let rows = db()
+            .query_sql(sql, chunk.iter().map(|no| Value::Text(no.clone())).collect())
+            .await?;
+        for row in rows {
+            out.push((row.get_typed("employee_no")?, row.get_typed("id")?));
+        }
+    }
+    Ok(out)
 }
 
 // ==================== 单测 ====================

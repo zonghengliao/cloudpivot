@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 16 tests
+test business::erp::cost_labor_db_tests::db::closed_object_rejects_the_batch_with_a_business_reason ... ok
+test business::erp::cost_labor_db_tests::db::confirm_twice_does_not_double ... ok
+test business::erp::cost_labor_db_tests::db::confirmed_row_is_readonly ... ok
+test business::erp::cost_labor_db_tests::db::crud_confirm_flow_end_to_end ... ok
+test business::erp::cost_labor_db_tests::db::date_outside_selected_period_rejects_the_batch ... ok
+test business::erp::cost_labor_db_tests::db::db_check_maps_amount_mismatch_to_66058 ... ok
+test business::erp::cost_labor_db_tests::db::declared_amount_mismatch_is_rejected_at_entry ... ok
+test business::erp::cost_labor_db_tests::db::duplicated_dept_name_requires_the_code_instead_of_guessing ... ok
+test business::erp::cost_labor_db_tests::db::employee_number_is_rejected_until_arch9_2_is_online ... ok
+test business::erp::cost_labor_db_tests::db::import_writes_every_row_when_the_file_is_clean ... ok
+test business::erp::cost_labor_db_tests::db::list_is_scoped_by_dept ... ok
+test business::erp::cost_labor_db_tests::db::object_must_exist_and_be_open ... ok
+test business::erp::cost_labor_db_tests::db::one_bad_row_rejects_the_whole_batch_and_nothing_is_written ... ok
+test business::erp::cost_labor_db_tests::db::period_and_work_date_must_agree ... ok
+test business::erp::cost_labor_db_tests::db::repeating_rate_rounds_to_four_decimals ... ok
+test business::erp::cost_labor_db_tests::db::soft_deleted_draft_disappears_from_list ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 4237 filtered out; finished in 14.21s
+

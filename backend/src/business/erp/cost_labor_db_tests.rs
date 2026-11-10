@@ -22,6 +22,17 @@
 //! | 9 | [`declared_amount_mismatch_is_rejected_at_entry`] | 客户端传错金额 → 400 + 66058（不落到库层） |
 //! | 10 | [`list_is_scoped_by_dept`] | 数据权限：别的部门看不见（`scope::paginate` 真的裁剪了） |
 //!
+//! ## B2-2 导入（xlsx）
+//!
+//! | # | 用例 | 覆盖 |
+//! |---|---|---|
+//! | 11 | [`import_writes_every_row_when_the_file_is_clean`] | 干净文件全部入库；金额 / 部门名快照 / `IMPORT+DRAFT` 逐列对得上 |
+//! | 12 | [`one_bad_row_rejects_the_whole_batch_and_nothing_is_written`] | **验收项**「全有或全无 + 逐行错误」：一行错 → 零入库，行号/列名/原因齐 |
+//! | 13 | [`closed_object_rejects_the_batch_with_a_business_reason`] | 已关批对象不可记工时（409 语义以行错误给出） |
+//! | 14 | [`date_outside_selected_period_rejects_the_batch`] | §4.5.3 第 2 列：日期必须落在所选期间 |
+//! | 15 | [`employee_number_is_rejected_until_arch9_2_is_online`] | 工号无处可存时**报错**，不静默丢字段 |
+//! | 16 | [`duplicated_dept_name_requires_the_code_instead_of_guessing`] | 部门重名 → 要求改填编码，不猜车间 |
+//!
 //! # 夹具纪律
 //!
 //! 全部用 `costb21-<唯一后缀>` 前缀造，清场**按 id** 删（绝不按前缀扫全库）；
@@ -658,6 +669,315 @@ mod db {
         .expect("本部门列表");
         assert_eq!(mine.total, 1);
 
+        fx.cleanup(&[object]).await;
+    }
+
+    // ==================== 导入（B2-2：xlsx 解析 + 全有或全无 + 逐行错误） ====================
+
+    use crate::business::erp::cost_labor_import::{self as import, ImportContext, RawRow};
+
+    /// 夹具对象的 `object_no`（导入表里填的就是这个号）。
+    async fn object_no_of(object: Uuid) -> String {
+        let rows = db()
+            .query_sql(
+                "SELECT object_no FROM biz_cost_object WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&object)],
+            )
+            .await
+            .expect("查对象号");
+        rows.first()
+            .expect("对象存在")
+            .get_typed("object_no")
+            .expect("object_no")
+    }
+
+    /// 部门编码 / 名称（导入表里两种填法都要能用）。
+    async fn dept_code_name(dept: Uuid) -> (String, String) {
+        let rows = db()
+            .query_sql(
+                "SELECT dept_code, dept_name FROM sys_dept WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&dept)],
+            )
+            .await
+            .expect("查部门");
+        let row = rows.first().expect("部门存在");
+        (
+            row.get_typed("dept_code").expect("dept_code"),
+            row.get_typed("dept_name").expect("dept_name"),
+        )
+    }
+
+    /// 造一行导入数据（`line` 只是元数据：xlsx 写入器按数组顺序落行）。
+    fn import_row(
+        object_no: &str,
+        dept: &str,
+        date: &str,
+        employee: &str,
+        hours: &str,
+        machine: &str,
+        rate: &str,
+    ) -> RawRow {
+        RawRow {
+            line: 0,
+            object_no: object_no.to_string(),
+            work_date: date.to_string(),
+            employee_no: String::new(),
+            employee_name: employee.to_string(),
+            dept: dept.to_string(),
+            hours: hours.to_string(),
+            machine_hours: machine.to_string(),
+            rate: rate.to_string(),
+        }
+    }
+
+    /// 某个对象下导入进来的行（按日期排，便于逐字段断言）。
+    #[allow(clippy::type_complexity)]
+    async fn imported_rows(object: Uuid) -> Vec<(String, String, String, String, String, String, String, String)> {
+        let rows = db()
+            .query_sql(
+                "SELECT work_date::text AS work_date, employee_name, dept_name, \
+                        hours::text AS hours, machine_hours::text AS machine_hours, \
+                        rate::text AS rate, amount::text AS amount, \
+                        source_type || '/' || status AS flags \
+                   FROM biz_cost_labor \
+                  WHERE cost_object_id = ?::uuid AND deleted_at IS NULL \
+                  ORDER BY work_date"
+                    .to_string(),
+                vec![Value::from(&object)],
+            )
+            .await
+            .expect("查导入结果");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed("work_date").expect("work_date"),
+                    row.get_typed("employee_name").expect("employee_name"),
+                    row.get_typed("dept_name").expect("dept_name"),
+                    row.get_typed("hours").expect("hours"),
+                    row.get_typed("machine_hours").expect("machine_hours"),
+                    row.get_typed("rate").expect("rate"),
+                    row.get_typed("amount").expect("amount"),
+                    row.get_typed("flags").expect("flags"),
+                )
+            })
+            .collect()
+    }
+
+    /// ⑪ **验收项**：干净文件 → 全部入库；金额 / 快照 / 来源 / 状态逐列对得上。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn import_writes_every_row_when_the_file_is_clean() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let object = fx.object_in(fx.dept, "OPEN").await;
+        let no = object_no_of(object).await;
+        let (code, name) = dept_code_name(fx.dept).await;
+
+        let rows = vec![
+            import_row(&no, &name, "2026-11-02", "李四", "7.5", "3", "48.5"),
+            // 部门填**编码**、机器工时留空 ⇒ 都要能用
+            import_row(&no, &code, "2026-11-03", "王五", "8", "", "50"),
+            // 费率除不尽 ⇒ 金额由库侧 round(hours*rate,4) 求值
+            import_row(&no, &name, "2026-11-04", "赵六", "70", "0", "33.333333"),
+        ];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(
+            &bytes,
+            &ImportContext {
+                period_code: Some("2026-11".to_string()),
+                operator: None,
+            },
+        )
+        .await
+        .expect("导入");
+        assert_eq!(result.success, 3, "三行全通才入库");
+        assert_eq!(result.failed, 0);
+        assert!(result.rows.is_empty(), "成功时不该带错误明细");
+
+        let stored = imported_rows(object).await;
+        assert_eq!(stored.len(), 3);
+        assert_eq!(stored[0].0, "2026-11-02");
+        assert_eq!(stored[0].1, "李四");
+        assert_eq!(stored[0].2, name, "部门名快照来自 sys_dept");
+        assert_eq!(stored[0].3, "7.50");
+        assert_eq!(stored[0].4, "3.00");
+        assert_eq!(stored[0].5, "48.500000");
+        assert_eq!(stored[0].6, "363.7500", "7.5 × 48.5");
+        assert_eq!(stored[0].7, "IMPORT/DRAFT", "导入落 DRAFT 等人工确认");
+
+        assert_eq!(stored[1].4, "0.00", "机器工时留空 = 0");
+        assert_eq!(stored[1].6, "400.0000", "8 × 50");
+
+        assert_eq!(stored[2].6, "2333.3333", "round(70 × 33.333333, 4) 由库侧求值");
+
+        fx.cleanup(&[object]).await;
+    }
+
+    /// ⑫ **验收项**：任何一行有错 → 整批拒绝（一条都不入库），返回行号 + 列名 + 原因。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn one_bad_row_rejects_the_whole_batch_and_nothing_is_written() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let object = fx.object_in(fx.dept, "OPEN").await;
+        let no = object_no_of(object).await;
+        let (_, name) = dept_code_name(fx.dept).await;
+
+        let rows = vec![
+            import_row(&no, &name, "2026-11-02", "李四", "7.5", "3", "48.5"),
+            // 第 3 行：成本对象号不存在
+            import_row("CB-NOT-EXIST-0001", &name, "2026-11-03", "王五", "8", "", "50"),
+            import_row(&no, &name, "2026-11-04", "赵六", "7", "", "50"),
+        ];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(&bytes, &ImportContext::default())
+            .await
+            .expect("导入返回逐行错误（不是 500）");
+
+        assert_eq!(result.success, 0, "全有或全无：一行有错就一条都不入库");
+        assert_eq!(result.failed, 1, "只有一行有错");
+        assert_eq!(result.rows.len(), 1);
+        assert_eq!(result.rows[0].line, 3, "行号是 Excel 真实行号");
+        assert_eq!(result.rows[0].column, "成本对象号");
+        assert!(result.rows[0].message.contains("不存在"), "{}", result.rows[0].message);
+        assert_eq!(live_rows(object).await, 0, "整批拒绝后库里不能有半批数据");
+
+        fx.cleanup(&[object]).await;
+    }
+
+    /// ⑬ 已关批的成本对象不能记工时（同一批里混一行都不行）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn closed_object_rejects_the_batch_with_a_business_reason() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let closed = fx.object_in(fx.dept, "CLOSED").await;
+        let no = object_no_of(closed).await;
+        let (_, name) = dept_code_name(fx.dept).await;
+
+        let rows = vec![import_row(&no, &name, "2026-11-02", "李四", "7.5", "3", "48.5")];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(&bytes, &ImportContext::default())
+            .await
+            .expect("导入");
+        assert_eq!((result.success, result.failed), (0, 1));
+        let message = &result.rows[0].message;
+        assert!(message.contains("只有 OPEN"), "{message}");
+        assert!(message.contains("已关批"), "要说清为什么不能记：{message}");
+        assert_eq!(live_rows(closed).await, 0);
+
+        fx.cleanup(&[closed]).await;
+    }
+
+    /// ⑭ 日期不在所选期间 → 整批拒绝，并指出该选哪个期间（§4.5.3 第 2 列）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn date_outside_selected_period_rejects_the_batch() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let object = fx.object_in(fx.dept, "OPEN").await;
+        let no = object_no_of(object).await;
+        let (_, name) = dept_code_name(fx.dept).await;
+
+        let rows = vec![import_row(&no, &name, "2026-11-02", "李四", "7.5", "3", "48.5")];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(
+            &bytes,
+            &ImportContext {
+                period_code: Some("2026-10".to_string()),
+                operator: None,
+            },
+        )
+        .await
+        .expect("导入");
+        assert_eq!((result.success, result.failed), (0, 1));
+        assert_eq!(result.rows[0].column, "日期");
+        assert!(result.rows[0].message.contains("2026-10"), "{}", result.rows[0].message);
+        assert!(
+            result.rows[0].message.contains("请把期间选成 2026-11"),
+            "{}",
+            result.rows[0].message
+        );
+        assert_eq!(live_rows(object).await, 0);
+
+        fx.cleanup(&[object]).await;
+    }
+
+    /// ⑮ 工号填了但员工主数据未上线（ARCH9-2）→ 报错而不是静默丢弃工号。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn employee_number_is_rejected_until_arch9_2_is_online() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let object = fx.object_in(fx.dept, "OPEN").await;
+        let no = object_no_of(object).await;
+        let (_, name) = dept_code_name(fx.dept).await;
+
+        let mut row = import_row(&no, &name, "2026-11-02", "李四", "7.5", "3", "48.5");
+        row.employee_no = "E1001".to_string();
+        let bytes = import::build_rows_xlsx(&[row]).expect("造 xlsx");
+        let result = import::import_labors(&bytes, &ImportContext::default())
+            .await
+            .expect("导入");
+        assert_eq!((result.success, result.failed), (0, 1));
+        assert_eq!(result.rows[0].column, "员工工号");
+        assert!(result.rows[0].message.contains("ARCH9-2"), "{}", result.rows[0].message);
+        assert_eq!(live_rows(object).await, 0, "工号没地方存时不许静默丢掉");
+
+        fx.cleanup(&[object]).await;
+    }
+
+    /// ⑯ 部门重名 → 要求改填部门编码（不猜是哪个车间）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn duplicated_dept_name_requires_the_code_instead_of_guessing() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let object = fx.object_in(fx.dept, "OPEN").await;
+        let no = object_no_of(object).await;
+        let (_, name) = dept_code_name(fx.dept).await;
+
+        // 再造一个与主夹具车间**同名**的部门
+        let twin = Uuid::now_v7();
+        db().exec_sql(
+            "INSERT INTO sys_dept (id, dept_code, dept_name, status, sort_order, created_at, updated_at) \
+             VALUES (?::uuid, ?, ?, 1, 0, now(), now())"
+                .to_string(),
+            vec![
+                Value::from(&twin),
+                Value::Text(format!("FXTW-{}", fx.suffix)),
+                Value::Text(name.clone()),
+            ],
+        )
+        .await
+        .expect("造同名部门");
+
+        let rows = vec![import_row(&no, &name, "2026-11-02", "李四", "7.5", "3", "48.5")];
+        let bytes = import::build_rows_xlsx(&rows).expect("造 xlsx");
+        let result = import::import_labors(&bytes, &ImportContext::default())
+            .await
+            .expect("导入");
+        assert_eq!((result.success, result.failed), (0, 1));
+        assert_eq!(result.rows[0].column, "工作中心（部门）");
+        assert!(
+            result.rows[0].message.contains("改填部门编码"),
+            "{}",
+            result.rows[0].message
+        );
+        assert_eq!(live_rows(object).await, 0);
+
+        let _ = db()
+            .exec_sql(
+                "DELETE FROM sys_dept WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&twin)],
+            )
+            .await;
         fx.cleanup(&[object]).await;
     }
 }

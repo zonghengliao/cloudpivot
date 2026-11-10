@@ -9,9 +9,11 @@
 //! | 12 | PUT | `/business/erp/cost-labor/{id}` | `business:erp:cost-labor:update` | 部分更新（仅 `DRAFT`） |
 //! | 13 | DELETE | `/business/erp/cost-labor/{id}` | `business:erp:cost-labor:delete` | 软删（仅 `DRAFT`） |
 //! | 14 | POST | `/business/erp/cost-labor/{id}/confirm` | `business:erp:cost-labor:update` | `DRAFT → CONFIRMED`（**幂等**） |
+//! | 15 | POST | `/business/erp/cost-labor/import` | `business:erp:cost-labor:import` | xlsx 导入（**全有或全无**，B2-2） |
+//! | 16 | GET | `/business/erp/cost-labor/template` | `business:erp:cost-labor:list` | 8 列模板下载（B2-2） |
 //!
-//! 设计 §5.2 里工时台账还有 #15 导入 / #16 模板两个接口 —— 它们是 **B2-2** 的活，
-//! 不在本卡；权限码 `cost-labor:import` 已在 V0378 种下，B2-2 直接接。
+//! 解析 / 逐行校验 / 全有或全无的编排在 [`crate::business::erp::cost_labor_import`]，
+//! 本文件只做 HTTP 入口（取表单、取当前用户、把业务错误翻译成 `ApiError`）。
 //!
 //! # 为什么业务逻辑是普通 `async fn`
 //!
@@ -36,16 +38,19 @@
 //! 之后仍是「一行、一个金额」，不会出现「同一张工时被归集两次」。
 
 use axum::Json;
-use axum::extract::{Path, Query};
+use axum::extract::{Multipart, Path, Query};
+use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cost_labor_dto::{
     self, ConfirmAction, CostLaborCreateReq, CostLaborFilter, CostLaborListRes, CostLaborPageQuery, CostLaborUpdateReq,
 };
+use crate::business::erp::cost_labor_import::{self as import, CostLaborImportRes, ImportContext};
 use crate::business::erp::cost_labor_model::{self as model, CostLaborRow};
 use crate::business::erp::cost_object_dto;
 use crate::business::erp::model_base::normalize_page;
+use crate::business::impexp::handler::xlsx_response;
 use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::shared::error_code;
 use crate::utils;
@@ -378,11 +383,103 @@ pub async fn cost_labor_confirm_api(
     Ok(Res::ok(confirm_labor(operator, &id).await?))
 }
 
+/// 导入工时（§5.2 #15）：multipart 字段 `file`（xlsx）+ 可选 `period_code`。
+///
+/// **全有或全无**：任何一行有错 → 一条都不入库，返回 `{success:0, failed:n, rows:[…]}`；
+/// 全部通过才落库（`source_type='IMPORT'`、`status='DRAFT'`，待人工复核后确认）。
+///
+/// # 为什么 `period_code` 放在表单里而不是 JSON
+///
+/// 上传本身就是 multipart，把「给哪个期间导入」和文件放在同一个表单里，
+/// 前端一次请求就能提交；缺省表示按每行日期自动归属期间（§4.5.3 第 2 列：
+/// 日期必须落在所选期间内 —— 选了就逐行核对，不选就按日期归属）。
+#[nik::permission(
+    path = "/business/erp/cost-labor/import",
+    method = "POST",
+    permission = "business:erp:cost-labor:import"
+)]
+#[nik::post("/business/erp/cost-labor/import")]
+pub async fn cost_labor_import_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    multipart: Multipart,
+) -> ResResult<CostLaborImportRes> {
+    let operator = utils::current_user_uuid(&claims);
+    let (bytes, period_code) = read_import_form(multipart).await?;
+    let context = ImportContext { period_code, operator };
+    Ok(Res::ok(import::import_labors(&bytes, &context).await?))
+}
+
+/// 下载 8 列导入模板（§5.2 #16，权限码复用 `cost-labor:list`）。
+#[nik::permission(
+    path = "/business/erp/cost-labor/template",
+    method = "GET",
+    permission = "business:erp:cost-labor:list"
+)]
+#[nik::get("/business/erp/cost-labor/template")]
+pub async fn cost_labor_template_api() -> Response {
+    match import::build_template() {
+        Ok(bytes) => xlsx_response(bytes, import::TEMPLATE_FILE_NAME),
+        Err(error) => error.into_response(),
+    }
+}
+
+/// 从导入表单里读 `file`（必填，xlsx）与 `period_code`（可选）。
+///
+/// # 返回值
+///
+/// `(文件字节, 归一化后的期间)`。
+///
+/// # 异常情况
+///
+/// - 400：表单解析失败 / 没有 `file` 字段 / `period_code` 不是 `yyyy-MM`；
+/// - 413：超过上传上限（`[upload].max_size_mb`）。
+async fn read_import_form(mut multipart: Multipart) -> std::result::Result<(Vec<u8>, Option<String>), ApiError> {
+    let mut file: Option<Vec<u8>> = None;
+    let mut period_raw: Option<String> = None;
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传表单解析失败"))?
+    {
+        match field.name() {
+            Some("file") => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传文件内容读取失败"))?;
+                let max_bytes = (cfg().upload.max_size_mb as usize).saturating_mul(1024 * 1024);
+                if bytes.len() > max_bytes {
+                    return Err(ApiError::new(
+                        413,
+                        error_code::STORAGE_SIZE_EXCEEDED,
+                        format!("文件超过上传上限 {} MB，请拆分后再上传", cfg().upload.max_size_mb),
+                    ));
+                }
+                file = Some(bytes.to_vec());
+            }
+            Some("period_code") => {
+                period_raw = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "period_code 读取失败"))?,
+                );
+            }
+            _ => {}
+        }
+    }
+    let bytes = file.ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "缺少文件字段 file（xlsx）"))?;
+    let period_code = match cost_labor_dto::clean_optional(period_raw) {
+        None => None,
+        Some(raw) => Some(cost_labor_dto::normalize_period(Some(&raw))?),
+    };
+    Ok((bytes, period_code))
+}
+
 /// 权限码自检出口（与 `handler::all_permissions` 同形，便于汇总脚本收集）。
 pub fn all_permissions() -> Vec<&'static str> {
     LABOR_PERMISSIONS.to_vec()
 }
-
 // ==================== 单测 ====================
 
 #[cfg(test)]
