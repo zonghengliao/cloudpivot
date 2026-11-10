@@ -130,3 +130,80 @@ test('idle-activity: Node 环境（无 localStorage）不抛错', () => {
   // 无存储时取不出内容，返回空串（登录页会因此回落到 ?redirect 或首页）
   assert.equal(takeIdleRedirect(), '');
 });
+
+// ==================== 页面 / 拦截器契约（源码级断言） ====================
+//
+// 为什么要读源码断言：验收 ⑮⑯（非超管看不到「禁用」、超管能看到）、⑪（轮询不重置计时）
+// 这三条是**渲染 / 接线**层面的口径，纯函数测不到；本仓既有做法就是用源码断言钉死
+// （见 `tests/unit/attachment-gate-pages.test.ts`）。它们防的是「后人顺手把条件删了」。
+
+import { readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SRC = resolve(HERE, '../../src');
+
+/** 读取前端源码（相对 `frontend/src`） */
+function readSource(relative: string): string {
+  return readFileSync(join(SRC, relative), 'utf8');
+}
+
+test('配置页：空闲超时参数只在超管侧出现「禁用」选项（⑮⑯）', () => {
+  const page = readSource('views/support/config/index.vue');
+  // 超管：下拉框（含 0 = 禁用），条件是 isIdleTimeoutKey + isSuperAdmin 同时成立
+  assert.match(
+    page,
+    /v-if="isIdleTimeoutKey\(item\) && userStore\.isSuperAdmin"[\s\S]{0,200}:options="IDLE_TIMEOUT_OPTIONS"/,
+    '超管分支必须是「本键 + isSuperAdmin」双条件，否则普通管理员也会看到下拉框',
+  );
+  // 非超管：数字输入框，且区间钉死 1-60（不含禁用）
+  assert.match(
+    page,
+    /v-else-if="isIdleTimeoutKey\(item\)"[\s\S]{0,200}:min="1"[\s\S]{0,80}:max="60"/,
+    '非超管分支必须是 1-60 数字框',
+  );
+  // 下拉项里必须有「禁用自动退出」= 0，且只有这一个 0 值选项
+  assert.match(page, /\{\s*label:\s*'禁用自动退出',\s*value:\s*0\s*\}/, '缺少「禁用自动退出」选项');
+  assert.equal((page.match(/value:\s*0\s*\}/g) ?? []).length, 1, '下拉里只允许出现一个 0 值选项');
+  // 前端也要先拦一道（后端仍是兜底）
+  assert.match(page, /只有超级管理员可以禁用自动退出登录/, '前端缺少非超管设 0 的拦截文案');
+});
+
+test('登录页：回跳走 safeRedirect，并消费 sessionStorage 里的原页面（⑰⑱）', () => {
+  const page = readSource('views/login/index.vue');
+  assert.match(page, /safeRedirect\(savedRedirect \|\| queryRedirect\)/, '回跳必须统一过 safeRedirect');
+  assert.match(page, /takeIdleRedirect\(\)/, '必须读取空闲退出时记下的原页面');
+  assert.match(page, /因长时间未操作已自动退出/, '登录页必须提示自动退出的原因');
+  // 不允许再出现「直接把 query 拿去 replace」的旧写法
+  assert.doesNotMatch(page, /router\.replace\(redirect\)/, '不允许绕过 safeRedirect 直接回跳');
+});
+
+test('axios 拦截器：只有真实操作才打活跃标记，轮询 GET 不带（⑪）', () => {
+  const request = readSource('api/request.ts');
+  assert.match(
+    request,
+    /config\.headers\[USER_ACTIVE_HEADER\] = isRecentlyActive\(\) \? '1' : '0'/,
+    '请求头必须由「最近是否有操作」决定，不能无条件打 1',
+  );
+  // 反向证据：拦截器里不能因为「有请求」就把时间戳刷新（那样轮询会一直续期）
+  assert.doesNotMatch(request, /markActivity\(/, '拦截器不得因请求刷新活跃时间戳');
+  assert.match(request, /AUTH_IDLE_TIMEOUT_CODE = 20009/, '必须识别服务端 20009');
+  assert.match(request, /redirectToLogin\('idle'\)/, '20009 必须带 reason=idle 回登录页');
+});
+
+test('空闲守卫挂在根组件（改密页也要计时）', () => {
+  const app = readSource('App.vue');
+  assert.match(app, /<IdleLogoutGuard \/>/, '根组件必须挂空闲守卫');
+});
+
+test('多标签：退出广播与跨标签时间戳同步都在（⑨）', () => {
+  const composable = readSource('composables/useIdleLogout.ts');
+  assert.match(composable, /window\.addEventListener\('storage', onStorage\)/, '必须监听 storage 事件');
+  assert.match(composable, /IDLE_LOGOUT_BROADCAST_KEY/, '必须处理退出广播');
+  // 不能用 requestIdleCallback（卡面明确要求：后台标签页不触发）——
+  // 只查「调用」形态（`requestIdleCallback(`），注释里说明「不要用」是允许的
+  assert.doesNotMatch(composable, /requestIdleCallback\s*\(/, '不要用 requestIdleCallback');
+  // 判定靠「距离上次操作多久」，而不是「距离上次请求多久」
+  assert.match(composable, /idleMillis\(\)/, '判定必须基于用户操作时间戳');
+});

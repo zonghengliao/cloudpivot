@@ -27,7 +27,7 @@
  * - 某标签退出时写广播键，其余标签收到后立即清状态跳登录页。
  */
 
-import { onBeforeUnmount, ref, type Ref } from 'vue';
+import { onBeforeUnmount, ref, watch, type Ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { fetchIdlePolicy } from '@/api/system/auth-api';
 import { useUserStore } from '@/stores/user';
@@ -311,11 +311,30 @@ export function useIdleLogout(): IdleLogoutState {
     window.addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', onVisibilityChange);
     unregisterRouteHook = router.afterEach(() => onRouteChange());
-    void loadPolicy();
+    // 登录页（无令牌）不必拉策略：免得在未登录时打一个 401 出去
+    if (isLoggedIn()) {
+      void loadPolicy();
+    }
     stopTimers();
     checkTimer = setInterval(check, CHECK_INTERVAL_MS);
     check();
   }
+
+  // 登录状态变化时同步策略：
+  // - 登录成功（token 出现）→ 拉生效值并重置计时起点；
+  // - 退出（token 清空）→ 停表、关提示，不在登录页继续倒数。
+  watch(
+    () => userStore.token,
+    (token) => {
+      if (token) {
+        resetActivity();
+        void loadPolicy();
+      } else {
+        enabled.value = false;
+        closeWarning();
+      }
+    },
+  );
 
   onBeforeUnmount(stop);
 

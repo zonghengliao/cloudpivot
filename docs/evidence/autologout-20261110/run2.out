@@ -1,0 +1,47 @@
+admin 登录成功, must_change_password = False
+[PASS] ① 参数配置列表能看到 auth.idle_timeout_minutes
+[PASS] ① 默认值 = 15 :: config_value=15
+[PASS] ① 值类型 = NUMBER 且允许修改 :: type=NUMBER modifiable=True
+[PASS] policy: 超管读到 timeout=15 / warn=60 / is_super_admin=true :: {"timeout_minutes": 15, "warn_seconds": 60, "is_super_admin": true}
+[PASS] ① 改成 5 分钟保存成功 :: http=200 body=ok
+[PASS] ① 落库生效: value()=5 :: value=5
+[PASS] ③ 非法值 -1 被拒（400） :: http=400 msg=自动退出时间必须在 1-60 分钟之间（0=禁用仅超管可设）
+[PASS] ③ 非法值 abc 被拒（400） :: http=400 msg=自动退出时间必须是整数分钟（1-60，0=禁用仅超管可设）
+[PASS] ③ 非法值 2000 被拒（400） :: http=400 msg=自动退出时间必须在 1-60 分钟之间（0=禁用仅超管可设）
+[PASS] ⑳ 超管设 70 被拒（400 + 1-60 文案） :: http=400 msg=自动退出时间必须在 1-60 分钟之间（0=禁用仅超管可设）
+[PASS] ⑳ 超管设 1440 同样被拒 :: http=400 msg=自动退出时间必须在 1-60 分钟之间（0=禁用仅超管可设）
+[PASS] 夹具: 建非超管角色 :: http=200 msg=ok
+[PASS] 夹具: 角色挂 4 个 support:config 菜单 :: http=200 msg=ok
+[PASS] 夹具: 建非超管用户 idle_t282134 :: http=200 msg=ok
+[PASS] 夹具: 非超管账号登录成功 :: http=200 msg=ok
+[PASS] policy: 非超管读到 is_super_admin=false :: {"timeout_minutes": 5, "warn_seconds": 60, "is_super_admin": false}
+[PASS] ⑬ 普通管理员设 0 被拒（400 + 只有超级管理员…） :: http=400 msg=只有超级管理员可以禁用自动退出登录
+[PASS] ⑬ 被拒后值未变（仍是 5） :: value=5
+[PASS] ⑲ 普通管理员设 70 被拒（400 + 1-60） :: http=400 msg=自动退出时间必须在 1-60 分钟之间（0=禁用仅超管可设）
+[PASS] ㉒ 普通管理员设 60 成功 :: http=200 msg=ok
+[PASS] ㉒ 落库生效: value()=60 :: value=60
+[PASS] ㉓ 普通管理员设 1 成功 :: http=200 msg=ok
+[PASS] ㉓ 落库生效: value()=1 :: value=1
+[PASS] ⑭ 超管设 0 成功 :: http=200 msg=ok
+[PASS] ② 设为 0 后 policy 返回 timeout_minutes=0（前端不启动计时） :: {"timeout_minutes": 0, "warn_seconds": 0, "is_super_admin": true}
+   audit_logs 最近 3 条 CONFIG_IDLE_TIMEOUT_UPDATE:
+     CONFIG_IDLE_TIMEOUT_UPDATE|1|0|true|admin
+     CONFIG_IDLE_TIMEOUT_UPDATE|60|1|false|idle_t282134
+     CONFIG_IDLE_TIMEOUT_UPDATE|5|60|false|idle_t282134
+[PASS] ⑭ audit_logs 有 CONFIG_IDLE_TIMEOUT_UPDATE 且带旧值/新值/是否超管 :: CONFIG_IDLE_TIMEOUT_UPDATE|1|0|true|admin ;; CONFIG_IDLE_TIMEOUT_UPDATE|60|1|false|idle_t282134 ;; CONFIG_IDLE_TIMEOUT_UPDATE|5|60|false|idle_t282134
+[PASS] 收尾: 恢复默认 15 :: http=200 msg=ok
+[PASS] ⑧ 登出前 token 可用（/me 200） :: http=200
+[PASS] ⑧ 登出接口 200 :: http=200 msg=已退出登录
+[PASS] ⑧ 登出后旧 token → 401（真吊销） :: http=401 body={"code": 401, "msg": "Token 已登出，请重新登录"}
+[PASS] ⑫ 预置 timeout=1 分钟 :: http=200 msg=ok
+[PASS] ⑩ 持续有操作（每 20s，累计 60s）→ 不退出 :: 最后一次 http=200
+   等待 65 秒模拟无人操作…
+[PASS] ⑫ 空闲超时后（无 X-User-Active）→ 401 + 20009 :: http=401 body={"code": 20009, "msg": "因长时间未操作已自动退出，请重新登录"}
+[PASS] ⑫ 超时后再补打活跃标记也救不回来（仍 401） :: http=401 body={"code": 20009, "msg": "因长时间未操作已自动退出，请重新登录"}
+[PASS] ⑫ 该会话的 refresh 令牌已被吊销（不能靠刷新复活） :: http=401 msg=刷新令牌已被撤销
+[PASS] ⑫ 空闲超时同样作用于 admin 会话（收尾需重新登录才拿得到新 token） :: http=200
+[PASS] 收尾: 恢复默认 15（第二轮） :: http=200 msg=ok
+[PASS] 收尾: 终值 = 15 :: value=15
+[PASS] 收尾: 夹具已清理（残留 0|0） :: 残留=0|0
+
+===== 39/39 通过 =====
