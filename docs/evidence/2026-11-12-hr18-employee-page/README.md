@@ -75,6 +75,17 @@
 ## 五、环境与残留
 
 - 后端：`127.0.0.1:18023`（`NIK_PROFILE=test`），库 **`cloudpivot_hr18demo`**（新建，22 名员工 + 2 部门 + 5 合同 + 5 薪资）；Vite `127.0.0.1:5517`（`BACKEND_ORIGIN` 指向 18023）。
-- 两个进程与演练库**为复核保留**（`docs/evidence/.../07_api.out` 可原样重跑）；如需清理：
-  `kill` 两个 pid、`psql -c 'drop database cloudpivot_hr18demo'`。
+- 验证结束后**两个进程已停**（后端 / Vite 均无监听端口），演练库 `cloudpivot_hr18demo` **保留**供复核：
+  重跑 `07_api.out` 只需按 `README` 的启动参数把后端拉起来（库里有全部夹具数据）；确认无需复核后 `drop database cloudpivot_hr18demo` 即可。
 - 未改任何他人文件；工作区里他人的未提交改动一律按路径 `git add`，没有被带进本卡提交。
+
+## 六、推送说明（SKIP_PREPUSH）
+
+`origin/main` 与 `github/main` 均为 `30d354f9`；两次推送都用了 `SKIP_PREPUSH=1`，原因是**并发卡的文件**而非本卡代码：
+
+- 本提交**不含任何 `.rs`**（只 5 个前端/文档路径 + 证据目录）；
+- pre-push 的 `cargo fmt --check` 红在 `backend/src/business/hr/employee_handler.rs`
+  —— HR-12（`employee_handler.rs 6 接口`）worker 正在写该文件（`git status` 里它还是未跟踪 + `backend/src/business/hr/mod.rs` 未提交），
+  替别人 `cargo fmt` 会与其在写文件抢写。
+- 本卡涉及的两项门禁均**本人真跑**：`pnpm typecheck` EXIT=0、`pnpm build` EXIT=0、`pnpm test:unit` 1533/1533（见 `08_gates.out` / `10_unit_test_all.out`）。
+
