@@ -6009,7 +6009,8 @@ mod hr_state_machine_tests {
     #[test]
     fn hr_legal_edges_all_pass() {
         // 逐实体把「from → 允许的去向」写成表，与文档流转图对拍。
-        let cases: [(Entity, &[(&str, &[&str])]); 5] = [
+        type FlowTable = [(Entity, &'static [(&'static str, &'static [&'static str])]); 5];
+        let cases: FlowTable = [
             (
                 Entity::Employee,
                 &[
