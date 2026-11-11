@@ -1,0 +1,3 @@
+### 安全闸：非演练库名必须拒绝
+拒绝执行：库名 cloudpivot 不像演练库（须含 drill/e2e/test）
+EXIT=2

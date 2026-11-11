@@ -1586,6 +1586,35 @@ SELECT material_id, lot_no, length(lot_no) FROM biz_lot
 
 二期（标准成本 + 差异）单独排期，不动一期结构（V0372 已把表建好，二期只加代码与菜单）。
 
+#### 7.4.1 演练脚本的口径（B4-5 落地，2026-11-11）
+
+B3 的上线门槛「演练两轮」由 `scripts/verify/cost_e2e.sh` 一条命令承担（证据：
+`docs/evidence/2026-11-11-cost-b4-5-e2e/`，9 步 78 条断言全绿）：
+
+```text
+建空库 → 实例自动迁移 → 装输入侧夹具 → calc → 审(两级) → 结算 → 巡检对平 → 红冲 → 重算 → 再结算 → 清场/删库
+```
+
+三条实现口径（后续改这段代码前先读）：
+
+1. **calc 用 example 探针跑真代码**：设计 §5.2 #27 的 `POST /cost-period/calc` 编排接口尚未落地，
+   六段只有库内函数。`backend/examples/cost_calc_probe.rs` 按各模块文档约定的顺序（料 → 工 → 费 →
+   池对账 → 分摊 → 计算单）调用**同一批函数**，因此演练验的是真逻辑，不是手写归集行。#27 上线后
+   把脚本里那一行换成 curl 即可，断言不动。
+2. **输入侧是夹具、账务产物全真**：成本对象 / 领料单（含 `4001.01` 领料凭证）/ 工时台账 / 手工费用
+   台账 / 分摊规则用 SQL 夹具（`E2E-` 前缀，脚本开头会拒绝非演练库）；**三张结算凭证 + 手工台账
+   凭证、生产入库单、库存三本账、红冲红字、审批实例**全部由真实接口产生。
+3. **每步判据取库里的真实数据**，不看接口自报：金额（`biz_cost_collect` / `biz_cost_alloc_result` /
+   `biz_cost_period_item` / `biz_voucher_entry`）、凭证（`biz_voucher` 状态 + 借贷平衡 + `reversed_by`）、
+   库存三本账（`biz_inventory` / `biz_inventory_location` / `biz_inventory_txn`），对平直接用
+   `erp_invariants.py --group 成本`。失败时输出 `[FAIL] STEP n` + 期望 vs 实际，`--inject
+   bypass4101|drop_material_voucher` 可复现「结算被拦 + 修好能重试」。
+
+> 顺带发现（卡外，未动）：`COST_PERIOD_EDGES` 里 `APPROVED` 只有 `→ SETTLED` 一条边，而结算失败后
+> 既不能撤回（只允许 `SUBMITTED`）、也不能重算分摊（要求 `DRAFT`）——若失败原因是分摊结果缺失，
+> 产品上没有回头路。属 B3-1 / B3-6 范围，需另开卡（见 evidence README「已知缺口」）。
+
+
 ---
 
 ## 8. 工作量估算与风险
