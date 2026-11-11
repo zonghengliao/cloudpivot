@@ -1,0 +1,20 @@
+=== 1) cargo fmt --check ===
+OK: fmt
+
+=== 2) cargo clippy --all-targets -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.37s
+
+=== 3) cargo test --lib（全量，含 HR-13 的 21 条）===
+
+test result: ok. 4912 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+
+
+=== 4) 前端 pnpm typecheck ===
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+typecheck_exit=0
+
+=== 5) 前端 pnpm build ===
+dist//opt/cloudpivot/frontend/assets/tdesign-D-c-CfB2.js.gz                                                7995.70kb / gzip: 772.69kb
+
+

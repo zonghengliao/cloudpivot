@@ -1,0 +1,22 @@
+=== 端口 18097 ===
+0
+=== cloudpivot 进程 ===
+3438446 /usr/bin/bash -c source /root/.hermes/profiles/backend-developer/cache/scratch/hermes-snap-c171c65bf48a.sh >/dev/null 2>&1 || true export AI_AGENT="${AI_AGENT:-hermes-agent}" HERMES_AGENT="${HERMES_AGENT:-true}" export GIT_PAGER="${GIT_PAGER:-cat}" PAGER="${PAGER:-cat}" builtin cd -- /opt/cloudpivot/backend || exit 126 eval 'cd /opt/cloudpivot && { echo "=== 端口 18097 ==="; (ss -ltnp 2>/dev/null | grep -c 18097) || true; echo "=== cloudpivot 进程 ==="; pgrep -af '\''target/debug/cloudpivot'\'' | head -5; echo "(以上为空则无残留)"; echo; echo "=== hr13 演练库 ==="; su - postgres -c "psql -tAc \"SELECT count(*) FROM pg_database WHERE datname LIKE '\''hr13%'\''\""; echo; echo "=== 规则已复原 ==="; echo "(库已删，无残留)"; echo; echo "=== git status（本卡相关文件）==="; git status --porcelain | grep -E "hr/employee_sensitive|hr/mod.rs|hr/employee_handler.rs|employee_sensitive_http_smoke|hr13-sensitive" ; echo; echo "=== 他人未提交文件（不动）==="; git status --porcelain | grep -vE "hr/employee_sensitive|hr/mod.rs|hr/employee_handler.rs|employee_sensitive_http_smoke|hr13-sensitive" | head -10; } 2>&1 | tee docs/evidence/2026-11-12-hr13-sensitive-audit/04_residue.out  __hermes_rc=$? __hermes_ps=("${PIPESTATUS[@]}"); (exit $__hermes_rc) && :' __hermes_ec=$? umask 077 __hermes_snap_tmp=$(mktemp /root/.hermes/profiles/backend-developer/cache/scratch/hermes-snap-c171c65bf48a.sh.tmp.XXXXXXXXXX) && { { ( unset ${!HERMES_SESSION_*} ${!HERMES_CRON_AUTO_DELIVER_*} AI_AGENT HERMES_AGENT HERMES_DELEGATED_CHILD_CONTEXT HERMES_CRON_SESSION ${!HERMES_RPC_*} HERMES_KERNEL_DIR HERMES_UI_SESSION_ID 2>/dev/null; export -p; ) || true; } > "$__hermes_snap_tmp" && mv -f "$__hermes_snap_tmp" /root/.hermes/profiles/backend-developer/cache/scratch/hermes-snap-c171c65bf48a.sh; } 2>/dev/null || rm -f "$__hermes_snap_tmp" 2>/dev/null || true printf '\n__HERMES_PIPE_c171c65bf48a__%s__HERMES_PIPE_c171c65bf48a__\n' "${__hermes_ps[*]-}" printf '\n__HERMES_CWD_c171c65bf48a__%s__HERMES_CWD_c171c65bf48a__\n' "$(pwd -P)" exit $__hermes_ec
+3438448 /usr/bin/bash -c source /root/.hermes/profiles/backend-developer/cache/scratch/hermes-snap-c171c65bf48a.sh >/dev/null 2>&1 || true export AI_AGENT="${AI_AGENT:-hermes-agent}" HERMES_AGENT="${HERMES_AGENT:-true}" export GIT_PAGER="${GIT_PAGER:-cat}" PAGER="${PAGER:-cat}" builtin cd -- /opt/cloudpivot/backend || exit 126 eval 'cd /opt/cloudpivot && { echo "=== 端口 18097 ==="; (ss -ltnp 2>/dev/null | grep -c 18097) || true; echo "=== cloudpivot 进程 ==="; pgrep -af '\''target/debug/cloudpivot'\'' | head -5; echo "(以上为空则无残留)"; echo; echo "=== hr13 演练库 ==="; su - postgres -c "psql -tAc \"SELECT count(*) FROM pg_database WHERE datname LIKE '\''hr13%'\''\""; echo; echo "=== 规则已复原 ==="; echo "(库已删，无残留)"; echo; echo "=== git status（本卡相关文件）==="; git status --porcelain | grep -E "hr/employee_sensitive|hr/mod.rs|hr/employee_handler.rs|employee_sensitive_http_smoke|hr13-sensitive" ; echo; echo "=== 他人未提交文件（不动）==="; git status --porcelain | grep -vE "hr/employee_sensitive|hr/mod.rs|hr/employee_handler.rs|employee_sensitive_http_smoke|hr13-sensitive" | head -10; } 2>&1 | tee docs/evidence/2026-11-12-hr13-sensitive-audit/04_residue.out  __hermes_rc=$? __hermes_ps=("${PIPESTATUS[@]}"); (exit $__hermes_rc) && :' __hermes_ec=$? umask 077 __hermes_snap_tmp=$(mktemp /root/.hermes/profiles/backend-developer/cache/scratch/hermes-snap-c171c65bf48a.sh.tmp.XXXXXXXXXX) && { { ( unset ${!HERMES_SESSION_*} ${!HERMES_CRON_AUTO_DELIVER_*} AI_AGENT HERMES_AGENT HERMES_DELEGATED_CHILD_CONTEXT HERMES_CRON_SESSION ${!HERMES_RPC_*} HERMES_KERNEL_DIR HERMES_UI_SESSION_ID 2>/dev/null; export -p; ) || true; } > "$__hermes_snap_tmp" && mv -f "$__hermes_snap_tmp" /root/.hermes/profiles/backend-developer/cache/scratch/hermes-snap-c171c65bf48a.sh; } 2>/dev/null || rm -f "$__hermes_snap_tmp" 2>/dev/null || true printf '\n__HERMES_PIPE_c171c65bf48a__%s__HERMES_PIPE_c171c65bf48a__\n' "${__hermes_ps[*]-}" printf '\n__HERMES_CWD_c171c65bf48a__%s__HERMES_CWD_c171c65bf48a__\n' "$(pwd -P)" exit $__hermes_ec
+(以上为空则无残留)
+
+=== hr13 演练库 ===
+0
+
+=== 规则已复原 ===
+(库已删，无残留)
+
+=== git status（本卡相关文件）===
+ M backend/src/business/hr/employee_handler.rs
+ M backend/src/business/hr/mod.rs
+?? backend/src/business/hr/employee_sensitive.rs
+?? backend/src/business/hr/employee_sensitive_db_tests.rs
+?? docs/evidence/2026-11-12-hr13-sensitive-audit/
+?? scripts/verify/hr/employee_sensitive_http_smoke.sh
+
+=== 他人未提交文件（不动）===

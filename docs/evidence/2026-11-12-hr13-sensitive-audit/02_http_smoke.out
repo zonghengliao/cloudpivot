@@ -1,0 +1,55 @@
+== HR-13 敏感字段明文 + 审计留痕 HTTP 冒烟（http://127.0.0.1:18097，tag=043157060563）==
+  [PASS] 0. /health 就绪（200）
+  [PASS] 0. admin 登录（含必改密处理）
+  [PASS] 1. 部门树取到 dept_id（20000000-0000-4000-8000-0000000f0366）
+  [PASS] 1. 夹具员工已建（200）
+  [PASS] 1. 夹具员工 id=01a1cc4f-641d-7660-a7cc-9211d7847648 emp_no=HR13-SMOKE-043157060563
+  [PASS] 2. 未登录查明文 = 401（401）
+  [PASS] 3. 列表 = 200（200）
+  [PASS] 3. 列表命中 1 行（1）
+  [PASS] 3. 列表不含身份证明文（不含 110101199001019876）
+  [PASS] 3. 列表不含工资卡明文（列表本就不出该列）（不含 6222021234569876）
+  [PASS] 3. 详情 = 200（200）
+  [PASS] 3. 详情 sensitive_masked.id_card_masked（110101****9876）
+  [PASS] 3. 详情身份证是打码形态（含 *）
+  [PASS] 3. 详情不含身份证明文（不含 110101199001019876）
+  [PASS] 3. 详情不含工资卡明文（不含 6222021234569876）
+  [PASS] 4. #7 查明身份证明文 = 200（200）
+  [PASS] 4. 明文 = 库里的原文（110101199001019876）
+  [PASS] 4. 回执 field = id_card（id_card）
+  [PASS] 4. 回执带 audit_id（本次留痕凭据）（d2b40cc7-635c-4f92-952d-6e7d82172a4d）
+  [PASS] 4. 回执带 audited_at（数据库时钟）（2026-11-12T04:31:57+08:00）
+  [PASS] 4. audited_at 是 CST（含 +08:00）
+  [PASS] 4. 打码值一并返回（同一规则集合）（含 *）
+  [PASS] 4. 回执带工号（人对得上）（HR13-SMOKE-043157060563）
+  [PASS] 5. #7 查工资卡明文 = 200（200）
+  [PASS] 5. 明文 = 库里的原文（6222021234569876）
+  [PASS] 5. 回执 field = bank_account（bank_account）
+  [PASS] 6. 审计日志页 = 200（200）
+  ---- 审计行（按 target_id 过滤）----
+    user=admin op=HR_EMPLOYEE_SENSITIVE_READ field=bank_account at=2026-11-12T04:31:57.55312+08:00 ip=-
+    user=admin op=HR_EMPLOYEE_SENSITIVE_READ field=id_card at=2026-11-12T04:31:57.528458+08:00 ip=-
+  [PASS] 6. 两条明文访问 = 两条审计（2）
+  [PASS] 6. 谁（username 快照）（admin）
+  [PASS] 6. 谁（user_id）（01a1cc4e-fedc-7667-979f-4a1b624f6835）
+  [PASS] 6. 什么时候（created_at）（2026-11-12T04:31:57.55312+08:00）
+  [PASS] 6. 看了谁（target_type）（Employee）
+  [PASS] 6. 看了谁（target_id）（01a1cc4f-641d-7660-a7cc-9211d7847648）
+  [PASS] 6. 什么字段（两条分别是 id_card / bank_account）（bank_account,id_card）
+  [PASS] 6. detail 里也带工号（HR13-SMOKE-043157060563）
+  [PASS] 6. detail 里也带姓名（明文冒烟员工）
+  [PASS] 6. 回执 audit_id 能在审计页查到（1）
+  [PASS] 6. 审计行不含身份证明文（不含 110101199001019876）
+  [PASS] 6. 审计行不含工资卡明文（不含 6222021234569876）
+  [PASS] 7. field=mobile = 400（400）
+  [PASS] 7. 报文列出 id_card（含 id_card）
+  [PASS] 7. 报文列出 bank_account（含 bank_account）
+  [PASS] 7. 缺 field = 400（400）
+  [PASS] 8. 探针账号已建（01a1cc4f-68a9-7396-a78a-796c66357a08）
+  [PASS] 8. 无 sensitive 码查明文 = 403（403）
+  [PASS] 8. 无 detail 码查详情 = 403（对照）（403）
+  [PASS] 9. 软删员工 = 200（200）
+  [PASS] 9. 软删后查明文 = 404（404）
+  [PASS] 10. 探针账号已删除
+
+== 合计：PASS=49 FAIL=0 ==

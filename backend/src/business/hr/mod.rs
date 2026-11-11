@@ -120,5 +120,11 @@ pub mod employee_model;
 /// HR-10 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD 全通 + 三条冲突的真实报文。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_model_db_tests;
+/// 敏感字段**明文**出口（`GET /employee/{id}/sensitive`）+ `audit_logs` 留痕（HR-13）。
+pub mod employee_sensitive;
+/// HR-13 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：明文 + 审计四维度 +
+/// `sys_field_mask` 规则改参数后打码值随之变化（设计 §8.3 R1 的实测）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_sensitive_db_tests;
 pub mod handler;
 pub mod model;

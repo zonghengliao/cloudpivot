@@ -1372,7 +1372,10 @@ async fn mask_of(principal: &ScopedPrincipal, claims: &TokenClaims) -> std::resu
 ///
 /// 用 [`scope::filter_for`] 生成与列表**同一份**片段（同一锚点、同一部门集合），
 /// 所以「列表看得到、详情打不开」这类不一致不可能出现。
-async fn ensure_visible(
+///
+/// `pub(crate)`：HR-13 的明文接口（[`crate::business::hr::employee_sensitive`]）必须走
+/// 同一份探针 —— 单条入口多一份「自己写的范围判断」就是多一个越权缺口。
+pub(crate) async fn ensure_visible(
     ex: &impl SqlExecutor,
     principal: &ScopedPrincipal,
     id: Uuid,
