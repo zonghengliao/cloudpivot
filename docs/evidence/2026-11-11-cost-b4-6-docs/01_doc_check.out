@@ -1,0 +1,11 @@
+# 正例：文档可达性自检（2026-11-11T18:26:05+08:00）
+# 命令：python3 scripts/verify/cost_doc_check.py
+章节：## 十六、成本核算（274 行）
+[PLANNED] 示例迁移（尚未创建）：V0386__cost_alloc_basis_sales_amount
+[PLANNED] 示例迁移（尚未创建）：V0386__cost_alloc_basis_sales_amount.up/.down.sql
+[A] 文件引用可达   34/34
+[B] 函数名有定义   8/8
+[C] 迁移号存在     14/14
+
+DOC_OK 全部引用可达
+EXIT=0
