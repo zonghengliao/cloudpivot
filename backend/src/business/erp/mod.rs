@@ -218,6 +218,15 @@ mod cost_overhead_db_tests;
 pub mod cost_overhead_dto;
 pub mod cost_overhead_handler;
 pub mod cost_overhead_model;
+/// 成本核算批次（`biz_cost_period`）契约层：状态值域 / 批次号 / 入参归一化，B3-1。
+pub mod cost_period_dto;
+/// 成本核算批次数据层：CRUD + 活跃批次 + 取号 + 明细与合计，B3-1。
+pub mod cost_period_model;
+/// 成本核算批次接口层：列表 / 详情 / 建 / 改 / 作废（状态机 DRAFT→CANCELLED），B3-1。
+pub mod cost_period_handler;
+/// B3-1 的真库用例（`ERP_DB_URL` 开关）：取号 / 唯一键 / 状态机全链路 / 非法跃迁。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_period_db_tests;
 /// calc 第 6 段「约当产量与计算单」的纯逻辑（约当产量 / 单位成本 / 尾差倒挤 / 期初要素还原），B2-11。
 pub mod cost_period_item_dto;
 /// 成本计算单（`biz_cost_period_item`）数据层：取对象与投入 / 期初结转 / 整删重灌 / 回查，B2-11。

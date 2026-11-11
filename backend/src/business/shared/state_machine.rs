@@ -1588,6 +1588,72 @@ pub const COST_OBJECT_BASE: [BaseEdge; 2] = [
     BaseEdge::mandatory("OPEN", "CANCELLED", "作废（建错了）", true),
 ];
 
+// ==================== 成本核算 · 核算批次（ARCH-9 §4.1） ====================
+
+/// 实体类型：成本核算批次（期间结算单）`biz_cost_period`。
+///
+/// 落库值取 [`DocKind::CostPeriod`]（`"COST_PERIOD"`）—— 与 `ENTITY_COST_OBJECT`
+/// 同款：`doc_kind_tests::entity_registry_is_covered_by_doc_kind` 要求注册表里
+/// 每个实体都在 `DocKind` 域内，手写字面量会漂。
+///
+/// **卡面写的是 `DRAFT → PENDING → APPROVED`，落库值是 `SUBMITTED`**：设计 §3.1 ⑨ 的
+/// `ck_biz_cost_period_status` 与 V0373 已按 `SUBMITTED` 落地（已应用迁移不可改），
+/// 且全仓其余审批类单据（采购订单 / 销售订单 / 退货）都是 `SUBMITTED`。
+/// 卡面的 `PENDING` 是同一个状态的通俗叫法，**不另立别名**（别名 = 兼容层永远在）。
+pub const ENTITY_COST_PERIOD: &str = DocKind::CostPeriod.as_str();
+
+/// 成本核算批次合法边（ARCH-9 §4.1，7 条）。
+///
+/// ```text
+/// DRAFT ──提交──▶ SUBMITTED ──审批通过──▶ APPROVED ──结算──▶ SETTLED ──期间结账──▶ CLOSED
+///   │                  │                                        │
+///   │                  └──驳回/撤回──▶ DRAFT                    └──红冲──▶ REVERSED
+///   └──作废──▶ CANCELLED
+/// ```
+///
+/// **没有 `DRAFT → APPROVED`**：设计 §4.1 写死「`DRAFT → APPROVED` 必须过审批流」，
+/// 免审直过会让 `ck_biz_cost_period_appr`（`SUBMITTED` 起必须挂审批实例）失去意义。
+/// **没有 `CLOSED → *`**：期间已结账，只读。
+/// **没有 `REVERSED → *`**：红冲是终态；同期重建**新批次**（唯一键已排除 `REVERSED`）。
+pub const COST_PERIOD_EDGES: [(&str, &str); 7] = [
+    ("DRAFT", "SUBMITTED"),
+    ("SUBMITTED", "APPROVED"),
+    ("SUBMITTED", "DRAFT"),
+    ("APPROVED", "SETTLED"),
+    ("SETTLED", "CLOSED"),
+    ("SETTLED", "REVERSED"),
+    ("DRAFT", "CANCELLED"),
+];
+
+/// 需要 reason 的成本核算批次边：**红冲 + 作废**。
+///
+/// `SUBMITTED → DRAFT` 故意**不在**这里：同一条边承载两个动作 ——
+/// 「撤回」（提交人自己拿回，无需解释）与「驳回」（审批人给出意见）。
+/// 若把它标成必填原因，「撤回」会被 400 挡住（正常业务路径直接断，LNK-P08 同款）。
+/// 驳回意见由 B3-3 的接线写进 `remark`，不靠状态机的必填校验。
+pub const COST_PERIOD_REASON_EDGES: [(&str, &str); 2] = [("SETTLED", "REVERSED"), ("DRAFT", "CANCELLED")];
+
+/// 成本核算批次「不可改」状态：**只有 `DRAFT` 可写**。
+///
+/// 设计 §4.1 的口径：`DRAFT` 可反复重算；`SUBMITTED` 起数据冻结
+/// （要改就撤回或作废重建）。`ensure_writable` 用它拦「已提交还被改」。
+pub const COST_PERIOD_LOCKED: [&str; 6] = ["SUBMITTED", "APPROVED", "SETTLED", "CLOSED", "REVERSED", "CANCELLED"];
+
+/// 成本核算批次的 BASE_EDGES（与 [`COST_PERIOD_EDGES`] 逐条对应，顺序一致）。
+///
+/// 七条全 mandatory：结算链的每一段（提交 → 审批 → 结算 → 关期 / 红冲）都是主链，
+/// 配置层关掉任何一条都会让批次**永久停在某个中间态**（且没有兜底待办）。
+/// 红冲与作废要原因（影响已入账数据 / 放弃整期核算）。
+pub const COST_PERIOD_BASE: [BaseEdge; 7] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交审批", false),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
+    BaseEdge::mandatory("SUBMITTED", "DRAFT", "驳回 / 撤回", false),
+    BaseEdge::mandatory("APPROVED", "SETTLED", "结算（入库 + 凭证）", false),
+    BaseEdge::mandatory("SETTLED", "CLOSED", "期间结账", false),
+    BaseEdge::mandatory("SETTLED", "REVERSED", "红冲结算", true),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "作废", true),
+];
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -1658,11 +1724,17 @@ pub enum Entity {
     /// 与别的实体不同：它**不是审批单据**，状态变更全部来自成本核算侧
     /// （关批 = 不再领料报工），所以没有 `SUBMITTED` / `APPROVED` 这些中间态。
     CostObject,
+    /// 成本核算批次（期间结算单）`biz_cost_period`（成本核算 ARCH-9 §4.1）。
+    ///
+    /// 状态域七值：`DRAFT`/`SUBMITTED`/`APPROVED`/`SETTLED`/`CLOSED`/`CANCELLED`/`REVERSED`，
+    /// 边表见 [`COST_PERIOD_EDGES`]。卡面的 `PENDING` 就是这里的 `SUBMITTED`
+    /// （V0373 的 `ck_biz_cost_period_status` 已按 `SUBMITTED` 落地）。
+    CostPeriod,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 23] = [
+    pub const ALL: [Entity; 24] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1687,6 +1759,7 @@ impl Entity {
         Entity::PurchaseReturn,
         // 成本核算（ARCH-9）
         Entity::CostObject,
+        Entity::CostPeriod,
     ];
 
     /// 落库的 `entity_type`。
@@ -1715,6 +1788,7 @@ impl Entity {
             Entity::SalesReturn => ENTITY_SALES_RETURN,
             Entity::PurchaseReturn => ENTITY_PURCHASE_RETURN,
             Entity::CostObject => ENTITY_COST_OBJECT,
+            Entity::CostPeriod => ENTITY_COST_PERIOD,
         }
     }
 
@@ -1749,6 +1823,7 @@ impl Entity {
             Entity::SalesReturn => "销售退货单",
             Entity::PurchaseReturn => "采购退货单",
             Entity::CostObject => "成本对象",
+            Entity::CostPeriod => "成本核算批次",
         }
     }
 
@@ -1778,6 +1853,7 @@ impl Entity {
             Entity::SalesReturn => &SALES_RETURN_EDGES,
             Entity::PurchaseReturn => &PURCHASE_RETURN_EDGES,
             Entity::CostObject => &COST_OBJECT_EDGES,
+            Entity::CostPeriod => &COST_PERIOD_EDGES,
         }
     }
 
@@ -1810,6 +1886,7 @@ impl Entity {
             Entity::SalesReturn => &SALES_RETURN_BASE,
             Entity::PurchaseReturn => &PURCHASE_RETURN_BASE,
             Entity::CostObject => &COST_OBJECT_BASE,
+            Entity::CostPeriod => &COST_PERIOD_BASE,
         }
     }
 
@@ -1844,6 +1921,7 @@ impl Entity {
             Entity::SalesReturn => &SALES_RETURN_REASON_EDGES,
             Entity::PurchaseReturn => &PURCHASE_RETURN_REASON_EDGES,
             Entity::CostObject => &COST_OBJECT_REASON_EDGES,
+            Entity::CostPeriod => &COST_PERIOD_REASON_EDGES,
         }
     }
 
@@ -1873,6 +1951,7 @@ impl Entity {
             Entity::SalesReturn => &SALES_RETURN_LOCKED,
             Entity::PurchaseReturn => &PURCHASE_RETURN_LOCKED,
             Entity::CostObject => &COST_OBJECT_LOCKED,
+            Entity::CostPeriod => &COST_PERIOD_LOCKED,
         }
     }
 
@@ -4945,14 +5024,15 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            23,
+            24,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
              → 17（RECEIVABLE，销售链 SO-13）→ 18（RECEIPT，销售链 SO-17）\
              → 19（RECEIPT_REFUND，销售链 SO-14 遗留 D10）→ 20（INVOICE，销售链 SO-20）\
              → 21（SALES_RETURN，销售链 SO-29）→ 22（PURCHASE_RETURN，采购链 P2-03）\
-             → 23（COST_OBJECT，成本核算 ARCH-9 §4.1）"
+             → 23（COST_OBJECT，成本核算 ARCH-9 §4.1）\
+             → 24（COST_PERIOD，成本核算 ARCH-9 §4.1 结算批次）"
         );
 
         // ③ as_str

@@ -833,6 +833,17 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 真要按关批触发（例如关批后提醒车间盘点余料）时，移进 `TRIGGER_SPECS`
     // 并给 `wired = true` + `proofs`（漂移守卫会同时要求两者）。
     state_machine::ENTITY_COST_OBJECT,
+    // 成本核算 ARCH-9 · B3-1：核算批次（期间结算单）的状态流转入口
+    // （`cost_period_handler` 的作废 + B3-3/B3-4/B3-5 的提交 / 审批落地 / 结算 / 关期 / 红冲）
+    // **不调联动引擎** —— 结算的跨域后果（完工入库 + 三张凭证 + 4101 清零）
+    // 是设计 §4.8 的**一个专用事务**（B3-4/B3-5 的 bridge，与 `stockin_bridge` /
+    // `payable_bridge` 同一模式）：一次结算要按「对象 × 要素」拼明细、要回写
+    // `biz_cost_period_item.stock_in_id`、要在提交后失败时做补偿，通用联动引擎的
+    // 几个动作码（生成凭证 / 写库存）拼不出这个形状；硬塞进去就会变成
+    // 「同一张单两条路径各落一次账」（`STOCKOUT_EXCLUDED_ACTIONS` 那个病的放大版）。
+    // 真要按批次触发（例如结算后通知车间）时，移进 `TRIGGER_SPECS` 并给
+    // `wired = true` + `proofs`（漂移守卫会同时要求两者）。
+    state_machine::ENTITY_COST_PERIOD,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。

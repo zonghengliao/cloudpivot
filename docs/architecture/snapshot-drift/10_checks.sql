@@ -520,6 +520,9 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'OPENING_BALANCE',   'biz_voucher',           'deleted_at', '期初余额（ATT-11：entity_id 存期初凭证 id）'),
     -- 成本核算 ARCH-9：成本对象（生产批）进状态日志（`cost_object_handler` 建单 / 关批都写 entity_type=COST_OBJECT）
     ('STATUS_ENTITY', 'COST_OBJECT',       'biz_cost_object',       'deleted_at', '成本对象 / 生产批（ARCH-9 §4.1：OPEN → CLOSED / CANCELLED）'),
+    -- 成本核算 ARCH-9 · B3-1：核算批次（期间结算单）进状态日志（`cost_period_handler` 建单 / 作废，
+    -- B3-3..B3-5 的提交 / 审批落地 / 结算 / 关期 / 红冲同样写 entity_type=COST_PERIOD）
+    ('STATUS_ENTITY', 'COST_PERIOD',       'biz_cost_period',       'deleted_at', '成本核算批次 / 期间结算单（ARCH-9 §4.1：DRAFT → SUBMITTED → APPROVED → SETTLED → CLOSED / REVERSED）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),

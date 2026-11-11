@@ -1759,6 +1759,20 @@ pub const ERP_COST_ITEM_PERIOD_LOCKED: i32 = 66070;
 /// 没有批次行就无处安放计算单。修法是先建该期间的成本批次（成本核算页「选期间」）。
 pub const ERP_COST_PERIOD_BATCH_MISSING: i32 = 66071;
 
+/// 成本核算 · 同期间已有活跃批次（HTTP 409，ARCH-9 §4.1 / B3-1 · `66072`）。
+///
+/// `uk_biz_cost_period`（V0373）允许多条 `REVERSED` / `CANCELLED`（审计留痕不占位），
+/// 但同一期间只许一条**活跃**批次。建新批次撞键时给本码：前端引导「先去红冲 / 作废
+/// 那一批」，而不是把 PG 的 `duplicate key value violates unique constraint` 原样抛出。
+pub const ERP_COST_PERIOD_DUPLICATE: i32 = 66072;
+
+/// 成本核算 · 批次当前状态不允许该动作（HTTP 409，ARCH-9 §4.1 / B3-1 · `66073`）。
+///
+/// 只有 `DRAFT` 能改数 / 作废；`SUBMITTED` 起数据冻结（设计 §4.1「要改就撤回或作废重建」）。
+/// **不复用** [`ERP_COST_ITEM_PERIOD_LOCKED`]（`66070`）：那个码锁的是**计算单重算**，
+/// 本码锁的是**批次单头的写操作**（改人工来源 / 改备注 / 作废）。
+pub const ERP_COST_PERIOD_STATUS_GUARD: i32 = 66073;
+
 // ==================== 67xxx：PDF 导出（PDF-01） ====================
 //
 // 为什么单独开 67xxx：66xxx 是 ERP 主数据的段（66001–66054 已排到 66054，前端
@@ -1927,6 +1941,9 @@ mod tests {
             (ERP_COST_PRIOR_PERIOD_REVERSED, 66069),
             (ERP_COST_ITEM_PERIOD_LOCKED, 66070),
             (ERP_COST_PERIOD_BATCH_MISSING, 66071),
+            // 成本核算·同期间已有活跃批次 + 状态闸（66072–66073；B3-1 结算四件套骨架）
+            (ERP_COST_PERIOD_DUPLICATE, 66072),
+            (ERP_COST_PERIOD_STATUS_GUARD, 66073),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

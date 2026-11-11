@@ -1,0 +1,13 @@
+==> 演练库：costb31_drill
+  重放迁移数：301 条
+==> 本卡依赖的结构自检
+  ✓ biz_cost_period 在（t）
+  ✓ biz_cost_period_item 在（t）
+  ✓ 唯一键排除 REVERSED/CANCELLED（1）
+  ✓ uk_biz_cost_period_no 在（1）
+  ✓ 状态 CHECK 七值（1）
+  ✓ 成本核算页面菜单（list 权限码）（1）
+  ✓ 成本核算按钮菜单 4 个（4）
+  ✓ 结算审批流种子在（biz_type=COST_SETTLE）（1）
+==> ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/costb31_drill
+RESULT: PASS

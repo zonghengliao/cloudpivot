@@ -190,11 +190,18 @@ pub enum DocKind {
     /// 有状态机、会写 `biz_status_log` —— 不登记则 `state_machine` 注册表与
     /// `DocKind` 域对不上（`doc_kind_tests::entity_registry_is_covered_by_doc_kind` 会红）。
     CostObject,
+    /// 成本核算批次（期间结算单）`biz_cost_period`（成本核算 ARCH-9 §3.1 ⑨）。
+    ///
+    /// 它是**可审批单据**：`DRAFT → SUBMITTED → APPROVED → SETTLED → CLOSED`，
+    /// 另有 `CANCELLED` / `REVERSED`；边表在 `state_machine::COST_PERIOD_EDGES`。
+    /// 审批走引擎（`biz_type = COST_SETTLE`，V0381 的 `cost_settle_approve`），
+    /// 所以 `is_document() = true`（附件 / 提醒 / 流程都要能挂在它上面）。
+    CostPeriod,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 30] = [
+    pub const ALL: [DocKind; 31] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -228,6 +235,8 @@ impl DocKind {
         DocKind::OpeningBalance,
         // 成本核算（ARCH-9）：成本对象（生产批）
         DocKind::CostObject,
+        // 成本核算（ARCH-9）：核算批次（期间结算单，可审批）
+        DocKind::CostPeriod,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -265,6 +274,7 @@ impl DocKind {
             DocKind::OpeningBalance => "OPENING_BALANCE",
             // 成本核算（ARCH-9）
             DocKind::CostObject => "COST_OBJECT",
+            DocKind::CostPeriod => "COST_PERIOD",
         }
     }
 
@@ -303,6 +313,7 @@ impl DocKind {
             DocKind::OpeningBalance => "期初余额",
             // 成本核算（ARCH-9）
             DocKind::CostObject => "成本对象",
+            DocKind::CostPeriod => "成本核算批次",
         }
     }
 
@@ -340,6 +351,7 @@ impl DocKind {
             DocKind::OpeningBalance => "biz_voucher",
             // 成本核算（ARCH-9）：生产批主表
             DocKind::CostObject => "biz_cost_object",
+            DocKind::CostPeriod => "biz_cost_period",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -370,6 +382,7 @@ impl DocKind {
                 | DocKind::Invoice
                 | DocKind::SalesReturn
                 | DocKind::PurchaseReturn
+                | DocKind::CostPeriod
         )
     }
 
@@ -1329,7 +1342,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 30] = [
+const DOC_KIND_VALUES: [&str; 31] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1360,6 +1373,7 @@ const DOC_KIND_VALUES: [&str; 30] = [
     "CUSTOMER",
     "OPENING_BALANCE",
     "COST_OBJECT",
+    "COST_PERIOD",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
