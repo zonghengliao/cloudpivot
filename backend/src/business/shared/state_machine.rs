@@ -1654,6 +1654,300 @@ pub const COST_PERIOD_BASE: [BaseEdge; 7] = [
     BaseEdge::mandatory("DRAFT", "CANCELLED", "作废", true),
 ];
 
+// ==================== 人力资源（ARCH-9-人力资源模块设计 §4.2） ====================
+//
+// 五个实体（员工 / 劳动合同 / 请假单 / 考勤期间 / 薪资单）的落库值一律取 [`DocKind`]
+// （HR-06 已扩这 5 个值），与 `ENTITY_COST_OBJECT` 同款：`doc_kind_tests::
+// entity_registry_is_covered_by_doc_kind` 要求注册表里每个实体都在 `DocKind` 域内，
+// 手写字面量会漂。`biz_status_log.entity_type` 无 CHECK 白名单（V0159 / V0219:44），
+// 常量登记后 `transition()` 即可用。
+//
+// # 状态域的真相在 DDL，不在流转图
+//
+// 下面每张边表 / reason 表 / locked 表里出现的状态串**必须落在 V0383 的
+// `ck_biz_*_status` 白名单内**（迁移已应用、不可改）。单测
+// `hr_status_domains_match_ddl` 直接读 `migrations/business/V0383__hr_tables.up.sql`
+// 逐条比对白名单，`hr_edge_statuses_stay_in_ddl_domain` 再保证边表不越域 ——
+// 越域的一次写库就是 23514，而 `transition()` 先写 `biz_status_log`（它只写日志），
+// 于是留下「日志说有这一步、单据上没有这个状态」的脏轨迹。
+//
+// 这条护栏不是洁癖：设计 §4.2.4 的薪资单流转图**画了 3 条 `→ CANCELLED`**，
+// 而 §3.1 ⑧ 的 `ck_biz_sal_sheet_status` 只有 6 个值（**没有 CANCELLED**），
+// HR-09 的 `ROUTE_CONTRACT` 薪资组也没有作废接口。照图落边 = 一按作废就 23514。
+
+/// 实体类型：员工档案（`biz_employee`，设计 §3.1 ①）。
+///
+/// 落库值 `EMPLOYEE`。**员工不是账号**（设计 D-1：`biz_employee.user_id` 单向下挂
+/// `sys_user`，账号表一列都不加），所以人事状态与 `sys_user.status`（0/1 启用停用）
+/// 是**两套**：离职 = 人事 `RESIGNED` + 账号停用，两者都写、都不删。
+pub const ENTITY_EMPLOYEE: &str = DocKind::Employee.as_str();
+
+/// 员工合法边（设计 §4.2.1 的流转图，6 条）。
+///
+/// ```text
+/// PROBATION ──转正──▶ ACTIVE ──停薪留职──▶ SUSPENDED ──复职──▶ ACTIVE
+///      │                │                     │
+///      └────────────────┴─────────────────────┴──▶ RESIGNED（终态）
+/// ```
+///
+/// 三条入 `RESIGNED` 的边**只由离职审批回调写**（`hr_employee_resign` 通过后的
+/// 第一步，设计 §4.1.3 ③）；`PROBATION → ACTIVE` 的守卫是「有生效中的劳动合同」
+/// （设计 §4.2.1 表格），那是**调用点的字段/关联校验**，不是状态机的必填原因 ——
+/// 所以它不在 [`EMPLOYEE_REASON_EDGES`] 里（放进去会让转正按钮因缺 reason 被 400 挡住，
+/// LNK-P08 同款）。
+///
+/// **没有** `RESIGNED → *`：离职是终态（再入职 = 新员工档，历史单据靠
+/// `employee_id` + 姓名/工号快照回溯，设计 §4.1.1）。
+pub const EMPLOYEE_EDGES: [(&str, &str); 6] = [
+    ("PROBATION", "ACTIVE"),
+    ("ACTIVE", "SUSPENDED"),
+    ("SUSPENDED", "ACTIVE"),
+    ("PROBATION", "RESIGNED"),
+    ("ACTIVE", "RESIGNED"),
+    ("SUSPENDED", "RESIGNED"),
+];
+
+/// 需要 reason 的员工边（设计 §4.2.1 点名「原因 ≥ 5 字进 `biz_status_log.reason`」的两类动作）：
+/// 停薪留职（1 条）+ 离职（3 条，三个在职状态都能离职）。
+///
+/// 设计写「3 条：转正/停薪/离职」是**按动作数**说的；落到边是 4 条 —— 离职有
+/// `PROBATION / ACTIVE / SUSPENDED` 三个入口，而转正的守卫是「生效合同」不是原因
+/// （见 [`EMPLOYEE_EDGES`]）。离职原因同时进 `biz_employee.leave_type` 与
+/// `biz_status_log.reason`，审计要能回答「为什么走的」。
+pub const EMPLOYEE_REASON_EDGES: [(&str, &str); 4] = [
+    ("ACTIVE", "SUSPENDED"),
+    ("PROBATION", "RESIGNED"),
+    ("ACTIVE", "RESIGNED"),
+    ("SUSPENDED", "RESIGNED"),
+];
+
+/// 员工「不可改」状态：已离职（设计 §4.2.1 逐字）。
+///
+/// 离职档只读的理由：它是在职期间的**主数据基线**，改入职日期 / 部门会让历史薪资单
+/// 的快照对不上（薪资明细存了 `dept_name` 快照，主数据改名不影响工资表 —— 设计 §3.1 ⑨）。
+pub const EMPLOYEE_LOCKED: [&str; 1] = ["RESIGNED"];
+
+/// 员工的 BASE_EDGES（与 [`EMPLOYEE_EDGES`] 逐条对应，顺序一致，全部 mandatory）。
+///
+/// 六条都是人事主链：转正 / 停薪 / 复职 / 离职。没有「捷径」可关 ——
+/// 关掉 `PROBATION → ACTIVE` 等于试用期员工永远转不正，关掉 `* → RESIGNED` 等于
+/// 离职审批通过了却写不进状态（审批回调 500，单据卡在审批中）。
+pub const EMPLOYEE_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("PROBATION", "ACTIVE", "转正（需生效劳动合同）", false),
+    BaseEdge::mandatory("ACTIVE", "SUSPENDED", "停薪留职", true),
+    BaseEdge::mandatory("SUSPENDED", "ACTIVE", "复职", false),
+    BaseEdge::mandatory("PROBATION", "RESIGNED", "试用期离职（审批通过）", true),
+    BaseEdge::mandatory("ACTIVE", "RESIGNED", "离职（审批通过）", true),
+    BaseEdge::mandatory("SUSPENDED", "RESIGNED", "停薪期间离职（审批通过）", true),
+];
+
+/// 实体类型：劳动合同（`biz_employee_contract`，设计 §3.1 ②）。
+///
+/// 落库值 `EMPLOYEE_CONTRACT`。一份合同一行、续签链式（`renewed_from_id`），
+/// 所以「员工的合同」永远是多行历史，最新生效的那行 `status = 'ACTIVE'`。
+pub const ENTITY_EMPLOYEE_CONTRACT: &str = DocKind::EmployeeContract.as_str();
+
+/// 劳动合同合法边（4 条；设计只给了状态域与「续签链」，边表按状态语义落）。
+///
+/// ```text
+/// ACTIVE ──到期──▶ EXPIRED ──补签续签──▶ RENEWED
+///    │                 
+///    ├──解除──▶ TERMINATED
+///    └──续签──▶ RENEWED
+/// ```
+///
+/// - `ACTIVE → EXPIRED`：到期扫描（`idx_biz_emp_contract_due` 正是按
+///   `status='ACTIVE' AND end_date` 建的索引，设计 §3.1 ②），由定时任务/查询写。
+/// - `ACTIVE → RENEWED`：**到期前**续签是常态（新合同从明天起，旧合同当场封闭）——
+///   只放开 `EXPIRED → RENEWED` 会让最常见的续签（提前办）直接 409。
+/// - `EXPIRED → RENEWED`：到期后才补签。
+/// - `ACTIVE → TERMINATED`：解除（`terminated_date` + `terminate_reason` 由库层
+///   `ck_biz_emp_contract_term` 双向约束）。
+///
+/// **没有 `EXPIRED → TERMINATED`**：自然到期的合同不需要「解除」，两者混用会让
+/// 「合同解除率」统计失真。**没有 `RENEWED / TERMINATED → *`**：两者都是封闭终态，
+/// 续签链只往前长。
+pub const EMPLOYEE_CONTRACT_EDGES: [(&str, &str); 4] = [
+    ("ACTIVE", "EXPIRED"),
+    ("ACTIVE", "TERMINATED"),
+    ("ACTIVE", "RENEWED"),
+    ("EXPIRED", "RENEWED"),
+];
+
+/// 需要 reason 的合同边：只有解除（`ACTIVE → TERMINATED`）。
+///
+/// `terminate_reason` 是解除的法律依据（V0383 的列注释：255 字），审计要能回答
+/// 「哪份、为什么解除」。到期是自然事件、续签的依据是新合同本身（`renewed_from_id` 链），
+/// 都不需要额外解释。
+pub const EMPLOYEE_CONTRACT_REASON_EDGES: [(&str, &str); 1] = [("ACTIVE", "TERMINATED")];
+
+/// 合同「不可改」状态：已解除 / 已续签。
+///
+/// `EXPIRED` 故意**不锁**：到期合同最常见的操作就是「补正录入错的 end_date 再续签」
+/// （`ACTIVE` 记录一旦到期，错的日期就在 `EXPIRED` 行上），锁死只会逼 HR 删单重建。
+pub const EMPLOYEE_CONTRACT_LOCKED: [&str; 2] = ["TERMINATED", "RENEWED"];
+
+/// 劳动合同的 BASE_EDGES（与 [`EMPLOYEE_CONTRACT_EDGES`] 逐条对应，顺序一致）。
+pub const EMPLOYEE_CONTRACT_BASE: [BaseEdge; 4] = [
+    BaseEdge::mandatory("ACTIVE", "EXPIRED", "到期（到期扫描）", false),
+    BaseEdge::mandatory("ACTIVE", "TERMINATED", "解除劳动合同", true),
+    BaseEdge::mandatory("ACTIVE", "RENEWED", "续签（旧合同封闭，新合同接链）", false),
+    BaseEdge::mandatory("EXPIRED", "RENEWED", "到期后补签续签", false),
+];
+
+/// 实体类型：请假单（`biz_leave_request`，设计 §3.1 ⑥）。
+///
+/// 落库值 `LEAVE_REQUEST`。审批 `biz_type = HR_LEAVE`（HR-06），回调写
+/// `SUBMITTED → APPROVED`；「作废」是 HR 侧动作（销假/录错）。
+pub const ENTITY_LEAVE_REQUEST: &str = DocKind::LeaveRequest.as_str();
+
+/// 请假单合法边（设计 §4.2.2 的流转图，4 条）。
+///
+/// ```text
+/// DRAFT ──提交──▶ SUBMITTED ──审批通过──▶ APPROVED ──销假/作废──▶ CANCELLED
+///   │                  │
+///   │                  └──驳回/撤回──▶ DRAFT
+///   └──删除（软删）──▶ deleted_at（不是状态）
+/// ```
+///
+/// **草稿作废走软删（`deleted_at`），不是 `DRAFT → CANCELLED`**：设计图把
+/// 「DRAFT 删除」单独画成 `deleted_at` 分支 —— 草稿从未提交过，`CANCELLED`
+/// 留给「已批准的假要销掉」（`cancel_reason` 由库层 `ck_biz_leave_cancel` 强制）。
+///
+/// **没有 `SUBMITTED → CANCELLED`**：审批中的假要撤就先驳回/撤回到 `DRAFT`
+/// （`SUBMITTED → DRAFT` 已登记），撤回的审批实例由 `cancel_approval_of` 终止。
+/// 少一条边就少一处「审批还在跑、单据已作废」的窗口（`uk_biz_flow_instance_biz_active`）。
+pub const LEAVE_EDGES: [(&str, &str); 4] = [
+    ("DRAFT", "SUBMITTED"),
+    ("SUBMITTED", "DRAFT"),
+    ("SUBMITTED", "APPROVED"),
+    ("APPROVED", "CANCELLED"),
+];
+
+/// 需要 reason 的请假单边：只有作废已批准的假（设计 §4.2.2「销假/作废(给原因)」）。
+///
+/// `SUBMITTED → DRAFT` 不强制原因：同一条边承载「撤回」（申请人自己拿回）与
+/// 「驳回」（审批人给意见，意见由审批实例留痕），标成必填会把撤回挡成 400。
+pub const LEAVE_REASON_EDGES: [(&str, &str); 1] = [("APPROVED", "CANCELLED")];
+
+/// 请假单「不可改」状态：已批准 / 已作废（设计 §4.2.2 逐字 `LEAVE_LOCKED`）。
+///
+/// 批准后改天数 = 改一个已经影响考勤扣款与薪资试算的基线（`ATT_LEAVE_UNPAID_DAYS`），
+/// 要改只能作废重开。
+pub const LEAVE_LOCKED: [&str; 2] = ["APPROVED", "CANCELLED"];
+
+/// 请假单的 BASE_EDGES（与 [`LEAVE_EDGES`] 逐条对应，顺序一致，全部 mandatory）。
+pub const LEAVE_BASE: [BaseEdge; 4] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交审批", false),
+    BaseEdge::mandatory("SUBMITTED", "DRAFT", "驳回 / 撤回", false),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
+    BaseEdge::mandatory("APPROVED", "CANCELLED", "销假 / 作废", true),
+];
+
+/// 实体类型：考勤期间（`biz_attendance_period`，设计 §3.1 ④）。
+///
+/// 落库值 `ATTENDANCE_PERIOD`。这是**锁定型作业批次**（不是单据，所以
+/// `DocKind::is_document()` 为 false、不进附件轴）：一人一月一行的
+/// `biz_attendance_record` 都挂它，锁定后就是薪资试算的数据基线。
+pub const ENTITY_ATTENDANCE_PERIOD: &str = DocKind::AttendancePeriod.as_str();
+
+/// 考勤期间合法边（设计 §4.2.3，3 条）。
+///
+/// ```text
+/// DRAFT ──提交──▶ SUBMITTED ──锁定──▶ LOCKED ──解锁（给原因）──▶ DRAFT
+/// ```
+///
+/// 锁定是**人事自己锁**、不校验审批（设计 §4.2.3），但要 `business:hr:attendance:lock`
+/// 权限码并且写 `biz_status_log`。解锁必须给原因：解开的是一份已经被工资试算用过的
+/// 基线（设计 §4.2.3「薪资单引用锁定的考勤期间才允许过账」）。
+///
+/// **没有 `SUBMITTED → DRAFT`**：设计图只有「提交 → 锁定」一条正向与「锁定 → 解锁」
+/// 一条回位；提交态可以直接重新导入（导入落在记录上，不依赖期间状态）。
+pub const ATTENDANCE_PERIOD_EDGES: [(&str, &str); 3] =
+    [("DRAFT", "SUBMITTED"), ("SUBMITTED", "LOCKED"), ("LOCKED", "DRAFT")];
+
+/// 需要 reason 的考勤期间边：只有解锁（设计 §4.2.3「解锁(给原因…)」）。
+pub const ATTENDANCE_PERIOD_REASON_EDGES: [(&str, &str); 1] = [("LOCKED", "DRAFT")];
+
+/// 考勤期间「不可改」状态：已锁定（设计 §4.2.3「`LOCKED` 之后记录不许增删改」）。
+///
+/// `SUBMITTED` 故意不锁：提交后还要能重跑导入（客户第一轮导入几乎总有错行）。
+pub const ATTENDANCE_PERIOD_LOCKED: [&str; 1] = ["LOCKED"];
+
+/// 考勤期间的 BASE_EDGES（与 [`ATTENDANCE_PERIOD_EDGES`] 逐条对应，顺序一致）。
+pub const ATTENDANCE_PERIOD_BASE: [BaseEdge; 3] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交", false),
+    BaseEdge::mandatory("SUBMITTED", "LOCKED", "锁定（记录冻结）", false),
+    BaseEdge::mandatory("LOCKED", "DRAFT", "解锁", true),
+];
+
+/// 实体类型：薪资单（`biz_salary_sheet`，设计 §3.1 ⑧）。
+///
+/// 落库值 `SALARY_SHEET`。**状态域 6 值**：`DRAFT / CALCULATED / SUBMITTED /
+/// APPROVED / POSTED / REVERSED` —— 与 V0383 的 `ck_biz_sal_sheet_status` 逐字一致，
+/// **没有 `CANCELLED`**（见本节顶部与设计 §4.2.4 的冲突说明）。
+pub const ENTITY_SALARY_SHEET: &str = DocKind::SalarySheet.as_str();
+
+/// 薪资单合法边（6 条 = 5 条主链 + 1 条驳回回位）。
+///
+/// ```text
+/// DRAFT ──试算──▶ CALCULATED ──提交──▶ SUBMITTED ──审批通过──▶ APPROVED ──过账──▶ POSTED ──红冲──▶ REVERSED
+///                                        │
+///                                        └──驳回 / 撤回──▶ CALCULATED
+/// ```
+///
+/// # 为什么不是设计 §4.2.4 写的「7 条」
+///
+/// 设计 §4.2.4 的流转图画了 `DRAFT / CALCULATED / SUBMITTED → CANCELLED` 三条作废边
+/// （图上括号标「仅 DRAFT/CALCULATED/SUBMITTED 可作废」）。但 §3.1 ⑧ 的
+/// `ck_biz_sal_sheet_status` 只有 6 个值、**没有 `CANCELLED`**，V0383 已按 6 值落库
+/// （迁移不可改），HR-09 的 `ROUTE_CONTRACT` 薪资组也没有作废接口。三条作废边
+/// 一条都落不了：写进去就是 23514。
+///
+/// 于是薪资单的退出只有一条：**驳回/撤回退回 `CALCULATED` 重算**。这条回位边不是
+/// 「顺手加的」—— `SUBMITTED` 在 [`SALARY_SHEET_LOCKED`] 里（明细冻结），既没有作废
+/// 接口也没有退回边的话，一张被财务经理驳回来的薪资单会**永久卡在 SUBMITTED**：
+/// 过不了账（要 APPROVED）、改不了数（锁死）、也没有待办会来推进它 —— 正是
+/// `AGENTS.md` 约定 11 说的死单。薪资期间撞唯一键（`uk_biz_sal_sheet_period`）也不允许
+/// 「删了重开」当常规路径。
+///
+/// 同时**没有 `REVERSED → CALCULATED`**：设计 §4.2.4 写死「红冲是终态，不回到
+/// CALCULATED」（红冲后再改数会留下「红字凭证 + 新数」两套口径）。要重发就新开一张。
+pub const SALARY_SHEET_EDGES: [(&str, &str); 6] = [
+    ("DRAFT", "CALCULATED"),
+    ("CALCULATED", "SUBMITTED"),
+    ("SUBMITTED", "CALCULATED"),
+    ("SUBMITTED", "APPROVED"),
+    ("APPROVED", "POSTED"),
+    ("POSTED", "REVERSED"),
+];
+
+/// 需要 reason 的薪资单边：只有红冲（设计 §4.2.4 / `reverse_reason` 列）。
+///
+/// `SUBMITTED → CALCULATED` 不强制原因：同一条边承载「撤回」（HR 自己拿回重算）与
+/// 「驳回」（审批意见由审批实例留痕），标成必填会把撤回挡成 400（LNK-P08 同款）。
+pub const SALARY_SHEET_REASON_EDGES: [(&str, &str); 1] = [("POSTED", "REVERSED")];
+
+/// 薪资单「不可改」状态（设计 §4.2.4 逐字：`SUBMITTED` / `APPROVED` / `POSTED` / `REVERSED`）。
+///
+/// `DRAFT` 与 `CALCULATED` 可改：试算可在 `DRAFT` 反复跑，`CALCULATED` 之后还有
+/// 明细手工覆盖（HR-37），两者都还没进审批。`SUBMITTED` 起冻结 —— 审批人批的是
+/// 「这一版金额」，批完立刻按它出两张凭证，中途改一行就是「审 A 记 B」。
+pub const SALARY_SHEET_LOCKED: [&str; 4] = ["SUBMITTED", "APPROVED", "POSTED", "REVERSED"];
+
+/// 薪资单的 BASE_EDGES（与 [`SALARY_SHEET_EDGES`] 逐条对应，顺序一致，全部 mandatory）。
+///
+/// 过账（`APPROVED → POSTED`）尤其不能做成可选边：关掉它等于「审批过了但永远入不了账」，
+/// 而 `AGENTS.md` 约定 11 的红线就是「审批过了没入账」这种中间态。
+pub const SALARY_SHEET_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("DRAFT", "CALCULATED", "试算（逐人逐项落库）", false),
+    BaseEdge::mandatory("CALCULATED", "SUBMITTED", "提交审批", false),
+    BaseEdge::mandatory("SUBMITTED", "CALCULATED", "驳回 / 撤回（退回重算）", false),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
+    BaseEdge::mandatory("APPROVED", "POSTED", "过账（计提 + 发放两张凭证）", false),
+    BaseEdge::mandatory("POSTED", "REVERSED", "红冲（两张红字凭证）", true),
+];
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -1730,11 +2024,40 @@ pub enum Entity {
     /// 边表见 [`COST_PERIOD_EDGES`]。卡面的 `PENDING` 就是这里的 `SUBMITTED`
     /// （V0373 的 `ck_biz_cost_period_status` 已按 `SUBMITTED` 落地）。
     CostPeriod,
+    /// 员工档案 `biz_employee`（人力资源 ARCH-9 §4.2.1）。
+    ///
+    /// 状态域四值 `PROBATION`/`ACTIVE`/`SUSPENDED`/`RESIGNED`，边表见 [`EMPLOYEE_EDGES`]。
+    /// 与 `sys_user.status`（0/1 账号启停）是两套口径：人事状态在员工档，
+    /// 离职时两边都写（设计 D-13）。
+    Employee,
+    /// 劳动合同 `biz_employee_contract`（人力资源 ARCH-9 §3.1 ②）。
+    ///
+    /// 状态域四值 `ACTIVE`/`EXPIRED`/`TERMINATED`/`RENEWED`，边表见
+    /// [`EMPLOYEE_CONTRACT_EDGES`]。续签是「旧合同封闭（`RENEWED`）+ 新合同接链
+    /// （`renewed_from_id`）」，不是把旧合同改日期。
+    EmployeeContract,
+    /// 请假单 `biz_leave_request`（人力资源 ARCH-9 §4.2.2）。
+    ///
+    /// 状态域四值 `DRAFT`/`SUBMITTED`/`APPROVED`/`CANCELLED`，边表见 [`LEAVE_EDGES`]。
+    /// 审批 `biz_type = HR_LEAVE`；草稿作废走软删，`CANCELLED` 只给「已批准的假要销掉」。
+    LeaveRequest,
+    /// 考勤期间（月度批次）`biz_attendance_period`（人力资源 ARCH-9 §4.2.3）。
+    ///
+    /// 状态域三值 `DRAFT`/`SUBMITTED`/`LOCKED`，边表见 [`ATTENDANCE_PERIOD_EDGES`]。
+    /// **不是单据**（`DocKind::is_document()` 为 false）：锁定后是薪资试算的数据基线，
+    /// 记录不许增删改。
+    AttendancePeriod,
+    /// 薪资单 `biz_salary_sheet`（人力资源 ARCH-9 §4.2.4）。
+    ///
+    /// 状态域**六值** `DRAFT`/`CALCULATED`/`SUBMITTED`/`APPROVED`/`POSTED`/`REVERSED`
+    /// （V0383 的 `ck_biz_sal_sheet_status`，**无 `CANCELLED`**），边表见
+    /// [`SALARY_SHEET_EDGES`]。过账出两张凭证（计提 + 发放），红冲出两张红字凭证。
+    SalarySheet,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 24] = [
+    pub const ALL: [Entity; 29] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -1760,6 +2083,12 @@ impl Entity {
         // 成本核算（ARCH-9）
         Entity::CostObject,
         Entity::CostPeriod,
+        // 人力资源（ARCH-9-人力资源模块设计 §4.2）
+        Entity::Employee,
+        Entity::EmployeeContract,
+        Entity::LeaveRequest,
+        Entity::AttendancePeriod,
+        Entity::SalarySheet,
     ];
 
     /// 落库的 `entity_type`。
@@ -1789,6 +2118,11 @@ impl Entity {
             Entity::PurchaseReturn => ENTITY_PURCHASE_RETURN,
             Entity::CostObject => ENTITY_COST_OBJECT,
             Entity::CostPeriod => ENTITY_COST_PERIOD,
+            Entity::Employee => ENTITY_EMPLOYEE,
+            Entity::EmployeeContract => ENTITY_EMPLOYEE_CONTRACT,
+            Entity::LeaveRequest => ENTITY_LEAVE_REQUEST,
+            Entity::AttendancePeriod => ENTITY_ATTENDANCE_PERIOD,
+            Entity::SalarySheet => ENTITY_SALARY_SHEET,
         }
     }
 
@@ -1824,6 +2158,11 @@ impl Entity {
             Entity::PurchaseReturn => "采购退货单",
             Entity::CostObject => "成本对象",
             Entity::CostPeriod => "成本核算批次",
+            Entity::Employee => "员工",
+            Entity::EmployeeContract => "劳动合同",
+            Entity::LeaveRequest => "请假单",
+            Entity::AttendancePeriod => "考勤期间",
+            Entity::SalarySheet => "薪资单",
         }
     }
 
@@ -1854,6 +2193,11 @@ impl Entity {
             Entity::PurchaseReturn => &PURCHASE_RETURN_EDGES,
             Entity::CostObject => &COST_OBJECT_EDGES,
             Entity::CostPeriod => &COST_PERIOD_EDGES,
+            Entity::Employee => &EMPLOYEE_EDGES,
+            Entity::EmployeeContract => &EMPLOYEE_CONTRACT_EDGES,
+            Entity::LeaveRequest => &LEAVE_EDGES,
+            Entity::AttendancePeriod => &ATTENDANCE_PERIOD_EDGES,
+            Entity::SalarySheet => &SALARY_SHEET_EDGES,
         }
     }
 
@@ -1887,6 +2231,11 @@ impl Entity {
             Entity::PurchaseReturn => &PURCHASE_RETURN_BASE,
             Entity::CostObject => &COST_OBJECT_BASE,
             Entity::CostPeriod => &COST_PERIOD_BASE,
+            Entity::Employee => &EMPLOYEE_BASE,
+            Entity::EmployeeContract => &EMPLOYEE_CONTRACT_BASE,
+            Entity::LeaveRequest => &LEAVE_BASE,
+            Entity::AttendancePeriod => &ATTENDANCE_PERIOD_BASE,
+            Entity::SalarySheet => &SALARY_SHEET_BASE,
         }
     }
 
@@ -1922,6 +2271,11 @@ impl Entity {
             Entity::PurchaseReturn => &PURCHASE_RETURN_REASON_EDGES,
             Entity::CostObject => &COST_OBJECT_REASON_EDGES,
             Entity::CostPeriod => &COST_PERIOD_REASON_EDGES,
+            Entity::Employee => &EMPLOYEE_REASON_EDGES,
+            Entity::EmployeeContract => &EMPLOYEE_CONTRACT_REASON_EDGES,
+            Entity::LeaveRequest => &LEAVE_REASON_EDGES,
+            Entity::AttendancePeriod => &ATTENDANCE_PERIOD_REASON_EDGES,
+            Entity::SalarySheet => &SALARY_SHEET_REASON_EDGES,
         }
     }
 
@@ -1952,6 +2306,11 @@ impl Entity {
             Entity::PurchaseReturn => &PURCHASE_RETURN_LOCKED,
             Entity::CostObject => &COST_OBJECT_LOCKED,
             Entity::CostPeriod => &COST_PERIOD_LOCKED,
+            Entity::Employee => &EMPLOYEE_LOCKED,
+            Entity::EmployeeContract => &EMPLOYEE_CONTRACT_LOCKED,
+            Entity::LeaveRequest => &LEAVE_LOCKED,
+            Entity::AttendancePeriod => &ATTENDANCE_PERIOD_LOCKED,
+            Entity::SalarySheet => &SALARY_SHEET_LOCKED,
         }
     }
 
@@ -4954,6 +5313,189 @@ mod tests {
             "只有 id 的操作人也必须写出姓名快照（real_name 优先，退回 username）"
         );
     }
+
+    // ==================== 人力资源（HR-08 · ARCH-9 §4.2）真库口径 ====================
+    //
+    // 文件末尾 `hr_state_machine_tests` 那 11 条是**纯注册表**用例（不连库、永远真跑）；
+    // 这三条补的是「注册表对了，真写库也对不对」：HR 五个实体的 `entity_type` 是本次
+    // 新登记的字符串，`as_str()` 一旦与 `DocKind` / 表名漂了、或哪天有人给
+    // `biz_status_log.entity_type` 加白名单 CHECK，只有真库能发现。
+    //
+    // 每条用例都用一个只属于本卡的 `entity_no` 前缀（`P10SM-`），`cleanup()` 会一并清掉。
+
+    /// HR 五实体的合法边逐条真跑：`biz_status_log` 的 `entity_type` 落的必须是
+    /// `DocKind` 值（`EMPLOYEE` / `EMPLOYEE_CONTRACT` / `LEAVE_REQUEST` /
+    /// `ATTENDANCE_PERIOD` / `SALARY_SHEET`），且必填原因的边走真库时也拦住并落 reason。
+    #[tokio::test]
+    async fn hr_legal_edges_write_status_log_for_every_entity() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // (实体, from, to) —— 每个实体一条「主链」合法边，含两条必填原因边。
+        let cases: [(Entity, &str, &str); 5] = [
+            (Entity::Employee, "PROBATION", "ACTIVE"),
+            (Entity::EmployeeContract, "ACTIVE", "TERMINATED"),
+            (Entity::LeaveRequest, "SUBMITTED", "APPROVED"),
+            (Entity::AttendancePeriod, "LOCKED", "DRAFT"),
+            (Entity::SalarySheet, "SUBMITTED", "CALCULATED"),
+        ];
+        for (entity, from, to) in cases {
+            let no = format!("{PREFIX}HR-{}", entity.as_str());
+            let needs = entity.needs_reason(from, to);
+            let outcome = transition(
+                db(),
+                entity.as_str(),
+                Uuid::now_v7(),
+                &no,
+                entity.edges(),
+                from,
+                to,
+                op(),
+                if needs {
+                    Some("真库用例：人力资源状态变更原因")
+                } else {
+                    None
+                },
+                None,
+            )
+            .await
+            .unwrap_or_else(|err| panic!("{:?} 的 {from} → {to} 真库流转失败：{}", entity, err.msg));
+            assert_eq!(outcome.from, from);
+            assert_eq!(outcome.to, to);
+
+            let trail = trail_of_no(db(), &no).await.unwrap();
+            assert_eq!(trail.len(), 1, "{:?} 应写一行状态日志", entity);
+            let row = &trail[0];
+            // 落库值 = DocKind 值（巡检与溯源都按它筛实体）
+            assert_eq!(row.entity_type, entity.as_str());
+            assert!(
+                DocKind::parse(&row.entity_type).is_some(),
+                "{:?} 的 entity_type「{}」不在 DocKind 域内，巡检会把它当路灯",
+                entity,
+                row.entity_type
+            );
+            assert_eq!(row.from_status.as_deref(), Some(from));
+            assert_eq!(row.to_status, to);
+            assert_eq!(row.operator_name.as_deref(), Some("p10_tester"));
+            assert_eq!(row.id, outcome.log_id, "{:?} 的 log_id 必须是真落库那行", entity);
+            if needs {
+                assert_eq!(
+                    row.reason.as_deref(),
+                    Some("真库用例：人力资源状态变更原因"),
+                    "{:?} 的必填原因没落库（审计查不到「为什么」）",
+                    entity
+                );
+            }
+        }
+    }
+
+    /// HR 五实体的非法边：真库口径必须 409，且**一行日志都不许写**。
+    ///
+    /// 每条都挑「最容易被误加」的那条：离职复活、到期合同被解除、审批中作废、
+    /// 考勤跳级锁定、未审批直接过账。
+    #[tokio::test]
+    async fn hr_illegal_edges_are_conflict_and_write_no_log() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let cases: [(Entity, &str, &str, &str, bool); 5] = [
+            // (实体, 当前态, 被拒的目标态, 文案里应点名的词, 是否点名「被拒的目标态」)
+            // 终态的员工没有出边，`rejection_message` 只解释「已是终态」、不点目标态。
+            (Entity::Employee, "RESIGNED", "ACTIVE", "终态", false),
+            (Entity::EmployeeContract, "EXPIRED", "TERMINATED", "RENEWED", true),
+            (Entity::LeaveRequest, "SUBMITTED", "CANCELLED", "APPROVED", true),
+            (Entity::AttendancePeriod, "DRAFT", "LOCKED", "SUBMITTED", true),
+            (Entity::SalarySheet, "CALCULATED", "POSTED", "SUBMITTED", true),
+        ];
+        for (entity, from, to, named, names_target) in cases {
+            let no = format!("{PREFIX}HR-BAD-{}", entity.as_str());
+            let err = transition(
+                db(),
+                entity.as_str(),
+                Uuid::now_v7(),
+                &no,
+                entity.edges(),
+                from,
+                to,
+                op(),
+                Some("非法边不该走到 reason 校验"),
+                None,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.status, 409, "{:?} {from} → {to}：{}", entity, err.msg);
+            assert!(err.msg.contains(from), "{:?} 文案要点名当前态：{}", entity, err.msg);
+            if names_target {
+                assert!(err.msg.contains(to), "{:?} 文案要点名被拒的目标态：{}", entity, err.msg);
+            }
+            assert!(
+                err.msg.contains(named),
+                "{:?} 文案要点名允许的去向「{named}」：{}",
+                entity,
+                err.msg
+            );
+            assert_eq!(
+                count_of(&no).await,
+                0,
+                "{:?} 的非法边写了状态日志 —— 单据没变、日志说有，这是脏轨迹",
+                entity
+            );
+        }
+    }
+
+    /// HR 必填原因的边：缺 reason 真库口径是 400（不是 500、不是放行），补上才落库。
+    #[tokio::test]
+    async fn hr_reason_edges_require_reason_on_real_db() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let cases: [(Entity, &str, &str); 4] = [
+            (Entity::Employee, "ACTIVE", "SUSPENDED"),
+            (Entity::EmployeeContract, "ACTIVE", "TERMINATED"),
+            (Entity::AttendancePeriod, "LOCKED", "DRAFT"),
+            (Entity::SalarySheet, "POSTED", "REVERSED"),
+        ];
+        for (entity, from, to) in cases {
+            let no = format!("{PREFIX}HR-RS-{}", entity.as_str());
+            let err = transition(
+                db(),
+                entity.as_str(),
+                Uuid::now_v7(),
+                &no,
+                entity.edges(),
+                from,
+                to,
+                op(),
+                None,
+                None,
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(err.status, 400, "{:?} {from} → {to} 缺 reason：{}", entity, err.msg);
+            assert!(err.msg.contains("reason"), "{:?} 文案要提原因：{}", entity, err.msg);
+            assert_eq!(count_of(&no).await, 0, "{:?} 400 之后不许留日志", entity);
+
+            // 补上原因就放行（同一条边、同一个单号）
+            transition(
+                db(),
+                entity.as_str(),
+                Uuid::now_v7(),
+                &no,
+                entity.edges(),
+                from,
+                to,
+                op(),
+                Some("真库用例：必填原因已给"),
+                None,
+            )
+            .await
+            .unwrap_or_else(|err| panic!("{:?} 给了 reason 仍失败：{}", entity, err.msg));
+            assert_eq!(count_of(&no).await, 1, "{:?} 给了 reason 应落一行", entity);
+        }
+    }
 }
 
 // ==================== 合同状态机（A1 · ARCH-2 §4） ====================
@@ -5024,7 +5566,7 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            24,
+            29,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
              → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）\
              → 15（SALE_ORDER，销售链 SO-05）→ 16（SHIPMENT，销售链 SO-09）\
@@ -5032,7 +5574,9 @@ mod contract_tests {
              → 19（RECEIPT_REFUND，销售链 SO-14 遗留 D10）→ 20（INVOICE，销售链 SO-20）\
              → 21（SALES_RETURN，销售链 SO-29）→ 22（PURCHASE_RETURN，采购链 P2-03）\
              → 23（COST_OBJECT，成本核算 ARCH-9 §4.1）\
-             → 24（COST_PERIOD，成本核算 ARCH-9 §4.1 结算批次）"
+             → 24（COST_PERIOD，成本核算 ARCH-9 §4.1 结算批次）\
+             → 29（HR-08：EMPLOYEE / EMPLOYEE_CONTRACT / LEAVE_REQUEST / \
+             ATTENDANCE_PERIOD / SALARY_SHEET，人力资源 ARCH-9 §4.2）"
         );
 
         // ③ as_str
@@ -5278,5 +5822,502 @@ mod contract_tests {
                 "CANCELLED → 的边不该存在"
             );
         }
+    }
+}
+
+// ==================== 人力资源状态机（HR-08 · ARCH-9 §4.2） ====================
+//
+// 纯函数用例：边表 / BASE / REASON / LOCKED 都是编译期常量，`can_transition()` /
+// `next_statuses()` / `needs_reason()` / `is_locked()` 全是内存判定，不连库。
+// 唯一读文件的地方是 `hr_status_domains_match_ddl`（读 V0383 的 `ck_biz_*_status`
+// 白名单对拍）—— 这是「状态域以 DDL 为准」的机器化证明。
+//
+// 真库侧（`transition()` 真的写 `biz_status_log`）的用例在文件顶部 `mod tests`，
+// 那组需要 `ERP_DB_URL`；本组不设环境变量也必须全绿。
+#[cfg(test)]
+mod hr_state_machine_tests {
+    use super::*;
+
+    /// 员工状态域（V0383 `ck_biz_employee_status`，逐字）。
+    const EMPLOYEE_DOMAIN: [&str; 4] = ["PROBATION", "ACTIVE", "SUSPENDED", "RESIGNED"];
+    /// 劳动合同状态域（V0383 `ck_biz_emp_contract_status`，逐字）。
+    const CONTRACT_DOMAIN: [&str; 4] = ["ACTIVE", "EXPIRED", "TERMINATED", "RENEWED"];
+    /// 请假单状态域（V0383 `ck_biz_leave_status`，逐字）。
+    const LEAVE_DOMAIN: [&str; 4] = ["DRAFT", "SUBMITTED", "APPROVED", "CANCELLED"];
+    /// 考勤期间状态域（V0383 `ck_biz_att_period_status`，逐字）。
+    const ATT_DOMAIN: [&str; 3] = ["DRAFT", "SUBMITTED", "LOCKED"];
+    /// 薪资单状态域（V0383 `ck_biz_sal_sheet_status`，逐字 —— **6 值，无 CANCELLED**）。
+    const SALARY_DOMAIN: [&str; 6] = ["DRAFT", "CALCULATED", "SUBMITTED", "APPROVED", "POSTED", "REVERSED"];
+
+    /// 五个 HR 实体 →（DDL 约束名，状态域）。
+    fn hr_ddl_cases() -> Vec<(Entity, &'static str, Vec<&'static str>)> {
+        vec![
+            (Entity::Employee, "ck_biz_employee_status", EMPLOYEE_DOMAIN.to_vec()),
+            (
+                Entity::EmployeeContract,
+                "ck_biz_emp_contract_status",
+                CONTRACT_DOMAIN.to_vec(),
+            ),
+            (Entity::LeaveRequest, "ck_biz_leave_status", LEAVE_DOMAIN.to_vec()),
+            (
+                Entity::AttendancePeriod,
+                "ck_biz_att_period_status",
+                ATT_DOMAIN.to_vec(),
+            ),
+            (Entity::SalarySheet, "ck_biz_sal_sheet_status", SALARY_DOMAIN.to_vec()),
+        ]
+    }
+
+    /// 读 HR 建表迁移（V0383，已应用、不可改）。
+    fn hr_ddl() -> String {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("migrations/business/V0383__hr_tables.up.sql");
+        std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到 {}：{err}", path.display()))
+    }
+
+    /// 从 V0383 里抠出 `CONSTRAINT <name> … CHECK (status IN ('A','B'))` 的白名单（保序）。
+    ///
+    /// 手写解析（不引 regex）：从约束名起找第一个 `IN (`，读到下一个 `)` 为止，
+    /// 按逗号切开去引号 —— 迁移里的 `status IN (...)` 只有一个，够用且不脆。
+    fn ddl_status_domain(sql: &str, constraint: &str) -> Vec<String> {
+        let marker = format!("CONSTRAINT {constraint}");
+        let start = sql
+            .find(&marker)
+            .unwrap_or_else(|| panic!("V0383 里找不到约束 {constraint}"));
+        let tail = &sql[start..];
+        let open = tail
+            .find("IN (")
+            .unwrap_or_else(|| panic!("{constraint} 里找不到 `IN (`"))
+            + 4;
+        let rest = &tail[open..];
+        let close = rest
+            .find(')')
+            .unwrap_or_else(|| panic!("{constraint} 的 IN 列表没有闭合"));
+        rest[..close]
+            .split(',')
+            .map(|item| item.trim().trim_matches('\'').to_string())
+            .collect()
+    }
+
+    /// ❶ 状态域以 DDL 为准：注册表里每个实体的状态域 == V0383 的 `ck_biz_*_status`。
+    ///
+    /// 迁移不可改，所以这条断言是「设计 ↔ 库」的唯一裁判：设计 §4.2.4 给薪资单画了
+    /// `CANCELLED`，而库层白名单里没有 —— 这里一红就说明有人照图改注册表了。
+    #[test]
+    fn hr_status_domains_match_ddl() {
+        let sql = hr_ddl();
+        for (entity, constraint, expected) in hr_ddl_cases() {
+            let actual = ddl_status_domain(&sql, constraint);
+            assert_eq!(actual, expected, "{:?} 的 DDL 白名单与测试期望不一致（V0383）", entity);
+            assert!(!actual.is_empty(), "{constraint} 解析出空白名单");
+        }
+    }
+
+    /// ❷ 边表 / BASE / REASON / LOCKED 里出现的每个状态都必须在 DDL 白名单内。
+    ///
+    /// 越域 = 一次 `UPDATE … SET status` 就 23514，而 `transition()` 的日志已经写下去 ——
+    /// 「日志说有这一步、单据上没有这个状态」。这条断言让这种注册表改动编译期就红。
+    #[test]
+    fn hr_edge_statuses_stay_in_ddl_domain() {
+        for (entity, _, domain) in hr_ddl_cases() {
+            let in_domain = |status: &str, what: &str| {
+                assert!(
+                    domain.contains(&status),
+                    "{:?} 的 {what} 用了 DDL 白名单外的状态「{status}」（V0383 只认 {domain:?}）",
+                    entity
+                );
+            };
+            for (from, to) in entity.edges() {
+                in_domain(from, "边表");
+                in_domain(to, "边表");
+            }
+            for edge in entity.base_edges() {
+                in_domain(edge.from, "BASE_EDGES");
+                in_domain(edge.to, "BASE_EDGES");
+            }
+            for (from, to) in entity.reason_edges() {
+                in_domain(from, "REASON_EDGES");
+                in_domain(to, "REASON_EDGES");
+            }
+            for status in entity.locked_statuses() {
+                in_domain(status, "LOCKED");
+            }
+        }
+    }
+
+    /// ❸ 七个注册点全部生效：变体 / ALL / as_str / label / edges / BASE / REASON / LOCKED。
+    ///
+    /// 漏任何一处都不是「少个名字」：`transition()` 靠 `Entity::parse` 找实体，
+    /// 漏登记 = 500「未在状态机注册」；漏 `base_edges()` 则配置层拿不到边。
+    #[test]
+    fn hr_entities_registered_in_every_place() {
+        let expected: [(Entity, &str, &str); 5] = [
+            (Entity::Employee, "EMPLOYEE", "员工"),
+            (Entity::EmployeeContract, "EMPLOYEE_CONTRACT", "劳动合同"),
+            (Entity::LeaveRequest, "LEAVE_REQUEST", "请假单"),
+            (Entity::AttendancePeriod, "ATTENDANCE_PERIOD", "考勤期间"),
+            (Entity::SalarySheet, "SALARY_SHEET", "薪资单"),
+        ];
+        for (entity, raw, label) in expected {
+            assert!(
+                Entity::ALL.contains(&entity),
+                "{raw} 没进 Entity::ALL（transition 会 500）"
+            );
+            assert_eq!(entity.as_str(), raw);
+            assert_eq!(entity.label(), label);
+            assert_eq!(Entity::parse(raw), Some(entity));
+            assert!(!entity.edges().is_empty(), "{raw} 没有边表");
+            assert_eq!(
+                entity.edges().len(),
+                entity.base_edges().len(),
+                "{raw} 的 BASE 与边表条数不同"
+            );
+            // 常量常量同源
+            match entity {
+                Entity::Employee => {
+                    assert_eq!(entity.edges(), &EMPLOYEE_EDGES[..]);
+                    assert_eq!(entity.reason_edges(), &EMPLOYEE_REASON_EDGES[..]);
+                    assert_eq!(entity.locked_statuses(), &EMPLOYEE_LOCKED[..]);
+                }
+                Entity::EmployeeContract => {
+                    assert_eq!(entity.edges(), &EMPLOYEE_CONTRACT_EDGES[..]);
+                    assert_eq!(entity.reason_edges(), &EMPLOYEE_CONTRACT_REASON_EDGES[..]);
+                    assert_eq!(entity.locked_statuses(), &EMPLOYEE_CONTRACT_LOCKED[..]);
+                }
+                Entity::LeaveRequest => {
+                    assert_eq!(entity.edges(), &LEAVE_EDGES[..]);
+                    assert_eq!(entity.reason_edges(), &LEAVE_REASON_EDGES[..]);
+                    assert_eq!(entity.locked_statuses(), &LEAVE_LOCKED[..]);
+                }
+                Entity::AttendancePeriod => {
+                    assert_eq!(entity.edges(), &ATTENDANCE_PERIOD_EDGES[..]);
+                    assert_eq!(entity.reason_edges(), &ATTENDANCE_PERIOD_REASON_EDGES[..]);
+                    assert_eq!(entity.locked_statuses(), &ATTENDANCE_PERIOD_LOCKED[..]);
+                }
+                Entity::SalarySheet => {
+                    assert_eq!(entity.edges(), &SALARY_SHEET_EDGES[..]);
+                    assert_eq!(entity.reason_edges(), &SALARY_SHEET_REASON_EDGES[..]);
+                    assert_eq!(entity.locked_statuses(), &SALARY_SHEET_LOCKED[..]);
+                }
+                other => panic!("{other:?} 不是本卡注册的 HR 实体"),
+            }
+            // DocKind 域内（巡检按它筛实体，不在域内会把正常数据判红）
+            assert!(DocKind::parse(entity.as_str()).is_some(), "{raw} 不在 DocKind 域内");
+        }
+    }
+
+    /// ❹ 每条登记过的边都被接受，且 `next_statuses(from)` 恰好等于「出边目标集合」。
+    #[test]
+    fn hr_legal_edges_all_pass() {
+        // 逐实体把「from → 允许的去向」写成表，与文档流转图对拍。
+        let cases: [(Entity, &[(&str, &[&str])]); 5] = [
+            (
+                Entity::Employee,
+                &[
+                    ("PROBATION", &["ACTIVE", "RESIGNED"]),
+                    ("ACTIVE", &["SUSPENDED", "RESIGNED"]),
+                    ("SUSPENDED", &["ACTIVE", "RESIGNED"]),
+                ],
+            ),
+            (
+                Entity::EmployeeContract,
+                &[
+                    ("ACTIVE", &["EXPIRED", "TERMINATED", "RENEWED"]),
+                    ("EXPIRED", &["RENEWED"]),
+                ],
+            ),
+            (
+                Entity::LeaveRequest,
+                &[
+                    ("DRAFT", &["SUBMITTED"]),
+                    ("SUBMITTED", &["DRAFT", "APPROVED"]),
+                    ("APPROVED", &["CANCELLED"]),
+                ],
+            ),
+            (
+                Entity::AttendancePeriod,
+                &[
+                    ("DRAFT", &["SUBMITTED"]),
+                    ("SUBMITTED", &["LOCKED"]),
+                    ("LOCKED", &["DRAFT"]),
+                ],
+            ),
+            (
+                Entity::SalarySheet,
+                &[
+                    ("DRAFT", &["CALCULATED"]),
+                    ("CALCULATED", &["SUBMITTED"]),
+                    ("SUBMITTED", &["CALCULATED", "APPROVED"]),
+                    ("APPROVED", &["POSTED"]),
+                    ("POSTED", &["REVERSED"]),
+                ],
+            ),
+        ];
+        for (entity, edges) in cases {
+            for (from, targets) in edges {
+                for to in *targets {
+                    assert!(
+                        entity.can_transition(from, to),
+                        "{:?} 的合法边 {from} → {to} 被拒了",
+                        entity
+                    );
+                    assert!(
+                        entity.next_statuses(from).contains(to),
+                        "{:?} 的 next_statuses({from}) 里应有 {to}: {:?}",
+                        entity,
+                        entity.next_statuses(from)
+                    );
+                }
+                let mut got = entity.next_statuses(from);
+                let mut want = targets.to_vec();
+                got.sort_unstable();
+                want.sort_unstable();
+                assert_eq!(got, want, "{:?} 的 {from} 去向集合与文档不一致", entity);
+            }
+        }
+    }
+
+    /// ❺ 非法跳转一律被拒（每个实体逐条列举「最容易被误加/误点」的那些）。
+    #[test]
+    fn hr_illegal_edges_are_rejected() {
+        let forbidden: [(Entity, &[(&str, &str)]); 5] = [
+            (
+                Entity::Employee,
+                &[
+                    // 员工不能凭空复活 / 从离职回退；试用期不经转正直接停薪
+                    ("RESIGNED", "ACTIVE"),
+                    ("RESIGNED", "PROBATION"),
+                    ("PROBATION", "SUSPENDED"),
+                    // 停薪不能直接回试用期
+                    ("SUSPENDED", "PROBATION"),
+                    // 自环不是状态变更
+                    ("ACTIVE", "ACTIVE"),
+                ],
+            ),
+            (
+                Entity::EmployeeContract,
+                &[
+                    // 到期合同不能被「解除」（自然终止 ≠ 解除）
+                    ("EXPIRED", "TERMINATED"),
+                    // 两个终态都不许复活
+                    ("TERMINATED", "ACTIVE"),
+                    ("RENEWED", "ACTIVE"),
+                    ("RENEWED", "EXPIRED"),
+                    // 合同不能跳过状态直接封存
+                    ("ACTIVE", "ACTIVE"),
+                ],
+            ),
+            (
+                Entity::LeaveRequest,
+                &[
+                    // 草稿作废走软删，不是 CANCELLED
+                    ("DRAFT", "CANCELLED"),
+                    // 审批中不能直接作废（要先驳回/撤回）
+                    ("SUBMITTED", "CANCELLED"),
+                    // 审批不能倒退
+                    ("APPROVED", "DRAFT"),
+                    ("APPROVED", "SUBMITTED"),
+                    // 已作废不能复活
+                    ("CANCELLED", "DRAFT"),
+                    ("CANCELLED", "APPROVED"),
+                ],
+            ),
+            (
+                Entity::AttendancePeriod,
+                &[
+                    // 不能跳级：草稿直接锁定
+                    ("DRAFT", "LOCKED"),
+                    // 提交后不能自行回草稿（回位只有「解锁」一条）
+                    ("SUBMITTED", "DRAFT"),
+                    // 已锁定不能再提交
+                    ("LOCKED", "SUBMITTED"),
+                ],
+            ),
+            (
+                Entity::SalarySheet,
+                &[
+                    // 试算不能跳过 CALCULATED
+                    ("DRAFT", "SUBMITTED"),
+                    // 没审批不能过账
+                    ("CALCULATED", "APPROVED"),
+                    ("CALCULATED", "POSTED"),
+                    ("DRAFT", "POSTED"),
+                    // 红冲是终态：设计 §4.2.4 写死「不回到 CALCULATED」
+                    ("REVERSED", "CALCULATED"),
+                    ("REVERSED", "POSTED"),
+                    // 过账后不能退回审批前
+                    ("POSTED", "CALCULATED"),
+                    ("APPROVED", "CALCULATED"),
+                ],
+            ),
+        ];
+        for (entity, pairs) in forbidden {
+            for (from, to) in pairs {
+                assert!(!entity.can_transition(from, to), "{:?} 不该有边 {from} → {to}", entity);
+            }
+        }
+    }
+
+    /// ❻ 自环一律非法（任何状态 → 自己都不是「状态变更」，`transition()` 会 409）。
+    #[test]
+    fn hr_self_loops_are_rejected() {
+        for (entity, _, domain) in hr_ddl_cases() {
+            for status in domain {
+                assert!(
+                    !entity.can_transition(status, status),
+                    "{:?} 登记了自环 {status} → {status}（原地推进要用 transition_if_changed）",
+                    entity
+                );
+            }
+        }
+    }
+
+    /// ❼ 终态没有出边（出了就不再动，要退只能红冲 / 新开单 / 走审批）。
+    #[test]
+    fn hr_terminal_states_have_no_outgoing_edges() {
+        let terminals: [(Entity, &[&str]); 5] = [
+            (Entity::Employee, &["RESIGNED"]),
+            (Entity::EmployeeContract, &["TERMINATED", "RENEWED"]),
+            (Entity::LeaveRequest, &["CANCELLED"]),
+            (Entity::AttendancePeriod, &[]),
+            (Entity::SalarySheet, &["REVERSED"]),
+        ];
+        for (entity, statuses) in terminals {
+            for status in statuses {
+                assert!(
+                    entity.next_statuses(status).is_empty(),
+                    "{:?} 的终态 {status} 竟然还有出边 {:?}",
+                    entity,
+                    entity.next_statuses(status)
+                );
+            }
+        }
+        // 考勤期间**故意是环**：`LOCKED → DRAFT`（解锁）让每个月都能重跑 —— 客户第一轮
+        // 导入几乎总有错行，没有解锁就整月重来（设计 §4.2.3）。所以它没有一个「终态」，
+        // 这里反过来钉住这条回位边存在，别被人当「多出来的边」删掉。
+        assert!(
+            Entity::AttendancePeriod.can_transition("LOCKED", "DRAFT"),
+            "考勤期间必须能从 LOCKED 解锁回 DRAFT（设计 §4.2.3），否则导入错行只能整月重来"
+        );
+        assert_eq!(
+            Entity::AttendancePeriod.next_statuses("LOCKED"),
+            vec!["DRAFT"],
+            "解锁是 LOCKED 唯一的出边"
+        );
+    }
+
+    /// ❽ reason 边就是文档点名的那些（设计 §4.2.1~§4.2.4），且与 BASE 的
+    /// `requires_reason` 逐条一致（这条同时是「撤回不能被 400 挡住」的护栏）。
+    #[test]
+    fn hr_reason_edges_are_exactly_the_documented_ones() {
+        let expected: [(Entity, &[(&str, &str)]); 5] = [
+            (
+                Entity::Employee,
+                &[
+                    ("ACTIVE", "SUSPENDED"),
+                    ("PROBATION", "RESIGNED"),
+                    ("ACTIVE", "RESIGNED"),
+                    ("SUSPENDED", "RESIGNED"),
+                ],
+            ),
+            (Entity::EmployeeContract, &[("ACTIVE", "TERMINATED")]),
+            (Entity::LeaveRequest, &[("APPROVED", "CANCELLED")]),
+            (Entity::AttendancePeriod, &[("LOCKED", "DRAFT")]),
+            (Entity::SalarySheet, &[("POSTED", "REVERSED")]),
+        ];
+        for (entity, pairs) in expected {
+            let mut want: Vec<(&str, &str)> = pairs.to_vec();
+            let mut got: Vec<(&str, &str)> = entity.reason_edges().to_vec();
+            want.sort_unstable();
+            got.sort_unstable();
+            assert_eq!(got, want, "{:?} 的 REASON_EDGES 与文档不一致", entity);
+
+            // BASE 的 requires_reason 必须与 REASON 表逐条同值
+            for edge in entity.base_edges() {
+                let needs = entity.needs_reason(edge.from, edge.to);
+                assert_eq!(
+                    edge.meta.requires_reason, needs,
+                    "{:?} 的 {} → {} 的 BASE.requires_reason 与 REASON 表不一致",
+                    entity, edge.from, edge.to
+                );
+            }
+            // 撤回/驳回这类「同一条边两个动作」不能被标成必填原因（LNK-P08）
+            for (from, to) in [("SUBMITTED", "DRAFT"), ("SUBMITTED", "CALCULATED")] {
+                if entity.can_transition(from, to) {
+                    assert!(
+                        !entity.needs_reason(from, to),
+                        "{:?} 的 {from} → {to}（撤回）不该强制原因，否则正常业务路径被 400 挡住",
+                        entity
+                    );
+                }
+            }
+        }
+    }
+
+    /// ❾ 锁定态就是文档写的那几个（`ensure_writable` 的门）。
+    #[test]
+    fn hr_locked_statuses_are_exactly_the_documented_ones() {
+        let expected: [(Entity, &[&str]); 5] = [
+            (Entity::Employee, &["RESIGNED"]),
+            (Entity::EmployeeContract, &["TERMINATED", "RENEWED"]),
+            (Entity::LeaveRequest, &["APPROVED", "CANCELLED"]),
+            (Entity::AttendancePeriod, &["LOCKED"]),
+            (Entity::SalarySheet, &["SUBMITTED", "APPROVED", "POSTED", "REVERSED"]),
+        ];
+        for (entity, statuses) in expected {
+            let mut want = statuses.to_vec();
+            let mut got = entity.locked_statuses().to_vec();
+            want.sort_unstable();
+            got.sort_unstable();
+            assert_eq!(got, want, "{:?} 的 LOCKED 与设计不一致", entity);
+            for status in statuses {
+                assert!(entity.is_locked(status), "{:?} 的 {status} 应为锁定态", entity);
+            }
+            // 草稿一定可写（每个实体都有草稿态，除了合同/员工这两个主数据）
+            if entity.can_transition("DRAFT", "SUBMITTED") {
+                assert!(!entity.is_locked("DRAFT"), "{:?} 的 DRAFT 不该被锁", entity);
+            }
+        }
+    }
+
+    /// ❿ 薪资单没有 `CANCELLED` 的边（设计 §4.2.4 的图与 §3.1 ⑧ 的 DDL 冲突的收口）。
+    ///
+    /// 这条断言的作用是：谁想「照图补作废」，必须先看到 DDL 的白名单里根本没有这个值 ——
+    /// 补边 = 每次作废都 23514，而且 `biz_status_log` 会先记下这一步。
+    /// 薪资单的退出只有一条：`SUBMITTED → CALCULATED`（驳回 / 撤回重算）。
+    #[test]
+    fn hr_salary_sheet_has_no_cancelled_status() {
+        assert!(
+            !SALARY_DOMAIN.contains(&"CANCELLED"),
+            "V0383 的 ck_biz_sal_sheet_status 只有 6 值，没有 CANCELLED"
+        );
+        let ddl = ddl_status_domain(&hr_ddl(), "ck_biz_sal_sheet_status");
+        assert!(
+            !ddl.contains(&"CANCELLED".to_string()),
+            "迁移里若真加了 CANCELLED，才轮到改注册表（当前 DDL：{ddl:?}）"
+        );
+        for (from, to) in Entity::SalarySheet.edges() {
+            assert!(*to != "CANCELLED", "薪资单不该有 → CANCELLED 的边（{from} → {to}）");
+            assert!(*from != "CANCELLED", "薪资单不该有 CANCELLED → 的边（{from} → {to}）");
+        }
+        assert!(!Entity::SalarySheet.is_locked("CANCELLED"));
+        // 驳回/撤回的回位边必须存在（否则被驳回的薪资单永久卡 SUBMITTED = 死单）
+        assert!(
+            Entity::SalarySheet.can_transition("SUBMITTED", "CALCULATED"),
+            "缺 SUBMITTED → CALCULATED：驳回后无路可走（AGENTS.md 约定 11）"
+        );
+    }
+
+    /// ⓫ 非法跳转的报错文案点名「允许的去向」（前端直接展示给用户）。
+    #[test]
+    fn hr_rejection_message_names_next_statuses() {
+        let message = rejection_message("SALARY_SHEET", "CALCULATED", "POSTED");
+        assert!(message.contains("薪资单"), "文案要带单据名：{message}");
+        assert!(message.contains("CALCULATED"), "文案要点名当前状态：{message}");
+        assert!(message.contains("POSTED"), "文案要点名被拒的目标：{message}");
+        assert!(message.contains("SUBMITTED"), "文案要给出允许的去向：{message}");
+
+        // 终态：文案要说「已是终态」而不是列空集合
+        let terminal = rejection_message("EMPLOYEE", "RESIGNED", "ACTIVE");
+        assert!(terminal.contains("终态"), "终态文案要说明原因：{terminal}");
     }
 }

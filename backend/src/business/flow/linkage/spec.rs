@@ -844,6 +844,31 @@ pub const TRIGGER_EXEMPT: &[&str] = &[
     // 真要按批次触发（例如结算后通知车间）时，移进 `TRIGGER_SPECS` 并给
     // `wired = true` + `proofs`（漂移守卫会同时要求两者）。
     state_machine::ENTITY_COST_PERIOD,
+    // 人力资源 ARCH-9 §4.2（HR-08 注册的 5 个实体）：批 2~4 的业务卡（HR-10~HR-46）都还
+    // 没有落地，所以现在既没有状态流转入口、也没有触发点可挂。按 P1-FIX-5C 的口径
+    // 「登记进白名单却没人调 = 配了规则永远不触发」，先显式豁免。
+    //
+    // 逐条理由（落地卡真接上引擎时，把它从这里移到 `TRIGGER_SPECS` 并给
+    // `wired = true` + `proofs`，漂移守卫 `wired_triggers_match_call_sites` 会同时要求两者）：
+    //
+    // - `EMPLOYEE`：转正 / 停薪 / 离职的状态入口是 `employee_handler::change_status`
+    //   与离职审批回调，跨域后果（停用账号）在同一事务里直接写，没有「另一张单据跟着
+    //   变状态」的语义；
+    // - `EMPLOYEE_CONTRACT`：到期 / 解除 / 续签只影响合同台账自身（续签链靠
+    //   `renewed_from_id` 表达）；
+    // - `LEAVE_REQUEST`：审批通过后的联动走流程回调（`leave_bridge`），不改考勤
+    //   （设计 §4.3 逐字：「不改考勤，考勤由导入/人工体现」）；
+    // - `ATTENDANCE_PERIOD`：锁定是为了让薪资试算有稳定基线，联动发生在
+    //   **薪资单过账**（`SALARY_SHEET`）那一步；
+    // - `SALARY_SHEET`：过账的跨域后果（两张凭证）是 `salary_bridge` 的**专用事务**
+    //   （`post_explicit_lines` + 回写两个 `*_voucher_id`），与 `stockin_bridge` /
+    //   `payable_bridge` 同一模式 —— 通用引擎的「生成凭证」拼不出「一次两张、借方按
+    //   部门拆行、贷方 2211.01/2211.02」这个形状，硬塞会变成同一张单两条路径各落一次账。
+    state_machine::ENTITY_EMPLOYEE,
+    state_machine::ENTITY_EMPLOYEE_CONTRACT,
+    state_machine::ENTITY_LEAVE_REQUEST,
+    state_machine::ENTITY_ATTENDANCE_PERIOD,
+    state_machine::ENTITY_SALARY_SHEET,
 ];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。
