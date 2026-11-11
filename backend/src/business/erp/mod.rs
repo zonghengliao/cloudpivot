@@ -236,6 +236,10 @@ pub mod cost_period_item_dto;
 pub mod cost_period_item_model;
 /// 成本核算批次数据层：CRUD + 活跃批次 + 取号 + 明细与合计，B3-1。
 pub mod cost_period_model;
+/// 成本计算单导出（ARCH-9 §5.2 #32）：主表 20 列 + 分摊明细 + HTTP 文件流，B4-1。
+pub mod cost_period_sheet;
+/// 成本计算单导出的分摊取数（`biz_cost_alloc_result` 按期间聚合），B4-1。
+pub mod cost_period_sheet_model;
 /// B2-3 费率取数（ARCH-9 §4.5.4）：`biz_cost_rate` 三级优先级 + 缺费率报错（无 HTTP 入口，供工时台账复用）。
 pub mod cost_rate_dto;
 pub mod cost_rate_handler;

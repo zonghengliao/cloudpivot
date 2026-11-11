@@ -34,6 +34,7 @@ import {
   canSubmit,
   canWithdraw,
   calcSummaryText,
+  costSheetFileName,
   isFinalStatus,
   itemConserved,
   itemDetailRows,
@@ -359,4 +360,12 @@ test('向导标题 / 列表「该做什么」文案', () => {
   assert.match(nextActionText('SETTLED'), /可红冲/);
   assert.match(nextActionText('REVERSED'), /可重开/);
   assert.equal(nextActionText(null), '—');
+});
+
+test('导出文件名与后端 `file_name` 同形（成本计算单_<批次号>.xlsx）', () => {
+  assert.equal(costSheetFileName('CS-202610-0001'), '成本计算单_CS-202610-0001.xlsx');
+  // 空 / null 不生成「成本计算单_.xlsx」这种既像空文件又没法检索的名字
+  assert.equal(costSheetFileName(''), '成本计算单_未命名批次.xlsx');
+  assert.equal(costSheetFileName(null), '成本计算单_未命名批次.xlsx');
+  assert.equal(costSheetFileName('  CS-1  '), '成本计算单_CS-1.xlsx');
 });

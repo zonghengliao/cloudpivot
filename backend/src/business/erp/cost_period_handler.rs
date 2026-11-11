@@ -14,7 +14,8 @@
 //! | — | POST | `/business/erp/cost-period/{id}/withdraw` | `business:erp:cost-period:submit` | ✅ B3-3（撤回 = 终止实例 + 回 `DRAFT`） |
 //! | 29 | POST | `/business/erp/cost-period/{id}/settle` | `business:erp:cost-period:settle` | ✅ B3-6（入库 + 凭证 + 6 条断言） |
 //! | 30 | POST | `/business/erp/cost-period/{id}/reverse` | `business:erp:cost-period:reverse` | ✅ B3-7（红字凭证 + 库存回冲 + 入库单作废 + `REVERSED`） |
-//! | 32/33 | GET | `…/cost-sheet` / `…/uncollected` | `business:erp:cost-period:list` | ⛔ 导出 / 缺口清单卡 |
+//! | 32 | GET | `…/cost-sheet?format=xlsx` | `business:erp:cost-period:list` | ✅ B4-1（见 `cost_period_sheet.rs`） |
+//! | 33 | GET | `…/uncollected` | `business:erp:cost-period:list` | ✅ B3-8（缺口清单） |
 //!
 //! # 多出来的两个接口（已具名偏差，见卡内汇报）
 //!
@@ -141,7 +142,10 @@ fn to_detail_res(
 }
 
 /// 按 id 组装详情（建 / 改 / 作废后的回单都走它）。
-async fn detail_of(id: Uuid) -> std::result::Result<CostPeriodDetailRes, ApiError> {
+///
+/// `pub(crate)`：成本计算单导出（`cost_period_sheet`）复用**同一个**组装函数，
+/// 保证「导出件的数 = 页面的数」（同一份数据源，不另写一份 SQL）。
+pub(crate) async fn detail_of(id: Uuid) -> std::result::Result<CostPeriodDetailRes, ApiError> {
     let row = model::find_by_id(id)
         .await
         .map_err(|error| utils::db_error(error, "查询成本核算批次"))?

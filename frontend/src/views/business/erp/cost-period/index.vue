@@ -276,6 +276,18 @@
             >
               <t-icon name="help-circle" class="pane__help" />
             </t-tooltip>
+            <!-- 导出（设计 §5.2 #32）：与「看计算单」同权限码；批次还没建时无处可导 -->
+            <t-button
+              v-privilege="[PERM.list]"
+              variant="outline"
+              :disabled="!batch"
+              :loading="exporting"
+              data-testid="cp-btn-export"
+              @click="handleExportSheet"
+            >
+              <template #icon><t-icon name="download" /></template>
+              导出 xlsx
+            </t-button>
             <span class="pane__spacer" />
             <span v-if="batch" class="pane__meta" data-testid="cp-batch-meta">
               批次 <b class="mono">{{ batch.batch_no }}</b> · {{ statusLabel(batch.status) }} ·
@@ -567,6 +579,7 @@ import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   cancelCostPeriod,
   createCostPeriod,
+  exportCostSheet,
   fetchCostPeriodDetail,
   fetchCostPeriodPage,
   reverseCostPeriod,
@@ -587,6 +600,7 @@ import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import { formatMoney, dash, shortDate, shortId, todayPeriod } from '@/views/business/erp/shared/money';
 import { errorText } from '@/views/business/erp/shared/error-text';
+import { saveBlob } from '@/utils/download';
 import {
   EMPTY_APPROVAL_PROGRESS,
   approvalFallbackOf,
@@ -607,6 +621,7 @@ import {
   canSettle,
   canSubmit,
   canWithdraw,
+  costSheetFileName,
   isFinalStatus,
   laborSourceLabel,
   reasonHint,
@@ -967,6 +982,33 @@ function handleRecalc(): void {
     '计算编排入口（设计 §5.2 #27 POST /cost-period/calc）尚未上线，暂不能在页面上重算；' +
       '当前展示的是后端已写入的计算单。',
   );
+}
+
+/** 导出中（按钮 loading；避免连点导出多份） */
+const exporting = ref(false);
+
+/**
+ * 导出成本计算单 xlsx（设计 §5.2 #32）。
+ *
+ * 后端按**批次 id** 一次拉整张计算单（对象 × 料工费 × 分摊 × 约当 × 单位成本 × 完工/在制），
+ * 数字与本页步③ 同源（后端 `detail_of`），所以导出件与屏幕上的表逐格一致。
+ * 失败报文由 api 层的 `blobError` 读回原文，这里不再改写措辞。
+ */
+async function handleExportSheet(): Promise<void> {
+  if (!batch.value) {
+    MessagePlugin.warning('先建批次再导出');
+    return;
+  }
+  exporting.value = true;
+  try {
+    const blob = await exportCostSheet(batch.value.id);
+    saveBlob(blob, costSheetFileName(batch.value.batch_no));
+    MessagePlugin.success(`已导出 ${costSheetFileName(batch.value.batch_no)}`);
+  } catch (error) {
+    MessagePlugin.error(errorText(error, '导出成本计算单失败'));
+  } finally {
+    exporting.value = false;
+  }
 }
 
 /** 提交审批（`DRAFT → SUBMITTED`，同事务发起两级审批实例） */

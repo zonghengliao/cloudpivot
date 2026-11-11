@@ -1,0 +1,137 @@
+TAP version 13
+# Subtest: 状态值域 / 中文名 / 配色与库层 CHECK 逐值对齐
+ok 1 - 状态值域 / 中文名 / 配色与库层 CHECK 逐值对齐
+  ---
+  duration_ms: 1.681657
+  type: 'test'
+  ...
+# Subtest: 权限码 5 个，形状 business:erp:cost-period:<动作>
+ok 2 - 权限码 5 个，形状 business:erp:cost-period:<动作>
+  ---
+  duration_ms: 0.433092
+  type: 'test'
+  ...
+# Subtest: 五步标题与设计 §6.2.2 一致（5 步、末步下标 4）
+ok 3 - 五步标题与设计 §6.2.2 一致（5 步、末步下标 4）
+  ---
+  duration_ms: 0.20642
+  type: 'test'
+  ...
+# Subtest: 状态 → 停在第几步（用户从列表点进来不该被要求重走一遍）
+ok 4 - 状态 → 停在第几步（用户从列表点进来不该被要求重走一遍）
+  ---
+  duration_ms: 0.156003
+  type: 'test'
+  ...
+# Subtest: 按钮门禁：每个状态能做什么只在一处定义
+ok 5 - 按钮门禁：每个状态能做什么只在一处定义
+  ---
+  duration_ms: 0.175503
+  type: 'test'
+  ...
+# Subtest: 结算前置未满足要说清「为什么」而不是把按钮藏掉
+ok 6 - 结算前置未满足要说清「为什么」而不是把按钮藏掉
+  ---
+  duration_ms: 0.156337
+  type: 'test'
+  ...
+# Subtest: 「下一步」放行：① 要期间合法且未结账；② 永不阻断；③ 要批次
+ok 7 - 「下一步」放行：① 要期间合法且未结账；② 永不阻断；③ 要批次
+  ---
+  duration_ms: 0.287631
+  type: 'test'
+  ...
+# Subtest: 期间格式：只认 yyyy-MM（与库层 CHECK 同款）
+ok 8 - 期间格式：只认 yyyy-MM（与库层 CHECK 同款）
+  ---
+  duration_ms: 0.125752
+  type: 'test'
+  ...
+# Subtest: 结算关键字必须逐字全等（标点 / 空格都不算）
+ok 9 - 结算关键字必须逐字全等（标点 / 空格都不算）
+  ---
+  duration_ms: 0.406967
+  type: 'test'
+  ...
+# Subtest: 红冲原因按「字符」算 ≥10（中文一字算一）
+ok 10 - 红冲原因按「字符」算 ≥10（中文一字算一）
+  ---
+  duration_ms: 0.546594
+  type: 'test'
+  ...
+# Subtest: summaryOf 按计算单现算（不用单头 total_*）
+ok 11 - summaryOf 按计算单现算（不用单头 total_*）
+  ---
+  duration_ms: 0.602178
+  type: 'test'
+  ...
+# Subtest: 单行守恒：完工转出 + 期末在制 = 期初在制 + 料 + 工 + 费
+ok 12 - 单行守恒：完工转出 + 期末在制 = 期初在制 + 料 + 工 + 费
+  ---
+  duration_ms: 0.393049
+  type: 'test'
+  ...
+# Subtest: 明细行覆盖 4 个数量口径 / 6 个金额 / 4 个单价（可展开看明细）
+ok 13 - 明细行覆盖 4 个数量口径 / 6 个金额 / 4 个单价（可展开看明细）
+  ---
+  duration_ms: 0.815807
+  type: 'test'
+  ...
+# Subtest: 数量 / 单价格式化去尾零但不丢精度
+ok 14 - 数量 / 单价格式化去尾零但不丢精度
+  ---
+  duration_ms: 0.120252
+  type: 'test'
+  ...
+# Subtest: 试算摘要：有行给合计、无行明确说「还没有计算单」
+ok 15 - 试算摘要：有行给合计、无行明确说「还没有计算单」
+  ---
+  duration_ms: 0.298922
+  type: 'test'
+  ...
+# Subtest: 结算计划文案：N 张入库单 + 凭证张数按金额是否为零收敛
+ok 16 - 结算计划文案：N 张入库单 + 凭证张数按金额是否为零收敛
+  ---
+  duration_ms: 0.267797
+  type: 'test'
+  ...
+# Subtest: 步⑤ 顶部文案：未结算「将生成」，已结算/已红冲说「已…」（不许用未来时）
+ok 17 - 步⑤ 顶部文案：未结算「将生成」，已结算/已红冲说「已…」（不许用未来时）
+  ---
+  duration_ms: 0.213629
+  type: 'test'
+  ...
+# Subtest: 红冲计划文案点名批次号、对象数与金额
+ok 18 - 红冲计划文案点名批次号、对象数与金额
+  ---
+  duration_ms: 0.108502
+  type: 'test'
+  ...
+# Subtest: 三张凭证按「人工 → 费用 → 完工」顺序，空 id 不显示
+ok 19 - 三张凭证按「人工 → 费用 → 完工」顺序，空 id 不显示
+  ---
+  duration_ms: 0.355049
+  type: 'test'
+  ...
+# Subtest: 向导标题 / 列表「该做什么」文案
+ok 20 - 向导标题 / 列表「该做什么」文案
+  ---
+  duration_ms: 0.136878
+  type: 'test'
+  ...
+# Subtest: 导出文件名与后端 `file_name` 同形（成本计算单_<批次号>.xlsx）
+ok 21 - 导出文件名与后端 `file_name` 同形（成本计算单_<批次号>.xlsx）
+  ---
+  duration_ms: 0.134544
+  type: 'test'
+  ...
+1..21
+# tests 21
+# suites 0
+# pass 21
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 207.022495
+exit=0

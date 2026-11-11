@@ -497,3 +497,16 @@ export function nextActionText(status: CostPeriodStatus | null | undefined): str
       return '—';
   }
 }
+
+/**
+ * 成本计算单导出文件名（与后端 `cost_period_sheet::file_name` 逐字一致）。
+ *
+ * 为什么前端也要拼一份：`saveBlob` 只认前端给的文件名（浏览器不会用
+ * `Content-Disposition` 里服务端的名字）。两份实现必须同形，否则「后端导出叫
+ * 成本计算单_CS-202610-0001.xlsx、前端存成 CS-202610-0001.xlsx」这种不一致会让人
+ * 以为是两个文件。批次号本身含期间，所以只拼批次号。
+ */
+export function costSheetFileName(batchNo: string | null | undefined): string {
+  const name = (batchNo || '').trim() || '未命名批次';
+  return `成本计算单_${name}.xlsx`;
+}

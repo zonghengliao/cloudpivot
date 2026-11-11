@@ -16,6 +16,7 @@
  * | — | POST | `/cost-period/{id}/withdraw` | `cost-period:submit` | 审批中撤回（回 `DRAFT`） |
  * | 29 | POST | `/cost-period/{id}/settle` | `cost-period:settle` | 步⑤结算（无 body） |
  * | 30 | POST | `/cost-period/{id}/reverse` | `cost-period:reverse` | 红冲（`{reason}` ≥10 字） |
+ * | 32 | GET | `/cost-period/{id}/cost-sheet?format=xlsx` | `cost-period:list` | 步③「导出 xlsx」（文件流） |
  *
  * # 路径必须写全 `/api`
  *
@@ -29,7 +30,7 @@
  * 只需在本文件加一个 `calcCostPeriod()`，页面已经把按钮位留好（见 `index.vue` 的注释）。
  */
 
-import { get, post, put, type PageData } from '@/api/request';
+import service, { get, post, put, type PageData } from '@/api/request';
 
 import type {
   CostPeriodCreatePayload,
@@ -128,4 +129,58 @@ export function reverseCostPeriod(
   payload: CostPeriodReasonPayload,
 ): Promise<CostPeriodDetail> {
   return post<CostPeriodDetail>(`${BASE}/cost-period/${id}/reverse`, payload);
+}
+
+/**
+ * 导出成本计算单 xlsx（`GET /business/erp/cost-period/{id}/cost-sheet?format=xlsx`）。
+ *
+ * 返回的是**文件字节流**（不走 `Res<T>` 统一响应体），必须 `responseType: 'blob'` ——
+ * 少了这个参数 axios 会按 JSON 解析二进制，报「响应体格式不符合」。
+ *
+ * # 为什么没有前端传的期间 / 对象参数
+ *
+ * 设计 §5.2 #32 只按**批次 id** 导出整张计算单（对象 × 料工费 × 约当 × 单位成本 × 完工/在制）。
+ * 导出口径（哪些行、什么合计）全在服务端，前端不参与挑数 —— 页面看到什么就导出什么。
+ *
+ * # 权限
+ *
+ * 与「看计算单」同一个权限码 `cost-period:list`：能看就能导（设计 §5.2 #32）。
+ */
+export async function exportCostSheet(id: string): Promise<Blob> {
+  try {
+    const response = await service.get<Blob>(`${BASE}/cost-period/${id}/cost-sheet`, {
+      params: { format: 'xlsx' },
+      responseType: 'blob',
+      // 1000 行计算单在真库实测 1s 量级，但导出是一次性整表拉取（不受分页限制），
+      // 默认 15s 对慢网 / 大对象太紧：给 60s，宁可等也不要把已经生成的字节流丢掉。
+      timeout: 60000,
+    });
+    return response.data;
+  } catch (error) {
+    throw await blobError(error);
+  }
+}
+
+/**
+ * 把 blob 请求的失败还原成人话。
+ *
+ * `responseType: 'blob'` 时后端 4xx/5xx 的 JSON 报文也变成了 Blob，
+ * 全局拦截器（`toApiError`）读不到 `msg`，只能给出「网络异常」这类通用话术。
+ * 导出恰恰是**最需要看原文**的场景（403 权限码 / 409 找不到批次），
+ * 所以在这里把错误体读回文本再解析；解析不出就交回原错误由页面兜底。
+ */
+async function blobError(error: unknown): Promise<Error> {
+  const data = (error as { response?: { data?: unknown } }).response?.data;
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text();
+      const body = JSON.parse(text) as { code?: number; msg?: string };
+      if (body && typeof body.msg === 'string' && body.msg) {
+        return new Error(body.msg);
+      }
+    } catch {
+      // 不是 JSON（例如网关的 HTML 502）：保持原错误
+    }
+  }
+  return error instanceof Error ? error : new Error(String(error));
 }
