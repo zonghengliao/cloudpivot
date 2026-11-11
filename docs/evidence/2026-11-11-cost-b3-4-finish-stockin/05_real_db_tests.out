@@ -1,0 +1,15 @@
+=== 05 真库用例（ERP_DB_URL = 空库重放 302 条迁移后的 mig_replay_b34） ===
+
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 7 tests
+test business::erp::cost_settle_finish_db_tests::db::cancelled_stock_in_frees_recalc ... ok
+test business::erp::cost_settle_finish_db_tests::db::inventory_accumulates_per_bucket ... ok
+test business::erp::cost_settle_finish_db_tests::db::missing_unit_is_rejected_without_writes ... ok
+test business::erp::cost_settle_finish_db_tests::db::production_stock_in_and_three_ledgers ... ok
+test business::erp::cost_settle_finish_db_tests::db::second_settle_is_rejected_and_writes_nothing ... ok
+test business::erp::cost_settle_finish_db_tests::db::settled_item_is_not_picked_again ... ok
+test business::erp::cost_settle_finish_db_tests::db::zero_completed_qty_creates_nothing ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4680 filtered out; finished in 17.58s
+

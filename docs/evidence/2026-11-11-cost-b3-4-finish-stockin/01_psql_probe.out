@@ -1,0 +1,24 @@
+=== 01 库层探针：V0382 之前，无采购单的 PRODUCTION 单写不进去（B3-4 开工实测） ===
+库：mig_replay_b34（空库重放 302 条迁移后）
+
+--- (1) 先把 ck_biz_si_sourceless_pair 回滚成 V0199 原定义（模拟 V0382 之前的状态） ---
+psql:migrations/business/V0382__stock_in_production_sourceless.down.sql:53: NOTICE:  V0382 down 通过：ck_biz_si_sourceless_pair 已回到 V0199 原定义
+
+--- (2) 试写「完工入库：挂对象与批次 + 无供应商 + 无采购单」---- 期望：被 ck_biz_si_sourceless_pair 拦 ---
+BEGIN
+ERROR:  new row for relation "biz_stock_in" violates check constraint "ck_biz_si_sourceless_pair"
+DETAIL:  Failing row contains (790d9f9f-ac30-40e2-9f46-8d8989c68e56, B34-PROBE-BEFORE, PRODUCTION, null, null, d0461cc1-67e6-42da-a4dc-a2d3789ab03d, 2026-11-11, POSTED, CNY, 0.0000, 0.0000, 0.0000, 0.0000, t, null, null, null, null, null, null, null, null, 2026-11-11 11:37:55.894774+08, 2026-11-11 11:37:55.894774+08, null, null, null, null, f, null, null, 882a42be-1e8d-4d37-a183-2fbd6b16d936, 37971e1b-7a1e-454e-9082-e7623e25b4f0).
+
+--- (3) 装回 V0382（重放 up） ---
+psql:migrations/business/V0382__stock_in_production_sourceless.up.sql:98: NOTICE:  V0382 形态断言通过：双分支约束 + ELSE 原样；当前 PRODUCTION 行 = 0（本迁移不写业务行）
+psql:migrations/business/V0382__stock_in_production_sourceless.up.sql:204: NOTICE:  V0382 行为断言通过：完工入库(无采购单)可写 / 无源被拒 / 挂采购单被拒 / 存量三向口径不变 / 探针零残留
+
+--- (4) 同一条 INSERT 再来一次 ---- 期望：写入成功（ROLLBACK 不留行） ---
+BEGIN
+INSERT 0 1
+      in_no      |  in_type   | status 
+-----------------+------------+--------
+ B34-PROBE-AFTER | PRODUCTION | POSTED
+(1 row)
+
+ROLLBACK

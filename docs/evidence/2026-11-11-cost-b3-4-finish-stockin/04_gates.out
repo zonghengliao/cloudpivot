@@ -1,0 +1,21 @@
+=== 04 门禁 ===
+
+--- inventory_write_gate（卡面「必须走 inventory_writer」的静态闸） ---
+唯一写入口 backend/src/business/erp/inventory_writer.rs：23 条写语句
+============================================================================================
+
+★ 零越界：非测试代码里没有任何一处直写库存三本账。
+
+--- rustfmt --check（本卡两个新文件） ---
+OK: fmt 干净
+
+--- cargo clippy --all-targets -- -D warnings ---
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 26s
+EXIT=0
+
+--- role_code_gate（迁移授权段角色码；本卡无授权段） ---
+  · backend/migrations/business/V0317__statement_confirm.up.sql:211  INSERT INTO sys_role_menu  （无字面量，按子查询/矩阵）  ← 动态表达式（LIKE / 子查询），闸无法静态验证角色码，请人工确认
+  … 另有 13 条，加 --json 看全量
+  授权段优先走 V0258 业务角色矩阵（改矩阵）而不是在新迁移里再写一份：空库上 sys_role 还没种出业务角色 ⇒ 写死的 role_code 只会静默 0 行；见 docs/architecture/P2-新装配库权限矩阵-决策.md
+✓ 无**新增/改动**的未知角色码（历史基线全部按指纹豁免）

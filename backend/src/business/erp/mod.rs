@@ -244,6 +244,12 @@ pub mod cost_rate_model;
 pub mod cost_reconcile_dto;
 /// 对账取数（`biz_cost_collect` 池行按来源反查科目 + `biz_voucher_entry` 的 4101.* 借方），B2-9。
 pub mod cost_reconcile_model;
+/// 结算 ①「完工入库」（ARCH-9 §4.7.4/§4.7.6/§4.8 ③ · B3-4）：`stock_in(PRODUCTION)` +
+/// 明细 + `inventory_writer` 三本账 + 计算单回写 + 生产批登记。无 HTTP 入口，供 B3-6 结算事务调用。
+pub mod cost_settle_finish;
+/// B3-4 的真库用例（`ERP_DB_URL` 开关）：完工入库单 + 三本账 + 计算单回写 + 两道幂等闸。
+#[cfg(test)]
+mod cost_settle_finish_db_tests;
 /// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_uncollected_db_tests;

@@ -1,0 +1,23 @@
+=== 06 残留检查（两个演练库） ===
+--- 库 mig_replay_b34 ---
+biz_stock_in(PRODUCTION) | 0
+biz_cost_period(CS34-) | 0
+biz_cost_period_item(CS34-) | 0
+biz_cost_object(CB34-) | 0
+biz_material(CB34-) | 0
+biz_warehouse(CB34W%) | 0
+biz_lot(CB34LOT-) | 0
+biz_inventory_txn(PRODUCTION_IN) | 0
+biz_status_log(结算) | 0
+biz_stock_in(V0382-PROBE-) | 0
+--- 库 costb31_drill ---
+biz_stock_in(PRODUCTION) | 0
+biz_cost_period(CS34-) | 0
+biz_cost_period_item(CS34-) | 0
+biz_cost_object(CB34-) | 0
+biz_material(CB34-) | 0
+biz_warehouse(CB34W%) | 0
+biz_lot(CB34LOT-) | 0
+biz_inventory_txn(PRODUCTION_IN) | 0
+biz_status_log(结算) | 0
+biz_stock_in(V0382-PROBE-) | 0
