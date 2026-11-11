@@ -1,0 +1,39 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 21 tests
+test business::erp::cost_period_item_dto::tests::beg_cost_split_sums_back_to_prior_wip ... ok
+test business::erp::cost_period_item_dto::tests::as_progress_input_mode_is_rejected ... ok
+test business::erp::cost_period_item_dto::tests::completed_qty_is_the_delta_of_cumulative ... ok
+test business::erp::cost_period_item_dto::tests::cost_without_any_quantity_is_rejected ... ok
+test business::erp::cost_period_item_dto::tests::empty_object_is_flagged_not_written ... ok
+test business::erp::cost_period_item_dto::tests::finished_without_material_is_fine_when_beg_wip_has_material ... ok
+test business::erp::cost_period_item_dto::tests::example_a_matches_the_design_numbers ... ok
+test business::erp::cost_period_item_dto::tests::beg_material_only_feeds_the_material_unit_cost ... ok
+test business::erp::cost_period_item_dto::tests::cumulative_qty_rollback_is_rejected ... ok
+test business::erp::cost_period_item_dto::tests::finished_without_material_is_rejected ... ok
+test business::erp::cost_period_item_dto::tests::identity_holds_on_example_a ... ok
+test business::erp::cost_period_item_dto::tests::rounding_gap_is_absorbed_by_wip ... ok
+test business::erp::cost_period_item_dto::tests::wip_zero_puts_the_gap_into_finished ... ok
+test business::erp::cost_period_item_dto::tests::identity_holds_across_a_grid ... ok
+test business::erp::cost_period_item_dto::tests::wip_without_progress_is_rejected ... ok
+test business::erp::cost_period_item_dto::tests::zero_completed_qty_never_divides_by_zero ... ok
+test business::erp::cost_period_item_dto::tests::zero_finished_keeps_everything_in_wip ... ok
+test business::erp::cost_period_item_model::tests::table_name_matches_the_migration ... ok
+test business::erp::cost_period_item_model::tests::redoable_statuses_match_the_alloc_segment ... ok
+test business::erp::cost_period_item_model::tests::columns_cover_every_amount_field ... ok
+test business::erp::cost_period_item_model::tests::only_settled_periods_can_be_beginning_wip ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 4556 filtered out; finished in 0.00s
+
+---
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 3 tests
+test business::erp::cost_calc_item::tests::readback_rejects_row_count_mismatch ... ok
+test business::erp::cost_calc_item::tests::readback_rejects_broken_identity ... ok
+test business::erp::cost_calc_item::tests::bad_period_is_rejected_before_any_query ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 4574 filtered out; finished in 0.00s
+

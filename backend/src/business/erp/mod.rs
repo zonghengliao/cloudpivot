@@ -162,6 +162,11 @@ pub mod cost_calc_alloc;
 /// B2-10 的真库用例（`ERP_DB_URL` 开关）：四标准逐对象核数 / 尾差只落一行 / 池 0 与基数 0 边界 / 重算幂等。
 #[cfg(test)]
 mod cost_calc_alloc_db_tests;
+/// calc 第 6 段：约当产量与成本计算单（ARCH-9 §4.6 · 公式 + 差额倒挤 + 期初在制结转）。
+pub mod cost_calc_item;
+/// B2-11 的真库用例（`ERP_DB_URL` 开关）：算例 A / 恒等式 / 跨月期初结转 / 重算幂等 / 五类 409。
+#[cfg(test)]
+mod cost_calc_item_db_tests;
 /// calc 第 2 段：工归集（ARCH-9 §4.3 · 扫当期已确认工时 → 幂等写 `biz_cost_collect`）。
 pub mod cost_calc_labor;
 /// B2-7 的真库用例（`ERP_DB_URL` 开关）：只取 CONFIRMED + 金额取台账 + 缺费率进未归集清单。
@@ -213,6 +218,10 @@ mod cost_overhead_db_tests;
 pub mod cost_overhead_dto;
 pub mod cost_overhead_handler;
 pub mod cost_overhead_model;
+/// calc 第 6 段「约当产量与计算单」的纯逻辑（约当产量 / 单位成本 / 尾差倒挤 / 期初要素还原），B2-11。
+pub mod cost_period_item_dto;
+/// 成本计算单（`biz_cost_period_item`）数据层：取对象与投入 / 期初结转 / 整删重灌 / 回查，B2-11。
+pub mod cost_period_item_model;
 /// B2-3 费率取数（ARCH-9 §4.5.4）：`biz_cost_rate` 三级优先级 + 缺费率报错（无 HTTP 入口，供工时台账复用）。
 pub mod cost_rate_dto;
 pub mod cost_rate_handler;

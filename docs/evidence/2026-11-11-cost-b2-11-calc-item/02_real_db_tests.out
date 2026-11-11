@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.56s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 8 tests
+test business::erp::cost_calc_item_db_tests::db::beginning_wip_carries_over_from_prior_settled_item ... ok
+test business::erp::cost_calc_item_db_tests::db::example_a_lands_in_the_database ... ok
+test business::erp::cost_calc_item_db_tests::db::finished_without_material_is_rejected ... ok
+test business::erp::cost_calc_item_db_tests::db::identity_holds_and_recalc_is_idempotent ... ok
+test business::erp::cost_calc_item_db_tests::db::locked_period_keeps_old_rows ... ok
+test business::erp::cost_calc_item_db_tests::db::missing_batch_is_409 ... ok
+test business::erp::cost_calc_item_db_tests::db::missing_progress_is_rejected ... ok
+test business::erp::cost_calc_item_db_tests::db::reversed_prior_period_blocks_carryover ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 4569 filtered out; finished in 7.53s
+
