@@ -11,6 +11,7 @@ import {
 } from '@/api/system/auth-api';
 import { clearTokens, REFRESH_TOKEN_KEY, saveTokens, TOKEN_KEY } from '@/api/request';
 import { syncPreferenceFromServer } from '@/composables/usePalette';
+import { useCostSwitchStore } from '@/stores/cost';
 import { clearLoginUnreadShown } from '@/utils/login-unread';
 import { broadcastLogout } from '@/utils/idle-activity';
 
@@ -131,6 +132,9 @@ export const useUserStore = defineStore('user', () => {
     menus.value = [];
     loaded.value = false;
     mustChangePassword.value = false;
+    // 模块开关也按会话清掉：上一个用户开着成本核算、下一个用户没开时，
+    // 不能把上一个会话的 `enabled=true` 带过去（COST-B4-4）
+    useCostSwitchStore().reset();
   }
 
   /** 登出：无论后端是否成功，本地会话必须清理 */

@@ -1,0 +1,19 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 48s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 10 tests
+test business::erp::cost_switch_handler::tests::disabled_hint_points_to_config_page ... ok
+test business::erp::cost_switch_handler::tests::probe_path_is_exempt_from_gate ... ok
+test business::shared::cost_switch::tests::api_path_gate_covers_cost_endpoints_only ... ok
+test business::shared::cost_switch::tests::auth_code_gate_matches_cost_and_lot_only ... ok
+test business::shared::cost_switch::tests::enabled_accepts_true_and_one ... ok
+test business::shared::cost_switch::tests::enabled_defaults_to_false ... ok
+test business::erp::cost_switch_handler::tests::response_shape_is_stable ... ok
+test business::shared::cost_switch::tests::migration_seeds_switch_with_false_default ... ok
+test business::shared::cost_switch::tests::menu_filter_drops_cost_pages_and_buttons ... ok
+test business::shared::cost_switch::tests::permission_filter_keeps_wildcard_and_order ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4768 filtered out; finished in 0.00s
+
+EXIT=0

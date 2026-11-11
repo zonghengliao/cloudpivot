@@ -12,6 +12,7 @@
 //! | [`content`] | Markdown 内容管线（批次 C · C1）：`render` 渲染 + 三套净化配方 + TOC 树 | 公告（C2/C3）与帮助文档（C4）写入 / 出参前的统一入口 |
 //! | [`conn`] | 只读查询的全局连接入口（批次 C · C6）：让 `business/changelog/` 的查询路径没有 `db()`，写入路径的签名不受影响 |
 //! | [`user_name`] | 用户姓名**快照**（AUD-01）：审计类列（附件上传人等）写入时取一次、落库后永不回改；改名 / 删号的追溯口径只有一个实现 |
+//! | [`cost_switch`] | 成本核算模块总开关 `erp.cost.enabled`（COST-B4-4）：接口 403 闸 + 菜单 / 权限运行期过滤 |
 //!
 //! # 本卡（B2）的边界
 //!
@@ -46,6 +47,8 @@
 pub mod batch;
 pub mod conn;
 pub mod content;
+/// 成本核算模块总开关 `erp.cost.enabled`（COST-B4-4）：接口 403 闸 + 菜单 / 权限过滤。
+pub mod cost_switch;
 pub mod doc_kind;
 pub mod guard;
 pub mod principal;

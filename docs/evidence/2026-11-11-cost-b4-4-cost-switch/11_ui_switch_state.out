@@ -1,0 +1,15 @@
+# 参数配置页开关的 UI 状态 ↔ 库值 ↔ 探针值 三联对照（COST-B4-4）
+# 说明：本页 t-switch 的 label 传的是 ['关闭','开启']，而 TDesign 的 label[0] 是「开启态」文案
+#       ⇒ 页面上显示的「关闭」其实代表「已开启」。这是参数配置页既有文案 bug（所有布尔参数都受影响），
+#       已在本卡上报，未修改（属别的模块）。判定开关状态请看 cls 里的 t-is-checked / aria-checked。
+
+== 状态 A（当前：库里 true）==
+  DOM: {"cls": "t-switch t-size-m t-is-checked", "label": "关闭"}
+  sys_config.erp.cost.enabled = true
+  探针 GET /api/business/erp/cost-switch → enabled=True · config_key=erp.cost.enabled
+
+== 状态 B（点开关 + 保存后：库里应为 false）==
+  DOM: {"cls": "t-switch t-size-m", "label": "开启"}
+  sys_config.erp.cost.enabled = false
+  探针 GET /api/business/erp/cost-switch → enabled=False
+

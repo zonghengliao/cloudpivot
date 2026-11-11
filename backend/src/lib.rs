@@ -110,6 +110,12 @@ pub async fn run() -> Result<()> {
         // 解析不到「缺哪个字段」。挂 `route_layer`（链内）：只有匹配到路由、真正走到
         // 参数提取的请求才会触发，且不会误改写认证层的响应。
         .route_layer(axum::middleware::from_fn(middleware::json_rejection::normalize))
+        // 成本核算模块开关（COST-B4-4 · `erp.cost.enabled`）：开关关闭时
+        // `/business/erp/cost-*` 与 `/business/erp/stock-out/cost-object-*` 一律 403 + 66079。
+        // 同样走 `route_layer`（链内）：未登录访问这些接口仍然先被认证层回 401（不泄露
+        // 「模块是否存在」），已登录才是本层的「模块未启用」。
+        // 只对命中路径前缀的请求读参数快照，其余请求零开销（一次字符串前缀比较）。
+        .route_layer(axum::middleware::from_fn(business::shared::cost_switch::guard))
         // 任务级令牌（T5b）必须挂在**最外层**（`layer_from_fn`，位于框架认证层之外）：
         // AI 的令牌不是 JWT，若让它先过认证层，框架会先回 401「Token 无效」——
         // 那样「白名单外的端点也要 403 + 63304」就永远测不到，而且 AI 也无法自助排错。

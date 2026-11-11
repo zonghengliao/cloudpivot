@@ -1,0 +1,72 @@
+### COST-B4-4 成本核算开关冒烟（http://127.0.0.1:18051 · 库 costb44_switch）
+
+== 0. 实例健康 + 迁移 V0385 已应用 ==
+  [OK]   健康探针 → HTTP 200
+  [OK]   参数行默认值 = false
+  [OK]   参数类型 = BOOLEAN
+  [OK]   参数级别（业务级） = 2
+  [OK]   参数分类 = erp_cost
+  [OK]   分类字典项「ERP 成本」 = 1
+  [i] 本次全程使用的实例 pid=2755882（后面每一步都不重启它）
+
+== 1. 登录（admin 超管 + fm01 财务经理，非超管） ==
+  [i] admin 首登改密 → Admin@12345678
+  [OK]   admin 登录拿到令牌
+  [OK]   建非超管用户 fm01（FINANCE_MANAGER）→ HTTP 200
+  [OK]   fm01 登录拿到令牌
+
+== 2. 关闭态（默认 false）：接口 403 / 菜单隐藏 / 领料单字段隐藏 ==
+  [OK]   探针接口（豁免开关） → HTTP 200
+  [OK]   探针 enabled = false
+  [OK]   探针回参数键 = erp.cost.enabled
+  [i] 探针 hint：成本核算模块未启用（erp.cost.enabled = false）。请系统管理员在「支撑功能 / 参数配置 / ERP 成本」里打开，切换即时生效
+  [OK]   关闭态 GET /business/erp/cost-object → HTTP 403
+  [OK]     └ 业务码（不是权限 403） = 66079
+  [OK]   关闭态 GET /business/erp/cost-period → HTTP 403
+  [OK]     └ 业务码（不是权限 403） = 66079
+  [OK]   关闭态 GET /business/erp/cost-labor → HTTP 403
+  [OK]     └ 业务码（不是权限 403） = 66079
+  [OK]   关闭态 GET /business/erp/cost-overhead → HTTP 403
+  [OK]     └ 业务码（不是权限 403） = 66079
+  [OK]   关闭态 GET /business/erp/cost-alloc-rule → HTTP 403
+  [OK]     └ 业务码（不是权限 403） = 66079
+  [OK]   关闭态 GET 领料单成本对象下拉 → HTTP 403
+  [OK]     └ 业务码 = 66079
+  [OK]   关闭态 + 无令牌 GET cost-object（401 而非 403） → HTTP 401
+  [OK]   关闭态 批次管理列表（不受开关影响，仅菜单隐藏） → HTTP 200
+  [OK]   批次主数据 GET /business/erp/lot/options → HTTP 400（出库单批号下拉不被开关拦）
+  [OK]   出库单列表（不受开关影响） → HTTP 200
+  [OK]   关闭态 admin 菜单里成本页条数 = 0
+  [OK]     └ 出库单菜单仍在 = 1
+  [OK]   关闭态 fm01 菜单里成本页条数 = 0
+  [OK]   关闭态 fm01 权限码里成本码条数 = 0
+  [OK]     └ 出库单权限码仍在 = 1
+  [OK]     └ 无 business:erp:cost-labor:list = 0
+
+== 3. 打开开关（只 PUT 一行参数，不重启） ==
+  [OK]   PUT 参数 erp.cost.enabled = true → HTTP 200
+  [OK]   库里的值 = true
+  [OK]   实例 pid 未变（未重启） = 2755882
+  [OK]   探针接口 → HTTP 200
+  [OK]   探针 enabled（同一进程即时生效） = true
+  [OK]   打开后 GET /business/erp/cost-object → HTTP 200
+  [OK]   打开后 GET /business/erp/cost-period → HTTP 200
+  [OK]   打开后 GET /business/erp/cost-labor → HTTP 200
+  [OK]   打开后 GET /business/erp/cost-overhead → HTTP 200
+  [OK]   打开后 GET /business/erp/cost-alloc-rule → HTTP 200
+  [OK]   打开后 GET 领料单成本对象下拉（字段恢复渲染） → HTTP 200
+  [OK]   打开后 fm01 菜单里成本页条数（财务 5 页） = 5
+  [OK]   打开后 admin 菜单里成本页条数（含批次管理） = 6
+  [OK]   打开后 fm01 权限码含成本码 = true
+  [OK]     └ 具体含 business:erp:cost-labor:list = 1
+
+== 4. 再关掉：403 与菜单隐藏立刻回来（双向即时） ==
+  [OK]   PUT 参数 erp.cost.enabled = false → HTTP 200
+  [OK]     └ 响应里的值 = false
+  [OK]   关闭后 GET cost-object 再次 403 → HTTP 403
+  [OK]     └ 业务码 = 66079
+  [OK]   关闭后 成本对象下拉再次 403 → HTTP 403
+  [OK]   关闭后菜单再次隐藏 = 0
+  [OK]   全程实例 pid 未变 = 2755882
+
+== 全部断言通过（0 失败）· 日志设备 ubuntu-svr · 2026-11-11 18:36:09 CST ==

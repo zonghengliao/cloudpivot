@@ -13,6 +13,7 @@ use axum::http::HeaderMap;
 use nik::prelude::*;
 use std::net::SocketAddr;
 
+use crate::business::shared::cost_switch;
 use crate::business::shared::principal;
 use crate::middleware::auth_guard;
 use crate::shared::ai_actor;
@@ -654,6 +655,10 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
     let permissions = model::load_permissions(&user_id, super_admin)
         .await
         .map_err(|e| utils::db_error(e, "查询用户权限"))?;
+    // 成本核算模块开关（COST-B4-4）：关闭时不把 `business:erp:cost-*` / `business:erp:lot:*`
+    // 下发给前端 —— 前端路由守卫与按钮 `v-privilege` 都靠这份列表判定，少一个码就少一处入口。
+    // 超管的通配码 `*:*:*` 不受影响（仍能看见「模块被关掉」的 403 提示，而不是被静默重定向）。
+    let permissions = cost_switch::filter_permissions(permissions).await;
 
     Ok(Res::ok(CurrentUserRes {
         id: user.id.to_string(),
@@ -721,6 +726,11 @@ pub async fn menus(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResR
     let nodes = model::load_user_menus(&user_id, super_admin)
         .await
         .map_err(|e| utils::db_error(e, "查询用户菜单"))?;
+    // 成本核算模块开关（COST-B4-4）：关闭时把 6 个成本页面（含批次管理）从侧边栏摘掉。
+    // 过滤放在**读路径**而不是缓存里：`load_user_menus` 的结果按用户缓存在 Redis，
+    // 若把过滤写进缓存，开关一改就得按用户批量清缓存；在这里过滤则是每次请求现算，
+    // 开关切换即时生效（且不影响角色授权树 / 菜单维护页 —— 那些走 `system::menu`）。
+    let nodes = cost_switch::filter_menus(nodes).await;
     Ok(Res::ok(build_menu_tree(nodes)))
 }
 

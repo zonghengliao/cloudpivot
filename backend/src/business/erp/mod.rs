@@ -272,6 +272,8 @@ pub mod cost_settle_voucher;
 /// B3-5 的真库用例（`ERP_DB_URL` 开关）：三张凭证的借贷平衡 / 科目 / 金额与计算单一致 / 四道闸。
 #[cfg(test)]
 mod cost_settle_voucher_db_tests;
+/// 成本核算模块开关探针（ARCH-9 §7.4 灰度 · COST-B4-4）：`GET /business/erp/cost-switch`。
+pub mod cost_switch_handler;
 /// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_uncollected_db_tests;

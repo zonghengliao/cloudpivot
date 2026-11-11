@@ -279,7 +279,10 @@
           </div>
         </t-form-item>
 
-        <t-form-item label="成本对象" name="cost_object_id">
+        <!-- 成本对象字段（ARCH-9 B1-10 / B1-12）：受模块开关控制 —— `erp.cost.enabled = false`
+             时整块不渲染（下拉数据源 `/stock-out/cost-object-options` 会 403），
+             借方预览那一行也随之消失（此时借方恒为 6401，领用与其它情况一致）。 -->
+        <t-form-item v-if="costSwitch.enabled" label="成本对象" name="cost_object_id">
           <div class="cost-object-field">
             <t-select
               v-if="allowsCostObject(form.out_type)"
@@ -620,6 +623,7 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import DocPdfButton from '@/components/DocPdfButton.vue';
+import { useCostSwitchStore } from '@/stores/cost';
 import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
 import { stockOutSources } from '@/views/business/erp/shared/voucher-trace';
 import {
@@ -678,6 +682,9 @@ import {
   type StockOutFormState,
   type StockOutItemForm,
 } from './stock-out-logic';
+
+/** 成本核算模块开关（COST-B4-4）：关闭时不渲染「成本对象」字段、不拉成本对象下拉 */
+const costSwitch = useCostSwitchStore();
 
 /** 本页权限码（与 V0203 的权限种子逐一对应） */
 const PERM = {
@@ -910,6 +917,11 @@ const debitPreview = computed(() => debitAccountHint(form.out_type, form.cost_ob
 
 /** 拉可选成本对象（拉不到不挡建单：下拉空，用户仍可保存不挂对象的单） */
 async function loadCostObjects(): Promise<void> {
+  // 模块开关关闭时不拉：该接口已被后端 403，拉一次就是一条红字告警
+  if (!costSwitch.enabled) {
+    costObjectOptions.value = [];
+    return;
+  }
   try {
     costObjectOptions.value = await fetchStockOutCostObjectOptions();
   } catch {
@@ -1369,6 +1381,8 @@ async function runStatus(
 }
 
 onMounted(async () => {
+  // 模块开关先取（COST-B4-4）：决定「成本对象」字段渲染与否；失败按关闭处理，不阻塞页面
+  void costSwitch.ensure();
   await loadBasics();
   applyOutNoDeepLink();
   void loadOrders(1);
