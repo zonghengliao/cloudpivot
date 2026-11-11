@@ -1416,21 +1416,31 @@ COMMIT
 
 ### 7.1 迁移文件清单（V0378 ~ V0388，11 个文件 / 22 个 up+down）
 
-| 版本 | 文件名 | 内容 | 幂等策略 |
-|---|---|---|---|
-| **V0378** | `hr_tables` | 10 张新表 + 索引 + 注释（§3.1） | `CREATE TABLE/INDEX IF NOT EXISTS` + 末尾 `DO` 自检（表/索引/约束计数） |
-| **V0379** | `hr_accounts` | 9 个末级科目 + 父科目翻非末级 + 2 条 `biz_voucher_rule` | `WHERE NOT EXISTS (account_code)`；翻末级用「确实有子科目才翻」的条件 UPDATE |
-| **V0380** | `hr_seq_dict` | 4 条号段 + 4 类字典 + 26 项字典值 | `WHERE NOT EXISTS` / `NOT EXISTS (dict_type_id, item_value)` |
-| **V0381** | `hr_menu_perms` | 36 行菜单 + `HR_MANAGER` 角色 + `sys_role_menu` 授权 | `ON CONFLICT (id) DO NOTHING` + 授权 `NOT EXISTS` |
-| **V0382** | `hr_mask_config` | 2 条 `sys_field_mask` + 3 条 `sys_config` | `NOT EXISTS`（表+列+role）/ `ON CONFLICT (id)` |
-| **V0383** | `hr_attachment_doc_types` | `ck_biz_doc_attachment_type` 16→20、`ck_biz_attachment_rule_doc_type` 同步 + 2 条规则 | `DO` 块先读 `pg_get_constraintdef` 判断是否已含新值，已含则跳过（照 `V0350` 的做法）；规则表不存在则整段跳过 |
-| **V0384** | `hr_leave_flow` | `hr_leave` 流程：定义 + 版本 + 图快照（含 sha256） | 4 层 `WHERE NOT EXISTS`（同名流程/同 biz_type 默认流程/角色存在） |
-| **V0385** | `hr_salary_flow` | `hr_salary` 流程（同上） | 同上 |
-| **V0386** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套 | 同上 |
-| **V0387** | `hr_salary_items_seed` | 17 个薪资项（§4.4.3 表逐行） | `WHERE NOT EXISTS (org_id, item_code)`；`sort_order` 冲突检查 |
-| **V0388** | `hr_selfcheck` | **收口自检**：10 表 / 9 科目 / 4 号段 / 36 菜单 / 4 流程 / 17 薪资项 / 2 脱敏 / 3 配置 全部在位，缺一 `RAISE EXCEPTION` | 纯 `DO` 块，无副作用（可重复应用） |
+> **号段修正（2026-11-11 实施时定稿，与代码一致）**
+>
+> 下表的「设计号」`V0378~V0388` **已不可用**：成本核算（ARCH-9 成本）先落地并已提交，实占了
+> `V0378__cost_menu_and_perm` / `V0379__cost_seq_and_dict` / `V0380__cost_lot_backfill` /
+> `V0381__cost_flow_def` / `V0382__stock_in_production_sourceless`。本仓迁移加载器对版本号做
+> **跨目录全局唯一**校验（重号 ⇒ 服务启动失败，见 `AGENTS.md` 约定 6）。
+>
+> 故 **HR 全系列整体后移 5 号**：`V0378→V0383` … `V0388→V0393`。下表「实际号」列为落地号，
+> HR-01 ~ HR-05 实施时以该列为准（HR-01 已在 `V0383__hr_tables.up.sql` 头注释里写明映射）。
 
-**为什么单独一个 V0388 自检迁移**：本仓的迁移是"文件内不写 BEGIN/COMMIT、由迁移器开事务"，一旦某个种子在某类库（老库/空库/克隆库）上静默没种进去，前面的迁移已经提交、指纹已记，事后只能手写补丁。收口自检把"种齐"变成一个**原子承诺**：任何一条不齐，整批回滚（照 `V0378`/`V0226` 末尾的 `DO $$ … RAISE EXCEPTION` 既有做法）。
+| 设计号 | 实际号 | 文件名 | 内容 | 幂等策略 |
+|---|---|---|---|---|
+| ~~V0378~~ | **V0383** | `hr_tables` | 10 张新表 + 索引 + 注释（§3.1） | `CREATE TABLE/INDEX IF NOT EXISTS` + 末尾 `DO` 自检（10 表 / 12 唯一键带软删 / 49 CHECK / 12 FK / 12 条行为断言 + 探针清理） |
+| ~~V0379~~ | **V0384** | `hr_accounts` | 9 个末级科目 + 父科目翻非末级 + 2 条 `biz_voucher_rule` | `WHERE NOT EXISTS (account_code)`；翻末级用「确实有子科目才翻」的条件 UPDATE |
+| ~~V0380~~ | **V0385** | `hr_seq_dict` | 4 条号段 + 4 类字典 + 26 项字典值 | `WHERE NOT EXISTS` / `NOT EXISTS (dict_type_id, item_value)` |
+| ~~V0381~~ | **V0386** | `hr_menu_perms` | 36 行菜单 + `HR_MANAGER` 角色 + `sys_role_menu` 授权 | `ON CONFLICT (id) DO NOTHING` + 授权 `NOT EXISTS` |
+| ~~V0382~~ | **V0387** | `hr_mask_config` | 2 条 `sys_field_mask` + 3 条 `sys_config` | `NOT EXISTS`（表+列+role）/ `ON CONFLICT (id)` |
+| ~~V0383~~ | **V0388** | `hr_attachment_doc_types` | `ck_biz_doc_attachment_type` 16→20、`ck_biz_attachment_rule_doc_type` 同步 + 2 条规则 | `DO` 块先读 `pg_get_constraintdef` 判断是否已含新值，已含则跳过（照 `V0350` 的做法）；规则表不存在则整段跳过 |
+| ~~V0384~~ | **V0389** | `hr_leave_flow` | `hr_leave` 流程：定义 + 版本 + 图快照（含 sha256） | 4 层 `WHERE NOT EXISTS`（同名流程/同 biz_type 默认流程/角色存在） |
+| ~~V0385~~ | **V0390** | `hr_salary_flow` | `hr_salary` 流程（同上） | 同上 |
+| ~~V0386~~ | **V0391** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套 | 同上 |
+| ~~V0387~~ | **V0392** | `hr_salary_items_seed` | 17 个薪资项（§4.4.3 表逐行） | `WHERE NOT EXISTS (org_id, item_code)`；`sort_order` 冲突检查 |
+| ~~V0388~~ | **V0393** | `hr_selfcheck` | **收口自检**：10 表 / 9 科目 / 4 号段 / 36 菜单 / 4 流程 / 17 薪资项 / 2 脱敏 / 3 配置 全部在位，缺一 `RAISE EXCEPTION` | 纯 `DO` 块，无副作用（可重复应用） |
+
+**为什么单独一个收口自检迁移**：本仓的迁移是"文件内不写 BEGIN/COMMIT、由迁移器开事务"，一旦某个种子在某类库（老库/空库/克隆库）上静默没种进去，前面的迁移已经提交、指纹已记，事后只能手写补丁。收口自检把"种齐"变成一个**原子承诺**：任何一条不齐，整批回滚（照 `V0378`/`V0226` 末尾的 `DO $$ … RAISE EXCEPTION` 既有做法）。
 
 ### 7.2 存量数据处理（有没有 backfill、要不要 downtime）
 
@@ -1513,11 +1523,11 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 
 | 卡 | 内容 | 依赖 | 估算 |
 |:--:|---|---|---:|
-| HR-01 | 迁移 V0378：10 张表 + 索引 + `DO` 自检（DDL 照 §3.1 抄） | — | 1.5 h |
-| HR-02 | 迁移 V0379：9 科目 + 父科目翻末级 + 2 条 voucher_rule | HR-01 | 1.0 h |
-| HR-03 | 迁移 V0380：4 号段 + 4 字典 + 26 项 | HR-01 | 1.0 h |
-| HR-04 | 迁移 V0381：36 菜单 + HR_MANAGER + 授权 | HR-01 | 1.5 h |
-| HR-05 | 迁移 V0382 + V0383：脱敏/配置/附件 CHECK 放宽 | HR-01 | 1.0 h |
+| HR-01 | 迁移 **V0383**（设计号 V0378）：10 张表 + 索引 + `DO` 自检（DDL 照 §3.1 抄） | — | 1.5 h |
+| HR-02 | 迁移 **V0384**（V0379）：9 科目 + 父科目翻末级 + 2 条 voucher_rule | HR-01 | 1.0 h |
+| HR-03 | 迁移 **V0385**（V0380）：4 号段 + 4 字典 + 26 项 | HR-01 | 1.0 h |
+| HR-04 | 迁移 **V0386**（V0381）：36 菜单 + HR_MANAGER + 授权 | HR-01 | 1.5 h |
+| HR-05 | 迁移 **V0387 + V0388**（V0382 + V0383）：脱敏/配置/附件 CHECK 放宽 | HR-01 | 1.0 h |
 | HR-06 | `doc_kind.rs`：+5 `DocKind` +3 `FlowBizType` +2 `VoucherSourceType` + 交叉映射 + `COLUMN_DOMAINS` | — | 1.5 h |
 | HR-07 | 前端镜像 `doc-kinds.ts` / `attachment.ts`，跑 `doc_kind_tests` 全绿 | HR-06 | 1.0 h |
 | HR-08 | `state_machine.rs`：+5 `Entity` + 边表/BASE/REASON/LOCKED + 单测 | HR-06 | 1.5 h |
