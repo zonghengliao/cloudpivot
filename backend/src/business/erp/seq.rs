@@ -9,7 +9,7 @@
 //! | 位数 | 6 位 | SUP/CUS/MAT 4 位、WH/AC/ET 2 位（`biz_seq.pad_width`） |
 //! | 语义 | 单据标识 | 档案编码，**永久唯一** |
 //!
-//! # 六类主数据（用户已拍板，不许改）
+//! # 七个主数据号段（前六类由用户拍板不许改；`EMP` 由 HR-14 按 ARCH-9-2 D-15 加入）
 //!
 //! | 主数据 | `seq_type` | 前缀 | 位数 | 示例 | 落库表.列 |
 //! |---|---|---|---|---|---|
@@ -19,6 +19,12 @@
 //! | 仓库 | `WH` | `WH` | 2 | `WH-01` | `biz_warehouse.warehouse_code` |
 //! | 资产分类 | `AC` | `AC` | 2 | `AC-01` | `biz_asset_category.category_code` |
 //! | 费用类型 | `ET` | `ET` | 2 | `ET-01` | `biz_expense_type.type_code` |
+//! | 员工工号 | `EMP` | `EMP` | 4 | `EMP-0001` | `biz_employee.emp_no` |
+//!
+//! `EMP` 是**人事档案码**（ARCH-9-2 D-15）：`date_pattern='none'`、`period_key='GLOBAL'`
+//! ⇒ 流水**永久不重置**（按日/按月重置会让工号每天从 0001 重发，必然撞
+//! `uk_biz_employee_no`）。号段行由 `V0386__hr_seq_dict` 种入，取号入口是
+//! [`crate::business::hr::employee_no`]。
 //!
 //! **计量单位不自动**（用户明确）：`PCS/KG/M` 是行业标准码，自动生成反而看不懂。
 //!
@@ -46,10 +52,10 @@
 //! 本模块只负责**生成**：`code` 有值时一律保留用户输入（企业已有编码体系要能对接），
 //! 只有 `code` 为空/纯空白才取号。唯一约束冲突由调用方翻译成友好错误。
 //!
-//! # 大小写：六类统一「原样保留」（E2E08-FIX-2 ①）
+//! # 大小写：主数据统一「原样保留」（E2E08-FIX-2 ①）
 //!
-//! [`resolve_manual_code`] 只做 `trim`，**不转大写**。六类主数据（`SUP` / `CUS` / `MAT` /
-//! `WH` / `AC` / `ET`）因此是同一套行为：用户填 `e2e08-sup-lc` 就存 `e2e08-sup-lc`。
+//! [`resolve_manual_code`] 只做 `trim`，**不转大写**。主数据号段（`SUP` / `CUS` / `MAT` /
+//! `WH` / `AC` / `ET` / `EMP`）因此是同一套行为：用户填 `e2e08-sup-lc` 就存 `e2e08-sup-lc`。
 //!
 //! 历史上 `AC` / `ET` 多走了一步 `to_ascii_uppercase`，日志里出现「同一张编码规则表两种行为」，
 //! 对接方按一类经验写另一类会踩坑 —— 已抹平。理由：有些企业自有编码区分大小写，
@@ -73,8 +79,8 @@ pub const MAX_PAD_WIDTH: i32 = 12;
 /// 不做无限重试（无限重试会把 `current_no` 推到没有意义的远处）。
 pub const FREE_CODE_MAX_ATTEMPTS: u32 = 20;
 
-/// 六类主数据号段（顺序与用户拍板的表格一致）。
-pub const MASTER_CODE_TYPES: [&str; 6] = ["SUP", "CUS", "MAT", "WH", "AC", "ET"];
+/// 主数据号段（顺序与用户拍板的表格一致，`EMP` 由 HR-14 追加在末尾）。
+pub const MASTER_CODE_TYPES: [&str; 7] = ["SUP", "CUS", "MAT", "WH", "AC", "ET", "EMP"];
 
 /// 是否是主数据号段。
 pub fn is_master_code_type(seq_type: &str) -> bool {
@@ -83,7 +89,7 @@ pub fn is_master_code_type(seq_type: &str) -> bool {
 
 /// 主数据编码 → 「该编码是否已被占用」的常量 SQL（只有一个 `?` 占位，绑定编码本身）。
 ///
-/// 返回 `None` 表示 `seq_type` 不属于六类主数据。
+/// 返回 `None` 表示 `seq_type` 不属于主数据号段。
 ///
 /// 只收录**应用内已存在**的主数据表；表名/列名在这里是常量，不接受外部拼接
 /// （新增主数据表时在这里加一行，并补 [`is_master_code_type`]）。
@@ -101,6 +107,11 @@ pub fn master_code_exists_sql(seq_type: &str) -> Option<&'static str> {
         "AC" => Some("SELECT 1 FROM biz_asset_category WHERE category_code = ? AND deleted_at IS NULL"),
         // SCOPE-EXEMPT: 同上。
         "ET" => Some("SELECT 1 FROM biz_expense_type WHERE type_code = ? AND deleted_at IS NULL"),
+        // SCOPE-EXEMPT: 取号查重不是用户可见行集（不读字段、不返回行），且工号要求**全局**
+        // 唯一 —— 这里**故意不带 org 维度**，比 `uk_biz_employee_no (org_id, emp_no)` 更严：
+        // 跨组织撞号时顺延，人工工的号在别的组织里也不会被重复发出去。
+        // 软删口径与唯一键一致（`deleted_at IS NULL` ⇒ 软删掉的工号可复用）。
+        "EMP" => Some("SELECT 1 FROM biz_employee WHERE emp_no = ? AND deleted_at IS NULL"),
         _ => None,
     }
 }
@@ -273,7 +284,7 @@ async fn code_taken(ex: &impl SqlExecutor, exists_sql: &str, code: &str) -> DbRe
 pub async fn master_code_taken(ex: &impl SqlExecutor, seq_type: &str, code: &str) -> DbResult<bool> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
-            "唯一性校验失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET）"
+            "唯一性校验失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET/EMP）"
         )));
     };
     code_taken(ex, exists_sql, code).await
@@ -311,13 +322,13 @@ pub async fn next_master_code_free_with(
     )))
 }
 
-/// 同 [`next_master_code_free_with`]，用内置的六类主数据占位表（推荐入口）。
+/// 同 [`next_master_code_free_with`]，用内置的主数据占位表（推荐入口）。
 ///
-/// `seq_type` 不是 SUP/CUS/MAT/WH/AC/ET 时返回 `InvalidValue`（不猜表名）。
+/// `seq_type` 不是 SUP/CUS/MAT/WH/AC/ET/EMP 时返回 `InvalidValue`（不猜表名）。
 pub async fn next_master_code_free(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
-            "取号失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET）"
+            "取号失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET/EMP）"
         )));
     };
     next_master_code_free_with(ex, seq_type, exists_sql, FREE_CODE_MAX_ATTEMPTS).await
@@ -346,7 +357,7 @@ pub async fn next_master_code_free_global(seq_type: &str) -> DbResult<String> {
 pub async fn peek_master_code(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
-            "预览编码失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET）"
+            "预览编码失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET/EMP）"
         )));
     };
     peek_master_code_with(ex, seq_type, exists_sql, FREE_CODE_MAX_ATTEMPTS).await
@@ -490,7 +501,7 @@ mod tests {
     }
 
     #[test]
-    fn t02_exists_sql_covers_exactly_six_types() {
+    fn t02_exists_sql_covers_every_master_type() {
         for seq_type in MASTER_CODE_TYPES {
             assert!(
                 master_code_exists_sql(seq_type).is_some(),
@@ -501,6 +512,22 @@ mod tests {
         assert!(master_code_exists_sql("PO").is_none(), "单据号段不是主数据号段");
         assert!(master_code_exists_sql("SUP2").is_none());
         assert!(!is_master_code_type("SN"));
+
+        // HR-14：`EMP` 必须在白名单里（否则 `next_master_code_free(&tx, "EMP")` 直接
+        // `InvalidValue("不是主数据号段")`，工号永远取不出来）。
+        assert!(is_master_code_type("EMP"), "EMP 必须登记为主数据号段");
+        let emp = master_code_exists_sql("EMP").expect("EMP 占位检查 SQL");
+        assert!(emp.contains("biz_employee"), "EMP 查重必须落在员工主档：{emp}");
+        assert!(emp.contains("emp_no"), "EMP 查的是工号列：{emp}");
+        assert!(
+            emp.contains("deleted_at IS NULL"),
+            "软删口径要与 uk_biz_employee_no 一致（软删可复用）：{emp}"
+        );
+        assert_eq!(
+            emp.matches('?').count(),
+            1,
+            "占位检查 SQL 只能有一个 `?`（code_taken 只绑一个参数）"
+        );
     }
 
     // ---------- ①b 手工编码：空 → 自动；有值 → 保留；非法 → 报错 ----------

@@ -120,6 +120,12 @@ pub mod employee_model;
 /// HR-10 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD 全通 + 三条冲突的真实报文。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_model_db_tests;
+/// 工号取号（`EMP` 号段登记 + `GET /employee/next-no` 预览）：HR-14。
+pub mod employee_no;
+/// HR-14 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：不重复 / 不跳号 / 并发安全 /
+/// 回滚不耗号 / 撞号顺延。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_no_db_tests;
 /// 敏感字段**明文**出口（`GET /employee/{id}/sensitive`）+ `audit_logs` 留痕（HR-13）。
 pub mod employee_sensitive;
 /// HR-13 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：明文 + 审计四维度 +

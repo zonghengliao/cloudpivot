@@ -50,8 +50,9 @@
 //!
 //! # 与其它卡的边界（本卡**不做**）
 //!
-//! - 工号取号（`emp_no` 留空自动取号）属 **HR-14**：本卡 `emp_no` 必填，缺号报 400
-//!   并点名「自动取号随 HR-14 上线」—— 不留「静默生成 `EMP-0000`」的坑；
+//! - 工号取号（`emp_no` 留空自动取号）属 **HR-14**（已落地）：
+//!   [`crate::business::hr::employee_no::generate_emp_no`] 在**新建的同一个事务**里取号，
+//!   失败一起回滚 ⇒ 不留空号；预览入口是 `GET /business/hr/employee/next-no`（不耗号）；
 //! - 敏感字段**明文**接口属 **HR-13**：本文件的出参只有 `*_masked`（明文一个字节都不出）；
 //! - 合同台账 / 薪资标准的**写**接口属 HR-15 / HR-16：本文件只读投影它们（详情页要显示
 //!   `contracts[]` / `salary_items[]`，见 [`load_contracts`] / [`load_salary_items`]）。
@@ -67,6 +68,7 @@ use crate::business::hr::employee_dto::{
     self, ContractInput, EmployeeDetailRes, EmployeeListRes, EmployeeNames, SalaryInput,
 };
 use crate::business::hr::employee_model::{self, EmployeeFilter, EmployeeRow, EmployeeWrite};
+use crate::business::hr::employee_no;
 use crate::business::masking::MaskSet;
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::state_machine::{self, Operator};
@@ -195,7 +197,8 @@ pub struct EmployeePageQuery {
 /// 抛一句 `missing field \`name\``（前端只能直出英文报错）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct EmployeeCreateReq {
-    /// 工号（**本卡必填**；留空自动取号属 HR-14）。
+    /// 工号（**留空 ⇒ 自动取号**：`EMP-0001` 形态，取号与插入同事务，见 HR-14；
+    /// 有值则原样保留，允许企业自有工号体系如 `E2003`）。
     #[serde(default)]
     pub emp_no: Option<String>,
     /// 姓名（必填）。
@@ -406,7 +409,7 @@ pub struct EmployeeBindUserReq {
 pub struct EmployeeCreatedRes {
     /// 主键。
     pub id: String,
-    /// 工号（取号属 HR-14；本卡回显调用方传的值）。
+    /// 工号（留空 ⇒ `employee_no::generate_emp_no` 取号；有值 ⇒ 原样回显）。
     pub emp_no: String,
 }
 
@@ -579,14 +582,21 @@ pub(crate) fn filter_of(query: &EmployeePageQuery) -> std::result::Result<Employ
 ///
 /// 不碰库：部门 / 账号的**引用存在性**由 [`create_employee`] 单独查（那两件是 IO，
 /// 与「格式对不对」分开测）。
+///
+/// # `emp_no` 可以是空串（= 待取号，HR-14）
+///
+/// 留空（`None` / `""` / 纯空白）⇒ 这里给 `emp_no = ""`，由 [`create_employee`] 在
+/// **同一个事务**里调 [`employee_no::generate_emp_no`] 回填后再 INSERT：
+/// 取号要 `biz_seq` 的行锁 + 查重，那是 IO，不该混进这个纯函数（否则单测要连库）。
+/// `employee_model::insert` 之前一定已经回填过（[`create_employee`] 的路径唯一），
+/// 空串落库会被 `NOT NULL` 之外的 CHECK/唯一键当普通值收下 —— 所以那里有一句
+/// `debug_assert` 兜住「有人绕过 create 直接调 insert」。
 pub(crate) fn build_write(req: &EmployeeCreateReq) -> std::result::Result<EmployeeWrite, ApiError> {
-    let emp_no_raw = req.emp_no.as_deref().unwrap_or_default();
-    if emp_no_raw.trim().is_empty() {
-        return Err(bad_request(
-            "emp_no 不能为空：自动取号接口随 HR-14 上线，当前请手工填写工号（如 EMP-0001）",
-        ));
-    }
-    let emp_no = require_text(emp_no_raw, "emp_no", MAX_EMP_NO)?;
+    // 有值则原样保留（企业自有工号体系），留空交给取号器 —— 口径与 `erp::seq::manual_code` 一致。
+    let emp_no = match req.emp_no.as_deref().map(str::trim) {
+        None | Some("") => String::new(),
+        Some(raw) => require_text(raw, "emp_no", MAX_EMP_NO)?,
+    };
 
     let name = require_text(req.name.as_deref().unwrap_or_default(), "name", MAX_NAME)?;
     let gender = parse_gender(req.gender)?;
@@ -1006,22 +1016,55 @@ pub async fn employee_create(
 }
 
 /// 新建的业务实现（与接口同一条代码路径，单测只跳过认证）。
+///
+/// # 工号取号（HR-14）
+///
+/// `emp_no` 留空 ⇒ [`employee_no::generate_emp_no`] 取号（`EMP-0001` 形态）；有值 ⇒ 原样保留。
+/// 取号与 `INSERT` 在**同一个事务**里：
+///
+/// * 取号失败（号段规则缺失/停用）⇒ 整个事务回滚，`biz_seq.current_no` 不动 ⇒ **不留空号**；
+/// * 插入失败（身份证 / 账号撞唯一键、CHECK 违反）⇒ 同样回滚，号不被白吃 ——
+///   工号是人工肉眼可读的档案码，空号会被误读成「有人被删档」。
+///
+/// 部门 / 账号的引用存在性检查放在**取号之前**（纯读，不进事务）：格式或引用错时
+/// 连 `biz_seq` 的行锁都不必碰。
 pub async fn create_employee(
     operator: Option<Uuid>,
     req: &EmployeeCreateReq,
 ) -> std::result::Result<EmployeeCreatedRes, ApiError> {
-    let draft = build_write(req)?;
+    let mut draft = build_write(req)?;
     ensure_dept_exists(draft.dept_id).await?;
     if let Some(user_id) = draft.user_id {
         account_of(user_id).await?;
     }
 
     let id = Uuid::now_v7();
-    employee_model::insert(db(), id, &draft, operator)
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| {
-            employee_model::write_error(error, "hr_employee_insert", &employee_model::WriteValues::of(&draft))
-        })?;
+        .map_err(|error| utils::db_error(error, "开启新建员工事务"))?;
+    if draft.emp_no.is_empty() {
+        match employee_no::generate_emp_no(&tx).await {
+            Ok(emp_no) => draft.emp_no = emp_no,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        }
+    }
+    // 取号之后 `emp_no` 一定非空；这条断言兜住「将来有人绕过本函数直接调 insert」。
+    debug_assert!(!draft.emp_no.is_empty(), "工号必须在此处已回填（取号与插入同事务）");
+    if let Err(error) = employee_model::insert(&tx, id, &draft, operator).await {
+        let _ = tx.rollback().await;
+        return Err(employee_model::write_error(
+            error,
+            "hr_employee_insert",
+            &employee_model::WriteValues::of(&draft),
+        ));
+    }
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交新建员工事务"))?;
 
     Ok(EmployeeCreatedRes {
         id: id.to_string(),
@@ -1819,15 +1862,11 @@ mod tests {
         assert_eq!(normalize_page(Some(3), Some(10_000)), (3, MAX_PAGE_SIZE));
     }
 
-    /// 新建必填项：工号 / 姓名 / 入职日期 / 部门，缺一即 400 且点名该填什么。
+    /// 新建必填项：姓名 / 入职日期 / 部门，缺一即 400 且点名该填什么。
+    ///
+    /// 工号**不在此列**：留空 = 交给取号器（HR-14），见 [`create_auto_numbers_when_emp_no_blank`]。
     #[test]
     fn create_requires_mandatory_fields() {
-        let missing_no = EmployeeCreateReq {
-            emp_no: Some("  ".to_string()),
-            ..create_req()
-        };
-        assert!(build_write(&missing_no).expect_err("缺工号").msg.contains("HR-14"));
-
         let missing_name = EmployeeCreateReq {
             name: None,
             ..create_req()
@@ -1921,6 +1960,38 @@ mod tests {
                 .msg
                 .contains(&MAX_NAME.to_string())
         );
+    }
+
+    /// HR-14：工号留空的三种形态（`None` / 空串 / 纯空白）都归一成 `""`（= 待取号），
+    /// 有值则原样保留（去首尾空白，允许 `E2003` 这类企业自有号）。
+    ///
+    /// 取号本身要连库（`biz_seq` 行锁 + 查重），不在本纯函数里做 —— 真库行为见
+    /// [`crate::business::hr::employee_no_db_tests`]。这里钉住的是**契约**：
+    /// 「留空不是错误」，以及「有值时不静默改成自动号」。
+    #[test]
+    fn create_auto_numbers_when_emp_no_blank() {
+        for blank in [None, Some("".to_string()), Some("   ".to_string())] {
+            let draft = build_write(&EmployeeCreateReq {
+                emp_no: blank.clone(),
+                ..create_req()
+            })
+            .unwrap_or_else(|error| panic!("留空工号不该报错（{blank:?}）：{}", error.msg));
+            assert_eq!(draft.emp_no, "", "留空 ⇒ 待取号（由 create 在同一事务里回填）");
+        }
+
+        let manual = build_write(&EmployeeCreateReq {
+            emp_no: Some("  E2003  ".to_string()),
+            ..create_req()
+        })
+        .expect("手工工号");
+        assert_eq!(manual.emp_no, "E2003", "有值 ⇒ 原样保留（只去空白，不强制 EMP- 形态）");
+
+        let too_long = build_write(&EmployeeCreateReq {
+            emp_no: Some("E".repeat(MAX_EMP_NO + 1)),
+            ..create_req()
+        })
+        .expect_err("超长工号");
+        assert!(too_long.msg.contains("emp_no"), "超长点名列名：{}", too_long.msg);
     }
 
     /// 修改：不传 = 不改，空串 = 清空，有值 = 覆盖（三种语义各测一遍）。
