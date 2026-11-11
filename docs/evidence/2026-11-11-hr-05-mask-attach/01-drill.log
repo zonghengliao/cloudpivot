@@ -1,0 +1,74 @@
+===== HR-05 真库演练 · 库 hr0389_t1 · 2026-11-11 19:37:22 =====
+[PASS] 0.1 基线库迁移数（V0387 之后 = 318）（318）
+[PASS] 1.1 存量附件行数（17 类各 1 条）（17）
+[PASS] 1.2 存量附件覆盖的 doc_type 种类数（17）
+[PASS] 1.3 存量约束取值数（V0368 之后 = 17）（17）
+[PASS] 1.4 存量规则数（V0347 的 9 条 + 客户 1 条）（10）
+       存量基线：CONTRACT:1,CUSTOMER:1,EXPENSE_REPORT:1,FIXED_ASSET:1,INVOICE:1,OPENING_BALANCE:1,PAYABLE:1,PAYMENT:1,PURCHASE_ORDER:1,PURCHASE_RETURN:1,RECEIPT:1,RECEIPT_REFUND:1,SALES_RETURN:1,STOCK_IN:1,STOCK_TAKE:1,STOCK_TRANSFER:1,SUPPLIER:1
+psql:/opt/cloudpivot/backend/migrations/business/V0388__hr_mask_config.up.sql:83: NOTICE:  V0388 前置条件通过：sys_field_mask / sys_config / biz_employee(id_card,bank_account) 与两个唯一索引在位
+psql:/opt/cloudpivot/backend/migrations/business/V0388__hr_mask_config.up.sql:208: NOTICE:  V0388 完成：biz_employee 2 条全局脱敏（id_card 2/6,4、bank_account 5/4,4）+ 3 条 hr 配置（iit_mode / si_mode / require_leave_match）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:75: NOTICE:  V0389 前置条件通过：biz_doc_attachment 在位
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:111: NOTICE:  V0389：ck_biz_doc_attachment_type 已放宽到 21 值（旧定义 CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying, 'FIXED_ASSET'::character varying, 'EXPENSE_REPORT'::character varying, 'INVOICE'::character varying, 'RECEIPT'::character varying, 'STOCK_TAKE'::character varying, 'PURCHASE_RETURN'::character varying, 'SALES_RETURN'::character varying, 'STOCK_TRANSFER'::character varying, 'SUPPLIER'::character varying, 'CUSTOMER'::character varying, 'OPENING_BALANCE'::character varying, 'RECEIPT_REFUND'::character varying])::text[])))）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:150: NOTICE:  V0389：ck_biz_attachment_rule_doc_type 已放宽到 21 值（旧定义 CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying, 'FIXED_ASSET'::character varying, 'EXPENSE_REPORT'::character varying, 'INVOICE'::character varying, 'RECEIPT'::character varying, 'STOCK_TAKE'::character varying, 'PURCHASE_RETURN'::character varying, 'SALES_RETURN'::character varying, 'STOCK_TRANSFER'::character varying, 'SUPPLIER'::character varying, 'CUSTOMER'::character varying, 'OPENING_BALANCE'::character varying, 'RECEIPT_REFUND'::character varying])::text[])))）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:194: NOTICE:  V0389：EMPLOYEE_CONTRACT 必传规则插入 1 行（0 = 已存在，幂等跳过）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:194: NOTICE:  V0389：SALARY_SHEET 建议规则插入 1 行（0 = 已存在，幂等跳过）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:300: NOTICE:  V0389 完成：附件单据类型 17 → 21 值（存量 17 类全部仍合法），HR 附件规则 2 条（合同硬闸 / 工资表建议不拦）
+[PASS] 2.3 脱敏规则 2 条（biz_employee 全局）（2）
+[PASS] 2.4 id_card 规则取值（2/6,4/status=1）
+[PASS] 2.5 bank_account 规则取值（5/4,4/status=1）
+[PASS] 2.6 hr 配置 3 条（3）
+[PASS] 2.7 三条配置键与值（hr.salary.iit_mode=MANUAL/STRING,hr.salary.si_mode=MANUAL/STRING,hr.attendance.require_leave_match=TRUE/BOOLEAN）
+[PASS] 2.8 附件类型约束取值数（17 → 21）（21）
+[PASS] 2.9 规则表约束取值数（17 → 21）（21）
+[PASS] 2.10 RECEIPT_REFUND 仍在约束里（设计稿 20 值列表会摘掉它）（t）
+[PASS] 2.11 规则数（10 + 2 条 HR 规则）（12）
+[PASS] 2.12 合同必传规则（硬闸）（EMPLOYEE_CONTRACT/CONTRACT_SCAN/SUBMIT/min=1/max=20/enabled=true）
+[PASS] 2.13 工资表建议规则（不硬拦 = enabled false，file_role 不用 'OTHER'）（SALARY_SHEET/<null>/ACTIVATE/enabled=false）
+[PASS] 2.14 存量附件逐类仍在（基线一致）（CONTRACT:1,CUSTOMER:1,EXPENSE_REPORT:1,FIXED_ASSET:1,INVOICE:1,OPENING_BALANCE:1,PAYABLE:1,PAYMENT:1,PURCHASE_ORDER:1,PURCHASE_RETURN:1,RECEIPT:1,RECEIPT_REFUND:1,SALES_RETURN:1,STOCK_IN:1,STOCK_TAKE:1,STOCK_TRANSFER:1,SUPPLIER:1）
+[PASS] 2.15 存量附件 0 行违反新约束（0）
+[PASS] 2.16 客户自建规则未被改动（1）
+[PASS] 2.17 新类型附件可写入（EMPLOYEE 插入 → 回滚前删掉）（1）
+[PASS] 3.1 V0388 重放：5 条 INSERT 全为 0 行（5）
+[PASS] 3.2 V0389 重放：约束跳过（不重建）（2）
+[PASS] 3.3 重放后脱敏规则仍 2 条（没插重复）（2）
+[PASS] 3.4 重放后 hr 配置仍 3 条（3）
+[PASS] 3.5 重放后规则仍 12 条（12）
+[PASS] 4.1 down 因 EMPLOYEE 附件被拒（rc≠0）（yes）
+[PASS] 4.2 拒绝报文点名新类型附件（1）
+[PASS] 4.3 拒绝后库未被改动（约束仍 21 值）（21）
+[PASS] 4.4 拒绝后 HR 规则仍在（2 条）（2）
+[PASS] 5.1 down 因客户自建的 LEAVE_REQUEST 规则被拒（yes）
+[PASS] 5.2 拒绝报文点名「不是本迁移种的两条」（1）
+[PASS] 5.3 拒绝后约束仍 21 值（21）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.down.sql:40: NOTICE:  V0389 回滚护栏 A 通过：没有 HR 新类型的存量附件
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.down.sql:59: NOTICE:  V0389 回滚：删除 HR 附件规则 0 条（0 = 本来就没有，幂等）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.down.sql:82: NOTICE:  V0389 回滚护栏 B 通过：规则表已无 HR 新 doc_type
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.down.sql:193: NOTICE:  V0389 回滚完成：附件单据类型收回 17 值（含 RECEIPT_REFUND），2 条 HR 附件规则已删除，存量附件 0 行违规
+[PASS] 6.1 约束收回 17 值（17）
+[PASS] 6.2 RECEIPT_REFUND 还在（收回时不许摘老值）（t）
+[PASS] 6.3 规则表约束收回 17 值（17）
+[PASS] 6.4 2 条 HR 规则已删、客户自建规则留下（10）
+[PASS] 6.5 存量附件逐类仍在（回滚不动存量）（17）
+[PASS] 6.6 down 再执行一遍幂等（删 0 条规则）（1）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:75: NOTICE:  V0389 前置条件通过：biz_doc_attachment 在位
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:111: NOTICE:  V0389：ck_biz_doc_attachment_type 已放宽到 21 值（旧定义 CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying, 'FIXED_ASSET'::character varying, 'EXPENSE_REPORT'::character varying, 'INVOICE'::character varying, 'RECEIPT'::character varying, 'STOCK_TAKE'::character varying, 'PURCHASE_RETURN'::character varying, 'SALES_RETURN'::character varying, 'STOCK_TRANSFER'::character varying, 'SUPPLIER'::character varying, 'CUSTOMER'::character varying, 'OPENING_BALANCE'::character varying, 'RECEIPT_REFUND'::character varying])::text[])))）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:150: NOTICE:  V0389：ck_biz_attachment_rule_doc_type 已放宽到 21 值（旧定义 CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying, 'FIXED_ASSET'::character varying, 'EXPENSE_REPORT'::character varying, 'INVOICE'::character varying, 'RECEIPT'::character varying, 'STOCK_TAKE'::character varying, 'PURCHASE_RETURN'::character varying, 'SALES_RETURN'::character varying, 'STOCK_TRANSFER'::character varying, 'SUPPLIER'::character varying, 'CUSTOMER'::character varying, 'OPENING_BALANCE'::character varying, 'RECEIPT_REFUND'::character varying])::text[])))）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:194: NOTICE:  V0389：EMPLOYEE_CONTRACT 必传规则插入 1 行（0 = 已存在，幂等跳过）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:194: NOTICE:  V0389：SALARY_SHEET 建议规则插入 1 行（0 = 已存在，幂等跳过）
+psql:/opt/cloudpivot/backend/migrations/business/V0389__hr_attachment_doc_types.up.sql:300: NOTICE:  V0389 完成：附件单据类型 17 → 21 值（存量 17 类全部仍合法），HR 附件规则 2 条（合同硬闸 / 工资表建议不拦）
+[PASS] 7.1 down 因有员工身份数据被拒（yes）
+[PASS] 7.2 拒绝报文点名「明文直接出现」（1）
+[PASS] 7.3 拒绝后脱敏规则仍在（2 条）（2）
+psql:/opt/cloudpivot/backend/migrations/business/V0388__hr_mask_config.down.sql:42: NOTICE:  V0388 回滚护栏通过：没有未删员工持有身份证/工资卡数据
+psql:/opt/cloudpivot/backend/migrations/business/V0388__hr_mask_config.down.sql:88: NOTICE:  V0388 回滚完成：2 条 HR 脱敏规则 + 3 条 hr 配置已全部清除
+[PASS] 8.1 脱敏规则清零（0）
+[PASS] 8.2 hr 配置清零（含软删行）（0）
+[PASS] 8.3 down 再执行一遍幂等（DELETE 0）（2）
+psql:/opt/cloudpivot/backend/migrations/business/V0388__hr_mask_config.up.sql:83: NOTICE:  V0388 前置条件通过：sys_field_mask / sys_config / biz_employee(id_card,bank_account) 与两个唯一索引在位
+psql:/opt/cloudpivot/backend/migrations/business/V0388__hr_mask_config.up.sql:208: NOTICE:  V0388 完成：biz_employee 2 条全局脱敏（id_card 2/6,4、bank_account 5/4,4）+ 3 条 hr 配置（iit_mode / si_mode / require_leave_match）
+[PASS] 8.4 往返后脱敏规则回 2 条（2）
+[PASS] 8.5 往返后 hr 配置回 3 条（3）
+[PASS] 8.6 往返后附件约束仍 21 值（21）
+[PASS] 9.1 夹具清理后附件 0 行（0）
+
+===== 结果：PASS=48 FAIL=0 =====

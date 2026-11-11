@@ -682,6 +682,13 @@ SELECT '20000000-0000-4000-8000-0000000f0016'::uuid, 'HR_MANAGER', '人事经理
 
 #### ⑥ `sys_field_mask`：2 条全局脱敏
 
+> **落地记录（HR-05 / t_b85f402e，`V0388__hr_mask_config`）**：下面这段 SQL 的 `gen_random_uuid()`
+> 在实施时改成 **固定 UUID**（`…b8800000-0000-4000-8000-000000000001 / …0002`）——
+> 随机主键没有幂等性（重放插第二条同 `(表,列,NULL)`，撞 `uk_sys_field_mask_rule` 的 `NULLS NOT DISTINCT`），
+> 且 `down` 无处下手（无法按 `(表,列)` 通配删，那会连坐客户加的角色级规则）。
+> 另：`110101 + '6,4'` 的实际输出是 `110101****1234`（中间星号**固定 4 个**，`nik-utils::Mask::id_card` 口径），
+> 不是「长度 − 前后保留」。
+
 ```sql
 INSERT INTO sys_field_mask (id, table_name, column_name, mask_type, mask_param, role_id, status, reason)
 SELECT gen_random_uuid(), 'biz_employee', 'id_card', 2, '6,4', NULL, 1, '个人信息保护：身份证号默认脱敏（明文需 business:hr:employee:sensitive）'
@@ -691,7 +698,24 @@ SELECT gen_random_uuid(), 'biz_employee', 'bank_account', 5, '4,4', NULL, 1, '�
  WHERE NOT EXISTS (SELECT 1 FROM sys_field_mask WHERE table_name='biz_employee' AND column_name='bank_account' AND role_id IS NULL AND deleted_at IS NULL);
 ```
 
-#### ⑦ 附件类型放宽（16 → 20 值）+ 必传规则
+#### ⑦ 附件类型放宽（17 → 21 值）+ 必传规则
+
+> **落地记录（HR-05 / t_b85f402e，`V0389__hr_attachment_doc_types`）—— 本节有 3 处必须按实施口径读**
+>
+> 1. **不是 16 → 20，是 17 → 21**：V0350 放宽到 16 后，V0368 又加了 `RECEIPT_REFUND`（现网 17 值）。
+>    照抄下面这段 20 值列表会**把 `RECEIPT_REFUND` 从 CHECK 里摘掉** —— 存量退款凭据附件在
+>    `ADD CONSTRAINT` 校验阶段就失败，整笔迁移回滚。落地版列表 = 现网 17 值 ∪ 新 4 值 = **21 值**。
+> 2. **`SALARY_SHEET` 那条规则的 `file_role` 改成 `NULL`（任意角色都算）**，不是下面写的 `'OTHER'`：
+>    `'OTHER'` 是上传接口的**入参老别名**，落库时被归一成 `'DEFAULT'`（`attachment::model::ROLE_OTHER`），
+>    而规则侧按**字面值**比较（`rule.rs::file_role_filter`）—— 写 `'OTHER'` 永远匹配不到任何附件。
+> 3. **`SALARY_SHEET` 那条 `enabled = FALSE`**：本节标题与 §2.1 都写「建议传，**不硬拦**」，
+>    而规则表只有 `enabled` 布尔、没有「建议」档。置 `false` 才是准确编码（规则在附件规则页可见，
+>    运维要变硬闸时一键打开）；置 `true` 会让任何走 `ensure_attachments` 的工资表动作被**永久硬拦**。
+>    `EMPLOYEE_CONTRACT` 那条是 D-5 的**必传**，`enabled = TRUE`。
+>
+> 另：`biz_attachment_rule` 在老库上可能不存在（没跑过 V0347），放宽与种子整段必须放在
+> `DO` 块里用 `to_regclass` 前置判断 —— 写成 `INSERT … WHERE to_regclass(...) IS NOT NULL AND NOT EXISTS (…)`
+> 不管用（PG 会先规划整条语句，`NOT EXISTS` 里的表不存在直接报错）。
 
 ```sql
 -- biz_doc_attachment.ck_biz_doc_attachment_type：16 → 20（+ EMPLOYEE / EMPLOYEE_CONTRACT / LEAVE_REQUEST / SALARY_SHEET）
@@ -739,6 +763,12 @@ SELECT v.rule, v.biz, d.id, c.id, NULL, 1, v.remark
 四条都 `is_system = TRUE`（预置流程客户不能删；`V0233` 就是为漏写 `is_system` 打的补丁，P2-6b 的 H6 不变量会判红），图快照按 `flow::graph::snapshot()` 的确定性序列化算 sha256，写入迁移头注释。**具体图与 hash 由实现卡（HR-26/HR-38）生成**，本卡只定拓扑与审批人来源。
 
 #### ⑩ `sys_config`：3 个开关
+
+> **落地记录（HR-05 / t_b85f402e，`V0388__hr_mask_config`）**：下面这段用
+> `VALUES (gen_random_uuid(), …) … ON CONFLICT (id) DO NOTHING` —— **那个 `ON CONFLICT (id)` 永远不会命中**
+> （每次 `gen_random_uuid()` 都是新主键），重放会插 3 条重复键。落地版改成
+> **固定 UUID + `WHERE NOT EXISTS (config_key, deleted_at IS NULL)`**（配置键唯一是
+> `uk_sys_config_key` 的**未软删部分唯一索引**），重放插 0 行、且不覆盖运维改过的 `config_value`。
 
 ```sql
 INSERT INTO sys_config (id, config_key, config_value, config_type, description, category, sort_order, config_level, is_modifiable, is_encrypted, is_restart, status)
@@ -1448,8 +1478,8 @@ COMMIT
 | ~~V0379~~ | **V0384** | `hr_accounts` | 9 个末级科目 + 父科目翻非末级 + 2 条 `biz_voucher_rule` | `WHERE NOT EXISTS (account_code)`；翻末级用「确实有子科目才翻」的条件 UPDATE |
 | ~~V0380~~ | **V0386** | `hr_seq_dict` | 4 条号段 + 4 类字典 + 26 项字典值 | `WHERE NOT EXISTS` / `NOT EXISTS (dict_type_id, item_value)`；✅ 已落地（HR-03） |
 | ~~V0381~~ | **V0387** | `hr_menu_perms` | 36 行菜单 + `HR_MANAGER` 角色 + `sys_role_menu` 授权 | `ON CONFLICT (id) DO NOTHING` + 授权 `NOT EXISTS` |
-| ~~V0382~~ | **V0388** | `hr_mask_config` | 2 条 `sys_field_mask` + 3 条 `sys_config` | `NOT EXISTS`（表+列+role）/ `ON CONFLICT (id)` |
-| ~~V0383~~ | **V0389** | `hr_attachment_doc_types` | `ck_biz_doc_attachment_type` 16→20、`ck_biz_attachment_rule_doc_type` 同步 + 2 条规则 | `DO` 块先读 `pg_get_constraintdef` 判断是否已含新值，已含则跳过（照 `V0350` 的做法）；规则表不存在则整段跳过 |
+| ~~V0382~~ | **V0388** | `hr_mask_config` | 2 条 `sys_field_mask` + 3 条 `sys_config` | `NOT EXISTS`（表+列+role）/ `NOT EXISTS`（config_key，未软删）+ 固定 UUID。✅ 已落地（HR-05） |
+| ~~V0383~~ | **V0389** | `hr_attachment_doc_types` | `ck_biz_doc_attachment_type` 17→21、`ck_biz_attachment_rule_doc_type` 同步 + 2 条规则 | `DO` 块先读 `pg_get_constraintdef` 判断是否已含新值，已含则跳过（照 `V0350` 的做法）；规则表不存在则整段跳过。✅ 已落地（HR-05） |
 | ~~V0384~~ | **V0390** | `hr_leave_flow` | `hr_leave` 流程：定义 + 版本 + 图快照（含 sha256） | 4 层 `WHERE NOT EXISTS`（同名流程/同 biz_type 默认流程/角色存在） |
 | ~~V0385~~ | **V0391** | `hr_salary_flow` | `hr_salary` 流程（同上） | 同上 |
 | ~~V0386~~ | **V0392** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套 | 同上 |

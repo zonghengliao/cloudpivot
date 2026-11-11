@@ -1,0 +1,77 @@
+Pager usage is off.
+== ① schema_migrations 里本卡两行（空库首启 320 个迁移）==
+   kind    |          name           | version | applied_seq | success | execution_ms |                          source                           
+-----------+-------------------------+---------+-------------+---------+--------------+-----------------------------------------------------------
+ versioned | hr_mask_config          | 388     |         308 | t       |            9 | migrations/business/V0388__hr_mask_config.up.sql
+ versioned | hr_attachment_doc_types | 389     |         309 | t       |            3 | migrations/business/V0389__hr_attachment_doc_types.up.sql
+(2 rows)
+
+ total_migrations 
+------------------
+              320
+(1 row)
+
+== ② sys_field_mask：2 条全局脱敏（biz_employee）==
+                  id                  |  table_name  | column_name  | mask_type | mask_param | role_id | status |                                 reason                                  
+--------------------------------------+--------------+--------------+-----------+------------+---------+--------+-------------------------------------------------------------------------
+ b8800000-0000-4000-8000-000000000002 | biz_employee | bank_account |         5 | 4,4        |         |      1 | 个人信息保护：工资卡号默认脱敏（明文需 business:hr:employee:sensitive）
+ b8800000-0000-4000-8000-000000000001 | biz_employee | id_card      |         2 | 6,4        |         |      1 | 个人信息保护：身份证号默认脱敏（明文需 business:hr:employee:sensitive）
+(2 rows)
+
+ sys_user_原有规则数 
+---------------------
+                   3
+(1 row)
+
+== ③ sys_config：3 条 hr 开关 ==
+            config_key             | config_value | config_type | category | sort_order | config_level | is_modifiable | status 
+-----------------------------------+--------------+-------------+----------+------------+--------------+---------------+--------
+ hr.salary.iit_mode                | MANUAL       | STRING      | hr       |         10 |            1 | t             |      1
+ hr.salary.si_mode                 | MANUAL       | STRING      | hr       |         20 |            1 | t             |      1
+ hr.attendance.require_leave_match | TRUE         | BOOLEAN     | hr       |         30 |            1 | t             |      1
+(3 rows)
+
+== ④ ck_biz_doc_attachment_type：21 值（含 17 个老值中的 RECEIPT_REFUND）==
+                                                                                                                                                                                                                                                                                                                                                                                 doc_attachment_type_check                                                                                                                                                                                                                                                                                                                                                                                  
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying, 'FIXED_ASSET'::character varying, 'EXPENSE_REPORT'::character varying, 'INVOICE'::character varying, 'RECEIPT'::character varying, 'STOCK_TAKE'::character varying, 'PURCHASE_RETURN'::character varying, 'SALES_RETURN'::character varying, 'STOCK_TRANSFER'::character varying, 'SUPPLIER'::character varying, 'CUSTOMER'::character varying, 'OPENING_BALANCE'::character varying, 'RECEIPT_REFUND'::character varying, 'EMPLOYEE'::character varying, 'EMPLOYEE_CONTRACT'::character varying, 'LEAVE_REQUEST'::character varying, 'SALARY_SHEET'::character varying])::text[])))
+(1 row)
+
+                                                                                                                                                                                                                                                                                                                                                             raw_value_list                                                                                                                                                                                                                                                                                                                                                             
+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 'CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying, 'FIXED_ASSET'::character varying, 'EXPENSE_REPORT'::character varying, 'INVOICE'::character varying, 'RECEIPT'::character varying, 'STOCK_TAKE'::character varying, 'PURCHASE_RETURN'::character varying, 'SALES_RETURN'::character varying, 'STOCK_TRANSFER'::character varying, 'SUPPLIER'::character varying, 'CUSTOMER'::character varying, 'OPENING_BALANCE'::character varying, 'RECEIPT_REFUND'::character varying, 'EMPLOYEE'::character varying, 'EMPLOYEE_CONTRACT'::character varying, 'LEAVE_REQUEST'::character varying, 'SALARY_SHEET'::character varying
+(1 row)
+
+== ⑤ ck_biz_attachment_rule_doc_type：同步 21 值 ==
+ 取值个数 
+----------
+       21
+(1 row)
+
+== ⑥ ck_biz_doc_attachment_role：本迁移未动，仍 15 值 ==
+ 取值个数 
+----------
+       15
+(1 row)
+
+== ⑦ biz_attachment_rule：9 条既有 + 2 条 HR ==
+     doc_type      |    file_role    | required_at | min_count | max_count |   allow_exts    | enabled |                      remark                      
+-------------------+-----------------+-------------+-----------+-----------+-----------------+---------+--------------------------------------------------
+ EMPLOYEE_CONTRACT | CONTRACT_SCAN   | SUBMIT      |         1 |        20 | <NULL=不限格式> | t       | 劳动合同签订/续签必须上传扫描件（ARCH-9-2 D-5）
+ EXPENSE_REPORT    | <NULL=任意角色> | SUBMIT      |         1 |           | pdf,jpg,png,ofd | t       | 发票影像或费用凭证
+ FIXED_ASSET       | <NULL=任意角色> | ACTIVATE    |         1 |           | pdf,jpg,png     | t       | 发票或验收单
+ INVOICE           | <NULL=任意角色> | SUBMIT      |         1 |           | pdf,jpg,png     | t       | 纸质发票扫描件
+ INVOICE           | <NULL=任意角色> | SUBMIT      |         1 |           | pdf,ofd,xml     | t       | 发票影像
+ PAYMENT           | <NULL=任意角色> | ACTIVATE    |         1 |           | pdf,jpg,png     | t       | 银行回单
+ PURCHASE_RETURN   | <NULL=任意角色> | SUBMIT      |         1 |           | pdf,jpg,png     | t       | 退货单或签收凭证
+ RECEIPT           | <NULL=任意角色> | SUBMIT      |         1 |           | pdf,jpg,png     | t       | 银行回单
+ SALARY_SHEET      | <NULL=任意角色> | ACTIVATE    |         1 |        20 | <NULL=不限格式> | f       | 工资表过账前建议上传签字扫描件（建议传，不硬拦）
+ SALES_RETURN      | <NULL=任意角色> | SUBMIT      |         1 |           | pdf,jpg,png     | t       | 退货单或物流凭证
+ STOCK_TAKE        | <NULL=任意角色> | CONFIRM     |         1 |           | pdf,jpg,png     | t       | 盘点表或盈亏说明
+(11 rows)
+
+ 规则总数 
+----------
+       11
+(1 row)
+

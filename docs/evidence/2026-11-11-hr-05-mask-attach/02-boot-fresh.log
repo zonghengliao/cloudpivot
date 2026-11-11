@@ -1,0 +1,41 @@
+== 空库首次启动（库 hr0389_t4，NIK_SERVER_LISTEN=18391）==
+过滤：ANSI 已剥除；只保留带时间戳的迁移链日志与 V0386~V0389 的 NOTICE
+
+2026-11-11T11:37:31.932842Z  INFO tokio_postgres::connection: NOTICE: V0132：当前库没有任何用户（空库首启），已跳过任务种子；项目已建但暂挂 0 条任务（应用启动并建出 admin 后重跑本迁移即可）
+2026-11-11T11:37:33.422167Z  INFO tokio_postgres::connection: NOTICE: V0339 已发布/归档待启动期冻结器处理：38 个 APPROVAL 节点（flow::sign_freeze）
+2026-11-11T11:37:33.750978Z DEBUG nik_db::migrate: 迁移已应用 migration=hr_tables statements=59 elapsed_ms=65
+2026-11-11T11:37:33.759402Z DEBUG nik_db::migrate: 迁移已应用 migration=hr_accounts statements=7 elapsed_ms=6
+2026-11-11T11:37:33.767232Z  INFO tokio_postgres::connection: NOTICE: V0386 自检通过：4 条号段（EMP 4 位不重置 / LV·ATT·SAL 6 位滚动）+ 4 类字典 + 26 项字典值（5/5/7/9）+ 请假类型与 ck_biz_leave_type 双向一致
+2026-11-11T11:37:33.767311Z  INFO tokio_postgres::connection: NOTICE: V0386 完成：biz_seq +4 / sys_dict_type +4 / sys_dict_item +26（ARCH-9-2 §3.3 ②③）
+2026-11-11T11:37:33.768683Z DEBUG nik_db::migrate: 迁移已应用 migration=hr_seq_dict statements=4 elapsed_ms=6
+2026-11-11T11:37:33.772440Z  INFO tokio_postgres::connection: NOTICE: V0387：角色 SUPER_ADMIN 不存在 → 跳过它的授权（超管本可短路校验）
+2026-11-11T11:37:33.773458Z  INFO tokio_postgres::connection: NOTICE: V0387：HR_MANAGER 新增 36 条人力资源菜单授权（应覆盖 36 条）
+2026-11-11T11:37:33.773951Z  INFO tokio_postgres::connection: NOTICE: V0387：角色 EMPLOYEE 不存在 → 跳过它的授权（自助码由 S__employee_self_service_permissions 兜）
+2026-11-11T11:37:33.776502Z  INFO tokio_postgres::connection: NOTICE: V0387：角色 SUPER_ADMIN 不存在 → 跳过它的授权自检
+2026-11-11T11:37:33.777904Z  INFO tokio_postgres::connection: NOTICE: V0387：角色 EMPLOYEE 不存在 → 跳过它的授权自检
+2026-11-11T11:37:33.778040Z  INFO tokio_postgres::connection: NOTICE: V0387：人力资源 1 目录 + 5 页面 + 30 按钮已就绪，菜单总数 447 条（上限 520）
+2026-11-11T11:37:33.780823Z DEBUG nik_db::migrate: 迁移已应用 migration=hr_menu_perms statements=6 elapsed_ms=10
+2026-11-11T11:37:33.783387Z  INFO tokio_postgres::connection: NOTICE: V0388 前置条件通过：sys_field_mask / sys_config / biz_employee(id_card,bank_account) 与两个唯一索引在位
+2026-11-11T11:37:33.790161Z  INFO tokio_postgres::connection: NOTICE: V0388 完成：biz_employee 2 条全局脱敏（id_card 2/6,4、bank_account 5/4,4）+ 3 条 hr 配置（iit_mode / si_mode / require_leave_match）
+2026-11-11T11:37:33.791673Z DEBUG nik_db::migrate: 迁移已应用 migration=hr_mask_config statements=7 elapsed_ms=9
+2026-11-11T11:37:33.792677Z  INFO tokio_postgres::connection: NOTICE: V0389 前置条件通过：biz_doc_attachment 在位
+2026-11-11T11:37:33.793272Z  INFO tokio_postgres::connection: NOTICE: V0389：ck_biz_doc_attachment_type 已放宽到 21 值（旧定义 CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYA
+2026-11-11T11:37:33.793753Z  INFO tokio_postgres::connection: NOTICE: V0389：ck_biz_attachment_rule_doc_type 已放宽到 21 值（旧定义 CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 
+2026-11-11T11:37:33.794033Z  INFO tokio_postgres::connection: NOTICE: V0389：EMPLOYEE_CONTRACT 必传规则插入 1 行（0 = 已存在，幂等跳过）
+2026-11-11T11:37:33.794132Z  INFO tokio_postgres::connection: NOTICE: V0389：SALARY_SHEET 建议规则插入 1 行（0 = 已存在，幂等跳过）
+2026-11-11T11:37:33.795222Z  INFO tokio_postgres::connection: NOTICE: V0389 完成：附件单据类型 17 → 21 值（存量 17 类全部仍合法），HR 附件规则 2 条（合同硬闸 / 工资表建议不拦）
+2026-11-11T11:37:33.796454Z DEBUG nik_db::migrate: 迁移已应用 migration=hr_attachment_doc_types statements=6 elapsed_ms=4
+2026-11-11T11:37:33.834232Z  INFO nik_web::app: 数据库迁移完成: 应用 320 个迁移
+2026-11-11T11:37:43.294767Z  INFO nik_web::app: 执行 1 个自定义启动钩子（按注册顺序）
+2026-11-11T11:37:43.296077Z  INFO cloudpivot::bootstrap: 启动引导完成 app=cloudpivot profile=dev db_driver=postgres
+2026-11-11T11:37:43.324359Z  INFO cloudpivot::support::config::model: 缓存未启用，跳过参数版本监听（跨实例同步退化为快照 TTL）
+2026-11-11T11:37:43.416668Z  INFO nik_plugin::scheduler: 定时任务插件: 34 个任务已启动
+2026-11-11T11:37:43.832799Z  INFO nik_core::plugin: 启动插件: startup-auth-secret-guard
+2026-11-11T11:37:43.832820Z  INFO cloudpivot::shared::startup_guard: 启动守卫通过：认证密钥长度满足下限 profile=dev jwt_secret_len=48
+2026-11-11T11:37:43.832831Z  INFO cloudpivot::shared::startup_guard: 启动守卫通过：缓存后端满足吊销耐久性要求 profile=dev cache_type=redis
+2026-11-11T11:37:43.832868Z  INFO cloudpivot::shared::startup_guard: 启动守卫通过：存储主密钥长度满足要求 profile=dev storage_master_key_len=64
+2026-11-11T11:37:43.832884Z  INFO nik_core::plugin: 启动插件: x-log-bus
+2026-11-11T11:37:43.833344Z  INFO nik_core::plugin: 启动插件: x-scheduler
+2026-11-11T11:37:43.833369Z  INFO nik_web::app: 插件启动完成 elapsed_ms=0
+2026-11-11T11:37:44.126182Z  INFO nik_web::app: cloudpivot 启动 -> http://127.0.0.1:18391
+2026-11-11T11:37:44.126201Z  INFO nik_web::app: cloudpivot 启动完成, 耗时 12905ms
