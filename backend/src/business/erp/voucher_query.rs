@@ -110,10 +110,35 @@ pub const HEADER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reverse_of) AS reverse_of_no, \
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reversed_by) AS reversed_by_no";
 
-/// `biz_voucher_entry` 列清单（`line_no` 升序即凭证内顺序）。
-pub const ENTRY_COLUMNS: &str = "id, voucher_id, line_no, summary, account_id, account_code, \
-     account_name, debit_amount, credit_amount, aux_supplier_id, aux_material_id, \
-     aux_warehouse_id, aux_dept_id, aux_qty";
+/// `biz_voucher_entry` 列清单 + **四个辅助核算名字**（`line_no` 升序即凭证内顺序）。
+///
+/// 名字必须和 id 一起下发（AGENTS.md 约定 13）：只给 `aux_supplier_id` 前端就只能显示
+/// 8 位短 uuid —— 查询页没有「新增凭证」弹窗那份按科目懒加载的 `auxOptions` 字典，
+/// 永远落不到名字。
+///
+/// 取名字走 [`ENTRY_SOURCE`] 里的四个 `LEFT JOIN`，**一条 SQL 取齐**，绝不逐行查。
+///
+/// 列一律带 `e.` 前缀（因为 FROM 里还有四张主数据表同名 id 列）；四个名字显式
+/// `AS aux_*_name`，`VoucherEntryRow::from_row` 按别名取值。
+pub const ENTRY_COLUMNS: &str = "e.id, e.voucher_id, e.line_no, e.summary, e.account_id, e.account_code, \
+     e.account_name, e.debit_amount, e.credit_amount, e.aux_supplier_id, e.aux_material_id, \
+     e.aux_warehouse_id, e.aux_dept_id, e.aux_qty, \
+     sup.supplier_name AS aux_supplier_name, mat.material_name AS aux_material_name, \
+     wh.warehouse_name AS aux_warehouse_name, dept.dept_name AS aux_dept_name";
+
+/// [`ENTRY_COLUMNS`] 配套的 FROM 子句：分录别名 `e` + 四张主数据表的 `LEFT JOIN`。
+///
+/// * 四个维度都是**弱引用**（V0149 不建外键），所以必须 `LEFT JOIN`：
+///   用 `JOIN` 会让「辅助核算指向不存在的主数据」的行**整条消失**，凭证详情直接少分录 ——
+///   账不平的报错反而更难查。
+/// * 关联条件带 `deleted_at IS NULL`：主数据软删后名字置 `null`（不是报错），前端有短 id 兜底。
+///   这与约定 13「主数据关联 → join 实时取名」一致：**改名后显示新名**，删了就不再声称它存在。
+/// * `sys_dept` 是底座表，列名是 `dept_name`（不是 `name`，V0006）。
+pub const ENTRY_SOURCE: &str = "biz_voucher_entry e \
+     LEFT JOIN biz_supplier sup ON sup.id = e.aux_supplier_id AND sup.deleted_at IS NULL \
+     LEFT JOIN biz_material mat ON mat.id = e.aux_material_id AND mat.deleted_at IS NULL \
+     LEFT JOIN biz_warehouse wh ON wh.id = e.aux_warehouse_id AND wh.deleted_at IS NULL \
+     LEFT JOIN sys_dept dept ON dept.id = e.aux_dept_id AND dept.deleted_at IS NULL";
 
 /// 分页排序：日期倒序，同日按凭证字号倒序（最新凭证在前）。
 pub const LIST_ORDER: &str = "ORDER BY voucher_date DESC, voucher_word DESC, voucher_no DESC";
@@ -396,10 +421,18 @@ pub struct VoucherEntryRow {
     pub aux_dept_id: Option<Uuid>,
     /// 辅助核算：数量。
     pub aux_qty: Option<Decimal>,
+    /// 供应商名（`LEFT JOIN biz_supplier` 实时取名；主数据已删 / 不存在 → `None`）。
+    pub aux_supplier_name: Option<String>,
+    /// 物料名（`LEFT JOIN biz_material`）。
+    pub aux_material_name: Option<String>,
+    /// 仓库名（`LEFT JOIN biz_warehouse`）。
+    pub aux_warehouse_name: Option<String>,
+    /// 部门名（`LEFT JOIN sys_dept`）。
+    pub aux_dept_name: Option<String>,
 }
 
 impl VoucherEntryRow {
-    /// 由查询行构造。
+    /// 由查询行构造（要求 SELECT 用 [`ENTRY_COLUMNS`] + [`ENTRY_SOURCE`]）。
     pub fn from_row(row: &Row) -> DbResult<Self> {
         Ok(Self {
             id: row.get_typed("id")?,
@@ -416,6 +449,10 @@ impl VoucherEntryRow {
             aux_warehouse_id: row.get_typed("aux_warehouse_id")?,
             aux_dept_id: row.get_typed("aux_dept_id")?,
             aux_qty: row.get_typed("aux_qty")?,
+            aux_supplier_name: row.get_typed("aux_supplier_name")?,
+            aux_material_name: row.get_typed("aux_material_name")?,
+            aux_warehouse_name: row.get_typed("aux_warehouse_name")?,
+            aux_dept_name: row.get_typed("aux_dept_name")?,
         })
     }
 }
@@ -552,6 +589,17 @@ pub struct VoucherEntryRes {
     pub aux_dept_id: Option<String>,
     /// 辅助核算：数量。
     pub aux_qty: Option<Decimal>,
+    /// 辅助核算名字：供应商（`LEFT JOIN biz_supplier` 实时取名）。
+    ///
+    /// 主数据已删 / 不存在时为 `null`（**不是错误**）—— 前端有短 id 兜底，
+    /// 契约是「名字能取到就给名字，取不到自己降级」，别在这里 500。
+    pub aux_supplier_name: Option<String>,
+    /// 辅助核算名字：物料（`LEFT JOIN biz_material`）。
+    pub aux_material_name: Option<String>,
+    /// 辅助核算名字：仓库（`LEFT JOIN biz_warehouse`）。
+    pub aux_warehouse_name: Option<String>,
+    /// 辅助核算名字：部门（`LEFT JOIN sys_dept`）。
+    pub aux_dept_name: Option<String>,
 }
 
 impl VoucherEntryRes {
@@ -571,6 +619,10 @@ impl VoucherEntryRes {
             aux_warehouse_id: row.aux_warehouse_id.map(|id| id.to_string()),
             aux_dept_id: row.aux_dept_id.map(|id| id.to_string()),
             aux_qty: row.aux_qty,
+            aux_supplier_name: row.aux_supplier_name.clone(),
+            aux_material_name: row.aux_material_name.clone(),
+            aux_warehouse_name: row.aux_warehouse_name.clone(),
+            aux_dept_name: row.aux_dept_name.clone(),
         }
     }
 }
@@ -695,9 +747,13 @@ pub async fn vouchers_by_source(source_type: &str, source_id: Uuid) -> DbResult<
     rows.iter().map(VoucherRow::from_row).collect()
 }
 
-/// 某张凭证的全部分录（`line_no` 升序）。
+/// 某张凭证的全部分录（`line_no` 升序），**四个辅助核算的名字一次 JOIN 取齐**。
+///
+/// SQL 形态：`SELECT {ENTRY_COLUMNS} FROM {ENTRY_SOURCE} WHERE e.voucher_id = ?`。
+/// 四个名字走 `LEFT JOIN`，**不逐行回查**（AGENTS.md 约定 13 的防 N+1）；
+/// 主数据已删 / 不存在的行名字为 `None`，行本身照样返回（弱引用，不是错误）。
 pub async fn entries_of(voucher_id: Uuid) -> DbResult<Vec<VoucherEntryRow>> {
-    let sql = format!("SELECT {ENTRY_COLUMNS} FROM {ENTRY_TABLE} WHERE voucher_id = ?::uuid ORDER BY line_no");
+    let sql = format!("SELECT {ENTRY_COLUMNS} FROM {ENTRY_SOURCE} WHERE e.voucher_id = ?::uuid ORDER BY e.line_no");
     let rows = db().find_with_params(&sql, vec![Value::from(voucher_id)]).await?;
     rows.iter().map(VoucherEntryRow::from_row).collect()
 }
@@ -1383,7 +1439,8 @@ pub(crate) mod tests {
             assert_eq!(err.status, 400);
             assert!(err.msg.contains("source_id"), "{}", err.msg);
         }
-        // ④ 值域内 20 种全部能通过（含 VTRACE-3 补登的 COST_PERIOD）。
+        // ④ 值域内 22 种全部能通过（VTRACE-3 补 COST_PERIOD；HR-06 词表扩底再补
+        //    PAYROLL_ACCRUAL / PAYROLL_PAYMENT 两条工资凭证来源）。
         for kind in VoucherSourceType::ALL {
             let query = VoucherBySourceQuery {
                 source_type: Some(kind.as_str().to_string()),
@@ -1393,10 +1450,10 @@ pub(crate) mod tests {
         }
         assert_eq!(
             VoucherSourceType::ALL.len(),
-            20,
-            "值域是 20 种（VTRACE-3 补了 COST_PERIOD）"
+            22,
+            "值域是 22 种（VTRACE-3 补了 COST_PERIOD，HR-06 补了两条 PAYROLL_*）"
         );
-        println!("[VTRACE-3] 入参校验：非法值 / 空值 / 非 UUID 全部 400，20 种合法值全通过 ✓");
+        println!("[VTRACE-3] 入参校验：非法值 / 空值 / 非 UUID 全部 400，22 种合法值全通过 ✓");
     }
 
     /// ㉙ 与单张版 `voucher::find_voucher_by_source` 的口径一致（防止两条查询逐渐漂开）。
@@ -1447,5 +1504,264 @@ pub(crate) mod tests {
             .await
             .expect("计数失败");
         assert_eq!(left, 0, "夹具科目必须删掉（留着会让第二遍全量变红）");
+    }
+
+    // ==================== VTRACE-7：分录辅助核算的名字 ====================
+
+    /// 本组凭证字（`setup()` 的 6 张用 `P2D1`，这里另起一个，避免污染那边按前缀的断言）。
+    const VT7_WORD: &str = "VT7";
+    /// 本组凭证 id。
+    const VT7_VOUCHER: &str = "d2d10007-0000-4000-8000-0000000000a0";
+    /// 在用供应商（名字故意取卡面验收里那个真实样例）。
+    const VT7_SUP: &str = "d2d10007-0000-4000-8000-000000000001";
+    /// 在用物料。
+    const VT7_MAT: &str = "d2d10007-0000-4000-8000-000000000002";
+    /// 在用仓库。
+    const VT7_WH: &str = "d2d10007-0000-4000-8000-000000000003";
+    /// 在用部门。
+    const VT7_DEPT: &str = "d2d10007-0000-4000-8000-000000000004";
+    /// 已软删的供应商。
+    const VT7_SUP_GONE: &str = "d2d10007-0000-4000-8000-000000000011";
+    /// 已软删的物料。
+    const VT7_MAT_GONE: &str = "d2d10007-0000-4000-8000-000000000012";
+    /// 已软删的仓库。
+    const VT7_WH_GONE: &str = "d2d10007-0000-4000-8000-000000000013";
+    /// 已软删的部门。
+    const VT7_DEPT_GONE: &str = "d2d10007-0000-4000-8000-000000000014";
+
+    /// 清本组痕迹（凭证 → 分录级联；主数据按固定 id 删）。开工前 + 收尾各跑一次，重复跑不积累。
+    async fn vtrace7_cleanup() {
+        exec(&format!("DELETE FROM biz_voucher WHERE voucher_word = '{VT7_WORD}'")).await;
+        exec(&format!(
+            "DELETE FROM biz_supplier WHERE id IN ('{VT7_SUP}'::uuid, '{VT7_SUP_GONE}'::uuid)"
+        ))
+        .await;
+        exec(&format!(
+            "DELETE FROM biz_material WHERE id IN ('{VT7_MAT}'::uuid, '{VT7_MAT_GONE}'::uuid)"
+        ))
+        .await;
+        exec(&format!(
+            "DELETE FROM biz_warehouse WHERE id IN ('{VT7_WH}'::uuid, '{VT7_WH_GONE}'::uuid)"
+        ))
+        .await;
+        exec(&format!(
+            "DELETE FROM sys_dept WHERE id IN ('{VT7_DEPT}'::uuid, '{VT7_DEPT_GONE}'::uuid)"
+        ))
+        .await;
+    }
+
+    /// 建夹具：4 条在用主数据 + 4 条已软删主数据 + 一张两行凭证。
+    ///
+    /// | 行 | 借贷 | 辅助核算 |
+    /// |----|------|----------|
+    /// | 1 | 借 100 | 四个维度全指向**在用**主数据（名字必须取到） |
+    /// | 2 | 贷 100 | 四个维度全指向**已软删**主数据（id 照给、名字必须 `null`，不许报错） |
+    async fn vtrace7_seed() {
+        vtrace7_cleanup().await;
+        exec(&format!(
+            "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status) \
+             VALUES ('{VT7_SUP}'::uuid, 'VTRACE7-S1', '宁波华联包装材料厂', 1), \
+                    ('{VT7_SUP_GONE}'::uuid, 'VTRACE7-S9', '已删除的旧供应商', 1)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO biz_material (id, material_code, material_name, unit_id, status) \
+             VALUES ('{VT7_MAT}'::uuid, 'VTRACE7-M1', '五层瓦楞纸箱 400×300×250', \
+                     'd2d10007-0000-4000-8000-0000000000f1'::uuid, 1), \
+                    ('{VT7_MAT_GONE}'::uuid, 'VTRACE7-M9', '已删除的旧物料', \
+                     'd2d10007-0000-4000-8000-0000000000f1'::uuid, 1)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, level, is_leaf) \
+             VALUES ('{VT7_WH}'::uuid, 'VTRACE7-W1', '包材成品仓', '/{VT7_WH}/', 1, 1), \
+                    ('{VT7_WH_GONE}'::uuid, 'VTRACE7-W9', '已删除的旧仓库', '/{VT7_WH_GONE}/', 1, 1)"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_dept (id, dept_code, dept_name, status) \
+             VALUES ('{VT7_DEPT}'::uuid, 'VTRACE7D', '采购部', 1), \
+                    ('{VT7_DEPT_GONE}'::uuid, 'VTRACE7D9', '已删除的旧部门', 1)"
+        ))
+        .await;
+        // 软删：deleted_at 非空即「已删除」（`sys_dept` / 三张主数据都是软删表）。
+        for sql in [
+            format!("UPDATE biz_supplier SET deleted_at = now() WHERE id = '{VT7_SUP_GONE}'::uuid"),
+            format!("UPDATE biz_material SET deleted_at = now() WHERE id = '{VT7_MAT_GONE}'::uuid"),
+            format!("UPDATE biz_warehouse SET deleted_at = now() WHERE id = '{VT7_WH_GONE}'::uuid"),
+            format!("UPDATE sys_dept SET deleted_at = now() WHERE id = '{VT7_DEPT_GONE}'::uuid"),
+        ] {
+            exec(&sql).await;
+        }
+        exec(&format!(
+            "INSERT INTO biz_voucher (id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
+             source_type, source_no, summary, total_debit, total_credit, entry_count, status, is_red) \
+             VALUES ('{VT7_VOUCHER}', '{VT7_WORD}', '{VT7_WORD}-0001', '2032-05', '2032-05-20', 'MANUAL', \
+                     'MANUAL', 'VTRACE7-0001', 'VTRACE-7 辅助核算名字夹具', 100, 100, 2, 'POSTED', 0)"
+        ))
+        .await;
+        // 科目快照直接写死：`biz_voucher_entry.account_id` 无外键，分录语义不依赖科目主数据。
+        exec(&format!(
+            "INSERT INTO biz_voucher_entry (voucher_id, line_no, summary, account_id, account_code, \
+             account_name, debit_amount, credit_amount, aux_supplier_id, aux_material_id, \
+             aux_warehouse_id, aux_dept_id, aux_qty) \
+             VALUES ('{VT7_VOUCHER}', 1, 'VTRACE7 在用主数据', \
+                     'd2d10007-0000-4000-8000-0000000000c1'::uuid, 'VTRACE7A', 'VTRACE7 存货', 100, 0, \
+                     '{VT7_SUP}'::uuid, '{VT7_MAT}'::uuid, '{VT7_WH}'::uuid, '{VT7_DEPT}'::uuid, 3), \
+                    ('{VT7_VOUCHER}', 2, 'VTRACE7 主数据已删', \
+                     'd2d10007-0000-4000-8000-0000000000c2'::uuid, 'VTRACE7B', 'VTRACE7 应付', 0, 100, \
+                     '{VT7_SUP_GONE}'::uuid, '{VT7_MAT_GONE}'::uuid, '{VT7_WH_GONE}'::uuid, \
+                     '{VT7_DEPT_GONE}'::uuid, NULL)"
+        ))
+        .await;
+    }
+
+    /// 用例体（拆出来是为了让收尾清场挂在 `catch_unwind` 上，panic 也能清干净）。
+    async fn vtrace7_body() {
+        vtrace7_seed().await;
+        let detail = voucher_detail(uid(VT7_VOUCHER)).await.expect("凭证详情");
+        assert_eq!(detail.entries.len(), 2, "夹具 2 行分录必须都回来");
+
+        // ① 在用主数据：id 与 name 同时下发（约定 13），名字是主档现值。
+        let live = &detail.entries[0];
+        assert_eq!(live.aux_supplier_id.as_deref(), Some(VT7_SUP));
+        assert_eq!(
+            live.aux_supplier_name.as_deref(),
+            Some("宁波华联包装材料厂"),
+            "供应商名必须从 biz_supplier 取出（卡面验收样例）"
+        );
+        assert_eq!(live.aux_material_name.as_deref(), Some("五层瓦楞纸箱 400×300×250"));
+        assert_eq!(live.aux_warehouse_name.as_deref(), Some("包材成品仓"));
+        assert_eq!(live.aux_dept_name.as_deref(), Some("采购部"));
+        assert_eq!(live.aux_qty, Some(Decimal::from(3)), "aux_qty 语义未动");
+        // 序列化后的键名就是前端要消费的名字（snake_case，`Option` → null）。
+        let json = serde_json::to_value(live).expect("序列化分录");
+        assert_eq!(json["aux_supplier_id"], serde_json::json!(VT7_SUP));
+        assert_eq!(json["aux_supplier_name"], serde_json::json!("宁波华联包装材料厂"));
+        assert_eq!(json["aux_dept_name"], serde_json::json!("采购部"));
+
+        // ② 主数据已软删：**id 照给、名字为 null、不报错**（前端短 id 兜底）。
+        let gone = &detail.entries[1];
+        assert_eq!(gone.aux_supplier_id.as_deref(), Some(VT7_SUP_GONE), "弱引用 id 不能丢");
+        assert_eq!(gone.aux_material_id.as_deref(), Some(VT7_MAT_GONE));
+        assert_eq!(gone.aux_warehouse_id.as_deref(), Some(VT7_WH_GONE));
+        assert_eq!(gone.aux_dept_id.as_deref(), Some(VT7_DEPT_GONE));
+        assert!(gone.aux_supplier_name.is_none(), "软删供应商 → 名字 null（不是报错）");
+        assert!(gone.aux_material_name.is_none());
+        assert!(gone.aux_warehouse_name.is_none());
+        assert!(gone.aux_dept_name.is_none());
+        let json = serde_json::to_value(gone).expect("序列化分录");
+        // 字段必须始终在响应里（null 也要有）：缺席会让前端以为「后端没这列」。
+        for key in [
+            "aux_supplier_name",
+            "aux_material_name",
+            "aux_warehouse_name",
+            "aux_dept_name",
+        ] {
+            assert!(json.get(key).is_some(), "字段 `{key}` 必须始终出现在响应里");
+            assert!(json[key].is_null(), "`{key}` 对软删主数据应为 null");
+        }
+
+        // ③ 主数据改名 → 详情立刻显示新名（实时 join，不是快照）。
+        exec(&format!(
+            "UPDATE biz_supplier SET supplier_name = '宁波华联包装（更名后）' WHERE id = '{VT7_SUP}'::uuid"
+        ))
+        .await;
+        let renamed = voucher_detail(uid(VT7_VOUCHER)).await.expect("改名后再查详情");
+        assert_eq!(
+            renamed.entries[0].aux_supplier_name.as_deref(),
+            Some("宁波华联包装（更名后）"),
+            "主数据关联要 join 实时取名（约定 13），不是存快照"
+        );
+
+        // ④ 与分录级读接口一致：`entries_of` 单独调也一样带名字（详情就是用它拼的）。
+        let rows = entries_of(uid(VT7_VOUCHER)).await.expect("单独读分录");
+        assert_eq!(rows[0].aux_material_name.as_deref(), Some("五层瓦楞纸箱 400×300×250"));
+        assert!(rows[1].aux_dept_name.is_none());
+
+        // ⑤ 列表接口不受影响：`voucher_page` 的 DTO 没有这四列（列表不显示辅助核算，不扩影响面）。
+        let (page, _) = voucher_page(&VoucherFilter {
+            voucher_no: Some(format!("{VT7_WORD}-0001")),
+            page: 1,
+            page_size: 10,
+            ..VoucherFilter::default()
+        })
+        .await
+        .expect("列表");
+        assert_eq!(page.len(), 1, "夹具凭证应能在列表里查到");
+        println!("[VTRACE-7] 四个 aux_*_name 取到 / 软删为 null / 改名实时生效 ✓");
+    }
+
+    /// ㉚ 真库：分录辅助核算的四个名字一次 JOIN 取齐；软删主数据名字为 `null` 而不是报错。
+    #[tokio::test]
+    async fn vtrace7_entry_aux_names_joined() {
+        use futures_util::FutureExt;
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        // AssertUnwindSafe 同 `aux_tests::case`：清场只认本组固定 id 与前缀，panic 后状态不再使用。
+        let outcome = std::panic::AssertUnwindSafe(vtrace7_body()).catch_unwind().await;
+        vtrace7_cleanup().await;
+        if let Err(payload) = outcome {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    /// ㉛ 结构闸（不连库）：名字必须来自**一次** `LEFT JOIN`，不是逐行回查、也不是内连接。
+    ///
+    /// 内连接会把「辅助核算指向不存在的主数据」的行整条吞掉（凭证详情少分录），
+    /// 所以这里同时断言四条 JOIN 都是 `LEFT JOIN` 且带 `deleted_at IS NULL`。
+    #[test]
+    fn vtrace7_entry_sql_is_single_left_join() {
+        assert!(
+            ENTRY_SOURCE.starts_with(ENTRY_TABLE),
+            "FROM 子句应以分录表开头：{ENTRY_SOURCE}"
+        );
+        for (table, alias, id_col, name_col, out_col) in [
+            (
+                "biz_supplier",
+                "sup",
+                "aux_supplier_id",
+                "supplier_name",
+                "aux_supplier_name",
+            ),
+            (
+                "biz_material",
+                "mat",
+                "aux_material_id",
+                "material_name",
+                "aux_material_name",
+            ),
+            (
+                "biz_warehouse",
+                "wh",
+                "aux_warehouse_id",
+                "warehouse_name",
+                "aux_warehouse_name",
+            ),
+            ("sys_dept", "dept", "aux_dept_id", "dept_name", "aux_dept_name"),
+        ] {
+            let on_clause =
+                format!("LEFT JOIN {table} {alias} ON {alias}.id = e.{id_col} AND {alias}.deleted_at IS NULL");
+            assert!(ENTRY_SOURCE.contains(&on_clause), "缺少这条 LEFT JOIN：{on_clause}");
+            assert!(
+                ENTRY_COLUMNS.contains(&format!("{alias}.{name_col} AS {out_col}")),
+                "`{out_col}` 必须显式 AS 出来（from_row 按别名取值）"
+            );
+            // 同一张表不许出现第二次 JOIN（内连接写法 `JOIN x alias ON` 不在 LEFT JOIN 里也要被抓）。
+            assert_eq!(
+                ENTRY_SOURCE.matches(&format!("JOIN {table} {alias} ")).count(),
+                1,
+                "`{table}` 只允许 JOIN 一次（一次取齐，不许逐行查）"
+            );
+        }
+        assert_eq!(
+            ENTRY_SOURCE.matches("JOIN").count(),
+            ENTRY_SOURCE.matches("LEFT JOIN").count(),
+            "四条关联都必须是 LEFT JOIN（内连接会让弱引用指向已删主数据的行整条消失）"
+        );
+        // 分录自己的列必须带 `e.` 前缀：FROM 里还有四张表的同名 id 列，不带前缀会歧义。
+        assert!(ENTRY_COLUMNS.contains("e.aux_supplier_id") && ENTRY_COLUMNS.contains("e.line_no"));
+        println!("[VTRACE-7] SQL 结构：4 条 LEFT JOIN 一次取齐 ✓");
     }
 }
