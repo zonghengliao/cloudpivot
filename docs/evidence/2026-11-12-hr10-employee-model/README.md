@@ -6,8 +6,8 @@
 
 | 交付 | 文件 | 说明 |
 |---|---|---|
-| 员工主档数据层 | `backend/src/business/hr/employee_model.rs`（新，约 1150 行） | `biz_employee` 的**唯一** SQL 出口：建 / 读（详情 + 列表分页）/ 改 / 软删 / 改绑账号 / 状态 CAS 回写 + 三个唯一键的冲突翻译 + `CHECK` 文案 |
-| 真库用例 | `backend/src/business/hr/employee_model_db_tests.rs`（新，6 条） | `HR_DB_URL`（回退 `ERP_DB_URL`）开关；不设则 SKIP |
+| 员工主档数据层 | `backend/src/business/hr/employee_model.rs`（新，1507 行，含 15 条纯单测） | `biz_employee` 的**唯一** SQL 出口：建 / 读（详情 + 列表分页）/ 改 / 软删 / 改绑账号 / 状态 CAS 回写 + 三个唯一键的冲突翻译 + `CHECK` 文案 |
+| 真库用例 | `backend/src/business/hr/employee_model_db_tests.rs`（新，543 行 / 7 条） | `HR_DB_URL`（回退 `ERP_DB_URL`）开关；不设则 SKIP |
 | HR 错误码段 | `backend/src/shared/error_code.rs`（+68 行） | 新增 `68xxx` 段：`68001` 工号重复 / `68002` 身份证重复 / `68003` 账号已绑定 / `68004` 业务闸，含码值冻结单测 |
 | 模块挂载 | `backend/src/business/hr/mod.rs`（+5 行） | `pub mod employee_model;` + `#[cfg(test)] mod employee_model_db_tests;` |
 
@@ -46,7 +46,7 @@
 - 纯单测（不连库，`employee_model.rs::tests`，15 条）：`classify_maps_exactly_the_three_keys`、
   `conflict_messages_are_friendly_and_distinct`、`write_error_translates_unique_and_check_violations`、
   `unique_key_names_match_v0383_ddl`（约束名与 `V0383` DDL 对拍）等；
-- **真库用例（6 条）**：三条冲突各一条 + 互斥性 + CHECK + 状态 CAS。
+- **真库用例（7 条，`employee_model_db_tests.rs`）**：三条冲突各一条 + 互斥性 + CHECK + 状态 CAS。
 
 > 真库用例是必需的：驱动要**从 PG 报文里解析出约束名**（`extract_identifiers`），
 > 解析规则一改，「按名字翻译」就静默失效 —— 纯单测证明不了。
@@ -59,11 +59,11 @@
 
 | 门禁 | 结果 | 证据 |
 |---|---|---|
-| `cargo check --all-targets` | 绿，零警告 | （日志见卡内汇报） |
+| `cargo check --all-targets` | 绿，零警告 | `07_check.out` |
 | `cargo clippy --all-targets -- -D warnings` | 绿 | `02_clippy.out` |
 | `rustfmt --check`（本卡 4 个文件） | clean | `06_fmt.out` |
-| `cargo test --lib business::hr`（带真库） | **35 passed / 0 failed**（其中 6 条真库用例**真跑**，无 SKIP） | `01_hr_tests_real_db.out` |
-| `cargo test --lib`（全量，带真库） | **4847 passed / 0 failed**（HR-09 时 4819 ⇒ +28 = 15 纯单测 + 1 码表 + 6 真库 + 6 其它） | `05_full_lib_tests.out` |
+| `cargo test --lib business::hr`（带真库） | **35 passed / 0 failed**（HR-09 存量 13 + 本卡 15 纯单测 + 7 真库，**真跑无 SKIP**） | `01_hr_tests_real_db.out` |
+| `cargo test --lib`（全量，带真库） | **4847 passed / 0 failed**（HR-09 基线 4819 ⇒ 4847：本卡新增 23 条 = 15 纯单测 + 7 真库 + 1 码表，其余差额为并发卡新增） | `05_full_lib_tests.out` |
 | `pnpm typecheck` | EXIT=0（本卡零前端改动） | `03_frontend_typecheck.out` |
 
 真库：`hr10_card`（全新空库，`./target/debug/cloudpivot profile=test` 启动自动跑完 `V0383`~`V0390` 全部迁移）。
