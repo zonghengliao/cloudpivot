@@ -1,0 +1,24 @@
+test business::hr::employee_model::tests::apply_status_is_a_cas_update ... ok
+test business::hr::employee_model::tests::conflict_messages_are_friendly_and_distinct ... ok
+test business::hr::employee_model::tests::classify_maps_exactly_the_three_keys ... ok
+test business::hr::employee_model::tests::insert_sql_parameter_count_matches ... ok
+test business::hr::employee_model::tests::list_query_placeholders_line_up ... ok
+test business::hr::employee_model::tests::mask_id_card_keeps_six_and_four ... ok
+test business::hr::employee_model::tests::nullable_dates_are_null_if_guarded ... ok
+test business::hr::employee_model::tests::select_sql_projects_every_column_the_row_reads ... ok
+test business::hr::employee_model::tests::unique_lookups_are_literal_columns ... ok
+test business::hr::employee_model::tests::unique_key_names_match_v0383_ddl ... ok
+test business::hr::employee_model::tests::update_sql_never_touches_guarded_columns ... ok
+test business::hr::employee_model::tests::write_error_keeps_unknown_errors_internal ... ok
+test business::hr::employee_model::tests::update_sql_parameter_count_matches ... ok
+test business::hr::employee_model::tests::write_error_translates_unique_and_check_violations ... ok
+test business::hr::employee_model::tests::write_values_skip_blank_draft_fields ... ok
+test business::hr::employee_model_db_tests::db::duplicate_emp_no_translates_to_68001 ... ok
+test business::hr::employee_model_db_tests::db::duplicate_id_card_translates_to_68002_without_leaking_plaintext ... ok
+test business::hr::employee_model_db_tests::db::resign_without_date_is_a_check_violation_in_human_words ... ok
+test business::hr::employee_model_db_tests::db::apply_status_is_a_cas_update ... ok
+test business::hr::employee_model_db_tests::db::duplicate_user_translates_to_68003 ... ok
+test business::hr::employee_model_db_tests::db::three_keys_are_mutually_exclusive ... ok
+test business::hr::employee_model_db_tests::db::crud_roundtrip_and_soft_delete_frees_unique_keys ... ok
+test result: ok. 4847 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.49s
+EXIT=0

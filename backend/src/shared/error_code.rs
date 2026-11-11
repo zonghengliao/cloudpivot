@@ -42,6 +42,7 @@
 //! | `65xxx` | 批次 D（业务审批流：定义侧 12 + 运行侧 10，`65001`–`65005` / `65010`–`65024` / `65030`–`65031`） |
 //! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`；后续 ERP 卡续用 `66007`–`66021`，其中 `66014`–`66021` 为合同域；`66022`–`66026` 采购单↔合同、`66027`–`66029` 入库↔采购、`66030` 单位止血、`66031`–`66032` 过账复核来源采购单、`66033` 审批流未配置默认拒绝、`66034`–`66035` 出库单、`66036` 信用额度、`66037` 预算超支（FIN-1）、`66038`–`66040` 固定资产期间/批次/处置（FIN-2）、`66041`–`66043` 费用报销状态/明细合计/入账期间（FIN-3）、`66044` 收款退款过账审批前置（SO-14 遗留 D10）、`66045` 销售订单↔合同客户不符（SO-27）、`66046` 资产停用/启用状态非法（FIN-ASSET-ST02）、`66054` 主数据编码禁止手工指定（CODE-08）、`66055` 成本对象关批前置闸、`66056` 批次批号重复（ARCH-9）、`66057` 领料挂的成本对象非 OPEN（ARCH-9）、`66058` 工时×费率与金额不符（ARCH-9）、`66059` 费率三级全空（ARCH-9）、`66060`–`66061` 费用台账科目/金额（ARCH-9）、`66062`–`66063` 分摊池无在产对象/基数合计 0、`66064` calc 料归集来源领料行账面非法、`66065` 池与 4101 借方不平（ARCH-9）、`66066` 分摊重算期间批次已锁定（ARCH-9）、`66067`–`66071` calc 第 6 段产量/进度非法、零成本完工、上期已红冲、计算单锁定、无成本批次（ARCH-9））、`66072`–`66074` 结算批次重复/状态闸/完工入库重复结算（ARCH-9 B3-1 · B3-4）、`66075`–`66076` 结算凭证无完工金额/与计算单不符（ARCH-9 B3-5）、`66077` 结算事务内 6 条断言不平（ARCH-9 B3-6）、`66078` 红冲被业务边界拦下（ARCH-9 B3-7）、`66079` 成本模块开关未启用（ARCH-9 B4-4）） |
 //! | `67xxx` | PDF 导出（PDF-01：`67001` 渲染服务不可用 / `67002` 超时 / `67003` 模板错误 / `67004` 参数非法 / `67005` 请求过大） |
+//! | `68xxx` | 人力资源（ARCH-9-2：`68001` 工号重复 / `68002` 身份证重复 / `68003` 账号已绑定 / `68004` 操作被业务规则拦下） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -1884,6 +1885,74 @@ pub const PDF_OPTIONS_INVALID: i32 = 67004;
 /// [`crate::business::pdf::dto::MAX_RENDER_HTML_BYTES`]（4MiB）是硬上限：
 /// 挡住「传一个巨型 HTML 让 chromium 吃满内存」的用法。
 pub const PDF_RENDER_TOO_LARGE: i32 = 67005;
+
+// ==================== 68xxx：人力资源（ARCH-9-2 · HR） ====================
+//
+// 为什么单独开 68xxx：66xxx 已排到 66079（ERP 成本）、67xxx 被 PDF 导出占用；
+// HR 是**独立业务域**（10 张表 / 46 个接口），错误码按域分段便于前端 `error-code.ts`
+// 按段做文案兜底，也避免与 ERP 主数据码语义混淆（「工号重复」与「物料编码重复」是
+// 两件事，共用一个码会让前端无法分派人修）。
+//
+// 首批 4 个码由 HR-10（员工主档 model）引入：三个唯一键冲突 + 一条通用业务闸。
+// 后续 HR 卡续号从 `68005` 起（考勤 / 请假 / 薪资各有自己的语义）。
+
+/// 员工工号重复（HTTP 409，`68001`，HR-10）。
+///
+/// 唯一索引 `uk_biz_employee_no (org_id, emp_no) WHERE deleted_at IS NULL`。
+/// **软删后可复用**：同工号只在「未删除」的行之间唯一 —— 员工离职被软删后，
+/// 返聘可以重新用同一个工号（人事口径：工号是岗位码，不是终身码）。
+pub const HR_EMPLOYEE_NO_DUPLICATE: i32 = 68001;
+
+/// 员工身份证号重复（HTTP 409，`68002`，HR-10）。
+///
+/// 唯一索引 `uk_biz_employee_idcard (org_id, id_card) WHERE id_card IS NOT NULL AND deleted_at IS NULL`。
+/// 同一公司内一个身份证只能有一份**在职档案**（设计 D-2「一人一档一账号」）。
+/// 报文里出现的身份证号必须**脱敏**（设计 D-14：明文需 `business:hr:employee:sensitive`）。
+pub const HR_EMPLOYEE_ID_CARD_DUPLICATE: i32 = 68002;
+
+/// 登录账号已绑定其他员工（HTTP 409，`68003`，HR-10）。
+///
+/// 唯一索引 `uk_biz_employee_user (user_id) WHERE user_id IS NOT NULL AND deleted_at IS NULL`。
+/// 一个账号只能挂一份档案（设计 D-2 / §4.1.2「一号多人」明确禁止 —— 共用账号会让
+/// 审批轨迹失去意义）。要把账号改挂到别人身上，必须先在原档案上解绑
+/// （`POST /business/hr/employee/{id}/bind-user` 传空）。
+pub const HR_EMPLOYEE_ACCOUNT_BOUND: i32 = 68003;
+
+/// 员工操作被业务规则拦下（HTTP 409，`68004`）。
+///
+/// 与三个唯一键码分开：这类冲突**不是**「数据撞键」，而是「当前状态下不允许这么做」
+/// （例如对已离职员工做转正、把离职员工的部门改到新组织）。前端文案要提示
+/// 「下一步该做什么」，而不是「换个值重试」。
+pub const HR_EMPLOYEE_RULE_BLOCKED: i32 = 68004;
+
+#[cfg(test)]
+mod hr_error_codes_are_stable {
+    use super::*;
+
+    /// HR 段（68xxx）码值冻结：前端 `error-code.ts` 与运维告警按这些值映射。
+    #[test]
+    fn hr_error_codes_are_stable() {
+        let codes = [
+            (HR_EMPLOYEE_NO_DUPLICATE, 68001),
+            (HR_EMPLOYEE_ID_CARD_DUPLICATE, 68002),
+            (HR_EMPLOYEE_ACCOUNT_BOUND, 68003),
+            (HR_EMPLOYEE_RULE_BLOCKED, 68004),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "68xxx 段码值不得改动");
+        }
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "68xxx 段不得有重复码值");
+        assert!(
+            codes.iter().all(|(code, _)| (68001..=68999).contains(code)),
+            "68xxx 段必须落在 68001–68999"
+        );
+        assert!(
+            codes.iter().all(|(code, _)| *code > 67005),
+            "68xxx 段不得侵占 PDF 段（67001–67005）"
+        );
+    }
+}
 
 #[cfg(test)]
 mod pdf_error_codes_are_stable {

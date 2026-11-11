@@ -103,5 +103,10 @@
 //!   脚注写「4 处 `/my`」而表里只有 2 处（`/leave/my` 随 HR-41 落）。
 
 pub mod dto;
+/// 员工主档数据层（`biz_employee`）：CRUD + 三个唯一键的冲突翻译（HR-10）。
+pub mod employee_model;
+/// HR-10 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD 全通 + 三条冲突的真实报文。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_model_db_tests;
 pub mod handler;
 pub mod model;

@@ -1,0 +1,44 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 45s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 35 tests
+test business::hr::dto::tests::response_field_names_are_stable ... ok
+test business::hr::dto::tests::table_presence_shape_is_stable ... ok
+test business::hr::employee_model::tests::apply_status_is_a_cas_update ... ok
+test business::hr::employee_model::tests::classify_maps_exactly_the_three_keys ... ok
+test business::hr::employee_model::tests::conflict_messages_are_friendly_and_distinct ... ok
+test business::hr::employee_model::tests::insert_sql_parameter_count_matches ... ok
+test business::hr::employee_model::tests::list_query_placeholders_line_up ... ok
+test business::hr::employee_model::tests::mask_id_card_keeps_six_and_four ... ok
+test business::hr::employee_model::tests::nullable_dates_are_null_if_guarded ... ok
+test business::hr::employee_model::tests::select_sql_projects_every_column_the_row_reads ... ok
+test business::hr::employee_model::tests::unique_key_names_match_v0383_ddl ... ok
+test business::hr::employee_model::tests::unique_lookups_are_literal_columns ... ok
+test business::hr::employee_model::tests::update_sql_never_touches_guarded_columns ... ok
+test business::hr::employee_model::tests::update_sql_parameter_count_matches ... ok
+test business::hr::employee_model::tests::write_error_keeps_unknown_errors_internal ... ok
+test business::hr::employee_model::tests::write_error_translates_unique_and_check_violations ... ok
+test business::hr::employee_model::tests::write_values_skip_blank_draft_fields ... ok
+test business::hr::employee_model_db_tests::db::apply_status_is_a_cas_update ... ok
+test business::hr::employee_model_db_tests::db::crud_roundtrip_and_soft_delete_frees_unique_keys ... ok
+test business::hr::employee_model_db_tests::db::duplicate_emp_no_translates_to_68001 ... ok
+test business::hr::employee_model_db_tests::db::duplicate_id_card_translates_to_68002_without_leaking_plaintext ... ok
+test business::hr::employee_model_db_tests::db::duplicate_user_translates_to_68003 ... ok
+test business::hr::employee_model_db_tests::db::resign_without_date_is_a_check_violation_in_human_words ... ok
+test business::hr::employee_model_db_tests::db::three_keys_are_mutually_exclusive ... ok
+test business::hr::handler::tests::contract_has_46_unique_routes ... ok
+test business::hr::handler::tests::contract_permissions_are_seeded_by_v0387 ... ok
+test business::hr::handler::tests::empty_presence_is_never_ready ... ok
+test business::hr::handler::tests::every_macro_path_in_module_is_in_contract ... ok
+test business::hr::handler::tests::health_probe_is_not_part_of_the_api_contract ... ok
+test business::hr::handler::tests::summarize_reports_ready_and_missing ... ok
+test business::hr::model::tests::constants_match_the_list ... ok
+test business::hr::model::tests::list_is_unique_prefixed_and_ordered ... ok
+test business::hr::model::tests::presence_sql_binds_one_placeholder_per_table ... ok
+test business::hr::model::tests::sentinel_org_id_is_nil ... ok
+test business::hr::model::tests::table_list_matches_v0383_ddl ... ok
+
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 4812 filtered out; finished in 2.82s
+
+EXIT=0
