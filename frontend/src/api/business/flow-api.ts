@@ -1091,6 +1091,71 @@ export function getFlowInstance(id: string): Promise<FlowInstanceDetail> {
   return get<FlowInstanceDetail>(`/api/business/flow/instance/${id}`);
 }
 
+/**
+ * 反查结果里的一条审批记录（审批时间线的一行）。
+ *
+ * 后端 `dto::InstanceTraceTaskRes` 的镜像：只放「谁 / 什么时候 / 什么结果」。
+ */
+export interface FlowTraceTask {
+  /** 节点 key（没有中文名时的兜底） */
+  node_key: string;
+  /** 节点中文名 */
+  node_name: string;
+  /** 审批人姓名快照（空串 = 用户已删 / 未指派） */
+  assignee_name: string;
+  /** 待办状态 `APPROVED|REJECTED|PENDING|SKIPPED|TRANSFERRED|...` */
+  status: string;
+  /** 时间（完成时间优先，未完成则是到岗时间） */
+  at: string | null;
+  /** 审批意见（空串 = 没填） */
+  comment: string;
+  /** 是否系统代点 */
+  is_auto: boolean;
+}
+
+/**
+ * 按业务单据反查到的一张审批单（后端 `dto::InstanceTraceRes`）。
+ */
+export interface FlowTraceInstance {
+  id: string;
+  instance_no: string;
+  flow_name: string;
+  /** 实例状态 `PENDING|APPROVED|REJECTED|WITHDRAWN|CANCELLED` */
+  status: string;
+  started_at: string;
+  ended_at: string | null;
+  initiator_name: string;
+  biz_type: string;
+  biz_no: string;
+  /**
+   * 调用方是否有权看这张审批单的明细。
+   *
+   * `false` → `tasks` 恒为空，界面必须照实说「无权限查看审批明细」，
+   * **不能**显示成「没有审批记录」（两者语义完全不同）。
+   */
+  visible: boolean;
+  tasks: FlowTraceTask[];
+}
+
+/**
+ * 按业务单据反查审批单（`GET /business/flow/instance/by-biz`，VTRACE-5）。
+ *
+ * 为什么不用 `GET /instance/page`：那个接口的 `keyword` 只搜 `instance_no` / `title`，
+ * 搜不到业务单号，也没有 `biz_id` 过滤；全链路视图手上只有来源单据的 uuid / 单号。
+ *
+ * @param query.biz_id   业务单据主键（`biz_voucher.source_id`）
+ * @param query.biz_no   业务单号（兜 `biz_id` 为空的历史行）
+ * @param query.biz_type 业务类型（给了才能走 `(biz_type, biz_id)` 复合索引）
+ * @returns 审批单列表（发起时间倒序）；`[]` = 该单据没有审批单
+ */
+export function fetchFlowInstancesByBiz(query: {
+  biz_id?: string | null;
+  biz_no?: string | null;
+  biz_type?: string | null;
+}): Promise<{ list: FlowTraceInstance[] }> {
+  return get<{ list: FlowTraceInstance[] }>('/api/business/flow/instance/by-biz', asParams(query));
+}
+
 /** 撤回（`POST /business/flow/instance/{id}/withdraw`；只允许发起人、且零人已审 → 否则 409 + 65023）。 */
 export function withdrawFlowInstance(id: string, reason?: string): Promise<FlowActionRes> {
   return post<FlowActionRes>(`/api/business/flow/instance/${id}/withdraw`, { reason: reason ?? null });

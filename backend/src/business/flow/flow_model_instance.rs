@@ -93,6 +93,41 @@ pub async fn lock_instance(ex: &Transaction, id: Uuid) -> DbResult<Option<Instan
     rows.first().map(InstanceRow::from_row).transpose()
 }
 
+/// 按**业务单据**反查审批单（VTRACE-5 全链路视图）。
+///
+/// # 为什么不复用 `page_instances`
+///
+/// 那个接口的 `keyword` 只搜 `instance_no` / `title`（`flow_model_inbox.rs`），
+/// 业务单号 `biz_no` 搜不到，更没有 `biz_id` 过滤；而全链路视图手上的定位值
+/// 只有「来源单据的 uuid / 单号」。所以单独一条按 `biz_id`（或兜底 `biz_no`）命中。
+///
+/// - `biz_type` 给了就拼进 WHERE：`idx_biz_flow_instance_biz (biz_type, biz_id)` 是复合索引，
+///   只给 `biz_id` 用不上前导列（行数小，退化成单表扫描也能接受，但不主动放弃索引）；
+/// - 排序 `started_at DESC`：同一张单据可能因撤回重提有多张审批单，**最新的排最前**；
+/// - `LIMIT 20`：全链路视图只画最近几轮，不做分页（防脏数据把界面撑爆）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn instances_of_biz(
+    biz_type: Option<&str>,
+    biz_id: Option<Uuid>,
+    biz_no: Option<&str>,
+) -> DbResult<Vec<InstanceRow>> {
+    let mut sql = format!(
+        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i \
+          WHERE i.deleted_at IS NULL AND (i.biz_id = ?::uuid OR i.biz_no = ?)"
+    );
+    let mut params = vec![opt_uuid(biz_id), opt_text(biz_no)];
+    if let Some(biz_type) = biz_type {
+        sql.push_str(" AND i.biz_type = ?");
+        params.push(Value::Text(biz_type.to_string()));
+    }
+    sql.push_str(" ORDER BY i.started_at DESC, i.id DESC LIMIT 20");
+    let rows = db().find_with_params(&sql, params).await?;
+    rows.iter().map(InstanceRow::from_row).collect()
+}
+
 /// 实例 CAS：`revision` 自增并写入状态 / 轮次 / 说明。
 ///
 /// 返回受影响行数：**0 表示 CAS 失败**（别人先推进了同一实例），调用方重新读取后重试一次

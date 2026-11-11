@@ -323,219 +323,235 @@
           </div>
         </div>
 
-        <!--
-          ★ P0-FIX-4B：审核链动作条（详情里直接操作，不必回列表点）。
-          状态先筛（草稿只有「审核」/ 已审核才有「反审核 · 记账」/ 已记账没有），
-          没权限或自审的置灰并在右侧写出原因 —— 「为什么点不了」比「按钮凭空消失」诚实。
-        -->
-        <div class="audit-bar" data-testid="voucher-detail-audit-actions">
-          <t-button
-            v-for="btn in detailAuditButtons"
-            :key="btn.key"
-            size="small"
-            :theme="btn.theme"
-            :variant="btn.disabled ? 'outline' : 'base'"
-            :disabled="btn.disabled"
-            :data-testid="`btn-voucher-detail-${btn.key}`"
-            @click="onAuditAction(btn, detail)"
-          >
-            {{ btn.label }}
-          </t-button>
-          <span v-if="auditBlockedReasons.length === 0 && detailAuditButtons.length === 0" class="audit-bar__why">
-            没有可执行的审核动作
-          </span>
-          <span v-else-if="auditBlockedReasons.length > 0" class="audit-bar__why">
-            {{ auditBlockedReasons.join('；') }}
-          </span>
-          <span class="audit-bar__spacer" />
-          <span class="audit-bar__note" data-testid="voucher-audit-note">{{ voucherAuditNote(detail.status) }}</span>
-        </div>
-
-        <t-alert
-          v-if="auditError"
-          theme="error"
-          :message="auditError"
-          data-testid="voucher-audit-error"
-          class="audit-alert"
-        />
-
-        <!-- ★ P-FLOW-3B：红冲审批中 → 说清「账没动」+ 撤回入口 -->
-        <t-alert
-          v-if="isPendingReverse(detail)"
-          theme="warning"
-          message="红冲审批中：凭证仍是「已记账」，账一分没动"
-          :description="pendingReverseDescription(detail)"
-          data-testid="voucher-pending-reverse-alert"
-        >
-          <template #operation>
-            <t-button
-              v-if="canWithdrawReverse(detail)"
-              size="small"
-              variant="outline"
-              theme="warning"
-              data-testid="btn-voucher-drawer-withdraw-inline"
-              @click="openWithdrawReverse(detail)"
-            >
-              撤回红冲审批
-            </t-button>
-          </template>
-        </t-alert>
-
-        <t-loading :loading="detailLoading" size="small">
-          <div class="field-grid">
-            <div class="field">
-              <span class="field__label">凭证日期</span>
-              <span class="field__value">{{ dash(detail.voucher_date) }}</span>
-            </div>
-            <div class="field">
-              <span class="field__label">会计期间</span>
-              <span class="field__value mono">{{ dash(detail.period) }}</span>
-            </div>
-            <div class="field">
-              <span class="field__label">摘要</span>
-              <span class="field__value">{{ dash(detail.summary) }}</span>
-            </div>
-            <div class="field">
-              <span class="field__label">来源单据</span>
-              <!--
-                ★ VTRACE-2：能定位到原单据的做成链接（点进去看；浏览器返回后列表筛选 / 页码靠
-                useListFilterMemory 恢复）；不能跳的（手工凭证 / 缺主键 / 页面未上线）保持纯文本，
-                但**一定要有 tooltip 说明为什么**——「点不了」比「为什么点不了」更让人困惑。
-              -->
-              <t-tooltip :content="sourceDoc.tip" placement="top-left" :show-arrow="true">
-                <t-link
-                  v-if="sourceDoc.clickable"
-                  theme="primary"
-                  class="field__value mono source-doc__link"
-                  :aria-label="sourceDoc.tip"
-                  data-testid="voucher-detail-source-doc"
-                  @click="openSourceDoc"
-                >
-                  {{ sourceDoc.text }}
-                  <t-icon name="jump" class="source-doc__icon" />
-                </t-link>
-                <span
-                  v-else
-                  class="field__value mono source-doc__plain"
-                  data-testid="voucher-detail-source-doc-text"
-                >
-                  {{ sourceDoc.text }}
-                </span>
-              </t-tooltip>
-            </div>
-            <div class="field">
-              <span class="field__label">记账时间</span>
-              <span class="field__value">{{ dash(detail.posted_at) }}</span>
-            </div>
-            <div class="field">
-              <span class="field__label">分录行数</span>
-              <span class="field__value">{{ detail.entries.length }} 行</span>
-            </div>
-            <!-- ★ P7：红字凭证 / 被红冲的反向指针 -->
-            <div v-if="detail.is_red" class="field">
-              <span class="field__label">红冲的原凭证</span>
-              <span class="field__value mono" data-testid="voucher-detail-reverse-of">
-                {{ dash(detail.reverse_of_no) }}
-              </span>
-            </div>
-            <div v-if="detail.reversed_by_no" class="field">
-              <span class="field__label">已被红冲（红字凭证）</span>
-              <t-link
-                theme="primary"
-                class="mono"
-                data-testid="voucher-detail-reversed-by"
-                @click="openById(detail.reversed_by)"
-              >
-                {{ detail.reversed_by_no }}
-              </t-link>
-            </div>
-          </div>
-
-          <t-table
-            class="entry-table"
-            row-key="id"
-            :data="detail.entries"
-            :columns="entryColumns"
-            size="small"
-            bordered
-            data-testid="voucher-entry-table"
-          >
-            <template #line_no="{ row }">
-              <span class="mono">{{ row.line_no }}</span>
-            </template>
-            <template #summary="{ row }">{{ dash(row.summary) }}</template>
-            <template #account="{ row }">
-              <span class="account-cell" :data-testid="`voucher-entry-account-${row.line_no}`">
-                <span class="mono">{{ row.account_code }}</span>
-                <span>{{ row.account_name }}</span>
-              </span>
-            </template>
-            <template #aux="{ row }">
-              <span v-if="!entryAuxTags(row).length" class="muted">—</span>
-              <t-tag
-                v-for="tag in entryAuxTags(row)"
-                :key="tag.dim"
+        <!-- 详情 / 全链路 两个标签页（VTRACE-5）
+             「全链路」把四段串成一条时间轴：来源单据 → 审批 → 本凭证 → 分录；
+             数据全部来自已加载的凭证详情 + 审批反查接口，不在这里重算任何口径。 -->
+        <t-tabs v-model="drawerTab" class="drawer-tabs" data-testid="voucher-drawer-tabs">
+          <t-tab-panel value="detail" label="详情">
+            <!--
+              ★ P0-FIX-4B：审核链动作条（详情里直接操作，不必回列表点）。
+              状态先筛（草稿只有「审核」/ 已审核才有「反审核 · 记账」/ 已记账没有），
+              没权限或自审的置灰并在右侧写出原因 —— 「为什么点不了」比「按钮凭空消失」诚实。
+            -->
+            <div class="audit-bar" data-testid="voucher-detail-audit-actions">
+              <t-button
+                v-for="btn in detailAuditButtons"
+                :key="btn.key"
                 size="small"
-                variant="light"
-                :data-testid="`voucher-entry-aux-${tag.dim.toLowerCase()}-${row.line_no}`"
+                :theme="btn.theme"
+                :variant="btn.disabled ? 'outline' : 'base'"
+                :disabled="btn.disabled"
+                :data-testid="`btn-voucher-detail-${btn.key}`"
+                @click="onAuditAction(btn, detail)"
               >
-                {{ tag.text }}
-              </t-tag>
-            </template>
-            <template #debit_amount="{ row }">
-              <span class="money" :data-testid="`voucher-entry-debit-${row.line_no}`">
-                {{ toCents(row.debit_amount) === 0 ? '' : formatMoney(row.debit_amount) }}
+                {{ btn.label }}
+              </t-button>
+              <span v-if="auditBlockedReasons.length === 0 && detailAuditButtons.length === 0" class="audit-bar__why">
+                没有可执行的审核动作
               </span>
-            </template>
-            <template #credit_amount="{ row }">
-              <span class="money" :data-testid="`voucher-entry-credit-${row.line_no}`">
-                {{ toCents(row.credit_amount) === 0 ? '' : formatMoney(row.credit_amount) }}
+              <span v-else-if="auditBlockedReasons.length > 0" class="audit-bar__why">
+                {{ auditBlockedReasons.join('；') }}
               </span>
-            </template>
-          </t-table>
-
-          <!-- ★★ 借贷平衡可视化：合计行 + 绿勾 / 红字警告 ★★ -->
-          <div class="balance" :class="balanceClass" data-testid="voucher-balance">
-            <div class="balance__label">合计</div>
-            <div class="balance__debit money" data-testid="voucher-balance-debit">
-              {{ formatCents(balance.debitCents) }}
+              <span class="audit-bar__spacer" />
+              <span class="audit-bar__note" data-testid="voucher-audit-note">{{ voucherAuditNote(detail.status) }}</span>
             </div>
-            <div class="balance__credit money" data-testid="voucher-balance-credit">
-              {{ formatCents(balance.creditCents) }}
-            </div>
-            <div class="balance__verdict" :class="balanceClass">
-              <t-icon :name="balanceIcon(balance.balanced)" />
-              <span data-testid="voucher-balance-text">
-                {{ balanceText(balance.balanced, balance.diffCents) }}
-              </span>
-            </div>
-          </div>
 
-          <!-- 响应自相矛盾（前端逐行加 ≠ 后端合计）时单独报警：这比账不平更该查 -->
-          <t-alert
-            v-if="!balance.consistent"
-            theme="warning"
-            message="响应自相矛盾：分录逐行合计与后端合计不一致"
-            :description="balance.mismatch"
-            class="balance-alert"
-            data-testid="voucher-balance-mismatch"
-          />
-
-          <!--
-            ★ C2：审批进度（凭证只在「红冲审批中」时挂实例 `pending_reverse_instance_id`）。
-            与采购 / 收货 / 应付 / 调拨同一个 `FlowProgress` + 同一个装载器：
-            节点进度 + 审批人明细（谁 / 什么时间 / 意见或跳过说明）都来自
-            `GET /business/flow/instance/{id}`，前端不自己推「走到第几步」。
-          -->
-          <template v-if="hasApprovalProgress(approvalProgress)">
-            <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
-            <FlowProgress
-              :nodes="approvalProgress.nodes"
-              :tasks="approvalProgress.tasks"
-              data-testid="voucher-approval-progress"
+            <t-alert
+              v-if="auditError"
+              theme="error"
+              :message="auditError"
+              data-testid="voucher-audit-error"
+              class="audit-alert"
             />
-          </template>
-        </t-loading>
+
+            <!-- ★ P-FLOW-3B：红冲审批中 → 说清「账没动」+ 撤回入口 -->
+            <t-alert
+              v-if="isPendingReverse(detail)"
+              theme="warning"
+              message="红冲审批中：凭证仍是「已记账」，账一分没动"
+              :description="pendingReverseDescription(detail)"
+              data-testid="voucher-pending-reverse-alert"
+            >
+              <template #operation>
+                <t-button
+                  v-if="canWithdrawReverse(detail)"
+                  size="small"
+                  variant="outline"
+                  theme="warning"
+                  data-testid="btn-voucher-drawer-withdraw-inline"
+                  @click="openWithdrawReverse(detail)"
+                >
+                  撤回红冲审批
+                </t-button>
+              </template>
+            </t-alert>
+
+            <t-loading :loading="detailLoading" size="small">
+              <div class="field-grid">
+                <div class="field">
+                  <span class="field__label">凭证日期</span>
+                  <span class="field__value">{{ dash(detail.voucher_date) }}</span>
+                </div>
+                <div class="field">
+                  <span class="field__label">会计期间</span>
+                  <span class="field__value mono">{{ dash(detail.period) }}</span>
+                </div>
+                <div class="field">
+                  <span class="field__label">摘要</span>
+                  <span class="field__value">{{ dash(detail.summary) }}</span>
+                </div>
+                <div class="field">
+                  <span class="field__label">来源单据</span>
+                  <!--
+                    ★ VTRACE-2：能定位到原单据的做成链接（点进去看；浏览器返回后列表筛选 / 页码靠
+                    useListFilterMemory 恢复）；不能跳的（手工凭证 / 缺主键 / 页面未上线）保持纯文本，
+                    但**一定要有 tooltip 说明为什么**——「点不了」比「为什么点不了」更让人困惑。
+                  -->
+                  <t-tooltip :content="sourceDoc.tip" placement="top-left" :show-arrow="true">
+                    <t-link
+                      v-if="sourceDoc.clickable"
+                      theme="primary"
+                      class="field__value mono source-doc__link"
+                      :aria-label="sourceDoc.tip"
+                      data-testid="voucher-detail-source-doc"
+                      @click="openSourceDoc"
+                    >
+                      {{ sourceDoc.text }}
+                      <t-icon name="jump" class="source-doc__icon" />
+                    </t-link>
+                    <span
+                      v-else
+                      class="field__value mono source-doc__plain"
+                      data-testid="voucher-detail-source-doc-text"
+                    >
+                      {{ sourceDoc.text }}
+                    </span>
+                  </t-tooltip>
+                </div>
+                <div class="field">
+                  <span class="field__label">记账时间</span>
+                  <span class="field__value">{{ dash(detail.posted_at) }}</span>
+                </div>
+                <div class="field">
+                  <span class="field__label">分录行数</span>
+                  <span class="field__value">{{ detail.entries.length }} 行</span>
+                </div>
+                <!-- ★ P7：红字凭证 / 被红冲的反向指针 -->
+                <div v-if="detail.is_red" class="field">
+                  <span class="field__label">红冲的原凭证</span>
+                  <span class="field__value mono" data-testid="voucher-detail-reverse-of">
+                    {{ dash(detail.reverse_of_no) }}
+                  </span>
+                </div>
+                <div v-if="detail.reversed_by_no" class="field">
+                  <span class="field__label">已被红冲（红字凭证）</span>
+                  <t-link
+                    theme="primary"
+                    class="mono"
+                    data-testid="voucher-detail-reversed-by"
+                    @click="openById(detail.reversed_by)"
+                  >
+                    {{ detail.reversed_by_no }}
+                  </t-link>
+                </div>
+              </div>
+
+              <t-table
+                class="entry-table"
+                row-key="id"
+                :data="detail.entries"
+                :columns="entryColumns"
+                size="small"
+                bordered
+                data-testid="voucher-entry-table"
+              >
+                <template #line_no="{ row }">
+                  <span class="mono">{{ row.line_no }}</span>
+                </template>
+                <template #summary="{ row }">{{ dash(row.summary) }}</template>
+                <template #account="{ row }">
+                  <span class="account-cell" :data-testid="`voucher-entry-account-${row.line_no}`">
+                    <span class="mono">{{ row.account_code }}</span>
+                    <span>{{ row.account_name }}</span>
+                  </span>
+                </template>
+                <template #aux="{ row }">
+                  <span v-if="!entryAuxTags(row).length" class="muted">—</span>
+                  <t-tag
+                    v-for="tag in entryAuxTags(row)"
+                    :key="tag.dim"
+                    size="small"
+                    variant="light"
+                    :data-testid="`voucher-entry-aux-${tag.dim.toLowerCase()}-${row.line_no}`"
+                  >
+                    {{ tag.text }}
+                  </t-tag>
+                </template>
+                <template #debit_amount="{ row }">
+                  <span class="money" :data-testid="`voucher-entry-debit-${row.line_no}`">
+                    {{ toCents(row.debit_amount) === 0 ? '' : formatMoney(row.debit_amount) }}
+                  </span>
+                </template>
+                <template #credit_amount="{ row }">
+                  <span class="money" :data-testid="`voucher-entry-credit-${row.line_no}`">
+                    {{ toCents(row.credit_amount) === 0 ? '' : formatMoney(row.credit_amount) }}
+                  </span>
+                </template>
+              </t-table>
+
+              <!-- ★★ 借贷平衡可视化：合计行 + 绿勾 / 红字警告 ★★ -->
+              <div class="balance" :class="balanceClass" data-testid="voucher-balance">
+                <div class="balance__label">合计</div>
+                <div class="balance__debit money" data-testid="voucher-balance-debit">
+                  {{ formatCents(balance.debitCents) }}
+                </div>
+                <div class="balance__credit money" data-testid="voucher-balance-credit">
+                  {{ formatCents(balance.creditCents) }}
+                </div>
+                <div class="balance__verdict" :class="balanceClass">
+                  <t-icon :name="balanceIcon(balance.balanced)" />
+                  <span data-testid="voucher-balance-text">
+                    {{ balanceText(balance.balanced, balance.diffCents) }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- 响应自相矛盾（前端逐行加 ≠ 后端合计）时单独报警：这比账不平更该查 -->
+              <t-alert
+                v-if="!balance.consistent"
+                theme="warning"
+                message="响应自相矛盾：分录逐行合计与后端合计不一致"
+                :description="balance.mismatch"
+                class="balance-alert"
+                data-testid="voucher-balance-mismatch"
+              />
+
+              <!--
+                ★ C2：审批进度（凭证只在「红冲审批中」时挂实例 `pending_reverse_instance_id`）。
+                与采购 / 收货 / 应付 / 调拨同一个 `FlowProgress` + 同一个装载器：
+                节点进度 + 审批人明细（谁 / 什么时间 / 意见或跳过说明）都来自
+                `GET /business/flow/instance/{id}`，前端不自己推「走到第几步」。
+              -->
+              <template v-if="hasApprovalProgress(approvalProgress)">
+                <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
+                <FlowProgress
+                  :nodes="approvalProgress.nodes"
+                  :tasks="approvalProgress.tasks"
+                  data-testid="voucher-approval-progress"
+                />
+              </template>
+            </t-loading>
+          </t-tab-panel>
+          <t-tab-panel value="trace" label="全链路">
+            <VoucherFullTrace
+              :voucher="detail"
+              :source-doc="sourceDoc"
+              :aux-text="auxTextOf"
+              data-testid="voucher-trace-panel"
+              @open="openTraceLink"
+            />
+          </t-tab-panel>
+        </t-tabs>
       </div>
     </t-drawer>
 
@@ -836,6 +852,7 @@ import {
 } from './voucher-logic';
 import { submitFeedback, withdrawFeedback } from '../shared/approval-flow';
 import { resolveSourceDocDisplay, type SourceDocDisplay } from './voucher-source-link';
+import VoucherFullTrace from './VoucherFullTrace.vue';
 import { dash, formatCents, formatMoney, shortDate, toCents } from '../shared/money';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import { getFlowInstance } from '@/api/business/flow-api';
@@ -1112,6 +1129,13 @@ function handleRowClick(context: { row: unknown }): void {
 // ==================== 详情 ====================
 
 const detailVisible = ref(false);
+/**
+ * 详情抽屉里的两个标签页（VTRACE-5）。
+ *
+ * `trace` = 「全链路」（单据 → 审批 → 凭证 → 分录）。默认仍是「详情」：
+ * 打开抽屉的第一诉求永远是看分录 / 审核动作，全链路是追账时才会点。
+ */
+const drawerTab = ref<'detail' | 'trace'>('detail');
 const detailLoading = ref(false);
 const detail = ref<VoucherDetailEx | null>(null);
 
@@ -1235,6 +1259,32 @@ function openSourceDoc(): void {
   }
   persistListMemory();
   void router.push({ path: target.path, query: target.query });
+}
+
+/**
+ * 「全链路」里点来源单据（VTRACE-5）。
+ *
+ * 与 {@link openSourceDoc} 同一套纪律：先落盘列表记忆，再 push；`path` 为空绝不 push。
+ * 单独一个入口而不是复用 `openSourceDoc`：全链路标签页的目标可能来自别的段
+ * （将来要挂审批单 / 单据详情），组件只上报 `{path, query}`，跳转和记忆留在这张页面里。
+ */
+function openTraceLink(payload: { path: string; query: Record<string, string> }): void {
+  if (!payload?.path) {
+    return;
+  }
+  persistListMemory();
+  void router.push({ path: payload.path, query: payload.query });
+}
+
+/**
+ * 分录的辅助核算 id → 名称（全链路标签页用）。
+ *
+ * `auxOptions` 是页面已经加载好的字典（供应商 / 物料 / 仓库 / 部门），
+ * 直接查它，解析不到时返回空串由纯函数退到短 id —— 绝不显示整串 uuid（约定 13）。
+ */
+function auxTextOf(dim: 'DEPT' | 'SUPPLIER' | 'MATERIAL' | 'WAREHOUSE', id: string): string {
+  const hit = auxOptions[dim].find((item) => item.value === id);
+  return hit?.label ?? '';
 }
 
 /** 借贷平衡三方校验（前端逐行加 / 后端分录合计 / 单头合计） */
@@ -2039,6 +2089,24 @@ onMounted(() => {
   flex-direction: column;
   gap: 16px;
   padding: 4px 4px 0;
+}
+
+/*
+ * 「详情 / 全链路」标签页（VTRACE-5）。
+ *
+ * 详情那一段原来是 `.drawer` 的直接子元素（靠 flex + gap:16px 排版），现在被
+ * `t-tab-panel` 包了一层，**面板自己必须补回同样的 flex 列**，否则审核动作条、
+ * 提示条、字段区、分录表会全部贴在一起（gap 断了）。
+ */
+.drawer-tabs {
+  margin-top: -4px;
+}
+
+.drawer-tabs :deep(.t-tab-panel) {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 12px;
 }
 
 .drawer-head {

@@ -1459,6 +1459,112 @@ impl InstancePageQuery {
     }
 }
 
+// ==================== 按业务单据反查审批单（VTRACE-5 全链路视图） ====================
+
+/// 「按业务单据反查审批单」查询参数。
+///
+/// 与 [`InstancePageQuery`] 的区别：分页接口的 `keyword` 只搜 `instance_no` / `title`，
+/// 搜不到业务单号（`biz_no`），更没有 `biz_id` 过滤；而全链路视图拿到的只有
+/// 「来源单据的 uuid / 单号」，必须直接按 `biz_id` 命中
+/// （索引 `idx_biz_flow_instance_biz (biz_type, biz_id)`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct InstanceByBizQuery {
+    /// 业务单据主键（`biz_flow_instance.biz_id`）。与 `biz_no` 至少给一个。
+    #[serde(default)]
+    pub biz_id: Option<String>,
+    /// 业务单号（`biz_flow_instance.biz_no`；兜 `biz_id` 为空的历史行）。
+    #[serde(default)]
+    pub biz_no: Option<String>,
+    /// 业务类型（可选；给了就能走 `(biz_type, biz_id)` 复合索引）。
+    #[serde(default)]
+    pub biz_type: Option<String>,
+}
+
+/// 反查结果里的一条审批记录（审批时间线的一行）。
+///
+/// 只放「谁 / 什么时候 / 什么结果」三件事 —— 全链路视图是给人看的一条时间轴，
+/// 不需要单据卡片那一套 30 个字段。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceTraceTaskRes {
+    /// 节点 key（没有中文名时的兜底）。
+    pub node_key: String,
+    /// 节点中文名（`biz_flow_instance_node.node_name` 快照）。
+    pub node_name: String,
+    /// 审批人姓名快照（空 = 用户已删 / 未指派）。
+    pub assignee_name: String,
+    /// 待办状态 `APPROVED|REJECTED|PENDING|SKIPPED|TRANSFERRED|...`。
+    pub status: String,
+    /// 时间（完成时间优先，未完成则到岗时间）。
+    pub at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 审批意见（空串 = 没填）。
+    pub comment: String,
+    /// 是否系统代点（自动通过）。
+    pub is_auto: bool,
+}
+
+/// 按业务单据反查到的一张审批单。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceTraceRes {
+    /// 审批单 id。
+    pub id: String,
+    /// 审批单号 `FLW-YYYYMMDD-xxxxxxxx`。
+    pub instance_no: String,
+    /// 流程名。
+    pub flow_name: String,
+    /// 实例状态 `PENDING|APPROVED|REJECTED|WITHDRAWN|CANCELLED`。
+    pub status: String,
+    /// 发起时间。
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// 结束时间（在跑 → `None`）。
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 发起人姓名快照。
+    pub initiator_name: String,
+    /// 业务类型（`PO_APPROVE` / `EXPENSE` / …）。
+    pub biz_type: String,
+    /// 业务单号。
+    pub biz_no: String,
+    /// 调用方**是否有权**看这张审批单的明细（无权 → `tasks` 为空串清单，前端照实说「无权限」）。
+    ///
+    /// 为什么不是 403：全链路视图是「我这边的凭证要追溯」，无权看审批明细不该让整屏失败；
+    /// 但也不能假装「没有审批」—— 两者语义完全不同，所以留一个显式开关。
+    pub visible: bool,
+    /// 审批时间线（`visible = false` 时恒为空）。
+    pub tasks: Vec<InstanceTraceTaskRes>,
+}
+
+/// 反查结果（`list` 为空 = 该业务单据没有审批单）。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceTraceListRes {
+    /// 审批单列表（发起时间倒序）。
+    pub list: Vec<InstanceTraceRes>,
+}
+
+/// 归一化「按业务单据反查」的两个定位值。
+///
+/// 返回 `(biz_id, biz_no)`：
+/// - 两个都空 / 全空白 → `Err`（否则会退化成「查全表」）；
+/// - `biz_id` 非空但不是 uuid → `Err`（不静默当没有）；
+/// - `biz_no` 空白 → `None`。
+///
+/// # 异常情况
+///
+/// 见上；错误串由 handler 转成 `400 + 65005`。
+pub fn normalize_biz_lookup(
+    biz_id: Option<&str>,
+    biz_no: Option<&str>,
+) -> Result<(Option<Uuid>, Option<String>), String> {
+    let id_raw = biz_id.map(collapse_whitespace).filter(|value| !value.is_empty());
+    let no_raw = biz_no.map(collapse_whitespace).filter(|value| !value.is_empty());
+    if id_raw.is_none() && no_raw.is_none() {
+        return Err("必须给出业务单据 id 或单号".to_string());
+    }
+    let id = match id_raw {
+        None => None,
+        Some(raw) => Some(Uuid::parse_str(&raw).map_err(|_| "业务单据 id 格式非法".to_string())?),
+    };
+    Ok((id, no_raw))
+}
+
 /// 撤回请求。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct WithdrawReq {
@@ -2525,6 +2631,25 @@ mod expression_tests {
         assert_eq!(issues.len(), 1, "{issues:#?}");
         assert_eq!(issues[0].code, error_code::FLOW_EXPRESSION_INVALID);
         assert_eq!(issues[0].code, 65033);
+    }
+
+    /// VTRACE-5：按业务单据反查的入参归一化 —— 空值必须拒、坏 uuid 必须拒、空白单号当没给。
+    #[test]
+    fn biz_lookup_requires_a_locator_and_rejects_bad_uuid() {
+        // ① 两个都空 / 全空白 → 拒（否则会退化成全表扫描）
+        assert!(normalize_biz_lookup(None, None).is_err());
+        assert!(normalize_biz_lookup(Some("   "), Some("\t")).is_err());
+        // ② biz_id 不是 uuid → 拒，不静默当「没有」
+        assert!(normalize_biz_lookup(Some("not-a-uuid"), None).is_err());
+        // ③ 只有单号 → (None, Some(no))，并且前后空白被折叠掉
+        let (id, no) = normalize_biz_lookup(None, Some(" IN-20261101-900003 ")).unwrap();
+        assert!(id.is_none());
+        assert_eq!(no.as_deref(), Some("IN-20261101-900003"));
+        // ④ 两者都给 → 都保留（id 走索引，单号兜历史行）
+        let (id, no) =
+            normalize_biz_lookup(Some("de300000-0000-4000-8000-000000001103"), Some("IN-20261101-900003")).unwrap();
+        assert_eq!(id.unwrap().to_string(), "de300000-0000-4000-8000-000000001103");
+        assert_eq!(no.as_deref(), Some("IN-20261101-900003"));
     }
 
     #[test]

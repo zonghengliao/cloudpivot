@@ -1121,6 +1121,7 @@ pub async fn create_draft(
 // | 12 | POST | `/business/flow/instance` | `business:flow:instance:create` |
 // | 13 | GET | `/business/flow/instance/page` | `business:flow:instance:read` |
 // | 14 | GET | `/business/flow/instance/{id}` | `business:flow:instance:read` |
+// | 14b | GET | `/business/flow/instance/by-biz` | `business:flow:instance:read` |（按业务单据 `biz_id`/`biz_no` 反查审批单 + 时间线，VTRACE-5 全链路视图）
 // | 15 | POST | `/business/flow/instance/{id}/withdraw` | `business:flow:instance:withdraw` |
 // | 15b | POST | `/business/flow/instance/{id}/terminate` | `business:flow:admin` |（管理员人工终止，E2E01-FIX-3）
 // | 16 | POST | `/business/flow/task/{id}/approve` | `business:flow:approve` |
@@ -1659,6 +1660,105 @@ pub async fn instance_detail(
         my_task: my_task.as_ref().map(|task| task_res(task, &ctx_of(&task.node_key))),
         auto_passed_nodes: row.auto_passed_nodes,
     }))
+}
+
+// ==================== 14b. 按业务单据反查审批单（VTRACE-5 全链路视图） ====================
+
+/// 按业务单据反查它的审批单（`GET /business/flow/instance/by-biz`）。
+///
+/// 全链路视图（凭证 → 来源单据 → 审批 → 分录）需要的只有一件事：
+/// **这张业务单据走没走审批、谁审的、什么时间、什么结论**。
+/// 前端手上只有 `biz_voucher.source_id / source_no`，分页接口又搜不到业务单号，
+/// 于是补这个直查口子。
+///
+/// # 可见性（与 [`instance_detail`] 同一口径，但**不 403**）
+///
+/// 发起人 / 审批人（含已审）/ 抄送人 / 流程管理员 → `visible = true` + 时间线；
+/// 其余人 → `visible = false` + 空时间线。理由：这是**我这边凭证的追溯视图**，
+/// 无权看审批明细不该让整屏 403 失败，但也不能假装「这张单没有审批」——
+/// 两种语义完全不同，所以用一个显式布尔值说清楚。审批单号 / 状态 / 发起人
+/// 属于「审批存在过」这一事实，仍然下发。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：`biz_id` / `biz_no` 都没给、`biz_id` 不是 uuid、`biz_type` 非法；
+/// - 500：数据库异常。
+#[nik::permission(
+    path = "/business/flow/instance/by-biz",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[nik::get("/business/flow/instance/by-biz")]
+pub async fn instance_by_biz(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::InstanceByBizQuery>,
+) -> ResResult<dto::InstanceTraceListRes> {
+    let me = me_of(&claims)?;
+    let (biz_id, biz_no) =
+        dto::normalize_biz_lookup(query.biz_id.as_deref(), query.biz_no.as_deref()).map_err(field_invalid)?;
+    let biz_type = match query.biz_type.as_deref() {
+        None => None,
+        Some(raw) if raw.trim().is_empty() => None,
+        Some(raw) => Some(dto::normalize_biz_type(raw).map_err(field_invalid)?),
+    };
+    let rows = model::instances_of_biz(biz_type.as_deref(), biz_id, biz_no.as_deref())
+        .await
+        .map_err(|error| utils::db_error(error, "按业务单据反查审批单"))?;
+    let mine = model::my_instance_ids(me)
+        .await
+        .map_err(|error| utils::db_error(error, "查询我的相关审批单"))?;
+    let is_admin = claims.has_permission("business:flow:admin");
+    let mut list = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let visible = row.initiator_id == me || mine.contains(&row.id) || is_admin;
+        // 节点中文名只在时间线上用；无权的人不发这次查询（少一次无意义的往返）。
+        let tasks = if visible {
+            let nodes = model::nodes_of(row.id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询节点进度"))?;
+            let names = nodes
+                .iter()
+                .map(|node| (node.node_key.as_str(), node.node_name.as_str()))
+                .collect::<std::collections::HashMap<&str, &str>>();
+            let timeline = model::timeline(row.id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询审批时间线"))?;
+            timeline
+                .iter()
+                .map(|task| dto::InstanceTraceTaskRes {
+                    node_key: task.node_key.clone(),
+                    node_name: names
+                        .get(task.node_key.as_str())
+                        .copied()
+                        .unwrap_or(task.node_key.as_str())
+                        .to_string(),
+                    assignee_name: task.assignee_name.clone().unwrap_or_default(),
+                    status: task.status.clone(),
+                    // 未完成的待办 `completed_at` 是空的：显示到岗时间才能看出「在他手上多久」，
+                    // 与 `shared/approval-progress.ts::mapApprovalTasks` 同一口径。
+                    at: Some(task.completed_at.unwrap_or(task.created_at)),
+                    comment: task.comment.clone().unwrap_or_default(),
+                    is_auto: task.is_auto,
+                })
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        list.push(dto::InstanceTraceRes {
+            id: row.id.to_string(),
+            instance_no: row.instance_no.clone(),
+            flow_name: row.flow_name.clone(),
+            status: row.status.clone(),
+            started_at: row.started_at,
+            ended_at: row.ended_at,
+            initiator_name: row.initiator_name.clone().unwrap_or_default(),
+            biz_type: row.biz_type.clone(),
+            biz_no: row.biz_no.clone().unwrap_or_default(),
+            visible,
+            tasks,
+        });
+    }
+    Ok(Res::ok(dto::InstanceTraceListRes { list }))
 }
 
 // ==================== 15. 撤回 ====================
