@@ -2613,10 +2613,616 @@ def group_s():
               """)
 
 
+# ══════════════════════════════════════════════════════════════════
+# T. 成本核算（ARCH-9 §4.11 · COST-B3-10）—— C-COST-1 ~ C-COST-6
+# ══════════════════════════════════════════════════════════════════
+# 六条不变量（设计 §4.11 逐条落地，编号是契约，不许重排）：
+#
+#   C-COST-1  当期 Σ collect(OVERHEAD)  = 当期 4101.* 借方发生额（逐 (车间,科目) 组）
+#   C-COST-2  Σ 生产入库金额 = 完工结转凭证借 1405 = Σ 计算单完工成本；且凭证自身借贷平衡
+#   C-COST-2·账 生产入库单 ↔ 库存三本账（库存表 / 库位账 / 流水）数量金额同源
+#   C-COST-3  4001.01+.02+.03 余额 = Σ(每对象最新已结算批次期末在制) + 在途未结转投入
+#   C-COST-4  ① 每个 (车间,科目) 的 4101.* 期借贷相等（池清零）
+#             ② Σ 分摊结果 = Σ 池行（分摊守恒 / 无漏摊）
+#   C-COST-5  Σ collect(MATERIAL) = Σ 已过账挂对象领料行（料归集完整，WARN）
+#   C-COST-6  每张计算单：完工 + 期末在制 = 期初在制 + 料 + 工 + 费
+#
+# ── 为什么只判「已结算批次所属期间」（这条决定了会不会误报）─────────────
+# 成本核算是「两阶段」的：领料 / 折旧 / 报销在**上游过账**时就写了科目分录，而人工计提、
+# 手工台账、制造费用结转、完工结转这四张凭证是**结算事务内**才生成的。所以一个正在做账的
+# 期间（批次还在 DRAFT/SUBMITTED/APPROVED）天然存在「账上已借 4001.01，但 4101 台账凭证
+# 还没发」的中间态 —— 拿它去对 C-COST-1 必然差一笔（差额恒等于当期手工台账金额）。
+# 那不是错账，是没结完。因此巡检的判据统一收口到 `status IN ('SETTLED','CLOSED')` 的批次：
+#   · 已结算 = 该期间的全部账务动作（入库 + 四张凭证 + 状态）已在同一事务里提交；
+#   · 未结算时期的「余额」由 C-COST-3 的在途项单独解释（见该条），不当差错；
+#   · 已红冲（REVERSED）而尚未重结的期间**不判**（蓝字被红字抵平，池由下次结算时对账）。
+# 这与结算事务内的 6 条自检（cost_settle_run::run_asserts）是**同一判据的两个时间点**：
+# 事务内是「此刻就能拦下」，巡检是「事后每天再验一遍」，两边口径必须一致。
+COST_GROUP = "成本"
+COST_SCOPED_STATUSES = ("SETTLED", "CLOSED")
+COST_ACCOUNTS_WIP = ("4001.01", "4001.02", "4001.03")
+COST_ACCOUNT_FINISHED = "1405"
+COST_OVERHEAD_PREFIX = "4101."
+COST_NIL_UUID = "00000000-0000-0000-0000-000000000000"
+COST_PERIOD_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def _cost_in(values):
+    """SQL `IN (...)` 片段（值一律单引号转义；期间码另有正则白名单）。"""
+    return ", ".join("'%s'" % str(v).replace("'", "''") for v in values)
+
+
+def _cost_settled_periods():
+    """本库「已结算成本批次」涉及的期间码（C 组的唯一判据范围）。"""
+    rows = q(f"select distinct period_code from biz_cost_period "
+             f"where deleted_at is null and status in ({_cost_in(COST_SCOPED_STATUSES)})")
+    return sorted({r[0] for r in rows if r and r[0]})
+
+
+def _cost_money(sql):
+    return dec(one(sql))
+
+
+def group_cost():
+    """成本核算不变量 C-COST-1 ~ C-COST-6（ARCH-9 §4.11）。"""
+    print("\n" + "=" * 92)
+    print("T. 成本核算（池=4101、入库=完工凭证、4001=在制、分摊守恒、料归集、计算单守恒）")
+    print("=" * 92)
+
+    # ── C0 前置：新表还没上线的库要能跑完整套件，不能整组炸掉 ──────────────
+    missing = [t for t in ("biz_cost_period", "biz_cost_period_item", "biz_cost_collect")
+               if not table_exists(t)]
+    if missing:
+        check("C-COST-0 成本核算表存在", COST_GROUP, "INFO", True,
+              f"本库缺 {', '.join(missing)}（成本核算未上线），整组跳过")
+        return
+    if not table_exists("biz_voucher_entry"):
+        check("C-COST-0 成本核算表存在", COST_GROUP, "INFO", True,
+              "本库没有凭证分录表，整组跳过")
+        return
+
+    periods = _cost_settled_periods()
+    if not periods:
+        check("C-COST-0 存在已结算成本批次", COST_GROUP, "INFO", True,
+              "本库没有 status ∈ (SETTLED, CLOSED) 的成本批次（未启用或尚未结算）—— "
+              "C-COST-1~6 全部无从判起，跳过（不是通过，也不需要报警）")
+        return
+    settled = _cost_in(periods)
+    print(f"  · 判据范围：已结算批次期间 {len(periods)} 个 —— {', '.join(periods)}"
+          f"（未结算 / 已红冲未重结的期间不判，见文件内注释）")
+
+    # ══ C-COST-1：池 = 4101.* 借方发生额（逐 (车间, 科目) 组）══════════════
+    #
+    # 池侧口径：**池行 + 直接行**（设计 §4.7.3「与巡检口径的接口」）——
+    # `biz_cost_collect` 里 element='OVERHEAD' 的行有两类：`cost_object_id IS NULL`
+    # 的池行（参与分摊）与挂了对象的直接行（不参与分摊，但它的 4101 借方同样真实存在，
+    # 也靠分摊凭证一起清零）。只取池行会在「手工台账挂了成本对象」的期间恒差一笔
+    # （差额 = 直接行金额），那是**设计明确禁止的假红**。
+    # ALLOC 行不计（它是池摊出去之后的另一半，同一笔钱的两个投影，加进来就翻倍）。
+    # 账面侧口径与 cost_reconcile_model::LEDGER_DEBIT_SQL 逐字同源：
+    # 已记账 + 未软删 + 只算借方 + 排除红字与被红冲的原凭证 + 只认 4101.*。
+    cost1 = q(f"""
+        with pool as (
+            select c.period_code,
+                   coalesce(c.dept_id, '{COST_NIL_UUID}'::uuid) as dept_id,
+                   coalesce(oh.debit_account_code, dp.expense_account_code, ei.account_code) as account_code,
+                   sum(c.amount) as amt
+              from biz_cost_collect c
+              left join biz_cost_overhead oh on c.source_type = 'OVERHEAD_TICKET'
+                                           and oh.id = c.source_id
+              left join biz_depreciation dp  on c.source_type = 'DEPRECIATION'
+                                           and dp.id = c.source_id
+              left join biz_expense_item ei  on c.source_type = 'EXPENSE'
+                                           and ei.id = c.source_id
+             where c.deleted_at is null
+               and c.element = 'OVERHEAD'
+               and c.source_type in ('OVERHEAD_TICKET', 'DEPRECIATION', 'EXPENSE')
+               and c.period_code in ({settled})
+             group by 1, 2, 3
+        ), ledger as (
+            select v.period as period_code,
+                   coalesce(e.aux_dept_id, '{COST_NIL_UUID}'::uuid) as dept_id,
+                   e.account_code,
+                   sum(e.debit_amount) as amt
+              from biz_voucher_entry e
+              join biz_voucher v on v.id = e.voucher_id
+             where v.period in ({settled})
+               and v.status = 'POSTED' and v.deleted_at is null
+               and v.is_red = 0 and v.reversed_by is null
+               and e.account_code like '{COST_OVERHEAD_PREFIX}%'
+               and e.debit_amount > 0
+             group by 1, 2, 3
+        )
+        select coalesce(p.period_code, l.period_code) as period_code,
+               coalesce(d.dept_name, '(未指定车间)') as dept_name,
+               coalesce(p.account_code, l.account_code, '(取不到科目)') as account_code,
+               coalesce(p.amt, 0)::text as pool_amt,
+               coalesce(l.amt, 0)::text as ledger_amt
+          from pool p
+          full join ledger l
+                 on l.period_code = p.period_code
+                and l.account_code = p.account_code
+                and l.dept_id = p.dept_id
+          left join sys_dept d on d.id = coalesce(p.dept_id, l.dept_id)
+         where abs(coalesce(p.amt, 0) - coalesce(l.amt, 0)) > 0.0001
+         order by 1, 2, 3
+    """)
+    n_groups1 = one(f"""
+        with pool as (
+            select c.period_code, coalesce(c.dept_id, '{COST_NIL_UUID}'::uuid) as dept_id,
+                   coalesce(oh.debit_account_code, dp.expense_account_code, ei.account_code) as account_code
+              from biz_cost_collect c
+              left join biz_cost_overhead oh on c.source_type = 'OVERHEAD_TICKET' and oh.id = c.source_id
+              left join biz_depreciation dp  on c.source_type = 'DEPRECIATION'    and dp.id = c.source_id
+              left join biz_expense_item ei  on c.source_type = 'EXPENSE'         and ei.id = c.source_id
+             where c.deleted_at is null and c.element = 'OVERHEAD'
+               and c.source_type in ('OVERHEAD_TICKET', 'DEPRECIATION', 'EXPENSE')
+               and c.period_code in ({settled})
+             group by 1, 2, 3
+        )
+        select count(*) from pool
+    """)
+    n_direct1 = one(f"""
+        select count(*) from biz_cost_collect
+         where deleted_at is null and element = 'OVERHEAD' and cost_object_id is not null
+           and source_type in ('OVERHEAD_TICKET', 'DEPRECIATION', 'EXPENSE')
+           and period_code in ({settled})
+    """)
+    print(f"  · 覆盖：{n_groups1} 个 (期间, 车间, 科目) 池组（其中直接行 {n_direct1} 行："
+          "挂对象的费行不进池、不参与分摊，但 4101 借方同样要靠分摊凭证清零）")
+    lines = []
+    if cost1:
+        lines.append(f"{len(cost1)} 组池与 4101 借方不平（期间|车间|科目|池|账面|差额）：")
+        for r in cost1[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {dec(r[3]) - dec(r[4])}")
+        if len(cost1) > 8:
+            lines.append(f"  ... 还有 {len(cost1) - 8} 组")
+        lines.append("含义：有人绕过成本模块直接记了 4101（旁路记账），或费行归集不完整。"
+                     "修法：按上面的差额找到那张凭证，改走成本模块（折旧/报销/手工台账）后重算该期间。")
+    check("C-COST-1 池(池行+直接行) = 4101.* 借方发生额（逐 (车间,科目) 组）",
+          COST_GROUP, "BLOCKER", not cost1,
+          "\n".join(lines) if lines else f"{n_groups1} 组逐组对平",
+          f"""select c.period_code, c.dept_name, c.source_type, c.amount::text
+                from biz_cost_collect c
+               where c.deleted_at is null and c.element = 'OVERHEAD'
+                 and c.source_type in ('OVERHEAD_TICKET', 'DEPRECIATION', 'EXPENSE')
+                 and c.period_code in ({settled})
+               order by c.period_code, c.dept_id, c.source_type""")
+
+    # ══ C-COST-2：Σ 生产入库金额 = 完工凭证借 1405 = Σ 计算单完工成本 ══════
+    #
+    # 三处必须同源：入库单是库存侧、凭证是账面侧、计算单是成本侧。任何一处单飞都是 bug。
+    # 顺带把「凭证自身平衡」（分录 Σ借 = Σ贷、头 = 分录取和）判在这条里 —— 卡面要的
+    # 「凭证平衡」就是它：一张借贷不平的完工凭证一定同时让 1405 借方失配。
+    cost2 = q(f"""
+        with b as (
+            select id, batch_no, period_code, finish_voucher_id
+              from biz_cost_period
+             where deleted_at is null and status in ({_cost_in(COST_SCOPED_STATUSES)})
+        ), si as (
+            select cost_period_id as pid, sum(total_amount) as amt
+              from biz_stock_in
+             where deleted_at is null and in_type = 'PRODUCTION' and status <> 'CANCELLED'
+               and cost_period_id is not null
+             group by 1
+        ), it as (
+            select period_id as pid, sum(finished_cost) as amt
+              from biz_cost_period_item group by 1
+        ), v as (
+            select vv.id, vv.voucher_no, vv.status, vv.deleted_at, vv.is_red,
+                   vv.total_debit, vv.total_credit,
+                   coalesce(sum(e.debit_amount), 0) as sum_debit,
+                   coalesce(sum(e.credit_amount), 0) as sum_credit,
+                   coalesce(sum(e.debit_amount) filter (where e.account_code = '{COST_ACCOUNT_FINISHED}'), 0)
+                       as debit_finished
+              from biz_voucher vv
+              left join biz_voucher_entry e on e.voucher_id = vv.id
+             group by vv.id, vv.voucher_no, vv.status, vv.deleted_at, vv.is_red,
+                      vv.total_debit, vv.total_credit
+        )
+        select b.batch_no,
+               coalesce(v.voucher_no, '(未绑定完工凭证)') as voucher_no,
+               coalesce(si.amt, 0)::text as stock_in_amt,
+               coalesce(v.debit_finished, 0)::text as voucher_1405_debit,
+               coalesce(it.amt, 0)::text as item_finished,
+               coalesce(v.sum_debit, 0)::text as voucher_debit,
+               coalesce(v.sum_credit, 0)::text as voucher_credit,
+               coalesce(v.total_debit, 0)::text as head_debit,
+               coalesce(v.total_credit, 0)::text as head_credit,
+               coalesce(v.status, '(无)') as voucher_status
+          from b
+          left join si on si.pid = b.id
+          left join it on it.pid = b.id
+          left join v  on v.id = b.finish_voucher_id
+         where b.finish_voucher_id is null
+            or v.id is null
+            or v.status <> 'POSTED' or v.deleted_at is not null or v.is_red <> 0
+            or abs(coalesce(si.amt, 0) - coalesce(v.debit_finished, 0)) > 0.0001
+            or abs(coalesce(v.debit_finished, 0) - coalesce(it.amt, 0)) > 0.0001
+            or abs(coalesce(v.sum_debit, 0) - coalesce(v.sum_credit, 0)) > 0.0001
+            or abs(coalesce(v.total_debit, 0) - coalesce(v.sum_debit, 0)) > 0.0001
+            or abs(coalesce(v.total_credit, 0) - coalesce(v.sum_credit, 0)) > 0.0001
+         order by b.batch_no
+    """)
+    n_batch2 = one(f"select count(*) from biz_cost_period "
+                   f"where deleted_at is null and status in ({_cost_in(COST_SCOPED_STATUSES)})")
+    print(f"  · 覆盖：已结算批次 {n_batch2} 个（入库单金额 / 完工凭证 1405 借方 / 计算单完工成本 三处同源）")
+    lines = []
+    if cost2:
+        lines.append(f"{len(cost2)} 个批次的三处金额不平或完工凭证本身有问题"
+                     "（批次|凭证|入库|凭证1405借|计算单完工|分录Σ借|分录Σ贷|头借|头贷|凭证状态）：")
+        for r in cost2[:8]:
+            lines.append("  · " + " | ".join(str(x) for x in r))
+        if len(cost2) > 8:
+            lines.append(f"  ... 还有 {len(cost2) - 8} 个")
+        lines.append("含义：入库单是库存侧、完工凭证是账面侧、计算单是成本侧 —— 三者单飞。"
+                     "修法：核对是哪一侧被改过 / 少写了分录，重算该期间后再结算（不许手工补凭证）。")
+    check("C-COST-2 Σ生产入库 = 完工凭证借 1405 = Σ计算单完工成本（含凭证平衡）",
+          COST_GROUP, "BLOCKER", not cost2,
+          "\n".join(lines) if lines else f"{n_batch2} 个批次三处同源且凭证借贷平衡",
+          """select s.in_no, s.cost_period_id::text, s.total_amount::text, s.status
+               from biz_stock_in s
+              where s.deleted_at is null and s.in_type = 'PRODUCTION'
+                and s.status <> 'CANCELLED'""")
+
+    # ══ C-COST-2·账：生产入库单 ↔ 库存三本账（卡面「三本账一致」）═══════════
+    #
+    # 两个轴，都限定在「结算生成的完工入库」上：
+    #   a) 单据级：入库单的 total_qty / total_amount = 它自己那条流水的 qty / amount
+    #      （`biz_type='PRODUCTION_IN'`、`doc_type='STOCK_IN'`、`doc_id=入库单 id`）；
+    #   b) 三本账：这些入库动过的 物料×仓库 上，库存表 = 库位账 = 流水合计（数量）。
+    # 过账/红冲都走 `inventory_writer`，任何一方漏写都会在这里露头。
+    cost2b = q(f"""
+        with si as (
+            select s.id, s.in_no, s.total_qty, s.total_amount
+              from biz_stock_in s
+              join biz_cost_period b on b.id = s.cost_period_id
+             where s.deleted_at is null and s.in_type = 'PRODUCTION'
+               and s.status <> 'CANCELLED'
+               and b.deleted_at is null and b.status in ({_cost_in(COST_SCOPED_STATUSES)})
+        ), txn as (
+            select doc_id,
+                   sum(case when txn_type = 'IN' then qty else -qty end) as qty,
+                   sum(case when txn_type = 'IN' then amount else -amount end) as amt,
+                   count(*) as n
+              from biz_inventory_txn
+             where doc_type = 'STOCK_IN'
+             group by 1
+        )
+        select si.in_no, si.total_qty::text, coalesce(t.qty, 0)::text,
+               si.total_amount::text, coalesce(t.amt, 0)::text, coalesce(t.n, 0)::text
+          from si
+          left join txn t on t.doc_id = si.id
+         where abs(coalesce(t.qty, 0) - si.total_qty) > 0.0001
+            or abs(coalesce(t.amt, 0) - si.total_amount) > 0.0001
+         order by si.in_no
+    """)
+    keys2b = f"""
+        with keys as (
+            select distinct t.material_id, t.warehouse_id
+              from biz_inventory_txn t
+              join biz_stock_in s on s.id = t.doc_id and t.doc_type = 'STOCK_IN'
+              join biz_cost_period b on b.id = s.cost_period_id
+             where s.deleted_at is null and s.in_type = 'PRODUCTION' and s.status <> 'CANCELLED'
+               and b.deleted_at is null and b.status in ({_cost_in(COST_SCOPED_STATUSES)})
+        ), inv as (
+            select material_id, warehouse_id, sum(qty) q from biz_inventory group by 1, 2
+        ), loc as (
+            select material_id, warehouse_id, sum(qty) q from biz_inventory_location group by 1, 2
+        ), txn as (
+            select material_id, warehouse_id,
+                   sum(case when txn_type = 'IN' then qty else -qty end) q
+              from biz_inventory_txn group by 1, 2
+        )
+    """
+    cost2c = q(keys2b + """
+        select m.material_code, w.warehouse_code,
+               coalesce(inv.q, 0)::text, coalesce(loc.q, 0)::text, coalesce(txn.q, 0)::text
+          from keys k
+          left join inv on inv.material_id = k.material_id and inv.warehouse_id = k.warehouse_id
+          left join loc on loc.material_id = k.material_id and loc.warehouse_id = k.warehouse_id
+          left join txn on txn.material_id = k.material_id and txn.warehouse_id = k.warehouse_id
+          join biz_material m on m.id = k.material_id
+          join biz_warehouse w on w.id = k.warehouse_id
+         where abs(coalesce(inv.q, 0) - coalesce(loc.q, 0)) > 0.0001
+            or abs(coalesce(inv.q, 0) - coalesce(txn.q, 0)) > 0.0001
+         order by m.material_code, w.warehouse_code
+    """)
+    n_keys2b = one(keys2b + " select count(*) from keys")
+    n_si2b = one(f"""
+        select count(*) from biz_stock_in s
+          join biz_cost_period b on b.id = s.cost_period_id
+         where s.deleted_at is null and s.in_type = 'PRODUCTION' and s.status <> 'CANCELLED'
+           and b.deleted_at is null and b.status in ({_cost_in(COST_SCOPED_STATUSES)})
+    """)
+    print(f"  · 覆盖：完工入库单 {n_si2b} 张 / 涉及的 物料×仓库 {n_keys2b} 组")
+    lines = []
+    if cost2b:
+        lines.append(f"入库单与流水不符 {len(cost2b)} 张（入库单|入库数量|流水数量|入库金额|流水金额|流水行数）：")
+        for r in cost2b[:8]:
+            lines.append("  · " + " | ".join(str(x) for x in r))
+    if cost2c:
+        lines.append(f"三账不符 {len(cost2c)} 组（物料|仓库|库存表|库位账|流水）：")
+        for r in cost2c[:8]:
+            lines.append("  · " + " | ".join(str(x) for x in r))
+    check("C-COST-2·账 完工入库单 ↔ 库存三本账（单据级 + 物料×仓库级）",
+          COST_GROUP, "BLOCKER", not cost2b and not cost2c,
+          "\n".join(lines) if lines else f"{n_si2b} 张入库单与流水同源，{n_keys2b} 组三本账一致",
+          keys2b + """
+        select m.material_code, w.warehouse_code,
+               coalesce(inv.q, 0)::text, coalesce(loc.q, 0)::text, coalesce(txn.q, 0)::text
+          from keys k
+          left join inv on inv.material_id = k.material_id and inv.warehouse_id = k.warehouse_id
+          left join loc on loc.material_id = k.material_id and loc.warehouse_id = k.warehouse_id
+          left join txn on txn.material_id = k.material_id and txn.warehouse_id = k.warehouse_id
+          join biz_material m on m.id = k.material_id
+          join biz_warehouse w on w.id = k.warehouse_id
+         where abs(coalesce(inv.q, 0) - coalesce(loc.q, 0)) > 0.0001
+            or abs(coalesce(inv.q, 0) - coalesce(txn.q, 0)) > 0.0001""")
+
+    # ══ C-COST-3：4001 余额 = Σ(每对象最新已结算批次的期末在制) + 在途 ══════
+    #
+    # 设计 §4.11 原文是「Σ 最新已结算批次 wip_end_cost = 4001 期末余额」。落到**全库**判据上
+    # 必须补一个在途项，否则「本月已领料、批次还没结算」这种正常中间态会天天假红：
+    #
+    #   4001 余额 = Σ 已结算的期末在制（每对象取最新一批，逐对象算完再汇总）
+    #             + 在途：已经借了 4001 但还没被任何已结算批次结转出去的投入
+    #
+    # 在途分两段（互斥，不会重复计）：
+    #   ① 已归集未结转：`element='MATERIAL'` 且该 (成本对象, 期间) 没有已结算批次 ——
+    #      领料凭证在上游过账时就借了 4001.01；
+    #   ② 已过账未归集：挂了成本对象的已过账领料行还没有归集行（calc 还没跑）——
+    #      同样已经借了 4001.01，但 collect 里还看不见。
+    # 注意本卡**不做**「每期净发生」形态（那是结算事务内的判据）：余额形态才能抓到
+    # 「跨期结转串期 / 有人手工记 4001」这两类只有全库视角才看得见的错。
+    cost_bal = _cost_money(f"""
+        select coalesce(sum(e.debit_amount - e.credit_amount), 0)::text
+          from biz_voucher_entry e
+          join biz_voucher v on v.id = e.voucher_id
+         where v.status = 'POSTED' and v.deleted_at is null
+           and e.account_code in ({_cost_in(COST_ACCOUNTS_WIP)})
+    """)
+    cost_wip = _cost_money(f"""
+        with ranked as (
+            select i.wip_end_cost,
+                   row_number() over (partition by i.cost_object_id
+                                      order by b.period_code desc, b.settled_at desc nulls last,
+                                               b.created_at desc) as rn
+              from biz_cost_period_item i
+              join biz_cost_period b on b.id = i.period_id
+             where b.deleted_at is null and b.status in ({_cost_in(COST_SCOPED_STATUSES)})
+        )
+        select coalesce(sum(wip_end_cost), 0)::text from ranked where rn = 1
+    """)
+    cost_inflight_collect = _cost_money(f"""
+        select coalesce(sum(c.amount), 0)::text
+          from biz_cost_collect c
+         where c.deleted_at is null and c.element = 'MATERIAL' and c.cost_object_id is not null
+           and not exists (
+                 select 1 from biz_cost_period_item i
+                   join biz_cost_period b on b.id = i.period_id
+                  where i.cost_object_id = c.cost_object_id
+                    and b.period_code = c.period_code
+                    and b.deleted_at is null and b.status in ({_cost_in(COST_SCOPED_STATUSES)}))
+    """)
+    cost_inflight_uncollected = _cost_money("""
+        select coalesce(sum(i.amount), 0)::text
+          from biz_stock_out_item i
+          join biz_stock_out o on o.id = i.stock_out_id
+         where o.deleted_at is null and o.status = 'POSTED' and o.cancelled_at is null
+           and o.out_type = 'ISSUE' and o.cost_object_id is not null
+           and not exists (select 1 from biz_cost_collect c
+                            where c.source_type = 'STOCK_OUT' and c.source_id = i.id
+                              and c.deleted_at is null)
+    """)
+    cost_inflight = cost_inflight_collect + cost_inflight_uncollected
+    expected3 = cost_wip + cost_inflight
+    n_obj3 = one(f"""
+        select count(distinct i.cost_object_id) from biz_cost_period_item i
+          join biz_cost_period b on b.id = i.period_id
+         where b.deleted_at is null and b.status in ({_cost_in(COST_SCOPED_STATUSES)})
+    """)
+    print(f"  · 覆盖：{n_obj3} 个有已结算批次的成本对象；在途 = 已归集未结转 {cost_inflight_collect}"
+          f" + 已过账未归集 {cost_inflight_uncollected} = {cost_inflight}")
+    ok3 = abs(cost_bal - expected3) <= TOL
+    check("C-COST-3 4001.01/.02/.03 余额 = Σ最新已结算在制 + 在途未结转",
+          COST_GROUP, "BLOCKER", ok3,
+          f"4001 余额 {cost_bal} / 应有 = Σ期末在制 {cost_wip} + 在途 {cost_inflight} = {expected3}"
+          f"（差 {cost_bal - expected3}）。含义：有人手工记了 4001、或某次完工结转的贷方与计算单不是"
+          f"同一次 calc 的结果、或跨期结转串了期间。修法：按差额找到凭证，重算该期间后再结算"
+          if not ok3 else f"4001 余额 {cost_bal} = Σ期末在制 {cost_wip} + 在途 {cost_inflight}",
+          """select v.voucher_no, v.period, e.account_code, e.summary,
+                    e.debit_amount::text, e.credit_amount::text
+               from biz_voucher_entry e
+               join biz_voucher v on v.id = e.voucher_id
+              where v.status = 'POSTED' and v.deleted_at is null
+                and e.account_code in ('4001.01', '4001.02', '4001.03')
+              order by v.period desc, v.voucher_no desc""")
+
+    # ══ C-COST-4①：4101.* 结算后必须清零（逐 (期间, 车间, 科目) 组）══════════
+    cost4a = q(f"""
+        select v.period, coalesce(d.dept_name, '(未指定车间)') as dept_name, e.account_code,
+               sum(e.debit_amount)::text as debit, sum(e.credit_amount)::text as credit
+          from biz_voucher_entry e
+          join biz_voucher v on v.id = e.voucher_id
+          left join sys_dept d on d.id = e.aux_dept_id
+         where v.period in ({settled})
+           and v.status = 'POSTED' and v.deleted_at is null
+           and v.is_red = 0 and v.reversed_by is null
+           and e.account_code like '{COST_OVERHEAD_PREFIX}%'
+         group by 1, 2, 3
+        having abs(sum(e.debit_amount) - sum(e.credit_amount)) > 0.0001
+         order by 1, 2, 3
+    """)
+    n_groups4a = one(f"""
+        select count(*) from (
+            select v.period, e.aux_dept_id, e.account_code
+              from biz_voucher_entry e join biz_voucher v on v.id = e.voucher_id
+             where v.period in ({settled}) and v.status = 'POSTED' and v.deleted_at is null
+               and v.is_red = 0 and v.reversed_by is null
+               and e.account_code like '{COST_OVERHEAD_PREFIX}%'
+             group by 1, 2, 3) x
+    """)
+    lines = []
+    if cost4a:
+        lines.append(f"{len(cost4a)} 组 4101 结算后未清零（期间|车间|科目|借|贷|余额）：")
+        for r in cost4a[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {dec(r[3]) - dec(r[4])}")
+        if len(cost4a) > 8:
+            lines.append(f"  ... 还有 {len(cost4a) - 8} 组")
+        lines.append("含义：池没摊完 / 摊了没发结转凭证 / 有人旁路记了 4101（红冲未重结的期间不判）。"
+                     "修法：重算该期间（分摊按最大余数法重建）后再结算；旁路凭证改走成本模块。")
+    check("C-COST-4① 每个 (期间,车间,科目) 的 4101 结算后借贷相等（池清零）",
+          COST_GROUP, "BLOCKER", not cost4a,
+          "\n".join(lines) if lines else f"{n_groups4a} 组全部清零",
+          f"""select v.voucher_no, v.period, e.account_code, e.debit_amount::text, e.credit_amount::text
+                from biz_voucher_entry e join biz_voucher v on v.id = e.voucher_id
+               where v.period in ({settled}) and v.status = 'POSTED' and v.deleted_at is null
+                 and e.account_code like '{COST_OVERHEAD_PREFIX}%'
+               order by v.period, v.voucher_no""")
+
+    # ══ C-COST-4②：Σ 分摊结果 = Σ 池行（分摊守恒 / 无漏摊）═════════════════
+    #
+    # 只比**池行**（`cost_object_id IS NULL`）：分摊结果只覆盖池，直接行不进分摊。
+    # 分摊结果不参与任何凭证 ⇒ 它是「少写 / 多写一行分摊结果」唯一能抓到的判据。
+    cost4b = q(f"""
+        with pool as (
+            select period_code, sum(amount) amt from biz_cost_collect
+             where deleted_at is null and element = 'OVERHEAD' and cost_object_id is null
+               and source_type in ('OVERHEAD_TICKET', 'DEPRECIATION', 'EXPENSE')
+               and period_code in ({settled})
+             group by 1
+        ), alloc as (
+            select period_code, sum(alloc_amount) amt from biz_cost_alloc_result
+             where period_code in ({settled}) group by 1
+        )
+        select coalesce(p.period_code, a.period_code) as period_code,
+               coalesce(p.amt, 0)::text as pool_amt, coalesce(a.amt, 0)::text as alloc_amt
+          from pool p full join alloc a on a.period_code = p.period_code
+         where abs(coalesce(p.amt, 0) - coalesce(a.amt, 0)) > 0.0001
+         order by 1
+    """)
+    lines = []
+    if cost4b:
+        lines.append(f"{len(cost4b)} 个期间分摊不守恒（期间|池|已分摊|差额）：")
+        for r in cost4b[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {dec(r[1]) - dec(r[2])}")
+        lines.append("含义：分摊没守恒（少写 / 多写分摊结果行、基数合计 0 的池被静默丢掉）—— "
+                     "摊不掉的会在 4101 留余额（C-COST-4① 也会红）。修法：重算该期间。")
+    check("C-COST-4② Σ 分摊结果 = Σ 池行（分摊守恒 / 无漏摊）",
+          COST_GROUP, "BLOCKER", not cost4b,
+          "\n".join(lines) if lines else f"{len(periods)} 个已结算期间分摊守恒",
+          f"""select period_code, sum(alloc_amount)::text from biz_cost_alloc_result
+               where period_code in ({settled}) group by 1""")
+
+    # ══ C-COST-5：料归集完整（Σ collect(MATERIAL) = Σ 已过账挂对象领料行）═════
+    #
+    # 逐行双向对账（等价于金额合计相等，但能直接点到出库单行）：
+    #   ① 漏归集：已过账、挂成本对象、ISSUE 的领料行没有 MATERIAL 归集行；
+    #   ② 孤儿归集：MATERIAL 归集行指向的出库行不存在 / 已作废；
+    #   ③ 金额不符：同一行两侧金额不等。
+    # 范围只看**已结算期间**（未结算期间 calc 还没跑，没有归集行是正常中间态）。
+    cost5_missing = q(f"""
+        select o.out_no, i.line_no::text, i.amount::text
+          from biz_stock_out_item i
+          join biz_stock_out o on o.id = i.stock_out_id
+         where o.deleted_at is null and o.status = 'POSTED' and o.cancelled_at is null
+           and o.out_type = 'ISSUE' and o.cost_object_id is not null
+           and to_char(o.out_date, 'YYYY-MM') in ({settled})
+           and not exists (select 1 from biz_cost_collect c
+                            where c.source_type = 'STOCK_OUT' and c.source_id = i.id
+                              and c.deleted_at is null)
+         order by o.out_no, i.line_no
+    """)
+    cost5_orphan = q(f"""
+        select c.source_no, c.line_no::text, c.amount::text
+          from biz_cost_collect c
+         where c.deleted_at is null and c.element = 'MATERIAL' and c.source_type = 'STOCK_OUT'
+           and c.period_code in ({settled})
+           and not exists (select 1 from biz_stock_out_item i
+                             join biz_stock_out o on o.id = i.stock_out_id
+                            where i.id = c.source_id and o.deleted_at is null
+                              and o.status = 'POSTED' and o.cancelled_at is null)
+         order by c.source_no, c.line_no
+    """)
+    cost5_amount = q(f"""
+        select c.source_no, c.line_no::text, c.amount::text, i.amount::text
+          from biz_cost_collect c
+          join biz_stock_out_item i on i.id = c.source_id
+         where c.deleted_at is null and c.element = 'MATERIAL' and c.source_type = 'STOCK_OUT'
+           and c.period_code in ({settled})
+           and abs(c.amount - i.amount) > 0.0001
+         order by c.source_no, c.line_no
+    """)
+    n_mat5 = one(f"""select count(*) from biz_cost_collect
+                      where deleted_at is null and element = 'MATERIAL'
+                        and period_code in ({settled})""")
+    print(f"  · 覆盖：已结算期间的料归集行 {n_mat5} 行（漏归集 {len(cost5_missing)} / "
+          f"孤儿 {len(cost5_orphan)} / 金额不符 {len(cost5_amount)}）")
+    lines = []
+    if cost5_missing:
+        lines.append(f"漏归集 {len(cost5_missing)} 行（出库单|行号|金额）：")
+        for r in cost5_missing[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]}")
+    if cost5_orphan:
+        lines.append(f"孤儿归集 {len(cost5_orphan)} 行（来源单号|行号|金额）：")
+        for r in cost5_orphan[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]}")
+    if cost5_amount:
+        lines.append(f"金额不符 {len(cost5_amount)} 行（来源单号|行号|归集|出库行）：")
+        for r in cost5_amount[:8]:
+            lines.append(f"  · {r[0]} | {r[1]} | {r[2]} | {r[3]}")
+    if lines:
+        lines.append("含义：料归集与领料不同源（漏归集只影响成本准确性，不影响账 —— 所以是 WARN）。"
+                     "修法：重算该期间（calc 第 1 段按「已过账且未归集」重建料行）。")
+    check("C-COST-5 料归集完整（Σ collect(MATERIAL) = Σ 已过账挂对象领料行）",
+          COST_GROUP, "WARN", not cost5_missing and not cost5_orphan and not cost5_amount,
+          "\n".join(lines) if lines else f"{n_mat5} 行料归集与领料逐行同源",
+          f"""select o.out_no, i.line_no::text, i.amount::text from biz_stock_out_item i
+                join biz_stock_out o on o.id = i.stock_out_id
+               where o.deleted_at is null and o.status = 'POSTED' and o.out_type = 'ISSUE'
+                 and o.cost_object_id is not null""")
+
+    # ══ C-COST-6：计算单守恒式（库层 CHECK 兜新数据，巡检兜老数据 / 手工改库）══
+    cost6 = q("""
+        select b.batch_no, i.cost_object_id::text,
+               (i.finished_cost + i.wip_end_cost)::text as left_side,
+               (i.wip_beg_cost + i.mat_cur + i.labor_cur + i.oh_cur)::text as right_side
+          from biz_cost_period_item i
+          join biz_cost_period b on b.id = i.period_id
+         where b.deleted_at is null
+           and abs(i.finished_cost + i.wip_end_cost
+                   - (i.wip_beg_cost + i.mat_cur + i.labor_cur + i.oh_cur)) > 0.0001
+         order by b.batch_no
+    """)
+    n_items6 = one("""select count(*) from biz_cost_period_item i
+                        join biz_cost_period b on b.id = i.period_id
+                       where b.deleted_at is null""")
+    lines = []
+    if cost6:
+        lines.append(f"{len(cost6)} 张计算单破了守恒式（批次|成本对象|完工+期末在制|期初+料+工+费）：")
+        for r in cost6[:8]:
+            lines.append("  · " + " | ".join(str(x) for x in r))
+        if len(cost6) > 8:
+            lines.append(f"  ... 还有 {len(cost6) - 8} 张")
+        lines.append("含义：完工转出 + 期末在制 ≠ 期初在制 + 本期投入（`ck_biz_cost_item_cons` 已在库层锁死，"
+                     "能出现只可能是手工改库 / 迁移跳过约束）。修法：按差额找回被改的那张计算单，重算该期间。")
+    check("C-COST-6 每张计算单 完工+期末在制 = 期初+料+工+费",
+          COST_GROUP, "BLOCKER", not cost6,
+          "\n".join(lines) if lines else f"{n_items6} 张计算单守恒",
+          """select b.batch_no, i.cost_object_id::text, i.finished_cost::text,
+                    i.wip_end_cost::text, i.wip_beg_cost::text, i.mat_cur::text,
+                    i.labor_cur::text, i.oh_cur::text
+               from biz_cost_period_item i
+               join biz_cost_period b on b.id = i.period_id
+              where b.deleted_at is null""")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
           "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l,
-          "任务": group_j, "权限": group_n, "E2E": group_o, "销售": group_s}
+          "任务": group_j, "权限": group_n, "E2E": group_o, "销售": group_s,
+          "成本": group_cost}
 
 
 def main():

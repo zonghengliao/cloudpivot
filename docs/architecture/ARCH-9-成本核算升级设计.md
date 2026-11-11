@@ -1252,6 +1252,29 @@ BLOCKER_COST_UNSETTLED = "COST_UNSETTLED"
 | 前端 | `PeriodCloseBlocker.type` 联合类型加 `COST_UNSETTLED`；`blocker-logic.ts` 的 `BLOCKING_DOC_TYPE_LABELS` 加 `COST_PERIOD: '成本批次'`（与后端 `doc_type_label` 同口径） |
 | 迁移 / 错误码 | 无（纯读校验，不改 schema、不新增错误码） |
 
+#### 4.11.2 实现口径（B3-10 巡检落地，2026-11-11）
+
+`scripts/verify/erp_invariants.py` 新增「成本」组（`group_cost`，`--group 成本`），六条不变量逐条实现；
+配套自测 `scripts/verify/cost/cost_invariants_selftest.py`（只在演练库跑：装夹具 → 全绿 → 逐条造错报红 → 清场）。
+
+| 项 | 实现 |
+|---|---|
+| 判据范围 | **只判 `status IN ('SETTLED','CLOSED')` 的批次所属期间**。原因：领料/折旧/报销在上游过账时已写分录，而人工计提、手工台账、费用结转、完工结转四张凭证是结算事务内才生成的 —— 正在做账的期间天然有「账上借了 4001.01、台账凭证还没发」的中间态，拿它对账必假红。已红冲（REVERSED）尚未重结的期间同样不判（蓝字被红字抵平，池由下次结算时对账）。库里没有任何已结算批次时整组 `INFO` 跳过（不是通过、也不报警） |
+| C-COST-1 | 池侧 = `biz_cost_collect` 里 `element='OVERHEAD'` 且 `source_type IN (OVERHEAD_TICKET, DEPRECIATION, EXPENSE)` 的**池行 + 直接行**（§4.7.3「与巡检口径的接口」：只取池行会在「手工台账挂了成本对象」的期间恒差一笔）；`source_type='ALLOC'` 不计（同一笔钱的两个投影）。科目按来源单据反查（collect 表没有 `account_code` 列）。账面侧与 `cost_reconcile_model::LEDGER_DEBIT_SQL` 逐字同源（POSTED / 未软删 / 只算借方 / 排除红字与被红冲 / 只认 `4101.*`）。逐 (期间, 车间, 科目) 组对平，差 0.0001 即红 |
+| C-COST-2 | 逐已结算批次：`Σ biz_stock_in(in_type='PRODUCTION', cost_period_id=批次, status<>'CANCELLED').total_amount` = 完工凭证（`finish_voucher_id`）分录里 `1405` 借方 = `Σ item.finished_cost`；并判该凭证自身平衡（分录 Σ借 = Σ贷、头 = 分录取和、状态 POSTED、非红字）。卡面要的「凭证平衡」即此项 |
+| C-COST-2·账 | 卡面「三本账一致」：完工入库单 ↔ 它自己那条流水（`biz_type='PRODUCTION_IN'`、`doc_type='STOCK_IN'`）的数量/金额同源；且这些入库动过的 `物料×仓库` 上 `biz_inventory` = `biz_inventory_location` = `biz_inventory_txn` 合计（数量口径，与 S8 同款） |
+| C-COST-3 | **全库余额版**（B3-6 明确留给巡检的那一条）：`4001.01/.02/.03` 净余额 = `Σ(每成本对象最新已结算批次的 wip_end_cost)` + **在途**。在途 = ① 已归集未结转（`element='MATERIAL'` 且该 (对象, 期间) 没有已结算批次）② 已过账未归集（挂了对象的已过账领料行还没有归集行）。两段互斥不重复计；在途项是「本月已领料、批次还没结算」这种正常中间态不假红的关键。余额形态才能抓到「跨期结转串期 / 有人手工记 4001」 |
+| C-COST-4 | ① 每个 (期间, 车间, 科目) 的 `4101.*` 借贷相等（池清零）；② `Σ biz_cost_alloc_result.alloc_amount = Σ collect(池行)`（分摊守恒 / 无漏摊 —— 分摊结果不参与任何凭证，是「少写一行」唯一能抓到的判据） |
+| C-COST-5 | WARN：料归集完整。逐行双向对账（漏归集 / 孤儿归集 / 金额不符），范围只看已结算期间（未结算期间 calc 还没跑，没有归集行是正常中间态）。逐行等价于 `Σ collect(MATERIAL) = Σ 已过账挂对象领料行`，但能直接点到出库单行 |
+| C-COST-6 | 每张 `biz_cost_period_item`：`finished + wip_end = wip_beg + mat + labor + oh`（库层 `ck_biz_cost_item_cons` 兜新数据，巡检兜老数据 / 手工改库） |
+| 静态同步闸 | 自测脚本第 [0] 步：巡检里的 `4001.01/.02/.03` / `1405` / `4101.` 与 `cost_settle_voucher.rs` / `cost_settle_run.rs` 的常量逐字比对；`C-COST-1~4` 要求两侧都有编号，`C-COST-5/6` 为巡检独有（5 只影响成本准确性、结算不许拦；6 由库层 CHECK 在写入时拦死） |
+| 与事务内自检的关系 | 同一判据的两个时间点：事务内（`cost_settle_run::run_asserts`）是「此刻就能拦下」，巡检是「事后每天再验一遍」。C-COST-3 的事务内版取「本期净发生」形态（见 §4.8），巡检取全库余额形态 —— 两者互补，不是两套算法 |
+| 迁移 / 错误码 / 后端代码 | 无（纯读校验；不改 schema、不新增错误码、不改 Rust 代码） |
+
+> **B3-10 顺带发现（不属本卡范围，已报）**：`V0381__cost_flow_def.up.sql`（B3-2）的 `INSERT INTO biz_flow_def` 列清单漏写 `is_system`，
+> 巡检 H6（`erp_invariants.py --group 审批`）与 H5 因此在**任何库**上都红（静态扫迁移，与库状态无关）。
+> 按 AGENTS「已应用迁移不可改」只能新开一条迁移补偿：`UPDATE biz_flow_def SET is_system = TRUE WHERE flow_code = 'cost_settle_approve'`（参照 V0220/V0233 的修法）。
+
 ---
 
 ## 5. 接口设计
