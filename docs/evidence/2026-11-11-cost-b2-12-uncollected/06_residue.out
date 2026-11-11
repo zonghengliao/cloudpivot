@@ -1,0 +1,13 @@
+## 演练库残留检查（costb26_drill_1625844，前缀 CB-B212S/B212S/CS-B212S/OUT-B212S）
+cost_object|0
+stock_out|0
+stock_out_item|0
+labor|0
+overhead|0
+collect|0
+period|0
+material|0
+warehouse|0
+
+# git status backend/migrations（本卡无迁移，必须 0 行）
+0

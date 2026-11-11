@@ -1,0 +1,24 @@
+## 前端门禁：pnpm typecheck && pnpm build
+
+$ pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+TYPECHECK_EXIT=0
+
+$ pnpm build
+dist//opt/cloudpivot/frontend/assets/index-C64gBqSb.js.gz                                                  140.99kb / gzip: 50.63kb
+dist//opt/cloudpivot/frontend/assets/FlowCanvasVueFlow-9A2NZkhx.js.gz                                      226.00kb / gzip: 74.84kb
+dist//opt/cloudpivot/frontend/assets/tdesign-E5ATeBiM.css.gz                                               437.80kb / gzip: 49.58kb
+dist//opt/cloudpivot/frontend/assets/edit-jyXaO7ID.js.gz                                                   199.71kb / gzip: 67.34kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/vue-flow.bundle.js.gz                                   283.84kb / gzip: 100.30kb
+dist//opt/cloudpivot/frontend/assets/pdf-CcZYcL52.js.gz                                                    356.56kb / gzip: 104.75kb
+dist//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist//opt/cloudpivot/frontend/assets/tdesign-D-c-CfB2.js.gz                                                7995.70kb / gzip: 772.69kb
+
+
+BUILD_EXIT=0

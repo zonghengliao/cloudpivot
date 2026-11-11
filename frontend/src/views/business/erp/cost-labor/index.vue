@@ -91,6 +91,16 @@
         />
         <t-button theme="primary" data-testid="cl-btn-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="cl-btn-reset" @click="handleReset">重置</t-button>
+        <t-tag
+          v-if="filter.cost_object_id"
+          theme="primary"
+          variant="light"
+          closable
+          data-testid="cl-filter-object"
+          @close="handleReset"
+        >
+          成本对象 {{ objectFilterNo || shortId(filter.cost_object_id) }}
+        </t-tag>
       </div>
     </t-card>
 
@@ -456,6 +466,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import {
@@ -497,6 +508,7 @@ import {
   importIssueRows,
   importSummaryText,
   isEmptyPayload,
+  isPeriodKey,
   objectClosed,
   sourceLabel,
   statusLabel,
@@ -514,6 +526,9 @@ const PERM = COST_LABOR_PERMISSIONS;
 
 // ==================== 列表 ====================
 
+const route = useRoute();
+const router = useRouter();
+
 const rows = ref<CostLaborRow[]>([]);
 const total = ref(0);
 const current = ref(1);
@@ -526,7 +541,16 @@ const filter = reactive<{
   status: CostLaborStatus | '';
   dept_id: string;
   keyword: string;
-}>({ period_code: '', status: '', dept_id: '', keyword: '' });
+  /**
+   * 成本对象筛选（**不在筛选条上**，只由深链 `?cost_object_id=` 带入）：
+   * 「未归集清单」点「缺工时的在产对象 / 缺费率的工时」跳进来时用它精确定位那一批，
+   * 点筛选条上的对象标签即可清掉（见 `clearObjectFilter`）。
+   */
+  cost_object_id: string;
+}>({ period_code: '', status: '', dept_id: '', keyword: '', cost_object_id: '' });
+
+/** 深链带进来的对象号（只用于显示标签，不参与请求） */
+const objectFilterNo = ref('');
 
 const statusFilterOptions = COST_LABOR_STATUSES.map((value) => ({
   label: statusLabel(value),
@@ -593,6 +617,7 @@ async function loadRows(): Promise<void> {
       period_code: filter.period_code,
       status: filter.status,
       dept_id: filter.dept_id,
+      cost_object_id: filter.cost_object_id,
       keyword: filter.keyword.trim(),
     });
     rows.value = page.list ?? [];
@@ -616,7 +641,46 @@ function handleReset(): void {
   filter.status = '';
   filter.dept_id = '';
   filter.keyword = '';
+  clearObjectFilter();
   handleSearch();
+}
+
+/**
+ * 深链 `?period_code=yyyy-MM&cost_object_id=…`（COST-B2-12）：
+ * 「未归集清单」的「缺工时的在产对象 / 缺费率的工时」点进来时，直接定位到那一批的工时。
+ *
+ * 纪律与其它 ERP 页的深链一致：只读 query、只在有值时写筛选（不带参数进页面不能清掉
+ * 用户手填的筛选），处理完把这两个 query 摘掉，免得刷新又筛一次。
+ */
+function applyDeepLink(): void {
+  const period = readQuery('period_code');
+  const objectId = readQuery('cost_object_id');
+  if (isPeriodKey(period)) {
+    filter.period_code = period;
+  }
+  if (objectId) {
+    filter.cost_object_id = objectId;
+    objectFilterNo.value = readQuery('object_no');
+  }
+  if (!period && !objectId) {
+    return;
+  }
+  const rest = { ...route.query };
+  delete rest.period_code;
+  delete rest.cost_object_id;
+  delete rest.object_no;
+  void router.replace({ path: route.path, query: rest });
+}
+
+function readQuery(key: string): string {
+  const raw = route.query[key];
+  return (typeof raw === 'string' ? raw : Array.isArray(raw) ? String(raw[0] ?? '') : '').trim();
+}
+
+/** 清掉深链带进来的对象筛选（筛选条上的标签点 ×） */
+function clearObjectFilter(): void {
+  filter.cost_object_id = '';
+  objectFilterNo.value = '';
 }
 
 function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
@@ -947,6 +1011,7 @@ async function submitImport(): Promise<void> {
 }
 
 onMounted(() => {
+  applyDeepLink();
   void loadOptions();
   void loadRows();
 });

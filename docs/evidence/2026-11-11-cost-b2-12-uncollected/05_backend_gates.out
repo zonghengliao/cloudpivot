@@ -1,0 +1,9 @@
+## 后端门禁：rustfmt --check（本卡 4 个文件）+ cargo clippy --all-targets -- -D warnings
+
+$ rustfmt --edition 2024 --check src/business/erp/cost_uncollected_{dto,model,handler,db_tests}.rs
+FMT_EXIT=0
+
+$ cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 16s
+EXIT=0

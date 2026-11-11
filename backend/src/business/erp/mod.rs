@@ -230,6 +230,15 @@ pub mod cost_rate_model;
 pub mod cost_reconcile_dto;
 /// 对账取数（`biz_cost_collect` 池行按来源反查科目 + `biz_voucher_entry` 的 4101.* 借方），B2-9。
 pub mod cost_reconcile_model;
+/// 「未归集清单」的纯逻辑与出参（四块缺口 / 原因判定 / 怎么修文案 / 跳转），B2-12。
+pub mod cost_uncollected_dto;
+/// 「未归集清单」接口层（设计 §5.2 #33 + 按期间自查入口），B2-12。
+pub mod cost_uncollected_handler;
+/// 「未归集清单」取数层（领料未挂对象 / 工时行数 / 池余额 / 批次），B2-12。
+pub mod cost_uncollected_model;
+/// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_uncollected_db_tests;
 pub mod credit;
 pub mod currency;
 pub mod currency_admin_handler;

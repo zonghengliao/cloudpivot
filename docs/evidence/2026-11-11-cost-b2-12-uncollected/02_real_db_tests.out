@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 7 tests
+test business::erp::cost_uncollected_db_tests::db::by_batch_and_by_period_share_one_shape ... ok
+test business::erp::cost_uncollected_db_tests::db::draft_labor_is_reported_as_not_confirmed ... ok
+test business::erp::cost_uncollected_db_tests::db::empty_period_returns_zero_blocks ... ok
+test business::erp::cost_uncollected_db_tests::db::four_blocks_report_the_real_gaps ... ok
+test business::erp::cost_uncollected_db_tests::db::pool_reason_progresses_no_rule_object_allocated ... ok
+test business::erp::cost_uncollected_db_tests::db::settled_batch_is_flagged ... ok
+test business::erp::cost_uncollected_db_tests::db::stock_out_gap_carries_doc_id_and_no ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 4637 filtered out; finished in 15.62s
+
+EXIT=0

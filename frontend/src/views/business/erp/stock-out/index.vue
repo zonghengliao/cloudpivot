@@ -1358,10 +1358,30 @@ async function runStatus(
 
 onMounted(async () => {
   await loadBasics();
+  applyOutNoDeepLink();
   void loadOrders(1);
   // 一键领料：成本对象详情页「领料」跳进来时带 ?cost_object_id=…
   await applyRouteIssuePrefill();
 });
+
+/**
+ * 深链 `?out_no=OUT-…`（COST-B2-12）：「未归集清单」里点「未挂成本对象的领料」跳进来时，
+ * 直接把这张单筛出来（本页列表的 `keyword` 支持单号模糊匹配）。
+ *
+ * 与 `?cost_object_id=` 同一个纪律：只读 query、只在有值时写 `filter.keyword`
+ * （不带参数进页面时不能清掉用户手填的筛选），处理完把 query 摘掉防止刷新又筛一次。
+ */
+function applyOutNoDeepLink(): void {
+  const raw = route.query.out_no;
+  const outNo = (typeof raw === 'string' ? raw : Array.isArray(raw) ? String(raw[0] ?? '') : '').trim();
+  if (!outNo) {
+    return;
+  }
+  filter.keyword = outNo;
+  const rest = { ...route.query };
+  delete rest.out_no;
+  void router.replace({ path: route.path, query: rest });
+}
 </script>
 
 <style scoped lang="less">

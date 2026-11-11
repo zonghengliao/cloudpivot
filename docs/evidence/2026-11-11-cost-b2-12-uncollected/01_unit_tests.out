@@ -1,0 +1,37 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 31s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 28 tests
+test business::erp::cost_uncollected_db_tests::db::draft_labor_is_reported_as_not_confirmed ... ok
+test business::erp::cost_uncollected_db_tests::db::empty_period_returns_zero_blocks ... ok
+test business::erp::cost_uncollected_db_tests::db::four_blocks_report_the_real_gaps ... ok
+test business::erp::cost_uncollected_db_tests::db::by_batch_and_by_period_share_one_shape ... ok
+test business::erp::cost_uncollected_db_tests::db::pool_reason_progresses_no_rule_object_allocated ... ok
+test business::erp::cost_uncollected_db_tests::db::settled_batch_is_flagged ... ok
+test business::erp::cost_uncollected_dto::tests::block_codes_are_stable ... ok
+test business::erp::cost_uncollected_dto::tests::block_of_reports_true_count_and_truncation ... ok
+test business::erp::cost_uncollected_dto::tests::jump_encodes_unsafe_ascii_only ... ok
+test business::erp::cost_uncollected_dto::tests::empty_block_is_zero_not_undefined ... ok
+test business::erp::cost_uncollected_dto::tests::labor_hint_distinguishes_not_recorded_from_not_confirmed ... ok
+test business::erp::cost_uncollected_dto::tests::labor_rate_block_carries_hours_instead_of_money ... ok
+test business::erp::cost_uncollected_dto::tests::pool_hint_carries_amount_dept_account_and_next_action ... ok
+test business::erp::cost_uncollected_dto::tests::pool_reason_prefers_rule_then_object_then_recalc ... ok
+test business::erp::cost_uncollected_dto::tests::total_gaps_sums_the_four_blocks ... ok
+test business::erp::cost_uncollected_db_tests::db::stock_out_gap_carries_doc_id_and_no ... ok
+test business::erp::cost_uncollected_dto::tests::account_label_falls_back_to_code ... ok
+test business::erp::cost_uncollected_handler::tests::batch_not_found_points_at_the_period_endpoint ... ok
+test business::erp::cost_uncollected_dto::tests::jumps_carry_the_source_doc_for_click_through ... ok
+test business::erp::cost_uncollected_handler::tests::by_id_route_rejects_non_uuid_before_querying ... ok
+test business::erp::cost_uncollected_handler::tests::settled_states_are_settled_and_closed ... ok
+test business::erp::cost_uncollected_model::tests::labor_count_sql_splits_confirmed_and_draft ... ok
+test business::erp::cost_uncollected_model::tests::pool_sql_mirrors_collection_pool_and_subtracts_alloc ... ok
+test business::erp::cost_uncollected_handler::tests::permission_code_reuses_cost_period_list ... ok
+test business::erp::cost_uncollected_model::tests::pool_sql_placeholder_count_matches_params ... ok
+test business::erp::cost_uncollected_model::tests::rule_overlap_window_covers_effective_range ... ok
+test business::erp::cost_uncollected_model::tests::stock_out_scope_is_the_mirror_of_material_collection ... ok
+test business::erp::cost_uncollected_handler::tests::period_is_required_and_validated ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 4616 filtered out; finished in 0.00s
+
+EXIT=0
