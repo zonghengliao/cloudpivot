@@ -1,0 +1,14 @@
+== cargo fmt --check（本卡 7 个文件，单独跑：0 差异）
+FMT_EXIT=0（零差异）
+
+== cargo clippy --all-targets -- -D warnings
+CLIPPY_EXIT=0，warning/error 行数=0
+
+== cargo test（全仓 33 目标）
+目标数=33 passed=4983 failed=0
+FAILED 行数=0
+EXIT=0
+
+== 前端
+pnpm typecheck：通过（无输出即无错）
+pnpm build：通过（dist 产出正常）

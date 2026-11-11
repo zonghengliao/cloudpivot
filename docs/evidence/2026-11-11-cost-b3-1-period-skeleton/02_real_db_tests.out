@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 5 tests
+test business::erp::cost_period_db_tests::db::create_update_cancel_round_trip ... ok
+test business::erp::cost_period_db_tests::db::duplicate_active_period_is_rejected ... ok
+test business::erp::cost_period_db_tests::db::full_chain_walks_and_illegal_jumps_are_rejected ... ok
+test business::erp::cost_period_db_tests::db::page_filters_by_period_and_status ... ok
+test business::erp::cost_period_db_tests::db::reversed_batch_frees_the_period ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 4655 filtered out; finished in 5.68s
+
