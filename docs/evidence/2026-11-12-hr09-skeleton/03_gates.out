@@ -1,0 +1,18 @@
+### cargo check --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.43s
+
+### cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+
+### cargo fmt --check
+fmt: clean
+
+### cargo test --lib (全量)
+
+test result: ok. 4819 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.99s
+
+
+### cargo test --lib business::hr
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4806 filtered out; finished in 0.01s
+

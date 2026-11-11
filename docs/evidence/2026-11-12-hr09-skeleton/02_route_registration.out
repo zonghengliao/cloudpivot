@@ -1,0 +1,9 @@
+# 路由注册实测（127.0.0.1:18091，全新空库 hr09_card 自动迁移）
+## ① 未登录 GET /api/business/hr/health
+HTTP=401
+## ② 已登录 GET /api/business/hr/nope（未注册路径，对照组）
+HTTP=404
+## ③ 已登录 GET /api/business/hr/health
+HTTP=200
+## ④ 已登录 GET /api/business/hr/employee/page（HR-12 未落地 ⇒ 应 404，不是 500）
+HTTP=404

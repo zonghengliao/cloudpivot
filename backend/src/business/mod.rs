@@ -21,6 +21,7 @@
 //! | [`attachment`] | 业务单据附件（ARCH-3 DC-17）：`biz_doc_attachment` 桥接表 + 4 个通用端点（复用 storage） |
 //! | [`aiagent`] | AI 用户（云枢 × Hermes · L1）：profile 自动创建、SOUL.md 编辑、事务性回滚 |
 //! | [`pdf`] | PDF 导出（PDF-01）：Chromium CDP 渲染引擎、对账单模板、金额大写 |
+//! | [`hr`] | 人力资源（ARCH-9-2 · HR-09 起）：10 张表、46 条接口、35 个权限码；骨架期只有体检探针 |
 
 pub mod aiagent;
 pub mod announcement;
@@ -30,6 +31,7 @@ pub mod dashboard;
 pub mod erp;
 pub mod flow;
 pub mod help;
+pub mod hr;
 pub mod impexp;
 pub mod masking;
 pub mod monitor;
