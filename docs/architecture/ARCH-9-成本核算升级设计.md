@@ -997,6 +997,15 @@ ARCH9-2 上线后的切换（D-13）：把 `biz_cost_period.labor_source` 切成
 
 改动点唯一：`stockout_handler.rs:747` 的 `debit_account_of(&header.out_type)` 前加一个分支 —— 挂了成本对象就返回 `("4001.01", "生产成本-直接材料")`。其余（金额取账上真实差额、按物料拆分录、尾差吸收）**一行不改**。
 
+**实现口径（B3-8 复核，无代码改动）**
+
+| 项 | 落地事实 |
+|---|---|
+| 分支位置 | 不在 `debit_account_of` 里加参（它是纯 `out_type` 映射，`biz_type_of` 等 8 处共用），而是新增包装 `stockout_base::debit_account_of_doc(out_type, cost_object_id)`；`debit_account_of` 语义与输出零变化 |
+| 调用点 | 唯一：`stockout_handler::post_out_tx` ⑤ 成本结转凭证（B1-10 已接入）。`git show 434aad42 -- stockout_handler.rs` 里该函数只有这一行改动（金额 / 拆行 / 尾差未动） |
+| 非 ISSUE 兜底 | `out_type != ISSUE` 时**永不**返回 4001.01（挂对象也走 1901 / 6401）——写入侧 `ensure_cost_object_usable` 已拒非 ISSUE 挂对象，记账侧再兜一层 |
+| 取证 | 真库两单对照：`OUT-20261111-000036`（挂对象）借 `4001.01 生产成本-直接材料` / 贷 `1405`；`OUT-20261111-000037`（不挂）借 `6401` / 贷 `1405`。见 `docs/evidence/2026-11-11-cost-b3-8-stockout-debit-split/` |
+
 #### 4.7.2 人工计提（结算时生成，第 1 张凭证）
 
 ```

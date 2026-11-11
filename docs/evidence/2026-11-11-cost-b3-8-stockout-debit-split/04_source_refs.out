@@ -1,0 +1,42 @@
+### 1) 借方分流函数（唯一口径）
+191:pub fn debit_account_of_doc(out_type: &str, cost_object_id: Option<Uuid>) -> (&'static str, &'static str) {
+192-    if cost_object_id.is_some() && out_type == OUT_TYPE_ISSUE {
+193-        return (
+194-            voucher::ACCOUNT_PRODUCTION_MATERIAL,
+195-            voucher::ACCOUNT_PRODUCTION_MATERIAL_NAME,
+196-        );
+197-    }
+
+### 2) 全仓 debit_account_of* 的生产调用点（非测试）
+backend/src/business/erp/stockout_base.rs:166:/// 挂了成本对象）—— 生产领料的借方分流走 [`debit_account_of_doc`]，别在这里加分支。
+backend/src/business/erp/stockout_base.rs:167:pub fn debit_account_of(out_type: &str) -> (&'static str, &'static str) {
+backend/src/business/erp/stockout_base.rs:190:/// 走 [`debit_account_of`] 的原逻辑，历史单据记账科目一个字都不变。
+backend/src/business/erp/stockout_base.rs:191:pub fn debit_account_of_doc(out_type: &str, cost_object_id: Option<Uuid>) -> (&'static str, &'static str) {
+backend/src/business/erp/stockout_base.rs:198:    debit_account_of(out_type)
+backend/src/business/erp/stockout_base.rs:542:        let (code, name) = debit_account_of_doc(OUT_TYPE_ISSUE, Some(object));
+backend/src/business/erp/stockout_base.rs:553:        assert_eq!(debit_account_of_doc(OUT_TYPE_ISSUE, None), ("6401", "主营业务成本"));
+backend/src/business/erp/stockout_base.rs:554:        assert_eq!(debit_account_of_doc(OUT_TYPE_OTHER, None), ("6401", "主营业务成本"));
+backend/src/business/erp/stockout_base.rs:558:                debit_account_of_doc(out_type, None),
+backend/src/business/erp/stockout_base.rs:559:                debit_account_of(out_type),
+backend/src/business/erp/stockout_base.rs:572:            debit_account_of_doc(OUT_TYPE_SCRAP, Some(object)),
+backend/src/business/erp/stockout_base.rs:577:            debit_account_of_doc(OUT_TYPE_LOSS, Some(object)),
+backend/src/business/erp/stockout_base.rs:582:            debit_account_of_doc(OUT_TYPE_OTHER, Some(object)),
+backend/src/business/erp/stockout_dto.rs:44:    StockOutItemRow, StockOutRow, debit_account_of_doc, out_type_label, status_label,
+backend/src/business/erp/stockout_dto.rs:586:    /// `stockout_base::debit_account_of_doc`（不另写一份映射，避免前后端两套）。
+backend/src/business/erp/stockout_dto.rs:602:        let (debit_account_code, debit_account_name) = debit_account_of_doc(&row.out_type, row.cost_object_id);
+backend/src/business/erp/stockout_handler.rs:780:    // 取科目的口径只在 `debit_account_of_doc` 里判一次（含「非 ISSUE 不准借 4001.01」的兜底），
+backend/src/business/erp/stockout_handler.rs:782:    let (debit_code, debit_name) = debit_account_of_doc(&header.out_type, header.cost_object_id);
+
+### 3) 4001.01 常量出现处（唯一出处 + 分流函数）
+backend/src/business/erp/stockout_base.rs:194:            voucher::ACCOUNT_PRODUCTION_MATERIAL,
+backend/src/business/erp/stockout_base.rs:195:            voucher::ACCOUNT_PRODUCTION_MATERIAL_NAME,
+backend/src/business/erp/stockout_base.rs:546:        assert_eq!(code, voucher::ACCOUNT_PRODUCTION_MATERIAL);
+backend/src/business/erp/stockout_base.rs:547:        assert_eq!(name, voucher::ACCOUNT_PRODUCTION_MATERIAL_NAME);
+backend/src/business/erp/voucher.rs:211:pub const ACCOUNT_PRODUCTION_MATERIAL: &str = "4001.01";
+backend/src/business/erp/voucher.rs:213:pub const ACCOUNT_PRODUCTION_MATERIAL_NAME: &str = "生产成本-直接材料";
+
+### 4) 卡面验收对应的单测（源文件位置）
+backend/src/business/erp/stockout_base.rs:540:    fn issue_with_cost_object_debits_production_material() {
+backend/src/business/erp/stockout_base.rs:552:    fn no_cost_object_keeps_legacy_debit_account() {
+backend/src/business/erp/stockout_base.rs:569:    fn scrap_and_loss_never_debit_production_material() {
+backend/src/business/erp/stockout_cost_object_tests.rs:377:async fn posting_splits_debit_by_cost_object() {

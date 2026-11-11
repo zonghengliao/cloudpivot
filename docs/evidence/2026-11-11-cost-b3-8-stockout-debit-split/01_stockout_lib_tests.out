@@ -1,0 +1,69 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 62 tests
+test business::erp::receivable_bridge::tests::sales_out_source_type_matches_stockout_const ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_stockout_with_location_deducts_that_one ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_stockout_without_location_deducts_fifo ... ok
+test business::erp::stockout_base::tests::issue_with_cost_object_debits_production_material ... ok
+test business::erp::stockout_base::tests::manual_out_types_keep_their_own_biz_type ... ok
+test business::erp::stockout_base::tests::no_cost_object_keeps_legacy_debit_account ... ok
+test business::erp::stockout_base::tests::sales_stock_out_is_sale_out_not_other_out ... ok
+test business::erp::stockout_base::tests::scrap_and_loss_never_debit_production_material ... ok
+test business::erp::stockout_base::tests::stock_out_vocabulary_matches_doc_kind ... ok
+test business::erp::stockout_dto::tests::cancelled_cost_object_is_rejected_with_409 ... ok
+test business::erp::stockout_dto::tests::closed_cost_object_is_rejected_with_409 ... ok
+test business::erp::stockout_dto::tests::cost_object_id_value_handles_three_states ... ok
+test business::erp::stockout_dto::tests::cost_object_option_keyword_is_trimmed ... ok
+test business::erp::stockout_dto::tests::cost_object_option_limit_matches_lot_options ... ok
+test business::erp::stockout_dto::tests::cost_object_option_res_serializes_expected_keys ... ok
+test business::erp::stockout_dto::tests::issue_prefill_query_requires_uuid ... ok
+test business::erp::stockout_dto::tests::issue_prefill_reason_joins_object_product_and_workshop ... ok
+test business::erp::stockout_dto::tests::issue_prefill_reason_skips_blank_parts ... ok
+test business::erp::stockout_dto::tests::issue_prefill_reason_truncates_by_chars_to_column_width ... ok
+test business::erp::stockout_dto::tests::issue_prefill_res_serializes_expected_keys ... ok
+test business::erp::stockout_dto::tests::issue_with_open_cost_object_is_accepted ... ok
+test business::erp::stockout_dto::tests::missing_cost_object_is_rejected_with_400 ... ok
+test business::erp::stockout_dto::tests::no_cost_object_is_always_accepted ... ok
+test business::erp::stockout_dto::tests::non_issue_doc_cannot_attach_cost_object ... ok
+test business::erp::stockout_dto::tests::response_debit_account_reflects_cost_object ... ok
+test business::erp::stockout_dto::tests::response_json_exposes_cost_object_and_debit_keys ... ok
+test business::erp::stockout_model::cost_object_tests::create_with_closed_or_cancelled_object_is_rejected ... ok
+test business::erp::stockout_model::cost_object_tests::create_with_open_cost_object_reports_production_debit ... ok
+test business::erp::stockout_model::cost_object_tests::issue_prefill_ignores_cancelled_docs_and_requires_id ... ok
+test business::erp::stockout_model::cost_object_tests::issue_prefill_of_non_open_object_is_rejected_with_409 ... ok
+test business::erp::stockout_model::cost_object_tests::issue_prefill_reuses_last_issue_materials_and_warehouse ... ok
+test business::erp::stockout_model::cost_object_tests::issue_prefill_without_history_returns_object_and_workshop_only ... ok
+test business::erp::stockout_model::cost_object_tests::non_issue_doc_cannot_attach_object ... ok
+test business::erp::stockout_model::cost_object_tests::options_filter_by_keyword_on_object_no_and_product ... ok
+test business::erp::stockout_model::cost_object_tests::options_list_only_open_objects_with_product_name ... ok
+test business::erp::stockout_model::cost_object_tests::posting_refuses_when_object_closed_after_draft ... ok
+test business::erp::stockout_model::cost_object_tests::posting_splits_debit_by_cost_object ... ok
+test business::erp::stockout_model::cost_object_tests::update_sets_and_clears_cost_object ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_exact_sum_has_no_shortfall ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_keeps_four_decimals ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_reports_shortfall ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_takes_earliest_bucket_first ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_without_stock_is_all_shortfall ... ok
+test business::erp::stockout_model::fifo_tests::fifo_create_auto_splits_across_locations_and_posts ... ok
+test business::erp::stockout_model::fifo_tests::fifo_create_prefills_single_location ... ok
+test business::erp::stockout_model::fifo_tests::fifo_insufficient_stock_warns_then_rejects_post ... ok
+test business::erp::stockout_model::fifo_tests::fifo_manual_location_overrides_auto ... ok
+test business::erp::stockout_model::fifo_tests::fifo_multiple_lines_do_not_double_book ... ok
+test business::erp::stockout_model::fifo_tests::fifo_negative_warehouse_still_posts_short ... ok
+test business::erp::stockout_model::fifo_tests::fifo_no_stock_at_all_is_explained ... ok
+test business::erp::stockout_model::fifo_tests::fifo_null_bucket_participates ... ok
+test business::erp::stockout_model::fifo_tests::fifo_split_follows_creation_order ... ok
+test business::erp::stockout_model::option_tests::blank_keyword_yields_no_filter ... ok
+test business::erp::stockout_model::option_tests::wildcard_characters_are_escaped ... ok
+test business::erp::stockout_model::tests::dc13_allow_negative_warehouse_lets_qty_go_negative_but_amount_clamps ... ok
+test business::erp::stockout_model::tests::dc13_cancel_restores_ledgers_and_reverses_voucher ... ok
+test business::erp::stockout_model::tests::dc13_full_chain_keeps_six_ledgers_green ... ok
+test business::erp::stockout_model::tests::dc13_negative_stock_is_blocked_and_rolled_back ... ok
+test business::erp::stockout_model::tests::dc13_permission_codes_match_migration ... ok
+test business::erp::stockout_model::tests::dc13_state_machine_and_guards ... ok
+test business::erp::stockout_model::tests::zz_dc13_fixtures_are_cleaned ... ok
+test business::flow::linkage::tests_wiring::stockout_post_wires_generic_engine_and_excludes_dedicated_actions ... ok
+
+test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 4680 filtered out; finished in 48.60s
+
