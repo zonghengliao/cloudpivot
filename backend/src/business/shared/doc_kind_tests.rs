@@ -19,6 +19,8 @@
 //! | [`every_enum_has_a_label`] | 每个取值都有中文名 |
 //! | [`txn_doc_map_matches_snapshot_registry`] | 巡检登记表 `TXN_DOC` ↔ `TXN_DOC_TYPE_VALUES`（+遗留 `PURCHASE_ORDER`） |
 //! | [`voucher_source_map_matches_snapshot_registry`] | 巡检登记表 `VOUCHER_SOURCE` ↔ `VOUCHER_SOURCE_VALUES` |
+//! | [`demo_seed_voucher_sources_are_enum_values`] | `scripts/demo_seed.sh` 手写的凭证来源 ∈ `VoucherSourceType::ALL` |
+//! | [`demo_seed_source_guard_matches_enum`] | `demo_seed.sh` ⑩ 自检的来源白名单 ↔ `VoucherSourceType::ALL` |
 
 use super::*;
 use crate::business::erp::approval_gate;
@@ -322,6 +324,90 @@ fn attachment_doc_types_match_rust() {
         "ATTACHMENT_DOC_KINDS",
         "ATTACHMENT_DOC_TYPES",
         &ATTACHMENT_DOC_KINDS.map(DocKind::as_str),
+    );
+}
+
+// ==================== 演示数据脚本（scripts/demo_seed.sh） ====================
+
+/// 读演示数据脚本全文。
+fn read_demo_seed() -> String {
+    let path = repo_root().join("scripts/demo_seed.sh");
+    std::fs::read_to_string(&path).unwrap_or_else(|err| panic!("读不到演示数据脚本 {}：{err}", path.display()))
+}
+
+/// 演示数据里**手写**的每个凭证来源都必须是 [`VoucherSourceType`] 的枚举值。
+///
+/// 事故背景：`demo_seed.sh` 曾把销售开票凭证写成 `source_type = 'RECEIVABLE'` —— 那是
+/// 「业务对象轴」（`DocKind::Receivable`）的取值，不在凭证来源轴上，**没有任何生产路径会写它**。
+/// 结果是演示库里出现商品永远不会产生的值：前端来源单据映射表认不出（落到「来源类型未识别」，
+/// 凭证详情的来源单据不可点），拿 source_type 校验枚举的巡检/单测也会把它判成非法值。
+///
+/// 扫描口径：凭证 INSERT 的每一行形如 `… , 'AUTO', 'STOCK_IN', '<source_id>'`（手工凭证是
+/// `'MANUAL', 'MANUAL', NULL`）⇒ 取 `'AUTO', '` / `'MANUAL', '` 之后的下一个引号内字面量。
+#[test]
+fn demo_seed_voucher_sources_are_enum_values() {
+    let text = read_demo_seed();
+    let allowed: Vec<&str> = VoucherSourceType::ALL.iter().map(|item| item.as_str()).collect();
+
+    let mut found: Vec<String> = Vec::new();
+    let mut bad: Vec<String> = Vec::new();
+    for marker in ["'AUTO', '", "'MANUAL', '"] {
+        let mut rest = text.as_str();
+        while let Some(pos) = rest.find(marker) {
+            let after = &rest[pos + marker.len()..];
+            let Some(end) = after.find('\'') else { break };
+            let token = &after[..end];
+            if !allowed.contains(&token) {
+                bad.push(token.to_string());
+            } else if !found.iter().any(|item| item == token) {
+                found.push(token.to_string());
+            }
+            rest = &after[end..];
+        }
+    }
+
+    assert!(
+        bad.is_empty(),
+        "演示数据里出现了 VoucherSourceType 枚举外的凭证来源：{bad:?}。\
+         凭证来源轴只认枚举值（VoucherSourceType::ALL）；业务对象轴的值（RECEIVABLE / PAYABLE / \
+         SHIPMENT …）不是来源，别手写。"
+    );
+    // 防止扫描失效（脚本结构变了、标记对不上了却静默变绿）
+    assert!(
+        found.len() >= 6,
+        "只扫到 {} 种凭证来源（{found:?}）—— 演示数据的凭证 INSERT 结构变了，请同步本用例的扫描口径",
+        found.len()
+    );
+    for expected in ["STOCK_IN", "STOCK_OUT", "PAYMENT", "RECEIPT", "INVOICE", "MANUAL"] {
+        assert!(
+            found.iter().any(|item| item == expected),
+            "演示数据少了 {expected} 来源的凭证"
+        );
+    }
+}
+
+/// 演示数据的 ⑩ 自检里那份「来源白名单」与枚举逐字一致（顺序也一致）。
+///
+/// 自检是最后一道闸：白名单比枚举旧，演示数据就能把枚举外的值灌进库而不报错；
+/// 白名单比枚举新，则是自检在认可一个并不存在的枚举值。两边必须同步。
+#[test]
+fn demo_seed_source_guard_matches_enum() {
+    let text = read_demo_seed();
+    let marker = "v.source_type NOT IN (";
+    let start = text
+        .find(marker)
+        .unwrap_or_else(|| panic!("demo_seed.sh 的 ⑩ 自检里找不到 {marker} —— 白名单被删了？"))
+        + marker.len();
+    let close = text[start..].find(')').expect("demo_seed.sh 的来源白名单没有闭合的 )");
+    let guard: Vec<&str> = text[start..start + close]
+        .split(',')
+        .map(|item| item.trim().trim_matches('\'').trim())
+        .filter(|item| !item.is_empty())
+        .collect();
+    assert_eq!(
+        guard,
+        VoucherSourceType::ALL.map(VoucherSourceType::as_str).to_vec(),
+        "demo_seed.sh ⑩ 自检的来源白名单与 VoucherSourceType::ALL 不一致（顺序也要一致）"
     );
 }
 

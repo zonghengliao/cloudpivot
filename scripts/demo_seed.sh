@@ -8,9 +8,11 @@
 #
 #   ① 基础数据  3 供应商 / 5 客户 / 12 物料 / 2 仓库 + 6 库位（另有 ★WH-TRANSIT 在途仓，迁移自备）
 #   ② 采购链    已完成的采购订单 → 收货入库 → 应付账款 → 付款；另有 1 张审批中的采购订单
-#   ③ 销售链    已完成的销售订单 → 发货 → 应收 → 收款；另有 1 张待审批的销售订单
+#   ③ 销售链    已完成的销售订单 → 发货 → 应收 → 开票（销售发票 + 收入凭证）→ 收款；另有 1 张待审批的销售订单
 #   ④ 库存      5 个库存桶有余额（3 个物料）/ 1 张在途调拨单 / 1 张草稿盘点单
 #   ⑤ 财务      业务自动生成凭证 7 张 + 手工凭证 3 张 = 10 张；1405/2202 与模块账对得上
+#               （其中销售开票那张的来源是销售发票 biz_invoice，source_type = INVOICE；
+#                收入在开票时确认，挂账/应收不是凭证来源，见 SO-22 口径）
 #   ⑥ 流程任务  3 条真实待办审批（采购/销售/报销，真实 biz_flow_instance + 节点 + 任务）
 #               5 个工作任务（1 个已逾期）
 #   ⑦ 公告消息  3 条已发布公告 + 5 条站内消息
@@ -536,6 +538,24 @@ VALUES
   '已开票并全额收款', pg_temp.uid('li.na'))
 ON CONFLICT (id) DO NOTHING;
 
+-- 销售发票：应收「已开票」的那个号在这里才是权威来源（biz_receivable.invoice_no 只是拷贝列）。
+-- 没有这一行，销售开票的收入凭证就没有可挂的 source_id（商品代码里 SOURCE_INVOICE 的
+-- source_id = biz_invoice.id、source_no = invoice_no，见 erp/voucher.rs::create_for_sales_revenue）。
+-- voucher_id 在下面「单据 ↔ 凭证」的指针段回填（与商品代码「过账时回填」同序）。
+INSERT INTO biz_invoice (id, invoice_no, invoice_type, invoice_code, is_electronic, customer_id,
+        invoice_date, amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status,
+        receivable_id, source_type, source_no, remark,
+        currency_code, exchange_rate, base_total_amount, base_total_tax, base_total_with_tax,
+        create_by)
+VALUES
+ ('de300000-0000-4000-8000-000000002301', 'IV-2026-1042', 'OUT', NULL, TRUE,
+  'de300000-0000-4000-8000-000000000201', pg_temp.d(10), 3000, 390, 3390, 13, 'PERCENT', 'POSTED',
+  'de300000-0000-4000-8000-000000001701', 'SALES_OUT',
+  (SELECT out_no FROM biz_stock_out WHERE id = 'de300000-0000-4000-8000-000000001601'),
+  '数电票（手填票号与应收的 invoice_no 一致）', 'CNY', 1, 3000, 390, 3390,
+  pg_temp.uid('li.na'))
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO biz_receipt (id, receipt_no, customer_id, receipt_date, amount, allocated_amount,
         method, bank_account, status, currency_code, exchange_rate,
         base_total_amount, base_total_tax, base_total_with_tax, remark, create_by)
@@ -740,12 +760,15 @@ VALUES
   (SELECT out_no FROM biz_stock_out WHERE id = 'de300000-0000-4000-8000-000000001601'),
   '销售出库成本结转（2 项）', 850, 850, 4, 'POSTED', 0,
   pg_temp.ts(10) + interval '2 hours', pg_temp.uid('admin'), '', pg_temp.uid('admin')),
- -- 应收确认（开票）
+ -- 开票确认收入（SO-22 口径：收入在**开票**时确认，来源是销售发票 biz_invoice.id）
+ --   ⚠ source_type 只能是 VoucherSourceType 枚举值（'INVOICE'）；'RECEIVABLE' 是业务对象轴
+ --     （DocKind::Receivable）的取值，不在凭证来源轴上，没有任何生产路径会写它。
+ --     挂账（出库转应收）只是债权成立、不是收入确认时点，所以收入凭证不挂应收单。
  ('de300000-0000-4000-8000-000000003006', '记',
   'PZ-' || to_char(pg_temp.d(10), 'YYYYMMDD') || '-900006', to_char(pg_temp.d(10), 'YYYY-MM'),
-  pg_temp.d(10), 'AUTO', 'RECEIVABLE', 'de300000-0000-4000-8000-000000001701',
-  (SELECT ar_no FROM biz_receivable WHERE id = 'de300000-0000-4000-8000-000000001701'),
-  (SELECT ar_no FROM biz_receivable WHERE id = 'de300000-0000-4000-8000-000000001701'),
+  pg_temp.d(10), 'AUTO', 'INVOICE', 'de300000-0000-4000-8000-000000002301',
+  (SELECT invoice_no FROM biz_invoice WHERE id = 'de300000-0000-4000-8000-000000002301'),
+  NULL,
   '销售开票（确认收入与销项税）', 3390, 3390, 3, 'POSTED', 0,
   pg_temp.ts(10) + interval '4 hours', pg_temp.uid('admin'), '', pg_temp.uid('admin')),
  -- 收款
@@ -837,8 +860,15 @@ UPDATE biz_payment y
 UPDATE biz_stock_out o
    SET voucher_id = (SELECT v.id FROM biz_voucher v WHERE v.source_type = 'STOCK_OUT' AND v.source_id = o.id AND v.deleted_at IS NULL LIMIT 1)
  WHERE o.id::text LIKE 'de300000-%';
+UPDATE biz_invoice i
+   SET voucher_id = (SELECT v.id FROM biz_voucher v WHERE v.source_type = 'INVOICE' AND v.source_id = i.id AND v.deleted_at IS NULL LIMIT 1)
+ WHERE i.id::text LIKE 'de300000-%';
+-- 应收的凭证指针由**发票**回填（不是自己去当凭证来源）：与商品代码 invoice::writeback_receivable 同口径。
+-- 反查凭证一律走 source_type='INVOICE' + source_id=发票 id，「应收 → 发票 → 凭证」两跳。
 UPDATE biz_receivable r
-   SET voucher_id = (SELECT v.id FROM biz_voucher v WHERE v.source_type = 'RECEIVABLE' AND v.source_id = r.id AND v.deleted_at IS NULL LIMIT 1)
+   SET voucher_id = (SELECT i.voucher_id FROM biz_invoice i
+                      WHERE i.receivable_id = r.id AND i.deleted_at IS NULL AND i.voucher_id IS NOT NULL
+                      LIMIT 1)
  WHERE r.id::text LIKE 'de300000-%';
 UPDATE biz_receipt r
    SET voucher_id = (SELECT v.id FROM biz_voucher v WHERE v.source_type = 'RECEIPT' AND v.source_id = r.id AND v.deleted_at IS NULL LIMIT 1)
@@ -1319,6 +1349,45 @@ BEGIN
       FROM biz_flow_task t JOIN biz_flow_instance i ON i.id = t.instance_id
      WHERE t.id::text LIKE 'de300000-%' AND t.status = 'PENDING' AND i.status <> 'PENDING';
     IF bad > 0 THEN RAISE EXCEPTION '存在实例已结束但待办仍 PENDING 的孤儿待办：% 条', bad; END IF;
+
+    -- 6) 凭证来源必须是 VoucherSourceType::ALL 的值域（唯一真相 backend/src/business/shared/doc_kind.rs）
+    --    这条是「演示数据造出商品永远不会写的来源值」那类事故的兜底：源轴写成业务对象轴的值
+    --    （例如 RECEIVABLE），前端来源单据就永远不可点，巡检也会判非法值。
+    --    ⚠ 增删枚举时本清单要同步（doc_kind 的单测会盯住这 20 个值）。
+    SELECT count(*), string_agg(DISTINCT v.source_type, ', ') INTO bad, detail
+      FROM biz_voucher v
+     WHERE v.deleted_at IS NULL
+       AND v.source_type NOT IN ('STOCK_IN', 'STOCK_OUT', 'PAYMENT', 'STOCK_TAKE', 'SERIAL_BATCH',
+                                 'SERIAL_OUT', 'SERIAL_SCRAP', 'OPENING', 'YEAR_END', 'MANUAL',
+                                 'FIXED_ASSET_ACQ', 'FIXED_ASSET_DISPOSAL', 'DEPRECIATION',
+                                 'EXPENSE_REPORT', 'EXPENSE_PAYMENT', 'RECEIPT', 'RECEIPT_REFUND',
+                                 'INVOICE', 'COMMISSION', 'COST_PERIOD');
+    IF bad > 0 THEN RAISE EXCEPTION '凭证来源出现 VoucherSourceType 枚举外的值：% 张（%）', bad, detail; END IF;
+
+    -- 7) 销售开票的收入凭证三处指针必须闭合：
+    --    恰好 1 张 source_type='INVOICE'，且 voucher.source_id = 发票 id、source_no = 发票号、
+    --    发票 voucher_id 指回这张凭证
+    SELECT count(*) INTO bad
+      FROM biz_voucher v
+      JOIN biz_invoice i ON i.id = 'de300000-0000-4000-8000-000000002301'::uuid
+     WHERE v.id::text LIKE 'de300000-%' AND v.deleted_at IS NULL AND v.source_type = 'INVOICE';
+    IF bad <> 1 THEN RAISE EXCEPTION '销售开票的收入凭证应恰好 1 张（source_type=INVOICE），实际 % 张', bad; END IF;
+
+    SELECT count(*), string_agg(v.voucher_no, ', ') INTO bad, detail
+      FROM biz_voucher v
+      JOIN biz_invoice i ON i.id = 'de300000-0000-4000-8000-000000002301'::uuid
+     WHERE v.id::text LIKE 'de300000-%' AND v.deleted_at IS NULL AND v.source_type = 'INVOICE'
+       AND (v.source_id IS DISTINCT FROM i.id
+            OR v.source_no IS DISTINCT FROM i.invoice_no
+            OR i.voucher_id IS DISTINCT FROM v.id);
+    IF bad > 0 THEN RAISE EXCEPTION '销售开票凭证与发票的指针不闭合：% 张（%）', bad, detail; END IF;
+
+    -- 8) 应收的 voucher_id 必须由发票回填（应收不再自己当凭证来源）
+    SELECT count(*) INTO bad
+      FROM biz_receivable r
+     WHERE r.id = 'de300000-0000-4000-8000-000000001701'::uuid
+       AND (SELECT i.voucher_id FROM biz_invoice i WHERE i.receivable_id = r.id AND i.deleted_at IS NULL) IS DISTINCT FROM r.voucher_id;
+    IF bad > 0 THEN RAISE EXCEPTION '应收的 voucher_id 未由发票回填（应收不该自己当凭证来源）'; END IF;
 END $$;
 SQL2
         echo "$tail"
@@ -1347,8 +1416,9 @@ SELECT rpad(label, 22) || lpad(n::text, 6) || coalesce('   ' || note, '')
     UNION ALL SELECT 9, '销售订单', count(*), '含 1 张待审批' FROM biz_sales_order WHERE id::text LIKE 'de300000-%'
     UNION ALL SELECT 10, '发货单', count(*), NULL FROM biz_shipment WHERE id::text LIKE 'de300000-%'
     UNION ALL SELECT 11, '出库单', count(*), NULL FROM biz_stock_out WHERE id::text LIKE 'de300000-%'
-    UNION ALL SELECT 12, '应收 / 收款', (SELECT count(*) FROM biz_receivable WHERE id::text LIKE 'de300000-%'),
-              (SELECT count(*)::text FROM biz_receipt WHERE id::text LIKE 'de300000-%') || ' 张收款单'
+    UNION ALL SELECT 12, '应收 / 发票 / 收款', (SELECT count(*) FROM biz_receivable WHERE id::text LIKE 'de300000-%'),
+              (SELECT count(*)::text FROM biz_invoice WHERE id::text LIKE 'de300000-%') || ' 张发票 / '
+              || (SELECT count(*)::text FROM biz_receipt WHERE id::text LIKE 'de300000-%') || ' 张收款单'
     UNION ALL SELECT 13, '库存桶 / 流水', (SELECT count(*) FROM biz_inventory WHERE id::text LIKE 'de300000-%'),
               (SELECT count(*)::text FROM biz_inventory_txn WHERE id::text LIKE 'de300000-%') || ' 条流水'
     UNION ALL SELECT 14, '调拨单 / 盘点单', (SELECT count(*) FROM biz_stock_transfer WHERE id::text LIKE 'de300000-%'),
@@ -1385,6 +1455,7 @@ SET LOCAL client_min_messages = warning;
 CREATE TEMP TABLE demo_before(tbl text, n bigint) ON COMMIT DROP;
 INSERT INTO demo_before VALUES
  ('收款核销明细',  (SELECT count(*) FROM biz_receipt_allocation WHERE id::text LIKE 'de300000-%')),
+ ('销售发票',      (SELECT count(*) FROM biz_invoice           WHERE id::text LIKE 'de300000-%')),
  ('应收账款',      (SELECT count(*) FROM biz_receivable         WHERE id::text LIKE 'de300000-%')),
  ('收款单',        (SELECT count(*) FROM biz_receipt            WHERE id::text LIKE 'de300000-%')),
  ('付款单',        (SELECT count(*) FROM biz_payment            WHERE id::text LIKE 'de300000-%')),
@@ -1423,6 +1494,8 @@ DELETE FROM biz_status_log   WHERE entity_id::text LIKE 'de300000-%';
 DELETE FROM biz_inventory_txn WHERE doc_id::text LIKE 'de300000-%';
 DELETE FROM biz_doc_attachment WHERE doc_id::text LIKE 'de300000-%';
 DELETE FROM sys_notice       WHERE biz_id LIKE 'de300000-%';
+-- 发票必须先于应收删：biz_invoice.receivable_id 是 FK ON DELETE RESTRICT（不是 CASCADE）
+DELETE FROM biz_invoice      WHERE id::text LIKE 'de300000-%';
 DELETE FROM biz_receivable   WHERE source_id::text LIKE 'de300000-%';
 DELETE FROM biz_receipt      WHERE id IN (SELECT receipt_id FROM biz_receipt_allocation WHERE receivable_id::text LIKE 'de300000-%');
 DELETE FROM biz_payment      WHERE payable_id::text LIKE 'de300000-%';
@@ -1501,6 +1574,7 @@ SELECT rpad('残留行数合计', 22) || lpad((
      UNION ALL SELECT (SELECT count(*) FROM sys_notice           WHERE id::text LIKE 'de300000-%')
      UNION ALL SELECT (SELECT count(*) FROM biz_supplier         WHERE id::text LIKE 'de300000-%')
      UNION ALL SELECT (SELECT count(*) FROM biz_customer         WHERE id::text LIKE 'de300000-%')
+     UNION ALL SELECT (SELECT count(*) FROM biz_invoice          WHERE id::text LIKE 'de300000-%')
      UNION ALL SELECT (SELECT count(*) FROM biz_material         WHERE id::text LIKE 'de300000-%')
      UNION ALL SELECT (SELECT count(*) FROM sys_user             WHERE id::text LIKE 'de300000-%')
      -- 反向：引擎按演示单据生成的挂空行（id 不是前缀，靠 source_id / biz_id 找）
@@ -1544,7 +1618,8 @@ main() {
         echo "   · 首页四张卡都有数：待办审批 3 / 逾期 1 / 今日任务 / 本周已办"
         echo "   · 审批中心 3 条待办（采购 / 销售 / 报销，可直接同意或驳回）"
         echo "   · 工作任务 5 个（1 个逾期）、公告 3 条、站内消息 5 条"
-        echo "   · 凭证 10 张（采购入库 3 / 付款 1 / 销售成本 1 / 应收 1 / 收款 1 / 手工 3）"
+        echo "   · 凭证 10 张（采购入库 3 / 付款 1 / 销售成本 1 / 销售开票 1 / 收款 1 / 手工 3）"
+        echo "   · 销售发票 1 张（IV-2026-1042，来源单据 = 销售出库单；开票的收入凭证在凭证页的「来源单据」可点回发票）"
         echo "   · 演示账号 zhang.ming / li.na / wang.lei / chen.li 的口令 = 当前 admin 的口令（登录后请改密）"
         echo "   撤销全部演示数据：bash scripts/demo_seed.sh --clean"
     fi
