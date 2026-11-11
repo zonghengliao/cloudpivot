@@ -1,0 +1,32 @@
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 38s
+
+===== cargo fmt -- --check（只列我的文件；全仓里别人正在改的文件不计）=====
+RUSTFMT_EXIT=0
+
+===== pnpm typecheck（vue-tsc --noEmit）=====
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+TYPECHECK_EXIT=0
+
+===== pnpm test:unit（tsx --test tests/unit/**/*.test.ts，含本卡新增 5 条）=====
+# tests 1424
+# suites 0
+# pass 1424
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6504.915902
+UNIT_TEST_EXIT=0
+
+===== vite build（--outDir 到临时目录，不入库；验证产物能出）=====
+dist-b214//opt/cloudpivot/frontend/demo/flow-poc/vendor/logicflow.bundle.js.gz                                  384.37kb / gzip: 98.77kb
+dist-b214//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz                                                1002.89kb / gzip: 331.52kb
+dist-b214//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist-b214//opt/cloudpivot/frontend/assets/tdesign-D-c-CfB2.js.gz                                                7995.70kb / gzip: 772.69kb
+
+
+BUILD_EXIT=0

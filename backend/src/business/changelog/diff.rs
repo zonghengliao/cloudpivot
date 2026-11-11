@@ -226,6 +226,21 @@ pub const BIZ_CONTRACT: ResourceSpec = ResourceSpec {
     big: &[],
 };
 
+/// `biz_cost_object`（成本对象 / 生产批，ARCH-9 · B2-14 接入）。
+///
+/// 只登记**手工填写的本期产量与在制**三列：设计 §8.3 R-4 要求「完工进度留填写人 +
+/// 时间」，而这张表**不加三列快照**（§4.6.3 末段的一期口径），审计凭证就是本表。
+///
+/// 为什么不把 `plan_qty` / `status` / `due_date` 也放进来：改主数据的路径
+/// （`PUT /cost-object/{id}`）本卡没接变更日志，登记了却永远不会有日志 ——
+/// 审计页会显示「这表登记了但零记录」，反而误导。等主数据改单接审计时一起加。
+pub const BIZ_COST_OBJECT: ResourceSpec = ResourceSpec {
+    table: "biz_cost_object",
+    module: "business",
+    fields: &["completed_qty", "wip_qty", "completion_pct"],
+    big: &[],
+};
+
 /// `biz_flow_def`（流程定义，批次 D · D3c 接入）。
 ///
 /// 口径：**配置面**（名字/类型/是否默认/自动通过开关）进白名单，运行时列不进。
@@ -423,6 +438,8 @@ pub const REGISTRY: &[&ResourceSpec] = &[
     &BIZ_TASK,
     // CTR-02 F2：合同草稿改单留痕（`PUT /business/erp/contract/{id}`）
     &BIZ_CONTRACT,
+    // B2-14：成本对象「本期产量与在制」录入留痕（`PUT /cost-object/{id}/output`）
+    &BIZ_COST_OBJECT,
     // 批次 D · D3c：审批三张表（实例 / 待办 / 定义）
     &FLOW_DEF,
     &FLOW_INSTANCE,
@@ -779,6 +796,24 @@ mod tests {
         let tables = registered_tables();
         assert!(tables.contains(&"sys_user"));
         assert!(tables.contains(&"sys_role"));
+    }
+
+    /// B2-14：成本对象的「本期产量与在制」三列已登记。
+    ///
+    /// 未登记 ⇒ `record()` 以 62012 拒（HTTP 500），产量录入会被审计兜底打成 500 ——
+    /// 这条断言把「登记」与「调用点」钉在同一个提交里。
+    #[test]
+    fn cost_object_output_fields_are_registered() {
+        let entry = spec("biz_cost_object").expect("biz_cost_object 未登记，产量录入的审计会 62012");
+        assert_eq!(entry.module, "business");
+        for column in ["completed_qty", "wip_qty", "completion_pct"] {
+            assert!(
+                entry.fields.contains(&column),
+                "白名单缺 {column}（审计会静默丢这次填写）"
+            );
+        }
+        assert!(entry.big.is_empty(), "三个 numeric 列不是大字段");
+        assert!(registered_tables().contains(&"biz_cost_object"));
     }
 
     /// 登记表的字段名必须是小写下划线（否则 GIN `changed_fields` 反查会漏）。

@@ -1,0 +1,51 @@
+test business::erp::cost_object_dto::tests::clean_facts_can_close ... ok
+test business::erp::cost_object_dto::tests::close_blocked_by_draft_labor ... ok
+test business::erp::cost_object_dto::tests::close_blocked_by_uncollected_stock_out ... ok
+test business::erp::cost_object_dto::tests::close_blocked_by_unposted_stock_out ... ok
+test business::erp::cost_object_dto::tests::close_blocked_by_wip_unless_forced ... ok
+test business::erp::cost_object_dto::tests::close_blocked_by_locked_period ... ok
+test business::erp::cost_object_dto::tests::collect_summary_total_is_sum_of_three ... ok
+test business::erp::cost_object_dto::tests::all_blockers_are_reported_together ... ok
+test business::erp::cost_object_dto::tests::create_rejects_due_date_before_start ... ok
+test business::erp::cost_object_dto::tests::create_defaults_to_batch_and_one_time ... ok
+test business::erp::cost_object_dto::tests::create_rejects_as_progress_mode ... ok
+test business::erp::cost_object_dto::tests::create_rejects_non_positive_qty_and_missing_fields ... ok
+test business::erp::cost_object_dto::tests::output_spec_merges_missing_fields ... ok
+test business::erp::cost_object_dto::tests::output_spec_requires_progress_when_wip_positive ... ok
+test business::erp::cost_object_dto::tests::date_shape_is_ten_chars ... ok
+test business::erp::cost_object_dto::tests::output_warnings_allow_overproduction ... ok
+test business::erp::cost_object_dto::tests::output_warnings_flag_zero_output_with_cost ... ok
+test business::erp::cost_object_dto::tests::status_vocabulary_matches_migration ... ok
+test business::erp::cost_object_dto::tests::output_snapshot_uses_normalized_string_values ... ok
+test business::erp::cost_object_dto::tests::update_rejects_start_after_due ... ok
+test business::erp::cost_object_dto::tests::output_spec_rejects_out_of_range_values ... ok
+test business::erp::cost_object_dto::tests::update_merges_only_given_fields ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 4648 filtered out; finished in 0.01s
+
+
+running 13 tests
+test business::erp::cost_object_handler::tests::blocked_close_carries_66055_and_structured_detail ... ok
+test business::erp::cost_object_handler::tests::closed_object_offers_no_edge ... ok
+test business::erp::cost_object_handler::tests::filter_normalizes_status_and_paging ... ok
+test business::erp::cost_object_handler::tests::detail_carries_output_fill_snapshot ... ok
+test business::erp::cost_object_handler::tests::filter_rejects_bad_date_and_uuid ... ok
+test business::erp::cost_object_handler::tests::list_row_serializes_frontend_fields ... ok
+test business::erp::cost_object_handler::tests::filter_rejects_unknown_status ... ok
+test business::erp::cost_object_handler::tests::object_no_spec_is_cb_daily ... ok
+test business::erp::cost_object_handler::tests::output_res_serializes_panel_fields ... ok
+test business::erp::cost_object_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::cost_object_handler::tests::output_route_reuses_update_permission ... ok
+test business::erp::cost_object_handler::tests::permission_codes_match_design_5_3 ... ok
+test business::erp::cost_object_handler::tests::detail_offers_both_edges_when_open ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 4658 filtered out; finished in 0.01s
+
+test business::changelog::diff::tests::role_escalation_change_is_recorded ... ok
+test business::changelog::diff::tests::unregistered_table_has_no_spec ... ok
+test business::changelog::diff::tests::empty_when_nothing_changed ... ok
+test business::changelog::diff::tests::big_preview_is_truncated_to_200_chars ... ok
+test business::changelog::diff::tests::sensitive_big_field_goes_redacted_not_big ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 4657 filtered out; finished in 0.01s
+

@@ -574,6 +574,90 @@ pub async fn apply_production(
     .await
 }
 
+// ==================== 本期产量与在制（B2-14） ====================
+
+/// 该对象**已结算**的期间（`period_code`, `status`）。
+///
+/// # 口径（卡面逐字）
+///
+/// `biz_cost_period.status ∈ {SETTLED, CLOSED}` **且该对象有计算单** ⇒ 这些期间里的
+/// 产量/在制已经变成入库金额与结转凭证（§4.7.4），再改就是改写已入账成本。
+///
+/// 为什么要求「有计算单」：期间结算了但这批对象没参与（没投入也没产量）时，
+/// 它的产量数字与任何账务无关，仍允许补录。
+///
+/// # SCOPE-EXEMPT
+///
+/// 按对象主键回查它参与过的期间（单个对象、非列表 / 导出），不涉及行级可见性。
+// SCOPE-EXEMPT: 按 cost_object_id 回查已结算期间（单对象只读校验，非列表查询）
+pub async fn settled_periods(cost_object_id: Uuid) -> DbResult<Vec<(String, String)>> {
+    let rows = db()
+        .query_sql(
+            "SELECT p.period_code, p.status \
+               FROM biz_cost_period p \
+              WHERE p.deleted_at IS NULL AND p.status IN ('SETTLED','CLOSED') \
+                AND EXISTS (SELECT 1 FROM biz_cost_period_item i \
+                             WHERE i.cost_object_id = ?::uuid AND i.period_id = p.id) \
+              ORDER BY p.period_code DESC"
+                .to_string(),
+            vec![Value::from(&cost_object_id)],
+        )
+        .await?;
+    let mut periods = Vec::with_capacity(rows.len());
+    for row in &rows {
+        periods.push((row.get_typed("period_code")?, row.get_typed("status")?));
+    }
+    Ok(periods)
+}
+
+/// 写「本期产量与在制」（CAS：`WHERE status = 'OPEN'`）。
+///
+/// # 为什么单独一条 SQL 而不改 [`apply_production`]
+///
+/// `apply_production` 是**结算回写**用的（B3 段，结算在事务里已确认对象是 OPEN），
+/// 它没有状态守卫；产量录入是**人工写**，必须自带 `status='OPEN'` 守卫 ——
+/// 两个人在「保存产量」与「关批」之间抢跑时，后到的那条 `affected = 0`，
+/// handler 转 409 而不是把已关批的单改回可写。
+///
+/// 参数顺序与 SQL 占位符一一对应（`?::text::numeric` 保证按字符串传来也不丢标度）。
+pub async fn apply_output(id: Uuid, spec: &cost_object_dto::OutputSpec, operator: Option<Uuid>) -> DbResult<u64> {
+    db().exec_sql(
+        "UPDATE biz_cost_object SET completed_qty = ?::text::numeric, wip_qty = ?::text::numeric, \
+             completion_pct = ?::text::numeric, updated_at = now(), \
+             update_by = NULLIF(?::text,'')::uuid \
+         WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'OPEN'"
+            .to_string(),
+        vec![
+            Value::Text(spec.completed_qty.to_string()),
+            Value::Text(spec.wip_qty.to_string()),
+            Value::Text(spec.completion_pct.to_string()),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 最近一次「填写本期产量与在制」的**填写人 + 时间**（设计 §8.3 R-4）。
+///
+/// 来源是变更日志（`sys_change_log.operator_name` 快照 + `created_at`），
+/// **不加表上三列快照**（§4.6.3 末段的一期口径）。按 `action_label` 过滤，
+/// 将来改主数据也接审计时不会把「改备注」显示成「填产量」。
+///
+/// # SCOPE-EXEMPT
+///
+/// 按对象主键取审计行（单对象只读，非列表 / 导出）。
+// SCOPE-EXEMPT: 按 resource_id 取最近一条产量填写审计（单对象只读，非列表查询）
+pub async fn latest_output_fill(id: Uuid) -> DbResult<Option<(Option<String>, DateTime<Utc>)>> {
+    crate::business::changelog::model::latest_for_object(
+        db(),
+        COST_OBJECT_TABLE,
+        &id.to_string(),
+        Some(cost_object_dto::OUTPUT_ACTION_LABEL),
+    )
+    .await
+}
+
 /// 建批次主数据（`lot_no` 有值时的副作用；`source_type=PRODUCTION`）。
 ///
 /// 唯一键 `uk_biz_lot_material_no (material_id, lot_no) WHERE deleted_at IS NULL`

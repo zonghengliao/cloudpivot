@@ -265,6 +265,16 @@ export interface CostObjectDetail {
   next_statuses: CostObjectStatus[];
   /** 有效边表（与 `next_statuses` 同源） */
   legal_edges: Array<[string, string]>;
+  /**
+   * 本期产量与在制的**最后填写人**（`sys_change_log.operator_name` 快照）。
+   *
+   * 设计 §8.3 R-4：完工进度是手工填的，必须留「填写人 + 时间」。后端不加三列快照
+   * （§4.6.3 末段一期口径），凭证在审计表；这里只是把它回显到面板上。
+   * 没填过 = `null`（不显示「未知」）。
+   */
+  output_filled_by: string | null;
+  /** 最后填写时间（RFC3339）；没填过 = `null` */
+  output_filled_at: string | null;
 }
 
 // ==================== ③ 新建 / ④ 编辑 / ⑤ 关批入参 ====================
@@ -325,3 +335,59 @@ export interface CostObjectClosePayload {
   /** 关批备注（落 `remark` 与状态日志 reason） */
   remark?: string | null;
 }
+
+// ==================== ⑦ 本期产量与在制（B2-14） ====================
+
+/**
+ * 产量录入请求（`CostObjectOutputReq`，`PUT /cost-object/{id}/output`）。
+ *
+ * * 三个字段**缺失 = 不改**（后端保留库里的值）—— 面板里三个都显示、都提交，
+ *   所以这层把三个数全传（`toOutputPayload`），语义最直白；
+ * * `completed_qty` 是**累计**完工（不是本期增量）：后端 calc 第 6 段用
+ *   「累计 − 前期已结算」推本期完工，填增量会把上月完工再转一次；
+ * * 数量最多 4 位小数、进度 0–100 且最多 2 位（列是 `NUMERIC(18,4)` / `NUMERIC(5,2)`）；
+ * * `wip_qty > 0` 时 `completion_pct` 必须 > 0（与 calc 第 6 段 `66067` 同一口径）。
+ */
+export interface CostObjectOutputPayload {
+  /** 累计完工数量（≥ 0，字符串原样传，后端 `Decimal` 收） */
+  completed_qty?: string;
+  /** 期末在制数量（≥ 0） */
+  wip_qty?: string;
+  /** 期末在制完工进度 0–100 */
+  completion_pct?: string;
+}
+
+/**
+ * 产量录入回单（`CostObjectOutputRes`）。
+ *
+ * 三个数是**库里的值**（不是请求里的），前端保存后直接拿它刷新面板。
+ */
+export interface CostObjectOutputResult {
+  /** 主键 */
+  id: string;
+  /** 对象号 */
+  object_no: string;
+  /** 计划数量（面板提示「超产」用） */
+  plan_qty: string;
+  /** 累计完工数量 */
+  completed_qty: string;
+  /** 期末在制数量 */
+  wip_qty: string;
+  /** 期末在制完工进度 */
+  completion_pct: string;
+  /** 本次是否真的写入了（三个数都没变 ⇒ `false`，后端不写变更日志） */
+  changed: boolean;
+  /** 只提示不拦的提醒（超产 / 三个数全 0 但有归集成本） */
+  warnings: string[];
+  /** 最后填写人 */
+  filled_by: string | null;
+  /** 最后填写时间（RFC3339） */
+  filled_at: string | null;
+}
+
+/**
+ * 「该期间已结算 ⇒ 产量只读」的业务码（后端复用 calc 第 6 段的 `66070`）。
+ *
+ * 前端据此在错误文案后补「去哪修」（先红冲该期间的成本批次）。
+ */
+export const COST_OBJECT_PERIOD_LOCKED_CODE = 66070;

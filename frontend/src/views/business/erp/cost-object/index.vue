@@ -407,6 +407,85 @@
             <t-descriptions-item label="备注" :span="2">{{ detail.remark || '—' }}</t-descriptions-item>
           </t-descriptions>
 
+          <h4 class="section-title">本期产量与在制</h4>
+          <t-alert
+            v-if="outputError"
+            theme="error"
+            :message="outputError"
+            class="form-alert"
+            data-testid="co-output-error"
+          />
+          <t-alert
+            v-for="(warn, index) in outputWarnings"
+            :key="index"
+            theme="warning"
+            :message="warn"
+            class="form-alert"
+            data-testid="co-output-warning"
+          />
+          <t-form :data="outputForm" label-width="110px" colon>
+            <t-row :gutter="[16, 0]">
+              <t-col :span="4">
+                <t-form-item
+                  label="累计完工"
+                  :help="outputErrors.completed_qty"
+                  :status="outputStatus('completed_qty')"
+                >
+                  <t-input
+                    v-model="outputForm.completed_qty"
+                    placeholder="≥ 0，最多 4 位"
+                    data-testid="co-output-completed"
+                  />
+                </t-form-item>
+              </t-col>
+              <t-col :span="4">
+                <t-form-item
+                  label="期末在制"
+                  :help="outputErrors.wip_qty"
+                  :status="outputStatus('wip_qty')"
+                >
+                  <t-input
+                    v-model="outputForm.wip_qty"
+                    placeholder="≥ 0，最多 4 位"
+                    data-testid="co-output-wip"
+                  />
+                </t-form-item>
+              </t-col>
+              <t-col :span="4">
+                <t-form-item
+                  label="完工进度"
+                  :help="outputErrors.completion_pct"
+                  :status="outputStatus('completion_pct')"
+                >
+                  <t-input
+                    v-model="outputForm.completion_pct"
+                    placeholder="0–100，最多 2 位"
+                    data-testid="co-output-pct"
+                  />
+                </t-form-item>
+              </t-col>
+            </t-row>
+          </t-form>
+          <div class="detail-actions">
+            <t-button
+              v-privilege="[PERM.update]"
+              theme="primary"
+              variant="outline"
+              :loading="outputSaving"
+              :disabled="!canEditOutput"
+              data-testid="co-output-save"
+              @click="submitOutput"
+            >
+              保存产量与在制
+            </t-button>
+            <span class="muted" data-testid="co-output-filled">{{ outputFilledText }}</span>
+          </div>
+          <p class="form-footnote">
+            「累计完工」填的是<b>累计</b>值（不是本月增量）：期间计算用「累计 − 前期已结算完工」推本期完工。
+            期末在制 &gt; 0 必须填进度（否则跑计算会被 66067 拦下）；超产只提示不拦。
+            该对象参与过的期间一旦结算，这三个数就只读（先红冲批次再改）。
+          </p>
+
           <h4 class="section-title">归集汇总</h4>
           <div class="summary-grid" data-testid="co-detail-summary">
             <div class="summary-cell">
@@ -569,9 +648,11 @@ import {
   createCostObject,
   fetchCostObjectDetail,
   fetchCostObjectPage,
+  saveCostObjectOutput,
   updateCostObject,
   COST_OBJECT_STATUSES,
   type CostObjectDetail,
+  type CostObjectOutputResult,
   type CostObjectRow,
   type CostObjectStatus,
 } from '@/api/business/erp/cost-object';
@@ -611,11 +692,18 @@ import {
   statusTheme,
   toClosePayload,
   toCreatePayload,
+  toOutputPayload,
   toUpdatePayload,
+  emptyOutputForm,
+  outputErrorText,
+  outputFormFromDetail,
+  validateOutputForm,
   validateCostObjectForm,
   type CloseSummary,
   type CostObjectFormErrors,
   type CostObjectFormState,
+  type OutputFormErrors,
+  type OutputFormState,
 } from './cost-object-logic';
 
 /** 本页权限码（V0378 种子逐一对应；`delete` 后端无路由，故不列） */
@@ -957,13 +1045,113 @@ async function openDetail(row: CostObjectRow): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = null;
+  resetOutputPanel(null);
   try {
     detail.value = await fetchCostObjectDetail(row.id);
+    resetOutputPanel(detail.value);
   } catch (error) {
     MessagePlugin.error(`详情加载失败：${errorText(error)}`);
     detailVisible.value = false;
   } finally {
     detailLoading.value = false;
+  }
+}
+
+// ==================== 本期产量与在制（B2-14） ====================
+//
+// 设计 §4.5.1 的「产量/进度」是**车间主任每月手填**的三个数，走独立接口
+// （`PUT /cost-object/{id}/output`），不塞进主数据表单：
+// * `completed_qty` 是**累计**完工（calc 第 6 段用「累计 − 前期已结算」推本期完工）；
+// * `wip_qty > 0` 必须给 `completion_pct`（与 66067 同口径）；
+// * 超产只提示不拦（§4.10），提示来自后端 `warnings[]`；
+// * 该对象参与过的期间已结算 ⇒ 409 + `66070`（报文点名期间，先红冲再改）；
+// * 填完留「填写人 + 时间」（§8.3 R-4）——后端写审计表，详情回显 `output_filled_*`。
+
+const outputForm = reactive<OutputFormState>(emptyOutputForm());
+const outputErrors = ref<OutputFormErrors>({});
+const outputError = ref('');
+const outputWarnings = ref<string[]>([]);
+const outputSaving = ref(false);
+
+/** 只有「在产」的对象能填（`CLOSED` / `CANCELLED` 只读，后端也会 409） */
+const canEditOutput = computed(() => detail.value?.status === 'OPEN');
+
+/** 上次是谁什么时候填的（没填过就说清后果：期间计算会按 0 处理） */
+const outputFilledText = computed(() => {
+  const at = detail.value?.output_filled_at;
+  if (!at) {
+    return '还没填过：期间计算会按「完工 0 / 在制 0」处理，有归集成本时会被 66067 拦下';
+  }
+  const who = detail.value?.output_filled_by || '（未记名）';
+  return `上次填写：${who} · ${formatDateTime(at)}`;
+});
+
+function outputStatus(field: keyof OutputFormState): 'error' | undefined {
+  return outputErrors.value[field] ? 'error' : undefined;
+}
+
+/** 重置面板（打开详情 / 保存成功后都走它，保证面板与详情同源） */
+function resetOutputPanel(value: CostObjectDetail | null): void {
+  Object.assign(outputForm, outputFormFromDetail(value));
+  outputErrors.value = {};
+  outputError.value = '';
+  outputWarnings.value = [];
+}
+
+/** RFC3339 → `YYYY-MM-DD HH:mm`（本地时区；只用于「谁什么时候填的」） */
+function formatDateTime(value: string): string {
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) {
+    return value;
+  }
+  const pad = (num: number): string => String(num).padStart(2, '0');
+  return (
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ` +
+    `${pad(at.getHours())}:${pad(at.getMinutes())}`
+  );
+}
+
+/** 保存产量与在制：先本地校验（与后端同口径），再提交 */
+async function submitOutput(): Promise<void> {
+  const object = detail.value;
+  if (!object) {
+    return;
+  }
+  outputError.value = '';
+  outputWarnings.value = [];
+  const errors = validateOutputForm(outputForm);
+  outputErrors.value = errors;
+  if (errorCount(errors) > 0) {
+    outputError.value = '还有填错的地方，请看下方标红项';
+    return;
+  }
+  outputSaving.value = true;
+  try {
+    const saved: CostObjectOutputResult = await saveCostObjectOutput(
+      object.id,
+      toOutputPayload(outputForm),
+    );
+    // 回单是**库里的值**：直接覆盖面板与详情，不用整张详情再查一次
+    Object.assign(outputForm, outputFormFromDetail(saved));
+    Object.assign(object, {
+      completed_qty: saved.completed_qty,
+      wip_qty: saved.wip_qty,
+      completion_pct: saved.completion_pct,
+      output_filled_by: saved.filled_by,
+      output_filled_at: saved.filled_at,
+    });
+    outputWarnings.value = saved.warnings ?? [];
+    if (outputWarnings.value.length) {
+      MessagePlugin.warning('已保存，但有一处需要确认（见面板提示）');
+    } else {
+      MessagePlugin.success(saved.changed ? '已保存本期产量与在制' : '没有改动');
+    }
+    await loadRows();
+  } catch (error) {
+    // 66070：期间已结算 ⇒ 面板只读，文案里补「去哪修」
+    outputError.value = outputErrorText(error);
+  } finally {
+    outputSaving.value = false;
   }
 }
 

@@ -170,6 +170,58 @@ pub async fn count_for_object(ex: &impl SqlExecutor, resource: &str, resource_id
     .await
 }
 
+/// 某对象**最近一条**变更日志的「操作人名字 + 时间」（详情页展示「谁什么时候填的」）。
+///
+/// # 为什么只取两列
+///
+/// 调用方（成本对象详情）要的是设计 §8.3 R-4 的「填写人 + 时间」两个事实，
+/// diff 全文另有审计页按需查。`operator_name` 是**写入时的快照**（账号改名后历史
+/// 仍按当时的名字显示 —— AGENTS 约定 13 的审计口径）。
+///
+/// # 参数
+///
+/// - `ex`：执行器；
+/// - `resource` / `resource_id`：对象坐标；
+/// - `action_label`：只认某个动作（`None` = 该对象的任意变更里取最新）。
+///   成本对象传 [`crate::business::erp::cost_object_dto::OUTPUT_ACTION_LABEL`]，
+///   这样将来改主数据也接审计时，面板不会把「改了备注」显示成「填了产量」。
+///
+/// # 返回值
+///
+/// `Some((operator_name, created_at))`；没有任何日志 = `None`（不造「未知操作人」假行）。
+///
+/// 走 `idx_sys_change_log_object (resource, resource_id, created_at DESC)`，单次索引扫描。
+pub async fn latest_for_object(
+    ex: &impl SqlExecutor,
+    resource: &str,
+    resource_id: &str,
+    action_label: Option<&str>,
+) -> DbResult<Option<(Option<String>, chrono::DateTime<chrono::Utc>)>> {
+    // 两个固定 SQL 而不是「? IS NULL OR = ?」：后者在 PG 上要显式类型标注，
+    // 且 plan 会退化成不带条件的两路扫描（历史上的 `Parameters(n, n-2)` 坑同源）。
+    let (sql, params) = match action_label {
+        Some(label) => (
+            "SELECT operator_name, created_at FROM sys_change_log \
+             WHERE resource = ?::text AND resource_id = ?::text AND action_label = ?::text \
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            vec![Value::from(resource), Value::from(resource_id), Value::from(label)],
+        ),
+        None => (
+            "SELECT operator_name, created_at FROM sys_change_log \
+             WHERE resource = ?::text AND resource_id = ?::text \
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+            vec![Value::from(resource), Value::from(resource_id)],
+        ),
+    };
+    let rows = ex.query_sql(sql.to_string(), params).await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let operator_name: Option<String> = row.get_typed("operator_name")?;
+    let created_at: chrono::DateTime<chrono::Utc> = row.get_typed("created_at")?;
+    Ok(Some((operator_name, created_at)))
+}
+
 /// 某对象的全部 `diff` 文本（按时间升序；测试与排障用）。
 ///
 /// # 参数

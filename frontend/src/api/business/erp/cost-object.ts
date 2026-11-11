@@ -53,6 +53,8 @@ import type {
   CostObjectClosePayload,
   CostObjectCreatePayload,
   CostObjectDetail,
+  CostObjectOutputPayload,
+  CostObjectOutputResult,
   CostObjectPageQuery,
   CostObjectRow,
   CostObjectUpdatePayload,
@@ -112,4 +114,27 @@ export function closeCostObject(
   payload: CostObjectClosePayload = {},
 ): Promise<CostObjectDetail> {
   return post<CostObjectDetail>(`${BASE}/cost-object/${id}/close`, payload);
+}
+
+/**
+ * 填「本期产量与在制」（`PUT /business/erp/cost-object/{id}/output`，B2-14）。
+ *
+ * 权限码复用 `cost-object:update`（后端没新开 `output` 码）。
+ *
+ * 口径（与后端 `cost_object_dto::spec_from_output` 逐条对齐）：
+ *
+ * * `completed_qty` 是**累计**完工 —— calc 第 6 段用「累计 − 前期已结算」推本期完工；
+ * * 字段缺失 = 不改；面板把三个数全传；
+ * * `wip_qty > 0` 但 `completion_pct = 0` ⇒ 400（跑 calc 时也会撞 `66067`）；
+ * * `wip + completed > plan` **只提示不拦**（§4.10 允许超产），提示在 `warnings[]` 里；
+ * * 该对象参与过的期间**已结算** ⇒ 409 + `66070`（报文点名期间，先红冲再改）。
+ *
+ * 回单是 `CostObjectOutputResult`（三个数是库里的值 + 提示 + 填写人/时间），
+ * 不是整张详情 —— 面板只需要这些。
+ */
+export function saveCostObjectOutput(
+  id: string,
+  payload: CostObjectOutputPayload,
+): Promise<CostObjectOutputResult> {
+  return put<CostObjectOutputResult>(`${BASE}/cost-object/${id}/output`, payload);
 }

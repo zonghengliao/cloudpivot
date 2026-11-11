@@ -36,6 +36,7 @@ import {
   closeErrorText,
   closeSummaryOf,
   emptyCostObjectForm,
+  emptyOutputForm,
   errorCount,
   formFromDetail,
   formatQty,
@@ -46,13 +47,17 @@ import {
   isPositiveQty,
   isZeroQty,
   monthRange,
+  outputErrorText,
+  outputFormFromDetail,
   requiresForceWip,
   statusLabel,
   statusTheme,
   toClosePayload,
   toCreatePayload,
+  toOutputPayload,
   toUpdatePayload,
   validateCostObjectForm,
+  validateOutputForm,
 } from '@/views/business/erp/cost-object/cost-object-logic';
 
 /** 造一个完整详情（只覆盖页面真正用到的字段，其余给中性值） */
@@ -94,6 +99,8 @@ function detailOf(overrides: Partial<CostObjectDetail> = {}): CostObjectDetail {
       ['OPEN', 'CLOSED'],
       ['OPEN', 'CANCELLED'],
     ],
+    output_filled_by: null,
+    output_filled_at: null,
     ...overrides,
   };
 }
@@ -442,4 +449,81 @@ test('详情 → 表单回填：可空字段落成空串，数量按展示口径
   assert.equal(form.plan_qty, '100');
   assert.equal(form.material_input_mode, 'ONE_TIME');
   assert.equal(form.start_date, '2026-11-01');
+});
+
+// ==================== 本期产量与在制（B2-14 · §4.5.1 产量/进度行） ====================
+//
+// 口径与后端 `cost_object_dto::spec_from_output` 逐条对齐：
+// * 数量 ≥ 0 且 ≤ 4 位小数、进度 0–100 且 ≤ 2 位（库列标度）；
+// * `wip_qty > 0` ⇒ 进度必须 > 0（calc 第 6 段 66067 的同一判据）；
+// * 面板 → 请求体是**三个数全传**（后端「缺失 = 不改」）；
+// * `66070` = 期间已结算 ⇒ 产量只读，文案要补「去哪修」。
+
+test('产量面板：详情回填去尾零（"80.0000" → "80"，进度 "50.00" → "50"）', () => {
+  const form = outputFormFromDetail(
+    detailOf({ completed_qty: '80.0000', wip_qty: '20.5000', completion_pct: '50.00' }),
+  );
+  assert.deepEqual(form, { completed_qty: '80', wip_qty: '20.5', completion_pct: '50' });
+  // 没有详情时给三个 0（与库默认一致），页面不会渲染出 undefined
+  assert.deepEqual(outputFormFromDetail(null), emptyOutputForm());
+});
+
+test('产量面板：值域与后端同口径（负数 / 越界 / 小数位超列）', () => {
+  const ok = { completed_qty: '80', wip_qty: '0', completion_pct: '0' };
+  assert.deepEqual(validateOutputForm(ok), {}, '正常值不该报错');
+
+  const negative = validateOutputForm({ ...ok, completed_qty: '-1' });
+  assert.ok(negative.completed_qty, '负数要拦');
+
+  const tooManyDecimals = validateOutputForm({ ...ok, wip_qty: '1.23456' });
+  assert.ok(tooManyDecimals.wip_qty, '5 位小数要拦（NUMERIC(18,4)）');
+
+  const pctOver = validateOutputForm({ ...ok, completion_pct: '120' });
+  assert.ok(pctOver.completion_pct, '进度 > 100 要拦');
+
+  const pctDecimals = validateOutputForm({ ...ok, completion_pct: '33.333' });
+  assert.ok(pctDecimals.completion_pct, '进度 3 位小数要拦（NUMERIC(5,2)）');
+
+  assert.deepEqual(
+    validateOutputForm({ completed_qty: '0', wip_qty: '0', completion_pct: '100' }),
+    {},
+    '进度 100 是合法边界',
+  );
+});
+
+test('产量面板：在制 > 0 必须给进度（与 calc 第 6 段 66067 同一口径）', () => {
+  const errors = validateOutputForm({ completed_qty: '0', wip_qty: '20', completion_pct: '0' });
+  assert.ok(errors.completion_pct, '在制 20 + 进度 0 要拦');
+  assert.match(errors.completion_pct ?? '', /66067/, '文案要指向同一条业务校验');
+
+  assert.deepEqual(
+    validateOutputForm({ completed_qty: '0', wip_qty: '20', completion_pct: '50' }),
+    {},
+    '给了进度就放行',
+  );
+});
+
+test('产量面板：提交体把三个数全传（字符串原样，不转 number）', () => {
+  const payload = toOutputPayload({ completed_qty: '80.5', wip_qty: ' 20 ', completion_pct: '50' });
+  assert.deepEqual(payload, {
+    completed_qty: '80.5',
+    wip_qty: '20',
+    completion_pct: '50',
+  });
+  assert.equal(typeof payload.completed_qty, 'string', '数量按字符串传（防 JS 精度丢失）');
+});
+
+test('产量面板：错误文案（66070 补「去哪修」，400 原样）', () => {
+  const locked = outputErrorText({
+    code: 66070,
+    message: '成本对象 CB-20261101-000001 的本期产量与在制已锁定：2026-10(SETTLED)',
+  });
+  assert.match(locked, /2026-10/, '保留后端点名的期间');
+  assert.match(locked, /红冲/, '要告诉用户怎么修');
+
+  const paramInvalid = outputErrorText({ code: 10001, message: '期末在制数量 20 > 0 时…' });
+  assert.equal(paramInvalid, '期末在制数量 20 > 0 时…', '其它错误原样');
+
+  assert.equal(outputErrorText(''), '保存失败，请重试');
+  assert.equal(outputErrorText(null), '保存失败，请重试');
 });

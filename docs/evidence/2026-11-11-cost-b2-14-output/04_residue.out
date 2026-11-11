@@ -1,0 +1,6 @@
+===== 演练库残留检查（costb26_drill_1625844，跑完 02_real_db_tests 之后）=====
+ objects | materials | warehouses | lots | audit_rows | periods 
+---------+-----------+------------+------+------------+---------
+       0 |         0 |          0 |    0 |          0 |       0
+(1 row)
+

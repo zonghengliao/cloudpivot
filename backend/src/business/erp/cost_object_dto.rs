@@ -79,6 +79,31 @@ pub const BLOCK_UNPOSTED_STOCK_OUT: &str = "UNPOSTED_STOCK_OUT";
 /// 拦下原因：还有在制数量且未显式确认。
 pub const BLOCK_WIP_NOT_ZERO: &str = "WIP_NOT_ZERO";
 
+// ==================== 本期产量与在制（B2-14 · §4.5.1「产量/进度」行） ====================
+
+/// 产量录入的审计动作名（同时是 `sys_change_log.action_label` 的取值）。
+///
+/// 详情页「谁什么时候填的」按它过滤 —— 该对象的变更日志里只有这一种动作是
+/// 「产量/在制」的填写（改主数据走的是别的路径，将来接了也不混淆）。
+pub const OUTPUT_ACTION_LABEL: &str = "填写本期产量与在制";
+
+/// 数量列标度（`biz_cost_object.completed_qty` / `wip_qty` 是 `NUMERIC(18,4)`）。
+pub const QTY_SCALE: u32 = 4;
+
+/// 进度列标度（`biz_cost_object.completion_pct` 是 `NUMERIC(5,2)`）。
+pub const PCT_SCALE: u32 = 2;
+
+/// 进度上限（与 `ck_biz_cost_object_pct` 一致）。
+pub const PCT_CEILING: u32 = 100;
+
+/// 期间已结算 ⇒ 产量只读时用的业务码（复用 calc 第 6 段的「期间锁定」`66070`）。
+///
+/// 为什么不复用 `RESOURCE_CONFLICT`（`10009`）：前端/巡检按业务码就能认出
+/// 「这一族是期间锁定、动作是先去红冲」，而不是笼统的「冲突」。动作与 `66070`
+/// 完全一致（先撤回 / 红冲该期间批次，再改数字），只是锁的对象从「计算单重算」
+/// 扩到「产量录入」—— 报文里点明是哪几个期间。
+pub const PERIOD_LOCKED_CODE: i32 = error_code::ERP_COST_ITEM_PERIOD_LOCKED;
+
 // ==================== 入参 ====================
 
 /// 列表查询（§5.2 #1 的 `keyword / status / product_id / workshop_dept_id /
@@ -191,6 +216,30 @@ pub struct CostObjectUpdateReq {
     pub remark: Option<Option<String>>,
 }
 
+/// 本期产量与在制录入请求（§4.5.1「产量/进度」行 · §8.3 R-4 手工填写）。
+///
+/// # 三态口径
+///
+/// 三个字段都是 `Option`：**缺失 = 不改**（保留库里当前值）。理由与
+/// [`CostObjectUpdateReq`] 一致 —— 前端面板只提交用户动过的那一栏时不会把
+/// 另外两栏悄悄清零；要清零就显式传 `0`。
+///
+/// # `completed_qty` 是**累计**值，不是本期增量
+///
+/// 库列注释「累计完工数量（结算回写）」、前端详情「累计完工」都是这个语义，
+/// calc 第 6 段（`cost_period_item_dto`）用
+/// `本期完工 = completed_qty − Σ(前期 SETTLED/CLOSED 计算单 completed_qty)` 反推。
+/// 改成增量必须连第 6 段一起改 —— 单边改会让跨月对象把上月完工再转一次。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CostObjectOutputReq {
+    /// 累计完工数量（≥ 0，最多 4 位小数）。
+    pub completed_qty: Option<Decimal>,
+    /// 期末在制数量（≥ 0，最多 4 位小数）。
+    pub wip_qty: Option<Decimal>,
+    /// 期末在制完工进度 0–100（最多 2 位小数）。
+    pub completion_pct: Option<Decimal>,
+}
+
 /// 关批请求（§5.2 #6）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CostObjectCloseReq {
@@ -233,6 +282,45 @@ pub struct CostObjectSpec {
     pub material_input_mode: String,
     /// 备注。
     pub remark: Option<String>,
+}
+
+/// 本期产量与在制的归一化三元组（落库、diff 快照、单测都拿它）。
+///
+/// 三个数在库里是 `NOT NULL DEFAULT 0`，所以这里也用**非可空** —— 「没填」与
+/// 「填了 0」在业务上是同一件事（§4.6.1 的公式对 0 有定义）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputSpec {
+    /// 累计完工数量。
+    pub completed_qty: Decimal,
+    /// 期末在制数量。
+    pub wip_qty: Decimal,
+    /// 期末在制完工进度（0–100）。
+    pub completion_pct: Decimal,
+}
+
+impl OutputSpec {
+    /// 由三个数构造（不做校验；校验入口是 [`spec_from_output`]）。
+    pub fn new(completed_qty: Decimal, wip_qty: Decimal, completion_pct: Decimal) -> Self {
+        Self {
+            completed_qty,
+            wip_qty,
+            completion_pct,
+        }
+    }
+
+    /// 变更日志的快照（列名 → 字符串值）。
+    ///
+    /// 值统一「去尾零 + `to_string()`」（`80.0000` → `"80"`）：一侧来自库读回
+    /// （`NUMERIC(18,4)` 带标度）、一侧来自请求（`Decimal::from_str("80")` 标度 0），
+    /// 不做归一化会让同一次填写在审计里显示成 `0.0000 → 80` 这种「标度变了」的错觉。
+    /// 归一化后两侧同源，diff 只在**数值真变了**时才非空。
+    pub fn to_snapshot(&self) -> serde_json::Value {
+        serde_json::json!({
+            "completed_qty": self.completed_qty.normalize().to_string(),
+            "wip_qty": self.wip_qty.normalize().to_string(),
+            "completion_pct": self.completion_pct.normalize().to_string(),
+        })
+    }
 }
 
 // ==================== 出参 ====================
@@ -409,6 +497,41 @@ pub struct CostObjectDetailRes {
     pub next_statuses: Vec<String>,
     /// 有效边表（与 `next_statuses` 同源，便于调试 / 单测对照）。
     pub legal_edges: Vec<(String, String)>,
+    /// 本期产量与在制的**最后填写人**（`sys_change_log.operator_name` 快照；没填过 = `null`）。
+    ///
+    /// 设计 §8.3 R-4 要求「留填写人 + 时间」：来源是审计表而不是表上三列快照
+    /// （§4.6.3 末段的一期口径：不为一期加三列）。改名后历史仍按**当时的名字**显示。
+    pub output_filled_by: Option<String>,
+    /// 最后填写时间（RFC3339；没填过 = `null`）。
+    pub output_filled_at: Option<String>,
+}
+
+/// 本期产量与在制录入的回单（`PUT /cost-object/{id}/output`）。
+///
+/// 与详情分开成两个类型：面板保存后只需要这三个数 + 提示 + 「谁什么时候填的」，
+/// 不必把整张详情（归集汇总 / 计算单 / 边表）再组装一遍。
+#[derive(Debug, Clone, Serialize)]
+pub struct CostObjectOutputRes {
+    /// 主键。
+    pub id: String,
+    /// 对象号。
+    pub object_no: String,
+    /// 计划数量（前端算「超产」提示用，仍是字符串）。
+    pub plan_qty: String,
+    /// 累计完工数量（**库里的值**，不是请求里的）。
+    pub completed_qty: String,
+    /// 期末在制数量。
+    pub wip_qty: String,
+    /// 期末在制完工进度。
+    pub completion_pct: String,
+    /// 本次是否真的写入了（三个数都没变 ⇒ `false`，此时不写变更日志、不产生假审计）。
+    pub changed: bool,
+    /// 只提示不拦的提醒（超产 / 无产量但有成本），前端用 `t-alert` 展示即可。
+    pub warnings: Vec<String>,
+    /// 最后填写人（`sys_change_log.operator_name`）。
+    pub filled_by: Option<String>,
+    /// 最后填写时间（RFC3339）。
+    pub filled_at: Option<String>,
 }
 
 // ==================== 关批：事实 + 判定 ====================
@@ -694,6 +817,89 @@ fn ensure_dates(start: NaiveDate, due: Option<NaiveDate>) -> std::result::Result
     Ok(())
 }
 
+// ==================== 本期产量与在制：归一化 + 值域 ====================
+
+/// 产量录入请求 → 归一化三元组（**纯逻辑**：缺失 = 不改；值域与库 CHECK 同口径）。
+///
+/// # 为什么要在这里拦，而不是交给库的 CHECK
+///
+/// `ck_biz_cost_object_qty` / `ck_biz_cost_object_pct` 抛的是 PG 的
+/// `new row for relation ... violates check constraint`（HTTP 500），用户看到的是
+/// 一串英文约束名；而且「在制 > 0 但进度 0」**没有**库约束（那是 calc 第 6 段的
+/// 业务校验 `66067`），不在这里拦就会让用户等到跑计算时才被拒 —— 中间还以为填好了。
+///
+/// # 与 calc 第 6 段（`66067`）同一口径
+///
+/// `wip_qty > 0 ⇒ completion_pct > 0`：`cost_period_item_dto::compose` 的判据是
+/// 「期末在制 > 0 但完工进度为 0 ⇒ 409 + 66067」。录入侧提前用同一判据挡下，
+/// 报文里点名「跑计算时会被 66067 拦下」，用户不用等到结算才发现。
+pub fn spec_from_output(current: &OutputSpec, req: &CostObjectOutputReq) -> std::result::Result<OutputSpec, ApiError> {
+    let completed_qty = req.completed_qty.unwrap_or(current.completed_qty);
+    let wip_qty = req.wip_qty.unwrap_or(current.wip_qty);
+    let completion_pct = req.completion_pct.unwrap_or(current.completion_pct);
+    ensure_output_qty(completed_qty, "completed_qty（累计完工数量）")?;
+    ensure_output_qty(wip_qty, "wip_qty（期末在制数量）")?;
+    if completion_pct < Decimal::ZERO || completion_pct > Decimal::from(PCT_CEILING) {
+        return Err(bad_request(format!(
+            "completion_pct（完工进度）必须在 0–{PCT_CEILING} 之间（收到 {completion_pct}）"
+        )));
+    }
+    if completion_pct.scale() > PCT_SCALE {
+        return Err(bad_request(format!(
+            "completion_pct（完工进度）最多 {PCT_SCALE} 位小数（列是 NUMERIC(5,2)，收到 {completion_pct}）"
+        )));
+    }
+    if wip_qty > Decimal::ZERO && completion_pct == Decimal::ZERO {
+        return Err(bad_request(format!(
+            "期末在制数量 {wip_qty} > 0 时 completion_pct（完工进度）必须 > 0：\
+             否则跑期间计算会被 66067 拦下（「期末在制 > 0 但完工进度为 0」）"
+        )));
+    }
+    Ok(OutputSpec::new(completed_qty, wip_qty, completion_pct))
+}
+
+/// 数量非负 + 标度不超列（`NUMERIC(18,4)`）。负数会被库 CHECK 打回成 500，这里先给 400。
+fn ensure_output_qty(value: Decimal, field: &str) -> std::result::Result<(), ApiError> {
+    if value < Decimal::ZERO {
+        return Err(bad_request(format!("{field} 不能为负数（收到 {value}）")));
+    }
+    if value.scale() > QTY_SCALE {
+        return Err(bad_request(format!(
+            "{field} 最多 {QTY_SCALE} 位小数（列是 NUMERIC(18,4)，收到 {value}）"
+        )));
+    }
+    Ok(())
+}
+
+/// 只提示不拦的提醒（**纯函数**）。
+///
+/// 两条都来自设计原文：
+///
+/// 1. `wip_qty + completed_qty > plan_qty` ⇒ **允许超产**（§4.10「允许超产，不拦」），
+///    只提示 —— 拦下来会让车间为了凑数把在制改小，比超产更危险；
+/// 2. 本期既无完工也无期末在制、但对象已归集到成本 ⇒ 提示「跑计算会被 66067 拦下」。
+///    这是本卡要解决的原始症状（三个数永远是 0），在**录入这一步**就告诉用户，
+///    而不是等他跑完 calc 看到 409。
+pub fn output_warnings(spec: &OutputSpec, plan_qty: Decimal, collected_total: Decimal) -> Vec<String> {
+    let mut warnings = Vec::new();
+    let produced = spec.completed_qty + spec.wip_qty;
+    if produced > plan_qty {
+        warnings.push(format!(
+            "累计完工 {} + 期末在制 {} = {} 已超过计划数量 {}（设计 §4.10 允许超产，仅提示不拦）；\
+             若超产属实请同步调整计划数量",
+            spec.completed_qty, spec.wip_qty, produced, plan_qty
+        ));
+    }
+    if spec.completed_qty == Decimal::ZERO && spec.wip_qty == Decimal::ZERO && collected_total > Decimal::ZERO {
+        warnings.push(format!(
+            "本期既无完工也无期末在制，但本对象已归集 {collected_total} 元成本：\
+             跑期间计算会被 66067 拦下。若是「本期全部完工」，请把累计完工填成实际入库数量；\
+             若是「跨月继续生产」，请填期末在制数量与完工进度"
+        ));
+    }
+    warnings
+}
+
 // ==================== 单测 ====================
 
 #[cfg(test)]
@@ -976,5 +1182,173 @@ mod tests {
         assert_eq!(summary.total, "125.5000");
         let json = serde_json::to_value(&summary).expect("序列化");
         assert_eq!(json["total"], serde_json::json!("125.5000"));
+    }
+
+    // ---------- 本期产量与在制（B2-14） ----------
+
+    fn current_output() -> OutputSpec {
+        OutputSpec::new(dec("0"), dec("0"), dec("0"))
+    }
+
+    /// 缺失 = 不改：面板只改一栏时另外两栏不许被清零。
+    #[test]
+    fn output_spec_merges_missing_fields() {
+        let current = OutputSpec::new(dec("80"), dec("20"), dec("50"));
+        let req = CostObjectOutputReq {
+            completed_qty: Some(dec("90")),
+            ..Default::default()
+        };
+        let spec = spec_from_output(&current, &req).expect("改一栏");
+        assert_eq!(spec.completed_qty, dec("90"));
+        assert_eq!(spec.wip_qty, dec("20"), "没给的字段保持库里原值");
+        assert_eq!(spec.completion_pct, dec("50"));
+
+        // 空请求 = 一个字节都不改
+        let same = spec_from_output(&current, &CostObjectOutputReq::default()).expect("空请求");
+        assert_eq!(same, current);
+
+        // 显式 0 才是清零（与「缺失」区分开）
+        let cleared = spec_from_output(
+            &current,
+            &CostObjectOutputReq {
+                wip_qty: Some(dec("0")),
+                ..Default::default()
+            },
+        )
+        .expect("清零在制");
+        assert_eq!(cleared.wip_qty, dec("0"));
+    }
+
+    /// 值域与库 CHECK 同口径（负数 / 越界 / 标度超列）—— 全给 400，不留 500。
+    #[test]
+    fn output_spec_rejects_out_of_range_values() {
+        let current = current_output();
+        let cases: [(CostObjectOutputReq, &str); 5] = [
+            (
+                CostObjectOutputReq {
+                    completed_qty: Some(dec("-1")),
+                    ..Default::default()
+                },
+                "completed_qty",
+            ),
+            (
+                CostObjectOutputReq {
+                    wip_qty: Some(dec("-0.5")),
+                    ..Default::default()
+                },
+                "wip_qty",
+            ),
+            (
+                CostObjectOutputReq {
+                    completion_pct: Some(dec("120")),
+                    ..Default::default()
+                },
+                "completion_pct",
+            ),
+            (
+                // NUMERIC(18,4) 装不下 5 位小数（库会静默四舍五入，用户以为存进去了）
+                CostObjectOutputReq {
+                    completed_qty: Some(dec("1.23456")),
+                    ..Default::default()
+                },
+                "completed_qty",
+            ),
+            (
+                // NUMERIC(5,2) 同理
+                CostObjectOutputReq {
+                    completion_pct: Some(dec("33.333")),
+                    ..Default::default()
+                },
+                "completion_pct",
+            ),
+        ];
+        for (req, field) in cases {
+            let error = spec_from_output(&current, &req).expect_err("越界必须拦");
+            assert_eq!(error.status, 400, "{field}");
+            assert!(error.msg.contains(field), "报文要点名字段：{}", error.msg);
+        }
+        // 边界值放行：0 与 100 都合法
+        assert!(
+            spec_from_output(
+                &current,
+                &CostObjectOutputReq {
+                    completion_pct: Some(dec("100")),
+                    ..Default::default()
+                }
+            )
+            .is_ok()
+        );
+    }
+
+    /// 与 calc 第 6 段 `66067` 同一口径：在制 > 0 必须给进度。
+    #[test]
+    fn output_spec_requires_progress_when_wip_positive() {
+        let error = spec_from_output(
+            &current_output(),
+            &CostObjectOutputReq {
+                wip_qty: Some(dec("20")),
+                ..Default::default()
+            },
+        )
+        .expect_err("在制 20 + 进度 0 必须拦");
+        assert_eq!(error.status, 400);
+        assert!(error.msg.contains("66067"), "要指向同一条业务校验：{}", error.msg);
+
+        // 给了进度就放行
+        let ok = spec_from_output(
+            &current_output(),
+            &CostObjectOutputReq {
+                wip_qty: Some(dec("20")),
+                completion_pct: Some(dec("50")),
+                ..Default::default()
+            },
+        )
+        .expect("有进度就合法");
+        assert_eq!(ok.wip_qty, dec("20"));
+        assert_eq!(ok.completion_pct, dec("50"));
+    }
+
+    /// 超产只提示不拦（设计 §4.10）。
+    #[test]
+    fn output_warnings_allow_overproduction() {
+        let spec = OutputSpec::new(dec("80"), dec("30"), dec("60"));
+        let warnings = output_warnings(&spec, dec("100"), dec("1000"));
+        assert_eq!(warnings.len(), 1, "只该有超产这一条");
+        assert!(warnings[0].contains("超产"), "{}", warnings[0]);
+        assert!(warnings[0].contains("110"), "要点出合计：{}", warnings[0]);
+
+        // 不超产 ⇒ 无提醒
+        let ok = OutputSpec::new(dec("80"), dec("20"), dec("60"));
+        assert!(output_warnings(&ok, dec("100"), dec("1000")).is_empty());
+    }
+
+    /// 三个数全 0 但有归集成本 ⇒ 提示「跑计算会被 66067 拦下」（本卡要治的症状）。
+    #[test]
+    fn output_warnings_flag_zero_output_with_cost() {
+        let spec = current_output();
+        let warnings = output_warnings(&spec, dec("100"), dec("19000"));
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("66067"), "{}", warnings[0]);
+        assert!(warnings[0].contains("19000"), "要点出已归集金额：{}", warnings[0]);
+
+        // 没有归集成本 ⇒ 不提示（正常的「还没开始生产」）
+        assert!(output_warnings(&spec, dec("100"), dec("0")).is_empty());
+        // 有完工 ⇒ 不提示
+        let finished = OutputSpec::new(dec("80"), dec("0"), dec("0"));
+        assert!(output_warnings(&finished, dec("100"), dec("19000")).is_empty());
+    }
+
+    /// 快照给变更日志用：数值去尾零后成字符串（库读回 `80.0000` 与请求 `80` 同形）。
+    #[test]
+    fn output_snapshot_uses_normalized_string_values() {
+        let snapshot = OutputSpec::new(dec("80.0000"), dec("20"), dec("50")).to_snapshot();
+        assert_eq!(snapshot["completed_qty"], serde_json::json!("80"), "去尾零");
+        assert_eq!(snapshot["wip_qty"], serde_json::json!("20"));
+        assert_eq!(snapshot["completion_pct"], serde_json::json!("50"));
+        // 库读回与请求两种来源的同一个数必须同形（否则审计里会出现假变更）
+        assert_eq!(
+            OutputSpec::new(dec("80.0000"), dec("0.0000"), dec("0.00")).to_snapshot(),
+            OutputSpec::new(dec("80"), dec("0"), dec("0")).to_snapshot()
+        );
     }
 }

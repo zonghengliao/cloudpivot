@@ -21,6 +21,17 @@
 //! | 7 | [`wip_requires_force_confirmation`] | 前置 ⑤：`wip_qty > 0` 需 `force_wip=true` |
 //! | 8 | [`update_rejects_after_close_and_product_change_with_collect`] | 改单守卫：已关批 409；有归集改产出品 409 |
 //!
+//! B2-14（本期产量与在制录入，卡 `t_61d337b4`）追加 6 条：
+//!
+//! | # | 用例 | 覆盖 |
+//! |---|---|---|
+//! | 9 | [`output_entry_persists_and_audits`] | 三列落库 + `sys_change_log` 一条（前后值）+ 详情回显填写人/时间 + 重复保存不写假日志 |
+//! | 10 | [`output_rejects_invalid_values_and_keeps_db_clean`] | 负数 / 进度越界 / 小数位超列 / 在制>0 无进度 ⇒ 400 + 一行不写 |
+//! | 11 | [`output_warns_overproduction_but_saves`] | 超产只提示不拦（§4.10） |
+//! | 12 | [`output_locked_after_period_settled_with_item`] | 已结算期间 **且该对象有计算单** ⇒ 409 + 66070（没有计算单时仍可补录） |
+//! | 13 | [`output_rejected_after_close`] | 关批后只读 409 |
+//! | 14 | [`output_warns_zero_output_with_collected_cost`] | 三个数全 0 但有归集 ⇒ 提示跑 calc 会撞 66067 |
+//!
 //! # 夹具纪律
 //!
 //! 全部用 `costb18-<唯一后缀>` 前缀造，清场**按 id** 删（绝不按前缀扫全库）。
@@ -32,8 +43,9 @@ use nik::uuid::Uuid;
 
 mod db {
     use super::*;
+    use crate::business::changelog::{self, ChangeCtx};
     use crate::business::erp::cost_object_dto::{
-        CostObjectCloseReq, CostObjectCreateReq, CostObjectPageQuery, CostObjectUpdateReq,
+        CostObjectCloseReq, CostObjectCreateReq, CostObjectOutputReq, CostObjectPageQuery, CostObjectUpdateReq,
     };
     use crate::business::erp::cost_object_handler as handler;
     use crate::business::erp::cost_object_model as model;
@@ -593,6 +605,348 @@ mod db {
             error.msg
         );
 
+        fx.cleanup(&[id]).await;
+    }
+
+    // ==================== B2-14：本期产量与在制 ====================
+    //
+    // 夹具纪律同上：唯一后缀造对象，按 id 清场；变更日志按对象 purge
+    // （`changelog::model::purge_for_object`，业务代码不得调它，测试可以）。
+    // 期间号段用 `2098-xx`：共享演练库里别的卡留下的 2026-xx 期间不会撞
+    // `uk_biz_cost_period (org_id, period_code)`。
+
+    /// 造一个已结算（`SETTLED`）的成本批次。
+    ///
+    /// 库层 CHECK `ck_biz_cost_period_settle` 要求 SETTLED 必须带
+    /// `settled_at` + `finish_voucher_id`，`ck_biz_cost_period_appr` 要求带审批实例。
+    async fn settled_period(suffix: &str, period_code: &str) -> Uuid {
+        let id = Uuid::now_v7();
+        db().exec_sql(
+            "INSERT INTO biz_cost_period (id, period_code, batch_no, status, approval_instance_id, \
+                                          settled_at, finish_voucher_id, created_at, updated_at) \
+             VALUES (?::uuid, ?, ?, 'SETTLED', ?::uuid, now(), ?::uuid, now(), now())"
+                .to_string(),
+            vec![
+                Value::from(&id),
+                Value::Text(period_code.to_string()),
+                Value::Text(format!("CS-CB214-{suffix}")),
+                Value::from(&Uuid::now_v7()),
+                Value::from(&Uuid::now_v7()),
+            ],
+        )
+        .await
+        .expect("造已结算期间夹具");
+        id
+    }
+
+    /// 给对象在某个批次里造一条计算单行（`CALC`，金额全 0）。
+    ///
+    /// 只为满足卡面口径里的「**且该对象有计算单**」—— 期间结算了但对象没参与时
+    /// 产量数字与任何账务无关，仍允许补录。
+    async fn period_item_of(period: Uuid, object: Uuid, product: Uuid) {
+        db().exec_sql(
+            "INSERT INTO biz_cost_period_item (id, period_id, cost_object_id, product_id, created_at, updated_at) \
+             VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, now(), now())"
+                .to_string(),
+            vec![
+                Value::from(&Uuid::now_v7()),
+                Value::from(&period),
+                Value::from(&object),
+                Value::from(&product),
+            ],
+        )
+        .await
+        .expect("造计算单夹具");
+    }
+
+    /// 删期间（`biz_cost_period_item` 是 `ON DELETE CASCADE`）。
+    async fn drop_period(period: Uuid) {
+        let _ = db()
+            .exec_sql(
+                "DELETE FROM biz_cost_period WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&period)],
+            )
+            .await;
+    }
+
+    /// 清审计（测试专用；业务代码不许删审计表）。
+    async fn purge_audit(id: Uuid) {
+        let _ = changelog::model::purge_for_object(db(), "biz_cost_object", &id.to_string()).await;
+    }
+
+    fn output_req(completed: &str, wip: &str, pct: &str) -> CostObjectOutputReq {
+        CostObjectOutputReq {
+            completed_qty: Some(dec(completed)),
+            wip_qty: Some(dec(wip)),
+            completion_pct: Some(dec(pct)),
+        }
+    }
+
+    /// ⑨ 产量录入：三列落库 + 审计留痕（填写人 + 时间）+ 详情回显 + 重复保存不写假日志。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn output_entry_persists_and_audits() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let created = handler::create_object(None, fx.create_req()).await.expect("建成本对象");
+        let id = Uuid::parse_str(&created.id).expect("id");
+        // 建单时三个数取库默认 0（本卡要治的原始症状：没人能改它们）
+        assert_eq!(created.completed_qty, "0.0000");
+        assert_eq!(created.wip_qty, "0.0000");
+        assert_eq!(created.completion_pct, "0.00", "进度列标度是 2");
+
+        let ctx = ChangeCtx::api(None, Some("车间主任张三"));
+        let saved = handler::set_output(&ctx, &created.id, output_req("80", "20", "50"))
+            .await
+            .expect("填本期产量与在制");
+        assert!(saved.changed, "第一次填必然有变化");
+        assert_eq!(saved.completed_qty, "80.0000", "回单读库（NUMERIC(18,4) 标度）");
+        assert_eq!(saved.wip_qty, "20.0000");
+        assert_eq!(saved.completion_pct, "50.00", "进度列是 NUMERIC(5,2)");
+        assert_eq!(saved.plan_qty, "100.0000");
+        assert_eq!(saved.filled_by.as_deref(), Some("车间主任张三"), "R-4：留填写人");
+        assert!(saved.filled_at.is_some(), "R-4：留时间");
+        assert!(saved.warnings.is_empty(), "80+20=100 不超产：{:?}", saved.warnings);
+
+        // 库里的三个数（不信回单，直接读表）
+        let row = model::find_by_id(id).await.expect("查对象").expect("对象存在");
+        assert_eq!(row.completed_qty, dec("80"));
+        assert_eq!(row.wip_qty, dec("20"));
+        assert_eq!(row.completion_pct, dec("50"));
+
+        // 审计：一条 UPDATE，含三列的前后值（去尾零后的规范形：`80` / `50` / 改前 `0`）
+        let count = changelog::model::count_for_object(db(), "biz_cost_object", &created.id)
+            .await
+            .expect("数审计行");
+        assert_eq!(count, 1, "一次填写一条审计");
+        let diffs = changelog::model::diff_texts(db(), "biz_cost_object", &created.id)
+            .await
+            .expect("读审计 diff");
+        for needle in [
+            "completed_qty",
+            "wip_qty",
+            "completion_pct",
+            "\"a\": \"80\"",
+            "\"a\": \"50\"",
+            "\"b\": \"0\"",
+        ] {
+            assert!(diffs[0].contains(needle), "diff 缺 {needle}：{}", diffs[0]);
+        }
+
+        // 详情回显「谁什么时候填的」
+        let detail = handler::detail_object(&created.id).await.expect("详情");
+        assert_eq!(detail.output_filled_by.as_deref(), Some("车间主任张三"));
+        assert!(detail.output_filled_at.is_some());
+        assert_eq!(detail.completed_qty, "80.0000", "详情三个数也是库里的值");
+
+        // 再保存一模一样的三个数：changed=false，审计不增加（不留空 diff 的假记录）
+        let again = handler::set_output(&ctx, &created.id, output_req("80", "20", "50"))
+            .await
+            .expect("重复保存");
+        assert!(!again.changed, "三个数没变 ⇒ 不算一次填写");
+        assert_eq!(
+            changelog::model::count_for_object(db(), "biz_cost_object", &created.id)
+                .await
+                .expect("数审计行"),
+            1,
+            "重复保存不许写第二条审计"
+        );
+
+        purge_audit(id).await;
+        fx.cleanup(&[id]).await;
+    }
+
+    /// ⑩ 值域校验：负数 / 进度越界 / 小数位超列 / 在制>0 无进度 —— 全 400，一行不写。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn output_rejects_invalid_values_and_keeps_db_clean() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let created = handler::create_object(None, fx.create_req()).await.expect("建成本对象");
+        let id = Uuid::parse_str(&created.id).expect("id");
+        let ctx = ChangeCtx::api(None, Some("车间主任张三"));
+
+        let cases: [(CostObjectOutputReq, &str, &str); 4] = [
+            (output_req("-1", "0", "0"), "completed_qty", "负数"),
+            (output_req("0", "0", "120"), "completion_pct", "进度越界"),
+            (
+                output_req("0", "0", "33.333"),
+                "completion_pct",
+                "进度 3 位小数（列是 NUMERIC(5,2)）",
+            ),
+            (
+                // 与 calc 第 6 段 66067 同一口径：在制 > 0 必须有进度
+                output_req("0", "20", "0"),
+                "completion_pct",
+                "在制 20 但进度 0",
+            ),
+        ];
+        for (req, field, why) in cases {
+            let error = handler::set_output(&ctx, &created.id, req).await.expect_err(why);
+            assert_eq!(error.status, 400, "{why} 该是 400：{}", error.msg);
+            assert!(error.msg.contains(field), "{why} 要点名字段：{}", error.msg);
+        }
+        // 「在制 > 0 无进度」那条要指向同一条业务校验（用户跑 calc 时才会撞的 66067）
+        let error = handler::set_output(&ctx, &created.id, output_req("0", "20", "0"))
+            .await
+            .expect_err("在制 20 但进度 0");
+        assert!(error.msg.contains("66067"), "{}", error.msg);
+
+        // 四个非法请求之后，库里的三个数还是 0，审计 0 条
+        let row = model::find_by_id(id).await.expect("查对象").expect("对象存在");
+        assert_eq!(row.completed_qty, dec("0"));
+        assert_eq!(row.wip_qty, dec("0"));
+        assert_eq!(row.completion_pct, dec("0"));
+        assert_eq!(
+            changelog::model::count_for_object(db(), "biz_cost_object", &created.id)
+                .await
+                .expect("数审计行"),
+            0,
+            "失败的保存不许留审计"
+        );
+
+        fx.cleanup(&[id]).await;
+    }
+
+    /// ⑪ 超产只提示不拦（设计 §4.10）：状态 200、数字落库、`warnings` 点名超产。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn output_warns_overproduction_but_saves() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let created = handler::create_object(None, fx.create_req()).await.expect("建成本对象");
+        let id = Uuid::parse_str(&created.id).expect("id");
+        let ctx = ChangeCtx::api(None, Some("车间主任张三"));
+
+        // 计划 100，累计完工 90 + 在制 30 = 120 > 100
+        let saved = handler::set_output(&ctx, &created.id, output_req("90", "30", "60"))
+            .await
+            .expect("超产不该被拦");
+        assert!(saved.changed);
+        assert_eq!(saved.warnings.len(), 1, "{:?}", saved.warnings);
+        assert!(saved.warnings[0].contains("超产"), "{}", saved.warnings[0]);
+        assert!(saved.warnings[0].contains("120"), "要点出合计：{}", saved.warnings[0]);
+
+        let row = model::find_by_id(id).await.expect("查对象").expect("对象存在");
+        assert_eq!(row.completed_qty, dec("90"), "超产的数量照样落库");
+        assert_eq!(row.wip_qty, dec("30"));
+
+        purge_audit(id).await;
+        fx.cleanup(&[id]).await;
+    }
+
+    /// ⑫ 期间已结算且该对象有计算单 ⇒ 409 + `66070`，数字只读。
+    ///
+    /// 同时验「**有计算单**」这个前提是活的：批次先结算、计算单后补 ⇒ 前后行为不同。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn output_locked_after_period_settled_with_item() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let created = handler::create_object(None, fx.create_req()).await.expect("建成本对象");
+        let id = Uuid::parse_str(&created.id).expect("id");
+        let ctx = ChangeCtx::api(None, Some("车间主任张三"));
+        let period_code = "2098-11";
+        let period = settled_period(&fx.suffix, period_code).await;
+
+        // ① 期间已结算，但该对象**没有**计算单 ⇒ 它的产量与账务无关，仍可补录
+        let saved = handler::set_output(&ctx, &created.id, output_req("80", "0", "0"))
+            .await
+            .expect("期间结算了但这批没参与 ⇒ 允许填");
+        assert_eq!(saved.completed_qty, "80.0000");
+
+        // ② 补一条计算单 ⇒ 这三个数已经变成入库金额与结转凭证的来源，只读
+        period_item_of(period, id, fx.product).await;
+        let error = handler::set_output(&ctx, &created.id, output_req("10", "0", "0"))
+            .await
+            .expect_err("已结算期间必须拦");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, 66070, "期间锁定复用 calc 第 6 段的 66070");
+        assert!(error.msg.contains(period_code), "要点名期间：{}", error.msg);
+        assert!(error.msg.contains("SETTLED"), "{}", error.msg);
+        assert!(error.msg.contains("红冲"), "要给修法：{}", error.msg);
+
+        // 库里的数字还是 80（被拦的那次一个字节都没写）
+        let row = model::find_by_id(id).await.expect("查对象").expect("对象存在");
+        assert_eq!(row.completed_qty, dec("80"));
+
+        purge_audit(id).await;
+        drop_period(period).await;
+        fx.cleanup(&[id]).await;
+    }
+
+    /// ⑬ 关批后只读：409（业务码 `RESOURCE_CONFLICT`，与改单 / 关批同一口径）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn output_rejected_after_close() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let created = handler::create_object(None, fx.create_req()).await.expect("建成本对象");
+        let id = Uuid::parse_str(&created.id).expect("id");
+        let ctx = ChangeCtx::api(None, Some("车间主任张三"));
+
+        handler::set_output(&ctx, &created.id, output_req("80", "0", "0"))
+            .await
+            .expect("关批前可以填");
+        handler::close_object(None, &created.id, CostObjectCloseReq::default())
+            .await
+            .expect("关批");
+
+        let error = handler::set_output(&ctx, &created.id, output_req("90", "0", "0"))
+            .await
+            .expect_err("已关批不许填");
+        assert_eq!(error.status, 409);
+        assert!(
+            error.msg.contains("CLOSED") || error.msg.contains("在产"),
+            "报文要说清状态：{}",
+            error.msg
+        );
+        let row = model::find_by_id(id).await.expect("查对象").expect("对象存在");
+        assert_eq!(row.completed_qty, dec("80"), "关批后数字不许动");
+
+        purge_audit(id).await;
+        fx.cleanup(&[id]).await;
+    }
+
+    /// ⑭ 三个数全 0 但有归集成本 ⇒ 保存不拦，但**提示**跑 calc 会撞 66067（本卡要治的症状）。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn output_warns_zero_output_with_collected_cost() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        let created = handler::create_object(None, fx.create_req()).await.expect("建成本对象");
+        let id = Uuid::parse_str(&created.id).expect("id");
+        let ctx = ChangeCtx::api(None, Some("车间主任张三"));
+        // 一张已过账并归集好的领料单（100 元）
+        let out = stock_out_of(&fx.suffix, id, fx.warehouse, "POSTED").await;
+        collect_of(id, out, "2026-11", fx.product).await;
+
+        // 什么都不填（请求体空）：三个数保持 0 ⇒ changed=false，但提示照出
+        let saved = handler::set_output(&ctx, &created.id, CostObjectOutputReq::default())
+            .await
+            .expect("空请求不算错");
+        assert!(!saved.changed);
+        assert_eq!(saved.warnings.len(), 1, "{:?}", saved.warnings);
+        assert!(saved.warnings[0].contains("66067"), "{}", saved.warnings[0]);
+        assert!(
+            saved.warnings[0].contains("100"),
+            "要点出已归集金额：{}",
+            saved.warnings[0]
+        );
+
+        // 补上完工数量 ⇒ 提示消失
+        let fixed = handler::set_output(&ctx, &created.id, output_req("100", "0", "0"))
+            .await
+            .expect("填完工");
+        assert!(fixed.warnings.is_empty(), "{:?}", fixed.warnings);
+
+        purge_audit(id).await;
         fx.cleanup(&[id]).await;
     }
 }

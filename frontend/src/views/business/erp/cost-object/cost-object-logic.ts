@@ -22,11 +22,13 @@ import {
   CLOSE_BLOCK_CODES,
   CLOSE_BLOCK_HINTS,
   COST_OBJECT_CLOSE_BLOCKED_CODE,
+  COST_OBJECT_PERIOD_LOCKED_CODE,
   COST_OBJECT_STATUS_LABELS,
   MATERIAL_INPUT_MODE_LABELS,
   type CloseBlockCode,
   type CostObjectCreatePayload,
   type CostObjectDetail,
+  type CostObjectOutputPayload,
   type CostObjectRow,
   type CostObjectStatus,
   type CostObjectUpdatePayload,
@@ -286,8 +288,13 @@ export function validateCostObjectForm(
   return errors;
 }
 
-/** 错误数（0 = 通过；页面用它决定要不要发请求） */
-export function errorCount(errors: CostObjectFormErrors): number {
+/**
+ * 错误数（0 = 通过；页面用它决定要不要发请求）。
+ *
+ * 参数放宽成「字符串键 → 可能为空」的任意记录：建 / 改表单（`CostObjectFormErrors`）
+ * 与产量面板（`OutputFormErrors`）共用同一个计数口径，不必写两遍。
+ */
+export function errorCount(errors: Record<string, string | undefined>): number {
   return Object.keys(errors).length;
 }
 
@@ -552,4 +559,123 @@ export function closeErrorText(error: unknown): string {
 /** 拦截原因 → 指引（页面在确认框里逐条展示时用） */
 export function blockHint(code: CloseBlockCode): string {
   return CLOSE_BLOCK_HINTS[code];
+}
+
+// ==================== 本期产量与在制（B2-14 · §4.5.1 产量/进度行） ====================
+//
+// 为什么这三个数单独一块（不进建 / 改表单）：
+// * 语义是「本期实际干出来多少」，跨月要反复改，而主数据基本不动；
+// * 后端守卫更严（该对象参与过的期间**已结算**就只读），前端要把这条说清楚；
+// * 设计 §8.3 R-4 要求留「填写人 + 时间」—— 面板上要能显示上次是谁填的。
+
+/** 面板表单状态（三个数都是字符串，`v-model` 直接绑） */
+export interface OutputFormState {
+  /** 累计完工数量（不是本期增量） */
+  completed_qty: string;
+  /** 期末在制数量 */
+  wip_qty: string;
+  /** 期末在制完工进度 0–100 */
+  completion_pct: string;
+}
+
+/** 字段级错误（面板就地标红用） */
+export type OutputFormErrors = Partial<Record<keyof OutputFormState, string>>;
+
+/** 数量输入形态：非负、最多 4 位小数（列是 `NUMERIC(18,4)`） */
+const QTY_INPUT = /^\d+(\.\d{1,4})?$/;
+/** 进度输入形态：最多 2 位小数（列是 `NUMERIC(5,2)`）；上限 100 另判 */
+const PCT_INPUT = /^\d+(\.\d{1,2})?$/;
+
+/** 空面板（三个 0，与库默认一致） */
+export function emptyOutputForm(): OutputFormState {
+  return { completed_qty: '0', wip_qty: '0', completion_pct: '0' };
+}
+
+/**
+ * 详情 → 面板初值。
+ *
+ * 走 `formatQty` 去尾零（后端出参是 `"80.0000"`，直接塞输入框很吵，且用户看不出
+ * 该不该补 `0`）。**不做四舍五入**：值本来就是 4 位以内。
+ */
+export function outputFormFromDetail(
+  detail:
+    | Pick<CostObjectDetail, 'completed_qty' | 'wip_qty' | 'completion_pct'>
+    | null
+    | undefined,
+): OutputFormState {
+  if (!detail) {
+    return emptyOutputForm();
+  }
+  return {
+    completed_qty: formatQty(detail.completed_qty),
+    wip_qty: formatQty(detail.wip_qty),
+    completion_pct: formatQty(detail.completion_pct),
+  };
+}
+
+/**
+ * 面板校验（镜像后端 `spec_from_output` 的 400 文案）。
+ *
+ * 与后端**逐条同口径**，多一条都不加（前端拦了后端放行 = 用户被自己页面卡死）：
+ *
+ * 1. 累计完工 / 期末在制 必须 ≥ 0 且最多 4 位小数；
+ * 2. 完工进度 0–100 且最多 2 位小数；
+ * 3. `wip_qty > 0` ⇒ 进度必须 > 0（calc 第 6 段 `66067` 的同一判据）。
+ */
+export function validateOutputForm(form: OutputFormState): OutputFormErrors {
+  const errors: OutputFormErrors = {};
+  const completed = form.completed_qty.trim();
+  if (!QTY_INPUT.test(completed)) {
+    errors.completed_qty = '累计完工要 ≥ 0，最多 4 位小数';
+  }
+  const wip = form.wip_qty.trim();
+  if (!QTY_INPUT.test(wip)) {
+    errors.wip_qty = '期末在制要 ≥ 0，最多 4 位小数';
+  }
+  const pct = form.completion_pct.trim();
+  if (!PCT_INPUT.test(pct) || Number(pct) > 100) {
+    errors.completion_pct = '完工进度要在 0–100 之间，最多 2 位小数';
+  } else if (!errors.wip_qty && isPositiveQty(wip) && isZeroQty(pct)) {
+    // 与后端 66067 同一口径：不然用户填完、跑期间计算时才会被拒
+    errors.completion_pct = '有期末在制就必须填完工进度（> 0），否则跑期间计算会被 66067 拦下';
+  }
+  return errors;
+}
+
+/**
+ * 面板 → 请求体：**三个数全传**。
+ *
+ * 后端「字段缺失 = 不改」的语义更灵活，但面板上三个数都显示、用户看到的就是全量，
+ * 全传最不容易误会（不会出现「我以为清空了在制，其实没传这个字段」）。
+ */
+export function toOutputPayload(form: OutputFormState): CostObjectOutputPayload {
+  return {
+    completed_qty: form.completed_qty.trim(),
+    wip_qty: form.wip_qty.trim(),
+    completion_pct: form.completion_pct.trim(),
+  };
+}
+
+/**
+ * 面板保存的错误 → 人话。
+ *
+ * * `66070`（期间已结算 ⇒ 产量只读）：`msg` 已点名期间，这里只追加「去哪修」；
+ * * 其它（400 值域 / 409 已关批）：原样返回 `msg`。
+ */
+export function outputErrorText(error: unknown): string {
+  if (typeof error === 'string') {
+    const text = error.trim();
+    return text || '保存失败，请重试';
+  }
+  if (!error || typeof error !== 'object') {
+    return '保存失败，请重试';
+  }
+  const like = error as ErrorLike;
+  const message = typeof like.message === 'string' ? like.message.trim() : '';
+  const code = typeof like.code === 'number' ? like.code : 0;
+  if (code === COST_OBJECT_PERIOD_LOCKED_CODE) {
+    const hint = '到「成本核算」把该期间的成本批次红冲（或撤回）后再回来改产量';
+    return message ? `${message}（怎么修：${hint}）` : `期间已结算，产量只读（怎么修：${hint}）`;
+  }
+  return message || '保存失败，请重试';
 }

@@ -9,6 +9,12 @@
 //! | 3 | POST | `/business/erp/cost-object` | `business:erp:cost-object:create` |
 //! | 4 | PUT | `/business/erp/cost-object/{id}` | `business:erp:cost-object:update` |
 //! | 5 | POST | `/business/erp/cost-object/{id}/close` | `business:erp:cost-object:close` |
+//! | 7 | PUT | `/business/erp/cost-object/{id}/output` | `business:erp:cost-object:update` |
+//!
+//! 说明：编号沿用设计 §5.2（#5 是 `DELETE`，B1-8 卡面未实现软删接口）；#7 是本卡
+//! （B2-14）新增的「本期产量与在制」录入，设计 §5.2 的清单里没有它，但它落地的是
+//! §4.5.1 数据源矩阵「产量/进度：车间主任每月手填」那一行 —— 不补这个入口，
+//! 表上三列永远是 0，calc 第 6 段必然撞 `66067`。
 //!
 //! # 关批：5 条前置 + 补偿
 //!
@@ -24,6 +30,23 @@
 //! **为什么关批必须在事务里且状态机先走**：`biz_status_log` 与状态本身必须同生共死；
 //! 先写日志再改状态、或先改状态再写日志，任一步失败都会留下「状态变了没轨迹」或
 //! 「轨迹说变了但状态没变」的二义记录。
+//!
+//! # 本期产量与在制（#7）：为什么独立接口、为什么复用 `update` 权限码
+//!
+//! §4.5.1 的数据源矩阵里「产量 / 进度」是**车间主任每月手填**的三个数
+//! （`completed_qty` 累计完工 / `wip_qty` 期末在制 / `completion_pct` 完工进度）。
+//! 它们不进主数据表单（`PUT /{id}`）而单独成接口，因为：
+//!
+//! * **语义不同**：主数据错了改主数据；产量是「本期实际干出来多少」，跨月要反复改；
+//! * **守卫不同**：主数据只要 `OPEN`；产量还要求「该对象参与过的期间都没结算」
+//!   （结算后这三个数已经变成入库金额与结转凭证，再改就是改写已入账成本）；
+//! * **审计不同**：设计 §8.3 R-4 要求留「填写人 + 时间」，写进 `sys_change_log`
+//!   （本卡在 `changelog::diff::REGISTRY` 登记了 `biz_cost_object` 的三列）。
+//!
+//! 权限码**复用** `business:erp:cost-object:update`：卡面允许「`update` 或新开
+//! `output`」，而新开一个码要连带种 `sys_permission` / `sys_menu`（迁移），
+//! 本卡是「无迁移」卡（三列 V0368 已有）。同一个「改这张表的人」语义上也确实是
+//! 同一个权限 —— 真要拆，等菜单权限重排时一起做。
 //!
 //! # 为什么业务逻辑是普通 `async fn`
 //!
@@ -41,13 +64,15 @@
 
 use axum::Json;
 use axum::extract::{Path, Query};
-use nik::prelude::chrono::Utc;
+use axum::http::HeaderMap;
+use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::changelog::{self, Action as ChangeAction, ChangeTarget, DiffInput};
 use crate::business::erp::cost_object_dto::{
     self, CollectSummary, CostObjectCloseReq, CostObjectCreateReq, CostObjectDetailRes, CostObjectFilter,
-    CostObjectListRes, CostObjectPageQuery, CostObjectUpdateReq,
+    CostObjectListRes, CostObjectOutputReq, CostObjectOutputRes, CostObjectPageQuery, CostObjectUpdateReq, OutputSpec,
 };
 use crate::business::erp::cost_object_model::{self as model, CostObjectRow};
 use crate::business::erp::voucher;
@@ -181,12 +206,17 @@ fn to_detail_res(
     summary: CollectSummary,
     period_items: Vec<cost_object_dto::CostPeriodItemRes>,
     edges: Vec<(String, String)>,
+    output_fill: Option<(Option<String>, DateTime<Utc>)>,
 ) -> CostObjectDetailRes {
     let next_statuses = edges
         .iter()
         .filter(|(from, _)| *from == row.status)
         .map(|(_, to)| to.clone())
         .collect();
+    let (output_filled_by, output_filled_at) = match output_fill {
+        Some((by, at)) => (by, Some(at.to_rfc3339())),
+        None => (None, None),
+    };
     CostObjectDetailRes {
         id: row.id.to_string(),
         object_no: row.object_no.clone(),
@@ -221,6 +251,8 @@ fn to_detail_res(
         period_items,
         next_statuses,
         legal_edges: edges,
+        output_filled_by,
+        output_filled_at,
     }
 }
 
@@ -237,7 +269,23 @@ async fn detail_of(id: Uuid) -> std::result::Result<CostObjectDetailRes, ApiErro
         .await
         .map_err(|error| utils::db_error(error, "查询成本对象计算单"))?;
     let edges = model::effective_edges().await;
-    Ok(to_detail_res(&row, CollectSummary::of(mat, labor, oh), items, edges))
+    // 产量/在制的「最后填写人 + 时间」（§8.3 R-4）：读审计表，没有就是 null
+    let fill = model::latest_output_fill(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象产量填写记录"))?;
+    Ok(to_detail_res(
+        &row,
+        CollectSummary::of(mat, labor, oh),
+        items,
+        edges,
+        fill,
+    ))
+}
+
+/// 成本对象详情（HTTP 入口与真库用例共用的业务入口）。
+pub async fn detail_object(id_raw: &str) -> std::result::Result<CostObjectDetailRes, ApiError> {
+    let id = cost_object_dto::parse_uuid(id_raw, "id")?;
+    detail_of(id).await
 }
 
 // ==================== 业务逻辑（单测直接调这些） ====================
@@ -421,6 +469,159 @@ pub async fn close_object(
     detail_of(id).await
 }
 
+/// 产量录入的回单组装（读**库里的值**，不回显请求里的数字）。
+fn to_output_res(
+    row: &CostObjectRow,
+    warnings: Vec<String>,
+    changed: bool,
+    fill: Option<(Option<String>, DateTime<Utc>)>,
+) -> CostObjectOutputRes {
+    let (filled_by, filled_at) = match fill {
+        Some((by, at)) => (by, Some(at.to_rfc3339())),
+        None => (None, None),
+    };
+    CostObjectOutputRes {
+        id: row.id.to_string(),
+        object_no: row.object_no.clone(),
+        plan_qty: row.plan_qty.to_string(),
+        completed_qty: row.completed_qty.to_string(),
+        wip_qty: row.wip_qty.to_string(),
+        completion_pct: row.completion_pct.to_string(),
+        changed,
+        warnings,
+        filled_by,
+        filled_at,
+    }
+}
+
+/// 填写「本期产量与在制」（§4.5.1 产量/进度行 · §8.3 R-4）。
+///
+/// # 校验顺序（每一条都对应一个用户动作）
+///
+/// ```text
+/// 404  对象不存在 / 已软删
+/// 409  对象不是 OPEN（CLOSED / CANCELLED 只读；要复工请新建批）
+/// 400  三个数的值域（负数 / 进度越界 / 小数位超列 / 在制 > 0 但进度 0）
+/// 409  该对象参与过的期间已结算（+ 66070，报文点名期间）→ 先红冲再改
+/// ```
+///
+/// # 为什么「没变化」不写库也不写审计
+///
+/// 用户点两次保存、或面板自动带出原值再保存，三个数完全相同时：
+/// 写 `updated_at` 会让「最后修改时间」骗人，写一条空 diff 会让审计表变成操作流水
+/// （`changelog` 自己的口径也是 `Skipped`）。这里直接回 `changed=false` +
+/// 上次填写人与时间，前端提示「没有改动」。
+///
+/// # 事务与补偿（AGENTS 约定 11）
+///
+/// 提交前没有「可能失败的外部动作」：一条 UPDATE + 一条审计 INSERT 同事务，
+/// 任一失败整笔回滚（对象仍是旧数字，用户能立刻重试）。提交后只做**只读回查**，
+/// 所以不存在「提交后失败留死单」的形态。
+pub async fn set_output(
+    ctx: &changelog::ChangeCtx<'_>,
+    id_raw: &str,
+    req: CostObjectOutputReq,
+) -> std::result::Result<CostObjectOutputRes, ApiError> {
+    let id = cost_object_dto::parse_uuid(id_raw, "id")?;
+    let row = model::find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询待填产量的成本对象"))?
+        .ok_or_else(|| not_found(id))?;
+    if row.status != cost_object_dto::STATUS_OPEN {
+        return Err(cost_object_dto::conflict(format!(
+            "成本对象 {} 当前是「{}」：只有「在产」的对象能填本期产量与在制\
+             （已关批的批成本已经结转，要复工请新建批）",
+            row.object_no, row.status
+        )));
+    }
+    let current = OutputSpec::new(row.completed_qty, row.wip_qty, row.completion_pct);
+    let spec = cost_object_dto::spec_from_output(&current, &req)?;
+
+    // ---- 期间已结算 ⇒ 只读（卡面口径：SETTLED / CLOSED 且该对象有计算单）----
+    let locked = model::settled_periods(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象的已结算期间"))?;
+    if !locked.is_empty() {
+        let list = locked
+            .iter()
+            .map(|(period, status)| format!("{period}({status})"))
+            .collect::<Vec<_>>()
+            .join("、");
+        return Err(ApiError::new(
+            409,
+            cost_object_dto::PERIOD_LOCKED_CODE,
+            format!(
+                "成本对象 {} 的本期产量与在制已锁定：以下期间的成本批次已结算（{list}），\
+                 这三个数已随结算变成完工入库金额与结转凭证，再改就是改写已入账成本。\
+                 如需更正，请先红冲该期间的成本批次，再回来改数字",
+                row.object_no
+            ),
+        ));
+    }
+
+    // ---- 归集总额只用于「只提示不拦」的两条提醒 ----
+    let (mat, labor, oh) = model::collect_summary(id)
+        .await
+        .map_err(|error| utils::db_error(error, "汇总成本对象归集（产量提醒）"))?;
+    let warnings = cost_object_dto::output_warnings(&spec, row.plan_qty, mat + labor + oh);
+
+    // ---- 三个数都没变：不写库、不写审计（不留空 diff 的假记录）----
+    if spec == current {
+        let fill = model::latest_output_fill(id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询成本对象产量填写记录"))?;
+        return Ok(to_output_res(&row, warnings, false, fill));
+    }
+
+    let before = current.to_snapshot();
+    let after = spec.to_snapshot();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启产量录入事务"))?;
+    let result = async {
+        // ① CAS 写三列（`WHERE status='OPEN'`：与并发关批抢跑时 affected = 0）
+        let affected = model::apply_output(id, &spec, ctx.operator_id)
+            .await
+            .map_err(|error| utils::db_error(error, "写入本期产量与在制"))?;
+        if affected == 0 {
+            return Err(cost_object_dto::conflict(format!(
+                "成本对象 {} 的状态在本次保存期间被改动（可能刚被关批），请刷新后重试",
+                row.object_no
+            )));
+        }
+        // ② 审计（§8.3 R-4「填写人 + 时间」）：与业务写同事务，写不进去就整笔回滚
+        changelog::record_in(
+            &tx,
+            ctx,
+            ChangeTarget::of(
+                model::COST_OBJECT_TABLE,
+                id.to_string(),
+                ChangeAction::Update,
+                cost_object_dto::OUTPUT_ACTION_LABEL,
+            ),
+            DiffInput::update(&before, &after),
+        )
+        .await?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    result?;
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交产量录入事务"))?;
+
+    // ---- 回单：读库（不信内存）+ 审计里的填写人/时间 ----
+    let row = model::find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "回查成本对象"))?
+        .ok_or_else(|| not_found(id))?;
+    let fill = model::latest_output_fill(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象产量填写记录"))?;
+    Ok(to_output_res(&row, warnings, true, fill))
+}
+
 /// 列表分页（数据权限：按车间裁剪）。
 pub async fn page_objects(
     principal: &crate::business::shared::principal::ScopedPrincipal,
@@ -490,8 +691,7 @@ pub async fn cost_object_page_api(
 )]
 #[nik::get("/business/erp/cost-object/{id}")]
 pub async fn cost_object_detail_api(Path(id): Path<String>) -> ResResult<CostObjectDetailRes> {
-    let id = cost_object_dto::parse_uuid(&id, "id")?;
-    Ok(Res::ok(detail_of(id).await?))
+    Ok(Res::ok(detail_object(&id).await?))
 }
 
 /// 新建成本对象。
@@ -539,6 +739,32 @@ pub async fn cost_object_close_api(
 ) -> ResResult<CostObjectDetailRes> {
     let operator = utils::current_user_uuid(&claims);
     Ok(Res::ok(close_object(operator, &id, req).await?))
+}
+
+/// 填写本期产量与在制（B2-14 · §4.5.1 产量/进度行）。
+///
+/// 权限码**复用** `business:erp:cost-object:update`（见模块头注释：新开码要连带种
+/// 权限/菜单，本卡无迁移）。
+///
+/// 失败口径：对象不存在 404；非 `OPEN` 或该对象参与过的期间已结算 409
+/// （后者业务码 `66070`，报文点名期间）；数值非法 400（`10001`）；
+/// 变更日志写不进去 ⇒ 整笔回滚并 500（接入缺陷，不静默丢审计）。
+#[nik::permission(
+    path = "/business/erp/cost-object/{id}/output",
+    method = "PUT",
+    permission = "business:erp:cost-object:update"
+)]
+#[nik::put("/business/erp/cost-object/{id}/output")]
+pub async fn cost_object_output_api(
+    headers: HeaderMap,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<CostObjectOutputReq>,
+) -> ResResult<CostObjectOutputRes> {
+    // 审计上下文（谁 / 哪个请求 / 哪个 IP）：`request_id` 能 join 到 operation_logs
+    let audit = changelog::RequestCtx::from_request(&claims, &headers, None);
+    let ctx = audit.ctx();
+    Ok(Res::ok(set_output(&ctx, &id, req).await?))
 }
 
 /// 权限码自检出口（与 `handler::all_permissions` 同形，便于汇总脚本收集）。
@@ -693,6 +919,7 @@ mod tests {
             CollectSummary::of("0".parse().unwrap(), "0".parse().unwrap(), "0".parse().unwrap()),
             Vec::new(),
             edges,
+            None,
         );
         assert_eq!(
             res.next_statuses,
@@ -733,6 +960,7 @@ mod tests {
             CollectSummary::of("0".parse().unwrap(), "0".parse().unwrap(), "0".parse().unwrap()),
             Vec::new(),
             edges,
+            None,
         );
         assert!(res.next_statuses.is_empty(), "CLOSED 是终态，没有可去的状态");
         assert_eq!(res.legal_edges.len(), 2, "边表本身仍然如实返回");
@@ -784,5 +1012,74 @@ mod tests {
         assert_eq!(cost_object_dto::BLOCKED_CODE, error_code::ERP_COST_OBJECT_CLOSE_BLOCKED);
         let json = serde_json::to_value(&blockers).expect("序列化");
         assert_eq!(json[0]["code"], serde_json::json!("UNCOLLECTED_STOCK_OUT"));
+    }
+
+    // ---------- 本期产量与在制（B2-14，路由 #7） ----------
+
+    /// 路由与权限码：`PUT /cost-object/{id}/output` 挂在 `update` 权限下。
+    ///
+    /// 权限码表仍是 5 个（新开 `output` 码要连带种权限/菜单 = 迁移，本卡无迁移）。
+    #[test]
+    fn output_route_reuses_update_permission() {
+        let path = "/business/erp/cost-object/{id}/output";
+        assert!(!path.starts_with("/api"), "约定 8：宏内路径不带 /api 前缀");
+        assert!(path.ends_with("/output"));
+        assert_eq!(all_permissions().len(), 5, "没有新开权限码");
+        assert!(!COST_OBJECT_PERMISSIONS.contains(&"business:erp:cost-object:output"));
+        // 与卡面「复用 update」一致：权限码字面量
+        assert_eq!(PERM_UPDATE, "business:erp:cost-object:update");
+    }
+
+    /// 回单字段（前端面板逐字对齐：三个数 + 提示 + 填写人/时间）。
+    #[test]
+    fn output_res_serializes_panel_fields() {
+        let now = Utc::now();
+        let res = to_output_res(
+            &sample_row(STATUS_OPEN),
+            vec!["超产提示".to_string()],
+            true,
+            Some((Some("张三".to_string()), now)),
+        );
+        let json = serde_json::to_value(&res).expect("序列化");
+        for field in [
+            "id",
+            "object_no",
+            "plan_qty",
+            "completed_qty",
+            "wip_qty",
+            "completion_pct",
+            "changed",
+            "warnings",
+            "filled_by",
+            "filled_at",
+        ] {
+            assert!(json.get(field).is_some(), "回单缺字段 {field}（前端会 undefined）");
+        }
+        assert_eq!(json["plan_qty"], serde_json::json!("100"), "数量是字符串");
+        assert_eq!(json["changed"], serde_json::json!(true));
+        assert_eq!(json["filled_by"], serde_json::json!("张三"));
+        assert!(json["filled_at"].as_str().unwrap_or("").contains('T'), "时间要 RFC3339");
+        assert_eq!(json["warnings"][0], serde_json::json!("超产提示"));
+    }
+
+    /// 详情带「最后填写人 + 时间」（§8.3 R-4 的界面落点）；没填过就是 null。
+    #[test]
+    fn detail_carries_output_fill_snapshot() {
+        let edges = vec![(STATUS_OPEN.to_string(), STATUS_CLOSED.to_string())];
+        let zero = CollectSummary::of("0".parse().unwrap(), "0".parse().unwrap(), "0".parse().unwrap());
+        let filled_at = Utc::now();
+        let res = to_detail_res(
+            &sample_row(STATUS_OPEN),
+            zero.clone(),
+            Vec::new(),
+            edges.clone(),
+            Some((Some("李四".to_string()), filled_at)),
+        );
+        assert_eq!(res.output_filled_by.as_deref(), Some("李四"));
+        assert_eq!(res.output_filled_at.as_deref(), Some(filled_at.to_rfc3339().as_str()));
+
+        let empty = to_detail_res(&sample_row(STATUS_OPEN), zero, Vec::new(), edges, None);
+        assert!(empty.output_filled_by.is_none(), "没填过就是 null（不造「未知」）");
+        assert!(empty.output_filled_at.is_none());
     }
 }
