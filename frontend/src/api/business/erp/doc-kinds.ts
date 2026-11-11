@@ -153,6 +153,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   BUDGET: 'biz_budget',
   FIXED_ASSET: 'biz_fixed_asset',
   DEPRECIATION: 'biz_depreciation_batch',
+  EXPENSE_REPORT: 'biz_expense_report',
   SALE_ORDER: 'biz_sales_order',
   SHIPMENT: 'biz_shipment',
   RECEIVABLE: 'biz_receivable',
