@@ -197,11 +197,45 @@ pub enum DocKind {
     /// 审批走引擎（`biz_type = COST_SETTLE`，V0381 的 `cost_settle_approve`），
     /// 所以 `is_document() = true`（附件 / 提醒 / 流程都要能挂在它上面）。
     CostPeriod,
+    /// 员工主档 `biz_employee`（人力资源 ARCH-9-2 §3.1 ①）。
+    ///
+    /// **主数据**（不是可审批单据）：`is_document() = false`，但它有实体表、有状态机
+    /// （`PROBATION`/`ACTIVE`/`SUSPENDED`/`RESIGNED`，`state_machine::EMPLOYEE_EDGES`）、
+    /// 会写 `biz_status_log`，附件要能挂在它上面（身份证 / 学历证明 / 体检报告）。
+    ///
+    /// 与 `sys_user` 的分工（ARCH-9-2 §4.1）：本对象是**人事维度**，账号是**登录维度**，
+    /// 一人最多一个账号（`employee.user_id`），财务 / 审批仍认 `user_id`。
+    Employee,
+    /// 劳动合同台账 `biz_employee_contract`（ARCH-9-2 §3.1 ②）。
+    ///
+    /// 一份合同一行（到期 → 续签 → 再续签 = 3 行历史，`renewed_from_id` 串链），
+    /// 状态域 `ACTIVE`/`EXPIRED`/`TERMINATED`/`RENEWED`。扫描件必传（D-5）：
+    /// 附件挂 `(doc_type='EMPLOYEE_CONTRACT', doc_id=合同 id)`。
+    EmployeeContract,
+    /// 请假单 `biz_leave_request`（ARCH-9-2 §3.1 ⑥）。
+    ///
+    /// **可审批单据**：`DRAFT → SUBMITTED → APPROVED`，驳回/撤回回 `DRAFT`，
+    /// 作废/销假到 `CANCELLED`（`APPROVED` 之后改数据 = 禁止，只能作废重开）。
+    /// 审批走引擎（`biz_type = HR_LEAVE`，流程 `hr_leave`）。
+    LeaveRequest,
+    /// 月度考勤批次 `biz_attendance_period`（ARCH-9-2 §3.1 ④）。
+    ///
+    /// `DRAFT → SUBMITTED → LOCKED`（可解锁回 `DRAFT`，需 `attendance:lock` + 原因）。
+    /// **锁定后记录不许增删改**（handler 闸 + 巡检 A8）；薪资单只允许引用**锁定**的
+    /// 考勤期间，避免「工资按 A 版算、考勤改成 B 版」。
+    AttendancePeriod,
+    /// 薪资单 `biz_salary_sheet`（ARCH-9-2 §3.1 ⑧）。
+    ///
+    /// **可审批单据，也是工资凭证的唯一出口**（ARCH-9-2 §4.7.2 拍板：MES 计件工资
+    /// 只产数据、不出凭证）。状态域 `DRAFT`/`CALCULATED`/`SUBMITTED`/`APPROVED`/
+    /// `POSTED`/`REVERSED`/`CANCELLED`；过账在同一事务里生成两张凭证
+    /// （计提 `PAYROLL_ACCRUAL` + 发放 `PAYROLL_PAYMENT`，都挂在本单上）。
+    SalarySheet,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 31] = [
+    pub const ALL: [DocKind; 36] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -237,6 +271,14 @@ impl DocKind {
         DocKind::CostObject,
         // 成本核算（ARCH-9）：核算批次（期间结算单，可审批）
         DocKind::CostPeriod,
+        // 人力资源（ARCH-9-2 §3.1 / §8.1 HR-06）：员工 / 劳动合同 / 请假单 / 考勤批次 / 薪资单。
+        // 追加在末尾（不插中间）：顺序 = 前端 `DOC_KINDS` 的顺序，插中间会让上面的
+        // 「ATT-11 三类在末段」与既有 comments 全部失配，且前端是保序逐字比对。
+        DocKind::Employee,
+        DocKind::EmployeeContract,
+        DocKind::LeaveRequest,
+        DocKind::AttendancePeriod,
+        DocKind::SalarySheet,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -275,6 +317,12 @@ impl DocKind {
             // 成本核算（ARCH-9）
             DocKind::CostObject => "COST_OBJECT",
             DocKind::CostPeriod => "COST_PERIOD",
+            // 人力资源（ARCH-9-2）
+            DocKind::Employee => "EMPLOYEE",
+            DocKind::EmployeeContract => "EMPLOYEE_CONTRACT",
+            DocKind::LeaveRequest => "LEAVE_REQUEST",
+            DocKind::AttendancePeriod => "ATTENDANCE_PERIOD",
+            DocKind::SalarySheet => "SALARY_SHEET",
         }
     }
 
@@ -314,6 +362,12 @@ impl DocKind {
             // 成本核算（ARCH-9）
             DocKind::CostObject => "成本对象",
             DocKind::CostPeriod => "成本核算批次",
+            // 人力资源（ARCH-9-2）
+            DocKind::Employee => "员工",
+            DocKind::EmployeeContract => "劳动合同",
+            DocKind::LeaveRequest => "请假单",
+            DocKind::AttendancePeriod => "考勤期间",
+            DocKind::SalarySheet => "薪资单",
         }
     }
 
@@ -352,6 +406,12 @@ impl DocKind {
             // 成本核算（ARCH-9）：生产批主表
             DocKind::CostObject => "biz_cost_object",
             DocKind::CostPeriod => "biz_cost_period",
+            // 人力资源（ARCH-9-2 §3.1）：五张实体表一一对应
+            DocKind::Employee => "biz_employee",
+            DocKind::EmployeeContract => "biz_employee_contract",
+            DocKind::LeaveRequest => "biz_leave_request",
+            DocKind::AttendancePeriod => "biz_attendance_period",
+            DocKind::SalarySheet => "biz_salary_sheet",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -383,6 +443,11 @@ impl DocKind {
                 | DocKind::SalesReturn
                 | DocKind::PurchaseReturn
                 | DocKind::CostPeriod
+                // 人力资源里只有「请假单 / 薪资单」是走审批 + 可作废的单据：
+                // 员工与劳动合同是主数据（状态流转由 state_machine 管，但没有审批 / 作废），
+                // 考勤批次是「锁定 / 解锁」的作业批次（与会计期间同型）。
+                | DocKind::LeaveRequest
+                | DocKind::SalarySheet
         )
     }
 
@@ -445,7 +510,7 @@ impl DocKind {
 /// 也能挂附件），但本常量与前端 `ATTACHMENT_DOC_TYPES` 当时仍是 7 值 —— 于是
 /// 「发票必须传发票影像」这条规则在界面上**无法被满足**（前端下拉里根本没有 INVOICE）。
 /// ATT-08 做前端必传校验时补齐：界面上能挂，才谈得上提前告诉用户缺什么。
-pub const ATTACHMENT_DOC_KINDS: [DocKind; 17] = [
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 21] = [
     DocKind::Contract,
     DocKind::PurchaseOrder,
     DocKind::StockIn,
@@ -471,6 +536,14 @@ pub const ATTACHMENT_DOC_KINDS: [DocKind; 17] = [
     // 追加在末尾（不插中间）：顺序 = 前端 `ATTACHMENT_DOC_TYPES` 的顺序，
     // 插中间会让既有注释里的「ATT-11 那 4 类在末尾」失效。
     DocKind::ReceiptRefund,
+    // 人力资源（ARCH-9-2 §3.2 ⑦ / V0389）：「17 值 ∪ 新 4 值 = 21 值」，仍然追加在末尾。
+    // **只有 4 类**（不是 5 类）：员工 / 劳动合同 / 请假单 / 薪资单 —— 考勤批次
+    // 没有附件口径（考勤是导入的台账，依据是 Excel 原文件，走导入任务留痕，不挂单据附件），
+    // 而 DDL 的 `ck_biz_doc_attachment_type` 也只放宽到这 4 个值。
+    DocKind::Employee,
+    DocKind::EmployeeContract,
+    DocKind::LeaveRequest,
+    DocKind::SalarySheet,
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。
@@ -550,11 +623,38 @@ pub enum FlowBizType {
     /// 三态生命周期（草稿 / 已确认 / 已过账），再塞一个审批态会让「已确认但没批」
     /// 与「批了没记账」挤进同一个字段，状态日志也读不出两者的差别。
     ReceiptRefund,
+    /// 请假审批（`hr_leave`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：直属上级 →（请假 ≥ 3 天）人事经理 → END。长假要人事复核（年假余额、产假证明）。
+    /// 员工**不能批自己的请假单**（`INITIATOR_SUPERIOR` 取直属上级，解析不到走
+    /// `FALLBACK_ADMIN` —— 不用 `SKIP`，否则「没人可派」会变成自动通过）。
+    HrLeave,
+    /// 工资发放审批（`hr_salary`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：人事经理 → 财务经理（会签）→（应发 ≥ 50 万）总经理 → END。
+    /// 工资是**真出钱**，`≥50 万` 档与预算审批同档；审批通过只到 `APPROVED`，
+    /// **不出凭证** —— 凭证在 `APPROVED → POSTED` 的过账事务里生成（§4.6.4）。
+    HrSalary,
+    /// 调薪审批（`hr_salary_adjust`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：直属上级 → 人事经理 → 财务经理 → END（调薪直接改后续每月的钱，三签）。
+    /// 通过后写 `biz_employee_salary` 新版本行并把旧行 `effective_to` 收口（§4.3）。
+    HrSalaryAdjust,
+    /// 离职审批（`hr_employee_resign`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：直属上级 → 人事经理 →（关键岗位）总经理 → END。
+    /// 通过后同事务做四件事：员工转 `RESIGNED` / 停用账号 / 撤掉该员工在跑的请假单 / 归档（§4.1.3 ③）。
+    HrEmployeeResign,
 }
 
 impl FlowBizType {
     /// 全部审批业务类型（顺序 = 声明顺序）。
-    pub const ALL: [FlowBizType; 16] = [
+    ///
+    /// **人力资源是 +4 不是卡片上的 +3**：设计 §3.2 ⑨ 定了 4 套流程
+    /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
+    /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
+    /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
+    pub const ALL: [FlowBizType; 20] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -571,6 +671,11 @@ impl FlowBizType {
         FlowBizType::BudgetApprove,
         FlowBizType::AssetDisposal,
         FlowBizType::ReceiptRefund,
+        // 人力资源（ARCH-9-2 §3.2 ⑨）：4 套流程，追加在末尾。
+        FlowBizType::HrLeave,
+        FlowBizType::HrSalary,
+        FlowBizType::HrSalaryAdjust,
+        FlowBizType::HrEmployeeResign,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -608,6 +713,11 @@ impl FlowBizType {
             FlowBizType::BudgetApprove => "BUDGET_APPROVE",
             FlowBizType::AssetDisposal => "ASSET_DISPOSAL",
             FlowBizType::ReceiptRefund => "RECEIPT_REFUND",
+            // 人力资源（ARCH-9-2 §3.2 ⑨）
+            FlowBizType::HrLeave => "HR_LEAVE",
+            FlowBizType::HrSalary => "HR_SALARY",
+            FlowBizType::HrSalaryAdjust => "HR_SALARY_ADJUST",
+            FlowBizType::HrEmployeeResign => "HR_EMPLOYEE_RESIGN",
         }
     }
 
@@ -630,6 +740,11 @@ impl FlowBizType {
             FlowBizType::BudgetApprove => "budget_approve",
             FlowBizType::AssetDisposal => "asset_disposal",
             FlowBizType::ReceiptRefund => "receipt_refund",
+            // 人力资源（ARCH-9-2 §3.2 ⑨）：flow_code 与设计表逐字一致
+            FlowBizType::HrLeave => "hr_leave",
+            FlowBizType::HrSalary => "hr_salary",
+            FlowBizType::HrSalaryAdjust => "hr_salary_adjust",
+            FlowBizType::HrEmployeeResign => "hr_employee_resign",
         }
     }
 
@@ -652,6 +767,11 @@ impl FlowBizType {
             FlowBizType::BudgetApprove => "预算审批",
             FlowBizType::AssetDisposal => "资产处置审批",
             FlowBizType::ReceiptRefund => "收款退款审批",
+            // 人力资源（ARCH-9-2 §3.2 ⑨）
+            FlowBizType::HrLeave => "请假审批",
+            FlowBizType::HrSalary => "工资发放审批",
+            FlowBizType::HrSalaryAdjust => "调薪审批",
+            FlowBizType::HrEmployeeResign => "离职审批",
         }
     }
 
@@ -675,6 +795,14 @@ impl FlowBizType {
             // `doc_kind_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
             // 自检块，改注释都会 checksum 失败，扩清单必须新开迁移重写自检块，超出 FIN-3 范围）。
             FlowBizType::Expense => DocKind::ExpenseReport,
+            // 人力资源（ARCH-9-2 §4.3）：请假单 / 薪资单各有独立单据表；
+            // 调薪与离职**没有独立的单表**（`biz_employee_salary` 是行版本台账，
+            // 离职只是员工状态的一次流转），审批实例的 `biz_id` 都是 `biz_employee.id`
+            // —— 所以两者都映射到 `EMPLOYEE`，若映射成「无对象」则审批详情 / 通知
+            // 都点不进员工页（§4.1.3 ③ 的离职四件事也要能回查这个人）。
+            FlowBizType::HrLeave => DocKind::LeaveRequest,
+            FlowBizType::HrSalary => DocKind::SalarySheet,
+            FlowBizType::HrSalaryAdjust | FlowBizType::HrEmployeeResign => DocKind::Employee,
             FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
     }
@@ -1023,11 +1151,24 @@ pub enum VoucherSourceType {
     /// 导致「按来源反查凭证」的接口在校验 source_type 时会把真实的结算凭证判成非法值。
     /// 补进来之后 `VOUCHER_SOURCE_VALUES` / 巡检登记表 / 前端 `doc-kinds.ts` 同步补齐。
     CostPeriod,
+    /// 工资计提（薪资单过账时生成：借 管理费用-工资 / 贷 应付职工薪酬-工资，
+    /// ARCH-9-2 §4.6.1 / §4.7.2）。
+    ///
+    /// `source_id` = `biz_salary_sheet.id`（薪资单）、`source_no` = 薪资单号（`SAL-yyyyMM-NNNN`）：
+    /// 一次过账出**两张**凭证（计提 + 发放），两张都挂同一张薪资单。
+    /// `biz_voucher_rule` 侧对应 `PAYROLL_ACCRUAL_DEFAULT`（V0384 已种）。
+    PayrollAccrual,
+    /// 工资发放（同一事务里跟在计提之后：借 应付职工薪酬-工资 / 贷 银行存款 + 代扣项，
+    /// ARCH-9-2 §4.6.2）。
+    ///
+    /// 与 [`VoucherSourceType::PayrollAccrual`] 同挂薪资单（`source_id` 相同），
+    /// 靠摘要 + 科目区分；`biz_voucher_rule` 侧对应 `PAYROLL_PAYMENT_DEFAULT`。
+    PayrollPayment,
 }
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 20] = [
+    pub const ALL: [VoucherSourceType; 22] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -1048,6 +1189,9 @@ impl VoucherSourceType {
         VoucherSourceType::Invoice,
         VoucherSourceType::Commission,
         VoucherSourceType::CostPeriod,
+        // 人力资源（ARCH-9-2 §4.6）：计提 / 发放两张凭证，追加在末尾
+        VoucherSourceType::PayrollAccrual,
+        VoucherSourceType::PayrollPayment,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -1073,6 +1217,8 @@ impl VoucherSourceType {
             VoucherSourceType::Invoice => "INVOICE",
             VoucherSourceType::Commission => "COMMISSION",
             VoucherSourceType::CostPeriod => "COST_PERIOD",
+            VoucherSourceType::PayrollAccrual => "PAYROLL_ACCRUAL",
+            VoucherSourceType::PayrollPayment => "PAYROLL_PAYMENT",
         }
     }
 
@@ -1099,6 +1245,9 @@ impl VoucherSourceType {
             VoucherSourceType::Invoice => "发票开票",
             VoucherSourceType::Commission => "佣金结算",
             VoucherSourceType::CostPeriod => "成本核算结算",
+            // 人力资源（ARCH-9-2 §4.6）：两个值的中文与设计表逐字一致
+            VoucherSourceType::PayrollAccrual => "工资计提",
+            VoucherSourceType::PayrollPayment => "工资发放",
         }
     }
 
@@ -1127,6 +1276,9 @@ impl VoucherSourceType {
             VoucherSourceType::Commission => return None,
             // 成本核算结算批次（ARCH-9）：source_id 指向 `biz_cost_period`。
             VoucherSourceType::CostPeriod => DocKind::CostPeriod,
+            // 人力资源（ARCH-9-2 §4.6）：计提与发放两张凭证都挂在**同一张薪资单**上
+            // （source_id = biz_salary_sheet.id），与报销的「入账 + 付款」同型。
+            VoucherSourceType::PayrollAccrual | VoucherSourceType::PayrollPayment => DocKind::SalarySheet,
         })
     }
 
@@ -1357,7 +1509,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 31] = [
+const DOC_KIND_VALUES: [&str; 36] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1389,9 +1541,15 @@ const DOC_KIND_VALUES: [&str; 31] = [
     "OPENING_BALANCE",
     "COST_OBJECT",
     "COST_PERIOD",
+    // 人力资源（ARCH-9-2 §3.1）：5 张实体表一一对应
+    "EMPLOYEE",
+    "EMPLOYEE_CONTRACT",
+    "LEAVE_REQUEST",
+    "ATTENDANCE_PERIOD",
+    "SALARY_SHEET",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 20] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1408,6 +1566,11 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 16] = [
     "BUDGET_APPROVE",
     "ASSET_DISPOSAL",
     "RECEIPT_REFUND",
+    // 人力资源（ARCH-9-2 §3.2 ⑨）
+    "HR_LEAVE",
+    "HR_SALARY",
+    "HR_SALARY_ADJUST",
+    "HR_EMPLOYEE_RESIGN",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 23] = [
@@ -1447,7 +1610,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 8] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 20] = [
+const VOUCHER_SOURCE_VALUES: [&str; 22] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1468,6 +1631,9 @@ const VOUCHER_SOURCE_VALUES: [&str; 20] = [
     "INVOICE",
     "COMMISSION",
     "COST_PERIOD",
+    // 人力资源（ARCH-9-2 §4.6）：工资计提 / 工资发放
+    "PAYROLL_ACCRUAL",
+    "PAYROLL_PAYMENT",
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
@@ -1532,7 +1698,7 @@ const EXPENSE_PAYMENT_STATUS_VALUES: [&str; 2] = ["PAID", "CANCELLED"];
 /// `sales_return_posting.rs` 直接生成（红字入库凭证 + 收入冲减凭证），**不查**
 /// `biz_voucher_rule`；把它放进规则域等于允许写一条永远匹配不到的规则。
 /// 若将来改成走规则表，两处一起改。
-const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 34] = [
+const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 36] = [
     // txn 轴（23 项里的 22 个；`SALES_RETURN_IN` 不进规则域，理由见上）
     "PURCHASE_IN",
     "PURCHASE_IN_CANCEL",
@@ -1570,6 +1736,13 @@ const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 34] = [
     "DEPRECIATION",
     "EXPENSE_REPORT",
     "EXPENSE_PAYMENT",
+    // 人力资源（ARCH-9-2 §3.2 ⑧，V0384 种的 PAYROLL_ACCRUAL_DEFAULT /
+    // PAYROLL_PAYMENT_DEFAULT 两条规则）：这 2 个值在凭证来源轴上（`VoucherSourceType`），
+    // 与 FIN-2/FIN-3 的固资 / 报销规则同型 —— 工资不产生库存流水，不在 txn 轴。
+    // 加在轴末尾：HR-02 的 V0384 先于本枚举落地，缺这 2 值时
+    // `scripts/verify/biz_type_domain.py` 会把那两条规则判成域外值。
+    "PAYROLL_ACCRUAL",
+    "PAYROLL_PAYMENT",
 ];
 
 /// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `doc_kind_tests` 按它逐列核对）。

@@ -881,6 +881,9 @@ fn voucher_source_target_table(value: &str) -> Option<&'static str> {
         "COMMISSION" => "biz_commission_settlement",
         // 成本核算（ARCH-9）：结算批次的 3–4 张凭证都挂在结算批次上
         "COST_PERIOD" => "biz_cost_period",
+        // 人力资源（ARCH-9-2 §4.6）：工资计提 / 工资发放两张凭证都挂在**同一张薪资单**上
+        // （source_id = biz_salary_sheet.id），见 HR-06 / `VoucherSourceType::doc_kind`。
+        "PAYROLL_ACCRUAL" | "PAYROLL_PAYMENT" => "biz_salary_sheet",
         other => panic!("VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"),
     })
 }

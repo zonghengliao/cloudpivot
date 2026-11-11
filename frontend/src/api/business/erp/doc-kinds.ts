@@ -71,6 +71,11 @@ export const DOC_KINDS = [
   'OPENING_BALANCE',
   'COST_OBJECT',
   'COST_PERIOD',
+  'EMPLOYEE',
+  'EMPLOYEE_CONTRACT',
+  'LEAVE_REQUEST',
+  'ATTENDANCE_PERIOD',
+  'SALARY_SHEET',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -111,6 +116,11 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   // 成本核算（ARCH-9）
   COST_OBJECT: '成本对象',
   COST_PERIOD: '成本核算批次',
+  EMPLOYEE: '员工',
+  EMPLOYEE_CONTRACT: '劳动合同',
+  LEAVE_REQUEST: '请假单',
+  ATTENDANCE_PERIOD: '考勤期间',
+  SALARY_SHEET: '薪资单',
 };
 
 /**
@@ -158,6 +168,11 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   // 成本核算（ARCH-9）：生产批主表
   COST_OBJECT: 'biz_cost_object',
   COST_PERIOD: 'biz_cost_period',
+  EMPLOYEE: 'biz_employee',
+  EMPLOYEE_CONTRACT: 'biz_employee_contract',
+  LEAVE_REQUEST: 'biz_leave_request',
+  ATTENDANCE_PERIOD: 'biz_attendance_period',
+  SALARY_SHEET: 'biz_salary_sheet',
 };
 
 /**
@@ -211,6 +226,10 @@ export const ATTACHMENT_DOC_TYPES = [
   'CUSTOMER',
   'OPENING_BALANCE',
   'RECEIPT_REFUND',
+  'EMPLOYEE',
+  'EMPLOYEE_CONTRACT',
+  'LEAVE_REQUEST',
+  'SALARY_SHEET',
 ] as const;
 
 /** 能挂业务附件的业务对象（联合类型）。 */
@@ -236,6 +255,10 @@ export const FLOW_BIZ_TYPES = [
   'BUDGET_APPROVE',
   'ASSET_DISPOSAL',
   'RECEIPT_REFUND',
+  'HR_LEAVE',
+  'HR_SALARY',
+  'HR_SALARY_ADJUST',
+  'HR_EMPLOYEE_RESIGN',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
@@ -259,6 +282,10 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   BUDGET_APPROVE: '预算审批',
   ASSET_DISPOSAL: '资产处置审批',
   RECEIPT_REFUND: '收款退款审批',
+  HR_LEAVE: '请假审批',
+  HR_SALARY: '工资发放审批',
+  HR_SALARY_ADJUST: '调薪审批',
+  HR_EMPLOYEE_RESIGN: '离职审批',
 };
 
 /** 审批业务类型 → 默认流程编码（`biz_flow_def.flow_code`）。 */
@@ -279,6 +306,10 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   BUDGET_APPROVE: 'budget_approve',
   ASSET_DISPOSAL: 'asset_disposal',
   RECEIPT_REFUND: 'receipt_refund',
+  HR_LEAVE: 'hr_leave',
+  HR_SALARY: 'hr_salary',
+  HR_SALARY_ADJUST: 'hr_salary_adjust',
+  HR_EMPLOYEE_RESIGN: 'hr_employee_resign',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */
@@ -396,6 +427,8 @@ export const VOUCHER_SOURCE_TYPES = [
   'INVOICE',
   'COMMISSION',
   'COST_PERIOD',
+  'PAYROLL_ACCRUAL',
+  'PAYROLL_PAYMENT',
 ] as const;
 
 /** 凭证来源（联合类型）。 */
@@ -423,6 +456,8 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   INVOICE: '发票开票',
   COMMISSION: '佣金结算',
   COST_PERIOD: '成本核算结算',
+  PAYROLL_ACCRUAL: '工资计提',
+  PAYROLL_PAYMENT: '工资发放',
 };
 
 // ==================== ⑥ 序列号来源 ====================

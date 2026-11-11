@@ -76,6 +76,20 @@ const EXPECTED: Record<
     query: { batch_no: 'CS-202611-0001' },
   },
   FX_REVALUATION: { path: '/business/erp/period', deepLink: 'none', sample: '2026-01', query: {} },
+  // HR（ARCH-9-2 §4.6）：两张工资凭证都挂同一张薪资单（`source_no = SAL-yyyyMM-NNNN`）；
+  // 薪资页由 HR-43 落地 ⇒ 现在必须是 page-missing（返回 null，不给 404 链接）
+  PAYROLL_ACCRUAL: {
+    path: '/business/hr/salary',
+    deepLink: 'page-missing',
+    sample: 'SAL-202611-0001',
+    query: {},
+  },
+  PAYROLL_PAYMENT: {
+    path: '/business/hr/salary',
+    deepLink: 'page-missing',
+    sample: 'SAL-202611-0001',
+    query: {},
+  },
 };
 
 /** 按映射表的 `by` 决定把 sample 放 id 还是 no。 */
@@ -84,13 +98,13 @@ function resolveRow(key: keyof typeof SOURCE_ROUTE_TABLE, sample: string) {
   return resolveSourceRoute(key, spec.by === 'id' ? sample : null, spec.by === 'no' ? sample : null);
 }
 
-test('覆盖完整：表键 == 后端枚举 20 种 + FX_REVALUATION，一个不多一个不少', () => {
+test('覆盖完整：表键 == 后端枚举 22 种 + FX_REVALUATION，一个不多一个不少', () => {
   const tableKeys = Object.keys(SOURCE_ROUTE_TABLE).sort();
   const expectedKeys = [...VOUCHER_SOURCE_TYPES, ...EXTRA_VOUCHER_SOURCES].sort();
 
   assert.deepEqual(tableKeys, expectedKeys, '映射表与 VoucherSourceType 枚举 + EXTRA 必须逐字对齐');
-  assert.equal(VOUCHER_SOURCE_TYPES.length, 20, '后端 VoucherSourceType::ALL 是 20 种');
-  assert.equal(tableKeys.length, 21, '20 种枚举 + FX_REVALUATION = 21 行');
+  assert.equal(VOUCHER_SOURCE_TYPES.length, 22, '后端 VoucherSourceType::ALL 是 22 种（HR-06 加 PAYROLL_*）');
+  assert.equal(tableKeys.length, 23, '22 种枚举 + FX_REVALUATION = 23 行');
   assert.deepEqual(Object.keys(EXPECTED).sort(), tableKeys, '每个键都要有本文件的期望行（防漏测）');
   assert.equal(new Set(tableKeys).size, tableKeys.length, '键不可重复');
 });
@@ -192,13 +206,15 @@ test('deepLink 语义：none 不塞参数；detail 一定塞参数（含成本�
   assert.deepEqual(resolveSourceRoute('COST_PERIOD', ID, 'CS-202611-0001')?.query, {
     batch_no: 'CS-202611-0001',
   });
-  // 表里已无 page-missing（最后一处 cost-period 已上线）；语义保留：无定位参数仍不跳
+  // page-missing 只允许「目标页确实还没注册」的 HR 两个工资来源（薪资页由 HR-43 落地）。
+  // 再加新行时本断言会红 —— 提醒你同时补「未注册路由」的反向检查（下一条用例）。
   const pageMissingKeys = (Object.keys(SOURCE_ROUTE_TABLE) as Array<keyof typeof SOURCE_ROUTE_TABLE>)
-    .filter((key) => SOURCE_ROUTE_TABLE[key].deepLink === 'page-missing');
-  assert.equal(
-    pageMissingKeys.length,
-    0,
-    `若新加 page-missing 行（${pageMissingKeys.join(',')}），本断言会提醒你同时补「未注册路由」的反向检查`,
+    .filter((key) => SOURCE_ROUTE_TABLE[key].deepLink === 'page-missing')
+    .sort();
+  assert.deepEqual(
+    pageMissingKeys,
+    ['PAYROLL_ACCRUAL', 'PAYROLL_PAYMENT'],
+    'page-missing 名单变了：确认新目标页是否真的未注册，并同步本期望',
   );
   assert.equal(resolveSourceRoute('COST_PERIOD', ID, null), null);
 });
@@ -236,7 +252,11 @@ test('by / queryKey / label / note 的形态约束', () => {
       assert.equal(spec.path, '');
     } else {
       assert.ok(spec.queryKey, `${key} 必须写明目标页参数名`);
-      assert.ok(spec.path.startsWith('/business/erp/'), `${key} path 必须是 /business/erp/ 下的绝对路径`);
+      // HR 的来源（工资凭证）落在 /business/hr/ 下；其余一律 /business/erp/
+      assert.ok(
+        spec.path.startsWith('/business/erp/') || spec.path.startsWith('/business/hr/'),
+        `${key} path 必须是 /business/(erp|hr)/ 下的绝对路径`,
+      );
     }
   }
 });

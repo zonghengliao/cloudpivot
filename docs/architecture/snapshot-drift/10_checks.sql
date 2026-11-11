@@ -449,6 +449,10 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('VOUCHER_SOURCE', 'COMMISSION',           'biz_commission_settlement', 'deleted_at', '佣金结算生成（销售链 SO-36）：source_id = 结算单 id，见 commission_handler::write_commission_voucher'),
     -- 成本核算（ARCH-9）：结算批次的 3–4 张凭证（人工计提 / 制造费用结转 / 完工入库结转）都挂同一批次
     ('VOUCHER_SOURCE', 'COST_PERIOD',          'biz_cost_period',        'deleted_at', '成本核算结算生成（ARCH-9 §4.8，VTRACE-3 补登）：source_id = 结算批次 id，见 cost_settle_voucher'),
+    -- 人力资源 ARCH-9-2 §4.6：工资计提 / 工资发放是同一次过账生成的两张凭证，
+    -- 都挂在**同一张薪资单**上（source_id = biz_salary_sheet.id），靠摘要 + 科目区分
+    ('VOUCHER_SOURCE', 'PAYROLL_ACCRUAL',      'biz_salary_sheet',       'deleted_at', '工资计提生成（HR-39：借 管理费用-工资 / 贷 应付职工薪酬-工资，source_id = 薪资单 id）'),
+    ('VOUCHER_SOURCE', 'PAYROLL_PAYMENT',      'biz_salary_sheet',       'deleted_at', '工资发放生成（HR-39：借 应付职工薪酬-工资 / 贷 银行存款 + 代扣项，source_id = 薪资单 id）'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),
@@ -479,6 +483,11 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('FLOW_BIZ', 'ASSET_DISPOSAL',   'biz_fixed_asset',    'deleted_at', '资产处置审批（FIN-2）：biz_id = 资产卡片 id（一张卡同时只能有一个在跑处置单）'),
     -- SO-14 遗留 · D10：收款退款审批（审批是**过账前置**，不是退款单的一个状态；biz_id = 退款单 id）
     ('FLOW_BIZ', 'RECEIPT_REFUND',   'biz_receipt_refund', 'deleted_at', '收款退款审批（SO-14 遗留 D10）：biz_id = 退款单 id，见 receipt_refund_bridge'),
+    -- 人力资源 ARCH-9-2 §3.2 ⑨：4 套流程（HR-06 登记；流程定义由 HR-26 / HR-38 的迁移种入）
+    ('FLOW_BIZ', 'HR_LEAVE',           'biz_leave_request', 'deleted_at', '请假审批（HR：biz_id = 请假单 id，流程 hr_leave，见 leave_bridge）'),
+    ('FLOW_BIZ', 'HR_SALARY',          'biz_salary_sheet',  'deleted_at', '工资发放审批（HR：biz_id = 薪资单 id，流程 hr_salary，见 salary_bridge）'),
+    ('FLOW_BIZ', 'HR_SALARY_ADJUST',   'biz_employee',      'deleted_at', '调薪审批（HR：没有独立单表，biz_id = 员工 id，流程 hr_salary_adjust）'),
+    ('FLOW_BIZ', 'HR_EMPLOYEE_RESIGN', 'biz_employee',      'deleted_at', '离职审批（HR：没有独立单表，biz_id = 员工 id，流程 hr_employee_resign）'),
     -- ④ 状态日志实体：biz_status_log.entity_type + entity_id（取值域 = DocKind）
     ('STATUS_ENTITY', 'PURCHASE_ORDER',    'biz_purchase_order',    'deleted_at', '采购单'),
     ('STATUS_ENTITY', 'STOCK_IN',          'biz_stock_in',          'deleted_at', '收货单'),
@@ -525,6 +534,12 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     -- 成本核算 ARCH-9 · B3-1：核算批次（期间结算单）进状态日志（`cost_period_handler` 建单 / 作废，
     -- B3-3..B3-5 的提交 / 审批落地 / 结算 / 关期 / 红冲同样写 entity_type=COST_PERIOD）
     ('STATUS_ENTITY', 'COST_PERIOD',       'biz_cost_period',       'deleted_at', '成本核算批次 / 期间结算单（ARCH-9 §4.1：DRAFT → SUBMITTED → APPROVED → SETTLED → CLOSED / REVERSED）'),
+    -- 人力资源 ARCH-9-2 §3.1：5 张主表进业务对象轴（HR-06 登记；handler 由 HR-09..HR-39 落地）
+    ('STATUS_ENTITY', 'EMPLOYEE',          'biz_employee',          'deleted_at', '员工主档（HR §4.1：PROBATION → ACTIVE → SUSPENDED / RESIGNED）'),
+    ('STATUS_ENTITY', 'EMPLOYEE_CONTRACT', 'biz_employee_contract', 'deleted_at', '劳动合同台账（HR §4.2：ACTIVE → EXPIRED / TERMINATED / RENEWED）'),
+    ('STATUS_ENTITY', 'LEAVE_REQUEST',     'biz_leave_request',     'deleted_at', '请假单（HR §4.4：DRAFT → SUBMITTED → APPROVED / CANCELLED）'),
+    ('STATUS_ENTITY', 'ATTENDANCE_PERIOD', 'biz_attendance_period', 'deleted_at', '月度考勤批次（HR §4.5：DRAFT → SUBMITTED → LOCKED，可解锁回 DRAFT）'),
+    ('STATUS_ENTITY', 'SALARY_SHEET',      'biz_salary_sheet',      'deleted_at', '薪资单（HR §4.7：DRAFT → CALCULATED → SUBMITTED → APPROVED → POSTED / REVERSED / CANCELLED）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
@@ -552,6 +567,11 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('ATTACHMENT_DOC', 'OPENING_BALANCE', 'biz_voucher',        'deleted_at', '期初依据（ATT-11：doc_id = 期初凭证 id，voucher_type=OPENING）'),
     -- NEAR-FIX-1 / V0368：退款凭据（17 值）。期初那条之后追加，与 ATTACHMENT_DOC_KINDS 的末尾顺序一致
     ('ATTACHMENT_DOC', 'RECEIPT_REFUND',  'biz_receipt_refund', 'deleted_at', '退款凭据（V0368：银行回单 / 客户签收的退款确认）'),
+    -- 人力资源 ARCH-9-2 §3.2 ⑦（V0389 已把 DDL 的 CHECK 放宽到 21 值）：**只有 4 类**，考勤批次没有附件口径
+    ('ATTACHMENT_DOC', 'EMPLOYEE',          'biz_employee',          'deleted_at', '员工证件 / 学历证明 / 体检报告（HR：attachment 4 类之一）'),
+    ('ATTACHMENT_DOC', 'EMPLOYEE_CONTRACT', 'biz_employee_contract', 'deleted_at', '劳动合同扫描件（HR D-5：签订 / 续签必传，规则见 V0389）'),
+    ('ATTACHMENT_DOC', 'LEAVE_REQUEST',     'biz_leave_request',     'deleted_at', '请假证明（病假诊断书 / 产假证明等）'),
+    ('ATTACHMENT_DOC', 'SALARY_SHEET',      'biz_salary_sheet',      'deleted_at', '工资表签字扫描件（HR：建议传，不硬拦，规则 enabled=false）'),
     -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
     ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),

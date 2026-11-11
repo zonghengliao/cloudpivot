@@ -1361,7 +1361,8 @@ BEGIN
                                  'SERIAL_OUT', 'SERIAL_SCRAP', 'OPENING', 'YEAR_END', 'MANUAL',
                                  'FIXED_ASSET_ACQ', 'FIXED_ASSET_DISPOSAL', 'DEPRECIATION',
                                  'EXPENSE_REPORT', 'EXPENSE_PAYMENT', 'RECEIPT', 'RECEIPT_REFUND',
-                                 'INVOICE', 'COMMISSION', 'COST_PERIOD');
+                                 'INVOICE', 'COMMISSION', 'COST_PERIOD',
+                                 'PAYROLL_ACCRUAL', 'PAYROLL_PAYMENT');
     IF bad > 0 THEN RAISE EXCEPTION '凭证来源出现 VoucherSourceType 枚举外的值：% 张（%）', bad, detail; END IF;
 
     -- 7) 销售开票的收入凭证三处指针必须闭合：

@@ -39,8 +39,8 @@
  * - `filter` —— 页面只把它当筛选条件（`out_no` 走列表 keyword）；
  * - `none` —— 页面还没读这个参数，`resolveSourceRoute` **不往 query 里塞值**
  *   （塞了就是个静默无效的假参数），只返回列表页路径；
- * - `page-missing` —— 目标页连路由都还没注册（当前表里**已无此态**：最后一处
- *   `cost-period` 已在 COST-B3-11 落地 —— 路由注册 + 页面读 `?batch_no=`），
+ * - `page-missing` —— 目标页连路由都还没注册（**当前有 2 个**：`PAYROLL_ACCRUAL` /
+ *   `PAYROLL_PAYMENT` 指向的薪资页由 HR-43 落地），
  *   这种情况下 `resolveSourceRoute` 返回 `null` —— **宁可不给链接，不给 404 链接**。
  *
  * 页面补深链后，把对应行的 `deepLink` 从 `none` 改成 `filter`/`detail` 即可，
@@ -297,6 +297,29 @@ export const SOURCE_ROUTE_TABLE = {
     deepLink: 'detail',
     label: '成本核算批次',
     note: '成本核算页读 `?batch_no=` 直接打开该批次的五步向导（COST-B3-11 落地，2026-11-11）',
+  },
+
+  // ── ⑨ 人力资源（ARCH-9-2 §4.6，HR-06）──────────────────────────────
+  /**
+   * `salary_bridge` 过账生成的**计提**凭证：`source_id = biz_salary_sheet.id`、
+   * `source_no = SAL-yyyyMM-NNNN`（与发放凭证共用同一张薪资单）。
+   */
+  PAYROLL_ACCRUAL: {
+    path: '/business/hr/salary',
+    by: 'no',
+    queryKey: 'sheet_no',
+    deepLink: 'page-missing',
+    label: '薪资单（工资计提）',
+    note: '薪资页（HR-43）还没上线 ⇒ 不给链接（不给 404），渲染纯文本 + 原因',
+  },
+  /** 同一次过账的**发放**凭证（`source_id` 相同，靠摘要 + 科目区分）。 */
+  PAYROLL_PAYMENT: {
+    path: '/business/hr/salary',
+    by: 'no',
+    queryKey: 'sheet_no',
+    deepLink: 'page-missing',
+    label: '薪资单（工资发放）',
+    note: '薪资页（HR-43）还没上线 ⇒ 不给链接（不给 404），渲染纯文本 + 原因',
   },
 
   // ── ⑧ 额外：后端已在写、枚举还没收录 ──────────────────────────────

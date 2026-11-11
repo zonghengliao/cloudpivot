@@ -108,6 +108,11 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   OPENING_BALANCE: DOC_KIND_LABELS.OPENING_BALANCE,
   // NEAR-FIX-1 / V0368：退款凭据
   RECEIPT_REFUND: DOC_KIND_LABELS.RECEIPT_REFUND,
+  // 人力资源（ARCH-9-2 §3.2 ⑦ / V0389 放宽到 21 值）：4 类
+  EMPLOYEE: DOC_KIND_LABELS.EMPLOYEE,
+  EMPLOYEE_CONTRACT: DOC_KIND_LABELS.EMPLOYEE_CONTRACT,
+  LEAVE_REQUEST: DOC_KIND_LABELS.LEAVE_REQUEST,
+  SALARY_SHEET: DOC_KIND_LABELS.SALARY_SHEET,
 };
 
 /**
@@ -446,4 +451,12 @@ export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   OPENING_BALANCE: 'OPENING_EVIDENCE',
   /** NEAR-FIX-1：退款凭据 = 银行付款回单（与收款单的银行回单同一角色）。 */
   RECEIPT_REFUND: 'BANK_RECEIPT',
+  /** HR（ARCH-9-2 §3.2 ⑦）：员工证件 / 学历 / 体检报告 → 其他附件（分栏词表里没有证件专用角色）。 */
+  EMPLOYEE: 'DEFAULT',
+  /** HR：劳动合同扫描件（与 V0389 的必传规则同一角色：`CONTRACT_SCAN`）。 */
+  EMPLOYEE_CONTRACT: 'CONTRACT_SCAN',
+  /** HR：请假证明（病假诊断书 / 产假证明）→ 其他附件。 */
+  LEAVE_REQUEST: 'DEFAULT',
+  /** HR：工资表签字页扫描件 → 其他附件（规则是「建议传，不硬拦」）。 */
+  SALARY_SHEET: 'DEFAULT',
 };

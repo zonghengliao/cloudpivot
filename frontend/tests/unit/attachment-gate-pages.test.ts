@@ -605,7 +605,7 @@ test('ATT-11：期初页把期初凭证号写进提示（用户要知道附件�
   assert.ok(page.includes("?? null"), '还没有凭证时 doc-id 必须传 null（面板显示「保存后可上传」）');
 });
 
-test('ATT-11 / V0368：词表 17 类单据 / 14 个可上传角色（前后端由 Rust 单测再钉一遍）', () => {
+test('ATT-11 / V0368 / V0389：词表 21 类单据 / 14 个可上传角色（前后端由 Rust 单测再钉一遍）', () => {
   const kinds = readSource('api/business/erp/doc-kinds.ts');
   const block = kinds.slice(
     kinds.indexOf('export const ATTACHMENT_DOC_TYPES'),
@@ -631,6 +631,11 @@ test('ATT-11 / V0368：词表 17 类单据 / 14 个可上传角色（前后端�
     'OPENING_BALANCE',
     // NEAR-FIX-1 / V0368：退款凭据（追加在末尾，与 Rust ATTACHMENT_DOC_KINDS 顺序一致）
     'RECEIPT_REFUND',
+    // 人力资源（ARCH-9-2 §3.2 ⑦ / V0389 放宽到 21 值）：只 4 类（考勤批次没有附件口径）
+    'EMPLOYEE',
+    'EMPLOYEE_CONTRACT',
+    'LEAVE_REQUEST',
+    'SALARY_SHEET',
   ]);
 
   const api = readSource('api/business/erp/attachment.ts');
