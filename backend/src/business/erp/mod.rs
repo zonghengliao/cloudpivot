@@ -244,6 +244,12 @@ pub mod cost_rate_model;
 pub mod cost_reconcile_dto;
 /// 对账取数（`biz_cost_collect` 池行按来源反查科目 + `biz_voucher_entry` 的 4101.* 借方），B2-9。
 pub mod cost_reconcile_model;
+/// 红冲（ARCH-9 §4.8 反向路径 · B3-7）：逐凭证 `reverse_posted` + 库存回冲（`PRODUCE_CANCEL`）
+/// + 生产入库单作废 + 计算单回 `CALC` + 批次 → `REVERSED`。对外是设计 §5.2 #30。
+pub mod cost_reverse_run;
+/// B3-7 的真库用例（`ERP_DB_URL` 开关）：红冲端到端 / 库存不足整笔回滚 / 红冲后再算一次不撞唯一键。
+#[cfg(test)]
+mod cost_reverse_run_db_tests;
 /// 结算 ①「完工入库」（ARCH-9 §4.7.4/§4.7.6/§4.8 ③ · B3-4）：`stock_in(PRODUCTION)` +
 /// 明细 + `inventory_writer` 三本账 + 计算单回写 + 生产批登记。无 HTTP 入口，供 B3-6 结算事务调用。
 pub mod cost_settle_finish;

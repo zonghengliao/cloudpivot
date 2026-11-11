@@ -13,7 +13,7 @@
 //! | 28 | POST | `/business/erp/cost-period/{id}/submit` | `business:erp:cost-period:submit` | ✅ B3-3（走审批引擎） |
 //! | — | POST | `/business/erp/cost-period/{id}/withdraw` | `business:erp:cost-period:submit` | ✅ B3-3（撤回 = 终止实例 + 回 `DRAFT`） |
 //! | 29 | POST | `/business/erp/cost-period/{id}/settle` | `business:erp:cost-period:settle` | ✅ B3-6（入库 + 凭证 + 6 条断言） |
-//! | 30 | POST | `/business/erp/cost-period/{id}/reverse` | `business:erp:cost-period:reverse` | ⛔ B3-5（红冲） |
+//! | 30 | POST | `/business/erp/cost-period/{id}/reverse` | `business:erp:cost-period:reverse` | ✅ B3-7（红字凭证 + 库存回冲 + 入库单作废 + `REVERSED`） |
 //! | 32/33 | GET | `…/cost-sheet` / `…/uncollected` | `business:erp:cost-period:list` | ⛔ 导出 / 缺口清单卡 |
 //!
 //! # 多出来的两个接口（已具名偏差，见卡内汇报）
@@ -44,9 +44,10 @@ use crate::business::erp::cost_labor_dto;
 use crate::business::erp::cost_period_bridge;
 use crate::business::erp::cost_period_dto::{
     self, CostPeriodCancelReq, CostPeriodCreateReq, CostPeriodDetailRes, CostPeriodFilter, CostPeriodListRes,
-    CostPeriodPageQuery, CostPeriodUpdateReq,
+    CostPeriodPageQuery, CostPeriodReverseReq, CostPeriodUpdateReq,
 };
 use crate::business::erp::cost_period_model::{self as model, CostPeriodRow};
+use crate::business::erp::cost_reverse_run;
 use crate::business::erp::cost_settle_run;
 use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
@@ -796,6 +797,31 @@ pub async fn cost_period_settle_api(
     Ok(Res::ok(detail_of(id).await?))
 }
 
+/// 红冲结算（设计 §5.2 #30）：`SETTLED → REVERSED`，一个事务。
+///
+/// 一个事务里做完四件事（§4.8 反向路径）：逐凭证 `reverse_posted`（红字凭证，原凭证保持
+/// `POSTED` 并打 `reversed_by`）→ 逐对象库存回冲（`inventory_writer`，流水 `PRODUCE_CANCEL`）
+/// → 生产入库单作废（`CANCELLED` + 原因）→ 计算单回 `CALC` + 批次 `REVERSED`。
+///
+/// 失败语义：库存退不回来（货已出库）⇒ 409 + `66078`，**整笔回滚**，批次仍是 `SETTLED`
+/// —— 用户走退货入库 / 盘盈把货补回来再红冲（设计 §4.8 明确的业务边界，不是死单）。
+#[nik::permission(
+    path = "/business/erp/cost-period/{id}/reverse",
+    method = "POST",
+    permission = "business:erp:cost-period:reverse"
+)]
+#[nik::post("/business/erp/cost-period/{id}/reverse")]
+pub async fn cost_period_reverse_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<CostPeriodReverseReq>,
+) -> ResResult<CostPeriodDetailRes> {
+    let operator = utils::current_user_uuid(&claims);
+    let id = cost_period_dto::parse_uuid(&id, "id")?;
+    cost_reverse_run::reverse_period(id, req.reason.as_deref(), operator).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
 /// 权限码自检出口（与其余模块 `all_permissions` 同形，便于汇总脚本收集）。
 pub fn all_permissions() -> Vec<&'static str> {
     COST_PERIOD_PERMISSIONS.to_vec()
@@ -892,8 +918,34 @@ mod tests {
         }
     }
 
-    // ---------- 筛选归一化 ----------
+    /// B3-7：红冲路由的**注解成对**检查 —— 缺 `post` = 前端 404；缺 `permission` = 任何登录用户
+    /// 都能把已入账的结算红冲掉。另外钉住入参契约：**只有** `reason`（≥10 字）。
+    #[test]
+    fn reverse_route_is_annotated() {
+        let source = include_str!("cost_period_handler.rs");
+        let path = "/business/erp/cost-period/{id}/reverse";
+        assert!(
+            source.contains(&format!("#[nik::post(\"{path}\")]")),
+            "缺路由注解：{path}"
+        );
+        let permission = format!("path = \"{path}\",\n    method = \"POST\",\n    permission = \"{PERM_REVERSE}\"");
+        assert!(
+            source.contains(&permission),
+            "{path} 的权限码必须声明成 {PERM_REVERSE}（缺了等于不校验权限）"
+        );
+        assert!(!source.contains(&format!("#[nik::post(\"/api{path}\")]")));
+        // 设计 §5.2 #30：入参 `{reason}`（≥10 字）；红冲数量 / 金额由服务端推导，调用方传不了
+        assert_eq!(cost_period_dto::REVERSE_REASON_MIN, 10);
+        let req = CostPeriodReverseReq {
+            reason: Some("期间产量录错，整批红冲重算".to_string()),
+        };
+        assert!(
+            cost_period_dto::require_reason(req.reason.as_deref(), cost_period_dto::REVERSE_REASON_MIN, "红冲").is_ok()
+        );
+        assert_eq!(CostPeriodReverseReq::default().reason, None);
+    }
 
+    // ---------- 筛选归一化 ----------
     #[test]
     fn filter_normalizes_status_and_period() {
         let query = CostPeriodPageQuery {

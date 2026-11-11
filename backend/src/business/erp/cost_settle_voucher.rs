@@ -535,12 +535,17 @@ pub async fn ledger_groups(ex: &impl SqlExecutor, period_code: &str) -> DbResult
 }
 
 /// 该批次已发出的（未红冲的蓝字）凭证 —— B3-7 红冲要逐个 `reverse_posted`。
+///
+/// `reversed_by IS NULL` 是 B3-7 补上的：原 SQL 只过滤 `is_red = 0`，而**被红冲过的蓝字
+/// 仍然是 `is_red = 0`**（原凭证保持 `POSTED`，只在 `reversed_by` 打指针）。少了这一条，
+/// 「红冲后该批次还剩几张可红」永远数不对（重复红冲会被 `reverse_posted` 的 ③ 号校验挡下，
+/// 但报错文案会变成「已经红冲过」而不是「状态不对」，且巡检 / 报表会多算）。
 pub async fn voucher_ids_of(ex: &impl SqlExecutor, period_id: Uuid) -> DbResult<Vec<Uuid>> {
     let rows = ex
         .query_sql(
             "SELECT id FROM biz_voucher \
               WHERE source_type = ? AND source_id = ?::uuid \
-                AND deleted_at IS NULL AND is_red = 0 \
+                AND deleted_at IS NULL AND is_red = 0 AND reversed_by IS NULL \
               ORDER BY voucher_no ASC, id ASC"
                 .to_string(),
             vec![

@@ -421,6 +421,16 @@ pub struct CostPeriodCancelReq {
     pub reason: Option<String>,
 }
 
+/// 红冲（设计 §5.2 #30：`SETTLED` → `REVERSED`，原因必填）。
+///
+/// 只收 `reason`：红冲的对象、红字凭证日期（= 被红冲期间末日）、回冲数量金额
+/// 全部由服务端按库内事实推导 —— 让调用方能传数量金额就等于允许「红冲一半」。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CostPeriodReverseReq {
+    /// 红冲原因（≥10 字；进红字凭证摘要 + 入库单作废原因 + 批次 `reverse_reason`）。
+    pub reason: Option<String>,
+}
+
 // ==================== 入参归一化（纯逻辑，单测覆盖） ====================
 
 /// 归一化人工来源（缺省 `MANUAL`；值域外 400）。

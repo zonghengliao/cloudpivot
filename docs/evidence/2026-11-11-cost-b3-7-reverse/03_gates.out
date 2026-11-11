@@ -1,0 +1,5 @@
+cargo fmt --check: PASS (exit 0)
+cargo clippy --all-targets -- -D warnings: PASS (exit 0)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 35s
+CLIPPY_EXIT=0

@@ -1,0 +1,28 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 42s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 15 tests
+test business::erp::cost_reverse_run::tests::check_txn_line_rejects_missing_and_mismatched_flow ... ok
+test business::erp::cost_reverse_run::tests::item_statuses_round_trip_to_calc ... ok
+test business::erp::cost_reverse_run::tests::produce_cancel_is_a_real_vocabulary_value ... ok
+test business::erp::cost_reverse_run::tests::reversal_error_maps_shortfall_to_409 ... ok
+test business::erp::cost_reverse_run::tests::reverse_input_keeps_voucher_date_in_the_reversed_period ... ok
+test business::erp::cost_reverse_run::tests::reversed_status_and_reason_edge_are_registered ... ok
+test business::erp::cost_reverse_run::tests::run_totals_and_summary_line ... ok
+test business::erp::cost_reverse_run::tests::stock_in_cancel_edge_exists_with_reason ... ok
+test business::erp::cost_reverse_run_db_tests::db::fixture_constants_are_aligned ... ok
+test business::erp::cost_reverse_run_db_tests::db::reverse_end_to_end_in_one_transaction ... [红冲] PZ-20261111-000144 → PZR-20261111-000013（合计 4000.0000）
+[红冲] PZ-20261111-000145 → PZR-20261111-000014（合计 4000.0000）
+[红冲] PZ-20261111-000146 → PZR-20261111-000015（合计 4000.0000）
+[红冲] PZ-20261111-000147 → PZR-20261111-000016（合计 22311.1104）
+ok
+test business::erp::cost_reverse_run_db_tests::db::reverse_is_rejected_when_stock_already_shipped ... ok
+test business::erp::cost_reverse_run_db_tests::db::reverse_requires_reason_of_at_least_10_chars ... ok
+test business::erp::cost_reverse_run_db_tests::db::reverse_requires_settled_status ... ok
+test business::erp::cost_reverse_run_db_tests::db::reverse_then_recalc_does_not_hit_the_unique_key ... ok
+test business::erp::cost_reverse_run_db_tests::db::second_reverse_is_rejected ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 4723 filtered out; finished in 21.22s
+
+EXIT=0
