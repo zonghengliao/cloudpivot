@@ -218,24 +218,24 @@ mod cost_overhead_db_tests;
 pub mod cost_overhead_dto;
 pub mod cost_overhead_handler;
 pub mod cost_overhead_model;
-/// 成本核算批次（`biz_cost_period`）契约层：状态值域 / 批次号 / 入参归一化，B3-1。
-pub mod cost_period_dto;
-/// 成本核算批次数据层：CRUD + 活跃批次 + 取号 + 明细与合计，B3-1。
-pub mod cost_period_model;
-/// 成本核算批次接口层：列表 / 详情 / 建 / 改 / 作废 / 提交 / 撤回（状态机 + 审批引擎），B3-1 / B3-3。
-pub mod cost_period_handler;
+/// B3-3 的真库用例（`ERP_DB_URL` 开关）：提交 → 起实例 / 驳回 → 回草稿清痕迹 / 撤回 → 终止实例。
+#[cfg(test)]
+mod cost_period_approval_db_tests;
 /// 成本结算审批的业务回调（`COST_SETTLE`）：结论 → 批次状态 + 自审闸 + 内控排除，B3-3。
 pub mod cost_period_bridge;
 /// B3-1 的真库用例（`ERP_DB_URL` 开关）：取号 / 唯一键 / 状态机全链路 / 非法跃迁。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_period_db_tests;
-/// B3-3 的真库用例（`ERP_DB_URL` 开关）：提交 → 起实例 / 驳回 → 回草稿清痕迹 / 撤回 → 终止实例。
-#[cfg(test)]
-mod cost_period_approval_db_tests;
+/// 成本核算批次（`biz_cost_period`）契约层：状态值域 / 批次号 / 入参归一化，B3-1。
+pub mod cost_period_dto;
+/// 成本核算批次接口层：列表 / 详情 / 建 / 改 / 作废 / 提交 / 撤回（状态机 + 审批引擎），B3-1 / B3-3。
+pub mod cost_period_handler;
 /// calc 第 6 段「约当产量与计算单」的纯逻辑（约当产量 / 单位成本 / 尾差倒挤 / 期初要素还原），B2-11。
 pub mod cost_period_item_dto;
 /// 成本计算单（`biz_cost_period_item`）数据层：取对象与投入 / 期初结转 / 整删重灌 / 回查，B2-11。
 pub mod cost_period_item_model;
+/// 成本核算批次数据层：CRUD + 活跃批次 + 取号 + 明细与合计，B3-1。
+pub mod cost_period_model;
 /// B2-3 费率取数（ARCH-9 §4.5.4）：`biz_cost_rate` 三级优先级 + 缺费率报错（无 HTTP 入口，供工时台账复用）。
 pub mod cost_rate_dto;
 pub mod cost_rate_handler;
@@ -244,15 +244,15 @@ pub mod cost_rate_model;
 pub mod cost_reconcile_dto;
 /// 对账取数（`biz_cost_collect` 池行按来源反查科目 + `biz_voucher_entry` 的 4101.* 借方），B2-9。
 pub mod cost_reconcile_model;
+/// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cost_uncollected_db_tests;
 /// 「未归集清单」的纯逻辑与出参（四块缺口 / 原因判定 / 怎么修文案 / 跳转），B2-12。
 pub mod cost_uncollected_dto;
 /// 「未归集清单」接口层（设计 §5.2 #33 + 按期间自查入口），B2-12。
 pub mod cost_uncollected_handler;
 /// 「未归集清单」取数层（领料未挂对象 / 工时行数 / 池余额 / 批次），B2-12。
 pub mod cost_uncollected_model;
-/// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod cost_uncollected_db_tests;
 pub mod credit;
 pub mod currency;
 pub mod currency_admin_handler;
