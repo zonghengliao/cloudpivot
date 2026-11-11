@@ -103,6 +103,12 @@
 //!   脚注写「4 处 `/my`」而表里只有 2 处（`/leave/my` 随 HR-41 落）。
 
 pub mod dto;
+/// 员工档案出参契约（`biz_employee`）：`*_id`/`*_name` 成对 + 敏感字段只出 `*_masked`（HR-11）。
+pub mod employee_dto;
+/// HR-11 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：`V0388` 的两条脱敏规则 = DTO 兜底常量，
+/// 以及「真库规则 → DTO 打码值」整条链。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_dto_db_tests;
 /// 员工主档数据层（`biz_employee`）：CRUD + 三个唯一键的冲突翻译（HR-10）。
 pub mod employee_model;
 /// HR-10 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD 全通 + 三条冲突的真实报文。只在 `cargo test` 时编译。

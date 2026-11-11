@@ -1,0 +1,33 @@
+# cargo test --lib（HR_DB_URL=postgres://127.0.0.1:5432/hr0389_t1，--test-threads=1）
+# 全量输出 4882 行，此处保留结果行与失败块（无失败）
+running 4875 tests
+test result: ok. 4875 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.34s
+
+# 只列本卡新增的 27 条（business::hr::employee_dto*）
+test business::hr::employee_dto_db_tests::db::detail_masks_with_real_db_rules
+test business::hr::employee_dto_db_tests::db::empty_rule_set_keeps_masking_shape
+test business::hr::employee_dto_db_tests::db::seeded_rules_match_dto_defaults
+test business::hr::employee_dto::tests::absent_sensitive_values_are_null_not_masked
+test business::hr::employee_dto::tests::broken_mask_param_fails_closed_to_full_stars
+test business::hr::employee_dto::tests::contract_pairs_and_expire_days
+test business::hr::employee_dto::tests::current_contract_falls_back_to_latest_history
+test business::hr::employee_dto::tests::deleted_relations_fall_back_to_placeholder_not_empty
+test business::hr::employee_dto::tests::detail_json_shape_is_pinned
+test business::hr::employee_dto::tests::detail_never_carries_plaintext_sensitive_columns
+test business::hr::employee_dto::tests::detail_pairs_are_complete
+test business::hr::employee_dto::tests::dto_json_samples_are_printable
+test business::hr::employee_dto::tests::empty_rule_set_still_masks
+test business::hr::employee_dto::tests::empty_subsets_are_empty_arrays_and_null_current_contract
+test business::hr::employee_dto::tests::exempt_set_still_masks_employee_sensitive_fields
+test business::hr::employee_dto::tests::expired_contract_reports_negative_days
+test business::hr::employee_dto::tests::labels_fall_back_to_code_never_empty
+test business::hr::employee_dto::tests::list_json_shape_is_pinned
+test business::hr::employee_dto::tests::list_pairs_are_complete
+test business::hr::employee_dto::tests::list_pairs_are_null_together
+test business::hr::employee_dto::tests::masked_values_follow_v0388_rules
+test business::hr::employee_dto::tests::mobile_is_masked_only_when_a_rule_exists
+test business::hr::employee_dto::tests::salary_current_flag_and_amount_as_string
+test business::hr::employee_dto::tests::salary_item_name_falls_back_to_code
+test business::hr::employee_dto::tests::sensitive_constants_match_v0388_seed
+test business::hr::employee_dto::tests::status_labels_match_ddl_check
+test business::hr::employee_dto::tests::today_is_cst_business_day

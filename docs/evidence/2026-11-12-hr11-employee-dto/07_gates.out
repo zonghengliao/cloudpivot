@@ -1,0 +1,17 @@
+# HR-11 门禁（2026-11-12 03:04:39 CST）
+
+## fmt（3 个文件，--check）
+FMT_EXIT=0 clean
+
+## clippy --all-targets -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 38s
+
+## cargo test --lib（带真库 HR_DB_URL=hr0389_t1）
+test result: ok. 4875 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.34s
+
+## pnpm typecheck
+TYPECHECK_EXIT=0
+
+## pnpm build
+BUILD_EXIT=0
