@@ -10,6 +10,7 @@
 //! | 4 | PUT | `/business/erp/cost-object/{id}` | `business:erp:cost-object:update` |
 //! | 5 | POST | `/business/erp/cost-object/{id}/close` | `business:erp:cost-object:close` |
 //! | 7 | PUT | `/business/erp/cost-object/{id}/output` | `business:erp:cost-object:update` |
+//! | — | GET | `/business/erp/cost-object/{id}/sources` | `business:erp:cost-object:list` |
 //!
 //! 说明：编号沿用设计 §5.2（#5 是 `DELETE`，B1-8 卡面未实现软删接口）；#7 是本卡
 //! （B2-14）新增的「本期产量与在制」录入，设计 §5.2 的清单里没有它，但它落地的是
@@ -66,13 +67,15 @@ use axum::Json;
 use axum::extract::{Path, Query};
 use axum::http::HeaderMap;
 use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action as ChangeAction, ChangeTarget, DiffInput};
 use crate::business::erp::cost_object_dto::{
     self, CollectSummary, CostObjectCloseReq, CostObjectCreateReq, CostObjectDetailRes, CostObjectFilter,
-    CostObjectListRes, CostObjectOutputReq, CostObjectOutputRes, CostObjectPageQuery, CostObjectUpdateReq, OutputSpec,
+    CostObjectListRes, CostObjectOutputReq, CostObjectOutputRes, CostObjectPageQuery, CostObjectSourcesRes,
+    CostObjectUpdateReq, OutputSpec, QtyAmount,
 };
 use crate::business::erp::cost_object_model::{self as model, CostObjectRow};
 use crate::business::erp::voucher;
@@ -286,6 +289,157 @@ async fn detail_of(id: Uuid) -> std::result::Result<CostObjectDetailRes, ApiErro
 pub async fn detail_object(id_raw: &str) -> std::result::Result<CostObjectDetailRes, ApiError> {
     let id = cost_object_dto::parse_uuid(id_raw, "id")?;
     detail_of(id).await
+}
+
+// ==================== 反查：料从哪来 / 货去哪了（B4-2 · §8.1） ====================
+
+/// 反查该对象的领料单 / 完工入库单 + 5 条对平判据。
+///
+/// 设计 §8.1 的 B4-2：「详情页『这个批的料从哪来、货去哪了』」。两条链各自读自己的表
+/// （见 [`model::source_issues`] / [`model::source_receipts`]），合计在
+/// [`to_sources_res`] 里**按行相加**，再与对面链的权威数对平。
+pub async fn sources_object(id_raw: &str) -> std::result::Result<CostObjectSourcesRes, ApiError> {
+    let id = cost_object_dto::parse_uuid(id_raw, "id")?;
+    let row = model::find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本对象"))?
+        .ok_or_else(|| not_found(id))?;
+    let issues = model::source_issues(id)
+        .await
+        .map_err(|error| utils::db_error(error, "反查领料单"))?;
+    let receipts = model::source_receipts(id)
+        .await
+        .map_err(|error| utils::db_error(error, "反查完工入库单"))?;
+    let collected = model::collected_material_of(id)
+        .await
+        .map_err(|error| utils::db_error(error, "汇总已归集料"))?;
+    let settled = model::settled_output_of(id)
+        .await
+        .map_err(|error| utils::db_error(error, "汇总已结算完工"))?;
+    Ok(to_sources_res(&row, issues, receipts, collected, settled))
+}
+
+/// 行 → 反查报文（纯函数：单测直接喂行，不连库）。
+///
+/// 「已归集」的判据是**数量与金额都对得上**（容差 `0.0001`）：只看「有没有归集行」会漏掉
+/// 「归集了一半」（跨期补录只归了一个期间）这种半吊子状态。
+pub fn to_sources_res(
+    row: &CostObjectRow,
+    issues: Vec<model::IssueDocRow>,
+    receipts: Vec<model::ReceiptDocRow>,
+    collected: QtyAmount,
+    settled: QtyAmount,
+) -> CostObjectSourcesRes {
+    let tolerance = Decimal::new(1, 4);
+
+    // ---------- 领料 ----------
+    let mut issue_rows = Vec::with_capacity(issues.len());
+    let mut all_issue_sum = QtyAmount::default();
+    let mut posted_issue_sum = QtyAmount::default();
+    let mut posted_issue_docs = 0usize;
+    let mut posted_issue_lines: i64 = 0;
+    let mut uncollected_docs: i64 = 0;
+    for issue in &issues {
+        let posted = issue.status == cost_object_dto::SOURCE_STATUS_POSTED;
+        let cur = QtyAmount::new(issue.qty, issue.amount);
+        all_issue_sum.add(cur);
+        let fully_collected = posted
+            && (issue.qty - issue.collected_qty).abs() <= tolerance
+            && (issue.amount - issue.collected_amount).abs() <= tolerance;
+        if posted {
+            posted_issue_sum.add(cur);
+            posted_issue_docs += 1;
+            posted_issue_lines += issue.line_count;
+            if !fully_collected {
+                uncollected_docs += 1;
+            }
+        }
+        issue_rows.push(cost_object_dto::SourceDocRes {
+            doc_type: cost_object_dto::SOURCE_DOC_ISSUE.to_string(),
+            id: issue.id.to_string(),
+            doc_no: issue.doc_no.clone(),
+            doc_date: issue.doc_date.to_string(),
+            status: issue.status.clone(),
+            warehouse_name: issue.warehouse_name.clone(),
+            line_count: issue.line_count,
+            qty: issue.qty.to_string(),
+            amount: issue.amount.to_string(),
+            voucher_id: issue.voucher_id.map(|id| id.to_string()),
+            voucher_no: issue.voucher_no.clone(),
+            period_codes: issue.period_codes.clone(),
+            batch_no: None,
+            collected: fully_collected,
+            collected_qty: issue.collected_qty.to_string(),
+            collected_amount: issue.collected_amount.to_string(),
+            remark: issue.remark.clone(),
+        });
+    }
+
+    // ---------- 完工入库 ----------
+    let mut receipt_rows = Vec::with_capacity(receipts.len());
+    let mut receipt_sum = QtyAmount::default();
+    let mut receipt_lines: i64 = 0;
+    let mut receipt_posted_docs = 0usize;
+    let mut receipt_cancelled = 0usize;
+    for receipt in &receipts {
+        let posted = receipt.status == cost_object_dto::SOURCE_STATUS_POSTED;
+        if posted {
+            receipt_sum.add(QtyAmount::new(receipt.qty, receipt.amount));
+            receipt_lines += receipt.line_count;
+            receipt_posted_docs += 1;
+        } else if receipt.status == cost_object_dto::SOURCE_STATUS_CANCELLED {
+            receipt_cancelled += 1;
+        }
+        receipt_rows.push(cost_object_dto::SourceDocRes {
+            doc_type: cost_object_dto::SOURCE_DOC_RECEIPT.to_string(),
+            id: receipt.id.to_string(),
+            doc_no: receipt.doc_no.clone(),
+            doc_date: receipt.doc_date.to_string(),
+            status: receipt.status.clone(),
+            warehouse_name: receipt.warehouse_name.clone(),
+            line_count: receipt.line_count,
+            qty: receipt.qty.to_string(),
+            amount: receipt.amount.to_string(),
+            voucher_id: receipt.voucher_id.map(|id| id.to_string()),
+            voucher_no: receipt.voucher_no.clone(),
+            period_codes: receipt.period_code.clone().into_iter().collect(),
+            batch_no: receipt.batch_no.clone(),
+            collected: posted,
+            collected_qty: receipt.qty.to_string(),
+            collected_amount: receipt.amount.to_string(),
+            remark: receipt.remark.clone(),
+        });
+    }
+
+    let checks =
+        cost_object_dto::build_source_checks(posted_issue_sum, collected, receipt_sum, settled, uncollected_docs);
+    let all_ok = cost_object_dto::checks_all_ok(&checks);
+    let product_name = match (&row.product_code, &row.product_name) {
+        (Some(code), Some(name)) => Some(format!("{code} {name}")),
+        (None, Some(name)) => Some(name.clone()),
+        (Some(code), None) => Some(code.clone()),
+        (None, None) => None,
+    };
+    CostObjectSourcesRes {
+        object_id: row.id.to_string(),
+        object_no: row.object_no.clone(),
+        product_name,
+        status: row.status.clone(),
+        completed_qty: row.completed_qty.to_string(),
+        wip_qty: row.wip_qty.to_string(),
+        issues: issue_rows,
+        issue_totals: cost_object_dto::SourceTotals::of(
+            issues.len(),
+            issues.iter().map(|r| r.line_count).sum(),
+            all_issue_sum,
+        ),
+        issue_posted_totals: cost_object_dto::SourceTotals::of(posted_issue_docs, posted_issue_lines, posted_issue_sum),
+        receipts: receipt_rows,
+        receipt_totals: cost_object_dto::SourceTotals::of(receipt_posted_docs, receipt_lines, receipt_sum),
+        receipt_cancelled_count: receipt_cancelled,
+        checks,
+        all_ok,
+    }
 }
 
 // ==================== 业务逻辑（单测直接调这些） ====================
@@ -767,6 +921,21 @@ pub async fn cost_object_output_api(
     Ok(Res::ok(set_output(&ctx, &id, req).await?))
 }
 
+/// 反查：料从哪来 / 货去哪了（B4-2 · §8.1）。
+///
+/// 权限码复用 `business:erp:cost-object:list`：这就是详情页里的一块内容，
+/// 能看详情的人本来就该看到「它的料和货在哪」（V0378 也只把 `cost-object:list` 授给财务角色）。
+/// 失败口径：对象不存在 / 已软删 ⇒ 404；查库失败 ⇒ 500。
+#[nik::permission(
+    path = "/business/erp/cost-object/{id}/sources",
+    method = "GET",
+    permission = "business:erp:cost-object:list"
+)]
+#[nik::get("/business/erp/cost-object/{id}/sources")]
+pub async fn cost_object_sources_api(Path(id): Path<String>) -> ResResult<CostObjectSourcesRes> {
+    Ok(Res::ok(sources_object(&id).await?))
+}
+
 /// 权限码自检出口（与 `handler::all_permissions` 同形，便于汇总脚本收集）。
 pub fn all_permissions() -> Vec<&'static str> {
     COST_OBJECT_PERMISSIONS.to_vec()
@@ -1081,5 +1250,169 @@ mod tests {
         let empty = to_detail_res(&sample_row(STATUS_OPEN), zero, Vec::new(), edges, None);
         assert!(empty.output_filled_by.is_none(), "没填过就是 null（不造「未知」）");
         assert!(empty.output_filled_at.is_none());
+    }
+
+    // ---------- 反查（B4-2）：料从哪来 / 货去哪了 ----------
+
+    /// 造一条领料反查行（`(qty, amount)` 是明细合计，`collected_*` 是已归集部分）。
+    fn issue_row(
+        no: &str,
+        status: &str,
+        qty: &str,
+        amount: &str,
+        collected_qty: &str,
+        collected_amount: &str,
+    ) -> model::IssueDocRow {
+        model::IssueDocRow {
+            id: Uuid::now_v7(),
+            doc_no: no.to_string(),
+            doc_date: "2026-11-05".parse().expect("date"),
+            status: status.to_string(),
+            warehouse_name: Some("原料仓".to_string()),
+            remark: Some("生产领用".to_string()),
+            voucher_id: Some(Uuid::now_v7()),
+            voucher_no: Some("PZ-202611-0001".to_string()),
+            qty: qty.parse().expect("qty"),
+            amount: amount.parse().expect("amount"),
+            line_count: 2,
+            collected_qty: collected_qty.parse().expect("qty"),
+            collected_amount: collected_amount.parse().expect("amount"),
+            period_codes: vec!["2026-11".to_string()],
+        }
+    }
+
+    /// 造一条完工入库反查行。
+    fn receipt_row(no: &str, status: &str, qty: &str, amount: &str) -> model::ReceiptDocRow {
+        model::ReceiptDocRow {
+            id: Uuid::now_v7(),
+            doc_no: no.to_string(),
+            doc_date: "2026-11-30".parse().expect("date"),
+            status: status.to_string(),
+            warehouse_name: Some("成品仓".to_string()),
+            remark: Some("完工入库 · 结算批次 CS-202611-0001".to_string()),
+            voucher_id: Some(Uuid::now_v7()),
+            voucher_no: Some("PZ-202611-0005".to_string()),
+            batch_no: Some("CS-202611-0001".to_string()),
+            period_code: Some("2026-11".to_string()),
+            qty: qty.parse().expect("qty"),
+            amount: amount.parse().expect("amount"),
+            line_count: 1,
+        }
+    }
+
+    fn zero() -> QtyAmount {
+        QtyAmount::default()
+    }
+
+    /// ① 全平：领料已归集、入库 = 已结算计算单 ⇒ 5 条判据全绿；未过账的领料只进「全部」合计。
+    #[test]
+    fn sources_are_green_when_both_chains_reconcile() {
+        let res = to_sources_res(
+            &sample_row(STATUS_OPEN),
+            vec![
+                issue_row("OUT-1", "POSTED", "10", "100", "10", "100"),
+                issue_row("OUT-2", "DRAFT", "4", "40", "0", "0"),
+            ],
+            vec![receipt_row("IN-1", "POSTED", "80", "2000")],
+            QtyAmount::new("10".parse().unwrap(), "100".parse().unwrap()),
+            QtyAmount::new("80".parse().unwrap(), "2000".parse().unwrap()),
+        );
+        // 合计 = 各行相加（含草稿单），参与对平的只有 POSTED
+        assert_eq!(res.issue_totals.doc_count, 2);
+        assert_eq!(res.issue_totals.qty, "14", "全部领料 = 10 + 4");
+        assert_eq!(res.issue_totals.amount, "140");
+        assert_eq!(res.issue_posted_totals.doc_count, 1);
+        assert_eq!(res.issue_posted_totals.qty, "10");
+        assert_eq!(res.receipt_totals.qty, "80");
+        assert_eq!(res.receipt_totals.amount, "2000");
+        assert!(res.all_ok, "两条链都对得上应全绿：{:?}", res.checks);
+        assert_eq!(res.checks.len(), 5);
+        assert!(res.checks.iter().all(|check| check.ok), "{:?}", res.checks);
+        // 行级标记：过账且足额归集 = collected
+        assert!(res.issues[0].collected);
+        assert!(!res.issues[1].collected, "草稿单没归集");
+        assert_eq!(res.issues[0].doc_type, cost_object_dto::SOURCE_DOC_ISSUE);
+        assert_eq!(res.receipts[0].doc_type, cost_object_dto::SOURCE_DOC_RECEIPT);
+        assert_eq!(res.receipts[0].batch_no.as_deref(), Some("CS-202611-0001"));
+        assert_eq!(res.product_name.as_deref(), Some("MAT-0001 钢轴"));
+    }
+
+    /// ② 有缺口：领料只归集了一半 + 一张入库单被红冲作废 ⇒ 判据点名，作废单列出但不计合计。
+    #[test]
+    fn sources_flag_partial_collection_and_reversed_receipt() {
+        let res = to_sources_res(
+            &sample_row(STATUS_OPEN),
+            vec![issue_row("OUT-1", "POSTED", "10", "100", "10", "60")],
+            vec![
+                receipt_row("IN-1", "POSTED", "80", "2000"),
+                receipt_row("IN-2", "CANCELLED", "20", "500"),
+            ],
+            QtyAmount::new("10".parse().unwrap(), "60".parse().unwrap()),
+            QtyAmount::new("100".parse().unwrap(), "2500".parse().unwrap()),
+        );
+        let by_key = |key: &str| {
+            res.checks
+                .iter()
+                .find(|check| check.key == key)
+                .unwrap_or_else(|| panic!("缺判据 {key}"))
+                .clone()
+        };
+        let amount = by_key("issue_collected_amount");
+        assert!(!amount.ok, "归集 60 vs 领料 100 应红");
+        assert_eq!(amount.diff, "40");
+        let uncollected = by_key("issue_all_collected");
+        assert!(!uncollected.ok);
+        assert_eq!(uncollected.left, "1", "一张只归集了一半");
+        // 红冲的入库单：列出但不计合计（20/500 不进合计）
+        assert_eq!(res.receipts.len(), 2);
+        assert_eq!(res.receipt_cancelled_count, 1);
+        assert_eq!(res.receipt_totals.qty, "80");
+        assert_eq!(res.receipt_totals.amount, "2000");
+        assert!(!res.all_ok);
+        // 数量侧仍平（归集 10 = 领料 10），只有金额不平 ⇒ 两条判据各自独立判定
+        assert!(by_key("issue_collected_qty").ok);
+    }
+
+    /// ③ 报文形状：金额 / 数量都是字符串，前端不 parseFloat；5 条判据齐全。
+    #[test]
+    fn sources_json_shape_is_stable() {
+        let res = to_sources_res(
+            &sample_row(STATUS_OPEN),
+            vec![issue_row("OUT-1", "POSTED", "10", "100", "10", "100")],
+            vec![receipt_row("IN-1", "POSTED", "80", "2000")],
+            QtyAmount::new("10".parse().unwrap(), "100".parse().unwrap()),
+            QtyAmount::new("80".parse().unwrap(), "2000".parse().unwrap()),
+        );
+        let json = serde_json::to_value(&res).expect("序列化");
+        for field in [
+            "object_id",
+            "object_no",
+            "product_name",
+            "status",
+            "completed_qty",
+            "wip_qty",
+            "issues",
+            "issue_totals",
+            "issue_posted_totals",
+            "receipts",
+            "receipt_totals",
+            "receipt_cancelled_count",
+            "checks",
+            "all_ok",
+        ] {
+            assert!(json.get(field).is_some(), "报文缺字段 {field}（前端会 undefined）");
+        }
+        assert_eq!(json["issue_totals"]["qty"], serde_json::json!("10"), "数量是字符串");
+        assert_eq!(json["receipts"][0]["amount"], serde_json::json!("2000"), "金额是字符串");
+        assert_eq!(json["receipts"][0]["period_codes"][0], serde_json::json!("2026-11"));
+        assert_eq!(json["issues"][0]["period_codes"][0], serde_json::json!("2026-11"));
+        assert_eq!(json["checks"].as_array().map(|list| list.len()), Some(5));
+        assert_eq!(json["checks"][0]["ok"], serde_json::json!(true));
+        assert_eq!(json["all_ok"], serde_json::json!(true));
+        // 空对象（还没有任何单据）也应给出 5 条判据，且 0 = 0 为平
+        let empty = to_sources_res(&sample_row(STATUS_OPEN), Vec::new(), Vec::new(), zero(), zero());
+        assert!(empty.all_ok);
+        assert_eq!(empty.issue_totals.doc_count, 0);
+        assert_eq!(empty.receipt_totals.amount, "0");
     }
 }

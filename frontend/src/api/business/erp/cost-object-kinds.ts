@@ -391,3 +391,148 @@ export interface CostObjectOutputResult {
  * 前端据此在错误文案后补「去哪修」（先红冲该期间的成本批次）。
  */
 export const COST_OBJECT_PERIOD_LOCKED_CODE = 66070;
+
+// ==================== ⑧ 料从哪来 / 货去哪了（B4-2） ====================
+
+/**
+ * 反查单据类型（后端 `cost_object_dto::SOURCE_DOC_*`，逐字一致）。
+ *
+ * * `STOCK_OUT` —— 领料出库单（`biz_stock_out`，`out_type='ISSUE'`）；
+ * * `STOCK_IN` —— 完工入库单（`biz_stock_in`，`in_type='PRODUCTION'`，结算生成）。
+ */
+export const SOURCE_DOC_TYPES = ['STOCK_OUT', 'STOCK_IN'] as const;
+
+/** 反查单据类型 */
+export type SourceDocType = (typeof SOURCE_DOC_TYPES)[number];
+
+/** 反查单据类型中文（页面只认这一份译名） */
+export const SOURCE_DOC_TYPE_LABELS: Record<SourceDocType, string> = {
+  STOCK_OUT: '领料出库单',
+  STOCK_IN: '完工入库单',
+};
+
+/**
+ * 反查行的单据状态中文。
+ *
+ * 出库单：`DRAFT / PENDING_POST / POSTED / CANCELLED`；入库单：`POSTED / CANCELLED`。
+ * 两套状态词撞在一个字段上，所以放在一张表里（同义不同名的按单据类型分开写）。
+ */
+export const SOURCE_DOC_STATUS_LABELS: Record<string, string> = {
+  DRAFT: '草稿',
+  PENDING_POST: '待过账',
+  POSTED: '已过账',
+  CANCELLED: '已作废',
+};
+
+/**
+ * 一条反查单据行（后端 `SourceDocRes`）。
+ *
+ * 数量 / 金额都是**字符串**（`NUMERIC(18,4)`）：展示走 `formatMoney` / `formatQty`，
+ * 累加交给后端 —— 前端不 `parseFloat` 后再加（会丢精度且与合计对不上）。
+ */
+export interface CostObjectSourceDoc {
+  /** 单据类型 */
+  doc_type: SourceDocType;
+  /** 主键（跳转用） */
+  id: string;
+  /** 单号（跳转用） */
+  doc_no: string;
+  /** 单据日期 `yyyy-MM-dd` */
+  doc_date: string;
+  /** 单据状态（见 `SOURCE_DOC_STATUS_LABELS`） */
+  status: string;
+  /** 仓库名 */
+  warehouse_name: string | null;
+  /** 明细行数 */
+  line_count: number;
+  /** 明细数量合计 */
+  qty: string;
+  /** 明细金额合计 */
+  amount: string;
+  /** 过账 / 结算凭证 */
+  voucher_id: string | null;
+  /** 凭证号 */
+  voucher_no: string | null;
+  /** 领料：归集期间；入库：结算期间 */
+  period_codes: string[];
+  /** 入库：结算批次号 */
+  batch_no: string | null;
+  /** 领料：是否已（足额）归集；入库：是否 POSTED（有效） */
+  collected: boolean;
+  /** 领料：已归集数量 */
+  collected_qty: string;
+  /** 领料：已归集金额 */
+  collected_amount: string;
+  /** 领料事由 / 入库备注 */
+  remark: string | null;
+}
+
+/** 一组单据的合计（后端 `SourceTotals`） */
+export interface CostObjectSourceTotals {
+  /** 单据张数 */
+  doc_count: number;
+  /** 明细行数合计 */
+  line_count: number;
+  /** 数量合计 */
+  qty: string;
+  /** 金额合计 */
+  amount: string;
+}
+
+/** 一条对平判据（后端 `SourceCheck`） */
+export interface CostObjectSourceCheck {
+  /** 判据键（`issue_collected_amount` / `receipt_settled_qty` …） */
+  key: string;
+  /** 人话标题 */
+  label: string;
+  /** 左侧口径名 */
+  left_label: string;
+  /** 左侧值 */
+  left: string;
+  /** 右侧口径名 */
+  right_label: string;
+  /** 右侧值 */
+  right: string;
+  /** 差额 = 左 − 右 */
+  diff: string;
+  /** 是否对得上 */
+  ok: boolean;
+  /** 对不上时「去哪修」 */
+  hint: string;
+}
+
+/**
+ * 反查报文（`GET /business/erp/cost-object/{id}/sources`，B4-2）。
+ *
+ * 详情页「料从哪来 / 货去哪了」两块表格 + 对平条的唯一数据源。
+ */
+export interface CostObjectSources {
+  /** 成本对象主键 */
+  object_id: string;
+  /** 对象号 */
+  object_no: string;
+  /** 产出品（`编码 名称`） */
+  product_name: string | null;
+  /** 对象状态 */
+  status: string;
+  /** 对象累计完工数量 */
+  completed_qty: string;
+  /** 对象期末在制数量 */
+  wip_qty: string;
+  /** 领料单（含未过账的草稿 —— 列表看得见，但只有 POSTED 进合计） */
+  issues: CostObjectSourceDoc[];
+  /** 领料合计（全部列出单据） */
+  issue_totals: CostObjectSourceTotals;
+  /** 领料合计（只算已过账） */
+  issue_posted_totals: CostObjectSourceTotals;
+  /** 完工入库单（含被红冲作废的） */
+  receipts: CostObjectSourceDoc[];
+  /** 完工入库合计（只算 `POSTED`） */
+  receipt_totals: CostObjectSourceTotals;
+  /** 被红冲作废的入库单张数 */
+  receipt_cancelled_count: number;
+  /** 5 条对平判据 */
+  checks: CostObjectSourceCheck[];
+  /** 判据是否全绿 */
+  all_ok: boolean;
+}

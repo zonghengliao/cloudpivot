@@ -534,6 +534,312 @@ pub struct CostObjectOutputRes {
     pub filled_at: Option<String>,
 }
 
+// ==================== 反查：料从哪来 / 货去哪了（B4-2 · §8.1） ====================
+//
+// 详情页要回答两个问题：「这个批的料从哪来」（挂在它名下的领料出库单）与
+// 「货去哪了」（结算生成的完工入库单）。两条链路都是**反查**：
+//
+// ```text
+// 领料  biz_stock_out.cost_object_id（V0375 起）→ 明细 → 归集行（biz_cost_collect）
+// 入库  biz_stock_in.cost_object_id + in_type='PRODUCTION'（V0376 起）
+//        → 结算批次（cost_period_id）→ 计算单（biz_cost_period_item）
+// ```
+//
+// # 为什么合计要「现算 + 自证」而不是直接读单头
+//
+// 单头的 `total_qty / total_amount` 是过账 / 结算那一刻的快照；明细被改过、单据被作废、
+// 批次的归集还没跑，单头都不一定等于「明细之和」与「账上归集」。所以本卡的口径是：
+// 逐行读明细算出合计 → 与对面那条链的权威数对一次 → **把差多少原样写在报文里**
+// （[`SourceCheck`]）。用户看到的是「对得上 ✓ / 差 X 元 ⇒ 去哪修」，不是一句「正常」。
+//
+// # 判据（5 条，全部纯函数算，见 [`build_source_checks`]）
+//
+// | key | 左 | 右 | 含义 |
+// |---|---|---|---|
+// | `issue_collected_amount` | 已过账领料明细金额 | `biz_cost_collect` 料行金额 | 料是否都已归集进成本 |
+// | `issue_collected_qty` | 已过账领料明细数量 | `biz_cost_collect` 料行数量 | 同上（数量口径） |
+// | `receipt_settled_qty` | `POSTED` 完工入库数量 | 已结算计算单累计完工数量 | 货是否都已入库 |
+// | `receipt_settled_amount` | `POSTED` 完工入库金额 | 已结算计算单完工转出成本 | 入库成本 = 结转成本 |
+// | `issue_all_collected` | 已过账但未/部分归集的领料单数 | 0 | 有缺口就点名（不阻断，但要说清） |
+//
+// 「已结算计算单」= `status='SETTLED'` 的 `biz_cost_period_item` 行：红冲会把行打回 `CALC`、
+// 把入库单打成 `CANCELLED`，两侧同时退出合计 ⇒ 红冲后依然对得平（不会一边算一边不算）。
+
+/// 反查单据类型：领料出库单。
+pub const SOURCE_DOC_ISSUE: &str = "STOCK_OUT";
+/// 反查单据类型：完工入库单（`biz_stock_in.in_type='PRODUCTION'`）。
+pub const SOURCE_DOC_RECEIPT: &str = "STOCK_IN";
+/// 已过账：唯一计入归集 / 已经动账的状态。
+pub const SOURCE_STATUS_POSTED: &str = "POSTED";
+/// 已作废：红冲会把完工入库单打到这里，要列出来（审计），但不计入合计。
+pub const SOURCE_STATUS_CANCELLED: &str = "CANCELLED";
+/// 对平容差（金额 / 数量都是 `NUMERIC(18,4)`，逐个相加是精确十进制；
+/// 差 0.0001 以上才算「对不上」，与巡检的红色阈值同口径）。
+pub const SOURCE_TOLERANCE: &str = "0.0001";
+
+/// 数量 + 金额（一组合计）。
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct QtyAmount {
+    /// 数量合计。
+    pub qty: Decimal,
+    /// 金额合计。
+    pub amount: Decimal,
+}
+
+impl QtyAmount {
+    /// 由两个数构造。
+    pub fn new(qty: Decimal, amount: Decimal) -> Self {
+        Self { qty, amount }
+    }
+
+    /// 累加。
+    pub fn add(&mut self, other: QtyAmount) {
+        self.qty += other.qty;
+        self.amount += other.amount;
+    }
+
+    /// 数量出参（字符串，四位小数口径）。
+    pub fn qty_text(&self) -> String {
+        self.qty.to_string()
+    }
+
+    /// 金额出参（字符串）。
+    pub fn amount_text(&self) -> String {
+        self.amount.to_string()
+    }
+
+    /// 是否有量或有钱（用于「这张单还没过账，所以 0」的展示判断）。
+    pub fn is_zero(&self) -> bool {
+        self.qty.is_zero() && self.amount.is_zero()
+    }
+}
+
+/// 一条反查单据行（领料单 / 完工入库单共用形状）。
+///
+/// 前端一行一单：单号可点跳原单据，数量 / 金额与合计对得上。
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceDocRes {
+    /// 单据类型：`STOCK_OUT`（领料） / `STOCK_IN`（完工入库）。
+    pub doc_type: String,
+    /// 主键（跳转用）。
+    pub id: String,
+    /// 单号（跳转用；出库单页按单号筛，入库单页按 id 直开）。
+    pub doc_no: String,
+    /// 单据日期（`yyyy-MM-dd`）。
+    pub doc_date: String,
+    /// 单据状态（`biz_stock_out.status` / `biz_stock_in.status`）。
+    pub status: String,
+    /// 仓库名（实时 join）。
+    pub warehouse_name: Option<String>,
+    /// 明细行数。
+    pub line_count: i64,
+    /// 明细数量合计。
+    pub qty: String,
+    /// 明细金额合计。
+    pub amount: String,
+    /// 过账 / 结算生成的凭证。
+    pub voucher_id: Option<String>,
+    /// 凭证号（跳凭证用）。
+    pub voucher_no: Option<String>,
+    /// 领料：归集进哪些期间（`biz_cost_collect.period_code`，跨期补录时可能多于一个）。
+    /// 入库：结算批次的期间（`biz_cost_period.period_code`）。
+    pub period_codes: Vec<String>,
+    /// 入库：结算批次号（`CS-yyyyMM-0001`）。
+    pub batch_no: Option<String>,
+    /// 领料：是否**已全部归集**（`qty` 与归集数量一致且状态 `POSTED`）。
+    pub collected: bool,
+    /// 领料：已归集数量。
+    pub collected_qty: String,
+    /// 领料：已归集金额。
+    pub collected_amount: String,
+    /// 领料事由 / 入库备注（单据上写的那句话）。
+    pub remark: Option<String>,
+}
+
+/// 一组单据的合计。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SourceTotals {
+    /// 单据张数。
+    pub doc_count: usize,
+    /// 明细行数合计。
+    pub line_count: i64,
+    /// 数量合计。
+    pub qty: String,
+    /// 金额合计。
+    pub amount: String,
+}
+
+impl SourceTotals {
+    /// 由若干行（已是字符串口径）与行数构造：合计在调用方按 `Decimal` 累加后传入，
+    /// 保证「合计 = 各行相加」而不是「合计 = 另一个查询结果」。
+    pub fn of(doc_count: usize, line_count: i64, sum: QtyAmount) -> Self {
+        Self {
+            doc_count,
+            line_count,
+            qty: sum.qty_text(),
+            amount: sum.amount_text(),
+        }
+    }
+}
+
+/// 一条对平判据（`ok=true` 打勾，`false` 展示差多少 + 去哪修）。
+#[derive(Debug, Clone, Serialize)]
+pub struct SourceCheck {
+    /// 判据键（前端做 data-testid / 排序用）。
+    pub key: String,
+    /// 人话标题。
+    pub label: String,
+    /// 左侧口径名。
+    pub left_label: String,
+    /// 左侧值。
+    pub left: String,
+    /// 右侧口径名。
+    pub right_label: String,
+    /// 右侧值。
+    pub right: String,
+    /// 差额 = 左 − 右。
+    pub diff: String,
+    /// 是否对得上。
+    pub ok: bool,
+    /// 对不上时「去哪修」。
+    pub hint: String,
+}
+
+/// 成本对象详情页的反查报文（`GET /business/erp/cost-object/{id}/sources`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CostObjectSourcesRes {
+    /// 成本对象主键。
+    pub object_id: String,
+    /// 对象号。
+    pub object_no: String,
+    /// 产出品（`物料编码 名称`，与详情页同一口径）。
+    pub product_name: Option<String>,
+    /// 对象状态。
+    pub status: String,
+    /// 对象累计完工数量（用户填的值）。
+    pub completed_qty: String,
+    /// 对象期末在制数量。
+    pub wip_qty: String,
+    /// 领料单（按出库日期升序）。
+    pub issues: Vec<SourceDocRes>,
+    /// 领料合计（列出的全部行，含未过账 —— 与表格看得见的一致）。
+    pub issue_totals: SourceTotals,
+    /// 领料合计（只算 `POSTED`：参与归集的那些）。
+    pub issue_posted_totals: SourceTotals,
+    /// 完工入库单（按入库日期升序，含 `CANCELLED` 的红冲单）。
+    pub receipts: Vec<SourceDocRes>,
+    /// 完工入库合计（只算 `POSTED`：`CANCELLED` 的不算）。
+    pub receipt_totals: SourceTotals,
+    /// 完工入库里被红冲作废的张数（>0 时页面要提示「这批货已被红冲」）。
+    pub receipt_cancelled_count: usize,
+    /// 5 条对平判据。
+    pub checks: Vec<SourceCheck>,
+    /// 全部判据是否都打勾。
+    pub all_ok: bool,
+}
+
+/// 差额（左 − 右），四位小数口径的字符串。
+fn diff_text(left: Decimal, right: Decimal) -> String {
+    (left - right).to_string()
+}
+
+/// 金额 / 数量判据（带容差）。
+fn money_check(
+    key: &str,
+    label: &str,
+    left_label: &str,
+    left: Decimal,
+    right_label: &str,
+    right: Decimal,
+    hint: &str,
+) -> SourceCheck {
+    // 容差 = 1e-4（不写 `Decimal::from_str` 以免多引一个 trait；见 [`SOURCE_TOLERANCE`]）
+    let tolerance = Decimal::new(1, 4);
+    let ok = (left - right).abs() <= tolerance;
+    SourceCheck {
+        key: key.to_string(),
+        label: label.to_string(),
+        left_label: left_label.to_string(),
+        left: left.to_string(),
+        right_label: right_label.to_string(),
+        right: right.to_string(),
+        diff: diff_text(left, right),
+        ok,
+        hint: hint.to_string(),
+    }
+}
+
+/// 现算 5 条对平判据（纯函数：单测直接喂数）。
+///
+/// 参数口径：
+/// * `issue_posted` —— 已过账领料明细的数量 / 金额合计；
+/// * `collected` —— 该对象的料归集行（`source_type='STOCK_OUT'`）数量 / 金额合计；
+/// * `receipt_posted` —— `POSTED` 完工入库单的数量 / 金额合计；
+/// * `settled` —— 该对象**已结算**计算单行的累计完工数量 / 完工转出成本合计；
+/// * `uncollected_docs` —— 已过账但（部分）未归集的领料单张数。
+pub fn build_source_checks(
+    issue_posted: QtyAmount,
+    collected: QtyAmount,
+    receipt_posted: QtyAmount,
+    settled: QtyAmount,
+    uncollected_docs: i64,
+) -> Vec<SourceCheck> {
+    vec![
+        money_check(
+            "issue_collected_amount",
+            "领料金额 = 归集直接材料",
+            "已过账领料明细金额",
+            issue_posted.amount,
+            "归集料行金额",
+            collected.amount,
+            "到「成本核算」对该期间的批次重算归集（calc 第 1 段）；跨期领料归到过账所在期间",
+        ),
+        money_check(
+            "issue_collected_qty",
+            "领料数量 = 归集料行数量",
+            "已过账领料明细数量",
+            issue_posted.qty,
+            "归集料行数量",
+            collected.qty,
+            "同上：差额通常是「已过账但那一期还没算」或「单子改挂过对象」",
+        ),
+        money_check(
+            "receipt_settled_qty",
+            "完工入库数量 = 计算单累计完工",
+            "POSTED 完工入库数量",
+            receipt_posted.qty,
+            "已结算计算单完工数量",
+            settled.qty,
+            "结算会为每个对象生成一张完工入库单；差说明结算被红冲或入库单被作废",
+        ),
+        money_check(
+            "receipt_settled_amount",
+            "完工入库金额 = 计算单完工转出",
+            "POSTED 完工入库金额",
+            receipt_posted.amount,
+            "已结算计算单完工转出成本",
+            settled.amount,
+            "入库金额就是完工成本（§4.7.6）；差说明凭证 / 入库成本被手工改过",
+        ),
+        SourceCheck {
+            key: "issue_all_collected".to_string(),
+            label: "已过账领料都已归集".to_string(),
+            left_label: "未（部分）归集的领料单".to_string(),
+            left: uncollected_docs.to_string(),
+            right_label: "应为".to_string(),
+            right: "0".to_string(),
+            diff: uncollected_docs.to_string(),
+            ok: uncollected_docs == 0,
+            hint: "点行上的「未归集」看是哪几张；到「成本核算」跑该期间的 calc 即可归集".to_string(),
+        },
+    ]
+}
+
+/// 判据是否全绿。
+pub fn checks_all_ok(checks: &[SourceCheck]) -> bool {
+    checks.iter().all(|check| check.ok)
+}
+
 // ==================== 关批：事实 + 判定 ====================
 
 /// 关批前置的**查库事实**（model 层只填数，不做判断）。
@@ -1350,5 +1656,68 @@ mod tests {
             OutputSpec::new(dec("80.0000"), dec("0.0000"), dec("0.00")).to_snapshot(),
             OutputSpec::new(dec("80"), dec("0"), dec("0")).to_snapshot()
         );
+    }
+
+    // ---------- 反查判据（B4-2）：容差与独立性 ----------
+
+    /// 容差就是 `0.0001`：差一分钱以内不算红，多一分就算红（不给「看起来平」留余地）。
+    #[test]
+    fn source_checks_use_four_decimal_tolerance() {
+        let exact = build_source_checks(
+            QtyAmount::new(dec("10"), dec("100.0000")),
+            QtyAmount::new(dec("10"), dec("100.0001")),
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("10"), dec("100")),
+            0,
+        );
+        assert!(exact[0].ok, "差 0.0001 视为平：{}", exact[0].diff);
+        assert_eq!(exact[0].diff, "-0.0001", "差额照实写出来（左 − 右）");
+
+        let over = build_source_checks(
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("10"), dec("100.0002")),
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("10"), dec("100")),
+            0,
+        );
+        assert!(!over[0].ok, "差 0.0002 必须报红");
+        assert_eq!(over[0].diff, "-0.0002", "差额 = 左 − 右（带符号，便于看出谁多）");
+    }
+
+    /// 5 条判据的键 / 顺序 / 全绿判定都要稳（前端按 key 做 data-testid）。
+    #[test]
+    fn source_check_keys_and_all_ok() {
+        let green = build_source_checks(
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("8"), dec("2000")),
+            QtyAmount::new(dec("8"), dec("2000")),
+            0,
+        );
+        let keys: Vec<&str> = green.iter().map(|check| check.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec![
+                "issue_collected_amount",
+                "issue_collected_qty",
+                "receipt_settled_qty",
+                "receipt_settled_amount",
+                "issue_all_collected",
+            ]
+        );
+        assert!(checks_all_ok(&green));
+
+        // 有 1 张未归集 ⇒ 最后一条红，其余照旧绿（判据之间不许互相牵连）
+        let red = build_source_checks(
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("10"), dec("100")),
+            QtyAmount::new(dec("8"), dec("2000")),
+            QtyAmount::new(dec("8"), dec("2000")),
+            1,
+        );
+        assert!(!red[4].ok);
+        assert_eq!(red[4].left, "1");
+        assert!(red[..4].iter().all(|check| check.ok));
+        assert!(!checks_all_ok(&red));
     }
 }

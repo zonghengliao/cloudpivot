@@ -57,6 +57,7 @@ import type {
   CostObjectOutputResult,
   CostObjectPageQuery,
   CostObjectRow,
+  CostObjectSources,
   CostObjectUpdatePayload,
 } from './cost-object-kinds';
 
@@ -137,4 +138,20 @@ export function saveCostObjectOutput(
   payload: CostObjectOutputPayload,
 ): Promise<CostObjectOutputResult> {
   return put<CostObjectOutputResult>(`${BASE}/cost-object/${id}/output`, payload);
+}
+
+/**
+ * 反查「料从哪来 / 货去哪了」（`GET /business/erp/cost-object/{id}/sources`，B4-2）。
+ *
+ * 权限码复用 `cost-object:list`（后端见 `cost_object_handler::cost_object_sources_api`）。
+ *
+ * 报文里两块：`issues[]`（挂在本对象上的领料出库单，含**未过账**草稿）+ `receipts[]`
+ * （结算生成的完工入库单，含被红冲作废的）。每行都有 `id` / `doc_no` 供跳转，
+ * `qty` / `amount` 是**明细逐行相加**（不是单头快照值）。
+ *
+ * `checks[]` 是 5 条现算判据：不平的时候 `diff` 就是差多少、`hint` 是去哪修 ——
+ * 页面原样展示，**不要**在前端重算（口径在后端，两处算法必然漂移）。
+ */
+export function fetchCostObjectSources(id: string): Promise<CostObjectSources> {
+  return get<CostObjectSources>(`${BASE}/cost-object/${id}/sources`);
 }

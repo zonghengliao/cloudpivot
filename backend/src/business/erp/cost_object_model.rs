@@ -37,7 +37,9 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::cost_object_dto::{self, CloseFacts, CostObjectFilter, CostObjectSpec, CostPeriodItemRes};
+use crate::business::erp::cost_object_dto::{
+    self, CloseFacts, CostObjectFilter, CostObjectSpec, CostPeriodItemRes, QtyAmount,
+};
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
 
@@ -373,6 +375,240 @@ pub async fn period_items(cost_object_id: Uuid) -> DbResult<Vec<CostPeriodItemRe
 /// `Decimal` → 字符串（金额 / 数量统一字符串出参）。
 fn amount_text(value: Decimal) -> String {
     value.to_string()
+}
+
+// ==================== 反查：领料 / 完工入库（B4-2 · §8.1） ====================
+//
+// 详情页「这个批的料从哪来、货去哪了」的两条反查链路：
+//
+// ```text
+// 料  biz_stock_out (cost_object_id = ?) → biz_stock_out_item（数量 / 金额）
+//      → 已归集部分（biz_cost_collect.source_id = 明细 id，含归集期间）
+// 货  biz_stock_in (cost_object_id = ? 且 in_type='PRODUCTION')
+//      → biz_stock_in_item（数量 / 金额）→ 结算批次（biz_cost_period.batch_no）
+// ```
+//
+// # 三个口径
+//
+// 1. **不读单头合计**：`total_qty / total_amount` 是过账 / 结算那一刻的快照，
+//    明细被改 / 单据被作废时单头会滞后。这里逐行 `SUM(明细)`，合计才等于「表格里各行相加」；
+// 2. **作废单要列出来**（`status='CANCELLED'`）：红冲把完工入库单打成 CANCELLED，
+//    页面上必须能看到「这批货被红冲了」，只是不计入合计（判据与它同源，见 dto）；
+// 3. **子查询各自聚合再 join**：明细与归集行是 1:N 的两张表，直接 join 会把金额乘起来
+//    （一张 3 行的单 × 3 条归集行 ⇒ 金额×3）。两个 `GROUP BY` 子查询各自汇总后按单据
+//    id join，才不会被笛卡尔积污染。
+
+/// 一条领料单（`biz_stock_out` + 明细 + 归集）的反查行。
+#[derive(Debug, Clone)]
+pub struct IssueDocRow {
+    /// `biz_stock_out.id`。
+    pub id: Uuid,
+    /// 出库单号。
+    pub doc_no: String,
+    /// 出库日期（决定归集期间）。
+    pub doc_date: NaiveDate,
+    /// 单据状态 `DRAFT / PENDING_POST / POSTED / CANCELLED`。
+    pub status: String,
+    /// 仓库名（实时 join，主数据改名后显示新名 —— 约定 13）。
+    pub warehouse_name: Option<String>,
+    /// 出库事由 / 备注。
+    pub remark: Option<String>,
+    /// 过账凭证。
+    pub voucher_id: Option<Uuid>,
+    /// 过账凭证号。
+    pub voucher_no: Option<String>,
+    /// 明细数量合计。
+    pub qty: Decimal,
+    /// 明细金额合计。
+    pub amount: Decimal,
+    /// 明细行数。
+    pub line_count: i64,
+    /// 已归集数量（`biz_cost_collect.qty` 合计）。
+    pub collected_qty: Decimal,
+    /// 已归集金额。
+    pub collected_amount: Decimal,
+    /// 归集期间（跨期补录时可能有两个）。
+    pub period_codes: Vec<String>,
+}
+
+/// 一条完工入库单（`biz_stock_in`，`in_type='PRODUCTION'`）的反查行。
+#[derive(Debug, Clone)]
+pub struct ReceiptDocRow {
+    /// `biz_stock_in.id`。
+    pub id: Uuid,
+    /// 入库单号。
+    pub doc_no: String,
+    /// 入库日期。
+    pub doc_date: NaiveDate,
+    /// 单据状态 `POSTED / CANCELLED`（红冲）。
+    pub status: String,
+    /// 仓库名。
+    pub warehouse_name: Option<String>,
+    /// 备注（结算写入的「完工入库 · 结算批次 … · 成本对象 …」）。
+    pub remark: Option<String>,
+    /// 完工结转凭证（结算第 3 张）。
+    pub voucher_id: Option<Uuid>,
+    /// 凭证号。
+    pub voucher_no: Option<String>,
+    /// 结算批次号 `CS-yyyyMM-0001`。
+    pub batch_no: Option<String>,
+    /// 结算期间 `yyyy-MM`。
+    pub period_code: Option<String>,
+    /// 明细数量合计。
+    pub qty: Decimal,
+    /// 明细金额合计。
+    pub amount: Decimal,
+    /// 明细行数。
+    pub line_count: i64,
+}
+
+/// 该对象名下的领料单（全部状态，按出库日期升序）。
+pub async fn source_issues(cost_object_id: Uuid) -> DbResult<Vec<IssueDocRow>> {
+    let rows = db()
+        .query_sql(
+            "SELECT h.id, h.out_no, h.out_date, h.status, h.reason, h.voucher_id, \
+                    w.warehouse_name, v.voucher_no, \
+                    COALESCE(it.qty, 0) AS qty, COALESCE(it.amount, 0) AS amount, \
+                    COALESCE(it.line_count, 0) AS line_count, \
+                    COALESCE(cc.collected_qty, 0) AS collected_qty, \
+                    COALESCE(cc.collected_amount, 0) AS collected_amount, \
+                    COALESCE(cc.period_codes, '') AS period_codes \
+               FROM biz_stock_out h \
+               LEFT JOIN biz_warehouse w ON w.id = h.warehouse_id \
+               LEFT JOIN biz_voucher v ON v.id = h.voucher_id \
+               LEFT JOIN (SELECT stock_out_id, sum(qty) AS qty, sum(amount) AS amount, \
+                                 count(*) AS line_count \
+                            FROM biz_stock_out_item GROUP BY stock_out_id) it \
+                      ON it.stock_out_id = h.id \
+               LEFT JOIN (SELECT soi.stock_out_id AS stock_out_id, \
+                                 sum(c.qty) AS collected_qty, sum(c.amount) AS collected_amount, \
+                                 string_agg(DISTINCT c.period_code, ',') AS period_codes \
+                            FROM biz_cost_collect c \
+                            JOIN biz_stock_out_item soi ON soi.id = c.source_id \
+                           WHERE c.cost_object_id = ?::uuid AND c.element = 'MATERIAL' \
+                             AND c.source_type = 'STOCK_OUT' AND c.deleted_at IS NULL \
+                           GROUP BY soi.stock_out_id) cc \
+                      ON cc.stock_out_id = h.id \
+              WHERE h.cost_object_id = ?::uuid AND h.deleted_at IS NULL \
+              ORDER BY h.out_date ASC, h.out_no ASC, h.id ASC"
+                .to_string(),
+            vec![Value::from(&cost_object_id), Value::from(&cost_object_id)],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let period_text: String = row.get_typed("period_codes")?;
+        out.push(IssueDocRow {
+            id: row.get_typed("id")?,
+            doc_no: row.get_typed("out_no")?,
+            doc_date: row.get_typed("out_date")?,
+            status: row.get_typed("status")?,
+            warehouse_name: row.get_typed("warehouse_name")?,
+            remark: row.get_typed("reason")?,
+            voucher_id: row.get_typed("voucher_id")?,
+            voucher_no: row.get_typed("voucher_no")?,
+            qty: row.get_typed("qty")?,
+            amount: row.get_typed("amount")?,
+            line_count: row.get_typed("line_count")?,
+            collected_qty: row.get_typed("collected_qty")?,
+            collected_amount: row.get_typed("collected_amount")?,
+            period_codes: split_periods(&period_text),
+        });
+    }
+    Ok(out)
+}
+
+/// 该对象名下的完工入库单（`in_type='PRODUCTION'`，含被红冲作废的）。
+pub async fn source_receipts(cost_object_id: Uuid) -> DbResult<Vec<ReceiptDocRow>> {
+    let rows = db()
+        .query_sql(
+            "SELECT h.id, h.in_no, h.in_date, h.status, h.remark, h.voucher_id, \
+                    w.warehouse_name, v.voucher_no, p.batch_no, p.period_code, \
+                    COALESCE(it.qty, 0) AS qty, COALESCE(it.amount, 0) AS amount, \
+                    COALESCE(it.line_count, 0) AS line_count \
+               FROM biz_stock_in h \
+               LEFT JOIN biz_warehouse w ON w.id = h.warehouse_id \
+               LEFT JOIN biz_voucher v ON v.id = h.voucher_id \
+               LEFT JOIN biz_cost_period p ON p.id = h.cost_period_id AND p.deleted_at IS NULL \
+               LEFT JOIN (SELECT stock_in_id, sum(qty) AS qty, sum(amount) AS amount, \
+                                 count(*) AS line_count \
+                            FROM biz_stock_in_item GROUP BY stock_in_id) it \
+                      ON it.stock_in_id = h.id \
+              WHERE h.cost_object_id = ?::uuid AND h.in_type = 'PRODUCTION' \
+                AND h.deleted_at IS NULL \
+              ORDER BY h.in_date ASC, h.in_no ASC, h.id ASC"
+                .to_string(),
+            vec![Value::from(&cost_object_id)],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(ReceiptDocRow {
+            id: row.get_typed("id")?,
+            doc_no: row.get_typed("in_no")?,
+            doc_date: row.get_typed("in_date")?,
+            status: row.get_typed("status")?,
+            warehouse_name: row.get_typed("warehouse_name")?,
+            remark: row.get_typed("remark")?,
+            voucher_id: row.get_typed("voucher_id")?,
+            voucher_no: row.get_typed("voucher_no")?,
+            batch_no: row.get_typed("batch_no")?,
+            period_code: row.get_typed("period_code")?,
+            qty: row.get_typed("qty")?,
+            amount: row.get_typed("amount")?,
+            line_count: row.get_typed("line_count")?,
+        });
+    }
+    Ok(out)
+}
+
+/// 该对象**已归集**的料行合计（`source_type='STOCK_OUT'`；MANUAL 料行不算领料链）。
+pub async fn collected_material_of(cost_object_id: Uuid) -> DbResult<QtyAmount> {
+    let rows = db()
+        .query_sql(
+            "SELECT COALESCE(sum(qty), 0) AS qty, COALESCE(sum(amount), 0) AS amount \
+               FROM biz_cost_collect \
+              WHERE cost_object_id = ?::uuid AND element = 'MATERIAL' \
+                AND source_type = 'STOCK_OUT' AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&cost_object_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(QtyAmount::new(row.get_typed("qty")?, row.get_typed("amount")?)),
+        // SUM 一定回一行；零行只可能是驱动异常，按 0 处理不拦页面（判据会把差额显示出来）
+        None => Ok(QtyAmount::default()),
+    }
+}
+
+/// 该对象**已结算**计算单的累计完工数量 / 完工转出成本合计。
+///
+/// 只看 `status='SETTLED'`：红冲把行打回 `CALC`，此时它与被作废的入库单**同时**退出合计。
+pub async fn settled_output_of(cost_object_id: Uuid) -> DbResult<QtyAmount> {
+    let rows = db()
+        .query_sql(
+            "SELECT COALESCE(sum(i.completed_qty), 0) AS qty, \
+                    COALESCE(sum(i.finished_cost), 0) AS amount \
+               FROM biz_cost_period_item i \
+               JOIN biz_cost_period p ON p.id = i.period_id \
+              WHERE i.cost_object_id = ?::uuid AND i.status = 'SETTLED' AND p.deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&cost_object_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(QtyAmount::new(row.get_typed("qty")?, row.get_typed("amount")?)),
+        None => Ok(QtyAmount::default()),
+    }
+}
+
+/// `string_agg` 的期间串 → 期间列表（去空、保序）。
+fn split_periods(raw: &str) -> Vec<String> {
+    raw.split(',')
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 // ==================== 引用存在性（建 / 改单的查库校验） ====================

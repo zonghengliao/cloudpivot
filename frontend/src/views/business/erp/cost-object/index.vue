@@ -530,6 +530,145 @@
             </template>
           </t-table>
 
+          <h4 class="section-title">料从哪来 / 货去哪了</h4>
+          <div class="source-head" data-testid="co-sources-head">
+            <span class="muted">{{ sources ? sourcesHeadline(sources) : '加载中…' }}</span>
+            <t-tag
+              v-if="sources"
+              :theme="sources.all_ok ? 'success' : 'danger'"
+              variant="light"
+              data-testid="co-sources-all-ok"
+            >
+              {{ sourceChecksSummary(sources.checks).text }}
+            </t-tag>
+            <span class="tool-row__spacer" />
+            <t-button
+              size="small"
+              variant="text"
+              :loading="sourcesLoading"
+              data-testid="co-sources-refresh"
+              @click="reloadSources"
+            >
+              刷新
+            </t-button>
+          </div>
+          <t-alert
+            v-if="sourcesError"
+            theme="error"
+            :message="sourcesError"
+            class="form-alert"
+            data-testid="co-sources-error"
+          />
+          <t-alert
+            v-if="sources && sources.receipt_cancelled_count"
+            theme="warning"
+            :message="`有 ${sources.receipt_cancelled_count} 张完工入库单已被红冲作废（列在下面但金额不计入合计）`"
+            class="form-alert"
+            data-testid="co-sources-cancelled-hint"
+          />
+
+          <div v-if="sources && sources.checks.length" class="check-grid" data-testid="co-sources-checks">
+            <div
+              v-for="check in sources.checks"
+              :key="check.key"
+              class="check-cell"
+              :class="{ 'check-cell--bad': !check.ok }"
+              :data-testid="`co-check-${check.key}`"
+            >
+              <div class="check-cell__head">
+                <t-icon :name="check.ok ? 'check-circle' : 'error-circle'" />
+                <span>{{ check.ok ? '✓' : '✗' }} {{ check.label }}</span>
+              </div>
+              <div class="check-cell__nums">
+                {{ check.left_label }} <b>{{ check.left }}</b>
+                ·
+                {{ check.right_label }} <b>{{ check.right }}</b>
+              </div>
+              <div v-if="!check.ok" class="check-cell__hint">
+                差 {{ check.diff }} —— {{ check.hint }}
+              </div>
+            </div>
+          </div>
+
+          <h5 class="sub-title">
+            关联领料单
+            <span class="muted" data-testid="co-sources-issue-total">
+              已过账 {{ sourceTotalsCountText(sources?.issue_posted_totals) }} · 数量
+              {{ formatQty(sources?.issue_posted_totals.qty) }} · 金额
+              {{ formatMoney(sources?.issue_posted_totals.amount) }}
+              （全部列出 {{ sources?.issue_totals.doc_count ?? 0 }} 张）
+            </span>
+          </h5>
+          <t-alert
+            v-if="sources && !sources.issues.length"
+            theme="info"
+            message="还没有领料单挂到这个批上：可以用上面的「领料」按钮开单（过账借方 4001.01），过账并跑期间计算后这里就会列出。"
+            data-testid="co-sources-no-issues"
+          />
+          <t-table
+            v-else-if="sources"
+            row-key="id"
+            size="small"
+            :data="sources.issues"
+            :columns="sourceColumns"
+            data-testid="co-sources-issues"
+          >
+            <template #doc_no="{ row }">
+              <t-link theme="primary" data-testid="co-sources-issue-link" @click="openSourceDoc(row)">
+                {{ row.doc_no }}
+              </t-link>
+            </template>
+            <template #status="{ row }">{{ sourceStatusLabel(row.status) }}</template>
+            <template #qty="{ row }">{{ formatQty(row.qty) }}</template>
+            <template #amount="{ row }">
+              <span class="money">{{ formatMoney(row.amount) }}</span>
+            </template>
+            <template #collected="{ row }">
+              <t-tag :theme="sourceDocCollectedTheme(row)" variant="light" size="small">
+                {{ sourceDocCollectedText(row) }}
+              </t-tag>
+            </template>
+          </t-table>
+
+          <h5 class="sub-title">
+            完工入库单
+            <span class="muted" data-testid="co-sources-receipt-total">
+              数量 {{ formatQty(sources?.receipt_totals.qty) }} · 金额
+              {{ formatMoney(sources?.receipt_totals.amount) }}
+              （有效 {{ sources?.receipt_totals.doc_count ?? 0 }} 张）
+            </span>
+          </h5>
+          <t-alert
+            v-if="sources && !sources.receipts.length"
+            theme="info"
+            message="还没有完工入库单：完工入库由「成本核算」结算时按计算单的完工数量与完工成本自动生成（§4.7.6）。"
+            data-testid="co-sources-no-receipts"
+          />
+          <t-table
+            v-else-if="sources"
+            row-key="id"
+            size="small"
+            :data="sources.receipts"
+            :columns="receiptColumns"
+            data-testid="co-sources-receipts"
+          >
+            <template #doc_no="{ row }">
+              <t-link theme="primary" data-testid="co-sources-receipt-link" @click="openSourceDoc(row)">
+                {{ row.doc_no }}
+              </t-link>
+            </template>
+            <template #status="{ row }">{{ sourceStatusLabel(row.status) }}</template>
+            <template #qty="{ row }">{{ formatQty(row.qty) }}</template>
+            <template #amount="{ row }">
+              <span class="money">{{ formatMoney(row.amount) }}</span>
+            </template>
+            <template #collected="{ row }">
+              <t-tag :theme="sourceDocCollectedTheme(row)" variant="light" size="small">
+                {{ sourceDocCollectedText(row) }}
+              </t-tag>
+            </template>
+          </t-table>
+
           <div v-if="canIssueMaterial(detail)" class="detail-actions">
             <t-button
               v-privilege="[PERM.issue]"
@@ -648,12 +787,15 @@ import {
   createCostObject,
   fetchCostObjectDetail,
   fetchCostObjectPage,
+  fetchCostObjectSources,
   saveCostObjectOutput,
   updateCostObject,
   COST_OBJECT_STATUSES,
   type CostObjectDetail,
   type CostObjectOutputResult,
   type CostObjectRow,
+  type CostObjectSourceDoc,
+  type CostObjectSources,
   type CostObjectStatus,
 } from '@/api/business/erp/cost-object';
 import {
@@ -697,6 +839,13 @@ import {
   emptyOutputForm,
   outputErrorText,
   outputFormFromDetail,
+  sourceChecksSummary,
+  sourceDocCollectedText,
+  sourceDocCollectedTheme,
+  sourceDocRoute,
+  sourcesHeadline,
+  sourceStatusLabel,
+  sourceTotalsCountText,
   validateOutputForm,
   validateCostObjectForm,
   type CloseSummary,
@@ -1041,10 +1190,80 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detail = ref<CostObjectDetail | null>(null);
 
+// ==================== 反查：料从哪来 / 货去哪了（B4-2） ====================
+//
+// 与详情分两个请求：反查要扫 `biz_stock_out(_item)` / `biz_cost_collect` /
+// `biz_stock_in(_item)` / `biz_cost_period_item` 四张表，塞进详情会让「只是看一眼单头」
+// 的人多等一次全表扫描；也便于「刷新」只刷这一块（归集刚跑完时常用）。
+//
+// 失败**不阻断详情**：反查挂了就在这一块显示错误 + 可重试，单头与计算单照常可看。
+
+const sources = ref<CostObjectSources | null>(null);
+const sourcesLoading = ref(false);
+const sourcesError = ref('');
+
+const sourceColumns: PrimaryTableCol[] = [
+  { colKey: 'doc_no', title: '领料单号', width: 150 },
+  { colKey: 'doc_date', title: '出库日期', width: 100 },
+  { colKey: 'status', title: '状态', width: 78 },
+  { colKey: 'warehouse_name', title: '仓库', width: 90, ellipsis: true },
+  { colKey: 'line_count', title: '行', width: 52, align: 'right' },
+  { colKey: 'qty', title: '数量', width: 84, align: 'right' },
+  { colKey: 'amount', title: '金额', width: 104, align: 'right' },
+  { colKey: 'collected', title: '归集情况', width: 200, ellipsis: true },
+  { colKey: 'voucher_no', title: '凭证', width: 140, ellipsis: true },
+];
+
+const receiptColumns: PrimaryTableCol[] = [
+  { colKey: 'doc_no', title: '入库单号', width: 150 },
+  { colKey: 'doc_date', title: '入库日期', width: 100 },
+  { colKey: 'status', title: '状态', width: 78 },
+  { colKey: 'batch_no', title: '结算批次', width: 130, ellipsis: true },
+  { colKey: 'warehouse_name', title: '仓库', width: 90, ellipsis: true },
+  { colKey: 'qty', title: '数量', width: 84, align: 'right' },
+  { colKey: 'amount', title: '金额', width: 104, align: 'right' },
+  { colKey: 'collected', title: '入账', width: 90 },
+  { colKey: 'voucher_no', title: '凭证', width: 140, ellipsis: true },
+];
+
+/** 拉反查（`GET /cost-object/{id}/sources`）。失败只污染这一块，不影响详情。 */
+async function loadSources(objectId: string): Promise<void> {
+  sourcesLoading.value = true;
+  sourcesError.value = '';
+  try {
+    sources.value = await fetchCostObjectSources(objectId);
+  } catch (error) {
+    sources.value = null;
+    sourcesError.value = `料 / 货反查加载失败：${errorText(error)}`;
+  } finally {
+    sourcesLoading.value = false;
+  }
+}
+
+/** 「刷新」按钮：用当前详情的 id 重拉（归集 / 结算刚跑完时点）。 */
+function reloadSources(): void {
+  if (!detail.value) {
+    return;
+  }
+  void loadSources(detail.value.id);
+}
+
+/** 点单号跳原单据（路由来自 `shared/source-route` 的映射表，不自己拼）。 */
+function openSourceDoc(row: CostObjectSourceDoc): void {
+  const route = sourceDocRoute(row);
+  if (!route) {
+    MessagePlugin.warning('这张单暂时没有可跳转的页面（映射缺失或单号为空）');
+    return;
+  }
+  void router.push({ path: route.path, query: route.query });
+}
+
 async function openDetail(row: CostObjectRow): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detail.value = null;
+  sources.value = null;
+  sourcesError.value = '';
   resetOutputPanel(null);
   try {
     detail.value = await fetchCostObjectDetail(row.id);
@@ -1052,9 +1271,12 @@ async function openDetail(row: CostObjectRow): Promise<void> {
   } catch (error) {
     MessagePlugin.error(`详情加载失败：${errorText(error)}`);
     detailVisible.value = false;
+    return;
   } finally {
     detailLoading.value = false;
   }
+  // 详情先出来，反查并行加载（不阻塞单头渲染）
+  void loadSources(row.id);
 }
 
 // ==================== 本期产量与在制（B2-14） ====================
@@ -1429,6 +1651,63 @@ onMounted(() => {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
+}
+
+/* ---------- 料从哪来 / 货去哪了（B4-2） ---------- */
+
+.source-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 4px 0 8px;
+}
+
+.sub-title {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.check-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+
+.check-cell {
+  border: 1px solid var(--td-border-level-1-color, #e7e7e7);
+  border-left: 3px solid var(--td-success-color, #2ba471);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--td-bg-color-container, #fff);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.check-cell--bad {
+  border-left-color: var(--td-error-color, #d54941);
+  background: var(--td-error-color-1, #fff0ed);
+}
+
+.check-cell__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.check-cell__nums {
+  color: var(--td-text-color-secondary, #666);
+}
+
+.check-cell__hint {
+  color: var(--td-error-color, #d54941);
 }
 
 .summary-cell {

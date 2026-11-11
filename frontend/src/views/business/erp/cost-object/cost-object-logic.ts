@@ -25,16 +25,24 @@ import {
   COST_OBJECT_PERIOD_LOCKED_CODE,
   COST_OBJECT_STATUS_LABELS,
   MATERIAL_INPUT_MODE_LABELS,
+  SOURCE_DOC_STATUS_LABELS,
+  SOURCE_DOC_TYPE_LABELS,
   type CloseBlockCode,
   type CostObjectCreatePayload,
   type CostObjectDetail,
   type CostObjectOutputPayload,
   type CostObjectRow,
+  type CostObjectSourceCheck,
+  type CostObjectSourceDoc,
+  type CostObjectSourceTotals,
+  type CostObjectSources,
   type CostObjectStatus,
   type CostObjectUpdatePayload,
   type MaterialInputMode,
+  type SourceDocType,
 } from '@/api/business/erp/cost-object-kinds';
-import { todayString } from '@/views/business/erp/shared/money';
+import { resolveSourceRoute } from '@/views/business/erp/shared/source-route';
+import { formatMoney, todayString } from '@/views/business/erp/shared/money';
 
 // ==================== 权限码（V0378 种子，逐字一致） ====================
 
@@ -678,4 +686,134 @@ export function outputErrorText(error: unknown): string {
     return message ? `${message}（怎么修：${hint}）` : `期间已结算，产量只读（怎么修：${hint}）`;
   }
   return message || '保存失败，请重试';
+}
+
+// ==================== ⑧ 料从哪来 / 货去哪了（B4-2） ====================
+
+/**
+ * 反查行的单据状态 → 中文。
+ *
+ * 出库单与入库单是两套状态词，撞在同一个 `status` 字段上；不认识的值原样返回
+ * （不编「未知」—— 后端加了新状态，页面至少还能看出那个英文词）。
+ */
+export function sourceStatusLabel(status: string | null | undefined): string {
+  if (!status) {
+    return '—';
+  }
+  return SOURCE_DOC_STATUS_LABELS[status] ?? status;
+}
+
+/** 反查行的类型 → 中文。 */
+export function sourceDocTypeLabel(docType: string | null | undefined): string {
+  if (!docType) {
+    return '—';
+  }
+  return SOURCE_DOC_TYPE_LABELS[docType as SourceDocType] ?? docType;
+}
+
+/**
+ * 一条领料单的「归集情况」文案（页面上就是这一句话解释「这笔料进没进成本」）。
+ *
+ * 四种情形（与后端 `to_sources_res` 的判定同口径，**不另算一套**）：
+ *
+ * * `POSTED` + `collected` ⇒ 「已归集 · 2026-11」；
+ * * `POSTED` + 未归集 ⇒ 「未归集（已归集 6 / 10）」—— 差额摆出来，用户知道缺多少；
+ * * 非 `POSTED` ⇒ 「{状态}，未过账不计入成本」；
+ * * 入库单（`collected=true` 表示有效） ⇒ 「有效」/「已作废」。
+ */
+export function sourceDocCollectedText(row: CostObjectSourceDoc): string {
+  if (row.doc_type === 'STOCK_IN') {
+    return row.collected ? '已入账' : sourceStatusLabel(row.status);
+  }
+  if (row.status !== 'POSTED') {
+    return `${sourceStatusLabel(row.status)}，不计入成本`;
+  }
+  if (row.collected) {
+    const periods = row.period_codes.length ? ` · ${row.period_codes.join(' / ')}` : '';
+    return `已归集${periods}`;
+  }
+  return `未归集（已归集 ${formatQty(row.collected_qty)} / ${formatQty(row.qty)}）`;
+}
+
+/** 归集情况对应的 TDesign 状态色。 */
+export function sourceDocCollectedTheme(
+  row: CostObjectSourceDoc,
+): 'success' | 'warning' | 'default' | 'danger' {
+  if (row.doc_type === 'STOCK_IN') {
+    return row.collected ? 'success' : 'danger';
+  }
+  if (row.status !== 'POSTED') {
+    return 'default';
+  }
+  return row.collected ? 'success' : 'warning';
+}
+
+/**
+ * 一行 → 原单据的跳转目标（**用 `shared/source-route` 的映射表，不自己拼路径**）。
+ *
+ * 两个来源键早就在表里：
+ * * `STOCK_OUT` → 出库页 `?out_no=`（半深链：按单号筛到那一行）；
+ * * `STOCK_IN` → 收货入库页 `?in_id=`（真深链：直接开详情）。
+ *
+ * 返回 `null` = 这一行这次跳不了（映射缺失 / 参数缺失），页面渲染纯文本，
+ * **不给 404 假链接**（表的设计原则，见 `source-route.ts` 头注释）。
+ */
+export function sourceDocRoute(
+  row: Pick<CostObjectSourceDoc, 'doc_type' | 'id' | 'doc_no'>,
+): { path: string; query: Record<string, string> } | null {
+  const route = resolveSourceRoute(row.doc_type, row.id, row.doc_no);
+  return route ? { path: route.path, query: route.query } : null;
+}
+
+/** 一组单据合计 → 一行文案（「3 张 · 5 行」+ 数量 / 金额另列，这里只给张数行数）。 */
+export function sourceTotalsCountText(totals: CostObjectSourceTotals | null | undefined): string {
+  // 反查还没回来（`sources === null`）时标题也在渲染 ⇒ 允许空值，给「—」而不是「undefined 张」
+  if (!totals) {
+    return '—';
+  }
+  return `${totals.doc_count} 张 · ${totals.line_count} 行`;
+}
+
+/**
+ * 判据汇总：`{ failed, text }`。
+ *
+ * 全绿 ⇒ 「5 条判据全部对得上」；有红 ⇒ 「2 条对不上：领料金额 = 归集直接材料、…」，
+ * 直接点名是哪几条，用户不用一条条找。
+ */
+export function sourceChecksSummary(checks: CostObjectSourceCheck[]): {
+  total: number;
+  failed: number;
+  allOk: boolean;
+  text: string;
+} {
+  const failedChecks = checks.filter((check) => !check.ok);
+  const total = checks.length;
+  if (!total) {
+    return { total: 0, failed: 0, allOk: false, text: '没有判据' };
+  }
+  if (!failedChecks.length) {
+    return { total, failed: 0, allOk: true, text: `${total} 条判据全部对得上` };
+  }
+  return {
+    total,
+    failed: failedChecks.length,
+    allOk: false,
+    text: `${failedChecks.length} 条对不上：${failedChecks.map((check) => check.label).join('、')}`,
+  };
+}
+
+/**
+ * 「这个批的料从哪来、货去哪了」的总述（详情页标题旁边的一句）。
+ *
+ * 例：`领料 3 张 120 件 / 1 200.00 元 · 完工入库 1 张 80 件 / 2 000.00 元`
+ * 用后端给的合计（已过账口径），不在这里重算。
+ */
+export function sourcesHeadline(sources: CostObjectSources): string {
+  const issue = `领料 ${sources.issue_posted_totals.doc_count} 张 ${formatQty(
+    sources.issue_posted_totals.qty,
+  )} / ${formatMoney(sources.issue_posted_totals.amount)}`;
+  const receipt = `完工入库 ${sources.receipt_totals.doc_count} 张 ${formatQty(
+    sources.receipt_totals.qty,
+  )} / ${formatMoney(sources.receipt_totals.amount)}`;
+  return `${issue} · ${receipt}`;
 }
