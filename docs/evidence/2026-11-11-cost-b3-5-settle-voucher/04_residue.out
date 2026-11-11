@@ -1,0 +1,13 @@
+    t     | count 
+----------+-------
+ collect  |     0
+ overhead |     0
+ objects  |     0
+ periods  |     0
+ items    |     0
+ vouchers |     0
+ entries  |     0
+ stock_in |     0
+ dept     |     0
+(9 rows)
+

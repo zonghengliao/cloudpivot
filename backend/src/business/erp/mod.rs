@@ -250,6 +250,12 @@ pub mod cost_settle_finish;
 /// B3-4 的真库用例（`ERP_DB_URL` 开关）：完工入库单 + 三本账 + 计算单回写 + 两道幂等闸。
 #[cfg(test)]
 mod cost_settle_finish_db_tests;
+/// 结算 ②「三张凭证」（ARCH-9 §4.7.2–§4.7.5 · B3-5）：人工计提 / 手工台账 / 制造费用结转 /
+/// 完工入库结转，全部经 `voucher::post_voucher`。无 HTTP 入口，供 B3-6 结算事务调用。
+pub mod cost_settle_voucher;
+/// B3-5 的真库用例（`ERP_DB_URL` 开关）：三张凭证的借贷平衡 / 科目 / 金额与计算单一致 / 四道闸。
+#[cfg(test)]
+mod cost_settle_voucher_db_tests;
 /// B2-12 的真库用例（`ERP_DB_URL` 开关）：四块缺口的真库断言。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cost_uncollected_db_tests;

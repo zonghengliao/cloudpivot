@@ -1,0 +1,25 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 21s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 16 tests
+test business::erp::cost_settle_voucher::tests::account_codes_match_the_design ... ok
+test business::erp::cost_settle_voucher::tests::credit_specs_merge_objects_and_skip_zero ... ok
+test business::erp::cost_settle_voucher::tests::dept_label_prefers_live_name ... ok
+test business::erp::cost_settle_voucher::tests::example_a_splits_into_the_design_numbers ... ok
+test business::erp::cost_settle_voucher::tests::impossible_split_is_rejected_with_66076 ... ok
+test business::erp::cost_settle_voucher::tests::line_numbers_are_sequential ... ok
+test business::erp::cost_settle_voucher::tests::merge_by_account_folds_departments ... ok
+test business::erp::cost_settle_voucher::tests::negative_tail_is_absorbed_without_negative_lines ... ok
+test business::erp::cost_settle_voucher::tests::tail_difference_is_absorbed_by_overhead ... ok
+test business::erp::cost_settle_voucher::tests::voucher_date_outside_period_is_rejected ... ok
+test business::erp::cost_settle_voucher_db_tests::db::direct_overhead_row_is_cleared_too ... ok
+test business::erp::cost_settle_voucher_db_tests::db::item_mismatch_is_rejected_without_writes ... ok
+test business::erp::cost_settle_voucher_db_tests::db::payroll_source_emits_only_the_finish_voucher ... ok
+test business::erp::cost_settle_voucher_db_tests::db::second_settle_is_rejected ... ok
+test business::erp::cost_settle_voucher_db_tests::db::three_vouchers_match_the_design_example ... ok
+test business::erp::cost_settle_voucher_db_tests::db::zero_finished_is_rejected_without_writes ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 4687 filtered out; finished in 9.74s
+
+EXIT=0

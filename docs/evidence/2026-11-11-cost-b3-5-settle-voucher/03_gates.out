@@ -1,0 +1,16 @@
+=== cargo fmt -- --check ===
+FMT_EXIT=0
+
+=== cargo clippy --all-targets -- -D warnings (b35_clippy2.log 尾) ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 57s
+EXIT=0
+
+=== scripts/verify/inventory_write_gate.py ===
+============================================================================================
+库存三本账唯一写入口闸（P2-5A 收口 / P2-5B 门禁）
+扫描 535 个非测试 .rs（豁免 112 个测试文件）
+唯一写入口 backend/src/business/erp/inventory_writer.rs：23 条写语句
+============================================================================================
+
+★ 零越界：非测试代码里没有任何一处直写库存三本账。
