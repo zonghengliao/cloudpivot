@@ -319,6 +319,40 @@ mod db {
             id
         }
 
+        /// 读回期间内**活跃批次**的状态。
+        ///
+        /// 造完夹具必须用它确认「那一行真的变成我要的状态」——否则 CHECK 约束把 UPDATE 挡掉、
+        /// 行还停在 `DRAFT`，用例会把「calc 在 DRAFT 上重算」误判成「calc 放行了 PENDING」。
+        async fn status_of(&self, period_code: &str) -> String {
+            db().scalar_with_params(
+                "SELECT status FROM biz_cost_period WHERE period_code = ? AND deleted_at IS NULL",
+                vec![Value::Text(period_code.to_string())],
+            )
+            .await
+            .expect("读回批次状态")
+        }
+
+        /// 硬插第二张活跃批次（`DRAFT`），返回 DB 结果 —— 用来验证部分唯一索引的「活跃」定义。
+        ///
+        /// 不复用 [`Fixture::batch`]：这里要的就是**失败**，不能 `expect` 掉。
+        async fn try_insert_second_active(&self, period_code: &str) -> DbResult<u64> {
+            db().exec_sql(
+                "INSERT INTO biz_cost_period (id, period_code, batch_no, status, created_at, updated_at) \
+                     VALUES (?::uuid, ?, ?, 'DRAFT', now(), now())"
+                    .to_string(),
+                vec![
+                    Value::from(&Uuid::now_v7()),
+                    Value::Text(period_code.to_string()),
+                    Value::Text(format!(
+                        "CS215-DUP-{}-{}",
+                        period_code.replace('-', ""),
+                        &self.suffix[..4]
+                    )),
+                ],
+            )
+            .await
+        }
+
         /// 期间内的活跃批次（`REVERSED` / `CANCELLED` 不算）。
         async fn active_batches(&self) -> Vec<(String, String)> {
             let rows = db()
@@ -711,6 +745,142 @@ mod db {
         assert!(res.calc.batch_created, "作废的批次不占位 ⇒ 建新 DRAFT");
         assert_eq!(res.detail.status, "DRAFT");
         assert_eq!(res.calc.items.total_cost, "19000.0000", "只有料，工费为 0");
+
+        fx.cleanup().await;
+    }
+
+    /// 验收⑤ + 「`PENDING` 算不算活跃」：**唯一索引与 calc 对「活跃」的判定必须一致**。
+    ///
+    /// 部分唯一索引 `uk_biz_cost_period` 的谓词是 `status NOT IN ('REVERSED','CANCELLED')`，
+    /// 所以 `DRAFT` / `SUBMITTED` / `APPROVED` / `SETTLED` / `CLOSED` **都**占位；
+    /// 只有 `REVERSED` / `CANCELLED` 不占位。逐状态实测：
+    ///
+    /// | 已有批次的状态 | 再插一张 `DRAFT` | calc |
+    /// |---|---|---|
+    /// | `DRAFT` ~ `CLOSED`（5 个活跃态） | 唯一键拒绝 | 见下一条用例（非 DRAFT ⇒ 409） |
+    /// | `REVERSED` / `CANCELLED` | 允许（同期间可重建） | 200 + 新批次 |
+    ///
+    /// 这条用例同时守住「造完夹具先读回状态」：CHECK 约束把 UPDATE 挡掉时立刻红，
+    /// 不会让「行还是 DRAFT」把后面的判定糊过去。
+    #[tokio::test]
+    async fn active_batch_definition_matches_the_unique_index() {
+        if !ensure_db().await {
+            return;
+        }
+        for status in crate::business::erp::cost_period_dto::STATUSES {
+            let fx = Fixture::build().await;
+            fx.batch(&fx.period_code(), status).await;
+            assert_eq!(
+                fx.status_of(&fx.period_code()).await,
+                status,
+                "{status}：夹具没写进库（CHECK 约束挡住了？），后面的判定全部无意义"
+            );
+
+            let live = !matches!(status, "REVERSED" | "CANCELLED");
+            let inserted = fx.try_insert_second_active(&fx.period_code()).await;
+            if live {
+                assert!(
+                    matches!(inserted, Err(DbError::UniqueViolation { .. })),
+                    "{status} 是活跃批次 ⇒ 同期间插第二张 DRAFT 必须撞唯一键，实际：{inserted:?}"
+                );
+                assert_eq!(fx.active_batches().await.len(), 1, "{status}：活跃批次仍是 1 张");
+            } else {
+                assert!(
+                    inserted.is_ok(),
+                    "{status} 不占位 ⇒ 同期间可以插新 DRAFT，实际：{inserted:?}"
+                );
+                assert_eq!(
+                    fx.active_batches().await.len(),
+                    1,
+                    "{status}：新插的那张 DRAFT 是唯一活跃批次"
+                );
+            }
+            fx.cleanup().await;
+        }
+    }
+
+    /// 验收①~④：`calc` 对**每一个**状态都显式表态（不允许任何一种状态默默当草稿重算）。
+    ///
+    /// - `DRAFT` ⇒ 200，原地重算（`batch_created = false`，批次数不变）
+    /// - `SUBMITTED`（= 审批中，卡面误写成 `PENDING`）/ `APPROVED` / `SETTLED` / `CLOSED`
+    ///   ⇒ 409 + `66073`，不建批次、不写计算单
+    /// - `REVERSED` / `CANCELLED` ⇒ 200，新建批次（不占位）
+    #[tokio::test]
+    async fn calc_answers_every_status_explicitly() {
+        use crate::business::erp::cost_period_dto::{self as period_dto, STATUSES};
+        if !ensure_db().await {
+            return;
+        }
+        for status in STATUSES {
+            let fx = Fixture::build().await;
+            fx.batch(&fx.period_code(), status).await;
+            assert_eq!(
+                fx.status_of(&fx.period_code()).await,
+                status,
+                "{status}：夹具没写进库，用例判定无效"
+            );
+
+            let outcome = cost_calc_period::calc_period(Some(&fx.period_code()), None).await;
+            match status {
+                period_dto::STATUS_DRAFT => {
+                    let res = outcome.unwrap_or_else(|e| panic!("DRAFT 上重算必须 200：{e:?}"));
+                    assert!(!res.calc.batch_created, "DRAFT ⇒ 原地重算，不另建批次");
+                    assert_eq!(res.detail.status, period_dto::STATUS_DRAFT);
+                    assert_eq!(fx.active_batches().await.len(), 1, "批次数不变");
+                }
+                period_dto::STATUS_REVERSED | period_dto::STATUS_CANCELLED => {
+                    let res = outcome.unwrap_or_else(|e| panic!("{status} 不占位 ⇒ 必须能建新批次：{e:?}"));
+                    assert!(res.calc.batch_created, "{status} ⇒ 新建 DRAFT");
+                    assert_eq!(res.detail.status, period_dto::STATUS_DRAFT);
+                    assert_eq!(fx.active_batches().await.len(), 1, "{status}：只有新建的那张是活跃的");
+                }
+                locked => {
+                    let error = outcome.expect_err(&format!("{locked} 必须拒绝重算"));
+                    assert_eq!(error.status, 409, "{locked}：{}", error.msg);
+                    assert_eq!(error.code, crate::shared::error_code::ERP_COST_PERIOD_STATUS_GUARD);
+                    assert!(error.msg.contains(locked), "{locked}：报文要点名状态：{}", error.msg);
+                    assert_eq!(fx.active_batches().await.len(), 1, "{locked}：不许多出批次");
+                    assert!(fx.items().await.is_empty(), "{locked}：一行计算单都不许写");
+                }
+            }
+            fx.cleanup().await;
+        }
+    }
+
+    /// 这一次误报的根因：`PENDING` **不是**本模块的状态，库层 CHECK 直接拒掉这条 UPDATE。
+    ///
+    /// 于是行仍是 `DRAFT`、`calc` 返回 200 是**正确**的（在草稿上原地重算）。
+    /// 用真库把这层守住：任何人再造「PENDING 批次」当夹具，必须先过 `ck_biz_cost_period_status`。
+    #[tokio::test]
+    async fn status_outside_the_enum_cannot_be_written() {
+        if !ensure_db().await {
+            return;
+        }
+        let fx = Fixture::build().await;
+        fx.batch(&fx.period_code(), "DRAFT").await;
+
+        let rejected = db()
+            .exec_sql(
+                "UPDATE biz_cost_period SET status = 'PENDING' WHERE period_code = ?".to_string(),
+                vec![Value::Text(fx.period_code())],
+            )
+            .await;
+        assert!(
+            rejected.is_err(),
+            "PENDING 不在 ck_biz_cost_period_status 值域里，UPDATE 必须被库层拒绝"
+        );
+        assert_eq!(
+            fx.status_of(&fx.period_code()).await,
+            "DRAFT",
+            "被拒的 UPDATE 不能改到行：状态还是 DRAFT"
+        );
+
+        // 状态没变 ⇒ calc 在 DRAFT 上重算，200 是**正确行为**（不是放行 PENDING）
+        let res = cost_calc_period::calc_period(Some(&fx.period_code()), None)
+            .await
+            .expect("DRAFT 上重算必须 200");
+        assert!(!res.calc.batch_created, "原地重算");
+        assert_eq!(fx.active_batches().await.len(), 1, "同期间仍只有 1 张活跃批次");
 
         fx.cleanup().await;
     }

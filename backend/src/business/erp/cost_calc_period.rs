@@ -414,6 +414,22 @@ struct BatchTarget {
     created: bool,
 }
 
+/// 活跃批次里**明确禁止重算**的四个状态。
+///
+/// 「活跃」的唯一定义来自 `uk_biz_cost_period`（V0373）：`deleted_at IS NULL AND
+/// status NOT IN ('REVERSED','CANCELLED')` —— 即 `DRAFT` / `SUBMITTED` / `APPROVED` /
+/// `SETTLED` / `CLOSED` 都算活跃。活跃里**只有 `DRAFT` 可以原地重算**，剩下这四个必须 409；
+/// `REVERSED` / `CANCELLED` 不活跃 ⇒ 走「建新批次」。
+///
+/// 这份清单与 [`period_dto::STATUSES`] 的偏差由单测
+/// `locked_statuses_match_the_live_set` 兜住：将来加状态忘了决定「能不能重算」会直接红。
+const LOCKED_STATUSES: [&str; 4] = [
+    period_dto::STATUS_SUBMITTED,
+    period_dto::STATUS_APPROVED,
+    period_dto::STATUS_SETTLED,
+    period_dto::STATUS_CLOSED,
+];
+
 /// 定批次（无则建 `DRAFT`）；非 `DRAFT` 的活跃批次直接 409。
 ///
 /// # 为什么「红冲后重算」是**建新批次**而不是原地重算 `REVERSED` 批次
@@ -422,6 +438,15 @@ struct BatchTarget {
 /// §4.8 的口径就是「红冲后同期间可重建批次再算」。`REVERSED` 那一批的红字凭证与红冲原因
 /// 是审计凭据，原地改它的账等于把红冲记录也一起改了。所以这里走「无活跃批次 ⇒ 建 DRAFT」，
 /// 用户点一次重算就得到一张干净的新批次，金额与红冲前一致（同一批来源行、同一套口径）。
+///
+/// # 状态判定为什么**不能**写成「查 DRAFT，查不到就新建」
+///
+/// 那样在 `SUBMITTED`（审批中）的期间上会再塞一张 `DRAFT`：轻则被唯一键挡住、用户看到一句
+/// `duplicate key` 不知道是状态问题，重则（唯一索引被人改宽）同期间出现两张活跃批次、
+/// 两张都能往下走结算。所以这里对**活跃批次的每一个状态都显式表态**：
+/// `DRAFT` → 原地重算（幂等）；[`LOCKED_STATUSES`] → 409 + 点名下一步；
+/// 其余（`REVERSED` / `CANCELLED`，正常已被 `active_by_period` 过滤掉）→ 也按锁定处理
+/// （fail closed：宁可报错让用户看一眼，也不在他以为是草稿的时候动账）。
 async fn ensure_batch(
     tx: &impl SqlExecutor,
     period_code: &str,
@@ -438,6 +463,18 @@ async fn ensure_batch(
                 created: false,
             });
         }
+        if LOCKED_STATUSES.contains(&batch.status.as_str()) {
+            return Err(period_locked(period_code, &batch.batch_no, &batch.status));
+        }
+        // 走到这里说明库里有一张「活跃但不在值域内」的批次（人工改库 / 将来新增状态没登记）。
+        // 同样拒绝：未知状态**绝不能**被当成草稿重算。
+        tracing::warn!(
+            target: "cost",
+            period_code,
+            batch_no = %batch.batch_no,
+            status = %batch.status,
+            "活跃批次状态不在值域内，按锁定处理（fail closed）"
+        );
         return Err(period_locked(period_code, &batch.batch_no, &batch.status));
     }
 
@@ -524,6 +561,44 @@ mod tests {
             assert!(error.msg.contains("CS-202611-0001"), "报文要点名批次号：{}", error.msg);
             assert!(error.msg.contains("2026-11"), "报文要点名期间：{}", error.msg);
         }
+    }
+
+    /// 锁定的状态清单必须**恰好**等于「活跃批次里除 `DRAFT` 之外的那些」。
+    ///
+    /// 活跃 = `uk_biz_cost_period` 未排除的全部状态（`STATUSES` 去掉 `REVERSED` / `CANCELLED`）。
+    /// 将来往 `STATUSES` 里加一个状态（例如审批引擎改口径引入 `PENDING`），这条会红，
+    /// 逼着人回答「这个状态能不能重算」——而不是让 `ensure_batch` 悄悄把它当草稿。
+    #[test]
+    fn locked_statuses_match_the_live_set() {
+        let live_non_draft: Vec<&str> = period_dto::STATUSES
+            .iter()
+            .copied()
+            .filter(|status| *status != STATUS_DRAFT)
+            .filter(|status| !matches!(*status, period_dto::STATUS_REVERSED | period_dto::STATUS_CANCELLED))
+            .collect();
+        assert_eq!(
+            live_non_draft,
+            LOCKED_STATUSES.to_vec(),
+            "活跃但非 DRAFT 的状态必须逐个登记在 LOCKED_STATUSES 里"
+        );
+        // 红冲 / 作废**不**在锁定清单里：它们不占唯一键，calc 要能建新批次
+        for status in [period_dto::STATUS_REVERSED, period_dto::STATUS_CANCELLED] {
+            assert!(!LOCKED_STATUSES.contains(&status), "{status} 不活跃，不该被锁");
+        }
+    }
+
+    /// 值域外的状态（这次误报里的 `PENDING`）也一律 409 —— fail closed，不给「当草稿」的机会。
+    #[test]
+    fn unknown_status_fails_closed() {
+        let error = period_locked("2026-11", "CS-202611-0001", "PENDING");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::ERP_COST_PERIOD_STATUS_GUARD);
+        assert!(error.msg.contains("PENDING"), "报文要点名当前状态：{}", error.msg);
+        assert!(
+            error.msg.contains("撤回") || error.msg.contains("红冲") || error.msg.contains("作废"),
+            "未知状态的兜底文案要给出可执行动作：{}",
+            error.msg
+        );
     }
 
     /// 段名后缀**不改变**原状态码 / 业务码（前端按码分支的逻辑不能被编排层破坏）。
