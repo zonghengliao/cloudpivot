@@ -1,0 +1,26 @@
+# npx tsx --test tests/unit/hr-employee-page.test.ts   （cwd=frontend）
+# 采集时间：2026-11-12 03:31:20 CST
+ok 1 - status labels mirror employee_dto.rs::STATUS_LABELS
+ok 2 - employment type / contract type / contract status / id card / leave type labels mirror backend
+ok 3 - contract expire threshold mirrors backend CONTRACT_EXPIRE_WARN_DAYS
+ok 4 - status label / theme fall back to the raw code instead of blowing up
+ok 5 - contract status themes cover the 4 CHECK values
+ok 6 - contract expire text: 负数=已过期 / 0=今天到期 / 正数=还有 N 天
+ok 7 - isContractUrgent: ≤30 天（含已过期）才算，31 天不算
+ok 8 - serializeStatuses: 数组 → 逗号串（后端 Query 是 serde_urlencoded，重复键会被拒）
+ok 9 - buildEmployeeQuery: 空筛选只带分页、含离职只在勾了才带
+ok 10 - isEmployeeFiltered: include_resigned=false 不算「筛选过」
+ok 11 - emptyEmployeeFilter resets every key (「重置」不能留下幽灵筛选)
+ok 12 - currentSalaries / salaryHistory split by the backend `current` flag
+ok 13 - sumSalary: 整数分累加（8000 + 500.5 = 8,500.50，不出 8500.499999）
+ok 14 - formatSalaryAmount keeps 2 decimals + thousands separators
+ok 15 - textOr: null / 空白 都显示占位符（不显示 null）
+ok 16 - labelOf falls back to the code (与后端 label_of 同口径)
+ok 17 - plainValueOf 兜住 HR-13 的三种候选响应形态
+ok 18 - EMPLOYEE_COLUMNS: 设计 §6.2.1 的列齐全，操作列在最后且右侧固定
+ok 19 - page wires the two real endpoints and the pure helpers
+ok 20 - detail drawer has the three required blocks + attachment panel
+ok 21 - router registers /business/hr/employee with the menu permission code
+# tests 21
+# pass 21
+# fail 0

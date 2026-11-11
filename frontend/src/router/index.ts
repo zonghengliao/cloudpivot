@@ -755,6 +755,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '成本核算', permission: 'business:erp:cost-period:list' },
       },
       {
+        // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
+        // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
+        // `business/hr/employee/index`、权限码 `business:hr:employee:list`，
+        // 挂在「人力资源」（`…e000`）sort 10。详情是抽屉（无独立路由）。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档会当场红）。
+        path: 'business/hr/employee',
+        name: 'BusinessHrEmployee',
+        component: () => import('@/views/business/hr/employee/index.vue'),
+        meta: { title: '员工档案', permission: 'business:hr:employee:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）

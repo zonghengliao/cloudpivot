@@ -1,0 +1,129 @@
+# 采集时间：2026-11-12 03:31:08 CST
+# 后端：127.0.0.1:18023（profile=test）  库：cloudpivot_hr18demo
+# 登录：admin（super_admin，业务权限短路）
+
+## ① 列表分页：page_size=20
+{
+  "code": 0,
+  "total": 22,
+  "rows": 20,
+  "page": 1,
+  "page_size": 20,
+  "first": [
+    {
+      "emp_no": "EMP-0003",
+      "name": "王强",
+      "dept_name": "生产部",
+      "status_label": "试用期",
+      "contract_end_date": null,
+      "contract_expire_in_days": null
+    },
+    {
+      "emp_no": "EMP-0017",
+      "name": "演示员工17",
+      "dept_name": "生产部",
+      "status_label": "试用期",
+      "contract_end_date": null,
+      "contract_expire_in_days": null
+    },
+    {
+      "emp_no": "EMP-0008",
+      "name": "演示员工08",
+      "dept_name": "财务部",
+      "status_label": "试用期",
+      "contract_end_date": null,
+      "contract_expire_in_days": null
+    }
+  ]
+}
+
+## ② 第 2 页（22 人 / 20 每页 → 剩 2 条）
+{
+  "code": 0,
+  "total": 22,
+  "rows": 2,
+  "names": [
+    "李静",
+    "张伟"
+  ]
+}
+
+## ③ 筛选：关键字（工号 / 姓名 / 手机）
+  keyword=李 -> {"total":1,"names":["李静"]}
+  keyword=EMP-0002 -> {"total":1,"names":["李静"]}
+  keyword=13800138001 -> {"total":1,"names":["张伟"]}
+
+## ④ 筛选：状态多选（逗号分隔，与本页 API 层的序列化一致）
+  status=ACTIVE -> {"total":3,"statuses":["ACTIVE","ACTIVE","ACTIVE"]}
+  status=PROBATION,ACTIVE -> {"total":22,"statuses":["PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","PROBATION","ACTIVE"]}
+
+## ⑤ 筛选：部门 / 用工形式 / 含离职
+  dept_id=生产部(01a1cc10-7575-714e-a881-18c80da887cf) -> {"total":11,"names":["王强","演示员工17","演示员工07","演示员工15","演示员工05","演示员工13","演示员工21","演示员工11","演示员工19","演示员工09","张伟"]}
+  employment_type=PROBATION -> {"total":1,"names":["王强"]}
+  include_resigned=true -> {"total":22}
+
+## ⑥ 详情（张伟 EMP-0001）：49 键 + 合同 2 份（含续签链）+ 薪资 4 条（2 现行 2 历史）
+{
+  "code": 0,
+  "keys": 49,
+  "emp_no": "EMP-0001",
+  "name": "张伟",
+  "dept_name": "生产部",
+  "position_name": "车间工人",
+  "sensitive_masked": {
+    "id_card_masked": "110101****1234",
+    "bank_account_masked": "6222 **** 7890"
+  },
+  "contracts": [
+    {
+      "contract_no": "HT-2025-001",
+      "status": "ACTIVE",
+      "start_date": "2025-03-01",
+      "end_date": "2027-02-28",
+      "renewed_from_no": "HT-2022-001",
+      "expire_in_days": 108
+    },
+    {
+      "contract_no": "HT-2022-001",
+      "status": "RENEWED",
+      "start_date": "2022-03-01",
+      "end_date": "2025-02-28",
+      "renewed_from_no": null,
+      "expire_in_days": null
+    }
+  ],
+  "current_contract": "HT-2025-001",
+  "salaries": [
+    {
+      "item_name": "基本工资",
+      "amount": "8000.0000",
+      "effective_from": "2025-03-01",
+      "effective_to": null,
+      "current": true
+    },
+    {
+      "item_name": "岗位津贴",
+      "amount": "500.5000",
+      "effective_from": "2025-03-01",
+      "effective_to": null,
+      "current": true
+    },
+    {
+      "item_name": "基本工资",
+      "amount": "7000.0000",
+      "effective_from": "2022-03-01",
+      "effective_to": "2025-02-28",
+      "current": false
+    },
+    {
+      "item_name": "岗位津贴",
+      "amount": "300.0000",
+      "effective_from": "2022-03-01",
+      "effective_to": "2025-02-28",
+      "current": false
+    }
+  ]
+}
+
+## ⑦ 敏感字段明文（HR-13 未落地 → 404，页面据此给「暂不可用」提示，打码值照常）
+  GET /employee/{id}/sensitive?field=id_card -> HTTP 404

@@ -1,0 +1,13 @@
+# 提交前门禁（cwd=frontend）
+# 采集时间：2026-11-12 03:31:23 CST
+
+$ pnpm typecheck
+EXIT=0
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+
+$ pnpm build
+EXIT=0
+dist/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+✓ built in 1m 31s
