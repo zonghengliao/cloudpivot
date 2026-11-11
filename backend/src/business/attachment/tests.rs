@@ -86,15 +86,15 @@ fn claims_of(user: &str, permissions: &[&str]) -> TokenClaims {
     }
 }
 
-/// 十六类单据 → 十六张表，一一对应且不重复（FIN-3 加报销单；ATT-06 加发票 / 收款 / 盘点 / 采购退货 / 销售退货；
-/// ATT-11 加调拨单 / 供应商 / 客户 / 期初余额）。
+/// 二十一类单据 → 二十一张表，一一对应且不重复（FIN-3 加报销单；ATT-06 加发票 / 收款 / 盘点 / 采购退货 / 销售退货；
+/// ATT-11 加调拨单 / 供应商 / 客户 / 期初余额；HR 加员工 / 劳动合同 / 请假单 / 薪资单）。
 #[test]
 fn doc_kinds_cover_five_distinct_tables() {
-    assert_eq!(DocKind::ALL.len(), 17);
+    assert_eq!(DocKind::ALL.len(), 21);
     let mut tables: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.table()).collect();
     tables.sort_unstable();
     tables.dedup();
-    assert_eq!(tables.len(), 17, "十七类单据必须落在十七张不同的表上：{tables:?}");
+    assert_eq!(tables.len(), 21, "二十一类单据必须落在二十一张不同的表上：{tables:?}");
     for kind in DocKind::ALL {
         // 字面值与 DDL 的 ck_biz_doc_attachment_type 逐字一致
         assert_eq!(
@@ -130,6 +130,56 @@ fn doc_kinds_cover_five_distinct_tables() {
             .contains("voucher_type = 'OPENING'"),
         "期初余额的存在性校验必须限定 voucher_type = 'OPENING'"
     );
+}
+
+/// HR（ARCH-9-2 §3.2 ⑦ / V0389）：4 类新单据必须能上传。
+///
+/// # 这条用例守的是「词表第 5 处」
+///
+/// 设计 §8.3 R10 只点了 4 处同步（两个 DDL CHECK + `shared/doc_kind.rs` + 前端
+/// `attachment.ts`），漏了本模块的 [`DocKind`] —— 上传 DTO（`handler::UploadForm.doc_type`）
+/// 的闸就是它的 [`DocKind::parse`]。漏这一处的后果是**上传 400**（`parse` 返回 `None`），
+/// 不是 500，所以只有真调接口才看得见；HR-06 落地时 4 类附件正是这样被挡住的。
+#[test]
+fn hr_doc_kinds_parse_map_and_mirror_shared_vocabulary() {
+    // ① 4 个字面值：可解析（大小写不敏感 + 去空白）、as_str 往返、表名有值且带软删判据
+    let cases = [
+        ("EMPLOYEE", DocKind::Employee, "biz_employee"),
+        ("EMPLOYEE_CONTRACT", DocKind::EmployeeContract, "biz_employee_contract"),
+        ("LEAVE_REQUEST", DocKind::LeaveRequest, "biz_leave_request"),
+        ("SALARY_SHEET", DocKind::SalarySheet, "biz_salary_sheet"),
+    ];
+    for (raw, kind, table) in cases {
+        for input in [raw.to_string(), raw.to_ascii_lowercase(), format!(" {raw} ")] {
+            assert_eq!(DocKind::parse(&input), Some(kind), "{input} 必须可解析");
+        }
+        assert_eq!(kind.as_str(), raw, "{raw} 的 as_str 往返不一致");
+        assert_eq!(kind.table(), table, "{raw} 的表名写错了");
+        assert!(!kind.table().is_empty(), "{raw} 的 table() 不能为空");
+        assert!(!kind.label().is_empty(), "{raw} 缺少中文标签");
+        assert!(
+            kind.exists_sql().contains(table) && kind.exists_sql().contains("deleted_at IS NULL"),
+            "{raw} 的存在性 SQL 必须在 {table} 上按软删过滤：{}",
+            kind.exists_sql()
+        );
+        // 读码必须落在 hr 业务域（写成别的域 = 「有权限也 403」的哑弹）
+        for code in kind.view_permissions() {
+            assert!(code.starts_with("business:hr:"), "{raw} 的读码不在 hr 域：{code}");
+        }
+    }
+
+    // ② 与共享词表**逐字同序同值**：任一处漏改都在这里红，而不是等界面上传 400。
+    let mine: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.as_str()).collect();
+    let shared: Vec<&str> = crate::business::shared::doc_kind::ATTACHMENT_DOC_KINDS
+        .iter()
+        .map(|kind| kind.as_str())
+        .collect();
+    assert_eq!(
+        mine, shared,
+        "attachment::model::DocKind::ALL 与 shared::doc_kind::ATTACHMENT_DOC_KINDS 漂移了"
+    );
+    assert_eq!(mine.len(), 21, "HR 落地后附件单据类型应为 21 类");
+    println!("[HR] 4 类 HR 单据可解析 / 可映射表 + 与共享词表 21 值逐字一致 ✓");
 }
 
 /// 文件角色：15 个可落库值 + 空值回落 DEFAULT + 老值归一 + 未知值拒绝（ATT-04 / ATT-11）。
@@ -312,6 +362,11 @@ fn role_catalog_keeps_empty_groups_and_counts_every_item() {
     assert_eq!(codes(DocKind::StockTransfer), vec!["TRANSFER_APPROVAL", "DEFAULT"]);
     assert_eq!(codes(DocKind::OpeningBalance), vec!["OPENING_EVIDENCE", "DEFAULT"]);
     assert_eq!(codes(DocKind::Receipt), vec!["BANK_RECEIPT", "DEFAULT"]);
+    // HR（V0389）：劳动合同走合同扫描件分组；其余三类没有专用角色
+    assert_eq!(codes(DocKind::EmployeeContract), vec!["CONTRACT_SCAN", "DEFAULT"]);
+    for kind in [DocKind::Employee, DocKind::LeaveRequest, DocKind::SalarySheet] {
+        assert_eq!(codes(kind), vec!["DEFAULT"], "{} 只该有「其他附件」分组", kind.label());
+    }
 
     // ⑦ TO-DTO：file_role_label 也要用归一后的中文名（tag 与分组标题同一份词表）
     let row = fixture_row();
@@ -549,14 +604,14 @@ fn doc_not_found_message_names_the_kind() {
 
 // ---------- ATT-02：附件下载权限（纯逻辑） ----------
 
-/// ATT-02 ①：单据类型 → 模块读码的映射必须与各 ERP 模块的真实读码逐字一致。
+/// ATT-02 ①：单据类型 → 模块读码的映射必须与各模块（ERP / HR）的真实读码逐字一致。
 ///
 /// 这张表是 `dto::can_view_doc` 的唯一依据，改一个字母就会让「有权限的人 403」或
 /// 「没权限的人放行」，所以在这里钉死。库侧一致性由真库用例
 /// [`view_permissions_are_real_menu_codes`] 再兜一层（防哑弹）。
 #[test]
-fn view_permissions_map_to_erp_read_codes() {
-    let expected: [(DocKind, &[&str]); 17] = [
+fn view_permissions_map_to_module_read_codes() {
+    let expected: [(DocKind, &[&str]); 21] = [
         (DocKind::Contract, &["business:erp:contract:list"]),
         (DocKind::PurchaseOrder, &["business:erp:purchase-order:list"]),
         (
@@ -609,21 +664,44 @@ fn view_permissions_map_to_erp_read_codes() {
             DocKind::ReceiptRefund,
             &["business:erp:receipt-refund:list", "business:erp:receipt-refund:detail"],
         ),
+        // HR（ARCH-9-2 §3.2 ⑦ / V0387 菜单码）：员工 / 劳动合同 / 请假单 / 薪资单。
+        // 合同台账挂在员工详情里（没有独立的 `contract:list`），故用员工详情码 ∪ 合同管理码。
+        (
+            DocKind::Employee,
+            &["business:hr:employee:list", "business:hr:employee:detail"],
+        ),
+        (
+            DocKind::EmployeeContract,
+            &["business:hr:employee:detail", "business:hr:contract:manage"],
+        ),
+        (
+            DocKind::LeaveRequest,
+            &["business:hr:leave:list", "business:hr:leave:detail"],
+        ),
+        (
+            DocKind::SalarySheet,
+            &["business:hr:salary:list", "business:hr:salary:detail"],
+        ),
     ];
-    assert_eq!(expected.len(), DocKind::ALL.len(), "十七类单据必须全覆盖");
+    assert_eq!(expected.len(), DocKind::ALL.len(), "二十一类单据必须全覆盖");
+    // 顺序也必须逐字一致：`expected` 与 `DocKind::ALL` 同为「前端下拉顺序」，
+    // 两处顺序错位在纯逻辑上等价，但下拉会与权限表错位 —— 一起钉死。
+    let expected_order: Vec<DocKind> = expected.iter().map(|(kind, _)| *kind).collect();
+    assert_eq!(expected_order, DocKind::ALL.to_vec(), "权限表的单据顺序漂移了");
     for (kind, codes) in expected {
         assert_eq!(kind.view_permissions(), codes, "{} 的模块读码漂移了", kind.label());
         for code in codes {
-            // 形态 `business:erp:{资源}:{动作}`（模块前缀本身带冒号），且全小写
+            // 形态 `business:{模块}:{资源}:{动作}`（模块前缀本身带冒号），且全小写。
+            // GET 详情路由也有挂 `:list` 的模块，所以前缀只能是 erp / hr 两个已知业务域。
             assert!(
-                code.starts_with("business:erp:") && code.split(':').count() >= 4,
+                (code.starts_with("business:erp:") || code.starts_with("business:hr:")) && code.split(':').count() >= 4,
                 "权限码形态不对：{code}（{}）",
                 kind.label()
             );
             assert_eq!(*code, code.to_ascii_lowercase(), "权限码必须小写：{code}");
         }
     }
-    println!("[ATT-02] 七类单据 → 模块读码一一对应 ✓");
+    println!("[ATT-02] 二十一类单据 → 模块读码一一对应 ✓");
 }
 
 /// ATT-02 ②：`can_view_doc` 的真值表 —— 只认「该模块的读码」。

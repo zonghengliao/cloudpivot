@@ -74,6 +74,14 @@ pub const DOC_CUSTOMER: &str = "CUSTOMER";
 pub const DOC_OPENING_BALANCE: &str = "OPENING_BALANCE";
 /// 单据类型：收款退款单（NEAR-FIX-1 / V0368：退款凭据 —— 银行付款回单 / 客户签收的退款确认）。
 pub const DOC_RECEIPT_REFUND: &str = "RECEIPT_REFUND";
+/// 单据类型：员工（HR：证件 / 学历证明 / 体检报告；`doc_id` = `biz_employee.id`）。
+pub const DOC_EMPLOYEE: &str = "EMPLOYEE";
+/// 单据类型：劳动合同（HR D-5：签订 / 续签必传扫描件）。
+pub const DOC_EMPLOYEE_CONTRACT: &str = "EMPLOYEE_CONTRACT";
+/// 单据类型：请假单（HR：病假诊断书 / 产假证明等请假证明）。
+pub const DOC_LEAVE_REQUEST: &str = "LEAVE_REQUEST";
+/// 单据类型：薪资单（HR：工资表签字扫描件，建议传、不硬拦）。
+pub const DOC_SALARY_SHEET: &str = "SALARY_SHEET";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
@@ -227,6 +235,14 @@ pub enum DocKind {
     OpeningBalance,
     /// 收款退款单 → `biz_receipt_refund`（V0368：退款凭据；钱往外走，审计要求比收款更高）
     ReceiptRefund,
+    /// 员工 → `biz_employee`（HR：主数据，证件 / 学历证明 / 体检报告）
+    Employee,
+    /// 劳动合同 → `biz_employee_contract`（HR D-5：签订 / 续签必传扫描件）
+    EmployeeContract,
+    /// 请假单 → `biz_leave_request`（HR：请假证明；**单据**，走审批）
+    LeaveRequest,
+    /// 薪资单 → `biz_salary_sheet`（HR：工资表签字扫描件；**单据**，走审批）
+    SalarySheet,
 }
 
 impl DocKind {
@@ -235,7 +251,13 @@ impl DocKind {
     /// ATT-06 从 7 类扩到 12 类：新增 `INVOICE` / `RECEIPT` / `STOCK_TAKE` /
     /// `PURCHASE_RETURN` / `SALES_RETURN`，与 `V0347` 放宽后的
     /// `ck_biz_doc_attachment_type` 逐字对应。
-    pub const ALL: [DocKind; 17] = [
+    ///
+    /// HR（ARCH-9-2 §3.2 ⑦ / V0389）从 17 类扩到 21 类：**只 4 类** ——
+    /// 员工 / 劳动合同 / 请假单 / 薪资单。考勤批次没有附件口径（考勤是导入台账，
+    /// 依据是 Excel 原件，走导入任务留痕），DDL 的 CHECK 也只放宽到这 4 个值。
+    /// 顺序与 `shared::doc_kind::ATTACHMENT_DOC_KINDS` 逐字一致：追加在末尾，不插中间
+    /// （前端的 `ATTACHMENT_DOC_TYPES` 同序）。
+    pub const ALL: [DocKind; 21] = [
         DocKind::Contract,
         DocKind::PurchaseOrder,
         DocKind::StockIn,
@@ -255,6 +277,11 @@ impl DocKind {
         DocKind::OpeningBalance,
         // NEAR-FIX-1 / V0368：退款凭据（V0368 把 CHECK 放宽到 17 值；追加在末尾与前端词表一致）
         DocKind::ReceiptRefund,
+        // 人力资源（V0389 把 CHECK 放宽到 21 值）：员工 / 劳动合同 / 请假单 / 薪资单
+        DocKind::Employee,
+        DocKind::EmployeeContract,
+        DocKind::LeaveRequest,
+        DocKind::SalarySheet,
     ];
 
     /// 解析单据类型（大小写不敏感、去空白）。
@@ -285,6 +312,11 @@ impl DocKind {
             DOC_CUSTOMER => Some(DocKind::Customer),
             DOC_OPENING_BALANCE => Some(DocKind::OpeningBalance),
             DOC_RECEIPT_REFUND => Some(DocKind::ReceiptRefund),
+            // 人力资源（ARCH-9-2 §3.2 ⑦ / V0389）：4 类
+            DOC_EMPLOYEE => Some(DocKind::Employee),
+            DOC_EMPLOYEE_CONTRACT => Some(DocKind::EmployeeContract),
+            DOC_LEAVE_REQUEST => Some(DocKind::LeaveRequest),
+            DOC_SALARY_SHEET => Some(DocKind::SalarySheet),
             _ => None,
         }
     }
@@ -309,6 +341,10 @@ impl DocKind {
             DocKind::Customer => DOC_CUSTOMER,
             DocKind::OpeningBalance => DOC_OPENING_BALANCE,
             DocKind::ReceiptRefund => DOC_RECEIPT_REFUND,
+            DocKind::Employee => DOC_EMPLOYEE,
+            DocKind::EmployeeContract => DOC_EMPLOYEE_CONTRACT,
+            DocKind::LeaveRequest => DOC_LEAVE_REQUEST,
+            DocKind::SalarySheet => DOC_SALARY_SHEET,
         }
     }
 
@@ -332,6 +368,10 @@ impl DocKind {
             DocKind::Customer => "客户",
             DocKind::OpeningBalance => "期初余额",
             DocKind::ReceiptRefund => "收款退款单",
+            DocKind::Employee => "员工",
+            DocKind::EmployeeContract => "劳动合同",
+            DocKind::LeaveRequest => "请假单",
+            DocKind::SalarySheet => "薪资单",
         }
     }
 
@@ -356,6 +396,11 @@ impl DocKind {
             // 期初余额没有单头表：锚点是期初凭证（`voucher_type = 'OPENING'`）
             DocKind::OpeningBalance => "biz_voucher",
             DocKind::ReceiptRefund => "biz_receipt_refund",
+            // HR（V0383 建表）：4 类各有一张单头表 / 主数据表
+            DocKind::Employee => "biz_employee",
+            DocKind::EmployeeContract => "biz_employee_contract",
+            DocKind::LeaveRequest => "biz_leave_request",
+            DocKind::SalarySheet => "biz_salary_sheet",
         }
     }
 
@@ -392,6 +437,13 @@ impl DocKind {
             }
             // V0368：退款单是标准软删单头表
             DocKind::ReceiptRefund => "SELECT 1 FROM biz_receipt_refund WHERE id = ?::uuid AND deleted_at IS NULL",
+            // HR（V0383 建表）：4 张表都有软删列，判据同其它单据
+            DocKind::Employee => "SELECT 1 FROM biz_employee WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::EmployeeContract => {
+                "SELECT 1 FROM biz_employee_contract WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            DocKind::LeaveRequest => "SELECT 1 FROM biz_leave_request WHERE id = ?::uuid AND deleted_at IS NULL",
+            DocKind::SalarySheet => "SELECT 1 FROM biz_salary_sheet WHERE id = ?::uuid AND deleted_at IS NULL",
         }
     }
 
@@ -446,6 +498,13 @@ impl DocKind {
             DocKind::OpeningBalance => &["business:erp:opening:read"],
             // V0368：退款单有自己的 GET 详情路由（`GET /receipt-refund/{id}` 挂 `:detail`）
             DocKind::ReceiptRefund => &["business:erp:receipt-refund:list", "business:erp:receipt-refund:detail"],
+            // HR（V0387 菜单码，`view_permissions_are_real_menu_codes` 真库逐个回查）：
+            //  - 劳动合同台账挂在员工详情里（没有独立的 contract:list），故用员工详情码 ∪ 合同管理码；
+            //  - 请假单 / 薪资单各有自己的列表与详情路由。
+            DocKind::Employee => &["business:hr:employee:list", "business:hr:employee:detail"],
+            DocKind::EmployeeContract => &["business:hr:employee:detail", "business:hr:contract:manage"],
+            DocKind::LeaveRequest => &["business:hr:leave:list", "business:hr:leave:detail"],
+            DocKind::SalarySheet => &["business:hr:salary:list", "business:hr:salary:detail"],
         }
     }
 }
@@ -579,6 +638,11 @@ impl FileRole {
             DocKind::Customer => &[BizLicense, CreditFile, Default],
             // V0368：退款凭据 = 银行付款回单（与收款单同一组角色；退款确认书归「其他附件」）
             DocKind::ReceiptRefund => &[BankReceipt, Default],
+            // HR（V0389）：劳动合同的扫描件走 `CONTRACT_SCAN` 分组（与前端 `DEFAULT_ROLE_BY_DOC`
+            // 的 `EMPLOYEE_CONTRACT: 'CONTRACT_SCAN'` 同口径）；员工证件 / 请假证明 / 工资表
+            // 签字页在分栏词表里没有专用角色，统一进「其他附件」。
+            DocKind::EmployeeContract => &[ContractScan, Default],
+            DocKind::Employee | DocKind::LeaveRequest | DocKind::SalarySheet => &[Default],
         }
     }
 

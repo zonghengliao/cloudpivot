@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 14 tests
+test business::attachment::rule_admin::tests::ensure_super_admin_accepts_role_or_wildcard ... ok
+test business::attachment::rule_admin::tests::options_come_from_enums ... ok
+test business::attachment::rule_admin::tests::parse_condition_blocks_dangerous_fragments ... ok
+test business::attachment::rule_admin::tests::parse_allow_exts_rejects_junk ... ok
+test business::attachment::rule_admin::tests::permission_codes_are_stable ... ok
+test business::attachment::rule_admin::tests::parse_file_role_normalizes_and_rejects ... ok
+test business::attachment::rule_admin::tests::to_item_mirrors_gate_requirement_text ... ok
+test business::attachment::rule_admin::tests::validate_normalizes_every_field ... ok
+test business::attachment::rule_admin::tests::validate_rejects_impossible_counts ... ok
+test business::attachment::rule_admin::tests::validate_rejects_overlong_remark ... ok
+test business::attachment::rule_admin::tests::validate_rejects_unknown_enums_with_readable_message ... ok
+test business::attachment::rule_admin::tests::duplicate_insert_is_unique_violation ... ok
+test business::attachment::rule_admin::tests::admin_crud_roundtrip_takes_effect_immediately ... ok
+test business::attachment::rule_admin::tests::seed_rules_are_visible ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 4834 filtered out; finished in 1.16s
+

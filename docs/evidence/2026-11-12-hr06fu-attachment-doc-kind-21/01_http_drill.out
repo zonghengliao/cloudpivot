@@ -1,0 +1,27 @@
+=== 0) 夹具：4 张 HR 表各一行（org/dept 用弱引用假 UUID）===
+fixture rc=0
+
+=== 1) 登录 ===
+token 长度 461
+探针文件字节数：69
+
+=== 2) 四类 HR 附件上传（期望：不再是 doc_type 400）===
+  EMPLOYEE -> HTTP 200 | code=0 msg=ok id=01a1cbe0-1eef-7179-af77-77445584a073
+  EMPLOYEE_CONTRACT -> HTTP 200 | code=0 msg=ok id=01a1cbe0-1f1f-72c0-a899-0f9c81914745
+  LEAVE_REQUEST -> HTTP 200 | code=0 msg=ok id=01a1cbe0-1f45-70b7-940d-59b44a0f7d08
+  SALARY_SHEET -> HTTP 200 | code=0 msg=ok id=01a1cbe0-1f66-7693-a9f8-1387dc3c0e0a
+
+=== 3) 反例：未知 doc_type 仍然 400（parse 闸没被放松）===
+  BOGUS_DOC -> HTTP 400 | {"code":10001,"msg":"单据类型 doc_type 非法：BOGUS_DOC（可选 CONTRACT / PURCHASE_ORDER / STOCK_IN / PAYABLE / PAYMENT / FIXED_ASSET / EXPENSE_REPORT / INVOICE / RECEIPT / STOCK_TAKE / PURCHASE_RETURN / SALES_RETURN / STOCK_TRANSFER / SUPPLIER / CUSTOMER / OPENING_BALANCE / RECEIPT_REFUND /
+
+=== 4) 反例：已软删的员工不能再挂附件（404，deleted_at 判据生效）===
+  软删后 EMPLOYEE -> HTTP 404 | {"code":10002,"msg":"员工不存在或已删除，无法挂附件"}
+
+=== 5) 落库回查 ===
+EMPLOYEE|1
+EMPLOYEE_CONTRACT|1
+LEAVE_REQUEST|1
+SALARY_SHEET|1
+
+=== 结论 ===
+✅ 四类 HR 附件全部上传成功（HTTP 200）
