@@ -395,6 +395,7 @@ export const VOUCHER_SOURCE_TYPES = [
   'RECEIPT_REFUND',
   'INVOICE',
   'COMMISSION',
+  'COST_PERIOD',
 ] as const;
 
 /** 凭证来源（联合类型）。 */
@@ -421,6 +422,7 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   RECEIPT_REFUND: '收款退款过账',
   INVOICE: '发票开票',
   COMMISSION: '佣金结算',
+  COST_PERIOD: '成本核算结算',
 };
 
 // ==================== ⑥ 序列号来源 ====================

@@ -447,6 +447,8 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     -- 销售链 SO-36：佣金结算生成两张凭证（计提 借5601/贷2241.02；发放 借2241.02/贷1002），
     -- 两张都挂同一结算单（source_no = CM-… 结算单号）
     ('VOUCHER_SOURCE', 'COMMISSION',           'biz_commission_settlement', 'deleted_at', '佣金结算生成（销售链 SO-36）：source_id = 结算单 id，见 commission_handler::write_commission_voucher'),
+    -- 成本核算（ARCH-9）：结算批次的 3–4 张凭证（人工计提 / 制造费用结转 / 完工入库结转）都挂同一批次
+    ('VOUCHER_SOURCE', 'COST_PERIOD',          'biz_cost_period',        'deleted_at', '成本核算结算生成（ARCH-9 §4.8，VTRACE-3 补登）：source_id = 结算批次 id，见 cost_settle_voucher'),
     -- ② 库存流水来源单据：biz_inventory_txn.doc_type + doc_id
     ('TXN_DOC', 'STOCK_IN',        'biz_stock_in',        'deleted_at', '收货过账的流水'),
     ('TXN_DOC', 'STOCK_OUT',       'biz_stock_out',       'deleted_at', '出库过账的流水'),

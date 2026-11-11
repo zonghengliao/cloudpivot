@@ -19,6 +19,7 @@
 //! |------|------|--------|------|
 //! | GET | `/business/erp/voucher/page` | `business:erp:voucher:list` | 分页（期间 / 状态 / 凭证类型 / 来源类型 / 凭证号） |
 //! | GET | `/business/erp/voucher/{id}` | `business:erp:voucher:detail` | 详情 + **全部分录**（科目编码 / 名称已快照在分录行上） |
+//! | GET | `/business/erp/voucher/by-source` | `business:erp:voucher:list` | **按来源单据反查**该单据产生的全部凭证（含红字，记账时间倒序） |
 //!
 //! # 只读，不改任何账
 //!
@@ -34,6 +35,24 @@
 //!    凭证**默认展示全部状态**（列表是账务人员的核对入口，草稿也要看得见）；
 //!    「只算 POSTED」是**总账 / 余额表**的口径（见 [`crate::business::erp::ledger`]），不是列表的口径。
 //! 3. **`voucher_no` 是模糊匹配**（`LIKE %x%`）：精确号也在其中，前端搜索框直接可用。
+//!
+//! # 按来源单据反查（VTRACE-3）
+//!
+//! `GET /business/erp/voucher/by-source?source_type=&source_id=` 回答的是
+//! **「这张业务单据产生过哪些凭证」**（前端「查看凭证 (N)」按钮与全链路视图的数据源）：
+//!
+//! - 返回**全部**凭证，红字也在内（红冲后原凭证 + 红字凭证两条都能看到）；
+//! - 按 `posted_at DESC NULLS LAST, created_at DESC` 排（最新一笔在最前）；
+//! - **空结果返回 `[]`，不是 404**：没生成过凭证是正常业务状态（未记账 / 只建单），
+//!   前端据此决定按钮显示与否；404 会让「查不到」和「单据不存在」两件事混在一起。
+//! - `source_type` 必须在 [`crate::business::shared::doc_kind::VoucherSourceType`] 值域内，
+//!   非法值 **400**（静默返回空数组 = 让前端以为「这张单没凭证」，是静默错数据，与
+//!   `status` / `voucher_type` 的校验口径一致）。
+//!
+//! 与单张版 [`crate::business::erp::voucher::find_voucher_by_source`] 的关系：
+//! 那个函数是过账幂等 / 红冲前置检查用的闸（`is_red = 0` + `LIMIT 1`，只回答「有没有」），
+//! 本接口要的是清单（含红字 + 关联红冲凭证号），所以走本模块的 `HEADER_COLUMNS`；
+//! 两者的口径一致性由真库单测 `vtrace3_by_source_agrees_with_find_voucher_by_source` 钉住。
 //!
 //! # 详情的一致性闸：分录合计必须等于单头合计
 //!
@@ -55,6 +74,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::model::normalize_page;
+use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::shared::error_code;
 use crate::utils;
@@ -185,6 +205,39 @@ impl VoucherPageQuery {
             return Err(bad_request(format!("period 必须是 yyyy-MM，收到「{period}」")));
         }
         Ok(())
+    }
+}
+
+/// 按来源单据反查的 Query（VTRACE-3）：`?source_type=STOCK_IN&source_id=<uuid>`。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct VoucherBySourceQuery {
+    /// 来源单据类型（`biz_voucher.source_type`，必须在 [`VoucherSourceType`] 值域内）。
+    pub source_type: Option<String>,
+    /// 来源单据 id（`biz_voucher.source_id`，UUID）。
+    pub source_id: Option<String>,
+}
+
+impl VoucherBySourceQuery {
+    /// 入参校验 → 规整后的 `(source_type, source_id)`。
+    ///
+    /// 三处都是 **400**（不是「静默查空」）：
+    /// - `source_type` 空 → 让调用方知道参数没传（否则会查出一个空数组，看着像「这单没凭证」）；
+    /// - `source_type` 不在值域 → 列全值域，照抄就能改对；
+    /// - `source_id` 不是 UUID → 与 [`parse_uuid`] 同一口径。
+    pub fn validate(&self) -> std::result::Result<(String, Uuid), ApiError> {
+        let source_type = self.source_type.as_deref().map(str::trim).unwrap_or("");
+        if source_type.is_empty() {
+            return Err(bad_request("source_type 不能为空"));
+        }
+        let Some(kind) = VoucherSourceType::parse(source_type) else {
+            return Err(bad_request(format!(
+                "source_type 只允许 {}，收到「{source_type}」",
+                VoucherSourceType::ALL.map(VoucherSourceType::as_str).join(" / ")
+            )));
+        };
+        let source_id = parse_uuid(self.source_id.as_deref().unwrap_or(""), "source_id")?;
+        Ok((kind.as_str().to_string(), source_id))
     }
 }
 
@@ -611,6 +664,37 @@ pub async fn find_voucher(id: Uuid) -> DbResult<Option<VoucherRow>> {
     row.as_ref().map(VoucherRow::from_row).transpose()
 }
 
+/// 按来源单据取**该单据产生的全部凭证**（含红字），记账时间倒序（VTRACE-3）。
+///
+/// 「全部」是有意的：红冲之后，一张单据在账上就是**两条**凭证（原凭证 `status` 仍为
+/// `POSTED` 但 `reversed_by` 有值 + 一张 `is_red = 1` 的红字凭证），前端要把两条都列出来，
+/// 才解释得清「这笔业务被红冲了」。所以这里**不过滤 `is_red`、不 `LIMIT`**。
+///
+/// 排序：`posted_at DESC NULLS LAST`（未记账的草稿排在已记账之后）+ `created_at DESC` 兜底
+/// —— 同一秒内建的凭证也要有稳定顺序（`voucher_no DESC`），否则列表每次刷新都换位置。
+///
+/// 与 [`crate::business::erp::voucher::find_voucher_by_source`] 的分工在模块文档里：
+/// 那个是「有没有」的闸（`is_red = 0` + `LIMIT 1`），本函数是「有哪些」的清单；
+/// 两者共用 `idx_biz_voucher_source (source_type, source_id)`（V0149:80）。
+///
+/// 只要 id 的同类取数（固定资产处置 / 折旧的「N 张凭证」）见
+/// [`crate::business::erp::asset_model::voucher_ids_of_source`] —— 它不返回行内容，本函数才返回。
+pub async fn vouchers_by_source(source_type: &str, source_id: Uuid) -> DbResult<Vec<VoucherRow>> {
+    // SCOPE-EXEMPT: biz_voucher 是会计台账（V0149 无 dept_id / 归属人列），可见性由权限码控制。
+    let sql = format!(
+        "SELECT {HEADER_COLUMNS} FROM {TABLE} \
+          WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL \
+          ORDER BY posted_at DESC NULLS LAST, created_at DESC, voucher_no DESC"
+    );
+    let rows = db()
+        .find_with_params(
+            &sql,
+            vec![Value::Text(source_type.to_string()), Value::from(&source_id)],
+        )
+        .await?;
+    rows.iter().map(VoucherRow::from_row).collect()
+}
+
 /// 某张凭证的全部分录（`line_no` 升序）。
 pub async fn entries_of(voucher_id: Uuid) -> DbResult<Vec<VoucherEntryRow>> {
     let sql = format!("SELECT {ENTRY_COLUMNS} FROM {ENTRY_TABLE} WHERE voucher_id = ?::uuid ORDER BY line_no");
@@ -697,6 +781,23 @@ pub async fn voucher_page_handler(Query(query): Query<VoucherPageQuery>) -> ResR
 pub async fn voucher_detail_handler(Path(id): Path<String>) -> ResResult<VoucherDetailRes> {
     let id = parse_uuid(&id, "id")?;
     Ok(Res::ok(voucher_detail(id).await?))
+}
+
+/// 按来源单据反查凭证（VTRACE-3）：该单据产生的**全部**凭证（含红字），记账时间倒序。
+///
+/// 空结果返回 `[]`（不是 404）：没生成过凭证是正常业务状态。
+#[nik::permission(
+    path = "/business/erp/voucher/by-source",
+    method = "GET",
+    permission = "business:erp:voucher:list"
+)]
+#[nik::get("/business/erp/voucher/by-source")]
+pub async fn voucher_by_source_handler(Query(query): Query<VoucherBySourceQuery>) -> ResResult<Vec<VoucherRes>> {
+    let (source_type, source_id) = query.validate()?;
+    let rows = vouchers_by_source(&source_type, source_id)
+        .await
+        .map_err(|error| utils::db_error(error, "按来源单据反查凭证"))?;
+    Ok(Res::ok(rows.iter().map(VoucherRes::from_row).collect()))
 }
 
 /// 路径里的 UUID：非法 → `400 + 66006`（绝不静默当作「没传」）。
@@ -1118,6 +1219,209 @@ pub(crate) mod tests {
         assert!(json["reverse_reason"].is_null());
     }
 
+    // ==================== VTRACE-3：按来源单据反查凭证 ====================
+
+    /// 反查夹具：一张业务单据（[`BY_SOURCE_ID`]）产生**蓝字 + 红字**两张凭证。
+    ///
+    /// 与 [`setup`] 的 6 张 P2D1 夹具的区别：那边 `source_id` 全是 NULL（它们测的是列表/详情，
+    /// 不需要来源），本夹具给同一 `source_id` 挂两张，专门测「红冲后能不能看到两条」。
+    const BY_SOURCE_ID: &str = "d2d10002-0000-4000-8000-0000000000a1";
+    /// 蓝字凭证（先记账）。
+    const BY_SOURCE_BLUE: &str = "d2d10002-0000-4000-8000-0000000000b1";
+    /// 红字凭证（红冲蓝字，晚一天记账）。
+    const BY_SOURCE_RED: &str = "d2d10002-0000-4000-8000-0000000000b2";
+
+    /// 建反查夹具（先按 `voucher_word` 清上一轮，重复跑不积累）。
+    async fn seed_by_source_fixture() {
+        exec("DELETE FROM biz_voucher WHERE voucher_word = 'P2D1V'").await;
+        // ① 蓝字：`posted_at` 2026-10-20，`reversed_by` 指回红字。
+        exec(&format!(
+            "INSERT INTO biz_voucher (id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
+             source_type, source_id, source_no, source_doc_no, summary, total_debit, total_credit, \
+             entry_count, status, is_red, reverse_of, reversed_by, posted_at) \
+             VALUES ('{BY_SOURCE_BLUE}', 'P2D1V', 'P2D1V-0001', '2026-10', '2026-10-20', 'AUTO', \
+                     'STOCK_IN', '{BY_SOURCE_ID}', 'IN-P2D1V', 'PO-P2D1V', 'P2D1V 蓝字', 100, 100, \
+                     2, 'POSTED', 0, NULL, '{BY_SOURCE_RED}', '2026-10-20 09:00:00+00')"
+        ))
+        .await;
+        // ② 红字：`posted_at` 2026-10-21（更晚 ⇒ 倒序时排第一），`reverse_of` 指回蓝字。
+        exec(&format!(
+            "INSERT INTO biz_voucher (id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
+             source_type, source_id, source_no, source_doc_no, summary, total_debit, total_credit, \
+             entry_count, status, is_red, reverse_of, reversed_by, posted_at) \
+             VALUES ('{BY_SOURCE_RED}', 'P2D1V', 'P2D1V-0002', '2026-10', '2026-10-21', 'AUTO', \
+                     'STOCK_IN', '{BY_SOURCE_ID}', 'IN-P2D1V', 'PO-P2D1V', 'P2D1V 红字', 100, 100, \
+                     2, 'POSTED', 1, '{BY_SOURCE_BLUE}', NULL, '2026-10-21 09:00:00+00')"
+        ))
+        .await;
+    }
+
+    /// ㉖ 按来源反查：**红冲后原凭证 + 红字凭证都要返回**，记账时间倒序。
+    #[tokio::test]
+    async fn vtrace3_by_source_returns_blue_and_red_vouchers() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        seed_by_source_fixture().await;
+        let rows = vouchers_by_source("STOCK_IN", uid(BY_SOURCE_ID))
+            .await
+            .expect("按来源反查");
+        assert_eq!(rows.len(), 2, "同一单据应返回蓝字 + 红字两张凭证");
+        // 红字记账更晚 ⇒ 排第一。
+        assert_eq!(rows[0].voucher_no, "P2D1V-0002", "记账时间倒序：红字在前");
+        assert_eq!(rows[0].is_red, 1, "第一行应是红字凭证");
+        assert_eq!(rows[0].reverse_of, Some(uid(BY_SOURCE_BLUE)));
+        assert_eq!(
+            rows[0].reverse_of_no.as_deref(),
+            Some("P2D1V-0001"),
+            "红字要能带出被红冲的凭证号"
+        );
+        assert_eq!(rows[0].status, "POSTED");
+        // 原凭证：状态仍 POSTED，但 `reversed_by_no` 说明它被红冲了。
+        assert_eq!(rows[1].voucher_no, "P2D1V-0001");
+        assert_eq!(rows[1].is_red, 0);
+        assert_eq!(
+            rows[1].reversed_by_no.as_deref(),
+            Some("P2D1V-0002"),
+            "原凭证要能带出红冲凭证号"
+        );
+        assert_eq!(rows[1].source_no.as_deref(), Some("IN-P2D1V"));
+        assert_eq!(rows[1].source_doc_no.as_deref(), Some("PO-P2D1V"));
+        assert!(
+            rows[0].posted_at.unwrap() > rows[1].posted_at.unwrap(),
+            "倒序断言：红字 posted_at 必须晚于蓝字"
+        );
+        // API DTO 映射：`is_red` / `status` / 两个关联凭证号都要出现在 JSON 里。
+        let res = VoucherRes::from_row(&rows[0]);
+        let json = serde_json::to_value(&res).expect("序列化");
+        assert_eq!(json["is_red"], serde_json::json!(true));
+        assert_eq!(json["status"], serde_json::json!("POSTED"));
+        assert_eq!(json["reverse_of_no"], serde_json::json!("P2D1V-0001"));
+        println!("[VTRACE-3] 按来源反查：蓝字 + 红字 2 张、倒序、关联号齐全 ✓");
+    }
+
+    /// ㉗ 按来源反查：单据没生成过凭证 → **空数组**（不是报错 / 不是 404）。
+    #[tokio::test]
+    async fn vtrace3_by_source_empty_when_no_voucher() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        seed_by_source_fixture().await;
+        let rows = vouchers_by_source("STOCK_IN", uid("d2d10002-0000-4000-8000-0000000000ff"))
+            .await
+            .expect("没有凭证不是错误");
+        assert!(
+            rows.is_empty(),
+            "未生成凭证的单据必须返回空数组，实际 {} 行",
+            rows.len()
+        );
+        // 换一个真实的来源类型、但该类型下没有这个 id 的凭证：同样是空数组。
+        let rows = vouchers_by_source("COST_PERIOD", uid(BY_SOURCE_ID))
+            .await
+            .expect("按类型隔离查询");
+        assert!(
+            rows.is_empty(),
+            "来源类型是过滤条件之一（STOCK_IN 的凭证不该出现在 COST_PERIOD 下）"
+        );
+        println!("[VTRACE-3] 无凭证 → 空数组 ✓");
+    }
+
+    /// ㉘ 按来源反查：非法 / 缺失 / 非 UUID 的入参一律 **400**（不静默查空）。
+    #[test]
+    fn vtrace3_by_source_query_validation() {
+        let base = VoucherBySourceQuery {
+            source_type: Some("STOCK_IN".to_string()),
+            source_id: Some(BY_SOURCE_ID.to_string()),
+        };
+        let (kind, id) = base.validate().expect("合法入参应通过");
+        assert_eq!(kind, "STOCK_IN");
+        assert_eq!(id, uid(BY_SOURCE_ID));
+
+        // ① 非法 source_type（值域外的字面量）→ 400 + 10001。
+        let err = VoucherBySourceQuery {
+            source_type: Some("PURCHASE_IN".to_string()),
+            source_id: Some(BY_SOURCE_ID.to_string()),
+        }
+        .validate()
+        .expect_err("值域外的 source_type 必须 400");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(err.msg.contains("PURCHASE_IN"), "消息要带回入参：{}", err.msg);
+        assert!(
+            err.msg.contains("COST_PERIOD"),
+            "消息要列出完整值域（含 VTRACE-3 补登的 COST_PERIOD）：{}",
+            err.msg
+        );
+
+        // ② 空 / 只有空白 → 400（不能当成「不过滤」）。
+        for raw in ["", "   ", " "] {
+            let err = VoucherBySourceQuery {
+                source_type: Some(raw.to_string()),
+                source_id: Some(BY_SOURCE_ID.to_string()),
+            }
+            .validate()
+            .expect_err("空 source_type 必须 400");
+            assert_eq!(err.status, 400);
+            assert!(err.msg.contains("source_type"), "{}", err.msg);
+        }
+        let err = VoucherBySourceQuery {
+            source_type: None,
+            source_id: Some(BY_SOURCE_ID.to_string()),
+        }
+        .validate()
+        .expect_err("缺 source_type 必须 400");
+        assert_eq!(err.status, 400);
+
+        // ③ source_id 不是 UUID → 400（与 `parse_uuid` 同口径）。
+        for raw in ["", "not-a-uuid", "d2d10002-0000-4000-8000"] {
+            let err = VoucherBySourceQuery {
+                source_type: Some("STOCK_IN".to_string()),
+                source_id: Some(raw.to_string()),
+            }
+            .validate()
+            .expect_err("非法 source_id 必须 400");
+            assert_eq!(err.status, 400);
+            assert!(err.msg.contains("source_id"), "{}", err.msg);
+        }
+        // ④ 值域内 20 种全部能通过（含 VTRACE-3 补登的 COST_PERIOD）。
+        for kind in VoucherSourceType::ALL {
+            let query = VoucherBySourceQuery {
+                source_type: Some(kind.as_str().to_string()),
+                source_id: Some(BY_SOURCE_ID.to_string()),
+            };
+            assert_eq!(query.validate().expect("值域内取值应通过").0, kind.as_str());
+        }
+        assert_eq!(
+            VoucherSourceType::ALL.len(),
+            20,
+            "值域是 20 种（VTRACE-3 补了 COST_PERIOD）"
+        );
+        println!("[VTRACE-3] 入参校验：非法值 / 空值 / 非 UUID 全部 400，20 种合法值全通过 ✓");
+    }
+
+    /// ㉙ 与单张版 `voucher::find_voucher_by_source` 的口径一致（防止两条查询逐渐漂开）。
+    #[tokio::test]
+    async fn vtrace3_by_source_agrees_with_find_voucher_by_source() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        seed_by_source_fixture().await;
+        let single = crate::business::erp::voucher::find_voucher_by_source(db(), "STOCK_IN", uid(BY_SOURCE_ID))
+            .await
+            .expect("单张反查失败")
+            .expect("应能查到蓝字凭证");
+        let rows = vouchers_by_source("STOCK_IN", uid(BY_SOURCE_ID))
+            .await
+            .expect("按来源反查");
+        let first_blue = rows.iter().find(|row| row.is_red == 0).expect("清单里应有蓝字");
+        assert_eq!(
+            first_blue.id, single.id,
+            "清单里的蓝字凭证必须与 find_voucher_by_source 返回的同一条"
+        );
+        assert_eq!(first_blue.voucher_no, single.voucher_no);
+        println!("[VTRACE-3] 与 find_voucher_by_source 口径一致 ✓");
+    }
+
     /// ㉕ 收尾清场：本模块的**科目夹具**（`P2D1A` / `P2D1B`）必须删掉（t_06c528fc）。
     ///
     /// `ledger` 与 `voucher_query` 共用这套夹具；科目没有分类行，留在共享库里会让
@@ -1128,6 +1432,10 @@ pub(crate) mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
+        // VTRACE-3 的反查夹具（`P2D1V` 两张）
+        db().execute_with_params("DELETE FROM biz_voucher WHERE voucher_word = 'P2D1V'", vec![])
+            .await
+            .expect("清场删反查夹具失败");
         db().execute_with_params("DELETE FROM biz_account WHERE account_code LIKE 'P2D1%'", vec![])
             .await
             .expect("清场删夹具科目失败");

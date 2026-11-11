@@ -1013,11 +1013,21 @@ pub enum VoucherSourceType {
     /// `source_id` = `biz_commission_settlement.id`、`source_no` = 结算单号（`CM-…`）：
     /// 一次结算出两张凭证（计提 / 发放），两张都挂同一结算单，靠摘要与科目区分。
     Commission,
+    /// 成本核算结算（期间结算批次过账：人工计提 / 制造费用结转 / 完工入库结转，ARCH-9 §4.8）。
+    ///
+    /// `source_id` = `biz_cost_period.id`（结算批次）、`source_no` = 批次号（`CS-yyyyMM-NNNN`）。
+    /// 一次结算出 3–4 张凭证，全部挂同一批次（见 `cost_settle_voucher`）。
+    ///
+    /// **2026-11-11 补登（VTRACE-3）**：本值由 `cost_settle_voucher::SOURCE_TYPE_COST_PERIOD`
+    /// 直接落库（该模块先于本枚举落地，枚举里当时没有这一项），
+    /// 导致「按来源反查凭证」的接口在校验 source_type 时会把真实的结算凭证判成非法值。
+    /// 补进来之后 `VOUCHER_SOURCE_VALUES` / 巡检登记表 / 前端 `doc-kinds.ts` 同步补齐。
+    CostPeriod,
 }
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 19] = [
+    pub const ALL: [VoucherSourceType; 20] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -1037,6 +1047,7 @@ impl VoucherSourceType {
         VoucherSourceType::ReceiptRefund,
         VoucherSourceType::Invoice,
         VoucherSourceType::Commission,
+        VoucherSourceType::CostPeriod,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -1061,6 +1072,7 @@ impl VoucherSourceType {
             VoucherSourceType::ReceiptRefund => "RECEIPT_REFUND",
             VoucherSourceType::Invoice => "INVOICE",
             VoucherSourceType::Commission => "COMMISSION",
+            VoucherSourceType::CostPeriod => "COST_PERIOD",
         }
     }
 
@@ -1086,6 +1098,7 @@ impl VoucherSourceType {
             VoucherSourceType::ReceiptRefund => "收款退款过账",
             VoucherSourceType::Invoice => "发票开票",
             VoucherSourceType::Commission => "佣金结算",
+            VoucherSourceType::CostPeriod => "成本核算结算",
         }
     }
 
@@ -1112,6 +1125,8 @@ impl VoucherSourceType {
             // 与巡检登记表，属 P2-5 词表收敛的独立改动，见 commission_handler 头注释），
             // 故不映射业务对象；凭证的 source_no 已写结算单号，可反查。
             VoucherSourceType::Commission => return None,
+            // 成本核算结算批次（ARCH-9）：source_id 指向 `biz_cost_period`。
+            VoucherSourceType::CostPeriod => DocKind::CostPeriod,
         })
     }
 
@@ -1432,7 +1447,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 8] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 19] = [
+const VOUCHER_SOURCE_VALUES: [&str; 20] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1452,6 +1467,7 @@ const VOUCHER_SOURCE_VALUES: [&str; 19] = [
     "RECEIPT_REFUND",
     "INVOICE",
     "COMMISSION",
+    "COST_PERIOD",
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];

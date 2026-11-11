@@ -793,6 +793,8 @@ fn voucher_source_target_table(value: &str) -> Option<&'static str> {
         "INVOICE" => "biz_invoice",
         // 销售链 SO-36：佣金计提 / 发放两张凭证都挂在结算单上
         "COMMISSION" => "biz_commission_settlement",
+        // 成本核算（ARCH-9）：结算批次的 3–4 张凭证都挂在结算批次上
+        "COST_PERIOD" => "biz_cost_period",
         other => panic!("VOUCHER_SOURCE 取值 {other} 没登记目标表：改了 VoucherSourceType 要同步 di.v_poly_ref_map"),
     })
 }
