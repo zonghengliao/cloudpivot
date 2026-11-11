@@ -412,12 +412,13 @@ mod tests {
         // 10 张（B2 基线）+ `password_change_logs`（B5 按 §2.5 的 ✅(P1) 行补登记）
         // + `biz_commission_settlement`（SO-36：佣金结算单按销售员注入 SELF）
         // + `biz_cost_object`（ARCH-9：成本对象按生产车间裁剪）
-        // + `biz_cost_labor`（ARCH-9 D-18：工时台账按工作中心裁剪）= 14 张
+        // + `biz_cost_labor`（ARCH-9 D-18：工时台账按工作中心裁剪）
+        // + `biz_employee`（ARCH-9 D-12：员工主档按人事归属部门 + 本人账号裁剪）= 15 张
         assert_eq!(
             SCOPED_TABLES.len(),
-            14,
+            15,
             "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs + SO-36 的佣金结算单 \
-             + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账"
+             + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账 + ARCH-9 D-12 的员工主档"
         );
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_USER));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));
@@ -425,6 +426,7 @@ mod tests {
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COMMISSION_SETTLEMENT));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COST_OBJECT));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COST_LABOR));
+        assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_EMPLOYEE));
         println!("[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓", SCOPED_TABLES.len());
     }
 }

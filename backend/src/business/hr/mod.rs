@@ -109,6 +109,12 @@ pub mod employee_dto;
 /// 以及「真库规则 → DTO 打码值」整条链。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_dto_db_tests;
+/// 员工档案接口层（`biz_employee`）：设计 §5.2 #1~#6 + #8 绑账号（HR-12）。
+pub mod employee_handler;
+/// HR-12 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：6 个接口的完整链路 +
+/// **部门 / 本人两种数据范围**的可见性边界。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_handler_db_tests;
 /// 员工主档数据层（`biz_employee`）：CRUD + 三个唯一键的冲突翻译（HR-10）。
 pub mod employee_model;
 /// HR-10 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD 全通 + 三条冲突的真实报文。只在 `cargo test` 时编译。

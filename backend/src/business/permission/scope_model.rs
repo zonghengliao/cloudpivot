@@ -199,6 +199,14 @@ pub const TABLE_WIRING: &[TableWiring] = &[
         anchor: "BIZ_COST_LABOR",
         reason: "工时台账分页走 scope::paginate(BIZ_COST_LABOR)，部门列 dept_id（工作中心；business/erp/cost_labor_model.rs::page）；无归属列 ⇒ SELF 范围安全侧降级为「本人所在部门」（工时是车间的人工成本原始凭证，不对个人）",
     },
+    // ---- business/hr（人力资源 ARCH-9 D-12 · HR-12） ----
+    TableWiring {
+        table: "biz_employee",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "BIZ_EMPLOYEE",
+        reason: "员工档案分页走 scope::paginate(BIZ_EMPLOYEE)，部门列 dept_id（business/hr/employee_model.rs::page）；单条入口（详情/改/删/状态/绑账号）走 scope::filter_for 探针，越权一律 404（business/hr/employee_handler.rs::ensure_visible）。归属列 user_id ⇒ SELF 范围只看到自己那份档案（员工是唯一有「本人」语义的主数据，设计 D-12）",
+    },
 ];
 
 /// 取某张表的登记项（未登记 → `None`）。

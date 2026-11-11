@@ -289,6 +289,19 @@ impl ScopeTarget {
     /// 设计 D-18 点名这张表要登记：A 车间的工时台账不该被 B 车间的统计员看见
     /// —— 它是人工成本的原始凭证，不是参考信息。
     pub const BIZ_COST_LABOR: Self = Self::new("biz_cost_labor", "t", Some("dept_id"), None);
+
+    /// `biz_employee`（人力资源 ARCH-9 D-12）：员工主档按**人事归属部门**裁剪。
+    ///
+    /// 两个列都给了，与成本类的取舍不同：
+    ///
+    /// - 部门列 `dept_id` —— 「只能看本部门」的载体（部门/下级/自定义范围都走它）；
+    /// - 归属列 `user_id` —— 员工档案是**唯一**有「本人」语义的主数据：`SELF` 范围下
+    ///   普通员工只看得到自己那份档案（`employee_model::EMPLOYEE_TARGET` 同一锚点）。
+    ///   `user_id` 可空（车间工人无账号 ⇒ `NULL` 不匹配任何 `=` 比较，天然不可见）。
+    ///
+    /// 别名取 `e`（`employee_model` 的行 SQL 用 `FROM biz_employee e`），
+    /// 两处**必须**一致，否则片段会拼出 `t.dept_id` 这种不存在的别名。
+    pub const BIZ_EMPLOYEE: Self = Self::new("biz_employee", "e", Some("dept_id"), Some("user_id"));
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
@@ -314,6 +327,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::BIZ_COMMISSION_SETTLEMENT,
     ScopeTarget::BIZ_COST_OBJECT,
     ScopeTarget::BIZ_COST_LABOR,
+    ScopeTarget::BIZ_EMPLOYEE,
 ];
 
 // ==================== 片段 ====================

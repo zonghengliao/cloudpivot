@@ -1,0 +1,18 @@
+# HR-12 门禁（2026-11-12 03:59:51 +0800）
+
+## cargo fmt --check
+fmt: clean
+
+## cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 04s
+
+## cargo test --lib（带真库 HR_DB_URL=hr12_card）
+
+test result: ok. 4891 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+
+EXIT=0
+
+## 前端（本卡零前端改动，按卡面要求仍跑）
+pnpm typecheck: EXIT=0
+pnpm build: EXIT=0

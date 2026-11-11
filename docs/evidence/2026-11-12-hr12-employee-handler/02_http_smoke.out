@@ -1,0 +1,40 @@
+== HR-12 员工档案 HTTP 冒烟（http://127.0.0.1:18095，tag=035545913085）==
+  [PASS] 0. /health 就绪（200）
+  [PASS] 0. admin 登录（含必改密处理）
+  [PASS] 1. 部门树取到 dept_id（20000000-0000-4000-8000-0000000f0366）
+  [PASS] 2. 未登录访问列表 = 401（401）
+  [PASS] 3. #1 GET /employee/page = 200（200）
+  [PASS] 3. #1 响应 code = 0（0）
+  [PASS] 4. #3 POST /employee = 200（200）
+  [PASS] 4. #3 回执 id（01a1cc2e-43a3-76c0-9680-928a22209f8e）
+  [PASS] 4. #3 回执 emp_no（HR12-SMOKE-035545913085）
+  [PASS] 4. 重复工号 = 409（409）
+  [PASS] 4. 重复工号业务码 = 68001（68001）
+  [PASS] 5. #1 关键字命中 total = 1（1）
+  [PASS] 5. #1 行 id 对得上（01a1cc2e-43a3-76c0-9680-928a22209f8e）
+  [PASS] 5. #1 部门名 join（总部）
+  [PASS] 5. #1 新档状态（PROBATION）
+  [PASS] 6. #2 GET /employee/{id} = 200（200）
+  [PASS] 6. #2 sensitive_masked.id_card_masked（110101****1234）
+  [PASS] 6. #2 身份证已打码（含 *）
+  [PASS] 6. #2 岗位字典名（工程师）
+  [PASS] 6. #2 详情不含明文身份证
+  [PASS] 6. #2 详情不含明文工资卡
+  [PASS] 7. #4 PUT /employee/{id} = 200（200）
+  [PASS] 7. #4 改名生效（冒烟改名）
+  [PASS] 7. #4 工号未变（HR12-SMOKE-035545913085）
+  [PASS] 8. #6 离职 = 409（走离职单）（409）
+  [PASS] 8. #6 离职报文点名离职单（含 离职单）
+  [PASS] 8. #6 无合同转正 = 400（400）
+  [PASS] 8. #6 转正报文点名劳动合同（含 劳动合同）
+  [PASS] 8. #6 非法状态 = 400（400）
+  [PASS] 9. #8 bind-user(null) = 200（200）
+  [PASS] 9. #8 解绑后 user_id = null（null）
+  [PASS] 9. 探针账号已建（01a1cc2e-4419-70fa-bd40-e4c57072e8b3）
+  [PASS] 10. 无 HR 权限码的账号访问列表 = 403（403）
+  [PASS] 11. #5 DELETE /employee/{id} = 200（200）
+  [PASS] 11. 软删后详情 = 404（404）
+  [PASS] 11. 重复删除 = 404（404）
+  [PASS] 12. 探针账号已删除
+
+== 合计：PASS=37 FAIL=0 ==

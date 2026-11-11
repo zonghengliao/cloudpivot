@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.22s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 16 tests
+test business::hr::employee_handler::tests::create_requires_mandatory_fields ... ok
+test business::hr::employee_handler::tests::create_validates_enums_dates_and_lengths ... ok
+test business::hr::employee_handler::tests::employee_is_registered_in_scoped_tables ... ok
+test business::hr::employee_handler::tests::page_normalization_clamps ... ok
+test business::hr::employee_handler::tests::page_query_parses_filters ... ok
+test business::hr::employee_handler::tests::page_query_rejects_unknown_status ... ok
+test business::hr::employee_handler::tests::permission_attributes_match_contract ... ok
+test business::hr::employee_handler::tests::permission_codes_are_seeded_by_v0387 ... ok
+test business::hr::employee_handler::tests::routes_are_the_six_card_routes ... ok
+test business::hr::employee_handler::tests::status_guard_matrix ... ok
+test business::hr::employee_handler::tests::update_merge_keeps_absent_and_clears_empty ... ok
+test business::hr::employee_handler::tests::update_rejects_invalid_values ... ok
+test business::hr::employee_handler::tests::uuid_parsing_guards ... ok
+test business::hr::employee_handler_db_tests::db::dept_and_self_scope_are_enforced ... [HR-12] ③ DEPT 范围：列表 total=1（本部门 1 / 别部门 0）
+[HR-12] ③ 单条 5 个入口对别部门全部 404 ✓
+[HR-12] ③ SELF 范围：列表 total=1（本人 1 / 同事 0）✓
+[HR-12] ③ ALL 范围：列表 total=3 ✓
+ok
+test business::hr::employee_handler_db_tests::db::six_endpoints_roundtrip ... [HR-12] ① 新建 id=01a1cc2e-2c61-757e-b0a8-43a2bb4ef4c6 emp_no=HR12-16169570501
+[HR-12] ② 详情 dept=HR12 部门 A user=hr12.16169570501 合同=1 薪资项=1 masked_id_card=110101****4470
+[HR-12] ① 列表 total=1 contract_urgent=false
+[HR-12] ⑧ 绑账号冲突 409+68003 ✓ 解绑 ✓
+[HR-12] ⑤ 软删 → 详情 404、列表 1（被删的行消失）✓
+ok
+test business::hr::employee_handler_db_tests::db::status_lifecycle_and_guards ... [HR-12] ⑥ 状态链：转正/停薪/复职 ✓ 状态日志 3 条（含姓名快照） 离职拦截 ✓ 非法边 409 ✓
+ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 4875 filtered out; finished in 6.39s
+

@@ -95,8 +95,11 @@ pub const UK_USER: &str = "uk_biz_employee_user";
 /// `owner_col=user_id`；「仅本人」范围因此零改动生效 —— `filter_for` 的 SELF 形态只做
 /// `owner_col = 当前 user_id`）。
 ///
-/// **登记动作属 HR-12**（`shared/scope.rs` 的 `SCOPED_TABLES` 加一行）。
-pub const EMPLOYEE_TARGET: scope::ScopeTarget = scope::ScopeTarget::new(TABLE, "e", Some("dept_id"), Some("user_id"));
+/// **HR-12 已登记**：锚点直接复用 [`scope::ScopeTarget::BIZ_EMPLOYEE`]（`shared/scope.rs` 的
+/// 常量，已在 `SCOPED_TABLES` 清单里），不再本地 `new(…)` 一份 —— 两处各写一份会让
+/// 「登记的表」与「分页用的锚点」悄悄漂移（列名 / 别名改一处忘另一处，数据权限静默失效）。
+/// 同一写法参考 `erp/cost_labor_model.rs` 的 `LABOR_TARGET`。
+pub const EMPLOYEE_TARGET: scope::ScopeTarget = scope::ScopeTarget::BIZ_EMPLOYEE;
 
 // ==================== 三个唯一键 → 友好文案 ====================
 

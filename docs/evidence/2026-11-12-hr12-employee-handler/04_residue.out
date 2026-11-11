@@ -1,0 +1,18 @@
+# HR-12 残留自检（2026-11-12 04:01:17 +0800）
+
+## 隔离实例端口（18094 / 18095）
+无监听 ✓
+
+## 演练库（hr12_card / hr12_http 已 drop）
+无 hr12% 库 ✓
+
+## worktree 未提交文件（提交前快照）
+ M backend/src/business/hr/employee_model.rs
+ M backend/src/business/hr/mod.rs
+ M backend/src/business/permission/scope_model.rs
+ M backend/src/business/shared/guard.rs
+ M backend/src/business/shared/scope.rs
+?? backend/src/business/hr/employee_handler.rs
+?? backend/src/business/hr/employee_handler_db_tests.rs
+?? docs/evidence/2026-11-12-hr12-employee-handler/
+?? scripts/verify/hr/
