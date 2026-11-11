@@ -1,0 +1,18 @@
+     k     | count 
+-----------+-------
+ objects   |     0
+ periods   |     0
+ items     |     0
+ stock_in  |     0
+ vouchers  |     0
+ collect   |     0
+ overhead  |     0
+ alloc     |     0
+ rules     |     0
+ dept      |     0
+ material  |     0
+ warehouse |     0
+ inv       |     0
+ statuslog |     0
+(14 rows)
+

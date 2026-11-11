@@ -12,7 +12,7 @@
 //! | 27 | POST | `/business/erp/cost-period/calc` | `business:erp:cost-period:calc` | ⛔ 编排卡（六段串联） |
 //! | 28 | POST | `/business/erp/cost-period/{id}/submit` | `business:erp:cost-period:submit` | ✅ B3-3（走审批引擎） |
 //! | — | POST | `/business/erp/cost-period/{id}/withdraw` | `business:erp:cost-period:submit` | ✅ B3-3（撤回 = 终止实例 + 回 `DRAFT`） |
-//! | 29 | POST | `/business/erp/cost-period/{id}/settle` | `business:erp:cost-period:settle` | ⛔ B3-4（入库 + 凭证） |
+//! | 29 | POST | `/business/erp/cost-period/{id}/settle` | `business:erp:cost-period:settle` | ✅ B3-6（入库 + 凭证 + 6 条断言） |
 //! | 30 | POST | `/business/erp/cost-period/{id}/reverse` | `business:erp:cost-period:reverse` | ⛔ B3-5（红冲） |
 //! | 32/33 | GET | `…/cost-sheet` / `…/uncollected` | `business:erp:cost-period:list` | ⛔ 导出 / 缺口清单卡 |
 //!
@@ -47,6 +47,7 @@ use crate::business::erp::cost_period_dto::{
     CostPeriodPageQuery, CostPeriodUpdateReq,
 };
 use crate::business::erp::cost_period_model::{self as model, CostPeriodRow};
+use crate::business::erp::cost_settle_run;
 use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
 use crate::business::shared::state_machine;
@@ -773,6 +774,26 @@ pub async fn cost_period_withdraw_api(
 ) -> ResResult<CostPeriodDetailRes> {
     let operator = utils::current_user_uuid(&claims);
     Ok(Res::ok(withdraw_period(operator, &id).await?))
+}
+
+/// 结算（一个事务：完工入库 + 三张凭证 + 状态回写 + 事务内 6 条断言；设计 §5.2 #29）。
+///
+/// 失败语义：6 条断言任一不平 ⇒ 409 + `66077`（断言 1 复用 `66065`），**整笔回滚**，
+/// 批次仍是 `APPROVED`，修数据后可重试（不留死单）。
+#[nik::permission(
+    path = "/business/erp/cost-period/{id}/settle",
+    method = "POST",
+    permission = "business:erp:cost-period:settle"
+)]
+#[nik::post("/business/erp/cost-period/{id}/settle")]
+pub async fn cost_period_settle_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<CostPeriodDetailRes> {
+    let operator = utils::current_user_uuid(&claims);
+    let id = cost_period_dto::parse_uuid(&id, "id")?;
+    cost_settle_run::settle_period(id, operator).await?;
+    Ok(Res::ok(detail_of(id).await?))
 }
 
 /// 权限码自检出口（与其余模块 `all_permissions` 同形，便于汇总脚本收集）。

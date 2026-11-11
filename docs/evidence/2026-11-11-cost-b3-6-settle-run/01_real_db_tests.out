@@ -1,0 +1,29 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 08s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 10 tests
+test business::erp::cost_settle_run_db_tests::db::bypassed_4101_entry_is_caught_before_settling ... [断言 1] 费用池与总账 4101.* 借方发生额对不平（期间 2800-11，结算口径）：池 4000，应已入账 4000，账面 4100，差额 -100（= 应已入账 − 账面，负数表示账面多），共 1 组不平。
+· CB36车间-52475882 / 4101.09：池 0（应已入账 0，待结算过账 0），账面 100，差额 -100｜凭证：PZ-20261111-000103｜账面多（旁路记账）
+账面多出来的 4101.* 分录是绕过成本模块直接记的制造费用，成本核算看不见它们，结算后 4101 清不掉。请把这类费用改走「费用台账（无单据）」或「费用报销」后重算本期成本；若该笔本来就不是制造费用，请改记对应费用科目。账面少的那部分说明费用已在成本模块归集、4101 凭证却没生成，请检查来源单据是否已过账。
+ok
+test business::erp::cost_settle_run_db_tests::db::empty_batch_is_rejected ... ok
+test business::erp::cost_settle_run_db_tests::db::fixture_constants_are_aligned ... ok
+test business::erp::cost_settle_run_db_tests::db::missing_material_debit_is_caught_by_the_wip_assertion ... [断言 4] 结算事务断言 C-COST-3「4001 本期净发生 = Σ(期末在制 − 期初在制)」不平，整个结算已回滚：4001 本期净发生 -14311.1104 / Σ(期末在制 4688.8896 − 期初在制 0.0000) = 4688.8896；差异 -19000.0000。含义：料 / 工 / 费的借方没有全落在 4001.*，或完工结转贷方与计算单的完工成本不是同一次 calc 的结果。修法：核对 4101 结转与领料凭证（借方是否 4001.01）后重算该期间
+ok
+test business::erp::cost_settle_run_db_tests::db::payroll_source_settles_with_three_vouchers ... ok
+test business::erp::cost_settle_run_db_tests::db::second_settle_is_rejected ... ok
+test business::erp::cost_settle_run_db_tests::db::settle_end_to_end_in_one_transaction ... [断言] C-COST-1 当期池 = 4101.* 借方发生额（逐 (车间,科目) 组） —— 期间 2805-11 结算口径：池 4000（其中待结算过账 0），应已入账 4000，账面 4000，差额 0，不平 0 组
+[断言] C-COST-2 生产入库金额 = 完工结转凭证借方 1405 = Σ 完工成本 —— 入库单合计 22311.1104 / 完工凭证 1405 借方 22311.1104 / Σ完工成本 22311.1104 （凭证 1214367a-86eb-401f-be43-af1b4f04fd05）
+[断言] C-COST-2·行 入库单 ↔ 计算单逐行同源（数量 / 金额 / 状态） —— 有完工的计算单 1 行 / 本批次入库单 1 张，逐行不符 0 行
+[断言] C-COST-3 4001 本期净发生 = Σ(期末在制 − 期初在制) —— 4001 本期净发生 4688.8896 / Σ(期末在制 4688.8896 − 期初在制 0.0000) = 4688.8896
+[断言] C-COST-4·清零 每个 (车间,科目) 的 4101 本期借贷相等（池清零） —— 4101.* 本期 2 个 (车间,科目) 组，未清零 0 组
+[断言] C-COST-4·守恒 Σ 分摊结果 = Σ 池行（分摊守恒 / 无漏摊） —— 池 4000.0000 / 已分摊 4000.0000（差额 0.0000）
+ok
+test business::erp::cost_settle_run_db_tests::db::settle_requires_approved_status ... ok
+test business::erp::cost_settle_run_db_tests::db::sixth_assertion_rolls_back_everything ... [第 6 条断言] 结算事务断言 C-COST-4·守恒「Σ 分摊结果 = Σ 池行（分摊守恒 / 无漏摊）」不平，整个结算已回滚：池 4000.0000 / 已分摊 3000.0000（差额 1000.0000）。含义：分摊没守恒（少数了分摊结果行 / 基数合计 0 的池被静默丢掉），池里的钱没全摊到成本对象身上 —— 摊不掉的会在 4101 留余额。修法：重算该期间（calc 第 5 段会按最大余数法重建分摊结果）
+ok
+test business::erp::cost_settle_run_db_tests::db::zero_output_batch_is_rejected_by_the_finish_voucher_gate ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4712 filtered out; finished in 25.77s
+

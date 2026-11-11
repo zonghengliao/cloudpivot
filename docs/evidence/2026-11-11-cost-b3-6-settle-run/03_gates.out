@@ -1,0 +1,9 @@
+== cargo fmt -- --check ==
+fmt OK
+
+== cargo clippy --all-targets -- -D warnings ==
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+== 库存闸：biz_inventory 与流水合计不一致的桶数（应为 0）==
+     0
+
