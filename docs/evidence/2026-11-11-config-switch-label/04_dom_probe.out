@@ -1,0 +1,45 @@
+# t_f111fef0 真浏览器 DOM 断言记录（vite dev :5199 → 隔离后端 :18052 / 库 costfix_fef0）
+# 探针片段（每步都用同一段 JS，返回 {checked, label}）：
+#   const it = [...document.querySelectorAll('.config-item')].find(x => x.innerText.includes('<KEY>'));
+#   const sw = it.querySelector('.t-switch');
+#   return {checked: sw.classList.contains('t-is-checked'), label: sw.innerText.trim()};
+# 判定依据：TDesign Switch 的 label[0] 用于 activeValue（checked）态
+#   node_modules/tdesign-vue-next/es/switch/switch.mjs:115
+#   var label = innerValue.value === activeValue.value ? props2.label[0] : props2.label[1];
+
+## A. 修复后（工作树含本次改动）
+
+[1] erp.cost.enabled，库值 false（V0385 默认）
+    probe -> {'checked': False, 'label': '关闭'}
+    期望：关闭态显示「关闭」                          => PASS (截图 01_off_show_close.png)
+
+[2] 页面点开关（未保存，仅前端状态）
+    probe -> {'checked': True, 'label': '开启'}
+    说明：同一控件文案随选中态即时翻转，无残留          => PASS
+
+[3] 点「保存」→ PUT /api/support/config/{id} → 提示「保存成功」
+    probe -> {'checked': True, 'label': '开启'}
+    psql  -> erp.cost.enabled|true|2026-11-11 19:24:11.972263+08
+    期望：开启态显示「开启」                          => PASS (截图 02_on_show_open.png)
+
+[4] 再点回关闭并保存（复原默认）
+    probe -> {'checked': False, 'label': '关闭'}
+    psql  -> erp.cost.enabled|false
+                                                      => PASS
+
+[5] 第二条布尔参数 announcement.fanout_enabled，库值 true（既有数据，未改动）
+    probe -> {'checked': True, 'label': '开启'}
+    说明：不是只对成本开关生效，所有 BOOLEAN 参数一致   => PASS (截图 03_second_boolean_param.png)
+
+## B. 反证（把本次改动 git stash 掉，仅保留旧文案，页面 HMR 重载后复测）
+
+[6] 旧代码 :label="['关闭', '开启']"，erp.cost.enabled 库值 false
+    probe -> {'checked': False, 'label': '开启'}
+    说明：关闭态却显示「开启」——正是卡面描述的 bug，可复现 => BUG REPRODUCED
+    随后 git stash pop 复原改动，重载页面：
+    probe -> {'checked': False, 'label': '关闭'}      => FIXED
+
+## C. 环境与操作说明
+- 隔离库 costfix_fef0（00_up.sh 建库 + 自动迁移，含 V0385 的 erp.cost.enabled），后端 :18052，前端 dev :5199 代理 /api。
+- 登录：POST /api/system/auth/login 拿 token 注入 localStorage(x_access_token/x_refresh_token)，未在页面输口令。
+- 首登强制改密（session_guard 拒绝所有非改密接口）：隔离库里按正常流程 PUT /api/system/auth/password 把 admin 改成强口令后才取得可用会话（只影响临时库）。

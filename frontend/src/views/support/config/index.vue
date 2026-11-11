@@ -103,7 +103,7 @@
                     v-else-if="editorKind(item.config_type) === 'boolean'"
                     v-model="booleanValueMap[item.id]"
                     :disabled="!item.is_modifiable"
-                    :label="['关闭', '开启']"
+                    :label="['开启', '关闭']"
                   />
                   <t-textarea
                     v-else-if="editorKind(item.config_type) === 'json'"

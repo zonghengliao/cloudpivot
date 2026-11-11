@@ -1,0 +1,17 @@
+== 0. TDesign Switch label 语义（/opt/cloudpivot/frontend/node_modules/tdesign-vue-next/es/switch/switch.mjs）==
+115:        var label = innerValue.value === activeValue.value ? props2.label[0] : props2.label[1];
+PASS  label[0] = checked 态文案（源码行见上）
+
+== 1. 前端源码 ==
+support/config/index.vue: 106:                    :label="['开启', '关闭']"
+PASS  布尔控件 label = ['开启','关闭']
+
+== 2. 取令牌 ==
+PASS  登录成功（token 461 字节）
+
+== 3. erp.cost.enabled：接口改值 → 库值 → 期望文案 ==
+PASS  取到参数 id=e2b00000-0000-4000-8000-000000000010
+PASS  库=true 接口=true ⇒ 开关选中=true ⇒ 控件文案「开启（label[0] / t-is-checked）」
+PASS  库=false 接口=false ⇒ 开关选中=false ⇒ 控件文案「关闭（label[1]）」
+
+== 结果：ALL PASS ==
