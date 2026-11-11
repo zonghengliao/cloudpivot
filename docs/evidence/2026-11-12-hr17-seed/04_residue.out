@@ -1,0 +1,14 @@
+=== ① 实例端口 18099 ===
+已释放（无监听）
+
+=== ② 演练库 hr17_card ===
+hr17_card
+剩余 hr17* 库：0
+
+=== ③ 工作区残留（只应有本卡文件）===
+ M backend/src/business/hr/mod.rs
+ M scripts/lint/scope_gate.py
+?? backend/src/business/hr/employee_seed.rs
+?? backend/src/business/hr/employee_seed_db_tests.rs
+?? docs/evidence/2026-11-12-hr17-seed/
+?? scripts/verify/hr/seed_http_smoke.sh

@@ -1,0 +1,22 @@
+=== ① cargo fmt --check（空输出 = clean）===
+FMT_EXIT=0
+
+=== ② 全量 lib 单测（不连库：DB 用例 SKIP，不假绿）===
+test result: ok. 5008 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+
+=== ③ cargo clippy --all-targets -- -D warnings ===
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+CLIPPY_EXIT=0（复用上面这次真跑的结果，日志见 03_gates.clippy.out）
+
+=== ④ 数据权限闸②：本卡文件是否落在 FAIL 行 ===
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/erp/payable_payment/tests/payable_linkage_db_tests.rs (biz_task, sys_notice, sys_user)
+    business/flow/config_check.rs (sys_dept, sys_user)
+    business/flow/subprocess.rs (biz_flow_def, biz_flow_def_version, biz_flow_instance, biz_flow_node)
+    business/monitor/model.rs (auth_logs, operation_logs, sys_user)
+    business/shared/user_name.rs (sys_user)
+    system/setup/model.rs (sys_dept, sys_user)
+（空 = business/hr/employee_seed.rs 未出现在任何 FAIL 行 ⇒ 已接 scope::filter_for(SYS_USER)）
+
+=== ⑤ 闸② 负例自测 ===
+闸② 自测结论：全部通过（临时目录保留供复核：/root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_r9lcbbip）

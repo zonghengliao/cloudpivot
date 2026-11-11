@@ -1,0 +1,40 @@
+== HR-17 seed-from-users HTTP 冒烟（http://127.0.0.1:18099，tag=073750205861）==
+  [PASS] 0. /health 就绪（200）
+  [PASS] 0. 未登录批量建档 → 401（401）
+  [PASS] 1. 夹具账号就位（3）
+  [PASS] 2. 空 body → 200（200）
+  [PASS] 2. dry_run 缺省 = true（true）
+  [PASS] 2. created 必须是 0（只报告不写库）（0）
+  [PASS] 2. 计划建档数 ≥1（3）
+  [PASS] 2. 三个夹具账号里可建档的条数（1）
+  [PASS] 2. 三个夹具账号里被跳过的条数（2）
+  [PASS] 2. 机器人账号的原因码（NOT_HUMAN）
+  [PASS] 2. 没姓名账号的原因码（NAME_MISSING）
+  [PASS] 2. 预览行的 emp_no 为空（预览不占号）（null）
+  [PASS] 2. 库里没有该账号的档案（0）
+  [PASS] 3. dry_run=true → 200（200）
+  [PASS] 3. created=0（0）
+  [PASS] 3. hire_date 回显（2024-02-29）
+  [PASS] 3. 库里仍无档案（0）
+  [PASS] 3. 部门名回显非空（含 HR17 冒烟部门）
+  [PASS] 4. dry_run=false → 200（200）
+  [PASS] 4. created=1（只有正常账号）（1）
+  [PASS] 4. failed=0（0）
+  [PASS] 4. 回执给了工号（含 EMP-）
+  [PASS] 4. user_id 回写正确（1）
+  [PASS] 4. 状态是 ACTIVE（ACTIVE）
+  [PASS] 4. 入职日期取入参（2024-02-29）
+  [PASS] 4. 部门取账号部门（f923d93a-2d5b-49ed-9bf2-16cad4f4c3fb）
+  [PASS] 4. 机器人 / 没姓名的仍无档案（0）
+  [PASS] 5. 重放 → 200（200）
+  [PASS] 5. created=0（幂等）（0）
+  [PASS] 5. 已建档账号 → HAS_EMPLOYEE（HAS_EMPLOYEE）
+  [PASS] 5. 报文点名已有工号（含 EMP-）
+  [PASS] 6. dept_id 不存在 → 400（400）
+  [PASS] 6. 报文说明部门要真实存在（含 不存在或已删除）
+  [PASS] 6. dept_id 非 uuid → 400（400）
+  [PASS] 6. hire_date 格式错 → 400（400）
+  [PASS] 6. 报文给出正确格式（含 yyyy-MM-dd）
+
+== 结果：通过 36 项 / 失败 0 项 ==
+夹具已清理（dept=HR17E073750205861）

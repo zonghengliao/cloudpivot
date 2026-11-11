@@ -133,6 +133,7 @@ business/flow/linkage/tests.rs
 business/flow/linkage/tests_presets.rs
 business/flow/linkage/tests_wiring.rs
 business/flow/test_support.rs
+business/hr/employee_seed_db_tests.rs
 business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs

@@ -119,7 +119,7 @@ pub mod employee_dto;
 /// 以及「真库规则 → DTO 打码值」整条链。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_dto_db_tests;
-/// 员工档案接口层（`biz_employee`）：设计 §5.2 #1~#6 + #8 绑账号（HR-12）。
+/// 员工主档接口层（`biz_employee`）：设计 §5.2 #1~#6 + #8 绑账号（HR-12）。
 pub mod employee_handler;
 /// HR-12 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：6 个接口的完整链路 +
 /// **部门 / 本人两种数据范围**的可见性边界。只在 `cargo test` 时编译。
@@ -136,6 +136,13 @@ pub mod employee_no;
 /// 回滚不耗号 / 撞号顺延。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_no_db_tests;
+/// 「从登录账号批量生成员工档」（设计 §5.2 #10 `seed-from-users`）：dry-run 预览 +
+/// 逐条事务落库 + `user_id` 回写（HR-17）。
+pub mod employee_seed;
+/// HR-17 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：dry-run 不写库不吃号 / 批量建
+/// `user_id` 回写 / 失败隔离不吃号 / 四类跳过原因 / 部门筛选与数据范围。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_seed_db_tests;
 /// 敏感字段**明文**出口（`GET /employee/{id}/sensitive`）+ `audit_logs` 留痕（HR-13）。
 pub mod employee_sensitive;
 /// HR-13 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：明文 + 审计四维度 +
