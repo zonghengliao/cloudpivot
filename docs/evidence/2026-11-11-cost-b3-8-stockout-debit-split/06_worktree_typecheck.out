@@ -1,0 +1,3 @@
+# 隔离工作树 /root/wt-b38 @954ccbc2 的前端类型检查（用于判定 pre-push L1 红项归属）
+# 命令：cd /root/wt-b38/frontend && node ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+TYPECHECK_EXIT=0
