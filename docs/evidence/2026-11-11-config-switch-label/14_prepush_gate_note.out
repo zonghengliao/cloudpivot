@@ -1,0 +1,4 @@
+# pre-push 门禁（bash scripts/check.sh --fast）本次 exit=1，唯一红点是并行的 HR-05 卡未跟踪文件 后端 fmt，与本卡改动无关：
+Diff in /opt/cloudpivot/backend/tests/hr_05_mask_attach_migration.rs
+
+# 本卡 diff 只有一行 .vue，后端零改动；L0 全绿见 13_l0_gate.out，前端 typecheck 见 10_typecheck.out
