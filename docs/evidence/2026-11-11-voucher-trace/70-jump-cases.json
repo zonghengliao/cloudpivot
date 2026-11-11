@@ -1,0 +1,72 @@
+{
+  "require_mapping": [
+    "STOCK_IN",
+    "STOCK_OUT",
+    "EXPENSE_REPORT",
+    "DEPRECIATION",
+    "COST_PERIOD",
+    "MANUAL"
+  ],
+  "cases": [
+    {
+      "key": "PURCHASE",
+      "source_type": "STOCK_IN",
+      "source_id": "01a1c9b0-9138-7506-bcb3-a6f999767eaa",
+      "source_no": "IN-20261111-000003",
+      "resolvable": true,
+      "expect_path": "/business/erp/stock-in",
+      "expect_query": {
+        "in_id": "01a1c9b0-9138-7506-bcb3-a6f999767eaa"
+      },
+      "expect_deep_link": "detail"
+    },
+    {
+      "key": "RETURN",
+      "source_type": "STOCK_OUT",
+      "source_id": "01a1c9b0-922a-770e-b556-753610e751bb",
+      "source_no": "OUT-20261111-000003",
+      "resolvable": true,
+      "expect_path": "/business/erp/stock-out",
+      "expect_query": {
+        "out_no": "OUT-20261111-000003"
+      },
+      "expect_deep_link": "filter"
+    },
+    {
+      "key": "EXPENSE",
+      "source_type": "EXPENSE_REPORT",
+      "source_id": "01a1c9b0-929b-7029-aa71-05a762cfe0de",
+      "source_no": "EXP-20261111-000003",
+      "resolvable": true,
+      "expect_path": "/business/erp/expense",
+      "expect_query": {},
+      "expect_deep_link": "none"
+    },
+    {
+      "key": "DEPRECIATION",
+      "source_type": "DEPRECIATION",
+      "source_id": "01a1c9b0-93f1-7778-9dd7-8bef241d70b1",
+      "source_no": "DEP-20261111-000003",
+      "resolvable": true,
+      "expect_path": "/business/erp/depreciation",
+      "expect_query": {},
+      "expect_deep_link": "none"
+    },
+    {
+      "key": "COST_PERIOD",
+      "source_type": "COST_PERIOD",
+      "source_id": "01a1c9b0-9432-72bd-a2bc-170b07dd1c31",
+      "source_no": "CS-202611-0003",
+      "resolvable": false,
+      "note": "页面/路由未落地（page-missing）⇒ 不给假链接"
+    },
+    {
+      "key": "MANUAL",
+      "source_type": "MANUAL",
+      "source_id": null,
+      "source_no": "PZ-20261111-000018",
+      "resolvable": false,
+      "note": "手工凭证，无来源单据 ⇒ 不可跳"
+    }
+  ]
+}

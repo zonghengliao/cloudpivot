@@ -1,0 +1,94 @@
+==> STEP 0 环境体检 / 登录 / 审批人夹具
+[PASS] 后端探针 200
+[PASS] 登录 admin 拿到令牌
+[PASS] 审批人夹具登录成功
+==> STEP 1 PURCHASE → STOCK_IN
+[PASS] 主数据夹具就位（物料 E6VT-M1）
+[PASS] ① 建采购订单
+[PASS] 采购单 PO-20261111-000003
+[PASS] ② 提交采购单（走审批）
+[PASS] 采购单停在 SUBMITTED
+[PASS] ③ 审批人批掉采购单待办
+[PASS] 采购单变 APPROVED
+[PASS] ④ 从采购单生成收货单
+[PASS] 收货单落 DRAFT（不自动过账）
+[PASS] ⑤ 收货单提交过账
+[PASS] ⑤b 仓管主管审批通过（PENDING_POST → POSTED）
+[PASS] ⑥ 收货单已过账 POSTED
+[PASS] ⑥b 过账生成了凭证
+[PASS] 【溯源①】按来源反查收货单凭证 200
+[PASS] 【溯源①】查到 1 张凭证
+[PASS] 【溯源①】凭证 source_no = 收货单号 IN-20261111-000003
+[PASS] 【溯源①】凭证 source_id = 收货单 id
+[PASS] 【溯源②】按业务单反查审批单 200
+[PASS] 【溯源②】采购单审批已通过（全链路「审批」段有据）
+[PASS] 【溯源③】凭证详情 200
+[PASS] 【溯源③】凭证借贷平衡
+[PASS] 【溯源③】分录借方合计 == 单头借方
+[PASS] 【溯源③】分录 3 条（借 1405 / 借 2221.02 进项税 / 贷 2202.01）
+==> STEP 2 RETURN → STOCK_OUT
+[PASS] ① 建出库单（领用/退货出库共用出库单）
+[PASS] 出库单 OUT-20261111-000003
+[PASS] ② 出库单过账
+[PASS] ③ 出库单已过账 POSTED
+[PASS] 【溯源①】按来源反查出库单凭证 200
+[PASS] 【溯源①】查到 1 张凭证
+[PASS] 【溯源①】凭证 source_no = 出库单号 OUT-20261111-000003
+[PASS] 【溯源③】出库凭证借贷平衡
+==> STEP 3 EXPENSE → EXPENSE_REPORT
+[PASS] ① 建报销单
+[PASS] 报销单 EXP-20261111-000003
+[PASS] ② 上传发票附件（报送前置）
+[PASS] ③ 提交报销单（走审批）
+[PASS] 报销单停在 SUBMITTED
+[PASS] ④ 审批人批掉报销待办
+[PASS] 报销单变 APPROVED
+[PASS] ④b 审批通过自动生成入账凭证
+[PASS] 【溯源①】按来源反查报销凭证 200
+[PASS] 【溯源①】查到 1 张凭证
+[PASS] 【溯源①】凭证 source_no = 报销单号 EXP-20261111-000003
+[PASS] 【溯源②】报销单审批已通过
+[PASS] 【溯源③】报销凭证借贷平衡
+==> STEP 4 DEPRECIATION
+[PASS] ① 建资产卡（同时生成 FIXED_ASSET_ACQ 购入凭证）
+[PASS] 资产卡 FA-20261111-000003
+[PASS] ② 计提 2026-12 折旧
+[PASS] ②b 批次状态 POSTED
+[PASS] 【溯源①】按来源反查折旧凭证 200
+[PASS] 【溯源①】查到 1 张凭证
+[PASS] 【溯源①】凭证 source_id = 折旧批次 id（跳转靠它）
+[PASS] 【溯源①】折旧凭证 source_no = 期间码 2026-12（既有口径）
+[PASS] 【溯源③】折旧凭证借贷平衡
+==> STEP 5 COST_PERIOD [FIXTURE]
+[PASS] ① 建成本核算批次
+[PASS] 【溯源①】按来源反查结算凭证 200
+[PASS] 【溯源①】查到 1 张凭证
+[PASS] 【溯源①】凭证 source_no = 批次号 CS-202611-0003
+[PASS] 【溯源③】结算凭证借贷平衡
+==> STEP 6 MANUAL
+[PASS] ① 建手工凭证（DRAFT）
+[PASS] ①b 来源类型 MANUAL
+[PASS] ①c 手工凭证 source_id 为空（无来源单据）
+[PASS] 手工凭证 PZ-20261111-000018
+[PASS] ② 审批人审核（内控：制单人不能自审）
+[PASS] ③ 记账
+[PASS] ③b 凭证已记账 POSTED
+[PASS] 【溯源①】MANUAL 反查接口可用（不 400）
+[PASS] 【溯源①】返回空数组 —— 手工凭证无来源单据，按来源查不到是设计事实
+[PASS] 【溯源①'】手工凭证从凭证列表能查到（溯源兜底路径）
+==> STEP 7 跳转链路校验
+[PASS] STOCK_IN 有映射
+[PASS] STOCK_OUT 有映射
+[PASS] EXPENSE_REPORT 有映射
+[PASS] DEPRECIATION 有映射
+[PASS] COST_PERIOD 有映射
+[PASS] MANUAL 有映射
+[PASS] PURCHASE(STOCK_IN) → /business/erp/stock-in?in_id=01a1c9b0-9138-7506-bcb3-a6f999767eaa
+[PASS] RETURN(STOCK_OUT) → /business/erp/stock-out?out_no=OUT-20261111-000003
+[PASS] EXPENSE(EXPENSE_REPORT) → /business/erp/expense
+[PASS] DEPRECIATION(DEPRECIATION) → /business/erp/depreciation
+[PASS] COST_PERIOD(COST_PERIOD) 按预期不可跳：页面/路由未落地（page-missing）⇒ 不给假链接
+[PASS] MANUAL(MANUAL) 按预期不可跳：手工凭证，无来源单据 ⇒ 不可跳
+[PASS] STEP 7 跳转链路校验全过
+==> STEP 8 清理本轮夹具
+==> 汇总
