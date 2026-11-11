@@ -1,0 +1,26 @@
+[2m2026-11-11T21:51:43.019029Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-11T21:51:43.120251Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 管理员账号已存在，跳过创建 [3musername[0m[2m=[0m"admin"
+[2m2026-11-11T21:51:43.251506Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m3
+[2m2026-11-11T21:51:43.544973Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 701 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+[2m2026-11-11T21:51:43.562994Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 953ms
+[2m2026-11-11T21:52:00.015391Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:53:00.052651Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:54:00.017724Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:55:00.012589Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:56:00.015480Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:57:00.004881Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:58:00.004976Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T21:59:00.007621Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:00:00.004342Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:01:00.003808Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:02:00.009955Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:03:00.005529Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:04:00.039106Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:05:00.008300Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:06:00.005032Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:07:00.007456Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:08:00.005393Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:09:00.016638Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:10:00.006723Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:11:00.010140Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found
+[2m2026-11-11T22:12:00.012031Z[0m [33m WARN[0m [2mcloudpivot::task::metrics_sampler[0m[2m:[0m 运维观测采样：巡检结论查询失败（上报 -1 未知） [3merror[0m[2m=[0mrecord not found

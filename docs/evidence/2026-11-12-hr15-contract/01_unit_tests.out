@@ -1,0 +1,39 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 30s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 31 tests
+test business::hr::contract_db_tests::db::duplicate_no_and_check_violation_map_to_business_codes ... ok
+test business::hr::contract_db_tests::db::crud_roundtrip_and_expire_fields ... ok
+test business::hr::contract_db_tests::db::concurrent_renew_has_exactly_one_winner ... ok
+test business::hr::contract_db_tests::db::renew_chain_traces_back_to_the_original_contract ... ok
+test business::hr::contract_db_tests::db::resigned_employee_is_blocked_and_expired_contract_can_be_renewed ... ok
+test business::hr::contract_db_tests::db::terminate_writes_status_log_and_freezes_the_contract ... ok
+test business::hr::contract_dto::tests::create_fills_defaults_and_trims ... ok
+test business::hr::contract_dto::tests::length_limits_are_enforced_before_the_database ... ok
+test business::hr::contract_dto::tests::renew_and_update_blocked_reasons_are_actionable ... ok
+test business::hr::contract_dto::tests::create_rejects_terminal_statuses ... ok
+test business::hr::contract_dto::tests::create_rejects_each_bad_field_with_a_named_message ... ok
+test business::hr::contract_dto::tests::unfixed_term_and_end_date_are_mutually_exclusive ... ok
+test business::hr::contract_dto::tests::update_cannot_blank_end_date_of_fixed_term ... ok
+test business::hr::contract_dto::tests::renew_validates_chain_rules ... ok
+test business::hr::contract_dto::tests::status_action_validates_termination_fields ... ok
+test business::hr::contract_dto::tests::update_merges_patch_over_old_row ... ok
+test business::hr::contract_handler::tests::conflict_codes_are_distinguishable ... ok
+test business::hr::contract_handler::tests::bad_uuid_path_is_a_400 ... ok
+test business::hr::contract_handler::tests::permission_code_is_seeded_by_v0387 ... ok
+test business::hr::contract_model::tests::conflict_message_names_the_contract_no ... ok
+test business::hr::contract_model::tests::every_check_constraint_has_a_human_message ... ok
+test business::hr::contract_model::tests::list_and_chain_sql_carry_renew_source ... ok
+test business::hr::contract_model::tests::classify_unique_is_case_insensitive ... ok
+test business::hr::contract_model::tests::locked_statuses_follow_state_machine_registry ... ok
+test business::hr::contract_model::tests::set_status_sql_parameter_count_matches ... ok
+test business::hr::contract_model::tests::row_projects_to_contract_input ... ok
+test business::hr::contract_model::tests::unique_key_names_match_v0383_ddl ... ok
+test business::hr::contract_model::tests::insert_sql_parameter_count_matches ... ok
+test business::hr::contract_model::tests::update_sql_parameter_count_matches ... ok
+test business::hr::contract_handler::tests::every_macro_route_is_in_the_contract_for_hr15 ... ok
+test business::hr::contract_model::tests::update_sql_never_touches_guarded_columns ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 4926 filtered out; finished in 0.01s
+

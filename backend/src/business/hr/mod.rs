@@ -102,6 +102,16 @@
 //! - 设计 §5.2 表头写「42 条」、正文编号到 46（以 46 为准）；
 //!   脚注写「4 处 `/my`」而表里只有 2 处（`/leave/my` 随 HR-41 落）。
 
+/// HR-15 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD / 续签链追溯 / 到期字段 /
+/// 撞号与终态拦截。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod contract_db_tests;
+/// 劳动合同入参契约 + 续签回执 + 字段校验（`biz_employee_contract`，HR-15）。
+pub mod contract_dto;
+/// 劳动合同接口层（设计 §5.2 #13~#15：登记 / 修改 / 续签），HR-15。
+pub mod contract_handler;
+/// 劳动合同数据层（`biz_employee_contract`）：CRUD + 续签链 + 状态 CAS（HR-15）。
+pub mod contract_model;
 pub mod dto;
 /// 员工档案出参契约（`biz_employee`）：`*_id`/`*_name` 成对 + 敏感字段只出 `*_masked`（HR-11）。
 pub mod employee_dto;

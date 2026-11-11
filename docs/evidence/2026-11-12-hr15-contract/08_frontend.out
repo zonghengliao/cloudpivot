@@ -1,0 +1,6 @@
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> pnpm typecheck && node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+✓ 5527 modules transformed.
+✓ built in 53.63s
+EXIT=0

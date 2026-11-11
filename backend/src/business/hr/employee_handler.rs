@@ -64,6 +64,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::hr::contract_model;
 use crate::business::hr::employee_dto::{
     self, ContractInput, EmployeeDetailRes, EmployeeListRes, EmployeeNames, SalaryInput,
 };
@@ -1581,56 +1582,19 @@ async fn operator_names(
 
 /// 该员工是否有生效中的劳动合同（`PROBATION → ACTIVE` 的守卫）。
 async fn active_contract_exists(ex: &impl SqlExecutor, employee_id: Uuid) -> std::result::Result<bool, ApiError> {
-    let found = ex
-        .query_first_sql(
-            "SELECT 1 FROM biz_employee_contract \
-              WHERE employee_id = ?::uuid AND status = 'ACTIVE' AND deleted_at IS NULL LIMIT 1"
-                .to_string(),
-            vec![Value::from(&employee_id)],
-        )
+    contract_model::has_active(ex, employee_id)
         .await
-        .map_err(|error| utils::db_error(error, "查询生效中的劳动合同"))?;
-    Ok(found.is_some())
+        .map_err(|error| utils::db_error(error, "查询生效中的劳动合同"))
 }
 
-/// 详情子表：全部劳动合同（HR-15 的**写**接口落地前，这里只读投影）。
+/// 详情子表：全部劳动合同（时间线）。
 ///
-/// 只取 [`ContractInput`] 的 12 列 + 自连接取续签来源编号 —— 与 HR-11 定的契约逐列对齐，
-/// HR-15 换成自己的 model 查询时把这 12 列照搬即可，DTO 不用改。
+/// SQL 由 HR-15 的 [`contract_model::list_by_employee`] 提供 —— 合同查询只有那一个出口，
+/// 详情 / 合同回执 / 续签链看到的是同一份投影（`renewed_from_no` 走自连接，不许 N+1）。
 async fn load_contracts(ex: &impl SqlExecutor, employee_id: Uuid) -> std::result::Result<Vec<ContractInput>, ApiError> {
-    let rows = ex
-        .query_sql(
-            "SELECT c.id, c.contract_no, c.contract_type, c.sign_date, c.start_date, c.end_date, \
-                    c.probation_months, c.status, c.terminated_date, c.terminate_reason, \
-                    c.renewed_from_id, r.contract_no AS renewed_from_no, c.remark \
-               FROM biz_employee_contract c \
-               LEFT JOIN biz_employee_contract r ON r.id = c.renewed_from_id \
-              WHERE c.employee_id = ?::uuid AND c.deleted_at IS NULL \
-              ORDER BY c.start_date DESC, c.contract_no DESC"
-                .to_string(),
-            vec![Value::from(&employee_id)],
-        )
+    contract_model::list_by_employee(ex, employee_id)
         .await
-        .map_err(|error| utils::db_error(error, "查询员工劳动合同"))?;
-    let mut out = Vec::with_capacity(rows.len());
-    for row in &rows {
-        out.push(ContractInput {
-            id: row.get_typed("id")?,
-            contract_no: row.get_typed("contract_no")?,
-            contract_type: row.get_typed("contract_type")?,
-            sign_date: row.get_typed("sign_date")?,
-            start_date: row.get_typed("start_date")?,
-            end_date: row.get_typed("end_date")?,
-            probation_months: row.get_typed("probation_months")?,
-            status: row.get_typed("status")?,
-            terminated_date: row.get_typed("terminated_date")?,
-            terminate_reason: row.get_typed("terminate_reason")?,
-            renewed_from_id: row.get_typed("renewed_from_id")?,
-            renewed_from_no: row.get_typed("renewed_from_no")?,
-            remark: row.get_typed("remark")?,
-        });
-    }
-    Ok(out)
+        .map_err(|error| utils::db_error(error, "查询员工劳动合同"))
 }
 
 /// 详情子表：员工薪资标准（按 `effective_from DESC`；HR-16 落地前只读投影）。

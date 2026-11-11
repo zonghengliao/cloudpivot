@@ -1,0 +1,56 @@
+== HR-15 劳动合同 HTTP 冒烟（http://127.0.0.1:18097，tag=055215196703）==
+  [PASS] 0. /health 就绪（200）
+  [PASS] 0. admin 登录（含必改密处理）
+  [PASS] 1. 新建冒烟员工 = 200（200）
+  [PASS] 1. 员工 id=01a1cc98-e8b5-7758-b1bd-e7653b03d24f
+  [PASS] 2. 未登录登记合同 = 401（401）
+  [PASS] 3. #13 登记合同 = 200（200）
+  [PASS] 3. 编号原样（trim 后）（HT15-SMOKE-055215196703-A）
+  [PASS] 3. 初始状态 ACTIVE（ACTIVE）
+  [PASS] 3. 状态中文 = 生效中（生效中）
+  [PASS] 3. 到期提醒 = 30 天（end_date - today）（30）
+  [PASS] 3. 首份合同没有续签来源（null）
+  [PASS] 3. 合同 id=01a1cc98-e8c4-7414-a98e-c4cd4394c4b8
+  [PASS] 4. 详情 contracts[] 长度 = 1（1）
+  [PASS] 4. current_contract = 刚建的那份（01a1cc98-e8c4-7414-a98e-c4cd4394c4b8）
+  [PASS] 4. 详情里到期天数也是 30（30）
+  [PASS] 5. #14 修改合同 = 200（200）
+  [PASS] 5. 试用期改成 6（6）
+  [PASS] 5. 备注被清空（null）
+  [PASS] 5. 编号不受影响（HT15-SMOKE-055215196703-A）
+  [PASS] 6. 同编号再登记 = 409（409）
+  [PASS] 6. 错误码 = 68005（合同编号冲突）（68005）
+  [PASS] 6. 报文点名编号（含 HT15-SMOKE-055215196703-A）
+  [PASS] 7. 缺 contract_no = 400（400）
+  [PASS] 7. 报文点 contract_no（含 contract_no）
+  [PASS] 7. 签订日晚于起始日 = 400（400）
+  [PASS] 7. 不泄内部细节（不含 panicked）
+  [PASS] 8. #15 续签 = 200（200）
+  [PASS] 8. 原合同状态 = RENEWED（RENEWED）
+  [PASS] 8. 原合同中文 = 已续签（已续签）
+  [PASS] 8. 新合同指回原合同（01a1cc98-e8c4-7414-a98e-c4cd4394c4b8）
+  [PASS] 8. 新合同带原合同编号（HT15-SMOKE-055215196703-A）
+  [PASS] 8. 续签链长度 = 2（2）
+  [PASS] 8. 链首 = 原合同（可追溯到原合同）（01a1cc98-e8c4-7414-a98e-c4cd4394c4b8）
+  [PASS] 8. 链尾 = 新合同（01a1cc98-e912-75aa-8385-5461dc97f1b3）
+  [PASS] 8. 新合同是 ACTIVE（ACTIVE）
+  [PASS] 9. 详情 contracts[] 长度 = 2（2）
+  [PASS] 9. 台账新的在前（第一行是新合同）（01a1cc98-e912-75aa-8385-5461dc97f1b3）
+  [PASS] 9. 旧合同在第二行且已续签（RENEWED）
+  [PASS] 9. 旧合同行带新合同编号？不：旧行来源为空（null）
+  [PASS] 9. current_contract = 新合同（01a1cc98-e912-75aa-8385-5461dc97f1b3）
+  [PASS] 9. 已续签的旧合同不再报到期天数（null）
+  [PASS] 10. 对已续签合同再续 = 409（409）
+  [PASS] 10. 错误码 = 68006（终态拦截）（68006）
+  [PASS] 10. 报文给下一步（续签链）（含 续签）
+  [PASS] 11. 解除缺 terminated_date = 400（400）
+  [PASS] 11. 报文点 terminated_date（含 terminated_date）
+  [PASS] 11. 解除（带日期+原因）= 200（200）
+  [PASS] 11. 状态 = TERMINATED（TERMINATED）
+  [PASS] 11. 解除日落库（2027-11-12）
+  [PASS] 11. 解除后不再报到期天数（null）
+  [PASS] 11. 已解除改字段 = 409（409）
+  [PASS] 11. 错误码 = 68006（68006）
+  [PASS] 12. 空 PUT = 409（没有改动就不写库）（409）
+  [PASS] 13. 软删冒烟员工 = 200（200）
+== 结果：PASS=54 FAIL=0 ==

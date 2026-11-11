@@ -1,0 +1,26 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.80s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::hr::contract_db_tests::db::concurrent_renew_has_exactly_one_winner ... [HR-15] ⑥ 并发 4 续签：成功 1 / 409 3；链上后继 1
+ok
+test business::hr::contract_db_tests::db::crud_roundtrip_and_expire_fields ... [HR-15] ① 新建 HT15-A-77976254303 id=01a1cc91-40df-7226-b4bc-a2148e166871 expire_in_days=Some(20)
+[HR-15] ① 修改后 probation=6 remark=None（编号未变）
+[HR-15] ① 无固定期限 expire=None；过期 5 天 expire=Some(-5)
+ok
+test business::hr::contract_db_tests::db::duplicate_no_and_check_violation_map_to_business_codes ... [HR-15] ② 撞号 → 409 68005
+[HR-15] ② CHECK 违反 → 400 10001（签订日期不能晚于起始日期（先签后生效，倒签请改签订日））
+ok
+test business::hr::contract_db_tests::db::renew_chain_traces_back_to_the_original_contract ... [HR-15] ③ 续签链 = ["HT15-C1-74846056608", "HT15-C2-74846056608", "HT15-C3-74846056608"] → 可回溯到原合同 HT15-C1-74846056608
+[HR-15] ③ 对已续签再续 → 409 68006
+ok
+test business::hr::contract_db_tests::db::resigned_employee_is_blocked_and_expired_contract_can_be_renewed ... [HR-15] ⑤ 补录 EXPIRED → 续签：EXPIRED ⇒ ACTIVE（链长 2）
+[HR-15] ⑤ 离职员工新签 → 409 68006（员工 HR15-edge-65838240009（员工edge-65838240009）已离职，不能新签劳动合同：返聘请先恢复员工状态（状态流转里「复职」））
+ok
+test business::hr::contract_db_tests::db::terminate_writes_status_log_and_freezes_the_contract ... [HR-15] ④ 解除落库 + biz_status_log 两条（["ACTIVE", "TERMINATED"]）
+[HR-15] ④ 终态冻结：改字段 / 续签都是 409 + 68006（合同状态是「已解除」，不能续签：这份合同已解除：解除是终态，不能再续签（要重新用工请新建合同））
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4951 filtered out; finished in 6.56s
+
+EXIT=0
