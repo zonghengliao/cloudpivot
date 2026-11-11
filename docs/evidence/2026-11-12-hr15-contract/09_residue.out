@@ -1,0 +1,8 @@
+employee_total=2
+contract_total=4
+contract_hr15=4
+contract_remnant_hard=0
+status_log_contract=8
+# 口径：contract_hr15 = 冒烟夹具（员工已按产品语义软删 deleted_at，合同行留着是「历史」）
+#       contract_remnant_hard = 真库用例夹具（应恒为 0，按 id 清场）
+#       status_log_contract = 合同状态日志条数（建单/续签/解除各一条，随库一起删）
