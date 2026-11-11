@@ -144,3 +144,13 @@ pub mod employee_sensitive;
 mod employee_sensitive_db_tests;
 pub mod handler;
 pub mod model;
+/// HR-16 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：不重叠 / 重叠 / 相邻 / 边界相等 /
+/// 收口 / 取消 / 幂等。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_db_tests;
+/// 员工薪资标准入参 / 回执契约 + 金额与区间校验（`biz_employee_salary`，HR-16）。
+pub mod salary_dto;
+/// 员工薪资标准接口层（设计 §5.2 #16~#17：现行+历史 / 调薪·登记·修正·取消），HR-16。
+pub mod salary_handler;
+/// 员工薪资标准数据层（`biz_employee_salary`）：版本读写 + 区间重叠判定（A3）（HR-16）。
+pub mod salary_model;

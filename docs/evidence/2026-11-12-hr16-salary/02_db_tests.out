@@ -1,0 +1,26 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 10 tests
+test business::hr::salary_db_tests::db::adjacent_ranges_are_accepted ... [HR-16] ② 相邻 base=HR16adjB885604 版本=2
+ok
+test business::hr::salary_db_tests::db::adjustment_closes_previous_and_matches_employee_detail ... [HR-16] ① 调薪链 base=HR16chainB879154 版本=2 收口=Some(2026-06-30)
+ok
+test business::hr::salary_db_tests::db::cancel_closes_standard_and_blocks_empty_cancel ... [HR-16] ⑦ 取消 MEAL 收口到 2026-11-30，重复取消 68008
+ok
+test business::hr::salary_db_tests::db::data_scope_outside_returns_404 ... [HR-16] ⑨ 范围外 404（读+写），本部门可读空列表
+ok
+test business::hr::salary_db_tests::db::disjoint_ranges_are_accepted ... ok
+test business::hr::salary_db_tests::db::equal_boundary_is_rejected ... [HR-16] ④ 边界相等被拒（06-30 vs 06-30），07-01 相邻放行
+ok
+test business::hr::salary_db_tests::db::future_version_blocks_earlier_standard ... [HR-16] ⑤ 未来版本拦下更早的现行标准，明确区间补登放行
+ok
+test business::hr::salary_db_tests::db::overlapping_range_is_rejected_and_rolled_back ... [HR-16] ③ 重叠被拒 code=68007 行数=1
+ok
+test business::hr::salary_db_tests::db::same_effective_day_corrects_amount_in_place ... [HR-16] ⑥ 同日修正 5602.10 → 6000，行数恒为 1
+ok
+test business::hr::salary_db_tests::db::unknown_item_and_resigned_employee_are_blocked ... [HR-16] ⑧ 未知薪资项 400 / 离职员工 409+68008
+ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 4983 filtered out; finished in 10.39s
+

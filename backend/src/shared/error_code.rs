@@ -1939,6 +1939,21 @@ pub const HR_CONTRACT_NO_DUPLICATE: i32 = 68005;
 /// 前端文案要提示「下一步该做什么」（去续出来的新合同上改 / 先复职），不是「换个值重试」。
 pub const HR_CONTRACT_RULE_BLOCKED: i32 = 68006;
 
+/// 员工薪资标准的生效区间与已有标准重叠（HTTP 409，`68007`，HR-16）。
+///
+/// 设计 §3.1 ③ / §4.9 A3：同一 `employee_id + item_code` 的 `[effective_from, effective_to]`
+/// 区间**不许相交**（两端都含当天，**边界相等也算重叠**）—— 重叠后同一期间会取到两个标准，
+/// 工资算成哪个是 `ORDER BY` 的运气。报文必须点明薪资项 + 两条区间（见
+/// `business::hr::salary_model::overlap_error`），否则 HR 面对一年的标准看不出跟谁撞。
+pub const HR_SALARY_RANGE_OVERLAP: i32 = 68007;
+
+/// 员工薪资标准操作被业务规则拦下（HTTP 409，`68008`，HR-16）。
+///
+/// 与 [`HR_SALARY_RANGE_OVERLAP`] 分开：这类冲突**不是**区间问题，而是「当前状态 / 当前数据
+/// 不允许这么做」—— 离职员工不能调薪、取消一个根本不存在的标准（本次什么都没改）。
+/// 前端文案要提示「下一步该做什么」（先复职 / 先确认这一项有没有标准），不是「换个日期」。
+pub const HR_SALARY_RULE_BLOCKED: i32 = 68008;
+
 #[cfg(test)]
 mod hr_error_codes_are_stable {
     use super::*;
@@ -1953,6 +1968,8 @@ mod hr_error_codes_are_stable {
             (HR_EMPLOYEE_RULE_BLOCKED, 68004),
             (HR_CONTRACT_NO_DUPLICATE, 68005),
             (HR_CONTRACT_RULE_BLOCKED, 68006),
+            (HR_SALARY_RANGE_OVERLAP, 68007),
+            (HR_SALARY_RULE_BLOCKED, 68008),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "68xxx 段码值不得改动");

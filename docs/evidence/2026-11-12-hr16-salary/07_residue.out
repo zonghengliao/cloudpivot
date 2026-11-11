@@ -1,0 +1,13 @@
+== HR-16 残留自检（2026-11-12 07:04:35 CST）==
+-- hr16_card（真库用例库）--
+biz_employee=0
+biz_employee_salary=0
+biz_salary_item=0
+sys_user_hr16=0
+sys_dept_hr16=0
+-- hr16_http（HTTP 冒烟库）--
+biz_employee=0
+biz_employee_salary=0
+biz_salary_item_hr16=0
+-- 监听端口 --
+0

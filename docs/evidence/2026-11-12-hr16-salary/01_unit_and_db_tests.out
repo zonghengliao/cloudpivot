@@ -1,0 +1,43 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.29s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 36 tests
+test business::hr::salary_db_tests::db::adjacent_ranges_are_accepted ... ok
+test business::hr::salary_db_tests::db::adjustment_closes_previous_and_matches_employee_detail ... ok
+test business::hr::salary_db_tests::db::cancel_closes_standard_and_blocks_empty_cancel ... ok
+test business::hr::salary_db_tests::db::data_scope_outside_returns_404 ... ok
+test business::hr::salary_db_tests::db::disjoint_ranges_are_accepted ... ok
+test business::hr::salary_db_tests::db::equal_boundary_is_rejected ... ok
+test business::hr::salary_db_tests::db::future_version_blocks_earlier_standard ... ok
+test business::hr::salary_db_tests::db::overlapping_range_is_rejected_and_rolled_back ... ok
+test business::hr::salary_db_tests::db::same_effective_day_corrects_amount_in_place ... ok
+test business::hr::salary_db_tests::db::unknown_item_and_resigned_employee_are_blocked ... ok
+test business::hr::salary_dto::tests::amount_guards ... ok
+test business::hr::salary_dto::tests::cancel_rejects_effective_to ... ok
+test business::hr::salary_dto::tests::effective_from_is_required_and_iso ... ok
+test business::hr::salary_dto::tests::effective_to_cannot_precede_effective_from ... ok
+test business::hr::salary_dto::tests::items_shape_is_validated ... ok
+test business::hr::salary_dto::tests::parses_cancel_intent ... ok
+test business::hr::salary_dto::tests::parses_explicit_range ... ok
+test business::hr::salary_dto::tests::parses_open_ended_adjust ... ok
+test business::hr::salary_dto::tests::remark_is_trimmed_and_bounded ... ok
+test business::hr::salary_dto::tests::responses_split_current_from_history ... ok
+test business::hr::salary_handler::tests::error_primitives_are_stable ... ok
+test business::hr::salary_handler::tests::path_uuid_is_validated ... ok
+test business::hr::salary_handler::tests::permission_codes_are_seeded ... ok
+test business::hr::salary_handler::tests::route_contract_permissions_match_this_file ... ok
+test business::hr::salary_model::tests::adjacent_ranges_do_not_overlap ... ok
+test business::hr::salary_model::tests::constraint_names_match_v0383_ddl ... ok
+test business::hr::salary_model::tests::disjoint_ranges_do_not_overlap ... ok
+test business::hr::salary_model::tests::equal_boundaries_overlap ... ok
+test business::hr::salary_model::tests::every_projection_carries_the_same_columns ... ok
+test business::hr::salary_model::tests::ignored_rows_are_not_conflicts ... ok
+test business::hr::salary_model::tests::nested_ranges_overlap ... ok
+test business::hr::salary_model::tests::only_write_paths_take_row_locks ... ok
+test business::hr::salary_model::tests::overlap_message_is_locatable ... ok
+test business::hr::salary_model::tests::pair_overlap_detects_leftover_intersection ... ok
+test business::hr::salary_model::tests::placeholder_counts_match_bindings ... ok
+test business::hr::salary_model::tests::row_projects_and_covers_by_closed_interval ... ok
+
+test result: ok. 36 passed; 0 failed; 0 ignored; 0 measured; 4957 filtered out; finished in 10.62s
+

@@ -70,6 +70,7 @@ use crate::business::hr::employee_dto::{
 };
 use crate::business::hr::employee_model::{self, EmployeeFilter, EmployeeRow, EmployeeWrite};
 use crate::business::hr::employee_no;
+use crate::business::hr::salary_model;
 use crate::business::masking::MaskSet;
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::state_machine::{self, Operator};
@@ -1597,35 +1598,17 @@ async fn load_contracts(ex: &impl SqlExecutor, employee_id: Uuid) -> std::result
         .map_err(|error| utils::db_error(error, "查询员工劳动合同"))
 }
 
-/// 详情子表：员工薪资标准（按 `effective_from DESC`；HR-16 落地前只读投影）。
+/// 详情子表：员工薪资标准（按 `effective_from DESC`）。
+///
+/// SQL 由 HR-16 的 [`salary_model::list_by_employee`] 提供 —— 薪资标准查询只有那一个出口，
+/// 详情 / 薪资 tab / 调薪回执看到的是同一份投影。
 async fn load_salary_items(
     ex: &impl SqlExecutor,
     employee_id: Uuid,
 ) -> std::result::Result<Vec<SalaryInput>, ApiError> {
-    let rows = ex
-        .query_sql(
-            "SELECT s.item_code, i.item_name, s.amount, s.effective_from, s.effective_to, s.remark \
-               FROM biz_employee_salary s \
-               LEFT JOIN biz_salary_item i ON i.item_code = s.item_code AND i.deleted_at IS NULL \
-              WHERE s.employee_id = ?::uuid AND s.deleted_at IS NULL \
-              ORDER BY s.effective_from DESC, s.item_code"
-                .to_string(),
-            vec![Value::from(&employee_id)],
-        )
+    salary_model::list_by_employee(ex, employee_id)
         .await
-        .map_err(|error| utils::db_error(error, "查询员工薪资标准"))?;
-    let mut out = Vec::with_capacity(rows.len());
-    for row in &rows {
-        out.push(SalaryInput {
-            item_code: row.get_typed("item_code")?,
-            item_name: row.get_typed("item_name")?,
-            amount: row.get_typed("amount")?,
-            effective_from: row.get_typed("effective_from")?,
-            effective_to: row.get_typed("effective_to")?,
-            remark: row.get_typed("remark")?,
-        });
-    }
-    Ok(out)
+        .map_err(|error| utils::db_error(error, "查询员工薪资标准"))
 }
 
 /// 时间戳（保留给后续卡的时间轴出参；本卡 DTO 走 `employee_dto::timestamp_cst`）。

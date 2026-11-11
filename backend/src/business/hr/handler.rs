@@ -167,10 +167,14 @@ pub const ROUTE_CONTRACT: [RouteSpec; 46] = [
         card: "HR-15",
     },
     // ---- 员工薪资标准（#16~#17） ----
+    //
+    // #16 的权限码取 `salary:detail` 而不是 `employee:detail`：设计 §5.2 写的是「两个都要」，
+    // 但 §3.2 ⑤ 给 FINANCE_MANAGER 的只有薪资 4 码（没有档案码）—— 两个都要求会把财务经理
+    // 403 掉。详见 `salary_handler` 模块文档「#16 的权限码为什么只用 salary:detail」。
     RouteSpec {
         method: "GET",
         path: "/business/hr/employee/{id}/salary",
-        permission: Some("business:hr:employee:detail"),
+        permission: Some("business:hr:salary:detail"),
         card: "HR-16",
     },
     RouteSpec {
