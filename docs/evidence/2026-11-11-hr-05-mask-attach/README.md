@@ -91,6 +91,16 @@ NOTICE: V0389：SALARY_SHEET 建议规则插入 1 行（0 = 已存在，幂等�
 数据库迁移完成: 应用 320 个迁移
 ```
 
+**指纹对齐（提交的 SQL 与真库跑的那一份字节相同）**：
+
+```
+文件 sha256                                            schema_migrations.checksum（库 hr0389_t4）
+6782c6fe1f3ac8a83fd5eab25aa01c880d38312313b0b1eb2c59ab908bd26c0b  V0388__hr_mask_config.up.sql
+dda8d09f9b2ea03eb651121a2b0c16d397f74cd664c0506378931d8b6eafe381  V0389__hr_attachment_doc_types.up.sql
+```
+
+两者逐字一致 ⇒ 证据不是「某次改前跑出来的」。二次启动 `应用 0 个迁移` 同样依赖这个指纹校验。
+
 ## 两处设计稿纠偏（真库实测，不纠就是事故）
 
 | 设计稿写的 | 照抄的后果 | 落地版 |
