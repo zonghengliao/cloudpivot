@@ -1,0 +1,29 @@
+=== cargo test --lib cost_period_bridge（本卡纯单测明细） ===
+test business::erp::cost_period_bridge::tests::note_prefixes_are_auditable ... ok
+test business::erp::cost_period_bridge::tests::verdict_labels_are_stable ... ok
+test business::erp::cost_period_bridge::tests::verdict_mapping_is_whitelist_only ... ok
+test business::erp::cost_period_bridge::tests::flow_constants_match_v0381_seed ... ok
+test business::erp::cost_period_bridge::tests::wired_into_internal_control ... ok
+test business::erp::cost_period_bridge::tests::wired_into_flow_handler ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4667 filtered out; finished in 0.00s
+
+=== cargo test --lib cost_period_handler（含路由注解成对自检） ===
+test business::erp::cost_period_handler::tests::base_edges_match_registry_one_by_one ... ok
+test business::erp::cost_period_handler::tests::error_helpers_share_the_house_codes ... ok
+test business::erp::cost_period_handler::tests::filter_normalizes_status_and_period ... ok
+test business::erp::cost_period_handler::tests::filter_rejects_bad_period ... ok
+test business::erp::cost_period_handler::tests::filter_rejects_pending_with_a_hint ... ok
+test business::erp::cost_period_handler::tests::detail_serializes_contract_fields ... ok
+test business::erp::cost_period_handler::tests::draft_offers_submit_and_cancel ... ok
+test business::erp::cost_period_handler::tests::full_chain_is_legal_and_reaches_final_states ... ok
+test business::erp::cost_period_handler::tests::illegal_jumps_are_rejected ... ok
+test business::erp::cost_period_handler::tests::final_states_offer_nothing ... ok
+test business::erp::cost_period_handler::tests::list_row_serializes_frontend_fields ... ok
+test business::erp::cost_period_handler::tests::permission_codes_match_design_5_3 ... ok
+test business::erp::cost_period_handler::tests::reason_is_required_for_reverse_and_cancel_only ... ok
+test business::erp::cost_period_handler::tests::route_paths_have_no_api_prefix ... ok
+test business::erp::cost_period_handler::tests::settled_offers_close_and_reverse ... ok
+test business::erp::cost_period_handler::tests::submit_and_withdraw_routes_are_annotated ... ok
+test business::erp::cost_period_handler::tests::permission_codes_match_menu_auth_code_in_v0378 ... ok
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 4656 filtered out; finished in 0.00s
+

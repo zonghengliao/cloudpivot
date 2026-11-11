@@ -194,6 +194,11 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         let creator = crate::business::erp::sales_approval_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::cost_period_bridge::BIZ_TYPE {
+        // B3-3：成本结算审批的 `biz_id` 是**成本核算批次 id**（制单人不能批自己的结算）
+        let creator = crate::business::erp::cost_period_bridge::internal_control_creator(biz_id).await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else {
         false
     };

@@ -1,0 +1,11 @@
+# B3-3 残留检查（costb31_drill, 2026-11-11 10:52:04 CST）
+            k            | n 
+-------------------------+---
+ periods 2031-07..09     | 0
+ COST_SETTLE instances   | 0
+ COST_SETTLE tasks       | 0
+ COST_PERIOD status_logs | 0
+ fixture users b3a3*     | 0
+ fixture role bindings   | 0
+(6 rows)
+

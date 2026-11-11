@@ -1,0 +1,15 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 58s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces ... ok
+test business::erp::cost_period_approval_db_tests::db::submit_and_withdraw_guard_non_draft_states ... ok
+test business::erp::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch ... ok
+test business::erp::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch ... ok
+test business::erp::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed ... ok
+test business::erp::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 4667 filtered out; finished in 15.36s
+
+EXIT=0

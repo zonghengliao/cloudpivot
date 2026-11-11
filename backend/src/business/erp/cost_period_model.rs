@@ -556,6 +556,85 @@ pub async fn apply_cancel(ex: &impl SqlExecutor, id: Uuid, reason: &str, operato
     .await
 }
 
+// ==================== 审批接线（B3-3） ====================
+
+/// 提交审批（`DRAFT → SUBMITTED` + 挂实例）。
+///
+/// **CAS `WHERE status = 'DRAFT'`**：并发下（同一批被点了两次提交）影响行数为 0，
+/// handler 给 409 而不是「两次提交都挂上实例」。
+/// `approval_instance_id` 必须同事务写：库层 `ck_biz_cost_period_appr` 要求
+/// `SUBMITTED` 起非空。
+pub async fn mark_submitted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    instance_id: Uuid,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET status = 'SUBMITTED', approval_instance_id = ?::uuid, \
+                    updated_at = now(), update_by = NULLIF(?::text, '')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'DRAFT'"
+        ),
+        vec![
+            Value::from(&instance_id),
+            Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 审批通过（`SUBMITTED → APPROVED`）：**保留** `approval_instance_id` 作审计
+/// （详情显示「审批通过 FLW-xxx」；清空它反而丢证据）。
+pub async fn mark_approved(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET status = 'APPROVED', \
+                    updated_at = now(), update_by = NULLIF(?::text, '')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'SUBMITTED'"
+        ),
+        vec![
+            Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 驳回 / 撤回 / 终止（`SUBMITTED → DRAFT`）：**清空审批痕迹** + 意见追加 `remark`。
+///
+/// 两个动作共用一条 SQL（同一条状态机边承载两个业务动作）：
+/// * `approval_instance_id = NULL` —— 卡面验收「清空审批痕迹」，且草稿上挂着
+///   旧实例指针会让详情页显示「审批中 FLW-xxx」与「草稿」自相矛盾；
+/// * `remark` 用 `concat_ws(' | ', ...)` 追加，**不覆盖**用户自己写的备注
+///   （与 `purchase_model::apply_status_with_instance` 的 DRAFT 分支同款）；
+/// * `note` 为空时不碰 `remark`（`CASE WHEN`），避免写出 `old | ` 这种残尾。
+pub async fn mark_back_to_draft(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    note: Option<&str>,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET status = 'DRAFT', approval_instance_id = NULL, \
+                    remark = CASE WHEN ?::text = '' THEN remark \
+                                  ELSE concat_ws(' | ', NULLIF(remark, ''), ?::text) \
+                             END, \
+                    updated_at = now(), update_by = NULLIF(?::text, '')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'SUBMITTED'"
+        ),
+        vec![
+            Value::Text(note.map(str::to_string).unwrap_or_default()),
+            Value::Text(note.map(str::to_string).unwrap_or_default()),
+            Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
 // ==================== 单测（纯逻辑部分） ====================
 
 #[cfg(test)]

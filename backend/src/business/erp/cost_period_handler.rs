@@ -10,7 +10,8 @@
 //! | — | PUT | `/business/erp/cost-period/{id}` | `business:erp:cost-period:calc` | ✅ 改 `DRAFT`（人工来源 / 备注） |
 //! | 31 | POST | `/business/erp/cost-period/{id}/cancel` | `business:erp:cost-period:submit` | ✅ 作废（仅 `DRAFT`） |
 //! | 27 | POST | `/business/erp/cost-period/calc` | `business:erp:cost-period:calc` | ⛔ 编排卡（六段串联） |
-//! | 28 | POST | `/business/erp/cost-period/{id}/submit` | `business:erp:cost-period:submit` | ⛔ B3-3（走审批引擎） |
+//! | 28 | POST | `/business/erp/cost-period/{id}/submit` | `business:erp:cost-period:submit` | ✅ B3-3（走审批引擎） |
+//! | — | POST | `/business/erp/cost-period/{id}/withdraw` | `business:erp:cost-period:submit` | ✅ B3-3（撤回 = 终止实例 + 回 `DRAFT`） |
 //! | 29 | POST | `/business/erp/cost-period/{id}/settle` | `business:erp:cost-period:settle` | ⛔ B3-4（入库 + 凭证） |
 //! | 30 | POST | `/business/erp/cost-period/{id}/reverse` | `business:erp:cost-period:reverse` | ⛔ B3-5（红冲） |
 //! | 32/33 | GET | `…/cost-sheet` / `…/uncollected` | `business:erp:cost-period:list` | ⛔ 导出 / 缺口清单卡 |
@@ -37,14 +38,19 @@ use axum::Json;
 use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
+use serde_json::json;
 
 use crate::business::erp::cost_labor_dto;
+use crate::business::erp::cost_period_bridge;
 use crate::business::erp::cost_period_dto::{
     self, CostPeriodCancelReq, CostPeriodCreateReq, CostPeriodDetailRes, CostPeriodFilter, CostPeriodListRes,
     CostPeriodPageQuery, CostPeriodUpdateReq,
 };
 use crate::business::erp::cost_period_model::{self as model, CostPeriodRow};
+use crate::business::flow::engine;
+use crate::business::flow::model as flow_model;
 use crate::business::shared::state_machine;
+use crate::shared::error_code;
 use crate::utils;
 
 // ==================== 权限码（与设计 §5.3 / V0378 的 auth_code 逐字一致） ====================
@@ -323,6 +329,293 @@ pub async fn cancel_period(
     detail_of(id).await
 }
 
+// ==================== 提交 / 撤回（B3-3 接线） ====================
+
+/// `form_data`：发起审批时冻结的批次摘要（条件边 / 审批详情页读它）。
+///
+/// 键名**不带 `form.` 前缀**（流程引擎把 `form_data` 整个对象当 `form` 作用域，
+/// 与 `expense_handler::submit_form_data` / `po_approve` 同口径）。
+/// `total_cost` 必须是 **JSON 数字**：条件节点的 `cmp` 只认 `Number`
+/// （`payable_payment::amount_number`）。
+fn submit_form_data(row: &CostPeriodRow) -> serde_json::Value {
+    let amount_number = crate::business::erp::payable_payment::amount_number;
+    json!({
+        "batch_no": row.batch_no,
+        "period_code": row.period_code,
+        "object_count": row.object_count,
+        "labor_source": row.labor_source,
+        "total_material": amount_number(row.total_material),
+        "total_labor": amount_number(row.total_labor),
+        "total_overhead": amount_number(row.total_overhead),
+        "total_cost": amount_number(row.total_cost),
+        "total_finished": amount_number(row.total_finished),
+        "total_wip": amount_number(row.total_wip),
+        "voucher_summary": format!("成本结算-{}", row.period_code),
+    })
+}
+
+/// 提交审批（设计 §5.2 #28）：`DRAFT → SUBMITTED` + **同一个事务**里发起审批实例。
+///
+/// 为什么单据状态与实例必须同事务（`engine::start_in_tx` 而不是 `start`）：
+/// 引擎的业务拒绝（`422` 没有可用审批人 / 自审被禁）如果先 commit 再判，
+/// 批次会停在 `SUBMITTED` 而**一条待办都没有** —— 批不动、撤不回、也重提不了
+/// （报销单 `t_0127714a` 的同款死单，约定 11）。
+pub async fn submit_period(operator: Option<Uuid>, id_raw: &str) -> std::result::Result<CostPeriodDetailRes, ApiError> {
+    let id = cost_period_dto::parse_uuid(id_raw, "id")?;
+    let Some(operator) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交成本核算批次需要登录用户（审批单要记发起人）",
+        ));
+    };
+    let row = model::find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询待提交的批次"))?
+        .ok_or_else(|| cost_period_dto::not_found(id))?;
+    // ① 只有草稿能提交（SUBMITTED/APPROVED… 已冻结）
+    if row.status != cost_period_dto::STATUS_DRAFT {
+        return Err(cost_period_dto::status_guard(
+            &row.batch_no,
+            "提交审批",
+            &row.status,
+            &[cost_period_dto::STATUS_DRAFT],
+        ));
+    }
+    // ② 已有在跑的审批 → 409（引擎侧还有 uk_biz_flow_instance_biz_active 兜底）
+    if flow_model::biz_instance_running(cost_period_bridge::BIZ_TYPE, id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑的结算审批"))?
+    {
+        return Err(cost_period_dto::conflict(format!(
+            "成本核算批次 {} 已有在跑的审批：请等审批结束或先撤回",
+            row.batch_no
+        )));
+    }
+    // ③ 没有已发布流程 = **默认拒绝**（不静默直过，approval_gate 的口径）
+    let flow = cost_period_bridge::published_cost_settle_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询成本结算审批流程"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                409,
+                error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+                format!(
+                    "成本核算批次 {} 的提交必须走审批，但系统里没有已发布的 cost_settle_approve 流程，\
+                     所以不能提交。请管理员在「审批流程」里发布成本结算审批流程\
+                     （cost_settle_approve：财务经理 → 财务总监 两级顺序审批）。",
+                    row.batch_no
+                ),
+            )
+        })?;
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(id),
+        biz_no: Some(row.batch_no.clone()),
+        title: format!("{} 成本结算 {}", row.batch_no, row.period_code)
+            .chars()
+            .take(200)
+            .collect::<String>(),
+        initiator_id: operator,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: submit_form_data(&row),
+    };
+    let out = {
+        let tx = db()
+            .begin()
+            .await
+            .map_err(|error| utils::db_error(error, "开启提交事务"))?;
+        let outcome = async {
+            // ④ 状态机：DRAFT → SUBMITTED（边表核对 + 写 biz_status_log）
+            state_machine::transition(
+                &tx,
+                state_machine::ENTITY_COST_PERIOD,
+                id,
+                &row.batch_no,
+                &model::LEGAL_EDGES,
+                cost_period_dto::STATUS_DRAFT,
+                cost_period_dto::STATUS_SUBMITTED,
+                operator,
+                None,
+                None,
+            )
+            .await?;
+            // ⑤ CAS 回写状态 + 挂实例（库层 ck_..._appr 要求同事务给 instance id）
+            let affected = model::mark_submitted(&tx, id, instance_id, Some(operator))
+                .await
+                .map_err(|error| utils::db_error(error, "标记批次为审批中"))?;
+            if affected == 0 {
+                return Err(cost_period_dto::conflict(format!(
+                    "成本核算批次 {} 已不是草稿，请刷新后重试",
+                    row.batch_no
+                )));
+            }
+            // ⑥ 发起审批单：**引擎的业务拒绝当硬错误** ⇒ 整笔回滚（批次仍是 DRAFT、无残留实例）
+            match engine::start_in_tx(&tx, &start).await {
+                Ok(out) => Ok::<engine::ActionOut, ApiError>(out),
+                Err(engine::StartFailure::Rejected(rejected)) => Err(rejected.appended(
+                    "（批次保持草稿、没有生成审批单：请让能审批的人提交，\
+                     或把一位非制单人加入财务经理 / 财务总监角色后再提交）",
+                )),
+                Err(engine::StartFailure::Db(error)) => Err(utils::db_error(error, "发起成本结算审批单")),
+            }
+        }
+        .await;
+        match outcome {
+            Ok(out) => {
+                tx.commit()
+                    .await
+                    .map_err(|error| utils::db_error(error, "提交提交事务"))?;
+                out
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        }
+    };
+    // 事务已提交 → 才发通知 / 建任务（提交后的副作用不回滚业务）
+    let mut out = out;
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+    // 单站 / 免审兜底：真的当场走完了也要立刻回写 APPROVED（不能停在「审批过了但没落地」）
+    if out.instance_status.trim().eq_ignore_ascii_case("APPROVED") {
+        cost_period_bridge::on_cost_settle_decided(Some(instance_id), &out.instance_status).await;
+    }
+    tracing::info!(
+        %id,
+        batch_no = %row.batch_no,
+        %instance_id,
+        instance_status = %out.instance_status,
+        "成本核算批次已提交审批"
+    );
+    detail_of(id).await
+}
+
+/// 撤回（`SUBMITTED → DRAFT`）：终止在跑的实例 + 清空审批痕迹，**同一个事务**。
+///
+/// 与审批中心的「撤回」同一件事（那边走 `flow::handler::withdraw_instance`，桥回调落 `DRAFT`），
+/// 这里只是让批次列表上也能点。只有提交人本人（或管理员）能撤：`engine::withdraw` 自带发起人校验。
+///
+/// # 为什么「终止实例」与「回写批次」必须同事务（约定 11）
+///
+/// 分段做（先 commit 撤回、再跑桥回调）时，第二步失败就留下「实例 `WITHDRAWN`、
+/// 批次仍 `SUBMITTED`」的死单：撤不回（实例已终态，`engine::withdraw` 回 `65024`）、
+/// 提不了（不是 `DRAFT`）、也没有任何待办会来推进它 —— 只能改库。
+/// 所以这里用一个事务 + [`cost_period_bridge::apply_decided_in_tx`]。
+///
+/// # 自愈分支：实例已落终态
+///
+/// 审批中心的驳回 / 撤回是**提交后回调**（审批事务先提交），回调失败时批次同样会停在
+/// `SUBMITTED`。这里检测到实例已不在 `PENDING`，就按实例的**真实结论**回写批次
+/// （`APPROVED` → `APPROVED`，其余 → `DRAFT`），让用户点一次「撤回」即可恢复 ——
+/// 不需要工程师改库。日志打 `warn` 留痕，便于巡检发现「回调失败过」。
+pub async fn withdraw_period(
+    operator: Option<Uuid>,
+    id_raw: &str,
+) -> std::result::Result<CostPeriodDetailRes, ApiError> {
+    let id = cost_period_dto::parse_uuid(id_raw, "id")?;
+    let Some(operator) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "撤回成本核算批次需要登录用户",
+        ));
+    };
+    let row = model::find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询待撤回的批次"))?
+        .ok_or_else(|| cost_period_dto::not_found(id))?;
+    if row.status != cost_period_dto::STATUS_SUBMITTED {
+        return Err(cost_period_dto::status_guard(
+            &row.batch_no,
+            "撤回",
+            &row.status,
+            &[cost_period_dto::STATUS_SUBMITTED],
+        ));
+    }
+    let Some(instance_id) = row.approval_instance_id else {
+        return Err(cost_period_dto::conflict(format!(
+            "成本核算批次 {} 处于审批中但没有审批实例，请让管理员修数据",
+            row.batch_no
+        )));
+    };
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启撤回事务"))?;
+    let outcome = async {
+        let Some(instance) = flow_model::lock_instance(&tx, instance_id)
+            .await
+            .map_err(|error| utils::db_error(error, "锁读结算审批单"))?
+        else {
+            return Err(cost_period_dto::conflict(format!(
+                "成本核算批次 {} 挂的审批实例已不存在（{instance_id}），请让管理员修数据",
+                row.batch_no
+            )));
+        };
+        if instance.status.trim().eq_ignore_ascii_case("PENDING") {
+            let out = engine::withdraw(&tx, instance_id, operator)
+                .await
+                .map_err(|error| utils::db_error(error, "撤回成本结算审批"))?;
+            if let Some(rejected) = out.rejected {
+                // 原样透传（不要用 `ApiError::new(..)` 重建，那会丢结构化载荷）
+                return Err(rejected);
+            }
+        } else {
+            tracing::warn!(
+                %id,
+                batch_no = %row.batch_no,
+                %instance_id,
+                instance_status = %instance.status,
+                "结算审批实例已落终态但批次仍在审批中（回调曾失败）：按实例结论自愈"
+            );
+        }
+        // 终止 / 终态判定之后，按实例结论把批次推到终态（同一事务，与上面同生共死）
+        cost_period_bridge::apply_decided_in_tx(&tx, instance_id)
+            .await
+            .map_err(|error| {
+                ApiError::new(
+                    500,
+                    error.code,
+                    format!("撤回成功但批次回写失败（已回滚，批次仍是原状态）：{}", error.msg),
+                )
+            })?;
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    match outcome {
+        Ok(()) => tx
+            .commit()
+            .await
+            .map_err(|error| utils::db_error(error, "提交撤回事务"))?,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    }
+    tracing::info!(%id, batch_no = %row.batch_no, "成本核算批次已撤回（回草稿 / 按实例结论）");
+    detail_of(id).await
+}
+
 /// 列表分页（期间合计单头 **unscoped** + 权限码，设计 D-18）。
 pub async fn page_periods(
     query: CostPeriodPageQuery,
@@ -452,6 +745,36 @@ pub async fn cost_period_cancel_api(
     Ok(Res::ok(cancel_period(operator, &id, req).await?))
 }
 
+/// 提交审批（走审批引擎；设计 §5.2 #28）。
+#[nik::permission(
+    path = "/business/erp/cost-period/{id}/submit",
+    method = "POST",
+    permission = "business:erp:cost-period:submit"
+)]
+#[nik::post("/business/erp/cost-period/{id}/submit")]
+pub async fn cost_period_submit_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<CostPeriodDetailRes> {
+    let operator = utils::current_user_uuid(&claims);
+    Ok(Res::ok(submit_period(operator, &id).await?))
+}
+
+/// 撤回（终止在跑的审批实例，批次回 `DRAFT`）。
+#[nik::permission(
+    path = "/business/erp/cost-period/{id}/withdraw",
+    method = "POST",
+    permission = "business:erp:cost-period:submit"
+)]
+#[nik::post("/business/erp/cost-period/{id}/withdraw")]
+pub async fn cost_period_withdraw_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<CostPeriodDetailRes> {
+    let operator = utils::current_user_uuid(&claims);
+    Ok(Res::ok(withdraw_period(operator, &id).await?))
+}
+
 /// 权限码自检出口（与其余模块 `all_permissions` 同形，便于汇总脚本收集）。
 pub fn all_permissions() -> Vec<&'static str> {
     COST_PERIOD_PERMISSIONS.to_vec()
@@ -520,9 +843,31 @@ mod tests {
             "/business/erp/cost-period",
             "/business/erp/cost-period/{id}",
             "/business/erp/cost-period/{id}/cancel",
+            "/business/erp/cost-period/{id}/submit",
+            "/business/erp/cost-period/{id}/withdraw",
         ] {
             assert!(path.starts_with("/business/erp/cost-period"));
             assert!(!path.starts_with("/api"), "{path} 不能带 /api 前缀（约定 8）");
+        }
+    }
+
+    /// B3-3：提交 / 撤回两条路由的**注解成对**检查（`#[nik::post]` 与 `#[nik::permission]`
+    /// 少一个的后果不同但都致命 —— 缺 `post` = 前端 404；缺 `permission` = 任何登录用户都能点）。
+    #[test]
+    fn submit_and_withdraw_routes_are_annotated() {
+        let source = include_str!("cost_period_handler.rs");
+        for (path, code) in [
+            ("/business/erp/cost-period/{id}/submit", PERM_SUBMIT),
+            ("/business/erp/cost-period/{id}/withdraw", PERM_SUBMIT),
+        ] {
+            let route = format!("#[nik::post(\"{path}\")]");
+            assert!(source.contains(&route), "缺路由注解：{route}");
+            let permission = format!("path = \"{path}\",\n    method = \"POST\",\n    permission = \"{code}\"");
+            assert!(
+                source.contains(&permission),
+                "{path} 的权限码必须声明成 {code}（缺了等于不校验权限）"
+            );
+            assert!(!source.contains(&format!("#[nik::post(\"/api{path}\")]")));
         }
     }
 
