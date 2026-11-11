@@ -1,0 +1,73 @@
+== 36 行菜单（1 目录 + 5 页面 + 30 按钮）==
+ typ | sort |            title            |           path           |           auth_code            |  parent  |     icon      | is_visible 
+-----+------+-----------------------------+--------------------------+--------------------------------+----------+---------------+------------
+   1 |   77 | 人力资源                    | /business/hr             |                                | -        | user-business | t
+   2 |   10 | 员工档案                    | /business/hr/employee    | business:hr:employee:list      | 人力资源 | user          | t
+   2 |   20 | 考勤管理                    | /business/hr/attendance  | business:hr:attendance:list    | 人力资源 | calendar      | t
+   2 |   30 | 请假单                      | /business/hr/leave       | business:hr:leave:list         | 人力资源 | time          | t
+   2 |   40 | 薪资管理                    | /business/hr/salary      | business:hr:salary:list        | 人力资源 | wallet        | t
+   2 |   50 | 薪资项                      | /business/hr/salary-item | business:hr:salary-item:list   | 人力资源 | setting       | t
+   3 |   10 | 考勤期间维护                |                          | business:hr:attendance:period  | 考勤管理 |               | f
+   3 |   10 | 新建请假单                  |                          | business:hr:leave:create       | 请假单   |               | f
+   3 |   10 | 薪资单详情                  |                          | business:hr:salary:detail      | 薪资管理 |               | f
+   3 |   10 | 新建薪资项                  |                          | business:hr:salary-item:create | 薪资项   |               | f
+   3 |   10 | 新建员工                    |                          | business:hr:employee:create    | 员工档案 |               | f
+   3 |   20 | 试算/重算                   |                          | business:hr:salary:calc        | 薪资管理 |               | f
+   3 |   20 | 编辑薪资项                  |                          | business:hr:salary-item:update | 薪资项   |               | f
+   3 |   20 | 编辑员工                    |                          | business:hr:employee:update    | 员工档案 |               | f
+   3 |   20 | 考勤记录维护                |                          | business:hr:attendance:record  | 考勤管理 |               | f
+   3 |   20 | 编辑请假单                  |                          | business:hr:leave:update       | 请假单   |               | f
+   3 |   30 | 删除薪资项                  |                          | business:hr:salary-item:delete | 薪资项   |               | f
+   3 |   30 | 提交审批                    |                          | business:hr:salary:submit      | 薪资管理 |               | f
+   3 |   30 | 删除员工                    |                          | business:hr:employee:delete    | 员工档案 |               | f
+   3 |   30 | 删除请假单                  |                          | business:hr:leave:delete       | 请假单   |               | f
+   3 |   30 | 导入考勤                    |                          | business:hr:attendance:import  | 考勤管理 |               | f
+   3 |   40 | 过账（生成凭证）            |                          | business:hr:salary:post        | 薪资管理 |               | f
+   3 |   40 | 导出考勤                    |                          | business:hr:attendance:export  | 考勤管理 |               | f
+   3 |   40 | 员工详情                    |                          | business:hr:employee:detail    | 员工档案 |               | f
+   3 |   40 | 提交审批                    |                          | business:hr:leave:submit       | 请假单   |               | f
+   3 |   50 | 作废请假单                  |                          | business:hr:leave:cancel       | 请假单   |               | f
+   3 |   50 | 红冲                        |                          | business:hr:salary:reverse     | 薪资管理 |               | f
+   3 |   50 | 锁定/解锁考勤期间           |                          | business:hr:attendance:lock    | 考勤管理 |               | f
+   3 |   50 | 查看明文（身份证/银行账号） |                          | business:hr:employee:sensitive | 员工档案 |               | f
+   3 |   60 | 请假单详情                  |                          | business:hr:leave:detail       | 请假单   |               | f
+   3 |   60 | 导出工资表                  |                          | business:hr:salary:export      | 薪资管理 |               | f
+   3 |   60 | 发起离职                    |                          | business:hr:employee:resign    | 员工档案 |               | f
+   3 |   70 | 导入员工                    |                          | business:hr:employee:import    | 员工档案 |               | f
+   3 |   70 | 我的薪资（自助）            |                          | business:hr:salary:my          | 薪资管理 |               | f
+   3 |   80 | 导出员工                    |                          | business:hr:employee:export    | 员工档案 |               | f
+   3 |   90 | 合同台账维护                |                          | business:hr:contract:manage    | 员工档案 |               | f
+(36 rows)
+
+
+== 角色 HR_MANAGER ==
+                  id                  | role_code  | role_name | data_scope | sort_order | status 
+--------------------------------------+------------+-----------+------------+------------+--------
+ 20000000-0000-4000-8000-0000000f0016 | HR_MANAGER | 人事经理  |          3 |         25 |      1
+(1 row)
+
+
+== 授权（按角色）==
+    role_code    | granted | buttons | pages | dirs 
+-----------------+---------+---------+-------+------
+ DEPT_LEADER     |       5 |       2 |     2 |    1
+ EMPLOYEE        |       5 |       2 |     2 |    1
+ FINANCE_MANAGER |       5 |       3 |     1 |    1
+ HR_MANAGER      |      36 |      30 |     5 |    1
+ SUPER_ADMIN     |      36 |      30 |     5 |    1
+(5 rows)
+
+
+== 孤儿检查（按钮无父页面 / 页面无目录）应为 0 ==
+0
+
+== schema_migrations（V0387 由迁移加载器应用）==
+ version |     name      | applied_seq | success |                     source                      |                             checksum                             
+---------+---------------+-------------+---------+-------------------------------------------------+------------------------------------------------------------------
+ 387     | hr_menu_perms |         318 | t       | migrations/business/V0387__hr_menu_perms.up.sql | 491a4a56d9946838f828ec92f3842f797958ca680d12a7e5c08ea1210a8fc19c
+(1 row)
+
+
+== 加载器日志（首次应用 / 二次启动）==
+/root/hr0387_server2.log:数据库迁移完成: 应用 1 个迁移
+/root/hr0387_server3.log:数据库迁移完成: 应用 0 个迁移

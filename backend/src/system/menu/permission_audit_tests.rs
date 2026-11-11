@@ -17,7 +17,7 @@
 //! | N15 | 菜单码必须是 `{模块}:{资源}:{动作}` 形态（≥2 个冒号） | 再把模块名（`erp-finance`）当权限码 → 红 |
 //! | N16 | 每个路由要么有 `#[nik::permission]`，要么在「无权限路由白名单」里写明理由 | 新增裸接口（无任何权限闸）→ 红 |
 //! | N17 | 扫描器自检：人造的死码 / 裸路由必须被扫出来 | 扫描逻辑退化成永远绿 → 红 |
-//! | N18 | 例外台账必须是「活的」：登记为例外的码仍未被后端引用且在菜单里 | 例外过期没人删 → 红 |
+//! | N18 | 例外台账必须是「活的」：登记为例外的码仍未被后端引用且在菜单里（`ROUTE_LEVEL_ONLY` 与临时的 `PENDING_LANDING` 两本台账都校验） | 例外过期没人删 → 红 |
 //! | N19 | 流程定义里每个 `APPROVAL`/`COUNTERSIGN` 节点的 `ROLE` 指派角色都必须有 `business:flow:approve` | 审批角色缺审批权限 → 节点永远点不动（全员 403）→ 红 |
 //! | N20 | ERP 单据核心权限码（`business:erp:*:{create,list,status}`）必须至少授予 1 个**非超管**角色 | 菜单有行、源码有注解，但 `sys_role_menu` 零行 → 除超管外全员 403，审批只能自批（职责分离失效）→ 红 |
 //!
@@ -67,6 +67,75 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
     // ---- 佣金两页的 7 个权限码（V0310 预种）已全部落地，例外台账清空 ----
     // SO-36 落地 commission-settle:{create,list,status}，SO-36b 落地
     // commission-rule:{list,create,update,delete}，落地即删本例外（N18 持续校验台账）。
+];
+
+/// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。
+///
+/// 与 [`ROUTE_LEVEL_ONLY`] 的区别：那是「永远由前端路由拦」的**终态**例外；这里是
+/// 「菜单先种、handler 后写」的**过渡态**例外，每条都写明由哪张卡落地。
+///
+/// 为什么会需要它（不是偷懒）：ARCH-9-2 人力资源模块的 50 张卡按「底座 → 档案 → 考勤请假
+/// → 薪资 → 收口」分批，**批 1 的 HR-04 必须先把 36 行菜单/权限点种进去**（角色授权树、
+/// `menu_invariants`、`F-01 权限矩阵` 都要它先存在），而 30 个码对应的 handler 在批 2~4
+/// （HR-12/13/15/19/20/21/23/25/30/31/36/41/42）才写。若不登记，N14 会把这 30 个码判成
+/// 「死码」，L2 连库闸整片红 —— 而真正的缺口是「handler 还没写」，不是「码写错了」。
+///
+/// 台账纪律（N18 强制）：① 码仍在 `sys_menu` 里；② 后端源码仍**零引用**；③ 理由非空。
+/// 因此**哪张卡一落地、源码里出现引用，这条就必须删**，否则 N18 变红。这一条是承重墙：
+/// 它把「临时例外」钉成自清理的，不会像注释那样悄悄留下来。
+const PENDING_LANDING: &[(&str, &str)] = &[
+    // ---- 员工档案（HR-12 handler / HR-13 敏感字段 / HR-15 合同）----
+    ("business:hr:employee:list", "HR-12 employee_handler 分页（§5.2 #1）"),
+    ("business:hr:employee:detail", "HR-12 详情（§5.2 #2）"),
+    ("business:hr:employee:create", "HR-12 新建（§5.2 #3/#9/#10）"),
+    ("business:hr:employee:update", "HR-12 编辑 + 状态流转（§5.2 #4/#6/#8）"),
+    ("business:hr:employee:delete", "HR-12 软删（§5.2 #5）"),
+    (
+        "business:hr:employee:resign",
+        "HR-12 离职（发起 hr_employee_resign 流程）",
+    ),
+    (
+        "business:hr:employee:sensitive",
+        "HR-13 明文 + audit_logs 留痕（§5.2 #7）",
+    ),
+    ("business:hr:employee:import", "HR-17 seed/import（§5.2 #11）"),
+    ("business:hr:employee:export", "HR-42 导出（§5.2 #12）"),
+    ("business:hr:contract:manage", "HR-15 合同台账 3 接口（§5.2 #13~#15）"),
+    // ---- 考勤（HR-19/20/21/23/30）----
+    ("business:hr:attendance:list", "HR-19 期间分页（§5.2 #18）"),
+    ("business:hr:attendance:period", "HR-19 建期间（§5.2 #19）"),
+    (
+        "business:hr:attendance:record",
+        "HR-20 台账分页 + 单行修正（§5.2 #21/#22）",
+    ),
+    (
+        "business:hr:attendance:import",
+        "HR-21 impexp hr.attendance（§5.2 #23）",
+    ),
+    ("business:hr:attendance:export", "HR-30 考勤导出（§5.2 #24）"),
+    ("business:hr:attendance:lock", "HR-23 锁定/解锁（§5.2 #20）"),
+    // ---- 请假（HR-25）----
+    ("business:hr:leave:list", "HR-25 列表（§5.2 #26）"),
+    ("business:hr:leave:detail", "HR-25 详情 + 审批轨迹（§5.2 #27）"),
+    ("business:hr:leave:create", "HR-25 建单（§5.2 #28）"),
+    ("business:hr:leave:update", "HR-25 改草稿（§5.2 #29）"),
+    ("business:hr:leave:delete", "HR-25 删草稿（列表页行操作）"),
+    ("business:hr:leave:submit", "HR-25 提交审批（§5.2 #30）"),
+    ("business:hr:leave:cancel", "HR-25 作废/销假（§5.2 #31）"),
+    // ---- 薪资项（HR-31）----
+    ("business:hr:salary-item:list", "HR-31 配置列表（§5.2 #32）"),
+    ("business:hr:salary-item:create", "HR-31 新建（§5.2 #33）"),
+    ("business:hr:salary-item:update", "HR-31 改 + validate（§5.2 #34/#35）"),
+    ("business:hr:salary-item:delete", "HR-31 删除（is_system 保护）"),
+    // ---- 薪资单（HR-36/39/40/41/42）----
+    ("business:hr:salary:list", "HR-36 列表（§5.2 #36）"),
+    ("business:hr:salary:detail", "HR-36 详情/明细（§5.2 #37/#38）"),
+    ("business:hr:salary:calc", "HR-34/36 试算与落库（§5.2 #39/#40/#41）"),
+    ("business:hr:salary:submit", "HR-36 提交审批（§5.2 #42）"),
+    ("business:hr:salary:post", "HR-39 过账出两张凭证（§5.2 #43）"),
+    ("business:hr:salary:reverse", "HR-40 红冲（§5.2 #44）"),
+    ("business:hr:salary:export", "HR-42 工资表导出（§5.2 #45）"),
+    ("business:hr:salary:my", "HR-41 自助我的薪资（§5.2 #46）"),
 ];
 
 /// 允许**没有** `#[nik::permission]` 注解的路由白名单：`"METHOD /path"` → 理由。
@@ -608,7 +677,11 @@ async fn n14_menu_auth_codes_have_source_action_point() {
         codes.len()
     );
 
-    let exceptions: BTreeSet<&str> = ROUTE_LEVEL_ONLY.iter().map(|(c, _)| *c).collect();
+    let exceptions: BTreeSet<&str> = ROUTE_LEVEL_ONLY
+        .iter()
+        .chain(PENDING_LANDING.iter())
+        .map(|(c, _)| *c)
+        .collect();
     let mut dead = Vec::new();
     let mut annotated = 0usize;
     for code in &codes {
@@ -929,6 +1002,30 @@ async fn n18_route_level_exception_ledger_is_live() {
         problems.join("\n")
     );
 
+    // PENDING_LANDING（临时台账）同样要"活着"：码还在菜单里、后端仍零引用、写了落地卡。
+    // 一旦某张卡把 handler 写进去（源码出现引用），这条就必须删 —— 否则 N18 变红。
+    let mut pending_problems = Vec::new();
+    for (code, reason) in PENDING_LANDING {
+        if !codes.contains(*code) {
+            pending_problems.push(format!("{code}：菜单里已不存在，临时台账该删了"));
+        }
+        let refs = repo.code_refs(code);
+        if !refs.is_empty() {
+            pending_problems.push(format!(
+                "{code}：后端源码已落地（{}）—— 请从 PENDING_LANDING 删掉这条（{reason}）",
+                refs.join(", ")
+            ));
+        }
+        if reason.trim().is_empty() {
+            pending_problems.push(format!("{code}：没有写明由哪张卡落地"));
+        }
+    }
+    assert!(
+        pending_problems.is_empty(),
+        "PENDING_LANDING 临时台账过期：\n{}",
+        pending_problems.join("\n")
+    );
+
     // 无权限白名单的每一条也必须写明理由（空理由 = 没交代谁在把关）
     let empty_reason: Vec<&str> = NO_PERMISSION_ROUTES
         .iter()
@@ -942,8 +1039,9 @@ async fn n18_route_level_exception_ledger_is_live() {
     );
 
     println!(
-        "[N18] 例外台账 {} 条、白名单 {} 条，全部有理由且仍然成立 ✓",
+        "[N18] 例外台账 {} 条、临时台账 {} 条、白名单 {} 条，全部有理由且仍然成立 ✓",
         ROUTE_LEVEL_ONLY.len(),
+        PENDING_LANDING.len(),
         NO_PERMISSION_ROUTES.len()
     );
 }

@@ -659,14 +659,22 @@ SELECT v.t, v.n, v.p, v.d, CASE WHEN v.d = 'none' THEN 'GLOBAL' ELSE '' END, 0, 
 
 - 目录挂**顶级**（`parent_id IS NULL`），`sort_order = 77`（实测 77 空闲）、`icon='user-business'`、`module_code='business'`。
 - 30 个按钮 `menu_type=3`、`is_visible=FALSE`，父节点是 5 个页面之一，`sort_order` 10 递增（**同父唯一**，AGENTS.md 约定 12）。
-- 完整 36 行 `INSERT`（含固定 UUID 段 `20000000-…-001600~001653`）见证据脚本 §④。
+- 完整 36 行 `INSERT`（含固定 UUID 段）**不要照抄证据脚本的 `…-001600~001653`**：该段
+  `…001600` 已是 `business:erp:report:payable-aging`（应付账龄分析）。落地实现（HR-04 / V0387）改用
+  空闲段 **`20000000-0000-4000-8000-00000000e0xx`**（e000 目录 / e001-e005 页面 / e011-e019 员工 /
+  e021-e025 考勤 / e031-e036 请假 / e041-e047 薪资 / e051-e053 薪资项），见
+  `backend/migrations/business/V0387__hr_menu_perms.up.sql`。
 
 #### ⑤ `sys_role`：HR_MANAGER
 
 ```sql
+-- ★ 落地版（V0387）与下面的设计稿有两处差异，已实测：
+--   ① id 不能用 …f0008 —— 那是 SALES_CLERK（销售员），会撞 sys_role 主键；落地用 …f0016。
+--   ② sort_order 不能用 80 —— 也是 SALES_CLERK 的排序位；落地用 25（财务角色 20/21 之后、
+--      销售员 80 之前）。
 INSERT INTO sys_role (id, role_code, role_name, description, status, data_scope, sort_order)
-SELECT '20000000-0000-4000-8000-0000000f0008'::uuid, 'HR_MANAGER', '人事经理',
-       'ARCH-9-2：员工档案 / 考勤 / 薪资维护；无财务过账权（过账另有 salary:post 码）', 1, 3, 80
+SELECT '20000000-0000-4000-8000-0000000f0016'::uuid, 'HR_MANAGER', '人事经理',
+       'ARCH-9-2：员工档案 / 考勤 / 薪资维护；无财务过账权（过账另有 salary:post 码）', 1, 3, 25
  WHERE NOT EXISTS (SELECT 1 FROM sys_role WHERE role_code = 'HR_MANAGER' AND deleted_at IS NULL);
 ```
 
