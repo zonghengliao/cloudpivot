@@ -1240,6 +1240,18 @@ BLOCKER_COST_UNSETTLED = "COST_UNSETTLED"
       → 该期间**没有**成本批次时**不拦**（未启用成本核算的客户不受影响）
 ```
 
+#### 4.11.1 实现口径（B3-9 落地，2026-11-11）
+
+| 项 | 实现 |
+|---|---|
+| 常量 / 判定 | `period.rs::BLOCKER_COST_UNSETTLED`；`period_items::cost_status_settled(status)` 与 SQL 字面量 `cost_settled_status_list()` **同源**（纯单测逐值比对，防「谓词改了 SQL 没改」） |
+| 取数 | `period_items::cost_period_items(ex, period_code)` → `(COUNT(*), 明细 ≤50)`；三条 SQL（计数 / 单头 / 对象号）共用同一个 WHERE 片段 `cost_unsettled_where()`；对象号按计算单 join `biz_cost_object` 批量取，无 N+1 |
+| 文案 | 「成本核算未结算（`期间码` 有 N 个批次：批次 `CS-…` 状态「中文态」，M 个成本对象（`CB-1`、`CB-2` 等））：请先结算或作废后再结账」；批次点 3 个、对象点 3 个，超出写「…」/「等」，总数照实报 |
+| items 口径 | `doc_type=COST_PERIOD`（中文「成本批次」）、`doc_no=批次号`、`doc_id=批次 id`、`status_label` 按状态翻译、`action_label` 按状态给「去提交 / 去审批 / 去结算 / 去看批次」、`route=/business/erp/cost-period?batch_no=…`、`waiting_since=建单时间`、**`amount=None`**（`total_*` 只在结算事务回写，未结算恒 0，显示「0 元」会误导） |
+| 处理人 | `owner_role/owner_name/owner_user_id` **留空 = 系统不指定**：批次下一步跨 `cost-period:submit` / `cost-period:settle` 两个权限码，且催办台账 `biz_reminder_log.doc_type` 的 CHECK（V0257，8 值）还没有 `COST_PERIOD`，填权限码会让催办通知发出、台账行被库层 CHECK 拒（审计少一行）。放宽那条 CHECK 后在这里补 `PERM_COST_PERIOD_*` 即可，明细结构不用动 |
+| 前端 | `PeriodCloseBlocker.type` 联合类型加 `COST_UNSETTLED`；`blocker-logic.ts` 的 `BLOCKING_DOC_TYPE_LABELS` 加 `COST_PERIOD: '成本批次'`（与后端 `doc_type_label` 同口径） |
+| 迁移 / 错误码 | 无（纯读校验，不改 schema、不新增错误码） |
+
 ---
 
 ## 5. 接口设计

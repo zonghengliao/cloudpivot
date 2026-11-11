@@ -31,6 +31,8 @@ const BLOCKING_DOC_TYPE_LABELS: Record<string, string> = {
   PURCHASE_ORDER: '采购',
   STOCK_TRANSFER: '调拨',
   INVENTORY: '库存',
+  // 成本核算批次（ARCH-9 §4.11 第 5 项 blocker）—— 与后端 `doc_type_label` 同口径
+  COST_PERIOD: '成本批次',
 };
 
 /** 单据类型中文（未知类型原样返回） */

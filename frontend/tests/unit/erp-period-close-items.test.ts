@@ -38,6 +38,8 @@ test('单据类型中文与后端 doc_type_label 一致，未知类型原样返�
   assert.equal(blockingDocTypeLabel('STOCK_IN'), '收货');
   assert.equal(blockingDocTypeLabel('PURCHASE_ORDER'), '采购');
   assert.equal(blockingDocTypeLabel('STOCK_TRANSFER'), '调拨');
+  // 第 5 项 blocker 的单据类型（ARCH-9 §4.11）：不翻译就会在弹窗里显示 COST_PERIOD 原码
+  assert.equal(blockingDocTypeLabel('COST_PERIOD'), '成本批次');
   assert.equal(blockingDocTypeLabel('SOMETHING_NEW'), 'SOMETHING_NEW');
   assert.equal(blockingDocTypeLabel(null), '—');
   assert.equal(blockingDocTypeLabel('  '), '—');

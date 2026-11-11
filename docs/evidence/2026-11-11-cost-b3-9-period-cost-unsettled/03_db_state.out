@@ -1,0 +1,64 @@
+# 真库演练库 costb31_drill 的状态取证（2026-11-11）
+
+## 1) 成本批次表结构（判据依赖的列）
+                                            Table "public.biz_cost_period"
+        Column        |           Type           | Collation | Nullable |                   Default                    
+----------------------+--------------------------+-----------+----------+----------------------------------------------
+ id                   | uuid                     |           | not null | gen_random_uuid()
+ org_id               | uuid                     |           | not null | '00000000-0000-0000-0000-000000000000'::uuid
+ period_code          | character varying(7)     |           | not null | 
+ batch_no             | character varying(32)    |           | not null | 
+ status               | character varying(12)    |           | not null | 'DRAFT'::character varying
+ labor_source         | character varying(12)    |           | not null | 'MANUAL'::character varying
+ object_count         | integer                  |           | not null | 0
+ total_material       | numeric(18,4)            |           | not null | 0
+ total_labor          | numeric(18,4)            |           | not null | 0
+ total_overhead       | numeric(18,4)            |           | not null | 0
+ total_cost           | numeric(18,4)            |           | not null | 0
+ total_finished       | numeric(18,4)            |           | not null | 0
+ total_wip            | numeric(18,4)            |           | not null | 0
+ approval_instance_id | uuid                     |           |          | 
+ labor_voucher_id     | uuid                     |           |          | 
+ overhead_voucher_id  | uuid                     |           |          | 
+ finish_voucher_id    | uuid                     |           |          | 
+ settled_at           | timestamp with time zone |           |          | 
+ settled_by           | uuid                     |           |          | 
+ reversed_at          | timestamp with time zone |           |          | 
+ reversed_by          | uuid                     |           |          | 
+ reverse_reason       | character varying(255)   |           |          | 
+ cancel_reason        | character varying(255)   |           |          | 
+ remark               | text                     |           |          | 
+ created_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by            | uuid                     |           |          | 
+ update_by            | uuid                     |           |          | 
+ deleted_at           | timestamp with time zone |           |          | 
+Indexes:
+    "biz_cost_period_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_cost_period_status" btree (status, period_code DESC)
+    "uk_biz_cost_period" UNIQUE, btree (org_id, period_code) WHERE deleted_at IS NULL AND (status::text <> ALL (ARRAY['REVERSED'::character varying, 'CANCELLED'::character varying]::text[]))
+    "uk_biz_cost_period_no" UNIQUE, btree (batch_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_cost_period_appr" CHECK ((status::text <> ALL (ARRAY['SUBMITTED'::character varying, 'APPROVED'::character varying, 'SETTLED'::character varying, 'CLOSED'::character varying, 'REVERSED'::character varying]::text[])) OR approval_instance_id IS NOT NULL)
+    "ck_biz_cost_period_cancel" CHECK (status::text <> 'CANCELLED'::text OR cancel_reason IS NOT NULL)
+
+## 2) 用例跑完后本夹具期次（2033-/2040-）的残留 = 0
+biz_cost_period 2033-/2040- = 0
+biz_cost_period_item(P2I 对象) = 0
+biz_cost_object P2I- = 0
+P2- 号段凭证 = 0
+期间 2033-/2040- = 0
+
+## 3) 判据的真实 SQL 形态（与源码 cost_unsettled_where 同一份）
+ count 
+-------
+     0
+(1 row)
+
+
+## 4) 演练库已发布的审批流（B3-3 用例的前置，本卡不改）
+      flow_code      |  status   | current_version_no 
+---------------------+-----------+--------------------
+ cost_settle_approve | PUBLISHED |                  1
+(1 row)
+

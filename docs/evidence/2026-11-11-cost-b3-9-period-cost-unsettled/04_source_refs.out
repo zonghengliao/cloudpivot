@@ -1,0 +1,47 @@
+# 关键实现位置（本卡改动）
+
+166:/// [`crate::business::erp::period_items::cost_period_items`]。
+167:pub const BLOCKER_COST_UNSETTLED: &str = "COST_UNSETTLED";
+656:/// [`crate::business::erp::period_items::cost_period_items`]）。
+679:pub fn cost_unsettled_blocker(period_code: &str, count: i64, batches: &[period_items::CostBatch]) -> Option<Blocker> {
+705:            BLOCKER_COST_UNSETTLED,
+722:fn cost_batch_phrase(batch: &period_items::CostBatch) -> String {
+1367:    let (cost_count, cost_batches) = period_items::cost_period_items(ex, &row.period_code).await?;
+2951:        assert_eq!(blocker.kind, BLOCKER_COST_UNSETTLED);
+
+111:pub const DOC_COST_PERIOD: &str = "COST_PERIOD";
+131:pub const ROUTE_COST_PERIOD: &str = "/business/erp/cost-period";
+335:pub fn cost_batch_next(status: &str) -> NextAction {
+367:        DOC_COST_PERIOD => cost_batch_next(status),
+384:        DOC_COST_PERIOD => "成本批次",
+1005:pub struct CostBatch {
+1030:pub fn cost_status_settled(status: &str) -> bool {
+1055:fn cost_settled_status_list() -> String {
+1068:pub fn cost_settled_status_list_for_tests() -> String {
+1074:fn cost_unsettled_where() -> String {
+1084:pub async fn cost_period_items(ex: &impl SqlExecutor, period_code: &str) -> Result<(i64, Vec<CostBatch>), ApiError> {
+1173:pub fn cost_batch_item(batch: &CostBatch) -> BlockingItem {
+1176:        doc_type: DOC_COST_PERIOD.to_string(),
+1186:        route: format!("{ROUTE_COST_PERIOD}?batch_no={}", url_encode(&batch.batch_no)),
+
+484:async fn cost_period_unsettled_blocks_close_and_names_objects() {
+492:    let period_id = seed_cost_batch(&period, batch_no, "DRAFT").await;
+494:    let object_a = seed_cost_object("P2I-CB-204010-001", product).await;
+495:    let object_b = seed_cost_object("P2I-CB-204010-002", product).await;
+586:async fn cost_period_settled_terminal_statuses_never_block() {
+593:    seed_cost_batch(&cancelled.period_code, "CS-204011-0001", "CANCELLED").await;
+607:    seed_cost_batch(&cancelled.period_code, "CS-204011-0002", "SETTLED").await;
+608:    seed_cost_batch(&cancelled.period_code, "CS-204011-0003", "REVERSED").await;
+652:fn cost_batch_item_fields_are_stable() {
+690:async fn seed_cost_batch(period_code: &str, batch_no: &str, status: &str) -> Uuid {
+741:async fn seed_cost_object(object_no: &str, product_id: Uuid) -> Uuid {
+
+2945:    fn cost_unsettled_blocker_names_period_batch_and_objects() {
+3020:    fn cost_unsettled_blocker_is_silent_without_batches_and_truncates_message() {
+3064:    fn cost_status_settled_matches_design_list() {
+
+2953: * - `COST_UNSETTLED`：期间内有未结算的成本核算批次（ARCH-9 §4.11；只在期间存在
+2963:    | 'COST_UNSETTLED'
+frontend/src/views/business/erp/shared/blocker-logic.ts:35:  COST_PERIOD: '成本批次',
+frontend/tests/unit/erp-period-close-items.test.ts:41:  // 第 5 项 blocker 的单据类型（ARCH-9 §4.11）：不翻译就会在弹窗里显示 COST_PERIOD 原码
+frontend/tests/unit/erp-period-close-items.test.ts:42:  assert.equal(blockingDocTypeLabel('COST_PERIOD'), '成本批次');

@@ -88,6 +88,7 @@ use std::collections::HashMap;
 use std::result::Result;
 use std::str::FromStr;
 
+use crate::business::erp::cost_period_dto;
 use crate::business::erp::model::PeriodRow;
 use crate::utils;
 
@@ -106,6 +107,8 @@ pub const DOC_PURCHASE_ORDER: &str = "PURCHASE_ORDER";
 pub const DOC_STOCK_TRANSFER: &str = "STOCK_TRANSFER";
 /// 单据类型：库存台账行（只出现在「全库巡检提示」里）。
 pub const DOC_INVENTORY: &str = "INVENTORY";
+/// 单据类型：成本核算批次（期间结算单）—— 未结算时挡结账的第 5 项（ARCH-9 §4.11）。
+pub const DOC_COST_PERIOD: &str = "COST_PERIOD";
 
 /// 「下一个动作」的权限码与处理人反查 → 见 [`crate::business::erp::period_owner`]
 /// （反查是「该谁处理」的唯一实现，本模块只消费它）。
@@ -124,6 +127,8 @@ pub const ROUTE_STOCK_IN: &str = "/business/erp/stock-in";
 pub const ROUTE_STOCK_TRANSFER: &str = "/business/erp/transfer";
 /// 前端路由：库存巡检。
 pub const ROUTE_INVENTORY: &str = "/business/erp/inventory";
+/// 前端路由：成本核算（批次列表；`?batch_no=` 深链直达批次）。
+pub const ROUTE_COST_PERIOD: &str = "/business/erp/cost-period";
 
 // ==================== 出参结构 ====================
 
@@ -314,6 +319,44 @@ pub fn stock_transfer_next(status: &str) -> NextAction {
     }
 }
 
+/// 成本核算批次的下一个动作（7 态里只有前 3 态会挡结账）。
+///
+/// **权限码一律留空 = 系统不指定处理人**，理由两条：
+///
+/// 1. 催办台账 `biz_reminder_log.doc_type` 的 CHECK（V0257，8 值）**还没有**
+///    `COST_PERIOD`；填上权限码 → `OwnerResolver` 反查到角色 → 用户点「催办」时通知
+///    能发出、但台账行会被库层 CHECK 拒掉（只 WARN，审计少一行）。要接催办得先放宽
+///    那条 CHECK（属 reminder 模块，本卡不动）。
+/// 2. 批次的下一步动作跨了两个权限码（`cost-period:submit` 提交 / `cost-period:settle`
+///    结算），而 `NextAction` 只装得下一个 —— 与其挑一个猜，不如照
+///    [`crate::business::erp::period_items::inventory_items`] 的做法留空。
+///
+/// 放宽 CHECK 之后在这里逐个状态填 `PERM_COST_PERIOD_*` 即可，明细结构不用动。
+pub fn cost_batch_next(status: &str) -> NextAction {
+    match status {
+        "DRAFT" => NextAction {
+            status_label: "草稿（未提交）",
+            action_label: "去提交",
+            permission: "",
+        },
+        "SUBMITTED" => NextAction {
+            status_label: "已提交待审批",
+            action_label: "去审批",
+            permission: "",
+        },
+        "APPROVED" => NextAction {
+            status_label: "审批通过待结算",
+            action_label: "去结算",
+            permission: "",
+        },
+        _ => NextAction {
+            status_label: cost_batch_status_label(status),
+            action_label: "去看批次",
+            permission: "",
+        },
+    }
+}
+
 /// 按单据类型分发「下一个动作」。
 pub fn next_action(doc_type: &str, status: &str) -> NextAction {
     match doc_type {
@@ -321,6 +364,7 @@ pub fn next_action(doc_type: &str, status: &str) -> NextAction {
         DOC_PURCHASE_ORDER => purchase_order_next(status),
         DOC_STOCK_IN => stock_in_next(status),
         DOC_STOCK_TRANSFER => stock_transfer_next(status),
+        DOC_COST_PERIOD => cost_batch_next(status),
         _ => NextAction {
             status_label: "状态未知",
             action_label: "去处理",
@@ -337,6 +381,7 @@ pub fn doc_type_label(doc_type: &str) -> &'static str {
         DOC_PURCHASE_ORDER => "采购单",
         DOC_STOCK_TRANSFER => "调拨单",
         DOC_INVENTORY => "库存行",
+        DOC_COST_PERIOD => "成本批次",
         _ => "单据",
     }
 }
@@ -942,6 +987,207 @@ fn inventory_items(docs: Vec<RawDoc>) -> Vec<BlockingItem> {
             owner_user_id: None,
         })
         .collect()
+}
+
+// ==================== ⑤ 成本核算未结算（COST_UNSETTLED，ARCH-9 §4.11） ====================
+//
+// 判据（设计 §4.11 原文）：该期间存在 `biz_cost_period` 且 status NOT IN
+// ('SETTLED','CLOSED','CANCELLED','REVERSED') → 结账被拦；
+// **该期间没有成本批次时一条都不拦**（未启用成本核算的客户不受影响）。
+//
+// 为什么按 `period_code` 查而不是按会计期间 id：`biz_cost_period` 的期间是
+// `VARCHAR(7)` 文本（V0373），与 `biz_accounting_period.period_code` 同值但无外键
+// ——设计 §3.1 ⑨ 就是这么定的（批次跟着期间码走，红冲重建也不依赖期间行 id）。
+// 所以这里传的是期间码，不是期间 id。
+
+/// 一个未结算的成本批次（第 5 项 blocker 的一行明细 + 拼文案要用的料）。
+#[derive(Debug, Clone)]
+pub struct CostBatch {
+    /// 批次主键（`biz_cost_period.id`）。
+    pub id: Uuid,
+    /// 批次号 `CS-yyyyMM-0001`。
+    pub batch_no: String,
+    /// 落库状态（7 值之一；进入本结构的只可能是前 3 态）。
+    pub status: String,
+    /// 建单时间（「已等多久」的时间基准）。
+    pub created_at: DateTime<Utc>,
+    /// 制单人姓名（join `sys_user` 实时取名，AGENTS 约定 13；查不到留空）。
+    pub creator: Option<String>,
+    /// 已归集计算单涉及的成本对象号（去重、按对象号升序）。
+    ///
+    /// 「哪个成本对象」这句话的唯一数据来源：卡面验收要求 blocker 文案点名对象，
+    /// 而对象号不在 `biz_cost_period` 单头上（单头只有 `object_count` 落库值，
+    /// DRAFT 阶段还是 0），所以要按计算单 join 出来。
+    pub object_nos: Vec<String>,
+}
+
+/// 这个批次状态算不算「已经算完」（＝不再挡结账）。
+///
+/// 与设计 §4.11 的 `NOT IN ('SETTLED','CLOSED','CANCELLED','REVERSED')` **等价**
+/// （单测 `cost_status_settled_matches_design_list` 逐态钉住）：红冲过的批次已经
+/// 把账倒回去了、作废的批次从未入账、已结算/已关闭的批次算完了，
+/// 四者都不能再挡期间的结账。
+pub fn cost_status_settled(status: &str) -> bool {
+    matches!(
+        status,
+        cost_period_dto::STATUS_SETTLED
+            | cost_period_dto::STATUS_CLOSED
+            | cost_period_dto::STATUS_CANCELLED
+            | cost_period_dto::STATUS_REVERSED
+    )
+}
+
+/// 成本批次状态的中文标签（前端直接渲染；与 [`cost_batch_next`] 同源）。
+pub fn cost_batch_status_label(status: &str) -> &'static str {
+    match status {
+        cost_period_dto::STATUS_DRAFT => "草稿（未提交）",
+        cost_period_dto::STATUS_SUBMITTED => "已提交待审批",
+        cost_period_dto::STATUS_APPROVED => "审批通过待结算",
+        cost_period_dto::STATUS_SETTLED => "已结算",
+        cost_period_dto::STATUS_CLOSED => "期间已结账",
+        cost_period_dto::STATUS_CANCELLED => "已作废",
+        cost_period_dto::STATUS_REVERSED => "已红冲",
+        _ => "状态未知",
+    }
+}
+
+/// 「已算完」四态的 SQL 字面量（与 [`cost_status_settled`] 同源，单测逐值比对）。
+fn cost_settled_status_list() -> String {
+    format!(
+        "'{}','{}','{}','{}'",
+        cost_period_dto::STATUS_SETTLED,
+        cost_period_dto::STATUS_CLOSED,
+        cost_period_dto::STATUS_CANCELLED,
+        cost_period_dto::STATUS_REVERSED
+    )
+}
+
+/// 测试专用入口：把 SQL 字面量暴露给纯单测，逐值比对 [`cost_status_settled`]
+/// （`period.rs::tests::cost_status_settled_matches_design_list` 用它防「谓词改了 SQL 没改」）。
+#[cfg(test)]
+pub fn cost_settled_status_list_for_tests() -> String {
+    cost_settled_status_list()
+}
+
+/// 未结算批次的 WHERE 片段（计数 / 单头 / 对象号三条 SQL **共用这一份**，
+/// 口径分裂会让「文案说 2 个批次、明细 3 行」）。
+fn cost_unsettled_where() -> String {
+    format!(
+        "p.deleted_at IS NULL AND p.period_code = ? AND p.status NOT IN ({})",
+        cost_settled_status_list()
+    )
+}
+
+/// 期间内未结算的成本批次（跨期间口径见模块头；`ORDER BY batch_no` 保证稳定）。
+///
+/// 返回 `(全量条数, 明细)`：条数是 `COUNT(*)`（可能 > [`ITEM_LIMIT`]），明细最多 50 行。
+pub async fn cost_period_items(ex: &impl SqlExecutor, period_code: &str) -> Result<(i64, Vec<CostBatch>), ApiError> {
+    let params = vec![Value::Text(period_code.to_string())];
+    let count: i64 = ex
+        .scalar_sql(
+            format!(
+                "SELECT COUNT(*) FROM biz_cost_period p WHERE {}",
+                cost_unsettled_where()
+            ),
+            params.clone(),
+        )
+        .await
+        .map_err(|error| db_error(error, "统计未结算成本批次"))?;
+    if count <= 0 {
+        return Ok((0, Vec::new()));
+    }
+
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT p.id AS doc_id, p.batch_no AS doc_no, p.status AS status, \
+                        p.created_at AS created_at, \
+                        COALESCE(NULLIF(u.real_name, ''), u.username) AS creator \
+                   FROM biz_cost_period p LEFT JOIN sys_user u ON u.id = p.create_by \
+                  WHERE {} ORDER BY p.batch_no LIMIT {ITEM_LIMIT}",
+                cost_unsettled_where()
+            ),
+            params.clone(),
+        )
+        .await
+        .map_err(|error| db_error(error, "读取未结算成本批次"))?;
+
+    // 对象号一次取全（按批次分组），不做「每批查一次」的 N+1。
+    let object_rows = ex
+        .query_sql(
+            format!(
+                "SELECT i.period_id AS period_id, o.object_no AS object_no \
+                   FROM biz_cost_period_item i \
+                   JOIN biz_cost_object o ON o.id = i.cost_object_id \
+                   JOIN biz_cost_period p ON p.id = i.period_id \
+                  WHERE {} ORDER BY i.period_id, o.object_no",
+                cost_unsettled_where()
+            ),
+            params,
+        )
+        .await
+        .map_err(|error| db_error(error, "读取成本批次的成本对象"))?;
+    let mut objects: HashMap<Uuid, Vec<String>> = HashMap::new();
+    for row in &object_rows {
+        let period_id: Uuid = row
+            .get_typed("period_id")
+            .map_err(|error| db_error(error, "解析计算单的批次 id"))?;
+        let object_no: String = row
+            .get_typed("object_no")
+            .map_err(|error| db_error(error, "解析成本对象号"))?;
+        let bucket = objects.entry(period_id).or_default();
+        if bucket.last() != Some(&object_no) {
+            bucket.push(object_no);
+        }
+    }
+
+    let mut batches = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let id: Uuid = row
+            .get_typed("doc_id")
+            .map_err(|error| db_error(error, "解析成本批次 id"))?;
+        let batch_no: String = row.get_typed("doc_no").map_err(|error| db_error(error, "解析批次号"))?;
+        let status: String = row
+            .get_typed("status")
+            .map_err(|error| db_error(error, "解析批次状态"))?;
+        let created_at: DateTime<Utc> = row
+            .get_typed("created_at")
+            .map_err(|error| db_error(error, "解析批次建单时间"))?;
+        let creator: Option<String> = row.get_typed("creator").ok();
+        batches.push(CostBatch {
+            id,
+            batch_no,
+            status,
+            created_at,
+            creator: creator.filter(|name| !name.trim().is_empty()),
+            object_nos: objects.remove(&id).unwrap_or_default(),
+        });
+    }
+    Ok((count, batches))
+}
+
+/// 一个成本批次 → 一条挡路明细（**纯函数**，单测不连库就能钉住每个字段口径）。
+///
+/// `amount` 恒为 `None`：`total_*` 是**结算事务**才回写的列（设计 §4.8 ⑤），
+/// 未结算批次一定是 0 —— 显示「0 元」比留空更误导。
+pub fn cost_batch_item(batch: &CostBatch) -> BlockingItem {
+    let action = cost_batch_next(&batch.status);
+    BlockingItem {
+        doc_type: DOC_COST_PERIOD.to_string(),
+        doc_id: batch.id,
+        doc_no: batch.batch_no.clone(),
+        status_label: action.status_label.to_string(),
+        amount: None,
+        created_by_name: batch.creator.clone(),
+        // 处理人留空 = 系统不指定（理由见 [`cost_batch_next`] 的文档）
+        owner_role: None,
+        owner_name: None,
+        action_label: action.action_label.to_string(),
+        route: format!("{ROUTE_COST_PERIOD}?batch_no={}", url_encode(&batch.batch_no)),
+        waiting_since: Some(batch.created_at),
+        owner_role_id: None,
+        owner_user_id: None,
+    }
 }
 
 // ==================== 错误收口 ====================

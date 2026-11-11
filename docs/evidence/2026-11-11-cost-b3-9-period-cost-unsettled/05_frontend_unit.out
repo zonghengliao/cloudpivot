@@ -1,0 +1,72 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+TAP version 13
+# Subtest: 催办权限码与后端 V0207 一致
+ok 1 - 催办权限码与后端 V0207 一致
+  ---
+  duration_ms: 0.750889
+  type: 'test'
+  ...
+# Subtest: 单据类型中文与后端 doc_type_label 一致，未知类型原样返回
+ok 2 - 单据类型中文与后端 doc_type_label 一致，未知类型原样返回
+  ---
+  duration_ms: 0.140044
+  type: 'test'
+  ...
+# Subtest: 角色码翻译：已知岗位显示中文，未知原样，空 = 待分配
+ok 3 - 角色码翻译：已知岗位显示中文，未知原样，空 = 待分配
+  ---
+  duration_ms: 0.097127
+  type: 'test'
+  ...
+# Subtest: 「该谁处理」文案：角色(姓名) / 只有角色 / 待分配
+ok 4 - 「该谁处理」文案：角色(姓名) / 只有角色 / 待分配
+  ---
+  duration_ms: 0.125627
+  type: 'test'
+  ...
+# Subtest: 只有「待分配」的行不能催办（后端不猜处理人，前端也不给点）
+ok 5 - 只有「待分配」的行不能催办（后端不猜处理人，前端也不给点）
+  ---
+  duration_ms: 0.153837
+  type: 'test'
+  ...
+# Subtest: 可催办明细过滤：待分配的留在表格里但不进催办列表
+ok 6 - 可催办明细过滤：待分配的留在表格里但不进催办列表
+  ---
+  duration_ms: 0.968352
+  type: 'test'
+  ...
+# Subtest: 金额文案：两位小数 + 千分位；空值显示破折号
+ok 7 - 金额文案：两位小数 + 千分位；空值显示破折号
+  ---
+  duration_ms: 26.929173
+  type: 'test'
+  ...
+# Subtest: 已等文案：小时 / 天 / 不到 1 小时 / 缺省
+ok 8 - 已等文案：小时 / 天 / 不到 1 小时 / 缺省
+  ---
+  duration_ms: 0.244213
+  type: 'test'
+  ...
+# Subtest: 明细存在性与计数：空明细退回老样式
+ok 9 - 明细存在性与计数：空明细退回老样式
+  ---
+  duration_ms: 0.392632
+  type: 'test'
+  ...
+# Subtest: 催办回执：优先用后端那句人话，缺失时按计数合成
+ok 10 - 催办回执：优先用后端那句人话，缺失时按计数合成
+  ---
+  duration_ms: 0.427633
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 331.733193
+EXIT=0

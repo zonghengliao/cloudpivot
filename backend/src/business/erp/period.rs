@@ -22,13 +22,15 @@
 //! | POST | `/business/erp/period/{id}/reopen` | `business:erp:period:reopen` | 反结账（必填原因 ≥ 10 字） |
 //! | POST | `/business/erp/period/{id}/remind` | `business:erp:period:remind` | 催办（把挡路单据的待办发给处理人，见 [`crate::business::erp::period_remind`]） |
 //!
-//! # 结账的四项前置校验（卡面硬红线 2）
+//! # 结账的五项前置校验（卡面硬红线 2）
 //!
 //! ```text
 //! ① 期间内没有 DRAFT 状态的凭证            → 409「还有 N 张草稿凭证未过账」
 //! ② 期间内单据全部终态                    → 409「还有 N 张单据未完成（采购单 5 / 收货单 2 …）」
 //! ③ 试算平衡（分录 Σ借 = Σ贷）             → 409「借贷不平，差 X 元」
 //! ④ 期间内不变量（erp_invariants A 组）     → 409「不变量未通过：A1 有 2 张凭证分录取和不平 …」
+//! ⑤ 期间内成本批次已结算（ARCH-9 §4.11）    → 409「成本核算未结算（2026-10 有 1 个批次：…）」
+//!    ⑤ 只在**该期间存在成本批次**时才拦：存量客户没有 biz_cost_period 行，不受影响。
 //! 每一条 blocker 都带明细（`items`，最多 50 条）：单号 / 类型 / 金额 / 制单人 /
 //! 该谁处理 / 已等多久 / 「去处理」跳转。明细的取数口径与判定口径同源，
 //! 实现见 [`crate::business::erp::period_items`]（**改判定必须两处同步**）。
@@ -49,7 +51,7 @@
 //!
 //! ## 校验与状态变更**同一个事务**（卡面 L11）
 //!
-//! 结账走 `BEGIN → SELECT … FOR UPDATE（锁期间行）→ 四项校验 → 状态机 → UPDATE … WHERE status='OPEN' → COMMIT`。
+//! 结账走 `BEGIN → SELECT … FOR UPDATE（锁期间行）→ 五项校验 → 状态机 → UPDATE … WHERE status='OPEN' → COMMIT`。
 //! 校验读完到 UPDATE 之间别人插进来的草稿凭证，会被 `FOR UPDATE` 行锁 + CAS 拦在门外：
 //! 要么它先提交、本次校验看得见并 409；要么它等锁、本次结账成功后它的记账请求被
 //! [`ensure_period_writable`] 400 挡回。
@@ -158,6 +160,11 @@ pub const BLOCKER_UNBALANCED: &str = "UNBALANCED";
 pub const BLOCKER_INVARIANT: &str = "INVARIANT";
 /// 期间自身状态不允许这次操作。
 pub const BLOCKER_PERIOD_STATUS: &str = "PERIOD_STATUS";
+/// 成本核算未结算（第 5 项，ARCH-9 §4.11）。
+///
+/// 判据、文案、items 口径见 [`cost_unsettled_blocker`]；明细取数在
+/// [`crate::business::erp::period_items::cost_period_items`]。
+pub const BLOCKER_COST_UNSETTLED: &str = "COST_UNSETTLED";
 
 // ==================== 年结护栏（R4 之后） ====================
 
@@ -642,6 +649,99 @@ pub fn invariant_blocker(failures: Vec<String>, items: Vec<BlockingItem>) -> Opt
             Some("/business/erp/inventory?audit=1".to_string()),
         )
         .items(items),
+    )
+}
+
+/// 成本核算未结算 → 阻塞项（第 5 项，ARCH-9 §4.11；明细在
+/// [`crate::business::erp::period_items::cost_period_items`]）。
+///
+/// # 判据
+///
+/// 该期间存在 `biz_cost_period` 且 `status NOT IN ('SETTLED','CLOSED','CANCELLED','REVERSED')`。
+/// **该期间没有成本批次时不拦**（`batches` 空 ⇒ `None`）：存量客户的期间里
+/// 一行 `biz_cost_period` 都没有，未启用成本核算的账不能因为这条新校验结不了账。
+///
+/// # 文案口径（卡面验收：点名「哪个期间、哪个成本对象」）
+///
+/// ```text
+/// 成本核算未结算（2026-10 有 1 个批次：批次 CS-202610-0001 状态「草稿（未提交）」，
+/// 3 个成本对象（CB-20261001-000001、CB-20261001-000002、CB-20261001-000003））：
+/// 请先结算或作废后再结账
+/// ```
+///
+/// 对象号来自计算单 join（`biz_cost_period` 单头的 `object_count` 在 DRAFT 阶段是 0），
+/// 一个批次最多点 3 个对象号，超过写「等」；批次最多点 3 个，超过写「…」。
+///
+/// # 为什么详情页跳转到成本核算列表
+///
+/// 批次本身就是「成本核算」页的一张单（`/business/erp/cost-period`），
+/// `?period=` / `?batch_no=` 都是该页的深链口径（同凭证页的 `?voucher_no=`）。
+pub fn cost_unsettled_blocker(period_code: &str, count: i64, batches: &[period_items::CostBatch]) -> Option<Blocker> {
+    if count <= 0 || batches.is_empty() {
+        return None;
+    }
+    const MESSAGE_BATCHES: usize = 3;
+    let mut detail = batches
+        .iter()
+        .take(MESSAGE_BATCHES)
+        .map(cost_batch_phrase)
+        .collect::<Vec<_>>()
+        .join("；");
+    if count > i64::try_from(MESSAGE_BATCHES).unwrap_or(i64::MAX) {
+        detail.push('…');
+    }
+    let samples = batches
+        .iter()
+        .take(3)
+        .map(|batch| batch.batch_no.clone())
+        .collect::<Vec<_>>();
+    let items = batches
+        .iter()
+        .take(usize::try_from(period_items::ITEM_LIMIT).unwrap_or(50))
+        .map(period_items::cost_batch_item)
+        .collect::<Vec<_>>();
+    Some(
+        Blocker::with_count(
+            BLOCKER_COST_UNSETTLED,
+            count,
+            format!(
+                "成本核算未结算（{period_code} 有 {count} 个批次：{detail}）：\
+                 请先结算或作废后再结账{}",
+                limit_note(count)
+            ),
+            Some(format!("/business/erp/cost-period?period={period_code}")),
+        )
+        .samples(samples)
+        .items(items),
+    )
+}
+
+/// 文案里一个批次的说法：「批次 CS-… 状态「草稿（未提交）」，2 个成本对象（CB-1、CB-2）」。
+///
+/// 抽成纯函数是为了让「对象号怎么点」能被单测钉住（文案是本卡唯一的验收面之一）。
+fn cost_batch_phrase(batch: &period_items::CostBatch) -> String {
+    const OBJECT_SAMPLES: usize = 3;
+    let objects = if batch.object_nos.is_empty() {
+        "暂无成本计算单".to_string()
+    } else {
+        let names = batch
+            .object_nos
+            .iter()
+            .take(OBJECT_SAMPLES)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("、");
+        let more = if batch.object_nos.len() > OBJECT_SAMPLES {
+            " 等"
+        } else {
+            ""
+        };
+        format!("{} 个成本对象（{names}{more}）", batch.object_nos.len())
+    };
+    format!(
+        "批次 {} 状态「{}」，{objects}",
+        batch.batch_no,
+        period_items::cost_batch_status_label(&batch.status)
     )
 }
 
@@ -1206,7 +1306,7 @@ impl CheckOutcome {
     }
 }
 
-/// 四项前置校验（结账与预检**共用同一份实现**，不许两处口径分裂）。
+/// 五项前置校验（结账与预检**共用同一份实现**，不许两处口径分裂）。
 ///
 /// 返回 [`CheckOutcome`]：`blockers` 拦人，`warnings` 只提示（全库巡检口径）。
 /// 每条 blocker 都带 `items`（最多 50 条明细 + 该谁处理 + 跳转），实现在
@@ -1262,6 +1362,12 @@ pub(crate) async fn collect_blockers(ex: &impl SqlExecutor, row: &PeriodRow) -> 
     if let Some(blocker) = invariant_blocker(failures, invariant_items) {
         blockers.push(blocker);
     }
+
+    // ⑤ 成本核算未结算（ARCH-9 §4.11）：没有成本批次的期间一条都不拦
+    let (cost_count, cost_batches) = period_items::cost_period_items(ex, &row.period_code).await?;
+    if let Some(blocker) = cost_unsettled_blocker(&row.period_code, cost_count, &cost_batches) {
+        blockers.push(blocker);
+    }
     let warnings = global_health_warnings(ex).await?;
 
     Ok(CheckOutcome { blockers, warnings })
@@ -1296,7 +1402,7 @@ pub async fn close_check(id: Uuid) -> Result<CloseCheckRes, ApiError> {
     })
 }
 
-/// 结账：四项校验 + 状态变更**同一个事务**（卡面 L11）。
+/// 结账：五项校验 + 状态变更**同一个事务**（卡面 L11）。
 pub async fn close_period(
     id: Uuid,
     reason: Option<&str>,
@@ -1318,7 +1424,7 @@ pub async fn close_period(
         )));
     }
 
-    // 四项前置校验：**在同一个事务、同一把行锁里**跑完再改状态
+    // 五项前置校验：**在同一个事务、同一把行锁里**跑完再改状态
     let outcome = collect_blockers(&tx, &row).await?;
     if let Some(warning) = outcome.warnings.first() {
         // 全库巡检告警只记日志，不拦封账（口径见 `global_health_warnings`）
@@ -2217,7 +2323,7 @@ mod tests {
         assert!(check.blockers.is_empty(), "{:?}", check.blockers);
         // 全库巡检告警（B4 流水累计 / C1/C2 负库存）**只提示、不拦结账**：
         // 它们是「整本账」的时点状态（别的用例跑一半时库里就有漂移），
-        // 混进阻断项会让任何一处库存漂移封死所有期间的结账（见模块文档 §四项前置校验）。
+        // 混进阻断项会让任何一处库存漂移封死所有期间的结账（见模块文档 §五项前置校验）。
         assert!(
             check.warnings.iter().all(|item| item.kind == BLOCKER_INVARIANT),
             "warnings 里只该有巡检类提示：{:?}",
@@ -2815,5 +2921,175 @@ mod tests {
         let msg = reopen_conflict_message("2031-09", 2031, &both).expect("必须拦");
         assert!(msg.contains("同年度挡路") && msg.contains("跨年度挡路"), "{msg}");
         assert_eq!(msg.matches("；").count(), 1, "两段之间只该有一个分隔符：{msg}");
+    }
+
+    // ---------- 第 5 项 blocker：COST_UNSETTLED（纯逻辑，不连库） ----------
+
+    /// 造一个脱库的批次投影（纯单测只关心文案与明细字段口径）。
+    fn cost_batch(batch_no: &str, status: &str, objects: &[&str]) -> period_items::CostBatch {
+        period_items::CostBatch {
+            id: Uuid::parse_str("00000000-0000-7000-8000-0000000005c1").expect("uuid"),
+            batch_no: batch_no.to_string(),
+            status: status.to_string(),
+            created_at: DateTime::<Utc>::from_timestamp(1_800_000_000, 0).expect("时间戳"),
+            creator: Some("财务小张".to_string()),
+            object_nos: objects.iter().map(|no| (*no).to_string()).collect(),
+        }
+    }
+
+    /// ⑱ 第 5 项文案：**点名期间 + 批次号 + 状态 + 成本对象**（卡面验收三条之二）。
+    ///
+    /// 为什么文案要这么细：结账被拦的人看到「成本核算未结算」只知道「有事」，
+    /// 不知道「哪个月、哪个批次、哪个对象的成本还没算完」—— 明细与文案都要能直接定位。
+    #[test]
+    fn cost_unsettled_blocker_names_period_batch_and_objects() {
+        let batches = vec![
+            cost_batch("CS-202610-0001", "DRAFT", &["CB-20261001-000001", "CB-20261001-000002"]),
+            cost_batch("CS-202610-0002", "APPROVED", &[]),
+        ];
+        let blocker = cost_unsettled_blocker("2026-10", 2, &batches).expect("有未结算批次必须拦");
+        assert_eq!(blocker.kind, BLOCKER_COST_UNSETTLED);
+        assert_eq!(blocker.count, Some(2), "条数 = 批次个数");
+        assert_eq!(
+            blocker.samples,
+            vec!["CS-202610-0001".to_string(), "CS-202610-0002".to_string()]
+        );
+
+        // 期间
+        assert!(
+            blocker.message.contains("2026-10"),
+            "文案要点名期间：{}",
+            blocker.message
+        );
+        assert!(blocker.message.contains("成本核算未结算"), "{}", blocker.message);
+        // 批次 + 状态
+        assert!(blocker.message.contains("CS-202610-0001"), "{}", blocker.message);
+        assert!(
+            blocker.message.contains("草稿（未提交）"),
+            "状态要是中文标签：{}",
+            blocker.message
+        );
+        assert!(blocker.message.contains("审批通过待结算"), "{}", blocker.message);
+        // 成本对象：点号 + 个数
+        assert!(
+            blocker
+                .message
+                .contains("2 个成本对象（CB-20261001-000001、CB-20261001-000002）"),
+            "文案要点名成本对象：{}",
+            blocker.message
+        );
+        // 一个对象都没有的批次也要说清楚，不能只写「0 个成本对象（）」
+        assert!(blocker.message.contains("暂无成本计算单"), "{}", blocker.message);
+        // 处置建议
+        assert!(
+            blocker.message.contains("请先结算或作废后再结账"),
+            "{}",
+            blocker.message
+        );
+
+        // 明细：一条批次一行，字段口径钉住（前端表格 / 催办都按这些字段渲染）
+        assert_eq!(blocker.items.len(), 2, "两个批次两条明细");
+        let first = &blocker.items[0];
+        assert_eq!(first.doc_type, period_items::DOC_COST_PERIOD);
+        assert_eq!(first.doc_no, "CS-202610-0001");
+        assert_eq!(first.status_label, "草稿（未提交）");
+        assert_eq!(first.action_label, "去提交");
+        assert_eq!(first.created_by_name.as_deref(), Some("财务小张"));
+        assert_eq!(first.amount, None, "未结算批次落库合计是 0，不许显示成 0 元");
+        assert!(first.waiting_since.is_some(), "要有「已等多久」的时间基准");
+        assert_eq!(
+            first.route, "/business/erp/cost-period?batch_no=CS-202610-0001",
+            "路由要直达该批次"
+        );
+        assert!(
+            first.owner_role.is_none(),
+            "处理人留空 = 系统不指定（见 cost_batch_next）"
+        );
+        assert_eq!(first.owner_role_id.is_none(), first.owner_role.is_none());
+        assert_eq!(blocker.items[1].action_label, "去结算");
+
+        // 跳转落在成本核算列表，并带上期间
+        assert_eq!(
+            blocker.link.as_deref(),
+            Some("/business/erp/cost-period?period=2026-10")
+        );
+    }
+
+    /// ⑲ 没有批次 ⇒ 不拦（存量客户不受影响）；条数超 3 时文案截断但总数照实报。
+    #[test]
+    fn cost_unsettled_blocker_is_silent_without_batches_and_truncates_message() {
+        assert!(
+            cost_unsettled_blocker("2026-10", 0, &[]).is_none(),
+            "没有成本批次必须一条都不拦（未启用成本核算的客户）"
+        );
+        // 条数与明细不同源（明明 count=0 却给了行）也不许造出 blocker
+        assert!(cost_unsettled_blocker("2026-10", 0, &[cost_batch("CS-1", "DRAFT", &[])]).is_none());
+
+        let batches = vec![
+            cost_batch("CS-0001", "DRAFT", &["CB-1"]),
+            cost_batch("CS-0002", "DRAFT", &["CB-2"]),
+            cost_batch("CS-0003", "DRAFT", &["CB-3"]),
+            cost_batch("CS-0004", "DRAFT", &["CB-4"]),
+            cost_batch("CS-0005", "DRAFT", &["CB-5"]),
+        ];
+        let blocker = cost_unsettled_blocker("2026-10", 5, &batches).expect("必须拦");
+        assert_eq!(blocker.count, Some(5), "总数照实报 5");
+        assert!(blocker.message.contains("有 5 个批次"), "{}", blocker.message);
+        assert!(
+            blocker.message.contains("CS-0003"),
+            "前三个都要点名：{}",
+            blocker.message
+        );
+        assert!(
+            !blocker.message.contains("CS-0004"),
+            "第四个开始省：{}",
+            blocker.message
+        );
+        assert!(
+            blocker.message.ends_with("请先结算或作废后再结账"),
+            "{}",
+            blocker.message
+        );
+        assert!(blocker.message.contains('…'), "截断要有省略号：{}", blocker.message);
+
+        // 对象号超过 3 个 → 点 3 个 + 「等」，个数照实报
+        let many = cost_batch("CS-0009", "DRAFT", &["CB-1", "CB-2", "CB-3", "CB-4"]);
+        let phrase = cost_batch_phrase(&many);
+        assert!(phrase.contains("4 个成本对象（CB-1、CB-2、CB-3 等）"), "{phrase}");
+    }
+
+    /// ⑳ 「已算完」四态与设计 §4.11 的 `NOT IN (...)` 逐值等价 —— 判定只有一份，
+    /// SQL 字面量与 Rust 谓词必须同时对。
+    #[test]
+    fn cost_status_settled_matches_design_list() {
+        use crate::business::erp::cost_period_dto::{self, STATUSES};
+        let settled = ["SETTLED", "CLOSED", "CANCELLED", "REVERSED"];
+        for status in STATUSES {
+            assert_eq!(
+                period_items::cost_status_settled(status),
+                settled.contains(&status),
+                "{status} 的判定与设计 §4.11 不一致"
+            );
+        }
+        // SQL 字面量与谓词同源（少一个值就会「文案说没拦、库还在拦」）
+        let list = period_items::cost_settled_status_list_for_tests();
+        for status in settled {
+            assert!(list.contains(&format!("'{status}'")), "SQL 字面量缺 {status}：{list}");
+        }
+        for status in [
+            cost_period_dto::STATUS_DRAFT,
+            cost_period_dto::STATUS_SUBMITTED,
+            cost_period_dto::STATUS_APPROVED,
+        ] {
+            assert!(
+                !list.contains(&format!("'{status}'")),
+                "SQL 字面量多算了 {status}：{list}"
+            );
+        }
+        // 中文标签全覆盖（前端直接渲染，不许回落英文码）
+        for status in STATUSES {
+            let label = period_items::cost_batch_status_label(status);
+            assert!(!label.is_empty() && label != "状态未知", "{status} 缺中文标签");
+        }
     }
 }

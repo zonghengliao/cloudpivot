@@ -2950,10 +2950,18 @@ export interface BatchOpenPeriodResult {
  * - `DOC_UNFINISHED`：有未完成单据（采购单 / 收货单 / 调拨单）
  * - `UNBALANCED`：借贷不平（`diff` 是差额，定点字符串）
  * - `INVARIANT`：不变量未通过（账实 / 账账不符）
+ * - `COST_UNSETTLED`：期间内有未结算的成本核算批次（ARCH-9 §4.11；只在期间存在
+ *   `biz_cost_period` 时出现，未启用成本核算的客户不受影响）
  * - `PERIOD_STATUS`：期间自身状态不允许（已结账 / 未开账）
  */
 export interface PeriodCloseBlocker {
-  type: 'DRAFT_VOUCHER' | 'DOC_UNFINISHED' | 'UNBALANCED' | 'INVARIANT' | 'PERIOD_STATUS';
+  type:
+    | 'DRAFT_VOUCHER'
+    | 'DOC_UNFINISHED'
+    | 'UNBALANCED'
+    | 'INVARIANT'
+    | 'COST_UNSETTLED'
+    | 'PERIOD_STATUS';
   /** 条数（凭证数 / 单据数 / 不变量条数） */
   count?: number;
   /** 差额（仅 `UNBALANCED`） */
@@ -2981,11 +2989,11 @@ export interface PeriodCloseBlocker {
  * `owner_name` 只在「该角色恰好一个启用用户」时有值。
  */
 export interface PeriodBlockingItem {
-  /** 单据类型：`VOUCHER` / `STOCK_IN` / `PURCHASE_ORDER` / `STOCK_TRANSFER` / `INVENTORY` */
+  /** 单据类型：`VOUCHER` / `STOCK_IN` / `PURCHASE_ORDER` / `STOCK_TRANSFER` / `INVENTORY` / `COST_PERIOD` */
   doc_type: string;
   /** 单据主键（uuid 字符串） */
   doc_id: string;
-  /** 单据号（`PZ-…` / `IN-…` / `PO-…` / `TR-…`） */
+  /** 单据号（`PZ-…` / `IN-…` / `PO-…` / `TR-…` / `CS-yyyyMM-0001`） */
   doc_no: string;
   /** 当前状态（中文标签，后端已翻译） */
   status_label: string;

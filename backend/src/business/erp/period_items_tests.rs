@@ -9,7 +9,7 @@
 
 use super::*;
 use crate::business::erp::period::{
-    self, BLOCKER_DOC_UNFINISHED, BLOCKER_DRAFT_VOUCHER, BLOCKER_INVARIANT, BLOCKER_UNBALANCED,
+    self, BLOCKER_COST_UNSETTLED, BLOCKER_DOC_UNFINISHED, BLOCKER_DRAFT_VOUCHER, BLOCKER_INVARIANT, BLOCKER_UNBALANCED,
 };
 use crate::business::erp::period_test_support as support;
 
@@ -473,7 +473,311 @@ fn route_encoding_is_safe() {
     assert_eq!(url_encode("A B/中"), "A%20B%2F%E4%B8%AD");
 }
 
+// ==================== ⑤ 成本核算未结算（COST_UNSETTLED） ====================
+
+/// 期间内有未结算的成本批次 → 结账被拦，文案点名期间 / 批次 / 成本对象，且
+/// **原有 4 项 blocker 一条不少**（卡面验收第三条）。
+///
+/// 判据来源：设计 §4.11「该期间存在 biz_cost_period 且 status NOT IN
+/// ('SETTLED','CLOSED','CANCELLED','REVERSED')」。
+#[tokio::test]
+async fn cost_period_unsettled_blocks_close_and_names_objects() {
+    let Some(_guard) = support::setup().await else {
+        return;
+    };
+    let row = support::open_case_period(10).await;
+    let period = row.period_code.clone();
+    // 同期只能有一个**活跃**批次（uk_biz_cost_period）→ 造一个 DRAFT
+    let batch_no = "CS-204010-0001";
+    let period_id = seed_cost_batch(&period, batch_no, "DRAFT").await;
+    let product = Uuid::nil();
+    let object_a = seed_cost_object("P2I-CB-204010-001", product).await;
+    let object_b = seed_cost_object("P2I-CB-204010-002", product).await;
+    seed_cost_item(period_id, object_a, product).await;
+    seed_cost_item(period_id, object_b, product).await;
+    // 同期间再种一张草稿凭证：本卡新增第 5 项**不许**影响原有 4 项
+    support::seed_voucher(&period, "P2-V-901", "DRAFT", ("10", "10"), ("10", "10")).await;
+
+    let check = period::close_check(row.id).await.expect("预检");
+    let kinds = check
+        .blockers
+        .iter()
+        .map(|blocker| blocker.kind.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        kinds.contains(&BLOCKER_DRAFT_VOUCHER),
+        "① 草稿凭证必须照旧拦：{kinds:?}"
+    );
+    assert!(
+        kinds.contains(&BLOCKER_COST_UNSETTLED),
+        "⑤ 未结算成本批次必须拦：{kinds:?}"
+    );
+    // 实测落日志（证据）：同一次预检里 ① 草稿凭证与 ⑤ 成本未结算**同时**出现
+    println!("BLOCKERS(kinds) => {kinds:?}");
+    for blocker in &check.blockers {
+        println!("  - {} :: {}", blocker.kind, blocker.message);
+    }
+    assert!(!check.can_close, "有未结算批次就不许结账");
+
+    let blocker = check
+        .blockers
+        .iter()
+        .find(|item| item.kind == BLOCKER_COST_UNSETTLED)
+        .expect("应有 COST_UNSETTLED 阻塞项");
+    // 实测文案落进 `--nocapture` 日志（证据：卡面验收要「说清哪个期间、哪个成本对象」）
+    println!("BLOCKER(kind={}) => {}", blocker.kind, blocker.message);
+    assert_eq!(blocker.count, Some(1), "一个批次报 1");
+    // 文案：期间 + 批次 + 状态 + 对象（卡面验收「说清哪个期间、哪个成本对象」）
+    assert!(
+        blocker.message.contains(&period),
+        "文案要点名期间 {period}：{}",
+        blocker.message
+    );
+    assert!(
+        blocker.message.contains(batch_no),
+        "文案要点名批次：{}",
+        blocker.message
+    );
+    assert!(
+        blocker.message.contains("草稿（未提交）"),
+        "状态要中文：{}",
+        blocker.message
+    );
+    assert!(
+        blocker.message.contains("P2I-CB-204010-001") && blocker.message.contains("P2I-CB-204010-002"),
+        "文案要点名成本对象：{}",
+        blocker.message
+    );
+    assert_eq!(blocker.samples, vec![batch_no.to_string()], "定位线索 = 批次号");
+
+    // 明细口径：一条批次一行，能直接跳到成本核算页
+    assert_eq!(blocker.items.len(), 1, "一个批次一条明细");
+    let item = &blocker.items[0];
+    assert_eq!(item.doc_type, DOC_COST_PERIOD);
+    assert_eq!(item.doc_id, period_id);
+    assert_eq!(item.doc_no, batch_no);
+    assert_eq!(item.status_label, "草稿（未提交）");
+    assert_eq!(item.action_label, "去提交");
+    assert_eq!(item.amount, None, "未结算批次累计投入落库是 0，显示留空");
+    assert_eq!(item.route, format!("/business/erp/cost-period?batch_no={batch_no}"));
+    assert!(item.waiting_since.is_some(), "要有「已等多久」");
+    assert!(item.owner_role.is_none(), "系统不指定处理人（见 cost_batch_next）");
+    let expected_link = format!("/business/erp/cost-period?period={period}");
+    assert_eq!(blocker.link.as_deref(), Some(expected_link.as_str()));
+
+    // 真拦（不只是预检显示）：结账 409 且文案里有这一项
+    let err = period::close_period(row.id, None, support::operator())
+        .await
+        .expect_err("有未结算成本批次时结账必须 409");
+    assert_eq!(err.status, 409, "{} / {}", err.code, err.msg);
+    assert!(err.msg.contains("成本核算未结算"), "{}", err.msg);
+    assert_eq!(
+        status_of_period(&period).await.as_deref(),
+        Some("OPEN"),
+        "被拦之后期间必须还是 OPEN（不许改状态）"
+    );
+
+    support::cleanup().await;
+}
+
+/// 已结算 / 已关闭 / 已作废 / 已红冲的批次**都不拦**；期间里没有任何批次也不拦
+/// （未启用成本核算的存量客户不受影响）。
+#[tokio::test]
+async fn cost_period_settled_terminal_statuses_never_block() {
+    let Some(_guard) = support::setup().await else {
+        return;
+    };
+
+    // ① 已作废批次（cancel_reason 必填）
+    let cancelled = support::open_case_period(11).await;
+    seed_cost_batch(&cancelled.period_code, "CS-204011-0001", "CANCELLED").await;
+    let check = period::close_check(cancelled.id).await.expect("预检");
+    assert!(
+        check
+            .blockers
+            .iter()
+            .all(|blocker| blocker.kind != BLOCKER_COST_UNSETTLED),
+        "已作废批次不许挡结账：{:?}",
+        check.blockers
+    );
+    assert!(check.can_close, "只有作废批次时应能结账：{:?}", check.blockers);
+
+    // ② 已结算批次（settled_at + finish_voucher_id 必填）+ 已红冲批次放在同一期间：
+    //    唯一键 `uk_biz_cost_period` 排除了 REVERSED / CANCELLED，所以三态可共存。
+    seed_cost_batch(&cancelled.period_code, "CS-204011-0002", "SETTLED").await;
+    seed_cost_batch(&cancelled.period_code, "CS-204011-0003", "REVERSED").await;
+    let (count, batches) = cost_period_items(db(), &cancelled.period_code).await.expect("取明细");
+    assert_eq!(
+        count,
+        0,
+        "已作废 / 已结算 / 已红冲都不算未结算（库里 {} 行批次）",
+        batches.len()
+    );
+    assert!(batches.is_empty(), "不许把算完的批次列出来：{batches:?}");
+    let check = period::close_check(cancelled.id).await.expect("预检");
+    assert!(
+        check
+            .blockers
+            .iter()
+            .all(|blocker| blocker.kind != BLOCKER_COST_UNSETTLED),
+        "已结算 / 已红冲批次不许挡结账：{:?}",
+        check.blockers
+    );
+    assert!(check.can_close, "算完的批次应能结账：{:?}", check.blockers);
+
+    // ③ 期间里一行批次都没有 → 第 5 项连出现都不出现（`batches` 空 ⇒ 不生成 blocker）
+    let empty = support::open_case_period(12).await;
+    let (count, batches) = cost_period_items(db(), &empty.period_code).await.expect("取明细");
+    assert_eq!(count, 0, "没有批次时条数是 0");
+    assert!(batches.is_empty());
+    assert!(
+        period::cost_unsettled_blocker(&empty.period_code, count, &batches).is_none(),
+        "没有批次不许造出 blocker"
+    );
+    let check = period::close_check(empty.id).await.expect("预检");
+    assert!(
+        check
+            .blockers
+            .iter()
+            .all(|blocker| blocker.kind != BLOCKER_COST_UNSETTLED),
+        "没有成本批次的期间不许被第 5 项拦住：{:?}",
+        check.blockers
+    );
+
+    support::cleanup().await;
+}
+
+/// 成本批次明细的字段口径（纯函数部分在这里也钉一遍：`doc_type / 状态标签 / 路由`）。
+#[test]
+fn cost_batch_item_fields_are_stable() {
+    let batch = CostBatch {
+        id: Uuid::nil(),
+        batch_no: "CS-204009-0007".to_string(),
+        status: "SUBMITTED".to_string(),
+        created_at: DateTime::<Utc>::from_timestamp(1_800_000_000, 0).expect("时间戳"),
+        creator: Some("成本会计".to_string()),
+        object_nos: vec!["CB-1".to_string()],
+    };
+    let item = cost_batch_item(&batch);
+    assert_eq!(item.doc_type, DOC_COST_PERIOD);
+    assert_eq!(item.status_label, "已提交待审批");
+    assert_eq!(item.action_label, "去审批");
+    assert_eq!(item.created_by_name.as_deref(), Some("成本会计"));
+    assert_eq!(item.route, "/business/erp/cost-period?batch_no=CS-204009-0007");
+    assert_eq!(doc_type_label(DOC_COST_PERIOD), "成本批次");
+    assert_eq!(next_action(DOC_COST_PERIOD, "APPROVED").action_label, "去结算");
+    // 三个「未算完」状态各有中文标签与动作；四个「算完」状态也都有标签（不回落英文码）
+    for status in [
+        "DRAFT",
+        "SUBMITTED",
+        "APPROVED",
+        "SETTLED",
+        "CLOSED",
+        "CANCELLED",
+        "REVERSED",
+    ] {
+        assert_ne!(cost_batch_status_label(status), "状态未知", "{status} 缺中文标签");
+    }
+}
+
 // ==================== 夹具小工具 ====================
+
+/// 造一个成本核算批次（`biz_cost_period`）。
+///
+/// 状态补列（库层 4 条状态 CHECK 逼着给）：CANCELLED→cancel_reason；
+/// SETTLED→settled_at + finish_voucher_id；REVERSED→再加 approval_instance_id /
+/// reversed_at / reverse_reason。夹具只造这 4 态，别的状态直接 panic（不要静默造出错数据）。
+async fn seed_cost_batch(period_code: &str, batch_no: &str, status: &str) -> Uuid {
+    let (cancel, settled_at, finish_voucher, approval, reversed_at, reverse_reason) = match status {
+        "DRAFT" => ("", "", "", "", "", ""),
+        "CANCELLED" => ("P2I 夹具：作废", "", "", "", "", ""),
+        "SETTLED" => (
+            "",
+            "2026-11-11 00:00:00+00",
+            "00000000-0000-7000-8000-000000005e77",
+            "00000000-0000-7000-8000-000000005e78",
+            "",
+            "",
+        ),
+        "REVERSED" => (
+            "",
+            "2026-11-11 00:00:00+00",
+            "00000000-0000-7000-8000-000000005e77",
+            "00000000-0000-7000-8000-000000005e78",
+            "2026-11-12 00:00:00+00",
+            "P2I 夹具：红冲",
+        ),
+        other => panic!("夹具不支持的成本批次状态：{other}"),
+    };
+    let rows = db()
+        .query_sql(
+            "INSERT INTO biz_cost_period \
+                (period_code, batch_no, status, cancel_reason, settled_at, finish_voucher_id, \
+                 approval_instance_id, reversed_at, reverse_reason, create_by) \
+             VALUES (?, ?, ?, NULLIF(?::text, ''), NULLIF(?::text, '')::timestamptz, \
+                     NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid, \
+                     NULLIF(?::text, '')::timestamptz, NULLIF(?::text, ''), ?) \
+             RETURNING id"
+                .to_string(),
+            vec![
+                Value::Text(period_code.to_string()),
+                Value::Text(batch_no.to_string()),
+                Value::Text(status.to_string()),
+                Value::Text(cancel.to_string()),
+                Value::Text(settled_at.to_string()),
+                Value::Text(finish_voucher.to_string()),
+                Value::Text(approval.to_string()),
+                Value::Text(reversed_at.to_string()),
+                Value::Text(reverse_reason.to_string()),
+                Value::from(&support::uid()),
+            ],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("造成本批次失败（{batch_no}）：{error}"));
+    rows[0].get_typed::<Uuid>("id").expect("批次 id")
+}
+
+/// 造一个成本对象（`biz_cost_object`；产品 / 仓库 / 车间都是弱引用，随便给 uuid）。
+async fn seed_cost_object(object_no: &str, product_id: Uuid) -> Uuid {
+    let rows = db()
+        .query_sql(
+            "INSERT INTO biz_cost_object \
+                (object_no, product_id, target_warehouse_id, plan_qty, workshop_dept_id, \
+                 workshop_dept_name, start_date) \
+             VALUES (?, ?, ?, 10, ?, 'P2I 夹具车间', '2026-01-01') RETURNING id"
+                .to_string(),
+            vec![
+                Value::Text(object_no.to_string()),
+                Value::from(&product_id),
+                Value::from(&Uuid::nil()),
+                Value::from(&Uuid::nil()),
+            ],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("造成本对象失败（{object_no}）：{error}"));
+    rows[0].get_typed::<Uuid>("id").expect("对象 id")
+}
+
+/// 造一条成本计算单（`biz_cost_period_item`，数量金额全 0 —— 满足库层守恒 CHECK）。
+async fn seed_cost_item(period_id: Uuid, object_id: Uuid, product_id: Uuid) {
+    support::sql(&format!(
+        "INSERT INTO biz_cost_period_item (period_id, cost_object_id, product_id) \
+         VALUES ('{period_id}', '{object_id}', '{product_id}')"
+    ))
+    .await;
+}
+
+/// 读期间状态（结账被拦后必须还是 OPEN）。
+async fn status_of_period(period_code: &str) -> Option<String> {
+    let rows = db()
+        .query_sql(
+            "SELECT status FROM biz_accounting_period WHERE period_code = ?".to_string(),
+            vec![Value::Text(period_code.to_string())],
+        )
+        .await
+        .expect("读期间状态");
+    rows.first().and_then(|row| row.get_typed::<String>("status").ok())
+}
 
 /// 隔离库里持有某权限码的角色码（反查是确定性的：`sort_order` + `role_code` 取第一个）。
 async fn expected_role_of(permission: &str) -> Option<String> {

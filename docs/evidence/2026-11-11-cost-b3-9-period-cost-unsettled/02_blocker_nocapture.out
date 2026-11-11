@@ -1,0 +1,14 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 01s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 2 tests
+BLOCKERS(kinds) => ["DRAFT_VOUCHER", "COST_UNSETTLED"]
+  - DRAFT_VOUCHER :: 还有 1 张草稿凭证未过账：结账前必须全部过账或作废
+  - COST_UNSETTLED :: 成本核算未结算（2040-10 有 1 个批次：批次 CS-204010-0001 状态「草稿（未提交）」，2 个成本对象（P2I-CB-204010-001、P2I-CB-204010-002））：请先结算或作废后再结账
+BLOCKER(kind=COST_UNSETTLED) => 成本核算未结算（2040-10 有 1 个批次：批次 CS-204010-0001 状态「草稿（未提交）」，2 个成本对象（P2I-CB-204010-001、P2I-CB-204010-002））：请先结算或作废后再结账
+test business::erp::period_items::tests::cost_period_unsettled_blocks_close_and_names_objects ... ok
+test business::erp::period_items::tests::cost_period_settled_terminal_statuses_never_block ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 4749 filtered out; finished in 6.69s
+

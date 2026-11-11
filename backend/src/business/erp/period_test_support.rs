@@ -204,7 +204,31 @@ pub async fn cleanup() {
         }
     }
 
-    // ---- ③ 夹具角色 / 用户 / 权限节点（`P2-` / `p2.` / `P2I-` / `p2i.` 都是本夹具的号段）----
+    // ---- ③ 成本核算批次夹具（COST-B3-9：`2040-xx` 的批次 + `P2I-` 号段的成本对象）----
+    // 顺序有讲究：批次行一删，计算单（`biz_cost_period_item`）按 FK CASCADE 跟着走，
+    // 之后才能删成本对象（计算单对它 RESTRICT）。
+    let cost_periods = uuids_of(&format!(
+        "SELECT id FROM biz_cost_period WHERE period_code LIKE '{}' OR period_code LIKE '{}'",
+        OWNED_PERIOD_PREFIXES[0], OWNED_PERIOD_PREFIXES[1]
+    ))
+    .await;
+    if !cost_periods.is_empty() {
+        sql(&format!(
+            "DELETE FROM biz_cost_period WHERE id IN ({})",
+            in_uuids(&cost_periods)
+        ))
+        .await;
+    }
+    let cost_objects = uuids_of("SELECT id FROM biz_cost_object WHERE object_no LIKE 'P2I-%'").await;
+    if !cost_objects.is_empty() {
+        sql(&format!(
+            "DELETE FROM biz_cost_object WHERE id IN ({})",
+            in_uuids(&cost_objects)
+        ))
+        .await;
+    }
+
+    // ---- ④ 夹具角色 / 用户 / 权限节点（`P2-` / `p2.` / `P2I-` / `p2i.` 都是本夹具的号段）----
     // 外键顺序：先删关系，再删主体。
     let roles = uuids_of("SELECT id FROM sys_role WHERE role_code LIKE 'P2-%' OR role_code LIKE 'P2I-%'").await;
     let users = uuids_of("SELECT id FROM sys_user WHERE username LIKE 'p2.%' OR username LIKE 'p2i.%'").await;
