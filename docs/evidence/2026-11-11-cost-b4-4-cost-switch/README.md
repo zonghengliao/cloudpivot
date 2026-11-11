@@ -44,9 +44,11 @@
 | ② 关闭时：接口返回 403 | ✅ `/business/erp/cost-*` 与 `/business/erp/stock-out/cost-object-*` 一律 `403 + 66079`（**业务码不是权限 403**，报文点名参数键与开启路径）；未登录仍是 `401`；未配成本权限的非超管也先拿到 66079（模块未启用优先于权限不足） | `02_smoke.out` 第 2 段（5 个 cost-* + 成本对象下拉 + 未登录 401）；`10_fm01_cost_page_403.png`（非超管直接输 URL → `/result/403`） |
 | ② 关闭时：领料单成本对象字段隐藏 | ✅ 出库单新建表单「出库事由 → 备注」之间没有「成本对象」；页面也不再去请求 `/stock-out/cost-object-options`（该请求此时必 403，`loadCostObjects` 直接短路） | `04_stockout_form_no_cost_field.png`（关态表单）；`07_stockout_form_with_cost_field.png`（开态同一位置出现字段）；浏览器内 DOM 断言 `hasField` 关态 `false` / 开态 `true`（脚本见 README §4 复演序列） |
 | ③ 打开后全部生效 | ✅ 5 个 cost-* 页面接口 200、成本对象下拉 200、财务菜单 5 条 / admin 6 条回来、fm01 权限码回来 | `02_smoke.out` 第 3 段（14 条）；`07_stockout_form_with_cost_field.png`；`08_sidebar_fin_cost_menus.png`；`09_sidebar_lot_menu.png` |
-| ④ 切换不需要重启 | ✅ 全程同一个 PID（`2755882`），只 `PUT /support/config/{id}`；改完立刻生效（探针、接口、菜单三处同时翻） | `02_smoke.out` 第 3/4 段的「实例 pid 未变」断言 |
+| ④ 切换不需要重启 | ✅ 全程同一个 PID（`2785992`），只 `PUT /support/config/{id}`；改完立刻生效（探针、接口、菜单三处同时翻） | `02_smoke.out` 第 3/4 段的「实例 pid 未变」断言 |
 
-**回归闸**：`cargo check --all-targets` exit 0；`cargo test --lib` **4778 passed / 0 failed**（本卡新增 12 条）；`pnpm typecheck` exit 0；`pnpm build` exit 0。
+**回归闸**：`cargo check --all-targets` exit 0；`cargo test --lib` **4778 passed / 0 failed**（本卡新增 12 条）；`cargo clippy --lib --tests -- -D warnings` exit 0；`pnpm typecheck` exit 0；`pnpm build` exit 0。
+`cargo fmt --check` 干净（pre-commit 钩子另有 7 个 `.rs` 的 rustfmt 复检）。
+> `02_smoke.out` 是**最终代码（commit 后重新 `cargo build` 的二进制）**复跑的结果；`17_final_browser_sanity.out` 是同一构建下的浏览器字段自检（开态有「成本对象」/ 关态无）。
 
 ---
 

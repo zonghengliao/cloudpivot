@@ -1,0 +1,8 @@
+# 最终二进制 + 最终前端代码的浏览器自检（COST-B4-4）
+# 目的：commit 后重编译（cargo build exit 0）重新起实例，再用真浏览器确认「开关 ↔ 领料单成本对象字段」双向跟随
+#
+# 步骤：PUT /api/support/config/{id} 改 erp.cost.enabled → 打开 /business/erp/stock-out → 点「新建出库单」→
+#       读表单里有没有「成本对象」字段（DOM 里找 .t-form__item 文案）
+#
+ON  200 {'hasField': True, 'field': '成本对象 | 过账借方：6401 主营业务成本（不挂对象走 6401；想按生产批归集材料成本请选一个对象）'}
+OFF 200 {'hasField': False, 'field': None}
