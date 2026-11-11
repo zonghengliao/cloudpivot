@@ -397,7 +397,31 @@
             </div>
             <div class="field">
               <span class="field__label">来源单据</span>
-              <span class="field__value mono">{{ dash(detail.source_no) }}</span>
+              <!--
+                ★ VTRACE-2：能定位到原单据的做成链接（点进去看；浏览器返回后列表筛选 / 页码靠
+                useListFilterMemory 恢复）；不能跳的（手工凭证 / 缺主键 / 页面未上线）保持纯文本，
+                但**一定要有 tooltip 说明为什么**——「点不了」比「为什么点不了」更让人困惑。
+              -->
+              <t-tooltip :content="sourceDoc.tip" placement="top-left" :show-arrow="true">
+                <t-link
+                  v-if="sourceDoc.clickable"
+                  theme="primary"
+                  class="field__value mono source-doc__link"
+                  :aria-label="sourceDoc.tip"
+                  data-testid="voucher-detail-source-doc"
+                  @click="openSourceDoc"
+                >
+                  {{ sourceDoc.text }}
+                  <t-icon name="jump" class="source-doc__icon" />
+                </t-link>
+                <span
+                  v-else
+                  class="field__value mono source-doc__plain"
+                  data-testid="voucher-detail-source-doc-text"
+                >
+                  {{ sourceDoc.text }}
+                </span>
+              </t-tooltip>
             </div>
             <div class="field">
               <span class="field__label">记账时间</span>
@@ -811,6 +835,7 @@ import {
   type VoucherReverseState,
 } from './voucher-logic';
 import { submitFeedback, withdrawFeedback } from '../shared/approval-flow';
+import { resolveSourceDocDisplay, type SourceDocDisplay } from './voucher-source-link';
 import { dash, formatCents, formatMoney, shortDate, toCents } from '../shared/money';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import { getFlowInstance } from '@/api/business/flow-api';
@@ -992,6 +1017,7 @@ const loadError = ref('');
 const {
   restored: listMemoryRestored,
   restoredText: listMemoryText,
+  persist: persistListMemory,
   forget: forgetListMemory,
 } = useListFilterMemory<VoucherFilterState>({
   listName: 'erp-voucher',
@@ -1180,6 +1206,35 @@ async function openById(id: string | null): Promise<void> {
   } finally {
     detailLoading.value = false;
   }
+}
+
+/**
+ * 详情里「来源单据」这一格怎么显示（VTRACE-2）。
+ *
+ * 判据全在 `voucher-source-link.ts`（纯函数，11 条单测钉死「能跳 / 不能跳 / 为什么」），
+ * 模板只读结论；`.vue` 里不出现第二个 `source_type` 判断。
+ */
+const sourceDoc = computed<SourceDocDisplay>(() =>
+  // 详情没加载出来时传全空 —— 纯函数自己会给出 `status='empty'` + `—`（不在这里另写一份兜底对象，
+  // 两份兜底一定会漂）。
+  resolveSourceDocDisplay(detail.value?.source_type, detail.value?.source_id, detail.value?.source_no),
+);
+
+/**
+ * 点「来源单据」→ 跳回原单据（VTRACE-2）。
+ *
+ * 1. `path` 为空**绝不 push**（`router.push('')` 会留在当前页且静默失败，用户以为点了没反应）；
+ * 2. 跳之前把列表记忆**立刻落盘**：`useListFilterMemory` 的写在 300ms 防抖里，
+ *    且只在「有未落盘定时器」时才在 `onScopeDispose` 补写；显式写一次，
+ *    保证浏览器返回后筛选条件 / 页码一定还在（卡面第 3 条验收）。
+ */
+function openSourceDoc(): void {
+  const target = sourceDoc.value;
+  if (!target.clickable || !target.path) {
+    return;
+  }
+  persistListMemory();
+  void router.push({ path: target.path, query: target.query });
 }
 
 /** 借贷平衡三方校验（前端逐行加 / 后端分录合计 / 单头合计） */
@@ -2031,6 +2086,33 @@ onMounted(() => {
   font-size: 14px;
   color: var(--td-text-color-primary);
   word-break: break-all;
+}
+
+/*
+ * ★ VTRACE-2：来源单据链接
+ * - 可跳：主色 + 一个小的 jump 图标（告诉用户「这个点了会离开当前页」）；
+ * - 不可跳（手工凭证 / 缺主键 / 页面未上线）：保持正文色，只靠 tooltip 说明原因 ——
+ *   用虚线底或灰字都会让人以为是「没加载出来的链接」。
+ */
+.source-doc__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.4;
+}
+
+.source-doc__icon {
+  font-size: 12px;
+  /*
+   * 图标是「链接」的补充说明，不抢单号的视线：65% 不透明度在亮 / 暗主题下
+   * 都还是可辨识的主色，又不会让这一格比「凭证号」还抢眼。
+   */
+  opacity: 0.65;
+}
+
+.source-doc__plain {
+  /* 纯文本格：故意不加下划线 / 灰字 —— 那会被误读成「没加载出来的链接」 */
+  cursor: default;
 }
 
 .entry-table {
