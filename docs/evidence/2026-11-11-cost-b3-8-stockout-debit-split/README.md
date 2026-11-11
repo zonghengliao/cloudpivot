@@ -51,10 +51,11 @@ cargo fmt --check  → FMT_EXIT=0（05_gates.out）
 ## 门禁说明（pre-push L1 前端红项不属本卡）
 
 `git push` 触发 pre-push L1 时前端类型检查红在
-`frontend/src/views/business/erp/shared/VoucherTraceButton.vue(73,8) TS2322` —— 该文件是**另一张卡（VTRACE 前端）工作区里尚未提交的 untracked 文件**，不在本卡提交内容里（本卡 7 个文件全在 `docs/`）。
+`frontend/src/views/business/erp/shared/VoucherTraceButton.vue(73,8) TS2322` —— 该文件是**另一张卡（VTRACE 前端）工作区里尚未提交的 untracked 文件**，不在本卡提交内容里（本卡提交的文件全在 `docs/`）。
 
 归属判定（可复现）：`git worktree add /root/wt-b38 954ccbc2` + 软链 `node_modules` 后跑
-`vue-tsc --noEmit` ⇒ **TYPECHECK_EXIT=0，零输出**（`06_worktree_typecheck.out`）。即提交树本身类型检查干净，本次 `SKIP_PREPUSH=1` 推送只绕过别人的在途文件；同一次 gate 运行里后端 `cargo clippy --all-targets -D warnings` 与 `cargo check` 都是绿色。
+`vue-tsc --noEmit` ⇒ **TYPECHECK_EXIT=0，零输出**（`06_worktree_typecheck.out`）。即提交树本身类型检查干净，红项来自别人的在途文件。
+最终推送时对方已把该文件改绿，`git push origin main` 的 pre-push **L0+L1 真跑通过（67s），未使用 SKIP_PREPUSH**；同一次 gate 运行里后端 `cargo clippy --all-targets -D warnings` 与 `cargo check` 均为绿。
 
 ## 复跑提示 / 泄漏
 
