@@ -673,6 +673,14 @@
             {{ detail.status === 'SUBMITTED' ? '审批中' : '审批单' }}
             {{ detail.approval_instance_no ?? detail.approval_instance_id }}
           </t-link>
+          <!--
+            VTRACE-4：本单产生的凭证入口（**派生型**）。
+            采购单本身不是 `biz_voucher.source_type` 的取值（20 个来源里没有 PURCHASE_ORDER），
+            凭证挂在它生成的**收货单**上（`STOCK_IN`，`source_id = biz_stock_in.id`）——
+            所以取数走「本单已生成的收货单」（`pending.stock_ins`，收货进度那一块同一份数据），
+            没收货 = 没凭证 = 整只不渲染。口径见 `shared/voucher-trace.ts`。
+          -->
+          <VoucherTraceButton :sources="voucherSources" testid="purchase-detail-vouchers" />
           <!-- D4/F1：一键生成收货单（条件 = 状态可收 且 还有待收行，口径全部来自后端） -->
           <span class="detail__spacer" />
           <t-button
@@ -933,6 +941,8 @@ import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.v
 import DocTaskPanel from '@/views/business/task/components/DocTaskPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
+import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import { purchaseOrderSources } from '@/views/business/erp/shared/voucher-trace';
 import CancelImpactDialog from '@/views/business/erp/shared/CancelImpactDialog.vue';
 import {
   APPROVAL_PROGRESS_TITLE,
@@ -1887,6 +1897,15 @@ const STOCK_IN_PATH = '/business/erp/stock-in';
 
 /** 待收明细（「生成收货单」按钮 / 收货进度 / 已生成收货单都读它；加载失败 = `null`，详情不整块失败） */
 const pending = ref<PendingReceiveRes | null>(null);
+/**
+ * VTRACE-4：本单的凭证来源（**派生型**：采购单 → 已生成的收货单 → `STOCK_IN`）。
+ *
+ * 不额外发请求 —— 收货进度那一块已经拉过 `pending-items`（含 `stock_ins`）。
+ * 还没收货 ⇒ 空数组 ⇒ 按钮不显示（正确语义：这单确实还没产生任何凭证）。
+ */
+const voucherSources = computed(() =>
+  purchaseOrderSources(pending.value?.stock_ins ?? []),
+);
 
 /** 待收汇总（已收 X / 订单 Y / 待收 Z） */
 const pendingTotal = computed(() => {

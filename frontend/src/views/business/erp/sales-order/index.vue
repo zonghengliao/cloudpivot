@@ -480,6 +480,13 @@
           <t-tag size="small" variant="light" :theme="salesOrderStatusTheme(detail.status)">
             {{ detail.status_label || salesOrderStatusLabel(detail.status) }}
           </t-tag>
+          <!--
+            VTRACE-4：本单产生的凭证入口（**派生型**）。
+            销售订单本身不是 `biz_voucher.source_type` 的取值；凭证在「发货过账生成的
+            **销售出库单**」上（`STOCK_OUT`，`source_id = biz_stock_out.id`）——
+            取数走 `biz_shipment.stock_out_id`（未过账发货单为 null），没发货 = 没凭证 = 不渲染。
+          -->
+          <VoucherTraceButton :sources="voucherSources" testid="so-detail-vouchers" />
           <span class="detail-head__spacer" />
           <!-- 详情里的操作与列表同源（状态判定都在 sales-order-query.ts） -->
           <t-button
@@ -689,6 +696,9 @@ import { quoteRate, fetchCurrencyOptions, type CurrencyOption, type RateQuote } 
 import { pageUsers, type UserRes } from '@/api/system/user-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
+import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import { salesOrderSources } from '@/views/business/erp/shared/voucher-trace';
+import { fetchShipmentPage, type Shipment } from '@/api/business/erp/shipment';
 import {
   EMPTY_APPROVAL_PROGRESS,
   approvalFallbackOf,
@@ -745,6 +755,14 @@ const PERM = {
   update: 'business:erp:sale-order:update',
   /** 状态流转（提交 / 撤回 / 作废 / 关闭） */
   status: 'business:erp:sale-order:status',
+  /**
+   * 发货单列表（VTRACE-4 只读用）。
+   *
+   * 销售订单自身不产生凭证，凭证挂在本单发货过账生成的**销售出库单**上，
+   * 所以要拿 `biz_shipment.stock_out_id`。这个码与销售订单的码**不是**同一个
+   * （`V0xxx` 里 seed 是两个独立码），没有它的人不该因为看订单而吃 403。
+   */
+  shipmentList: 'business:erp:shipment:list',
 } as const;
 
 const userStore = useUserStore();
@@ -1341,6 +1359,10 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref('');
 const detail = ref<SalesOrder | null>(null);
+/** VTRACE-4：本单的发货单（只为拿 `stock_out_id` → `STOCK_OUT` 反查凭证；失败 = 空 = 按钮不显示） */
+const voucherShipments = ref<Shipment[]>([]);
+/** VTRACE-4：本单的凭证来源（派生型：销售订单 → 发货过账的销售出库单 → `STOCK_OUT`） */
+const voucherSources = computed(() => salesOrderSources(voucherShipments.value));
 const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
 const detailActions = computed(() => rowActions(detail.value ?? { status: null }));
@@ -1365,16 +1387,41 @@ async function loadDetail(id: string): Promise<void> {
   detailLoading.value = true;
   detailError.value = '';
   detail.value = null;
+  voucherShipments.value = [];
   approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
   try {
     const data = await fetchSalesOrderDetail(id);
     detail.value = data;
+    // VTRACE-4：发货单清单只为「查看凭证」取数，不挡详情（异步补齐，失败 = 没入口）
+    void loadVoucherShipments(id);
     // 进度永不让详情页失败：没实例 → 空；拉不到 → 空（降级成单号）
     approvalProgress.value = await loadApprovalProgress(data.approval_instance_id, getFlowInstance);
   } catch (error) {
     detailError.value = `详情加载失败：${messageOf(error)}`;
   } finally {
     detailLoading.value = false;
+  }
+}
+
+/**
+ * VTRACE-4：拉本单的发货单 → 只留已过账行的 `stock_out_id`（在 `salesOrderSources` 里过滤）。
+ *
+ * 三处刻意的降级，都是为了「宁可没有入口，不给点了打不开的假链接」：
+ * - 没有 `business:erp:shipment:list` ⇒ 一个请求都不发（403 刷控制台）；
+ * - 接口失败（网络 / 500）⇒ 当没有发货单 ⇒ 按钮不出现；
+ * - `page_size = 200` 是后端上限（`ShipmentFilter` 注释：上限 200），一张订单
+ *   发 200 次货在实际业务里不存在，不做翻页。
+ */
+async function loadVoucherShipments(soId: string): Promise<void> {
+  if (!userStore.hasPermission(PERM.shipmentList)) {
+    voucherShipments.value = [];
+    return;
+  }
+  try {
+    const page = await fetchShipmentPage({ so_id: soId, page: 1, page_size: 200 });
+    voucherShipments.value = page.list;
+  } catch {
+    voucherShipments.value = [];
   }
 }
 

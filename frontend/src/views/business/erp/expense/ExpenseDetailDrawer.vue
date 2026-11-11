@@ -293,6 +293,13 @@
       <div class="voucher-row">
         <span class="label">计提凭证号</span>
         <span class="mono" data-testid="expense-detail-voucher">{{ dash(report.voucher_no) }}</span>
+        <!--
+          VTRACE-4：本单产生的**全部**凭证（**多来源型**）。
+          报销单会挂两类：审批通过时的入账凭证（`EXPENSE_REPORT`）+ 每笔付款的
+          付款凭证（`EXPENSE_PAYMENT`），两张的 `source_id` **都是报销单 id**，
+          只查一个必然漏掉另一张 —— 弹出清单里按「来源」列分开看。
+        -->
+        <VoucherTraceButton :sources="voucherSources" testid="expense-detail-vouchers" />
         <span v-if="report.approved_at" class="muted">· 审批通过 {{ formatTime(report.approved_at) }}</span>
         <span v-if="report.submitted_at" class="muted">· 提交 {{ formatTime(report.submitted_at) }}</span>
       </div>
@@ -357,6 +364,8 @@ import { useUserStore } from '@/stores/user';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import { expenseReportSources } from '@/views/business/erp/shared/voucher-trace';
 import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
@@ -402,6 +411,15 @@ const detail = ref<ExpenseDetail | null>(null);
 const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
 const report = computed(() => detail.value?.report ?? null);
+/**
+ * VTRACE-4：本单的凭证来源（**多来源型**：入账 + 每笔付款，`source_id` 都是报销单 id）。
+ *
+ * 入参是 `biz_expense_report.id`（不是 `voucher_no`）—— 后者只是「计提凭证号」这一个字段，
+ * 付款凭证的号不在单据头上，只有按来源反查才拿得到全部。
+ */
+const voucherSources = computed(() =>
+  report.value ? expenseReportSources(report.value.id, report.value.report_no) : [],
+);
 
 /**
  * 两个期间是否「跨期错位」（E2E06-FIX-3 ②）。口径与 `expense-logic::isPeriodMismatch` 同一处，

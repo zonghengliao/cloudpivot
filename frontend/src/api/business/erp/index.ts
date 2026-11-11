@@ -2341,6 +2341,34 @@ export function fetchVoucherDetail(id: string): Promise<VoucherDetail> {
   return get<VoucherDetail>(`${BASE}/voucher/${id}`);
 }
 
+/**
+ * 按来源单据反查凭证（`GET /erp/voucher/by-source?source_type=&source_id=`，VTRACE-3）。
+ *
+ * 回答的是**「这张业务单据产生过哪些凭证」** —— 单据详情页「查看凭证 (N)」按钮的唯一读数。
+ *
+ * # 后端口径（`voucher_query.rs::voucher_by_source_handler`，逐条对上）
+ *
+ * - 返回**该单据产生的全部凭证**，红字凭证（`is_red = true`）也在内，按
+ *   `posted_at DESC NULLS LAST, created_at DESC, voucher_no DESC` 排（最新一笔在最前）；
+ * - **空结果返回 `[]`，不是 404**：没生成过凭证是正常业务状态（未过账 / 只建单），
+ *   前端据此决定按钮显示与否；
+ * - `source_type` 必须在 `VoucherSourceType` 值域内（非法值 **400 + 10001**），
+ *   `source_id` 非 uuid → **400 + 66006**；
+ * - 权限 `business:erp:voucher:list`（与凭证列表同一个码）。
+ *
+ * @param sourceType `biz_voucher.source_type`（`STOCK_IN` / `STOCK_OUT` / `EXPENSE_REPORT` …）
+ * @param sourceId   `biz_voucher.source_id`（对应业务单据主键）
+ */
+export function fetchVouchersBySource(
+  sourceType: string,
+  sourceId: string,
+): Promise<VoucherRow[]> {
+  return get<VoucherRow[]>(
+    `${BASE}/voucher/by-source`,
+    asParams({ source_type: sourceType, source_id: sourceId }),
+  );
+}
+
 // ==================== 总账 / 科目余额表（P2-D1 只读接口） ====================
 
 /**

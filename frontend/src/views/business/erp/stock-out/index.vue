@@ -442,6 +442,8 @@
             {{ detail.out_type_label || outTypeLabel(detail.out_type) }}
           </t-tag>
           <span class="detail__spacer" />
+          <!-- VTRACE-4：本单产生的凭证（`STOCK_OUT`）；无凭证 / 无权限 / 查询失败一律不渲染 -->
+          <VoucherTraceButton :sources="voucherSources" testid="stockout-detail-vouchers" />
           <!-- PDF-08：下载 PDF（出库单） -->
           <DocPdfButton
             :path="`/api/business/erp/stock-out/${detail.id}/pdf`"
@@ -618,6 +620,8 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import DocPdfButton from '@/components/DocPdfButton.vue';
+import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import { stockOutSources } from '@/views/business/erp/shared/voucher-trace';
 import {
   createStockOut,
   deleteStockOut,
@@ -1185,6 +1189,14 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref('');
 const detail = ref<StockOutDetail | null>(null);
+/**
+ * VTRACE-4：本单的凭证来源（`STOCK_OUT`，`source_id = biz_stock_out.id`）。
+ *
+ * 出库过账才产生凭证（成本结转），草稿 / 待过账 = 没有凭证 = 按钮整只不出现。
+ */
+const voucherSources = computed(() =>
+  detail.value ? stockOutSources(detail.value.id, detail.value.out_no) : [],
+);
 /** 动作失败（409 负库存的「可用量」就靠它原样展示） */
 const actionError = ref('');
 const acting = ref(false);

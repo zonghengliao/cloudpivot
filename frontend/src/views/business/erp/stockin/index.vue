@@ -764,6 +764,11 @@
           >
             审批已通过 · 过账失败
           </t-tag>
+          <!--
+            VTRACE-4：本单产生的凭证入口。有凭证才出现（过账后才有），
+            无凭证 / 无权限 / 查询失败一律不渲染 —— 不给点了打不开的假链接。
+          -->
+          <VoucherTraceButton :sources="voucherSources" testid="stockin-detail-vouchers" />
         </div>
 
         <!--
@@ -969,6 +974,8 @@ import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import { stockInSources } from '@/views/business/erp/shared/voucher-trace';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
@@ -1946,6 +1953,17 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref('');
 const detail = ref<StockInDetail | null>(null);
+/**
+ * VTRACE-4：本单的凭证来源（`STOCK_IN`，`source_id = biz_stock_in.id`）。
+ *
+ * 只算「该查谁」，不查凭证 —— 查询 / 空结果隐藏 / 单张直跳都在
+ * `shared/VoucherTraceButton.vue` 里，六张单据共用一份实现（口径不可能漂）。
+ */
+const voucherSources = computed(() =>
+  detail.value?.header
+    ? stockInSources(detail.value.header.id, detail.value.header.in_no)
+    : [],
+);
 /** 作废审批进度（P16；空 = 没挂审批单 / 拉不到）。C2 起连审批人明细（tasks）一起带 */
 const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 /** D9：复制进行中（按钮同时 loading + disabled —— 连点只建一张） */

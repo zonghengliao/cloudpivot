@@ -189,6 +189,11 @@
           </t-descriptions>
 
           <div class="detail-actions">
+            <!--
+              VTRACE-4：本批次产生的凭证入口（`DEPRECIATION`，`source_id = biz_depreciation_batch.id`）。
+              过账后一张计提凭证；整批红冲后同来源下多一张红字凭证（按钮变成 `(2)` + 「含红字」）。
+            -->
+            <VoucherTraceButton :sources="voucherSources" testid="dep-detail-vouchers" />
             <t-button
               v-if="canReverseBatch(detail.batch)"
               v-privilege="[PERM.reverse]"
@@ -292,6 +297,8 @@ import {
   periodOptions,
   runResultText,
 } from './depreciation-logic';
+import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import { depreciationSources } from '@/views/business/erp/shared/voucher-trace';
 
 /** 本页权限码（与 V0230 的权限种子逐一对应） */
 const PERM = {
@@ -456,6 +463,15 @@ function confirmRun(): void {
 
 const detailVisible = ref(false);
 const detail = ref<DepBatchDetail | null>(null);
+/**
+ * VTRACE-4：本批次的凭证来源（`DEPRECIATION`，`source_id = biz_depreciation_batch.id`）。
+ *
+ * 页面上的「计提凭证」列只有 `voucher_id`（UUID，人看不了也没法点）——
+ * 这个按钮才是真正能进到凭证分录的入口。
+ */
+const voucherSources = computed(() =>
+  detail.value ? depreciationSources(detail.value.batch.id, detail.value.batch.batch_no) : [],
+);
 const detailLoading = ref(false);
 const k4Match = computed(() =>
   detail.value ? detailTotalMatches(detail.value.batch, detail.value.detail_total) : true,
