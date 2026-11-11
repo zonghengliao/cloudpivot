@@ -42,6 +42,13 @@ bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
 1. 接口/报表不显示：前端 api 漏 `/api`。
 2. TDesign 图标：`user-check`→`user-checked`、`speed`→`rocket`。
 
+## 成本核算速查（ARCH-9，详见 `docs/后端二开指南.md` §十六）
+- **六段 calc（无 HTTP 入口，有意如此）**：`backend/src/business/erp/cost_calc_{material,labor,overhead,reconcile,alloc,item}.rs` → `collect_material` / `collect_labor` / `collect_overhead` / `reconcile_pool_with_ledger(period, Stage)` / `allocate_overhead` / `calc_items`；段序不可交换，各段另有 `*_in_tx`（真身，外层只管 begin/commit）。
+- **结算 / 红冲**：`cost_settle_run.rs::settle_period(id, operator)`（一个事务：完工入库 + 最多 4 张凭证 + 6 条断言，失败整笔回滚仍 `APPROVED`）、`cost_reverse_run.rs::reverse_period(id, reason, operator)`。
+- **表 / 迁移**：13 张 `biz_cost_*` + `biz_lot`（V0370~V0374），存量改造 V0375/`biz_stock_out`、V0376/`biz_stock_in`、V0377/科目、V0378/菜单；归集唯一落点 `biz_cost_collect`，幂等键 `(source_type, source_id, line_no)`。
+- **加分配标准要改 6 处**：`cost_alloc_rule_dto.rs`（`BASES`/`basis_value`/`basis_label`）+ 新迁移重建 `ck_biz_cost_rule_basis` + 两条取数路径（`cost_calc_alloc.rs::DeptBasis`、`cost_alloc_rule_handler.rs::basis_map_of`）+ 前端 `api/business/erp/cost-alloc-rule-kinds.ts`。
+- **验收 / 巡检**：`bash scripts/verify/cost_e2e.sh`（自建演练库→calc→审→结算→对平→红冲→重算→再结算→删库，9 步 78 条断言）、`python3 scripts/verify/erp_invariants.py --group 成本`（C-COST-1~6）；错误码 `66055`~`66079` 见二开指南 §16.4。
+
 ## 关键文件指针
 - 启动链：`backend/src/lib.rs`
 - 用户模块范本：`backend/src/system/user/{handler,dto,model}.rs`
