@@ -35,12 +35,12 @@
  *
  * 目标页**有没有真读这个 query** 是逐个页面核实过的，不靠「看起来像」：
  *
- * - `detail` —— 页面读到参数会直接打开该单据（目前只有 `in_id` 与 `year`）；
+ * - `detail` —— 页面读到参数会直接打开该单据（`in_id` / `year` / `batch_no`）；
  * - `filter` —— 页面只把它当筛选条件（`out_no` 走列表 keyword）；
  * - `none` —— 页面还没读这个参数，`resolveSourceRoute` **不往 query 里塞值**
  *   （塞了就是个静默无效的假参数），只返回列表页路径；
- * - `page-missing` —— 目标页连路由都还没注册（`cost-period`：菜单 V0378 已种，
- *   `views/business/erp/cost-period/` 下只有 `steps/`，页面由 COST-B3 系列在补），
+ * - `page-missing` —— 目标页连路由都还没注册（当前表里**已无此态**：最后一处
+ *   `cost-period` 已在 COST-B3-11 落地 —— 路由注册 + 页面读 `?batch_no=`），
  *   这种情况下 `resolveSourceRoute` 返回 `null` —— **宁可不给链接，不给 404 链接**。
  *
  * 页面补深链后，把对应行的 `deepLink` 从 `none` 改成 `filter`/`detail` 即可，
@@ -292,11 +292,11 @@ export const SOURCE_ROUTE_TABLE = {
   /** `cost_settle_voucher.rs:89` `source_id = biz_cost_period.id`、`source_no = CS-yyyyMM-NNNN`。 */
   COST_PERIOD: {
     path: '/business/erp/cost-period',
-    by: 'id',
-    queryKey: 'period_id',
-    deepLink: 'page-missing',
+    by: 'no',
+    queryKey: 'batch_no',
+    deepLink: 'detail',
     label: '成本核算批次',
-    note: '菜单已种（V0378 …c005）、路由与页面还没落地（COST-B3 系列）⇒ 暂不跳，落地后改 deepLink',
+    note: '成本核算页读 `?batch_no=` 直接打开该批次的五步向导（COST-B3-11 落地，2026-11-11）',
   },
 
   // ── ⑧ 额外：后端已在写、枚举还没收录 ──────────────────────────────

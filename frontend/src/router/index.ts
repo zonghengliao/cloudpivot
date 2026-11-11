@@ -744,6 +744,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '分摊规则', permission: 'business:erp:cost-alloc-rule:list' },
       },
       {
+        // ==================== ERP 成本：成本核算（COST-B3-11 / ARCH-9 §6.1 #5） ====================
+        // `sys_menu` 种子（V0378 …c005）path = `/business/erp/cost-period`、component
+        // `business/erp/cost-period/index`，权限码 `business:erp:cost-period:list`，
+        // 挂在「财务管理」（`…e02`）sort 68。五步向导在本页抽屉内（无独立路由）。
+        // 路由手工注册，漏了 = 点菜单进 404（`system::menu::tests::n08` 真库档会当场红）。
+        path: 'business/erp/cost-period',
+        name: 'BusinessErpCostPeriod',
+        component: () => import('@/views/business/erp/cost-period/index.vue'),
+        meta: { title: '成本核算', permission: 'business:erp:cost-period:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）

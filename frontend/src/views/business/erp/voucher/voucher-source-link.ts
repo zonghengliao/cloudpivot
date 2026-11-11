@@ -138,8 +138,10 @@ export function resolveSourceDocDisplay(
   }
 
   const spec = SOURCE_ROUTE_TABLE[key];
-  if (spec.deepLink === 'page-missing') {
-    // 页面/路由都还没有：跳过去就是 404，宁可纯文本。
+  // `page-missing`（目标页未落地 ⇒ 宁可不给链接也不给 404）当前映射表里已无成员：
+  // 最后一处 `cost-period` 已随 COST-B3-11 上线（路由 + 页面读 `?batch_no=`）。
+  // 判断故意走**字符串比较**（不收窄类型）：将来映射表新增/移除该态时这里不用改。
+  if ((spec.deepLink as string) === 'page-missing') {
     return deadCell(shown, `「${spec.label}」页面还没上线，暂不能跳转`, 'page-missing');
   }
 

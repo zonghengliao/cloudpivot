@@ -1,0 +1,45 @@
+  [i] 首登已改密 → Admin@12345678
+  [OK]   登录拿到令牌
+  [OK]     建审批人 fm01（财务经理甲）
+  [OK]     建审批人 fd01（财务总监乙）
+  [OK]     两个审批人登录就绪（FINANCE_MANAGER / FINANCE_DIRECTOR）
+  [OK]   GET /erp/period/page → HTTP 200
+  [OK]     期间下拉有 12 个未结账期间（共 12）
+  [OK]   POST /cost-object（夹具 1） → HTTP 200
+  [OK]   POST /cost-object（夹具 2） → HTTP 200
+  [OK]   POST /cost-period（建 DRAFT） → HTTP 200
+  [OK]     批次 CS-202610-0001 status=DRAFT
+  [OK]   POST /cost-period 重复期间 → HTTP 409
+  [OK]     重复期间错误码 66072，报文：期间 2026-10 已有活跃批次 CS-202610-0001：一个期间同时只能有�
+  [OK]     计算单灌入 2 行（算例 A 口径 + 一行零在制）
+  [OK]   GET /cost-period/{id} → HTTP 200
+  [OK]     items 2 行
+  [OK]     items_summary.total_cost = 27700.0000（现算 19500+4100+4100，不是单头 total_*）
+  [OK]     行守恒 22311.1104 + 4688.8896 = 27000
+  [OK]     单头 total_* 仍是 0（DRAFT 未结算，页面用现算值）
+  [OK]   GET /cost-period/uncollected → HTTP 200
+  [OK]     gap_count=0（不阻断）
+  [OK]   POST /cost-period/{id}/submit → HTTP 200
+  [OK]     审批实例 01a1c9c7-0848-76da-b7b4-6e4cd020d35a（status=SUBMITTED）
+  [OK]   GET /business/flow/instance/{id} → HTTP 200
+  [OK]     节点 2 个（其中审批节点 1：引擎按进度长节点，提交时先到第一级）
+[{"node_key":"n_fm","node_name":"财务经理审批","status":"ACTIVE"},{"node_key":"s","node_name":"开始","status":"APPROVED"}]
+  [OK]   第 1 级审批通过 → HTTP 200
+  [OK]   第 2 级审批通过 → HTTP 200
+  [OK]     两级通过后批次 = APPROVED（可以结算）
+  [i] 结算返回 HTTP 409 code=66077
+      msg: 结算事务断言 C-COST-3「4001 本期净发生 = Σ(期末在制 − 期初在制)」不平，整个结算已回滚：4001 本期净发生 -23011.1104 / Σ(期末在制 4688.8896 − 期初在制 0.0000) = 4688.8896；差异 -27700.0000。含义：料 / 工 / 费的借方没有全落在 4001.*�
+  [OK]     结算失败后批次仍 APPROVED（整笔回滚，不留死单）
+  [OK]   POST /cost-period/{id}/reverse（APPROVED） → HTTP 409
+      code=66073 msg=成本核算批次 CS-202610-0001 当前是「APPROVED」，不能红冲：只允许在 ["SETTLED"] 状态下红冲
+  [OK]   红冲原因太短 → 400 → HTTP 400
+  [OK]     已结算夹具 b6194132-e4b9-4645-af64-3a7ae1c1301c（列表红冲按钮 / 二次确认框的数据源）
+  [OK]   GET /cost-period（列表） → HTTP 200
+  [OK]     出参形状 {list,total,page,page_size}，total=2
+{"batch_no":"CS-202610-0001","period_code":"2026-10","status":"APPROVED","total_cost":"0.0000"}
+{"batch_no":"CS-202609-0001","period_code":"2026-09","status":"SETTLED","total_cost":"28400.0000"}
+  [OK]   PUT /cost-period/{id}（SETTLED 不可改） → HTTP 409
+  [i] 已结算夹具红冲 → HTTP 409 code=66078
+      msg: 成本核算批次 CS-202609-0001 是「已结算」状态，但查不到任何未红冲的结算凭证：账面数据不完整，不能红冲（红冲必须有蓝字凭证可红）。请先用巡检脚本核对 biz_voucher 与批次的关系
+
+=== 结果：0 条断言失败 ===

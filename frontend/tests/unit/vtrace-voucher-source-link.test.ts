@@ -97,12 +97,19 @@ test('OTHER / 未知词 / 空类型：都是纯文本，但理由各不相同', 
   assert.equal(empty.tip, '无来源单据');
 });
 
-test('目标页未上线（COST_PERIOD）：纯文本 + page-missing，理由与「未识别」不同', () => {
+test('成本核算批次（COST_PERIOD）已可跳：落到成本核算页并带 batch_no（COST-B3-11）', () => {
   const cell = resolveSourceDocDisplay('COST_PERIOD', ID, 'CS-202611-0001');
-  assert.equal(cell.clickable, false);
-  assert.equal(cell.status, 'page-missing');
-  assert.equal(cell.tip, '「成本核算批次」页面还没上线，暂不能跳转');
+  assert.equal(cell.clickable, true);
+  assert.equal(cell.status, 'link');
+  assert.equal(cell.path, '/business/erp/cost-period');
+  assert.deepEqual(cell.query, { batch_no: 'CS-202611-0001' });
   assert.equal(cell.text, 'CS-202611-0001');
+
+  // 没有批次号（来源单号缺失）⇒ 仍然不跳，理由说清缺的是哪个字段
+  const noNo = resolveSourceDocDisplay('COST_PERIOD', ID, null);
+  assert.equal(noNo.clickable, false);
+  assert.equal(noNo.status, 'missing-key');
+  assert.equal(noNo.tip, '本张凭证缺少「成本核算批次」的单据号，暂不能跳转');
 });
 
 test('缺定位参数：纯文本 + missing-key，并说明缺的是主键还是单号', () => {

@@ -69,7 +69,12 @@ const EXPECTED: Record<
     sample: 'CMS-202609-0001',
     query: {},
   },
-  COST_PERIOD: { path: '/business/erp/cost-period', deepLink: 'page-missing', sample: ID, query: {} },
+  COST_PERIOD: {
+    path: '/business/erp/cost-period',
+    deepLink: 'detail',
+    sample: 'CS-202611-0001',
+    query: { batch_no: 'CS-202611-0001' },
+  },
   FX_REVALUATION: { path: '/business/erp/period', deepLink: 'none', sample: '2026-01', query: {} },
 };
 
@@ -166,7 +171,7 @@ test('参数缺失 / 格式不对 → null（宁可不给链接，不给错链�
   assert.equal(resolveSourceRoute('YEAR_END', null, '2026'), null);
 });
 
-test('deepLink 语义：none 不塞参数、page-missing 整条不返回', () => {
+test('deepLink 语义：none 不塞参数；detail 一定塞参数（含成本核算批次的 batch_no）', () => {
   // detail：参数必须塞进去（否则页面读不到）
   assert.deepEqual(resolveSourceRoute('STOCK_IN', ID, null)?.query, { in_id: ID });
   assert.deepEqual(resolveSourceRoute('YEAR_END', null, 'YEAR-END-2026')?.query, { year: '2026' });
@@ -181,9 +186,21 @@ test('deepLink 语义：none 不塞参数、page-missing 整条不返回', () =>
     assert.deepEqual(got?.query, {}, `${key} deepLink=none ⇒ query 必须为空`);
     assert.equal(got?.path, spec.path, `${key} 仍应落到列表页（可用）`);
   }
-  // page-missing：路由都没注册 ⇒ 返回 null，不给 404 链接
-  assert.equal(SOURCE_ROUTE_TABLE.COST_PERIOD.deepLink, 'page-missing');
-  assert.equal(resolveSourceRoute('COST_PERIOD', ID, 'CS-202611-0001'), null);
+  // detail（成本核算批次）：COST-B3-11 落地后页面读 `?batch_no=`，凭证明细点批次号可直达五步向导
+  assert.equal(SOURCE_ROUTE_TABLE.COST_PERIOD.deepLink, 'detail');
+  assert.equal(SOURCE_ROUTE_TABLE.COST_PERIOD.by, 'no', '来源给的是批次号，不是主键');
+  assert.deepEqual(resolveSourceRoute('COST_PERIOD', ID, 'CS-202611-0001')?.query, {
+    batch_no: 'CS-202611-0001',
+  });
+  // 表里已无 page-missing（最后一处 cost-period 已上线）；语义保留：无定位参数仍不跳
+  const pageMissingKeys = (Object.keys(SOURCE_ROUTE_TABLE) as Array<keyof typeof SOURCE_ROUTE_TABLE>)
+    .filter((key) => SOURCE_ROUTE_TABLE[key].deepLink === 'page-missing');
+  assert.equal(
+    pageMissingKeys.length,
+    0,
+    `若新加 page-missing 行（${pageMissingKeys.join(',')}），本断言会提醒你同时补「未注册路由」的反向检查`,
+  );
+  assert.equal(resolveSourceRoute('COST_PERIOD', ID, null), null);
 });
 
 test('每个非空 path 都在 router/index.ts 注册；page-missing 的反之还没注册', () => {
