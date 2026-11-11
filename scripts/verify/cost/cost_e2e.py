@@ -42,7 +42,6 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-BACKEND = ROOT / "backend"
 
 DB = dict(
     host=os.environ.get("NIK_DATABASE_HOST", "127.0.0.1"),
@@ -346,28 +345,59 @@ def apply_fixture(ids: dict) -> dict:
 
 
 # ══════════════════════════════════════════════════════════════════
-# calc：六段流水线的真实代码（example 探针）
+# calc：六段编排**走 HTTP 接口**（设计 §5.2 #27，COST-B2-15）
 # ══════════════════════════════════════════════════════════════════
-def run_calc() -> str:
-    env = dict(os.environ)
-    env.update({
-        "NIK_DATABASE_HOST": DB["host"], "NIK_DATABASE_PORT": str(DB["port"]),
-        "NIK_DATABASE_USER": DB["user"], "NIK_DATABASE_PASSWORD": DB["password"],
-        "NIK_DATABASE_NAME": DB["name"],
-    })
-    r = subprocess.run(
-        ["cargo", "run", "--quiet", "--example", "cost_calc_probe", "--", PERIOD],
-        cwd=str(BACKEND), capture_output=True, text=True, env=env, timeout=900)
-    out = (r.stdout or "").strip()
-    for line in out.splitlines():
-        print(f"    {line[:220]}")
-    if r.returncode != 0:
-        print((r.stderr or "")[-3000:])
-        raise SystemExit(f"calc 探针失败（exit {r.returncode}）")
-    marker = next((l for l in out.splitlines() if l.startswith("CALC_OK ")), "")
-    if not marker:
-        raise SystemExit("calc 探针没有 CALC_OK 输出")
+def run_calc(cli: "Client") -> dict:
+    """`POST /business/erp/cost-period/calc` 跑一轮六段，返回可断言的 marker 字典。
+
+    为什么走接口而不是 example 探针：客户在页面上点「重算」走的就是这条 HTTP 路径
+    （路由 / 权限码 / 出参契约），探针跑通不等于接口通。探针保留供离线分段排查。
+
+    返回键与旧探针的 `CALC_OK` 一致（batch / items / material / labor / overhead /
+    cost / finished / wip），另加 created（是否新建批次）与 reconcile_diff（池对账差额）。
+    """
+    status, payload = cli.call("POST", "/business/erp/cost-period/calc",
+                               {"period_code": PERIOD})
+    data = data_of(payload)
+    calc = data.get("calc") or {}
+    items = calc.get("items") or {}
+    reconcile = calc.get("reconcile") or {}
+    marker = dict(
+        status=str(status),
+        batch=data.get("batch_no", ""),
+        batch_status=data.get("status", ""),
+        created=str(calc.get("batch_created", "")).lower(),
+        items=str(items.get("rows", "")),
+        material=items.get("total_material", ""),
+        labor=items.get("total_labor", ""),
+        overhead=items.get("total_overhead", ""),
+        cost=items.get("total_cost", ""),
+        finished=items.get("total_finished", ""),
+        wip=items.get("total_wip", ""),
+        reconcile_diff=reconcile.get("diff", ""),
+    )
+    print("    CALC " + " ".join(f"{k}={v}" for k, v in marker.items() if k != "status"))
+    if status != 200:
+        print(json.dumps(payload, ensure_ascii=False)[:900])
+        raise SystemExit(f"calc 接口失败（{status} {err_of(payload)}）")
+    if not marker["batch"]:
+        raise SystemExit("calc 回包没有 batch_no（出参契约变了？）")
     return marker
+
+
+def enable_cost_module(cli: "Client") -> None:
+    """打开成本核算模块总开关（`erp.cost.enabled`，COST-B4-4）。
+
+    开关默认 false，关闭时 `/business/erp/cost-*` 一律 403 + 66079（建批次 / calc /
+    结算全都在里面）。演练要跑真接口，所以先打开：psql 改参数值 + 调「重载参数」接口
+    让实例的进程内快照立刻生效（切换不需要重启）。
+    """
+    q("update sys_config set config_value = 'true' where config_key = 'erp.cost.enabled'")
+    if scalar("select count(*) from sys_config where config_key = 'erp.cost.enabled'") != "1":
+        sys.exit("演练库没有 erp.cost.enabled 参数行（V0385 没跑？）")
+    status, payload = cli.call("POST", "/support/config/reload")
+    ok("成本核算开关已打开（erp.cost.enabled=true + 参数快照重载）", status == 200,
+       err_of(payload), f"{status}")
 
 
 def ensure_approvers() -> None:
@@ -544,6 +574,8 @@ def main() -> int:
     cli = Client(BASE)
     q("update sys_user set must_change_password = false where username = 'admin'")
     cli.login(*ADMIN)
+    # 成本核算模块总开关（默认 false；关闭时本链路所有 cost-* 接口 403）
+    enable_cost_module(cli)
     status, payload = cli.call("POST", "/business/erp/cost-period", {"period_code": PERIOD})
     period_id = data_of(payload).get("id", "")
     ok("建批次接口 200 且返回 DRAFT 批次", status == 200 and bool(period_id), err_of(payload),
@@ -552,14 +584,32 @@ def main() -> int:
         return 1
 
     # ---------- 1 calc ----------
-    step("calc：料 → 工 → 费 → 池对账 → 分摊 → 计算单（六段真实代码）")
-    marker = run_calc()
-    after = dict(pair.split("=", 1) for pair in marker.split()[1:] if "=" in pair)
+    step("calc：料 → 工 → 费 → 池对账 → 分摊 → 计算单（POST /cost-period/calc 六段编排）")
+    after = run_calc(cli)
+    eq("calc 接口 200", "200", after.get("status", ""))
+    eq("calc 命中已建的 DRAFT 批次（原地重算）", "false", after.get("created", ""))
     eq("calc 料归集 = 19000", EXPECT["material"], after.get("material", ""))
     eq("calc 工归集 = 4000", EXPECT["labor"], after.get("labor", ""))
     eq("calc 费归集 = 4000", EXPECT["overhead"], after.get("overhead", ""))
+    eq("calc 投入合计 = 27000", EXPECT["cost"], after.get("cost", ""))
     eq("calc 完工成本 = 22311.1104", EXPECT["finished"], after.get("finished", ""))
     eq("calc 期末在制 = 4688.8896", EXPECT["wip"], after.get("wip", ""))
+    eq("calc 池对账差额 = 0", "0.0000", after.get("reconcile_diff", ""))
+
+    # 幂等：再点一次「重算」，金额与行数都不变（不重复累加）
+    again = run_calc(cli)
+    eq("重复 calc 仍是 200", "200", again.get("status", ""))
+    eq("重复 calc 不新建批次", "false", again.get("created", ""))
+    eq("重复 calc 批次号不变", after.get("batch", ""), again.get("batch", ""))
+    eq("重复 calc 行数不变", after.get("items", ""), again.get("items", ""))
+    eq("重复 calc 完工成本不变", EXPECT["finished"], again.get("finished", ""))
+    eq("重复 calc 期末在制不变", EXPECT["wip"], again.get("wip", ""))
+
+    # 期间码非法 ⇒ 400（卡面验收⑥ 的入参侧：不发 500、也不建批次）
+    status, payload = cli.call("POST", "/business/erp/cost-period/calc", {"period_code": "2026-13"})
+    ok("calc 期间非法 ⇒ 400（不是 500）", status == 400, "400", f"{status} {err_of(payload)}")
+    eq("非法期间不建批次", "0",
+       scalar(f"select count(*) from biz_cost_period where period_code = '2026-13'"))
 
     items = q(f"""select i.completed_qty::text, i.unit_finished_cost::text, i.status
                     from biz_cost_period_item i where i.period_id = '{period_id}'""")
@@ -587,6 +637,16 @@ def main() -> int:
     status, payload = cli.call("POST", f"/business/erp/cost-period/{period_id}/submit")
     ok("提交接口 200", status == 200, err_of(payload), f"{status}")
     eq("批次状态 = SUBMITTED", "SUBMITTED",
+       scalar(f"select status from biz_cost_period where id = '{period_id}'"))
+
+    # 卡面验收④：已提交的批次再点「重算」⇒ 409 + 66073，报文点名下一步（撤回）
+    status, payload = cli.call("POST", "/business/erp/cost-period/calc", {"period_code": PERIOD})
+    code = str((payload or {}).get("code", ""))
+    msg = (payload or {}).get("msg") or ""
+    ok("已提交批次调 calc ⇒ 409 + 66073（冻结数据不许重算）",
+       status == 409 and code == "66073", "409 + 66073", f"{status} + {code}")
+    ok("报文点名下一步「撤回」", "撤回" in msg, "含「撤回」", msg[:160])
+    eq("被拒后批次状态不变（仍是 SUBMITTED）", "SUBMITTED",
        scalar(f"select status from biz_cost_period where id = '{period_id}'"))
     instance = scalar(f"select coalesce(approval_instance_id::text,'') from biz_cost_period where id = '{period_id}'")
     ok("审批实例已启动（approval_instance_id 非空）", bool(instance), "非空", instance or "空")
@@ -740,27 +800,33 @@ def main() -> int:
     code, tail = run_invariants()
     ok("红冲后巡检仍 exit 0（无脏账）", code == 0, "exit 0", f"exit {code}")
 
-    # ---------- 6 重算（唯一键不冲突） ----------
-    step("重算：红冲后建第二张活跃批次 + 再算（唯一键不冲突）")
-    status, payload = cli.call("POST", "/business/erp/cost-period", {"period_code": PERIOD})
-    period2 = data_of(payload).get("id", "")
-    ok("红冲后同期间能建新批次（排除 REVERSED 的唯一键生效）",
-       status == 200 and bool(period2), err_of(payload), f"{status}")
+    # ---------- 6 重算（红冲 → 点「重算」：接口自己建新批次） ----------
+    step("重算：红冲后点「重算」（calc 自己建第二张活跃批次，唯一键不冲突）")
+    # 此刻该期间只有一张 REVERSED 批次（不占唯一键）⇒ calc 必须**自己建**新 DRAFT 再算。
+    # 这条断言正是「红冲后在页面上点重算会发生什么」—— 前端不需要先手工建单。
+    after2 = run_calc(cli)
+    ok("红冲后重算 200 且新建了批次（REVERSED 不占唯一键）",
+       after2.get("created") == "true", "created=true", f"created={after2.get('created')}")
+    ok("重算批次号不同于第一轮", after2.get("batch") != after.get("batch"),
+       f"{after2.get('batch')} != {after.get('batch')}", after2.get("batch", ""))
+    eq("重算完工成本一致 = 22311.1104", EXPECT["finished"], after2.get("finished", ""))
+    eq("重算在制一致 = 4688.8896", EXPECT["wip"], after2.get("wip", ""))
+    eq("重算池对账差额 = 0", "0.0000", after2.get("reconcile_diff", ""))
+
+    period2 = scalar(f"""select id from biz_cost_period
+                         where period_code = '{PERIOD}'
+                           and status not in ('REVERSED','CANCELLED')""")
+    ok("重算后同期间有 1 张活跃批次（DRAFT）", bool(period2), "1 张", "1 张" if period2 else "0 张")
     if not period2:
         return 1
+
+    # 唯一键仍然生效：已经有了活跃批次，再建一张必须被拒（不是放水）
     status2, payload2 = cli.call("POST", "/business/erp/cost-period", {"period_code": PERIOD})
     ok("同期间第二张活跃批次被唯一键拒绝（不是放水）", status2 in (409, 400),
        "409/400", f"{status2} {err_of(payload2)}")
     eq("同期间只剩 1 张活跃批次（另一张是 REVERSED）", "1",
        scalar(f"""select count(*) from biz_cost_period
                    where period_code = '{PERIOD}' and status not in ('REVERSED','CANCELLED')"""))
-
-    marker2 = run_calc()
-    after2 = dict(pair.split("=", 1) for pair in marker2.split()[1:] if "=" in pair)
-    ok("重算批次号不同于第一轮", after2.get("batch") != after.get("batch"),
-       f"{after2.get('batch')} != {after.get('batch')}", after2.get("batch", ""))
-    eq("重算完工成本一致 = 22311.1104", EXPECT["finished"], after2.get("finished", ""))
-    eq("重算在制一致 = 4688.8896", EXPECT["wip"], after2.get("wip", ""))
 
     # ---------- 7 第二轮结算（链路可重复） ----------
     step("再结算：第二轮跑完，库存/凭证/对平回到第一轮的数")

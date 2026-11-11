@@ -13,8 +13,9 @@
  *    要累加就用 `shared/decimal.ts` 的定点函数，**别 `Number()`**（会丢精度）；
  * 3. **两套合计不能混用**：单头 `total_*` 是**结算时落库**的审计口径（`DRAFT` 阶段恒 0），
  *    详情 `items_summary` 是**按计算单现算**的作业口径 —— 页面上「试算结果」只用后者；
- * 4. **没有 `POST /cost-period/calc`（设计 #27 编排入口尚未落地）**：本卡只做「建批次 +
- *    看已有计算单」，不要在前端伪造一个本地试算（口径在后端，前端算出来的数没人认）；
+ * 4. **有 `POST /cost-period/calc`（设计 #27 六段编排，COST-B2-15 已落地）**：页面的
+ *    「重算」按钮真调它（后端定批次 + 料→工→费→对账→分摊→计算单，一次事务）。
+ *    **不要在前端伪造本地试算**（口径在后端，前端算出来的数没人认）；
  * 5. **一个期间同时只有一个活跃批次**（`uk_biz_cost_period`）：`CANCELLED` / `REVERSED`
  *    不占位，所以红冲/作废之后同期间能重建（后端 409 报文会点名已有批次号）；
  * 6. **结算/红冲都是高危动作**：结算要输入「结算」二字、红冲要输入「红冲」且原因 ≥10 字
@@ -297,4 +298,88 @@ export interface CostPeriodUpdatePayload {
 /** 带原因的高危动作入参（作废 / 红冲同形） */
 export interface CostPeriodReasonPayload {
   reason: string;
+}
+
+/**
+ * calc 编排入参（`POST /cost-period/calc`，设计 §5.2 #27）。
+ *
+ * **只有期间**：算哪些对象、按什么口径算全在后端。前端能传对象 / 金额就等于能改数。
+ */
+export interface CostPeriodCalcPayload {
+  /** 期间 `yyyy-MM`（批次不存在时后端按它建 `DRAFT`） */
+  period_code: string;
+}
+
+/** calc 第 1–3 段（料 / 工 / 费归集）的摘要：扫描行数 + 新写 + 软删 + 回查金额。 */
+export interface CalcCollectStage {
+  scanned: number;
+  inserted: number;
+  purged: number;
+  /** 写后回查的归集金额（4 位小数字符串） */
+  amount: string;
+}
+
+/** 第 2 段（工归集）另带未归集条数。 */
+export interface CalcLaborStage extends CalcCollectStage {
+  uncollected: number;
+}
+
+/** 第 3 段（费归集）另带池金额与未归集条数。 */
+export interface CalcOverheadStage extends CalcCollectStage {
+  pool: string;
+  uncollected: number;
+}
+
+/** 第 4 段（池 ↔ 4101 对账）摘要；`diff` 平的时候是 `0.0000`。 */
+export interface CalcReconcileStage {
+  pool: string;
+  expected: string;
+  pending: string;
+  ledger: string;
+  diff: string;
+}
+
+/** 第 5 段（分摊）摘要。 */
+export interface CalcAllocStage {
+  rules: number;
+  result_rows: number;
+  amount: string;
+  zero_pool: number;
+  uncovered: number;
+}
+
+/** 第 6 段（计算单）摘要：行数 + 跳过对象 + 各口径合计（4 位小数字符串）。 */
+export interface CalcItemStage {
+  rows: number;
+  skipped: number;
+  purged: number;
+  total_material: string;
+  total_labor: string;
+  total_overhead: string;
+  total_cost: string;
+  total_finished: string;
+  total_wip: string;
+}
+
+/** 一次 calc 的分段摘要（后端 `CalcRunSummary`，**增量**字段）。 */
+export interface CostPeriodCalcSummary {
+  period_code: string;
+  batch_id: string;
+  batch_no: string;
+  /** `true` = 本次新建了 `DRAFT` 批次；`false` = 在已有 `DRAFT` 上重算 */
+  batch_created: boolean;
+  material: CalcCollectStage;
+  labor: CalcLaborStage;
+  overhead: CalcOverheadStage;
+  reconcile: CalcReconcileStage;
+  alloc: CalcAllocStage;
+  items: CalcItemStage;
+}
+
+/**
+ * calc 出参：**批次详情**（与 `GET /cost-period/{id}` 同结构，后端 `#[serde(flatten)]`）
+ * + `calc` 分段摘要。
+ */
+export interface CostPeriodCalcResult extends CostPeriodDetail {
+  calc: CostPeriodCalcSummary;
 }

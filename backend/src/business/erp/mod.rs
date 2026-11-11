@@ -182,6 +182,11 @@ pub mod cost_calc_overhead;
 /// B2-8 的真库用例（`ERP_DB_URL` 开关）：三路来源口径 + 池按 (车间, 科目) 汇总 + 直接行。
 #[cfg(test)]
 mod cost_calc_overhead_db_tests;
+/// calc **编排**（ARCH-9 §5.2 #27 · COST-B2-15）：定批次 → 料→工→费→对账→分摊→计算单，一次事务。
+pub mod cost_calc_period;
+/// B2-15 的真库用例（`ERP_DB_URL` 开关）：首次建 DRAFT 并落六段 / 重复调用幂等 / 非 DRAFT 409 / 红冲后重建。
+#[cfg(test)]
+mod cost_calc_period_db_tests;
 /// calc 第 4 段：池与 `4101.*` 对账（ARCH-9 §4.11 C-COST-1 · 逐 (车间, 科目) 求差，差额列凭证号）。
 pub mod cost_calc_reconcile;
 /// B2-9 的真库用例（`ERP_DB_URL` 开关）：逐组对账 / 旁路记账点凭证 / 红冲与红字不计 / 阶段口径。

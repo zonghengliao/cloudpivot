@@ -5,7 +5,7 @@
 //!
 //! # 一次结算 = 一个事务
 //!
-//! ```
+//! ```text
 //! BEGIN
 //!  ① biz_cost_period FOR UPDATE + 状态校验（APPROVED）+ 期间未结账 + 无红冲在跑
 //!  ② 完工入库      cost_settle_finish::generate  （B3-4：入库单 + 三本账 + 计算单回写）

@@ -1,0 +1,32 @@
+=== 00_env ===
+2026-11-11 21:34:20 CST
+backend: 049f8253
+drill db: costb215_drill
+
+=== 01 fmt ===
+FMT_EXIT=0
+
+=== 02 clippy ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 27s
+CLIPPY_EXIT=0
+
+=== 03 全仓 cargo test（含 doctest）===
+targets_ok=38
+targets=38 passed=5188 failed=0
+EXIT=0
+
+=== 04 前端 typecheck + build ===
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+TYPECHECK_EXIT=0
+
+
+BUILD_EXIT=0
+
+=== 05 文档可达性 ===
+[A] 文件引用可达   35/35
+[B] 函数名有定义   8/8
+[C] 迁移号存在     14/14
+
+DOC_OK 全部引用可达

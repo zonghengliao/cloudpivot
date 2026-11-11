@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.61s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 11 tests
+test business::erp::cost_calc_period::tests::bad_period_is_rejected_before_any_query ... ok
+test business::erp::cost_calc_period::tests::locked_statuses_tell_the_user_the_next_step ... ok
+test business::erp::cost_calc_period::tests::money_is_fixed_scale_string ... ok
+test business::erp::cost_calc_period::tests::response_shape_flattens_detail_and_adds_calc ... ok
+test business::erp::cost_calc_period::tests::stage_suffix_keeps_code_and_status ... ok
+test business::erp::cost_calc_period_db_tests::db::cancelled_batch_does_not_block_a_new_round ... ok
+test business::erp::cost_calc_period_db_tests::db::first_call_creates_draft_and_lands_all_six_stages ... ok
+test business::erp::cost_calc_period_db_tests::db::missing_progress_is_a_locatable_error_and_leaves_no_draft ... ok
+test business::erp::cost_calc_period_db_tests::db::non_draft_status_is_rejected_with_the_next_step ... ok
+test business::erp::cost_calc_period_db_tests::db::reversed_batch_can_be_recalculated ... ok
+test business::erp::cost_calc_period_db_tests::db::second_call_recalcs_in_place_without_doubling ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 4781 filtered out; finished in 11.81s
+

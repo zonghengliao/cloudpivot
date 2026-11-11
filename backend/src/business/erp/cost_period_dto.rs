@@ -405,6 +405,16 @@ pub struct CostPeriodCreateReq {
     pub remark: Option<String>,
 }
 
+/// calc 编排（设计 §5.2 #27：`POST /cost-period/calc`）。
+///
+/// 入参只有期间：六段要算什么、按什么口径算全在服务端（前端传不了对象 / 金额，
+/// 否则「试算」就变成「改数」）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct CostPeriodCalcReq {
+    /// 期间 `yyyy-MM`（必填）。批次不存在时按它建 `DRAFT`。
+    pub period_code: Option<String>,
+}
+
 /// 编辑批次（只允许 `DRAFT`；只放「改数不算账」的字段）。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct CostPeriodUpdateReq {

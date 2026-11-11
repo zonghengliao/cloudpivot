@@ -23,12 +23,12 @@
   | ④ | `POST /cost-period/{id}/submit` → `GET /business/flow/instance/{id}` | 提交同事务发起审批实例，进度条只读引擎节点行 |
   | ⑤ | `POST /cost-period/{id}/settle` / `.../reverse` | 结算与红冲都走「关键字确认」高危框 |
 
-  # 没有「重算」按钮能点（已报备的缺口）
+  # 「重算」按钮真调接口
 
-  设计 §5.2 #27 `POST /business/erp/cost-period/calc`（六段串联的计算编排）**尚未落地**，
-  所以步③ 的「重算」按钮是**禁用 + tooltip 说明**，不是「点了没反应」也不是前端本地算一份
-  （口径在后端，前端算的数没人认）。等编排卡上线，只需在 `recalcCostPeriod()` 里接一个
-  POST 并在 `handleRecalc` 里调用，其它不用改。
+  步③ 的「重算」= `POST /business/erp/cost-period/calc`（设计 §5.2 #27，COST-B2-15）：
+  后端一次事务跑完 料 → 工 → 费 → 池对账 → 分摊 → 计算单，回执就是**批次详情**
+  （与 `GET /cost-period/{id}` 同结构）+ `calc` 分段摘要。同时「建批次」按钮在建成后
+  会立刻算一遍 —— 用户点一次就能看到计算单，不用再点第二次。
 -->
 <template>
   <div class="cost-period-page">
@@ -265,6 +265,7 @@
               theme="primary"
               variant="outline"
               :disabled="!canRecalc(batch?.status ?? null)"
+              :loading="calculating"
               data-testid="cp-btn-recalc"
               @click="handleRecalc"
             >
@@ -272,7 +273,7 @@
               重算
             </t-button>
             <t-tooltip
-              content="重算会清空本期归集重算（只有草稿能重算）。计算编排入口（设计 §5.2 #27）尚未上线：按钮已就位，接口落地后即可点。"
+              content="按「料 → 工 → 费 → 池对账 → 分摊 → 计算单」六段重算本期（只有草稿能重算；提交后数据冻结）。重算不重复累加：同一批来源行算出来的金额不变。"
             >
               <t-icon name="help-circle" class="pane__help" />
             </t-tooltip>
@@ -577,6 +578,7 @@ import { useRoute } from 'vue-router';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import {
+  calcCostPeriod,
   cancelCostPeriod,
   createCostPeriod,
   exportCostSheet,
@@ -590,6 +592,7 @@ import {
   COST_PERIOD_PERMISSIONS,
   COST_PERIOD_STATUSES,
   PAGE_SIZE,
+  type CostPeriodCalcSummary,
   type CostPeriodDetail,
   type CostPeriodRow,
   type CostPeriodStatus,
@@ -774,12 +777,31 @@ const wizardTitleText = computed<string>(() =>
   wizardTitle(wizardPeriod.value, batch.value?.batch_no ?? null),
 );
 
-/** 步③ 的真实现状说明（计算编排未上线） */
-const calcNotice = computed<string>(() =>
-  batch.value
-    ? '计算结果由后端「计算」流程写入；设计 §5.2 #27 的计算编排入口尚未上线，所以「重算」按钮暂不可点。'
-    : '',
-);
+/** 最近一次 calc 的分段摘要（步③ 顶部文案用；刷新页面后为空，表格仍按 batch.items 展示） */
+const lastCalc = ref<CostPeriodCalcSummary | null>(null);
+
+/** calc 进行中（「重算」按钮 loading） */
+const calculating = ref(false);
+
+/** 步③ 的真实现状说明（含上一次 calc 的分段摘要） */
+const calcNotice = computed<string>(() => {
+  if (!batch.value) {
+    return '';
+  }
+  const head =
+    batch.value.status === 'DRAFT'
+      ? '点「重算」会把本期六段（料 → 工 → 费 → 池对账 → 分摊 → 计算单）重新跑一遍（只有草稿能重算）。'
+      : '本批已提交 / 已结算，数据冻结：要重算请先撤回（审批中）或红冲（已结算）。';
+  const last = lastCalc.value;
+  if (!last) {
+    return head;
+  }
+  return (
+    `${head}上次计算：${last.items.rows} 个对象 · 投入 ${formatMoney(last.items.total_cost)} ` +
+    `= 完工 ${formatMoney(last.items.total_finished)} + 在制 ${formatMoney(last.items.total_wip)}` +
+    `（清旧 ${last.items.purged} 行 · 跳过 ${last.items.skipped} 个对象 · 分摊 ${formatMoney(last.alloc.amount)}）`
+  );
+});
 
 /** 步⑤ 顶部文案（未结算「将生成」/ 已结算「已生成」） */
 const settlePlanLine = computed<string>(() => settleSummaryText(batch.value));
@@ -814,6 +836,7 @@ const fallback = computed(() =>
 async function openWizard(row: CostPeriodRow | null): Promise<void> {
   wizardVisible.value = true;
   wizardError.value = '';
+  lastCalc.value = null;
   wizardPeriod.value = row?.period_code ?? todayPeriod();
   form.labor_source = row?.labor_source ?? 'MANUAL';
   form.remark = row?.remark ?? '';
@@ -917,7 +940,56 @@ async function handlePeriodChange(): Promise<void> {
 
 // ==================== 动作 ====================
 
-/** 建批次（`POST /cost-period`，权限 `cost-period:calc`） */
+/**
+ * 跑一次六段计算（`POST /cost-period/calc`，设计 §5.2 #27）。
+ *
+ * # 为什么前端不自己算
+ *
+ * 口径全在后端（料取账上真实扣减、工取台账金额、费走池 + 分摊、计算单按约当产量），
+ * 前端算出来的数没人认；这里只负责「发请求 + 把真实回执铺到界面上」。
+ *
+ * # 回执怎么用
+ *
+ * * `batch` ← 后端回的批次详情（与 `GET /cost-period/{id}` 同结构），所以计算单表格、
+ *   合计、可去状态全部**同一条数据流**刷新，不用再补一次详情请求；
+ * * `lastCalc` ← 分段摘要（算了几个对象 / 清了几行旧单 / 分摊多少），显示在步③ 顶部。
+ */
+async function runCalc(prefix = ''): Promise<boolean> {
+  if (!wizardPeriod.value) {
+    wizardError.value = '先选会计期间';
+    return false;
+  }
+  calculating.value = true;
+  wizardError.value = '';
+  try {
+    const result = await calcCostPeriod({ period_code: wizardPeriod.value });
+    lastCalc.value = result.calc;
+    // 出参是批次详情（平铺）+ calc 摘要：直接当详情用
+    batch.value = result;
+    step.value = 2;
+    MessagePlugin.success(
+      `${prefix}${result.calc.batch_created ? '已建批次并计算' : '重算完成'} ${result.batch_no}：` +
+        `${result.calc.items.rows} 个对象 · 投入 ${formatMoney(result.calc.items.total_cost)} ` +
+        `= 完工 ${formatMoney(result.calc.items.total_finished)} + 在制 ${formatMoney(result.calc.items.total_wip)}`,
+    );
+    await loadRows();
+    return true;
+  } catch (error) {
+    // 后端报文已带「第几段 + 对象 / 单据」：原样展示，不再套一层「成本计算失败」
+    wizardError.value = errorText(error, '成本计算失败');
+    return false;
+  } finally {
+    calculating.value = false;
+  }
+}
+
+/**
+ * 建批次（`POST /cost-period`，带上步① 选的人工来源 / 备注）→ 立刻算一遍（#27）。
+ *
+ * 两步而不是「直接 calc 让后端顺手建批次」：手工建单要把**人工来源**带进去
+ * （`MANUAL` / `PAYROLL` 是防双计提的开关，calc 的自动建批次只能给默认值）。
+ * 算失败也不丢批次：批次已在，用户改完数据点「重算」即可继续（不留死单）。
+ */
 async function handleCreateAndCalc(): Promise<void> {
   if (!wizardPeriod.value) {
     wizardError.value = '先选会计期间';
@@ -925,6 +997,7 @@ async function handleCreateAndCalc(): Promise<void> {
   }
   acting.value = true;
   wizardError.value = '';
+  let createdNo = '';
   try {
     const detail = await createCostPeriod({
       period_code: wizardPeriod.value,
@@ -932,14 +1005,16 @@ async function handleCreateAndCalc(): Promise<void> {
       remark: form.remark.trim() || undefined,
     });
     batch.value = detail;
+    createdNo = detail.batch_no;
     step.value = 2;
-    MessagePlugin.success(`已建批次 ${detail.batch_no}（草稿）`);
     await loadRows();
   } catch (error) {
     wizardError.value = errorText(error, '新建核算批次失败');
+    return;
   } finally {
     acting.value = false;
   }
+  await runCalc(`已建批次 ${createdNo}，`);
 }
 
 /**
@@ -970,18 +1045,17 @@ async function handleSaveDraft(): Promise<void> {
 }
 
 /**
- * 重算（设计 §5.2 #27）：**接口尚未上线**，按钮置灰 + tooltip 说明。
- * 这里保留调用位，编排卡落地后把实现换成 `POST /cost-period/calc` 即可。
+ * 重算（设计 §5.2 #27：`POST /cost-period/calc`）。
+ *
+ * 只有 `DRAFT` 能重算（按钮也据此置灰）；后端对提交后 / 已结算的批次回 `409 + 66073`
+ * 并点名「撤回 / 红冲 / 反结账」—— 这里不预判，真调真报。
  */
-function handleRecalc(): void {
-  if (!canRecalc(batch.value?.status ?? null)) {
-    MessagePlugin.warning('只有草稿能重算（提交后数据冻结）');
+async function handleRecalc(): Promise<void> {
+  if (batch.value && !canRecalc(batch.value.status)) {
+    MessagePlugin.warning('只有草稿能重算（提交后数据冻结，要重算请先撤回或红冲）');
     return;
   }
-  MessagePlugin.info(
-    '计算编排入口（设计 §5.2 #27 POST /cost-period/calc）尚未上线，暂不能在页面上重算；' +
-      '当前展示的是后端已写入的计算单。',
-  );
+  await runCalc();
 }
 
 /** 导出中（按钮 loading；避免连点导出多份） */

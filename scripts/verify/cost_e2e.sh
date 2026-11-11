@@ -29,12 +29,15 @@
 # 一次性演练库上 —— 脚本只认「库名含 drill/e2e/test」的库，跑完默认删掉，不留痕。
 #
 # ---------------------------------------------------------------------------
-# calc 这一步为什么走 example 探针
+# calc 这一步为什么走 HTTP 接口
 # ---------------------------------------------------------------------------
-# 设计 §5.2 #27 的 `POST /business/erp/cost-period/calc`（六段编排）**尚未落地**（属编排卡），
-# 六段目前只有库内函数。探针 `backend/examples/cost_calc_probe.rs` 按各模块文档约定的顺序
-# 调用**同一批函数**，跑的是真代码而不是手写归集行。接口卡上线后，把探针这一行换成
-# `curl -XPOST /api/business/erp/cost-period/calc` 即可，其余步骤不用改。
+# `POST /business/erp/cost-period/calc`（设计 §5.2 #27，COST-B2-15 已落地）就是六段编排
+# 本身：后端一次事务跑完 料 → 工 → 费 → 池对账 → 分摊 → 计算单。演练**只走 HTTP**，
+# 因为客户在页面上点「重算」走的就是同一条路 —— 探针能跑通不等于接口能跑通
+# （路由 / 权限码 / 出参契约都可能断）。
+#
+# 离线排查用的 `backend/examples/cost_calc_probe.rs` 仍保留（不起实例也能分段定位），
+# 但本脚本不再依赖它。
 # ============================================================
 set -uo pipefail
 
@@ -176,7 +179,11 @@ fi
 : "${NIK_MIDDLEWARE_AUTH_JWT_SECRET:=$(head -c 48 /dev/urandom | base64 | tr -d '\n')}"
 : "${CLOUDPIVOT_STORAGE_MASTER_KEY:=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
 : "${X_CONFIG_SECRET_KEY:=$(head -c 24 /dev/urandom | base64 | tr -d '\n')}"
-export NIK_MIDDLEWARE_AUTH_JWT_SECRET CLOUDPIVOT_STORAGE_MASTER_KEY X_CONFIG_SECRET_KEY
+# 管理员初始口令：仓库里**不保留任何缺省口令**（`bootstrap::ensure_admin_user` 只认这个
+# 环境变量，缺失时开发/测试环境生成随机口令、生产直接拒绝启动）。演练要登录 admin，
+# 所以在这里注入一次性口令（与 python 侧 `COST_E2E_ADMIN_PASSWORD` 保持同一个值）。
+: "${NIK_ADMIN_PASSWORD:=Admin@123456}"
+export NIK_MIDDLEWARE_AUTH_JWT_SECRET CLOUDPIVOT_STORAGE_MASTER_KEY X_CONFIG_SECRET_KEY NIK_ADMIN_PASSWORD
 export NIK_PROFILE=test NIK_ENV=test
 export NIK_SERVER_LISTEN="127.0.0.1:$PORT"
 export NIK_DATABASE_HOST="$DB_HOST" NIK_DATABASE_USER="$DB_USER"
@@ -184,9 +191,8 @@ export NIK_DATABASE_PASSWORD="$DB_PASS" NIK_DATABASE_NAME="$DB_NAME"
 
 if [ ! -f "$PIDFILE" ]; then
     if [ "$BUILD" = "1" ]; then
-        say "构建（bin + calc 探针）"
+        say "构建（bin）"
         cargo build --quiet --manifest-path backend/Cargo.toml --bin cloudpivot \
-            && cargo build --quiet --manifest-path backend/Cargo.toml --example cost_calc_probe \
             || { echo "cargo build 失败" >&2; exit 4; }
     fi
     say "启动隔离实例（首次要在空库上跑完全部迁移，约 30–60s）"

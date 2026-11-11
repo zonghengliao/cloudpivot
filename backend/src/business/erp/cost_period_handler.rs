@@ -9,7 +9,7 @@
 //! | — | POST | `/business/erp/cost-period` | `business:erp:cost-period:calc` | ✅ 建 `DRAFT`（见下「多出来的两个接口」） |
 //! | — | PUT | `/business/erp/cost-period/{id}` | `business:erp:cost-period:calc` | ✅ 改 `DRAFT`（人工来源 / 备注） |
 //! | 31 | POST | `/business/erp/cost-period/{id}/cancel` | `business:erp:cost-period:submit` | ✅ 作废（仅 `DRAFT`） |
-//! | 27 | POST | `/business/erp/cost-period/calc` | `business:erp:cost-period:calc` | ⛔ 编排卡（六段串联） |
+//! | 27 | POST | `/business/erp/cost-period/calc` | `business:erp:cost-period:calc` | ✅ COST-B2-15（六段串联，见 `cost_calc_period`） |
 //! | 28 | POST | `/business/erp/cost-period/{id}/submit` | `business:erp:cost-period:submit` | ✅ B3-3（走审批引擎） |
 //! | — | POST | `/business/erp/cost-period/{id}/withdraw` | `business:erp:cost-period:submit` | ✅ B3-3（撤回 = 终止实例 + 回 `DRAFT`） |
 //! | 29 | POST | `/business/erp/cost-period/{id}/settle` | `business:erp:cost-period:settle` | ✅ B3-6（入库 + 凭证 + 6 条断言） |
@@ -41,11 +41,12 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::json;
 
+use crate::business::erp::cost_calc_period;
 use crate::business::erp::cost_labor_dto;
 use crate::business::erp::cost_period_bridge;
 use crate::business::erp::cost_period_dto::{
-    self, CostPeriodCancelReq, CostPeriodCreateReq, CostPeriodDetailRes, CostPeriodFilter, CostPeriodListRes,
-    CostPeriodPageQuery, CostPeriodReverseReq, CostPeriodUpdateReq,
+    self, CostPeriodCalcReq, CostPeriodCancelReq, CostPeriodCreateReq, CostPeriodDetailRes, CostPeriodFilter,
+    CostPeriodListRes, CostPeriodPageQuery, CostPeriodReverseReq, CostPeriodUpdateReq,
 };
 use crate::business::erp::cost_period_model::{self as model, CostPeriodRow};
 use crate::business::erp::cost_reverse_run;
@@ -826,6 +827,34 @@ pub async fn cost_period_reverse_api(
     Ok(Res::ok(detail_of(id).await?))
 }
 
+/// calc 编排（设计 §5.2 #27 · COST-B2-15）：六段串联，一次事务。
+///
+/// 行为（与设计 §5.2 #27 逐字对应）：
+///
+/// | 期间现状 | 结果 |
+/// |---|---|
+/// | 没有批次 | 建 `DRAFT`（`CS-yyyyMM-NNNN`）→ 六段落库 → 200 |
+/// | 有 `DRAFT` | 清本批次计算单 → 六段重灌（幂等）→ 200 |
+/// | 有 `SUBMITTED` / `APPROVED` / `SETTLED` / `CLOSED` | 409 + `66073`，文案点名「撤回 / 红冲 / 反结账」 |
+/// | 只有 `REVERSED` / `CANCELLED`（不占唯一键） | 按「没有批次」处理 ⇒ 建新 `DRAFT` 再算（设计 §4.1 红冲后可重建） |
+///
+/// 出参 = `GET /cost-period/{id}` 的批次详情（同一份 `detail_of`）+ `calc` 分段摘要。
+#[nik::permission(
+    path = "/business/erp/cost-period/calc",
+    method = "POST",
+    permission = "business:erp:cost-period:calc"
+)]
+#[nik::post("/business/erp/cost-period/calc")]
+pub async fn cost_period_calc_api(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<CostPeriodCalcReq>,
+) -> ResResult<cost_calc_period::CostCalcRes> {
+    let operator = utils::current_user_uuid(&claims);
+    Ok(Res::ok(
+        cost_calc_period::calc_period(req.period_code.as_deref(), operator).await?,
+    ))
+}
+
 /// 权限码自检出口（与其余模块 `all_permissions` 同形，便于汇总脚本收集）。
 pub fn all_permissions() -> Vec<&'static str> {
     COST_PERIOD_PERMISSIONS.to_vec()
@@ -920,6 +949,31 @@ mod tests {
             );
             assert!(!source.contains(&format!("#[nik::post(\"/api{path}\")]")));
         }
+    }
+
+    /// B2-15：calc 编排路由的**注解成对**检查 —— 缺 `post` = 前端点「重算」404；
+    /// 缺 `permission` = 任何登录用户都能把某期间的归集清空重算。同时钉住入参契约：
+    /// **只有** `period_code`（前端传对象 / 金额 = 允许改数，设计 §5.2 #27 不开口子）。
+    #[test]
+    fn calc_route_is_annotated() {
+        let source = include_str!("cost_period_handler.rs");
+        let path = "/business/erp/cost-period/calc";
+        assert!(
+            source.contains(&format!("#[nik::post(\"{path}\")]")),
+            "缺路由注解：{path}（前端「重算」按钮会 404）"
+        );
+        let permission = format!("path = \"{path}\",\n    method = \"POST\",\n    permission = \"{PERM_CALC}\"");
+        assert!(
+            source.contains(&permission),
+            "{path} 的权限码必须声明成 {PERM_CALC}（缺了等于不校验权限）"
+        );
+        assert!(!source.contains(&format!("#[nik::post(\"/api{path}\")]")));
+
+        // 入参只有 period_code：反序列化时多出来的字段被忽略，且默认全空
+        let req: CostPeriodCalcReq = serde_json::from_str(r#"{"period_code":"2026-11"}"#).expect("入参");
+        assert_eq!(req.period_code.as_deref(), Some("2026-11"));
+        let empty = CostPeriodCalcReq::default();
+        assert!(empty.period_code.is_none(), "没传期间时由服务端 400 点名必填");
     }
 
     /// B3-7：红冲路由的**注解成对**检查 —— 缺 `post` = 前端 404；缺 `permission` = 任何登录用户

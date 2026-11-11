@@ -9,6 +9,7 @@
  * |---|---|---|---|---|
  * | 25 | GET | `/cost-period` | `cost-period:list` | 列表 |
  * | 26 | GET | `/cost-period/{id}` | `cost-period:list` | 向导步②③④⑤（单头 + 计算单） |
+ * | 27 | POST | `/cost-period/calc` | `cost-period:calc` | 步③「重算」/「建批次后立刻算」（六段编排） |
  * | — | POST | `/cost-period` | `cost-period:calc` | 步③「建批次」（设计无独立建单接口，已具名偏差） |
  * | — | PUT | `/cost-period/{id}` | `cost-period:calc` | 步①改人工来源 / 备注（仅 `DRAFT`） |
  * | 31 | POST | `/cost-period/{id}/cancel` | `cost-period:submit` | `DRAFT` 作废（原因 ≥10 字） |
@@ -23,16 +24,18 @@
  * 后端注解不含前缀（`[router].prefix` 注入）；漏了会命中 SPA fallback 返回 HTML，
  * 报「响应体格式不符合」——本仓最高频的前端踩坑。
  *
- * # 为什么没有「试算」请求
+ * # 计算入口（设计 §5.2 #27）
  *
- * 设计 §5.2 #27 `POST /cost-period/calc`（六段串联的计算编排）**尚未落地**（属编排卡），
- * 所以本层不提供 `calc()` 假入口：步③ 只能「建批次 + 读已有计算单」。等编排卡上线后
- * 只需在本文件加一个 `calcCostPeriod()`，页面已经把按钮位留好（见 `index.vue` 的注释）。
+ * `POST /cost-period/calc` = 料 → 工 → 费 → 池对账 → 分摊 → 计算单，后端一次事务跑完。
+ * 期间没有批次时它**自己建** `DRAFT`（`CS-yyyyMM-NNNN`）；有 `DRAFT` 则原地重算（幂等）。
+ * 前端只传 `period_code` —— 能传对象 / 金额就等于能改数。
  */
 
 import service, { get, post, put, type PageData } from '@/api/request';
 
 import type {
+  CostPeriodCalcPayload,
+  CostPeriodCalcResult,
   CostPeriodCreatePayload,
   CostPeriodDetail,
   CostPeriodPageQuery,
@@ -77,6 +80,24 @@ export function fetchCostPeriodDetail(id: string): Promise<CostPeriodDetail> {
  */
 export function createCostPeriod(payload: CostPeriodCreatePayload): Promise<CostPeriodDetail> {
   return post<CostPeriodDetail>(`${BASE}/cost-period`, payload);
+}
+
+/**
+ * 计算成本（`POST /business/erp/cost-period/calc`，权限 `cost-period:calc`）。
+ *
+ * 后端一次事务跑完六段（料 → 工 → 费 → 池对账 → 分摊 → 计算单），并回带批次详情 +
+ * 分段摘要。语义（设计 §5.2 #27）：
+ *
+ * - 期间**没有批次** ⇒ 建 `DRAFT` 再算（前端不必先调 `createCostPeriod`）；
+ * - 期间有 `DRAFT` ⇒ 原地重算（幂等：同一批来源行重算金额不变）；
+ * - 期间是 `SUBMITTED` / `APPROVED` / `SETTLED` / `CLOSED` ⇒ `409 + 66073`，报文点名
+ *   「撤回 / 红冲 / 反结账」；
+ * - 只有 `REVERSED` / `CANCELLED`（不占唯一键）⇒ 按「没有批次」处理，建新 `DRAFT` 再算。
+ *
+ * 任一段的业务校验不过 ⇒ 整笔回滚（期间保持调用前状态），报文带「第几段」+ 具体对象 / 单据。
+ */
+export function calcCostPeriod(payload: CostPeriodCalcPayload): Promise<CostPeriodCalcResult> {
+  return post<CostPeriodCalcResult>(`${BASE}/cost-period/calc`, payload);
 }
 
 /** 改 `DRAFT` 批次（人工来源 / 备注；其它状态 409） */
