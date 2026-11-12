@@ -767,6 +767,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '员工档案', permission: 'business:hr:employee:list' },
       },
       {
+        // ==================== HR：请假单（ARCH-9 §6.1 #3 / HR-28） ====================
+        // `sys_menu` 种子（V0387 `…e003`）path = `/business/hr/leave`、component
+        // `business/hr/leave/index`、权限码 `business:hr:leave:list`，
+        // 挂在「人力资源」（`…e000`）sort 30。两个 tab（全部请假 / 我的请假）在本页内，
+        // 详情与新建都是抽屉（无独立路由）。路由手工注册（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404（`system::menu::tests::n08` 真库档会当场红）。
+        path: 'business/hr/leave',
+        name: 'BusinessHrLeave',
+        component: () => import('@/views/business/hr/leave/index.vue'),
+        meta: { title: '请假单', permission: 'business:hr:leave:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）
