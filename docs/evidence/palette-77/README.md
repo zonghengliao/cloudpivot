@@ -54,6 +54,22 @@
 | `07-applied-dashboard-light.png` | 工作台（浅色） | 横幅渐变/按钮/图标/卡片边框全部跟方案走（胭脂红 × 瓷胎白） |
 | `08-applied-dashboard-dark.png` | 工作台（深色） | 深底 + 提亮主色，图表与横幅仍协调 |
 | `09-quick-switch-popup-dark.png` | 顶栏快捷面板 | 23 项 = 当前 gallery 方案置顶 + 精选 22；页脚「共 99 套方案」 |
+| `10-search-hex-and-source.png` | 按色值搜索 `0D3A91` | 「匹配 4 套」＝ 4 套含青花蓝源色的瓷器方案；另测：`IMG_9129`→1 套（来源文件）、`青花`→6 套（色名）、`#E8E1D6`→6 套（带 `#` 也认）、`zzzz`→0 套并显示空态提示 |
+
+搜索命中面（实测值）：名称 / 色名 / 槽位色值 / 原始色值 / 来源文件 / id，六类都能搜。
+
+### 后端契约（不修就会「选了刷新就没了」）
+
+`sys_preference_def.ui.palette` 的 `oneof:` 白名单原本只有 22 个 id，PUT 会返回 `400 + 62022`：
+
+```
+{"code":62022,"msg":"偏好项「配色方案」的取值只能是 mist-blue / deep-sea / …（当前：\"guci-jiutao\"）"}
+```
+
+前端是「本地立即生效 + 异步落库」，所以表现为：**当次切换正常、刷新后被打回 mist-blue**（后端旧值优先）。
+`V0397` 扩白名单后 PUT 通过、`GET` 回读一致；非法 id 仍被拒（负向未放宽）。
+另有 `scripts/lint/palette_def_sync.py` 这道 L0 门禁守着前后端白名单一致性，本次一并修成
+「读迁移号最大的那条 oneof」，并加了正负向自检（`scripts/verify/palette_def_sync_selftest.py`）。
 
 ## 四、两处引擎兜底修复（为什么必须改）
 
