@@ -25,11 +25,19 @@
   3. **金额是字符串**（`Decimal` → `"8000.0000"`）；合计走整数分（`sumSalary`），
      不做浮点累加。
 
-  # 本卡不做的（已在本卡的交付说明里上报）
+  # 本页能做什么（2026-11-13 补齐写入口）
 
-  - 新建 / 编辑 / 调岗 / 调薪 / 离职按钮：这些写接口在 HR-12，但 §8.1 的卡清单里
-    **没有**员工表单页的卡；本卡只做「看」，避免把半成品表单塞进列表页。
-  - 请假 / 考勤 / 薪资单：分别是 HR-28 / HR-29 / HR-43 的页面。
+  - **新建**：工具栏「新建员工」→ 分组表单（基本信息 / 联系方式 / 教育背景 / 紧急联系人 / 银行信息）；
+    工号留空由后端自动取号（`EMP-0001`，取号与插入同事务，不留空号）。
+  - **编辑**：详情抽屉底部「编辑」→ 同一表单预填；**身份证 / 工资卡号留空 = 不改**
+    （详情只有打码值，无脑回填会把打码值写进库 —— 口径见 `employee-form.ts` 头注）。
+  - **删除**：详情抽屉底部「删除」→ 输姓名二次确认 → 走后端软删。
+  - 三个按钮各挂自己的权限码（`create` / `update` / `delete`），**无权限时按钮不渲染**。
+
+  # 仍在本页之外的能力
+
+  - 调岗 / 调薪 / 离职 / 绑定账号的入口在各自页面（离职必须走离职单：状态接口对 `RESIGNED` 直接 409）；
+  - 已离职档案在本页是**只读**的（后端 `update_employee` 对 `RESIGNED` 409：历史薪资单快照对不上）。
 -->
 <template>
   <div class="hr-employee-page">
@@ -103,6 +111,25 @@
         <div class="panel-head__main">
           <span class="panel-head__title">员工档案</span>
           <span class="panel-head__meta" data-testid="hr-emp-meta">共 {{ total }} 人</span>
+        </div>
+        <div class="panel-head__actions">
+          <span
+            v-if="!canCreate"
+            class="panel-head__hint"
+            title="所需权限码：business:hr:employee:create"
+            data-testid="hr-emp-create-denied"
+          >
+            无建档权限，需要建档请联系人事管理员
+          </span>
+          <t-button
+            v-if="canCreate"
+            theme="primary"
+            data-testid="hr-emp-create"
+            @click="openCreate"
+          >
+            <template #icon><t-icon name="add" /></template>
+            新建员工
+          </t-button>
         </div>
       </div>
 
@@ -581,8 +608,385 @@
             />
           </t-tab-panel>
         </t-tabs>
+
+        <!-- 底部操作条（sticky：不滚到最后也能点到；编辑 / 删除各挂自己的权限码） -->
+        <div class="drawer-actions" data-testid="hr-emp-drawer-actions">
+          <span v-if="readonlyDetail" class="drawer-actions__hint" data-testid="hr-emp-readonly">
+            已离职档案只读（历史薪资单 / 考勤快照依赖建档时的值）
+          </span>
+          <span v-else-if="!canUpdate && !canDelete" class="drawer-actions__hint" title="所需权限码：business:hr:employee:update / delete">
+            没有修改 / 删除权限，需要更正请联系人事管理员
+          </span>
+          <span class="drawer-actions__grow" />
+          <t-button
+            v-if="canDelete && !readonlyDetail"
+            theme="danger"
+            variant="outline"
+            data-testid="hr-emp-delete"
+            @click="openDelete"
+          >
+            <template #icon><t-icon name="delete" /></template>
+            删除
+          </t-button>
+          <t-button
+            v-if="canUpdate && !readonlyDetail"
+            theme="primary"
+            data-testid="hr-emp-edit"
+            @click="openEdit"
+          >
+            <template #icon><t-icon name="edit" /></template>
+            编辑
+          </t-button>
+          <t-button variant="outline" data-testid="hr-emp-drawer-close-bottom" @click="detailVisible = false">
+            关闭
+          </t-button>
+        </div>
       </div>
     </t-drawer>
+
+    <!-- ==================== ④ 新建 / 编辑表单（同一表单两个模式） ==================== -->
+    <t-dialog
+      v-model:visible="formVisible"
+      :header="formMode === 'create' ? '新建员工档案' : `编辑员工档案 · ${form.emp_no} ${detail?.name ?? ''}`"
+      width="920px"
+      placement="center"
+      :confirm-btn="{ content: formMode === 'create' ? '创建档案' : '保存修改', loading: formSubmitting }"
+      :cancel-btn="{ content: '取消' }"
+      :close-on-overlay-click="false"
+      class="emp-form-dialog"
+      data-testid="hr-emp-form-dialog"
+      @confirm="submitForm"
+      @close="closeForm"
+    >
+      <t-alert
+        v-if="formError"
+        theme="error"
+        :message="formError"
+        class="form-alert"
+        data-testid="hr-emp-form-error"
+      />
+
+      <p v-if="formMode === 'create'" class="form-lead" data-testid="hr-emp-form-lead">
+        带 <b>*</b> 的是必填。工号留空由系统自动取号（<span class="mono">EMP-0001</span> 起）；
+        新档统一从「试用期」开始，转正后在详情里走状态变更。
+      </p>
+      <p v-else class="form-lead" data-testid="hr-emp-form-lead">
+        只提交改动过的字段；<b>身份证号 / 工资卡号留空 = 不修改</b>（详情里只有打码值，重填才会覆盖）。
+      </p>
+
+      <t-form label-align="top" :data="form" class="emp-form" data-testid="hr-emp-form">
+        <!-- ---------- 基本信息 ---------- -->
+        <div class="form-section" data-testid="hr-emp-form-section-basic">
+          <div class="section-title">
+            基本信息
+            <span class="section-title__hint">身份与任职，必填项都在这</span>
+          </div>
+          <div class="form-grid">
+            <t-form-item label="工号" :help="formMode === 'update' ? '工号是档案身份，建好后不可改' : '留空自动取号（EMP-0001）'">
+              <t-input
+                v-model="form.emp_no"
+                :maxlength="FIELD_MAX.emp_no"
+                :disabled="formMode === 'update'"
+                :placeholder="formMode === 'update' ? '' : '留空自动取号'"
+                data-testid="hr-emp-form-empno"
+              />
+            </t-form-item>
+
+            <t-form-item label="姓名" required-mark :status="fieldStatus('name')" :help="formErrors.name">
+              <t-input
+                v-model="form.name"
+                :maxlength="FIELD_MAX.name"
+                placeholder="如 张三"
+                data-testid="hr-emp-form-name"
+              />
+            </t-form-item>
+
+            <t-form-item label="性别" required-mark :status="fieldStatus('gender')" :help="formErrors.gender">
+              <t-radio-group
+                :value="form.gender ?? undefined"
+                data-testid="hr-emp-form-gender"
+                @change="handleGenderChange"
+              >
+                <t-radio :value="0" v-if="form.gender === 0" data-testid="hr-emp-form-gender-0">未知</t-radio>
+                <t-radio :value="1" data-testid="hr-emp-form-gender-1">男</t-radio>
+                <t-radio :value="2" data-testid="hr-emp-form-gender-2">女</t-radio>
+              </t-radio-group>
+            </t-form-item>
+
+            <t-form-item
+              label="证件类型"
+              required-mark
+              :status="fieldStatus('id_card_type')"
+              :help="formErrors.id_card_type"
+            >
+              <t-select
+                v-model="form.id_card_type"
+                :options="idCardTypeOptions"
+                placeholder="请选择"
+                data-testid="hr-emp-form-idtype"
+              />
+            </t-form-item>
+
+            <t-form-item label="证件号码" :status="fieldStatus('id_card')" :help="formErrors.id_card">
+              <t-input
+                v-model="form.id_card"
+                :maxlength="FIELD_MAX.id_card"
+                :placeholder="formMode === 'update' ? `留空不修改（当前 ${masked.id_card || '未登记'}）` : '选填；身份证要 18 位 + 校验位'"
+                data-testid="hr-emp-form-idcard"
+              />
+            </t-form-item>
+
+            <t-form-item label="出生日期" :status="fieldStatus('birth_date')" :help="formErrors.birth_date">
+              <t-date-picker
+                v-model="form.birth_date"
+                value-type="YYYY-MM-DD"
+                format="YYYY-MM-DD"
+                placeholder="yyyy-MM-dd"
+                clearable
+                data-testid="hr-emp-form-birth"
+              />
+            </t-form-item>
+
+            <t-form-item label="人事归属部门" required-mark :status="fieldStatus('dept_id')" :help="formErrors.dept_id">
+              <DeptTreeSelect
+                v-model="form.dept_id"
+                placeholder="请选择部门"
+                data-testid="hr-emp-form-dept"
+                @error="(message: string) => (formError = message)"
+              />
+            </t-form-item>
+
+            <t-form-item label="岗位">
+              <DictSelect
+                v-model="form.position_code"
+                :dict-code="DICT.position"
+                placeholder="不填也行"
+                data-testid="hr-emp-form-position"
+              />
+            </t-form-item>
+
+            <t-form-item label="职级">
+              <DictSelect
+                v-model="form.job_level"
+                :dict-code="DICT.job_level"
+                placeholder="不填也行"
+                data-testid="hr-emp-form-joblevel"
+              />
+            </t-form-item>
+
+            <t-form-item
+              label="用工形式"
+              required-mark
+              :status="fieldStatus('employment_type')"
+              :help="formErrors.employment_type"
+            >
+              <t-select
+                v-model="form.employment_type"
+                :options="employmentTypeOptions"
+                placeholder="请选择"
+                data-testid="hr-emp-form-employment"
+              />
+            </t-form-item>
+
+            <t-form-item label="入职日期" required-mark :status="fieldStatus('hire_date')" :help="formErrors.hire_date">
+              <t-date-picker
+                v-model="form.hire_date"
+                value-type="YYYY-MM-DD"
+                format="YYYY-MM-DD"
+                placeholder="yyyy-MM-dd"
+                :disable-date="{ after: today }"
+                data-testid="hr-emp-form-hire"
+              />
+            </t-form-item>
+
+            <t-form-item
+              label="试用期截止"
+              :status="fieldStatus('probation_end_date')"
+              :help="formErrors.probation_end_date || '选填；不得早于入职日期'"
+            >
+              <t-date-picker
+                v-model="form.probation_end_date"
+                value-type="YYYY-MM-DD"
+                format="YYYY-MM-DD"
+                placeholder="yyyy-MM-dd"
+                clearable
+                data-testid="hr-emp-form-probation"
+              />
+            </t-form-item>
+          </div>
+        </div>
+
+        <!-- ---------- 联系方式 ---------- -->
+        <div class="form-section" data-testid="hr-emp-form-section-contact">
+          <div class="section-title">
+            联系方式
+            <span class="section-title__hint">手机 / 邮箱为空时不影响建档</span>
+          </div>
+          <div class="form-grid">
+            <t-form-item label="手机号" :status="fieldStatus('mobile')" :help="formErrors.mobile">
+              <t-input
+                v-model="form.mobile"
+                :maxlength="FIELD_MAX.mobile"
+                placeholder="如 13800001234"
+                data-testid="hr-emp-form-mobile"
+              />
+            </t-form-item>
+            <t-form-item label="邮箱" :status="fieldStatus('email')" :help="formErrors.email">
+              <t-input
+                v-model="form.email"
+                :maxlength="FIELD_MAX.email"
+                placeholder="如 zhangsan@example.com"
+                data-testid="hr-emp-form-email"
+              />
+            </t-form-item>
+            <t-form-item label="籍贯">
+              <t-input v-model="form.native_place" :maxlength="FIELD_MAX.native_place" placeholder="如 江苏南京" data-testid="hr-emp-form-native" />
+            </t-form-item>
+            <t-form-item label="现住址">
+              <t-input v-model="form.address" :maxlength="FIELD_MAX.address" placeholder="选填" data-testid="hr-emp-form-address" />
+            </t-form-item>
+          </div>
+        </div>
+
+        <!-- ---------- 教育背景 ---------- -->
+        <div class="form-section" data-testid="hr-emp-form-section-edu">
+          <div class="section-title">教育背景</div>
+          <div class="form-grid">
+            <t-form-item label="学历">
+              <DictSelect
+                v-model="form.education"
+                :dict-code="DICT.education"
+                placeholder="不填也行"
+                data-testid="hr-emp-form-education"
+              />
+            </t-form-item>
+            <t-form-item label="毕业院校">
+              <t-input v-model="form.school" :maxlength="FIELD_MAX.school" placeholder="选填" data-testid="hr-emp-form-school" />
+            </t-form-item>
+            <t-form-item label="专业">
+              <t-input v-model="form.major" :maxlength="FIELD_MAX.major" placeholder="选填" data-testid="hr-emp-form-major" />
+            </t-form-item>
+            <t-form-item label="毕业日期" :status="fieldStatus('graduate_date')" :help="formErrors.graduate_date">
+              <t-date-picker
+                v-model="form.graduate_date"
+                value-type="YYYY-MM-DD"
+                format="YYYY-MM-DD"
+                placeholder="yyyy-MM-dd"
+                clearable
+                :disable-date="{ after: today }"
+                data-testid="hr-emp-form-graduate"
+              />
+            </t-form-item>
+          </div>
+        </div>
+
+        <!-- ---------- 紧急联系人 ---------- -->
+        <div class="form-section" data-testid="hr-emp-form-section-emergency">
+          <div class="section-title">紧急联系人</div>
+          <div class="form-grid form-grid--three">
+            <t-form-item label="联系人">
+              <t-input
+                v-model="form.emergency_contact"
+                :maxlength="FIELD_MAX.emergency_contact"
+                placeholder="选填"
+                data-testid="hr-emp-form-emergency"
+              />
+            </t-form-item>
+            <t-form-item label="联系电话">
+              <t-input
+                v-model="form.emergency_phone"
+                :maxlength="FIELD_MAX.emergency_phone"
+                placeholder="选填"
+                data-testid="hr-emp-form-emergency-phone"
+              />
+            </t-form-item>
+            <t-form-item label="与本人关系">
+              <t-input
+                v-model="form.emergency_relation"
+                :maxlength="FIELD_MAX.emergency_relation"
+                placeholder="如 配偶 / 父母"
+                data-testid="hr-emp-form-emergency-relation"
+              />
+            </t-form-item>
+          </div>
+        </div>
+
+        <!-- ---------- 银行信息 ---------- -->
+        <div class="form-section" data-testid="hr-emp-form-section-bank">
+          <div class="section-title">
+            工资卡
+            <span class="section-title__hint">发薪用；卡号在详情里只显示打码值</span>
+          </div>
+          <div class="form-grid">
+            <t-form-item label="开户行">
+              <t-input v-model="form.bank_name" :maxlength="FIELD_MAX.bank_name" placeholder="如 招商银行" data-testid="hr-emp-form-bank" />
+            </t-form-item>
+            <t-form-item label="开户支行">
+              <t-input v-model="form.bank_branch" :maxlength="FIELD_MAX.bank_branch" placeholder="如 北京中关村支行" data-testid="hr-emp-form-branch" />
+            </t-form-item>
+            <t-form-item label="卡号" :status="fieldStatus('bank_account')" :help="formErrors.bank_account">
+              <t-input
+                v-model="form.bank_account"
+                :maxlength="FIELD_MAX.bank_account"
+                :placeholder="formMode === 'update' ? `留空不修改（当前 ${masked.bank_account || '未登记'}）` : '选填'"
+                data-testid="hr-emp-form-bank-account"
+              />
+            </t-form-item>
+            <t-form-item label="户名">
+              <t-input
+                v-model="form.bank_account_name"
+                :maxlength="FIELD_MAX.bank_account_name"
+                placeholder="一般与姓名一致"
+                data-testid="hr-emp-form-bank-name"
+              />
+            </t-form-item>
+          </div>
+        </div>
+
+        <!-- ---------- 备注 ---------- -->
+        <div class="form-section" data-testid="hr-emp-form-section-remark">
+          <div class="section-title">备注</div>
+          <t-form-item label="备注">
+            <t-textarea
+              v-model="form.remark"
+              :autosize="{ minRows: 2, maxRows: 4 }"
+              placeholder="选填：入职背景 / 特殊情况说明"
+              data-testid="hr-emp-form-remark"
+            />
+          </t-form-item>
+        </div>
+      </t-form>
+    </t-dialog>
+
+    <!-- ==================== ⑤ 删除二次确认（输姓名） ==================== -->
+    <t-dialog
+      v-model:visible="deleteVisible"
+      theme="danger"
+      header="删除员工档案"
+      width="520px"
+      :confirm-btn="{ content: '确认删除', theme: 'danger', loading: deleteSubmitting, disabled: !deleteMatched }"
+      :cancel-btn="{ content: '取消' }"
+      :close-on-overlay-click="false"
+      data-testid="hr-emp-delete-dialog"
+      @confirm="submitDelete"
+      @close="closeDelete"
+    >
+      <p class="delete-lead">
+        即将删除 <b>{{ detail?.name }}</b>（<span class="mono">{{ detail?.emp_no }}</span>）的档案。
+      </p>
+      <ul class="delete-notes">
+        <li>后端是<b>软删</b>：档案从列表消失，但历史薪资单 / 考勤台账里的引用还在（工号与身份证的唯一键会释放）。</li>
+        <li>想保留档案只停职 → 用状态变更（停职），不要删。</li>
+      </ul>
+      <p class="delete-confirm-label">
+        请输入姓名 <b class="mono">{{ detail?.name }}</b> 确认：
+      </p>
+      <t-input
+        v-model="deleteConfirmText"
+        :placeholder="`输入 ${detail?.name ?? ''} 以确认`"
+        data-testid="hr-emp-delete-confirm"
+      />
+    </t-dialog>
   </div>
 </template>
 
@@ -605,15 +1009,20 @@ import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import {
   EMPLOYEE_COLUMNS,
+  EMPLOYEE_DICT_CODES,
+  EMPLOYEE_FIELD_MAX,
   EMPLOYEE_PAGE_SIZE,
   EMPLOYMENT_TYPE_OPTIONS,
+  ID_CARD_TYPE_OPTIONS,
   STATUS_VALUES,
   STATUS_LABELS,
   buildEmployeeQuery,
   contractExpireClass,
   contractExpireText,
   contractStatusTheme,
+  createEmployee,
   currentSalaries,
+  deleteEmployee,
   emptyEmployeeFilter,
   fetchEmployeeDetail,
   fetchEmployeePage,
@@ -626,9 +1035,26 @@ import {
   statusTheme,
   sumSalary,
   textOr,
+  updateEmployee,
   type EmployeeDetail,
   type EmployeeListRow,
 } from '@/api/business/hr/employee';
+import {
+  buildCreatePayload,
+  buildUpdatePayload,
+  businessToday,
+  emptyEmployeeForm,
+  errorCount,
+  formFromDetail,
+  isDeleteConfirmed,
+  isEmptyUpdate,
+  isReadonlyEmployee,
+  maskedHint,
+  validateEmployeeForm,
+  type EmployeeFormErrors,
+  type EmployeeFormMode,
+  type EmployeeFormState,
+} from './employee-form';
 import { ApiError } from '@/api/request';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
@@ -640,7 +1066,16 @@ const PERM = {
   list: 'business:hr:employee:list',
   detail: 'business:hr:employee:detail',
   sensitive: 'business:hr:employee:sensitive',
+  create: 'business:hr:employee:create',
+  update: 'business:hr:employee:update',
+  delete: 'business:hr:employee:delete',
 } as const;
+
+/** 表单字段长度上限（与后端 `MAX_*` 逐条一致，见 `employee-kinds.ts`） */
+const FIELD_MAX = EMPLOYEE_FIELD_MAX;
+
+/** 建档表单的字典编码（岗位 / 职级 / 学历） */
+const DICT = EMPLOYEE_DICT_CODES;
 
 /** 表格列（`colKey` 与后端出参同名） */
 const columns = EMPLOYEE_COLUMNS;
@@ -662,6 +1097,13 @@ const salaryColumns = [
 const userStore = useUserStore();
 /** 有 `:sensitive` 权限才出现「查看明文」按钮 */
 const canViewPlain = computed(() => userStore.hasPermission(PERM.sensitive));
+/** 三个写按钮各挂自己的权限码：**无权限时按钮不渲染**（不是 disabled） */
+const canCreate = computed(() => userStore.hasPermission(PERM.create));
+const canUpdate = computed(() => userStore.hasPermission(PERM.update));
+const canDelete = computed(() => userStore.hasPermission(PERM.delete));
+
+/** 证件类型下拉（码表来自后端 `ID_CARD_TYPES`，顺序一致） */
+const idCardTypeOptions = ID_CARD_TYPE_OPTIONS.map((item) => ({ ...item }));
 
 // ==================== 列表状态 ====================
 
@@ -852,6 +1294,183 @@ async function loadPlain(field: 'id_card' | 'bank_account'): Promise<void> {
     }
   } finally {
     plainLoading.value = '';
+  }
+}
+
+// ==================== 新建 / 编辑表单 ====================
+
+const formVisible = ref(false);
+/** 当前表单模式（新建 / 编辑共用一套控件与校验） */
+const formMode = ref<EmployeeFormMode>('create');
+/** 表单值（就地 reactive，控件直接 v-model） */
+const form = reactive<EmployeeFormState>(emptyEmployeeForm());
+/**
+ * 编辑时的「原始表单」快照：`buildUpdatePayload` 按它做 diff，只提交改过的字段。
+ * 新建时为 `null`（用 `buildCreatePayload`）。
+ */
+let formOriginal: EmployeeFormState | null = null;
+const formErrors = ref<EmployeeFormErrors>({});
+/** 提交失败的报文（对话框内 alert，比 toast 好定位：toast 3 秒就没了） */
+const formError = ref('');
+const formSubmitting = ref(false);
+
+/** 业务日（`+08:00`）：入职 / 生日 / 毕业日的上限都用它，**不用本机时钟拼**（跨时区会飘一天） */
+const today = businessToday();
+
+/** 详情里两个敏感字段的打码值（编辑表单 placeholder 显示「当前 xxx」） */
+const masked = computed(() => ({
+  id_card: maskedHint(detail.value, 'id_card'),
+  bank_account: maskedHint(detail.value, 'bank_account'),
+}));
+
+/** 已离职档案只读：后端 `update_employee` 对 `RESIGNED` 直接 409（历史快照对不上） */
+const readonlyDetail = computed(() => isReadonlyEmployee(detail.value?.status));
+
+/** 表单字段的 error 态（TDesign `t-form-item` 的 `status`） */
+function fieldStatus(key: keyof EmployeeFormState): 'error' | undefined {
+  return formErrors.value[key] ? 'error' : undefined;
+}
+
+/**
+ * 性别单选的回写。
+ *
+ * `t-radio-group` 的值域是 `RadioValue`（string / number / boolean），而表单里性别是
+ * `number | null`（`null` = 还没选）—— 直接 `v-model` 过不了类型检查，而且取消选择时
+ * 组件给的是 `undefined`。这里显式收敛成三态：1 / 2 / 0（未知，仅老数据）/ null。
+ */
+function handleGenderChange(value: unknown): void {
+  form.gender = typeof value === 'number' ? value : null;
+}
+
+/** 把状态写进表单（新建用空表单，编辑用详情预填） */
+function applyForm(next: EmployeeFormState): void {
+  Object.assign(form, next);
+  formErrors.value = {};
+  formError.value = '';
+}
+
+/** 打开「新建员工」 */
+function openCreate(): void {
+  formMode.value = 'create';
+  formOriginal = null;
+  applyForm(emptyEmployeeForm(today));
+  formVisible.value = true;
+}
+
+/**
+ * 打开「编辑」（从详情抽屉）。
+ *
+ * 详情必须已经加载完：编辑要预填，而且 diff 提交依赖原始快照。
+ * 身份证 / 工资卡号会被置空（详情只有打码值）——「留空 = 不改」，
+ * 见 `employee-form.ts` 文件头第 1 条。
+ */
+function openEdit(): void {
+  if (!detail.value) {
+    MessagePlugin.warning('档案还没加载完，稍等一下再点编辑');
+    return;
+  }
+  formMode.value = 'update';
+  const prefill = formFromDetail(detail.value);
+  formOriginal = { ...prefill };
+  applyForm(prefill);
+  formVisible.value = true;
+}
+
+/** 关表单（取消 / ESC / 右上角关）：清掉错误态，避免下次打开还挂着红字 */
+function closeForm(): void {
+  formVisible.value = false;
+  formErrors.value = {};
+  formError.value = '';
+}
+
+/**
+ * 提交表单（新建 / 编辑走同一个按钮）。
+ *
+ * 校验不过时**不发请求**：把错误落到对应控件上，再 toast 一条「还有 N 项要改」，
+ * 用户不用满屏找红字。
+ */
+async function submitForm(): Promise<void> {
+  if (formSubmitting.value) {
+    return;
+  }
+  formError.value = '';
+  const errors = validateEmployeeForm(form, { mode: formMode.value, today });
+  formErrors.value = errors;
+  if (errorCount(errors) > 0) {
+    const first = Object.values(errors)[0];
+    MessagePlugin.warning(`还有 ${errorCount(errors)} 项要改：${first}`);
+    return;
+  }
+
+  formSubmitting.value = true;
+  try {
+    if (formMode.value === 'create') {
+      const created = await createEmployee(buildCreatePayload(form));
+      MessagePlugin.success(`已创建 ${form.name.trim()}（${created.emp_no}）`);
+      closeForm();
+      // 新员工按工号排序可能落在任何一页 —— 回到第 1 页再看，别让用户以为没建成
+      currentPage.value = 1;
+      await loadRows();
+      return;
+    }
+
+    const id = detail.value?.id;
+    if (!id || !formOriginal) {
+      formError.value = '档案信息丢了，请关掉表单重新打开详情再编辑';
+      return;
+    }
+    const payload = buildUpdatePayload(form, formOriginal);
+    if (isEmptyUpdate(payload)) {
+      MessagePlugin.info('没有改动，无需保存');
+      closeForm();
+      return;
+    }
+    await updateEmployee(id, payload);
+    MessagePlugin.success('已保存');
+    closeForm();
+    await Promise.all([loadDetail(id), loadRows()]);
+  } catch (error) {
+    formError.value = messageOf(error);
+  } finally {
+    formSubmitting.value = false;
+  }
+}
+
+// ==================== 删除（输姓名二次确认） ====================
+
+const deleteVisible = ref(false);
+const deleteConfirmText = ref('');
+const deleteSubmitting = ref(false);
+/** 输入的名字与档案姓名逐字一致才允许点「确认删除」 */
+const deleteMatched = computed(() => isDeleteConfirmed(detail.value?.name ?? '', deleteConfirmText.value));
+
+function openDelete(): void {
+  deleteConfirmText.value = '';
+  deleteVisible.value = true;
+}
+
+function closeDelete(): void {
+  deleteVisible.value = false;
+  deleteConfirmText.value = '';
+}
+
+/** 确认删除（后端软删：档案从列表消失，历史单据里的引用还在） */
+async function submitDelete(): Promise<void> {
+  const target = detail.value;
+  if (!target || !deleteMatched.value || deleteSubmitting.value) {
+    return;
+  }
+  deleteSubmitting.value = true;
+  try {
+    await deleteEmployee(target.id);
+    MessagePlugin.success(`已删除 ${target.name}（${target.emp_no}）`);
+    closeDelete();
+    detailVisible.value = false;
+    await loadRows();
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    deleteSubmitting.value = false;
   }
 }
 
@@ -1266,6 +1885,134 @@ onMounted(() => {
 
   &__note {
     color: var(--td-text-color-placeholder);
+  }
+}
+
+/* ==================== 写入口（新建 / 编辑 / 删除） ==================== */
+
+.panel-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 无建档权限时的说明（不是 disabled 按钮，是明说为什么没有这个入口） */
+.panel-head__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+  max-width: 460px;
+  text-align: right;
+  line-height: 18px;
+}
+
+/* 详情抽屉底部操作条：sticky 贴底，滚不滚到最后都能点到 */
+.drawer-actions {
+  position: sticky;
+  bottom: -16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* 抽屉正文左右内边距是 16px：负 margin 与它对齐，条子才会齐着抽屉边、不出横向滚动条 */
+  margin: 16px -16px -16px;
+  padding: 12px 16px;
+  background: var(--td-bg-color-container);
+  border-top: 1px solid var(--td-component-stroke);
+  box-shadow: 0 -4px 12px rgb(0 0 0 / 4%);
+  z-index: 2;
+}
+
+.drawer-actions__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.drawer-actions__grow {
+  flex: 1 1 auto;
+}
+
+/* 表单正文自己滚（对话框主体高度交给内容，避免整页被一屏高表单撑破） */
+.emp-form {
+  /* 竖屏矮屏（笔记本 1000px 高）上也要给标题栏 / 提示条 / 底部按钮留位置，
+     所以同时受 vh 与「视口减固定开销」两个上限约束 */
+  max-height: min(62vh, calc(100vh - 260px));
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.form-lead {
+  margin: 0 0 12px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--td-text-color-secondary);
+  background: var(--td-bg-color-secondarycontainer);
+  border-radius: 4px;
+  padding: 8px 10px;
+
+  b {
+    color: var(--td-text-color-primary);
+  }
+}
+
+.form-alert {
+  margin-bottom: 12px;
+}
+
+.form-section {
+  padding-top: 4px;
+
+  & + & {
+    margin-top: 8px;
+    border-top: 1px dashed var(--td-component-stroke);
+  }
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 20px;
+}
+
+.form-grid--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* 表单里的 section 标题比详情页紧凑一档 */
+.form-section .section-title {
+  margin: 8px 0 6px;
+}
+
+.delete-lead {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--td-text-color-primary);
+}
+
+.delete-notes {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--td-text-color-secondary);
+}
+
+.delete-confirm-label {
+  margin: 0 0 6px;
+  font-size: 13px;
+  color: var(--td-text-color-primary);
+}
+
+/* 窄屏：两列 / 三列都塌成一列（人事常在 1280 笔记本上建档） */
+@media (max-width: 1400px) {
+  .form-grid--three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1100px) {
+  .form-grid,
+  .form-grid--three {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

@@ -110,6 +110,68 @@ export const ID_CARD_TYPE_LABELS: Record<string, string> = {
   FOREIGN: '外籍证件',
 };
 
+/** 证件类型下拉选项（顺序与后端 `ID_CARD_TYPES` 常量一致：身份证在最前） */
+export const ID_CARD_TYPE_OPTIONS = Object.entries(ID_CARD_TYPE_LABELS).map(([value, label]) => ({
+  value,
+  label,
+}));
+
+/** 性别（`biz_employee.gender`：0 未知 / 1 男 / 2 女，与 DDL 的 `ck_biz_employee_gender` 一致） */
+export const GENDER_LABELS: Record<number, string> = {
+  0: '未知',
+  1: '男',
+  2: '女',
+};
+
+/** 性别单选（**不含 0**：新建档案必须明确男女，0 只是老数据的兜底） */
+export const GENDER_OPTIONS = [
+  { value: 1, label: GENDER_LABELS[1] },
+  { value: 2, label: GENDER_LABELS[2] },
+];
+
+/**
+ * 表单字段长度上限（逐条抄自 `employee_handler.rs` 的 `MAX_*` 常量）。
+ *
+ * 前端 `maxlength` + 提交前校验都用它：不设上限时用户能敲进 200 字姓名，
+ * 提交到后端才 400「name 最长 50 个字符」，白填一屏。
+ * `tests/unit/hr-employee-form.test.ts` 会读 Rust 源码逐条对拍。
+ */
+export const EMPLOYEE_FIELD_MAX = {
+  emp_no: 32,
+  name: 50,
+  id_card: 18,
+  mobile: 20,
+  email: 100,
+  position_code: 32,
+  job_level: 20,
+  school: 100,
+  major: 100,
+  native_place: 100,
+  address: 200,
+  emergency_contact: 50,
+  emergency_phone: 20,
+  emergency_relation: 20,
+  bank_name: 100,
+  bank_branch: 200,
+  bank_account: 40,
+  bank_account_name: 50,
+} as const;
+
+/**
+ * 姓名最短字数（**前端比后端更严**）。
+ *
+ * 后端 `require_text` 只要求非空；但一个字的姓名在列表里和「张三」混排时几乎认不出，
+ * 人事建档也几乎不会出现 —— 卡面要求 2-50 字，这里按卡面拦（后端仍兜 ≤50）。
+ */
+export const EMPLOYEE_MIN_NAME = 2;
+
+/** 建档表单用到的字典编码（V0386 已种；`DictSelect` 直接吃字典编码） */
+export const EMPLOYEE_DICT_CODES = {
+  position: 'hr_position',
+  job_level: 'hr_job_level',
+  education: 'hr_education',
+} as const;
+
 /** 离职类型（`ck_biz_employee_leavetype` 的 5 个取值） */
 export const LEAVE_TYPE_LABELS: Record<string, string> = {
   RESIGN: '辞职',
@@ -308,6 +370,141 @@ export interface EmployeePageQuery {
   page?: number;
   /** 每页条数 */
   page_size?: number;
+}
+
+// ==================== 入参 / 回执类型（逐字段对齐 employee_handler.rs） ====================
+
+/**
+ * 新建员工入参（`POST /business/hr/employee`，权限 `business:hr:employee:create`）。
+ *
+ * 后端 `EmployeeCreateReq` 的每个字段都是 `Option`：缺省由 handler 给默认值
+ * （`id_card_type` → `ID_CARD`、`employment_type` → `FULL_TIME`），
+ * 必填只有 `name` / `dept_id` / `hire_date` 三条。
+ *
+ * `emp_no` 留空 ⇒ 后端在**同一个事务**里取号（`EMP-0001` 形态，HR-14）：
+ * 取号失败 / 插入失败一起回滚，不留空号 —— 所以前端不要自己拼工号。
+ */
+export interface EmployeeCreateReq {
+  /** 工号（留空自动取号；企业自有工号体系可直填） */
+  emp_no?: string;
+  /** 姓名（必填，2-50 字） */
+  name: string;
+  /** 性别（1 男 / 2 女；0 未知只出现在老数据） */
+  gender?: number;
+  /** 出生日期 `YYYY-MM-DD` */
+  birth_date?: string;
+  /** 身份证号（明文入参，出参只给打码值） */
+  id_card?: string;
+  /** 证件类型（缺省 `ID_CARD`） */
+  id_card_type?: string;
+  /** 手机号 */
+  mobile?: string;
+  /** 邮箱 */
+  email?: string;
+  /** 人事归属部门（必填；数据权限按它裁剪） */
+  dept_id: string;
+  /** 岗位码值（字典 `hr_position`） */
+  position_code?: string;
+  /** 职级码值（字典 `hr_job_level`） */
+  job_level?: string;
+  /** 用工形式（缺省 `FULL_TIME`） */
+  employment_type?: string;
+  /** 入职日期（必填，`YYYY-MM-DD`，不得晚于今天） */
+  hire_date: string;
+  /** 试用期截止（不得早于入职日期） */
+  probation_end_date?: string;
+  /** 学历码值（字典 `hr_education`） */
+  education?: string;
+  /** 毕业院校 */
+  school?: string;
+  /** 专业 */
+  major?: string;
+  /** 毕业日期 */
+  graduate_date?: string;
+  /** 籍贯 */
+  native_place?: string;
+  /** 现住址 */
+  address?: string;
+  /** 紧急联系人 */
+  emergency_contact?: string;
+  /** 紧急联系电话 */
+  emergency_phone?: string;
+  /** 与本人关系 */
+  emergency_relation?: string;
+  /** 工资卡开户行 */
+  bank_name?: string;
+  /** 开户支行 */
+  bank_branch?: string;
+  /** 工资卡号（明文入参） */
+  bank_account?: string;
+  /** 工资卡户名 */
+  bank_account_name?: string;
+  /** 关联登录账号（可空；必须是未删除的 HUMAN 账号） */
+  user_id?: string;
+  /** 备注 */
+  remark?: string;
+}
+
+/**
+ * 修改员工入参（`PUT /business/hr/employee/{id}`，权限 `business:hr:employee:update`）。
+ *
+ * # 缺省语义（这三条决定「保存后数据会不会被清空」）
+ *
+ * | 传什么 | 后端行为 |
+ * |---|---|
+ * | 字段**不传** / `undefined` | 保持库里当前值（handler `merged_write` 从锁定行回填） |
+ * | 字段传**空串** | 清空该列（`NULL`） |
+ * | 字段有值 | 覆盖 |
+ *
+ * 所以：**详情里拿不到明文的两个字段（`id_card` / `bank_account`）绝不能无脑提交空串**，
+ * 否则一次「只改手机号」的保存会把身份证和工资卡号清掉。口径见
+ * `views/business/hr/employee/employee-form.ts::buildUpdatePayload`。
+ *
+ * `emp_no` / `org_id` / `status` / `user_id` 不在可改列里（工号是身份、组织是隔离维度、
+ * 状态只能走状态机、账号走 `bind-user`）。
+ */
+export interface EmployeeUpdateReq {
+  name?: string;
+  gender?: number;
+  birth_date?: string;
+  id_card?: string;
+  id_card_type?: string;
+  mobile?: string;
+  email?: string;
+  dept_id?: string;
+  position_code?: string;
+  job_level?: string;
+  employment_type?: string;
+  hire_date?: string;
+  probation_end_date?: string;
+  education?: string;
+  school?: string;
+  major?: string;
+  graduate_date?: string;
+  native_place?: string;
+  address?: string;
+  emergency_contact?: string;
+  emergency_phone?: string;
+  emergency_relation?: string;
+  bank_name?: string;
+  bank_branch?: string;
+  bank_account?: string;
+  bank_account_name?: string;
+  remark?: string;
+}
+
+/** 新建回执（`{ id, emp_no }`；`emp_no` 是后端取号/回显的真实工号，回显给用户看） */
+export interface EmployeeCreatedRes {
+  /** 主键 */
+  id: string;
+  /** 工号（`EMP-0001` 或用户自填值） */
+  emp_no: string;
+}
+
+/** 修改 / 删除回执（后端 `EmployeeIdRes`） */
+export interface EmployeeIdRes {
+  /** 主键 */
+  id: string;
 }
 
 /**

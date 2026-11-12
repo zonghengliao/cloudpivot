@@ -9,6 +9,9 @@
  * |---|---|---|---|---|
  * | 1 | GET | `/employee/page` | `business:hr:employee:list` | 列表（分页 / 筛选） |
  * | 2 | GET | `/employee/{id}` | `business:hr:employee:detail` | 详情抽屉（基本信息 / 合同 / 薪资 / 附件） |
+ * | 3 | POST | `/employee` | `business:hr:employee:create` | 新建表单（工号留空 ⇒ 后端取号） |
+ * | 4 | PUT | `/employee/{id}` | `business:hr:employee:update` | 编辑表单（预填详情） |
+ * | 5 | DELETE | `/employee/{id}` | `business:hr:employee:delete` | 详情抽屉「删除」（软删 + 输姓名确认） |
  * | 7 | GET | `/employee/{id}/sensitive` | `business:hr:employee:sensitive` | 详情「查看明文」（**HR-13** 落地） |
  * | 16 | GET | `/employee/{id}/salary` | `business:hr:employee:detail` | **不用**：详情已带 `salary_items[]` |
  *
@@ -24,13 +27,17 @@
  * 报「响应体格式不符合」——本仓最高频的前端踩坑。
  */
 
-import { get, type PageData } from '@/api/request';
+import { del, get, post, put, type PageData } from '@/api/request';
 
 import type {
+  EmployeeCreatedRes,
+  EmployeeCreateReq,
   EmployeeDetail,
+  EmployeeIdRes,
   EmployeeListRow,
   EmployeePageQuery,
   EmployeeSensitivePlain,
+  EmployeeUpdateReq,
 } from './employee-kinds';
 
 export * from './employee-kinds';
@@ -92,3 +99,43 @@ export function fetchEmployeeSensitive(
 ): Promise<EmployeeSensitivePlain> {
   return get<EmployeeSensitivePlain>(`${BASE}/employee/${id}/sensitive`, { field });
 }
+
+/**
+ * 新建员工（`POST /business/hr/employee`，权限 `business:hr:employee:create`）。
+ *
+ * # 工号不用前端拼
+ *
+ * `emp_no` 留空 ⇒ 后端在**同一个事务**里取号（`EMP-0001` 形态，HR-14）：取号失败
+ * 或插入失败一起回滚，号不被白吃。所以「留空自动取号」是本接口的正式用法，
+ * 前端只把回执里的 `emp_no` 回显给用户。
+ *
+ * # 新档一律 PROBATION
+ *
+ * 后端新档入口状态是「试用期」（设计 §4.2.1），不是前端传的 —— 别在请求体里塞 status。
+ */
+export function createEmployee(req: EmployeeCreateReq): Promise<EmployeeCreatedRes> {
+  return post<EmployeeCreatedRes>(`${BASE}/employee`, req);
+}
+
+/**
+ * 修改员工（`PUT /business/hr/employee/{id}`，权限 `business:hr:employee:update`）。
+ *
+ * 整表单提交，但**不传的字段保持原值**（后端 `merged_write` 回填）、传空串才是清空 ——
+ * 请求体的取舍由 `employee-form.ts::buildUpdatePayload` 决定（身份证 / 工资卡号拿不到
+ * 明文，只在该用户真的重填时才提交）。已离职档案后端 409（只读）。
+ */
+export function updateEmployee(id: string, req: EmployeeUpdateReq): Promise<EmployeeIdRes> {
+  return put<EmployeeIdRes>(`${BASE}/employee/${id}`, req);
+}
+
+/**
+ * 删除员工（`DELETE /business/hr/employee/{id}`，权限 `business:hr:employee:delete`）。
+ *
+ * 后端是**软删**（`deleted_at` 落时间戳，三个唯一键随之释放）：档案从列表消失，
+ * 但薪资单 / 考勤台账里的历史引用还在。界面上必须二次确认（输入姓名），
+ * 因为这是「看得到的删除、查得到的残留」。
+ */
+export function deleteEmployee(id: string): Promise<EmployeeIdRes> {
+  return del<EmployeeIdRes>(`${BASE}/employee/${id}`);
+}
+
