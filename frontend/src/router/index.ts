@@ -804,6 +804,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '薪资项', permission: 'business:hr:salary-item:list' },
       },
       {
+        // ==================== HR：薪资单详情（ARCH-9 §6.1 / §6.2.5 / HR-43） ====================
+        // **页面级路由**：`sys_menu` 里没有这一行（不进侧边栏），由列表页点单号跳进来。
+        // 四段式（单头 / 明细 / 审批 / 凭证）+ 吸顶操作栏塞进 720px 抽屉放不下，
+        // 所以设计 §6.1 定稿为独立页。
+        // 权限码用 `business:hr:salary:detail`（与后端 #37/#38 两条接口同一个码）。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 从列表点单号进 404。
+        path: 'business/hr/salary/:id',
+        name: 'BusinessHrSalaryDetail',
+        component: () => import('@/views/business/hr/salary/detail.vue'),
+        meta: { title: '薪资单详情', permission: 'business:hr:salary:detail' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）
