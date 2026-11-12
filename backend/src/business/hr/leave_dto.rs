@@ -540,6 +540,160 @@ pub fn normalize_page(page: Option<u64>, page_size: Option<u64>) -> (u64, u64) {
     (page, page_size)
 }
 
+// ==================== 详情 / 作废回执（HR-25 · handler 层包装，不动 [`LeaveRes`]） ====================
+
+/// 详情接口（#27）的回执：**`LeaveRes` 的字段全部平铺在顶层** + 审批轨迹。
+///
+/// # 为什么用 `#[serde(flatten)]` 而不是 `{ "leave": {...}, "approval": {...} }`
+///
+/// 设计 §5.2 #27 是「详情 + 审批轨迹」，而列表 / 详情共用 [`LeaveRes`] 形状是 HR-24 定下的
+/// 口径（前端 HR-28 的列表行与详情抽屉吃同一个类型）。平铺之后：
+/// 详情回执 = 列表行 + 两个额外键 ⇒ 前端可以用**同一个** `LeaveRes` 类型接收，
+/// 再按需读 `approval`；不会出现「列表 30 个字段、详情 30 个字段嵌一层」的两套映射。
+///
+/// # `approval` 何时为空
+///
+/// ① 草稿（还没提交，没有实例）；② `approval_instance_id` 指向的实例已被硬删
+/// （历史脏数据，不报错 —— 详情不该因为审批单缺失整个 404）。
+#[derive(Debug, Clone, Serialize)]
+pub struct LeaveDetailRes {
+    /// 请假单本体（字段平铺）。
+    #[serde(flatten)]
+    pub leave: LeaveRes,
+    /// 当前审批实例 + 时间线（`None` = 还没提交过 / 实例已不存在）。
+    pub approval: Option<LeaveApprovalRes>,
+    /// 历史上提交过几次（撤回重提会 > 1）。前端「审批轨迹」tab 的角标用它。
+    pub approval_history: i32,
+}
+
+/// 请假单的审批实例摘要 + 时间线（详情接口 #27 的 `approval` 字段）。
+///
+/// 字段全部来自 `business::flow`：实例行（`flow_model::find_instance`）、节点名快照
+/// （`flow_model::nodes_of`，`node_key → node_name` 的映射）、时间线（`flow_model::timeline`）。
+/// **本模块不写任何流程 SQL** —— 审批的真相只在 flow 模块。
+#[derive(Debug, Clone, Serialize)]
+pub struct LeaveApprovalRes {
+    /// 审批实例 id。
+    pub instance_id: String,
+    /// 审批单号（`AP-yyyyMMdd-000001`）。
+    pub instance_no: String,
+    /// 流程编码（`hr_leave`）。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 实例状态（`PENDING` / `APPROVED` / `REJECTED` / `CANCELLED` / `WITHDRAWN`）。
+    pub status: String,
+    /// 实例状态中文名。
+    pub status_label: String,
+    /// 发起人姓名（快照）。
+    pub initiator_name: String,
+    /// 发起时间（ISO8601 `+08:00`）。
+    pub started_at: String,
+    /// 结束时间（未完成为 `None`）。
+    pub ended_at: Option<String>,
+    /// 结束说明（审批意见 / 终止原因）。
+    pub result_comment: Option<String>,
+    /// 审批时间线（按 `round, created_at, id` 升序）。
+    pub timeline: Vec<LeaveApprovalTaskRes>,
+}
+
+/// 审批时间线上的一行。
+///
+/// 只出「谁、在哪个节点、什么结论、什么时候、什么意见」——够审批人回看，也不把
+/// 流程引擎的内部字段（`assignee_source` / `revision` / 抄送 JSON）漏给 HR 页面。
+#[derive(Debug, Clone, Serialize)]
+pub struct LeaveApprovalTaskRes {
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点中文名（实例节点快照；取不到时回退 `node_key`）。
+    pub node_name: String,
+    /// 轮次（退回重提会 > 1）。
+    pub round: i32,
+    /// 审批人 id。
+    pub assignee_id: String,
+    /// 审批人姓名（快照列）。
+    pub assignee_name: String,
+    /// 待办状态（`PENDING` / `APPROVED` / `REJECTED` / `SKIPPED` / `TRANSFERRED` …）。
+    pub status: String,
+    /// 待办状态中文名。
+    pub status_label: String,
+    /// 审批意见。
+    pub comment: Option<String>,
+    /// 是否自审（内控留痕）。
+    pub is_self_approval: bool,
+    /// 是否系统代点（免审直过 / 超时自动）。
+    pub is_auto: bool,
+    /// 到达时间。
+    pub created_at: String,
+    /// 处理时间（未完成为 `None`）。
+    pub completed_at: Option<String>,
+}
+
+/// 作废接口（#31）做了哪个动作 —— 一条路径承载三件事，回执要说清楚做的是哪件。
+///
+/// 设计 §5.2 #31 只有一条 `POST /{id}/cancel`，但设计 §4.2.2 的状态机里
+/// 「草稿删除 / 审批中撤回 / 已批准销假」是**三种不同后果**（软删 / 回草稿 / 进 `CANCELLED`）。
+/// 前端按钮文案与后续提示都依赖这个区别，所以显式回传而不是让前端自己推。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LeaveCancelAction {
+    /// `DRAFT` → 软删（`deleted_at`），状态**不变**（草稿从未提交过）。
+    Deleted,
+    /// `SUBMITTED` → 撤回（终止在跑实例 + 回到 `DRAFT`）。
+    Withdrawn,
+    /// `APPROVED` → 作废 / 销假（进 `CANCELLED`，必须带原因）。
+    Cancelled,
+}
+
+impl LeaveCancelAction {
+    /// 落日志 / 回执用的码值。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            LeaveCancelAction::Deleted => "DELETED",
+            LeaveCancelAction::Withdrawn => "WITHDRAWN",
+            LeaveCancelAction::Cancelled => "CANCELLED",
+        }
+    }
+
+    /// 中文名（前端直接显示）。
+    pub const fn label(self) -> &'static str {
+        match self {
+            LeaveCancelAction::Deleted => "草稿已删除",
+            LeaveCancelAction::Withdrawn => "已撤回（回到草稿）",
+            LeaveCancelAction::Cancelled => "已作废（销假）",
+        }
+    }
+
+    /// 由单据当前状态推出该走哪条路（纯函数，单测钉死）。
+    ///
+    /// `None` = 这个状态没有作废路径（`CANCELLED` 已作废过、未知状态是脏数据）。
+    pub fn of_status(status: &str) -> Option<Self> {
+        match status.trim().to_ascii_uppercase().as_str() {
+            "DRAFT" => Some(LeaveCancelAction::Deleted),
+            "SUBMITTED" => Some(LeaveCancelAction::Withdrawn),
+            "APPROVED" => Some(LeaveCancelAction::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+/// 作废接口（#31）的回执：`LeaveRes` 平铺 + 「做的是哪件事」。
+///
+/// 平铺的理由同 [`LeaveDetailRes`]：前端一个 `LeaveRes` 类型通吃。
+/// 草稿被软删后记录已不在列表里，回执里的行是**删除前**的快照
+/// （用户需要看到「我删掉的是哪一张」）。
+#[derive(Debug, Clone, Serialize)]
+pub struct LeaveCancelRes {
+    /// 请假单本体（字段平铺；草稿删除时是删除前的快照）。
+    #[serde(flatten)]
+    pub leave: LeaveRes,
+    /// `DELETED` / `WITHDRAWN` / `CANCELLED`。
+    pub action: String,
+    /// 动作中文名。
+    pub action_label: String,
+    /// 审批实例终止后的状态（`None` = 本单没有在跑的实例）。
+    pub instance_status: Option<String>,
+}
+
 // ==================== 校验（全是纯函数） ====================
 
 /// 业务时区（固定 `+08:00`，与 `employee_dto` 同一常量）。

@@ -185,6 +185,13 @@ pub mod handler;
 mod leave_db_tests;
 /// 请假单入参 / 回执契约 + 假别·状态·天数·区间校验（`biz_leave_request`，HR-24）。
 pub mod leave_dto;
+/// 请假单接口层（设计 §5.2 #26~#31：列表 / 详情+审批轨迹 / 建单 / 改草稿 / 提交审批 /
+/// 作废=删草稿·撤回·销假），HR-25。
+pub mod leave_handler;
+/// HR-25 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：6 接口全通 / 状态机四条边 /
+/// 提交 fail-closed / 撤回终止实例后可重提 / 作废边界 / 数据权限。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod leave_handler_db_tests;
 /// 请假单数据层（`biz_leave_request`）：单号取号 + 建 / 读 / 改草稿 / 状态 CAS / 软删 /
 /// 分页（按 dept 数据权限）+ 已批无薪假天数（HR-24）。
 pub mod leave_model;

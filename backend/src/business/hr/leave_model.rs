@@ -725,6 +725,15 @@ pub async fn page(
 ///
 /// 不含 `ORDER BY` / `LIMIT`：`scope::paginate` 要求它们在参数里单独传。
 ///
+/// # 为什么 WHERE 后面紧跟 `{FILTER}` 标记（HR-25 补）
+///
+/// `scope::paginate` 的契约（`shared/scope.rs` 的「注入位置与参数顺序」）要求：带业务
+/// 过滤参数的 `base_sql` **必须**用 [`scope::FILTER_MARKER`] 标出数据权限片段的注入位置 ——
+/// 片段参数恒前置，片段就必须出现在业务条件**之前**。少了这个标记，只要带一个筛选条件
+/// （关键字 / 状态 / 日期…）就会 `DbError::InvalidValue`（「带 N 个业务参数但没有 {FILTER} 标记」），
+/// 列表接口直接 500。HR-24 的分页用例用的是 `LeaveFilter::default()`（零业务参数），
+/// 恰好走「追加到末尾」的合法分支，所以当时没暴露。
+///
 /// # `mine_user` 为什么是 `Option<Uuid>`
 ///
 /// 「我的请假」= 我这份员工档的假 ⇒ `EXISTS (SELECT 1 FROM biz_employee me WHERE
@@ -732,7 +741,12 @@ pub async fn page(
 /// 少一次往返，也不会因为「一个账号挂两份员工档」的脏数据把结果放大（`uk_biz_employee_user`
 /// 本来就不允许，但读路径不该依赖它）。
 fn list_query(filter: &LeaveFilter, mine_user: Option<Uuid>) -> (String, Vec<Value>) {
-    let mut sql = format!("{ROW_SQL} WHERE l.deleted_at IS NULL");
+    // `{FILTER}` 必须紧跟 `WHERE`：`scope::paginate` 把数据权限片段原位替换进来，
+    // 片段参数恒前置 ⇒ 片段必须在业务条件之前（见函数文档）。
+    let mut sql = format!(
+        "{ROW_SQL} WHERE l.deleted_at IS NULL {}",
+        crate::business::shared::scope::FILTER_MARKER
+    );
     let mut params: Vec<Value> = Vec::new();
 
     let statuses: Vec<&str> = filter
