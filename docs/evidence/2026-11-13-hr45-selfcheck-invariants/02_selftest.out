@@ -1,0 +1,64 @@
+== HR 巡检造错自检（库 hr45_drill3）==
+   夹具：/opt/cloudpivot/scripts/verify/hr/hr_invariants_fixture.sql
+   巡检：/opt/cloudpivot/scripts/verify/hr_invariants.sql
+
+── R0 全绿基线（夹具齐全，什么都不造错）
+   A1  BLOCKER viol=0    员工档 user_id 必须指向未软删的 HUMAN 账号
+   A10 BLOCKER viol=0    请假单状态必须与审批实例状态一致
+   A2  BLOCKER viol=0    同一 user_id 只能挂一份未删员工档
+   A3  BLOCKER viol=0    同一员工同一薪资项的生效区间不重叠
+   A4  WARN    viol=0    在职/试用期员工应有覆盖今天的 ACTIVE 合同
+   A5  WARN    viol=0    合同到期日不应早于员工离职日
+   A6  BLOCKER viol=0    单头 gross_total/net_total 必须等于明细汇总
+   A7  BLOCKER viol=0    明细汇总列必须等于明细项按类型求和
+   A8  BLOCKER viol=0    POSTED/REVERSED 单据必须有计提+发放两张平衡凭证
+   A9  BLOCKER viol=0    已过账单据的凭证期间必须存在，且已结账期间不许留待过账死单
+   W1  WARN    viol=0    考勤守恒：出勤+各类假+旷工 ≈ 应出勤（±0.01）
+   W2  WARN    viol=0    账号部门与员工人事部门漂移（借调合法，仅观察）
+   HR_INVARIANTS_SUMMARY blocker_fail=0 warn_fail=0 total=12
+   ✓ R0 零误报：8 条 BLOCKER 全 0（WARN 观察项 0 条，含 A4/A5）
+
+── I1 A1：员工档挂到不存在的账号（目标断言 A1）
+   A1 viol=1 ｜ 员工档 user_id 必须指向未软删的 HUMAN 账号 ‹例：HR45-001→user=00000000-0000-4000-8000-0000000c4999（账号不存在/
+   ✓ I1 报红（A1 viol=1）
+
+── I2 A2：同一 user_id 挂两份员工档（先临时 drop 库层唯一索引，验证巡检能独立发现）（目标断言 A2）
+   A2 viol=1 ｜ 同一 user_id 只能挂一份未删员工档 ‹例：00000000-0000-4000-8000-0000000c4518（2 份）›
+   ✓ I2 报红（A2 viol=1）
+
+── I3 A3：同一员工同一薪资项追加一段重叠区间（目标断言 A3）
+   A3 viol=2 ｜ 同一员工同一薪资项的生效区间不重叠 ‹例：00000000-0000-4000-8000-0000000c4501/BASE：2025-11-13~2026-11-12 ∩ 202
+   ✓ I3 报红（A3 viol=2）
+
+── I4 A4：把唯一一份有效合同软删（在职员工无合同）（目标断言 A4）
+   A4 viol=1 ｜ 在职/试用期员工应有覆盖今天的 ACTIVE 合同 ‹例：HR45-001/ACTIVE/入职 2024-11-13›
+   ✓ I4 报红（A4 viol=1）
+
+── I5 A5：员工改成离职且离职日晚于合同到期日（合同不该在离职后到期）（目标断言 A5）
+   A5 viol=1 ｜ 合同到期日不应早于员工离职日 ‹例：HR45-001/合同 HT-HR45-001 止 2028-11-13 < 离职 2029-11-13›
+   ✓ I5 报红（A5 viol=1）
+
+── I6 A6：明细 gross 加 100 而单头不动 → 单头 ≠ Σ 明细（目标断言 A6）
+   A6 viol=1 ｜ 单头 gross_total/net_total 必须等于明细汇总 ‹例：SAL-HR45-0001：单头 g=9500.0000 n=8000.0000 / 明细 g=9600.
+   ✓ I6 报红（A6 viol=1）
+
+── I7 A7：明细项 BASE 加 50 而明细汇总不动 → 明细项 ≠ 明细汇总（目标断言 A7）
+   A7 viol=1 ｜ 明细汇总列必须等于明细项按类型求和 ‹例：HR45-001：gross 9500.0000 vs 项 9550.0000 / withhold 1500.0000 vs 项 150
+   ✓ I7 报红（A7 viol=1）
+
+── I8 A8：已过账单据的发放凭证指针清空（目标断言 A8）
+   A8 viol=1 ｜ POSTED/REVERSED 单据必须有计提+发放两张平衡凭证 ‹例：SAL-HR45-0001：缺发放凭证 ›
+   ✓ I8 报红（A8 viol=1）
+
+── I9 A9：计提凭证挪到 1999-01（期间表里没有这个期间）（目标断言 A9）
+   A9 viol=1 ｜ 已过账单据的凭证期间必须存在，且已结账期间不许留待过账死单 ‹例：凭证期间不存在 SAL-HR45-0001/1999-01›
+   ✓ I9 报红（A9 viol=1）
+
+── I10 A10：请假单改 APPROVED 但实例仍 PENDING（目标断言 A10）
+   A10 viol=1 ｜ 请假单状态必须与审批实例状态一致 ‹例：LV-HR45-0001/APPROVED/实例 PENDING›
+   ✓ I10 报红（A10 viol=1）
+
+── F1 fail-closed：裸跑 sql（无 report_only）有违规必须非 0 退出
+   ✓ F1 裸跑 fail-closed（rc=3，RAISE 已触发）
+
+== 结果：PASS —— R0 零误报 + I1~I10 十条断言全部能报红 + F1 fail-closed 成立

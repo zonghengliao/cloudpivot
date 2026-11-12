@@ -850,3 +850,43 @@ psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_perf -f scripts/verify/perf/explai
 基线数字、容量红线、已知慢查询与处置口径全部在
 **[`docs/运维规程-性能基线.md`](../../docs/运维规程-性能基线.md)**；本轮原始证据在
 `docs/evidence/20261110-n8-perf-baseline/`。
+
+## 人力资源数据一致性巡检（`hr_invariants.sh` / `hr_invariants.sql`，卡 HR-45）
+
+ARCH-9-2 §4.9 的 10 条断言落成一个**只读** SQL（可反复跑：生产 / 演练库 / CI），
+外带一层 bash 包装（解析连接串 + 翻译退出码）与一套**造错自检**（证明断言有牙）。
+
+```bash
+# 巡检（默认走 HR_DB_URL / ERP_DB_URL / NIK_DATABASE_*，见 hr/hr_db.sh 的优先级）
+HR_DB_URL=postgres://cloudpivot:***@172.18.10.145:5432/hr45_drill bash scripts/verify/hr_invariants.sh
+echo $?                                  # 0=8 条 BLOCKER 零违规 / 1=有违规 / 2=环境问题
+
+# 造错自检（**只许演练库**，库名需含 drill/e2e/test；每轮 BEGIN→灌夹具→造错→ROLLBACK，零残留）
+HR_DB_URL=postgres://cloudpivot:***@172.18.10.145:5432/hr45_drill \
+  bash scripts/verify/hr_invariants_selftest.sh
+```
+
+| 文件 | 作用 |
+|---|---|
+| `hr_invariants.sql` | 10 条断言（A1~A10：8 BLOCKER + A4/A5 WARN）+ 2 条 WARN 观察项（W1/W2）。纯只读：只建一张 `pg_temp` 结果表，跑完打印 `A1 BLOCKER viol=0 …` 明细与 `HR_INVARIANTS_SUMMARY` 汇总行 |
+| `hr_invariants.sh` | 巡检入口。以 `report_only=1` 跑完 12 条再判定（不在第一条违规处中断），读汇总行决定退出码 |
+| `hr_invariants_selftest.sh` | 造错自检：R0 全绿零误报 + I1~I10 逐条注入验证「对应断言必红」+ F1 裸跑 fail-closed |
+| `hr/hr_invariants_fixture.sql` | R0/I\* 用的全绿基线夹具（员工→合同→标准→考勤→请假→工资单→两张凭证整条链），固定 UUID、可重复执行，**必须**在事务里 ROLLBACK |
+| `hr/hr_db.sh` | 连接解析（`HR_DB_URL` > `ERP_DB_URL` > `NIK_DATABASE_*` > `PG*`）+ 演练库护栏 `hr_require_drill_db` |
+
+**为什么 A9/A10 与设计字面不同**（两处都写在 `hr_invariants.sql` 头注释里）：
+① A9 原文「凭证 period 的 `status <> 'CLOSED'`」在**正常的月结之后会永久红**（结账是常规动作，
+不是数据错误），故改为「凭证期间必须存在」+「已结账期间里不许留 SUBMITTED/APPROVED 的死单」——
+后者才是设计真正要防的「结账后还能改数」；
+② A10 原文「APPROVED 的必须有已通过的节点」在**免审直过**（流程无审批节点，引擎同事务直接
+APPROVED）时一个节点行都没有，故改为断言实例终态 = APPROVED。
+
+**迁移侧的分工**：静态种子完整性由 `backend/migrations/business/V0398__hr_selfcheck.up.sql`
+（一次性、纯 `DO` 块、缺一项就 `RAISE EXCEPTION` 回滚整批）保证；本巡检只查**数据层面**的
+不变式（单据算得对不对、凭证挂没挂、有没有死单），空库全绿是正常现象，别拿它替代迁移自检。
+
+**已知边界**：巡检设在「库层 CHECK 拦不住」的那一层。像 `biz_salary_detail` 的
+`gross = earning − pre_deduct`、`biz_voucher` 的借贷平衡，库层 CHECK 已经强制，A6/A7/A8 查的是
+**跨表**的一致性（单头 ↔ 明细、明细 ↔ 明细项、单据 ↔ 凭证）；造错自检里为了让注入能落库，
+个别用例会临时 `DROP INDEX`（A2 的 `uk_biz_employee_user`）—— 那是为了证明**巡检能独立发现**
+索引兜不住的情况，不是巡检依赖它。

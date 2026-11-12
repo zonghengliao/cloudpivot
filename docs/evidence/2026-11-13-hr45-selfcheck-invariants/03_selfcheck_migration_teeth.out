@@ -1,0 +1,47 @@
+=== ① 幂等：连跑两遍 up.sql ===
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: NOTICE:  V0398 人力资源收口自检通过：10 表 / 9 科目+4 父级+2 规则 / 4 号段+4 字典 26 项 / 36 菜单+HR_MANAGER / 2 脱敏+3 配置 / 4 流程 / 17 薪资项 —— 8 组全部在位
+  第 1 遍 RC=0
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: NOTICE:  V0398 人力资源收口自检通过：10 表 / 9 科目+4 父级+2 规则 / 4 号段+4 字典 26 项 / 36 菜单+HR_MANAGER / 2 脱敏+3 配置 / 4 流程 / 17 薪资项 —— 8 组全部在位
+  第 2 遍 RC=0
+
+=== ② down.sql 可执行（无状态可回滚）===
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.down.sql:20: NOTICE:  V0398 回滚：本迁移是纯只读收口自检（无 INSERT/UPDATE/DDL），无状态需要反向；人力资源种子请用 V0383~V0397 各自的 .down.sql 逐条回滚（它们带业务数据护栏）
+  RC=0
+
+=== ③ 造错必红：逐项破坏一个种子，再跑 up.sql 应 RAISE 并点名 ===
+── 软删薪资项 NET（期望点名 薪资项 NET + 系统项 is_system）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 薪资项 NET
+  ✓ 报红 RC=3
+── 软删菜单目录（期望点名 菜单 目录 / 菜单合计）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：3 项未种齐 → 菜单 目录 /business/hr（menu_type=1）；人力资源菜单合计（35 条，期望 36）；HR_MANAGER 授权（目录+5 页面 5/6）
+  ✓ 报红 RC=3
+── 软删科目 5602.10（期望点名 科目 5602.10）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 科目 5602.10（末级/父级=5602）
+  ✓ 报红 RC=3
+── 停用字典项 hr_leave_type 一项（期望点名 字典 hr_leave_type）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 字典 hr_leave_type（8 项，期望 9）
+  ✓ 报红 RC=3
+── 把流程 hr_salary 改成非默认（期望点名 流程 biz_type=HR_SALARY）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 流程 biz_type=HR_SALARY（已发布/默认/当前版本）
+  ✓ 报红 RC=3
+── 停用一条脱敏规则（期望点名 脱敏 biz_employee.id_card）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 脱敏 biz_employee.id_card
+  ✓ 报红 RC=3
+── 删掉一条 sys_config（期望点名 配置）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 配置 hr.salary.iit_mode（0 行，期望 1）
+  ✓ 报红 RC=3
+── 软删一条按钮权限点（期望点名 按钮权限点 29/30 + 合计 35/36）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：2 项未种齐 → 按钮权限点 business:hr:*（29 个，期望 30）；人力资源菜单合计（35 条，期望 36）
+  ✓ 报红 RC=3
+── 改 EMP 号段位数（期望点名 号段 EMP 口径）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 号段 EMP 口径（pad_width=4 / period_key=GLOBAL）
+  ✓ 报红 RC=3
+── 给 5602.10 挂一个子科目让父级口径分叉（期望点名 科目 5602.10 末级）
+  psql:/opt/cloudpivot/backend/migrations/business/V0398__hr_selfcheck.up.sql:373: ERROR:  V0398 人力资源收口自检失败：1 项未种齐 → 科目 5602.10 下挂了子科目（末级不许有子级）
+  ✓ 报红 RC=3
+
+=== ④ 破坏后回滚零残留复核 ===
+biz_salary_item 未删=17
+sys_menu 未删=448
+biz_account(5602.10) 未删=1
+sys_config(hr.*) 未删=3

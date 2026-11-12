@@ -1,0 +1,15 @@
+== HR 巡检（库 hr45_drill3）==
+A1  BLOCKER viol=0    员工档 user_id 必须指向未软删的 HUMAN 账号
+A10 BLOCKER viol=0    请假单状态必须与审批实例状态一致
+A2  BLOCKER viol=0    同一 user_id 只能挂一份未删员工档
+A3  BLOCKER viol=0    同一员工同一薪资项的生效区间不重叠
+A4  WARN    viol=0    在职/试用期员工应有覆盖今天的 ACTIVE 合同
+A5  WARN    viol=0    合同到期日不应早于员工离职日
+A6  BLOCKER viol=0    单头 gross_total/net_total 必须等于明细汇总
+A7  BLOCKER viol=0    明细汇总列必须等于明细项按类型求和
+A8  BLOCKER viol=0    POSTED/REVERSED 单据必须有计提+发放两张平衡凭证
+A9  BLOCKER viol=0    已过账单据的凭证期间必须存在，且已结账期间不许留待过账死单
+W1  WARN    viol=0    考勤守恒：出勤+各类假+旷工 ≈ 应出勤（±0.01）
+W2  WARN    viol=0    账号部门与员工人事部门漂移（借调合法，仅观察）
+HR_INVARIANTS_SUMMARY blocker_fail=0 warn_fail=0 total=12
+== 结果：PASS —— 8 条 BLOCKER 断言零违规（WARN 观察项 0 条，只报不拦）==

@@ -186,6 +186,10 @@ pub mod employee_sensitive;
 #[cfg(test)]
 mod employee_sensitive_db_tests;
 pub mod handler;
+/// HR-45 的契约测试：收口自检迁移（V0398）与巡检脚本（`scripts/verify/hr_invariants.sql`）
+/// 的静态形态 —— 断言条数、只读性、造错自检覆盖面、版本号唯一。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod hr_invariants_tests;
 /// 请假单的审批回调桥（`hr_leave`）：通过 / 驳回回写状态 + 实例终止 + 自审批守卫（HR-27）。
 pub mod leave_bridge;
 /// HR-27 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：审批通过回写 / 驳回打回可重提 /
