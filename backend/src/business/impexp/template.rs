@@ -145,8 +145,28 @@ pub fn build_template(definition: &dyn ImportDefinition) -> std::result::Result<
     let last_row = validation_last_row(definition.max_rows());
     let validations = data_validations(columns, last_row);
 
+    // ---------- 「数据」sheet 的文本格式列 + 表头批注 ----------
+    //
+    // 全部列都设「文本」：Excel 的通用格式会把 18 位身份证 / 19 位银行账号
+    // 当成数值（15 位有效位，后几位静默丢失），用户填完再保存就已经回不去了。
+    // 日期列同样按文本 —— 模板说明里要求写 `YYYY-MM-DD`，解析侧三种格式都认
+    // （见 `definition::parse_date`），所以文本不会带来解析问题。
+    let text_columns = (0..columns.len() as u16).collect::<Vec<_>>();
+    // 批注与「字段说明」sheet 的「说明」列同一份文案（`ImportColumn::remark`），
+    // 鼠标悬停在表头上即可读到，不用切 sheet 找。
+    let header_comments = columns
+        .iter()
+        .enumerate()
+        .filter(|(_, column)| !column.remark.is_empty())
+        .map(|(index, column)| (index as u16, column.remark))
+        .collect::<Vec<_>>();
+
     write_workbook(&[
-        WorkbookSheet::new("数据", data_header_refs.as_slice(), data_rows.as_slice()).with_validations(&validations),
+        WorkbookSheet::new("数据", data_header_refs.as_slice(), data_rows.as_slice())
+            .with_validations(&validations)
+            .with_text_columns(&text_columns)
+            .with_header_comments(&header_comments)
+            .with_sample_first_row(),
         WorkbookSheet::new("字段说明", NOTE_HEADERS.as_slice(), note_rows.as_slice()),
         WorkbookSheet::new("填写须知", guide_headers.as_slice(), guide_rows.as_slice()),
     ])
@@ -283,6 +303,74 @@ pub fn build_error_sheet_rows(lines: &[(u32, Option<String>, String)]) -> std::r
     crate::business::impexp::engine::write_sheet(&headers, &rows)
 }
 
+/// 一行「错误行」的完整数据（原始单元格 + 错误列 + 原因）。
+#[derive(Debug, Clone, Default)]
+pub struct ErrorSourceRow {
+    /// Excel 真实行号。
+    pub row_no: u32,
+    /// 原始单元格（按模板列顺序；文件里缺该列则为空串）。
+    pub cells: Vec<String>,
+    /// 出错的列名（多个错误按「、」连接；整行级问题为空）。
+    pub columns: String,
+    /// 错误原因（多个错误按「；」连接）。
+    pub reasons: String,
+}
+
+/// 生成「错误行」xlsx：**原始数据 + 错误列 + 原因**（可改完直接重传）。
+///
+/// # 与 [`build_error_sheet_rows`] 的差别
+///
+/// 后者只有「行号 / 列名 / 原因」，用户拿到它还得回原文件按行号找那一行 —— 而原文件
+/// 往往已经改过、行号早就对不上了。本函数把**原始行数据**整行抄过来（模板列顺序 +
+/// 全部列走文本格式，防身份证号被 Excel 转成数值），用户在同一个文件里改完直接重传即可
+/// （多出来的「行号 / 错误列 / 错误原因」三列只会触发 E-IMP-04 警告，不阻断导入）。
+///
+/// # 参数
+///
+/// - `headers`：模板表头（`ImportColumn::template_header()`，含必填列的 `*`）；
+/// - `rows`：按行号升序的错误行。
+///
+/// # 返回值
+///
+/// 单 sheet（`错误明细`）的 xlsx 字节流。
+///
+/// # 异常情况
+///
+/// 写入失败返回 500。
+pub fn build_error_sheet_with_source(
+    headers: &[String],
+    rows: &[ErrorSourceRow],
+) -> std::result::Result<Vec<u8>, ApiError> {
+    // 表头：行号 + 原始列 + 错误列 + 错误原因
+    let mut all_headers: Vec<&str> = Vec::with_capacity(headers.len() + 3);
+    all_headers.push("行号");
+    all_headers.extend(headers.iter().map(String::as_str));
+    all_headers.push("错误列");
+    all_headers.push("错误原因");
+
+    let data_rows = rows
+        .iter()
+        .map(|row| {
+            let mut item = std::collections::HashMap::new();
+            item.insert("行号".to_string(), row.row_no.to_string());
+            for (index, header) in headers.iter().enumerate() {
+                item.insert(header.clone(), row.cells.get(index).cloned().unwrap_or_default());
+            }
+            item.insert("错误列".to_string(), row.columns.clone());
+            item.insert("错误原因".to_string(), row.reasons.clone());
+            item
+        })
+        .collect::<Vec<_>>();
+
+    // 全部列文本格式：用户改完直接重传时，身份证 / 手机号 / 银行账号不会被 Excel
+    // 转成数值丢精度（与模板同一口径）。
+    let text_columns = (0..all_headers.len() as u16).collect::<Vec<_>>();
+    let built = [
+        WorkbookSheet::new("错误明细", all_headers.as_slice(), data_rows.as_slice()).with_text_columns(&text_columns),
+    ];
+    crate::business::impexp::engine::write_workbook(&built)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,6 +496,32 @@ mod tests {
         assert_eq!(rows[1].get("行号").map(String::as_str), Some("9"));
         assert_eq!(rows[1].get("列名").map(String::as_str), Some("物料编码"));
         assert_eq!(rows[1].get("错误原因").map(String::as_str), Some("长度超限"));
+    }
+
+    /// 「错误行」文件必须把**原始行数据**整行带上（用户改完可直接重传），
+    /// 三列（行号 / 错误列 / 错误原因）跟在原始列后面。
+    #[test]
+    fn error_sheet_with_source_carries_original_row_and_reason() {
+        let headers = COLUMNS
+            .iter()
+            .map(|column| column.template_header())
+            .collect::<Vec<_>>();
+        let rows = vec![ErrorSourceRow {
+            row_no: 5,
+            cells: vec!["MAT-000001".to_string(), "螺丝 M6×20".to_string(), "PCS".to_string()],
+            columns: "物料编码".to_string(),
+            reasons: "长度超限；编码已被占用".to_string(),
+        }];
+        let bytes = build_error_sheet_with_source(&headers, &rows).expect("错误行导出应成功");
+        let read_back = Import::from_xlsx(&bytes).expect("读回");
+        assert_eq!(read_back.len(), 1);
+        let row = &read_back[0];
+        assert_eq!(row.get("行号").map(String::as_str), Some("5"));
+        // 原始列原样带出（第一列表头带 *，因为它是必填列）
+        assert_eq!(row.get(headers[0].as_str()).map(String::as_str), Some("MAT-000001"));
+        assert_eq!(row.get(headers[1].as_str()).map(String::as_str), Some("螺丝 M6×20"));
+        assert_eq!(row.get("错误列").map(String::as_str), Some("物料编码"));
+        assert_eq!(row.get("错误原因").map(String::as_str), Some("长度超限；编码已被占用"));
     }
 
     // ── 数据验证（Excel 下拉 / 范围）────────────────────────

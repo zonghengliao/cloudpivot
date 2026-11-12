@@ -131,6 +131,25 @@
             从系统用户生成
           </t-button>
           <t-button
+            v-if="canImport"
+            variant="outline"
+            :loading="templateLoading"
+            data-testid="hr-emp-template"
+            @click="handleDownloadTemplate"
+          >
+            <template #icon><t-icon name="download" /></template>
+            下载导入模板
+          </t-button>
+          <t-button
+            v-if="canImport"
+            theme="primary"
+            data-testid="hr-emp-import"
+            @click="openImport"
+          >
+            <template #icon><t-icon name="upload" /></template>
+            导入员工
+          </t-button>
+          <t-button
             v-if="canCreate"
             theme="primary"
             data-testid="hr-emp-create"
@@ -1219,6 +1238,176 @@
         </div>
       </div>
     </t-dialog>
+
+    <!-- ==================== ⑦ 导入对话框（Excel 批量建档，卡 t_b0808afe） ==================== -->
+    <t-dialog
+      v-model:visible="importVisible"
+      header="导入员工（Excel）"
+      width="920px"
+      :footer="false"
+      :close-on-overlay-click="false"
+      :close-btn="!uploading && !confirming"
+      data-testid="hr-emp-import-dialog"
+    >
+      <div class="import">
+        <t-alert theme="info" class="import__tip">
+          模板 <b>{{ EMPLOYEE_IMPORT_COLUMN_COUNT }}</b> 列 ·
+          <b>「部门名称」填部门名，不要填编号</b>（同名部门挂在不同父部门下时写路径，如「总部/生产部」）·
+          「工号」留空由系统自动取号。<br />
+          上传后先预检：<b>有错误的行不会入库</b>，其余行照常导入（可点「下载错误行」取回改完重传）。
+        </t-alert>
+
+        <!-- 步骤一：选文件 -->
+        <template v-if="!importTask">
+          <div class="import__actions">
+            <t-button
+              variant="outline"
+              :loading="templateLoading"
+              data-testid="hr-emp-import-template"
+              @click="handleDownloadTemplate"
+            >
+              <template #icon><t-icon name="download" /></template>
+              下载导入模板
+            </t-button>
+            <input
+              ref="fileInput"
+              type="file"
+              accept=".xlsx,.xls"
+              class="import__file"
+              data-testid="hr-emp-import-file"
+              @change="handleFilePicked"
+            />
+            <t-button variant="outline" data-testid="hr-emp-import-pick" @click="pickFile">选择文件</t-button>
+            <span class="import__file-name" data-testid="hr-emp-import-filename">
+              {{ importFile ? importFile.name : `未选择文件（.xlsx / .xls，≤ ${EMPLOYEE_IMPORT_MAX_ROWS} 行）` }}
+            </span>
+            <t-button
+              theme="primary"
+              :disabled="!importFile"
+              :loading="uploading"
+              data-testid="hr-emp-import-upload"
+              @click="handleUpload"
+            >
+              上传并预检
+            </t-button>
+          </div>
+          <t-alert
+            v-if="importFileError"
+            theme="warning"
+            :message="importFileError"
+            class="import__tip"
+            data-testid="hr-emp-import-file-error"
+          />
+          <t-alert
+            v-if="importError"
+            theme="error"
+            :message="importError"
+            class="import__tip"
+            data-testid="hr-emp-import-error"
+          />
+        </template>
+
+        <!-- 步骤二：预检报告 → 确认入库 → 结果 -->
+        <template v-else>
+          <div class="import-report" data-testid="hr-emp-import-report">
+            <span class="import-report__item">任务 <b class="mono">{{ importTask.task_no }}</b></span>
+            <span class="import-report__item">数据行 <b>{{ summary.total }}</b></span>
+            <span class="import-report__item import-report__item--ok">可导入 <b>{{ summary.valid }}</b></span>
+            <span
+              class="import-report__item"
+              :class="{ 'import-report__item--bad': summary.error > 0 }"
+              data-testid="hr-emp-import-error-count"
+            >
+              错误 <b>{{ summary.error }}</b>
+            </span>
+            <span v-if="summary.skippedExample" class="import-report__item">
+              跳过示例行 <b>{{ summary.skippedExample }}</b>
+            </span>
+            <span v-if="summary.skippedBlank" class="import-report__item">
+              跳过空行 <b>{{ summary.skippedBlank }}</b>
+            </span>
+          </div>
+
+          <t-alert
+            v-for="(warning, index) in importReport?.warnings ?? []"
+            :key="`w-${index}`"
+            theme="warning"
+            :message="warning.message"
+            class="import__tip"
+          />
+
+          <div v-if="importErrorRows.length > 0" class="import-errors">
+            <div class="import-errors__title">
+              错误明细（{{ importErrorRows.length }} 条{{ importReport?.truncated ? '，已截断' : '' }}）
+              一一修正后重新上传即可
+            </div>
+            <t-table
+              row-key="_key"
+              size="small"
+              :data="importErrorRows"
+              :columns="EMPLOYEE_IMPORT_ERROR_COLUMNS"
+              max-height="280"
+              data-testid="hr-emp-import-errors"
+            >
+              <template #column="{ row }">
+                <span>{{ errorColumnLabel(row) }}</span>
+              </template>
+              <template #message="{ row }">
+                <span>{{ errorMessageText(row) }}</span>
+              </template>
+            </t-table>
+          </div>
+
+          <div class="import__actions">
+            <t-button
+              variant="outline"
+              :loading="templateLoading"
+              data-testid="hr-emp-import-template-again"
+              @click="handleDownloadTemplate"
+            >
+              下载模板
+            </t-button>
+            <t-button variant="outline" data-testid="hr-emp-import-reset" @click="resetImport">
+              重新选文件
+            </t-button>
+            <t-button
+              v-if="outcome && canDownloadErrors(outcome.failed)"
+              variant="outline"
+              :loading="errorsLoading"
+              data-testid="hr-emp-import-download-errors"
+              @click="handleDownloadErrors"
+            >
+              <template #icon><t-icon name="download" /></template>
+              下载错误行
+            </t-button>
+            <t-button
+              theme="primary"
+              :disabled="!canConfirmImport(importReport, confirming) || !!importDone"
+              :loading="confirming"
+              data-testid="hr-emp-import-confirm"
+              @click="handleConfirmImport"
+            >
+              确认导入（{{ summary.valid }} 行）
+            </t-button>
+          </div>
+
+          <t-alert
+            v-if="importError"
+            theme="error"
+            :message="importError"
+            class="import__tip"
+            data-testid="hr-emp-import-error-confirm"
+          />
+          <t-alert
+            v-if="importDone"
+            theme="success"
+            :message="importDone"
+            class="import__tip"
+            data-testid="hr-emp-import-done"
+          />
+        </template>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -1283,8 +1472,27 @@ import {
   summarizeSeed,
   textOr,
   updateEmployee,
+  // Excel 导入（卡 t_b0808afe）
+  EMPLOYEE_IMPORT_COLUMN_COUNT,
+  EMPLOYEE_IMPORT_ERROR_COLUMNS,
+  EMPLOYEE_IMPORT_ERRORS_FILE,
+  EMPLOYEE_IMPORT_MAX_ROWS,
+  EMPLOYEE_IMPORT_TEMPLATE_FILE,
+  canConfirmImport,
+  canDownloadErrors,
+  canUseImport,
+  confirmEmployeeImport,
+  downloadEmployeeImportErrors,
+  downloadEmployeeImportTemplate,
+  errorColumnLabel,
+  errorMessageText,
+  importOutcomeText,
+  summarizeImport,
+  uploadEmployeeImport,
+  validateImportFile,
   type EmployeeDetail,
   type EmployeeListRow,
+  type ImportOutcome,
   type SeedBucket,
   type SeedItem,
   type SeedResult,
@@ -1306,6 +1514,8 @@ import {
   type EmployeeFormState,
 } from './employee-form';
 import { ApiError } from '@/api/request';
+import { saveBlob } from '@/utils/download';
+import type { ImportErrorRes, ImportUploadRes, PrecheckReport } from '@/api/business/impexp';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
@@ -1351,6 +1561,14 @@ const canViewPlain = computed(() => userStore.hasPermission(PERM.sensitive));
 const canCreate = computed(() => userStore.hasPermission(PERM.create));
 const canUpdate = computed(() => userStore.hasPermission(PERM.update));
 const canDelete = computed(() => userStore.hasPermission(PERM.delete));
+/**
+ * 「下载导入模板 / 导入员工」的权限门（卡 t_b0808afe）。
+ *
+ * 模板下载走 HR 自己的码 `business:hr:employee:import`；上传 / 确认走 impexp 的
+ * 上传 / 确认码 —— 缺一个就会在中途 403，所以入口按钮按「两组都有」门禁
+ * （`canUseImport` 里写死了三个码，别在这里再手工列一遍）。
+ */
+const canImport = computed(() => canUseImport((code) => userStore.hasPermission(code)));
 
 /** 证件类型下拉（码表来自后端 `ID_CARD_TYPES`，顺序一致） */
 const idCardTypeOptions = ID_CARD_TYPE_OPTIONS.map((item) => ({ ...item }));
@@ -1900,6 +2118,197 @@ async function runSeedApply(): Promise<void> {
     seedError.value = messageOf(error);
   } finally {
     seedLoading.value = false;
+  }
+}
+
+// ==================== Excel 导入（卡 t_b0808afe） ====================
+
+/*
+  三段式：下载模板 → 上传预检（不写库）→ 确认入库。
+
+  # 与考勤页导入的三处不同（别照抄 `views/business/hr/attendance/index.vue`）
+
+  1. **模式是 `PARTIAL` 不是 `STRICT`**：花名册几行写错是常态，卡面要求「成功 N / 失败 M」，
+     `STRICT` 会被后端整批拒绝（框架语义），用户会以为导入坏了。
+  2. **重复策略是 `SKIP`**：同一份花名册导第二遍不产生第二个人。
+  3. **多一个「下载错误行」按钮**：错误行 xlsx 由后端 `GET /import/{id}/errors/file` 生成
+     （原始数据 + 错误原因列），用户改完直接重传，不用手工找回是哪几行。
+
+  # 「已跳过 N 行（重复）」怎么算
+
+  `outcome.skipped = 预检通过数 − 确认回执的 imported_rows`（`importOutcomeText` 里算）。
+  后端 `persist` 只把**真正写入**的行计入返回值，所以这个差值就是被
+  `ON CONFLICT DO NOTHING` 跳过的重复行 —— 前端不自己按身份证去重（拿不到跨批次历史）。
+*/
+
+const importVisible = ref(false);
+/** 已选文件（未上传） */
+const importFile = ref<File | null>(null);
+const fileInput = ref<HTMLInputElement>();
+/** 已上传并拿到预检回执的任务（非空即进入「报告 / 确认」步骤） */
+const importTask = ref<ImportUploadRes | null>(null);
+const uploading = ref(false);
+const confirming = ref(false);
+const templateLoading = ref(false);
+const errorsLoading = ref(false);
+/** 上传 / 确认的接口错误（红色告警） */
+const importError = ref('');
+/** 选中文件的本地校验（黄色告警：扩展名 / 大小） */
+const importFileError = ref('');
+/** 确认入库成功后的结果文案 */
+const importDone = ref('');
+/** 确认入库回执（结果页的三类计数与「下载错误行」按钮都看它） */
+const outcome = ref<ImportOutcome | null>(null);
+
+/** 预检报告（模板里多处引用，收成一个 computed 免得满篇 `?.`） */
+const importReport = computed<PrecheckReport | null>(() => importTask.value?.report ?? null);
+/** 顶部摘要（总行数 / 可导入 / 错误 / 跳过示例与空行） */
+const summary = computed(() => summarizeImport(importReport.value));
+/** 错误明细行（带唯一 key：同一行可能有多条错误，`row_no` 不能当 key） */
+const importErrorRows = computed<(ImportErrorRes & { _key: string })[]>(() =>
+  (importReport.value?.errors ?? []).map((issue, index) => ({ ...issue, _key: `${issue.row_no}-${index}` })),
+);
+
+/** 打开导入对话框（每次都从「选文件」开始） */
+function openImport(): void {
+  resetImport();
+  importVisible.value = true;
+}
+
+function resetImport(): void {
+  importFile.value = null;
+  importTask.value = null;
+  importError.value = '';
+  importFileError.value = '';
+  importDone.value = '';
+  outcome.value = null;
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
+}
+
+function pickFile(): void {
+  fileInput.value?.click();
+}
+
+/** 选中文件：先本地校验扩展名 / 大小（后端也有一道，这里只是少等一次往返） */
+function handleFilePicked(event: Event): void {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0] ?? null;
+  importFile.value = file;
+  importFileError.value = validateImportFile(file);
+  importError.value = '';
+}
+
+/**
+ * 下载导入模板。
+ *
+ * 走 HR 自己的路由（`business:hr:employee:import`），内容由后端 `hr.employee` 定义的
+ * 同一份列定义生成 —— 表头与导入解析不会错位。
+ *
+ * 失败时把后端报文原样抛给用户（`ApiError.message` 里是中文人话）：
+ * 最可能是「没有导入权限」或「后端未注册该定义」。
+ */
+async function handleDownloadTemplate(): Promise<void> {
+  if (templateLoading.value) {
+    return;
+  }
+  templateLoading.value = true;
+  try {
+    const blob = await downloadEmployeeImportTemplate();
+    saveBlob(blob, EMPLOYEE_IMPORT_TEMPLATE_FILE);
+    MessagePlugin.success('模板已开始下载');
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    templateLoading.value = false;
+  }
+}
+
+/** 上传并预检（**不写库**）：失败只提示，不消耗任务 */
+async function handleUpload(): Promise<void> {
+  const file = importFile.value;
+  if (!file || uploading.value) {
+    return;
+  }
+  const localError = validateImportFile(file);
+  if (localError) {
+    importFileError.value = localError;
+    return;
+  }
+  uploading.value = true;
+  importError.value = '';
+  try {
+    importTask.value = await uploadEmployeeImport(file);
+    outcome.value = null;
+    importDone.value = '';
+  } catch (error) {
+    importError.value = messageOf(error);
+  } finally {
+    uploading.value = false;
+  }
+}
+
+/**
+ * 确认入库。
+ *
+ * 结果页分三段展示：成功 / 按重复跳过 / 失败（`importOutcomeText`）。
+ * 「有错误行也允许确认」是 `PARTIAL` 的语义 —— 与考勤页（`STRICT`）不同。
+ */
+async function handleConfirmImport(): Promise<void> {
+  const task = importTask.value;
+  if (!task || confirming.value || importDone.value) {
+    return;
+  }
+  if (!canConfirmImport(importReport.value, confirming.value)) {
+    return;
+  }
+  confirming.value = true;
+  importError.value = '';
+  try {
+    const confirm = await confirmEmployeeImport(task.task_id);
+    outcome.value = importOutcomeText(
+      confirm,
+      importReport.value?.valid ?? 0,
+      importReport.value?.error ?? 0,
+    );
+    importDone.value = `导入完成：${outcome.value.text}${confirm.message ? `（${confirm.message}）` : ''}`;
+    if (outcome.value.imported > 0) {
+      MessagePlugin.success(`已导入 ${outcome.value.imported} 人`);
+    } else if (outcome.value.skipped > 0) {
+      MessagePlugin.info('全部为重复档案，已跳过（没有新建）');
+    } else {
+      MessagePlugin.warning('没有入库任何行，请查看失败原因');
+    }
+    // 列表刷新：新档案的工号 / 部门名都来自库
+    await loadRows();
+  } catch (error) {
+    importError.value = messageOf(error);
+  } finally {
+    confirming.value = false;
+  }
+}
+
+/**
+ * 下载错误行 xlsx（原始数据 + 错误原因列）。
+ *
+ * 后端从任务落盘的原始文件 + `sys_import_task_error` 现生成，**不需要前端回传数据**，
+ * 所以只要任务 id 在就能下载（离开本页也可以从「导入任务」页再下）。
+ */
+async function handleDownloadErrors(): Promise<void> {
+  const task = importTask.value;
+  if (!task || errorsLoading.value) {
+    return;
+  }
+  errorsLoading.value = true;
+  try {
+    const blob = await downloadEmployeeImportErrors(task.task_id);
+    saveBlob(blob, `${EMPLOYEE_IMPORT_ERRORS_FILE.replace('.xlsx', '')}_${task.task_no}.xlsx`);
+    MessagePlugin.success('错误行已开始下载');
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    errorsLoading.value = false;
   }
 }
 
@@ -2637,5 +3046,62 @@ onMounted(() => {
   .form-grid--three {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ==================== 导入对话框（卡 t_b0808afe） ==================== */
+.import {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.import__tip {
+  margin: 0;
+}
+
+.import__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 原生 file input 只用来触发选择框，按钮走 t-button（统一样式与 testid） */
+.import__file {
+  display: none;
+}
+
+.import__file-name {
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+}
+
+.import-report {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover);
+  font-size: 13px;
+}
+
+.import-report__item--ok b {
+  color: var(--td-success-color);
+}
+
+.import-report__item--bad b {
+  color: var(--td-error-color);
+}
+
+.import-errors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.import-errors__title {
+  font-size: 13px;
+  font-weight: 600;
 }
 </style>

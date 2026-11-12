@@ -470,6 +470,13 @@ pub struct WorkbookSheet<'a> {
     pub rows: &'a [HashMap<String, String>],
     /// 该 sheet 的数据验证（Excel 下拉 / 数值范围 / 日期范围）；空切片表示不加。
     pub validations: &'a [XlsxValidation<'a>],
+    /// 强制文本格式的列下标（模板「数据」sheet 全部列都要，见
+    /// [`Export::to_xlsx_workbook`] 的 `text_columns`）；空切片 = 不加。
+    pub text_columns: &'a [u16],
+    /// 表头批注 `(列下标, 正文)`；空切片 = 不加。
+    pub header_comments: &'a [(u16, &'a str)],
+    /// 第一个数据行按示例行渲染（灰字 + 斜体）。
+    pub sample_first_row: bool,
 }
 
 impl<'a> WorkbookSheet<'a> {
@@ -480,6 +487,9 @@ impl<'a> WorkbookSheet<'a> {
             headers,
             rows,
             validations: &[],
+            text_columns: &[],
+            header_comments: &[],
+            sample_first_row: false,
         }
     }
 
@@ -488,13 +498,31 @@ impl<'a> WorkbookSheet<'a> {
         self.validations = validations;
         self
     }
+
+    /// 指定强制文本格式的列（防身份证 / 手机号 / 银行账号被 Excel 转成数值丢精度）。
+    pub fn with_text_columns(mut self, text_columns: &'a [u16]) -> Self {
+        self.text_columns = text_columns;
+        self
+    }
+
+    /// 指定表头批注（鼠标悬停看到的填写说明）。
+    pub fn with_header_comments(mut self, header_comments: &'a [(u16, &'a str)]) -> Self {
+        self.header_comments = header_comments;
+        self
+    }
+
+    /// 第一个数据行按「示例行」渲染（灰字 + 斜体）。
+    pub fn with_sample_first_row(mut self) -> Self {
+        self.sample_first_row = true;
+        self
+    }
 }
 
 /// 生成多 sheet xlsx 字节流（模板用）。
 ///
 /// # 参数
 ///
-/// - `sheets`：每个 sheet 的名称 / 表头 / 行数据 / 数据验证。
+/// - `sheets`：每个 sheet 的名称 / 表头 / 行数据 / 数据验证 / 文本列 / 批注 / 示例行开关。
 ///
 /// # 返回值
 ///
@@ -506,7 +534,17 @@ impl<'a> WorkbookSheet<'a> {
 pub fn write_workbook(sheets: &[WorkbookSheet<'_>]) -> std::result::Result<Vec<u8>, ApiError> {
     let built = sheets
         .iter()
-        .map(|sheet| XlsxSheet::new(sheet.name, sheet.headers, sheet.rows).with_validations(sheet.validations))
+        .map(|sheet| {
+            let built = XlsxSheet::new(sheet.name, sheet.headers, sheet.rows)
+                .with_validations(sheet.validations)
+                .with_text_columns(sheet.text_columns)
+                .with_header_comments(sheet.header_comments);
+            if sheet.sample_first_row {
+                built.with_sample_first_row()
+            } else {
+                built
+            }
+        })
         .collect::<Vec<_>>();
     Export::to_xlsx_workbook(&built)
         .map_err(|error| ApiError::new(500, error_code::INTERNAL_ERROR, format!("生成 Excel 失败：{error}")))

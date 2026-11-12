@@ -157,6 +157,10 @@ pub mod employee_dto;
 mod employee_dto_db_tests;
 /// 员工主档接口层（`biz_employee`）：设计 §5.2 #1~#6 + #8 绑账号（HR-12）。
 pub mod employee_handler;
+/// 员工档案导入模板下载（`GET /business/hr/employee/import-template`，卡 `t_b0808afe`）：
+/// 挂在 `business:hr:employee:import` 上，模板内容由 impexp 的 `hr.employee` 定义生成
+/// （与导入解析同一份列定义，不会错位）。
+pub mod employee_import_handler;
 /// HR-12 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：6 个接口的完整链路 +
 /// **部门 / 本人两种数据范围**的可见性边界。只在 `cargo test` 时编译。
 #[cfg(test)]

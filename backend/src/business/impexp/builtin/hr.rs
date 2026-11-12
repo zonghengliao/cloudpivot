@@ -78,6 +78,13 @@ use crate::business::impexp::definition::{
 /// 带 Excel 行号进错误明细），汇总重算在 `persist` 的同一事务里（记录与汇总同生共死）。
 mod import_post;
 
+/// 员工档案导入（`hr.employee` · HR-47 卡 `t_b0808afe`）。
+///
+/// 列契约 / 四条校验分层 / 部门名解析 / 幂等语义见该模块文档；与考勤导入共用
+/// `business::impexp` 的框架能力（模板生成、逐格校验、错误行 xlsx）。
+/// **两份定义互不引用**：考勤按「(期间, 人)」判重，员工按「身份证」判重，口径不同。
+pub mod employee;
+
 use import_post::{LeaveMatchRow, mismatch_message, recalc_periods, require_leave_match};
 
 /// 考勤导入的业务编码（设计 §5.2 #23 逐字：`biz_type='hr.attendance'`）。

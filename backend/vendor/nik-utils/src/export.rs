@@ -39,9 +39,7 @@ impl Export {
             w.write_record(&vals)
                 .map_err(|e| Error::Msg(format!("CSV写入失败: {}", e)))?;
         }
-        let data = w
-            .into_inner()
-            .map_err(|e| Error::Msg(format!("CSV输出失败: {}", e)))?;
+        let data = w.into_inner().map_err(|e| Error::Msg(format!("CSV输出失败: {}", e)))?;
         String::from_utf8(data).map_err(|e| Error::Msg(format!("UTF8转换失败: {}", e)))
     }
 
@@ -63,8 +61,7 @@ impl Export {
 
     /// 将结构化数据导出为 JSON
     pub fn to_json<T: Serialize>(items: &[T]) -> Result<String> {
-        serde_json::to_string_pretty(items)
-            .map_err(|e| Error::Msg(format!("JSON序列化失败: {}", e)))
+        serde_json::to_string_pretty(items).map_err(|e| Error::Msg(format!("JSON序列化失败: {}", e)))
     }
 }
 
@@ -111,9 +108,7 @@ mod xlsx_impl {
     use super::{Error, Export, HashMap, Import, Result, Serialize};
     use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
     use chrono::{Datelike, NaiveDate};
-    use rust_xlsxwriter::{
-        Color, DataValidation, DataValidationRule, Format, Formula, Workbook, Worksheet,
-    };
+    use rust_xlsxwriter::{Color, DataValidation, DataValidationRule, Format, Formula, Note, Workbook, Worksheet};
     use serde::de::DeserializeOwned;
     use std::io::Cursor;
 
@@ -162,6 +157,47 @@ mod xlsx_impl {
             Cell::Bool(b) => ws.write_boolean(row, col, b).map_err(map_err)?,
             Cell::Text(s) => ws.write_string(row, col, s).map_err(map_err)?,
         };
+        Ok(())
+    }
+
+    /// 带样式的写单元格（文本列 / 示例行用）。
+    ///
+    /// # 与 [`write_cell`] 的差别
+    ///
+    /// 传进来的 `format` 若带 `@`（文本格式），**一律按字符串写**，不再做
+    /// [`classify`] 的数值化推断 —— 文本列里 `13800138000` 必须原样是字符串，
+    /// 否则 Excel 一旦把列当成数值，18 位身份证号就会丢精度。
+    ///
+    /// # 参数
+    ///
+    /// - `ws`：目标工作表；
+    /// - `row` / `col`：0 基坐标；
+    /// - `v`：单元格文本；
+    /// - `format`：样式（文本格式 / 示例行斜体灰字）；
+    /// - `as_text`：是否强制按字符串写（文本列传 `true`）。
+    fn write_cell_with_format(
+        ws: &mut Worksheet,
+        row: u32,
+        col: u16,
+        v: &str,
+        format: &Format,
+        as_text: bool,
+    ) -> Result<()> {
+        if v.is_empty() {
+            ws.write_blank(row, col, format).map_err(map_err)?;
+            return Ok(());
+        }
+        if as_text {
+            ws.write_string_with_format(row, col, v, format).map_err(map_err)?;
+            return Ok(());
+        }
+        match classify(v) {
+            Cell::Int(i) => ws.write_number_with_format(row, col, i as f64, format),
+            Cell::Float(f) => ws.write_number_with_format(row, col, f, format),
+            Cell::Bool(b) => ws.write_boolean_with_format(row, col, b, format),
+            Cell::Text(s) => ws.write_string_with_format(row, col, s, format),
+        }
+        .map_err(map_err)?;
         Ok(())
     }
 
@@ -230,12 +266,7 @@ mod xlsx_impl {
 
     impl<'a> XlsxValidation<'a> {
         /// 下拉列表验证。
-        pub fn list(
-            column: u16,
-            first_row: u32,
-            last_row: u32,
-            values: impl IntoIterator<Item = &'a str>,
-        ) -> Self {
+        pub fn list(column: u16, first_row: u32, last_row: u32, values: impl IntoIterator<Item = &'a str>) -> Self {
             Self {
                 column,
                 first_row,
@@ -247,13 +278,7 @@ mod xlsx_impl {
         }
 
         /// 整数范围验证。
-        pub fn int_range(
-            column: u16,
-            first_row: u32,
-            last_row: u32,
-            min: Option<i64>,
-            max: Option<i64>,
-        ) -> Self {
+        pub fn int_range(column: u16, first_row: u32, last_row: u32, min: Option<i64>, max: Option<i64>) -> Self {
             Self {
                 column,
                 first_row,
@@ -265,13 +290,7 @@ mod xlsx_impl {
         }
 
         /// 小数范围验证。
-        pub fn decimal_range(
-            column: u16,
-            first_row: u32,
-            last_row: u32,
-            min: Option<f64>,
-            max: Option<f64>,
-        ) -> Self {
+        pub fn decimal_range(column: u16, first_row: u32, last_row: u32, min: Option<f64>, max: Option<f64>) -> Self {
             Self {
                 column,
                 first_row,
@@ -310,11 +329,8 @@ mod xlsx_impl {
 
     /// 把一个日期字符串转成 `DATE(y,m,d)` 公式。
     fn date_formula(value: &str) -> Result<Formula> {
-        let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
-            Error::Msg(format!(
-                "XLSX数据验证失败: 日期「{value}」不是 YYYY-MM-DD 格式"
-            ))
-        })?;
+        let date = NaiveDate::parse_from_str(value, "%Y-%m-%d")
+            .map_err(|_| Error::Msg(format!("XLSX数据验证失败: 日期「{value}」不是 YYYY-MM-DD 格式")))?;
         Ok(Formula::new(format!(
             "DATE({},{},{})",
             date.year(),
@@ -324,11 +340,8 @@ mod xlsx_impl {
     }
 
     fn int_bound(value: i64) -> Result<i32> {
-        i32::try_from(value).map_err(|_| {
-            Error::Msg(format!(
-                "XLSX数据验证失败: 整数边界 {value} 超出 Excel 的 ±2^31 范围"
-            ))
-        })
+        i32::try_from(value)
+            .map_err(|_| Error::Msg(format!("XLSX数据验证失败: 整数边界 {value} 超出 Excel 的 ±2^31 范围")))
     }
 
     /// 把一条 [`XlsxValidation`] 编译成 `rust_xlsxwriter` 的验证对象。
@@ -354,9 +367,7 @@ mod xlsx_impl {
             }
             XlsxValidationRule::IntRange { min, max } => {
                 let rule = match (min, max) {
-                    (Some(low), Some(high)) => {
-                        DataValidationRule::Between(int_bound(*low)?, int_bound(*high)?)
-                    }
+                    (Some(low), Some(high)) => DataValidationRule::Between(int_bound(*low)?, int_bound(*high)?),
                     (Some(low), None) => DataValidationRule::GreaterThanOrEqualTo(int_bound(*low)?),
                     (None, Some(high)) => DataValidationRule::LessThanOrEqualTo(int_bound(*high)?),
                     (None, None) => return Ok(None),
@@ -415,19 +426,37 @@ mod xlsx_impl {
         pub rows: &'a [HashMap<String, String>],
         /// 该 sheet 的数据验证（下拉 / 数值范围 / 日期范围）；空切片表示不加
         pub validations: &'a [XlsxValidation<'a>],
+        /// 需要强制**文本格式**的列下标（`@` 数字格式）。
+        ///
+        /// 空切片 = 保持原行为（能数值化的文本写成数字）。
+        ///
+        /// 为什么需要它：Excel 对「常规」格式的单元格会把 `6222021234567890123`
+        /// 这类长数字转成数值（15 位有效位，后几位**直接丢失**），身份证 / 手机号 /
+        /// 银行账号填进模板就会悄悄变成科学计数法。列被标成文本后，用户新填的
+        /// 单元格与已写入的示例值都保持字符串，导入解析拿到的才是原文。
+        pub text_columns: &'a [u16],
+        /// 表头批注：`(列下标, 批注正文)`。空切片表示不加批注。
+        ///
+        /// 批注挂在第 1 行（表头单元格）上，鼠标悬停即可看到该列的填写说明；
+        /// 与「字段说明」sheet 的说明文案同一来源（调用方决定）。
+        pub header_comments: &'a [(u16, &'a str)],
+        /// 第一个数据行是否按「示例行」渲染（灰字 + 斜体）。
+        ///
+        /// 模板的第 2 行是给用户看的示例（导入时自动跳过），样式上必须与用户
+        /// 自己填的行区分开，否则用户会以为那是真实数据。
+        pub style_first_row_as_sample: bool,
     }
 
     impl<'a> XlsxSheet<'a> {
-        pub fn new(
-            name: &'a str,
-            columns: &'a [&'a str],
-            rows: &'a [HashMap<String, String>],
-        ) -> Self {
+        pub fn new(name: &'a str, columns: &'a [&'a str], rows: &'a [HashMap<String, String>]) -> Self {
             Self {
                 name,
                 columns,
                 rows,
                 validations: &[],
+                text_columns: &[],
+                header_comments: &[],
+                style_first_row_as_sample: false,
             }
         }
 
@@ -435,6 +464,24 @@ mod xlsx_impl {
         /// 需要多列各加一条。
         pub fn with_validations(mut self, validations: &'a [XlsxValidation<'a>]) -> Self {
             self.validations = validations;
+            self
+        }
+
+        /// 指定按文本格式写入的列（见 [`Self::text_columns`]）。
+        pub fn with_text_columns(mut self, text_columns: &'a [u16]) -> Self {
+            self.text_columns = text_columns;
+            self
+        }
+
+        /// 指定表头批注（见 [`Self::header_comments`]）。
+        pub fn with_header_comments(mut self, header_comments: &'a [(u16, &'a str)]) -> Self {
+            self.header_comments = header_comments;
+            self
+        }
+
+        /// 第一个数据行按示例行渲染（灰字 + 斜体，见 [`Self::style_first_row_as_sample`]）。
+        pub fn with_sample_first_row(mut self) -> Self {
+            self.style_first_row_as_sample = true;
             self
         }
     }
@@ -450,10 +497,7 @@ mod xlsx_impl {
         /// // Content-Type: application/vnd.openxmlformats-officedocument
         /// //              .spreadsheetml.sheet
         /// ```
-        pub fn to_xlsx_bytes(
-            columns: &[&str],
-            rows: &[HashMap<String, String>],
-        ) -> Result<Vec<u8>> {
+        pub fn to_xlsx_bytes(columns: &[&str], rows: &[HashMap<String, String>]) -> Result<Vec<u8>> {
             Self::to_xlsx_workbook(&[XlsxSheet::new("Sheet1", columns, rows)])
         }
 
@@ -471,9 +515,16 @@ mod xlsx_impl {
                 return Err(Error::Msg("XLSX导出失败: 至少需要一个工作表".into()));
             }
             let mut wb = Workbook::new();
-            let header = Format::new()
-                .set_bold()
-                .set_background_color(Color::RGB(0xD9E1F2));
+            let header = Format::new().set_bold().set_background_color(Color::RGB(0xD9E1F2));
+            // 文本列：`@` 是 Excel 的「文本」数字格式。列级设置让**用户新填**的单元格
+            // 也走文本（否则只有已写入的示例值是字符串，用户一填长数字又被转成数值）。
+            let text_format = Format::new().set_num_format("@");
+            // 示例行：灰字 + 斜体（与用户自己填的行视觉上区分开）
+            let sample_plain = Format::new().set_italic().set_font_color(Color::RGB(0x80_80_80));
+            let sample_text = Format::new()
+                .set_italic()
+                .set_font_color(Color::RGB(0x80_80_80))
+                .set_num_format("@");
             for sheet in sheets {
                 let ws = wb.add_worksheet();
                 ws.set_name(sheet.name).map_err(map_err)?;
@@ -481,11 +532,33 @@ mod xlsx_impl {
                     ws.write_string_with_format(0, c as u16, *name, &header)
                         .map_err(map_err)?;
                 }
+                // 表头批注（鼠标悬停可见的填写说明）
+                for (col, text) in sheet.header_comments {
+                    if text.trim().is_empty() {
+                        continue;
+                    }
+                    ws.insert_note(0, *col, &Note::new(*text)).map_err(map_err)?;
+                }
+                // 列级文本格式（对用户后续填写生效）
+                for col in sheet.text_columns {
+                    ws.set_column_format(*col, &text_format).map_err(map_err)?;
+                }
                 for (r, row) in sheet.rows.iter().enumerate() {
                     let r = (r + 1) as u32;
+                    let is_sample = sheet.style_first_row_as_sample && r == 1;
                     for (c, col) in sheet.columns.iter().enumerate() {
                         let v = row.get(*col).map(|s| s.as_str()).unwrap_or("");
-                        write_cell(ws, r, c as u16, v)?;
+                        let is_text = sheet.text_columns.contains(&(c as u16));
+                        let style = match (is_sample, is_text) {
+                            (true, true) => Some(&sample_text),
+                            (true, false) => Some(&sample_plain),
+                            (false, true) => Some(&text_format),
+                            (false, false) => None,
+                        };
+                        match style {
+                            Some(format) => write_cell_with_format(ws, r, c as u16, v, format, is_text)?,
+                            None => write_cell(ws, r, c as u16, v)?,
+                        }
                     }
                 }
                 // 数据验证（下拉 / 范围）：只作用在调用方指定的行区间上
@@ -509,14 +582,11 @@ mod xlsx_impl {
         }
     }
 
-    fn typed_to_rows<T: Serialize>(
-        columns: &[&str],
-        items: &[T],
-    ) -> Result<Vec<HashMap<String, String>>> {
+    fn typed_to_rows<T: Serialize>(columns: &[&str], items: &[T]) -> Result<Vec<HashMap<String, String>>> {
         let mut rows = Vec::with_capacity(items.len());
         for item in items {
-            let value = serde_json::to_value(item)
-                .map_err(|e| Error::Msg(format!("XLSX导出失败: 序列化失败 {}", e)))?;
+            let value =
+                serde_json::to_value(item).map_err(|e| Error::Msg(format!("XLSX导出失败: 序列化失败 {}", e)))?;
             let mut row = HashMap::new();
             for col in columns {
                 let text = match value.get(*col) {
@@ -534,8 +604,7 @@ mod xlsx_impl {
     // ── 读 ───────────────────────────────────────────────────
 
     fn open(data: &[u8]) -> Result<Xlsx<Cursor<&[u8]>>> {
-        open_workbook_from_rs(Cursor::new(data))
-            .map_err(|e| Error::Msg(format!("XLSX解析失败: {}", e)))
+        open_workbook_from_rs(Cursor::new(data)).map_err(|e| Error::Msg(format!("XLSX解析失败: {}", e)))
     }
 
     fn cell_to_string(d: &Data) -> String {
@@ -623,10 +692,7 @@ mod xlsx_impl {
         }
     }
 
-    fn deserialize_rows<T: DeserializeOwned>(
-        rows: &[HashMap<String, String>],
-        infer: bool,
-    ) -> Result<Vec<T>> {
+    fn deserialize_rows<T: DeserializeOwned>(rows: &[HashMap<String, String>], infer: bool) -> Result<Vec<T>> {
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             let item = serde_json::from_value(json_value(row, infer))
@@ -688,8 +754,7 @@ mod tests {
 
     #[test]
     fn roundtrip_preserves_header_and_values() {
-        let bytes =
-            Export::to_xlsx_bytes(&["id", "name"], &[row("1", "Alice"), row("2", "Bob")]).unwrap();
+        let bytes = Export::to_xlsx_bytes(&["id", "name"], &[row("1", "Alice"), row("2", "Bob")]).unwrap();
         let rows = Import::from_xlsx(&bytes).unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].get("id").unwrap(), "1");
@@ -713,10 +778,7 @@ mod tests {
         let mut wb: calamine::Xlsx<_> =
             calamine::open_workbook_from_rs(std::io::Cursor::new(bytes.as_slice())).unwrap();
         let range = wb.worksheet_range("Sheet1").unwrap();
-        assert!(matches!(
-            range.get((1, 0)),
-            Some(Data::Float(_)) | Some(Data::Int(_))
-        ));
+        assert!(matches!(range.get((1, 0)), Some(Data::Float(_)) | Some(Data::Int(_))));
     }
 
     #[test]
@@ -731,14 +793,9 @@ mod tests {
 
         let names = Import::xlsx_sheet_names(&bytes).unwrap();
         assert_eq!(names, vec!["用户".to_string(), "订单".to_string()]);
+        assert_eq!(Import::from_xlsx(&bytes).unwrap()[0].get("name").unwrap(), "Alice");
         assert_eq!(
-            Import::from_xlsx(&bytes).unwrap()[0].get("name").unwrap(),
-            "Alice"
-        );
-        assert_eq!(
-            Import::from_xlsx_sheet(&bytes, "订单").unwrap()[0]
-                .get("name")
-                .unwrap(),
+            Import::from_xlsx_sheet(&bytes, "订单").unwrap()[0].get("name").unwrap(),
             "Zoe"
         );
     }
@@ -822,13 +879,7 @@ mod tests {
     /// 日期字符串必须严格 `YYYY-MM-DD`，否则写成 `DATE(y,m,d)` 会注入坏公式。
     #[test]
     fn malformed_date_bound_is_rejected() {
-        let validations = [XlsxValidation::date_range(
-            0,
-            2,
-            9,
-            Some("2020/01/01"),
-            None,
-        )];
+        let validations = [XlsxValidation::date_range(0, 2, 9, Some("2020/01/01"), None)];
         let err = sheet_with(&validations).expect_err("非 YYYY-MM-DD 应报错");
         assert!(format!("{err}").contains("YYYY-MM-DD"));
     }

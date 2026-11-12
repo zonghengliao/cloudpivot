@@ -1,0 +1,37 @@
+[PASS] 0. admin 登录
+[PASS] ① 模板下载（HTTP 200）（14482 字节）
+[PASS] ① 文件名带「员工档案导入模板」且是 UTF-8 编码（attachment; filename="_________v1.xlsx"; filename*=UTF-8''%E5%91%98%E5%B7%A5%E6%A1%A3%E6%A1%88%E5%AF%BC%E5%85%A5%E6%A8%A1%E6%9D%BF_v1.xlsx）
+[PASS] ① Content-Type = xlsx（application/vnd.openxmlformats-officedocument.spreadsheetml.sheet）
+[PASS] ① 文件是 zip/xlsx 容器（504b0304）
+[PASS] ② 列是文本格式（numFmt 含 @）（styles.xml 里应有文本格式）
+[PASS] ② 有下拉（dataValidation + formula1）（sheet1.xml）
+[PASS] ② 下拉是序列（性别/证件类型/用工类型/学历）（实际 8 条）
+[PASS] ② 有批注（comments1.xml）（['xl/comments1.xml']）
+[PASS] ② 首行冻结（pane）（freeze）
+[PASS] ② 三个 sheet（数据 / 字段说明 / 填写须知）（sharedStrings）
+[PASS] ② 示例行是灰色斜体（styles.xml）
+[PASS] ② 表头 28 列且首位是「姓名*」（['姓名*', '性别*', '证件类型*']）
+[PASS] ② 第 7 列是「部门名称*」（部门名称*）
+[PASS] ② 末尾追加列是「工号」（工号）
+[PASS] ③ 造 3 行测试文件（/root/emp-import-e2e/员工花名册_3行.xlsx）
+[PASS] ③ 预检：3 行数据（3）
+[PASS] ③ 预检：2 行可导入（2）
+[PASS] ③ 预检：1 行错误（1）
+[PASS] ③ 错误行带 Excel 行号（第 4 行）（4）
+[PASS] ③ 错误原因是部门不存在（部门「不存在的部门f7bd19」在组织架构里不存在（请填部门名称；同名部门多时写路径，如「总部/生产部」））
+[PASS] ③ 预检不写库（任务状态 VALIDATED）（VALIDATED）
+[PASS] ④ 入库 2 行（2）
+[PASS] ④ 状态 PARTIAL（有错行但合法行已入库）（PARTIAL）
+[PASS] ④ 列表能查到 2 人（实际 2：['李四f7bd19', '张三f7bd19']）
+[PASS] ④ 工号自动取号（EMP-xxxx）（['EMP-0003', 'EMP-0004']）
+[PASS] ④ 部门名实时 join 回显（['总部', '总部']）
+[PASS] ⑤ 错误行下载（HTTP 200）（6658 字节）
+[PASS] ⑤ 错误行文件里有「错误原因」列（sharedStrings）
+[PASS] ⑤ 错误行文件里有「错误列」列（sharedStrings）
+[PASS] ⑤ 带上原始行数据（王五 / 部门名 / 手机号）（sharedStrings）
+[PASS] ⑤ 不含已入库行的姓名（张三 / 李四）（sharedStrings）
+[PASS] ⑤ 只有一行数据（同一行的多条错误合并成一行）（实际 2 行（含表头））
+[PASS] ⑥ 二次预检：2 行仍通过校验（库内重复不算错误行）（2）
+[PASS] ⑥ 二次确认：0 行入库（全部按重复跳过）（0）
+[PASS] ⑥ 跳过数 = 预检通过 − 实际入库 = 2（页面显示「已跳过 2 行（重复）」）（2）
+[PASS] ⑥ 库里仍是 2 人（没多出重复档案）（2）

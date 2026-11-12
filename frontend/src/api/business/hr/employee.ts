@@ -28,7 +28,14 @@
  * 报「响应体格式不符合」——本仓最高频的前端踩坑。
  */
 
-import { del, get, post, put, type PageData } from '@/api/request';
+import service, { del, get, post, put, type PageData } from '@/api/request';
+import {
+  confirmImport,
+  downloadImportErrors,
+  uploadImportFile,
+  type ImportConfirmRes,
+  type ImportUploadRes,
+} from '@/api/business/impexp';
 
 import type {
   EmployeeCreatedRes,
@@ -41,9 +48,11 @@ import type {
   EmployeeUpdateReq,
 } from './employee-kinds';
 import type { SeedFromUsersReq, SeedResult } from './employee-seed-kinds';
+import { EMPLOYEE_IMPORT_BIZ_TYPE, EMPLOYEE_IMPORT_TEMPLATE_PATH } from './employee-import-kinds';
 
 export * from './employee-kinds';
 export * from './employee-seed-kinds';
+export * from './employee-import-kinds';
 
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/hr';
@@ -194,4 +203,42 @@ export function seedFromUsersPreview(req: SeedFromUsersReq = {}): Promise<SeedRe
 export function seedFromUsersApply(req: SeedFromUsersReq = {}): Promise<SeedResult> {
   return post<SeedResult>(`${BASE}/employee/seed-from-users`, { ...req, dry_run: false });
 }
+
+// ==================== Excel 导入（卡 t_b0808afe） ====================
+
+/**
+ * 下载员工档案导入模板（xlsx 二进制）。
+ *
+ * 走 **HR 自己的**路由 `GET /business/hr/employee/import-template`（权限
+ * `business:hr:employee:import`），而不是 impexp 的通用模板接口 —— 人事专员通常只有
+ * HR 的权限码。模板内容由后端 `hr.employee` 定义的**同一份列定义**生成，
+ * 所以模板列与导入解析永远不会错位。
+ */
+export async function downloadEmployeeImportTemplate(): Promise<Blob> {
+  const response = await service.get<Blob>(EMPLOYEE_IMPORT_TEMPLATE_PATH, { responseType: 'blob' });
+  return response.data;
+}
+
+/**
+ * 上传员工花名册并预检（**不写库**）。
+ *
+ * - `mode=PARTIAL`：错行不拦合法行（花名册几行错是常态，卡面要求「成功 N / 失败 M」）；
+ * - `duplicate=SKIP`：身份证 / 手机号与库里已有相同的行按「重复」跳过（幂等）。
+ *
+ * 两个参数是**显式**写的，不吃后端默认值（默认是 `STRICT` + `UPSERT`，语义完全不同）。
+ */
+export function uploadEmployeeImport(file: File): Promise<ImportUploadRes> {
+  return uploadImportFile(file, EMPLOYEE_IMPORT_BIZ_TYPE, 'PARTIAL', 'SKIP');
+}
+
+/** 确认入库（预检通过的行落库；回执 `imported_rows` 是**真正写入**的行数）。 */
+export function confirmEmployeeImport(taskId: string): Promise<ImportConfirmRes> {
+  return confirmImport(taskId);
+}
+
+/** 下载「错误行」xlsx（原始数据 + 错误原因列）。 */
+export function downloadEmployeeImportErrors(taskId: string): Promise<Blob> {
+  return downloadImportErrors(taskId);
+}
+
 

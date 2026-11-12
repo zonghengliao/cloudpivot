@@ -59,6 +59,7 @@ use crate::business::impexp::dto::{
     ImportColumnRes, ImportColumnsRes, ImportErrorRes, ImportPageQuery, ImportTaskRes, TaskActionRes, TemplateQuery,
     UploadQuery, UploadRes,
 };
+use crate::business::impexp::engine;
 use crate::business::impexp::model::{self, ExportTaskFilter, ImportTaskFilter, NewExportTask, NewImportTask};
 use crate::business::impexp::registry::{DefinitionBrief, ensure_mode_allowed, global_registry};
 use crate::business::impexp::template;
@@ -542,6 +543,68 @@ async fn errors_file_response(id: &str, principal: &ScopedPrincipal) -> std::res
     let rows = model::list_task_errors(&task.id, MAX_PERSIST_ERRORS as i64)
         .await
         .map_err(|error| utils::db_error(error, "查询错误明细"))?;
+    // 先把「同一行的多条错误」合并成一行（一份 Excel 行只该出现一次，
+    // 否则用户改完重传时会被重复行搞乱）
+    let mut order: Vec<u32> = Vec::new();
+    let mut merged: HashMap<u32, (Vec<String>, Vec<String>)> = HashMap::new();
+    for row in &rows {
+        let row_no = row.row_no as u32;
+        let entry = merged.entry(row_no).or_insert_with(|| {
+            order.push(row_no);
+            (Vec::new(), Vec::new())
+        });
+        if let Some(column) = row.column_header.clone().or_else(|| row.column_key.clone()) {
+            entry.0.push(column);
+        }
+        entry.1.push(row.error_message.clone());
+    }
+
+    // 带上**原始行数据**（用户改完可直接重传；行号 / 错误列 / 错误原因三列只会
+    // 触发 E-IMP-04 警告，不阻断导入）。原文件读不到 / 解析不了时退回旧口径
+    // （行号 / 列名 / 原因），绝不因为「取不到原始数据」让用户下不到错误明细。
+    if let Some(bytes) = read_task_file(&task).await {
+        let definition = global_registry().import_definition(&task.biz_type);
+        if let Some(definition) = definition
+            && let Ok(reader) = engine::SheetReader::open(&bytes, definition.columns())
+        {
+            let wanted = merged.keys().copied().collect::<std::collections::BTreeSet<u32>>();
+            let mut sources: HashMap<u32, Vec<String>> = HashMap::new();
+            for (index, raw) in reader.data_rows().enumerate() {
+                let row_no = engine::SheetReader::excel_row_no(index);
+                if !wanted.contains(&row_no) {
+                    continue;
+                }
+                let cells = definition
+                    .columns()
+                    .iter()
+                    .enumerate()
+                    .map(|(column_index, _)| reader.cell(raw, column_index))
+                    .collect::<Vec<_>>();
+                sources.insert(row_no, cells);
+            }
+            let headers = definition
+                .columns()
+                .iter()
+                .map(|column| column.template_header())
+                .collect::<Vec<_>>();
+            let error_rows = order
+                .iter()
+                .map(|row_no| {
+                    let (columns, reasons) = merged.get(row_no).cloned().unwrap_or_default();
+                    template::ErrorSourceRow {
+                        row_no: *row_no,
+                        cells: sources.get(row_no).cloned().unwrap_or_default(),
+                        columns: columns.join("、"),
+                        reasons: reasons.join("；"),
+                    }
+                })
+                .collect::<Vec<_>>();
+            if let Ok(bytes) = template::build_error_sheet_with_source(&headers, &error_rows) {
+                return Ok(xlsx_response(bytes, &format!("{}_错误行.xlsx", task.task_no)));
+            }
+        }
+    }
+
     let lines = rows
         .into_iter()
         .map(|row| {
@@ -554,6 +617,18 @@ async fn errors_file_response(id: &str, principal: &ScopedPrincipal) -> std::res
         .collect::<Vec<_>>();
     let bytes = template::build_error_sheet_rows(&lines)?;
     Ok(xlsx_response(bytes, &format!("{}_错误明细.xlsx", task.task_no)))
+}
+
+/// 读回任务落盘的上传文件（读不到返回 `None`，由调用方决定退化口径）。
+async fn read_task_file(task: &model::ImportTask) -> Option<Vec<u8>> {
+    let path = task.file_path.as_deref()?;
+    match tokio::fs::read(path).await {
+        Ok(bytes) => Some(bytes),
+        Err(error) => {
+            tracing::warn!(task_id = %task.id, path, error = %error, "读取导入原文件失败，错误行文件退化为「行号 / 列名 / 原因」");
+            None
+        }
+    }
 }
 
 // ==================== 确认入库 ====================
