@@ -2,8 +2,9 @@
 //!
 //! 设计定稿：`docs/architecture/ARCH-9-人力资源模块设计.md` §3.1 ⑤（`biz_attendance_record`
 //! 的 DDL）/ §5.2 #23（`POST /business/hr/attendance/import`，`biz_type='hr.attendance'`）/
-//! §6.2（考勤页导入入口 + 错误行表格）。**本卡只做「定义 + 注册 + 模板」**，不做导入后处理
-//! （汇总重算 / 「无薪假 ≤ 已批请假天数」校验 / 错误行报告落库 —— 那是 HR-22）。
+//! §6.2（考勤页导入入口 + 错误行表格）。**HR-21 交「定义 + 注册 + 模板」；HR-22 交
+//! 导入后处理**（「无薪假 ≤ 已批请假天数」校验 / 汇总重算 / 错误行报告，见 [`import_post`]
+//! 与 `validate_batch` / `persist` 的实现注释）。
 //!
 //! # 列契约（模板列 = §3.1 ⑤ 的列 + 一个可选的姓名核对列）
 //!
@@ -70,6 +71,14 @@ use crate::business::impexp::definition::{
     ColumnKind, DuplicateStrategy, ErrorKind, FieldIssue, FkSpec, ImportColumn, ImportCtx, ImportDefinition, RowIssue,
     RowValues,
 };
+
+/// 导入后处理（「无薪假 ≤ 已批请假天数」校验 + 汇总重算），HR-22。
+///
+/// 口径与取舍见该模块文档：校验在 `validate_batch`（整批 + 库内数据，命中即整批拒绝、
+/// 带 Excel 行号进错误明细），汇总重算在 `persist` 的同一事务里（记录与汇总同生共死）。
+mod import_post;
+
+use import_post::{LeaveMatchRow, mismatch_message, recalc_periods, require_leave_match};
 
 /// 考勤导入的业务编码（设计 §5.2 #23 逐字：`biz_type='hr.attendance'`）。
 pub const ATTENDANCE_BIZ_TYPE: &str = "hr.attendance";
@@ -583,6 +592,28 @@ impl AttendanceImport {
         serde_json::to_string(&items).map_err(|error| DbError::InvalidValue(format!("考勤行序列化失败：{error}")))
     }
 
+    /// 把已校验的行摘成「无薪假校验」要的四个字段（期间码 / 工号 / 无薪假 / 行号）。
+    ///
+    /// 只取需要的四列：这条规则与应出勤、加班无关，多带列只会让 SQL 载荷变大。
+    fn leave_match_rows(rows: &[RowValues]) -> Vec<LeaveMatchRow> {
+        rows.iter()
+            .map(|row| LeaveMatchRow {
+                row_no: row.row_no,
+                period_code: row.get(KEY_PERIOD_CODE).trim().to_string(),
+                emp_no: row.get(KEY_EMP_NO).trim().to_string(),
+                leave_unpaid_days: text_of(row, "leave_unpaid_days"),
+            })
+            .collect()
+    }
+
+    /// 本批涉及的考勤月（去重由 [`recalc_periods`] 再做一次，这里只保证不丢）。
+    fn period_codes(rows: &[RowValues]) -> Vec<String> {
+        rows.iter()
+            .map(|row| row.get(KEY_PERIOD_CODE).trim().to_string())
+            .filter(|code| !code.is_empty())
+            .collect()
+    }
+
     /// 整批预检：把「期间不存在 / 期间已锁定 / 工号不存在 / 姓名不符」一次性查出来。
     ///
     /// # 返回值
@@ -725,6 +756,59 @@ impl ImportDefinition for AttendanceImport {
         if issues.is_empty() { Ok(()) } else { Err(issues) }
     }
 
+    /// 声明本定义有批次级校验（框架据此在预检时也保留整批行）。
+    fn validates_batch(&self) -> bool {
+        true
+    }
+
+    /// 批次级校验：**「无薪假 ≤ 已批请假天数」**（HR-22，设计 §3.2 ⑩ 的开关控制）。
+    ///
+    /// # 参数
+    ///
+    /// - `rows`：整批已过逐行校验的行；
+    /// - `_ctx`：导入上下文（本规则与任务/操作人无关）。
+    ///
+    /// # 返回值
+    ///
+    /// 命中「无薪假 > 已批准的无薪请假单天数」的行 → 每人一条 [`RowIssue`]（带 Excel 行号 +
+    /// `leave_unpaid_days` 列名）。框架会把这些行从可入库集合摘掉并计入 `error`：
+    /// `STRICT` 模式据此整批拒绝（一行都不入库），`PARTIAL` 只跳过错行。
+    ///
+    /// # 异常情况
+    ///
+    /// 数据库异常 → [`DbError`]（框架转 500，不算用户错）。
+    ///
+    /// # 开关
+    ///
+    /// `sys_config.hr.attendance.require_leave_match = FALSE` 时直接放过（历史客户「没有
+    /// 请假单」的过渡期），但汇总重算照做 —— 开关只管这条业务规则，不影响数据一致性。
+    async fn validate_batch(&self, rows: &[RowValues], _ctx: &ImportCtx) -> DbResult<Vec<RowIssue>> {
+        if rows.is_empty() || !require_leave_match().await {
+            return Ok(Vec::new());
+        }
+        let mismatches = import_post::leave_mismatches(db(), &Self::leave_match_rows(rows)).await?;
+        let Some(column) = column_of("leave_unpaid_days") else {
+            // 列定义没了就是模板被改坏（编译期常量），不是用户错误
+            return Err(DbError::InvalidValue(
+                "考勤导入模板缺少「无薪假天数」列定义，无法校验「无薪假 ≤ 已批请假天数」".to_string(),
+            ));
+        };
+        Ok(mismatches
+            .iter()
+            .map(|mismatch| {
+                RowIssue::column(
+                    mismatch.row_no,
+                    column,
+                    &import_post::days_text(mismatch.unpaid_days),
+                    FieldIssue {
+                        kind: ErrorKind::Rule,
+                        message: mismatch_message(mismatch),
+                    },
+                )
+            })
+            .collect())
+    }
+
     /// 整批入库（框架已在事务内）。
     ///
     /// # 参数
@@ -770,12 +854,28 @@ impl ImportDefinition for AttendanceImport {
         if strategy == DuplicateStrategy::Upsert && affected != rows.len() {
             return Err(missing_rows_error(rows.len(), affected));
         }
+        // 导入后处理 ②：汇总重算（HR-22）。**在同一事务里**做 —— 记录与期间的四个汇总列
+        // 一起提交、一起回滚：提交后再重算失败会留下「记录进了库、汇总还是旧值」的中间态，
+        // 而汇总列是工资试算的依据（AGENTS.md 约定 11）。`recalc_totals` 的 SQL 自带
+        // `status <> 'LOCKED'` 守卫，锁定期间重算影响 0 行（锁定期间本来也导不进来）。
+        // 一份文件可能跨月（模板按行带考勤月），所以按**本批出现的每个期间**各重算一次。
+        let periods = Self::period_codes(rows);
+        if let Err(error) = recalc_periods(tx, &periods, ctx.operator).await {
+            return Err(DbError::InvalidValue(format!(
+                "汇总重算失败：{error}（本次导入整批回滚，考勤记录与期间的汇总列都未落库）"
+            )));
+        }
         Ok(affected)
     }
 }
 
 #[cfg(test)]
 mod db_tests;
+
+/// HR-22 的真库用例：导入后处理（「无薪假 ≤ 已批请假天数」整批拒绝 / 错误行号 /
+/// 三个验收点 + 开关 + 跨月汇总重算）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod import_post_db_tests;
 
 #[cfg(test)]
 mod tests {

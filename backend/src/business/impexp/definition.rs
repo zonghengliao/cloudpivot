@@ -795,6 +795,36 @@ pub trait ImportDefinition: Send + Sync {
     async fn validate_row(&self, _row: &RowValues, _ctx: &ImportCtx) -> std::result::Result<(), Vec<RowIssue>> {
         Ok(())
     }
+    /// 批次级业务校验（要「整批 + 库里已有数据」才有答案的规则，如
+    /// 「无薪假 ≤ 已批准请假天数」）。
+    ///
+    /// # 与 [`Self::validate_row`] 的分工
+    ///
+    /// `validate_row` 只看**一行里的格子**（纯计算，不发 SQL）；本方法在**整批行都过了
+    /// 逐行校验之后**调用一次，可以查库、可以跨行聚合。典型用法是把文件里的行与库里的
+    /// 主数据 / 单据对账（批量一条 SQL，不许 N+1）。
+    ///
+    /// # 契约
+    ///
+    /// - `Ok(vec![])` = 通过；
+    /// - `Ok(issues)` = 这些行不可入库。框架会把它们从可入库集合里**摘掉**并计入
+    ///   `error`，报文进 `sys_import_task_error`（错误明细页 / 错误行 xlsx）——
+    ///   因此每条的 `row_no` **必须**是 Excel 真实行号，否则用户定位不到；
+    /// - `Err(DbError)` = 数据库异常（按 500 处理，不算用户错）。
+    ///
+    /// 默认实现恒通过（不需要批次校验的定义不用管）。
+    async fn validate_batch(&self, _rows: &[RowValues], _ctx: &ImportCtx) -> DbResult<Vec<RowIssue>> {
+        Ok(Vec::new())
+    }
+    /// 是否覆写了 [`Self::validate_batch`]。
+    ///
+    /// 预检（`keep_rows = false`）为了省内存默认不保留行；覆写了批次校验的定义必须在
+    /// 这里返回 `true`，框架才会把整批行留给它。**只覆写 `validate_batch` 却漏了本方法
+    /// 的后果是校验被静默跳过**，故 [`crate::business::impexp::validate`] 的单测用
+    /// 「声明了却拿不到行」的反例把这个契约钉住。
+    fn validates_batch(&self) -> bool {
+        false
+    }
     /// 批量入库：框架已在事务内，业务方只写 INSERT / UPDATE。
     async fn persist(
         &self,

@@ -180,6 +180,27 @@ impl Fixture {
             .await
             .expect("插入员工");
         }
+        // HR-22 起导入会校验「无薪假 ≤ 已批请假天数」：甲的行填了 1 天无薪假，
+        // 所以夹具必须给他一张 **1 天已批准的无薪请假单**（假别 PERSONAL = 事假，
+        // `paid = 0` 是无薪）。不加这张假单，本文件的每条用例都会先被 HR-22 的校验拦下。
+        db().execute_with_params(
+            "INSERT INTO biz_leave_request \
+                 (id, org_id, leave_no, employee_id, employee_no, employee_name, leave_type, \
+                  start_time, end_time, duration_days, paid, status) \
+             SELECT gen_random_uuid(), ?::uuid, ?, e.id, e.emp_no, e.name, 'PERSONAL', \
+                    ?::text::date, ?::text::date, 1, 0, 'APPROVED' \
+               FROM biz_employee e WHERE e.org_id = ?::uuid AND e.emp_no = ? AND e.deleted_at IS NULL",
+            vec![
+                Value::from(&SENTINEL_ORG_ID),
+                Value::from(format!("LV-2400-{}", &period_code.replace('-', ""))),
+                Value::from(format!("{}-01", &period_code[..7])),
+                Value::from(format!("{}-28", &period_code[..7])),
+                Value::from(&SENTINEL_ORG_ID),
+                Value::from(emp_a.clone()),
+            ],
+        )
+        .await
+        .expect("插入已批准的无薪请假单（HR-22 校验基线）");
         Self {
             period_code,
             period_id,
@@ -188,7 +209,7 @@ impl Fixture {
         }
     }
 
-    /// 清场（按 id 删：记录 → 期间 → 员工；顺序不能换，`employee_id` 是 `RESTRICT`）。
+    /// 清场（按 id 删：记录 → 期间 → 请假单 → 员工；顺序不能换，`employee_id` 是 `RESTRICT`）。
     async fn cleanup(&self) {
         for (sql, params) in [
             (
@@ -198,6 +219,10 @@ impl Fixture {
             (
                 "DELETE FROM biz_attendance_period WHERE id = ?::uuid",
                 vec![Value::from(self.period_id)],
+            ),
+            (
+                "DELETE FROM biz_leave_request WHERE org_id = ?::uuid AND employee_no = ?",
+                vec![Value::from(&SENTINEL_ORG_ID), Value::from(self.emp_a.clone())],
             ),
             (
                 "DELETE FROM biz_employee WHERE emp_no = ? OR emp_no = ?",

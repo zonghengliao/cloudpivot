@@ -530,7 +530,9 @@ pub async fn validate(
 
         if row_issues.is_empty() {
             valid += 1;
-            if keep_rows {
+            // 批次级校验要整批行；预检（`keep_rows = false`）本来不留行，声明了
+            // `validates_batch()` 的定义也留（报告算完立刻释放，见下面的第 3 遍）。
+            if keep_rows || definition.validates_batch() {
                 rows.push(values);
             }
         } else {
@@ -540,6 +542,38 @@ pub async fn validate(
                     errors.push(issue);
                 }
             }
+        }
+    }
+
+    // ---------- 第 3 遍：批次级业务校验（整批 + 库内口径） ----------
+    //
+    // 逐行校验只看一行里的格子，有些规则要「整批 + 库里已有数据」才有答案
+    // （例：考勤的「无薪假 ≤ 已批准请假天数」）。命中问题的行从可入库集合里**摘掉**
+    // 并计入 `error`：`STRICT` 据此整批拒绝，`PARTIAL` 只跳过错行 —— 与逐行校验
+    // 完全同一口径，不另开一条「警告」通道（用户不会看到「导进去了但数据不对」）。
+    if definition.validates_batch() {
+        if !rows.is_empty() {
+            match definition.validate_batch(&rows, ctx).await {
+                Ok(batch_issues) if batch_issues.is_empty() => {}
+                Ok(batch_issues) => {
+                    let bad_rows = batch_issues.iter().map(|issue| issue.row_no).collect::<HashSet<u32>>();
+                    let before = rows.len();
+                    rows.retain(|row| !bad_rows.contains(&row.row_no));
+                    let removed = before - rows.len();
+                    valid = valid.saturating_sub(removed);
+                    error_rows += removed;
+                    for issue in batch_issues {
+                        if errors.len() < MAX_ERRORS {
+                            errors.push(issue);
+                        }
+                    }
+                }
+                Err(error) => return Err(utils::db_error(error, "批次级业务校验")),
+            }
+        }
+        if !keep_rows {
+            // 只为批次校验临时保留的行：报告已经算完，立刻释放（2 万行 × 15 列不小）
+            rows.clear();
         }
     }
 
@@ -737,6 +771,83 @@ mod tests {
 
     fn definition() -> TestDefinition {
         TestDefinition { max_rows: 100 }
+    }
+
+    /// 覆写 `validates_batch` 的定义：把「字典项 = 2」的行判为不可入库
+    /// （HR-22 的「无薪假 ≤ 已批请假天数」就是这一形态：整批 + 库内数据，框架逐行校验
+    /// 看不出来）。用它钉住三件事：预检（`keep_rows = false`）也要保留整批行 /
+    /// 命中的行从可入库集合摘掉 / 报文带上 Excel 行号。
+    struct BatchDefinition;
+
+    #[async_trait]
+    impl ImportDefinition for BatchDefinition {
+        fn biz_type(&self) -> &'static str {
+            "test.batch"
+        }
+        fn biz_name(&self) -> &'static str {
+            "批次校验用例"
+        }
+        fn columns(&self) -> &'static [crate::business::impexp::definition::ImportColumn] {
+            COLUMNS
+        }
+        fn validates_batch(&self) -> bool {
+            true
+        }
+        async fn validate_batch(&self, rows: &[RowValues], _ctx: &ImportCtx) -> DbResult<Vec<RowIssue>> {
+            assert!(!rows.is_empty(), "声明了 validates_batch 的定义必须拿到整批行");
+            Ok(rows
+                .iter()
+                .filter(|row| row.get("value") == "2")
+                .map(|row| RowIssue::row(row.row_no, ErrorKind::Rule, "批次规则命中：字典项 2 不可入库"))
+                .collect())
+        }
+        async fn persist(
+            &self,
+            _tx: &nik::prelude::Transaction,
+            _rows: &[RowValues],
+            _ctx: &ImportCtx,
+        ) -> std::result::Result<usize, DbError> {
+            Ok(0)
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_validation_drops_offending_rows_with_excel_row_no() {
+        let bytes = bytes_of(vec![
+            vec!["EX-2001", "user_status", "1", "启用"],
+            vec!["EX-2002", "user_status", "2", "启用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1", "2"]);
+        let outcome = validate(&BatchDefinition, &bytes, &DictProvider::new(), &resolver, &ctx(), true)
+            .await
+            .expect("预检应成功");
+        assert_eq!(outcome.report.total, 2);
+        assert_eq!(outcome.report.valid, 1, "命中批次规则的行不算 valid");
+        assert_eq!(
+            outcome.report.error, 1,
+            "命中批次规则的行要计入 error（STRICT 据此整批拒绝）"
+        );
+        assert_eq!(outcome.report.errors[0].row_no, 3, "行号是 Excel 真实行号");
+        assert_eq!(outcome.report.errors[0].kind, ErrorKind::Rule);
+        assert_eq!(outcome.rows.len(), 1, "可入库集合里只留下没命中的行");
+        assert_eq!(outcome.rows[0].get("value"), "1");
+    }
+
+    #[tokio::test]
+    async fn batch_validation_runs_in_precheck_mode_too() {
+        // `keep_rows = false`（上传阶段的预检）：没声明 validates_batch 的定义不保留行，
+        // 这条用例证明声明了的会保留，且报告与确认入库阶段一致（用户上传时就看到问题）
+        let bytes = bytes_of(vec![
+            vec!["EX-2003", "user_status", "1", "启用"],
+            vec!["EX-2004", "user_status", "2", "启用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1", "2"]);
+        let report = precheck(&BatchDefinition, &bytes, &DictProvider::new(), &resolver, &ctx())
+            .await
+            .expect("预检应成功");
+        assert_eq!(report.valid, 1);
+        assert_eq!(report.error, 1);
+        assert_eq!(report.errors[0].row_no, 3);
     }
 
     fn bytes_of(rows: Vec<Vec<&str>>) -> Vec<u8> {
