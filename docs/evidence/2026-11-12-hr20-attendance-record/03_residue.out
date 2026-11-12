@@ -1,0 +1,5 @@
+ record_rows | period_rows | employee_rows | change_log_rows 
+-------------+-------------+---------------+-----------------
+           0 |           0 |             0 |               0
+(1 row)
+

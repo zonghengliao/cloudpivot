@@ -1,0 +1,17 @@
+=== cargo clippy --all-targets -- -D warnings ===
+    Blocking waiting for file lock on build directory
+   Compiling nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+    Checking nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7m 15s
+EXIT=0
+
+=== cargo fmt --check（本卡 7 个文件，skip_children） ===
+FMT_OK src/business/hr/attendance_record_dto.rs
+FMT_OK src/business/hr/attendance_record_model.rs
+FMT_OK src/business/hr/attendance_record_handler.rs
+FMT_OK src/business/hr/attendance_record_db_tests.rs
+FMT_OK src/business/hr/mod.rs
+FMT_OK src/business/shared/scope.rs
+FMT_OK src/business/changelog/diff.rs

@@ -307,6 +307,24 @@ impl ScopeTarget {
     ///
     /// 别名取 `l`（`leave_model::ROW_SQL` 用 `FROM biz_leave_request l`），两处必须一致。
     pub const BIZ_LEAVE_REQUEST: Self = Self::new("biz_leave_request", "l", Some("dept_id"), None);
+
+    /// `biz_attendance_record`（考勤记录，ARCH-9-2 设计 §4.7 的登记表清单）：
+    /// `dept_col = dept_id`、`owner_col = NULL`。
+    ///
+    /// # 为什么归属列是 `NULL`
+    ///
+    /// 考勤台账是给 **HR / 部门负责人**核对用的（一人一月一行），没有「只看自己那行」的
+    /// 列表语义：员工自助看考勤走 `/attendance/my`（HR-41，按 `employee.user_id` 过滤），
+    /// 与列表页是两条路径。给一个假的归属列会让 `SELF` 范围的普通员工在台账上
+    /// 「看得见自己的行、看不见本部门的行」，而本表的可见性本来就该由
+    /// `attendance:record` 权限码决定（设计 §4.7.3 的注释：一期不给普通员工这个码）。
+    ///
+    /// 别名取 `r`（`attendance_record_model::ROW_SQL` 用 `FROM biz_attendance_record r`），
+    /// 两处**必须**一致，否则片段会拼出 `r.dept_id` 之外的别名、直接报列不存在。
+    ///
+    /// `dept_id` 可空（记录上没有部门时凭证只用空值），`NULL` 不匹配任何 `=` 比较 ⇒
+    /// 部门范围的人看不见「无部门」的行 —— 安全侧降级（宁可少看，不可多看）。
+    pub const BIZ_ATTENDANCE_RECORD: Self = Self::new("biz_attendance_record", "r", Some("dept_id"), None);
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。

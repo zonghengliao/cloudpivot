@@ -1,0 +1,36 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+   Compiling nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+   Compiling nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5m 23s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 23 tests
+test business::hr::attendance_record_db_tests::db::filter_shape_is_enforced ... ok
+test business::hr::attendance_record_db_tests::db::invalid_payloads_are_rejected_before_writing ... ok
+test business::hr::attendance_record_db_tests::db::ledger_is_one_row_per_person_with_scope ... ok
+test business::hr::attendance_record_db_tests::db::locked_period_blocks_record_updates ... ok
+test business::hr::attendance_record_db_tests::db::patch_writes_audit_and_recalcs_totals ... ok
+test business::hr::attendance_record_dto::tests::consistency_warning_only_warns ... ok
+test business::hr::attendance_record_dto::tests::filter_requires_period_uuid ... ok
+test business::hr::attendance_record_dto::tests::ot_total_sums_three_columns ... ok
+test business::hr::attendance_record_dto::tests::patch_merges_only_given_fields ... ok
+test business::hr::attendance_record_dto::tests::patch_requires_at_least_one_field ... ok
+test business::hr::attendance_record_dto::tests::patch_with_same_values_is_unchanged ... ok
+test business::hr::attendance_record_dto::tests::range_guards_are_named ... ok
+test business::hr::attendance_record_dto::tests::remark_distinguishes_absent_null_and_value ... ok
+test business::hr::attendance_record_dto::tests::source_values_match_check_constraint ... ok
+test business::hr::attendance_record_handler::tests::locked_period_error_is_actionable ... ok
+test business::hr::attendance_record_handler::tests::path_uuid_shape_is_validated ... ok
+test business::hr::attendance_record_handler::tests::res_carries_period_state ... ok
+test business::hr::attendance_record_model::tests::check_names_match_migration ... ok
+test business::hr::attendance_record_model::tests::diff_fields_match_changelog_whitelist ... ok
+test business::hr::attendance_record_model::tests::diff_values_use_fixed_two_decimals ... ok
+test business::hr::attendance_record_model::tests::list_query_puts_filter_marker_first ... ok
+test business::hr::attendance_record_model::tests::sql_placeholder_counts_match_params ... ok
+test business::hr::attendance_record_model::tests::update_sql_never_touches_guarded_columns ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 5149 filtered out; finished in 9.24s
+
+EXIT=0

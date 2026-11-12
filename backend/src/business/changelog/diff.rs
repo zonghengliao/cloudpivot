@@ -241,6 +241,39 @@ pub const BIZ_COST_OBJECT: ResourceSpec = ResourceSpec {
     big: &[],
 };
 
+/// `biz_attendance_record`（考勤记录 / 台账，ARCH-9-2 · HR-20 接入）。
+///
+/// 白名单口径 = `PUT /business/hr/attendance/record/{id}` 真正能改的 12 列
+/// （11 个数值列 + `remark`），与 `attendance_record_model::DIFF_FIELDS` **逐字相等**
+/// （那边有单测双向对拍）。台账单元格改的正是这些数：改完 `actual_days` 就影响
+/// 「应出勤 vs 实出勤」的核对，改完 `leave_unpaid_days` 就直接影响事假扣款
+/// （`ROUND({BASE}/21.75 * {ATT_LEAVE_UNPAID_DAYS}, 2)`）—— 「谁把 2 天改成 1 天」必须能查。
+///
+/// 刻意**不含**：
+/// - `employee_id` / `employee_no` / `employee_name` / `dept_id` / `period_id` / `source`：
+///   接口改不了（改了就是另一条业务事实，见 `attendance_record_dto` 模块文档）；
+/// - `updated_at` / `update_by`：每次写都变，进白名单等于把审计表变成访问日志；
+/// - `created_at` / `create_by` / `deleted_at`：建单与删除的痕迹在 `operation_logs`。
+pub const BIZ_ATTENDANCE_RECORD: ResourceSpec = ResourceSpec {
+    table: "biz_attendance_record",
+    module: "business",
+    fields: &[
+        "should_days",
+        "actual_days",
+        "leave_paid_days",
+        "leave_unpaid_days",
+        "sick_days",
+        "absent_days",
+        "ot_hours_workday",
+        "ot_hours_weekend",
+        "ot_hours_holiday",
+        "late_count",
+        "early_leave_count",
+        "remark",
+    ],
+    big: &[],
+};
+
 /// `biz_flow_def`（流程定义，批次 D · D3c 接入）。
 ///
 /// 口径：**配置面**（名字/类型/是否默认/自动通过开关）进白名单，运行时列不进。
@@ -440,6 +473,8 @@ pub const REGISTRY: &[&ResourceSpec] = &[
     &BIZ_CONTRACT,
     // B2-14：成本对象「本期产量与在制」录入留痕（`PUT /cost-object/{id}/output`）
     &BIZ_COST_OBJECT,
+    // HR-20：考勤台账单行修正留痕（`PUT /business/hr/attendance/record/{id}`）
+    &BIZ_ATTENDANCE_RECORD,
     // 批次 D · D3c：审批三张表（实例 / 待办 / 定义）
     &FLOW_DEF,
     &FLOW_INSTANCE,

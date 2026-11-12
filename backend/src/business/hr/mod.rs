@@ -112,6 +112,16 @@ pub mod attendance_period_dto;
 pub mod attendance_period_handler;
 /// 考勤期间数据层（`biz_attendance_period`）：期间 CRUD + 状态 CAS + 汇总全量重算（HR-19）。
 pub mod attendance_period_model;
+/// HR-20 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：台账一人一行 / 单行修正写审计 /
+/// 锁定期间不可改 / 汇总随修正重算。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod attendance_record_db_tests;
+/// 考勤记录入参 / 回执契约 + 部分更新合并 + 一致性警告（`biz_attendance_record`，HR-20）。
+pub mod attendance_record_dto;
+/// 考勤台账接口层（设计 §5.2 #21 台账分页 / #22 单行修正），HR-20。
+pub mod attendance_record_handler;
+/// 考勤记录数据层（`biz_attendance_record`）：建 / 读 / 整行改写 / 台账分页 / 变更留痕快照（HR-20）。
+pub mod attendance_record_model;
 /// HR-15 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD / 续签链追溯 / 到期字段 /
 /// 撞号与终态拦截。只在 `cargo test` 时编译。
 #[cfg(test)]
