@@ -233,3 +233,6 @@ pub mod salary_item_handler;
 pub mod salary_item_model;
 /// 员工薪资标准数据层（`biz_employee_salary`）：版本读写 + 区间重叠判定（A3）（HR-16）。
 pub mod salary_model;
+
+/// 薪资**变量解析 + 依赖拓扑**：项引用 / `ATT_*` 白名单 → 计算计划（HR-33）。
+pub mod salary_vars;
