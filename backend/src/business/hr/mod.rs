@@ -187,6 +187,8 @@ mod salary_db_tests;
 /// 员工薪资标准入参 / 回执契约 + 金额与区间校验（`biz_employee_salary`，HR-16）。
 pub mod salary_dto;
 /// 员工薪资标准接口层（设计 §5.2 #16~#17：现行+历史 / 调薪·登记·修正·取消），HR-16。
+/// 薪资公式 DSL 的**词法 / 递归下降 / `Decimal` 求值 / 惰性 `IF`**（设计 §4.4.2 的 EBNF）+ 30 条单测（HR-32）。
+pub mod salary_formula;
 pub mod salary_handler;
 /// HR-31 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：4 接口落库 / 公式长度与语义拦截 /
 /// 编码与顺序占用 / 系统项与引用项守卫。只在 `cargo test` 时编译。
