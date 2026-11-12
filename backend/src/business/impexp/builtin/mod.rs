@@ -12,6 +12,7 @@
 
 pub mod dict_item;
 pub mod erp_doc;
+pub mod hr;
 pub mod master_data;
 
 use crate::business::impexp::registry::DefinitionRegistry;
@@ -43,5 +44,8 @@ pub fn register(registry: &mut DefinitionRegistry) -> std::result::Result<(), St
     for definition in erp_doc::definitions() {
         registry.register_export(std::sync::Arc::new(definition))?;
     }
+    // HR-21：考勤台账导入（`hr.attendance`）。只注册导入：考勤导出走
+    // `/business/hr/attendance/export`（HR-30，含锁定状态列），不进 impexp 批量导出清单。
+    registry.register_import(std::sync::Arc::new(hr::AttendanceImport))?;
     Ok(())
 }
