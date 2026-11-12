@@ -933,6 +933,260 @@ async fn voucher_no(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<Stri
     Ok(row.voucher_no)
 }
 
+// ==================== ③·5 红冲（HR-40） ====================
+
+/// 红冲（设计 §4.8.2 / §5.2 #44）：把「计提 + 发放」两张凭证**各冲一张红字凭证**，
+/// 单据 `POSTED → REVERSED`（终态）。
+///
+/// # 两张红字凭证从哪来
+///
+/// 不复刻红冲算法：逐张调 `voucher::reverse_posted`（`erp/voucher.rs`），它已经钉住了
+/// 全部库层细节 —— 借贷互换、金额恒正、`is_red=1`、`reverse_of=原凭证`、原凭证回写
+/// `reversed_by`、独立号段 `PZR-yyyyMMdd-NNNNNN`、期间已结账则拒绝。
+/// 本卡只负责**把两张串起来 + 状态机 + 回写单据**。手写一遍分录 = 两套红冲口径，
+/// 改一侧漏另一侧是账务模块最贵的 bug（与 HR-39 过账走 `post_explicit_lines` 同一取向）。
+///
+/// # 顺序（同一事务，任一步失败整笔回滚）
+///
+/// ```text
+/// BEGIN
+///   SELECT … FROM biz_salary_sheet WHERE id=? FOR UPDATE        锁单
+///   闸① status = POSTED（只有已过账的单有账可冲）
+///   闸② accrual_voucher_id / payment_voucher_id 都在（A8 的前置）
+///   SELECT … FROM biz_voucher … FOR UPDATE ×2                    锁两张原凭证
+///   ① reverse_posted(计提凭证) → red_accrual（PZR-…）
+///   ② reverse_posted(发放凭证) → red_payment（PZR-…）
+///   ③ state_machine::transition(POSTED → REVERSED)（必填原因边 + 写 biz_status_log）
+///   ④ UPDATE biz_salary_sheet SET status='REVERSED', reversal_voucher_id=①,
+///                                reverse_reason, reversed_at/by
+/// COMMIT
+/// ```
+///
+/// `reversal_voucher_id` **只记第一张**（计提凭证的红字）；第二张通过
+/// `biz_voucher.reverse_of = payment_voucher_id` 反查（设计 §4.8.2 的既定口径）。
+///
+/// # 提交之后不做任何写动作
+///
+/// 红冲不发通知、不调外部服务；`COMMIT` 之后只把单据读回来给人看。因此不存在
+/// 「提交后失败」需要补偿的分支（`AGENTS.md` 约定 11）：失败一律发生在事务内 →
+/// **两张红字凭证一起消失**，单据仍是 `POSTED`，界面上「红冲」按钮还能再点一次。
+pub async fn reverse_salary(
+    operator: Operator,
+    sheet_id: Uuid,
+    reason: &str,
+) -> std::result::Result<SalarySheetCardRes, ApiError> {
+    let reason = reason.trim();
+    // DTO 层（`salary_dto::parse_reverse_reason`）已经校验过长度；这里只兜「内部直接调
+    // bridge 绕过 handler」的路径 —— 原因必填是本卡的验收项，不能在入口漏一道。
+    if reason.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "reason 必填：红冲必须写明原因（会落单据、状态日志与两张红字凭证）",
+        ));
+    }
+    let now: DateTime<Utc> = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| internal(error, "开启薪资红冲事务"))?;
+    let outcome = reverse_in_tx(&tx, operator, sheet_id, reason, now).await;
+    match outcome {
+        Ok(reversal_id) => {
+            tx.commit().await.map_err(|error| internal(error, "提交薪资红冲事务"))?;
+            reverse_committed(sheet_id, reversal_id).await
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 红冲事务体：返回第一张红字凭证 id（计提凭证的红字）。
+async fn reverse_in_tx(
+    tx: &Transaction,
+    operator: Operator,
+    sheet_id: Uuid,
+    reason: &str,
+    now: DateTime<Utc>,
+) -> std::result::Result<Uuid, ApiError> {
+    // ① 锁单：并发两次红冲只有一次生效（后到的等锁，看到 REVERSED 后被 ② 挡住）
+    let Some(sheet) = model::lock_sheet(tx, sheet_id)
+        .await
+        .map_err(|error| internal(error, "锁定薪资单"))?
+    else {
+        return Err(not_found(sheet_id));
+    };
+    // ② 状态闸：只有 POSTED 有账可冲
+    if sheet.status != STATUS_POSTED {
+        return Err(reverse_blocked(&sheet));
+    }
+    // ③ A8 的前置：POSTED 单必然有这两列；缺了说明有人绕过过账写过库
+    let (Some(accrual_id), Some(payment_id)) = (sheet.accrual_voucher_id, sheet.payment_voucher_id) else {
+        return Err(ApiError::new(
+            409,
+            error_code::HR_SALARY_RULE_BLOCKED,
+            format!(
+                "薪资单 {} 是「已过账」但记不到计提 / 发放凭证（巡检 A8 的不合格行）：\
+                 红冲无从下手，请让研发核对这张单的两张凭证（本卡不允许凭金额再造凭证）",
+                sheet.sheet_no
+            ),
+        ));
+    };
+    // ④ 锁两张原凭证（凭证台账页也能单张红冲，同一条焊缝上只许一个赢家）
+    let accrual = lock_original(tx, &sheet, accrual_id, SOURCE_ACCRUAL).await?;
+    let payment = lock_original(tx, &sheet, payment_id, SOURCE_PAYMENT).await?;
+    // ⑤ 各冲一张红字：日期取「今天」（CST）——红冲是更正动作，记在发现问题的期间
+    let voucher_date = voucher::today_cst(now);
+    let accrual_red = reverse_one(tx, &accrual, reason, voucher_date, operator.id, now, "计提").await?;
+    let payment_red = reverse_one(tx, &payment, reason, voucher_date, operator.id, now, "发放").await?;
+    let accrual_red_no = voucher_no(tx, accrual_red).await?;
+    let payment_red_no = voucher_no(tx, payment_red).await?;
+    // ⑥ 状态机（唯一入口：边校验 + 必填原因 + 写 biz_status_log）
+    state_machine::transition(
+        tx,
+        ENTITY_SALARY_SHEET,
+        sheet.id,
+        &sheet.sheet_no,
+        &state_machine::SALARY_SHEET_EDGES,
+        STATUS_POSTED,
+        STATUS_REVERSED,
+        operator.clone(),
+        Some(&format!(
+            "红冲：{reason}（红字凭证 {accrual_red_no} + {payment_red_no}）"
+        )),
+        None,
+    )
+    .await?;
+    // ⑦ CAS 回写（状态机只管日志，不回写业务表）
+    let affected = model::mark_reversed(tx, sheet.id, accrual_red, reason, operator.id)
+        .await
+        .map_err(|error| write_error(error, "回写薪资单红冲结果", &sheet.sheet_no))?;
+    if affected == 0 {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!("薪资单 {} 的状态在红冲期间已被改动，请刷新后重试", sheet.sheet_no),
+        ));
+    }
+    tracing::info!(
+        sheet_id = %sheet.id,
+        sheet_no = %sheet.sheet_no,
+        %accrual_red,
+        accrual_red_no,
+        %payment_red,
+        payment_red_no,
+        reason,
+        "薪资单已红冲（计提 + 发放两张红字凭证）"
+    );
+    Ok(accrual_red)
+}
+
+/// 锁一张原凭证，并核对它确实是这张薪资单的那张（防「单据指错了凭证」）。
+async fn lock_original(
+    tx: &Transaction,
+    sheet: &SheetRow,
+    voucher_id: Uuid,
+    expect_source: &str,
+) -> std::result::Result<voucher::VoucherRow, ApiError> {
+    let Some(row) = voucher::find_voucher_locked(tx, voucher_id)
+        .await
+        .map_err(|error| internal(error, "锁定薪资凭证"))?
+    else {
+        return Err(ApiError::new(
+            409,
+            error_code::HR_SALARY_RULE_BLOCKED,
+            format!(
+                "薪资单 {} 记着凭证 {voucher_id}，但这张凭证不存在（可能被删）：\
+                 红冲无法进行，请让研发核对凭证台账",
+                sheet.sheet_no
+            ),
+        ));
+    };
+    if row.source_id != Some(sheet.id) || row.source_type != expect_source {
+        return Err(ApiError::new(
+            409,
+            error_code::HR_SALARY_RULE_BLOCKED,
+            format!(
+                "薪资单 {} 记着的凭证 {} 来源是 {}/{}，与单据 {}/{} 不符：\
+                 红冲会冲错账，已拦下（请让研发核对）",
+                sheet.sheet_no,
+                row.voucher_no,
+                row.source_type,
+                row.source_id.map(|id| id.to_string()).unwrap_or_default(),
+                expect_source,
+                sheet.id
+            ),
+        ));
+    }
+    Ok(row)
+}
+
+/// 冲一张凭证：`reverse_posted` 的回写失败在这里翻成人话 409。
+async fn reverse_one(
+    tx: &Transaction,
+    original: &voucher::VoucherRow,
+    reason: &str,
+    voucher_date: NaiveDate,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+    label: &str,
+) -> std::result::Result<Uuid, ApiError> {
+    voucher::reverse_posted(
+        tx,
+        original,
+        voucher::ReversalInput {
+            reason: Some(reason),
+            voucher_date,
+        },
+        operator,
+        now,
+    )
+    .await
+    .map_err(|error| match error {
+        DbError::InvalidValue(message) => ApiError::new(
+            409,
+            error_code::HR_SALARY_RULE_BLOCKED,
+            format!("{label}凭证红冲失败：{message}"),
+        ),
+        other => internal(other, "生成红字凭证"),
+    })
+}
+
+/// 提交之后的收尾（只是读回来给人看；不写库、不发通知）。
+async fn reverse_committed(sheet_id: Uuid, reversal_id: Uuid) -> std::result::Result<SalarySheetCardRes, ApiError> {
+    let sheet = model::find_sheet(sheet_id)
+        .await
+        .map_err(|error| internal(error, "读回红冲后的薪资单"))?
+        .ok_or_else(|| not_found(sheet_id))?;
+    debug_assert_eq!(sheet.reversal_voucher_id, Some(reversal_id));
+    debug_assert_eq!(sheet.status, STATUS_REVERSED);
+    Ok(sheet.to_card())
+}
+
+/// 红冲的状态闸：只有 `POSTED` 能冲，其余按「当前是哪一态」给下一步动作。
+fn reverse_blocked(sheet: &SheetRow) -> ApiError {
+    let hint = match sheet.status.as_str() {
+        "DRAFT" | STATUS_CALCULATED => "：这张单还没有生成凭证，不需要红冲（直接重算或作废）",
+        STATUS_SUBMITTED => "：审批中的单没有凭证，要改请等审批驳回或先撤回",
+        STATUS_APPROVED => "：这张单还没过账（没有凭证可冲），直接重算/作废即可",
+        STATUS_REVERSED => "：这张单已经红冲过了（终态），同期间可以重新试算新开一张",
+        _ => "",
+    };
+    ApiError::new(
+        409,
+        error_code::HR_SALARY_RULE_BLOCKED,
+        format!(
+            "薪资单 {} 当前是「{}」（{}），只有已过账（POSTED）的单可以红冲{}",
+            sheet.sheet_no,
+            salary_dto::status_label(&sheet.status),
+            sheet.status,
+            hint
+        ),
+    )
+}
+
 // ==================== ④ 审批回调 ====================
 
 /// 审批结论的业务语义（纯函数，便于单测钉住映射口径）。
@@ -1649,5 +1903,115 @@ mod tests {
             "本桥用的边表必须与状态机注册表完全一致"
         );
         assert!(salary_dto::STATUSES.iter().any(|(code, _)| *code == STATUS_POSTED));
+    }
+
+    // ==================== 红冲（HR-40） ====================
+
+    /// 一张单头（只填红冲相关的列；金额列给 0 —— 红冲不读它们）。
+    fn sheet_with_status(status: &str) -> SheetRow {
+        SheetRow {
+            id: Uuid::now_v7(),
+            sheet_no: "SAL-202611-000001".to_string(),
+            period_code: "2026-11".to_string(),
+            period_start: "2026-11-01".parse().expect("日期"),
+            period_end: "2026-11-30".parse().expect("日期"),
+            status: status.to_string(),
+            attendance_period_id: None,
+            employee_count: 0,
+            earning_total: Decimal::ZERO,
+            pre_deduct_total: Decimal::ZERO,
+            gross_total: Decimal::ZERO,
+            withhold_total: Decimal::ZERO,
+            net_total: Decimal::ZERO,
+            si_company_total: Decimal::ZERO,
+            hf_company_total: Decimal::ZERO,
+            accrual_voucher_id: None,
+            accrual_voucher_no: None,
+            payment_voucher_id: None,
+            payment_voucher_no: None,
+            reversal_voucher_id: None,
+            approval_instance_id: None,
+            calculated_at: None,
+            calculated_by: None,
+            submitted_at: None,
+            posted_at: None,
+            reversed_at: None,
+            reverse_reason: None,
+            remark: None,
+            created_at: None,
+            updated_at: None,
+        }
+    }
+
+    /// ⑯ 红冲的边在状态机里，且**要求原因**（`POSTED → REVERSED` 是必填原因边）。
+    ///
+    /// 这条是「原因必填」的**第二道**钉子：DTO 层拦空原因，状态机层再拦一次
+    /// （绕过 handler 的内部调用也得守）。少任何一道，都会有一条路径能无声无息冲账。
+    #[test]
+    fn reverse_edge_requires_reason() {
+        let reason_edges = state_machine::Entity::SalarySheet.reason_edges();
+        assert!(
+            reason_edges.contains(&(STATUS_POSTED, STATUS_REVERSED)),
+            "POSTED → REVERSED 必须是必填原因边，实际：{reason_edges:?}"
+        );
+        // 反向：过账（APPROVED → POSTED）不该强制原因（否则「过账」按钮要用户先写 50 字）
+        assert!(!reason_edges.contains(&(STATUS_APPROVED, STATUS_POSTED)));
+        // 终态：REVERSED 不能再被改（明细覆盖 / 重算都走 ensure_writable）
+        assert!(
+            state_machine::Entity::SalarySheet
+                .locked_statuses()
+                .contains(&STATUS_REVERSED),
+            "REVERSED 必须是冻结态（终态）"
+        );
+    }
+
+    /// ⑰ 红冲的状态闸：只有 POSTED 放行，其余每一态都给**下一步动作**（不是干巴巴的 409）。
+    #[test]
+    fn reverse_blocked_explains_the_next_step_per_status() {
+        // 放行的那一态：闸函数本身不该被调用（调用点先比对状态），但表也不能是空的
+        for (status, expect) in [
+            (salary_dto::STATUS_DRAFT, "直接重算或作废"),
+            (STATUS_CALCULATED, "直接重算或作废"),
+            (STATUS_SUBMITTED, "审批中"),
+            (STATUS_APPROVED, "还没过账"),
+            (STATUS_REVERSED, "已经红冲"),
+        ] {
+            let sheet = sheet_with_status(status);
+            let error = reverse_blocked(&sheet);
+            assert_eq!((error.status, error.code), (409, error_code::HR_SALARY_RULE_BLOCKED));
+            assert!(
+                error.msg.contains("SAL-202611-000001"),
+                "{status} 的报文必须点名单号：{}",
+                error.msg
+            );
+            assert!(
+                error.msg.contains("POSTED"),
+                "{status} 的报文要点名目标状态：{}",
+                error.msg
+            );
+            assert!(
+                error.msg.contains(expect),
+                "{status} 的报文要给出下一步（期望包含「{expect}」）：{}",
+                error.msg
+            );
+        }
+    }
+
+    /// ⑱ 空白原因在 bridge 入口就 400（不等开事务）—— 本卡验收项的最后一道自守。
+    ///
+    /// 这条用例**不连库**：`reverse_salary` 先判原因再 `db().begin()`，
+    /// 所以没有库地址时也能跑（CI 的 `cargo test --lib` 会跑它）。
+    #[tokio::test]
+    async fn blank_reason_is_rejected_before_touching_the_db() {
+        let operator = Operator::named(Some(Uuid::now_v7()), "hr40-test");
+        let sheet_id = Uuid::now_v7();
+        for blank in ["", "   ", "\t\n "] {
+            let error = reverse_salary(operator.clone(), sheet_id, blank)
+                .await
+                .expect_err("空白原因必须拒绝");
+            assert_eq!((error.status, error.code), (400, error_code::PARAM_INVALID));
+            assert!(error.msg.contains("reason 必填"), "报文：{}", error.msg);
+            assert!(!error.msg.contains("SELECT"), "报文不许是 SQL 原文：{}", error.msg);
+        }
     }
 }

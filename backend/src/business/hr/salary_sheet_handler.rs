@@ -85,6 +85,9 @@ pub const PERM_SALARY_SUBMIT: &str = "business:hr:salary:submit";
 /// 过账（设计 §5.2 #43，HR-39）。
 pub const PERM_SALARY_POST: &str = "business:hr:salary:post";
 
+/// 红冲（设计 §5.2 #44，HR-40）。
+pub const PERM_SALARY_REVERSE: &str = "business:hr:salary:reverse";
+
 // ==================== 错误原语 ====================
 
 /// `404 + 10002`：单不存在（或已软删）。
@@ -944,6 +947,37 @@ pub async fn salary_post(
     Ok(Res::ok(salary_bridge::post_salary(operator, sheet_id).await?))
 }
 
+/// 红冲（设计 §5.2 #44 `POST /business/hr/salary/{id}/reverse`）—— HR-40。
+///
+/// 权限码 `business:hr:salary:reverse`（与 V0387 的 `e045` 按钮逐字一致；`hr_04` 的
+/// 权限矩阵把这一条**刻意不授给 FINANCE_MANAGER**——已入账的钱倒回去必须 HR + 财务双签）。
+///
+/// # 两道校验的分工
+///
+/// * [`dto::parse_reverse_reason`]：**原因必填**（trim 后 ≥5 字、≤255 字）—— 本卡验收项，
+///   在开事务之前就拦住（报文点名 `reason`）；
+/// * [`salary_bridge::reverse_salary`]：状态机 / 两张凭证 / 事务边界 —— 全在 bridge 里。
+///
+/// handler 不写业务编排（与 #39~#43 同一取向）。
+#[nik::permission(
+    path = "/business/hr/salary/{id}/reverse",
+    method = "POST",
+    permission = "business:hr:salary:reverse"
+)]
+#[nik::post("/business/hr/salary/{id}/reverse")]
+pub async fn salary_reverse(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<dto::SalaryReverseReq>,
+) -> ResResult<SalarySheetCardRes> {
+    let sheet_id = dto::parse_uuid(&id, "id")?;
+    let reason = dto::parse_reverse_reason(&req)?;
+    let operator: Operator = (&claims).into();
+    Ok(Res::ok(
+        salary_bridge::reverse_salary(operator, sheet_id, &reason).await?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -964,6 +998,8 @@ mod tests {
             // HR-39：提交审批 / 过账（两张凭证）
             ("POST", "/business/hr/salary/{id}/submit", PERM_SALARY_SUBMIT),
             ("POST", "/business/hr/salary/{id}/post", PERM_SALARY_POST),
+            // HR-40：红冲（两张红字凭证）
+            ("POST", "/business/hr/salary/{id}/reverse", PERM_SALARY_REVERSE),
         ];
         for (method, path, permission) in expected {
             let spec = ROUTE_CONTRACT
@@ -1046,6 +1082,19 @@ mod tests {
                 .unwrap_or_else(|| panic!("契约表缺 {path}"));
             assert_eq!(spec.card, "HR-39", "{path} 的落地卡必须是 HR-39");
         }
+    }
+
+    /// #44 红冲的契约行必须挂在 HR-40，且权限码逐字是 `business:hr:salary:reverse`
+    /// （`V0387` 的 `e045` 按钮、`hr_04` 的权限矩阵都按这个字符串对齐）。
+    #[test]
+    fn reverse_route_belongs_to_hr40() {
+        let spec = ROUTE_CONTRACT
+            .iter()
+            .find(|spec| spec.method == "POST" && spec.path == "/business/hr/salary/{id}/reverse")
+            .expect("契约表缺红冲路由");
+        assert_eq!(spec.card, "HR-40", "红冲的落地卡必须是 HR-40");
+        assert_eq!(spec.permission, Some(PERM_SALARY_REVERSE));
+        assert_eq!(PERM_SALARY_REVERSE, "business:hr:salary:reverse");
     }
 
     /// ★ 条件边契约：`form.gross_total_num` 必须是 **JSON number**。

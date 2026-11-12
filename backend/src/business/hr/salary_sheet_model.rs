@@ -1019,6 +1019,20 @@ pub const SHEET_POSTED_SQL: &str = "UPDATE biz_salary_sheet SET \
         updated_at = CURRENT_TIMESTAMP, update_by = NULLIF(?::text, '')::uuid \
       WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL";
 
+/// 红冲的 CAS 回写 SQL（7 个 `?`：状态 / 红冲凭证 id / 原因 / 操作人 ×3 / id / 期望旧状态）。
+///
+/// 与 [`SHEET_POSTED_SQL`] 同款：一条语句写齐「状态 + `reversal_voucher_id` +
+/// `reversed_at/by` + `reverse_reason`」，不留「状态已红冲、指针还没写」的窗口
+/// （那期间 A8 巡检会觉得这张 `REVERSED` 单没有红字凭证）。
+///
+/// `reversal_voucher_id` **只记第一张**（计提凭证的红字）—— 第二张（发放凭证的红字）
+/// 通过 `biz_voucher.reverse_of = payment_voucher_id` 反查（设计 §4.8.2）。
+pub const SHEET_REVERSED_SQL: &str = "UPDATE biz_salary_sheet SET \
+        status = ?, reversal_voucher_id = ?::uuid, reverse_reason = ?, \
+        reversed_at = CURRENT_TIMESTAMP, reversed_by = NULLIF(?::text, '')::uuid, \
+        updated_at = CURRENT_TIMESTAMP, update_by = NULLIF(?::text, '')::uuid \
+      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL";
+
 /// 状态 CAS 回写（`from` → `to`）。返回受影响行数：`0` = 不存在 / 已软删 / 状态已变。
 ///
 /// 状态机（`shared::state_machine::transition`）只写 `biz_status_log`，**不回写业务表**；
@@ -1093,6 +1107,33 @@ pub async fn mark_posted(
     .await
 }
 
+/// 红冲结果的 CAS 回写（状态 + `reversal_voucher_id` + `reverse_reason` + `reversed_at/by`）。
+///
+/// 返回受影响行数：`0` = 不存在 / 已软删 / 状态已不是 `POSTED`（并发两次红冲只有一次生效）。
+/// 与 [`mark_posted`] 同款：状态机只写 `biz_status_log`，业务表由本函数 CAS 落地。
+pub async fn mark_reversed(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    reversal_voucher_id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 单据状态回写（按主键 CAS）。
+    ex.exec_sql(
+        SHEET_REVERSED_SQL.to_string(),
+        vec![
+            Value::Text(crate::business::hr::salary_sheet_dto::STATUS_REVERSED.to_string()),
+            Value::from(&reversal_voucher_id),
+            Value::Text(reason.to_string()),
+            opt_uuid(operator),
+            opt_uuid(operator),
+            Value::from(&id),
+            Value::Text(crate::business::hr::salary_sheet_dto::STATUS_POSTED.to_string()),
+        ],
+    )
+    .await
+}
+
 /// 只回写审批实例 id（撤回 / 作废时清空）。返回受影响行数。
 pub async fn set_approval_instance(
     ex: &impl SqlExecutor,
@@ -1127,8 +1168,8 @@ pub fn write_error(err: DbError, ctx: &str, sheet_no: &str) -> ApiError {
             error_code::RESOURCE_CONFLICT,
             match constraint.as_deref() {
                 Some("uk_biz_sal_sheet_period") => format!(
-                    "薪资单写入冲突：这个期间已经有一张未删除的薪资单了（本次写的是 {sheet_no}）。\
-                     要重发请用「补差单」，不要删旧单"
+                    "薪资单写入冲突：这个期间已经有一张有效薪资单了（本次写的是 {sheet_no}）。\
+                     要重发请先红冲旧单（红冲后同期间可以重新新开一张），或用「补差单」，不要删旧单"
                 ),
                 Some("uk_biz_sal_sheet_no") => {
                     format!("薪资单写入冲突：单号 {sheet_no} 已被占用，请重试（取号会自动顺延）")

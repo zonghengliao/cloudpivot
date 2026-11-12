@@ -1702,25 +1702,33 @@ pub async fn load_attendance(
 // ==================== 写库 ====================
 
 /// 同期间已有薪资单 → 409（`uk_biz_salary_sheet_period` 的人话版，设计 §4.8.3）。
+///
+/// HR-40 起：**已红冲（`REVERSED`）的单不占期间位** —— 红冲的目的就是「这张别要了，
+/// 重算一张」，所以唯一键与这道前置检查都排除 `REVERSED`（迁移 `V0397`）。文案把这层
+/// 出口写出来，用户撞 409 时知道下一步是「红冲」而不是「找研发删库」。
 pub fn duplicate_sheet_error(period_code: &str, sheet_no: &str) -> ApiError {
     ApiError::new(
         409,
         error_code::HR_SALARY_RULE_BLOCKED,
         format!(
-            "{period_code} 的薪资单已存在（{sheet_no}）：同一期间只能有一张（库索引 \
-             `uk_biz_salary_sheet_period`）；要重算请打开那张单重跑试算，要重发请用补差单\
-             （设计 §4.8.2）"
+            "{period_code} 的薪资单已存在（{sheet_no}）：同一期间只能有一张有效单（库索引 \
+             `uk_biz_salary_sheet_period`）。要重算请打开那张单重跑试算；算错了要重发，\
+             请先「红冲」那张单（红冲后同期间可以重新新开一张），或改用补差单（设计 §4.8.2）"
         ),
     )
 }
 
 /// 当前期间是否已有薪资单（返回已有单号）。
+///
+/// `status <> 'REVERSED'` 是 HR-40 加的：红冲过的单是审计凭据（保留红字凭证与原因），
+/// 但**不再占用期间位** —— 否则「红冲后重算」永远撞唯一键，客户只能找研发改库。
 pub async fn existing_sheet_no(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Option<String>> {
     // SCOPE-EXEMPT: 唯一性检查（按 org + 期间）
     let row = ex
         .query_first_sql(
             "SELECT sheet_no FROM biz_salary_sheet \
-              WHERE org_id = ?::uuid AND period_code = ? AND deleted_at IS NULL"
+              WHERE org_id = ?::uuid AND period_code = ? AND deleted_at IS NULL \
+                AND status <> 'REVERSED'"
                 .to_string(),
             vec![Value::from(&SENTINEL_ORG_ID), Value::Text(period_code.to_string())],
         )

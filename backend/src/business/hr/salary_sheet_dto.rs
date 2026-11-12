@@ -953,6 +953,75 @@ pub fn diff_item_totals(detail: &SalaryTotalsRes, items: &SalaryItemTypeTotalsRe
         .collect()
 }
 
+// ==================== 红冲（设计 §4.8.2 / §5.2 #44，HR-40） ====================
+
+/// 红冲原因的最少字数（与 `salary_override_dto::MIN_REASON_CHARS` 同一把尺子）。
+///
+/// 「1」「。 」这种一串字符不是原因：红冲会同时打掉两张已入账凭证的账，
+/// 三个月后审计问「为什么冲」时，`reverse_reason` 是唯一的答案来源。
+pub const MIN_REVERSE_REASON_CHARS: usize = 5;
+
+/// 红冲原因的最大字数：`biz_salary_sheet.reverse_reason` 是 `varchar(255)`。
+pub const MAX_REVERSE_REASON_CHARS: usize = 255;
+
+/// 红冲入参（设计 §5.2 #44：`reason` **必填**）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SalaryReverseReq {
+    /// 红冲原因（必填；trim 后 ≥[`MIN_REVERSE_REASON_CHARS`] 字、≤[`MAX_REVERSE_REASON_CHARS`] 字）。
+    ///
+    /// 同一段文字落三处：`biz_salary_sheet.reverse_reason`（单据上看得见）、
+    /// `biz_status_log.reason`（状态轨迹）、两张红字凭证的分录摘要 + 备注（会计档案）。
+    pub reason: Option<String>,
+}
+
+/// 入参 → 校验通过的红冲原因（已 trim）。
+///
+/// # 为什么在 DTO 层就拦（状态机里也有 `requires_reason`）
+///
+/// 状态机的 `POSTED → REVERSED` 是**必填原因边**，缺原因会 400 —— 但那要等到开了事务、
+/// 锁了单、读了凭证之后才报。DTO 这一层是先手：报文直接点名「reason 必填 / 至少 5 字」，
+/// 用户不用看到「事务已回滚」这种实现细节。两处判据同源（都要非空），不冲突。
+pub fn parse_reverse_reason(req: &SalaryReverseReq) -> std::result::Result<String, ApiError> {
+    let reason = req
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code::PARAM_INVALID,
+                format!(
+                    "reason 必填：红冲会同时冲掉「计提 + 发放」两张已入账凭证，\
+                     必须写明原因（≥{MIN_REVERSE_REASON_CHARS} 字，会落单据与账务两侧）：\
+                     例「11 月绩效口径报错，财务确认整单重发」"
+                ),
+            )
+        })?;
+    let chars = reason.chars().count();
+    if chars < MIN_REVERSE_REASON_CHARS {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "reason 至少 {MIN_REVERSE_REASON_CHARS} 个字（收到 {chars} 个：「{reason}」）—— \
+                 红冲原因要能回答「为什么把这笔工资的账冲掉」"
+            ),
+        ));
+    }
+    if chars > MAX_REVERSE_REASON_CHARS {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "reason 最多 {MAX_REVERSE_REASON_CHARS} 个字（收到 {chars} 个；\
+                 库列 biz_salary_sheet.reverse_reason 就是 varchar(255)）"
+            ),
+        ));
+    }
+    Ok(reason.to_string())
+}
+
 // ==================== 单测（不连库） ====================
 
 #[cfg(test)]
@@ -1308,5 +1377,65 @@ mod tests {
         });
         assert_eq!(res.accrual_total, money("11858.40"));
         assert_eq!(res.gross_total, res.net_total + res.withhold_total);
+    }
+
+    /// 红冲原因必填（HR-40 验收第一条后半句）：没传 / 全空白 → 400 且报文点名 `reason`。
+    #[test]
+    fn reverse_reason_is_required() {
+        for raw in [None, Some(""), Some("   ")] {
+            let req = SalaryReverseReq {
+                reason: raw.map(str::to_string),
+            };
+            let error = parse_reverse_reason(&req).expect_err("缺原因必须拦");
+            assert_eq!(
+                (error.status, error.code),
+                (400, error_code::PARAM_INVALID),
+                "缺原因要 400"
+            );
+            assert!(error.msg.contains("reason 必填"), "报文：{}", error.msg);
+        }
+    }
+
+    /// 太短 / 太长都拒绝，且报文给出收到几个字（用户知道该怎么改）。
+    #[test]
+    fn reverse_reason_length_window_is_enforced() {
+        let short = SalaryReverseReq {
+            reason: Some("错了".to_string()),
+        };
+        let error = parse_reverse_reason(&short).expect_err("太短要拒");
+        assert_eq!(error.status, 400);
+        assert!(
+            error.msg.contains(&format!("至少 {MIN_REVERSE_REASON_CHARS} 个字")),
+            "报文：{}",
+            error.msg
+        );
+        assert!(error.msg.contains("收到 2 个"), "报文：{}", error.msg);
+
+        let long = SalaryReverseReq {
+            reason: Some("冲".repeat(MAX_REVERSE_REASON_CHARS + 1)),
+        };
+        let error = parse_reverse_reason(&long).expect_err("超长要拒（库列 varchar(255)）");
+        assert_eq!(error.status, 400);
+        assert!(
+            error.msg.contains(&format!("最多 {MAX_REVERSE_REASON_CHARS} 个字")),
+            "报文：{}",
+            error.msg
+        );
+    }
+
+    /// 合法原因原样（trim 后）返回：红字凭证摘要 / 状态日志用的是同一段文字。
+    #[test]
+    fn reverse_reason_is_trimmed_and_returned() {
+        let req = SalaryReverseReq {
+            reason: Some("  11 月绩效口径报错，财务确认整单重发  ".to_string()),
+        };
+        let reason = parse_reverse_reason(&req).expect("合法原因必须放行");
+        assert_eq!(reason, "11 月绩效口径报错，财务确认整单重发");
+
+        // 正好卡在边界上（5 字）也要放行
+        let edge = SalaryReverseReq {
+            reason: Some("重算重发单".to_string()),
+        };
+        assert!(parse_reverse_reason(&edge).is_ok(), "5 字是合法下限");
     }
 }

@@ -44,7 +44,8 @@ mod db {
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_bridge::{self, SOURCE_ACCRUAL, SOURCE_PAYMENT};
     use crate::business::hr::salary_sheet_dto::{
-        STATUS_APPROVED, STATUS_CALCULATED, STATUS_POSTED, STATUS_SUBMITTED, SalaryManualReq, SalarySheetCalcReq,
+        STATUS_APPROVED, STATUS_CALCULATED, STATUS_POSTED, STATUS_REVERSED, STATUS_SUBMITTED, SalaryManualReq,
+        SalarySheetCalcReq,
     };
     use crate::business::hr::salary_sheet_handler;
     use crate::business::hr::salary_sheet_model as model;
@@ -786,6 +787,330 @@ mod db {
         let sheet = model::find_sheet(fixture.sheet_id).await.expect("读单").expect("单在");
         assert_eq!(sheet.status, STATUS_SUBMITTED, "陈旧回调不许动状态");
         assert_eq!(sheet.approval_instance_id, Some(new_instance));
+        cleanup(&fixture).await;
+    }
+
+    // ==================== ⑤ 红冲（HR-40）：两张红字凭证 + 状态机 + 原因必填 ====================
+
+    /// 把夹具推到 `POSTED`（红冲的前置状态）。
+    async fn post_for_reverse(fixture: &Fixture) {
+        fixture.lock_attendance().await;
+        fixture.approve().await;
+        salary_bridge::post_salary(fixture.operator.clone(), fixture.sheet_id)
+            .await
+            .expect("过账必须成功（红冲的前置）");
+    }
+
+    /// 一张凭证的 `(is_red, reverse_of, reversed_by, voucher_no, source_type, source_no, remark, 借合计, 贷合计)`。
+    struct VoucherMeta {
+        is_red: i16,
+        reverse_of: Option<Uuid>,
+        reversed_by: Option<Uuid>,
+        voucher_no: String,
+        source_type: String,
+        source_no: Option<String>,
+        remark: Option<String>,
+        debit: Decimal,
+        credit: Decimal,
+    }
+
+    async fn voucher_meta(id: Uuid) -> VoucherMeta {
+        let row = db()
+            .query_first_sql(
+                "SELECT is_red, reverse_of, reversed_by, voucher_no, source_type, source_no, remark, \
+                        total_debit, total_credit \
+                   FROM biz_voucher WHERE id = ?::uuid"
+                    .to_string(),
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查凭证元信息")
+            .expect("凭证必须存在");
+        VoucherMeta {
+            is_red: row.get_typed("is_red").expect("is_red"),
+            reverse_of: row.get_typed("reverse_of").expect("reverse_of"),
+            reversed_by: row.get_typed("reversed_by").expect("reversed_by"),
+            voucher_no: row.get_typed("voucher_no").expect("凭证号"),
+            source_type: row.get_typed("source_type").expect("来源类型"),
+            source_no: row.get_typed("source_no").expect("来源单号"),
+            remark: row.get_typed("remark").expect("备注"),
+            debit: row.get_typed("total_debit").expect("借合计"),
+            credit: row.get_typed("total_credit").expect("贷合计"),
+        }
+    }
+
+    /// 红字凭证的 id（按 `reverse_of` 反查）。
+    async fn red_of(original: Uuid) -> Option<Uuid> {
+        db().query_first_sql(
+            "SELECT id FROM biz_voucher WHERE reverse_of = ?::uuid AND deleted_at IS NULL".to_string(),
+            vec![Value::from(&original)],
+        )
+        .await
+        .expect("查红字凭证")
+        .map(|row| row.get_typed("id").expect("红字 id"))
+    }
+
+    /// 验收①②：红冲**两张都冲**（计提 + 发放各一张红字），借贷互换、金额恒正、`PZR` 号段、
+    /// 原凭证 `reversed_by` 回写、单据 `REVERSED` + `reversal_voucher_id` 记第一张 + 原因落库。
+    #[tokio::test]
+    async fn reverse_creates_two_red_vouchers_for_accrual_and_payment() {
+        let Some(fixture) = setup("2028-08").await else {
+            return;
+        };
+        post_for_reverse(&fixture).await;
+        let posted = model::find_sheet(fixture.sheet_id).await.expect("读单").expect("单在");
+        let accrual_id = posted.accrual_voucher_id.expect("过账后必须有计提凭证");
+        let payment_id = posted.payment_voucher_id.expect("过账后必须有发放凭证");
+        let reason = "11 月绩效口径报错，财务确认整单重发";
+
+        let card = salary_bridge::reverse_salary(fixture.operator.clone(), fixture.sheet_id, reason)
+            .await
+            .expect("红冲必须成功");
+        assert_eq!(card.status, STATUS_REVERSED, "红冲后单据是 REVERSED");
+        assert_eq!(card.status_label, "已红冲");
+
+        // ---- 单据侧：状态 + 指针 + 原因 + 时间戳 ----
+        let sheet = model::find_sheet(fixture.sheet_id).await.expect("读单").expect("单在");
+        assert_eq!(sheet.status, STATUS_REVERSED);
+        assert_eq!(sheet.reverse_reason.as_deref(), Some(reason), "原因必须落库");
+        assert!(sheet.reversed_at.is_some(), "红冲时间必须写");
+        let first_red = sheet.reversal_voucher_id.expect("reversal_voucher_id 必须写");
+
+        // ---- 两张红字凭证：都冲了，且各自指向自己的原凭证 ----
+        let accrual_red = red_of(accrual_id).await.expect("计提凭证的红字凭证必须存在");
+        let payment_red = red_of(payment_id).await.expect("发放凭证的红字凭证必须存在");
+        assert_eq!(first_red, accrual_red, "reversal_voucher_id 记第一张（计提的红字）");
+        assert_ne!(accrual_red, payment_red, "两张原凭证各冲一张，不能只冲一张");
+
+        for (label, original_id, red_id, expect_source) in [
+            ("计提", accrual_id, accrual_red, SOURCE_ACCRUAL),
+            ("发放", payment_id, payment_red, SOURCE_PAYMENT),
+        ] {
+            let original = voucher_meta(original_id).await;
+            let red = voucher_meta(red_id).await;
+            assert_eq!(original.is_red, 0, "{label}原凭证是蓝字");
+            assert_eq!(red.is_red, 1, "{label}红字凭证 is_red = 1");
+            assert_eq!(red.reverse_of, Some(original_id), "{label}红字 reverse_of 指向原凭证");
+            assert_eq!(
+                original.reversed_by,
+                Some(red_id),
+                "{label}原凭证必须回写 reversed_by（不是把原凭证删掉）"
+            );
+            assert_eq!(
+                red.voucher_no.chars().take(4).collect::<String>(),
+                "PZR-",
+                "{label}红字凭证走独立号段 PZR-（实际：{}）",
+                red.voucher_no
+            );
+            assert_eq!(
+                red.source_type, expect_source,
+                "{label}红字继承来源类型（巡检 A8 要查）"
+            );
+            assert_eq!(
+                red.source_no.as_deref(),
+                Some(fixture.sheet_no.as_str()),
+                "{label}红字凭证仍能按薪资单号查到"
+            );
+            assert_eq!(red.remark.as_deref(), Some(reason), "{label}红字备注写的是红冲原因");
+            // 金额等额（借贷合计不变），借贷平衡
+            assert_eq!(red.debit, original.debit, "{label}红字借方合计 = 原凭证");
+            assert_eq!(red.credit, original.credit, "{label}红字贷方合计 = 原凭证");
+            assert_eq!(red.debit, red.credit, "{label}红字凭证必须平衡");
+
+            // ---- 分录侧：逐行借贷互换、金额恒正 ----
+            let originals = entries_of(original_id).await;
+            let reds = entries_of(red_id).await;
+            assert_eq!(reds.len(), originals.len(), "{label}红字行数 = 原凭证行数");
+            for entry in &reds {
+                assert!(
+                    entry.debit > Decimal::ZERO || entry.credit > Decimal::ZERO,
+                    "{label}红字每行必须恒正（单边 CHECK 要求 > 0）：{}/{}",
+                    entry.code,
+                    entry.debit
+                );
+            }
+            for entry in &originals {
+                let swapped_debit = sum_of(&reds, &entry.code, "credit");
+                let swapped_credit = sum_of(&reds, &entry.code, "debit");
+                let original_debit = sum_of(&originals, &entry.code, "debit");
+                let original_credit = sum_of(&originals, &entry.code, "credit");
+                assert_eq!(swapped_debit, original_debit, "{label} {} 的借→贷互换", entry.code);
+                assert_eq!(swapped_credit, original_credit, "{label} {} 的贷→借互换", entry.code);
+            }
+        }
+
+        // ---- 一张单 4 张凭证（2 蓝 + 2 红），没有多出来的 ----
+        let all = sheet_vouchers(&fixture.sheet_no).await;
+        assert_eq!(all.len(), 4, "计提/发放 + 各自的红字 = 4 张，实际：{all:?}");
+
+        // ---- 状态日志：POSTED → REVERSED + 原因（审计轨迹） ----
+        let log = db()
+            .query_first_sql(
+                "SELECT from_status, to_status, reason FROM biz_status_log \
+                  WHERE entity_no = ? AND from_status = 'POSTED' AND to_status = 'REVERSED'"
+                    .to_string(),
+                vec![Value::Text(fixture.sheet_no.clone())],
+            )
+            .await
+            .expect("查状态日志")
+            .expect("必须有一条 POSTED → REVERSED 的状态日志");
+        let log_reason: Option<String> = log.get_typed("reason").expect("日志原因");
+        assert!(
+            log_reason.as_deref().unwrap_or_default().contains(reason),
+            "状态日志必须带原因：{log_reason:?}"
+        );
+
+        cleanup(&fixture).await;
+    }
+
+    /// 验收②（反向）：只有 `POSTED` 能红冲；红冲过的**不能再冲第二次**，且不留多余凭证。
+    #[tokio::test]
+    async fn reverse_requires_posted_and_is_rejected_twice() {
+        let Some(fixture) = setup("2028-09").await else {
+            return;
+        };
+        // ① CALCULATED 阶段红冲 → 409，且不留红字凭证
+        let error = salary_bridge::reverse_salary(fixture.operator.clone(), fixture.sheet_id, "还没过账不能红冲")
+            .await
+            .expect_err("未过账不许红冲");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::HR_SALARY_RULE_BLOCKED);
+        assert!(error.msg.contains("POSTED"), "报文要点名目标状态：{}", error.msg);
+        assert!(sheet_vouchers(&fixture.sheet_no).await.is_empty(), "不许留凭证");
+
+        // ② 过账后红冲成功
+        post_for_reverse(&fixture).await;
+        salary_bridge::reverse_salary(fixture.operator.clone(), fixture.sheet_id, "口径报错整单重发")
+            .await
+            .expect("过账后红冲必须成功");
+        assert_eq!(sheet_vouchers(&fixture.sheet_no).await.len(), 4);
+
+        // ③ 再冲一次 → 409（终态），且凭证数不变（不会多出两张红字）
+        let error = salary_bridge::reverse_salary(fixture.operator.clone(), fixture.sheet_id, "再冲一次试试")
+            .await
+            .expect_err("已红冲的单不能再红冲");
+        assert_eq!(error.status, 409);
+        assert!(
+            error.msg.contains("REVERSED") || error.msg.contains("已经红冲"),
+            "报文要说明已红冲：{}",
+            error.msg
+        );
+        assert_eq!(sheet_vouchers(&fixture.sheet_no).await.len(), 4, "重复红冲不许新增凭证");
+        cleanup(&fixture).await;
+    }
+
+    /// 验收②：**原因必填** —— 空白原因 400，且账上一分不动（单据仍 `POSTED`、无红字凭证）。
+    #[tokio::test]
+    async fn reverse_without_reason_is_rejected_and_leaves_ledger_untouched() {
+        let Some(fixture) = setup("2028-10").await else {
+            return;
+        };
+        post_for_reverse(&fixture).await;
+        for blank in ["", "   ", "\t\n"] {
+            let error = salary_bridge::reverse_salary(fixture.operator.clone(), fixture.sheet_id, blank)
+                .await
+                .expect_err("空白原因必须拒绝");
+            assert_eq!(error.status, 400, "缺原因要 400");
+            assert_eq!(error.code, error_code::PARAM_INVALID);
+            assert!(error.msg.contains("reason 必填"), "报文：{}", error.msg);
+        }
+        let sheet = model::find_sheet(fixture.sheet_id).await.expect("读单").expect("单在");
+        assert_eq!(sheet.status, STATUS_POSTED, "失败的 红冲不许改状态");
+        assert!(sheet.reversal_voucher_id.is_none(), "失败的 红冲不许写指针");
+        assert!(sheet.reverse_reason.is_none());
+        let reds = db()
+            .query_sql(
+                "SELECT id FROM biz_voucher WHERE source_no = ? AND is_red = 1".to_string(),
+                vec![Value::Text(fixture.sheet_no.clone())],
+            )
+            .await
+            .expect("查红字凭证");
+        assert!(reds.is_empty(), "失败的 红冲一张红字凭证都不许留");
+        cleanup(&fixture).await;
+    }
+
+    /// 验收③：**红冲后可重算** —— 同期间可以重新建单（红冲单让出期间位），
+    /// 新单金额口径与红冲前一致，红冲单本体（红字凭证 + 原因）原样留档。
+    #[tokio::test]
+    async fn reversed_sheet_frees_the_period_for_a_new_sheet() {
+        let Some(fixture) = setup("2028-11").await else {
+            return;
+        };
+        post_for_reverse(&fixture).await;
+        let posted = model::find_sheet(fixture.sheet_id).await.expect("读单").expect("单在");
+        let gross_before = posted.gross_total;
+        salary_bridge::reverse_salary(fixture.operator.clone(), fixture.sheet_id, "整单重发：重算一版")
+            .await
+            .expect("红冲必须成功");
+
+        // 唯一键/前置检查都必须放行（否则这条用例会拿到「同期间已存在」的 409）
+        let leftover = crate::business::hr::salary_compute::existing_sheet_no(db(), &fixture.period)
+            .await
+            .expect("查期间占位");
+        assert!(leftover.is_none(), "红冲单不该再占期间位（实际：{leftover:?}）");
+
+        // 同期间重新建单：必须成功，且是一张**新单**（旧单不动）
+        let again = salary_sheet_handler::persist(fixture.operator.clone(), &fixture.calc_req())
+            .await
+            .expect("红冲后同期间必须能重新建单（否则客户只能找研发改库）");
+        let new_sheet = again.sheet.clone().expect("建单必须回单头");
+        let new_id = Uuid::parse_str(&new_sheet.id).expect("新单 id");
+        assert_ne!(new_id, fixture.sheet_id, "必须是新单，不是原单复活");
+        assert_ne!(new_sheet.sheet_no, fixture.sheet_no, "新单要新单号");
+        assert_eq!(new_sheet.status, STATUS_CALCULATED);
+        let new_head = model::find_sheet(new_id).await.expect("读新单").expect("新单在");
+        assert_eq!(new_head.gross_total, gross_before, "同一批考勤 + 标准 → 应发口径一致");
+
+        // 旧单仍是 REVERSED，红字凭证与原因都还在（审计要比稿）
+        let old = model::find_sheet(fixture.sheet_id).await.expect("读单").expect("单在");
+        assert_eq!(old.status, STATUS_REVERSED);
+        assert_eq!(old.reverse_reason.as_deref(), Some("整单重发：重算一版"));
+        assert_eq!(sheet_vouchers(&fixture.sheet_no).await.len(), 4);
+
+        // 新单也能正常走完全程（重算后的这张才是要发的）
+        db().exec_sql(
+            "UPDATE biz_salary_sheet SET status = 'APPROVED' WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&new_id)],
+        )
+        .await
+        .expect("新单推到 APPROVED");
+        salary_bridge::post_salary(fixture.operator.clone(), new_id)
+            .await
+            .expect("新单过账必须成功（红冲重算的闭环）");
+
+        // 清场：新单的凭证 / 日志 / 单头（旧单由 cleanup 收拾）
+        for (sql, params) in [
+            (
+                "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+                   (SELECT id FROM biz_voucher WHERE source_no = ?)"
+                    .to_string(),
+                vec![Value::Text(new_sheet.sheet_no.clone())],
+            ),
+            (
+                "DELETE FROM biz_voucher WHERE source_no = ?".to_string(),
+                vec![Value::Text(new_sheet.sheet_no.clone())],
+            ),
+            (
+                "DELETE FROM biz_status_log WHERE entity_no = ?".to_string(),
+                vec![Value::Text(new_sheet.sheet_no.clone())],
+            ),
+            (
+                "DELETE FROM biz_salary_detail_item WHERE detail_id IN \
+                   (SELECT id FROM biz_salary_detail WHERE sheet_id = ?::uuid)"
+                    .to_string(),
+                vec![Value::from(&new_id)],
+            ),
+            (
+                "DELETE FROM biz_salary_detail WHERE sheet_id = ?::uuid".to_string(),
+                vec![Value::from(&new_id)],
+            ),
+            (
+                "DELETE FROM biz_salary_sheet WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&new_id)],
+            ),
+        ] {
+            let _ = db().exec_sql(sql, params).await;
+        }
         cleanup(&fixture).await;
     }
 }

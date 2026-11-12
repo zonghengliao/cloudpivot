@@ -1244,6 +1244,21 @@ COMMIT
 - `POSTED → REVERSED`：生成**两张红字凭证**（借贷互换、金额恒正、`is_red=1`、`reverse_of` 指向原凭证、走 `PZR` 号段），薪资单状态 `REVERSED` + `reversal_voucher_id` 只记第一张（第二张通过 `reverse_of` 反查）。
 - 红冲后同期间**不能再开新单**（`uk_biz_salary_sheet_period`）；重发要么把红冲单软删再开新单（审计上"删除"有痕：`deleted_at` + 状态日志），要么用**补差单**（`period_code` 用当月，`remark` 写"补发 X 月差额"）—— 一期选后者，前者留作运维手段。
 
+##### 落地记录（HR-40，2026-11-13）
+
+代码：`salary_bridge.rs`（`reverse_salary` / `reverse_in_tx` / `lock_original` / `reverse_one`）、
+`salary_sheet_handler.rs` 的 #44 路由、`salary_sheet_model.rs` 的 `mark_reversed`、
+`salary_sheet_dto.rs` 的 `SalaryReverseReq` + `parse_reverse_reason`、迁移 `V0397`。
+
+| 设计条目 | 落地方式 | 偏差 / 说明 |
+|---|---|---|
+| 两张红字凭证 | 逐张调 `erp/voucher.rs::reverse_posted`（借贷互换 + 金额恒正 + `is_red=1` + `reverse_of` + 独立号段 `PZR-` + 原凭证回写 `reversed_by` + 原期间已结账则拒绝）；本卡只负责「串两张 + 状态机 + 回写单据」 | 无偏差（不手写分录：红冲算法只有一份） |
+| `reversal_voucher_id` 只记第一张 | CAS 回写记**计提凭证的红字**；发放凭证的红字靠 `biz_voucher.reverse_of = payment_voucher_id` 反查 | 无偏差 |
+| 原因必填 | 两道：DTO `parse_reverse_reason`（trim 后 ≥5 字、≤255 字 = `reverse_reason` 列宽）→ 状态机 `POSTED → REVERSED` 是必填原因边（第二道守内部调用）；原因同时落 `reverse_reason` + `biz_status_log.reason` + 两张红字凭证的 `remark` | 无偏差 |
+| 状态机 | `SALARY_SHEET_EDGES` 的 `POSTED → REVERSED`（`REVERSED` 仍属 `SALARY_SHEET_LOCKED` 冻结态） | 无偏差；单据 `REVERSED` 是终态，不回 `CALCULATED` |
+| **红冲后可重算** | 迁移 `V0397` 把 `uk_biz_sal_sheet_period` 谓词扩成 `deleted_at IS NULL AND status <> 'REVERSED'`，并同步改 `salary_compute::existing_sheet_no` 的前置检查 | ⚠️ **具名偏差**：本节原文「红冲后同期间不能再开新单」被本卡放松为「**红冲单不占期间位**」。理由：`REVERSED` 是终态 + 接口清单无 DELETE + 唯一键挡路 ⇒ 客户红冲完就再也发不出当月工资，只能找研发改库（撞 `AGENTS.md` 约定 11 的判据）。放松后「补差单」与「软删重开」两条老路仍可用；同款先例见 `V0373` 的 `uk_biz_cost_period`（早就排除 `REVERSED`/`CANCELLED`）。回滚有护栏：`V0397.down.sql` 遇到同期间多张未删除单会 `RAISE EXCEPTION` 而不是硬建索引 |
+| 事务与补偿 | 单一事务：锁单 → 状态闸（只 `POSTED`）→ 两张凭证必须在（A8 前置）→ `FOR UPDATE` 锁两张原凭证并核对 `source_id/source_type` → 两张红字 → 状态机 → CAS 回写 | `COMMIT` 之后只读回执、不写库不发通知 ⇒ 无「提交后失败」分支；任一步失败整笔回滚，**两张红字一起消失**、单据仍 `POSTED`，红冲按钮可再点 |
+
 #### 4.8.3 并发
 
 | 竞争点 | 措施 |
@@ -1707,7 +1722,7 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | HR-37 | 明细覆盖（改单项 → 重算汇总 → 写状态日志）+ 越权校验 | HR-36 | 1.0 h |
 | HR-38 | 迁移 V0394（设计 V0385 / 曾映射 V0391）：`hr_salary` 流程 + 迁移 V0395（设计 V0386 / 曾映射 V0392）：调薪/离职流程。✅ 已落地：6/6 + 5/4 + 6/6 三套 PUBLISHED、节点绑角色（会签=财务经理+财务总监）、145 演练库 69 条断言 + 5 条真库用例全绿 | HR-36 | 1.5 h |
 | HR-39 | `salary_bridge`：过账（两张凭证，`post_explicit_lines`）+ 审批回调 + 净额法汇总。✅ 已落地：净额法汇总 15 条单测（逐行对设计 §4.6.1 两张表）+ 7 条真库用例（借贷平衡 / 净额法 / 倒挤 / 状态闸 / 考勤闸 / 回调三路径）全绿；#42 提交审批（冻 `gross_total_num` 为 JSON number）与 #43 过账两条路由同卡落地 | HR-38,HR-02 | 1.5 h+ |
-| HR-40 | 红冲（两张红字凭证 + 状态机 + 原因必填） | HR-39 | 1.0 h |
+| HR-40 | 红冲（两张红字凭证 + 状态机 + 原因必填）。✅ 已落地：两张红字（`PZR-` 号段、借贷互换、`reverse_of` + `reversed_by` 双向指针）+ `POSTED → REVERSED` 状态机 + 原因两道闸（DTO + 必填原因边）+ 迁移 V0397「红冲单不占期间位 ⇒ 红冲后可重算」；145 演练库 4 条真库用例（两张红字 / 状态闸 / 原因必填 / 红冲后重算闭环）全绿 | HR-39 | 1.0 h |
 | HR-41 | `/salary/my` + `/attendance/my` + `/leave/my` 自助三接口 | HR-36 | 1.0 h |
 | HR-42 | 工资表导出 xlsx（项为列 + 部门分组） | HR-36 | 1.5 h |
 | HR-43 | 薪资单详情页（四段式 + 明细展开 + 凭证卡） | HR-36 | 1.5 h |
