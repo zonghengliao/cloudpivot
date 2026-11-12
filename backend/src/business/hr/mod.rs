@@ -178,5 +178,17 @@ mod salary_db_tests;
 pub mod salary_dto;
 /// 员工薪资标准接口层（设计 §5.2 #16~#17：现行+历史 / 调薪·登记·修正·取消），HR-16。
 pub mod salary_handler;
+/// HR-31 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：4 接口落库 / 公式长度与语义拦截 /
+/// 编码与顺序占用 / 系统项与引用项守卫。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_item_db_tests;
+/// 薪资项入参 / 回执契约 + 公式三层校验（结构 / 语义 / 业务分档），`biz_salary_item`（HR-31）。
+pub mod salary_item_dto;
+/// 薪资项公式的**结构检查 + 变量抽取 + 依赖图**（长度 ≤500 / 白名单 / 环 / 拓扑序），`biz_salary_item`（HR-31）。
+pub mod salary_item_formula;
+/// 薪资项接口层（设计 §5.2 #32~#35：列表 / 新建 / 修改 / 公式检查），HR-31。
+pub mod salary_item_handler;
+/// 薪资项数据层（`biz_salary_item`）：分页 / 单条 / 依赖图快照 / 序号取号 / 编码与顺序查重 / 建改（HR-31）。
+pub mod salary_item_model;
 /// 员工薪资标准数据层（`biz_employee_salary`）：版本读写 + 区间重叠判定（A3）（HR-16）。
 pub mod salary_model;
