@@ -62,7 +62,7 @@ async function loadPalettes() {
 
 const palettes = await loadPalettes();
 
-const { PALETTES, buildPalette, luminance, parseHex, round2 } = palettes;
+const { PALETTES, buildPalette, luminance, parseHex, round2, contrast } = palettes;
 
 const args = new Set(process.argv.slice(2));
 const asJson = args.has('--json');
@@ -76,7 +76,7 @@ const errors = [];
 const notes = [];
 
 /* ------------------------------------------------------------------ *
- * 0. 色板数据自检：22 套、色值严格等于需求表、无脏字符
+ * 0. 色板数据自检：99 套（22 精选 + 77 gallery）、色值严格等于需求表、无脏字符
  * ------------------------------------------------------------------ */
 
 const EXPECTED = [
@@ -88,8 +88,70 @@ const EXPECTED = [
   ['jade-crimson', '翠绿绛红', '#6FB885', '#A5CBB0', '#E8EAE1', '#CFAAAB', '#C17B7E'],
 ];
 
-if (PALETTES.length !== 22) {
-  dataErrors.push(`色板数量应为 22，实际 ${PALETTES.length}`);
+const FEATURED_COUNT = 22;
+const GALLERY_COUNT = 77;
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+if (PALETTES.length !== FEATURED_COUNT + GALLERY_COUNT) {
+  dataErrors.push(
+    `色板数量应为 ${FEATURED_COUNT + GALLERY_COUNT}（${FEATURED_COUNT} 精选 + ${GALLERY_COUNT} gallery），实际 ${PALETTES.length}`,
+  );
+}
+
+const featuredPalettes = PALETTES.filter((item) => (item.group ?? 'featured') === 'featured');
+const galleryPalettes = PALETTES.filter((item) => (item.group ?? 'featured') !== 'featured');
+
+if (featuredPalettes.length !== FEATURED_COUNT) {
+  dataErrors.push(`精选方案应为 ${FEATURED_COUNT} 套，实际 ${featuredPalettes.length}`);
+}
+if (galleryPalettes.length !== GALLERY_COUNT) {
+  dataErrors.push(`gallery 方案应为 ${GALLERY_COUNT} 套，实际 ${galleryPalettes.length}`);
+}
+
+// id 唯一（99 套手写 + 生成混编，靠 -2/-3 后缀区分同名方案，一旦撞了就是 localStorage 串味）
+const seenIds = new Set();
+for (const palette of PALETTES) {
+  if (seenIds.has(palette.id)) dataErrors.push(`方案 id 重复：${palette.id}`);
+  seenIds.add(palette.id);
+}
+
+// gallery 方案：分组合法、来源文件可追溯、原始色值 1~4 个且全部是 7 位 hex
+const GALLERY_GROUPS = new Set(['porcelain', 'fashion']);
+for (const palette of galleryPalettes) {
+  const label = `${palette.name}（${palette.id}）`;
+  if (!GALLERY_GROUPS.has(palette.group)) {
+    dataErrors.push(`${label} 分组非法：${palette.group}`);
+  }
+  if (!palette.source || !/^IMG_\d+\.(JPG|PNG)$/i.test(palette.source)) {
+    dataErrors.push(`${label} 来源文件缺失或格式不符：${palette.source}`);
+  }
+  const sourceColors = palette.sourceColors ?? [];
+  if (sourceColors.length < 1 || sourceColors.length > 4) {
+    dataErrors.push(`${label} 原始色值应为 1~4 个，实际 ${sourceColors.length}`);
+  }
+  for (const hex of sourceColors) {
+    if (!HEX_RE.test(hex)) dataErrors.push(`${label} 原始色值非法：${hex}`);
+  }
+  // 2 色及以上的方案：brand / merge 必须是原始色值里的一个（源色原样使用，不许凭空造主色）
+  if (sourceColors.length >= 2) {
+    const upper = sourceColors.map((hex) => hex.toUpperCase());
+    if (!upper.includes(palette.brand.toUpperCase())) {
+      dataErrors.push(`${label} brand ${palette.brand} 不在原始色值 ${upper.join('/')} 中`);
+    }
+    if (!upper.includes(palette.merge.toUpperCase())) {
+      dataErrors.push(`${label} merge ${palette.merge} 不在原始色值 ${upper.join('/')} 中`);
+    }
+  }
+}
+
+// merge 底色上正文（#1A1A1A 或 #F5F5F5 取较优）必须 ≥ 4.5:1
+for (const palette of PALETTES) {
+  const best = Math.max(contrast('#1A1A1A', palette.merge), contrast('#F5F5F5', palette.merge));
+  if (best < 4.5) {
+    dataErrors.push(
+      `${palette.name}（${palette.id}）：merge ${palette.merge} 上正文对比度最高 ${round2(best)} < 4.5`,
+    );
+  }
 }
 
 for (const [index, expected] of EXPECTED.entries()) {
@@ -336,7 +398,7 @@ if (asJson) {
   });
   console.log([...header, ...lines].join('\n'));
 } else {
-  console.log('配色方案对比度报告（22 套 × 明暗 = 44 组）\n');
+  console.log(`配色方案对比度报告（${PALETTES.length} 套 × 明暗 = ${PALETTES.length * 2} 组）\n`);
   const fmt = (v) => String(v).padEnd(8);
   console.log(
     `${'#'.padEnd(3)}${'方案'.padEnd(10)}${'模式'.padEnd(7)}${'正文'.padEnd(8)}${'次要'.padEnd(8)}${'占位'.padEnd(8)}${'品牌字'.padEnd(9)}${'白字/主色'.padEnd(12)}${'白字/交互面'.padEnd(10)}结论`,

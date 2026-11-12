@@ -10,15 +10,21 @@
  * 变量名严格复用现有约定（`--td-brand-color-1..10` / `--td-bg-color-*` / `--td-text-color-*`
  * / `--td-chart-color-*` / `--app-*`），现有组件零改动即可换肤。
  *
- * ⚠ 色值红线：下面 PALETTES 里的 30 个色值来自需求方色表，**原样保留，不"优化"**。
+ * ⚠ 色值红线：PALETTES 里的色值来自需求方色表（云枢精选 22 套 + gallery 提取 77 套），
+ *   **原样保留，不"优化"**。gallery 方案只有 1~4 个源色，未覆盖的槽位按亮度排序派生
+ *   （提亮 / 压暗 / 补色），派生规则与逐条映射结果见 `docs/evidence/palette-77/mapping-report.md`；
+ *   源色本身原样写在 `sourceColors` 里，一条都不丢。
  *   推导色阶、自动修正都是额外派生的变量，基准色本身永远不覆写。
  */
 
 /** 明暗模式 */
 export type ColorMode = 'light' | 'dark';
 
-/** 方案 id（写入 localStorage，勿随意改） */
-export type PaletteId =
+/** 方案分组：设置页分区展示用（featured = 云枢精选，即底座自带 22 套） */
+export type PaletteGroup = 'featured' | 'porcelain' | 'fashion';
+
+/** 云枢精选方案 id（底座自带 22 套） */
+export type FeaturedPaletteId =
   | 'mist-blue'
   | 'deep-sea'
   | 'teal-sunset'
@@ -42,6 +48,92 @@ export type PaletteId =
   | 'clear-mist'
   | 'deep-blue-orange';
 
+/** gallery 提取方案 id（77 套，由 scripts/verify/gen_palette_schemes.py 生成，勿手改） */
+export type GalleryPaletteId =
+  // <gallery-ids:begin>
+  | 'nat-canglan-naiyou'
+  | 'nat-yunhui-tuo'
+  | 'nat-shenhai-wulan'
+  | 'guci-jiutao'
+  | 'guci-hulu'
+  | 'guci-zhuangxin'
+  | 'guci-zhuangxin-2'
+  | 'guci-wanhua'
+  | 'guci-huaniao'
+  | 'guci-meiping'
+  | 'guci-fushou'
+  | 'nat-dizhonghai'
+  | 'guci-qingluan'
+  | 'guci-qianli'
+  | 'guci-yuanshan'
+  | 'nat-danxia'
+  | 'pms-sports-outdoor'
+  | 'pms-popular'
+  | 'pms-sports-outdoor-2'
+  | 'pms-sports-outdoor-3'
+  | 'pms-sports-outdoor-4'
+  | 'pms-shuangzi'
+  | 'pms-chengbao'
+  | 'pms-xinchao'
+  | 'pms-sports-outdoor-5'
+  | 'nat-img9151'
+  | 'nat-img9152'
+  | 'nat-img9153'
+  | 'nat-img9154'
+  | 'nat-img9155'
+  | 'nat-img9156'
+  | 'nat-img9157'
+  | 'nat-img9158'
+  | 'nat-img9159'
+  | 'guci-youlibai'
+  | 'guci-ciyun'
+  | 'guci-haishui'
+  | 'guci-yingyue'
+  | 'nat-wulan-qing'
+  | 'nat-img9165'
+  | 'nat-img9166'
+  | 'nat-img9167'
+  | 'nat-img9168'
+  | 'nat-img9169'
+  | 'nat-img9170'
+  | 'pms-sports-outdoor-6'
+  | 'pms-sports-outdoor-7'
+  | 'pms-shanye'
+  | 'pms-sports-outdoor-8'
+  | 'pms-migua'
+  | 'pms-sports-outdoor-9'
+  | 'pms-shenshuilan'
+  | 'pms-yueliang'
+  | 'pms-miaomiao'
+  | 'pms-kaoguo'
+  | 'pms-xingrenlao'
+  | 'pms-heimei'
+  | 'pms-sports-outdoor-10'
+  | 'pms-hejin'
+  | 'pms-shanchuang'
+  | 'pms-sports-outdoor-11'
+  | 'pms-dama'
+  | 'pms-shanxi'
+  | 'nat-persimmon'
+  | 'nat-crested-ibis'
+  | 'nat-bee-eater'
+  | 'nat-osmanthus'
+  | 'nat-muhly-grass'
+  | 'nat-huxiu'
+  | 'nat-oak'
+  | 'nat-maple'
+  | 'nat-chanterelle'
+  | 'guci-fenqiang'
+  | 'guci-chishui'
+  | 'guci-xuanzhi'
+  | 'guci-yuedong'
+  | 'guci-gongming'
+  // <gallery-ids:end>
+  ;
+
+/** 方案 id（写入 localStorage，勿随意改 —— 已发布的旧 id 必须永久保留） */
+export type PaletteId = FeaturedPaletteId | GalleryPaletteId;
+
 /** 一套方案的基准色（5 个色值 + 文案） */
 export interface PaletteDef {
   /** 稳定 id，持久化用 */
@@ -60,10 +152,16 @@ export interface PaletteDef {
   border: string;
   /** ⑤ 强调色 accent */
   accent: string;
+  /** 分组（缺省视为 featured；设置页按分组分区展示） */
+  group?: PaletteGroup;
+  /** 原始来源文件（gallery 提取件，如 IMG_9129.JPG），设置页搜索用 */
+  source?: string;
+  /** 原始色值（未映射的源色，仅 gallery 方案有；映射规则见 docs/evidence/palette-77/mapping-report.md） */
+  sourceColors?: readonly string[];
 }
 
 /**
- * 二十二套色板（8 套初版 + 釉青/墨莓 + 14 套新增）。
+ * 云枢精选二十二套（8 套初版 + 釉青/墨莓 + 14 套新增）。
  *
  * 色块语义：
  * - brand   → `--td-brand-color-7`，主按钮 / 选中态 / 图表主色
@@ -72,7 +170,7 @@ export interface PaletteDef {
  * - border  → `--td-component-border`，卡片与分割线（深色模式下压暗）
  * - accent  → `--app-brand-accent` / `--td-chart-color-2`，点缀与图表第二色
  */
-export const PALETTES: readonly PaletteDef[] = [
+export const FEATURED_PALETTES: readonly PaletteDef[] = [
   {
     id: 'mist-blue',
     name: '雾蓝流金',
@@ -296,7 +394,1029 @@ export const PALETTES: readonly PaletteDef[] = [
     border: '#5F7583',
     accent: '#E0680E',
   },
-] as const;
+];
+
+// <gallery-data:begin>
+/** gallery 77 套（由 scripts/verify/gen_palette_schemes.py 从 docs/design/palette-schemes-77.json 生成，勿手改） */
+export const GALLERY_PALETTES: readonly PaletteDef[] = [
+  {
+    id: 'nat-canglan-naiyou',
+    name: '藏蓝奶油',
+    note: '藏蓝 × 奶油白 —— 来源 IMG_9126.JPG',
+    brand: '#24364A',
+    brandLight: '#496D95',
+    merge: '#F4E8DA',
+    border: '#EBD4BB',
+    accent: '#4A3824',
+    group: 'fashion',
+    source: 'IMG_9126.JPG',
+    sourceColors: ['#24364A', '#F4E8DA'],
+  }, // #1 源 2 色 · 派生：brandLight、border、accent
+  {
+    id: 'nat-yunhui-tuo',
+    name: '云灰驼',
+    note: '#ECECEC × #E6E0D7 × #C7B8A7 —— Today\'s color matching',
+    brand: '#C7B8A7',
+    brandLight: '#F3EFEC',
+    merge: '#ECECEC',
+    border: '#D8D8D8',
+    accent: '#E6E0D7',
+    group: 'fashion',
+    source: 'IMG_9127.JPG',
+    sourceColors: ['#ECECEC', '#E6E0D7', '#C7B8A7'],
+  }, // #2 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-shenhai-wulan',
+    name: '深海雾蓝',
+    note: '深海灰蓝（主色） × 雾感浅蓝（辅助色） —— 来源 IMG_9128.JPG',
+    brand: '#41647F',
+    brandLight: '#779CB9',
+    merge: '#94BBD2',
+    border: '#77A9C6',
+    accent: '#7F5C41',
+    group: 'fashion',
+    source: 'IMG_9128.JPG',
+    sourceColors: ['#41647F', '#94BBD2'],
+  }, // #3 源 2 色 · 派生：brandLight、border、accent
+  {
+    id: 'guci-jiutao',
+    name: '粉彩九桃天球瓶',
+    note: '瓷胎白 × 胭脂红 × 青瓷绿 —— 粉彩九桃天球瓶',
+    brand: '#B02A46',
+    brandLight: '#DC6E85',
+    merge: '#E8E1D6',
+    border: '#D9CEBC',
+    accent: '#8FA878',
+    group: 'porcelain',
+    source: 'IMG_9129.JPG',
+    sourceColors: ['#E8E1D6', '#B02A46', '#8FA878'],
+  }, // #4 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-hulu',
+    name: '金地粉彩缠枝莲葫芦瓶',
+    note: '瓷胎白 × 青花蓝 × 胚黄 —— 金地粉彩缠枝莲葫芦瓶',
+    brand: '#0D3A91',
+    brandLight: '#2367EB',
+    merge: '#E8E1D6',
+    border: '#D9CEBC',
+    accent: '#D4B24F',
+    group: 'porcelain',
+    source: 'IMG_9130.JPG',
+    sourceColors: ['#E8E1D6', '#0D3A91', '#D4B24F'],
+  }, // #5 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-zhuangxin',
+    name: '青花游鱼转心瓶',
+    note: '瓷胎白 × 青花蓝 × 云水蓝 —— 青花游鱼转心瓶',
+    brand: '#0D3A91',
+    brandLight: '#2367EB',
+    merge: '#E8E1D6',
+    border: '#D9CEBC',
+    accent: '#7793C3',
+    group: 'porcelain',
+    source: 'IMG_9131.JPG',
+    sourceColors: ['#E8E1D6', '#0D3A91', '#7793C3'],
+  }, // #6 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-zhuangxin-2',
+    name: '青花游鱼转心瓶·龙纹',
+    note: '瓷胎白 × 龙纹红 × 云水蓝 —— 青花游鱼转心瓶',
+    brand: '#B02A1F',
+    brandLight: '#E2675D',
+    merge: '#E8E1D6',
+    border: '#D9CEBC',
+    accent: '#6F8EC7',
+    group: 'porcelain',
+    source: 'IMG_9132.JPG',
+    sourceColors: ['#E8E1D6', '#B02A1F', '#6F8EC7'],
+  }, // #7 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-wanhua',
+    name: '粉彩万花葫芦瓶',
+    note: '蔷薇粉 × 雾霭蓝 × 珊瑚橘 —— 粉彩万花葫芦瓶',
+    brand: '#81879F',
+    brandLight: '#C1C4D0',
+    merge: '#EB9075',
+    border: '#E67351',
+    accent: '#D55B67',
+    group: 'porcelain',
+    source: 'IMG_9133.JPG',
+    sourceColors: ['#D55B67', '#81879F', '#EB9075'],
+  }, // #8 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-huaniao',
+    name: '青花粉彩花鸟扁瓶',
+    note: '瓷胎白 × 青花蓝 × 淡青绿 × 粉彩粉 —— 青花粉彩花鸟扁瓶',
+    brand: '#0D3A91',
+    brandLight: '#8DA39C',
+    merge: '#E8E1D6',
+    border: '#D9CEBC',
+    accent: '#D7A1B6',
+    group: 'porcelain',
+    source: 'IMG_9134.JPG',
+    sourceColors: ['#E8E1D6', '#0D3A91', '#8DA39C', '#D7A1B6'],
+  }, // #9 源 4 色 · 派生：border
+  {
+    id: 'guci-meiping',
+    name: '元青花四爱图梅瓶',
+    note: '瓷胎白 × 青花蓝 × 云水蓝 —— 元青花四爱图梅瓶',
+    brand: '#0D3A91',
+    brandLight: '#2367EB',
+    merge: '#E8E1D6',
+    border: '#D9CEBC',
+    accent: '#7793C3',
+    group: 'porcelain',
+    source: 'IMG_9135.JPG',
+    sourceColors: ['#E8E1D6', '#0D3A91', '#7793C3'],
+  }, // #10 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-fushou',
+    name: '粉彩镂空福寿双耳瓶',
+    note: '瓷胎白 × 釉黄 × 朱砂红 —— 粉彩镂空蟠螭福寿字双耳瓶',
+    brand: '#B7372D',
+    brandLight: '#DD7E77',
+    merge: '#F0EADF',
+    border: '#E3D8C3',
+    accent: '#D4B13D',
+    group: 'porcelain',
+    source: 'IMG_9136.JPG',
+    sourceColors: ['#F0EADF', '#D4B13D', '#B7372D'],
+  }, // #11 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-dizhonghai',
+    name: '地中海红蓝',
+    note: '赭红 × 海蓝 × 岩白 × 墨黑 —— 地中海红蓝',
+    brand: '#1A1A1A',
+    brandLight: '#0E4A7B',
+    merge: '#F3E8DA',
+    border: '#E9D5BB',
+    accent: '#C13320',
+    group: 'fashion',
+    source: 'IMG_9137.PNG',
+    sourceColors: ['#C13320', '#0E4A7B', '#F3E8DA', '#1A1A1A'],
+  }, // #12 源 4 色 · 派生：border
+  {
+    id: 'guci-qingluan',
+    name: '晴峦叠翠',
+    note: '石青 × 松绿 × 岩灰 —— 晴峦叠翠',
+    brand: '#4F7D78',
+    brandLight: '#88B4AF',
+    merge: '#A8AAA1',
+    border: '#94978C',
+    accent: '#6C8A69',
+    group: 'porcelain',
+    source: 'IMG_9138.JPG',
+    sourceColors: ['#4F7D78', '#6C8A69', '#A8AAA1'],
+  }, // #13 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-qianli',
+    name: '青绿千里',
+    note: '天水碧 × 烟蓝 × 沙汀米 —— 青绿千里·东方山水配色',
+    brand: '#77939D',
+    brandLight: '#B8C7CC',
+    merge: '#D4C5AA',
+    border: '#C6B38F',
+    accent: '#8BB6B1',
+    group: 'porcelain',
+    source: 'IMG_9139.JPG',
+    sourceColors: ['#8BB6B1', '#77939D', '#D4C5AA'],
+  }, // #14 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-yuanshan',
+    name: '远山入黛',
+    note: '黛蓝 × 苍山青 × 雾白 —— 远山入黛',
+    brand: '#40566B',
+    brandLight: '#718EAA',
+    merge: '#D6D8D4',
+    border: '#C2C5BF',
+    accent: '#657B74',
+    group: 'porcelain',
+    source: 'IMG_9140.JPG',
+    sourceColors: ['#40566B', '#657B74', '#D6D8D4'],
+  }, // #15 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-danxia',
+    name: '丹霞赭石',
+    note: '丹霞 × 赭石 × 日影金 —— 来源 IMG_9141.JPG',
+    brand: '#9B5E45',
+    brandLight: '#C99A87',
+    merge: '#D1A056',
+    border: '#C88E36',
+    accent: '#C46B52',
+    group: 'fashion',
+    source: 'IMG_9141.JPG',
+    sourceColors: ['#C46B52', '#9B5E45', '#D1A056'],
+  }, // #16 源 3 色 · 派生：brandLight、border
+  {
+    id: 'pms-sports-outdoor',
+    name: '咖啡里昂蓝',
+    note: '深牛奶咖啡色 × 巧克力软糖 × 黎明灰 × 里昂蓝 —— SPORTS&OUTDOOR（17-1227 / 19-1432 / 14-4106 / 19-4340）',
+    brand: '#492610',
+    brandLight: '#175973',
+    merge: '#BFC6CE',
+    border: '#A8B1BC',
+    accent: '#AB8570',
+    group: 'fashion',
+    source: 'IMG_9142.JPG',
+    sourceColors: ['#AB8570', '#492610', '#BFC6CE', '#175973'],
+  }, // #17 源 4 色 · 派生：border
+  {
+    id: 'pms-popular',
+    name: '沙灰肉桂',
+    note: '沙灰色 × 肉桂卷 × 朗姆酒色 × 水花四溅 —— 流行色（13-1010 / 17-1324 / 19-1321 / 16-4520）',
+    brand: '#593833',
+    brandLight: '#93755D',
+    merge: '#E4C9AE',
+    border: '#DAB58F',
+    accent: '#6FC4EB',
+    group: 'fashion',
+    source: 'IMG_9143.JPG',
+    sourceColors: ['#E4C9AE', '#93755D', '#593833', '#6FC4EB'],
+  }, // #18 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-2',
+    name: '灰紫波塞冬',
+    note: '浅灰紫 × 蘑菇色 × 小鹿色 × 波塞冬蓝 —— SPORTS&OUTDOOR（13-3803 / 17-1212 / 16-1510 / 19-4033）',
+    brand: '#062D4C',
+    brandLight: '#8F8176',
+    merge: '#D5CDCA',
+    border: '#C3B8B3',
+    accent: '#AC8F8B',
+    group: 'fashion',
+    source: 'IMG_9144.JPG',
+    sourceColors: ['#D5CDCA', '#8F8176', '#AC8F8B', '#062D4C'],
+  }, // #19 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-3',
+    name: '早霜阿拉斯加',
+    note: '早霜 × 爱尔兰奶油 × 阿拉斯加蓝 × 巧克力毛毛雨 —— SPORTS&OUTDOOR（12-4001 / 14-1208 / 15-4225 / 19-1410）',
+    brand: '#35140F',
+    brandLight: '#79AED8',
+    merge: '#DCD9D2',
+    border: '#CAC6BB',
+    accent: '#C1B198',
+    group: 'fashion',
+    source: 'IMG_9145.JPG',
+    sourceColors: ['#DCD9D2', '#C1B198', '#79AED8', '#35140F'],
+  }, // #20 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-4',
+    name: '榛子翠蓝',
+    note: '古裙衬 × 榛子 × 有机灰 × 翠蓝眼蛱蝶 —— SPORTS&OUTDOOR（12-4401 / 14-1315 / 18-0407 / 19-4040）',
+    brand: '#1C3860',
+    brandLight: '#6A615C',
+    merge: '#DCDCDC',
+    border: '#C8C8C8',
+    accent: '#CDAA8C',
+    group: 'fashion',
+    source: 'IMG_9146.JPG',
+    sourceColors: ['#DCDCDC', '#CDAA8C', '#6A615C', '#1C3860'],
+  }, // #21 源 4 色 · 派生：border
+  {
+    id: 'pms-shuangzi',
+    name: '霜紫宇宙紫',
+    note: '霜紫色 × 宇宙紫 × 古裙衬 × 摩卡酥皮 —— 来源 IMG_9147.JPG（15-3507 / 19-3714 / 12-4401 / 16-1211）',
+    brand: '#5A425C',
+    brandLight: '#9E887B',
+    merge: '#D7DBDC',
+    border: '#C1C7C9',
+    accent: '#B2A4B5',
+    group: 'fashion',
+    source: 'IMG_9147.JPG',
+    sourceColors: ['#B2A4B5', '#5A425C', '#D7DBDC', '#9E887B'],
+  }, // #22 源 4 色 · 派生：border
+  {
+    id: 'pms-chengbao',
+    name: '城堡波特酒',
+    note: '城堡灰 × 陈年波特酒色 × 梅酒色 × 阿拉斯加蓝 —— 来源 IMG_9148.JPG（15-4503 / 19-1725 / 18-1411 / 15-4225）',
+    brand: '#582933',
+    brandLight: '#6B484E',
+    merge: '#BBB2A9',
+    border: '#A99E92',
+    accent: '#73A5C8',
+    group: 'fashion',
+    source: 'IMG_9148.JPG',
+    sourceColors: ['#BBB2A9', '#582933', '#6B484E', '#73A5C8'],
+  }, // #23 源 4 色 · 派生：border
+  {
+    id: 'pms-xinchao',
+    name: '新潮空间',
+    note: '巧克力软糖 × 饼干色 × 海胆色 × 野鸭蓝 —— 新潮空间（19-1432 / 16-1336 / 13-1106 / 19-4318）',
+    brand: '#56352E',
+    brandLight: '#3C5F73',
+    merge: '#DFCCBE',
+    border: '#D2B7A3',
+    accent: '#B0835A',
+    group: 'fashion',
+    source: 'IMG_9149.JPG',
+    sourceColors: ['#56352E', '#B0835A', '#DFCCBE', '#3C5F73'],
+  }, // #24 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-5',
+    name: '海洋洞穴',
+    note: '柔和蓝 × 海洋洞穴 × 胡荽色 × 珊瑚沙色 —— SPORTS&OUTDOOR（14-4209 / 19-3937 / 17-1113 / 14-1224）',
+    brand: '#1C203D',
+    brandLight: '#908571',
+    merge: '#F2B08E',
+    border: '#EE9669',
+    accent: '#A7B9CD',
+    group: 'fashion',
+    source: 'IMG_9150.JPG',
+    sourceColors: ['#A7B9CD', '#1C203D', '#908571', '#F2B08E'],
+  }, // #25 源 4 色 · 派生：border
+  {
+    id: 'nat-img9151',
+    name: '色卡 9151',
+    note: '#A45668 × #D59BA8 × #C7C1B5 × #E7DDD3 —— 来源 IMG_9151.JPG',
+    brand: '#A45668',
+    brandLight: '#D59BA8',
+    merge: '#E7DDD3',
+    border: '#D9C9B9',
+    accent: '#C7C1B5',
+    group: 'fashion',
+    source: 'IMG_9151.JPG',
+    sourceColors: ['#A45668', '#D59BA8', '#C7C1B5', '#E7DDD3'],
+  }, // #26 源 4 色 · 派生：border
+  {
+    id: 'nat-img9152',
+    name: '色卡 9152',
+    note: '#8C2F2D × #B76F6A × #8E8075 × #B7C5B7 —— 来源 IMG_9152.JPG',
+    brand: '#8C2F2D',
+    brandLight: '#8E8075',
+    merge: '#B7C5B7',
+    border: '#A0B3A0',
+    accent: '#B76F6A',
+    group: 'fashion',
+    source: 'IMG_9152.JPG',
+    sourceColors: ['#8C2F2D', '#B76F6A', '#8E8075', '#B7C5B7'],
+  }, // #27 源 4 色 · 派生：border
+  {
+    id: 'nat-img9153',
+    name: '色卡 9153',
+    note: '#4F6072 × #B56A58 × #D9B07C × #8DB8A7 —— 来源 IMG_9153.JPG',
+    brand: '#4F6072',
+    brandLight: '#B56A58',
+    merge: '#D9B07C',
+    border: '#D09D5C',
+    accent: '#8DB8A7',
+    group: 'fashion',
+    source: 'IMG_9153.JPG',
+    sourceColors: ['#4F6072', '#B56A58', '#D9B07C', '#8DB8A7'],
+  }, // #28 源 4 色 · 派生：border
+  {
+    id: 'nat-img9154',
+    name: '色卡 9154',
+    note: '#607E95 × #A8C3D6 × #B8AEA6 × #E2D0BC —— 来源 IMG_9154.JPG',
+    brand: '#607E95',
+    brandLight: '#B8AEA6',
+    merge: '#E2D0BC',
+    border: '#D6BCA0',
+    accent: '#A8C3D6',
+    group: 'fashion',
+    source: 'IMG_9154.JPG',
+    sourceColors: ['#607E95', '#A8C3D6', '#B8AEA6', '#E2D0BC'],
+  }, // #29 源 4 色 · 派生：border
+  {
+    id: 'nat-img9155',
+    name: '色卡 9155',
+    note: '#5B6466 × #8C9B9F × #C6C9C0 × #DFE2DA —— 来源 IMG_9155.JPG',
+    brand: '#5B6466',
+    brandLight: '#8C9B9F',
+    merge: '#DFE2DA',
+    border: '#CBD0C3',
+    accent: '#C6C9C0',
+    group: 'fashion',
+    source: 'IMG_9155.JPG',
+    sourceColors: ['#5B6466', '#8C9B9F', '#C6C9C0', '#DFE2DA'],
+  }, // #30 源 4 色 · 派生：border
+  {
+    id: 'nat-img9156',
+    name: '色卡 9156',
+    note: '#B7C4CF × #D1D8DC × #E8E9E6 × #F1F2EE —— 来源 IMG_9156.JPG',
+    brand: '#B7C4CF',
+    brandLight: '#D1D8DC',
+    merge: '#F1F2EE',
+    border: '#DEE0D7',
+    accent: '#E8E9E6',
+    group: 'fashion',
+    source: 'IMG_9156.JPG',
+    sourceColors: ['#B7C4CF', '#D1D8DC', '#E8E9E6', '#F1F2EE'],
+  }, // #31 源 4 色 · 派生：border
+  {
+    id: 'nat-img9157',
+    name: '色卡 9157',
+    note: '#4A6460 × #7A9387 × #BFD0B8 × #DDE6D6 —— 来源 IMG_9157.JPG',
+    brand: '#4A6460',
+    brandLight: '#7A9387',
+    merge: '#DDE6D6',
+    border: '#C8D7BD',
+    accent: '#BFD0B8',
+    group: 'fashion',
+    source: 'IMG_9157.JPG',
+    sourceColors: ['#4A6460', '#7A9387', '#BFD0B8', '#DDE6D6'],
+  }, // #32 源 4 色 · 派生：border
+  {
+    id: 'nat-img9158',
+    name: '色卡 9158',
+    note: '#2E6A67 × #5E8C87 × #A9C8BE × #D7E6DB —— 来源 IMG_9158.JPG',
+    brand: '#2E6A67',
+    brandLight: '#5E8C87',
+    merge: '#D7E6DB',
+    border: '#BED6C4',
+    accent: '#A9C8BE',
+    group: 'fashion',
+    source: 'IMG_9158.JPG',
+    sourceColors: ['#2E6A67', '#5E8C87', '#A9C8BE', '#D7E6DB'],
+  }, // #33 源 4 色 · 派生：border
+  {
+    id: 'nat-img9159',
+    name: '色卡 9159',
+    note: '#7E6554 × #A78A73 × #D4B79D × #E9D6BE —— 来源 IMG_9159.JPG',
+    brand: '#7E6554',
+    brandLight: '#A78A73',
+    merge: '#E9D6BE',
+    border: '#DFC3A0',
+    accent: '#D4B79D',
+    group: 'fashion',
+    source: 'IMG_9159.JPG',
+    sourceColors: ['#7E6554', '#A78A73', '#D4B79D', '#E9D6BE'],
+  }, // #34 源 4 色 · 派生：border
+  {
+    id: 'guci-youlibai',
+    name: '釉里白',
+    note: '釉里白 × 苏麻青 × 淡烟灰 —— 来源 IMG_9160.JPG',
+    brand: '#315F86',
+    brandLight: '#6298C5',
+    merge: '#F2EEE5',
+    border: '#E4DCCA',
+    accent: '#B7BEC3',
+    group: 'porcelain',
+    source: 'IMG_9160.JPG',
+    sourceColors: ['#F2EEE5', '#315F86', '#B7BEC3'],
+  }, // #35 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-ciyun',
+    name: '青花瓷韵',
+    note: '月白 × 豆青 × 花叶青 —— 青花瓷韵 · 东方蓝白配色 · 缠枝含露',
+    brand: '#5F817B',
+    brandLight: '#9BB5B1',
+    merge: '#EEF1ED',
+    border: '#D8DFD6',
+    accent: '#9CB4AE',
+    group: 'porcelain',
+    source: 'IMG_9161.JPG',
+    sourceColors: ['#EEF1ED', '#9CB4AE', '#5F817B'],
+  }, // #36 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-haishui',
+    name: '海水江崖',
+    note: '霁蓝 × 浪花白 × 天水碧 —— 海水江崖',
+    brand: '#244A73',
+    brandLight: '#4381C4',
+    merge: '#F5F2EA',
+    border: '#E8E1CE',
+    accent: '#9CC7CF',
+    group: 'porcelain',
+    source: 'IMG_9162.JPG',
+    sourceColors: ['#244A73', '#F5F2EA', '#9CC7CF'],
+  }, // #37 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-yingyue',
+    name: '夜瓷映月',
+    note: '墨青 × 冷月白 × 银灰 —— 夜瓷映月',
+    brand: '#263D46',
+    brandLight: '#4D7C8F',
+    merge: '#E7E3D8',
+    border: '#D7D1BF',
+    accent: '#B8BDC2',
+    group: 'porcelain',
+    source: 'IMG_9163.JPG',
+    sourceColors: ['#263D46', '#E7E3D8', '#B8BDC2'],
+  }, // #38 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-wulan-qing',
+    name: '浅雾蓝青',
+    note: '浅雾蓝 × 深灰青 × 深青 —— Today\'s color matching',
+    brand: '#2F787D',
+    brandLight: '#5BBBC1',
+    merge: '#D8E6EF',
+    border: '#BBD3E3',
+    accent: '#4F5F65',
+    group: 'fashion',
+    source: 'IMG_9164.JPG',
+    sourceColors: ['#D8E6EF', '#4F5F65', '#2F787D'],
+  }, // #39 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-img9165',
+    name: '色卡 9165',
+    note: '#800000 × #982B1C × #DAD4B5 —— 来源 IMG_9165.JPG',
+    brand: '#800000',
+    brandLight: '#F00000',
+    merge: '#DAD4B5',
+    border: '#CCC49A',
+    accent: '#982B1C',
+    group: 'fashion',
+    source: 'IMG_9165.JPG',
+    sourceColors: ['#800000', '#982B1C', '#DAD4B5'],
+  }, // #40 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-img9166',
+    name: '色卡 9166',
+    note: '#FAF2DA × #8E9775 × #4A503D —— 来源 IMG_9166.JPG',
+    brand: '#4A503D',
+    brandLight: '#85906E',
+    merge: '#FAF2DA',
+    border: '#F5E5B6',
+    accent: '#8E9775',
+    group: 'fashion',
+    source: 'IMG_9166.JPG',
+    sourceColors: ['#FAF2DA', '#8E9775', '#4A503D'],
+  }, // #41 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-img9167',
+    name: '色卡 9167',
+    note: '#97BFB4 × #F5EEDC × #DD4A48 —— 来源 IMG_9167.JPG',
+    brand: '#DD4A48',
+    brandLight: '#EFA8A7',
+    merge: '#F5EEDC',
+    border: '#ECDFBC',
+    accent: '#97BFB4',
+    group: 'fashion',
+    source: 'IMG_9167.JPG',
+    sourceColors: ['#97BFB4', '#F5EEDC', '#DD4A48'],
+  }, // #42 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-img9168',
+    name: '色卡 9168',
+    note: '#A20A0A × #FFA36C × #F6EEC9 —— 来源 IMG_9168.JPG',
+    brand: '#A20A0A',
+    brandLight: '#F22A2A',
+    merge: '#F6EEC9',
+    border: '#F0E3A6',
+    accent: '#FFA36C',
+    group: 'fashion',
+    source: 'IMG_9168.JPG',
+    sourceColors: ['#A20A0A', '#FFA36C', '#F6EEC9'],
+  }, // #43 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-img9169',
+    name: '色卡 9169',
+    note: '#AA3A3A × #A4B787 × #F4F4F4 —— 来源 IMG_9169.JPG',
+    brand: '#AA3A3A',
+    brandLight: '#D48080',
+    merge: '#F4F4F4',
+    border: '#E0E0E0',
+    accent: '#A4B787',
+    group: 'fashion',
+    source: 'IMG_9169.JPG',
+    sourceColors: ['#AA3A3A', '#A4B787', '#F4F4F4'],
+  }, // #44 源 3 色 · 派生：brandLight、border
+  {
+    id: 'nat-img9170',
+    name: '色卡 9170',
+    note: '#FEF9E1 × #E5D0AC × #A31D1D —— 来源 IMG_9170.JPG',
+    brand: '#A31D1D',
+    brandLight: '#E05050',
+    merge: '#FEF9E1',
+    border: '#FDF1BA',
+    accent: '#E5D0AC',
+    group: 'fashion',
+    source: 'IMG_9170.JPG',
+    sourceColors: ['#FEF9E1', '#E5D0AC', '#A31D1D'],
+  }, // #45 源 3 色 · 派生：brandLight、border
+  {
+    id: 'pms-sports-outdoor-6',
+    name: '羚羊皮翠蓝',
+    note: '熟瓜色 × 羚羊皮色 × 露白色 × 翠蓝眼蛱蝶 —— SPORTS&OUTDOOR（16-1260 / 15-1145 / 12-1108 / 19-4040）',
+    brand: '#1C3961',
+    brandLight: '#CB5E33',
+    merge: '#EFDECE',
+    border: '#E5C9AF',
+    accent: '#F4B06F',
+    group: 'fashion',
+    source: 'IMG_9171.JPG',
+    sourceColors: ['#CB5E33', '#F4B06F', '#EFDECE', '#1C3961'],
+  }, // #46 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-7',
+    name: '橡金橘探戈',
+    note: '橡金色 × 咖哩色 × 浓橘探戈色 × 生皮色 —— SPORTS&OUTDOOR（17-1046 / 16-0928 / 17-1643 / 18-1137）',
+    brand: '#8C5F4C',
+    brandLight: '#B36D28',
+    merge: '#BFA475',
+    border: '#B29259',
+    accent: '#E94C2D',
+    group: 'fashion',
+    source: 'IMG_9172.JPG',
+    sourceColors: ['#B36D28', '#BFA475', '#E94C2D', '#8C5F4C'],
+  }, // #47 源 4 色 · 派生：border
+  {
+    id: 'pms-shanye',
+    name: '到山野间',
+    note: '小鹿色 × 韭菜绿 × 庄重 × 狂风 —— 到山野间（16-1510 / 15-0628 / 19-0914 / 17-3912）',
+    brand: '#372E2F',
+    brandLight: '#5E6883',
+    merge: '#BDB17F',
+    border: '#AFA164',
+    accent: '#B48F87',
+    group: 'fashion',
+    source: 'IMG_9173.JPG',
+    sourceColors: ['#B48F87', '#BDB17F', '#372E2F', '#5E6883'],
+  }, // #48 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-8',
+    name: '方钠石金猕猴',
+    note: '方钠石蓝 × 红棕色 × 鲜紫色 × 金猕猴桃 —— SPORTS&OUTDOOR（19-3953 / 18-1616 / 18-3840 / 13-0644）',
+    brand: '#143062',
+    brandLight: '#8E565F',
+    merge: '#EFDA3F',
+    border: '#ECD319',
+    accent: '#685DA1',
+    group: 'fashion',
+    source: 'IMG_9174.JPG',
+    sourceColors: ['#143062', '#8E565F', '#685DA1', '#EFDA3F'],
+  }, // #49 源 4 色 · 派生：border
+  {
+    id: 'pms-migua',
+    name: '蜜瓜色',
+    note: '蜜瓜色 —— 来源 IMG_9175.JPG（13-0814）',
+    brand: '#DDDDDD',
+    brandLight: '#FFFFFF',
+    merge: '#F2F2F2',
+    border: '#D1D1D1',
+    accent: '#DDDDDD',
+    group: 'fashion',
+    source: 'IMG_9175.JPG',
+    sourceColors: ['#DDDDDD'],
+  }, // #50 源 1 色 · 派生：brandLight、merge、border、accent
+  {
+    id: 'pms-sports-outdoor-9',
+    name: '瓦蓝三色堇',
+    note: '瓦蓝 × 防风草色 × 粉色饮料 × 三色堇色 —— SPORTS&OUTDOOR（18-4735 / 14-0925 / 14-2216 / 19-3542）',
+    brand: '#197F8B',
+    brandLight: '#5E3C78',
+    merge: '#EE94B0',
+    border: '#E87196',
+    accent: '#D7C094',
+    group: 'fashion',
+    source: 'IMG_9176.JPG',
+    sourceColors: ['#197F8B', '#D7C094', '#EE94B0', '#5E3C78'],
+  }, // #51 源 4 色 · 派生：border
+  {
+    id: 'pms-shenshuilan',
+    name: '深水蓝',
+    note: '深水蓝 —— 来源 IMG_9177.JPG（18-4032）',
+    brand: '#DDDDDD',
+    brandLight: '#FFFFFF',
+    merge: '#F2F2F2',
+    border: '#D1D1D1',
+    accent: '#DDDDDD',
+    group: 'fashion',
+    source: 'IMG_9177.JPG',
+    sourceColors: ['#DDDDDD'],
+  }, // #52 源 1 色 · 派生：brandLight、merge、border、accent
+  {
+    id: 'pms-yueliang',
+    name: '月亮蓝',
+    note: '月亮蓝 × 神秘蓝 × 番茄酱色 × 深橄榄色 —— 来源 IMG_9178.JPG（17-4328 / 11-4303 / 18-1661 / 19-0516）',
+    brand: '#594D33',
+    brandLight: '#3890A6',
+    merge: '#E6E5E0',
+    border: '#D4D2C9',
+    accent: '#CB394C',
+    group: 'fashion',
+    source: 'IMG_9178.JPG',
+    sourceColors: ['#3890A6', '#E6E5E0', '#CB394C', '#594D33'],
+  }, // #53 源 4 色 · 派生：border
+  {
+    id: 'pms-miaomiao',
+    name: '妙妙王国',
+    note: '亮紫色 × 浅湖蓝 × 雨衣 × 明紫色 —— 妙妙王国（18-3025 / 14-4810 / 13-0749 / 18-3820）',
+    brand: '#975891',
+    brandLight: '#656692',
+    merge: '#A9C8CA',
+    border: '#90B8BA',
+    accent: '#EEC933',
+    group: 'fashion',
+    source: 'IMG_9179.JPG',
+    sourceColors: ['#975891', '#A9C8CA', '#EEC933', '#656692'],
+  }, // #54 源 4 色 · 派生：border
+  {
+    id: 'pms-kaoguo',
+    name: '烤果馅饼',
+    note: '烤果馅饼 —— SPORTS&OUTDOOR（13-0716）',
+    brand: '#DDDDDD',
+    brandLight: '#FFFFFF',
+    merge: '#F2F2F2',
+    border: '#D1D1D1',
+    accent: '#DDDDDD',
+    group: 'fashion',
+    source: 'IMG_9180.JPG',
+    sourceColors: ['#DDDDDD'],
+  }, // #55 源 1 色 · 派生：brandLight、merge、border、accent
+  {
+    id: 'pms-xingrenlao',
+    name: '杏仁酪',
+    note: '杏仁酪色 × 琥珀褐 × 板岩蓝 × 烟松绿 —— 来源 IMG_9181.JPG（13-1017 / 17-1147 / 16-4408 / 18-5718）',
+    brand: '#3E685C',
+    brandLight: '#A3664A',
+    merge: '#E9BB9A',
+    border: '#E2A478',
+    accent: '#889DA2',
+    group: 'fashion',
+    source: 'IMG_9181.JPG',
+    sourceColors: ['#E9BB9A', '#A3664A', '#889DA2', '#3E685C'],
+  }, // #56 源 4 色 · 派生：border
+  {
+    id: 'pms-heimei',
+    name: '黑莓果酱',
+    note: '黑莓果酱 × 灰泥色 × 稻草色 × 冬花 —— 来源 IMG_9182.JPG（19-3949 / 16-1412 / 13-0922 / 19-2620）',
+    brand: '#2C0A23',
+    brandLight: '#2B2855',
+    merge: '#E1CC93',
+    border: '#D8BD73',
+    accent: '#A38D82',
+    group: 'fashion',
+    source: 'IMG_9182.JPG',
+    sourceColors: ['#2B2855', '#A38D82', '#E1CC93', '#2C0A23'],
+  }, // #57 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-10',
+    name: '褐菇海洋洞穴',
+    note: '褐菇 × 咖啡褐色 × 亮白色 × 海洋洞穴 —— SPORTS&OUTDOOR（18-1032 / 19-0712 / 11-0700 / 19-3937）',
+    brand: '#382618',
+    brandLight: '#142747',
+    merge: '#F1F4FB',
+    border: '#D1DBF2',
+    accent: '#92745C',
+    group: 'fashion',
+    source: 'IMG_9183.JPG',
+    sourceColors: ['#92745C', '#382618', '#F1F4FB', '#142747'],
+  }, // #58 源 4 色 · 派生：border
+  {
+    id: 'pms-hejin',
+    name: '时尚合金',
+    note: '糙米 × 羊皮色 × 松木色 × 灌浆 —— 时尚·合金（13-1105 / 14-1122 / 17-1525 / 12-4102）',
+    brand: '#A66D5A',
+    brandLight: '#C5BAA6',
+    merge: '#D1D4DB',
+    border: '#BABFC9',
+    accent: '#DBB994',
+    group: 'fashion',
+    source: 'IMG_9184.JPG',
+    sourceColors: ['#C5BAA6', '#DBB994', '#A66D5A', '#D1D4DB'],
+  }, // #59 源 4 色 · 派生：border
+  {
+    id: 'pms-shanchuang',
+    name: '山创空间',
+    note: '玉米粒 × 蛋黄色 × 帆船蓝 × 月岩色 —— 山创空间（12-0723 / 14-0846 / 18-4039 / 14-4201）',
+    brand: '#4978AE',
+    brandLight: '#D6A850',
+    merge: '#C5C5C5',
+    border: '#B1B1B1',
+    accent: '#DCD785',
+    group: 'fashion',
+    source: 'IMG_9185.JPG',
+    sourceColors: ['#DCD785', '#D6A850', '#4978AE', '#C5C5C5'],
+  }, // #60 源 4 色 · 派生：border
+  {
+    id: 'pms-sports-outdoor-11',
+    name: '云米山鹑',
+    note: '云米色 × 土砂色 × 山鹑色 × 鲍鱼壳色 —— SPORTS&OUTDOOR（12-0804 / 16-1326 / 18-1124 / 17-4017）',
+    brand: '#71523D',
+    brandLight: '#7F848A',
+    merge: '#E8DFC0',
+    border: '#DDD0A2',
+    accent: '#B99A6E',
+    group: 'fashion',
+    source: 'IMG_9186.JPG',
+    sourceColors: ['#E8DFC0', '#B99A6E', '#71523D', '#7F848A'],
+  }, // #61 源 4 色 · 派生：border
+  {
+    id: 'pms-dama',
+    name: '大麻色',
+    note: '大麻色 × 完美梨 × 花旗松 × 冰露色 —— 来源 IMG_9187.JPG（14-0721 / 16-0531 / 19-0220 / 13-0513）',
+    brand: '#223B1D',
+    brandLight: '#8F8639',
+    merge: '#DED0B5',
+    border: '#D1BE99',
+    accent: '#BFAE80',
+    group: 'fashion',
+    source: 'IMG_9187.JPG',
+    sourceColors: ['#BFAE80', '#8F8639', '#223B1D', '#DED0B5'],
+  }, // #62 源 4 色 · 派生：border
+  {
+    id: 'pms-shanxi',
+    name: '山系色会',
+    note: '树皮色 —— 山系色会（16-1506）',
+    brand: '#DDDDDD',
+    brandLight: '#FFFFFF',
+    merge: '#F2F2F2',
+    border: '#D1D1D1',
+    accent: '#DDDDDD',
+    group: 'fashion',
+    source: 'IMG_9188.JPG',
+    sourceColors: ['#DDDDDD'],
+  }, // #63 源 1 色 · 派生：brandLight、merge、border、accent
+  {
+    id: 'nat-persimmon',
+    name: '柿子色',
+    note: '柿子色（译） × 杏色（译） × 暖亚麻色（译） × 鼠尾草橄榄绿（译） —— PERSIMMON',
+    brand: '#8A9272',
+    brandLight: '#D96B37',
+    merge: '#F2DFC5',
+    border: '#EBCDA4',
+    accent: '#ED9D65',
+    group: 'fashion',
+    source: 'IMG_9189.PNG',
+    sourceColors: ['#D96B37', '#ED9D65', '#F2DFC5', '#8A9272'],
+  }, // #64 源 4 色 · 派生：border
+  {
+    id: 'nat-crested-ibis',
+    name: '朱鹮',
+    note: 'FEATHER ROSE × SHELL PINK × MILK IVORY × REED MIST —— CRESTED IBIS',
+    brand: '#A6B5AF',
+    brandLight: '#D9A5A4',
+    merge: '#F2E8DA',
+    border: '#E7D5BC',
+    accent: '#EACAC0',
+    group: 'fashion',
+    source: 'IMG_9190.PNG',
+    sourceColors: ['#D9A5A4', '#EACAC0', '#F2E8DA', '#A6B5AF'],
+  }, // #65 源 4 色 · 派生：border
+  {
+    id: 'nat-bee-eater',
+    name: '蓝喉蜂虎',
+    note: 'LAGOON × SEA MIST × LEAF LIME × CHESTNUT —— BLUE THROATED BEE EATER',
+    brand: '#3F838B',
+    brandLight: '#B57B50',
+    merge: '#77B7B4',
+    border: '#5CA9A5',
+    accent: '#8DAD6E',
+    group: 'fashion',
+    source: 'IMG_9191.PNG',
+    sourceColors: ['#3F838B', '#77B7B4', '#8DAD6E', '#B57B50'],
+  }, // #66 源 4 色 · 派生：border
+  {
+    id: 'nat-osmanthus',
+    name: '桂花',
+    note: 'NECTAR GOLD × CREAM PETAL × SOFT SAGE × LEAF GREEN —— OSMANTHUS',
+    brand: '#697D58',
+    brandLight: '#E8B957',
+    merge: '#F4DFC0',
+    border: '#EECD9D',
+    accent: '#A9B491',
+    group: 'fashion',
+    source: 'IMG_9192.PNG',
+    sourceColors: ['#E8B957', '#F4DFC0', '#A9B491', '#697D58'],
+  }, // #67 源 4 色 · 派生：border
+  {
+    id: 'nat-muhly-grass',
+    name: '芒草',
+    note: '暮色玫瑰（译） × 尘粉腮红（译） × 花瓣云（译） × 燕麦奶（译） —— MUHLY GRASS',
+    brand: '#A7697D',
+    brandLight: '#D2A0AD',
+    merge: '#EAE5D9',
+    border: '#DBD3BF',
+    accent: '#E8CDD2',
+    group: 'fashion',
+    source: 'IMG_9193.PNG',
+    sourceColors: ['#A7697D', '#D2A0AD', '#E8CDD2', '#EAE5D9'],
+  }, // #68 源 4 色 · 派生：border
+  {
+    id: 'nat-huxiu',
+    name: '狐锈红',
+    note: '狐锈红（译） × 柔铜色（译） × 毛皮奶油色（译） × 草灰褐色（译） —— 来源 IMG_9194.PNG',
+    brand: '#B95E3F',
+    brandLight: '#A5A18C',
+    merge: '#F0D9B9',
+    border: '#E9C797',
+    accent: '#D59670',
+    group: 'fashion',
+    source: 'IMG_9194.PNG',
+    sourceColors: ['#B95E3F', '#D59670', '#F0D9B9', '#A5A18C'],
+  }, // #69 源 4 色 · 派生：border
+  {
+    id: 'nat-oak',
+    name: '橡木',
+    note: '橡果色（译） × 烤蜂蜜色（译） × 燕麦米色（译） × 浅苔藓色（译） —— OAK',
+    brand: '#916449',
+    brandLight: '#BD9669',
+    merge: '#DEC7A3',
+    border: '#D3B585',
+    accent: '#B2B39A',
+    group: 'fashion',
+    source: 'IMG_9195.PNG',
+    sourceColors: ['#916449', '#BD9669', '#DEC7A3', '#B2B39A'],
+  }, // #70 源 4 色 · 派生：border
+  {
+    id: 'nat-maple',
+    name: '枫',
+    note: 'MAPLE RED × BURNT PEACH × AMBER LIGHT × MIST LINEN —— MAPLE',
+    brand: '#A34D49',
+    brandLight: '#CE7956',
+    merge: '#DCD5C7',
+    border: '#CCC2AE',
+    accent: '#E6B98A',
+    group: 'fashion',
+    source: 'IMG_9196.PNG',
+    sourceColors: ['#A34D49', '#CE7956', '#E6B98A', '#DCD5C7'],
+  }, // #71 源 4 色 · 派生：border
+  {
+    id: 'nat-chanterelle',
+    name: '鸡油菌',
+    note: '鸡油菌色（译） × 黄油金色（译） × 暖燕麦色（译） × 地衣色（译） —— CHANTERELLE',
+    brand: '#929B69',
+    brandLight: '#D19A40',
+    merge: '#ECDDC1',
+    border: '#E2CCA2',
+    accent: '#E8BF6A',
+    group: 'fashion',
+    source: 'IMG_9197.PNG',
+    sourceColors: ['#D19A40', '#E8BF6A', '#ECDDC1', '#929B69'],
+  }, // #72 源 4 色 · 派生：border
+  {
+    id: 'guci-fenqiang',
+    name: '粉墙桂蕊',
+    note: '粉墙白 × 桂蕊金 × 苔痕青 —— 来源 IMG_9198.JPG',
+    brand: '#70806B',
+    brandLight: '#AAB5A6',
+    merge: '#F3EFE4',
+    border: '#E6DEC8',
+    accent: '#D8A847',
+    group: 'porcelain',
+    source: 'IMG_9198.JPG',
+    sourceColors: ['#F3EFE4', '#D8A847', '#70806B'],
+  }, // #73 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-chishui',
+    name: '池水太湖',
+    note: '池水青 × 太湖灰 × 枫叶朱 —— 来源 IMG_9199.JPG',
+    brand: '#B95C43',
+    brandLight: '#D8A294',
+    merge: '#D6D0C3',
+    border: '#C5BDAB',
+    accent: '#9DBBB5',
+    group: 'porcelain',
+    source: 'IMG_9199.JPG',
+    sourceColors: ['#9DBBB5', '#D6D0C3', '#B95C43'],
+  }, // #74 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-xuanzhi',
+    name: '宣纸晚霞',
+    note: '宣纸白 × 晚霞杏 × 竹叶青 —— 来源 IMG_9200.JPG',
+    brand: '#697553',
+    brandLight: '#A1AD8B',
+    merge: '#F2E7D3',
+    border: '#E9D6B4',
+    accent: '#E5A360',
+    group: 'porcelain',
+    source: 'IMG_9200.JPG',
+    sourceColors: ['#F2E7D3', '#E5A360', '#697553'],
+  }, // #75 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-yuedong',
+    name: '月洞桂香',
+    note: '月洞白 × 桂香金 × 夜池青 —— 来源 IMG_9201.JPG',
+    brand: '#486E73',
+    brandLight: '#7DA8AE',
+    merge: '#E8E2D6',
+    border: '#D9D0BC',
+    accent: '#D4A64C',
+    group: 'porcelain',
+    source: 'IMG_9201.JPG',
+    sourceColors: ['#E8E2D6', '#D4A64C', '#486E73'],
+  }, // #76 源 3 色 · 派生：brandLight、border
+  {
+    id: 'guci-gongming',
+    name: '暮雪宫门',
+    note: '暮雪灰 × 宫门朱 × 宫灯金 —— 来源 IMG_9202.JPG',
+    brand: '#8C3D34',
+    brandLight: '#C77369',
+    merge: '#D8DADF',
+    border: '#C2C5CD',
+    accent: '#D7A35A',
+    group: 'porcelain',
+    source: 'IMG_9202.JPG',
+    sourceColors: ['#D8DADF', '#8C3D34', '#D7A35A'],
+  }, // #77 源 3 色 · 派生：brandLight、border
+];
+// <gallery-data:end>
+
+/** 全部方案：精选 22 + gallery 77 = 99 套（数组顺序即设置页展示顺序） */
+export const PALETTES: readonly PaletteDef[] = [...FEATURED_PALETTES, ...GALLERY_PALETTES];
+
+/** 分组元信息（顺序即设置页分区顺序） */
+export const PALETTE_GROUPS: readonly { id: PaletteGroup; name: string; note: string }[] = [
+  { id: 'featured', name: '云枢精选', note: '底座自带 22 套，色值来自需求方色表' },
+  { id: 'porcelain', name: '古典釉色', note: '瓷器 / 釉色提取 20 套：青花、粉彩、窑变' },
+  { id: 'fashion', name: '时尚配色', note: 'PANTONE 与自然灵感 57 套：四色趋势、鸟兽草木' },
+];
+
+/** 取方案所属分组（历史数据没有 group 字段的按 featured 处理） */
+export function groupOf(palette: PaletteDef): PaletteGroup {
+  return palette.group ?? 'featured';
+}
 
 /** 默认方案（首次访问） */
 export const DEFAULT_PALETTE_ID: PaletteId = 'mist-blue';
@@ -473,16 +1593,31 @@ export function ensureContrast(fg: string, bg: string, ratio: number): string {
   }
   const hsl = hexToHsl(fg);
   const bgLum = luminance(bg);
-  const darker = bgLum > 0.4;
-  for (let step = 1; step <= 100; step += 1) {
-    const l = darker ? hsl.l - step : hsl.l + step;
-    if (l < 0 || l > 100) break;
-    const candidate = withL(hsl, l);
-    if (contrast(candidate, bg) >= ratio) {
-      return candidate;
+  // 首选方向沿用老规则：亮底压暗、暗底提亮。
+  // 但「中间调底色」（相对亮度约 0.18~0.40）两个方向都可能够不到 —— 例如浅驼 #BFA475
+  // 上去提亮只会走到纯白，白字对比度仅 2.39。gallery 方案的中间调基色会大量落在这个区间，
+  // 所以首选方向够不到时必须反向再走一遍，两个方向都取不到才退化到纯黑/纯白里更优的那个。
+  const preferDarker = bgLum > 0.4;
+  const walk = (darker: boolean): string | null => {
+    for (let step = 1; step <= 100; step += 1) {
+      const l = darker ? hsl.l - step : hsl.l + step;
+      if (l < 0 || l > 100) break;
+      const candidate = withL(hsl, l);
+      if (contrast(candidate, bg) >= ratio) {
+        return candidate;
+      }
     }
+    return null;
+  };
+  const preferred = walk(preferDarker);
+  if (preferred) {
+    return preferred;
   }
-  return darker ? '#000000' : '#ffffff';
+  const opposite = walk(!preferDarker);
+  if (opposite) {
+    return opposite;
+  }
+  return contrast('#000000', bg) >= contrast('#ffffff', bg) ? '#000000' : '#ffffff';
 }
 
 /* ============================================================================
@@ -734,8 +1869,17 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
   // 渐变文字用白字：起点是压暗版 brandStrong（白字 ≥4.5），前 55% 区域文字均落在深色段。
   // 后段渐浅处不放文字（副标题也左对齐），浅色端只留图标。
   const onGradient = '#ffffff';
-  // 图标/浅色端用的深色油墨（浅色段上白字不可见）
-  const onGradientSoft = withL(hexToHsl(palette.brand), 12, 30);
+  // 图标/浅色端用的深色油墨（浅色段上白字不可见）。
+  // gallery 里 4 色方案的「次暗」源色可能本身就很暗（渐变终点 = 次暗色，如 #B36D28），
+  // 深油墨落在暗端只有 1.1:1 —— 老规则（深油墨）达标就保持原样，不达标才换白字/纯黑兜底，
+  // 这样既有 22 套的输出一个字节都不会变。
+  const gradientEndInk = withL(hexToHsl(palette.brand), 12, 30);
+  const onGradientSoft =
+    contrast(gradientEndInk, palette.brandLight) >= 4.5
+      ? gradientEndInk
+      : contrast('#ffffff', palette.brandLight) >= contrast('#000000', palette.brandLight)
+        ? '#ffffff'
+        : '#000000';
 
   // ---------- 图表色 ----------
   // 图表是"有意义的图形"，按 WCAG 1.4.11 不低于 2.5 的可见度底线；

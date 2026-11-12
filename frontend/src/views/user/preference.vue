@@ -38,52 +38,105 @@
       </div>
     </t-card>
 
-    <!-- 六套配色 -->
+    <!-- 配色方案：99 套，分组 + 搜索 -->
     <t-card class="preference-card" :bordered="false" title="配色方案">
       <template #actions>
-        <span class="preference-card__hint">5 个基准色：主色 / 浅色 / 交融色（页面底） / 渐染色（边框） / 强调色</span>
+        <span class="preference-card__hint">
+          5 个基准色：主色 / 浅色 / 交融色（页面底） / 渐染色（边框） / 强调色
+        </span>
       </template>
-      <t-row :gutter="[16, 16]">
-        <t-col v-for="item in paletteCards" :key="item.id" :xs="12" :sm="12" :md="6" :xl="4">
-          <t-tooltip :content="item.note" placement="bottom" show-arrow>
-            <button
-              type="button"
-              class="palette-card"
-              :class="{ 'is-active': item.active }"
-              :data-palette-option="item.id"
-              :aria-pressed="item.active"
-              @click="setPalette(item.id)"
-            >
-              <!-- 色卡：5 个基准色横排 -->
-              <span class="palette-card__swatches">
-                <i
-                  v-for="(color, index) in item.colors"
-                  :key="`${item.id}-${index}`"
-                  class="palette-card__swatch"
-                  :style="{ backgroundColor: color }"
-                  :title="item.colorLabels[index]"
-                />
-              </span>
 
-              <span class="palette-card__body">
-                <span class="palette-card__name">{{ item.name }}</span>
-                <span class="palette-card__note">{{ item.shortNote }}</span>
-              </span>
+      <div class="palette-toolbar">
+        <t-input
+          v-model="paletteKeyword"
+          class="palette-toolbar__search"
+          placeholder="搜索方案名 / 色值 / 来源文件（如 九桃、0D3A91、IMG_9129）"
+          clearable
+        >
+          <template #prefix-icon><t-icon name="search" /></template>
+        </t-input>
+        <span class="palette-toolbar__count" data-testid="palette-count">
+          {{ paletteKeyword.trim() ? `匹配 ${matchedCount} 套` : `共 ${palettes.length} 套` }}
+        </span>
+        <t-button size="small" variant="text" class="palette-toolbar__toggle" @click="toggleAllGroups">
+          {{ allExpanded ? '收起全部分组' : '展开全部分组' }}
+        </t-button>
+      </div>
 
-              <span v-if="item.active" class="palette-card__check">
-                <t-icon name="check" />
-              </span>
+      <section
+        v-for="group in displayedGroups"
+        :key="group.id"
+        class="palette-group"
+        :data-palette-group="group.id"
+      >
+        <button
+          type="button"
+          class="palette-group__head"
+          :aria-expanded="isGroupOpen(group.id)"
+          :data-palette-group-toggle="group.id"
+          @click="toggleGroup(group.id)"
+        >
+          <t-icon
+            :name="isGroupOpen(group.id) ? 'chevron-down' : 'chevron-right'"
+            class="palette-group__chevron"
+          />
+          <span class="palette-group__title">{{ group.name }}</span>
+          <span class="palette-group__count">{{ group.items.length }} 套</span>
+          <span class="palette-group__note">{{ group.note }}</span>
+        </button>
 
-              <span v-if="item.needsStrong" class="palette-card__badge">白字自动压暗</span>
-            </button>
-          </t-tooltip>
-        </t-col>
-      </t-row>
+        <t-row v-show="isGroupOpen(group.id)" :gutter="[16, 16]">
+          <t-col v-for="item in group.items" :key="item.id" :xs="12" :sm="12" :md="6" :xl="4">
+            <t-tooltip :content="item.tooltip" placement="bottom" show-arrow>
+              <button
+                type="button"
+                class="palette-card"
+                :class="{ 'is-active': item.active }"
+                :data-palette-option="item.id"
+                :aria-pressed="item.active"
+                @click="setPalette(item.id)"
+              >
+                <!-- 色卡：5 个基准色横排 -->
+                <span class="palette-card__swatches">
+                  <i
+                    v-for="(color, index) in item.colors"
+                    :key="`${item.id}-${index}`"
+                    class="palette-card__swatch"
+                    :style="{ backgroundColor: color }"
+                    :title="item.colorLabels[index]"
+                  />
+                </span>
+
+                <span class="palette-card__body">
+                  <span class="palette-card__name">{{ item.name }}</span>
+                  <span class="palette-card__note">{{ item.shortNote }}</span>
+                </span>
+
+                <span v-if="item.active" class="palette-card__check">
+                  <t-icon name="check" />
+                </span>
+
+                <span v-if="item.sourceCount || item.needsStrong" class="palette-card__badges">
+                  <span v-if="item.sourceCount" class="palette-card__badge">{{ item.sourceCount }} 色原稿</span>
+                  <span v-if="item.needsStrong" class="palette-card__badge">白字自动压暗</span>
+                </span>
+              </button>
+            </t-tooltip>
+          </t-col>
+        </t-row>
+      </section>
+
+      <p v-if="!displayedGroups.length" class="preference-note">
+        没有匹配「{{ paletteKeyword }}」的方案 —— 可以试色值（<code>0D3A91</code>）、来源文件（<code>IMG_9129</code>）或色名（<code>青花</code>）。
+      </p>
+
       <p class="preference-note">
         主色已按规定色值原样使用（<code>--td-brand-color-7</code>）；若白字在主色上达不到 4.5:1，
         浅色模式会把主按钮底色自动下移到压暗版 <code>--app-brand-strong</code>，
         深色模式则把按钮文字换成 <code>--app-on-brand</code> 深色油墨 —— 主色本身始终不变
-        （标「白字自动压暗」的方案即属于这一类）。
+        （标「白字自动压暗」的方案即属于这一类）。「N 色原稿」表示该方案由设计色卡提取的
+        1~4 个源色按亮度排序映射到 5 个槽位，未覆盖的槽位按规则派生（提亮 22% / 压暗 8% / 补色 180°），
+        源色一律原样保留 —— 逐条映射见 <code>docs/evidence/palette-77/mapping-report.md</code>。
       </p>
     </t-card>
 
@@ -157,12 +210,12 @@
       </t-row>
     </t-card>
 
-    <!-- 对比度报告 -->
-    <t-card class="preference-card" :bordered="false" title="对比度报告（12 组）">
+    <!-- 对比度报告（当前方案 × 明暗 2 组） -->
+    <t-card class="preference-card" :bordered="false" title="对比度报告">
       <template #actions>
         <span class="preference-card__hint">
           <t-tag theme="success" variant="light" size="small">全部达标</t-tag>
-          AA 门槛：正文 4.5 / 次要 4.5 / 占位 3.0 / 品牌文字 4.5
+          {{ currentPalette.name }} · 明暗 2 组 · AA 门槛：正文 4.5 / 次要 4.5 / 占位 3.0 / 品牌文字 4.5
         </span>
       </template>
       <div class="contrast-table-wrap">
@@ -208,7 +261,9 @@
         </table>
       </div>
       <p class="preference-note">
-        数值来自 <code>scripts/check-palettes.mjs</code> 同一份推导代码（<code>pnpm check:palettes</code> 可随时重跑）。
+        数值与 <code>scripts/check-palettes.mjs</code> 同一份推导代码（<code>pnpm check:palettes</code> 可随时重跑，
+        覆盖全部 {{ palettes.length }} 套 × 明暗 2 模式）。这里只列当前方案，是因为全量有
+        {{ palettes.length * 2 }} 组。
         「白字/主色」标「压暗版」表示该组合下主按钮底色自动下移到压暗版，保证白字可读。
       </p>
     </t-card>
@@ -216,22 +271,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import type { EChartsCoreOption } from 'echarts';
 import EChart from '@/components/EChart.vue';
 import { usePalette } from '@/composables/usePalette';
-import { PALETTES, buildPalette, type ColorMode } from '@/style/palettes';
+import {
+  PALETTES,
+  PALETTE_GROUPS,
+  buildPalette,
+  contrast,
+  groupOf,
+  type ColorMode,
+  type PaletteDef,
+  type PaletteGroup,
+} from '@/style/palettes';
 
-const {
-  palettes,
-  paletteId,
-  currentPalette,
-  mode,
-  setPalette,
-  setMode,
-  resetPalette,
-  buildsByPalette,
-} = usePalette();
+const { palettes, paletteId, currentPalette, mode, setPalette, setMode, resetPalette } = usePalette();
 
 /** 明暗模式选项（卡片式单选） */
 const modeOptions: { value: ColorMode; label: string; desc: string; icon: string }[] = [
@@ -239,23 +294,109 @@ const modeOptions: { value: ColorMode; label: string; desc: string; icon: string
   { value: 'dark', label: '深色', desc: '交融色压暗作底，浅色文字', icon: 'moon' },
 ];
 
-/** 色卡数据：5 个基准色 + 是否需压暗版兜底 */
-const paletteCards = computed(() =>
-  PALETTES.map((item) => {
-    const build = buildsByPalette.value[item.id];
-    const whiteOnBrand = build.checks.find((check) => check.key === 'white-on-brand-label');
-    const noteShort = item.note.split('——')[0] ?? item.note;
-    return {
-      id: item.id,
-      name: item.name,
-      note: item.note,
-      shortNote: noteShort.trim(),
-      colors: [item.brand, item.brandLight, item.merge, item.border, item.accent],
-      colorLabels: ['主色 brand-7', '浅色 brand-5', '交融色（页面底）', '渐染色（边框）', '强调色 accent'],
-      active: paletteId.value === item.id,
-      needsStrong: whiteOnBrand ? !whiteOnBrand.ok : false,
-    };
-  }),
+/* ------------------------------------------------------------------ *
+ * 配色方案：搜索 + 分组折叠（99 套一次铺开太长）
+ * ------------------------------------------------------------------ */
+
+/** 搜索关键字：匹配方案名 / 色名 / 色值 / 来源文件 / id */
+const paletteKeyword = ref('');
+
+/** 分组折叠状态（默认只展开「云枢精选」，另外两组收起来控制首屏长度） */
+const collapsed = reactive<Record<PaletteGroup, boolean>>({
+  featured: false,
+  porcelain: true,
+  fashion: true,
+});
+
+/** 是否已全部展开（按钮文案用） */
+const allExpanded = computed(() => PALETTE_GROUPS.every((group) => !collapsed[group.id]));
+
+/** 搜索时强制展开（否则搜到了却看不见） */
+function isGroupOpen(id: PaletteGroup): boolean {
+  return paletteKeyword.value.trim() ? true : !collapsed[id];
+}
+
+function toggleGroup(id: PaletteGroup): void {
+  // 搜索态下点击标题 = 清空搜索回到分组浏览，避免"点了没反应"
+  if (paletteKeyword.value.trim()) {
+    paletteKeyword.value = '';
+    collapsed[id] = false;
+    return;
+  }
+  collapsed[id] = !collapsed[id];
+}
+
+function toggleAllGroups(): void {
+  const next = !allExpanded.value;
+  for (const group of PALETTE_GROUPS) {
+    collapsed[group.id] = !next;
+  }
+}
+
+/** 关键字是否命中某个方案（名称 / 注释 / id / 来源 / 5 个槽位色 / 原始色值） */
+function matchesKeyword(item: PaletteDef, keyword: string): boolean {
+  const key = keyword.trim().toLowerCase().replace(/^#/, '');
+  if (!key) return true;
+  const haystack = [
+    item.id,
+    item.name,
+    item.note,
+    item.source ?? '',
+    item.brand,
+    item.brandLight,
+    item.merge,
+    item.border,
+    item.accent,
+    ...(item.sourceColors ?? []),
+  ]
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(key);
+}
+
+/** 色卡数据：5 个基准色 + 是否需压暗版兜底 + 原稿色数 */
+function toCard(item: PaletteDef): {
+  id: PaletteDef['id'];
+  name: string;
+  tooltip: string;
+  shortNote: string;
+  colors: string[];
+  colorLabels: string[];
+  active: boolean;
+  needsStrong: boolean;
+  sourceCount: number;
+} {
+  const noteShort = item.note.split('——')[0] ?? item.note;
+  return {
+    id: item.id,
+    name: item.name,
+    tooltip: item.source ? `${item.note} · ${item.source}` : item.note,
+    shortNote: noteShort.trim(),
+    colors: [item.brand, item.brandLight, item.merge, item.border, item.accent],
+    colorLabels: ['主色 brand-7', '浅色 brand-5', '交融色（页面底）', '渐染色（边框）', '强调色 accent'],
+    active: paletteId.value === item.id,
+    // 白字在主色上不足 4.5 → 引擎会给压暗版兜底，卡片打标提示
+    needsStrong: contrast('#ffffff', item.brand) < 4.5,
+    sourceCount: item.sourceColors?.length ?? 0,
+  };
+}
+
+/** 分组后的色卡（搜索时自动过滤空分组） */
+const paletteGroups = computed(() =>
+  PALETTE_GROUPS.map((group) => ({
+    ...group,
+    items: PALETTES.filter(
+      (item) => groupOf(item) === group.id && matchesKeyword(item, paletteKeyword.value),
+    ).map(toCard),
+  })),
+);
+
+/** 有内容的分组（搜索无结果时不渲染空分组） */
+const displayedGroups = computed(() => paletteGroups.value.filter((group) => group.items.length > 0));
+
+/** 命中数量（搜索态下显示「匹配 N 套」） */
+const matchedCount = computed(() =>
+  paletteGroups.value.reduce((total, group) => total + group.items.length, 0),
 );
 
 /** 预览用表格数据 */
@@ -277,30 +418,28 @@ const previewChartOption = computed<EChartsCoreOption>(() => ({
   ],
 }));
 
-/** 12 组对比度数据（与检查脚本同源） */
+/** 当前方案的对比度数据（明暗两组，与检查脚本同源；99 套全量在 `pnpm check:palettes`） */
 const auditRows = computed(() => {
-  const rows = PALETTES.flatMap((item) =>
-    (['light', 'dark'] as ColorMode[]).map((itemMode) => {
-      const build = buildPalette(item.id, itemMode);
-      const pick = (key: string): number => build.checks.find((check) => check.key === key)?.ratio ?? 0;
-      const whiteOnBrand = build.checks.find((check) => check.key === 'white-on-brand-label');
-      const surfaceText = build.checks.find((check) => check.key === 'on-brand-surface');
-      return {
-        id: item.id,
-        name: item.name,
-        mode: itemMode,
-        page: build.vars['--td-bg-color-page'],
-        textPrimary: pick('text-primary'),
-        textSecondary: pick('text-secondary'),
-        placeholder: pick('text-placeholder'),
-        brandText: pick('brand-text'),
-        whiteOnBrand: whiteOnBrand ? whiteOnBrand.ratio : 0,
-        surfaceText: surfaceText ? surfaceText.ratio : 0,
-        needsStrong: whiteOnBrand ? !whiteOnBrand.ok : false,
-      };
-    }),
-  );
-  return rows;
+  const item = currentPalette.value;
+  return (['light', 'dark'] as ColorMode[]).map((itemMode) => {
+    const build = buildPalette(item.id, itemMode);
+    const pick = (key: string): number => build.checks.find((check) => check.key === key)?.ratio ?? 0;
+    const whiteOnBrand = build.checks.find((check) => check.key === 'white-on-brand-label');
+    const surfaceText = build.checks.find((check) => check.key === 'on-brand-surface');
+    return {
+      id: item.id,
+      name: item.name,
+      mode: itemMode,
+      page: build.vars['--td-bg-color-page'],
+      textPrimary: pick('text-primary'),
+      textSecondary: pick('text-secondary'),
+      placeholder: pick('text-placeholder'),
+      brandText: pick('brand-text'),
+      whiteOnBrand: whiteOnBrand ? whiteOnBrand.ratio : 0,
+      surfaceText: surfaceText ? surfaceText.ratio : 0,
+      needsStrong: whiteOnBrand ? !whiteOnBrand.ok : false,
+    };
+  });
 });
 
 /** 对比度数值着色：达标绿、不达标红 */
@@ -424,6 +563,82 @@ function okClass(value: number): string {
   }
 }
 
+/* ---------- 配色方案：搜索 + 分组 ---------- */
+.palette-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+
+  &__search {
+    width: 420px;
+    max-width: 100%;
+  }
+
+  &__count {
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__toggle {
+    margin-left: auto;
+  }
+}
+
+.palette-group {
+  & + & {
+    margin-top: 18px;
+  }
+
+  &__head {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    width: 100%;
+    padding: 8px 4px;
+    margin-bottom: 10px;
+    text-align: left;
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--td-component-stroke);
+
+    &:hover .palette-group__title {
+      color: var(--td-brand-color);
+    }
+  }
+
+  &__chevron {
+    font-size: 14px;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+    transition: color 0.18s ease;
+  }
+
+  &__count {
+    padding: 0 6px;
+    font-size: 11px;
+    line-height: 18px;
+    color: var(--td-text-color-secondary);
+    background-color: var(--td-bg-color-secondarycontainer);
+    border-radius: 9px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__note {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--td-text-color-placeholder);
+  }
+}
+
 /* ---------- 色卡 ---------- */
 .palette-card {
   position: relative;
@@ -502,8 +717,13 @@ function okClass(value: number): string {
     box-shadow: 0 2px 6px rgb(0 0 0 / 18%);
   }
 
+  &__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
   &__badge {
-    align-self: flex-start;
     padding: 0 6px;
     font-size: 11px;
     line-height: 18px;

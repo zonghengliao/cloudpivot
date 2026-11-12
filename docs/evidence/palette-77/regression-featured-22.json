@@ -1,0 +1,156 @@
+[
+ {
+  "id": "mist-blue",
+  "active": "mist-blue",
+  "brand7": "#6f8ab8",
+  "swatch1": "rgb(111, 138, 184)",
+  "cardActive": true
+ },
+ {
+  "id": "deep-sea",
+  "active": "deep-sea",
+  "brand7": "#51697c",
+  "swatch1": "rgb(81, 105, 124)",
+  "cardActive": true
+ },
+ {
+  "id": "teal-sunset",
+  "active": "teal-sunset",
+  "brand7": "#6fb8aa",
+  "swatch1": "rgb(111, 184, 170)",
+  "cardActive": true
+ },
+ {
+  "id": "rose-gold",
+  "active": "rose-gold",
+  "brand7": "#ba6da7",
+  "swatch1": "rgb(186, 109, 167)",
+  "cardActive": true
+ },
+ {
+  "id": "violet-honey",
+  "active": "violet-honey",
+  "brand7": "#a26fb8",
+  "swatch1": "rgb(162, 111, 184)",
+  "cardActive": true
+ },
+ {
+  "id": "jade-crimson",
+  "active": "jade-crimson",
+  "brand7": "#6fb885",
+  "swatch1": "rgb(111, 184, 133)",
+  "cardActive": true
+ },
+ {
+  "id": "glaze-teal",
+  "active": "glaze-teal",
+  "brand7": "#7ba0a3",
+  "swatch1": "rgb(123, 160, 163)",
+  "cardActive": true
+ },
+ {
+  "id": "inkberry",
+  "active": "inkberry",
+  "brand7": "#7d5266",
+  "swatch1": "rgb(125, 82, 102)",
+  "cardActive": true
+ },
+ {
+  "id": "clear-sky",
+  "active": "clear-sky",
+  "brand7": "#3674b5",
+  "swatch1": "rgb(54, 116, 181)",
+  "cardActive": true
+ },
+ {
+  "id": "peach-sky",
+  "active": "peach-sky",
+  "brand7": "#e78f81",
+  "swatch1": "rgb(231, 143, 129)",
+  "cardActive": true
+ },
+ {
+  "id": "cream-celadon",
+  "active": "cream-celadon",
+  "brand7": "#7eacb5",
+  "swatch1": "rgb(126, 172, 181)",
+  "cardActive": true
+ },
+ {
+  "id": "celadon-mist",
+  "active": "celadon-mist",
+  "brand7": "#789dbc",
+  "swatch1": "rgb(120, 157, 188)",
+  "cardActive": true
+ },
+ {
+  "id": "spring-sugar",
+  "active": "spring-sugar",
+  "brand7": "#a3ccda",
+  "swatch1": "rgb(163, 204, 218)",
+  "cardActive": true
+ },
+ {
+  "id": "coral-bay",
+  "active": "coral-bay",
+  "brand7": "#ff6969",
+  "swatch1": "rgb(255, 105, 105)",
+  "cardActive": true
+ },
+ {
+  "id": "peacock",
+  "active": "peacock",
+  "brand7": "#0f7c90",
+  "swatch1": "rgb(15, 124, 144)",
+  "cardActive": true
+ },
+ {
+  "id": "amber",
+  "active": "amber",
+  "brand7": "#c58a2a",
+  "swatch1": "rgb(197, 138, 42)",
+  "cardActive": true
+ },
+ {
+  "id": "jade",
+  "active": "jade",
+  "brand7": "#5e9b84",
+  "swatch1": "rgb(94, 155, 132)",
+  "cardActive": true
+ },
+ {
+  "id": "rouge",
+  "active": "rouge",
+  "brand7": "#a94a63",
+  "swatch1": "rgb(169, 74, 99)",
+  "cardActive": true
+ },
+ {
+  "id": "grape",
+  "active": "grape",
+  "brand7": "#6f52c9",
+  "swatch1": "rgb(111, 82, 201)",
+  "cardActive": true
+ },
+ {
+  "id": "moon-white",
+  "active": "moon-white",
+  "brand7": "#b8c7d3",
+  "swatch1": "rgb(184, 199, 211)",
+  "cardActive": true
+ },
+ {
+  "id": "clear-mist",
+  "active": "clear-mist",
+  "brand7": "#7fa7c7",
+  "swatch1": "rgb(127, 167, 199)",
+  "cardActive": true
+ },
+ {
+  "id": "deep-blue-orange",
+  "active": "deep-blue-orange",
+  "brand7": "#112532",
+  "swatch1": "rgb(17, 37, 50)",
+  "cardActive": true
+ }
+]

@@ -66,7 +66,7 @@
         </div>
 
         <button type="button" class="palette-panel__more" @click="goPreference">
-          前往「外观设置」查看对比度报告
+          共 {{ palettes.length }} 套方案 · 去「外观设置」看全部
           <t-icon name="chevron-right" />
         </button>
       </div>
@@ -77,14 +77,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
-import { PALETTES, type ColorMode } from '@/style/palettes';
+import { PALETTES, getPalette, groupOf, type ColorMode } from '@/style/palettes';
 import { usePalette } from '@/composables/usePalette';
 
 /** 面板显隐（点击触发，点外部自动关闭） */
 const visible = ref(false);
 
 const router = useRouter();
-const { paletteId, currentPalette, mode, setPalette, setMode } = usePalette();
+const { palettes, paletteId, currentPalette, mode, setPalette, setMode } = usePalette();
 
 /** 明暗模式选项 */
 const modeOptions: { value: ColorMode; label: string; icon: string }[] = [
@@ -92,16 +92,25 @@ const modeOptions: { value: ColorMode; label: string; icon: string }[] = [
   { value: 'dark', label: '深色', icon: 'moon' },
 ];
 
-/** 面板内的 6 个迷你色卡 */
-const cards = computed(() =>
-  PALETTES.map((item) => ({
+/**
+ * 面板内的迷你色卡。
+ *
+ * 99 套全塞进这个 328px 的小面板会变成一堵墙，所以这里只放「云枢精选」22 套；
+ * 当前选中的如果是 gallery 方案（古典釉色 / 时尚配色），把它顶到第一位，保证能看到自己选的是哪套。
+ * 全部 99 套在「外观设置 → 配色方案」里按分组浏览 + 搜索。
+ */
+const cards = computed(() => {
+  const featured = PALETTES.filter((item) => groupOf(item) === 'featured');
+  const current = getPalette(paletteId.value);
+  const list = groupOf(current) === 'featured' ? featured : [current, ...featured];
+  return list.map((item) => ({
     id: item.id,
     name: item.name,
     note: item.note,
     colors: [item.brand, item.brandLight, item.merge, item.border, item.accent],
     active: paletteId.value === item.id,
-  })),
-);
+  }));
+});
 
 /** 跳到设置页的「外观」区块 */
 function goPreference(): void {
@@ -194,6 +203,9 @@ function goPreference(): void {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+    max-height: 420px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   &__item {

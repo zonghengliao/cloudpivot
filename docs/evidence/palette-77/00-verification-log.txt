@@ -1,0 +1,49 @@
+== 环境 ==
+2026-11-12 22:31:14 CST
+v22.23.5
+Python 3.14.9
+11.22.0
+
+== ③ 方案数量（grep -c "id: '" frontend/src/style/palettes.ts）==
+102
+PaletteDef 条目（"^    id: '"）：
+99
+
+== ④⑤ 色值合法性 + merge 对比度 + 源色保真（python3 scripts/verify/check_palettes.py）==
+配色方案校验（T-ac0466d8 验收 ③④⑤）
+  方案数量：99（精选 22 + gallery 77）—— 判据 ≥ 99
+  色值合法性：495 个槽位，非法 0
+  merge 正文对比度：最低 7.28（门槛 4.5）
+  源色保真：JSON 264 个源色全部在 palettes.ts 中（缺失 0 个）
+
+✓ 全部通过
+
+== 生成器一致性（python3 scripts/verify/gen_palette_schemes.py --check）==
+[gen_palette_schemes] --check： 与生成结果一致
+
+== 引擎等价性（HEAD 22 套逐变量比对）==
+HEAD 方案数 22；对比变量 44 组 × 85 个变量
+✓ 既有 22 套 × 明暗 2 模式的全部变量与对比度检查逐字节一致
+
+== ① 类型检查 pnpm typecheck ==
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+typecheck exit=0
+
+== ② 构建 pnpm build（含 typecheck）==
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+dist/index.html                                                                   1.42 kB │ gzip:   0.85 kB
+dist/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+✓ built in 56.45s
+build exit=0
+
+== 补充：pnpm check:palettes（99 套 × 明暗 = 198 组全量对比度 + 色阶断言）==
+  - 月洞桂香（深色）：白字在主色 #64979e 上对比度 3.25 < 4.5，已派生压暗版 --app-brand-strong = #527d82（白字对比度 4.55）；深色模式下按钮文字改用 --app-on-brand 深色油墨
+
+色阶算法断言：1485 条，失败 0 条
+色板数据校验：通过
+
+[check-palettes] 全部通过 ✓
