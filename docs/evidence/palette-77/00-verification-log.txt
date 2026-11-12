@@ -56,3 +56,10 @@ FAIL：色板 99 套 / 字典 oneof 98 项（V0397__preference_palette_ids_galle
     字典缺少（界面能选、后端会拒绝保存）：guci-gongming
 
 结论： 负向自检有效（正向 0 / 负向 1）
+
+== L0+L1 门禁（bash scripts/check.sh --fast，在干净检出 /tmp/gate-palette @ a87e08cb 上跑）==
+  ✓ cargo fmt -- --check / cargo clippy --all-targets -D warnings / cargo check 全通过
+  ✓ L0：色板同步门禁（99 套 vs V0397 oneof 逐字一致）、库存写入口、迁移角色码 38/38
+  ✓ pnpm typecheck 0 error
+  ==> 全部检查通过（L0 L1）
+  （工作区 /opt/cloudpivot 上直接 push 会被同仓另一个任务的未提交 Rust 文件 cargo fmt 挡住，故门禁在干净检出上跑）
