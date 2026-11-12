@@ -79,7 +79,11 @@ KEEP=1 KEEP_DB=1 bash scripts/verify/hr/hr_salary_e2e.sh --fresh
 | 护栏与清理复核 | 非演练库名 `rc=2` 拒绝；145/99 上 `hr46%` 库计数均 0 | `02_guards_and_cleanup.out` |
 | 有牙演练（改坏期望值） | 3 条断言报红 + 定位块 + `rc=1`，库仍 DROP | `03_teeth.out` |
 | 契约测试 `cargo test --lib business::hr::hr_e2e_contract_tests` | **8 passed / 0 failed** | `04_contract_tests.out` |
-| `cargo fmt` / `clippy --all-targets -D warnings` / `pnpm typecheck` | 见文件 | `05_gates.out` |
+| `cargo fmt` / `clippy --all-targets -D warnings` / `pnpm typecheck` / `pnpm build` | 全部 rc=0 | `05_gates.out` |
+| 外部阻断 A/B（重复迁移版本 V0397） | main 上空库首启失败 / 移出重复文件后 10 步全绿 | `06_duplicate_migration_version.out` |
+
+> 主跑那一次是在「同一二进制、同一脚本」下把**别人**加的重复版本号迁移暂时移出迁移目录后跑的
+> （见下一节）。移出的文件与本次交付无关，跑完已还原/删除临时 worktree。
 
 ## 已知边界（诚实说明）
 
@@ -99,3 +103,21 @@ KEEP=1 KEEP_DB=1 bash scripts/verify/hr/hr_salary_e2e.sh --fresh
 4. **审批人是夹具账号**：`hr46_approver` 同时持 `HR_MANAGER` / `FINANCE_MANAGER` /
    `FINANCE_DIRECTOR`（三层去重后会签候选人只有 1 个），只存在于演练库；密码哈希抄自 admin，
    不引入任何新的密文逻辑。
+
+## 外部阻断（不属本卡，只报不改）
+
+`2609c7f6`（主题配色卡 T-ac0466d8）的 `backend/migrations/system/V0397__preference_palette_ids_gallery77`
+与 `83a4cfab`（HR-40）的 `backend/migrations/business/V0397__hr_salary_period_after_reverse`
+**版本号重复**。nik 迁移加载器要求版本号跨目录全局唯一（`AGENTS.md` 约定 6），于是
+**当前 main 上任何空库首启都会直接失败**：
+
+```
+ERROR nik_web::app: 数据库迁移失败: migration error: duplicate up migration for version 397:
+  'migrations/system/V0397__preference_palette_ids_gallery77.up.sql' conflicts with
+  'migrations/business/V0397__hr_salary_period_after_reverse.up.sql'
+```
+
+A/B 实测（`06_duplicate_migration_version.out`）：同一个二进制、同一个脚本，
+把主题那条 V0397 暂时移出迁移目录后 → **98 项断言全绿**；保留它 → 启动即失败。
+本卡按纪律**不改别人的迁移**，修法由对应模块负责人决定（把后落地的一条改成下一个空闲号；
+已应用的迁移不许改内容）。

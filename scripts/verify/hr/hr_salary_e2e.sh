@@ -12,7 +12,7 @@
 #
 #  #  步骤                                   断言要点
 #  1  建员工（档案 + 劳动合同 + 薪资标准）     工号取号 / 合同生效 / 标准 3 项落库
-#  2  建考勤期间（2026-11）                   期间 DRAFT、区间为自然月
+#  2  建考勤期间（当月 yyyy-MM）               期间 DRAFT、区间为自然月
 #  3  导入考勤（真实 xlsx → impexp → 确认）    预检 total=1 error=0 / 入库 1 行 /
 #                                            台账 21 出勤 10 加班小时 / **期间头汇总被重算**
 #  4  请假（建单 → 提交 → 直属上级审批）        DRAFT→SUBMITTED→APPROVED、实例终态 APPROVED
@@ -475,7 +475,8 @@ expect_ne "2. 期间 id" "" "$PERIOD_ID"
 expect_eq "2. 新期间状态 DRAFT" "DRAFT" "$(dat status)"
 expect_eq "2. 区间=自然月" "$ATT_START~$ATT_END" "$(dat period_start)~$(dat period_end)"
 # 已锁定的期间不许导入 —— 这一步在锁之前，先证明「现在能导」
-expect_eq "2. 期间未锁定（locked_at 为空）" "" "$(q "SELECT locked_at FROM biz_attendance_period WHERE id = '$PERIOD_ID'::uuid")"
+expect_eq "2. 期间未锁定" "t" \
+  "$(q "SELECT locked_at IS NULL FROM biz_attendance_period WHERE id = '$PERIOD_ID'::uuid")"
 step_end
 
 # ========================================================== STEP 3 导入考勤 ====
@@ -628,7 +629,7 @@ expect_numeric "9. 计提凭证借方 5602.10 = 应发（净额法）" "$EXPECT_
   "$(q "SELECT to_char(SUM(e.debit_amount),'FM9999990.00') FROM biz_voucher_entry e JOIN biz_voucher v ON v.id = e.voucher_id WHERE v.voucher_no = '$ACC_NO' AND e.account_code = '5602.10'")"
 expect_numeric "9. 发放凭证贷 1002 = 实发" "$EXPECT_NET" \
   "$(q "SELECT to_char(SUM(e.credit_amount),'FM9999990.00') FROM biz_voucher_entry e JOIN biz_voucher v ON v.id = e.voucher_id WHERE v.voucher_no = '$PAY_NO' AND e.account_code = '1002'")"
-expect_eq "9. 借方带部门辅助核算（5602.10 的 aux_dept_id 非空）" "0" \
+expect_eq "9. 借方 5602.10 都带部门辅助核算（缺部门的行 = 0）" "0" \
   "$(q "SELECT count(*) FROM biz_voucher_entry e JOIN biz_voucher v ON v.id = e.voucher_id WHERE v.voucher_no = '$ACC_NO' AND e.account_code = '5602.10' AND e.aux_dept_id IS NULL")"
 
 req POST "/api/business/hr/salary/$SHEET_ID/reverse" '{"reason":"HR-46 E2E：金额算错，整单红冲重发"}'

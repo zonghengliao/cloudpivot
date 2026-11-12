@@ -1,0 +1,22 @@
+== 外部阻断：main 上出现重复迁移版本 V0397（不属本卡，按纪律只报不改） ==
+
+-- ① 现象：同一版本号 397 落在两个目录
+   backend/migrations/business/V0397__hr_salary_period_after_reverse.{up,down}.sql   （HR-40，卡 t_b17e6c44，提交 83a4cfab）
+   backend/migrations/system/V0397__preference_palette_ids_gallery77.{up,down}.sql    （主题配色卡 T-ac0466d8，提交 2609c7f6）
+   AGENTS 约定 6：版本号必须**跨目录全局唯一**（nik 迁移加载器强校验）
+
+-- ② 实测 A：当前 main（c500e686）+ 空库首启 → 启动即失败
+[2m2026-11-12T18:37:19.453309Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: migration error: duplicate up migration for version 397: 'migrations/system/V0397__preference_palette_ids_gallery77.up.sql' conflicts with 'migrations/business/V0397__hr_salary_period_after_reverse.up.sql'; identities must be globally unique across all sources
+FATAL: 服务启动失败: 配置错误: 数据库迁移失败: migration error: duplicate up migration for version 397: 'migrations/system/V0397__preference_palette_ids_gallery77.up.sql' conflicts with 'migrations/business/V0397__hr_salary_period_after_reverse.up.sql'; identities must be globally unique across all sources
+FATAL: 实例启动即退出（日志见上）
+… 演练库已 DROP：hr46_drill_1113023719（pg_database 残留计数=0）
+rc=2
+
+-- ③ 实测 B：同一个二进制、同一个脚本，只把主题那条 V0397 暂时移出迁移目录 → 10 步全绿
+… 已停隔离实例（pid=615526）
+… 演练库已 DROP：hr46_drill_1113024040（pg_database 残留计数=0）
+rc=0
+
+-- ④ 结论：本卡脚本无问题；卡住它的是 main 上的重复版本号（任何新库首启都会失败）
+   建议修法（由对应模块负责人决定，本卡不动）：把后落地的那个迁移改成下一个空闲号（如 V0399），
+   已应用过的迁移不可改内容 —— 若两边都已上生产，需要一条等价迁移 + 版本号仲裁，不要删已应用文件
