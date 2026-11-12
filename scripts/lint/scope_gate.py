@@ -177,6 +177,7 @@ business/hr/employee_sensitive_db_tests.rs
 business/hr/leave_db_tests.rs
 business/hr/salary_db_tests.rs
 business/hr/salary_item_db_tests.rs
+business/hr/salary_override_db_tests.rs
 business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs

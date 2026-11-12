@@ -96,6 +96,18 @@ pub const DETAIL_COLUMNS: &str = "d.id, d.sheet_id, d.employee_id, d.employee_no
      d.social_personal, d.fund_personal, d.iit_amount, d.other_withhold, d.withhold_amount, \
      d.net_amount, d.si_company, d.hf_company, d.remark";
 
+/// 一行明细 + 明细项条数的 SQL（[`DetailRow::from_row`] 按列名取值，两处必须一致）。
+///
+/// 不拼 `ORDER BY` / `FOR UPDATE`：调用方各自追加（锁读 / 普通读共用同一份投影）。
+pub const DETAIL_ROW_SQL: &str = "SELECT d.id, d.sheet_id, d.employee_id, d.employee_no, d.employee_name, \
+     d.dept_id, d.dept_name, d.user_id, d.position_code, d.job_level, d.should_days, d.actual_days, \
+     d.leave_unpaid_days, d.ot_hours, d.earning_amount, d.pre_deduct_amount, d.gross_amount, \
+     d.social_personal, d.fund_personal, d.iit_amount, d.other_withhold, d.withhold_amount, \
+     d.net_amount, d.si_company, d.hf_company, d.remark, \
+     (SELECT count(*) FROM biz_salary_detail_item i WHERE i.detail_id = d.id)::int AS item_count \
+     FROM biz_salary_detail d \
+    WHERE d.id = ?::uuid AND d.sheet_id = ?::uuid";
+
 // ==================== 行投影 ====================
 
 /// 一行单头（`biz_salary_sheet` 全列）。
@@ -467,8 +479,14 @@ impl DetailItemRow {
 
 /// 读单头（软删的单当不存在）。
 pub async fn find_sheet(id: Uuid) -> DbResult<Option<SheetRow>> {
+    find_sheet_in(db(), id).await
+}
+
+/// 读单头（指定执行器：事务内读回用 —— 覆盖写完要读**本事务**里的新值，
+/// 用另一个连接读会读到旧快照）。
+pub async fn find_sheet_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<SheetRow>> {
     let sql = format!("SELECT {SHEET_COLUMNS} FROM biz_salary_sheet WHERE id = ?::uuid AND deleted_at IS NULL");
-    let row = db().query_first_sql(sql, vec![Value::from(&id)]).await?;
+    let row = ex.query_first_sql(sql, vec![Value::from(&id)]).await?;
     match row {
         None => Ok(None),
         Some(row) => SheetRow::from_row(&row).map(Some),
@@ -684,6 +702,290 @@ pub async fn items_of_details(sheet_id: Uuid, detail_ids: &[Uuid]) -> DbResult<H
     Ok(grouped)
 }
 
+// ==================== 写路径（HR-37 明细覆盖） ====================
+
+/// 明细**写路径**的数据权限锚点（`dept_col = dept_id`、`owner_col = user_id`，设计 D-12）。
+///
+/// # 为什么它不是 [`DETAIL_TARGET`]
+///
+/// [`DETAIL_TARGET`] 是**读路径**（分页）的锚点，显式 `unscoped`：`biz_salary_detail`
+/// 还没登记进 `SCOPED_TABLES`（登记动作落在 `/salary/my` 的卡上）。**写路径不能跟着放宽**：
+/// 改别人工资是越权，越权判定的口径按设计 D-12 原样生效，不等登记。
+///
+/// 两处并存不是矛盾，是「读的一侧暂缓、写的一侧先紧」：读得宽顶多是信息范围大，
+/// 写得宽就是能把别人的工资改掉 —— 后者没有理由等任何一张卡。
+pub const DETAIL_SCOPE_TARGET: scope::ScopeTarget =
+    scope::ScopeTarget::new(TABLE_DETAIL, "d", Some("dept_id"), Some("user_id"));
+
+/// 一条明细项 + 它所属薪资项的贷方科目（覆盖时 `EMPLOYER` 归桶的第二判据）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OverrideItemRow {
+    /// 明细项行 id（写回金额用）。
+    pub id: Uuid,
+    /// 薪资项编码。
+    pub item_code: String,
+    /// 项名称（快照）。
+    pub item_name: String,
+    /// 项类型。
+    pub item_type: String,
+    /// 算法。
+    pub calc_type: String,
+    /// 金额。
+    pub amount: Decimal,
+    /// 公式原文快照（**不改**：它是「当初按什么公式算的」的证据）。
+    pub expr_snapshot: Option<String>,
+    /// 代入值说明（覆盖后会被重写成「人工覆盖 原→新」）。
+    pub calc_note: String,
+    /// 项的贷方科目（`biz_salary_item.credit_account_code`；项被删 / 未填时 `None`）。
+    pub credit_account_code: Option<String>,
+    /// 行号。
+    pub line_no: i32,
+}
+
+impl OverrideItemRow {
+    /// 由结果行投影。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            item_code: row.get_typed("item_code")?,
+            item_name: row.get_typed("item_name")?,
+            item_type: row.get_typed("item_type")?,
+            calc_type: row.get_typed("calc_type")?,
+            amount: row.get_typed("amount")?,
+            expr_snapshot: row.get_typed("expr_snapshot")?,
+            calc_note: row.get_typed::<Option<String>>("calc_note")?.unwrap_or_default(),
+            credit_account_code: row.get_typed("credit_account_code")?,
+            line_no: row.get_typed("line_no")?,
+        })
+    }
+
+    /// 转成覆盖纯函数要的快照（丢掉写入用的 `id` / `calc_type` / 快照文案）。
+    pub fn to_amount(&self) -> crate::business::hr::salary_override_dto::ItemAmount {
+        crate::business::hr::salary_override_dto::ItemAmount {
+            item_code: self.item_code.clone(),
+            item_name: self.item_name.clone(),
+            item_type: self.item_type.clone(),
+            amount: self.amount,
+            credit_account_code: self.credit_account_code.clone(),
+        }
+    }
+
+    /// 覆盖后的明细项回执（金额与说明用覆盖后的值，其余照快照）。
+    pub fn to_line(&self, amount: Decimal, note: &str) -> crate::business::hr::salary_sheet_dto::SalaryItemLineRes {
+        use crate::business::hr::salary_item_dto as item_dto;
+        crate::business::hr::salary_sheet_dto::SalaryItemLineRes {
+            id: Some(self.id.to_string()),
+            item_code: self.item_code.clone(),
+            item_name: self.item_name.clone(),
+            item_type: self.item_type.clone(),
+            item_type_label: item_dto::label_of(&item_dto::ITEM_TYPES, &self.item_type),
+            calc_type: self.calc_type.clone(),
+            calc_type_label: item_dto::label_of(&item_dto::CALC_TYPES, &self.calc_type),
+            amount,
+            expr_snapshot: self.expr_snapshot.clone(),
+            calc_note: note.to_string(),
+            line_no: self.line_no,
+        }
+    }
+}
+
+/// 锁单头行（`FOR UPDATE`）：设计 §4.8.3 的并发口径 —— 两人同时改同一张单，
+/// 后到的等锁，重算覆盖前一次结果。
+///
+/// 不加锁的话「读明细 → 算汇总 → 写汇总」三步之间会被别人插进一笔覆盖，
+/// 后写的一方用自己的旧快照覆盖掉对方的改动（丢失更新）。
+pub async fn lock_sheet(ex: &impl SqlExecutor, sheet_id: Uuid) -> DbResult<Option<SheetRow>> {
+    let sql =
+        format!("SELECT {SHEET_COLUMNS} FROM biz_salary_sheet WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE");
+    let row = ex.query_first_sql(sql, vec![Value::from(&sheet_id)]).await?;
+    match row {
+        None => Ok(None),
+        Some(row) => SheetRow::from_row(&row).map(Some),
+    }
+}
+
+/// 锁一行明细（`FOR UPDATE OF d`）+ 带出明细项条数。
+///
+/// `sheet_id` 也进 `WHERE`：前端传错单号时不能靠 `detail_id` 就改到别的单上。
+pub async fn lock_detail(ex: &impl SqlExecutor, sheet_id: Uuid, detail_id: Uuid) -> DbResult<Option<DetailRow>> {
+    let sql = format!("{DETAIL_ROW_SQL} FOR UPDATE OF d");
+    let row = ex
+        .query_first_sql(sql, vec![Value::from(&detail_id), Value::from(&sheet_id)])
+        .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => DetailRow::from_row(&row).map(Some),
+    }
+}
+
+/// 读一行明细（指定执行器：事务内读回用）。
+pub async fn find_detail_in(ex: &impl SqlExecutor, sheet_id: Uuid, detail_id: Uuid) -> DbResult<Option<DetailRow>> {
+    let row = ex
+        .query_first_sql(
+            DETAIL_ROW_SQL.to_string(),
+            vec![Value::from(&detail_id), Value::from(&sheet_id)],
+        )
+        .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => DetailRow::from_row(&row).map(Some),
+    }
+}
+
+/// 数据权限探针的 SQL 与参数（**纯函数**：单测对拍「`?` 个数 == 参数个数」）。
+///
+/// 片段在前、业务参数在后 —— 与 `scope::paginate` 的绑定顺序一致（架构 §2.6 规则 2）。
+fn scope_probe_query(sheet_id: Uuid, detail_id: Uuid, filter: &scope::RowFilter) -> (String, Vec<Value>) {
+    let sql = format!(
+        "SELECT 1 AS ok FROM {TABLE_DETAIL} d WHERE 1 = 1{} AND d.id = ?::uuid AND d.sheet_id = ?::uuid",
+        filter.sql()
+    );
+    let mut params: Vec<Value> = filter.params().to_vec();
+    params.push(Value::from(&detail_id));
+    params.push(Value::from(&sheet_id));
+    (sql, params)
+}
+
+/// 这一行明细对当前主体**可见**吗（写路径的越权闸）。
+///
+/// 语义：
+///
+/// * 超管 / `ALL` 范围 → 恒真（[`scope::filter_for`] 短路 `AND 1 = 1`）；
+/// * 部门类范围 → `d.dept_id IN (可见部门)`；
+/// * `SELF` → `d.user_id = 我`（员工的工资明细由 `employee.user_id` 派生 `user_id` 列）。
+///
+/// 返回 `false` 的两种成因由调用方区分：行不存在（404）vs 行存在但不在范围（403）。
+pub async fn detail_in_scope(
+    ex: &impl SqlExecutor,
+    sheet_id: Uuid,
+    detail_id: Uuid,
+    principal: &crate::business::shared::principal::ScopedPrincipal,
+) -> DbResult<bool> {
+    let filter = scope::filter_for(principal, DETAIL_SCOPE_TARGET);
+    let (sql, params) = scope_probe_query(sheet_id, detail_id, &filter);
+    let row = ex.query_first_sql(sql, params).await?;
+    Ok(row.is_some())
+}
+
+/// 一行明细的全部明细项（含项定义上的贷方科目），按 `line_no` 稳定排序。
+///
+/// `biz_salary_item` 用 `LEFT JOIN`：薪资项被删（`item_id` 置 `NULL`）后明细项快照仍在，
+/// 覆盖时科目为空 —— 那时 `EMPLOYER` 项若为非零就会被 [`summarize`] 拦下点名，
+/// 而不是静默丢进「其他」桶。
+pub async fn items_for_override(
+    ex: &impl SqlExecutor,
+    sheet_id: Uuid,
+    detail_id: Uuid,
+) -> DbResult<Vec<OverrideItemRow>> {
+    let sql = "SELECT i.id, i.item_code, i.item_name, i.item_type, i.calc_type, i.amount, \
+                      i.expr_snapshot, i.calc_note, si.credit_account_code, i.line_no \
+                 FROM biz_salary_detail_item i \
+                 LEFT JOIN biz_salary_item si ON si.id = i.item_id \
+                WHERE i.sheet_id = ?::uuid AND i.detail_id = ?::uuid \
+                ORDER BY i.line_no, i.item_code"
+        .to_string();
+    let rows = ex
+        .query_sql(sql, vec![Value::from(&sheet_id), Value::from(&detail_id)])
+        .await?;
+    rows.iter().map(OverrideItemRow::from_row).collect()
+}
+
+/// 写回一项明细项的 SQL（3 个 `?`：金额 / 说明 / 行 id）。
+pub const ITEM_UPDATE_SQL: &str =
+    "UPDATE biz_salary_detail_item SET amount = ?::text::numeric, calc_note = ? WHERE id = ?::uuid";
+
+/// 写回明细行 11 个金额列 + `remark` 的 SQL（13 个 `?`：11 金额 + remark + id）。
+pub const DETAIL_UPDATE_SQL: &str = "UPDATE biz_salary_detail SET \
+        earning_amount = ?::text::numeric, pre_deduct_amount = ?::text::numeric, \
+        gross_amount = ?::text::numeric, social_personal = ?::text::numeric, \
+        fund_personal = ?::text::numeric, iit_amount = ?::text::numeric, \
+        other_withhold = ?::text::numeric, withhold_amount = ?::text::numeric, \
+        net_amount = ?::text::numeric, si_company = ?::text::numeric, \
+        hf_company = ?::text::numeric, remark = COALESCE(?, remark), \
+        updated_at = CURRENT_TIMESTAMP \
+      WHERE id = ?::uuid";
+
+/// 单头合计重算 SQL（2 个 `?`：聚合子查询的 `sheet_id` + 外层 `WHERE` 的 `id`）。
+pub const SHEET_RECALC_SQL: &str = "\
+UPDATE biz_salary_sheet s \
+   SET employee_count = t.employee_count, \
+       earning_total = t.earning_total, pre_deduct_total = t.pre_deduct_total, \
+       gross_total = t.gross_total, withhold_total = t.withhold_total, \
+       net_total = t.net_total, si_company_total = t.si_company_total, \
+       hf_company_total = t.hf_company_total, updated_at = CURRENT_TIMESTAMP \
+  FROM (SELECT count(*)::int AS employee_count, \
+               COALESCE(SUM(earning_amount), 0) AS earning_total, \
+               COALESCE(SUM(pre_deduct_amount), 0) AS pre_deduct_total, \
+               COALESCE(SUM(gross_amount), 0) AS gross_total, \
+               COALESCE(SUM(withhold_amount), 0) AS withhold_total, \
+               COALESCE(SUM(net_amount), 0) AS net_total, \
+               COALESCE(SUM(si_company), 0) AS si_company_total, \
+               COALESCE(SUM(hf_company), 0) AS hf_company_total \
+          FROM biz_salary_detail WHERE sheet_id = ?::uuid) t \
+ WHERE s.id = ?::uuid AND s.deleted_at IS NULL";
+
+/// 写回一项被覆盖的金额 + `calc_note`（`expr_snapshot` 不动：公式原文是当初怎么算的证据）。
+pub async fn update_item_amount(ex: &impl SqlExecutor, item_id: Uuid, amount: Decimal, note: &str) -> DbResult<()> {
+    ex.exec_sql(
+        ITEM_UPDATE_SQL.to_string(),
+        vec![
+            Value::Text(amount.to_string()),
+            Value::Text(note.to_string()),
+            Value::from(&item_id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 用重算结果重写明细行的 11 个金额列（`remark` 只在传了值时才改）。
+///
+/// 参数顺序与 [`crate::business::hr::salary_override_dto::DetailAmounts`] 的字段顺序一致；
+/// 单测 `detail_update_placeholder_count_matches_params` 钉住这一点。
+pub async fn update_detail_amounts(
+    ex: &impl SqlExecutor,
+    detail_id: Uuid,
+    amounts: &crate::business::hr::salary_override_dto::DetailAmounts,
+    remark: Option<&str>,
+) -> DbResult<()> {
+    ex.exec_sql(
+        DETAIL_UPDATE_SQL.to_string(),
+        vec![
+            Value::Text(amounts.earning_amount.to_string()),
+            Value::Text(amounts.pre_deduct_amount.to_string()),
+            Value::Text(amounts.gross_amount.to_string()),
+            Value::Text(amounts.social_personal.to_string()),
+            Value::Text(amounts.fund_personal.to_string()),
+            Value::Text(amounts.iit_amount.to_string()),
+            Value::Text(amounts.other_withhold.to_string()),
+            Value::Text(amounts.withhold_amount.to_string()),
+            Value::Text(amounts.net_amount.to_string()),
+            Value::Text(amounts.si_company.to_string()),
+            Value::Text(amounts.hf_company.to_string()),
+            Value::Text(remark.unwrap_or_default().to_string()),
+            Value::from(&detail_id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 单头 7 个金额列 + 人数 = `SUM(明细)`（**覆盖后必做的第二层重算**）。
+///
+/// 一条语句完成：`UPDATE … FROM (聚合子查询)`。分成「先 SELECT 再 UPDATE」会多一次往返，
+/// 也会在两次之间被别人插一笔（已在 `lock_sheet` 里锁了单头行，但少一次往返总归更稳）。
+///
+/// `employee_count` 一起重算：明细增减之后「人数」必须跟着走，否则单头自报的人数
+/// 与 `SUM(明细)` 的行数对不上（设计 §4.9 A6 的相邻断言）。
+pub async fn recalc_sheet_totals(ex: &impl SqlExecutor, sheet_id: Uuid) -> DbResult<()> {
+    ex.exec_sql(
+        SHEET_RECALC_SQL.to_string(),
+        vec![Value::from(&sheet_id), Value::from(&sheet_id)],
+    )
+    .await?;
+    Ok(())
+}
+
 // ==================== 单测（不连库） ====================
 
 #[cfg(test)]
@@ -742,6 +1044,67 @@ mod tests {
         let (sql, _) = detail_query(&filter(false, false));
         assert!(!sql.contains("AND d.dept_id"), "{sql}");
         assert!(!sql.trim_end().ends_with("AND"), "{sql}");
+    }
+
+    /// 越权探针的 SQL 形状：片段在前、业务参数在后（`?` 个数 == 参数个数）。
+    ///
+    /// 三种范围各验一遍：`ALL`（片段恒真无参数）/ `DEPT`（1 个参数）/ `SELF`（1 个参数）。
+    /// 片段与参数错位是「越权闸反向」的典型成因：多绑定一个就把 `id` 顶进了部门位。
+    #[test]
+    fn scope_probe_placeholder_count_matches_params() {
+        use crate::business::shared::principal::ScopedPrincipal;
+        use crate::business::shared::scope::ScopeKind;
+
+        let cases = [
+            ScopedPrincipal::for_test(Uuid::now_v7(), None, true, ScopeKind::All, Vec::new(), false),
+            ScopedPrincipal::for_test(
+                Uuid::now_v7(),
+                Some(Uuid::now_v7()),
+                false,
+                ScopeKind::Dept,
+                vec![Uuid::now_v7()],
+                false,
+            ),
+            ScopedPrincipal::for_test(Uuid::now_v7(), None, false, ScopeKind::SelfOnly, Vec::new(), true),
+        ];
+        for principal in cases {
+            let filter = scope::filter_for(&principal, DETAIL_SCOPE_TARGET);
+            let (sql, params) = scope_probe_query(Uuid::now_v7(), Uuid::now_v7(), &filter);
+            assert_eq!(
+                sql.matches('?').count(),
+                params.len(),
+                "占位符与参数不匹配（范围 {:?}）：{sql}",
+                principal.kind()
+            );
+            assert!(sql.contains("FROM biz_salary_detail d"), "{sql}");
+            assert!(sql.contains("WHERE 1 = 1 AND"), "片段必须在业务条件之前：{sql}");
+        }
+    }
+
+    /// 三条写路径 SQL 的占位符个数（错位只会在真库上炸，所以在这里先钉住）。
+    #[test]
+    fn write_sql_placeholder_counts() {
+        assert_eq!(ITEM_UPDATE_SQL.matches('?').count(), 3, "金额 / 说明 / id");
+        assert_eq!(DETAIL_UPDATE_SQL.matches('?').count(), 13, "11 个金额列 + remark + id");
+        assert_eq!(SHEET_RECALC_SQL.matches('?').count(), 2, "聚合 sheet_id + 外层 id");
+        // remark 只在传值时覆盖（`COALESCE(?, remark)`）—— 没传不许把已有备注清空
+        assert!(DETAIL_UPDATE_SQL.contains("COALESCE(?, remark)"), "{DETAIL_UPDATE_SQL}");
+        // 单头重算必须把 7 个金额列 + 人数全部写回（少一列就与 SUM(明细) 漂移）
+        for column in [
+            "employee_count",
+            "earning_total",
+            "pre_deduct_total",
+            "gross_total",
+            "withhold_total",
+            "net_total",
+            "si_company_total",
+            "hf_company_total",
+        ] {
+            assert!(
+                SHEET_RECALC_SQL.contains(&format!("{column} = t.{column}")),
+                "重算 SQL 缺列 {column}：{SHEET_RECALC_SQL}"
+            );
+        }
     }
 
     /// 单头的 7 个金额列 → 合计回执，计提总额自己加（不能读现成列：表里没有这一列）。

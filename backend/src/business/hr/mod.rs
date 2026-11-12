@@ -245,6 +245,13 @@ pub mod salary_item_model;
 mod salary_item_seed_tests;
 /// 员工薪资标准数据层（`biz_employee_salary`）：版本读写 + 区间重叠判定（A3）（HR-16）。
 pub mod salary_model;
+/// HR-37 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：改单项后明细 11 列与单头 7 列自动重算
+/// 且三口径一致 / 越权改别人薪资 403 且库里分文未动 / 状态日志逐字段完整（含只读态 409）。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_override_db_tests;
+/// 薪资明细**手工覆盖**的入参 / 回执契约 + 聚合重算纯函数（11 个金额列 / 恒等式 / 负数闸）（HR-37）。
+pub mod salary_override_dto;
 /// HR-36 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：建单落库后三口径一致 /
 /// 试算零落库 / 明细分页与汇总对拍 / 同期间重复建单 409。只在 `cargo test` 时编译。
 #[cfg(test)]

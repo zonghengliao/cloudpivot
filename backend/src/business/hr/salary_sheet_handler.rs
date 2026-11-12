@@ -7,6 +7,7 @@
 //! | 38 | GET | `/business/hr/salary/{id}/detail/page` | `business:hr:salary:detail` | 明细分页（含明细项展开） |
 //! | 39 | POST | `/business/hr/salary/calc` | `business:hr:salary:calc` | 试算（不落库） |
 //! | 40 | POST | `/business/hr/salary` | `business:hr:salary:calc` | 建单并落库 |
+//! | 41 | PUT | `/business/hr/salary/{id}/detail/{detail_id}` | `business:hr:salary:calc` | 明细覆盖（HR-37：改单项 → 重算汇总 → 写状态日志） |
 //!
 //! 数据层在 [`crate::business::hr::salary_sheet_model`]（唯一 SQL 出口），入参 / 回执契约与
 //! 对账纯函数在 [`crate::business::hr::salary_sheet_dto`]，计算本身在
@@ -53,12 +54,14 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::hr::salary_compute::{self as compute, CalcRequest};
+use crate::business::hr::salary_override_dto::{self as ov, SalaryOverrideReq, SalaryOverrideRes};
 use crate::business::hr::salary_sheet_dto::{
     self as dto, CalcMode, SalaryCalcRes, SalaryDetailPageQuery, SalaryDetailRes, SalarySheetCalcReq,
     SalarySheetListQuery, SalarySheetSummaryRes, SalaryTotalsRes,
 };
 use crate::business::hr::salary_sheet_model::{self as model};
-use crate::business::shared::state_machine::Operator;
+use crate::business::shared::principal::{self, ScopedPrincipal};
+use crate::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -83,6 +86,17 @@ fn not_found(sheet_id: Uuid) -> ApiError {
         404,
         error_code::RESOURCE_NOT_FOUND,
         format!("薪资单 {sheet_id} 不存在（可能已删除，或 id 抄错）"),
+    )
+}
+
+/// `404 + 10002`：明细行不存在（或不属于这张单）。
+///
+/// 报文同时点名单号与明细 id：前端「刷新后仍打不开」时，用户报的两个 id 能直接被运维对上。
+fn detail_not_found(sheet_no: &str, detail_id: Uuid) -> ApiError {
+    ApiError::new(
+        404,
+        error_code::RESOURCE_NOT_FOUND,
+        format!("薪资单 {sheet_no} 里没有明细 {detail_id}（可能单号与明细不匹配，或明细已被重算覆盖）"),
     )
 }
 
@@ -298,6 +312,249 @@ pub async fn persist(operator: Operator, req: &SalarySheetCalcReq) -> std::resul
     Ok(SalaryCalcRes::of(&outcome))
 }
 
+// ==================== ㊶ 明细覆盖 ====================
+
+/// 明细覆盖（设计 §5.2 #41：改项金额 + `reason`）—— HR-37。
+///
+/// 权限码 `business:hr:salary:calc`（与试算 / 建单同一个码：能算工资的人才能改算出来的数）。
+/// 另外还有一道**数据范围**闸：见 [`override_detail`]。
+#[nik::permission(
+    path = "/business/hr/salary/{id}/detail/{detail_id}",
+    method = "PUT",
+    permission = "business:hr:salary:calc"
+)]
+#[nik::put("/business/hr/salary/{id}/detail/{detail_id}")]
+pub async fn salary_detail_override(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path((id, detail_id)): Path<(String, String)>,
+    Json(req): Json<SalaryOverrideReq>,
+) -> ResResult<SalaryOverrideRes> {
+    let sheet_id = dto::parse_uuid(&id, "id")?;
+    let target = dto::parse_uuid(&detail_id, "detail_id")?;
+    let operator: Operator = (&claims).into();
+    // 数据范围必须按**令牌里的用户**解析（业务代码不得用请求体里的 user_id 代替）。
+    let principal = principal::resolve_for_claims(&claims).await?;
+    Ok(Res::ok(
+        override_detail(operator, &principal, sheet_id, target, &req).await?,
+    ))
+}
+
+/// 明细覆盖的业务实现（接口与真库用例共用同一条路径）。
+///
+/// # 事务里的顺序（每一步都有理由）
+///
+/// 1. `parse` 入参：形状错不该占数据库连接；
+/// 2. **锁单头**（`FOR UPDATE`）：设计 §4.8.3 的并发口径 —— 后到的等锁，
+///    避免「读明细 → 算汇总 → 写汇总」之间被人插一笔（丢失更新）；
+/// 3. **锁明细行**：同一行的两项被两个人同时改时，后改的人看到的是前一个人的结果；
+/// 4. **越权闸**（[`model::detail_in_scope`]）：设计 D-12 —— 部门 / 本人范围之外的行
+///    403（不是 404：行是存在的，是你不该动它，报文要能自查）；**超管短路**；
+/// 5. **只读闸**（`state_machine::ensure_writable`）：`SUBMITTED/APPROVED/POSTED/REVERSED`
+///    四态冻结（`SALARY_SHEET_LOCKED`）→ 409 并说明怎么更正；
+/// 6. 覆盖金额 → **重算明细 11 列** → 写明细项 → 写明细行 → **重算单头 7 列 + 人数**；
+/// 7. 写 `biz_status_log`（`action = AMOUNT_OVERRIDE`，`from = to = 当前状态`，
+///    `reason` 里逐项写「旧值→新值 + 差额」）—— **与业务改动同事务**：
+///    日志写不进去就整笔回滚，绝不允许「钱改了但没有痕」。
+///
+/// # 为什么越权闸在只读闸之前
+///
+/// 反过来的话，一个只能看本部门的 HR 对别的部门的已过账单会拿到 409「已入账不可改」——
+/// 那是在告诉他不存在的选择。先 403 才是真话：「这行本来就不归你」。
+///
+/// # 幂等
+///
+/// 传入金额与库里一致 → `changed = false`、不写状态日志、不回 4xx（网络重试不该报错）。
+pub async fn override_detail(
+    operator: Operator,
+    principal: &ScopedPrincipal,
+    sheet_id: Uuid,
+    detail_id: Uuid,
+    req: &SalaryOverrideReq,
+) -> std::result::Result<SalaryOverrideRes, ApiError> {
+    let input = ov::parse_override_req(req)?;
+
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启薪资明细覆盖事务"))?;
+
+    // ② 锁单头
+    let sheet = match model::lock_sheet(&tx, sheet_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found(sheet_id));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "锁定薪资单"));
+        }
+    };
+
+    // ③ 锁明细行
+    let detail = match model::lock_detail(&tx, sheet_id, detail_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(detail_not_found(&sheet.sheet_no, detail_id));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "锁定薪资明细"));
+        }
+    };
+
+    // ④ 越权闸
+    let who = format!("{}（{}）", detail.employee_name, detail.employee_no);
+    match model::detail_in_scope(&tx, sheet_id, detail_id, principal).await {
+        Ok(true) => {}
+        Ok(false) => {
+            let _ = tx.rollback().await;
+            return Err(ov::forbidden(&sheet.sheet_no, &who));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "校验薪资明细的数据范围"));
+        }
+    }
+
+    // ⑤ 只读闸
+    if let Err(error) = state_machine::ensure_writable(ENTITY_SALARY_SHEET, &sheet.status, &sheet.sheet_no) {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
+
+    // ⑥ 覆盖 → 重算 → 写回
+    let rows = match model::items_for_override(&tx, sheet_id, detail_id).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "读取薪资明细项"));
+        }
+    };
+    let current: Vec<ov::ItemAmount> = rows.iter().map(model::OverrideItemRow::to_amount).collect();
+    let (next, changes) = match ov::override_amounts(&current, &input, &who) {
+        Ok(pair) => pair,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    // 重算汇总（负数工资 / 归不了桶的单位项在这里就被拦下，不落到库层 23514）
+    let amounts = match ov::summarize(&next, &who) {
+        Ok(amounts) => amounts,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+
+    let mut log_id: Option<Uuid> = None;
+    if !changes.is_empty() {
+        // 明细项：金额 + 「人工覆盖 原→新」说明
+        for change in &changes {
+            let Some(row) = rows.iter().find(|row| row.item_code == change.item_code) else {
+                let _ = tx.rollback().await;
+                return Err(ov::rule_blocked(format!(
+                    "{} 的明细项 {} 在写回时消失了（并发改动），请刷新后重试",
+                    who, change.item_code
+                )));
+            };
+            let note = ov::override_note(change, &input.reason);
+            if let Err(error) = model::update_item_amount(&tx, row.id, change.new_amount, &note).await {
+                let _ = tx.rollback().await;
+                return Err(utils::db_error(error, "写回被覆盖的薪资项金额"));
+            }
+        }
+        if let Err(error) = model::update_detail_amounts(&tx, detail_id, &amounts, input.remark.as_deref()).await {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "重写薪资明细的汇总金额"));
+        }
+        if let Err(error) = model::recalc_sheet_totals(&tx, sheet_id).await {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "重算薪资单的单头合计"));
+        }
+        let reason = ov::log_reason(&who, &changes, &input.reason);
+        let biz_ref = (model::TABLE_DETAIL, detail.employee_no.as_str());
+        match state_machine::log_event(
+            &tx,
+            ENTITY_SALARY_SHEET,
+            sheet_id,
+            &sheet.sheet_no,
+            &sheet.status,
+            Some(ov::ACTION_AMOUNT_OVERRIDE),
+            operator,
+            Some(&reason),
+            Some(biz_ref),
+        )
+        .await
+        {
+            Ok(id) => log_id = Some(id),
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        }
+    }
+
+    // ⑦ 事务内读回（单头合计已重算；明细行金额已重写）
+    let fresh_sheet = match model::find_sheet_in(&tx, sheet_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found(sheet_id));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "读回薪资单"));
+        }
+    };
+    let fresh_detail = match model::find_detail_in(&tx, sheet_id, detail_id).await {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(detail_not_found(&sheet.sheet_no, detail_id));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "读回薪资明细"));
+        }
+    };
+
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交薪资明细覆盖事务"))?;
+
+    // ⑧ 回执：覆盖后的明细项（金额/说明用新值）+ 明细行 11 列 + 单头 7 列
+    let overridden: std::collections::HashMap<&str, &ov::AmountChange> = changes
+        .iter()
+        .map(|change| (change.item_code.as_str(), change))
+        .collect();
+    let lines = rows
+        .iter()
+        .map(|row| match overridden.get(row.item_code.as_str()) {
+            Some(change) => row.to_line(change.new_amount, &ov::override_note(change, &input.reason)),
+            None => row.to_line(row.amount, &row.calc_note),
+        })
+        .collect();
+
+    Ok(SalaryOverrideRes {
+        changed: !changes.is_empty(),
+        sheet_id: fresh_sheet.id.to_string(),
+        sheet_no: fresh_sheet.sheet_no.clone(),
+        sheet_status: fresh_sheet.status.clone(),
+        sheet_status_label: dto::status_label(&fresh_sheet.status),
+        detail_id: fresh_detail.id.to_string(),
+        employee_no: fresh_detail.employee_no.clone(),
+        employee_name: fresh_detail.employee_name.clone(),
+        changes: changes.iter().map(ov::SalaryAmountChangeRes::of).collect(),
+        detail: fresh_detail.to_res(lines),
+        sheet: fresh_sheet.to_header(),
+        log_id: log_id.map(|id| id.to_string()),
+        reason: input.reason,
+    })
+}
+
 // ==================== 单测（不连库） ====================
 
 #[cfg(test)]
@@ -315,6 +572,8 @@ mod tests {
             ("GET", "/business/hr/salary/{id}/detail/page", PERM_SALARY_DETAIL),
             ("POST", "/business/hr/salary/calc", PERM_SALARY_CALC),
             ("POST", "/business/hr/salary", PERM_SALARY_CALC),
+            // HR-37：明细覆盖（改单项 → 重算汇总 → 写状态日志）
+            ("PUT", "/business/hr/salary/{id}/detail/{detail_id}", PERM_SALARY_CALC),
         ];
         for (method, path, permission) in expected {
             let spec = ROUTE_CONTRACT
@@ -327,6 +586,49 @@ mod tests {
                 "{method} {path} 的权限码与契约表不一致"
             );
         }
+    }
+
+    /// 明细覆盖的契约行必须挂在 HR-37（改卡号会让「谁该实现它」在板上失联）。
+    #[test]
+    fn override_route_belongs_to_hr37() {
+        let spec = ROUTE_CONTRACT
+            .iter()
+            .find(|spec| spec.method == "PUT" && spec.path == "/business/hr/salary/{id}/detail/{detail_id}")
+            .expect("契约表缺明细覆盖");
+        assert_eq!(spec.card, "HR-37");
+        assert_eq!(spec.permission, Some(PERM_SALARY_CALC));
+    }
+
+    /// 冻结的四个只读态一律 409（覆盖不许改已提交 / 已审批 / 已入账 / 已红冲的单）。
+    ///
+    /// 这条闸来自 `state_machine::ensure_writable` —— 它按 `Entity::SalarySheet` 的
+    /// `SALARY_SHEET_LOCKED` 判定，所以「哪些状态能动」只有一处定义。
+    #[test]
+    fn override_is_rejected_on_locked_statuses() {
+        for status in ["SUBMITTED", "APPROVED", "POSTED", "REVERSED"] {
+            let error = state_machine::ensure_writable(ENTITY_SALARY_SHEET, status, "SAL-202701-000001")
+                .expect_err("冻结态必须拒");
+            assert_eq!(
+                (error.status, error.code),
+                (409, error_code::RESOURCE_CONFLICT),
+                "{status} 必须 409"
+            );
+            assert!(error.msg.contains("SAL-202701-000001"), "报文点名单号：{}", error.msg);
+        }
+        for status in ["DRAFT", "CALCULATED"] {
+            state_machine::ensure_writable(ENTITY_SALARY_SHEET, status, "SAL-202701-000001")
+                .unwrap_or_else(|error| panic!("{status} 是草稿态，必须放行：{}", error.msg));
+        }
+    }
+
+    /// 明细不存在的 404 报文同时点名单号与明细 id。
+    #[test]
+    fn detail_not_found_names_sheet_and_detail() {
+        let detail_id = Uuid::now_v7();
+        let error = detail_not_found("SAL-202701-000001", detail_id);
+        assert_eq!((error.status, error.code), (404, error_code::RESOURCE_NOT_FOUND));
+        assert!(error.msg.contains("SAL-202701-000001"), "报文：{}", error.msg);
+        assert!(error.msg.contains(&detail_id.to_string()), "报文：{}", error.msg);
     }
 
     /// 三条权限码必须与 `V0387` 种进 `sys_menu.auth_code` 的字符串逐字一致。
