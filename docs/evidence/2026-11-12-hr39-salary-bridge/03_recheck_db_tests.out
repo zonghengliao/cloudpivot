@@ -1,0 +1,41 @@
+==> 建演练库 hr39_drill @ 172.18.10.145（先 DROP 残留）
+==> 回放全部迁移（按版本号全局升序）
+    迁移 317 条完成
+==> 前置复核（本卡依赖的三样东西必须在位）
+  ✓ 9 个工资末级科目（V0384）（9）
+  ✓ 带 DEPT 辅助核算的科目（5602.1x / 2211.0x）（6）
+  ✓ 17 个薪资项种子（V0396）（17）
+  ✓ hr_salary 流程 PUBLISHED/is_default（V0394）（1）
+  ✓ 大额条件边 = form.gross_total_num gte 500000（form.gross_total_num|gte|500000）
+  ✓ 工资发放凭证规则（V0384）（2）
+==> 种最小夹具（部门 + 操作人）
+  ✓ 部门就位（t）
+  ✓ 操作人就位（t）
+  ✓ 4 个审批角色都有人在职成员（4）
+==> 构建并运行真库用例（HR_DB_URL/ERP_DB_URL → hr39_drill）
+   Compiling cloudpivot v0.1.0 (/root/hr39-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.18s
+     Running unittests src/lib.rs (/root/hr39-target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 7 tests
+test business::hr::salary_bridge_db_tests::db::approval_callback_approves_without_vouchers_and_is_idempotent ... ok
+test business::hr::salary_bridge_db_tests::db::post_creates_two_balanced_vouchers_with_net_method ... ok
+test business::hr::salary_bridge_db_tests::db::post_is_rejected_twice_and_leaves_no_extra_vouchers ... ok
+test business::hr::salary_bridge_db_tests::db::post_requires_approved_status_and_leaves_nothing ... ok
+test business::hr::salary_bridge_db_tests::db::post_requires_locked_attendance_period ... ok
+test business::hr::salary_bridge_db_tests::db::rejection_callback_returns_sheet_to_calculated ... ok
+test business::hr::salary_bridge_db_tests::db::stale_instance_callback_is_ignored ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 5406 filtered out; finished in 11.52s
+
+  ✓ cargo test 退出码 0
+  ✓ 真库用例执行数（7）
+    test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 5406 filtered out; finished in 11.52s
+==> 残留复核（用例自清场：凭证 / 薪资单 / 员工都要删干净）
+  ✓ 演练库里没有本卡夹具的凭证（0）
+  ✓ 演练库里没有本卡夹具的薪资单（0）
+  ✓ 演练库里没有本卡夹具的员工（0）
+==> 清理
+  ✓ 演练库已 DROP（0）
+
+ALL PASS（0 失败）
