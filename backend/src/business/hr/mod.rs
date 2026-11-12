@@ -209,6 +209,13 @@ mod leave_handler_db_tests;
 /// 分页（按 dept 数据权限）+ 已批无薪假天数（HR-24）。
 pub mod leave_model;
 pub mod model;
+/// 薪资**计算引擎**：试算（薪资标准 + 考勤 + 人工项）→ 逐人逐项 → 恒等式校验 → 落库事务（HR-34）；
+/// 试算与正式计算**同源**（同一条编排路径，`dry_run` 只决定事务回滚还是提交）。
+pub mod salary_compute;
+/// HR-34 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：试算零落库且不推进号段 / 建单落库
+/// 三张表且恒等式在库里成立（A6/A7）/ 同期间重复建单 409 / 试算与落库同源。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_compute_db_tests;
 /// HR-16 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：不重叠 / 重叠 / 相邻 / 边界相等 /
 /// 收口 / 取消 / 幂等。只在 `cargo test` 时编译。
 #[cfg(test)]
