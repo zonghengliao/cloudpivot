@@ -217,10 +217,11 @@ pub fn filter_of(query: &SalaryItemPageQuery) -> std::result::Result<SalaryItemF
         }
         None => None,
     };
-    if let Some(flag) = query.is_active {
-        if flag != 0 && flag != 1 {
-            return Err(param_invalid(format!("is_active 只能是 0 或 1（收到 {flag}）")));
-        }
+    if let Some(flag) = query.is_active
+        && flag != 0
+        && flag != 1
+    {
+        return Err(param_invalid(format!("is_active 只能是 0 或 1（收到 {flag}）")));
     }
     Ok(SalaryItemFilter {
         keyword,
@@ -486,13 +487,13 @@ pub fn parse_write(
         .map(str::trim)
         .filter(|text| !text.is_empty())
         .map(str::to_string);
-    if let Some(text) = &remark {
-        if text.chars().count() > MAX_REMARK_LEN {
-            errors.push(format!(
-                "备注最长 {MAX_REMARK_LEN} 个字符（收到 {} 个）",
-                text.chars().count()
-            ));
-        }
+    if let Some(text) = &remark
+        && text.chars().count() > MAX_REMARK_LEN
+    {
+        errors.push(format!(
+            "备注最长 {MAX_REMARK_LEN} 个字符（收到 {} 个）",
+            text.chars().count()
+        ));
     }
 
     // ---- 两个开关（缺省：新建 true / 修改保持原值） ----

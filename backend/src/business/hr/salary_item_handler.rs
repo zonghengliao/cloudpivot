@@ -225,15 +225,15 @@ pub async fn update_item(
     };
 
     // ---- 编码不可改（传了就必须与原值一致）----
-    if let Some(raw) = req.item_code.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
-        if raw != existing.item_code {
-            let _ = tx.rollback().await;
-            return Err(rule_blocked(format!(
-                "薪资项编码不可修改（{} → {}）：公式按 `{{编码}}` 引用它、员工薪资标准的 item_code 也是弱引用，\
-                 改名会让引用它的公式与标准一起失效且不报错。要换编码请新建一项、把引用改过去、再把旧项停用",
-                existing.item_code, raw
-            )));
-        }
+    if let Some(raw) = req.item_code.as_deref().map(str::trim).filter(|text| !text.is_empty())
+        && raw != existing.item_code
+    {
+        let _ = tx.rollback().await;
+        return Err(rule_blocked(format!(
+            "薪资项编码不可修改（{} → {}）：公式按 `{{编码}}` 引用它、员工薪资标准的 item_code 也是弱引用，\
+             改名会让引用它的公式与标准一起失效且不报错。要换编码请新建一项、把引用改过去、再把旧项停用",
+            existing.item_code, raw
+        )));
     }
 
     // ---- 形状校验（缺省的开关保持原值）----
@@ -309,17 +309,16 @@ pub async fn update_item(
     }
 
     // ---- 顺序占用（改号时）----
-    if draft.sort_order != existing.sort_order {
-        if let Some(owner) = salary_item_model::sort_owner(&tx, draft.sort_order, Some(id))
+    if draft.sort_order != existing.sort_order
+        && let Some(owner) = salary_item_model::sort_owner(&tx, draft.sort_order, Some(id))
             .await
             .map_err(|error| utils::db_error(error, "查询计算顺序是否被占用"))?
-        {
-            let _ = tx.rollback().await;
-            return Err(occupied(format!(
-                "计算顺序 {} 已被薪资项「{}」占用（同一公司内顺序唯一）：换个序号（建议 10 递增，插空用中间值如 15/25）",
-                draft.sort_order, owner
-            )));
-        }
+    {
+        let _ = tx.rollback().await;
+        return Err(occupied(format!(
+            "计算顺序 {} 已被薪资项「{}」占用（同一公司内顺序唯一）：换个序号（建议 10 递增，插空用中间值如 15/25）",
+            draft.sort_order, owner
+        )));
     }
 
     let affected = match salary_item_model::update(&tx, id, &draft, operator.id).await {
