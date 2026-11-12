@@ -1,0 +1,9 @@
+# cargo fmt --check / cargo check --all-targets / cargo clippy --all-targets -- -D warnings
+# 时间: 2026年 11月 12日 星期四 10:38:42 UTC UTC
+$ cargo fmt --check
+exit=0
+$ cargo check --all-targets
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 34.41s
+$ cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.54s

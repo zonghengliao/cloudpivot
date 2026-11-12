@@ -183,6 +183,12 @@ pub mod handler;
 /// 软删 / 作废缺原因 / 撞号 / 分页数据权限 / 无薪假天数。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod leave_db_tests;
+/// HR-27 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：审批通过回写 / 驳回打回可重提 /
+/// 自审批被拦 / 实例终止 / 陈旧回调忽略。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod leave_bridge_db_tests;
+/// 请假单的审批回调桥（`hr_leave`）：通过 / 驳回回写状态 + 实例终止 + 自审批守卫（HR-27）。
+pub mod leave_bridge;
 /// 请假单入参 / 回执契约 + 假别·状态·天数·区间校验（`biz_leave_request`，HR-24）。
 pub mod leave_dto;
 /// 请假单接口层（设计 §5.2 #26~#31：列表 / 详情+审批轨迹 / 建单 / 改草稿 / 提交审批 /

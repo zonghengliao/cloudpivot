@@ -76,6 +76,7 @@ use crate::business::erp::approval_gate::{self, ApprovalGate};
 use crate::business::flow::{engine, instance_pdf, model as flow_model};
 use crate::business::hr::employee_dto::timestamp_cst;
 use crate::business::hr::employee_model;
+use crate::business::hr::leave_bridge;
 use crate::business::hr::leave_dto::{
     self, LeaveApprovalRes, LeaveApprovalTaskRes, LeaveCancelAction, LeaveCancelReq, LeaveCancelRes, LeaveCreateReq,
     LeaveDetailRes, LeavePageQuery, LeaveRes, LeaveSubmitReq, LeaveUpdateReq,
@@ -1017,7 +1018,7 @@ pub async fn cancel_leave(
         }
         // ---- ② 审批中：撤回（终止实例 + 回草稿） ----
         LeaveCancelAction::Withdrawn => {
-            let terminated = match terminate_instance_of(&tx, row.approval_instance_id).await {
+            let terminated = match leave_bridge::cancel_approval_of(&tx, &row).await {
                 Ok(status) => status,
                 Err(error) => {
                     let _ = tx.rollback().await;
@@ -1130,36 +1131,8 @@ pub async fn cancel_leave(
     })
 }
 
-/// 终止单据上挂着的审批实例（在跑的才终止）。
-///
-/// 返回终止后的实例状态：`None` = 本来就没有实例（草稿直接改状态的历史数据 /
-/// 实例已被硬删）。**已落终态的实例不动**（例如实例已被 HR 在审批中心手动终止，
-/// 单据这边的状态机自己会挡住不合法的边）。
-async fn terminate_instance_of(
-    tx: &Transaction,
-    instance_id: Option<Uuid>,
-) -> std::result::Result<Option<String>, ApiError> {
-    let Some(instance_id) = instance_id else {
-        return Ok(None);
-    };
-    let Some(instance) = flow_model::find_instance(instance_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询请假审批实例"))?
-    else {
-        return Ok(None);
-    };
-    if !instance.is_pending() {
-        return Ok(Some(instance.status));
-    }
-    let out = engine::terminate_instance(tx, instance_id, "CANCELLED", "请假单撤回：审批终止")
-        .await
-        .map_err(|error| utils::db_error(error, "终止请假审批实例"))?;
-    if let Some(rejected) = out.rejected {
-        // FIX-1：原样透传（重建会把 65018 的结构化载荷丢掉）
-        return Err(rejected);
-    }
-    Ok(Some("CANCELLED".to_string()))
-}
+// 实例终止已搬到 [`leave_bridge::cancel_approval_of`]（HR-27）：撤回 / 作废都要终止实例，
+// 那段逻辑与审批回调桥属于同一件事（「单据 ↔ 审批实例」的边界），放在桥里只有一处口径。
 
 // ==================== 单测（不连库） ====================
 

@@ -1,0 +1,13 @@
+# cargo test --lib business::hr::leave_bridge_db_tests（HR_DB_URL → 145/hr27_drill）
+# 时间: 2026年 11月 12日 星期四 10:37:45 UTC UTC
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 4 tests
+test business::hr::leave_bridge_db_tests::db::approve_writes_back_and_keeps_trace ... ok
+test business::hr::leave_bridge_db_tests::db::cancel_approval_of_terminates_running_instance ... ok
+test business::hr::leave_bridge_db_tests::db::guard_blocks_self_approval ... ok
+test business::hr::leave_bridge_db_tests::db::reject_backs_to_draft_and_allows_resubmit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 5252 filtered out; finished in 12.77s
+

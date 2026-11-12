@@ -1,0 +1,14 @@
+# cargo test --lib business::hr::leave（单元 + HR-25 真库用例，验证 terminate_instance_of → leave_bridge::cancel_approval_of 重构无回归）
+# 时间: 2026年 11月 12日 星期四 10:38:00 UTC UTC
+test business::hr::leave_model::tests::leave_no_format ... ok
+test business::hr::leave_model::tests::leave_target_matches_scope_registry ... ok
+test business::hr::leave_model::tests::list_query_placeholders_match ... ok
+test business::hr::leave_model::tests::row_sql_columns_exist_in_ddl ... ok
+test business::hr::leave_model::tests::row_to_res_pairs_ids_with_names ... ok
+test business::hr::leave_model::tests::set_status_uses_coalesce_for_audit_columns ... ok
+test business::hr::leave_model::tests::sql_placeholder_counts_match_params ... ok
+test business::hr::leave_model::tests::unique_index_matches_ddl ... ok
+test business::hr::leave_model::tests::update_sql_never_touches_guarded_columns ... ok
+
+test result: ok. 63 passed; 0 failed; 0 ignored; 0 measured; 5193 filtered out; finished in 39.38s
+
