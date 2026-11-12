@@ -31,6 +31,23 @@
  * （`POST /business/impexp/import/upload` → `POST /business/impexp/import/{id}/confirm`），
  * 差别只是 `biz_type` 固定为 `hr.attendance`。已在卡内上报，等 HR 专属路由落地后
  * 只需换这一个函数体，页面不用动。
+ *
+ * # 确认入库即重算期间头 —— 页面不要再补 recalc
+ *
+ * 通用路径**会**重算：`{id}/confirm` 落库的动作就是后端
+ * `builtin/hr.rs::AttendanceImport::persist`，它在**同一个事务**里刷期间头的四个汇总列
+ * （t_de6e8d41 复核结论；证据 `docs/evidence/2026-11-12-hr22b-import-recalc/` 实测：
+ * 空期间 → 上传 2 行 → confirm → 不调任何 recalc 直接读 `period/page`
+ * 即得 `employee_count=2 / should_days_total=44.00 / actual_days_total=40.00`）。
+ *
+ * 所以「确认导入」成功后调用方**只该看到 upload + confirm 两个请求**。HR-29 曾在这里补过
+ * 一次 `POST /attendance/period/{id}/recalc`（担心「2 行明细、合计 0 人」），HR-33 已撤掉：
+ * 后端没有这个缺口，那次补偿只是多一次请求 + 一段会误导后来人的注释。
+ * `/attendance/period/{id}/recalc`（本文件 `recalcPeriod`）保留，但只给期间 tab 的
+ * 「重算」按钮做**人工**补偿入口。
+ *
+ * 回执里**没有** `period_totals`（impexp `ImportConfirmRes` 只有 `imported_rows` / `message`），
+ * 导入后的合计一律以重新拉的期间行（`period/page`）为准 —— 页面侧记得把旧缓存作废。
  */
 
 import service, { del, get, post, put, type PageData } from '@/api/request';
@@ -178,7 +195,12 @@ export function uploadAttendanceImport(
   return uploadImportFile(file, ATTENDANCE_BIZ_TYPE, mode, duplicate);
 }
 
-/** 确认入库（预检通过的行落库；回执带已入库行数与汇总说明） */
+/**
+ * 确认入库（预检通过的行落库；回执带已入库行数与汇总说明）。
+ *
+ * **入库与期间头重算在同一个事务里**（见文件头），调用方不需要也不应该再补一次
+ * `recalcPeriod`。回执不带 `period_totals`，合计以重新拉的期间行为准。
+ */
 export function confirmAttendanceImport(taskId: string): Promise<ImportConfirmRes> {
   return confirmImport(taskId);
 }

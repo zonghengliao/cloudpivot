@@ -15,7 +15,7 @@
   | 状态流转 | `POST /attendance/period/{id}/status` | 提交 / 锁定 / 解锁（解锁 ≥5 字原因） |
   | 台账 | `GET /attendance/record/page` | `period_id` 必填，一人一行 |
   | 单元格编辑 | `PUT /attendance/record/{id}` | **部分更新**：一次只发一列 |
-  | 导入 | impexp 通用三段（`biz_type='hr.attendance'`） | 见 `attendance.ts` 文件头：HR 专属路由尚未落地 |
+  | 导入 | impexp 通用三段（`biz_type='hr.attendance'`） | **确认入库即重算期间头**（后端同事务），页面不补 recalc |
   | 导出 | `GET /attendance/export` | xlsx 二进制（20 列，含「锁定状态」列）· HR-30 |
 
   # 五条与「想当然」不一样的交互（每条都有真接口依据）
@@ -32,6 +32,19 @@
      就禁用确认按钮。
   5. **导入的考勤月来自 Excel 行，不是页面参数**：Excel「考勤月」列与所选期间不一致时，
      后端预检会带 Excel 行号拦下 —— 上传对话框里写明这一点，省掉一次白传。
+
+  # 导入成功后不补 recalc（HR-33 撤掉的补偿）
+
+  HR-29 当时在「确认导入」后面加过一次 `POST /attendance/period/{id}/recalc`（失败只 warning），
+  因为怀疑通用 impexp 路径不重算期间头。t_de6e8d41 复核证明**后端本来就重算**：确认入库就在
+  `AttendanceImport::persist` 的同一个事务里刷期间头（证据
+  `docs/evidence/2026-11-12-hr22b-import-recalc/`：空期间 → 上传 2 行 → confirm → 不调 recalc
+  直接读 `period/page` 即得 2 人 / 应出勤 44.00 / 实际 40.00）。所以现在「确认导入」成功后
+  只有 `upload` + `{id}/confirm` 两个请求。
+
+  合计靠不靠得住看缓存口径：导入回执（impexp `ImportConfirmRes`）**没有 `period_totals`**，
+  所以确认成功后先清 `totalsCache`、再重拉期间行与台账 —— 否则导入前「点过重算 / 改过单元格」
+  留下的那份缓存会盖住后端刚重算出来的新值。
 
   # 本页不做的（已上报）
 
@@ -1475,17 +1488,14 @@ async function handleConfirmImport(): Promise<void> {
     const result = await confirmAttendanceImport(task.task_id);
     importDone.value = `${result.message}（已入库 ${result.imported_rows} 行）`;
     MessagePlugin.success(result.message || '导入完成');
-    // 导入走的是 impexp 通用三段（HR 专属导入路由尚未注册），落库后**期间头的四个汇总列
-    // 不会自动重算** —— 不补这一下，台账上会出现「2 行明细、合计 0 人」的自相矛盾。
-    // recalc 是幂等接口（HR-19），失败只提示不打断导入结果。
+    // **不需要客户端补 recalc**：确认入库在后端 `AttendanceImport::persist` 的同一个事务里
+    // 就重算了期间头（t_de6e8d41 复核，证据 docs/evidence/2026-11-12-hr22b-import-recalc/）。
+    // 但是导入回执（impexp 通用 `ImportConfirmRes`）**不带 `period_totals`**，合计只能来自
+    // 下面重新拉的期间行 —— 所以先把旧缓存清掉：否则「导入前点过重算 / 改过单元格」留下的
+    // 那份会盖住刚被后端重算出来的新值（表现为「明细变了、合计还是旧数」）。
     const periodId = recordFilter.period_id;
-    if (periodId) {
-      try {
-        const recalc = await recalcPeriod(periodId);
-        totalsCache[periodId] = recalc.after;
-      } catch (error) {
-        MessagePlugin.warning(`导入已入库，但汇总重算失败：${messageOf(error)}（可点「重算汇总」重试）`);
-      }
+    for (const cachedPeriodId of Object.keys(totalsCache)) {
+      delete totalsCache[cachedPeriodId];
     }
     await loadLedgerPeriods();
     syncSelectedPeriod();

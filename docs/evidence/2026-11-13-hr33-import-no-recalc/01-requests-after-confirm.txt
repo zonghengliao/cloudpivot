@@ -1,0 +1,33 @@
+HR-33 真浏览器请求流水（vite dev 127.0.0.1:5199 → 真后端 127.0.0.1:18033 → PG cloudpivot_hr33）
+采集方式：点按钮前 performance.clearResourceTimings()，点完就读 performance.getEntriesByType('resource')
+      —— 即浏览器网络层真实发出的请求（不是源码推断）。
+
+=== 场景一：空期间 2029-03（0 人 / 0.00 / 0.00）→ 上传 att_202903.xlsx（2 行 22/20 + 22/20）→ 点「确认导入（2 行）」 ===
+/api/business/impexp/import/01a1d129-8ed4-720e-ae21-642eeb0ad867/confirm
+/api/business/hr/attendance/period/page?status=DRAFT,SUBMITTED&page=1&page_size=200
+/api/business/hr/attendance/record/page?period_id=01a1d128-ec8e-7768-944a-b041f52a7386&page=1&page_size=20
+/api/business/hr/attendance/period/page?page=1&page_size=20
+→ 无 /attendance/period/{id}/recalc
+→ 回执：共 1 批，入库 2 行（校验失败 0 行已跳过）（已入库 2 行）
+→ 台账底栏合计：共 2 人 · 应出勤 44 天 · 实际 40 天 · 加班 0 小时
+→ 期间 tab 行：2029-03 2029-03-01 ~ 2029-03-31 草稿 2 44 40 0 提交 — · 锁定 — HR-33 前端证据 台账 编辑 提交 重算 删除
+
+=== 场景二回归：先在期间 tab 点「重算」（旧合计进 totalsCache）→ 再导入 v2（EMP-0001 实际 20→21） ===
+[点重算时]
+/api/business/hr/attendance/period/01a1d128-ec8e-7768-944a-b041f52a7386/recalc
+/api/business/hr/attendance/period/page?page=1&page_size=20
+→ 台账底栏合计（重算后）：共 2 人 · 应出勤 44 天 · 实际 40 天 · 加班 0 小时
+
+[点「确认导入（2 行）」时]
+/api/business/impexp/import/01a1d12a-158c-77ff-b649-d06ae40dccd1/confirm
+/api/business/hr/attendance/period/page?status=DRAFT,SUBMITTED&page=1&page_size=200
+/api/business/hr/attendance/record/page?period_id=01a1d128-ec8e-7768-944a-b041f52a7386&page=1&page_size=20
+/api/business/hr/attendance/period/page?page=1&page_size=20
+→ 无 /attendance/period/{id}/recalc
+→ 台账底栏合计（导入后）：共 2 人 · 应出勤 44 天 · 实际 41 天 · 加班 0 小时
+   （旧缓存被作废，取的是重拉回来的期间行；若不作废，这里会停在 40 天）
+
+=== 库里的真值（PG cloudpivot_hr33，psql 直查） ===
+2029-03|DRAFT|2|44.00|41.00
+EMP-0001|22.00|21.00|IMPORT
+EMP-0002|22.00|20.00|IMPORT

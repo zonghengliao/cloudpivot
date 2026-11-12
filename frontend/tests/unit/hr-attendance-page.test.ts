@@ -522,10 +522,59 @@ test('page wires the real endpoints, not stubs', () => {
   assert.ok(PAGE.includes('await recalcPeriod('), '没有重算');
   // 错误回滚：失败时把输入框退回库里的数
   assert.ok(PAGE.includes('cellDraft[key] = decimalValue(row[field.key], field.decimals)'), '保存失败没有回滚');
-  // 汇总口径：修正 / 重算 / 导入后的数字要能撑过「切走再切回来」（否则合计会回落到旧值）
+  // 汇总口径：修正回执的合计要能撑过「切走再切回来」（否则合计会回落到旧值）
   assert.ok(PAGE.includes('totalsCache[result.record.period_id] = result.period_totals'), '修正回执的合计没进缓存');
-  assert.ok(PAGE.includes('totalsCache[periodId] = recalc.after'), '导入后的重算结果没进缓存');
-  assert.ok(PAGE.includes('const recalc = await recalcPeriod(periodId)'), '导入后没有补重算（通用上传路径不重算期间头）');
+});
+
+/** 从 `.vue` / `.ts` 源码里抠出一个函数的函数体（按顶格 `}` 收口） */
+function functionBodyOf(source: string, name: string): string {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `源码里找不到 ${name}`);
+  const end = source.indexOf('\n}\n', start);
+  assert.ok(end > start, `${name} 没闭合`);
+  return source.slice(start, end);
+}
+
+/**
+ * 「确认导入」不许再补一次 recalc（HR-33 撤掉的客户端补偿）
+ *
+ * 后端 `AttendanceImport::persist` 在 confirm 的**同一个事务**里就重算了期间头
+ * （t_de6e8d41 复核 + 145 演练库实测：空期间上传 2 行 → confirm → 不调 recalc 直接读
+ * `period/page` 得 2 人 / 44.00 / 40.00）。前端再补一次 recalc 只是多一个请求，
+ * 还会让后来人以为后端有缺口。这条把三件事断死：
+ *   1. 导入成功后只发 upload + confirm，导入分支里一个 recalc 字样都没有；
+ *   2. 导入回执不带 `period_totals` → 旧合计缓存必须作废，否则「导入前点过重算 / 改过
+ *      单元格」留下的旧值会盖住后端刚重算的新值；
+ *   3. 页面上唯一一次 `await recalcPeriod(` 属于期间 tab 的「重算」按钮 —— 那是**人工**
+ *      补偿入口，不能顺手删。
+ */
+test('confirm import sends upload + confirm only, never a compensating recalc', () => {
+  const importBody = functionBodyOf(PAGE, 'handleConfirmImport');
+  assert.ok(PAGE.includes('await uploadAttendanceImport(importFile.value)'), '上传没接');
+  assert.ok(importBody.includes('await confirmAttendanceImport(task.task_id)'), '确认入库没接');
+  assert.ok(
+    !importBody.includes('await recalcPeriod'),
+    '导入分支里又出现了 recalc 调用 —— 后端 confirm 已同事务重算，不需要补偿',
+  );
+  assert.ok(!importBody.includes('recalcPeriod('), '导入分支里不该再引用 recalcPeriod（只有期间 tab 的重算按钮用它）');
+  assert.ok(importBody.includes('delete totalsCache['), '导入成功后没作废合计缓存（会显示导入前的旧合计）');
+  assert.ok(importBody.includes('await loadLedgerPeriods()'), '导入成功后没重拉期间行（人数 / 合计取不到新值）');
+
+  const recalcCalls = PAGE.match(/await recalcPeriod\(/g) ?? [];
+  assert.equal(
+    recalcCalls.length,
+    1,
+    `页面应有且仅有 1 处 await recalcPeriod（期间 tab「重算」按钮），实际 ${recalcCalls.length} 处`,
+  );
+
+  // 「后端不重算 / 需要页面补 recalc」的旧说法必须彻底清掉（页面头与 API 文件头各查一遍）
+  const pageHeader = PAGE.slice(0, PAGE.indexOf('<template>'));
+  assert.ok(pageHeader.includes('确认入库即重算'), '页面头注释没写「确认入库即重算」');
+  assert.ok(!pageHeader.includes('不会自动重算'), '页面头注释还留着「期间头不会自动重算」的旧说法');
+  const apiHeader = API.slice(0, API.indexOf("import service"));
+  assert.ok(apiHeader.includes('确认入库即重算期间头'), 'API 文件头没写「确认入库即重算」');
+  assert.ok(apiHeader.includes('builtin/hr.rs::AttendanceImport::persist'), 'API 文件头没指到后端重算的落点');
+  assert.ok(!apiHeader.includes('不重算期间头'), 'API 文件头还留着「通用路径不重算」的旧说法');
 });
 
 test('api layer points at the real backend paths with /api prefix', () => {
