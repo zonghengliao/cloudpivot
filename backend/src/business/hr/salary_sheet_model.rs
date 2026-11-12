@@ -1191,6 +1191,123 @@ pub fn write_error(err: DbError, ctx: &str, sheet_no: &str) -> ApiError {
     }
 }
 
+// ==================== 导出取数（HR-42 工资表 xlsx） ====================
+//
+// 导出要的是**整张单**（一人一行 + 每人的全部明细项），不是「一页」。三处与列表路径的差别
+// 都是刻意的：
+//
+// 1. **不用 [`DetailRow`]**：它的投影带一个 `count(*)` 相关子查询（给前端显示「15 项」用），
+//    整单 5000 行就是 5000 次子查询 —— 那是分页路径付得起的价，导出付不起；
+// 2. **不走 `scope::paginate_unscoped`**：导出没有分页语义，`LIMIT` 由调用方的上限决定
+//    （[`crate::business::hr::salary_export::EXPORT_MAX_ROWS`]），多套一层包装只会
+//    多一次 `count(*)`；
+// 3. **明细项一次全查**（`WHERE sheet_id = ?`），不拼 `IN (detail_id…)`：整单导出不存在
+//    「只导一部分人」的语义，一次全表扫描走 `idx_biz_sal_ditem_sheet` 最省。
+
+/// 导出行（`biz_salary_detail` 的轻量投影：5 个金额 + 部门名快照 + 身份快照）。
+///
+/// 不含 `item_count` / `remark` / 岗位职级：导出列里没有它们，多读四列 × 5000 行是白付。
+#[derive(Debug, Clone)]
+pub struct SalaryExportDetailRow {
+    /// 明细 id（明细项按它归组）。
+    pub id: Uuid,
+    /// 工号（快照）。
+    pub employee_no: String,
+    /// 姓名（快照）。
+    pub employee_name: String,
+    /// 部门名（快照；`None` = 建单时没有部门）。
+    pub dept_name: Option<String>,
+    /// 应发。
+    pub gross_amount: Decimal,
+    /// 代扣合计。
+    pub withhold_amount: Decimal,
+    /// 实发。
+    pub net_amount: Decimal,
+    /// 单位社保。
+    pub si_company: Decimal,
+    /// 单位公积金。
+    pub hf_company: Decimal,
+}
+
+impl SalaryExportDetailRow {
+    /// 由结果行投影（列名与 [`EXPORT_DETAIL_SQL`] 的 `SELECT` 逐个对齐）。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            employee_no: row.get_typed("employee_no")?,
+            employee_name: row.get_typed("employee_name")?,
+            dept_name: row.get_typed("dept_name")?,
+            gross_amount: row.get_typed("gross_amount")?,
+            withhold_amount: row.get_typed("withhold_amount")?,
+            net_amount: row.get_typed("net_amount")?,
+            si_company: row.get_typed("si_company")?,
+            hf_company: row.get_typed("hf_company")?,
+        })
+    }
+}
+
+/// 导出用的明细项投影（列顺序即列候选的发现顺序）。
+#[derive(Debug, Clone)]
+pub struct SalaryExportItemRow {
+    /// 明细 id（归组键）。
+    pub detail_id: Uuid,
+    /// 项编码（列标识）。
+    pub item_code: String,
+    /// 项名称快照（表头候选：**当月那个名字**，不是现在配置页上的名字）。
+    pub item_name: String,
+    /// 金额（可负）。
+    pub amount: Decimal,
+    /// 行号（决定「当月这批项」的列顺序）。
+    pub line_no: i32,
+}
+
+/// 导出的明细行 SQL（排序只求稳定：**部门分组与列顺序由
+/// [`crate::business::hr::salary_export`] 的纯函数决定**，规则只写一处、单测能覆盖）。
+pub const EXPORT_DETAIL_SQL: &str = "SELECT d.id, d.employee_no, d.employee_name, d.dept_name, \
+     d.gross_amount, d.withhold_amount, d.net_amount, d.si_company, d.hf_company \
+     FROM biz_salary_detail d \
+    WHERE d.sheet_id = ?::uuid \
+    ORDER BY d.employee_no ASC, d.id ASC \
+    LIMIT ?::bigint";
+
+/// 导出的明细项 SQL（整单一次查完，按行号升序 —— 与配置页的计算顺序一致）。
+pub const EXPORT_ITEM_SQL: &str = "SELECT i.detail_id, i.item_code, i.item_name, i.amount, i.line_no \
+     FROM biz_salary_detail_item i \
+    WHERE i.sheet_id = ?::uuid \
+    ORDER BY i.line_no ASC, i.item_code ASC, i.detail_id ASC";
+
+/// 整单明细（最多 `limit` 行）。
+pub async fn export_details(sheet_id: Uuid, limit: u64) -> DbResult<Vec<SalaryExportDetailRow>> {
+    let rows = db()
+        .query_sql(
+            EXPORT_DETAIL_SQL.to_string(),
+            vec![
+                Value::from(&sheet_id),
+                Value::I64(i64::try_from(limit).unwrap_or(i64::MAX)),
+            ],
+        )
+        .await?;
+    rows.iter().map(SalaryExportDetailRow::from_row).collect()
+}
+
+/// 整单明细项（一次查询，无 `IN` 拼接）。
+pub async fn export_items(sheet_id: Uuid) -> DbResult<Vec<SalaryExportItemRow>> {
+    let rows = db()
+        .query_sql(EXPORT_ITEM_SQL.to_string(), vec![Value::from(&sheet_id)])
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(SalaryExportItemRow {
+                detail_id: row.get_typed("detail_id")?,
+                item_code: row.get_typed("item_code")?,
+                item_name: row.get_typed("item_name")?,
+                amount: row.get_typed("amount")?,
+                line_no: row.get_typed("line_no")?,
+            })
+        })
+        .collect()
+}
+
 // ==================== 单测（不连库） ====================
 
 #[cfg(test)]
@@ -1222,6 +1339,73 @@ mod tests {
             assert!(sql.contains("WHERE sheet_id = ?::uuid"), "{sql}");
             assert!(sql.contains("FROM biz_salary_detail d"), "{sql}");
             assert!(sql.matches("?::uuid").count() >= 2, "至少两处 uuid 绑定：{sql}");
+        }
+    }
+
+    /// 导出取数的两条 SQL：占位符个数 == 参数个数、都不带相关子查询（大表不超时的前提）。
+    ///
+    /// `export_details` 用 2 个参数（`sheet_id` + `LIMIT`），`export_items` 用 1 个；
+    /// 两条都必须是「一次查完整张单」，所以不许出现 `count(*)` / `IN (`：
+    /// 前者会让 5000 人变成 5000 次子查询，后者在导出的场景里没有意义（缺的那半张单
+    /// 不是 HR 想看到的东西）。
+    #[test]
+    fn export_sql_shape_is_one_pass_per_table() {
+        assert_eq!(EXPORT_DETAIL_SQL.matches('?').count(), 2, "{EXPORT_DETAIL_SQL}");
+        assert_eq!(EXPORT_ITEM_SQL.matches('?').count(), 1, "{EXPORT_ITEM_SQL}");
+
+        assert!(
+            EXPORT_DETAIL_SQL.contains("WHERE d.sheet_id = ?::uuid"),
+            "{EXPORT_DETAIL_SQL}"
+        );
+        assert!(
+            EXPORT_DETAIL_SQL.contains("LIMIT ?::bigint"),
+            "上限必须下推到库里：{EXPORT_DETAIL_SQL}"
+        );
+        assert!(
+            !EXPORT_DETAIL_SQL.contains("count("),
+            "导出不许带相关子查询：{EXPORT_DETAIL_SQL}"
+        );
+        assert!(!EXPORT_DETAIL_SQL.contains(" IN ("), "导出不拼 IN：{EXPORT_DETAIL_SQL}");
+
+        assert!(
+            EXPORT_ITEM_SQL.contains("WHERE i.sheet_id = ?::uuid"),
+            "{EXPORT_ITEM_SQL}"
+        );
+        assert!(!EXPORT_ITEM_SQL.contains(" IN ("), "导出不拼 IN：{EXPORT_ITEM_SQL}");
+        // 两条都要按 sheet 走索引（`idx_biz_sal_ditem_sheet` / `uk_biz_sal_det` 前缀）
+        assert!(
+            EXPORT_ITEM_SQL.contains("FROM biz_salary_detail_item i"),
+            "{EXPORT_ITEM_SQL}"
+        );
+    }
+
+    /// 导出的投影列必须与 `SalaryExportDetailRow::from_row` 取的名字逐个对齐。
+    ///
+    /// 少一列不会编译报错，只在运行期 `ColumnNotFound` —— 而那条路径只在「真导出一次」时
+    /// 才会走到，最容易漏到线上。
+    #[test]
+    fn export_projection_covers_every_field() {
+        for column in [
+            "d.id",
+            "d.employee_no",
+            "d.employee_name",
+            "d.dept_name",
+            "d.gross_amount",
+            "d.withhold_amount",
+            "d.net_amount",
+            "d.si_company",
+            "d.hf_company",
+        ] {
+            assert!(
+                EXPORT_DETAIL_SQL.contains(column),
+                "导出明细投影缺 {column}：{EXPORT_DETAIL_SQL}"
+            );
+        }
+        for column in ["i.detail_id", "i.item_code", "i.item_name", "i.amount", "i.line_no"] {
+            assert!(
+                EXPORT_ITEM_SQL.contains(column),
+                "导出明细项投影缺 {column}：{EXPORT_ITEM_SQL}"
+            );
         }
     }
 
