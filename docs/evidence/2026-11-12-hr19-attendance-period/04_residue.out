@@ -1,0 +1,16 @@
+== 演练库已删（hr19% 查库）==
+     0
+
+== 后端实例端口（18095）==
+无监听（实例已停）
+== 工作区 git status（只应有本卡改动）==
+ M backend/src/business/hr/handler.rs
+ M backend/src/business/hr/mod.rs
+ M backend/src/shared/error_code.rs
+ M scripts/lint/scope_gate.py
+?? backend/src/business/hr/attendance_period_db_tests.rs
+?? backend/src/business/hr/attendance_period_dto.rs
+?? backend/src/business/hr/attendance_period_handler.rs
+?? backend/src/business/hr/attendance_period_model.rs
+?? docs/evidence/2026-11-12-hr19-attendance-period/
+?? scripts/verify/hr/attendance_period_http_smoke.sh

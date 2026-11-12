@@ -1,10 +1,11 @@
 //! HR 模块接口层（骨架 · HR-09）。
 //!
 //! 本卡只注册**一条**接口（模块体检探针），业务路由由后续卡逐条落地 —— 契约表
-//! [`ROUTE_CONTRACT`] 把设计 §5.2 的 46 条接口（方法 / 路径 / 权限码 / 落地卡）写死在这里，
+//! [`ROUTE_CONTRACT`] 把设计 §5.2 的 46 条接口 + HR-19 按卡面补的 3 条（共 49 条；方法 / 路径 /
+//! 权限码 / 落地卡）写死在这里，
 //! 后续卡实现时**照表对齐**，单测把表与菜单种子 `V0387__hr_menu_perms` 对拍。
 //!
-//! # 为什么不先把 46 条路由注册成「未实现」的空壳
+//! # 为什么不先把 49 条路由注册成「未实现」的空壳
 //!
 //! 注册空壳的函数体只能是 `todo!()` / `Err(未实现)`：前者一调就 500 并 panic 掉整个
 //! 请求任务，后者给前端的信号是「接口存在但坏了」。真正没实现时更该是 **404**
@@ -35,7 +36,7 @@ pub const MODULE_NAME: &str = "hr";
 /// 本模块的路由前缀（**不含** `/api`；前端调用要写全 `/api/business/hr/...`）。
 pub const PATH_PREFIX: &str = "/business/hr";
 
-/// 体检探针路径（不属设计 §5.2 的 46 条业务接口，故不进 [`ROUTE_CONTRACT`]）。
+/// 体检探针路径（不属设计 §5.2 的 46 条业务接口 + HR-19 补的 3 条，故不进 [`ROUTE_CONTRACT`]）。
 pub const HEALTH_PATH: &str = "/business/hr/health";
 
 /// 一条接口契约：设计 §5.2 的一行。
@@ -61,19 +62,28 @@ pub struct RouteSpec {
     pub card: &'static str,
 }
 
-/// 设计 §5.2 的 46 条接口契约（顺序与设计文档编号 1~46 一致）。
+/// 设计 §5.2 的 46 条接口契约 + HR-19 按卡面补的 3 条 = **49 条**（顺序与设计文档编号 1~46 一致，
+/// 补的 3 条紧跟在考勤 #20 之后）。
+///
+/// # HR-19 为什么给契约表加了 3 条
+///
+/// 设计 §5.2 的考勤组只给「列表 / 建期间 / 状态」三条，而 HR-19 的卡面验收是
+/// 「**期间 CRUD** + 状态机正确 + **汇总重算幂等**」—— 改 / 删 / 重算三个动作没有接口就
+/// 交付不了（偏差理由与影响写在 `attendance_period_handler` 模块文档）。补的三条
+/// **不新增权限码**（复用 `V0387` 已种下的 `attendance:period` / `attendance:list`），
+/// 所以 `contract_permissions_are_seeded_by_v0387` 仍然是对 seed 逐码对拍。
 ///
 /// # 与文档的三处统计口径差异（以本表为准）
 ///
 /// - §5.2 表头写「API 清单（**42 条**）」，但正文编号到 **46**、脚注也写「合计 46 条」；
-///   卡面转述的「42 条」沿用了表头 → **实际 46 条**；
+///   卡面转述的「42 条」沿用了表头 → **实际 46 条**，加 HR-19 补的 3 条 = 49；
 /// - §5.2 脚注写「其中 **4 处**是 `/my` 自助接口」，表里只列出 **2** 个
 ///   （`/attendance/my`、`/salary/my`）；第 3 个 `/leave/my` 在 HR-41 落地，第 4 个
 ///   §5.2 未列 —— 届时补行并同步本条断言；
 /// - `card = "TBD"` 的两行（员工导入 / 导出）在 §8.1 的批 2 里**没有排卡**，
 ///   但权限码 `business:hr:employee:import/export` 已在 `V0387` 种下 → 属卡清单漏项，
 ///   本卡只登记不实现。
-pub const ROUTE_CONTRACT: [RouteSpec; 46] = [
+pub const ROUTE_CONTRACT: [RouteSpec; 49] = [
     // ---- 员工档案（#1~#12） ----
     RouteSpec {
         method: "GET",
@@ -200,7 +210,26 @@ pub const ROUTE_CONTRACT: [RouteSpec; 46] = [
         method: "POST",
         path: "/business/hr/attendance/period/{id}/status",
         permission: Some("business:hr:attendance:lock"),
-        card: "HR-23",
+        card: "HR-19",
+    },
+    // ---- HR-19 按卡面「期间 CRUD / 汇总重算」补的 3 条（设计 §5.2 未列，理由见 ROUTE_CONTRACT 文档） ----
+    RouteSpec {
+        method: "PUT",
+        path: "/business/hr/attendance/period/{id}",
+        permission: Some("business:hr:attendance:period"),
+        card: "HR-19",
+    },
+    RouteSpec {
+        method: "DELETE",
+        path: "/business/hr/attendance/period/{id}",
+        permission: Some("business:hr:attendance:period"),
+        card: "HR-19",
+    },
+    RouteSpec {
+        method: "POST",
+        path: "/business/hr/attendance/period/{id}/recalc",
+        permission: Some("business:hr:attendance:period"),
+        card: "HR-19",
     },
     RouteSpec {
         method: "GET",
@@ -433,14 +462,18 @@ mod tests {
     /// 菜单 / 权限种子原文（编译期嵌入）：契约表的权限码必须全在种子里。
     const V0387_SEED: &str = include_str!("../../../migrations/business/V0387__hr_menu_perms.up.sql");
 
-    /// 设计 §5.2 定稿 46 条；路径前缀统一、方法合法、`(方法, 路径)` 唯一。
+    /// 设计 §5.2 定稿 46 条 + HR-19 补的 3 条 = 49；路径前缀统一、方法合法、`(方法, 路径)` 唯一。
     ///
     /// 唯一性是真会踩的坑：`GET /salary/{id}` 与 `GET /salary/my` 这种「静态段 vs 参数段」
     /// 兄弟路径在 axum（matchit）里是合法的（静态优先），但**两条一模一样的**声明会让
     /// `App::scan()` 在启动时 panic —— 那种崩在启动期、日志只有一行 panic 的故障最难查。
     #[test]
-    fn contract_has_46_unique_routes() {
-        assert_eq!(ROUTE_CONTRACT.len(), 46, "设计 §5.2 编号 1~46");
+    fn contract_routes_are_unique_and_shaped() {
+        assert_eq!(
+            ROUTE_CONTRACT.len(),
+            49,
+            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算，理由见 ROUTE_CONTRACT 文档）"
+        );
 
         let mut seen = std::collections::HashSet::new();
         for spec in ROUTE_CONTRACT {
@@ -536,7 +569,7 @@ mod tests {
             "体检探针 {HEALTH_PATH} 必须真的挂上宏（否则「路由注册到主 router」不成立）"
         );
 
-        // 探针不属设计 §5.2 的 46 条业务接口，是唯一允许不在契约表里的路径
+        // 探针不属设计 §5.2 的 46 条业务接口（+ HR-19 补的 3 条），是唯一允许不在契约表里的路径
         let contract_paths: std::collections::HashSet<&str> = ROUTE_CONTRACT.iter().map(|spec| spec.path).collect();
         for path in &declared {
             if path == HEALTH_PATH {
@@ -566,7 +599,7 @@ mod tests {
         assert_eq!(ready.tables.len(), 10);
         assert_eq!(ready.module, "hr");
         assert_eq!(ready.prefix, "/business/hr");
-        assert_eq!(ready.api_planned, 46);
+        assert_eq!(ready.api_planned, ROUTE_CONTRACT.len());
         assert!(ready.hint.contains("10 / 10"), "提示语：{}", ready.hint);
 
         let mut with_hole = model::HR_TABLES.iter().map(|table| (*table, true)).collect::<Vec<_>>();

@@ -1,0 +1,18 @@
+== cargo fmt --check ==
+FMT_EXIT=0
+
+== cargo clippy --all-targets -- -D warnings ==
+CLIPPY_EXIT=0
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.26s
+
+== cargo test --lib（全量，真库用例自动 SKIP）==
+TEST_EXIT=0
+test result: ok. 5032 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.89s
+
+== frontend pnpm typecheck ==
+TYPECHECK_EXIT=0
+
+== frontend pnpm build ==
+BUILD_EXIT=0
+dist/assets/flow-error-codes-KUjSAnWS.js                                          4.64 kB │ gzip:   2.37 kB
+✓ built in 56.42s

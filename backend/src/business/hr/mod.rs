@@ -102,6 +102,16 @@
 //! - 设计 §5.2 表头写「42 条」、正文编号到 46（以 46 为准）；
 //!   脚注写「4 处 `/my`」而表里只有 2 处（`/leave/my` 随 HR-41 落）。
 
+/// HR-19 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：期间 CRUD / 状态机三边（含解锁要原因）/
+/// 汇总重算幂等 / 锁定守卫 / 撞码报文。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod attendance_period_db_tests;
+/// 考勤期间入参 / 回执契约 + 期间码与区间校验（`biz_attendance_period`，HR-19）。
+pub mod attendance_period_dto;
+/// 考勤期间接口层（设计 §5.2 #18~#20 + 卡面补的改 / 删 / 汇总重算），HR-19。
+pub mod attendance_period_handler;
+/// 考勤期间数据层（`biz_attendance_period`）：期间 CRUD + 状态 CAS + 汇总全量重算（HR-19）。
+pub mod attendance_period_model;
 /// HR-15 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD / 续签链追溯 / 到期字段 /
 /// 撞号与终态拦截。只在 `cargo test` 时编译。
 #[cfg(test)]

@@ -1,0 +1,50 @@
+== HR-19 考勤期间 HTTP 冒烟 BASE=http://127.0.0.1:18095 期间=2026-11 ==
+[PASS] 未登录访问列表 → 401（不是 404）（401）
+[PASS] 登录成功（admin）
+[PASS] 当前口令已是改过的那一个（must_change_password 已为 false；本轮跳过改密）
+[PASS] 期间码 2026-13 → 400（400）
+[PASS] 400 报文点名月份范围（报文含「01~12」）
+[PASS] 止早于起 → 400（400）
+[PASS] 400 报文点名区间问题（报文含「不能早于」）
+[PASS] 建期间 2026-11 → 200（200）
+[PASS] 新建状态是 DRAFT（DRAFT）
+[PASS] 回执带中文状态名（报文含「"status_label":"草稿"」）
+[PASS] 新建期间汇总为空（报文含「"employee_count":0」）
+[PASS] 同期间码再建 → 409（409）
+[PASS] 撞码业务码是 68009（报文含「68009」）
+[PASS] 撞码报文给下一步（报文含「一个月只能有一批」）
+[PASS] 列表（关键字+状态+年份）→ 200（200）
+[PASS] 过滤后只命中本期（报文含「"total":1」）
+[PASS] 列表里就是刚建的那一期（报文含「01a1cd33-9d57-715b-a3f2-f11347918043」）
+[PASS] 列表 status=APPROVED → 400（400）
+[PASS] 改备注 → 200（200）
+[PASS] 备注已落库并回显（报文含「HTTP 冒烟（已改）」）
+[PASS] 原样重放改 → 409（409）
+[PASS] 409 报文说明没改动（报文含「没有任何改动」）
+[PASS] 提交 → 200（200）
+[PASS] 状态变成 SUBMITTED（报文含「"status":"SUBMITTED"」）
+[PASS] 提交时间已落库（报文含「"submitted_at":"」）
+[PASS] 锁定 → 200（200）
+[PASS] 回执 locked=true（报文含「"locked":true」）
+[PASS] 锁定后改 → 409（409）
+[PASS] 锁定后改业务码 68010（报文含「68010」）
+[PASS] 报文点名下一步（先解锁）（报文含「解锁」）
+[PASS] 锁定后重算 → 409（409）
+[PASS] 锁定后删 → 409（409）
+[PASS] 解锁不给原因 → 400（400）
+[PASS] 400 报文点名要原因（报文含「原因」）
+[PASS] 解锁（带原因）→ 200（200）
+[PASS] 解锁回到 DRAFT（报文含「"status":"DRAFT"」）
+[PASS] 重算（无记录）→ 200（200）
+[PASS] 无记录时 scanned=0（报文含「"scanned":0」）
+[PASS] 无记录时快照没变化（报文含「"changed":false」）
+[PASS] 重算第二次 → 200（200）
+[PASS] 第二次重算仍然 changed=false（幂等）（报文含「"changed":false」）
+[PASS] 删空草稿 → 200（200）
+[PASS] 回执是删除前的快照（报文含「01a1cd33-9d57-715b-a3f2-f11347918043」）
+[PASS] 软删后列表不显示（total=0）（报文含「"total":0」）
+[PASS] 软删后同期间码可重建（唯一索引带 deleted_at IS NULL）（200）
+[PASS] 收尾：删掉重建的期间（200）
+[PASS] 对照组 /attendance/periodx → 404（真未注册）（404）
+[PASS] 已存在的 /period/{id} 用 GET → 405（本卡不提供单条读，列表就够）（405）
+== 汇总：PASS=48 FAIL=0 ==

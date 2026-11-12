@@ -1954,6 +1954,21 @@ pub const HR_SALARY_RANGE_OVERLAP: i32 = 68007;
 /// 前端文案要提示「下一步该做什么」（先复职 / 先确认这一项有没有标准），不是「换个日期」。
 pub const HR_SALARY_RULE_BLOCKED: i32 = 68008;
 
+/// 考勤期间重复（HTTP 409，`68009`，HR-19）。
+///
+/// 唯一索引 `uk_biz_att_period (org_id, period_code) WHERE deleted_at IS NULL` ——
+/// 设计 §3.1 ④ 的口径是「一公司一月一批」。软删后**可重建同月**（索引带 `deleted_at IS NULL`），
+/// 所以「建错了月份」的正确做法是删掉草稿再建，而不是改 `period_code`。
+pub const HR_ATTENDANCE_PERIOD_DUPLICATE: i32 = 68009;
+
+/// 考勤期间操作被业务规则拦下（HTTP 409，`68010`，HR-19）。
+///
+/// 与 [`HR_ATTENDANCE_PERIOD_DUPLICATE`] 分开：这类冲突**不是**撞码，而是「当前状态下不允许」——
+/// 已锁定期间不能改日期 / 删 / 重算（设计 §4.2.3：锁定期间是薪资试算的基线），
+/// 非草稿或期间下已有考勤记录时不能删。前端文案要提示「下一步该做什么」
+/// （先解锁 / 保留这一期改日期），不是「换个期间码重试」。
+pub const HR_ATTENDANCE_PERIOD_RULE_BLOCKED: i32 = 68010;
+
 #[cfg(test)]
 mod hr_error_codes_are_stable {
     use super::*;
@@ -1970,6 +1985,8 @@ mod hr_error_codes_are_stable {
             (HR_CONTRACT_RULE_BLOCKED, 68006),
             (HR_SALARY_RANGE_OVERLAP, 68007),
             (HR_SALARY_RULE_BLOCKED, 68008),
+            (HR_ATTENDANCE_PERIOD_DUPLICATE, 68009),
+            (HR_ATTENDANCE_PERIOD_RULE_BLOCKED, 68010),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "68xxx 段码值不得改动");

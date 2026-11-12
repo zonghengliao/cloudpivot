@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::hr::attendance_period_db_tests::db::create_update_and_list_roundtrip ... [HR-19] ① 建/改/列表 code=2571-04 id=01a1cd41-cc7c-712a-a9bf-b5a6e330cb7a
+ok
+test business::hr::attendance_period_db_tests::db::delete_requires_draft_and_no_records ... [HR-19] ⑥ 删除守卫 → 有记录 68010 / 软删后重建 01a1cd41-d365-762c-af0d-ed9a0c792b60
+ok
+test business::hr::attendance_period_db_tests::db::duplicate_period_code_is_conflict ... [HR-19] ② 撞码 → 409 68009 考勤期间「2527-08」已存在（一个月只能有一批）：请直接打开那一期导入考勤；若那一期建错了月份，先删掉它（仅草稿可删）再重建
+ok
+test business::hr::attendance_period_db_tests::db::locked_period_blocks_edit_delete_and_recalc ... [HR-19] ④ 锁定守卫 改=68010 重算=68010 删=68010
+ok
+test business::hr::attendance_period_db_tests::db::recalc_is_idempotent_and_matches_records ... [HR-19] ⑤ 重算 首次=PeriodTotals { employee_count: 2, should_days_total: 44.00, actual_days_total: 42.50, ot_hours_total: 7.00 } 二次改变=false 三次PeriodTotals { employee_count: 2, should_days_total: 44.00, actual_days_total: 43.00, ot_hours_total: 7.00 }
+ok
+test business::hr::attendance_period_db_tests::db::status_machine_walks_three_edges_and_logs_each ... [HR-19] ③ 状态机 DRAFT→SUBMITTED→LOCKED→DRAFT 日志=4 解锁原因=Some("薪资口径调整，需重导考勤")
+ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5026 filtered out; finished in 9.04s
+
