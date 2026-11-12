@@ -1,0 +1,90 @@
+==> 建演练库 hr38_flow_drill @ 172.18.10.145（先 DROP 残留）
+==> S0 回放 V0394 之前的全部迁移（按版本号全局升序，含 V0393 请假流程）
+    基线迁移 313 条完成
+  ✓ S0 流程表在（t）
+  ✓ S0 三套流程一条都没有（0）
+  ✓ S0 请假流程（V0393）已在，基线可信（1）
+==> S1 应用 V0394（薪资单流程 up）
+    psql:/opt/cloudpivot/backend/migrations/business/V0394__hr_salary_flow.up.sql:551: NOTICE:  HR-38 自检通过：hr_salary（PUBLISHED / 6 节点 / 6 边 / 人事经理 → 财务会签 →（≥50 万）总经理 / 快照 hash 自洽）
+  ✓ S1 自检 NOTICE 通过
+  ✓ S1 无 ERROR
+  ✓ S1 def 1 行 PUBLISHED+默认+系统+不免审（1）
+  ✓ S1 version v1/PUBLISHED/current/6/6（1/PUBLISHED/true/6/6）
+  ✓ S1 def 指针指向本卡版本（20000000-0000-4000-8000-0000000e1402）
+  ✓ S1 graph_hash 列值（0a296af0477bd307f7d7687b447d50f2f813da9eeef1bbe57711b1e8a09bd5d0）
+  ✓ S1 节点 6 个（6）
+  ✓ S1 边 6 条（6）
+  ✓ S1 审批人绑定 4 条（4）
+  ✓ S1 财务会签 = COUNTERSIGN+ALL+兜底+超时（COUNTERSIGN/ALL/FALLBACK_ADMIN/true）
+  ✓ S1 会签候选人 = 财务经理+财务总监（20000000-0000-4000-8000-0000000f0005,20000000-0000-4000-8000-0000000f0006）
+  ✓ S1 两个 APPROVAL 都 ANY+FALLBACK_ADMIN+REMIND（2）
+  ✓ S1 没有 APPROVAL 全员会签（0）
+  ✓ S1 金额条件边（gte 500000 on gross_total_num）（form.gross_total_num/gte/500000）
+  ✓ S1 兜底边恰 1 条（e_small）（1/e_small）
+  ✓ S1 链路 6 条骨架（6）
+==> S2 V0394 up 幂等
+  ✓ S2 重放后指纹不变（21/26/139/139/62/0267661a1b7d37ebc94a3e8859eecde63173325f57d3949970dcbdd4f8b9b5a0,035d3c246b89330681f67c353277dc53313c7a6521041e45841bd078b2563b3d,0a296af0477bd307f7d7687b447d50f2f813da9eeef1bbe57711b1e8a09bd5d0,196042b525bb64d95741902d415270652ac9afb1f6ecfcbc683540f6ec6d345b,19b84d031306f9dbb2140690245b153b9f287de2a89d95aacaf2f6cbcf762871,331f253a63ed68bb88fbcc7d4cc1d9273f3a49efde9d8d76955d71d36ac95ae8,4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d,4f484777debbea1a0cc1a76db28274c4d9986c8cbe8d3936afa7e08a50adf7fc,4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97,5059115327e291c6e1861fa434f7e74d8ccc50e133e79b802cde6f074e2c65d3,54568343d7500cf8479bbff3c6e172f66dfd22a293ed01bdcd3bea5bef9849cb,6a592107a9e7e6bc34a47bc4098926f648eb15e4fb3a5b45c1f93354dfc2d1b2,7211229eeec38dca63ee28cd0fceb5a13b11ab5e12c94adb87465ad178901ef6,742f06d8fbecc6eb2fdfdfaed66571bfff9c1b3b02ff8dd0338f0dc7f3dd17b2,80cd6c9c76c165a7b75e0be29f163482825dc31eef1f195e0602cd98d3ca4cb1,8341eac726949864d2a9fdb562a34154d8b7eb611a265fc6adc2c1c9e8e5c1c5,8a4fbd64cf5fb5cfc3b133ef2e4ff6103cd14a9afbabfae2b6f63f5845eb4171,8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de,95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768,97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80,9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c,b4bef2fc227db8131f75792028217d170e961a529055db9a96d3ac11333139ac,c0abd5f5c2c6ad8ece740cbd5b77d82dac0550097aa746ab0bb2b233d8c5f437,c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08,e1947064684e326c4ad4248e354d0215f1a3f3a7f668fb467aefe854adbd90da,f5e20abd1098ed8b6fa84d713d5c5456db4e5743cbd4cdb7605cd13d3761c05f）
+  ✓ S2 重放后自检仍通过
+  ✓ S2 本卡版本仍只有 1 个（1）
+==> S3 V0394 hash 库内重算对账
+  ✓ S3 canonical 重算 == graph_hash == 常量（0a296af0477bd307f7d7687b447d50f2f813da9eeef1bbe57711b1e8a09bd5d0）
+==> S4 应用 V0395（调薪 + 离职 两套 up）
+    psql:/opt/cloudpivot/backend/migrations/business/V0395__hr_adjust_resign_flow.up.sql:643: NOTICE:  HR-38 自检通过：hr_salary_adjust（PUBLISHED / 5 节点 / 4 边 / 直属上级 → 人事经理 → 财务经理 / 快照 hash 自洽）
+    psql:/opt/cloudpivot/backend/migrations/business/V0395__hr_adjust_resign_flow.up.sql:643: NOTICE:  HR-38 自检通过：hr_employee_resign（PUBLISHED / 6 节点 / 6 边 / 直属上级 → 人事经理 →（关键岗位）总经理 / 快照 hash 自洽）
+  ✓ S4 调薪自检 NOTICE
+  ✓ S4 离职自检 NOTICE
+  ✓ S4 无 ERROR
+  ✓ S4 调薪 1 def / 5 节点 / 4 边（1/5/4）
+  ✓ S4 离职 1 def / 6 节点 / 6 边（1/6/6）
+  ✓ S4 调薪 def PUBLISHED+默认+系统+不免审（1）
+  ✓ S4 离职 def PUBLISHED+默认+系统+不免审（1）
+  ✓ S4 调薪绑定人事经理+财务经理（20000000-0000-4000-8000-0000000f0016,20000000-0000-4000-8000-0000000f0005）
+  ✓ S4 离职绑定人事经理+总经理（20000000-0000-4000-8000-0000000f0016,20000000-0000-4000-8000-0000000f0003）
+  ✓ S4 直属上级 = INITIATOR_SUPERIOR(levels=1) 且无枚举行（调薪/离职各一处）（2）
+  ✓ S4 两套都没有 ALL 审批节点（0）
+  ✓ S4 关键岗位条件边（eq true on is_key_position）（form.is_key_position/eq/true）
+==> S5 V0395 up 幂等
+  ✓ S5 重放后指纹不变（23/28/150/149/66/0267661a1b7d37ebc94a3e8859eecde63173325f57d3949970dcbdd4f8b9b5a0,035d3c246b89330681f67c353277dc53313c7a6521041e45841bd078b2563b3d,0a296af0477bd307f7d7687b447d50f2f813da9eeef1bbe57711b1e8a09bd5d0,196042b525bb64d95741902d415270652ac9afb1f6ecfcbc683540f6ec6d345b,19b84d031306f9dbb2140690245b153b9f287de2a89d95aacaf2f6cbcf762871,331f253a63ed68bb88fbcc7d4cc1d9273f3a49efde9d8d76955d71d36ac95ae8,4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d,4f484777debbea1a0cc1a76db28274c4d9986c8cbe8d3936afa7e08a50adf7fc,4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97,5059115327e291c6e1861fa434f7e74d8ccc50e133e79b802cde6f074e2c65d3,54568343d7500cf8479bbff3c6e172f66dfd22a293ed01bdcd3bea5bef9849cb,6a592107a9e7e6bc34a47bc4098926f648eb15e4fb3a5b45c1f93354dfc2d1b2,7211229eeec38dca63ee28cd0fceb5a13b11ab5e12c94adb87465ad178901ef6,742f06d8fbecc6eb2fdfdfaed66571bfff9c1b3b02ff8dd0338f0dc7f3dd17b2,80cd6c9c76c165a7b75e0be29f163482825dc31eef1f195e0602cd98d3ca4cb1,8341eac726949864d2a9fdb562a34154d8b7eb611a265fc6adc2c1c9e8e5c1c5,8a4fbd64cf5fb5cfc3b133ef2e4ff6103cd14a9afbabfae2b6f63f5845eb4171,8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de,95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768,97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80,9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c,a413971a5a5de2bdb11798bfbfa140d927573e541cf4fd7e4f99a99dd6a99171,b4bef2fc227db8131f75792028217d170e961a529055db9a96d3ac11333139ac,c0abd5f5c2c6ad8ece740cbd5b77d82dac0550097aa746ab0bb2b233d8c5f437,c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08,e1947064684e326c4ad4248e354d0215f1a3f3a7f668fb467aefe854adbd90da,ec42328b209441d5ea6e403f8bfaef9b8d5dc13f5a83ec1319a36d9864558496,f5e20abd1098ed8b6fa84d713d5c5456db4e5743cbd4cdb7605cd13d3761c05f）
+  ✓ S5 调薪自检仍通过
+  ✓ S5 离职自检仍通过
+==> S6 V0395 hash 库内重算对账
+  ✓ S6 调薪 canonical 重算 == 常量（a413971a5a5de2bdb11798bfbfa140d927573e541cf4fd7e4f99a99dd6a99171）
+  ✓ S6 离职 canonical 重算 == 常量（ec42328b209441d5ea6e403f8bfaef9b8d5dc13f5a83ec1319a36d9864558496）
+==> S7 down 两套 → down 幂等 → 重放
+  ✓ S7 薪资单 down 安全阀通过
+  ✓ S7 调薪/离职 down 安全阀通过
+  ✓ S7 down 无 ERROR
+  ✓ S7 三套定义全清（0）
+  ✓ S7 版本/节点/边/审批人全清（0/0/0）
+  ✓ S7 重放后薪资单自检通过
+  ✓ S7 重放后调薪自检通过
+  ✓ S7 重放后离职自检通过
+  ✓ S7 重放后回到 3 def（3）
+==> S8 守卫①：客户自建同名 flow_code（只跳过那一套）
+  ✓ S8 守卫①命中（提示已存在同名流程）
+  ✓ S8 客户行未被覆盖（名字仍是客户的）（客户自建调薪流）
+  ✓ S8 没有种出本卡的调薪 def（0）
+  ✓ S8 另一套（离职）照种（1）
+==> S9 守卫②：同 biz_type 已有默认流（只跳过那一套）
+  ✓ S9 守卫②命中（提示同 biz_type 已有默认流）
+  ✓ S9 没有种出本卡的离职 def（0）
+  ✓ S9 另一套（调薪）照种（1）
+==> S10 守卫③：审批角色缺失（离职要总经理）
+  ✓ S10 守卫③命中（角色不齐 → 该套不种）
+  ✓ S10 没有种出离职 def（0）
+  ✓ S10 调薪（不依赖总经理）照种（1）
+  ✓ S10 角色恢复后重跑成功
+==> S11 守卫④：版本递增（已有「非本卡」版本）
+  ✓ S11 未撞唯一索引（无 ERROR）
+  ✓ S11 发的是 v2 而不是 v1（2）
+  ✓ S11 新版本 is_current（客户那版本来就不是 current）（t）
+  ✓ S11 不抢客户版本：def 指针仍是客户那版（33333333-3333-4333-8333-333333333333）
+  ✓ S11 本卡调薪版本只多这一份（1）
+==> S12 down 安全阀：本流程下还有别的版本 → 拒绝回滚
+  ✓ S12 down 被安全阀拦下
+  ✓ S12 清掉客户版本后 down 成功
+  ✓ S12 down 后两套定义已删（0）
+==> S13 收尾
+  ✓ S13 演练库已 DROP（0）
+
+ALL PASS（0 失败）

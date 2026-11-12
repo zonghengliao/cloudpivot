@@ -1,0 +1,29 @@
+==> 建演练库 hr38_drill @ 172.18.10.145（先 DROP 残留）
+==> 回放全部迁移（按版本号全局升序）
+    迁移 317 条完成
+==> 三套流程在位（迁移自检之外的独立复核）
+  ✓ hr_salary 定义（1）
+  ✓ hr_salary_adjust 定义（1）
+  ✓ hr_employee_resign 定义（1）
+  ✓ 四个审批角色在（4）
+  ✓ 库：hr38_drill 表数（t）
+==> 构建并运行真库用例（ERP_DB_URL → hr38_drill）
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.87s
+     Running tests/hr_38_salary_adjust_resign_flow_seed_db.rs (target/debug/deps/hr_38_salary_adjust_resign_flow_seed_db-cb46084ac33929e2)
+
+running 5 tests
+test adjust_and_resign_bind_roles_without_enumerating_the_superior ... ok
+test conditions_route_at_the_threshold ... ok
+test graphs_pass_engine_validation_and_hash_matches_rows ... ok
+test salary_flow_binds_hr_and_finance_and_escalates_on_500k ... ok
+test three_definitions_are_published_and_discoverable ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+
+  ✓ cargo test 退出码 0
+    test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+==> 清理
+  ✓ 演练库已 DROP（0）
+
+ALL PASS（0 失败）

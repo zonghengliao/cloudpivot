@@ -1,0 +1,38 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 02s
+     Running tests/flow_all_role_multiversion_migration.rs (target/debug/deps/flow_all_role_multiversion_migration-9f751f4420f8da49)
+
+running 7 tests
+test migration_versions_are_unique_padded_and_have_down ... ok
+test v0359_stays_frozen ... ok
+test v0367_is_idempotent_by_shape_filter ... ok
+test v0367_only_touches_approval_role_all_nodes ... ok
+test v0367_up_and_down_exist ... ok
+test v0367_up_and_down_markers_match ... ok
+test v0367_version_number_is_dynamic_max_plus_one ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/hr_38_salary_adjust_resign_flow_seed.rs (target/debug/deps/hr_38_salary_adjust_resign_flow_seed-20ae5dd7fda75b82)
+
+running 16 tests
+test approval_nodes_are_explicit_any_and_countersign_is_the_only_all ... ok
+test biz_types_line_up_with_the_flow_biz_type_enum ... ok
+test countersign_node_binds_two_roles_with_fallback_and_timeout ... ok
+test definitions_are_published_default_system_and_never_auto_approve ... ok
+test definitions_match_design_section_3_2_nine ... ok
+test down_has_safety_valves_and_deletes_bottom_up ... ok
+test four_guards_are_present_for_every_flow ... ok
+test graph_hashes_match_the_snapshots_they_ship_with ... ok
+test key_position_condition_needs_a_json_boolean ... ok
+test migrations_are_transactional ... ok
+test roles_are_bound_and_superior_is_never_enumerated ... ok
+test salary_amount_condition_needs_a_json_number ... ok
+test snapshot_arrays_are_in_engine_deterministic_order ... ok
+test topologies_match_design ... ok
+test up_and_down_are_paired_for_both_migrations ... ok
+test version_increments_and_never_steals_current ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+

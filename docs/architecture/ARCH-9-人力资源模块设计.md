@@ -783,6 +783,42 @@ SELECT v.rule, v.biz, d.id, c.id, NULL, 1, v.remark
 >    （只有 WARN），长假会**绕过人事复核且不报错**。故 form_data 同时冻结 `duration_days_num`
 >    （JSON number，与字符串同源同值），种子条件边只认它；两侧各有一条测试钉死这个契约。
 
+> **落地记录（HR-38 / t_37006311，`V0394__hr_salary_flow` + `V0395__hr_adjust_resign_flow`）
+> —— 五条必须按实施口径读**
+>
+> 1. **号段**：`hr_salary_flow` 实落 **V0394**、`hr_adjust_resign_flow` 实落 **V0395**
+>    （设计号 V0385/V0386 → 曾映射 V0391/V0392；V0391 被成本流程、V0392 被 HR-23 考勤
+>    锁定守卫、V0393 被 HR-26 请假流程实占）。见 §7.1「第三次号段修正」。
+> 2. **薪资单流程实际是 6 节点 / 6 边**（设计表里的线性 4 节点不足以表达「应发 ≥ 50 万」
+>    这一步分级）：`s → n_hr(人事经理) → n_fin(财务会签) → c_amt(应发判定)
+>    → {e_big→n_gm(总经理)→e | e_small(兜底)→e}`，`graph_hash = 0a296af0…d5d0`。
+>
+>    | 节点 | 类型 | 审批人来源 | 签名模式 | 兜底 | 超时 |
+>    |---|---|---|---|---|---|
+>    | `s` / `e` | START / END | — | — | — | — |
+>    | `n_hr` | APPROVAL | `ROLE` = `HR_MANAGER`（`…f0016`） | ANY | `FALLBACK_ADMIN` | 48h REMIND |
+>    | `n_fin` | **COUNTERSIGN** | `ROLE` = `FINANCE_MANAGER`（`…f0005`）+ `FINANCE_DIRECTOR`（`…f0006`） | **ALL** | `FALLBACK_ADMIN` | 48h REMIND |
+>    | `c_amt` | CONDITION | — | — | 兜底边 `e_small`（< 50 万 → 结束） | — |
+>    | `n_gm` | APPROVAL | `ROLE` = `GENERAL_MANAGER`（`…f0003`） | ANY | `FALLBACK_ADMIN` | 72h REMIND |
+>
+> 3. **「财务经理（会签）」落地成 `COUNTERSIGN + ALL` + 两个岗位角色**（财务经理 + 财务总监，
+>    同 V0182「采购经理+总经理会签」/ V0191「财务经理+财务总监会签」口径）。**不**把单角色写成
+>    `ALL`：那会退化成「该角色所有成员都要点一遍」，一人停用未摘角色即永久卡单（V0359/V0367 的 P0）。
+>    ALL 节点同时配 `FALLBACK_ADMIN` + 超时小时（R28 与 `flow_countersign_invariants.sh` 断言①）。
+> 4. ★ **条件字段的类型契约（两条，各一套流程）**：
+>    · 薪资单：`form.gross_total_num` 必须是 **JSON number**（`gte 500000`）；冻结成字符串
+>      ⇒ 求值器 `TypeMismatch` ⇒ 静默走兜底 ⇒ **大额工资绕过总经理审批**。
+>    · 离职：`form.is_key_position` 必须是 **JSON boolean**（`eq true`）；冻结成字符串 `"true"`
+>      ⇒ `json_eq` 不相等 ⇒ 静默走兜底 ⇒ **关键岗位离职没有总经理签字**。
+>    两个契约由 `tests/hr_38_salary_adjust_resign_flow_seed.rs` 在引擎求值器上**正反两向**钉死
+>    （数值/布尔命中、字符串不命中）。持有方：HR-39/HR-42 的 `/salary/{id}/submit`、
+>    离职提交审批 handler 必须按此冻结 `form_data`。
+> 5. **调薪 / 离职没有独立单表**（`FlowBizType::doc_kind()` 已定稿：两者的审批实例 `biz_id`
+>    都是 `biz_employee.id`）：调薪 = `s → n_sup → n_hr → n_fin → e`（5/4，三签，
+>    `graph_hash = a413971a…9171`）；离职 = `s → n_sup → n_hr → c_key(关键岗位判定)
+>    → {e_key→n_gm→e | e_plain(兜底)→e}`（6/6，`graph_hash = ec42328b…8496`）。
+>    `n_sup` 是 `INITIATOR_SUPERIOR`，**不落枚举行**（V0355 的教训）。
+
 #### ⑩ `sys_config`：3 个开关
 
 > **落地记录（HR-05 / t_b85f402e，`V0388__hr_mask_config`）**：下面这段用
@@ -1510,8 +1546,8 @@ COMMIT
 | ~~V0382~~ | **V0388** | `hr_mask_config` | 2 条 `sys_field_mask` + 3 条 `sys_config` | `NOT EXISTS`（表+列+role）/ `NOT EXISTS`（config_key，未软删）+ 固定 UUID。✅ 已落地（HR-05） |
 | ~~V0383~~ | **V0389** | `hr_attachment_doc_types` | `ck_biz_doc_attachment_type` 17→21、`ck_biz_attachment_rule_doc_type` 同步 + 2 条规则 | `DO` 块先读 `pg_get_constraintdef` 判断是否已含新值，已含则跳过（照 `V0350` 的做法）；规则表不存在则整段跳过。✅ 已落地（HR-05） |
 | ~~V0384~~ | **V0393** | `hr_leave_flow` | `hr_leave` 流程：定义 + 版本 + 图快照（含 sha256）。✅ 已落地（HR-26）：直属上级 →（≥3 天，条件边 `form.duration_days_num gte 3`）人事经理 → END，5 节点 / 5 边，hash `4fc6722a…` | 4 层 `WHERE NOT EXISTS`（同名流程/同 biz_type 默认流程/角色存在/版本重复）+ 版本号 `MAX+1` |
-| ~~V0385~~ | **V0394** | `hr_salary_flow` | `hr_salary` 流程（同上） | 同上 |
-| ~~V0386~~ | **V0395** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套 | 同上 |
+| ~~V0385~~ | **V0394** | `hr_salary_flow` | `hr_salary` 流程（同上）。✅ 已落地（HR-38）：人事经理 → 财务会签（COUNTERSIGN + 两个角色）→（应发 ≥ 50 万）总经理，6 节点 / 6 边，hash `0a296af0…d5d0` | 同上 |
+| ~~V0386~~ | **V0395** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套。✅ 已落地（HR-38）：调薪 5 节点 / 4 边（`a413971a…9171`）、离职 6 节点 / 6 边（关键岗位分叉，`ec42328b…8496`） | 同上 |
 | ~~V0387~~ | **V0396** | `hr_salary_items_seed` | 17 个薪资项（§4.4.3 表逐行） | `WHERE NOT EXISTS (org_id, item_code)`；`sort_order` 冲突检查 |
 | ~~V0388~~ | **V0397** | `hr_selfcheck` | **收口自检**：10 表 / 9 科目 / 4 号段 / 36 菜单 / 4 流程 / 17 薪资项 / 2 脱敏 / 3 配置 全部在位，缺一 `RAISE EXCEPTION` | 纯 `DO` 块，无副作用（可重复应用） |
 
@@ -1650,7 +1686,7 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | HR-35 | 迁移 V0396（设计 V0387 / 曾映射 V0393）：17 个薪资项种子（含公式与科目） | HR-31 | 1.0 h |
 | HR-36 | `salary_sheet` model/handler：建单/试算/明细分页/单头汇总 | HR-34 | 1.5 h |
 | HR-37 | 明细覆盖（改单项 → 重算汇总 → 写状态日志）+ 越权校验 | HR-36 | 1.0 h |
-| HR-38 | 迁移 V0394（设计 V0385 / 曾映射 V0391）：`hr_salary` 流程 + 迁移 V0395（设计 V0386 / 曾映射 V0392）：调薪/离职流程 | HR-36 | 1.5 h |
+| HR-38 | 迁移 V0394（设计 V0385 / 曾映射 V0391）：`hr_salary` 流程 + 迁移 V0395（设计 V0386 / 曾映射 V0392）：调薪/离职流程。✅ 已落地：6/6 + 5/4 + 6/6 三套 PUBLISHED、节点绑角色（会签=财务经理+财务总监）、145 演练库 69 条断言 + 5 条真库用例全绿 | HR-36 | 1.5 h |
 | HR-39 | `salary_bridge`：过账（两张凭证，`post_explicit_lines`）+ 审批回调 + 净额法汇总 | HR-38,HR-02 | 1.5 h+ |
 | HR-40 | 红冲（两张红字凭证 + 状态机 + 原因必填） | HR-39 | 1.0 h |
 | HR-41 | `/salary/my` + `/attendance/my` + `/leave/my` 自助三接口 | HR-36 | 1.0 h |
