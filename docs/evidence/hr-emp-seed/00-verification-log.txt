@@ -1,0 +1,50 @@
+=== t_f0b3df83 验收日志（2026-11-13 02:31:25 CST）===
+
+## 1) pnpm typecheck（vue-tsc --noEmit）
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+typecheck exit=0
+
+## 2) pnpm test:unit（全量单测；新增 hr-employee-seed.test.ts 16 条）
+# tests 1704
+# pass 1704
+# fail 0
+# duration_ms 6402.615625
+unit exit=0
+
+## 3) pnpm build
+✓ 5549 modules transformed.
+✓ built in 51.25s
+build exit=0
+
+## 4) 真机 Playwright（隔离实例 vite:5189 → 后端:18089 → 库 cp_hr_emp_seed）
+
+Running 5 tests using 1 worker
+
+  ✓  1 tests/hr-emp-seed.spec.ts:100:1 › ① 入口可见 + 预览列表（dry-run 明说不会写库、库里一行没多） (4.3s)
+  ✓  2 tests/hr-emp-seed.spec.ts:148:1 › ② 确认生成：成功 2 人（工号回填）+ 列表刷新能看到 + user_id 回写 (4.0s)
+  ✓  3 tests/hr-emp-seed.spec.ts:198:1 › ③ 幂等：再预览一次 = 将新建 0 人 / 跳过 7 人，「确认生成」不可点 (2.4s)
+  ✓  4 tests/hr-emp-seed.spec.ts:221:1 › ④ 部门筛选：dept_id 既是筛选也是缺省部门（无部门账号由它兜底） (2.9s)
+  ✓  5 tests/hr-emp-seed.spec.ts:241:1 › ⑤ 权限门：没有 employee:create 的账号看不到该入口（也不打接口） (2.8s)
+
+  5 passed (17.2s)
+
+## 5) 接口回执（同一隔离实例，curl 直取，作「人数对得上」的独立证据）
+-- dry_run=true（预览）：
+{"code":0,"dry_run":true,"scanned":7,"planned_create":2,"created":0,"skipped":5,"failed":0,"next_no":"EMP-0002"}
+   admin	SKIP	HAS_EMPLOYEE	该账号已关联员工档 EMP-0001（管理员档案）：无需再生成；要换人请走员工档案的「绑定账号」
+   seed_e2e_li	CREATE	-	将建档：部门 总部、入职日期 2026-11-13、状态 ACTIVE、工号落库时自动取号（预览不占号）
+   seed_e2e_noname	SKIP	NAME_MISSING	账号 seed_e2e_noname 没有真实姓名：姓名是员工主数据（改名后所有单据显示新名），不许用登录名冒充 —— 
+   seed_e2e_offk	SKIP	USER_DISABLED	账号 seed_e2e_offk 已停用：停用账号多半已离职，建成在职档案会让工资表把离职的人算进来；返聘请先启用账号
+   seed_e2e_robot	SKIP	NOT_HUMAN	账号 seed_e2e_robot 的类型是「ROBOT」：员工档案只给人类账号（机器人 / 系统账号不该进工资表）
+   seed_e2e_wang	SKIP	DEPT_MISSING	账号 seed_e2e_wang 没有部门，且本次未指定 dept_id：员工档案必须挂在真实部门上（数据权限按部门裁剪
+   seed_e2e_zhang	CREATE	-	将建档：部门 总部、入职日期 2026-11-13、状态 ACTIVE、工号落库时自动取号（预览不占号）
+
+-- 员工档总数（预览前后 + 落库后）：
+emp_alive=3
+EMP-0001 管理员档案 user_id=01a1d0fe-05bb-736f-96bd-93c9ecd738e4 PROBATION
+EMP-0010 李四 user_id=895f9c07-6c79-4a1c-b902-7c4ed895ffac ACTIVE
+EMP-0011 张三丰 user_id=8ab6c57a-8b34-4fab-8c0e-36e35284d478 ACTIVE

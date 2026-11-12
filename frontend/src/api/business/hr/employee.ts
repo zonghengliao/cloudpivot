@@ -13,6 +13,7 @@
  * | 4 | PUT | `/employee/{id}` | `business:hr:employee:update` | 编辑表单（预填详情） |
  * | 5 | DELETE | `/employee/{id}` | `business:hr:employee:delete` | 详情抽屉「删除」（软删 + 输姓名确认） |
  * | 7 | GET | `/employee/{id}/sensitive` | `business:hr:employee:sensitive` | 详情「查看明文」（**HR-13** 落地） |
+ * | 10 | POST | `/employee/seed-from-users` | `business:hr:employee:create` | 工具栏「从系统用户生成」（**HR-17** 后端 / 本卡前端化） |
  * | 16 | GET | `/employee/{id}/salary` | `business:hr:employee:detail` | **不用**：详情已带 `salary_items[]` |
  *
  * # 为什么详情页不单独调 #16（薪资标准）
@@ -39,8 +40,10 @@ import type {
   EmployeeSensitivePlain,
   EmployeeUpdateReq,
 } from './employee-kinds';
+import type { SeedFromUsersReq, SeedResult } from './employee-seed-kinds';
 
 export * from './employee-kinds';
+export * from './employee-seed-kinds';
 
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/hr';
@@ -137,5 +140,58 @@ export function updateEmployee(id: string, req: EmployeeUpdateReq): Promise<Empl
  */
 export function deleteEmployee(id: string): Promise<EmployeeIdRes> {
   return del<EmployeeIdRes>(`${BASE}/employee/${id}`);
+}
+
+// ==================== 从系统用户生成员工档案（#10，HR-17） ====================
+
+/**
+ * 预览：从 `sys_user` 批量建员工档的 **dry-run**（`POST /employee/seed-from-users`）。
+ *
+ * 权限 `business:hr:employee:create`（与「新建员工」同一个码，设计 §5.2 #10）。
+ *
+ * # 必须显式传 `dry_run: true`
+ *
+ * 后端缺省就是 `true`（`is_dry_run() = unwrap_or(true)`，「不传不敢写」），
+ * 这里仍然显式传 —— 两个函数摆在一起时，「预览」和「执行」唯一的区别必须是
+ * 肉眼可见的那一个布尔，而不是「谁忘了传参数」。
+ *
+ * # 预览不占号
+ *
+ * 判定与落库是后端的两段代码：预览路径一次 `INSERT` 都不发，`next_no` 走 `peek`
+ * 不推进 `biz_seq`。所以预览行里的 `emp_no` 恒为 `null`。
+ *
+ * # 判定与执行共用一份代码
+ *
+ * 预览里 `action=CREATE` 的那几条，就是 `seedFromUsersApply` 会建的那几条
+ * （同一份 `classify`）。两次调用之间账号被改了（比如别人刚建了档案）才会漂移，
+ * 那种情况落库时会自然变成 `SKIP/HAS_EMPLOYEE`（逐条判定，不会重复建）。
+ */
+export function seedFromUsersPreview(req: SeedFromUsersReq = {}): Promise<SeedResult> {
+  return post<SeedResult>(`${BASE}/employee/seed-from-users`, { ...req, dry_run: true });
+}
+
+/**
+ * 执行：**真正落库**（`post /employee/seed-from-users` 带 `dry_run: false`）。
+ *
+ * # 只有用户点了「确认生成」才允许调
+ *
+ * 这个接口一次能建到 `MAX_CANDIDATES`（500）份人事主档。页面的两步流程
+ * （预览 → 在预览结果上确认）就是这个函数唯一的调用点：不要在 `openSeed`、
+ * 表单校验通过、`watch` 之类的地方顺手调它。
+ *
+ * # 逐条一个事务，失败不回滚已成功的
+ *
+ * 后端每个候选 `BEGIN → 取号 → INSERT → COMMIT`，失败只回滚自己那一条
+ * （`preview[].action = FAILED` 带库层人话 + 业务码）。所以回执里
+ * `created` 可能小于预览时的 `planned_create` —— **界面必须分开展示成功与失败**，
+ * 不能只报「操作成功」。
+ *
+ * # `user_id` 回写在同一条 INSERT 里
+ *
+ * `biz_employee.user_id` 是员工档与登录账号的唯一连接点，后端写在 `EmployeeWrite`
+ * 里随插入落库（不是先建后 UPDATE）。落库后列表行的「已绑」图标即来自它。
+ */
+export function seedFromUsersApply(req: SeedFromUsersReq = {}): Promise<SeedResult> {
+  return post<SeedResult>(`${BASE}/employee/seed-from-users`, { ...req, dry_run: false });
 }
 

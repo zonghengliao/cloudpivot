@@ -123,6 +123,15 @@
           </span>
           <t-button
             v-if="canCreate"
+            variant="outline"
+            data-testid="hr-emp-seed"
+            @click="openSeed"
+          >
+            <template #icon><t-icon name="usergroup-add" /></template>
+            从系统用户生成
+          </t-button>
+          <t-button
+            v-if="canCreate"
             theme="primary"
             data-testid="hr-emp-create"
             @click="openCreate"
@@ -987,6 +996,229 @@
         data-testid="hr-emp-delete-confirm"
       />
     </t-dialog>
+
+    <!-- ==================== ⑥ 从系统用户生成（两步：预览 → 确认，不写库 → 写库） ==================== -->
+    <t-dialog
+      v-model:visible="seedVisible"
+      :header="seedHeader"
+      width="1080px"
+      placement="center"
+      :footer="false"
+      :close-on-overlay-click="false"
+      :close-btn="!seedLoading"
+      data-testid="hr-emp-seed-dialog"
+      @close="closeSeed"
+    >
+      <div class="seed" data-testid="hr-emp-seed-body">
+        <!-- ① 参数（预览 / 已落库后只读回显，别让人以为改了还能救上一轮） -->
+        <div class="seed-params">
+          <div class="seed-param">
+            <span class="seed-param__label">目标部门</span>
+            <DeptTreeSelect
+              v-model="seedForm.dept_id"
+              class="seed-param__control"
+              placeholder="全部部门（用账号自己的部门）"
+              :disabled="seedStep !== 'config' || seedLoading"
+              data-testid="hr-emp-seed-dept"
+            />
+          </div>
+          <div class="seed-param">
+            <span class="seed-param__label">入职日期</span>
+            <t-date-picker
+              v-model="seedForm.hire_date"
+              value-type="YYYY-MM-DD"
+              format="YYYY-MM-DD"
+              class="seed-param__control"
+              :disabled="seedStep !== 'config' || seedLoading"
+              data-testid="hr-emp-seed-hire"
+            />
+          </div>
+          <p class="seed-params__hint">
+            部门既是<b>筛选</b>（只处理本部门 + 无部门的账号），也是无部门账号的<b>缺省部门</b>；
+            入职日期缺省今天，存量账号的真实入职日期机器猜不出来，生成后可在档案里改。
+          </p>
+        </div>
+
+        <t-alert v-if="seedError" theme="error" :message="seedError" class="seed-alert" data-testid="hr-emp-seed-error" />
+
+        <!-- ② 参数步：说明 + 预览按钮 -->
+        <template v-if="seedStep === 'config'">
+          <t-alert theme="info" class="seed-alert" data-testid="hr-emp-seed-intro">
+            <template #message>
+              <p class="seed-intro__lead">把系统用户（<code>sys_user</code>）里还没有员工档案的账号批量建成档案。</p>
+              <ul class="seed-intro__list">
+                <li><b>先生成预览，再确认</b>：点下面的「预览（不写库）」只看报告，<b>一次 INSERT 都不发</b>，也不占工号。</li>
+                <li>已有档案的账号自动跳过（按 <code>user_id</code> 查重，重复点不会重复建）。</li>
+                <li>非人类账号 / 停用账号 / 没填姓名 / 没部门的账号会跳过并说明原因。</li>
+                <li>生成后员工档状态为「<b>在职</b>」，并回写 <code>biz_employee.user_id</code>（列表里显示「已绑」）。</li>
+              </ul>
+            </template>
+          </t-alert>
+        </template>
+
+        <!-- ③ 预览 / 已落库：结论 + 汇总 + 明细 -->
+        <template v-else>
+          <t-alert
+            :theme="seedResult?.dry_run ? 'warning' : 'success'"
+            class="seed-alert"
+            data-testid="hr-emp-seed-notice"
+          >
+            <template #message>{{ seedNoticeText(seedResult?.dry_run ?? true) }}</template>
+          </t-alert>
+
+          <div class="seed-stats" data-testid="hr-emp-seed-summary">
+            <div class="seed-stat">
+              <span class="seed-stat__label">扫描账号</span>
+              <span class="seed-stat__value" data-testid="hr-emp-seed-scanned">{{ seedSummary?.scanned ?? 0 }}</span>
+            </div>
+            <div class="seed-stat seed-stat--create">
+              <span class="seed-stat__label">{{ seedResult?.dry_run ? '将新建' : '已生成' }}</span>
+              <span class="seed-stat__value" data-testid="hr-emp-seed-planned">
+                {{ seedResult?.dry_run ? (seedSummary?.plannedCreate ?? 0) : (seedSummary?.created ?? 0) }}
+              </span>
+            </div>
+            <div class="seed-stat">
+              <span class="seed-stat__label">跳过</span>
+              <span class="seed-stat__value" data-testid="hr-emp-seed-skipped">{{ seedSummary?.skipped ?? 0 }}</span>
+            </div>
+            <div class="seed-stat" :class="{ 'seed-stat--failed': (seedSummary?.failed ?? 0) > 0 }">
+              <span class="seed-stat__label">失败</span>
+              <span class="seed-stat__value" data-testid="hr-emp-seed-failed">{{ seedSummary?.failed ?? 0 }}</span>
+            </div>
+            <div v-if="seedResult?.next_no" class="seed-stat seed-stat--muted">
+              <span class="seed-stat__label">下一个工号（预览不占号）</span>
+              <span class="seed-stat__value mono" data-testid="hr-emp-seed-next-no">{{ seedResult.next_no }}</span>
+            </div>
+          </div>
+
+          <div class="seed-headline" data-testid="hr-emp-seed-headline">{{ seedHeadlineText }}</div>
+
+          <p v-if="seedEmptyHint" class="seed-empty-hint" data-testid="hr-emp-seed-empty-hint">{{ seedEmptyHint }}</p>
+
+          <div v-if="(seedSummary?.skipBreakdown.length ?? 0) > 0" class="seed-breakdown" data-testid="hr-emp-seed-breakdown">
+            <span class="seed-breakdown__lead">跳过原因：</span>
+            <t-tag
+              v-for="item in seedSummary?.skipBreakdown ?? []"
+              :key="item.reason"
+              size="small"
+              variant="light"
+              theme="default"
+              class="seed-breakdown__tag"
+              data-testid="hr-emp-seed-breakdown-item"
+            >{{ item.label }} {{ item.count }}</t-tag>
+          </div>
+          <div v-if="(seedSummary?.failedBreakdown.length ?? 0) > 0" class="seed-breakdown" data-testid="hr-emp-seed-failed-breakdown">
+            <span class="seed-breakdown__lead">失败原因：</span>
+            <t-tag
+              v-for="item in seedSummary?.failedBreakdown ?? []"
+              :key="item.reason"
+              size="small"
+              variant="light"
+              theme="danger"
+              class="seed-breakdown__tag"
+              data-testid="hr-emp-seed-failed-item"
+            >{{ item.label }} {{ item.count }}</t-tag>
+          </div>
+
+          <t-radio-group
+            v-model="seedBucket"
+            variant="default-filled"
+            size="small"
+            class="seed-buckets"
+            data-testid="hr-emp-seed-buckets"
+          >
+            <t-radio-button
+              v-for="opt in seedBucketOptions"
+              :key="opt.value"
+              :value="opt.value"
+              :data-testid="`hr-emp-seed-bucket-${opt.value}`"
+            >{{ opt.label }}</t-radio-button>
+          </t-radio-group>
+
+          <t-table
+            row-key="user_id"
+            :data="seedRows"
+            :columns="seedColumns"
+            :loading="seedLoading"
+            :bordered="false"
+            size="small"
+            max-height="42vh"
+            hover
+            data-testid="hr-emp-seed-table"
+          >
+            <template #username="{ row }">
+              <span class="mono">{{ row.username }}</span>
+            </template>
+            <template #real_name="{ row }">
+              <span :class="{ 'seed-cell--empty': !row.real_name }">{{ cellOrDash(row.real_name) }}</span>
+            </template>
+            <template #dept_name="{ row }">
+              <span :class="{ 'seed-cell--empty': !row.dept_name }">{{ cellOrDash(row.dept_name) }}</span>
+            </template>
+            <template #action="{ row }">
+              <t-tag size="small" variant="light" :theme="rowActionTheme(row)" data-testid="hr-emp-seed-row-action">
+                {{ rowActionLabel(row, seedResult?.dry_run ?? true) }}
+              </t-tag>
+            </template>
+            <template #message="{ row }">
+              <div class="seed-msg">
+                <span v-if="row.reason" class="seed-msg__reason">{{ reasonLabel(row.reason) }}</span>
+                <span class="seed-msg__text" :title="row.message">{{ row.message }}</span>
+              </div>
+            </template>
+            <template #emp_no="{ row }">
+              <span v-if="row.emp_no" class="mono" data-testid="hr-emp-seed-row-empno">{{ row.emp_no }}</span>
+              <span v-else class="seed-cell--empty">—</span>
+            </template>
+            <template #empty>
+              <div class="seed-rows-empty" data-testid="hr-emp-seed-rows-empty">当前分桶没有行。</div>
+            </template>
+          </t-table>
+        </template>
+
+        <!-- ④ 底部动作（三态各一套；`footer` 关掉自己写，按钮文案/禁用都由纯函数给） -->
+        <div class="seed-actions">
+          <template v-if="seedStep === 'config'">
+            <t-button variant="outline" data-testid="hr-emp-seed-cancel" @click="closeSeed">取消</t-button>
+            <t-button
+              theme="primary"
+              :loading="seedLoading"
+              data-testid="hr-emp-seed-preview-btn"
+              @click="runSeedPreview"
+            >
+              <template #icon><t-icon name="browse" /></template>
+              预览（不写库）
+            </t-button>
+          </template>
+          <template v-else-if="seedStep === 'preview'">
+            <t-button
+              variant="outline"
+              :disabled="seedLoading"
+              data-testid="hr-emp-seed-reconfig"
+              @click="backToSeedConfig"
+            >改参数重新预览</t-button>
+            <t-button
+              theme="primary"
+              :disabled="!seedCanApply"
+              :loading="seedLoading"
+              data-testid="hr-emp-seed-apply"
+              @click="runSeedApply"
+            >
+              {{ seedApplyText }}
+            </t-button>
+          </template>
+          <template v-else>
+            <t-button
+              variant="outline"
+              :loading="seedLoading"
+              data-testid="hr-emp-seed-repreview"
+              @click="runSeedPreview"
+            >重新预览</t-button>
+            <t-button theme="primary" data-testid="hr-emp-seed-done-close" @click="closeSeed">完成</t-button>
+          </template>
+        </div>
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -1014,9 +1246,14 @@ import {
   EMPLOYEE_PAGE_SIZE,
   EMPLOYMENT_TYPE_OPTIONS,
   ID_CARD_TYPE_OPTIONS,
+  SEED_BUCKETS,
   STATUS_VALUES,
   STATUS_LABELS,
+  applyButtonText,
+  bucketLabel,
   buildEmployeeQuery,
+  canApplySeed,
+  cellOrDash,
   contractExpireClass,
   contractExpireText,
   contractStatusTheme,
@@ -1024,20 +1261,33 @@ import {
   currentSalaries,
   deleteEmployee,
   emptyEmployeeFilter,
+  emptyPlanHint,
   fetchEmployeeDetail,
   fetchEmployeePage,
   fetchEmployeeSensitive,
+  filterSeedRows,
   formatSalaryAmount,
   isEmployeeFiltered,
   plainValueOf,
+  reasonLabel,
+  rowActionLabel,
+  rowActionTheme,
   salaryHistory,
+  seedFromUsersApply,
+  seedFromUsersPreview,
+  seedHeadline,
+  seedNoticeText,
   statusLabel,
   statusTheme,
   sumSalary,
+  summarizeSeed,
   textOr,
   updateEmployee,
   type EmployeeDetail,
   type EmployeeListRow,
+  type SeedBucket,
+  type SeedItem,
+  type SeedResult,
 } from '@/api/business/hr/employee';
 import {
   buildCreatePayload,
@@ -1471,6 +1721,185 @@ async function submitDelete(): Promise<void> {
     MessagePlugin.error(messageOf(error));
   } finally {
     deleteSubmitting.value = false;
+  }
+}
+
+// ==================== 从系统用户生成（seed-from-users：预览 → 确认） ====================
+//
+// 后端 HR-17 早就实现了 `POST /business/hr/employee/seed-from-users`，但页面上没有入口，
+// HR 只能看（本卡补的正是这个入口）。三条铁律抄自后端契约（`employee_seed.rs` 模块文档）：
+//
+// 1. **两步，不许一键写库**：`config`（选部门 / 入职日）→ `preview`（dry-run 报告）
+//    → 用户点「确认生成 N 人」→ `done`（回执）。`seedFromUsersApply` 只在这个按钮里调。
+// 2. **预览必须明说「不会写库」**：dry-run 路径一次 INSERT 都不发、也不占工号；
+//    面板上给横幅 + 工号列显示「—」，别让 HR 以为已经有了工号。
+// 3. **幂等**：已有档案的账号一律 `SKIP/HAS_EMPLOYEE`（后端候选查询就 `LEFT JOIN` 排除了），
+//    所以「再预览一次」= 将新建 0 人 + 跳过 N 人 —— 这是成功的信号，不是报错。
+//
+// 面板给的桶是「扫描 / 将新建 / 跳过 / 失败」，跳过再按后端 6 个原因码分组：
+// 卡面写的「冲突 K 人（身份证 / 手机重复）」后端并不存在（不猜敏感字段、无手机唯一键），
+// 见 `employee-seed-kinds.ts` 文件头第 3 条。
+
+/** 三步：参数 → 预览 → 已落库 */
+type SeedStep = 'config' | 'preview' | 'done';
+
+const seedVisible = ref(false);
+const seedStep = ref<SeedStep>('config');
+/** 入参：部门（筛选 + 无部门账号的缺省部门）/ 入职日期（默认业务日） */
+const seedForm = reactive<{ dept_id?: string; hire_date: string }>({
+  dept_id: undefined,
+  hire_date: businessToday(),
+});
+const seedResult = ref<SeedResult | null>(null);
+const seedLoading = ref(false);
+/** 失败报文（对话框内 alert：toast 3 秒就没了，400 的原文要留得住） */
+const seedError = ref('');
+/** 明细表的分桶（默认「全部」：跳过行也要看得见，否则 HR 会以为账号丢了） */
+const seedBucket = ref<SeedBucket>('all');
+
+/** 明细表列（`colKey` 与后端 `SeedItem` 同名；`message` 是后端给的人话，别自己拼） */
+const seedColumns = [
+  { colKey: 'username', title: '登录账号', width: 150, ellipsis: true },
+  { colKey: 'real_name', title: '姓名', width: 110, ellipsis: true },
+  { colKey: 'dept_name', title: '部门', width: 150, ellipsis: true },
+  { colKey: 'action', title: '动作', width: 96 },
+  { colKey: 'message', title: '原因 / 说明', ellipsis: true },
+  { colKey: 'emp_no', title: '工号', width: 110 },
+];
+
+/** 汇总（数字取自后端回执；跳过分组从明细数 —— 那是后端没给的维度） */
+const seedSummary = computed(() => (seedResult.value ? summarizeSeed(seedResult.value) : null));
+/** 当前分桶的明细行 */
+const seedRows = computed<SeedItem[]>(() =>
+  seedResult.value ? filterSeedRows(seedResult.value, seedBucket.value) : [],
+);
+/** 分桶选项（带条数；预览态 `create` 一档叫「将新建」，执行后叫「已建档」） */
+const seedBucketOptions = computed(() => {
+  const res = seedResult.value;
+  if (!res) {
+    return [];
+  }
+  const counts: Record<SeedBucket, number> = {
+    all: res.scanned,
+    create: res.dry_run ? res.planned_create : res.created,
+    skip: res.skipped,
+    failed: res.failed,
+  };
+  return SEED_BUCKETS.map((bucket) => ({
+    value: bucket,
+    label: `${bucketLabel(bucket, res.dry_run)} ${counts[bucket]}`,
+  }));
+});
+/** 「确认生成」能不能点（预览回执 + 确实有可建行 + 没有请求在飞） */
+const seedCanApply = computed(() => canApplySeed(seedResult.value, seedLoading.value));
+/** 按钮文案（N 与面板上的数字同一个来源） */
+const seedApplyText = computed(() => applyButtonText(seedResult.value));
+/** 结论句 */
+const seedHeadlineText = computed(() => (seedResult.value ? seedHeadline(seedResult.value) : ''));
+/** 空计划解释（「将新建 0 人」到底为什么） */
+const seedEmptyHint = computed(() => {
+  const res = seedResult.value;
+  return res && res.dry_run && res.planned_create === 0 ? emptyPlanHint(res) : '';
+});
+/** 对话框标题随步骤变（`预览` / `已落库` 一眼可辨） */
+const seedHeader = computed(() => {
+  if (seedStep.value === 'preview') {
+    return '从系统用户生成员工档案 · 预览（不会写库）';
+  }
+  if (seedStep.value === 'done') {
+    return '从系统用户生成员工档案 · 已落库';
+  }
+  return '从系统用户生成员工档案';
+});
+
+/** 打开：每次从「全部部门 + 今天」开始（上一轮的部门留着，会让人以为在全部里筛过） */
+function openSeed(): void {
+  seedVisible.value = true;
+  seedStep.value = 'config';
+  seedResult.value = null;
+  seedError.value = '';
+  seedBucket.value = 'all';
+  seedForm.dept_id = undefined;
+  seedForm.hire_date = businessToday();
+}
+
+/** 关（请求在飞时不关：中途关掉就不知道建了几个） */
+function closeSeed(): void {
+  if (seedLoading.value) {
+    return;
+  }
+  seedVisible.value = false;
+  seedResult.value = null;
+  seedError.value = '';
+  seedStep.value = 'config';
+}
+
+/** 回参数步（改部门 / 日期重来） */
+function backToSeedConfig(): void {
+  if (seedLoading.value) {
+    return;
+  }
+  seedStep.value = 'config';
+  seedError.value = '';
+}
+
+/** 请求体：空串/空值不进（后端 `None` = 用账号自己的部门 / 今天） */
+function seedPayload(): { dept_id?: string; hire_date?: string } {
+  const dept = seedForm.dept_id?.trim();
+  const hire = seedForm.hire_date?.trim();
+  return { ...(dept ? { dept_id: dept } : {}), ...(hire ? { hire_date: hire } : {}) };
+}
+
+/** ① 预览（dry-run）：只出报告，不写库 */
+async function runSeedPreview(): Promise<void> {
+  if (seedLoading.value) {
+    return;
+  }
+  seedLoading.value = true;
+  seedError.value = '';
+  try {
+    const res = await seedFromUsersPreview(seedPayload());
+    seedResult.value = res;
+    seedStep.value = 'preview';
+    // 有可建的就先看「将新建」，否则看全部（全是跳过时默认桶会是空表，看着像没数据）
+    seedBucket.value = res.planned_create > 0 ? 'create' : 'all';
+  } catch (error) {
+    seedError.value = messageOf(error);
+  } finally {
+    seedLoading.value = false;
+  }
+}
+
+/**
+ * ② 确认生成（真写库）。
+ *
+ * 这是 `seedFromUsersApply` 唯一的调用点 —— 只有 HR 看过预览、亲手点了按钮才会走到这里。
+ * 回执可能「成功 N / 失败 M」：两者都要展示，失败行带库层人话与业务码。
+ */
+async function runSeedApply(): Promise<void> {
+  const current = seedResult.value;
+  if (!current || seedLoading.value || !canApplySeed(current, seedLoading.value)) {
+    return;
+  }
+  seedLoading.value = true;
+  seedError.value = '';
+  try {
+    const res = await seedFromUsersApply(seedPayload());
+    seedResult.value = res;
+    seedStep.value = 'done';
+    // 有失败就先看失败行（那是需要 HR 处理的）；否则看刚建出来的
+    seedBucket.value = res.failed > 0 ? 'failed' : 'create';
+    if (res.failed > 0) {
+      MessagePlugin.warning(`已生成 ${res.created} 人，${res.failed} 人失败（原因见下表）`);
+    } else {
+      MessagePlugin.success(`已生成 ${res.created} 个员工档案`);
+    }
+    // 列表刷新：新档案的工号与「已绑」状态都来自库
+    await loadRows();
+  } catch (error) {
+    seedError.value = messageOf(error);
+  } finally {
+    seedLoading.value = false;
   }
 }
 
@@ -2000,6 +2429,200 @@ onMounted(() => {
   margin: 0 0 6px;
   font-size: 13px;
   color: var(--td-text-color-primary);
+}
+
+// ==================== ⑥ 从系统用户生成（seed-from-users） ====================
+
+.seed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 参数行：两个控件 + 一行说明（说明写在下面，别挤成三列让控件变窄） */
+.seed-params {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--td-bg-color-container-hover);
+}
+
+.seed-param {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.seed-param__label {
+  flex: none;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
+.seed-param__control {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.seed-params__hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-placeholder);
+
+  b {
+    color: var(--td-text-color-secondary);
+  }
+}
+
+.seed-alert {
+  margin: 0;
+}
+
+.seed-intro__lead {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.seed-intro__list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+/* 汇总四宫格：数字比标签大两档，一眼看到「将新建 N 人」 */
+.seed-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.seed-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 96px;
+  padding: 8px 12px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+
+  &--create {
+    border-color: var(--td-brand-color);
+    background: var(--td-brand-color-light);
+
+    .seed-stat__value {
+      color: var(--td-brand-color);
+    }
+  }
+
+  &--failed {
+    border-color: var(--td-error-color);
+    background: var(--td-error-color-1);
+
+    .seed-stat__value {
+      color: var(--td-error-color);
+    }
+  }
+
+  &--muted {
+    background: var(--td-bg-color-container-hover);
+  }
+}
+
+.seed-stat__label {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.seed-stat__value {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 26px;
+  color: var(--td-text-color-primary);
+}
+
+.seed-headline {
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+}
+
+.seed-empty-hint {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-secondary);
+  background: var(--td-bg-color-container-hover);
+}
+
+.seed-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.seed-breakdown__lead {
+  color: var(--td-text-color-placeholder);
+}
+
+.seed-breakdown__tag {
+  margin: 0;
+}
+
+.seed-buckets {
+  align-self: flex-start;
+}
+
+/* 「原因 / 说明」列：短名在前、后端人话在后（人话可能很长，表格自己省略 + hover 看全） */
+.seed-msg {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.seed-msg__reason {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--td-text-color-secondary);
+  background: var(--td-bg-color-container-hover);
+}
+
+.seed-msg__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seed-cell--empty {
+  color: var(--td-text-color-placeholder);
+}
+
+.seed-rows-empty {
+  padding: 18px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* 自己写的底栏：对话框 `footer=false`（三个步骤的按钮组合不同，默认只有两槽） */
+.seed-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 /* 窄屏：两列 / 三列都塌成一列（人事常在 1280 笔记本上建档） */
