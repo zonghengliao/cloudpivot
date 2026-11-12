@@ -245,6 +245,17 @@ pub mod salary_item_model;
 mod salary_item_seed_tests;
 /// 员工薪资标准数据层（`biz_employee_salary`）：版本读写 + 区间重叠判定（A3）（HR-16）。
 pub mod salary_model;
+/// HR-36 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：建单落库后三口径一致 /
+/// 试算零落库 / 明细分页与汇总对拍 / 同期间重复建单 409。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_sheet_db_tests;
+/// 薪资单的入参 / 回执契约 + 三口径（单头 / 明细 / 明细项）对账纯函数（HR-36）。
+pub mod salary_sheet_dto;
+/// 薪资单接口层（设计 §5.2 #36~#40：列表 / 单头汇总 / 明细分页 / 试算 / 建单），HR-36。
+pub mod salary_sheet_handler;
+/// 薪资单数据层（`biz_salary_sheet` + `biz_salary_detail` + `biz_salary_detail_item`）：
+/// 单头读 / 明细分页（含明细项批量读）/ 部门汇总 / 对账合计（HR-36）。
+pub mod salary_sheet_model;
 
 /// 薪资**变量解析 + 依赖拓扑**：项引用 / `ATT_*` 白名单 → 计算计划（HR-33）。
 pub mod salary_vars;
