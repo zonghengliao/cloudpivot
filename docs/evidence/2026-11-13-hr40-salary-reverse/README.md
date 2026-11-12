@@ -55,6 +55,7 @@
 | `cargo fmt -- --check` | 0 diff |
 | `cargo clippy --all-targets -- -D warnings` | 0 warning / 0 error |
 | `scripts/check.sh --fast`（L0+L1） | **EXIT=0**（含迁移授权段角色码闸扫 318 个 `.up.sql`） |
+| 迁移 V0397 幂等 / down / 护栏（`04_migration_idempotent.out`） | **0 失败**：up 重复执行不炸、down 还原严格唯一键、down 有「同期间多张未删除单」时 `RAISE`（报文可操作）、up 可再跑回目标形态 |
 | 前端 `pnpm typecheck` / `vite build` | EXIT=0 / EXIT=0（构建到私有 outDir，未覆盖共享 `dist`） |
 
 > 门禁都在 **worktree `/root/hr40-wt` @ `83a4cfab`** 上跑：共享工作区同时挂着邻居卡
