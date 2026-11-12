@@ -1,0 +1,8 @@
+## 8. 解锁（原因 ≥5 字）后再导：汇总跟着变
+  -> DRAFT: {"code":0,"msg":"ok","data":{"id":"01a1cf76-78c0-708f-96a5-ea2d6c28bf39","period_code":"2028-01","period_start":"2028-01-01","period_end":"2028-01-31","status":"DRAFT","status_label":"草稿","locked"
+  解锁后状态: DRAFT
+wrote /root/.hermes/profiles/backend-developer/cache/scratch/att_202801_unlock.xlsx: 1 data rows, headers=15
+  确认回执: {"code":0,"msg":"ok","data":{"task_id":"01a1cf76-9a79-73c0-ac9c-a620d5ef7977","status":"SUCCESS","imported_rows":1,"message":"共 1 批，入库 1 行（校验失败 0 行已跳过）"}}
+  期间头（库）: DRAFT | 2 | 44.00 | 41.00
+  期间分页: "status":"DRAFT" "employee_count":2 "should_days_total":"44.00" "actual_days_total":"41.00"
+

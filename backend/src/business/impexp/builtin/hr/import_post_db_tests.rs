@@ -31,6 +31,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::hr::model::SENTINEL_ORG_ID;
+use crate::business::impexp::builtin::hr::import_post;
 use crate::business::impexp::builtin::hr::import_post::CONFIG_REQUIRE_LEAVE_MATCH;
 use crate::business::impexp::builtin::hr::{ATTENDANCE_BIZ_TYPE, AttendanceImport};
 use crate::business::impexp::definition::{DuplicateStrategy, ImportColumn, ImportCtx, ImportDefinition, ImportMode};
@@ -663,6 +664,137 @@ async fn each_period_of_one_file_is_recalculated() {
         ),
         "第二期间汇总"
     );
+
+    fixture.cleanup().await;
+    cleanup_tasks().await;
+}
+
+/// **t_de6e8d41 的回归钉**：走「确认入库」那条路（框架两段：`validate` 出整批行 →
+/// 按 `batch_size` 切批 → 每批一个事务调 `persist`），**不调任何 recalc 接口**，
+/// 期间头就必须已经是最终值。
+///
+/// # 为什么这条用例必须存在
+///
+/// 之前的 bug 报告是「明细 2 行、期间合计 0 人」，怀疑重算只挂在未注册的 HR 专属路由上。
+/// 卡片验收要的正是这一段：通用 `upload` → `{id}/confirm` 走完即正确，客户端**不需要**
+/// 补一次 `POST /period/{id}/recalc`。把 handler 的循环在这里复刻一遍，任何人把重算从
+/// `persist` 里摘出去（比如改成「提交后钩子」或删掉），这条用例立刻红。
+#[tokio::test]
+async fn confirm_path_leaves_totals_correct_without_any_client_recalc() {
+    let Some(_guard) = guard().await else { return };
+    // 本用例只关心汇总：把「无薪假 ≤ 已批」的开关关掉，免得夹具还得造请假单
+    set_switch(false).await;
+    let fixture = Fixture::seed().await;
+    let task = new_task(DuplicateStrategy::Upsert, ImportMode::Strict).await;
+    let ctx = ctx_of(task);
+
+    // 与 `handler::import_confirm` 同一条路径：整批先校验（要保留行），再按批入库
+    let outcome = precheck(vec![fixture.row_a(2, "0"), fixture.row_b(3)], &ctx).await;
+    assert_eq!(outcome.report.error, 0, "两行都应通过：{:?}", outcome.report.errors);
+    assert_eq!(outcome.rows.len(), 2);
+    let batch_size = AttendanceImport.batch_size().max(1);
+    let mut imported = 0usize;
+    for batch in outcome.rows.chunks(batch_size) {
+        let rows = batch.to_vec();
+        let ctx_batch = ctx.clone();
+        let affected = db()
+            .transaction(|tx| async move { AttendanceImport.persist(&tx, &rows, &ctx_batch).await })
+            .await
+            .expect("批次入库应成功");
+        imported += affected;
+    }
+    assert_eq!(imported, 2, "两行都应入库");
+
+    // 关键断言：**没有**任何 recalc 请求，期间头已经是最终值
+    // 甲 22/20 + 乙 22/22 ⇒ 人数 2 / 应出勤 44.00 / 实际 42.00 / 加班 12.5
+    assert_eq!(
+        totals(fixture.period_id).await,
+        (
+            "2".to_string(),
+            "44.00".to_string(),
+            "42.00".to_string(),
+            "20.50".to_string()
+        ),
+        "确认入库完成后期间头必须已经重算（不许依赖前端补 recalc）"
+    );
+
+    set_switch(true).await;
+    fixture.cleanup().await;
+    cleanup_tasks().await;
+}
+
+/// 锁定期间：`recalc_periods` **跳过**而不是报错（定稿的期间头不许变），并如实回报。
+///
+/// 与下面那条用例是一对：锁定期间「更新 0 行」是设计意图；可重算的期间「更新 0 行」
+/// 才是异常。两条合起来钉住 `skipped_locked` 与 `recalc_one` 护栏的分界线。
+#[tokio::test]
+async fn recalc_skips_locked_period_and_freezes_the_header() {
+    let Some(_guard) = guard().await else { return };
+    set_switch(true).await;
+    let fixture = Fixture::seed().await;
+    // 直接把期间置为 LOCKED（不走状态机：本用例测的是重算分支，不是流转）
+    db().execute_with_params(
+        "UPDATE biz_attendance_period SET status = 'LOCKED' WHERE id = ?::uuid",
+        vec![Value::from(fixture.period_id)],
+    )
+    .await
+    .expect("置为锁定");
+
+    let report = import_post::recalc_periods(db(), std::slice::from_ref(&fixture.period_code), None)
+        .await
+        .expect("锁定期间不该报错（冻结是设计意图）");
+    assert_eq!(report.skipped_locked, 1, "锁定期间要被如实计入 skipped_locked");
+    assert_eq!(report.recalced, 0, "锁定期间一次重算都不许做");
+    assert!(report.missing.is_empty(), "期间存在，不该进 missing");
+    assert_eq!(
+        totals(fixture.period_id).await,
+        (
+            "0".to_string(),
+            "0.00".to_string(),
+            "0.00".to_string(),
+            "0.00".to_string()
+        ),
+        "锁定期间的期间头必须原样冻住"
+    );
+
+    fixture.cleanup().await;
+    cleanup_tasks().await;
+}
+
+/// 「解析时 DRAFT、更新时已被锁」的时序：**必须炸出来**，不许静默留下旧期间头。
+///
+/// 构造方式：库里把期间置 LOCKED，但把 target 的 `status` 写成 `DRAFT` 传进单期间重算子
+/// —— 等价于「解析那一刻还没锁、`UPDATE` 那一刻已经锁了」的并发时序。旧实现丢掉
+/// `recalc_totals` 的返回值，这种场景会返回成功（记录进库、期间头不动），正是
+/// t_de6e8d41 要堵的那条缝。
+#[tokio::test]
+async fn stale_totals_are_an_error_not_a_silent_success() {
+    let Some(_guard) = guard().await else { return };
+    set_switch(true).await;
+    let fixture = Fixture::seed().await;
+    db().execute_with_params(
+        "UPDATE biz_attendance_period SET status = 'LOCKED' WHERE id = ?::uuid",
+        vec![Value::from(fixture.period_id)],
+    )
+    .await
+    .expect("置为锁定");
+
+    let target = import_post::RecalcTarget {
+        id: fixture.period_id,
+        period_code: fixture.period_code.clone(),
+        status: crate::business::hr::attendance_period_dto::STATUS_DRAFT.to_string(),
+    };
+    let error = import_post::recalc_one_for_tests(db(), &target, None)
+        .await
+        .expect_err("更新 0 行必须报错，不许静默");
+    let message = error.to_string();
+    assert!(
+        message.contains(&fixture.period_code),
+        "报错要点名考勤月 `{}`：{message}",
+        fixture.period_code
+    );
+    assert!(message.contains("整批回滚"), "要说清结果是整批回滚：{message}");
+    assert!(message.contains("影响 0 行"), "要给出实际影响行数：{message}");
 
     fixture.cleanup().await;
     cleanup_tasks().await;

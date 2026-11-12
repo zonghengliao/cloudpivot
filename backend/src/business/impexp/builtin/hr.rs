@@ -857,13 +857,27 @@ impl ImportDefinition for AttendanceImport {
         // 导入后处理 ②：汇总重算（HR-22）。**在同一事务里**做 —— 记录与期间的四个汇总列
         // 一起提交、一起回滚：提交后再重算失败会留下「记录进了库、汇总还是旧值」的中间态，
         // 而汇总列是工资试算的依据（AGENTS.md 约定 11）。`recalc_totals` 的 SQL 自带
-        // `status <> 'LOCKED'` 守卫，锁定期间重算影响 0 行（锁定期间本来也导不进来）。
+        // `status <> 'LOCKED'` 守卫，锁定期间重算影响 0 行 —— 那是设计意图（定稿不许变），
+        // 所以 `recalc_periods` 把它算进 `skipped_locked`；**可重算的期间更新 0 行则直接
+        // 报错**（t_de6e8d41 的护栏：旧实现丢掉返回值，0 行更新被当成功 ⇒ 记录进库、
+        // 期间头还是旧值，一路静默到工资试算）。
         // 一份文件可能跨月（模板按行带考勤月），所以按**本批出现的每个期间**各重算一次。
         let periods = Self::period_codes(rows);
-        if let Err(error) = recalc_periods(tx, &periods, ctx.operator).await {
-            return Err(DbError::InvalidValue(format!(
+        let report = recalc_periods(tx, &periods, ctx.operator).await.map_err(|error| {
+            DbError::InvalidValue(format!(
                 "汇总重算失败：{error}（本次导入整批回滚，考勤记录与期间的汇总列都未落库）"
-            )));
+            ))
+        })?;
+        if report.skipped_locked > 0 || !report.missing.is_empty() {
+            // 两者都不该在正常导入里出现（入库 SQL 已把锁定期间与不存在的期间 JOIN 掉），
+            // 出现即说明并发改了期间；记录日志便于事后对账，但不回滚 —— 已重算的期间是对的。
+            tracing::debug!(
+                task = %ctx.task_id,
+                recalced = report.recalced,
+                skipped_locked = report.skipped_locked,
+                missing = ?report.missing,
+                "考勤导入汇总重算：部分期间被跳过"
+            );
         }
         Ok(affected)
     }
