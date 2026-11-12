@@ -767,6 +767,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '员工档案', permission: 'business:hr:employee:list' },
       },
       {
+        // ==================== HR：考勤管理（ARCH-9 §6.1 #2 / HR-29） ====================
+        // `sys_menu` 种子（V0387 `…e002`）path = `/business/hr/attendance`、component
+        // `business/hr/attendance/index`、权限码 `business:hr:attendance:list`，
+        // 挂在「人力资源」（`…e000`）sort 20。两个 tab（考勤期间 / 考勤台账）都在本页内，
+        // 期间表单、状态流转、导入都是对话框/抽屉（无独立路由）。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档会当场红）。
+        path: 'business/hr/attendance',
+        name: 'BusinessHrAttendance',
+        component: () => import('@/views/business/hr/attendance/index.vue'),
+        meta: { title: '考勤管理', permission: 'business:hr:attendance:list' },
+      },
+      {
         // ==================== HR：请假单（ARCH-9 §6.1 #3 / HR-28） ====================
         // `sys_menu` 种子（V0387 `…e003`）path = `/business/hr/leave`、component
         // `business/hr/leave/index`、权限码 `business:hr:leave:list`，
