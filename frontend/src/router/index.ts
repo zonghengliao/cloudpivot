@@ -792,6 +792,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '请假单', permission: 'business:hr:leave:list' },
       },
       {
+        // ==================== HR：薪资项配置（ARCH-9 §6.1 #5 / §6.2.4 / HR-44） ====================
+        // `sys_menu` 种子（V0387 `…e005`）path = `/business/hr/salary-item`、component
+        // `business/hr/salary-item/index`、权限码 `business:hr:salary-item:list`，
+        // 挂在「人力资源」（`…e000`）sort 50。列表 + 公式编辑抽屉都在本页内（无独立路由）。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档会当场红）。
+        path: 'business/hr/salary-item',
+        name: 'BusinessHrSalaryItem',
+        component: () => import('@/views/business/hr/salary-item/index.vue'),
+        meta: { title: '薪资项', permission: 'business:hr:salary-item:list' },
+      },
+      {
         // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
         // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
         //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）
