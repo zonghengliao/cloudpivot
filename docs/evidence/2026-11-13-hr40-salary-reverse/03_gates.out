@@ -1,0 +1,23 @@
+== cargo test --lib business::hr::（worktree /root/hr40-wt @ 83a4cfab，干净树）==
+test result: ok. 567 passed; 0 failed; 0 ignored; 0 measured; 4857 filtered out; finished in 0.05s
+测试条数：567
+
+== cargo fmt -- --check ==
+EXIT=0（0 处 diff）
+
+== cargo clippy --all-targets -- -D warnings ==
+warning+error 行数：0
+    Checking nik v0.4.2 (/root/hr40-wt/backend/vendor/nik)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 49s
+
+== scripts/check.sh --fast（L0+L1）==
+  ⚠ 策略提示（WARN，不判红）：新增迁移里有 28 条 `INSERT INTO sys_role_menu` 授权段：
+  ✓ 无新增/改动的未知角色码（318 个 .up.sql 已扫）
+==> 全部检查通过（L0 L1）
+
+== 前端 pnpm typecheck ==
+EXIT=0
+
+== 前端 vite build（--outDir 私有目录，不覆盖共享 dist）==
+EXIT=0
+✓ built in 51.67s
