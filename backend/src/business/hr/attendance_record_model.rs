@@ -44,6 +44,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::hr::attendance_lock;
 use crate::business::hr::attendance_period_dto::{STATUS_LOCKED, status_label};
 use crate::business::hr::attendance_record_dto::{
     AttendanceRecordRes, RecordFilter, RecordNumbers, RecordPatch, source_label,
@@ -108,8 +109,23 @@ pub fn check_message(constraint: Option<&str>) -> String {
 /// |---|---|---|
 /// | `(period_id, employee_id)` 重复（`uk_biz_att_rec`） | 409 | `10003`（报文点名工号与期间） |
 /// | `CHECK` 违反 | 400 | `10001`（报文点名该改哪个字段） |
+/// | **期间已 `LOCKED`**（`V0392` 触发器抛 `CP001`） | 409 | `68010`（报文点名期间与下一步） |
 /// | 其它 | 500 | `10004` |
+///
+/// 第三行是 HR-23 接的「库层兜底」：`INSERT`/`UPDATE` 走到库时期间已被锁（并发锁定、或某条
+/// 没经过 `attendance_lock::lock_for_write` 的写路径）会得到 `CP001`，这里翻成与 handler 闸
+/// **同一个** `409 + 68010`，前端只认一件事：「这一期动不了，去解锁」。
 pub fn write_error(err: DbError, ctx: &str, employee_no: &str, period_code: &str) -> ApiError {
+    // 库层锁定守卫优先判：它的 SQLSTATE 是自定义码，落不到上面两个变体里。
+    if attendance_lock::is_lock_violation(&err) {
+        tracing::warn!(
+            context = ctx,
+            employee_no,
+            period_code,
+            "考勤记录写入被库层锁定守卫拦下"
+        );
+        return attendance_lock::locked_error(period_code);
+    }
     match &err {
         DbError::UniqueViolation { constraint, .. } => {
             let name = constraint.as_deref().unwrap_or_default().trim();
@@ -773,5 +789,38 @@ mod tests {
         let (sql, params) = list_query(&plain);
         assert_eq!(params.len(), 1);
         assert!(!sql.contains("LIKE"), "空白关键字不该产生 LIKE 条件");
+    }
+
+    /// 库层锁定守卫（`V0392` 触发器）抛的 `CP001` 必须翻成 `409 + 68010`，不能落成 500。
+    ///
+    /// 这条单测钉的是「认指纹」这一步：认不出来 = 前端看到「服务器内部错误」，
+    /// 用户不知道该去解锁（设计 §4.2.3 要求拦下后能自解释）。
+    #[test]
+    fn lock_guard_violation_becomes_409_68010() {
+        let raw = || DbError::Query {
+            sql: "INSERT INTO biz_attendance_record ...".to_string(),
+            source: Box::new(std::io::Error::other(format!(
+                "db error: ERROR: {}: 考勤期间 2026-11 已锁定（LOCKED），记录不许新增或修改",
+                attendance_lock::GUARD_MARKER
+            ))),
+        };
+        let error = write_error(raw(), "hr_attendance_record_insert", "EMP-0001", "2026-11");
+        assert_eq!(error.status, 409, "锁定拦截必须是 409 而不是 500");
+        assert_eq!(error.code, error_code::HR_ATTENDANCE_PERIOD_RULE_BLOCKED);
+        assert!(error.msg.contains("2026-11"), "报文要点名期间：{}", error.msg);
+        assert!(
+            error.msg.contains(attendance_lock::LOCK_PERMISSION),
+            "报文要指出下一步权限码：{}",
+            error.msg
+        );
+
+        // 别的数据库故障不许被误认成「已锁定」（否则真实故障被掩盖成「去解锁」）
+        let other = DbError::Query {
+            sql: "INSERT INTO biz_attendance_record ...".to_string(),
+            source: Box::new(std::io::Error::other("db error: ERROR: connection reset")),
+        };
+        let error = write_error(other, "hr_attendance_record_insert", "EMP-0001", "2026-11");
+        assert_eq!(error.status, 500, "非锁定故障仍是 500 + 10004");
+        assert_eq!(error.code, error_code::INTERNAL_ERROR);
     }
 }

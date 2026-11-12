@@ -102,6 +102,15 @@
 //! - 设计 §5.2 表头写「42 条」、正文编号到 46（以 46 为准）；
 //!   脚注写「4 处 `/my`」而表里只有 2 处（`/leave/my` 随 HR-41 落）。
 
+/// 考勤「**锁定后写保护**」的唯一守卫面（状态判定 / 锁期间行 / 库层 `CP001` 翻译），HR-23。
+///
+/// 三层同一条规则：接口层权限码 `business:hr:attendance:lock`、handler 层 [`attendance_lock::lock_for_write`]、
+/// 库层 `V0392__attendance_lock_guard` 的触发器。所有写 `biz_attendance_record` 的路径都要过 `lock_for_write`。
+pub mod attendance_lock;
+/// HR-23 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：锁定后 `INSERT` / `UPDATE` / 软删被库层守卫拒绝
+/// 且**逐列未变** / 解锁要原因且落 `biz_status_log` / 逃生门是否事务级。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod attendance_lock_db_tests;
 /// HR-19 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：期间 CRUD / 状态机三边（含解锁要原因）/
 /// 汇总重算幂等 / 锁定守卫 / 撞码报文。只在 `cargo test` 时编译。
 #[cfg(test)]

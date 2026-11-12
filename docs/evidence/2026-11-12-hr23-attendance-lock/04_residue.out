@@ -1,0 +1,18 @@
+
+=== 清理后 ===
+-- 145 上 hr23% 演练库：
+-- 18096 监听：
+无监听
+-- 临时 profile：
+已删除
+-- git status：
+ M backend/src/business/hr/attendance_record_handler.rs
+ M backend/src/business/hr/attendance_record_model.rs
+MM backend/src/business/hr/mod.rs
+ M backend/src/business/shared/scope.rs
+?? backend/migrations/business/V0392__attendance_lock_guard.down.sql
+?? backend/migrations/business/V0392__attendance_lock_guard.up.sql
+?? backend/src/business/hr/attendance_lock.rs
+?? backend/src/business/hr/attendance_lock_db_tests.rs
+?? docs/evidence/2026-11-12-hr23-attendance-lock/
+?? scripts/verify/hr/attendance_lock_http_smoke.sh

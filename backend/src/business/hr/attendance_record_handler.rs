@@ -14,7 +14,7 @@
 //! |---|---|---|
 //! | **台账按人一行** | `uk_biz_att_rec`（库）+ `page` 只出本表行（不来 join 员工表补空行） | 真库用例 ①：两人两行、`employee_no` 唯一、`total=2` |
 //! | **单行修正写入审计** | `changelog::record_in(&tx, …)` 与业务写**同事务**（D11） | 真库用例 ②：`sys_change_log` 一条、`changed_fields` 只含改动列、`b`/`a` 成对 |
-//! | **锁定期间不可改** | handler 先 `FOR UPDATE` 锁期间判 `LOCKED` + `UPDATE_SQL` 自带 `NOT EXISTS(…status='LOCKED')` | 真库用例 ③：锁后 409 + `68010`，且库里的值**逐列未变** |
+//! | **锁定期间不可改** | `attendance_lock::lock_for_write`（锁期间 → 判 `LOCKED`，HR-23 的唯一判据）+ `UPDATE_SQL` 自带 `NOT EXISTS(…status='LOCKED')` + `V0392` 触发器 | 真库用例 ③：锁后 409 + `68010`，且库里的值**逐列未变** |
 //!
 //! # 单行修正为什么要开事务、并且**先锁期间再锁记录**
 //!
@@ -42,9 +42,10 @@
 //! | 台账列表 | 允许（`editable=false`） | 锁定期间的台账正是「发工资前该核对的那份」，必须能看 |
 //! | 单行修正 | 409 + `68010` | 设计 §4.2.3：`LOCKED` 之后记录不许增删改 |
 //!
-//! 「锁定后写保护」的完整接线（含导入 upsert 路径）属 **HR-23**：本卡在自己的入口上
-//! 封死，并在 `attendance_record_model::UPDATE_SQL` 里留了库层守卫，HR-23 接导入时
-//! 复用它即可。
+//! 「锁定后写保护」的完整接线属 **HR-23**：本卡在自己的入口上封死，并在
+//! `attendance_record_model::UPDATE_SQL` 里留了语句级守卫；HR-23 把判据收到
+//! [`crate::business::hr::attendance_lock`]（本文件的 ② 步已经改为调它），并加了库层触发器
+//! `V0392` 兜住「绕过 handler 的裸 SQL」（导入 upsert / bridge / 手工脚本）。
 
 use axum::Json;
 use axum::extract::{ConnectInfo, Extension, Path, Query};
@@ -53,6 +54,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action as ChangeAction, ChangeTarget, DiffInput};
+use crate::business::hr::attendance_lock;
 use crate::business::hr::attendance_period_dto::PeriodTotals;
 use crate::business::hr::attendance_period_model as period_model;
 use crate::business::hr::attendance_record_dto::{
@@ -68,14 +70,6 @@ use crate::utils;
 pub const PERM_RECORD: &str = "business:hr:attendance:record";
 
 // ==================== 错误原语 ====================
-
-/// `409 + 68010`：当前期间状态下不允许这么做（已锁定）。
-///
-/// 复用考勤那一个「被业务规则拦下」的码（68010）：对前端来说这一类都是
-/// 「这一期现在动不了，去解锁或去找 HR」，不需要为「头」和「行」分两个码。
-fn rule_blocked(message: impl Into<String>) -> ApiError {
-    ApiError::new(409, error_code::HR_ATTENDANCE_PERIOD_RULE_BLOCKED, message.into())
-}
 
 /// `409 + 10003`：并发保护（期间在读与写之间被锁定 / 记录被他人先改）。
 fn conflict(message: impl Into<String>) -> ApiError {
@@ -199,28 +193,18 @@ pub async fn patch_record(
         }
     };
 
-    // ② 锁期间：锁住它，HR-19 的锁定/解锁与 HR-21/22 的导入都抢同一把锁
-    let period = match period_model::lock_in(&tx, peek.period_id).await {
-        Ok(Some(row)) => row,
-        Ok(None) => {
-            let _ = tx.rollback().await;
-            return Err(period_model::not_found_error());
-        }
+    // ② 锁期间行 + 判 `LOCKED`：唯一判据在 `attendance_lock`（HR-23），这里不再自己写一遍
+    //    （判据散在多处 = 有人加状态忘了改一处就漏拦；单测 `writable_statuses_are_complement_of_locked`
+    //     把白名单与 `state_machine::ATTENDANCE_PERIOD_LOCKED` 对拍）。
+    //    加锁顺序固定「期间 → 记录」：HR-19 的锁定/解锁、HR-21/22 的导入抢同一把锁。
+    let period = match attendance_lock::lock_for_write(&tx, peek.period_id).await {
+        Ok(row) => row,
         Err(error) => {
+            // 期间已 LOCKED → 409 + 68010，报文点名期间与下一步；回滚前没有任何写入，库里的值不会变
             let _ = tx.rollback().await;
-            return Err(utils::db_error(error, "锁定考勤记录的所属期间"));
+            return Err(error);
         }
     };
-
-    // ③ 锁定期间 → 记录不许改（设计 §4.2.3）。回滚前不做任何写入，库里的值不会变。
-    if period.is_locked() {
-        let _ = tx.rollback().await;
-        return Err(rule_blocked(format!(
-            "考勤期间 {} 已锁定，考勤记录不能修改：锁定期间是薪资试算的基线，\
-             若要修正请先解锁（需 `考勤锁定/解锁` 权限并填原因）再改，改完重新锁定并试算",
-            period.period_code
-        )));
-    }
 
     // ④ 锁记录并**复读**（拿到锁之前的值可能已被别人改过；用旧值当 before 会写假 diff）
     let current = match model::lock_in(&tx, record_id).await {
@@ -390,12 +374,18 @@ mod tests {
 
     /// 锁定期间的报错必须**点名期间码 + 给出下一步**（解锁 / 重新锁定并试算），
     /// 并带 `68010`（前端据此禁用单元格编辑态后的提示）。
+    /// 报文由 `attendance_lock`（HR-23 的唯一守卫面）出，本处只钉住「改了来源也仍要点名期间」。
     #[test]
     fn locked_period_error_is_actionable() {
-        let error = rule_blocked("考勤期间 2026-11 已锁定，考勤记录不能修改");
+        let error = attendance_lock::locked_error("2026-11");
         assert_eq!(error.status, 409);
         assert_eq!(error.code, error_code::HR_ATTENDANCE_PERIOD_RULE_BLOCKED);
         assert!(error.msg.contains("2026-11"));
+        assert!(
+            error.msg.contains(attendance_lock::LOCK_PERMISSION),
+            "报文要指出下一步权限码：{}",
+            error.msg
+        );
     }
 
     /// 修正后的行必须自带「能不能改」与期间状态（前端据此置灰单元格）。

@@ -1,0 +1,20 @@
+=== 1. rustfmt --check（本卡 4 个 .rs）===
+rustfmt: clean (EXIT=0)
+
+=== 2. cargo clippy --all-targets -- -D warnings ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 40s
+
+=== 3. cargo test --lib（不设 HR_DB_URL → 真库用例自动 SKIP）===
+assertion `left == right` failed: 架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs + SO-36 的佣金结算单 + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账 + ARCH-9 D-12 的员工主档 + ARCH-9 §4.7.3 的请假单
+  left: 17
+ right: 16
+
+
+failures:
+    business::permission::scope_model::tests::d8_coverage_matches_registry
+    business::shared::guard::tests::preflight_uses_the_registry
+
+test result: FAILED. 5212 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.31s
+
+error: test failed, to rerun pass `--lib`

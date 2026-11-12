@@ -1,0 +1,27 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 16 tests
+test business::hr::attendance_lock::tests::assert_writable_reports_409_68010_with_period_code ... ok
+test business::hr::attendance_lock::tests::bypass_sql_is_transaction_scoped ... ok
+test business::hr::attendance_lock::tests::down_migration_removes_trigger_and_function ... ok
+test business::hr::attendance_lock::tests::draft_and_submitted_are_writable ... ok
+test business::hr::attendance_lock::tests::driver_hidden_message_is_still_recognised ... ok
+test business::hr::attendance_lock::tests::guard_marker_is_the_migration_prefix ... ok
+test business::hr::attendance_lock::tests::lock_and_unlock_route_carries_lock_permission ... ok
+test business::hr::attendance_lock::tests::migration_guards_exactly_insert_and_update ... ok
+test business::hr::attendance_lock::tests::non_lock_failure_is_not_mistaken_for_lock ... ok
+test business::hr::attendance_lock::tests::record_write_route_carries_record_permission ... ok
+test business::hr::attendance_lock::tests::unlock_edge_requires_reason ... ok
+test business::hr::attendance_lock::tests::writable_statuses_are_complement_of_locked ... ok
+test business::hr::attendance_lock_db_tests::db::bypass_gate_is_transaction_scoped ... [HR-23] ④ 逃生门 SET LOCAL 事务内放行、提交后自动恢复（拒：cloudpivot.attendance_lock_guard）
+ok
+test business::hr::attendance_lock_db_tests::db::lock_for_write_helper_blocks_locked_and_passes_draft ... [HR-23] ③ lock_for_write：草稿放行 / 锁定 409+68010 / 不存在 404，事务回滚后无残留锁
+ok
+test business::hr::attendance_lock_db_tests::db::locked_period_rejects_insert_update_and_soft_delete ... [HR-23] ① 锁定后 INSERT/UPDATE/软删 全被库层守卫拒（CP001→409/68010），期间=2461-02 值逐列未变
+ok
+test business::hr::attendance_lock_db_tests::db::unlock_requires_reason_writes_audit_and_restores_writes ... [HR-23] ② 缺原因/原因过短 → 400；给原因解锁成功；状态日志 7 行，解锁原因已落库 `HR23 夹具：月末补录漏掉的两人`
+ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 5198 filtered out; finished in 5.97s
+

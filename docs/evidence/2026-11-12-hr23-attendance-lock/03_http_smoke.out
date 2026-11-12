@@ -1,0 +1,41 @@
+== HR-23 考勤锁定/解锁 HTTP 冒烟 BASE=http://127.0.0.1:18096 期间=2426-02 ==
+   （审计直查 已连接）
+[PASS] 未登录调状态接口 → 401（不是 404，鉴权在位）
+[PASS] 夹具准备：SQL 清掉 admin 的 must_change_password（演练库；不经改密接口，理由见下）
+[PASS] admin 登录成功
+[PASS] admin 已可调业务接口（must_change_password 已由夹具准备清掉）
+[PASS] 建期间 2426-02 → 200（200）
+[PASS] 新建状态 DRAFT（DRAFT）
+[PASS] 提交 → 200（200）
+[PASS] 状态 SUBMITTED（SUBMITTED）
+[PASS] 锁定 → 200（200）
+[PASS] 状态 LOCKED（LOCKED）
+[PASS] 锁定后改期间 → 409（409）
+[PASS] 业务码 68010（HR_ATTENDANCE_PERIOD_RULE_BLOCKED）（68010）
+[PASS] 409 报文说明已锁定（报文含「已锁定」）
+[PASS] 409 报文给出下一步：先解锁再改（报文含「解锁」）
+[PASS] 锁定后重算汇总 → 409（409）
+[PASS] 重算也是 68010（68010）
+[PASS] 库里的 remark 未被改写（实际「HR23 冒烟」）
+[PASS] 读角色列表 → 200（200）
+[PASS] 建 EMPLOYEE 角色账号 hr23.limited.161525
+[PASS] 受限账号 must_change_password 用 SQL 清掉（演练库夹具准备）
+[PASS] 受限账号登录成功
+[PASS] EMPLOYEE 账号解锁 → 403（缺 business:hr:attendance:lock）（403）
+[PASS] 403 报文是「无权限」而不是「首次登录必须先修改初始密码」（报文含「无权限」）
+[PASS] 受限账号读列表 → 200（200）
+[PASS] 解锁缺原因 → 400（400）
+[PASS] 解锁原因过短（2 字）→ 400（400）
+[PASS] 给足原因解锁 → 200（200）
+[PASS] 解锁后状态回 DRAFT（DRAFT）
+[PASS] 解锁后 locked=false（false）
+[PASS] 日志里有 SUBMITTED 行
+[PASS] 日志里有 LOCKED 行
+[PASS] 解锁日志带原因且 operator_id 非空（审计可追溯）
+[PASS] 建单+提交+锁定+解锁 = 4 行日志（4）
+[PASS] 解锁后改期间 → 200（200）
+[PASS] 改动已落库并回显（报文含「解锁后可以改」）
+[PASS] 删除受限账号（清场）
+[PASS] 软删期间（清场）
+
+== 汇总：PASS=37 FAIL=0 SKIP=0 ==
