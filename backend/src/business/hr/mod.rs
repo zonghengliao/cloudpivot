@@ -231,6 +231,11 @@ pub mod salary_item_formula;
 pub mod salary_item_handler;
 /// 薪资项数据层（`biz_salary_item`）：分页 / 单条 / 依赖图快照 / 序号取号 / 编码与顺序查重 / 建改（HR-31）。
 pub mod salary_item_model;
+/// 薪资项种子（`V0396__hr_salary_items_seed`）的验收用例（HR-35）：不连库直接解析**迁移文件本身**
+/// （17 项齐全 / 科目按类型必填 / 7 条公式过 HR-32 解析器 + §4.4.4 试算数字）；
+/// 配 `HR_DB_URL` / `ERP_DB_URL` 时再验真库落库逐列、科目末级启用、命名空间占用。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_item_seed_tests;
 /// 员工薪资标准数据层（`biz_employee_salary`）：版本读写 + 区间重叠判定（A3）（HR-16）。
 pub mod salary_model;
 
