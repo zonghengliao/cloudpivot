@@ -1,0 +1,50 @@
+[裁剪版：原始 62832 行 / 4.3M（含每条迁移的 SQL 调试输出）。保留：头 20 行 + 连库/迁移结论关键行 + 尾 20 行。完整复跑见 run.sh。]
+
+[2m2026-11-12T18:49:39.323113Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m0 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-12T18:49:39.328256Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@172.18.10.145:5432/v0399_t3_migrated?sslmode=prefer
+[2m2026-11-12T18:49:39.328292Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s0: SELECT 1
+[2m2026-11-12T18:49:39.328671Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s0 with parameters: []
+[2m2026-11-12T18:49:39.329002Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-12T18:49:39.338292Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s1: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+[2m2026-11-12T18:49:39.338915Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: BEGIN
+[2m2026-11-12T18:49:39.339219Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s2: SELECT pg_try_advisory_lock($1)
+[2m2026-11-12T18:49:39.339671Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s2 with parameters: [Int(7956008334390686208)]
+[2m2026-11-12T18:49:39.340028Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s3: CREATE TABLE IF NOT EXISTS schema_migrations (
+    kind         VARCHAR(16)  NOT NULL,
+    name         VARCHAR(100) NOT NULL,
+    version      VARCHAR(64),
+    checksum     VARCHAR(64),
+    applied_via  VARCHAR(16)  NOT NULL,
+    applied_at   BIGINT       NOT NULL,
+    applied_seq  BIGINT       NOT NULL,
+    execution_ms BIGINT,
+    success      BOOLEAN      NOT NULL,
+    source       VARCHAR(255),
+
+--- 连库 / 迁移结论（关键判据） ---
+    --   原实现在此硬断言它们存在 → 首次 `cargo run` 迁移直接 FATAL 失败
+-- 改一个字节都会让实例启动直接 FATAL（migration version N was modified after it was applied）。
+--   （FATAL: 服务启动失败: 配置错误: 数据库迁移失败）。应急处理是把 V0359 手工记为已应用
+[2m2026-11-12T18:49:40.855759Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 329 个迁移
+
+--- 尾 20 行 ---
+[2m2026-11-12T18:49:41.394559Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_po_overdue_scan 调度循环已停止
+[2m2026-11-12T18:49:41.394560Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain 调度循环已停止
+[2m2026-11-12T18:49:41.394561Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 payable_payment_reconcile 调度循环已停止
+[2m2026-11-12T18:49:41.394572Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_scheduled_dispatch 调度循环已停止
+[2m2026-11-12T18:49:41.394574Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_export_worker 调度循环已停止
+[2m2026-11-12T18:49:41.394579Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 metrics_snapshot 调度循环已停止
+[2m2026-11-12T18:49:41.394586Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 invariant_audit 调度循环已停止
+[2m2026-11-12T18:49:41.394562Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 business_task_recurring 调度循环已停止
+[2m2026-11-12T18:49:41.394588Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_graph_selfcheck 调度循环已停止
+[2m2026-11-12T18:49:41.394600Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 voucher_reverse_reconcile 调度循环已停止
+[2m2026-11-12T18:49:41.394604Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_sse_channel_sweep 调度循环已停止
+[2m2026-11-12T18:49:41.394605Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_credit_recompute 调度循环已停止
+[2m2026-11-12T18:49:41.394606Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 task_hermes_sync 调度循环已停止
+[2m2026-11-12T18:49:41.394607Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_security_log 调度循环已停止
+[2m2026-11-12T18:49:41.394608Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_password_log 调度循环已停止
+[2m2026-11-12T18:49:41.394615Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_contract_expire_scan 调度循环已停止
+[2m2026-11-12T18:49:41.394641Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-12T18:49:41.394645Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-12T18:49:41.394698Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+[2m2026-11-12T18:49:41.394704Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件已全部停止，关停完成 [3melapsed_ms[0m[2m=[0m3

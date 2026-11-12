@@ -1,0 +1,38 @@
+== 生产 144 迁移状态（2026-11-13 实测，卡 t_83977c43）==
+查询方式：ssh root@172.18.10.144 → psql -h 127.0.0.1 -U cloudpivot -d cloudpivot（口令取自 /etc/cloudpivot/cloudpivot.env，仅在本机转发，不落盘）
+
+── A) 生产库 schema_migrations 查询
+Pager usage is off.
+--- 1) 生产库里 397 这条迁移记录（V0397 / preference_palette / hr_salary_period）
+ kind | name | version | success | applied_at 
+------+------+---------+---------+------------
+(0 rows)
+
+--- 2) 生产库已应用的最高迁移版本
+ max_applied_version 
+---------------------
+                 391
+(1 row)
+
+--- 3) 生产库迁移记录分布
+   kind    | count 
+-----------+-------
+ seed      |    11
+ versioned |   310
+(2 rows)
+
+--- 4) 最近 6 条已应用迁移
+            name            | version |    applied_at    
+----------------------------+---------+------------------
+ flow_cost_settle_is_system | 391     | 2026-11-12 10:47
+ hr_attachment_doc_types    | 389     | 2026-11-11 23:31
+ hr_mask_config             | 388     | 2026-11-11 23:31
+ hr_menu_perms              | 387     | 2026-11-11 23:31
+ hr_seq_dict                | 386     | 2026-11-11 23:31
+ cost_module_switch         | 385     | 2026-11-11 23:31
+(6 rows)
+
+
+── B) 生产部署树（代码）：当前提交 + 磁盘上已有迁移的最大版本
+6807bb5e feat(cost): calc 编排接口 POST /cost-period/calc（六段串联 → HTTP · COST-B2-15）
+迁移文件最大版本：V0391__flow_cost_settle_is_system.up.sql

@@ -1,0 +1,9 @@
+[2m2026-11-12T18:58:03.966410Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m0 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-12T18:58:03.970450Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@172.18.10.145:5432/v0399_t4_fixed?sslmode=prefer
+[2m2026-11-12T18:58:03.970532Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s0: SELECT 1
+[2m2026-11-12T18:58:03.970891Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s0 with parameters: []
+[2m2026-11-12T18:58:03.971156Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-12T18:58:03.983276Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s1: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+[2m2026-11-12T18:58:03.983948Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s1 with parameters: []
+[2m2026-11-12T18:58:03.998728Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: migration version 399 (`preference_palette_ids_gallery77`) was modified after it was applied: recorded checksum `00f1ef959e44bd7e010eec0a1a9fe7bf56c12a7fc569528e556e6709bea953e2` != current `5535eac8f77ca556a8830f40d81886d9a6db6bf99d19f5495af80cb306c87051`; the applied migration has been tampered with — restore the file or fix `schema_migrations`
+FATAL: 服务启动失败: 配置错误: 数据库迁移失败: migration version 399 (`preference_palette_ids_gallery77`) was modified after it was applied: recorded checksum `00f1ef959e44bd7e010eec0a1a9fe7bf56c12a7fc569528e556e6709bea953e2` != current `5535eac8f77ca556a8830f40d81886d9a6db6bf99d19f5495af80cb306c87051`; the applied migration has been tampered with — restore the file or fix `schema_migrations`

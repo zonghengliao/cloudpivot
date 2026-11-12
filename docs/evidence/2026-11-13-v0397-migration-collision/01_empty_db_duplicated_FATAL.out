@@ -1,0 +1,7 @@
+[2m2026-11-12T18:49:33.912727Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m1 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-12T18:49:33.918259Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@172.18.10.145:5432/v0399_t1_empty?sslmode=prefer
+[2m2026-11-12T18:49:33.918294Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s0: SELECT 1
+[2m2026-11-12T18:49:33.918696Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s0 with parameters: []
+[2m2026-11-12T18:49:33.919092Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-12T18:49:33.929311Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: migration error: duplicate down migration for version 397: 'migrations/system/V0397__preference_palette_ids_gallery77.down.sql' conflicts with 'migrations/business/V0397__hr_salary_period_after_reverse.up.sql'; identities must be globally unique across all sources
+FATAL: 服务启动失败: 配置错误: 数据库迁移失败: migration error: duplicate down migration for version 397: 'migrations/system/V0397__preference_palette_ids_gallery77.down.sql' conflicts with 'migrations/business/V0397__hr_salary_period_after_reverse.up.sql'; identities must be globally unique across all sources

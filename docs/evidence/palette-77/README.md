@@ -13,7 +13,7 @@
 | 引擎 | `frontend/src/style/palettes.ts` | 两处**对比度兜底**修复（细节见 §四）：`ensureContrast` 中间调底色方向、渐变终点油墨选择 |
 | 页面 | `frontend/src/views/user/preference.vue` | 搜索框（名称/色名/色值/来源文件/id）+ 三段分组折叠 + 每卡 5 色块/N 色原稿标记；对比度报告收窄为「当前方案 × 明暗 2 组」 |
 | 顶栏 | `frontend/src/layouts/components/PaletteSwitch.vue` | 快捷面板只放精选 22 套（当前若是 gallery 方案则置顶），高度上限 + 滚动；页脚改为「共 99 套方案 · 去外观设置看全部」 |
-| 后端契约 | `backend/migrations/system/V0397__preference_palette_ids_gallery77.{up,down}.sql` | `sys_preference_def.ui.palette` 的 `oneof:` 白名单从 22 扩到 99（列宽 300→2000），否则选新方案会被 `62022` 拒收 |
+| 后端契约 | `backend/migrations/system/V0399__preference_palette_ids_gallery77.{up,down}.sql` | `sys_preference_def.ui.palette` 的 `oneof:` 白名单从 22 扩到 99（列宽 300→2000），否则选新方案会被 `62022` 拒收。**原落库为 V0397，因与 HR-40 的 `business/V0397` 撞号，已改号 V0399（内容未变，见卡 t_83977c43）** |
 | 检查脚本 | `frontend/scripts/check-palettes.mjs` | 数量断言 22→99，新增 gallery 数据自检（分组/来源/源色数/brand·merge 必须来自源色）+ merge 正文对比度 ≥4.5 |
 
 ## 二、映射规则（按 HSL 亮度 L 升序）
@@ -67,7 +67,8 @@
 ```
 
 前端是「本地立即生效 + 异步落库」，所以表现为：**当次切换正常、刷新后被打回 mist-blue**（后端旧值优先）。
-`V0397` 扩白名单后 PUT 通过、`GET` 回读一致；非法 id 仍被拒（负向未放宽）。
+`V0399` 扩白名单后 PUT 通过、`GET` 回读一致；非法 id 仍被拒（负向未放宽）。
+（该迁移原为 `V0397`，因与 HR-40 的 `business/V0397` 撞号已改号 `V0399`，内容一字未改 —— 见卡 `t_83977c43`。）
 另有 `scripts/lint/palette_def_sync.py` 这道 L0 门禁守着前后端白名单一致性，本次一并修成
 「读迁移号最大的那条 oneof」，并加了正负向自检（`scripts/verify/palette_def_sync_selftest.py`）。
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 库存写入口（含自检）/ 迁移授权段角色码
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 迁移授权段角色码
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check / pnpm typecheck
 #   L2  连库与存量档（分钟级，需库）   ：闸⓪真库用例（CHECK_WITH_DB=1）/ 批次B 闸①闸②
@@ -92,6 +92,7 @@ plan_all() {
     if want L0; then
         plan L0 "C7 变更日志回滚零残留 G1–G6" "grep/awk 静态检查（scripts/check.sh · batchc_gates）"
         plan L0 "偏好字典 ui.palette ↔ 前端色板一致" "python3 scripts/lint/palette_def_sync.py --root ."
+        plan L0 "迁移版本号跨目录全局唯一（自检 + 扫描）" "python3 scripts/lint/migration_version_unique.py --selftest && python3 scripts/lint/migration_version_unique.py --root ."
         plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
     fi
@@ -539,6 +540,35 @@ if want L0; then
 echo "==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）"
 if ! python3 "$ROOT/scripts/lint/palette_def_sync.py" --root "$ROOT"; then
     echo "==> 一致性门禁未通过：改色板时必须同步改 V0091 的 validator" >&2
+    exit 1
+fi
+fi
+
+# ======================================================================
+# 迁移文件名 / 版本号跨目录全局唯一（判据 A–E，见脚本头注释）
+#
+# 为什么是硬门禁：`backend/migrations/{system,support,business}` 在磁盘上是三个目录，
+# 但 nik 的加载器把它们合成**一张槽位表**，再按版本号排序执行。同一个版本号出现在两个
+# 目录里 ⇒ 加载阶段直接 `duplicate up migration for version N` + FATAL，**与库的状态无关**
+# （2026-11-13 实测：主题配色卡 2609c7f6 与 HR-40 卡 83a4cfab 各取了一个 V0397，
+# 空库首启 rc=1、已迁满 329 条记录的库重启也 rc=1）。各卡的真库回放脚本是
+# `ls | sort -n | psql` 自己逐条回放的，**不经过加载器**，所以「319 条回放全绿」证明不了
+# 版本号唯一 —— 只有静态检查能提前发现。
+#
+# 判定规则本身由 `--selftest` 的红/绿语料守住（语料被改坏 / 判据被放宽，自检立刻红）。
+# ======================================================================
+
+if want L0; then
+echo "==> 迁移版本号门禁 · 判据自检（--selftest）"
+if ! python3 "$ROOT/scripts/lint/migration_version_unique.py" --selftest; then
+    echo "==> 门禁自身失效：自检语料未全绿（判据被改坏了？）" >&2
+    exit 1
+fi
+
+echo "==> 迁移文件名与版本号（scripts/lint/migration_version_unique.py）"
+if ! python3 "$ROOT/scripts/lint/migration_version_unique.py" --root "$ROOT"; then
+    echo "==> 门禁未通过：版本号必须跨 system/support/business 全局唯一（取全局最大 + 1），" >&2
+    echo "    且 up/down 成对、已应用的迁移不许改号（指纹校验会红）。" >&2
     exit 1
 fi
 fi

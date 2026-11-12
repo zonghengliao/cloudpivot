@@ -1,0 +1,47 @@
+[裁剪版：原始 208 行 / 40K（含每条迁移的 SQL 调试输出）。保留：头 20 行 + 连库/迁移结论关键行 + 尾 20 行。完整复跑见 run.sh。]
+
+[2m2026-11-12T18:56:22.930345Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m0 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-12T18:56:22.935256Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@172.18.10.145:5432/v0399_t4_fixed?sslmode=prefer
+[2m2026-11-12T18:56:22.935297Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s0: SELECT 1
+[2m2026-11-12T18:56:22.935696Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s0 with parameters: []
+[2m2026-11-12T18:56:22.935988Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-12T18:56:22.946468Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s1: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+[2m2026-11-12T18:56:22.947148Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s1 with parameters: []
+[2m2026-11-12T18:56:22.962774Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+[2m2026-11-12T18:56:22.962796Z[0m [32m INFO[0m [2mnik_cache[0m[2m:[0m 使用本地缓存 capacity=10000 app=cloudpivot
+[2m2026-11-12T18:56:22.962807Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 上传目录就绪 path=uploads max_size_mb=128
+[2m2026-11-12T18:56:22.962811Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 下载目录就绪 path=downloads
+[2m2026-11-12T18:56:22.962814Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 执行 1 个自定义启动钩子（按注册顺序）
+[2m2026-11-12T18:56:22.962823Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 启动引导完成 [3mapp[0m[2m=[0mcloudpivot [3mprofile[0m[2m=[0mtest [3mdb_driver[0m[2m=[0mpostgres
+[2m2026-11-12T18:56:22.962869Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s2: SELECT * FROM "sys_user" WHERE "sys_user"."deleted_at" IS NULL AND username = $1 LIMIT 1
+[2m2026-11-12T18:56:22.962912Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::worker[0m[2m:[0m 已注册内置定时任务（导入导出 worker） [3mtask[0m[2m=[0m"impexp_export_worker" [3mcron[0m[2m=[0m"*/5 * * * * *"
+[2m2026-11-12T18:56:22.962919Z[0m [32m INFO[0m [2mcloudpivot::business::impexp::cleanup[0m[2m:[0m 已注册内置定时任务（导入导出清理） [3mtask[0m[2m=[0m"impexp_task_cleanup" [3mcron[0m[2m=[0m"0 40 4 * * *"
+[2m2026-11-12T18:56:22.962924Z[0m [32m INFO[0m [2mcloudpivot::task[0m[2m:[0m 变更日志分区运维任务已注册（C6 真实现） [3minvoke_target[0m[2m=[0m"changelog_partition_maintain" [3mcron[0m[2m=[0m"0 20 1 1 * *"
+[2m2026-11-12T18:56:22.962928Z[0m [32m INFO[0m [2mcloudpivot::business::task::hermes_sync[0m[2m:[0m AI 任务状态同步任务已注册（T5b） [3mtask[0m[2m=[0m"task_hermes_sync" [3mcron[0m[2m=[0m"*/30 * * * * *"
+[2m2026-11-12T18:56:22.962933Z[0m [32m INFO[0m [2mcloudpivot::business::erp::transfer_overdue[0m[2m:[0m 在途调拨超期扫描任务已注册 [3minvoke_target[0m[2m=[0m"transfer_overdue_scan" [3mcron[0m[2m=[0m"0 5 * * * *"
+[2m2026-11-12T18:56:22.962942Z[0m [32m INFO[0m [2mcloudpivot::business::erp::reminder[0m[2m:[0m 业务提醒任务已注册 [3minvoke_target[0m[2m=[0m"erp_payable_due_scan" [3mcron[0m[2m=[0m"0 10 7 * * *"
+
+--- 连库 / 迁移结论（关键判据） ---
+[2m2026-11-12T18:56:22.962774Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+--- 尾 20 行 ---
+[2m2026-11-12T18:56:24.971942Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 invariant_audit 调度循环已停止
+[2m2026-11-12T18:56:24.971930Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_password_log 调度循环已停止
+[2m2026-11-12T18:56:24.971910Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 clean_security_log 调度循环已停止
+[2m2026-11-12T18:56:24.971980Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_auto_expire 调度循环已停止
+[2m2026-11-12T18:56:24.972017Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 notice_sse_channel_sweep 调度循环已停止
+[2m2026-11-12T18:56:24.972023Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 metrics_snapshot 调度循环已停止
+[2m2026-11-12T18:56:24.972026Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_po_overdue_scan 调度循环已停止
+[2m2026-11-12T18:56:24.972029Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 token_blacklist_cleanup 调度循环已停止
+[2m2026-11-12T18:56:24.971958Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_contract_expire_scan 调度循环已停止
+[2m2026-11-12T18:56:24.972055Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 transfer_overdue_scan 调度循环已停止
+[2m2026-11-12T18:56:24.972061Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain 调度循环已停止
+[2m2026-11-12T18:56:24.972066Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_credit_recompute 调度循环已停止
+[2m2026-11-12T18:56:24.971943Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 erp_depreciation_run 调度循环已停止
+[2m2026-11-12T18:56:24.971948Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 storage_object_cleanup 调度循环已停止
+[2m2026-11-12T18:56:24.972034Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 announcement_top_expire 调度循环已停止
+[2m2026-11-12T18:56:24.972077Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 impexp_task_cleanup 调度循环已停止
+[2m2026-11-12T18:56:24.972243Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-12T18:56:24.972253Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-12T18:56:24.972349Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+[2m2026-11-12T18:56:24.972364Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件已全部停止，关停完成 [3melapsed_ms[0m[2m=[0m8

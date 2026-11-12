@@ -1,0 +1,40 @@
+==> check.sh：本次执行 L0（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟））
+==> 闸⓪：真库用例 —— 跳过（本档不含 L2；--fast 只跑 L0+L1）
+==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）
+  PASS：生产面 0 处（测试面按语义豁免）
+==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）
+  PASS：0 处（注释中的示例不计）
+==> C7 G3：record 的签名必须带 &impl SqlExecutor
+  PASS
+==> C7 G4：不得存在『无 executor 版本』的 record 函数
+  PASS
+==> C7 G5：每个 record/record_in 调用点必须在 transaction 闭包内且传 &tx
+G5 PASS：检查了 33 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 727 个文件）
+==> C7 G6：按 id 查 sys_change_log 必须同时带分区键 created_at（R14）
+  PASS：0 处
+==> C7 门禁汇总：G1–G6 共 6 条，未通过 0 条
+==> C7 门禁：全部通过
+==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）
+  PASS：99 套色板与 V0399__preference_palette_ids_gallery77.up.sql 的 ui.palette oneof 逐字一致
+==> 迁移版本号门禁 · 判据自检（--selftest）
+  ✓ 正向：跨目录连续号 + 成对 + 种子：期望 全绿 / 实际 全绿
+  ✓ 负向 A：跨目录同号（就是本次事故）：期望 ['A'] / 实际 ['A']
+  ✓ 负向 A：零填充不同但数值相同也必须抓：期望 ['A', 'B'] / 实际 ['A', 'B']
+  ✓ 负向 B：未 4 位补零：期望 ['B'] / 实际 ['B']
+  ✓ 负向 C：同名跨版本：期望 ['C'] / 实际 ['C']
+  ✓ 负向 D：有 up 缺 down：期望 ['D'] / 实际 ['D']
+  ✓ 负向 D：孤儿 down：期望 ['D'] / 实际 ['D']
+  ✓ 负向 E：文件名带空格/连字符：期望 ['E'] / 实际 ['E']
+  ✓ 判据自检全绿（8 条语料）
+==> 迁移文件名与版本号（scripts/lint/migration_version_unique.py）
+✗ 迁移文件名判据未通过（2 条）：
+    [A] 版本号 399 重复（2 个 down 迁移，nik 要求跨来源目录全局唯一）：
+        - business/V0399__dup_probe.down.sql
+        - system/V0399__preference_palette_ids_gallery77.down.sql
+      修法：给其中「未上生产」的那条改号 —— 取全局最大 V0399 + 1；已应用过的迁移文件不许改名/改内容（指纹校验会红）
+    [A] 版本号 399 重复（2 个 up 迁移，nik 要求跨来源目录全局唯一）：
+        - business/V0399__dup_probe.up.sql
+        - system/V0399__preference_palette_ids_gallery77.up.sql
+      修法：给其中「未上生产」的那条改号 —— 取全局最大 V0399 + 1；已应用过的迁移文件不许改名/改内容（指纹校验会红）
+==> 门禁未通过：版本号必须跨 system/support/business 全局唯一（取全局最大 + 1），
+    且 up/down 成对、已应用的迁移不许改号（指纹校验会红）。

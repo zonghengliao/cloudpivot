@@ -1,0 +1,8 @@
+[2m2026-11-12T19:00:01.289628Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m1 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-12T19:00:01.296801Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://cloudpivot:***@172.18.10.145:5432/v0399_t4_fixed?sslmode=prefer
+[2m2026-11-12T19:00:01.296839Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s0: SELECT 1
+...
+    --   原实现在此硬断言它们存在 → 首次 `cargo run` 迁移直接 FATAL 失败
+-- 改一个字节都会让实例启动直接 FATAL（migration version N was modified after it was applied）。
+--   （FATAL: 服务启动失败: 配置错误: 数据库迁移失败）。应急处理是把 V0359 手工记为已应用
+[2m2026-11-12T19:00:03.233872Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 330 个迁移

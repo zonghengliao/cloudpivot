@@ -63,3 +63,10 @@ duplicate up migration for version 397:
 本卡为跑真机验收，把迁移目录复制到仓库外、摘掉 system/V0397 后才起得来
 （`[database.migration] path` 指过去，`config-test.toml` 是 gitignore 的本地文件）。
 修法要动迁移号段（V0399 + 已应用库的指纹处理），属后端范围，已另开卡。
+
+> **后续（2026-11-13，卡 t_83977c43 判定）**：已确认 **144 生产库最高只应用过 V0391**，
+> 两条 V0397 都**没有**上过生产 ⇒ 允许改号。判定给「配色那条」改号为
+> `system/V0399__preference_palette_ids_gallery77`（内容不变，只换号），HR-40 的
+> `business/V0397` 保持不动。另实测：改号后**不需要**为「已应用旧号的库」做任何指纹处置 ——
+> 旧记录会变成 `Missing`，新号会被幂等补跑（本条是本卡的实测结论，见
+> `docs/architecture/ADR-003-迁移版本号撞号处置.md`）。
