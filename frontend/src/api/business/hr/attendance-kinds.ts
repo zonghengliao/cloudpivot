@@ -64,7 +64,7 @@ export const ATTENDANCE_PERMS = {
   record: 'business:hr:attendance:record',
   /** 导入考勤（Excel） */
   import: 'business:hr:attendance:import',
-  /** 导出考勤（随 HR-30，本页不画按钮） */
+  /** 导出考勤台账 xlsx（HR-30；含「锁定状态」列） */
   export: 'business:hr:attendance:export',
   /** 提交 / 锁定 / 解锁 */
   lock: 'business:hr:attendance:lock',
@@ -170,6 +170,35 @@ export const ATTENDANCE_BIZ_TYPE = 'hr.attendance';
 
 /** 导入模板/定义的中文名（按钮与弹窗标题用） */
 export const ATTENDANCE_BIZ_LABEL = '考勤台账';
+
+// ==================== 导出（后端 `attendance_export.rs` 的镜像） ====================
+
+/** 单次导出上限（后端 `EXPORT_MAX_ROWS`；超限时后端在响应头报截断） */
+export const ATTENDANCE_EXPORT_MAX_ROWS = 5000;
+
+/**
+ * 导出表「锁定状态」列的两个值（后端 `LOCK_LABEL_LOCKED` / `LOCK_LABEL_UNLOCKED`）。
+ *
+ * 导出文件由后端生成，这里的词表只用于**页面提示**（「这份表是已锁定的工资基线」），
+ * 与后端逐字一致才不至于「界面说未锁定、Excel 里写已锁定」。
+ */
+export const EXPORT_LOCK_LABELS = {
+  locked: '已锁定',
+  unlocked: '未锁定',
+} as const;
+
+/**
+ * 导出的默认文件名：`考勤台账_2026-11_已锁定.xlsx`。
+ *
+ * 后端响应头里本来就有 `Content-Disposition`（用不上时也不影响），
+ * 但 `saveBlob` 需要一个名字，而 `Axios` 的 blob 响应在跨域/代理下取响应头并不可靠 ——
+ * 直接用「期间 + 锁定态」在本地拼，文件名一定对得上这份数据。
+ */
+export function attendanceExportFileName(periodCode: string, locked: boolean): string {
+  const code = (periodCode || '').trim() || '未知期间';
+  const state = locked ? EXPORT_LOCK_LABELS.locked : EXPORT_LOCK_LABELS.unlocked;
+  return `考勤台账_${code}_${state}.xlsx`;
+}
 
 // ==================== 出参类型（逐字段抄后端） ====================
 

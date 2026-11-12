@@ -15,7 +15,8 @@
  * | DK | PUT    | `/attendance/period/{id}` | `attendance:period` | 编辑期间的起止 / 备注 |
  * | DK | DELETE | `/attendance/period/{id}` | `attendance:period` | 删草稿期间（软删） |
  * | DK | POST   | `/attendance/period/{id}/recalc` | `attendance:period` | 汇总重算（幂等可观测） |
- * | 23 | POST   | `/attendance/import` | `attendance:import` | **未落地**（HR-21 只交导入定义） |
+ * | 23 | POST   | `/attendance/import` | `attendance:import` | 上传考勤表（走 impexp 通用三段） |
+ * | 24 | GET    | `/attendance/export` | `attendance:export` | 导出考勤台账 xlsx（HR-30，含锁定状态列） |
  *
  * # 路径必须写全 `/api`
  *
@@ -32,7 +33,7 @@
  * 只需换这一个函数体，页面不用动。
  */
 
-import { del, get, post, put, type PageData } from '@/api/request';
+import service, { del, get, post, put, type PageData } from '@/api/request';
 import {
   confirmImport,
   downloadImportTemplate,
@@ -110,6 +111,55 @@ export function fetchRecordPage(query: Record<string, unknown>): Promise<PageDat
  */
 export function patchRecord(id: string, payload: RecordPatchPayload): Promise<RecordPatchRes> {
   return put<RecordPatchRes>(`${BASE}/attendance/record/${id}`, payload);
+}
+
+/**
+ * 导出考勤台账 xlsx（`GET /business/hr/attendance/export`，权限 `attendance:export`，HR-30）。
+ *
+ * 导出的是**屏幕上那张表**：`period_id` 必填，`dept_id` / `keyword` 跟列表页同口径。
+ * 后端按数据范围（部门）裁，部门范围的人导不到别部门的行。
+ *
+ * # 为什么用 `responseType: 'blob'` 而不是 `get()`
+ *
+ * 这个接口回的是二进制 xlsx（不是 JSON 信封）。用普通 `get()` 会把二进制当 UTF-8 解成
+ * 乱码字符串，再拼成 Blob 就是坏文件（解压报「文件已损坏」）。
+ *
+ * # 为什么还要看一眼 `content-type`
+ *
+ * 接口在 400/404/500 时回的是 **JSON 错误信封**（`{code,msg}`），也走同一个 `response`。
+ * 如果直接把它当 blob 存成 `.xlsx`，用户得到的是一个「打不开的 Excel」而不是
+ * 「考勤期间不存在」。所以非 `spreadsheet` 的响应先读成文本、抠出 `msg` 再抛错。
+ */
+export async function downloadAttendanceExport(
+  periodId: string,
+  filters: { dept_id?: string; keyword?: string } = {},
+): Promise<Blob> {
+  const params: Record<string, unknown> = { period_id: periodId };
+  if (filters.dept_id) {
+    params.dept_id = filters.dept_id;
+  }
+  if (filters.keyword) {
+    params.keyword = filters.keyword;
+  }
+  const response = await service.get<Blob>(`${BASE}/attendance/export`, {
+    params,
+    responseType: 'blob',
+  });
+  const contentType = String(response.headers?.['content-type'] ?? '');
+  if (contentType.includes('spreadsheetml') || contentType.includes('octet-stream')) {
+    return response.data;
+  }
+  // 走到这里说明后端回的是错误信封（或命中了 SPA fallback 的 HTML）
+  const text = await (response.data as unknown as Blob).text();
+  let message = '导出失败';
+  try {
+    const body = JSON.parse(text) as { msg?: string; message?: string };
+    message = body.msg || body.message || message;
+  } catch {
+    // 不是 JSON：多半是 HTML（路径漏了 `/api` 命中 SPA fallback）
+    message = text.includes('<html') ? '导出接口返回了页面而不是文件：请检查接口路径前缀' : '导出失败';
+  }
+  throw new Error(message);
 }
 
 // ==================== 导入（走 impexp 通用三段，见文件头） ====================

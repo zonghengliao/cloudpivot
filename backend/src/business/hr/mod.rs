@@ -102,6 +102,13 @@
 //! - 设计 §5.2 表头写「42 条」、正文编号到 46（以 46 为准）；
 //!   脚注写「4 处 `/my`」而表里只有 2 处（`/leave/my` 随 HR-41 落）。
 
+/// 考勤台账导出 xlsx（设计 §5.2 #24 · HR-30）：20 列（含**锁定状态**列）+ 期间头口径 +
+/// 单次 5000 行上限（截断在响应头上报，不静默给残表）。
+pub mod attendance_export;
+/// HR-30 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：100 人一期的导出耗时与行数、
+/// 锁定 / 未锁定的 `锁定状态` 列、部门范围不越权。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod attendance_export_db_tests;
 /// 考勤「**锁定后写保护**」的唯一守卫面（状态判定 / 锁期间行 / 库层 `CP001` 翻译），HR-23。
 ///
 /// 三层同一条规则：接口层权限码 `business:hr:attendance:lock`、handler 层 [`attendance_lock::lock_for_write`]、
@@ -179,16 +186,16 @@ pub mod employee_sensitive;
 #[cfg(test)]
 mod employee_sensitive_db_tests;
 pub mod handler;
-/// HR-24 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：落库字段逐列回读 / 状态机四条边 /
-/// 软删 / 作废缺原因 / 撞号 / 分页数据权限 / 无薪假天数。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod leave_db_tests;
+/// 请假单的审批回调桥（`hr_leave`）：通过 / 驳回回写状态 + 实例终止 + 自审批守卫（HR-27）。
+pub mod leave_bridge;
 /// HR-27 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：审批通过回写 / 驳回打回可重提 /
 /// 自审批被拦 / 实例终止 / 陈旧回调忽略。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod leave_bridge_db_tests;
-/// 请假单的审批回调桥（`hr_leave`）：通过 / 驳回回写状态 + 实例终止 + 自审批守卫（HR-27）。
-pub mod leave_bridge;
+/// HR-24 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：落库字段逐列回读 / 状态机四条边 /
+/// 软删 / 作废缺原因 / 撞号 / 分页数据权限 / 无薪假天数。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod leave_db_tests;
 /// 请假单入参 / 回执契约 + 假别·状态·天数·区间校验（`biz_leave_request`，HR-24）。
 pub mod leave_dto;
 /// 请假单接口层（设计 §5.2 #26~#31：列表 / 详情+审批轨迹 / 建单 / 改草稿 / 提交审批 /
@@ -208,9 +215,9 @@ pub mod model;
 mod salary_db_tests;
 /// 员工薪资标准入参 / 回执契约 + 金额与区间校验（`biz_employee_salary`，HR-16）。
 pub mod salary_dto;
-/// 员工薪资标准接口层（设计 §5.2 #16~#17：现行+历史 / 调薪·登记·修正·取消），HR-16。
 /// 薪资公式 DSL 的**词法 / 递归下降 / `Decimal` 求值 / 惰性 `IF`**（设计 §4.4.2 的 EBNF）+ 30 条单测（HR-32）。
 pub mod salary_formula;
+/// 员工薪资标准接口层（设计 §5.2 #16~#17：现行+历史 / 调薪·登记·修正·取消），HR-16。
 pub mod salary_handler;
 /// HR-31 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：4 接口落库 / 公式长度与语义拦截 /
 /// 编码与顺序占用 / 系统项与引用项守卫。只在 `cargo test` 时编译。

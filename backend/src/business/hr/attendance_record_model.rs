@@ -536,6 +536,48 @@ pub async fn page(
     Ok((out, i64::try_from(result.total).unwrap_or(i64::MAX)))
 }
 
+/// 台账导出取数（设计 §5.2 #24）：与 [`page`] **同一份**筛选 SQL 与数据权限，
+/// 区别只有「不分页」。
+///
+/// # 为什么复用 `scope::paginate` 而不是自己拼 `find_with_params`
+///
+/// 数据权限片段（`{FILTER}` 的注入位置与参数顺序）是架构 §2.6 的契约，
+/// `scope::paginate` 是唯一入口且自带这三条校验（`ensure_injection_point`）。
+/// 导出如果另写一条查询，就成了第二处「往 SQL 里拼权限片段」的地方 —— 那种漂移
+/// 不会编译报错，只会在某天变成「导出的表里出现了别的部门的人」（数据越权，
+/// 而且是落在 HR 的 Excel 里被人转发出去）。
+///
+/// 代价是 `paginate` 会多算一次 `COUNT(*)`：对一期 100 人来说是几十微秒，
+/// 换来的是「导出的行数」与「列表的总数」永远同一个口径（顺手拿来做上限判断）。
+///
+/// # 返回值
+///
+/// `(行, 总数)`：总数是**过滤 + 数据权限之后**的条数。`total > limit` 时行会被截断，
+/// 调用方（导出 handler）据此在响应头上报「本次只导出了前 N 行」，
+/// 而不是静默给一份不完整的工资底稿。
+pub async fn export_rows(
+    filter: &RecordFilter,
+    principal: &ScopedPrincipal,
+    limit: u64,
+) -> DbResult<(Vec<AttendanceRecordRow>, i64)> {
+    let (sql, params) = list_query(filter);
+    let result = scope::paginate(
+        RECORD_TARGET,
+        &sql,
+        params,
+        Some(LIST_ORDER_BY),
+        1,
+        limit.max(1),
+        principal,
+    )
+    .await?;
+    let mut out = Vec::with_capacity(result.list.len());
+    for row in &result.list {
+        out.push(AttendanceRecordRow::from_row(row)?);
+    }
+    Ok((out, i64::try_from(result.total).unwrap_or(i64::MAX)))
+}
+
 /// 台账排序：工号（快照列）升序 —— HR 核对时按工号一列一列对下来最顺手；
 /// 工号相同（理论上不会，唯一键在员工上）再按 id 保证顺序稳定（翻页不重复/不漏行）。
 pub const LIST_ORDER_BY: &str = "ORDER BY r.employee_no ASC, r.id ASC";

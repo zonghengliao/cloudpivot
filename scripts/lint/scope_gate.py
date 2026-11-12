@@ -163,6 +163,7 @@ business/flow/linkage/tests.rs
 business/flow/linkage/tests_presets.rs
 business/flow/linkage/tests_wiring.rs
 business/flow/test_support.rs
+business/hr/attendance_export_db_tests.rs
 business/hr/attendance_lock_db_tests.rs
 business/hr/attendance_period_db_tests.rs
 business/hr/attendance_record_db_tests.rs

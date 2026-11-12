@@ -16,6 +16,7 @@
   | 台账 | `GET /attendance/record/page` | `period_id` 必填，一人一行 |
   | 单元格编辑 | `PUT /attendance/record/{id}` | **部分更新**：一次只发一列 |
   | 导入 | impexp 通用三段（`biz_type='hr.attendance'`） | 见 `attendance.ts` 文件头：HR 专属路由尚未落地 |
+  | 导出 | `GET /attendance/export` | xlsx 二进制（20 列，含「锁定状态」列）· HR-30 |
 
   # 五条与「想当然」不一样的交互（每条都有真接口依据）
 
@@ -34,10 +35,16 @@
 
   # 本页不做的（已上报）
 
-  - **导出**（`GET /attendance/export`，设计 §5.2 #24）随 **HR-30**，本页不画导出按钮；
   - **「我的考勤」tab**（`GET /attendance/my`，设计 §6.1）随 **HR-41**，本页不做；
   - **HR 专属导入路由** `POST /attendance/import`（设计 §5.2 #23）未注册，见 `attendance.ts`。
--->
+
+  # 导出按钮（HR-30）
+
+  导出是**后端生成 xlsx**（前端只负责触发下载）：列由 `attendance_export.rs` 的
+  `EXPORT_HEADERS` 定死（20 列，含「锁定状态」列），前端不拼表 —— 否则列的口径会有两份。
+  按钮带上当前筛选（部门 / 关键字 / 期间），所以「导出的就是屏幕上那张表」；
+  文件名带期间码与锁定态（`考勤台账_2026-11_已锁定.xlsx`），避免两份台账拿错。
+  -->
 <template>
   <div class="hr-attendance-page">
     <!-- ==================== ⓞ tab ==================== -->
@@ -317,6 +324,19 @@
           >
             <template #icon><t-icon name="upload" /></template>
             上传考勤表
+          </t-button>
+
+          <t-button
+            v-if="canExport"
+            variant="outline"
+            :loading="exporting"
+            :disabled="!recordFilter.period_id"
+            :title="`导出当前期间的台账（含锁定状态列；单次最多 ${ATTENDANCE_EXPORT_MAX_ROWS} 人）`"
+            data-testid="hr-att-export"
+            @click="handleExport"
+          >
+            <template #icon><t-icon name="download" /></template>
+            导出 Excel
           </t-button>
 
           <t-button
@@ -747,6 +767,7 @@ import type { PrecheckReport } from '@/api/business/impexp';
 import {
   ATTENDANCE_BIZ_LABEL,
   ATTENDANCE_BIZ_TYPE,
+  ATTENDANCE_EXPORT_MAX_ROWS,
   ATTENDANCE_MAX_PAGE_SIZE,
   ATTENDANCE_PAGE_SIZE,
   ATTENDANCE_PERIOD_COLUMNS,
@@ -759,6 +780,7 @@ import {
   PERIOD_CODE_LEN,
   PERIOD_MAX_REMARK,
   PERIOD_STATUS_OPTIONS,
+  attendanceExportFileName,
   buildPeriodQuery,
   buildRecordQuery,
   decimalText,
@@ -794,6 +816,7 @@ import {
   downloadAttendanceTemplate,
   fetchPeriodPage,
   fetchRecordPage,
+  downloadAttendanceExport,
   patchRecord,
   recalcPeriod,
   updatePeriod,
@@ -814,6 +837,7 @@ const userStore = useUserStore();
 const canPeriod = computed(() => userStore.hasPermission(ATTENDANCE_PERMS.period));
 const canRecord = computed(() => userStore.hasPermission(ATTENDANCE_PERMS.record));
 const canImport = computed(() => userStore.hasPermission(ATTENDANCE_PERMS.import));
+const canExport = computed(() => userStore.hasPermission(ATTENDANCE_PERMS.export));
 const canLock = computed(() => userStore.hasPermission(ATTENDANCE_PERMS.lock));
 
 /** 状态筛选下拉 */
@@ -1324,6 +1348,48 @@ function openLedger(row: AttendancePeriodRow): void {
     recordPage.value = 1;
     void loadRecords();
   });
+}
+
+// ==================== 导出（HR-30） ====================
+
+const exporting = ref(false);
+
+/**
+ * 导出当前这一期（**跟随列表筛选**：部门 / 关键字一起带上）。
+ *
+ * 三个细节：
+ *
+ * 1. **失败不落文件**：`downloadAttendanceExport` 在非 xlsx 响应（错误信封 / SPA fallback）
+ *    上会抛错，这里只弹后端的中文报文 —— 不会给用户一个「打不开的 Excel」。
+ * 2. **锁定态写进文件名**：HR 手里常同时有「草稿版」和「锁定版」两份台账，
+ *    文件名不带状态就得靠打开看，容易拿错基数去核工资。
+ * 3. **导出不算修改**：不动 `recordPage` / 不重载列表（用户可能正停在第 3 页核对）。
+ */
+async function handleExport(): Promise<void> {
+  const periodId = recordFilter.period_id;
+  if (!periodId || exporting.value) {
+    return;
+  }
+  exporting.value = true;
+  try {
+    const blob = await downloadAttendanceExport(periodId, {
+      dept_id: recordFilter.dept_id || undefined,
+      keyword: recordFilter.keyword || undefined,
+    });
+    const period = selectedPeriod.value;
+    const locked = period?.status === 'LOCKED';
+    const fileName = attendanceExportFileName(period?.period_code ?? '', locked);
+    saveBlob(blob, fileName);
+    MessagePlugin.success(
+      locked
+        ? `已导出 ${fileName}（期间已锁定：这份是工资试算的基线）`
+        : `已导出 ${fileName}（期间未锁定：数字仍可修改）`,
+    );
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    exporting.value = false;
+  }
 }
 
 // ==================== 导入 ====================

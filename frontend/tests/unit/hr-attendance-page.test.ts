@@ -27,6 +27,7 @@ import { readFileSync } from 'node:fs';
 
 import {
   ATTENDANCE_BIZ_TYPE,
+  ATTENDANCE_EXPORT_MAX_ROWS,
   ATTENDANCE_PERIOD_COLUMNS,
   ATTENDANCE_PERMS,
   ATTENDANCE_RECORD_COLUMNS,
@@ -75,6 +76,8 @@ import {
   totalsText,
   validatePeriodForm,
   validateUnlockReason,
+  attendanceExportFileName,
+  EXPORT_LOCK_LABELS,
   type AttendancePeriodRow,
   type AttendanceRecordRow,
 } from '../../src/api/business/hr/attendance-kinds';
@@ -104,6 +107,10 @@ const PAGE = readFileSync(
   'utf8',
 );
 const API = readFileSync(new URL('../../src/api/business/hr/attendance.ts', import.meta.url), 'utf8');
+const RUST_EXPORT = readFileSync(
+  new URL('../../../backend/src/business/hr/attendance_export.rs', import.meta.url),
+  'utf8',
+);
 const ROUTER = readFileSync(new URL('../../src/router/index.ts', import.meta.url), 'utf8');
 
 // ==================== ① 词表镜像 ====================
@@ -530,6 +537,7 @@ test('api layer points at the real backend paths with /api prefix', () => {
     '/attendance/period/${id}/recalc',
     '/attendance/record/page',
     '/attendance/record/${id}',
+    '/attendance/export',
   ]) {
     assert.ok(API.includes(path), `API 层缺路径 ${path}`);
   }
@@ -538,6 +546,48 @@ test('api layer points at the real backend paths with /api prefix', () => {
   // 导入走 impexp 通用三段（HR 专属路由未落地，见 attendance.ts 文件头）
   assert.ok(API.includes('uploadImportFile(file, ATTENDANCE_BIZ_TYPE'), '导入没有固定 biz_type');
   assert.ok(API.includes('confirmImport(taskId)'), '确认入库没接');
+});
+
+/** 导出（HR-30）：接口是二进制 + 页面按钮真的接上了 + 文件名带锁定态 */
+test('export endpoint is binary and the page button is wired', () => {
+  // 二进制：必须 responseType blob（否则 xlsx 会被当文本解成乱码）
+  assert.ok(API.includes("responseType: 'blob'"), '导出没有按 blob 取（会把 xlsx 解成乱码）');
+  assert.ok(API.includes('downloadAttendanceExport'), 'API 层缺下载函数');
+  // 非 xlsx 响应要抛错而不是存成坏文件
+  assert.ok(API.includes('spreadsheetml'), '导出没有校验 content-type（错误信封会被存成 .xlsx）');
+  // 页面：按钮 + 权限码 + 下载
+  assert.ok(PAGE.includes('data-testid="hr-att-export"'), '台账页缺导出按钮');
+  assert.ok(PAGE.includes('ATTENDANCE_PERMS.export'), '导出按钮没有按权限码拦');
+  assert.ok(PAGE.includes('await downloadAttendanceExport('), '按钮没有真的调导出接口');
+  assert.ok(PAGE.includes('saveBlob(blob, fileName)'), '下载的 blob 没落地成文件');
+  // 单次上限与后端 EXPORT_MAX_ROWS 同口径
+  assert.equal(ATTENDANCE_EXPORT_MAX_ROWS, 5000);
+  assert.ok(RUST_EXPORT.includes('pub const EXPORT_MAX_ROWS: u64 = 5000;'), '后端上限变了，前端镜像要跟着改');
+});
+
+/** 导出文件名：期间码 + 锁定态（两份台账不能同名，否则 HR 会拿错基数） */
+test('export file name carries period code and lock state', () => {
+  assert.equal(attendanceExportFileName('2026-11', true), '考勤台账_2026-11_已锁定.xlsx');
+  assert.equal(attendanceExportFileName('2026-11', false), '考勤台账_2026-11_未锁定.xlsx');
+  // 期间码缺失（未选期间理论上按钮是禁用的）时不产出 `考勤台账__未锁定.xlsx` 这种怪名
+  assert.equal(attendanceExportFileName('', false), '考勤台账_未知期间_未锁定.xlsx');
+  assert.equal(attendanceExportFileName('  ', true), '考勤台账_未知期间_已锁定.xlsx');
+  // 「锁定状态」列的两个值与后端 `LOCK_LABEL_*` 逐字一致
+  assert.ok(RUST_EXPORT.includes('pub const LOCK_LABEL_LOCKED: &str = "已锁定";'));
+  assert.ok(RUST_EXPORT.includes('pub const LOCK_LABEL_UNLOCKED: &str = "未锁定";'));
+  assert.equal(EXPORT_LOCK_LABELS.locked, '已锁定');
+  assert.equal(EXPORT_LOCK_LABELS.unlocked, '未锁定');
+});
+
+/** 导出表的 20 列必须与后端表头逐列一致（前端提示「含锁定状态列」，列没变才成立） */
+test('export columns mirror EXPORT_HEADERS in the backend', () => {
+  const headerBlock = RUST_EXPORT.slice(RUST_EXPORT.indexOf('pub const EXPORT_HEADERS'));
+  const headers = [...headerBlock.matchAll(/"([^"]+)"/g)].map((match) => match[1]).slice(0, 20);
+  assert.equal(headers.length, 20, '后端导出列应为 20 列');
+  assert.deepEqual(headers.slice(0, 4), ['考勤月', '工号', '姓名', '部门']);
+  assert.ok(headers.includes('锁定状态'), '导出缺「锁定状态」列 —— 本卡的核心验收项');
+  assert.ok(headers.includes('加班合计(小时)'), '导出缺「加班合计」列');
+  assert.ok(headers.includes('早退(次)'), '导出缺「早退」列');
 });
 
 test('router registers the attendance page', () => {
