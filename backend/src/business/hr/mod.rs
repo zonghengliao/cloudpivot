@@ -160,6 +160,15 @@ pub mod employee_sensitive;
 #[cfg(test)]
 mod employee_sensitive_db_tests;
 pub mod handler;
+/// HR-24 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：落库字段逐列回读 / 状态机四条边 /
+/// 软删 / 作废缺原因 / 撞号 / 分页数据权限 / 无薪假天数。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod leave_db_tests;
+/// 请假单入参 / 回执契约 + 假别·状态·天数·区间校验（`biz_leave_request`，HR-24）。
+pub mod leave_dto;
+/// 请假单数据层（`biz_leave_request`）：单号取号 + 建 / 读 / 改草稿 / 状态 CAS / 软删 /
+/// 分页（按 dept 数据权限）+ 已批无薪假天数（HR-24）。
+pub mod leave_model;
 pub mod model;
 /// HR-16 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：不重叠 / 重叠 / 相邻 / 边界相等 /
 /// 收口 / 取消 / 幂等。只在 `cargo test` 时编译。

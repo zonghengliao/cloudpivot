@@ -1969,6 +1969,21 @@ pub const HR_ATTENDANCE_PERIOD_DUPLICATE: i32 = 68009;
 /// （先解锁 / 保留这一期改日期），不是「换个期间码重试」。
 pub const HR_ATTENDANCE_PERIOD_RULE_BLOCKED: i32 = 68010;
 
+/// 请假单号重复（HTTP 409，`68011`，HR-24）。
+///
+/// 唯一索引 `uk_biz_leave_no (org_id, leave_no) WHERE deleted_at IS NULL`。
+/// 单号是**服务端取号**（`biz_seq` 的 `LV` 号段，形态 `LV-yyyyMMdd-000001`），正常路径撞不上：
+/// 撞了说明取号与建单不在同一事务，或者有人手工插了行 —— 报文要提示「重新提交一次」
+/// （用户根本不知道号从哪来，让他「换个号」等于让他改库）。
+pub const HR_LEAVE_NO_DUPLICATE: i32 = 68011;
+
+/// 请假单操作被业务规则拦下（HTTP 409，`68012`，HR-24）。
+///
+/// 与 [`HR_LEAVE_NO_DUPLICATE`] 分开：这类冲突**不是**撞键，而是「单据当前状态做不了这件事」——
+/// 已批准 / 已作废的假要改数（设计 §4.2.2 `LEAVE_LOCKED`）、审批中的单直接删、
+/// 已作废的再作废一次。前端文案要点名下一步（作废重开 / 先撤回），不是「换个值重试」。
+pub const HR_LEAVE_RULE_BLOCKED: i32 = 68012;
+
 #[cfg(test)]
 mod hr_error_codes_are_stable {
     use super::*;
@@ -1987,6 +2002,8 @@ mod hr_error_codes_are_stable {
             (HR_SALARY_RULE_BLOCKED, 68008),
             (HR_ATTENDANCE_PERIOD_DUPLICATE, 68009),
             (HR_ATTENDANCE_PERIOD_RULE_BLOCKED, 68010),
+            (HR_LEAVE_NO_DUPLICATE, 68011),
+            (HR_LEAVE_RULE_BLOCKED, 68012),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "68xxx 段码值不得改动");

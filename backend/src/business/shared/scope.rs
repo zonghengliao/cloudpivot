@@ -302,6 +302,11 @@ impl ScopeTarget {
     /// 别名取 `e`（`employee_model` 的行 SQL 用 `FROM biz_employee e`），
     /// 两处**必须**一致，否则片段会拼出 `t.dept_id` 这种不存在的别名。
     pub const BIZ_EMPLOYEE: Self = Self::new("biz_employee", "e", Some("dept_id"), Some("user_id"));
+
+    /// `biz_leave_request`（请假单，ARCH-9-2 设计 §4.7.3）：`dept_col = dept_id`、`owner_col = NULL`。
+    ///
+    /// 别名取 `l`（`leave_model::ROW_SQL` 用 `FROM biz_leave_request l`），两处必须一致。
+    pub const BIZ_LEAVE_REQUEST: Self = Self::new("biz_leave_request", "l", Some("dept_id"), None);
 }
 
 /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
@@ -328,6 +333,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::BIZ_COST_OBJECT,
     ScopeTarget::BIZ_COST_LABOR,
     ScopeTarget::BIZ_EMPLOYEE,
+    ScopeTarget::BIZ_LEAVE_REQUEST,
 ];
 
 // ==================== 片段 ====================

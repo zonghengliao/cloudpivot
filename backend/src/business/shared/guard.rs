@@ -413,12 +413,14 @@ mod tests {
         // + `biz_commission_settlement`（SO-36：佣金结算单按销售员注入 SELF）
         // + `biz_cost_object`（ARCH-9：成本对象按生产车间裁剪）
         // + `biz_cost_labor`（ARCH-9 D-18：工时台账按工作中心裁剪）
-        // + `biz_employee`（ARCH-9 D-12：员工主档按人事归属部门 + 本人账号裁剪）= 15 张
+        // + `biz_employee`（ARCH-9 D-12：员工主档按人事归属部门 + 本人账号裁剪）
+        // + `biz_leave_request`（ARCH-9 §4.7.3：请假单按部门裁剪，员工自助走 `mine`）= 16 张
         assert_eq!(
             SCOPED_TABLES.len(),
-            15,
+            16,
             "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs + SO-36 的佣金结算单 \
-             + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账 + ARCH-9 D-12 的员工主档"
+             + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账 + ARCH-9 D-12 的员工主档 \
+             + ARCH-9 §4.7.3 的请假单"
         );
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_USER));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));
@@ -427,6 +429,7 @@ mod tests {
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COST_OBJECT));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COST_LABOR));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_EMPLOYEE));
+        assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_LEAVE_REQUEST));
         println!("[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓", SCOPED_TABLES.len());
     }
 }
