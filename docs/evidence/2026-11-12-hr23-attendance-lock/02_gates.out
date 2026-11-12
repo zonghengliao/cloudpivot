@@ -18,3 +18,11 @@ failures:
 test result: FAILED. 5212 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.31s
 
 error: test failed, to rerun pass `--lib`
+
+=== 4. 前端（本卡零前端改动，按卡面要求仍跑一遍）===
+pnpm typecheck: EXIT=0（vue-tsc --noEmit，无输出=无错）
+pnpm build: EXIT=0（vite build 成功，产物见 dist/）
+
+=== 5. 生产库是否已应用 V0392（防止「改了已应用迁移」）===
+144 prod schema_migrations: max(version)=391 / 名字含 attendance_lock 的行数=0
+→ V0392 尚未在任何生产库应用，文件头注释的补充不影响已应用指纹（145 演练库已 DROP）
