@@ -186,6 +186,11 @@ pub mod employee_sensitive;
 #[cfg(test)]
 mod employee_sensitive_db_tests;
 pub mod handler;
+/// HR-46 的契约测试：10 步薪资链路 E2E 脚本（`scripts/verify/hr/hr_salary_e2e.sh`）的
+/// 静态形态 —— 步骤数 / 每步断言 / 演练库护栏 / 清理 / 失败定位 / 设计硬口径。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod hr_e2e_contract_tests;
 /// HR-45 的契约测试：收口自检迁移（V0398）与巡检脚本（`scripts/verify/hr_invariants.sql`）
 /// 的静态形态 —— 断言条数、只读性、造错自检覆盖面、版本号唯一。只在 `cargo test` 时编译。
 #[cfg(test)]

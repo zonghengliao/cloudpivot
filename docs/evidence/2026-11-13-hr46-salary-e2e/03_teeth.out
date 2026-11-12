@@ -1,0 +1,208 @@
+== HR-46 薪资链路 E2E（10 步）==
+   演练库：cloudpivot@172.18.10.145:5432/hr46_drill_1113020132    后端：http://127.0.0.1:18147
+   运行目录：/root/hr46-e2e-20261113-020132
+==> 建演练库（先 DROP 同名残留）
+   ✅ 库已建：hr46_drill_1113020132（空库，迁移由服务启动时自动回放）
+==> 起隔离实例（127.0.0.1:18147，profile=test）
+   等 /health（空库要先回放 300+ 条迁移，最长 10 分钟）…
+   ✅ /health 200（迁移完成）
+   ✅ 迁移在位：17 个薪资项种子（V0396）+ V0398 收口自检已通过
+   ✅ 审批夹具：hr46_approver（3 个审批角色 + flow:approve）+ HQ 部门负责人
+   ✅ admin 登录（SUPER_ADMIN 短路全部权限码）
+-------------------------------------------------------------------------------
+[STEP 1] 建员工（档案 + 劳动合同 + 薪资标准）
+  [PASS] 1. 建员工 HTTP（200）
+  [PASS] 1. 自动取号（工号非空）（EMP-0001）
+  [PASS] 1. 工号号段 EMP-（EMP-0001）
+  [PASS] 1. 签劳动合同 HTTP（200）
+  [PASS] 1. 合同生效中（§4.9 A4 要求在职员工有覆盖今天的合同）（ACTIVE）
+  [PASS] 1. 配薪资标准 HTTP（200）
+  [PASS] 1. 标准写入 3 项（3）
+  [PASS] 1. 现行标准可读回（3）
+  [PASS] 1. 员工状态在职（PROBATION/ACTIVE）（t）
+[STEP 1] ✅ 建员工（档案 + 劳动合同 + 薪资标准）
+-------------------------------------------------------------------------------
+[STEP 2] 建考勤期间 2026-11
+  [PASS] 2. 建期间 HTTP（200）
+  [PASS] 2. 期间 id（01a1d0ec-1ed5-7746-9184-1415996dd4e4）
+  [PASS] 2. 新期间状态 DRAFT（DRAFT）
+  [PASS] 2. 区间=自然月（2026-11-01~2026-11-30）
+  [PASS] 2. 期间未锁定（locked_at 为空）（）
+[STEP 2] ✅ 建考勤期间 2026-11
+-------------------------------------------------------------------------------
+[STEP 3] 导入考勤（真 xlsx → impexp 预检 → 确认入库 → 期间汇总重算）
+  [PASS] 3. 上传预检 HTTP（200）
+  [PASS] 3. 预检任务 id（01a1d0ec-1f2f-77e3-97c6-f59eda76f35a）
+  [PASS] 3. 预检 total=1（1）
+  [PASS] 3. 预检 error=0（0）
+  [PASS] 3. 确认入库 HTTP（200）
+  [PASS] 3. 入库行数=1（1）
+  [PASS] 3. 任务终态（SUCCESS）
+  [PASS] 3. 台账明细 1 行（1）
+  [PASS] 3. 台账出勤天数（21.00）
+  [PASS] 3. 台账加班小时（10）（10.00）
+  [PASS] 3. 期间头人数被重算（1）
+  [PASS] 3. 期间头应出勤合计（21.00）
+[STEP 3] ✅ 导入考勤（真 xlsx → impexp 预检 → 确认入库 → 期间汇总重算）
+-------------------------------------------------------------------------------
+[STEP 4] 请假（建单 → 提交 → 直属上级审批）
+  [PASS] 4. 建请假单 HTTP（200）
+  [PASS] 4. 新单状态 DRAFT（DRAFT）
+  [PASS] 4. 提交审批 HTTP（200）
+  [PASS] 4. 单据进入 SUBMITTED（SUBMITTED）
+  [PASS] 4. 已发起审批实例（01a1d0ec-1fee-7629-8212-e057678d03fc）
+  [PASS] 待办已签：hr46_approver
+  [PASS] 4. 直属上级签完（流程引擎派单）
+  [PASS] 4. 单据 APPROVED（APPROVED）
+  [PASS] 4. 实例终态 APPROVED（§4.9 A10）（APPROVED）
+[STEP 4] ✅ 请假（建单 → 提交 → 直属上级审批）
+-------------------------------------------------------------------------------
+[STEP 5] 锁定考勤期间（过账前置闸：未锁定不许发钱）
+  [PASS] 5. 提交期间 HTTP（200）
+  [PASS] 5. 期间 SUBMITTED（SUBMITTED）
+  [PASS] 5. 锁定期间 HTTP（200）
+  [PASS] 5. 期间 LOCKED（LOCKED）
+  [PASS] 5. 库内 locked_at 已写（1）
+[STEP 5] ✅ 锁定考勤期间（过账前置闸：未锁定不许发钱）
+-------------------------------------------------------------------------------
+[STEP 6] 试算（dry_run：算全公司，库里零行，不耗号段）
+  [PASS] 6. 试算 HTTP（200）
+  [PASS] 6. dry_run=true（true）
+  [PASS] 6. 不返回单头（没落库）（）
+  [PASS] 6. 参与人数=1（1）
+  [FAIL] 6. 应发合计（12000+2000+600+加班+全勤）：期望 99999.00，实际 [15834.4800]
+         ↳ 请求：POST /api/business/hr/salary/calc
+         ↳ 请求体：{"period_code":"2026-11","attendance_period_id":"01a1d0ec-1ed5-7746-9184-1415996dd4e4","manual":[
+ {"employee_id":"01a1d0ec-1e78-76f3-92c9-b599590b1c83","item_code":"SI_PERSONAL","amount":1200},
+ {"employee_id":"01a1d0ec-1e78-76f3-92c9-b599590b1c83","item_code":"HF_PERSONAL","amount":800},
+ {"employee_id":"01a1d0ec-1e78-76f3-92c9-b599590b1c83","item_code":"IIT","amount":300},
+ {"employee_id":"01a1
+         ↳ HTTP 200，回执：{"code":0,"msg":"ok","data":{"period_code":"2026-11","period_start":"2026-11-01","period_end":"2026-11-30","attendance_period_id":"01a1d0ec-1ed5-7746-9184-1415996dd4e4","dry_run":true,"sheet":null,"totals":{"employee_count":1,"earning_total":"15834.4800","pre_deduct_total":"0","gross_total":"15834.4800","withhold_total":"2300","net_total":"13534.4800","si_company_total":"240 …(截断)
+         ↳ 服务端报错行：
+            --   `EvalError::TypeMismatch` ⇒ 引擎按「条件不成立」**静默走兜底边**（只有 WARN）
+            --       关键岗位离职**静默跳过总经理审批**（只有 WARN 日志，不报错）。
+            -- 依据：kanban 卡 t_92234f6b「演示种子缺口：5 个账号无部门（N2 WARN）+ 普通员工无
+            [2m2026-11-12T18:01:35.247123Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s51 with parameters: [Json("{\"edges\":[{\"condition\":null,\"from\":\"n_review\",\"is_default\":false,\"key\":\"e2\",\"label\":null,\"priority\":0,\"to\":\"e\"},{\"condition\":null,\"from\":\"s\",\"is_default\":false,\"key\":\"e1\",\"label\":null,\"priority\":0,\"to\":\"n_revi …(截断)
+            [2m2026-11-12T18:01:35.421618Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s158 with parameters: [Json("{\"edges\":[{\"condition\":null,\"from\":\"n_review\",\"is_default\":false,\"key\":\"e2\",\"label\":null,\"priority\":0,\"to\":\"e\"},{\"condition\":null,\"from\":\"s\",\"is_default\":false,\"key\":\"e1\",\"label\":null,\"priority\":0,\"to\":\"n_rev …(截断)
+            [2m2026-11-12T18:01:35.698494Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 733 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+         ↳ 服务端日志尾：/root/hr46-e2e-20261113-020132/server.log
+         ↳ 夹具：员工=01a1d0ec-1e78-76f3-92c9-b599590b1c83 期间=01a1d0ec-1ed5-7746-9184-1415996dd4e4 单据=
+         ↳ 库：cloudpivot@172.18.10.145:5432/hr46_drill_1113020132
+  [PASS] 6. 实发合计（13534.48）
+  [PASS] 6. 计提合计（应发+单位社保+单位公积金）（19034.48）
+  [PASS] 6. 公式项 OT_WD（ROUND(BASE/21.75/8*10*1.5,2)）（1034.48）
+  [PASS] 6. 公式项 ATT_BONUS（全勤 200）（200.00）
+  [PASS] 6. 试算没有落库（0 张薪资单）（0）
+[STEP 6] ❌ 试算（dry_run：算全公司，库里零行，不耗号段）（1 条断言失败）
+-------------------------------------------------------------------------------
+[STEP 7] 建单（落库：CALCULATED + 明细 + 明细项）
+  [PASS] 7. 建单 HTTP（200）
+  [PASS] 7. 单头 id（01a1d0ec-22d7-71ed-8379-d37b26f58208）
+  [PASS] 7. 新单状态 CALCULATED（CALCULATED）
+  [PASS] 7. 单号号段 SAL-（SAL-202611-000001）
+  [PASS] 7. 库里 1 张单（1）
+  [PASS] 7. 明细 1 行（1）
+  [PASS] 7. 明细项 = 15 项（17 项种子去掉 2 个汇总项）（15）
+  [FAIL] 7. 单头应发 = 试算应发：期望 99999.00，实际 [15834.48]
+         ↳ 请求：POST /api/business/hr/salary
+         ↳ 请求体：{"period_code":"2026-11","attendance_period_id":"01a1d0ec-1ed5-7746-9184-1415996dd4e4","manual":[
+ {"employee_id":"01a1d0ec-1e78-76f3-92c9-b599590b1c83","item_code":"SI_PERSONAL","amount":1200},
+ {"employee_id":"01a1d0ec-1e78-76f3-92c9-b599590b1c83","item_code":"HF_PERSONAL","amount":800},
+ {"employee_id":"01a1d0ec-1e78-76f3-92c9-b599590b1c83","item_code":"IIT","amount":300},
+ {"employee_id":"01a1
+         ↳ HTTP 200，回执：{"code":0,"msg":"ok","data":{"period_code":"2026-11","period_start":"2026-11-01","period_end":"2026-11-30","attendance_period_id":"01a1d0ec-1ed5-7746-9184-1415996dd4e4","dry_run":false,"sheet":{"id":"01a1d0ec-22d7-71ed-8379-d37b26f58208","sheet_no":"SAL-202611-000001","status":"CALCULATED","status_label":"已计算"},"totals":{"employee_count":1,"earning_total":"15834.4800","pre_d …(截断)
+         ↳ 服务端报错行：
+            --   `EvalError::TypeMismatch` ⇒ 引擎按「条件不成立」**静默走兜底边**（只有 WARN）
+            --       关键岗位离职**静默跳过总经理审批**（只有 WARN 日志，不报错）。
+            -- 依据：kanban 卡 t_92234f6b「演示种子缺口：5 个账号无部门（N2 WARN）+ 普通员工无
+            [2m2026-11-12T18:01:35.247123Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s51 with parameters: [Json("{\"edges\":[{\"condition\":null,\"from\":\"n_review\",\"is_default\":false,\"key\":\"e2\",\"label\":null,\"priority\":0,\"to\":\"e\"},{\"condition\":null,\"from\":\"s\",\"is_default\":false,\"key\":\"e1\",\"label\":null,\"priority\":0,\"to\":\"n_revi …(截断)
+            [2m2026-11-12T18:01:35.421618Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s158 with parameters: [Json("{\"edges\":[{\"condition\":null,\"from\":\"n_review\",\"is_default\":false,\"key\":\"e2\",\"label\":null,\"priority\":0,\"to\":\"e\"},{\"condition\":null,\"from\":\"s\",\"is_default\":false,\"key\":\"e1\",\"label\":null,\"priority\":0,\"to\":\"n_rev …(截断)
+            [2m2026-11-12T18:01:35.698494Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 733 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+         ↳ 服务端日志尾：/root/hr46-e2e-20261113-020132/server.log
+         ↳ 夹具：员工=01a1d0ec-1e78-76f3-92c9-b599590b1c83 期间=01a1d0ec-1ed5-7746-9184-1415996dd4e4 单据=01a1d0ec-22d7-71ed-8379-d37b26f58208
+         ↳ 库：cloudpivot@172.18.10.145:5432/hr46_drill_1113020132
+  [PASS] 7. 单头实发 = 试算实发（13534.48）
+[STEP 7] ❌ 建单（落库：CALCULATED + 明细 + 明细项）（1 条断言失败）
+-------------------------------------------------------------------------------
+[STEP 8] 审批（提交 → 人事经理 → 财务会签；§4.3：审批通过不出凭证）
+  [PASS] 8. 提交审批 HTTP（200）
+  [PASS] 8. 已发起审批实例（01a1d0ec-2375-74d9-a02b-d41cb45be114）
+  [PASS] 8. 提交后 SUBMITTED（SUBMITTED）
+  [PASS] 待办已签：hr46_approver
+  [PASS] 待办已签：hr46_approver
+  [PASS] 8. 流程节点全部签完（人事经理 + 财务会签）
+  [PASS] 8. 单据 APPROVED（APPROVED）
+  [PASS] 8. 实例终态 APPROVED（APPROVED）
+  [PASS] 8. 审批通过**不出凭证**（§4.3 硬口径）（0）
+  [PASS] 8. 审批通过没有占用号段（0）
+[STEP 8] ✅ 审批（提交 → 人事经理 → 财务会签；§4.3：审批通过不出凭证）
+-------------------------------------------------------------------------------
+[STEP 9] 过账（两张凭证）→ 红冲（两张红字）→ 二次红冲被拒
+  [PASS] 9. 过账 HTTP（200）
+  [PASS] 9. 单据 POSTED（POSTED）
+  [PASS] 9. 计提凭证号（PZ-20261113-000001）
+  [PASS] 9. 发放凭证号（PZ-20261113-000002）
+  [PASS] 9. 两张蓝字凭证（2）
+  [PASS] 9. 计提凭证 source_type（PAYROLL_ACCRUAL）
+  [PASS] 9. 发放凭证 source_type（PAYROLL_PAYMENT）
+  [PASS] 9. 两张都借贷平衡（库 CHECK 之外再算一遍）（0）
+  [FAIL] 9. 计提凭证借方 5602.10 = 应发（净额法）：期望 99999.00，实际 [15834.48]
+         ↳ 请求：POST /api/business/hr/salary/01a1d0ec-22d7-71ed-8379-d37b26f58208/post
+         ↳ HTTP 200，回执：{"code":0,"msg":"ok","data":{"id":"01a1d0ec-22d7-71ed-8379-d37b26f58208","sheet_no":"SAL-202611-000001","period_code":"2026-11","period_start":"2026-11-01","period_end":"2026-11-30","status":"POSTED","status_label":"已过账","employee_count":1,"gross_total":"15834.4800","withhold_total":"2300.0000","net_total":"13534.4800","accrual_total":"19034.4800","accrual_voucher_no":"PZ-20 …(截断)
+         ↳ 服务端报错行：
+            --   `EvalError::TypeMismatch` ⇒ 引擎按「条件不成立」**静默走兜底边**（只有 WARN）
+            --       关键岗位离职**静默跳过总经理审批**（只有 WARN 日志，不报错）。
+            -- 依据：kanban 卡 t_92234f6b「演示种子缺口：5 个账号无部门（N2 WARN）+ 普通员工无
+            [2m2026-11-12T18:01:35.247123Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s51 with parameters: [Json("{\"edges\":[{\"condition\":null,\"from\":\"n_review\",\"is_default\":false,\"key\":\"e2\",\"label\":null,\"priority\":0,\"to\":\"e\"},{\"condition\":null,\"from\":\"s\",\"is_default\":false,\"key\":\"e1\",\"label\":null,\"priority\":0,\"to\":\"n_revi …(截断)
+            [2m2026-11-12T18:01:35.421618Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s158 with parameters: [Json("{\"edges\":[{\"condition\":null,\"from\":\"n_review\",\"is_default\":false,\"key\":\"e2\",\"label\":null,\"priority\":0,\"to\":\"e\"},{\"condition\":null,\"from\":\"s\",\"is_default\":false,\"key\":\"e1\",\"label\":null,\"priority\":0,\"to\":\"n_rev …(截断)
+            [2m2026-11-12T18:01:35.698494Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 检测到 733 条 #[permission] 规则，但 [middleware.permission] enabled = false；已按安全默认挂载权限校验层（如需豁免请移除对应的宏注解）
+         ↳ 服务端日志尾：/root/hr46-e2e-20261113-020132/server.log
+         ↳ 夹具：员工=01a1d0ec-1e78-76f3-92c9-b599590b1c83 期间=01a1d0ec-1ed5-7746-9184-1415996dd4e4 单据=01a1d0ec-22d7-71ed-8379-d37b26f58208
+         ↳ 库：cloudpivot@172.18.10.145:5432/hr46_drill_1113020132
+  [PASS] 9. 发放凭证贷 1002 = 实发（13534.48）
+  [PASS] 9. 借方带部门辅助核算（5602.10 的 aux_dept_id 非空）（0）
+  [PASS] 9. 红冲 HTTP（200）
+  [PASS] 9. 单据 REVERSED（REVERSED）
+  [PASS] 9. 共 4 张凭证（2 蓝 + 2 红）（4）
+  [PASS] 9. 两张红字（2）
+  [PASS] 9. 原凭证都被回写 reversed_by（2）
+  [PASS] 9. 红字借贷互换（红借 = 原贷，逐科目）（0）
+  [PASS] 9. 红冲原因落库（1）
+  [PASS] 9. 二次红冲被状态机拒绝 → 409（409）
+  [PASS] 9. 二次红冲没有多出凭证（4）
+[STEP 9] ❌ 过账（两张凭证）→ 红冲（两张红字）→ 二次红冲被拒（1 条断言失败）
+-------------------------------------------------------------------------------
+[STEP 10] 对账（凭证逐科目净额 0 + §4.9 恒等式 + 10 条巡检断言）
+  [PASS] 10. 工资链 4 张凭证逐科目净额全 0（0）
+  [PASS] 10. 用到 10 个工资科目（5602.10/11/12 + 2211.01/02/03 + 2241.03/04 + 2221.03 + 1002）（1002,2211.01,2211.02,2211.03,2221.03,2241.03,2241.04,5602.10,5602.11,5602.12）
+  [PASS] 10. A6 单头应发 = Σ 明细应发（0）
+  [PASS] 10. A7 应发 = Σ收入−Σ应发前扣减；代扣 = ΣWITHHOLD（0）
+  [PASS] 10. A8 全库无「有单无凭证」的薪资单（0）
+  [PASS] 10. 状态日志含 SUBMITTED→APPROVED→POSTED→REVERSED 轨迹（t）
+  [PASS] 10. hr_invariants.sh 退出码（BLOCKER 全 0 才 0）（0）
+  [PASS] 10. 巡检 BLOCKER 失败数（0）
+  [PASS] 10. 巡检覆盖 12 行（A1~A10 + W1/W2）（12）
+[STEP 10] ✅ 对账（凭证逐科目净额 0 + §4.9 恒等式 + 10 条巡检断言）
+-------------------------------------------------------------------------------
+== 断言汇总：通过 95 项 / 失败 3 项 ==
+== 步骤明细 ==
+  ✅  1. 建员工（档案 + 劳动合同 + 薪资标准）
+  ✅  2. 建考勤期间 2026-11
+  ✅  3. 导入考勤（真 xlsx → impexp 预检 → 确认入库 → 期间汇总重算）
+  ✅  4. 请假（建单 → 提交 → 直属上级审批）
+  ✅  5. 锁定考勤期间（过账前置闸：未锁定不许发钱）
+  ❌  6. 试算（dry_run：算全公司，库里零行，不耗号段）（1 条失败）
+  ❌  7. 建单（落库：CALCULATED + 明细 + 明细项）（1 条失败）
+  ✅  8. 审批（提交 → 人事经理 → 财务会签；§4.3：审批通过不出凭证）
+  ❌  9. 过账（两张凭证）→ 红冲（两张红字）→ 二次红冲被拒（1 条失败）
+  ✅ 10. 对账（凭证逐科目净额 0 + §4.9 恒等式 + 10 条巡检断言）
+== 产物 ==
+   服务端日志：/root/hr46-e2e-20261113-020132/server.log
+   巡检输出：  /root/hr46-e2e-20261113-020132/hr_invariants.out
+   导入文件：  /root/hr46-e2e-20261113-020132/attendance.xlsx
+   演练库：    cloudpivot@172.18.10.145:5432/hr46_drill_1113020132（脚本退出时 DROP）
+   夹具：员工=EMP-0001(01a1d0ec-1e78-76f3-92c9-b599590b1c83) 期间=01a1d0ec-1ed5-7746-9184-1415996dd4e4 请假=01a1d0ec-1fd8-7386-866c-3c3325a99a57 薪资单=SAL-202611-000001(01a1d0ec-22d7-71ed-8379-d37b26f58208)
+== 结果：3 项断言失败 ==
+… 已停隔离实例（pid=592839）
+… 演练库已 DROP：hr46_drill_1113020132（pg_database 残留计数=0）
+rc=1

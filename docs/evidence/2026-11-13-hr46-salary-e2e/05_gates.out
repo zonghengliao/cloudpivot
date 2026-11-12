@@ -1,0 +1,29 @@
+== HR-46 门禁（2026-11-13，共享工作区 /opt/cloudpivot @ 86d16b41 + 本卡未提交文件） ==
+
+-- cargo fmt --check（本卡新增 .rs 单独 rustfmt --check）
+rustfmt check: 0 diff（rc=0）
+
+-- cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 48.90s
+rc=0
+
+-- cargo test --lib business::hr::hr_e2e_contract_tests
+test business::hr::hr_e2e_contract_tests::amounts_in_expected_values_are_self_consistent ... ok
+test business::hr::hr_e2e_contract_tests::design_hard_rules_are_asserted_in_the_chain ... ok
+test business::hr::hr_e2e_contract_tests::drill_db_guard_runs_before_any_write ... ok
+test business::hr::hr_e2e_contract_tests::every_step_carries_at_least_two_assertions ... ok
+test business::hr::hr_e2e_contract_tests::failures_print_request_response_and_log_tail ... ok
+test business::hr::hr_e2e_contract_tests::fresh_mode_drops_only_its_own_database_on_exit ... ok
+test business::hr::hr_e2e_contract_tests::script_declares_exactly_ten_steps_in_order ... ok
+test business::hr::hr_e2e_contract_tests::xlsx_helper_has_no_third_party_import ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 5481 filtered out; finished in 0.01s
+rc=0
+
+-- 前端 pnpm typecheck
+
+typecheck_rc=0
+
+-- 前端 pnpm build
+
+build_rc=0

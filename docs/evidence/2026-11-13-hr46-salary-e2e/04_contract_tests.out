@@ -1,0 +1,17 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 07s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 8 tests
+test business::hr::hr_e2e_contract_tests::amounts_in_expected_values_are_self_consistent ... ok
+test business::hr::hr_e2e_contract_tests::design_hard_rules_are_asserted_in_the_chain ... ok
+test business::hr::hr_e2e_contract_tests::drill_db_guard_runs_before_any_write ... ok
+test business::hr::hr_e2e_contract_tests::every_step_carries_at_least_two_assertions ... ok
+test business::hr::hr_e2e_contract_tests::failures_print_request_response_and_log_tail ... ok
+test business::hr::hr_e2e_contract_tests::fresh_mode_drops_only_its_own_database_on_exit ... ok
+test business::hr::hr_e2e_contract_tests::script_declares_exactly_ten_steps_in_order ... ok
+test business::hr::hr_e2e_contract_tests::xlsx_helper_has_no_third_party_import ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 5481 filtered out; finished in 0.01s
+
+rc=0

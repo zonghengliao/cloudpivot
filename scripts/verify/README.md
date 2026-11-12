@@ -890,3 +890,33 @@ APPROVED）时一个节点行都没有，故改为断言实例终态 = APPROVED�
 **跨表**的一致性（单头 ↔ 明细、明细 ↔ 明细项、单据 ↔ 凭证）；造错自检里为了让注入能落库，
 个别用例会临时 `DROP INDEX`（A2 的 `uk_biz_employee_user`）—— 那是为了证明**巡检能独立发现**
 索引兜不住的情况，不是巡检依赖它。
+
+## 薪资链路 10 步端到端（`hr/hr_salary_e2e.sh`，卡 HR-46）
+
+一条命令把 ARCH-9-2 §8.1 的 HR-46 跑完：**建员工 → 建考勤期间 → 导入考勤 → 请假 → 锁期间 →
+试算 → 建单 → 审批 → 过账 → 红冲 → 对账**，每步都有断言（98 项），失败打印
+「哪个请求 / 返回什么 / 服务端日志尾 / 夹具 id / 库地址」。
+
+```bash
+# 一条命令：145 建演练库 → 回放 300+ 迁移 → 起隔离实例(18146) → 10 步 → 自己 DROP
+bash scripts/verify/hr/hr_salary_e2e.sh --fresh
+
+# 用现成演练库（不删别人的库）
+HR_DB_URL=postgres://cloudpivot:***@172.18.10.145:5432/hr46_drill_x \
+  bash scripts/verify/hr/hr_salary_e2e.sh
+
+# 失败排查：留实例与库
+KEEP=1 KEEP_DB=1 bash scripts/verify/hr/hr_salary_e2e.sh --fresh
+```
+
+| 文件 | 作用 |
+|---|---|
+| `hr/hr_salary_e2e.sh` | 10 步 E2E 主脚本。自带演练库护栏（库名必须含 `drill`/`e2e`/`test`，先于任何写操作）、`--fresh` 建库/清库、隔离端口判据（18000-18999）、审批夹具（一个账号持 3 个审批角色 + 把 HQ 部门负责人设成它）、`locate()` 失败定位 |
+| `hr/hr_e2e_xlsx.py` | 考勤导入文件生成器：**纯标准库**（`zipfile` + OOXML 手写 sharedStrings/sheet），不引 openpyxl —— E2E 必须在任何测试机零安装跑通 |
+
+**为什么必须走真 HTTP + 真库**：路由注册、权限码、DTO 字段形状、流程引擎的多节点/会签、
+以及 `biz_voucher` 里的科目与红冲指针，只有起真实例才验得到；第 10 步「对账」直接拿 SQL 对
+4 张凭证的逐科目净额与 §4.9 的 A6/A7 恒等式，并复用 `hr_invariants.sh` 跑满 12 行巡检。
+
+**操作纪律**：演练库只建在 145（`HR46_DBHOST`），99 上不建库；库名护栏 `rc=2` 硬拒；
+`HR_DB_URL` 指向外部库时**只跑不清**（`OWN_DB` 守卫），失败路径也照样 DROP 自己建的库。
