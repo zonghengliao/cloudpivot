@@ -47,3 +47,12 @@ build exit=0
 色板数据校验：通过
 
 [check-palettes] 全部通过 ✓
+
+== L0 门禁 scripts/lint/palette_def_sync.py（读最新一条 oneof 迁移）+ 正负向自检 ==
+--- 正向（99 套一致） exit=0
+PASS：99 套色板与 V0397__preference_palette_ids_gallery77.up.sql 的 ui.palette oneof 逐字一致
+--- 负向（字典少一个 id） exit=1
+FAIL：色板 99 套 / 字典 oneof 98 项（V0397__preference_palette_ids_gallery77.up.sql）
+    字典缺少（界面能选、后端会拒绝保存）：guci-gongming
+
+结论： 负向自检有效（正向 0 / 负向 1）
