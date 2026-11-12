@@ -1,0 +1,14 @@
+   Compiling cloudpivot v0.1.0 (/root/wt/hr26/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 52.60s
+     Running tests/hr_26_leave_flow_seed_db.rs (target/debug/deps/hr_26_leave_flow_seed_db-1a20fac159864a52)
+
+running 4 tests
+test definition_is_published_and_discoverable ... HR-26 已连接验证库
+ok
+test graph_passes_engine_validation_and_hash_matches_rows ... ok
+test long_leave_condition_routes_at_the_three_day_boundary ... 字符串形态的求值错误（预期，说明为什么要有数值镜像）：Missing: form.duration_days_num
+ok
+test nodes_route_superior_then_hr_manager_on_long_leave ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+

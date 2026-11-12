@@ -800,8 +800,17 @@ pub async fn submit_leave(
 /// 为什么把**中文名**一起冻进去：审批节点常常派给没有 `business:hr:leave:*` 读权限的岗位，
 /// 审批人点开待办要能直接看懂「谁请了什么假」，而不是一串 uuid；
 /// `duration_days` 写成 **JSON 字符串**（`Decimal` 序列化口径与出参一致，不做浮点转换）。
+///
+/// **另给一个数值镜像 `duration_days_num`**（HR-26 加入）：
+/// `hr_leave` 流程的「请假 ≥ 3 天 → 人事经理复核」是**条件边**
+/// （`biz_flow_edge.condition_expr` = `form.duration_days_num gte 3`），而条件求值器
+/// （`flow::graph::compare`）对 `gt/gte/lt/lte` 一律 `Value::as_f64()` —— 左值是字符串
+/// 就 `TypeMismatch`，引擎按「条件不成立」**静默走兜底边**（只有 WARN 日志）。
+/// 也就是说：只留字符串形态会让长假**绕过人事复核**，且不报任何错。
+/// 故这里保留字符串（展示 / 出参口径不变）**并**补一个同源同值的 JSON number 供条件求值。
+/// 两边的钉子：本函数单测 + `tests/hr_26_leave_flow_seed.rs`（种子里引用的字段必须是 number）。
 fn leave_form_data(row: &model::LeaveRow) -> serde_json::Value {
-    serde_json::json!({
+    let mut form = serde_json::json!({
         "leave_id": row.id.to_string(),
         "leave_no": row.leave_no,
         "employee_id": row.employee_id.to_string(),
@@ -817,7 +826,13 @@ fn leave_form_data(row: &model::LeaveRow) -> serde_json::Value {
         "paid": row.paid,
         "paid_label": leave_dto::paid_label(row.paid),
         "reason": row.reason,
-    })
+    });
+    if let Ok(days) = row.duration_days.to_string().parse::<f64>()
+        && let Some(number) = serde_json::Number::from_f64(days)
+    {
+        form["duration_days_num"] = serde_json::Value::Number(number);
+    }
+    form
 }
 
 /// 状态 CAS 回写 + 「影响 0 行」翻译成人话（409）。
@@ -1314,5 +1329,69 @@ mod tests {
         assert_eq!(form["duration_days"], "1.5", "天数必须是字符串（前端不做浮点）");
         assert_eq!(form["dept_name"], "生产部");
         assert_eq!(form["reason"], "回家");
+        // ★ HR-26：数值镜像（`hr_leave` 的「≥3 天 → 人事经理复核」条件边只认它）。
+        //   必须是 JSON **number**：条件求值器对 gte 走 `Value::as_f64()`，
+        //   字符串会 TypeMismatch → 静默走兜底边 → 长假绕过人事复核。
+        assert_eq!(
+            form["duration_days_num"],
+            serde_json::json!(1.5),
+            "duration_days_num 必须是数值（与字符串同源同值）"
+        );
+        assert!(
+            form["duration_days_num"].is_number(),
+            "duration_days_num 必须是 JSON number，不能是字符串"
+        );
+    }
+
+    /// ★ HR-26：3 天边界（条件边是 `gte 3`：恰好 3 天要复核，2.5 天不要）。
+    ///
+    /// 这里断言的是**镜像值与阈值的相对关系**，阈值本身在迁移
+    /// `V0393__hr_leave_flow.up.sql` 里（`tests/hr_26_leave_flow_seed.rs` 读文件对拍）。
+    #[test]
+    fn duration_days_num_mirrors_the_decimal_at_the_three_day_boundary() {
+        for (scaled, expect_days, crosses) in [(25i64, 2.5_f64, false), (30, 3.0, true), (35, 3.5, true)] {
+            let mut row = sample_row();
+            row.duration_days = Decimal::new(scaled, 1);
+            let form = leave_form_data(&row);
+            assert_eq!(form["duration_days_num"], serde_json::json!(expect_days));
+            let days = form["duration_days_num"].as_f64().expect("必须是数值");
+            assert_eq!(
+                days >= 3.0,
+                crosses,
+                "{} 天：>= 3 应为 {crosses}（条件边阈值 3）",
+                expect_days
+            );
+        }
+    }
+
+    /// 测试用请假单行（字段齐全，值可预测）。
+    fn sample_row() -> model::LeaveRow {
+        model::LeaveRow {
+            id: Uuid::now_v7(),
+            leave_no: "LV-20261112-000001".to_string(),
+            employee_id: Uuid::now_v7(),
+            employee_no: "EMP-0007".to_string(),
+            employee_name: "张三".to_string(),
+            dept_id: None,
+            dept_name: "生产部".to_string(),
+            leave_type: "ANNUAL".to_string(),
+            start_time: Utc::now(),
+            end_time: Utc::now(),
+            duration_days: Decimal::new(15, 1),
+            paid: 1,
+            status: leave_dto::STATUS_DRAFT.to_string(),
+            reason: Some("回家".to_string()),
+            approval_instance_id: None,
+            submitted_at: None,
+            submitted_by: None,
+            submitted_by_name: None,
+            cancelled_at: None,
+            cancelled_by: None,
+            cancelled_by_name: None,
+            cancel_reason: None,
+            remark: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
     }
 }

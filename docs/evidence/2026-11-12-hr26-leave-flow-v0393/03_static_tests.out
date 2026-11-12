@@ -1,0 +1,21 @@
+   Compiling cloudpivot v0.1.0 (/root/wt/hr26/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 43.27s
+     Running tests/hr_26_leave_flow_seed.rs (target/debug/deps/hr_26_leave_flow_seed-bb26f400bd1d9156)
+
+running 13 tests
+test condition_field_is_a_number_produced_by_the_handler ... ok
+test auto_approve_is_forbidden ... ok
+test approvers_are_superior_and_hr_role ... ok
+test approval_nodes_are_any_not_all ... ok
+test down_has_safety_valves_and_touches_only_this_card ... ok
+test long_leave_condition_uses_the_numeric_mirror_and_is_dsl_legal ... ok
+test migration_is_transactional ... ok
+test graph_hash_matches_the_snapshot_it_ships_with ... ok
+test snapshot_arrays_are_in_engine_deterministic_order ... ok
+test up_and_down_are_paired_and_named_for_the_flow ... ok
+test four_guards_are_all_present ... ok
+test version_increments_and_never_steals_current ... ok
+test definition_matches_design_section_3_2_nine ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

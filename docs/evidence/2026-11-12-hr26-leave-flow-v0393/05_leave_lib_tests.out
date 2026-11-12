@@ -1,0 +1,62 @@
+   Compiling cloudpivot v0.1.0 (/root/wt/hr26/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.80s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 54 tests
+test business::hr::leave_db_tests::db::draft_edit_then_state_machine_round_trip ... ok
+test business::hr::leave_db_tests::db::duplicate_leave_no_maps_to_409 ... ok
+test business::hr::leave_db_tests::db::approved_unpaid_days_counts_only_approved_unpaid ... ok
+test business::hr::leave_db_tests::db::cancel_without_reason_is_rejected_by_the_database ... ok
+test business::hr::leave_db_tests::db::insert_and_read_back_every_column ... ok
+test business::hr::leave_db_tests::db::next_leave_no_is_monotonic_and_well_formed ... ok
+test business::hr::leave_db_tests::db::page_respects_dept_scope_and_mine_flag ... ok
+test business::hr::leave_db_tests::db::soft_delete_keeps_the_row_but_hides_it ... ok
+test business::hr::leave_dto::tests::bounds_match_ddl_widths ... ok
+test business::hr::leave_dto::tests::cancel_requires_meaningful_reason ... ok
+test business::hr::leave_dto::tests::create_of_names_the_missing_field ... ok
+test business::hr::leave_dto::tests::create_rejects_days_exceeding_range ... ok
+test business::hr::leave_dto::tests::create_of_maps_valid_payload ... ok
+test business::hr::leave_dto::tests::duration_checks_enforce_half_day_granularity ... ok
+test business::hr::leave_dto::tests::duration_must_fit_the_range ... ok
+test business::hr::leave_dto::tests::domain_checks_reject_bad_values ... ok
+test business::hr::leave_dto::tests::page_params_are_normalized ... ok
+test business::hr::leave_dto::tests::leave_type_domain_matches_ddl_check ... ok
+test business::hr::leave_dto::tests::parse_datetime_accepts_known_formats ... ok
+test business::hr::leave_dto::tests::filter_parses_multi_select_and_rejects_bad_values ... ok
+test business::hr::leave_dto::tests::range_check_rejects_empty_and_reversed_ranges ... ok
+test business::hr::leave_dto::tests::patch_merges_missing_fields_and_keeps_consistency ... ok
+test business::hr::leave_dto::tests::leave_res_pairs_ids_with_names ... ok
+test business::hr::leave_dto::tests::status_domain_matches_ddl_check ... ok
+test business::hr::leave_handler::tests::cancel_action_codes_are_stable ... ok
+test business::hr::leave_handler::tests::flow_constants_match_design ... ok
+test business::hr::leave_handler::tests::cancel_action_maps_each_status ... ok
+test business::hr::leave_handler::tests::locked_statuses_are_not_editable ... ok
+test business::hr::leave_handler::tests::form_data_freezes_human_readable_fields ... ok
+test business::hr::leave_handler::tests::permission_codes_match_seed ... ok
+test business::hr::leave_handler::tests::duration_days_num_mirrors_the_decimal_at_the_three_day_boundary ... ok
+test business::hr::leave_handler::tests::resigned_constant_matches_employee_domain ... ok
+test business::hr::leave_handler::tests::task_status_labels ... ok
+test business::hr::leave_handler::tests::withdraw_and_cancel_edges_are_registered ... ok
+test business::hr::leave_handler_db_tests::db::create_rejects_resigned_employee ... ok
+test business::hr::leave_handler_db_tests::db::cancel_approved_requires_reason_then_moves_to_cancelled ... ok
+test business::hr::leave_handler_db_tests::db::cancel_draft_soft_deletes ... ok
+test business::hr::leave_handler_db_tests::db::create_copies_employee_snapshot_and_takes_no ... ok
+test business::hr::leave_handler_db_tests::db::detail_returns_approval_trace ... ok
+test business::hr::leave_handler_db_tests::db::page_scopes_by_dept_and_mine ... ok
+test business::hr::leave_handler_db_tests::db::submit_starts_instance_then_withdraw_terminates ... ok
+test business::hr::leave_handler_db_tests::db::submit_without_flow_is_fail_closed ... ok
+test business::hr::leave_handler_db_tests::db::withdraw_without_instance_still_returns_to_draft ... ok
+test business::hr::leave_handler_db_tests::db::update_merges_partial_and_blocks_locked ... ok
+test business::hr::leave_model::tests::check_names_match_ddl ... ok
+test business::hr::leave_model::tests::leave_no_format ... ok
+test business::hr::leave_model::tests::leave_target_matches_scope_registry ... ok
+test business::hr::leave_model::tests::set_status_uses_coalesce_for_audit_columns ... ok
+test business::hr::leave_model::tests::row_to_res_pairs_ids_with_names ... ok
+test business::hr::leave_model::tests::sql_placeholder_counts_match_params ... ok
+test business::hr::leave_model::tests::unique_index_matches_ddl ... ok
+test business::hr::leave_model::tests::row_sql_columns_exist_in_ddl ... ok
+test business::hr::leave_model::tests::update_sql_never_touches_guarded_columns ... ok
+test business::hr::leave_model::tests::list_query_placeholders_match ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 5193 filtered out; finished in 0.01s
+

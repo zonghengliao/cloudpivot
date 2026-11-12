@@ -1,0 +1,61 @@
+==> 建演练库 hr26_leave_flow_drill @ 172.18.10.145（先 DROP 残留）
+==> S0 回放 V0393 之前的全部迁移（按版本号全局升序）
+    基线迁移 312 条完成
+  ✓ S0 流程表在、无 hr_leave（0）
+==> S1 应用 V0393（up）
+    psql:/opt/cloudpivot/backend/migrations/business/V0393__hr_leave_flow.up.sql:511: NOTICE:  HR-26 自检通过：hr_leave（PUBLISHED / 5 节点 / 5 边 / 直属上级 +（≥3 天）人事经理 / 或签 / 快照 hash 自洽）
+  ✓ S1 自检 NOTICE 通过
+  ✓ S1 无 ERROR
+  ✓ S1 def 1 行 PUBLISHED+默认+系统（1）
+  ✓ S1 version v1 is_current（1/PUBLISHED/true/5/5）
+  ✓ S1 def 指针指向本卡版本（20000000-0000-4000-8000-0000000e0394）
+  ✓ S1 graph_hash 列值（4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97）
+  ✓ S1 节点 5 个（5）
+  ✓ S1 边 5 条（5）
+  ✓ S1 审批人绑定 1 条（n_hr→HR_MANAGER）（1）
+  ✓ S1 直属上级 = INITIATOR_SUPERIOR(levels=1) 且无枚举行（INITIATOR_SUPERIOR/1/0）
+  ✓ S1 两个审批节点都 ANY + FALLBACK_ADMIN + REMIND（2）
+  ✓ S1 没有 ALL 审批节点（0）
+  ✓ S1 条件边（gte 3 on duration_days_num）（form.duration_days_num/gte/3）
+  ✓ S1 兜底边恰 1 条（e_short）（1/e_short）
+  ✓ S1 链路 5 条骨架（5）
+==> S2 up 幂等
+  ✓ S2 重放后指纹不变（20/25/133/133/58/f5e20abd1098ed8b6fa84d713d5c5456db4e5743cbd4cdb7605cd13d3761c05f,035d3c246b89330681f67c353277dc53313c7a6521041e45841bd078b2563b3d,0267661a1b7d37ebc94a3e8859eecde63173325f57d3949970dcbdd4f8b9b5a0,4f484777debbea1a0cc1a76db28274c4d9986c8cbe8d3936afa7e08a50adf7fc,742f06d8fbecc6eb2fdfdfaed66571bfff9c1b3b02ff8dd0338f0dc7f3dd17b2,c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08,95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768,8a4fbd64cf5fb5cfc3b133ef2e4ff6103cd14a9afbabfae2b6f63f5845eb4171,8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de,4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d,b4bef2fc227db8131f75792028217d170e961a529055db9a96d3ac11333139ac,196042b525bb64d95741902d415270652ac9afb1f6ecfcbc683540f6ec6d345b,19b84d031306f9dbb2140690245b153b9f287de2a89d95aacaf2f6cbcf762871,331f253a63ed68bb88fbcc7d4cc1d9273f3a49efde9d8d76955d71d36ac95ae8,8341eac726949864d2a9fdb562a34154d8b7eb611a265fc6adc2c1c9e8e5c1c5,5059115327e291c6e1861fa434f7e74d8ccc50e133e79b802cde6f074e2c65d3,80cd6c9c76c165a7b75e0be29f163482825dc31eef1f195e0602cd98d3ca4cb1,e1947064684e326c4ad4248e354d0215f1a3f3a7f668fb467aefe854adbd90da,7211229eeec38dca63ee28cd0fceb5a13b11ab5e12c94adb87465ad178901ef6,6a592107a9e7e6bc34a47bc4098926f648eb15e4fb3a5b45c1f93354dfc2d1b2,97fe937752c881c0c9b36f7aa8e2a410c2891a4327711fde96fcbf16a0bc6e80,c0abd5f5c2c6ad8ece740cbd5b77d82dac0550097aa746ab0bb2b233d8c5f437,9debbf67fd8f3404a828bd626c614753b308b70e8b7de49c212b86869842507c,54568343d7500cf8479bbff3c6e172f66dfd22a293ed01bdcd3bea5bef9849cb,4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97）
+  ✓ S2 重放后自检仍通过（未重复插版本）
+  ✓ S2 本卡版本仍只有 1 个（1）
+==> S3 快照 hash 库内重算对账
+  ✓ S3 canonical 重算 == graph_hash
+==> S4/S5/S6 down → down 幂等 → 重放
+  ✓ S4 down 安全阀通过
+  ✓ S4 down 无 ERROR
+  ✓ S4 定义已删（0）
+  ✓ S4 版本/节点/边/审批人全清（0/0/0/0）
+  ✓ S5 down 幂等（第二遍零异常）
+  ✓ S6 重放后自检通过
+  ✓ S6 重放后回到 1 def / 1 version / 5 节点 / 5 边（1/1/5/5）
+==> S7 守卫①：客户自建同名 flow_code
+  ✓ S7 守卫①命中（提示已存在同名流程）
+  ✓ S7 客户行未被覆盖（名字还是客户的）（客户自建请假流）
+  ✓ S7 没有种出本卡的 def（0）
+==> S8 守卫②：同 biz_type 已有默认流
+  ✓ S8 守卫②命中（同 biz_type 已有默认流）
+  ✓ S8 没有种出本卡的 def（0）
+==> S9 守卫③：审批角色缺失
+  ✓ S9 守卫③命中（角色不齐 → 不种）
+  ✓ S9 没有种出本卡的 def（0）
+  ✓ S9 角色恢复后重跑成功
+==> S10 守卫④：版本递增（已有非本卡版本）
+  ✓ S10 未撞唯一索引（无 ERROR）
+  ✓ S10 发的是 v2 而不是 v1（2）
+  ✓ S10 新版本 is_current = true（客户那版本来就不是 current）（t）
+  ✓ S10 不抢客户版本：def 指针仍是客户那版（33333333-3333-4333-8333-333333333333）
+  ✓ S10 本卡版本只多了这一份（v2）（1）
+==> S11 down 安全阀 c：本流程下还有别的版本 → 拒绝回滚
+  ✓ S11 down 被安全阀 c 拦下
+  ✓ S11 清掉客户版本后 down 成功
+  ✓ S11 down 后定义已删（0）
+==> S12 收尾
+  ✓ S12 演练库已 DROP（0）
+
+ALL PASS（0 失败）
+EXIT=0

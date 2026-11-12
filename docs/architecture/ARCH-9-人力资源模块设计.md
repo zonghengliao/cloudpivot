@@ -762,6 +762,27 @@ SELECT v.rule, v.biz, d.id, c.id, NULL, 1, v.remark
 
 四条都 `is_system = TRUE`（预置流程客户不能删；`V0233` 就是为漏写 `is_system` 打的补丁，P2-6b 的 H6 不变量会判红），图快照按 `flow::graph::snapshot()` 的确定性序列化算 sha256，写入迁移头注释。**具体图与 hash 由实现卡（HR-26/HR-38）生成**，本卡只定拓扑与审批人来源。
 
+> **落地记录（HR-26 / t_10899fe4，`V0393__hr_leave_flow`）—— 三条必须按实施口径读**
+>
+> 1. **号段**：`hr_leave_flow` 实落 **V0393**（设计号 V0384 → 曾映射 V0390；V0390/0391/0392 已被
+>    成本菜单分组 / 成本流程 / HR-23 考勤锁定守卫实占）。详见 §7.1「第三次号段修正」。
+> 2. **实际图形是 5 节点 / 5 边**（不是线性 3 节点）：`s → n_sup(直属上级) → c_days(天数判定)
+>    → {e_short→e | e_long→n_hr(人事经理)→e}`，`node_count=5`、`edge_count=5`，
+>    `graph_hash = 4fc6722abf629a8a9a84580942dd2f6a0a44431786b2e500905531affc0e1f97`。
+>
+>    | 节点 | 类型 | 审批人来源 | 或签 | 兜底 | 超时 |
+>    |---|---|---|---|---|---|
+>    | `s` / `e` | START / END | — | — | — | — |
+>    | `c_days` | CONDITION | — | — | 兜底边 `e_short`（<3 天 → 结束） | — |
+>    | `n_sup` | APPROVAL | `INITIATOR_SUPERIOR`（levels=1，随发起人变化，**不落枚举行**） | ANY | `FALLBACK_ADMIN` | 24h REMIND |
+>    | `n_hr` | APPROVAL | `ROLE` = `HR_MANAGER`（`…f0016`） | ANY | `FALLBACK_ADMIN` | 48h REMIND |
+>
+> 3. ★ **条件字段必须用数值镜像 `form.duration_days_num`**：`leave_handler::leave_form_data` 里
+>    `duration_days` 是 **JSON 字符串**（展示口径），而条件求值器 `graph::compare` 对 `gte` 走
+>    `Value::as_f64()` —— 字符串左值 ⇒ `TypeMismatch` ⇒ 引擎按「条件不成立」**静默走兜底边**
+>    （只有 WARN），长假会**绕过人事复核且不报错**。故 form_data 同时冻结 `duration_days_num`
+>    （JSON number，与字符串同源同值），种子条件边只认它；两侧各有一条测试钉死这个契约。
+
 #### ⑩ `sys_config`：3 个开关
 
 > **落地记录（HR-05 / t_b85f402e，`V0388__hr_mask_config`）**：下面这段用
@@ -1471,6 +1492,14 @@ COMMIT
 > `hr_attachment_doc_types` →**V0389**，批 3 三套流程 →**V0390/0391/0392**，
 > 批 5 →**V0393/0394**。下表已按此更新；后续卡（HR-04/05/26/35/38/45）以本表**实际号**列为准。
 > 规律：**先落地者定号，后落地者避让**（本仓迁移版本号跨目录唯一，重号 = 启动即失败）。
+>
+> **第三次号段修正（HR-26 实施时，t_10899fe4）**：批 3 的三套流程号段 `V0390/0391/0392` 也已被
+> 成本核算与 HR-23 实占 —— `V0390__cost_menu_group`（成本菜单分组）、`V0391__flow_cost_settle_is_system`、
+> `V0392__attendance_lock_guard`（HR-23 考勤锁定守卫）。HR-26 要写 `hr_leave_flow`（原映射 V0390），
+> 故 **HR-26 取 V0393**，其后各卡顺延：`hr_salary_flow`→**V0394**、`hr_adjust_resign_flow`→**V0395**、
+> `hr_salary_items_seed`→**V0396**、`hr_selfcheck`→**V0397**（下表已更新）。
+> 这仍是**建议号**：每张卡落地前必须 `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3`
+> 再核对，撞号就继续后移（先落地者定号）。
 
 | 设计号 | 实际号 | 文件名 | 内容 | 幂等策略 |
 |---|---|---|---|---|
@@ -1480,11 +1509,11 @@ COMMIT
 | ~~V0381~~ | **V0387** | `hr_menu_perms` | 36 行菜单 + `HR_MANAGER` 角色 + `sys_role_menu` 授权 | `ON CONFLICT (id) DO NOTHING` + 授权 `NOT EXISTS` |
 | ~~V0382~~ | **V0388** | `hr_mask_config` | 2 条 `sys_field_mask` + 3 条 `sys_config` | `NOT EXISTS`（表+列+role）/ `NOT EXISTS`（config_key，未软删）+ 固定 UUID。✅ 已落地（HR-05） |
 | ~~V0383~~ | **V0389** | `hr_attachment_doc_types` | `ck_biz_doc_attachment_type` 17→21、`ck_biz_attachment_rule_doc_type` 同步 + 2 条规则 | `DO` 块先读 `pg_get_constraintdef` 判断是否已含新值，已含则跳过（照 `V0350` 的做法）；规则表不存在则整段跳过。✅ 已落地（HR-05） |
-| ~~V0384~~ | **V0390** | `hr_leave_flow` | `hr_leave` 流程：定义 + 版本 + 图快照（含 sha256） | 4 层 `WHERE NOT EXISTS`（同名流程/同 biz_type 默认流程/角色存在） |
-| ~~V0385~~ | **V0391** | `hr_salary_flow` | `hr_salary` 流程（同上） | 同上 |
-| ~~V0386~~ | **V0392** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套 | 同上 |
-| ~~V0387~~ | **V0393** | `hr_salary_items_seed` | 17 个薪资项（§4.4.3 表逐行） | `WHERE NOT EXISTS (org_id, item_code)`；`sort_order` 冲突检查 |
-| ~~V0388~~ | **V0394** | `hr_selfcheck` | **收口自检**：10 表 / 9 科目 / 4 号段 / 36 菜单 / 4 流程 / 17 薪资项 / 2 脱敏 / 3 配置 全部在位，缺一 `RAISE EXCEPTION` | 纯 `DO` 块，无副作用（可重复应用） |
+| ~~V0384~~ | **V0393** | `hr_leave_flow` | `hr_leave` 流程：定义 + 版本 + 图快照（含 sha256）。✅ 已落地（HR-26）：直属上级 →（≥3 天，条件边 `form.duration_days_num gte 3`）人事经理 → END，5 节点 / 5 边，hash `4fc6722a…` | 4 层 `WHERE NOT EXISTS`（同名流程/同 biz_type 默认流程/角色存在/版本重复）+ 版本号 `MAX+1` |
+| ~~V0385~~ | **V0394** | `hr_salary_flow` | `hr_salary` 流程（同上） | 同上 |
+| ~~V0386~~ | **V0395** | `hr_adjust_resign_flow` | `hr_salary_adjust` + `hr_employee_resign` 两套 | 同上 |
+| ~~V0387~~ | **V0396** | `hr_salary_items_seed` | 17 个薪资项（§4.4.3 表逐行） | `WHERE NOT EXISTS (org_id, item_code)`；`sort_order` 冲突检查 |
+| ~~V0388~~ | **V0397** | `hr_selfcheck` | **收口自检**：10 表 / 9 科目 / 4 号段 / 36 菜单 / 4 流程 / 17 薪资项 / 2 脱敏 / 3 配置 全部在位，缺一 `RAISE EXCEPTION` | 纯 `DO` 块，无副作用（可重复应用） |
 
 **为什么单独一个收口自检迁移**：本仓的迁移是"文件内不写 BEGIN/COMMIT、由迁移器开事务"，一旦某个种子在某类库（老库/空库/克隆库）上静默没种进去，前面的迁移已经提交、指纹已记，事后只能手写补丁。收口自检把"种齐"变成一个**原子承诺**：任何一条不齐，整批回滚（照 `V0378`/`V0226` 末尾的 `DO $$ … RAISE EXCEPTION` 既有做法）。
 
@@ -1604,7 +1633,7 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | HR-23 | 考勤锁定/解锁 + 状态机接线 + 锁定后写保护 | HR-19 | 1.0 h |
 | HR-24 | `leave_request` model/dto | HR-09 | 1.0 h |
 | HR-25 | leave handler：CRUD + 提交/撤回/作废（6 接口） | HR-24 | 1.5 h |
-| HR-26 | 迁移 V0390（设计 V0384）：`hr_leave` 流程（定义+版本+图+hash+自检） | HR-25 | 1.5 h |
+| HR-26 | 迁移 V0393（设计 V0384 / 曾映射 V0390）：`hr_leave` 流程（定义+版本+图+hash+自检）。✅ 已落地 | HR-25 | 1.5 h |
 | HR-27 | `leave_bridge`：审批回调 → 状态 + 实例终止 + 自审批守卫 | HR-26 | 1.0 h |
 | HR-28 | 请假列表页 + 表单（含「我的请假」tab） | HR-25 | 1.5 h |
 | HR-29 | 考勤页（期间 + 台账 + 导入入口 + 单元格编辑） | HR-20,HR-21 | 1.5 h |
@@ -1618,17 +1647,17 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | HR-32 | **公式解析器** `hr/salary_formula.rs`（tokenizer + 递归下降 + Decimal 求值 + 惰性 IF）+ 20 条单测 | HR-31 | 1.5 h+ |
 | HR-33 | 变量解析（项引用 + `ATT_*` 白名单）+ 依赖拓扑 + 环检测 + 未定义变量报错 | HR-32 | 1.5 h |
 | HR-34 | `salary_compute.rs`：试算（读标准+考勤+人工项）→ 逐人逐项 → 恒等式校验 → 落库事务 | HR-33,HR-20 | 1.5 h+ |
-| HR-35 | 迁移 V0393（设计 V0387）：17 个薪资项种子（含公式与科目） | HR-31 | 1.0 h |
+| HR-35 | 迁移 V0396（设计 V0387 / 曾映射 V0393）：17 个薪资项种子（含公式与科目） | HR-31 | 1.0 h |
 | HR-36 | `salary_sheet` model/handler：建单/试算/明细分页/单头汇总 | HR-34 | 1.5 h |
 | HR-37 | 明细覆盖（改单项 → 重算汇总 → 写状态日志）+ 越权校验 | HR-36 | 1.0 h |
-| HR-38 | 迁移 V0391（设计 V0385）：`hr_salary` 流程 + 迁移 V0392（设计 V0386）：调薪/离职流程 | HR-36 | 1.5 h |
+| HR-38 | 迁移 V0394（设计 V0385 / 曾映射 V0391）：`hr_salary` 流程 + 迁移 V0395（设计 V0386 / 曾映射 V0392）：调薪/离职流程 | HR-36 | 1.5 h |
 | HR-39 | `salary_bridge`：过账（两张凭证，`post_explicit_lines`）+ 审批回调 + 净额法汇总 | HR-38,HR-02 | 1.5 h+ |
 | HR-40 | 红冲（两张红字凭证 + 状态机 + 原因必填） | HR-39 | 1.0 h |
 | HR-41 | `/salary/my` + `/attendance/my` + `/leave/my` 自助三接口 | HR-36 | 1.0 h |
 | HR-42 | 工资表导出 xlsx（项为列 + 部门分组） | HR-36 | 1.5 h |
 | HR-43 | 薪资单详情页（四段式 + 明细展开 + 凭证卡） | HR-36 | 1.5 h |
 | HR-44 | 薪资项配置页（公式编辑器 + 变量面板 + 检查按钮） | HR-31 | 1.5 h |
-| HR-45 | 迁移 V0394（设计 V0388）收口自检 + `scripts/verify/hr_invariants.sql`（10 断言） | HR-39 | 1.5 h |
+| HR-45 | 迁移 V0397（设计 V0388 / 曾映射 V0394）收口自检 + `scripts/verify/hr_invariants.sql`（10 断言） | HR-39 | 1.5 h |
 | HR-46 | E2E 脚本：建员工→导入考勤→请假→试算→审批→过账→红冲→对账（10 步） | HR-45 | 1.5 h+ |
 
 #### 批 5 收口（4 张）
