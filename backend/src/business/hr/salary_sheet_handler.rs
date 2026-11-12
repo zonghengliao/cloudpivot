@@ -53,11 +53,14 @@ use axum::extract::{Extension, Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::approval_gate::{self, ApprovalGate};
+use crate::business::flow::{engine, model as flow_model};
+use crate::business::hr::salary_bridge;
 use crate::business::hr::salary_compute::{self as compute, CalcRequest};
 use crate::business::hr::salary_override_dto::{self as ov, SalaryOverrideReq, SalaryOverrideRes};
 use crate::business::hr::salary_sheet_dto::{
     self as dto, CalcMode, SalaryCalcRes, SalaryDetailPageQuery, SalaryDetailRes, SalarySheetCalcReq,
-    SalarySheetListQuery, SalarySheetSummaryRes, SalaryTotalsRes,
+    SalarySheetCardRes, SalarySheetListQuery, SalarySheetSummaryRes, SalaryTotalsRes,
 };
 use crate::business::hr::salary_sheet_model::{self as model};
 use crate::business::shared::principal::{self, ScopedPrincipal};
@@ -75,6 +78,12 @@ pub const PERM_SALARY_DETAIL: &str = "business:hr:salary:detail";
 
 /// 试算 / 建单 / 明细覆盖（设计 §5.2 #39 / #40 共用）。
 pub const PERM_SALARY_CALC: &str = "business:hr:salary:calc";
+
+/// 提交审批（设计 §5.2 #42，HR-39）。
+pub const PERM_SALARY_SUBMIT: &str = "business:hr:salary:submit";
+
+/// 过账（设计 §5.2 #43，HR-39）。
+pub const PERM_SALARY_POST: &str = "business:hr:salary:post";
 
 // ==================== 错误原语 ====================
 
@@ -555,7 +564,385 @@ pub async fn override_detail(
     })
 }
 
-// ==================== 单测（不连库） ====================
+// ==================== ㊷ 提交审批 ====================
+
+/// 提交审批（设计 §5.2 #42 `hr_salary`）—— HR-39。
+///
+/// 权限码 `business:hr:salary:submit`（与 V0387 的 `e043` 按钮逐字一致）。
+#[nik::permission(
+    path = "/business/hr/salary/{id}/submit",
+    method = "POST",
+    permission = "business:hr:salary:submit"
+)]
+#[nik::post("/business/hr/salary/{id}/submit")]
+pub async fn salary_submit(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<SalarySheetCardRes> {
+    let sheet_id = dto::parse_uuid(&id, "id")?;
+    let operator: Operator = (&claims).into();
+    Ok(Res::ok(submit_sheet(operator, sheet_id).await?))
+}
+
+/// 提交审批的业务实现（接口与真库用例共用同一条路径）。
+///
+/// # 闸门顺序（全部在同一个事务里）
+///
+/// 1. `status = CALCULATED`（`DRAFT` 得先试算，`SUBMITTED` 已在审批中，
+///    `APPROVED/POSTED/REVERSED` 不能再提交）；
+/// 2. 同一单已有在跑的审批 → 409（避免撞 `uk_biz_flow_instance_biz_active`）；
+/// 3. 没有已发布的 `hr_salary` 流程 → `approval_gate::authorize_missing_flow`
+///    （409 点名流程编码）。**不做「没流程就直接生效」**（设计 §4.3 第 3 条）；
+/// 4. 起实例 → 状态机 `CALCULATED → SUBMITTED` → CAS 回写 `status` + `submitted_at`
+///    + `approval_instance_id`（一条语句，不留中间窗口）；
+/// 5. 免审直过（流程里没有审批节点）：引擎在同事务里直接 `APPROVED`，本函数立刻把单据
+///    推到 `APPROVED` —— **绝不留「实例已通过、单据还在审批中且无待办」的死单**
+///    （`AGENTS.md` 约定 11）。
+///
+/// # 表单快照里的 `gross_total_num` 是**条件边的契约**
+///
+/// `hr_salary` 的「应发 ≥ 50 万 → 总经理审批」是一条**条件边**
+/// （`V0394` 的 `condition_expr = {"field": "form.gross_total_num", "cmp": "gte", "value": 500000}`），
+/// 条件求值器对 `gte` 走 `Value::as_f64()`：左值是 JSON **字符串**就 `TypeMismatch`，
+/// 引擎按「条件不成立」**静默走兜底边** —— 大额工资单会绕过总经理签字，且不报任何错。
+/// 所以这里冻结**两个**字段：`gross_total`（字符串，展示口径）+ `gross_total_num`
+/// （JSON number，供求值）。两边的钉子：本文件的单测 + `tests/hr_38_*` 的种子断言。
+pub async fn submit_sheet(operator: Operator, sheet_id: Uuid) -> std::result::Result<SalarySheetCardRes, ApiError> {
+    let Some(operator_id) = operator.id else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_INVALID,
+            "提交审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启提交薪资审批事务"))?;
+    // ① 锁单 + 状态闸
+    let sheet = match model::lock_sheet(&tx, sheet_id).await {
+        Ok(Some(sheet)) => sheet,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found(sheet_id));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "锁定薪资单"));
+        }
+    };
+    if sheet.status != dto::STATUS_CALCULATED {
+        let _ = tx.rollback().await;
+        return Err(ApiError::new(
+            409,
+            error_code::HR_SALARY_RULE_BLOCKED,
+            format!(
+                "薪资单 {} 当前是「{}」（{}），只有已算出（CALCULATED）的单可以提交审批{}",
+                sheet.sheet_no,
+                dto::status_label(&sheet.status),
+                sheet.status,
+                match sheet.status.as_str() {
+                    dto::STATUS_DRAFT => "：请先试算（建单）",
+                    dto::STATUS_SUBMITTED => "：这张单已经在审批中了",
+                    dto::STATUS_APPROVED => "：已审批通过，可以直接过账",
+                    dto::STATUS_POSTED => "：已过账（凭证已生成）",
+                    _ => "：已红冲的单是终态，要重发请新开一张",
+                }
+            ),
+        ));
+    }
+    // ② 幂等：已有在跑实例
+    match flow_model::biz_instance_running_in(&tx, salary_bridge::BIZ_TYPE, sheet_id).await {
+        Ok(false) => {}
+        Ok(true) => {
+            let _ = tx.rollback().await;
+            return Err(ApiError::new(
+                409,
+                error_code::RESOURCE_CONFLICT,
+                format!(
+                    "薪资单 {} 已在审批中：请等审批结束，或让审批人驳回后再提交",
+                    sheet.sheet_no
+                ),
+            ));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "查询薪资单在跑的审批"));
+        }
+    }
+    // ③ 流程必须已发布（fail-closed）
+    let flow = match published_salary_flow().await {
+        Ok(flow) => flow,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "查询薪资审批流程"));
+        }
+    };
+    let Some(flow) = flow else {
+        let _ = tx.rollback().await;
+        return Err(approval_gate::authorize_missing_flow(
+            salary_bridge::BIZ_TYPE,
+            salary_bridge::FLOW_CODE,
+            &ApprovalGate::none(),
+        )
+        .expect_err("没有已发布流程时 authorize_missing_flow 必须返回错误（fail-closed）"));
+    };
+    let (initiator_name, initiator_dept_id) = match flow_model::user_profile(operator_id).await {
+        Ok(profile) => profile.unwrap_or((String::new(), None)),
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "查询提交人"));
+        }
+    };
+    // ④ 起实例
+    let instance_id = Uuid::now_v7();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(sheet_id),
+        biz_no: Some(sheet.sheet_no.clone()),
+        title: format!(
+            "{} {} 薪资单（{} 人 / 应发 {} 元）",
+            sheet.sheet_no, sheet.period_code, sheet.employee_count, sheet.gross_total
+        )
+        .chars()
+        .take(200)
+        .collect::<String>(),
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: salary_form_data(&sheet),
+    };
+    let mut out = match engine::start(&tx, &start).await {
+        Ok(out) => out,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(model::write_error(error, "发起薪资审批单", &sheet.sheet_no));
+        }
+    };
+    if let Some(rejected) = out.rejected.take() {
+        let _ = tx.rollback().await;
+        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
+            "（内控要求：审批人不能是发起人本人。请让其他人事 / 财务账号提交）"
+        } else {
+            ""
+        };
+        return Err(rejected.appended(hint));
+    }
+    let started = match out.instance_id {
+        Some(started) => started,
+        None => {
+            let _ = tx.rollback().await;
+            return Err(ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                "审批单发起后没有实例 id",
+            ));
+        }
+    };
+    // ⑤ 状态机（唯一入口：边校验 + 写 biz_status_log）
+    if let Err(error) = state_machine::transition(
+        &tx,
+        ENTITY_SALARY_SHEET,
+        sheet_id,
+        &sheet.sheet_no,
+        &state_machine::SALARY_SHEET_EDGES,
+        dto::STATUS_CALCULATED,
+        dto::STATUS_SUBMITTED,
+        operator.clone(),
+        Some("提交审批（薪资单）"),
+        None,
+    )
+    .await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
+    // ⑥ CAS 回写（状态 + submitted_at/by + 实例 id 一条语句）
+    match model::set_submitted(
+        &tx,
+        sheet_id,
+        dto::STATUS_CALCULATED,
+        dto::STATUS_SUBMITTED,
+        started,
+        operator.id,
+    )
+    .await
+    {
+        Ok(1) => {}
+        Ok(_) => {
+            let _ = tx.rollback().await;
+            return Err(ApiError::new(
+                409,
+                error_code::RESOURCE_CONFLICT,
+                format!("薪资单 {} 的状态在提交期间已被改动，请刷新后重试", sheet.sheet_no),
+            ));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(model::write_error(error, "回写薪资单提交结果", &sheet.sheet_no));
+        }
+    }
+    // ⑦ 免审直过：实例已在同事务里 APPROVED → 单据必须同步推到 APPROVED
+    let auto_finished = out.instance_status.eq_ignore_ascii_case(dto::STATUS_APPROVED);
+    if auto_finished {
+        if let Err(error) = state_machine::transition(
+            &tx,
+            ENTITY_SALARY_SHEET,
+            sheet_id,
+            &sheet.sheet_no,
+            &state_machine::SALARY_SHEET_EDGES,
+            dto::STATUS_SUBMITTED,
+            dto::STATUS_APPROVED,
+            Operator::named(Some(operator_id), operator.name.clone().unwrap_or_default()),
+            Some("审批免点（流程未配置审批节点）：同事务直接通过"),
+            None,
+        )
+        .await
+        {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+        if let Err(error) =
+            model::set_status(&tx, sheet_id, dto::STATUS_SUBMITTED, dto::STATUS_APPROVED, operator.id).await
+        {
+            let _ = tx.rollback().await;
+            return Err(model::write_error(error, "回写薪资单免审通过", &sheet.sheet_no));
+        }
+    }
+    let updated = match model::find_sheet_in(&tx, sheet_id).await {
+        Ok(Some(updated)) => updated,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found(sheet_id));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "读回提交后的薪资单"));
+        }
+    };
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交薪资审批事务"))?;
+    // ⑧ 锁外副作用（审批通知 / 客户自配的通知节点）：提交之后才发，失败只 WARN
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+    tracing::info!(
+        sheet_id = %sheet_id,
+        sheet_no = %sheet.sheet_no,
+        instance_id = %started,
+        auto_finished,
+        gross_total = %sheet.gross_total,
+        "薪资单已提交审批"
+    );
+    Ok(updated.to_card())
+}
+
+/// 发起薪资审批时冻结的表单变量（`biz_flow_instance.form_data`）。
+///
+/// `gross_total` 是**字符串**（与出参口径一致，前端直接显示），
+/// `gross_total_num` 是**同值同源的 JSON number**（条件边求值用，见 [`submit_sheet`] 的文档）。
+fn salary_form_data(sheet: &model::SheetRow) -> serde_json::Value {
+    let mut form = serde_json::json!({
+        "sheet_id": sheet.id.to_string(),
+        "sheet_no": sheet.sheet_no,
+        "period_code": sheet.period_code,
+        "period_start": sheet.period_start.to_string(),
+        "period_end": sheet.period_end.to_string(),
+        "employee_count": sheet.employee_count,
+        "earning_total": sheet.earning_total.to_string(),
+        "pre_deduct_total": sheet.pre_deduct_total.to_string(),
+        "gross_total": sheet.gross_total.to_string(),
+        "withhold_total": sheet.withhold_total.to_string(),
+        "net_total": sheet.net_total.to_string(),
+        "si_company_total": sheet.si_company_total.to_string(),
+        "hf_company_total": sheet.hf_company_total.to_string(),
+        "accrual_total": (sheet.gross_total + sheet.si_company_total + sheet.hf_company_total).to_string(),
+        "remark": sheet.remark,
+    });
+    if let Ok(value) = sheet.gross_total.to_string().parse::<f64>()
+        && let Some(number) = serde_json::Number::from_f64(value)
+    {
+        form["gross_total_num"] = serde_json::Value::Number(number);
+    }
+    form
+}
+
+/// 已发布且默认的 `hr_salary` 流程（`biz_type = HR_SALARY` 或 `flow_code = hr_salary`）。
+async fn published_salary_flow() -> DbResult<Option<SalaryFlow>> {
+    // SCOPE-EXEMPT: 流程定义（biz_flow_def）是全局配置，按 biz_type / flow_code 精确取 1 行。
+    let rows = db()
+        .find_with_params(
+            "SELECT d.id AS def_id, d.flow_code, d.flow_name, d.biz_type, \
+                    d.current_version_id AS version_id, d.current_version_no AS version_no \
+               FROM biz_flow_def d \
+              WHERE d.deleted_at IS NULL AND d.status = 'PUBLISHED' \
+                AND d.current_version_id IS NOT NULL \
+                AND (d.biz_type = ? OR lower(d.flow_code) = ?) \
+              ORDER BY (d.biz_type = ?) DESC, d.is_default DESC, \
+                       d.current_version_no DESC, d.updated_at DESC \
+              LIMIT 1",
+            vec![
+                Value::Text(salary_bridge::BIZ_TYPE.to_string()),
+                Value::Text(salary_bridge::FLOW_CODE.to_string()),
+                Value::Text(salary_bridge::BIZ_TYPE.to_string()),
+            ],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some(SalaryFlow {
+        def_id: row.get_typed("def_id")?,
+        flow_code: row.get_typed("flow_code")?,
+        flow_name: row.get_typed("flow_name")?,
+        biz_type: row.get_typed("biz_type")?,
+        version_id: row.get_typed("version_id")?,
+        version_no: row.get_typed("version_no")?,
+    }))
+}
+
+/// 已发布的薪资流程（`published_salary_flow` 的投影）。
+struct SalaryFlow {
+    def_id: Uuid,
+    flow_code: String,
+    flow_name: String,
+    biz_type: String,
+    version_id: Uuid,
+    version_no: i32,
+}
+
+// ==================== ㊸ 过账 ====================
+
+/// 过账（设计 §5.2 #43：生成计提 + 发放两张凭证）—— HR-39。
+///
+/// 权限码 `business:hr:salary:post`（与 V0387 的 `e044` 按钮逐字一致）。
+/// 业务实现全在 [`salary_bridge::post_salary`]（事务 + 净额法 + 两张凭证 + 状态流转）。
+#[nik::permission(
+    path = "/business/hr/salary/{id}/post",
+    method = "POST",
+    permission = "business:hr:salary:post"
+)]
+#[nik::post("/business/hr/salary/{id}/post")]
+pub async fn salary_post(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<SalarySheetCardRes> {
+    let sheet_id = dto::parse_uuid(&id, "id")?;
+    let operator: Operator = (&claims).into();
+    Ok(Res::ok(salary_bridge::post_salary(operator, sheet_id).await?))
+}
 
 #[cfg(test)]
 mod tests {
@@ -574,6 +961,9 @@ mod tests {
             ("POST", "/business/hr/salary", PERM_SALARY_CALC),
             // HR-37：明细覆盖（改单项 → 重算汇总 → 写状态日志）
             ("PUT", "/business/hr/salary/{id}/detail/{detail_id}", PERM_SALARY_CALC),
+            // HR-39：提交审批 / 过账（两张凭证）
+            ("POST", "/business/hr/salary/{id}/submit", PERM_SALARY_SUBMIT),
+            ("POST", "/business/hr/salary/{id}/post", PERM_SALARY_POST),
         ];
         for (method, path, permission) in expected {
             let spec = ROUTE_CONTRACT
@@ -635,9 +1025,80 @@ mod tests {
     #[test]
     fn permission_codes_exist_in_the_menu_seed() {
         const V0387: &str = include_str!("../../../migrations/business/V0387__hr_menu_perms.up.sql");
-        for code in [PERM_SALARY_LIST, PERM_SALARY_DETAIL, PERM_SALARY_CALC] {
+        for code in [
+            PERM_SALARY_LIST,
+            PERM_SALARY_DETAIL,
+            PERM_SALARY_CALC,
+            PERM_SALARY_SUBMIT,
+            PERM_SALARY_POST,
+        ] {
             assert!(V0387.contains(code), "V0387 没有种权限码 {code}");
         }
+    }
+
+    /// 提交 / 过账两条路由必须挂在 HR-39（改卡号会让「谁该实现它」在板上失联）。
+    #[test]
+    fn submit_and_post_belong_to_hr39() {
+        for path in ["/business/hr/salary/{id}/submit", "/business/hr/salary/{id}/post"] {
+            let spec = ROUTE_CONTRACT
+                .iter()
+                .find(|spec| spec.method == "POST" && spec.path == path)
+                .unwrap_or_else(|| panic!("契约表缺 {path}"));
+            assert_eq!(spec.card, "HR-39", "{path} 的落地卡必须是 HR-39");
+        }
+    }
+
+    /// ★ 条件边契约：`form.gross_total_num` 必须是 **JSON number**。
+    ///
+    /// `hr_salary` 的「应发 ≥ 50 万 → 总经理审批」条件边（V0394）对 `gte` 走
+    /// `Value::as_f64()`：字符串会 `TypeMismatch` → 引擎**静默走兜底边**（大额单绕过总经理）。
+    /// 所以这条断言直接钉住「提交时冻结下来的表单长什么样」。
+    #[test]
+    fn form_data_freezes_gross_total_as_number() {
+        let sheet = crate::business::hr::salary_sheet_model::SheetRow {
+            id: Uuid::now_v7(),
+            sheet_no: "SAL-202611-000001".to_string(),
+            period_code: "2026-11".to_string(),
+            period_start: "2026-11-01".parse().expect("日期"),
+            period_end: "2026-11-30".parse().expect("日期"),
+            status: dto::STATUS_CALCULATED.to_string(),
+            attendance_period_id: None,
+            employee_count: 12,
+            earning_total: "520000".parse().expect("金额"),
+            pre_deduct_total: "0".parse().expect("金额"),
+            gross_total: "500000".parse().expect("金额"),
+            withhold_total: "80000".parse().expect("金额"),
+            net_total: "420000".parse().expect("金额"),
+            si_company_total: "1680".parse().expect("金额"),
+            hf_company_total: "960".parse().expect("金额"),
+            accrual_voucher_id: None,
+            accrual_voucher_no: None,
+            payment_voucher_id: None,
+            payment_voucher_no: None,
+            reversal_voucher_id: None,
+            approval_instance_id: None,
+            calculated_at: None,
+            calculated_by: None,
+            submitted_at: None,
+            posted_at: None,
+            reversed_at: None,
+            reverse_reason: None,
+            remark: None,
+            created_at: None,
+            updated_at: None,
+        };
+        let form = salary_form_data(&sheet);
+        let gross = &form["gross_total_num"];
+        assert!(
+            gross.is_number(),
+            "gross_total_num 必须是 JSON number（字符串会让条件边静默走兜底）：{gross}"
+        );
+        assert_eq!(gross.as_f64(), Some(500_000.0));
+        // 展示口径仍然是字符串（与出参一致，前端直接显示）
+        assert_eq!(form["gross_total"], serde_json::json!("500000"));
+        assert_eq!(form["period_code"], serde_json::json!("2026-11"));
+        // 计提合计 = 应发 + 单位社保 + 单位公积金（设计 §4.4.1 第四条恒等式）
+        assert_eq!(form["accrual_total"], serde_json::json!("502640"));
     }
 
     /// 404 报文点名 id（用户报障时能直接对上单）。

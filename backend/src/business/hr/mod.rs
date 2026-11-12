@@ -209,6 +209,14 @@ mod leave_handler_db_tests;
 /// 分页（按 dept 数据权限）+ 已批无薪假天数（HR-24）。
 pub mod leave_model;
 pub mod model;
+/// 薪资单的**过账 + 审批回调桥**（`hr_salary` 流程，ARCH-9 §4.3 / §4.6）：计提 + 发放
+/// 两张凭证（净额法，走 `post_explicit_lines`）、`SUBMITTED → APPROVED` 回调（不出凭证）、
+/// 自审批守卫、实例终止（HR-39）。
+pub mod salary_bridge;
+/// HR-39 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：过账两张凭证借贷平衡 + 净额法逐行 +
+/// 状态机 / 幂等 / 考勤期间闸 / 审批回调三条路径。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod salary_bridge_db_tests;
 /// 薪资**计算引擎**：试算（薪资标准 + 考勤 + 人工项）→ 逐人逐项 → 恒等式校验 → 落库事务（HR-34）；
 /// 试算与正式计算**同源**（同一条编排路径，`dry_run` 只决定事务回滚还是提交）。
 pub mod salary_compute;

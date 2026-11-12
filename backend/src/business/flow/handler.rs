@@ -1819,6 +1819,8 @@ pub async fn withdraw_instance(
     crate::business::erp::expense_bridge::on_expense_settled(Some(instance_id), "WITHDRAWN").await;
     // HR-27：也可能是「请假审批」单 → 撤回即回草稿（等 HR 改完重提）
     crate::business::hr::leave_bridge::on_leave_settled(Some(instance_id), "WITHDRAWN").await;
+    // HR-39：也可能是「薪资单审批」单 → 撤回即退回 CALCULATED 重算（账一分没动）
+    crate::business::hr::salary_bridge::on_salary_settled(Some(instance_id), "WITHDRAWN").await;
     // B3-3：也可能是「成本结算」单 → 撤回即批次回草稿 + 清空审批痕迹（账一分没动）
     crate::business::erp::cost_period_bridge::on_cost_settle_decided(Some(instance_id), "WITHDRAWN").await;
     // ARCH-3 R-P1-1：也可能是「合同审批」单 → 撤回即回草稿（实例清空，可改后重提）
@@ -1925,6 +1927,8 @@ pub async fn terminate_instance(
     crate::business::erp::expense_bridge::on_expense_settled(Some(instance_id), "CANCELLED").await;
     // HR-27：请假审批被行政终止 → 单据回草稿（不许停在「审批中」却没人能批）
     crate::business::hr::leave_bridge::on_leave_settled(Some(instance_id), "CANCELLED").await;
+    // HR-39：薪资单审批被行政终止 → 退回 CALCULATED 重算（不许停在「审批中」却没人能批）
+    crate::business::hr::salary_bridge::on_salary_settled(Some(instance_id), "CANCELLED").await;
     // B3-3：成本结算审批被行政终止 → 批次回草稿（不能停在「审批中」却没人能批）
     crate::business::erp::cost_period_bridge::on_cost_settle_decided(Some(instance_id), "CANCELLED").await;
     crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "CANCELLED").await;
@@ -1996,6 +2000,8 @@ pub async fn approve_task(
     crate::business::erp::expense_bridge::guard_self_approval(task_id, operator).await?;
     // HR-27：请假审批 —— 发起人 / 请假员工本人不能批自己的请假（403 + 65019）
     crate::business::hr::leave_bridge::guard_self_approval(task_id, operator).await?;
+    // HR-39：薪资单 —— 发起人不能批自己提交的工资单（设计 §4.3 第 2 条）
+    crate::business::hr::salary_bridge::guard_self_approval(task_id, operator).await?;
     // SO-06：销售订单 —— 制单人 / 发起人不能批自己的销售订单（403 + 65019）
     crate::business::erp::sales_approval_bridge::guard_self_approval(task_id, operator).await?;
     // SO-14 遗留 D10：收款退款 —— 制单人 / 发起人不能批自己的退款（403 + 65019）
@@ -2045,6 +2051,9 @@ pub async fn approve_task(
     crate::business::erp::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status).await;
     // HR-27（ARCH-9 §4.3）：也可能是「请假审批」发起的 —— 通过则 SUBMITTED→APPROVED（不改考勤）
     crate::business::hr::leave_bridge::on_leave_settled(out.instance_id, &out.instance_status).await;
+    // HR-39（ARCH-9 §4.3）：也可能是「薪资单审批」发起的 —— 通过则 SUBMITTED→APPROVED
+    // （**不出凭证**，凭证在人工过账时生成）；驳回 / 终止则退回 CALCULATED 重算
+    crate::business::hr::salary_bridge::on_salary_settled(out.instance_id, &out.instance_status).await;
     // B3-3：也可能是「成本结算」发起的 —— 通过则批次 APPROVED（数据冻结，等 B3-4 结算）
     crate::business::erp::cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
     // ARCH-3 R-P1-1：也可能是「合同审批」发起的 —— 通过则 SIGNED（可被采购单引用），驳回则回草稿
@@ -2138,6 +2147,9 @@ pub async fn reject_task(
     crate::business::erp::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status).await;
     // HR-27：请假被驳回 / 驳回终止 → 回草稿（意见进状态日志，可改后重提）
     crate::business::hr::leave_bridge::on_leave_settled(out.instance_id, &out.instance_status).await;
+    // HR-39（ARCH-9 §4.3）：也可能是「薪资单审批」发起的 —— 通过则 SUBMITTED→APPROVED
+    // （**不出凭证**，凭证在人工过账时生成）；驳回 / 终止则退回 CALCULATED 重算
+    crate::business::hr::salary_bridge::on_salary_settled(out.instance_id, &out.instance_status).await;
     // B3-3：成本结算被驳回 / 驳回终止 → 回草稿 + 清空审批痕迹 + 意见进 remark（可改后重提）
     crate::business::erp::cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
     // ARCH-3 R-P1-1：合同审批被驳回 / 驳回终止 → 回草稿（可改后重提，意见进状态日志）

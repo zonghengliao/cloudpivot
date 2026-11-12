@@ -1184,6 +1184,25 @@ COMMIT
 
 任一步失败 → 整笔回滚，单据仍是 `APPROVED`，界面上"过账"按钮还能再点（**这就是 AGENTS.md 约定 11 要求的状态**：不用工程师改库就能恢复）。
 
+##### 落地记录（HR-39，2026-11-12）
+
+代码：`backend/src/business/hr/salary_bridge.rs`（过账 + 审批回调桥）、
+`salary_sheet_handler.rs` 的 #42/#43 两条路由、`salary_sheet_model.rs` 的 4 个状态回写 CAS。
+
+| 设计条目 | 落地方式 | 偏差 / 说明 |
+|---|---|---|
+| §4.6.2 ① 净额法汇总借方 | `plan_accrual`：按 `(费用科目, dept_id)` 组内 `Σ EARNING − Σ PRE_DEDUCT`；净额 0 → 不落行；净额 < 0 → 409 点名「科目 + 部门 + 净额」 | 无偏差 |
+| §4.6.2 ② 零金额项不落行 | `plan_accrual` / `plan_payment` 入口 `amount.is_zero()` 直接跳过；组内净额 0 也丢 | 无偏差（`detail_item` 里仍保留 0 值行） |
+| §4.6.2 ③ 部门辅助核算 | 借方与贷方都对声明了 `DEPT` 的科目带 `aux_dept_id`；科目是否带 `DEPT` 由 `biz_account.aux_dimensions` **现查**（`dept_aware_accounts`），不在代码里写死科目号 | `2241.0x` / `2221.03` / `1221` / `1002` 没有 `DEPT` 维度 → **不带**部门（给它们带部门会让按部门汇总的辅助账多一层永远对不上的切分） |
+| §4.6.1 ② 贷 1002 银行存款 | 倒挤：`借方合计 − 代扣合计`；倒挤为负 → 409；为 0 → 不落银行行 | 科目来源 = 规则 `PAYROLL_PAYMENT_DEFAULT` 的贷方，规则缺失/失效回落按编码 `1002` 取末级（客户把银行裂成 `1002.01/02` 时规则仍指父科目，直接 409 会把整张工资单卡死） |
+| §4.6.4 过账事务 | 单一事务：锁单 → 状态闸 → 考勤期间 `LOCKED` → 明细恒等式复算（巡检 A6 在线版）→ 两张 `post_explicit_lines` → 状态机 `APPROVED→POSTED` → CAS 回写 → commit | 无偏差；`commit` 之后只读回执，无「提交后失败」分支 |
+| §4.3 审批回调 | `on_salary_settled`：`APPROVED` → `SUBMITTED→APPROVED`（**不出凭证**）；`REJECTED/WITHDRAWN/CANCELLED/TERMINATED` → `SUBMITTED→CALCULATED`；`PENDING` 一律不动 | 复查 `approval_instance_id` 防陈旧回调；重复回调幂等跳过 |
+| §4.3 第 2 条 自审批 | `guard_self_approval`：`initiator_id == operator` → 403 + 65019，挂在 `flow::handler::approve_task` 的守卫链上 | 薪资单没有「员工本人」语义（批的是全公司汇总），所以只判发起人 |
+| 提交时冻条件边字段 | `submit_sheet` 把 `form["gross_total_num"]` 冻成 **JSON number**（同值另存字符串 `gross_total` 供展示） | HR-38 在迁移侧钉死了 `condition_expr`，本卡在提交侧钉死左值类型；两侧单测各守一头 |
+
+**已知不做**（属别的卡）：红冲（HR-40，两张红字凭证 + `reversal_voucher_id`）、工资表导出（HR-42）、
+`/salary/my`（HR-41）、巡检脚本 `hr_invariants.sql`（HR-45）。
+
 ### 4.7 与现有模块的关系
 
 #### 4.7.1 任务工时（`biz_task_worklog`）—— 不混用
@@ -1687,7 +1706,7 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | HR-36 | `salary_sheet` model/handler：建单/试算/明细分页/单头汇总 | HR-34 | 1.5 h |
 | HR-37 | 明细覆盖（改单项 → 重算汇总 → 写状态日志）+ 越权校验 | HR-36 | 1.0 h |
 | HR-38 | 迁移 V0394（设计 V0385 / 曾映射 V0391）：`hr_salary` 流程 + 迁移 V0395（设计 V0386 / 曾映射 V0392）：调薪/离职流程。✅ 已落地：6/6 + 5/4 + 6/6 三套 PUBLISHED、节点绑角色（会签=财务经理+财务总监）、145 演练库 69 条断言 + 5 条真库用例全绿 | HR-36 | 1.5 h |
-| HR-39 | `salary_bridge`：过账（两张凭证，`post_explicit_lines`）+ 审批回调 + 净额法汇总 | HR-38,HR-02 | 1.5 h+ |
+| HR-39 | `salary_bridge`：过账（两张凭证，`post_explicit_lines`）+ 审批回调 + 净额法汇总。✅ 已落地：净额法汇总 15 条单测（逐行对设计 §4.6.1 两张表）+ 7 条真库用例（借贷平衡 / 净额法 / 倒挤 / 状态闸 / 考勤闸 / 回调三路径）全绿；#42 提交审批（冻 `gross_total_num` 为 JSON number）与 #43 过账两条路由同卡落地 | HR-38,HR-02 | 1.5 h+ |
 | HR-40 | 红冲（两张红字凭证 + 状态机 + 原因必填） | HR-39 | 1.0 h |
 | HR-41 | `/salary/my` + `/attendance/my` + `/leave/my` 自助三接口 | HR-36 | 1.0 h |
 | HR-42 | 工资表导出 xlsx（项为列 + 部门分组） | HR-36 | 1.5 h |

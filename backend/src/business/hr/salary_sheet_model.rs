@@ -51,6 +51,8 @@ use crate::business::hr::salary_sheet_dto::{
     SalarySheetCardRes, SalarySheetFilter, SalarySheetHeaderRes, SalaryTotalsRes,
 };
 use crate::business::shared::scope;
+use crate::shared::error_code;
+use crate::utils;
 
 /// 单头表名（与 `hr::model` 的表名单同源；这里只是本文件的可读别名）。
 pub const TABLE_SHEET: &str = "biz_salary_sheet";
@@ -984,6 +986,168 @@ pub async fn recalc_sheet_totals(ex: &impl SqlExecutor, sheet_id: Uuid) -> DbRes
     )
     .await?;
     Ok(())
+}
+
+// ==================== 状态回写（HR-39：提交 / 审批回调 / 过账） ====================
+
+/// 状态 CAS 回写 SQL（4 个 `?`：新状态 / 操作人 / id / 期望的旧状态）。
+///
+/// `AND status = ?` 是**并发闸**：两个人同时点「提交 / 过账 / 审批同意」时，
+/// 后到的那次 `affected = 0`，由调用方翻成 409 而不是静默覆盖。
+pub const SHEET_STATUS_SQL: &str = "UPDATE biz_salary_sheet SET \
+        status = ?, updated_at = CURRENT_TIMESTAMP, \
+        update_by = NULLIF(?::text, '')::uuid \
+      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL";
+
+/// 提交审批的 CAS 回写 SQL（7 个 `?`：新状态 / 操作人 / 实例 id / id / 期望旧状态 / 操作人 / 操作人）。
+///
+/// 与 [`SHEET_STATUS_SQL`] 分开的原因：提交要**同时**写 `submitted_at` /
+/// `submitted_by` / `approval_instance_id` 三列。拆成两条语句会在中间留一个
+/// 「状态已提交、实例 id 还没写」的窗口（这期间过账闸看不到实例，审批也找不到单）。
+pub const SHEET_SUBMIT_SQL: &str = "UPDATE biz_salary_sheet SET \
+        status = ?, submitted_at = CURRENT_TIMESTAMP, \
+        submitted_by = NULLIF(?::text, '')::uuid, \
+        approval_instance_id = ?::uuid, updated_at = CURRENT_TIMESTAMP, \
+        update_by = NULLIF(?::text, '')::uuid \
+      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL";
+
+/// 过账的 CAS 回写 SQL（9 个 `?`：状态 / 计提 id / 计提号 / 发放 id / 发放号 / 操作人 ×3 / id / 期望旧状态）。
+pub const SHEET_POSTED_SQL: &str = "UPDATE biz_salary_sheet SET \
+        status = ?, accrual_voucher_id = ?::uuid, accrual_voucher_no = ?, \
+        payment_voucher_id = ?::uuid, payment_voucher_no = ?, \
+        posted_at = CURRENT_TIMESTAMP, posted_by = NULLIF(?::text, '')::uuid, \
+        updated_at = CURRENT_TIMESTAMP, update_by = NULLIF(?::text, '')::uuid \
+      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL";
+
+/// 状态 CAS 回写（`from` → `to`）。返回受影响行数：`0` = 不存在 / 已软删 / 状态已变。
+///
+/// 状态机（`shared::state_machine::transition`）只写 `biz_status_log`，**不回写业务表**；
+/// 业务表的状态列由各 handler / 桥用本函数 CAS 落地 —— 与 `leave_model::set_status` 同款。
+pub async fn set_status(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from_status: &str,
+    to_status: &str,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 单据状态回写（按主键 CAS）。
+    ex.exec_sql(
+        SHEET_STATUS_SQL.to_string(),
+        vec![
+            Value::Text(to_status.to_string()),
+            opt_uuid(operator),
+            Value::from(&id),
+            Value::Text(from_status.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 提交审批的 CAS 回写（状态 + `submitted_at/by` + `approval_instance_id` 一条语句）。
+pub async fn set_submitted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from_status: &str,
+    to_status: &str,
+    instance_id: Uuid,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 单据状态回写（按主键 CAS）。
+    ex.exec_sql(
+        SHEET_SUBMIT_SQL.to_string(),
+        vec![
+            Value::Text(to_status.to_string()),
+            opt_uuid(operator),
+            Value::from(&instance_id),
+            opt_uuid(operator),
+            Value::from(&id),
+            Value::Text(from_status.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 过账结果的 CAS 回写（状态 + 两张凭证 id/no + `posted_at/by`）。
+pub async fn mark_posted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    accrual: (Uuid, &str),
+    payment: (Uuid, &str),
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 单据状态回写（按主键 CAS）。
+    ex.exec_sql(
+        SHEET_POSTED_SQL.to_string(),
+        vec![
+            Value::Text(crate::business::hr::salary_sheet_dto::STATUS_POSTED.to_string()),
+            Value::from(&accrual.0),
+            Value::Text(accrual.1.to_string()),
+            Value::from(&payment.0),
+            Value::Text(payment.1.to_string()),
+            opt_uuid(operator),
+            opt_uuid(operator),
+            Value::from(&id),
+            Value::Text(crate::business::hr::salary_sheet_dto::STATUS_APPROVED.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 只回写审批实例 id（撤回 / 作废时清空）。返回受影响行数。
+pub async fn set_approval_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    instance_id: Option<Uuid>,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    // SCOPE-EXEMPT: 单据关联回写。
+    ex.exec_sql(
+        "UPDATE biz_salary_sheet SET approval_instance_id = NULLIF(?::text, '')::uuid, \
+                updated_at = CURRENT_TIMESTAMP, update_by = NULLIF(?::text, '')::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![opt_uuid(instance_id), opt_uuid(operator), Value::from(&id)],
+    )
+    .await
+}
+
+/// 可空 uuid 参数（SQL 里包 `NULLIF(?::text, '')::uuid`：空串落 NULL，不是报错）。
+fn opt_uuid(value: Option<Uuid>) -> Value {
+    Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
+}
+
+/// 写路径失败的人话翻译：唯一键 / CHECK / 其余。
+///
+/// 薪资单的两条唯一索引与六条 `CHECK` 都有明确的业务含义（同期间撞单 / 恒等式被绕过），
+/// 直接透出 PG 的原文等于让用户看 SQL —— 这里逐类翻译，并**保留单号**当检索锚点。
+pub fn write_error(err: DbError, ctx: &str, sheet_no: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { constraint, .. } => ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            match constraint.as_deref() {
+                Some("uk_biz_sal_sheet_period") => format!(
+                    "薪资单写入冲突：这个期间已经有一张未删除的薪资单了（本次写的是 {sheet_no}）。\
+                     要重发请用「补差单」，不要删旧单"
+                ),
+                Some("uk_biz_sal_sheet_no") => {
+                    format!("薪资单写入冲突：单号 {sheet_no} 已被占用，请重试（取号会自动顺延）")
+                }
+                Some(other) => format!("薪资单 {sheet_no} 写入冲突（唯一约束 {other}）：请刷新后重试"),
+                None => format!("薪资单 {sheet_no} 写入冲突：请刷新后重试"),
+            },
+        ),
+        DbError::CheckViolation { constraint, .. } => ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "薪资单 {sheet_no} 违反库层恒等式（约束 {}）：应发 = 收入 − 应发前扣减、\
+                 实发 = 应发 − 代扣 必须恒成立。请重新试算（不要绕过引擎改金额）",
+                constraint.as_deref().unwrap_or("<未知>")
+            ),
+        ),
+        _ => utils::db_error(err, ctx),
+    }
 }
 
 // ==================== 单测（不连库） ====================

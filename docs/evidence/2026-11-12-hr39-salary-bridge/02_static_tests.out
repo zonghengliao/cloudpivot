@@ -1,0 +1,28 @@
+== HR-39 静态用例（不连库）：salary_bridge 15 条 + HR 全模块 556 条 ==
+
+$ cd /root/hr39-wt/backend && CARGO_TARGET_DIR=/root/hr39-target cargo test --lib business::hr::salary_bridge::
+(见下方实际输出)
+test business::hr::salary_bridge::tests::constants_match_seed_and_vocabulary ... ok
+test business::hr::salary_bridge::tests::edges_and_statuses_are_registered ... ok
+test business::hr::salary_bridge::tests::missing_account_names_the_item ... ok
+test business::hr::salary_bridge::tests::all_zero_sheet_has_no_voucher ... ok
+test business::hr::salary_bridge::tests::negative_net_is_rejected_with_department_in_message ... ok
+test business::hr::salary_bridge::tests::dept_split_only_for_dept_aware_accounts ... ok
+test business::hr::salary_bridge::tests::payment_matches_design_table_and_drops_zero_lines ... ok
+test business::hr::salary_bridge::tests::accrual_matches_design_table ... ok
+test business::hr::salary_bridge::tests::pre_deduct_is_netted_into_the_same_expense_line ... ok
+test business::hr::salary_bridge::tests::self_approval_blocks_initiator_only ... ok
+test business::hr::salary_bridge::tests::verdict_maps_three_paths ... ok
+test business::hr::salary_bridge::tests::zero_amount_items_produce_no_lines ... ok
+test business::hr::salary_bridge::tests::withhold_over_gross_is_rejected ... ok
+test business::hr::salary_bridge::tests::zero_bank_line_is_dropped_but_voucher_stays_balanced ... ok
+test business::hr::salary_bridge::tests::zero_net_group_is_dropped ... ok
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 5398 filtered out; finished in 0.00s
+---- HR 全模块 ----
+test result: ok. 556 passed; 0 failed; 0 ignored; 0 measured; 4857 filtered out; finished in 0.05s
+---- clippy --all-targets -D warnings ----
+   Compiling cloudpivot v0.1.0 (/root/hr39-wt/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4m 15s
+EXIT=0
+---- cargo fmt --check ----
+FMT_CLEAN（0 diff）
