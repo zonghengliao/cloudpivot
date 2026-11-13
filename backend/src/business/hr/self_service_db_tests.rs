@@ -151,7 +151,14 @@ mod db {
     async fn sweep() -> tokio::sync::MutexGuard<'static, ()> {
         let guard = hygiene::exclusive().await;
 
-        let statements: [(String, Vec<Value>); 8] = [
+        let statements: [(String, Vec<Value>); 9] = [
+            // 状态日志没有外键（比业务行活得久），按「即将删掉的单」清，否则每轮留孤儿
+            (
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                    (SELECT id FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid)"
+                    .to_string(),
+                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
+            ),
             (
                 "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid".to_string(),
                 vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
@@ -375,6 +382,12 @@ mod db {
     async fn cleanup(fixture: &Fixture) {
         // 叶子先删：明细项 / 明细随单头级联
         for (sql, params) in [
+            // 状态日志没有外键：不先收走就会在库里留孤儿（每轮 2 行）
+            (
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                    (SELECT id FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid)",
+                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
+            ),
             (
                 "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid",
                 vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
@@ -777,6 +790,15 @@ mod db {
         assert_ne!(seen[0], seen[1], "两页不许是同一张单：{seen:?}");
 
         // 清场：第二张单 + 它的期间（cleanup 只按固定期间删）
+        // 状态日志先收（没有外键，不随单据级联）
+        let _ = db()
+            .exec_sql(
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                    (SELECT id FROM biz_salary_sheet WHERE period_code = '2026-09' AND org_id = ?::uuid)"
+                    .to_string(),
+                vec![Value::from(&org())],
+            )
+            .await;
         let _ = db()
             .exec_sql(
                 "DELETE FROM biz_salary_sheet WHERE period_code = '2026-09' AND org_id = ?::uuid".to_string(),

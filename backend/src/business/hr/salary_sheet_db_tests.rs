@@ -295,6 +295,12 @@ mod db {
     async fn cleanup(fixture: &Fixture) {
         // 从叶子删起：明细项 / 明细随单头级联 → 先删单头；再考勤记录、标准、薪资项、员工
         for (sql, params) in [
+            // 状态日志没有外键：按「即将删掉的单」先收，否则每轮留孤儿
+            (
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                    (SELECT id FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid)",
+                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
+            ),
             (
                 "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid",
                 vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
@@ -725,6 +731,14 @@ mod db {
 
         // 先删单头（明细 ON DELETE CASCADE 跟着走），否则明细的 `employee_id` 是 RESTRICT，
         // 员工删不掉 —— 这个顺序本身就是「明细挂员工」的证据
+        db().exec_sql(
+            "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                (SELECT id FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid)"
+                .to_string(),
+            vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
+        )
+        .await
+        .expect("删单状态日志（没有外键，不随单据级联）");
         db().exec_sql(
             "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid".to_string(),
             vec![Value::Text(PERIOD.to_string()), Value::from(&org())],

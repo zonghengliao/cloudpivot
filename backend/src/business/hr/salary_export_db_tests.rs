@@ -374,6 +374,12 @@ mod db {
 
     async fn cleanup_engine(fixture: &EngineFixture) {
         for (sql, params) in [
+            // 状态日志没有外键：按「即将删掉的单」先收，否则每轮留孤儿
+            (
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                    (SELECT id FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid)",
+                vec![Value::Text(PERIOD_ENGINE.to_string()), Value::from(&org())],
+            ),
             (
                 "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid",
                 vec![Value::Text(PERIOD_ENGINE.to_string()), Value::from(&org())],
@@ -568,6 +574,10 @@ mod db {
     async fn cleanup_big(fixture: &BigFixture) {
         for (sql, params) in [
             (
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id = ?::uuid".to_string(),
+                vec![Value::from(&fixture.sheet_id)],
+            ),
+            (
                 "DELETE FROM biz_salary_sheet WHERE id = ?::uuid".to_string(),
                 vec![Value::from(&fixture.sheet_id)],
             ),
@@ -737,6 +747,12 @@ mod db {
         assert_eq!(rows[0].len(), 3 + SEED_ITEMS.len() + 5);
         assert_eq!(rows[0][0], "工号");
 
+        let _ = db()
+            .exec_sql(
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id = ?::uuid".to_string(),
+                vec![Value::from(&sheet_id)],
+            )
+            .await;
         let _ = db()
             .exec_sql(
                 "DELETE FROM biz_salary_sheet WHERE id = ?::uuid".to_string(),

@@ -155,6 +155,12 @@ mod db {
                     "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
                        (SELECT id FROM biz_voucher WHERE source_no = '{sheet_no}')"
                 ),
+                // VOUCHER 的状态日志 `entity_no` 是**凭证号**（不是薪资单号），
+                // 只能按「即将删掉的凭证 id」收，否则每张单留 2 行孤儿
+                format!(
+                    "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+                       (SELECT id FROM biz_voucher WHERE source_no = '{sheet_no}')"
+                ),
                 format!("DELETE FROM biz_voucher WHERE source_no = '{sheet_no}'"),
                 format!("DELETE FROM biz_status_log WHERE entity_no = '{sheet_no}'"),
             ] {
@@ -366,6 +372,13 @@ mod db {
             // 凭证先删（分录 → 凭证）
             (
                 "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+                   (SELECT id FROM biz_voucher WHERE source_no = ?)"
+                    .to_string(),
+                vec![Value::Text(fixture.sheet_no.clone())],
+            ),
+            // VOUCHER 的状态日志按凭证 id 收（`entity_no` 是凭证号，按薪资单号删不掉）
+            (
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
                    (SELECT id FROM biz_voucher WHERE source_no = ?)"
                     .to_string(),
                 vec![Value::Text(fixture.sheet_no.clone())],
@@ -1090,6 +1103,12 @@ mod db {
         for (sql, params) in [
             (
                 "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+                   (SELECT id FROM biz_voucher WHERE source_no = ?)"
+                    .to_string(),
+                vec![Value::Text(new_sheet.sheet_no.clone())],
+            ),
+            (
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
                    (SELECT id FROM biz_voucher WHERE source_no = ?)"
                     .to_string(),
                 vec![Value::Text(new_sheet.sheet_no.clone())],

@@ -1,0 +1,76 @@
+# 库侧复查发现并修复的残留：`biz_status_log` 孤儿（每轮 26 行）
+
+复查手段：`psql` 直查（不经测试代码），跑完一轮模块后统计 `biz_status_log` 按 `entity_type` 聚合，
+并验证其 `entity_id` 指向的单据是否还活着。
+
+## 修前（R1 `hr9a_verify_drill` / R2 `hr9a_verify2_drill`，每轮都留同样的 26 行）
+
+```text
+== hr9a_verify_drill
+SALARY_SHEET n=2
+VOUCHER      n=24
+== hr9a_verify2_drill
+SALARY_SHEET n=2
+VOUCHER      n=24
+```
+
+样例：
+
+```text
+VOUCHER      | PZ-20261113-000001  | POSTED | 14:32:18   ← 凭证已被删，日志还在
+VOUCHER      | PZR-20261113-000001 | POSTED | 14:32:31
+SALARY_SHEET | SAL-202610-000025   | DRAFT  | 14:33:59   ← 工资单已被删，日志还在
+SALARY_SHEET | SAL-202610-000025   | CALCULATED
+```
+
+## 根因（两类，都在夹具侧，不是业务缺陷）
+
+1. **`SALARY_SHEET`（2 行）**：`biz_status_log` 没有外键（刻意不跟单据级联）。各模块 `cleanup()` 删
+   `biz_salary_sheet` 时没删它的状态日志。模块内每个用例 `setup()` 的 `hygiene::exclusive()` 会收走
+   孤儿（`ENTITY_TABLES` 含 `SALARY_SHEET`），但**跑完模块的最后一个用例**留下的那 2 行没有「下一次
+   setup」来收 ⇒ 留库（谁跑在最后，残留量就取决于谁）。
+2. **`VOUCHER`（24 行）**：`salary_bridge_db_tests` 只按 `entity_no = 薪资单号` 删日志，而 VOUCHER 状态
+   日志的 `entity_no` 是**凭证号**（`PZ-…` / `PZR-…`）⇒ 按薪资单号永远删不到。每张工资单 2 张凭证 ×
+   12 张单 = 24 行。
+
+这类残留正是「夹具不清场」会打红**别的模块**的「整库无孤儿」断言（`business::erp::fixture_hygiene::orphans`
+把 `VOUCHER` 算进 `FINANCE` 口径）—— 顺序一换就红，且会随复用库一轮轮累积。
+
+## 修法（只动 `backend/src/business/hr/*_db_tests.rs`，业务代码零改动）
+
+删单 / 删凭证**之前**，按「即将删掉的单据 id」先收状态日志：
+
+```sql
+DELETE FROM biz_status_log
+ WHERE entity_type = 'SALARY_SHEET'
+   AND entity_id IN (SELECT id FROM biz_salary_sheet WHERE <与我即将删的单据同一条件>);
+
+DELETE FROM biz_status_log
+ WHERE entity_type = 'VOUCHER'
+   AND entity_id IN (SELECT id FROM biz_voucher WHERE source_no = <薪资单号>);
+```
+
+改到的 5 个文件 / 9 处（都是各自 `cleanup()` / `sweep()` / 用例尾部自建清场）：
+
+| 文件 | 处 |
+|---|---|
+| `salary_bridge_db_tests.rs` | `sweep()`、`cleanup()`、红冲闭环用例的自建清场 → VOUCHER 日志 |
+| `salary_sheet_db_tests.rs` | `cleanup()`、`three_keys…` 用例尾部 → SALARY_SHEET 日志 |
+| `salary_export_db_tests.rs` | `cleanup_engine()`、`cleanup_big()`、`export_empty…` 用例尾部 |
+| `salary_compute_db_tests.rs` | `cleanup()` |
+| `self_service_db_tests.rs` | `sweep()`、`cleanup()`、`payslip_paging…` 用例尾部 |
+
+口径说明：只删「自己即将删掉的那批单据」的日志（子查询限定 id / 单号），**不做全表清**，
+所以不会踩并发用例的中间态。
+
+## 修后（R3 全新库 + R4 同库第二轮，`hr9a_verify3_drill`）
+
+```text
+select count(*) from biz_status_log            → 0
+orphan_status_log（引用已失效的行）              → 0
+biz_employee / biz_attendance_record / biz_attendance_period / biz_salary_sheet
+biz_employee_salary / biz_leave_request / biz_employee_contract → 全 0
+biz_salary_item → 17（全为 V0396 种子，remark='ARCH-9-2 薪资项种子（V0396）'）
+```
+
+⇒ 模块跑完「库里没有本模块留下的任何行」，不再依赖「后面还有别的模块会清」。

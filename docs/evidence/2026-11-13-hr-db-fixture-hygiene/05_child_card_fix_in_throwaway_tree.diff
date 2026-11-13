@@ -1,0 +1,37 @@
+diff --git a/opt/cloudpivot/backend/src/business/hr/handler.rs b/root/t9a-tree/backend/src/business/hr/handler.rs
+index 748e2007..f6e231a6 100644
+--- a/opt/cloudpivot/backend/src/business/hr/handler.rs
++++ b/root/t9a-tree/backend/src/business/hr/handler.rs
+@@ -85,7 +85,7 @@ pub struct RouteSpec {
+ /// - `card = "TBD"` 的两行（员工导入 / 导出）在 §8.1 的批 2 里**没有排卡**，
+ ///   但权限码 `business:hr:employee:import/export` 已在 `V0387` 种下 → 属卡清单漏项，
+ ///   本卡只登记不实现。
+-pub const ROUTE_CONTRACT: [RouteSpec; 50] = [
++pub const ROUTE_CONTRACT: [RouteSpec; 51] = [
+     // ---- 员工档案（#1~#12） ----
+     RouteSpec {
+         method: "GET",
+@@ -159,6 +159,12 @@ pub const ROUTE_CONTRACT: [RouteSpec; 50] = [
+         permission: Some("business:hr:employee:export"),
+         card: "TBD",
+     },
++    RouteSpec {
++        method: "GET",
++        path: "/business/hr/employee/import-template",
++        permission: Some("business:hr:employee:import"),
++        card: "HR-47",
++    },
+     // ---- 劳动合同（#13~#15，挂在员工下） ----
+     RouteSpec {
+         method: "POST",
+@@ -482,8 +488,8 @@ mod tests {
+     fn contract_routes_are_unique_and_shaped() {
+         assert_eq!(
+             ROUTE_CONTRACT.len(),
+-            50,
+-            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算）+ HR-41 补的 /leave/my"
++            51,
++            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算）+ HR-41 补的 /leave/my + HR-47 补的模板下载"
+         );
+ 
+         let mut seen = std::collections::HashSet::new();

@@ -1,0 +1,69 @@
+# 复验（同一张卡第二次执行；第一次在 kanban 侧崩溃于「已提交未 complete」）
+
+第一次执行的执行器被 kanban 侧判定 worker lost（`Gateway draining: not_ready`），提交 `a4bfa5d9` 落库但卡没
+complete。本文件是**第二次执行从 HEAD `a4bfa5d9` 独立复跑**的原始结果（不是引用上一轮日志）。
+
+## 环境与命令
+
+| 项 | 值 |
+|---|---|
+| 隔离树 | `/root/t9a-tree`（`git archive HEAD` 快照 + 本卡改动；不含别人未提交文件），私有 `CARGO_TARGET_DIR=/root/t9a-target` |
+| 演练库 | 145（`172.18.10.145:5432`），先删后建 + 全量迁移 + bootstrap，不种演示组织（`NIK_SEED_DEMO_USERS=false`）—— 即卡面「空库全量迁移后」 |
+| 库指纹 | `migrations_versioned=323` / `latest=V0403` / `tables=177` / `admin_super=1` / `biz_employee=0` / `biz_salary_sheet=0` / `biz_attendance_period=0` / `biz_salary_item=17`（全为 V0396 种子） |
+| 命令 | `RUST_TEST_THREADS=1 cargo test --lib --features test-hooks -- business::hr -- --nocapture` |
+| 坑 | cargo 1.94 下写 `-- business::hr -- --test-threads=1` 会把 `--test-threads=1` 当成**第二个过滤器**（OR 匹配 0 条）⇒ 实际按默认 4 线程并行。要真串行必须 `RUST_TEST_THREADS=1` |
+
+## R1 —— HEAD `a4bfa5d9`（本卡已提交内容），全新库 `hr9a_verify_drill`
+
+```text
+EXIT=101 elapsed=323 db=hr9a_verify_drill
+test result: FAILED. 672 passed; 1 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 238.99s
+SKIP_LINES=0
+FAILED: business::hr::handler::tests::every_macro_path_in_module_is_in_contract
+```
+
+⇒ 修前 28 红（27 条夹具顺序依赖 + 1 条 HR-47 契约）全部只剩那 1 条契约红；**夹具顺序依赖 0 条**。
+
+## R2 —— HEAD + 子卡 `t_575aced2` 的 1 行契约修复，全新库 `hr9a_verify2_drill`
+
+修复**只打在一次性验证树里**（`05_child_card_fix_in_throwaway_tree.diff`，仓库业务代码一行未动，子卡交
+backend-developer 按流程落地）：
+
+```text
+EXIT=0 elapsed=334 db=hr9a_verify2_drill
+test result: ok. 673 passed; 0 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 226.39s
+SKIP_LINES=0
+```
+
+⇒ 卡面判据「整模块一次跑完 0 failed」在「本卡夹具修复 + 子卡 1 行契约登记」这个终态下成立。
+
+## R3 —— 再修「状态日志孤儿」后，全新库 `hr9a_verify3_drill`
+
+R1/R2 的库侧复查发现每次跑完都留 26 行孤儿状态日志（明细见 `07_residue_orphan_status_log.txt`），本次补掉
+（仍只动 `*_db_tests.rs`）：
+
+```text
+EXIT=0 elapsed=343 db=hr9a_verify3_drill
+test result: ok. 673 passed; 0 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 226.70s
+SKIP_LINES=0
+```
+
+## R4 —— R3 的**同一个库再跑一轮**（带 R3 残留）
+
+```text
+EXIT=0 elapsed=327 db=hr9a_verify3_drill
+test result: ok. 673 passed; 0 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 228.36s
+SKIP_LINES=0
+```
+
+两轮同库同结果 + 库侧 `biz_status_log` 全库 0 行 ⇒ 清场是幂等的（第二轮不是靠「库本来就干净」）。
+
+## 库侧复查（psql 直查，不经测试代码；R4 之后）
+
+```text
+migrations_versioned=323 latest=V0403
+biz_employee=0            biz_attendance_record=0   biz_attendance_period=0
+biz_salary_sheet=0        biz_employee_salary=0     biz_leave_request=0
+biz_employee_contract=0   biz_salary_item_total=17（全是 V0396 种子）
+orphan_status_log=0       select count(*) from biz_status_log = 0
+```

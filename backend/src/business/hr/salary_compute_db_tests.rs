@@ -377,6 +377,15 @@ mod db {
 
     async fn cleanup(fixture: &Fixture) {
         // 从叶子删起：明细项 / 明细随单头级联 → 先删单头；再考勤记录、标准、薪资项、员工
+        // 状态日志没有外键：按「即将删掉的单」先收，否则每轮留孤儿
+        let _ = db()
+            .exec_sql(
+                "DELETE FROM biz_status_log WHERE entity_type = 'SALARY_SHEET' AND entity_id IN \
+                    (SELECT id FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid)"
+                    .to_string(),
+                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
+            )
+            .await;
         let _ = db()
             .exec_sql(
                 "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid".to_string(),
