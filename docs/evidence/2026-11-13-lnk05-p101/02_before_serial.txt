@@ -1,0 +1,23 @@
+# 加锁前 · 串行（--test-threads=1）· 树 = HEAD 9f2c2d1a（无 LNK05_LOCK）
+# 库 = cloudpivot_test_lnk05a（clone 自 cloudpivot_test_p260，干净）
+# ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/cloudpivot_test_lnk05a" \
+#   CARGO_TARGET_DIR=/opt/cloudpivot/backend/target \
+#   cargo test --lib business::erp::expense_linkage_tests -- --test-threads=1
+
+    Blocking waiting for file lock on artifact directory
+   Compiling nik-db v0.4.2 (/root/wt-lnk05/backend/vendor/nik-db)
+   Compiling nik-web v0.4.2 (/root/wt-lnk05/backend/vendor/nik-web)
+   Compiling cloudpivot v0.1.0 (/root/wt-lnk05/backend)
+   Compiling nik v0.4.2 (/root/wt-lnk05/backend/vendor/nik)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 51s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... ok
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... ok
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... ok
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... ok
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... ok
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5546 filtered out; finished in 23.72s

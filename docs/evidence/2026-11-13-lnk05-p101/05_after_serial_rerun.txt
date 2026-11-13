@@ -1,0 +1,18 @@
+# 加锁后 · 同一个库再跑一遍（带第一轮残留）= 幂等性守门
+# 库 = cloudpivot_test_lnk05c（上一轮跑完的残留仍在）
+# ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/cloudpivot_test_lnk05c" \
+#   CARGO_TARGET_DIR=/opt/cloudpivot/backend/target \
+#   cargo test --lib expense_linkage -- --test-threads=1
+
+===== RUN2 (serial, same db again = 幂等) =====
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... ok
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... ok
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... ok
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... ok
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... ok
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5546 filtered out; finished in 24.36s
