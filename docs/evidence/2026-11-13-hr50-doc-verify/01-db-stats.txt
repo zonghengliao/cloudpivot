@@ -1,0 +1,16 @@
+schema_migrations(总行数)|335
+  versioned 条数|323
+  seed 条数|12
+  最大版本 V|403
+HR 菜单行(目录+页面+按钮)|41
+  其中 目录(menu_type=1)|0
+  其中 页面(menu_type=2)|5
+  其中 按钮(menu_type=3)|35
+HR 权限码(唯一 auth_code)|40
+  其中 *:page|5
+  其中 *:list|5
+HR 薪资项|17
+  其中带公式|7
+HR 审批流程|4
+HR 表(应 10 张)|10
+HR_MANAGER 授权行数|59

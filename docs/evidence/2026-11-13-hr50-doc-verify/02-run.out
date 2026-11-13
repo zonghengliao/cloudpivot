@@ -1,0 +1,83 @@
+
+=== 0. 读取 145 口令 + 建演练库（145 上，库名含 drill） ===
+created hr50_docs_drill on 145
+
+=== 1. 本机 → 145 隧道 :15450 ===
+tunnel up
+tunnel ready after 1 tries
+
+=== 2. 写临时 profile（端口 + 打开 auth）+ 首启（自动迁移） ===
+# HR-50 文档验收临时 profile（跑完即删，不入库）
+[database]
+port = 15450
+
+[middleware.auth]
+enabled = true
+access_token_expire_secs = 900
+refresh_token_expire_secs = 86400
+health ok=1 after 4s
+[2m2026-11-13T06:31:58.462865Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 335 个迁移
+
+=== 3. 文档里的三个探针（auth 已打开） ===
+GET /health                     -> 200 (期望 200)
+GET /api/business/hr/health     -> 401 (期望 401，需登录)
+GET /api/business/hr/nope       -> 404 (期望 404，证明不是 SPA 兜底)
+
+=== 4. 文档验收命令 ① hr_invariants.sh（期望 rc=0 / 12 行 viol=0） ===
+== HR 巡检（库 hr50_docs_drill）==
+A1  BLOCKER viol=0    员工档 user_id 必须指向未软删的 HUMAN 账号
+A10 BLOCKER viol=0    请假单状态必须与审批实例状态一致
+A2  BLOCKER viol=0    同一 user_id 只能挂一份未删员工档
+A3  BLOCKER viol=0    同一员工同一薪资项的生效区间不重叠
+A4  WARN    viol=0    在职/试用期员工应有覆盖今天的 ACTIVE 合同
+A5  WARN    viol=0    合同到期日不应早于员工离职日
+A6  BLOCKER viol=0    单头 gross_total/net_total 必须等于明细汇总
+A7  BLOCKER viol=0    明细汇总列必须等于明细项按类型求和
+A8  BLOCKER viol=0    POSTED/REVERSED 单据必须有计提+发放两张平衡凭证
+A9  BLOCKER viol=0    已过账单据的凭证期间必须存在，且已结账期间不许留待过账死单
+W1  WARN    viol=0    考勤守恒：出勤+各类假+旷工 ≈ 应出勤（±0.01）
+W2  WARN    viol=0    账号部门与员工人事部门漂移（借调合法，仅观察）
+HR_INVARIANTS_SUMMARY blocker_fail=0 warn_fail=0 total=12
+== 结果：PASS —— 8 条 BLOCKER 断言零违规（WARN 观察项 0 条，只报不拦）==
+RC=0
+
+=== 5. 文档验收命令 ② menu_invariants.sh <库>（期望 8 条全绿） ===
+═══ 菜单结构不变量 ═══
+库: hr50_docs_drill
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            501  ✅ (400-520)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 118 条，全部命中
+结果: 全绿 ✅
+RC=0
+
+=== 6. 文档「实测基数」对活库复核 ===
+schema_migrations(总行数)|335
+  versioned 条数|323
+  seed 条数|12
+  最大版本 V|403
+HR 菜单行(目录+页面+按钮)|41
+  其中 目录(menu_type=1)|0
+  其中 页面(menu_type=2)|5
+  其中 按钮(menu_type=3)|35
+HR 权限码(唯一 auth_code)|40
+  其中 *:page|5
+  其中 *:list|5
+HR 薪资项|17
+  其中带公式|7
+HR 审批流程|4
+HR 表(应 10 张)|10
+HR_MANAGER 授权行数|59
+
+=== 7. 清场：停实例 + 删 profile + DROP 库 + 关隧道 ===
+removed /opt/cloudpivot/backend/config/config-hr50.toml
+dropped hr50_docs_drill
+145 残留 hr50% 库 = 0
+本机 :18050 监听数 = 0
+DONE

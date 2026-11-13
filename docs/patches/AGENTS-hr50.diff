@@ -69,7 +69,7 @@ index 2cfe0bf2..453751b1 100644
 +```
 +
 +- **权限码 40 个**：`business:hr:{employee,contract,attendance,leave,salary,salary-item}:{page,list,create,update,delete,detail,sensitive,...}`，真源是迁移 `V0387` + `V0401`（页面码解耦）+ `V0400`/`V0403`（审批角色授权）。后端 `hr/handler.rs` 的 `ROUTE_CONTRACT` 是编译期契约表（50 行「方法+路径」），新路由不登记会被单测判红。员工导入的**上传/预检/确认**走通用 impexp（`biz_type=hr.employee`），HR 侧只有模板下载 `GET /employee/import-template`。
-+- **角色**（真库实测授权行数）：`HR_MANAGER` 拿全 35 个按钮码 + 5 页面；`FINANCE_MANAGER` 只拿薪资 4 码 + 1 页面；`DEPT_LEADER` 拿 2 页面 + 3 码（含 1 个 `:list`）；`EMPLOYEE` 只拿 2 页面 + 2 个自助码（一个 `:list` 都没有）。授权必须**无孤儿**：授按钮必授父页，授页面必授祖先目录。
++- **角色**（期望值由 `scripts/verify/hr/hr_perm_expect.py` 解析 `V0387`+`V0401` 得出，**不手抄**）：`HR_MANAGER` 拿全 40 个 HR 码（5 页面 + 35 按钮，`data_scope=3`）；`FINANCE_MANAGER` 5 码（薪资页面 + `list`/`detail`/`post`/`export`）；`DEPT_LEADER` 5 码（employee/leave 两页面 + `employee:list`/`employee:detail`/`leave:detail`，**没有** `leave:list`）；`EMPLOYEE` 4 码（两页面 + `leave:create`/`salary:my`，一个 `:list` 都没有）。授权必须**无孤儿**：授按钮必授父页，授页面必授祖先目录。
 +- **错误码段 `68001~68012`**（`shared/error_code.rs` 的 68xxx HR 段）：加新码从 `68013` 续，禁跨段复用。
 +- **数据范围**：列表走 `scope::paginate`（`shared/scope.rs` 的 `SCOPED_TABLES` 登记 + `guard.rs` 条数断言）；单条入口同一份探针，不可见报 404（不是 403）。
 +- **门禁/验收**（改权限或动业务后）：`cargo test --lib system::menu::permission_audit_tests` + `bash scripts/verify/menu_invariants.sh <库>` + `bash scripts/verify/hr/hr_permission_matrix.sh --fresh` + `bash scripts/verify/hr_invariants.sh`；上线前跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`，业务链路跑 `bash scripts/verify/hr/hr_salary_e2e.sh --fresh`。
