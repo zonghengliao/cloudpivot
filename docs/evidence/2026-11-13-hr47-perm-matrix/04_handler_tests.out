@@ -1,0 +1,18 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.53s
+     Running unittests src/lib.rs (/root/hr47-target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 10 tests
+test business::hr::salary_sheet_handler::tests::detail_not_found_names_sheet_and_detail ... ok
+test business::hr::salary_sheet_handler::tests::form_data_freezes_gross_total_as_number ... ok
+test business::hr::salary_sheet_handler::tests::full_list_requires_salary_detail_not_just_list ... ok
+test business::hr::salary_sheet_handler::tests::not_found_names_the_sheet ... ok
+test business::hr::salary_sheet_handler::tests::override_is_rejected_on_locked_statuses ... ok
+test business::hr::salary_sheet_handler::tests::override_route_belongs_to_hr37 ... ok
+test business::hr::salary_sheet_handler::tests::permission_codes_exist_in_the_menu_seed ... ok
+test business::hr::salary_sheet_handler::tests::reverse_route_belongs_to_hr40 ... ok
+test business::hr::salary_sheet_handler::tests::routes_and_permissions_match_the_frozen_contract ... ok
+test business::hr::salary_sheet_handler::tests::submit_and_post_belong_to_hr39 ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 5526 filtered out; finished in 0.01s
+
+ALLDONE

@@ -1,0 +1,13 @@
+test business::hr::perm_matrix_tests::every_granted_id_is_a_real_menu_row ... ok
+test business::hr::perm_matrix_tests::every_route_permission_is_a_seeded_hr_code ... ok
+test business::hr::perm_matrix_tests::finance_director_is_the_zero_grant_control_column ... ok
+test business::hr::perm_matrix_tests::finance_manager_gets_view_post_export_but_not_reverse ... ok
+test business::hr::perm_matrix_tests::matrix_script_reads_the_same_migration ... ok
+test business::hr::perm_matrix_tests::route_contract_covers_every_code_except_the_known_gap ... ok
+test business::hr::perm_matrix_tests::self_service_routes_are_login_only_by_design ... ok
+test business::hr::perm_matrix_tests::super_admin_and_hr_manager_get_all_36 ... ok
+test business::hr::perm_matrix_tests::thirty_buttons_and_five_pages_are_seeded ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 5524 filtered out; finished in 0.02s
+
+ALLDONE

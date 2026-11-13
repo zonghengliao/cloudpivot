@@ -16,7 +16,7 @@
 |---|---|
 | `scripts/verify/hr/hr_permission_matrix.sh` | 一条命令跑完：建 145 演练库 → 起隔离实例 → 夹具 → 三层矩阵 → 汇总 → 清库 |
 | `scripts/verify/hr/hr_perm_expect.py` | **期望矩阵**解析器：从 `V0387__hr_menu_perms.up.sql` 解析 35 码 × 5 角色，不手抄 |
-| `backend/src/business/hr/perm_matrix_tests.rs` | 离线静态契约（9 条）：码表 / 授权矩阵 / 路由覆盖 / 种子同源 |
+| `backend/src/business/hr/perm_matrix_tests.rs` | 离线静态契约（12 条）：码表 / 授权矩阵 / 路由覆盖 / 种子同源 |
 | `backend/migrations/seed/S__hr_employee_grants.sql` | **修缺陷 ①**：全新库给 EMPLOYEE 补 5 行人力资源授权（幂等 + 自检） |
 | `backend/src/business/hr/salary_sheet_handler.rs` | **修缺陷 ②**：全量薪资列表补第二道闸 `salary:detail` |
 
@@ -90,6 +90,15 @@ EMPLOYEE 角色由种子建 ⇒ V0387 执行时它还不存在，`IF v_role IS N
 
 * `01_matrix_run.out` —— 全量运行日志（556 PASS / 0 FAIL / 2 KNOWN，含 6 行 403 报文示例）
 * `02_matrix_table.txt` —— 210 格矩阵表（每个角色 期望/实际 码数对拍）
+* `03_static_tests.out` —— `cargo test --lib business::hr::perm_matrix_tests` → **12 passed / 0 failed**
+* `04_handler_tests.out` —— `cargo test --lib business::hr::salary_sheet_handler::tests` → **10 passed / 0 failed**（含新增的
+  `full_list_requires_salary_detail_not_just_list`）
+
+> 注：离线单测用独立 `CARGO_TARGET_DIR=/root/hr47-target` 跑 —— 共享工作区的
+> `/opt/cloudpivot/backend/target` 当时被邻居卡的 `cargo test` 长期持锁（09:38 起），
+> 等锁会无限期阻塞。全量 `cargo test --lib`（5500+ 条）未在本卡复跑：工作区里同时挂着
+> 邻居未提交的改动（`flow/config_check.rs`、`impexp/builtin/hr/employee.rs` 等），
+> 整棵树的红绿与本卡无关；本卡只对本模块的两组用例负责。
 
 ## 怎么复跑
 

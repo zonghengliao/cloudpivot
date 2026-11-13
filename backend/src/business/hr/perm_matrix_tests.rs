@@ -185,20 +185,26 @@ const EMPLOYEE_IDS: [&str; 5] = [
     "20000000-0000-4000-8000-00000000e047",
 ];
 
-/// 4 个「种了码但没有后端路由」的权限点（已知缺口，必须显式登记）。
+/// 「种了码但**没有**后端路由」的权限点（已知缺口，必须显式登记）。
 ///
 /// 它们不是 bug 的隐藏处，而是**必须继续存在**的观察项：真要接路由的那天，这份清单
 /// 会先红一次，提醒改矩阵脚本与前端按钮的显隐。逐个说明：
 /// * `employee:resign` —— 离职走「离职单 + 流程」，状态接口只认 `employee:update`（HR-12 决策）；
-/// * `employee:export` —— 员工导出走通用 impexp（`business:impexp:*`），HR 专属路由未落地；
 /// * `leave:delete` —— 请假单没有物理删除，草稿作废走 `leave:cancel`；
 /// * `salary-item:delete` —— 薪资项停用走 `salary-item:update`（`is_active`），不删定义。
-const ROUTELESS_CODES: [&str; 4] = [
+const ROUTELESS_CODES: [&str; 3] = [
     "business:hr:employee:resign",
-    "business:hr:employee:export",
     "business:hr:leave:delete",
     "business:hr:salary-item:delete",
 ];
+
+/// 契约里有、但**handler 还没落地**的码（`ROUTE_CONTRACT` 的 `card = "TBD"`）。
+///
+/// `business:hr:employee:export` 属这一类：设计 §5.2 #12 给了接口行，§8.1 的卡清单里
+/// 没排卡（员工导出实际走通用 impexp），所以 `#[nik::permission]` 一行都没有 ——
+/// 前端若照契约画出「导出」按钮，点了必然 404。要跟 `ROUTELESS_CODES` 分开记：
+/// 前者是「设计了但没卡」，后者是「有卡但决定不接路由」。
+const CONTRACT_ONLY_CODES: [&str; 1] = ["business:hr:employee:export"];
 
 /// 取 `V0387` 里某个角色授权数组的原文块（`NAME UUID[] := ARRAY[ … ]::uuid[]`）。
 fn array_block(name: &str) -> &'static str {
@@ -367,7 +373,7 @@ fn route_contract_covers_every_code_except_the_known_gap() {
     let mut missing: Vec<&str> = Vec::new();
     for (_, _, code) in MENUS.iter().filter(|(_, t, _)| *t >= 2) {
         let covered = ROUTE_CONTRACT.iter().any(|r| r.permission == Some(*code));
-        if !covered && !ROUTELESS_CODES.contains(code) {
+        if !covered && !ROUTELESS_CODES.contains(code) && !CONTRACT_ONLY_CODES.contains(code) {
             missing.push(code);
         }
     }
@@ -376,11 +382,18 @@ fn route_contract_covers_every_code_except_the_known_gap() {
         "这些权限码既没有后端路由、也不在已知缺口清单里 —— 界面上点了必然 404：{missing:?}"
     );
 
-    // 反向：已知缺口里的码**真的**还是没路由（接上了就把它从清单里删掉）
+    // 反向一：`ROUTELESS_CODES` 里的码**真的**连契约行都没有（哪天接了路由要摘掉）
     for code in ROUTELESS_CODES {
         assert!(
             !ROUTE_CONTRACT.iter().any(|r| r.permission == Some(code)),
-            "{code} 已经有后端路由了 → 请从 ROUTELESS_CODES 删除（清单过期）"
+            "{code} 已经有契约行了 → 请从 ROUTELESS_CODES 删除（清单过期）"
+        );
+    }
+    // 反向二：`CONTRACT_ONLY_CODES` 里的码**在**契约里（否则该挪到 ROUTELESS_CODES）
+    for code in CONTRACT_ONLY_CODES {
+        assert!(
+            ROUTE_CONTRACT.iter().any(|r| r.permission == Some(code)),
+            "{code} 不在契约里了 → 请从 CONTRACT_ONLY_CODES 删除（清单过期）"
         );
     }
 }
