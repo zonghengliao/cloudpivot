@@ -1,0 +1,26 @@
+$ cd /opt/cloudpivot/backend
+$ SYS_DB_URL="postgres://alun:***@127.0.0.1:5432/cp_p102_audit" NIK_PROFILE=test \
+    ./target/debug/deps/cloudpivot-92b1418ede0d3e18 system::menu::permission_audit_tests \
+    --test-threads=1 --nocapture
+
+running 8 tests
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... 测试C 已连接验证库（cloudpivot_test）
+[N14] 452 个种子菜单权限码全部有源码落地 ✓（431 条走 #[nik::permission] 注解闸，12 条走行级校验；判据范围 = run 起点前的种子行，已排除本次/历史夹具 0 行）
+ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... [N15] 485 条种子菜单行权限码形态合规 ✓（判据范围 = run 起点前的种子行）
+ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... [N16] 759 条路由：736 条有权限注解 + 23 条白名单例外 ✓
+ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... [N17] 扫描器自检通过（死码 / 裸路由都能扫出来；属性顺序颠倒也能认出来；cfg(test) 里的假路由字符串不算路由）✓
+ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... [N18] 例外台账 6 条、临时台账 3 条、白名单 18 条，全部有理由且仍然成立 ✓
+ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... [N19] 53 处 ROLE 指派的审批节点，全部持有 business:flow:approve ✓
+ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... [N20] 109 个 ERP 单据核心权限码全部至少授予了 1 个非超管角色 ✓
+ok
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... [N21] 759 条路由 / 741 条规则：静态路由无被模板规则遮蔽 ✓
+ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 5544 filtered out; finished in 11.46s
+

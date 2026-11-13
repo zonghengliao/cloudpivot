@@ -1,0 +1,15 @@
+## 运行时验证（cp_p102_audit，端口 18097，admin 已改初始密码）
+## 改密响应：{"code":0,"msg":"密码已修改"}
+
+### GET /business/dashboard/my-metrics
+  无令牌: HTTP 401  {"code":401,"msg":"未授权访问，请先登录"}
+  有令牌: HTTP 200  {"code":0,"msg":"ok","data":[{"key":"my_todo_count","label":"待办审批","value":0,"extra":0,"unit":"项","icon":"task","theme":"blue","tip":"待我审批且流程仍在进行的单据数"},{"key":"my_done_week","label":"本周已办","value":0,"extra":0,"unit":"项","icon":"check-circle","theme":
+
+### GET /business/erp/cost-switch
+  无令牌: HTTP 401  {"code":401,"msg":"未授权访问，请先登录"}
+  有令牌: HTTP 200  {"code":0,"msg":"ok","data":{"enabled":false,"config_key":"erp.cost.enabled","hint":"成本核算模块未启用（erp.cost.enabled = false）。请系统管理员在「支撑功能 / 参数配置 / ERP 成本」里打开，切换即时生效"}}
+
+### GET /system/auth/idle-policy
+  无令牌: HTTP 401  {"code":401,"msg":"未授权访问，请先登录"}
+  有令牌: HTTP 200  {"code":0,"msg":"ok","data":{"timeout_minutes":15,"warn_seconds":60,"is_super_admin":true}}
+

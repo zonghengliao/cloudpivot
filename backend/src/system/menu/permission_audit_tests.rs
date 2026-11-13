@@ -16,7 +16,7 @@
 //! | N14 | 每个菜单码在**去掉注释的**后端源码里至少有一处落地（注解 / 行级校验 / 常量） | 新增菜单码却没写校验点 → 红 |
 //! | N15 | 菜单码必须是 `{模块}:{资源}:{动作}` 形态（≥2 个冒号） | 再把模块名（`erp-finance`）当权限码 → 红 |
 //! | N16 | 每个路由要么有 `#[nik::permission]`，要么在「无权限路由白名单」里写明理由 | 新增裸接口（无任何权限闸）→ 红 |
-//! | N17 | 扫描器自检：人造的死码 / 裸路由必须被扫出来 | 扫描逻辑退化成永远绿 → 红 |
+//! | N17 | 扫描器自检：人造的死码 / 裸路由 / `#[cfg(test)]` 里的「假路由字符串」都必须被判对 | 扫描逻辑退化成永远绿、或把测试里的字符串字面量当路由 → 红 |
 //! | N18 | 例外台账必须是「活的」：登记为例外的码仍未被后端引用且在菜单里（`ROUTE_LEVEL_ONLY` 与临时的 `PENDING_LANDING` 两本台账都校验） | 例外过期没人删 → 红 |
 //! | N19 | 流程定义里每个 `APPROVAL`/`COUNTERSIGN` 节点的 `ROLE` 指派角色都必须有 `business:flow:approve` | 审批角色缺审批权限 → 节点永远点不动（全员 403）→ 红 |
 //! | N20 | ERP 单据核心权限码（`business:erp:*:{create,list,status}`）必须至少授予 1 个**非超管**角色 | 菜单有行、源码有注解，但 `sys_role_menu` 零行 → 除超管外全员 403，审批只能自批（职责分离失效）→ 红 |
@@ -30,6 +30,14 @@
 //!    调用、或权限常量被行级判定函数消费）；③ 其它代码引用（错误文案、清单常量）。
 //! 3. 源码范围 = `backend/src/**/*.rs`，**排除测试文件**（`tests.rs` / `tests_support.rs` /
 //!    `tests/`）—— 测试里提到某个码不算「有校验点」。
+//!
+//!    同一口径对**文件内的 `#[cfg(test)]` 模块**同样成立，只是分成两份文本：
+//!    `code_refs` / `is_annotated` 用 `clean`（剥注释，含测试模块 —— 注解写在测试模块里
+//!    也算「这个码有承载」，`system::menu::tests::n10` 另有口径），**路由扫描**用
+//!    `route_src`（剥注释 **且**剪掉 `#[cfg(test)] mod …` 的整块）。原因见
+//!    [`strip_cfg_test_modules`]：自检用例里写着 `format!("#[nik::post(\"/api{path}\")]")`
+//!    这种「长得像路由」的字符串字面量，若不剪掉，N16 会把它们当成两条真的裸路由
+//!    （实测：`cost_period_handler.rs` / `cost_period_sheet.rs` 的注解自检，共 4 条幽灵路由）。
 //! 4. **库侧判据范围 = run 起点之前的种子行**：本文件 N14 / N15 / N18 是全表审计，
 //!    而同一进程里有多个夹具型用例（`menu::tests::n01..n14`、`auth::cache_tests`、
 //!    `session_tests` …）正并行往 `sys_menu` 插临时行；不过滤就会被当成死码（假红，
@@ -204,7 +212,15 @@ const NO_PERMISSION_ROUTES: &[(&str, &str)] = &[
 struct SourceFile {
     rel: String,
     raw: String,
+    /// 剥注释后的文本（**含** `#[cfg(test)]` 模块）：`code_refs` / `is_annotated` 用。
     clean: String,
+    /// 剥注释 **且**剪掉 `#[cfg(test)] mod …` 整块后的文本：**只给路由扫描**用。
+    ///
+    /// 为什么单独一份而不是直接拿 `clean`：自检用例会写
+    /// `format!("#[nik::post(\"/api{path}\")]")` 这类「长得像路由」的字符串字面量
+    /// （`business/erp/cost_period_handler.rs`、`cost_period_sheet.rs`），
+    /// 扫描器会当成两条真的裸路由，N16 恒红。见 [`strip_cfg_test_modules`]。
+    route_src: String,
 }
 
 /// `backend/src` 的源码索引（原文 + 剥注释后的文本）。
@@ -223,10 +239,12 @@ impl Repo {
             .filter_map(|p| {
                 let raw = std::fs::read_to_string(&p).ok()?;
                 let clean = strip_comments(&raw);
+                let route_src = strip_cfg_test_modules(&clean);
                 Some(SourceFile {
                     rel: rel_path(&root, &p),
                     raw,
                     clean,
+                    route_src,
                 })
             })
             .collect();
@@ -364,6 +382,145 @@ fn strip_comments(src: &str) -> String {
     out
 }
 
+/// 剪掉文件内 `#[cfg(test)]` 所修饰的**模块整块**（保留换行，行号不变）。
+///
+/// # 为什么需要
+///
+/// 仓库里有大量「模块内自检」写在业务文件末尾的 `#[cfg(test)] mod tests { … }` 里，
+/// 其中一类断言长这样（`business/erp/cost_period_handler.rs`）：
+///
+/// ```text
+/// assert!(!source.contains(&format!("#[nik::post(\"/api{path}\")]")));
+/// ```
+///
+/// 剥注释后这是一段普通字符串字面量，而路由扫描器只认 `#[nik::` + 引号串，
+/// 于是把它识别成一条路径为 `/api{path}\` 的裸路由 → N16 恒红（实测 4 条幽灵路由：
+/// `cost_period_handler.rs` 3 条 + `cost_period_sheet.rs` 1 条）。测试代码不是生产路由，
+/// 按 [`is_test_file`] 的同一口径剪掉。
+///
+/// # 边界（宁可不剪，也不乱剪）
+///
+/// * 只剪 `#[cfg(test)]` **紧跟 `mod <名字> { … }`** 的形态；`#[cfg(test)] use …` 这类
+///   单行项不动 —— 标记与 `mod` 之间出现 `;` 就放弃本次匹配。
+/// * 花括号按「跳过字符串/字符字面量」计数，模块里的 `"{path}"` 不会把配对算错。
+/// * 未闭合（文件写坏了）时整段不剪：让下游继续报红，而不是静默吞掉半个文件。
+/// * 换行逐个保留 ⇒ 下游 report 里的 `file:line` 仍指向原文行号。
+fn strip_cfg_test_modules(text: &str) -> String {
+    const MARK: &str = "#[cfg(test)]";
+    let mut out = String::with_capacity(text.len());
+    let mut cursor = 0usize;
+    while let Some(offset) = text[cursor..].find(MARK) {
+        let mark_start = cursor + offset;
+        let after_mark = mark_start + MARK.len();
+        let stripped = mod_block_brace(text, after_mark)
+            .and_then(|brace| matching_brace(text, brace).map(|close| (mark_start, close)));
+        let Some((start, close)) = stripped else {
+            // 不是 `mod`（`#[cfg(test)] use …` / 属性写坏 / 括号不闭合）：原样保留
+            out.push_str(&text[cursor..after_mark]);
+            cursor = after_mark;
+            continue;
+        };
+        out.push_str(&text[cursor..start]);
+        out.extend(text[start..=close].chars().filter(|c| *c == '\n'));
+        cursor = close + 1;
+    }
+    out.push_str(&text[cursor..]);
+    out
+}
+
+/// `from` 之后第一个 `mod <名字> {` 的开花括号位置（`mod` / `pub mod` / `pub(crate) mod`）。
+///
+/// * 只在前 400 个字节里找；
+/// * 途中遇到 `;` 就放弃（说明那个 `#[cfg(test)]` 修饰的是 `use` / `const` 一类的单行项）；
+/// * 全程按**字节**比较，不做字符串切片 ⇒ 文件里有中文时也不会切到 UTF-8 半字符上。
+fn mod_block_brace(text: &str, from: usize) -> Option<usize> {
+    const WINDOW: usize = 400;
+    let bytes = text.as_bytes();
+    let limit = (from + WINDOW).min(bytes.len());
+    let mut i = from;
+    while i < limit {
+        let b = bytes[i];
+        if b == b';' {
+            return None;
+        }
+        let starts_mod = b == b'm'
+            && i + 3 < limit
+            && bytes[i + 1] == b'o'
+            && bytes[i + 2] == b'd'
+            && !(i > 0 && is_ident_byte(bytes[i - 1]))
+            && !is_ident_byte(bytes[i + 3]);
+        if !starts_mod {
+            i += 1;
+            continue;
+        }
+        // `mod` → 空白 → 模块名 → 空白 → `{`
+        let mut j = i + 3;
+        while j < limit && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let name_start = j;
+        while j < limit && is_ident_byte(bytes[j]) {
+            j += 1;
+        }
+        if j == name_start {
+            return None;
+        }
+        while j < limit && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        return (j < limit && bytes[j] == b'{').then_some(j);
+    }
+    None
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// `open` 处的 `{` 对应的 `}` 位置；跳过字符串 / 字符字面量里的花括号。未闭合返回 `None`。
+fn matching_brace(text: &str, open: usize) -> Option<usize> {
+    let bytes = text.as_bytes();
+    let mut depth = 0i32;
+    let mut i = open;
+    let mut quote: Option<u8> = None;
+    let mut escaped = false;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'"' => quote = Some(b'"'),
+            // 字符字面量（`'{'`、`'\n'`）与生命周期（`'a`）的区分，与 strip_comments 同口径
+            b'\'' => {
+                let closes =
+                    (i + 2 < bytes.len() && bytes[i + 2] == b'\'') || (i + 1 < bytes.len() && bytes[i + 1] == b'\\');
+                if closes {
+                    quote = Some(b'\'');
+                }
+            }
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
 /// 一条路由声明：`#[nik::<method>(...)]` + 同一 item 属性块里的 `#[nik::permission(...)]`
 /// 或 `#[nik::auth_only(...)]`。属性顺序不限（在上/在下都认），见 [`permission_of_route`]。
 ///
@@ -388,13 +545,15 @@ impl Route {
 }
 
 /// 扫出全部路由。`no_auth` / `permission` 自身不是路由，跳过。
+///
+/// 用 [`SourceFile::route_src`]（已剪掉 `#[cfg(test)]` 模块）：测试里的字符串字面量不是路由。
 fn scan_routes(repo: &Repo) -> Vec<Route> {
     let mut routes = Vec::new();
     for f in &repo.files {
         if is_test_file(&f.rel) {
             continue;
         }
-        let text = &f.clean;
+        let text = &f.route_src;
         let mut cursor = 0usize;
         while let Some(offset) = text[cursor..].find("#[nik::") {
             let start = cursor + offset;
@@ -926,8 +1085,53 @@ fn n17_scanner_detects_planted_dead_code() {
     )
     .expect("写 leak.rs");
 
+    // ④（卡 t_4750ffee）`#[cfg(test)]` 模块里的「假路由字符串」不算路由；模块**之后**的
+    // 真裸路由仍必须被扫出来（证明剪裁没有越过模块边界）。
+    // 夹具用 r##"…"## 包裹：内容里有 `"#` 序列（`format!("#[nik::…`）。
+    std::fs::write(
+        dir.join("mod/cfgtest.rs"),
+        r##"#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 历史缺陷自检：源码里不许出现带 /api 前缀的路由注解
+    #[test]
+    fn no_api_prefixed_route_literal() {
+        let source = include_str!("../handler.rs");
+        let wrong = format!("#[nik::post(\"/api{path}\")]");
+        assert!(!source.contains(&wrong));
+    }
+}
+
+#[nik::post("/system/after-cfg-test")]
+pub async fn naked_after_cfg_test() {}
+"##,
+    )
+    .expect("写 cfgtest.rs");
+
     let repo = Repo::load(&dir);
-    assert_eq!(repo.files.len(), 5, "应读到 5 个源文件");
+    assert_eq!(repo.files.len(), 6, "应读到 6 个源文件");
+
+    // ④ `#[cfg(test)] mod tests { … }` 里「长得像路由」的字符串字面量不算路由。
+    // 真实案例：`business/erp/cost_period_handler.rs` / `cost_period_sheet.rs` 的注解自检
+    // 写着 `format!("#[nik::post(\"/api{path}\")]")`，不剪 cfg(test) 就会变成 4 条幽灵裸路由。
+    let cfg_test_file = repo
+        .files
+        .iter()
+        .find(|f| f.rel == "mod/cfgtest.rs")
+        .expect("应读到 cfgtest.rs");
+    assert!(
+        cfg_test_file.clean.contains("/api{path}"),
+        "夹具写错了：剥注释后的文本里应保留那次自检的字符串字面量"
+    );
+    assert!(
+        !cfg_test_file.route_src.contains("/api{path}"),
+        "`#[cfg(test)] mod tests {{…}}` 没有被剪掉（测试里的字符串字面量会被当成路由）"
+    );
+    assert!(
+        cfg_test_file.route_src.contains("/system/after-cfg-test"),
+        "剪 cfg(test) 模块时越过了模块边界（模块之后的真路由被一起吞掉）"
+    );
 
     // ① 只在注释里的码 → 原文里有、剥注释后没有
     let dead_file = repo
@@ -946,9 +1150,26 @@ fn n17_scanner_detects_planted_dead_code() {
         "扫描器把注解里的权限码剥掉了（strip_comments 过度）"
     );
 
-    // ③ 路由扫描：6 条路由
+    // ③ 路由扫描：6 条（原有 6 条）+ 1 条 cfg(test) 模块**之后**的真裸路由 = 7 条
     let routes = scan_routes(&repo);
-    assert_eq!(routes.len(), 6, "应扫到 6 条路由，实际 {}", routes.len());
+    assert_eq!(routes.len(), 7, "应扫到 7 条路由，实际 {}\n{:#?}", routes.len(), routes);
+    assert!(
+        !routes.iter().any(|r| r.path.contains("{path}")),
+        "`#[cfg(test)]` 模块里的假路由字符串被当成路由了：{:?}",
+        routes
+            .iter()
+            .filter(|r| r.path.contains("{path}"))
+            .map(|r| r.key())
+            .collect::<Vec<_>>()
+    );
+    let after = routes
+        .iter()
+        .find(|r| r.path == "/system/after-cfg-test")
+        .expect("/system/after-cfg-test 应被扫到（cfg(test) 模块之后的真路由）");
+    assert!(
+        after.permission.is_none(),
+        "/system/after-cfg-test 被判成有权限注解（剪 cfg(test) 时吞多了）"
+    );
     for (path, expected) in [
         ("/system/ok", Some(ok_code)),
         // 属性顺序颠倒也必须认出来（旧 permission_above 在这里判 None）
@@ -978,7 +1199,10 @@ fn n17_scanner_detects_planted_dead_code() {
     }
 
     let _ = std::fs::remove_dir_all(&dir);
-    println!("[N17] 扫描器自检通过（死码 / 裸路由都能扫出来；属性顺序颠倒也能认出来）✓");
+    println!(
+        "[N17] 扫描器自检通过（死码 / 裸路由都能扫出来；属性顺序颠倒也能认出来；\
+         cfg(test) 里的假路由字符串不算路由）✓"
+    );
 }
 
 // ==================== N18 例外台账必须是活的 ====================

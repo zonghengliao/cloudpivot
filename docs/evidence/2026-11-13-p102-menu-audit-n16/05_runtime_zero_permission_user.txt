@@ -1,0 +1,11 @@
+## 运行时验证（cp_p102_audit，账号 p102probe = 零菜单授权普通用户）
+
+### 三条「登录即可」接口（期望 200）
+  GET /business/dashboard/my-metrics         HTTP 200  {"code":0,"msg":"ok","data":[{"key":"my_todo_count","label":"待办审批","value":0,"extra":0,"unit":"项","icon":"task
+  GET /business/erp/cost-switch              HTTP 200  {"code":0,"msg":"ok","data":{"enabled":false,"config_key":"erp.cost.enabled","hint":"成本核算模块未启用（erp.c
+  GET /system/auth/idle-policy               HTTP 200  {"code":0,"msg":"ok","data":{"timeout_minutes":15,"warn_seconds":60,"is_super_admin":false}}
+
+### 对照：挂了权限码的接口（期望 403，证明该令牌确实没有任何权限码）
+  GET /system/user/page                      HTTP 403  {"code":403,"msg":"无权限访问，需要权限: system:user:list"}
+  GET /business/erp/cost-period/page         HTTP 403  {"code":403,"msg":"无权限访问，需要权限: business:erp:cost-period:list"}
+  GET /system/menu/tree                      HTTP 403  {"code":403,"msg":"无权限访问，需要权限: system:menu:list"}

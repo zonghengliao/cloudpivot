@@ -696,6 +696,14 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
+///
+/// # 权限：登录即可（`#[nik::auth_only]`）
+///
+/// 前端必须知道**自己的**生效空闲策略才能计时，而 `auth.idle_timeout_minutes` 存在
+/// `sys_config` 里 —— 绝大多数账号没有 `support:config:list`。所以本接口不挂权限码，
+/// 但按卡 t_4750ffee 的口径**显式**声明「登录即可」规则：没有它这是裸路由（N16 判红），
+/// 且 `/system/auth/{x}` 前缀将来出现模板规则时会被静默接管（N21 的口径）。
+#[nik::auth_only(path = "/system/auth/idle-policy", method = "GET")]
 #[nik::get("/system/auth/idle-policy")]
 pub async fn idle_policy(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<IdlePolicyRes> {
     let timeout_minutes = crate::shared::idle_session::timeout_minutes().await;

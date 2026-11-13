@@ -26,6 +26,16 @@ use crate::utils;
 
 /// 我的指标（四张卡：待办审批 / 本周已办 / 今日任务 / 逾期）。
 ///
+/// # 权限：登录即可（`#[nik::auth_only]`）
+///
+/// 本接口不挂权限码，但**必须**显式声明「登录即可」规则（卡 t_4750ffee）：
+///
+/// * 没有这条规则时它是**裸路由** —— 任何拿得到令牌的人都能调（N16 判红）；
+/// * 有这条规则后它还多一层保护：`/business/dashboard/…` 前缀里将来出现模板规则
+///   （如 `/business/dashboard/{tab}`）也不会以 score 2 把它静默接管（N21 的口径）。
+///
+/// 语义没变：数字全部按 `claims` 里的用户 id 过滤，没有 `?user_id=` 入参。
+///
 /// # 返回值
 ///
 /// 成功返回固定 4 条的 [`MetricCardRes`] 列表（空数据也是 4 条，值为 0）。
@@ -34,6 +44,7 @@ use crate::utils;
 ///
 /// - 401：令牌缺少用户标识；
 /// - 500：数据库查询失败。
+#[nik::auth_only(path = "/business/dashboard/my-metrics", method = "GET")]
 #[nik::get("/business/dashboard/my-metrics")]
 pub async fn my_metrics(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<Vec<MetricCardRes>> {
     let me = utils::current_user_uuid(&claims)

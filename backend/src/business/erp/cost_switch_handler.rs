@@ -42,6 +42,13 @@ pub struct CostSwitchRes {
 
 /// 读取成本核算模块开关。
 ///
+/// # 权限：登录即可（`#[nik::auth_only]`）
+///
+/// 本接口按设计对**任意已登录用户**开放（普通财务 / 仓管没有 `support:config:list`，
+/// 但界面需要知道开关状态），所以不挂权限码；但**必须**显式声明「登录即可」规则
+/// （卡 t_4750ffee）：否则它是裸路由（N16 判红），且将来 `/business/erp/cost-switch`
+/// 若被同前缀模板规则命中就会被静默接管。
+///
 /// # 返回值
 ///
 /// [`CostSwitchRes`]：`enabled` 取 `sys_config` 的当前值（缺省 / 停用 / 写错一律 `false`）。
@@ -49,6 +56,7 @@ pub struct CostSwitchRes {
 /// # 异常情况
 ///
 /// 无：参数读不到按「关闭」处理，不因配置缺失返回 500（前端只需知道开没开）。
+#[nik::auth_only(path = "/business/erp/cost-switch", method = "GET")]
 #[nik::get("/business/erp/cost-switch")]
 pub async fn state() -> ResResult<CostSwitchRes> {
     let enabled = cost_switch::is_enabled().await;
