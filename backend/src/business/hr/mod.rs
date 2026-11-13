@@ -235,6 +235,12 @@ pub mod model;
 /// 三方对拍；另钉死 4 个「无后端路由」的已知缺口。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod perm_matrix_tests;
+/// HR-49 的上线演练脚本静态契约：四个场景（空库首启 / 生产克隆 / 老库含 2211 翻末级 /
+/// 升级护栏反证）都在、演练库名护栏在、口令不落盘、「不丢数据」有逐表行数判据、
+/// 迁移条数/最高版本从磁盘现算。跑脚本要 4 个演练库 + 十几分钟，故只在此静态守形态。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod release_drill_contract_tests;
 /// 薪资单的**过账 + 审批回调桥**（`hr_salary` 流程，ARCH-9 §4.3 / §4.6）：计提 + 发放
 /// 两张凭证（净额法，走 `post_explicit_lines`）、`SUBMITTED → APPROVED` 回调（不出凭证）、
 /// 自审批守卫、实例终止（HR-39）。

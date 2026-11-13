@@ -1,0 +1,28 @@
+[场景 S1] 空库首启（迁移全跑）
+  [PASS] S1 空库已建：hr49_fresh_drill（迁移由服务启动时自动回放）
+  [PASS] S1 /health 200（首次启动，迁移回放完成）
+  [PASS] S1 迁移条数（版本化+种子，引擎日志）（335）
+  [PASS] S1 schema_migrations 版本化条数（323）
+  [PASS] S1 schema_migrations 种子条数（12）
+  [PASS] S1 最高版本（403）
+  [PASS] S1 HR 10 张表齐（10）
+  [PASS] S1 薪资项种子 17 项（V0396）（17）
+  [PASS] S1 工资末级科目 9 个（V0384）（9）
+  [PASS] S1 2211 是非末级（翻末级结果）（0）
+  [PASS] S1 HR 目录 1 行（/business/hr）（1）
+  [PASS] S1 HR 页面 5 行（员工/合同/考勤/请假/薪资）（5）
+  [PASS] S1 HR 权限码行数（按钮+页面码）（40 ≥ 35）
+  [PASS] S1 审批流程定义（HR 四套）（4 ≥ 4）
+  [PASS] S1 工资凭证规则 2 条（V0384）（2）
+  [PASS] S1 admin 登录（SUPER_ADMIN 短路权限码）
+  [PASS] S1 建员工 HTTP（迁移后接口可用）（200）
+  [PASS] S1 员工工号（EMP 号段）（EMP-0001）
+  [PASS] S1 实例已停（准备重启验幂等）
+  [PASS] S1 二次启动 /health 200
+  [PASS] S1 二次启动应用迁移数（幂等）（0）
+  [PASS] S1 重启后 schema_migrations 条数不变（335）
+  [PASS] S1 重启后员工档案仍可读（不丢数据）（200）
+  [PASS] S1 重启后工号一致（不丢数据）（EMP-0001）
+  [PASS] S1：hr_invariants 8 条 BLOCKER 零违规
+  [PASS] S* hr49_fresh_drill 已清理（pg_database 残留计数）（0）
+-------------------------------------------------------------------------------

@@ -1,0 +1,28 @@
+[场景 S2] 克隆库升级（真实生产快照 144 → 145）
+… 从 root@172.18.10.144 只读 pg_dump（生产库不动一个字节）
+  [PASS] S2 pg_dump 完成（4.6M）
+  [PASS] S2 生产快照已灌入演练库（owner 归 cloudpivot）
+   生产快照现状：版本化 310 条（最高 V391）+ 种子 11 条
+  [PASS] S2 生产快照版本与 144 实测一致（V0391）（391）
+  [PASS] S2 存量「同 org+period 多张未删薪资单」为 0（V0397 建索引不会失败）（0）
+  [PASS] S2 升级前逐表行数快照：198 张表
+  [PASS] S2 升级后 /health 200（引擎自动应用待跑迁移）
+  [PASS] S2 本次应用迁移数（14）
+  [PASS] S2 升级后版本化总条数（323）
+  [PASS] S2 升级后最高版本（403）
+  [PASS] S2 生产原有的 11 条种子 + 新增 1 条（12）
+  [PASS] S2 薪资项种子 17 项（V0396 不覆盖客户口径：无重复项）（17）
+  [PASS] S2 uk_biz_sal_sheet_period 索引在位（V0397）（1）
+  [PASS] S2 工资末级科目 9 个在位（V0384 已应用过，幂等）（9）
+  [PASS] S2 HR 四套流程定义在位（V0393~V0395）（4）
+  [PASS] S2 HR 页面 5 行（5）
+  [PASS] S2 HR 权限码行数（生产 + V0400~V0403 增量）（40 ≥ 35）
+  [PASS] S2 V0398 收口自检已通过（表数/科目/号段/字典/菜单/流程/薪资项）（1）
+  [PASS] 逐表行数对拍：198 张存量表一律没有减少（新增表 0 张）
+  [INFO] 白名单内增长： biz_flow_def(41→45) biz_flow_def_version(62→66) biz_flow_edge(263→284) biz_flow_node(278→300) biz_flow_node_assignee(104→113) biz_salary_item(0→17) schema_migrations(321→335) sys_menu(499→504) sys_role_menu(1272→1288)
+  [PASS] S2 生产克隆库：hr_invariants 8 条 BLOCKER 零违规
+  [PASS] S2 升级后重启 /health 200
+  [PASS] S2 升级后重启应用迁移数（幂等）（0）
+  [PASS] S2 重启前后逐表行数完全一致
+  [PASS] S* hr49_prod_drill 已清理（pg_database 残留计数）（0）
+-------------------------------------------------------------------------------
