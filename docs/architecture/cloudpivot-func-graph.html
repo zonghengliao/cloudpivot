@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>云枢 CloudPivot · 功能关系图</title>
+<style>
+  :root{
+    --f: var(--foreground, #1a1d23);
+    --m: var(--muted-foreground, #5b6472);
+    --a: var(--accent, #1f6feb);
+    --b: var(--border, #d3d8e0);
+  }
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;
+    font-family:var(--font-sans,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif);
+    background:var(--background,#ffffff);color:var(--f);}
+  #stage{display:block;width:100%;height:860px;cursor:grab;}
+  #stage.drag{cursor:grabbing;}
+  .edge{stroke:#8b95a5;stroke-width:1.15;fill:none;opacity:.45;}
+  .edge.hi{stroke:var(--a);stroke-width:2.2;opacity:1;}
+  .edge.dim{opacity:.05;}
+  .node{cursor:pointer;}
+  .node circle{stroke:var(--b);stroke-width:1;transition:stroke .1s,stroke-width .1s;}
+  .node:hover circle{stroke:var(--a);stroke-width:2.4;}
+  .node.sel circle{stroke:var(--a);stroke-width:3.2;}
+  .node text{fill:var(--m);font-size:11.6px;text-anchor:middle;pointer-events:none;
+    font-weight:500;paint-order:stroke;stroke:var(--background,#fff);stroke-width:2.1px;
+    stroke-linejoin:round;transition:fill .1s;}
+  .node:hover text,.node.sel text{fill:var(--f);font-weight:700;}
+  .node.dim{opacity:.13;}
+  .gLabel{font-size:14px;font-weight:800;letter-spacing:.5px;opacity:.5;
+    text-anchor:middle;pointer-events:none;}
+  #hud{position:fixed;left:15px;top:13px;pointer-events:none;max-width:360px;}
+  #hud h1{margin:0;font-size:14.5px;font-weight:700;letter-spacing:.2px;}
+  #hud .sub{font-size:10px;color:var(--m);margin-top:2px;line-height:1.5;}
+  #hud .kpi{font-size:9.5px;color:var(--m);margin-top:5px;font-variant-numeric:tabular-nums;}
+  #tip{position:fixed;right:15px;bottom:13px;font-size:9.5px;color:var(--m);
+    text-align:right;line-height:1.7;pointer-events:none;}
+  #tip b{color:var(--f);}
+  #panel{position:fixed;right:13px;top:13px;width:228px;max-height:calc(100vh - 28px);
+    overflow:auto;border:1px solid var(--b);border-radius:9px;padding:10px 12px;
+    font-size:10.5px;line-height:1.6;display:none;
+    background:color-mix(in srgb, var(--background,#fff) 94%, transparent);
+    backdrop-filter:blur(8px);}
+  #panel.show{display:block;}
+  #panel h3{margin:0 0 3px;font-size:12px;font-weight:700;}
+  #panel .meta{color:var(--m);font-size:9.5px;margin-bottom:7px;}
+  #panel .sec{margin-top:7px;}
+  #panel .sec-t{font-size:9px;letter-spacing:.5px;color:var(--m);font-weight:800;margin-bottom:3px;}
+  #panel .rel{display:flex;flex-wrap:wrap;gap:3px;}
+  #panel .chip{font-size:9.5px;padding:1.5px 5px;border-radius:4px;border:1px solid var(--b);
+    color:var(--m);cursor:pointer;}
+  #panel .chip:hover{border-color:var(--a);color:var(--f);}
+  #panel .close{position:absolute;right:9px;top:7px;cursor:pointer;color:var(--m);font-size:13px;}
+  #legend{position:fixed;left:15px;bottom:13px;font-size:9.5px;color:var(--m);
+    display:flex;gap:11px;flex-wrap:wrap;pointer-events:none;max-width:660px;}
+  .lg{display:flex;align-items:center;gap:4px;}
+  .lg i{width:8px;height:8px;border-radius:50%;display:inline-block;}
+</style>
+</head>
+<body>
+<svg id="stage"><g id="cam"></g></svg>
+<div id="hud">
+  <h1>云枢 CloudPivot · 功能关系图</h1>
+  <div class="sub">节点 = 系统里真实存在的功能页（菜单导出）· 箭头 = 业务流转</div>
+  <div class="kpi" id="kpi"></div>
+</div>
+<div id="panel">
+  <span class="close" onclick="closePanel()">×</span>
+  <h3 id="pTitle"></h3>
+  <div class="meta" id="pMeta"></div>
+  <div id="pBody"></div>
+</div>
+<div id="tip"><b>拖动</b>节点 · <b>滚轮</b>缩放 · <b>空白拖动</b>平移<br><b>点节点</b>看上下游 · <b>双击</b>重置</div>
+<div id="legend"></div>
+<script>
+const GROUPS = {"系统管理": {"c": "#818cf8", "x": -521, "y": -269, "r": 90}, "人力资源": {"c": "#f472b6", "x": -521, "y": 50, "r": 95}, "基础数据": {"c": "#94a3b8", "x": -521, "y": 277, "r": 70}, "采购管理": {"c": "#e8734a", "x": -218, "y": -294, "r": 115}, "审批流": {"c": "#fbbf24", "x": -34, "y": -143, "r": 85}, "工作任务": {"c": "#a3e635", "x": 176, "y": -294, "r": 90}, "仓库管理": {"c": "#3fb98a", "x": -34, "y": 34, "r": 125}, "销售管理": {"c": "#4a9eff", "x": 311, "y": -109, "r": 155}, "财务管理": {"c": "#c084fc", "x": -34, "y": 302, "r": 160}, "公告消息": {"c": "#22d3ee", "x": 395, "y": 160, "r": 80}, "通用底座": {"c": "#64748b", "x": 302, "y": 294, "r": 85}};
+const NODES  = [{"n": "公告中心", "g": "公告消息", "p": "/announcement"}, {"n": "公告管理", "g": "公告消息", "p": "/business/announcement"}, {"n": "消息中心", "g": "公告消息", "p": "/business/notice/message"}, {"n": "消息通知", "g": "公告消息", "p": "/business/notice/template"}, {"n": "变更日志", "g": "系统管理", "p": "/system/change-log"}, {"n": "字段脱敏", "g": "系统管理", "p": "/system/field-mask"}, {"n": "数据权限", "g": "系统管理", "p": "/system/data-scope"}, {"n": "角色互斥", "g": "系统管理", "p": "/system/role-mutex"}, {"n": "员工档案", "g": "人力资源", "p": "/business/hr/employee"}, {"n": "考勤管理", "g": "人力资源", "p": "/business/hr/attendance"}, {"n": "薪资管理", "g": "人力资源", "p": "/business/hr/salary"}, {"n": "薪资项", "g": "人力资源", "p": "/business/hr/salary-item"}, {"n": "请假单", "g": "人力资源", "p": "/business/hr/leave"}, {"n": "仓库管理", "g": "仓库管理", "p": "/business/erp/warehouse"}, {"n": "出库单", "g": "仓库管理", "p": "/business/erp/stock-out"}, {"n": "即时库存", "g": "仓库管理", "p": "/business/erp/inventory"}, {"n": "序列号管理", "g": "仓库管理", "p": "/business/erp/serial"}, {"n": "库位库存", "g": "仓库管理", "p": "/business/erp/inventory-location"}, {"n": "库位管理", "g": "仓库管理", "p": "/business/erp/location"}, {"n": "库存流水", "g": "仓库管理", "p": "/business/erp/inventory-txn"}, {"n": "库存调拨", "g": "仓库管理", "p": "/business/erp/transfer"}, {"n": "批次管理", "g": "仓库管理", "p": "/business/erp/lot"}, {"n": "物料管理", "g": "仓库管理", "p": "/business/erp/material"}, {"n": "盘点单", "g": "仓库管理", "p": "/business/erp/stock-take"}, {"n": "单号序列", "g": "基础数据", "p": "/business/erp/seq"}, {"n": "计量单位", "g": "基础数据", "p": "/business/erp/unit"}, {"n": "发起审批", "g": "审批流", "p": "/flow/start"}, {"n": "审批中心", "g": "审批流", "p": "/flow/task"}, {"n": "审批委托", "g": "审批流", "p": "/flow/delegate"}, {"n": "流程定义", "g": "审批流", "p": "/flow/def"}, {"n": "联动规则", "g": "审批流", "p": "/flow/linkage"}, {"n": "自审监控", "g": "审批流", "p": "/flow/stats"}, {"n": "任务列表", "g": "工作任务", "p": "/task/list"}, {"n": "任务模板", "g": "工作任务", "p": "/task/templates"}, {"n": "任务看板", "g": "工作任务", "p": "/task/board"}, {"n": "甘特图", "g": "工作任务", "p": "/task/gantt"}, {"n": "会计期间", "g": "财务管理", "p": "/business/erp/period"}, {"n": "会计科目", "g": "财务管理", "p": "/business/erp/account"}, {"n": "固定资产", "g": "财务管理", "p": "/business/erp/asset"}, {"n": "年度结转", "g": "财务管理", "p": "/business/erp/year-end"}, {"n": "总账", "g": "财务管理", "p": "/business/erp/ledger"}, {"n": "成本核算", "g": "财务管理", "p": "/business/erp/cost"}, {"n": "报表项维护", "g": "财务管理", "p": "/business/erp/report/report-item"}, {"n": "期初余额", "g": "财务管理", "p": "/business/erp/opening"}, {"n": "记账凭证", "g": "财务管理", "p": "/business/erp/voucher"}, {"n": "费用报销", "g": "财务管理", "p": "/business/erp/expense"}, {"n": "预算管理", "g": "财务管理", "p": "/business/erp/budget"}, {"n": "存储管理", "g": "通用底座", "p": "/business/storage/backend"}, {"n": "导入任务", "g": "通用底座", "p": "/business/impexp/import-task"}, {"n": "导入向导", "g": "通用底座", "p": "/business/impexp/import"}, {"n": "导出任务", "g": "通用底座", "p": "/business/impexp/export-task"}, {"n": "文件管理", "g": "通用底座", "p": "/business/storage/file"}, {"n": "供应商", "g": "采购管理", "p": "/business/erp/supplier"}, {"n": "应付账款", "g": "采购管理", "p": "/business/erp/payable"}, {"n": "收货入库", "g": "采购管理", "p": "/business/erp/stock-in"}, {"n": "询比价", "g": "采购管理", "p": "/business/erp/price-inquiry"}, {"n": "采购明细", "g": "采购管理", "p": "/business/erp/purchase-order-item"}, {"n": "采购申请", "g": "采购管理", "p": "/business/erp/purchase-requisition"}, {"n": "采购订单", "g": "采购管理", "p": "/business/erp/purchase-order"}, {"n": "采购退货", "g": "采购管理", "p": "/business/erp/purchase-return"}, {"n": "价格查询", "g": "销售管理", "p": "/business/erp/price"}, {"n": "价格管理", "g": "销售管理", "p": "/business/erp/customer-price"}, {"n": "佣金结算", "g": "销售管理", "p": "/business/erp/commission"}, {"n": "佣金规则", "g": "销售管理", "p": "/business/erp/commission-rule"}, {"n": "发货单", "g": "销售管理", "p": "/business/erp/shipment"}, {"n": "客户档案", "g": "销售管理", "p": "/business/erp/customer"}, {"n": "币种管理", "g": "销售管理", "p": "/business/erp/currency"}, {"n": "应收账款", "g": "销售管理", "p": "/business/erp/receivable"}, {"n": "收款单", "g": "销售管理", "p": "/business/erp/receipt"}, {"n": "收款退款单", "g": "销售管理", "p": "/business/erp/receipt-refund"}, {"n": "汇率管理", "g": "销售管理", "p": "/business/erp/exchange-rate"}, {"n": "销售发票", "g": "销售管理", "p": "/business/erp/invoice"}, {"n": "销售目标与预测", "g": "销售管理", "p": "/business/erp/sales-target"}, {"n": "销售订单", "g": "销售管理", "p": "/business/erp/sales-order"}, {"n": "销售退货单", "g": "销售管理", "p": "/business/erp/sales-return"}, {"n": "发送通知", "g": "公告消息", "p": "/business/notice/send"}, {"n": "分摊规则", "g": "财务管理", "p": "/business/erp/cost-alloc-rule"}, {"n": "工时台账", "g": "财务管理", "p": "/business/erp/cost-labor"}, {"n": "待付款", "g": "财务管理", "p": "/business/erp/expense/pay"}, {"n": "成本对象", "g": "财务管理", "p": "/business/erp/cost-object"}, {"n": "成本核算(期间)", "g": "财务管理", "p": "/business/erp/cost-period"}, {"n": "折旧计提", "g": "财务管理", "p": "/business/erp/depreciation"}, {"n": "费用台账", "g": "财务管理", "p": "/business/erp/cost-overhead"}, {"n": "费用类型", "g": "财务管理", "p": "/business/erp/expense-type"}, {"n": "资产分类", "g": "财务管理", "p": "/business/erp/asset-category"}, {"n": "预算执行", "g": "财务管理", "p": "/business/erp/budget/report"}, {"n": "预算科目映射", "g": "财务管理", "p": "/business/erp/budget/mapping"}];
+const EDGES  = [[52, 57], [57, 58], [55, 58], [58, 56], [58, 54], [54, 15], [54, 53], [59, 15], [53, 44], [65, 73], [61, 73], [73, 64], [64, 14], [64, 67], [67, 68], [68, 44], [73, 71], [74, 15], [63, 62], [62, 44], [22, 58], [22, 73], [14, 15], [20, 15], [23, 15], [15, 19], [21, 15], [18, 17], [17, 15], [16, 14], [44, 40], [37, 44], [36, 44], [43, 40], [39, 40], [38, 81], [81, 44], [45, 44], [80, 44], [79, 80], [76, 80], [77, 80], [82, 80], [46, 45], [46, 57], [78, 44], [8, 9], [8, 10], [11, 10], [12, 9], [9, 10], [10, 44], [57, 26], [58, 26], [53, 26], [45, 26], [12, 26], [29, 27], [26, 27], [27, 28], [27, 32], [32, 34], [32, 35], [49, 48], [51, 47], [27, 75]];
+
+const NS="http://www.w3.org/2000/svg";
+const svg=document.getElementById("stage"), cam=document.getElementById("cam");
+const gEdges=document.createElementNS(NS,"g"), gLabels=document.createElementNS(NS,"g"), gNodes=document.createElementNS(NS,"g");
+cam.appendChild(gEdges); cam.appendChild(gLabels); cam.appendChild(gNodes);
+
+const defs=document.createElementNS(NS,"defs");
+defs.innerHTML=`<marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="3.4" markerHeight="3.4" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8b95a5"/></marker>
+<marker id="arHi" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="3.4" markerHeight="3.4" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1f6feb"/></marker>`;
+svg.appendChild(defs);
+
+Object.entries(GROUPS).forEach(([name,g])=>{
+  const t=document.createElementNS(NS,"text");
+  t.setAttribute("class","gLabel");
+  t.setAttribute("x",g.x); t.setAttribute("y",g.y-g.r-10);
+  t.setAttribute("fill",g.c); t.textContent=name;
+  gLabels.appendChild(t);
+});
+
+const byGroup={};
+NODES.forEach((n,i)=>{ (byGroup[n.g]=byGroup[n.g]||[]).push(i); });
+Object.entries(byGroup).forEach(([gname,arr])=>{
+  const g=GROUPS[gname];
+  arr.forEach((i,k)=>{
+    const ang=(k/arr.length)*Math.PI*2-Math.PI/2;
+    const rad=Math.min(g.r,26+arr.length*3.2);
+    NODES[i].x=g.x+Math.cos(ang)*rad*(0.55+Math.random()*0.5);
+    NODES[i].y=g.y+Math.sin(ang)*rad*(0.55+Math.random()*0.5);
+    NODES[i].vx=0; NODES[i].vy=0;
+  });
+});
+NODES.forEach(n=>{ n.r=5.2; n.out=[]; n.in=[]; });
+
+const LINKS=EDGES.map(([a,b])=>{ NODES[a].out.push(b); NODES[b].in.push(a); return {s:NODES[a],t:NODES[b]}; });
+LINKS.forEach(l=>{
+  const p=document.createElementNS(NS,"path");
+  p.setAttribute("class","edge"); p.setAttribute("marker-end","url(#ar)");
+  gEdges.appendChild(p); l.el=p;
+});
+NODES.forEach(n=>{
+  const g=document.createElementNS(NS,"g"); g.setAttribute("class","node");
+  const c=document.createElementNS(NS,"circle");
+  c.setAttribute("r",n.r); c.setAttribute("fill",GROUPS[n.g].c); c.setAttribute("fill-opacity","0.30");
+  g.appendChild(c);
+  const t=document.createElementNS(NS,"text");
+  t.setAttribute("dy",n.r+9); t.textContent=n.n; g.appendChild(t);
+  gNodes.appendChild(g); n.el=g;
+});
+
+let alpha=1, camScale=1, camX=0, camY=0;
+const DECAY=0.988, AMIN=0.0015;
+const W=()=>svg.clientWidth||900, H=()=>svg.clientHeight||640;
+
+function tick(){
+  for(let i=0;i<NODES.length;i++){
+    const a=NODES[i];
+    for(let j=i+1;j<NODES.length;j++){
+      const b=NODES[j];
+      let dx=b.x-a.x, dy=b.y-a.y, d2=dx*dx+dy*dy;
+      if(d2<1){dx=Math.random()-.5;dy=Math.random()-.5;d2=1;}
+      if(d2<420) d2=420;
+      const d=Math.sqrt(d2);
+      const f=((a.g===b.g)?1500:520)/d2;
+      const fx=dx/d*f, fy=dy/d*f;
+      a.vx-=fx; a.vy-=fy; b.vx+=fx; b.vy+=fy;
+    }
+  }
+  // 标签碰撞：中文名不许互相压住
+  const FS=11.6, TH=FS*1.45;
+  for(let i=0;i<NODES.length;i++){
+    const a=NODES[i], aw=a.n.length*FS*0.62, ay=a.y+a.r+9;
+    for(let j=i+1;j<NODES.length;j++){
+      const b=NODES[j], bw=b.n.length*FS*0.62, by=b.y+b.r+9;
+      const dx=b.x-a.x, dy=by-ay;
+      const needX=(aw+bw)/2+3;
+      if(Math.abs(dx)<needX && Math.abs(dy)<TH){
+        const ox=(needX-Math.abs(dx))/needX, oy=(TH-Math.abs(dy))/TH, push=2.2;
+        const sx=(dx>=0?1:-1)*ox*push, sy=(dy>=0?1:-1)*oy*push*0.6;
+        a.vx-=sx; a.vy-=sy; b.vx+=sx; b.vy+=sy;
+      }
+    }
+  }
+  NODES.forEach(n=>{ const g=GROUPS[n.g]; n.vx+=(g.x-n.x)*0.012; n.vy+=(g.y-n.y)*0.012; });
+  LINKS.forEach(l=>{
+    const a=l.s,b=l.t;
+    let dx=b.x-a.x, dy=b.y-a.y;
+    const d=Math.sqrt(dx*dx+dy*dy)||1, f=(d-120)*0.0016;
+    const fx=dx/d*f, fy=dy/d*f;
+    a.vx+=fx; a.vy+=fy; b.vx-=fx; b.vy-=fy;
+  });
+  const VMAX=18;
+  NODES.forEach(n=>{
+    if(n.fixed){n.vx=0;n.vy=0;return;}
+    n.vx*=0.84; n.vy*=0.84;
+    if(n.vx>VMAX)n.vx=VMAX; if(n.vx<-VMAX)n.vx=-VMAX;
+    if(n.vy>VMAX)n.vy=VMAX; if(n.vy<-VMAX)n.vy=-VMAX;
+    n.x+=n.vx*alpha; n.y+=n.vy*alpha;
+  });
+  alpha=Math.max(AMIN,alpha*DECAY);
+}
+
+function draw(){
+  NODES.forEach(n=>n.el.setAttribute("transform",`translate(${n.x},${n.y})`));
+  LINKS.forEach(l=>l.el.setAttribute("d",`M${l.s.x},${l.s.y} L${l.t.x},${l.t.y}`));
+}
+function applyCam(){cam.setAttribute("transform",`translate(${camX},${camY}) scale(${camScale})`);}
+
+(function prewarm(){
+  for(let i=0;i<2000;i++) tick();
+  const xs=NODES.map(n=>n.x), ys=NODES.map(n=>n.y);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  const dw=Math.max(maxX-minX,1), dh=Math.max(maxY-minY,1), pad=42;
+  camScale=Math.max(0.25,Math.min((W()-pad*2)/dw,(H()-pad*2)/dh,2.4));
+  camX=W()/2-(minX+maxX)/2*camScale;
+  camY=H()/2-(minY+maxY)/2*camScale;
+  applyCam(); draw();
+})();
+
+function loop(){ for(let k=0;k<2;k++) tick(); draw(); requestAnimationFrame(loop); }
+loop();
+setInterval(()=>{ if(alpha<0.012) alpha=0.012; },2500);
+
+let dragN=null, offX=0, offY=0, panning=false, psx=0, psy=0;
+function toWorld(e){
+  const r=svg.getBoundingClientRect();
+  return {x:((e.clientX-r.left)-camX)/camScale, y:((e.clientY-r.top)-camY)/camScale};
+}
+NODES.forEach(n=>{
+  n.el.addEventListener("pointerdown",e=>{
+    e.stopPropagation(); dragN=n;
+    const w=toWorld(e); offX=n.x-w.x; offY=n.y-w.y; n.fixed=true; svg.classList.add("drag");
+  });
+  n.el.addEventListener("pointermove",e=>{
+    if(dragN!==n) return;
+    const w=toWorld(e); n.x=w.x+offX; n.y=w.y+offY; draw();
+  });
+  n.el.addEventListener("pointerup",()=>{
+    if(dragN===n){dragN=null;n.fixed=false;svg.classList.remove("drag");}
+  });
+  n.el.addEventListener("click",e=>{e.stopPropagation(); select(n);});
+});
+svg.addEventListener("pointerdown",e=>{
+  if(dragN) return; panning=true; psx=e.clientX-camX; psy=e.clientY-camY; svg.classList.add("drag");
+});
+svg.addEventListener("pointermove",e=>{
+  if(!panning) return; camX=e.clientX-psx; camY=e.clientY-psy; applyCam();
+});
+svg.addEventListener("pointerup",()=>{panning=false;svg.classList.remove("drag");});
+svg.addEventListener("click",()=>{ if(!dragN) closePanel(); });
+svg.addEventListener("wheel",e=>{
+  e.preventDefault();
+  const r=svg.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top, old=camScale;
+  camScale=Math.max(0.3,Math.min(4,camScale*(e.deltaY<0?1.13:1/1.13)));
+  camX=mx-(mx-camX)*(camScale/old); camY=my-(my-camY)*(camScale/old); applyCam();
+},{passive:false});
+svg.addEventListener("dblclick",()=>{
+  camScale=1;camX=0;camY=0;applyCam(); NODES.forEach(n=>n.fixed=false); alpha=1;
+});
+
+let selNode=null;
+function select(n){
+  if(selNode===n){closePanel();return;}
+  selNode=n;
+  NODES.forEach(m=>{
+    m.el.classList.remove("sel","dim");
+    if(m===n) return;
+    if(!(n.out.includes(NODES.indexOf(m))||n.in.includes(NODES.indexOf(m)))) m.el.classList.add("dim");
+  });
+  n.el.classList.add("sel");
+  LINKS.forEach(l=>{
+    const on=(l.s===n||l.t===n);
+    l.el.classList.toggle("hi",on); l.el.classList.toggle("dim",!on);
+    l.el.setAttribute("marker-end",on?"url(#arHi)":"url(#ar)");
+  });
+  document.getElementById("pTitle").textContent=n.n;
+  document.getElementById("pMeta").textContent=`${n.g} · ${n.out.length} 个下游 / ${n.in.length} 个上游`;
+  let h="";
+  if(n.out.length){
+    h+=`<div class="sec"><div class="sec-t">流向 →</div><div class="rel">`;
+    n.out.forEach(j=>h+=`<span class="chip" onclick="pick(${j})">${NODES[j].n}</span>`);
+    h+=`</div></div>`;
+  }
+  if(n.in.length){
+    h+=`<div class="sec"><div class="sec-t">← 来自</div><div class="rel">`;
+    n.in.forEach(j=>h+=`<span class="chip" onclick="pick(${j})">${NODES[j].n}</span>`);
+    h+=`</div></div>`;
+  }
+  if(!n.out.length&&!n.in.length) h=`<div class="meta">孤立功能（暂无流转关系）</div>`;
+  document.getElementById("pBody").innerHTML=h;
+  document.getElementById("panel").classList.add("show");
+}
+function pick(i){ select(NODES[i]); }
+function closePanel(){
+  document.getElementById("panel").classList.remove("show");
+  selNode=null;
+  NODES.forEach(n=>n.el.classList.remove("sel","dim"));
+  LINKS.forEach(l=>{l.el.classList.remove("hi","dim");l.el.setAttribute("marker-end","url(#ar)");});
+}
+document.getElementById("legend").innerHTML=Object.entries(GROUPS)
+  .map(([k,g])=>`<div class="lg"><i style="background:${g.c}"></i>${k}</div>`).join("");
+const isolated=NODES.filter(n=>!n.out.length&&!n.in.length).length;
+document.getElementById("kpi").innerHTML=
+  `${NODES.length} 个功能 · ${EDGES.length} 条流转 · ${Object.keys(GROUPS).length} 个业务域`
+  +(isolated?` · ${isolated} 个无流转`:"");
+
+</script>
+</body>
+</html>

@@ -90,6 +90,9 @@
 
 ## 功能版图
 
+> 📍 **想看功能之间怎么连的？** 打开 [`docs/architecture/cloudpivot-func-graph.html`](docs/architecture/cloudpivot-func-graph.html)
+> —— 87 个功能节点（从菜单表导出）+ 66 条业务流转，可拖动/缩放/点节点看上下游。单文件零依赖，浏览器直接打开。
+
 ### 已落地
 
 ```
