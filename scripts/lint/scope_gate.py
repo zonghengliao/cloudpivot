@@ -117,11 +117,13 @@ business/erp/expense_model_tests.rs
 business/erp/fixture_hygiene.rs
 business/erp/lot_db_tests.rs
 business/erp/model_tests.rs
+business/erp/payable_payment/tests/payable_linkage_db_tests.rs
 business/erp/period_items_tests.rs
 business/erp/period_linkage_tests.rs
 business/erp/period_remind_tests.rs
 business/erp/period_test_support.rs
 business/erp/pflow3b_tests.rs
+business/erp/purchase_linkage_db_tests.rs
 business/erp/reminder_tests.rs
 business/erp/shipment_page_fill_tests.rs
 business/erp/stockin_handler_tests_a4.rs
@@ -139,9 +141,11 @@ business/erp/stockin_handler_tests_pflow3a.rs
 business/erp/stockin_handler_tests_posting.rs
 business/erp/stockin_handler_tests_update.rs
 business/erp/stockin_tests.rs
+business/erp/stockout_cost_object_tests.rs
 business/erp/stockout_fifo_tests.rs
 business/erp/stockout_tests.rs
 business/erp/stocktake_tests.rs
+business/erp/transfer_handler_db_linkage_tests.rs
 business/erp/transfer_handler_db_tests_books.rs
 business/erp/transfer_handler_db_tests_create.rs
 business/erp/transfer_handler_db_tests_fixtures.rs
@@ -159,11 +163,15 @@ business/erp/year_end_test_support.rs
 business/flow/edge_admin_tests.rs
 business/flow/flow_model_delete_tests.rs
 business/flow/flow_model_tests.rs
+business/flow/instance_linkage_db_tests.rs
 business/flow/linkage/tests.rs
 business/flow/linkage/tests_presets.rs
+business/flow/linkage/tests_presets_coverage.rs
 business/flow/linkage/tests_wiring.rs
+business/flow/terminate_db_tests.rs
 business/flow/test_support.rs
 business/hr/attendance_export_db_tests.rs
+business/hr/attendance_import_db_tests.rs
 business/hr/attendance_lock_db_tests.rs
 business/hr/attendance_period_db_tests.rs
 business/hr/attendance_record_db_tests.rs
@@ -174,10 +182,23 @@ business/hr/employee_model_db_tests.rs
 business/hr/employee_no_db_tests.rs
 business/hr/employee_seed_db_tests.rs
 business/hr/employee_sensitive_db_tests.rs
+business/hr/hr_e2e_contract_tests.rs
+business/hr/hr_invariants_tests.rs
+business/hr/leave_bridge_db_tests.rs
 business/hr/leave_db_tests.rs
+business/hr/leave_handler_db_tests.rs
+business/hr/perm_matrix_tests.rs
+business/hr/salary_bridge_db_tests.rs
+business/hr/salary_compute_db_tests.rs
 business/hr/salary_db_tests.rs
+business/hr/salary_export_db_tests.rs
 business/hr/salary_item_db_tests.rs
+business/hr/salary_item_seed_tests.rs
 business/hr/salary_override_db_tests.rs
+business/hr/salary_sheet_db_tests.rs
+business/hr/self_service_db_tests.rs
+business/impexp/builtin/hr/db_tests.rs
+business/impexp/builtin/hr/import_post_db_tests.rs
 business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
@@ -212,6 +233,10 @@ system/user/tests.rs
 CFG_ATTR_RE = re.compile(r"#\[\s*cfg\s*\(")
 PATH_ATTR_RE = re.compile(r'#\[\s*path\s*=\s*"([^"]+)"\s*\]')
 MOD_RE = re.compile(r"(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*([;{])")
+# 行首的 `mod y;`（只看 `;` 结尾的外部文件声明）。用于扫内联测试区**区体内**的子模块声明。
+PLAIN_MOD_RE = re.compile(
+    r"(?m)^[ \t]*(?:pub(?:\s*\([^)]*\))?\s+)?mod\s+([A-Za-z_]\w*)\s*;"
+)
 COMMENT_LINE_RE = re.compile(r"^[ \t]*(?://|\*)")
 
 
@@ -219,6 +244,10 @@ class Decl(NamedTuple):
     name: str
     path_attr: str | None
     line: int
+    # 声明所在的内联模块链（例如在内联 `mod tests { … }` 里声明 ⇒ ("tests",)）。
+    # Rust 语义：内联模块本身占一层目录（`foo.rs` 的 `mod tests { mod y; }` ⇒ `foo/tests/y.rs`），
+    # 漏掉这一层就会去 `foo/y.rs` 找，找不到便当成「不是测试面」（t_fb2e95f4 实测）。
+    prefix: tuple[str, ...] = ()
 
 
 def mask(source: str) -> str:
@@ -421,8 +450,48 @@ def parse_module_decls(source: str, masked: str) -> tuple[list[Decl], list[tuple
                 # 后面所有代码都按生产面判（宁可报红，不许静默变绿）。
                 break
             regions.append((match.start(), brace_end))
+            # 区体内声明的外部文件（`mod y;`）同样是测试面：见 decls_in_inline_region 的说明。
+            decls.extend(
+                decls_in_inline_region(
+                    source, masked, mod_match.end(), brace_end - 1, name
+                )
+            )
             i = brace_end
     return decls, regions
+
+
+def decls_in_inline_region(
+    source: str, masked: str, start: int, end: int, inline_name: str
+) -> list[Decl]:
+    """扫出内联 `#[cfg(test)] mod x { … }` **区体内**的 `mod y;` 外部文件声明。
+
+    为什么必须扫（t_fb2e95f4 实测）：`erp/payable_payment/tests/payable_linkage_db_tests.rs`
+    是在 `payable_payment.rs` 的内联 `#[cfg(test)] mod tests { … mod payable_linkage_db_tests; }`
+    里挂进来的。区体本身按测试面跳过，但**它声明的外部文件**不在跳过集合里 ⇒ 被判成生产文件，
+    于是 `闸②` 对它报红（那是纯测试代码，却要一个 SCOPE-EXEMPT 才放行）。
+
+    口径：区体内的 `mod y;` 一律视为测试面（区体只在 `cargo test` 下编译，继承不继承
+    `#[cfg(test)]` 属性都进不了生产编译）。放行不是无门槛：被跳过的文件仍要过
+    `SKIP_MANIFEST` 逐条登记断言（多一个少一个都 FAIL），所以「藏生产文件」的形态照样被拦。
+    """
+    out: list[Decl] = []
+    body_src = source[start:end]
+    body_masked = masked[start:end]
+    line_base = masked.count("\n", 0, start)
+    for match in PLAIN_MOD_RE.finditer(body_masked):
+        name = match.group(1)
+        path_attr: str | None = None
+        # `#[path = "..."]` 的相对基准是声明所在文件目录；区体内写 path 极少，取最近的一个属性
+        before = body_src[: match.start()]
+        tail = before[-400:] if len(before) > 400 else before
+        for path_match in PATH_ATTR_RE.finditer(tail):
+            path_attr = path_match.group(1)
+            after_attr = tail[path_match.end() :]
+            if "mod" in after_attr or ";" in after_attr or "{" in after_attr:
+                path_attr = None
+        line = line_base + body_masked.count("\n", 0, match.start()) + 1
+        out.append(Decl(name, path_attr, line, (inline_name,)))
+    return out
 
 
 def rust_parent_dir(parent: Path) -> Path:
@@ -442,7 +511,9 @@ def rust_parent_dir(parent: Path) -> Path:
     return parent.parent / parent.stem
 
 
-def child_module_paths(parent: Path, name: str, path_attr: str | None) -> list[Path]:
+def child_module_paths(
+    parent: Path, name: str, path_attr: str | None, prefix: tuple[str, ...] = ()
+) -> list[Path]:
     """按 Rust 模块语义把 `mod name;` 解析成候选文件路径。
 
     普通声明：父文件是 `dir/mod.rs` / `src/lib.rs` / `src/main.rs` 时子模块落 `dir/name.rs`
@@ -453,6 +524,8 @@ def child_module_paths(parent: Path, name: str, path_attr: str | None) -> list[P
     if path_attr:
         return [parent.parent / path_attr]
     base = rust_parent_dir(parent)
+    for segment in prefix:
+        base = base / segment
     return [base / f"{name}.rs", base / name / "mod.rs"]
 
 
@@ -479,7 +552,9 @@ def collect_test_surface(files: dict[Path, SourceFile]) -> dict[Path, str]:
     skipped: dict[Path, str] = {}
     for resolved, info in files.items():
         for decl in info.decls:
-            for candidate in child_module_paths(resolved, decl.name, decl.path_attr):
+            for candidate in child_module_paths(
+                resolved, decl.name, decl.path_attr, decl.prefix
+            ):
                 target = candidate.resolve()
                 if target in files and target not in skipped:
                     skipped[target] = f"{info.path}:{decl.line}"
@@ -691,14 +766,20 @@ BASE_FIXTURE = {
         'fn q() { let _sql = "DELETE FROM biz_task_member"; }\n'
     ),
     # ③ 文件内 #[cfg(test)] 内联区 → 跳过（外层生产代码无漏接）
+    #   ③' 区体内 `mod y;` 声明的外部文件（`inline_tests_only/y.rs`）同样是测试面 ——
+    #     真实形态见 erp/payable_payment/tests/payable_linkage_db_tests.rs（t_fb2e95f4 实测）。
     "business/task/inline_tests_only.rs": (
         "pub fn plain() -> i32 { 1 }\n"
         "#[cfg(test)]\n"
         "mod tests {\n"
+        "    mod inline_mod_dir_tests;\n"
         "    fn q() {\n"
         '        let _sql = "SELECT count(*) FROM sys_user";\n'
         "    }\n"
         "}\n"
+    ),
+    "business/task/inline_tests_only/tests/inline_mod_dir_tests.rs": (
+        'fn q() { let _sql = "SELECT count(*) FROM sys_notice"; }\n'
     ),
     # ④ 生产面写 SCOPE-EXEMPT → 放行（原有语义）
     "business/erp/mod.rs": "pub mod exempt;\n",
@@ -760,6 +841,7 @@ FIXTURE_SKIP_MANIFEST = frozenset(
     {
         "business/task/task_model_write_tests.rs",
         "business/task/task_model_path_tests.rs",
+        "business/task/inline_tests_only/tests/inline_mod_dir_tests.rs",
     }
 )
 
@@ -800,6 +882,12 @@ def self_test() -> int:
         "business/task/inline_tests_only.rs" not in report.failures,
     )
     check(
+        "③' 内联区体内 `mod y;` 声明的外部文件也进测试面（inline_mod_dir_tests.rs 不报红且进跳过清单）",
+        "business/task/inline_tests_only/tests/inline_mod_dir_tests.rs" in report.skipped
+        and "business/task/inline_tests_only/tests/inline_mod_dir_tests.rs" not in report.failures,
+        f"skipped={sorted(report.skipped)}",
+    )
+    check(
         "④ SCOPE-EXEMPT 生产文件放行（business/erp/exempt.rs）",
         "business/erp/exempt.rs" not in report.failures,
     )
@@ -814,7 +902,7 @@ def self_test() -> int:
     )
     check(
         "⑦ 扫描/跳过计数可审计",
-        report.scanned > 0 and len(report.skipped) == 2,
+        report.scanned > 0 and len(report.skipped) == 3,
         f"scanned={report.scanned} skipped={len(report.skipped)}",
     )
     check(

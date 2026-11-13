@@ -1,0 +1,43 @@
+== 闸④（biz_type_domain.py --strict）在 hr48 全量迁移库上的红项 —— 证明它是 ERP/流程 侧存量词表债，与本批 HR 无关 ==
+
+## 1) 库里的域外值（4 个，均在 biz_flow_def.biz_type）
+[FAIL] ② 审批动作      biz_flow_def.biz_type                    取值 23 种
+       ✗ 域外值 'PRT_APPROVE' × 1
+       ✗ 域外值 'COST_SETTLE' × 1
+       ✗ 域外值 'PR_APPROVE' × 1
+       ✗ 域外值 'SO_APPROVE' × 1
+结果：FAIL（1 列有域外值）
+
+## 2) 这 4 个值由哪条迁移种下（全部早于 HR 的第一条迁移 V0383）
+SO_APPROVE   ← backend/migrations/business/V0281__sales_order_flow.up.sql 
+PR_APPROVE   ← backend/migrations/business/V0331__purchase_requisition.up.sql 
+PRT_APPROVE  ← backend/migrations/business/V0332__purchase_return.up.sql 
+COST_SETTLE  ← backend/migrations/business/V0381__cost_flow_def.up.sql 
+
+## 3) 词表（唯一真相 backend/src/business/shared/doc_kind.rs）里的 FlowBizType 只有 20 个值，不含这 4 个
+1552:const FLOW_BIZ_TYPE_VALUES: [&str; 20] = [
+1553-    "PO_APPROVE",
+1554-    "STOCK_IN_POST",
+1555-    "STOCK_IN_CANCEL",
+1556-    "STOCK_TAKE_POST",
+1557-    "STOCK_TRANSFER",
+1558-    "PAYABLE_PAY",
+1559-    "PAYABLE_CANCEL",
+1560-    "VOUCHER_REVERSE",
+1561-    "CONTRACT_APPROVE",
+1562-    "TASK_ACCEPT",
+1563-    "FLOW_EDGE_CFG",
+1564-    "EXPENSE",
+1565-    "OTHER",
+1566-    "BUDGET_APPROVE",
+1567-    "ASSET_DISPOSAL",
+1568-    "RECEIPT_REFUND",
+1569-    // 人力资源（ARCH-9-2 §3.2 ⑨）
+1570-    "HR_LEAVE",
+1571-    "HR_SALARY",
+1572-    "HR_SALARY_ADJUST",
+1573-    "HR_EMPLOYEE_RESIGN",
+
+## 4) HR 本批新增的 4 个值（HR_LEAVE / HR_SALARY / HR_SALARY_ADJUST / HR_EMPLOYEE_RESIGN）都在域内，闸④ 未对 HR 报红
+[FAIL] ② 审批动作      biz_flow_def.biz_type                    取值 23 种
+结果：FAIL（1 列有域外值）

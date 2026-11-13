@@ -1,0 +1,5 @@
+闸② 判定面（v2）：扫描生产面 589 个文件 / 跳过测试面 147 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（147 条；多一个少一个都不放行）
+  PASS：0 处

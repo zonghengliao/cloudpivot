@@ -774,6 +774,10 @@ impl std::fmt::Display for DeptError {
 }
 
 /// 部门装载 SQL：一次取全部未删除部门（`sys_dept` 没有 `org_id`，是系统级组织架构）。
+// SCOPE-EXEMPT: 员工导入的部门索引 —— 一次性取全部未删除部门，把模板里的「部门名称 / 部门路径」
+// 解析成 dept_id（导入是管理员批量作业，入口权限 business:hr:employee:import）。部门是系统级组织架构
+// （sys_dept 无 org_id、也不是按部门可见的业务数据），按数据范围裁剪会让导入看不出「别的部门的部门名
+// 为什么解析失败」。本索引只用于**校验与解析**，不产出任何列表行集。
 const DEPT_INDEX_SQL: &str = "SELECT id, dept_name, parent_id, status FROM sys_dept WHERE deleted_at IS NULL";
 
 impl DeptIndex {

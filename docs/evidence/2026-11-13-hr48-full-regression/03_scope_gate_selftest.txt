@@ -1,0 +1,17 @@
+闸② 负例自测（临时目录 /root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_i0ijciue）
+  PASS  ① 生产面漏接 task_model_write.rs 报红  failures=['business/erp/comment_only_scope.rs', 'business/task/task_model_write.rs']
+  PASS  ② #[cfg(test)] mod x; 挂载的 tests 文件被跳过（不在 failures）
+  PASS  ②' #[cfg(test)] #[path=...] 挂载的 tests 文件被跳过
+  PASS  ③ 内联 #[cfg(test)] mod 区的漏接被跳过（inline_tests_only.rs 不报红）
+  PASS  ③' 内联区体内 `mod y;` 声明的外部文件也进测试面（inline_mod_dir_tests.rs 不报红且进跳过清单）  skipped=['business/task/inline_tests_only/tests/inline_mod_dir_tests.rs', 'business/task/task_model_path_tests.rs', 'business/task/task_model_write_tests.rs']
+  PASS  ④ SCOPE-EXEMPT 生产文件放行（business/erp/exempt.rs）
+  PASS  ⑤ 注释里的 scope:: 不造成假绿（comment_only_scope.rs 报红）
+  PASS  ⑥ 内联注释行里的 FROM 不算代码行（task_model_write.rs 只报 biz_task）  实际 ['biz_task']
+  PASS  ⑦ 扫描/跳过计数可审计  scanned=15 skipped=3
+  PASS  ⑦' 跳过清单断言：实测跳过集合 == 登记清单 → 不报错（正常场景不许误伤）  skip_manifest_errors 为空（正确）
+  PASS  ⑧ 防假绿断言：已知生产文件被误判成测试面 → FAIL（guard_errors 非空）  防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_i0ijciue/guard/business/task/mod.rs:2）—— 解析器误判，闸② 不许据此变绿
+  PASS  ⑨ 扫描范围断言：缺 system/ 目录 → coverage_errors 非空  扫描范围缺少目录 backend/src/system（闸② 会漏掉该目录下的查询）
+  PASS  ⑩ 跳过清单断言：幽灵 #[path] 把生产文件藏进测试面 → FAIL（反事实对照：旧行为会变绿）  跳过清单断言：backend/src/business/task/zz_d.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_i0ijciue/r1_ghost_path/business/erp/approval_gate.rs:5）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/zz_d.rs",
+  PASS  ⑪ 子模块路径按 Rust 语义：foo.rs 的 #[cfg(test)] mod 不连坐跳过 foo/x.rs（R2）  failures=['business/erp/comment_only_scope.rs', 'business/task/task_model_write.rs', 'business/task/zz_child.rs'] skipped=['business/task/inline_tests_only/tests/inline_mod_dir_tests.rs', 'business/task/task_model_path_tests.rs', 'business/task/task_model_write_tests.rs']
+  PASS  ⑫ 字符级跳过：同一行里的生产查询不被 #[cfg(test)] mod 整行吞掉（R3）  failures=['business/erp/comment_only_scope.rs', 'business/task/task_model_write.rs', 'business/task/zz_same_line.rs']
+闸② 自测结论：全部通过（临时目录保留供复核：/root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_i0ijciue）

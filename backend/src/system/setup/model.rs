@@ -378,6 +378,9 @@ pub async fn find_role_by_id(role_id: Uuid) -> DbResult<Option<(Uuid, String, St
 }
 
 /// 过滤出「存在且未软删」的用户 id（保持入参顺序、去重）。
+// SCOPE-EXEMPT: 初始化向导（system/setup）—— 建超管 / 建演示部门 / 账号与部门查重。这些查询跑在
+// **空库首启的引导期**：此刻没有任何登录主体、更没有任何数据范围可裁，注入 scope 只会把向导自己锁死。
+// 每一条都按唯一键或主键定位单行，不构成用户可见行集。
 pub async fn existing_user_ids(user_ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
     if user_ids.is_empty() {
         return Ok(Vec::new());

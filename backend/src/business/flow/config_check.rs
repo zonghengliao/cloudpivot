@@ -499,6 +499,9 @@ pub async fn load(ex: &impl SqlExecutor, graph: &FlowGraph) -> DbResult<Lookup> 
     })
 }
 
+// SCOPE-EXEMPT: 流程图配置校验 —— 只为「审批人是否停用 / 部门名是否还在」按主键批量取名字与状态，
+// 产出的是校验提示（哪条边的审批人已停用），**不产出用户可见行集**。流程定义是全局配置，可见范围由
+// business:flow:read 控制（口径同 business/flow/model.rs 文件头）。
 async fn load_users(ex: &impl SqlExecutor, ids: &BTreeSet<Uuid>) -> DbResult<HashMap<Uuid, Option<UserState>>> {
     let mut out: HashMap<Uuid, Option<UserState>> = ids.iter().map(|id| (*id, None)).collect();
     if ids.is_empty() {

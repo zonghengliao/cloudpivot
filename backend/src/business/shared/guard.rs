@@ -414,13 +414,14 @@ mod tests {
         // + `biz_cost_object`（ARCH-9：成本对象按生产车间裁剪）
         // + `biz_cost_labor`（ARCH-9 D-18：工时台账按工作中心裁剪）
         // + `biz_employee`（ARCH-9 D-12：员工主档按人事归属部门 + 本人账号裁剪）
-        // + `biz_leave_request`（ARCH-9 §4.7.3：请假单按部门裁剪，员工自助走 `mine`）= 16 张
+        // + `biz_leave_request`（ARCH-9 §4.7.3：请假单按部门裁剪，员工自助走 `mine`）
+        // + `biz_attendance_record`（ARCH-9 §4.5：考勤台账按部门裁剪，HR-20/23 登记）= 17 张
         assert_eq!(
             SCOPED_TABLES.len(),
-            16,
+            17,
             "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs + SO-36 的佣金结算单 \
              + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账 + ARCH-9 D-12 的员工主档 \
-             + ARCH-9 §4.7.3 的请假单"
+             + ARCH-9 §4.7.3 的请假单 + ARCH-9 §4.5 的考勤台账"
         );
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_USER));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));

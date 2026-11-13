@@ -84,58 +84,22 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
 /// 因此**哪张卡一落地、源码里出现引用，这条就必须删**，否则 N18 变红。这一条是承重墙：
 /// 它把「临时例外」钉成自清理的，不会像注释那样悄悄留下来。
 const PENDING_LANDING: &[(&str, &str)] = &[
-    // ---- 员工档案（HR-12 handler / HR-13 敏感字段 / HR-15 合同）----
-    ("business:hr:employee:list", "HR-12 employee_handler 分页（§5.2 #1）"),
-    ("business:hr:employee:detail", "HR-12 详情（§5.2 #2）"),
-    ("business:hr:employee:create", "HR-12 新建（§5.2 #3/#9/#10）"),
-    ("business:hr:employee:update", "HR-12 编辑 + 状态流转（§5.2 #4/#6/#8）"),
-    ("business:hr:employee:delete", "HR-12 软删（§5.2 #5）"),
+    // ------------------------------------------------------------------
+    // 2026-11-13（HR-48 全量回归 / 批 5 收口）：HR 侧的 28 条已全部落地，
+    // 按「落地即删」纪律一次性清掉（N18 逐条点名）。
+    // 清掉的是：员工档 create/update/delete/sensitive/import/export、合同、
+    // 考勤 list/period/record/import/export/lock、请假 list/detail/create/update/
+    // submit/cancel、薪资 list/detail/calc/submit/post/reverse/export/my。
+    // 下面三条**仍**零源码引用（只有菜单行在场），故保留等对应卡落地。
+    // ------------------------------------------------------------------
+    ("business:hr:leave:delete", "HR-25 删草稿（列表页行操作）"),
+    ("business:hr:salary-item:delete", "HR-31 删除（is_system 保护）"),
+    // 离职入口仍未落地（唯一入口是 hr_employee_resign 审批回调，属批 3 的收尾）：
+    // 菜单行已在 V0387 种下，源码 0 引用 ⇒ 继续挂在台账里，等离职发起接口落地即删。
     (
         "business:hr:employee:resign",
         "HR-12 离职（发起 hr_employee_resign 流程）",
     ),
-    (
-        "business:hr:employee:sensitive",
-        "HR-13 明文 + audit_logs 留痕（§5.2 #7）",
-    ),
-    ("business:hr:employee:import", "HR-17 seed/import（§5.2 #11）"),
-    ("business:hr:employee:export", "HR-42 导出（§5.2 #12）"),
-    ("business:hr:contract:manage", "HR-15 合同台账 3 接口（§5.2 #13~#15）"),
-    // ---- 考勤（HR-19/20/21/23/30）----
-    ("business:hr:attendance:list", "HR-19 期间分页（§5.2 #18）"),
-    ("business:hr:attendance:period", "HR-19 建期间（§5.2 #19）"),
-    (
-        "business:hr:attendance:record",
-        "HR-20 台账分页 + 单行修正（§5.2 #21/#22）",
-    ),
-    (
-        "business:hr:attendance:import",
-        "HR-21 impexp hr.attendance（§5.2 #23）",
-    ),
-    ("business:hr:attendance:export", "HR-30 考勤导出（§5.2 #24）"),
-    ("business:hr:attendance:lock", "HR-23 锁定/解锁（§5.2 #20）"),
-    // ---- 请假（HR-25）----
-    ("business:hr:leave:list", "HR-25 列表（§5.2 #26）"),
-    ("business:hr:leave:detail", "HR-25 详情 + 审批轨迹（§5.2 #27）"),
-    ("business:hr:leave:create", "HR-25 建单（§5.2 #28）"),
-    ("business:hr:leave:update", "HR-25 改草稿（§5.2 #29）"),
-    ("business:hr:leave:delete", "HR-25 删草稿（列表页行操作）"),
-    ("business:hr:leave:submit", "HR-25 提交审批（§5.2 #30）"),
-    ("business:hr:leave:cancel", "HR-25 作废/销假（§5.2 #31）"),
-    // ---- 薪资项（HR-31）----
-    ("business:hr:salary-item:list", "HR-31 配置列表（§5.2 #32）"),
-    ("business:hr:salary-item:create", "HR-31 新建（§5.2 #33）"),
-    ("business:hr:salary-item:update", "HR-31 改 + validate（§5.2 #34/#35）"),
-    ("business:hr:salary-item:delete", "HR-31 删除（is_system 保护）"),
-    // ---- 薪资单（HR-36/39/40/41/42）----
-    ("business:hr:salary:list", "HR-36 列表（§5.2 #36）"),
-    ("business:hr:salary:detail", "HR-36 详情/明细（§5.2 #37/#38）"),
-    ("business:hr:salary:calc", "HR-34/36 试算与落库（§5.2 #39/#40/#41）"),
-    ("business:hr:salary:submit", "HR-36 提交审批（§5.2 #42）"),
-    ("business:hr:salary:post", "HR-39 过账出两张凭证（§5.2 #43）"),
-    ("business:hr:salary:reverse", "HR-40 红冲（§5.2 #44）"),
-    ("business:hr:salary:export", "HR-42 工资表导出（§5.2 #45）"),
-    ("business:hr:salary:my", "HR-41 自助我的薪资（§5.2 #46）"),
 ];
 
 /// 允许**没有** `#[nik::permission]` 注解的路由白名单：`"METHOD /path"` → 理由。
@@ -196,6 +160,12 @@ const NO_PERMISSION_ROUTES: &[(&str, &str)] = &[
     (
         "PATCH /business/task/{id}/ai-progress",
         "③ 只接受任务令牌：人类会话直接 403（63304），无跨任务入口",
+    ),
+    (
+        "GET /business/hr/health",
+        "① 排障探针：只回 HR 十张表的 to_regclass 布尔与人话 hint（无任何员工数据），\
+         登录即可访问 —— 正是「没配 HR 角色、要问迁移跑没跑」的人需要它（HR-09 设计决定，\
+         先例 GET /business/erp/cost-switch）",
     ),
 ];
 

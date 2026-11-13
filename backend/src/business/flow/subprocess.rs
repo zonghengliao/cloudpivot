@@ -526,6 +526,9 @@ struct DefRow {
     version_no: i32,
 }
 
+// SCOPE-EXEMPT: 子流程校验 —— 按主键读流程定义/版本，并按 parent_instance_id 逐级回溯实例链，
+// 目的是「这条子流程边指的定义还在不在 / 会不会成环」，不产出任何列表或详情行集。
+// biz_flow_* 是全局配置侧的表（可见范围由 business:flow:read 控制），口径同 business/flow/model.rs 文件头。
 async fn load_def(ex: &impl SqlExecutor, def_id: Uuid) -> DbResult<Option<DefRow>> {
     let rows = ex
         .query_sql(

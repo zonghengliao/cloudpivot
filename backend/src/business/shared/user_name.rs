@@ -77,6 +77,9 @@ pub const DELETED_USER_LABEL: &str = "(已删除用户)";
 /// 过滤器在 [`display_name`] 之后才生效：**先**把账号行读出来，**再**判断是否已删。
 /// 若在 SQL 里加 `deleted_at IS NULL`，「已删」与「行不存在」两种完全不同的情况
 /// 会合并成同一个空结果 —— 那样回填与写入就会各自编一个占位串（现在只有一个）。
+// SCOPE-EXEMPT: 姓名快照助手 —— 按主键（或调用方已持有的 id 集合）取姓名/登录名，供「审计/历史类」
+// 列落库（AGENTS.md 约定 13）。入参 id 已由调用方过完自己的数据权限，本模块不产出用户可见行集，
+// 也不提供任何列表/分页入口。
 pub async fn snapshot_name(user_id: Uuid) -> DbResult<String> {
     let rows = db()
         .find_with_params(

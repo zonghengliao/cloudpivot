@@ -207,6 +207,21 @@ pub const TABLE_WIRING: &[TableWiring] = &[
         anchor: "BIZ_EMPLOYEE",
         reason: "员工档案分页走 scope::paginate(BIZ_EMPLOYEE)，部门列 dept_id（business/hr/employee_model.rs::page）；单条入口（详情/改/删/状态/绑账号）走 scope::filter_for 探针，越权一律 404（business/hr/employee_handler.rs::ensure_visible）。归属列 user_id ⇒ SELF 范围只看到自己那份档案（员工是唯一有「本人」语义的主数据，设计 D-12）",
     },
+    // ---- business/hr（人力资源 ARCH-9 §4.7.3 / §4.5 · HR-24 / HR-20）----
+    TableWiring {
+        table: "biz_leave_request",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "BIZ_LEAVE_REQUEST",
+        reason: "请假单分页走 scope::paginate(BIZ_LEAVE_REQUEST)，部门列 dept_id（business/hr/leave_model.rs::page）；员工自助走 mine=true 的本人过滤，单条入口（详情/改/提交/作废）走同一份范围探针，越权 404（business/hr/leave_handler.rs）",
+    },
+    TableWiring {
+        table: "biz_attendance_record",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "BIZ_ATTENDANCE_RECORD",
+        reason: "考勤台账分页走 scope::paginate(BIZ_ATTENDANCE_RECORD)，部门列 dept_id（business/hr/attendance_record_model.rs，按人一行）；导出复用同一份筛选与数据范围（business/hr/attendance_export.rs）",
+    },
 ];
 
 /// 取某张表的登记项（未登记 → `None`）。
