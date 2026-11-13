@@ -30,5 +30,7 @@ git add AGENTS.md && git commit -m "docs(agents): HR-50 回写菜单/权限口�
 
 应用后请删除本目录下的 `AGENTS-hr50.diff` 与本节（补丁落地即无意义）。
 
-**基线来源**（可复核）：2026-11-13 在 145 上建空库 `hr50_drill`、用后端二进制首启回放
-335 条迁移后统计 `sys_menu` / `biz_salary_item` / `biz_flow_def` / `schema_migrations`。
+**基线来源**（可复核）：2026-11-13 在 145 上跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`
+（空库 `hr49_fresh_drill`，回放 **335 条** = 323 版本化 + 12 种子 到 V0403）后统计 `sys_menu` /
+`biz_salary_item` / `biz_flow_def` / `schema_migrations`；同一库上 `hr_invariants.sh` 8 条 BLOCKER
+零违规（WARN 1 条：演练造的员工没合同）、`menu_invariants.sh` 8 条断言全绿（菜单总数 501 ∈ 400–520）。

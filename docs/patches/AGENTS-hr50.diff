@@ -1,3 +1,5 @@
+diff --git a/AGENTS.md b/AGENTS.md
+index 2cfe0bf2..453751b1 100644
 --- a/AGENTS.md
 +++ b/AGENTS.md
 @@ -16,7 +16,9 @@
@@ -11,7 +13,7 @@
    middleware/ task/ utils/ shared/ bootstrap.rs
    lib.rs                    # 启动链 App::new()?...scan().start()
  frontend/src/
-@@ -41,6 +43,11 @@
+@@ -41,6 +43,11 @@ bash scripts/check.sh           # 提交前检查
  bash scripts/build.sh           # 构建 release + 前端 dist
  bash scripts/demo_seed.sh       # 一键灌演示数据（--clean 只删演示数据，--dry-run 只预演）
  docker compose -f docker/docker-compose.yml up -d   # PG + Redis
@@ -23,7 +25,7 @@
  ```
  
  ## 必须遵守的约定
-@@ -49,7 +56,7 @@
+@@ -49,7 +56,7 @@ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
  3. **依赖铁律**：`Cargo.toml` 只声明 `nik` 一个框架 crate（`nik-utils` 必要时可加）。**不出现** `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
  4. **feature 语义**：默认集是 `core`（非 `full`）。用数据库必须显式 `postgres`/`mysql`/`sqlite`（`db` 只表能力、不含驱动）。预设 `mini ⊂ lite ⊂ full`；常用 `lite`（= core+postgres+cache+plugin+fs-local）。点单 feature：`fs-local`/`fs-minio`、`xlsx`、`sse`、`metrics`、`template`、`xss`。
  5. **错误出口只有三个名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`。handler 内 `DbError/io::Error/nik_core::Error` 直接 `?`，**不要**写多余 `.map_err(ApiError::internal(...))`。
@@ -32,7 +34,7 @@
  7. **权限码** `{模块}:{资源}:{动作}`，与 `sys_menu.auth_code` 和 `#[nik::permission]` 声明一一对应；`SUPER_ADMIN` 短路全部校验。
  8. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册豁免前缀。
  9. **前端 API 路径必须写全 `/api/...`**（漏前缀会命中 SPA fallback 返回 HTML 导致"响应体格式不符合"）。
-@@ -65,7 +72,7 @@
+@@ -65,7 +72,7 @@ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
      - **禁止**把功能说明写进 `title`。反例：`即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）`（38 字，侧边栏直接换行）。
      - 功能说明放 `description` 列 / `docs/` / 前端 tooltip。
      - 同一父节点下 `sort_order` **必须唯一**（插菜单用 10 递增；插空用中间值如 15/25）。重复会导致侧边栏顺序每次刷新都变。
@@ -41,7 +43,7 @@
      - **提交前自查**（两条都应为 0 行）：
        ```sql
        SELECT path, name, title, length(title) FROM sys_menu
-@@ -82,6 +89,33 @@
+@@ -82,6 +89,33 @@ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
        例：客户 / 物料 / 部门 / 凭证 —— 主数据改名后，单据显示新名才是对的。
      - 反例（2026-11-08 发现）：附件表只存 `uploaded_by` 不存 `uploader_name` → 界面上直接显示 UUID。
      - **防 N+1**：批量 join，不能每行查一次；DTO 里凡是 `*_id` 都要同时返回 `*_name`。
@@ -63,11 +65,11 @@
 +10 张表 · 50 条路由（49 业务 + /health 探针）· 40 个权限码（5 页面 *:page + 35 按钮）
 +41 行菜单（1 目录 + 5 页面 + 35 按钮，目录 sort_order=77）· 17 个薪资项（7 条公式）
 +4 套审批流程（hr_leave / hr_salary / hr_salary_adjust / hr_employee_resign）· 错误码 68001~68012
-+迁移 V0383 ~ V0403（15 条版本化 + 1 条种子 S__hr_employee_grants）
++迁移 17 个文件（16 条版本化 V0383~V0403 + 1 条种子 S__hr_employee_grants）· 空库首启 335 条（323 版本化 + 12 种子）
 +```
 +
-+- **权限码 40 个**：`business:hr:{employee,contract,attendance,leave,salary,salary-item}:{page,list,create,update,delete,detail,sensitive,...}`，真源是迁移 `V0387` + `V0401`（页面码解耦）+ `V0400`/`V0403`（审批角色授权）。后端 `hr/handler.rs` 的 `ROUTE_CONTRACT` 是编译期契约表，新路由不登记会被单测判红。
-+- **角色**：`HR_MANAGER`（人事经理，`data_scope=3` 本部门及下级）拿全 35 个按钮码；`FINANCE_MANAGER` 只拿薪资 4 码 + 1 页面；`DEPT_LEADER` / `EMPLOYEE` 只拿页面 + 自助码（`EMPLOYEE` 一个 `*:list` 都没有）。授权必须**无孤儿**：授按钮必授父页，授页面必授祖先目录。
++- **权限码 40 个**：`business:hr:{employee,contract,attendance,leave,salary,salary-item}:{page,list,create,update,delete,detail,sensitive,...}`，真源是迁移 `V0387` + `V0401`（页面码解耦）+ `V0400`/`V0403`（审批角色授权）。后端 `hr/handler.rs` 的 `ROUTE_CONTRACT` 是编译期契约表（50 行「方法+路径」），新路由不登记会被单测判红。员工导入的**上传/预检/确认**走通用 impexp（`biz_type=hr.employee`），HR 侧只有模板下载 `GET /employee/import-template`。
++- **角色**（真库实测授权行数）：`HR_MANAGER` 拿全 35 个按钮码 + 5 页面；`FINANCE_MANAGER` 只拿薪资 4 码 + 1 页面；`DEPT_LEADER` 拿 2 页面 + 3 码（含 1 个 `:list`）；`EMPLOYEE` 只拿 2 页面 + 2 个自助码（一个 `:list` 都没有）。授权必须**无孤儿**：授按钮必授父页，授页面必授祖先目录。
 +- **错误码段 `68001~68012`**（`shared/error_code.rs` 的 68xxx HR 段）：加新码从 `68013` 续，禁跨段复用。
 +- **数据范围**：列表走 `scope::paginate`（`shared/scope.rs` 的 `SCOPED_TABLES` 登记 + `guard.rs` 条数断言）；单条入口同一份探针，不可见报 404（不是 403）。
 +- **门禁/验收**（改权限或动业务后）：`cargo test --lib system::menu::permission_audit_tests` + `bash scripts/verify/menu_invariants.sh <库>` + `bash scripts/verify/hr/hr_permission_matrix.sh --fresh` + `bash scripts/verify/hr_invariants.sh`；上线前跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`，业务链路跑 `bash scripts/verify/hr/hr_salary_e2e.sh --fresh`。
@@ -75,7 +77,7 @@
  
  ## 高频踩坑（先读）
  - 报表/接口不显示：先查前端 api 路径是否漏 `/api`。
-@@ -92,8 +126,9 @@
+@@ -92,8 +126,9 @@ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
  ## 详细文档（二开文档集，见 `docs/README.md` 总入口）
  - `docs/README.md` — 二开文档集总入口（结构 / 设计亮点 / 前后端二开 / 编码规范 / AI 指引）
  - `docs/项目结构与设计亮点.md` — 目录树、17 张表、NIK 设计亮点、部署模型
