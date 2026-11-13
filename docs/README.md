@@ -118,7 +118,7 @@ HR 是**第一个完整落地的业务模块**（10 张表 / 50 条路由 / 40 �
 | 看**全量回归**结果、41 条红按根因怎么分类 | [evidence/2026-11-13-hr48-full-regression/README.md](./evidence/2026-11-13-hr48-full-regression/README.md)（L0 静态 / L1 编译 / L2 连库三层逐项结果 + HR 夹具污染 vs 非 HR 存量的隔离反证） |
 | 看**权限矩阵 / 薪资 E2E / 数据巡检**的实测输出 | [evidence/2026-11-13-hr47-perm-matrix/README.md](./evidence/2026-11-13-hr47-perm-matrix/README.md) · [evidence/2026-11-13-hr46-salary-e2e/README.md](./evidence/2026-11-13-hr46-salary-e2e/README.md) · [evidence/2026-11-13-hr45-selfcheck-invariants/README.md](./evidence/2026-11-13-hr45-selfcheck-invariants/README.md)（每个目录结论表 + 原始 out） |
 | 核「文档里的数字」是不是真量出来的 | [evidence/2026-11-13-hr50-doc-verify/README.md](./evidence/2026-11-13-hr50-doc-verify/README.md)（空库 `hr50_docs_drill` 一条命令真跑：335 迁移 / 41 菜单 / 40 码逐项对拍，含 `run_accept.sh`） |
-| 把 HR 口径**回写进 `AGENTS.md`**（待人工动作） | [patches/README.md](./patches/README.md) —— `AGENTS-hr50.diff` 需人工 `git apply`：`AGENTS.md` 是受保护文件，无人值守的 Agent 拿不到批准 |
+| 把 HR 口径**回写进 `AGENTS.md`** | 主体已落地（`8e299227`：41 行菜单树 + 40 个权限码逐条表 + 6 处基线回写）；**只剩 2 处计数**待人工一条命令：`git apply docs/patches/AGENTS-hr50-count.diff`（`ROUTE_CONTRACT` 50→51，见 [patches/README.md](./patches/README.md) —— `AGENTS.md` 是受保护文件，无人值守的 Agent 拿不到批准） |
 
 > 更早的单卡工程证据按卡一目录放在 `docs/evidence/2026-11-1x-hr<n>-*`（每目录一份 `README.md` 结论表 + 原始输出）；
 > 上面表里只挂了「上线前要复核的那几份」。
@@ -126,7 +126,7 @@ HR 是**第一个完整落地的业务模块**（10 张表 / 50 条路由 / 40 �
 **实测基数**（2026-11-13 空库首启 335 条迁移后统计，可复核：`hr_invariants.sh` 同库同口径）：
 
 ```
-表 10 张 · 路由 50 条（49 业务 + /health 探针）· 权限码 40 个（5 页面 *:page + 35 按钮）
+表 10 张 · 路由 50 条（49 业务 + /health 探针）· 契约 51 行（含 2 行未实现）· 权限码 40 个（5 页面 *:page + 35 按钮）
 菜单 41 行（1 目录 + 5 页面 + 35 按钮）· 薪资项 17 个（7 条公式）· 审批流程 4 套 · 错误码 68001~68012
 迁移 17 个文件（16 条版本化 V0383~V0403 + 1 条种子 S__hr_employee_grants）· 空库首启 335 条（323 版本化 + 12 种子）
 ```
