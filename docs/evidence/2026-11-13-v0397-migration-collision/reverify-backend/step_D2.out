@@ -1,0 +1,11 @@
+=== D2) 门禁：注入 business/V0399 重复号
+✗ 迁移文件名判据未通过（2 条）：
+    [A] 版本号 399 重复（2 个 down 迁移，nik 要求跨来源目录全局唯一）：
+        - business/V0399__dup_probe.down.sql
+        - system/V0399__preference_palette_ids_gallery77.down.sql
+      修法：给其中「未上生产」的那条改号 —— 取全局最大 V0399 + 1；已应用过的迁移文件不许改名/改内容（指纹校验会红）
+    [A] 版本号 399 重复（2 个 up 迁移，nik 要求跨来源目录全局唯一）：
+        - business/V0399__dup_probe.up.sql
+        - system/V0399__preference_palette_ids_gallery77.up.sql
+      修法：给其中「未上生产」的那条改号 —— 取全局最大 V0399 + 1；已应用过的迁移文件不许改名/改内容（指纹校验会红）
+rc=1（期望非 0）

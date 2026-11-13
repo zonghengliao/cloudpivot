@@ -305,7 +305,15 @@ impl ScopeTarget {
 
     /// `biz_leave_request`（请假单，ARCH-9-2 设计 §4.7.3）：`dept_col = dept_id`、`owner_col = NULL`。
     ///
-    /// 别名取 `l`（`leave_model::ROW_SQL` 用 `FROM biz_leave_request l`），两处必须一致。
+    /// # 为什么归属列是 `NULL`
+    ///
+    /// 请假单没有「仅本人」语义：员工看自己的假走 `/leave/my`（handler 用令牌里的 `user_id`
+    /// 换 `employee_id`，见 `hr::leave_model::list_query` 的 `mine` 分支），而列表页是
+    /// **审批人 / HR** 用的，按部门裁才对。给一个假的归属列会让 `SELF` 范围的普通员工在本表上
+    /// 「看得见自己的假、看不见同部门待他审批的假」，而审批列表正是要用它。
+    ///
+    /// 别名取 `l`（`leave_model::ROW_SQL` 用 `FROM biz_leave_request l`），两处**必须**一致，
+    /// 否则片段会拼出 `l.dept_id` 之外的别名、直接报列不存在。
     pub const BIZ_LEAVE_REQUEST: Self = Self::new("biz_leave_request", "l", Some("dept_id"), None);
 
     /// `biz_attendance_record`（考勤记录，ARCH-9-2 设计 §4.7 的登记表清单）：
@@ -352,6 +360,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::BIZ_COST_LABOR,
     ScopeTarget::BIZ_EMPLOYEE,
     ScopeTarget::BIZ_LEAVE_REQUEST,
+    ScopeTarget::BIZ_ATTENDANCE_RECORD,
 ];
 
 // ==================== 片段 ====================

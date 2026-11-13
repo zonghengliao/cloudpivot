@@ -1,0 +1,5 @@
+=== C1) 已应用旧号库基线 db=cp_mig_devcopy（145 cloudpivot_dev 的 dump 副本）
+schema_migrations 行数=333
+palette 记录=versioned:preference_palette_ids_gallery77@397（旧号 397 + 旧指纹 = 改名前已应用的真实形态）
+ui.palette 白名单 id 数=99
+迁移上限（磁盘）= 399

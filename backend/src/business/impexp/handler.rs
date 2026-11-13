@@ -232,23 +232,138 @@ pub async fn import_upload(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     multipart: Multipart,
 ) -> ResResult<UploadRes> {
+    let outcome = import_upload_for(
+        &query.biz_type,
+        query.mode.as_deref(),
+        query.duplicate.as_deref(),
+        multipart,
+        &claims,
+    )
+    .await?;
+    Ok(Res::ok(outcome))
+}
+
+/// 上传参数的解析（业务编码 → 定义 + 模式 + 重复策略）。
+///
+/// 从 [`import_upload`] 里抽出来的唯一理由：**薄封装路由必须和通用路由用同一套校验**。
+/// 业务模块（如 `POST /business/hr/attendance/import`）只把 `biz_type` 固定住，
+/// 其余一律走这里 —— 于是「mode 写错 400」「定义没注册 60011」「定义不许部分导入」这些
+/// 判定只有一份实现。
+///
+/// # 参数
+///
+/// - `biz_type`：业务编码（调用方可固定成常量）；
+/// - `mode`：`STRICT`（默认）/ `PARTIAL`；
+/// - `duplicate`：`UPSERT`（默认）/ `SKIP`。
+///
+/// # 返回值
+///
+/// `(定义, 模式, 重复策略)`。
+///
+/// # 异常情况
+///
+/// - 404 + `60011`：定义未注册；
+/// - 400 + `10001`：`mode` / `duplicate` 取值非法；
+/// - 422 + `10001`：定义不支持 `PARTIAL` 却传了 `PARTIAL`。
+pub(crate) fn resolve_upload_target(
+    biz_type: &str,
+    mode: Option<&str>,
+    duplicate: Option<&str>,
+) -> std::result::Result<(std::sync::Arc<dyn ImportDefinition>, ImportMode, DuplicateStrategy), ApiError> {
     let definition = global_registry()
-        .import_definition(query.biz_type.trim())
-        .ok_or_else(|| def_not_found(&query.biz_type))?;
-    let mode = ImportMode::parse(query.mode.as_deref().unwrap_or(""))
+        .import_definition(biz_type.trim())
+        .ok_or_else(|| def_not_found(biz_type))?;
+    let mode = ImportMode::parse(mode.unwrap_or(""))
         .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "mode 只能是 STRICT 或 PARTIAL"))?;
     let mode = ensure_mode_allowed(definition.allow_partial(), mode)?;
-    let duplicate = DuplicateStrategy::parse(query.duplicate.as_deref().unwrap_or(""))
+    let duplicate = DuplicateStrategy::parse(duplicate.unwrap_or(""))
         .ok_or_else(|| ApiError::new(400, error_code::PARAM_INVALID, "duplicate 只能是 UPSERT 或 SKIP"))?;
+    Ok((definition, mode, duplicate))
+}
 
+/// 业务模块的**薄封装入口**：解析参数 + 读 multipart + 走同一条上传内核。
+///
+/// 这是 `POST /business/hr/attendance/import`（设计 §5.2 #23）唯一的实现路径，也是
+/// 通用 `POST /business/impexp/import/upload` 的实现路径 —— **两边调的是同一个函数**。
+/// 卡面红线：不许在业务侧复制解析 / 预检 / 入库 SQL，否则 `validate_batch`（无薪假 ≤ 已批）
+/// 与 `persist` 里的期间头重算迟早有一边漏掉。
+///
+/// # 参数
+///
+/// - `biz_type`：业务编码（业务路由固定成自己的常量，不接受客户端覆盖）；
+/// - `mode` / `duplicate`：见 [`resolve_upload_target`]；
+/// - `multipart`：multipart 表单，字段名固定 `file`；
+/// - `claims`：当前用户（任务归属 + 审计）。
+///
+/// # 返回值
+///
+/// 与通用上传**同构**的回执（`task_id` / `task_no` / `status` / `report`）。
+///
+/// # 异常情况
+///
+/// 与通用上传完全一致（400/422/413/404/500），因为就是同一条路径。
+pub(crate) async fn import_upload_for(
+    biz_type: &str,
+    mode: Option<&str>,
+    duplicate: Option<&str>,
+    multipart: Multipart,
+    claims: &TokenClaims,
+) -> std::result::Result<UploadRes, ApiError> {
+    let (definition, mode, duplicate) = resolve_upload_target(biz_type, mode, duplicate)?;
     let (file_name, bytes) = read_upload_file(multipart).await?;
-    let max_bytes = (cfg().upload.max_size_mb as usize).saturating_mul(1024 * 1024);
-    if bytes.len() > max_bytes {
-        return Err(ApiError::new(
-            413,
-            error_code::STORAGE_SIZE_EXCEEDED,
-            format!("文件超过上传上限 {} MB", cfg().upload.max_size_mb),
-        ));
+    import_upload_core(
+        definition,
+        mode,
+        duplicate,
+        file_name,
+        bytes,
+        utils::current_user_uuid(claims),
+    )
+    .await
+}
+
+/// 上传入口的**内核**：大小闸 → 落盘 → 建任务行 → 同步预检。
+///
+/// 上移到独立函数的理由同上：通用路由与业务薄封装必须共用（含 `sys_import_task` 的
+/// `options.duplicate_strategy` 快照 —— 确认入库时只凭 `task_id` 读回来）。
+///
+/// # 参数
+///
+/// - `definition`：已解析的导入定义；
+/// - `mode` / `duplicate`：已校验的选项；
+/// - `file_name` / `bytes`：客户端原始文件名与文件内容；
+/// - `operator`：操作人（任务 `create_by`）。
+///
+/// # 返回值
+///
+/// 任务 ID + 完整预检报告。
+///
+/// # 异常情况
+///
+/// - 413 + `70006`：超过上传大小上限；
+/// - 500：落盘 / 写任务行 / 写错误明细失败；
+/// - 422 等：预检的结构性错误原样透传（任务同时被置 `FAILED` 留痕）。
+async fn import_upload_core(
+    definition: std::sync::Arc<dyn ImportDefinition>,
+    mode: ImportMode,
+    duplicate: DuplicateStrategy,
+    file_name: String,
+    bytes: Vec<u8>,
+    operator: Option<uuid::Uuid>,
+) -> std::result::Result<UploadRes, ApiError> {
+    // 上传大小闸。**配置未初始化时跳过**：这只可能出现在单测进程里（生产由
+    // `App::init_global_resources` 先 `set_config` 再挂路由），若这里硬 `cfg()`，
+    // 「用真实 handler 路径跑的真库用例」会在 `cfg()` 上 panic 而根本没验到导入链路。
+    // 生产行为不变：配置一定在，闸一定生效。
+    if let Some(config) = nik::try_config() {
+        let max_bytes = (config.get().upload.max_size_mb as usize).saturating_mul(1024 * 1024);
+        if bytes.len() > max_bytes {
+            return Err(ApiError::new(
+                413,
+                error_code::STORAGE_SIZE_EXCEEDED,
+                format!("文件超过上传上限 {} MB", config.get().upload.max_size_mb),
+            ));
+        }
     }
 
     let task_id = uuid::Uuid::now_v7();
@@ -269,20 +384,20 @@ pub async fn import_upload(
         file_name: &file_name,
         file_size: bytes.len() as i64,
         mode: mode.as_str(),
-        operator: utils::current_user_uuid(&claims),
+        operator,
         options: Some(&options),
     })
     .await
     .map_err(|error| utils::db_error(error, "创建导入任务"))?;
 
-    let outcome = run_precheck(&definition, task_id, &bytes, utils::current_user_uuid(&claims), mode).await?;
+    let outcome = run_precheck(&definition, task_id, &bytes, operator, mode).await?;
 
-    Ok(Res::ok(UploadRes {
+    Ok(UploadRes {
         task_id: task_id.to_string(),
         task_no,
         status: "VALIDATED".to_string(),
         report: outcome,
-    }))
+    })
 }
 
 /// 跑一次预检并把结果落库（上传与「重试」共用）。
@@ -1891,5 +2006,88 @@ mod tests {
             .expect("物料必须有基本单位列");
         assert_eq!(unit.fk_label, Some("计量单位"));
         assert!(!unit.rule_text.is_empty());
+    }
+
+    // ==================== 共享内核（考勤导入的薄封装靠它） ====================
+
+    /// 本文件源码（静态检查「只有一份上传实现」）。
+    const SOURCE: &str = include_str!("handler.rs");
+
+    /// 上传链路只许有**一套**实现：内核 / 薄封装入口 / 参数解析各一处，通用路由转发到入口。
+    ///
+    /// 这是「两份实现」的机械拦阻：谁要是为了加一条业务路由而复制一份上传流程，
+    /// 这几个函数的定义就会从 1 变成 2，本用例直接红。
+    /// （`import_retry` 另建一行任务的是**同一条**内核 + `run_precheck`，故不在此计数。）
+    #[test]
+    fn there_is_exactly_one_upload_implementation() {
+        // 只扫生产代码（测试自身的断言字符串不该被自己命中）
+        let production = SOURCE.split("#[cfg(test)]").next().unwrap_or_default();
+        assert_eq!(
+            production.matches("async fn import_upload_core(").count(),
+            1,
+            "上传内核只许有一处"
+        );
+        assert_eq!(
+            production.matches("async fn import_upload_for(").count(),
+            1,
+            "业务薄封装入口只许有一处"
+        );
+        assert_eq!(
+            production.matches("fn resolve_upload_target(").count(),
+            1,
+            "参数解析只许有一处（两份就会有两套默认值 / 两种拒绝面）"
+        );
+
+        // 通用路由的函数体确实转发到 import_upload_for（而不是自己再写一遍）
+        let generic = production
+            .split("pub async fn import_upload(")
+            .nth(1)
+            .and_then(|tail| tail.split("pub(crate) fn resolve_upload_target").next())
+            .expect("找得到 import_upload 的函数体");
+        assert!(
+            generic.contains("import_upload_for("),
+            "通用上传必须委托 import_upload_for（共享内核）"
+        );
+        // 通用路由自己不碰 multipart 之外的东西：既不再解析参数，也不自己落盘建任务
+        assert!(!generic.contains("import_definition("), "参数解析必须在内核里");
+        assert!(!generic.contains("insert_import_task"), "建任务行必须在内核里");
+    }
+
+    /// 上传参数解析的默认值与拒绝面（业务路由复用同一份，所以在这里钉住）。
+    #[test]
+    fn resolve_upload_target_defaults_and_rejections() {
+        use crate::business::impexp::builtin::hr::ATTENDANCE_BIZ_TYPE;
+
+        // 省略 mode / duplicate → STRICT + UPSERT
+        let (definition, mode, duplicate) =
+            resolve_upload_target(ATTENDANCE_BIZ_TYPE, None, None).expect("hr.attendance 已注册");
+        assert_eq!(definition.biz_type(), ATTENDANCE_BIZ_TYPE);
+        assert_eq!(mode, ImportMode::Strict);
+        assert_eq!(duplicate, DuplicateStrategy::Upsert);
+
+        // 显式值原样生效（大小写不敏感）
+        let (_, mode, duplicate) =
+            resolve_upload_target(ATTENDANCE_BIZ_TYPE, Some("partial"), Some("skip")).expect("合法取值");
+        assert_eq!(mode, ImportMode::Partial);
+        assert_eq!(duplicate, DuplicateStrategy::Skip);
+
+        // 非法 mode / duplicate → 400 + 10001（不是 500，也不是静默取默认）
+        let error = resolve_upload_target(ATTENDANCE_BIZ_TYPE, Some("ALL"), None)
+            .map(|_| ())
+            .expect_err("非法 mode");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        let error = resolve_upload_target(ATTENDANCE_BIZ_TYPE, None, Some("REPLACE"))
+            .map(|_| ())
+            .expect_err("非法 duplicate");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+
+        // 未注册的业务编码 → 404 + 60011
+        let error = resolve_upload_target("hr.nope", None, None)
+            .map(|_| ())
+            .expect_err("未注册");
+        assert_eq!(error.status, 404);
+        assert_eq!(error.code, error_code::IMPORT_DEF_NOT_FOUND);
     }
 }

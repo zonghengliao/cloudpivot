@@ -1,0 +1,26 @@
+=== A) 空库首启 · 仓库树 /opt/cloudpivot/backend/migrations（HEAD=12d20c7d）
+business/V0390__cost_menu_group.up.sql
+business/V0391__flow_cost_settle_is_system.up.sql
+business/V0392__attendance_lock_guard.up.sql
+business/V0393__hr_leave_flow.up.sql
+business/V0394__hr_salary_flow.up.sql
+business/V0395__hr_adjust_resign_flow.up.sql
+business/V0396__hr_salary_items_seed.up.sql
+business/V0397__hr_salary_period_after_reverse.up.sql
+business/V0398__hr_selfcheck.up.sql
+system/V0399__preference_palette_ids_gallery77.up.sql
+库 cp_mig_b4cc_neg 现有 schema：public
+库 cp_mig_b4cc_neg 有 schema_migrations 吗：f
+STARTED pid=682479 db=cp_mig_b4cc_neg port=18073 health=200 after 6s
+start_inst rc=0
+迁移结论：数据库迁移完成: 应用 330 个迁移
+schema_migrations 行数=330
+palette 记录=versioned:preference_palette_ids_gallery77@399
+ui.palette 白名单 id 数=99（期望 99）
+最后 4 条（applied_seq 倒序）：
+330 seed workflow_permissions @-
+329 seed voucher_three_state_permissions @-
+328 seed task_project_permissions @-
+327 seed task_permissions @-
+真实失败行数（行首 ERROR nik_web::app: 数据库迁移失败 / 行首 FATAL: 服务启动失败 / duplicate up migration for version）：0
+STOPPED port=18073 pid=682479

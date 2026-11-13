@@ -1,0 +1,31 @@
+Pager usage is off.
+         section          
+--------------------------
+ --- 397/398/399 记录 ---
+(1 row)
+
+ kind | name | version | success | checksum 
+------+------+---------+---------+----------
+(0 rows)
+
+   section    
+--------------
+ --- 汇总 ---
+(1 row)
+
+ rows_total | versioned_rows | max_applied_version | palette_name_rows 
+------------+----------------+---------------------+-------------------
+        321 |            310 |                 391 |                 0
+(1 row)
+
+            section             
+--------------------------------
+ --- 磁盘迁移上限（部署树） ---
+(1 row)
+
+--- 部署树 ---
+6807bb5e
+391
+    PID     ELAPSED CMD
+   1655    15:39:56 /opt/cloudpivot/backend/target/release/cloudpivot
+active

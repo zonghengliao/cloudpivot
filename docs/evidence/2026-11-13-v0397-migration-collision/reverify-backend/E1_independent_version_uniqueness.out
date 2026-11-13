@@ -1,0 +1,11 @@
+files=638 versions=319 max=V0399
+duplicate-version-with-two-up (FATAL形态) = {}
+versions with extra files (>2)          = {}
+up-name reused across versions          = {}
+unpaired up/down                        = []
+bad file names                          = []
+V0397 -> ['backend/migrations/business/V0397__hr_salary_period_after_reverse.down.sql', 'backend/migrations/business/V0397__hr_salary_period_after_reverse.up.sql']
+V0398 -> ['backend/migrations/business/V0398__hr_selfcheck.down.sql', 'backend/migrations/business/V0398__hr_selfcheck.up.sql']
+V0399 -> ['backend/migrations/system/V0399__preference_palette_ids_gallery77.down.sql', 'backend/migrations/system/V0399__preference_palette_ids_gallery77.up.sql']
+RESULT: PASS
+rc=0

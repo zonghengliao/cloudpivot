@@ -1,0 +1,14 @@
+=== C2) 已应用旧号的库 + 仓库树（V0399）启动 —— 这是 145 上 cloudpivot_dev 的真实形态
+启动前 palette 记录=versioned:preference_palette_ids_gallery77@397
+启动前 ui.palette 白名单 id 数=99
+启动前行数=333
+STARTED pid=680652 db=cp_mig_devcopy port=18074 health=200 after 4s
+start_inst rc=0
+迁移结论：数据库迁移完成: 应用 0 个迁移（期望应用 2 个：business V0397/V0398）
+FATAL 行数=0
+checksum 相关行：
+[2m2026-11-12T19:58:50.940980Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s1: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+启动后 palette 记录=versioned:preference_palette_ids_gallery77@397（应仍 397 且只有 1 条）
+启动后行数=333
+启动后白名单 id 数=99（=3 说明没重跑；=99 说明幂等补跑）
+STOPPED port=18074 pid=680652

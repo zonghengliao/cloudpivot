@@ -62,8 +62,8 @@ pub struct RouteSpec {
     pub card: &'static str,
 }
 
-/// 设计 §5.2 的 46 条接口契约 + HR-19 按卡面补的 3 条 = **49 条**（顺序与设计文档编号 1~46 一致，
-/// 补的 3 条紧跟在考勤 #20 之后）。
+/// 设计 §5.2 的 46 条接口契约 + HR-19 按卡面补的 3 条 + HR-41 补的 `/leave/my` = **50 条**
+/// （顺序与设计文档编号 1~46 一致，补的行紧跟在所属分组末尾）。
 ///
 /// # HR-19 为什么给契约表加了 3 条
 ///
@@ -78,12 +78,14 @@ pub struct RouteSpec {
 /// - §5.2 表头写「API 清单（**42 条**）」，但正文编号到 **46**、脚注也写「合计 46 条」；
 ///   卡面转述的「42 条」沿用了表头 → **实际 46 条**，加 HR-19 补的 3 条 = 49；
 /// - §5.2 脚注写「其中 **4 处**是 `/my` 自助接口」，表里只列出 **2** 个
-///   （`/attendance/my`、`/salary/my`）；第 3 个 `/leave/my` 在 HR-41 落地，第 4 个
-///   §5.2 未列 —— 届时补行并同步本条断言；
+///   （`/attendance/my`、`/salary/my`）；第 3 个 `/leave/my` 由 **HR-41** 补进本表
+///   （`permission: None` = 登录即可，设计 §4.7.3 末列「员工自助走 `/leave/my`」）；
+///   第 4 处在 §5.2 与 §6.1 里表述为 `GET /employee/{my_employee_id}`（「我的档案」），
+///   至今没有排卡 —— 属卡清单漏项，本卡只登记已有的三条自助接口；
 /// - `card = "TBD"` 的两行（员工导入 / 导出）在 §8.1 的批 2 里**没有排卡**，
 ///   但权限码 `business:hr:employee:import/export` 已在 `V0387` 种下 → 属卡清单漏项，
 ///   本卡只登记不实现。
-pub const ROUTE_CONTRACT: [RouteSpec; 49] = [
+pub const ROUTE_CONTRACT: [RouteSpec; 50] = [
     // ---- 员工档案（#1~#12） ----
     RouteSpec {
         method: "GET",
@@ -243,11 +245,13 @@ pub const ROUTE_CONTRACT: [RouteSpec; 49] = [
         permission: Some("business:hr:attendance:record"),
         card: "HR-20",
     },
+    // #23 导入：定义由 HR-21 交（`builtin/hr.rs`），**路由**由 HR-34 交
+    // （`attendance_import_handler.rs` 薄封装委托 impexp，不复制导入逻辑）
     RouteSpec {
         method: "POST",
         path: "/business/hr/attendance/import",
         permission: Some("business:hr:attendance:import"),
-        card: "HR-21",
+        card: "HR-34",
     },
     RouteSpec {
         method: "GET",
@@ -297,6 +301,12 @@ pub const ROUTE_CONTRACT: [RouteSpec; 49] = [
         path: "/business/hr/leave/{id}/cancel",
         permission: Some("business:hr:leave:cancel"),
         card: "HR-25",
+    },
+    RouteSpec {
+        method: "GET",
+        path: "/business/hr/leave/my",
+        permission: None,
+        card: "HR-41",
     },
     // ---- 薪资项（#32~#35） ----
     RouteSpec {
@@ -462,7 +472,8 @@ mod tests {
     /// 菜单 / 权限种子原文（编译期嵌入）：契约表的权限码必须全在种子里。
     const V0387_SEED: &str = include_str!("../../../migrations/business/V0387__hr_menu_perms.up.sql");
 
-    /// 设计 §5.2 定稿 46 条 + HR-19 补的 3 条 = 49；路径前缀统一、方法合法、`(方法, 路径)` 唯一。
+    /// 设计 §5.2 定稿 46 条 + HR-19 补的 3 条 + HR-41 补的 `/leave/my` = 50；路径前缀统一、
+    /// 方法合法、`(方法, 路径)` 唯一。
     ///
     /// 唯一性是真会踩的坑：`GET /salary/{id}` 与 `GET /salary/my` 这种「静态段 vs 参数段」
     /// 兄弟路径在 axum（matchit）里是合法的（静态优先），但**两条一模一样的**声明会让
@@ -471,8 +482,8 @@ mod tests {
     fn contract_routes_are_unique_and_shaped() {
         assert_eq!(
             ROUTE_CONTRACT.len(),
-            49,
-            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算，理由见 ROUTE_CONTRACT 文档）"
+            50,
+            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算）+ HR-41 补的 /leave/my"
         );
 
         let mut seen = std::collections::HashSet::new();

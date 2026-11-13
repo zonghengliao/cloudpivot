@@ -1,0 +1,6 @@
+# HR-41 演练专用 profile（**不入库**：跑完即删）。
+# 145 的 PG 只监听 127.0.0.1，99 侧通过 ssh -L 15432:127.0.0.1:5432 隧道连进去；
+# `NIK_DATABASE_PORT` 不在 nik-config 的环境变量映射表里（只有 host/name/user/password），
+# 所以端口只能靠 profile 文件覆盖。
+[database]
+port = 15432

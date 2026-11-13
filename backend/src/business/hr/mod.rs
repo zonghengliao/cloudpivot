@@ -109,6 +109,14 @@ pub mod attendance_export;
 /// 锁定 / 未锁定的 `锁定状态` 列、部门范围不越权。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod attendance_export_db_tests;
+/// 考勤导入路由的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：走新路由上传 → 确认入库后期间头
+/// `employee_count=2 / should_days_total=44.00`（无任何 recalc）/ 锁定期间 422 + Excel 行号 /
+/// 选项快照随任务走 / 缺考勤月点名行号。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod attendance_import_db_tests;
+/// 考勤导入入口（设计 §5.2 #23 · `POST /business/hr/attendance/import`）：**薄封装**，
+/// 把 `biz_type` 固定成 `hr.attendance` 后原样委托 impexp 的同一条上传路径（看板卡 t_df5d6d1c）。
+pub mod attendance_import_handler;
 /// 考勤「**锁定后写保护**」的唯一守卫面（状态判定 / 锁期间行 / 库层 `CP001` 翻译），HR-23。
 ///
 /// 三层同一条规则：接口层权限码 `business:hr:attendance:lock`、handler 层 [`attendance_lock::lock_for_write`]、
@@ -157,14 +165,14 @@ pub mod employee_dto;
 mod employee_dto_db_tests;
 /// 员工主档接口层（`biz_employee`）：设计 §5.2 #1~#6 + #8 绑账号（HR-12）。
 pub mod employee_handler;
-/// 员工档案导入模板下载（`GET /business/hr/employee/import-template`，卡 `t_b0808afe`）：
-/// 挂在 `business:hr:employee:import` 上，模板内容由 impexp 的 `hr.employee` 定义生成
-/// （与导入解析同一份列定义，不会错位）。
-pub mod employee_import_handler;
 /// HR-12 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：6 个接口的完整链路 +
 /// **部门 / 本人两种数据范围**的可见性边界。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_handler_db_tests;
+/// 员工档案导入模板下载（`GET /business/hr/employee/import-template`，卡 `t_b0808afe`）：
+/// 挂在 `business:hr:employee:import` 上，模板内容由 impexp 的 `hr.employee` 定义生成
+/// （与导入解析同一份列定义，不会错位）。
+pub mod employee_import_handler;
 /// 员工主档数据层（`biz_employee`）：CRUD + 三个唯一键的冲突翻译（HR-10）。
 pub mod employee_model;
 /// HR-10 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：CRUD 全通 + 三条冲突的真实报文。只在 `cargo test` 时编译。
@@ -293,3 +301,13 @@ pub mod salary_sheet_model;
 
 /// 薪资**变量解析 + 依赖拓扑**：项引用 / `ATT_*` 白名单 → 计算计划（HR-33）。
 pub mod salary_vars;
+/// 员工自助三接口的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：只返回本人数据 /
+/// 没绑员工档回空不是 403 / 在途薪资单默认不可见。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod self_service_db_tests;
+/// 员工自助三接口的入参 / 回执契约（`/attendance/my` · `/leave/my` · `/salary/my`，HR-41）。
+pub mod self_service_dto;
+/// 员工自助三接口的接口层（登录即可 / `salary:my` 码），HR-41。
+pub mod self_service_handler;
+/// 员工自助三接口的数据层：按 `employee_id` 裁的三条查询 + 明细项批量读（HR-41）。
+pub mod self_service_model;

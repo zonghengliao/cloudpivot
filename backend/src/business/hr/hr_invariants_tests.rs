@@ -237,16 +237,29 @@ fn selfcheck_migration_is_pure_readonly_do_block() {
 }
 
 #[test]
-fn selfcheck_migration_has_a_down_and_a_unique_version() {
+fn selfcheck_migration_has_a_down() {
     let down = read_repo(SELFCHECK_DOWN);
     assert!(
         down.contains("DO $$"),
         "down 必须是一个可执行的 DO 块（迁移器要读得到它），不能是空文件"
     );
+}
 
-    // 版本号跨目录全局唯一（nik 的加载器对重号直接启动失败）：扫一遍所有迁移目录，
-    // V0398 只许有 up/down 这一对。
-    let mut found: Vec<String> = Vec::new();
+/// 版本号**全局唯一**（`system` / `support` / `business` 三个目录合成一张槽位表）。
+///
+/// 为什么必须真扫全量，而不是只看某一个前缀：2026-11-13 的事故里
+/// `system/V0397__preference_palette_ids_gallery77` 与
+/// `business/V0397__hr_salary_period_after_reverse` 抢了同一个号，而本文件原来的实现
+/// 只扫 `V0398__` 这一个前缀，名字承诺「跨目录全局唯一」却对别号的重复完全无感 ——
+/// 于是 main 上带着一个「启动即 FATAL」的迁移活了半天（AGENTS.md 约定 6）。
+///
+/// 静态门禁 `scripts/lint/migration_version_unique.py`（L0）是同一判据的权威入口；
+/// 这里保留一份 Rust 侧断言，是因为改迁移目录的人是后端，`cargo test --lib` 比等 CI 更近。
+#[test]
+fn every_migration_version_is_globally_unique() {
+    let mut by_version: std::collections::BTreeMap<(char, u32, &'static str), Vec<String>> =
+        std::collections::BTreeMap::new();
+
     let mroot = repo_root().join("backend/migrations");
     let mut stack = vec![mroot];
     while let Some(dir) = stack.pop() {
@@ -259,19 +272,59 @@ fn selfcheck_migration_has_a_down_and_a_unique_version() {
                 stack.push(path);
                 continue;
             }
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.starts_with("V0398__") {
-                found.push(name);
-            }
+            let file = entry.file_name().to_string_lossy().to_string();
+            let (stem, direction) = if let Some(stem) = file.strip_suffix(".up.sql") {
+                (stem, "up")
+            } else if let Some(stem) = file.strip_suffix(".down.sql") {
+                (stem, "down")
+            } else {
+                continue;
+            };
+            // `V0399__preference_palette_ids_gallery77`
+            let Some(rest) = stem.strip_prefix('V') else {
+                continue;
+            };
+            let Some((digits, name)) = rest.split_once("__") else {
+                continue;
+            };
+            let Ok(version) = digits.parse::<u32>() else {
+                continue;
+            };
+            assert_eq!(
+                digits.len(),
+                4,
+                "{file}：版本号必须 4 位补零（`V{version:04}`），混位数会让真库回放脚本 sort -n 排错序"
+            );
+            by_version
+                .entry(('V', version, direction))
+                .or_default()
+                .push(format!("{file}（{name}）"));
         }
     }
-    found.sort();
-    assert_eq!(
-        found,
-        vec![
-            "V0398__hr_selfcheck.down.sql".to_string(),
-            "V0398__hr_selfcheck.up.sql".to_string(),
-        ],
-        "V0398 必须恰好是 hr_selfcheck 的 up/down 一对（重号会让服务启动直接失败）"
+
+    let duplicated: Vec<String> = by_version
+        .iter()
+        .filter(|(_, files)| files.len() > 1)
+        .map(|((_p, version, direction), files)| {
+            format!(
+                "V{version:04} 有 {} 个 {direction} 迁移：{}",
+                files.len(),
+                files.join(" / ")
+            )
+        })
+        .collect();
+    assert!(
+        duplicated.is_empty(),
+        "迁移版本号必须跨 system/support/business 全局唯一 —— nik 加载器对重号直接启动失败：\n  {}",
+        duplicated.join("\n  ")
+    );
+
+    // HR 自检那条仍要成对（它的 down 是显式空回滚，不能丢）。
+    let has_selfcheck_up = by_version
+        .get(&('V', 398, "up"))
+        .is_some_and(|files| files.iter().any(|f| f.starts_with("V0398__hr_selfcheck")));
+    assert!(
+        has_selfcheck_up,
+        "V0398__hr_selfcheck 的 up 迁移不见了（HR 种子收口自检被删？）"
     );
 }

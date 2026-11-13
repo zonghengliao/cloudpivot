@@ -1,0 +1,7 @@
+=== B) 二次启动（库已迁满）db=cp_mig_b4cc_neg
+启动前行数=330
+STARTED pid=681820 db=cp_mig_b4cc_neg port=18073 health=200 after 4s
+start_inst rc=0
+迁移结论：数据库迁移完成: 应用 0 个迁移
+启动后行数=330（应不变）
+STOPPED port=18073 pid=681820

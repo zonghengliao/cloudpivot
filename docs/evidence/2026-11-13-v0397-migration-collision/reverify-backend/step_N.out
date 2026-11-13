@@ -1,0 +1,10 @@
+=== N) 负向对照：复原撞号（system/V0397 + business/V0397）db=cp_mig_b4cc_neg
+撞号树 V0397 up 文件：business/V0397__hr_salary_period_after_reverse.up.sql system/V0397__preference_palette_ids_gallery77.up.sql 
+重置后 schema_migrations 存在吗：f
+EXITED rc=1 db=cp_mig_b4cc_neg port=18074（/health 未起）
+start_inst rc=3（期望非 0）
+--- 关键日志行 ---
+6:[2m2026-11-12T19:58:41.469705Z[0m [31mERROR[0m [2mnik_web::app[0m[2m:[0m 数据库迁移失败: migration error: duplicate up migration for version 397: 'migrations/business/V0397__hr_salary_period_after_reverse.up.sql' conflicts with 'migrations/system/V0397__preference_palette_ids_gallery77.up.sql'; identities must be globally unique across all sources
+7:FATAL: 服务启动失败: 配置错误: 数据库迁移失败: migration error: duplicate up migration for version 397: 'migrations/business/V0397__hr_salary_period_after_reverse.up.sql' conflicts with 'migrations/system/V0397__preference_palette_ids_gallery77.up.sql'; identities must be globally unique across all sources
+库内 schema_migrations 是否已建：f（f ⇒ 连库之前就炸，一张表没建）
+STOPPED port=18074 pid=680042
