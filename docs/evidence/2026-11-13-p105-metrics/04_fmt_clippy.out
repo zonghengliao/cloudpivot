@@ -1,5 +1,6 @@
-### cargo fmt --check
-fmt: clean (exit 0)
+$ cargo fmt --check
+exit=0
 
-### cargo clippy --lib --tests -- -D warnings
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+$ cargo clippy --lib --tests -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+clippy_pipeline_status=0
