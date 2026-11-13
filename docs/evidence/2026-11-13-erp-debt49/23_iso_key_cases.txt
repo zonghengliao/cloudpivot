@@ -1,0 +1,11 @@
+### 干净库（debt49_iso）复跑本卡直接相关的用例（串行）
+-- cost_labor_db_tests（含 ⑮ 工号解析）
+test business::erp::cost_labor_db_tests::db::soft_deleted_draft_disappears_from_list ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 5517 filtered out; finished in 23.48s
+
+-- expense_linkage_tests（LNK-05 六条）
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5536 filtered out; finished in 27.53s
+

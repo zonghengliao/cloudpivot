@@ -1,0 +1,9 @@
+### business::shared（词表/范围/守卫等）
+test business::shared::user_name::tests::display_name_truth_table ... ok
+test business::shared::user_name::tests::realtime_name_truth_table ... ok
+test business::shared::state_machine::tests::transition_if_changed_writes_when_changed ... ok
+test business::shared::state_machine::tests::two_transitions_write_two_ordered_rows ... ok
+test business::shared::state_machine::tests::unknown_entity_type_is_rejected ... ok
+
+test result: ok. 144 passed; 0 failed; 0 ignored; 0 measured; 5398 filtered out; finished in 5.53s
+

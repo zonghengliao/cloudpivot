@@ -1,0 +1,14 @@
+### 干净库（debt49_iso）上单跑「并行档里红掉的 4 条」——判是不是夹具残留
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.71s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::cost_calc_labor_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_material_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_overhead_db_tests::db::purges_rows_whose_source_no_longer_qualifies ... ok
+test business::erp::cost_calc_period_db_tests::db::calc_answers_every_status_explicitly ... ok
+test business::erp::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces ... ok
+test business::erp::cost_period_approval_db_tests::db::submit_and_withdraw_guard_non_draft_states ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5536 filtered out; finished in 19.25s
+

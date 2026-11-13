@@ -150,3 +150,33 @@ INSERT INTO sys_role (id, role_code, …) SELECT …, 'HR_MANAGER', … WHERE NO
    放宽 + `10_checks.sql` 的 `ATTACHMENT_DOC` 登记（三处同改）。
 3. **`HEALTH_CHECKED` 未扩**：健康检查清单绑着已应用的 V0202 自检块，扩清单要另开迁移重写自检块。
 4. **演练库已 DROP**（`debt49_drill`，145），99 与 145 均无遗留库；ssh 隧道已关闭。
+
+---
+
+## 9. 追加：ERP 模块真库档回归（提交后，串行口径）
+
+提交 `048d6e3f` 之后在同一批演练库上补跑，用于回答「改动有没有波及别的 ERP 用例」。
+
+| 跑法 | 结果 | 结论 |
+|---|---|---|
+| `cargo test --lib -- business::erp`（**默认并行**） | 2716 passed / **61 failed** | 61 条全是**跨用例夹具互踩**：`cost_calc_*` 的 `biz_cost_period` 被并发删（FK 违例）、`lnk05_*` 的联动规则被并发 `clear_rules()` 清掉（通知 0 条）。各文件头注释自己写着「必须 `--test-threads=1`」——`闸⑪` 全量档本来就跑串行 |
+| 同库 `--test-threads=1` 单跑 `cost_` | 684 passed / 4 failed | 4 条仍是**并行档留下的残骸**（`biz_cost_period` 多行残留、审批实例残留），不是业务断言 |
+| **干净库**（新建 `debt49_iso`，335 迁移）单跑那 4 条同名用例 | **6 passed / 0 failed** | 反证：失败来自库残留，不是代码 |
+| 干净库串行跑本卡直接相关用例 | `cost_labor_db_tests` **25 passed**、`expense_linkage_tests` **6 passed** | 本卡改动的两个套件在干净库上全绿 |
+
+证据：`18_business_erp_tests.txt`（并行档全量）、`20_cost_serial.txt`、`21_expense_serial.txt`、
+`22_iso_4cases.txt`（干净库反证）、`23_iso_key_cases.txt`。
+
+> 口径提醒：`business::erp` 里的 `cost_*` / `lnk05_*` / `voucher_linkage*` 都会写同一批
+> 期间 / 规则 / 凭证表，**并行跑必然互踩**。要复现本卡的结论请带 `--test-threads=1`。
+
+## 10. 另外两条与本卡无关的红（共享工作区，未动）
+
+| 项 | 现象 | 归属 |
+|---|---|---|
+| `cargo fmt --check` | 唯一差异文件 `backend/src/business/hr/fixture_hygiene.rs`（缩进） | 并行 HR 卡的**未提交新文件** |
+| 闸② `scope_gate.py` | FAIL：`business/hr/fixture_hygiene.rs` 被判成测试面但 `SKIP_MANIFEST` 没登记 | 同上（该文件还没提交，本卡不去替它登记） |
+
+两条在 push 时都撞上了 pre-push 的 L0+L1，因此本卡 push 用了钩子文档允许的
+`SKIP_PREPUSH=1`，理由即上表（L0 已单独跑 rc=0；clippy / typecheck 已单独跑 rc=0；
+fmt 的唯一失败项不是本卡文件）。
