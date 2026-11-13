@@ -20,6 +20,10 @@
 # =============================== 告警通道 ===============================
 # · ALERT.log（永远写，兜底：kanban 与飞书都挂了还能看）
 #   → /var/log/cloudpivot/ALERT.log
+# · 站内消息（P1-07，**主通道**）：POST 后端内部接口 /internal/alert
+#   → 后端落 `sys_notice`，收件人是超管角色（SUPER_ADMIN），超管在「消息中心」看得到；
+#     接口只允许 127.0.0.1 调用（跨机需带 NIK_ALERT_INTERNAL_TOKEN 同名头）。
+#     调用失败**只记日志、绝不影响主流程**（巡检退出码仍为 0）。
 # · kanban 建卡（assignee=laoliu，本体看板在 172.18.10.99 的 dev 板）
 #   → 本机就是看板机则本地 `hermes kanban create`，否则 ssh 到看板机建卡
 #     （144/145 各自的 /root/.hermes/kanban.db 是 10-29 的**死板**，空无一卡；
@@ -52,6 +56,9 @@
 #   NIK_ALERT_BACKLOG_COUNT   积压判定的「多少张」（默认 10）
 #   NIK_ALERT_INVARIANT_MAX_AGE_HOURS 巡检过期阈值（默认 36）
 #   NIK_ALERT_KANBAN          auto | local | ssh | off（默认 auto）
+#   NIK_ALERT_NOTICE          auto | off（默认 auto：站内消息通道，P1-07）
+#   NIK_ALERT_NOTICE_URL      站内消息接口地址（默认 ${BASE_URL}/internal/alert，**根路径**不带 /api）
+#   NIK_ALERT_INTERNAL_TOKEN  内网 token（默认空 = 只允许本机调用；跨机调用才需要）
 #   NIK_ALERT_BOARD_SSH       看板机 ssh 目标（默认 root@172.18.10.99）
 #   NIK_ALERT_BOARD_IP        看板机 IP（默认 172.18.10.99，用于判断「本机是否看板机」）
 #   NIK_ALERT_KANBAN_ASSIGNEE 建卡受理人（默认 laoliu）
@@ -82,6 +89,9 @@ BACKLOG_MINUTES="${NIK_ALERT_BACKLOG_MINUTES:-30}"
 BACKLOG_COUNT="${NIK_ALERT_BACKLOG_COUNT:-10}"
 INVARIANT_MAX_AGE_HOURS="${NIK_ALERT_INVARIANT_MAX_AGE_HOURS:-36}"
 KANBAN_MODE="${NIK_ALERT_KANBAN:-auto}"
+NOTICE_MODE="${NIK_ALERT_NOTICE:-auto}"
+NOTICE_URL="${NIK_ALERT_NOTICE_URL:-}"
+NOTICE_TOKEN="${NIK_ALERT_INTERNAL_TOKEN:-}"
 BOARD_SSH="${NIK_ALERT_BOARD_SSH:-root@172.18.10.99}"
 BOARD_IP="${NIK_ALERT_BOARD_IP:-172.18.10.99}"
 KANBAN_ASSIGNEE="${NIK_ALERT_KANBAN_ASSIGNEE:-laoliu}"
@@ -533,6 +543,71 @@ write_log_line() {
     || warn "写不了 $ALERT_LOG"
 }
 
+# 站内消息（P1-07）：把告警落成超管的「消息中心」消息（POST /internal/alert）。
+#
+# 三条硬约束：
+#   ① **失败不阻断**：无论 curl 失败、后端 5xx 还是 JSON 生成失败，一律只 `warn` 并
+#      `return 0` —— 巡检脚本的退出码语义是「巡检跑完了没」，不是「告警通道全通了」；
+#   ② **不动去重状态**：去重由 dispatch 在调用本函数**之前**记过，站内消息失败后
+#      这一轮的 ALERT.log / kanban 已经记下，下一轮（窗口过后）会重试；
+#   ③ 只发 ALERT / WARN：INFO 是「读不到」这类信息性结论，进消息中心只会制造噪音。
+sink_notice() {
+  local key="$1" level="$2" title="$3" detail="$4"
+  local url word json tmp code out
+
+  [ "$NOTICE_MODE" = "off" ] && { log "  ↳ 站内消息: 已关闭（NIK_ALERT_NOTICE=off）"; return 0; }
+  case "$level" in
+    ALERT) word=critical ;;
+    WARN)  word=warning ;;
+    *)     log "  ↳ 站内消息: ${level} 不进消息中心（只发 critical/warning）"; return 0 ;;
+  esac
+  # 接口在**根路径**（不是 /api/internal/alert）：nginx 只反代 /api/ 与 /metrics，
+  # 根路径的 /internal/* 天然不对外，这正是「只允许本机调用」的部署侧一半。
+  url="${NOTICE_URL:-${BASE_URL%/}/internal/alert}"
+  title="【${HOST_TAG}】${title}"
+
+  # JSON 交给 python3 生成（转义由它保证）；失败也不阻断。
+  json="$(ALERT_LEVEL="$word" ALERT_TITLE="$title" ALERT_KEY="$key" ALERT_DETAIL="$detail" \
+          ALERT_HOST="$HOST_TAG" ALERT_TIME="$(STAMP)" python3 -c '
+import json, os
+content = "\n".join([
+    "检查项：{}（{}）".format(os.environ["ALERT_KEY"], os.environ["ALERT_LEVEL"]),
+    "主机：{}".format(os.environ["ALERT_HOST"]),
+    "详情：{}".format(os.environ["ALERT_DETAIL"]),
+    "时间：{}".format(os.environ["ALERT_TIME"]),
+    "",
+    "本条由 scripts/ops/alert_check.sh 自动产生（同类告警去重窗口内只发一次）。",
+])
+print(json.dumps({
+    "level": os.environ["ALERT_LEVEL"],
+    "title": os.environ["ALERT_TITLE"][:200],
+    "content": content[:8000],
+    "source": "alert_check",
+}, ensure_ascii=False))' 2>/dev/null)" || json=""
+  if [ -z "$json" ]; then
+    warn "  ↳ 站内消息: 生成请求体失败（python3 不可用？），跳过（不影响巡检）"
+    return 0
+  fi
+
+  tmp="$(mktemp)" || { warn "  ↳ 站内消息: 建不了临时文件，跳过"; return 0; }
+  local -a curl_args=(-sS -m 8 -X POST -H 'Content-Type: application/json' --data-binary @- -o "$tmp" -w '%{http_code}')
+  [ -n "$NOTICE_TOKEN" ] && curl_args+=(-H "X-Internal-Token: ${NOTICE_TOKEN}")
+  code="$(printf '%s' "$json" | curl "${curl_args[@]}" "$url" 2>/dev/null)" || code=000
+  out="$(cat "$tmp" 2>/dev/null)"
+  rm -f "$tmp"
+  code="${code:-000}"
+
+  if [ "$code" = "200" ] && printf '%s' "$out" | grep -q '"code": *0'; then
+    local nid cnt
+    nid="$(printf '%s' "$out" | grep -o '"notice_id": *"[^"]*"' | head -1 | cut -d'"' -f4)"
+    cnt="$(printf '%s' "$out" | grep -o '"receiver_count": *[0-9]*' | head -1 | grep -o '[0-9]*$')"
+    log "  ↳ 站内消息: 已送达超管（notice=${nid:-?} 收件人=${cnt:-?}）"
+    return 0
+  fi
+  warn "  ↳ 站内消息: 调用失败 HTTP=${code}（不影响巡检，窗口过后重试）：$(printf '%s' "$out" | head -c 200 | tr '\n' ' ')"
+  return 0
+}
+
 # 本机是不是看板机（IP 命中）—— 决定建卡走本地 CLI 还是 ssh
 is_board_host() {
   hostname -I 2>/dev/null | tr ' ' '\n' | grep -qx "$BOARD_IP"
@@ -633,6 +708,7 @@ dispatch() {
       continue
     fi
     write_log_line "$level" "$key" "$title" "$detail"
+    sink_notice "$key" "$level" "$title" "$detail"
     sink_kanban "$key" "$level" "$title" "$detail"
     sink_feishu "$key" "$level" "$title" "$detail"
   done
@@ -738,6 +814,17 @@ self_test() {
   FEISHU_MODE="$saved_feishu"; DRY_RUN="$saved_dry"; FOUND=()
   rm -rf "$tmpdir"
 
+  echo "== 站内消息通道（P1-07）：失败不阻断主流程 =="
+  local saved_notice_mode="$NOTICE_MODE" saved_notice_url="$NOTICE_URL" saved_notice_token="$NOTICE_TOKEN"
+  local rc_notice rc_notice_off
+  NOTICE_MODE=auto; NOTICE_URL="http://127.0.0.1:1/internal/alert"; NOTICE_TOKEN=""
+  sink_notice demoalert ALERT "演示告警" "详情" >/dev/null 2>&1; rc_notice=$?
+  expect "接口不可达（connection refused）时仍返回 0" 0 "$rc_notice"
+  NOTICE_MODE=off
+  sink_notice demoalert ALERT "演示告警" "详情" >/dev/null 2>&1; rc_notice_off=$?
+  expect "NIK_ALERT_NOTICE=off 时跳过且返回 0" 0 "$rc_notice_off"
+  NOTICE_MODE="$saved_notice_mode"; NOTICE_URL="$saved_notice_url"; NOTICE_TOKEN="$saved_notice_token"
+
   echo
   if [ "$fail" -eq 0 ]; then
     echo "自检通过：${total}/${total}"
@@ -761,6 +848,9 @@ if [ -n "${LIST_ONLY:-}" ]; then
     "$DEDUP_SECONDS" "$DISK_THRESHOLD" "$DISK_WARN" "$SECRET_WARN_DAYS" \
     "$BACKLOG_MINUTES" "$BACKLOG_COUNT" "$INVARIANT_MAX_AGE_HOURS"
   printf '  kanban=%s（%s）  feishu=%s\n' "$KANBAN_MODE" "$(kanban_available)" "$FEISHU_MODE"
+  printf '  notice=%s  url=%s  token=%s\n' "$NOTICE_MODE" \
+    "${NOTICE_URL:-${BASE_URL%/}/internal/alert}" \
+    "$([ -n "$NOTICE_TOKEN" ] && echo 已配置 || echo 未配置-只允许本机)"
   printf '  env_file=%s\n' "${ENV_FILE:-（自动探测）}"
   exit 0
 fi

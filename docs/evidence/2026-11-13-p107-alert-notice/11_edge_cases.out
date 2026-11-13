@@ -1,0 +1,6 @@
+超长标题（250 字）: HTTP 422 body={"code":422,"msg":"title: 标题需 1~200 个字符"}
+超长正文（9000 字）: HTTP 422 body={"code":422,"msg":"content: 正文需 1~8000 个字符"}
+空标题: HTTP 422 body={"code":422,"msg":"title: 标题需 1~200 个字符"}
+空白标题: HTTP 400 body={"code":10001,"msg":"标题不能为空"}
+缺 level 字段: HTTP 400 body={"code":400,"msg":"请求体格式错误: Failed to deserialize the JSON body into the target type: missing field `level` at line 1 column 52"}
+非法级别: HTTP 400 body={"code":10001,"msg":"告警级别非法：fatal（允许 critical / warning）"}

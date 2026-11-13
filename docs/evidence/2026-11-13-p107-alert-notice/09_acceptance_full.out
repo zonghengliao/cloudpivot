@@ -1,0 +1,52 @@
+=== 0. 实例可达性 http://127.0.0.1:18097 ===
+/health -> 200
+PASS: 实例活着（/health 200）
+
+=== 1. 回环调用：critical 告警 ===
+HTTP 200  body={"code":0,"msg":"ok","data":{"notice_id":"01a1d4ec-55b6-7420-bf01-a0adeee65e6a","notice_no":"NTA20261113124020eee65e6a","receiver_count":1,"duplicated":false,"channels":[{"channel":"INBOX","status":"DELIVERED","rows":1}],"scheduled":false,"scheduled_at":null}}
+PASS: 回环调用 HTTP 200
+PASS: 响应 code=0
+notice_id=01a1d4ec-55b6-7420-bf01-a0adeee65e6a notice_no=NTA20261113124020eee65e6a receiver_count=1
+PASS: 返回 notice_id
+PASS: notice_no 前缀 NTA（ALERT 类型）
+PASS: receiver_count=1 ≥ 1
+
+=== 2. 落库核对（sys_notice / sys_notice_receiver） ===
+ALERT|ERROR|ROLE|alert_check|【验收】磁盘使用率 99%（P1-07）
+PASS: 落库字段正确：ALERT / ERROR / ROLE / alert_check
+PASS: sys_notice 恰好 1 行
+PASS: 收件人行数 1 = receiver_count
+PASS: 收件人里有 1 个超管角色账号
+
+=== 3. 非回环调用（172.18.10.99）不带 token → 必须 403 ===
+HTTP 403  body={"code":30001,"msg":"内部告警接口只允许本机调用（或携带正确的内网 token）"}
+PASS: 非回环无 token → HTTP 403
+PASS: 错误码 30001（权限不足）
+PASS: 被拒的调用没有落库
+
+=== 4. 非回环 + 内网 token ===
+HTTP 200  body={"code":0,"msg":"ok","data":{"notice_id":"01a1d4ec-5668-72bc-a708-0e0d65acaf3c","notice_no":"NTA2026111312402065acaf3c","receiver_count":1,"duplicated":false,"channels":[{"channel":"INBOX","status":"DELIVERED","rows":1}],"scheduled":false,"scheduled_at":null}}
+PASS: 非回环带对 token → HTTP 200
+PASS: 非回环带错 token → HTTP 403
+
+=== 5. 幂等重放：同一 key 不新增行 ===
+PASS: 重放判为 duplicated=true
+PASS: 重放后 sys_notice 仍 1 行
+
+=== 6. 非法级别 → 400 ===
+HTTP 400  body={"code":10001,"msg":"告警级别非法：fatal（允许 critical / warning）"}
+PASS: 非法级别 → HTTP 400
+PASS: 错误码 10001（参数非法）
+
+=== 7. 巡检脚本 → 站内消息（alert_check.sh 端到端） ===
+PASS: alert_check.sh 退出码 0
+[2026-11-13T20:40:20+08:00] === 告警巡检开始 host=172.18.10.99 base=http://127.0.0.1:18097 检查=[disk] dry_run=0 ===
+[2026-11-13T20:40:20+08:00] disk: ALERT — 磁盘使用率 74%（阈值 1%）
+[2026-11-13T20:40:20+08:00] === 巡检结束：1 项告警，开始派发 ===
+[2026-11-13T20:40:20+08:00]   ↳ 站内消息: 已送达超管（notice=01a1d4ec-56d6-777a-baec-4aa35c10a7f8 收件人=1）
+[2026-11-13T20:40:20+08:00]   ↳ kanban: 已关闭（NIK_ALERT_KANBAN=off）
+[2026-11-13T20:40:20+08:00]   ↳ 飞书: 已关闭
+PASS: 脚本日志确认「站内消息: 已送达超管」
+PASS: 脚本触发的告警已落库（3 行）
+
+验收通过：全部断言 PASS（证据在 docs/evidence/2026-11-13-p107-alert-notice）

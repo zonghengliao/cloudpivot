@@ -1,0 +1,8 @@
+login(Admin@…): 200 code=0 token_len=461
+unread-count: 200 {"code": 0, "msg": "ok", "data": {"unread_count": 3}}
+me: 200 code= 0 username= admin
+mine: 200 code= 0 total= 3 rows= 3
+ row: ALERT ERROR | 【172.18.10.99】磁盘使用率 74%（阈值 1%） | read_flag= False
+ row: ALERT ERROR | 【172.18.10.99】磁盘使用率 74%（阈值 1%） | read_flag= False
+ row: ALERT ERROR | 【172.18.10.99】磁盘使用率 74%（阈值 1%） | read_flag= False
+alert_rows: 3

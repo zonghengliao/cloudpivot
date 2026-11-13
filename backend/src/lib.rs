@@ -85,6 +85,13 @@ pub async fn run() -> Result<()> {
         // `/health` 永远是 liveness（不查库不看缓存），这条才反映 db / cache 健康度，
         // 任一不健康回 503 —— 两者语义分开，避免下游依赖抖动把容器探针打成重启风暴。
         .get("/health/deps", support::health::health_deps)
+        // 内部告警入口（P1-07）：`scripts/ops/alert_check.sh` 检测到异常后调它，
+        // 落成一条收件人为超管角色的站内消息。同样在根路径手动注册 ——
+        // ① 豁免 `[router] prefix`，对外就是 `/internal/alert`（不是 `/api/internal/alert`）；
+        // ② nginx 只反代 `/api/` 与 `/metrics`，根路径的 `/internal/*` 天然不对外，
+        //    否则「只允许 127.0.0.1」的准入闸会被 nginx 抹平（对端恒为回环）。
+        // 免认证由处理器上的 `#[nik::no_auth("!/internal/alert")]` 声明。
+        .post("/internal/alert", business::notice::handler::internal_alert)
         .on_startup(bootstrap::bootstrap)
         // 关停钩子（必须在框架等待连接排空**之前**跑）：
         // SSE 是「永不结束的响应体」，不主动收尾就会让 graceful shutdown 无限等待，

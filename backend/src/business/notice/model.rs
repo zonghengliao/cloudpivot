@@ -23,6 +23,7 @@ use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
+use crate::shared::constants;
 use crate::shared::constants::EnableStatus;
 use crate::utils;
 
@@ -1014,6 +1015,29 @@ pub async fn find_enabled_template_by_code(code: &str) -> DbResult<Option<SysNot
     );
     let rows = db().find_with_params(&sql, vec![Value::from(code)]).await?;
     rows.first().map(map_template).transpose()
+}
+
+/// 内置超级管理员角色（`role_code = 'SUPER_ADMIN'`）的主键；库里没有该角色时 `None`。
+///
+/// 内部告警（`POST /internal/alert`）的收件人就是它 —— 收件人集合由数据库按
+/// `sys_user_role` 现算（[`crate::business::notice::fanout`]，`ROLE` 目标），
+/// 这里只负责把「角色码」换成「角色主键」，不缓存：角色行是种子数据，查一次是一行
+/// 主键扫描，比在进程里留一份可能过期的缓存更安全。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（由 handler 收敛成 500 + 10004）。
+pub async fn super_admin_role_id() -> DbResult<Option<uuid::Uuid>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id FROM sys_role WHERE role_code = ? AND deleted_at IS NULL LIMIT 1",
+            vec![Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(Some(row.get_typed("id")?)),
+        None => Ok(None),
+    }
 }
 
 /// 统计同编码的模板数（唯一性校验；软删表的部分唯一索引兜底）。

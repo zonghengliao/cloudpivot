@@ -745,6 +745,59 @@ pub struct StreamStatsRes {
     pub heartbeat_seconds: u64,
 }
 
+// ==================== 内部告警（POST /internal/alert） ====================
+
+/// 内部告警请求 —— `scripts/ops/alert_check.sh` → 站内消息的**唯一**入口（P1-07）。
+///
+/// 为什么走接口而不是让脚本直接写库：写库要发库口令给 cron、要自己拼 `sys_notice`
+/// / 扇出 / 编号，四张表的约束（`ck_sys_notice_counts` / `uk_sys_notice_idem`）全靠
+/// 脚本自觉；走接口则复用 [`crate::business::notice::dispatch`] 这一条现成链路。
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct InternalAlertReq {
+    /// 严重级别：`critical` → 通知级别 `ERROR`；`warning` → `WARN`（大小写不敏感）。
+    pub level: String,
+    /// 标题（1~200 字；落 `sys_notice.title`，列宽 255，留出加前缀的余量）。
+    #[validate(length(min = 1, max = 200, message = "标题需 1~200 个字符"))]
+    pub title: String,
+    /// 正文（1~8000 字；巡检详情 / 处置建议）。
+    #[validate(length(min = 1, max = 8000, message = "正文需 1~8000 个字符"))]
+    pub content: String,
+    /// 来源（写 `sys_notice.sender_name`，≤50 字；缺省 [`DEFAULT_ALERT_SOURCE`]）。
+    #[validate(length(max = 50, message = "来源不能超过 50 个字符"))]
+    pub source: Option<String>,
+    /// 幂等键（可选，≤128 字）。给了就保证「同一键只落一条」；不给则每次都新建
+    /// （巡检侧的去重窗口由脚本自己的状态目录负责，见 `alert_check.sh`）。
+    #[validate(length(max = 128, message = "幂等键不能超过 128 个字符"))]
+    pub idempotency_key: Option<String>,
+}
+
+/// 内部告警的缺省来源（`sender_name` 落库值）。
+pub const DEFAULT_ALERT_SOURCE: &str = "alert_check";
+
+/// 内部告警写进 `sys_notice.biz_type` 的业务类型（通知中心按它分组 / 跳转）。
+pub const ALERT_BIZ_TYPE: &str = "ALERT";
+
+/// 巡检脚本的级别口径 → 通知级别。
+///
+/// # 参数
+///
+/// - `raw`：`critical` / `warning`（前后空白与大小写不敏感）。
+///
+/// # 异常情况
+///
+/// 其它取值 → `400 + 10001`（含允许值清单，脚本拼错时一眼看得出）。
+pub fn alert_level_of(raw: &str) -> std::result::Result<NoticeLevel, ApiError> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "critical" => Ok(NoticeLevel::Error),
+        "warning" => Ok(NoticeLevel::Warn),
+        other => Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("告警级别非法：{other}（允许 critical / warning）"),
+        )),
+    }
+}
+
 // ==================== 过滤器 ====================
 
 /// 通知主体分页过滤。

@@ -425,7 +425,18 @@ async fn o07_public_route_whitelist_is_closed() {
     assert!(!routes.is_empty(), "没扫到任何受保护路由，扫描逻辑失效");
 
     // 预期白名单：登录 / 刷新 / 公共配置 / 任务模块的若干回调（见代码里的 no_auth 注解）
-    let allowed = ["/system/auth/login", "/system/auth/refresh", "/support/config/public"];
+    //
+    // + **内部告警入口** `!/internal/alert`（P1-07）：它没有权限码，因为调用方是
+    //   cron 里的 `scripts/ops/alert_check.sh`，不持有任何用户身份。代替权限码的是
+    //   处理器内的准入闸 [`crate::business::notice::handler::internal_caller_allowed`]：
+    //   对端必须是回环，否则必须带对 `NIK_ALERT_INTERNAL_TOKEN`；且路由挂在**根路径**
+    //   （nginx 只反代 `/api/` 与 `/metrics`），外部请求根本到不了它。
+    let allowed = [
+        "/system/auth/login",
+        "/system/auth/refresh",
+        "/support/config/public",
+        "!/internal/alert",
+    ];
     let unexpected: Vec<String> = publics
         .iter()
         .filter(|p| !allowed.iter().any(|a| p.path == *a) && !p.path.starts_with("/business/task/"))
@@ -769,7 +780,11 @@ async fn o13_every_write_route_requires_permission() {
         let is_auth_public = public.path == "/system/auth/login"
             || public.path == "/system/auth/refresh"
             // 公共参数（只读聚合，供登录页/前端启动读取，代码里明确 no_auth）
-            || public.path == "/support/config/public";
+            || public.path == "/support/config/public"
+            // 内部告警入口（P1-07）：确实写库（落 sys_notice），但调用方是巡检脚本、
+            // 无用户身份；准入靠「对端回环 / 内网 token」而不是权限码（见 handler 文档），
+            // 且路由在根路径、不经过 nginx 的 /api 反代。
+            || public.path == "!/internal/alert";
         let is_task_callback = public.path.starts_with("/business/task/");
         if !is_auth_public && !is_task_callback {
             unguarded.push(format!("{}（{}）", public.path, public.file));

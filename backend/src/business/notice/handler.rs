@@ -35,20 +35,24 @@
 //! 路由方法在前，公共辅助函数在后（与底座其它 handler 一致）。
 
 use axum::Json;
+use axum::extract::ConnectInfo;
+use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
+use std::net::SocketAddr;
 
 use crate::business::notice::dto::{
-    ChannelConfigRes, ContentFormat, DeliverySummaryRes, MyNoticeQuery, MyNoticeRes, NoticeDetailRes, NoticeFilter,
-    NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq, NoticeType, StreamQuery, StreamStatsRes, TemplateFilter,
-    TemplatePageQuery, TemplatePreviewReq, TemplatePreviewRes, TemplateRes, TemplateSaveReq, TemplateVarDecl,
-    UnreadCountRes, parse_var_decls,
+    ALERT_BIZ_TYPE, ChannelConfigRes, ContentFormat, DEFAULT_ALERT_SOURCE, DeliverySummaryRes, InternalAlertReq,
+    MyNoticeQuery, MyNoticeRes, NoticeDetailRes, NoticeFilter, NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq,
+    NoticeType, StreamQuery, StreamStatsRes, TemplateFilter, TemplatePageQuery, TemplatePreviewReq, TemplatePreviewRes,
+    TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes, alert_level_of, parse_var_decls,
 };
 use crate::business::notice::model::{self, TemplateFields};
 use crate::business::notice::render;
 use crate::business::notice::sse_hub;
-use crate::business::notice::{DispatchResult, NoticeDraft, NoticeTarget, dispatch};
+use crate::business::notice::{DispatchError, DispatchResult, NoticeDraft, NoticeTarget, dispatch};
 use crate::business::shared::principal;
+use crate::shared::constants;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::utils;
@@ -777,6 +781,179 @@ fn build_template_fields(
     })
 }
 
+// ==================== 内部告警入口（POST /internal/alert，P1-07） ====================
+
+/// 内网 token 的请求头名（对端不在回环时必须带对）。
+pub const INTERNAL_TOKEN_HEADER: &str = "x-internal-token";
+
+/// 内网 token 的环境变量名；**未注入 = 只接受回环调用**（fail-closed）。
+///
+/// 为什么不放 `config.toml`：这是部署期注入的口令类值，与 JWT / 存储主密钥同款处理
+/// （env 注入、不进仓库、不落日志）。
+pub const INTERNAL_TOKEN_ENV: &str = "NIK_ALERT_INTERNAL_TOKEN";
+
+/// 调用方准入判定（纯函数，不碰库不读 env，便于单测）。
+///
+/// # 判据
+///
+/// 1. 对端是回环（`127.0.0.0/8` / `::1`）→ 放行：巡检脚本与后端同机；
+/// 2. 否则必须带 `X-Internal-Token` 且与环境变量 `NIK_ALERT_INTERNAL_TOKEN` 逐字节相等；
+/// 3. 环境变量为空时**只认回环**，绝不「空 token 也算过」。
+///
+/// # 为什么只看对端地址，不看 `X-Forwarded-For` / `X-Real-IP`
+///
+/// 那两个头客户端可以自己写。本接口在根路径（nginx 只反代 `/api/` 与 `/metrics`），
+/// 正常永远不经过代理；一旦按头判来源，任何能直连 8023 的人在头里写 `127.0.0.1`
+/// 就绕过了闸。对端地址由内核给，伪造不了。
+pub(crate) fn internal_caller_allowed(peer: std::net::IpAddr, provided: Option<&str>, expected: Option<&str>) -> bool {
+    if peer.is_loopback() {
+        return true;
+    }
+    let (Some(provided), Some(expected)) = (
+        provided.map(str::trim).filter(|value| !value.is_empty()),
+        expected.map(str::trim).filter(|value| !value.is_empty()),
+    ) else {
+        return false;
+    };
+    constant_time_eq(provided.as_bytes(), expected.as_bytes())
+}
+
+/// 定长比较（避免按字节短路泄漏 token 前缀）。长度不同直接判否（只泄漏长度，可接受）。
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (a, b) in left.iter().zip(right.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
+
+/// 内部告警入口：把运维巡检检测到的异常落成一条**站内消息**，收件人是超管角色。
+///
+/// # 装配（**为什么不走 `#[nik::post]` 宏路由**）
+///
+/// 本接口挂在**根路径** `/internal/alert`，不是 `/api/internal/alert`：
+///
+/// - nginx 只反代 `location /api/` 与 `location /metrics`（见 `frontend/deploy/nginx.conf`），
+///   根路径下的 `/internal/*` 因此**天然不对外**；放进 `/api/` 就等于把它挂到公网，
+///   而它的准入闸只是「对端是不是回环」——经过 nginx 之后对端恒为 `127.0.0.1`，闸就废了；
+/// - 免认证靠本函数上的 `#[nik::no_auth("!/internal/alert")]`（`!` = 绝对路径，不拼前缀），
+///   路由体由 [`crate::run`] 的 `App::post` 手动注册（宏路由会被 `[router].prefix` 嵌套）。
+///
+/// # 请求
+///
+/// `{"level":"critical|warning","title":"…","content":"…","source":"alert_check"}`
+/// （`source` / `idempotency_key` 可选）。
+///
+/// # 返回值
+///
+/// 发送结果（`notice_id` / `notice_no` / `receiver_count` / `duplicated`）。
+///
+/// # 异常情况
+///
+/// - `403 + 30001`：非回环且没带对内网 token；
+/// - `400 + 10001`：级别非法，或标题 / 正文只有空白（空白串能过 `min=1`，由 handler 兜）；
+/// - `400 + 400` / `422 + 422`：请求体缺字段 / 字段长度越界 —— `ValidatedJson` 在进 handler 前就拦；
+/// - `500 + 10004`：库异常，或内置 `SUPER_ADMIN` 角色缺失（迁移未跑全）。
+#[nik::no_auth("!/internal/alert")]
+pub async fn internal_alert(
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    ValidatedJson(req): ValidatedJson<InternalAlertReq>,
+) -> ResResult<DispatchResult> {
+    let provided = headers.get(INTERNAL_TOKEN_HEADER).and_then(|value| value.to_str().ok());
+    let expected = std::env::var(INTERNAL_TOKEN_ENV).ok();
+    if !internal_caller_allowed(peer.ip(), provided, expected.as_deref()) {
+        tracing::warn!(
+            peer = %peer,
+            "内部告警入口拒绝了非回环调用（未携带正确的 X-Internal-Token）"
+        );
+        return Err(ApiError::new(
+            403,
+            error_code::PERMISSION_DENIED,
+            "内部告警接口只允许本机调用（或携带正确的内网 token）",
+        ));
+    }
+    let result = deliver_internal_alert(req).await?;
+    Ok(Res::ok(result))
+}
+
+/// 告警落库阶段（与准入判定分开：准入是纯函数，这一段才碰库、才发通知）。
+///
+/// 收件人 = 超管角色（`SUPER_ADMIN`）下的**全部可用账号**，由
+/// [`crate::business::notice::dispatch`] 的 `ROLE` 扇出在一条 `INSERT … SELECT` 里算出来
+/// （排除软删 / 停用 / 授权过期），不在 Rust 侧循环。
+///
+/// # 异常情况
+///
+/// - `400 + 10001`：级别非法 / 标题正文只有空白；
+/// - `422 + 422`：字段长度越界（`ValidatedJson` 在进 handler 前拦）；
+/// - `500 + 10004`：库异常，或超管角色缺失。
+pub(crate) async fn deliver_internal_alert(req: InternalAlertReq) -> std::result::Result<DispatchResult, ApiError> {
+    let level = alert_level_of(&req.level)?;
+    let title = req.title.trim();
+    let content = req.content.trim();
+    if title.is_empty() {
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "标题不能为空"));
+    }
+    if content.is_empty() {
+        return Err(ApiError::new(400, error_code::PARAM_INVALID, "正文不能为空"));
+    }
+    let source = utils::trimmed(req.source.as_deref())
+        .unwrap_or(DEFAULT_ALERT_SOURCE)
+        .to_string();
+
+    let role_id = model::super_admin_role_id()
+        .await
+        .map_err(|error| utils::db_error(error, "查询超级管理员角色"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!(
+                    "内置超级管理员角色缺失（role_code = {}），告警无处投递",
+                    constants::SUPER_ADMIN_ROLE_CODE
+                ),
+            )
+        })?;
+
+    let mut draft = NoticeDraft::text(
+        NoticeType::Alert,
+        level,
+        title,
+        content,
+        NoticeTarget::Role(vec![role_id]),
+    );
+    draft.biz_type = Some(ALERT_BIZ_TYPE.to_string());
+    draft.sender_name = Some(source.clone());
+    draft.idempotency_key = utils::trimmed(req.idempotency_key.as_deref()).map(str::to_string);
+    // force = true（`NoticeDraft::text` 的缺省）：告警不能被收件人的 `notify.inbox`
+    // 偏好吃掉 —— 「关掉站内信的人」恰恰是最需要被通知到的运维 / 超管。
+
+    let result = dispatch(draft).await.map_err(DispatchError::into_api)?;
+    if result.receiver_count == 0 {
+        tracing::warn!(
+            notice_id = %result.notice_id,
+            source = %source,
+            title = %title,
+            "内部告警已落库，但超管角色下没有可用账号（receiver_count = 0）：告警没人看得到"
+        );
+    } else {
+        tracing::info!(
+            notice_id = %result.notice_id,
+            notice_no = %result.notice_no,
+            receiver_count = result.receiver_count,
+            duplicated = result.duplicated,
+            source = %source,
+            level = level.as_str(),
+            "内部告警已转为站内消息"
+        );
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -858,5 +1035,236 @@ mod tests {
         };
         let error = current_user(&claims).unwrap_err();
         assert_eq!(error.status, 401);
+    }
+
+    // ==================== 内部告警入口（P1-07） ====================
+
+    /// 级别映射：巡检口径 → 通知级别（`critical` 必须是 ERROR，不能退化成 INFO）。
+    #[test]
+    fn alert_level_mapping_is_strict() {
+        assert_eq!(alert_level_of("critical").expect("critical 应通过"), NoticeLevel::Error);
+        assert_eq!(
+            alert_level_of("WARNING").expect("warning 大小写不敏感"),
+            NoticeLevel::Warn
+        );
+        assert_eq!(
+            alert_level_of("  Critical ").expect("前后空白应被忽略"),
+            NoticeLevel::Error
+        );
+
+        let error = alert_level_of("fatal").expect_err("未知级别必须拒绝");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(error.msg.contains("critical"), "错误文案要点名允许值：{}", error.msg);
+    }
+
+    /// 准入闸：回环放行；非回环必须带对内网 token；服务端没配 token 时非回环一律拒。
+    #[test]
+    fn internal_caller_gate_only_trusts_peer_address() {
+        let loopback: std::net::IpAddr = "127.0.0.1".parse().expect("常量应可解析");
+        let loopback_v6: std::net::IpAddr = "::1".parse().expect("常量应可解析");
+        let lan: std::net::IpAddr = "172.18.10.145".parse().expect("常量应可解析");
+
+        // 本机巡检脚本：不带任何头也放行
+        assert!(internal_caller_allowed(loopback, None, None));
+        assert!(internal_caller_allowed(loopback_v6, None, Some("s3cret")));
+
+        // 非回环：无 token / 错 token / 服务端没配 token / 空 token —— 全部拒绝
+        assert!(!internal_caller_allowed(lan, None, Some("s3cret")));
+        assert!(!internal_caller_allowed(lan, Some("wrong"), Some("s3cret")));
+        assert!(!internal_caller_allowed(lan, Some("s3cret"), None));
+        assert!(!internal_caller_allowed(lan, Some(""), Some("")));
+        assert!(!internal_caller_allowed(lan, Some("s3"), Some("s3cret")));
+
+        // 非回环 + 对 token → 放行（跨机调用），前后空白忽略
+        assert!(internal_caller_allowed(lan, Some(" s3cret "), Some("s3cret")));
+    }
+
+    /// 真库用例的串行锁（清理按前缀删，并行会互删夹具）。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// 夹具账号前缀：清理只删自己造的行。
+    const FIXTURE_USER_PREFIX: &str = "p107.alert.";
+
+    /// 连库（进程内只做一次）；`false` = 没配 `ERP_DB_URL` 或连不上（SKIP，不假绿）。
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => set_db(connection).is_ok(),
+                    Err(error) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{error}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    /// 清本用例的夹具：通知（级联收件人 / 投递）→ 角色绑定 → 用户。
+    async fn cleanup_alert_fixtures() {
+        db().execute_with_params("DELETE FROM sys_notice WHERE idempotency_key LIKE 'p107test:%'", vec![])
+            .await
+            .unwrap_or_else(|error| panic!("清理 sys_notice 失败：{error}"));
+        db().execute_with_params(
+            "DELETE FROM sys_user_role WHERE user_id IN \
+             (SELECT id FROM sys_user WHERE username LIKE 'p107.alert.%')",
+            vec![],
+        )
+        .await
+        .expect("清理 sys_user_role 失败");
+        db().execute_with_params("DELETE FROM sys_user WHERE username LIKE 'p107.alert.%'", vec![])
+            .await
+            .expect("清理 sys_user 失败");
+    }
+
+    /// 造一个挂在超管角色下的夹具账号，返回用户主键。
+    async fn fixture_super_admin_user(role: uuid::Uuid) -> uuid::Uuid {
+        let user = uuid::Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO sys_user (id, username, password, real_name, status) VALUES (?, ?, ?, ?, 1)",
+            vec![
+                Value::from(user),
+                Value::from(format!("{FIXTURE_USER_PREFIX}{}", &user.to_string()[..8])),
+                Value::from("x"),
+                Value::from("P1-07 告警夹具"),
+            ],
+        )
+        .await
+        .expect("插入夹具用户失败");
+        db().execute_with_params(
+            "INSERT INTO sys_user_role (user_id, role_id) VALUES (?, ?)",
+            vec![Value::from(user), Value::from(role)],
+        )
+        .await
+        .expect("绑定超管角色失败");
+        user
+    }
+
+    /// 内部告警落库：1 条 `sys_notice`（ALERT / ERROR / ROLE 目标）+ 收件人含超管用户。
+    ///
+    /// 跑法（缺 `ERP_DB_URL` 时 SKIP，不假绿）：
+    ///
+    /// ```bash
+    /// export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<已迁移的库>'
+    /// cargo test --lib business::notice::handler::tests::internal_alert -- --test-threads=1
+    /// ```
+    #[tokio::test]
+    async fn internal_alert_persists_one_notice_to_super_admin() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        let Some(role) = model::super_admin_role_id().await.expect("查询超管角色不应失败") else {
+            println!("SKIP: 测试库没有 SUPER_ADMIN 角色（迁移未跑全）");
+            return;
+        };
+        cleanup_alert_fixtures().await;
+        let user = fixture_super_admin_user(role).await;
+
+        let key = format!("p107test:{}", uuid::Uuid::now_v7());
+        let result = deliver_internal_alert(InternalAlertReq {
+            level: "critical".into(),
+            title: "磁盘使用率 99%（P1-07 真库用例）".into(),
+            content: "告警通道验收：巡检 → /internal/alert → 站内消息".into(),
+            source: Some("alert_check".into()),
+            idempotency_key: Some(key.clone()),
+        })
+        .await
+        .expect("告警应落库");
+
+        assert!(!result.duplicated, "首次调用不应命中幂等");
+        assert!(
+            result.receiver_count >= 1,
+            "超管角色下至少有夹具用户，receiver_count={}",
+            result.receiver_count
+        );
+
+        // ① 落库 1 条 sys_notice，字段与契约一致
+        let rows = db()
+            .find_with_params(
+                "SELECT id, notice_type, level, title, sender_name, target_type, content \
+                 FROM sys_notice WHERE idempotency_key = ?",
+                vec![Value::from(key.as_str())],
+            )
+            .await
+            .expect("查询 sys_notice 失败");
+        assert_eq!(rows.len(), 1, "同一幂等键只应落 1 条 sys_notice");
+        let row = &rows[0];
+        let notice_id: uuid::Uuid = row.get_typed("id").expect("id 应为 UUID");
+        assert_eq!(notice_id, result.notice_id, "返回的 notice_id 必须与库里一致");
+        assert_eq!(row.get_typed::<String>("notice_type").expect("notice_type"), "ALERT");
+        assert_eq!(
+            row.get_typed::<String>("level").expect("level"),
+            "ERROR",
+            "critical → ERROR"
+        );
+        assert_eq!(row.get_typed::<String>("target_type").expect("target_type"), "ROLE");
+        assert_eq!(
+            row.get_typed::<String>("sender_name").expect("sender_name"),
+            "alert_check"
+        );
+        assert!(
+            row.get_typed::<String>("content")
+                .expect("content")
+                .contains("站内消息"),
+            "正文必须原样保留"
+        );
+
+        // ② 收件人落在 sys_notice_receiver，且包含夹具超管账号
+        let receivers: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM sys_notice_receiver WHERE notice_id = ?",
+                vec![Value::from(notice_id)],
+            )
+            .await
+            .expect("统计收件人失败");
+        assert_eq!(
+            receivers, result.receiver_count,
+            "落库收件人数必须等于回写的 receiver_count"
+        );
+        let hit: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM sys_notice_receiver WHERE notice_id = ? AND user_id = ?",
+                vec![Value::from(notice_id), Value::from(user)],
+            )
+            .await
+            .expect("查询夹具收件人失败");
+        assert_eq!(hit, 1, "超管账号必须收到这条告警");
+
+        // ③ 幂等：同一键再打一次 → duplicated 且不新增行（脚本重试不会刷屏）
+        let again = deliver_internal_alert(InternalAlertReq {
+            level: "critical".into(),
+            title: "磁盘使用率 99%（P1-07 真库用例）".into(),
+            content: "告警通道验收：巡检 → /internal/alert → 站内消息".into(),
+            source: Some("alert_check".into()),
+            idempotency_key: Some(key.clone()),
+        })
+        .await
+        .expect("重放应返回首次结果");
+        assert!(again.duplicated, "同键重放必须判为重复");
+        assert_eq!(again.notice_id, notice_id);
+        let total: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM sys_notice WHERE idempotency_key = ?",
+                vec![Value::from(key.as_str())],
+            )
+            .await
+            .expect("重放后统计失败");
+        assert_eq!(total, 1, "重放不得新增 sys_notice 行");
+
+        cleanup_alert_fixtures().await;
     }
 }
