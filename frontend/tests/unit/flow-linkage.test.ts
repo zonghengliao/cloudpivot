@@ -293,6 +293,7 @@ test('预览提醒：空执行链 / 回滚风险 / 全部提交后执行', () =>
     trigger_entity: 'STOCK_IN',
     trigger_entity_label: '收货入库单',
     trigger_status: 'POSTED',
+    trigger_wired: true,
     enabled_count: 0,
     steps: [],
     rollback_risk: false,
@@ -307,6 +308,7 @@ test('预览提醒：空执行链 / 回滚风险 / 全部提交后执行', () =>
     trigger_entity: 'STOCK_IN',
     trigger_entity_label: '收货入库单',
     trigger_status: 'POSTED',
+    trigger_wired: true,
     enabled_count: 1,
     steps: [
       {

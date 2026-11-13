@@ -172,7 +172,16 @@ test('批量生成表单：物料 / 仓库 / 成本单价必填、数量 1..1000
 
   assert.deepEqual(
     validateBatchForm(
-      { material_id: 'm-1', warehouse_id: 'w-1', count: 10, unit_cost: '12.34', source_type: '', batch_no: '' },
+      // location_dict_id: '' = 不指定库位 → 后端按仓库默认库位兜底（E2E-FIX-6 的语义）
+      {
+        material_id: 'm-1',
+        warehouse_id: 'w-1',
+        location_dict_id: '',
+        count: 10,
+        unit_cost: '12.34',
+        source_type: '',
+        batch_no: '',
+      },
     ),
     {},
   );

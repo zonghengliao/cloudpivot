@@ -33,6 +33,17 @@ import {
 const ID = '018f3a52-0000-7000-8000-000000000001';
 
 /**
+ * 映射表的 `deepLink` 联合类型当前**不含** `page-missing`（最后一行已随 COST-B3-11 落地、改成 detail）。
+ * 守卫仍要保留：将来新增「目标页还没上线」的来源时直接用。为了不被联合类型收窄成 `never`，
+ * 判据按 `string` 比较 —— 与 `voucher-source-link.ts` 里 `(spec.deepLink as string) === 'page-missing'`
+ * 同一口径，这里用参数类型 `string` 表达，不做断言。
+ */
+function isPageMissing(deepLink: string): boolean {
+  return deepLink === 'page-missing';
+}
+
+
+/**
  * 期望表：表里**每一行**都必须在下面出现（`表键集合 == 期望表键集合` 断言兜底）。
  * `path` / `deepLink` 是本卡验收口径；`query` 写死的是「解析出来后真能用的参数」。
  */
@@ -210,7 +221,7 @@ test('deepLink 语义：none 不塞参数；detail 一定塞参数（含成本�
   // 这条名单已清空（最后两行 PAYROLL_* 改成了 `filter`）。再加新行时本断言会红 ——
   // 提醒你同时补「未注册路由」的反向检查（下一条用例）。
   const pageMissingKeys = (Object.keys(SOURCE_ROUTE_TABLE) as Array<keyof typeof SOURCE_ROUTE_TABLE>)
-    .filter((key) => SOURCE_ROUTE_TABLE[key].deepLink === 'page-missing')
+    .filter((key) => isPageMissing(SOURCE_ROUTE_TABLE[key].deepLink))
     .sort();
   assert.deepEqual(
     pageMissingKeys,
@@ -234,7 +245,7 @@ test('每个非空 path 都在 router/index.ts 注册；page-missing 的反之�
     if (!spec.path) {
       continue; // MANUAL：无目标页
     }
-    if (spec.deepLink === 'page-missing') {
+    if (isPageMissing(spec.deepLink)) {
       assert.equal(
         registered.has(spec.path),
         false,

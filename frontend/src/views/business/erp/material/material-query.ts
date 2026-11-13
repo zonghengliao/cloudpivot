@@ -236,6 +236,16 @@ export function unitNameOf(unitId: string | null | undefined, units: ReadonlyArr
 }
 
 /**
+ * {@link materialUnitLabel} 需要的最小形状。
+ *
+ * 两列都按「后端可能没给」声明（`unit_id?: string | null`）：`unit_name` 老实例没有，
+ * 而 `unit_id` 是弱引用 —— 单位被软删后名字查不到、行上也可能带回 `null`。
+ * 收成 `Pick<MaterialRow, …>` 会让「两列都没有」这个真实分支在类型层不可构造，
+ * 而函数体本来就把它交给 `unitNameOf` 兜成 `—`（与实现同口径）。
+ */
+type UnitLabelRow = { readonly unit_id?: string | null; readonly unit_name?: string | null };
+
+/**
  * 物料行的单位显示名（**约定 13**：`unit_id` 必须配 `*_name`）。
  *
  * 优先用后端 join 出来的 `unit_name`（E2E08-FIX-3：`MaterialRes` 已 LEFT JOIN
@@ -244,7 +254,7 @@ export function unitNameOf(unitId: string | null | undefined, units: ReadonlyArr
  * 所以列表页**不再依赖**「必须先把单位字典拉完才能显示单位列」。
  */
 export function materialUnitLabel(
-  row: Pick<MaterialRow, 'unit_id' | 'unit_name'>,
+  row: UnitLabelRow,
   units: ReadonlyArray<UnitRow>,
 ): string {
   const joined = row.unit_name?.trim();

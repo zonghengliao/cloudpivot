@@ -67,7 +67,14 @@ function order(overrides: Partial<SalesOrder> = {}): SalesOrder {
     delivery_date: null,
     status: 'DRAFT',
     status_label: '草稿',
+    currency_code: 'CNY',
+    // 建单时锁定的汇率（本位币单恒 1）
+    exchange_rate: '1.0000',
     total_amount: '200.0000',
+    // 本位币口径三列：CNY 单与 total_* 同值
+    base_total_amount: '200.0000',
+    base_total_tax: '26.0000',
+    base_total_with_tax: '226.0000',
     total_tax: '26.0000',
     total_with_tax: '226.0000',
     remark: null,

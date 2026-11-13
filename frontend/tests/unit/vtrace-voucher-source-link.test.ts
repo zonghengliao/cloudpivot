@@ -25,6 +25,17 @@ import {
 /** 一个形状合法的 uuid（无业务含义）。 */
 const ID = '018f3a52-0000-7000-8000-000000000001';
 
+/**
+ * 映射表的 `deepLink` 联合类型当前**不含** `page-missing`（最后一行已随 COST-B3-11 落地、改成 detail）。
+ * 守卫仍要保留：将来新增「目标页还没上线」的来源时直接用。为了不被联合类型收窄成 `never`，
+ * 判据按 `string` 比较 —— 与 `voucher-source-link.ts` 里 `(spec.deepLink as string) === 'page-missing'`
+ * 同一口径，这里用参数类型 `string` 表达，不做断言。
+ */
+function isPageMissing(deepLink: string): boolean {
+  return deepLink === 'page-missing';
+}
+
+
 test('采购入库凭证 → 收货入库单详情，链接带 in_id', () => {
   const cell = resolveSourceDocDisplay('STOCK_IN', ID, 'IN-20261101-0001');
   assert.equal(cell.status, 'link');
@@ -142,7 +153,7 @@ test('全表不变量：可跳 ⇔ 映射表有解，且 page-missing / MANUAL �
     assert.notEqual(cell.text, '', `${key}: 链接/文本文字不能为空`);
     assert.equal(
       cell.clickable,
-      spec.deepLink !== 'page-missing' && spec.by !== 'none',
+      !isPageMissing(spec.deepLink) && spec.by !== 'none',
       `${key}: 可跳性与映射表不一致（deepLink=${spec.deepLink}, by=${spec.by}）`,
     );
 
@@ -150,7 +161,7 @@ test('全表不变量：可跳 ⇔ 映射表有解，且 page-missing / MANUAL �
       assert.equal(cell.clickable, false, 'MANUAL 永远不可跳');
       assert.equal(cell.tip, MANUAL_NO_SOURCE_TIP);
     }
-    if (spec.deepLink === 'page-missing') {
+    if (isPageMissing(spec.deepLink)) {
       assert.equal(cell.clickable, false, `${key}: 页面未上线不能给链接`);
       assert.equal(cell.status, 'page-missing');
     }
@@ -166,7 +177,6 @@ test('可跳的目标页必须在 router/index.ts 注册过（手工注册，漏
   const keys = [...Object.keys(SOURCE_ROUTE_TABLE), ...EXTRA_VOUCHER_SOURCES];
 
   for (const key of keys) {
-    const spec = SOURCE_ROUTE_TABLE[key as keyof typeof SOURCE_ROUTE_TABLE];
     const cell = resolveSourceDocDisplay(key, ID, sampleNoOf(key));
     if (!cell.clickable || !cell.path) {
       continue;

@@ -219,13 +219,13 @@ test('失败原因码 / 三个动作码 / dry_run 缺省 true 与后端一致', 
     RUST_SEED.includes(`reason: Some("${SEED_FAILED_REASON}".to_string())`),
     '后端失败行的 reason 应为 CREATE_FAILED',
   );
-  for (const action of SEED_ACTIONS) {
-    // 后端用 `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`，枚举名是 Create/Skip/Failed
-    assert.ok(
-      RUST_SEED.includes('#[serde(rename_all = "SCREAMING_SNAKE_CASE")]'),
-      '动作码应是 SCREAMING_SNAKE_CASE',
-    );
-  }
+  // 后端用 `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`，枚举名是 Create/Skip/Failed。
+  // 这条查的是「源码里有这个注解」，与具体动作码无关 —— 原来包在 for 循环里，
+  // 循环变量 `action` 一次都没用到（同一断言重复了三遍）。
+  assert.ok(
+    RUST_SEED.includes('#[serde(rename_all = "SCREAMING_SNAKE_CASE")]'),
+    '动作码应是 SCREAMING_SNAKE_CASE',
+  );
   assert.deepEqual([...SEED_ACTIONS], ['CREATE', 'SKIP', 'FAILED']);
 
   // 缺省 dry-run：后端 `unwrap_or(true)` —— 不传参数绝不许写库

@@ -125,6 +125,13 @@ function makeReport(overrides: Partial<ExpenseReport> = {}): ExpenseReport {
     title: '差旅报销',
     expense_date: '2026-11-01',
     period_code: '2026-11',
+    // 费用归属期间（后端 `ExpenseReport.expense_period_code` 必填，与申报期间可不同）
+    expense_period_code: '2026-11',
+    // 核算期间（月度结账口径；未结账时为 null）
+    accounting_period_code: null,
+    // 预算：没编预算（黄标）与「超支」（红标）互斥；没被任何策略管过时 budget_mode 为 null
+    missing_budget: false,
+    budget_mode: null,
     total_amount: '6226.4200',
     total_tax: '373.5800',
     total_with_tax: '6600.0000',

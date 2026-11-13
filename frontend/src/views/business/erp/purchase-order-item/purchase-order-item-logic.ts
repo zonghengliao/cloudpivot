@@ -137,7 +137,7 @@ export function taxRateText(value: number | string | null | undefined): string {
  * 前端只显示事实，不做业务推断。
  */
 export function receivedText(
-  row: Pick<PurchaseOrderItemLine, 'received_qty' | 'qty'>,
+  row: Pick<PurchaseOrderItemLine, 'qty'> & { received_qty?: number | string | null },
 ): string {
   const received = decimalText(row.received_qty);
   const qty = decimalText(row.qty);

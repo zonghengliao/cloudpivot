@@ -3,7 +3,7 @@
 #
 #   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 迁移授权段角色码
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
-#                                       / cargo check / pnpm typecheck
+#                                       / cargo check / pnpm typecheck / pnpm typecheck:unit
 #   L2  连库与存量档（分钟级，需库）   ：闸⓪真库用例（CHECK_WITH_DB=1）/ 批次B 闸①闸②
 #                                       / 闸③ERP不变量 / 闸④词表 / 闸⑤快照 / 闸⑥死权限码 / 闸⑦孤儿按钮
 #   L3  干净检出闸（≈15 秒）          ：`git archive HEAD` 提取干净树 → 跑 lib 单测
@@ -79,9 +79,11 @@ plan_all() {
         plan L1 "后端 lint（lib+bin+tests+examples，告警即错）" "cd backend && cargo clippy --all-targets -- -D warnings"
         plan L1 "后端类型检查" "cd backend && cargo check"
         if [ -d "$ROOT/frontend/node_modules" ]; then
-            plan L1 "前端类型检查" "cd frontend && pnpm typecheck"
+            plan L1 "前端类型检查（src/**）" "cd frontend && pnpm typecheck"
+            plan L1 "前端类型检查（tests/unit/**，tsconfig.unit.json）" "cd frontend && pnpm typecheck:unit"
         else
             plan L1 "前端类型检查（缺 node_modules → 会跳过）" "cd frontend && pnpm typecheck"
+            plan L1 "前端单测类型检查（缺 node_modules → 会跳过）" "cd frontend && pnpm typecheck:unit"
         fi
     fi
     if want L2; then
@@ -128,7 +130,7 @@ run_l1() {
     echo "==> L1 后端：cargo check"
     (cd "$ROOT/backend" && cargo check)
 
-    echo "==> L1 前端：pnpm typecheck"
+    echo "==> L1 前端：pnpm typecheck（src/**）"
     # 干净克隆里没有 node_modules（.gitignore）；这时跳过而不是判红，
     # 否则「干净检出必红」，与本仓 2026-11-10 审查口径冲突（L3 闸同一条原理）。
     if [ ! -d "$ROOT/frontend/node_modules" ]; then
@@ -137,6 +139,10 @@ run_l1() {
         echo "  ℹ 本机没有 pnpm → 跳过前端类型检查（CI 会跑）"
     else
         (cd "$ROOT/frontend" && pnpm typecheck)
+        # 单测（tests/unit/**）单独一档：tsconfig.json 的 include 不含它，
+        # 而 tsx 运行时只剥类型 —— 不跑这一闸，单测里的类型错永远不会变红（卡 t_3cc6388b）。
+        echo "==> L1 前端：pnpm typecheck:unit（tests/unit/**）"
+        (cd "$ROOT/frontend" && pnpm typecheck:unit)
     fi
 }
 

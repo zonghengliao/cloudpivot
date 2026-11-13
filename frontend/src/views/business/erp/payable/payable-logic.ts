@@ -189,8 +189,14 @@ export function overdueText(row: Pick<PayableRow, 'status' | 'due_date'>, today:
  * 为什么不是「自己算一遍更保险」：库列是 P2-C1 过账时写的，`ck_biz_payable_unpaid`
  * 保证它与 `amount − paid_amount` 恒等；前端再算一遍只在脏数据时才有差别，
  * 那种情况应当**显示后端给的数**（对账以库为准），兜底只是防 `null`。
+ *
+ * 入参因此把 `unpaid_amount` 声明成可选可空：P2-C1 之前的存量行这一列就是
+ * `null`（也正是上面那条兜底存在的理由），收成 `Pick<PayableRow, …>` 会让这个
+ * 真实分支在类型层没法构造。
  */
-export function unpaidOf(row: Pick<PayableRow, 'amount' | 'paid_amount' | 'unpaid_amount'>): number {
+export function unpaidOf(
+  row: Pick<PayableRow, 'amount' | 'paid_amount'> & { unpaid_amount?: number | string | null },
+): number {
   if (row.unpaid_amount !== null && row.unpaid_amount !== undefined && row.unpaid_amount !== '') {
     return toNumber(row.unpaid_amount);
   }

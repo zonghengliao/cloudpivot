@@ -39,7 +39,6 @@ import {
   initialExpandedAccountIds,
   isAccountFiltered,
   toggleExpandedAccountId,
-  type AccountFilterState,
 } from '@/views/business/erp/account/account-tree';
 import {
   PERIOD_STATUS_OPTIONS,

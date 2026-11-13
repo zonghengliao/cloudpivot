@@ -68,6 +68,11 @@ function order(over: Partial<PurchaseOrderRow> = {}): PurchaseOrderRow {
     contract_no_snapshot: null,
     supplier_name: null,
     supplier_name_snapshot: null,
+    // P2-9 / DC-23：仓库名两列（列表读快照、详情读现值）
+    warehouse_name: '北京一号仓',
+    warehouse_name_snapshot: '北京一号仓',
+    project_id: null,
+    project_name: null,
     submitted_at: null,
     submitted_by: null,
     approved_at: null,

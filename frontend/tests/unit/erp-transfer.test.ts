@@ -15,6 +15,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { TransferStatus } from '@/api/business/erp';
 import {
   OVERDUE_DEFAULT_THRESHOLD_DAYS,
   SERIAL_OPTION_LIMIT,
@@ -395,7 +396,10 @@ test('⑥ 超期在途：开关 → 请求参数 / 矛盾组合永不产生 / �
   assert.equal('in_transit_overdue' in off, false, '关掉开关 = 后端「不筛」，不是「排除超期」');
 
   // 3) 穷举 (状态 × 开关)：矛盾组合一条都不许出现
-  for (const status of ['', ...TRANSFER_STATUSES]) {
+  // 元素类型显式标注：`['', ...TRANSFER_STATUSES]` 会被推宽成 string[]，
+  // 而筛选状态的类型是 `'' | TransferStatus`（穷举组合不能靠断言绕过去）
+  const statuses: Array<'' | TransferStatus> = ['', ...TRANSFER_STATUSES];
+  for (const status of statuses) {
     for (const flag of [true, false]) {
       const query = buildTransferQuery({ ...emptyTransferFilter(), status, in_transit_overdue: flag }, 1);
       const sent = query.in_transit_overdue;

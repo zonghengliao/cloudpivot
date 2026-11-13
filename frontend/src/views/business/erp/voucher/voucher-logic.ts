@@ -223,9 +223,15 @@ export function balanceCheck(
   };
 }
 
-/** {@link balanceCheck} 需要的最小形状（避免 import 整个 `VoucherDetail` 造成循环） */
+/**
+ * {@link balanceCheck} 需要的最小形状（避免 import 整个 `VoucherDetail` 造成循环）。
+ *
+ * `entries` 只取两个金额列：`balanceCheck` 只把它们交给 `sumEntries` 相加，
+ * 分录其余列（科目名、辅助核算…）一律不读。声明成完整 `VoucherEntryLine[]`
+ * 会让「只关心合计」的调用方（单测手搓三行小分录）被迫补齐 10 个无关列。
+ */
 interface VoucherDetailLike {
-  entries: VoucherEntryLine[];
+  entries: ReadonlyArray<Pick<VoucherEntryLine, 'debit_amount' | 'credit_amount'>>;
   entry_total_debit: number | string;
   entry_total_credit: number | string;
   total_debit: number | string;

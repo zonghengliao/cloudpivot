@@ -15,7 +15,6 @@ import assert from 'node:assert/strict';
 import {
   COST_PERIOD_PERMISSIONS,
   COST_PERIOD_STATUSES,
-  COST_PERIOD_STATUS_LABELS,
   LABOR_SOURCE_LABELS,
   REVERSE_KEYWORD,
   REVERSE_REASON_MIN,
@@ -168,7 +167,9 @@ test('结算前置未满足要说清「为什么」而不是把按钮藏掉', ()
   assert.match(settleBlockedHint('DRAFT'), /先提交审批/);
   assert.match(settleBlockedHint('CANCELLED'), /已作废/);
   assert.match(settleBlockedHint('SETTLED'), /红冲/);
-  assert.equal(settleBlockedHint('UNKNOWN'), '当前状态不能结算');
+  // 联合类型外的状态值只在运行期出现（后端加了状态、前端还没跟上）—— TS 层造不出来。
+  // 这里用 `null` 覆盖同一条兜底分支：函数末尾的「当前状态不能结算」。
+  assert.equal(settleBlockedHint(null), '当前状态不能结算');
 });
 
 test('「下一步」放行：① 要期间合法且未结账；② 永不阻断；③ 要批次', () => {

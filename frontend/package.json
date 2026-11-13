@@ -15,11 +15,12 @@
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "typecheck": "node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit",
+    "typecheck:unit": "node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js -p tsconfig.unit.json --noEmit",
     "test:e2e": "playwright test",
     "test:unit": "tsx --test \"tests/unit/**/*.test.ts\"",
     "test:e2e:report": "playwright show-report e2e-report",
     "check:palettes": "node scripts/check-palettes.mjs",
-    "check": "pnpm check:palettes && pnpm typecheck"
+    "check": "pnpm check:palettes && pnpm typecheck && pnpm typecheck:unit"
   },
   "dependencies": {
     "@vue-flow/background": "^1.3.2",

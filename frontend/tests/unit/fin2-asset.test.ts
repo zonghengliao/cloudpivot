@@ -83,7 +83,7 @@ import {
   categoryToForm,
   methodLabel,
 } from '@/views/business/erp/asset-category/category-logic';
-import type { AssetCategory, AssetDetail, AssetRow } from '@/api/business/erp/asset';
+import type { AssetCategory, AssetChange, AssetDetail, AssetRow } from '@/api/business/erp/asset';
 import type { DepBatch } from '@/api/business/erp/depreciation';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -647,7 +647,7 @@ test('changeSummary：状态留痕行（部门 / 使用人全 null）自动输�
 
 test('【E2E05-FIX-3】changeSummary：原地动作只列真正变了的字段，不出现「在役 → 在役」', () => {
   // 部门转移：部门变了，使用人与状态都没变（from == to）→ 只显示部门
-  const transfer = {
+  const transfer: AssetChange = {
     id: 'c2',
     change_type: 'TRANSFER',
     change_label: '部门转移',
@@ -664,7 +664,7 @@ test('【E2E05-FIX-3】changeSummary：原地动作只列真正变了的字段�
     operator_name: '管理员',
     remark: null,
     created_at: '2026-11-09T02:00:00Z',
-  } as AssetChange;
+  };
   assert.equal(changeSummary(transfer), '研发部 → 财务部');
 
   // 使用人变更：只有人变了 → 只显示人

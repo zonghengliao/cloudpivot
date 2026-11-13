@@ -137,6 +137,16 @@ function purchaseRow(overrides: Partial<PurchaseOrderRow> = {}): PurchaseOrderRo
     contract_no_snapshot: 'HT-20261102-000001',
     supplier_name: '北京钢材有限公司',
     supplier_name_snapshot: '北京钢材有限公司',
+    // P2-9 / DC-23：仓库名（列表读快照、详情读现值）—— 夹具按「列表里有名字」给真名
+    warehouse_name: '北京一号仓',
+    warehouse_name_snapshot: '北京一号仓',
+    // P2-8 / V0237：未归集项目（null = 未归集）
+    project_id: null,
+    project_name: null,
+    // P2-2 ①：草稿没提交过 ⇒ 三个信用列都是「未评估」口径
+    over_credit_limit: false,
+    credit_exposure: null,
+    credit_limit_snapshot: null,
     submitted_at: null,
     submitted_by: null,
     approved_at: null,

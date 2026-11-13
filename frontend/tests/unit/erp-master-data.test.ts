@@ -30,7 +30,6 @@ import {
   rateLabel,
   unitBaseNameOf,
   unitBaseLabel,
-  unitBaseTheme,
   UNIT_DOC_USAGE_HINT,
   unitDocUsageHint,
   unitFormFromRow,
