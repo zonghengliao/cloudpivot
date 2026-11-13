@@ -1,0 +1,90 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -16,7 +16,9 @@
+ ## 目录
+ ```
+ backend/src/
+-  system/   support/      # 两个业务容器：每模块 mod+handler+dto+model（不设 service 层）
++  system/   support/      # 底座两个容器：每模块 mod+handler+dto+model（不设 service 层）
++  business/               # 二开业务容器（与上面平级，不侵入底座）：erp / flow / task / impexp / im / pdf / hr …
++                          #   同样四件套；HR 见下方「人力资源模块（HR）口径」
+   middleware/ task/ utils/ shared/ bootstrap.rs
+   lib.rs                    # 启动链 App::new()?...scan().start()
+ frontend/src/
+@@ -41,6 +43,11 @@
+ bash scripts/build.sh           # 构建 release + 前端 dist
+ bash scripts/demo_seed.sh       # 一键灌演示数据（--clean 只删演示数据，--dry-run 只预演）
+ docker compose -f docker/docker-compose.yml up -d   # PG + Redis
++
++# 人力资源（HR）验收（演练库只建在 145；库名须含 drill/e2e/test，脚本自己 DROP）
++bash scripts/verify/hr/hr_49_release_drill.sh fresh   # 空库首启 + 克隆库升级 + 护栏反证
++bash scripts/verify/hr/hr_salary_e2e.sh --fresh       # 薪资链路 10 步（98 断言）
++bash scripts/verify/hr_invariants.sh                  # §4.9 的 10 条巡检断言（只读，可对生产跑）
+ ```
+ 
+ ## 必须遵守的约定
+@@ -49,7 +56,7 @@
+ 3. **依赖铁律**：`Cargo.toml` 只声明 `nik` 一个框架 crate（`nik-utils` 必要时可加）。**不出现** `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
+ 4. **feature 语义**：默认集是 `core`（非 `full`）。用数据库必须显式 `postgres`/`mysql`/`sqlite`（`db` 只表能力、不含驱动）。预设 `mini ⊂ lite ⊂ full`；常用 `lite`（= core+postgres+cache+plugin+fs-local）。点单 feature：`fs-local`/`fs-minio`、`xlsx`、`sse`、`metrics`、`template`、`xss`。
+ 5. **错误出口只有三个名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`。handler 内 `DbError/io::Error/nik_core::Error` 直接 `?`，**不要**写多余 `.map_err(ApiError::internal(...))`。
+-6. **迁移号段**（动手前先 `ls backend/migrations/*/` 核对）：基础版最大 `V0017`；版本 4 位补零，已应用迁移指纹校验、不可改。
++6. **迁移号段**（动手前先 `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3` 核对）：2026-11-13 已到 `V0403`；版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。
+ 7. **权限码** `{模块}:{资源}:{动作}`，与 `sys_menu.auth_code` 和 `#[nik::permission]` 声明一一对应；`SUPER_ADMIN` 短路全部校验。
+ 8. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册豁免前缀。
+ 9. **前端 API 路径必须写全 `/api/...`**（漏前缀会命中 SPA fallback 返回 HTML 导致"响应体格式不符合"）。
+@@ -65,7 +72,7 @@
+     - **禁止**把功能说明写进 `title`。反例：`即时 / 月末汇率维护 + 按月批量录入（ARCH-7 §15.6.3 ②）`（38 字，侧边栏直接换行）。
+     - 功能说明放 `description` 列 / `docs/` / 前端 tooltip。
+     - 同一父节点下 `sort_order` **必须唯一**（插菜单用 10 递增；插空用中间值如 15/25）。重复会导致侧边栏顺序每次刷新都变。
+-    - **完整规范见 `docs/编码规范.md` §1.6.1「菜单迁移规范」**；门禁由 `scripts/verify/menu_invariants.sh` 的 6 条断言兜底（含 title 长度 ≤12、同父 sort 唯一）。
++    - **完整规范见 `docs/编码规范.md` §1.6.1「菜单迁移规范」**；门禁由 `scripts/verify/menu_invariants.sh` 的 **8 条断言**兜底（① 孤儿 parent ② `/system/` 归属 ③ `/business/` 归属 ④ path 唯一 ⑤ 菜单总数 400–520 ⑥ title 长度 ≤12 ⑦ 同父 sort 唯一 ⑧ icon 名在 TDesign 图标库里真实存在）。
+     - **提交前自查**（两条都应为 0 行）：
+       ```sql
+       SELECT path, name, title, length(title) FROM sys_menu
+@@ -82,6 +89,33 @@
+       例：客户 / 物料 / 部门 / 凭证 —— 主数据改名后，单据显示新名才是对的。
+     - 反例（2026-11-08 发现）：附件表只存 `uploaded_by` 不存 `uploader_name` → 界面上直接显示 UUID。
+     - **防 N+1**：批量 join，不能每行查一次；DTO 里凡是 `*_id` 都要同时返回 `*_name`。
++14. **页面显形码与全量接口码分开 —— 别让「能进这一页」等于「能看全公司」**（HR 已试点，2026-11-13 定稿）。
++    - 页面行（`menu_type=2`）的 `auth_code` 是 `{模块}:{资源}:page`：只判侧栏显隐 + 前端路由 `meta.permission`，**后端零引用**（连常量都别定义，`permission_audit_tests` 的 N14/N18 会扫）。
++    - 全量列表接口的 `{模块}:{资源}:list` 挂在**按钮行**（`menu_type=3`），只交给那条接口。
++    - 员工只能看自己的数据时，用**登录即可**的自助接口 `/xx/my`（`#[nik::auth_only]` 显式声明，别写 `permission = ""`），不要用「全量接口 + 收窄参数」。
++    - 全文见 `docs/编码规范.md` §1.7.2 与 `docs/architecture/PERM-01-页面码与接口码解耦-决策.md`；ERP / 成本 / 系统模块尚未解耦，过渡期条款见该节末尾。
++
++## 人力资源模块（HR）口径（2026-11-13 定稿 · 50 张卡已收口）
++
++HR 是第一个完整业务模块（`backend/src/business/hr/`，75 个 `.rs` / 约 6.2 万行），改它之前先读
++`docs/architecture/ARCH-9-人力资源模块设计.md`（**已定稿，别重新设计**）；改代码看
++`docs/后端二开指南.md` §十七，改页面看 `docs/前端二开指南.md` §十一。
++
++**实测基数**（空库首启 335 条迁移后统计，可复核）：
++
++```
++10 张表 · 50 条路由（49 业务 + /health 探针）· 40 个权限码（5 页面 *:page + 35 按钮）
++41 行菜单（1 目录 + 5 页面 + 35 按钮，目录 sort_order=77）· 17 个薪资项（7 条公式）
++4 套审批流程（hr_leave / hr_salary / hr_salary_adjust / hr_employee_resign）· 错误码 68001~68012
++迁移 V0383 ~ V0403（15 条版本化 + 1 条种子 S__hr_employee_grants）
++```
++
++- **权限码 40 个**：`business:hr:{employee,contract,attendance,leave,salary,salary-item}:{page,list,create,update,delete,detail,sensitive,...}`，真源是迁移 `V0387` + `V0401`（页面码解耦）+ `V0400`/`V0403`（审批角色授权）。后端 `hr/handler.rs` 的 `ROUTE_CONTRACT` 是编译期契约表，新路由不登记会被单测判红。
++- **角色**：`HR_MANAGER`（人事经理，`data_scope=3` 本部门及下级）拿全 35 个按钮码；`FINANCE_MANAGER` 只拿薪资 4 码 + 1 页面；`DEPT_LEADER` / `EMPLOYEE` 只拿页面 + 自助码（`EMPLOYEE` 一个 `*:list` 都没有）。授权必须**无孤儿**：授按钮必授父页，授页面必授祖先目录。
++- **错误码段 `68001~68012`**（`shared/error_code.rs` 的 68xxx HR 段）：加新码从 `68013` 续，禁跨段复用。
++- **数据范围**：列表走 `scope::paginate`（`shared/scope.rs` 的 `SCOPED_TABLES` 登记 + `guard.rs` 条数断言）；单条入口同一份探针，不可见报 404（不是 403）。
++- **门禁/验收**（改权限或动业务后）：`cargo test --lib system::menu::permission_audit_tests` + `bash scripts/verify/menu_invariants.sh <库>` + `bash scripts/verify/hr/hr_permission_matrix.sh --fresh` + `bash scripts/verify/hr_invariants.sh`；上线前跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`，业务链路跑 `bash scripts/verify/hr/hr_salary_e2e.sh --fresh`。
++- **演练库只建在 145（`172.18.10.145`）**，99 是 Agent 主机；库名必须含 `drill`/`e2e`/`test`，脚本自己 DROP。
+ 
+ ## 高频踩坑（先读）
+ - 报表/接口不显示：先查前端 api 路径是否漏 `/api`。
+@@ -92,8 +126,9 @@
+ ## 详细文档（二开文档集，见 `docs/README.md` 总入口）
+ - `docs/README.md` — 二开文档集总入口（结构 / 设计亮点 / 前后端二开 / 编码规范 / AI 指引）
+ - `docs/项目结构与设计亮点.md` — 目录树、17 张表、NIK 设计亮点、部署模型
+-- `docs/后端二开指南.md` — 后端四件套模板、新增模块流程、迁移/事务/错误出口
+-- `docs/前端二开指南.md` — 前端 api/列表页/路由/主题二开
+-- `docs/编码规范.md` — 后端+前端编码规范与提交前检查
++- `docs/后端二开指南.md` — 后端四件套模板、新增模块流程、迁移/事务/错误出口、§十七 人力资源（HR）
++- `docs/前端二开指南.md` — 前端 api/列表页/路由/主题二开、§十一 HR 页面模板
++- `docs/编码规范.md` — 后端+前端编码规范与提交前检查（§1.6.1 菜单 / §1.7.2 页面码与接口码解耦）
+ - `docs/AI二开指引.md` — AI 二开强制约定、反魔幻清单、范本指针
++- `docs/architecture/ARCH-9-人力资源模块设计.md` — 人力资源（HR）定稿设计（改 HR 前必读）
+ - `skill/SKILL.md` — 本仓库 AI 知识包（浓缩速查）

@@ -24,6 +24,8 @@
 | [PDF下载按钮接入.md](./PDF下载按钮接入.md) | 前端 / AI | 单据「下载 PDF」按钮：为什么只能 `fetch` + Bearer（`window.open` 带不上头）、13 个入口的路径与权限码、文件名为什么只信 `filename*=`（ASCII 回退名会把中文打成 `____`）、403 文案与「不藏按钮」的理由、加新入口改哪 4 处、7 个坑（漏 `/api` 前缀命中 SPA fallback / TDesign 固定列 DOM 双份 / 首次进入遮罩 / 报表按钮默认禁用等） |
 | [配色方案.md](./配色方案.md) | 前端 / AI / 设计 | 6 套色板 × 明暗双模式：色值、色阶推导算法、对比度报告、如何新增第 7 套 |
 | [编码规范.md](./编码规范.md) | 所有人 / AI | 后端+前端强制规范、提交前检查命令 |
+| **[architecture/ARCH-9-人力资源模块设计.md](./architecture/ARCH-9-人力资源模块设计.md)** | 架构 / 后端 / 前端 / AI | **人力资源模块（HR）定稿设计**：10 张表 DDL（真库跑通）、业务规则（薪资公式 DSL / 考勤口径 / 工资凭证勾稽 / §4.9 的 10 条巡检断言）、50 条接口与 40 个权限码、5 个页面与关键交互、迁移号段（含四次撞号顺延的经过）、50 张卡的落地记录。**改 HR 任何东西前先读它** |
+| [architecture/PERM-01-页面码与接口码解耦-决策.md](./architecture/PERM-01-页面码与接口码解耦-决策.md) | 架构 / 后端 / 前端 / AI | **页面显形码 `*:page` 与全量接口码 `*:list` 为什么必须分开**、HR 试点的逐角色决策理由、其它模块的过渡期条款与解耦顺序 |
 | [architecture/流程画布-VueFlow迁移与清理计划.md](./architecture/流程画布-VueFlow迁移与清理计划.md) | 前端 / 架构 / 运维 / AI | 流程画布为什么换成 Vue Flow、引擎开关与三条回退方法、双引擎回归证据指针、老画布清理计划 |
 | [测试卫生-真库单测分库跑法.md](./测试卫生-真库单测分库跑法.md) | 后端 / AI | 真库 lib 单测**为什么必须按模块分库+分进程**跑（同库串跑会 60+ 条假红）、`scripts/verify/run_lib_tests_by_module.sh` 用法、`RUNS=2` 幂等性守门、写"全库口径"断言前的自查清单 |
 | [测试卫生-真库连库入口清单.md](./测试卫生-真库连库入口清单.md) | 后端 / AI | 全仓 43 处「读 `xxx_DB_URL` + `try_db().is_some()` 就复用全局 `db()`」的入口逐处判定：哪处可复用、哪处必须独占进程、统一收口建议与迁移顺序 |
@@ -101,18 +103,53 @@ cd frontend && pnpm typecheck
 
 ---
 
+## 二·补、人力资源模块（HR）速查
+
+HR 是**第一个完整落地的业务模块**（10 张表 / 50 条路由 / 40 个权限码 / 4 套审批流程，50 张卡全收口），
+也是读「一个模块怎么从 DDL 长到 E2E」的最佳样本。
+
+| 我要…… | 看哪里 |
+|---|---|
+| 改员工 / 合同 / 考勤 / 请假 / 薪资的**业务口径** | [architecture/ARCH-9-人力资源模块设计.md](./architecture/ARCH-9-人力资源模块设计.md)（§3 表 / §4 规则 / §5 接口 / §6 页面，**已定稿，别重新设计**） |
+| 改**代码**（改哪个文件、怎么加个子功能、踩过哪些坑） | [后端二开指南.md](./后端二开指南.md) §十七 · [前端二开指南.md](./前端二开指南.md) §十一 |
+| 改**权限码 / 菜单 / 谁看得到** | [编码规范.md](./编码规范.md) §1.6.1（菜单）+ §1.7.2（页面码 vs 接口码）+ [architecture/PERM-01-…-决策.md](./architecture/PERM-01-页面码与接口码解耦-决策.md) |
+
+**实测基数**（2026-11-13 空库首启 335 条迁移后统计，可复核：`hr_invariants.sh` 同库同口径）：
+
+```
+表 10 张 · 路由 50 条（49 业务 + /health 探针）· 权限码 40 个（5 页面 *:page + 35 按钮）
+菜单 41 行（1 目录 + 5 页面 + 35 按钮）· 薪资项 17 个（7 条公式）· 审批流程 4 套 · 错误码 68001~68012
+```
+
+```bash
+# ① 上线前必跑：空库首启 + 生产克隆库升级 + 老库升级（2211 翻末级）+ 护栏反证
+bash scripts/verify/hr/hr_49_release_drill.sh fresh    # all = 四个场景全跑（prod 场景需能 ssh 144）
+# ② 业务链路一条命令：建员工→考勤导入→请假→锁期间→试算→建单→审批→过账→红冲→对账（10 步 / 98 断言）
+bash scripts/verify/hr/hr_salary_e2e.sh --fresh
+# ③ 数据巡检：§4.9 的 10 条断言（8 BLOCKER + 2 WARN）+ 2 条观察项，只读，可对生产跑
+HR_DB_URL=postgres://... bash scripts/verify/hr_invariants.sh
+# ④ 权限矩阵：40 个权限码 × 6 个真实身份（真 HTTP，期望值由迁移文件解析，不手抄）
+bash scripts/verify/hr/hr_permission_matrix.sh --fresh
+```
+
+> ⚠ **演练库只建在 145（`172.18.10.145`）**，99 是 Agent 主机；库名必须含 `drill`/`e2e`/`test`，
+> 跑完自删。口径见 [运维规程-演练库与验收基线.md](./运维规程-演练库与验收基线.md)。
+
+---
+
 ## 三、核心约定速记（必须刻进肌肉记忆）
 
 1. **后端每模块四件套**：`mod.rs + handler.rs + dto.rs + model.rs`；业务编排在 `handler`，数据访问与领域行为在 `model`，**不设 service 层**。
 2. **二开业务放 `business/` 容器**：后端 `src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`，与 `system/`、`support/` 平级，**不侵入框架底座**。
 3. **依赖铁律**：`Cargo.toml` 只声明 `nik`（必要时 `nik-utils`）；**禁止**写 `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
 4. **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`；handler 内 `?` 直接传播，不要写多余 `.map_err(ApiError::internal(...))`。
-5. **迁移号段**：基础版最大 `V0017`；二开业务从 **`V0020`** 起编号（留 `V0018-19` 缓冲），4 位补零，已应用迁移指纹校验不可改。
+5. **迁移号段**：动手前**必须实测**当前最大号 —— `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3`（2026-11-13 已到 `V0403`）。版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。
 6. **权限码三段式** `{模块}:{资源}:{动作}`（如 `system:user:create`），与 `sys_menu.auth_code` 和 `#[nik::permission(...)]` 一一对应；`SUPER_ADMIN` 短路。
 7. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册免前缀。
 8. **前端 API 路径必须写全 `/api/...`**（漏前缀命中 SPA fallback 返回 HTML → “响应体格式不符合”）。
 9. **TDesign Grid 是 12 列制**：`t-col-xl-2`=一行 6 个、`-xl-3`=一行 4 个；`t-col-xs-24` 不存在（最大 `xs-12`）。
-10. **菜单迁移**：`sys_menu.title` 是**侧栏显示名**，只写 2-6 字名词短语（硬顶 12 字），禁止塞功能说明 / `ARCH-x §y` / 箭头流程；`name` 用短名；同父 `sort_order` 唯一（间隔 10 递增）。全文见 [编码规范.md](./编码规范.md) §1.6.1，改完跑 `bash scripts/verify/menu_invariants.sh <库>`（⑥ 长度 / ⑦ 同父 sort）。
+10. **菜单迁移**：`sys_menu.title` 是**侧栏显示名**，只写 2-6 字名词短语（硬顶 12 字），禁止塞功能说明 / `ARCH-x §y` / 箭头流程；`name` 用短名；同父 `sort_order` 唯一（间隔 10 递增）。全文见 [编码规范.md](./编码规范.md) §1.6.1，改完跑 `bash scripts/verify/menu_invariants.sh <库>`（8 条断言：孤儿 parent / `/system` 归属 / `/business` 归属 / path 唯一 / 总数 400-520 / title ≤12 / 同父 sort / icon 名合法）。
+11. **页面显形码与全量接口码分开**（HR 已试点，2026-11-13 定稿）：页面行（`menu_type=2`）的 `auth_code` 是 `{模块}:{资源}:page`，只判侧栏显隐与前端路由 `meta.permission`，**后端零引用**；全量列表接口的 `{模块}:{资源}:list` 挂在按钮行（`menu_type=3`）。自助入口走登录即可的 `/xx/my`，不要用「全量接口 + 收窄参数」。全文见 [编码规范.md](./编码规范.md) §1.7.2 与 [architecture/PERM-01-…-决策.md](./architecture/PERM-01-页面码与接口码解耦-决策.md)（ERP / 成本 / 系统模块尚未解耦，过渡期条款见该节末尾）。
 
 ---
 
