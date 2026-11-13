@@ -68,6 +68,34 @@ const ROUTE_LEVEL_ONLY: &[(&str, &str)] = &[
     // ---- 佣金两页的 7 个权限码（V0310 预种）已全部落地，例外台账清空 ----
     // SO-36 落地 commission-settle:{create,list,status}，SO-36b 落地
     // commission-rule:{list,create,update,delete}，落地即删本例外（N18 持续校验台账）。
+    // ------------------------------------------------------------------
+    // 页面显形码 `*:page`（V0401 起，卡 t_0af7ec46）：**设计上就只由前端路由拦**。
+    //
+    // 它们与 `*:list`（全量列表接口码）**刻意分开**：页面上那一行 `sys_menu.menu_type=2`
+    // 挂 `:page`（侧边栏显隐 + `router/index.ts` 的 meta.permission），接口挂 `:list`。
+    // 把二者绑在一起的老口径（页面码复用成全量接口码）会让「授页面 ⇒ 顺带授全量」，
+    // HR 模块上实测员工能拉全公司工资单。所以这里**必须**保持「后端 0 引用」：
+    // 一旦某个 handler 拿 `:page` 去判权，本例外就会被 N18 判过期，逼你回来说明理由。
+    (
+        "business:hr:employee:page",
+        "页面显形码（V0401）：员工档案页；后端按 employee:list 判全量列表，本码只给前端路由。",
+    ),
+    (
+        "business:hr:attendance:page",
+        "页面显形码（V0401）：考勤管理页；后端按 attendance:list 判全量列表，本码只给前端路由。",
+    ),
+    (
+        "business:hr:leave:page",
+        "页面显形码（V0401）：请假单页；员工自助靠它进页 + 走 /leave/my，不持有 leave:list。",
+    ),
+    (
+        "business:hr:salary:page",
+        "页面显形码（V0401）：薪资管理页；员工自助靠它进页 + 走 /salary/my，不持有 salary:list。",
+    ),
+    (
+        "business:hr:salary-item:page",
+        "页面显形码（V0401）：薪资项页；后端按 salary-item:list 判全量列表，本码只给前端路由。",
+    ),
 ];
 
 /// **已种菜单、后端校验点尚未落地**的权限码 → 落地它的卡（临时例外，落地即删）。

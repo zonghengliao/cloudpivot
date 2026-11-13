@@ -7,21 +7,27 @@
  *
  * | # | 方法 | 路径 | 权限码 | 页面用在哪 |
  * |:--:|---|---|---|---|
- * | 26 | GET  | `/leave/page` | `business:hr:leave:list` | 列表 + 「我的请假」tab（`mine=true`） |
+ * | 26 | GET  | `/leave/page` | `business:hr:leave:list` | 「全部请假」tab（`mine=true` 只在有 list 码时用） |
  * | 27 | GET  | `/leave/{id}` | `business:hr:leave:detail` | 详情抽屉（单据 + 审批轨迹） |
  * | 28 | POST | `/leave` | `business:hr:leave:create` | 新建（恒为 `DRAFT`） |
  * | 29 | PUT  | `/leave/{id}` | `business:hr:leave:update` | 改草稿（部分更新） |
  * | 30 | POST | `/leave/{id}/submit` | `business:hr:leave:submit` | 提交审批（起 `hr_leave` 实例） |
  * | 31 | POST | `/leave/{id}/cancel` | `business:hr:leave:cancel` | 删除 / 撤回 / 销假（一条路径三件事） |
+ * | 47 | GET  | `/leave/my` | **登录即可**（`#[nik::auth_only]`） | 「我的请假」tab（员工自助） |
  *
  * # 路径必须写全 `/api`
  *
  * 后端注解不含前缀（`[router].prefix` 注入）；漏了会命中 SPA fallback 返回 HTML，
  * 报「响应体格式不符合」——本仓最高频的前端踩坑。
  *
- * # 「我的请假」不新增接口
+ * # 「我的请假」为什么有两个来源（卡 t_0af7ec46 解耦后）
  *
- * 设计 §6.1：`GET /leave/page?mine=true`。`/leave/my` 随 **HR-41** 落，本卡不造它。
+ * 解耦前页面码兼作 `leave:list`，所以「我的」tab 用 `/leave/page?mine=true` 就够了。
+ * `V0401` 之后员工只有 `leave:page` + `leave:create`，`/leave/page` 对他 403 ——
+ * 于是「我的」tab 按**有没有 `leave:list`** 分流：
+ *
+ * * 有 `leave:list`（人事 / 超管）：仍走 `/leave/page?mine=true`（能连带看到自己的审批态）；
+ * * 没有（员工自助）：走 `/leave/my`（登录即可、只出本人，`MyLeaveRow` 投影）。
  */
 
 import { get, post, put, type PageData } from '@/api/request';
@@ -34,6 +40,7 @@ import type {
   LeavePageQuery,
   LeaveSubmitPayload,
   LeaveUpdatePayload,
+  MyLeaveRow,
 } from './leave-kinds';
 
 export * from './leave-kinds';
@@ -61,12 +68,24 @@ function asParams(query: LeavePageQuery): Record<string, unknown> {
 /**
  * 请假单分页（`GET /leave/page`，权限 `business:hr:leave:list`）。
  *
- * 「全部请假」与「我的请假」都走它 —— 差别只是 `query.mine`。两条独立的请求函数会让
- * 「我的」tab 漏传 `mine` 时静默显示全员数据，所以只留一个入口（页面传
- * `buildLeaveQuery(filter, page, size, tabIsMine(tab))`）。
+ * 「全部请假」必有它；「我的请假」只在**持有 `leave:list`** 时才走它（带 `mine=true`）。
+ * 没有 list 码的人请用 {@link fetchMyLeaves}（`/leave/my`，登录即可）——
+ * 否则会拿到 403（解耦后员工自助的真实形状，见文件头）。
  */
 export function fetchLeavePage(query: LeavePageQuery = {}): Promise<PageData<LeaveListRow>> {
   return get<PageData<LeaveListRow>>(`${BASE}/leave/page`, asParams(query));
+}
+
+/**
+ * 我的请假（`GET /leave/my`，**登录即可**，只出本人）。
+ *
+ * 出参是**自助投影** `MyLeaveRow`（不含员工/部门快照，不含审批实例 id）——
+ * 用 `myLeaveToListRow` 转成列表行后与「全部请假」共用同一张表。
+ *
+ * 员工自助在解耦后的唯一入口：他不再持有 `leave:list`，`/leave/page` 会 403。
+ */
+export function fetchMyLeaves(query: { page?: number; page_size?: number } = {}): Promise<PageData<MyLeaveRow>> {
+  return get<PageData<MyLeaveRow>>(`${BASE}/leave/my`, asParams(query));
 }
 
 /** 请假单详情（单据 + 审批实例时间线），权限 `business:hr:leave:detail` */

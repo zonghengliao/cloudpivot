@@ -708,7 +708,8 @@ test('router 注册了 /business/hr/salary-item（漏了 = 点菜单 404）', ()
   const router = readFrontend('router/index.ts');
   assert.ok(router.includes("path: 'business/hr/salary-item'"), 'router 没注册薪资项路由');
   assert.ok(router.includes("'@/views/business/hr/salary-item/index.vue'"), '路由组件路径不对');
-  assert.ok(router.includes("permission: 'business:hr:salary-item:list'"), '路由权限码不对');
+  // 页面显形码（V0401 解耦）：路由只判 `*:page`
+  assert.ok(router.includes("permission: 'business:hr:salary-item:page'"), '路由权限码不对');
 });
 
 test('菜单种子 / 权限码与 V0387 一致（页面能用得上这 3 个码）', () => {

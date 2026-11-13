@@ -918,11 +918,22 @@ export function approvalTaskTheme(code: string | null | undefined): 'default' | 
   }
 }
 
-// ==================== 权限码（与 `V0387__hr_menu_perms` 逐字一致） ====================
+// ==================== 权限码（与 `V0387` + `V0401__hr_page_code_split` 逐字一致） ====================
 
-/** 本页权限码 */
+/**
+ * 本页权限码。
+ *
+ * # 页面码 ≠ 接口码（卡 t_0af7ec46 解耦后）
+ *
+ * `page` 是**页面显形码**（`sys_menu.menu_type=2` 那一行），只决定「侧边栏显不显示 /
+ * 路由放不放行」；`list` 是**全量列表接口**的码（`GET /leave/page`），`detail` 是详情接口的码。
+ * 员工自助只持有 `page` + `create` ⇒ 页能进、但 `/leave/page` 403，自己的请假走
+ * `/leave/my`（登录即可）。
+ */
 export const LEAVE_PERMS = {
-  /** 页面外壳 + 列表接口 */
+  /** 页面显形码：进页面（V0401 起由页面行承载，与接口码分开授予） */
+  page: 'business:hr:leave:page',
+  /** 全量请假列表接口（`GET /leave/page`，按数据权限出全员） */
   list: 'business:hr:leave:list',
   detail: 'business:hr:leave:detail',
   create: 'business:hr:leave:create',
@@ -931,3 +942,75 @@ export const LEAVE_PERMS = {
   submit: 'business:hr:leave:submit',
   cancel: 'business:hr:leave:cancel',
 } as const;
+
+/**
+ * 「我的请假」一行（`GET /leave/my` 的自助投影，后端 `self_service_dto::MyLeaveRes`）。
+ *
+ * 与 `LeaveListRow` 的差别就是「谁的信息」：这里**只有本人**，所以没有员工/部门快照，
+ * 也没有审批实例 id 与 `locked`（改单编排态属 HR 视角）。
+ */
+export interface MyLeaveRow {
+  id: string;
+  /** 单号 `LV-yyyyMMdd-000001`（服务端取号） */
+  leave_no: string;
+  leave_type: string;
+  leave_type_label: string;
+  start_time: string;
+  end_time: string;
+  /** 天数（`Decimal` → 字符串，如 `"1.50"`） */
+  duration_days: string;
+  /** 是否带薪（后端是布尔，列表行用 0/1） */
+  paid: boolean;
+  status: string;
+  status_label: string;
+  reason: string | null;
+  submitted_at: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+}
+
+/**
+ * 「我的请假」一行（`GET /leave/my` 的自助投影）→ 列表行。
+ *
+ * # 为什么要这一层映射
+ *
+ * 解耦后没有 `leave:list` 的人（员工自助）不能再调 `/leave/page`（403），「我的请假」
+ * tab 改调 `/leave/my`。自助投影**故意不带**员工/部门快照（只出本人，没有「别人的名字」
+ * 可显示），所以这里把 `paid` 从布尔转成列表用的 0/1、把缺失的快照字段留空 ——
+ * 界面在缺少 `leave:list` 时会隐藏「员工 / 部门」两列（见页面 `columns`）。
+ */
+export function myLeaveToListRow(row: MyLeaveRow): LeaveListRow {
+  const paid = row.paid ? 1 : 0;
+  return {
+    id: row.id,
+    leave_no: row.leave_no,
+    employee_id: '',
+    employee_no: '',
+    employee_name: '',
+    dept_id: null,
+    dept_name: '',
+    leave_type: row.leave_type,
+    leave_type_label: row.leave_type_label,
+    start_time: row.start_time,
+    end_time: row.end_time,
+    duration_days: String(row.duration_days),
+    paid,
+    paid_label: paidLabel(paid),
+    status: row.status,
+    status_label: row.status_label,
+    // 自助接口不下发 locked（那是「谁改过」的编排态），本人自己的单按状态判动作即可
+    locked: false,
+    reason: row.reason,
+    approval_instance_id: null,
+    submitted_at: row.submitted_at,
+    submitted_by: null,
+    submitted_by_name: null,
+    cancelled_at: row.cancelled_at,
+    cancelled_by: null,
+    cancelled_by_name: null,
+    cancel_reason: row.cancel_reason,
+    remark: null,
+    created_at: row.submitted_at ?? '',
+    updated_at: row.submitted_at ?? '',
+  };
+}

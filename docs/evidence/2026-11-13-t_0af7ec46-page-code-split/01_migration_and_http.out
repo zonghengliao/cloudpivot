@@ -1,0 +1,91 @@
+=== 01 空库首启：迁移回放 + 真 HTTP 报文（卡 t_0af7ec46）===
+库：hr47_drill_pagecode_1113123018（145 / 172.18.10.145，hr_permission_matrix.sh --fresh 新建的空库）
+实例：127.0.0.1:18147（矩阵脚本）/ 127.0.0.1:18148（本证据脚本），二进制 backend/target/debug/cloudpivot
+
+--- 1.1 启动日志里 V0401 的落地记录（applied_seq 321，先于并行卡片的 V0402/V0403）---
+[2m2026-11-13T04:30:21.866926Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'hr_page_code_split', '401', '76685113e4cf2741e84c5d49a79801d8a0e44f2fc8d69c59f53b103858ddd1f2', 'executed', 1794544221, 321
+[2m2026-11-13T04:30:21.866794Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0401：页面码已解耦 5 行（`*:page`），全量列表码 5 行（`*:list` 按钮）；EMPLOYEE 持有 0 个
+
+--- 1.2 回放规模（schema_migrations）与 HR 码形态 ---
+kind    | count 
+-----------+-------
+ seed      |    12
+ versioned |   323
+(2 rows)
+business_hr_codes | page_codes | list_button_rows 
+-------------------+------------+------------------
+                40 |          5 |                5
+(1 row)
+
+--- 1.3 真 HTTP（员工自助 / 人事经理 / 未登录）---
+===== 1. 令牌里的权限集合（/auth/me）=====
+--- EMPLOYEE ---
+  business:attachment:list
+  business:attachment:upload
+  business:erp:expense-type:list
+  business:erp:expense:create
+  business:erp:expense:delete
+  business:erp:expense:detail
+  business:erp:expense:list
+  business:erp:expense:submit
+  business:erp:expense:update
+  business:flow:instance:read
+  business:flow:read
+  business:hr:leave:create
+  business:hr:leave:page
+  business:hr:salary:my
+  business:hr:salary:page
+  business:project:create
+  business:project:read
+  business:task:create
+  business:task:delete
+  business:task:progress
+  business:task:read
+  business:task:status
+  business:task:subtask
+  business:task:update
+  support:invariant:list
+  system:preference:view
+--- HR_MANAGER（只看 business:hr:*:list 与 *:page）---
+  business:hr:attendance:list
+  business:hr:attendance:page
+  business:hr:employee:list
+  business:hr:employee:page
+  business:hr:leave:list
+  business:hr:leave:page
+  business:hr:salary-item:list
+  business:hr:salary-item:page
+  business:hr:salary:list
+  business:hr:salary:page
+  support:invariant:list
+
+===== 2. 员工自助打「全量列表」入口（期望 403，且报文点名缺哪个码）=====
+  /api/business/hr/leave/page                HTTP 403  无权限访问，需要权限: business:hr:leave:list
+  /api/business/hr/salary/page               HTTP 403  无权限访问，需要权限: business:hr:salary:list
+  /api/business/hr/employee/page             HTTP 403  无权限访问，需要权限: business:hr:employee:list
+  /api/business/hr/attendance/page           HTTP 404  请求的资源不存在
+
+===== 3. 员工自己的数据（期望 200 且只出本人）=====
+--- GET /api/business/hr/leave/my ---
+{"total":1,"employee_nos":[null]}
+  HTTP=200
+--- GET /api/business/hr/salary/my ---
+  HTTP=200
+
+===== 4. 人事经理仍要看得到全量（解耦不许把经理一起收窄）=====
+--- /api/business/hr/leave/page ---
+{"total":2}
+--- /api/business/hr/salary/page ---
+{"total":1}
+--- /api/business/hr/employee/page ---
+===== 4'. 人事经理 /employee/page（全量）=====
+{"total":3}
+===== 2'. 员工打考勤台账页（真实路径 /attendance/record/page）=====
+{"code":403,"msg":"无权限访问，需要权限: business:hr:attendance:record"}
+HTTP=403
+===== 5. 未登录（期望 401）=====
+  /leave/my 无令牌 HTTP=401
+  /salary/page 无令牌 HTTP=401
+
+注：第 2 节里 /attendance/page 是脚本写错的路径（真实路由是 /attendance/record/page），
+    两者对员工都是 403；404 只说明路径不存在，与权限无关。第 2' 节是修正后的路径。

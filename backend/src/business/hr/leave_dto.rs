@@ -94,16 +94,17 @@ pub const STATUS_CANCELLED: &str = "CANCELLED";
 /// 四个状态值（顺序 = 状态机正向顺序，与 `state_machine::LEAVE_EDGES` 的域一致）。
 pub const STATUS_VALUES: [&str; 4] = [STATUS_DRAFT, STATUS_SUBMITTED, STATUS_APPROVED, STATUS_CANCELLED];
 
-/// 「能看**别人的**请假单」的那道闸（= 详情接口的码，`V0387` 已种给 HR_MANAGER / DEPT_LEADER）。
+/// 请假单**详情**接口的码（`GET /business/hr/leave/{id}`）。
 ///
-/// # 为什么列表要用别人（详情）的码来做闸
+/// 语义就是「能打开一张别人的请假单」，因此它同时是「能否看全员请假」的判据来源。
 ///
-/// 列表接口自己的码 `business:hr:leave:list` **兼作页面码**：`V0387` 把「请假单页」
-/// 授给 `EMPLOYEE`（好让「我的请假」tab 显形），页面行的 `auth_code` 就是它。
-/// 因此「持有 `leave:list`」**不能**证明「可以看全员请假」——员工也持有。
+/// # 与页面码的关系（卡 t_0af7ec46 解耦后）
 ///
-/// 唯一的诚实判据是「有没有看别人单据的能力」，也就是 `leave:detail`。
-/// 缺它时列表强制 `mine=true`（只出本人，见 `leave_handler::leave_page`）。
+/// `business:hr:leave:list`（全量列表）与 `business:hr:leave:page`（页面显形）已分成两个码
+/// （迁移 `V0401`）：页面码只在 `sys_menu` 的页面行上，员工自助持有它**不再**意味着持有
+/// 全量列表码。所以列表接口**不需要**再用 `leave:detail` 做第二道数据闸
+/// （`t_be54535c` 的 `scope_to_self_without_detail` 已删除）；员工的自助入口是
+/// `/business/hr/leave/my`（登录即可、只出本人）。
 pub const PERM_LEAVE_DETAIL: &str = "business:hr:leave:detail";
 
 /// 状态中文名（列表 / 回执的 `status_label`，文案与设计 §6 的页面一致）。

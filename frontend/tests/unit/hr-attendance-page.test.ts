@@ -642,7 +642,8 @@ test('export columns mirror EXPORT_HEADERS in the backend', () => {
 test('router registers the attendance page', () => {
   assert.ok(ROUTER.includes("path: 'business/hr/attendance'"), '考勤路由没注册');
   assert.ok(ROUTER.includes('business/hr/attendance/index.vue'), '路由组件路径不对');
-  assert.ok(ROUTER.includes("permission: 'business:hr:attendance:list'"), '路由权限码不对');
+  // 页面显形码（V0401 解耦）：路由只判 `*:page`
+  assert.ok(ROUTER.includes("permission: 'business:hr:attendance:page'"), '路由权限码不对');
 });
 
 // ==================== 样例 ====================

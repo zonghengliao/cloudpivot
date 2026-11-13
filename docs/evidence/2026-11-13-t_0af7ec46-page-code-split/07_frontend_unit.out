@@ -1,0 +1,36 @@
+=== 07 前端单测（tsx --test，卡 t_0af7ec46）===
+
+--- 7.1 全量：tests/unit/**/*.test.ts ---
+原始输出共 10480 行 / 385680 字节（TAP 逐条），此处只留汇总与尾部；
+需要全量时按 `cd frontend && npx tsx --test "tests/unit/**/*.test.ts"` 重跑（本机 ~12s）。
+# tests 1745
+# suites 0
+# pass 1745
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11893.219317
+
+--- 7.2 与本卡直接相关的 5 个 HR 页面用例（路由 meta 判据 / tab 显隐 / 权限码镜像）---
+命令：cd frontend && npx tsx --test tests/unit/hr-{salary-list,leave-page,employee-page,attendance-page,salary-item-page}.test.ts
+# tests 158
+# suites 0
+# pass 158
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 517.60774
+
+--- 7.3 尾部（最后一条 = HR 薪资列表路由用例：permission = business:hr:salary:page）---
+  ...
+1..1745
+# tests 1745
+# suites 0
+# pass 1745
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11893.219317

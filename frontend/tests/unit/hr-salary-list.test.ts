@@ -85,6 +85,7 @@ const DTO = readBackend('salary_sheet_dto.rs');
 const HANDLER = readBackend('handler.rs');
 const SELF_SERVICE_DTO = readBackend('self_service_dto.rs');
 const V0387 = readMigration('V0387__hr_menu_perms.up.sql');
+const V0401 = readMigration('V0401__hr_page_code_split.up.sql');
 const V0383 = readMigration('V0383__hr_tables.up.sql');
 const API = readFrontend('api/business/hr/salary.ts');
 const PAGE = readFrontend('views/business/hr/salary/index.vue');
@@ -525,8 +526,18 @@ test('路由：注册了 /business/hr/salary，component 与 sys_menu.component 
     ROUTER.indexOf("path: 'business/hr/salary',") < ROUTER.indexOf("path: 'business/hr/salary/:id'"),
     '列表路由应排在参数路由之前（读代码的人先看到入口）',
   );
+  // 页面显形码（V0401 解耦，卡 t_0af7ec46）：路由 meta 只判 `*:page`（进得来），
+  // 「薪资单」tab 与 `/salary/page` 另判 `salary:list`。两者分开授予 —— 员工只有
+  // `salary:page` + `salary:my`，所以路由判 `*:list` 会把员工挡在页外（连自己的
+  // 「我的薪资」tab 都进不去）。V0401 必须真的把 e004 这行改成了 `:page`。
   assert.ok(
-    ROUTER.includes("permission: 'business:hr:salary:list'"),
-    '列表页路由的权限码必须是 salary:list（V0387 的页面行）',
+    ROUTER.includes("permission: 'business:hr:salary:page'"),
+    '列表页路由的权限码必须是 salary:page（V0401 之后的页面显形码）',
+  );
+  assert.ok(
+    /UPDATE\s+sys_menu\s+SET\s+auth_code\s*=\s*'business:hr:salary:page'[^;]*20000000-0000-4000-8000-00000000e004/s.test(
+      V0401,
+    ),
+    'V0401 没有把薪资管理页面行（…e004）改成 business:hr:salary:page',
   );
 });

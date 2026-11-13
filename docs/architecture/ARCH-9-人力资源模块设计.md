@@ -677,15 +677,17 @@ SELECT v.t, v.n, v.p, v.d, CASE WHEN v.d = 'none' THEN 'GLOBAL' ELSE '' END, 0, 
 > | `GET /business/hr/salary/page` | 200 + **全公司薪资单**（应发/代扣/实发/人数） | `salary_sheet_handler::ensure_full_list`：另要 `business:hr:salary:detail`，缺则 403 并引导 `/salary/my` |
 > | `GET /business/hr/leave/page` | 200 + **本人 + 同部门同事**的请假单（假别/事由） | `leave_handler` ：缺 `business:hr:leave:detail` 时**强制 `mine=true`**（不是 403，理由见 §5.2 的落地记录） |
 >
-> 口径（三条，后续模块照此办理）：
+> 口径（**2026-11-13 起，卡 t_0af7ec46 已根治**；本段保留历史与迁移记录）：
 >
-> 1. **页面码 ≠ 全量数据权**：凡「页面行 `auth_code` 同时是接口码」的接口，handler 必须再加
->    一道**数据闸**（要么要求 `*:detail`，要么把范围收窄到本人），不靠数据范围兜底；
-> 2. **自助路径必须显式声明「登录即可」**：`#[nik::auth_only(path = …, method = …)]`。
+> 1. **页面显形码与全量接口码已解耦**：`V0401` 把 5 个页面行改名成 `*:page`（只给前端路由），
+>    `*:list` 挪到 `menu_type=3` 的按钮行、只给全量列表接口。员工自助只持 `:page` + 自助码
+>    ⇒ `/xx/page` 由**框架路由闸**直接 403，自助走 `/xx/my`（`/leave/my` 登录即可）。
+>    决策全文：`docs/architecture/PERM-01-页面码与接口码解耦-决策.md`。
+> 2. **两处人肉闸已删除**（曾经是过渡期承重墙）：`salary_sheet_handler::ensure_full_list`、
+>    `leave_handler::scope_to_self_without_detail`。若回滚 `V0401`，必须同时把它们加回来。
+> 3. **自助路径必须显式声明「登录即可」**：`#[nik::auth_only(path = …, method = …)]`。
 >    只写 `#[nik::get]` 时该路径在权限规则表里没有行，会被同前缀模板规则（`/leave/{id}`）
->    以 score 2 命中 —— 唯一该用它的角色反而 403（实测 EMPLOYEE 调 `/leave/my`）;
-> 3. 想彻底解耦得让页面行用独立码（`*:page`），那要改**所有模块**的菜单种子与前端 meta，
->    属平台级治理项；一期不改契约，用上面两条把风险关住。
+>    以 score 2 命中 —— 唯一该用它的角色反而 403（实测 EMPLOYEE 调 `/leave/my`）。
 
 #### ⑤ `sys_role`：HR_MANAGER
 
@@ -1504,14 +1506,18 @@ COMMIT
 |---|---|---|
 | 我的档案 | 员工档案页，无 `business:hr:employee:list` 码时自动只显示"我的档案"tab | `GET /employee/{my_employee_id}`（后端按 `employee.user_id = 我` 解析） |
 | 我的考勤 | 考勤页 tab | `GET /attendance/my` |
-| 我的请假 | 请假页 tab | `GET /leave/page?mine=true`（契约里的 `GET /leave/my` 同口径；本页复用列表接口的 `mine` 分支） |
+| 我的请假 | 请假页 tab | 持 `leave:list` → `GET /leave/page?mine=true`；否则 `GET /leave/my` | 见下方解耦说明 |
 | 我的薪资 | 薪资页 tab（或顶栏头像菜单） | `GET /salary/my` |
 
-> ⚠ **tab 显形用的是页面码，数据权必须另算**（卡 t_be54535c）：
-> 「我的请假」tab 用 `business:hr:leave:list` 显形（= 请假单页的 `auth_code`），但员工**没有**
-> `leave:detail` ⇒ 后端把 `/leave/page` 强制收窄成 `mine=true`；「我的薪资」tab 用
-> `business:hr:salary:list` 显形，但 `/salary/page` 对缺 `salary:detail` 的调用方 403。
-> 前端**不要**因为「有页面码」就去调全量列表接口。
+> ⚠ **tab 显形与数据权不是同一件事**（卡 t_be54535c 提出，t_0af7ec46 用解耦根治）：
+>
+> | tab | 显隐/进页判据 | 数据来源 | 说明 |
+> |---|---|---|---|
+> | 我的请假 | 页面码 `leave:page`（进得来即可） | 持 `leave:list` → `/leave/page?mine=true`；否则 `/leave/my` | `/leave/my` 登录即可、只出本人 |
+> | 我的薪资 | 页面码 `salary:page` | `/salary/my`（要 `salary:my`） | 全量 `/salary/page` 需 `salary:list`，员工没有 |
+>
+> 前端**不要**因为「有页面码」就去调全量列表接口：`V0401` 之后页面码不再带来 `*:list`，
+> 全量接口对员工是 403（这正是设计意图）。
 
 理由：一期不为自助单独做 4 个页面（菜单项会从 19 涨到 26，侧边栏更挤）；tab 形态对"一个月看一次工资"的场景完全够用；二期待确认（Q6）是否给员工独立门户。
 

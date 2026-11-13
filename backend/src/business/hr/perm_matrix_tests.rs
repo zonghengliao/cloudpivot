@@ -1,4 +1,5 @@
-//! 人力资源权限矩阵的**静态契约**（HR-47）：30 个按钮码 + 5 个页面 list 码 × 6 个角色。
+//! 人力资源权限矩阵的**静态契约**（HR-47 + 解耦 t_0af7ec46）：
+//! 30 个业务按钮码 + 5 个页面显形码（`*:page`）+ 5 个全量列表码（`*:list`）× 6 个角色。
 //!
 //! # 这份测试守的是什么
 //!
@@ -34,17 +35,24 @@ const SEED_EMP: &str = include_str!("../../../migrations/seed/S__hr_employee_gra
 /// 菜单行：`(id, menu_type, auth_code)`；目录的 `auth_code` 为 `""`。
 type Menu = (&'static str, u8, &'static str);
 
-/// 36 行菜单（1 目录 + 5 页面 + 30 按钮），顺序与设计 §3.2 ④ 一致。
-const MENUS: [Menu; 36] = [
+/// 41 行菜单 = 1 目录 + 5 页面（`*:page`）+ 30 业务按钮 + 5 全量列表按钮（`*:list`）。
+///
+/// # 与 `V0387` 原表的差别（卡 t_0af7ec46 / 迁移 `V0401`）
+///
+/// `V0387` 当初把 5 个页面行直接挂在 `*:list` 上（页面码兼作全量接口码）。`V0401` 把
+/// 页面行原地改名成 `*:page`（id 不动 ⇒ 授权不丢），并把 `*:list` 挪到 5 个新按钮行
+/// （`…e061`~`…e065`，`menu_type=3`）。所以本表描述的是**解耦后**的最终形态；
+/// `V0387` 原文仍由下方 `array_block` / `ids_of` 逐条核对（历史迁移不可改）。
+const MENUS: [Menu; 41] = [
     ("20000000-0000-4000-8000-00000000e000", 1, ""),
-    ("20000000-0000-4000-8000-00000000e001", 2, "business:hr:employee:list"),
-    ("20000000-0000-4000-8000-00000000e002", 2, "business:hr:attendance:list"),
-    ("20000000-0000-4000-8000-00000000e003", 2, "business:hr:leave:list"),
-    ("20000000-0000-4000-8000-00000000e004", 2, "business:hr:salary:list"),
+    ("20000000-0000-4000-8000-00000000e001", 2, "business:hr:employee:page"),
+    ("20000000-0000-4000-8000-00000000e002", 2, "business:hr:attendance:page"),
+    ("20000000-0000-4000-8000-00000000e003", 2, "business:hr:leave:page"),
+    ("20000000-0000-4000-8000-00000000e004", 2, "business:hr:salary:page"),
     (
         "20000000-0000-4000-8000-00000000e005",
         2,
-        "business:hr:salary-item:list",
+        "business:hr:salary-item:page",
     ),
     ("20000000-0000-4000-8000-00000000e011", 3, "business:hr:employee:create"),
     ("20000000-0000-4000-8000-00000000e012", 3, "business:hr:employee:update"),
@@ -108,6 +116,16 @@ const MENUS: [Menu; 36] = [
         3,
         "business:hr:salary-item:delete",
     ),
+    // ---- 全量列表码（`V0401` 从页面行挪到按钮行；id 是解耦迁移新种的） ----
+    ("20000000-0000-4000-8000-00000000e061", 3, "business:hr:employee:list"),
+    ("20000000-0000-4000-8000-00000000e062", 3, "business:hr:attendance:list"),
+    ("20000000-0000-4000-8000-00000000e063", 3, "business:hr:leave:list"),
+    ("20000000-0000-4000-8000-00000000e064", 3, "business:hr:salary:list"),
+    (
+        "20000000-0000-4000-8000-00000000e065",
+        3,
+        "business:hr:salary-item:list",
+    ),
 ];
 
 /// 授权矩阵（设计 §3.2 ⑤ 的落地口径，V0387 逐码实现）：
@@ -119,7 +137,9 @@ const MENUS: [Menu; 36] = [
 /// * `EMPLOYEE`：页面外壳 + 两个自助码（`salary:my` / `leave:create`），**没有** `employee:detail`
 ///   —— 给了就等于把「看全员档案」的码发给全员（数据范围只能兜一层，不能当权限用）
 /// * `FINANCE_DIRECTOR`：**0 个** HR 码（矩阵的零授权对照列：真实角色、真没授权）
-const ALL_36: [&str; 36] = [
+///
+/// 解耦后「全量」= `V0387` 的 36 行 ∪ `V0401` 补的 5 个 `:list` 按钮行。
+const ALL_41: [&str; 41] = [
     "20000000-0000-4000-8000-00000000e000",
     "20000000-0000-4000-8000-00000000e001",
     "20000000-0000-4000-8000-00000000e002",
@@ -156,24 +176,38 @@ const ALL_36: [&str; 36] = [
     "20000000-0000-4000-8000-00000000e051",
     "20000000-0000-4000-8000-00000000e052",
     "20000000-0000-4000-8000-00000000e053",
+    // V0401 补的 5 个全量列表按钮
+    "20000000-0000-4000-8000-00000000e061",
+    "20000000-0000-4000-8000-00000000e062",
+    "20000000-0000-4000-8000-00000000e063",
+    "20000000-0000-4000-8000-00000000e064",
+    "20000000-0000-4000-8000-00000000e065",
 ];
 
-/// 财务经理：目录 + 薪资管理页 + 看 / 过账 / 导出（**不含红冲**）。
-const FINANCE_MANAGER_IDS: [&str; 5] = [
+/// 财务经理：目录 + 薪资管理页 + 看 / 过账 / 导出（**不含红冲**）+ `V0401` 补的全量列表码。
+const FINANCE_MANAGER_IDS: [&str; 6] = [
     "20000000-0000-4000-8000-00000000e000",
     "20000000-0000-4000-8000-00000000e004",
     "20000000-0000-4000-8000-00000000e041",
     "20000000-0000-4000-8000-00000000e044",
     "20000000-0000-4000-8000-00000000e046",
+    // V0401：它本来就靠页面行的 salary:list 看全公司工资单，解耦后显式补上
+    "20000000-0000-4000-8000-00000000e064",
 ];
 
-/// 部门主管：目录 + 员工档案页 + 员工详情 + 请假单页 + 请假详情。
-const DEPT_LEADER_IDS: [&str; 5] = [
+/// 部门主管：目录 + 员工档案页 + 员工详情 + 请假单页 + 请假详情 + `V0401` 补的员工全量列表。
+///
+/// ⚠ **不补** `leave:list`（`…e063`）：它的 `data_scope=1`（全部），补了就等于让部门主管
+/// 看全公司请假单 —— 比解耦前（handler 把它收窄成「只看本人」）更宽。要放开得先给
+/// `biz_leave_request` 补数据范围裁剪，那是另一张卡的事（见 ADR §决策 2 的逐码理由）。
+const DEPT_LEADER_IDS: [&str; 6] = [
     "20000000-0000-4000-8000-00000000e000",
     "20000000-0000-4000-8000-00000000e001",
     "20000000-0000-4000-8000-00000000e014",
     "20000000-0000-4000-8000-00000000e003",
     "20000000-0000-4000-8000-00000000e036",
+    // V0401：它本来就有「员工档案页 + employee:detail」且 data_scope=1，补上保持原可见面
+    "20000000-0000-4000-8000-00000000e061",
 ];
 
 /// 员工自助：目录 + 请假单页 + 新建请假单 + 薪资管理页 + 我的薪资。
@@ -205,6 +239,76 @@ const ROUTELESS_CODES: [&str; 3] = [
 /// 前端若照契约画出「导出」按钮，点了必然 404。要跟 `ROUTELESS_CODES` 分开记：
 /// 前者是「设计了但没卡」，后者是「有卡但决定不接路由」。
 const CONTRACT_ONLY_CODES: [&str; 1] = ["business:hr:employee:export"];
+
+/// **页面显形码**（`V0401` 起）：只挂 `sys_menu.menu_type=2`，后端零引用、无路由。
+///
+/// 它们不是「缺口」，是设计：页面显隐与全量接口码解耦后，页面码只给前端路由
+/// （`router/index.ts` 的 `meta.permission`）。登记在这里是为了让
+/// 「路由覆盖」用例放过它们 —— 同时 `permission_audit_tests::ROUTE_LEVEL_ONLY`
+/// 会反过来盯住「后端源码里不许出现」。
+const PAGE_ONLY_CODES: [&str; 5] = [
+    "business:hr:employee:page",
+    "business:hr:attendance:page",
+    "business:hr:leave:page",
+    "business:hr:salary:page",
+    "business:hr:salary-item:page",
+];
+
+/// 解耦迁移原文（`V0401`：页面行改名 `*:page` + `*:list` 挪到按钮行 + 逐角色补授权）。
+const V0401: &str = include_str!("../../../migrations/business/V0401__hr_page_code_split.up.sql");
+
+/// 从 `V0401` §3 的授权表里取某个角色被补的 `auth_code`（`(role_code, auth_code) VALUES` 矩阵）。
+///
+/// 解析失败（表被改成别的写法）一律 panic —— 这份表是「谁该看全量」的决策记录，
+/// 悄悄解析不到会让断言变成空集合而假绿。
+fn v0401_codes_of(role: &str) -> Vec<&'static str> {
+    let start = V0401
+        .find("FROM (VALUES")
+        .unwrap_or_else(|| panic!("V0401 里找不到 §3 的授权 VALUES 矩阵"));
+    let rest = &V0401[start..];
+    let end = rest
+        .find(") AS g(role_code, auth_code)")
+        .unwrap_or_else(|| panic!("V0401 的授权矩阵没有 AS g(role_code, auth_code) 收尾"));
+    let body = &rest[..end];
+    let mut codes = Vec::new();
+    for line in body.lines() {
+        let line = line.trim();
+        let Some(head) = line.strip_prefix("('") else {
+            continue;
+        };
+        // ('ROLE', 'code') 或 ('ROLE','code'),
+        let Some(close_role) = head.find("',") else {
+            continue;
+        };
+        if &head[..close_role] != role {
+            continue;
+        }
+        let tail = head[close_role + 2..].trim_start();
+        let Some(tail) = tail.strip_prefix('\'') else {
+            continue;
+        };
+        if let Some(close_code) = tail.find('\'') {
+            codes.push(&tail[..close_code]);
+        }
+    }
+    codes
+}
+
+/// 解耦后某角色的完整授权 id 集合 = `V0387` 的数组 ∪ `V0401` 给它补的 `:list` 行。
+fn granted_ids(role: &str, base_array: &str) -> Vec<&'static str> {
+    let mut ids = ids_of(base_array);
+    for code in v0401_codes_of(role) {
+        let id = MENUS
+            .iter()
+            .find(|(_, _, c)| *c == code)
+            .map(|(id, _, _)| *id)
+            .unwrap_or_else(|| panic!("V0401 授权表里的 {code} 不在菜单表里"));
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
 
 /// 取 `V0387` 里某个角色授权数组的原文块（`NAME UUID[] := ARRAY[ … ]::uuid[]`）。
 fn array_block(name: &str) -> &'static str {
@@ -244,20 +348,24 @@ fn assert_same_ids(role: &str, actual: &[&str], expected: &[&str]) {
 // ==================== ① 码表本身 ====================
 
 #[test]
-fn thirty_buttons_and_five_pages_are_seeded() {
+fn thirty_buttons_five_list_buttons_and_five_pages_are_seeded() {
     let buttons: Vec<&Menu> = MENUS.iter().filter(|(_, t, _)| *t == 3).collect();
     let pages: Vec<&Menu> = MENUS.iter().filter(|(_, t, _)| *t == 2).collect();
-    assert_eq!(buttons.len(), 30, "设计 §3.2 ④ 是 30 个按钮码");
-    assert_eq!(pages.len(), 5, "5 个页面各挂一个 *:list 码");
+    assert_eq!(
+        buttons.len(),
+        35,
+        "解耦后按钮 = 设计 §3.2 ④ 的 30 个业务码 + V0401 的 5 个全量列表码"
+    );
+    assert_eq!(pages.len(), 5, "5 个页面各挂一个 `*:page` 显形码");
     assert_eq!(MENUS.iter().filter(|(_, t, _)| *t == 1).count(), 1, "只有一个目录");
 
-    // 每个 id / code 都必须真的出现在迁移里（改错一格就红）
+    // 每个 id / code 都必须真的出现在迁移里（V0387 种菜单、V0401 改名 + 种 5 个按钮）
     for (id, _, code) in MENUS.iter() {
-        assert!(V0387.contains(id), "V0387 里没有菜单 id {id}");
+        assert!(V0387.contains(id) || V0401.contains(id), "两份迁移里都没有菜单 id {id}");
         if !code.is_empty() {
             assert!(
-                V0387.contains(&format!("'{code}'")),
-                "V0387 里没有权限码 {code}（菜单 id {id}）"
+                V0387.contains(&format!("'{code}'")) || V0401.contains(&format!("'{code}'")),
+                "两份迁移里都没有权限码 {code}（菜单 id {id}）"
             );
             assert!(
                 code.starts_with("business:hr:"),
@@ -272,21 +380,54 @@ fn thirty_buttons_and_five_pages_are_seeded() {
     codes.sort_unstable();
     codes.dedup();
     assert_eq!(before, codes.len(), "有重复的权限码");
-    assert_eq!(before, 35, "35 = 30 按钮 + 5 页面 list 码");
+    assert_eq!(before, 40, "40 = 30 业务按钮 + 5 全量列表 + 5 页面显形码");
+}
+
+/// 页面码与全量列表码**一一配对且不重叠**（解耦的核心结构）。
+#[test]
+fn page_codes_and_list_codes_are_a_bijection() {
+    for code in PAGE_ONLY_CODES {
+        let resource = code
+            .strip_prefix("business:hr:")
+            .and_then(|rest| rest.strip_suffix(":page"))
+            .unwrap_or_else(|| panic!("页面码 {code} 不是 business:hr:<资源>:page 形态"));
+        let list_code = format!("business:hr:{resource}:list");
+        let list_rows = MENUS.iter().filter(|(_, t, c)| *t == 3 && *c == list_code).count();
+        assert_eq!(
+            list_rows, 1,
+            "{code} 必须恰好配一个同资源的 `:list` 按钮行，实际 {list_rows}"
+        );
+        assert!(
+            !MENUS.iter().any(|(_, t, c)| *t == 2 && *c == list_code),
+            "{list_code} 不许再挂在页面行上（那正是解耦要拆掉的耦合）"
+        );
+    }
+    // 反向：每个 `:list` 都必须是按钮行，页面行只挂 `:page`
+    for (id, menu_type, code) in MENUS.iter() {
+        if code.ends_with(":list") {
+            assert_eq!(*menu_type, 3, "{id} 挂着 {code} 却不是按钮行");
+        }
+        if *menu_type == 2 {
+            assert!(
+                code.ends_with(":page"),
+                "页面行 {id} 的码是 {code} —— 页面行只许挂 `*:page` 显形码"
+            );
+        }
+    }
 }
 
 // ==================== ② 授权矩阵 ====================
 
 #[test]
-fn super_admin_and_hr_manager_get_all_36() {
-    assert_same_ids("SUPER_ADMIN", &ids_of("all_hr"), &ALL_36);
-    // HR_MANAGER 与 SUPER_ADMIN 共用 all_hr（V0387 §4 的实现口径）
-    assert_same_ids("HR_MANAGER", &ids_of("all_hr"), &ALL_36);
+fn super_admin_and_hr_manager_get_all_41() {
+    assert_same_ids("SUPER_ADMIN", &granted_ids("SUPER_ADMIN", "all_hr"), &ALL_41);
+    // HR_MANAGER 与 SUPER_ADMIN 共用 all_hr；V0401 §3 对两者都补了 5 个全量列表码
+    assert_same_ids("HR_MANAGER", &granted_ids("HR_MANAGER", "all_hr"), &ALL_41);
 }
 
 #[test]
 fn finance_manager_gets_view_post_export_but_not_reverse() {
-    let ids = ids_of("fin_hr");
+    let ids = granted_ids("FINANCE_MANAGER", "fin_hr");
     assert_same_ids("FINANCE_MANAGER", &ids, &FINANCE_MANAGER_IDS);
     assert!(
         !ids.contains(&"20000000-0000-4000-8000-00000000e045"),
@@ -300,12 +441,18 @@ fn finance_manager_gets_view_post_export_but_not_reverse() {
 
 #[test]
 fn dept_leader_gets_employee_and_leave_detail_only() {
-    assert_same_ids("DEPT_LEADER", &ids_of("lead_hr"), &DEPT_LEADER_IDS);
+    let ids = granted_ids("DEPT_LEADER", "lead_hr");
+    assert_same_ids("DEPT_LEADER", &ids, &DEPT_LEADER_IDS);
+    // 解耦时**刻意不补** leave:list：它的 data_scope=1，补了就能看全公司请假单
+    assert!(
+        !ids.contains(&"20000000-0000-4000-8000-00000000e063"),
+        "部门主管不得有 business:hr:leave:list（data_scope=1 ⇒ 会看到全公司请假单）"
+    );
 }
 
 #[test]
 fn employee_gets_two_self_service_codes_only() {
-    let ids = ids_of("emp_hr");
+    let ids = granted_ids("EMPLOYEE", "emp_hr");
     assert_same_ids("EMPLOYEE", &ids, &EMPLOYEE_IDS);
     // 关键负向：员工**不能**有 employee:detail（否则等于把「看全员档案」的码发给全员）
     assert!(
@@ -319,13 +466,40 @@ fn employee_gets_two_self_service_codes_only() {
     );
 }
 
+/// **本卡的核心验收**：员工自助持有页面码，但**一个全量列表码都不许有**。
+#[test]
+fn employee_holds_no_full_list_code() {
+    let ids = granted_ids("EMPLOYEE", "emp_hr");
+    for (id, _, code) in MENUS.iter() {
+        if code.ends_with(":list") {
+            assert!(
+                !ids.contains(id),
+                "EMPLOYEE 不该持有全量列表码 {code} —— 页面码已经独立（V0401），\
+                 再持有它等于「授页面 ⇒ 授全量」的老耦合复发"
+            );
+        }
+    }
+    assert!(
+        ids.contains(&"20000000-0000-4000-8000-00000000e003"),
+        "EMPLOYEE 必须仍持有请假单页（否则「我的请假」入口整片消失）"
+    );
+    assert!(
+        ids.contains(&"20000000-0000-4000-8000-00000000e004"),
+        "EMPLOYEE 必须仍持有薪资管理页（否则「我的薪资」入口整片消失）"
+    );
+}
+
 #[test]
 fn finance_director_is_the_zero_grant_control_column() {
     // 矩阵的第六列必须是「真实存在但一个 HR 码都没有」的角色：它的价值在于证明
-    // 「403 不是账号不存在导致的」。V0387 里任何数组都不许包含 FINANCE_DIRECTOR。
+    // 「403 不是账号不存在导致的」。两份迁移里任何授权段都不许包含 FINANCE_DIRECTOR。
     assert!(
         !V0387.contains("'FINANCE_DIRECTOR'"),
         "V0387 不该给 FINANCE_DIRECTOR 授权（零授权对照列被破坏，矩阵失去对照组）"
+    );
+    assert!(
+        !V0401.contains("'FINANCE_DIRECTOR'"),
+        "V0401 不该给 FINANCE_DIRECTOR 补全量列表码（对照列被破坏）"
     );
 }
 
@@ -372,6 +546,10 @@ fn employee_seed_grants_exactly_the_designed_ids() {
 fn route_contract_covers_every_code_except_the_known_gap() {
     let mut missing: Vec<&str> = Vec::new();
     for (_, _, code) in MENUS.iter().filter(|(_, t, _)| *t >= 2) {
+        // 页面显形码按设计没有后端路由（只给前端路由）
+        if PAGE_ONLY_CODES.contains(code) {
+            continue;
+        }
         let covered = ROUTE_CONTRACT.iter().any(|r| r.permission == Some(*code));
         if !covered && !ROUTELESS_CODES.contains(code) && !CONTRACT_ONLY_CODES.contains(code) {
             missing.push(code);
@@ -381,6 +559,14 @@ fn route_contract_covers_every_code_except_the_known_gap() {
         missing.is_empty(),
         "这些权限码既没有后端路由、也不在已知缺口清单里 —— 界面上点了必然 404：{missing:?}"
     );
+
+    // 正向：页面显形码**一个都不许**出现在路由契约里（出现 = 又拿它当接口码了）
+    for code in PAGE_ONLY_CODES {
+        assert!(
+            !ROUTE_CONTRACT.iter().any(|r| r.permission == Some(code)),
+            "路由契约里出现了页面显形码 {code} —— 接口只许认 `*:list` / `*:detail` 这类业务码"
+        );
+    }
 
     // 反向一：`ROUTELESS_CODES` 里的码**真的**连契约行都没有（哪天接了路由要摘掉）
     for code in ROUTELESS_CODES {
@@ -433,12 +619,16 @@ fn self_service_routes_are_login_only_by_design() {
 
 #[test]
 fn matrix_script_reads_the_same_migration() {
-    // 回归脚本（真 HTTP）通过 hr_perm_expect.py 解析 V0387 得到期望矩阵；
+    // 回归脚本（真 HTTP）通过 hr_perm_expect.py 解析 V0387 + V0401 得到期望矩阵；
     // 若哪天脚本改成读别的文件，这里先红 —— 两份期望值必须同源，否则「矩阵绿了」不代表矩阵对。
     let script = include_str!("../../../../scripts/verify/hr/hr_perm_expect.py");
     assert!(
         script.contains("V0387__hr_menu_perms.up.sql"),
-        "hr_perm_expect.py 必须解析 V0387（矩阵期望值的唯一真源）"
+        "hr_perm_expect.py 必须解析 V0387（菜单/授权的历史真源）"
+    );
+    assert!(
+        script.contains("V0401__hr_page_code_split.up.sql"),
+        "hr_perm_expect.py 必须叠加 V0401（页面码解耦的覆盖层），否则期望矩阵还停在解耦前"
     );
     let sh = include_str!("../../../../scripts/verify/hr/hr_permission_matrix.sh");
     for role in [

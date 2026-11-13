@@ -39,6 +39,9 @@ import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
 DEFAULT_MIGRATION = REPO / "backend/migrations/business/V0387__hr_menu_perms.up.sql"
+# 页面码解耦的**覆盖层**（卡 t_0af7ec46）：V0387 种菜单，V0401 把页面行改名成 `*:page`、
+# 把 `*:list` 挪到新按钮行，并按设计意图逐角色补 `:list` 授权。期望矩阵 = 两者叠加。
+DEFAULT_OVERLAY = REPO / "backend/migrations/business/V0401__hr_page_code_split.up.sql"
 
 # 迁移里的角色数组变量 → 角色编码（数组名见 V0387 §4）
 ARRAY_TO_ROLE = {
@@ -57,11 +60,75 @@ MENU_ROW = re.compile(
     r"\(\s*'(20000000-0000-4000-8000-00000000e0[0-9a-f]{2})'::uuid\s*,\s*'([^']*)'\s*,\s*(1|2|3)\s*,\s*'([^']*)'",
     re.S,
 )
+# 覆盖层（V0401）的按钮行：`INSERT … SELECT '<id>'::uuid, '<name>', 3, '<code>', NULL, '<parent>'::uuid,`
+OVERLAY_BUTTON = re.compile(
+    r"SELECT\s+'(20000000-0000-4000-8000-[0-9a-f]{12})'::uuid\s*,\s*'([^']*)'\s*,\s*3\s*,\s*'([^']*)'",
+    re.S,
+)
+# 覆盖层的页面行改名：`UPDATE sys_menu SET auth_code = '<新>' … WHERE id = '<id>'::uuid AND menu_type = 2 AND auth_code = '<旧>'`
+OVERLAY_RENAME = re.compile(
+    r"UPDATE\s+sys_menu\s+SET\s+auth_code\s*=\s*'([^']*)'[^;]*?WHERE\s+id\s*=\s*'([0-9a-f-]{36})'::uuid\s+"
+    r"AND\s+menu_type\s*=\s*2\s+AND\s+auth_code\s*=\s*'([^']*)'",
+    re.S | re.I,
+)
+# 覆盖层的角色授权矩阵：`('ROLE', 'business:hr:x:list'),`
+OVERLAY_GRANT = re.compile(r"\(\s*'([A-Z_]+)'\s*,\s*'(business:hr:[^']+)'\s*\)")
 ROLE_ARRAY = re.compile(r"(\w+_hr)\s+UUID\[\]\s*:=\s*ARRAY\[(.*?)\]::uuid\[\]", re.S)
 UUID = re.compile(r"'(20000000-0000-4000-8000-00000000e0[0-9a-f]{2})'")
 
 
-def parse(migration: pathlib.Path) -> dict:
+def apply_overlay(menus: dict, role_ids: dict, overlay: pathlib.Path) -> dict:
+    """把解耦迁移（V0401）叠加到 V0387 的种子上，返回叠加统计（供人核对）。
+
+    三件事，与迁移文件的三段一一对应：
+      ① 页面行原地改名（`*:list` → `*:page`，id 不变 ⇒ 授权不受影响）；
+      ② 新按钮行承载 `*:list`（`menu_type=3`）；
+      ③ 逐角色补 `*:list` 授权（谁该看全量是**设计决策**，迁移里逐条写了理由）。
+    """
+    sql = overlay.read_text(encoding="utf-8")
+
+    renamed = 0
+    for new_code, uid, old_code in OVERLAY_RENAME.findall(sql):
+        menu = menus.get(uid)
+        if menu is None:
+            raise SystemExit(f"FATAL: {overlay.name} 改名的 {uid} 不是 V0387 种的菜单行")
+        if menu["menu_type"] != 2:
+            raise SystemExit(f"FATAL: {overlay.name} 改名的 {uid} 不是页面行（menu_type={menu['menu_type']}）")
+        if menu["code"] != old_code:
+            raise SystemExit(
+                f"FATAL: {overlay.name} 想从 {old_code} 改名，但 V0387 里 {uid} 的码是 {menu['code']}"
+            )
+        menu["code"] = new_code
+        menu["old_code"] = old_code
+        renamed += 1
+
+    added = 0
+    for uid, name, code in OVERLAY_BUTTON.findall(sql):
+        if uid in menus:
+            raise SystemExit(f"FATAL: {overlay.name} 插入的按钮 {uid} 与 V0387 的菜单行撞 id")
+        menus[uid] = {"id": uid, "name": name, "menu_type": 3, "code": code, "parent": None}
+        added += 1
+
+    granted = 0
+    for role, code in OVERLAY_GRANT.findall(sql):
+        if role not in role_ids:
+            raise SystemExit(f"FATAL: {overlay.name} 给未知角色 {role} 授权（矩阵解析不出这一列）")
+        uid = next((m["id"] for m in menus.values() if m["code"] == code), None)
+        if uid is None:
+            raise SystemExit(f"FATAL: {overlay.name} 授的码 {code} 在菜单表里不存在")
+        if uid not in role_ids[role]:
+            role_ids[role].append(uid)
+            granted += 1
+
+    if renamed != 5 or added != 5:
+        raise SystemExit(
+            f"FATAL: {overlay.name} 应改 5 个页面码 + 插 5 个按钮行，实际 {renamed} / {added}（文件被改动？）"
+        )
+    return {"renamed": renamed, "added": added, "granted": granted}
+
+
+def parse(migration: pathlib.Path, overlay: pathlib.Path | None = None) -> dict:
+    overlay = overlay or DEFAULT_OVERLAY
     sql = migration.read_text(encoding="utf-8")
 
     # ---------- ① 36 行菜单：id → (码, 类型, 名字) ----------
@@ -87,38 +154,50 @@ def parse(migration: pathlib.Path) -> dict:
         if not m["code"].startswith("business:hr:"):
             raise SystemExit(f"FATAL: 菜单 {m['id']} 的 auth_code「{m['code']}」不在 business:hr 域")
 
-    # ---------- ② 角色授权数组 ----------
-    roles = {}
+    # ---------- ② 角色授权数组（只取 id；码在覆盖层应用后再算）----------
+    role_ids = {}
     seen = {}
     for array_name, body in ROLE_ARRAY.findall(sql):
         if array_name not in ARRAY_TO_ROLE:
             continue
-        ids = UUID.findall(body)
-        codes = []
-        for uid in ids:
+        ids = []
+        for uid in UUID.findall(body):
             menu = menus.get(uid)
             if menu is None:
                 raise SystemExit(f"FATAL: {array_name} 里的 {uid} 不是本迁移种的菜单行")
             if menu["menu_type"] == 1:
                 continue  # 目录没有权限码，不算进码矩阵
-            codes.append(menu["code"])
+            ids.append(uid)
         for role in ARRAY_TO_ROLE[array_name]:
             if role in seen:
                 raise SystemExit(f"FATAL: 角色 {role} 被两个数组授权（{seen[role]} / {array_name}）")
             seen[role] = array_name
-            roles[role] = codes
+            role_ids[role] = list(ids)
 
-    missing = [r for names in ARRAY_TO_ROLE.values() for r in names if r not in roles]
+    missing = [r for names in ARRAY_TO_ROLE.values() for r in names if r not in role_ids]
     if missing:
         raise SystemExit(f"FATAL: 迁移里没解析到这些角色的授权数组：{missing}")
-    roles[ZERO_ROLE] = []
+    role_ids[ZERO_ROLE] = []
+
+    # ---------- ③ 叠加解耦层（V0401）：页面行改名 + `:list` 挪到按钮行 + 逐角色补授权 ----------
+    overlay_note = apply_overlay(menus, role_ids, overlay)
+
+    pages = [m for m in menus.values() if m["menu_type"] == 2]
+    buttons = [m for m in menus.values() if m["menu_type"] == 3]
+    if len(pages) != 5 or len(buttons) != 35:
+        raise SystemExit(
+            f"FATAL: 叠加解耦层后页面 {len(pages)} 行 / 按钮 {len(buttons)} 行（应 5 / 35 = 30 业务 + 5 列表）"
+        )
 
     order = {m["code"]: i for i, m in enumerate(pages + buttons)}
-    for role in roles:
-        roles[role] = sorted(set(roles[role]), key=lambda c: order[c])
+    roles = {}
+    for role, ids in role_ids.items():
+        roles[role] = sorted({menus[uid]["code"] for uid in ids}, key=lambda c: order[c])
 
     return {
         "source": str(migration),
+        "overlay": str(overlay),
+        "overlay_note": overlay_note,
         "codes": [m["code"] for m in pages + buttons],
         "pages": [m["code"] for m in pages],
         "buttons": [m["code"] for m in buttons],
@@ -131,7 +210,10 @@ def render(expect: dict) -> str:
     roles = list(expect["roles"].keys())
     lines = []
     lines.append(f"期望矩阵来源：{expect['source']}")
-    lines.append(f"权限码：{len(expect['codes'])}（页面 list {len(expect['pages'])} + 按钮 {len(expect['buttons'])}）")
+    lines.append(f"　叠加解耦层：{expect['overlay']}（{expect['overlay_note']}）")
+    lines.append(
+        f"权限码：{len(expect['codes'])}（页面显形 `*:page` {len(expect['pages'])} + 接口/按钮码 {len(expect['buttons'])}）"
+    )
     lines.append("")
     head = f"{'权限码':44s}" + "".join(f"{r:18s}" for r in roles)
     lines.append(head)

@@ -27,11 +27,14 @@
 --   设计 §3.2 ⑤：员工自助只拿「页面外壳 + 两个自助码」，不给 employee:detail /
 --   salary:list（那会变成「看全员档案 / 全员薪资」）。故：
 --     e000  人力资源（目录，祖先闭包 —— 缺它侧边栏整棵子树被静默丢掉）
---     e003  请假单页      business:hr:leave:list
+--     e003  请假单页      business:hr:leave:page（V0401 起；之前是 :list）
 --     e031  新建请假单    business:hr:leave:create
---     e004  薪资管理页    business:hr:salary:list
+--     e004  薪资管理页    business:hr:salary:page（V0401 起；之前是 :list）
 --     e047  我的薪资      business:hr:salary:my
---   与 V0387 的 `emp_hr` 数组**同一个 id 集合**；本文件不新增权限码、不动菜单行。
+--   与 V0387 的 `emp_hr` 数组**同一个 id 集合**；页面行的码由 V0401 就地改名
+--   （id 不变 ⇒ 本种子按 id 授权，一行都不用改）。**不新增权限码、不动菜单行。**
+--   ⚠ V0401 之后员工不再持有 `*:list`：自助列表走 `/leave/my`、`/salary/my`
+--     （卡 t_0af7ec46；决策见 docs/architecture/PERM-01-页面码与接口码解耦-决策.md）。
 --
 -- ── 幂等 / 回滚 ────────────────────────────────────────────────────────────
 --   · 授权一律 `WHERE NOT EXISTS (…)`：重放 = 0 行；已在（老库/生产）也是 0 行；

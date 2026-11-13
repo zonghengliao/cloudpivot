@@ -546,5 +546,10 @@ test('路由已注册（漏了 = 点菜单进 404）', () => {
   const router = readFileSync(new URL('../../src/router/index.ts', import.meta.url), 'utf8');
   assert.ok(router.includes("path: 'business/hr/leave'"), '请假单路由没注册');
   assert.ok(router.includes('business/hr/leave/index.vue'), '路由组件路径不对');
-  assert.ok(router.includes("permission: 'business:hr:leave:list'"), '路由权限码不对');
+  // 页面显形码（V0401 解耦）：路由 meta 只判 `*:page`，接口才要 `*:list`
+  assert.ok(router.includes("permission: 'business:hr:leave:page'"), '路由权限码不对');
+  assert.ok(
+    !router.includes("permission: 'business:hr:leave:list'"),
+    '路由 meta 仍挂着全量列表码 —— 页面显形码与接口码又耦合了（卡 t_0af7ec46）',
+  );
 });

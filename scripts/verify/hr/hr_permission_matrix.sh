@@ -268,9 +268,12 @@ python3 "$EXPECT_PY" --migration "$MIGRATION" --json >"$EXPECT_JSON" || die "期
 EXPECT_CODES=$(jq -r '.codes[]' "$EXPECT_JSON")
 N_CODES=$(printf '%s\n' "$EXPECT_CODES" | grep -c .)
 N_BUTTONS=$(jq -r '.buttons | length' "$EXPECT_JSON")
-[ "$N_BUTTONS" = "30" ] || die "期望矩阵解析出来的按钮码是 $N_BUTTONS 个（应 30）"
-say "   期望矩阵来源：$MIGRATION"
-say "   权限码：$N_CODES（页面 list 5 + 按钮 30）；角色：${ROLES[*]}"
+# 30 业务按钮 + V0401 的 5 个全量列表按钮 = 35；页面显形码另算（`*:page`，无后端路由）
+[ "$N_BUTTONS" = "35" ] || die "期望矩阵解析出来的按钮码是 $N_BUTTONS 个（应 35 = 30 业务 + 5 全量列表）"
+N_PAGES=$(jq -r '.pages | length' "$EXPECT_JSON")
+[ "$N_PAGES" = "5" ] || die "期望矩阵解析出来的页面显形码是 $N_PAGES 个（应 5）"
+say "   期望矩阵来源：$MIGRATION + V0401__hr_page_code_split.up.sql（叠加层）"
+say "   权限码：$N_CODES（页面显形 $N_PAGES + 接口/按钮 $N_BUTTONS）；角色：${ROLES[*]}"
 
 if [ -z "$PASSW" ]; then
   PASSW=$(ssh -o ConnectTimeout=8 "root@$DBHOST" \
@@ -323,8 +326,10 @@ done
 [ "$ready" = "1" ] || { tail -40 "$SERVER_LOG"; die "/health 300 次探测未就绪"; }
 say "   ✅ /health 200（迁移完成）"
 N_SEED=$(q "SELECT count(*) FROM sys_menu WHERE deleted_at IS NULL AND auth_code LIKE 'business:hr:%'" | tr -d '[:space:]')
-[ "$N_SEED" = "35" ] || die "迁移没跑全：sys_menu 里 business:hr:* 应有 35 个码，实际「$N_SEED」"
-say "   ✅ 迁移在位：sys_menu 里 35 个人力资源权限码（V0387）"
+# 40 = V0387 的 35 个码（5 页面 + 30 按钮）里 5 个页面码改名成 `*:page`（数量不变）
+#      + V0401 补的 5 个全量列表按钮
+[ "$N_SEED" = "40" ] || die "迁移没跑全：sys_menu 里 business:hr:* 应有 40 个码（35 + V0401 的 5 个），实际「$N_SEED」"
+say "   ✅ 迁移在位：sys_menu 里 40 个人力资源权限码（V0387 + V0401 页面码解耦）"
 
 # ============================================================ STEP 1 夹具 ======
 hr_line
@@ -570,11 +575,11 @@ done
 # 少数路由**光有本码不够**（handler 里还有第二道闸）。登记成 `码 → 还需要的码`，
 # 层B 的期望就按「本码 + 第二道闸」一起算，否则矩阵会把合法的 403 判成「有码却被拒」。
 #
-#   salary:list  → salary:detail
-#     页面码复用成全量列表接口码：EMPLOYEE 靠它让「薪资管理」页显形，但全公司薪资单
-#     要求能看明细（见 salary_sheet_handler::ensure_full_list 的文档）。HR-47 实测补的闸。
+# **2026-11-13（卡 t_0af7ec46）后本表为空**：页面码与全量接口码已解耦（迁移 V0401），
+# 员工自助不再持有 `*:list`，`/salary/page` 由框架路由闸直接 403，handler 里的两道
+# 人肉闸（`ensure_full_list` / `scope_to_self_without_detail`）都已删除。
+# 保留这个机制是为了**下一次**出现「码不够用」时别再手抄一份期望表。
 declare -A ROUTE_ALSO_NEEDS
-ROUTE_ALSO_NEEDS[business:hr:salary:list]="business:hr:salary:detail"
 
 for r in "${ROLES[@]}"; do
   tok=${TOKENS[$r]:-}
@@ -631,7 +636,9 @@ for r in "${ROLES[@]}"; do
   done
 done
 say "  [ok] 层B 覆盖 $(( ${#ROUTE[@]} )) 个码 × 6 角色 = $(( ${#ROUTE[@]} * 6 )) 次真实路由"
-say "  [note] 无后端路由的码（只由层A 覆盖，属已知缺口）：$(printf '%s ' "${!NO_ROUTE[@]}")"
+say "  [note] 无后端路由的码（只由层A 覆盖授权）：$(printf '%s ' "${!NO_ROUTE[@]}")"
+say "         · 其中 5 个 `*:page` 是页面显形码（设计如此：只给前端 meta.permission）；"
+say "         · 其余是已知接口缺口（employee:resign / leave:delete / salary-item:delete / employee:export）。"
 
 # ============================================================ STEP 4 层C 数据范围
 hr_line
@@ -653,12 +660,12 @@ expect_eq "C2 带上别人的 employee_id 仍是 200" "200" "$CODE"
 expect_eq "C2 仍只返回本人 1 条（参数无法越权）" "1" "$(dat total)"
 
 # C3 员工越权打「全员」入口：一律 403
-#     /salary/page 这一条是 HR-47 实测发现并**在 handler 里补了第二道闸**（salary:detail）：
-#     V0387 把「薪资管理页」授给了 EMPLOYEE（让「我的薪资」tab 显形），页面行的 auth_code
-#     就是 salary:list ⇒ 员工实际持有 list 码，只按码放行会把全公司工资单给员工。
+#     解耦前（t_be54535c）这里靠 handler 的第二道闸（salary:detail）兜，报文引导 /salary/my；
+#     解耦后（V0401）页面行是 salary:page、员工**不再持有 salary:list** ⇒ 框架路由闸直接 403。
+#     报文是框架统一文案（「无权限访问，需要权限: business:hr:salary:list」），不再有业务引导。
 req GET /api/business/hr/salary/page "" "${TOKENS[EMPLOYEE]}"
-expect_eq "C3 员工打 /salary/page（全员薪资列表，需 salary:detail）" "403" "$CODE"
-expect_contains "C3 报文引导走「我的薪资」" "$(err_msg)" "/business/hr/salary/my"
+expect_eq "C3 员工打 /salary/page（全员薪资列表，需 salary:list）" "403" "$CODE"
+expect_contains "C3 报文点名缺 salary:list" "$(err_msg)" "business:hr:salary:list"
 req GET "/api/business/hr/salary/$NONEXIST" "" "${TOKENS[EMPLOYEE]}"
 expect_eq "C3 员工打 /salary/{id}（单头详情）" "403" "$CODE"
 req GET "/api/business/hr/employee/$EMP4/salary" "" "${TOKENS[EMPLOYEE]}"
@@ -668,18 +675,27 @@ expect_eq "C3 员工看别人的档案" "403" "$CODE"
 req GET /api/business/hr/employee/page "" "${TOKENS[EMPLOYEE]}"
 expect_eq "C3 员工打全员档案列表" "403" "$CODE"
 
-# C3b 员工打「全员请假列表」：**码在**（请假单页 grant），但缺 leave:detail ⇒ handler 强制
-#     mine=true（卡 t_be54535c 的修法）⇒ 只出本人 1 条，同部门同事那条不许出现。
-#     为什么不是 403：前端「我的请假」tab 走的正是本接口 + mine=true，一刀切 403 会把
-#     员工自己的请假也挡掉（对照 /salary/page：它有 /salary/my 这条独立路径，可以 403）。
+# C3b 员工打「全员请假列表」：解耦后员工只持 `leave:page`（显形）+ `leave:create`，
+#     **不持有 leave:list** ⇒ 框架路由闸直接 403；自己的请假走 `/leave/my`（见 C5）。
+#     这正是本卡（t_0af7ec46）相对 t_be54535c 的进步：不再需要 handler 里的
+#     「缺 leave:detail 就强制 mine=true」人肉闸 —— 根因（页面码兼作接口码）已经拆掉。
 req GET "/api/business/hr/leave/page?page_size=100" "" "${TOKENS[EMPLOYEE]}"
-expect_eq "C3b 员工 /leave/page（缺 leave:detail 被收窄，不是 403）" "200" "$CODE"
+expect_eq "C3b 员工 /leave/page（全员列表，需 leave:list）" "403" "$CODE"
+expect_contains "C3b 报文点名缺 leave:list" "$(err_msg)" "business:hr:leave:list"
+
+# C3b' 人事经理仍要看得到全部（解耦不能把经理的数据一起收窄）
+req GET "/api/business/hr/leave/page?page_size=100" "" "${TOKENS[HR_MANAGER]}"
+expect_eq "C3b' 人事经理 /leave/page 200" "200" "$CODE"
 LV_TOTAL=$(dat total)
 LV_NOS=$(jq -r '[.data.list[]?.employee_no] | join(",")' "$OUT" 2>/dev/null)
-expect_contains "C3b 员工 /leave/page 含本人那条" "$LV_NOS" "HR47-$TAG-1"
-expect_eq "C3b 员工 /leave/page 只出本人 1 条（缺 leave:detail ⇒ 强制 mine=true）" "1" "$LV_TOTAL"
-expect_ne "C3b 且不含同部门同事那条" "HR47-$TAG-2" "$LV_NOS"
-say "  [ok] C3b 员工 /leave/page：total=$LV_TOTAL，单号=[$LV_NOS]（只出本人）"
+expect_contains "C3b' 人事经理看得到本人那条" "$LV_NOS" "HR47-$TAG-1"
+expect_contains "C3b' 人事经理看得到同部门同事那条（未被误收窄）" "$LV_NOS" "HR47-$TAG-2"
+say "  [ok] C3b 员工 /leave/page=403（不再需要人肉闸）；人事经理 total=$LV_TOTAL（含同事）"
+
+# C3c 部门主管**刻意**没有 leave:list（它的 data_scope=1 是「全部」⇒ 补了就会看全公司）：
+#     解耦后它只走 /leave/my（C5 已断言 200），这里是负向锚点，防止有人「顺手补上」。
+req GET "/api/business/hr/leave/page?page_size=100" "" "${TOKENS[DEPT_LEADER]}"
+expect_eq "C3c 部门主管 /leave/page（无 leave:list，不擅自扩大可见面）" "403" "$CODE"
 
 # C4 零授权角色（FINANCE_DIRECTOR）连自助码都没有 → /salary/my 403
 req GET /api/business/hr/salary/my "" "${TOKENS[FINANCE_DIRECTOR]}"

@@ -20,8 +20,10 @@
 
   # 四条与「想当然」不一样的交互（每一条都有真库/真接口依据）
 
-  1. **「我的请假」不是另一个接口**：同一个 `page` 带 `mine=true`。tab 切换必须重查，
-     且不能复用上一个 tab 的数组（否则会把别人的单显示在自己的 tab 里）。
+  1. **「我的请假」有两条数据来源**（卡 t_0af7ec46）：持 `leave:list` 的人走
+     `/leave/page?mine=true`（与「全部」同接口）；只有页面码的人（员工自助）走
+     `/leave/my`（登录即可、只出本人）。tab 切换必须重查，且不能复用上一个 tab 的数组
+     （否则会把别人的单显示在自己的 tab 里）。
   2. **作废接口一条路做三件事**：草稿→删除、审批中→撤回、已批准→销假；**三条都要
      填原因 ≥5 字**（后端 `cancel_of` 在状态分流前统一校验）。所以按钮文案按状态变，
      弹窗里的原因标签也跟着变（删除原因 / 撤回原因 / 销假原因）。
@@ -35,12 +37,15 @@
   - 员工自助的独立入口：`/leave/my` 随 **HR-41**；本页「我的请假」tab 已按设计 §6.1 落地。
   - 附件（病假证明）：`DocAttachmentPanel` 的 `doc_type` 与必传规则属附件轴卡，本卡不接。
 
-  # tab 显隐判据（HR-47 实测缺口，卡 t_be54535c）
+  # tab 显隐判据（卡 t_0af7ec46 解耦后）
 
-  「全部请假」tab 的显隐看 **`business:hr:leave:detail`**，不看 `leave:list`：
-  `leave:list` 是**页面码**（员工自助必须持有，否则整页进不来），而后端对缺 `leave:detail`
-  的调用方会把 `/leave/page` 强制收窄成「只出本人」。用页面码判 tab 会出现
-  「tab 叫全部请假、点进去只有自己一条」—— 界面撒谎。判据与后端 `scope_to_self_without_detail` 同源。
+  「全部请假」tab 的显隐看 **`business:hr:leave:list`**（全量列表接口的码）。
+  页面显形码是 `business:hr:leave:page`（只决定「进得来」），两者已分开授予（迁移 V0401）：
+  员工自助只有 page + create ⇒ 只剩「我的请假」tab，数据走 `/leave/my`。
+
+  历史（t_be54535c）：那轮页面码兼作 `leave:list`，员工必然持有 list 码，只能退而用
+  `leave:detail` 判 tab 显隐 + 后端 `scope_to_self_without_detail` 收窄。两个补丁都已随
+  解耦退休（判据回归语义本身）。
 -->
 <template>
   <div class="hr-leave-page">
@@ -634,12 +639,14 @@ import {
   emptyLeaveForm,
   fetchLeaveDetail,
   fetchLeavePage,
+  fetchMyLeaves,
   formFromRow,
   isLeaveFiltered,
   leaveActionsOf,
   leaveStatusLabel,
   leaveStatusTheme,
   leaveTypeLabel,
+  myLeaveToListRow,
   paidLabel,
   rangeText,
   suggestDuration,
@@ -665,15 +672,19 @@ const userStore = useUserStore();
 
 /** 本页权限（逐条对应 `V0387` 的 6 个码） */
 /**
- * 「全部请假」tab 的显隐判据 = **`leave:detail`**，不是 `leave:list`（卡 t_be54535c）。
+ * 「全部请假」tab 的显隐判据 = **`leave:list`**（全量列表接口的码，卡 t_0af7ec46）。
  *
- * `leave:list` 是**页面码**：员工自助按设计必须持有它（否则整页进不来），
- * 但后端对缺 `leave:detail` 的调用方会把 `/leave/page` 强制收窄成「只出本人」
- * （`leave_handler::scope_to_self_without_detail`）。用页面码决定 tab 显隐的后果是
- * 「tab 写着全部请假、点进去只有自己一条」—— 界面在撒谎。判据与后端同源：能看别人的单
- * ⇔ 有 `leave:detail`。
+ * # 为什么不再判 `leave:detail`（t_be54535c 的口径已作废）
+ *
+ * t_be54535c 那轮页面码兼作接口码，员工必然持有 `leave:list`，所以只能退而用
+ * `leave:detail`（「能看别人的单」）当判据，避免「tab 写着全部、点进去只有自己」。
+ * 解耦后（`V0401`）页面码是 `leave:page`、全量列表码是 `leave:list`，两者分开授予 ⇒
+ * **判据回归语义本身**：能调全员列表 ⇔ 有 `leave:list`。
+ *
+ * 没有 `leave:list` 的人（员工自助）只剩「我的请假」tab，数据走 `/leave/my`
+ * （登录即可、只出本人），见 `loadRows`。
  */
-const canListAll = computed(() => userStore.hasPermission(LEAVE_PERMS.detail));
+const canListAll = computed(() => userStore.hasPermission(LEAVE_PERMS.list));
 const canCreate = computed(() => userStore.hasPermission(LEAVE_PERMS.create));
 const canUpdate = computed(() => userStore.hasPermission(LEAVE_PERMS.update));
 const canSubmit = computed(() => userStore.hasPermission(LEAVE_PERMS.submit));
@@ -681,8 +692,17 @@ const canCancel = computed(() => userStore.hasPermission(LEAVE_PERMS.cancel));
 /** 有人事档案查询权限才能替别人建单（自助角色只能给自己） */
 const canPickEmployee = computed(() => userStore.hasPermission('business:hr:employee:list'));
 
-/** 表格列（`colKey` 与后端出参同名；`employee` / `range` / `op` 是插槽列） */
-const columns = LEAVE_COLUMNS;
+/**
+ * 表格列（`colKey` 与后端出参同名；`employee` / `range` / `op` 是插槽列）。
+ *
+ * 没有 `leave:list` 的人（员工自助看 `/leave/my` 的投影）拿不到员工/部门快照列 ⇒
+ * 直接把这两列去掉，而不是渲染两列空白。
+ */
+const columns = computed(() =>
+  canListAll.value
+    ? LEAVE_COLUMNS
+    : LEAVE_COLUMNS.filter((col) => col.colKey !== 'employee' && col.colKey !== 'dept_name'),
+);
 const leaveTypeOptions = LEAVE_TYPE_OPTIONS.map((item) => ({ ...item }));
 const statusOptions = LEAVE_STATUS_OPTIONS.map((item) => ({ ...item }));
 
@@ -744,7 +764,19 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败';
 }
 
-/** 拉列表（`mine` 由 tab 决定 —— 两个 tab 共用这一条路径，不可能漏传） */
+/**
+ * 拉列表。
+ *
+ * # 「我的请假」有两条来源（卡 t_0af7ec46 解耦后）
+ *
+ * * 持有 `leave:list`（人事 / 超管）→ `/leave/page?mine=true`：与「全部」同一接口，
+ *   顺带带审批态；
+ * * 没有 `leave:list`（员工自助）→ `/leave/my`（登录即可、只出本人）：解耦后
+ *   `/leave/page` 对他是 403，再调只会把「我的请假」变成一片报错。
+ *
+ * 判据用 `canListAll`（= 有 `leave:list`），与 tab 显隐同一个开关 —— 不可能出现
+ * 「tab 显形了但接口 403」的界面撒谎。
+ */
 async function loadRows(): Promise<void> {
   loading.value = true;
   loadError.value = '';
@@ -754,9 +786,15 @@ async function loadRows(): Promise<void> {
     if (mineTab.value) {
       delete query.dept_id;
     }
-    const data = await fetchLeavePage(query);
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
+    if (mineTab.value && !canListAll.value) {
+      const mine = await fetchMyLeaves({ page: query.page, page_size: query.page_size });
+      rows.value = (mine.list ?? []).map(myLeaveToListRow);
+      total.value = mine.total ?? 0;
+    } else {
+      const data = await fetchLeavePage(query);
+      rows.value = data.list ?? [];
+      total.value = data.total ?? 0;
+    }
   } catch (error) {
     rows.value = [];
     total.value = 0;

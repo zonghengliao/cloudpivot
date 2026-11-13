@@ -1,0 +1,22 @@
+=== 幂等性 / 回滚（库 hr47_drill_pagecode_1113123018） ===
+时间: 2026-11-13 12:32:59 CST
+
+--- A. 第 2/3 次重放 V0401.up（当前库已是解耦态 ⇒ 期望 0 行变化）---
+  psql:backend/migrations/business/V0401__hr_page_code_split.up.sql:306: NOTICE:  V0401：页面码已解耦 5 行（`*:page`），全量列表码 5 行（`*:list` 按钮）；EMPLOYEE 持有 0 个
+  psql:backend/migrations/business/V0401__hr_page_code_split.up.sql:306: NOTICE:  V0401：页面码已解耦 5 行（`*:page`），全量列表码 5 行（`*:list` 按钮）；EMPLOYEE 持有 0 个
+  菜单指纹 before=b93f8bca1b82dd27332611423e66fe95
+  菜单指纹 after =b93f8bca1b82dd27332611423e66fe95
+  ✅ 重放两次后菜单零变化（幂等）
+  授权行数 before=59 after=59
+  ✅ 授权零变化
+
+--- B. down：页面码回退 + 按钮删除 ---
+  psql:backend/migrations/business/V0401__hr_page_code_split.down.sql:87: NOTICE:  V0401.down：页面码已回滚为 `*:list`（0 行仍无 `:page`）
+  页面行（menu_type=2）: business:hr:attendance:list, business:hr:employee:list, business:hr:leave:list, business:hr:salary-item:list, business:hr:salary:list
+  按钮行数（menu_type=3）: 30
+
+--- C. up 再回放（round-trip）---
+  psql:backend/migrations/business/V0401__hr_page_code_split.up.sql:306: NOTICE:  V0401：页面码已解耦 5 行（`*:page`），全量列表码 5 行（`*:list` 按钮）；EMPLOYEE 持有 0 个
+  页面行（menu_type=2）: business:hr:attendance:page, business:hr:employee:page, business:hr:leave:page, business:hr:salary-item:page, business:hr:salary:page
+  EMPLOYEE 持有的 business:hr:*:list 行数: 0
+  down→up 之后菜单指纹与 A 段一致？✅ 是

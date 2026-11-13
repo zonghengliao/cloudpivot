@@ -1,0 +1,16 @@
+=== 06 菜单结构不变量 menu_invariants.sh（库 hr47_drill_pagecode_1113123018）===
+时间: 2026-11-13 12:37:37 CST
+（先清掉两轮 panic 的 n11 夹具残留：2 角色 / 2 用户 / 4 菜单行 —— 那是上一次 n11 断言失败后收尾代码没跑到留下的，不是本卡数据）
+═══ 菜单结构不变量 ═══
+库: hr47_drill_pagecode_1113123018
+① 孤儿 parent:           0  ✅
+② /system/ 归属:         0  ✅
+③ /business/ 归属:       0  ✅
+    ↳ 例外表：4 条 path 豁免（/notice-center 根），失配 0（缺失/已合规）
+④ path 唯一性:           0  ✅
+⑤ 菜单总数:            501  ✅ (400-520)
+⑥ title 长度:            0  ✅ (≤12 字)
+⑦ 同父 sort 唯一:        0  ✅
+⑧ icon 名合法:           0  ✅
+    ↳ 图标库：/opt/cloudpivot/frontend/node_modules/tdesign-icons-vue-next/esm/components（目录枚举）（2356 个名字）；库里 (icon,path) 去重后 118 条，全部命中
+结果: 全绿 ✅

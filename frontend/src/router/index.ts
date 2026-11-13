@@ -757,19 +757,19 @@ const routes: RouteRecordRaw[] = [
       {
         // ==================== HR：员工档案（ARCH-9 §6.1 #1 / HR-18） ====================
         // `sys_menu` 种子（V0387 `…e001`）path = `/business/hr/employee`、component
-        // `business/hr/employee/index`、权限码 `business:hr:employee:list`，
+        // `business/hr/employee/index`、页面码 `business:hr:employee:page`、
         // 挂在「人力资源」（`…e000`）sort 10。详情是抽屉（无独立路由）。
         // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
         // （`system::menu::tests::n08` 真库档会当场红）。
         path: 'business/hr/employee',
         name: 'BusinessHrEmployee',
         component: () => import('@/views/business/hr/employee/index.vue'),
-        meta: { title: '员工档案', permission: 'business:hr:employee:list' },
+        meta: { title: '员工档案', permission: 'business:hr:employee:page' },
       },
       {
         // ==================== HR：考勤管理（ARCH-9 §6.1 #2 / HR-29） ====================
         // `sys_menu` 种子（V0387 `…e002`）path = `/business/hr/attendance`、component
-        // `business/hr/attendance/index`、权限码 `business:hr:attendance:list`，
+        // `business/hr/attendance/index`、页面码 `business:hr:attendance:page`、
         // 挂在「人力资源」（`…e000`）sort 20。两个 tab（考勤期间 / 考勤台账）都在本页内，
         // 期间表单、状态流转、导入都是对话框/抽屉（无独立路由）。
         // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
@@ -777,36 +777,37 @@ const routes: RouteRecordRaw[] = [
         path: 'business/hr/attendance',
         name: 'BusinessHrAttendance',
         component: () => import('@/views/business/hr/attendance/index.vue'),
-        meta: { title: '考勤管理', permission: 'business:hr:attendance:list' },
+        meta: { title: '考勤管理', permission: 'business:hr:attendance:page' },
       },
       {
         // ==================== HR：请假单（ARCH-9 §6.1 #3 / HR-28） ====================
         // `sys_menu` 种子（V0387 `…e003`）path = `/business/hr/leave`、component
-        // `business/hr/leave/index`、权限码 `business:hr:leave:list`，
+        // `business/hr/leave/index`、页面码 `business:hr:leave:page`、
         // 挂在「人力资源」（`…e000`）sort 30。两个 tab（全部请假 / 我的请假）在本页内，
         // 详情与新建都是抽屉（无独立路由）。路由手工注册（没有 views 自动扫描），
         // 漏了 = 点菜单进 404（`system::menu::tests::n08` 真库档会当场红）。
         path: 'business/hr/leave',
         name: 'BusinessHrLeave',
         component: () => import('@/views/business/hr/leave/index.vue'),
-        meta: { title: '请假单', permission: 'business:hr:leave:list' },
+        meta: { title: '请假单', permission: 'business:hr:leave:page' },
       },
       {
         // ==================== HR：薪资项配置（ARCH-9 §6.1 #5 / §6.2.4 / HR-44） ====================
         // `sys_menu` 种子（V0387 `…e005`）path = `/business/hr/salary-item`、component
-        // `business/hr/salary-item/index`、权限码 `business:hr:salary-item:list`，
+        // `business/hr/salary-item/index`、页面码 `business:hr:salary-item:page`、
         // 挂在「人力资源」（`…e000`）sort 50。列表 + 公式编辑抽屉都在本页内（无独立路由）。
         // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
         // （`system::menu::tests::n08` 真库档会当场红）。
         path: 'business/hr/salary-item',
         name: 'BusinessHrSalaryItem',
         component: () => import('@/views/business/hr/salary-item/index.vue'),
-        meta: { title: '薪资项', permission: 'business:hr:salary-item:list' },
+        meta: { title: '薪资项', permission: 'business:hr:salary-item:page' },
       },
       {
         // ==================== HR：薪资管理（ARCH-9 §6.1 页面 #4 / §5.2 #36/#39/#40/#46） ====================
         // `sys_menu` 种子（V0387 `…e004`）path = `/business/hr/salary`、component
-        // `business/hr/salary/index`、页面码 `business:hr:salary:list`，
+        // `business/hr/salary/index`、页面码 `business:hr:salary:page`
+        // （`V0401__hr_page_code_split` 起；之前是 `salary:list`，那是接口码），
         // 挂在「人力资源」（`…e000`）sort 40。两个 tab（薪资单 / 我的薪资）都在本页内：
         // 试算、建单、导出都是抽屉 / 对话框（无独立路由）。
         // **这一条是 `system::menu::tests::n08` 抓到的缺口**（点菜单进 404，
@@ -814,17 +815,14 @@ const routes: RouteRecordRaw[] = [
         // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
         // （`system::menu::tests::n08` 真库档会当场红）。
         //
-        // ⚠️ 页面码待切：`V0401__hr_page_code_split`（卡 t_0af7ec46）把 5 个 HR 页面行的
-        // auth_code 从 `*:list` 改成 `*:page`（`*:list` 挪去按钮行）。本卡立项时该迁移
-        // 尚未落库，故这里按卡面写 `salary:list`；**该迁移落地时必须同步改成
-        // `business:hr:salary:page`**（连同 `tests/unit/hr-salary-list.test.ts` 里那条
-        // `permission: 'business:hr:salary:list'` 断言）。不切的话：只有「页面显形」
-        // 没有全量列表权限的员工（`V0401` 刻意不给他 `salary:list`）会被路由挡在页外，
-        // 连自己的「我的薪资」tab 都进不去 —— 那正是 `V0401` 要修的越权面的反面。
+        // ✅ 页面码已切（卡 t_0af7ec46）：路由 meta 判 **`salary:page`**（进得来），
+        // 「薪资单」tab 与全量列表接口另判 `salary:list`（`V0401` 刻意不给 EMPLOYEE）。
+        // 若这里退回 `salary:list`：员工只有页面码，会被挡在页外，连自己的「我的薪资」
+        // tab 都进不去（那个 tab 走 `/salary/my`，只需 `salary:my`）。
         path: 'business/hr/salary',
         name: 'BusinessHrSalary',
         component: () => import('@/views/business/hr/salary/index.vue'),
-        meta: { title: '薪资管理', permission: 'business:hr:salary:list' },
+        meta: { title: '薪资管理', permission: 'business:hr:salary:page' },
       },
       {
         // ==================== HR：薪资单详情（ARCH-9 §6.1 / §6.2.5 / HR-43） ====================

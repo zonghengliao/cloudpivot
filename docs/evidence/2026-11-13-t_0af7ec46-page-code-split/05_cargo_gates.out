@@ -1,0 +1,126 @@
+=== 05 门禁：cargo test（静态契约 + 真库档）===
+
+--- 5.1 静态门禁（无需库）：perm_matrix_tests 13 条 + permission_audit_tests N14–N21 9 条 + 两个 handler 单测 ---
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 04s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 44 tests
+test business::hr::leave_handler::tests::cancel_action_codes_are_stable ... ok
+test business::hr::leave_handler::tests::flow_constants_match_design ... ok
+test business::hr::leave_handler::tests::detail_permission_constant_matches_the_annotation ... ok
+test business::hr::leave_handler::tests::cancel_action_maps_each_status ... ok
+test business::hr::leave_handler::tests::list_gate_is_the_route_annotation_only ... ok
+test business::hr::leave_handler::tests::locked_statuses_are_not_editable ... ok
+test business::hr::leave_handler::tests::resigned_constant_matches_employee_domain ... ok
+test business::hr::leave_handler::tests::task_status_labels ... ok
+test business::hr::leave_handler::tests::permission_codes_match_seed ... ok
+test business::hr::leave_handler::tests::withdraw_and_cancel_edges_are_registered ... ok
+test business::hr::leave_handler::tests::form_data_freezes_human_readable_fields ... ok
+test business::hr::leave_handler::tests::duration_days_num_mirrors_the_decimal_at_the_three_day_boundary ... ok
+test business::hr::perm_matrix_tests::employee_holds_no_full_list_code ... ok
+test business::hr::perm_matrix_tests::employee_seed_grants_exactly_the_designed_ids ... ok
+test business::hr::perm_matrix_tests::employee_gets_two_self_service_codes_only ... ok
+test business::hr::perm_matrix_tests::dept_leader_gets_employee_and_leave_detail_only ... ok
+test business::hr::perm_matrix_tests::every_granted_id_is_a_real_menu_row ... ok
+test business::hr::perm_matrix_tests::finance_director_is_the_zero_grant_control_column ... ok
+test business::hr::perm_matrix_tests::finance_manager_gets_view_post_export_but_not_reverse ... ok
+test business::hr::perm_matrix_tests::page_codes_and_list_codes_are_a_bijection ... ok
+test business::hr::perm_matrix_tests::matrix_script_reads_the_same_migration ... ok
+test business::hr::perm_matrix_tests::every_route_permission_is_a_seeded_hr_code ... ok
+test business::hr::perm_matrix_tests::self_service_routes_are_login_only_by_design ... ok
+test business::hr::perm_matrix_tests::route_contract_covers_every_code_except_the_known_gap ... ok
+test business::hr::perm_matrix_tests::super_admin_and_hr_manager_get_all_41 ... ok
+test business::hr::salary_sheet_handler::tests::detail_not_found_names_sheet_and_detail ... ok
+test business::hr::salary_sheet_handler::tests::full_list_is_denied_for_a_token_without_salary_list ... ok
+test business::hr::salary_sheet_handler::tests::not_found_names_the_sheet ... ok
+test business::hr::salary_sheet_handler::tests::override_route_belongs_to_hr37 ... ok
+test business::hr::salary_sheet_handler::tests::permission_codes_exist_in_the_menu_seed ... ok
+test business::hr::salary_sheet_handler::tests::override_is_rejected_on_locked_statuses ... ok
+test business::hr::salary_sheet_handler::tests::reverse_route_belongs_to_hr40 ... ok
+test business::hr::salary_sheet_handler::tests::submit_and_post_belong_to_hr39 ... ok
+test business::hr::salary_sheet_handler::tests::routes_and_permissions_match_the_frozen_contract ... ok
+test business::hr::salary_sheet_handler::tests::form_data_freezes_gross_total_as_number ... ok
+test business::hr::perm_matrix_tests::thirty_buttons_five_list_buttons_and_five_pages_are_seeded ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::permission_audit_tests::n20_erp_core_permission_codes_are_granted_to_non_super_role ... ok
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+
+test result: ok. 44 passed; 0 failed; 0 ignored; 0 measured; 5498 filtered out; finished in 0.72s
+
+
+
+--- 5.2 真库档 system::menu::tests（SYS_DB_URL → 145 演练库）---
+⚠ 真库档读的是 **SYS_DB_URL**（不是 ERP_DB_URL）：用 ERP_DB_URL 会静默 SKIP 成假绿。
+   本文件里这一次 n11 是**红的**（既有的 128 vs 127 抖动），随后 4 次全绿 —— 归属见 5.3。
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 14 tests
+test system::menu::tests::n03_invalid_menu_type_rejected ... ok
+test system::menu::tests::n04_create_with_missing_parent_404 ... ok
+test system::menu::tests::n02_keyword_matches_name_and_auth_code ... ok
+test system::menu::tests::n05_update_self_as_parent_rejected ... ok
+test system::menu::tests::n01_tree_nested_structure_and_sort ... ok
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+test system::menu::tests::n06_delete_with_children_rejected ... ok
+test system::menu::tests::n09_menu_icons_exist_in_tdesign ... ok
+test system::menu::tests::n07_delete_cascades_role_menu_binding ... ok
+test system::menu::tests::n12_detail_errors_and_cache_invalidation ... ok
+test system::menu::tests::n11_user_menus_filtered_by_role ... FAILED
+test system::menu::tests::n14_writes_succeed_without_cache ... ok
+test system::menu::tests::n10_annotated_permissions_have_menu_code ... ok
+test system::menu::tests::n13_permission_change_invalidates_tokens_in_db ... ok
+
+failures:
+
+---- system::menu::tests::n11_user_menus_filtered_by_role stdout ----
+[N11] 非超管菜单按 sys_role_menu 过滤：授权可见 / 未授权不可见 ✓
+
+thread 'system::menu::tests::n11_user_menus_filtered_by_role' (898679) panicked at src/system/menu/tests.rs:768:5:
+assertion `left == right` failed: 超管应看到全部启用目录与菜单（128 vs 库内 127）
+  left: 128
+ right: 127
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    system::menu::tests::n11_user_menus_filtered_by_role
+
+test result: FAILED. 13 passed; 1 failed; 0 ignored; 0 measured; 5528 filtered out; finished in 0.89s
+
+error: test failed, to rerun pass `--lib`
+
+
+--- 5.3 A/B：解耦态 vs 回滚态（n11 抖动归属）---
+=== system::menu::tests 真库档（SYS_DB_URL 指向 145 演练库 hr47_drill_pagecode_1113123018）===
+时间: 2026-11-13 12:36:42 CST
+
+--- A. 解耦态（V0401 已应用）---
+[run 1]
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 5528 filtered out; finished in 0.92s
+[run 2]
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 5528 filtered out; finished in 0.90s
+
+--- B. 回滚 V0401 成耦合态（对照）---
+psql:/opt/cloudpivot/backend/migrations/business/V0401__hr_page_code_split.down.sql:87: NOTICE:  V0401.down：页面码已回滚为 `*:list`（0 行仍无 `:page`）
+[run 1]
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 5528 filtered out; finished in 0.97s
+[run 2]
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 5528 filtered out; finished in 0.87s
+
+--- C. 恢复 V0401 ---
+psql:/opt/cloudpivot/backend/migrations/business/V0401__hr_page_code_split.up.sql:306: NOTICE:  V0401：页面码已解耦 5 行（`*:page`），全量列表码 5 行（`*:list` 按钮）；EMPLOYEE 持有 0 个
+  页面行: business:hr:attendance:page, business:hr:employee:page, business:hr:leave:page, business:hr:salary-item:page, business:hr:salary:page
+
+补记（如实）：上面这一段 4 次运行 **全部 14/14 绿**，抖动未复现。
+本卡开工期间同一用例失败过 2 次：① `menu_tests_realdb.out` 里那一次（解耦态、全模块跑）；
+② 另一次在回滚成耦合态后的一轮里（未落盘，仅终端输出）。两次都是 `128 vs 127`
+（超管可见菜单数 vs 库内计数），且 `system/menu/tests.rs` 的源码注释里早就记录过同类抖动。
+⇒ 结论：这是**既有偶发**，不是 V0401 引入的（解耦态既红过也绿过、耦合态也红过），
+  留在 known_open 里交后续卡收口（本卡不扩大范围）。

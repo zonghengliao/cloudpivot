@@ -364,8 +364,9 @@ test('router registers /business/hr/employee with the menu permission code', () 
     ROUTER.includes("path: 'business/hr/employee'"),
     '路由没注册 → 点菜单进 404（sys_menu 种子 V0387 已种这条 path）',
   );
+  // 页面显形码（V0401 解耦）：路由 meta 判 `*:page`，后端接口仍认 `employee:list`
   assert.ok(
-    ROUTER.includes("permission: 'business:hr:employee:list'"),
-    '路由 meta.permission 必须与 V0387 的页面权限码一致',
+    ROUTER.includes("permission: 'business:hr:employee:page'"),
+    '路由 meta.permission 必须是页面显形码 business:hr:employee:page',
   );
 });
