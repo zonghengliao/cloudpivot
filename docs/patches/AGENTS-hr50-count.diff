@@ -1,0 +1,20 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -172,7 +172,7 @@
+ 
+ **40 个码的四种状态（是决定，不是待办；别当 bug 去「修」）**
+ 
+-- **30 个有真路由** —— 上表「能做什么」列已逐条标出方法与路径（`ROUTE_CONTRACT` 编译期契约，50 行；新路由不登记会被单测判红）。
++- **30 个有真路由** —— 上表「能做什么」列已逐条标出方法与路径（`ROUTE_CONTRACT` 编译期契约，**51 行**；新路由不登记会被单测判红）。
+ - **2 个契约行未落地**：`employee:import`（走通用 impexp，HR 侧只有模板下载）、`employee:export`（`card=TBD`）。
+ - **3 个决定不接路由**（`perm_matrix_tests::ROUTELESS_CODES` 钉死）：`employee:resign`、`leave:delete`、`salary-item:delete`。
+ - **5 个页面码只给前端**（`PAGE_ONLY_CODES`）：`{employee,attendance,leave,salary,salary-item}:page` —— 后端源码里出现即为违约，`permission_audit_tests` 的 N14/N18 会扫。
+@@ -194,7 +194,7 @@
+ - §5.2 的 API 去重得 **32 个权限码 → 32 个全部落在上表 40 码内**，没有「文档里有、这里没有」。
+ - §6.1 的 5 个菜单页 + 1 个不进菜单的详情路由（`/business/hr/salary/:id`）+ 4 个自助视图 → 逐条有落点：5 页 = 5 个 `*:page`；详情路由判 `salary:detail`；我的考勤 / 我的请假 = 登录即可；我的薪资 = `salary:my`；**我的档案至今无接口、无码**（见下偏差 ②）。
+ - 差额 8 个码 = 设计 §3.2 ④ 单列而 §5.2 无接口的 3 个（上「决定不接路由」）+ `V0401` 解耦新增的 5 个 `*:page`。
+-- 设计文档自身 3 处口径偏差（**只报不改**，以本表与迁移为准）：① §5.2 表头写「42 条」，正文编号到 46、脚注也写 46 → **实际 46**（`ROUTE_CONTRACT` 50 = 46 + HR-19 补 3 + HR-41 补 `/leave/my`）；② §5.2 脚注「4 处 `/my`」只列了 2 个（第 3 个 `/leave/my` 由 HR-41 补；第 4 处「我的档案」`GET /employee/{my_employee_id}` 至今无卡、无码、无路由）；③ §5.2 说「权限码共 30 个」指业务按钮码，`V0401` 解耦后全量 **40** 个。
++- 设计文档自身 3 处口径偏差（**只报不改**，以本表与迁移为准）：① §5.2 表头写「42 条」，正文编号到 46、脚注也写 46 → **实际 46**（`ROUTE_CONTRACT` **51** = 46 + HR-19 补 3 + HR-41 补 `/leave/my` + HR-47 补 `/employee/import-template`）；② §5.2 脚注「4 处 `/my`」只列了 2 个（第 3 个 `/leave/my` 由 HR-41 补；第 4 处「我的档案」`GET /employee/{my_employee_id}` 至今无卡、无码、无路由）；③ §5.2 说「权限码共 30 个」指业务按钮码，`V0401` 解耦后全量 **40** 个。
+ 
+ - **错误码段 `68001~68012`**（`shared/error_code.rs` 的 68xxx HR 段）：加新码从 `68013` 续，禁跨段复用。
+ - **数据范围**：列表走 `scope::paginate`（`shared/scope.rs` 的 `SCOPED_TABLES` 登记 + `guard.rs` 条数断言）；单条入口同一份探针，不可见报 404（不是 403）。

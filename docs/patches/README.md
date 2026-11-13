@@ -55,3 +55,26 @@ git add AGENTS.md && git commit -m "docs(agents): HR 菜单树 + 40 个权限码
    权限码集合与 `scripts/verify/hr/hr_perm_expect.py` 的种子集合完全相等（40/40）；
    后端 `business/hr/` 里 `#[nik::(get|post|put|delete)]` 实际注册 50 条（49 业务 + `/health`），
    表格中提到的接口与之一一对应，未落地的只有 `POST /employee/import`、`GET /employee/export`（文中已标）。
+
+## AGENTS-hr50-count.diff（小修，与上一份独立）
+
+**用途**：HR-50 新人走查（`t_a6978b4d`）发现 `AGENTS.md` 有两处 `ROUTE_CONTRACT` 行数过期（写 50，实为 51 ——
+`HR-47` 把 `GET /employee/import-template` 登记进契约后没回写）。两处都在「人力资源模块（HR）口径」小节内：
+
+| 位置 | 现在 | 应为 |
+|---|---|---|
+| 「30 个有真路由」条 | `ROUTE_CONTRACT` 编译期契约，50 行 | 51 行 |
+| 「设计文档自身 3 处口径偏差」① | `ROUTE_CONTRACT` 50 = 46 + HR-19 补 3 + HR-41 补 `/leave/my` | 51 = 上述 + HR-47 补 `/employee/import-template` |
+
+**应用**（`AGENTS.md` 是受保护文件，需要人工批准）：
+
+```bash
+cd /opt/cloudpivot
+git apply --check docs/patches/AGENTS-hr50-count.diff   # 已试，APPLY_CHECK_OK
+git apply         docs/patches/AGENTS-hr50-count.diff
+git add AGENTS.md && git commit -m "docs(agents): ROUTE_CONTRACT 50→51（HR-47 登记 import-template 后未回写）"
+```
+
+**判据**：`grep -c "RouteSpec {" backend/src/business/hr/handler.rs` 首行常量 `[RouteSpec; 51]`；
+已注册路由 50 条 = 49 业务 + `/health`（`grep -h "#\[nik::(get|post|put|delete)" backend/src/business/hr/*.rs | wc -l` 扣掉
+`#[cfg(test)]` 之后的用例路由）。走查记录见 `docs/evidence/2026-11-13-hr50-newcomer-walkthrough/`。

@@ -131,9 +131,9 @@ HR 是**第一个完整落地的业务模块**（10 张表 / 50 条路由 / 40 �
 迁移 17 个文件（16 条版本化 V0383~V0403 + 1 条种子 S__hr_employee_grants）· 空库首启 335 条（323 版本化 + 12 种子）
 ```
 
-> 契约表口径：`hr/handler.rs` 的 `ROUTE_CONTRACT` 是 50 行 **方法+路径** 契约（含 2 行未实现的
-> `employee:import` / `employee:export`），已注册路由 50 条 = 48 行已实现 + 模板下载
-> `GET /employee/import-template` + `/health` 探针。员工导入的**上传/预检/确认**走通用 impexp
+> 契约表口径：`hr/handler.rs` 的 `ROUTE_CONTRACT` 是 **51 行** **方法+路径** 契约（含 2 行未实现的
+> `employee:import` / `employee:export`），已注册路由 **50 条** = 49 行已实现（含模板下载
+> `GET /employee/import-template`）+ `/health` 探针。员工导入的**上传/预检/确认**走通用 impexp
 > （`biz_type=hr.employee`），不是 `/business/hr/employee/import`。
 
 ```bash

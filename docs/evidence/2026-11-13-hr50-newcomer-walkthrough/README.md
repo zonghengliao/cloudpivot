@@ -172,11 +172,11 @@ tsx --test tests/unit/hr-certificate-page.test.ts
 
 | # | 位置 | 现象 | 建议 |
 |---|---|---|---|
-| E1 | `AGENTS.md` L175 + `docs/README.md` L134 | 两处写「`ROUTE_CONTRACT` 50 行」、L134 还算「48 行已实现」；真值是**51 行**（49 已实现 + 2 未实现 `employee:import/export`）、已注册 50 条（+`/health`）。后端指南 §17.9.4 ① 已经是 51 —— 三份文档里两份没跟上 HR-47 的登记 | 回写 50→51、48→49；建议把「契约 51 / 已注册 50 / 已实现 49」写成一格表，避免三个数各说各的 |
+| E1 | `AGENTS.md` L175 + `docs/README.md` L134 | 两处写「`ROUTE_CONTRACT` 50 行」、L134 还算「48 行已实现」；真值是**51 行**（49 已实现 + 2 未实现 `employee:import/export`）、已注册 50 条（+`/health`）。后端指南 §17.9.4 ① 已经是 51 —— 三份文档里两份没跟上 HR-47 的登记 | **已处理**：`docs/README.md` 那处本卡直接改成 51/50/49；`AGENTS.md` 是受保护文件，改动落成 `docs/patches/AGENTS-hr50-count.diff`（`git apply --check` 已过），待人工应用。建议再把「契约 51 / 已注册 50 / 已实现 49」写成一格表，避免三个数各说各的 |
 | E2 | 后端指南 §17.9.4 ④ | 正文先写「两条既有单测会自动扫到你的新文件，**不需要新写**（不登记就红）」，⚠ 才补「新子域要改 `SEED_PARTS` 与 `assert_eq!(seeded.len(), 35)`」。新人先读到的是「不用动测试」，然后被红 | 把 ⚠ 提为 ④ 的第一句：「新子域 ⇒ 必须扩 `SEED_PARTS` 并把断言改成 35 + 新增数」 |
 | E3 | 后端指南 §17.9.3 ⑦ | 建单骨架调 `state_machine::log_created(&tx, <ENTITY_ID>, …)`，而 `<ENTITY_ID>` 要在 `business/shared/state_machine.rs` 加 `Entity` 变体 + `DocKind` 变体 + 合法边 + `parse`（跨两个文件约 50 行），§17.9.1 只在占位符表里一句「新增时在 state_machine.rs 登记」，**没有 diff** | 贴一段最小登记 diff，或明确写「本骨架故意不含状态日志，接状态机请看 `leave_*` 的登记四处」 |
 | E4 | 前端指南 §11.1 ③ | 骨架里 `form` / `rules` / `submit` / `employeeOptions` 四处空洞只写「按实例补全」；`employeeOptions` 的真正来源（`@/api/business/hr/employee` 的 `fetchEmployeePage`）没写 | 给一行指针：「员工下拉照 `views/business/hr/leave/index.vue` 的 `employeeOptions` 段（L858~L890）」 |
-| E5 | 前端指南提交前命令 | `tests/unit/*.test.ts` 不在 `tsconfig.json` 的 `include`（只有 `src/**`），所以 `pnpm typecheck` **不检查第 5 个文件**，`tsx` 又是纯剥类型不校验 | 在 §11.1 ⑤ 注明「第 5 个文件的类型错误只有 `pnpm test:unit` 跑挂时才看得见」，或把它纳入 tsconfig |
+| E5 | 前端指南提交前命令 | `tests/unit/*.test.ts` 不在 `tsconfig.json` 的 `include`（只有 `src/**`），所以 `pnpm typecheck` **不检查第 5 个文件**，`tsx` 又是纯剥类型不校验（**实测**：往该文件塞一行 `const x: number = "字符串"`，`pnpm typecheck` 仍 exit 0、`tsx --test` 仍 2/2 通过） | 在 §11.1 ⑤ 注明「第 5 个文件的类型错误只有 `pnpm test:unit` 跑挂时才看得见」，或把它纳入 tsconfig |
 | E6 | `AGENTS.md` 角色矩阵 | `SUPER_ADMIN = 40` 只成立于有生产克隆口径的库；空库首启实测 **0**（同一行有解释，但新人先跑空库会以为文档错） | 矩阵加一列「空库首启实测」，或把 `V0401` 的那段 ⚠ 引用进来 |
 
 ### C. 建议（顺手改进，不影响跑通）
