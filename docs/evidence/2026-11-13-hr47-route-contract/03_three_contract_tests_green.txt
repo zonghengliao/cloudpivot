@@ -1,0 +1,7 @@
+test business::hr::handler::tests::contract_permissions_are_seeded_by_v0387 ... ok
+test business::hr::handler::tests::contract_routes_are_unique_and_shaped ... ok
+test business::hr::handler::tests::every_macro_path_in_module_is_in_contract ... ok
+test business::hr::handler::tests::health_probe_is_not_part_of_the_api_contract ... ok
+test result: ok. 673 passed; 0 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 229.27s
+
+EXIT=0

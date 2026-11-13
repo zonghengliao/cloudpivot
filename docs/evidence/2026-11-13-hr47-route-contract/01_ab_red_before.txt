@@ -1,0 +1,41 @@
+# A/B 反证：把 handler.rs 换回 HEAD（8e299227）版本 → 同一条用例复现红
+
+操作（本卡代码只改了 `handler.rs` 一处契约 + 计数口径，所以 A/B 只需换这一个文件）：
+
+```bash
+cd /opt/cloudpivot
+cp backend/src/business/hr/handler.rs /root/.hermes/.../scratch/handler_after_fix.rs
+git show HEAD:backend/src/business/hr/handler.rs > backend/src/business/hr/handler.rs   # 回到未登记状态
+cd backend && CARGO_TARGET_DIR=/root/t9a-target cargo test --lib --features test-hooks -- \
+  --test-threads=1 --exact business::hr::handler::tests::every_macro_path_in_module_is_in_contract
+```
+
+原始输出（逐字）：
+
+```text
+---- business::hr::handler::tests::every_macro_path_in_module_is_in_contract stdout ----
+
+thread 'business::hr::handler::tests::every_macro_path_in_module_is_in_contract' (1002328) panicked at src/business/hr/handler.rs:589:13:
+宏声明的路径 /business/hr/employee/import-template 不在 ROUTE_CONTRACT 里 —— 先登记契约再实现
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::hr::handler::tests::every_macro_path_in_module_is_in_contract
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5553 filtered out; finished in 0.04s
+
+error: test failed, to rerun pass `--lib`
+```
+
+随后 `cp` 回修复版（sha1 `a4efa863a9a3bf5d3b87901c9c325255c6e76341`，与换回前逐字节一致），同一命令变绿：
+
+```text
+running 1 test
+test business::hr::handler::tests::every_macro_path_in_module_is_in_contract ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5553 filtered out; finished in 0.04s
+```
+
+⇒ 这条红与本次改动**一一对应**：唯一的差别就是 `ROUTE_CONTRACT` 里新增的那一行
+（`GET /business/hr/employee/import-template`，`permission: business:hr:employee:import`，`card: HR-47`）。

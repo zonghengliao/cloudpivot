@@ -1,18 +1,18 @@
 //! HR 模块接口层（骨架 · HR-09）。
 //!
 //! 本卡只注册**一条**接口（模块体检探针），业务路由由后续卡逐条落地 —— 契约表
-//! [`ROUTE_CONTRACT`] 把设计 §5.2 的 46 条接口 + HR-19 按卡面补的 3 条（共 49 条；方法 / 路径 /
-//! 权限码 / 落地卡）写死在这里，
+//! [`ROUTE_CONTRACT`] 把设计 §5.2 的 46 条接口、HR-19 按卡面补的 3 条、HR-41 补的 `/leave/my`、
+//! HR-47 补的导入模板下载（共 **51** 条；方法 / 路径 / 权限码 / 落地卡）写死在这里，
 //! 后续卡实现时**照表对齐**，单测把表与菜单种子 `V0387__hr_menu_perms` 对拍。
 //!
-//! # 为什么不先把 49 条路由注册成「未实现」的空壳
+//! # 为什么不先把 51 条路由注册成「未实现」的空壳
 //!
 //! 注册空壳的函数体只能是 `todo!()` / `Err(未实现)`：前者一调就 500 并 panic 掉整个
 //! 请求任务，后者给前端的信号是「接口存在但坏了」。真正没实现时更该是 **404**
 //! （前端 `/api` 路径写错、跳转落在未落地页，表现一致且不骗人）。所以：
 //!
 //! > **路由 = 已实现**。本卡只注册能真正工作的那条（体检探针），
-//! > 其余 45 条留给对应的卡（见 `card` 列）。
+//! > 其余 50 条留给对应的卡（见 `card` 列）。
 //!
 //! # 接口一览（本卡）
 //!
@@ -62,7 +62,8 @@ pub struct RouteSpec {
     pub card: &'static str,
 }
 
-/// 设计 §5.2 的 46 条接口契约 + HR-19 按卡面补的 3 条 + HR-41 补的 `/leave/my` = **50 条**
+/// 设计 §5.2 的 46 条接口契约 + HR-19 按卡面补的 3 条 + HR-41 补的 `/leave/my` +
+/// HR-47 补的 `/employee/import-template` = **51 条**
 /// （顺序与设计文档编号 1~46 一致，补的行紧跟在所属分组末尾）。
 ///
 /// # HR-19 为什么给契约表加了 3 条
@@ -85,7 +86,7 @@ pub struct RouteSpec {
 /// - `card = "TBD"` 的两行（员工导入 / 导出）在 §8.1 的批 2 里**没有排卡**，
 ///   但权限码 `business:hr:employee:import/export` 已在 `V0387` 种下 → 属卡清单漏项，
 ///   本卡只登记不实现。
-pub const ROUTE_CONTRACT: [RouteSpec; 50] = [
+pub const ROUTE_CONTRACT: [RouteSpec; 51] = [
     // ---- 员工档案（#1~#12） ----
     RouteSpec {
         method: "GET",
@@ -152,6 +153,15 @@ pub const ROUTE_CONTRACT: [RouteSpec; 50] = [
         path: "/business/hr/employee/import",
         permission: Some("business:hr:employee:import"),
         card: "TBD",
+    },
+    // HR-47 补：导入模板下载。impexp 的通用模板下载要 `business:impexp:import:template`，
+    // 人事专员通常只有 HR 码 → 本路由挂 `business:hr:employee:import`（V0387 已种的按钮码），
+    // 见 `employee_import_handler.rs` 模块文档。
+    RouteSpec {
+        method: "GET",
+        path: "/business/hr/employee/import-template",
+        permission: Some("business:hr:employee:import"),
+        card: "HR-47",
     },
     RouteSpec {
         method: "GET",
@@ -472,8 +482,8 @@ mod tests {
     /// 菜单 / 权限种子原文（编译期嵌入）：契约表的权限码必须全在种子里。
     const V0387_SEED: &str = include_str!("../../../migrations/business/V0387__hr_menu_perms.up.sql");
 
-    /// 设计 §5.2 定稿 46 条 + HR-19 补的 3 条 + HR-41 补的 `/leave/my` = 50；路径前缀统一、
-    /// 方法合法、`(方法, 路径)` 唯一。
+    /// 设计 §5.2 定稿 46 条 + HR-19 补的 3 条 + HR-41 补的 `/leave/my` + HR-47 补的
+    /// `/employee/import-template` = 51；路径前缀统一、方法合法、`(方法, 路径)` 唯一。
     ///
     /// 唯一性是真会踩的坑：`GET /salary/{id}` 与 `GET /salary/my` 这种「静态段 vs 参数段」
     /// 兄弟路径在 axum（matchit）里是合法的（静态优先），但**两条一模一样的**声明会让
@@ -482,8 +492,9 @@ mod tests {
     fn contract_routes_are_unique_and_shaped() {
         assert_eq!(
             ROUTE_CONTRACT.len(),
-            50,
-            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算）+ HR-41 补的 /leave/my"
+            51,
+            "设计 §5.2 编号 1~46 + HR-19 补的 3 条（改 / 删 / 汇总重算）+ HR-41 补的 /leave/my \
+             + HR-47 补的模板下载 1 条"
         );
 
         let mut seen = std::collections::HashSet::new();

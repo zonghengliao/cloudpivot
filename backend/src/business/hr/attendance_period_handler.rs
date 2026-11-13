@@ -26,7 +26,7 @@
 //!
 //! 三条都**没有新增权限码**（复用 `V0387` 已种下的 `attendance:period` / `attendance:list`），
 //! 所以 `contract_permissions_are_seeded_by_v0387` 仍然全绿；`ROUTE_CONTRACT` 相应从 46 条
-//! 长到 49 条，并在表头注明了「设计 46 + HR-19 补 3」。
+//! 长到 49 条，并在表头注明了「设计 46 + HR-19 补 3」（后续 HR-41 / HR-47 又各补 1 条，现为 51 条）。
 //!
 //! # 状态机（本卡验收项）
 //!
