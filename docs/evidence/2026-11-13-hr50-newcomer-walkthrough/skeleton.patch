@@ -1,0 +1,1346 @@
+diff --git a/backend/migrations/business/V0404__hr_certificate_tables.down.sql b/backend/migrations/business/V0404__hr_certificate_tables.down.sql
+new file mode 100644
+index 00000000..61aa3110
+--- /dev/null
++++ b/backend/migrations/business/V0404__hr_certificate_tables.down.sql
+@@ -0,0 +1,23 @@
++-- ① 数据护栏：有业务数据就拒绝回滚
++DO $$
++DECLARE v_n bigint;
++BEGIN
++    IF to_regclass('public.biz_employee_certificate') IS NOT NULL THEN
++        SELECT count(*) INTO v_n FROM biz_employee_certificate WHERE deleted_at IS NULL;
++        IF v_n > 0 THEN
++            RAISE EXCEPTION 'V0404 down 拒绝执行：biz_employee_certificate 还有 % 行未删数据（先导出/清理）', v_n;
++        END IF;
++    END IF;
++END $$;
++
++-- ② 逆序 DROP
++DROP TABLE IF EXISTS biz_employee_certificate;
++
++-- ③ 末尾断言：表真没了
++DO $$
++BEGIN
++    IF to_regclass('public.biz_employee_certificate') IS NOT NULL THEN
++        RAISE EXCEPTION 'down 后表仍在（回滚没生效）';
++    END IF;
++    RAISE NOTICE 'V0404 down 通过：表已拆，第二遍执行不报错（DROP IF EXISTS）';
++END $$;
+diff --git a/backend/migrations/business/V0404__hr_certificate_tables.up.sql b/backend/migrations/business/V0404__hr_certificate_tables.up.sql
+new file mode 100644
+index 00000000..5baed421
+--- /dev/null
++++ b/backend/migrations/business/V0404__hr_certificate_tables.up.sql
+@@ -0,0 +1,115 @@
++-- ============================================================================
++-- V0404：证书台账（HR-50 新人走查骨架 · 照 docs/后端二开指南.md §17.9.2 原样代入）
++--
++-- 占位符代入：<your_table>=employee_certificate → biz_employee_certificate
++--            <your_no_col>=cert_no / <your_perm>=business:hr:certificate:manage
++-- 走查用，不进主干。
++-- ============================================================================
++
++CREATE TABLE IF NOT EXISTS biz_employee_certificate (
++    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
++    org_id          UUID NOT NULL,                                   -- 隔离维度（ARCH-9-1 硬隔离）
++    employee_id     UUID NOT NULL REFERENCES biz_employee(id) ON DELETE RESTRICT,
++    cert_no         VARCHAR(32)  NOT NULL,                            -- 单号/主数据号（软删可复用）
++    cert_type       VARCHAR(16)  NOT NULL,
++    issue_date      DATE         NOT NULL,
++    expire_date     DATE,
++    status          VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE',
++    revoked_at      TIMESTAMPTZ,
++    revoked_reason  VARCHAR(255),
++    remark          TEXT,
++    -- 审计五列：一张业务表必须齐
++    created_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    updated_at      TIMESTAMPTZ  NOT NULL DEFAULT CURRENT_TIMESTAMP,
++    create_by       UUID,
++    update_by       UUID,
++    deleted_at      TIMESTAMPTZ,
++    CONSTRAINT ck_biz_employee_certificate_type   CHECK (cert_type IN ('QUALIFICATION','SAFETY','SKILL')),
++    CONSTRAINT ck_biz_employee_certificate_status CHECK (status IN ('ACTIVE','EXPIRED','REVOKED')),
++    -- 双向语义：注销态 ⇔ 有注销时间
++    CONSTRAINT ck_biz_employee_certificate_revoke CHECK ((status = 'REVOKED') = (revoked_at IS NOT NULL)),
++    CONSTRAINT ck_biz_employee_certificate_reason CHECK (status <> 'REVOKED' OR length(coalesce(revoked_reason,'')) >= 5),
++    CONSTRAINT ck_biz_employee_certificate_range  CHECK (expire_date IS NULL OR expire_date >= issue_date)
++);
++
++COMMENT ON TABLE  biz_employee_certificate IS '员工证书台账：资质 / 安全 / 技能证书的持有与到期';
++COMMENT ON COLUMN biz_employee_certificate.status IS 'ACTIVE / EXPIRED / REVOKED';
++
++-- 软删表唯一列一律用「带谓词的部分唯一索引」
++CREATE UNIQUE INDEX IF NOT EXISTS uk_biz_employee_certificate_no
++    ON biz_employee_certificate (org_id, cert_no) WHERE deleted_at IS NULL;
++CREATE INDEX IF NOT EXISTS idx_biz_employee_certificate_emp
++    ON biz_employee_certificate (employee_id, status) WHERE deleted_at IS NULL;
++CREATE INDEX IF NOT EXISTS idx_biz_employee_certificate_due
++    ON biz_employee_certificate (org_id, expire_date) WHERE deleted_at IS NULL AND status = 'ACTIVE';
++
++-- ② 自检块（§17.9.2 ② 原样）
++DO $$
++DECLARE
++    v_n   int;
++    v_emp uuid := gen_random_uuid();
++    v_org uuid := gen_random_uuid();    -- 探针隔离键：每次跑一片，结束按它清干净
++BEGIN
++    -- A. 形态：表在
++    IF to_regclass('public.biz_employee_certificate') IS NULL THEN
++        RAISE EXCEPTION 'biz_employee_certificate 没建出来';
++    END IF;
++
++    -- B. 形态：id + org_id + 审计五列齐全
++    SELECT count(*) INTO v_n
++      FROM information_schema.columns
++     WHERE table_schema = 'public' AND table_name = 'biz_employee_certificate'
++       AND column_name IN ('id','org_id','create_by','update_by','created_at','updated_at','deleted_at');
++    IF v_n <> 7 THEN
++        RAISE EXCEPTION 'biz_employee_certificate 缺列：id + org_id + 审计五列只有 % 列', v_n;
++    END IF;
++
++    -- C. 形态：唯一索引必须带软删谓词
++    SELECT count(*) INTO v_n
++      FROM pg_indexes
++     WHERE schemaname = 'public' AND tablename = 'biz_employee_certificate'
++       AND indexname = 'uk_biz_employee_certificate_no'
++       AND indexdef LIKE '%WHERE (deleted_at IS NULL)%';
++    IF v_n <> 1 THEN
++        RAISE EXCEPTION 'uk_biz_employee_certificate_no 不是部分唯一索引';
++    END IF;
++
++    -- D. 行为：外键是真的
++    INSERT INTO biz_employee (id, org_id, emp_no, name, dept_id, hire_date)
++    VALUES (v_emp, v_org, 'PROBE-001', '探针员工', gen_random_uuid(), CURRENT_DATE);
++
++    INSERT INTO biz_employee_certificate (org_id, employee_id, cert_no, cert_type, issue_date)
++    VALUES (v_org, v_emp, 'CERT-001', 'SKILL', CURRENT_DATE);
++
++    -- E. 行为：双向 CHECK 拦得住「注销了但没注销时间」
++    BEGIN
++        INSERT INTO biz_employee_certificate (org_id, employee_id, cert_no, cert_type, issue_date, status)
++        VALUES (v_org, v_emp, 'CERT-002', 'SKILL', CURRENT_DATE, 'REVOKED');
++        RAISE EXCEPTION '双向 CHECK 没生效：注销态缺 revoked_at 写进去了';
++    EXCEPTION WHEN check_violation THEN NULL;   -- 预期
++    END;
++
++    -- F. 行为：唯一索引拦得住同号（未软删）
++    BEGIN
++        INSERT INTO biz_employee_certificate (org_id, employee_id, cert_no, cert_type, issue_date)
++        VALUES (v_org, v_emp, 'CERT-001', 'SAFETY', CURRENT_DATE);
++        RAISE EXCEPTION '部分唯一索引没生效：同号写进去了';
++    EXCEPTION WHEN unique_violation THEN NULL;
++    END;
++
++    -- G. 行为：软删后同号可复用
++    UPDATE biz_employee_certificate SET deleted_at = CURRENT_TIMESTAMP
++     WHERE org_id = v_org AND cert_no = 'CERT-001' AND deleted_at IS NULL;
++    INSERT INTO biz_employee_certificate (org_id, employee_id, cert_no, cert_type, issue_date)
++    VALUES (v_org, v_emp, 'CERT-001', 'SAFETY', CURRENT_DATE);
++
++    -- H. 探针清理（按 org_id 删，引用方先删；重跑零残留）
++    DELETE FROM biz_employee_certificate WHERE org_id = v_org;
++    DELETE FROM biz_employee     WHERE org_id = v_org;
++    SELECT count(*) INTO v_n FROM biz_employee_certificate WHERE org_id = v_org;
++    IF v_n <> 0 THEN
++        RAISE EXCEPTION '探针未清干净（残留 % 行）', v_n;
++    END IF;
++
++    RAISE NOTICE 'biz_employee_certificate 完成：表/列/部分唯一索引/双向 CHECK/软删复用/外键 6 类断言全过';
++END $$;
+diff --git a/backend/src/business/hr/certificate_dto.rs b/backend/src/business/hr/certificate_dto.rs
+new file mode 100644
+index 00000000..f569ed22
+--- /dev/null
++++ b/backend/src/business/hr/certificate_dto.rs
+@@ -0,0 +1,240 @@
++//! 证书台账入参 / 出参契约（HR-50 新人走查骨架 · 照 `docs/后端二开指南.md` §17.9.3 ③ 抄，
++//! 并按本仓真实代码（`leave_dto.rs` / `employee_dto.rs`）纠了三处**照抄编译不过**的地方，
++//! 逐条见走查报告的「阻断」清单）。
++//!
++//! 纯函数，零 SQL 零事务：`pnpm test:unit` 的「词表对拍」正是读本文件。
++
++use nik::prelude::chrono::NaiveDate;
++use nik::prelude::*;
++use nik::uuid::Uuid;
++use serde::{Deserialize, Serialize};
++
++use crate::shared::error_code;
++
++// ==================== 词表（与迁移的 CHECK 逐字一致） ====================
++
++/// 证书类型（`ck_biz_employee_certificate_type`）。
++pub const CERT_TYPES: [&str; 3] = ["QUALIFICATION", "SAFETY", "SKILL"];
++
++/// 状态域（`ck_biz_employee_certificate_status`）。
++pub const STATUS_VALUES: [&str; 3] = ["ACTIVE", "EXPIRED", "REVOKED"];
++
++/// 初始状态（与 DDL 的 DEFAULT 一致）。
++pub const STATUS_ACTIVE: &str = "ACTIVE";
++
++/// 码值 → 中文（前端 `certificate-kinds.ts` 的 STATUS_LABELS 逐值对拍）。
++pub const STATUS_LABELS: [(&str, &str); 3] = [("ACTIVE", "有效"), ("EXPIRED", "已到期"), ("REVOKED", "已注销")];
++
++/// 编号上限（与 `cert_no VARCHAR(32)` 一致）。
++pub const MAX_NO: usize = 32;
++
++/// 校验用：状态码的中文标签。
++pub fn status_label(status: &str) -> String {
++    STATUS_LABELS
++        .iter()
++        .find(|(value, _)| *value == status)
++        .map(|(_, label)| (*label).to_string())
++        .unwrap_or_else(|| status.to_string())
++}
++
++// ==================== 入参 ====================
++
++/// 新建入参。
++///
++/// 字段一律 `String`（不走 `Uuid` / `NaiveDate`）：`nik::uuid::Uuid` 没实现 serde，
++/// 本仓所有 `*CreateReq` 都是「字符串进、`validate` 里解析」（`leave_dto::LeaveCreateReq` 同款）。
++#[derive(Debug, Clone, Deserialize)]
++pub struct CertificateCreateReq {
++    pub employee_id: String,
++    pub no: String,
++    pub cert_type: String,
++    pub issue_date: String,
++    #[serde(default)]
++    pub expire_date: Option<String>,
++    #[serde(default)]
++    pub remark: Option<String>,
++}
++
++/// 校验后的可写列（`status` 单独给，因为它只能由服务端决定）。
++#[derive(Debug, Clone)]
++pub struct CertificateWrite {
++    pub employee_id: Uuid,
++    pub no: String,
++    pub cert_type: String,
++    pub issue_date: NaiveDate,
++    pub expire_date: Option<NaiveDate>,
++    pub status: String,
++    pub remark: Option<String>,
++}
++
++impl CertificateCreateReq {
++    /// 校验口径逐条对应 DDL 的 CHECK（比库更严的地方：空白编号直接 400）。
++    pub fn validate(&self) -> std::result::Result<CertificateWrite, ApiError> {
++        let no = self.no.trim();
++        if no.is_empty() || no.chars().count() > MAX_NO {
++            return Err(ApiError::new(
++                400,
++                error_code::PARAM_INVALID,
++                format!("编号必填且不超过 {MAX_NO} 字（与纸质一致，不取号）"),
++            ));
++        }
++        if !CERT_TYPES.contains(&self.cert_type.as_str()) {
++            return Err(ApiError::new(
++                400,
++                error_code::PARAM_INVALID,
++                format!("证书类型只能是 {}", CERT_TYPES.join(" / ")),
++            ));
++        }
++        // 字符串进 ⇒ 这里解析成真类型再比（别拿字符串比日期）
++        let issue_date = NaiveDate::parse_from_str(self.issue_date.trim(), "%Y-%m-%d")
++            .map_err(|_| ApiError::new(400, error_code::PARAM_INVALID, "issue_date 必须是 yyyy-MM-dd"))?;
++        let expire_date = match self.expire_date.as_deref().map(str::trim) {
++            None | Some("") => None,
++            Some(raw) => Some(
++                NaiveDate::parse_from_str(raw, "%Y-%m-%d")
++                    .map_err(|_| ApiError::new(400, error_code::PARAM_INVALID, "expire_date 必须是 yyyy-MM-dd"))?,
++            ),
++        };
++        let employee_id = parse_uuid_value(&self.employee_id, "employee_id")?;
++        // 库是 ck_…_range：到期日 ≥ 发证日；这里先拦，用户不必等一次 400 往返才知道
++        if let Some(expire) = expire_date
++            && expire < issue_date
++        {
++            return Err(ApiError::new(400, error_code::PARAM_INVALID, "到期日不能早于发证日"));
++        }
++        Ok(CertificateWrite {
++            employee_id,
++            no: no.to_string(),
++            cert_type: self.cert_type.clone(),
++            issue_date,
++            expire_date,
++            status: STATUS_ACTIVE.to_string(),
++            remark: self
++                .remark
++                .as_deref()
++                .map(str::trim)
++                .filter(|text| !text.is_empty())
++                .map(str::to_string),
++        })
++    }
++}
++
++/// 字符串 → uuid（400 带字段名）。
++pub fn parse_uuid_value(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
++    let text = raw.trim();
++    Uuid::parse_str(text).map_err(|_| {
++        ApiError::new(
++            400,
++            error_code::PARAM_INVALID,
++            format!("{field} 必须是合法的 uuid（收到 `{text}`）"),
++        )
++    })
++}
++
++/// `yyyy-MM-dd` → `NaiveDate`（400 带字段名）。
++pub fn parse_date_value(raw: &str, field: &str) -> std::result::Result<NaiveDate, ApiError> {
++    NaiveDate::parse_from_str(raw.trim(), "%Y-%m-%d").map_err(|_| {
++        ApiError::new(
++            400,
++            error_code::PARAM_INVALID,
++            format!("{field} 必须是 yyyy-MM-dd（收到 `{raw}`）"),
++        )
++    })
++}
++
++// ==================== 查询参数 / 过滤 ====================
++
++/// 列表查询参数（`GET /business/hr/certificate/page`）。
++#[derive(Debug, Clone, Default, Deserialize)]
++pub struct CertificatePageQuery {
++    pub page: Option<u64>,
++    pub page_size: Option<u64>,
++    pub employee_id: Option<String>,
++    pub status: Option<String>,
++}
++
++/// 业务过滤条件（`model::list_query` 的唯一入参）。
++#[derive(Debug, Clone, Default)]
++pub struct CertificateFilter {
++    pub employee_id: Option<Uuid>,
++    pub status: Option<String>,
++}
++
++/// 查询参数 → 过滤条件（纯函数，不连库可测）。
++pub fn filter_of(query: &CertificatePageQuery) -> std::result::Result<CertificateFilter, ApiError> {
++    let employee_id = match query.employee_id.as_deref().map(str::trim) {
++        None | Some("") => None,
++        Some(raw) => Some(parse_uuid_value(raw, "employee_id")?),
++    };
++    let status = query
++        .status
++        .as_deref()
++        .map(str::trim)
++        .filter(|text| !text.is_empty())
++        .map(str::to_string);
++    Ok(CertificateFilter { employee_id, status })
++}
++
++/// 分页参数归一（上限 200，与其它 HR 列表同口径）。
++pub fn normalize_page(page: Option<u64>, page_size: Option<u64>) -> (u64, u64) {
++    let page = page.unwrap_or(1).max(1);
++    let page_size = page_size.unwrap_or(20).clamp(1, 200);
++    (page, page_size)
++}
++
++// ==================== 出参 ====================
++
++/// 单条回执：`*_id` 必配 `*_name`，码值配 `*_label`。
++///
++/// `Uuid` 字段一律下发 `String`（`nik::uuid::Uuid` 没实现 serde；
++/// `employee_dto::EmployeeListRes.id` 的注释写着同一句）。
++#[derive(Debug, Clone, Serialize)]
++pub struct CertificateRes {
++    pub id: String,
++    pub employee_id: String,
++    pub employee_name: String,
++    pub no: String,
++    pub cert_type: String,
++    pub status: String,
++    pub status_label: String,
++    pub issue_date: String,
++    pub expire_date: Option<String>,
++}
++
++/// 列表行（键名与前端 `CertificateListRow` 逐字一致）。
++#[derive(Debug, Clone, Serialize)]
++pub struct CertificateListRes {
++    pub id: String,
++    pub employee_id: String,
++    pub employee_name: String,
++    pub no: String,
++    pub cert_type: String,
++    pub status: String,
++    pub status_label: String,
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// ① 常量域对拍 DDL：码值改一处漏一处就红。
++    #[test]
++    fn cert_types_match_ddl_check() {
++        assert_eq!(CERT_TYPES, ["QUALIFICATION", "SAFETY", "SKILL"]);
++        assert_eq!(STATUS_VALUES, ["ACTIVE", "EXPIRED", "REVOKED"]);
++    }
++
++    /// ② 纯函数：到期日早于发证日必须 400。
++    #[test]
++    fn expire_before_issue_is_rejected() {
++        let req = CertificateCreateReq {
++            employee_id: Uuid::now_v7().to_string(),
++            no: "CERT-001".to_string(),
++            cert_type: "SKILL".to_string(),
++            issue_date: "2026-11-13".to_string(),
++            expire_date: Some("2026-01-01".to_string()),
++            remark: None,
++        };
++        assert!(req.validate().is_err());
++    }
++}
+diff --git a/backend/src/business/hr/certificate_handler.rs b/backend/src/business/hr/certificate_handler.rs
+new file mode 100644
+index 00000000..1cb085d2
+--- /dev/null
++++ b/backend/src/business/hr/certificate_handler.rs
+@@ -0,0 +1,178 @@
++//! 证书台账接口层（HR-50 新人走查骨架 · 照 `docs/后端二开指南.md` §17.9.4 ③ 抄）。
++//!
++//! | 方法 | 路径（`/api` 由框架注入） | 权限码 |
++//! |:--:|---|---|
++//! | GET | `/business/hr/certificate/page` | `business:hr:certificate:list` |
++//! | GET | `/business/hr/certificate/{id}` | `business:hr:certificate:detail` |
++//! | POST | `/business/hr/certificate` | `business:hr:certificate:create` |
++//!
++//! # 走查偏差（故意留痕，不静默）
++//!
++//! 模板 §17.9.3 ⑦ 的建单顺序里有一步 `state_machine::log_created(<ENTITY_ID>, …)`。
++//! 新增实体需要在 `business/shared/state_machine.rs` 里加 [`Entity`] 变体 + `DocKind` 变体 +
++//! 合法边 + `parse`，而 §17.9 **没有给出这段登记 diff**。本骨架为最小可编译形态**跳过状态日志**，
++//! 并在报告里作为模板缺口登记（见走查记录「影响体验」第 2 条）。
++
++use axum::Json;
++use axum::extract::{Extension, Path, Query};
++use nik::prelude::*;
++use nik::uuid::Uuid;
++
++use crate::business::hr::certificate_dto::{
++    self, CertificateCreateReq, CertificateListRes, CertificatePageQuery, CertificateRes,
++};
++use crate::business::hr::{certificate_model, employee_handler};
++use crate::business::shared::principal::{self, ScopedPrincipal};
++use crate::business::shared::state_machine::Operator;
++use crate::utils;
++
++// ==================== 权限码（与迁移的 sys_menu.auth_code 逐字一致） ====================
++
++/// 全量列表接口的码（挂在按钮行，不是页面行）。
++pub const PERM_CERTIFICATE_LIST: &str = "business:hr:certificate:list";
++/// 详情。
++pub const PERM_CERTIFICATE_DETAIL: &str = "business:hr:certificate:detail";
++/// 新建。
++pub const PERM_CERTIFICATE_CREATE: &str = "business:hr:certificate:create";
++
++// ==================== 错误原语 ====================
++
++/// 路径参数里的 uuid。
++fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
++    crate::business::hr::certificate_dto::parse_uuid_value(raw, field)
++}
++
++// ==================== 列表 ====================
++
++/// 列表：唯一点 = `scope::paginate`（数据权限）+ `*:list` 码。
++#[nik::permission(
++    path = "/business/hr/certificate/page",
++    method = "GET",
++    permission = "business:hr:certificate:list"
++)]
++#[nik::get("/business/hr/certificate/page")]
++pub async fn certificate_page(
++    Extension(AuthClaims(claims)): Extension<AuthClaims>,
++    Query(query): Query<CertificatePageQuery>,
++) -> ResResult<PageData<Vec<CertificateListRes>>> {
++    let (page, page_size) = certificate_dto::normalize_page(query.page, query.page_size);
++    let filter = certificate_dto::filter_of(&query)?;
++    let principal = principal::resolve_for_claims(&claims).await?;
++    let (list, total) = certificate_model::page(&filter, page, page_size, &principal).await?;
++    let rows: Vec<CertificateListRes> = list
++        .iter()
++        .map(|row| CertificateListRes {
++            id: row.id.to_string(),
++            employee_id: row.employee_id.to_string(),
++            employee_name: row.employee_name.clone(),
++            no: row.no.clone(),
++            cert_type: row.cert_type.clone(),
++            status: row.status.clone(),
++            status_label: certificate_dto::status_label(&row.status),
++        })
++        .collect();
++    Ok(Res::page(rows, u64::try_from(total).unwrap_or(0), page, page_size))
++}
++
++// ==================== 详情 ====================
++
++/// 详情：找不到 / 看不见 都是同一句 404。
++#[nik::permission(
++    path = "/business/hr/certificate/{id}",
++    method = "GET",
++    permission = "business:hr:certificate:detail"
++)]
++#[nik::get("/business/hr/certificate/{id}")]
++pub async fn certificate_detail(
++    Extension(AuthClaims(claims)): Extension<AuthClaims>,
++    Path(id): Path<String>,
++) -> ResResult<CertificateRes> {
++    let id = parse_uuid(&id, "id")?;
++    let principal = principal::resolve_for_claims(&claims).await?;
++    Ok(Res::ok(detail_of(&principal, id).await?))
++}
++
++/// 详情薄封装（本子域自己的：`model::find_in` + 数据范围探针）。
++async fn detail_of(principal: &ScopedPrincipal, id: Uuid) -> std::result::Result<CertificateRes, ApiError> {
++    let row = certificate_model::find_in(db(), id)
++        .await
++        .map_err(|error| utils::db_error(error, "读取证书"))?
++        .ok_or_else(certificate_model::not_found_error)?;
++    // 不可见报 404（不是 403）：403 会泄露 id 存在性
++    employee_handler::ensure_visible(db(), principal, row.employee_id).await?;
++    Ok(CertificateRes {
++        id: row.id.to_string(),
++        employee_id: row.employee_id.to_string(),
++        employee_name: row.employee_name,
++        no: row.no,
++        cert_type: row.cert_type.clone(),
++        status: row.status.clone(),
++        status_label: certificate_dto::status_label(&row.status),
++        issue_date: row.issue_date,
++        expire_date: row.expire_date,
++    })
++}
++
++// ==================== 新建 ====================
++
++/// 新建：接口只做参数拆包，业务实现在 [`create_certificate`]。
++#[nik::permission(
++    path = "/business/hr/certificate",
++    method = "POST",
++    permission = "business:hr:certificate:create"
++)]
++#[nik::post("/business/hr/certificate")]
++pub async fn certificate_create(
++    Extension(AuthClaims(claims)): Extension<AuthClaims>,
++    Json(req): Json<CertificateCreateReq>,
++) -> ResResult<CertificateRes> {
++    let principal = principal::resolve_for_claims(&claims).await?;
++    let operator: Operator = (&claims).into();
++    Ok(Res::ok(create_certificate(&principal, operator, &req).await?))
++}
++
++/// 新建的业务实现（接口与真库用例共用同一条路径）。
++pub async fn create_certificate(
++    principal: &ScopedPrincipal,
++    operator: Operator,
++    req: &CertificateCreateReq,
++) -> std::result::Result<CertificateRes, ApiError> {
++    let draft = req.validate()?;
++    // 数据范围探针：事务外先挡一次，别为越权请求白开事务；不可见 → 404
++    employee_handler::ensure_visible(db(), principal, draft.employee_id).await?;
++    let id = Uuid::now_v7();
++    let tx = db()
++        .begin()
++        .await
++        .map_err(|error| utils::db_error(error, "开启建证书事务"))?;
++
++    if let Err(error) = certificate_model::insert(
++        &tx,
++        &certificate_model::CertificateInsert { id, draft: &draft },
++        operator.id,
++    )
++    .await
++    {
++        let _ = tx.rollback().await; // 显式回滚，别只靠 Drop
++        return Err(certificate_model::write_error(error, "新建证书", &draft.no));
++    }
++
++    tx.commit()
++        .await
++        .map_err(|error| utils::db_error(error, "提交建证书事务"))?;
++    // 读回走与详情同一条路径，出参只有一处定义
++    detail_of(principal, id).await
++}
++
++#[cfg(test)]
++mod tests {
++    /// ③ 路由契约对拍：新接口必须登记在 `ROUTE_CONTRACT`。
++    #[test]
++    fn route_is_registered_in_contract() {
++        assert!(
++            crate::business::hr::handler::ROUTE_CONTRACT
++                .iter()
++                .any(|spec| spec.method == "POST" && spec.path == "/business/hr/certificate")
++        );
++    }
++}
+diff --git a/backend/src/business/hr/certificate_model.rs b/backend/src/business/hr/certificate_model.rs
+new file mode 100644
+index 00000000..e8ba1eea
+--- /dev/null
++++ b/backend/src/business/hr/certificate_model.rs
+@@ -0,0 +1,270 @@
++//! 证书台账数据层（`biz_employee_certificate`）：本文件是这张表的**唯一 SQL 出口**。
++//! 出参契约在 `certificate_dto.rs`；接口层在 `certificate_handler.rs`。
++//!
++//! 照 `docs/后端二开指南.md` §17.9.3 ② 抄；表结构见 `migrations/business/V0404__hr_certificate_tables.up.sql`。
++
++use nik::prelude::*;
++use nik::uuid::Uuid;
++
++use crate::business::hr::certificate_dto::{CertificateFilter, CertificateWrite};
++use crate::business::hr::model::SENTINEL_ORG_ID;
++use crate::business::shared::principal::ScopedPrincipal;
++use crate::business::shared::scope;
++use crate::shared::error_code;
++use crate::utils;
++
++// ==================== 表 / 约束名（与迁移逐字一致） ====================
++
++/// 编号唯一索引（`(org_id, cert_no) WHERE deleted_at IS NULL`）。
++pub const UK_NO: &str = "uk_biz_employee_certificate_no";
++
++/// 本表的 5 个 CHECK。
++pub const CHECKS: [&str; 5] = [
++    "ck_biz_employee_certificate_type",
++    "ck_biz_employee_certificate_status",
++    "ck_biz_employee_certificate_revoke",
++    "ck_biz_employee_certificate_reason",
++    "ck_biz_employee_certificate_range",
++];
++
++/// 数据权限锚点（表上没有 `dept_id`，归属列是 `employee_id`）。
++pub const CERTIFICATE_TARGET: scope::ScopeTarget =
++    scope::ScopeTarget::new("biz_employee_certificate", "c", None, Some("employee_id"));
++
++// ==================== 行 ====================
++
++/// 一行（`get_typed` 的列名必须与 SQL 的 `AS` 别名逐字一致）。
++#[derive(Debug, Clone)]
++pub struct CertificateRow {
++    pub id: Uuid,
++    pub employee_id: Uuid,
++    pub employee_name: String,
++    pub no: String,
++    pub cert_type: String,
++    pub status: String,
++    pub issue_date: String,
++    pub expire_date: Option<String>,
++}
++
++impl CertificateRow {
++    fn from_row(row: &Row) -> DbResult<Self> {
++        Ok(Self {
++            id: row.get_typed("id")?,
++            employee_id: row.get_typed("employee_id")?,
++            employee_name: row.get_typed("employee_name")?,
++            no: row.get_typed("no")?,
++            cert_type: row.get_typed("cert_type")?,
++            status: row.get_typed("status")?,
++            issue_date: row.get_typed("issue_date")?,
++            expire_date: row.get_typed("expire_date")?,
++        })
++    }
++}
++
++// ==================== SQL ====================
++
++/// 列片段（列表与详情共用一份，避免两处漂移）。
++const ROW_SQL: &str = "\
++SELECT c.id, c.employee_id, e.name AS employee_name, c.cert_no AS no, c.cert_type, c.status, \
++       c.issue_date::text AS issue_date, c.expire_date::text AS expire_date \
++  FROM biz_employee_certificate c \
++  JOIN biz_employee e ON e.id = c.employee_id AND e.deleted_at IS NULL";
++
++/// 列表 SQL：`{FILTER}` 是数据权限注入位，**必须**排在业务条件之前。
++const LIST_SQL: &str = ROW_SQL;
++
++/// 详情 SQL（单条）。
++const FIND_SQL: &str = "\
++SELECT c.id, c.employee_id, e.name AS employee_name, c.cert_no AS no, c.cert_type, c.status, \
++       c.issue_date::text AS issue_date, c.expire_date::text AS expire_date \
++  FROM biz_employee_certificate c \
++  JOIN biz_employee e ON e.id = c.employee_id AND e.deleted_at IS NULL \
++ WHERE c.id = ?::uuid AND c.deleted_at IS NULL";
++
++const ORDER_BY: &str = "ORDER BY c.issue_date DESC, c.cert_no DESC";
++
++/// 新建（14 个绑定参数）。
++pub const INSERT_SQL: &str = "\
++INSERT INTO biz_employee_certificate \
++    (id, org_id, employee_id, cert_no, cert_type, issue_date, expire_date, status, \
++     revoked_at, revoked_reason, remark, create_by, update_by, deleted_at) \
++ VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?::text::date, NULLIF(?::text,'')::date, ?, \
++         NULLIF(?::text,'')::timestamptz, NULLIF(?::text,''), NULLIF(?::text,''), \
++         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, NULL)";
++
++// ==================== 读 ====================
++
++/// 分页：唯一入口 `scope::paginate`。
++pub async fn page(
++    filter: &CertificateFilter,
++    page: u64,
++    page_size: u64,
++    principal: &ScopedPrincipal,
++) -> DbResult<(Vec<CertificateRow>, i64)> {
++    let (sql, params) = list_query(filter);
++    let result = scope::paginate(
++        CERTIFICATE_TARGET,
++        &sql,
++        params,
++        Some(ORDER_BY),
++        page,
++        page_size,
++        principal,
++    )
++    .await?;
++    let mut out = Vec::with_capacity(result.list.len());
++    for row in &result.list {
++        out.push(CertificateRow::from_row(row)?);
++    }
++    Ok((out, i64::try_from(result.total).unwrap_or(i64::MAX)))
++}
++
++/// 列表 SQL + 参数拼装（**纯函数**：不连库就能测占位符个数）。
++fn list_query(filter: &CertificateFilter) -> (String, Vec<Value>) {
++    let mut sql = format!("{LIST_SQL} WHERE c.deleted_at IS NULL {}", scope::FILTER_MARKER);
++    let mut params: Vec<Value> = Vec::new();
++    if let Some(employee_id) = filter.employee_id {
++        sql.push_str(" AND c.employee_id = ?::uuid");
++        params.push(Value::from(&employee_id));
++    }
++    if let Some(status) = filter.status.as_deref() {
++        sql.push_str(" AND c.status = ?");
++        params.push(Value::Text(status.to_string()));
++    }
++    (sql, params)
++}
++
++/// 单条读取（不存在 → `None`；可见性由调用方的探针负责）。
++pub async fn find_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<CertificateRow>> {
++    let rows = ex.query_sql(FIND_SQL.to_string(), vec![Value::from(&id)]).await?;
++    rows.first().map(CertificateRow::from_row).transpose()
++}
++
++// ==================== 写 ====================
++
++/// 插入入参：`id` 由 handler 生成后传进来。
++pub struct CertificateInsert<'a> {
++    pub id: Uuid,
++    pub draft: &'a CertificateWrite,
++}
++
++pub async fn insert(ex: &impl SqlExecutor, row: &CertificateInsert<'_>, operator: Option<Uuid>) -> DbResult<()> {
++    // SCOPE-EXEMPT: 主数据写入；org_id 由 SENTINEL_ORG_ID 显式给出
++    ex.exec_sql(INSERT_SQL.to_string(), insert_params(row, operator))
++        .await?;
++    Ok(())
++}
++
++/// [`INSERT_SQL`] 的绑定参数（顺序与列一致；单测把 `?` 个数与这里的长度对拍）。
++fn insert_params(row: &CertificateInsert<'_>, operator: Option<Uuid>) -> Vec<Value> {
++    let draft = row.draft;
++    vec![
++        Value::from(&row.id),
++        Value::from(&SENTINEL_ORG_ID),
++        Value::from(&draft.employee_id),
++        Value::Text(draft.no.trim().to_string()),
++        Value::Text(draft.cert_type.clone()),
++        Value::Text(draft.issue_date.to_string()),
++        opt_text(draft.expire_date.map(|date| date.to_string()).as_deref()),
++        Value::Text(draft.status.clone()),
++        Value::Text(String::new()),
++        Value::Text(String::new()),
++        opt_text(draft.remark.as_deref()),
++        opt_text(operator.map(|id| id.to_string()).as_deref()),
++        opt_text(operator.map(|id| id.to_string()).as_deref()),
++    ]
++}
++
++/// 可空文本参数（空的留给 SQL 的 `NULLIF(?::text,'')`）。
++fn opt_text(value: Option<&str>) -> Value {
++    Value::Text(value.map(str::trim).unwrap_or_default().to_string())
++}
++
++// ==================== 错误出口 ====================
++
++/// 写路径的**唯一**数据库错误出口。
++pub fn write_error(err: DbError, ctx: &str, no: &str) -> ApiError {
++    match &err {
++        DbError::UniqueViolation { constraint, .. } if constraint.as_deref() == Some(UK_NO) => ApiError::new(
++            409,
++            error_code::HR_CERTIFICATE_NO_DUPLICATE,
++            format!("证书编号「{no}」已被占用，请核对后重填"),
++        ),
++        DbError::CheckViolation { constraint, .. } => {
++            ApiError::new(400, error_code::PARAM_INVALID, check_message(constraint.as_deref()))
++        }
++        _ => utils::db_error(err, ctx),
++    }
++}
++
++/// 约束名 → 用户能看懂的话。
++pub fn check_message(constraint: Option<&str>) -> String {
++    match constraint.unwrap_or_default() {
++        "ck_biz_employee_certificate_type" => "证书类型只能是 QUALIFICATION / SAFETY / SKILL".to_string(),
++        "ck_biz_employee_certificate_status" => "证书状态只能是 ACTIVE / EXPIRED / REVOKED".to_string(),
++        "ck_biz_employee_certificate_revoke" => "注销态必须同时有注销时间（反之亦然）".to_string(),
++        "ck_biz_employee_certificate_reason" => "注销原因至少 5 个字".to_string(),
++        "ck_biz_employee_certificate_range" => "到期日不能早于发证日".to_string(),
++        other => format!("证书数据不满足库约束 {other}，请检查后重填"),
++    }
++}
++
++/// 单条不存在 / 不可见：**同一句话**（不可见报 404 而不是 403）。
++pub fn not_found_error() -> ApiError {
++    ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "证书不存在或已删除")
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::business::hr::certificate_dto::{CertificateCreateReq, STATUS_ACTIVE};
++    use nik::prelude::chrono::NaiveDate;
++
++    /// ② 纯函数：占位符个数 = 参数个数。
++    #[test]
++    fn insert_placeholder_count_matches_params() {
++        let draft = CertificateWrite {
++            employee_id: Uuid::now_v7(),
++            no: "CERT-001".to_string(),
++            cert_type: "SKILL".to_string(),
++            issue_date: NaiveDate::from_ymd_opt(2026, 11, 13).unwrap(),
++            expire_date: None,
++            status: STATUS_ACTIVE.to_string(),
++            remark: None,
++        };
++        let params = insert_params(
++            &CertificateInsert {
++                id: Uuid::now_v7(),
++                draft: &draft,
++            },
++            None,
++        );
++        assert_eq!(INSERT_SQL.matches('?').count(), params.len());
++    }
++
++    /// ③ 过滤条件个数与占位符个数一致。
++    #[test]
++    fn filter_placeholder_count_matches_params() {
++        let filter = CertificateFilter {
++            employee_id: Some(Uuid::now_v7()),
++            status: Some("ACTIVE".to_string()),
++        };
++        let (sql, params) = list_query(&filter);
++        assert!(sql.contains(scope::FILTER_MARKER));
++        assert_eq!(sql.matches('?').count(), params.len());
++    }
++
++    /// ④ 入参校验入口仍然可用（防前向改动把 validate 拆掉）。
++    #[test]
++    fn create_req_validates_ok() {
++        let req = CertificateCreateReq {
++            employee_id: Uuid::now_v7().to_string(),
++            no: "CERT-001".to_string(),
++            cert_type: "SKILL".to_string(),
++            issue_date: "2026-11-13".to_string(),
++            expire_date: None,
++            remark: None,
++        };
++        assert!(req.validate().is_ok());
++    }
++}
+diff --git a/backend/src/business/hr/handler.rs b/backend/src/business/hr/handler.rs
+index 3e902baf..332a44c2 100644
+--- a/backend/src/business/hr/handler.rs
++++ b/backend/src/business/hr/handler.rs
+@@ -86,7 +86,7 @@ pub struct RouteSpec {
+ /// - `card = "TBD"` 的两行（员工导入 / 导出）在 §8.1 的批 2 里**没有排卡**，
+ ///   但权限码 `business:hr:employee:import/export` 已在 `V0387` 种下 → 属卡清单漏项，
+ ///   本卡只登记不实现。
+-pub const ROUTE_CONTRACT: [RouteSpec; 51] = [
++pub const ROUTE_CONTRACT: [RouteSpec; 54] = [
+     // ---- 员工档案（#1~#12） ----
+     RouteSpec {
+         method: "GET",
+@@ -410,6 +410,25 @@ pub const ROUTE_CONTRACT: [RouteSpec; 51] = [
+         permission: Some("business:hr:salary:my"),
+         card: "HR-41",
+     },
++    // ---- certificate（设计 §5.2 无此项 = 新增子域，card 填本卡号）----
++    RouteSpec {
++        method: "GET",
++        path: "/business/hr/certificate/page",
++        permission: Some("business:hr:certificate:list"),
++        card: "HR-50",
++    },
++    RouteSpec {
++        method: "GET",
++        path: "/business/hr/certificate/{id}",
++        permission: Some("business:hr:certificate:detail"),
++        card: "HR-50",
++    },
++    RouteSpec {
++        method: "POST",
++        path: "/business/hr/certificate",
++        permission: Some("business:hr:certificate:create"),
++        card: "HR-50",
++    },
+ ];
+ 
+ /// HR 模块体检（`GET /business/hr/health`）。
+diff --git a/backend/src/business/hr/mod.rs b/backend/src/business/hr/mod.rs
+index b35db694..32d39cbc 100644
+--- a/backend/src/business/hr/mod.rs
++++ b/backend/src/business/hr/mod.rs
+@@ -156,6 +156,12 @@ pub mod contract_dto;
+ pub mod contract_handler;
+ /// 劳动合同数据层（`biz_employee_contract`）：CRUD + 续签链 + 状态 CAS（HR-15）。
+ pub mod contract_model;
++/// 证书台账入参 / 出参契约（`biz_employee_certificate`，HR-50 走查骨架）。
++pub mod certificate_dto;
++/// 证书台账接口层（列表 / 详情 / 新建，HR-50 走查骨架）。
++pub mod certificate_handler;
++/// 证书台账数据层（`biz_employee_certificate`）的唯一 SQL 出口（HR-50 走查骨架）。
++pub mod certificate_model;
+ pub mod dto;
+ /// 员工档案出参契约（`biz_employee`）：`*_id`/`*_name` 成对 + 敏感字段只出 `*_masked`（HR-11）。
+ pub mod employee_dto;
+diff --git a/backend/src/business/shared/scope.rs b/backend/src/business/shared/scope.rs
+index deb79722..8ab7ed28 100644
+--- a/backend/src/business/shared/scope.rs
++++ b/backend/src/business/shared/scope.rs
+@@ -333,6 +333,11 @@ impl ScopeTarget {
+     /// `dept_id` 可空（记录上没有部门时凭证只用空值），`NULL` 不匹配任何 `=` 比较 ⇒
+     /// 部门范围的人看不见「无部门」的行 —— 安全侧降级（宁可少看，不可多看）。
+     pub const BIZ_ATTENDANCE_RECORD: Self = Self::new("biz_attendance_record", "r", Some("dept_id"), None);
++
++    /// `biz_employee_certificate`（HR-50 走查骨架）：本表**没有** `dept_id`，
++    /// 数据权限按「员工归属」裁（`owner_col = employee_id`，与合同/请假同口径）。
++    pub const BIZ_EMPLOYEE_CERTIFICATE: Self =
++        Self::new("biz_employee_certificate", "c", None, Some("employee_id"));
+ }
+ 
+ /// 登记表清单（架构 §2.5 的 `SCOPED_TABLES`）。
+diff --git a/backend/src/shared/error_code.rs b/backend/src/shared/error_code.rs
+index 0e03a527..06bce94f 100644
+--- a/backend/src/shared/error_code.rs
++++ b/backend/src/shared/error_code.rs
+@@ -1984,6 +1984,11 @@ pub const HR_LEAVE_NO_DUPLICATE: i32 = 68011;
+ /// 已作废的再作废一次。前端文案要点名下一步（作废重开 / 先撤回），不是「换个值重试」。
+ pub const HR_LEAVE_RULE_BLOCKED: i32 = 68012;
+ 
++/// 证书编号重复（HTTP 409，`68013`，HR-50 走查骨架）。
++///
++/// 唯一索引 `uk_biz_employee_certificate_no (org_id, cert_no) WHERE deleted_at IS NULL`。
++pub const HR_CERTIFICATE_NO_DUPLICATE: i32 = 68013;
++
+ #[cfg(test)]
+ mod hr_error_codes_are_stable {
+     use super::*;
+diff --git a/frontend/src/api/business/hr/certificate-kinds.ts b/frontend/src/api/business/hr/certificate-kinds.ts
+new file mode 100644
+index 00000000..702adc1e
+--- /dev/null
++++ b/frontend/src/api/business/hr/certificate-kinds.ts
+@@ -0,0 +1,64 @@
++/**
++ * 证书台账的出参契约与词表（HR-50 新人走查骨架 · 照 `docs/前端二开指南.md` §11.1 ① 抄）。
++ *
++ * 纯逻辑文件：**不 import 请求层、不 import Vue** —— `tests/unit/hr-certificate-page.test.ts`
++ * 会 `readFileSync` 后端 `backend/src/business/hr/certificate_dto.rs`，把下面两张表逐值对拍。
++ */
++
++/** 状态域（与 DDL 的 ck_biz_employee_certificate_status 逐字一致） */
++export const STATUS_VALUES = ['ACTIVE', 'EXPIRED', 'REVOKED'] as const;
++export type Status = (typeof STATUS_VALUES)[number];
++
++/** 码值 → 中文（与后端 `certificate_dto.rs` 的 STATUS_LABELS 逐值一致） */
++export const STATUS_LABELS: Record<Status, string> = {
++  ACTIVE: '有效',
++  EXPIRED: '已到期',
++  REVOKED: '已注销',
++};
++
++/** 列表行（键名逐条抄后端 `CertificateListRes`，不缩写） */
++export interface CertificateListRow {
++  id: string;
++  employee_id: string;
++  /** 员工姓名：后端实时 join 下发（主数据改名后显示新名） */
++  employee_name: string;
++  no: string;
++  cert_type: string;
++  status: Status;
++  status_label: string;
++}
++
++/** 权限码表（与 `sys_menu.auth_code` 逐字一致；`page` 只判路由显形，其余判动作） */
++export const CERT_PERMS = {
++  /** 页面显形码：后端零引用，只给路由 `meta.permission`（编码规范 §1.7.2） */
++  page: 'business:hr:certificate:page',
++  /** 全量列表接口的码（挂在按钮行，不是页面行） */
++  list: 'business:hr:certificate:list',
++  detail: 'business:hr:certificate:detail',
++  create: 'business:hr:certificate:create',
++} as const;
++
++/** 筛选条件（`emptyFilter()` 与「重置」共用同一份，避免两处漂移） */
++export interface CertificateFilter {
++  keyword?: string;
++  status?: Status[];
++}
++export function emptyFilter(): CertificateFilter {
++  return { keyword: '', status: [] };
++}
++
++/** 列定义（`status` / `op` 是插槽列，`colKey` 与出参同名） */
++export const CERT_COLUMNS = [
++  { colKey: 'no', title: '编号', width: 150 },
++  { colKey: 'employee_name', title: '员工', width: 120 },
++  { colKey: 'status', title: '状态', width: 90 },
++  { colKey: 'op', title: '操作', width: 140, fixed: 'right' as const },
++];
++
++/** 证书类型（与后端 `CERT_TYPES` 逐值一致） */
++export const CERT_TYPE_VALUES = ['QUALIFICATION', 'SAFETY', 'SKILL'] as const;
++export const CERT_TYPE_LABELS: Record<(typeof CERT_TYPE_VALUES)[number], string> = {
++  QUALIFICATION: '资质证书',
++  SAFETY: '安全证书',
++  SKILL: '技能证书',
++};
+diff --git a/frontend/src/api/business/hr/certificate.ts b/frontend/src/api/business/hr/certificate.ts
+new file mode 100644
+index 00000000..3eba218a
+--- /dev/null
++++ b/frontend/src/api/business/hr/certificate.ts
+@@ -0,0 +1,18 @@
++/** 证书台账 API 层（HR-50 走查骨架 · 照 `docs/前端二开指南.md` §11.1 ② 抄）。 */
++import { get, post, type PageData } from '@/api/request';
++import type { CertificateListRow } from './certificate-kinds';
++
++export * from './certificate-kinds';
++
++/** 后端注解不含 `/api`（`[router].prefix` 注入）；漏了会命中 SPA fallback 返回 HTML → 「响应体格式不符合」 */
++const BASE = '/api/business/hr/certificate';
++
++/** 列表（后端分页包装 `PageData<T>`：字段是 `list` / `total` / `page` / `page_size`） */
++export const fetchCertificatePage = (params: Record<string, unknown>) =>
++  get<PageData<CertificateListRow>>(`${BASE}/page`, params);
++
++/** 详情 */
++export const fetchCertificate = (id: string) => get<CertificateListRow>(`${BASE}/${id}`);
++
++/** 新建（编号留空 ⇒ 后端取号） */
++export const createCertificate = (body: Record<string, unknown>) => post<{ id: string }>(BASE, body);
+diff --git a/frontend/src/router/index.ts b/frontend/src/router/index.ts
+index 6113a572..5d1005e2 100644
+--- a/frontend/src/router/index.ts
++++ b/frontend/src/router/index.ts
+@@ -803,6 +803,13 @@ const routes: RouteRecordRaw[] = [
+         component: () => import('@/views/business/hr/salary-item/index.vue'),
+         meta: { title: '薪资项', permission: 'business:hr:salary-item:page' },
+       },
++      {
++        // HR-50 走查骨架：页面码（V04xx 种在页面行）—— 与 `sys_menu.auth_code` 逐字一致
++        path: 'business/hr/certificate',
++        name: 'BusinessHrCertificate',
++        component: () => import('@/views/business/hr/certificate/index.vue'),
++        meta: { title: '证书台账', permission: 'business:hr:certificate:page' },
++      },
+       {
+         // ==================== HR：薪资管理（ARCH-9 §6.1 页面 #4 / §5.2 #36/#39/#40/#46） ====================
+         // `sys_menu` 种子（V0387 `…e004`）path = `/business/hr/salary`、component
+diff --git a/frontend/src/views/business/hr/certificate/index.vue b/frontend/src/views/business/hr/certificate/index.vue
+new file mode 100644
+index 00000000..95b55a68
+--- /dev/null
++++ b/frontend/src/views/business/hr/certificate/index.vue
+@@ -0,0 +1,249 @@
++<!--
++  证书台账页（HR-50 新人走查骨架 · 照 `docs/前端二开指南.md` §11.1 ③ 抄，骨架里的空洞
++  —— `form` / `rules` / `submit` / `employeeOptions` —— 按 leave 页的做法补上）。
++
++  data-testid 全量：单测与 E2E 只认 `data-testid`，不认 class 与文案。
++-->
++<template>
++  <div class="page">
++    <!-- ① 页面头 -->
++    <t-card :bordered="false" class="page-head">
++      <div class="page-head__main">
++        <h2 class="page-head__title">证书台账</h2>
++        <p class="page-head__desc">说明文字放这里，别塞进菜单 title（AGENTS.md 约定 12）</p>
++      </div>
++      <div class="page-head__actions">
++        <t-button variant="outline" data-testid="hr-certificate-refresh" @click="loadRows">刷新</t-button>
++        <t-button
++          v-if="canCreate"
++          theme="primary"
++          data-testid="hr-certificate-create"
++          @click="openCreate"
++        >
++          <template #icon><t-icon name="add" /></template>
++          新建
++        </t-button>
++      </div>
++    </t-card>
++
++    <!-- ② 筛选 -->
++    <t-card :bordered="false" class="filter-card">
++      <div class="filter-row">
++        <t-input
++          v-model="filter.keyword"
++          class="filter-row__keyword"
++          placeholder="编号"
++          clearable
++          data-testid="hr-certificate-keyword"
++          @enter="handleSearch"
++          @clear="handleSearch"
++        >
++          <template #prefix-icon><t-icon name="search" /></template>
++        </t-input>
++        <t-select
++          v-model="filter.status"
++          class="filter-row__select"
++          :options="statusOptions"
++          placeholder="全部状态"
++          multiple
++          clearable
++          data-testid="hr-certificate-filter-status"
++        />
++        <t-button theme="primary" data-testid="hr-certificate-search" @click="handleSearch">查询</t-button>
++        <t-button variant="outline" data-testid="hr-certificate-reset" @click="handleReset">重置</t-button>
++      </div>
++    </t-card>
++
++    <!-- ③ 列表 -->
++    <t-card :bordered="false" class="list-card">
++      <t-alert v-if="loadError" theme="error" :message="loadError" data-testid="hr-certificate-load-error" />
++      <t-table
++        row-key="id"
++        :data="rows"
++        :columns="columns"
++        :loading="loading"
++        :pagination="pagination"
++        hover
++        data-testid="hr-certificate-table"
++        @page-change="handlePageChange"
++      >
++        <template #status="{ row }">
++          <t-tag :theme="row.status === 'ACTIVE' ? 'success' : 'default'">{{ row.status_label }}</t-tag>
++        </template>
++      </t-table>
++    </t-card>
++
++    <!-- ④ 抽屉表单：新建 -->
++    <t-drawer
++      v-model:visible="drawerVisible"
++      header="新建证书"
++      size="560px"
++      :confirm-btn="{ content: '保存', disabled: submitting }"
++      @confirm="submit"
++    >
++      <t-form ref="formRef" :data="form" :rules="rules" label-width="96px">
++        <t-form-item label="员工" name="employee_id">
++          <t-select
++            v-model="form.employee_id"
++            :options="employeeOptions"
++            filterable
++            data-testid="hr-certificate-form-employee"
++          />
++        </t-form-item>
++        <t-form-item label="证书类型" name="cert_type">
++          <t-select v-model="form.cert_type" :options="certTypeOptions" data-testid="hr-certificate-form-type" />
++        </t-form-item>
++        <t-form-item label="编号" name="no">
++          <t-input v-model="form.no" data-testid="hr-certificate-form-no" />
++        </t-form-item>
++        <t-form-item label="发证日" name="issue_date">
++          <t-date-picker v-model="form.issue_date" data-testid="hr-certificate-form-issue" />
++        </t-form-item>
++      </t-form>
++      <template #footer>
++        <t-button variant="outline" @click="drawerVisible = false">取消</t-button>
++        <t-button
++          theme="primary"
++          :loading="submitting"
++          data-testid="hr-certificate-form-submit"
++          @click="submit"
++        >保存</t-button>
++      </template>
++    </t-drawer>
++  </div>
++</template>
++
++<script setup lang="ts">
++import { computed, onMounted, reactive, ref } from 'vue';
++import { MessagePlugin } from 'tdesign-vue-next';
++import { useUserStore } from '@/stores/user';
++import {
++  CERT_COLUMNS as columns,
++  CERT_PERMS,
++  CERT_TYPE_LABELS,
++  CERT_TYPE_VALUES,
++  STATUS_LABELS,
++  STATUS_VALUES,
++  emptyFilter,
++  type CertificateFilter,
++  type CertificateListRow,
++} from '@/api/business/hr/certificate';
++import { createCertificate, fetchCertificatePage } from '@/api/business/hr/certificate';
++
++/**
++ * 页面显形码在路由 `meta.permission`（决定「进不进得来」），
++ * 按钮判据用**接口码**（决定「这个动作做不做得了」）—— 两者已解耦（编码规范 §1.7.2）。
++ */
++const userStore = useUserStore();
++const canCreate = computed(() => userStore.hasPermission(CERT_PERMS.create));
++
++const rows = ref<CertificateListRow[]>([]);
++const total = ref(0);
++const page = ref(1);
++const pageSize = ref(20);
++const loading = ref(false);
++const loadError = ref('');
++
++/** 分页交给 `t-table` 的 `:pagination`（本仓所有列表页都这么写：不单独放 t-pagination） */
++const pagination = computed(() => ({
++  current: page.value,
++  pageSize: pageSize.value,
++  total: total.value,
++  showJumper: true,
++  showPageSize: false,
++}));
++
++function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
++  page.value = pageInfo.current;
++  if (pageInfo.pageSize && pageInfo.pageSize !== pageSize.value) {
++    pageSize.value = pageInfo.pageSize;
++  }
++  void loadRows();
++}
++
++const filter = reactive<CertificateFilter>(emptyFilter());
++const statusOptions = computed(() =>
++  STATUS_VALUES.map((value) => ({ label: STATUS_LABELS[value], value })),
++);
++const certTypeOptions = computed(() =>
++  CERT_TYPE_VALUES.map((value) => ({ label: CERT_TYPE_LABELS[value], value })),
++);
++
++/** 唯一取数入口：筛选序列化 / 分页都收在这里，别在模板里拼 query */
++async function loadRows(): Promise<void> {
++  loading.value = true;
++  loadError.value = '';
++  try {
++    const data = await fetchCertificatePage({ ...filter, page: page.value, page_size: pageSize.value });
++    // PageData 的字段是 `list` / `total`（不是 items / meta —— 写错就是永远空表）
++    rows.value = data.list ?? [];
++    total.value = data.total ?? 0;
++  } catch (error) {
++    loadError.value = (error as Error).message || '加载失败';
++  } finally {
++    loading.value = false;
++  }
++}
++
++function handleSearch(): void {
++  page.value = 1;
++  void loadRows();
++}
++
++function handleReset(): void {
++  Object.assign(filter, emptyFilter());
++  handleSearch();
++}
++
++onMounted(loadRows);
++
++// ==================== 抽屉（骨架里的空洞按 leave 页补全） ====================
++
++interface CertificateForm {
++  employee_id: string;
++  cert_type: string;
++  no: string;
++  issue_date: string;
++}
++
++const drawerVisible = ref(false);
++const submitting = ref(false);
++const formRef = ref();
++const form = reactive<CertificateForm>({ employee_id: '', cert_type: 'SKILL', no: '', issue_date: '' });
++
++/** 员工下拉：本页只用到「选一个员工」，数据来自员工档案页的列表接口 */
++const employeeOptions = ref<{ label: string; value: string }[]>([]);
++
++const rules = {
++  employee_id: [{ required: true, message: '请选择员工', type: 'error' as const }],
++  cert_type: [{ required: true, message: '请选择证书类型', type: 'error' as const }],
++  no: [{ required: true, message: '请填编号', type: 'error' as const }],
++  issue_date: [{ required: true, message: '请选发证日', type: 'error' as const }],
++};
++
++function openCreate(): void {
++  form.employee_id = '';
++  form.cert_type = 'SKILL';
++  form.no = '';
++  form.issue_date = '';
++  drawerVisible.value = true;
++}
++
++async function submit(): Promise<void> {
++  const result = await formRef.value?.validate();
++  if (result !== true) {
++    return;
++  }
++  submitting.value = true;
++  try {
++    await createCertificate({ ...form });
++    MessagePlugin.success('已保存');
++    drawerVisible.value = false;
++    await loadRows();
++  } catch (error) {
++    MessagePlugin.error((error as Error).message || '保存失败');
++  } finally {
++    submitting.value = false;
++  }
++}
++</script>
+diff --git a/frontend/tests/unit/hr-certificate-page.test.ts b/frontend/tests/unit/hr-certificate-page.test.ts
+new file mode 100644
+index 00000000..5105d11b
+--- /dev/null
++++ b/frontend/tests/unit/hr-certificate-page.test.ts
+@@ -0,0 +1,29 @@
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++
++import { STATUS_LABELS, STATUS_VALUES } from '../../src/api/business/hr/certificate-kinds';
++
++/** 后端 DTO 源码 = 词表的唯一真相：后端加一个码值而前端没跟，这里先红 */
++const DTO_SRC = readFileSync(
++  new URL('../../../backend/src/business/hr/certificate_dto.rs', import.meta.url),
++  'utf8',
++);
++
++test('状态词表与后端 DTO 逐值一致', () => {
++  for (const value of STATUS_VALUES) {
++    assert.match(DTO_SRC, new RegExp(`"${value}"`), `后端 DTO 里找不到状态 ${value}`);
++    assert.ok(STATUS_LABELS[value], `${value} 缺中文标签`);
++    assert.match(DTO_SRC, new RegExp(STATUS_LABELS[value]), `后端 DTO 里找不到中文标签 ${STATUS_LABELS[value]}`);
++  }
++});
++
++test('页面显形码用 *:page，且不进后端源码', () => {
++  const router = readFileSync(new URL('../../src/router/index.ts', import.meta.url), 'utf8');
++  assert.match(router, /business:hr:certificate:page/);
++  const dto = readFileSync(
++    new URL('../../../backend/src/business/hr/certificate_dto.rs', import.meta.url),
++    'utf8',
++  );
++  assert.ok(!dto.includes('business:hr:certificate:page'), '页面码不许出现在后端源码里');
++});
