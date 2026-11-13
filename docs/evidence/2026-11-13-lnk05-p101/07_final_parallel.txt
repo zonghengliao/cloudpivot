@@ -1,0 +1,20 @@
+# FINAL · 提交内容实测（默认并行，4 核）—— 这条才是「全量回归不再红」的证据
+# 树 = HEAD 9f2c2d1a + 本轮提交内容（LNK05_LOCK 保留 + ensure_db 回退 test_fixture 引用）
+# 库 = cloudpivot_test_lnk05e（clone 自 cloudpivot_test_p260，干净）
+# ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/cloudpivot_test_lnk05e" \
+#   CARGO_TARGET_DIR=/opt/cloudpivot/backend/target \
+#   cargo test --lib business::erp::expense_linkage_tests      # 没有 --test-threads=1
+
+   Compiling nik v0.4.2 (/root/wt-lnk05/backend/vendor/nik)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 42s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... ok
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... ok
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... ok
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... ok
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... ok
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5546 filtered out; finished in 23.26s

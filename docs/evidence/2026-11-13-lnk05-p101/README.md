@@ -31,6 +31,8 @@
 | 3 | **加锁后** 默认并行 | **6 passed / 0 failed** | `03_after_parallel.txt` |
 | 4 | **加锁后** `cargo test --lib expense_linkage -- --test-threads=1`（卡面验收命令，干净库） | **6 passed / 0 failed** | `04_after_serial_clean.txt` |
 | 5 | **加锁后** 同一个库再跑一遍（带第一轮残留 = 幂等性） | **6 passed / 0 failed** | `05_after_serial_rerun.txt` |
+| 6 | **提交内容**（锁 + ensure_db 回退）卡面验收命令，干净库 | **6 passed / 0 failed** | `06_final_serial.txt` |
+| 7 | **提交内容** 默认并行，干净库 | **6 passed / 0 failed** | `07_final_parallel.txt` |
 
 第 3 行是本卡真正的价值：**不靠 `--test-threads=1` 的调用方约定**，全量回归
 （`cargo test --lib` 默认并行）里这 6 条也绿。
