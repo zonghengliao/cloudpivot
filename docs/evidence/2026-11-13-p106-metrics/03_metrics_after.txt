@@ -1,0 +1,275 @@
+# HELP cloudpivot_http_requests_total HTTP 请求数，按 method / 归一化 path / 精确 status 码统计（中间件层观测，含 401/403/429 与 404 兜底）（单位：次）
+# TYPE cloudpivot_http_requests_total counter
+cloudpivot_http_requests_total{method="GET",path="/health",status="200"} 102
+cloudpivot_http_requests_total{method="GET",path="/api/health",status="404"} 100
+
+# HELP nik_db_raw_sql_total 受信任原始 SQL 的调用次数；从 0 变正即意味着有人绕过了列引用与值绑定
+# TYPE nik_db_raw_sql_total counter
+nik_db_raw_sql_total{kind="trusted_bound"} 14
+
+# HELP nik_http_requests_total HTTP 请求数；status 取类别（2xx/4xx/5xx），route 为归一化路径
+# TYPE nik_http_requests_total counter
+nik_http_requests_total{method="GET",route="/health",status="2xx"} 102
+
+# HELP cloudpivot_metrics_sampler_runs_total 运维观测采样器累计执行次数（单位：次）
+# TYPE cloudpivot_metrics_sampler_runs_total counter
+cloudpivot_metrics_sampler_runs_total 2
+
+# HELP nik_db_queries_total 数据库语句执行次数，按 op/table/status 拆分
+# TYPE nik_db_queries_total counter
+nik_db_queries_total{op="select",table="sys_role",status="ok"} 1
+nik_db_queries_total{op="select",table="sys_user",status="ok"} 1
+nik_db_queries_total{op="select",table="sys_config",status="ok"} 1
+nik_db_queries_total{op="query",table="raw",status="ok"} 22
+nik_db_queries_total{op="select",table="sys_dict_type",status="ok"} 10
+nik_db_queries_total{op="exec",table="raw",status="ok"} 2
+
+# HELP cloudpivot_http_errors_total HTTP 服务端错误数（status >= 500），进程启动即为 0；按端点的 5xx 明细见 cloudpivot_http_requests_total 的 status 标签（单位：次）
+# TYPE cloudpivot_http_errors_total counter
+cloudpivot_http_errors_total 0
+
+# HELP nik_cache_operations_total 缓存操作次数；result=hit/miss 仅出现在读操作上，据此可算命中率
+# TYPE nik_cache_operations_total counter
+nik_cache_operations_total{op="set_ex",result="ok"} 10
+nik_cache_operations_total{op="get",result="miss"} 1
+
+# HELP cloudpivot_impexp_backlog_pending 导入与导出未终态任务合计（积压总量）（单位：个）
+# TYPE cloudpivot_impexp_backlog_pending gauge
+cloudpivot_impexp_backlog_pending 0
+
+# HELP cloudpivot_db_pool_connections 数据库连接数，state=idle 空闲 / active 执行中 / total 合计（服务端 pg_stat_activity 口径，每分钟采样）（单位：个）
+# TYPE cloudpivot_db_pool_connections gauge
+cloudpivot_db_pool_connections{state="total"} 9
+cloudpivot_db_pool_connections{state="idle"} 9
+cloudpivot_db_pool_connections{state="active"} 0
+
+# HELP cloudpivot_impexp_import_pending 导入任务中尚未开始解析（PENDING）的条数（单位：个）
+# TYPE cloudpivot_impexp_import_pending gauge
+cloudpivot_impexp_import_pending 0
+
+# HELP nik_http_requests_in_flight 当前在途请求数（容量与堆积观测）
+# TYPE nik_http_requests_in_flight gauge
+nik_http_requests_in_flight 0
+
+# HELP cloudpivot_invariant_failed 最近一次账务不变量巡检的失败项数（-1=未知）（单位：个）
+# TYPE cloudpivot_invariant_failed gauge
+cloudpivot_invariant_failed -1
+
+# HELP cloudpivot_impexp_backlog_stuck_seconds 最早一张未终态任务已存在多少秒（导入/导出取大）（单位：秒）
+# TYPE cloudpivot_impexp_backlog_stuck_seconds gauge
+cloudpivot_impexp_backlog_stuck_seconds 0
+
+# HELP cloudpivot_impexp_import_open 导入任务中未终态（PENDING/PARSING/VALIDATED/IMPORTING）的条数（单位：个）
+# TYPE cloudpivot_impexp_import_open gauge
+cloudpivot_impexp_import_open 0
+
+# HELP cloudpivot_impexp_import_stuck_seconds 最早的未终态导入任务已存在多少秒（单位：秒）
+# TYPE cloudpivot_impexp_import_stuck_seconds gauge
+cloudpivot_impexp_import_stuck_seconds 0
+
+# HELP cloudpivot_invariant_blockers 最近一次账务不变量巡检的 BLOCKER 数（-1=未知）（单位：个）
+# TYPE cloudpivot_invariant_blockers gauge
+cloudpivot_invariant_blockers -1
+
+# HELP cloudpivot_impexp_export_failed_24h 近 24 小时失败的导出任务数（单位：个）
+# TYPE cloudpivot_impexp_export_failed_24h gauge
+cloudpivot_impexp_export_failed_24h 0
+
+# HELP cloudpivot_invariant_age_seconds 最近一次账务不变量巡检距今多少秒（-1=从未跑过）（单位：秒）
+# TYPE cloudpivot_invariant_age_seconds gauge
+cloudpivot_invariant_age_seconds -1
+
+# HELP cloudpivot_metrics_sampler_last_success_timestamp 运维观测采样器最近一次成功采样的 Unix 时间戳（不前进=采样器已停）（单位：秒）
+# TYPE cloudpivot_metrics_sampler_last_success_timestamp gauge
+cloudpivot_metrics_sampler_last_success_timestamp 1794572280
+
+# HELP cloudpivot_impexp_export_open 导出任务中未终态（PENDING/RUNNING）的条数（单位：个）
+# TYPE cloudpivot_impexp_export_open gauge
+cloudpivot_impexp_export_open 0
+
+# HELP cloudpivot_db_pool_max_connections 连接池配置的并发上限（database.pool.max_connections），与 cloudpivot_db_pool_connections 相除即使用率（单位：个）
+# TYPE cloudpivot_db_pool_max_connections gauge
+cloudpivot_db_pool_max_connections 10
+
+# HELP cloudpivot_impexp_export_stuck_seconds 最早的未终态导出任务已存在多少秒（单位：秒）
+# TYPE cloudpivot_impexp_export_stuck_seconds gauge
+cloudpivot_impexp_export_stuck_seconds 0
+
+# HELP cloudpivot_impexp_import_failed_24h 近 24 小时失败的导入任务数（单位：个）
+# TYPE cloudpivot_impexp_import_failed_24h gauge
+cloudpivot_impexp_import_failed_24h 0
+
+# HELP cloudpivot_impexp_export_pending 导出任务中尚未开始执行（PENDING）的条数（单位：个）
+# TYPE cloudpivot_impexp_export_pending gauge
+cloudpivot_impexp_export_pending 0
+
+# HELP cloudpivot_invariant_ok 最近一次账务不变量巡检是否通过：1=通过，0=有失败，-1=从未跑过或未知（单位：1|0|-1）
+# TYPE cloudpivot_invariant_ok gauge
+cloudpivot_invariant_ok -1
+
+# HELP cloudpivot_http_request_duration_seconds HTTP 请求端到端耗时（秒），按归一化 path 分桶；桶边界 0.01/0.05/0.1/0.5/1/5 秒均在其中（单位：秒）
+# TYPE cloudpivot_http_request_duration_seconds histogram
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.001"} 7
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.005"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.01"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.025"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.05"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.1"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.25"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="0.5"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="1"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="2.5"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="5"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/health",le="+Inf"} 102
+cloudpivot_http_request_duration_seconds_sum{path="/health"} 0.11332980900000002
+cloudpivot_http_request_duration_seconds_count{path="/health"} 102
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.001"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.005"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.01"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.025"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.05"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.1"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.25"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="0.5"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="1"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="2.5"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="5"} 100
+cloudpivot_http_request_duration_seconds_bucket{path="/api/health",le="+Inf"} 100
+cloudpivot_http_request_duration_seconds_sum{path="/api/health"} 0.0021792419999999996
+cloudpivot_http_request_duration_seconds_count{path="/api/health"} 100
+
+# HELP nik_db_query_duration_seconds 数据库语句执行耗时（秒）
+# TYPE nik_db_query_duration_seconds histogram
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.001"} 0
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.005"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.01"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.025"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.05"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.1"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.25"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="0.5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="1"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="2.5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_user",le="+Inf"} 1
+nik_db_query_duration_seconds_sum{op="select",table="sys_user"} 0.004398399
+nik_db_query_duration_seconds_count{op="select",table="sys_user"} 1
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.001"} 0
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.005"} 1
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.01"} 1
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.025"} 1
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.05"} 1
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.1"} 1
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.25"} 2
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="0.5"} 2
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="1"} 2
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="2.5"} 2
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="5"} 2
+nik_db_query_duration_seconds_bucket{op="exec",table="raw",le="+Inf"} 2
+nik_db_query_duration_seconds_sum{op="exec",table="raw"} 0.153838172
+nik_db_query_duration_seconds_count{op="exec",table="raw"} 2
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.001"} 0
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.005"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.01"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.025"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.05"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.1"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.25"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="0.5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="1"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="2.5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_role",le="+Inf"} 1
+nik_db_query_duration_seconds_sum{op="select",table="sys_role"} 0.001442789
+nik_db_query_duration_seconds_count{op="select",table="sys_role"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.001"} 0
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.005"} 0
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.01"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.025"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.05"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.1"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.25"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="0.5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="1"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="2.5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="5"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_config",le="+Inf"} 1
+nik_db_query_duration_seconds_sum{op="select",table="sys_config"} 0.005409425
+nik_db_query_duration_seconds_count{op="select",table="sys_config"} 1
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.001"} 5
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.005"} 8
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.01"} 8
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.025"} 8
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.05"} 8
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.1"} 8
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.25"} 10
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="0.5"} 10
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="1"} 10
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="2.5"} 10
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="5"} 10
+nik_db_query_duration_seconds_bucket{op="select",table="sys_dict_type",le="+Inf"} 10
+nik_db_query_duration_seconds_sum{op="select",table="sys_dict_type"} 0.3133128009999999
+nik_db_query_duration_seconds_count{op="select",table="sys_dict_type"} 10
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.001"} 11
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.005"} 17
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.01"} 18
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.025"} 18
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.05"} 18
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.1"} 18
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.25"} 22
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="0.5"} 22
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="1"} 22
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="2.5"} 22
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="5"} 22
+nik_db_query_duration_seconds_bucket{op="query",table="raw",le="+Inf"} 22
+nik_db_query_duration_seconds_sum{op="query",table="raw"} 0.6444351810000001
+nik_db_query_duration_seconds_count{op="query",table="raw"} 22
+
+# HELP nik_http_request_duration_seconds HTTP 请求耗时（秒）
+# TYPE nik_http_request_duration_seconds histogram
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.001"} 40
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.005"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.01"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.025"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.05"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.1"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.25"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="0.5"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="1"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="2.5"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="5"} 102
+nik_http_request_duration_seconds_bucket{method="GET",route="/health",le="+Inf"} 102
+nik_http_request_duration_seconds_sum{method="GET",route="/health"} 0.108311872
+nik_http_request_duration_seconds_count{method="GET",route="/health"} 102
+
+# HELP nik_cache_operation_duration_seconds 缓存操作耗时（秒）
+# TYPE nik_cache_operation_duration_seconds histogram
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.001"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.005"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.01"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.025"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.05"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.1"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.25"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="0.5"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="1"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="2.5"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="5"} 10
+nik_cache_operation_duration_seconds_bucket{op="set_ex",le="+Inf"} 10
+nik_cache_operation_duration_seconds_sum{op="set_ex"} 0.0009314329999999998
+nik_cache_operation_duration_seconds_count{op="set_ex"} 10
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.001"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.005"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.01"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.025"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.05"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.1"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.25"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="0.5"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="1"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="2.5"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="5"} 1
+nik_cache_operation_duration_seconds_bucket{op="get",le="+Inf"} 1
+nik_cache_operation_duration_seconds_sum{op="get"} 0.00002834
+nik_cache_operation_duration_seconds_count{op="get"} 1
+

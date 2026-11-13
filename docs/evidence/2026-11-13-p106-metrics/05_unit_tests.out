@@ -1,0 +1,31 @@
+### cargo test --lib middleware::http_metrics（含真实 HTTP 500 → 错误数 0→1 的用例）
+test middleware::http_metrics::tests::only_interface_traffic_is_counted ... ok
+test middleware::http_metrics::tests::long_opaque_segments_and_overlong_paths_are_folded ... ok
+test middleware::http_metrics::tests::numeric_and_uuid_segments_are_folded ... ok
+test middleware::http_metrics::tests::path_labels_are_reused_and_bounded ... ok
+test middleware::http_metrics::tests::status_codes_keep_exact_codes_and_only_5xx_are_errors ... ok
+test middleware::http_metrics::tests::metrics_are_exported_after_real_requests ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5580 filtered out; finished in 0.23s
+
+### cargo test --lib shared::observability
+test shared::observability::tests::catalog_is_well_formed ... ok
+test shared::observability::tests::every_sampler_metric_is_registered ... ok
+test shared::observability::tests::metrics_endpoint_serves_prometheus_text ... ok
+test shared::observability::tests::metrics_endpoint_rejects_untrusted_client ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 5582 filtered out; finished in 0.27s
+
+### cargo test --lib task::metrics_sampler
+test task::metrics_sampler::tests::backlog_sums_both_directions_and_takes_worst_age ... ok
+test task::metrics_sampler::tests::negative_age_is_clamped_to_zero ... ok
+test task::metrics_sampler::tests::invariant_ok_only_for_ok_status ... ok
+test task::metrics_sampler::tests::parse_invariant_reads_row_json_and_tolerates_missing_row ... ok
+test task::metrics_sampler::tests::parse_pool_activity_reads_counts_and_tolerates_garbage ... ok
+test task::metrics_sampler::tests::pool_metric_names_are_registered ... ok
+test task::metrics_sampler::tests::gauges_cover_every_documented_name ... ok
+test task::metrics_sampler::tests::unknown_query_reports_minus_one_not_zero ... ok
+test task::metrics_sampler::tests::summary_never_hides_unknown ... ok
+test task::metrics_sampler::tests::one_side_unknown_still_reports_the_other ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 5576 filtered out; finished in 0.00s
+
+### cargo test --lib（全量）
+test result: ok. 5586 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.60s

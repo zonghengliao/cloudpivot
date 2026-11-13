@@ -122,6 +122,11 @@ pub async fn run() -> Result<()> {
         // 本层只处理 `Authorization: Bearer cpai_…`，人类 JWT 请求原样放行（零影响）。
         .layer_from_fn(|router| router.layer(axum::middleware::from_fn(middleware::task_token::guard)))
         .layer_from_fn(middleware::operation_log::layer)
+        // HTTP 指标埋点（P1-06）：与 operation_log 同处链外层 —— 只有在这里才能看到
+        // 框架自己拒绝的 401 / 403 / 429 与 404 兜底（放进 handler 或链内层，
+        // 故障时会得出「成功率 100%」的错觉）。注册在 request_context 之前 ⇒
+        // 位于其**内**侧：指标层算的是「除 request_id 注入外」的端到端耗时。
+        .layer_from_fn(middleware::http_metrics::layer)
         // 请求上下文（N-4）：必须注册在**最后** ⇒ 位于链最外层。
         // 理由：`router_extensions` 按注册顺序逐个 `layer()` 包裹，后注册者更靠外。
         // 在最外层它才能：

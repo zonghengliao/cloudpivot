@@ -350,6 +350,12 @@ pub async fn run_once() -> Snapshot {
     for (name, value) in snapshot.gauges() {
         obs::set_gauge(name, value);
     }
+    // 只在异常时才累加的 counter 先建出 0 序列（否则 `grep errors_total` 在健康系统上
+    // 什么都看不到；Prometheus 不导出没有任何数据点的指标）。此处一定在 recorder 装好之后。
+    obs::seed_zero_series();
+    // 连接池水位（P1-06）：与业务快照分开写 —— 它是「瞬时水位」不是「业务事实」，
+    // 且必须和 HTTP 侧指标一样每分钟刷新（池快满了要能提前告警，而不是等超时）。
+    write_pool_gauges(read_pool_activity().await.as_ref());
     // 采样器自身的存活信号：`/metrics` 上一旦这条不再前进，说明任务停了
     // （调度器没起 / 进程卡住 / 库连不上），而业务指标看起来可能还是「0 很正常」。
     let now = chrono::Utc::now().timestamp() as f64;
@@ -357,6 +363,82 @@ pub async fn run_once() -> Snapshot {
     obs::inc_counter(obs::SAMPLER_RUNS_TOTAL, 1);
     tracing::info!(summary = %snapshot.summary(), "运维观测采样完成");
     snapshot
+}
+
+/// 数据库连接水位（服务端 `pg_stat_activity` 口径，**不含本次采样自己的连接**）。
+///
+/// 为什么用服务端视角而不是池内部计数：池的 `RawExecutor` 是 `pub(crate)`，
+/// 业务侧拿不到 `in_use` / `idle`；而运维真正要判的是「连接会不会耗尽 +
+/// 有没有连接泄漏（外部客户端也占配额）」，`pg_stat_activity` 恰好两个都能看。
+/// 池的配置上限另由 `cloudpivot_db_pool_max_connections` 给出（读配置，不查库）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DbPoolActivity {
+    /// `state = 'idle'` 的连接数（池里闲置、可随时复用）。
+    pub idle: i64,
+    /// `state = 'active'` 的连接数（正在执行语句）。
+    pub active: i64,
+    /// 本库连接总数（含 `idle in transaction` 等非 idle/active 状态）。
+    pub total: i64,
+}
+
+/// 读一次连接水位；非 PostgreSQL 方言或查询失败返回 `None`（该项不上报，不写假 0）。
+pub async fn read_pool_activity() -> Option<DbPoolActivity> {
+    if db().dialect().name() != "postgres" {
+        return None;
+    }
+    // 一条 `row_to_json` 拼成单标量，避免为 3 个整数牵出多行 Row 映射。
+    // `pid <> pg_backend_pid()`：采样自己的连接必然是 active，不排除就会让
+    // active 永远 ≥ 1，看不出「真的有人在用」和「只有采样在用」的区别。
+    let sql = "SELECT row_to_json(t)::text FROM ( \
+                   SELECT count(*) FILTER (WHERE state = 'idle') AS idle, \
+                          count(*) FILTER (WHERE state = 'active') AS active, \
+                          count(*) AS total \
+                     FROM pg_stat_activity \
+                    WHERE datname = current_database() \
+                      AND pid <> pg_backend_pid() \
+               ) t";
+    let raw: Option<String> = match db().scalar::<Option<String>>(sql).await {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(%error, "运维观测采样：连接池水位查询失败（本次不上报 pool 指标）");
+            return None;
+        }
+    };
+    parse_pool_activity(raw.as_deref())
+}
+
+/// 解析连接水位 JSON（单独抽出来是为了能脱离数据库单测）。
+#[must_use]
+pub fn parse_pool_activity(raw: Option<&str>) -> Option<DbPoolActivity> {
+    let raw = raw?;
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|error| tracing::warn!(%error, raw, "连接池水位 JSON 解析失败（按未知处理）"))
+        .ok()?;
+    Some(DbPoolActivity {
+        idle: value.get("idle").and_then(serde_json::Value::as_i64)?,
+        active: value.get("active").and_then(serde_json::Value::as_i64)?,
+        total: value.get("total").and_then(serde_json::Value::as_i64)?,
+    })
+}
+
+/// 把连接水位写进 `/metrics`（`state` 三档 + 池配置上限）。
+///
+/// `None`（查不到 / 非 PG）时**什么都不写**：宁可这一分钟没有序列，
+/// 也不要写一个 0 —— 0 会让「池空了」和「池没采样」看起来一样。
+pub fn write_pool_gauges(activity: Option<&DbPoolActivity>) {
+    use crate::shared::observability as obs;
+
+    if let Some(activity) = activity {
+        obs::set_gauge_labeled(obs::DB_POOL_CONNECTIONS, &[("state", "idle")], activity.idle as f64);
+        obs::set_gauge_labeled(obs::DB_POOL_CONNECTIONS, &[("state", "active")], activity.active as f64);
+        obs::set_gauge_labeled(obs::DB_POOL_CONNECTIONS, &[("state", "total")], activity.total as f64);
+    }
+    // 上限来自配置（`[database.pool].max_connections`），不查库：它是静态值，
+    // 和 3 条水位序列放在一起才能算使用率（`total / max`）。
+    obs::set_gauge(
+        obs::DB_POOL_MAX_CONNECTIONS,
+        f64::from(db().config().pool.max_connections),
+    );
 }
 
 /// 在内置调度器上注册本任务（由 [`crate::task::Scheduler::register_builtin`] 调用）。
@@ -382,9 +464,16 @@ pub fn register_builtin(scheduler: &Scheduler) {
     // 进程启动 → 下一个整分钟之间 `/metrics` 上**一条 cloudpivot_* 序列都没有**：
     // 发布窗口里抓取器正好做健康判断，会看到「业务指标全空」而误判成 exporter 坏了。
     // 此刻数据库已就绪（调度器在插件启动阶段调用本函数），采样只读、幂等，可安全先跑一次。
-    tokio::spawn(async move {
-        let _ = run_once().await;
-    });
+    //
+    // 用 `Handle::try_current` 而不是裸 `tokio::spawn`：本函数在**同步上下文**里也会被调用
+    // （单测 `task::tests::dynamic_registration_overwrites_builtin_of_same_name` 就是同步
+    // 构造调度器），没有 runtime 时裸 spawn 会 panic「there is no reactor running」——
+    // 让一个「注册」动作把测试进程炸掉。没有 runtime 就跳过补采：真跑起来时一定有。
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        handle.spawn(async move {
+            let _ = run_once().await;
+        });
+    }
 }
 
 #[cfg(test)]
@@ -522,6 +611,35 @@ mod tests {
         let row = parse_invariant(Some(r#"{"status":"OK","blockers":0,"failed":0,"age_seconds":-42}"#))
             .expect("应解析出巡检行");
         assert_eq!(row.age_seconds, 0);
+    }
+
+    #[test]
+    fn parse_pool_activity_reads_counts_and_tolerates_garbage() {
+        let row = parse_pool_activity(Some(r#"{"idle":3,"active":1,"total":5}"#)).expect("应解析出连接水位");
+        assert_eq!(
+            row,
+            DbPoolActivity {
+                idle: 3,
+                active: 1,
+                total: 5,
+            }
+        );
+        // idle + active < total 是正常形态（idle in transaction 等既不算 idle 也不算 active）
+        assert_eq!(row.total - row.idle - row.active, 1);
+
+        // 没有行 / 坏 JSON / 缺字段：一律 None（不上报），不能当 0 上报
+        assert_eq!(parse_pool_activity(None), None);
+        assert_eq!(parse_pool_activity(Some("not json")), None);
+        assert_eq!(parse_pool_activity(Some(r#"{"idle":3,"active":1}"#)), None);
+    }
+
+    /// 连接池两条指标必须在目录里（否则导出文本会缺 HELP / TYPE）。
+    #[test]
+    fn pool_metric_names_are_registered() {
+        use crate::shared::observability as obs;
+        for name in [obs::DB_POOL_CONNECTIONS, obs::DB_POOL_MAX_CONNECTIONS] {
+            assert!(obs::is_registered(name), "{name} 未登记在 observability::CATALOG");
+        }
     }
 
     #[test]

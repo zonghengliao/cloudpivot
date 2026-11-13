@@ -20,8 +20,10 @@
 //! | [`auth_guard`] | 吊销复检：黑名单查询失败即拒绝（fail-closed） | `route_layer`（链内层） |
 //! | [`task_token`] | 任务级短期令牌（白名单 + task_id 绑定） | `layer_from_fn`（最外层） |
 //! | [`json_rejection`] | 请求体反序列化失败 → 统一错误体（E2） | `route_layer`（链内层） |
+//! | [`http_metrics`] | HTTP 指标埋点：请求数 / 耗时 / 5xx 错误数（P1-06） | `layer_from_fn`（链外层） |
 
 pub mod auth_guard;
+pub mod http_metrics;
 pub mod operation_log;
 pub mod request_context;
 pub mod session_guard;
