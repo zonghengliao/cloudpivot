@@ -24,7 +24,13 @@
 //! （审批实例 / 待办 / 通知 / 凭证 / 预算占用 / 状态日志 / 明细 / 单头），
 //! 联动的规则与通知按 `LNK05` / `LNK:EXPENSE:%` 前缀清（它们没有单据主键可依）。
 //!
-//! **串行**（`--test-threads=1`）：联动规则是全表唯一索引，并行会互删。
+//! # 串行口径（本模块**自己**保证，不靠 `--test-threads=1`）
+//!
+//! 六条用例共用 [`LNK05_LOCK`]（模块级互斥锁），全程持有：`biz_flow_linkage_rule` 是
+//! **全库唯一**的配置行（唯一键 `trigger_entity + trigger_status + action_code`），
+//! 而每条用例开头都会 [`clear_rules`] 按 `LNK05%` 前缀整片删、[`add_rule`] 又
+//! `ON CONFLICT DO UPDATE` 抢同一行 —— 并行时 A 刚插的规则会被 B 的 `clear_rules()`
+//! 删掉，于是状态照推、通知 0 条，「必须发出一条通知」假红（见 [`LNK05_LOCK`] 注释里的实测）。
 
 use std::str::FromStr;
 
@@ -50,6 +56,33 @@ use crate::shared::test_helpers as seed_guard;
 fn dec(text: &str) -> Decimal {
     Decimal::from_str(text).expect("金额字面量非法")
 }
+
+/// 「LNK-05 联动规则」这批**全局行**的总互斥锁（卡 t_cc1e65a4）。
+///
+/// # 为什么必须串起来（这里不能靠 `--test-threads=1` 的调用方约定）
+///
+/// `biz_flow_linkage_rule` 的唯一键是 `(trigger_entity, trigger_status, action_code)`
+/// —— 一行配置对**全库**生效，不是测试的私有夹具。本文件六条用例都写这张表：
+///
+/// * `lnk05_pay_triggers_only_on_full_payment` 与 `lnk05_repeat_submit_and_pay_do_not_trigger_twice`
+///   配的 `EXPENSE_REPORT/PAID/SEND_NOTICE` **本来就是同一行**（`add_rule` 走
+///   `ON CONFLICT … DO UPDATE`，后来者覆盖前者）⇒ 「换个唯一前缀」解决不了，行本身只有一行；
+/// * 每条用例开头 [`clear_rules`] 又是 `DELETE … WHERE name LIKE 'LNK05%'`（整片按前缀删）。
+///
+/// 于是并行（libtest 默认 = 机器核数线程）时必然互踩：A 刚 `add_rule` 完，B 的 `clear_rules()`
+/// 把它删掉 → A 推进状态时库里没有规则 → 通知 0 条 → 「必须真的发出一条通知」假红。
+///
+/// # 实测（干净库 `cloudpivot_lnk05_p101`，当前树迁移 V0403 + 演示种子）
+///
+/// | 跑法 | 结果 |
+/// |---|---|
+/// | 加锁前 `cargo test --lib business::erp::expense_linkage_tests`（并行） | **3 passed / 3 failed**，3 条全红在「通知 0 条」 |
+/// | 加锁前 同库 `-- --test-threads=1` | 6 passed / 0 failed（⇒ 接线在、断言对，红的是夹具） |
+/// | 加锁后 并行 | 6 passed / 0 failed |
+///
+/// 与本仓既有铁律同口径：`fixture_hygiene::FINANCE_SEED_LOCK` / `SEED_ROLE_LOCK`
+/// 「同一批全局行 = 同一把锁」（换前缀没用，因为种子/唯一键行全库只有一份）。
+static LNK05_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn date(text: &str) -> NaiveDate {
     NaiveDate::parse_from_str(text, "%Y-%m-%d").expect("日期夹具")
@@ -95,10 +128,9 @@ async fn ensure_db() -> bool {
             if try_db().is_some() {
                 return true;
             }
-            let mut config = DatabaseConfig::from_url(&url);
-            config.pool.max_lifetime = Some(std::time::Duration::ZERO);
-            config.pool.idle_timeout = Some(std::time::Duration::ZERO);
-            match Db::connect_with(&url, config).await {
+            // 池参数 + 建池 runtime 统一由夹具复用模板提供（P2-60）：
+            // 旧写法 `max_lifetime = ZERO` 会让**每条语句**都新建连接（零复用、无 stmt 缓存）。
+            match crate::shared::test_fixture::connect(&url).await {
                 Ok(connection) => match set_db(connection) {
                     Ok(()) => true,
                     Err(err) => {
@@ -499,6 +531,8 @@ async fn lnk05_submit_triggers_linkage_notice() {
     if !ensure_db().await {
         return;
     }
+    // 联动规则是全库唯一行 + 本模块按前缀整片清 ⇒ 六条用例必须互斥（理由与实测见 LNK05_LOCK）
+    let _lnk05 = LNK05_LOCK.lock().await;
     ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
@@ -576,6 +610,8 @@ async fn lnk05_approve_triggers_linkage_notice_and_single_voucher() {
     if !ensure_db().await {
         return;
     }
+    // 联动规则是全库唯一行 + 本模块按前缀整片清 ⇒ 六条用例必须互斥（理由与实测见 LNK05_LOCK）
+    let _lnk05 = LNK05_LOCK.lock().await;
     ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
@@ -631,6 +667,8 @@ async fn lnk05_pay_triggers_only_on_full_payment() {
     if !ensure_db().await {
         return;
     }
+    // 联动规则是全库唯一行 + 本模块按前缀整片清 ⇒ 六条用例必须互斥（理由与实测见 LNK05_LOCK）
+    let _lnk05 = LNK05_LOCK.lock().await;
     ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
@@ -681,6 +719,8 @@ async fn lnk05_cancel_triggers_linkage_notice() {
     if !ensure_db().await {
         return;
     }
+    // 联动规则是全库唯一行 + 本模块按前缀整片清 ⇒ 六条用例必须互斥（理由与实测见 LNK05_LOCK）
+    let _lnk05 = LNK05_LOCK.lock().await;
     ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
@@ -748,6 +788,8 @@ async fn lnk05_repeat_submit_and_pay_do_not_trigger_twice() {
     if !ensure_db().await {
         return;
     }
+    // 联动规则是全库唯一行 + 本模块按前缀整片清 ⇒ 六条用例必须互斥（理由与实测见 LNK05_LOCK）
+    let _lnk05 = LNK05_LOCK.lock().await;
     ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;
@@ -818,6 +860,8 @@ async fn lnk05_reject_reverts_to_draft_and_triggers() {
     if !ensure_db().await {
         return;
     }
+    // 联动规则是全库唯一行 + 本模块按前缀整片清 ⇒ 六条用例必须互斥（理由与实测见 LNK05_LOCK）
+    let _lnk05 = LNK05_LOCK.lock().await;
     ensure_fixtures().await;
     clear_rules().await;
     let report_id = create_report(dec("500")).await;

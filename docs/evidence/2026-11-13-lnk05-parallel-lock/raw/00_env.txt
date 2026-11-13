@@ -1,0 +1,4 @@
+DB: cloudpivot_lnk05_p101 / cloudpivot_lnk05_p102 @ 172.18.10.145:5432
+迁移: 当前树 V0403 全部 335 条 + bootstrap + NIK_SEED_DEMO_USERS=true（10 用户 / 2 部门 / 23 published flow / 8 费用类型）
+机器: 99 (ubuntu-svr) 4 核 ⇒ libtest 默认 4 线程
+树: /opt/cloudpivot @ 9f2c2d1a + 本卡未提交改动

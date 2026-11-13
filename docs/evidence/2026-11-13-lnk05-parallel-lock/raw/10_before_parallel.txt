@@ -1,0 +1,44 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... FAILED
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... ok
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... ok
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... FAILED
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... FAILED
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+
+failures:
+
+---- business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice' (1060159) panicked at src/business/erp/expense_linkage_tests.rs:712:5:
+assertion `left == right` failed: EXPENSE_REPORT/CANCELLED 上配的 SEND_NOTICE 必须真的发出一条通知
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment' (1060160) panicked at src/business/erp/expense_linkage_tests.rs:662:5:
+assertion `left == right` failed: 付清（APPROVED → PAID）必须触发一次付清通知
+  left: 0
+ right: 1
+
+---- business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice stdout ----
+
+thread 'business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice' (1060565) panicked at src/business/erp/expense_linkage_tests.rs:784:5:
+assertion `left == right` failed
+  left: 0
+ right: 1
+
+
+failures:
+    business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice
+    business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment
+    business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice
+
+test result: FAILED. 3 passed; 3 failed; 0 ignored; 0 measured; 5546 filtered out; finished in 10.06s
+
+error: test failed, to rerun pass `--lib`
