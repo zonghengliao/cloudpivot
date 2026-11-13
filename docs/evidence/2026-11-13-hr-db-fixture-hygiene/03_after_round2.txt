@@ -1,0 +1,28 @@
+# 修后（本卡改动）第 2 轮：HEAD 113c8580 + 本卡 9 个文件
+# 库：145 hr9a_fix_drill（空库 + 全量迁移 335 条 / V0403 / 0 员工），--test-threads=1
+# 原始日志：hr_main_r2.log
+
+running 673 tests
+test result: FAILED. 672 passed; 1 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 235.06s
+
+## 失败清单（1 条）
+business::hr::handler::tests::every_macro_path_in_module_is_in_contract
+
+## 这条红为什么与本卡无关（运行期读磁盘源码；A/B 全文见 04）
+thread 'business::hr::handler::tests::every_macro_path_in_module_is_in_contract' (958853) panicked at src/business/hr/handler.rs:589:13:
+宏声明的路径 /business/hr/employee/import-template 不在 ROUTE_CONTRACT 里 —— 先登记契约再实现
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+## SKIP 行数（真库用例静默早退的检测，应为 0）
+0
+
+## 库侧复查（psql 直查，不经测试代码；跑完一轮后）
+biz_employee=0 / biz_attendance_record=0 / biz_attendance_period=0 / biz_salary_sheet=0
+biz_employee_salary=0 / 非种子薪资项=0 / biz_leave_request=0
+
+## 清场证据样例（--nocapture，每例 setup 清一次；首例清掉上游模块留下的 3 个员工）
+test business::hr::salary_bridge_db_tests::db::approval_callback_approves_without_vouchers_and_is_idempotent ... [HR 夹具卫生] 清场：工资单 0/考勤记录 0/考勤期间 0/合同 0/请假 0/薪资标准 0/非种子薪资项 0/员工 6/孤儿状态日志 7（库 hr9a_fix_drill）
+test business::hr::salary_bridge_db_tests::db::post_creates_two_balanced_vouchers_with_net_method ... [HR 夹具卫生] 清场：工资单 0/考勤记录 0/考勤期间 0/合同 0/请假 0/薪资标准 0/非种子薪资项 0/员工 0/孤儿状态日志 0（库 hr9a_fix_drill）
+test business::hr::salary_bridge_db_tests::db::post_is_rejected_twice_and_leaves_no_extra_vouchers ... [HR 夹具卫生] 清场：工资单 0/考勤记录 0/考勤期间 0/合同 0/请假 0/薪资标准 0/非种子薪资项 0/员工 0/孤儿状态日志 0（库 hr9a_fix_drill）
+...共 41 条清场记录

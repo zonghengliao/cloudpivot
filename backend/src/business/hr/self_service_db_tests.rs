@@ -36,6 +36,7 @@ mod db {
 
     use nik::prelude::rust_decimal::Decimal;
 
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_sheet_dto::SalarySheetCalcReq;
     use crate::business::hr::salary_sheet_handler;
@@ -108,6 +109,8 @@ mod db {
         user_c: Uuid,
         period_id: Uuid,
         operator: Operator,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl Fixture {
@@ -143,8 +146,11 @@ mod db {
         row.get_typed("id").expect("部门 id")
     }
 
-    /// 清掉上一轮（可能是 panic 中断的）留下的 `HR41` 夹具。
-    async fn sweep() {
+    /// 清场 = 统一清空薪资引擎的输入集 + 本模块自己的请假单 / 账号残留；
+    /// 返回引擎互斥锁的 guard（本用例期间独占输入集）。
+    async fn sweep() -> tokio::sync::MutexGuard<'static, ()> {
+        let guard = hygiene::exclusive().await;
+
         let statements: [(String, Vec<Value>); 8] = [
             (
                 "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid".to_string(),
@@ -187,6 +193,7 @@ mod db {
         for (sql, params) in statements {
             db().exec_sql(sql, params).await.expect("清场");
         }
+        guard
     }
 
     async fn insert_user(id: Uuid, username: &str, real_name: &str) {
@@ -228,7 +235,7 @@ mod db {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        let engine = sweep().await;
         let suffix = uniq();
         let dept = dept_id().await;
         let emp_a = Uuid::now_v7();
@@ -319,7 +326,7 @@ mod db {
                                                 dept_id, leave_type, start_time, end_time, duration_days, paid, \
                                                 status, reason) \
                  VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?, ?, ?::uuid, 'PERSONAL', \
-                         ?::timestamptz, ?::timestamptz, ?::text::numeric, 0, ?, '家中有事')"
+                         ?::text::timestamptz, ?::text::timestamptz, ?::text::numeric, 0, ?, '家中有事')"
                     .to_string(),
                 vec![
                     Value::from(&Uuid::now_v7()),
@@ -361,6 +368,7 @@ mod db {
             user_c,
             period_id,
             operator: Operator::named(operator_id, "hr41-test"),
+            _engine: engine,
         })
     }
 

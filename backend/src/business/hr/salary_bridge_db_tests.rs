@@ -41,6 +41,7 @@ mod db {
 
     use nik::prelude::rust_decimal::Decimal;
 
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_bridge::{self, SOURCE_ACCRUAL, SOURCE_PAYMENT};
     use crate::business::hr::salary_sheet_dto::{
@@ -129,8 +130,11 @@ mod db {
         .map(|row| row.get_typed::<Uuid>("id").expect("用户 id"))
     }
 
-    /// 清掉上一轮（可能是 panic 中断的）留下的夹具。
-    async fn sweep() {
+    /// 清场 = 统一清空薪资引擎的输入集（员工 / 考勤 / 标准 / 工资单 / 非种子薪资项）
+    /// + 本模块自己的凭证残留；返回引擎互斥锁的 guard（本用例期间独占输入集）。
+    async fn sweep() -> tokio::sync::MutexGuard<'static, ()> {
+        let guard = hygiene::exclusive().await;
+
         // 先清凭证（按 source_no 指向的单号）：biz_voucher 没有指向薪资单的外键
         let sheet_nos: Vec<String> = db()
             .query_sql(
@@ -176,6 +180,7 @@ mod db {
         for sql in statements {
             db().exec_sql(sql, vec![]).await.expect("清场");
         }
+        guard
     }
 
     /// 一个夹具：2 名员工（同一部门）+ 张三的标准 / 考勤 + 一张已算出的薪资单。
@@ -189,6 +194,8 @@ mod db {
         sheet_no: String,
         dept: Uuid,
         operator: Operator,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl Fixture {
@@ -249,7 +256,7 @@ mod db {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        let engine = sweep().await;
         let suffix = uniq();
         let dept = dept_id().await;
         let emp_a = Uuid::now_v7();
@@ -342,6 +349,7 @@ mod db {
             sheet_no: String::new(),
             dept,
             operator,
+            _engine: engine,
         };
         let created = salary_sheet_handler::persist(fixture.operator.clone(), &fixture.calc_req())
             .await

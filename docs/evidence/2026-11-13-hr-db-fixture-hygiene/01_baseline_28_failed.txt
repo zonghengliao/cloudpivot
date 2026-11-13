@@ -1,0 +1,36 @@
+# 修前（HEAD 9c39bd5c，撤掉本卡 9 个文件后重编）—— business::hr 整模块 28 条红
+# 库：145 hr9a_fix_drill（空库 + 全量迁移 335 条 / V0403 / 0 员工），--test-threads=1
+# 注：本卡提交落在更新的 main（113c8580 = 9c39bd5c + HR-49 的演练脚本与一个静态契约测试文件，
+#     不改夹具/薪资引擎），故修前基线在 9c39bd5c 上取；修后两轮已在 113c8580 上重跑（02/03）。
+
+running 663 tests
+test result: FAILED. 635 passed; 28 failed; 0 ignored; 0 measured; 4881 filtered out; finished in 189.59s
+
+business::hr::handler::tests::every_macro_path_in_module_is_in_contract
+business::hr::salary_bridge_db_tests::db::post_creates_two_balanced_vouchers_with_net_method
+business::hr::salary_compute_db_tests::db::persist_writes_header_details_and_items_with_identities
+business::hr::salary_compute_db_tests::db::preview_writes_nothing_and_keeps_the_seq
+business::hr::salary_export_db_tests::db::export_500_heads_groups_by_department_and_stays_on_budget
+business::hr::salary_export_db_tests::db::export_of_an_empty_sheet_is_headers_only
+business::hr::salary_export_db_tests::db::export_of_a_real_sheet_has_item_columns_and_ties_to_the_header
+business::hr::salary_item_seed_tests::db::seed_occupies_code_and_sort_namespace
+business::hr::salary_override_db_tests::db::override_allows_principal_whose_scope_covers_the_row
+business::hr::salary_override_db_tests::db::override_is_blocked_after_submit
+business::hr::salary_override_db_tests::db::override_recomputes_detail_and_sheet_totals
+business::hr::salary_override_db_tests::db::override_rejects_out_of_scope_and_keeps_data_intact
+business::hr::salary_override_db_tests::db::override_that_makes_gross_negative_rolls_back
+business::hr::salary_override_db_tests::db::override_with_mismatched_detail_id_is_404
+business::hr::salary_override_db_tests::db::override_with_same_amount_is_idempotent
+business::hr::salary_override_db_tests::db::override_with_unknown_item_code_is_400
+business::hr::salary_override_db_tests::db::sheet_totals_equal_sum_of_details_after_override
+business::hr::salary_sheet_db_tests::db::detail_page_paginates_filters_and_toggles_items
+business::hr::salary_sheet_db_tests::db::duplicate_period_conflicts_with_the_existing_sheet_no
+business::hr::salary_sheet_db_tests::db::list_filters_by_period_and_status
+business::hr::salary_sheet_db_tests::db::persist_then_summary_matches_details
+business::hr::salary_sheet_db_tests::db::preview_writes_nothing_and_keeps_the_seq
+business::hr::salary_sheet_db_tests::db::summary_reports_drift_when_someone_bypasses_the_engine
+business::hr::self_service_db_tests::db::attendance_my_returns_only_the_callers_rows
+business::hr::self_service_db_tests::db::leave_my_returns_only_the_callers_requests
+business::hr::self_service_db_tests::db::payslip_paging_walks_every_period_once
+business::hr::self_service_db_tests::db::salary_my_hides_pending_sheets_and_returns_only_mine
+business::hr::self_service_db_tests::db::unbound_account_gets_empty_pages_not_forbidden

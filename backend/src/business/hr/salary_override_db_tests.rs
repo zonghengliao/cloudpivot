@@ -41,6 +41,7 @@ mod db {
 
     use nik::prelude::rust_decimal::Decimal;
 
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_compute::STATUS_CALCULATED;
     use crate::business::hr::salary_override_dto::{ACTION_AMOUNT_OVERRIDE, SalaryOverrideItemReq, SalaryOverrideReq};
@@ -121,6 +122,8 @@ mod db {
         sheet_no: String,
         dept: Uuid,
         operator: Operator,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl Fixture {
@@ -205,38 +208,12 @@ mod db {
         row.get_typed("id").expect("部门 id")
     }
 
-    /// 清掉上一轮（可能是 panic 中断的）留下的 `HR37` 夹具。
-    async fn sweep() {
-        let statements: [String; 5] = [
-            format!(
-                "DELETE FROM biz_salary_sheet WHERE period_code = '{PERIOD}' AND org_id = '{}'",
-                org()
-            ),
-            format!(
-                "DELETE FROM biz_attendance_record WHERE period_id IN \
-                   (SELECT id FROM biz_attendance_period WHERE period_code = '{PERIOD}' AND org_id = '{}')",
-                org()
-            ),
-            format!(
-                "DELETE FROM biz_attendance_period WHERE period_code = '{PERIOD}' AND org_id = '{}'",
-                org()
-            ),
-            format!(
-                "DELETE FROM biz_employee_salary WHERE employee_id IN \
-                   (SELECT id FROM biz_employee WHERE emp_no LIKE '{PREFIX}%')"
-            ),
-            format!("DELETE FROM biz_employee WHERE emp_no LIKE '{PREFIX}%'"),
-        ];
-        for sql in statements {
-            db().exec_sql(sql, vec![]).await.expect("清场");
-        }
-    }
-
     async fn setup() -> Option<Fixture> {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        // 统一清场：引擎全量读，按 `HR37%` 前缀清不出「引擎眼里的空库」（卡 t_9a4e5c2a）
+        let engine = hygiene::exclusive().await;
         let suffix = uniq();
         let dept = dept_id().await;
         let emp_a = Uuid::now_v7();
@@ -341,6 +318,7 @@ mod db {
             sheet_no: String::new(),
             dept,
             operator: Operator::named(operator_id, "hr37-test"),
+            _engine: engine,
         };
 
         // 建单（走真实引擎：HR-36 的薄壳）

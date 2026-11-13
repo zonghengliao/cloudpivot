@@ -1,0 +1,22 @@
+# A/B 证伪：唯一的红（handler::tests::every_macro_path_in_module_is_in_contract）与本卡改动无关
+# 该用例**运行期读磁盘源码**（std::fs::read_dir src/business/hr），所以可以用同一个测试二进制，
+# 只把本卡 9 个文件换回 HEAD 版本再跑一次 —— 红照旧 ⇒ 不是本卡引入。三段结果完全相同。
+
+## 根因（另一张卡 HR-47 / t_3389f8aa 的提交 12d20c7d 引入）
+# backend/src/business/hr/employee_import_handler.rs:47 声明了
+#   GET /business/hr/employee/import-template
+# 但没有在 backend/src/business/hr/handler.rs 的 ROUTE_CONTRACT（[RouteSpec; 50]）里登记，
+# 于是「所有宏路径必须在契约表里」这条用例恒红。权限码 business:hr:employee:import 已在 V0387 种下。
+# 后续卡：t_575aced2（交 backend-developer）
+
+=== ① 含本卡改动 ===
+宏声明的路径 /business/hr/employee/import-template 不在 ROUTE_CONTRACT 里 —— 先登记契约再实现
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5543 filtered out; finished in 0.06s
+=== ② 换回 HEAD 版本（本卡改动全部撤掉） ===
+宏声明的路径 /business/hr/employee/import-template 不在 ROUTE_CONTRACT 里 —— 先登记契约再实现
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5543 filtered out; finished in 0.02s
+=== ③ 还原本卡改动后 ===
+宏声明的路径 /business/hr/employee/import-template 不在 ROUTE_CONTRACT 里 —— 先登记契约再实现
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5543 filtered out; finished in 0.03s
+=== 还原核对（树 vs 本卡版本） ===
+（无 DIFF 行 = 树已还原到本卡版本）

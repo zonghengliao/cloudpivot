@@ -37,6 +37,7 @@ mod db {
 
     use nik::prelude::rust_decimal::Decimal;
 
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_compute::{self as engine_mod, CalcRequest, ManualEntry, STATUS_CALCULATED};
     use crate::business::hr::salary_sheet_dto::{
@@ -47,8 +48,6 @@ mod db {
     use crate::business::shared::state_machine::Operator;
     use tokio::sync::OnceCell;
 
-    /// 夹具编码前缀（清场按它精确删）。
-    const PREFIX: &str = "HR36";
     /// 薪资期间（`ck_biz_sal_sheet_code` 只认 `yyyy-MM`）。
     const PERIOD: &str = "2026-12";
 
@@ -123,6 +122,8 @@ mod db {
         emp_b: Uuid,
         period_id: Uuid,
         operator: Operator,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl Fixture {
@@ -179,49 +180,12 @@ mod db {
         row.get_typed("id").expect("部门 id")
     }
 
-    /// 清掉上一轮（可能是 panic 中断的）留下的 `HR36` 夹具。
-    async fn sweep() {
-        let statements: [(String, Vec<Value>); 6] = [
-            (
-                "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid".to_string(),
-                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
-            ),
-            (
-                "DELETE FROM biz_attendance_record WHERE period_id IN \
-                    (SELECT id FROM biz_attendance_period WHERE period_code = ? AND org_id = ?::uuid)"
-                    .to_string(),
-                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
-            ),
-            (
-                "DELETE FROM biz_attendance_period WHERE period_code = ? AND org_id = ?::uuid".to_string(),
-                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
-            ),
-            (
-                format!(
-                    "DELETE FROM biz_employee_salary WHERE employee_id IN \
-                        (SELECT id FROM biz_employee WHERE emp_no LIKE '{PREFIX}%')"
-                ),
-                vec![],
-            ),
-            (
-                format!("DELETE FROM biz_salary_item WHERE item_code LIKE '{PREFIX}%'"),
-                vec![],
-            ),
-            (
-                format!("DELETE FROM biz_employee WHERE emp_no LIKE '{PREFIX}%'"),
-                vec![],
-            ),
-        ];
-        for (sql, params) in statements {
-            db().exec_sql(sql, params).await.expect("清场");
-        }
-    }
-
     async fn setup() -> Option<Fixture> {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        // 统一清场：引擎全量读，按 `HR36%` 前缀清不出「引擎眼里的空库」（卡 t_9a4e5c2a）
+        let engine = hygiene::exclusive().await;
         let suffix = uniq();
         let dept = dept_id().await;
         let emp_a = Uuid::now_v7();
@@ -324,6 +288,7 @@ mod db {
             emp_b,
             period_id,
             operator: Operator::named(operator_id, "hr36-test"),
+            _engine: engine,
         })
     }
 

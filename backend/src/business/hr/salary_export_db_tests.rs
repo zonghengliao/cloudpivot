@@ -37,6 +37,7 @@ use nik::uuid::Uuid;
 mod db {
     use super::*;
 
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_export::{self, EXPORT_MAX_ROWS, PERM_EXPORT};
     use crate::business::hr::salary_sheet_dto::{SalaryManualReq, SalarySheetCalcReq};
@@ -197,52 +198,6 @@ mod db {
             .collect()
     }
 
-    // ---- 清场 ----
-
-    /// 清掉本卡所有夹具（可能被上一轮 panic 中断留下）。
-    async fn sweep() {
-        let statements: [(String, Vec<Value>); 5] = [
-            (
-                "DELETE FROM biz_salary_sheet WHERE period_code IN (?, ?, ?) AND org_id = ?::uuid".to_string(),
-                vec![
-                    Value::Text(PERIOD_ENGINE.to_string()),
-                    Value::Text(PERIOD_EMPTY.to_string()),
-                    Value::Text(PERIOD_BIG.to_string()),
-                    Value::from(&org()),
-                ],
-            ),
-            (
-                format!(
-                    "DELETE FROM biz_attendance_record WHERE employee_id IN \
-                        (SELECT id FROM biz_employee WHERE emp_no LIKE '{PREFIX}%')"
-                ),
-                vec![],
-            ),
-            (
-                "DELETE FROM biz_attendance_period WHERE period_code IN (?, ?) AND org_id = ?::uuid".to_string(),
-                vec![
-                    Value::Text(PERIOD_ENGINE.to_string()),
-                    Value::Text(PERIOD_EMPTY.to_string()),
-                    Value::from(&org()),
-                ],
-            ),
-            (
-                format!(
-                    "DELETE FROM biz_employee_salary WHERE employee_id IN \
-                        (SELECT id FROM biz_employee WHERE emp_no LIKE '{PREFIX}%')"
-                ),
-                vec![],
-            ),
-            (
-                format!("DELETE FROM biz_employee WHERE emp_no LIKE '{PREFIX}%'"),
-                vec![],
-            ),
-        ];
-        for (sql, params) in statements {
-            db().exec_sql(sql, params).await.expect("清场");
-        }
-    }
-
     async fn dept_id() -> Uuid {
         let row = db()
             .query_first_sql(
@@ -274,6 +229,8 @@ mod db {
         emp_b: Uuid,
         period_id: Uuid,
         dept: Uuid,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl EngineFixture {
@@ -314,7 +271,8 @@ mod db {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        // 统一清场：引擎全量读，按 `HR42%` 前缀清不出「引擎眼里的空库」（卡 t_9a4e5c2a）
+        let engine = hygiene::exclusive().await;
         let suffix = uniq();
         let dept = dept_id().await;
         let emp_a = Uuid::now_v7();
@@ -410,6 +368,7 @@ mod db {
             emp_b,
             period_id,
             dept,
+            _engine: engine,
         })
     }
 
@@ -476,13 +435,16 @@ mod db {
         sheet_id: Uuid,
         dept_a_name: String,
         dept_b_name: String,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     async fn big_fixture() -> Option<BigFixture> {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        // 统一清场：引擎全量读，按 `HR42%` 前缀清不出「引擎眼里的空库」（卡 t_9a4e5c2a）
+        let engine = hygiene::exclusive().await;
         let suffix = uniq();
         let sheet_id = Uuid::now_v7();
         let dept_a_name = format!("HR42生产部{suffix}");
@@ -599,6 +561,7 @@ mod db {
             sheet_id,
             dept_a_name,
             dept_b_name,
+            _engine: engine,
         })
     }
 
@@ -758,7 +721,7 @@ mod db {
         if !ensure_db().await {
             return;
         }
-        sweep().await;
+        let _engine = hygiene::exclusive().await;
         let sheet_id = empty_sheet().await;
 
         let bundle = salary_export::export_bundle(sheet_id).await.expect("空单也要能导出");

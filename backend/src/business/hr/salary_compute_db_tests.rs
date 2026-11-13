@@ -34,6 +34,7 @@ mod db {
 
     use nik::prelude::rust_decimal::Decimal;
 
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::model::SENTINEL_ORG_ID;
     use crate::business::hr::salary_compute::{
         self as engine_mod, AttendanceNumbers, CalcRequest, CalcTotals, ManualEntry, STATUS_CALCULATED,
@@ -162,6 +163,8 @@ mod db {
         emp_b: Uuid,
         period_id: Uuid,
         operator: Operator,
+        /// 引擎输入集的互斥锁 guard（用例结束才释放；字段只为持有生命周期）。
+        _engine: tokio::sync::MutexGuard<'static, ()>,
     }
 
     impl Fixture {
@@ -206,44 +209,23 @@ mod db {
         row.get_typed("id").expect("部门 id")
     }
 
-    /// 清掉上一轮（可能是 panic 中断的）留下的 `HR34` 夹具。
+    /// 清场 = **统一清空薪资引擎的输入集**（员工 / 考勤期间与记录 / 薪资标准 / 工资单 /
+    /// 非种子薪资项），返回引擎互斥锁的 guard（本用例期间独占输入集）。
     ///
-    /// 用例崩在 setup 中途时 cleanup 跑不到，残留的 `HR34BASE` 会让下一轮撞
-    /// `uk_biz_sal_item_code` —— 「跑一次就得手工清库」的测试不是好测试。
-    /// 只按 `HR34` 前缀与固定期间清，绝不按通配扫全库。
-    async fn sweep() {
-        let statements: [(&str, Vec<Value>); 6] = [
-            (
-                "DELETE FROM biz_salary_sheet WHERE period_code = ? AND org_id = ?::uuid",
-                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
-            ),
-            (
-                "DELETE FROM biz_attendance_record WHERE period_id IN \
-                    (SELECT id FROM biz_attendance_period WHERE period_code = ? AND org_id = ?::uuid)",
-                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
-            ),
-            (
-                "DELETE FROM biz_attendance_period WHERE period_code = ? AND org_id = ?::uuid",
-                vec![Value::Text(PERIOD.to_string()), Value::from(&org())],
-            ),
-            (
-                "DELETE FROM biz_employee_salary WHERE employee_id IN \
-                    (SELECT id FROM biz_employee WHERE emp_no LIKE 'HR34%')",
-                vec![],
-            ),
-            ("DELETE FROM biz_salary_item WHERE item_code LIKE 'HR34%'", vec![]),
-            ("DELETE FROM biz_employee WHERE emp_no LIKE 'HR34%'", vec![]),
-        ];
-        for (sql, params) in statements {
-            db().exec_sql(sql.to_string(), params).await.expect("清场");
-        }
+    /// 为什么不再按 `HR34%` 前缀清：引擎的取数是**全量读**（`calc_with_items` 会把库里所有
+    /// 在期员工都算进一张工资单），前缀清场清不出「引擎眼里的空库」—— 上游模块留下的
+    /// 员工 / 标准会让本模块的「两名员工」「缺考勤要点名」断言漂掉（卡 `t_9a4e5c2a`：
+    /// 整模块跑 25 条红、单独跑全绿）。清场口径见
+    /// [`crate::business::hr::fixture_hygiene`]。
+    async fn sweep() -> tokio::sync::MutexGuard<'static, ()> {
+        hygiene::exclusive().await
     }
 
     async fn setup() -> Option<Fixture> {
         if !ensure_db().await {
             return None;
         }
-        sweep().await;
+        let engine = sweep().await;
         let suffix = uniq();
         let dept = dept_id().await;
         let emp_a = Uuid::now_v7();
@@ -379,6 +361,7 @@ mod db {
             emp_b,
             period_id,
             operator: Operator::named(operator_id, "hr34-test"),
+            _engine: engine,
         })
     }
 

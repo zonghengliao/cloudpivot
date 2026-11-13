@@ -197,6 +197,11 @@ pub mod employee_sensitive;
 /// `sys_field_mask` 规则改参数后打码值随之变化（设计 §8.3 R1 的实测）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_sensitive_db_tests;
+/// HR 真库夹具卫生（`#[cfg(test)]`）：把**薪资引擎的输入集**（员工 / 考勤 / 标准 /
+/// 工资单 / 非种子薪资项）统一清成空库口径 —— 引擎是全量读取，按前缀各清各的永远清不干净。
+/// 详见文件头注释（卡 `t_9a4e5c2a`）。
+#[cfg(test)]
+pub(crate) mod fixture_hygiene;
 pub mod handler;
 /// HR-46 的契约测试：10 步薪资链路 E2E 脚本（`scripts/verify/hr/hr_salary_e2e.sh`）的
 /// 静态形态 —— 步骤数 / 每步断言 / 演练库护栏 / 清理 / 失败定位 / 设计硬口径。

@@ -646,6 +646,7 @@ mod tests {
 #[cfg(test)]
 mod db {
     use super::*;
+    use crate::business::hr::fixture_hygiene as hygiene;
     use crate::business::hr::salary_item_model;
     use tokio::sync::OnceCell;
 
@@ -942,6 +943,9 @@ SELECT item_code, item_name, item_type, calc_type, source, formula, sort_order::
         if !ensure_db().await {
             return;
         }
+        // `next_sort_order` 是**全库**口径：别的模块留下的薪资项（`HR34BASE` 排在 940000 段）
+        // 会让「种子占到 170 ⇒ 下一个 180」直接漂掉。统一清场后才是空库口径（卡 t_9a4e5c2a）。
+        let _engine = hygiene::exclusive().await;
         for code in EXPECTED_CODES {
             let owner = salary_item_model::code_owner(db(), code, None)
                 .await
