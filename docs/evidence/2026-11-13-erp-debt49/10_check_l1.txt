@@ -1,0 +1,23 @@
+==> check.sh：本次执行 L1（L0 静态闸（秒级）→ L1 编译与类型闸（≈2 分钟））
+==> L1 后端：cargo fmt -- --check
+Diff in /opt/cloudpivot/backend/src/business/hr/fixture_hygiene.rs:108:
+ }
+ 
+ async fn count(sql: &str) -> i64 {
+-    db()
+-        .query_first_sql(sql.to_string(), vec![])
++    db().query_first_sql(sql.to_string(), vec![])
+         .await
+         .unwrap_or_else(|err| panic!("[HR 夹具卫生] 计数失败（{sql}）：{err}"))
+         .and_then(|row| row.get_typed::<i64>("n").ok())
+Diff in /opt/cloudpivot/backend/src/business/hr/fixture_hygiene.rs:127:
+ 
+ /// 当前库名（只用来判「是不是演练库」，日志里也不带口令）。
+ pub(crate) async fn database_name() -> String {
+-    db()
+-        .query_first_sql("SELECT current_database() AS n".to_string(), vec![])
++    db().query_first_sql("SELECT current_database() AS n".to_string(), vec![])
+         .await
+         .expect("[HR 夹具卫生] 查 current_database() 失败")
+         .and_then(|row| row.get_typed::<String>("n").ok())
+CHECK_L1_RC=1

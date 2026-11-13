@@ -238,6 +238,9 @@ export type AttachmentDocType = (typeof ATTACHMENT_DOC_TYPES)[number];
 
 // ==================== ② 审批动作 ====================
 
+// 销售 / 采购 / 成本：**存量补齐**（t_c49010bf）。这 4 个值早就在 `biz_flow_def` 里
+// （V0281 / V0331 / V0332 / V0381 种的标准流程），只是后端枚举漏登记。位置 = Rust
+// `FlowBizType::ALL` 的末尾 4 项（追加在末尾、不插中间：两边是保序逐字比对）。
 /** 审批业务类型（`biz_flow_def.biz_type`）。顺序与 Rust `FlowBizType::ALL` 逐字一致。 */
 export const FLOW_BIZ_TYPES = [
   'PO_APPROVE',
@@ -260,11 +263,16 @@ export const FLOW_BIZ_TYPES = [
   'HR_SALARY',
   'HR_SALARY_ADJUST',
   'HR_EMPLOYEE_RESIGN',
+  'SO_APPROVE',
+  'PR_APPROVE',
+  'PRT_APPROVE',
+  'COST_SETTLE',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
 export type FlowBizType = (typeof FLOW_BIZ_TYPES)[number];
 
+// 末尾 4 项（销售 / 采购 / 成本，存量补齐）与上面 `FLOW_BIZ_TYPES` 的末尾 4 项同序。
 /** 审批业务类型 → 中文（与 Rust `FlowBizType::label` 逐字一致）。 */
 export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   PO_APPROVE: '采购订单审批',
@@ -287,8 +295,13 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   HR_SALARY: '工资发放审批',
   HR_SALARY_ADJUST: '调薪审批',
   HR_EMPLOYEE_RESIGN: '离职审批',
+  SO_APPROVE: '销售订单审批',
+  PR_APPROVE: '采购申请审批',
+  PRT_APPROVE: '采购退货审批',
+  COST_SETTLE: '成本结算审批',
 };
 
+// 末尾 4 项的 flow_code 与各自迁移种下的值逐字一致（成本那条不是 `cost_settle`，是 `cost_settle_approve`）。
 /** 审批业务类型 → 默认流程编码（`biz_flow_def.flow_code`）。 */
 export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   PO_APPROVE: 'po_approve',
@@ -311,6 +324,10 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   HR_SALARY: 'hr_salary',
   HR_SALARY_ADJUST: 'hr_salary_adjust',
   HR_EMPLOYEE_RESIGN: 'hr_employee_resign',
+  SO_APPROVE: 'so_approve',
+  PR_APPROVE: 'pr_approve',
+  PRT_APPROVE: 'prt_approve',
+  COST_SETTLE: 'cost_settle_approve',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */

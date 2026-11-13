@@ -137,9 +137,63 @@ async fn ensure_fixtures() {
     .await;
 }
 
+/// ⑰ 「直属上级审批」节点必须有**非制单人**的上级（t_c49010bf 修）。
+///
+/// `expense` 流程的首个审批节点 `n_sup`（直属上级审批）没有 `biz_flow_node_assignee` 行，
+/// 走默认的 `INITIATOR_SUPERIOR`：沿 `dept_path` 取 `sys_dept.leader_id`。空库（只跑迁移 +
+/// bootstrap）里只有 `admin` 一个挂部门的用户，其部门 `leader_id` 为空 ⇒ 解析 0 行 ⇒
+/// 兜底 `ADMIN` —— 而兜底出来的正是**制单人本人** ⇒ 内控（职责分离）把它跳过 ⇒
+/// `65018「本节点没有一个可用审批人」`。6 个 LNK-05 用例全卡在这里。
+///
+/// 这不是产品缺陷（真实部署的部门都有负责人，报错文案也写得能自救），是**夹具退化**：
+/// 空库上没人可当「上级」。所以这里只补「部门负责人」这一个事实，而且**只在退化时补**
+/// （`leader_id` 为空或恰好是制单人）；种子库上不动一行。
+async fn ensure_superior_not_creator(creator: Uuid, dept: Uuid) {
+    let needs = db()
+        .scalar_with_params::<i64>(
+            "SELECT count(*) FROM sys_dept \
+              WHERE id = ?::uuid AND deleted_at IS NULL \
+                AND (leader_id IS NULL OR leader_id = ?::uuid)",
+            vec![Value::from(&dept), Value::from(&creator)],
+        )
+        .await
+        .expect("查部门负责人");
+    if needs == 0 {
+        return;
+    }
+
+    // 另一个在职用户当上级；库上真的只有一个账号时才造夹具（固定 username，幂等）
+    let other = db()
+        .scalar_with_params::<Option<Uuid>>(
+            "SELECT id FROM sys_user WHERE deleted_at IS NULL AND id <> ?::uuid \
+              ORDER BY created_at LIMIT 1",
+            vec![Value::from(&creator)],
+        )
+        .await
+        .expect("查另一个在职用户");
+    let leader = match other {
+        Some(user) => user,
+        None => {
+            seed_guard::ensure_fixture_user("tst02b.superior", "TST 夹具上级")
+                .await
+                .0
+        }
+    };
+
+    exec(&format!(
+        "UPDATE sys_dept SET leader_id = '{leader}'::uuid \
+          WHERE id = '{dept}'::uuid AND deleted_at IS NULL \
+            AND (leader_id IS NULL OR leader_id = '{creator}'::uuid)"
+    ))
+    .await;
+}
+
 /// 一名**有部门**的用户（报销单的部门是预算维度，没有部门的用户建不了单）。
 async fn reporter() -> (Uuid, Uuid, String) {
-    seed_guard::ensure_dept_user().await
+    let (user, dept, name) = seed_guard::ensure_dept_user().await;
+    // 内控口径：直属上级审批人不能是制单人本人（见 ensure_superior_not_creator）
+    ensure_superior_not_creator(user, dept).await;
+    (user, dept, name)
 }
 
 /// 一条费用类型（V0242 迁移种子；`TRAVEL` 优先）。查不到 = 库版本不对。

@@ -341,14 +341,72 @@ def _col_names(collist: str):
     return [c.strip().strip('"').strip() for c in collist.split(",")]
 
 
+def _split_top_level(text: str) -> list:
+    """按顶层逗号切分 SQL 片段（认单引号字符串与括号深度）。"""
+    parts, piece, depth, in_quote = [], [], 0, False
+    for ch in text:
+        if in_quote:
+            piece.append(ch)
+            if ch == "'":
+                in_quote = False
+            continue
+        if ch == "'":
+            in_quote = True
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(piece))
+            piece = []
+            continue
+        piece.append(ch)
+    parts.append("".join(piece))
+    return parts
+
+
+def _role_code_from_select(stmt: str, cols: list) -> set:
+    """`INSERT INTO sys_role (…) SELECT …` 形态的角色码（按 `role_code` 的列位置取字面量）。
+
+    本仓的幂等角色种子一律写成
+
+        INSERT INTO sys_role (id, role_code, …)
+        SELECT '…'::uuid, 'HR_MANAGER', … WHERE NOT EXISTS (SELECT 1 FROM sys_role …);
+
+    （`sys_role.role_code` 没有唯一约束，`VALUES` + `ON CONFLICT` 用不了）。
+    旧解析器只认 `VALUES` 形式 ⇒ 这类角色**进不了白名单** ⇒ 新迁移一旦给它们授权就会被
+    判成「未知角色码」（V0403 就是这么撞上的）。这里补上 SELECT 形态。
+    """
+    idx = cols.index("role_code")
+    m = re.search(r"\bSELECT\b", stmt, re.I)
+    if not m:
+        return set()
+    body = stmt[m.end():]
+    cut = len(body)
+    for kw in (r"\bFROM\b", r"\bWHERE\b", r"\bON\s+CONFLICT\b", r"\bGROUP\s+BY\b", r"\bORDER\s+BY\b"):
+        mm = re.search(kw, body, re.I)
+        if mm:
+            cut = min(cut, mm.start())
+    parts = _split_top_level(body[:cut])
+    if idx < len(parts):
+        mm = re.search(r"'([^']*)'", parts[idx])
+        if mm:
+            return {mm.group(1)}
+    return set()
+
+
 def parse_seeded_roles(masked: str) -> set:
-    """解析 `INSERT INTO sys_role (…role_code…) VALUES (…, 'X', …), (…)` 里的角色码。"""
+    """解析 `INSERT INTO sys_role (…role_code…)` 种出来的角色码（`VALUES` 与 `SELECT` 两种形态）。"""
     roles = set()
     for m in INSERT_SYS_ROLE_RE.finditer(masked):
         end = statement_end(masked, m.start())
         stmt = masked[m.start():end]
         head = stmt.split("VALUES", 1)
         if len(head) != 2:
+            # 幂等种子的 `INSERT … SELECT … WHERE NOT EXISTS`（V0387 的 HR_MANAGER 就是这种）
+            cols = _col_names(stmt.split("(", 1)[-1].split(")", 1)[0])
+            if "role_code" in cols:
+                roles |= _role_code_from_select(stmt, cols)
             continue
         cols = _col_names(head[0].split("(", 1)[-1].split(")", 1)[0])
         if "role_code" not in cols:
@@ -950,6 +1008,26 @@ def self_test() -> bool:
         ok = r7["rc"] == RC_OK and "SEED_ONLY_ROLE" in se7
         bad += 0 if ok else 1
         print(f"{'✔' if ok else '✘'} 种子角色并入白名单：seeded={sorted(se7)} → rc={r7['rc']}（期望 0）")
+
+    # `INSERT INTO sys_role (…) SELECT … WHERE NOT EXISTS`（本仓幂等种子的真实写法）也算种子角色
+    with tempfile.TemporaryDirectory() as td3b:
+        bus = os.path.join(td3b, MIGRATIONS_REL, "business")
+        os.makedirs(bus)
+        open(os.path.join(bus, "V0001__role.up.sql"), "w", encoding="utf-8").write(
+            "INSERT INTO sys_role (id, role_code, role_name, description, status, data_scope, sort_order)\n"
+            "SELECT '20000000-0000-0000-0000-0000000f0016'::uuid, 'SELECT_FORM_ROLE', '选择形态角色',\n"
+            "       'x', 1, 3, 25\n"
+            " WHERE NOT EXISTS (SELECT 1 FROM sys_role WHERE role_code = 'SELECT_FORM_ROLE' AND deleted_at IS NULL);\n")
+        open(os.path.join(bus, "V0002__grant.up.sql"), "w", encoding="utf-8").write(
+            "INSERT INTO sys_role_menu (role_id, menu_id) SELECT r.id, m.id FROM sys_role r\n"
+            " WHERE r.role_code = 'SELECT_FORM_ROLE';\n")
+        f7b, s7b, se7b, _e7b = collect(td3b)
+        r7b = evaluate(f7b, s7b, se7b, {"files": {}})
+        total += 1
+        ok = r7b["rc"] == RC_OK and "SELECT_FORM_ROLE" in se7b
+        bad += 0 if ok else 1
+        print(f"{'✔' if ok else '✘'} `INSERT … SELECT … WHERE NOT EXISTS` 种的角色并入白名单："
+              f"seeded={sorted(se7b)} → rc={r7b['rc']}（期望 0）")
 
     # 基线防呆：已有基线时，新增带未知码的文件 → 拒绝重冻（除非 --force）
     with tempfile.TemporaryDirectory() as td2:

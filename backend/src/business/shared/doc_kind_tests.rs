@@ -505,7 +505,9 @@ fn flow_health_list_matches_registry() {
 #[test]
 fn approval_entries_use_registered_biz_types() {
     use crate::business::erp::{
-        contract_bridge, payable_bridge, purchase_bridge, stockin_query, stocktake_bridge, voucher_bridge,
+        contract_bridge, cost_period_bridge, payable_bridge, purchase_bridge, purchase_return_bridge,
+        receipt_refund_bridge, requisition_bridge, sales_approval_bridge, stockin_query, stocktake_bridge,
+        voucher_bridge,
     };
     let registered: Vec<&str> = FlowBizType::ALL.iter().map(|item| item.as_str()).collect();
     for (name, value) in [
@@ -517,6 +519,14 @@ fn approval_entries_use_registered_biz_types() {
         ("voucher_bridge::BIZ_TYPE", voucher_bridge::BIZ_TYPE),
         ("contract_bridge::BIZ_TYPE", contract_bridge::BIZ_TYPE),
         ("stocktake_bridge::BIZ_TYPE", stocktake_bridge::BIZ_TYPE),
+        // t_c49010bf：这 4 个 bridge 的 BIZ_TYPE 当年没进本清单，于是
+        // `biz_flow_def` 里长出 4 个域外值而无人拦（闸④ 在全量库上必红）。
+        // 补进来的判据不变：字面量必须在 `FlowBizType` 域内。
+        ("sales_approval_bridge::BIZ_TYPE", sales_approval_bridge::BIZ_TYPE),
+        ("requisition_bridge::BIZ_TYPE", requisition_bridge::BIZ_TYPE),
+        ("purchase_return_bridge::BIZ_TYPE", purchase_return_bridge::BIZ_TYPE),
+        ("cost_period_bridge::BIZ_TYPE", cost_period_bridge::BIZ_TYPE),
+        ("receipt_refund_bridge::BIZ_TYPE", receipt_refund_bridge::BIZ_TYPE),
     ] {
         assert!(
             registered.contains(&value),

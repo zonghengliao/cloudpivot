@@ -1,0 +1,7 @@
+### doc_kind 词表闸（内联 + 外部 doc_kind_tests 两个模块，不连库）
+test business::shared::doc_kind::doc_kind_tests::values_are_unique_per_axis ... ok
+test business::shared::doc_kind::doc_kind_tests::serial_source_map_matches_snapshot_registry ... ok
+test business::shared::doc_kind::doc_kind_tests::voucher_source_map_matches_snapshot_registry ... ok
+
+test result: ok. 32 passed; 0 failed; 0 ignored; 0 measured; 5510 filtered out; finished in 0.01s
+

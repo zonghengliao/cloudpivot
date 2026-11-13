@@ -30,7 +30,7 @@
 //! | 12 | [`one_bad_row_rejects_the_whole_batch_and_nothing_is_written`] | **验收项**「全有或全无 + 逐行错误」：一行错 → 零入库，行号/列名/原因齐 |
 //! | 13 | [`closed_object_rejects_the_batch_with_a_business_reason`] | 已关批对象不可记工时（409 语义以行错误给出） |
 //! | 14 | [`date_outside_selected_period_rejects_the_batch`] | §4.5.3 第 2 列：日期必须落在所选期间 |
-//! | 15 | [`employee_number_is_rejected_until_arch9_2_is_online`] | 工号无处可存时**报错**，不静默丢字段 |
+//! | 15 | [`employee_number_must_resolve_against_employee_master`] | 工号必须解析到员工主数据，解析不到**报错**（ARCH-9-2 上线后口径反转，原名 `..._until_arch9_2_is_online`） |
 //! | 16 | [`duplicated_dept_name_requires_the_code_instead_of_guessing`] | 部门重名 → 要求改填编码，不猜车间 |
 //!
 //! ## B2-3 费率取数（`biz_cost_rate` 三级优先级）
@@ -921,12 +921,33 @@ mod db {
         fx.cleanup(&[object]).await;
     }
 
-    /// ⑮ 工号填了但员工主数据未上线（ARCH9-2）→ 报错而不是静默丢弃工号。
+    /// ⑮ 工号必须能解析到员工主数据（ARCH-9-2 已上线，口径 2026-11-13 反转）。
+    ///
+    /// 历史：这条用例原名 `employee_number_is_rejected_until_arch9_2_is_online`，
+    /// 断言的是「`biz_employee` 还没上线 ⇒ 填了工号就报错，不静默丢掉」。
+    /// HR 批（V0389 起）已把 `biz_employee` 落库，`employee_table_present()` 恒为真 ⇒
+    /// 旧断言的前提不存在了（全量真库档必红）。
+    ///
+    /// 现在的口径（与 `cost_labor_import::attach_employee_issues` 的两个分支一一对应）：
+    ///   · 员工主数据**在**（现行生产/全量库）⇒ 工号必须能在 `biz_employee` 解析到，
+    ///     解析不到 ⇒ 该行报「在员工主数据里不存在」，整批拒绝、零落库；
+    ///   · 员工主数据**不在**（ARCH-9-2 之前的库）⇒ 仍是「工号无处可存」的拒绝分支。
+    ///     该分支无法在现行库上构造（不能为了跑一条用例去 DROP 生产同构的表），
+    ///     所以本用例用 `employee_table_present()` **显式断言当前处于哪一支**，
+    ///     而不是依赖「报错文案里含 ARCH9-2」这种会随版本过期的字符串。
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn employee_number_is_rejected_until_arch9_2_is_online() {
+    async fn employee_number_must_resolve_against_employee_master() {
         if !ensure_db().await {
             return;
         }
+        // 前置断言：库里的形态必须是「员工主数据已上线」，否则本用例的口径不成立
+        let present = model::employee_table_present().await.expect("查 biz_employee 是否存在");
+        assert!(
+            present,
+            "本用例的前提是 `biz_employee` 已存在（ARCH-9-2 已上线）；\
+             库形态不符说明跑在旧库上，请换全量迁移库或另开用例覆盖「主数据未上线」分支"
+        );
+
         let fx = Fixture::build().await;
         let object = fx.object_in(fx.dept, "OPEN").await;
         let no = object_no_of(object).await;
@@ -940,8 +961,17 @@ mod db {
             .expect("导入");
         assert_eq!((result.success, result.failed), (0, 1));
         assert_eq!(result.rows[0].column, "员工工号");
-        assert!(result.rows[0].message.contains("ARCH9-2"), "{}", result.rows[0].message);
-        assert_eq!(live_rows(object).await, 0, "工号没地方存时不许静默丢掉");
+        assert!(
+            result.rows[0].message.contains("在员工主数据里不存在"),
+            "工号解析失败必须点名「不存在」而不是静默丢字段：{}",
+            result.rows[0].message
+        );
+        assert!(
+            result.rows[0].message.contains("E1001"),
+            "报错要把工号回显出来（用户才知道改哪一行）：{}",
+            result.rows[0].message
+        );
+        assert_eq!(live_rows(object).await, 0, "工号解析不到时整批不许落库");
 
         fx.cleanup(&[object]).await;
     }

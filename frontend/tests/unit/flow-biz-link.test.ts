@@ -88,12 +88,14 @@ function rustFlowBizTypes(): string[] {
   return [...body.matchAll(/FlowBizType::\w+ => "([A-Z_]+)"/g)].map((match) => match[1] ?? '');
 }
 
-test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，20 个）', () => {
+test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，24 个）', () => {
   const rust = rustFlowBizTypes();
   // 13 → 15：FIN-1 加 BUDGET_APPROVE、FIN-2 加 ASSET_DISPOSAL（镜像已同步，只有本断言漏改）
   // 15 → 16：SO-14 加 RECEIPT_REFUND（同上，镜像早已同步，本断言漏改 → E2E-10 演练发现）
   // 16 → 20：HR-06 按 §3.2 ⑨ 加 4 套流程（HR_LEAVE / HR_SALARY / HR_SALARY_ADJUST / HR_EMPLOYEE_RESIGN）
-  assert.equal(rust.length, 20, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
+  // 20 → 24：t_c49010bf 补登记存量 4 个域外值（SO_APPROVE / PR_APPROVE / PRT_APPROVE / COST_SETTLE，
+  //          它们早就在 biz_flow_def 里，来自 V0281 / V0331 / V0332 / V0381）
+  assert.equal(rust.length, 24, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
   assert.deepEqual([...FLOW_BIZ_TYPES], rust);
 });
 

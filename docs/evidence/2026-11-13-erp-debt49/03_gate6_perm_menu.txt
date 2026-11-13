@@ -1,0 +1,62 @@
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：593 个非测试 .rs（跳过测试文件 144 个、cfg(test) 项内夹具码 0 处）→ 注解码 401 个（645 处）
+菜单侧：452 个活跃 auth_code（db=debt49_drill@127.0.0.1:5432 user=cloudpivot）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 51  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:35
+  · business:erp:cost-object:delete    行级/常量引用  backend/src/business/erp/cost_object_handler.rs:95
+  · business:erp:lot:create            行级/常量引用  backend/src/business/erp/lot_handler.rs:49
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:hr:attendance:page        源码零引用（纯前端权限点）
+  · business:hr:employee:export        行级/常量引用  backend/src/business/hr/handler.rs:159
+  · business:hr:employee:page          源码零引用（纯前端权限点）
+  · business:hr:employee:resign        源码零引用（纯前端权限点）
+  · business:hr:leave:delete           源码零引用（纯前端权限点）
+  · business:hr:leave:page             源码零引用（纯前端权限点）
+  · business:hr:salary-item:delete     源码零引用（纯前端权限点）
+  · business:hr:salary-item:page       源码零引用（纯前端权限点）
+  · business:hr:salary:page            源码零引用（纯前端权限点）
+  · business:notice:send               行级/常量引用  backend/src/business/notice/handler.rs:82
+  · business:project:create            行级/常量引用  backend/src/business/project/handler.rs:211
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1401
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1398
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1087
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:101
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1404
+  · support:config:create              行级/常量引用  backend/src/support/config/handler.rs:174
+  · support:dict:create                行级/常量引用  backend/src/support/dict/handler.rs:106
+  · support:dict:update                行级/常量引用  backend/src/support/dict/handler.rs:173
+  · support:file:delete                行级/常量引用  backend/src/support/file/handler.rs:283
+  · support:job:create                 行级/常量引用  backend/src/support/job/handler.rs:105
+  · support:job:delete                 行级/常量引用  backend/src/support/job/handler.rs:243
+  · support:job:list                   行级/常量引用  backend/src/support/job/handler.rs:43
+  · support:log:delete                 行级/常量引用  backend/src/support/log/handler.rs:102
+  · support:log:list                   行级/常量引用  backend/src/support/log/handler.rs:34
+  · support:online:list                行级/常量引用  backend/src/support/online/handler.rs:26
+  · system:dept:create                 行级/常量引用  backend/src/system/dept/handler.rs:187
+  · system:dept:list                   行级/常量引用  backend/src/system/dept/handler.rs:56
+  · system:dept:update                 行级/常量引用  backend/src/system/dept/handler.rs:278
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:help:doc:create             行级/常量引用  backend/src/business/help/handler.rs:240
+  · system:menu:create                 行级/常量引用  backend/src/system/menu/handler.rs:99
+  · system:menu:delete                 行级/常量引用  backend/src/system/menu/handler.rs:254
+  · system:menu:list                   行级/常量引用  backend/src/system/menu/handler.rs:36
+  · system:menu:update                 行级/常量引用  backend/src/system/menu/handler.rs:154
+  · system:preference:view             源码零引用（纯前端权限点）
+  · system:role-mutex:list             行级/常量引用  backend/src/business/mutex/handler.rs:75
+  · system:role:create                 行级/常量引用  backend/src/system/role/handler.rs:135
+  · system:role:delete                 行级/常量引用  backend/src/system/role/handler.rs:383
+  · system:role:list                   行级/常量引用  backend/src/system/role/handler.rs:47
+  · system:role:menu                   行级/常量引用  backend/src/system/role/handler.rs:500
+  · system:role:update                 行级/常量引用  backend/src/system/role/handler.rs:231
+  · system:setup:read                  行级/常量引用  backend/src/system/setup/handler.rs:44
+  · system:user:create                 行级/常量引用  backend/src/business/aiagent/handler.rs:107
+  · system:user:role                   行级/常量引用  backend/src/system/user/handler.rs:822
+============================================================================================
+==> 闸：PASS
+gate6 rc=0

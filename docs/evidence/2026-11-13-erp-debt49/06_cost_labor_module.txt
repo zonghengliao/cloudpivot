@@ -1,0 +1,23 @@
+### cost_labor_db_tests 全模块（真库 debt49_drill，--test-threads=1）
+test business::erp::cost_labor_db_tests::db::crud_confirm_flow_end_to_end ... ok
+test business::erp::cost_labor_db_tests::db::date_outside_selected_period_rejects_the_batch ... ok
+test business::erp::cost_labor_db_tests::db::db_check_maps_amount_mismatch_to_66058 ... ok
+test business::erp::cost_labor_db_tests::db::declared_amount_mismatch_is_rejected_at_entry ... ok
+test business::erp::cost_labor_db_tests::db::dept_rate_beats_company_rate ... ok
+test business::erp::cost_labor_db_tests::db::duplicated_dept_name_requires_the_code_instead_of_guessing ... ok
+test business::erp::cost_labor_db_tests::db::employee_number_must_resolve_against_employee_master ... ok
+test business::erp::cost_labor_db_tests::db::expired_future_and_disabled_rates_are_ignored ... ok
+test business::erp::cost_labor_db_tests::db::import_fills_blank_rate_per_row ... ok
+test business::erp::cost_labor_db_tests::db::import_rejects_the_batch_when_rate_cannot_be_resolved ... ok
+test business::erp::cost_labor_db_tests::db::import_writes_every_row_when_the_file_is_clean ... ok
+test business::erp::cost_labor_db_tests::db::list_is_scoped_by_dept ... ok
+test business::erp::cost_labor_db_tests::db::missing_rate_fails_loudly_and_writes_nothing ... ok
+test business::erp::cost_labor_db_tests::db::newest_effective_version_wins ... ok
+test business::erp::cost_labor_db_tests::db::object_must_exist_and_be_open ... ok
+test business::erp::cost_labor_db_tests::db::one_bad_row_rejects_the_whole_batch_and_nothing_is_written ... ok
+test business::erp::cost_labor_db_tests::db::period_and_work_date_must_agree ... ok
+test business::erp::cost_labor_db_tests::db::repeating_rate_rounds_to_four_decimals ... ok
+test business::erp::cost_labor_db_tests::db::soft_deleted_draft_disappears_from_list ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 5517 filtered out; finished in 23.06s
+

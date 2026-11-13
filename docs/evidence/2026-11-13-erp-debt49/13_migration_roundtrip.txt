@@ -1,0 +1,26 @@
+### 迁移往返（down → 闸红；up → 闸绿；再 up → 幂等 0 行）
+## [1] V0403 down（期望：1 对孤儿回来 = HR_MANAGER）
+psql:backend/migrations/business/V0403__hr_manager_approval_center_page.down.sql:35: NOTICE:  V0403 down：已删除 HR_MANAGER 的审批流目录 / 审批中心页面授权 2 行（approve 按钮会重新变孤儿）
+✗ 孤儿 (角色,码) = 1  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · HR_MANAGER             business:flow:approve              不可达父页 /flow/task(business:flow:instance:read)（该角色未持有父页码）
+## [2] V0403 up
+psql:backend/migrations/business/V0403__hr_manager_approval_center_page.up.sql:108: NOTICE:  V0403：护栏通过（角色 / 目录 / 页面 / 按钮 各 1 行）
+psql:backend/migrations/business/V0403__hr_manager_approval_center_page.up.sql:155: NOTICE:  V0403：HR_MANAGER 已可进入审批中心（目录 + 页面各 1 行），business:flow:approve 不再是孤儿按钮
+✓ 孤儿 (角色,码) = 0   （每个按钮码都至少有一个角色看得见的父页）
+## [3] V0402 down（期望：2 对孤儿回来 = SALES_CLERK × statement:view/export）
+psql:backend/migrations/business/V0402__sales_clerk_receivable_page.down.sql:57: NOTICE:  V0402 down：已删除授权 1 行；该角色另有 2 个按钮码挂在此父页下，回滚后会重新变成孤儿（V0402 之前的原始状态）
+✗ 孤儿 (角色,码) = 2  ← 必须为 0！这些按钮挂在该角色看不见的页面下：
+  · SALES_CLERK            business:erp:statement:export      不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+  · SALES_CLERK            business:erp:statement:view        不可达父页 /business/erp/receivable(business:erp:receivable:list)（该角色未持有父页码）
+## [4] V0402 up
+psql:backend/migrations/business/V0402__sales_clerk_receivable_page.up.sql:90: NOTICE:  V0402：护栏通过（角色 1 行 / 父页 1 行 / 按钮 2 行）
+psql:backend/migrations/business/V0402__sales_clerk_receivable_page.up.sql:157: NOTICE:  V0402：授权已就位（SALES_CLERK × receivable:list = 1 行），对账单按钮不再孤儿
+✓ 孤儿 (角色,码) = 0   （每个按钮码都至少有一个角色看得见的父页）
+## [5] 幂等：两个 up 再跑一遍（期望 0 新增，无报错）
+psql:backend/migrations/business/V0402__sales_clerk_receivable_page.up.sql:90: NOTICE:  V0402：护栏通过（角色 1 行 / 父页 1 行 / 按钮 2 行）
+psql:backend/migrations/business/V0402__sales_clerk_receivable_page.up.sql:157: NOTICE:  V0402：授权已就位（SALES_CLERK × receivable:list = 1 行），对账单按钮不再孤儿
+psql:backend/migrations/business/V0403__hr_manager_approval_center_page.up.sql:108: NOTICE:  V0403：护栏通过（角色 / 目录 / 页面 / 按钮 各 1 行）
+psql:backend/migrations/business/V0403__hr_manager_approval_center_page.up.sql:155: NOTICE:  V0403：HR_MANAGER 已可进入审批中心（目录 + 页面各 1 行），business:flow:approve 不再是孤儿按钮
+## [6] 授权行数（期望 V0402=1 / V0403=2）
+HR_MANAGER|2
+SALES_CLERK|1

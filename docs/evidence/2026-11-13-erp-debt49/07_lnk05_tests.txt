@@ -1,0 +1,14 @@
+### expense_linkage_tests（6 条 LNK-05，真库）
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 6 tests
+test business::erp::expense_linkage_tests::lnk05_approve_triggers_linkage_notice_and_single_voucher ... ok
+test business::erp::expense_linkage_tests::lnk05_cancel_triggers_linkage_notice ... ok
+test business::erp::expense_linkage_tests::lnk05_pay_triggers_only_on_full_payment ... ok
+test business::erp::expense_linkage_tests::lnk05_reject_reverts_to_draft_and_triggers ... ok
+test business::erp::expense_linkage_tests::lnk05_repeat_submit_and_pay_do_not_trigger_twice ... ok
+test business::erp::expense_linkage_tests::lnk05_submit_triggers_linkage_notice ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 5536 filtered out; finished in 24.85s
+

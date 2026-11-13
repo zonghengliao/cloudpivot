@@ -645,6 +645,37 @@ pub enum FlowBizType {
     /// 拓扑：直属上级 → 人事经理 →（关键岗位）总经理 → END。
     /// 通过后同事务做四件事：员工转 `RESIGNED` / 停用账号 / 撤掉该员工在跑的请假单 / 归档（§4.1.3 ③）。
     HrEmployeeResign,
+    // ── 销售 / 采购 / 成本：**存量补齐**（2026-11-13，卡 t_c49010bf）─────────────
+    //
+    // 这 4 个值早就在库里、也在各自的 bridge 里被钉成常量了 —— 只是当年写迁移 / bridge 时
+    // 没人回头往本枚举补登记，于是 `biz_type_domain.py --strict` 在**任何全量迁移库**上必红
+    // （域外值 4 个：SO_APPROVE / PR_APPROVE / PRT_APPROVE / COST_SETTLE）。
+    //
+    // 处置口径：**补登记，不映射到已有值**。理由 ——
+    //   ① 这 4 个 `biz_type` 是各 bridge 认领审批实例的**唯一凭据**
+    //      （`sales_approval_bridge::BIZ_TYPE` / `requisition_bridge` / `purchase_return_bridge` /
+    //      `cost_period_bridge` 都是 `pub const`，多处单测逐字钉住）；
+    //   ② 存量 `biz_flow_instance` 行与客户**已配好**的流程定义都写着这 4 个字面量，
+    //      映射成 `PO_APPROVE` 会把「销售订单审批」伪装成「采购订单审批」，审批详情 / 通知 /
+    //      联动全部指向错误对象（语义事故，不是拼写美化）；
+    //   ③ 对象轴没有对应成员的值（采购申请）如实 `None`，不硬塞。
+    //
+    // 顺序：**追加在末尾**（与 HR-06 的 5 类同规矩）。前端 `doc-kinds.ts` 是保序逐字比对，
+    // 插中间会让既有注释里的「HR 那 4 个在末尾」失效，也会给并行卡制造无谓的冲突面。
+    /// 销售订单提交审批（`so_approve`，销售链 SO-06 / V0281）。
+    ///
+    /// 三档条件边（金额 < 1 万 / < 10 万 / ≥ 10 万）写在流程定义里，不是代码里的 if/else。
+    SoApprove,
+    /// 采购申请审批（`pr_approve`，P2-02 / V0331）。
+    ///
+    /// 预算**只判不占**（真实占用发生在采购订单提交），超预算走流程定义里的条件边加签。
+    PrApprove,
+    /// 采购退货审批（`prt_approve`，P2-03 / V0332）。
+    PrtApprove,
+    /// 成本结算审批（`cost_settle_approve`，成本核算 B3-3 / V0381）。
+    ///
+    /// 通过只到「审批已过」，过账（生成凭证、结平批次）在过账事务里做。
+    CostSettle,
 }
 
 impl FlowBizType {
@@ -654,7 +685,7 @@ impl FlowBizType {
     /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
     /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
     /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
-    pub const ALL: [FlowBizType; 20] = [
+    pub const ALL: [FlowBizType; 24] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -676,6 +707,12 @@ impl FlowBizType {
         FlowBizType::HrSalary,
         FlowBizType::HrSalaryAdjust,
         FlowBizType::HrEmployeeResign,
+        // 销售 / 采购 / 成本（存量补齐，t_c49010bf）：4 个值早就在库里，
+        // 只是没登记进词表 —— 20→24 是「补登记」不是「新功能」。
+        FlowBizType::SoApprove,
+        FlowBizType::PrApprove,
+        FlowBizType::PrtApprove,
+        FlowBizType::CostSettle,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -718,6 +755,11 @@ impl FlowBizType {
             FlowBizType::HrSalary => "HR_SALARY",
             FlowBizType::HrSalaryAdjust => "HR_SALARY_ADJUST",
             FlowBizType::HrEmployeeResign => "HR_EMPLOYEE_RESIGN",
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）
+            FlowBizType::SoApprove => "SO_APPROVE",
+            FlowBizType::PrApprove => "PR_APPROVE",
+            FlowBizType::PrtApprove => "PRT_APPROVE",
+            FlowBizType::CostSettle => "COST_SETTLE",
         }
     }
 
@@ -745,6 +787,12 @@ impl FlowBizType {
             FlowBizType::HrSalary => "hr_salary",
             FlowBizType::HrSalaryAdjust => "hr_salary_adjust",
             FlowBizType::HrEmployeeResign => "hr_employee_resign",
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）：与 V0281 / V0331 / V0332 / V0381
+            // 种下的 `flow_code` 逐字一致（成本那条不是 `cost_settle`，别再猜）。
+            FlowBizType::SoApprove => "so_approve",
+            FlowBizType::PrApprove => "pr_approve",
+            FlowBizType::PrtApprove => "prt_approve",
+            FlowBizType::CostSettle => "cost_settle_approve",
         }
     }
 
@@ -772,6 +820,11 @@ impl FlowBizType {
             FlowBizType::HrSalary => "工资发放审批",
             FlowBizType::HrSalaryAdjust => "调薪审批",
             FlowBizType::HrEmployeeResign => "离职审批",
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）
+            FlowBizType::SoApprove => "销售订单审批",
+            FlowBizType::PrApprove => "采购申请审批",
+            FlowBizType::PrtApprove => "采购退货审批",
+            FlowBizType::CostSettle => "成本结算审批",
         }
     }
 
@@ -803,6 +856,17 @@ impl FlowBizType {
             FlowBizType::HrLeave => DocKind::LeaveRequest,
             FlowBizType::HrSalary => DocKind::SalarySheet,
             FlowBizType::HrSalaryAdjust | FlowBizType::HrEmployeeResign => DocKind::Employee,
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）：
+            //   · `SO_APPROVE` → 销售订单（对象轴有 `SaleOrder`，审批详情能点进单据）；
+            //   · `PRT_APPROVE` → 采购退货单（`PurchaseReturn`，V0332 有实体表）；
+            //   · `COST_SETTLE` → 成本核算批次（`CostPeriod`，审批挂在批次上）；
+            //   · `PR_APPROVE` → **`None`**：采购申请**没有**对象轴成员（`biz_purchase_requisition`
+            //     未登记进 [`DocKind`]，也不挂附件 / 提醒）。如实返回 `None`，
+            //     不硬塞 `PurchaseOrder` —— 那会让「申请单」在附件与通知里冒充「采购订单」。
+            FlowBizType::SoApprove => DocKind::SaleOrder,
+            FlowBizType::PrtApprove => DocKind::PurchaseReturn,
+            FlowBizType::CostSettle => DocKind::CostPeriod,
+            FlowBizType::PrApprove => return None,
             FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
     }
@@ -1549,7 +1613,7 @@ const DOC_KIND_VALUES: [&str; 36] = [
     "SALARY_SHEET",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 20] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 24] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -1571,6 +1635,11 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 20] = [
     "HR_SALARY",
     "HR_SALARY_ADJUST",
     "HR_EMPLOYEE_RESIGN",
+    // 销售 / 采购 / 成本（存量补齐，t_c49010bf / V0281 V0331 V0332 V0381）
+    "SO_APPROVE",
+    "PR_APPROVE",
+    "PRT_APPROVE",
+    "COST_SETTLE",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 23] = [
