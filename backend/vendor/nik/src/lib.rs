@@ -1251,8 +1251,8 @@ pub mod prelude {
 }
 
 pub use nik_macros::{
-    controller, delete, get, layer, no_auth, patch, permission, plugin, post, put, routes,
-    task_handler,
+    auth_only, controller, delete, get, layer, no_auth, patch, permission, plugin, post, put,
+    routes, task_handler,
 };
 
 /// 工具类型（字符串/加密/脱敏/ID/校验/单号）
@@ -1324,8 +1324,8 @@ pub use nik_config::AppConfig;
 pub use nik_web::PageResponseExt;
 pub use nik_web::ValidateExt;
 pub use nik_web::{
-    NikRouter, App, AuthClaims, ClaimsBuilder, JWT, NoAuthDef, PermissionDef, RouteEntry,
-    TokenClaims, TokenType, UserId, ValidatedJson, WebPlugin, discovered_no_auth,
+    AUTH_ONLY, NikRouter, App, AuthClaims, ClaimsBuilder, JWT, NoAuthDef, PermissionDef,
+    RouteEntry, TokenClaims, TokenType, UserId, ValidatedJson, WebPlugin, discovered_no_auth,
     discovered_permissions, discovered_routes,
 };
 pub use nik_web::{

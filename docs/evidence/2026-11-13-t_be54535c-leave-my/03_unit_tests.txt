@@ -1,0 +1,38 @@
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.62s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 18 tests
+test business::hr::leave_handler::tests::cancel_action_codes_are_stable ... ok
+test business::hr::leave_handler::tests::flow_constants_match_design ... ok
+test business::hr::leave_handler::tests::detail_permission_constant_matches_the_annotation ... ok
+test business::hr::leave_handler::tests::locked_statuses_are_not_editable ... ok
+test business::hr::leave_handler::tests::cancel_action_maps_each_status ... ok
+test business::hr::leave_handler::tests::permission_codes_match_seed ... ok
+test business::hr::leave_handler::tests::resigned_constant_matches_employee_domain ... ok
+test business::hr::leave_handler::tests::task_status_labels ... ok
+test business::hr::leave_handler::tests::withdraw_and_cancel_edges_are_registered ... ok
+test business::hr::leave_handler::tests::form_data_freezes_human_readable_fields ... ok
+test business::hr::leave_handler::tests::duration_days_num_mirrors_the_decimal_at_the_three_day_boundary ... ok
+test business::hr::self_service_handler::tests::empty_state_shape_is_a_page_not_an_error ... ok
+test business::hr::leave_handler::tests::page_scope_is_forced_to_self_without_leave_detail ... ok
+test business::hr::self_service_handler::tests::self_service_routes_are_in_the_contract ... ok
+[自助] 契约里 /my 路由 3 条，均无路径参数 ✓
+test business::hr::self_service_handler::tests::self_service_routes_take_no_path_params ... ok
+test business::hr::self_service_handler::tests::declared_routes_are_the_three_self_service_routes ... ok
+test business::hr::self_service_handler::tests::login_only_routes_declare_an_explicit_auth_only_rule ... ok
+test business::hr::self_service_handler::tests::only_salary_carries_a_permission_code ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 5522 filtered out; finished in 0.01s
+
+
+== N21（全仓静态路由 × 规则遮蔽自检）==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-92b1418ede0d3e18)
+
+running 1 test
+[N21] 763 条路由 / 738 条规则：静态路由无被模板规则遮蔽 ✓
+test system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5539 filtered out; finished in 0.73s
+

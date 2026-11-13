@@ -94,6 +94,18 @@ pub const STATUS_CANCELLED: &str = "CANCELLED";
 /// 四个状态值（顺序 = 状态机正向顺序，与 `state_machine::LEAVE_EDGES` 的域一致）。
 pub const STATUS_VALUES: [&str; 4] = [STATUS_DRAFT, STATUS_SUBMITTED, STATUS_APPROVED, STATUS_CANCELLED];
 
+/// 「能看**别人的**请假单」的那道闸（= 详情接口的码，`V0387` 已种给 HR_MANAGER / DEPT_LEADER）。
+///
+/// # 为什么列表要用别人（详情）的码来做闸
+///
+/// 列表接口自己的码 `business:hr:leave:list` **兼作页面码**：`V0387` 把「请假单页」
+/// 授给 `EMPLOYEE`（好让「我的请假」tab 显形），页面行的 `auth_code` 就是它。
+/// 因此「持有 `leave:list`」**不能**证明「可以看全员请假」——员工也持有。
+///
+/// 唯一的诚实判据是「有没有看别人单据的能力」，也就是 `leave:detail`。
+/// 缺它时列表强制 `mine=true`（只出本人，见 `leave_handler::leave_page`）。
+pub const PERM_LEAVE_DETAIL: &str = "business:hr:leave:detail";
+
 /// 状态中文名（列表 / 回执的 `status_label`，文案与设计 §6 的页面一致）。
 pub fn status_label(status: &str) -> &'static str {
     match status {

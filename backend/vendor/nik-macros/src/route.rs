@@ -271,6 +271,48 @@ pub fn permission_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     expanded.into()
 }
 
+/// 展开 `#[auth_only(path = "/api/self", method = "GET")]`：声明「登录即可、不要权限码」。
+///
+/// 提交一条 `PermissionDef { permission: ::nik::AUTH_ONLY }` 规则。为什么需要它、
+/// 它挡住的是哪类缺陷，见 `nik_web::AUTH_ONLY` 的文档（cloudpivot-patch code-12）。
+///
+/// 与 `#[nik::permission]` 的区别：本注解**不要求任何权限码**，语义是
+/// 「认证层放过即可」。因此它**不应**被当成权限点登记进 `sys_menu`
+/// （没有码就没有可授的东西），权限审计的白名单/扫描器要按这条口径处理。
+pub fn auth_only_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(item as ItemFn);
+
+    let mut path_val = String::new();
+    let mut method_val = String::new();
+
+    let attr_str = attr.to_string();
+    for part in attr_str.split(',') {
+        let kv: Vec<&str> = part.splitn(2, '=').map(|s| s.trim()).collect();
+        if kv.len() == 2 {
+            let val = kv[1].trim().trim_matches('"');
+            match kv[0] {
+                "path" => path_val = val.to_string(),
+                "method" => method_val = val.to_string(),
+                _ => {}
+            }
+        }
+    }
+
+    let expanded = quote! {
+        #input
+
+        ::nik::inventory::submit! {
+            ::nik::PermissionDef {
+                path: #path_val,
+                method: #method_val,
+                permission: ::nik::AUTH_ONLY,
+            }
+        }
+    };
+
+    expanded.into()
+}
+
 /// 展开 `#[no_auth("/api/public")]` 标记无需认证的路径
 pub fn no_auth_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);

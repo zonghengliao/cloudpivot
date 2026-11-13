@@ -1,0 +1,25 @@
+时间：2026-11-13 10:51:16 CST  实例：127.0.0.1:18147  库：hr47_drill_1113105057
+
+== ① EMPLOYEE 的权限快照（有 leave:list 页面码、无 leave:detail）==
+{"code":0,"leave_codes":["business:hr:leave:create","business:hr:leave:list"],"salary_codes":["business:hr:salary:list","business:hr:salary:my"]}
+
+== ② EMPLOYEE GET /business/hr/leave/my ==
+{"code":0,"total":1,"rows":[{"leave_no":"LV-HR47-1113-105057-1","status":"APPROVED","days":"1.00"}]}
+HTTP=200
+
+== ③ EMPLOYEE GET /business/hr/leave/page（缺 detail ⇒ 强制 mine）==
+{"code":0,"total":1,"employee_nos":["HR47-1113-105057-1"]}
+
+== ④ EMPLOYEE GET /business/hr/salary/page（第二道闸 salary:detail）==
+{"code":30001,"msg":"无权限访问全公司薪资单（需要 business:hr:salary:detail）：员工自助请用「我的薪资」（GET /business/hr/salary/my）"}
+HTTP=403
+
+== ⑤ HR_MANAGER GET /business/hr/leave/page（有 detail ⇒ 仍是全量，没有被误收窄）==
+{"code":0,"total":2,"employee_nos":["HR47-1113-105057-2","HR47-1113-105057-1"]}
+
+== ⑥ DEPT_LEADER GET /business/hr/leave/my ==
+HTTP=200
+
+== ⑦ 未登录 GET /business/hr/leave/my（auth_only 仍要求登录，不是公开接口）==
+{"code":401,"msg":"未授权访问，请先登录"}
+HTTP=401

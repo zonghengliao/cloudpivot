@@ -175,6 +175,31 @@ fn task_status_label(status: &str) -> String {
 /// `mine=true` 走「我的请假」口径（`biz_employee.user_id = 当前登录用户`），
 /// 由 `leave_model::list_query` 的 `EXISTS` 子查询实现 —— 普通员工即使数据范围是
 /// `SELF`（本表 `owner_col = NULL`，无法按归属裁）也能看到自己请过的假。
+///
+/// # 第二道闸：缺 `leave:detail` ⇒ 强制 `mine=true`（HR-47 实测缺口，卡 t_be54535c）
+///
+/// 本接口自己的码 `business:hr:leave:list` **兼作「请假单页」的页面码**：`V0387` 按
+/// 设计 §6.1「员工自助不新增菜单、以页面内 tab 提供」把页面授给了 `EMPLOYEE`，
+/// 于是员工**实际持有** `leave:list`，只按码放行就能打到这条「全员列表」。
+///
+/// 而 `biz_leave_request` 的 `dept_col = dept_id`、`owner_col = NULL`（见
+/// `shared::scope::ScopeTarget::BIZ_LEAVE_REQUEST`）—— `SELF` 范围在「有部门列、无归属列」
+/// 的表上按设计降级成「本人所在部门」。两者相加的实测后果：员工调本接口拿到
+/// **本人 + 同部门同事**的请假单（含假别 / 事由，HR-47 矩阵回归 2 行）。
+///
+/// 这里有三个候选口径，只有第三个同时成立：
+///
+/// | 口径 | 员工自己的假还能看到吗 | 同事的假 |
+/// |---|---|---|
+/// | 只按 `leave:list` 放行（原状） | ✔ | ✘ **漏** |
+/// | 缺 `leave:detail` 就 403（照抄 `/salary/page`） | ✘ **看不到自己的** | — |
+/// | **缺 `leave:detail` 强制 `mine=true`**（本实现） | ✔ | ✔ 挡住 |
+///
+/// 为什么不能照抄 `/salary/page`：前端「我的请假」tab 走的正是本接口 + `mine=true`，
+/// 一刀切 403 会把员工自己的请假一起挡掉（工资单不一样 —— 它有 `/salary/my` 这条独立路径）。
+///
+/// 为什么 `leave:detail` 才是「能看别人」的正确判据：它同时是详情接口的码，
+/// 语义就是「能打开别人的单据」；`leave:list` 被页面码复用后已经不承载这个语义了。
 #[nik::permission(
     path = "/business/hr/leave/page",
     method = "GET",
@@ -185,11 +210,24 @@ pub async fn leave_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LeavePageQuery>,
 ) -> ResResult<PageData<Vec<LeaveRes>>> {
+    let query = scope_to_self_without_detail(&claims, query);
     let (page, page_size) = leave_dto::normalize_page(query.page, query.page_size);
     let filter = leave_dto::filter_of(&query)?;
     let principal = principal::resolve_for_claims(&claims).await?;
     let (list, total) = page_leaves(&principal, &filter, page, page_size).await?;
     Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
+}
+
+/// 缺 `business:hr:leave:detail` ⇒ 强制 `mine=true`（只出本人）。
+///
+/// 纯函数（只读 claims 的权限快照 + 改一个入参），所以在单测里能直接覆盖两条分支；
+/// 真库效果由 `scripts/verify/hr/hr_permission_matrix.sh` 的 C3b 断言（员工 1 行、
+/// 人事经理全量）兜住。判据与理由见 [`leave_page`] 的文档。
+fn scope_to_self_without_detail(claims: &TokenClaims, mut query: LeavePageQuery) -> LeavePageQuery {
+    if !claims.has_permission(leave_dto::PERM_LEAVE_DETAIL) {
+        query.mine = Some(true);
+    }
+    query
 }
 
 /// 列表组装（接口与真库用例共用同一条路径）。
@@ -1366,5 +1404,75 @@ mod tests {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
+    }
+
+    // ==================== 列表第二道闸（t_be54535c） ====================
+
+    /// 构造一份最小 claims（只用于 `has_permission` 判定，不连库）。
+    fn claims_with(permissions: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: Uuid::now_v7().to_string(),
+            username: Some("hr47-matrix".to_string()),
+            roles: Vec::new(),
+            permissions: permissions.iter().map(|p| (*p).to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 缺 `leave:detail` ⇒ 列表被强制收窄成「只看本人」；有它则尊重调用方入参。
+    ///
+    /// 钉死的是「页面码 `leave:list` 不等于能看全员」这条口径：员工按设计 §6.1
+    /// 必须持有页面码，所以「有 leave:list」绝不能作为放行全量列表的依据。
+    #[test]
+    fn page_scope_is_forced_to_self_without_leave_detail() {
+        // 员工自助：只有页面码 + 建单码（V0387 的 EMPLOYEE 授权就是这个形状）
+        let employee = claims_with(&["business:hr:leave:list", "business:hr:leave:create"]);
+        let query = LeavePageQuery::default();
+        let scoped = scope_to_self_without_detail(&employee, query);
+        assert_eq!(
+            scoped.mine,
+            Some(true),
+            "缺 leave:detail 时「全部」tab 必须被收窄成 mine=true"
+        );
+
+        // 显式带 mine=false 也压不住收窄（否则前端传一个参数就能绕过）
+        let explicit = LeavePageQuery {
+            mine: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(
+            scope_to_self_without_detail(&employee, explicit).mine,
+            Some(true),
+            "调用方传 mine=false 不能绕过第二道闸"
+        );
+
+        // 人事经理 / 部门主管：有 leave:detail ⇒ 入参原样（默认仍是「全部」）
+        for permissions in [
+            vec!["business:hr:leave:list", leave_dto::PERM_LEAVE_DETAIL],
+            vec!["*:*:*"],
+        ] {
+            let manager = claims_with(&permissions);
+            let query = LeavePageQuery::default();
+            let kept = scope_to_self_without_detail(&manager, query);
+            assert_eq!(kept.mine, None, "有 leave:detail 的角色不该被强改 mine");
+        }
+    }
+
+    /// 闸门用的常量必须与 `#[nik::permission]` 注解里写的码**逐字一致**。
+    ///
+    /// 两处分离的代价：注解写 `leave:detail`、常量写成 `leave:details` 时编译照样过，
+    /// 只会在线上把「能看别人」的角色也一起收窄成「只看自己」（静默的功能缩水）。
+    #[test]
+    fn detail_permission_constant_matches_the_annotation() {
+        let source = include_str!("leave_handler.rs");
+        assert!(
+            source.contains(&format!("permission = \"{}\"", leave_dto::PERM_LEAVE_DETAIL)),
+            "leave_handler 的 #[nik::permission] 注解里没有 {} —— 常量与注解已分叉",
+            leave_dto::PERM_LEAVE_DETAIL
+        );
     }
 }

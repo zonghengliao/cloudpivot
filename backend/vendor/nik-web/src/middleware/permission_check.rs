@@ -248,6 +248,20 @@ where
 
         match best.map(|(rule, _)| rule) {
             Some(rule) => {
+                // [cloudpivot-patch code-12] 「登录即可」显式规则：认证层已经在本层之外
+                // 保证 401（无 token 进不来），这里再要求权限码就是多余且有害的
+                // —— 会把「故意不挂码」的自助路由判成 403。
+                // 判据用**哨兵常量**而不是空串：注解漏写 `permission = …` 时是默认拒绝
+                // （fail-closed），不会因为一个半成品注解把路由悄悄放行。
+                if rule.permission == crate::AUTH_ONLY {
+                    tracing::debug!(
+                        "权限检查: path={}, 命中「登录即可」规则（{}），跳过权限码校验",
+                        path,
+                        rule.permission
+                    );
+                    let mut inner = self.inner.clone();
+                    return Box::pin(async move { inner.call(req).await });
+                }
                 let required_perm = rule.permission.clone();
                 let claims_present = req.extensions().get::<AuthClaims>().cloned();
 

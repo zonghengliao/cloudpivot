@@ -20,6 +20,7 @@
 //! | N18 | 例外台账必须是「活的」：登记为例外的码仍未被后端引用且在菜单里（`ROUTE_LEVEL_ONLY` 与临时的 `PENDING_LANDING` 两本台账都校验） | 例外过期没人删 → 红 |
 //! | N19 | 流程定义里每个 `APPROVAL`/`COUNTERSIGN` 节点的 `ROLE` 指派角色都必须有 `business:flow:approve` | 审批角色缺审批权限 → 节点永远点不动（全员 403）→ 红 |
 //! | N20 | ERP 单据核心权限码（`business:erp:*:{create,list,status}`）必须至少授予 1 个**非超管**角色 | 菜单有行、源码有注解，但 `sys_role_menu` 零行 → 除超管外全员 403，审批只能自批（职责分离失效）→ 红 |
+//! | N21 | 静态路由不得被同前缀的模板规则遮蔽（规则集 = 源码里的 `#[nik::permission]` / `#[nik::auth_only]`） | 「登录即可」或另一个码的路由被 `/x/{id}` 的码静默接管 → 合法调用方 403（实测：`/business/hr/leave/my`）→ 红 |
 //!
 //! # 口径（与 `docs/dead-permissions-20261101.md` 逐字一致）
 //!
@@ -90,7 +91,7 @@ const PENDING_LANDING: &[(&str, &str)] = &[
     // 清掉的是：员工档 create/update/delete/sensitive/import/export、合同、
     // 考勤 list/period/record/import/export/lock、请假 list/detail/create/update/
     // submit/cancel、薪资 list/detail/calc/submit/post/reverse/export/my。
-    // 下面三条**仍**零源码引用（只有菜单行在场），故保留等对应卡落地。
+    // 下面两条**仍**零源码引用（只有菜单行在场），故保留等对应卡落地。
     // ------------------------------------------------------------------
     ("business:hr:leave:delete", "HR-25 删草稿（列表页行操作）"),
     ("business:hr:salary-item:delete", "HR-31 删除（is_system 保护）"),
@@ -335,8 +336,12 @@ fn strip_comments(src: &str) -> String {
     out
 }
 
-/// 一条路由声明：`#[nik::<method>(...)]` + 同一 item 属性块里的 `#[nik::permission(...)]`。
-/// 属性顺序不限（permission 在上/在下都认），见 [`permission_of_route`]。
+/// 一条路由声明：`#[nik::<method>(...)]` + 同一 item 属性块里的 `#[nik::permission(...)]`
+/// 或 `#[nik::auth_only(...)]`。属性顺序不限（在上/在下都认），见 [`permission_of_route`]。
+///
+/// `auth_only` 与 `permission` 的区别：前者是「登录即可，不要码」的**显式**规则
+/// （`nik_web::AUTH_ONLY`），后者要求某个权限码。两者都是「有闸」，但只有后者能在
+/// `sys_menu` 里被授出去 —— 所以 N14（死码）只認 permission，N16（裸路由）两类都認。
 #[derive(Debug, Clone)]
 struct Route {
     method: String,
@@ -344,6 +349,8 @@ struct Route {
     file: String,
     line: usize,
     permission: Option<String>,
+    auth_only: bool,
+    no_auth: bool,
 }
 
 impl Route {
@@ -369,7 +376,7 @@ fn scan_routes(repo: &Repo) -> Vec<Route> {
                 continue;
             };
             let ident = body[..paren].trim();
-            if ident == "permission" || ident == "no_auth" {
+            if ident == "permission" || ident == "no_auth" || ident == "auth_only" {
                 continue;
             }
             // 参数形态有两种：`#[nik::get("/x")]` 与 `#[nik::get(path = "/x")]`
@@ -398,6 +405,8 @@ fn scan_routes(repo: &Repo) -> Vec<Route> {
                 file: f.rel.clone(),
                 line,
                 permission: permission_of_route(text, start),
+                auth_only: attr_block_contains(text, start, "#[nik::auth_only("),
+                no_auth: attr_block_contains(text, start, "#[nik::no_auth("),
             });
         }
     }
@@ -434,6 +443,14 @@ fn permission_of_route(text: &str, pos: usize) -> Option<String> {
     let rest = &tail[at + needle.len()..];
     let stop = rest.find('"')?;
     Some(rest[..stop].to_string())
+}
+
+/// `pos` 所在 item 的属性块里是否出现某个注解（`#[nik::auth_only(` / `#[nik::no_auth(` …）。
+///
+/// 与 [`permission_of_route`] 同一套「属性块」判定：注解写在路由注解上方或下方都认。
+fn attr_block_contains(text: &str, pos: usize, needle: &str) -> bool {
+    let (start, end) = item_attr_block(text, pos);
+    text[start..end].contains(needle)
 }
 
 /// 一行的下一个换行符之后（行尾，不含换行符本身）；没有换行则文件末尾。
@@ -750,7 +767,9 @@ async fn n16_every_route_has_permission_gate_or_documented_exception() {
 
     let mut naked = Vec::new();
     for route in &routes {
-        if route.permission.is_some() {
+        // 有两类合法闸：需要权限码（`#[nik::permission]`）与显式「登录即可」
+        // （`#[nik::auth_only]`）。后者也是**规则表里的一行**，模板规则遮蔽不了它。
+        if route.permission.is_some() || route.auth_only {
             continue;
         }
         if !allowed.contains(&(route.method.as_str(), route.path.as_str())) {
@@ -1231,5 +1250,134 @@ async fn n20_erp_core_permission_codes_are_granted_to_non_super_role() {
     println!(
         "[N20] {} 个 ERP 单据核心权限码全部至少授予了 1 个非超管角色 ✓",
         total.unwrap_or(0)
+    );
+}
+
+// ==================== N21 静态路由不得被模板规则遮蔽 ====================
+
+/// 与 `nik-web` 的 `middleware::permission_check::match_path` **同源**的路径匹配：
+/// 逐段比对，规则里的 `{param}` 段匹配任意非空段。
+fn rule_matches_path(request_path: &str, rule_path: &str) -> bool {
+    if request_path == rule_path {
+        return true;
+    }
+    let request_segments: Vec<&str> = request_path.trim_matches('/').split('/').collect();
+    let rule_segments: Vec<&str> = rule_path.trim_matches('/').split('/').collect();
+    if request_segments.len() != rule_segments.len() {
+        return false;
+    }
+    request_segments
+        .iter()
+        .zip(rule_segments.iter())
+        .all(|(request, rule)| (rule.starts_with('{') && rule.ends_with('}')) || request == rule)
+}
+
+/// N21：**静态路由不得被兄弟模板规则遮蔽**（HR-47 实测缺陷的通用化）。
+///
+/// # 这条用例守的是什么
+///
+/// 权限层挑规则的口径是「完全相等(0) > 纯静态(1) > 含参数(2)」，它只能保证
+/// 「有自己规则的静态路由」赢过模板规则；**一条在规则表里没有行的静态路径**
+/// 会被同前缀的模板规则以 score 2 命中。
+///
+/// 2026-11-13 的实测现场（卡 t_be54535c）：
+///
+/// ```text
+/// GET /business/hr/leave/my          ← 设计 §5.2：登录即可（当时没有任何规则）
+/// GET /business/hr/leave/{id}        ← 要 business:hr:leave:detail（score 2 命中）
+/// ⇒ 唯一该用 /leave/my 的角色（EMPLOYEE，没有 leave:detail）被判 403
+/// ```
+///
+/// 修法是给这类路由挂**显式**规则：要码的写 `#[nik::permission]`，不要码的写
+/// `#[nik::auth_only]`（规则值 = `nik_web::AUTH_ONLY`）。本用例把「不许再漏」钉死：
+/// 任何静态路由只要被模板规则选中而自己又不是最优规则，就红。
+///
+/// # 口径边界
+///
+/// * 规则集只来自**源码注解**（`#[nik::permission]` / `#[nik::auth_only]`）；
+///   `config.toml` 的 `[middleware.permission.rules]` 不在扫描范围（本仓未使用）；
+/// * `#[nik::no_auth]` 路由**不参与**：中间件在选规则**之前**就按免认证路径直接放行
+///   （`is_ignored_path` → `PermissionCheckLayer::call` 的第一段），模板规则永远匹配不到它
+///   （实测例子：`GET /support/config/public` 与 `/support/config/{id}`）；
+/// * 只审**静态路径**（不含 `{}`）：模板路由之间互相遮蔽是 REST 的固有形态，
+///   由各模块自己的契约表守（例如 HR 的 `ROUTE_CONTRACT` 唯一性断言）；
+/// * 不进白名单、不判数据库 —— 这是纯源码不变量，任何 `cargo test` 都会跑。
+#[test]
+fn n21_static_routes_are_not_shadowed_by_sibling_template_rules() {
+    let repo = Repo::load(&src_root());
+    let routes = scan_routes(&repo);
+    assert!(
+        routes.len() > 300,
+        "路由扫描异常：只扫到 {} 条（扫描逻辑可能失效，本用例此时是假绿）",
+        routes.len()
+    );
+
+    // 规则 = 源码里声明的规则（码 or 「登录即可」）。`ANY` 方法是控制器宏的产物，跳过。
+    let rules: Vec<(&Route, &str)> = routes
+        .iter()
+        .filter(|route| route.method != "ANY")
+        .filter_map(|route| match route.permission.as_deref() {
+            Some(permission) => Some((route, permission)),
+            None if route.auth_only => Some((route, nik::AUTH_ONLY)),
+            None => None,
+        })
+        .collect();
+
+    let mut shadowed: Vec<String> = Vec::new();
+    for route in routes
+        .iter()
+        .filter(|route| route.method != "ANY" && !route.path.contains('{') && !route.no_auth)
+    {
+        let mut best: Option<(&Route, &str, u8)> = None;
+        for (rule, permission) in &rules {
+            if !rule.method.eq_ignore_ascii_case(&route.method) {
+                continue;
+            }
+            if !rule_matches_path(&route.path, &rule.path) {
+                continue;
+            }
+            let score = if rule.path == route.path {
+                0
+            } else if !rule.path.contains('{') {
+                1
+            } else {
+                2
+            };
+            match best {
+                Some((_, _, best_score)) if best_score <= score => {}
+                _ => best = Some((rule, permission, score)),
+            }
+        }
+        let own_rule_declared = route.permission.is_some() || route.auth_only;
+        match best {
+            // 命中的不是自己 ⇒ 被别人的规则接管（权限口径被静默替换）
+            Some((rule, permission, score)) if rule.path != route.path => shadowed.push(format!(
+                "{}（{}:{}）被 {} 规则 {} 遮蔽（score {}，实际要求 {}）",
+                route.key(),
+                route.file,
+                route.line,
+                rule.method,
+                rule.path,
+                score,
+                permission
+            )),
+            // 自己没声明规则、也没有模板规则命中 ⇒ 裸路由，由 N16 负责
+            None if !own_rule_declared => {}
+            _ => {}
+        }
+    }
+
+    assert!(
+        shadowed.is_empty(),
+        "以下静态路由被同前缀的模板规则遮蔽（权限层会按别人的码校验，行为与声明不符）：\n{}\n\
+         修法：给该路由挂自己的规则 —— 要码用 #[nik::permission(...)]，\
+         只要登录用 #[nik::auth_only(path = \"…\", method = \"…\")]。",
+        shadowed.join("\n")
+    );
+
+    println!(
+        "[N21] {} 条路由 / {} 条规则：静态路由无被模板规则遮蔽 ✓",
+        routes.len(),
+        rules.len()
     );
 }

@@ -668,15 +668,18 @@ expect_eq "C3 员工看别人的档案" "403" "$CODE"
 req GET /api/business/hr/employee/page "" "${TOKENS[EMPLOYEE]}"
 expect_eq "C3 员工打全员档案列表" "403" "$CODE"
 
-# C3b 员工打「全员请假列表」：**码在**（请假单页 grant），行级范围按设计应为 SELF ⇒ 只出自己
-#     当前实测仍是 2 行（本人 + 同事）→ 已知未修，卡 t_be54535c（与薪资列表同一根因：
-#     页面码被复用成全量接口码）。修好（建议：缺 leave:detail 时强制 mine=true）会自动转 PASS。
+# C3b 员工打「全员请假列表」：**码在**（请假单页 grant），但缺 leave:detail ⇒ handler 强制
+#     mine=true（卡 t_be54535c 的修法）⇒ 只出本人 1 条，同部门同事那条不许出现。
+#     为什么不是 403：前端「我的请假」tab 走的正是本接口 + mine=true，一刀切 403 会把
+#     员工自己的请假也挡掉（对照 /salary/page：它有 /salary/my 这条独立路径，可以 403）。
 req GET "/api/business/hr/leave/page?page_size=100" "" "${TOKENS[EMPLOYEE]}"
+expect_eq "C3b 员工 /leave/page（缺 leave:detail 被收窄，不是 403）" "200" "$CODE"
 LV_TOTAL=$(dat total)
 LV_NOS=$(jq -r '[.data.list[]?.employee_no] | join(",")' "$OUT" 2>/dev/null)
-expect_contains "C3b 员工 /leave/page 至少含本人那条" "$LV_NOS" "HR47-$TAG-1"
-known_open "C3b 员工 /leave/page 只出本人 1 条（设计：SELF 数据范围）" "1" "$LV_TOTAL" \
-  "t_be54535c" "页面码复用成全量接口码 ⇒ 未按 SELF 裁剪（实测同行含同事请假）"
+expect_contains "C3b 员工 /leave/page 含本人那条" "$LV_NOS" "HR47-$TAG-1"
+expect_eq "C3b 员工 /leave/page 只出本人 1 条（缺 leave:detail ⇒ 强制 mine=true）" "1" "$LV_TOTAL"
+expect_ne "C3b 且不含同部门同事那条" "HR47-$TAG-2" "$LV_NOS"
+say "  [ok] C3b 员工 /leave/page：total=$LV_TOTAL，单号=[$LV_NOS]（只出本人）"
 
 # C4 零授权角色（FINANCE_DIRECTOR）连自助码都没有 → /salary/my 403
 req GET /api/business/hr/salary/my "" "${TOKENS[FINANCE_DIRECTOR]}"
@@ -688,16 +691,20 @@ for r in HR_MANAGER DEPT_LEADER EMPLOYEE; do
   req GET /api/business/hr/attendance/my "" "${TOKENS[$r]}"
   expect_eq "C5 $r 的 /attendance/my（登录即可）" "200" "$CODE"
 done
-# /leave/my 被 /leave/{id} 的模板权限规则遮蔽（score 2 命中 ⇒ 要 leave:detail），
-# 于是**唯一该用它的角色（EMPLOYEE）反而 403**。修法需要产品/架构拍板（改名 vs 换码），
-# 不在本卡改契约；这里用 known_open 把它钉成「已知未修」，修好自动转 PASS。
-for r in HR_MANAGER DEPT_LEADER; do
+# /leave/my 曾因「没有自己的权限规则」被兄弟模板规则 `/leave/{id}`（要 leave:detail）
+# 以 score 2 命中 ⇒ 唯一该用它的角色（EMPLOYEE）反而 403。修法：路由挂
+# `#[nik::auth_only]`（规则值 = AUTH_ONLY，score 0 精确胜出），见卡 t_be54535c。
+for r in HR_MANAGER DEPT_LEADER EMPLOYEE; do
   req GET /api/business/hr/leave/my "" "${TOKENS[$r]}"
-  expect_eq "C5 $r 的 /leave/my（有 leave:detail）" "200" "$CODE"
+  expect_eq "C5 $r 的 /leave/my（登录即可）" "200" "$CODE"
 done
+# 员工自助的 /leave/my 只出本人（自助投影里没有 employee_no，用单号比对；单号前缀 LV- 是服务端取的）
 req GET /api/business/hr/leave/my "" "${TOKENS[EMPLOYEE]}"
-known_open "C5 员工自助 /leave/my（设计：登录即可）" "200" "$CODE" \
-  "t_be54535c" "被 /leave/{id} 权限规则遮蔽，需要 leave:detail（员工没有）"
+MY_LV_NOS=$(jq -r '[.data.list[]?.leave_no] | join(",")' "$OUT" 2>/dev/null)
+expect_contains "C5 员工 /leave/my 含本人那条（LV-HR47-$TAG-1）" "$MY_LV_NOS" "LV-HR47-$TAG-1"
+expect_ne "C5 员工 /leave/my 不含同部门同事那条（LV-HR47-$TAG-2）" "LV-HR47-$TAG-2" "$MY_LV_NOS"
+expect_ne "C5 员工 /leave/my 不含别部门那条（LV-HR47-$TAG-4）" "LV-HR47-$TAG-4" "$MY_LV_NOS"
+say "  [ok] C5 员工 /leave/my：HTTP $CODE，单号=[$MY_LV_NOS]（登录即可 + 只出本人）"
 
 # C6 人事经理 data_scope=3（本部门及以下）：只见 A 与 A1，不见 B
 req GET "/api/business/hr/employee/page?page_size=100" "" "${TOKENS[HR_MANAGER]}"

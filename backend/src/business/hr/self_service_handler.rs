@@ -20,10 +20,18 @@
 //! * 工资条是**敏感数据**，有些客户要求只走纸质工资条 → 给 `business:hr:salary:my`
 //!   让 HR 能整体关掉（`V0387` 已种该码，见 `self_service_dto::PERM_SALARY_MY`）。
 //!
-//! 注意：没有 `#[nik::permission]` 宏 = 不注册权限规则 = 权限层不匹配该路径（放行）。
-//! **不能**写一个空权限码的 `#[nik::permission(permission = "")]` —— 那会注册一条
-//! `required_permission = ""` 的规则，`has_permission("")` 恒假，全员 403
-//! （`nik-web/src/middleware/permission_check.rs` 的匹配分支）。
+//! 注意：没有「权限码」≠ 不写规则。**必须**用 `#[nik::auth_only(path = …, method = …)]`
+//! 把「登录即可」显式写进规则表（HR-47 实测教训，卡 t_be54535c）：
+//!
+//! * 只写 `#[nik::get]` 时这条路由在规则表里**一行都没有**，而权限层按
+//!   「完全相等(0) > 纯静态(1) > 含参数(2)」挑规则 —— 兄弟模板规则
+//!   `/business/hr/leave/{id}`（要 `business:hr:leave:detail`）会以 score 2 命中
+//!   `/business/hr/leave/my`，于是**唯一该用它的角色**（没有 detail 的普通员工）被判 403；
+//! * `#[nik::auth_only]` 提交的是一条 score 0 的精确规则（`permission = AUTH_ONLY`），
+//!   语义是「认证层放过即可，不查任何码」，模板规则再也串不过来。
+//!
+//! **不能**写一个空权限码的 `#[nik::permission(permission = "")]` —— 空串不等于哨兵，
+//! `has_permission("")` 恒假，全员 403（`nik-web` 的匹配分支按 fail-closed 处理）。
 //!
 //! # 没有员工档时返回 200 + 空列表
 //!
@@ -133,6 +141,7 @@ pub async fn salary_of(
 /// 我的考勤（设计 §5.2 #25）：按 `biz_employee.user_id = 当前登录用户` 过滤，登录即可。
 ///
 /// 入参：`period_code`（可选）、`page`、`page_size`。
+#[nik::auth_only(path = "/business/hr/attendance/my", method = "GET")]
 #[nik::get("/business/hr/attendance/my")]
 pub async fn my_attendance(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -151,6 +160,11 @@ pub async fn my_attendance(
 /// * 本接口**不要权限码**（`leave:list` 是审批人 / HR 的码，普通员工没有）；
 /// * 本接口**不注入数据范围**（`/leave/page` 按部门裁，见 `self_service_model` 模块文档）；
 /// * 本接口回参是自助投影（无审批轨迹、无创建人）。
+///
+/// 注意 `#[nik::auth_only]` 那一行**不是装饰**：没有它，本路径会被兄弟模板规则
+/// `/business/hr/leave/{id}`（要 `leave:detail`）以 score 2 命中 ⇒ 员工 403
+/// （HR-47 实测，卡 t_be54535c）。
+#[nik::auth_only(path = "/business/hr/leave/my", method = "GET")]
 #[nik::get("/business/hr/leave/my")]
 pub async fn my_leaves(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -263,9 +277,9 @@ mod tests {
         }
     }
 
-    /// 只有 `/salary/my` 带权限码；考勤 / 请假**不许**有 `#[nik::permission]`。
+    /// 只有 `/salary/my` 带**权限码**；考勤 / 请假不许有码。
     ///
-    /// 给考勤加码的后果是静默的：码没进 `V0387` 种子时 `has_permission` 恒假 →
+    /// 给考勤 / 请假加码的后果是静默的：码没进 `V0387` 种子时 `has_permission` 恒假 →
     /// 全员打开「我的考勤」就 403；码进了种子但客户没勾给员工角色 → 同样是全员 403。
     /// 这条断言盯着「别顺手加上」。
     #[test]
@@ -288,6 +302,41 @@ mod tests {
         assert_eq!(pairs[0].0, "GET");
         assert_eq!(pairs[0].1, "/business/hr/salary/my");
         assert_eq!(pairs[0].2, dto::PERM_SALARY_MY);
+    }
+
+    /// 两条「登录即可」的自助路由必须**显式**挂 `#[nik::auth_only]`，且路径/方法逐字对应。
+    ///
+    /// 这道断言直接对应用户可感的缺陷（HR-47 实测）：删掉 `#[nik::auth_only]` 这行，
+    /// 编译、静态检查、handler 单测**全绿**，只有员工调 `/leave/my` 时收到 403
+    /// 「需要 business:hr:leave:detail」。所以必须有人盯着这一行。
+    #[test]
+    fn login_only_routes_declare_an_explicit_auth_only_rule() {
+        let source = include_str!("self_service_handler.rs");
+        let pattern = regex::Regex::new(r#"#\[nik::auth_only\(\s*path = "([^"]+)",\s*method = "([^"]+)"\s*\)\]"#)
+            .expect("正则合法");
+        let mut declared: Vec<(String, String)> = pattern
+            .captures_iter(source)
+            .map(|capture| (capture[2].to_ascii_uppercase(), capture[1].to_string()))
+            .collect();
+        declared.sort_unstable();
+        assert_eq!(
+            declared,
+            vec![
+                ("GET".to_string(), "/business/hr/attendance/my".to_string()),
+                ("GET".to_string(), "/business/hr/leave/my".to_string()),
+            ],
+            "自助路由的 auth_only 规则与契约不符（实际 {declared:?}）—— \
+             少了它会被同前缀模板规则遮蔽成 403"
+        );
+
+        // 每条 auth_only 都必须紧挨着一条同路径的 `#[nik::get]`：没有路由的规则是死规则
+        for (method, path) in &declared {
+            assert_eq!(method, "GET");
+            assert!(
+                source.contains(&format!("#[nik::get(\"{path}\")]")),
+                "{path} 有 auth_only 规则但没有对应的 #[nik::get]"
+            );
+        }
     }
 
     /// 空态口径：没绑员工档 → 200 + 空列表（不是 403 / 404）。

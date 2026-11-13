@@ -94,6 +94,30 @@ pub struct PermissionDef {
 
 inventory::collect!(PermissionDef);
 
+/// 「**登录即可、不要权限码**」规则哨兵（`#[nik::auth_only]` 与配置规则共用）。
+///
+/// # 为什么需要它（cloudpivot-patch code-12）
+///
+/// 权限规则表只认识「需要某个码」的路由；**故意不要码**的路由（自助 `/my`、界面策略
+/// 开关这类）在表里没有一行。而 `PermissionCheckLayer` 的选择算法是
+/// 「完全相等(0) > 纯静态(1) > 含参数(2)」，于是兄弟模板规则会**静默吞掉**静态子路径：
+///
+/// ```text
+/// 请求 GET /business/hr/leave/my        ← 只想要「登录即可」
+/// 规则池：GET /business/hr/leave/{id}   permission = business:hr:leave:detail  (score 2)
+///        （/leave/my 自己没有规则）
+/// ⇒ 命中 score 2 的模板规则 → 唯一的合法调用方（没有 leave:detail 的普通员工）被判 403
+/// ```
+///
+/// 实测在 2026-11-13 的 HR-47 权限矩阵里就是这样：`/salary/my`、`/attendance/my` 正常
+/// （前者有自己的码，后者没有同形模板规则），只有 `/leave/my` 全员 403。
+///
+/// 修法：让「登录即可」成为一种**显式**规则 —— 路由自己挂一条 score 0 的精确规则，
+/// 语义是「认证层已放过（401 由更外层保证），权限层不再要求任何码」。
+/// 这样模板规则再也不会串味，且「忘了写码」仍然是**默认拒绝**（空串不等于本哨兵，
+/// 见 [`PermissionRule`] 的判定），不会把漏写注解的路由悄悄放行。
+pub const AUTH_ONLY: &str = "@auth";
+
 /// 无需认证的路径定义 —— 由 `#[no_auth]` 宏注解生成
 ///
 /// 在路径列表中指定的接口将绕过 AuthLayer 中间件。

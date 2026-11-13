@@ -71,6 +71,28 @@ pub fn permission(attr: TokenStream, item: TokenStream) -> TokenStream {
     route::permission_impl(attr, item)
 }
 
+/// 声明「**登录即可、不要权限码**」的显式权限规则（`cloudpivot-patch code-12`）
+///
+/// # 参数
+///
+/// ```ignore
+/// #[nik::auth_only(path = "/business/hr/leave/my", method = "GET")]
+/// #[nik::get("/business/hr/leave/my")]
+/// async fn my_leaves() -> Res<Value> { ... }
+/// ```
+///
+/// 必须与路由注解同用。它提交一条 `permission = AUTH_ONLY` 的规则，作用是把
+/// 「本路由只要登录」这件事**写进规则表**：规则选择按「完全相等(0) > 纯静态(1) >
+/// 含参数(2)」打分，因此这条精确规则会让同前缀的模板规则（如 `/leave/{id}`）
+/// 无法再遮蔽自助路径。不写它、只靠「没有规则」的路由会被模板规则吞掉 → 403。
+///
+/// 与 `#[nik::permission]` 的区别：本注解**没有权限码**，不进 `sys_menu`；
+/// 与 `#[nik::no_auth]` 的区别：本注解**仍要求登录**（401 由认证层保证）。
+#[proc_macro_attribute]
+pub fn auth_only(attr: TokenStream, item: TokenStream) -> TokenStream {
+    route::auth_only_impl(attr, item)
+}
+
 /// 标记无需认证的路由路径
 ///
 /// # 参数

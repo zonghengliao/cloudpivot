@@ -34,6 +34,13 @@
 
   - 员工自助的独立入口：`/leave/my` 随 **HR-41**；本页「我的请假」tab 已按设计 §6.1 落地。
   - 附件（病假证明）：`DocAttachmentPanel` 的 `doc_type` 与必传规则属附件轴卡，本卡不接。
+
+  # tab 显隐判据（HR-47 实测缺口，卡 t_be54535c）
+
+  「全部请假」tab 的显隐看 **`business:hr:leave:detail`**，不看 `leave:list`：
+  `leave:list` 是**页面码**（员工自助必须持有，否则整页进不来），而后端对缺 `leave:detail`
+  的调用方会把 `/leave/page` 强制收窄成「只出本人」。用页面码判 tab 会出现
+  「tab 叫全部请假、点进去只有自己一条」—— 界面撒谎。判据与后端 `scope_to_self_without_detail` 同源。
 -->
 <template>
   <div class="hr-leave-page">
@@ -657,7 +664,16 @@ import { fetchEmployeePage, type EmployeeListRow } from '@/api/business/hr/emplo
 const userStore = useUserStore();
 
 /** 本页权限（逐条对应 `V0387` 的 6 个码） */
-const canListAll = computed(() => userStore.hasPermission(LEAVE_PERMS.list));
+/**
+ * 「全部请假」tab 的显隐判据 = **`leave:detail`**，不是 `leave:list`（卡 t_be54535c）。
+ *
+ * `leave:list` 是**页面码**：员工自助按设计必须持有它（否则整页进不来），
+ * 但后端对缺 `leave:detail` 的调用方会把 `/leave/page` 强制收窄成「只出本人」
+ * （`leave_handler::scope_to_self_without_detail`）。用页面码决定 tab 显隐的后果是
+ * 「tab 写着全部请假、点进去只有自己一条」—— 界面在撒谎。判据与后端同源：能看别人的单
+ * ⇔ 有 `leave:detail`。
+ */
+const canListAll = computed(() => userStore.hasPermission(LEAVE_PERMS.detail));
 const canCreate = computed(() => userStore.hasPermission(LEAVE_PERMS.create));
 const canUpdate = computed(() => userStore.hasPermission(LEAVE_PERMS.update));
 const canSubmit = computed(() => userStore.hasPermission(LEAVE_PERMS.submit));
@@ -672,8 +688,8 @@ const statusOptions = LEAVE_STATUS_OPTIONS.map((item) => ({ ...item }));
 
 // ==================== tab ====================
 
-/** 当前 tab（无 `leave:list` 的人只能看「我的请假」） */
-const activeTab = ref<LeaveTab>(defaultLeaveTab(userStore.hasPermission(LEAVE_PERMS.list)));
+/** 当前 tab（无 `leave:detail` 的人只能看「我的请假」—— 判据见 `canListAll`） */
+const activeTab = ref<LeaveTab>(defaultLeaveTab(canListAll.value));
 const mineTab = computed(() => tabIsMine(activeTab.value));
 
 // ==================== 列表状态 ====================
@@ -692,7 +708,7 @@ const memory = useListFilterMemory({
   page: currentPage,
   pageSize,
   tab: activeTab,
-  defaultTab: defaultLeaveTab(userStore.hasPermission(LEAVE_PERMS.list)),
+  defaultTab: defaultLeaveTab(canListAll.value),
   allowedTabs: canListAll.value ? ['all', 'mine'] : ['mine'],
 });
 
