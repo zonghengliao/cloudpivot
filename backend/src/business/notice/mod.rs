@@ -12,6 +12,7 @@
 //! | [`delivery`] | 通道投递计划与投递记录（站内信必投；邮件 / Webhook / 短信未配置记 `SKIPPED`，A6） |
 //! | [`sse_hub`] | **per-user** SSE 频道中心（订阅 / 取消 / 推送 / 计数 / 心跳 / 空频道回收，A6） |
 //! | [`cleanup`] | 过期通知与用户删除行的清理任务（每日 04:50） |
+//! | [`alert_dedup`] | **告警去重窗口（P1-08）**：同一 `(source,title)` 在 10 分钟内只落一条站内消息 |
 //!
 //! # 对外唯一发送口径：[`dispatch`]
 //!
@@ -68,6 +69,7 @@
 //!   未配置通道一律记 `SKIPPED`（不报错，不影响站内信送达）。投递计划见 [`delivery`]；
 //! - 跨副本推送：SSE 频道是进程内的（见 [`sse_hub`] 头注释），B 批次用 Redis Pub/Sub 替换。
 
+pub mod alert_dedup;
 pub mod cleanup;
 pub mod delivery;
 pub mod dto;

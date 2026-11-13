@@ -378,7 +378,7 @@ async fn g03_delete_announcement_keeps_read_receipts() {
                 0,
                 "{who} 的未读徽标没归零（公告已删，通知不该再计未读）"
             );
-            let mine = notice_model::page_my_notices(&user, None, 1, 50)
+            let mine = notice_model::page_my_notices(&user, None, false, 1, 50)
                 .await
                 .expect("我的消息");
             assert!(
@@ -811,7 +811,9 @@ async fn g10_notice_search_filter_paging() {
         assert_eq!(miss.total, 0, "无关关键词不该命中");
 
         // 用户侧「我的通知」分页同口径
-        let mine = notice_model::page_my_notices(&u1, None, 1, 10).await.expect("我的通知");
+        let mine = notice_model::page_my_notices(&u1, None, false, 1, 10)
+            .await
+            .expect("我的通知");
         assert!(mine.total >= 3, "我的通知应 >= 3 条，实际 {}", mine.total);
 
         // 管理端分页查询（按发送人范围收口：用发送人自己的 principal）

@@ -43,12 +43,21 @@
               v-for="item in rows"
               :key="item.receiver_id"
               class="notice-item"
-              :class="{ 'notice-item--active': active?.receiver_id === item.receiver_id, 'notice-item--unread': !item.read_flag }"
+              :class="{
+                'notice-item--active': active?.receiver_id === item.receiver_id,
+                'notice-item--unread': !item.read_flag,
+                'notice-item--pinned': item.pinned,
+              }"
               @click="openDetail(item)"
             >
               <div class="notice-item__head">
                 <span class="notice-item__dot" />
                 <span class="notice-item__title">{{ item.title }}</span>
+                <!-- 置顶（P1-08）：后端把 level = ERROR 的严重告警排在列表最前并给出 pinned 标记，
+                     这里只负责显形——不重复实现「什么算严重」 -->
+                <t-tag v-if="item.pinned" class="notice-item__pin" theme="danger" size="small" variant="dark">
+                  置顶
+                </t-tag>
                 <t-tag :theme="levelTheme(item.level)" size="small" variant="light">{{ levelLabel(item.level) }}</t-tag>
                 <!-- 右上角 NEW 圆点：只表达「新鲜度」，与左上角未读红点、左侧竖条各司其职 -->
                 <NewDot v-if="!item.read_flag" class="notice-item__new" title="新消息 NEW" />
@@ -85,6 +94,7 @@
               <div>
                 <h3 class="detail-head__title">{{ active.title }}</h3>
                 <div class="detail-head__meta">
+                  <t-tag v-if="active.pinned" theme="danger" size="small" variant="dark">置顶</t-tag>
                   <t-tag :theme="levelTheme(active.level)" size="small" variant="light">{{ levelLabel(active.level) }}</t-tag>
                   <span>{{ typeLabel(active.notice_type) }}</span>
                   <span>{{ formatDateTime(active.created_at) }}</span>
@@ -211,6 +221,8 @@ async function loadList(opts: { keepActive?: boolean } = {}): Promise<void> {
       page: pagination.current,
       page_size: pagination.pageSize,
       read_flag: readFilter.value === 'all' ? undefined : readFilter.value === 'read',
+      // 严重级别（level = ERROR，即 critical 告警）置顶：出事的排最前
+      pin_critical: true,
     });
     rows.value = data.list;
     pagination.total = data.total;
@@ -405,6 +417,23 @@ onBeforeUnmount(() => {
 
     &--active {
       background: var(--td-bg-color-container-select);
+    }
+
+    /* 置顶（P1-08）：红竖条压过「未读」的品牌色，未读时也一眼看出这条是严重告警。
+       底色用 `:not(.notice-item--active)` 限定，永远让位给选中态 ——
+       Less 里不能用 `&--a&--b` 组合两个 `&`（每个 `&` 都会展开成完整祖先链，
+       选择器永远匹配不到），本文件 `.notice-item--unread` 处已记过一次这个坑。 */
+    &--pinned {
+      border-left-color: var(--td-error-color);
+
+      &:not(.notice-item--active) {
+        background: var(--td-error-color-1, rgba(213, 73, 65, 0.06));
+      }
+    }
+
+    &__pin {
+      flex: none;
+      font-weight: 600;
     }
 
     &__head {

@@ -31,8 +31,21 @@
 # · 飞书卡片（有 FEISHU_APP_ID/SECRET 才发；144/145 当前没有该 env，自动跳过）
 #
 # =============================== 去重 ===============================
-# 同一检查项 5 分钟内只发一次（默认 300s，可调）：状态目录里每项一个 `<key>.last`
-# 记 epoch 秒。恢复时打一条 RECOVERED 并删掉状态文件（下次再犯立刻报）。
+# 两层，各管一段，互不替代：
+#
+# ① **脚本侧**（本文件的窗口，默认 300s）：同一检查项在窗口内只跑一次 sink 链
+#    （ALERT.log / kanban / 飞书都不重复发）。状态目录里每项一个 `<key>.last` 记
+#    epoch 秒；恢复时打一条 RECOVERED 并删掉状态文件（下次再犯立刻报）。
+# ② **服务端**（P1-08，默认 600s = 10 分钟）：同一 `(source, title)` 在窗口内只落
+#    **一条**站内消息，其余只累加计数；窗口过后的下一条会在正文里带
+#    「近 10 分钟已重复 N 次」。窗口长度由后端 env
+#    `NIK_ALERT_DEDUP_WINDOW_SECONDS` 决定（未设置 = 600）。
+#
+# 为什么两层都要：脚本侧窗口管的是"别把 ALERT.log 和看板刷爆"，服务端窗口管的是
+# "消息中心里同类告警只有一条，且知道自己被重复了多少次"——后者必须跨重启、
+# 跨调用方（将来业务侧也会 POST /internal/alert）成立，只能落在库上。
+# 两个窗口**不要求相等**：脚本侧 300s 意味着服务端每 10 分钟最多看到 2 次同类告警，
+# 第 2 次会被合并（计数 +1），第 3 次（窗口已过）补发并带合并数。
 #
 # =============================== 用法 ===============================
 #   bash scripts/ops/alert_check.sh                # 正常巡检（cron 用这个）
@@ -598,10 +611,22 @@ print(json.dumps({
   code="${code:-000}"
 
   if [ "$code" = "200" ] && printf '%s' "$out" | grep -q '"code": *0'; then
-    local nid cnt
+    local nid cnt merged merged_note
+    # P1-08：服务端按 (source, title) 做 10 分钟窗口去重。窗口内重复时返回
+    # `deduped=true` / `published=false` 且**没有** notice_id —— 这是**正常结局**（已合并），
+    # 必须与「调用失败」在日志里区分开，否则运维会以为通道挂了。
+    if printf '%s' "$out" | grep -q '"deduped": *true'; then
+      merged="$(printf '%s' "$out" | grep -o '"merged_count": *[0-9]*' | head -1 | grep -o '[0-9]*$')"
+      log "  ↳ 站内消息: 服务端去重窗口内重复，已合并（本窗口第 ${merged:-?} 次），未新增消息"
+      return 0
+    fi
     nid="$(printf '%s' "$out" | grep -o '"notice_id": *"[^"]*"' | head -1 | cut -d'"' -f4)"
     cnt="$(printf '%s' "$out" | grep -o '"receiver_count": *[0-9]*' | head -1 | grep -o '[0-9]*$')"
-    log "  ↳ 站内消息: 已送达超管（notice=${nid:-?} 收件人=${cnt:-?}）"
+    # published=true 且 merged_count>0 ⇒ 上一窗口被合并过，正文里已带「近 N 分钟已重复 X 次」
+    merged="$(printf '%s' "$out" | grep -o '"merged_count": *[0-9]*' | head -1 | grep -o '[0-9]*$')"
+    merged_note=""
+    [ "${merged:-0}" -gt 0 ] 2>/dev/null && merged_note="，上一窗口合并 ${merged} 次"
+    log "  ↳ 站内消息: 已送达超管（notice=${nid:-?} 收件人=${cnt:-?}${merged_note}）"
     return 0
   fi
   warn "  ↳ 站内消息: 调用失败 HTTP=${code}（不影响巡检，窗口过后重试）：$(printf '%s' "$out" | head -c 200 | tr '\n' ' ')"

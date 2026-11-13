@@ -383,6 +383,43 @@ pub async fn find_notice_by_idempotency(ex: &Executor<'_>, key: &str) -> DbResul
     rows.first().map(map_notice).transpose()
 }
 
+/// 按幂等键查「回吐重放」需要的三个字段：`(id, notice_no, receiver_count)`。
+///
+/// # 为什么单独一个函数而不是复用 [`find_notice_by_idempotency`]
+///
+/// 内部告警（`POST /internal/alert`）的重放路径只回三个字段，而通知主体有 25 列
+/// （含 `target_ids::text` 的 JSONB 转换）。告警是高频入口（cron 每轮都打），
+/// 这里按最小投影查，省掉不必要的解析与分配。
+///
+/// # 参数
+///
+/// - `key`：幂等键（`sys_notice.idempotency_key`）。
+///
+/// # 返回值
+///
+/// 命中返回三元组；没有该键（或已软删）返回 `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn find_notice_by_idem_summary(key: &str) -> DbResult<Option<(uuid::Uuid, String, i64)>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id, notice_no, receiver_count FROM sys_notice \
+             WHERE idempotency_key = ? AND deleted_at IS NULL LIMIT 1",
+            vec![Value::from(key)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(Some((
+            row.get_typed("id")?,
+            row.get_typed("notice_no")?,
+            row.get_typed("receiver_count")?,
+        ))),
+        None => Ok(None),
+    }
+}
+
 // ==================== 定时发送（V0051） ====================
 
 /// 取一批「到点待发」的通知 ID（巡逻任务用，**不加锁**，真正的抢占在
@@ -773,16 +810,24 @@ pub async fn refresh_receiver_count(ex: &Executor<'_>, notice_id: &uuid::Uuid) -
 ///
 /// # 参数
 ///
-/// - `user_id`：当前用户。
-/// - `read_flag`：`Some(true)` 只看已读 / `Some(false)` 只看未读 / `None` 全部。
+/// - `user_id`：当前用户（接收行的 `user_id`，取自令牌 `sub`，不是请求参数）；
+/// - `read_flag`：`Some(true)` 只看已读 / `Some(false)` 只看未读 / `None` 全部；
+/// - `pin_critical`：是否把 `level = 'ERROR'`（critical 告警）置顶；
 /// - `page` / `page_size`：分页。
 ///
-/// # 说明
+/// # 排序契约
 ///
-/// 排序走 `idx_sys_notice_receiver_list`（`(user_id, created_at DESC) WHERE is_deleted = FALSE`）。
+/// - `pin_critical = true`：`ERROR` 优先，其次按送达时间倒序（同秒用主键兜底，
+///   保证翻页不会重复 / 漏行）；
+/// - `pin_critical = false`：纯送达时间倒序，命中
+///   `idx_sys_notice_receiver_list`（`(user_id, created_at DESC) WHERE is_deleted = FALSE`）。
+///
+/// 置顶只改**顺序**，不改筛选条件与总数 —— 所以「第 1 页被严重告警占满」是刻意的
+/// 表现（出事的排最前），不是分页 bug。
 pub async fn page_my_notices(
     user_id: &uuid::Uuid,
     read_flag: Option<bool>,
+    pin_critical: bool,
     page: u64,
     page_size: u64,
 ) -> DbResult<Page<MyNoticeRow>> {
@@ -813,7 +858,7 @@ pub async fn page_my_notices(
         scope::ScopeTarget::unscoped("sys_notice_receiver"),
         &sql,
         params,
-        Some("ORDER BY r.created_at DESC, r.id DESC"),
+        Some(my_notice_order_by(pin_critical)),
         page,
         page_size,
     )
@@ -844,6 +889,28 @@ pub async fn page_my_notices(
         size,
         pages,
     })
+}
+
+/// 「我的通知」的 `ORDER BY` 子句（纯函数：单测直接钉住 SQL 文本，防止置顶被悄悄拿掉）。
+///
+/// # 参数
+///
+/// - `pin_critical`：`true` = 把 `level = 'ERROR'`（critical 告警）排到最前。
+///
+/// # 为什么用 `CASE` 而不是两次查询再拼
+///
+/// 两次查询会破坏分页语义（总数 / 页码对不上），而且"置顶"是**同一个列表**的排序
+/// 偏好，不是第二个列表。`CASE` 是单条 SQL 能表达的最直接写法。
+///
+/// 别名 `n.level` / `r.id` 来自 [`page_my_notices`] 的 `JOIN sys_notice n` /
+/// `sys_notice_receiver r`；`scope::paginate_unscoped` 把 `order_by` 直接追加在
+/// `base_sql` 之后（不套子查询），别名因此可见。
+pub fn my_notice_order_by(pin_critical: bool) -> &'static str {
+    if pin_critical {
+        "ORDER BY (CASE WHEN n.level = 'ERROR' THEN 0 ELSE 1 END), r.created_at DESC, r.id DESC"
+    } else {
+        "ORDER BY r.created_at DESC, r.id DESC"
+    }
 }
 
 /// 未读数（高频查询，**必须命中 `idx_sys_notice_receiver_unread`**）。
@@ -1365,6 +1432,157 @@ pub async fn channel_settings_best_effort() -> ChannelSettings {
             }
         }
     }
+}
+
+// ==================== 告警去重窗口（V0404，P1-08） ====================
+
+/// 去重窗口表的 SELECT 列。
+const DEDUP_COLUMNS: &str = "window_start, repeat_count, notice_id";
+
+/// 读一个 `(source, title)` 的去重窗口状态（排障 / 单测 / 重放核对用）。
+///
+/// # 参数
+///
+/// - `source` / `title`：去重业务键（与 `sys_notice` 的 `sender_name` / `title` 同口径）。
+///
+/// # 返回值
+///
+/// 命中返回 [`DedupState`]；没有这个键返回 `None`（= 第一次出现）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn find_alert_dedup(
+    source: &str,
+    title: &str,
+) -> DbResult<Option<crate::business::notice::alert_dedup::DedupState>> {
+    let sql = format!("SELECT {DEDUP_COLUMNS} FROM sys_notice_alert_dedup WHERE source = ? AND title = ?");
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(source), Value::from(title)])
+        .await?;
+    rows.first().map(map_alert_dedup).transpose()
+}
+
+/// **认领一次告警**：在一个事务里「锁窗口行 → 判定该发还是该压 → 写回状态」。
+///
+/// # 参数
+///
+/// - `source` / `title`：去重业务键；
+/// - `now`：本次调用的时刻（生产传 `Utc::now()`；单测传 mock 时间，**不读系统时钟**）；
+/// - `window`：窗口长度（默认 [`alert_dedup::DEFAULT_WINDOW_SECONDS`]）。
+///
+/// # 返回值
+///
+/// [`DedupVerdict`]：`action = Publish` 时调用方要落库（并在成功后回填 `notice_id`，
+/// 见 [`bind_alert_dedup_notice`]）；`action = Suppress` 时**什么都不要发**。
+///
+/// # 判据在哪
+///
+/// 判定本身是纯函数 [`alert_dedup::evaluate`]，这里只负责：① `SELECT … FOR UPDATE`
+/// 把同一 `(source,title)` 的并发调用串起来（不会出现两路同时读到 `repeat_count = 2`
+/// 再各自 +1 丢计数）；② 把 `verdict.next` 写回。
+///
+/// # 事务边界
+///
+/// 事务**只包判定与写状态**，不包 `dispatch`（发通知要落 `sys_notice` + 扇出，
+/// 由 [`crate::business::notice::dispatch`] 自己开事务）。代价是「发布成功后回填
+/// `notice_id`」是第二个事务；这一步失败不会造成静默：窗口里 `notice_id` 仍是 `NULL`，
+/// 下一次调用会立刻重发（见 [`alert_dedup::evaluate`] 的判据 ②）。**宁可多响，不可少响。**
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]（调用方收敛成 500 + 10004，本次不发布）。
+pub async fn claim_alert_dedup(
+    source: &str,
+    title: &str,
+    now: chrono::DateTime<chrono::Utc>,
+    window: chrono::Duration,
+) -> DbResult<crate::business::notice::alert_dedup::DedupVerdict> {
+    let source = source.to_string();
+    let title = title.to_string();
+    db().transaction(|tx| async move {
+        let ex = Executor::Tx(&tx);
+        // FOR UPDATE：同一 (source,title) 的并发调用在这里排队，读到的一定是最新状态。
+        // 行不存在时拿不到锁 —— 下面 INSERT 用 ON CONFLICT DO UPDATE 兜住"两人同时首插"。
+        let lock_sql = format!(
+            "SELECT {DEDUP_COLUMNS} FROM sys_notice_alert_dedup \
+             WHERE source = ? AND title = ? FOR UPDATE"
+        );
+        let rows = ex
+            .rows(
+                &lock_sql,
+                vec![Value::from(source.as_str()), Value::from(title.as_str())],
+            )
+            .await?;
+        let prev = rows.first().map(map_alert_dedup).transpose()?;
+
+        let verdict = crate::business::notice::alert_dedup::evaluate(now, prev.as_ref(), window);
+        let state = &verdict.next;
+        // 无占位替换 ⇒ 常量，不用 `format!`
+        let upsert_sql = "INSERT INTO sys_notice_alert_dedup \
+                 (source, title, window_start, repeat_count, notice_id, last_seen_at, updated_at) \
+             VALUES (?, ?, NULLIF(?::text, '')::timestamptz, ?, NULLIF(?::text, '')::uuid, \
+                     NULLIF(?::text, '')::timestamptz, CURRENT_TIMESTAMP) \
+             ON CONFLICT (source, title) DO UPDATE SET \
+                 window_start = EXCLUDED.window_start, \
+                 repeat_count = EXCLUDED.repeat_count, \
+                 notice_id = EXCLUDED.notice_id, \
+                 last_seen_at = EXCLUDED.last_seen_at, \
+                 updated_at = CURRENT_TIMESTAMP";
+        let now_text = now.to_rfc3339();
+        ex.exec(
+            upsert_sql,
+            vec![
+                Value::from(source.as_str()),
+                Value::from(title.as_str()),
+                Value::from(state.window_start.to_rfc3339()),
+                TypeMapper::to_value(&state.repeat_count),
+                Value::from(opt_uuid_text(state.notice_id)),
+                Value::from(now_text),
+            ],
+        )
+        .await?;
+        Ok(verdict)
+    })
+    .await
+}
+
+/// 发布成功后回填「本窗口的那条通知」。
+///
+/// # 参数
+///
+/// - `source` / `title`：去重业务键；
+/// - `notice_id`：本次真正落库的通知主键。
+///
+/// # 返回值
+///
+/// 受影响行数（正常为 1；窗口行被清理掉时为 0，调用方只记日志）。
+///
+/// # 为什么必须在发布之后单独回填
+///
+/// `notice_id` 是「本窗口真的发出去了」的**唯一凭据**，也是 [`alert_dedup::evaluate`]
+/// 判据 ② 的输入。没有它，一次 dispatch 失败就会留下一个「空窗口」把后面所有告警吞掉。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]（调用方降级为 `warn` 日志：通知已经发出去了，
+/// 这里失败的最坏后果是下一轮多发一条，不影响用户看到告警）。
+pub async fn bind_alert_dedup_notice(source: &str, title: &str, notice_id: &uuid::Uuid) -> DbResult<u64> {
+    db().execute_with_params(
+        "UPDATE sys_notice_alert_dedup SET notice_id = ?::uuid, updated_at = CURRENT_TIMESTAMP \
+         WHERE source = ? AND title = ?",
+        vec![Value::from(*notice_id), Value::from(source), Value::from(title)],
+    )
+    .await
+}
+
+/// 去重窗口行 → [`DedupState`]。
+fn map_alert_dedup(row: &Row) -> DbResult<crate::business::notice::alert_dedup::DedupState> {
+    Ok(crate::business::notice::alert_dedup::DedupState {
+        window_start: row.get_typed("window_start")?,
+        repeat_count: row.get_typed("repeat_count")?,
+        notice_id: row.get_typed("notice_id")?,
+    })
 }
 
 // ==================== 内部映射 ====================

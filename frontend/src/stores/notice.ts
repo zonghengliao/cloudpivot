@@ -131,7 +131,13 @@ export const useNoticeStore = defineStore('notice', () => {
       return;
     }
     try {
-      const data = await pageMyNotices({ page: 1, page_size: MAX_POPUP_ITEMS, read_flag: false });
+      // 浮层口径同顶栏铃铛：要「最新」，不要「最严重」（见 NoticeBell 的说明）
+      const data = await pageMyNotices({
+        page: 1,
+        page_size: MAX_POPUP_ITEMS,
+        read_flag: false,
+        pin_critical: false,
+      });
       const rows = sinceMs ? filterArrivedSince(data.list, sinceMs) : data.list;
       acceptBatch(rows);
     } catch {

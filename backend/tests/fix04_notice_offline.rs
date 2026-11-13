@@ -372,7 +372,7 @@ async fn t4_message_center_hides_notice() {
     cleanup().await;
     let f = seed("PUBLISHED", true, "SENT").await;
 
-    let before = notice::page_my_notices(&f.user_unread, None, 1, 20)
+    let before = notice::page_my_notices(&f.user_unread, None, false, 1, 20)
         .await
         .expect("我的通知");
     assert_eq!(before.total, 1, "T4 前置：消息中心应有 1 条");
@@ -381,7 +381,7 @@ async fn t4_message_center_hides_notice() {
         .await
         .expect("删公告成功");
 
-    let after = notice::page_my_notices(&f.user_unread, None, 1, 20)
+    let after = notice::page_my_notices(&f.user_unread, None, false, 1, 20)
         .await
         .expect("我的通知");
     assert_eq!(after.total, 0, "T4: 消息中心必须查不到已删公告的通知");

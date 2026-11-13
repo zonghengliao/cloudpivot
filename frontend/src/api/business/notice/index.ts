@@ -163,6 +163,13 @@ export interface MyNoticeRes {
   notice_type: string;
   /** 级别 */
   level: string;
+  /**
+   * 是否置顶（P1-08）
+   *
+   * 后端把 `level = 'ERROR'` 的严重告警排在列表最前，并在这里标记；
+   * 前端只按这个标记打「置顶」角标，不自己再判断一次「什么算严重」。
+   */
+  pinned: boolean;
   /** 标题 */
   title: string;
   /** 正文 */
@@ -295,6 +302,13 @@ export type MyNoticeQuery = {
   page_size: number;
   /** `true` 已读 / `false` 未读 / 不传全部 */
   read_flag?: boolean;
+  /**
+   * 严重级别置顶（P1-08）：缺省由后端按 `true` 处理
+   *
+   * 显式传 `true` 是为了让「消息中心按严重级别排序」这条契约在调用点上看得见，
+   * 而不是靠后端的默认值隐式生效。
+   */
+  pin_critical?: boolean;
 };
 
 /** 模板分页查询参数 */

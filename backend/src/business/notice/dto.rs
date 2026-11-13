@@ -364,6 +364,11 @@ pub struct MyNoticeQuery {
     pub page_size: Option<u64>,
     /// 已读筛选（`true` 已读 / `false` 未读 / 不传全部）。
     pub read_flag: Option<bool>,
+    /// 是否把**严重级别**（`level = ERROR`，即 `critical` 告警）置顶。
+    ///
+    /// 缺省 `true`：消息中心的排序契约就是「出事的排最前」。显式传 `false` 回到
+    /// 纯时间倒序（数据核对 / 导出等场景）。
+    pub pin_critical: Option<bool>,
 }
 
 /// 模板分页查询。
@@ -576,6 +581,11 @@ pub struct MyNoticeRes {
     pub notice_type: String,
     /// 级别。
     pub level: String,
+    /// 是否置顶（`level = ERROR` 的严重告警排在最前，见 [`MyNoticeQuery::pin_critical`]）。
+    ///
+    /// 由后端随排序一起给出：前端不必再抄一遍「什么算严重」，也不会出现
+    /// 「后端置顶了但前端没打标记」这种两处口径漂移。
+    pub pinned: bool,
     /// 标题。
     pub title: String,
     /// 正文。
@@ -601,6 +611,8 @@ impl MyNoticeRes {
             notice_no: row.notice_no.clone(),
             notice_type: row.notice_type.clone(),
             level: row.level.clone(),
+            // 「置顶」= 严重级别：与 `page_my_notices` 的排序键同一判据（level = ERROR）
+            pinned: row.level.eq_ignore_ascii_case("ERROR"),
             title: row.title.clone(),
             content: row.content.clone(),
             content_format: row.content_format.clone(),
@@ -795,6 +807,88 @@ pub fn alert_level_of(raw: &str) -> std::result::Result<NoticeLevel, ApiError> {
             error_code::PARAM_INVALID,
             format!("告警级别非法：{other}（允许 critical / warning）"),
         )),
+    }
+}
+
+/// 内部告警的响应（P1-08 起带「发还是压」的显式结论）。
+///
+/// # 为什么要换掉 `DispatchResult`
+///
+/// P1-07 直接把 `DispatchResult` 返回给脚本，字段语义是「发了 / 幂等重放」；
+/// 去重上线后多了第三种结局（**窗口内被合并，什么都没发**），`DispatchResult`
+/// 表达不了「没发但也没错」。三个结局必须有各自可判的字段，否则脚本只能靠
+/// `notice_id` 是不是空来猜。
+///
+/// # 三个结局（互斥）
+///
+/// | `published` | `deduped` | `duplicated` | 含义 |
+/// |:--:|:--:|:--:|:--|
+/// | `true` | `false` | `false` | 真的落了一条通知（`notice_id` / `notice_no` 有值） |
+/// | `false` | `true` | `false` | 窗口内重复，被合并（`merged_count` = 本窗口累计合并次数） |
+/// | `true` | `false` | `true` | 幂等键重放，返回首次那条（不新增行） |
+///
+/// # 字段取值
+///
+/// - `merged_count`：发布时是**上一窗口**被合并的次数（> 0 表示正文里带了
+///   「近 N 分钟已重复 X 次」）；被合并时是**本窗口累计**次数（含本次）。
+/// - `level`：落库的通知级别（`ERROR` / `WARN`），前端消息中心按它着色。
+/// - `window_seconds`：本次生效的去重窗口（默认 600；演练时会调小）。
+#[derive(Debug, Clone, Serialize)]
+pub struct InternalAlertRes {
+    /// 本次是否真的落了一条站内消息。
+    pub published: bool,
+    /// 本次是否被窗口去重合并（`published = false` 时为 `true`）。
+    pub deduped: bool,
+    /// 与本次处置关联的合并次数（语义见类型注释）。
+    pub merged_count: i32,
+    /// 落库的通知级别（`ERROR` / `WARN`）。
+    pub level: String,
+    /// 生效的去重窗口（秒）。
+    pub window_seconds: i64,
+    /// 通知主键（未落库时为 `None`）。
+    pub notice_id: Option<String>,
+    /// 通知编号（未落库时为 `None`）。
+    pub notice_no: Option<String>,
+    /// 接收人数（未落库时 0）。
+    pub receiver_count: i64,
+    /// 是否命中**永久**幂等键（与去重窗口不是一件事，见 `alert_dedup` 模块头）。
+    pub duplicated: bool,
+}
+
+impl InternalAlertRes {
+    /// 结局一 / 三：通知已落库（`duplicated = true` 表示命中了幂等键、没有新增行）。
+    pub fn delivered(
+        result: &crate::business::notice::DispatchResult,
+        level: NoticeLevel,
+        merged_count: i32,
+        window_seconds: i64,
+    ) -> Self {
+        InternalAlertRes {
+            published: true,
+            deduped: false,
+            merged_count,
+            level: level.as_str().to_string(),
+            window_seconds,
+            notice_id: Some(result.notice_id.to_string()),
+            notice_no: Some(result.notice_no.clone()),
+            receiver_count: result.receiver_count,
+            duplicated: result.duplicated,
+        }
+    }
+
+    /// 结局二：窗口内重复，被合并（没有落库）。
+    pub fn suppressed(level: NoticeLevel, merged_count: i32, window_seconds: i64) -> Self {
+        InternalAlertRes {
+            published: false,
+            deduped: true,
+            merged_count,
+            level: level.as_str().to_string(),
+            window_seconds,
+            notice_id: None,
+            notice_no: None,
+            receiver_count: 0,
+            duplicated: false,
+        }
     }
 }
 

@@ -84,7 +84,9 @@ function levelKey(level: string): string {
 async function loadLatest(): Promise<void> {
   loading.value = true;
   try {
-    const data = await pageMyNotices({ page: 1, page_size: 5, read_flag: false });
+    // 顶栏铃铛要的是「最新 5 条未读」，不是「最严重的 5 条」：
+    // 显式关掉 P1-08 的严重级别置顶，否则一条陈年 ERROR 会一直占着面板第一格。
+    const data = await pageMyNotices({ page: 1, page_size: 5, read_flag: false, pin_critical: false });
     items.value = data.list;
   } catch {
     // 未读数权限之外的情况（如 403）不弹错，保持顶栏安静

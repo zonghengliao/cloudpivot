@@ -1,0 +1,56 @@
+=== 0. 实例可达性 + 去重窗口 ===
+/health -> 200
+PASS: 实例活着（/health 200）
+HTTP 200  body={"code":0,"msg":"ok","data":{"published":true,"deduped":false,"merged_count":0,"level":"ERROR","window_seconds":2,"notice_id":"01a1d523-1da1-7079-9cf4-04ca4a17c9c9","notice_no":"NTA202611131340104a17c9c9","receiver_count":1,"duplicated":false}}
+PASS: 首发 HTTP 200
+window_seconds=2
+PASS: 去重窗口已压到 2s（NIK_ALERT_DEDUP_WINDOW_SECONDS 生效）
+
+=== 1. 首发结局（发布 + critical → ERROR） ===
+published=true deduped=false merged_count=0 level=ERROR
+PASS: 首发 published=true
+PASS: 首发 deduped=false
+PASS: 首发 merged_count=0（不带合并提示）
+PASS: critical → level=ERROR
+PASS: 首发返回 notice_id
+
+=== 2. 窗口内连发 4 条同 (source,title) → 全部合并 ===
+PASS: 第 2 条：published=false deduped=true merged_count=1 notice_id=null
+PASS: 第 3 条：published=false deduped=true merged_count=2 notice_id=null
+PASS: 第 4 条：published=false deduped=true merged_count=3 notice_id=null
+PASS: 第 5 条：published=false deduped=true merged_count=4 notice_id=null
+merged_count 序列：1 2 3 4 
+PASS: 合并计数 1→2→3→4 逐条递增
+
+=== 3. 落库核对：只 1 条通知 + 窗口计数 4 ===
+PASS: sys_notice 恰好 1 行（5 次调用只落 1 条）
+dedup_row=p108acc|4|true|【验收】p108acc-1794577210-1254288 磁盘使用率 92%
+PASS: 窗口行：repeat_count=4 且已回填 notice_id
+PASS: 窗口行 notice_id = 首发返回的 notice_id
+
+=== 4. 等窗口过期（3s）再发 → 补发第 2 条并带「已重复 4 次」 ===
+HTTP 200  body={"code":0,"msg":"ok","data":{"published":true,"deduped":false,"merged_count":4,"level":"ERROR","window_seconds":2,"notice_id":"01a1d523-2a0d-77ea-bfc3-6a9fa89a3e01","notice_no":"NTA20261113134013a89a3e01","receiver_count":1,"duplicated":false}}
+PASS: 窗口过期后 published=true
+PASS: merged_count=4（带出上一窗口的合并次数）
+PASS: 第 2 条正文含「已重复 4 次」
+PASS: 两个窗口各 1 条，共 2 条
+
+=== 5. 换标题（同 source）→ 立刻另落一条（去重键是二元组） ===
+HTTP 200  body={"code":0,"msg":"ok","data":{"published":true,"deduped":false,"merged_count":0,"level":"WARN","window_seconds":2,"notice_id":"01a1d523-2a61-713b-b26c-71e1f3d308bb","notice_no":"NTA20261113134014f3d308bb","receiver_count":1,"duplicated":false}}
+PASS: 不同标题 published=true（没有被同 source 的窗口吃掉）
+PASS: warning → level=WARN
+PASS: 落库级别 = WARN
+
+=== 6. 消息中心：分级着色 + 严重级别置顶 ===
+PASS: 超管登录成功
+PASS: 首登改密完成（Admin@123456 → Admin@123456）
+pin_critical=true → [{"level":"ERROR","pinned":true,"title":"【验收】p108acc-1794577210-1254288 磁盘使用率 92%"},{"level":"ERROR","pinned":true,"title":"【验收】p108acc-1794577210-1254288 磁盘使用率 92%"},{"level":"WARN","pinned":false,"title":"【验收】p108acc-1794577210-1254288 导入积压"}]
+PASS: 置顶时第一条是 ERROR（严重告警）
+PASS: 第一条 pinned=true（前端据此打「置顶」标记）
+pin_critical=false → [{"level":"WARN","pinned":false,"title":"【验收】p108acc-1794577210-1254288 导入积压"},{"level":"ERROR","pinned":true,"title":"【验收】p108acc-1794577210-1254288 磁盘使用率 92%"},{"level":"ERROR","pinned":true,"title":"【验收】p108acc-1794577210-1254288 磁盘使用率 92%"}]
+PASS: 关掉置顶后回到纯时间倒序（最新那条 WARN 排第一）
+列表里出现的级别：ERROR,WARN
+PASS: 列表里存在 ERROR（红色标签）
+PASS: 列表里存在 WARN（黄色标签）
+
+验收通过：全部断言 PASS（证据在 docs/evidence/2026-11-13-p108-alert-dedup）

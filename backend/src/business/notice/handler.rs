@@ -41,11 +41,13 @@ use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 use std::net::SocketAddr;
 
+use crate::business::notice::alert_dedup::{self, AlertAction};
 use crate::business::notice::dto::{
     ALERT_BIZ_TYPE, ChannelConfigRes, ContentFormat, DEFAULT_ALERT_SOURCE, DeliverySummaryRes, InternalAlertReq,
-    MyNoticeQuery, MyNoticeRes, NoticeDetailRes, NoticeFilter, NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq,
-    NoticeType, StreamQuery, StreamStatsRes, TemplateFilter, TemplatePageQuery, TemplatePreviewReq, TemplatePreviewRes,
-    TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes, alert_level_of, parse_var_decls,
+    InternalAlertRes, MyNoticeQuery, MyNoticeRes, NoticeDetailRes, NoticeFilter, NoticeLevel, NoticePageQuery,
+    NoticeRes, NoticeSendReq, NoticeType, StreamQuery, StreamStatsRes, TemplateFilter, TemplatePageQuery,
+    TemplatePreviewReq, TemplatePreviewRes, TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes,
+    alert_level_of, parse_var_decls,
 };
 use crate::business::notice::model::{self, TemplateFields};
 use crate::business::notice::render;
@@ -251,11 +253,12 @@ pub async fn delete(Path(id): Path<String>) -> ResResult<()> {
 /// # 参数
 ///
 /// - `claims`：当前用户（只查自己的接收行）。
-/// - `query`：`read_flag` 筛选 + 分页。
+/// - `query`：`read_flag` 筛选 + `pin_critical`（严重级别置顶，缺省开）+ 分页。
 ///
 /// # 返回值
 ///
-/// 分页数据，按送达时间倒序（命中 `idx_sys_notice_receiver_list`）。
+/// 分页数据。缺省按送达时间倒序；`pin_critical` 为真（缺省）时 `level = ERROR`
+/// 的严重告警排在最前 —— 每条都带 `pinned` 标记供前端打「置顶」角标。
 ///
 /// # 异常情况
 ///
@@ -269,7 +272,8 @@ pub async fn mine(
 ) -> ResResult<PageData<Vec<MyNoticeRes>>> {
     let user_id = current_user(&claims)?;
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
-    let result = model::page_my_notices(&user_id, query.read_flag, page, page_size)
+    let pin_critical = query.pin_critical.unwrap_or(true);
+    let result = model::page_my_notices(&user_id, query.read_flag, pin_critical, page, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询我的通知"))?;
     let list = result.list.iter().map(MyNoticeRes::from_row).collect();
@@ -862,7 +866,7 @@ pub async fn internal_alert(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     ValidatedJson(req): ValidatedJson<InternalAlertReq>,
-) -> ResResult<DispatchResult> {
+) -> ResResult<InternalAlertRes> {
     let provided = headers.get(INTERNAL_TOKEN_HEADER).and_then(|value| value.to_str().ok());
     let expected = std::env::var(INTERNAL_TOKEN_ENV).ok();
     if !internal_caller_allowed(peer.ip(), provided, expected.as_deref()) {
@@ -886,12 +890,47 @@ pub async fn internal_alert(
 /// [`crate::business::notice::dispatch`] 的 `ROLE` 扇出在一条 `INSERT … SELECT` 里算出来
 /// （排除软删 / 停用 / 授权过期），不在 Rust 侧循环。
 ///
+/// # 这是薄封装
+///
+/// 真正的实现在 [`deliver_internal_alert_at`]（时刻是入参，可 mock）。这里只取
+/// `Utc::now()` + 环境变量窗口，让线上路径与单测走**同一段代码**。
+pub(crate) async fn deliver_internal_alert(req: InternalAlertReq) -> std::result::Result<InternalAlertRes, ApiError> {
+    deliver_internal_alert_at(req, chrono::Utc::now(), alert_dedup::window()).await
+}
+
+/// [`deliver_internal_alert`] 的可注入版本：**时刻与窗口都是入参**（P1-08）。
+///
+/// # 参数
+///
+/// - `req`：请求体（`level` / `title` / `content` / `source` / `idempotency_key`）；
+/// - `now`：本次调用时刻。生产传 `Utc::now()`；单测传 mock 时间就能在毫秒内
+///   把「等 11 分钟」这一段跑完（卡面验收 ② 要求 mock 时间）；
+/// - `window`：去重窗口（默认 600 秒，见 [`alert_dedup::window`]）。
+///
+/// # 三件事的顺序（顺序本身就是设计）
+///
+/// 1. **幂等键先查**：给了 `idempotency_key` 且库里已有该键 → 直接返回首次结果
+///    （`duplicated = true`），**不进**去重窗口 —— 否则一次重放会被判成"窗口内重复"
+///    而拿不到首次的 `notice_id`，脚本会把重放当成失败；
+/// 2. **去重窗口认领**：窗口内重复 → 直接返回 `deduped = true`，**不落库**；
+/// 3. **发布 + 回填**：`dispatch` 成功后把 `notice_id` 写回窗口行（见
+///    [`model::bind_alert_dedup_notice`]）。回填失败只 `warn`：通知已经发出去了，
+///    最坏后果是下一轮多发一条，不会静默。
+///
+/// # 返回值
+///
+/// [`InternalAlertRes`]：三个结局见该类型注释（发布 / 合并 / 幂等重放）。
+///
 /// # 异常情况
 ///
 /// - `400 + 10001`：级别非法 / 标题正文只有空白；
 /// - `422 + 422`：字段长度越界（`ValidatedJson` 在进 handler 前拦）；
 /// - `500 + 10004`：库异常，或超管角色缺失。
-pub(crate) async fn deliver_internal_alert(req: InternalAlertReq) -> std::result::Result<DispatchResult, ApiError> {
+pub(crate) async fn deliver_internal_alert_at(
+    req: InternalAlertReq,
+    now: chrono::DateTime<chrono::Utc>,
+    window: chrono::Duration,
+) -> std::result::Result<InternalAlertRes, ApiError> {
     let level = alert_level_of(&req.level)?;
     let title = req.title.trim();
     let content = req.content.trim();
@@ -904,7 +943,54 @@ pub(crate) async fn deliver_internal_alert(req: InternalAlertReq) -> std::result
     let source = utils::trimmed(req.source.as_deref())
         .unwrap_or(DEFAULT_ALERT_SOURCE)
         .to_string();
+    let window_seconds = window.num_seconds();
+    let idempotency_key = utils::trimmed(req.idempotency_key.as_deref()).map(str::to_string);
 
+    // ---------- 1. 永久幂等键优先：重放直接回吐首次结果，不进去重窗口 ----------
+    if let Some(key) = idempotency_key.as_deref()
+        && let Some(existing) = model::find_notice_by_idem_summary(key)
+            .await
+            .map_err(|error| utils::db_error(error, "按幂等键查告警通知"))?
+    {
+        tracing::info!(
+            notice_id = %existing.0,
+            source = %source,
+            "内部告警命中幂等键：返回首次结果（不新增、不计入去重窗口）"
+        );
+        return Ok(InternalAlertRes::delivered(
+            &DispatchResult {
+                notice_id: existing.0,
+                notice_no: existing.1,
+                receiver_count: existing.2,
+                duplicated: true,
+                channels: Vec::new(),
+                scheduled: false,
+                scheduled_at: None,
+            },
+            level,
+            0,
+            window_seconds,
+        ));
+    }
+
+    // ---------- 2. 去重窗口：窗口内重复只累加计数，不落库 ----------
+    let verdict = model::claim_alert_dedup(&source, title, now, window)
+        .await
+        .map_err(|error| utils::db_error(error, "告警去重窗口认领"))?;
+    if let AlertAction::Suppress { merged } = verdict.action {
+        tracing::info!(
+            source = %source,
+            title = %title,
+            merged,
+            window_seconds,
+            level = level.as_str(),
+            "内部告警在去重窗口内重复：已合并（不落库）"
+        );
+        return Ok(InternalAlertRes::suppressed(level, merged, window_seconds));
+    }
+    let merged_in_previous_window = verdict.action.merged();
+
+    // ---------- 3. 发布 ----------
     let role_id = model::super_admin_role_id()
         .await
         .map_err(|error| utils::db_error(error, "查询超级管理员角色"))?
@@ -919,20 +1005,39 @@ pub(crate) async fn deliver_internal_alert(req: InternalAlertReq) -> std::result
             )
         })?;
 
+    // 上一窗口被合并过 ⇒ 正文带「近 10 分钟已重复 N 次」（卡面口径）
+    let content = alert_dedup::with_repeat_note(content, merged_in_previous_window, window);
+
     let mut draft = NoticeDraft::text(
         NoticeType::Alert,
         level,
         title,
-        content,
+        &content,
         NoticeTarget::Role(vec![role_id]),
     );
     draft.biz_type = Some(ALERT_BIZ_TYPE.to_string());
     draft.sender_name = Some(source.clone());
-    draft.idempotency_key = utils::trimmed(req.idempotency_key.as_deref()).map(str::to_string);
-    // force = true（`NoticeDraft::text` 的缺省）：告警不能被收件人的 `notify.inbox`
-    // 偏好吃掉 —— 「关掉站内信的人」恰恰是最需要被通知到的运维 / 超管。
+    draft.idempotency_key = idempotency_key;
 
     let result = dispatch(draft).await.map_err(DispatchError::into_api)?;
+
+    // 回填「本窗口真的发出去了」的唯一凭据（判据 ② 的输入）。失败只 warn：
+    // 通知已在消息中心，最坏后果是下一轮多发一条 —— 宁可多响，不可少响。
+    match model::bind_alert_dedup_notice(&source, title, &result.notice_id).await {
+        Ok(0) => tracing::warn!(
+            source = %source,
+            title = %title,
+            "告警已发出，但去重窗口行不见了（被清理？）：下一轮同类告警会再发一条"
+        ),
+        Ok(_) => {}
+        Err(error) => tracing::warn!(
+            error = %error,
+            source = %source,
+            title = %title,
+            "告警已发出，但回填去重窗口失败：下一轮同类告警会再发一条"
+        ),
+    }
+
     if result.receiver_count == 0 {
         tracing::warn!(
             notice_id = %result.notice_id,
@@ -948,10 +1053,17 @@ pub(crate) async fn deliver_internal_alert(req: InternalAlertReq) -> std::result
             duplicated = result.duplicated,
             source = %source,
             level = level.as_str(),
+            merged_in_previous_window,
+            window_seconds,
             "内部告警已转为站内消息"
         );
     }
-    Ok(result)
+    Ok(InternalAlertRes::delivered(
+        &result,
+        level,
+        merged_in_previous_window,
+        window_seconds,
+    ))
 }
 
 #[cfg(test)]
@@ -1113,11 +1225,26 @@ mod tests {
             .await
     }
 
-    /// 清本用例的夹具：通知（级联收件人 / 投递）→ 角色绑定 → 用户。
+    /// 清本用例的夹具：通知（级联收件人 / 投递）→ 去重窗口 → 角色绑定 → 用户。
+    ///
+    /// 去重窗口按**标题**删（两个真库用例的标题都含「真库用例」），不按 `source` 整片删：
+    /// 同一个库上跑真实巡检时 `source = 'alert_check'` 的行不能顺手清掉。
     async fn cleanup_alert_fixtures() {
         db().execute_with_params("DELETE FROM sys_notice WHERE idempotency_key LIKE 'p107test:%'", vec![])
             .await
             .unwrap_or_else(|error| panic!("清理 sys_notice 失败：{error}"));
+        db().execute_with_params(
+            "DELETE FROM sys_notice WHERE biz_type = 'ALERT' AND title LIKE '%真库用例%'",
+            vec![],
+        )
+        .await
+        .expect("清理告警通知失败");
+        db().execute_with_params(
+            "DELETE FROM sys_notice_alert_dedup WHERE title LIKE '%真库用例%'",
+            vec![],
+        )
+        .await
+        .expect("清理去重窗口失败");
         db().execute_with_params(
             "DELETE FROM sys_user_role WHERE user_id IN \
              (SELECT id FROM sys_user WHERE username LIKE 'p107.alert.%')",
@@ -1153,6 +1280,17 @@ mod tests {
         user
     }
 
+    /// 真库用例的告警请求（`source = alert_check`，与巡检脚本同口径）。
+    fn alert_req(title: &str, level: &str) -> InternalAlertReq {
+        InternalAlertReq {
+            level: level.into(),
+            title: title.into(),
+            content: "告警通道验收：巡检 → /internal/alert → 站内消息".into(),
+            source: Some("alert_check".into()),
+            idempotency_key: None,
+        }
+    }
+
     /// 内部告警落库：1 条 `sys_notice`（ALERT / ERROR / ROLE 目标）+ 收件人含超管用户。
     ///
     /// 跑法（缺 `ERP_DB_URL` 时 SKIP，不假绿）：
@@ -1161,6 +1299,9 @@ mod tests {
     /// export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<已迁移的库>'
     /// cargo test --lib business::notice::handler::tests::internal_alert -- --test-threads=1
     /// ```
+    ///
+    /// 标题带随机后缀：去重窗口是按 `(source, title)` 存的，标题固定会让**第二次跑**
+    /// 直接命中上一轮留下的窗口而被合并（用例假红）。
     #[tokio::test]
     async fn internal_alert_persists_one_notice_to_super_admin() {
         let _guard = DB_LOCK.lock().await;
@@ -1175,17 +1316,19 @@ mod tests {
         let user = fixture_super_admin_user(role).await;
 
         let key = format!("p107test:{}", uuid::Uuid::now_v7());
-        let result = deliver_internal_alert(InternalAlertReq {
-            level: "critical".into(),
-            title: "磁盘使用率 99%（P1-07 真库用例）".into(),
-            content: "告警通道验收：巡检 → /internal/alert → 站内消息".into(),
-            source: Some("alert_check".into()),
-            idempotency_key: Some(key.clone()),
-        })
-        .await
-        .expect("告警应落库");
+        let title = format!(
+            "磁盘使用率 99%（P1-07 真库用例 {}）",
+            &uuid::Uuid::now_v7().to_string()[..8]
+        );
+        let mut req = alert_req(&title, "critical");
+        req.idempotency_key = Some(key.clone());
+
+        let result = deliver_internal_alert(req.clone()).await.expect("告警应落库");
 
         assert!(!result.duplicated, "首次调用不应命中幂等");
+        assert!(result.published && !result.deduped, "首次调用应真的落库");
+        assert_eq!(result.level, "ERROR", "critical → ERROR");
+        assert_eq!(result.merged_count, 0, "首发不带合并提示");
         assert!(
             result.receiver_count >= 1,
             "超管角色下至少有夹具用户，receiver_count={}",
@@ -1204,7 +1347,11 @@ mod tests {
         assert_eq!(rows.len(), 1, "同一幂等键只应落 1 条 sys_notice");
         let row = &rows[0];
         let notice_id: uuid::Uuid = row.get_typed("id").expect("id 应为 UUID");
-        assert_eq!(notice_id, result.notice_id, "返回的 notice_id 必须与库里一致");
+        assert_eq!(
+            result.notice_id.as_deref(),
+            Some(notice_id.to_string().as_str()),
+            "返回的 notice_id 必须与库里一致"
+        );
         assert_eq!(row.get_typed::<String>("notice_type").expect("notice_type"), "ALERT");
         assert_eq!(
             row.get_typed::<String>("level").expect("level"),
@@ -1245,17 +1392,13 @@ mod tests {
         assert_eq!(hit, 1, "超管账号必须收到这条告警");
 
         // ③ 幂等：同一键再打一次 → duplicated 且不新增行（脚本重试不会刷屏）
-        let again = deliver_internal_alert(InternalAlertReq {
-            level: "critical".into(),
-            title: "磁盘使用率 99%（P1-07 真库用例）".into(),
-            content: "告警通道验收：巡检 → /internal/alert → 站内消息".into(),
-            source: Some("alert_check".into()),
-            idempotency_key: Some(key.clone()),
-        })
-        .await
-        .expect("重放应返回首次结果");
+        //
+        // 注意这里**不能**被去重窗口吃掉：同键重放走的是「幂等键预查」分支
+        // （`find_notice_by_idem_summary`），在进窗口判定之前就返回了首次结果。
+        let again = deliver_internal_alert(req).await.expect("重放应返回首次结果");
         assert!(again.duplicated, "同键重放必须判为重复");
-        assert_eq!(again.notice_id, notice_id);
+        assert!(again.published && !again.deduped, "幂等重放仍是「已落库」结局");
+        assert_eq!(again.notice_id, result.notice_id);
         let total: i64 = db()
             .scalar_with_params(
                 "SELECT COUNT(*) FROM sys_notice WHERE idempotency_key = ?",
@@ -1266,5 +1409,154 @@ mod tests {
         assert_eq!(total, 1, "重放不得新增 sys_notice 行");
 
         cleanup_alert_fixtures().await;
+    }
+
+    /// **P1-08 卡面验收（真库 + mock 时间）**：同一 `(source,title)` 连发 5 条只落 1 条；
+    /// 11 分钟后补发的第 2 条正文带「近 10 分钟已重复 4 次」。
+    ///
+    /// # 为什么必须真库
+    ///
+    /// 卡面要检的三件事都在 SQL 侧：`FOR UPDATE` + `ON CONFLICT DO UPDATE` 的窗口写回、
+    /// `sys_notice` 的实际行数、正文的实际落库内容。纯函数单测（`alert_dedup::tests`）
+    /// 只证明判据对，证明不了"判据真的接到了这两张表上"。
+    ///
+    /// 时间用 `deliver_internal_alert_at` 注入，所以「等 11 分钟」是毫秒级的事。
+    ///
+    /// 跑法：
+    ///
+    /// ```bash
+    /// export ERP_DB_URL='postgres://…/<已迁移的库>'
+    /// cargo test --lib business::notice::handler::tests::alert_dedup -- --test-threads=1
+    /// ```
+    #[tokio::test]
+    async fn alert_dedup_ten_minute_window() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        if model::super_admin_role_id()
+            .await
+            .expect("查询超管角色不应失败")
+            .is_none()
+        {
+            println!("SKIP: 测试库没有 SUPER_ADMIN 角色（迁移未跑全）");
+            return;
+        }
+        cleanup_alert_fixtures().await;
+
+        let title = format!(
+            "磁盘使用率 92%（P1-08 真库用例 {}）",
+            &uuid::Uuid::now_v7().to_string()[..8]
+        );
+        let window = crate::chrono::Duration::seconds(crate::business::notice::alert_dedup::DEFAULT_WINDOW_SECONDS);
+        let t0 = crate::chrono::Utc::now();
+
+        // ---------- ① 连发 5 条同 (source,title)：只落 1 条，其余 4 条计入 count ----------
+        let mut published = 0;
+        let mut suppressed = 0;
+        let mut last_merged = 0;
+        for i in 0..5 {
+            let now = t0 + crate::chrono::Duration::seconds(i);
+            let res = deliver_internal_alert_at(alert_req(&title, "critical"), now, window)
+                .await
+                .expect("告警处置不应失败");
+            if res.published {
+                published += 1;
+                assert_eq!(res.merged_count, 0, "窗口内首发不带合并提示");
+            } else {
+                assert!(res.deduped, "第 {} 条应判为窗口内重复", i + 1);
+                suppressed += 1;
+                last_merged = res.merged_count;
+            }
+        }
+        assert_eq!(published, 1, "5 条同源同标题只允许落 1 条");
+        assert_eq!(suppressed, 4, "其余 4 条必须被合并");
+        assert_eq!(last_merged, 4, "第 5 条时累计合并次数应为 4");
+
+        let notice_rows: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM sys_notice WHERE biz_type = 'ALERT' AND title = ?",
+                vec![Value::from(title.as_str())],
+            )
+            .await
+            .expect("统计告警通知失败");
+        assert_eq!(notice_rows, 1, "窗口内只应有 1 条 sys_notice");
+
+        let state = model::find_alert_dedup("alert_check", &title)
+            .await
+            .expect("读去重窗口失败")
+            .expect("去重窗口行应存在");
+        assert_eq!(state.repeat_count, 4, "窗口行 repeat_count 应为 4");
+        let first_notice_id = state.notice_id.expect("发布后必须回填 notice_id（判据 ② 的输入）");
+        // PG 的 timestamptz 只到微秒，而 `Utc::now()` 带纳秒 —— 用秒级容差比较，
+        // 免得用例因为 0.0000001 秒的精度差假红。
+        assert!(
+            (state.window_start - t0).num_seconds().abs() <= 1,
+            "窗口起点 = 首次发布的时刻（差 {}s）",
+            (state.window_start - t0).num_seconds()
+        );
+
+        // ---------- ② 等 11 分钟再发 1 条：落第 2 条，正文含「已重复 4 次」 ----------
+        let later = t0 + crate::chrono::Duration::minutes(11);
+        let res = deliver_internal_alert_at(alert_req(&title, "critical"), later, window)
+            .await
+            .expect("窗口过后的告警应发布");
+        assert!(res.published, "窗口过后必须发布");
+        assert_eq!(res.merged_count, 4, "要把上一窗口的合并次数带出来");
+        let second_notice_id = res.notice_id.clone().expect("第二窗口应落库");
+
+        let content: String = db()
+            .scalar_with_params(
+                "SELECT content FROM sys_notice WHERE id = ?::uuid",
+                vec![Value::from(second_notice_id.parse::<uuid::Uuid>().expect("UUID"))],
+            )
+            .await
+            .expect("读第二条正文失败");
+        assert!(
+            content.contains("近 10 分钟已重复 4 次"),
+            "正文必须带合并次数，实际：{content}"
+        );
+
+        let total: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM sys_notice WHERE biz_type = 'ALERT' AND title = ?",
+                vec![Value::from(title.as_str())],
+            )
+            .await
+            .expect("统计第二次发布后的通知失败");
+        assert_eq!(total, 2, "两个窗口各落 1 条，共 2 条");
+
+        let state = model::find_alert_dedup("alert_check", &title)
+            .await
+            .expect("读去重窗口失败")
+            .expect("去重窗口行应存在");
+        assert_eq!(state.repeat_count, 0, "新窗口计数归零");
+        assert!(
+            (state.window_start - later).num_seconds().abs() <= 1,
+            "窗口起点挪到第二次发布时刻（差 {}s）",
+            (state.window_start - later).num_seconds()
+        );
+        assert_ne!(state.notice_id, Some(first_notice_id), "窗口行要指向新窗口的那条通知");
+
+        cleanup_alert_fixtures().await;
+    }
+
+    /// 「我的通知」排序子句：置顶开关必须真的改 ORDER BY，且非置顶时不带 CASE。
+    ///
+    /// 这条是防「参数加了但没接进 SQL」——那类 bug 在界面上表现为「置顶开关毫无作用」，
+    /// 只有对比 SQL 文本才抓得稳。
+    #[test]
+    fn my_notice_order_puts_errors_first_when_pinned() {
+        let pinned = model::my_notice_order_by(true);
+        assert!(
+            pinned.contains("CASE WHEN n.level = 'ERROR' THEN 0 ELSE 1 END"),
+            "置顶必须把 ERROR 排最前：{pinned}"
+        );
+        assert!(pinned.contains("r.created_at DESC"), "同级别仍按时间倒序：{pinned}");
+        assert!(pinned.ends_with("r.id DESC"), "主键兜底保证翻页不重不漏：{pinned}");
+
+        let plain = model::my_notice_order_by(false);
+        assert_eq!(plain, "ORDER BY r.created_at DESC, r.id DESC", "关闭置顶 = 纯时间倒序");
+        assert!(!plain.contains("CASE"), "非置顶不该带 CASE 分支");
     }
 }
