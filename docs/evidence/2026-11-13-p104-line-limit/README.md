@@ -75,7 +75,13 @@
 
 ## 三、这轮没做 / 需要下一手的事
 
-1. **「导入向导」目前还不能导这 7 个单据的明细**（如实记录，需要产品决策）。
+1. ~~**「导入向导」目前还不能导这 7 个单据的明细**（如实记录，需要产品决策）。~~
+   → **已决策：改文案（2026-11-13，`t_35a19386`）** —— 决策文档 `docs/单据明细导入口径-决策.md`
+   （commit `f495ef26`），落地卡 `t_778bf23f`（commit 见 `git log --grep t_778bf23f`）。
+   7 个单据后半句改为「请拆成多张单据提交，每张不超过 200 行。」，
+   黄条的「打开导入向导」入口一并删除；「单据明细 Excel 导入」进需求池 `RP-2026-009`（触发制）。原始证据：`06_copy_split_doc.out`。
+
+   以下为当时的实测记录（保留作依据）：
    实测 `backend/src/business/impexp/builtin/mod.rs` 注册的导入定义只有 9 个：
    `system.dict_item`、`erp.supplier` / `erp.material` / `erp.unit` / `erp.account` / `erp.warehouse` / `erp.location`、
    `hr.attendance`、`hr.employee`；`erp_doc.rs` 只注册了 **3 个导出**（`erp.stock_in` / `erp.payable` / `erp.voucher`），
@@ -89,3 +95,16 @@
 3. **销售域（销售订单 / 发货 / 销售退货）只有前端 `MAX_LINES = 200` 的限制，后端没有行数闸**
    （`backend/src/business/erp/sales_order_*` / `shipment_*` 里没有 `items.len() >` 校验）。
    不是本卡范围，但如果哪天补后端口径，前端这些页也应一起挂 `DetailLineLimitAlert`。
+
+## 四、P1-04 后续（`t_778bf23f`，2026-11-13）：文案改「拆单提交」
+
+| 位置 | 改动 |
+|:--|:--|
+| `backend/.../shared/doc_lines.rs` | `IMPORT_WIZARD_HINT` → **`SPLIT_DOC_HINT`**（「请拆成多张单据提交，每张不超过 200 行。」）；新增 `too_many_lines_with(limit, actual, hint)` / `too_many_lines_labeled(label, …)`（盘点单两处入口带「抽盘 / 实盘」前缀）；单测加反向断言 `!msg.contains("导入向导")` / `!msg.contains("2 万行")` |
+| `backend/.../erp/stocktake_dto.rs` | `:195` / `:271` 两处 `format!` 收口到 `doc_lines::too_many_lines_labeled(…)`，`收到 N 行` → `当前 N 行` + 尾句「请按仓库或物料分类分多次抽盘。」；上限 2000 **不动**；新增 3 条单测 |
+| `frontend/.../shared/detail-line-limit.ts` | `importWizardHint()` → **`splitDocumentHint()`**；删除 `IMPORT_WIZARD_ROUTE_NAME` |
+| `frontend/.../shared/DetailLineLimitAlert.vue` | 删掉 `<router-link>`「打开导入向导」入口与 `__link` 样式，只渲染 `{{ message }}` |
+| `frontend/.../stock-take/stock-take-logic.ts` | 抽盘超限文案补尾句（`STOCK_TAKE_TOO_MANY_HINT`），与后端逐字一致 |
+| `frontend/tests/unit/detail-line-limit.test.ts` | 三段断言换成「上限 / 当前行数 / 拆单动作」+ 反向断言；删「链接指向真实路由名」，换「组件不再带任何跳转」；新增盘点口径用例 |
+
+验证见 `06_copy_split_doc.out`（含真 HTTP 端到端：201 行入库单 → 400，`msg` 与前端黄条**逐字节相同**；200 行放行）。

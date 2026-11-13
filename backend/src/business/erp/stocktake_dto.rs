@@ -36,6 +36,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate;
+use crate::business::shared::doc_lines;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
@@ -49,6 +50,13 @@ pub const MAX_REMARK_LEN: usize = 500;
 
 /// 作废原因最大长度（列 `VARCHAR(255)`）。
 pub const MAX_REASON_LEN: usize = 255;
+
+/// 明细超限的「怎么办」尾句（与前端 `stock-take-logic.ts` 逐字一致）。
+///
+/// 盘点单**不能**用 7 个单据那句「请拆成多张单据提交」：
+/// 盘点没有导入通道，动作是「按仓库 / 物料分类分多次抽盘」——
+/// 拆成多张盘点单会各盘一片、账面快照重复，反而更难对账。
+pub const STOCK_TAKE_TOO_MANY_HINT: &str = "请按仓库或物料分类分多次抽盘。";
 
 /// 本模块的 6 个权限码（与迁移逐字一致）。
 pub const STOCK_TAKE_PERMISSIONS: [(&str, &str); 6] = [
@@ -191,9 +199,11 @@ impl CreateStockTakeReq {
             ));
         }
         if self.items.len() > MAX_LINES {
-            return Err(bad_request(format!(
-                "抽盘明细最多 {MAX_LINES} 行（收到 {} 行）",
-                self.items.len()
+            return Err(bad_request(doc_lines::too_many_lines_labeled(
+                "抽盘",
+                MAX_LINES,
+                self.items.len(),
+                STOCK_TAKE_TOO_MANY_HINT,
             )));
         }
         self.items
@@ -267,9 +277,11 @@ impl UpdateStockTakeReq {
     /// 逐行实盘数（行数上限 + 逐行解析）。
     pub fn parsed_lines(&self) -> std::result::Result<Vec<(Uuid, Decimal)>, ApiError> {
         if self.lines.len() > MAX_LINES {
-            return Err(bad_request(format!(
-                "实盘明细最多 {MAX_LINES} 行（收到 {} 行）",
-                self.lines.len()
+            return Err(bad_request(doc_lines::too_many_lines_labeled(
+                "实盘",
+                MAX_LINES,
+                self.lines.len(),
+                STOCK_TAKE_TOO_MANY_HINT,
             )));
         }
         self.lines
@@ -611,3 +623,66 @@ pub struct StockTakePageRes {
 
 /// 状态常量再导出（handler / 单测共用，避免各处重新写字符串）。
 pub const STATUSES: [&str; 4] = [STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, STATUS_CANCELLED];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 抽盘范围超限（P1-04 口径统一）：`收到 N 行` → `当前 N 行` + 一句「怎么办」。
+    ///
+    /// 尾句必须是「分多次抽盘」而不是 7 个单据那句「拆成多张单据提交」——
+    /// 盘点单拆单会各盘一片、账面快照重复（决策文档 §3.5）。
+    #[test]
+    fn partial_scope_over_max_lines_names_limit_actual_and_action() {
+        let req = CreateStockTakeReq {
+            take_type: Some(model::TAKE_TYPE_PARTIAL.to_string()),
+            items: vec![StockTakeScopeItemReq::default(); MAX_LINES + 1],
+            ..Default::default()
+        };
+        let error = req.scope_items(model::TAKE_TYPE_PARTIAL).expect_err("2001 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert_eq!(
+            error.msg,
+            format!(
+                "抽盘明细最多 {MAX_LINES} 行（当前 {} 行）。{STOCK_TAKE_TOO_MANY_HINT}",
+                MAX_LINES + 1
+            ),
+            "抽盘超限文案要与前端 `stock-take-logic.ts` 逐字一致"
+        );
+        // 反向断言：不许把 7 个单据的「拆单」/「导入向导」口径串进盘点单。
+        assert!(!error.msg.contains("拆成多张单据"), "盘点不拆单：{}", error.msg);
+        assert!(!error.msg.contains("导入向导"), "盘点没有导入通道：{}", error.msg);
+        println!("[P1-04] 抽盘超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 实盘行超限：同一口径的第二个入口（填实盘数时），前缀是「实盘」不是「抽盘」。
+    #[test]
+    fn actual_lines_over_max_lines_names_limit_actual_and_action() {
+        let req = UpdateStockTakeReq {
+            lines: vec![StockTakeActualReq::default(); MAX_LINES + 1],
+            ..Default::default()
+        };
+        let error = req.parsed_lines().expect_err("2001 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert_eq!(
+            error.msg,
+            format!(
+                "实盘明细最多 {MAX_LINES} 行（当前 {} 行）。{STOCK_TAKE_TOO_MANY_HINT}",
+                MAX_LINES + 1
+            ),
+            "实盘超限文案要带「实盘」前缀，别和抽盘混"
+        );
+    }
+
+    /// 边界不能误伤：恰好 2000 行的实盘数照旧放行（`>` 而不是 `>=`）。
+    #[test]
+    fn exactly_max_lines_is_accepted() {
+        let req = UpdateStockTakeReq {
+            lines: vec![StockTakeActualReq::default(); MAX_LINES],
+            ..Default::default()
+        };
+        // 行数闸放行后逐行解析会因缺 item_id 报错 —— 只要不是行数上限那句即可。
+        let error = req.parsed_lines().expect_err("空行缺 item_id");
+        assert!(!error.msg.contains("明细最多"), "2000 行不该撞行数上限：{}", error.msg);
+    }
+}

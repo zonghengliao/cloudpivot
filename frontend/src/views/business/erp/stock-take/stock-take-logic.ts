@@ -41,6 +41,14 @@ export const STOCK_TAKE_MAX_REASON = 255;
 /** 明细行上限（后端 `MAX_LINES = 2000`） */
 export const STOCK_TAKE_MAX_LINES = 2000;
 
+/**
+ * 明细超限的「怎么办」尾句（与后端 `stocktake_dto::STOCK_TAKE_TOO_MANY_HINT` 逐字一致）。
+ *
+ * 盘点单不写「请拆成多张单据提交」（那是 7 个普通单据的口径）：盘点没有导入通道，
+ * 拆单会各盘一片、账面快照重复。正确动作是按范围分多次抽盘。
+ */
+export const STOCK_TAKE_TOO_MANY_HINT = '请按仓库或物料分类分多次抽盘。';
+
 /** 「跳过审批」理由最小字数（后端 `approval_gate::MIN_SKIP_REASON_CHARS`） */
 export const MIN_SKIP_REASON_CHARS = 10;
 
@@ -232,7 +240,7 @@ export function validateStockTakeForm(form: StockTakeFormState): StockTakeFormEr
       return errors;
     }
     if (form.items.length > STOCK_TAKE_MAX_LINES) {
-      errors.items = `抽盘明细最多 ${STOCK_TAKE_MAX_LINES} 行（当前 ${form.items.length} 行）`;
+      errors.items = `抽盘明细最多 ${STOCK_TAKE_MAX_LINES} 行（当前 ${form.items.length} 行）。${STOCK_TAKE_TOO_MANY_HINT}`;
       return errors;
     }
     const seen = new Set<string>();

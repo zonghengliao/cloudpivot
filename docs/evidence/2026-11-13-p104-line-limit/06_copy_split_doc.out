@@ -1,0 +1,162 @@
+# P1-04 文案替换证据：7 单据超限文案改「拆单提交」+ 删导入向导入口 + 盘点口径统一
+#
+# 卡：t_778bf23f（上游决策 t_35a19386 → docs/单据明细导入口径-决策.md）
+# 环境：99 工作仓 /opt/cloudpivot（宿主 ubuntu-svr），提交前 main = 0925a649
+#
+# 本文件只贴「命令 + 真实输出」。命令按执行顺序排列，退出码原样保留。
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 一、文案本体（唯一出处，前后端各一份，逐字一致）
+# ═══════════════════════════════════════════════════════════════════════════
+
+$ sed -n '/pub const SPLIT_DOC_HINT/p;/pub fn too_many_lines/,/^}/p' backend/src/business/shared/doc_lines.rs
+pub const SPLIT_DOC_HINT: &str = "请拆成多张单据提交，每张不超过 200 行。";
+pub fn too_many_lines(limit: usize, actual: usize) -> String {
+    too_many_lines_with(limit, actual, SPLIT_DOC_HINT)
+}
+pub fn too_many_lines_with(limit: usize, actual: usize, hint: &str) -> String {
+    too_many_lines_labeled("", limit, actual, hint)
+}
+pub fn too_many_lines_labeled(label: &str, limit: usize, actual: usize, hint: &str) -> String {
+    format!("{label}明细最多 {limit} 行（当前 {actual} 行）。{hint}")
+}
+
+$ sed -n '/export function splitDocumentHint/,/^}/p' frontend/src/views/business/erp/shared/detail-line-limit.ts
+export function splitDocumentHint(): string {
+  return '请拆成多张单据提交，每张不超过 200 行。';
+}
+
+# 前端实跑（tsx 直接 import 真实模块，不是手抄）：
+$ cd frontend && npx tsx <scratch>/p104_fe_message.ts
+FRONTEND_MESSAGE_201=明细最多 200 行（当前 201 行）。请拆成多张单据提交，每张不超过 200 行。
+FRONTEND_HEX_201=e6988ee7bb86e69c80e5a49a2032303020e8a18cefbc88e5bd93e5898d2032303120e8a18cefbc88e38082…
+FRONTEND_MESSAGE_301=明细最多 200 行（当前 301 行）。请拆成多张单据提交，每张不超过 200 行。
+HINT=请拆成多张单据提交，每张不超过 200 行。
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 二、真 HTTP 端到端：201 行入库单 → 400，message 与前端黄条逐字（逐字节）相同
+#     服务：本机 8023 起真后端（profile=test，空库 p104_copy_test 首启自动迁移），
+#           登录 admin（临时改密后）→ POST /api/business/erp/stock-in
+# ═══════════════════════════════════════════════════════════════════════════
+
+### 请求：POST /api/business/erp/stock-in，明细 201 行
+HTTP_STATUS= 400
+RAW_RESPONSE= {"code":10001,"msg":"明细最多 200 行（当前 201 行）。请拆成多张单据提交，每张不超过 200 行。"}
+
+### 前端黄条文案（同一数据：201 行 / 上限 200）
+FRONTEND_MESSAGE_201= 明细最多 200 行（当前 201 行）。请拆成多张单据提交，每张不超过 200 行。
+BACKEND_MESSAGE     = 明细最多 200 行（当前 201 行）。请拆成多张单据提交，每张不超过 200 行。
+BYTE_EQUAL_201= True
+BACKEND_HEX= e6988ee7bb86e69c80e5a49a2032303020e8a18cefbc88e5bd93e5898d2032303120e8a18cefbc89e38082e8afb7e68b86e68890e5a49ae5bca0e58d95e68daee68f90e4baa4efbc8ce6af8fe5bca0e4b88de8b685e8bf872032303020e8a18ce38082
+FRONTEND_HEX= e6988ee7bb86e69c80e5a49a2032303020e8a18cefbc88e5bd93e5898d2032303120e8a18cefbc89e38082e8afb7e68b86e68890e5a49ae5bca0e58d95e68daee68f90e4baa4efbc8ce6af8fe5bca0e4b88de8b685e8bf872032303020e8a18ce38082
+
+BACKEND_CODE= 10001 (PARAM_INVALID = 10001)
+CONTAINS_SPLIT_HINT= True
+CONTAINS_WIZARD= False
+CONTAINS_OLD_WORD(收到/2万行)= False
+
+### 文档示例文案（301 行，仅展示）
+FRONTEND_MESSAGE_301= 明细最多 200 行（当前 301 行）。请拆成多张单据提交，每张不超过 200 行。
+
+# 边界：恰好 200 行不被行数闸拦（继续往下走，撞到下一项必填校验 —— 说明闸放行了）
+### 边界：明细 200 行（恰好上限）
+HTTP_STATUS= 400
+RAW_RESPONSE= {"code":10001,"msg":"items[0].price_excl 不能为空"}
+HIT_LINE_LIMIT= False
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 三、后端门禁
+# ═══════════════════════════════════════════════════════════════════════════
+
+$ cargo fmt -- --check
+exit=0
+
+$ cargo clippy --lib --tests -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 35s
+exit=0
+
+$ cargo test --lib -- doc_lines max_lines stocktake_dto -- --nocapture
+test business::shared::doc_lines::tests::message_names_limit_actual_and_channel ... ok
+test business::shared::doc_lines::tests::message_follows_the_per_document_limit ... ok
+test business::shared::doc_lines::tests::message_is_stable_for_zero_rows ... ok
+test business::shared::doc_lines::tests::custom_hint_replaces_only_the_tail ... ok
+test business::shared::doc_lines::tests::labeled_variant_keeps_the_document_prefix ... ok
+test business::shared::doc_lines::tests::split_hint_names_the_default_limit ... ok
+test business::erp::stockin_dto::tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::stockin_dto::tests::exactly_max_lines_is_accepted ... ok
+test business::erp::purchase_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::transfer_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::transfer_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::stockout_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::stockout_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::price_inquiry_dto::p104_line_limit_tests::inquiry_more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::price_inquiry_dto::p104_line_limit_tests::inquiry_exactly_max_lines_is_accepted ... ok
+test business::erp::price_inquiry_dto::p104_line_limit_tests::quote_more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_requisition_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_requisition_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::purchase_return_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_return_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::stocktake_dto::tests::partial_scope_over_max_lines_names_limit_actual_and_action ... ok
+test business::erp::stocktake_dto::tests::actual_lines_over_max_lines_names_limit_actual_and_action ... ok
+test business::erp::stocktake_dto::tests::exactly_max_lines_is_accepted ... ok
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 5581 filtered out
+exit=0
+
+# 说明：24 条里含 7 个单据各自的「201 行 → 400」+「200 行放行」、doc_lines 6 条、盘点 3 条。
+# 每条 201 行用例现在同时断言：status=400、msg 含「拆成多张单据提交」、
+# msg 含「当前 N 行」、以及 !msg.contains("导入向导")（反向断言，防空头支票回流）。
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 四、前端门禁
+# ═══════════════════════════════════════════════════════════════════════════
+
+$ pnpm test:unit
+# tests 1763
+# pass 1763
+# fail 0
+exit=0
+
+$ pnpm typecheck
+TC_EXIT=0
+$ pnpm typecheck:unit
+TCU_EXIT=0
+
+$ pnpm build
+✓ 5558 modules transformed.
+✓ built in 53.38s
+BUILD_EXIT=0
+
+# 条数说明：上一版 detail-line-limit.test.ts 是 16 条，本卡删 2（导入向导链接指向真实路由 /
+# 旧三段文案）、加 4（拆单三段 / splitDocumentHint 逐字 / 组件无跳转 / 盘点口径），
+# 全量从 1761 → 1763。
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 五、全仓 grep 零残留
+# ═══════════════════════════════════════════════════════════════════════════
+
+$ grep -rn "IMPORT_WIZARD_HINT\|importWizardHint\|IMPORT_WIZARD_ROUTE_NAME" backend/src frontend/src frontend/tests
+frontend/tests/unit/detail-line-limit.test.ts:77:    !source.includes('IMPORT_WIZARD_ROUTE_NAME'),
+frontend/tests/unit/detail-line-limit.test.ts:80:  assert.ok(!source.includes('importWizardHint'), '旧函数名 importWizardHint 必须改名');
+frontend/tests/unit/detail-line-limit.test.ts:142:  assert.ok(!component.includes('IMPORT_WIZARD_ROUTE_NAME'), '路由名常量引用要一起删掉');
+
+# 结论：**生产代码 0 命中**。3 条命中全在单测的「反向断言」里（断言旧名字不存在），
+# 符合卡面「防止文案回退」的要求；常量与函数本身已删除/改名。
+
+$ grep -rn "导入向导" backend/src frontend/src frontend/tests
+# 命中共 40 行，归类如下（无一条落在 7 个单据的提示链里）：
+#  ① 反向断言（测试代码，card 要求）：
+#     backend/src/business/erp/{stockin,purchase,transfer,stockout,price_inquiry,
+#       purchase_requisition,purchase_return}_dto.rs 的 !msg.contains("导入向导")
+#     backend/src/business/erp/stocktake_dto.rs 同上（盘点不串口径）
+#     backend/src/business/shared/doc_lines.rs 的 !message.contains("导入向导")
+#     frontend/tests/unit/detail-line-limit.test.ts 的 !message.includes('导入向导') 等
+#  ② 解释「为什么不写导入向导」的注释：
+#     doc_lines.rs / detail-line-limit.ts / DetailLineLimitAlert.vue 的模块头 doc
+#  ③ 导入向导页面自身（与本卡无关，不动）：
+#     frontend/src/router/index.ts:150 (title: '导入向导')
+#     frontend/src/components/ImportEntryButton.vue / ImportFieldTable.vue
+#     frontend/src/views/business/erp/warehouse/index.vue:37（主数据导入入口注释）
+
+# 判据：7 个单据的 400 文案与前端黄条都不含「导入向导」（见二、三节的运行时证据）。

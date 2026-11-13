@@ -949,15 +949,21 @@ mod tests {
 mod p104_line_limit_tests {
     use super::*;
 
-    /// 卡面 P1-04：201 行 → 400，且文案含「导入向导」。
+    /// 卡面 P1-04：201 行 → 400，且文案给出用户能做的动作（拆单，见 `docs/单据明细导入口径-决策.md`）。
     #[test]
     fn more_than_max_lines_is_rejected_with_actionable_hint() {
         let items = vec![RequisitionItemReq::default(); MAX_LINES + 1];
         let error = check_items(&items).expect_err("201 行必须被拒");
         assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
         assert!(
-            error.msg.contains("导入向导"),
-            "报文必须指向导入通道，不能只说『最多 200 行』：{}",
+            error.msg.contains("拆成多张单据提交"),
+            "报文必须给出用户能做的动作（拆单），不能只说『最多 200 行』：{}",
+            error.msg
+        );
+        // 反向断言：导入向导里没有这 7 个单据，谁把这张空头支票改回来，测试就红。
+        assert!(
+            !error.msg.contains("导入向导"),
+            "导入向导里没有这些单据，不许拿它当出口：{}",
             error.msg
         );
         assert!(
@@ -980,6 +986,10 @@ mod p104_line_limit_tests {
     fn empty_items_keeps_its_own_message() {
         let error = check_items(&[]).expect_err("空明细必须被拒");
         assert!(error.msg.contains("不能为空"), "空明细要说『不能为空』：{}", error.msg);
-        assert!(!error.msg.contains("导入向导"), "空明细不该念导入向导：{}", error.msg);
+        assert!(
+            !error.msg.contains("拆成多张单据提交"),
+            "空明细不该念拆单口径：{}",
+            error.msg
+        );
     }
 }
