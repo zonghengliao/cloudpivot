@@ -72,13 +72,20 @@ fn dec(text: &str) -> Decimal {
 /// 于是并行（libtest 默认 = 机器核数线程）时必然互踩：A 刚 `add_rule` 完，B 的 `clear_rules()`
 /// 把它删掉 → A 推进状态时库里没有规则 → 通知 0 条 → 「必须真的发出一条通知」假红。
 ///
-/// # 实测（干净库 `cloudpivot_lnk05_p101`，当前树迁移 V0403 + 演示种子）
+/// # 实测（同一棵树：HEAD `9f2c2d1a` + 本锁；每个跑法一份独立克隆库，
+/// 均 clone 自 `cloudpivot_test_p260` = 295 条迁移 + 演示种子，4 核）
 ///
 /// | 跑法 | 结果 |
 /// |---|---|
-/// | 加锁前 `cargo test --lib business::erp::expense_linkage_tests`（并行） | **3 passed / 3 failed**，3 条全红在「通知 0 条」 |
-/// | 加锁前 同库 `-- --test-threads=1` | 6 passed / 0 failed（⇒ 接线在、断言对，红的是夹具） |
-/// | 加锁后 并行 | 6 passed / 0 failed |
+/// | 加锁前 `cargo test --lib business::erp::expense_linkage_tests`（默认并行） | **2 passed / 4 failed**：approve/cancel/pay/repeat 全红在「通知 left: 0 / right: 1」 |
+/// | 加锁前 同库 `-- --test-threads=1` | **6 passed / 0 failed**（⇒ 接线在、断言对，红的是夹具） |
+/// | 加锁后 默认并行 | **6 passed / 0 failed** |
+/// | 加锁后 `--test-threads=1`（干净库 / 同一库连跑第二轮） | **6 passed / 0 failed** ×2 |
+///
+/// 加锁前的红条数是**竞态**，别死记数字：同一天两次实测分别得到 2 passed / 4 failed 与
+/// 3 passed / 3 failed（红点都落在「通知 0 条」），甚至有过 5 红 1 绿 —— 只要并行就会随机。
+/// 原始输出见 `docs/evidence/2026-11-13-lnk05-p101/`（5 份）与
+/// `docs/evidence/2026-11-13-lnk05-parallel-lock/raw/`（6 份）。
 ///
 /// 与本仓既有铁律同口径：`fixture_hygiene::FINANCE_SEED_LOCK` / `SEED_ROLE_LOCK`
 /// 「同一批全局行 = 同一把锁」（换前缀没用，因为种子/唯一键行全库只有一份）。
@@ -128,9 +135,10 @@ async fn ensure_db() -> bool {
             if try_db().is_some() {
                 return true;
             }
-            // 池参数 + 建池 runtime 统一由夹具复用模板提供（P2-60）：
-            // 旧写法 `max_lifetime = ZERO` 会让**每条语句**都新建连接（零复用、无 stmt 缓存）。
-            match crate::shared::test_fixture::connect(&url).await {
+            let mut config = DatabaseConfig::from_url(&url);
+            config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+            config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+            match Db::connect_with(&url, config).await {
                 Ok(connection) => match set_db(connection) {
                     Ok(()) => true,
                     Err(err) => {
