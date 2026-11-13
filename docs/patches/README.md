@@ -30,7 +30,15 @@ git add AGENTS.md && git commit -m "docs(agents): HR-50 回写菜单/权限口�
 
 应用后请删除本目录下的 `AGENTS-hr50.diff` 与本节（补丁落地即无意义）。
 
-**基线来源**（可复核）：2026-11-13 在 145 上跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`
-（空库 `hr49_fresh_drill`，回放 **335 条** = 323 版本化 + 12 种子 到 V0403）后统计 `sys_menu` /
-`biz_salary_item` / `biz_flow_def` / `schema_migrations`；同一库上 `hr_invariants.sh` 8 条 BLOCKER
-零违规（WARN 1 条：演练造的员工没合同）、`menu_invariants.sh` 8 条断言全绿（菜单总数 501 ∈ 400–520）。
+**基线来源**（可复核，两处独立取证）：
+
+1. 2026-11-13 在 145 上跑 `bash scripts/verify/hr/hr_49_release_drill.sh fresh`
+   （空库 `hr49_fresh_drill`，回放 **335 条** = 323 版本化 + 12 种子 到 V0403）后统计 `sys_menu` /
+   `biz_salary_item` / `biz_flow_def` / `schema_migrations`；同一库上 `hr_invariants.sh` 8 条 BLOCKER
+   零违规（WARN 1 条：演练造的员工没合同）、`menu_invariants.sh` 8 条断言全绿（菜单总数 501 ∈ 400–520）。
+2. 2026-11-13 HR-50 本卡再取一份独立证据：`bash docs/evidence/2026-11-13-hr50-doc-verify/run_accept.sh`
+   （另一个空库 `hr50_docs_drill`）—— 迁移 335（最大 V0403）、菜单 41（5 页面 + 35 按钮 + 1 目录）、
+   权限码 40（5 `*:page` + 5 `*:list` + 30 按钮）、薪资项 17（7 条公式）、流程 4、HR 表 10、
+   `hr_invariants.sh` rc=0 / `menu_invariants.sh` 8 条全绿、`/health` 200 / `hr/health` 401 / `hr/nope` 404。
+   逐项对拍表见该目录 `README.md`；角色矩阵期望值由 `python3 scripts/verify/hr/hr_perm_expect.py` 解析得出
+   （HR_MANAGER 40 / FINANCE_MANAGER 5 / DEPT_LEADER 5 / EMPLOYEE 4 / FINANCE_DIRECTOR 0）。
