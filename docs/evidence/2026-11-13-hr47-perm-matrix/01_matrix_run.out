@@ -1,0 +1,93 @@
+== HR-47 权限矩阵回归（30 码 × 6 角色 + SELF）==
+   期望矩阵来源：/opt/cloudpivot/backend/migrations/business/V0387__hr_menu_perms.up.sql
+   权限码：35（页面 list 5 + 按钮 30）；角色：SUPER_ADMIN HR_MANAGER FINANCE_MANAGER DEPT_LEADER EMPLOYEE FINANCE_DIRECTOR
+==> 建演练库（先 DROP 同名残留）
+   ✅ 库已建：hr47_drill（空库，迁移由服务启动时自动回放）
+==> 起隔离实例（127.0.0.1:18157，profile=test）
+   等 /health（空库要先回放 300+ 条迁移，最长 10 分钟）…
+   ✅ /health 200（迁移完成）
+   ✅ 迁移在位：sys_menu 里 35 个人力资源权限码（V0387）
+-------------------------------------------------------------------------------
+[STEP 1] 夹具：3 个部门 / 5 个账号 / 4 个员工 / 工资单与明细
+  [ok] 部门：A=00000000-0000-0000-0000-0000004a0001 / A1=00000000-0000-0000-0000-0000004a0003 / B=00000000-0000-0000-0000-0000004a0002
+  [ok] 6 个角色都在库里（含 FINANCE_DIRECTOR 零授权对照）
+  [ok] 超管登录
+  [ok] 5 个角色账号就绪（每个只挂 1 个角色）
+  [ok] 员工：A=01a1d2a1-71bb-7296-857b-fd1479ce171c / A=01a1d2a1-71c8-7362-8805-dacb1efc337c / A1=01a1d2a1-71d6-7339-bb0e-befa772888b6 / B=01a1d2a1-71e7-739c-b707-0eba827a5ea3
+  [ok] 工资单 + 3 条明细（本人 / 同事 / 别部门）
+[STEP 1] ✅ 夹具就绪
+-------------------------------------------------------------------------------
+[STEP 2] 层 A：6 身份 × 35 码的授权快照（/api/system/auth/me）
+  [ok] SUPER_ADMIN：令牌权限快照 ["*:*:*"]（超管通配）
+  [ok] HR_MANAGER：令牌权限快照 47 个码
+  [ok] FINANCE_MANAGER：令牌权限快照 176 个码
+  [ok] DEPT_LEADER：令牌权限快照 80 个码
+  [ok] EMPLOYEE：令牌权限快照 26 个码
+  [ok] FINANCE_DIRECTOR：令牌权限快照 56 个码
+-------------------------------------------------------------------------------
+[STEP 3] 层 B：6 身份 × 有路由的码（有码→非 403；无码→必须 403）
+  [ok] 层B 覆盖 31 个码 × 6 角色 = 186 次真实路由
+  [note] 无后端路由的码（只由层A 覆盖，属已知缺口）：business:hr:salary-item:delete business:hr:employee:resign business:hr:leave:delete business:hr:employee:export 
+-------------------------------------------------------------------------------
+[STEP 4] 层 C：SELF 只能看自己 + 部门范围（DEPT_AND_CHILD / ALL）
+  [KNOWN] C3b 员工 /leave/page 只出本人 1 条（设计：SELF 数据范围）：设计期望 [1]，实测 [2] —— 页面码复用成全量接口码 ⇒ 未按 SELF 裁剪（实测同行含同事请假）（卡 t_be54535c）
+  [KNOWN] C5 员工自助 /leave/my（设计：登录即可）：设计期望 [200]，实测 [403] —— 被 /leave/{id} 权限规则遮蔽，需要 leave:detail（员工没有）（卡 t_be54535c）
+-------------------------------------------------------------------------------
+[STEP 5] 矩阵汇总（期望 G=有码 / .=无码；实际按层A 授权快照 + 层B 路由行为）
+权限码                                   SUPER_ADMIN       HR_MANAGER        FINANCE_MANAGER   DEPT_LEADER       EMPLOYEE          FINANCE_DIRECTOR  
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+business:hr:employee:list                   G                 G                 .                 G                 .                 .                 
+business:hr:attendance:list                 G                 G                 .                 .                 .                 .                 
+business:hr:leave:list                      G                 G                 .                 G                 G                 .                 
+business:hr:salary:list                     G                 G                 G                 .                 G                 .                 
+business:hr:salary-item:list                G                 G                 .                 .                 .                 .                 
+business:hr:employee:create                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:update                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:delete                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:detail                 G                 G                 .                 G                 .                 .                 
+business:hr:employee:sensitive              G                 G                 .                 .                 .                 .                 
+business:hr:employee:resign                 G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+business:hr:employee:import                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:export                 G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+business:hr:contract:manage                 G                 G                 .                 .                 .                 .                 
+business:hr:attendance:period               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:record               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:import               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:export               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:lock                 G                 G                 .                 .                 .                 .                 
+business:hr:leave:create                    G                 G                 .                 .                 G                 .                 
+business:hr:leave:update                    G                 G                 .                 .                 .                 .                 
+business:hr:leave:delete                    G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+business:hr:leave:submit                    G                 G                 .                 .                 .                 .                 
+business:hr:leave:cancel                    G                 G                 .                 .                 .                 .                 
+business:hr:leave:detail                    G                 G                 .                 G                 .                 .                 
+business:hr:salary:detail                   G                 G                 G                 .                 .                 .                 
+business:hr:salary:calc                     G                 G                 .                 .                 .                 .                 
+business:hr:salary:submit                   G                 G                 .                 .                 .                 .                 
+business:hr:salary:post                     G                 G                 G                 .                 .                 .                 
+business:hr:salary:reverse                  G                 G                 .                 .                 .                 .                 
+business:hr:salary:export                   G                 G                 G                 .                 .                 .                 
+business:hr:salary:my                       G                 G                 .                 .                 G                 .                 
+business:hr:salary-item:create              G                 G                 .                 .                 .                 .                 
+business:hr:salary-item:update              G                 G                 .                 .                 .                 .                 
+business:hr:salary-item:delete              G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+合计（期望码数/实际码数）       35/35             35/35             4/4               4/4               4/4               0/0               
+矩阵格数 210（35 码 × 6 角色）；授权一致的格数 210
+路由闸格数 186（31 码 × 6 角色，含「无码→403」与「有码→非 403」两个方向）
+无后端路由的码：business:hr:salary-item:delete business:hr:employee:resign business:hr:leave:delete business:hr:employee:export 
+-------------------------------------------------------------------------------
+== 残留自检（HR47-MATRIX-1113-095910）==
+  sys_dept:        3
+  sys_user:        5
+  biz_employee:    0
+  biz_salary_*:    3
+  biz_leave:       2
+-------------------------------------------------------------------------------
+总断言：PASS=556 FAIL=0 KNOWN（已知未修，不计失败）=2
+✅ 人力资源权限矩阵回归全绿（35 码 × 6 角色 + SELF/部门范围）
+   ⚠ 另有 2 条 [KNOWN] 已知未修（见上，每条的卡号与原因已打印）—— 它们不是静默跳过
+   矩阵明细：/root/hr47-matrix-20261113-095910/matrix.txt
+… 已停隔离实例（pid=309368）
+… 演练库已 DROP：hr47_drill（pg_database 残留计数=0）
+EXIT=0

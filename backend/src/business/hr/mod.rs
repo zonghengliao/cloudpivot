@@ -230,6 +230,11 @@ mod leave_handler_db_tests;
 /// 分页（按 dept 数据权限）+ 已批无薪假天数（HR-24）。
 pub mod leave_model;
 pub mod model;
+/// HR-47 的权限矩阵静态契约：35 个权限码（30 按钮 + 5 页面 list）× 6 个角色的授权矩阵，
+/// 与 `V0387` 种子 / `ROUTE_CONTRACT` / 全新库补授权种子（`S__hr_employee_grants.sql`）
+/// 三方对拍；另钉死 4 个「无后端路由」的已知缺口。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod perm_matrix_tests;
 /// 薪资单的**过账 + 审批回调桥**（`hr_salary` 流程，ARCH-9 §4.3 / §4.6）：计提 + 发放
 /// 两张凭证（净额法，走 `post_explicit_lines`）、`SUBMITTED → APPROVED` 回调（不出凭证）、
 /// 自审批守卫、实例终止（HR-39）。

@@ -1,0 +1,42 @@
+权限码                                   SUPER_ADMIN       HR_MANAGER        FINANCE_MANAGER   DEPT_LEADER       EMPLOYEE          FINANCE_DIRECTOR  
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+business:hr:employee:list                   G                 G                 .                 G                 .                 .                 
+business:hr:attendance:list                 G                 G                 .                 .                 .                 .                 
+business:hr:leave:list                      G                 G                 .                 G                 G                 .                 
+business:hr:salary:list                     G                 G                 G                 .                 G                 .                 
+business:hr:salary-item:list                G                 G                 .                 .                 .                 .                 
+business:hr:employee:create                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:update                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:delete                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:detail                 G                 G                 .                 G                 .                 .                 
+business:hr:employee:sensitive              G                 G                 .                 .                 .                 .                 
+business:hr:employee:resign                 G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+business:hr:employee:import                 G                 G                 .                 .                 .                 .                 
+business:hr:employee:export                 G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+business:hr:contract:manage                 G                 G                 .                 .                 .                 .                 
+business:hr:attendance:period               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:record               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:import               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:export               G                 G                 .                 .                 .                 .                 
+business:hr:attendance:lock                 G                 G                 .                 .                 .                 .                 
+business:hr:leave:create                    G                 G                 .                 .                 G                 .                 
+business:hr:leave:update                    G                 G                 .                 .                 .                 .                 
+business:hr:leave:delete                    G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+business:hr:leave:submit                    G                 G                 .                 .                 .                 .                 
+business:hr:leave:cancel                    G                 G                 .                 .                 .                 .                 
+business:hr:leave:detail                    G                 G                 .                 G                 .                 .                 
+business:hr:salary:detail                   G                 G                 G                 .                 .                 .                 
+business:hr:salary:calc                     G                 G                 .                 .                 .                 .                 
+business:hr:salary:submit                   G                 G                 .                 .                 .                 .                 
+business:hr:salary:post                     G                 G                 G                 .                 .                 .                 
+business:hr:salary:reverse                  G                 G                 .                 .                 .                 .                 
+business:hr:salary:export                   G                 G                 G                 .                 .                 .                 
+business:hr:salary:my                       G                 G                 .                 .                 G                 .                 
+business:hr:salary-item:create              G                 G                 .                 .                 .                 .                 
+business:hr:salary-item:update              G                 G                 .                 .                 .                 .                 
+business:hr:salary-item:delete              G(-)              G(-)              .(-)              .(-)              .(-)              .(-)              
+--------------------------------------------------------------------------------------------------------------------------------------------------------
+合计（期望码数/实际码数）       35/35             35/35             4/4               4/4               4/4               0/0               
+矩阵格数 210（35 码 × 6 角色）；授权一致的格数 210
+路由闸格数 186（31 码 × 6 角色，含「无码→403」与「有码→非 403」两个方向）
+无后端路由的码：business:hr:salary-item:delete business:hr:employee:resign business:hr:leave:delete business:hr:employee:export 

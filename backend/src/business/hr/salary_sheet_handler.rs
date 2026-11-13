@@ -134,10 +134,54 @@ fn lost_sheet() -> ApiError {
 )]
 #[nik::get("/business/hr/salary/page")]
 pub async fn salary_page(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<SalarySheetListQuery>,
 ) -> ResResult<PageData<Vec<dto::SalarySheetCardRes>>> {
+    ensure_full_list(&claims)?;
     let (list, total, page, page_size) = list_sheets(&query).await?;
     Ok(Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size))
+}
+
+/// 全量薪资列表的**第二道闸**：`business:hr:salary:detail`。
+///
+/// # 为什么 `salary:list` 一个码不够（HR-47 权限矩阵回归实测，2026-11-13）
+///
+/// `business:hr:salary:list` 这个码同时挂在**两处**：
+///
+/// * 「薪资管理」页面菜单行（`sys_menu.menu_type=2` 的 `auth_code`）—— 决定侧边栏显不显示；
+/// * `GET /business/hr/salary/page` 这条全量列表接口。
+///
+/// 而 `V0387` 按设计 §6.1「员工自助以页面内 tab 提供」把**页面**授给了 `EMPLOYEE`，
+/// 好让「我的薪资」tab 能显形 ⇒ 员工自助角色**实际持有** `salary:list`。
+/// 只看码放行的后果（矩阵回归实测）：员工账号调本接口拿到 **200 + 全公司薪资单**，
+/// 应发/代扣/实发/人数全在（`biz_salary_sheet` 也没有登记进 `SCOPED_TABLES`，
+/// 连行级裁剪都没有）。这是 V0387 文件头注释「页面里的列表接口要 salary:list，
+/// 员工没有」那句假设不成立造成的——**码在，假设不在**。
+///
+/// # 口径
+///
+/// 全量薪资列表本来就要求「能看明细」（部门汇总、三口径对账都基于 `salary:detail`），
+/// 所以这里补一道 `salary:detail` 闸：
+///
+/// | 角色 | salary:list | salary:detail | 本接口 |
+/// |---|---|:--:|---|
+/// | 超管 / 人事经理 | ✔ | ✔ | 200 全量 |
+/// | 财务经理 | ✔ | ✔ | 200 全量 |
+/// | 员工自助 | ✔（页面显形） | ✘ | **403**，引导走 `/salary/my` |
+///
+/// 员工自助的页面里本来就只有「我的薪资」tab（前端按权限码显隐，设计 §6.1），
+/// 从不调本接口 ⇒ 用户可感的唯一变化就是「越权调用被拒」。
+fn ensure_full_list(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
+    if claims.has_permission(PERM_SALARY_DETAIL) {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        403,
+        error_code::PERMISSION_DENIED,
+        format!(
+            "无权限访问全公司薪资单（需要 {PERM_SALARY_DETAIL}）：员工自助请用「我的薪资」（GET /business/hr/salary/my）"
+        ),
+    ))
 }
 
 /// 列表的业务实现（接口与真库用例共用同一条路径）。
@@ -1158,5 +1202,47 @@ mod tests {
         assert_eq!(error.status, 404);
         assert_eq!(error.code, error_code::RESOURCE_NOT_FOUND);
         assert!(error.msg.contains(&id.to_string()), "报文：{}", error.msg);
+    }
+
+    /// 造一份只带给定权限码的令牌声明（真库用例不参与，纯判断用）。
+    fn claims_with(permissions: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: Uuid::now_v7().to_string(),
+            username: Some("hr47-matrix".to_string()),
+            roles: Vec::new(),
+            permissions: permissions.iter().map(|p| (*p).to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 全量薪资列表的第二道闸（HR-47 矩阵回归发现的口径）：
+    /// 员工自助只有 `salary:list`（页面显形用）⇒ 必须 403；有 `salary:detail` 才放行。
+    #[test]
+    fn full_list_requires_salary_detail_not_just_list() {
+        // 员工自助：只有 salary:list（V0387 给页面用的那个码）
+        let employee = claims_with(&[PERM_SALARY_LIST, "business:hr:salary:my"]);
+        let error = ensure_full_list(&employee).expect_err("员工自助不得看到全公司薪资单");
+        assert_eq!(error.status, 403);
+        assert_eq!(error.code, error_code::PERMISSION_DENIED);
+        assert!(
+            error.msg.contains(PERM_SALARY_DETAIL),
+            "报文要点名缺哪个码：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("/business/hr/salary/my"),
+            "报文要给出该走哪个接口：{}",
+            error.msg
+        );
+
+        // 财务经理 / 人事经理 / 超管：list + detail 都在 ⇒ 放行
+        let finance = claims_with(&[PERM_SALARY_LIST, PERM_SALARY_DETAIL, PERM_SALARY_POST]);
+        assert!(ensure_full_list(&finance).is_ok());
+        let super_admin = claims_with(&["*:*:*"]);
+        assert!(ensure_full_list(&super_admin).is_ok());
     }
 }
