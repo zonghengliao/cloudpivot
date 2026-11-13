@@ -286,6 +286,70 @@ pub fn exempted_tables() -> Vec<String> {
         .collect()
 }
 
+// ==================== 两份清单的对账（D8 的诊断内核） ====================
+
+/// 两份清单对账的结果：**少了 / 多了 / 重了**。
+///
+/// 为什么要单独抽出来：`d8_coverage_matches_registry` 原来的红只有一句
+/// 「行数必须相等（15 vs 17）」，人得自己 grep 两份清单才知道差哪两张表。
+/// 加表的人拿到的报错必须能直接点名，否则「补一行」的门槛就变成了「先考古」。
+///
+/// # 判据（宁严不松）
+///
+/// - `missing`：`SCOPED_TABLES` 有、`TABLE_WIRING` 没登记 —— 该表会被报 `uncovered`；
+/// - `extra`：`TABLE_WIRING` 有、`SCOPED_TABLES` 没登记 —— 表名拼错，或给不参与权限的表登了记；
+/// - `duplicated`：任一份清单里同一张表出现两次 —— **只比行数抓不到**：重复一行会
+///   正好掩盖另一行漏登记（17 vs 17 但集合不等）。
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct WiringDrift {
+    /// `SCOPED_TABLES` 有、`TABLE_WIRING` 缺的表名。
+    pub missing: Vec<String>,
+    /// `TABLE_WIRING` 有、`SCOPED_TABLES` 缺的表名。
+    pub extra: Vec<String>,
+    /// 任一份清单内重复登记的表名。
+    pub duplicated: Vec<String>,
+}
+
+impl WiringDrift {
+    /// 是否完全对齐（三者皆空）。
+    pub fn is_empty(&self) -> bool {
+        self.missing.is_empty() && self.extra.is_empty() && self.duplicated.is_empty()
+    }
+}
+
+/// 对账两份表名清单（纯函数：合成清单也能断言，见 `d8d`）。
+pub fn drift_between(registry: &[&str], wiring: &[&str]) -> WiringDrift {
+    let mut drift = WiringDrift::default();
+    for table in registry {
+        if !wiring.contains(table) {
+            drift.missing.push((*table).to_string());
+        }
+    }
+    for table in wiring {
+        if !registry.contains(table) {
+            drift.extra.push((*table).to_string());
+        }
+    }
+    for list in [registry, wiring] {
+        let mut seen = BTreeSet::new();
+        let mut reported = BTreeSet::new();
+        for table in list {
+            // 同一张表重复三次也只点名一次（同一条修复动作）
+            if !seen.insert(*table) && reported.insert(*table) {
+                drift.duplicated.push((*table).to_string());
+            }
+        }
+    }
+    drift
+}
+
+/// 真实清单的对账（`SCOPED_TABLES` × `TABLE_WIRING`）。
+pub fn wiring_drift() -> WiringDrift {
+    let registry: Vec<&str> = SCOPED_TABLES.iter().map(|target| target.table).collect();
+    let wiring: Vec<&str> = TABLE_WIRING.iter().map(|item| item.table).collect();
+    drift_between(&registry, &wiring)
+}
+
 // ==================== 纯逻辑：payload 校验 ====================
 
 /// 校验并**规范化** `PUT` 的 `custom_dept_ids`（去重 + 保序）。
@@ -1062,8 +1126,37 @@ mod tests {
     }
 
     /// D8：接入清单与登记表清单同源（不漂移），且 `uncovered` 必须为 0。
+    ///
+    /// 红的时候**直接点名差哪几张表**（`wiring_drift`），不用再 grep 两份清单。
     #[test]
     fn d8_coverage_matches_registry() {
+        let registry: Vec<&str> = SCOPED_TABLES.iter().map(|target| target.table).collect();
+        let wiring: Vec<&str> = TABLE_WIRING.iter().map(|item| item.table).collect();
+
+        // ① 先用对账内核点名（missing / extra / duplicated 三类分别报）
+        let drift = wiring_drift();
+        assert!(
+            drift.is_empty(),
+            "SCOPED_TABLES 与 TABLE_WIRING 已漂移：\n  \
+             缺登记(missing，需补 TableWiring 行) = {:?}\n  \
+             多登记(extra，表名拼错或该表不参与权限) = {:?}\n  \
+             重复登记(duplicated) = {:?}\n  \
+             SCOPED_TABLES = {registry:?}\n  TABLE_WIRING = {wiring:?}",
+            drift.missing,
+            drift.extra,
+            drift.duplicated
+        );
+        assert_eq!(
+            wiring.len(),
+            registry.len(),
+            "行数必须相等（对账已通过，这里只是同义复述）"
+        );
+        assert_eq!(
+            TABLE_WIRING.len(),
+            SCOPED_TABLES.len(),
+            "TABLE_WIRING 行数必须等于 SCOPED_TABLES 行数"
+        );
+
         let coverage = table_coverage();
         assert_eq!(coverage.len(), SCOPED_TABLES.len(), "投影必须覆盖全部登记表");
         for (item, target) in coverage.iter().zip(SCOPED_TABLES.iter()) {
@@ -1088,12 +1181,6 @@ mod tests {
                 item.table
             );
         }
-        // 登记项与登记表一一对应：漏登记 → uncovered（红）；多登记 → 表名拼错（红）
-        assert_eq!(
-            TABLE_WIRING.len(),
-            SCOPED_TABLES.len(),
-            "TABLE_WIRING 行数必须等于 SCOPED_TABLES 行数"
-        );
         for wiring in TABLE_WIRING {
             assert!(
                 SCOPED_TABLES.iter().any(|target| target.table == wiring.table),
@@ -1124,6 +1211,43 @@ mod tests {
             coverage.len() - exempted.len(),
             uncovered.len()
         );
+    }
+
+    /// D8d：对账内核的**反证** —— 少一行、多一行、重复一行都必须被点名。
+    ///
+    /// 没有这条，「少了/多了都红」只是断言里的一句注释；有了它，判据本身有牙。
+    #[test]
+    fn d8d_drift_detects_missing_extra_and_duplicates() {
+        let registry = ["sys_user", "biz_employee", "biz_leave_request"];
+        let aligned = drift_between(&registry, &registry);
+        assert!(aligned.is_empty(), "同名同序 → 对齐：{aligned:?}");
+
+        // 少一行：登记表有、wiring 缺 → 点名该表，且不会误报成 extra
+        let missing = drift_between(&registry, &["sys_user", "biz_employee"]);
+        assert_eq!(missing.missing, vec!["biz_leave_request"], "{missing:?}");
+        assert!(missing.extra.is_empty(), "漏登记不该同时报多登记：{missing:?}");
+        assert!(!missing.is_empty());
+
+        // 多一行：表名拼错 → 点名错名
+        let extra = drift_between(
+            &registry,
+            &["sys_user", "biz_employee", "biz_leave_request", "sys_usre"],
+        );
+        assert_eq!(extra.extra, vec!["sys_usre"], "{extra:?}");
+        assert!(extra.missing.is_empty(), "{extra:?}");
+
+        // 行数相等但集合不等：重复一行掩盖另一行漏登记（只比行数抓不到）
+        let duplicated = drift_between(&registry, &["sys_user", "sys_user", "biz_leave_request"]);
+        assert_eq!(duplicated.missing, vec!["biz_employee"], "{duplicated:?}");
+        assert_eq!(duplicated.duplicated, vec!["sys_user"], "{duplicated:?}");
+        assert!(duplicated.extra.is_empty(), "{duplicated:?}");
+        assert_eq!(
+            ["sys_user", "sys_user", "biz_leave_request"].len(),
+            registry.len(),
+            "反证前提：行数相等"
+        );
+
+        println!("[D8d] 对账内核：缺/多/重皆点名 ✓");
     }
 
     /// D8b：`exempted` 分支投影（合成登记项，不依赖真实数据里恰好有豁免表）。

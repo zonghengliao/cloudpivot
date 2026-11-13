@@ -416,12 +416,19 @@ mod tests {
         // + `biz_employee`（ARCH-9 D-12：员工主档按人事归属部门 + 本人账号裁剪）
         // + `biz_leave_request`（ARCH-9 §4.7.3：请假单按部门裁剪，员工自助走 `mine`）
         // + `biz_attendance_record`（ARCH-9 §4.5：考勤台账按部门裁剪，HR-20/23 登记）= 17 张
+        //
+        // 计数写死是**刻意的**：加/删一张登记表都必须有人来这里改一次数字，
+        // 顺手想清楚「这张表进不进启动自检」。报错里点名全部表，改的人不用再 grep。
+        const EXPECTED_TABLES: usize = 17;
+        let names: Vec<&str> = SCOPED_TABLES.iter().map(|target| target.table).collect();
         assert_eq!(
             SCOPED_TABLES.len(),
-            17,
-            "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs + SO-36 的佣金结算单 \
-             + ARCH-9 的成本对象 + ARCH-9 D-18 的工时台账 + ARCH-9 D-12 的员工主档 \
-             + ARCH-9 §4.7.3 的请假单 + ARCH-9 §4.5 的考勤台账"
+            EXPECTED_TABLES,
+            "登记表计数变了：期望 {EXPECTED_TABLES} 张，实际 {} 张。\n\
+             当前清单 = {names:?}\n\
+             若这是**有意的**新增/删除：① 同步 scope_model::TABLE_WIRING（d8 会红）；\n\
+             ② 改这里的 EXPECTED_TABLES；③ 跑 permission::scope_model + this 测试",
+            SCOPED_TABLES.len()
         );
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_USER));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));
@@ -431,6 +438,48 @@ mod tests {
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_COST_LABOR));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_EMPLOYEE));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::BIZ_LEAVE_REQUEST));
-        println!("[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓", SCOPED_TABLES.len());
+        assert!(
+            SCOPED_TABLES.contains(&ScopeTarget::BIZ_ATTENDANCE_RECORD),
+            "biz_attendance_record 是人工登记的第 17 张（HR-20/23），丢了表数就会对不上"
+        );
+
+        // 名字是本测试的核心：`preflight_permission` 必须**直接遍历** SCOPED_TABLES，
+        // 不许自己再写一份表名清单（那正是 d8/preflight 两条红的历史成因）。
+        let source = std::fs::read_to_string("src/business/shared/guard.rs")
+            .expect("单测须以 crate 根（backend/）为 CWD，才能读到 guard.rs 源码");
+        let start = source
+            .find("pub async fn preflight_permission")
+            .expect("guard.rs 里找不到 preflight_permission（被改名了？本测试要跟着改）");
+        let tail = &source[start..];
+        let end = tail
+            .find("/// 读 `information_schema.columns`")
+            .expect("找不到 preflight_permission 的结束锚点（注释被改了？本测试要跟着改）");
+        let body = &tail[..end];
+        assert!(
+            body.len() > 500,
+            "只截到 {} 字节的 preflight_permission 正文 —— 结束锚点提前命中了，\
+             本测试的源码扫描不可信（要修锚点，不是改断言）",
+            body.len()
+        );
+        for needle in [
+            "SCOPED_TABLES.iter().map(|target| target.table)",
+            "collect_missing_tables(SCOPED_TABLES",
+            "checked_tables: SCOPED_TABLES.len()",
+        ] {
+            assert!(
+                body.contains(needle),
+                "preflight_permission 没有走注册表：正文里找不到 `{needle}`。\n\
+                 规范：启动自检只能遍历 SCOPED_TABLES，写死表名会让新表静默漏检"
+            );
+        }
+        assert!(
+            !body.contains("[\"sys_"),
+            "preflight_permission 里出现了硬编码表名数组 —— 必须改成遍历 SCOPED_TABLES：\n{body}"
+        );
+
+        println!(
+            "[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）：{names:?} ✓",
+            SCOPED_TABLES.len()
+        );
     }
 }
