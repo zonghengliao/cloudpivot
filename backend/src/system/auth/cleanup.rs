@@ -31,6 +31,7 @@
 
 use nik::prelude::*;
 
+use crate::shared::observability;
 use crate::task::Scheduler;
 
 /// 调度任务名（同时用作调度名与日志标识）。
@@ -107,9 +108,10 @@ pub async fn run_once() -> std::result::Result<CleanupReport, String> {
         .await
         .map_err(|error| format!("统计吊销行数失败: {error}"))?;
 
-    // ADR §5.4 指标：未装 recorder 时 no-op（编译期 feature 未开也照样能编译）
-    metrics::counter!("cloudpivot_token_blacklist_cleanup_deleted").increment(deleted);
-    metrics::gauge!("cloudpivot_token_blacklist_rows").set(remaining as f64);
+    // ADR §5.4 指标：未装 recorder 时 no-op（编译期 feature 未开也照样能编译）。
+    // 名字 / 类型 / HELP 文案统一在 `shared::observability::CATALOG`（P1-05）。
+    observability::inc_counter(observability::TOKEN_BLACKLIST_CLEANUP_DELETED, deleted);
+    observability::set_gauge(observability::TOKEN_BLACKLIST_ROWS, remaining as f64);
 
     Ok(CleanupReport { deleted, remaining })
 }

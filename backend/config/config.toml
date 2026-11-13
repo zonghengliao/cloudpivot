@@ -141,6 +141,28 @@ prefix = "/api"
 enabled = true
 message = "请求的资源不存在"
 
+# ── 可观测性：Prometheus 导出端点（ADR-20261101 §5.4，P1-05）──────────────────
+#
+# 端点 `GET /metrics` 由框架提供（编译期 feature `metrics-prometheus`，见 Cargo.toml），
+# 本段是**运行时开关**。放在基础配置里而不是各 profile 里，因为：
+#   ① `config-dev.toml` / `config-test.toml` 是 gitignore 的（只提交 .example），
+#      空库首启 / 新机器部署只有基础配置 → 写在 profile 里等于「新环境永远 404」；
+#   ② nik-config 的 profile 合并只覆盖「与编译期默认值不同」的字段，
+#      `enabled = false` 恰是默认值，**关不掉基础配置里的 true**（这是刻意的单向开关）。
+#
+# 安全口径：**不鉴权，但默认只允许本机回环**。
+#   - `allow_ips = []` → 只有 127.0.0.1 / ::1 拿得到指标，其余 403；
+#   - 抓取器在别的机器时，要么填 `allow_ips`，要么走 nginx 白名单
+#     （`frontend/deploy/nginx.conf` 的 `location = /metrics`，仓库内已带模板）。
+#   - 生产 **不要**把 `/metrics` 直接暴露到公网：它含路由名、错误率、库存/巡检结论等运行数据。
+#
+# 业务指标的名字 / 类型 / HELP 文案统一登记在 `src/shared/observability.rs` 的 CATALOG，
+# 新增指标别忘了登记（`cargo test --lib shared::observability` 会红）。
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []
+
 [plugins]
 enabled = []
 

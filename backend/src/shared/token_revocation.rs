@@ -172,7 +172,11 @@ pub(crate) async fn revoke(
     };
 
     // ADR §5.4：`metrics` 未装 recorder 时是 no-op，可安全常开。
-    metrics::gauge!("cloudpivot_auth_cache_degraded").set(if degraded { 1.0 } else { 0.0 });
+    // 名字与 HELP 文案统一由 `observability::CATALOG` 登记（P1-05）。
+    crate::shared::observability::set_gauge(
+        crate::shared::observability::AUTH_CACHE_DEGRADED,
+        if degraded { 1.0 } else { 0.0 },
+    );
 
     Ok(())
 }

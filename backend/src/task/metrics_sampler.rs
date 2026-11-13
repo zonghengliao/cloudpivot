@@ -141,27 +141,19 @@ impl Snapshot {
     /// 「指标名改了但脚本还在读旧名」这类漂移在 CI 里就会被抓住。
     #[must_use]
     pub fn gauges(&self) -> Vec<(&'static str, f64)> {
+        use crate::shared::observability as obs;
         let value = |v: Option<i64>| v.map_or(UNKNOWN, |v| v as f64);
         let mut out = vec![
-            ("cloudpivot_impexp_import_pending", value(self.import_pending)),
-            ("cloudpivot_impexp_import_open", value(self.import_open)),
-            (
-                "cloudpivot_impexp_import_stuck_seconds",
-                value(self.import_stuck_seconds),
-            ),
-            ("cloudpivot_impexp_import_failed_24h", value(self.import_failed_24h)),
-            ("cloudpivot_impexp_export_pending", value(self.export_pending)),
-            ("cloudpivot_impexp_export_open", value(self.export_open)),
-            (
-                "cloudpivot_impexp_export_stuck_seconds",
-                value(self.export_stuck_seconds),
-            ),
-            ("cloudpivot_impexp_export_failed_24h", value(self.export_failed_24h)),
-            ("cloudpivot_impexp_backlog_pending", value(self.backlog_pending())),
-            (
-                "cloudpivot_impexp_backlog_stuck_seconds",
-                value(self.backlog_stuck_seconds()),
-            ),
+            (obs::IMPEXP_IMPORT_PENDING, value(self.import_pending)),
+            (obs::IMPEXP_IMPORT_OPEN, value(self.import_open)),
+            (obs::IMPEXP_IMPORT_STUCK_SECONDS, value(self.import_stuck_seconds)),
+            (obs::IMPEXP_IMPORT_FAILED_24H, value(self.import_failed_24h)),
+            (obs::IMPEXP_EXPORT_PENDING, value(self.export_pending)),
+            (obs::IMPEXP_EXPORT_OPEN, value(self.export_open)),
+            (obs::IMPEXP_EXPORT_STUCK_SECONDS, value(self.export_stuck_seconds)),
+            (obs::IMPEXP_EXPORT_FAILED_24H, value(self.export_failed_24h)),
+            (obs::IMPEXP_BACKLOG_PENDING, value(self.backlog_pending())),
+            (obs::IMPEXP_BACKLOG_STUCK_SECONDS, value(self.backlog_stuck_seconds())),
         ];
         let (ok, blockers, failed, age) = match self.invariant.as_ref() {
             Some(row) => (
@@ -172,10 +164,10 @@ impl Snapshot {
             ),
             None => (UNKNOWN, UNKNOWN, UNKNOWN, UNKNOWN),
         };
-        out.push(("cloudpivot_invariant_ok", ok));
-        out.push(("cloudpivot_invariant_blockers", blockers));
-        out.push(("cloudpivot_invariant_failed", failed));
-        out.push(("cloudpivot_invariant_age_seconds", age));
+        out.push((obs::INVARIANT_OK, ok));
+        out.push((obs::INVARIANT_BLOCKERS, blockers));
+        out.push((obs::INVARIANT_FAILED, failed));
+        out.push((obs::INVARIANT_AGE_SECONDS, age));
         out
     }
 
@@ -352,15 +344,17 @@ pub fn parse_invariant(raw: Option<&str>) -> Option<InvariantRow> {
 ///
 /// 本次快照（供任务日志与单测使用；单条查询失败不影响返回）。
 pub async fn run_once() -> Snapshot {
+    use crate::shared::observability as obs;
+
     let snapshot = read_snapshot().await;
     for (name, value) in snapshot.gauges() {
-        metrics::gauge!(name).set(value);
+        obs::set_gauge(name, value);
     }
     // 采样器自身的存活信号：`/metrics` 上一旦这条不再前进，说明任务停了
     // （调度器没起 / 进程卡住 / 库连不上），而业务指标看起来可能还是「0 很正常」。
     let now = chrono::Utc::now().timestamp() as f64;
-    metrics::gauge!("cloudpivot_metrics_sampler_last_success_timestamp").set(now);
-    metrics::counter!("cloudpivot_metrics_sampler_runs_total").increment(1);
+    obs::set_gauge(obs::SAMPLER_LAST_SUCCESS_TIMESTAMP, now);
+    obs::inc_counter(obs::SAMPLER_RUNS_TOTAL, 1);
     tracing::info!(summary = %snapshot.summary(), "运维观测采样完成");
     snapshot
 }
@@ -383,6 +377,14 @@ pub fn register_builtin(scheduler: &Scheduler) {
         cron = CRON,
         "运维观测采样任务已注册（NEAR-FIX-3 · 告警指标）"
     );
+
+    // 启动即补采一次（P1-05）。cron 是「每分钟第 0 秒」，不补这一次的话，
+    // 进程启动 → 下一个整分钟之间 `/metrics` 上**一条 cloudpivot_* 序列都没有**：
+    // 发布窗口里抓取器正好做健康判断，会看到「业务指标全空」而误判成 exporter 坏了。
+    // 此刻数据库已就绪（调度器在插件启动阶段调用本函数），采样只读、幂等，可安全先跑一次。
+    tokio::spawn(async move {
+        let _ = run_once().await;
+    });
 }
 
 #[cfg(test)]

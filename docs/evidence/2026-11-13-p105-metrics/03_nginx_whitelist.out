@@ -1,0 +1,11 @@
+nginx: the configuration file /tmp/p105-nginx/nginx.conf syntax is ok
+nginx: configuration file /tmp/p105-nginx/nginx.conf test is successful
+== ① 回环访问（命中 allow 127.0.0.1） ==
+http=200 bytes=18610
+cloudpivot_* 序列数=18
+== ② 非白名单来源（172.18.10.99，应 403） ==
+http=403
+== ③ 客户端伪造 X-Forwarded-For: 127.0.0.1（nginx 已清空该头 → 后端仍按回环放行） ==
+http=200
+== ④ 对照：绕过 nginx 直连后端并伪造外部来源（后端自身应 403） ==
+http=403

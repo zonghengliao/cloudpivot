@@ -9,6 +9,7 @@
 //! | [`constants`] | 通用业务常量（状态枚举值、默认分页、超级管理员标识、字典 / 模块编码） | P1 |
 //! | [`error_code`] | 业务错误码常量（映射到 `Res::fail` / `ApiError`） | P1 |
 //! | [`enums`] | 后端下发枚举的统一词汇层（`EnumItem` / `EnumsRes` / 配色常量） | P1 |
+//! | [`observability`] | 业务指标目录（`cloudpivot_*` 的名字 / 类型 / HELP 文案单一出处）+ `GET /metrics` 回归测试 | P1-05 |
 //! | [`permission_alias`] | 权限码兼容别名：旧码 `erp:contract:*` ↔ 规范码 `business:erp:contract:*` 装载时互扩 | P2-4 |
 //! | [`session_cache`] | 会话安全字段（`token_version` / 首登改密）的 60 s 缓存 + 变更即失效（FIX-05） | 批次 G · FIX-05 |
 //! | [`startup_guard`] | 启动守卫：认证已开启而 JWT 签名密钥为空 / 过短时拒绝启动 | P0 安全 |
@@ -20,6 +21,7 @@ pub mod constants;
 pub mod enums;
 pub mod error_code;
 pub mod idle_session;
+pub mod observability;
 pub mod permission_alias;
 pub mod session_cache;
 pub mod startup_guard;

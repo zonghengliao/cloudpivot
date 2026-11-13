@@ -1,0 +1,19 @@
+### cargo test --lib shared::observability
+running 4 tests
+test shared::observability::tests::catalog_is_well_formed ... ok
+test shared::observability::tests::every_sampler_metric_is_registered ... ok
+test shared::observability::tests::metrics_endpoint_rejects_untrusted_client ... ok
+test shared::observability::tests::metrics_endpoint_serves_prometheus_text ... ok
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 5574 filtered out; finished in 0.23s
+
+### cargo test --lib task::metrics_sampler
+running 8 tests
+test task::metrics_sampler::tests::invariant_ok_only_for_ok_status ... ok
+test task::metrics_sampler::tests::backlog_sums_both_directions_and_takes_worst_age ... ok
+test task::metrics_sampler::tests::negative_age_is_clamped_to_zero ... ok
+test task::metrics_sampler::tests::one_side_unknown_still_reports_the_other ... ok
+test task::metrics_sampler::tests::parse_invariant_reads_row_json_and_tolerates_missing_row ... ok
+test task::metrics_sampler::tests::summary_never_hides_unknown ... ok
+test task::metrics_sampler::tests::unknown_query_reports_minus_one_not_zero ... ok
+test task::metrics_sampler::tests::gauges_cover_every_documented_name ... ok
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 5570 filtered out; finished in 0.00s

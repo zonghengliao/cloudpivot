@@ -29,9 +29,10 @@ refresh_token_expire_secs = 86400
 # 两项只能退回 psql，A20/A21 这类指标断言也没法做。
 # allow_ips 为空 = 只允许本机回环（127.0.0.1 / ::1），不对外暴露。
 #
-# 注意：本段**必须**出现在每个 profile 的私有配置里 —— `config.toml` 基础配置
-# 没有 [metrics] 段，缺了它 `/metrics` 直接 404（2026-11-10 实测：145 的
-# 私有 config-dev.toml 少了这一段，/metrics 就是 404，而 /health 正常）。
+# 注意：基础 `config.toml` 自 P1-05 起已带 `[metrics] enabled = true`（空库首启也有端点），
+# 本段不是必须的；保留只为把「本环境要抓指标」写在私有配置里，一眼可见。
+# （历史坑：2026-11-10 时基础配置没有 [metrics]，145 的私有 config-dev.toml 少了这一段，
+#  `/metrics` 就是 404 而 /health 正常 —— 端点在不在取决于配置，别靠猜。）
 [metrics]
 enabled = true
 path = "/metrics"

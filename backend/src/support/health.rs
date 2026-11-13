@@ -25,6 +25,8 @@ use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 use std::time::Instant;
 
+use crate::shared::observability;
+
 /// 健康检查响应体。
 #[derive(serde::Serialize)]
 pub struct HealthRes {
@@ -184,7 +186,8 @@ pub async fn probe_deps() -> HealthDepsRes {
 
     // ADR §5.4 第一层告警：这条 gauge 持续 60s = 1 → 告警。
     // 未装 recorder（feature 未开）时是 no-op，可安全常开。
-    metrics::gauge!("cloudpivot_auth_cache_degraded").set(if cache_ok { 0.0 } else { 1.0 });
+    // 名字 / HELP 文案统一在 `shared::observability::CATALOG`（P1-05）。
+    observability::set_gauge(observability::AUTH_CACHE_DEGRADED, if cache_ok { 0.0 } else { 1.0 });
 
     // 表增长观测（ADR §5.5）：`sys_token_blacklist` 的行只活到令牌过期，日清回收；
     // 行数异常增长意味着清理任务没在跑（点查计划也会跟着退化）。
@@ -193,7 +196,7 @@ pub async fn probe_deps() -> HealthDepsRes {
     if db_status.ok
         && let Ok(rows) = crate::shared::token_revocation::row_count().await
     {
-        metrics::gauge!("cloudpivot_token_blacklist_rows").set(rows as f64);
+        observability::set_gauge(observability::TOKEN_BLACKLIST_ROWS, rows as f64);
     }
 
     HealthDepsRes {

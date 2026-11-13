@@ -1,0 +1,79 @@
+### ① curl -s http://127.0.0.1:8023/metrics | head -20
+# HELP nik_db_raw_sql_total 受信任原始 SQL 的调用次数；从 0 变正即意味着有人绕过了列引用与值绑定
+# TYPE nik_db_raw_sql_total counter
+nik_db_raw_sql_total{kind="trusted_bound"} 14
+
+# HELP cloudpivot_metrics_sampler_runs_total 运维观测采样器累计执行次数（单位：次）
+# TYPE cloudpivot_metrics_sampler_runs_total counter
+cloudpivot_metrics_sampler_runs_total 5
+
+# HELP nik_db_queries_total 数据库语句执行次数，按 op/table/status 拆分
+# TYPE nik_db_queries_total counter
+nik_db_queries_total{op="tx_query",table="raw",status="ok"} 2
+nik_db_queries_total{op="select",table="sys_user",status="ok"} 1
+nik_db_queries_total{op="select",table="sys_config",status="ok"} 1
+nik_db_queries_total{op="query",table="raw",status="ok"} 158
+nik_db_queries_total{op="exec",table="raw",status="ok"} 13
+nik_db_queries_total{op="select",table="sys_role",status="ok"} 1
+nik_db_queries_total{op="select",table="sys_dict_type",status="ok"} 10
+nik_db_queries_total{op="tx_exec",table="raw",status="ok"} 104
+nik_db_queries_total{op="query",table="raw",status="error"} 1
+
+
+### ② 状态码 + 体积
+http=200 bytes=18610 content_type=text/plain; version=0.0.4; charset=utf-8
+
+### ③ cloudpivot_* 序列数
+18
+
+### ④ 每个 cloudpivot_* 指标的 HELP / TYPE 行（业务指标必须带说明）
+# HELP cloudpivot_metrics_sampler_runs_total 运维观测采样器累计执行次数（单位：次）
+# TYPE cloudpivot_metrics_sampler_runs_total counter
+# HELP cloudpivot_impexp_import_failed_24h 近 24 小时失败的导入任务数（单位：个）
+# TYPE cloudpivot_impexp_import_failed_24h gauge
+# HELP cloudpivot_invariant_blockers 最近一次账务不变量巡检的 BLOCKER 数（-1=未知）（单位：个）
+# TYPE cloudpivot_invariant_blockers gauge
+# HELP cloudpivot_invariant_ok 最近一次账务不变量巡检是否通过：1=通过，0=有失败，-1=从未跑过或未知（单位：1|0|-1）
+# TYPE cloudpivot_invariant_ok gauge
+# HELP cloudpivot_auth_cache_degraded 鉴权缓存是否降级：1=缓存写失败或不可用（吊销判定仍以数据库为准），0=正常（单位：1|0）
+# TYPE cloudpivot_auth_cache_degraded gauge
+# HELP cloudpivot_impexp_import_open 导入任务中未终态（PENDING/PARSING/VALIDATED/IMPORTING）的条数（单位：个）
+# TYPE cloudpivot_impexp_import_open gauge
+# HELP cloudpivot_impexp_export_failed_24h 近 24 小时失败的导出任务数（单位：个）
+# TYPE cloudpivot_impexp_export_failed_24h gauge
+# HELP cloudpivot_token_blacklist_rows sys_token_blacklist 当前行数（短命表；持续增长说明清理任务没在跑）（单位：行）
+# TYPE cloudpivot_token_blacklist_rows gauge
+# HELP cloudpivot_impexp_export_open 导出任务中未终态（PENDING/RUNNING）的条数（单位：个）
+# TYPE cloudpivot_impexp_export_open gauge
+# HELP cloudpivot_impexp_backlog_stuck_seconds 最早一张未终态任务已存在多少秒（导入/导出取大）（单位：秒）
+# TYPE cloudpivot_impexp_backlog_stuck_seconds gauge
+# HELP cloudpivot_impexp_import_pending 导入任务中尚未开始解析（PENDING）的条数（单位：个）
+# TYPE cloudpivot_impexp_import_pending gauge
+# HELP cloudpivot_impexp_export_stuck_seconds 最早的未终态导出任务已存在多少秒（单位：秒）
+# TYPE cloudpivot_impexp_export_stuck_seconds gauge
+# HELP cloudpivot_invariant_age_seconds 最近一次账务不变量巡检距今多少秒（-1=从未跑过）（单位：秒）
+# TYPE cloudpivot_invariant_age_seconds gauge
+# HELP cloudpivot_invariant_failed 最近一次账务不变量巡检的失败项数（-1=未知）（单位：个）
+# TYPE cloudpivot_invariant_failed gauge
+# HELP cloudpivot_impexp_import_stuck_seconds 最早的未终态导入任务已存在多少秒（单位：秒）
+# TYPE cloudpivot_impexp_import_stuck_seconds gauge
+# HELP cloudpivot_impexp_export_pending 导出任务中尚未开始执行（PENDING）的条数（单位：个）
+# TYPE cloudpivot_impexp_export_pending gauge
+# HELP cloudpivot_metrics_sampler_last_success_timestamp 运维观测采样器最近一次成功采样的 Unix 时间戳（不前进=采样器已停）（单位：秒）
+# TYPE cloudpivot_metrics_sampler_last_success_timestamp gauge
+# HELP cloudpivot_impexp_backlog_pending 导入与导出未终态任务合计（积压总量）（单位：个）
+# TYPE cloudpivot_impexp_backlog_pending gauge
+
+### ⑤ 身份相关两条 gauge（先访问 /health/deps 触发采样）
+# HELP cloudpivot_auth_cache_degraded 鉴权缓存是否降级：1=缓存写失败或不可用（吊销判定仍以数据库为准），0=正常（单位：1|0）
+# TYPE cloudpivot_auth_cache_degraded gauge
+cloudpivot_auth_cache_degraded 0
+# HELP cloudpivot_token_blacklist_rows sys_token_blacklist 当前行数（短命表；持续增长说明清理任务没在跑）（单位：行）
+# TYPE cloudpivot_token_blacklist_rows gauge
+cloudpivot_token_blacklist_rows 0
+
+### ⑥ 访问控制：伪造非回环来源（X-Forwarded-For）应 403
+http=403
+
+### ⑦ 端点挂在根路径（不参与 [router].prefix）
+/api/metrics http=404

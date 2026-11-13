@@ -1,0 +1,6 @@
+### bash scripts/ops/alert_check.sh --dry-run --only invariant,backlog
+[2026-11-13T19:36:54+08:00] === 告警巡检开始 host=172.18.10.99 base=http://127.0.0.1:8023 检查=[invariant backlog] dry_run=1 ===
+[2026-11-13T19:36:54+08:00] invariant: INFO — 巡检结论读不到（既没有 cloudpivot_invariant_* 指标，也连不上库；这项当前等于没人看）
+[2026-11-13T19:36:54+08:00] backlog: 数据源 = /metrics
+[2026-11-13T19:36:54+08:00] backlog: OK — 导入导出无积压
+[2026-11-13T19:36:54+08:00] === 巡检结束：无告警（0 项）===
