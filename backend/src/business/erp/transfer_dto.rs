@@ -48,6 +48,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::transfer_model::{
     ALL_STATUSES, STATUS_CANCELLED, TransferItemRow, TransferRow, TransferSerialRow,
 };
+use crate::business::shared::doc_lines;
 
 // ==================== 口径常量 ====================
 
@@ -273,7 +274,7 @@ impl CreateTransferReq {
             return Err(ApiError::new(
                 400,
                 error_code_param(),
-                format!("明细最多 {MAX_LINES} 行（收到 {}）", self.items.len()),
+                doc_lines::too_many_lines(MAX_LINES, self.items.len()),
             ));
         }
         if let Some(reason) = trimmed(self.reason.as_deref())
@@ -793,5 +794,58 @@ mod tests {
                 "缺 action {action}"
             );
         }
+    }
+}
+
+// ==================== 单测（P1-04：明细超限要「可操作」） ====================
+
+#[cfg(test)]
+mod p104_line_limit_tests {
+    use super::*;
+
+    const FROM_WAREHOUSE: &str = "0192f5b0-0000-7000-8000-000000000001";
+    const TO_WAREHOUSE: &str = "0192f5b0-0000-7000-8000-000000000002";
+
+    fn request(rows: usize) -> CreateTransferReq {
+        CreateTransferReq {
+            from_warehouse_id: FROM_WAREHOUSE.to_string(),
+            to_warehouse_id: TO_WAREHOUSE.to_string(),
+            transfer_date: None,
+            reason: None,
+            remark: None,
+            items: (0..rows)
+                .map(|no| TransferItemReq {
+                    material_id: format!("0192f5b0-0000-7000-8000-{no:012}"),
+                    from_location_id: None,
+                    to_location_id: None,
+                    qty: Decimal::ONE,
+                    serial_ids: Vec::new(),
+                })
+                .collect(),
+        }
+    }
+
+    /// 卡面 P1-04：201 行 → 400，且文案含「导入向导」。
+    #[test]
+    fn more_than_max_lines_is_rejected_with_actionable_hint() {
+        let error = request(MAX_LINES + 1).validate().expect_err("201 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert!(
+            error.msg.contains("导入向导"),
+            "报文必须指向导入通道，不能只说『最多 200 行』：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains(&format!("当前 {} 行", MAX_LINES + 1)),
+            "报文要报实际行数：{}",
+            error.msg
+        );
+        println!("[P1-04] 调拨单超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 边界不能误伤：恰好 200 行 → 放行。
+    #[test]
+    fn exactly_max_lines_is_accepted() {
+        request(MAX_LINES).validate().expect("200 行必须放行");
     }
 }

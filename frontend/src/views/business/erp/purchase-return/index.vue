@@ -209,6 +209,8 @@
 
       <template v-if="source">
         <t-alert theme="info" :message="`入库单 ${source.stock_in_no}：供应商 ${source.supplier_name || '-'}；单价与税率取原入库快照（不许改）`" />
+        <!-- P1-04：来源入库单明细超 200 行 → 提示走导入通道（保存时后端 400 兜底） -->
+        <DetailLineLimitAlert :count="source.items.length" testid="prt-line-limit" />
         <t-table
           row-key="stock_in_item_id"
           size="small"
@@ -276,6 +278,7 @@ import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { useUserStore } from '@/stores/user';
 import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';

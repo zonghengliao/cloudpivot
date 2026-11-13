@@ -1,0 +1,5 @@
+=== pnpm typecheck（vue-tsc --noEmit）===
+typecheck_exit=0
+
+=== pnpm typecheck:unit（含 tests/unit）===
+typecheck_unit_exit=0

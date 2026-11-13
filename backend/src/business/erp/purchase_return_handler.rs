@@ -221,16 +221,8 @@ pub async fn create_return(req: &CreateReturnReq, operator: Option<Uuid>) -> std
     let reason = dto::check_reason(req.reason.as_deref())?;
     let remark = dto::clean_remark(req.remark.as_deref())?;
     let return_date = req.return_date.unwrap_or_else(dto::today_cst);
-    if req.items.is_empty() {
-        return Err(bad_request("items 不能为空：至少退 1 行"));
-    }
-    if req.items.len() > dto::MAX_LINES {
-        return Err(bad_request(format!(
-            "items 最多 {} 行（收到 {}）",
-            dto::MAX_LINES,
-            req.items.len()
-        )));
-    }
+    // 明细行数闸：非空 + MAX_LINES（P1-04：超限给可操作提示，见 `shared::doc_lines`）。
+    dto::check_items(&req.items)?;
 
     let now = Utc::now();
     let tx = db()

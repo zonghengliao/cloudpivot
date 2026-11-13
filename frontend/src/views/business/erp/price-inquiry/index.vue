@@ -222,6 +222,12 @@
           </t-form-item>
         </t-form>
 
+        <!-- P1-04：明细超 200 行先提示「走导入通道」，不阻断编辑（保存时后端 400 兜底） -->
+        <DetailLineLimitAlert
+          :count="createForm.items.length"
+          :limit="MAX_LINES"
+          testid="piq-line-limit"
+        />
         <div class="line-editor" data-testid="piq-create-items">
           <div class="line-editor__head">
             <span class="line-editor__no">#</span>
@@ -674,6 +680,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import {
   fetchMaterialPage,
   fetchSupplierOptions,
@@ -698,6 +705,7 @@ import {
   type ToPoResult,
 } from '@/api/business/erp/price-inquiry';
 import {
+  MAX_LINES,
   MAX_REMARK,
   MIN_SINGLE_SOURCE_REASON,
   PAGE_SIZE,

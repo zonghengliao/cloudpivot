@@ -1,0 +1,45 @@
+=== 环境 ===
+host: ubuntu-svr (172.18.10.99)  repo: /opt/cloudpivot  head: 62d1bb63
+cargo: cargo 1.94.1 (29ea6fb6a 2026-03-24)  date: 2026-11-13T19:11:17+08:00
+
+=== 命令 1: cargo test --lib p104_line_limit_tests ===
+
+running 16 tests
+test business::erp::price_inquiry_dto::p104_line_limit_tests::empty_items_keeps_its_own_message ... ok
+test business::erp::price_inquiry_dto::p104_line_limit_tests::inquiry_exactly_max_lines_is_accepted ... ok
+test business::erp::price_inquiry_dto::p104_line_limit_tests::quote_more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::price_inquiry_dto::p104_line_limit_tests::inquiry_more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_requisition_dto::p104_line_limit_tests::empty_items_keeps_its_own_message ... ok
+test business::erp::purchase_requisition_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::purchase_requisition_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_return_dto::p104_line_limit_tests::empty_items_keeps_its_own_message ... ok
+test business::erp::purchase_return_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::purchase_return_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::stockout_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::stockout_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::transfer_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::purchase_dto::p104_line_limit_tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::transfer_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+test business::erp::purchase_dto::p104_line_limit_tests::exactly_max_lines_is_accepted ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 5558 filtered out; finished in 0.01s
+
+
+=== 命令 2: cargo test --lib stockin_dto:: ===
+
+running 2 tests
+test business::erp::stockin_dto::tests::more_than_max_lines_is_rejected_with_actionable_hint ... ok
+test business::erp::stockin_dto::tests::exactly_max_lines_is_accepted ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 5572 filtered out; finished in 0.00s
+
+
+=== 命令 3: cargo test --lib shared::doc_lines ===
+
+running 3 tests
+test business::shared::doc_lines::tests::message_is_stable_for_zero_rows ... ok
+test business::shared::doc_lines::tests::message_follows_the_per_document_limit ... ok
+test business::shared::doc_lines::tests::message_names_limit_actual_and_channel ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 5571 filtered out; finished in 0.00s
+

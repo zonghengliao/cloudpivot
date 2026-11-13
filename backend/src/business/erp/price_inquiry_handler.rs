@@ -56,12 +56,12 @@ use nik::uuid::Uuid;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::price_inquiry_dto::{
     AWARD_MODE_MULTI, AWARD_MODE_SINGLE_SOURCE, AwardPair, AwardReq, CompareQuoteRes, CompareRowRes,
-    CreatePriceInquiryReq, CreatedPurchaseOrderRes, MAX_LINES, PRICE_INQUIRY_PERMISSIONS, PriceInquiryDetailRes,
+    CreatePriceInquiryReq, CreatedPurchaseOrderRes, PRICE_INQUIRY_PERMISSIONS, PriceInquiryDetailRes,
     PriceInquiryItemRes, PriceInquiryPageQuery, PriceInquiryRowRes, PriceQuoteRes, QuoteReq, STATUS_AWARDED,
     STATUS_CONVERTED, STATUS_DRAFT, STATUS_QUOTING, ToPoReq, ToPoRes, award_mode_label, check_award_reason,
-    check_delivery_days, check_price, check_qty, check_tax, clean_remark, group_by_supplier, parse_uuid_field,
-    price_incl_of, reason_is_long_enough, resolve_award, single_source_items, status_label, today_cst,
-    unmatched_awards,
+    check_delivery_days, check_inquiry_items, check_price, check_qty, check_quote_items, check_tax, clean_remark,
+    group_by_supplier, parse_uuid_field, price_incl_of, reason_is_long_enough, resolve_award, single_source_items,
+    status_label, today_cst, unmatched_awards,
 };
 use crate::business::erp::price_inquiry_model::{self as model, ItemRow, NewInquiry, NewItem, NewQuote, QuoteRow};
 use crate::business::erp::purchase_dto::{CreatePurchaseOrderReq, PurchaseOrderItemReq};
@@ -124,15 +124,8 @@ pub async fn create_inquiry(
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
     let _ = warehouse_name; // 名称由详情接口 join 派生，这里只需存在性
 
-    if req.items.is_empty() {
-        return Err(bad_request("items 不能为空：至少填 1 个物料"));
-    }
-    if req.items.len() > MAX_LINES {
-        return Err(bad_request(format!(
-            "items 最多 {MAX_LINES} 行（收到 {}）",
-            req.items.len()
-        )));
-    }
+    // 明细行数闸：非空 + MAX_LINES（P1-04：超限给可操作提示，见 `shared::doc_lines`）。
+    check_inquiry_items(&req.items)?;
 
     // 采购员：缺省 = 当前登录人；姓名一律服务端快照（前端传的名字不可信）
     let buyer_id = match req.buyer_id.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
@@ -400,15 +393,8 @@ pub async fn record_quote(
     {
         return Err(reference_missing("supplier_id 供应商不存在或已删除"));
     }
-    if req.items.is_empty() {
-        return Err(bad_request("items 不能为空：至少给 1 条明细报价"));
-    }
-    if req.items.len() > MAX_LINES {
-        return Err(bad_request(format!(
-            "items 最多 {MAX_LINES} 行（收到 {}）",
-            req.items.len()
-        )));
-    }
+    // 报价行数闸：非空 + MAX_LINES（与建单同一份文案）。
+    check_quote_items(&req.items)?;
 
     let items = model::list_items(inquiry_id)
         .await

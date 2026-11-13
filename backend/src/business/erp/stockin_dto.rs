@@ -42,6 +42,7 @@ use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::stockin_model::{
     STOCK_IN_SUMMARY_PLACEHOLDER, StockInFilter, StockInItemRow, StockInRow, Totals, money, unit_price,
 };
+use crate::business::shared::doc_lines;
 use crate::shared::error_code;
 
 /// 明细行上限。
@@ -387,10 +388,7 @@ impl CreateStockInReq {
             return Err(bad_request("items 不能为空：没有来源采购单时至少要有一行明细"));
         }
         if self.items.len() > MAX_LINES {
-            return Err(bad_request(format!(
-                "items 最多 {MAX_LINES} 行（当前 {} 行）",
-                self.items.len()
-            )));
+            return Err(bad_request(doc_lines::too_many_lines(MAX_LINES, self.items.len())));
         }
 
         let mut lines = Vec::with_capacity(self.items.len());
@@ -819,5 +817,53 @@ impl StockInDetailRes {
             repost_available: false,
             header,
         }
+    }
+}
+
+// ==================== 单测（P1-04：明细超限要「可操作」） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(no: usize) -> StockInItemReq {
+        StockInItemReq {
+            material_id: Some(format!("material-{no}")),
+            qty: Some(Decimal::ONE),
+            price_excl: Some(Decimal::from(10)),
+            ..Default::default()
+        }
+    }
+
+    fn request(rows: usize) -> CreateStockInReq {
+        CreateStockInReq {
+            warehouse_id: Some("warehouse-1".to_string()),
+            items: (0..rows).map(line).collect(),
+            ..Default::default()
+        }
+    }
+
+    /// 卡面 P1-04：201 行 → 400，且文案含「导入向导」（用户读完知道下一步做什么）。
+    #[test]
+    fn more_than_max_lines_is_rejected_with_actionable_hint() {
+        let error = request(MAX_LINES + 1).prepare(false).expect_err("201 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert!(
+            error.msg.contains("导入向导"),
+            "报文必须指向导入通道，不能只说『最多 200 行』：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains(&format!("当前 {} 行", MAX_LINES + 1)),
+            "报文要报实际行数，用户才知道差多少：{}",
+            error.msg
+        );
+        println!("[P1-04] 入库单超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 边界不能误伤：恰好 200 行 → 放行。
+    #[test]
+    fn exactly_max_lines_is_accepted() {
+        request(MAX_LINES).prepare(false).expect("200 行必须放行");
     }
 }

@@ -270,6 +270,12 @@
         </t-row>
       </t-form>
 
+      <!-- P1-04：明细超 200 行先提示「走导入通道」，不阻断编辑（保存时后端 400 兜底） -->
+      <DetailLineLimitAlert
+        :count="createForm.lines.length"
+        :limit="MAX_LINES"
+        testid="prq-line-limit"
+      />
       <div class="lines-head">
         <span class="lines-title">申请明细</span>
         <t-button size="small" variant="outline" data-testid="btn-prq-add-line" @click="addLine">
@@ -499,6 +505,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import { useUserStore } from '@/stores/user';
 import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import {
@@ -523,6 +530,7 @@ import {
   type RequisitionRow,
 } from '@/api/business/erp/purchase-requisition';
 import {
+  MAX_LINES,
   MAX_REMARK,
   budgetTextOf,
   buildCreatePayload,

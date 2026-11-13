@@ -30,6 +30,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::shared::doc_lines;
 use crate::shared::error_code;
 
 // ==================== 域常量 ====================
@@ -528,6 +529,19 @@ pub fn clean_remark(raw: Option<&str>) -> std::result::Result<Option<String>, Ap
     Ok(Some(text.to_string()))
 }
 
+/// 明细行数闸：非空 + `MAX_LINES`（P1-04：超限给**可操作**提示，见 `shared::doc_lines`）。
+///
+/// 纯逻辑，handler 在建单前调一次，单测可直接跑。
+pub fn check_items(items: &[RequisitionItemReq]) -> std::result::Result<(), ApiError> {
+    if items.is_empty() {
+        return Err(bad_request("items 不能为空：至少填 1 个物料"));
+    }
+    if items.len() > MAX_LINES {
+        return Err(bad_request(doc_lines::too_many_lines(MAX_LINES, items.len())));
+    }
+    Ok(())
+}
+
 /// 含税单价（6 位舍入）：`price × (1 + tax/100)`。
 pub fn price_incl_of(price_excl: Decimal, tax_rate: Decimal) -> Decimal {
     let factor = Decimal::ONE + tax_rate / Decimal::from(100);
@@ -926,5 +940,46 @@ mod tests {
             );
         }
         assert!(REQUISITION_PERMISSIONS.contains(&"business:erp:purchase-requisition:to-po"));
+    }
+}
+
+// ==================== 单测（P1-04：明细超限要「可操作」） ====================
+
+#[cfg(test)]
+mod p104_line_limit_tests {
+    use super::*;
+
+    /// 卡面 P1-04：201 行 → 400，且文案含「导入向导」。
+    #[test]
+    fn more_than_max_lines_is_rejected_with_actionable_hint() {
+        let items = vec![RequisitionItemReq::default(); MAX_LINES + 1];
+        let error = check_items(&items).expect_err("201 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert!(
+            error.msg.contains("导入向导"),
+            "报文必须指向导入通道，不能只说『最多 200 行』：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains(&format!("当前 {} 行", MAX_LINES + 1)),
+            "报文要报实际行数：{}",
+            error.msg
+        );
+        println!("[P1-04] 采购申请超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 边界不能误伤：恰好 200 行 → 放行。
+    #[test]
+    fn exactly_max_lines_is_accepted() {
+        let items = vec![RequisitionItemReq::default(); MAX_LINES];
+        check_items(&items).expect("200 行必须放行");
+    }
+
+    /// 空明细仍是「不能为空」，不会被行数上限文案顶掉。
+    #[test]
+    fn empty_items_keeps_its_own_message() {
+        let error = check_items(&[]).expect_err("空明细必须被拒");
+        assert!(error.msg.contains("不能为空"), "空明细要说『不能为空』：{}", error.msg);
+        assert!(!error.msg.contains("导入向导"), "空明细不该念导入向导：{}", error.msg);
     }
 }

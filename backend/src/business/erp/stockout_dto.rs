@@ -36,6 +36,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::stockout_model::{self as model, CostObjectRef, MaterialInfo};
+use crate::business::shared::doc_lines;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
@@ -152,10 +153,7 @@ impl CreateStockOutReq {
             return Err(bad_request("items 不能为空：出库单至少要有一行明细"));
         }
         if self.items.len() > MAX_LINES {
-            return Err(bad_request(format!(
-                "明细最多 {MAX_LINES} 行（当前 {} 行）",
-                self.items.len()
-            )));
+            return Err(bad_request(doc_lines::too_many_lines(MAX_LINES, self.items.len())));
         }
         for (index, item) in self.items.iter().enumerate() {
             let line_no = index + 1;
@@ -1232,5 +1230,52 @@ mod tests {
         }
         assert_eq!(value["out_type"], "ISSUE", "预填永远是领用单");
         assert_eq!(value["materials"][0]["qty"], "12.5000");
+    }
+}
+
+// ==================== 单测（P1-04：明细超限要「可操作」） ====================
+
+#[cfg(test)]
+mod p104_line_limit_tests {
+    use super::*;
+
+    fn request(rows: usize) -> CreateStockOutReq {
+        CreateStockOutReq {
+            warehouse_id: Some("warehouse-1".to_string()),
+            items: (0..rows)
+                .map(|no| StockOutItemReq {
+                    material_id: format!("material-{no}"),
+                    qty: Decimal::ONE,
+                    location_id: None,
+                    lot_no: None,
+                    remark: None,
+                })
+                .collect(),
+            ..Default::default()
+        }
+    }
+
+    /// 卡面 P1-04：201 行 → 400，且文案含「导入向导」。
+    #[test]
+    fn more_than_max_lines_is_rejected_with_actionable_hint() {
+        let error = request(MAX_LINES + 1).check_items().expect_err("201 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert!(
+            error.msg.contains("导入向导"),
+            "报文必须指向导入通道，不能只说『最多 200 行』：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains(&format!("当前 {} 行", MAX_LINES + 1)),
+            "报文要报实际行数：{}",
+            error.msg
+        );
+        println!("[P1-04] 出库单超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 边界不能误伤：恰好 200 行 → 放行。
+    #[test]
+    fn exactly_max_lines_is_accepted() {
+        request(MAX_LINES).check_items().expect("200 行必须放行");
     }
 }

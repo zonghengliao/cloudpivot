@@ -34,6 +34,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::shared::doc_lines;
 use crate::shared::error_code;
 
 // ==================== 域常量 ====================
@@ -390,6 +391,29 @@ pub fn check_delivery_days(raw: Option<i32>) -> std::result::Result<Option<i32>,
         Some(value) if value < 0 => Err(bad_request(format!("delivery_days 不能为负（收到 {value}）"))),
         other => Ok(other),
     }
+}
+
+/// 行数闸：非空 + `MAX_LINES`（P1-04：超限给**可操作**提示，不是纯技术报错）。
+///
+/// `empty_message` 由调用方给 —— 建询价的空明细与录报价的空明细说的不是一件事。
+fn check_line_count(len: usize, empty_message: &str) -> std::result::Result<(), ApiError> {
+    if len == 0 {
+        return Err(bad_request(empty_message));
+    }
+    if len > MAX_LINES {
+        return Err(bad_request(doc_lines::too_many_lines(MAX_LINES, len)));
+    }
+    Ok(())
+}
+
+/// 建询价单的明细行数闸（handler 在建单前调；纯逻辑，单测直接跑）。
+pub fn check_inquiry_items(items: &[PriceInquiryItemReq]) -> std::result::Result<(), ApiError> {
+    check_line_count(items.len(), "items 不能为空：至少填 1 个物料")
+}
+
+/// 录报价的行数闸（一次提交一个供应商的全部报价行；纯逻辑）。
+pub fn check_quote_items(items: &[QuoteItemReq]) -> std::result::Result<(), ApiError> {
+    check_line_count(items.len(), "items 不能为空：至少给 1 条明细报价")
 }
 
 /// 单源例外理由校验：给定就必须 ≥10 字（与 `ck_biz_piq_award_reason` 同口径）。
@@ -997,5 +1021,59 @@ mod tests {
         for code in PRICE_INQUIRY_PERMISSIONS {
             assert!(code.starts_with("business:erp:price-inquiry:"));
         }
+    }
+}
+
+// ==================== 单测（P1-04：明细超限要「可操作」） ====================
+
+#[cfg(test)]
+mod p104_line_limit_tests {
+    use super::*;
+
+    /// 卡面 P1-04：建询价 201 行 → 400，且文案含「导入向导」。
+    #[test]
+    fn inquiry_more_than_max_lines_is_rejected_with_actionable_hint() {
+        let items = vec![PriceInquiryItemReq::default(); MAX_LINES + 1];
+        let error = check_inquiry_items(&items).expect_err("201 行必须被拒");
+        assert_eq!(error.status, 400, "行数超限是参数错：{} {}", error.code, error.msg);
+        assert!(
+            error.msg.contains("导入向导"),
+            "报文必须指向导入通道，不能只说『最多 200 行』：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains(&format!("当前 {} 行", MAX_LINES + 1)),
+            "报文要报实际行数：{}",
+            error.msg
+        );
+        println!("[P1-04] 询价单超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 边界不能误伤：恰好 200 行 → 放行。
+    #[test]
+    fn inquiry_exactly_max_lines_is_accepted() {
+        let items = vec![PriceInquiryItemReq::default(); MAX_LINES];
+        check_inquiry_items(&items).expect("200 行必须放行");
+    }
+
+    /// 录报价走同一份文案（同一张单的第二个入口，不能一边有提示一边没有）。
+    #[test]
+    fn quote_more_than_max_lines_is_rejected_with_actionable_hint() {
+        let items = vec![QuoteItemReq::default(); MAX_LINES + 1];
+        let error = check_quote_items(&items).expect_err("201 行必须被拒");
+        assert!(
+            error.msg.contains("导入向导"),
+            "报价行超限要给同样的引导：{}",
+            error.msg
+        );
+        println!("[P1-04] 报价行超限报文：{} {}", error.code, error.msg);
+    }
+
+    /// 空明细仍是「不能为空」，不会被行数上限文案顶掉。
+    #[test]
+    fn empty_items_keeps_its_own_message() {
+        let error = check_inquiry_items(&[]).expect_err("空明细必须被拒");
+        assert!(error.msg.contains("不能为空"), "空明细要说『不能为空』：{}", error.msg);
+        assert!(!error.msg.contains("导入向导"), "空明细不该念导入向导：{}", error.msg);
     }
 }

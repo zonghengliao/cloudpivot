@@ -333,6 +333,12 @@
         <span class="section-title__hint">一物一码物料不能走出库单，请到序列号管理里做出库 / 报废</span>
       </div>
       <t-alert v-if="formErrors.items" theme="error" :message="formErrors.items" class="items-alert" />
+      <!-- P1-04：明细超 200 行先提示「走导入通道」，不阻断编辑（保存时后端 400 兜底） -->
+      <DetailLineLimitAlert
+        :count="form.items.length"
+        :limit="STOCK_OUT_MAX_LINES"
+        testid="stockout-line-limit"
+      />
 
       <div class="items" data-testid="stockout-form-items">
         <div class="items__head">
@@ -625,6 +631,7 @@ import {
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import { useCostSwitchStore } from '@/stores/cost';
 import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import { stockOutSources } from '@/views/business/erp/shared/voucher-trace';
 import {
   createStockOut,

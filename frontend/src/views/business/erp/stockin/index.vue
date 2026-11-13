@@ -419,6 +419,12 @@
         </t-form-item>
 
         <!-- ---------------- 明细 ---------------- -->
+        <!-- P1-04：明细超 200 行先提示「走导入通道」，不阻断编辑（保存时后端 400 兜底） -->
+        <DetailLineLimitAlert
+          :count="form.items.length"
+          :limit="STOCKIN_MAX_LINES"
+          testid="stockin-line-limit"
+        />
         <div class="items">
           <div class="items__head">
             <span class="items__title">明细</span>
@@ -973,6 +979,7 @@ import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import VoucherTraceButton from '@/views/business/erp/shared/VoucherTraceButton.vue';
 import { stockInSources } from '@/views/business/erp/shared/voucher-trace';

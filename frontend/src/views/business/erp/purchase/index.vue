@@ -446,6 +446,8 @@
         </t-form-item>
 
         <!-- ---------------- 明细 ---------------- -->
+        <!-- P1-04：明细超 200 行先提示「走导入通道」，不阻断编辑（保存时后端 400 兜底） -->
+        <DetailLineLimitAlert :count="form.items.length" :limit="MAX_LINES" testid="purchase-line-limit" />
         <div class="items">
           <div class="items__head">
             <span class="items__title">明细</span>
@@ -938,6 +940,7 @@ import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import DocTaskPanel from '@/views/business/task/components/DocTaskPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';

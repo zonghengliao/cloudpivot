@@ -58,12 +58,11 @@ use crate::business::erp::purchase_dto::{CreatePurchaseOrderReq, PurchaseOrderIt
 use crate::business::erp::purchase_handler;
 use crate::business::erp::purchase_model::{self, PRICE_MODE_EXCL};
 use crate::business::erp::purchase_requisition_dto::{
-    CreateRequisitionReq, MAX_LINES, MAX_MERGE, MergeError, MergeInput, MergedLine, MergedLineRes,
-    REQUISITION_PERMISSIONS, RequisitionDetailRes, RequisitionItemRes, RequisitionPageQuery, RequisitionRowRes,
-    STATUS_APPROVED, STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED, SubmitRequisitionReq, ToPoReq, ToPoRes,
-    WarehouseError, check_price, check_qty, check_tax, clean_remark, line_amount, merge_by_material,
-    parse_optional_uuid, parse_uuid_field, price_incl_of, resolve_merge_supplier, resolve_merge_warehouse,
-    status_label, today_cst,
+    CreateRequisitionReq, MAX_MERGE, MergeError, MergeInput, MergedLine, MergedLineRes, REQUISITION_PERMISSIONS,
+    RequisitionDetailRes, RequisitionItemRes, RequisitionPageQuery, RequisitionRowRes, STATUS_APPROVED,
+    STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED, SubmitRequisitionReq, ToPoReq, ToPoRes, WarehouseError,
+    check_items, check_price, check_qty, check_tax, clean_remark, line_amount, merge_by_material, parse_optional_uuid,
+    parse_uuid_field, price_incl_of, resolve_merge_supplier, resolve_merge_warehouse, status_label, today_cst,
 };
 use crate::business::erp::purchase_requisition_model::{
     self as model, ItemRow, NewItem, NewRequisition, RequisitionRow,
@@ -153,15 +152,8 @@ pub async fn create_requisition(
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
 
-    if req.items.is_empty() {
-        return Err(bad_request("items 不能为空：至少填 1 个物料"));
-    }
-    if req.items.len() > MAX_LINES {
-        return Err(bad_request(format!(
-            "items 最多 {MAX_LINES} 行（收到 {}）",
-            req.items.len()
-        )));
-    }
+    // 明细行数闸：非空 + MAX_LINES（P1-04：超限给可操作提示，见 `shared::doc_lines`）。
+    check_items(&req.items)?;
 
     // 申请人：缺省 = 当前登录人；姓名一律服务端快照（前端传的名字不可信）
     let applicant_id = match parse_optional_uuid(req.applicant_id.as_deref(), "applicant_id")? {

@@ -515,6 +515,8 @@
         </div>
 
         <!-- 明细：物料 / 数量 / 序列号 / 删除 -->
+        <!-- P1-04：明细超 200 行先提示「走导入通道」，不阻断编辑（保存时后端 400 兜底） -->
+        <DetailLineLimitAlert :count="form.items.length" testid="transfer-line-limit" />
         <div class="items">
           <div class="items__head">
             <span class="items__title">明细</span>
@@ -802,6 +804,7 @@ import {
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import StockPickerDialog from '@/views/business/erp/shared/StockPickerDialog.vue';
