@@ -804,6 +804,29 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '薪资项', permission: 'business:hr:salary-item:list' },
       },
       {
+        // ==================== HR：薪资管理（ARCH-9 §6.1 页面 #4 / §5.2 #36/#39/#40/#46） ====================
+        // `sys_menu` 种子（V0387 `…e004`）path = `/business/hr/salary`、component
+        // `business/hr/salary/index`、页面码 `business:hr:salary:list`，
+        // 挂在「人力资源」（`…e000`）sort 40。两个 tab（薪资单 / 我的薪资）都在本页内：
+        // 试算、建单、导出都是抽屉 / 对话框（无独立路由）。
+        // **这一条是 `system::menu::tests::n08` 抓到的缺口**（点菜单进 404，
+        // 卡 t_fc256a30）：列表页晚于详情页落地，路由只注册了 `salary/:id`。
+        // 路由手工注册（没有 views 自动扫描），漏了 = 点菜单进 404
+        // （`system::menu::tests::n08` 真库档会当场红）。
+        //
+        // ⚠️ 页面码待切：`V0401__hr_page_code_split`（卡 t_0af7ec46）把 5 个 HR 页面行的
+        // auth_code 从 `*:list` 改成 `*:page`（`*:list` 挪去按钮行）。本卡立项时该迁移
+        // 尚未落库，故这里按卡面写 `salary:list`；**该迁移落地时必须同步改成
+        // `business:hr:salary:page`**（连同 `tests/unit/hr-salary-list.test.ts` 里那条
+        // `permission: 'business:hr:salary:list'` 断言）。不切的话：只有「页面显形」
+        // 没有全量列表权限的员工（`V0401` 刻意不给他 `salary:list`）会被路由挡在页外，
+        // 连自己的「我的薪资」tab 都进不去 —— 那正是 `V0401` 要修的越权面的反面。
+        path: 'business/hr/salary',
+        name: 'BusinessHrSalary',
+        component: () => import('@/views/business/hr/salary/index.vue'),
+        meta: { title: '薪资管理', permission: 'business:hr:salary:list' },
+      },
+      {
         // ==================== HR：薪资单详情（ARCH-9 §6.1 / §6.2.5 / HR-43） ====================
         // **页面级路由**：`sys_menu` 里没有这一行（不进侧边栏），由列表页点单号跳进来。
         // 四段式（单头 / 明细 / 审批 / 凭证）+ 吸顶操作栏塞进 720px 抽屉放不下，

@@ -1,0 +1,148 @@
+TAP version 13
+# Subtest: 状态六档：码值与中文名逐条等于后端 STATUSES
+ok 1 - 状态六档：码值与中文名逐条等于后端 STATUSES
+  ---
+  duration_ms: 1.469548
+  type: 'test'
+  ...
+# Subtest: 分页与备注上限：20 / 200 / 500 与后端常量同值
+ok 2 - 分页与备注上限：20 / 200 / 500 与后端常量同值
+  ---
+  duration_ms: 0.149575
+  type: 'test'
+  ...
+# Subtest: 本页 5 个权限码都在 V0387 的 sys_menu.auth_code 里
+ok 3 - 本页 5 个权限码都在 V0387 的 sys_menu.auth_code 里
+  ---
+  duration_ms: 0.107244
+  type: 'test'
+  ...
+# Subtest: 权限码从 salary-kinds 派生，不重复定义一套
+ok 4 - 权限码从 salary-kinds 派生，不重复定义一套
+  ---
+  duration_ms: 0.486599
+  type: 'test'
+  ...
+# Subtest: 四条路由的 METHOD + 路径 + 权限码与后端 ROUTE_CONTRACT 一致
+ok 5 - 四条路由的 METHOD + 路径 + 权限码与后端 ROUTE_CONTRACT 一致
+  ---
+  duration_ms: 0.272902
+  type: 'test'
+  ...
+# Subtest: 期间正则与 ck_biz_sal_sheet_code 同域
+ok 6 - 期间正则与 ck_biz_sal_sheet_code 同域
+  ---
+  duration_ms: 0.357398
+  type: 'test'
+  ...
+# Subtest: 默认期间取北京时间当月（不是 UTC）
+ok 7 - 默认期间取北京时间当月（不是 UTC）
+  ---
+  duration_ms: 0.349107
+  type: 'test'
+  ...
+# Subtest: 列表查询串：空筛选不发空参数、页码按后端 clamp
+ok 8 - 列表查询串：空筛选不发空参数、页码按后端 clamp
+  ---
+  duration_ms: 0.211405
+  type: 'test'
+  ...
+# Subtest: 试算 / 建单报文：dry_run 由模式决定，不许手写
+ok 9 - 试算 / 建单报文：dry_run 由模式决定，不许手写
+  ---
+  duration_ms: 0.437435
+  type: 'test'
+  ...
+# Subtest: 表单校验：先期间后备注，一次只说一处
+ok 10 - 表单校验：先期间后备注，一次只说一处
+  ---
+  duration_ms: 0.397979
+  type: 'test'
+  ...
+# Subtest: 两种模式的文案都写清「落不落库」
+ok 11 - 两种模式的文案都写清「落不落库」
+  ---
+  duration_ms: 1.039487
+  type: 'test'
+  ...
+# Subtest: 空态文案分「没有数据」与「筛没了」
+ok 12 - 空态文案分「没有数据」与「筛没了」
+  ---
+  duration_ms: 0.212822
+  type: 'test'
+  ...
+# Subtest: 本页合计按整数分累加（浮点会在 0.1+0.2 处假报警）
+ok 13 - 本页合计按整数分累加（浮点会在 0.1+0.2 处假报警）
+  ---
+  duration_ms: 0.445768
+  type: 'test'
+  ...
+# Subtest: 凭证列只认真拿到号的两张，未过账给空数组
+ok 14 - 凭证列只认真拿到号的两张，未过账给空数组
+  ---
+  duration_ms: 0.166991
+  type: 'test'
+  ...
+# Subtest: 期间 / 考勤口径 / 天数文案
+ok 15 - 期间 / 考勤口径 / 天数文案
+  ---
+  duration_ms: 0.228613
+  type: 'test'
+  ...
+# Subtest: 试算回执一句话：期间 · 人数 · 薪资项数
+ok 16 - 试算回执一句话：期间 · 人数 · 薪资项数
+  ---
+  duration_ms: 0.097411
+  type: 'test'
+  ...
+# Subtest: 缺考勤名单：前 5 个 + 还有 N 人
+ok 17 - 缺考勤名单：前 5 个 + 还有 N 人
+  ---
+  duration_ms: 0.116786
+  type: 'test'
+  ...
+# Subtest: 我的薪资：发放状态与明细项分组
+ok 18 - 我的薪资：发放状态与明细项分组
+  ---
+  duration_ms: 0.175116
+  type: 'test'
+  ...
+# Subtest: 我的薪资查询串：include_pending 只在为真时才发
+ok 19 - 我的薪资查询串：include_pending 只在为真时才发
+  ---
+  duration_ms: 0.110661
+  type: 'test'
+  ...
+# Subtest: 详情深链与列字典
+ok 20 - 详情深链与列字典
+  ---
+  duration_ms: 0.101869
+  type: 'test'
+  ...
+# Subtest: API 层：四条路径写全 /api，试算与建单各走一条
+ok 21 - API 层：四条路径写全 /api，试算与建单各走一条
+  ---
+  duration_ms: 0.088745
+  type: 'test'
+  ...
+# Subtest: 页面：两个 tab 按权限显隐，四条接口都真接了
+ok 22 - 页面：两个 tab 按权限显隐，四条接口都真接了
+  ---
+  duration_ms: 0.25382
+  type: 'test'
+  ...
+# Subtest: 路由：注册了 /business/hr/salary，component 与 sys_menu.component 同指一个视图
+ok 23 - 路由：注册了 /business/hr/salary，component 与 sys_menu.component 同指一个视图
+  ---
+  duration_ms: 0.147909
+  type: 'test'
+  ...
+1..23
+# tests 23
+# suites 0
+# pass 23
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 151.937108

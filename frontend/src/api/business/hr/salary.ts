@@ -1,19 +1,25 @@
 /**
- * 薪资单详情页 API 层（ARCH-9 §5.2 #37/#38/#41/#42/#43/#44/#45 · §6.2.5 · HR-43）。
+ * 薪资单 API 层（ARCH-9 §5.2 #36/#37/#38/#39/#40/#41/#42/#43/#44/#45/#46 · §6.2.5）。
  *
- * 后端：`salary_sheet_handler.rs`（HR-36 / HR-37 / HR-39 / HR-40）与 `salary_export.rs`（HR-42）。
- * 出参契约、状态词表、动作矩阵、凭证卡纯逻辑在 `./salary-kinds.ts`（可单测），本文件
+ * 后端：`salary_sheet_handler.rs`（HR-36 / HR-37 / HR-39 / HR-40）、
+ * `salary_export.rs`（HR-42）、`self_service_handler.rs`（HR-41 的 `/salary/my`）。
+ * 出参契约、状态词表、动作矩阵、凭证卡、列表筛选/试算报文等纯逻辑在
+ * `./salary-kinds.ts` 与 `./salary-list-kinds.ts`（都可单测），本文件
  * `export *` 出来 —— 页面只认 `@/api/business/hr/salary` 一个入口。
  *
  * | # | 方法 | 路径（后端注解不含 `/api`） | 权限码 | 页面用在哪 |
  * |:--:|---|---|---|---|
+ * | 36 | GET  | `/business/hr/salary/page` | `salary:list` | 列表页「薪资单」tab |
  * | 37 | GET  | `/business/hr/salary/{id}` | `salary:detail` | 单头卡 + 汇总卡 + 凭证卡 |
  * | 38 | GET  | `/business/hr/salary/{id}/detail/page` | `salary:detail` | 明细表（`with_items=true` 带出展开项） |
+ * | 39 | POST | `/business/hr/salary/calc` | `salary:calc` | 列表页「试算」（`dry_run=true`，不落库） |
+ * | 40 | POST | `/business/hr/salary` | `salary:calc` | 列表页「建单并保存」（`dry_run=false`） |
  * | 41 | PUT  | `/business/hr/salary/{id}/detail/{detail_id}` | `salary:calc` | 展开行里「改金额」 |
  * | 42 | POST | `/business/hr/salary/{id}/submit` | `salary:submit` | 操作栏「提交审批」 |
  * | 43 | POST | `/business/hr/salary/{id}/post` | `salary:post` | 操作栏「过账」 |
  * | 44 | POST | `/business/hr/salary/{id}/reverse` | `salary:reverse` | 操作栏「红冲」 |
- * | 45 | GET  | `/business/hr/salary/{id}/export` | `salary:export` | 操作栏「导出工资表」 |
+ * | 45 | GET  | `/business/hr/salary/{id}/export` | `salary:export` | 操作栏 / 列表行「导出工资表」 |
+ * | 46 | GET  | `/business/hr/salary/my` | `salary:my` | 列表页「我的薪资」tab（员工自助） |
  *
  * # 路径必须写全 `/api`
  *
@@ -29,6 +35,11 @@
  *    但不要传 `body: undefined` 之外的东西 —— 传了 `dry_run` 之类会被当成越权参数。
  * 3. **改金额的 `items` 是「编码 + 新金额」**：金额传字符串（`"1200.00"`）避免 JS 浮点把
  *    `0.1+0.2` 那类误差带进 `Decimal`；后端 `rust_decimal` 按字符串精确解析。
+ *
+ * # 试算 / 建单的 `dry_run` 不许手写
+ *
+ * 两条接口收**同一形状**的报文，后端 `parse_calc_req` 会拿 `dry_run` 与接口身份对拍
+ * （试算收 `false` 直接 400）。所以报文一律由 `buildCalcPayload(form, mode)` 生成。
  */
 
 import service, { get, post, put, type PageData } from '@/api/request';
@@ -42,13 +53,42 @@ import type {
   SalarySheetSummary,
 } from './salary-kinds';
 import { buildDetailQuery } from './salary-kinds';
+import type { MySalaryRow, SalaryCalcResult, SalarySheetRow } from './salary-list-kinds';
 
 export * from './salary-kinds';
+export * from './salary-list-kinds';
 
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/hr';
 
 // ==================== 读 ====================
+
+/**
+ * 薪资单列表（`GET /salary/page`，#36）。
+ *
+ * 查询串由 `buildListQuery(filter, page, pageSize)` 生成：空筛选不发空参数
+ * （`status=` 会被后端当成「传了但不在白名单」→ 400），页码 / 条数按后端
+ * `normalize_page` 同口径兜底。
+ *
+ * 回的是**单头卡**（`SalarySheetCardRes`，一单一行的摘要）：行里带
+ * 人数 / 四个合计 / 两张凭证号，列表页不用再逐单打详情（N+1）。
+ */
+export function fetchSalarySheetPage(
+  query: Record<string, unknown>,
+): Promise<PageData<SalarySheetRow>> {
+  return get<PageData<SalarySheetRow>>(`${BASE}/salary/page`, query);
+}
+
+/**
+ * 我的薪资（`GET /salary/my`，#46 员工自助）。
+ *
+ * 后端按令牌解析「我是谁」，**查询串里没有身份字段**（越权请求连表达方式都没有）。
+ * 默认只出已定稿三档（`APPROVED`/`POSTED`/`REVERSED`），`include_pending=true` 追加在途；
+ * 「没绑账号 / 还没发过工资」都回 **200 + 空列表**，不是 403 —— 页面按空态文案处理。
+ */
+export function fetchMySalary(query: Record<string, unknown>): Promise<PageData<MySalaryRow>> {
+  return get<PageData<MySalaryRow>>(`${BASE}/salary/my`, query);
+}
 
 /**
  * 单头汇总（`GET /salary/{id}`，#37）。
@@ -85,6 +125,29 @@ export function fetchSalaryDetailPage(
 }
 
 // ==================== 写 ====================
+
+/**
+ * 试算（`POST /salary/calc`，#39）：算完回滚，**库里零行、单号不占**。
+ *
+ * 报文由 `buildCalcPayload(form, 'preview')` 生成（`dry_run=true`）；
+ * 后端 `preview()` 还会反向校验回执里不许带单头 —— 带了就是引擎没回滚。
+ *
+ * 回执的 `employees` 是逐人逐项结果（试算的意义就在这：先看一遍再决定建不建），
+ * `missing_attendance` 是没当期考勤的人（`工号 姓名`），页面要显著提示。
+ */
+export function previewSalarySheet(payload: Record<string, unknown>): Promise<SalaryCalcResult> {
+  return post<SalaryCalcResult>(`${BASE}/salary/calc`, payload);
+}
+
+/**
+ * 建单并落库（`POST /salary`，#40）：同一次计算的 `dry_run=false`。
+ *
+ * 落库后 `sheet` 非空（`{id, sheet_no, status}`），页面据此直接跳详情页；
+ * 拿不到单头是后端 500（`lost_sheet`），文案已写明「刷新列表确认是否已生成」。
+ */
+export function createSalarySheet(payload: Record<string, unknown>): Promise<SalaryCalcResult> {
+  return post<SalaryCalcResult>(`${BASE}/salary`, payload);
+}
 
 /**
  * 改明细里的单项金额（`PUT /salary/{id}/detail/{detail_id}`，#41）。

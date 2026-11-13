@@ -77,18 +77,18 @@ const EXPECTED: Record<
   },
   FX_REVALUATION: { path: '/business/erp/period', deepLink: 'none', sample: '2026-01', query: {} },
   // HR（ARCH-9-2 §4.6）：两张工资凭证都挂同一张薪资单（`source_no = SAL-yyyyMM-NNNN`）；
-  // 薪资页由 HR-43 落地 ⇒ 现在必须是 page-missing（返回 null，不给 404 链接）
+  // 薪资列表页由卡 t_fc256a30 落地 ⇒ `?sheet_no=` 走列表单号筛选（`filter`）
   PAYROLL_ACCRUAL: {
     path: '/business/hr/salary',
-    deepLink: 'page-missing',
+    deepLink: 'filter',
     sample: 'SAL-202611-0001',
-    query: {},
+    query: { sheet_no: 'SAL-202611-0001' },
   },
   PAYROLL_PAYMENT: {
     path: '/business/hr/salary',
-    deepLink: 'page-missing',
+    deepLink: 'filter',
     sample: 'SAL-202611-0001',
-    query: {},
+    query: { sheet_no: 'SAL-202611-0001' },
   },
 };
 
@@ -206,16 +206,21 @@ test('deepLink 语义：none 不塞参数；detail 一定塞参数（含成本�
   assert.deepEqual(resolveSourceRoute('COST_PERIOD', ID, 'CS-202611-0001')?.query, {
     batch_no: 'CS-202611-0001',
   });
-  // page-missing 只允许「目标页确实还没注册」的 HR 两个工资来源（薪资页由 HR-43 落地）。
-  // 再加新行时本断言会红 —— 提醒你同时补「未注册路由」的反向检查（下一条用例）。
+  // page-missing 只能出现在「目标页确实还没注册」的来源上 —— 卡 t_fc256a30 落地薪资列表页后
+  // 这条名单已清空（最后两行 PAYROLL_* 改成了 `filter`）。再加新行时本断言会红 ——
+  // 提醒你同时补「未注册路由」的反向检查（下一条用例）。
   const pageMissingKeys = (Object.keys(SOURCE_ROUTE_TABLE) as Array<keyof typeof SOURCE_ROUTE_TABLE>)
     .filter((key) => SOURCE_ROUTE_TABLE[key].deepLink === 'page-missing')
     .sort();
   assert.deepEqual(
     pageMissingKeys,
-    ['PAYROLL_ACCRUAL', 'PAYROLL_PAYMENT'],
+    [],
     'page-missing 名单变了：确认新目标页是否真的未注册，并同步本期望',
   );
+  // HR 两张工资凭证现在落到列表页的单号筛选（页面真读 `?sheet_no=`）
+  assert.deepEqual(resolveSourceRoute('PAYROLL_ACCRUAL', ID, 'SAL-202611-0001')?.query, {
+    sheet_no: 'SAL-202611-0001',
+  });
   assert.equal(resolveSourceRoute('COST_PERIOD', ID, null), null);
 });
 

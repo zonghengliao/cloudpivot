@@ -1,0 +1,17 @@
+
+running 1 test
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... 测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router' (880735) panicked at src/system/menu/tests.rs:521:5:
+以下菜单前端未注册路由，点进去必然 404：
+薪资管理 (/business/hr/salary, component=Some("business/hr/salary/index"))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5541 filtered out; finished in 0.22s
+

@@ -39,8 +39,8 @@
  * - `filter` —— 页面只把它当筛选条件（`out_no` 走列表 keyword）；
  * - `none` —— 页面还没读这个参数，`resolveSourceRoute` **不往 query 里塞值**
  *   （塞了就是个静默无效的假参数），只返回列表页路径；
- * - `page-missing` —— 目标页连路由都还没注册（**当前有 2 个**：`PAYROLL_ACCRUAL` /
- *   `PAYROLL_PAYMENT` 指向的薪资页由 HR-43 落地），
+ * - `page-missing` —— 目标页连路由都还没注册（**当前无成员**：最后两个 `PAYROLL_ACCRUAL` /
+ *   `PAYROLL_PAYMENT` 指向的薪资列表页已由卡 t_fc256a30 落地，改成了 `filter`），
  *   这种情况下 `resolveSourceRoute` 返回 `null` —— **宁可不给链接，不给 404 链接**。
  *
  * 页面补深链后，把对应行的 `deepLink` 从 `none` 改成 `filter`/`detail` 即可，
@@ -308,18 +308,18 @@ export const SOURCE_ROUTE_TABLE = {
     path: '/business/hr/salary',
     by: 'no',
     queryKey: 'sheet_no',
-    deepLink: 'page-missing',
+    deepLink: 'filter',
     label: '薪资单（工资计提）',
-    note: '薪资页（HR-43）还没上线 ⇒ 不给链接（不给 404），渲染纯文本 + 原因',
+    note: '薪资列表页读 `?sheet_no=` 当单号筛选并高亮（卡 t_fc256a30 落地，2026-11-13）',
   },
   /** 同一次过账的**发放**凭证（`source_id` 相同，靠摘要 + 科目区分）。 */
   PAYROLL_PAYMENT: {
     path: '/business/hr/salary',
     by: 'no',
     queryKey: 'sheet_no',
-    deepLink: 'page-missing',
+    deepLink: 'filter',
     label: '薪资单（工资发放）',
-    note: '薪资页（HR-43）还没上线 ⇒ 不给链接（不给 404），渲染纯文本 + 原因',
+    note: '薪资列表页读 `?sheet_no=` 当单号筛选并高亮（卡 t_fc256a30 落地，2026-11-13）',
   },
 
   // ── ⑧ 额外：后端已在写、枚举还没收录 ──────────────────────────────
