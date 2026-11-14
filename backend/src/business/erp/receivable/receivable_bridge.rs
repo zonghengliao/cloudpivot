@@ -570,7 +570,7 @@ pub async fn cancel_in_tx(
 mod tests {
     use super::*;
     use crate::business::erp::receivable::STATUS_OPEN;
-    use crate::business::erp::shipment_handler::{self, ShipmentStatusReq};
+    use crate::business::erp::shipment::shipment_handler::{self, ShipmentStatusReq};
     use crate::business::erp::stockin::stockin_model;
     use crate::business::erp::stockout::stockout_base::{OUT_TYPE_OTHER, SOURCE_TYPE_SALES};
     use crate::business::shared::state_machine;

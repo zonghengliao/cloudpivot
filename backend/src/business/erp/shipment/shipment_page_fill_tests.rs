@@ -32,8 +32,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::shipment_handler::{self, ShipmentFilter};
-use crate::business::erp::shipment_model;
+use crate::business::erp::shipment::shipment_handler::{self, ShipmentFilter};
+use crate::business::erp::shipment::shipment_model;
 
 // ==================== 夹具常量（本模块独占的命名空间） ====================
 

@@ -49,7 +49,7 @@ use crate::business::erp::purchase::purchase_return_dto;
 use crate::business::erp::purchase::purchase_return_model;
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::sales::sales_return_model;
-use crate::business::erp::shipment_model;
+use crate::business::erp::shipment::shipment_model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
     self, OrderMetaField, ReturnContext, ReturnContextArgs, ReturnDocKind, ReturnItem, format_money, format_quantity,

@@ -43,7 +43,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::sales::sales_order_model;
-use crate::business::erp::shipment_model::{self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow};
+use crate::business::erp::shipment::shipment_model::{
+    self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow,
+};
 use crate::business::erp::stockout::stockout_base::{
     NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals,
 };
@@ -530,7 +532,7 @@ mod tests {
     // 覆盖卡面四项验收：正常发货（全发→OUTBOUND）/ 部分发货（→PARTIAL_OUT→再次发货→OUTBOUND）/
     // 库存不足（409，账一分不动）/ 重复过账（幂等，只扣一次）；另加一条「后置失败整笔回滚」。
 
-    use crate::business::erp::shipment_handler::{self, ShipmentStatusReq};
+    use crate::business::erp::shipment::shipment_handler::{self, ShipmentStatusReq};
     use crate::business::erp::stockin::stockin_model;
 
     /// 真库用例必须串行（共用全局 `db()` 与同一批 `SO10T-` 夹具）。

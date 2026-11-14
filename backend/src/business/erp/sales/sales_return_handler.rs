@@ -62,7 +62,7 @@ use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::sales::sales_return_model::{
     self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow,
 };
-use crate::business::erp::shipment_model;
+use crate::business::erp::shipment::shipment_model;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;

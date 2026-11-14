@@ -70,8 +70,8 @@
 //! | [`reminder_stock`] | ④ 低库存：`qty < safety_stock`（DC-12 摆设字段落地）→ 仓管主管 | **ARCH-3 R-P1-2** |
 //! | [`customer_model`] | 客户档案数据层（V0260）：`ACTIVE`/`FROZEN` 域、软删后编码可复用、分页 | **SO-01/SO-02** |
 //! | [`sales::sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
-//! | [`shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
-//! | [`shipment_posting`] | 发货过账的库存效果（V0285）：销售出库单（`source_type=SALES`）→ `inventory_writer` 三账负向 → `delivered_qty` → 订单 `PARTIAL_OUT`/`OUTBOUND`，**同一事务** | **SO-10** |
+//! | [`shipment::shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
+//! | [`shipment::shipment_posting`] | 发货过账的库存效果（V0285）：销售出库单（`source_type=SALES`）→ `inventory_writer` 三账负向 → `delivered_qty` → 订单 `PARTIAL_OUT`/`OUTBOUND`，**同一事务** | **SO-10** |
 //! | [`receivable`] | 应收单写侧（V0287）：手工挂账（`AR-yyyyMMdd-000001` / MANUAL 来源）+ 坏账核销（`WRITTEN_OFF` + 必须给原因） | **SO-13** |
 //! | [`receivable::receivable_query`] | 应收查询：分页 + 详情（含客户名 / 关联凭证号），只读 | **SO-13** |
 //! | [`receivable::receivable_aging`] | 应收账款**账龄分析**：分档与 `payable_aging` **同源**（同一份 BUCKETS / bucket_of / bucket_case_sql） | **SO-13** |
@@ -192,9 +192,7 @@ pub mod seq;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
-pub mod shipment_handler;
-pub mod shipment_model;
-pub mod shipment_posting;
+pub mod shipment;
 pub mod statement;
 /// 收货入库单 / 出库单 PDF 导出（PDF-03）：批次号 / 库位 / 来源单据号 / 序列号。
 pub mod stock_pdf;
@@ -232,10 +230,6 @@ mod cancel_cascade_tests;
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod aux_tests;
-
-/// 发货单列表批量补齐（缺陷卡 t_45900ea7）：列表与详情逐字段同口径。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod shipment_page_fill_tests;
 
 /// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
 #[cfg(test)]
