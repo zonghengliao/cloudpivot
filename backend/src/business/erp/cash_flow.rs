@@ -1408,7 +1408,7 @@ fn period_error(period: &str, message: String) -> ApiError {
 }
 
 /// 在 REPEATABLE READ 快照里算报表，并把数据层错误翻成 HTTP 错误。
-/// `pub(crate)`：PDF-07（[`crate::business::erp::report_pdf`]）复用同一快照与错误码。
+/// `pub(crate)`：PDF-07（[`crate::business::erp::report::report_pdf`]）复用同一快照与错误码。
 pub(crate) async fn snapshot_or_error(period: &str) -> std::result::Result<CashFlowSnapshot, ApiError> {
     let tx = db()
         .begin()

@@ -120,6 +120,14 @@ use crate::business::erp::voucher::voucher_query::is_month_key;
 use crate::shared::error_code;
 use crate::utils;
 
+// ==================== 子模块（P2-22：`erp/report_*.rs` 拆入 `erp/report/`） ====================
+// 本文件是报表域的 **facade**（拆目录前叫 `erp/report.rs`），对外路径 `erp::report::*` 一字未变；
+// 下面 3 个 `report_*` 与本文件同目录，路径为 `erp::report::report_*`。
+pub mod report_item_admin;
+pub mod report_item_model;
+/// 财务报表 PDF 导出（PDF-07）：资产负债表 / 利润表 / 现金流量表。
+pub mod report_pdf;
+
 // ==================== 表名 / 常量 ====================
 
 /// 报表编码（`biz_report_item.report_code`）。
@@ -1439,7 +1447,7 @@ pub fn into_response(
 
 /// 参数校验（纯逻辑）：返回规整后的期间编码。
 ///
-/// `pub(crate)`：PDF-07 的报表导出（[`crate::business::erp::report_pdf`]）复用同一份
+/// `pub(crate)`：PDF-07 的报表导出（[`crate::business::erp::report::report_pdf`]）复用同一份
 /// 校验与同一句错误文案 —— 页面能出来的期间，PDF 也一定能出；反之亦然。
 pub(crate) fn validate_period(raw: Option<&str>) -> std::result::Result<String, ApiError> {
     let Some(text) = raw.map(str::trim).filter(|text| !text.is_empty()) else {

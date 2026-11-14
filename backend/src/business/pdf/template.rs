@@ -2888,7 +2888,7 @@ pub struct ReportHead {
 
 /// 资产负债表的一格：项目名 + 期末 + 期初（金额**已格式化**，空白项是 `-`）。
 ///
-/// 金额在 `erp::report_pdf` 里就格式化成字符串，模板只负责排版 —— 模板层
+/// 金额在 `erp::report::report_pdf` 里就格式化成字符串，模板只负责排版 —— 模板层
 /// 一旦参与数字计算，三张报表就会各自漂出不同的舍入口径（PDF-01 起的约定）。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct ReportCell {

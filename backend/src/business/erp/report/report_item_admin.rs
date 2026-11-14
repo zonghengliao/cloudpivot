@@ -15,7 +15,7 @@
 //! 报表项是否合法是**整表性质**，不是单行性质：
 //!
 //! ① `formula` 只能引用**排在自己前面**的项（求值顺序 = `sort_order`，见
-//!    [`super::report::compute`] 第 2 遍），所以改一行的排序可能让另一行的公式变成死引用；
+//!    [`super::compute`] 第 2 遍），所以改一行的排序可能让另一行的公式变成死引用；
 //! ② 公式引用了**已停用**的项时，报表会 500（`report` 只加载 `is_active = 1`）；
 //! ③ 取数模式写错（例如 `abc`）不报错，只是永远取 0 —— 用户看不出「没发生」还是「配错了」。
 //!
@@ -25,7 +25,7 @@
 //!
 //! # 为什么改完就生效
 //!
-//! 报表接口每次编制都现查 `biz_report_item`（[`super::report::load_items_of`]），
+//! 报表接口每次编制都现查 `biz_report_item`（[`super::load_items_of`]），
 //! 没有任何缓存层；`biz_report_item` 也不参与任何快照表。改完刷新报表即可看到新口径。
 //!
 //! # 权限
@@ -43,9 +43,9 @@ use serde::{Deserialize, Serialize};
 use crate::shared::error_code;
 use crate::utils;
 
-use super::income_statement as income_report;
-use super::report;
 use super::report_item_model::{self as model, AccountOption, ItemRow, ItemWrite};
+use crate::business::erp::income_statement as income_report;
+use crate::business::erp::report;
 
 /// 读权限码（与 `V0256` 的 `sys_menu.auth_code` 逐字一致）。
 pub const PERM_LIST: &str = "business:erp:report-item:list";
@@ -360,7 +360,7 @@ fn validate_pattern(pattern: &str) -> std::result::Result<(), String> {
     Ok(())
 }
 
-/// 解析计算式里的报表项引用（顺序保留）。语法与 [`super::report::eval_formula`] 同源。
+/// 解析计算式里的报表项引用（顺序保留）。语法与 [`super::eval_formula`] 同源。
 fn formula_operands(formula: &str) -> std::result::Result<Vec<String>, String> {
     let mut operands = Vec::new();
     let mut expect_operand = true;

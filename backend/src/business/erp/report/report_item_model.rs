@@ -1,7 +1,7 @@
 //! `biz_report_item`（报表项 ↔ 科目映射）的**数据访问层**。
 //!
-//! 这张表是资产负债表（[`super::report`]）与利润表（[`super::income_statement`]）共用的
-//! **唯一配置真相**：报表每次编制都从表里现读（[`super::report::load_items_of`] 按
+//! 这张表是资产负债表（[`crate::business::erp::report`]）与利润表（[`crate::business::erp::income_statement`]）共用的
+//! **唯一配置真相**：报表每次编制都从表里现读（[`crate::business::erp::report::load_items_of`] 按
 //! `report_code + is_active = 1` 过滤），所以改一行配置 = 下一次打开报表立即生效，
 //! 不存在缓存 / 快照 / 发版。
 //!
@@ -9,9 +9,9 @@
 //! 停用前置条件）全在 [`super::report_item_admin`]，因为那里才拿得到「同一张报表的全部
 //! 报表项」这一上下文（公式合法性是整表性质，不是单行性质）。
 //!
-//! # 与 `report.rs` 的分工
+//! # 与 `report/mod.rs` 的分工
 //!
-//! `report.rs::load_items_of` 是**报表计算**的读路径（只取 `is_active = 1` 且只取计算
+//! `report/mod.rs::load_items_of` 是**报表计算**的读路径（只取 `is_active = 1` 且只取计算
 //! 需要的 9 列）；本文件的 [`list_items`] 是**维护面**的读路径（含停用行、含 id / remark /
 //! updated_at / 引用者），两者互不替代：报表不该为了维护面的字段多查 4 列，维护面也不该
 //! 只看到启用行（停用行必须能改回来）。
@@ -19,7 +19,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-/// 报表项配置表（与 `report.rs::ITEM_TABLE` 同一个物理表）。
+/// 报表项配置表（与 `report/mod.rs::ITEM_TABLE` 同一个物理表）。
 pub const ITEM_TABLE: &str = "biz_report_item";
 
 /// 科目表（取数预览 / 未匹配告警用）。
