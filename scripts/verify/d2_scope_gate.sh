@@ -17,9 +17,9 @@ biz_project biz_project_member
 biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee
 biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc"
 
-MINE="$SRC/business/flow/linkage.rs $SRC/business/flow/linkage/actions.rs \
-$SRC/business/flow/linkage/engine.rs $SRC/business/flow/linkage/model.rs \
-$SRC/business/flow/linkage/spec.rs $SRC/business/flow/linkage/tests.rs \
+MINE="$SRC/business/erp/linkage.rs $SRC/business/erp/linkage/actions.rs \
+$SRC/business/erp/linkage/engine.rs $SRC/business/erp/linkage/model.rs \
+$SRC/business/erp/linkage/spec.rs $SRC/business/erp/linkage/tests.rs \
 $SRC/business/flow/mod.rs $SRC/business/task/handler.rs"
 
 fail=0
