@@ -37,14 +37,14 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::json;
 
-use crate::business::erp::budget_bridge;
-use crate::business::erp::budget_dto::{
+use crate::business::erp::budget::budget_bridge;
+use crate::business::erp::budget::budget_dto::{
     AdjustBudgetReq, BudgetDetailRes, BudgetFilter, BudgetRes, CreateBudgetReq, MappingReq, MappingRes, PeriodRes,
     ReportRes, UpdateBudgetReq, UsageRes, conflict, invalid, normalize_page, parse_uuid_text, status_label,
     validate_adjust, validate_control_mode, validate_mapping, validate_periods,
 };
-use crate::business::erp::budget_guard;
-use crate::business::erp::budget_model::{
+use crate::business::erp::budget::budget_guard;
+use crate::business::erp::budget::budget_model::{
     self, CHANGE_ADJUST, CHANGE_ORIGINAL, STATUS_ACTIVE, STATUS_DRAFT, STATUS_SUBMITTED,
 };
 use crate::business::flow::{engine, model as flow_model};
@@ -150,7 +150,7 @@ pub async fn budget_page(
 }
 
 fn budget_dto_default() -> u64 {
-    crate::business::erp::budget_dto::DEFAULT_PAGE_SIZE
+    crate::business::erp::budget::budget_dto::DEFAULT_PAGE_SIZE
 }
 
 /// 预算详情（12 月分解 + 当月已用 + 占用记录 + 版本链）。
@@ -872,8 +872,8 @@ pub async fn mapping_create(
     validate_mapping(&req)?;
     let account_id = parse_uuid_text(&req.account_id, "account_id")?;
     account_snapshot(account_id).await?;
-    let ref_id = crate::business::erp::budget_dto::parse_optional_uuid(req.ref_id.as_deref(), "ref_id")?;
-    let dept_id = crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
+    let ref_id = crate::business::erp::budget::budget_dto::parse_optional_uuid(req.ref_id.as_deref(), "ref_id")?;
+    let dept_id = crate::business::erp::budget::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
     let id = Uuid::now_v7();
     budget_model::map_insert(
         db(),
@@ -916,7 +916,7 @@ pub async fn mapping_update(
     validate_mapping(&req)?;
     let account_id = parse_uuid_text(&req.account_id, "account_id")?;
     account_snapshot(account_id).await?;
-    let dept_id = crate::business::erp::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
+    let dept_id = crate::business::erp::budget::budget_dto::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
     let affected = budget_model::map_update(
         db(),
         budget_model::MapUpdateInput {

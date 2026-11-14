@@ -257,8 +257,8 @@ fn usage_row(source_type: &str) -> UsageRow {
 /// 且必须带出 `source_id`（详情页要能跳到源单据）。
 #[test]
 fn usage_res_keeps_row_source_type() {
-    let expense = usage_row(crate::business::erp::budget_guard::SOURCE_EXPENSE);
-    let purchase = usage_row(crate::business::erp::budget_guard::SOURCE_PURCHASE);
+    let expense = usage_row(crate::business::erp::budget::budget_guard::SOURCE_EXPENSE);
+    let purchase = usage_row(crate::business::erp::budget::budget_guard::SOURCE_PURCHASE);
 
     let expense_res = UsageRes::of(&expense);
     assert_eq!(expense_res.source_type, "EXPENSE_REPORT");
@@ -286,7 +286,7 @@ fn report_res_carries_both_year_and_month_view() {
         ("2027-01".to_string(), dec("1000"), dec("0")),
         ("2027-02".to_string(), dec("1000"), dec("1500")),
     ];
-    let row = crate::business::erp::budget_model::ReportRow {
+    let row = crate::business::erp::budget::budget_model::ReportRow {
         budget_id: Uuid::now_v7(),
         fiscal_year: 2027,
         dept_id: Uuid::now_v7(),
@@ -298,11 +298,11 @@ fn report_res_carries_both_year_and_month_view() {
         occupied: Decimal::ZERO,
         consumed: dec("1500"),
         effective_from: Some(chrono::NaiveDate::from_ymd_opt(2026, 12, 1).expect("日期")),
-        effective: crate::business::erp::budget_guard::effective_in_year(
+        effective: crate::business::erp::budget::budget_guard::effective_in_year(
             chrono::NaiveDate::from_ymd_opt(2026, 12, 1),
             2027,
         ),
-        month: crate::business::erp::budget_model::month_summary(&months),
+        month: crate::business::erp::budget::budget_model::month_summary(&months),
         months,
     };
     let res = ReportRes::from(&row);

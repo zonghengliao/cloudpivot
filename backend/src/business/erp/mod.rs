@@ -121,11 +121,7 @@ pub mod asset_handler;
 pub mod asset_linkage;
 pub mod asset_model;
 pub mod batch;
-pub mod budget_bridge;
-pub mod budget_dto;
-pub mod budget_guard;
-pub mod budget_handler;
-pub mod budget_model;
+pub mod budget;
 pub mod cancel_cascade;
 pub mod cash_flow;
 /// 主数据编码策略（CODE-08）：`erp.master_data.allow_manual_code` 的唯一读取点 + 建单闸。

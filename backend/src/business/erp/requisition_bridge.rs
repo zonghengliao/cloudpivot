@@ -28,7 +28,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::budget_guard::{self, BudgetVerdict, ControlMode, Slot};
+use crate::business::erp::budget::budget_guard::{self, BudgetVerdict, ControlMode, Slot};
 use crate::business::erp::purchase::purchase_requisition_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::purchase::purchase_requisition_model::{self as model, BudgetSnapshot};
 use crate::business::erp::separation;
@@ -168,7 +168,7 @@ impl RequisitionBudget {
 
 /// 采购申请提交时的预算判定（**只读**，不写 usage）。
 ///
-/// 科目解析顺序见 [`crate::business::erp::budget_model::resolve_for_po`]（物料 → 物料类型
+/// 科目解析顺序见 [`crate::business::erp::budget::budget_model::resolve_for_po`]（物料 → 物料类型
 /// → 仓库 → 默认兜底）；部门取**申请部门**（申请单自己声明的部门，不是提交人部门 ——
 /// 采购代提时也要记到需求部门头上）。
 ///
@@ -202,7 +202,7 @@ pub async fn check_for_requisition(
         Some(material) => budget_guard::material_type_code_of(ex, material).await?,
         None => None,
     };
-    let resolved = crate::business::erp::budget_model::resolve_for_po(
+    let resolved = crate::business::erp::budget::budget_model::resolve_for_po(
         ex,
         Some(dept_id),
         Some(warehouse_id),

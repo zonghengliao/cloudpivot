@@ -49,7 +49,7 @@ use crate::business::erp::expense::expense_dto::{
 use crate::business::erp::expense::expense_linkage;
 use crate::business::erp::expense::expense_model::{self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow};
 use crate::business::erp::seq;
-use crate::business::erp::{budget_guard, voucher, voucher_multi};
+use crate::business::erp::{budget::budget_guard, voucher, voucher_multi};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -533,7 +533,7 @@ pub async fn detail_of(id: Uuid) -> Result<ReportDetailRes, ApiError> {
 async fn budget_warnings_of(
     row: &ReportRow,
     items: &[expense_model::ItemRow],
-) -> Vec<crate::business::erp::budget_dto::BudgetWarningRes> {
+) -> Vec<crate::business::erp::budget::budget_dto::BudgetWarningRes> {
     let mut account_ids: Vec<Uuid> = items.iter().map(|item| item.account_id).collect();
     account_ids.sort_unstable();
     account_ids.dedup();
@@ -543,7 +543,7 @@ async fn budget_warnings_of(
     match budget_guard::pending_budgets(db(), row.dept_id, fiscal_year, &account_ids, &row.period_code).await {
         Ok(pending) => budget_guard::pending_warnings(&pending, &row.period_code)
             .iter()
-            .map(crate::business::erp::budget_dto::BudgetWarningRes::from)
+            .map(crate::business::erp::budget::budget_dto::BudgetWarningRes::from)
             .collect(),
         // 提示是**附加信息**：查不到不能让详情页挂掉（控制口径在提交时已经判过）
         Err(error) => {

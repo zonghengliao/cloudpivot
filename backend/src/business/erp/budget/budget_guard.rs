@@ -17,7 +17,7 @@
 //!
 //! # `effective_from` 参与判定（FIX-2 定稿：选项 A）
 //!
-//! 预算审批通过时写 `effective_from = 审批通过次月 1 日`（[`crate::business::erp::budget_bridge::effective_from_of`]）。
+//! 预算审批通过时写 `effective_from = 审批通过次月 1 日`（[`crate::business::erp::budget::budget_bridge::effective_from_of`]）。
 //! 控制 / 占用的判定条件是 **`effective_from IS NULL OR effective_from <= 期间月末`**
 //! （[`period_end_of`]）：
 //!
@@ -1012,7 +1012,7 @@ impl PurchaseBudget {
 
 /// 采购单提交时的预算判定（**只读**，不写 usage）。
 ///
-/// 科目解析顺序见 [`crate::business::erp::budget_model::resolve_for_po`]；
+/// 科目解析顺序见 [`crate::business::erp::budget::budget_model::resolve_for_po`]；
 /// 部门取「提交人部门」快照（`voucher::user_dept_of`），结算/期间取单据日期。
 /// 解析不到科目时按 ARCH-6 §3.2.5 的口径处置：
 /// `OFF` / `WARN` → **不占用 + 告警**（映射是运维配置，配不全不该让采购停摆）；
@@ -1061,7 +1061,7 @@ pub async fn check_for_purchase(
         Some(material) => material_type_code_of(ex, material).await?,
         None => None,
     };
-    let resolved = crate::business::erp::budget_model::resolve_for_po(
+    let resolved = crate::business::erp::budget::budget_model::resolve_for_po(
         ex,
         Some(dept_id),
         Some(order.warehouse_id),

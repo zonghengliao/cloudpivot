@@ -615,12 +615,12 @@ mod db {
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
         let id = create_report(&insert).await;
         let items = expense_model::items_of(db(), id).await.expect("明细");
-        let slots = vec![crate::business::erp::budget_guard::ExpenseSlotAmount {
+        let slots = vec![crate::business::erp::budget::budget_guard::ExpenseSlotAmount {
             account_id: items[0].account_id,
             amount: items[0].with_tax_amount,
             amount_net: items[0].amount,
         }];
-        let budget = crate::business::erp::budget_guard::check_for_expense(db(), dept, "2026-11", &slots)
+        let budget = crate::business::erp::budget::budget_guard::check_for_expense(db(), dept, "2026-11", &slots)
             .await
             .expect("预算校验");
         // 三种策略都可能（取决于库里配置）：只断言「结构完整」与「不误报 BLOCK」
@@ -629,22 +629,28 @@ mod db {
             assert_eq!(budget.checks[0].amount, dec!(1200));
             if !budget.over() {
                 let tx = db().begin().await.expect("事务");
-                let written =
-                    crate::business::erp::budget_guard::occupy_for_expense(&tx, &budget, id, "EXP-T-BUDGET", None)
-                        .await
-                        .expect("写占用");
+                let written = crate::business::erp::budget::budget_guard::occupy_for_expense(
+                    &tx,
+                    &budget,
+                    id,
+                    "EXP-T-BUDGET",
+                    None,
+                )
+                .await
+                .expect("写占用");
                 tx.commit().await.expect("提交");
                 if written > 0 {
-                    let usages = crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
+                    let usages = crate::business::erp::budget::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
                         .await
                         .expect("查占用");
                     assert_eq!(usages.len(), written);
                     assert_eq!(usages[0].status, "OCCUPIED");
-                    let released = crate::business::erp::budget_guard::release(db(), "EXPENSE_REPORT", id, "REJECTED")
-                        .await
-                        .expect("释放");
+                    let released =
+                        crate::business::erp::budget::budget_guard::release(db(), "EXPENSE_REPORT", id, "REJECTED")
+                            .await
+                            .expect("释放");
                     assert_eq!(released, u64::try_from(written).unwrap());
-                    let after = crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
+                    let after = crate::business::erp::budget::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
                         .await
                         .expect("查占用");
                     assert_eq!(after[0].status, "RELEASED");
@@ -716,7 +722,7 @@ mod db {
         let dept = any_dept().await;
         let user = any_user().await;
         let kind = travel_type().await;
-        use crate::business::erp::budget_guard;
+        use crate::business::erp::budget::budget_guard;
         let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
         let id = create_report(&insert).await;
         let items = expense_model::items_of(db(), id).await.expect("明细");

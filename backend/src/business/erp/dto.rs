@@ -2565,7 +2565,7 @@ pub struct PurchaseOrderRes {
     /// **只在详情回填**（`From<&Row>` 给空）：列表页不为每行跑一遍预算映射查询。
     /// 空数组不序列化，前端老版本拿到的是「没有这个字段」，不会被打断。
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub budget_warnings: Vec<crate::business::erp::budget_dto::BudgetWarningRes>,
+    pub budget_warnings: Vec<crate::business::erp::budget::budget_dto::BudgetWarningRes>,
 }
 
 impl From<&PurchaseOrderRow> for PurchaseOrderRes {

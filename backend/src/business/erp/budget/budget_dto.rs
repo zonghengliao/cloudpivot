@@ -25,8 +25,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::budget_guard::{BudgetVerdict, ControlMode, UsageRow};
-use crate::business::erp::budget_model::{self, BudgetRow, MapRow, PeriodRow, ReportRow};
+use crate::business::erp::budget::budget_guard::{BudgetVerdict, ControlMode, UsageRow};
+use crate::business::erp::budget::budget_model::{self, BudgetRow, MapRow, PeriodRow, ReportRow};
 use crate::business::erp::dto::MATERIAL_TYPES;
 use crate::shared::error_code;
 
@@ -486,8 +486,8 @@ impl UsageRes {
 /// 占用来源的中文名（未知来源原样回显，不吞掉）。
 pub fn source_type_label(source_type: &str) -> &str {
     match source_type {
-        crate::business::erp::budget_guard::SOURCE_EXPENSE => "费用报销单",
-        crate::business::erp::budget_guard::SOURCE_PURCHASE => "采购订单",
+        crate::business::erp::budget::budget_guard::SOURCE_EXPENSE => "费用报销单",
+        crate::business::erp::budget::budget_guard::SOURCE_PURCHASE => "采购订单",
         other => other,
     }
 }
@@ -513,8 +513,8 @@ pub struct BudgetWarningRes {
     pub message: String,
 }
 
-impl From<&crate::business::erp::budget_guard::BudgetWarning> for BudgetWarningRes {
-    fn from(warning: &crate::business::erp::budget_guard::BudgetWarning) -> Self {
+impl From<&crate::business::erp::budget::budget_guard::BudgetWarning> for BudgetWarningRes {
+    fn from(warning: &crate::business::erp::budget::budget_guard::BudgetWarning) -> Self {
         Self {
             code: warning.code.clone(),
             account_id: warning.account_id.to_string(),

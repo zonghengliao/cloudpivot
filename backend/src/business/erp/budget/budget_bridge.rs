@@ -30,7 +30,7 @@ use nik::prelude::chrono::{Datelike, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::budget_model::{self, STATUS_ACTIVE, STATUS_DRAFT, STATUS_SUBMITTED};
+use crate::business::erp::budget::budget_model::{self, STATUS_ACTIVE, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
 use crate::business::shared::state_machine;

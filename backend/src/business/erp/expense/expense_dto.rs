@@ -685,7 +685,7 @@ pub struct ReportDetailRes {
     /// 预算占用。
     pub budget_usages: Vec<UsageRes>,
     /// 预算尚未生效的提示（FIX-2：DRAFT / 审批中 / 未到生效日），前端标黄、不阻断。
-    pub budget_warnings: Vec<crate::business::erp::budget_dto::BudgetWarningRes>,
+    pub budget_warnings: Vec<crate::business::erp::budget::budget_dto::BudgetWarningRes>,
     /// 金额分级（当前档位中文，便于详情页提示「还要几道审批」）。
     pub tier_label: String,
 }

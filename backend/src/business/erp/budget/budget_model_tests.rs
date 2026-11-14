@@ -144,7 +144,7 @@ fn month_summary_without_breakdown_is_empty() {
 /// 只要 gate 说「已超」，提交侧就一定判超支（本次金额 > 0）。
 #[test]
 fn month_summary_agrees_with_guard_month_gate() {
-    use crate::business::erp::budget_guard::{BudgetVerdict, ControlMode, MonthGate};
+    use crate::business::erp::budget::budget_guard::{BudgetVerdict, ControlMode, MonthGate};
     let cases = [
         ("1000", "999"),
         ("1000", "1000"),
@@ -621,8 +621,8 @@ mod db {
     fn budget_page_sql(q: &BudgetFilter) -> (String, Vec<Value>) {
         let mut params: Vec<Value> = Vec::new();
         let filters =
-            crate::business::erp::budget_model::budget_page_filters(q, &mut params).expect("组装预算分页过滤");
-        let mut sql = crate::business::erp::budget_model::budget_page_base_sql();
+            crate::business::erp::budget::budget_model::budget_page_filters(q, &mut params).expect("组装预算分页过滤");
+        let mut sql = crate::business::erp::budget::budget_model::budget_page_base_sql();
         sql.push_str(&filters);
         (sql, params)
     }

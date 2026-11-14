@@ -43,7 +43,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::approval_gate;
-use crate::business::erp::budget_guard;
+use crate::business::erp::budget::budget_guard;
 use crate::business::erp::contract::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
@@ -570,7 +570,7 @@ async fn approval_meta_of(order: &PurchaseOrderRes) -> crate::business::erp::doc
 /// 否则提示指向的科目和实际占用的科目会对不上。
 pub(crate) async fn budget_warnings_of(
     row: &crate::business::erp::model::PurchaseOrderRow,
-) -> Vec<crate::business::erp::budget_dto::BudgetWarningRes> {
+) -> Vec<crate::business::erp::budget::budget_dto::BudgetWarningRes> {
     // 未开预算校验（`erp.budget.enforce_on_po = false`）时整条链不参与，没有提示可给
     let Ok(check) = budget_guard::check_for_purchase(db(), row, None).await else {
         tracing::warn!(order_no = %row.order_no, "查询采购预算生效状态失败（详情提示降级为空）");
@@ -582,7 +582,7 @@ pub(crate) async fn budget_warnings_of(
     match budget_guard::pending_budgets(db(), slot.dept_id, slot.fiscal_year, &[account_id], &slot.period_code).await {
         Ok(pending) => budget_guard::pending_warnings(&pending, &slot.period_code)
             .iter()
-            .map(crate::business::erp::budget_dto::BudgetWarningRes::from)
+            .map(crate::business::erp::budget::budget_dto::BudgetWarningRes::from)
             .collect(),
         Err(error) => {
             tracing::warn!(%error, order_no = %row.order_no, "查询采购预算生效状态失败（详情提示降级为空）");

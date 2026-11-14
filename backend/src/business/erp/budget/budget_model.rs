@@ -7,7 +7,7 @@
 //!
 //! # 三条铁律（本文件不许违反，ARCH-6 本章红线）
 //!
-//! 1. **没有「已用金额」缓存列**：可用余额只有 [`crate::business::erp::budget_guard`] 的
+//! 1. **没有「已用金额」缓存列**：可用余额只有 [`crate::business::erp::budget::budget_guard`] 的
 //!    现算一条路。本文件不提供任何 `UPDATE … SET used_amount` 之类的写入口。
 //! 2. **调整 = 新增版本行**（`version_no + 1` + `supersedes_id`），旧行只改
 //!    `status` / `retired_at`，**额度、分解行一个字节都不改**。
@@ -18,7 +18,7 @@
 //! # 月度分解的尾差
 //!
 //! `Σ biz_budget_period.amount` 必须等于 `biz_budget.total_amount`（差额记 12 月）。
-//! 这是**应用层校验**（[`crate::business::erp::budget_dto::validate_periods`]）+
+//! 这是**应用层校验**（[`crate::business::erp::budget::budget_dto::validate_periods`]）+
 //! 巡检 J5 兜底，不用触发器 —— DDL 触发器会挡住「先插主表、后插 12 行」的正常流程
 //! （ARCH-6 §3.1.2）。
 
@@ -27,8 +27,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::budget_dto::BudgetFilter;
-use crate::business::erp::budget_guard::MonthGate;
+use crate::business::erp::budget::budget_dto::BudgetFilter;
+use crate::business::erp::budget::budget_guard::MonthGate;
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::scope;
 
@@ -813,7 +813,7 @@ pub async fn report(q: &BudgetFilter) -> DbResult<Vec<ReportRow>> {
         // 时点 = **该行 fiscal_year 的期末**（不是「今天」）：报表按年度看，问的是
         // 「这份预算在这一年算不算数」。用今天做时点会让 2026-11 的查询把 FY2027 的预算
         // 标成「未生效」，而 2027-02 的单据其实早就被它管着了（E2E-06 ② 的口径 bug）。
-        let effective = crate::business::erp::budget_guard::effective_in_year(effective_from, fiscal_year);
+        let effective = crate::business::erp::budget::budget_guard::effective_in_year(effective_from, fiscal_year);
         // 已用（年度）
         let usage = db()
             .query_sql(
@@ -1017,7 +1017,7 @@ pub struct MapInsertInput<'a> {
 
 /// 新建映射。
 ///
-/// 目标对先过 [`crate::business::erp::budget_dto::normalize_target`]：`MATERIAL_TYPE` /
+/// 目标对先过 [`crate::business::erp::budget::budget_dto::normalize_target`]：`MATERIAL_TYPE` /
 /// `DEFAULT` 的 `ref_id` 落库恒为 NULL（它们没有目标 id），`MATERIAL_TYPE` 的
 /// `ref_code` 归一化成大写（与唯一索引 `upper(btrim(ref_code))` 同口径）。
 pub async fn map_insert(ex: &impl SqlExecutor, input: MapInsertInput<'_>) -> DbResult<u64> {
@@ -1032,7 +1032,7 @@ pub async fn map_insert(ex: &impl SqlExecutor, input: MapInsertInput<'_>) -> DbR
         remark,
         operator,
     } = input;
-    let (ref_id, ref_code) = crate::business::erp::budget_dto::normalize_target(map_type, ref_id, ref_code);
+    let (ref_id, ref_code) = crate::business::erp::budget::budget_dto::normalize_target(map_type, ref_id, ref_code);
     ex.exec_sql(
         "INSERT INTO biz_budget_subject_map (
              id, map_type, ref_id, ref_code, account_id, dept_id, priority, status, remark,
@@ -1097,7 +1097,7 @@ pub async fn map_update(ex: &impl SqlExecutor, input: MapUpdateInput<'_>) -> DbR
         remark,
         operator,
     } = input;
-    let (_, ref_code) = crate::business::erp::budget_dto::normalize_target(map_type, None, ref_code);
+    let (_, ref_code) = crate::business::erp::budget::budget_dto::normalize_target(map_type, None, ref_code);
     ex.exec_sql(
         "UPDATE biz_budget_subject_map
             SET ref_code = NULLIF(?::text,''), account_id = ?::uuid,
