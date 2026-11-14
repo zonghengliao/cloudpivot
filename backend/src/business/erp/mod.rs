@@ -187,10 +187,8 @@ pub mod serial_handler;
 pub mod serial_model;
 pub mod shipment;
 pub mod statement;
-/// 收货入库单 / 出库单 PDF 导出（PDF-03）：批次号 / 库位 / 来源单据号 / 序列号。
-pub mod stock_pdf;
-/// 盘点单 PDF 导出（PDF-04）：**唯一**带空白手写栏的单据（实盘 / 差异 / 备注）。
-pub mod stock_take_pdf;
+/// 库存单据 PDF 域（PDF-03 / PDF-04）：入库单 / 出库单 / 盘点表导出，见 [`stock`]。
+pub mod stock;
 pub mod stockin;
 pub mod stockout;
 pub mod stocktake;

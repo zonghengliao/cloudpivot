@@ -526,11 +526,15 @@ mod tests {
             "EXPORT_CONTRACT_PDF"
         );
         assert_eq!(
-            crate::business::erp::stock_pdf::export_operation(crate::business::pdf::template::StockDocKind::StockIn),
+            crate::business::erp::stock::stock_pdf::export_operation(
+                crate::business::pdf::template::StockDocKind::StockIn
+            ),
             "EXPORT_STOCK_IN_PDF"
         );
         assert_eq!(
-            crate::business::erp::stock_pdf::export_operation(crate::business::pdf::template::StockDocKind::StockOut),
+            crate::business::erp::stock::stock_pdf::export_operation(
+                crate::business::pdf::template::StockDocKind::StockOut
+            ),
             "EXPORT_STOCK_OUT_PDF"
         );
     }
