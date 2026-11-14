@@ -2,6 +2,7 @@
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
 #   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 迁移授权段角色码
+#                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check / pnpm typecheck / pnpm typecheck:unit
 #   L2  连库与存量档（分钟级，需库）   ：闸⓪真库用例（CHECK_WITH_DB=1）/ 批次B 闸①闸②
@@ -23,6 +24,9 @@
 #   CHECK_WITH_DB_FILTER= 只跑某段真库用例
 #   ERP_INVARIANTS_GATE / BIZ_VOCAB_GATE / SNAPSHOT_AUDIT_GATE / PERM_MENU_GATE / ORPHAN_BTN_GATE / ROLE_CODE_GATE
 #                         = block（默认）/ warn / off
+#   METRICS_GATE          L0 的 /metrics 自检：auto（默认，见 §「L0 · /metrics 自检」）/ block / warn / off
+#   SKIP_METRICS_CHECK=1  等价于 METRICS_GATE=off（卡面要求的逃生门：本机没起服务时别挡路）
+#   METRICS_URL           直接指定完整地址（默认按 NIK_SERVER_LISTEN / env 文件 / config.toml 推出来）
 #
 # 说明：本脚本的退出码 = 「本次所跑层里任一检查失败」。批次B 闸② 是**故意**会在当前树上报错的
 #       —— 它度量的是「还没接入数据权限的存量查询」，见 docs/批次B-DDL.md §6 与
@@ -97,6 +101,8 @@ plan_all() {
         plan L0 "迁移版本号跨目录全局唯一（自检 + 扫描）" "python3 scripts/lint/migration_version_unique.py --selftest && python3 scripts/lint/migration_version_unique.py --root ."
         plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
+        plan L0 "/metrics 端点存活 + cloudpivot_ 指标非空" "bash scripts/verify/metrics_gate.sh ${METRICS_GATE:-auto}（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）"
+        plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
     fi
     if want L2; then
         plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
@@ -577,6 +583,22 @@ if ! python3 "$ROOT/scripts/lint/migration_version_unique.py" --root "$ROOT"; th
     echo "    且 up/down 成对、已应用的迁移不许改号（指纹校验会红）。" >&2
     exit 1
 fi
+
+# kanban assignee 必须是真实 profile
+#
+# 为什么是硬门禁：2026-11-13 建 P1 卡时把 5 张运维卡的 assignee 写成
+# `ops-developer`，舰队里没这个 profile。dispatcher 拿到卡找不到 worker
+# 就**静默跳过**（不报错、不写日志、卡保持 ready），P1-09 因此躺了 21 小时
+# 才被人工发现。这个检查能在提交阶段就拦住这类笔误。
+#
+# 145/144/CI 上没有 kanban DB → 脚本自己跳过，不会误伤。
+echo "==> kanban assignee 有效性（scripts/lint/assignee_valid.py）"
+if ! python3 "$ROOT/scripts/lint/assignee_valid.py"; then
+    echo "==> 门禁未通过：有卡的 assignee 不是舰队里真实存在的 profile（见上）。" >&2
+    echo "    dispatcher 对不存在的 assignee 是静默跳过，卡会永远躺在 ready。" >&2
+    echo "    修法：hermes kanban --board dev reassign <card-id> <真实profile>" >&2
+    exit 1
+fi
 fi
 
 # ======================================================================
@@ -1016,6 +1038,48 @@ role_code_gate() {
 
 if want L0; then
 if ! role_code_gate; then
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L0 · /metrics 自检（P1-09，卡 t_7264e6ff）
+#
+# 为什么值得进 L0：指标是运行面唯一能从外部看到的证据。P1-05 踩过的真实故障是
+# 「/metrics 虽然 200，但一条 cloudpivot_ 都没有」（业务指标从未 describe / 采样器没跑）——
+# 只看 HTTP 码发现不了，而 scripts/ops/alert_check.sh 的 ③⑥ 两项正是读这些指标。
+#
+# **判据只有一份实现**：scripts/verify/metrics_gate.sh（这里只做调度，不复制逻辑）。
+# 改判据后自证：bash scripts/verify/metrics_gate.sh --self-test（起假服务，不用真后端/库）。
+#
+# 四档开关（METRICS_GATE）：
+#   auto（默认） 本机有「部署证据」→ 真跑并阻断；没有（开发机）→ 连不上就跳过
+#   block        必须真跑，失败即红（CI / 144 / 145 / 演练用）
+#   warn         真跑但不阻断
+#   off          跳过（SKIP_METRICS_CHECK=1 等价，卡面要求的逃生门）
+#
+# 「部署证据」= CI=1 / 存在 /etc/cloudpivot*/*.env / systemd 里注册过 cloudpivot 服务。
+# 为什么不能一刀切：--fast 就是 pre-push 钩子，开发机上服务通常没起 ——
+#   一律 block ⇒「没起服务」变成「不能 push」，门禁迟早被绕过；
+#   一律 skip ⇒ 145/144 上「服务挂了」被静默放过（正是本闸要抓的）。
+#
+# 地址（显式覆盖优先，其次部署配置，最后回落框架默认）：
+#   METRICS_URL > NIK_METRICS_URL > NIK_SERVER_LISTEN(环境变量) > env 文件里的 NIK_SERVER_LISTEN
+#     > backend/config/config.toml 的 [server].listen > 8023
+# ⚠ 145 的实例监听 127.0.0.1:8033（不是 8023），靠 /etc/cloudpivot/cloudpivot-dev.env 里
+#   那一行 NIK_SERVER_LISTEN 生效；那边只 grep 该行，**不 source 整个文件**（里面有库口令）。
+# ======================================================================
+metrics_gate() {
+    local gate="$ROOT/scripts/verify/metrics_gate.sh"
+    if [ ! -f "$gate" ]; then
+        echo "  ✗ 找不到 $gate（L0 /metrics 自检需要它；与 check.sh 同版本入库）" >&2
+        return 1
+    fi
+    bash "$gate" "${METRICS_GATE:-auto}"
+}
+
+if want L0; then
+if ! metrics_gate; then
     exit 1
 fi
 fi
