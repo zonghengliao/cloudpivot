@@ -1,6 +1,6 @@
 //! 采购退货契约（P2-03）：建单 / 分页 / 提交审批 / 确认退货。
 //!
-//! 与 [`crate::business::erp::purchase_requisition_dto`] / [`crate::business::erp::purchase_dto`]
+//! 与 [`crate::business::erp::purchase::purchase_requisition_dto`] / [`crate::business::erp::purchase::purchase_dto`]
 //! 同一套约定：主键与外键一律 `String`（`nik::uuid::Uuid` 没开 serde feature）、
 //! 日期 `NaiveDate`（`YYYY-MM-DD`）、金额/数量 `Decimal`（**JSON 里是字符串**）、
 //! 状态一律大写字符串且与 DDL 的 `CHECK` 逐字一致。

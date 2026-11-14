@@ -32,7 +32,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::purchase_return_dto::{
+use crate::business::erp::purchase::purchase_return_dto::{
     ReturnFilter, ReturnItemRes, ReturnRowRes, STATUS_APPROVED, STATUS_CANCELLED, STATUS_CONFIRMED, STATUS_DRAFT,
 };
 use crate::business::erp::voucher::{self, SeqSpec};
@@ -880,7 +880,7 @@ pub fn to_row_res(row: &ReturnRow) -> ReturnRowRes {
         warehouse_name: row.warehouse_name.clone(),
         return_date: row.return_date,
         status: row.status.clone(),
-        status_label: crate::business::erp::purchase_return_dto::status_label(&row.status).to_string(),
+        status_label: crate::business::erp::purchase::purchase_return_dto::status_label(&row.status).to_string(),
         total_qty: row.total_qty,
         total_amount: row.total_amount,
         total_tax: row.total_tax,

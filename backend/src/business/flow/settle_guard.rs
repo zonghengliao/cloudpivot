@@ -2,7 +2,7 @@
 //!
 //! # 为什么需要这一层
 //!
-//! 所有审批回调（[`super::task_bridge`] 的任务 / 调拨、`erp::purchase_bridge` 采购订单、
+//! 所有审批回调（[`super::task_bridge`] 的任务 / 调拨、`erp::purchase::purchase_bridge` 采购订单、
 //! `erp::stockin::stockin_bridge` 作废 / 过账、`erp::payable_bridge` 应付作废 …）此前只做一件事：
 //! **看审批实例的结论**，然后写目标单据的状态。单据侧的「现在还能不能收这个结论」的判断
 //! 散落在各个文件里，而且**不在预期状态时一律 `debug` 静默返回 `None`**。实测事故

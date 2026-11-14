@@ -89,7 +89,7 @@ mod stockin_handler_tests_fixtures;
 /// 「建收货单 → 过账 → 推采购单状态」链路；采购单那边只有 pub 的
 /// `change_purchase_order_status` 就够（提交用例走它）。
 #[cfg(test)]
-#[path = "../purchase_linkage_db_tests.rs"]
+#[path = "../purchase/purchase_linkage_db_tests.rs"]
 mod purchase_linkage_db_tests;
 
 #[cfg(test)]

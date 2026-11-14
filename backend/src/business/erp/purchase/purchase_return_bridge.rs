@@ -19,8 +19,8 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::purchase_return_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
-use crate::business::erp::purchase_return_model as model;
+use crate::business::erp::purchase::purchase_return_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
+use crate::business::erp::purchase::purchase_return_model as model;
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::shared::error_code;

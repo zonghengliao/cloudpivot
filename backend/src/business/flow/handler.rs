@@ -1804,11 +1804,11 @@ pub async fn withdraw_instance(
     // P-FLOW-3A：也可能是「收货过账」单 → 打回草稿（账一分没动）
     crate::business::erp::stockin::stockin_bridge::on_post_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3A：也可能是「采购订单审批」单 → 打回草稿
-    crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
+    crate::business::erp::purchase::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
     // P2-02：也可能是「采购申请审批」单 → 打回草稿（可以改完重提）
     crate::business::erp::requisition_bridge::on_pr_settled(Some(instance_id), "WITHDRAWN").await;
     // P2-03：也可能是「采购退货审批」单 → 打回草稿（账一分没动，可以改完重提）
-    crate::business::erp::purchase_return_bridge::on_settled(Some(instance_id), "WITHDRAWN").await;
+    crate::business::erp::purchase::purchase_return_bridge::on_settled(Some(instance_id), "WITHDRAWN").await;
     // SO-06：也可能是「销售订单审批」单 → 打回草稿（清实例，改完可重新提交）
     crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "WITHDRAWN").await;
     // FIN-1：也可能是「预算审批」单 → 打回草稿（额度一分没生效）
@@ -1918,9 +1918,9 @@ pub async fn terminate_instance(
     //   这就是 ARCH-8 约定 11 的硬要求：**流程终止，单据不许停在 PENDING_\***。
     crate::business::erp::stockin::stockin_bridge::on_cancel_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::stockin::stockin_bridge::on_post_settled(Some(instance_id), "CANCELLED").await;
-    crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::purchase::purchase_bridge::on_po_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::requisition_bridge::on_pr_settled(Some(instance_id), "CANCELLED").await;
-    crate::business::erp::purchase_return_bridge::on_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::purchase::purchase_return_bridge::on_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::sales_approval_bridge::on_so_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::budget_bridge::on_budget_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::asset_bridge::on_disposal_settled(Some(instance_id), "CANCELLED").await;
@@ -1983,7 +1983,7 @@ pub async fn approve_task(
     // 判据只认 `biz_payment.create_by`（与实例发起人），与本业务无关的待办零影响。
     crate::business::erp::payable_bridge::guard_self_approval(task_id, operator).await?;
     // ★ P-FLOW-3A 内控闸：采购订单审批 / 收货过账审批同款（制单人 ≠ 审批人）。
-    crate::business::erp::purchase_bridge::guard_self_approval(task_id, operator).await?;
+    crate::business::erp::purchase::purchase_bridge::guard_self_approval(task_id, operator).await?;
     crate::business::erp::stockin::stockin_bridge::guard_self_approval(task_id, operator).await?;
     // ★ P-FLOW-3B 内控闸：凭证红冲同款（制单人 ≠ 审批人）。
     //   应付作废走 payable_bridge::guard_self_approval（内部按 biz_type 分流）。
@@ -2011,7 +2011,7 @@ pub async fn approve_task(
     // P2-02：采购申请 —— 制单人 / 发起人不能批自己的申请（403 + 65019）
     crate::business::erp::requisition_bridge::guard_self_approval(task_id, operator).await?;
     // P2-03：采购退货 —— 制单人 / 发起人不能批自己的退货（403 + 65019）
-    crate::business::erp::purchase_return_bridge::guard_self_approval(task_id, operator).await?;
+    crate::business::erp::purchase::purchase_return_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move { engine::approve(&tx, task_id, operator, comment.as_deref()).await })
         .await
@@ -2036,11 +2036,11 @@ pub async fn approve_task(
     // P-FLOW-3A：也可能是「收货过账」发起的 —— 通过才过账（库存/凭证/应付一起动）
     crate::business::erp::stockin::stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3A：也可能是「采购订单审批」发起的 —— 通过则 APPROVED（可收货），驳回则打回草稿
-    crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::purchase::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
     // P2-02：也可能是「采购申请审批」发起的 —— 通过则 APPROVED（可转采购订单），驳回则打回草稿
     crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status).await;
     // P2-03：也可能是「采购退货审批」发起的 —— 通过则 APPROVED（可确认退货），驳回则打回草稿
-    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::purchase::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status).await;
     // SO-06：也可能是「销售订单审批」发起的 —— 通过则 APPROVED（可出库），驳回则打回草稿
     crate::business::erp::sales_approval_bridge::on_so_settled(out.instance_id, &out.instance_status).await;
     // FIN-1（ARCH-6 §3.3）：也可能是「预算审批」发起的 —— 通过则 ACTIVE（同槽旧版 SUPERSEDED）
@@ -2132,11 +2132,11 @@ pub async fn reject_task(
     // P-FLOW-3A：收货过账被驳回 → 单据打回草稿（六本账一动没动）
     crate::business::erp::stockin::stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3A：采购订单审批被驳回 → 打回草稿 + 审批意见写 remark
-    crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::purchase::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
     // P2-02：采购申请审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::requisition_bridge::on_pr_settled(out.instance_id, &out.instance_status).await;
     // P2-03：采购退货审批被驳回 → 打回草稿 + 审批意见写 remark
-    crate::business::erp::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::purchase::purchase_return_bridge::on_settled(out.instance_id, &out.instance_status).await;
     // SO-06：销售订单审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::sales_approval_bridge::on_so_settled(out.instance_id, &out.instance_status).await;
     // FIN-1：预算审批被驳回 / 撤回 → 打回草稿（额度一分没生效）

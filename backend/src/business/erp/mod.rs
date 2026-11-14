@@ -9,10 +9,10 @@
 //! | [`transfer::transfer_dto`] | 调拨单出入参契约（建单 / 改单 / 状态流转 / 详情 / 序列号分组） | **W3b** |
 //! | [`transfer::transfer_handler`] | 调拨单 7 个接口：CRUD + 状态流转 + 审批发起/回调 | **W3b** |
 //! | [`transfer::transfer_overdue`] | 在途超期扫描与告警（每小时；阈值走 `sys_config`，默认 7 天） | **LNK-F12** |
-//! | [`purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
-//! | [`purchase_credit`] | 供应商信用额度**现算**守卫（提交时点快照 + 强制审批） | **ARCH-3 P2-2** |
-//! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
-//! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 + **提交审批**（3A） | **P2-A2 / P-FLOW-3A** |
+//! | [`purchase::purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
+//! | [`purchase::purchase_credit`] | 供应商信用额度**现算**守卫（提交时点快照 + 强制审批） | **ARCH-3 P2-2** |
+//! | [`purchase::purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
+//! | [`purchase::purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 + **提交审批**（3A） | **P2-A2 / P-FLOW-3A** |
 //! | [`stockin::stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
 //! | [`stockin::stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
 //! | [`stockin::stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
@@ -24,7 +24,7 @@
 //! | [`stocktake_dto`] | 盘点单契约：建单（账面数服务端快照）/ 填实盘 / 提交审批 / 过账 / 作废 / 详情 / 分页 | **ARCH-3 P1** |
 //! | [`stocktake_handler`] | 盘点单 6 个接口 + 过账 / 作废事务编排 + 审批发起（`stock_take_post`） | **ARCH-3 P1** |
 //! | [`stocktake_bridge`] | 盘点**审批**的业务回调（驳回 → 回草稿）+ 内控闸 + 反向兜底 | **ARCH-3 P1** |
-//! | [`purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
+//! | [`purchase::purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
 //! | [`voucher_query`] | 凭证查询：分页 + 详情（含全部分录），只读 | **P2-D1** |
@@ -225,19 +225,7 @@ pub mod price_inquiry_dto;
 pub mod price_inquiry_handler;
 pub mod price_inquiry_model;
 pub mod price_model;
-pub mod purchase_bridge;
-pub mod purchase_credit;
-pub mod purchase_dto;
-pub mod purchase_handler;
-pub mod purchase_model;
-pub mod purchase_requisition_dto;
-pub mod purchase_requisition_handler;
-pub mod purchase_requisition_model;
-pub mod purchase_return_bridge;
-pub mod purchase_return_dto;
-pub mod purchase_return_handler;
-pub mod purchase_return_model;
-pub mod purchase_return_posting;
+pub mod purchase;
 pub mod receipt;
 pub mod receipt_refund;
 pub mod receipt_refund_bridge;

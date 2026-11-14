@@ -236,7 +236,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
     }
     // 供应商名：读 `supplier_id` 快照关联主数据取名（**不 JOIN 采购单**，R3-a 列表口径冻结）
     if let Some(supplier_id) = row.supplier_id {
-        let names = crate::business::erp::purchase_model::supplier_names_of(&[supplier_id])
+        let names = crate::business::erp::purchase::purchase_model::supplier_names_of(&[supplier_id])
             .await
             .map_err(|error| utils::db_error(error, "查询供应商名称"))?;
         header.supplier_name = names.get(&supplier_id).cloned();

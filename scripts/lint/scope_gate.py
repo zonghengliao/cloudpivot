@@ -123,7 +123,7 @@ business/erp/period_linkage_tests.rs
 business/erp/period_remind_tests.rs
 business/erp/period_test_support.rs
 business/erp/pflow3b_tests.rs
-business/erp/purchase_linkage_db_tests.rs
+business/erp/purchase/purchase_linkage_db_tests.rs
 business/erp/reminder_tests.rs
 business/erp/shipment_page_fill_tests.rs
 business/erp/stockin/stockin_handler_tests_a4.rs

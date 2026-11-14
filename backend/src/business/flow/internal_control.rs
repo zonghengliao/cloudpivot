@@ -44,7 +44,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::{payable_bridge, purchase_bridge, stockin::stockin_bridge};
+use crate::business::erp::{payable_bridge, purchase::purchase_bridge, stockin::stockin_bridge};
 use crate::business::flow::assignee::Candidate;
 use crate::business::flow::model as flow_model;
 
@@ -136,9 +136,9 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         let creator = crate::business::erp::requisition_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
-    } else if biz_type == crate::business::erp::purchase_return_bridge::BIZ_TYPE {
+    } else if biz_type == crate::business::erp::purchase::purchase_return_bridge::BIZ_TYPE {
         // P2-03：采购退货的 `biz_id` 是**退货单 id**（制单人不能批自己的退货）
-        let creator = crate::business::erp::purchase_return_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::purchase::purchase_return_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == stockin_bridge::POST_BIZ_TYPE || biz_type == stockin_bridge::BIZ_TYPE {
@@ -1228,7 +1228,7 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
 
         // ① 事务前的内控闸（handler 的入口）对当事人一律 403
         let creator_task = sc.task_id_of(creator).await;
-        let error = crate::business::erp::purchase_bridge::guard_self_approval(creator_task, creator)
+        let error = crate::business::erp::purchase::purchase_bridge::guard_self_approval(creator_task, creator)
             .await
             .expect_err("制单人必须被拦");
         assert_eq!(error.status, 403);
@@ -1236,14 +1236,14 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         assert!(error.msg.contains("不能审批自己提交的采购订单"), "{}", error.msg);
 
         let initiator_task = sc.task_id_of(initiator).await;
-        let error = crate::business::erp::purchase_bridge::guard_self_approval(initiator_task, initiator)
+        let error = crate::business::erp::purchase::purchase_bridge::guard_self_approval(initiator_task, initiator)
             .await
             .expect_err("发起人必须被拦");
         assert_eq!(error.status, 403);
 
         // ② 与内控无关的审批人：闸放行
         let keeper_task = sc.task_id_of(a).await;
-        crate::business::erp::purchase_bridge::guard_self_approval(keeper_task, a)
+        crate::business::erp::purchase::purchase_bridge::guard_self_approval(keeper_task, a)
             .await
             .expect("非当事人不该被内控闸拦");
 

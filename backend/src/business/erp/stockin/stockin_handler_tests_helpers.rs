@@ -619,7 +619,7 @@ pub(super) async fn d4_po_status(order_id: Uuid) -> String {
 pub(super) async fn d4_ledger_received(item_id: Uuid) -> Decimal {
     let sql = format!(
         "SELECT ({}::numeric(18,4)) AS received_qty FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
-        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+        crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
     );
     db().scalar_with_params(&sql, vec![Value::from(&item_id)])
         .await

@@ -46,7 +46,9 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::model::PurchaseOrderItemRow;
-use crate::business::erp::purchase_model::{LineAmounts, PRICE_MODE_EXCL, PRICE_MODE_INCL, PRICE_MODES, unit_price};
+use crate::business::erp::purchase::purchase_model::{
+    LineAmounts, PRICE_MODE_EXCL, PRICE_MODE_INCL, PRICE_MODES, unit_price,
+};
 use crate::business::shared::doc_lines;
 use crate::shared::error_code;
 
@@ -470,7 +472,7 @@ impl PurchaseOrderItemReq {
             (excl, incl)
         };
 
-        let amounts = crate::business::erp::purchase_model::line_amounts(
+        let amounts = crate::business::erp::purchase::purchase_model::line_amounts(
             price_mode,
             qty,
             // `line_amounts` 吃的是**该口径下的录入单价**：口径 B 必须传含税单价
@@ -720,7 +722,7 @@ pub struct PendingStockInRes {
 
 impl PendingItemRes {
     /// 由数据层行构造。
-    pub fn from_line(line: &crate::business::erp::purchase_model::PendingReceiveLine) -> Self {
+    pub fn from_line(line: &crate::business::erp::purchase::purchase_model::PendingReceiveLine) -> Self {
         Self {
             item_id: line.item_id.to_string(),
             line_no: line.line_no,
@@ -742,7 +744,7 @@ impl PendingItemRes {
 
 impl PendingStockInRes {
     /// 由数据层行构造（状态标签与收货单模块同口径）。
-    pub fn from_brief(brief: &crate::business::erp::purchase_model::StockInBrief) -> Self {
+    pub fn from_brief(brief: &crate::business::erp::purchase::purchase_model::StockInBrief) -> Self {
         Self {
             id: brief.id.to_string(),
             in_no: brief.in_no.clone(),
@@ -775,7 +777,7 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::purchase_model::{LEGAL_EDGES, can_transition, line_amounts, sum_lines};
+    use crate::business::erp::purchase::purchase_model::{LEGAL_EDGES, can_transition, line_amounts, sum_lines};
     use std::str::FromStr;
 
     fn dec(text: &str) -> Decimal {
@@ -1069,10 +1071,10 @@ mod tests {
     /// ⑯ 非法流转文案要点名「当前态的可选去向」/「终态」。
     #[test]
     fn transition_message_names_allowed_targets() {
-        let message = crate::business::erp::purchase_model::transition_rejected_message("DRAFT", "CLOSED");
+        let message = crate::business::erp::purchase::purchase_model::transition_rejected_message("DRAFT", "CLOSED");
         assert!(message.contains("SUBMITTED"), "{message}");
         assert!(message.contains("CANCELLED"), "{message}");
-        let terminal = crate::business::erp::purchase_model::transition_rejected_message("CLOSED", "DRAFT");
+        let terminal = crate::business::erp::purchase::purchase_model::transition_rejected_message("CLOSED", "DRAFT");
         assert!(terminal.contains("终态"), "{terminal}");
     }
 

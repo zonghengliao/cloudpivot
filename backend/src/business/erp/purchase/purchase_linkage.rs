@@ -41,7 +41,7 @@
 // 调用方各自持有一个 outbox、提交后一次 `flush`，比给每处改返回值更不容易漏。
 // ============================================================================
 
-use crate::business::erp::purchase_model::status_label;
+use crate::business::erp::purchase::purchase_model::status_label;
 use crate::business::flow::linkage;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeTarget};

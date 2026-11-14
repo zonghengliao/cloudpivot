@@ -52,14 +52,14 @@ use nik::uuid::Uuid;
 use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::approval_gate::{self, ApprovalGate};
-use crate::business::erp::purchase_return_bridge;
-use crate::business::erp::purchase_return_dto::{
+use crate::business::erp::purchase::purchase_return_bridge;
+use crate::business::erp::purchase::purchase_return_dto::{
     self as dto, CancelReturnReq, ConfirmReturnReq, CreateReturnReq, ReturnDetailRes, ReturnPageQuery,
     ReturnableItemRes, ReturnableSourceRes, STATUS_APPROVED, STATUS_CONFIRMED, STATUS_DRAFT, STATUS_SUBMITTED,
     SubmitReturnReq,
 };
-use crate::business::erp::purchase_return_model::{self as model, NewItem, NewReturn};
-use crate::business::erp::purchase_return_posting;
+use crate::business::erp::purchase::purchase_return_model::{self as model, NewItem, NewReturn};
+use crate::business::erp::purchase::purchase_return_posting;
 use crate::business::flow::engine;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec as linkage_spec;

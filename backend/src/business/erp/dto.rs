@@ -1376,7 +1376,7 @@ pub struct CreateSupplierReq {
     /// 信用额度（`>= 0`，**`0` / 留空 = 不限额度**）。
     ///
     /// P2-2 起生效：留空落库是 `0`，采购单提交时**不校验**；填了正数则按「累计未结采购额
-    /// （含本单）」比较，超限只标记 + 强制审批（不直接拒绝），见 `erp::purchase_credit`。
+    /// （含本单）」比较，超限只标记 + 强制审批（不直接拒绝），见 `erp::purchase::purchase_credit`。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
     /// 应付科目。
@@ -2392,7 +2392,7 @@ impl PurchaseOrderFilter {
         if let Some(purchase_type) = self.purchase_type.as_deref() {
             require_one_of(
                 purchase_type,
-                &crate::business::erp::purchase_dto::PURCHASE_TYPES,
+                &crate::business::erp::purchase::purchase_dto::PURCHASE_TYPES,
                 "purchase_type",
             )?;
         }

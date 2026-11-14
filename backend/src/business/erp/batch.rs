@@ -39,9 +39,9 @@ use axum::{Extension, Json};
 use nik::prelude::*;
 
 use crate::business::erp::approval_gate;
-use crate::business::erp::purchase_dto::PurchaseOrderStatusReq;
-use crate::business::erp::purchase_handler::{change_purchase_order_status, submit_approval};
-use crate::business::erp::purchase_model::STATUS_SUBMITTED;
+use crate::business::erp::purchase::purchase_dto::PurchaseOrderStatusReq;
+use crate::business::erp::purchase::purchase_handler::{change_purchase_order_status, submit_approval};
+use crate::business::erp::purchase::purchase_model::STATUS_SUBMITTED;
 use crate::business::erp::serial_dto::SerialStatusReq;
 use crate::business::erp::serial_handler::apply_status;
 use crate::business::erp::stockin::stockin_dto::StockInStatusReq;

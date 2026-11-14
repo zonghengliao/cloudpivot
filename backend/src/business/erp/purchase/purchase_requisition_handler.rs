@@ -54,17 +54,17 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::approval_gate::{self, ApprovalGate};
-use crate::business::erp::purchase_dto::{CreatePurchaseOrderReq, PurchaseOrderItemReq};
-use crate::business::erp::purchase_handler;
-use crate::business::erp::purchase_model::{self, PRICE_MODE_EXCL};
-use crate::business::erp::purchase_requisition_dto::{
+use crate::business::erp::purchase::purchase_dto::{CreatePurchaseOrderReq, PurchaseOrderItemReq};
+use crate::business::erp::purchase::purchase_handler;
+use crate::business::erp::purchase::purchase_model::{self, PRICE_MODE_EXCL};
+use crate::business::erp::purchase::purchase_requisition_dto::{
     CreateRequisitionReq, MAX_MERGE, MergeError, MergeInput, MergedLine, MergedLineRes, REQUISITION_PERMISSIONS,
     RequisitionDetailRes, RequisitionItemRes, RequisitionPageQuery, RequisitionRowRes, STATUS_APPROVED,
     STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED, SubmitRequisitionReq, ToPoReq, ToPoRes, WarehouseError,
     check_items, check_price, check_qty, check_tax, clean_remark, line_amount, merge_by_material, parse_optional_uuid,
     parse_uuid_field, price_incl_of, resolve_merge_supplier, resolve_merge_warehouse, status_label, today_cst,
 };
-use crate::business::erp::purchase_requisition_model::{
+use crate::business::erp::purchase::purchase_requisition_model::{
     self as model, ItemRow, NewItem, NewRequisition, RequisitionRow,
 };
 use crate::business::erp::requisition_bridge;
@@ -217,7 +217,7 @@ pub async fn create_requisition(
         applicant_name,
         demand_date: req.demand_date,
         warehouse_id,
-        est_amount: crate::business::erp::purchase_requisition_dto::est_amount_of(&amount_lines),
+        est_amount: crate::business::erp::purchase::purchase_requisition_dto::est_amount_of(&amount_lines),
         remark: clean_remark(req.remark.as_deref())?,
     };
     model::create_requisition(&head, &items, operator, Utc::now())
@@ -925,7 +925,7 @@ pub async fn to_purchase_order(
 
     // 出参三段式（E2E01-FIX-4）：先把新口径的两个值算出来，再由 `ToPoRes::new`
     // 一次性 clone 出旧字段 —— 新旧字段永远同一份数据。
-    let header = crate::business::erp::purchase_requisition_dto::CreatedPurchaseOrderRes {
+    let header = crate::business::erp::purchase::purchase_requisition_dto::CreatedPurchaseOrderRes {
         po_id: po_id.to_string(),
         po_no,
         supplier_id: supplier_id.to_string(),
@@ -933,7 +933,7 @@ pub async fn to_purchase_order(
         line_count: merged.len(),
         total_with_tax,
     };
-    let items: Vec<crate::business::erp::purchase_requisition_dto::MergedLineRes> = {
+    let items: Vec<crate::business::erp::purchase::purchase_requisition_dto::MergedLineRes> = {
         // 合并结果是纯函数产物（只有 material_id），响应契约里的物料编码/名称在这里回填
         let mut materials: BTreeMap<Uuid, (String, String)> = BTreeMap::new();
         for line in &merged {

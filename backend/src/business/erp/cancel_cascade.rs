@@ -78,8 +78,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::erp::payable;
 use crate::business::erp::payable_payment;
-use crate::business::erp::purchase_bridge;
-use crate::business::erp::purchase_model;
+use crate::business::erp::purchase::purchase_bridge;
+use crate::business::erp::purchase::purchase_model;
 use crate::business::erp::stockin::stockin_cancel;
 use crate::business::erp::stockin::stockin_dto;
 use crate::business::erp::stockin::stockin_handler_cancel;
@@ -1017,7 +1017,7 @@ pub async fn cascade(
     let op = state_machine::Operator::of(operator);
     // LNK-02：联动作废会**推多次**采购单状态（逐张收货单作废都重算一次），
     // 所以用一个 outbox 收集全部待提交后动作，提交后一次 flush。
-    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
+    let mut linkage_outbox = crate::business::erp::purchase::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
@@ -1082,7 +1082,7 @@ pub(crate) async fn cascade_purchase_order_tx(
     reason: &str,
     op: &state_machine::Operator,
     now: nik::prelude::chrono::DateTime<Utc>,
-    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
+    linkage_outbox: &mut crate::business::erp::purchase::purchase_model::LinkageOutbox,
 ) -> std::result::Result<Vec<CancelCascadeStep>, ApiError> {
     let mut steps: Vec<CancelCascadeStep> = Vec::new();
     // ① 先锁采购单头（与收货过账 / 作废同一加锁顺序：采购单头 → 库存行）
@@ -1209,7 +1209,7 @@ pub(crate) async fn cascade_stock_in_tx(
     reason: &str,
     op: &state_machine::Operator,
     now: nik::prelude::chrono::DateTime<Utc>,
-    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
+    linkage_outbox: &mut crate::business::erp::purchase::purchase_model::LinkageOutbox,
 ) -> std::result::Result<Vec<CancelCascadeStep>, ApiError> {
     let locked = stockin_query::lock_stock_in(tx, id)
         .await

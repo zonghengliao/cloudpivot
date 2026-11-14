@@ -20,7 +20,7 @@ async fn d4_pending_fresh_order_equals_ordered() {
         None => return,
     };
     let (order_id, _) = d4_seed_po("100", "0").await;
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items.len(), 1);
@@ -44,7 +44,7 @@ async fn d4_pending_after_partial_receipt() {
         None => return,
     };
     let (order_id, _) = d4_seed_po_with_posted("100", "30").await;
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].received_qty, dec("30"));
@@ -61,7 +61,7 @@ async fn d4_pending_all_received_is_zero() {
     };
     let (order_id, _) = d4_seed_po_with_posted("100", "100").await;
     d4_set_po_status(order_id, "RECEIVED").await;
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].pending_qty, Decimal::ZERO);
@@ -82,7 +82,7 @@ async fn d4_pending_sums_multiple_receipts() {
     // 真账拆成两张 POSTED（30 + 20）：P2-3 起「已收」只能由已过账收货单派生
     d4_insert_posted(order_id, item_id, "30").await;
     d4_insert_posted(order_id, item_id, "20").await;
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].received_qty, dec("50"), "两张单要累加");
@@ -103,7 +103,7 @@ async fn d4_pending_ignores_draft_stock_in() {
     let mut request = req(Vec::new());
     request.source_order_id = Some(order_id.to_string());
     let draft = create_stock_in(&request, None).await.unwrap();
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].received_qty, dec("0"), "草稿不算已收");
@@ -112,7 +112,7 @@ async fn d4_pending_ignores_draft_stock_in() {
     assert!(!pending.stock_ins[0].posted, "草稿要标成未过账");
     // 过账后才算
     change_stock_in_status(draft, &post_req(), None).await.unwrap();
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].received_qty, dec("100"), "过账后才计入");
@@ -156,7 +156,7 @@ async fn d4_draft_order_cannot_receive() {
     assert!(err.msg.contains("DRAFT"), "{}", err.msg);
     assert!(err.msg.contains("不能收货"), "{}", err.msg);
     // 待收接口同样给出 false + 原因
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert!(!pending.can_receive);
@@ -273,7 +273,7 @@ async fn d4_delete_draft_does_not_change_order() {
     delete_stock_in(id, None).await.unwrap();
     assert_eq!(d4_po_status(order_id).await, "SUBMITTED", "删草稿不该动采购单");
     assert_eq!(d4_ledger_received(item_id).await, dec("0"));
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].pending_qty, dec("100"), "删草稿后待收回到满额");
@@ -303,7 +303,7 @@ async fn d4_cancel_posted_restores_pending() {
         "PARTIAL_RECEIVED",
         "已收货单作废后采购单退回部分收货（否则再也收不进来）"
     );
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items[0].received_qty, dec("0"), "作废的单不算已收");
@@ -398,7 +398,7 @@ async fn d4_received_qty_has_single_truth() {
         change_stock_in_status(id, &post_req(), None).await.unwrap();
         posted_ids.push(id);
     }
-    let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     assert_eq!(pending.items.len(), 1);
@@ -425,7 +425,7 @@ async fn d4_received_qty_has_single_truth() {
     // 作废其中一张（30 那张）→ 三条路径同步回退到 20（不是"其中一条回退了"）
     cancel(posted_ids[0], "P2-3 单真相回退验证").await;
 
-    let pending_after = crate::business::erp::purchase_handler::pending_items_of(order_id)
+    let pending_after = crate::business::erp::purchase::purchase_handler::pending_items_of(order_id)
         .await
         .unwrap();
     let items_after = crate::business::erp::model::purchase_order_items(order_id)

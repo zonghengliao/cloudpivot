@@ -45,14 +45,14 @@
 //! 不加锁：这里只做「提醒 + 强制审批」，不做「拒绝」。两个并发提交各算各的、
 //! 各带自己的快照，最坏结果是两张单都标了超限（都进了审批），**不会漏放** ——
 //! 这是策略 B 相对于策略 A（409 拒绝）的天然好处，不需要 `FOR UPDATE` 供应商行。
-//! 合同额度守卫（[`crate::business::erp::purchase_handler`] 的 `guard_contract_amount`）
+//! 合同额度守卫（[`crate::business::erp::purchase::purchase_handler`] 的 `guard_contract_amount`）
 //! 才是必须加锁的那种（它会**拒绝**，锁不到就会双花）。
 
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::model::PurchaseOrderRow;
+use super::super::model::PurchaseOrderRow;
 
 /// 提交时点的信用评估结果（纯数据，可单测）。
 #[derive(Debug, Clone, PartialEq, Eq)]

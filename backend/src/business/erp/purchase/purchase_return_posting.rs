@@ -18,7 +18,7 @@
 //!
 //! `ck_biz_payable_paid CHECK (paid_amount <= amount)` 是物理下限；而且钱已经付出去
 //! 这件事不会因为退货而消失 —— 它变成「供应商欠我们」，必须单独挂账
-//! （否则就是账外债权）。纯函数 [`crate::business::erp::purchase_return_dto::payable_after`]
+//! （否则就是账外债权）。纯函数 [`crate::business::erp::purchase::purchase_return_dto::payable_after`]
 //! 把这条口径钉死（含 3 个单测）。
 //!
 //! # 三本账只复用，不重写
@@ -50,8 +50,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::period;
-use crate::business::erp::purchase_return_dto::{self as dto, PayableAfter, STATUS_CONFIRMED};
-use crate::business::erp::purchase_return_model::{
+use crate::business::erp::purchase::purchase_return_dto::{self as dto, PayableAfter, STATUS_CONFIRMED};
+use crate::business::erp::purchase::purchase_return_model::{
     self as model, ConfirmLinks, ItemRow, NewSupplierReceivable, ReturnRow,
 };
 use crate::business::erp::stockin::stockin_base::InventorySnapshot;

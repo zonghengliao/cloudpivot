@@ -29,8 +29,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::budget_guard::{self, BudgetVerdict, ControlMode, Slot};
-use crate::business::erp::purchase_requisition_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
-use crate::business::erp::purchase_requisition_model::{self as model, BudgetSnapshot};
+use crate::business::erp::purchase::purchase_requisition_dto::{STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
+use crate::business::erp::purchase::purchase_requisition_model::{self as model, BudgetSnapshot};
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::shared::error_code;

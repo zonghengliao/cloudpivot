@@ -415,7 +415,7 @@ pub async fn post_after_approval_with_reason(
     ordered.sort_by(|a, b| (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no)));
     let now = Utc::now();
     // LNK-02：采购单状态联动（PARTIAL_RECEIVED / RECEIVED）的 outbox
-    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
+    let mut linkage_outbox = crate::business::erp::purchase::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
@@ -624,7 +624,7 @@ pub(super) async fn post_stock_in(
     let now = Utc::now();
     // LNK-02：采购单状态联动（PARTIAL_RECEIVED / RECEIVED）的 outbox ——
     // 这条边由 `sync_purchase_status` 推进，不走 `purchase_model::apply_status`。
-    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
+    let mut linkage_outbox = crate::business::erp::purchase::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await
@@ -706,7 +706,7 @@ pub(super) struct PostInTxInput<'a> {
 pub(super) async fn post_in_tx(
     ex: &impl SqlExecutor,
     input: PostInTxInput<'_>,
-    linkage_outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
+    linkage_outbox: &mut crate::business::erp::purchase::purchase_model::LinkageOutbox,
 ) -> std::result::Result<linkage::LinkageRun, ApiError> {
     let PostInTxInput {
         id,

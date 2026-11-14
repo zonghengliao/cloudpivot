@@ -48,7 +48,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::order_pdf_model::{self, ExportLog, MaterialInfo};
-use crate::business::erp::{customer_model, purchase_model, sales_order_model};
+use crate::business::erp::{customer_model, purchase::purchase_model, sales_order_model};
 use crate::business::pdf::template::{
     self, OrderContext, OrderContextArgs, OrderDocKind, OrderItem, OrderMetaField, format_money, format_quantity,
     yuan_to_fen,

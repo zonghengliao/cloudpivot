@@ -1,6 +1,6 @@
 //! 询比价契约（P2-01）：询价单建单 / 报价录入 / 定标 / 转采购订单。
 //!
-//! 与 [`crate::business::erp::purchase_dto`] 同一套约定：主键与外键一律 `String`
+//! 与 [`crate::business::erp::purchase::purchase_dto`] 同一套约定：主键与外键一律 `String`
 //! （`nik::uuid::Uuid` 没开 serde feature）、日期 `NaiveDate`（`YYYY-MM-DD`）、
 //! 金额/数量 `Decimal`（**JSON 里是字符串**）、状态一律大写字符串且与 DDL 的
 //! `CHECK` 逐字一致。

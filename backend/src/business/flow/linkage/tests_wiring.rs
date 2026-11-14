@@ -375,7 +375,7 @@ fn transfer_excluded_actions_are_routed_elsewhere() {
 /// 4. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（最坏的一种：不报错、不落账）。
 #[test]
 fn purchase_order_wires_generic_engine_and_excludes_stock_actions() {
-    let hook = include_str!("../../erp/purchase_linkage.rs");
+    let hook = include_str!("../../erp/purchase/purchase_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "采购单状态变更必须调用通用引擎（run_excluding）：否则 PURCHASE_ORDER 的联动规则配了不触发"
@@ -408,7 +408,7 @@ fn purchase_order_wires_generic_engine_and_excludes_stock_actions() {
     }
 
     // 两处状态写入点：① `apply_status`（提交 / 审批 / 关闭 / 作废）② 收货推进
-    let model = include_str!("../../erp/purchase_model.rs");
+    let model = include_str!("../../erp/purchase/purchase_model.rs");
     assert!(
         model.contains("purchase_linkage::run_in_tx("),
         "purchase_model::apply_status 必须真的调 purchase_linkage::run_in_tx\
@@ -1522,7 +1522,7 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
 /// 删 / 改名会让那条注释变成死链接。
 #[test]
 fn purchase_return_wires_generic_engine_and_excludes_accounting() {
-    let handler = include_str!("../../erp/purchase_return_handler.rs");
+    let handler = include_str!("../../erp/purchase/purchase_return_handler.rs");
     assert!(
         handler.contains("linkage::engine::run_excluding("),
         "采购退货确认必须调用通用引擎（run_excluding）：否则 PURCHASE_RETURN/CONFIRMED 的联动规则配了也不触发"

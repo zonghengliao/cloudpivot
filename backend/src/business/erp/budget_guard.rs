@@ -1055,7 +1055,7 @@ pub async fn check_for_purchase(
         });
     };
     // 物料：取明细第一行（多物料按金额占比拆是 v2 的事，ARCH-6 §3.2.5 的 ① 命中即可）
-    let items = crate::business::erp::purchase_model::items_of(order.id).await?;
+    let items = crate::business::erp::purchase::purchase_model::items_of(order.id).await?;
     let material_id = items.first().map(|item| item.material_id);
     let material_type = match material_id {
         Some(material) => material_type_code_of(ex, material).await?,

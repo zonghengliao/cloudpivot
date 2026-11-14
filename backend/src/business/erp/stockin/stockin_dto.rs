@@ -1,6 +1,6 @@
 //! 收货入库单接口契约（批次 D · P2-B1）：建单 / 改单 / 状态流转（过账）/ 详情 / 分页。
 //!
-//! 与 [`crate::business::erp::dto`] / [`crate::business::erp::purchase_dto`] 同一套约定：
+//! 与 [`crate::business::erp::dto`] / [`crate::business::erp::purchase::purchase_dto`] 同一套约定：
 //! 主键与外键一律 `String`（`nik::uuid::Uuid` 没开 serde feature）、
 //! 日期 `NaiveDate`（`YYYY-MM-DD`）、金额/数量 `Decimal`（**JSON 里是字符串**）、
 //! 状态一律大写字符串且与 DDL 的 `CHECK` 逐字一致。

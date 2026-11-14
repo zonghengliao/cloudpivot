@@ -267,7 +267,7 @@ pub const PURCHASE_ORDER_ITEM_COLUMNS: &str = "i.id, i.order_id, i.line_no, i.ma
 pub fn purchase_order_item_columns() -> String {
     format!(
         "{PURCHASE_ORDER_ITEM_COLUMNS}, ({}::numeric(18,4)) AS received_qty",
-        super::purchase_model::POSTED_RECEIVED_SQL
+        super::purchase::purchase_model::POSTED_RECEIVED_SQL
     )
 }
 

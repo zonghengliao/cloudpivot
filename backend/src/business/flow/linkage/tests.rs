@@ -832,7 +832,7 @@ async fn engine_skips_disabled_rules() {
         .scalar_sql(
             format!(
                 "SELECT ({}::numeric(18,4))::text FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
-                crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+                crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
             ),
             vec![Value::from(&fixture_item1())],
         )
@@ -896,7 +896,7 @@ async fn engine_runs_in_seq_order() {
         .scalar_sql(
             format!(
                 "SELECT ({}::numeric(18,4))::text FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
-                crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+                crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
             ),
             vec![Value::from(&fixture_item1())],
         )
@@ -954,7 +954,7 @@ async fn engine_critical_failure_rolls_back() {
             .scalar_sql(
                 format!(
                     "SELECT ({}::numeric(18,4))::text FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
-                    crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+                    crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
                 ),
                 vec![Value::from(&item)],
             )

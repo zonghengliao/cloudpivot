@@ -2235,13 +2235,13 @@ pub async fn purchase_order_page(
         .map_err(|error| utils::db_error(error, "分页查询采购订单"))?;
     let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
     // P-FLOW-3A：列表要显示「审批中（FLW-xxx）」，实例单号批量回填一次
-    crate::business::erp::purchase_handler::fill_approval_no(&mut list).await;
+    crate::business::erp::purchase::purchase_handler::fill_approval_no(&mut list).await;
     // A3：供应商名称快照优先（存量行没快照 → 主档现值兜底），**不 JOIN 合同表**
-    crate::business::erp::purchase_handler::fill_supplier_names(&mut list).await;
+    crate::business::erp::purchase::purchase_handler::fill_supplier_names(&mut list).await;
     // P2-8：所属项目名称按 id 现查（不是快照 —— 项目改名后列表跟着变）
-    crate::business::erp::purchase_handler::fill_project_names(&mut list).await;
+    crate::business::erp::purchase::purchase_handler::fill_project_names(&mut list).await;
     // P2-9：仓库名**列表读快照**（老单快照为空 → 批量现查兜底，不写库）
-    crate::business::erp::purchase_handler::fill_warehouse_names(&mut list).await;
+    crate::business::erp::purchase::purchase_handler::fill_warehouse_names(&mut list).await;
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -2259,14 +2259,14 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
         .map_err(|error| utils::db_error(error, "查询采购订单详情"))?
         .ok_or_else(|| not_found("采购订单"))?;
     let mut res = PurchaseOrderRes::from(&row);
-    crate::business::erp::purchase_handler::fill_approval_no(std::slice::from_mut(&mut res)).await;
-    crate::business::erp::purchase_handler::fill_supplier_names(std::slice::from_mut(&mut res)).await;
+    crate::business::erp::purchase::purchase_handler::fill_approval_no(std::slice::from_mut(&mut res)).await;
+    crate::business::erp::purchase::purchase_handler::fill_supplier_names(std::slice::from_mut(&mut res)).await;
     // P2-8：详情同样回填项目名（关联查现值，口径见 fill_project_names）
-    crate::business::erp::purchase_handler::fill_project_names(std::slice::from_mut(&mut res)).await;
+    crate::business::erp::purchase::purchase_handler::fill_project_names(std::slice::from_mut(&mut res)).await;
     // P2-9：详情要**现值**（仓库改名后点进来看到现在的名字），快照另行下发
-    crate::business::erp::purchase_handler::fill_warehouse_name_current(std::slice::from_mut(&mut res)).await;
+    crate::business::erp::purchase::purchase_handler::fill_warehouse_name_current(std::slice::from_mut(&mut res)).await;
     // FIX-2 ①：预算尚未生效的提示（草稿 / 审批中 / 未到生效日），只提示不阻断
-    res.budget_warnings = crate::business::erp::purchase_handler::budget_warnings_of(&row).await;
+    res.budget_warnings = crate::business::erp::purchase::purchase_handler::budget_warnings_of(&row).await;
     Ok(Res::ok(res))
 }
 

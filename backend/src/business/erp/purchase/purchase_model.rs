@@ -22,7 +22,7 @@
 //! 1. **`ck_biz_po_tax_sum` / `ck_biz_po_item_tax` 是精确恒等**（`total_with_tax = total_amount + total_tax`），
 //!    所以口径 B 的税额**只能减法倒挤**，否则写入直接 `CHECK` 失败（不是 500，是 400 库约束）。
 //! 2. **`ck_biz_po_item_qty CHECK (qty > 0)`**：卡面 §四 ③ 写的「草稿允许 0、提交时拦截」**做不到** ——
-//!    0 数量的明细行根本插不进库。见 [`crate::business::erp::purchase_dto`] 的 `qty` 校验说明。
+//!    0 数量的明细行根本插不进库。见 [`crate::business::erp::purchase::purchase_dto`] 的 `qty` 校验说明。
 //! 3. **`warehouse_id` 是 `NOT NULL`**：卡面建单 body 里没有这个字段，但库要求必填 → 本实现要求必传。
 //! 4. **没有 `cancelled_at` / `cancel_reason` 列**：作废只能落 `closed_at` / `closed_by`，
 //!    取消原因拼到 `remark` 末尾（` | 取消原因：xxx`），不新建列（不动 V0137-V0145）。
@@ -70,7 +70,7 @@
 //! # 事务边界
 //!
 //! 写函数一律吃 `&impl SqlExecutor`（`Db` / `Transaction` 都实现），
-//! 由 [`crate::business::erp::purchase_handler`] 开事务：**取号 + 单头 + 明细**必须原子，
+//! 由 [`crate::business::erp::purchase::purchase_handler`] 开事务：**取号 + 单头 + 明细**必须原子，
 //! 改单是**单头 UPDATE + 明细「删旧插新」**同一事务。
 
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};

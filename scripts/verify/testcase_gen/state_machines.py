@@ -284,7 +284,7 @@ PURCHASE = dict(
     illegal_code="409 + `10003`（RESOURCE_CONFLICT）",
     illegal_msg=(
         "文案必须逐字包含「采购订单当前是「{FROMCN}」（{FROM}），不能直接流转到「{TOCN}」（{TO}）：允许的去向是 {OUT}」"
-        "（源码原串 `backend/src/business/erp/purchase_model.rs:155`）；"
+        "（源码原串 `backend/src/business/erp/purchase/purchase_model.rs:155`）；"
         "从终态（RECEIVED/CLOSED/CANCELLED）出发时改成「没有可流转的下一个状态：它已是终态，或该状态由收货 / 审批流程维护（P2-B1）」（`purchase_model.rs:148`）"
     ),
     self_msg="自环 → 409 + `10003`（`PARTIAL_RECEIVED→PARTIAL_RECEIVED` 的继续收货由调用方跳过 transition，只写流水）",

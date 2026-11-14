@@ -30,7 +30,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::cancel_cascade;
-use crate::business::erp::purchase_model;
+use crate::business::erp::purchase::purchase_model;
 use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 use crate::business::erp::stockin::stockin_handler;
 use crate::business::erp::stockin::stockin_model;

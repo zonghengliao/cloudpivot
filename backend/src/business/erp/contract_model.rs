@@ -154,7 +154,7 @@ async fn party_b_lookup(party_b_type: &str, id: Uuid, for_new: bool) -> DbResult
 /// 解析乙方引用：`SUPPLIER` → `biz_supplier.supplier_name`、`CUSTOMER` → `biz_customer.name`
 /// （两者都要求未软删才算存在）。
 ///
-/// 照抄 [`crate::business::erp::purchase_model::supplier_ref`] 的写法（ARCH-2 附录 B #5
+/// 照抄 [`crate::business::erp::purchase::purchase_model::supplier_ref`] 的写法（ARCH-2 附录 B #5
 /// 指名了这个范本），签名多一个 `party_b_type`：两条分支的映射收在 [`party_b_lookup`] 里，
 /// 调用方（`contract_handler` / `contract_bridge`）只看「返回名字或 None」。
 ///
@@ -1155,7 +1155,7 @@ impl ContractCommitment {
 /// 数据库异常原样上抛（`DbError`），由 handler 折成 500 —— 详情页宁可报错，
 /// 也不显示一个「已执行 0.00」的假数字。
 pub async fn commitment_of(ex: &impl SqlExecutor, contract_id: Uuid) -> DbResult<ContractCommitment> {
-    use crate::business::erp::{purchase_model, sales_order_model};
+    use crate::business::erp::{purchase::purchase_model, sales_order_model};
 
     let purchase_committed = purchase_model::committed_amount(ex, contract_id, None).await?;
     let sales_committed = sales_order_model::committed_amount(ex, contract_id, None).await?;

@@ -71,7 +71,7 @@ pub async fn sync_purchase_status(
     action: &str,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
-    outbox: &mut crate::business::erp::purchase_model::LinkageOutbox,
+    outbox: &mut crate::business::erp::purchase::purchase_model::LinkageOutbox,
 ) -> DbResult<u64> {
     // ① 锁单 + 读当前状态（`FOR UPDATE` 让并发两张收货单串行推进同一采购单）
     let header = ex
@@ -105,7 +105,7 @@ pub async fn sync_purchase_status(
     let sql = format!(
         "SELECT count(*) FROM biz_purchase_order_item i \
           WHERE i.order_id = ?::uuid AND ({}) < i.qty",
-        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+        crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
     );
     let pending: i64 = ex.scalar_sql(sql, vec![Value::from(&order_id)]).await?;
     let target = if pending == 0 { "RECEIVED" } else { "PARTIAL_RECEIVED" };
@@ -118,7 +118,7 @@ pub async fn sync_purchase_status(
         state_machine::ENTITY_PURCHASE_ORDER,
         order_id,
         &order_no,
-        &crate::business::erp::purchase_model::LEGAL_EDGES,
+        &crate::business::erp::purchase::purchase_model::LEGAL_EDGES,
         &current,
         target,
         operator,
@@ -164,7 +164,8 @@ pub async fn sync_purchase_status(
     //
     // 采购单自己不落账（库存 / 流水 / 凭证 / 已收数量都在收货过账的事务里写完了），
     // 所以排除清单会把那 4 类动作交给专用路径（`spec::PURCHASE_EXCLUDED_ACTIONS`）。
-    crate::business::erp::purchase_model::purchase_linkage::run_in_tx(ex, order_id, target, operator, outbox).await?;
+    crate::business::erp::purchase::purchase_model::purchase_linkage::run_in_tx(ex, order_id, target, operator, outbox)
+        .await?;
     Ok(affected)
 }
 
@@ -274,7 +275,7 @@ impl OrderItemBalance {
 
 /// 过账闸用：某张采购单每行「订单量 / 已过账收货量」。
 ///
-/// 已收口径**复用** [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]
+/// 已收口径**复用** [`crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL`]
 /// （与「待收明细」页 `pending_receive_lines` 同一个聚合表达式），不写第二套：
 /// 一旦分叉，就会出现「页面说还能收 40、过账放行 60」这类最难查的账实不符。
 pub async fn order_item_balances(ex: &impl SqlExecutor, order_id: Uuid) -> DbResult<Vec<OrderItemBalance>> {
@@ -284,7 +285,7 @@ pub async fn order_item_balances(ex: &impl SqlExecutor, order_id: Uuid) -> DbRes
            FROM biz_purchase_order_item i \
           WHERE i.order_id = ?::uuid \
           ORDER BY i.line_no ASC",
-        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+        crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
     );
     let rows = ex.query_sql(sql, vec![Value::from(&order_id)]).await?;
     rows.iter()

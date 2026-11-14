@@ -804,7 +804,7 @@ pub struct SupplierRow {
     /// 信用额度（`NUMERIC(18,4)`，`0` = **不限**）。
     ///
     /// P2-2 起**真的生效**：采购单提交时现算「该供应商累计未结采购额（含本单）」比较本列，
-    /// 超限则单据标记 `over_credit_limit` 并强制走审批（见 `erp::purchase_credit`）。
+    /// 超限则单据标记 `over_credit_limit` 并强制走审批（见 `erp::purchase::purchase_credit`）。
     pub credit_limit: Decimal,
     /// 应付科目（可空）。
     pub payable_account_id: Option<Uuid>,

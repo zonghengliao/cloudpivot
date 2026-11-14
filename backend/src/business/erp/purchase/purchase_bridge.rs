@@ -34,7 +34,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::purchase_model::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
+use crate::business::erp::purchase::purchase_model::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;

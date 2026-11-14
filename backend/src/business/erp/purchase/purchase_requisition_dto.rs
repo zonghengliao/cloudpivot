@@ -1,6 +1,6 @@
 //! 采购申请契约（P2-02）：建申请 / 提交审批 / 合并转采购订单。
 //!
-//! 与 [`crate::business::erp::price_inquiry_dto`] / [`crate::business::erp::purchase_dto`]
+//! 与 [`crate::business::erp::price_inquiry_dto`] / [`crate::business::erp::purchase::purchase_dto`]
 //! 同一套约定：主键与外键一律 `String`（`nik::uuid::Uuid` 没开 serde feature）、
 //! 日期 `NaiveDate`（`YYYY-MM-DD`）、金额/数量 `Decimal`（**JSON 里是字符串**）、
 //! 状态一律大写字符串且与 DDL 的 `CHECK` 逐字一致。

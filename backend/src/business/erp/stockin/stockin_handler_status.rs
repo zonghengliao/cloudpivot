@@ -166,7 +166,7 @@ pub async fn change_stock_in_status_with(
 
     let now = Utc::now();
     // LNK-02：作废会重算采购单状态，那条边要触发联动（同 `cancel_in_tx` 的口径）
-    let mut linkage_outbox = crate::business::erp::purchase_model::LinkageOutbox::default();
+    let mut linkage_outbox = crate::business::erp::purchase::purchase_model::LinkageOutbox::default();
     let tx = db()
         .begin()
         .await

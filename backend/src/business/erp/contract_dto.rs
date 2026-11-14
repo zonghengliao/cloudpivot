@@ -1,6 +1,6 @@
 //! 合同接口契约（**A2**）：分页筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情。
 //!
-//! 与 [`crate::business::erp::purchase_dto`] / [`crate::business::erp::dto`] 同一套约定：
+//! 与 [`crate::business::erp::purchase::purchase_dto`] / [`crate::business::erp::dto`] 同一套约定：
 //! 主键与外键一律 `String`（`nik::uuid::Uuid` 没开 serde feature）、
 //! 日期 `NaiveDate`（`YYYY-MM-DD`）、金额 `Decimal`（**JSON 里是字符串**）、
 //! 枚举一律大写字符串且与 DDL 的 `CHECK` 逐字一致。

@@ -947,7 +947,7 @@ pub const TRANSFER_EXCLUDED_ACTIONS: &[&str] = &["WRITE_INVENTORY", "WRITE_INVEN
 /// - `UPDATE_RECEIVED_QTY` → 已收数量是**派生值**（`purchase_model::POSTED_RECEIVED_SQL`，
 ///   由已过账收货单现算），累计量动作再推一次就是「第二真相」，报表与过账闸立刻分叉。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::purchase_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::purchase::purchase_model::purchase_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::purchase_order_wires_generic_engine_and_excludes_stock_actions`。
 pub const PURCHASE_EXCLUDED_ACTIONS: &[&str] = &[
@@ -1953,7 +1953,8 @@ mod tests {
     #[test]
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
-            asset_dto, contract_model, expense_dto, payable_query, purchase_model, stocktake_model, voucher_query,
+            asset_dto, contract_model, expense_dto, payable_query, purchase::purchase_model, stocktake_model,
+            voucher_query,
         };
 
         fn doc_module_label(entity: &str, status: &str) -> Option<String> {
@@ -1966,7 +1967,7 @@ mod tests {
                 e if e == state_machine::ENTITY_FIXED_ASSET => asset_dto::status_label(status).to_string(),
                 e if e == state_machine::ENTITY_EXPENSE => expense_dto::status_label(status).to_string(),
                 e if e == state_machine::ENTITY_PURCHASE_RETURN => {
-                    crate::business::erp::purchase_return_dto::status_label(status).to_string()
+                    crate::business::erp::purchase::purchase_return_dto::status_label(status).to_string()
                 }
                 TRIGGER_TASK => TaskStatus::parse(status)?.label().to_string(),
                 _ => return None,

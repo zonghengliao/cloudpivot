@@ -18,9 +18,9 @@
 //!
 //! # 金额只由服务端算（硬红线 2）
 //!
-//! 请求契约里没有金额字段（见 [`crate::business::erp::purchase_dto`]），
+//! 请求契约里没有金额字段（见 [`crate::business::erp::purchase::purchase_dto`]），
 //! 单头 `total_*` 与行 `amount / tax_amount / with_tax_amount` 全部由
-//! [`crate::business::erp::purchase_model::line_amounts`] 现算并逐行舍入后相加。
+//! [`crate::business::erp::purchase::purchase_model::line_amounts`] 现算并逐行舍入后相加。
 //!
 //! # 数据权限
 //!
@@ -48,14 +48,14 @@ use crate::business::erp::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model::PurchaseOrderRow;
-use crate::business::erp::purchase_bridge;
-use crate::business::erp::purchase_credit;
-use crate::business::erp::purchase_dto::{
+use crate::business::erp::purchase::purchase_bridge;
+use crate::business::erp::purchase::purchase_credit;
+use crate::business::erp::purchase::purchase_dto::{
     CreatePurchaseOrderReq, PURCHASE_TYPE_CONTRACT, PendingItemRes, PendingOrderRes, PendingReceiveRes,
     PendingStockInRes, PreparedOrder, PurchaseOrderDetailRes, PurchaseOrderLineRes, PurchaseOrderStatusReq,
     ensure_submittable_lines,
 };
-use crate::business::erp::purchase_model::{
+use crate::business::erp::purchase::purchase_model::{
     self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals, can_transition,
     status_label, transition_rejected_message,
 };
@@ -706,7 +706,7 @@ pub async fn create_purchase_order(
 /// `purchase_model::project_ref` 的注释）。**不校验项目状态**：归档项目上补录当期采购
 /// 是合法业务，拒绝只会让用户把成本挂到别的项目上。
 async fn resolve_project(
-    prepared: &crate::business::erp::purchase_dto::PreparedOrder,
+    prepared: &crate::business::erp::purchase::purchase_dto::PreparedOrder,
 ) -> std::result::Result<Option<Uuid>, ApiError> {
     let Some(raw) = prepared.project_id_raw.as_deref() else {
         return Ok(None);
@@ -721,7 +721,7 @@ async fn resolve_project(
 
 /// 明细：物料存在性 + 基础单位（`unit_id` 列 `NOT NULL`，由物料带出，不让客户端传）。
 async fn prepare_items(
-    prepared: &crate::business::erp::purchase_dto::PreparedOrder,
+    prepared: &crate::business::erp::purchase::purchase_dto::PreparedOrder,
 ) -> std::result::Result<Vec<NewItem>, ApiError> {
     let mut items = Vec::with_capacity(prepared.lines.len());
     for (index, line) in prepared.lines.iter().enumerate() {
@@ -773,7 +773,7 @@ pub async fn purchase_order_create(
 /// 口径（卡面 F2 + 硬红线 4 / 5）：
 ///
 /// - `received_qty` **只算已过账（`POSTED`）的收货单**，草稿 / 作废 / 软删一律不算
-///   （聚合表达式见 [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]）；
+///   （聚合表达式见 [`crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL`]）；
 /// - 按**采购明细行**（`si.source_item_id`）匹配，不按 `material_id`；
 /// - `pending_qty = ordered_qty - received_qty`（负数按 0）；
 /// - `can_receive` 同时要求「状态可收」与「还有待收行」：`RECEIVED` / `CLOSED` /
@@ -1007,14 +1007,14 @@ pub async fn change_purchase_order_status(
     let target = req.target_status()?;
     let reason = req.reason_text();
     if let Some(text) = reason
-        && text.chars().count() > crate::business::erp::purchase_dto::MAX_REASON_LEN
+        && text.chars().count() > crate::business::erp::purchase::purchase_dto::MAX_REASON_LEN
     {
         return Err(ApiError::new(
             400,
             error_code::PARAM_INVALID,
             format!(
                 "reason 超过 {} 字（当前 {} 字）",
-                crate::business::erp::purchase_dto::MAX_REASON_LEN,
+                crate::business::erp::purchase::purchase_dto::MAX_REASON_LEN,
                 text.chars().count()
             ),
         ));
@@ -1830,7 +1830,7 @@ pub async fn purchase_order_delete(
 // ```bash
 // su - postgres -c 'createdb -O cloudpivot cloudpivot_p2a2'
 // export ERP_DB_URL='postgres://cloudpivot:<pw>@127.0.0.1:5432/cloudpivot_p2a2'
-// cargo test --lib business::erp::purchase_handler
+// cargo test --lib business::erp::purchase::purchase_handler
 // ```
 //
 // 夹具固定 UUID（`d2a2…` 段）+ `P2A2-` 前缀，每次 `setup()` 先按供应商清掉上一轮的单
@@ -1838,7 +1838,7 @@ pub async fn purchase_order_delete(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::purchase_dto::PurchaseOrderItemReq;
+    use crate::business::erp::purchase::purchase_dto::PurchaseOrderItemReq;
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
 

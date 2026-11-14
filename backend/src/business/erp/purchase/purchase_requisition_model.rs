@@ -30,7 +30,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::purchase_requisition_dto::{
+use crate::business::erp::purchase::purchase_requisition_dto::{
     RequisitionFilter, STATUS_APPROVED, STATUS_CONVERTED, STATUS_DRAFT, STATUS_SUBMITTED,
 };
 use crate::business::shared::scope;

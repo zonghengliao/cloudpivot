@@ -724,13 +724,13 @@ async fn k08_mutex_erp_maker_checker_gap() {
     .await;
 }
 
-/// 「制单人不得审核」内控闸的落点清单：`(erp 下的文件名, 该桥负责的审批)`。
+/// 「制单人不得审核」内控闸的落点清单：`(相对 src/business/erp 的路径, 该桥负责的审批)`。
 ///
 /// 新增受内控约束的审批业务时必须同步登记到这张表 —— 漏登记 = 该桥没有闸，
 /// 本用例仍会绿（这是一个已知的口径边界，见报告 §11）。
 const SELF_APPROVAL_GUARDS: [(&str, &str); 4] = [
-    ("purchase_bridge.rs", "采购订单审批"),
-    ("stockin_bridge.rs", "收货过账 / 收货作废审批"),
+    ("purchase/purchase_bridge.rs", "采购订单审批"),
+    ("stockin/stockin_bridge.rs", "收货过账 / 收货作废审批"),
     ("payable_bridge.rs", "应付付款 / 应付作废审批"),
     ("voucher_bridge.rs", "凭证红冲审批"),
 ];

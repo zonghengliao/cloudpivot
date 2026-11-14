@@ -7,7 +7,7 @@
 //! | 动作 | 复用的既有实现 |
 //! |------|----------------|
 //! | [`SEND_NOTICE`](spec::ACTION_SEND_NOTICE) | `business::notice::dispatch`（渲染/扇出/偏好/幂等/投递记录） |
-//! | [`UPDATE_RECEIVED_QTY`](spec::ACTION_UPDATE_RECEIVED_QTY) | `erp::purchase_model::POSTED_RECEIVED_SQL`（P2-3：累计收货量是派生值，本动作只校验不落库） |
+//! | [`UPDATE_RECEIVED_QTY`](spec::ACTION_UPDATE_RECEIVED_QTY) | `erp::purchase::purchase_model::POSTED_RECEIVED_SQL`（P2-3：累计收货量是派生值，本动作只校验不落库） |
 //! | [`GENERATE_VOUCHER`](spec::ACTION_GENERATE_VOUCHER) | `erp::voucher::create_by_rule`（D3 抽出的唯一实现：取数 + 取号 + 借贷平衡 + 落库） |
 //!
 //! 其余 8 个动作仍是**占位**：参数契约已定、`spec.reuse` 指向要复用的既有函数，
@@ -341,7 +341,7 @@ fn recipient_ids(draft: &NoticeDraft) -> Vec<Uuid> {
 /// **校验**：`已过账收货量 + 本次 qty ≤ 订购量`，超了就是关键动作失败
 /// （调用方整笔回滚）。为什么不再回写：`biz_purchase_order_item.received_qty`
 /// 列已被迁移 V0217 删除，累计收货量是派生值
-/// （[`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]：只算已过账收货单）。
+/// （[`crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL`]：只算已过账收货单）。
 ///
 /// 口径复用同一个表达式，且**减掉触发单据自己的贡献**：过账流程里本动作跑在
 /// 单据已经是 `POSTED` 之后，`POSTED_RECEIVED_SQL` 已经把本次收货算进去了，
@@ -384,7 +384,7 @@ pub async fn update_received_qty(
                             AND s.id = ?::uuid), 0) AS posted_self \
            FROM biz_purchase_order_item i \
           WHERE i.id = ?::uuid",
-        posted = crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+        posted = crate::business::erp::purchase::purchase_model::POSTED_RECEIVED_SQL
     );
     let rows = ex
         .query_sql(sql, vec![Value::from(&ctx.doc_id), Value::from(&source_item_id)])

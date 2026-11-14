@@ -47,7 +47,7 @@ pub async fn stock_in_page(Query(query): Query<StockInPageQuery>) -> ResResult<P
     // （不是实时 JOIN 采购单拿供应商 —— 列表口径必须冻结在「收货那一刻」，R3-a）。
     let supplier_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.supplier_id).collect();
     if !supplier_ids.is_empty() {
-        let names = crate::business::erp::purchase_model::supplier_names_of(&supplier_ids)
+        let names = crate::business::erp::purchase::purchase_model::supplier_names_of(&supplier_ids)
             .await
             .map_err(|error| utils::db_error(error, "查询供应商名称"))?;
         for (header, row) in list.iter_mut().zip(rows.iter()) {

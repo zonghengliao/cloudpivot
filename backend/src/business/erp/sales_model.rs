@@ -33,7 +33,7 @@
 //!
 //! # 取号为什么照抄采购单
 //!
-//! `PO-yyyyMMdd-000001` 这套（[`crate::business::erp::purchase_model::next_order_no`]）已经
+//! `PO-yyyyMMdd-000001` 这套（[`crate::business::erp::purchase::purchase_model::next_order_no`]）已经
 //! 在库上跑了一年：`biz_seq` 单语句 `UPDATE … RETURNING` 原子取号，行锁天然防重号；
 //! 周期键按**北京时间**（`serial_model::period_key_of`）而不是 UTC —— 用 UTC 会让
 //! 「北京时间 00:00–08:00」这段算成前一天，跨天那一刻号段会重叠。
