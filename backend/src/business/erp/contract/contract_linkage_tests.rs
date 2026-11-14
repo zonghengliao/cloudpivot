@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::contract_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::contract::contract_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「审批通过只触发一次 / 重复触发被抑制 / 排除动作确实不跑」逐条对应）

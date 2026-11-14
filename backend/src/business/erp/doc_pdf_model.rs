@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn export_log_source_tag() {
         assert_eq!(
-            crate::business::erp::contract_pdf::EXPORT_OPERATION,
+            crate::business::erp::contract::contract_pdf::EXPORT_OPERATION,
             "EXPORT_CONTRACT_PDF"
         );
         assert_eq!(

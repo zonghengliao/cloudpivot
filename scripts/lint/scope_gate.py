@@ -89,8 +89,8 @@ business/erp/budget_dto_tests.rs
 business/erp/budget_guard_tests.rs
 business/erp/budget_model_tests.rs
 business/erp/cancel_cascade_tests.rs
-business/erp/contract_approval_tests.rs
-business/erp/contract_linkage_tests.rs
+business/erp/contract/contract_approval_tests.rs
+business/erp/contract/contract_linkage_tests.rs
 business/erp/cost/cost_alloc_rule_db_tests.rs
 business/erp/cost/cost_calc_alloc_db_tests.rs
 business/erp/cost/cost_calc_item_db_tests.rs

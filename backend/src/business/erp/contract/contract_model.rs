@@ -37,7 +37,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::contract_dto::ContractQuery;
+use crate::business::erp::contract::contract_dto::ContractQuery;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 
@@ -79,7 +79,7 @@ pub fn required_party_b_type(contract_type: &str) -> &'static str {
 ///
 /// 状态推进**只能**走 [`crate::business::shared::state_machine::transition`]
 /// （`Entity::Contract`，ARCH-2 DEC-10）；本模块不提供 `UPDATE ... SET status`，
-/// 也不该有人提供 —— `rg "SET status" business/erp/contract_*` 必须 0 命中。
+/// 也不该有人提供 —— `rg "SET status" business/erp/contract/contract_*` 必须 0 命中。
 pub const STATUSES: [&str; 6] = [
     "DRAFT",
     "PENDING_APPROVAL",

@@ -546,7 +546,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("TERMINATED", "已终止"),
         ],
         wired: true,
-        wiring: "已接线（LNK-07）：erp/contract_linkage.rs 是唯一 hook。三个状态推进点全部接引擎 —— \
+        wiring: "已接线（LNK-07）：erp/contract/contract_linkage.rs 是唯一 hook。三个状态推进点全部接引擎 —— \
                  ① 提交审批 contract_handler.rs::contract_change_status 目标态 PENDING_APPROVAL \
                  分支（DRAFT → PENDING_APPROVAL，commit 前）；② 审批通过 / 驳回 \
                  contract_bridge.rs::settle（PENDING_APPROVAL → SIGNED / → DRAFT，状态机过闸 + \
@@ -561,8 +561,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  settle_guard（AlreadySettled）或边判定处就被挡掉，联动只跑一次；通知另有 \
                  幂等键 LNK:CONTRACT:<状态>:<合同 id> 兜底。",
         proofs: &[
-            ("src/business/erp/contract_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/contract_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/contract/contract_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/contract/contract_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1055,7 +1061,7 @@ pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &["WRITE_INVENTORY", "WRITE_INVE
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：签订 / 生效 / 终止之后的「通知对方 / 建续签待办」
 /// 就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::contract_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::contract::contract_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PURCHASE_ORDER/APPROVED`）通用路线仍然要能跑凭证动作。
 /// 漂移守卫：`tests_wiring::contract_wires_generic_engine_and_excludes_voucher`。
 pub const CONTRACT_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
@@ -1978,8 +1984,8 @@ mod tests {
     #[test]
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
-            asset_dto, contract_model, expense::expense_dto, payable_query, purchase::purchase_model, stocktake_model,
-            voucher_query,
+            asset_dto, contract::contract_model, expense::expense_dto, payable_query, purchase::purchase_model,
+            stocktake_model, voucher_query,
         };
 
         fn doc_module_label(entity: &str, status: &str) -> Option<String> {

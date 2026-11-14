@@ -29,7 +29,7 @@
 //!
 //! `LV` 号段由 HR-05 的 `V0386__hr_seq_dict` 种进 `biz_seq`（`date_pattern='yyyyMMdd'`、
 //! 6 位、按日滚动），形态 `LV-yyyyMMdd-000001`（设计 §3.1 ⑥ 的列注释）。
-//! [`next_leave_no`] 与 ERP 合同号（`erp::contract_model::next_contract_no`）**同一套三分支写发**
+//! [`next_leave_no`] 与 ERP 合同号（`erp::contract::contract_model::next_contract_no`）**同一套三分支写发**
 //! （同日累加 / 新日重置 / 时钟回拨不重置），并且必须与建单在**同一事务**里取号 ——
 //! 回滚时号一起回滚，不留空号。
 //!
@@ -458,7 +458,7 @@ UPDATE biz_leave_request SET deleted_at = ?, update_by = NULLIF(?::text,'')::uui
 
 /// 单号流水推进（4 个绑定参数，三分支：同日累加 / 新日重置 / 时钟回拨不重置）。
 ///
-/// 与 `erp::contract_model::bump_seq` 逐句同款：`UPDATE … RETURNING current_no` 是单语句，
+/// 与 `erp::contract::contract_model::bump_seq` 逐句同款：`UPDATE … RETURNING current_no` 是单语句，
 /// PG 对该行加行锁 ⇒ 两个并发事务先后拿到 `n` 与 `n+1`，**天然不重号**。
 /// 时钟回拨（`period_key > 今天`）时继续累加而不是重置：重置会撞上「未来那天已经发过的号」。
 pub const BUMP_SEQ_SQL: &str = "\

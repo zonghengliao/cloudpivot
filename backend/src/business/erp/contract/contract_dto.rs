@@ -38,7 +38,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::contract_model::{self, ContractRow, STATUS_DRAFT, STATUSES, USABLE_FOR_ORDER};
+use crate::business::erp::contract::contract_model::{self, ContractRow, STATUS_DRAFT, STATUSES, USABLE_FOR_ORDER};
 use crate::business::shared::state_machine::Entity;
 use crate::shared::error_code;
 
@@ -861,7 +861,7 @@ impl ContractDetailRes {
     /// 把履约口径（现算结果）灌进详情。
     ///
     /// 为什么不在 `From<&ContractRow>` 里做：那是**纯函数**（不查库），
-    /// 而这两个金额必须现算 SUM —— 放在 handler 的 [`crate::business::erp::contract_handler`]
+    /// 而这两个金额必须现算 SUM —— 放在 handler 的 [`crate::business::erp::contract::contract_handler`]
     /// 里由 `detail_of` 统一调用，保证四个写接口的回读体口径一致。
     pub fn apply_commitment(&mut self, commitment: &contract_model::ContractCommitment) {
         self.committed_amount = commitment.committed_amount();

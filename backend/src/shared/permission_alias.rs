@@ -46,7 +46,7 @@
 /// 旧码 → 规范码对照表（`(legacy, canonical)`）。
 ///
 /// **一行一个已切换的码**，不允许前缀/通配式映射（那会让「谁的旧码」变成不可审计的推理）。
-/// 表与 [`crate::business::erp::contract_handler::PERMISSIONS`] 由单测钉死：
+/// 表与 [`crate::business::erp::contract::contract_handler::PERMISSIONS`] 由单测钉死：
 /// 任一侧改了而另一侧没跟 → `contract_aliases_match_handler_permissions` 红。
 pub const LEGACY_ALIASES: [(&str, &str); 5] = [
     ("erp:contract:list", "business:erp:contract:list"),
@@ -108,7 +108,7 @@ pub fn expand(codes: &mut Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::contract_handler;
+    use crate::business::erp::contract::contract_handler;
     use std::collections::BTreeSet;
 
     /// ① 双向：旧码补齐规范码，规范码补齐旧码；无关码不动。

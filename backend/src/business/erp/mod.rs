@@ -43,10 +43,10 @@
 //! | [`opening`] | 期初余额录入（方式 A 按科目 + 库存期初）→ 生成 / 覆盖唯一的期初凭证 | **ERP-R5** |
 //! | [`year_end`] | 年结：损益结转凭证（`YEAR_END`）+ 下年期初台账 + 反年结（五项前置校验） | **ERP-R4** |
 //! | [`batch`] | **批量操作（D7）**：勾选 → 逐条独立事务 → 逐条报告（过账 / 作废 / 删除 / 提交审批 / 导出） | **D7** |
-//! | [`contract_model`] | 合同数据层（**A1 基座 + A2 CRUD**）：乙方引用解析（无外键靠应用层校验）、状态常量 / 边表、取号、分页、建改删 | **A1 / A2** |
-//! | [`contract_bridge`] | 合同**审批**的业务回调（通过 → 已签订 / 驳回 → 回草稿）+ 内控 + 反向兜底 | **ARCH-3 R-P1-1** |
-//! | [`contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
-//! | [`contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
+//! | [`contract::contract_model`] | 合同数据层（**A1 基座 + A2 CRUD**）：乙方引用解析（无外键靠应用层校验）、状态常量 / 边表、取号、分页、建改删 | **A1 / A2** |
+//! | [`contract::contract_bridge`] | 合同**审批**的业务回调（通过 → 已签订 / 驳回 → 回草稿）+ 内控 + 反向兜底 | **ARCH-3 R-P1-1** |
+//! | [`contract::contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
+//! | [`contract::contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
 //! | [`asset_compute`] | 固定资产**纯计算**（ARCH-6 §5.3/§5.4/§5.6.4）：起提日 / 月折旧 / 尾差 / 期间工具 / 处置分录（不碰库） | **FIN-2** |
 //! | [`asset_dto`] | 固资契约：分类 / 卡片 / 转移 / 处置 / 折旧批次的入参与校验（纯函数，必填缺 400 指名） | **FIN-2** |
 //! | [`asset_model`] | 固资数据层（V0229/V0230）：分类 / 卡片 / 变动留痕（append-only）/ 折旧批次与明细 + 扫描 SQL | **FIN-2** |
@@ -136,16 +136,7 @@ pub mod commission_model;
 pub mod commission_rule_dto;
 pub mod commission_rule_handler;
 pub mod commission_rule_model;
-#[cfg(test)]
-mod contract_approval_tests;
-pub mod contract_bridge;
-pub mod contract_dto;
-pub mod contract_handler;
-/// LNK-07 合同状态变更的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
-pub(crate) mod contract_linkage;
-pub mod contract_model;
-/// 合同 PDF 导出（PDF-03）：条款正文 + 签章位 + 附件清单 + 骑缝章提示。
-pub mod contract_pdf;
+pub mod contract;
 pub mod cost;
 pub mod credit;
 pub mod currency;
@@ -292,11 +283,6 @@ mod cancel_cascade_tests;
 /// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod voucher_linkage_tests;
-
-/// LNK-07 的真库单测（合同联动接线：审批通过触发一次、重复回调被抑制、
-/// 排除动作确实不跑、人工流转触发）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod contract_linkage_tests;
 
 /// LNK-09 的真库单测（固定资产联动接线：处置触发一次、重复处置不重复触发、
 /// 作废处置触发、事务回滚通知不发、排除动作确实不跑）。只在 `cargo test` 时编译。

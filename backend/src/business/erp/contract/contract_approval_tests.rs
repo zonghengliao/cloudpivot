@@ -36,10 +36,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
-use crate::business::erp::contract_bridge;
-use crate::business::erp::contract_dto::{ContractDetailRes, ContractStatusReq, CreateContractReq};
-use crate::business::erp::contract_handler::{contract_change_status, contract_create};
-use crate::business::erp::contract_model;
+use crate::business::erp::contract::contract_bridge;
+use crate::business::erp::contract::contract_dto::{ContractDetailRes, ContractStatusReq, CreateContractReq};
+use crate::business::erp::contract::contract_handler::{contract_change_status, contract_create};
+use crate::business::erp::contract::contract_model;
 use crate::business::flow::engine;
 use crate::shared::error_code;
 

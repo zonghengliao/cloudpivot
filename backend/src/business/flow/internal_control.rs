@@ -164,9 +164,9 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         let creator = crate::business::erp::voucher_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
-    } else if biz_type == crate::business::erp::contract_bridge::BIZ_TYPE {
+    } else if biz_type == crate::business::erp::contract::contract_bridge::BIZ_TYPE {
         // ARCH-3 R-P1-1：合同审批的 `biz_id` 是**合同 id**（制单人不能批自己拟的合同）
-        let creator = crate::business::erp::contract_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::contract::contract_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::stocktake_bridge::BIZ_TYPE {

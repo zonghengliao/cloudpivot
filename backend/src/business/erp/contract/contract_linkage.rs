@@ -31,7 +31,7 @@
 // 状态没推进 = 联动不跑；状态推进了且只推进一次 = 联动只跑一次。
 // 另外通知还有一道幂等键 `LNK:CONTRACT:<状态>:<合同 id>`（`uk_sys_notice_idem` 唯一索引），
 // 即便将来有人加出第三条推进路径，同一状态的通知也不会发两条。
-// 真库反证：`erp::contract_linkage_tests::lnk07_approval_triggers_once_and_repeat_is_suppressed`
+// 真库反证：`erp::contract::contract_linkage_tests::lnk07_approval_triggers_once_and_repeat_is_suppressed`
 // 连续调两次审批回调，断言通知只有一条、状态只前进一次。
 //
 // # 为什么合同也要「排除清单」
@@ -61,7 +61,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::contract_model;
+use crate::business::erp::contract::contract_model;
 use crate::business::flow::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};

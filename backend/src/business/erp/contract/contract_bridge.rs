@@ -48,8 +48,8 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::contract_linkage;
-use crate::business::erp::contract_model::{self, STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SIGNED};
+use crate::business::erp::contract::contract_linkage;
+use crate::business::erp::contract::contract_model::{self, STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SIGNED};
 use crate::business::flow::settle_guard;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;

@@ -44,7 +44,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::approval_gate;
 use crate::business::erp::budget_guard;
-use crate::business::erp::contract_model;
+use crate::business::erp::contract::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model::PurchaseOrderRow;

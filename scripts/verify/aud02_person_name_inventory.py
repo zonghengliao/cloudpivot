@@ -53,9 +53,9 @@ RESP_SUFFIXES = ("Res", "Card", "Row", "Item", "Detail", "Version", "Member")
 
 # 已修复、必须长期保持的「出参 DTO → 人字段 → name 字段」
 REQUIRED = [
-    ("business/erp/contract_dto.rs", "ContractDetailRes", "owner_id", "owner_name"),
-    ("business/erp/contract_dto.rs", "ContractDetailRes", "create_by", "create_by_name"),
-    ("business/erp/contract_dto.rs", "ContractDetailRes", "update_by", "update_by_name"),
+    ("business/erp/contract/contract_dto.rs", "ContractDetailRes", "owner_id", "owner_name"),
+    ("business/erp/contract/contract_dto.rs", "ContractDetailRes", "create_by", "create_by_name"),
+    ("business/erp/contract/contract_dto.rs", "ContractDetailRes", "update_by", "update_by_name"),
     ("business/erp/stockin_dto.rs", "StockInRes", "create_by", "create_by_name"),
     ("business/erp/stockout/stockout_dto.rs", "StockOutRes", "create_by", "create_by_name"),
     ("business/erp/stocktake_dto.rs", "StockTakeRes", "create_by", "create_by_name"),

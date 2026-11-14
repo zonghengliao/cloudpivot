@@ -38,7 +38,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::attachment::model::{self as attachment_model, DocKind, ListOrder};
-use crate::business::erp::contract_model;
+use crate::business::erp::contract::contract_model;
 use crate::business::erp::doc_pdf_model::{self, ExportLogOwned};
 use crate::business::erp::order_pdf_model;
 use crate::business::pdf::template::{
@@ -389,7 +389,7 @@ mod tests {
 ///
 /// ```bash
 /// export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<测试库>'
-/// cargo test --lib business::erp::contract_pdf -- --test-threads=1
+/// cargo test --lib business::erp::contract::contract_pdf -- --test-threads=1
 /// ```
 #[cfg(test)]
 mod db_tests {

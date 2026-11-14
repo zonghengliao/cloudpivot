@@ -876,7 +876,7 @@ async fn apply_status(
 /// 查「已发布的请假审批流程」。`None` = **没配流程**（不是错误，由调用方按
 /// `approval_gate` 的 fail-closed 口径处理）。
 ///
-/// 排序口径与 `erp::contract_bridge::published_contract_flow` 完全一致
+/// 排序口径与 `erp::contract::contract_bridge::published_contract_flow` 完全一致
 /// （`biz_type` 精确命中优先 → `is_default` → 版本号 → 更新时间），
 /// 免得同一个库里「合同走 A 流程、请假走 B 流程」这种两套口径。
 async fn published_leave_flow() -> DbResult<Option<LeaveFlow>> {

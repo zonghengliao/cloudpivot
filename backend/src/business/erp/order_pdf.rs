@@ -368,7 +368,7 @@ pub async fn sales_order_context(id: Uuid) -> std::result::Result<OrderContext, 
         (
             "合同号",
             match row.contract_id {
-                Some(contract_id) => crate::business::erp::contract_model::contract_find(contract_id)
+                Some(contract_id) => crate::business::erp::contract::contract_model::contract_find(contract_id)
                     .await
                     .map_err(|error| utils::db_error(error, "查询销售订单合同"))?
                     .map(|contract| contract.contract_no)

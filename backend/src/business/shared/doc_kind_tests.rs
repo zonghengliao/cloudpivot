@@ -506,7 +506,7 @@ fn flow_health_list_matches_registry() {
 fn approval_entries_use_registered_biz_types() {
     use crate::business::erp::cost::cost_period_bridge;
     use crate::business::erp::{
-        contract_bridge, payable_bridge, purchase::purchase_bridge, purchase::purchase_return_bridge,
+        contract::contract_bridge, payable_bridge, purchase::purchase_bridge, purchase::purchase_return_bridge,
         receipt_refund_bridge, requisition_bridge, sales::sales_approval_bridge, stockin::stockin_query,
         stocktake_bridge, voucher_bridge,
     };

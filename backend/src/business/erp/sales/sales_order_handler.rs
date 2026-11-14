@@ -79,7 +79,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate;
-use crate::business::erp::contract_model::{self, ContractRow};
+use crate::business::erp::contract::contract_model::{self, ContractRow};
 use crate::business::erp::credit;
 use crate::business::erp::currency;
 use crate::business::erp::customer_model::{self, STATUS_ACTIVE};

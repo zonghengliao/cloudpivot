@@ -44,7 +44,7 @@
 //! # 并发安全
 //!
 //! 发号是单语句 `UPDATE biz_seq … RETURNING current_no`：PG 对该行加行锁，两个并发事务
-//! 先后拿到 `n` 与 `n+1`，**天然不重号**（与 [`crate::business::erp::contract_model`] 同款）。
+//! 先后拿到 `n` 与 `n+1`，**天然不重号**（与 [`crate::business::erp::contract::contract_model`] 同款）。
 //! 注意持锁到事务提交：同一事务里取完号尽快落库，别在长事务里连续取多个号。
 //!
 //! # 手工覆盖

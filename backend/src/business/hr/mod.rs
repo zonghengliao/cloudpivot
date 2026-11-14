@@ -81,7 +81,7 @@
 //! - **状态机**：`business/shared/state_machine.rs`（HR-08 补 5 个 `Entity` 与边表）。
 //! - **审批流**：4 套流程 `hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`
 //!   由 HR-26 / HR-38 的迁移种进 `biz_flow_def`；回调按 `flow::linkage` 的桥接写法
-//!   （参考 `erp/contract_bridge.rs`：通过 → 推进状态 / 驳回 → 回草稿 / 反向兜底孤儿实例）。
+//!   （参考 `erp/contract/contract_bridge.rs`：通过 → 推进状态 / 驳回 → 回草稿 / 反向兜底孤儿实例）。
 //! - **凭证**：工资计提 / 发放两张凭证走 `erp::voucher::post_explicit_lines`（HR-39），
 //!   科目由 HR-02 的 9 个科目 + 2 条 `biz_voucher_rule` 提供，本模块**不写死科目号**。
 //! - **通知**：`business::notice::dispatch`；通知失败不回滚业务（同 `task` 模块口径）。

@@ -789,7 +789,7 @@ fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
 /// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
 #[test]
 fn contract_wires_generic_engine_and_excludes_voucher() {
-    let hook = include_str!("../../erp/contract_linkage.rs");
+    let hook = include_str!("../../erp/contract/contract_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "合同状态变更必须调用通用引擎（run_excluding）：否则 CONTRACT 的联动规则配了不触发"
@@ -822,7 +822,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
     }
 
     // handler 两条路：提交审批（DRAFT → PENDING_APPROVAL）+ 通用分支（生效 / 完成 / 终止 / 撤回）
-    let handler = include_str!("../../erp/contract_handler.rs");
+    let handler = include_str!("../../erp/contract/contract_handler.rs");
     assert_eq!(
         handler.matches("contract_linkage::run_in_tx(").count(),
         2,
@@ -837,7 +837,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
 
     // 审批回调（`contract_bridge::settle`）：审批通过 / 驳回都要接，且必须仍然先过 settle_guard
     // ——「重复回调不重复触发」的前置闸就在这里，拆了它联动就会跑第二遍。
-    let bridge = include_str!("../../erp/contract_bridge.rs");
+    let bridge = include_str!("../../erp/contract/contract_bridge.rs");
     assert_eq!(
         bridge.matches("contract_linkage::run_in_tx(").count(),
         1,
