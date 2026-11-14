@@ -18,7 +18,7 @@ use serde_json::json;
 use crate::business::erp::doc_shape::DocMeta;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::model::{PurchaseOrderItemRow, PurchaseOrderRow};
-use crate::business::erp::price_inquiry_dto::{PriceInquiryDetailRes, PriceInquiryItemRes, PriceInquiryRowRes};
+use crate::business::erp::price::price_inquiry_dto::{PriceInquiryDetailRes, PriceInquiryItemRes, PriceInquiryRowRes};
 use crate::business::erp::purchase::purchase_dto::{PurchaseOrderDetailRes, PurchaseOrderLineRes};
 use crate::business::erp::purchase::purchase_requisition_dto::{CreatedPurchaseOrderRes, MergedLineRes, ToPoRes};
 

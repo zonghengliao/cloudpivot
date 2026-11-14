@@ -54,7 +54,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
-use crate::business::erp::price_inquiry_dto::{
+use crate::business::erp::price::price_inquiry_dto::{
     AWARD_MODE_MULTI, AWARD_MODE_SINGLE_SOURCE, AwardPair, AwardReq, CompareQuoteRes, CompareRowRes,
     CreatePriceInquiryReq, CreatedPurchaseOrderRes, PRICE_INQUIRY_PERMISSIONS, PriceInquiryDetailRes,
     PriceInquiryItemRes, PriceInquiryPageQuery, PriceInquiryRowRes, PriceQuoteRes, QuoteReq, STATUS_AWARDED,
@@ -63,7 +63,9 @@ use crate::business::erp::price_inquiry_dto::{
     group_by_supplier, parse_uuid_field, price_incl_of, reason_is_long_enough, resolve_award, single_source_items,
     status_label, today_cst, unmatched_awards,
 };
-use crate::business::erp::price_inquiry_model::{self as model, ItemRow, NewInquiry, NewItem, NewQuote, QuoteRow};
+use crate::business::erp::price::price_inquiry_model::{
+    self as model, ItemRow, NewInquiry, NewItem, NewQuote, QuoteRow,
+};
 use crate::business::erp::purchase::purchase_dto::{CreatePurchaseOrderReq, PurchaseOrderItemReq};
 use crate::business::erp::purchase::purchase_handler;
 use crate::business::erp::purchase::purchase_model::{self, PRICE_MODE_EXCL};
@@ -323,7 +325,7 @@ fn build_comparison(items: &[ItemRow], quotes: &[QuoteRow]) -> Vec<CompareRowRes
                 qty: item.qty,
                 demand_date: item.demand_date,
                 bidder_count: rows.len(),
-                has_competition: rows.len() >= crate::business::erp::price_inquiry_dto::MIN_BIDDERS,
+                has_competition: rows.len() >= crate::business::erp::price::price_inquiry_dto::MIN_BIDDERS,
                 quotes: rows
                     .iter()
                     .map(|quote| CompareQuoteRes {

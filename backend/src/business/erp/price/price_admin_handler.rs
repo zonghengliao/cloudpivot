@@ -16,7 +16,7 @@
 //! # 与 SO-33 取价接口的分工（别混）
 //!
 //! * 本文件是**配置维护**（写）：维护「该收多少」的规则；
-//! * [`crate::business::erp::price_handler`] 是**取价解析**（读）：按 5 级优先级回答「此刻该多少」。
+//! * [`crate::business::erp::price::price_handler`] 是**取价解析**（读）：按 5 级优先级回答「此刻该多少」。
 //!   两者读同一批表、共享同一套域值常量（[`price_admin_model::STATUSES`] 等），
 //!   但**不共享 SQL**：维护侧要 joins 名称、要分页，取价侧只做窄列粗筛。
 //!
@@ -47,7 +47,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::price_admin_model::{self as model, AgreedRow, AgreedWrite, TierRow, TierWrite};
+use crate::business::erp::price::price_admin_model::{self as model, AgreedRow, AgreedWrite, TierRow, TierWrite};
 use crate::shared::error_code;
 use crate::utils;
 

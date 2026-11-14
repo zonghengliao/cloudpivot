@@ -29,8 +29,8 @@
 //!
 //! * 只依赖请求本身的规则（必填 / UUID 格式 / 数量非负 / 日期格式）在本文件，
 //!   纯函数、无 DB、可单测（[`PriceResolveQuery::validate`]）；
-//! * 依赖库的规则（物料 / 客户是否存在）在 [`crate::business::erp::price_handler`]；
-//! * 取价优先级与并列打破在 [`crate::business::erp::price_model`]（纯函数，同样是可单测的）。
+//! * 依赖库的规则（物料 / 客户是否存在）在 [`crate::business::erp::price::price_handler`]；
+//! * 取价优先级与并列打破在 [`crate::business::erp::price::price_model`]（纯函数，同样是可单测的）。
 //!
 //! # 为什么 `qty` 不做「缺省 0」
 //!

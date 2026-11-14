@@ -31,7 +31,9 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::price_inquiry_dto::{PriceInquiryFilter, STATUS_AWARDED, STATUS_CONVERTED, STATUS_QUOTING};
+use crate::business::erp::price::price_inquiry_dto::{
+    PriceInquiryFilter, STATUS_AWARDED, STATUS_CONVERTED, STATUS_QUOTING,
+};
 use crate::business::shared::scope;
 use crate::utils;
 

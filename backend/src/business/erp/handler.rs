@@ -3949,7 +3949,7 @@ mod tests {
     /// ④ 编辑清空（`standard_price: null`）→ 第 ④ 级不再命中 → `NONE`。
     #[tokio::test]
     async fn material_standard_price_feeds_price_resolve() {
-        use crate::business::erp::price_dto::PriceResolveQuery;
+        use crate::business::erp::price::price_dto::PriceResolveQuery;
 
         let Some(_guard) = setup().await else { return };
         let unit = data(
@@ -4010,7 +4010,7 @@ mod tests {
 
         // ---------- ② 取价：无客户 / 无阶梯 → 第 ④ 级 ----------
         let resolve = |qty: &str| {
-            crate::business::erp::price_handler::resolve_price(PriceResolveQuery {
+            crate::business::erp::price::price_handler::resolve_price(PriceResolveQuery {
                 customer_id: None,
                 material_id: Some(material_id.to_string()),
                 qty: Some(qty.to_string()),

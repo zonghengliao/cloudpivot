@@ -140,7 +140,7 @@ pub struct MaterialPrice {
     pub tax_rate: Decimal,
 }
 
-/// 取价结果（`source` 从 [`crate::business::erp::price_dto::SOURCES`] 里取一个）。
+/// 取价结果（`source` 从 [`crate::business::erp::price::price_dto::SOURCES`] 里取一个）。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolveOutcome {
     /// 含税单价；`None` = 五级全未命中。
@@ -236,7 +236,7 @@ pub fn resolve_from(
     common_tiers: &[TierCandidate],
     standard_price: Option<Decimal>,
 ) -> ResolveOutcome {
-    use crate::business::erp::price_dto::{
+    use crate::business::erp::price::price_dto::{
         SOURCE_AGREED, SOURCE_NONE, SOURCE_STANDARD, SOURCE_TIER_COMMON, SOURCE_TIER_CUSTOMER,
     };
 
@@ -320,7 +320,7 @@ pub struct TaxView {
 /// 折算复用 [`crate::business::erp::tax_rate::split`]：先定不含税（4 位四舍五入）、
 /// 税额 = 含税 − 不含税，两者相加恒等于原价（不会出现 1 分尾差）。
 pub fn tax_view(price: Option<Decimal>, source: &str, material_tax_rate: Decimal) -> TaxView {
-    use crate::business::erp::price_dto::{SOURCE_NONE, SOURCE_STANDARD};
+    use crate::business::erp::price::price_dto::{SOURCE_NONE, SOURCE_STANDARD};
 
     let Some(price) = price else {
         // 没取到价：没有口径可言（`tax_rate` 也不给，避免前端拿它去算一个不存在的价的税）

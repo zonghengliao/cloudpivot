@@ -16,7 +16,7 @@
 //! **填单只准用 `price_excl`（不含税）**：`price` 对协议价 / 阶梯价是含税价，
 //! 直接填进销售订单行会让单价虚高一个税率（120 vs 106.19），税额再算一遍 → 整单金额全错。
 //!
-//! `source` 五值（[`crate::business::erp::price_dto::SOURCES`]）：
+//! `source` 五值（[`crate::business::erp::price::price_dto::SOURCES`]）：
 //! `AGREED`（客户协议价）→ `TIER_CUSTOMER`（客户专属阶梯）→ `TIER_COMMON`（通用阶梯）
 //! → `STANDARD`（物料标准售价）→ `NONE`（都没价，前端让销售员手填并提示「未找到协议价」）。
 //!
@@ -26,7 +26,7 @@
 //! * `NONE` 是**正常结果**（200），不是 404：没有价是业务事实，让销售员手填；
 //! * 物料 / 客户**不存在或已软删** → 404（这两种是调用方的参数错，静默返回 `NONE`
 //!   会让「选错物料」看起来像「还没定价」，销售手填一个价就开单了）；
-//! * `qty` 必填、`date` 缺省 = 今天（北京时间）：理由见 [`crate::business::erp::price_dto`] 文件头；
+//! * `qty` 必填、`date` 缺省 = 今天（北京时间）：理由见 [`crate::business::erp::price::price_dto`] 文件头；
 //! * 取价结果**不落库**：本卡不做「下单时快照价」—— 那是销售订单行的 `price` 列
 //!   （SO-04 已落地），此接口只回答「此刻按规则应该是多少」。
 //!
@@ -42,8 +42,8 @@ use axum::extract::Query;
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 
-use crate::business::erp::price_dto::{PriceResolveQuery, PriceResolveReq, PriceResolveRes};
-use crate::business::erp::price_model::{self as model, ResolveOutcome};
+use crate::business::erp::price::price_dto::{PriceResolveQuery, PriceResolveReq, PriceResolveRes};
+use crate::business::erp::price::price_model::{self as model, ResolveOutcome};
 use crate::shared::error_code;
 
 // ==================== 权限码（与 V0307 的 sys_menu.auth_code 逐字一致） ====================

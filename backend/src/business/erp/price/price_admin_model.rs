@@ -2,7 +2,7 @@
 //!
 //! 表结构唯一依据：`backend/migrations/business/V0270__sales_price.up.sql`
 //! （`biz_customer_price` 14 列 / `biz_price_tier` 16 列）。**取价**（读口径）在
-//! [`crate::business::erp::price_model`]，本文件只管**配置维护**（写口径）；
+//! [`crate::business::erp::price::price_model`]，本文件只管**配置维护**（写口径）；
 //! 两者共用同一批域值常量与唯一键口径，避免写入口放进 SQL 里而取价侧另说一套。
 //!
 //! # 三条与读侧共用的铁律
@@ -516,7 +516,7 @@ impl TierWindow {
 /// 同口径）+ 档位类型、**启用态**且未删的档位区间（`exclude` = 编辑时排除自己）。
 ///
 /// 只取 `status = 'ACTIVE'`：停用档不参与取价，配置成重叠也不会让「哪档才算」有歧义；
-/// 反过来，把重叠的停用档**再启用**时会重新走一遍相交校验（[`crate::business::erp::price_admin_handler`]
+/// 反过来，把重叠的停用档**再启用**时会重新走一遍相交校验（[`crate::business::erp::price::price_admin_handler`]
 /// 的建 / 改两条路径都调用本函数）。
 ///
 /// 生效期与数量区间的相交判定**不在 SQL 里**（SQL 里写一份、Rust 里写一份必有一份先腐化），
@@ -579,7 +579,7 @@ pub async fn material_exists(material_id: Uuid) -> DbResult<bool> {
 
 /// 客户是否存在（软删不算）。
 pub async fn customer_exists(customer_id: Uuid) -> DbResult<bool> {
-    crate::business::erp::price_model::customer_exists(customer_id).await
+    crate::business::erp::price::price_model::customer_exists(customer_id).await
 }
 
 // ==================== 写入 ====================
