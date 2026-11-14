@@ -1,35 +1,35 @@
-//! `doc_kind` 的值域闸。
+//! 词表 ↔ 仓库内其它**文本真相**的契约（P2-29 从应用 crate 的 `doc_kind_tests.rs` 搬来）。
 //!
-//! 这些用例是「不留第 8 套词表」的**机械保证**：
+//! 这些用例**只依赖本 crate + 仓库里的文件**（读文件用 `std::fs`，不加任何依赖），
+//! 不 import `business::erp::*`，所以它们跟着词表走：
+//! 「改了枚举忘了改前端镜像 / 演示数据脚本 / 巡检 SQL」在本 crate 就会红，
+//! 而不是要跑整个应用 crate 的测试才发现。
 //!
-//! | 用例 | 钉住什么 |
+//! | 被钉住的另一端 | 用例 |
 //! |---|---|
-//! | [`every_axis_value_is_uppercase_underscore`] | 拼写规则（大写下划线） |
-//! | [`values_are_unique_per_axis`] | 同一根轴里不许有两个枚举映射到同一个字符串 |
-//! | [`domain_consts_match_enums`] | [`COLUMN_DOMAINS`] 里的字面量 ↔ 枚举 `as_str()` 逐字一致 |
-//! | [`domain_columns_exist_and_cover_all_axes`] | 七根轴每一根都被巡检覆盖（漏一根 = 漏一列） |
-//! | [`frontend_ts_mirror_matches_rust`] | 前端 `doc-kinds.ts` 的数组 ↔ Rust 枚举（顺序 + 取值） |
-//! | [`frontend_ts_labels_match_rust`] | 前端标签表 ↔ Rust `label()` |
-//! | [`entity_registry_is_covered_by_doc_kind`] | `state_machine::Entity::ALL` 全部落在 `DocKind` 域内 |
-//! | [`flow_health_list_matches_registry`] | `approval_gate::FLOW_TYPES` ↔ `FlowBizType::HEALTH_CHECKED` |
-//! | [`approval_entries_use_registered_biz_types`] | 各 `*_bridge::BIZ_TYPE` 都是注册过的枚举值 |
-//! | [`no_legacy_transfer_entity_type`] | `TRANSFER` 别名已从代码里消失（只允许 `STOCK_TRANSFER`） |
-//! | [`routes_are_unique_and_round_trip`] | REST 路径段唯一且能反解 |
-//! | [`cross_axis_mappings_are_consistent`] | 审批/动账轴映射到的对象必须真是单据 |
-//! | [`every_enum_has_a_label`] | 每个取值都有中文名 |
-//! | [`txn_doc_map_matches_snapshot_registry`] | 巡检登记表 `TXN_DOC` ↔ `TXN_DOC_TYPE_VALUES`（+遗留 `PURCHASE_ORDER`） |
-//! | [`voucher_source_map_matches_snapshot_registry`] | 巡检登记表 `VOUCHER_SOURCE` ↔ `VOUCHER_SOURCE_VALUES` |
-//! | [`demo_seed_voucher_sources_are_enum_values`] | `scripts/demo_seed.sh` 手写的凭证来源 ∈ `VoucherSourceType::ALL` |
-//! | [`demo_seed_source_guard_matches_enum`] | `demo_seed.sh` ⑩ 自检的来源白名单 ↔ `VoucherSourceType::ALL` |
+//! | 前端 `frontend/src/api/business/erp/doc-kinds.ts`（数组 + 中文标签） | [`frontend_ts_mirror_matches_rust`] / [`attachment_doc_types_match_rust`] / [`frontend_ts_labels_match_rust`] |
+//! | `scripts/demo_seed.sh`（手写凭证来源 + ⑩ 自检白名单） | [`demo_seed_voucher_sources_are_enum_values`] / [`demo_seed_source_guard_matches_enum`] |
+//! | `docs/architecture/snapshot-drift/10_checks.sql`（`di.v_poly_ref_map` 登记表） | [`serial_source_map_matches_snapshot_registry`] / [`doc_kind_registries_match_doc_kind_table`] / [`txn_doc_map_matches_snapshot_registry`] / [`voucher_source_map_matches_snapshot_registry`] / [`flow_cc_source_map_matches_snapshot_registry`] |
+//! | Python 巡检 `biz_type_domain.py::is_test_residue` 与 SQL 片段 | [`test_residue_predicate_matches_python_and_sql`] |
+//!
+//! 留在**应用 crate** 的是另外两条「应用内」约束（它们必须 import 应用代码，
+//! 塞进本 crate 会把 `shared → erp` 的回边重新拉回来）：
+//!
+//! - `backend/src/business/shared/doc_kind_entity_tests.rs` —— `state_machine` 实体注册表 ∈ `DocKind` 域；
+//! - `backend/src/business/erp/flow_biz_type_contract_tests.rs` —— 各 `*_bridge::BIZ_TYPE` /
+//!   `approval_gate::FLOW_TYPES` ∈ `FlowBizType` 域。
 
-use crate::business::erp::approval_gate;
-use cloudpivot_doc::*;
+use super::*;
 
-/// 仓库根（`backend/` 的上一级），用于读前端的镜像文件。
+/// 仓库根（`backend/` 的上一级），用于读前端镜像 / 脚本 / 巡检 SQL。
+///
+/// 本 crate 在 `backend/crates/cloudpivot-doc/`，所以仓库根是本文件之上的第 4 层
+/// （`ancestors()[0]` 是 crate 自己）：crate → `crates` → `backend` → 仓库根。
 fn repo_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("backend/ 必须有上级目录")
+        .ancestors()
+        .nth(3)
+        .expect("`backend/crates/cloudpivot-doc` 之上应有三层（crates → backend → 仓库根）")
         .to_path_buf()
 }
 
@@ -289,89 +289,6 @@ fn frontend_ts_labels_match_rust() {
     );
 }
 
-// ==================== 与既有注册表对齐 ====================
-
-/// `state_machine::Entity::ALL` 的每个落库值都必须落在 `DocKind` 域内。
-///
-/// 反向不要求（`DocKind` 里有 `PAYMENT` / `INVENTORY` / `FLOW_LINKAGE_CFG` 这些
-/// 不走状态机的对象），但正向一定会：状态机写进 `biz_status_log.entity_type`
-/// 的每个值都在巡检域里，否则巡检会对正常数据报红。
-#[test]
-fn entity_registry_is_covered_by_doc_kind() {
-    use crate::business::shared::state_machine::Entity;
-    for entity in Entity::ALL {
-        assert!(
-            DocKind::parse(entity.as_str()).is_some(),
-            "state_machine 实体 {} 不在 DocKind 域内 —— 巡检会把正常数据判红",
-            entity.as_str()
-        );
-    }
-}
-
-/// `approval_gate::FLOW_TYPES`（健康检查的 8 个）与 `FlowBizType::HEALTH_CHECKED` 逐条一致。
-#[test]
-fn flow_health_list_matches_registry() {
-    let gate: Vec<(&str, &str)> = approval_gate::FLOW_TYPES.to_vec();
-    let mine: Vec<(&str, &str)> = FlowBizType::HEALTH_CHECKED
-        .iter()
-        .map(|item| (item.as_str(), item.flow_code()))
-        .collect();
-    assert_eq!(gate, mine, "审批流健康检查清单与词表不一致");
-}
-
-/// 各模块写审批用的 `BIZ_TYPE` 常量都必须是注册过的枚举值。
-#[test]
-fn approval_entries_use_registered_biz_types() {
-    use crate::business::erp::cost::cost_period_bridge;
-    use crate::business::erp::{
-        contract::contract_bridge, payable::payable_bridge, purchase::purchase_bridge,
-        purchase::purchase_return_bridge, receipt_refund_bridge, requisition_bridge, sales::sales_approval_bridge,
-        stockin::stockin_query, stocktake::stocktake_bridge, voucher::voucher_bridge,
-    };
-    let registered: Vec<&str> = FlowBizType::ALL.iter().map(|item| item.as_str()).collect();
-    for (name, value) in [
-        ("purchase_bridge::BIZ_TYPE", purchase_bridge::BIZ_TYPE),
-        ("stockin_query::POST_BIZ_TYPE", stockin_query::POST_BIZ_TYPE),
-        ("stockin_query::CANCEL_BIZ_TYPE", stockin_query::CANCEL_BIZ_TYPE),
-        ("payable_bridge::BIZ_TYPE", payable_bridge::BIZ_TYPE),
-        ("payable_bridge::CANCEL_BIZ_TYPE", payable_bridge::CANCEL_BIZ_TYPE),
-        ("voucher_bridge::BIZ_TYPE", voucher_bridge::BIZ_TYPE),
-        ("contract_bridge::BIZ_TYPE", contract_bridge::BIZ_TYPE),
-        ("stocktake_bridge::BIZ_TYPE", stocktake_bridge::BIZ_TYPE),
-        // t_c49010bf：这 4 个 bridge 的 BIZ_TYPE 当年没进本清单，于是
-        // `biz_flow_def` 里长出 4 个域外值而无人拦（闸④ 在全量库上必红）。
-        // 补进来的判据不变：字面量必须在 `FlowBizType` 域内。
-        ("sales_approval_bridge::BIZ_TYPE", sales_approval_bridge::BIZ_TYPE),
-        ("requisition_bridge::BIZ_TYPE", requisition_bridge::BIZ_TYPE),
-        ("purchase_return_bridge::BIZ_TYPE", purchase_return_bridge::BIZ_TYPE),
-        ("cost_period_bridge::BIZ_TYPE", cost_period_bridge::BIZ_TYPE),
-        ("receipt_refund_bridge::BIZ_TYPE", receipt_refund_bridge::BIZ_TYPE),
-    ] {
-        assert!(
-            registered.contains(&value),
-            "{name} = {value:?} 不在 FlowBizType 域内（新增业务类型必须先登记）"
-        );
-    }
-}
-
-/// `TRANSFER` 这个实体别名必须从代码里彻底消失（V0219 已把存量改成 `STOCK_TRANSFER`）。
-///
-/// 只允许出现在本文件的注释里说明历史，所以检查的是「生产代码里的字符串字面量」：
-/// `Entity::Transfer.as_str()` 必须是 `STOCK_TRANSFER`。
-#[test]
-fn no_legacy_transfer_entity_type() {
-    use crate::business::shared::state_machine::{ENTITY_TRANSFER, Entity};
-    assert_eq!(
-        ENTITY_TRANSFER, "STOCK_TRANSFER",
-        "调拨单的 entity_type 必须与 doc_type / 审批 biz_type 同名"
-    );
-    assert_eq!(Entity::Transfer.as_str(), "STOCK_TRANSFER");
-    assert!(
-        DocKind::parse("TRANSFER").is_none(),
-        "旧别名 TRANSFER 不能出现在域里（留着它等于兼容层永远在）"
-    );
-}
-
 // ==================== 测试残留口径（t_61dca492） ====================
 
 /// [`is_test_residue`] 的判据必须与 Python 巡检（`biz_type_domain.py::is_test_residue`）逐字一致。
@@ -381,28 +298,28 @@ fn no_legacy_transfer_entity_type() {
 #[test]
 fn test_residue_predicate_matches_python_and_sql() {
     // 真阳性：e2e 脚本写进生产库的那两种形态
-    assert!(cloudpivot_doc::is_test_residue("E2E_AP_E2EMVUARCAT"));
-    assert!(cloudpivot_doc::is_test_residue("E2E_"));
-    assert!(cloudpivot_doc::is_test_residue("D2_SMOKE"));
+    assert!(is_test_residue("E2E_AP_E2EMVUARCAT"));
+    assert!(is_test_residue("E2E_"));
+    assert!(is_test_residue("D2_SMOKE"));
     // 真阴性：内置流程 / 客户自定义流程 / 形似但不是
     for raw in ["PO_APPROVE", "TASK_ACCEPT", "OTHER", "E2EX", "e2e_ap_x", "D2_SMOKE_X"] {
-        assert!(!cloudpivot_doc::is_test_residue(raw), "{raw} 不该被当成测试残留");
+        assert!(!is_test_residue(raw), "{raw} 不该被当成测试残留");
     }
     // SQL 片段与函数同口径（前缀 4 字符 + 精确值）
     assert_eq!(
-        cloudpivot_doc::TEST_RESIDUE_SQL,
+        TEST_RESIDUE_SQL,
         "(left(biz_type, 4) = 'E2E_' OR biz_type = 'D2_SMOKE')"
     );
     assert_eq!(
-        cloudpivot_doc::TEST_RESIDUE_PREFIX.len(),
+        TEST_RESIDUE_PREFIX.len(),
         4,
         "SQL 里用的是 left(biz_type, 4)，前缀长度必须也是 4"
     );
     // 内置词表里绝不能有测试残留值（否则「删残留」会把内置流程一起删掉）
-    for item in cloudpivot_doc::COLUMN_DOMAINS {
+    for item in COLUMN_DOMAINS {
         for value in item.values {
             assert!(
-                !cloudpivot_doc::is_test_residue(value),
+                !is_test_residue(value),
                 "{}.{} 的词表里出现了测试残留值 {value}",
                 item.table,
                 item.column
@@ -551,7 +468,7 @@ fn doc_kind_registries_match_doc_kind_table() {
 /// `TXN_DOC` 登记域：`doc_type` → 目标表（测试侧的期望，与 SQL 登记表逐行核对）。
 ///
 /// 未知取值直接 panic —— 这是给「新增了 `TxnDocType` 却忘了往巡检登记表补一行」
-/// 设的绊索：`domain_consts_match_enums` 只管 Rust 内部一致，这里管 Rust ↔ 巡检。
+/// 设的绊索：`vocab_tests::domain_consts_match_enums` 只管 Rust 内部一致，这里管 Rust ↔ 巡检。
 fn txn_doc_target_table(value: &str) -> Option<&'static str> {
     Some(match value {
         "STOCK_IN" => "biz_stock_in",
@@ -606,7 +523,7 @@ fn txn_doc_map_matches_snapshot_registry() {
     let sql = read_snapshot_checks_sql();
     let rows = registry_rows(&sql, "TXN_DOC");
     // 期望行由**枚举**推导（P2-27 起私有常量 `TXN_DOC_TYPE_VALUES` 留在词表 crate 内部；
-    // 它与 `TxnDocType::ALL` 逐字同序，由 crate 的 `vocab_tests::domain_consts_match_enums` 钉住）
+    // 它与 `TxnDocType::ALL` 逐字同序，由 `vocab_tests::domain_consts_match_enums` 钉住）
     let mut expected: Vec<(String, Option<String>)> = TxnDocType::ALL
         .iter()
         .map(|item| {

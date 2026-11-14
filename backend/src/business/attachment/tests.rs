@@ -2572,7 +2572,8 @@ async fn db_upload_log_lands_in_operation_logs() {
     println!("[AUD-02] operation_logs 真库上传留痕：operation/target/detail/ip 全部正确落库 ✓");
 }
 
-/// 仓库根（`backend/` 的上一级），用于读前端的角色词表镜像（与 `doc_kind_tests` 同款做法）。
+/// 仓库根（`backend/` 的上一级），用于读前端的角色词表镜像（与 `cloudpivot-doc` crate
+/// 的 `contract_tests` 同款做法）。
 fn repo_root() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()

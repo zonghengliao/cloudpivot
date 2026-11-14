@@ -44,8 +44,9 @@
 //!
 //! # 为什么状态流转不写 `biz_status_log`
 //!
-//! 状态日志的 `entity_type` 取值域 = `DocKind`（P2-5 词表收敛，`doc_kind_tests` 把
-//! 「Rust 枚举 ↔ 前端 `doc-kinds.ts` 镜像 ↔ 巡检登记表 `10_checks.sql`」三方逐字钉死）。
+//! 状态日志的 `entity_type` 取值域 = `DocKind`（P2-5 词表收敛，`cloudpivot-doc` crate 的
+//! `contract_tests` 把「Rust 枚举 ↔ 前端 `doc-kinds.ts` 镜像 ↔ 巡检登记表 `10_checks.sql`」
+//! 三方逐字钉死）。
 //! 新增一个 `DocKind::CommissionSettlement` 需要同步改前端镜像与巡检登记 SQL，
 //! 属词表收敛的独立改动；本卡用「handler 内 `LEGAL_EDGES` + `WHERE status = 原状态`
 //! 乐观锁 + 库层 `ck_biz_cmset_status`」三处兜住状态域与并发，审计凭据是

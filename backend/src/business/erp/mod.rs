@@ -214,6 +214,12 @@ mod model_order; // 采购订单只读（头 + 明细）
 #[cfg(test)]
 mod cancel_cascade_tests;
 
+/// 审批类型契约（P2-29）：各 `*_bridge::BIZ_TYPE` / `approval_gate::FLOW_TYPES` ∈ `FlowBizType` 域。
+/// 只在 `cargo test` 时编译。住在 ERP 这边是因为它 import 的是 ERP 的写入点
+/// （放进 `business::shared` 会把 `shared → erp` 的回边长回来）。
+#[cfg(test)]
+mod flow_biz_type_contract_tests;
+
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod aux_tests;

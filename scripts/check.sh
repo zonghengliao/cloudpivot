@@ -83,7 +83,7 @@ plan_all() {
         plan L1 "后端格式" "cd backend && cargo fmt -- --check"
         plan L1 "后端 lint（lib+bin+tests+examples，告警即错）" "cd backend && cargo clippy --all-targets -- -D warnings"
         plan L1 "后端类型检查" "cd backend && cargo check"
-        plan L1 "词表 crate 格式+lint（cloudpivot-doc，不进 workspace）" "cd backend/crates/cloudpivot-doc && cargo fmt -- --check && cargo clippy -- -D warnings"
+        plan L1 "词表 crate 格式+lint+单测（cloudpivot-doc，不进 workspace）" "cd backend/crates/cloudpivot-doc && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test"
         if [ -d "$ROOT/frontend/node_modules" ]; then
             plan L1 "前端类型检查（src/**）" "cd frontend && pnpm typecheck"
             plan L1 "前端类型检查（tests/unit/**，tsconfig.unit.json）" "cd frontend && pnpm typecheck:unit"
@@ -143,8 +143,13 @@ run_l1() {
     # （workspace 骨架是 P2-C / P2-40 的活），所以上面三条 `cargo fmt / clippy / check` 都扫不到它 ——
     # 依赖被编译 ≠ 它自己的格式和 lint 被检查。这里单独补一档，否则这个 crate 从落地第一天起
     # 就没人管格式（而 pre-commit 的 rustfmt 只查暂存文件，改完后再提交才可能漏）。
-    echo "==> L1 词表 crate：cargo fmt -- --check && cargo clippy -- -D warnings（backend/crates/cloudpivot-doc）"
-    (cd "$ROOT/backend/crates/cloudpivot-doc" && cargo fmt -- --check && cargo clippy -- -D warnings)
+    #
+    # `cargo test` 也在这一档里（P2-29）：词表的契约用例（`vocab_tests` + 读前端镜像 /
+    # demo_seed.sh / 巡检 SQL 的 `contract_tests`）**跟着词表搬进了这个 crate**，
+    # 而闸⓪ 的 `cargo test --lib` 只跑应用 crate（backend/），扫不到这里的 19 条。
+    # 少了这一句，搬过来的契约断言从此无人执行 —— 门禁仍然全绿，闸却是空的。
+    echo "==> L1 词表 crate：cargo fmt -- --check && cargo clippy -- -D warnings && cargo test（backend/crates/cloudpivot-doc）"
+    (cd "$ROOT/backend/crates/cloudpivot-doc" && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test)
 
     echo "==> L1 前端：pnpm typecheck（src/**）"
     # 干净克隆里没有 node_modules（.gitignore）；这时跳过而不是判红，

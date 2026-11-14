@@ -10,9 +10,13 @@
 //! | `cloudpivot`（应用） | → `cloudpivot-doc` | 直接 `use cloudpivot_doc::*`（P2-28 起，旧转发垫片已删除），调用点路径即本 crate 路径 |
 //! | `cloudpivot-doc` | **无出边** | `cargo tree -p cloudpivot-doc` 只有一个根节点（`[dependencies]` 为空） |
 //!
-//! 解的是 `shared → erp` 这条回边：词表被 ERP 全域引用，而词表的**一致性测试**
-//! （`doc_kind_tests.rs`）又要 import `business::erp::*` 做逐字比对 —— 测试留在应用 crate 里
-//! （跨轴一致是「应用内」的约束），词表本体搬到 crate 里，于是 crate 图无环。
+//! 解的是 `shared → erp` 这条回边：词表被 ERP 全域引用，而词表的**一致性测试**又要
+//! import `business::erp::*` 做逐字比对。P2-27 把词表本体搬进本 crate；P2-29 把测试按
+//! 「依赖谁」拆开 —— 只读文件、不 import 应用代码的契约（前端 TS 镜像 / `demo_seed.sh` /
+//! 巡检 SQL）进本 crate 的 [`contract_tests`]；必须 import 应用代码的几条留在应用 crate：
+//! `business/shared/doc_kind_entity_tests.rs`（`state_machine` 实体注册表）与
+//! `business/erp/flow_biz_type_contract_tests.rs`（各 `*_bridge::BIZ_TYPE`）。
+//! 于是 crate 图无环（`shared → erp` 不再出现在测试代码里）。
 //!
 //! 本 crate 里**不许加**任何依赖（尤其不许反向依赖 `cloudpivot`）：一旦加回去，环就回来了。
 //! 值域解析脚本（`scripts/verify/biz_type_domain.py`、`erp_invariants_e4_regression.py`）
@@ -56,7 +60,9 @@
 //! # 三处防护
 //!
 //! 1. **编译期**：调用方只能拿枚举，拿不到裸字符串 —— 新增业务类型不改这里就编译不过；
-//! 2. **单测**：应用 crate 的 `doc_kind_tests` 钉住「枚举 ↔ 前端 TS 常量表 ↔ 值域配置」三者逐字一致；
+//! 2. **单测**：本 crate 的 [`vocab_tests`]（词表自身）+ [`contract_tests`]（词表 ↔ 前端 TS 常量表 /
+//!    演示数据脚本 / 巡检 SQL）钉住「枚举 ↔ 前端镜像 ↔ 值域配置」逐字一致；应用内那两条
+//!    （`state_machine` 实体、各 bridge 的 `BIZ_TYPE`）在应用 crate 的两份 test 文件里；
 //! 3. **巡检**：`scripts/verify/biz_type_domain.py` 按 [`COLUMN_DOMAINS`] 查库，
 //!    任何列出现域外值即 FAIL（含「历史上用过、现在已废弃」的别名，如 `TRANSFER`）。
 //!
@@ -207,7 +213,8 @@ pub enum DocKind {
     /// **不登记 `is_document`**：它不是可审批单据（审批发生在成本核算批次
     /// `biz_cost_period` 上），作废只是建错时的终态。列在这里是因为它确实有实体表、
     /// 有状态机、会写 `biz_status_log` —— 不登记则 `state_machine` 注册表与
-    /// `DocKind` 域对不上（`doc_kind_tests::entity_registry_is_covered_by_doc_kind` 会红）。
+    /// `DocKind` 域对不上（`business/shared/doc_kind_entity_tests.rs` 的
+    /// `entity_registry_is_covered_by_doc_kind` 会红）。
     CostObject,
     /// 成本核算批次（期间结算单）`biz_cost_period`（成本核算 ARCH-9 §3.1 ⑨）。
     ///
@@ -864,7 +871,7 @@ impl FlowBizType {
             FlowBizType::AssetDisposal => DocKind::FixedAsset,
             FlowBizType::ReceiptRefund => DocKind::ReceiptRefund,
             // FIN-3（ARCH-6 §6.2.2）：`Expense` 由 `None` 改成 `Some(...)` —— 一处**行为变更**，
-            // `doc_kind_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
+            // `contract_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
             // 自检块，改注释都会 checksum 失败，扩清单必须新开迁移重写自检块，超出 FIN-3 范围）。
             FlowBizType::Expense => DocKind::ExpenseReport,
             // 人力资源（ARCH-9-2 §4.3）：请假单 / 薪资单各有独立单据表；
@@ -1431,7 +1438,7 @@ impl SerialSourceType {
     /// | `PRODUCE`  | `None` | 生产模块尚未落地，没有「生产入库单」这张表 ⇒ 不记 id |
     ///
     /// 与巡检登记表 `di.v_poly_ref_map`（`ref_domain='SERIAL_SOURCE'`）逐行一致，
-    /// 由 `doc_kind_tests::serial_source_map_matches_snapshot_registry` 机械核对 ——
+    /// 由 `contract_tests::serial_source_map_matches_snapshot_registry` 机械核对 ——
     /// 改这里不改 SQL（或反过来）测试就红。
     pub const fn target_table(self) -> Option<&'static str> {
         Some(match self {
@@ -1833,7 +1840,7 @@ const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 36] = [
     "PAYROLL_PAYMENT",
 ];
 
-/// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `doc_kind_tests` 按它逐列核对）。
+/// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `contract_tests` 按它逐列核对）。
 ///
 /// 域里**不留**已废弃的别名：`biz_status_log.entity_type = 'TRANSFER'` 已被 V0219
 /// 统一成 `STOCK_TRANSFER`，出现在库里就是 FAIL（不是「历史兼容」）。
@@ -1993,7 +2000,8 @@ pub const COLUMN_DOMAINS: [ColumnDomain; 24] = [
 ///
 /// 与 `scripts/verify/biz_type_domain.py::is_test_residue` **逐字一致**：
 /// 那边判 `value.startswith("E2E_") or value == "D2_SMOKE"`，这边是同一个口径的 Rust 版本；
-/// 再加一条 `doc_kind_tests.rs` 的一致性用例钉住，改一边不改另一边会红。
+/// 再加一条 `contract_tests::test_residue_predicate_matches_python_and_sql` 钉住，
+/// 改一边不改另一边会红。
 pub const TEST_RESIDUE_PREFIX: &str = "E2E_";
 
 /// 测试残留的**精确值**（没有统一前缀的历史冒烟流程）。
@@ -2016,8 +2024,18 @@ pub const TEST_RESIDUE_SQL: &str = "(left(biz_type, 4) = 'E2E_' OR biz_type = 'D
 
 /// 词表自身的结构性不变量（拼写规则 / 唯一性 / 值域 ↔ 枚举 / 路径段 / 跨轴映射 / 中文名 / 严格解析）。
 ///
-/// P2-27 从应用 crate 的 `doc_kind_tests.rs` 搬来：它们只依赖本 crate 内部，不读文件、不连库、
+/// P2-27 从应用 crate 的一致性用例里搬来：它们只依赖本 crate 内部，不读文件、不连库、
 /// 不 import `business::erp`，所以跟着词表走 —— 这也是 `cargo test` 在本 crate 里
 /// 不是 `0 passed` 假绿的唯一保证。
 #[cfg(test)]
 mod vocab_tests;
+
+/// 词表 ↔ 仓库内其它**文本真相**的契约（P2-29 从应用 crate 的 `doc_kind_tests.rs` 搬来）。
+///
+/// 前端 TS 镜像（`doc-kinds.ts`）、演示数据脚本（`demo_seed.sh`）、巡检登记表
+/// （`docs/architecture/snapshot-drift/10_checks.sql`）各写了一遍词表 —— 三边不一致
+/// 就是「第 8 套词表」。这些用例**只读文件**（`std::fs`）与 `env!("CARGO_MANIFEST_DIR")`，
+/// 不 import 应用代码，所以跟着词表走：改了枚举忘了改镜像，`cargo test -p cloudpivot-doc`
+/// 立刻红，而不是要跑整个应用 crate 才看得见。
+#[cfg(test)]
+mod contract_tests;

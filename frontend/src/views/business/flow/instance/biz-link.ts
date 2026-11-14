@@ -23,7 +23,7 @@
  *
  * key 只能取 {@link FlowBizType}（`@/api/business/erp/doc-kinds` 的 `FLOW_BIZ_TYPES`），
  * 它是后端 `backend/crates/cloudpivot-doc/src/lib.rs::FlowBizType::as_str` 的逐字镜像，
- * 由后端单测 `doc_kind_tests.rs::frontend_ts_mirror_matches_rust` 钉死。
+ * 由后端单测 `cloudpivot-doc` crate 的 `contract_tests::frontend_ts_mirror_matches_rust` 钉死。
  *
  * 注意：卡面写的是「对照 `backend/src/business/flow/dto.rs` 的 biz_type 取值」，但那个文件里
  * **没有枚举表**（只有一句注释举例 `TASK_ACCEPT` / `ORDER`，其中 `ORDER` 在库里根本不存在）。

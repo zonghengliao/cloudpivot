@@ -115,6 +115,7 @@ business/erp/doc_shape_tests.rs
 business/erp/expense/expense_linkage_tests.rs
 business/erp/expense/expense_model_tests.rs
 business/erp/fixture_hygiene.rs
+business/erp/flow_biz_type_contract_tests.rs
 business/erp/lot/lot_db_tests.rs
 business/erp/model_tests.rs
 business/erp/payable/payable_payment/tests/payable_linkage_db_tests.rs
@@ -204,7 +205,7 @@ business/impexp/builtin/hr/import_post_db_tests.rs
 business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
-business/shared/doc_kind_tests.rs
+business/shared/doc_kind_entity_tests.rs
 business/task/task_attachment_snapshot_tests.rs
 business/task/task_doc_link_tests.rs
 business/task/task_handler_copy_db_tests.rs

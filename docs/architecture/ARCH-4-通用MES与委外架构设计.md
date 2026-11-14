@@ -4058,7 +4058,7 @@ POSTED 之后（同事务）：
 
 | 措施 | 落地 |
 |---|---|
-| MES 的所有业务类型**只从 `DocKind` 取** | 新增 14 个变体（§6.9），`as_str` / `label` / `table` / `is_document` 四处同步；前端 TS 镜像表同步（`doc_kind_tests` 会钉住三者逐字一致） |
+| MES 的所有业务类型**只从 `DocKind` 取** | 新增 14 个变体（§6.9），`as_str` / `label` / `table` / `is_document` 四处同步；前端 TS 镜像表同步（`cloudpivot-doc` 的 `contract_tests` 会钉住三者逐字一致） |
 | **DDL 不写业务类型 CHECK** | MES 50 张表里**零个** `ck_xxx_doc_type`（对照：`biz_doc_attachment` / `biz_reminder_log` 的历史包袱） |
 | 新增单据类型 = 加一行枚举 | 不需要迁移（`biz_task.doc_type` 无 CHECK；`biz_status_log.entity_type` 无 CHECK） |
 | 词表巡检 | `scripts/verify/biz_type_domain.py` 自动覆盖新列（`COLUMN_DOMAINS` 加 MES 列） |
@@ -4094,7 +4094,7 @@ POSTED 之后（同事务）：
 
 | # | 接线点 | 位置 | 改动性质 | 风险 |
 |---|---|---|---|---|
-| C-1 | `DocKind` 新增 14 个变体 | `backend/src/business/shared/doc_kind.rs`（`ALL` / `as_str` / `label` / `table` / `is_document` / `flow_code`） | 改**代码**（词表唯一真相）；单测 `doc_kind_tests` 会强制前端 TS 镜像同步 | 低（编译期能拦住漏改） |
+| C-1 | `DocKind` 新增 14 个变体 | `backend/src/business/shared/doc_kind.rs`（`ALL` / `as_str` / `label` / `table` / `is_document` / `flow_code`） | 改**代码**（词表唯一真相）；单测（`cloudpivot-doc` 的 `contract_tests`）会强制前端 TS 镜像同步 | 低（编译期能拦住漏改） |
 | C-2 | `state_machine::Entity` 新增 11 个变体 + 边常量 | `backend/src/business/shared/state_machine.rs` | 改代码（注册表）；`transition` 会核对边与注册表一致 | 中（边写错会导致流程走不通，需单测覆盖每条边） |
 | C-3 | `task/doc_ref.rs::DOC_TARGETS` 增加 6 行 | 任务模块 | 改代码（一行一个 DocTarget） | 低 |
 | C-4 | `biz_doc_attachment.ck_biz_doc_attachment_type` 扩值域 | 迁移（`ALTER TABLE … DROP/ADD CONSTRAINT`） | **改现有表约束**（扩枚举值，不改结构） | 中（需同步 `DocKind`） |

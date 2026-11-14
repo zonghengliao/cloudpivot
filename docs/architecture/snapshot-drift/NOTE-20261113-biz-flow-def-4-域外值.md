@@ -33,7 +33,8 @@
 
 ## 3. 为什么漂移能活这么久（根因，别只修表象）
 
-`doc_kind_tests::approval_entries_use_registered_biz_types` 是「bridge 常量 ∈ 词表」的
+`business/erp/flow_biz_type_contract_tests.rs` 的 `approval_entries_use_registered_biz_types`
+（P2-29 前在 `business/shared/doc_kind_tests.rs`）是「bridge 常量 ∈ 词表」的
 机械判据，但它的 bridge 清单是**手写**的 8 个。这 4 个 bridge 后来上线时没人往清单里加，
 判据对它们从未执行 ⇒ 词表漏登记无人拦，直到全量库巡检才发现。
 

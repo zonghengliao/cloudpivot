@@ -540,7 +540,7 @@ su -s /bin/sh postgres -c "psql -d cloudpivot_audit -tAF'|' -c \"select flow_cod
 
 ### 2.9.3 代价与遗留
 
-- `FlowBizType::Expense::doc_kind()` 目前返回 `None`（`doc_kind.rs:389`），要改成 `Some(DocKind::ExpenseReport)`——**这是一处代码改动**，会让单测 `doc_kind_tests` 与巡检 `biz_type_domain.py` 的期望值变化，第 1 期卡里明确列出。
+- `FlowBizType::Expense::doc_kind()` 目前返回 `None`（`doc_kind.rs:389`），要改成 `Some(DocKind::ExpenseReport)`——**这是一处代码改动**，会让词表单测（`cloudpivot-doc` 的 `vocab_tests`）与巡检 `biz_type_domain.py` 的期望值变化，第 1 期卡里明确列出。
 - `HEALTH_CHECKED`（8 个 `biz_type` 的发布状态自检，`doc_kind.rs:308`）建议扩到 11 个（含 `EXPENSE` / `BUDGET_APPROVE` / `ASSET_DISPOSAL`），但要同步改 `V0202` 的自检块——第 1 期卡里做，不在本卡（本卡只设计）。
 
 ## 2.10 D10 · 不建员工表
@@ -2766,7 +2766,7 @@ AssetDisposal,
 | `Expense`（既有） | `EXPENSE` | `expense` | 费用审批 | **`None` → `Some(DocKind::ExpenseReport)`** ⚠️ |
 
 ⚠️ 最后一行是一处**行为变更**：`FlowBizType::Expense::doc_kind()` 由 `None` 改成 `Some(...)`，会影响：
-- `doc_kind_tests` 的单测期望（第 1 期卡必须一起改）；
+- 词表单测（`cloudpivot-doc` 的 `vocab_tests` / `contract_tests`）的期望（第 1 期卡必须一起改）；
 - `HEALTH_CHECKED` 建议同步扩到 11 个（`doc_kind.rs:308`）并改 `V0202` 自检块（第 1 期卡）。
 
 ### 6.2.3 `VoucherSourceType`：10 → 15

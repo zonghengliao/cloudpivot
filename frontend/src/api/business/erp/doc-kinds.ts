@@ -6,7 +6,7 @@
  * 后端的唯一真相是 `backend/crates/cloudpivot-doc/src/lib.rs`（七根轴、同一套大写下划线拼写）。
  * 本文件是它的**逐字镜像**：数组顺序、取值、标签一一对应。
  *
- * 两边一致性由后端单测钉死 —— `backend/src/business/shared/doc_kind_tests.rs`
+ * 两边一致性由后端单测钉死 —— `backend/crates/cloudpivot-doc/src/contract_tests.rs`
  * 里的 `frontend_ts_mirror_matches_rust` 会直接读本文件、解析下面那几个 `as const` 数组，
  * 与 Rust 枚举逐字比对。**改了这里不改 Rust（或反过来）会直接单测失败**，
  * 这就是「不留第二套词表」的机械保证。

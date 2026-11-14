@@ -1,14 +1,17 @@
-//! 词表自身的**结构性**不变量（P2-27 从应用 crate 的 `doc_kind_tests.rs` 搬来）。
+//! 词表自身的**结构性**不变量（P2-27 从应用 crate 的一致性用例里搬来）。
 //!
 //! 判据全部只依赖本 crate 内部：枚举、私有 `*_VALUES` 常量、`COLUMN_DOMAINS` 登记表。
 //! 所以它们**跟着词表走** —— 词表在哪，「拼写规则 / 轴内唯一 / 值域 ↔ 枚举 / 路径段 /
 //! 跨轴映射 / 中文名 / 严格解析 / 巡检列覆盖」这些不变量就在哪被验证，
 //! `cargo test -p cloudpivot-doc` 也因此不会是一次 `0 passed` 的假绿。
 //!
-//! 留在应用 crate（`backend/src/business/shared/doc_kind_tests.rs`）的是**跨文件**一致性：
-//! 前端 TS 镜像、`scripts/demo_seed.sh`、快照 SQL、ERP 写入点字面量、`state_machine` 实体
-//! 注册表、快照校验表 —— 那些约束的对象是「应用」而不是「词表」，塞进零依赖 crate
-//! 会把 `shared → erp` 这条回边重新拉回来。
+//! P2-29 把剩下的用例按「依赖谁」拆成两处：
+//!
+//! - **读文件的契约**（前端 TS 镜像、`scripts/demo_seed.sh`、快照巡检 SQL）→ 本 crate 的
+//!   [`contract_tests`]：它们只碰 `std::fs`，不 import 应用代码，跟着词表走；
+//! - **应用内断言**（`state_machine` 实体注册表、各 `*_bridge::BIZ_TYPE`）→ 留在应用 crate
+//!   （`business/shared/doc_kind_entity_tests.rs`、`business/erp/flow_biz_type_contract_tests.rs`），
+//!   因为它们必须 import 应用代码，塞进零依赖 crate 会把 `shared → erp` 这条回边重新拉回来。
 use super::*;
 
 // ==================== 拼写规则 ====================

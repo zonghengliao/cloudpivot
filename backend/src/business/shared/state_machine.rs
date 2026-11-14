@@ -1552,7 +1552,7 @@ pub fn critical_edge(entity: Entity, from: &str, to: &str) -> Option<&'static Cr
 /// 实体类型：成本对象（生产批）`biz_cost_object`。
 ///
 /// 做法同 `ENTITY_FIXED_ASSET`：落库值取 [`DocKind::CostObject`]（`"COST_OBJECT"`），
-/// 不是手写字面量 —— `doc_kind_tests::entity_registry_is_covered_by_doc_kind`
+/// 不是手写字面量 —— `doc_kind_entity_tests::entity_registry_is_covered_by_doc_kind`
 /// 要求注册表里每个实体都在 `DocKind` 域内。
 pub const ENTITY_COST_OBJECT: &str = DocKind::CostObject.as_str();
 
@@ -1593,7 +1593,7 @@ pub const COST_OBJECT_BASE: [BaseEdge; 2] = [
 /// 实体类型：成本核算批次（期间结算单）`biz_cost_period`。
 ///
 /// 落库值取 [`DocKind::CostPeriod`]（`"COST_PERIOD"`）—— 与 `ENTITY_COST_OBJECT`
-/// 同款：`doc_kind_tests::entity_registry_is_covered_by_doc_kind` 要求注册表里
+/// 同款：`doc_kind_entity_tests::entity_registry_is_covered_by_doc_kind` 要求注册表里
 /// 每个实体都在 `DocKind` 域内，手写字面量会漂。
 ///
 /// **卡面写的是 `DRAFT → PENDING → APPROVED`，落库值是 `SUBMITTED`**：设计 §3.1 ⑨ 的
@@ -1657,8 +1657,8 @@ pub const COST_PERIOD_BASE: [BaseEdge; 7] = [
 // ==================== 人力资源（ARCH-9-人力资源模块设计 §4.2） ====================
 //
 // 五个实体（员工 / 劳动合同 / 请假单 / 考勤期间 / 薪资单）的落库值一律取 [`DocKind`]
-// （HR-06 已扩这 5 个值），与 `ENTITY_COST_OBJECT` 同款：`doc_kind_tests::
-// entity_registry_is_covered_by_doc_kind` 要求注册表里每个实体都在 `DocKind` 域内，
+// （HR-06 已扩这 5 个值），与 `ENTITY_COST_OBJECT` 同款：
+// `doc_kind_entity_tests::entity_registry_is_covered_by_doc_kind` 要求注册表里每个实体都在 `DocKind` 域内，
 // 手写字面量会漂。`biz_status_log.entity_type` 无 CHECK 白名单（V0159 / V0219:44），
 // 常量登记后 `transition()` 即可用。
 //

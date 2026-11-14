@@ -7,8 +7,11 @@
 # ⚠ 铁律：`[dependencies]` 永远保持为空。
 #   - 本 crate 一旦依赖 `cloudpivot`（或任何框架 crate），P2-B 解掉的环立刻回来；
 #   - 它只放枚举 / 常量 / `const fn` 拼写规则，不需要 serde / sqlx / tokio；
-#   - 「词表 ↔ 前端 TS ↔ 库内值域」的一致性测试留在应用 crate（`backend/src/business/shared/
-#     doc_kind_tests.rs`），因为那三条约束都是**应用内**的，不是词表自身的。
+#   - 测试按「依赖谁」分两处（P2-29）：只读文件的契约（前端 TS 镜像 / `demo_seed.sh` /
+#     巡检 SQL）在本 crate 的 `src/contract_tests.rs`；必须 import 应用代码的那几条
+#     （`state_machine` 实体、各 bridge 的 `BIZ_TYPE`）留在应用 crate 的
+#     `business/shared/doc_kind_entity_tests.rs` 与 `business/erp/flow_biz_type_contract_tests.rs`。
+#     后者不进本 crate —— 否则 `shared → erp → doc` 的回边会重新长出来。
 #
 # 与应用 crate 的关系：`backend/Cargo.toml` 以 path 依赖引用本 crate。
 # P2-28 已把 141 处 `crate::business::shared::doc_kind::*` 调用点改到 `cloudpivot_doc::*`，

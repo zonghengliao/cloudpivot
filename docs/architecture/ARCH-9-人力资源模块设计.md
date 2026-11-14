@@ -1746,7 +1746,7 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | HR-04 | 迁移 **V0387**（V0381）：36 菜单 + HR_MANAGER + 授权 | HR-01 | 1.5 h |
 | HR-05 | 迁移 **V0388 + V0389**（V0382 + V0383）：脱敏/配置/附件 CHECK 放宽 | HR-01 | 1.0 h |
 | HR-06 | `doc_kind.rs`：+5 `DocKind` +3 `FlowBizType` +2 `VoucherSourceType` + 交叉映射 + `COLUMN_DOMAINS` | — | 1.5 h |
-| HR-07 | 前端镜像 `doc-kinds.ts` / `attachment.ts`，跑 `doc_kind_tests` 全绿 | HR-06 | 1.0 h |
+| HR-07 | 前端镜像 `doc-kinds.ts` / `attachment.ts`，跑词表契约单测（`cloudpivot-doc` 的 `contract_tests`）全绿 | HR-06 | 1.0 h |
 | HR-08 | `state_machine.rs`：+5 `Entity` + 边表/BASE/REASON/LOCKED + 单测 | HR-06 | 1.5 h |
 
 #### 批 2 员工档案（10 张）
@@ -1862,7 +1862,7 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | `sys_user.user_type` 只有 HUMAN/ROBOT | `backend/migrations/system/V0102__add_sys_user_type.up.sql` | 同上 |
 | 数据权限 SELF 只按列比较 | `backend/src/business/shared/scope.rs`（`filter_for` ③ 与 `ScopeTarget` 常量表） | `search_files "filter_for"` |
 | `SCOPED_TABLES` 是开放清单（12 项） | `backend/src/business/shared/scope.rs`（`SCOPED_TABLES` 常量） | 同上 |
-| `DocKind` 29 值 / 7 根轴 / 前端镜像单测 | `backend/src/business/shared/doc_kind.rs:59-183,1309-1339,1525+`；`frontend/src/api/business/erp/doc-kinds.ts`；`doc_kind_tests.rs`（`frontend_ts_mirror_matches_rust`） | `cargo test doc_kind` |
+| `DocKind` 29 值 / 7 根轴 / 前端镜像单测 | `backend/src/business/shared/doc_kind.rs:59-183,1309-1339,1525+`；`frontend/src/api/business/erp/doc-kinds.ts`；`backend/crates/cloudpivot-doc/src/contract_tests.rs`（`frontend_ts_mirror_matches_rust`） | `cargo test doc_kind` |
 | 状态机唯一入口 + 边表写法 | `backend/src/business/shared/state_machine.rs:1552+`（`Entity`）、`1720+`（EDGES） | `read_file` |
 | 凭证写入口（唯一）与分录单边/非负约束 | `backend/src/business/erp/voucher/mod.rs:1920-1963`（`PostVoucher`/`post_voucher`）；`V0149:100-110`（`ck_biz_voucher_entry_side`） | `read_file` / `psql \d biz_voucher_entry` |
 | 多借方凭证入口（工资凭证复用） | `backend/src/business/erp/voucher/voucher_multi.rs:239`（`post_explicit_lines`）、`:305`（`ensure_leaf`） | `read_file` |

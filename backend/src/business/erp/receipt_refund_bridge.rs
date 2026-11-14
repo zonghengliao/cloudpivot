@@ -501,7 +501,7 @@ mod tests {
     #[test]
     fn biz_type_matches_the_doc_kind_registry() {
         // 审批轴 ↔ 对象轴：`RECEIPT_REFUND` 必须映射到 `DocKind::ReceiptRefund`
-        // （`doc_kind_tests::cross_axis_mappings_are_consistent` 也会再核一遍）
+        // （`cloudpivot-doc` crate 的 `vocab_tests::cross_axis_mappings_are_consistent` 也会再核一遍）
         use cloudpivot_doc::{DocKind, FlowBizType};
         let parsed = FlowBizType::parse(BIZ_TYPE).expect("FlowBizType 必须登记 RECEIPT_REFUND");
         assert_eq!(parsed, FlowBizType::ReceiptRefund);

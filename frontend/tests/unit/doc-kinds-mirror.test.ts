@@ -1,7 +1,7 @@
 /**
  * `doc-kinds.ts` 的**业务对象轴**镜像单测（卡 HR-07 / ARCH-9-2 §8.1）。
  *
- * 后端 `doc_kind_tests` 已经有三条「读前端 TS」的镜像断言（`frontend_ts_mirror_matches_rust`
+ * 后端 `cloudpivot-doc` crate 的 `contract_tests` 已经有三条「读前端 TS」的镜像断言（`frontend_ts_mirror_matches_rust`
  * 等），但它们只在 `cargo test` 里跑 —— 前端同学只跑 `pnpm test:unit` 时，动了
  * `DOC_KINDS` / `DOC_KIND_LABELS` / `DOC_KIND_TABLES` 不会有人拦。本文件补上反方向：
  * **从前端这一侧读后端源码**，把 ① 业务对象轴的三个常量钉死。
