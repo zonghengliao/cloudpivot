@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::business::erp::code_policy;
-use crate::business::erp::customer_model::{
+use crate::business::erp::customer::customer_model::{
     self, CustomerRow, CustomerWrite, MAX_CODE_LEN, MAX_NAME_LEN, STATUS_ACTIVE, is_valid_status, normalize_code,
 };
 use crate::business::erp::seq;
@@ -165,9 +165,9 @@ fn not_found() -> ApiError {
     ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "客户不存在或已删除".to_string())
 }
 
-/// 编码重复（409 + `66001`）：走六类共用的 [`super::handler::code_conflict`]（E2E08-FIX-2 ③）。
+/// 编码重复（409 + `66001`）：走六类共用的 [`crate::business::erp::handler::code_conflict`]（E2E08-FIX-2 ③）。
 fn code_conflict(code: &str) -> ApiError {
-    super::handler::code_conflict("客户", code)
+    crate::business::erp::handler::code_conflict("客户", code)
 }
 
 /// 写路径的数据库错误收口。

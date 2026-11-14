@@ -82,7 +82,7 @@ use crate::business::erp::approval_gate;
 use crate::business::erp::contract::contract_model::{self, ContractRow};
 use crate::business::erp::credit;
 use crate::business::erp::currency;
-use crate::business::erp::customer_model::{self, STATUS_ACTIVE};
+use crate::business::erp::customer::customer_model::{self, STATUS_ACTIVE};
 use crate::business::erp::sales::sales_approval_bridge;
 use crate::business::erp::sales::sales_order_model::{
     self as model, NewItem, NewSalesOrder, SalesOrderItemRow, SalesOrderRow, Totals,
