@@ -57,7 +57,8 @@
 //! - **附件**：`biz_task_attachment` 只落绑定关系，文件本体由 `business::storage` 管
 //!   （T1 建表，接口随 T3 的评论/附件一起做）。
 //! - **审批流**：`biz_task.approval_instance_id` 由 `DOING → REVIEW` 时自动写入（批次 D · D3b，
-//!   见 [`crate::business::flow::task_bridge`]）；未配置 `TASK_ACCEPT` 流程时保持 `NULL`，
+//!   走 [`approval_port`] 接缝，实现在审批域 `business/flow/task_approval_impl.rs`）；
+//!   未配置 `TASK_ACCEPT` 流程时保持 `NULL`，
 //!   走原两级验收。`REVIEW` 两条出边受 `state::check_transition` 的审批门闸保护。
 //!
 //! # T4 落地的两条不变式（依赖 + 甘特）
@@ -70,6 +71,7 @@
 //!    `bar.offset_days` / `length_days`），前端**不绑拖拽**。拖拽改期属 T7，
 //!    且必须重跑依赖校验（修正 10：改期后前置不得晚于后继开始）。
 
+pub mod approval_port;
 pub mod batch;
 pub mod burndown;
 pub mod collab;
@@ -117,3 +119,8 @@ mod task_handler_flow; // 流程与统计：任务流程来源查询 / 按执行
 mod task_handler_hierarchy; // 父子关系：建子任务 / 子任务列表 / 父状态巡检修复
 mod task_handler_notice; // 通知扇出：草稿拼装 / 分级发送 / 状态与前置联动提醒
 mod task_handler_status; // 状态机与进度：改状态 / 改进度（审批门闸 + 事务编排）
+
+// ==================== P2-37 新增的测试面 ====================
+// 接缝的注册表语义 + 「task 不许引用审批域」闸门（离线，不连库）。
+#[cfg(test)]
+mod approval_port_tests;

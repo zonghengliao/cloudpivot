@@ -13,8 +13,8 @@ use nik::uuid::Uuid;
 
 use super::task_handler_assign::*;
 use super::task_handler_common::*;
-use crate::business::flow::task_bridge;
 use crate::business::shared::principal::{self};
+use crate::business::task::approval_port::{self, CancelCause, CancelledCounts};
 use crate::business::task::doc_ref;
 use crate::business::task::dto::{
     self, MyCounts, MyTasksRes, TaskAttachmentRes, TaskByDocQuery, TaskByDocRes, TaskCreateReq, TaskDeleteRes,
@@ -695,9 +695,9 @@ pub async fn delete(
             let affected = model::soft_delete(&tx, task_id, me).await?;
             // 已经删过（重复删除幂等，affected = 0）→ 没有在跑实例可终止，省一次写。
             let cancelled = if affected > 0 {
-                task_bridge::cancel_on_task_deleted(&tx, task_id, &task_no).await?
+                approval_port::cancel_pending(&tx, task_id, &task_no, CancelCause::Deleted).await?
             } else {
-                crate::business::flow::model::CancelledOfBiz::default()
+                CancelledCounts::default()
             };
             Ok((affected, cancelled))
         })

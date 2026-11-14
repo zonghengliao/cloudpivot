@@ -16,10 +16,10 @@ use super::task_handler_common::*;
 use super::task_handler_dep::*;
 use super::task_handler_notice::*;
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
-use crate::business::flow::task_bridge;
 use crate::business::shared::principal::{self};
+use crate::business::task::approval_port::{self, ApprovalOutcome, CancelCause, CancelledCounts};
 use crate::business::task::dto::{
-    ParentProgressRes, TaskProgressReq, TaskProgressRes, TaskStatusChangeReq, TaskStatusRes,
+    self, ParentProgressRes, TaskProgressReq, TaskProgressRes, TaskStatusChangeReq, TaskStatusRes,
 };
 use crate::business::task::model::{self};
 use crate::business::task::state::{self, TaskStatus};
@@ -50,10 +50,11 @@ use crate::utils;
 ///   语义就是「这条线不要了」，见 [`model::cascade_cancel_descendants`]）；
 /// - **本条推到 `CANCELLED` → 同一事务里撤掉本人与全部级联子孙的在跑审批单**
 ///   （P11 铁律①「正向必配反向」：实例 `CANCELLED` + 待办 `CANCELLED` + 节点 `CANCELLED`，
-///   见 [`crate::business::flow::task_bridge::cancel_on_task_cancelled`]；撤不掉 → 整笔回滚）；
+///   见 `approval_port::cancel_pending(cause = Cancelled)`（实现在审批域
+///   `business/flow/task_approval_impl.rs`）；撤不掉 → 整笔回滚）；
 /// - **`DOING → REVIEW` 且配了 `TASK_ACCEPT` 审批流程 → 自动发起审批单并回写
 ///   `approval_instance_id`**（没配流程则什么都不做，保持原两级验收，见
-///   [`crate::business::flow::task_bridge::prepare_accept`]）。
+///   `approval_port::prepare_accept`）。
 ///
 /// # 异常情况
 ///
@@ -127,7 +128,7 @@ pub async fn change_status(
     let role_mask = people.role_mask(&state::Actor::new(me, mine.is_super()));
     let reason = normalize_reason(req.reason.as_deref())?;
     // 门闸输入：任务上挂了审批单就现查实例状态（读不到 → 不拦，见 state::flow_gate_blocked）
-    let instance_status = task_bridge::instance_status_of(current.approval_instance_id)
+    let instance_status = approval_port::instance_status_of(current.approval_instance_id)
         .await
         .map_err(|error| utils::db_error(error, "查询审批单状态"))?;
     let transition = state::check_transition(
@@ -174,9 +175,15 @@ pub async fn change_status(
             "title": current.card.title,
             "priority": current.card.priority,
         });
-        task_bridge::prepare_accept(task_id, &current.card.task_no, &current.card.title, me, form_data)
-            .await
-            .map_err(|error| utils::db_error(error, "准备验收审批单"))?
+        approval_port::prepare_accept(approval_port::AcceptRequest {
+            task_id,
+            task_no: current.card.task_no.clone(),
+            title: current.card.title.clone(),
+            initiator: me,
+            form_data,
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "准备验收审批单"))?
     } else {
         None
     };
@@ -261,7 +268,7 @@ pub async fn change_status(
     //     `current` 在事务之后还要用（⑨ 通知），不能被 move 进闭包）。
     // `source != 'FLOW'` 时下面这条分支整个不进：
     // **普通任务的 `change_status` 一次查询都不多、逐字节不变**（验收 7）。
-    let is_flow_task = current.card.source == task_bridge::FLOW_SOURCE;
+    let is_flow_task = current.card.source == dto::SOURCE_FLOW;
     let flow_instance_id = current.card.flow_instance_id;
     let flow_node_key = current.card.flow_node_key.clone();
     let flow_node_key_tx = flow_node_key.clone();
@@ -293,18 +300,18 @@ pub async fn change_status(
                     Vec::new(),
                     Vec::new(),
                     Vec::new(),
-                    crate::business::flow::model::CancelledOfBiz::default(),
-                    task_bridge::FlowTaskOutcome::NotFlowTask,
+                    CancelledCounts::default(),
+                    ApprovalOutcome::NotFlowTask,
                 ));
             }
-            // ⑧a P-FLOW-1B（设计 §3.4 的唯一扩展点）：任务状态已落库 → 流程侧同事务跟上。
+            // ⑧a P-FLOW-1B（设计 §3.4 的唯一扩展点）：任务状态已落库 → 审批侧同事务跟上。
             //     `source != 'FLOW'` 时返回 `NotFlowTask`，**一次查询都不发**。
             //     冲突（任务已完成但流程已终止 / 并发重复完成）→ 整笔回滚：
             //     `ApiError` 带不出事务，用「哨兵 + 槽位」交给闭包外的 `change_status_tx_error`。
             let flow_outcome = if is_flow_task {
-                let outcome = task_bridge::on_task_status_changed(
+                let outcome = approval_port::on_status_changed(
                     &tx,
-                    task_bridge::TaskStatusChanged {
+                    approval_port::TaskStatusChange {
                         task_id,
                         instance_id: flow_instance_id,
                         node_key: flow_node_key_tx.as_deref(),
@@ -317,13 +324,13 @@ pub async fn change_status(
                     },
                 )
                 .await?;
-                if let task_bridge::FlowTaskOutcome::Conflict(error) = outcome {
+                if let ApprovalOutcome::Conflict(error) = outcome {
                     *flow_conflict_tx.lock().unwrap() = Some(error);
                     return Err(DbError::InvalidValue(FLOW_CONFLICT_SENTINEL.to_string()));
                 }
                 outcome
             } else {
-                task_bridge::FlowTaskOutcome::NotFlowTask
+                ApprovalOutcome::NotFlowTask
             };
             // T11 规则①：本条推到 CANCELLED → 同一事务里级联取消全部非终态子孙
             // （一条递归 CTE；DONE 不回退；失败 → 整笔回滚，不接受「父取消、子还在跑」）
@@ -337,19 +344,18 @@ pub async fn change_status(
             // 必须与状态写入同一事务：撤不掉就整笔回滚，不接受「任务 CANCELLED、待办还 PENDING」。
             // 级联取消的子孙也是「任务已取消」，各自的审批同样要撤（逐个按自己的 task_no 精确匹配）。
             let mut approvals = if to == TaskStatus::Cancelled {
-                task_bridge::cancel_on_task_cancelled(&tx, task_id, &task_no_tx).await?
+                approval_port::cancel_pending(&tx, task_id, &task_no_tx, CancelCause::Cancelled).await?
             } else {
-                crate::business::flow::model::CancelledOfBiz::default()
+                CancelledCounts::default()
             };
             for cancel in &cancels {
-                let sub = task_bridge::cancel_on_task_cancelled(&tx, cancel.task_id, &cancel.task_no).await?;
-                approvals.instances += sub.instances;
-                approvals.tasks += sub.tasks;
-                approvals.nodes += sub.nodes;
+                let sub =
+                    approval_port::cancel_pending(&tx, cancel.task_id, &cancel.task_no, CancelCause::Cancelled).await?;
+                approvals.absorb(sub);
             }
             // D3b：提交验收即发起审批单（与状态写入同事务：建不出审批单 → 整笔回滚）
             if let Some(start) = accept.as_ref() {
-                task_bridge::start_in_tx(&tx, start, task_id, &start_rejected_tx).await?;
+                approval_port::start_in_tx(&tx, start, task_id, &start_rejected_tx).await?;
             }
             let comment_id =
                 model::insert_comment(&tx, task_id, me, &content, model::COMMENT_TYPE_STATUS_CHANGE, me).await?;
@@ -453,21 +459,21 @@ pub async fn change_status(
         );
     }
     // ⑨d P11：撤销审批的留痕（孤儿待办是「正向没有配套反向」的典型，日志要能一眼查到）
-    if to == TaskStatus::Cancelled && approvals != crate::business::flow::model::CancelledOfBiz::default() {
+    if to == TaskStatus::Cancelled && !approvals.is_empty() {
         tracing::info!(
             task_id = %task_id,
             task_no = %task_no,
             instances = approvals.instances,
             flow_tasks = approvals.tasks,
             nodes = approvals.nodes,
-            comment = task_bridge::TASK_CANCEL_COMMENT,
+            comment = approval_port::cancel_comment(CancelCause::Cancelled),
             "任务取消：在跑审批实例与待办已一并撤销"
         );
     }
     // ⑨e P-FLOW-1B：流程侧推进结果留痕（推进已在事务里落库，这里只补可 grep 的汇总行）。
     //     `Ignored` 一律是 debug（普通任务、等验收、重开这些高频路径不该刷 info 日志）。
     match &flow_outcome {
-        task_bridge::FlowTaskOutcome::Advanced { next_nodes } => tracing::info!(
+        ApprovalOutcome::Advanced { next_nodes } => tracing::info!(
             task_id = %task_id,
             from = from.code(),
             to = to.code(),
@@ -475,16 +481,16 @@ pub async fn change_status(
             next_nodes = ?next_nodes,
             "任务状态变更已推进流程节点"
         ),
-        task_bridge::FlowTaskOutcome::Ignored { instance_status } => tracing::debug!(
+        ApprovalOutcome::Ignored { instance_status } => tracing::debug!(
             task_id = %task_id,
             from = from.code(),
             to = to.code(),
             instance_status,
             "任务状态变更未推进流程（映射表判定「不动」）"
         ),
-        task_bridge::FlowTaskOutcome::NotFlowTask => {}
+        ApprovalOutcome::NotFlowTask => {}
         // 冲突一定会整笔回滚并走 `return Err`，到这里说明事务已成功 —— 不可达，留防御
-        task_bridge::FlowTaskOutcome::Conflict(_) => {}
+        ApprovalOutcome::Conflict(_) => {}
     }
     // ⑩ 依赖联动（T4）：前置 DONE → 强制通知后继负责人；前置 CANCELLED → 尊重偏好提醒
     if matches!(to, TaskStatus::Done | TaskStatus::Cancelled) {

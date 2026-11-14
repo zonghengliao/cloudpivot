@@ -109,6 +109,7 @@ pub mod self_approval;
 pub mod settle_guard;
 pub mod sign_freeze;
 pub mod subprocess;
+pub mod task_approval_impl;
 pub mod task_bridge;
 pub mod task_node;
 pub mod template_vars;

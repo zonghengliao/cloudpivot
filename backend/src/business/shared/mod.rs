@@ -69,4 +69,7 @@ pub mod scope;
 /// 永远摘不掉（配置不是单据查询，塞不进 `DocReader` 接缝）。
 pub mod separation;
 pub mod state_machine;
+/// 任务节点「走向」字面量（`on_complete` / `on_reject` / `on_cancel`）的唯一真源（P2-37）：
+/// `flow` 校验发布配置、`task` 回显节点走向，两个域共用同一份 `as_str` / `parse`。
+pub mod task_node_switch;
 pub mod user_name;

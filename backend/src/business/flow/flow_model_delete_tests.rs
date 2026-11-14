@@ -495,3 +495,65 @@ async fn second_call_is_idempotent() {
 fn delete_cancel_comment_is_stable() {
     assert_eq!(task_bridge::TASK_DELETE_CANCEL_COMMENT, "任务已删除，审批单自动终止");
 }
+
+/// ⑨ P2-37 等价性：**走 `task::approval_port` 接缝**（任务侧现在唯一的入口）
+/// 与 ①～⑦ 直调 `task_bridge` 的结果逐字相同。
+///
+/// # 为什么这条必须在真库跑
+///
+/// 接缝把「撤审批」包成了 `cancel_pending(&tx, …, CancelCause::Deleted)` + 一个
+/// 任务侧的计数结构，中间隔着 `PreparedAccept`/枚举映射与一次 `Arc<dyn>` 分派。
+/// 离线用例只能证明「类型对得上」，**证明不了「写进库的还是那三张表、那句文案」** ——
+/// 而 P2-37 的验收口径正是「搬家不改行为」。
+#[tokio::test]
+async fn cancel_through_approval_port_is_equivalent_to_direct_call() {
+    use crate::business::task::approval_port::{self, CancelCause, CancelledCounts};
+
+    let Some(_db_guard) = setup().await else {
+        return;
+    };
+    // 注册表是进程级单例：与 `task::approval_port_tests` 共用同一把锁。
+    let _port_guard = approval_port::GLOBAL_LOCK.lock().await;
+    approval_port::reset_for_tests();
+    crate::business::flow::task_approval_impl::install().expect("装上真实实现");
+    assert_eq!(
+        approval_port::port_name(),
+        Some("flow::task_bridge"),
+        "启动期装的必须是审批域那一个实现"
+    );
+
+    let me = uuid(U_ID);
+    let tx = db().begin().await.expect("开事务失败");
+    let affected = task_model::soft_delete(&tx, uuid(TASK_DEL), me)
+        .await
+        .expect("软删任务失败");
+    assert_eq!(affected, 1, "夹具任务应被软删掉 1 行");
+    let counts = approval_port::cancel_pending(&tx, uuid(TASK_DEL), NO_DEL, CancelCause::Deleted)
+        .await
+        .expect("走接缝撤审批失败");
+    tx.commit().await.expect("提交事务失败");
+
+    assert_eq!(
+        counts,
+        CancelledCounts {
+            instances: 1,
+            tasks: 1,
+            nodes: 1
+        },
+        "与直调 ① 的三列计数必须一致"
+    );
+    let (status, ended, comment) = instance_row(uuid(INST_PENDING)).await;
+    assert_eq!(status, "CANCELLED", "在跑实例必须被终止");
+    assert!(ended, "ended_at 必须非空");
+    assert_eq!(
+        comment.as_deref(),
+        Some(approval_port::cancel_comment(CancelCause::Deleted)),
+        "接缝写进 result_comment 的文案必须与直调同源"
+    );
+    let (task_status, completed) = flow_task_row(uuid(FT_P)).await;
+    assert_eq!(task_status, "CANCELLED", "待办要跟着撤");
+    assert!(completed, "撤掉的待办必须有 completed_at");
+    assert_eq!(node_status(uuid(NODE_P)).await, "CANCELLED", "活动节点要跟着撤");
+
+    approval_port::reset_for_tests();
+}

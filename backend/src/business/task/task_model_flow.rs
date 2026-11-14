@@ -10,7 +10,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::task_model_rows::*;
-use crate::business::flow::node_config;
+use crate::business::shared::task_node_switch;
 
 /// 把 SQL 里 `string_agg` 拼好的待办人姓名串拆成数组（保持顺序、去重、丢空段）。
 ///
@@ -46,7 +46,7 @@ pub(super) fn split_approvers(raw: Option<String>) -> Vec<String> {
 ///
 /// - `task`：快照节点的 `config.task`（`None` = 该节点没有任务配置，如审批节点）；
 /// - `key`：`on_complete` / `on_reject` / `on_cancel`；
-/// - `parse` / `as_str`：对应枚举的解析与规范化（**复用 `node_config` 的唯一真源**，
+/// - `parse` / `as_str`：对应枚举的解析与规范化（**复用 `task_node_switch` 的唯一真源**，
 ///   不在这里另写一份大小写映射）。
 pub(super) fn switch_field<T>(
     task: Option<&serde_json::Value>,
@@ -199,20 +199,20 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
         on_complete: switch_field(
             task_config.as_ref(),
             "on_complete",
-            node_config::OnComplete::parse,
-            node_config::OnComplete::as_str,
+            task_node_switch::OnComplete::parse,
+            task_node_switch::OnComplete::as_str,
         ),
         on_reject: switch_field(
             task_config.as_ref(),
             "on_reject",
-            node_config::OnReject::parse,
-            node_config::OnReject::as_str,
+            task_node_switch::OnReject::parse,
+            task_node_switch::OnReject::as_str,
         ),
         on_cancel: switch_field(
             task_config.as_ref(),
             "on_cancel",
-            node_config::OnCancel::parse,
-            node_config::OnCancel::as_str,
+            task_node_switch::OnCancel::parse,
+            task_node_switch::OnCancel::as_str,
         ),
         approval,
     }))

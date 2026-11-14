@@ -78,102 +78,13 @@ pub const FORM_MAPPING_KEYS: [&str; 3] = ["priority", "due_date", "estimate_hour
 
 // ==================== 枚举 ====================
 
-/// 任务完成后流程怎么走（`config.task.on_complete`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnComplete {
-    /// 干完即算通过（负责人 `DOING→DONE`）。
-    Direct,
-    /// 任务进 `REVIEW`，由 creator（= 流程发起人）验收后通过。
-    Verify,
-    /// 完成后自动发起一个审批流（**P-FLOW-1B 落地**：任务 `DOING→DONE` 时节点保持 `ACTIVE`，
-    /// 同事务发起 `approve_biz_type` 审批单，审批通过才推进下游）。
-    Approve,
-}
-
-impl OnComplete {
-    /// 入库 / 出参字符串。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            OnComplete::Direct => "DIRECT",
-            OnComplete::Verify => "VERIFY",
-            OnComplete::Approve => "APPROVE",
-        }
-    }
-
-    /// 解析（大小写不敏感）。
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_uppercase().as_str() {
-            "DIRECT" => Some(OnComplete::Direct),
-            "VERIFY" => Some(OnComplete::Verify),
-            "APPROVE" => Some(OnComplete::Approve),
-            _ => None,
-        }
-    }
-}
-
-/// 任务被「打回」（`REVIEW→DOING`）时流程怎么走（`config.task.on_reject`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnReject {
-    /// 退回上一节点（复用引擎 `apply_return`，`round+1`）。
-    BackToPrev,
-    /// 终止实例（`REJECTED`）。
-    Terminate,
-    /// 不动，等任务再完成（默认；「返工」本来就该等）。
-    Stay,
-}
-
-impl OnReject {
-    /// 入库 / 出参字符串。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            OnReject::BackToPrev => "BACK_TO_PREV",
-            OnReject::Terminate => "TERMINATE",
-            OnReject::Stay => "STAY",
-        }
-    }
-
-    /// 解析（大小写不敏感）。
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_uppercase().as_str() {
-            "BACK_TO_PREV" => Some(OnReject::BackToPrev),
-            "TERMINATE" => Some(OnReject::Terminate),
-            "STAY" => Some(OnReject::Stay),
-            _ => None,
-        }
-    }
-}
-
-/// 任务被取消（`CANCELLED`）时流程怎么走（`config.task.on_cancel`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnCancel {
-    /// 终止实例（默认：活被取消了，流程不该继续往下走）。
-    Terminate,
-    /// 退回上一节点。
-    BackToPrev,
-    /// 不动。
-    Stay,
-}
-
-impl OnCancel {
-    /// 入库 / 出参字符串。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            OnCancel::Terminate => "TERMINATE",
-            OnCancel::BackToPrev => "BACK_TO_PREV",
-            OnCancel::Stay => "STAY",
-        }
-    }
-
-    /// 解析（大小写不敏感）。
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_uppercase().as_str() {
-            "TERMINATE" => Some(OnCancel::Terminate),
-            "BACK_TO_PREV" => Some(OnCancel::BackToPrev),
-            "STAY" => Some(OnCancel::Stay),
-            _ => None,
-        }
-    }
-}
+/// 三个「任务节点走向」枚举的**真源在 `business::shared::task_node_switch`**。
+///
+/// 为什么搬家（P2-37 · P2-B 解环）：`task` 侧要回显这三个字面量（`GET /business/task/{id}/flow`
+/// 的 `on_complete` / `on_reject` / `on_cancel`），真源留在本模块就等于让 `task` 依赖 `flow`，
+/// `task → flow` 那条边永远摘不掉。本体搬到 `shared`，这里原样再导出，
+/// **`flow` 侧所有调用点一行不用改**（同 P2-34 把 `approval_gate` 搬到 `flow` 再导出的口径）。
+pub use crate::business::shared::task_node_switch::{OnCancel, OnComplete, OnReject};
 
 /// 期限模式（`config.task.due.mode`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

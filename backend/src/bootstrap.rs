@@ -118,6 +118,36 @@ fn register_hr_employee_reader() {
     }
 }
 
+/// P2-37（P2-B 解环）：把审批域的实现装进 `task::approval_port` 的注册表。
+///
+/// # 为什么在启动期同步做、失败了为什么不能继续
+///
+/// `task` 侧对审批的四条硬连接（发起 / 推进节点 / 撤审批 / 门闸读状态）**只认这个注册表**
+/// （P2-37 之前是直调 `flow::task_bridge`）。漏安装的后果是**静默的**：
+/// 见 `task::approval_port` 模块注释的降级表 —— 提交验收不再自动发起审批、
+/// 流程任务完成后不再推进流程节点、取消任务不再撤在跑待办，
+/// 而任务侧状态**照样落库**（不会报错）。这类「半接线」正是 AGENTS 约定 11 说的死单温床。
+///
+/// 所以口径与 [`register_doc_readers`] / [`register_hr_employee_reader`] 一致：
+/// prod `exit(1)`、其它 profile `panic`（重复安装是纯编程错误，不依赖任何数据）。
+fn register_task_approval_port() {
+    match crate::business::flow::task_approval_impl::install() {
+        Ok(()) => tracing::info!(
+            port = crate::business::task::approval_port::port_name().unwrap_or(""),
+            "任务审批接缝安装完成（P2-37）：task 侧对审批的调用改走 approval_port 注册表"
+        ),
+        Err(error) => {
+            let message = format!("任务审批接缝安装失败（注册表不完整）：{error}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            panic!("{message}");
+        }
+    }
+}
+
 /// 启动钩子：完成业务侧初始化并输出启动摘要。
 ///
 /// # 异常情况
@@ -159,6 +189,9 @@ pub async fn bootstrap() {
     // 员工只读查询器（P2-35 · P2-B 解环）：跨域读 `biz_employee` 只认这张注册表，
     // 实现在 HR 业务域里。同样同步做完：漏装 = 消费方把「查不到人」当成数据问题。
     register_hr_employee_reader();
+    // 任务审批接缝（P2-37 · P2-B 解环）：`task` 对审批的四条硬连接只认这张注册表，
+    // 实现在审批域里。漏装 = 提交验收不发起审批 / 流程节点不推进，且任务侧不报错。
+    register_task_approval_port();
 
     tokio::join!(
         async {

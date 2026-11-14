@@ -258,7 +258,7 @@ test result: ok. 19 passed; 0 failed
 |:--|:--|:--|
 | `erp ⇄ flow` | 132 / 131 | P2-32 ~ P2-34（flow 定义 `DocReader` trait，erp 实现注入） |
 | `erp ⇄ hr` | 0 / 6（erp 侧只有 1 处注释） | P2-35 ~ P2-36 |
-| `flow ⇄ task` | 11 / 13 | P2-37 ~ P2-38 |
+| `flow ⇄ task` | 11 / 13 | P2-37 ~ P2-38（**P2-37 已完成**：`task → flow` 归零，`flow → task` 剩 10 / 1，见 `P2-37-task去掉对flow的直调.md`） |
 | `impexp ⇄ masking` | 8 / 9 | P2-39 |
 | `flow ⇄ hr` | 10 / 5 | 随 P2-32~36 一起收（`hr` 侧调 `flow` 的建流程 + 回调） |
 | `hr ⇄ impexp` | 18 / 11 | 随 P2-39 收（导入导出双向） |
