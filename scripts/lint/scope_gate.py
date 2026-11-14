@@ -32,7 +32,7 @@
 
     python3 scripts/lint/scope_gate.py --root .              # 判定（0 通过 / 1 失败）
     python3 scripts/lint/scope_gate.py --root . --list-skipped
-    python3 scripts/lint/scope_gate.py --self-test           # 负例自测（口径 v2 · D6）
+    python3 scripts/lint/scope_gate.py --self-test           # 负例自测（口径 v2 · D6；--selftest 同义）
 
 退出码：0 = 全部通过；1 = 有失败（含防假绿断言失败）；2 = 用法/环境错误。
 """
@@ -467,8 +467,8 @@ def decls_in_inline_region(
 ) -> list[Decl]:
     """扫出内联 `#[cfg(test)] mod x { … }` **区体内**的 `mod y;` 外部文件声明。
 
-    为什么必须扫（t_fb2e95f4 实测）：`erp/payable_payment/tests/payable_linkage_db_tests.rs`
-    是在 `payable_payment.rs` 的内联 `#[cfg(test)] mod tests { … mod payable_linkage_db_tests; }`
+    为什么必须扫（t_fb2e95f4 实测）：`erp/payable/payable_payment/tests/payable_linkage_db_tests.rs`
+    是在 `payable/payable_payment.rs` 的内联 `#[cfg(test)] mod tests { … mod payable_linkage_db_tests; }`
     里挂进来的。区体本身按测试面跳过，但**它声明的外部文件**不在跳过集合里 ⇒ 被判成生产文件，
     于是 `闸②` 对它报红（那是纯测试代码，却要一个 SCOPE-EXEMPT 才放行）。
 
@@ -654,7 +654,10 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
         for rel in sorted(expected - observed):
             skip_manifest_errors.append(
                 f"跳过清单断言：SKIP_MANIFEST 登记了 backend/src/{rel}，但本次解析没有跳过它"
-                f"（文件被删/改名，或声明被去掉）—— 请从 SKIP_MANIFEST 删掉这一行：\"{rel}\","
+                f"（文件被删/改名/搬进子目录，或声明被去掉）—— "
+                f"**文件搬了就把这一行改成新路径**（P2 系列目录拆分就是这么来的）；"
+                f"只有确认文件真被删掉才允许删条目 —— 删条目 = 放宽门禁，不许用「找不到就删」收红："
+                f'"{rel}",'
             )
 
     for info in production.values():
@@ -769,7 +772,7 @@ BASE_FIXTURE = {
     ),
     # ③ 文件内 #[cfg(test)] 内联区 → 跳过（外层生产代码无漏接）
     #   ③' 区体内 `mod y;` 声明的外部文件（`inline_tests_only/y.rs`）同样是测试面 ——
-    #     真实形态见 erp/payable_payment/tests/payable_linkage_db_tests.rs（t_fb2e95f4 实测）。
+    #     真实形态见 erp/payable/payable_payment/tests/payable_linkage_db_tests.rs（t_fb2e95f4 实测）。
     "business/task/inline_tests_only.rs": (
         "pub fn plain() -> i32 { 1 }\n"
         "#[cfg(test)]\n"
@@ -1010,6 +1013,23 @@ def self_test() -> int:
         f"failures={sorted(same_line_report.failures)}",
     )
 
+    # --- P2-A 硬化：测试面文件搬进子目录、SKIP_MANIFEST 忘了跟着改 → 必须 FAIL，且提示改成新路径 ---
+    # 形态：fixture 里 task_model_write_tests.rs 实际在 business/task/ 顶层，而清单里被写成
+    # 搬走后的位置（等价于「文件搬了、清单没改」/「清单改了、文件没搬」两种真实事故）。
+    root7 = base / "p2a_stale_manifest"
+    write_fixture(root7, {})
+    stale_manifest = FIXTURE_SKIP_MANIFEST | {"business/task/old_dir/task_model_write_tests.rs"}
+    stale_report = run_gate(root7, stale_manifest)
+    stale_msg = "; ".join(stale_report.skip_manifest_errors)
+    check(
+        "⑬ 搬迁未同步：SKIP_MANIFEST 留着旧路径（文件已在别处）→ FAIL，且提示改成新路径而非删条目",
+        bool(stale_report.skip_manifest_errors)
+        and not stale_report.ok
+        and "改成新路径" in stale_msg
+        and "删条目" in stale_msg,
+        stale_msg or "skip_manifest_errors 为空（假绿：旧路径被静默放行！）",
+    )
+
     print(
         f"闸② 自测结论：{'全部通过' if failures == 0 else f'{failures} 项不符合期望'}"
         f"（临时目录保留供复核：{base}）"
@@ -1023,7 +1043,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/src）")
     parser.add_argument("--list-skipped", action="store_true", help="打印被跳过的测试面文件清单")
     parser.add_argument("--baseline", type=int, default=None, help="历史基线数字（仅用于提示文案）")
-    parser.add_argument("--self-test", action="store_true", help="负例自测（D6）")
+    parser.add_argument(
+        "--self-test",
+        "--selftest",
+        dest="self_test",
+        action="store_true",
+        help="负例自测（D6；--selftest 为同义别名，两种写法都认）",
+    )
+
     args = parser.parse_args(argv)
 
     if args.self_test:
