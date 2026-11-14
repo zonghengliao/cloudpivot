@@ -179,9 +179,9 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         let creator = crate::business::erp::budget_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
-    } else if biz_type == crate::business::erp::expense_bridge::BIZ_TYPE {
+    } else if biz_type == crate::business::erp::expense::expense_bridge::BIZ_TYPE {
         // FIN-3：费用报销的 `biz_id` 是**报销单 id**（报销人不能批自己的单）
-        let creator = crate::business::erp::expense_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::expense::expense_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::asset_bridge::BIZ_TYPE {

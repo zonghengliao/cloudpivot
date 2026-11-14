@@ -172,7 +172,7 @@ pub(crate) async fn run_in_tx(
 ///
 /// 铁律：这里**永不返回 Err**、永不回滚业务 —— 凭证已经记账落定，
 /// 因为一封站内信写失败就把过账回滚掉，用户点第二次还会失败第二次
-/// （与 `flow::notify` / `erp::expense_linkage` 同一口径）。
+/// （与 `flow::notify` / `erp::expense::expense_linkage` 同一口径）。
 pub(crate) async fn run_deferred_after_commit(mut change: VoucherStatusChange) {
     if change.run.deferred.is_empty() {
         return;

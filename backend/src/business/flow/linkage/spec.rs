@@ -666,8 +666,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  每个入口都在自己的事务 commit 之后调 \
                  expense_linkage::run_deferred_after_commit → linkage::engine::run_deferred",
         proofs: &[
-            ("src/business/erp/expense_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/expense_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/expense/expense_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/expense/expense_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1103,7 +1109,7 @@ pub const PERIOD_EXCLUDED_ACTIONS: &[&str] = &[
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：提交 / 通过 / 付清 / 作废之后的
 /// 通知与待办就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::expense_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::expense::expense_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::expense_wires_generic_engine_and_excludes_voucher`。
 pub const EXPENSE_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
@@ -1972,7 +1978,7 @@ mod tests {
     #[test]
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
-            asset_dto, contract_model, expense_dto, payable_query, purchase::purchase_model, stocktake_model,
+            asset_dto, contract_model, expense::expense_dto, payable_query, purchase::purchase_model, stocktake_model,
             voucher_query,
         };
 

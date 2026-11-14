@@ -30,7 +30,7 @@
 //! | 16 | `resubmit_after_release_reuses_same_usage_row` | 撤回 / 驳回后**重提复用同一行**（本卡缺陷回归：唯一键把 `RELEASED` 也算唯一） |
 
 use super::*;
-use crate::business::erp::expense_model;
+use crate::business::erp::expense::expense_model;
 use crate::business::erp::voucher;
 use nik::prelude::rust_decimal::Decimal;
 
@@ -83,7 +83,7 @@ mod db {
     }
 
     /// 取一条费用类型（V0242 迁移种子；`TRAVEL` 优先）。查不到 = 库版本不对。
-    async fn travel_type() -> crate::business::erp::expense_model::TypeRow {
+    async fn travel_type() -> crate::business::erp::expense::expense_model::TypeRow {
         if let Ok(Some(kind)) = expense_model::type_find_by_code(db(), "TRAVEL").await {
             return kind;
         }
@@ -137,12 +137,12 @@ mod db {
         report_no: String,
         dept_id: Uuid,
         reporter_id: Uuid,
-        kind: &crate::business::erp::expense_model::TypeRow,
+        kind: &crate::business::erp::expense::expense_model::TypeRow,
         with_tax: Decimal,
-    ) -> crate::business::erp::expense_model::ReportInsert {
-        use crate::business::erp::expense_compute;
+    ) -> crate::business::erp::expense::expense_model::ReportInsert {
+        use crate::business::erp::expense::expense_compute;
         let split = expense_compute::split(with_tax, dec!(0.06), kind.tax_deductible);
-        crate::business::erp::expense_model::ReportInsert {
+        crate::business::erp::expense::expense_model::ReportInsert {
             id: Uuid::now_v7(),
             report_no,
             reporter_id,
@@ -157,7 +157,7 @@ mod db {
             total_with_tax: split.with_tax,
             item_count: 1,
             remark: Some("expense_model_tests".to_string()),
-            items: vec![crate::business::erp::expense_model::ItemInsert {
+            items: vec![crate::business::erp::expense::expense_model::ItemInsert {
                 line_no: 1,
                 expense_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap(),
                 expense_type_id: kind.id,
@@ -180,7 +180,7 @@ mod db {
     }
 
     /// 建一张单（单头 + 明细），返回 id。
-    async fn create_report(insert: &crate::business::erp::expense_model::ReportInsert) -> Uuid {
+    async fn create_report(insert: &crate::business::erp::expense::expense_model::ReportInsert) -> Uuid {
         expense_model::report_insert(db(), insert, None)
             .await
             .expect("插报销单");
@@ -215,7 +215,7 @@ mod db {
         assert_eq!(row.unpaid_amount, row.total_with_tax);
         // 跨表恒等式（bridge 的复核）
         let items = expense_model::items_of(db(), id).await.expect("明细");
-        crate::business::erp::expense_bridge::check_totals(&row, &items).expect("恒等式");
+        crate::business::erp::expense::expense_bridge::check_totals(&row, &items).expect("恒等式");
         cleanup(&[id]).await;
     }
 
@@ -433,7 +433,7 @@ mod db {
         let items = expense_model::items_of(db(), id).await.expect("明细");
         // 单头被人改成别的数（模拟脏数据）：必须 422 + 66042
         row.total_with_tax = dec!(9999);
-        let err = crate::business::erp::expense_bridge::check_totals(&row, &items).expect_err("必须报错");
+        let err = crate::business::erp::expense::expense_bridge::check_totals(&row, &items).expect_err("必须报错");
         assert_eq!(err.status, 422);
         assert_eq!(err.code, crate::shared::error_code::ERP_EXPENSE_TOTAL_MISMATCH);
         cleanup(&[id]).await;
@@ -453,26 +453,29 @@ mod db {
         // 加第二条：办公费 240（13%），验证「多费用科目 → 多借方行」
         let office = expense_model::type_find_by_code(db(), "OFFICE").await.ok().flatten();
         if let Some(office) = office {
-            let split = crate::business::erp::expense_compute::split(dec!(240), dec!(0.13), office.tax_deductible);
-            insert.items.push(crate::business::erp::expense_model::ItemInsert {
-                line_no: 2,
-                expense_date: insert.expense_date,
-                expense_type_id: office.id,
-                type_code: office.type_code.clone(),
-                type_name: office.type_name.clone(),
-                account_id: office.account_id,
-                account_code: office.account_code.clone(),
-                account_name: office.account_name.clone(),
-                amount: split.amount,
-                tax_rate: dec!(0.13),
-                tax_amount: split.tax,
-                with_tax_amount: split.with_tax,
-                invoice_no: Some("INV-TEST-002".to_string()),
-                invoice_date: None,
-                invoice_type: Some("VAT_SPECIAL".to_string()),
-                summary: "打印耗材".to_string(),
-                remark: None,
-            });
+            let split =
+                crate::business::erp::expense::expense_compute::split(dec!(240), dec!(0.13), office.tax_deductible);
+            insert
+                .items
+                .push(crate::business::erp::expense::expense_model::ItemInsert {
+                    line_no: 2,
+                    expense_date: insert.expense_date,
+                    expense_type_id: office.id,
+                    type_code: office.type_code.clone(),
+                    type_name: office.type_name.clone(),
+                    account_id: office.account_id,
+                    account_code: office.account_code.clone(),
+                    account_name: office.account_name.clone(),
+                    amount: split.amount,
+                    tax_rate: dec!(0.13),
+                    tax_amount: split.tax,
+                    with_tax_amount: split.with_tax,
+                    invoice_no: Some("INV-TEST-002".to_string()),
+                    invoice_date: None,
+                    invoice_type: Some("VAT_SPECIAL".to_string()),
+                    summary: "打印耗材".to_string(),
+                    remark: None,
+                });
             insert.total_amount += split.amount;
             insert.total_tax += split.tax;
             insert.total_with_tax += split.with_tax;
@@ -482,7 +485,7 @@ mod db {
         let row = expense_model::report_find(id).await.unwrap().unwrap();
         let items = expense_model::items_of(db(), id).await.expect("明细");
         let tx = db().begin().await.expect("事务");
-        let voucher_id = crate::business::erp::expense_bridge::post_report_voucher(
+        let voucher_id = crate::business::erp::expense::expense_bridge::post_report_voucher(
             &tx,
             &row,
             &items,
@@ -523,7 +526,7 @@ mod db {
         let id = create_report(&insert).await;
         let row = expense_model::report_find(id).await.unwrap().unwrap();
         let tx = db().begin().await.expect("事务");
-        let voucher_id = crate::business::erp::expense_bridge::post_payment_voucher(
+        let voucher_id = crate::business::erp::expense::expense_bridge::post_payment_voucher(
             &tx,
             &row,
             "PAY-EXP-TEST-000001",
@@ -561,7 +564,7 @@ mod db {
         let row = expense_model::report_find(id).await.unwrap().unwrap();
         let items = expense_model::items_of(db(), id).await.expect("明细");
         let tx = db().begin().await.expect("事务");
-        let voucher_id = crate::business::erp::expense_bridge::post_report_voucher(
+        let voucher_id = crate::business::erp::expense::expense_bridge::post_report_voucher(
             &tx,
             &row,
             &items,
@@ -571,7 +574,7 @@ mod db {
         .await
         .expect("生成入账凭证");
         // 红冲必须发生在同一事务里（作废的三件事同事务）
-        let reds = crate::business::erp::expense_bridge::reverse_report_vouchers(
+        let reds = crate::business::erp::expense::expense_bridge::reverse_report_vouchers(
             &tx,
             id,
             "报销单填错部门，财务要求整单作废重提",
@@ -592,7 +595,7 @@ mod db {
             .expect("红字存在");
         assert_eq!(red.is_red, 1, "红字凭证 is_red = 1");
         // 再冲一次：已经红冲过的不重复冲
-        let again = crate::business::erp::expense_bridge::reverse_report_vouchers(db(), id, "重复作废", None)
+        let again = crate::business::erp::expense::expense_bridge::reverse_report_vouchers(db(), id, "重复作废", None)
             .await
             .expect("重复红冲");
         assert!(again.is_empty(), "已红冲的蓝字凭证不能重复红冲");
@@ -809,11 +812,11 @@ mod db {
     // ==================== 17) 分页 SQL 契约（SCOPE-PAGE 回归；不连库，永远跑） ====================
 
     /// 与 `report_page` **同一条**组装路径：基础 SQL（带 `{FILTER}`）+ 业务过滤片段。
-    fn report_page_sql(q: &crate::business::erp::expense_dto::ReportFilter) -> (String, Vec<Value>) {
+    fn report_page_sql(q: &crate::business::erp::expense::expense_dto::ReportFilter) -> (String, Vec<Value>) {
         let mut params: Vec<Value> = Vec::new();
-        let filters =
-            crate::business::erp::expense_model::report_page_filters(q, &mut params).expect("组装报销分页过滤片段");
-        let mut sql = crate::business::erp::expense_model::report_page_base_sql();
+        let filters = crate::business::erp::expense::expense_model::report_page_filters(q, &mut params)
+            .expect("组装报销分页过滤片段");
+        let mut sql = crate::business::erp::expense::expense_model::report_page_base_sql();
         sql.push_str(&filters);
         (sql, params)
     }
@@ -822,7 +825,7 @@ mod db {
     /// 500），2 次 `scope::paginate` 会直接拒（无法判断插哪个）。
     #[test]
     fn page_base_sql_has_exactly_one_filter_marker() {
-        let sql = crate::business::erp::expense_model::report_page_base_sql();
+        let sql = crate::business::erp::expense::expense_model::report_page_base_sql();
         assert_eq!(
             sql.matches(scope::FILTER_MARKER).count(),
             1,
@@ -836,7 +839,7 @@ mod db {
     /// 等于参数个数 —— 顺序错位比报错更危险，所以逐组合锁死。
     #[test]
     fn business_params_always_follow_the_filter_marker() {
-        use crate::business::erp::expense_dto::ReportFilter;
+        use crate::business::erp::expense::expense_dto::ReportFilter;
         use nik::prelude::chrono::NaiveDate;
         let day = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
         let dept = Uuid::now_v7().to_string();
@@ -990,7 +993,7 @@ mod db {
     /// 同一组筛选的超管路径结果不受影响（两张都看得见）。
     #[tokio::test]
     async fn page_with_filters_is_scoped_and_never_fails() {
-        use crate::business::erp::expense_dto::ReportFilter;
+        use crate::business::erp::expense::expense_dto::ReportFilter;
         use crate::business::shared::principal::ScopedPrincipal;
         use crate::business::shared::scope::ScopeKind;
         if !ensure_db().await {

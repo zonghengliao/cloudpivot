@@ -55,11 +55,11 @@
 //! | [`depreciation_model`] | 折旧计提（期间闸 / 幂等闸 / 扫描 / 按部门多借方凭证 / 回写卡片）+ 红冲 + 定时任务 | **FIN-2** |
 //! | [`depreciation_handler`] | 折旧 4 个接口：批次分页 / 详情 / 手动计提 / 红冲 | **FIN-2** |
 //! | [`depreciation_linkage`] | 折旧批次的**唯一**联动接线（LNK-10）：过账 / 红冲两处 `run_in_tx` + commit 后 `run_deferred_after_commit`，排除凭证类动作 | **LNK-10** |
-//! | [`expense_compute`] | 报销**纯计算**（ARCH-6 §4.5）：价税拆分 / 汇总 / 凭证行 / 金额分级（不碰库） | **FIN-3** |
-//! | [`expense_dto`] | 报销契约：费用类型 / 报销单 / 明细 / 付款 / 作废的入参与校验 | **FIN-3** |
-//! | [`expense_model`] | 报销数据层（V0242）：类型 / 单据 / 明细（整体重建）/ 付款记录 + 行锁 | **FIN-3** |
-//! | [`expense_handler`] | 报销 15 个接口：类型 CRUD、建改删查提交撤回作废付款 | **FIN-3** |
-//! | [`expense_bridge`] | 报销**审批**回调（通过 → 计提凭证 + usage CONSUMED）+ 内控闸 + 付款/红冲凭证 | **FIN-3** |
+//! | [`expense::expense_compute`] | 报销**纯计算**（ARCH-6 §4.5）：价税拆分 / 汇总 / 凭证行 / 金额分级（不碰库） | **FIN-3** |
+//! | [`expense::expense_dto`] | 报销契约：费用类型 / 报销单 / 明细 / 付款 / 作废的入参与校验 | **FIN-3** |
+//! | [`expense::expense_model`] | 报销数据层（V0242）：类型 / 单据 / 明细（整体重建）/ 付款记录 + 行锁 | **FIN-3** |
+//! | [`expense::expense_handler`] | 报销 15 个接口：类型 CRUD、建改删查提交撤回作废付款 | **FIN-3** |
+//! | [`expense::expense_bridge`] | 报销**审批**回调（通过 → 计提凭证 + usage CONSUMED）+ 内控闸 + 付款/红冲凭证 | **FIN-3** |
 //! | [`voucher_multi`] | **多借方凭证入口**（ARCH-6 §6.4 边界 ①）：折旧按部门拆借方、购入价税拆分、处置三张凭证都走它 | **FIN-2** |
 //! | [`unit_guard`] | 单据单位止血（DC-09）：明细的物料基础单位必须是 `is_base = 1`，否则 400 + 折算建议 | **ARCH-3 P0** |
 //! | [`approval_gate`] | 审批流未配置改「默认拒绝」（DC-01）：6 个入口 409 + 新码、显式跳过（`business:erp:skip-approval` + 理由 ≥10 字）、8 个流程配置自检端点 | **ARCH-3 P0** |
@@ -174,16 +174,7 @@ pub mod doc_shape;
 #[cfg(test)]
 mod doc_shape_tests;
 pub mod dto;
-pub mod expense_bridge;
-pub mod expense_compute;
-pub mod expense_dto;
-pub mod expense_handler;
-/// LNK-05 的**唯一**联动接线（提交 / 通过 / 付清 / 作废 / 打回五条路共用）。
-/// `pub(crate)` 而不是私有：`expense_handler` 与 `expense_bridge` 两个宿主都要够得着，
-/// 而 `expense_bridge` 又是被 `flow::handler` 调用的审批回调。
-/// 联动上下文 / 收件人 / 幂等键只在那一份文件里维护（两处各写一份迟早漂移）。
-pub(crate) mod expense_linkage;
-pub mod expense_model;
+pub mod expense;
 pub mod form_snapshot;
 pub mod fx_revaluation;
 pub mod handler;
@@ -296,11 +287,6 @@ mod model_order; // 采购订单只读（头 + 明细）
 /// 只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cancel_cascade_tests;
-
-/// LNK-05 的真库单测（报销单联动接线：提交 / 通过 / 付清 / 作废 / 打回触发，
-/// 凭证不被重复生成，重复操作不重复触发）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod expense_linkage_tests;
 
 /// LNK-06 的真库单测（凭证联动接线：过账 / 反审核 / 红冲触发，配 GENERATE_VOUCHER
 /// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。

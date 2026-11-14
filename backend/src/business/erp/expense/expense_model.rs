@@ -21,7 +21,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::expense_dto::{ReportFilter, TypeFilter};
+use crate::business::erp::expense::expense_dto::{ReportFilter, TypeFilter};
 use crate::business::erp::voucher::SeqSpec;
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
@@ -243,7 +243,7 @@ pub async fn type_used_count(ex: &impl SqlExecutor, type_id: Uuid) -> DbResult<i
 pub async fn type_insert(
     ex: &impl SqlExecutor,
     id: Uuid,
-    spec: &crate::business::erp::expense_dto::TypeSpec,
+    spec: &crate::business::erp::expense::expense_dto::TypeSpec,
     account_code: &str,
     operator: Option<Uuid>,
 ) -> DbResult<()> {
@@ -283,7 +283,7 @@ pub async fn type_insert(
 pub async fn type_update(
     ex: &impl SqlExecutor,
     id: Uuid,
-    spec: &crate::business::erp::expense_dto::TypeSpec,
+    spec: &crate::business::erp::expense::expense_dto::TypeSpec,
     account_code: &str,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
@@ -1118,7 +1118,7 @@ pub async fn report_soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Optio
 /// 付款回写：`paid_amount += x`、`unpaid -= x`、`pay_status` 重算、付清则状态 `PAID`。
 ///
 /// **调用方必须已持有行锁**（[`report_lock_in`]）并在同一事务里先落付款记录 + 付款凭证。
-/// `new_status` 由调用方按 [`crate::business::erp::expense_compute::pay_status_of`] 算好，
+/// `new_status` 由调用方按 [`crate::business::erp::expense::expense_compute::pay_status_of`] 算好，
 /// 状态机流转（`APPROVED → PAID`）另外走 `transition_if_changed`。
 pub async fn report_apply_payment(
     ex: &impl SqlExecutor,

@@ -615,7 +615,7 @@ fn stocktake_excluded_actions_are_routed_elsewhere() {
 /// 5. 只接「付清」却漏了「部分付款不触发」的判断 → 配一条「报销付清」规则，付几笔发几条信。
 #[test]
 fn expense_wires_generic_engine_and_excludes_voucher() {
-    let hook = include_str!("../../erp/expense_linkage.rs");
+    let hook = include_str!("../../erp/expense/expense_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "报销单状态变更必须调用通用引擎（run_excluding）：否则 EXPENSE_REPORT 的联动规则配了不触发"
@@ -644,7 +644,7 @@ fn expense_wires_generic_engine_and_excludes_voucher() {
 
     // handler 里三条路：提交（DRAFT → SUBMITTED）/ 付清（APPROVED → PAID）/ 作废（→ CANCELLED），
     // 每条都要在事务内调 hook，并在 commit 之后 flush。
-    let handler = include_str!("../../erp/expense_handler.rs");
+    let handler = include_str!("../../erp/expense/expense_handler.rs");
     assert_eq!(
         handler.matches("expense_linkage::run_in_tx(").count(),
         3,
@@ -659,7 +659,7 @@ fn expense_wires_generic_engine_and_excludes_voucher() {
 
     // bridge 里两条路：审批通过（SUBMITTED → APPROVED）/ 打回（驳回 / 撤回 → DRAFT）。
     // 不接这两条，配了已发布 expense 流程的生产环境里 APPROVED / DRAFT 的规则永远不触发。
-    let bridge = include_str!("../../erp/expense_bridge.rs");
+    let bridge = include_str!("../../erp/expense/expense_bridge.rs");
     assert_eq!(
         bridge.matches("expense_linkage::run_in_tx(").count(),
         2,

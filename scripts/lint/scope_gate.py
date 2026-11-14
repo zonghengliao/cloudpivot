@@ -112,8 +112,8 @@ business/erp/cost/cost_uncollected_db_tests.rs
 business/erp/depreciation_dept_tests.rs
 business/erp/depreciation_linkage_tests.rs
 business/erp/doc_shape_tests.rs
-business/erp/expense_linkage_tests.rs
-business/erp/expense_model_tests.rs
+business/erp/expense/expense_linkage_tests.rs
+business/erp/expense/expense_model_tests.rs
 business/erp/fixture_hygiene.rs
 business/erp/lot_db_tests.rs
 business/erp/model_tests.rs

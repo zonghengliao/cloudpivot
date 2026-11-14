@@ -26,7 +26,7 @@
 //
 // 排除清单在 `linkage::spec::EXPENSE_EXCLUDED_ACTIONS`（调用方传入、不写死在引擎里），
 // 漂移守卫：`linkage::tests_wiring::expense_wires_generic_engine_and_excludes_voucher`
-// + 真库反证 `erp::expense_linkage_tests::lnk05_approve_keeps_single_voucher_when_generate_voucher_rule_configured`。
+// + 真库反证 `erp::expense::expense_linkage_tests::lnk05_approve_keeps_single_voucher_when_generate_voucher_rule_configured`。
 //
 // # 事务边界（铁律 ④）
 //
@@ -45,8 +45,8 @@
 // - 通知另有幂等键 `LNK:EXPENSE:<状态>:<单据 id>` 兜底。
 // ============================================================================
 
-use crate::business::erp::expense_dto;
-use crate::business::erp::expense_model::ReportRow;
+use crate::business::erp::expense::expense_dto;
+use crate::business::erp::expense::expense_model::ReportRow;
 use crate::business::flow::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};

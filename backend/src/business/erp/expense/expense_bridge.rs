@@ -34,10 +34,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use std::result::Result;
 
-use crate::business::erp::expense_compute;
-use crate::business::erp::expense_dto::{self, STATUS_APPROVED, STATUS_PAID, STATUS_SUBMITTED};
-use crate::business::erp::expense_linkage;
-use crate::business::erp::expense_model::{self, ItemRow, ReportRow};
+use crate::business::erp::expense::expense_compute;
+use crate::business::erp::expense::expense_dto::{self, STATUS_APPROVED, STATUS_PAID, STATUS_SUBMITTED};
+use crate::business::erp::expense::expense_linkage;
+use crate::business::erp::expense::expense_model::{self, ItemRow, ReportRow};
 use crate::business::erp::{budget_guard, voucher, voucher_multi};
 use crate::business::flow::model as flow_model;
 use crate::business::shared::state_machine;

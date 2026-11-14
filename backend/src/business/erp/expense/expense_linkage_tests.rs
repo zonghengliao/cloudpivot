@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::expense_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::expense::expense_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「测试：通过触发 / 付清触发 / 凭证不被重复生成」逐条对应）
@@ -77,7 +77,7 @@ fn dec(text: &str) -> Decimal {
 ///
 /// | 跑法 | 结果 |
 /// |---|---|
-/// | 加锁前 `cargo test --lib business::erp::expense_linkage_tests`（默认并行） | **2 passed / 4 failed**：approve/cancel/pay/repeat 全红在「通知 left: 0 / right: 1」 |
+/// | 加锁前 `cargo test --lib business::erp::expense::expense_linkage_tests`（默认并行） | **2 passed / 4 failed**：approve/cancel/pay/repeat 全红在「通知 left: 0 / right: 1」 |
 /// | 加锁前 同库 `-- --test-threads=1` | **6 passed / 0 failed**（⇒ 接线在、断言对，红的是夹具） |
 /// | 加锁后 默认并行 | **6 passed / 0 failed** |
 /// | 加锁后 `--test-threads=1`（干净库 / 同一库连跑第二轮） | **6 passed / 0 failed** ×2 |

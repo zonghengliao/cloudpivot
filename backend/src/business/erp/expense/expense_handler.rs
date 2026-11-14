@@ -40,14 +40,14 @@ use std::result::Result;
 use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::code_policy;
-use crate::business::erp::expense_bridge::{self, BIZ_TYPE};
-use crate::business::erp::expense_compute::{self, Summary};
-use crate::business::erp::expense_dto::{
+use crate::business::erp::expense::expense_bridge::{self, BIZ_TYPE};
+use crate::business::erp::expense::expense_compute::{self, Summary};
+use crate::business::erp::expense::expense_dto::{
     self, CancelReq, ItemRes, PayReq, PaymentRes, ReportDetailRes, ReportFilter, ReportReq, ReportRes, TypeFilter,
     TypeReq, TypeRes, UsageRes, conflict, invalid, normalize_page, parse_uuid_text, status_label,
 };
-use crate::business::erp::expense_linkage;
-use crate::business::erp::expense_model::{self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow};
+use crate::business::erp::expense::expense_linkage;
+use crate::business::erp::expense::expense_model::{self, ItemInsert, PaymentInsert, ReportInsert, ReportRow, TypeRow};
 use crate::business::erp::seq;
 use crate::business::erp::{budget_guard, voucher, voucher_multi};
 use crate::business::flow::{engine, model as flow_model};
@@ -281,7 +281,7 @@ pub async fn create_expense_type(operator: Option<Uuid>, req: TypeReq) -> Result
 
 /// 费用类型编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]（E2E08-FIX-2 ③ 统一文案）。
 fn type_code_conflict(code: &str) -> ApiError {
-    super::handler::code_conflict("费用类型", code)
+    super::super::handler::code_conflict("费用类型", code)
 }
 
 /// 费用类型写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`db_err`]。
@@ -1521,7 +1521,7 @@ mod tests {
     //!
     //! ```bash
     //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<已迁移的库>" \
-    //!   cargo test --lib business::erp::expense_handler -- --test-threads=1
+    //!   cargo test --lib business::erp::expense::expense_handler -- --test-threads=1
     //! ```
     //!
     //! | # | 用例 | 覆盖 |
