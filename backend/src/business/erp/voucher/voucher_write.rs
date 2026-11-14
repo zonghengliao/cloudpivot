@@ -4,7 +4,7 @@
 //!
 //! * [`crate::business::erp::voucher`]（P2-C1）是**自动凭证**的数据层：过账时生成、作废时红冲，
 //!   红冲实现（`reverse_posted`）已经在那里 —— 本卡**复用**它，不重写（硬红线 6）；
-//! * [`crate::business::erp::voucher_query`]（P2-D1）是只读查询层，文件头明写「只读」；
+//! * [`crate::business::erp::voucher::voucher_query`]（P2-D1）是只读查询层，文件头明写「只读」；
 //!
 //! 本卡新增的「手工凭证」与「红冲开关」属于凭证台账的**第二个写入口**，与 P5（`transfer_*` /
 //! `task_bridge` / `error_code`）、P6（`stockin_model`）并行开工，新文件不产生冲突。
@@ -73,10 +73,10 @@ use serde::Deserialize;
 
 use crate::business::erp::approval_gate;
 use crate::business::erp::separation;
+use crate::business::erp::voucher::voucher_bridge;
+use crate::business::erp::voucher::voucher_linkage;
+use crate::business::erp::voucher::voucher_query::{self, VoucherDetailRes};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
-use crate::business::erp::voucher_bridge;
-use crate::business::erp::voucher_linkage;
-use crate::business::erp::voucher_query::{self, VoucherDetailRes};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -1218,7 +1218,7 @@ pub async fn submit_reverse(
             "reason 必填：请写明红冲原因（红字凭证的分录摘要会带这段文字）",
         ));
     };
-    match crate::business::erp::voucher_bridge::published_reverse_flow()
+    match crate::business::erp::voucher::voucher_bridge::published_reverse_flow()
         .await
         .map_err(|error| utils::db_error(error, "查询凭证红冲审批流程"))?
     {
@@ -1304,7 +1304,7 @@ async fn submit_reverse_for_approval(
     id: Uuid,
     reason: &str,
     operator: Option<Uuid>,
-    flow: &crate::business::erp::voucher_bridge::VoucherFlow,
+    flow: &crate::business::erp::voucher::voucher_bridge::VoucherFlow,
 ) -> std::result::Result<ReverseSubmitRes, ApiError> {
     let Some(operator_id) = operator else {
         return Err(ApiError::new(
@@ -1545,7 +1545,7 @@ pub async fn withdraw_reverse(
         return Err(ApiError::new(error.status, error.code, error.msg));
     }
     // 与审批中心撤回同口径：审批结论回调（只清 pending，账一分没动）
-    crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
+    crate::business::erp::voucher::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
     tracing::info!(
         voucher_id = %original.id,
         voucher_no = %original.voucher_no,
@@ -1645,7 +1645,7 @@ pub async fn reverse_after_approval(id: Uuid, operator: Option<Uuid>) -> std::re
 /// 红冲审批**驳回 / 撤回**后的回位体：只清 pending，凭证一直是 `POSTED`（账一分没动）。
 pub async fn restore_after_reverse_rejection(
     id: Uuid,
-    verdict: crate::business::erp::voucher_bridge::ReverseVerdict,
+    verdict: crate::business::erp::voucher::voucher_bridge::ReverseVerdict,
     operator: Option<Uuid>,
 ) -> std::result::Result<(), ApiError> {
     let now = Utc::now();
@@ -3152,7 +3152,7 @@ mod tests {
                     aux_material_id = NULL, aux_warehouse_id = NULL WHERE voucher_id = '{id}'::uuid"
         ))
         .await;
-        let detail = crate::business::erp::voucher_query::voucher_detail(id)
+        let detail = crate::business::erp::voucher::voucher_query::voucher_detail(id)
             .await
             .expect("存量凭证读取不许被辅助核算校验拦住");
         assert!(detail.entries.iter().all(|line| line.aux_dept_id.is_none()));

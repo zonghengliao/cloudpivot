@@ -181,7 +181,7 @@ const FIXTURES: &[&str] = &[
 // `cash_flow::tests::r3_real_config_covers_all_accounts` 遍历 `biz_account` 全表断言
 // 「每个非现金科目都有分类行」—— 两把不同的锁时并行必撞（本模块只在 `zz_` 收尾用例里删，
 // 多线程下不保证 `zz_` 最后跑）。
-use crate::business::erp::voucher_query::tests::DB_LOCK;
+use crate::business::erp::voucher::voucher_query::tests::DB_LOCK;
 
 /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `ERP_DB_URL`，用例直接跳过。
 async fn ensure_db() -> bool {

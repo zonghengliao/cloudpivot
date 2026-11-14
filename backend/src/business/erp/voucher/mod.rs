@@ -124,6 +124,20 @@ use crate::business::erp::serial_model;
 use crate::business::erp::stockin::stockin_model::StockInRow;
 use crate::business::shared::state_machine;
 
+// ==================== 子模块（P2-13：`erp/voucher_*.rs` 拆入 `erp/voucher/`） ====================
+// 本文件是凭证域的 **facade**（拆目录前叫 `erp/voucher.rs`），对外路径 `erp::voucher::*` 一字未变；
+// 下面 5 个 `voucher_*` 与 `voucher_linkage_tests` 同目录，路径为 `erp::voucher::voucher_*`。
+pub mod voucher_bridge;
+pub(crate) mod voucher_linkage;
+pub mod voucher_multi;
+pub mod voucher_query;
+pub mod voucher_write;
+
+/// LNK-06 的真库单测（凭证联动接线：过账 / 反审核 / 红冲触发，配 GENERATE_VOUCHER
+/// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod voucher_linkage_tests;
+
 // ==================== 表名 / 常量 ====================
 
 /// 凭证主表。
@@ -3138,7 +3152,7 @@ pub async fn reverse_for_stock_in(
     //   入口会一直 409「已在红冲审批中」，且已红冲的凭证再批一次会撞「不能重复红冲」）。
     //   必须在 reverse_posted 之前做：`cancel_approval_of` 会清 pending，
     //   而 `ck_biz_voucher_pending_reverse` 要求「pending 非空 ⟹ reversed_by 为空」。
-    crate::business::erp::voucher_bridge::cancel_approval_of(
+    crate::business::erp::voucher::voucher_bridge::cancel_approval_of(
         ex,
         original.id,
         &original.voucher_no,
@@ -3206,7 +3220,7 @@ mod tests {
     // 本模块夹具在 `biz_account` 里造了 `P2C1.1405`（无现金流量分类行），而
     // `cash_flow::tests::r3_real_config_covers_all_accounts` 遍历 `biz_account` 全表
     // 断言「每个非现金科目都有分类行」—— 两把不同的锁时并行必撞。
-    use crate::business::erp::voucher_query::tests::DB_LOCK;
+    use crate::business::erp::voucher::voucher_query::tests::DB_LOCK;
 
     async fn ensure_db() -> bool {
         use tokio::sync::OnceCell;
@@ -5206,7 +5220,7 @@ mod tests {
         let Some(_guard) = setup().await else {
             return;
         };
-        use crate::business::erp::voucher_query::{self, VoucherFilter};
+        use crate::business::erp::voucher::voucher_query::{self, VoucherFilter};
 
         // ① 不传 → 与来源单号同值（收货 / 收款 / 开票等「业务单据 = 记账依据」的通用口径）
         let plain = post_probe_voucher("P2C1-DOCNO-IN1", None).await;

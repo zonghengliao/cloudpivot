@@ -54,7 +54,7 @@ use crate::business::erp::asset::asset_linkage;
 use crate::business::erp::asset::asset_model::{self, AssetInsert, ChangeInsert};
 use crate::business::erp::code_policy;
 use crate::business::erp::seq;
-use crate::business::erp::voucher_multi;
+use crate::business::erp::voucher::voucher_multi;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;

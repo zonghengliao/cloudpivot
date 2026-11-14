@@ -466,7 +466,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         entity: state_machine::ENTITY_VOUCHER,
         status_labels: &[("DRAFT", "草稿"), ("AUDITED", "已审核"), ("POSTED", "已记账")],
         wired: true,
-        wiring: "已接线（LNK-06）：erp/voucher_linkage.rs 是唯一 hook。凭证自己的状态推进点全部走\
+        wiring: "已接线（LNK-06）：erp/voucher/voucher_linkage.rs 是唯一 hook。凭证自己的状态推进点全部走\
                  它（都是事务入口，且都自己 commit）：手工凭证落草稿 manual_in_tx → DRAFT、审核 \
                  audit_voucher → AUDITED、反审核 un_audit_voucher → DRAFT、记账 post_audited_voucher \
                  → POSTED（三条状态边共用 transition_voucher_in_tx）、红冲 reverse_in_tx / \
@@ -478,8 +478,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  voucher::post_voucher 里自动落 POSTED 的凭证不再触发一次 —— 那条路径本身跑在\
                  别的单据的联动事务里，嵌套调引擎会让同一次业务动作跑两遍联动。",
         proofs: &[
-            ("src/business/erp/voucher_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/voucher_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/voucher/voucher_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/voucher/voucher_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1220,7 +1226,7 @@ pub const YEAR_END_EXCLUDED_ACTIONS: &[&str] = &[
 ///
 /// 两道闸，缺一不可（调用方与写入口各自一份，单测双向钉住）：
 ///
-/// 1. **运行时**（这里）：`erp::voucher_linkage::run_in_tx` 调
+/// 1. **运行时**（这里）：`erp::voucher::voucher_linkage::run_in_tx` 调
 ///    `engine::run_excluding(spec::VOUCHER_EXCLUDED_ACTIONS)`，命中的规则不产生
 ///    `RuleRun`、直接交给专用路由（凭证只能由来源单据的记账路径生成）；
 /// 2. **配置期**（[`VOUCHER_FORBIDDEN_ACTIONS`]）：保存规则时直接 400 —— 运行时排除
@@ -1529,7 +1535,7 @@ pub const ACTIONS: &[ActionSpec] = &[
                 note: "上线模式（空 = SHADOW：只做逐字段对比，凭证仍由旧逻辑发）",
             },
         ],
-        reuse: "erp/voucher.rs::create_by_rule（D3 抽出的唯一实现：取数 VoucherBizCtx::of_stock_in → \
+        reuse: "erp/voucher/mod.rs::create_by_rule（D3 抽出的唯一实现：取数 VoucherBizCtx::of_stock_in → \
                 科目解析 → 取号 PZ- → ≥2 行 + 借贷平衡 → voucher::post_voucher；\
                 与 create_for_stock_in 同一函数，不另写任何算法）",
     },
@@ -1553,7 +1559,7 @@ pub const ACTIONS: &[ActionSpec] = &[
                 note: "红冲日期 yyyy-MM-dd（空 = 今天）",
             },
         ],
-        reuse: "erp/voucher_write.rs::reverse_posted（校验 + 红字 INSERT + reversed_by 回写；P7 已抽成唯一实现）",
+        reuse: "erp/voucher/voucher_write.rs::reverse_posted（校验 + 红字 INSERT + reversed_by 回写；P7 已抽成唯一实现）",
     },
     ActionSpec {
         code: "UPDATE_DOC_STATUS",
@@ -1991,7 +1997,7 @@ mod tests {
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
             asset::asset_dto, contract::contract_model, expense::expense_dto, payable_query, purchase::purchase_model,
-            stocktake_model, voucher_query,
+            stocktake_model, voucher::voucher_query,
         };
 
         fn doc_module_label(entity: &str, status: &str) -> Option<String> {

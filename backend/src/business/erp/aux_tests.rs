@@ -36,12 +36,12 @@ use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use crate::business::erp::ledger::{AuxBalanceQuery, aux_balance, aux_column};
+use crate::business::erp::voucher::voucher_query::tests::{DB_LOCK, ensure_db};
 use crate::business::erp::voucher::{
     AccountRef, AccountSet, EntryLine, EntryRow, LineContext, MaterialInventoryRef, PostVoucher, VoucherAmounts,
     VoucherBizCtx, VoucherMaterialLine, absorb_tail_diff, create_by_rule, entries_of, post_voucher, purchase_in_lines,
     reversed_lines, user_dept_of,
 };
-use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
 
 // ==================== 夹具 id ====================
 

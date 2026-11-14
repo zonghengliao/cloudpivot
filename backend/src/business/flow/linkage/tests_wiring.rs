@@ -707,7 +707,7 @@ fn expense_excluded_actions_are_routed_elsewhere() {
 ///    状态上配规则永远不响。
 #[test]
 fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
-    let hook = include_str!("../../erp/voucher_linkage.rs");
+    let hook = include_str!("../../erp/voucher/voucher_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "凭证状态变更必须调用通用引擎（run_excluding）：否则 VOUCHER 的联动规则配了不触发"
@@ -751,7 +751,7 @@ fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
 
     // 四个事务入口：审核链（审核 / 反审核 / 记账共用 transition_voucher_in_tx）、
     // 手工凭证落草稿、手工红冲、红冲审批通过。每个都要调 hook 并在 commit 之后 flush。
-    let write = include_str!("../../erp/voucher_write.rs");
+    let write = include_str!("../../erp/voucher/voucher_write.rs");
     assert_eq!(
         write.matches("voucher_linkage::run_in_tx(").count(),
         4,

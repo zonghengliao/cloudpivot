@@ -1040,7 +1040,7 @@ pub fn export_table(report: &IncomeStatementRes) -> (Vec<&'static str>, Vec<Hash
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
+    use crate::business::erp::voucher::voucher_query::tests::{DB_LOCK, ensure_db};
     use std::str::FromStr;
 
     const FIXTURE_WORD: &str = "ERPR2";

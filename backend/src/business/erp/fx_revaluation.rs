@@ -647,7 +647,9 @@ mod tests {
     // （唯一索引 uk_biz_ar_no / uk_biz_period_code）。与 `voucher::tests` 共用同一把锁，
     // 免得两模块同时改 `biz_accounting_period` 的 2050-xx 期间。
     async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
-        let guard = crate::business::erp::voucher_query::tests::DB_LOCK.lock().await;
+        let guard = crate::business::erp::voucher::voucher_query::tests::DB_LOCK
+            .lock()
+            .await;
         if !ensure_db().await {
             return None;
         }

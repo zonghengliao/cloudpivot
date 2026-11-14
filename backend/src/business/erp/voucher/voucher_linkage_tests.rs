@@ -5,7 +5,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::voucher_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::voucher::voucher_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「必须有『配 GENERATE_VOUCHER 被拒』用例 + 正常过账触发一次」逐条对应）
@@ -31,11 +31,11 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::voucher;
 use super::voucher_linkage;
 use super::voucher_write::{
     CreateVoucherReq, ManualEntryReq, audit_voucher, create_manual_voucher, post_audited_voucher, reverse_voucher,
 };
+use crate::business::erp::voucher;
 use crate::business::flow::linkage::{model as linkage_model, spec};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;

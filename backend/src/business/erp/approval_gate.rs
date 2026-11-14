@@ -12,7 +12,7 @@
 //! | 3 | [`crate::business::erp::stockin::stockin_handler::change_stock_in_status`]（`POSTED → CANCELLED`） | 直接作废并回滚六本账 |
 //! | 4 | [`crate::business::erp::payable_payment::submit_payment`] | 直接付款并出凭证 |
 //! | 5 | [`crate::business::erp::payable_payment::submit_cancel`] | 直接作废（联动红冲凭证） |
-//! | 6 | [`crate::business::erp::voucher_write::submit_reverse`] | 直接红冲 |
+//! | 6 | [`crate::business::erp::voucher::voucher_write::submit_reverse`] | 直接红冲 |
 //!
 //! 后果是「内控形同虚设」且**用户无从知晓**：同一次点击，配置齐全的客户走两道复核，
 //! 新建客户（或流程被误下线）的客户一个人说了算，界面上看不出任何差别。

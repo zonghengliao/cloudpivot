@@ -745,7 +745,7 @@ fn audit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
+    use crate::business::erp::voucher::voucher_query::tests::{DB_LOCK, ensure_db};
     use std::str::FromStr;
 
     // ---------- 纯逻辑用例（不连库） ----------

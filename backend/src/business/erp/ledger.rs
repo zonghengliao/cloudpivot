@@ -80,7 +80,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::business::erp::model::normalize_page;
-use crate::business::erp::voucher_query::{is_month_key, unbalanced_error};
+use crate::business::erp::voucher::voucher_query::{is_month_key, unbalanced_error};
 use crate::business::shared::scope;
 use crate::shared::error_code;
 use crate::utils;
@@ -1107,7 +1107,7 @@ pub async fn aux_balance_handler(Query(query): Query<AuxBalanceQuery>) -> ResRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::voucher_query::tests::{ACCOUNT_A, ACCOUNT_B, setup, uid};
+    use crate::business::erp::voucher::voucher_query::tests::{ACCOUNT_A, ACCOUNT_B, setup, uid};
 
     fn filter(account: &str) -> LedgerFilter {
         LedgerFilter {
@@ -1185,15 +1185,16 @@ mod tests {
             "DRAFT 的 999 不得出现在流水里"
         );
         // 对照：凭证列表（全状态）里它是在的。
-        let (all, total) =
-            crate::business::erp::voucher_query::voucher_page(&crate::business::erp::voucher_query::VoucherFilter {
+        let (all, total) = crate::business::erp::voucher::voucher_query::voucher_page(
+            &crate::business::erp::voucher::voucher_query::VoucherFilter {
                 status: Some("DRAFT".to_string()),
                 page: 1,
                 page_size: 50,
                 ..Default::default()
-            })
-            .await
-            .expect("草稿凭证列表");
+            },
+        )
+        .await
+        .expect("草稿凭证列表");
         assert_eq!(total, 1, "DRAFT 只应 1 张（列表口径看得见）");
         assert_eq!(all[0].voucher_no, "P2D1-0004");
         println!("[P2D1-④] 只算 POSTED（列表仍可见 DRAFT）✓");
@@ -1411,7 +1412,7 @@ mod tests {
 #[cfg(test)]
 mod extra_tests {
     use super::*;
-    use crate::business::erp::voucher_query::tests::{ACCOUNT_A, setup};
+    use crate::business::erp::voucher::voucher_query::tests::{ACCOUNT_A, setup};
 
     fn date(year: i32, month: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(year, month, day).expect("合法日期")

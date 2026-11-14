@@ -540,7 +540,7 @@ ON CONFLICT (id) DO NOTHING;
 
 -- 销售发票：应收「已开票」的那个号在这里才是权威来源（biz_receivable.invoice_no 只是拷贝列）。
 -- 没有这一行，销售开票的收入凭证就没有可挂的 source_id（商品代码里 SOURCE_INVOICE 的
--- source_id = biz_invoice.id、source_no = invoice_no，见 erp/voucher.rs::create_for_sales_revenue）。
+-- source_id = biz_invoice.id、source_no = invoice_no，见 erp/voucher/mod.rs::create_for_sales_revenue）。
 -- voucher_id 在下面「单据 ↔ 凭证」的指针段回填（与商品代码「过账时回填」同序）。
 INSERT INTO biz_invoice (id, invoice_no, invoice_type, invoice_code, is_electronic, customer_id,
         invoice_date, amount, tax_amount, total_with_tax, tax_rate, tax_rate_mode, status,

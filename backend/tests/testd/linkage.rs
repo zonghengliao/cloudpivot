@@ -732,7 +732,7 @@ const SELF_APPROVAL_GUARDS: [(&str, &str); 4] = [
     ("purchase/purchase_bridge.rs", "采购订单审批"),
     ("stockin/stockin_bridge.rs", "收货过账 / 收货作废审批"),
     ("payable_bridge.rs", "应付付款 / 应付作废审批"),
-    ("voucher_bridge.rs", "凭证红冲审批"),
+    ("voucher/voucher_bridge.rs", "凭证红冲审批"),
 ];
 
 // 让 `ExportSyncQuery` 的导入不被判成 unused（K05 走 worker，不用同步导出）

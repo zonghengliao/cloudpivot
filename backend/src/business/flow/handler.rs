@@ -1834,7 +1834,7 @@ pub async fn withdraw_instance(
     // P-FLOW-3B：也可能是「应付作废」单 → 单据回 OPEN（欠款一分没动）
     crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3B：也可能是「凭证红冲」单 → 只清 pending（凭证一直是 POSTED，账没动）
-    crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
+    crate::business::erp::voucher::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
     // D3：也可能是「状态机配置变更」单 → 配置一分不动（撤回 = 不改流程规则）
     crate::business::flow::edge_admin::on_settled(Some(instance_id), "WITHDRAWN").await;
     Ok(Res::ok(action_res(out)))
@@ -1936,7 +1936,7 @@ pub async fn terminate_instance(
     crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::receipt_refund_bridge::on_refund_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "CANCELLED").await;
-    crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::voucher::voucher_bridge::on_reverse_settled(Some(instance_id), "CANCELLED").await;
     crate::business::flow::edge_admin::on_settled(Some(instance_id), "CANCELLED").await;
     // 子流程实例被终止 → 父流程必须知道（否则父节点永远等一个不可能再有结论的子单）
     crate::business::flow::subprocess::on_instance_settled(Some(instance_id), "CANCELLED").await;
@@ -1987,7 +1987,7 @@ pub async fn approve_task(
     crate::business::erp::stockin::stockin_bridge::guard_self_approval(task_id, operator).await?;
     // ★ P-FLOW-3B 内控闸：凭证红冲同款（制单人 ≠ 审批人）。
     //   应付作废走 payable_bridge::guard_self_approval（内部按 biz_type 分流）。
-    crate::business::erp::voucher_bridge::guard_self_approval(task_id, operator).await?;
+    crate::business::erp::voucher::voucher_bridge::guard_self_approval(task_id, operator).await?;
     // ★ ARCH-3 R-P1-1 内控闸：合同审批同款（制单人 / 发起人 ≠ 审批人）。
     crate::business::erp::contract::contract_bridge::guard_self_approval(task_id, operator).await?;
     // ARCH-3 DC-14：盘点过账审批 —— 盘的人不能批自己盘的账（403 + 65019）
@@ -2069,7 +2069,7 @@ pub async fn approve_task(
     // P-FLOW-3B：也可能是「应付作废」发起的 —— 通过才真正作废（进项凭证红冲 + 欠款消失）
     crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3B：也可能是「凭证红冲」发起的 —— 通过才生成红字凭证（原凭证保持 POSTED）
-    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::voucher::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status).await;
     // D3：也可能是「状态机配置变更」发起的 —— 通过才真正写 biz_flow_state_edge（驳回则一分不动）
     crate::business::flow::edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
@@ -2163,7 +2163,7 @@ pub async fn reject_task(
     // P-FLOW-3B：应付作废被驳回 → 单据回 OPEN（欠款一分没动，可以再提交）
     crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
     // P-FLOW-3B：凭证红冲被驳回 → 只清 pending（凭证一直是 POSTED，账没动）
-    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::voucher::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status).await;
     // D3：状态机配置变更被驳回 / 驳回终止 → 配置一分不动（只留审计行）
     crate::business::flow::edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))

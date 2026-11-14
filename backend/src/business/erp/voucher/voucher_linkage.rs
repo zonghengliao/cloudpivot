@@ -32,7 +32,7 @@
 //    直接写库的行 —— 不允许管理员配得上一条永远不执行的规则。
 //
 // 漂移守卫：`linkage::tests_wiring::voucher_wires_generic_engine_excludes_and_forbids_generate`
-// + 真库用例 `erp::voucher_linkage_tests::{lnk06_generate_voucher_rule_is_rejected_on_save,
+// + 真库用例 `erp::voucher::voucher_linkage_tests::{lnk06_generate_voucher_rule_is_rejected_on_save,
 // lnk06_excluded_generate_voucher_never_runs}`。
 //
 // # 事务边界（铁律 ④）

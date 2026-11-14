@@ -31,7 +31,7 @@
 //!
 //! 1. **列表分页走 `scope::paginate_unscoped`**（卡面 §四 要求「走 scope::paginate」）：
 //!    应付是财务台账，V0148 无 `dept_id` / 归属人列，数据范围（SELF / DEPT_*）表达不出来，
-//!    与 P2-D1 的 [`crate::business::erp::voucher_query`] 同口径。
+//!    与 P2-D1 的 [`crate::business::erp::voucher::voucher_query`] 同口径。
 //! 2. **`status` 只做白名单校验**（`OPEN/PARTIAL_PAID/SETTLED/CANCELLED`）：非法值返回 `400 + 10001`，
 //!    不静默返回空列表 —— 空列表会让前端以为「这单不存在」，是静默错数据。
 //! 3. **`supplier_id` 非法 UUID 同样 400**（卡面没提，但静默忽略等于「按供应商筛」退化成「全部」）。

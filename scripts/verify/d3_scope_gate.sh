@@ -21,7 +21,7 @@ MINE="$SRC/business/flow/linkage/actions.rs \
 $SRC/business/flow/linkage/engine.rs \
 $SRC/business/flow/linkage/spec.rs \
 $SRC/business/flow/linkage/tests.rs \
-$SRC/business/erp/voucher.rs \
+$SRC/business/erp/voucher/mod.rs \
 $SRC/business/erp/stockin_query.rs \
 $SRC/business/erp/stockin_handler.rs"
 

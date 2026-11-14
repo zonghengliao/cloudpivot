@@ -22,8 +22,10 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::approval_gate;
-use crate::business::erp::voucher_write;
-use crate::business::erp::{fixture_hygiene, payable, payable_bridge, payable_payment, voucher, voucher_bridge};
+use crate::business::erp::voucher::voucher_write;
+use crate::business::erp::{
+    fixture_hygiene, payable, payable_bridge, payable_payment, voucher, voucher::voucher_bridge,
+};
 use crate::business::flow::engine;
 
 /// ARCH-3 DC-01：系统路径的审批前置上下文 —— 不请求跳过、也没有权限声明。
@@ -58,7 +60,7 @@ const ACCOUNT_CREDIT: &str = "b3b30021-0000-4000-8000-000000000021";
 // `cash_flow::tests::r3_real_config_covers_all_accounts` 遍历 `biz_account` 全表断言
 // 「每个非现金科目都有分类行」—— 两把不同的锁时并行必撞（`purge_fixtures()` 只在
 // 用例开工时跑，跑用例期间科目就在库里）。
-use crate::business::erp::voucher_query::tests::DB_LOCK;
+use crate::business::erp::voucher::voucher_query::tests::DB_LOCK;
 
 fn uid(text: &str) -> Uuid {
     Uuid::parse_str(text).expect("夹具 UUID 非法")

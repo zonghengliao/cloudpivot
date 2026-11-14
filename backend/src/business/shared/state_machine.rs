@@ -4403,7 +4403,7 @@ mod tests {
         .await
         .unwrap();
 
-        let err = crate::business::erp::voucher_write::update_summary(id, Some("改过的摘要"), None)
+        let err = crate::business::erp::voucher::voucher_write::update_summary(id, Some("改过的摘要"), None)
             .await
             .unwrap_err();
         assert_eq!(err.status, 409, "{}", err.msg);

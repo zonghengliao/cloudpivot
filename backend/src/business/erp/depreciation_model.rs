@@ -51,7 +51,7 @@ use crate::business::erp::asset::asset_dto::{self, DepRunKind, DepRunOutcome, ST
 use crate::business::erp::asset::asset_model::{self, DepBatchRow, DepDetailRow, DepInsert};
 use crate::business::erp::depreciation_linkage;
 use crate::business::erp::voucher;
-use crate::business::erp::voucher_multi;
+use crate::business::erp::voucher::voucher_multi;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 

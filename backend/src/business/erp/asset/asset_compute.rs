@@ -22,7 +22,7 @@ use nik::prelude::chrono::{Datelike, NaiveDate};
 use nik::prelude::rust_decimal::{Decimal, RoundingStrategy};
 
 use crate::business::erp::voucher::AccountRef;
-use crate::business::erp::voucher_multi::ExplicitLine;
+use crate::business::erp::voucher::voucher_multi::ExplicitLine;
 
 /// 金额四位小数（与 `NUMERIC(18,4)` 同口径）。
 pub const MONEY_SCALE: u32 = 4;

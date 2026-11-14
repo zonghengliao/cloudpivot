@@ -2787,7 +2787,7 @@ mod tests {
     /// 反过来也钉住：反结账之后同一个请求必须成功，且落库是 **DRAFT**（不是 POSTED）。
     #[tokio::test]
     async fn p1_manual_voucher_on_closed_period_is_conflict() {
-        use crate::business::erp::voucher_write::{CreateVoucherReq, ManualEntryReq, create_manual_voucher};
+        use crate::business::erp::voucher::voucher_write::{CreateVoucherReq, ManualEntryReq, create_manual_voucher};
 
         let Some(_guard) = setup().await else {
             return;

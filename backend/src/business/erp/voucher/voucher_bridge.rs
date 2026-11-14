@@ -44,7 +44,7 @@
 //! # 与 P7 的关系（硬红线 5：复用，不重写）
 //!
 //! 红冲一行都不重写：直接调
-//! [`crate::business::erp::voucher_write::reverse_after_approval`]，
+//! [`crate::business::erp::voucher::voucher_write::reverse_after_approval`]，
 //! 它内部就是 P7 的 `voucher::reverse_posted`（借贷互换 + 独立号段 PZR + 回写 `reversed_by`）。
 //! 本模块只负责「什么时候该调它」。
 
@@ -242,7 +242,7 @@ async fn settle(instance_id: Uuid, verdict: ReverseVerdict) -> DbResult<Option<U
                 );
                 return Ok(None);
             }
-            match crate::business::erp::voucher_write::reverse_after_approval(voucher_id, approver).await {
+            match crate::business::erp::voucher::voucher_write::reverse_after_approval(voucher_id, approver).await {
                 Ok(red_id) => {
                     tracing::info!(%voucher_id, %red_id, "红冲审批已通过：红字凭证已生成");
                     Ok(Some(voucher_id))
@@ -258,22 +258,22 @@ async fn settle(instance_id: Uuid, verdict: ReverseVerdict) -> DbResult<Option<U
                 }
             }
         }
-        ReverseVerdict::Restore => {
-            match crate::business::erp::voucher_write::restore_after_reverse_rejection(voucher_id, verdict, approver)
-                .await
-            {
-                Ok(()) => Ok(Some(voucher_id)),
-                Err(error) => {
-                    tracing::warn!(
-                        %voucher_id,
-                        code = error.code,
-                        msg = %error.msg,
-                        "红冲审批未通过，但凭证 pending 清理失败（等待 reconcile 兜扫）"
-                    );
-                    Ok(None)
-                }
+        ReverseVerdict::Restore => match crate::business::erp::voucher::voucher_write::restore_after_reverse_rejection(
+            voucher_id, verdict, approver,
+        )
+        .await
+        {
+            Ok(()) => Ok(Some(voucher_id)),
+            Err(error) => {
+                tracing::warn!(
+                    %voucher_id,
+                    code = error.code,
+                    msg = %error.msg,
+                    "红冲审批未通过，但凭证 pending 清理失败（等待 reconcile 兜扫）"
+                );
+                Ok(None)
             }
-        }
+        },
     }
 }
 
@@ -505,8 +505,11 @@ mod tests {
         assert_eq!(BIZ_TYPE, "VOUCHER_REVERSE");
         assert_eq!(FLOW_CODE, "voucher_reverse");
         assert_eq!(BIZ_TYPE, BIZ_TYPE.to_uppercase());
-        assert_eq!(BIZ_TYPE, crate::business::erp::voucher_write::REVERSE_BIZ_TYPE);
-        assert_eq!(FLOW_CODE, crate::business::erp::voucher_write::REVERSE_FLOW_CODE);
+        assert_eq!(BIZ_TYPE, crate::business::erp::voucher::voucher_write::REVERSE_BIZ_TYPE);
+        assert_eq!(
+            FLOW_CODE,
+            crate::business::erp::voucher::voucher_write::REVERSE_FLOW_CODE
+        );
     }
 
     /// ③ 凭证状态常量不能写错；「审批中」**不是**一个状态（卡面硬红线 3）。

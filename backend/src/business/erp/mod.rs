@@ -27,13 +27,13 @@
 //! | [`purchase::purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
-//! | [`voucher_query`] | 凭证查询：分页 + 详情（含全部分录），只读 | **P2-D1** |
+//! | [`voucher::voucher_query`] | 凭证查询：分页 + 详情（含全部分录），只读 | **P2-D1** |
 //! | [`ledger`] | 总账流水（逐行余额）+ 科目余额表（Σ借 = Σ贷 校验），只读 | **P2-D1** |
 //! | [`payable_query`] | 应付单查询：分页 + 详情（含关联凭证号），只读 | **P2-C2** |
 //! | [`payable_payment`] | 应付付款登记（部分付款累计 → PARTIAL_PAID/SETTLED）+ 应付作废（联动红冲）+ **可付信息**（D5：`GET /payable/{id}/payment-info`，详情抽屉「发起付款」的唯一读数） | **P7 / D5** |
 //! | [`payable_bridge`] | 应付**付款审批** / **作废审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P17 / P-FLOW-3B** |
-//! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入）+ **红冲审批**（P-FLOW-3B） | **P7 / P-FLOW-3B** |
-//! | [`voucher_bridge`] | 凭证**红冲审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P-FLOW-3B** |
+//! | [`voucher::voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入）+ **红冲审批**（P-FLOW-3B） | **P7 / P-FLOW-3B** |
+//! | [`voucher::voucher_bridge`] | 凭证**红冲审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P-FLOW-3B** |
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
@@ -60,7 +60,7 @@
 //! | [`expense::expense_model`] | 报销数据层（V0242）：类型 / 单据 / 明细（整体重建）/ 付款记录 + 行锁 | **FIN-3** |
 //! | [`expense::expense_handler`] | 报销 15 个接口：类型 CRUD、建改删查提交撤回作废付款 | **FIN-3** |
 //! | [`expense::expense_bridge`] | 报销**审批**回调（通过 → 计提凭证 + usage CONSUMED）+ 内控闸 + 付款/红冲凭证 | **FIN-3** |
-//! | [`voucher_multi`] | **多借方凭证入口**（ARCH-6 §6.4 边界 ①）：折旧按部门拆借方、购入价税拆分、处置三张凭证都走它 | **FIN-2** |
+//! | [`voucher::voucher_multi`] | **多借方凭证入口**（ARCH-6 §6.4 边界 ①）：折旧按部门拆借方、购入价税拆分、处置三张凭证都走它 | **FIN-2** |
 //! | [`unit_guard`] | 单据单位止血（DC-09）：明细的物料基础单位必须是 `is_base = 1`，否则 400 + 折算建议 | **ARCH-3 P0** |
 //! | [`approval_gate`] | 审批流未配置改「默认拒绝」（DC-01）：6 个入口 409 + 新码、显式跳过（`business:erp:skip-approval` + 理由 ≥10 字）、8 个流程配置自检端点 | **ARCH-3 P0** |
 //! | [`reminder`] | **业务提醒任务包**（DC-06 / DC-12）：4 类提醒的元数据 / 业务日 / 幂等台账（`biz_reminder_log`）/ 收件人解析 / 统一发送 / 4 个 cron 注册 / 手动触发端点 | **ARCH-3 R-P1-2** |
@@ -232,11 +232,6 @@ pub mod tax_rate;
 pub mod transfer;
 pub mod unit_guard;
 pub mod voucher;
-pub mod voucher_bridge;
-pub(crate) mod voucher_linkage;
-pub mod voucher_multi;
-pub mod voucher_query;
-pub mod voucher_write;
 pub mod year_end;
 /// LNK-11 的**唯一**联动接线（年结 `close_year` / 反年结 `reopen_year` 两条边共用
 /// `run_in_tx` / `run_deferred_after_commit`）。
@@ -269,11 +264,6 @@ mod model_order; // 采购订单只读（头 + 明细）
 /// 只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cancel_cascade_tests;
-
-/// LNK-06 的真库单测（凭证联动接线：过账 / 反审核 / 红冲触发，配 GENERATE_VOUCHER
-/// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod voucher_linkage_tests;
 
 /// LNK-10 的真库单测（折旧批次联动接线：过账触发一次、大批量只发一条（聚合）、
 /// 重复计提不重复触发、红冲触发、排除动作确实不跑）。只在 `cargo test` 时编译。

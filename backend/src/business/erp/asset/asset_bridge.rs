@@ -38,7 +38,7 @@ use crate::business::erp::asset::asset_dto::{self, status_label};
 use crate::business::erp::asset::asset_linkage;
 use crate::business::erp::asset::asset_model::{self, AssetRow};
 use crate::business::erp::voucher;
-use crate::business::erp::voucher_multi;
+use crate::business::erp::voucher::voucher_multi;
 use crate::business::flow::model as flow_model;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;

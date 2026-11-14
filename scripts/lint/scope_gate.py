@@ -155,7 +155,7 @@ business/erp/transfer/transfer_handler_db_tests_status.rs
 business/erp/transfer/transfer_handler_test_support.rs
 business/erp/transfer/transfer_handler_tests.rs
 business/erp/transfer/transfer_tests.rs
-business/erp/voucher_linkage_tests.rs
+business/erp/voucher/voucher_linkage_tests.rs
 business/erp/year_end_items_tests.rs
 business/erp/year_end_linkage_tests.rs
 business/erp/year_end_remind_tests.rs

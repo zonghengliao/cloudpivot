@@ -90,8 +90,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::voucher::voucher_multi::{self, ExplicitLine, ExplicitVoucherInput};
 use crate::business::erp::voucher::{self, AccountRef};
-use crate::business::erp::voucher_multi::{self, ExplicitLine, ExplicitVoucherInput};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::hr::salary_sheet_dto::{
     self as salary_dto, STATUS_APPROVED, STATUS_CALCULATED, STATUS_POSTED, STATUS_REVERSED, STATUS_SUBMITTED,
@@ -940,7 +940,7 @@ async fn voucher_no(ex: &impl SqlExecutor, id: Uuid) -> std::result::Result<Stri
 ///
 /// # 两张红字凭证从哪来
 ///
-/// 不复刻红冲算法：逐张调 `voucher::reverse_posted`（`erp/voucher.rs`），它已经钉住了
+/// 不复刻红冲算法：逐张调 `voucher::reverse_posted`（`erp/voucher/mod.rs`），它已经钉住了
 /// 全部库层细节 —— 借贷互换、金额恒正、`is_red=1`、`reverse_of=原凭证`、原凭证回写
 /// `reversed_by`、独立号段 `PZR-yyyyMMdd-NNNNNN`、期间已结账则拒绝。
 /// 本卡只负责**把两张串起来 + 状态机 + 回写单据**。手写一遍分录 = 两套红冲口径，

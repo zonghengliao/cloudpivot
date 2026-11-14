@@ -1570,7 +1570,7 @@ mod tests {
     //   cargo test --lib tier_overlap -- --test-threads=1
     // ```
 
-    use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
+    use crate::business::erp::voucher::voucher_query::tests::{DB_LOCK, ensure_db};
 
     /// 真库夹具：单位（物料必填）。
     const FX_UNIT: &str = "e2e80000-0000-4000-8000-000000000001";

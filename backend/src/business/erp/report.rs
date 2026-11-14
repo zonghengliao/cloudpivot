@@ -116,7 +116,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::voucher_query::is_month_key;
+use crate::business::erp::voucher::voucher_query::is_month_key;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -1679,7 +1679,7 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::voucher_query::tests::{DB_LOCK, ensure_db};
+    use crate::business::erp::voucher::voucher_query::tests::{DB_LOCK, ensure_db};
     use std::str::FromStr;
 
     /// 造一个科目（报表计算用，不进库）。
