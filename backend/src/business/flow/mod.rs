@@ -63,6 +63,10 @@ pub mod batch;
 pub mod config_check;
 pub mod delegate;
 pub mod delegate_handler;
+/// 业务单据查询与回调接缝（P2-32 · P2-B 解环，见模块注释）。
+pub mod doc_reader;
+#[cfg(test)]
+pub mod doc_reader_tests;
 pub mod dto;
 pub mod edge_admin;
 #[cfg(test)]
