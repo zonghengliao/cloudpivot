@@ -10,15 +10,23 @@
 //!
 //! | # | 事 | 谁是唯一真源 |
 //! |:--:|---|---|
-//! | 1 | 把 `EMP` 登记成主数据号段 | `erp::seq::MASTER_CODE_TYPES` / [`crate::business::erp::seq::master_code_exists_sql`] |
-//! | 2 | 取号（新建员工时，**与 INSERT 同事务**） | [`generate_emp_no`] → [`crate::business::erp::seq::next_master_code_free`] |
-//! | 3 | 预览（前端「生成工号」按钮，**不耗号**） | [`preview_emp_no`] → [`crate::business::erp::seq::peek_master_code`] |
+//! | 1 | 把 `EMP` 登记成主数据号段 | `erp::seq::MASTER_CODE_TYPES`（**号段**归取号器） |
+//! | 2 | 工号的**查重口径**（读员工主档） | 本文件 [`EMP_EXISTS_SQL`]（**表**归本域，P2-36） |
+//! | 3 | 取号（新建员工时，**与 INSERT 同事务**） | [`generate_emp_no`] → `erp::seq::next_master_code_free_with` |
+//! | 4 | 预览（前端「生成工号」按钮，**不耗号**） | [`preview_emp_no`] → `erp::seq::peek_master_code_with` |
 //!
 //! 三处都复用 `erp::seq`，**不重写发号逻辑**（卡面要求）：发号是单语句
 //! `UPDATE biz_seq … RETURNING current_no`，PG 对 `biz_seq(seq_type='EMP')` 那行加行锁，
-//! 并发事务先后拿到 `n` / `n+1`，天然不重号；「撞号顺延」靠
-//! [`crate::business::erp::seq::master_code_exists_sql`] 里的 `EMP` 查重 SQL（`biz_employee.emp_no`
-//! 未删除内存在即跳过）。
+//! 并发事务先后拿到 `n` / `n+1`，天然不重号；「撞号顺延」靠本域自带的
+//! [`EMP_EXISTS_SQL`]（员工主档里工号未删除即跳过）。
+//!
+//! # 为什么查重 SQL 在本域，而不在取号器里（P2-36 · erp→hr 解环）
+//!
+//! `erp::seq` 是 ERP 的取号器，只该认识**自己域内**的表。员工主档是 HR 的表：
+//! 表名、工号列名（`emp_no` 不是 `employee_no` —— 这个坑 erp 侧真踩过）、软删口径
+//! 都归本域。原先 `EMP` 的查重 SQL 写在 `erp::seq::master_code_exists_sql` 里，
+//! 等于让 erp 认 HR 的表；现在从那张常量表里摘掉，由本文件通过 `*_with` 入口自带
+//! （取号器的通用扩展点，本来就是为了「非标准表 / 特殊软删口径」设计的）。
 //!
 //! # 为什么取号必须在调用方的事务里（本卡验收「不跳号」）
 //!
@@ -89,6 +97,19 @@ pub const EMP_NO_EXAMPLE: &str = "EMP-0001";
 /// `biz_employee.emp_no` 的列宽（`VARCHAR(32)`）；取号结果必须能落进去。
 pub const MAX_EMP_NO: usize = 32;
 
+/// 「工号是否已被占用」的常量 SQL（**表属主自持**，见模块文档「为什么查重 SQL 在本域」）。
+///
+/// 三个口径（与员工主档的唯一键 `uk_biz_employee_no (org_id, emp_no)` 逐条对齐或更严）：
+///
+/// - **不带 org 维度**（比唯一键更严）：工号要求全局唯一，跨组织撞号时顺延 ——
+///   人在 A 组织拿过 `EMP-0007`，B 组织就不会再发一次；
+/// - 软删口径与唯一键一致（`deleted_at IS NULL` ⇒ 软删掉的工号可复用）；
+/// - 只有一个 `?` 占位，绑定候选工号（取号器每次只校验一个候选号）。
+///
+/// 列名是 **`emp_no`** 不是 `employee_no`（`V0383` 的 DDL；erp 侧曾按业务名猜错，
+/// 表没上线时猜错也看不出来，上线后「填了工号的工时导入」直接 500）。
+pub const EMP_EXISTS_SQL: &str = "SELECT 1 FROM biz_employee WHERE emp_no = ? AND deleted_at IS NULL";
+
 // ==================== 出参契约 ====================
 
 /// 预览下一个工号的出参（设计 §5.2 #9：`next_no`）。
@@ -117,17 +138,17 @@ pub struct EmployeeNextNoRes {
 ///
 /// `EMP-0001` 形态的工号；失败 → 500（号段规则缺失/停用，或连号 20 个都被占用）。
 pub async fn generate_emp_no(ex: &impl SqlExecutor) -> std::result::Result<String, ApiError> {
-    seq::next_master_code_free(ex, SEQ_TYPE)
+    seq::next_master_code_free_with(ex, SEQ_TYPE, EMP_EXISTS_SQL, seq::FREE_CODE_MAX_ATTEMPTS)
         .await
         .map_err(|error| seq_error(error, "生成工号"))
 }
 
 /// 预览下一个工号（**不推进** `biz_seq.current_no`，设计 §5.2 #9「不耗号」）。
 ///
-/// 实现是 `seq::peek_master_code(db(), "EMP")`：读规则 + 逐个试号 + 查重，
-/// 不改任何行。前端点「生成工号」按钮 / 打开新建抽屉时调它。
+/// 实现是 `seq::peek_master_code_with(db(), "EMP", EMP_EXISTS_SQL, …)`：读规则 + 逐个试号
+/// + 查重，不改任何行。前端点「生成工号」按钮 / 打开新建抽屉时调它。
 pub async fn preview_emp_no() -> std::result::Result<String, ApiError> {
-    seq::peek_master_code(db(), SEQ_TYPE)
+    seq::peek_master_code_with(db(), SEQ_TYPE, EMP_EXISTS_SQL, seq::FREE_CODE_MAX_ATTEMPTS)
         .await
         .map_err(|error| seq_error(error, "预览工号"))
 }
@@ -187,8 +208,8 @@ mod tests {
     use crate::business::hr::employee_handler;
     use crate::business::hr::handler::ROUTE_CONTRACT;
 
-    /// `EMP` 必须登记成主数据号段 —— 否则 `next_master_code_free(&tx, "EMP")` 直接
-    /// `InvalidValue("不是主数据号段")`，自动取号这条路根本走不通。
+    /// `EMP` 必须登记成主数据号段（否则取号直接 `InvalidValue("不是主数据号段")`），
+    /// 且**查重 SQL 归本域**（P2-36：`erp::seq` 只发号，不认识员工主档的表）。
     #[test]
     fn emp_is_registered_as_master_code() {
         assert_eq!(SEQ_TYPE, "EMP");
@@ -197,8 +218,34 @@ mod tests {
             "EMP 不在 seq::MASTER_CODE_TYPES 里 —— 取号会直接报「不是主数据号段」"
         );
         assert!(
-            seq::master_code_exists_sql(SEQ_TYPE).is_some(),
-            "EMP 没有占位检查 SQL —— 撞号不会顺延"
+            seq::master_code_exists_sql(SEQ_TYPE).is_none(),
+            "EMP 的查重 SQL 不该再长在 erp::seq 里（表属主自持，见 EMP_EXISTS_SQL）"
+        );
+    }
+
+    /// 工号查重 SQL 的三个口径（与员工主档唯一键对齐或更严）。
+    ///
+    /// 这几条以前钉在 `erp::seq::t02_exists_sql_covers_every_master_type` 里，
+    /// P2-36 把 SQL 搬回表属主后，断言也跟着搬过来。
+    #[test]
+    fn emp_exists_sql_matches_the_owner_key() {
+        assert!(
+            EMP_EXISTS_SQL.contains("biz_employee"),
+            "必须落在员工主档：{EMP_EXISTS_SQL}"
+        );
+        assert!(EMP_EXISTS_SQL.contains("emp_no"), "工号列叫 emp_no 不是 employee_no");
+        assert!(
+            EMP_EXISTS_SQL.contains("deleted_at IS NULL"),
+            "软删口径要与唯一键一致（软删可复用）"
+        );
+        assert!(
+            !EMP_EXISTS_SQL.contains("org_id"),
+            "工号要求**全局**唯一：查重故意不带 org 维度（比唯一键更严）"
+        );
+        assert_eq!(
+            EMP_EXISTS_SQL.matches('?').count(),
+            1,
+            "占位检查 SQL 只能有一个 `?`（取号器每次只绑一个候选号）"
         );
     }
 

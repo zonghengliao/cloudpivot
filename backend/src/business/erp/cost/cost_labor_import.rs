@@ -38,9 +38,10 @@
 //!    取数发生在引用校验之后（要对象的 id、车间的 id、工作日期），
 //!    三级都没配到 ⇒ **该行报错**（列 = 工资率，报文点名缺哪一级、缺哪一天），
 //!    **绝不默认按 0 计**（设计 D-7：编造出来的人工成本比算不出来更危险）。
-//! 2. **员工工号**：`biz_employee` 属 ARCH9-2，尚未上线。工号留空 = 按班组计
-//!    （`employee_id` 为 NULL，设计 §4.5.3 允许）；填了则在 `biz_employee` 存在时
-//!    解析工号，表不存在时该行报错并要求留空 —— 不静默丢弃工号。
+//! 2. **员工工号**：员工主档属 HR 域，跨域只读走 `hr::employee_reader` 接缝（P2-36）。
+//!    工号留空 = 按班组计（`employee_id` 为 NULL，设计 §4.5.3 允许）；填了则由接缝
+//!    解析工号（`is_available()` 为假 ⇒ 主档还没上线，该行报错要求留空），
+//!    **不静默丢弃工号**。`erp` 侧不再持有员工主档的表名 / 列名 / 软删口径。
 //!
 //! # 行号口径
 //!
@@ -63,6 +64,7 @@ use crate::business::erp::cost::cost_labor_dto::{
 use crate::business::erp::cost::cost_labor_model::{self as model};
 use crate::business::erp::cost::cost_object_dto;
 use crate::business::erp::cost::cost_rate_dto::{self, RateRequest, RateSubject};
+use crate::business::hr::employee_reader;
 use crate::business::impexp::definition::{ColumnKind, ImportColumn, parse_date};
 use crate::business::impexp::engine::{SheetReader, WorkbookSheet, write_workbook};
 use crate::shared::error_code;
@@ -866,16 +868,32 @@ async fn attach_dept_issues(parsed: &mut [ParsedRow], refs: &mut RefIndex) -> st
     Ok(())
 }
 
-/// 员工校验：`biz_employee`（ARCH9-2）未上线时工号必须留空；上线后必须能解析。
+/// 员工校验：员工主档不可读时工号必须留空；可读时必须能解析到人。
+///
+/// # 为什么走 `hr::employee_reader` 接缝，而不是在 `erp` 里读表（P2-36）
+///
+/// 员工主档是 HR 的表：表名、工号列名（`emp_no` 不是 `employee_no`，erp 侧真踩过）、
+/// 软删口径、多组织下的取法都归 HR。原先这里调 `cost_labor_model` 里两个自写的探表 /
+/// 批量解析函数，后果是「猜错列名也看不出来」（表还没上线时语句永远走不到）。
+/// 现在 `erp` 只认接缝：
+///
+/// | 旧（直连） | 新（接缝） | 语义 |
+/// |---|---|---|
+/// | `model::employee_table_present()` | [`employee_reader::is_available`] | 表属主给的探针；未安装 reader ⇒ `false`（启动链漏步，bootstrap 兜住） |
+/// | `model::employee_ids_by_no()` | [`employee_reader::employees_by_emp_nos`] | 接缝内部按 500 切片 + 去重 + `DISTINCT ON` 确定性取法，仍然是**一次批量**、不做 N+1 |
+///
+/// 两个分支与切换前逐字等价（`cost_labor_db_tests` ⑮ 钉住真库口径，
+/// `employee_numbers_resolve_through_the_seam_without_a_database` 钉住脱库口径）：
+/// 主档不可读 ⇒ 填了工号的行报错要求留空；可读 ⇒ 解析不到的行报「在员工主数据里不存在」。
 async fn attach_employee_issues(parsed: &mut [ParsedRow], refs: &mut RefIndex) -> std::result::Result<(), ApiError> {
     let numbers = distinct(parsed.iter().filter_map(|row| row.employee_no.clone()));
     if numbers.is_empty() {
         return Ok(());
     }
-    let present = model::employee_table_present()
+    let available = employee_reader::is_available()
         .await
         .map_err(|error| utils::db_error(error, "检查员工主数据表"))?;
-    if !present {
+    if !available {
         for row in parsed.iter_mut() {
             if row.employee_no.is_some() {
                 row.push_issue(
@@ -886,10 +904,11 @@ async fn attach_employee_issues(parsed: &mut [ParsedRow], refs: &mut RefIndex) -
         }
         return Ok(());
     }
-    refs.employees = model::employee_ids_by_no(&numbers)
+    refs.employees = employee_reader::employees_by_emp_nos(&numbers)
         .await
         .map_err(|error| utils::db_error(error, "校验导入的员工工号"))?
         .into_iter()
+        .map(|brief| (brief.emp_no, brief.id))
         .collect::<HashMap<String, Uuid>>();
     for row in parsed.iter_mut() {
         if let Some(no) = row.employee_no.as_deref()
@@ -1129,6 +1148,10 @@ pub fn build_template() -> std::result::Result<Vec<u8>, ApiError> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use crate::business::hr::employee_reader::{EmployeeBrief, EmployeeReader, GLOBAL_LOCK};
+
     use super::*;
 
     fn raw(line: u32) -> RawRow {
@@ -1165,6 +1188,136 @@ mod tests {
             .iter()
             .map(|issue| format!("{}|{}", issue.column, issue.message))
             .collect()
+    }
+
+    // ---------- 员工工号：走接缝（P2-36 · 脱库证明） ----------
+
+    /// 假员工主档：只回固定几条，**不碰数据库**。
+    ///
+    /// 这是 `hr::employee_reader` 给消费方带来的能力：P2-36 之前，「工号能不能解析」
+    /// 的用例**必须连真库**（SQL 长在 `cost_labor_model` 身上）；现在注入一个假实现
+    /// 就能验完两个分支。
+    struct FakeEmployeeReader {
+        briefs: Vec<EmployeeBrief>,
+        available: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl EmployeeReader for FakeEmployeeReader {
+        async fn employees_by_ids(&self, ids: &[Uuid]) -> DbResult<Vec<EmployeeBrief>> {
+            Ok(self
+                .briefs
+                .iter()
+                .filter(|brief| ids.contains(&brief.id))
+                .cloned()
+                .collect())
+        }
+
+        async fn employees_by_emp_nos(&self, emp_nos: &[String]) -> DbResult<Vec<EmployeeBrief>> {
+            Ok(self
+                .briefs
+                .iter()
+                .filter(|brief| emp_nos.iter().any(|no| no == &brief.emp_no))
+                .cloned()
+                .collect())
+        }
+
+        async fn is_available(&self) -> DbResult<bool> {
+            Ok(self.available)
+        }
+    }
+
+    /// 装一个假员工主档（测试互斥 + 收尾清空，见 `employee_reader::GLOBAL_LOCK`）。
+    fn install_fake_employee_master(briefs: Vec<EmployeeBrief>, available: bool) -> Arc<FakeEmployeeReader> {
+        employee_reader::reset_for_tests();
+        let reader = Arc::new(FakeEmployeeReader { briefs, available });
+        employee_reader::install(reader.clone()).expect("安装假员工主档");
+        reader
+    }
+
+    fn brief(emp_no: &str, seed: u128) -> EmployeeBrief {
+        EmployeeBrief {
+            id: Uuid::from_u128(seed),
+            emp_no: emp_no.to_string(),
+            name: format!("员工{emp_no}"),
+            dept_id: Uuid::from_u128(0xd0de),
+            status: "ACTIVE".to_string(),
+        }
+    }
+
+    /// 一行「干净」的解析结果，只把工号换成指定值。
+    fn row_with_no(line: u32, employee_no: Option<&str>) -> ParsedRow {
+        let mut row = parse_rows(&[raw(line)], None).remove(0);
+        row.employee_no = employee_no.map(str::to_string);
+        row
+    }
+
+    /// 主档可读：工号批量解析走接缝（一次批量，不是逐行），解析不到的点名工号。
+    #[tokio::test]
+    async fn employee_numbers_resolve_through_the_seam_without_a_database() {
+        let _guard = GLOBAL_LOCK.lock().await;
+        let id = Uuid::from_u128(0xe1);
+        install_fake_employee_master(vec![brief("E1001", 0xe1)], true);
+
+        let mut rows = vec![
+            row_with_no(2, Some("E1001")),
+            row_with_no(3, Some("E9999")),
+            row_with_no(4, None),
+        ];
+        let mut refs = RefIndex::default();
+        attach_employee_issues(&mut rows, &mut refs).await.expect("走接缝校验");
+
+        assert_eq!(
+            refs.employees.get("E1001").copied(),
+            Some(id),
+            "解析到的 employee_id 必须来自接缝（假实现里那条）"
+        );
+        assert!(!refs.employees.contains_key("E9999"), "查不到的人不许编一个 id");
+        assert!(rows[0].is_clean(), "解析到的人不该报错：{:?}", messages(&rows[0]));
+
+        let text = messages(&rows[1]).join(" / ");
+        assert!(text.contains("在员工主数据里不存在"), "{text}");
+        assert!(text.contains("E9999"), "报错要回显工号（用户才知道改哪一行）：{text}");
+        assert!(rows[2].is_clean(), "工号留空 = 按班组计，不受主档影响");
+
+        employee_reader::reset_for_tests();
+    }
+
+    /// 主档不可读（迁移没跑 / reader 未安装）：**只有填了工号的行**报错，留空的行照过。
+    ///
+    /// 这条分支在现行库上无法用真库构造（不能为了跑一条用例去 DROP 生产同构的表），
+    /// 接缝让它可测 —— 这正是 P2-36 要的那层解耦。
+    #[tokio::test]
+    async fn unreadable_employee_master_only_blocks_rows_with_a_number() {
+        let _guard = GLOBAL_LOCK.lock().await;
+        install_fake_employee_master(Vec::new(), false);
+
+        let mut rows = vec![row_with_no(2, Some("E1001")), row_with_no(3, None)];
+        let mut refs = RefIndex::default();
+        attach_employee_issues(&mut rows, &mut refs).await.expect("走接缝校验");
+
+        assert!(refs.employees.is_empty(), "主档不可读时不许有任何解析结果");
+        let text = messages(&rows[0]).join(" / ");
+        assert!(text.contains(HEADER_EMPLOYEE_NO), "{text}");
+        assert!(text.contains("尚未上线"), "要告诉用户为什么工号用不了：{text}");
+        assert!(text.contains("请留空"), "要给出可执行的动作：{text}");
+        assert!(rows[1].is_clean(), "留空的行不受主档状态影响");
+
+        employee_reader::reset_for_tests();
+    }
+
+    /// 没装 reader（启动链漏步）按「主档不可读」降级，而不是 500 —— 语义由接缝钉住。
+    #[tokio::test]
+    async fn uninstalled_reader_degrades_to_the_same_branch_not_an_error() {
+        let _guard = GLOBAL_LOCK.lock().await;
+        employee_reader::reset_for_tests();
+
+        let mut rows = vec![row_with_no(2, Some("E1001"))];
+        let mut refs = RefIndex::default();
+        attach_employee_issues(&mut rows, &mut refs)
+            .await
+            .expect("未安装 reader 不许把导入打成 500");
+        assert!(messages(&rows[0]).join(" / ").contains("尚未上线"));
     }
 
     // ---------- 模板 ----------

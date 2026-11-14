@@ -42,7 +42,7 @@
 //!
 //! | 列 | 口径 | 做法 |
 //! |---|---|---|
-//! | `employee_name` | **审计 / 历史快照**（当时是谁干的活） | 存列，不 join（`biz_employee` 属 ARCH9-2，未上线） |
+//! | `employee_name` | **审计 / 历史快照**（当时是谁干的活） | 存列，不 join（员工主档属 HR 域，跨域只读走 `hr::employee_reader` 接缝） |
 //! | `dept_name`（快照列） | 审计快照 | 建 / 改时写入，join 落空时兜底 |
 //! | `dept_id` → `dept_name` | 主数据关联 | `LEFT JOIN sys_dept` 实时取名优先 |
 //! | `cost_object_id` → `cost_object_no` / `product_name` | 主数据关联 | `LEFT JOIN biz_cost_object` + `LEFT JOIN biz_material` |
@@ -116,7 +116,7 @@ pub struct CostLaborPageQuery {
     pub cost_object_id: Option<String>,
     /// 工作中心（部门）。
     pub dept_id: Option<String>,
-    /// 员工（弱引用，`biz_employee` 未上线时为空）。
+    /// 员工（弱引用，员工主档不可读时为空）。
     pub employee_id: Option<String>,
     /// 状态 `DRAFT` / `CONFIRMED`。
     pub status: Option<String>,

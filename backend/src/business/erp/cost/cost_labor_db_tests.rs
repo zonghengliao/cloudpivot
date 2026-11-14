@@ -62,11 +62,25 @@ mod db {
     };
     use crate::business::erp::cost::cost_labor_handler as handler;
     use crate::business::erp::cost::cost_labor_model as model;
+    use crate::business::hr::{employee_reader, employee_reader_impl};
     use crate::business::shared::principal::ScopedPrincipal;
     use crate::business::shared::scope::ScopeKind;
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
     use tokio::sync::OnceCell;
+
+    /// 装上 HR 的员工只读接缝（P2-36）。
+    ///
+    /// 生产由 `bootstrap::register_hr_employee_reader` 安装；单测里没有启动链，
+    /// 所以本文件里凡是要问「员工主档可不可读」的用例先显式装一次。
+    /// 重复安装会被接缝拒绝（`Err`）—— 同一个测试二进制里前面的用例可能已经装过，
+    /// 忽略即可（真正装不上会由随后的 `is_available()` 断言暴露）。
+    async fn ensure_employee_seam_installed() {
+        let _guard = employee_reader::GLOBAL_LOCK.lock().await;
+        if !employee_reader::is_installed() {
+            let _ = employee_reader_impl::install();
+        }
+    }
 
     /// 连库（进程内只做一次初始化）。`false` = 没配 `ERP_DB_URL`，用例直接跳过。
     async fn ensure_db() -> bool {
@@ -926,27 +940,31 @@ mod db {
     /// ⑮ 工号必须能解析到员工主数据（ARCH-9-2 已上线，口径 2026-11-13 反转）。
     ///
     /// 历史：这条用例原名 `employee_number_is_rejected_until_arch9_2_is_online`，
-    /// 断言的是「`biz_employee` 还没上线 ⇒ 填了工号就报错，不静默丢掉」。
-    /// HR 批（V0389 起）已把 `biz_employee` 落库，`employee_table_present()` 恒为真 ⇒
-    /// 旧断言的前提不存在了（全量真库档必红）。
+    /// 断言的是「员工主档还没上线 ⇒ 填了工号就报错，不静默丢掉」。
+    /// HR 批（V0389 起）已把员工主档落库，旧探表函数恒为真 ⇒ 旧断言的前提不存在了
+    /// （全量真库档必红）。
     ///
     /// 现在的口径（与 `cost_labor_import::attach_employee_issues` 的两个分支一一对应）：
-    ///   · 员工主数据**在**（现行生产/全量库）⇒ 工号必须能在 `biz_employee` 解析到，
+    ///   · 员工主档**可读**（现行生产/全量库）⇒ 工号必须能解析到人，
     ///     解析不到 ⇒ 该行报「在员工主数据里不存在」，整批拒绝、零落库；
-    ///   · 员工主数据**不在**（ARCH-9-2 之前的库）⇒ 仍是「工号无处可存」的拒绝分支。
-    ///     该分支无法在现行库上构造（不能为了跑一条用例去 DROP 生产同构的表），
-    ///     所以本用例用 `employee_table_present()` **显式断言当前处于哪一支**，
-    ///     而不是依赖「报错文案里含 ARCH9-2」这种会随版本过期的字符串。
+    ///   · 员工主档**不可读**（ARCH-9-2 之前的库）⇒ 仍是「工号无处可存」的拒绝分支。
+    ///     该分支在真库上无法构造（不能为了跑一条用例去 DROP 生产同构的表），
+    ///     已由离线用例 `unreadable_employee_master_only_blocks_rows_with_a_number`
+    ///     （`cost_labor_import` 的测试模块，注入假实现）覆盖。
+    ///
+    /// P2-36：`erp` 侧不再自己探表，可读性问接缝（`hr::employee_reader::is_available`）；
+    /// 单测里没有启动链，本用例先显式装一次 HR 的实现。
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn employee_number_must_resolve_against_employee_master() {
         if !ensure_db().await {
             return;
         }
-        // 前置断言：库里的形态必须是「员工主数据已上线」，否则本用例的口径不成立
-        let present = model::employee_table_present().await.expect("查 biz_employee 是否存在");
+        // 前置断言：库里的形态必须是「员工主档可读」，否则本用例的口径不成立
+        ensure_employee_seam_installed().await;
+        let available = employee_reader::is_available().await.expect("查员工主档是否可读");
         assert!(
-            present,
-            "本用例的前提是 `biz_employee` 已存在（ARCH-9-2 已上线）；\
+            available,
+            "本用例的前提是员工主档已存在（ARCH-9-2 已上线）；\
              库形态不符说明跑在旧库上，请换全量迁移库或另开用例覆盖「主数据未上线」分支"
         );
 

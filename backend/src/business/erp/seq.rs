@@ -19,12 +19,12 @@
 //! | 仓库 | `WH` | `WH` | 2 | `WH-01` | `biz_warehouse.warehouse_code` |
 //! | 资产分类 | `AC` | `AC` | 2 | `AC-01` | `biz_asset_category.category_code` |
 //! | 费用类型 | `ET` | `ET` | 2 | `ET-01` | `biz_expense_type.type_code` |
-//! | 员工工号 | `EMP` | `EMP` | 4 | `EMP-0001` | `biz_employee.emp_no` |
+//! | 员工工号 | `EMP` | `EMP` | 4 | `EMP-0001` | HR 员工主档（**表名不归本模块管**，见下） |
 //!
 //! `EMP` 是**人事档案码**（ARCH-9-2 D-15）：`date_pattern='none'`、`period_key='GLOBAL'`
-//! ⇒ 流水**永久不重置**（按日/按月重置会让工号每天从 0001 重发，必然撞
-//! `uk_biz_employee_no`）。号段行由 `V0386__hr_seq_dict` 种入；取号入口在 HR 侧
-//! （P2-35 起跨域读员工只走 `employee_reader` 接缝，本模块的号段是被调用方）。
+//! ⇒ 流水**永久不重置**（按日/按月重置会让工号每天从 0001 重发，必然撞员工主档的
+//! 工号唯一键）。号段行由 `V0386__hr_seq_dict` 种入；取号入口在 HR 侧
+//! （P2-36 起员工主档的查重口径也由 HR 自带，本模块只发号、**不认 HR 的表**）。
 //!
 //! **计量单位不自动**（用户明确）：`PCS/KG/M` 是行业标准码，自动生成反而看不懂。
 //!
@@ -89,10 +89,21 @@ pub fn is_master_code_type(seq_type: &str) -> bool {
 
 /// 主数据编码 → 「该编码是否已被占用」的常量 SQL（只有一个 `?` 占位，绑定编码本身）。
 ///
-/// 返回 `None` 表示 `seq_type` 不属于主数据号段。
+/// 返回 `None` 表示本模块**不自带**该号段的查重表：不是主数据号段，或表不归本域管。
 ///
-/// 只收录**应用内已存在**的主数据表；表名/列名在这里是常量，不接受外部拼接
+/// 只收录**本域持有的**主数据表；表名/列名在这里是常量，不接受外部拼接
 /// （新增主数据表时在这里加一行，并补 [`is_master_code_type`]）。
+///
+/// # `EMP` 为什么不在表里（P2-36 · `erp → hr` 解环）
+///
+/// 工号**仍是主数据号段**（[`MASTER_CODE_TYPES`]，发号规则与其它号段完全一样），
+/// 但员工主档是 **HR 的表**。这里是 ERP 的取号器，写死「读 HR 的表」就等于让 `erp`
+/// 认 HR 的表名 / 列名 / 软删口径 —— 而列名恰恰在这里被猜错过一次
+/// （工号列叫 `emp_no`，不是 `employee_no`；表还没上线时猜错也没有任何反馈）。
+///
+/// 所以查重口径交给表的属主：HR 调 [`next_master_code_free_with`] /
+/// [`peek_master_code_with`] 并自带常量 SQL（见 `hr::employee_no` 的 `EMP_EXISTS_SQL`）。
+/// 本模块只发号，不认表。新增「表在别的域」的号段时照此办理，别往这张表里塞。
 pub fn master_code_exists_sql(seq_type: &str) -> Option<&'static str> {
     match seq_type {
         // SCOPE-EXEMPT: 主数据主档表没有归属列（全局档案）。
@@ -107,11 +118,6 @@ pub fn master_code_exists_sql(seq_type: &str) -> Option<&'static str> {
         "AC" => Some("SELECT 1 FROM biz_asset_category WHERE category_code = ? AND deleted_at IS NULL"),
         // SCOPE-EXEMPT: 同上。
         "ET" => Some("SELECT 1 FROM biz_expense_type WHERE type_code = ? AND deleted_at IS NULL"),
-        // SCOPE-EXEMPT: 取号查重不是用户可见行集（不读字段、不返回行），且工号要求**全局**
-        // 唯一 —— 这里**故意不带 org 维度**，比 `uk_biz_employee_no (org_id, emp_no)` 更严：
-        // 跨组织撞号时顺延，人工工的号在别的组织里也不会被重复发出去。
-        // 软删口径与唯一键一致（`deleted_at IS NULL` ⇒ 软删掉的工号可复用）。
-        "EMP" => Some("SELECT 1 FROM biz_employee WHERE emp_no = ? AND deleted_at IS NULL"),
         _ => None,
     }
 }
@@ -284,7 +290,7 @@ async fn code_taken(ex: &impl SqlExecutor, exists_sql: &str, code: &str) -> DbRe
 pub async fn master_code_taken(ex: &impl SqlExecutor, seq_type: &str, code: &str) -> DbResult<bool> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
-            "唯一性校验失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET/EMP）"
+            "唯一性校验失败：seq_type='{seq_type}' 不是主数据号段（内置查重表：SUP/CUS/MAT/WH/AC/ET；EMP 由 HR 侧用 `*_with` 自带查重 SQL）"
         )));
     };
     code_taken(ex, exists_sql, code).await
@@ -324,11 +330,12 @@ pub async fn next_master_code_free_with(
 
 /// 同 [`next_master_code_free_with`]，用内置的主数据占位表（推荐入口）。
 ///
-/// `seq_type` 不是 SUP/CUS/MAT/WH/AC/ET/EMP 时返回 `InvalidValue`（不猜表名）。
+/// `seq_type` 不是本模块自带查重表的主数据号段（SUP/CUS/MAT/WH/AC/ET）时返回
+/// `InvalidValue`（**不猜表名**）。`EMP` 请用 [`next_master_code_free_with`] 自带查重 SQL。
 pub async fn next_master_code_free(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
-            "取号失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET/EMP）"
+            "取号失败：seq_type='{seq_type}' 不是主数据号段（内置查重表：SUP/CUS/MAT/WH/AC/ET；EMP 由 HR 侧用 `*_with` 自带查重 SQL）"
         )));
     };
     next_master_code_free_with(ex, seq_type, exists_sql, FREE_CODE_MAX_ATTEMPTS).await
@@ -357,7 +364,7 @@ pub async fn next_master_code_free_global(seq_type: &str) -> DbResult<String> {
 pub async fn peek_master_code(ex: &impl SqlExecutor, seq_type: &str) -> DbResult<String> {
     let Some(exists_sql) = master_code_exists_sql(seq_type) else {
         return Err(DbError::InvalidValue(format!(
-            "预览编码失败：seq_type='{seq_type}' 不是主数据号段（支持 SUP/CUS/MAT/WH/AC/ET/EMP）"
+            "预览编码失败：seq_type='{seq_type}' 不是主数据号段（内置查重表：SUP/CUS/MAT/WH/AC/ET；EMP 由 HR 侧用 `*_with` 自带查重 SQL）"
         )));
     };
     peek_master_code_with(ex, seq_type, exists_sql, FREE_CODE_MAX_ATTEMPTS).await
@@ -501,8 +508,9 @@ mod tests {
     }
 
     #[test]
-    fn t02_exists_sql_covers_every_master_type() {
-        for seq_type in MASTER_CODE_TYPES {
+    fn t02_exists_sql_covers_every_erp_owned_master_type() {
+        // 内置查重表 = **本域持有**的 6 类主档（员工主档不在此列，见下）
+        for seq_type in ["SUP", "CUS", "MAT", "WH", "AC", "ET"] {
             assert!(
                 master_code_exists_sql(seq_type).is_some(),
                 "{seq_type} 应有占位检查 SQL"
@@ -513,20 +521,22 @@ mod tests {
         assert!(master_code_exists_sql("SUP2").is_none());
         assert!(!is_master_code_type("SN"));
 
-        // HR-14：`EMP` 必须在白名单里（否则 `next_master_code_free(&tx, "EMP")` 直接
-        // `InvalidValue("不是主数据号段")`，工号永远取不出来）。
+        // HR-14 + P2-36：`EMP` 仍是主数据号段（发号规则一致），但**查重口径不归本域** ——
+        // 员工主档是 HR 的表，`erp` 不许在这里认它的表名/列名/软删口径
+        // （列名被猜错过一次：`emp_no` 不是 `employee_no`）。
         assert!(is_master_code_type("EMP"), "EMP 必须登记为主数据号段");
-        let emp = master_code_exists_sql("EMP").expect("EMP 占位检查 SQL");
-        assert!(emp.contains("biz_employee"), "EMP 查重必须落在员工主档：{emp}");
-        assert!(emp.contains("emp_no"), "EMP 查的是工号列：{emp}");
         assert!(
-            emp.contains("deleted_at IS NULL"),
-            "软删口径要与 uk_biz_employee_no 一致（软删可复用）：{emp}"
+            master_code_exists_sql("EMP").is_none(),
+            "EMP 的查重 SQL 必须由表属主（HR）用 `*_with` 自带 —— 写在 erp 里就又是一条 erp→hr 直连"
         );
         assert_eq!(
-            emp.matches('?').count(),
-            1,
-            "占位检查 SQL 只能有一个 `?`（code_taken 只绑一个参数）"
+            MASTER_CODE_TYPES.len(),
+            7,
+            "主数据号段仍应 7 类（去掉的是查重表，不是号段）"
+        );
+        assert!(
+            master_code_exists_sql("EMP").is_none() && is_master_code_type("EMP"),
+            "两者语义分开：**号段登记** ≠ **查重表归属**"
         );
     }
 

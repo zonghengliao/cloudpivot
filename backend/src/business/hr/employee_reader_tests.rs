@@ -257,24 +257,26 @@ fn seam_source_is_free_of_business_paths() {
     }
 }
 
-/// `erp` 生产面里出现 `biz_employee` 的**行数基线**（P2-35 建立接缝时的实测值）。
+/// `erp` 生产面里出现 `biz_employee` 的**行数基线**。
 ///
 /// # 这个数字怎么用
 ///
-/// - 本卡（P2-35）只建接缝，**不动** `erp` 的直连 ⇒ 基线 = 19；
-/// - P2-36（`erp` 改走接缝）把它降成 **0**，并把常量一起改成 0；
-/// - 之后任何「又往 `erp` 里写一条 `biz_employee` SQL」的改动都会被这条用例拦下。
+/// - P2-35 建接缝时**不动** `erp` 的直连 ⇒ 基线是 19；
+/// - P2-36 切到接缝后基线 = **0**（本卡实测 0，常量钉死为 0）；
+/// - 之后任何「又往 `erp` 里写一条 `biz_employee` SQL / 注释」的改动都会被这条用例拦下。
 ///
-/// 统计口径与 `grep -rn biz_employee --include=*.rs business/erp/ | wc -l` 对齐
-/// （**只算生产面**，测试夹具要造员工行是合法的）。
-const ERP_BIZ_EMPLOYEE_REFS_BASELINE: usize = 19;
+/// 为什么基线是 0 而不是「≤19」：`erp` 生产面**根本不该知道**员工主档的表名 ——
+/// 表属主是 HR，读员工走 `hr::employee_reader` 接缝。0 是唯一能表达这件事的数。
+///
+/// 统计口径与 `grep -rn biz_employee --include=*.rs business/erp/ | grep -v _tests.rs | wc -l`
+/// 对齐（**只算生产面**，测试夹具要造员工行是合法的）。
+const ERP_BIZ_EMPLOYEE_REFS_BASELINE: usize = 0;
 
 /// 扫描面自检：`erp` 生产面 `.rs` 文件数（扫空 = 假绿，本类卡最大的坑）。
 const ERP_SOURCE_MIN_FILES: usize = 250;
 
-/// ⑧ 燃烧率闸门：`erp` 生产面的 `biz_employee` 直连**不许比基线更多**。
-#[test]
-fn erp_biz_employee_reference_budget_is_not_exceeded() {
+/// 列出 `erp` 生产面的 `.rs` 文件（排除 `*_tests.rs`），并断言扫描面够大。
+fn erp_production_files() -> Vec<std::path::PathBuf> {
     fn walk(dir: &Path, files: &mut Vec<std::path::PathBuf>) -> std::io::Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let path = entry?.path();
@@ -299,6 +301,13 @@ fn erp_biz_employee_reference_budget_is_not_exceeded() {
         "扫描面太小：{} 个生产面文件 < {ERP_SOURCE_MIN_FILES}（路径写错会静默变绿）",
         files.len()
     );
+    files
+}
+
+/// ⑧ 燃烧率闸门：`erp` 生产面的 `biz_employee` 直连**必须是 0 行**。
+#[test]
+fn erp_biz_employee_reference_budget_is_not_exceeded() {
+    let files = erp_production_files();
 
     let mut refs = 0usize;
     let mut worst: Vec<String> = Vec::new();
@@ -320,15 +329,68 @@ fn erp_biz_employee_reference_budget_is_not_exceeded() {
     }
 
     assert!(
-        refs <= ERP_BIZ_EMPLOYEE_REFS_BASELINE,
-        "erp 生产面对 biz_employee 的直连**回退**了：{refs} 行 > 基线 {ERP_BIZ_EMPLOYEE_REFS_BASELINE} 行。\n\
+        refs == ERP_BIZ_EMPLOYEE_REFS_BASELINE,
+        "erp 生产面对 biz_employee 的直连**回退**了：{refs} 行，基线 {ERP_BIZ_EMPLOYEE_REFS_BASELINE} 行。\n\
          员工基础信息必须走 `hr::employee_reader`（P2-35 的接缝），不要在 erp 里再写 biz_employee 的 SQL。\n\
          前 10 处命中：\n{}",
         worst.join("\n")
     );
     println!(
-        "erp 生产面 biz_employee 直连：{refs} 行（基线 {ERP_BIZ_EMPLOYEE_REFS_BASELINE}；\
-         P2-36 切到接缝后应为 0）· 扫描 {} 个文件",
+        "erp 生产面 biz_employee 直连：{refs} 行（基线 {ERP_BIZ_EMPLOYEE_REFS_BASELINE}）· 扫描 {} 个文件",
+        files.len()
+    );
+}
+
+/// ⑨ `erp` 生产面对 `hr` 的引用**只允许**是接缝模块 `hr::employee_reader`（P2-36）。
+///
+/// 为什么单独钉一条：`erp → hr` 这条边在 P2-36 之后**仍然存在**（消费方要调接缝），
+/// 所以「边消失」不能用「零引用」来表达。可以钉住的是**边的形状**：只认接缝，
+/// 不认 `hr::employee_model` / `hr::employee_reader_impl` / `hr::model` 这些实现面 ——
+/// 否则今天「就调一下 model 省事」，明天接缝就形同虚设。
+#[test]
+fn erp_only_depends_on_the_employee_seam() {
+    let files = erp_production_files();
+    let prefix = "business::hr::";
+    let mut offenders: Vec<String> = Vec::new();
+    let mut seam_hits = 0usize;
+
+    for file in &files {
+        let source = std::fs::read_to_string(file).unwrap_or_default();
+        for (index, line) in source.lines().enumerate() {
+            let mut rest = line;
+            while let Some(pos) = rest.find(prefix) {
+                let tail = &rest[pos + prefix.len()..];
+                let head: &str = tail
+                    .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .next()
+                    .unwrap_or("");
+                if head == "employee_reader" {
+                    seam_hits += 1;
+                } else {
+                    offenders.push(format!(
+                        "{}:{}: {}",
+                        file.strip_prefix(src_root()).unwrap_or(file).display(),
+                        index + 1,
+                        line.trim()
+                    ));
+                }
+                rest = tail;
+            }
+        }
+    }
+
+    assert!(
+        seam_hits >= 1,
+        "erp 生产面一处都没引用 `hr::employee_reader` —— 接缝调用面不见了（扫描 {} 个文件）",
+        files.len()
+    );
+    assert!(
+        offenders.is_empty(),
+        "erp 只许依赖员工接缝（`business::hr::employee_reader`），下面这些是绕过接缝的引用：\n{}",
+        offenders.join("\n")
+    );
+    println!(
+        "erp → hr 接缝引用：{seam_hits} 处，越界 0 处 · 扫描 {} 个文件",
         files.len()
     );
 }

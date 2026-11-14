@@ -39,7 +39,9 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::commission::commission_dto::{self, CommissionFilter, STATUS_APPROVED, STATUS_DRAFT, STATUS_PAID};
+use crate::business::erp::commission::commission_dto::{
+    self, CommissionFilter, STATUS_APPROVED, STATUS_DRAFT, STATUS_PAID,
+};
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
 

@@ -135,6 +135,10 @@ employee_reader::install(Arc::new(FakeReader::new(vec![brief("EMP-0001", 1)]))).
 P2-36 收尾时把 `employee_reader_tests::ERP_BIZ_EMPLOYEE_REFS_BASELINE` 从 **19 改成 0**
 （常量注释里写明「P2-36 降为 0」）。
 
+> **P2-36 已完成**（`docs/architecture/P2-36-erp改走EmployeeReader接缝-解环.md`）：
+> 基线已改 0，`erp` 生产面 `biz_employee` 直连实测 **0 行**；`erp → hr` 只剩接缝这一处引用，
+> 形状由 `erp_only_depends_on_the_employee_seam` 钉死。**仍未消除**的是 `hr → erp` 的 6 处回边（`t_3442b4fb`）。
+
 ---
 
 ## 5. 验证（命令 + 实测输出）

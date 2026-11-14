@@ -4,7 +4,8 @@
 //!
 //! `biz_employee` 是 HR 的表（`V0383` 建），但**别的域也在读它**：`erp/cost/cost_labor_*`
 //! 直接对这张表写 SQL（`employee_table_present` 探表、`employee_ids_by_no` 按工号批量解析，
-//! 2026-11-15 实测 `business/erp/` 生产面共 **19 行**提到 `biz_employee`）。
+//! P2-35 实测 `business/erp/` 生产面共 **19 行**提到 `biz_employee`；**P2-36 已全部切到本接缝，
+//! 实测 0 行**，闸门见 `employee_reader_tests::erp_biz_employee_reference_budget_is_not_exceeded`）。
 //! 「谁的表」与「谁在读写」分离成两个事实，代价是：
 //!
 //! - 表改名 / 加列 / 换软删口径（`deleted_at` → 别的列）时，改一处不够，要全仓 grep；

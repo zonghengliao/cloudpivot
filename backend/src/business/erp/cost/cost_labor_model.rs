@@ -7,7 +7,7 @@
 //!
 //! | 列 | 口径 | 本模块做法 |
 //! |---|---|---|
-//! | `employee_name`（存列） | **审计 / 历史快照**（当时是谁干的活） | 不 join：`biz_employee` 属 ARCH9-2，未上线；改名 / 删号后要能回溯 |
+//! | `employee_name`（存列） | **审计 / 历史快照**（当时是谁干的活） | 不 join：员工主档属 HR 域（跨域只读走 `hr::employee_reader` 接缝，P2-36）；改名 / 删号后要能回溯 |
 //! | `dept_id` → `dept_name` | 主数据关联（工作中心） | `LEFT JOIN sys_dept` 实时取名优先 |
 //! | `dept_name`（存列） | 建 / 改时点快照 | join 落空（部门已删）时兜底 |
 //! | `cost_object_id` → `cost_object_no` / `cost_object_status` | 主数据关联 | `LEFT JOIN biz_cost_object` |
@@ -561,60 +561,6 @@ pub async fn dept_refs_by_keys(keys: &[String]) -> DbResult<Vec<(Uuid, String, S
                 row.get_typed("dept_code")?,
                 row.get_typed("dept_name")?,
             ));
-        }
-    }
-    Ok(out)
-}
-
-/// 员工主数据表（`biz_employee`，ARCH9-2）是否存在。
-///
-/// 用 `to_regclass` 而不是 `SELECT ... FROM biz_employee`：表不存在时前者返回 NULL
-/// 而不是抛 42P01（后者会让整次导入 500，而用户只想「工号留空也能导」）。
-pub async fn employee_table_present() -> DbResult<bool> {
-    let rows = db()
-        .query_sql(
-            "SELECT (to_regclass('public.biz_employee') IS NOT NULL)::text AS present".to_string(),
-            vec![],
-        )
-        .await?;
-    Ok(rows
-        .first()
-        .map(|row| row.get_typed::<String>("present"))
-        .transpose()?
-        .is_some_and(|value| value == "true"))
-}
-
-/// 员工工号 → `(employee_no, id)`（`biz_employee` 未上线时调用方应当先问
-/// [`employee_table_present`]，本函数假定表存在）。
-///
-/// # 列名是 `emp_no` 不是 `employee_no`（t_c49010bf 修）
-///
-/// `biz_employee` 的工号列叫 **`emp_no`**（唯一键 `uk_biz_employee_no (org_id, emp_no)`，
-/// 见 `seq.rs` 的 `EMP` 号段与 `impexp::builtin::hr`）。本函数最初按「列名 = 业务名」
-/// 猜成了 `employee_no`，在 `biz_employee` 还不存在时永远走 [`employee_table_present`]
-/// 的假分支，**猜错也看不出来**；HR 批上线后这条 SQL 才第一次被真正执行，
-/// 结果是任何「填了工号的工时导入」都 500（`column "employee_no" does not exist`）。
-/// 这里显式 `AS employee_no` 保持 Rust 侧字段名不变（调用方读的是 `employee_no`），
-/// 只把列名对齐真实 DDL。
-///
-/// `DISTINCT ON (emp_no)` + `ORDER BY emp_no, id`：多组织（ARCH-9 多组织卡）下
-/// 同一工号在不同 `org_id` 可以各有一行，而工时导入这一层拿不到组织上下文；
-/// 不加 `DISTINCT` 时同一个 `employee_no` 会映射到「随机一行」（取决于返回顺序），
-/// 加上后**确定性取 id 最小者**。真正的组织维度解析属于多组织卡的范围，不在这里猜。
-pub async fn employee_ids_by_no(nos: &[String]) -> DbResult<Vec<(String, Uuid)>> {
-    let mut out = Vec::new();
-    for chunk in nos.chunks(IN_CHUNK) {
-        let sql = format!(
-            "SELECT DISTINCT ON (emp_no) emp_no AS employee_no, id FROM biz_employee \
-              WHERE deleted_at IS NULL AND emp_no IN ({}) \
-              ORDER BY emp_no, id",
-            in_clause(chunk.len())
-        );
-        let rows = db()
-            .query_sql(sql, chunk.iter().map(|no| Value::Text(no.clone())).collect())
-            .await?;
-        for row in rows {
-            out.push((row.get_typed("employee_no")?, row.get_typed("id")?));
         }
     }
     Ok(out)
