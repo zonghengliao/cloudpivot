@@ -819,7 +819,7 @@ async fn post_out_tx(
     //     不是 out_type。与 ②③ 同一事务：挂账失败（客户不存在 / 发货单缺失 / 库层约束）
     //     直接 Err → 调用方回滚，库存与成本凭证一起消失（不许出现「货出了、应收没挂」）。
     //     幂等三道闸在 receivable_bridge 里（已有行 → 跳过；并发撞 `uk_biz_ar_source` → 按已挂上处理）。
-    let receivable = crate::business::erp::receivable_bridge::post_in_tx(ex, id, operator.id, now).await?;
+    let receivable = crate::business::erp::receivable::receivable_bridge::post_in_tx(ex, id, operator.id, now).await?;
     if let Some(bridged) = receivable.as_ref() {
         tracing::info!(
             stock_out_id = %id,
@@ -1096,7 +1096,8 @@ async fn cancel_out_tx(
     // 顺序与过账侧对称（过账：三本账 → 成本凭证 → 挂应收；作废：回滚三本账 → 红字凭证 → 冲销应收）。
     // 任何 Err（应收已收款 / 已核销 / 并发改状态）都会让整笔作废回滚 —— 单据留在 POSTED，
     // 不允许出现「货退回库存了、应收还挂着」或「应收作废了、库存没回」的半截账。
-    let ar = crate::business::erp::receivable_bridge::cancel_in_tx(ex, id, reason, operator.id, now).await?;
+    let ar =
+        crate::business::erp::receivable::receivable_bridge::cancel_in_tx(ex, id, reason, operator.id, now).await?;
 
     tracing::info!(
         stock_out_id = %id,

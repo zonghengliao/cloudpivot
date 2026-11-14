@@ -1166,7 +1166,7 @@ mod tests {
 
     /// 账龄明细里本单是否在册（走真正的账龄取数：`receivable_aging::load_totals_and_details`）。
     async fn in_aging(ar_no: &str) -> bool {
-        use crate::business::erp::receivable_aging;
+        use crate::business::erp::receivable::receivable_aging;
         let today = voucher::today_cst(Utc::now());
         let period = voucher::period_of(db(), today).await.expect("当前期间");
         let tx = db().begin().await.expect("开只读快照事务");

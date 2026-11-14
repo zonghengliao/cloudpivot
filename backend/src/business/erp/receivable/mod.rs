@@ -95,6 +95,13 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
+// ==================== 子模块（P2-19：`erp/receivable_*.rs` 拆入 `erp/receivable/`） ====================
+// 本文件是应收域的 **facade**（拆目录前叫 `erp/receivable.rs`），对外路径 `erp::receivable::*` 一字未变；
+// 下面 3 个 `receivable_*` 与本文件同目录，路径为 `erp::receivable::receivable_*`。
+pub mod receivable_aging;
+pub mod receivable_bridge;
+pub mod receivable_query;
+
 // ==================== 权限码（与 V0288 的 sys_menu.auth_code 逐字一致） ====================
 
 /// 手工挂账。
@@ -1255,12 +1262,12 @@ pub async fn receivable_write_off(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<WriteOffReq>,
-) -> ResResult<crate::business::erp::receivable_query::ReceivableDetailRes> {
+) -> ResResult<crate::business::erp::receivable::receivable_query::ReceivableDetailRes> {
     let operator = utils::current_user_uuid(&claims);
     let row = write_off_api(operator, &id, req).await?;
     // 回读完整详情（客户名 + 凭证号），前端核销后直接就地刷新卡片
     Ok(Res::ok(
-        crate::business::erp::receivable_query::receivable_detail(row.id).await?,
+        crate::business::erp::receivable::receivable_query::receivable_detail(row.id).await?,
     ))
 }
 

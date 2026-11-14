@@ -44,7 +44,7 @@
 //! # 应收账龄在 `receivable_aging`（本注释的旧版本说「全库没有 biz_receivable」，已过期）
 //!
 //! SO-12 起了 `biz_receivable`（V0287，24 列逐列镜像 `biz_payable`），
-//! SO-13 的 [`crate::business::erp::receivable_aging`] 按本文件的算法做了应收账龄。
+//! SO-13 的 [`crate::business::erp::receivable::receivable_aging`] 按本文件的算法做了应收账龄。
 //! **分档口径刻意只有一份**：应收那边直接用本模块的 [`BUCKETS`] / [`bucket_of`] /
 //! [`bucket_case_sql`] / [`money`] / [`overdue_days`] / [`resolve_as_of`]，
 //! 不复制常量、不另写阈值 —— 所以两张表的「未到期 / 1-30 / 31-60 / 61-90 / 90 天以上」

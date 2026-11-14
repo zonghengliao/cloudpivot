@@ -912,7 +912,7 @@ async fn offset_receivable(
     };
     let Some(ar) = receivable::find_by_source(
         ex,
-        crate::business::erp::receivable_bridge::SOURCE_TYPE_SALES_OUT,
+        crate::business::erp::receivable::receivable_bridge::SOURCE_TYPE_SALES_OUT,
         stock_out_id,
     )
     .await
