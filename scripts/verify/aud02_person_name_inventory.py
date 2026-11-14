@@ -57,7 +57,7 @@ REQUIRED = [
     ("business/erp/contract_dto.rs", "ContractDetailRes", "create_by", "create_by_name"),
     ("business/erp/contract_dto.rs", "ContractDetailRes", "update_by", "update_by_name"),
     ("business/erp/stockin_dto.rs", "StockInRes", "create_by", "create_by_name"),
-    ("business/erp/stockout_dto.rs", "StockOutRes", "create_by", "create_by_name"),
+    ("business/erp/stockout/stockout_dto.rs", "StockOutRes", "create_by", "create_by_name"),
     ("business/erp/stocktake_dto.rs", "StockTakeRes", "create_by", "create_by_name"),
     ("business/erp/dto.rs", "InventoryTxnRes", "operator_id", "operator_name"),
     ("business/help/dto.rs", "HelpVersionRes", "create_by", "create_by_name"),

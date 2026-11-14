@@ -141,9 +141,9 @@ business/erp/stockin/stockin_handler_tests_pflow3a.rs
 business/erp/stockin/stockin_handler_tests_posting.rs
 business/erp/stockin/stockin_handler_tests_update.rs
 business/erp/stockin/stockin_tests.rs
-business/erp/stockout_cost_object_tests.rs
-business/erp/stockout_fifo_tests.rs
-business/erp/stockout_tests.rs
+business/erp/stockout/stockout_cost_object_tests.rs
+business/erp/stockout/stockout_fifo_tests.rs
+business/erp/stockout/stockout_tests.rs
 business/erp/stocktake_tests.rs
 business/erp/transfer/transfer_handler_db_linkage_tests.rs
 business/erp/transfer/transfer_handler_db_tests_books.rs

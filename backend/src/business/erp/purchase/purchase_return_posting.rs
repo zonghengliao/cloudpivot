@@ -55,8 +55,8 @@ use crate::business::erp::purchase::purchase_return_model::{
     self as model, ConfirmLinks, ItemRow, NewSupplierReceivable, ReturnRow,
 };
 use crate::business::erp::stockin::stockin_base::InventorySnapshot;
-use crate::business::erp::stockout_base;
-use crate::business::erp::stockout_model as stock_out;
+use crate::business::erp::stockout::stockout_base;
+use crate::business::erp::stockout::stockout_model as stock_out;
 use crate::business::erp::voucher::{self, ACCOUNT_MAIN_COST, AccountRef, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO};
 use crate::business::shared::doc_kind::TxnBizType;
 use crate::shared::error_code;

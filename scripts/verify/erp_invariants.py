@@ -2304,7 +2304,7 @@ def group_s():
     # ── S6 出库 ↔ 应收勾稽 ─────────────────────────────────────────
     # 判据是 `biz_stock_out.source_type = 'SALES'`，**不是** `out_type`：
     # V0285 起「来源」与「领用性质」是两个维度，销售出库的 out_type 固定
-    # `OTHER`（借 6401），靠 source_type 才认得出是销售链（stockout_base.rs:75-81、
+    # `OTHER`（借 6401），靠 source_type 才认得出是销售链（stockout/stockout_base.rs:75-81、
     # receivable_bridge.rs:24-25 逐字）。只认 out_type='SALES' 会一条都查不到。
     #
     # 例外（代码明文允许，不判红，但要看得见）：含税金额 ≤ 0 的赠品/零价出库

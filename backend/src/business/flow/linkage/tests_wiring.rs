@@ -245,7 +245,7 @@ fn wired_triggers_match_call_sites() {
 /// 所以在这里把源码原文与排除清单一起钉住。
 #[test]
 fn stockout_post_wires_generic_engine_and_excludes_dedicated_actions() {
-    let handler = include_str!("../../erp/stockout_handler.rs");
+    let handler = include_str!("../../erp/stockout/stockout_handler.rs");
     assert!(
         handler.contains("linkage::engine::run_excluding("),
         "出库过账必须调用通用引擎（run_excluding）：否则 STOCK_OUT/POSTED 的联动规则配了也不触发"
@@ -269,7 +269,7 @@ fn stockout_post_wires_generic_engine_and_excludes_dedicated_actions() {
         !spec::STOCKOUT_EXCLUDED_ACTIONS.contains(&spec::ACTION_SEND_NOTICE),
         "SEND_NOTICE 不能被出库排除：出库过账的通知就靠通用引擎的 AfterCommit 动作"
     );
-    let hook = include_str!("../../erp/stockout_linkage.rs");
+    let hook = include_str!("../../erp/stockout/stockout_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_deferred"),
         "出库过账的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"

@@ -22,8 +22,8 @@ use nik::uuid::Uuid;
 
 use super::*;
 use crate::business::erp::stockin::stockin_model;
-use crate::business::erp::stockout_dto::{CreateStockOutReq, StockOutItemReq};
-use crate::business::erp::stockout_handler;
+use crate::business::erp::stockout::stockout_dto::{CreateStockOutReq, StockOutItemReq};
+use crate::business::erp::stockout::stockout_handler;
 
 // ---------- 夹具（与 stockout_tests.rs 的 d2030100-* 不重叠） ----------
 
@@ -261,7 +261,9 @@ async fn out_doc_lines(items: Vec<StockOutItemReq>) -> Uuid {
 }
 
 /// 明细按**行号**排好（`items_of` 是按锁顺序排的，断言 FIFO 顺序必须看 `line_no`）。
-fn detail_rows(detail: &crate::business::erp::stockout_dto::StockOutDetailRes) -> Vec<(i32, Option<Uuid>, Decimal)> {
+fn detail_rows(
+    detail: &crate::business::erp::stockout::stockout_dto::StockOutDetailRes,
+) -> Vec<(i32, Option<Uuid>, Decimal)> {
     let mut rows: Vec<(i32, Option<Uuid>, Decimal)> = detail
         .items
         .iter()

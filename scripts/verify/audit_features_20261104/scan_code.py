@@ -21,7 +21,7 @@ FEATURES = [
     (2, "审批流引擎", ["backend/src/business/flow"], ["frontend/src/views/business/flow", "frontend/src/api/business/flow"], ["工作流", "流程", "flow"]),
     (3, "采购管理", ["backend/src/business/erp/contract_handler.rs", "backend/src/business/erp/contract_model.rs", "backend/src/business/erp/contract_dto.rs", "backend/src/business/erp/contract_bridge.rs", "backend/src/business/erp/contract_approval_tests.rs", "backend/src/business/erp/purchase/purchase_handler.rs", "backend/src/business/erp/purchase/purchase_model.rs", "backend/src/business/erp/purchase/purchase_dto.rs", "backend/src/business/erp/purchase/purchase_bridge.rs", "backend/src/business/erp/purchase/purchase_credit.rs"], ["frontend/src/views/business/erp"], ["采购", "合同"]),
     (4, "收货管理", ["backend/src/business/erp/stockin*.rs"], ["frontend/src/views/business/erp"], ["收货", "入库"]),
-    (5, "出库管理", ["backend/src/business/erp/stockout*.rs"], ["frontend/src/views/business/erp"], ["出库", "领用"]),
+    (5, "出库管理", ["backend/src/business/erp/stockout"], ["frontend/src/views/business/erp"], ["出库", "领用"]),
     (6, "库存管理", ["backend/src/business/erp/model_inventory.rs", "backend/src/business/erp/inventory_audit.rs", "backend/src/business/erp/opening.rs", "backend/src/business/erp/serial_model.rs", "backend/src/business/erp/serial_handler.rs", "backend/src/business/erp/serial_dto.rs", "backend/src/business/erp/stocktake*.rs", "backend/src/business/erp/batch.rs"], ["frontend/src/views/business/erp"], ["库存", "序列号", "期初"]),
     (7, "调拨管理", ["backend/src/business/erp/transfer"], ["frontend/src/views/business/erp"], ["调拨"]),
     (8, "财务管理", ["backend/src/business/erp/voucher*.rs", "backend/src/business/erp/payable*.rs"], ["frontend/src/views/business/erp"], ["凭证", "应付", "付款"]),

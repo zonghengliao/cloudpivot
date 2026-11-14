@@ -44,9 +44,11 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment_model::{self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow};
-use crate::business::erp::stockout_base::{NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals};
-use crate::business::erp::stockout_handler;
-use crate::business::erp::stockout_model::{self as stock_out, MaterialInfo};
+use crate::business::erp::stockout::stockout_base::{
+    NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals,
+};
+use crate::business::erp::stockout::stockout_handler;
+use crate::business::erp::stockout::stockout_model::{self as stock_out, MaterialInfo};
 use crate::business::flow::linkage;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -515,7 +517,7 @@ mod tests {
         assert_eq!(SOURCE_TYPE_SALES, "SALES");
         assert_eq!(OUT_TYPE_OTHER, "OTHER");
         assert!(
-            !crate::business::erp::stockout_base::OUT_TYPES.contains(&SOURCE_TYPE_SALES),
+            !crate::business::erp::stockout::stockout_base::OUT_TYPES.contains(&SOURCE_TYPE_SALES),
             "SALES 是来源类型，不是 out_type 域值（out_type 只有 ISSUE/SCRAP/LOSS/OTHER）"
         );
     }

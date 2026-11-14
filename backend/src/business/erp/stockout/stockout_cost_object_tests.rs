@@ -42,9 +42,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::*;
-use crate::business::erp::stockout_dto::{CreateStockOutReq, IssuePrefillQuery, StockOutItemReq};
-use crate::business::erp::stockout_handler;
-use crate::business::erp::stockout_model;
+use crate::business::erp::stockout::stockout_dto::{CreateStockOutReq, IssuePrefillQuery, StockOutItemReq};
+use crate::business::erp::stockout::stockout_handler;
+use crate::business::erp::stockout::stockout_model;
 use crate::business::erp::voucher;
 use crate::shared::error_code;
 
@@ -488,7 +488,7 @@ async fn options_filter_by_keyword_on_object_no_and_product() {
         ("B10-P1", "产品编码"),
         ("产成品", "产品名称"),
     ] {
-        let query = crate::business::erp::stockout_dto::CostObjectOptionQuery {
+        let query = crate::business::erp::stockout::stockout_dto::CostObjectOptionQuery {
             keyword: Some(keyword.to_string()),
         };
         let options = stockout_handler::cost_object_options(&query)
@@ -503,7 +503,7 @@ async fn options_filter_by_keyword_on_object_no_and_product() {
     }
 
     // 命中 CLOSED 对象号 → 空列表（关批的批不因为能被搜到就出现）
-    let query = crate::business::erp::stockout_dto::CostObjectOptionQuery {
+    let query = crate::business::erp::stockout::stockout_dto::CostObjectOptionQuery {
         keyword: Some("CB-B110-000002".to_string()),
     };
     let options = stockout_handler::cost_object_options(&query).await.expect("下拉");
@@ -621,7 +621,7 @@ async fn issue_prefill_ignores_cancelled_docs_and_requires_id() {
         .expect("建单");
     stockout_handler::change_status(
         id,
-        &crate::business::erp::stockout_dto::StockOutStatusReq {
+        &crate::business::erp::stockout::stockout_dto::StockOutStatusReq {
             status: Some("CANCELLED".to_string()),
             target_status: None,
             reason: Some("B4-3 用例：作废后不该再被预填".to_string()),

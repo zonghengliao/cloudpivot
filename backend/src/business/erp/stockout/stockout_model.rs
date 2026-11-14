@@ -65,8 +65,8 @@ use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 use crate::utils;
 
-use super::inventory_writer::{self, TxnRecord};
-use super::stockin::stockin_base::InventorySnapshot;
+use super::super::inventory_writer::{self, TxnRecord};
+use super::super::stockin::stockin_base::InventorySnapshot;
 use super::stockout_base::*;
 
 // ==================== 只读 ====================

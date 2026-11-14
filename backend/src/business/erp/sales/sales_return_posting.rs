@@ -75,8 +75,8 @@ use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
 use crate::business::erp::sales::sales_return_model::{self as model, ReturnItemRow, ReturnRow};
 use crate::business::erp::stockin::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
-use crate::business::erp::stockout_base::{DOC_TYPE_STOCK_OUT, TXN_TYPE_OUT};
-use crate::business::erp::stockout_model::{self as stock_out};
+use crate::business::erp::stockout::stockout_base::{DOC_TYPE_STOCK_OUT, TXN_TYPE_OUT};
+use crate::business::erp::stockout::stockout_model::{self as stock_out};
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{
     self, ACCOUNT_AR, ACCOUNT_MAIN_COST, ACCOUNT_OUTPUT_TAX, ACCOUNT_REVENUE, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO,

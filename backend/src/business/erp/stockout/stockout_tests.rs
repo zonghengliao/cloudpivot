@@ -11,7 +11,7 @@
 //
 // ```bash
 // ERP_DB_URL="postgres://alun:alun@127.0.0.1:5432/<干净库>" \
-//   cargo test --lib business::erp::stockout_model::tests
+//   cargo test --lib business::erp::stockout::stockout_model::tests
 // ```
 //
 // # 为什么自己造入库而不是调 `create_stock_in`
@@ -730,7 +730,7 @@ async fn dc13_state_machine_and_guards() {
 /// 权限码与迁移逐字一致（注解写错一个字母就是 403，且只有非超管会撞上）。
 #[test]
 fn dc13_permission_codes_match_migration() {
-    let sql = include_str!("../../../migrations/business/V0203__erp_stock_out.up.sql");
+    let sql = include_str!("../../../../migrations/business/V0203__erp_stock_out.up.sql");
     for (code, label) in super::super::stockout_dto::STOCK_OUT_PERMISSIONS {
         assert!(
             sql.contains(code),

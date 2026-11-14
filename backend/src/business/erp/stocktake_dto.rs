@@ -495,7 +495,7 @@ pub struct StockTakeItemRes {
 
 impl StockTakeItemRes {
     /// 行 → 明细项。
-    pub fn of(item: &StockTakeItemRow, material: Option<&super::stockout_model::MaterialInfo>) -> Self {
+    pub fn of(item: &StockTakeItemRow, material: Option<&super::stockout::stockout_model::MaterialInfo>) -> Self {
         Self {
             id: item.id.to_string(),
             line_no: item.line_no,
@@ -540,7 +540,7 @@ impl StockTakeDetailRes {
     /// 组装详情（纯函数：边表由 handler 取一次传进来）。
     pub fn of(
         row: &StockTakeRow,
-        items: &[(StockTakeItemRow, Option<super::stockout_model::MaterialInfo>)],
+        items: &[(StockTakeItemRow, Option<super::stockout::stockout_model::MaterialInfo>)],
         edges: &[state_machine::Edge],
     ) -> Self {
         let available: Vec<(String, String)> = edges

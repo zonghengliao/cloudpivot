@@ -26,7 +26,7 @@ use crate::business::shared::state_machine;
 // 注意：本文件是 `stockout_handler::linkage_hook` 子模块（由 handler 里的
 // `#[path = "stockout_linkage.rs"] mod linkage_hook;` 挂上），`super` 是 handler 而非 `erp`，
 // 所以兄弟模块一律走绝对路径。
-use crate::business::erp::stockout_base::{STATUS_POSTED, StockOutRow};
+use crate::business::erp::stockout::stockout_base::{STATUS_POSTED, StockOutRow};
 
 /// 出库过账触发点（`STOCK_OUT/POSTED`）的联动上下文。
 ///

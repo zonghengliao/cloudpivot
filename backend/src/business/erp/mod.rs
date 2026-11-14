@@ -17,9 +17,9 @@
 //! | [`stockin::stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
 //! | [`stockin::stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
 //! | [`stockin::stockin_bridge`] | 收货单**作废审批** / **过账审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16 / P-FLOW-3A** |
-//! | [`stockout_model`] | 出库单数据层（ARCH-3 DC-13）：取号 + 三本账**负向**（成本账 / 库位账 / 流水）+ 负库存闸 + 作废回滚 | **ARCH-3 P0** |
-//! | [`stockout_dto`] | 出库单出入参契约：建单 / 改单 / 状态流转（提交 / 过账 / 作废）/ 详情 / 分页 + 校验 | **ARCH-3 P0** |
-//! | [`stockout_handler`] | 出库单 6 个接口：建 / 改 / 删 / 状态流转 / 列表 / 详情 + 过账与作废的事务编排 | **ARCH-3 P0** |
+//! | [`stockout::stockout_model`] | 出库单数据层（ARCH-3 DC-13）：取号 + 三本账**负向**（成本账 / 库位账 / 流水）+ 负库存闸 + 作废回滚 | **ARCH-3 P0** |
+//! | [`stockout::stockout_dto`] | 出库单出入参契约：建单 / 改单 / 状态流转（提交 / 过账 / 作废）/ 详情 / 分页 + 校验 | **ARCH-3 P0** |
+//! | [`stockout::stockout_handler`] | 出库单 6 个接口：建 / 改 / 删 / 状态流转 / 列表 / 详情 + 过账与作废的事务编排 | **ARCH-3 P0** |
 //! | [`stocktake_model`] | 盘点单数据层（ARCH-3 DC-14）：账面快照 + 差异三本账（盘盈走入库 / 盘亏走出库）+ 盘点差异凭证 + 作废回滚 | **ARCH-3 P1** |
 //! | [`stocktake_dto`] | 盘点单契约：建单（账面数服务端快照）/ 填实盘 / 提交审批 / 过账 / 作废 / 详情 / 分页 | **ARCH-3 P1** |
 //! | [`stocktake_handler`] | 盘点单 6 个接口 + 过账 / 作废事务编排 + 审批发起（`stock_take_post`） | **ARCH-3 P1** |
@@ -257,9 +257,7 @@ pub mod stock_pdf;
 /// 盘点单 PDF 导出（PDF-04）：**唯一**带空白手写栏的单据（实盘 / 差异 / 备注）。
 pub mod stock_take_pdf;
 pub mod stockin;
-pub mod stockout_dto;
-pub mod stockout_handler;
-pub mod stockout_model;
+pub mod stockout;
 pub mod stocktake_bridge;
 pub mod stocktake_dto;
 pub mod stocktake_handler;
@@ -287,7 +285,7 @@ pub mod year_end_remind;
 mod lot_db_tests;
 
 // ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
-// 下面 8 个 `mod` 是超千行 model 文件按职责拆出的部件，**不直接对外**：
+// 下面 6 个 `mod` 是超千行 model 文件按职责拆出的部件，**不直接对外**：
 // 公开 API 由 `model` / `stockin::stockin_model` 两个 facade 用
 // `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
@@ -300,7 +298,6 @@ mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
 mod model_inventory; // 库存台账只读
 mod model_master; // 主数据只读（单位/仓库/库位/物料/供应商/科目/期间/取号规则）
 mod model_order; // 采购订单只读（头 + 明细）
-mod stockout_base; // 出库单底座：常量 / 状态机 / 行结构 / 取号
 
 /// R-P1-5 的真库单测（联动作废：影响分析 / 执行顺序 / 中途失败回滚 / 无下游直接作废）。
 /// 只在 `cargo test` 时编译。

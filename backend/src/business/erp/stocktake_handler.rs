@@ -36,7 +36,7 @@ use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::approval_gate;
 use crate::business::erp::separation;
-use crate::business::erp::stockout_model;
+use crate::business::erp::stockout::stockout_model;
 use crate::business::flow::engine;
 use crate::business::flow::model as flow_model;
 use crate::business::shared::state_machine;

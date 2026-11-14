@@ -46,7 +46,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::doc_pdf_model::{self, ExportLogOwned};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
-use crate::business::erp::{stockin::stockin_model, stockout_model};
+use crate::business::erp::{stockin::stockin_model, stockout::stockout_model};
 use crate::business::pdf::template::{
     self, OrderMetaField, SerialGroup, StockContext, StockContextArgs, StockDocKind, StockItem, format_money,
     format_quantity, yuan_to_fen,
@@ -447,7 +447,10 @@ pub async fn stock_out_context(id: Uuid) -> std::result::Result<StockContext, Ap
         meta: vec![
             OrderMetaField::new("单号", row.out_no.clone()),
             OrderMetaField::new("日期", row.out_date.format("%Y-%m-%d").to_string()),
-            OrderMetaField::new("状态", crate::business::erp::stockout_base::status_label(&row.status)),
+            OrderMetaField::new(
+                "状态",
+                crate::business::erp::stockout::stockout_base::status_label(&row.status),
+            ),
             OrderMetaField::new("客户", customer),
             OrderMetaField::new("仓库", warehouse),
             OrderMetaField::new("库位", location_summary),

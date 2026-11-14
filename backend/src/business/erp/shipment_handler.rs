@@ -66,7 +66,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment_model::{self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow};
 use crate::business::erp::shipment_posting;
-use crate::business::erp::stockout_handler;
+use crate::business::erp::stockout::stockout_handler;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;

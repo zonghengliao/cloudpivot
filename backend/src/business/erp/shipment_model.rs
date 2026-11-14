@@ -873,7 +873,8 @@ pub async fn stock_shortfalls(
     let mut out = Vec::new();
     for item in items {
         let plan =
-            crate::business::erp::stockout_model::fifo_plan(ex, item.material_id, warehouse_id, item.qty).await?;
+            crate::business::erp::stockout::stockout_model::fifo_plan(ex, item.material_id, warehouse_id, item.qty)
+                .await?;
         if plan.shortfall > Decimal::ZERO {
             out.push(StockShortfall {
                 so_item_id: item.so_item_id,

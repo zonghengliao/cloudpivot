@@ -572,7 +572,7 @@ mod tests {
     use crate::business::erp::receivable::STATUS_OPEN;
     use crate::business::erp::shipment_handler::{self, ShipmentStatusReq};
     use crate::business::erp::stockin::stockin_model;
-    use crate::business::erp::stockout_base::{OUT_TYPE_OTHER, SOURCE_TYPE_SALES};
+    use crate::business::erp::stockout::stockout_base::{OUT_TYPE_OTHER, SOURCE_TYPE_SALES};
     use crate::business::shared::state_machine;
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
@@ -1128,7 +1128,7 @@ mod tests {
         seed_stock(MAT_A, "20").await;
         let operator = state_machine::Operator::named(None, "SO14 单测");
         let now = Utc::now();
-        let new = crate::business::erp::stockout_base::NewStockOut {
+        let new = crate::business::erp::stockout::stockout_base::NewStockOut {
             out_type: OUT_TYPE_OTHER,
             warehouse_id: uuid(WAREHOUSE),
             out_date: crate::business::erp::voucher::today_cst(now),
@@ -1138,7 +1138,7 @@ mod tests {
             source_id: None,
             cost_object_id: None,
         };
-        let lines = vec![crate::business::erp::stockout_base::NewStockOutLine {
+        let lines = vec![crate::business::erp::stockout::stockout_base::NewStockOutLine {
             material_id: uuid(MAT_A),
             unit_id: uuid("d510f000-0000-4000-8000-000000000001"),
             qty: dec("2"),
@@ -1146,11 +1146,12 @@ mod tests {
             lot_no: None,
             remark: None,
         }];
-        let totals = crate::business::erp::stockout_base::Totals::of(&lines);
-        let out_id = crate::business::erp::stockout_model::create(db(), &new, &lines, &totals, operator.clone(), now)
-            .await
-            .expect("建手工出库单");
-        crate::business::erp::stockout_handler::post_stock_out(out_id, operator, None)
+        let totals = crate::business::erp::stockout::stockout_base::Totals::of(&lines);
+        let out_id =
+            crate::business::erp::stockout::stockout_model::create(db(), &new, &lines, &totals, operator.clone(), now)
+                .await
+                .expect("建手工出库单");
+        crate::business::erp::stockout::stockout_handler::post_stock_out(out_id, operator, None)
             .await
             .unwrap_or_else(|error| panic!("手工出库过账应成功：{} {}", error.code, error.msg));
 
@@ -1198,7 +1199,7 @@ mod tests {
         assert_eq!(cost_qty(MAT_A).await, dec("10"), "过账后库存 20 → 10");
 
         const REASON: &str = "客户取消订单，货退回仓库";
-        crate::business::erp::stockout_handler::cancel_stock_out(out_id, REASON, None)
+        crate::business::erp::stockout::stockout_handler::cancel_stock_out(out_id, REASON, None)
             .await
             .unwrap_or_else(|error| panic!("作废应成功：{} {}", error.code, error.msg));
 
@@ -1277,9 +1278,13 @@ mod tests {
         ))
         .await;
 
-        let error = crate::business::erp::stockout_handler::cancel_stock_out(out_id, "客户取消订单，货退回仓库", None)
-            .await
-            .expect_err("应收已收款，作废必须 409");
+        let error = crate::business::erp::stockout::stockout_handler::cancel_stock_out(
+            out_id,
+            "客户取消订单，货退回仓库",
+            None,
+        )
+        .await
+        .expect_err("应收已收款，作废必须 409");
         assert_eq!(error.status, 409);
         assert!(
             error.msg.contains("已收") || error.msg.contains("收款"),
@@ -1331,10 +1336,10 @@ mod tests {
         let out_id = stock_out_of(ship_id).await.expect("出库单");
 
         const REASON: &str = "客户取消订单，货退回仓库";
-        crate::business::erp::stockout_handler::cancel_stock_out(out_id, REASON, None)
+        crate::business::erp::stockout::stockout_handler::cancel_stock_out(out_id, REASON, None)
             .await
             .expect("第一次作废");
-        let second = crate::business::erp::stockout_handler::cancel_stock_out(out_id, REASON, None)
+        let second = crate::business::erp::stockout::stockout_handler::cancel_stock_out(out_id, REASON, None)
             .await
             .expect_err("重复作废必须 409");
         assert_eq!(second.status, 409);

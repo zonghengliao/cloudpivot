@@ -46,7 +46,7 @@ mod linkage_hook;
 
 use crate::business::flow::linkage;
 
-use super::cost::cost_object_model as cost_object;
+use super::super::cost::cost_object_model as cost_object;
 use super::stockout_base::*;
 use super::stockout_dto::{
     CostObjectOptionQuery, CostObjectOptionRes, CreateStockOutReq, IssuePrefillQuery, IssuePrefillRes,
@@ -876,7 +876,7 @@ async fn post_out_tx(
 /// 返回的 [`linkage::LinkageRun`] 里是**提交后才能跑**的动作；调用方必须在
 /// `commit()` 成功之后调 [`run_deferred_linkage_after_commit`]，否则通知 / 待办
 /// 会在事务里发出去（回滚后仍然发了）。
-pub(super) async fn post_out_in_tx(
+pub(in crate::business::erp) async fn post_out_in_tx(
     ex: &impl SqlExecutor,
     id: Uuid,
     operator: &state_machine::Operator,
@@ -887,7 +887,7 @@ pub(super) async fn post_out_in_tx(
 }
 
 /// 提交后跑出库过账的延迟联动（发通知 / 建任务，独立事务，失败只记日志）。
-pub(super) async fn run_deferred_linkage_after_commit(
+pub(in crate::business::erp) async fn run_deferred_linkage_after_commit(
     id: Uuid,
     operator: &state_machine::Operator,
     run: linkage::LinkageRun,

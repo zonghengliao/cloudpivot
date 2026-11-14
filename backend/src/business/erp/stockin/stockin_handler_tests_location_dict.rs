@@ -23,8 +23,8 @@ use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::stockin::stockin_model;
-use crate::business::erp::stockout_dto::{CreateStockOutReq, StockOutItemReq};
-use crate::business::erp::stockout_handler;
+use crate::business::erp::stockout::stockout_dto::{CreateStockOutReq, StockOutItemReq};
+use crate::business::erp::stockout::stockout_handler;
 
 // ==================== 小工具 ====================
 

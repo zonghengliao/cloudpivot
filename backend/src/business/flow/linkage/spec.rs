@@ -359,13 +359,19 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("CANCELLED", "已作废"),
         ],
         wired: true,
-        wiring: "已接线：erp/stockout_handler.rs::post_out_tx 第 ⑥ 步跑通用引擎 \
+        wiring: "已接线：erp/stockout/stockout_handler.rs::post_out_tx 第 ⑥ 步跑通用引擎 \
                  run_excluding(spec::STOCKOUT_EXCLUDED_ACTIONS)（库存 / 成本 / 凭证由 ③⑤ \
                  专用路径落账，必须排除，否则重复扣库存 + 一张单两张凭证），commit 后 \
                  post_stock_out 调 stockout_linkage::run_deferred_linkage → run_deferred",
         proofs: &[
-            ("src/business/erp/stockout_handler.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/stockout_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/stockout/stockout_handler.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/stockout/stockout_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1959,7 +1965,8 @@ mod tests {
     /// ③ 漂移守卫：逐字对拍**各单据自己的** `status_label()`（不是手抄自证）。
     ///
     /// 只对拍能从 crate 外部调用的 7 个模块 + 任务状态枚举；`stockin_base` /
-    /// `stockout_base` / `transfer_base` 三个底座模块在 `erp/mod.rs` 里是私有 `mod`，
+    /// `stockin::stockin_base` / `stockout::stockout_base` / `transfer::transfer_base`
+    /// 三个底座模块都是 erp 子树可见的私有 `mod`（拆目录前挂在 `erp` 下），
     /// 跨模块拿不到（它们的文案由各自模块的单测守着）。这里点名统计对拍条数，
     /// 映射断开（例如把实体名写错）会立刻反映成条数不足。
     #[test]
