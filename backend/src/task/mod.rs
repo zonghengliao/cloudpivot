@@ -289,7 +289,7 @@ impl Scheduler {
         // P16：收货作废审批的**孤儿实例回收**（每 10 分钟）。
         // 判据：审批还在跑、单据却已删除或已不是「作废审批中」→ 终止审批单（P11 教训：
         // 不回收就是审批中心一堆点进去 404 的待办，且下一次发起会被 uk_ 唯一索引永久堵死）。
-        crate::business::erp::stockin_bridge::register_builtin(self);
+        crate::business::erp::stockin::stockin_bridge::register_builtin(self);
         // P17：付款审批的**孤儿实例回收**（每 10 分钟，与收货作废错开 4 分钟）。
         // 判据：审批还在跑、付款记录却已删除或已不是「审批中」→ 终止审批单。
         // 不回收的代价比 P16 更大：孤儿实例会顶住 uk_biz_payment_pending，

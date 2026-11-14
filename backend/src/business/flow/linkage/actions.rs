@@ -34,7 +34,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::voucher::{self, VoucherBizCtx};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::business::shared::state_machine;

@@ -300,7 +300,7 @@ fn presets_cover_both_execution_entries() {
 /// 两种都是「代码改一行、规则静默变形」，靠 e2e 才能发现，所以在这里钉住源码原文。
 #[test]
 fn stockin_post_wires_generic_engine_and_excludes_voucher() {
-    let post = include_str!("../../erp/stockin_handler_post.rs");
+    let post = include_str!("../../erp/stockin/stockin_handler_post.rs");
     assert!(
         post.contains("linkage::engine::run_excluding("),
         "收货过账必须调用通用引擎（run_excluding）：否则 STOCK_IN/POSTED 的联动规则配了也不触发"

@@ -46,7 +46,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::doc_pdf_model::{self, ExportLogOwned};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
-use crate::business::erp::{stockin_model, stockout_model};
+use crate::business::erp::{stockin::stockin_model, stockout_model};
 use crate::business::pdf::template::{
     self, OrderMetaField, SerialGroup, StockContext, StockContextArgs, StockDocKind, StockItem, format_money,
     format_quantity, yuan_to_fen,

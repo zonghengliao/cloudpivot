@@ -16,8 +16,8 @@ use super::stockin_handler_common::*;
 use super::stockin_handler_post::*;
 use crate::business::erp::approval_gate;
 use crate::business::erp::separation;
-use crate::business::erp::stockin_dto::{MAX_REASON_LEN, StockInDetailRes, StockInStatusReq};
-use crate::business::erp::stockin_model::{
+use crate::business::erp::stockin::stockin_dto::{MAX_REASON_LEN, StockInDetailRes, StockInStatusReq};
+use crate::business::erp::stockin::stockin_model::{
     self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED, can_transition,
     transition_rejected_message,
 };

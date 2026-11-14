@@ -74,7 +74,7 @@ use crate::business::erp::invoice;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
 use crate::business::erp::sales_return_model::{self as model, ReturnItemRow, ReturnRow};
-use crate::business::erp::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
+use crate::business::erp::stockin::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
 use crate::business::erp::stockout_base::{DOC_TYPE_STOCK_OUT, TXN_TYPE_OUT};
 use crate::business::erp::stockout_model::{self as stock_out};
 use crate::business::erp::tax_rate as tax_rate_mod;
@@ -478,7 +478,7 @@ async fn create_stock_in(
     operator: &state_machine::Operator,
     now: DateTime<Utc>,
 ) -> std::result::Result<(Uuid, String), ApiError> {
-    let in_no = crate::business::erp::stockin_model::next_in_no(ex, now)
+    let in_no = crate::business::erp::stockin::stockin_model::next_in_no(ex, now)
         .await
         .map_err(|error| utils::db_error(error, "取退货入库单号"))?;
     let id = Uuid::now_v7();
@@ -579,7 +579,7 @@ async fn post_inventory(
     for line in lines.iter() {
         let location_row = match line.location_dict_id {
             Some(dict_id) => Some(
-                crate::business::erp::stockin_model::ensure_location_row(
+                crate::business::erp::stockin::stockin_model::ensure_location_row(
                     ex,
                     line.material_id,
                     row.warehouse_id,
@@ -604,11 +604,17 @@ async fn post_inventory(
             amount: line.amount.round_dp(4),
             unit_cost: line.unit_cost,
         };
-        let applied: AppliedInventory =
-            crate::business::erp::stockin_model::apply_cost(ex, material_id, row.warehouse_id, location_row, cost, now)
-                .await
-                .map_err(|error| write_error(error, "回库：成本账加法"))?;
-        crate::business::erp::stockin_model::apply_location_qty(
+        let applied: AppliedInventory = crate::business::erp::stockin::stockin_model::apply_cost(
+            ex,
+            material_id,
+            row.warehouse_id,
+            location_row,
+            cost,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "回库：成本账加法"))?;
+        crate::business::erp::stockin::stockin_model::apply_location_qty(
             ex,
             material_id,
             row.warehouse_id,
@@ -1632,7 +1638,10 @@ mod tests {
     fn constants_match_database_domains() {
         // 入库性质仍在既有域值里（ck_biz_si_type 只认 PURCHASE/RETURN/OTHER）
         assert_eq!(IN_TYPE_RETURN, "RETURN");
-        assert_ne!(IN_TYPE_RETURN, crate::business::erp::stockin_base::IN_TYPE_PURCHASE);
+        assert_ne!(
+            IN_TYPE_RETURN,
+            crate::business::erp::stockin::stockin_base::IN_TYPE_PURCHASE
+        );
         // 来源类型不是 in_type（两个维度，不许互相替代）
         assert_eq!(SOURCE_TYPE_SALES_RETURN, "SALES_RETURN");
         assert_ne!(SOURCE_TYPE_SALES_RETURN, IN_TYPE_RETURN);
@@ -1649,7 +1658,7 @@ mod tests {
         );
         // 退货入库的序列号来源映射不需要改（RETURN → RETURN）
         assert_eq!(
-            crate::business::erp::stockin_base::serial_source_of_in_type(IN_TYPE_RETURN),
+            crate::business::erp::stockin::stockin_base::serial_source_of_in_type(IN_TYPE_RETURN),
             Some("RETURN")
         );
     }

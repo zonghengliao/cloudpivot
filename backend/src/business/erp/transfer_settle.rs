@@ -11,11 +11,11 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::unit_guard;
 
 use super::inventory_writer::{self, CostDelta, TxnRecord};
-use super::stockin_base::InventorySnapshot;
+use super::stockin::stockin_base::InventorySnapshot;
 use super::transfer_base::*;
 
 /// 库存流水的单据类型（`biz_inventory_txn.doc_type`，varchar(24)）。

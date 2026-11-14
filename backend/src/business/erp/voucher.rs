@@ -20,7 +20,7 @@
 //!
 //! # 生成时机（PRD §3.3 方案 A）
 //!
-//! 收货单过账（`DRAFT → POSTED`）时，在**同一个事务**里（[`crate::business::erp::stockin_handler`]
+//! 收货单过账（`DRAFT → POSTED`）时，在**同一个事务**里（[`crate::business::erp::stockin::stockin_handler`]
 //! 的 `post_in_tx` 第 ⑦ 步）生成，状态直接 `POSTED`（**不是 DRAFT**）：库存已动，
 //! 账必须同步动，否则月末账实不符（PRD §3.3.3）。
 //!
@@ -121,7 +121,7 @@ use std::collections::BTreeMap;
 
 pub use crate::business::erp::currency::BaseAmounts;
 use crate::business::erp::serial_model;
-use crate::business::erp::stockin_model::StockInRow;
+use crate::business::erp::stockin::stockin_model::StockInRow;
 use crate::business::shared::state_machine;
 
 // ==================== 表名 / 常量 ====================
@@ -3158,9 +3158,9 @@ pub async fn reverse_for_stock_in(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
-    use crate::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
-    use crate::business::erp::{fixture_hygiene, payable, stockin_model};
+    use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
+    use crate::business::erp::stockin::stockin_handler::{change_stock_in_status, create_stock_in};
+    use crate::business::erp::{fixture_hygiene, payable, stockin::stockin_model};
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
 
@@ -3449,7 +3449,8 @@ mod tests {
             "作废审批必须至少有一条 PENDING 待办可批（实例 {instance_id}）"
         );
         for out in outs {
-            crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
+            crate::business::erp::stockin::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+                .await;
         }
         crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
     }

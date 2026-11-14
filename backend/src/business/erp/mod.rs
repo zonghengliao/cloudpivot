@@ -13,10 +13,10 @@
 //! | [`purchase_credit`] | 供应商信用额度**现算**守卫（提交时点快照 + 强制审批） | **ARCH-3 P2-2** |
 //! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
 //! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 + **提交审批**（3A） | **P2-A2 / P-FLOW-3A** |
-//! | [`stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
-//! | [`stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
-//! | [`stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
-//! | [`stockin_bridge`] | 收货单**作废审批** / **过账审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16 / P-FLOW-3A** |
+//! | [`stockin::stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
+//! | [`stockin::stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
+//! | [`stockin::stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
+//! | [`stockin::stockin_bridge`] | 收货单**作废审批** / **过账审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16 / P-FLOW-3A** |
 //! | [`stockout_model`] | 出库单数据层（ARCH-3 DC-13）：取号 + 三本账**负向**（成本账 / 库位账 / 流水）+ 负库存闸 + 作废回滚 | **ARCH-3 P0** |
 //! | [`stockout_dto`] | 出库单出入参契约：建单 / 改单 / 状态流转（提交 / 过账 / 作废）/ 详情 / 分页 + 校验 | **ARCH-3 P0** |
 //! | [`stockout_handler`] | 出库单 6 个接口：建 / 改 / 删 / 状态流转 / 列表 / 详情 + 过账与作废的事务编排 | **ARCH-3 P0** |
@@ -282,10 +282,7 @@ pub mod statement;
 pub mod stock_pdf;
 /// 盘点单 PDF 导出（PDF-04）：**唯一**带空白手写栏的单据（实盘 / 差异 / 备注）。
 pub mod stock_take_pdf;
-pub mod stockin_bridge;
-pub mod stockin_dto;
-pub mod stockin_handler;
-pub mod stockin_model;
+pub mod stockin;
 pub mod stockout_dto;
 pub mod stockout_handler;
 pub mod stockout_model;
@@ -321,7 +318,7 @@ pub mod year_end_remind;
 mod lot_db_tests;
 
 // ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
-// 下面 18 个 `mod` 是三个超千行 model 文件按职责拆出的部件，**不直接对外**：
+// 下面 13 个 `mod` 是三个超千行 model 文件按职责拆出的部件，**不直接对外**：
 // 公开 API 由 `model` / `stockin_model` / `transfer_model` 三个 facade 用
 // `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
@@ -336,13 +333,6 @@ mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
 mod model_inventory; // 库存台账只读
 mod model_master; // 主数据只读（单位/仓库/库位/物料/供应商/科目/期间/取号规则）
 mod model_order; // 采购订单只读（头 + 明细）
-mod stockin_base; // 收货入库底座：常量 / 状态机 / 行结构 / 取号
-mod stockin_cancel; // 收货入库作废链路
-mod stockin_location; // 收货入库库位解析（P2-4：库位字典 ↔ 库位账行）
-mod stockin_purchase; // 收货入库↔采购单联动
-pub mod stockin_query; // 收货入库只读（`POST_BIZ_TYPE` / `CANCEL_BIZ_TYPE` 是审批词表的登记点，见 doc_kind）
-mod stockin_validate; // 收货入库校验（可作废前置）
-mod stockin_write; // 收货入库写入（建改删 + 过账）
 mod stockout_base; // 出库单底座：常量 / 状态机 / 行结构 / 取号
 mod transfer_base; // 调拨单底座：常量 / 6 态状态机 / 行结构 / 取号
 mod transfer_query; // 调拨单只读
@@ -351,17 +341,6 @@ mod transfer_settle; // 调拨单过账结算
 mod transfer_write; // 调拨单写入（建改删 + 状态流转）
 
 // ==================== TD-2 拆分出的部件（只经 facade 对外） ====================
-// `stockin_handler.rs`（9394 行，含 5990 行测试）按职责拆成 7 个代码部件 + 13 个测试部件，
-// 公开 API 由 `stockin_handler` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变。
-// 拆法见 `docs/refactor-methodology.md`（TD-2 章节）。
-mod stockin_handler_cancel; // 作废：提交/撤回作废审批 + 审批后反冲
-mod stockin_handler_common; // 底座：错误构造 / 行计划 / 快照与派生总额 / 锁与权限判定
-mod stockin_handler_post; // 过账：提交审批 + 审批后过账 + 事务内扣库与成本
-mod stockin_handler_purchase; // 采购联动：来源单解析 / 供应商守卫 / 行回填 / 过账前复查
-mod stockin_handler_query; // 只读入口：分页 / 详情
-mod stockin_handler_status; // 状态流转与其余 HTTP 入口
-mod stockin_handler_write; // 写入：建单 / 复制 / 编辑 / 删除
-
 // `transfer_handler.rs`（4676 行，含 3249 行测试）按职责拆成 6 个代码部件 + 7 个测试部件，
 // 公开 API 由 `transfer_handler` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变。
 // 拆法见 `docs/refactor-methodology.md`（TD-2 章节）。

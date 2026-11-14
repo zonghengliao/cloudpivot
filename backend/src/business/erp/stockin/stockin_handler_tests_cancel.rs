@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_model::{self, STATUS_CANCELLED, STATUS_POSTED};
+use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED, STATUS_POSTED};
 
 /// ① 作废收货单 → 库存回滚到作废前（成本账三值全归零）。
 #[tokio::test]

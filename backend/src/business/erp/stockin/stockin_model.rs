@@ -106,7 +106,7 @@
 //! # 事务边界
 //!
 //! 写函数一律吃 `&impl SqlExecutor`（`Db` / `Transaction` 都实现），由
-//! [`crate::business::erp::stockin_handler`] 开事务：**过账的「改状态 + 加减库存 + 写流水 +
+//! [`crate::business::erp::stockin::stockin_handler`] 开事务：**过账的「改状态 + 加减库存 + 写流水 +
 //! 生成序列号 + 回写采购单已收数量」必须在同一个事务里**（硬红线 2）。
 
 // ==================== 部件（TD-1 拆分，facade 重导出） ====================

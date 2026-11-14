@@ -59,7 +59,7 @@ use crate::business::erp::purchase_model::{
     self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals, can_transition,
     status_label, transition_rejected_message,
 };
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;

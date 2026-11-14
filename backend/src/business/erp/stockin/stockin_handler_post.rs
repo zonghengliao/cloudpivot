@@ -19,8 +19,8 @@ use super::stockin_handler_status::*;
 use crate::business::erp::approval_gate;
 use crate::business::erp::payable;
 use crate::business::erp::separation;
-use crate::business::erp::stockin_dto::StockInStatusReq;
-use crate::business::erp::stockin_model::{
+use crate::business::erp::stockin::stockin_dto::StockInStatusReq;
+use crate::business::erp::stockin::stockin_model::{
     self, CostBasis, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED, status_label,
 };
 use crate::business::erp::voucher;

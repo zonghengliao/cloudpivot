@@ -414,7 +414,7 @@ fn purchase_order_wires_generic_engine_and_excludes_stock_actions() {
         "purchase_model::apply_status 必须真的调 purchase_linkage::run_in_tx\
          （只改 spec.rs 的 wired 标记不算接线）"
     );
-    let receipt = include_str!("../../erp/stockin_purchase.rs");
+    let receipt = include_str!("../../erp/stockin/stockin_purchase.rs");
     assert!(
         receipt.contains("purchase_linkage::run_in_tx("),
         "stockin_purchase::sync_purchase_status 也必须调 purchase_linkage::run_in_tx：\

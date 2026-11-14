@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_model::{STATUS_DRAFT, STATUS_POSTED};
+use crate::business::erp::stockin::stockin_model::{STATUS_DRAFT, STATUS_POSTED};
 use crate::shared::error_code;
 
 /// ① 复制一张已过账收货单：新单号 + `DRAFT` + 明细/金额/入库日期口径一致。
@@ -56,7 +56,10 @@ async fn d9_stockin_copy_creates_draft_with_new_no_and_same_items() {
         assert_eq!(new_line.location_id, old_line.location_id);
     }
     // 入库日期口径：复制是新的入库动作 → 今天（不沿用原单日期）
-    assert_eq!(copied.header.in_date, crate::business::erp::stockin_dto::today_cst());
+    assert_eq!(
+        copied.header.in_date,
+        crate::business::erp::stockin::stockin_dto::today_cst()
+    );
     // 原单没被动：仍是已过账
     let origin_after = detail_of(origin_id).await.unwrap();
     assert_eq!(origin_after.header.status, STATUS_POSTED);

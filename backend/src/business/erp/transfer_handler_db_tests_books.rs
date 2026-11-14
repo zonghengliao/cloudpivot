@@ -7,7 +7,7 @@
 // ============================================================================
 
 use super::db_tests_fixtures::*;
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::transfer_dto::CreateTransferReq;
 use crate::business::erp::transfer_model::STATUS_IN_TRANSIT;
 use nik::prelude::chrono::Utc;

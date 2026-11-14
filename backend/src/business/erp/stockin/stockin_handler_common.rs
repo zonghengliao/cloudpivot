@@ -15,10 +15,10 @@ use nik::uuid::Uuid;
 use super::stockin_handler_purchase::*;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model;
-use crate::business::erp::stockin_dto::{
+use crate::business::erp::stockin::stockin_dto::{
     CreateStockInReq, PreparedStockIn, StockInDetailRes, StockInItemReq, StockInItemRes, StockInRes,
 };
-use crate::business::erp::stockin_model::{self, NewStockInLine};
+use crate::business::erp::stockin::stockin_model::{self, NewStockInLine};
 use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;

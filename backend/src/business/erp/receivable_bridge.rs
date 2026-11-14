@@ -571,7 +571,7 @@ mod tests {
     use super::*;
     use crate::business::erp::receivable::STATUS_OPEN;
     use crate::business::erp::shipment_handler::{self, ShipmentStatusReq};
-    use crate::business::erp::stockin_model;
+    use crate::business::erp::stockin::stockin_model;
     use crate::business::erp::stockout_base::{OUT_TYPE_OTHER, SOURCE_TYPE_SALES};
     use crate::business::shared::state_machine;
     use nik::prelude::chrono::Duration;

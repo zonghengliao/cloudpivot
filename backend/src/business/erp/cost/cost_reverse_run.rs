@@ -60,8 +60,8 @@ use crate::business::erp::cost::cost_settle_finish::{
 use crate::business::erp::cost::cost_settle_run;
 use crate::business::erp::cost::cost_settle_voucher as cv;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
-use crate::business::erp::stockin_base::DOC_TYPE_STOCK_IN;
-use crate::business::erp::stockin_model::{
+use crate::business::erp::stockin::stockin_base::DOC_TYPE_STOCK_IN;
+use crate::business::erp::stockin::stockin_model::{
     self, AppliedInventory, CancelDoc, CancelLine, MISSING_TXN_PREFIX, SHORTFALL_PREFIX,
 };
 use crate::business::erp::voucher::{self, ReversalInput};

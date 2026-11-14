@@ -23,7 +23,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::serial_model::{ALL_STATUSES, MAX_BATCH_COUNT, SOURCE_TYPES, SerialRow, SerialScanRow};
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 
 /// `unit_cost` 的入参形态：**number 与字符串都收**（前端 `t-input-number` 给 number、
 /// 手写 curl / 导入模板给字符串都能过）。

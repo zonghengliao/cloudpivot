@@ -15,9 +15,9 @@ use super::stockin_handler_common::*;
 use super::stockin_handler_purchase::*;
 use crate::business::erp::model;
 use crate::business::erp::separation;
-use crate::business::erp::stockin_bridge;
-use crate::business::erp::stockin_dto::{CreateStockInReq, StockInDetailRes};
-use crate::business::erp::stockin_model::{
+use crate::business::erp::stockin::stockin_bridge;
+use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInDetailRes};
+use crate::business::erp::stockin::stockin_model::{
     self, NewStockIn, NewStockInLine, STATUS_DRAFT, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, Totals, status_label,
 };
 use crate::business::shared::state_machine;
@@ -256,7 +256,7 @@ pub async fn copy_stock_in(id: Uuid, claims: &TokenClaims) -> std::result::Resul
         None | Some("") => copy_mark,
         Some(text) => {
             let merged = format!("{text} {copy_mark}");
-            if merged.chars().count() > crate::business::erp::stockin_dto::MAX_REMARK_LEN {
+            if merged.chars().count() > crate::business::erp::stockin::stockin_dto::MAX_REMARK_LEN {
                 text.to_string()
             } else {
                 merged
@@ -268,7 +268,7 @@ pub async fn copy_stock_in(id: Uuid, claims: &TokenClaims) -> std::result::Resul
         warehouse_id: origin.warehouse_id,
         source_order_id: None,
         is_sourceless: true,
-        in_date: crate::business::erp::stockin_dto::today_cst(),
+        in_date: crate::business::erp::stockin::stockin_dto::today_cst(),
         invoice_received: origin.invoice_received,
         remark: Some(remark.as_str()),
     };

@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_model::{self, STATUS_DRAFT};
+use crate::business::erp::stockin::stockin_model::{self, STATUS_DRAFT};
 
 /// ⑥（P6）收货**不带** `location_id` → 库位账写 `location_id IS NULL` 那一行。
 #[tokio::test]

@@ -39,7 +39,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::approval_gate::SkipApprovalReq;
-use crate::business::erp::stockin_model::{
+use crate::business::erp::stockin::stockin_model::{
     STOCK_IN_SUMMARY_PLACEHOLDER, StockInFilter, StockInItemRow, StockInRow, Totals, money, unit_price,
 };
 use crate::business::shared::doc_lines;
@@ -295,7 +295,7 @@ pub struct PreparedStockIn {
     /// 来源采购单 id 原文。
     pub source_order_id_raw: Option<String>,
     /// 供应商 id 原文（**可空**：有源单时由采购单派生，见
-    /// [`crate::business::erp::stockin_handler`] 的 `resolve_parent_pointer`）。
+    /// [`crate::business::erp::stockin::stockin_handler`] 的 `resolve_parent_pointer`）。
     pub supplier_id_raw: Option<String>,
     /// 仓库 id 原文。
     pub warehouse_id_raw: String,
@@ -650,7 +650,7 @@ impl From<&StockInRow> for StockInRes {
             warehouse_id: row.warehouse_id.to_string(),
             in_date: row.in_date,
             status: row.status.clone(),
-            status_label: crate::business::erp::stockin_model::status_label(&row.status).to_string(),
+            status_label: crate::business::erp::stockin::stockin_model::status_label(&row.status).to_string(),
             currency_code: row.currency_code.clone(),
             total_qty: row.total_qty,
             total_amount: row.total_amount,

@@ -12,9 +12,9 @@ use nik::uuid::Uuid;
 
 use super::stockin_handler_tests_fixtures::*;
 use super::*;
-use crate::business::erp::stockin_bridge;
-use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
-use crate::business::erp::stockin_model::{self, STATUS_CANCELLED};
+use crate::business::erp::stockin::stockin_bridge;
+use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
+use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED};
 use crate::business::flow::{engine, model as flow_model};
 
 /// 库存三值。

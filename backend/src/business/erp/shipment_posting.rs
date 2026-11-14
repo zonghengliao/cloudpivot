@@ -529,7 +529,7 @@ mod tests {
     // 库存不足（409，账一分不动）/ 重复过账（幂等，只扣一次）；另加一条「后置失败整笔回滚」。
 
     use crate::business::erp::shipment_handler::{self, ShipmentStatusReq};
-    use crate::business::erp::stockin_model;
+    use crate::business::erp::stockin::stockin_model;
 
     /// 真库用例必须串行（共用全局 `db()` 与同一批 `SO10T-` 夹具）。
     static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

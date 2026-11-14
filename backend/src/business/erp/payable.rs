@@ -40,7 +40,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::stockin_model::StockInRow;
+use crate::business::erp::stockin::stockin_model::StockInRow;
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::state_machine;
 
@@ -298,7 +298,7 @@ pub async fn insert(
 /// 收货单过账时生成应付单（卡面 §三 ②）。
 ///
 /// `payable_id` 由本函数返回，调用方用
-/// [`crate::business::erp::stockin_model::link_voucher_and_payable`] 回写收货单。
+/// [`crate::business::erp::stockin::stockin_model::link_voucher_and_payable`] 回写收货单。
 pub async fn create_for_stock_in(
     ex: &impl SqlExecutor,
     header: &StockInRow,

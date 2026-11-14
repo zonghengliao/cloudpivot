@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_model::{self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_POSTED};
+use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_POSTED};
 use crate::business::flow::model as flow_model;
 use crate::shared::error_code;
 
@@ -484,7 +484,7 @@ async fn p16_soft_deleted_doc_reconciles_instance() {
     .await
     .unwrap();
 
-    let cancelled = crate::business::erp::stockin_bridge::reconcile_orphan_cancels()
+    let cancelled = crate::business::erp::stockin::stockin_bridge::reconcile_orphan_cancels()
         .await
         .expect("孤儿回收必须成功");
     assert!(cancelled >= 1, "必须回收至少 1 条（实际 {cancelled}）");
@@ -527,7 +527,7 @@ async fn p16_other_path_cancel_reconciles_instance() {
     .await
     .unwrap();
 
-    crate::business::erp::stockin_bridge::reconcile_orphan_cancels()
+    crate::business::erp::stockin::stockin_bridge::reconcile_orphan_cancels()
         .await
         .expect("孤儿回收必须成功");
     let instance = flow_model::find_instance(instance_id).await.unwrap().unwrap();

@@ -24,8 +24,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use rust_decimal::Decimal;
 
-use cloudpivot::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
-use cloudpivot::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
+use cloudpivot::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
+use cloudpivot::business::erp::stockin::stockin_handler::{change_stock_in_status, create_stock_in};
 use cloudpivot::business::erp::voucher_write::{
     CreateVoucherReq, ManualEntryReq, create_manual_voucher, reverse_voucher,
 };

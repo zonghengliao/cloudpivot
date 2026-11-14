@@ -15,7 +15,7 @@
 //! # 为什么是「物料的基础单位」而不是请求里的 `unit_id`
 //!
 //! 三张单据的明细入参**都没有 `unit_id`**（采购 [`crate::business::erp::purchase_dto::PurchaseOrderItemReq`]、
-//! 收货 [`crate::business::erp::stockin_dto::StockInItemReq`]、调拨
+//! 收货 [`crate::business::erp::stockin::stockin_dto::StockInItemReq`]、调拨
 //! [`crate::business::erp::transfer_dto::TransferItemReq`]）：明细的 `unit_id` 由
 //! `biz_material.unit_id` 带出。所以「这一行会记错账」的判据只能落在物料上 ——
 //! 物料挂的是折算单位，这张单据就一定会错。

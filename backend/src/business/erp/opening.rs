@@ -79,7 +79,7 @@ use serde::{Deserialize, Serialize};
 
 use super::inventory_writer::{self, TxnRecord};
 use crate::business::erp::period;
-use crate::business::erp::stockin_model::{self, CostBasis};
+use crate::business::erp::stockin::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
 use crate::shared::error_code;
 use crate::support::config::model::SysConfigModel;

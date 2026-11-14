@@ -36,7 +36,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::inventory_writer;
+use super::super::inventory_writer;
 
 /// `biz_location` 的一行（库位字典 / 主数据）。
 #[derive(Debug, Clone)]

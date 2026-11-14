@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model;
 
-use super::inventory_writer::{self, TxnRecord};
+use super::super::inventory_writer::{self, TxnRecord};
 use super::stockin_base::*;
 use super::stockin_write::{AppliedLocation, lock_inventory};
 
@@ -30,7 +30,7 @@ pub const BIZ_TYPE_PURCHASE_IN_CANCEL: &str = "PURCHASE_IN_CANCEL";
 ///
 /// P2-5A：定义搬去唯一写入口 [`crate::business::erp::inventory_writer::SHORTFALL_PREFIX`]
 /// （库位账冲减的 SQL 与文案都在那边），这里 `pub use` 重导出，调用方路径不变。
-pub use super::inventory_writer::SHORTFALL_PREFIX;
+pub use super::super::inventory_writer::SHORTFALL_PREFIX;
 
 /// 过账流水缺失的哨兵前缀（历史数据缺口：单据 POSTED 但 `biz_inventory_txn` 里没有对应行）。
 ///

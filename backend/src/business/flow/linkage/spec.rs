@@ -337,15 +337,15 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  post_after_approval 调 run_stockin_deferred_linkage → run_deferred",
         proofs: &[
             (
-                "src/business/erp/stockin_handler_post.rs",
+                "src/business/erp/stockin/stockin_handler_post.rs",
                 "linkage::engine::run_excluding",
             ),
             (
-                "src/business/erp/stockin_handler_post.rs",
+                "src/business/erp/stockin/stockin_handler_post.rs",
                 "linkage::engine::stockin_voucher",
             ),
             (
-                "src/business/erp/stockin_handler_post.rs",
+                "src/business/erp/stockin/stockin_handler_post.rs",
                 "linkage::engine::run_deferred",
             ),
         ],

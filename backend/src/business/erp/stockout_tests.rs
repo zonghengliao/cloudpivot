@@ -200,26 +200,26 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_cost: Decimal) {
     let now = Utc::now();
     let amount = (qty * unit_cost).round_dp(4);
-    let applied = crate::business::erp::stockin_model::apply_cost(
+    let applied = crate::business::erp::stockin::stockin_model::apply_cost(
         db(),
         material_id,
         warehouse_id,
         None,
-        crate::business::erp::stockin_model::CostBasis::of(qty, amount),
+        crate::business::erp::stockin::stockin_model::CostBasis::of(qty, amount),
         now,
     )
     .await
     .expect("期初入库：成本账");
-    crate::business::erp::stockin_model::apply_location_qty(db(), material_id, warehouse_id, None, qty, now)
+    crate::business::erp::stockin::stockin_model::apply_location_qty(db(), material_id, warehouse_id, None, qty, now)
         .await
         .expect("期初入库：库位账");
-    crate::business::erp::stockin_model::write_txn(
+    crate::business::erp::stockin::stockin_model::write_txn(
         db(),
-        crate::business::erp::stockin_model::StockInTxnInput {
+        crate::business::erp::stockin::stockin_model::StockInTxnInput {
             material_id,
             warehouse_id,
             line_no: 1,
-            cost: crate::business::erp::stockin_model::CostBasis::of(qty, amount),
+            cost: crate::business::erp::stockin::stockin_model::CostBasis::of(qty, amount),
             applied: &applied,
             doc_id: Uuid::now_v7(),
             doc_no: "SEED-IN",

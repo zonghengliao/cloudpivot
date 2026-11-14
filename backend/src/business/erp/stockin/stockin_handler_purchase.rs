@@ -12,8 +12,8 @@ use nik::uuid::Uuid;
 
 use super::stockin_handler_common::*;
 use crate::business::erp::model;
-use crate::business::erp::stockin_dto::CreateStockInReq;
-use crate::business::erp::stockin_model::{self};
+use crate::business::erp::stockin::stockin_dto::CreateStockInReq;
+use crate::business::erp::stockin::stockin_model::{self};
 use crate::business::erp::unit_guard;
 use crate::shared::error_code;
 use crate::utils;
@@ -275,7 +275,7 @@ pub(super) async fn guard_posting_supplier(header: &stockin_model::StockInRow) -
 /// `source_item_id` 落该采购行 id —— 过账时按这一列判超收（`order_item_balances`）。
 pub(super) async fn pull_lines_from_purchase(
     order_id: Uuid,
-) -> std::result::Result<Vec<crate::business::erp::stockin_dto::StockInItemReq>, ApiError> {
+) -> std::result::Result<Vec<crate::business::erp::stockin::stockin_dto::StockInItemReq>, ApiError> {
     let items = model::purchase_order_items(order_id)
         .await
         .map_err(|error| utils::db_error(error, "查询采购单明细"))?;
@@ -285,7 +285,7 @@ pub(super) async fn pull_lines_from_purchase(
         if remaining <= Decimal::ZERO {
             continue;
         }
-        lines.push(crate::business::erp::stockin_dto::StockInItemReq {
+        lines.push(crate::business::erp::stockin::stockin_dto::StockInItemReq {
             purchase_order_item_id: Some(item.id.to_string()),
             material_id: Some(item.material_id.to_string()),
             qty: Some(remaining),

@@ -52,7 +52,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::serial_model;
-use super::stockin_base::InventorySnapshot;
+use super::stockin::stockin_base::InventorySnapshot;
 
 /// `location_id` 空桶占位（与 `uk_biz_inv_mat_wh_loc`、`uk_biz_inv_loc` 的表达式逐字一致）。
 const ZERO_UUID: &str = "00000000-0000-0000-0000-000000000000";

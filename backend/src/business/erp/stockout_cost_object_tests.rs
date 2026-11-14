@@ -218,17 +218,17 @@ async fn seed_inbound(qty: &str, unit_cost: &str) {
     let warehouse = uuid(WAREHOUSE);
     let quantity = dec(qty);
     let amount = (quantity * dec(unit_cost)).round_dp(4);
-    crate::business::erp::stockin_model::apply_cost(
+    crate::business::erp::stockin::stockin_model::apply_cost(
         db(),
         material,
         warehouse,
         None,
-        crate::business::erp::stockin_model::CostBasis::of(quantity, amount),
+        crate::business::erp::stockin::stockin_model::CostBasis::of(quantity, amount),
         now,
     )
     .await
     .expect("期初：成本账");
-    crate::business::erp::stockin_model::apply_location_qty(db(), material, warehouse, None, quantity, now)
+    crate::business::erp::stockin::stockin_model::apply_location_qty(db(), material, warehouse, None, quantity, now)
         .await
         .expect("期初：库位账");
 }

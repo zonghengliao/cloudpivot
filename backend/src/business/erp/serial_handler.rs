@@ -37,7 +37,7 @@ use crate::business::erp::serial_dto::{
     BatchGenerateReq, SerialBatchRes, SerialFilter, SerialRes, SerialScanRes, SerialStatusReq,
 };
 use crate::business::erp::serial_model::{self, GenerateParams, TransitionOutcome};
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -1574,7 +1574,7 @@ mod tests {
     /// ㊷ P2-6b：收货单 `in_type` → 序列号来源类型（纯逻辑，不连库）。
     #[test]
     fn in_type_maps_to_serial_source() {
-        use super::super::stockin_base::serial_source_of_in_type;
+        use super::super::stockin::stockin_base::serial_source_of_in_type;
         assert_eq!(serial_source_of_in_type("PURCHASE"), Some("PURCHASE"));
         assert_eq!(serial_source_of_in_type("RETURN"), Some("RETURN"));
         // 其他入库不在序列号来源的 4 类域内 ⇒ 不记来源（而不是硬塞成 PURCHASE）

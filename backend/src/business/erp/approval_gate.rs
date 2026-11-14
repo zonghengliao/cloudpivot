@@ -8,8 +8,8 @@
 //! | # | 入口 | 改造前 |
 //! |---|------|--------|
 //! | 1 | [`crate::business::erp::purchase_handler::submit_approval`] | `DRAFT → SUBMITTED`，无审批单 |
-//! | 2 | [`crate::business::erp::stockin_handler::submit_post`] | 直接过账（三本账 + 凭证 + 应付） |
-//! | 3 | [`crate::business::erp::stockin_handler::change_stock_in_status`]（`POSTED → CANCELLED`） | 直接作废并回滚六本账 |
+//! | 2 | [`crate::business::erp::stockin::stockin_handler::submit_post`] | 直接过账（三本账 + 凭证 + 应付） |
+//! | 3 | [`crate::business::erp::stockin::stockin_handler::change_stock_in_status`]（`POSTED → CANCELLED`） | 直接作废并回滚六本账 |
 //! | 4 | [`crate::business::erp::payable_payment::submit_payment`] | 直接付款并出凭证 |
 //! | 5 | [`crate::business::erp::payable_payment::submit_cancel`] | 直接作废（联动红冲凭证） |
 //! | 6 | [`crate::business::erp::voucher_write::submit_reverse`] | 直接红冲 |

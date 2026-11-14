@@ -76,7 +76,7 @@ pub const STATUS_PENDING_CANCEL: &str = "PENDING_CANCEL";
 ///
 /// 进入方式只有「提交过账审批」：单据**锁定**（不许改数量 / 金额 / 明细），
 /// 库存 / 库位账 / 流水 / 凭证 / 应付 / 序列号**一分没动**。
-/// 审批通过才落 `POSTED` 并执行 [`crate::business::erp::stockin_handler`] 的 `post_in_tx`；
+/// 审批通过才落 `POSTED` 并执行 [`crate::business::erp::stockin::stockin_handler`] 的 `post_in_tx`；
 /// 驳回 / 撤回打回 `DRAFT`。状态与 `approval_instance_id` 由
 /// `ck_biz_si_pending_approval` 绑死（有单必有实例，杜绝孤儿审批）。
 pub const STATUS_PENDING_POST: &str = "PENDING_POST";

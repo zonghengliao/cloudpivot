@@ -102,7 +102,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::serial_dto::SerialFilter;
-use crate::business::erp::stockin_model::{self, CostBasis};
+use crate::business::erp::stockin::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, SerialMovement};
 use crate::business::shared::doc_kind;
 use crate::business::shared::scope;
@@ -891,7 +891,7 @@ async fn post_serial_txn(
 ) -> DbResult<()> {
     // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]；本函数只保留
     // 「影响行数必须恰为 1」的自检（双写/漏写都在这里拦住整单回滚）。
-    let snapshot = |s: InventorySnapshot| super::stockin_base::InventorySnapshot {
+    let snapshot = |s: InventorySnapshot| super::stockin::stockin_base::InventorySnapshot {
         qty: s.qty,
         amount: s.amount,
         avg_cost: s.avg_cost,

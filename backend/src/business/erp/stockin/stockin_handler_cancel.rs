@@ -13,8 +13,8 @@ use nik::uuid::Uuid;
 
 use super::stockin_handler_common::*;
 use crate::business::erp::payable;
-use crate::business::erp::stockin_bridge;
-use crate::business::erp::stockin_model::{
+use crate::business::erp::stockin::stockin_bridge;
+use crate::business::erp::stockin::stockin_model::{
     self, STATUS_CANCELLED, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED, status_label,
 };
 use crate::business::erp::voucher;
@@ -444,7 +444,11 @@ pub async fn restore_after_cancel_approval(
 /// `biz_material_serial` 里留下 `IN_STOCK` 的幽灵号，与 `biz_inventory.qty`
 /// （作废后已减）对不上 —— 就是 W2c 口径的账实不符。口径见
 /// [`stockin_model::void_serials_of`]（未出库 → 软删；已出库/报废 → `409`）。
-pub(super) async fn cancel_in_tx(
+///
+/// `pub(in crate::business::erp)` 而不是 `pub(super)`：拆目录前本文件挂在 `erp` 下，
+/// `pub(super)` = 「erp 内可见」，`erp/cancel_cascade.rs`（联动作废）就靠它；
+/// 拆完 `super` 变成 `stockin`，写 `pub(super)` 会把 `cancel_cascade` 挡在外面。
+pub(in crate::business::erp) async fn cancel_in_tx(
     ex: &impl SqlExecutor,
     id: Uuid,
     row: &stockin_model::StockInRow,

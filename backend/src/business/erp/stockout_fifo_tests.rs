@@ -21,7 +21,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::*;
-use crate::business::erp::stockin_model;
+use crate::business::erp::stockin::stockin_model;
 use crate::business::erp::stockout_dto::{CreateStockOutReq, StockOutItemReq};
 use crate::business::erp::stockout_handler;
 

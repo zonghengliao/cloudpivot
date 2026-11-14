@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_model::{self, STATUS_CANCELLED, STATUS_DRAFT, STATUS_POSTED};
+use crate::business::erp::stockin::stockin_model::{self, STATUS_CANCELLED, STATUS_DRAFT, STATUS_POSTED};
 use crate::shared::error_code;
 
 /// DC-03 单测 A：采购单在「建单」与「过账」之间被取消 → 过账 **409 + 66031**，

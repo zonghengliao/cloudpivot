@@ -13,8 +13,8 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_bridge;
-use crate::business::erp::stockin_model::{self, STATUS_DRAFT};
+use crate::business::erp::stockin::stockin_bridge;
+use crate::business::erp::stockin::stockin_model::{self, STATUS_DRAFT};
 use crate::shared::error_code;
 
 /// ⑨ 提交过账 → PENDING_POST + 实例 + 六本账一分没动。

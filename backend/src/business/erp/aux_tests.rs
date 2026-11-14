@@ -779,8 +779,8 @@ async fn p21_split_resolves_each_materials_own_inventory_account() {
 }
 
 /// 收货单头的测试替身（只填 `of_stock_in` 用到的字段）。
-fn stockin_header_stub() -> crate::business::erp::stockin_base::StockInRow {
-    crate::business::erp::stockin_base::StockInRow {
+fn stockin_header_stub() -> crate::business::erp::stockin::stockin_base::StockInRow {
+    crate::business::erp::stockin::stockin_base::StockInRow {
         id: uid("e21a0010-0000-4000-8000-000000000010"),
         in_no: "P21AUX-IN-1".to_string(),
         in_type: "PURCHASE".to_string(),

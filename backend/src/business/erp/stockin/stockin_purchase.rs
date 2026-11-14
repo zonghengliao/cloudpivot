@@ -212,7 +212,7 @@ pub async fn purchase_order_ref(order_id: Uuid) -> DbResult<Option<PurchaseOrder
 ///
 /// 全序固定为 **收货单头 → 采购单头 → 库存行**：
 ///
-/// * 过账 [`crate::business::erp::stockin_handler`] 的 `post_in_tx`：①锁收货单头 →
+/// * 过账 [`crate::business::erp::stockin::stockin_handler`] 的 `post_in_tx`：①锁收货单头 →
 ///   ①b 本函数锁采购单头 → ③库存行；
 /// * 作废 `cancel_in_tx`：①锁收货单头 → ⓪ 本函数锁采购单头 → ③库存行。
 ///

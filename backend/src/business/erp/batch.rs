@@ -44,8 +44,8 @@ use crate::business::erp::purchase_handler::{change_purchase_order_status, submi
 use crate::business::erp::purchase_model::STATUS_SUBMITTED;
 use crate::business::erp::serial_dto::SerialStatusReq;
 use crate::business::erp::serial_handler::apply_status;
-use crate::business::erp::stockin_dto::StockInStatusReq;
-use crate::business::erp::stockin_handler::{change_stock_in_status, delete_stock_in};
+use crate::business::erp::stockin::stockin_dto::StockInStatusReq;
+use crate::business::erp::stockin::stockin_handler::{change_stock_in_status, delete_stock_in};
 use crate::business::erp::transfer_dto::TransferStatusReq;
 use crate::business::erp::transfer_handler::change_transfer_status;
 use crate::business::impexp::batch_export::{self, BatchExportTask};
@@ -415,7 +415,7 @@ pub async fn voucher_batch_export(
 mod tests {
     use super::*;
     use crate::business::erp::fixture_hygiene;
-    use crate::business::erp::stockin_model::{self, NewStockIn, NewStockInLine, STATUS_CANCELLED, Totals};
+    use crate::business::erp::stockin::stockin_model::{self, NewStockIn, NewStockInLine, STATUS_CANCELLED, Totals};
     use nik::prelude::chrono::{NaiveDate, Utc};
     use nik::prelude::rust_decimal::Decimal;
     use nik::uuid::Uuid;

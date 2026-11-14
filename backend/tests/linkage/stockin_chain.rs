@@ -27,8 +27,10 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use cloudpivot::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInLineSerials, StockInStatusReq};
-use cloudpivot::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
+use cloudpivot::business::erp::stockin::stockin_dto::{
+    CreateStockInReq, StockInItemReq, StockInLineSerials, StockInStatusReq,
+};
+use cloudpivot::business::erp::stockin::stockin_handler::{change_stock_in_status, create_stock_in};
 use cloudpivot::business::flow::dto as flow_dto;
 use cloudpivot::business::flow::handler as flow_handler;
 

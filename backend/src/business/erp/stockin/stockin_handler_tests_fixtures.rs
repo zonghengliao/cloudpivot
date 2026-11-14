@@ -15,7 +15,7 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
 use crate::business::erp::approval_gate;
-use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
+use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 
 /// ARCH-3 DC-01：系统路径的审批前置上下文 —— 不请求跳过、也没有权限声明。
 ///

@@ -41,8 +41,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::inventory_writer::{self, TxnRecord};
-use crate::business::erp::stockin_base::{CostBasis, InventorySnapshot};
-use crate::business::erp::{stockin_cancel, stockin_write, stockout_model, voucher};
+use crate::business::erp::stockin::stockin_base::{CostBasis, InventorySnapshot};
+use crate::business::erp::{stockin::stockin_cancel, stockin::stockin_write, stockout_model, voucher};
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 

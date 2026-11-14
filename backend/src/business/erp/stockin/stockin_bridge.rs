@@ -41,8 +41,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::separation;
-use crate::business::erp::stockin_handler;
-use crate::business::erp::stockin_model::{self, STATUS_PENDING_CANCEL};
+use crate::business::erp::stockin::stockin_handler;
+use crate::business::erp::stockin::stockin_model::{self, STATUS_PENDING_CANCEL};
 use crate::business::flow::{engine, model as flow_model, settle_guard};
 use crate::shared::error_code;
 
@@ -593,7 +593,7 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::stockin_model::{STATUS_CANCELLED, STATUS_POSTED};
+    use crate::business::erp::stockin::stockin_model::{STATUS_CANCELLED, STATUS_POSTED};
 
     /// ⑮ 实例状态 → 业务语义的映射口径（钉死：只有 APPROVED 能动账）。
     #[test]

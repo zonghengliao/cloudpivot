@@ -13,7 +13,7 @@ use nik::uuid::Uuid;
 
 use crate::business::shared::state_machine;
 
-use super::inventory_writer::{self, CostDelta, TxnRecord};
+use super::super::inventory_writer::{self, CostDelta, TxnRecord};
 use super::stockin_base::*;
 
 /// 插入明细（建单 / 改单共用），返回明细 id（按行序）。
@@ -428,7 +428,7 @@ pub async fn apply_status_with_instance(
 /// 软删（**仅 DRAFT / PENDING_POST 由调用方保证**），返回 `affected`。
 ///
 /// P-FLOW-3A：`PENDING_POST`（过账审批中）也允许删 —— 前提是调用方**先**终止在跑的
-/// 审批单（[`crate::business::erp::stockin_bridge::cancel_approval_of`]，同一事务），
+/// 审批单（[`crate::business::erp::stockin::stockin_bridge::cancel_approval_of`]，同一事务），
 /// 否则删掉的单据会留下孤儿审批（P11 的教训）。删的同时清空 `approval_instance_id`。
 pub async fn soft_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>, now: DateTime<Utc>) -> DbResult<u64> {
     ex.exec_sql(
@@ -524,7 +524,7 @@ pub struct AppliedLocation {
 ///
 /// 过账原来只写成本账（`biz_inventory`）+ 流水，**库位账一行不写** → 「即时库存」与
 /// 「库位库存」两个 Tab 永远对不上（违反不变式③）。本函数补上那一半，且由
-/// [`crate::business::erp::stockin_handler`] 的过账事务在**同一事务**里调用（失败整单回滚）。
+/// [`crate::business::erp::stockin::stockin_handler`] 的过账事务在**同一事务**里调用（失败整单回滚）。
 ///
 /// # 两种分支（`location_id` 在本仓是 `biz_inventory_location.id`，不是 `biz_location.id`）
 ///

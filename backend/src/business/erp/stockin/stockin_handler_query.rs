@@ -12,8 +12,8 @@ use serde::Serialize;
 
 use super::stockin_handler_common::*;
 use crate::business::erp::model;
-use crate::business::erp::stockin_dto::{StockInDetailRes, StockInPageQuery, StockInRes};
-use crate::business::erp::stockin_model::{self};
+use crate::business::erp::stockin::stockin_dto::{StockInDetailRes, StockInPageQuery, StockInRes};
+use crate::business::erp::stockin::stockin_model::{self};
 use crate::utils;
 
 /// 收货入库单分页。

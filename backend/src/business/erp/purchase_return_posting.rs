@@ -54,7 +54,7 @@ use crate::business::erp::purchase_return_dto::{self as dto, PayableAfter, STATU
 use crate::business::erp::purchase_return_model::{
     self as model, ConfirmLinks, ItemRow, NewSupplierReceivable, ReturnRow,
 };
-use crate::business::erp::stockin_base::InventorySnapshot;
+use crate::business::erp::stockin::stockin_base::InventorySnapshot;
 use crate::business::erp::stockout_base;
 use crate::business::erp::stockout_model as stock_out;
 use crate::business::erp::voucher::{self, ACCOUNT_MAIN_COST, AccountRef, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO};

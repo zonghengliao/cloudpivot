@@ -747,10 +747,10 @@ impl PendingStockInRes {
             id: brief.id.to_string(),
             in_no: brief.in_no.clone(),
             status: brief.status.clone(),
-            status_label: crate::business::erp::stockin_model::status_label(&brief.status).to_string(),
+            status_label: crate::business::erp::stockin::stockin_model::status_label(&brief.status).to_string(),
             in_date: brief.in_date,
             total_qty: brief.total_qty,
-            posted: brief.status == crate::business::erp::stockin_model::STATUS_POSTED,
+            posted: brief.status == crate::business::erp::stockin::stockin_model::STATUS_POSTED,
         }
     }
 }

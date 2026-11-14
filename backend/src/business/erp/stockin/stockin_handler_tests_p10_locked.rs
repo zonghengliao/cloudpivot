@@ -12,7 +12,7 @@ use nik::prelude::*;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
-use crate::business::erp::stockin_dto::CreateStockInReq;
+use crate::business::erp::stockin::stockin_dto::CreateStockInReq;
 
 // ==================== P10（铁律 ③④）：入账后只读 + 采购单状态追溯 ====================
 /// ⑧ POSTED 收货单改金额 → 409，文案点「已入账」。
