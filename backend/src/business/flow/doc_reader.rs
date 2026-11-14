@@ -435,3 +435,12 @@ pub fn reset_for_tests() {
     let mut registry = write_registry();
     *registry = DocRegistry::new();
 }
+
+/// 进程级注册表的单测串行锁（**仅供单测**）。
+///
+/// 注册表是进程级单例：所有「reset + 注册 + 断言」的用例必须拿**同一把**锁。
+/// 实现分散在业务域（P2-33 起 `erp::doc_reader_impl_tests` 也会注册 16 个实现），
+/// 各测试模块各定义一份锁挡不住彼此 —— 断言会随执行顺序漂移（`dispatch_settled`
+/// 会看到别的用例注册的实现）。所以锁放在持有注册表的这个文件里，谁要动全局注册表都来拿它。
+#[cfg(test)]
+pub static GLOBAL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

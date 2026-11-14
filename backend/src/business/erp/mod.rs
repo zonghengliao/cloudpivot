@@ -134,6 +134,12 @@ pub mod depreciation;
 pub mod doc_pdf_model;
 /// PDF-04 起的渲染收尾共用件：HTML → 字节 + 文件名 + 行数 + 金额 + 耗时。
 pub mod doc_pdf_render;
+/// P2-33（P2-B 解环）：ERP 侧对 `flow::doc_reader::DocReader` 的 16 个实现 + 启动期注册。
+///
+/// 一条审批一个实现（`PO_APPROVE` / `STOCK_IN_POST` / …），三个方法全部**委派**给现有
+/// 各 `*_bridge`，只有 `doc_status` 是新写的表驱动查询。`flow` 侧只认注册表（P2-34 换调用点），
+/// 所以本模块是「解环」里**实现**那一半，`flow → erp` 的 99 行直连由 P2-34 摘。
+pub mod doc_reader_impl;
 /// E2E01-FIX-4：单据出参三段式口径（`header` / `items` / `meta`）的唯一定义处。
 pub mod doc_shape;
 /// E2E01-FIX-4 验收 ②：三个接口的新旧字段**同值**断言（序列化后逐字段比对）。
@@ -230,6 +236,11 @@ pub(crate) mod fixture_hygiene;
 /// P-FLOW-3B 的真库单测（应付作废 + 凭证红冲审批）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod pflow3b_tests;
+
+/// P2-33 的用例：16 个实现的契约 + 真库 `doc_status`（含报销单 `reporter_id` 的反证）。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod doc_reader_impl_tests;
 
 /// R-P1-2 的真库单测（业务提醒任务包：幂等 / 收件人 / 真机扫描）。只在 `cargo test` 时编译。
 #[cfg(test)]

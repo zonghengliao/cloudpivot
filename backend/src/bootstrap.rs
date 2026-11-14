@@ -25,6 +25,44 @@ use crate::shared::constants;
 use crate::system::role::model::SysRoleModel;
 use crate::system::user::model::{SysUserModel, SysUserRoleModel};
 
+/// P2-33（P2-B 解环）：把 ERP 的 16 个单据查询器注册进 `flow` 的进程级注册表。
+///
+/// # 为什么要在这里、而且要「失败即停」
+///
+/// 注册表是「启动期写、请求期读」的两阶段结构（见 `flow::doc_reader` 的模块注释）。
+/// 注册不全的后果是**静默的**：漏掉的那条审批线，内控闸会退化成放行
+/// （`guard_self_approval_of_code` 对未注册的业务类型返回 `Ok(())`），
+/// 终态回调也没人接 —— 单据会停在「审批已结束、单据没动」的中间态，
+/// 而没有任何待办能推进它（AGENTS.md 约定 11 的事故形态）。
+///
+/// 所以：
+/// - **prod 拒启动**（`exit(1)`，与 [`preflight_permission_guard`] / [`ai_agent_invariant_guard`]
+///   同一先例）；
+/// - 其它 profile **`panic`**：这是纯编程错误（重复注册 = 两个实现抢一个 `biz_type`），
+///   不依赖任何数据，开发机上必须立刻炸出来而不是「日志里有条 error」。
+///
+/// # 幂等性
+///
+/// 本函数**只允许调一次**（`bootstrap` 只跑一次）。重复调用会因注册表已有这些键而返回
+/// `Err` 并点名 —— 这正是想要的行为：二次注册说明有人把注册挪到了请求路径上。
+fn register_doc_readers() {
+    match crate::business::erp::doc_reader_impl::register_all() {
+        Ok(count) => tracing::info!(
+            count,
+            "ERP 单据查询器注册完成（P2-33）：flow 侧的终态扇出 / 内控闸 / 制单人查询改走注册表"
+        ),
+        Err(error) => {
+            let message = format!("ERP 单据查询器注册失败（注册表不完整）：{error}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            panic!("{message}");
+        }
+    }
+}
+
 /// 启动钩子：完成业务侧初始化并输出启动摘要。
 ///
 /// # 异常情况
@@ -56,6 +94,11 @@ pub async fn bootstrap() {
     // `information_schema` 确认登记表的部门列 / 归属列真实存在，并确认
     // `SUPER_ADMIN` 角色存在。它是**唯一**在「资源就绪、插件未启动」时执行的入口，
     // 因此把「部署即失败」的校验放在这里（与 `seed_super_admin` 的 prod `exit(1)` 先例一致）。
+    // 单据查询器注册（P2-33 · P2-B 解环）：`flow` 侧只认注册表，实现在 ERP 业务域里。
+    // 必须在 `tokio::join!` 之前、在这里同步做完：任何一次审批请求都可能读注册表
+    // （内控闸 / 终态扇出），带着半个注册表跑起来 = 随机几条审批线没有内控闸。
+    register_doc_readers();
+
     tokio::join!(
         async {
             seed_super_admin().await;

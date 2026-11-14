@@ -26,11 +26,10 @@ use cloudpivot_doc::{DocKind, FlowBizType};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::flow::doc_reader::{self, DocReader, DocRegistry, DocSnapshot};
+use crate::business::flow::doc_reader::{self, DocReader, DocRegistry, DocSnapshot, GLOBAL_LOCK};
 use crate::shared::error_code;
 
-/// 用例串行锁（改进程级注册表的用例必须排队，与 `edge_admin_tests::DB_LOCK` 同款）。
-static GLOBAL_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// 用例串行锁在 `doc_reader` 里（注册表的持有者）；`erp::doc_reader_impl_tests` 也拿同一把。
 
 // ==================== 假实现 ====================
 
