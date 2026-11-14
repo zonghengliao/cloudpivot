@@ -144,7 +144,7 @@ business/erp/stockin/stockin_tests.rs
 business/erp/stockout/stockout_cost_object_tests.rs
 business/erp/stockout/stockout_fifo_tests.rs
 business/erp/stockout/stockout_tests.rs
-business/erp/stocktake_tests.rs
+business/erp/stocktake/stocktake_tests.rs
 business/erp/transfer/transfer_handler_db_linkage_tests.rs
 business/erp/transfer/transfer_handler_db_tests_books.rs
 business/erp/transfer/transfer_handler_db_tests_create.rs

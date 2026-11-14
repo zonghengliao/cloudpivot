@@ -30,7 +30,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::stocktake_model::{self as model, STATUS_DRAFT, STATUS_PENDING_POST};
+use crate::business::erp::stocktake::stocktake_model::{self as model, STATUS_DRAFT, STATUS_PENDING_POST};
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
 use crate::business::shared::state_machine;

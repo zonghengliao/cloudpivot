@@ -40,7 +40,7 @@
 // 所以联动天然只跑一次；通知另有幂等键 `LNK:STOCK_TAKE:<状态>:<单据 id>` 兜底。
 // ============================================================================
 
-use crate::business::erp::stocktake_model::{self, StockTakeRow};
+use crate::business::erp::stocktake::stocktake_model::{self, StockTakeRow};
 use crate::business::flow::linkage;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self};

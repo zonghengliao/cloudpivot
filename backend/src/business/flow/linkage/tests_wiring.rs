@@ -535,7 +535,7 @@ fn payable_excluded_actions_are_routed_elsewhere() {
 /// 4. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
 #[test]
 fn stocktake_wires_generic_engine_and_excludes_inventory() {
-    let hook = include_str!("../../erp/stocktake_linkage.rs");
+    let hook = include_str!("../../erp/stocktake/stocktake_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "盘点单状态变更必须调用通用引擎（run_excluding）：否则 STOCK_TAKE 的联动规则配了不触发"
@@ -564,7 +564,7 @@ fn stocktake_wires_generic_engine_and_excludes_inventory() {
 
     // 两条状态变更路（过账 post_tx + 作废 cancel_tx）都要在事务内调 hook，
     // 且两个入口都要在 commit 之后 flush。
-    let handler = include_str!("../../erp/stocktake_handler.rs");
+    let handler = include_str!("../../erp/stocktake/stocktake_handler.rs");
     assert_eq!(
         handler.matches("stocktake_linkage::run_in_tx(").count(),
         2,

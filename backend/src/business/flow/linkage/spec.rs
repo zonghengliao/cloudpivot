@@ -592,7 +592,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("CANCELLED", "已作废"),
         ],
         wired: true,
-        wiring: "已接线：erp/stocktake_handler.rs::post_tx 第 ⑥ 步（过账 PENDING_POST → \
+        wiring: "已接线：erp/stocktake/stocktake_handler.rs::post_tx 第 ⑥ 步（过账 PENDING_POST → \
                  POSTED）与 cancel_tx 第 ③ 步（作废 → CANCELLED）调 \
                  stocktake_linkage::run_in_tx → 通用引擎 run_excluding(\
                  spec::STOCKTAKE_EXCLUDED_ACTIONS)（成本账 / 库位账 / 流水与差异凭证由 \
@@ -600,10 +600,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  post_stock_take / cancel_stock_take 调 run_deferred_after_commit → run_deferred",
         proofs: &[
             (
-                "src/business/erp/stocktake_linkage.rs",
+                "src/business/erp/stocktake/stocktake_linkage.rs",
                 "linkage::engine::run_excluding",
             ),
-            ("src/business/erp/stocktake_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/stocktake/stocktake_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1046,7 +1049,7 @@ pub const PURCHASE_RETURN_EXCLUDED_ACTIONS: &[&str] = &[
 
 /// **盘点单**的专用路由排除清单（LNK-04）。
 ///
-/// 盘点单的状态变更**自己落账**：`erp/stocktake_handler.rs::post_tx` 第 ③ 步按差异
+/// 盘点单的状态变更**自己落账**：`erp/stocktake/stocktake_handler.rs::post_tx` 第 ③ 步按差异
 /// 正负分别走 `apply_gain` / `apply_loss`（成本账 + 库位账 + 流水），第 ⑤ 步出
 /// 盘点差异凭证（借 1405 / 贷 1901 成对），作废时 `cancel_tx` 第 ④ 步原路回滚 + 红冲。
 /// 所以通用引擎在这个触发点上必须把这 3 类动作交给专用路径，否则就是**重复落账**：
@@ -1059,7 +1062,7 @@ pub const PURCHASE_RETURN_EXCLUDED_ACTIONS: &[&str] = &[
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：过账 / 作废后的通知与待办就靠通用引擎
 /// 的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::stocktake_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::stocktake::stocktake_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::stocktake_wires_generic_engine_and_excludes_inventory`。
 pub const STOCKTAKE_EXCLUDED_ACTIONS: &[&str] = &["WRITE_INVENTORY", "WRITE_INVENTORY_TXN", ACTION_GENERATE_VOUCHER];
@@ -2003,7 +2006,7 @@ mod tests {
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
             asset::asset_dto, contract::contract_model, expense::expense_dto, payable_query, purchase::purchase_model,
-            stocktake_model, voucher::voucher_query,
+            stocktake::stocktake_model, voucher::voucher_query,
         };
 
         fn doc_module_label(entity: &str, status: &str) -> Option<String> {

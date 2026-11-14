@@ -43,7 +43,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::doc_pdf_model;
 use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
-use crate::business::erp::stocktake_model::{self, StockTakeItemRow};
+use crate::business::erp::stocktake::stocktake_model::{self, StockTakeItemRow};
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
     self, OrderMetaField, StockTakeContext, StockTakeContextArgs, StockTakeItem, format_quantity,

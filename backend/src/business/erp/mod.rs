@@ -20,10 +20,10 @@
 //! | [`stockout::stockout_model`] | 出库单数据层（ARCH-3 DC-13）：取号 + 三本账**负向**（成本账 / 库位账 / 流水）+ 负库存闸 + 作废回滚 | **ARCH-3 P0** |
 //! | [`stockout::stockout_dto`] | 出库单出入参契约：建单 / 改单 / 状态流转（提交 / 过账 / 作废）/ 详情 / 分页 + 校验 | **ARCH-3 P0** |
 //! | [`stockout::stockout_handler`] | 出库单 6 个接口：建 / 改 / 删 / 状态流转 / 列表 / 详情 + 过账与作废的事务编排 | **ARCH-3 P0** |
-//! | [`stocktake_model`] | 盘点单数据层（ARCH-3 DC-14）：账面快照 + 差异三本账（盘盈走入库 / 盘亏走出库）+ 盘点差异凭证 + 作废回滚 | **ARCH-3 P1** |
-//! | [`stocktake_dto`] | 盘点单契约：建单（账面数服务端快照）/ 填实盘 / 提交审批 / 过账 / 作废 / 详情 / 分页 | **ARCH-3 P1** |
-//! | [`stocktake_handler`] | 盘点单 6 个接口 + 过账 / 作废事务编排 + 审批发起（`stock_take_post`） | **ARCH-3 P1** |
-//! | [`stocktake_bridge`] | 盘点**审批**的业务回调（驳回 → 回草稿）+ 内控闸 + 反向兜底 | **ARCH-3 P1** |
+//! | [`stocktake::stocktake_model`] | 盘点单数据层（ARCH-3 DC-14）：账面快照 + 差异三本账（盘盈走入库 / 盘亏走出库）+ 盘点差异凭证 + 作废回滚 | **ARCH-3 P1** |
+//! | [`stocktake::stocktake_dto`] | 盘点单契约：建单（账面数服务端快照）/ 填实盘 / 提交审批 / 过账 / 作废 / 详情 / 分页 | **ARCH-3 P1** |
+//! | [`stocktake::stocktake_handler`] | 盘点单 6 个接口 + 过账 / 作废事务编排 + 审批发起（`stock_take_post`） | **ARCH-3 P1** |
+//! | [`stocktake::stocktake_bridge`] | 盘点**审批**的业务回调（驳回 → 回草稿）+ 内控闸 + 反向兜底 | **ARCH-3 P1** |
 //! | [`purchase::purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
@@ -224,10 +224,7 @@ pub mod stock_pdf;
 pub mod stock_take_pdf;
 pub mod stockin;
 pub mod stockout;
-pub mod stocktake_bridge;
-pub mod stocktake_dto;
-pub mod stocktake_handler;
-pub mod stocktake_model;
+pub mod stocktake;
 pub mod tax_rate;
 pub mod transfer;
 pub mod unit_guard;
@@ -243,8 +240,6 @@ mod lot_db_tests;
 // 公开 API 由 `model` / `stockin::stockin_model` 两个 facade 用
 // `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
-#[cfg(test)]
-pub mod stocktake_tests; // 盘点单用例（纯逻辑 + 真库：盘盈 / 盘亏 / 无差异 / 作废回滚 / 审批流 / 负库存）
 
 mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
 mod model_inventory; // 库存台账只读

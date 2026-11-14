@@ -40,7 +40,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::inventory_writer::{self, TxnRecord};
+use super::super::inventory_writer::{self, TxnRecord};
 use crate::business::erp::stockin::stockin_base::{CostBasis, InventorySnapshot};
 use crate::business::erp::{stockin::stockin_cancel, stockin::stockin_write, stockout::stockout_model, voucher};
 use crate::business::shared::scope;
