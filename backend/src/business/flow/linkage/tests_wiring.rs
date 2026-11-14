@@ -1165,7 +1165,7 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
 /// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
 #[test]
 fn depreciation_wires_generic_engine_and_excludes_voucher() {
-    let hook = include_str!("../../erp/depreciation_linkage.rs");
+    let hook = include_str!("../../erp/depreciation/depreciation_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "折旧批次状态变更必须调用通用引擎（run_excluding）：否则 DEPRECIATION 的联动规则配了不触发"
@@ -1194,7 +1194,7 @@ fn depreciation_wires_generic_engine_and_excludes_voucher() {
     }
 
     // 两处真实状态推进：① 过账（run_batch ⑤ 步）② 红冲（reverse_batch ⑥ 步）
-    let model = include_str!("../../erp/depreciation_model.rs");
+    let model = include_str!("../../erp/depreciation/depreciation_model.rs");
     assert_eq!(
         model.matches("depreciation_linkage::run_in_tx(").count(),
         2,

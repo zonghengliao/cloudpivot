@@ -109,8 +109,8 @@ business/erp/cost/cost_settle_finish_db_tests.rs
 business/erp/cost/cost_settle_run_db_tests.rs
 business/erp/cost/cost_settle_voucher_db_tests.rs
 business/erp/cost/cost_uncollected_db_tests.rs
-business/erp/depreciation_dept_tests.rs
-business/erp/depreciation_linkage_tests.rs
+business/erp/depreciation/depreciation_dept_tests.rs
+business/erp/depreciation/depreciation_linkage_tests.rs
 business/erp/doc_shape_tests.rs
 business/erp/expense/expense_linkage_tests.rs
 business/erp/expense/expense_model_tests.rs

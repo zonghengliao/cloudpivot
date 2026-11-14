@@ -653,13 +653,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("SKIPPED", "已跳过"),
         ],
         wired: true,
-        wiring: "已接线（两处真实状态推进）：① 过账 — erp/depreciation_model.rs::run_batch \
+        wiring: "已接线（两处真实状态推进）：① 过账 — erp/depreciation/depreciation_model.rs::run_batch \
                  第 ⑤ 步（明细 + 多借方凭证 + 回写卡片 + 批次 CAS CALCULATED → POSTED 之后、\
                  commit 之前）调 depreciation_linkage::run_in_tx → 通用引擎 \
                  run_excluding(spec::DEPRECIATION_EXCLUDED_ACTIONS)（计提凭证由本函数第 ④ 步 \
                  voucher_multi::post_multi_debit 出，GENERATE_VOUCHER 必须排除；红冲凭证由 \
                  reverse_batch 的 voucher::reverse_posted 做，REVERSE_VOUCHER 一并排除）；\
-                 ② 红冲 — erp/depreciation_model.rs::reverse_batch 第 ⑤ 步（红字凭证 + 明细 \
+                 ② 红冲 — erp/depreciation/depreciation_model.rs::reverse_batch 第 ⑤ 步（红字凭证 + 明细 \
                  REVERSED + 卡片回滚 + 批次 CAS POSTED → REVERSED 之后）调同一个 hook；\
                  两处都在各自事务 commit 之后调 depreciation_linkage::run_deferred_after_commit \
                  → linkage::engine::run_deferred（批次是大批量长事务，通知必须在 commit 后发）。\
@@ -668,11 +668,11 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  一次计提会发两条），SKIPPED 是合法空跑（0 台 / 0 金额 / 不出凭证），两者都不接",
         proofs: &[
             (
-                "src/business/erp/depreciation_linkage.rs",
+                "src/business/erp/depreciation/depreciation_linkage.rs",
                 "linkage::engine::run_excluding",
             ),
             (
-                "src/business/erp/depreciation_linkage.rs",
+                "src/business/erp/depreciation/depreciation_linkage.rs",
                 "linkage::engine::run_deferred",
             ),
         ],
@@ -1175,7 +1175,7 @@ pub const FIXED_ASSET_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "RE
 
 /// **折旧批次**（`DEPRECIATION`）的专用路由排除清单（LNK-10）。
 ///
-/// 折旧批次的计提事务（`erp/depreciation_model.rs::run_batch` 第 ④ 步）自己就落了账：
+/// 折旧批次的计提事务（`erp/depreciation/depreciation_model.rs::run_batch` 第 ④ 步）自己就落了账：
 /// `voucher_multi::post_multi_debit` 出一张多借方凭证（借 费用科目×N + 贷 1602 汇总），
 /// 红冲走 `voucher::reverse_posted` 原路红字。通用引擎在同一触发点上再跑一次就是
 /// **重复落账**：
@@ -1193,7 +1193,7 @@ pub const FIXED_ASSET_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "RE
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：过账 / 红冲之后的「通知财务」与
 /// 「建对账待办」就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::depreciation_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::depreciation::depreciation_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑凭证动作。
 /// 漂移守卫：`tests_wiring::depreciation_wires_generic_engine_and_excludes_voucher`。
 pub const DEPRECIATION_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];

@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::depreciation_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::depreciation::depreciation_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「过账触发 / 大批量通知只发一次 / 重复过账不重复触发 / 排除动作不跑」逐条对应）
@@ -33,10 +33,10 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::asset::asset_dto::{self, CreateAssetReq};
-use super::asset::asset_model::{self, AssetInsert};
 use super::depreciation_linkage;
 use super::depreciation_model;
+use crate::business::erp::asset::asset_dto::{self, CreateAssetReq};
+use crate::business::erp::asset::asset_model::{self, AssetInsert};
 use crate::business::erp::period::period_test_support as support;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
@@ -161,7 +161,7 @@ async fn setup() -> Option<(tokio::sync::MutexGuard<'static, ()>, Uuid)> {
 
 /// 开一期（`2047-MM`，OPEN）并返回期间编码。
 async fn open_month(month: i16) -> String {
-    let row = super::period::open_period(YEAR, month, Some("LNK-10 夹具"), support::operator())
+    let row = crate::business::erp::period::open_period(YEAR, month, Some("LNK-10 夹具"), support::operator())
         .await
         .unwrap_or_else(|error| panic!("开账失败（{YEAR}-{month:02}）：{}", error.msg));
     assert_eq!(row.period_code, format!("{YEAR}-{month:02}"), "期间编码");
@@ -243,7 +243,9 @@ async fn make_asset(creator: Uuid, name: &str) -> (Uuid, String) {
             monthly_depreciation: monthly,
             useful_life_months: category.useful_life_months,
             salvage_rate: category.salvage_rate,
-            start_depreciation_date: super::asset::asset_compute::start_depreciation_date(purchase_date()),
+            start_depreciation_date: crate::business::erp::asset::asset_compute::start_depreciation_date(
+                purchase_date(),
+            ),
             operator: Some(creator),
         },
     )

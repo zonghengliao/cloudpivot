@@ -49,7 +49,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::asset::asset_compute::{self, DepreciationCard};
 use crate::business::erp::asset::asset_dto::{self, DepRunKind, DepRunOutcome, STATUS_DISPOSED};
 use crate::business::erp::asset::asset_model::{self, DepBatchRow, DepDetailRow, DepInsert};
-use crate::business::erp::depreciation_linkage;
+use crate::business::erp::depreciation::depreciation_linkage;
 use crate::business::erp::voucher;
 use crate::business::erp::voucher::voucher_multi;
 use crate::business::shared::state_machine;

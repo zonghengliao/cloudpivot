@@ -52,9 +52,9 @@
 //! | [`asset::asset_model`] | 固资数据层（V0229/V0230）：分类 / 卡片 / 变动留痕（append-only）/ 折旧批次与明细 + 扫描 SQL | **FIN-2** |
 //! | [`asset::asset_handler`] | 固资 14 个接口：分类 CRUD、建卡（含购入凭证）、转移 / 变更使用人、处置提交 / 作废、详情 | **FIN-2** |
 //! | [`asset::asset_bridge`] | 资产**处置审批**的业务回调（通过 → 处置凭证 + 卡片 DISPOSED + 留痕）+ 内控闸 | **FIN-2** |
-//! | [`depreciation_model`] | 折旧计提（期间闸 / 幂等闸 / 扫描 / 按部门多借方凭证 / 回写卡片）+ 红冲 + 定时任务 | **FIN-2** |
-//! | [`depreciation_handler`] | 折旧 4 个接口：批次分页 / 详情 / 手动计提 / 红冲 | **FIN-2** |
-//! | [`depreciation_linkage`] | 折旧批次的**唯一**联动接线（LNK-10）：过账 / 红冲两处 `run_in_tx` + commit 后 `run_deferred_after_commit`，排除凭证类动作 | **LNK-10** |
+//! | [`depreciation::depreciation_model`] | 折旧计提（期间闸 / 幂等闸 / 扫描 / 按部门多借方凭证 / 回写卡片）+ 红冲 + 定时任务 | **FIN-2** |
+//! | [`depreciation::depreciation_handler`] | 折旧 4 个接口：批次分页 / 详情 / 手动计提 / 红冲 | **FIN-2** |
+//! | [`depreciation::depreciation_linkage`] | 折旧批次的**唯一**联动接线（LNK-10）：过账 / 红冲两处 `run_in_tx` + commit 后 `run_deferred_after_commit`，排除凭证类动作 | **LNK-10** |
 //! | [`expense::expense_compute`] | 报销**纯计算**（ARCH-6 §4.5）：价税拆分 / 汇总 / 凭证行 / 金额分级（不碰库） | **FIN-3** |
 //! | [`expense::expense_dto`] | 报销契约：费用类型 / 报销单 / 明细 / 付款 / 作废的入参与校验 | **FIN-3** |
 //! | [`expense::expense_model`] | 报销数据层（V0242）：类型 / 单据 / 明细（整体重建）/ 付款记录 + 行锁 | **FIN-3** |
@@ -130,17 +130,7 @@ pub mod currency_admin_handler;
 pub mod currency_admin_model;
 pub mod customer_handler;
 pub mod customer_model;
-/// E2E05-FIX-1：补提历史折旧按「期间归属部门」记费用（转移留痕还原）的真库用例。
-#[cfg(test)]
-mod depreciation_dept_tests;
-pub mod depreciation_handler;
-/// LNK-10 的**唯一**联动接线（过账 / 红冲两条路共用 `depreciation_model::run_batch` /
-/// `reverse_batch` 内部的 `run_in_tx` / `run_deferred_after_commit`）。
-///
-/// `pub(crate)` 而不是私有：两个宿主函数都在 `depreciation_model` 里，但真库用例
-/// （`depreciation_linkage_tests`）也要够得着同一份上下文口径。
-pub(crate) mod depreciation_linkage;
-pub mod depreciation_model;
+pub mod depreciation;
 /// PDF-03 起的公共数据访问层：库位 / 仓库 / 供应商 / 客户补名 + 序列号 + 导出审计。
 pub mod doc_pdf_model;
 /// PDF-04 起的渲染收尾共用件：HTML → 字节 + 文件名 + 行数 + 金额 + 耗时。
@@ -241,11 +231,6 @@ mod model_order; // 采购订单只读（头 + 明细）
 /// 只在 `cargo test` 时编译。
 #[cfg(test)]
 mod cancel_cascade_tests;
-
-/// LNK-10 的真库单测（折旧批次联动接线：过账触发一次、大批量只发一条（聚合）、
-/// 重复计提不重复触发、红冲触发、排除动作确实不跑）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod depreciation_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

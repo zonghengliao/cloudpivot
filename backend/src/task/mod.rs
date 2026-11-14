@@ -302,7 +302,7 @@ impl Scheduler {
         crate::business::erp::payable::payable_bridge::register_cancel_builtin(self);
         crate::business::erp::voucher::voucher_bridge::register_builtin(self);
         // FIN-2：折旧计提（每月 1 日 01:30 计提上一个会计月的折旧）
-        crate::business::erp::depreciation_model::register_builtin(self);
+        crate::business::erp::depreciation::depreciation_model::register_builtin(self);
         // SO-38 / ARCH-7 §15.5：客户信用额度兜底重算（每天 02:10，早于 02:20 的
         // 账务不变量巡检 —— 先修正再巡检：巡检还红就说明今晚真没修成）。
         crate::business::erp::credit::register_builtin(self);

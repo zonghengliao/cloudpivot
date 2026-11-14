@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::depreciation_dept_tests -- --test-threads=1
+//!   cargo test --lib business::erp::depreciation::depreciation_dept_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面验收 ①~⑤ 逐条对应）
@@ -32,11 +32,11 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::asset::asset_dto::{self, CreateAssetReq};
-use super::asset::asset_handler;
-use super::asset::asset_model::{self, AssetInsert};
 use super::depreciation_model;
-use super::ledger;
+use crate::business::erp::asset::asset_dto::{self, CreateAssetReq};
+use crate::business::erp::asset::asset_handler;
+use crate::business::erp::asset::asset_model::{self, AssetInsert};
+use crate::business::erp::ledger;
 use crate::business::erp::period::period_test_support as support;
 
 /// 本文件独占的期间年度（见文件头）。
@@ -241,7 +241,7 @@ async fn make_asset(creator: Uuid, dept: Uuid, name: &str, purchase: NaiveDate) 
             monthly_depreciation: monthly,
             useful_life_months: category.useful_life_months,
             salvage_rate: category.salvage_rate,
-            start_depreciation_date: super::asset::asset_compute::start_depreciation_date(purchase),
+            start_depreciation_date: crate::business::erp::asset::asset_compute::start_depreciation_date(purchase),
             operator: Some(creator),
         },
     )
@@ -279,7 +279,7 @@ async fn transfer(asset_id: Uuid, to_dept: Uuid, when: NaiveDate, user: Uuid) {
 
 /// 开一期（`2048-MM`，OPEN）并返回期间编码。
 async fn open_month(month: i16) -> String {
-    let row = super::period::open_period(YEAR, month, Some("E2E05-FIX-1 夹具"), support::operator())
+    let row = crate::business::erp::period::open_period(YEAR, month, Some("E2E05-FIX-1 夹具"), support::operator())
         .await
         .unwrap_or_else(|error| panic!("开账失败（{YEAR}-{month:02}）：{}", error.msg));
     assert_eq!(row.period_code, format!("{YEAR}-{month:02}"), "期间编码");

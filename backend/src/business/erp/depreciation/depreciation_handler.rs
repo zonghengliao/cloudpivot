@@ -10,7 +10,7 @@
 //! # 手动与定时是**同一个** `run_batch`
 //!
 //! 定时任务（`erp_depreciation_run`，每月 1 日 01:30）走的也是
-//! [`crate::business::erp::depreciation_model::run_scheduled`] → `run_batch`，
+//! [`crate::business::erp::depreciation::depreciation_model::run_scheduled`] → `run_batch`，
 //! 只有「谁来点这个按钮」不同。两条路径分叉过一次就会有「定时提的和手动提的不一样」，
 //! 这类问题在财务系统里是灾难（对账永远差一点点）。
 
@@ -22,7 +22,7 @@ use crate::business::erp::asset::asset_dto::{
     DepBatchDetailRes, DepBatchFilter, DepBatchRes, ReverseDepreciationReq, RunDepreciationReq, RunDepreciationRes,
     normalize_page, parse_uuid_text,
 };
-use crate::business::erp::depreciation_model;
+use crate::business::erp::depreciation::depreciation_model;
 use crate::shared::error_code;
 use crate::utils;
 
