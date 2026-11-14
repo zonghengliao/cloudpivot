@@ -23,8 +23,8 @@
 //!
 //! `EMP` 是**人事档案码**（ARCH-9-2 D-15）：`date_pattern='none'`、`period_key='GLOBAL'`
 //! ⇒ 流水**永久不重置**（按日/按月重置会让工号每天从 0001 重发，必然撞
-//! `uk_biz_employee_no`）。号段行由 `V0386__hr_seq_dict` 种入，取号入口是
-//! [`crate::business::hr::employee_no`]。
+//! `uk_biz_employee_no`）。号段行由 `V0386__hr_seq_dict` 种入；取号入口在 HR 侧
+//! （P2-35 起跨域读员工只走 `employee_reader` 接缝，本模块的号段是被调用方）。
 //!
 //! **计量单位不自动**（用户明确）：`PCS/KG/M` 是行业标准码，自动生成反而看不懂。
 //!

@@ -184,6 +184,20 @@ pub mod employee_no;
 /// 回滚不耗号 / 撞号顺延。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod employee_no_db_tests;
+/// 员工基础信息的**只读查询接缝**（P2-35 · P2-B 解环）：`EmployeeReader` trait +
+/// 进程级注册表。跨域（`erp` 的工时台账 / 导入校验）读员工只走这里，
+/// 不再对 `biz_employee` 写自己的 SQL。
+pub mod employee_reader;
+/// P2-35 的真库用例（`HR_DB_URL` / `ERP_DB_URL` 开关）：按 id / 按工号批量、软删过滤、
+/// 跨 `IN_CHUNK` 的确定性全序、探针、注册表路径与实现同源。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_reader_db_tests;
+/// [`employee_reader::EmployeeReader`] 的 HR 侧实现（`biz_employee` 的跨域只读 SQL 出口）。
+pub mod employee_reader_impl;
+/// 接缝的离线用例（注册表语义 / 未安装降级 / 接缝零业务域依赖 / `erp` 直连燃烧率闸门）。
+/// 不连库，`cargo test --lib business::hr::employee_reader` 即可。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod employee_reader_tests;
 /// 「从登录账号批量生成员工档」（设计 §5.2 #10 `seed-from-users`）：dry-run 预览 +
 /// 逐条事务落库 + `user_id` 回写（HR-17）。
 pub mod employee_seed;

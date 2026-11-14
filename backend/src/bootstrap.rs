@@ -92,6 +92,32 @@ fn register_doc_readers() {
     }
 }
 
+/// P2-35（P2-B 解环）：把 HR 的「员工只读查询器」装进 `hr::employee_reader` 的注册表。
+///
+/// # 为什么在启动期同步做、失败了为什么不能继续
+///
+/// 消费方（`erp/cost/cost_labor_*`，P2-36 切换）读员工基础信息**只认这个注册表**。
+/// 漏安装的后果是**静默的**：`employees_by_emp_nos` 对未安装状态返回 `Ok(vec![])`
+/// （见 `employee_reader` 模块注释「没装 reader 时是什么语义」），于是工时导入会把
+/// **每一行**都报成「员工工号不存在」—— 界面上是数据问题，根因是启动链少了一步。
+///
+/// 所以口径与 [`register_doc_readers`] / [`register_flow_hooks`] 一致：
+/// prod `exit(1)`、其它 profile `panic`（重复安装是纯编程错误，不依赖任何数据）。
+fn register_hr_employee_reader() {
+    match crate::business::hr::employee_reader_impl::install() {
+        Ok(()) => tracing::info!("HR 员工只读查询器安装完成（P2-35）：跨域读 biz_employee 改走 employee_reader 注册表"),
+        Err(error) => {
+            let message = format!("HR 员工只读查询器安装失败（注册表不完整）：{error}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            panic!("{message}");
+        }
+    }
+}
+
 /// 启动钩子：完成业务侧初始化并输出启动摘要。
 ///
 /// # 异常情况
@@ -130,6 +156,9 @@ pub async fn bootstrap() {
     // 审批终态订阅者（P2-34）：`flow` 在结论落库后扇出，实现在 ERP 业务域里注册进来。
     // 同样必须在 `tokio::join!` 之前同步做完 —— 漏注册 = 联动规则永远不触发且没有报错。
     register_flow_hooks();
+    // 员工只读查询器（P2-35 · P2-B 解环）：跨域读 `biz_employee` 只认这张注册表，
+    // 实现在 HR 业务域里。同样同步做完：漏装 = 消费方把「查不到人」当成数据问题。
+    register_hr_employee_reader();
 
     tokio::join!(
         async {

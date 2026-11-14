@@ -183,6 +183,8 @@ business/hr/employee_dto_db_tests.rs
 business/hr/employee_handler_db_tests.rs
 business/hr/employee_model_db_tests.rs
 business/hr/employee_no_db_tests.rs
+business/hr/employee_reader_db_tests.rs
+business/hr/employee_reader_tests.rs
 business/hr/employee_seed_db_tests.rs
 business/hr/employee_sensitive_db_tests.rs
 business/hr/fixture_hygiene.rs
