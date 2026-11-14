@@ -77,7 +77,7 @@
 //! # 与其它模块的边界
 //!
 //! - **词表**：`DocKind` / `FlowBizType` / `VoucherSourceType` 已在 HR-06 扩好，
-//!   本模块**只引用不新增**；要加新值走 `business/shared/doc_kind.rs`（那是全仓唯一的词表）。
+//!   本模块**只引用不新增**；要加新值走 `crates/cloudpivot-doc/src/lib.rs`（那是全仓唯一的词表）。
 //! - **状态机**：`business/shared/state_machine.rs`（HR-08 补 5 个 `Entity` 与边表）。
 //! - **审批流**：4 套流程 `hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`
 //!   由 HR-26 / HR-38 的迁移种进 `biz_flow_def`；回调按 `flow::linkage` 的桥接写法

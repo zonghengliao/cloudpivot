@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""路径引用门禁：脚本 / 钩子 / CI 里写死的源码路径必须真实存在。
+"""路径引用门禁：脚本 / 钩子 / CI / 会读源码的测试里写死的源码路径必须真实存在。
 
 ## 为什么有这道闸
 
@@ -15,8 +15,13 @@
 
 ## 判据
 
-1. 范围：**会执行的**脚本 —— `scripts/**`、`.githooks/**`、`.github/**`，
-   扩展名 `.sh/.bash/.py/.mjs/.js/.json`（`*.txt`/`*.md` 是证据快照与说明，不判）。
+1. 范围：**会执行的**脚本与**会读源码的测试** —— `scripts/**`、`.githooks/**`、`.github/**`、
+   `frontend/tests/**`、`backend/tests/**`，扩展名 `.sh/.bash/.py/.mjs/.js/.json/.ts/.rs`
+   （`*.txt`/`*.md` 是证据快照与说明，不判）。
+   `frontend/tests` 与 `backend/tests` 是 2026-11-15（P2-27）补进来的：那里的用例用
+   `readFileSync` / `include_str!` 直接读后端源码做「逐字对齐」，路径写错同样只是 ENOENT 或
+   空断言 —— ERP 拆目录后就有 11 个后端路径在 9 个前端用例里失效（22 处），
+   而 `pnpm test:unit` 不在这道闸里，没人看得见。判据不变，只是把「会读源码的地方」补齐。
 2. 归一化：`$SRC` / `${SRC}` → `backend/src`，`$REPO/` → ``（脚本里拼路径的常见写法）。
    归一化后含变量的片段（如 `$f`）跳过，不做臆测。
 3. 匹配：`backend/src/**/*.rs`、`frontend/src/**/*.{ts,vue,js,mjs}`。
@@ -39,8 +44,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-SCAN_ROOTS = ("scripts", ".githooks", ".github")
-SCAN_EXTS = (".sh", ".bash", ".py", ".mjs", ".js", ".json")
+SCAN_ROOTS = ("scripts", ".githooks", ".github", "frontend/tests", "backend/tests")
+SCAN_EXTS = (".sh", ".bash", ".py", ".mjs", ".js", ".json", ".ts", ".rs")
 
 # 引用形态 ①：带前缀的绝对（仓库相对）路径
 REF_RE = re.compile(
@@ -143,7 +148,7 @@ def run(root: Path) -> int:
     failures = scan(root, ALLOW_LIST)
 
     print("=" * 92)
-    print("路径引用门禁：脚本 / 钩子 / CI 里写死的源码路径必须真实存在")
+    print("路径引用门禁：脚本 / 钩子 / CI / 测试里写死的源码路径必须真实存在")
     print("=" * 92)
 
     if allow_errors:
@@ -251,6 +256,30 @@ def self_test() -> int:
             True,
             "没有理由的白名单等于永久豁免",
         ),
+        (
+            "前端用例里读后端源码的旧路径 → 红",
+            {"frontend/tests/unit/x.test.ts": "readFileSync(new URL('../../../backend/src/business/erp/gone_model.rs'))\n"},
+            {},
+            {},
+            True,
+            "frontend/tests 用 readFileSync 读后端源码做逐字对齐，路径搬了只会 ENOENT/空断言（P2-27 现场）",
+        ),
+        (
+            "集成测试里 `src/` 相对裸路径（含 .rs 扩展名）同样判",
+            {"backend/tests/x.rs": "let p = \"business/erp/gone_v2.rs\";\n"},
+            {},
+            {},
+            True,
+            "backend/tests 是 .rs，扫不到就等于漏掉一整类（同一套裸路径判据必须覆盖）",
+        ),
+        (
+            "前端用例引用存在的后端源码 → 绿",
+            {"frontend/tests/unit/y.test.ts": "readFileSync(new URL('../../../backend/src/business/erp/kept_model.rs'))\n"},
+            {"backend/src/business/erp/kept_model.rs": ""},
+            {},
+            False,
+            "别把正常的逐字对齐用例判红",
+        ),
     ]
 
     bad = 0
@@ -286,7 +315,7 @@ def self_test() -> int:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="脚本/钩子/CI 里的硬编码源码路径必须真实存在")
+    ap = argparse.ArgumentParser(description="脚本/钩子/CI/测试里的硬编码源码路径必须真实存在")
     ap.add_argument("--root", default=".", help="仓库根目录（默认当前目录）")
     ap.add_argument("--self-test", "--selftest", dest="self_test",
                     action="store_true", help="跑判据自检（红/绿语料），不检查真仓库")

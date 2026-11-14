@@ -12,6 +12,7 @@
 |---|---|
 | `AGENTS-hr50.diff` | ✅ **已应用**（`8e299227`，`laoliu` 于 14:51→15:18 应用，文件已随该提交删除） |
 | `AGENTS-hr50-count.diff` | ⏳ **待应用**（2 处计数：`ROUTE_CONTRACT` 50 → 51） |
+| `AGENTS-doc-crate.diff` | ⏳ **待应用**（P2-27：目录块补 `backend/crates/cloudpivot-doc/`；约定 3「依赖铁律」补「仓库内自建 crate 可 path 依赖、方向必须单向」例外） |
 
 ### `AGENTS-hr50.diff` 已落地了什么（留档，便于回溯）
 

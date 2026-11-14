@@ -4,7 +4,8 @@
 #   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
-#                                       / cargo check / pnpm typecheck / pnpm typecheck:unit
+#                                       / cargo check / 词表 crate（cloudpivot-doc）的 fmt+clippy
+#                                       / pnpm typecheck / pnpm typecheck:unit
 #   L2  连库与存量档（分钟级，需库）   ：闸⓪真库用例（CHECK_WITH_DB=1）/ 批次B 闸①闸②
 #                                       / 闸③ERP不变量 / 闸④词表 / 闸⑤快照 / 闸⑥死权限码 / 闸⑦孤儿按钮
 #   L3  干净检出闸（≈15 秒）          ：`git archive HEAD` 提取干净树 → 跑 lib 单测
@@ -82,6 +83,7 @@ plan_all() {
         plan L1 "后端格式" "cd backend && cargo fmt -- --check"
         plan L1 "后端 lint（lib+bin+tests+examples，告警即错）" "cd backend && cargo clippy --all-targets -- -D warnings"
         plan L1 "后端类型检查" "cd backend && cargo check"
+        plan L1 "词表 crate 格式+lint（cloudpivot-doc，不进 workspace）" "cd backend/crates/cloudpivot-doc && cargo fmt -- --check && cargo clippy -- -D warnings"
         if [ -d "$ROOT/frontend/node_modules" ]; then
             plan L1 "前端类型检查（src/**）" "cd frontend && pnpm typecheck"
             plan L1 "前端类型检查（tests/unit/**，tsconfig.unit.json）" "cd frontend && pnpm typecheck:unit"
@@ -136,6 +138,13 @@ run_l1() {
 
     echo "==> L1 后端：cargo check"
     (cd "$ROOT/backend" && cargo check)
+
+    # 词表 crate（cloudpivot-doc，P2-27）：它是 backend 的 path 依赖，但**不在 workspace 里**
+    # （workspace 骨架是 P2-C / P2-40 的活），所以上面三条 `cargo fmt / clippy / check` 都扫不到它 ——
+    # 依赖被编译 ≠ 它自己的格式和 lint 被检查。这里单独补一档，否则这个 crate 从落地第一天起
+    # 就没人管格式（而 pre-commit 的 rustfmt 只查暂存文件，改完后再提交才可能漏）。
+    echo "==> L1 词表 crate：cargo fmt -- --check && cargo clippy -- -D warnings（backend/crates/cloudpivot-doc）"
+    (cd "$ROOT/backend/crates/cloudpivot-doc" && cargo fmt -- --check && cargo clippy -- -D warnings)
 
     echo "==> L1 前端：pnpm typecheck（src/**）"
     # 干净克隆里没有 node_modules（.gitignore）；这时跳过而不是判红，
@@ -725,7 +734,7 @@ fi
 # 闸④ 业务类型词表值域（P2-5 / ARCH-3 §5 DC-21）
 #
 # 为什么是硬门禁：词表漂移不会报错 —— 落一个新 `biz_type` 字面量，报表按类型分组就多一行、
-# 巡检按类型 JOIN 就漏一类。唯一真相是 `backend/src/business/shared/doc_kind.rs` 的
+# 巡检按类型 JOIN 就漏一类。唯一真相是 `backend/crates/cloudpivot-doc/src/lib.rs` 的
 # `COLUMN_DOMAINS`，本闸就是「拿词表去查库」。E2E 残留（`E2E_*` / `D2_SMOKE`）用 --strict 判红。
 #
 # 开关：`BIZ_VOCAB_GATE` = block（默认）/ warn / off

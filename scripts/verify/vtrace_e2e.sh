@@ -14,7 +14,7 @@
 # 卡面（VTRACE-6 body）列的 PURCHASE / RETURN / EXPENSE **不是** `biz_voucher.source_type`
 # 的取值（它们是 `biz_material_lot.source_type`、成本归集来源等别的轴上的词，对照表见
 # `frontend/src/views/business/erp/shared/source-route.ts` 文件头与
-# `backend/src/business/shared/doc_kind.rs` 的 `VoucherSourceType`）。本脚本按「业务单据 →
+# `backend/crates/cloudpivot-doc/src/lib.rs` 的 `VoucherSourceType`）。本脚本按「业务单据 →
 # 凭证来源」的确定映射取最贴近的真实值，**不跳类型**：
 #
 #   | 卡面词        | 真实 source_type | 业务单据 / 生成路径                              |

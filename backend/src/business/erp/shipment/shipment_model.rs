@@ -23,7 +23,7 @@
 //! ## 为什么不登记 `LEGAL_EDGES`（与 SO-04 的分工一致）
 //!
 //! 单据状态机的唯一真相在 `business/shared/state_machine.rs`；新增实体要先在
-//! `shared/doc_kind.rs` 的 `DocKind` 加枚举值（被闸④ `biz_type_domain.py` 与前端 TS 常量表
+//! `crates/cloudpivot-doc/src/lib.rs` 的 `DocKind` 加枚举值（被闸④ `biz_type_domain.py` 与前端 TS 常量表
 //! 逐字比对）。SO-04（销售订单建表卡）同样没在本卡登记 `DocKind::SaleOrder`，
 //! 而是 SO-05 落 API 时登记。本卡沿用这条分工：**SO-09 登记 `DocKind::Shipment` +
 //! `SHIPMENT_EDGES`（4 条边：DRAFT→PENDING_POST→POSTED、DRAFT/PENDING_POST→CANCELLED）**，

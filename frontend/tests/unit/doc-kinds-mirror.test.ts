@@ -32,7 +32,7 @@ import {
 
 /** 读后端 `doc_kind.rs` 全文。 */
 function rustSource(): string {
-  return readFileSync(new URL('../../../backend/src/business/shared/doc_kind.rs', import.meta.url), 'utf8');
+  return readFileSync(new URL('../../../backend/crates/cloudpivot-doc/src/lib.rs', import.meta.url), 'utf8');
 }
 
 /** 取 `impl <Type>` 块里某个 `pub const fn ...` 的 match 体（到第一个 4 空格缩进的 `}` 为止）。 */

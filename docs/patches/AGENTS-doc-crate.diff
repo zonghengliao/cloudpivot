@@ -1,0 +1,31 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -15,12 +15,15 @@
+ 
+ ## 目录
+ ```
+-backend/src/
+-  system/   support/      # 底座两个容器：每模块 mod+handler+dto+model（不设 service 层）
+-  business/               # 二开业务容器（与上面平级，不侵入底座）：erp / flow / task / impexp / im / pdf / hr …
++backend/
++  crates/cloudpivot-doc/  # 业务类型词表 crate（七根轴唯一真相 · 零依赖 · P2-27）
++                          #   `cargo tree -p cloudpivot-doc` 只有它自己：反向依赖它就是重新造环
++  src/
++    system/   support/    # 底座两个容器：每模块 mod+handler+dto+model（不设 service 层）
++    business/             # 二开业务容器（与上面平级，不侵入底座）：erp / flow / task / impexp / im / pdf / hr …
+                           #   同样四件套；HR 见下方「人力资源模块（HR）口径」
+-  middleware/ task/ utils/ shared/ bootstrap.rs
+-  lib.rs                    # 启动链 App::new()?...scan().start()
++    middleware/ task/ utils/ shared/ bootstrap.rs
++    lib.rs                # 启动链 App::new()?...scan().start()
+ frontend/src/
+   api/{system,support,business}/   views/{system,support,business}/
+   router/index.ts  stores/  layouts/  components/
+@@ -54,6 +57,7 @@
+ 1. **后端每模块四件套** `mod.rs + handler.rs + dto.rs + model.rs`；业务编排在 `handler`，数据访问在 `model`，**不设 service 层**。
+ 2. **二开业务放 `business/` 容器**（后端 `backend/src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`），与 `system/`、`support/` 平级，**不侵入框架底座**。
+ 3. **依赖铁律**：`Cargo.toml` 只声明 `nik` 一个框架 crate（`nik-utils` 必要时可加）。**不出现** `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
++   例外：仓库内自建 crate（现有 `cloudpivot-doc`，`backend/crates/`）可以 path 依赖——它们零外部依赖、不带第二份 nik 实例。**方向必须单向**：`cloudpivot → cloudpivot-doc`，反向依赖即为重新造环（`cargo tree -p cloudpivot-doc` 应只有它自己一个节点）。backend 尚未 workspace 化（P2-C / P2-40），故 `cargo fmt` / `clippy` 扫不到这些 crate，`scripts/check.sh` L1 单独补了一档。
+ 4. **feature 语义**：默认集是 `core`（非 `full`）。用数据库必须显式 `postgres`/`mysql`/`sqlite`（`db` 只表能力、不含驱动）。预设 `mini ⊂ lite ⊂ full`；常用 `lite`（= core+postgres+cache+plugin+fs-local）。点单 feature：`fs-local`/`fs-minio`、`xlsx`、`sse`、`metrics`、`template`、`xss`。
+ 5. **错误出口只有三个名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`。handler 内 `DbError/io::Error/nik_core::Error` 直接 `?`，**不要**写多余 `.map_err(ApiError::internal(...))`。
+ 6. **迁移号段**（动手前先 `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3` 核对）：2026-11-13 已到 `V0403`；版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。

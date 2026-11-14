@@ -4,7 +4,7 @@
  * 运行：`pnpm test:unit`（= `tsx --test "tests/unit/**\/*.test.ts"`，零新依赖）。
  *
  * 断言口径照后端抄：
- * - 状态域 / 标签 / 类型 = `backend/src/business/erp/sales_return_model.rs`
+ * - 状态域 / 标签 / 类型 = `backend/src/business/erp/sales/sales_return_model.rs`
  *   （`STATUSES` / `status_label` / `RETURN_TYPES` / `return_type_label`）；
  * - 合法边 / 必填原因 = `backend/src/business/shared/state_machine.rs`
  *   （`SALES_RETURN_EDGES` / `SALES_RETURN_REASON_EDGES`）—— 两张表直接读后端源码比对，
@@ -94,7 +94,7 @@ test('状态域 6 值且顺序与后端 STATUSES 一致', () => {
     [...RETURN_STATUSES],
     ['DRAFT', 'SUBMITTED', 'APPROVED', 'PENDING_POST', 'POSTED', 'CANCELLED'],
   );
-  const source = backendSource('business/erp/sales_return_model.rs');
+  const source = backendSource('business/erp/sales/sales_return_model.rs');
   const anchor = source.slice(source.indexOf('pub const STATUSES: [&str; 6] = ['));
   const block = anchor.slice(0, anchor.indexOf('];'));
   const order = [
@@ -112,7 +112,7 @@ test('状态中文名与后端 status_label 逐字一致（含 CANCELLED = 已�
     POSTED: '已过账',
     CANCELLED: '已取消',
   });
-  const source = backendSource('business/erp/sales_return_model.rs');
+  const source = backendSource('business/erp/sales/sales_return_model.rs');
   for (const [code, label] of Object.entries(RETURN_STATUS_LABELS)) {
     assert.ok(
       source.includes(`STATUS_${code} => "${label}"`),
@@ -124,7 +124,7 @@ test('状态中文名与后端 status_label 逐字一致（含 CANCELLED = 已�
 test('退货类型 3 值与中文名与后端逐字一致', () => {
   assert.deepEqual([...RETURN_TYPES], ['QUALITY', 'WRONG_ITEM', 'OTHER']);
   assert.deepEqual(RETURN_TYPE_LABELS, { QUALITY: '质量', WRONG_ITEM: '错发', OTHER: '其他' });
-  const source = backendSource('business/erp/sales_return_model.rs');
+  const source = backendSource('business/erp/sales/sales_return_model.rs');
   for (const [code, label] of Object.entries(RETURN_TYPE_LABELS)) {
     assert.ok(
       source.includes(`TYPE_${code} => "${label}"`),

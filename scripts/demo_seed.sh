@@ -1350,7 +1350,7 @@ BEGIN
      WHERE t.id::text LIKE 'de300000-%' AND t.status = 'PENDING' AND i.status <> 'PENDING';
     IF bad > 0 THEN RAISE EXCEPTION '存在实例已结束但待办仍 PENDING 的孤儿待办：% 条', bad; END IF;
 
-    -- 6) 凭证来源必须是 VoucherSourceType::ALL 的值域（唯一真相 backend/src/business/shared/doc_kind.rs）
+    -- 6) 凭证来源必须是 VoucherSourceType::ALL 的值域（唯一真相 backend/crates/cloudpivot-doc/src/lib.rs）
     --    这条是「演示数据造出商品永远不会写的来源值」那类事故的兜底：源轴写成业务对象轴的值
     --    （例如 RECEIVABLE），前端来源单据就永远不可点，巡检也会判非法值。
     --    ⚠ 增删枚举时本清单要同步（doc_kind 的单测会盯住这 20 个值）。

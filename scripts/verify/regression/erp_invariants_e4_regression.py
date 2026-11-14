@@ -102,7 +102,7 @@ def one(sql):
 TXN_WRITE_MARKERS = ("insert_txn(", "TxnRecord {")
 # 探测本身要有牙齿：这两处是动账写入的主干（唯一写入口 + 收货过账）。一旦探测规则失效
 # （比如把 insert_txn 改名），命中集会自动缩水 —— 那绝不能表现为「全绿」，必须红。
-TXN_WRITE_ANCHORS = ("erp/inventory_writer.rs", "erp/stockin_write.rs")
+TXN_WRITE_ANCHORS = ("erp/inventory_writer.rs", "erp/stockin/stockin_write.rs")
 BIZ_TS_MIRROR = REPO / "frontend" / "src" / "api" / "business" / "erp" / "doc-kinds.ts"
 
 # 写入点里的 biz_type 字面量：`pub const [X_]BIZ_TYPE[X_]: &str = "LIT"`
@@ -187,7 +187,7 @@ def scan_biz_type_layers(business_root, audit_path, doc_kind_path, ts_mirror, ex
 def static_registry_gate():
     print("\n[闸①] 三层静态漂移：写入点字面量 ⊆ 词表 ⊆ E4 登记表")
     r = scan_biz_type_layers(REPO / "backend/src/business", AUDIT,
-                             REPO / "backend/src/business/shared/doc_kind.rs", BIZ_TS_MIRROR)
+                             REPO / "backend/crates/cloudpivot-doc/src/lib.rs", BIZ_TS_MIRROR)
     for problem in r["problems"]:
         free_of(False, problem)
     if r["problems"]:
@@ -257,7 +257,8 @@ def static_gate_self_test():
     import tempfile
 
     business_root = REPO / "backend/src/business"
-    doc_kind = business_root / "shared/doc_kind.rs"
+    # 词表本体在 cloudpivot-doc crate（P2-27 起）；旧路径 shared/doc_kind.rs 只剩转发垫片
+    doc_kind = REPO / "backend/crates/cloudpivot-doc/src/lib.rs"
     fake = ('fn write() {\n    inventory_writer::insert_txn(...);\n}\n'
             'pub const BIZ_TYPE_E4REG_GATE_FAKE: &str = "E4REG_GATE_FAKE";\n')
     r = scan_biz_type_layers(business_root, AUDIT, doc_kind, BIZ_TS_MIRROR,

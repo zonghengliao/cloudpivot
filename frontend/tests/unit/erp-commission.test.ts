@@ -12,7 +12,7 @@
  *
  * # 断言口径照后端 / 迁移抄，不照卡面
  *
- * - `backend/src/business/erp/commission_dto.rs`：`STATUSES` / `LEGAL_EDGES` / 期间校验
+ * - `backend/src/business/erp/commission/commission_dto.rs`：`STATUSES` / `LEGAL_EDGES` / 期间校验
  * - `backend/migrations/business/V0309__sales_commission.up.sql`：三条金额 / 范围 CHECK
  * - `backend/migrations/business/V0310__commission_permissions.up.sql`：7 个权限码
  *
@@ -335,7 +335,7 @@ test('结算状态机：只能 DRAFT→APPROVED→PAID，没有回退边', () =>
 
 test('前端状态边 = 后端 commission_dto::LEGAL_EDGES（源码即契约）', () => {
   const dto = readFileSync(
-    resolve(REPO_ROOT, 'backend/src/business/erp/commission_dto.rs'),
+    resolve(REPO_ROOT, 'backend/src/business/erp/commission/commission_dto.rs'),
     'utf8',
   );
 

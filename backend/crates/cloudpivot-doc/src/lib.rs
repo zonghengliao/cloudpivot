@@ -1,0 +1,2023 @@
+//! 业务类型词表（**唯一真相**）—— ARCH-3 §5 DC-21 / 卡 P2-5。
+//!
+//! # 这个 crate 是什么（P2-27 · P2-B 解环）
+//!
+//! 七根业务类型轴的**枚举 + 拼写规则 + 跨轴映射 + 值域登记表**，做成一个**零依赖叶子 crate**
+//! `cloudpivot-doc`，让「词表」不再挂在应用 crate 的 `business::shared` 之下：
+//!
+//! | 谁 | 依赖方向 | 说明 |
+//! |---|---|---|
+//! | `cloudpivot`（应用） | → `cloudpivot-doc` | `backend/src/business/shared/doc_kind.rs` 已改为转发垫片（`pub use cloudpivot_doc::*`），调用点路径不变 |
+//! | `cloudpivot-doc` | **无出边** | `cargo tree -p cloudpivot-doc` 只有一个根节点（`[dependencies]` 为空） |
+//!
+//! 解的是 `shared → erp` 这条回边：词表被 ERP 全域引用，而词表的**一致性测试**
+//! （`doc_kind_tests.rs`）又要 import `business::erp::*` 做逐字比对 —— 测试留在应用 crate 里
+//! （跨轴一致是「应用内」的约束），词表本体搬到 crate 里，于是 crate 图无环。
+//!
+//! 本 crate 里**不许加**任何依赖（尤其不许反向依赖 `cloudpivot`）：一旦加回去，环就回来了。
+//! 值域解析脚本（`scripts/verify/biz_type_domain.py`、`erp_invariants_e4_regression.py`）
+//! 与前端镜像测试（`frontend/tests/unit/doc-kinds-mirror.test.ts`、`flow-biz-link.test.ts`）
+//! 都按**本文件的路径**解析常量，搬动本文件必须同步改这 4 处。
+//!
+//! # 为什么要这个文件
+//!
+//! 收敛前全系统有 7 套「业务类型」词表，同一个业务对象在不同表里叫不同名字：
+//! 一张采购单在 `biz_flow_def.biz_type` 叫 `PO_APPROVE`、在 `biz_status_log.entity_type`
+//! 叫 `PURCHASE_ORDER`、在 REST 路径里叫 `purchase-order`、单号前缀又叫 `PO`。
+//! 每加一种单据要改 5–7 处字符串常量，漏一处就**静默不联动**
+//! （线上表现为「某种单据的通知 / 日志 / 流水缺一块」）。
+//!
+//! # 盘点结论：不是一根轴，是七根轴
+//!
+//! 逐列 grep + 生产库 distinct 实测（`docs/architecture/P2-5-业务类型词表盘点.md`）证明
+//! 这些列**并不都是**「同一概念的不同写法」，里面有七根互相独立的概念轴。
+//! 把它们硬合并成一个字符串会毁掉业务语义（卡面「不改业务流程语义」），
+//! 所以本模块的做法是 —— **一个文件、七根轴、一套拼写规则、显式的跨轴映射**：
+//!
+//! | # | 轴 | 类型 | 回答的问题 | 落库位置 |
+//! |---|---|---|---|---|
+//! | ① | 业务对象 | [`DocKind`] | 这是哪张单据 / 哪个对象 | `biz_status_log.entity_type`、`biz_doc_attachment.doc_type`、`biz_reminder_log.doc_type` |
+//! | ② | 审批动作 | [`FlowBizType`] | 走哪一类审批 | `biz_flow_def.biz_type`、`biz_flow_instance.biz_type` |
+//! | ③ | 库存变动动作 | [`TxnBizType`] | 这笔库存动账是什么业务动作 | `biz_inventory_txn.biz_type`、`biz_voucher_rule.biz_type` |
+//! | ④ | 流水来源单据 | [`TxnDocType`] | 这笔流水是哪张单据造成的 | `biz_inventory_txn.doc_type` |
+//! | ⑤ | 凭证来源 | [`VoucherSourceType`] | 这张凭证从哪来 | `biz_voucher.source_type`、`biz_payable.source_type` |
+//! | ⑥ | 序列号来源 | [`SerialSourceType`] | 这个序列号怎么进来的 | `biz_material_serial.source_type` |
+//! | ⑦ | 单据子类型 | [`DocSubtype`] / [`TakeType`] | 这张单自身为什么开 | `biz_stock_in.in_type`、`biz_stock_out.out_type`、`biz_stock_take.take_type` |
+//!
+//! 跨轴关系**只在这里写一次**：[`FlowBizType::doc_kind`]、[`TxnBizType::doc_kind`]、
+//! [`TxnDocType::doc_kind`]、[`VoucherSourceType::doc_kind`]，不再是各模块各写一遍 if/else。
+//!
+//! # 拼写规则（唯一）
+//!
+//! 落库值一律 **大写下划线**（`PURCHASE_ORDER`），与 `biz_flow_def.biz_type` 对齐
+//! （它最接近「业务类型」本义）。唯一例外是 REST 路径段，见 [`DocKind::route`] ——
+//! URL 用小写连字符（`purchase-order`）是 REST 惯例，**只由本模块生成**，调用方不许自己拼。
+//!
+//! # 三处防护
+//!
+//! 1. **编译期**：调用方只能拿枚举，拿不到裸字符串 —— 新增业务类型不改这里就编译不过；
+//! 2. **单测**：应用 crate 的 `doc_kind_tests` 钉住「枚举 ↔ 前端 TS 常量表 ↔ 值域配置」三者逐字一致；
+//! 3. **巡检**：`scripts/verify/biz_type_domain.py` 按 [`COLUMN_DOMAINS`] 查库，
+//!    任何列出现域外值即 FAIL（含「历史上用过、现在已废弃」的别名，如 `TRANSFER`）。
+//!
+//! # 不在本文件的「同名不同义」列（登记在案，别误当成业务类型）
+//!
+//! | 列 | 真实语义 | 域 |
+//! |---|---|---|
+//! | `biz_flow_cc.source_type` | 抄送人的**来源**（与 `assignee_source` 同域） | `USER` / `ROLE` / `DEPT` / `ADMIN` … |
+//! | `sys_import_task.biz_type` / `sys_export_task.biz_type` | **导入导出定义编码**（点分命名空间） | `system.dict_item` … |
+//! | `sys_notice.biz_type` / `sys_notice.target_type` | 站内信**分组** / 接收人范围 | `flow` / `task` / `USER` / `ROLE` / `ALL` … |
+//! | `operation_logs.target_type` / `audit_logs.target_type` | 审计对象的**类名**（CamelCase） | `User` / `Role` / `Menu` … |
+
+// ==================== ① 业务对象 ====================
+
+/// 业务对象类型（`biz_status_log.entity_type` 与各 `doc_type` 的**唯一**取值域）。
+///
+/// 落库值 = [`DocKind::as_str`]，全大写下划线。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DocKind {
+    /// 采购订单 `biz_purchase_order`。
+    PurchaseOrder,
+    /// 收货入库单 `biz_stock_in`。
+    StockIn,
+    /// 出库单 `biz_stock_out`。
+    StockOut,
+    /// 库存调拨单 `biz_stock_transfer`。
+    ///
+    /// **本卡收敛点**：`biz_status_log.entity_type` 历史上写 `TRANSFER`
+    /// （`state_machine::ENTITY_TRANSFER` 旧值），与本表 / `doc_type` / 审批 `biz_type`
+    /// 三处的 `STOCK_TRANSFER` 对不上 —— 报表按 `entity_type` 分组会把调拨拆成两行。
+    /// V0219 已把存量改成 `STOCK_TRANSFER`。
+    StockTransfer,
+    /// 盘点单 `biz_stock_take`。
+    StockTake,
+    /// 应付单 `biz_payable`。
+    Payable,
+    /// 付款单 `biz_payment`。
+    Payment,
+    /// 凭证 `biz_voucher`。
+    Voucher,
+    /// 合同 `biz_contract`。
+    Contract,
+    /// 库存 `biz_inventory` —— **不是单据**，是「低库存提醒」的被提醒对象。
+    Inventory,
+    /// 会计期间 `biz_accounting_period`。
+    AccountingPeriod,
+    /// 会计年度（年结）—— 没有实体表，`entity_id` 存结转凭证 id。
+    AccountingYear,
+    /// 状态机边配置 `biz_flow_edge`（配置实体，不是单据）。
+    FlowEdgeConfig,
+    /// 联动规则配置 `biz_flow_linkage_rule`（配置实体，不是单据）。
+    FlowLinkageConfig,
+    /// 预算 `biz_budget`（**一条记录 = 一个版本**，ARCH-6 第三章）。
+    ///
+    /// 与其它单据的区别：预算的「调整」不是改字段，而是**新增版本行**
+    /// （`version_no + 1` + `supersedes_id`），旧行只改状态（`ACTIVE → SUPERSEDED`）。
+    Budget,
+    /// 固定资产卡片 `biz_fixed_asset`（ARCH-6 第五章 · FIN-2）。
+    ///
+    /// 一台设备 / 一处房产一张卡；**同型号多台请建多张卡**（与 ARCH-6 §5.2.2 的
+    /// 「不做卡片数量字段」一致）。
+    FixedAsset,
+    /// 折旧批次 `biz_depreciation_batch`（一个期间一批，`entity_no` 存期间 `yyyy-MM`）。
+    ///
+    /// 为什么不是 `biz_depreciation`（明细）：一次计提是**一个整体动作**，
+    /// 财务问的是「10 月的折旧提了吗 / 提了多少 / 凭证号多少 / 红冲过吗」——
+    /// 这四个问题的答案都在批次行上（ARCH-6 §5.2.4）。
+    Depreciation,
+    /// 费用报销单 `biz_expense_report`（ARCH-6 第四章 · FIN-3）。
+    ///
+    /// 与应付的区别（ARCH-6 D1）：债权人是**员工**不是供应商、没有账期、
+    /// 有明细（多费用类型 / 多税率）、科目是 `2241.01` 不是 `2202`。
+    /// 付款记录 `biz_expense_payment` 不是独立业务对象（它是报销单的从属台账），
+    /// 所以本枚举**没有** `ExpensePayment` —— 付款凭证的 `source_type` 走
+    /// [`VoucherSourceType::ExpensePayment`]，挂在本对象上。
+    ExpenseReport,
+    /// 销售订单 `biz_sales_order`（销售链 · SO-04/SO-05）。
+    ///
+    /// 状态机 7 值（PRD §4.13.3）：`DRAFT`/`SUBMITTED`/`APPROVED`/`PARTIAL_OUT`/
+    /// `OUTBOUND`/`CLOSED`/`CANCELLED`，边表在 `state_machine::SALES_ORDER_EDGES`。
+    /// 明细 `biz_sales_order_item` 没有状态、也不单独记 `doc_type`（属单头）。
+    SaleOrder,
+    /// 发货单 `biz_shipment`（销售链 · SO-08/SO-09）。
+    ///
+    /// 状态机 4 值（ARCH-7 §4.2）：`DRAFT`/`PENDING_POST`/`POSTED`/`CANCELLED`，
+    /// 边表在 `state_machine::SHIPMENT_EDGES`。明细 `biz_shipment_item` 没有状态、
+    /// 也不单独记 `doc_type`（属单头）。
+    Shipment,
+    /// 应收单 `biz_receivable`（销售链 · SO-13）。
+    ///
+    /// 镜像 `Payable`，但状态域不同（ARCH-7 §4.3 + V0290）：`OPEN`/`PARTIAL`/`SETTLED`/
+    /// `WRITTEN_OFF`/`CANCELLED`，边表在 `state_machine::RECEIVABLE_EDGES`。没有明细子表，
+    /// 状态只在单头流转；坏账核销与出库作废冲销都是终态边（必须给原因）。
+    Receivable,
+    /// 收款单 `biz_receipt`（销售链 · SO-17）。
+    ///
+    /// **资金单据**，状态域（ARCH-7 §4.4）：`DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，
+    /// 边表在 `state_machine::RECEIPT_EDGES`。核销明细 `biz_receipt_allocation`
+    /// 没有状态、也不单独记 `doc_type`（属单头）。
+    Receipt,
+    /// 收款退款单 `biz_receipt_refund`（销售链 · SO-14 遗留卡）。
+    ///
+    /// 资金单据的反向单据：状态域与收款单同构
+    /// （`DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，边表在 `state_machine::RECEIPT_REFUND_EDGES`），
+    /// 但过账后不可作废。明细 `biz_receipt_refund_allocation` 没有状态、也不单独记 `doc_type`。
+    ReceiptRefund,
+    /// 销售发票 `biz_invoice`（销售链 · SO-19 / SO-20）。
+    ///
+    /// 状态机 4 值（ARCH-7 §4.5）：`DRAFT`/`ISSUED`/`POSTED`/`VOID`，边表在
+    /// `state_machine::INVOICE_EDGES`。**`VOID` 不是 `CANCELLED`**（稿面逐字），
+    /// 与收款单的域值不是一套；红字票 `OUT_RED` 金额为负（ARCH-7 §15.2.3）。
+    Invoice,
+    /// 销售退货单 `biz_sales_return`（销售链 · SO-28/SO-29）。
+    ///
+    /// 状态机 6 值（ARCH-7 §15.2.4）：`DRAFT`/`SUBMITTED`/`APPROVED`/`PENDING_POST`/
+    /// `POSTED`/`CANCELLED`，边表在 `state_machine::SALES_RETURN_EDGES`。
+    /// 明细 `biz_sales_return_item` 没有状态、也不单独记 `doc_type`（属单头）。
+    SalesReturn,
+    /// 采购退货单 `biz_purchase_return`（采购链 · P2-03）。
+    ///
+    /// 状态机 5 值：`DRAFT`/`SUBMITTED`/`APPROVED`/`CONFIRMED`/`CANCELLED`，
+    /// 边表在 `state_machine::PURCHASE_RETURN_EDGES`。确认退货
+    /// （`APPROVED → CONFIRMED`）在**同一个事务**里做出库单 + 三本账回冲 +
+    /// 冲减应付（已付款部分转 `biz_supplier_receivable`）+ 冲销凭证。
+    /// 明细 `biz_purchase_return_item` 没有状态、也不单独记 `doc_type`（属单头）。
+    PurchaseReturn,
+    /// 供应商 `biz_supplier`（**主数据**，ATT-11：营业执照 / 开户许可 / 资质证书）。
+    ///
+    /// 与单据的差别：没有状态机、不能审批作废（[`DocKind::is_document`] 为 `false`），
+    /// 但它确实是一个有实体表的**业务对象**，所以进了本轴 —— 附件 / 提醒这类
+    /// 「挂在对象上」的能力需要它有一个规范取值，而不是各模块自己拼字符串。
+    Supplier,
+    /// 客户 `biz_customer`（**主数据**，ATT-11：营业执照 / 信用资料）。
+    Customer,
+    /// 期初余额（ATT-11：期初依据）。
+    ///
+    /// **没有自己的单据表**：`doc_id` 指向该期间的**期初凭证**
+    /// （`biz_voucher.voucher_type = 'OPENING'`，一个期间最多一张，V0189 的唯一索引兜死）。
+    /// 期初是「按期间整体覆盖」的录入动作，没有单头行可挂，挂到期初凭证才是
+    /// 「这份依据属于哪一期期初」的唯一稳定锚点。
+    OpeningBalance,
+    /// 成本对象（生产批）`biz_cost_object`（成本核算 ARCH-9 §3.1 ②）。
+    ///
+    /// 状态域三值 `OPEN`/`CLOSED`/`CANCELLED`，边表在
+    /// `state_machine::COST_OBJECT_EDGES`（只有 `OPEN → CLOSED` 与 `OPEN → CANCELLED`
+    /// 两条；`CLOSED` 是终态，设计 §4.1 明确「不可回 OPEN」）。
+    ///
+    /// **不登记 `is_document`**：它不是可审批单据（审批发生在成本核算批次
+    /// `biz_cost_period` 上），作废只是建错时的终态。列在这里是因为它确实有实体表、
+    /// 有状态机、会写 `biz_status_log` —— 不登记则 `state_machine` 注册表与
+    /// `DocKind` 域对不上（`doc_kind_tests::entity_registry_is_covered_by_doc_kind` 会红）。
+    CostObject,
+    /// 成本核算批次（期间结算单）`biz_cost_period`（成本核算 ARCH-9 §3.1 ⑨）。
+    ///
+    /// 它是**可审批单据**：`DRAFT → SUBMITTED → APPROVED → SETTLED → CLOSED`，
+    /// 另有 `CANCELLED` / `REVERSED`；边表在 `state_machine::COST_PERIOD_EDGES`。
+    /// 审批走引擎（`biz_type = COST_SETTLE`，V0381 的 `cost_settle_approve`），
+    /// 所以 `is_document() = true`（附件 / 提醒 / 流程都要能挂在它上面）。
+    CostPeriod,
+    /// 员工主档 `biz_employee`（人力资源 ARCH-9-2 §3.1 ①）。
+    ///
+    /// **主数据**（不是可审批单据）：`is_document() = false`，但它有实体表、有状态机
+    /// （`PROBATION`/`ACTIVE`/`SUSPENDED`/`RESIGNED`，`state_machine::EMPLOYEE_EDGES`）、
+    /// 会写 `biz_status_log`，附件要能挂在它上面（身份证 / 学历证明 / 体检报告）。
+    ///
+    /// 与 `sys_user` 的分工（ARCH-9-2 §4.1）：本对象是**人事维度**，账号是**登录维度**，
+    /// 一人最多一个账号（`employee.user_id`），财务 / 审批仍认 `user_id`。
+    Employee,
+    /// 劳动合同台账 `biz_employee_contract`（ARCH-9-2 §3.1 ②）。
+    ///
+    /// 一份合同一行（到期 → 续签 → 再续签 = 3 行历史，`renewed_from_id` 串链），
+    /// 状态域 `ACTIVE`/`EXPIRED`/`TERMINATED`/`RENEWED`。扫描件必传（D-5）：
+    /// 附件挂 `(doc_type='EMPLOYEE_CONTRACT', doc_id=合同 id)`。
+    EmployeeContract,
+    /// 请假单 `biz_leave_request`（ARCH-9-2 §3.1 ⑥）。
+    ///
+    /// **可审批单据**：`DRAFT → SUBMITTED → APPROVED`，驳回/撤回回 `DRAFT`，
+    /// 作废/销假到 `CANCELLED`（`APPROVED` 之后改数据 = 禁止，只能作废重开）。
+    /// 审批走引擎（`biz_type = HR_LEAVE`，流程 `hr_leave`）。
+    LeaveRequest,
+    /// 月度考勤批次 `biz_attendance_period`（ARCH-9-2 §3.1 ④）。
+    ///
+    /// `DRAFT → SUBMITTED → LOCKED`（可解锁回 `DRAFT`，需 `attendance:lock` + 原因）。
+    /// **锁定后记录不许增删改**（handler 闸 + 巡检 A8）；薪资单只允许引用**锁定**的
+    /// 考勤期间，避免「工资按 A 版算、考勤改成 B 版」。
+    AttendancePeriod,
+    /// 薪资单 `biz_salary_sheet`（ARCH-9-2 §3.1 ⑧）。
+    ///
+    /// **可审批单据，也是工资凭证的唯一出口**（ARCH-9-2 §4.7.2 拍板：MES 计件工资
+    /// 只产数据、不出凭证）。状态域 `DRAFT`/`CALCULATED`/`SUBMITTED`/`APPROVED`/
+    /// `POSTED`/`REVERSED`/`CANCELLED`；过账在同一事务里生成两张凭证
+    /// （计提 `PAYROLL_ACCRUAL` + 发放 `PAYROLL_PAYMENT`，都挂在本单上）。
+    SalarySheet,
+}
+
+impl DocKind {
+    /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
+    pub const ALL: [DocKind; 36] = [
+        DocKind::PurchaseOrder,
+        DocKind::StockIn,
+        DocKind::StockOut,
+        DocKind::StockTransfer,
+        DocKind::StockTake,
+        DocKind::Payable,
+        DocKind::Payment,
+        DocKind::Voucher,
+        DocKind::Contract,
+        DocKind::Inventory,
+        DocKind::AccountingPeriod,
+        DocKind::AccountingYear,
+        DocKind::FlowEdgeConfig,
+        DocKind::FlowLinkageConfig,
+        DocKind::Budget,
+        DocKind::FixedAsset,
+        DocKind::Depreciation,
+        DocKind::ExpenseReport,
+        DocKind::SaleOrder,
+        DocKind::Shipment,
+        DocKind::Receivable,
+        DocKind::Receipt,
+        DocKind::ReceiptRefund,
+        DocKind::Invoice,
+        DocKind::SalesReturn,
+        DocKind::PurchaseReturn,
+        // ATT-11：主数据（供应商 / 客户）与期初余额 —— 这三类不是「可审批单据」，
+        // 但都是有实体表的业务对象，附件要挂在它们上面。
+        DocKind::Supplier,
+        DocKind::Customer,
+        DocKind::OpeningBalance,
+        // 成本核算（ARCH-9）：成本对象（生产批）
+        DocKind::CostObject,
+        // 成本核算（ARCH-9）：核算批次（期间结算单，可审批）
+        DocKind::CostPeriod,
+        // 人力资源（ARCH-9-2 §3.1 / §8.1 HR-06）：员工 / 劳动合同 / 请假单 / 考勤批次 / 薪资单。
+        // 追加在末尾（不插中间）：顺序 = 前端 `DOC_KINDS` 的顺序，插中间会让上面的
+        // 「ATT-11 三类在末段」与既有 comments 全部失配，且前端是保序逐字比对。
+        DocKind::Employee,
+        DocKind::EmployeeContract,
+        DocKind::LeaveRequest,
+        DocKind::AttendancePeriod,
+        DocKind::SalarySheet,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DocKind::PurchaseOrder => "PURCHASE_ORDER",
+            DocKind::StockIn => "STOCK_IN",
+            DocKind::StockOut => "STOCK_OUT",
+            DocKind::StockTransfer => "STOCK_TRANSFER",
+            DocKind::StockTake => "STOCK_TAKE",
+            DocKind::Payable => "PAYABLE",
+            DocKind::Payment => "PAYMENT",
+            DocKind::Voucher => "VOUCHER",
+            DocKind::Contract => "CONTRACT",
+            DocKind::Inventory => "INVENTORY",
+            DocKind::AccountingPeriod => "ACCOUNTING_PERIOD",
+            DocKind::AccountingYear => "ACCOUNTING_YEAR",
+            DocKind::FlowEdgeConfig => "FLOW_EDGE_CFG",
+            DocKind::FlowLinkageConfig => "FLOW_LINKAGE_CFG",
+            DocKind::Budget => "BUDGET",
+            DocKind::FixedAsset => "FIXED_ASSET",
+            DocKind::Depreciation => "DEPRECIATION",
+            DocKind::ExpenseReport => "EXPENSE_REPORT",
+            DocKind::SaleOrder => "SALE_ORDER",
+            DocKind::Shipment => "SHIPMENT",
+            DocKind::Receivable => "RECEIVABLE",
+            DocKind::Receipt => "RECEIPT",
+            DocKind::ReceiptRefund => "RECEIPT_REFUND",
+            DocKind::Invoice => "INVOICE",
+            DocKind::SalesReturn => "SALES_RETURN",
+            DocKind::PurchaseReturn => "PURCHASE_RETURN",
+            // ATT-11
+            DocKind::Supplier => "SUPPLIER",
+            DocKind::Customer => "CUSTOMER",
+            DocKind::OpeningBalance => "OPENING_BALANCE",
+            // 成本核算（ARCH-9）
+            DocKind::CostObject => "COST_OBJECT",
+            DocKind::CostPeriod => "COST_PERIOD",
+            // 人力资源（ARCH-9-2）
+            DocKind::Employee => "EMPLOYEE",
+            DocKind::EmployeeContract => "EMPLOYEE_CONTRACT",
+            DocKind::LeaveRequest => "LEAVE_REQUEST",
+            DocKind::AttendancePeriod => "ATTENDANCE_PERIOD",
+            DocKind::SalarySheet => "SALARY_SHEET",
+        }
+    }
+
+    /// 中文名（错误文案 / 日志 / 巡检输出共用）。
+    pub const fn label(self) -> &'static str {
+        match self {
+            DocKind::PurchaseOrder => "采购订单",
+            DocKind::StockIn => "收货入库单",
+            DocKind::StockOut => "出库单",
+            DocKind::StockTransfer => "库存调拨单",
+            DocKind::StockTake => "盘点单",
+            DocKind::Payable => "应付单",
+            DocKind::Payment => "付款单",
+            DocKind::Voucher => "凭证",
+            DocKind::Contract => "合同",
+            DocKind::Inventory => "库存",
+            DocKind::AccountingPeriod => "会计期间",
+            DocKind::AccountingYear => "会计年度",
+            DocKind::FlowEdgeConfig => "状态机配置",
+            DocKind::FlowLinkageConfig => "联动规则配置",
+            DocKind::Budget => "预算",
+            DocKind::FixedAsset => "固定资产",
+            DocKind::Depreciation => "折旧批次",
+            DocKind::ExpenseReport => "费用报销单",
+            DocKind::SaleOrder => "销售订单",
+            DocKind::Shipment => "发货单",
+            DocKind::Receivable => "应收单",
+            DocKind::Receipt => "收款单",
+            DocKind::ReceiptRefund => "收款退款单",
+            DocKind::Invoice => "销售发票",
+            DocKind::SalesReturn => "销售退货单",
+            DocKind::PurchaseReturn => "采购退货单",
+            // ATT-11
+            DocKind::Supplier => "供应商",
+            DocKind::Customer => "客户",
+            DocKind::OpeningBalance => "期初余额",
+            // 成本核算（ARCH-9）
+            DocKind::CostObject => "成本对象",
+            DocKind::CostPeriod => "成本核算批次",
+            // 人力资源（ARCH-9-2）
+            DocKind::Employee => "员工",
+            DocKind::EmployeeContract => "劳动合同",
+            DocKind::LeaveRequest => "请假单",
+            DocKind::AttendancePeriod => "考勤期间",
+            DocKind::SalarySheet => "薪资单",
+        }
+    }
+
+    /// 对应的实体表（虚拟对象为 `None`）。
+    pub const fn table(self) -> Option<&'static str> {
+        Some(match self {
+            DocKind::PurchaseOrder => "biz_purchase_order",
+            DocKind::StockIn => "biz_stock_in",
+            DocKind::StockOut => "biz_stock_out",
+            DocKind::StockTransfer => "biz_stock_transfer",
+            DocKind::StockTake => "biz_stock_take",
+            DocKind::Payable => "biz_payable",
+            DocKind::Payment => "biz_payment",
+            DocKind::Voucher => "biz_voucher",
+            DocKind::Contract => "biz_contract",
+            DocKind::Inventory => "biz_inventory",
+            DocKind::AccountingPeriod => "biz_accounting_period",
+            DocKind::FlowEdgeConfig => "biz_flow_edge",
+            DocKind::FlowLinkageConfig => "biz_flow_linkage_rule",
+            DocKind::Budget => "biz_budget",
+            DocKind::FixedAsset => "biz_fixed_asset",
+            DocKind::Depreciation => "biz_depreciation_batch",
+            DocKind::ExpenseReport => "biz_expense_report",
+            DocKind::SaleOrder => "biz_sales_order",
+            DocKind::Shipment => "biz_shipment",
+            DocKind::Receivable => "biz_receivable",
+            DocKind::Receipt => "biz_receipt",
+            DocKind::ReceiptRefund => "biz_receipt_refund",
+            DocKind::Invoice => "biz_invoice",
+            DocKind::SalesReturn => "biz_sales_return",
+            DocKind::PurchaseReturn => "biz_purchase_return",
+            // ATT-11：主数据直接落自己的表；期初余额挂期初凭证（biz_voucher）
+            DocKind::Supplier => "biz_supplier",
+            DocKind::Customer => "biz_customer",
+            DocKind::OpeningBalance => "biz_voucher",
+            // 成本核算（ARCH-9）：生产批主表
+            DocKind::CostObject => "biz_cost_object",
+            DocKind::CostPeriod => "biz_cost_period",
+            // 人力资源（ARCH-9-2 §3.1）：五张实体表一一对应
+            DocKind::Employee => "biz_employee",
+            DocKind::EmployeeContract => "biz_employee_contract",
+            DocKind::LeaveRequest => "biz_leave_request",
+            DocKind::AttendancePeriod => "biz_attendance_period",
+            DocKind::SalarySheet => "biz_salary_sheet",
+            // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
+            DocKind::AccountingYear => return None,
+        })
+    }
+
+    /// 是不是「可作废 / 可审批的业务单据」（配置实体与虚拟对象为 `false`）。
+    pub const fn is_document(self) -> bool {
+        matches!(
+            self,
+            DocKind::PurchaseOrder
+                | DocKind::StockIn
+                | DocKind::StockOut
+                | DocKind::StockTransfer
+                | DocKind::StockTake
+                | DocKind::Payable
+                | DocKind::Payment
+                | DocKind::Voucher
+                | DocKind::Contract
+                | DocKind::Budget
+                | DocKind::FixedAsset
+                | DocKind::Depreciation
+                | DocKind::ExpenseReport
+                | DocKind::SaleOrder
+                | DocKind::Shipment
+                | DocKind::Receivable
+                | DocKind::Receipt
+                | DocKind::ReceiptRefund
+                | DocKind::Invoice
+                | DocKind::SalesReturn
+                | DocKind::PurchaseReturn
+                | DocKind::CostPeriod
+                // 人力资源里只有「请假单 / 薪资单」是走审批 + 可作废的单据：
+                // 员工与劳动合同是主数据（状态流转由 state_machine 管，但没有审批 / 作废），
+                // 考勤批次是「锁定 / 解锁」的作业批次（与会计期间同型）。
+                | DocKind::LeaveRequest
+                | DocKind::SalarySheet
+        )
+    }
+
+    /// REST 路径段（**唯一**允许的小写连字符写法）。
+    ///
+    /// `/{route}/{id}/cancel-impact` 里的 `{route}` 由它生成；不支持的对象返回 `None`。
+    pub const fn route(self) -> Option<&'static str> {
+        Some(match self {
+            DocKind::PurchaseOrder => "purchase-order",
+            DocKind::StockIn => "stock-in",
+            DocKind::Payable => "payable",
+            DocKind::Voucher => "voucher",
+            DocKind::StockOut => "stock-out",
+            DocKind::StockTransfer => "stock-transfer",
+            DocKind::Budget => "budget",
+            DocKind::FixedAsset => "fixed-asset",
+            DocKind::Depreciation => "depreciation",
+            DocKind::ExpenseReport => "expense",
+            DocKind::SaleOrder => "sales-order",
+            DocKind::Shipment => "shipment",
+            DocKind::Receivable => "receivable",
+            DocKind::Receipt => "receipt",
+            DocKind::Invoice => "invoice",
+            DocKind::SalesReturn => "sales-return",
+            DocKind::PurchaseReturn => "purchase-return",
+            _ => return None,
+        })
+    }
+
+    /// 路径段的**非 Option** 版本：调用点明知该对象有路径段时用它，
+    /// 缺了就是编程错误（`const` 上下文里 panic 会被编译器拒绝，等价于编译期检查）。
+    pub const fn route_expect(self) -> &'static str {
+        match self.route() {
+            Some(route) => route,
+            None => panic!("DocKind 没有 REST 路径段（不该在这里取）"),
+        }
+    }
+
+    /// 字符串 → 业务对象。**严格全等匹配，不做大小写 / 分隔符归一**
+    /// （归一就是「新旧都认」，等于把问题永久保留）。
+    pub fn parse(raw: &str) -> Option<DocKind> {
+        DocKind::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+
+    /// 路径段 → 业务对象（只认 [`DocKind::route`] 的规范写法）。
+    pub fn parse_route(raw: &str) -> Option<DocKind> {
+        DocKind::ALL.into_iter().find(|item| item.route() == Some(raw))
+    }
+}
+
+/// 能挂附件的对象（与 `ck_biz_doc_attachment_type` 逐字一致）。
+///
+/// 加成员必须同时改放宽后的 CHECK（`V0347` 已到 12 值）与
+/// `docs/architecture/snapshot-drift/10_checks.sql` 的 `ATTACHMENT_DOC` 登记行
+/// + 悬空检查分支，否则写库撞 `check constraint violated`、或附件悬空查不出来。
+///
+/// # 为什么 ATT-08 才补齐到 12
+///
+/// ATT-06 把 DDL 的 CHECK 放宽到 12 值（发票 / 收款 / 盘点 / 采购退货 / 销售退货
+/// 也能挂附件），但本常量与前端 `ATTACHMENT_DOC_TYPES` 当时仍是 7 值 —— 于是
+/// 「发票必须传发票影像」这条规则在界面上**无法被满足**（前端下拉里根本没有 INVOICE）。
+/// ATT-08 做前端必传校验时补齐：界面上能挂，才谈得上提前告诉用户缺什么。
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 21] = [
+    DocKind::Contract,
+    DocKind::PurchaseOrder,
+    DocKind::StockIn,
+    DocKind::Payable,
+    DocKind::Payment,
+    // FIN-2：资产的发票 / 验收单 / 处置单（ARCH-6 §6.2.4）。
+    DocKind::FixedAsset,
+    // FIN-3：报销单的发票影像（V0244 把 CHECK 放宽到 7 值）。
+    DocKind::ExpenseReport,
+    // ATT-06 / V0347：必传规则覆盖的另外 5 类单据（ATT-08 补齐前端词表）。
+    DocKind::Invoice,
+    DocKind::Receipt,
+    DocKind::StockTake,
+    DocKind::PurchaseReturn,
+    DocKind::SalesReturn,
+    // ATT-11：建议传（不校验）的 4 类 —— 调拨单 / 期初余额 / 供应商 / 客户。
+    // 顺序 = 「有实体表的对象」在前面、主数据与期初在末尾，与前端词表逐字一致。
+    DocKind::StockTransfer,
+    DocKind::Supplier,
+    DocKind::Customer,
+    DocKind::OpeningBalance,
+    // NEAR-FIX-1 / V0368：收款退款单的退款凭据（钱往外走，审计要求比收款更高）。
+    // 追加在末尾（不插中间）：顺序 = 前端 `ATTACHMENT_DOC_TYPES` 的顺序，
+    // 插中间会让既有注释里的「ATT-11 那 4 类在末尾」失效。
+    DocKind::ReceiptRefund,
+    // 人力资源（ARCH-9-2 §3.2 ⑦ / V0389）：「17 值 ∪ 新 4 值 = 21 值」，仍然追加在末尾。
+    // **只有 4 类**（不是 5 类）：员工 / 劳动合同 / 请假单 / 薪资单 —— 考勤批次
+    // 没有附件口径（考勤是导入的台账，依据是 Excel 原文件，走导入任务留痕，不挂单据附件），
+    // 而 DDL 的 `ck_biz_doc_attachment_type` 也只放宽到这 4 个值。
+    DocKind::Employee,
+    DocKind::EmployeeContract,
+    DocKind::LeaveRequest,
+    DocKind::SalarySheet,
+];
+
+/// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。
+///
+/// 加成员必须同时改 V0257 的 CHECK，否则写库直接 `check constraint violated`。
+pub const REMINDER_DOC_KINDS: [DocKind; 8] = [
+    DocKind::Payable,
+    DocKind::PurchaseOrder,
+    // P1-FIX-10：结账催办的挡路单据（凭证 / 收货单 / 调拨单）也要进台账 ——
+    // 4 类定时扫描只覆盖应付 / 采购 / 合同 / 库存，而结账清单里的挡路单据
+    // 有一半是这三类（`period_items` 的 DOC_VOUCHER / DOC_STOCK_IN / DOC_STOCK_TRANSFER）。
+    DocKind::StockIn,
+    DocKind::StockTransfer,
+    DocKind::Voucher,
+    DocKind::Contract,
+    DocKind::Inventory,
+    // FIN-3：待付款提醒（V0244 把 CHECK 放宽到 5 值；扫描任务属 P1-5）。
+    DocKind::ExpenseReport,
+];
+
+// ==================== ② 审批动作 ====================
+
+/// 审批业务类型（`biz_flow_def.biz_type` / `biz_flow_instance.biz_type` 的**唯一**取值域）。
+///
+/// 与 [`DocKind`] 的区别：这是「**动作**」不是「对象」。
+/// 同一张收货单有 `STOCK_IN_POST`（过账）与 `STOCK_IN_CANCEL`（作废）两条审批，
+/// 所以审批轴必须比对象轴细 —— 两者的关系由 [`FlowBizType::doc_kind`] 显式给出。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FlowBizType {
+    /// 采购订单提交审批（`po_approve`）。
+    PoApprove,
+    /// 收货过账审批（`stock_in_post`）。
+    StockInPost,
+    /// 收货作废审批（`stock_in_cancel`）。
+    StockInCancel,
+    /// 盘点过账审批（`stock_take_post`）。
+    StockTakePost,
+    /// 库存调拨审批（`stock_transfer`）。
+    StockTransfer,
+    /// 应付付款审批（`payable_pay`）。
+    PayablePay,
+    /// 应付作废审批（`payable_cancel`）。
+    PayableCancel,
+    /// 凭证红冲审批（`voucher_reverse`）。
+    VoucherReverse,
+    /// 合同审批（`contract_approve`）。
+    ContractApprove,
+    /// 任务验收（`task_accept`）。
+    TaskAccept,
+    /// 状态机配置变更审批（`flow_edge_config`）。
+    FlowEdgeConfig,
+    /// 费用类（通用报销，无 ERP 桥接）。
+    Expense,
+    /// 客户端自建流程的兜底类型（**不在自检范围**）。
+    Other,
+    /// 预算编制 / 调整审批（`budget_approve`，ARCH-6 §3.4.2 / §3.4.3）。
+    ///
+    /// 编制与调整**共用一个流程**，靠 `form.change_type` 条件分流：
+    /// `ORIGINAL` 走「部门主管 → 财务（≥50 万加总经理会签）」，
+    /// `ADJUST` 走「财务前置 → 总经理（≥50 万加财务总监会签）」。
+    BudgetApprove,
+    /// 资产处置审批（`asset_disposal`，ARCH-6 §5.6.3）。
+    ///
+    /// 处置资产 = 把公司资产变成现金或废品，是最容易发生舞弊的环节
+    /// （低价卖给关联方、假装报废后私用），所以**不分金额档、第一站就是总经理**
+    /// （频次低，多一道签的成本可以接受）。
+    AssetDisposal,
+    /// 收款退款审批（`receipt_refund`，SO-14 遗留 · D10）。
+    ///
+    /// 退款是**真出钱**（借 1122 应收 / 贷 1002 银行），与 [`FlowBizType::PayablePay`]
+    /// （付款）同级别的资金动作，所以必须过审批，而不是靠「原因必填 + 权限码」自觉。
+    ///
+    /// 与付款审批的差别（口径见卡 t_b9840c8d）：**不动退款单的状态域** ——
+    /// 退款单仍是 `DRAFT`/`CONFIRMED`/`POSTED`/`CANCELLED`，审批是**过账的前置条件**
+    /// （`CONFIRMED → POSTED` 前必须存在 `biz_type='RECEIPT_REFUND'` 且 `APPROVED`
+    /// 的实例），而不是多一个「审批中」状态。理由：资金单据的状态域已经是一条
+    /// 三态生命周期（草稿 / 已确认 / 已过账），再塞一个审批态会让「已确认但没批」
+    /// 与「批了没记账」挤进同一个字段，状态日志也读不出两者的差别。
+    ReceiptRefund,
+    /// 请假审批（`hr_leave`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：直属上级 →（请假 ≥ 3 天）人事经理 → END。长假要人事复核（年假余额、产假证明）。
+    /// 员工**不能批自己的请假单**（`INITIATOR_SUPERIOR` 取直属上级，解析不到走
+    /// `FALLBACK_ADMIN` —— 不用 `SKIP`，否则「没人可派」会变成自动通过）。
+    HrLeave,
+    /// 工资发放审批（`hr_salary`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：人事经理 → 财务经理（会签）→（应发 ≥ 50 万）总经理 → END。
+    /// 工资是**真出钱**，`≥50 万` 档与预算审批同档；审批通过只到 `APPROVED`，
+    /// **不出凭证** —— 凭证在 `APPROVED → POSTED` 的过账事务里生成（§4.6.4）。
+    HrSalary,
+    /// 调薪审批（`hr_salary_adjust`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：直属上级 → 人事经理 → 财务经理 → END（调薪直接改后续每月的钱，三签）。
+    /// 通过后写 `biz_employee_salary` 新版本行并把旧行 `effective_to` 收口（§4.3）。
+    HrSalaryAdjust,
+    /// 离职审批（`hr_employee_resign`，ARCH-9-2 §3.2 ⑨）。
+    ///
+    /// 拓扑：直属上级 → 人事经理 →（关键岗位）总经理 → END。
+    /// 通过后同事务做四件事：员工转 `RESIGNED` / 停用账号 / 撤掉该员工在跑的请假单 / 归档（§4.1.3 ③）。
+    HrEmployeeResign,
+    // ── 销售 / 采购 / 成本：**存量补齐**（2026-11-13，卡 t_c49010bf）─────────────
+    //
+    // 这 4 个值早就在库里、也在各自的 bridge 里被钉成常量了 —— 只是当年写迁移 / bridge 时
+    // 没人回头往本枚举补登记，于是 `biz_type_domain.py --strict` 在**任何全量迁移库**上必红
+    // （域外值 4 个：SO_APPROVE / PR_APPROVE / PRT_APPROVE / COST_SETTLE）。
+    //
+    // 处置口径：**补登记，不映射到已有值**。理由 ——
+    //   ① 这 4 个 `biz_type` 是各 bridge 认领审批实例的**唯一凭据**
+    //      （`sales_approval_bridge::BIZ_TYPE` / `requisition_bridge` / `purchase_return_bridge` /
+    //      `cost_period_bridge` 都是 `pub const`，多处单测逐字钉住）；
+    //   ② 存量 `biz_flow_instance` 行与客户**已配好**的流程定义都写着这 4 个字面量，
+    //      映射成 `PO_APPROVE` 会把「销售订单审批」伪装成「采购订单审批」，审批详情 / 通知 /
+    //      联动全部指向错误对象（语义事故，不是拼写美化）；
+    //   ③ 对象轴没有对应成员的值（采购申请）如实 `None`，不硬塞。
+    //
+    // 顺序：**追加在末尾**（与 HR-06 的 5 类同规矩）。前端 `doc-kinds.ts` 是保序逐字比对，
+    // 插中间会让既有注释里的「HR 那 4 个在末尾」失效，也会给并行卡制造无谓的冲突面。
+    /// 销售订单提交审批（`so_approve`，销售链 SO-06 / V0281）。
+    ///
+    /// 三档条件边（金额 < 1 万 / < 10 万 / ≥ 10 万）写在流程定义里，不是代码里的 if/else。
+    SoApprove,
+    /// 采购申请审批（`pr_approve`，P2-02 / V0331）。
+    ///
+    /// 预算**只判不占**（真实占用发生在采购订单提交），超预算走流程定义里的条件边加签。
+    PrApprove,
+    /// 采购退货审批（`prt_approve`，P2-03 / V0332）。
+    PrtApprove,
+    /// 成本结算审批（`cost_settle_approve`，成本核算 B3-3 / V0381）。
+    ///
+    /// 通过只到「审批已过」，过账（生成凭证、结平批次）在过账事务里做。
+    CostSettle,
+}
+
+impl FlowBizType {
+    /// 全部审批业务类型（顺序 = 声明顺序）。
+    ///
+    /// **人力资源是 +4 不是卡片上的 +3**：设计 §3.2 ⑨ 定了 4 套流程
+    /// （`hr_leave` / `hr_salary` / `hr_salary_adjust` / `hr_employee_resign`），
+    /// 每套都有一个独立 `biz_type`；§8.1 的「+3」是卡面笔误（漏数了 `HR_EMPLOYEE_RESIGN`）。
+    /// 少一个值 = 第 4 套流程落不了 `biz_flow_def.biz_type`，所以按 §3.2 ⑨ 的 4 个落。
+    pub const ALL: [FlowBizType; 24] = [
+        FlowBizType::PoApprove,
+        FlowBizType::StockInPost,
+        FlowBizType::StockInCancel,
+        FlowBizType::StockTakePost,
+        FlowBizType::StockTransfer,
+        FlowBizType::PayablePay,
+        FlowBizType::PayableCancel,
+        FlowBizType::VoucherReverse,
+        FlowBizType::ContractApprove,
+        FlowBizType::TaskAccept,
+        FlowBizType::FlowEdgeConfig,
+        FlowBizType::Expense,
+        FlowBizType::Other,
+        FlowBizType::BudgetApprove,
+        FlowBizType::AssetDisposal,
+        FlowBizType::ReceiptRefund,
+        // 人力资源（ARCH-9-2 §3.2 ⑨）：4 套流程，追加在末尾。
+        FlowBizType::HrLeave,
+        FlowBizType::HrSalary,
+        FlowBizType::HrSalaryAdjust,
+        FlowBizType::HrEmployeeResign,
+        // 销售 / 采购 / 成本（存量补齐，t_c49010bf）：4 个值早就在库里，
+        // 只是没登记进词表 —— 20→24 是「补登记」不是「新功能」。
+        FlowBizType::SoApprove,
+        FlowBizType::PrApprove,
+        FlowBizType::PrtApprove,
+        FlowBizType::CostSettle,
+    ];
+
+    /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
+    ///
+    /// 与 `V0202__erp_approval_flow_health.up.sql` 的自检块逐字一致（8 个）。
+    /// `CONTRACT_APPROVE` / `STOCK_TAKE_POST` / `FLOW_EDGE_CFG` 也有预置流程，
+    /// 但历史卡只把 8 个纳入了健康检查 —— 扩清单要同步改那条迁移。
+    pub const HEALTH_CHECKED: [FlowBizType; 8] = [
+        FlowBizType::PoApprove,
+        FlowBizType::StockInPost,
+        FlowBizType::StockInCancel,
+        FlowBizType::PayablePay,
+        FlowBizType::PayableCancel,
+        FlowBizType::VoucherReverse,
+        FlowBizType::StockTransfer,
+        FlowBizType::TaskAccept,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            FlowBizType::PoApprove => "PO_APPROVE",
+            FlowBizType::StockInPost => "STOCK_IN_POST",
+            FlowBizType::StockInCancel => "STOCK_IN_CANCEL",
+            FlowBizType::StockTakePost => "STOCK_TAKE_POST",
+            FlowBizType::StockTransfer => "STOCK_TRANSFER",
+            FlowBizType::PayablePay => "PAYABLE_PAY",
+            FlowBizType::PayableCancel => "PAYABLE_CANCEL",
+            FlowBizType::VoucherReverse => "VOUCHER_REVERSE",
+            FlowBizType::ContractApprove => "CONTRACT_APPROVE",
+            FlowBizType::TaskAccept => "TASK_ACCEPT",
+            FlowBizType::FlowEdgeConfig => "FLOW_EDGE_CFG",
+            FlowBizType::Expense => "EXPENSE",
+            FlowBizType::Other => "OTHER",
+            FlowBizType::BudgetApprove => "BUDGET_APPROVE",
+            FlowBizType::AssetDisposal => "ASSET_DISPOSAL",
+            FlowBizType::ReceiptRefund => "RECEIPT_REFUND",
+            // 人力资源（ARCH-9-2 §3.2 ⑨）
+            FlowBizType::HrLeave => "HR_LEAVE",
+            FlowBizType::HrSalary => "HR_SALARY",
+            FlowBizType::HrSalaryAdjust => "HR_SALARY_ADJUST",
+            FlowBizType::HrEmployeeResign => "HR_EMPLOYEE_RESIGN",
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）
+            FlowBizType::SoApprove => "SO_APPROVE",
+            FlowBizType::PrApprove => "PR_APPROVE",
+            FlowBizType::PrtApprove => "PRT_APPROVE",
+            FlowBizType::CostSettle => "COST_SETTLE",
+        }
+    }
+
+    /// 默认流程编码（`biz_flow_def.flow_code`，小写蛇形）。
+    pub const fn flow_code(self) -> &'static str {
+        match self {
+            FlowBizType::PoApprove => "po_approve",
+            FlowBizType::StockInPost => "stock_in_post",
+            FlowBizType::StockInCancel => "stock_in_cancel",
+            FlowBizType::StockTakePost => "stock_take_post",
+            FlowBizType::StockTransfer => "stock_transfer",
+            FlowBizType::PayablePay => "payable_pay",
+            FlowBizType::PayableCancel => "payable_cancel",
+            FlowBizType::VoucherReverse => "voucher_reverse",
+            FlowBizType::ContractApprove => "contract_approve",
+            FlowBizType::TaskAccept => "task_accept",
+            FlowBizType::FlowEdgeConfig => "flow_edge_config",
+            FlowBizType::Expense => "expense",
+            FlowBizType::Other => "other",
+            FlowBizType::BudgetApprove => "budget_approve",
+            FlowBizType::AssetDisposal => "asset_disposal",
+            FlowBizType::ReceiptRefund => "receipt_refund",
+            // 人力资源（ARCH-9-2 §3.2 ⑨）：flow_code 与设计表逐字一致
+            FlowBizType::HrLeave => "hr_leave",
+            FlowBizType::HrSalary => "hr_salary",
+            FlowBizType::HrSalaryAdjust => "hr_salary_adjust",
+            FlowBizType::HrEmployeeResign => "hr_employee_resign",
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）：与 V0281 / V0331 / V0332 / V0381
+            // 种下的 `flow_code` 逐字一致（成本那条不是 `cost_settle`，别再猜）。
+            FlowBizType::SoApprove => "so_approve",
+            FlowBizType::PrApprove => "pr_approve",
+            FlowBizType::PrtApprove => "prt_approve",
+            FlowBizType::CostSettle => "cost_settle_approve",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            FlowBizType::PoApprove => "采购订单审批",
+            FlowBizType::StockInPost => "收货过账审批",
+            FlowBizType::StockInCancel => "收货作废审批",
+            FlowBizType::StockTakePost => "盘点过账审批",
+            FlowBizType::StockTransfer => "库存调拨审批",
+            FlowBizType::PayablePay => "应付付款审批",
+            FlowBizType::PayableCancel => "应付作废审批",
+            FlowBizType::VoucherReverse => "凭证红冲审批",
+            FlowBizType::ContractApprove => "合同审批",
+            FlowBizType::TaskAccept => "任务验收",
+            FlowBizType::FlowEdgeConfig => "状态机配置变更审批",
+            FlowBizType::Expense => "费用审批",
+            FlowBizType::Other => "其他审批",
+            FlowBizType::BudgetApprove => "预算审批",
+            FlowBizType::AssetDisposal => "资产处置审批",
+            FlowBizType::ReceiptRefund => "收款退款审批",
+            // 人力资源（ARCH-9-2 §3.2 ⑨）
+            FlowBizType::HrLeave => "请假审批",
+            FlowBizType::HrSalary => "工资发放审批",
+            FlowBizType::HrSalaryAdjust => "调薪审批",
+            FlowBizType::HrEmployeeResign => "离职审批",
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）
+            FlowBizType::SoApprove => "销售订单审批",
+            FlowBizType::PrApprove => "采购申请审批",
+            FlowBizType::PrtApprove => "采购退货审批",
+            FlowBizType::CostSettle => "成本结算审批",
+        }
+    }
+
+    /// 这条审批挂在哪个业务对象上（审批轴 → 对象轴的**唯一**映射）。
+    ///
+    /// `None` = 不是 ERP 单据（任务验收 / 费用 / 自定义流程），不要硬塞一个对象进来。
+    pub const fn doc_kind(self) -> Option<DocKind> {
+        Some(match self {
+            FlowBizType::PoApprove => DocKind::PurchaseOrder,
+            FlowBizType::StockInPost | FlowBizType::StockInCancel => DocKind::StockIn,
+            FlowBizType::StockTakePost => DocKind::StockTake,
+            FlowBizType::StockTransfer => DocKind::StockTransfer,
+            FlowBizType::PayablePay | FlowBizType::PayableCancel => DocKind::Payable,
+            FlowBizType::VoucherReverse => DocKind::Voucher,
+            FlowBizType::ContractApprove => DocKind::Contract,
+            FlowBizType::FlowEdgeConfig => DocKind::FlowEdgeConfig,
+            FlowBizType::BudgetApprove => DocKind::Budget,
+            FlowBizType::AssetDisposal => DocKind::FixedAsset,
+            FlowBizType::ReceiptRefund => DocKind::ReceiptRefund,
+            // FIN-3（ARCH-6 §6.2.2）：`Expense` 由 `None` 改成 `Some(...)` —— 一处**行为变更**，
+            // `doc_kind_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
+            // 自检块，改注释都会 checksum 失败，扩清单必须新开迁移重写自检块，超出 FIN-3 范围）。
+            FlowBizType::Expense => DocKind::ExpenseReport,
+            // 人力资源（ARCH-9-2 §4.3）：请假单 / 薪资单各有独立单据表；
+            // 调薪与离职**没有独立的单表**（`biz_employee_salary` 是行版本台账，
+            // 离职只是员工状态的一次流转），审批实例的 `biz_id` 都是 `biz_employee.id`
+            // —— 所以两者都映射到 `EMPLOYEE`，若映射成「无对象」则审批详情 / 通知
+            // 都点不进员工页（§4.1.3 ③ 的离职四件事也要能回查这个人）。
+            FlowBizType::HrLeave => DocKind::LeaveRequest,
+            FlowBizType::HrSalary => DocKind::SalarySheet,
+            FlowBizType::HrSalaryAdjust | FlowBizType::HrEmployeeResign => DocKind::Employee,
+            // 销售 / 采购 / 成本（存量补齐，t_c49010bf）：
+            //   · `SO_APPROVE` → 销售订单（对象轴有 `SaleOrder`，审批详情能点进单据）；
+            //   · `PRT_APPROVE` → 采购退货单（`PurchaseReturn`，V0332 有实体表）；
+            //   · `COST_SETTLE` → 成本核算批次（`CostPeriod`，审批挂在批次上）；
+            //   · `PR_APPROVE` → **`None`**：采购申请**没有**对象轴成员（`biz_purchase_requisition`
+            //     未登记进 [`DocKind`]，也不挂附件 / 提醒）。如实返回 `None`，
+            //     不硬塞 `PurchaseOrder` —— 那会让「申请单」在附件与通知里冒充「采购订单」。
+            FlowBizType::SoApprove => DocKind::SaleOrder,
+            FlowBizType::PrtApprove => DocKind::PurchaseReturn,
+            FlowBizType::CostSettle => DocKind::CostPeriod,
+            FlowBizType::PrApprove => return None,
+            FlowBizType::TaskAccept | FlowBizType::Other => return None,
+        })
+    }
+
+    /// 字符串 → 审批业务类型（严格全等）。
+    pub fn parse(raw: &str) -> Option<FlowBizType> {
+        FlowBizType::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+}
+
+// ==================== ③ 库存变动动作 ====================
+
+/// 库存流水业务动作（`biz_inventory_txn.biz_type` 的**唯一**取值域）。
+///
+/// 一次调拨产生 `TRANSFER_OUT` + `TRANSFER_IN` 两条流水，一次收货产生
+/// `PURCHASE_IN` / `PURCHASE_IN_CANCEL` —— 动账轴天生比对象轴细。
+///
+/// # 盘点的两条来源（别混：`ADJUST_*` 是调整动作，`STOCK_TAKE_*` 是盘点单）
+///
+/// * `ADJUST_IN` / `ADJUST_OUT`：泛化的「调整」动作（历史值，现行代码 /
+///   `scripts/` 里已无写入点，保留在域内以容纳存量）；
+/// * `STOCK_TAKE_GAIN` / `STOCK_TAKE_LOSS` / `STOCK_TAKE_CANCEL`：**盘点单过账**写的三个值
+///   （`stocktake_model::BIZ_TYPE_GAIN/LOSS/CANCEL`，`doc_type='STOCK_TAKE'`）。
+///   三态是盘点业务的事实（盘盈 / 盘亏 / 作废回补方向与正向相反），
+///   与 `ADJUST_*` 不是同义词 —— 收敛成两个值会让「这张流水是哪张盘点单造成的」
+///   与「方向」两件事挤在一个字段里。
+///
+/// # 销售退货入库（`SALES_RETURN_IN`）
+///
+/// 销售退货单过账（`sales_return_posting.rs`）**自带**一个业务动作，不复用 `PURCHASE_IN`：
+/// 退货入库单（`biz_stock_in.in_type='RETURN'` / `source_type='SALES_RETURN'`）没有供应商、
+/// 没有应付、没有进项税，记成采购入库会让「库存流水 → 采购入库」的追溯给出假答案。
+/// 落库形态：`doc_type='STOCK_IN'`、`doc_id` = 退货入库单 `biz_stock_in.id`、
+/// `doc_kind()=StockIn` ⇒ E4 判据里按**单据轴**（`DOC`）解释，不能再按净额重复计入。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TxnBizType {
+    /// 采购入库（收货过账）。
+    PurchaseIn,
+    /// 采购入库红冲（收货作废）。
+    PurchaseInCancel,
+    /// 采购退货出库。
+    PurchaseReturn,
+    /// 销售出库。
+    SaleOut,
+    /// 生产入库。
+    ProductionIn,
+    /// 盘盈（调整入）。
+    AdjustIn,
+    /// 盘亏（调整出）。
+    AdjustOut,
+    /// 调拨出库（发运，进在途仓）。
+    TransferOut,
+    /// 调拨入库（签收，出在途仓）。
+    TransferIn,
+    /// 领用出库。
+    IssueOut,
+    /// 报废出库。
+    ScrapOut,
+    /// 盘亏出库（走 `biz_stock_out` 的 `LOSS`）。
+    LossOut,
+    /// 其他出库。
+    OtherOut,
+    /// 出库单作废回滚。
+    StockOutCancel,
+    /// 生产入库红冲。
+    ProduceCancel,
+    /// 一物一码：序列号入库。
+    SerialIn,
+    /// 一物一码：序列号出库。
+    SerialOut,
+    /// 一物一码：序列号报废。
+    SerialScrap,
+    /// 期初余额导入。
+    Opening,
+    /// 盘点盘盈（盘点单过账，`txn_type='IN'`）。
+    StockTakeGain,
+    /// 盘点盘亏（盘点单过账，`txn_type='OUT'`）。
+    StockTakeLoss,
+    /// 盘点作废回补（已过账盘点单作废，方向与正向相反）。
+    StockTakeCancel,
+    /// 销售退货入库（销售退货单过账；`doc_type='STOCK_IN'`，`doc_id` = 退货入库单）。
+    SalesReturnIn,
+}
+
+impl TxnBizType {
+    /// 全部动账类型（顺序 = 声明顺序）。
+    pub const ALL: [TxnBizType; 23] = [
+        TxnBizType::PurchaseIn,
+        TxnBizType::PurchaseInCancel,
+        TxnBizType::PurchaseReturn,
+        TxnBizType::SaleOut,
+        TxnBizType::ProductionIn,
+        TxnBizType::AdjustIn,
+        TxnBizType::AdjustOut,
+        TxnBizType::TransferOut,
+        TxnBizType::TransferIn,
+        TxnBizType::IssueOut,
+        TxnBizType::ScrapOut,
+        TxnBizType::LossOut,
+        TxnBizType::OtherOut,
+        TxnBizType::StockOutCancel,
+        TxnBizType::ProduceCancel,
+        TxnBizType::SerialIn,
+        TxnBizType::SerialOut,
+        TxnBizType::SerialScrap,
+        TxnBizType::Opening,
+        TxnBizType::StockTakeGain,
+        TxnBizType::StockTakeLoss,
+        TxnBizType::StockTakeCancel,
+        TxnBizType::SalesReturnIn,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TxnBizType::PurchaseIn => "PURCHASE_IN",
+            TxnBizType::PurchaseInCancel => "PURCHASE_IN_CANCEL",
+            TxnBizType::PurchaseReturn => "PURCHASE_RETURN",
+            TxnBizType::SaleOut => "SALE_OUT",
+            TxnBizType::ProductionIn => "PRODUCTION_IN",
+            TxnBizType::AdjustIn => "ADJUST_IN",
+            TxnBizType::AdjustOut => "ADJUST_OUT",
+            TxnBizType::TransferOut => "TRANSFER_OUT",
+            TxnBizType::TransferIn => "TRANSFER_IN",
+            TxnBizType::IssueOut => "ISSUE_OUT",
+            TxnBizType::ScrapOut => "SCRAP_OUT",
+            TxnBizType::LossOut => "LOSS_OUT",
+            TxnBizType::OtherOut => "OTHER_OUT",
+            TxnBizType::StockOutCancel => "STOCK_OUT_CANCEL",
+            TxnBizType::ProduceCancel => "PRODUCE_CANCEL",
+            TxnBizType::SerialIn => "SERIAL_IN",
+            TxnBizType::SerialOut => "SERIAL_OUT",
+            TxnBizType::SerialScrap => "SERIAL_SCRAP",
+            TxnBizType::Opening => "OPENING",
+            TxnBizType::StockTakeGain => "STOCK_TAKE_GAIN",
+            TxnBizType::StockTakeLoss => "STOCK_TAKE_LOSS",
+            TxnBizType::StockTakeCancel => "STOCK_TAKE_CANCEL",
+            TxnBizType::SalesReturnIn => "SALES_RETURN_IN",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            TxnBizType::PurchaseIn => "采购入库",
+            TxnBizType::PurchaseInCancel => "采购入库红冲",
+            TxnBizType::PurchaseReturn => "采购退货",
+            TxnBizType::SaleOut => "销售出库",
+            TxnBizType::ProductionIn => "生产入库",
+            TxnBizType::AdjustIn => "盘盈入库",
+            TxnBizType::AdjustOut => "盘亏出库",
+            TxnBizType::TransferOut => "调拨出库",
+            TxnBizType::TransferIn => "调拨入库",
+            TxnBizType::IssueOut => "领用出库",
+            TxnBizType::ScrapOut => "报废出库",
+            TxnBizType::LossOut => "盘亏出库",
+            TxnBizType::OtherOut => "其他出库",
+            TxnBizType::StockOutCancel => "出库作废",
+            TxnBizType::ProduceCancel => "生产入库红冲",
+            TxnBizType::SerialIn => "序列号入库",
+            TxnBizType::SerialOut => "序列号出库",
+            TxnBizType::SerialScrap => "序列号报废",
+            TxnBizType::Opening => "期初导入",
+            TxnBizType::StockTakeGain => "盘点盘盈",
+            TxnBizType::StockTakeLoss => "盘点盘亏",
+            TxnBizType::StockTakeCancel => "盘点作废回补",
+            TxnBizType::SalesReturnIn => "销售退货入库",
+        }
+    }
+
+    /// 这条流水是哪张单据造成的（动账轴 → 对象轴的**唯一**映射）。
+    pub const fn doc_kind(self) -> DocKind {
+        match self {
+            TxnBizType::PurchaseIn
+            | TxnBizType::PurchaseInCancel
+            | TxnBizType::PurchaseReturn
+            | TxnBizType::ProductionIn
+            | TxnBizType::ProduceCancel
+            | TxnBizType::SerialIn
+            | TxnBizType::SerialOut
+            | TxnBizType::SerialScrap
+            | TxnBizType::SalesReturnIn => DocKind::StockIn,
+            TxnBizType::SaleOut
+            | TxnBizType::IssueOut
+            | TxnBizType::ScrapOut
+            | TxnBizType::LossOut
+            | TxnBizType::OtherOut
+            | TxnBizType::StockOutCancel => DocKind::StockOut,
+            TxnBizType::AdjustIn | TxnBizType::AdjustOut => DocKind::StockTake,
+            TxnBizType::StockTakeGain | TxnBizType::StockTakeLoss | TxnBizType::StockTakeCancel => DocKind::StockTake,
+            TxnBizType::TransferOut | TxnBizType::TransferIn => DocKind::StockTransfer,
+            TxnBizType::Opening => DocKind::Inventory,
+        }
+    }
+
+    /// 字符串 → 动账类型（严格全等）。
+    pub fn parse(raw: &str) -> Option<TxnBizType> {
+        TxnBizType::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+}
+
+// ==================== ④ 流水来源单据 ====================
+
+/// 库存流水「来源单据类型」（`biz_inventory_txn.doc_type` 的**唯一**取值域）。
+///
+/// 比 [`DocKind`] 多两个**子表级**来源（一物一码的批次 / 单件），少若干个不发流水的对象，
+/// 所以单独一根轴。`ADJUST` 无代码写入（来自 `scripts/datafix/p14` 的历史修正），
+/// 保留在域内并在巡检里登记为「存量遗留」，新代码不许再写。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TxnDocType {
+    /// 收货入库单。
+    StockIn,
+    /// 出库单。
+    StockOut,
+    /// 调拨单。
+    StockTransfer,
+    /// 盘点单（`stocktake_model::DOC_TYPE`）。
+    StockTake,
+    /// 一物一码批次（`SERIAL_BATCH`）。
+    SerialBatch,
+    /// 单个序列号记录（`MATERIAL_SERIAL`）。
+    MaterialSerial,
+    /// 期初导入。
+    Opening,
+    /// 库存手工调整（**存量遗留**，无代码写入）。
+    Adjust,
+}
+
+impl TxnDocType {
+    /// 全部来源类型（顺序 = 声明顺序）。
+    pub const ALL: [TxnDocType; 8] = [
+        TxnDocType::StockIn,
+        TxnDocType::StockOut,
+        TxnDocType::StockTransfer,
+        TxnDocType::StockTake,
+        TxnDocType::SerialBatch,
+        TxnDocType::MaterialSerial,
+        TxnDocType::Opening,
+        TxnDocType::Adjust,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TxnDocType::StockIn => "STOCK_IN",
+            TxnDocType::StockOut => "STOCK_OUT",
+            TxnDocType::StockTransfer => "STOCK_TRANSFER",
+            TxnDocType::StockTake => "STOCK_TAKE",
+            TxnDocType::SerialBatch => "SERIAL_BATCH",
+            TxnDocType::MaterialSerial => "MATERIAL_SERIAL",
+            TxnDocType::Opening => "OPENING",
+            TxnDocType::Adjust => "ADJUST",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            TxnDocType::StockIn => "收货入库单",
+            TxnDocType::StockOut => "出库单",
+            TxnDocType::StockTransfer => "库存调拨单",
+            TxnDocType::StockTake => "盘点单",
+            TxnDocType::SerialBatch => "序列号批次",
+            TxnDocType::MaterialSerial => "序列号",
+            TxnDocType::Opening => "期初导入",
+            TxnDocType::Adjust => "库存调整",
+        }
+    }
+
+    /// 来源 → 业务对象（唯一映射）。
+    pub const fn doc_kind(self) -> DocKind {
+        match self {
+            TxnDocType::StockIn => DocKind::StockIn,
+            TxnDocType::StockOut => DocKind::StockOut,
+            TxnDocType::StockTransfer => DocKind::StockTransfer,
+            TxnDocType::StockTake => DocKind::StockTake,
+            TxnDocType::SerialBatch | TxnDocType::MaterialSerial => DocKind::Inventory,
+            TxnDocType::Opening | TxnDocType::Adjust => DocKind::Inventory,
+        }
+    }
+
+    /// 字符串 → 来源类型（严格全等）。
+    pub fn parse(raw: &str) -> Option<TxnDocType> {
+        TxnDocType::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+}
+
+// ==================== ⑤ 凭证 / 应付来源 ====================
+
+/// 凭证来源（`biz_voucher.source_type` 的**唯一**取值域）。
+///
+/// `biz_payable.source_type` 共用本枚举，但实际只用 [`VoucherSourceType::StockIn`]
+/// （应付单目前只由收货过账生成）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum VoucherSourceType {
+    /// 收货过账生成（自动）。
+    StockIn,
+    /// 出库过账生成（自动）。
+    StockOut,
+    /// 应付付款生成（自动）。
+    Payment,
+    /// 盘点过账生成（自动）。
+    StockTake,
+    /// 序列号批次（自动）。
+    SerialBatch,
+    /// 序列号出库（自动）。
+    SerialOut,
+    /// 序列号报废（自动）。
+    SerialScrap,
+    /// 期初余额录入生成。
+    Opening,
+    /// 年结结转生成。
+    YearEnd,
+    /// 手工新增。
+    Manual,
+    /// 固定资产购入（建卡时生成，ARCH-6 §5.3.3 / §6.4）。
+    FixedAssetAcq,
+    /// 固定资产处置（出售 / 报废 / 盘亏，ARCH-6 §5.6.4）。
+    FixedAssetDisposal,
+    /// 折旧计提（月度批次过账，ARCH-6 §5.5.3）。
+    Depreciation,
+    /// 费用报销入账（审批通过时生成，ARCH-6 §4.5.1 ①）。
+    ExpenseReport,
+    /// 费用报销付款（每笔付款一张，ARCH-6 §4.5.1 ②）。
+    ExpensePayment,
+    /// 收款单过账（借 1002 银行存款 / 贷 1122 应收账款，销售链 · SO-17）。
+    Receipt,
+    /// 收款退款单过账（借 1122 应收账款 / 贷 1002 银行存款，销售链 · SO-14 遗留卡）。
+    ReceiptRefund,
+    /// 销售发票开票（借 1122 应收账款 / 贷 5001 主营业务收入 + 2221.02 销项税，
+    /// 销售链 · SO-20）。作废时的红字凭证沿用同一来源（`red_of` 指回这张蓝字凭证）。
+    Invoice,
+    /// 销售佣金结算（佣金计提：借 5601 销售费用 / 贷 2241.02 其他应付款-佣金；
+    /// 佣金发放：借 2241.02 / 贷 1002 银行存款。销售链 · SO-36 / ARCH-7 §15.4.3）。
+    ///
+    /// `source_id` = `biz_commission_settlement.id`、`source_no` = 结算单号（`CM-…`）：
+    /// 一次结算出两张凭证（计提 / 发放），两张都挂同一结算单，靠摘要与科目区分。
+    Commission,
+    /// 成本核算结算（期间结算批次过账：人工计提 / 制造费用结转 / 完工入库结转，ARCH-9 §4.8）。
+    ///
+    /// `source_id` = `biz_cost_period.id`（结算批次）、`source_no` = 批次号（`CS-yyyyMM-NNNN`）。
+    /// 一次结算出 3–4 张凭证，全部挂同一批次（见 `cost_settle_voucher`）。
+    ///
+    /// **2026-11-11 补登（VTRACE-3）**：本值由 `cost_settle_voucher::SOURCE_TYPE_COST_PERIOD`
+    /// 直接落库（该模块先于本枚举落地，枚举里当时没有这一项），
+    /// 导致「按来源反查凭证」的接口在校验 source_type 时会把真实的结算凭证判成非法值。
+    /// 补进来之后 `VOUCHER_SOURCE_VALUES` / 巡检登记表 / 前端 `doc-kinds.ts` 同步补齐。
+    CostPeriod,
+    /// 工资计提（薪资单过账时生成：借 管理费用-工资 / 贷 应付职工薪酬-工资，
+    /// ARCH-9-2 §4.6.1 / §4.7.2）。
+    ///
+    /// `source_id` = `biz_salary_sheet.id`（薪资单）、`source_no` = 薪资单号（`SAL-yyyyMM-NNNN`）：
+    /// 一次过账出**两张**凭证（计提 + 发放），两张都挂同一张薪资单。
+    /// `biz_voucher_rule` 侧对应 `PAYROLL_ACCRUAL_DEFAULT`（V0384 已种）。
+    PayrollAccrual,
+    /// 工资发放（同一事务里跟在计提之后：借 应付职工薪酬-工资 / 贷 银行存款 + 代扣项，
+    /// ARCH-9-2 §4.6.2）。
+    ///
+    /// 与 [`VoucherSourceType::PayrollAccrual`] 同挂薪资单（`source_id` 相同），
+    /// 靠摘要 + 科目区分；`biz_voucher_rule` 侧对应 `PAYROLL_PAYMENT_DEFAULT`。
+    PayrollPayment,
+}
+
+impl VoucherSourceType {
+    /// 全部来源（顺序 = 声明顺序）。
+    pub const ALL: [VoucherSourceType; 22] = [
+        VoucherSourceType::StockIn,
+        VoucherSourceType::StockOut,
+        VoucherSourceType::Payment,
+        VoucherSourceType::StockTake,
+        VoucherSourceType::SerialBatch,
+        VoucherSourceType::SerialOut,
+        VoucherSourceType::SerialScrap,
+        VoucherSourceType::Opening,
+        VoucherSourceType::YearEnd,
+        VoucherSourceType::Manual,
+        VoucherSourceType::FixedAssetAcq,
+        VoucherSourceType::FixedAssetDisposal,
+        VoucherSourceType::Depreciation,
+        VoucherSourceType::ExpenseReport,
+        VoucherSourceType::ExpensePayment,
+        VoucherSourceType::Receipt,
+        VoucherSourceType::ReceiptRefund,
+        VoucherSourceType::Invoice,
+        VoucherSourceType::Commission,
+        VoucherSourceType::CostPeriod,
+        // 人力资源（ARCH-9-2 §4.6）：计提 / 发放两张凭证，追加在末尾
+        VoucherSourceType::PayrollAccrual,
+        VoucherSourceType::PayrollPayment,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            VoucherSourceType::StockIn => "STOCK_IN",
+            VoucherSourceType::StockOut => "STOCK_OUT",
+            VoucherSourceType::Payment => "PAYMENT",
+            VoucherSourceType::StockTake => "STOCK_TAKE",
+            VoucherSourceType::SerialBatch => "SERIAL_BATCH",
+            VoucherSourceType::SerialOut => "SERIAL_OUT",
+            VoucherSourceType::SerialScrap => "SERIAL_SCRAP",
+            VoucherSourceType::Opening => "OPENING",
+            VoucherSourceType::YearEnd => "YEAR_END",
+            VoucherSourceType::Manual => "MANUAL",
+            VoucherSourceType::FixedAssetAcq => "FIXED_ASSET_ACQ",
+            VoucherSourceType::FixedAssetDisposal => "FIXED_ASSET_DISPOSAL",
+            VoucherSourceType::Depreciation => "DEPRECIATION",
+            VoucherSourceType::ExpenseReport => "EXPENSE_REPORT",
+            VoucherSourceType::ExpensePayment => "EXPENSE_PAYMENT",
+            VoucherSourceType::Receipt => "RECEIPT",
+            VoucherSourceType::ReceiptRefund => "RECEIPT_REFUND",
+            VoucherSourceType::Invoice => "INVOICE",
+            VoucherSourceType::Commission => "COMMISSION",
+            VoucherSourceType::CostPeriod => "COST_PERIOD",
+            VoucherSourceType::PayrollAccrual => "PAYROLL_ACCRUAL",
+            VoucherSourceType::PayrollPayment => "PAYROLL_PAYMENT",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            VoucherSourceType::StockIn => "收货过账",
+            VoucherSourceType::StockOut => "出库过账",
+            VoucherSourceType::Payment => "应付付款",
+            VoucherSourceType::StockTake => "盘点过账",
+            VoucherSourceType::SerialBatch => "序列号批次",
+            VoucherSourceType::SerialOut => "序列号出库",
+            VoucherSourceType::SerialScrap => "序列号报废",
+            VoucherSourceType::Opening => "期初录入",
+            VoucherSourceType::YearEnd => "年结结转",
+            VoucherSourceType::Manual => "手工录入",
+            VoucherSourceType::FixedAssetAcq => "固定资产购入",
+            VoucherSourceType::FixedAssetDisposal => "固定资产处置",
+            VoucherSourceType::Depreciation => "折旧计提",
+            VoucherSourceType::ExpenseReport => "费用报销入账",
+            VoucherSourceType::ExpensePayment => "费用报销付款",
+            VoucherSourceType::Receipt => "收款过账",
+            VoucherSourceType::ReceiptRefund => "收款退款过账",
+            VoucherSourceType::Invoice => "发票开票",
+            VoucherSourceType::Commission => "佣金结算",
+            VoucherSourceType::CostPeriod => "成本核算结算",
+            // 人力资源（ARCH-9-2 §4.6）：两个值的中文与设计表逐字一致
+            VoucherSourceType::PayrollAccrual => "工资计提",
+            VoucherSourceType::PayrollPayment => "工资发放",
+        }
+    }
+
+    /// 来源 → 业务对象（唯一映射；`Manual` / `YearEnd` / `Opening` 不是某个业务单据）。
+    pub const fn doc_kind(self) -> Option<DocKind> {
+        Some(match self {
+            VoucherSourceType::StockIn => DocKind::StockIn,
+            VoucherSourceType::StockOut => DocKind::StockOut,
+            VoucherSourceType::Payment => DocKind::Payment,
+            VoucherSourceType::StockTake => DocKind::StockTake,
+            VoucherSourceType::SerialBatch | VoucherSourceType::SerialOut => DocKind::Inventory,
+            VoucherSourceType::SerialScrap => DocKind::Inventory,
+            VoucherSourceType::Opening => DocKind::AccountingPeriod,
+            VoucherSourceType::YearEnd => DocKind::AccountingYear,
+            VoucherSourceType::Manual => return None,
+            VoucherSourceType::FixedAssetAcq | VoucherSourceType::FixedAssetDisposal => DocKind::FixedAsset,
+            VoucherSourceType::Depreciation => DocKind::Depreciation,
+            // 入账与付款两张凭证都挂在报销单上（付款记录不是独立业务对象）
+            VoucherSourceType::ExpenseReport | VoucherSourceType::ExpensePayment => DocKind::ExpenseReport,
+            VoucherSourceType::Receipt => DocKind::Receipt,
+            VoucherSourceType::ReceiptRefund => DocKind::ReceiptRefund,
+            VoucherSourceType::Invoice => DocKind::Invoice,
+            // 佣金结算单不在 `DocKind` 词表里（接 `biz_status_log` 要同步前端镜像
+            // 与巡检登记表，属 P2-5 词表收敛的独立改动，见 commission_handler 头注释），
+            // 故不映射业务对象；凭证的 source_no 已写结算单号，可反查。
+            VoucherSourceType::Commission => return None,
+            // 成本核算结算批次（ARCH-9）：source_id 指向 `biz_cost_period`。
+            VoucherSourceType::CostPeriod => DocKind::CostPeriod,
+            // 人力资源（ARCH-9-2 §4.6）：计提与发放两张凭证都挂在**同一张薪资单**上
+            // （source_id = biz_salary_sheet.id），与报销的「入账 + 付款」同型。
+            VoucherSourceType::PayrollAccrual | VoucherSourceType::PayrollPayment => DocKind::SalarySheet,
+        })
+    }
+
+    /// 字符串 → 来源（严格全等）。
+    pub fn parse(raw: &str) -> Option<VoucherSourceType> {
+        VoucherSourceType::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+}
+
+// ==================== ⑥ 序列号来源 ====================
+
+/// 序列号来源（`biz_material_serial.source_type` 的**唯一**取值域）。
+///
+/// 说的是「这个序列号是怎么进来的」，与收货单的 `in_type` 同语义（`PURCHASE` / `RETURN`），
+/// 但多了 `TRANSFER` / `PRODUCE` —— 单独一根轴。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SerialSourceType {
+    /// 采购入库。
+    Purchase,
+    /// 调拨入库。
+    Transfer,
+    /// 生产入库。
+    Produce,
+    /// 退货入库。
+    Return,
+}
+
+impl SerialSourceType {
+    /// 全部来源（顺序 = 声明顺序，与 `serial_model::SOURCE_TYPES` 一致）。
+    pub const ALL: [SerialSourceType; 4] = [
+        SerialSourceType::Purchase,
+        SerialSourceType::Transfer,
+        SerialSourceType::Produce,
+        SerialSourceType::Return,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            SerialSourceType::Purchase => "PURCHASE",
+            SerialSourceType::Transfer => "TRANSFER",
+            SerialSourceType::Produce => "PRODUCE",
+            SerialSourceType::Return => "RETURN",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            SerialSourceType::Purchase => "采购入库",
+            SerialSourceType::Transfer => "调拨入库",
+            SerialSourceType::Produce => "生产入库",
+            SerialSourceType::Return => "退货入库",
+        }
+    }
+
+    /// `source_id` 指向哪张单据表（**唯一映射**，`None` = 这一来源没有实体单据表）。
+    ///
+    /// 这是「序列号来源」这根轴的**第二半**：`source_type` 只说「怎么进来的」，
+    /// 要回跳必须知道 id 落在哪张表。三种有单据的来源与一种没有单据的来源：
+    ///
+    /// | 来源 | 目标表 | 依据 |
+    /// |---|---|---|
+    /// | `PURCHASE` | `biz_stock_in` | 收货过账（`in_type=PURCHASE`）生成，`source_id` = 收货单 id |
+    /// | `RETURN`   | `biz_stock_in` | 退货入库走**同一张**收货单表（`in_type=RETURN`） |
+    /// | `TRANSFER` | `biz_stock_transfer` | 调拨入库单；**注意**：调拨只搬已有序列号，不改它们的来源 |
+    /// | `PRODUCE`  | `None` | 生产模块尚未落地，没有「生产入库单」这张表 ⇒ 不记 id |
+    ///
+    /// 与巡检登记表 `di.v_poly_ref_map`（`ref_domain='SERIAL_SOURCE'`）逐行一致，
+    /// 由 `doc_kind_tests::serial_source_map_matches_snapshot_registry` 机械核对 ——
+    /// 改这里不改 SQL（或反过来）测试就红。
+    pub const fn target_table(self) -> Option<&'static str> {
+        Some(match self {
+            SerialSourceType::Purchase => "biz_stock_in",
+            SerialSourceType::Return => "biz_stock_in",
+            SerialSourceType::Transfer => "biz_stock_transfer",
+            SerialSourceType::Produce => return None,
+        })
+    }
+
+    /// 字符串 → 来源（严格全等）。
+    pub fn parse(raw: &str) -> Option<SerialSourceType> {
+        SerialSourceType::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+}
+
+// ==================== ⑦ 单据子类型 ====================
+
+/// 单据子类型（`biz_stock_in.in_type` / `biz_stock_out.out_type`）。
+///
+/// 语义是「这张单自身为什么而开」，与 [`DocKind`]（是哪张单据）正交：
+/// `(DocKind::StockIn, DocSubtype::Purchase)` = 采购入库单。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum DocSubtype {
+    /// 采购入库（`in_type = 'PURCHASE'`，必有供应商）。
+    Purchase,
+    /// 退货入库（`in_type = 'RETURN'`）。
+    Return,
+    /// 其他入库（`in_type = 'OTHER'`）。
+    OtherIn,
+    /// 无源入库（`in_type = 'SOURCELESS'`，**没有采购单**但**有供应商**，FIX-7）。
+    ///
+    /// 与「其他入库 `OTHER`」的区别是**为什么**没有采购单：
+    /// `OTHER` 是杂项入库（供应商为空，`ck_biz_si_supplier_scope` 只允许它 NULL）；
+    /// `SOURCELESS` 是「有供货方、但没有走采购单」的入库（期初 / 复制 / 补录）——
+    /// `is_sourceless = true` 的单子按它落 `in_type`，报表一眼能数出「有多少货没走采购」。
+    /// 之前这类单据沿用 `PURCHASE`，语义上等于自称「有采购单」，与 `is_sourceless` 自相矛盾。
+    Sourceless,
+    /// 领用出库（`out_type = 'ISSUE'`，借 6401）。
+    Issue,
+    /// 报废出库（`out_type = 'SCRAP'`，借 1901）。
+    Scrap,
+    /// 盘亏出库（`out_type = 'LOSS'`，借 1901）。
+    Loss,
+    /// 其他出库（`out_type = 'OTHER'`）。
+    OtherOut,
+}
+
+impl DocSubtype {
+    /// 收货单 `in_type` 的全部取值（顺序与 `ck_biz_si_type` 一致）。
+    pub const IN_TYPES: [DocSubtype; 4] = [
+        DocSubtype::Purchase,
+        DocSubtype::Return,
+        DocSubtype::OtherIn,
+        // FIX-7：无源入库（`is_sourceless=true`）落这个值，不再冒充 PURCHASE
+        DocSubtype::Sourceless,
+    ];
+
+    /// 出库单 `out_type` 的全部取值（顺序与 `ck_biz_so_type` 一致）。
+    pub const OUT_TYPES: [DocSubtype; 4] = [
+        DocSubtype::Issue,
+        DocSubtype::Scrap,
+        DocSubtype::Loss,
+        DocSubtype::OtherOut,
+    ];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DocSubtype::Purchase => "PURCHASE",
+            DocSubtype::Return => "RETURN",
+            DocSubtype::OtherIn | DocSubtype::OtherOut => "OTHER",
+            DocSubtype::Sourceless => "SOURCELESS",
+            DocSubtype::Issue => "ISSUE",
+            DocSubtype::Scrap => "SCRAP",
+            DocSubtype::Loss => "LOSS",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            DocSubtype::Purchase => "采购入库",
+            DocSubtype::Return => "退货入库",
+            DocSubtype::OtherIn => "其他入库",
+            DocSubtype::OtherOut => "其他出库",
+            DocSubtype::Sourceless => "无源入库",
+            DocSubtype::Issue => "领用出库",
+            DocSubtype::Scrap => "报废出库",
+            DocSubtype::Loss => "盘亏出库",
+        }
+    }
+
+    /// 字符串 → 子类型（严格全等；`OTHER` 归入库侧，出库侧由列名区分）。
+    pub fn parse(raw: &str) -> Option<DocSubtype> {
+        DocSubtype::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+
+    /// 全部子类型（`OTHER` 两轴共用同一个字面量，故只出现一次）。
+    pub const ALL: [DocSubtype; 7] = [
+        DocSubtype::Purchase,
+        DocSubtype::Return,
+        DocSubtype::OtherIn,
+        DocSubtype::Sourceless,
+        DocSubtype::Issue,
+        DocSubtype::Scrap,
+        DocSubtype::Loss,
+    ];
+}
+
+/// 盘点方式（`biz_stock_take.take_type`，与 `ck_biz_st_type` 一致）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TakeType {
+    /// 全盘（建单时把该仓全部库存桶快照成明细）。
+    Full,
+    /// 抽盘（只盘指定物料）。
+    Partial,
+}
+
+impl TakeType {
+    /// 全部取值（顺序 = 声明顺序）。
+    pub const ALL: [TakeType; 2] = [TakeType::Full, TakeType::Partial];
+
+    /// 落库值（大写下划线）。**唯一拼写**。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            TakeType::Full => "FULL",
+            TakeType::Partial => "PARTIAL",
+        }
+    }
+
+    /// 中文名。
+    pub const fn label(self) -> &'static str {
+        match self {
+            TakeType::Full => "全盘",
+            TakeType::Partial => "抽盘",
+        }
+    }
+
+    /// 字符串 → 盘点方式（严格全等）。
+    pub fn parse(raw: &str) -> Option<TakeType> {
+        TakeType::ALL.into_iter().find(|item| item.as_str() == raw)
+    }
+}
+
+// ==================== 值域配置（巡检唯一清单） ====================
+
+/// 一列的合法值域（巡检脚本与单测共用）。
+#[derive(Debug, Clone, Copy)]
+pub struct ColumnDomain {
+    /// 表名。
+    pub table: &'static str,
+    /// 列名。
+    pub column: &'static str,
+    /// 合法值（逐字、按枚举声明顺序）。
+    pub values: &'static [&'static str],
+    /// 这根轴的口径（巡检输出里展示，便于一眼看出「这条红是哪根轴的」）。
+    pub axis: &'static str,
+}
+
+const DOC_KIND_VALUES: [&str; 36] = [
+    "PURCHASE_ORDER",
+    "STOCK_IN",
+    "STOCK_OUT",
+    "STOCK_TRANSFER",
+    "STOCK_TAKE",
+    "PAYABLE",
+    "PAYMENT",
+    "VOUCHER",
+    "CONTRACT",
+    "INVENTORY",
+    "ACCOUNTING_PERIOD",
+    "ACCOUNTING_YEAR",
+    "FLOW_EDGE_CFG",
+    "FLOW_LINKAGE_CFG",
+    "BUDGET",
+    "FIXED_ASSET",
+    "DEPRECIATION",
+    "EXPENSE_REPORT",
+    "SALE_ORDER",
+    "SHIPMENT",
+    "RECEIVABLE",
+    "RECEIPT",
+    "RECEIPT_REFUND",
+    "INVOICE",
+    "SALES_RETURN",
+    "PURCHASE_RETURN",
+    "SUPPLIER",
+    "CUSTOMER",
+    "OPENING_BALANCE",
+    "COST_OBJECT",
+    "COST_PERIOD",
+    // 人力资源（ARCH-9-2 §3.1）：5 张实体表一一对应
+    "EMPLOYEE",
+    "EMPLOYEE_CONTRACT",
+    "LEAVE_REQUEST",
+    "ATTENDANCE_PERIOD",
+    "SALARY_SHEET",
+];
+
+const FLOW_BIZ_TYPE_VALUES: [&str; 24] = [
+    "PO_APPROVE",
+    "STOCK_IN_POST",
+    "STOCK_IN_CANCEL",
+    "STOCK_TAKE_POST",
+    "STOCK_TRANSFER",
+    "PAYABLE_PAY",
+    "PAYABLE_CANCEL",
+    "VOUCHER_REVERSE",
+    "CONTRACT_APPROVE",
+    "TASK_ACCEPT",
+    "FLOW_EDGE_CFG",
+    "EXPENSE",
+    "OTHER",
+    "BUDGET_APPROVE",
+    "ASSET_DISPOSAL",
+    "RECEIPT_REFUND",
+    // 人力资源（ARCH-9-2 §3.2 ⑨）
+    "HR_LEAVE",
+    "HR_SALARY",
+    "HR_SALARY_ADJUST",
+    "HR_EMPLOYEE_RESIGN",
+    // 销售 / 采购 / 成本（存量补齐，t_c49010bf / V0281 V0331 V0332 V0381）
+    "SO_APPROVE",
+    "PR_APPROVE",
+    "PRT_APPROVE",
+    "COST_SETTLE",
+];
+
+const TXN_BIZ_TYPE_VALUES: [&str; 23] = [
+    "PURCHASE_IN",
+    "PURCHASE_IN_CANCEL",
+    "PURCHASE_RETURN",
+    "SALE_OUT",
+    "PRODUCTION_IN",
+    "ADJUST_IN",
+    "ADJUST_OUT",
+    "TRANSFER_OUT",
+    "TRANSFER_IN",
+    "ISSUE_OUT",
+    "SCRAP_OUT",
+    "LOSS_OUT",
+    "OTHER_OUT",
+    "STOCK_OUT_CANCEL",
+    "PRODUCE_CANCEL",
+    "SERIAL_IN",
+    "SERIAL_OUT",
+    "SERIAL_SCRAP",
+    "OPENING",
+    "STOCK_TAKE_GAIN",
+    "STOCK_TAKE_LOSS",
+    "STOCK_TAKE_CANCEL",
+    "SALES_RETURN_IN",
+];
+
+const TXN_DOC_TYPE_VALUES: [&str; 8] = [
+    "STOCK_IN",
+    "STOCK_OUT",
+    "STOCK_TRANSFER",
+    "STOCK_TAKE",
+    "SERIAL_BATCH",
+    "MATERIAL_SERIAL",
+    "OPENING",
+    "ADJUST",
+];
+
+const VOUCHER_SOURCE_VALUES: [&str; 22] = [
+    "STOCK_IN",
+    "STOCK_OUT",
+    "PAYMENT",
+    "STOCK_TAKE",
+    "SERIAL_BATCH",
+    "SERIAL_OUT",
+    "SERIAL_SCRAP",
+    "OPENING",
+    "YEAR_END",
+    "MANUAL",
+    "FIXED_ASSET_ACQ",
+    "FIXED_ASSET_DISPOSAL",
+    "DEPRECIATION",
+    "EXPENSE_REPORT",
+    "EXPENSE_PAYMENT",
+    "RECEIPT",
+    "RECEIPT_REFUND",
+    "INVOICE",
+    "COMMISSION",
+    "COST_PERIOD",
+    // 人力资源（ARCH-9-2 §4.6）：工资计提 / 工资发放
+    "PAYROLL_ACCRUAL",
+    "PAYROLL_PAYMENT",
+];
+
+const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
+const IN_TYPE_VALUES: [&str; 4] = ["PURCHASE", "RETURN", "OTHER", "SOURCELESS"];
+const OUT_TYPE_VALUES: [&str; 4] = ["ISSUE", "SCRAP", "LOSS", "OTHER"];
+const TAKE_TYPE_VALUES: [&str; 2] = ["FULL", "PARTIAL"];
+
+// ===== FIN-1 预算（ARCH-6 第三章）=====
+
+/// `biz_budget.status` 的取值域（与 `state_machine::BUDGET_EDGES` 的节点集合一致）。
+const BUDGET_STATUS_VALUES: [&str; 6] = ["DRAFT", "SUBMITTED", "ACTIVE", "SUPERSEDED", "CLOSED", "CANCELLED"];
+
+/// `biz_budget_usage.status` 的取值域（占用生命周期，ARCH-6 §3.1.3）。
+const BUDGET_USAGE_STATUS_VALUES: [&str; 3] = ["OCCUPIED", "CONSUMED", "RELEASED"];
+
+/// `biz_budget_usage.source_type` 的取值域（谁占用预算）。
+///
+/// 只有两个值：报销提交（`EXPENSE_REPORT`）与采购提交（`PURCHASE_ORDER`）——
+/// 这正是 ARCH-6 D4「控制点只有 2 处」在数据层的体现。第三个控制点要先改这里。
+const BUDGET_USAGE_SOURCE_VALUES: [&str; 2] = ["EXPENSE_REPORT", "PURCHASE_ORDER"];
+
+// ===== FIN-2 固定资产（ARCH-6 第五章）=====
+
+/// `biz_fixed_asset.status` 的取值域（与 `state_machine::FIXED_ASSET_EDGES` 的节点集合一致）。
+const ASSET_STATUS_VALUES: [&str; 4] = ["IN_USE", "IDLE", "DISPOSED", "CANCELLED"];
+
+/// `biz_fixed_asset.disposal_type` 的取值域（`ck_biz_fa_disposal`）。
+const ASSET_DISPOSAL_TYPE_VALUES: [&str; 3] = ["SALE", "SCRAP", "LOSS"];
+
+/// `biz_fixed_asset_change.change_type` 的取值域（`ck_biz_fa_chg_type`）。
+const ASSET_CHANGE_TYPE_VALUES: [&str; 5] = ["TRANSFER", "CUSTODIAN", "DISPOSAL", "ENABLE", "IDLE"];
+
+/// `biz_depreciation_batch.status` 的取值域（`ck_biz_dep_batch_status`）。
+const DEPRECIATION_STATUS_VALUES: [&str; 4] = ["CALCULATED", "POSTED", "REVERSED", "SKIPPED"];
+
+// ===== FIN-3 费用报销（ARCH-6 第四章）=====
+
+/// `biz_expense_report.status` 的取值域（与 `state_machine::EXPENSE_EDGES` 的节点集合一致）。
+/// **没有 `REJECTED`**：驳回回 `DRAFT`（员工改完要能再提交）。
+const EXPENSE_STATUS_VALUES: [&str; 5] = ["DRAFT", "SUBMITTED", "APPROVED", "PAID", "CANCELLED"];
+
+/// `biz_expense_report.pay_status` 的取值域（派生：`ck_biz_exp_report_pay_match` 保证与金额自洽）。
+const EXPENSE_PAY_STATUS_VALUES: [&str; 3] = ["UNPAID", "PARTIAL", "PAID"];
+
+/// `biz_expense_payment.status` 的取值域（`ck_biz_exp_pay_status`）。
+const EXPENSE_PAYMENT_STATUS_VALUES: [&str; 2] = ["PAID", "CANCELLED"];
+
+/// `biz_voucher_rule.biz_type` 的取值域：**横跨两根轴**（历史事实，不是设计选择）。
+///
+/// * 采购入库规则（`PURCHASE_IN_DEFAULT`）用的是**库存变动轴**（`TxnBizType`）；
+/// * FIN-2 起的固资 / 折旧规则用的是**凭证来源轴**（`VoucherSourceType`），
+///   因为 ARCH-6 §6.4 要求「规则的 `biz_type` 必须与 `VoucherSourceType::as_str()`
+///   逐字一致」；折旧与处置的凭证来源本来就是 `DEPRECIATION` /
+///   `FIXED_ASSET_ACQ` / `FIXED_ASSET_DISPOSAL`；
+/// * FIN-3 报销的 `EXPENSE_REPORT` / `EXPENSE_PAYMENT` 同理（`expense_bridge::SOURCE_*`），
+///   它们只属于凭证来源轴，**不在** txn 轴上（报销不产生库存流水）。
+///
+/// 所以域是两轴的并集（去重），不是「随便放宽」：任何既不在 txn 轴、也不在
+/// voucher-source 轴上的值仍然是 FAIL。
+///
+/// **唯一的排除项**：`SALES_RETURN_IN`（txn 轴有、这里没有）—— 销售退货的凭证由
+/// `sales_return_posting.rs` 直接生成（红字入库凭证 + 收入冲减凭证），**不查**
+/// `biz_voucher_rule`；把它放进规则域等于允许写一条永远匹配不到的规则。
+/// 若将来改成走规则表，两处一起改。
+const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 36] = [
+    // txn 轴（23 项里的 22 个；`SALES_RETURN_IN` 不进规则域，理由见上）
+    "PURCHASE_IN",
+    "PURCHASE_IN_CANCEL",
+    "PURCHASE_RETURN",
+    "SALE_OUT",
+    "PRODUCTION_IN",
+    "ADJUST_IN",
+    "ADJUST_OUT",
+    "TRANSFER_OUT",
+    "TRANSFER_IN",
+    "ISSUE_OUT",
+    "SCRAP_OUT",
+    "LOSS_OUT",
+    "OTHER_OUT",
+    "STOCK_OUT_CANCEL",
+    "PRODUCE_CANCEL",
+    "SERIAL_IN",
+    "SERIAL_OUT",
+    "SERIAL_SCRAP",
+    "OPENING",
+    "STOCK_TAKE_GAIN",
+    "STOCK_TAKE_LOSS",
+    "STOCK_TAKE_CANCEL",
+    // voucher-source 轴（15，去重后 12 个新值；
+    // FIN-3 报销的 EXPENSE_REPORT / EXPENSE_PAYMENT 只在这根轴上，不在 txn 轴）
+    "STOCK_IN",
+    "STOCK_OUT",
+    "PAYMENT",
+    "STOCK_TAKE",
+    "SERIAL_BATCH",
+    "YEAR_END",
+    "MANUAL",
+    "FIXED_ASSET_ACQ",
+    "FIXED_ASSET_DISPOSAL",
+    "DEPRECIATION",
+    "EXPENSE_REPORT",
+    "EXPENSE_PAYMENT",
+    // 人力资源（ARCH-9-2 §3.2 ⑧，V0384 种的 PAYROLL_ACCRUAL_DEFAULT /
+    // PAYROLL_PAYMENT_DEFAULT 两条规则）：这 2 个值在凭证来源轴上（`VoucherSourceType`），
+    // 与 FIN-2/FIN-3 的固资 / 报销规则同型 —— 工资不产生库存流水，不在 txn 轴。
+    // 加在轴末尾：HR-02 的 V0384 先于本枚举落地，缺这 2 值时
+    // `scripts/verify/biz_type_domain.py` 会把那两条规则判成域外值。
+    "PAYROLL_ACCRUAL",
+    "PAYROLL_PAYMENT",
+];
+
+/// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `doc_kind_tests` 按它逐列核对）。
+///
+/// 域里**不留**已废弃的别名：`biz_status_log.entity_type = 'TRANSFER'` 已被 V0219
+/// 统一成 `STOCK_TRANSFER`，出现在库里就是 FAIL（不是「历史兼容」）。
+pub const COLUMN_DOMAINS: [ColumnDomain; 24] = [
+    ColumnDomain {
+        table: "biz_status_log",
+        column: "entity_type",
+        values: &DOC_KIND_VALUES,
+        axis: "① 业务对象",
+    },
+    ColumnDomain {
+        table: "biz_doc_attachment",
+        column: "doc_type",
+        values: &DOC_KIND_VALUES,
+        axis: "① 业务对象",
+    },
+    ColumnDomain {
+        table: "biz_reminder_log",
+        column: "doc_type",
+        values: &DOC_KIND_VALUES,
+        axis: "① 业务对象",
+    },
+    ColumnDomain {
+        table: "biz_flow_def",
+        column: "biz_type",
+        values: &FLOW_BIZ_TYPE_VALUES,
+        axis: "② 审批动作",
+    },
+    ColumnDomain {
+        table: "biz_flow_instance",
+        column: "biz_type",
+        values: &FLOW_BIZ_TYPE_VALUES,
+        axis: "② 审批动作",
+    },
+    ColumnDomain {
+        table: "biz_inventory_txn",
+        column: "biz_type",
+        values: &TXN_BIZ_TYPE_VALUES,
+        axis: "③ 库存变动动作",
+    },
+    ColumnDomain {
+        table: "biz_voucher_rule",
+        column: "biz_type",
+        values: &VOUCHER_RULE_BIZ_TYPE_VALUES,
+        axis: "③ 库存变动动作",
+    },
+    ColumnDomain {
+        table: "biz_inventory_txn",
+        column: "doc_type",
+        values: &TXN_DOC_TYPE_VALUES,
+        axis: "④ 流水来源单据",
+    },
+    ColumnDomain {
+        table: "biz_voucher",
+        column: "source_type",
+        values: &VOUCHER_SOURCE_VALUES,
+        axis: "⑤ 凭证来源",
+    },
+    ColumnDomain {
+        table: "biz_payable",
+        column: "source_type",
+        values: &VOUCHER_SOURCE_VALUES,
+        axis: "⑤ 凭证来源",
+    },
+    ColumnDomain {
+        table: "biz_material_serial",
+        column: "source_type",
+        values: &SERIAL_SOURCE_VALUES,
+        axis: "⑥ 序列号来源",
+    },
+    ColumnDomain {
+        table: "biz_stock_in",
+        column: "in_type",
+        values: &IN_TYPE_VALUES,
+        axis: "⑦ 单据子类型",
+    },
+    ColumnDomain {
+        table: "biz_stock_out",
+        column: "out_type",
+        values: &OUT_TYPE_VALUES,
+        axis: "⑦ 单据子类型",
+    },
+    ColumnDomain {
+        table: "biz_stock_take",
+        column: "take_type",
+        values: &TAKE_TYPE_VALUES,
+        axis: "⑦ 单据子类型",
+    },
+    // ===== FIN-1 预算 =====
+    ColumnDomain {
+        table: "biz_budget",
+        column: "status",
+        values: &BUDGET_STATUS_VALUES,
+        axis: "⑧ 预算状态",
+    },
+    ColumnDomain {
+        table: "biz_budget_usage",
+        column: "status",
+        values: &BUDGET_USAGE_STATUS_VALUES,
+        axis: "⑧ 预算状态",
+    },
+    ColumnDomain {
+        table: "biz_budget_usage",
+        column: "source_type",
+        values: &BUDGET_USAGE_SOURCE_VALUES,
+        axis: "⑨ 预算占用来源",
+    },
+    // ===== FIN-2 固定资产 =====
+    ColumnDomain {
+        table: "biz_fixed_asset",
+        column: "status",
+        values: &ASSET_STATUS_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    ColumnDomain {
+        table: "biz_fixed_asset",
+        column: "disposal_type",
+        values: &ASSET_DISPOSAL_TYPE_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    ColumnDomain {
+        table: "biz_fixed_asset_change",
+        column: "change_type",
+        values: &ASSET_CHANGE_TYPE_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    ColumnDomain {
+        table: "biz_depreciation_batch",
+        column: "status",
+        values: &DEPRECIATION_STATUS_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    // ===== FIN-3 费用报销 =====
+    ColumnDomain {
+        table: "biz_expense_report",
+        column: "status",
+        values: &EXPENSE_STATUS_VALUES,
+        axis: "⑪ 报销状态",
+    },
+    ColumnDomain {
+        table: "biz_expense_report",
+        column: "pay_status",
+        values: &EXPENSE_PAY_STATUS_VALUES,
+        axis: "⑪ 报销状态",
+    },
+    ColumnDomain {
+        table: "biz_expense_payment",
+        column: "status",
+        values: &EXPENSE_PAYMENT_STATUS_VALUES,
+        axis: "⑪ 报销状态",
+    },
+];
+
+// ==================== 测试残留口径（t_61dca492） ====================
+
+/// 测试残留的**前缀**：`biz_type` 以它开头的行都是 e2e / 验收脚本写进来的，不属于业务。
+///
+/// 与 `scripts/verify/biz_type_domain.py::is_test_residue` **逐字一致**：
+/// 那边判 `value.startswith("E2E_") or value == "D2_SMOKE"`，这边是同一个口径的 Rust 版本；
+/// 再加一条 `doc_kind_tests.rs` 的一致性用例钉住，改一边不改另一边会红。
+pub const TEST_RESIDUE_PREFIX: &str = "E2E_";
+
+/// 测试残留的**精确值**（没有统一前缀的历史冒烟流程）。
+pub const TEST_RESIDUE_EXACT: [&str; 1] = ["D2_SMOKE"];
+
+/// 某个 `biz_type` 值是不是测试残留（`E2E_*` 或 `D2_SMOKE`）。
+///
+/// ⚠️ 这个判据**不是**「不在词表里就算垃圾」—— `biz_type` 允许客户自定义，
+/// 客户的真流程同样不在 [`COLUMN_DOMAINS`] 的域里。两件事分得很清：
+/// 词表域回答「这个值是不是内置拼写」，本函数回答「这个值是不是测试脚本写的」。
+pub fn is_test_residue(biz_type: &str) -> bool {
+    biz_type.starts_with(TEST_RESIDUE_PREFIX) || TEST_RESIDUE_EXACT.contains(&biz_type)
+}
+
+/// 与 [`is_test_residue`] 同口径的 **SQL 片段**（列名固定为 `biz_type`）。
+///
+/// 为什么要有这个常量：启动自检和 `/health` 各写一遍 SQL 迟早写歪，
+/// 而 `left(biz_type, 4)` 与 `starts_with` 是同一件事 —— 只在这里写一次。
+pub const TEST_RESIDUE_SQL: &str = "(left(biz_type, 4) = 'E2E_' OR biz_type = 'D2_SMOKE')";
+
+/// 词表自身的结构性不变量（拼写规则 / 唯一性 / 值域 ↔ 枚举 / 路径段 / 跨轴映射 / 中文名 / 严格解析）。
+///
+/// P2-27 从应用 crate 的 `doc_kind_tests.rs` 搬来：它们只依赖本 crate 内部，不读文件、不连库、
+/// 不 import `business::erp`，所以跟着词表走 —— 这也是 `cargo test` 在本 crate 里
+/// 不是 `0 passed` 假绿的唯一保证。
+#[cfg(test)]
+mod vocab_tests;

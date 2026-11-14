@@ -6,9 +6,12 @@
 只读巡检：把「所有业务类型列」的**实际取值**与词表域对一遍，域外值即 FAIL。
 
 **唯一真相不是本脚本**：值域清单从
-`backend/src/business/shared/doc_kind.rs` 里解析 `COLUMN_DOMAINS` + 各 `*_VALUES`
-常量（那才是唯一真相）。本脚本只负责「拿着词表去查库」——
+`backend/crates/cloudpivot-doc/src/lib.rs`（词表 crate，P2-27 起）里解析 `COLUMN_DOMAINS`
++ 各 `*_VALUES` 常量（那才是唯一真相）。本脚本只负责「拿着词表去查库」——
 **绝不在这里再抄一份白名单**，抄一份就是造第 9 套词表。
+
+⚠️ 解析路径必须是**词表 crate 本体**，不能指向 `backend/src/business/shared/doc_kind.rs`：
+那个文件 P2-27 起只是 `pub use cloudpivot_doc::*;` 的转发垫片，里面**没有**任何常量定义。
 
 用法：
     python3 scripts/verify/biz_type_domain.py                # 全量巡检
@@ -44,7 +47,9 @@ import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-VOCAB = ROOT / "backend/src/business/shared/doc_kind.rs"
+# 词表唯一真相 = cloudpivot-doc crate 本体（P2-27 起；旧路径 backend/src/business/shared/doc_kind.rs
+# 已是转发垫片，按旧路径解析会「一个常量都找不到」）
+VOCAB = ROOT / "backend/crates/cloudpivot-doc/src/lib.rs"
 
 # 允许为空的列（其余列出现 NULL 也报警）
 #
@@ -78,12 +83,12 @@ def load_domains(path: Path) -> list[dict]:
     domains = []
     for table, column, const, axis in DOMAIN_RE.findall(text):
         if const not in consts:
-            raise SystemExit(f"doc_kind.rs 里 {const} 没有定义（词表解析失败）")
+            raise SystemExit(f"{path} 里 {const} 没有定义（词表解析失败）")
         domains.append(
             dict(table=table, column=column, values=consts[const], axis=axis)
         )
     if not domains:
-        raise SystemExit("doc_kind.rs 里没解析到 COLUMN_DOMAINS（词表解析失败）")
+        raise SystemExit(f"{path} 里没解析到 COLUMN_DOMAINS（词表解析失败）")
     return domains
 
 

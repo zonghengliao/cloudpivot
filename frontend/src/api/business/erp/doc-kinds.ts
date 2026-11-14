@@ -3,7 +3,7 @@
  *
  * # 与后端的关系
  *
- * 后端的唯一真相是 `backend/src/business/shared/doc_kind.rs`（七根轴、同一套大写下划线拼写）。
+ * 后端的唯一真相是 `backend/crates/cloudpivot-doc/src/lib.rs`（七根轴、同一套大写下划线拼写）。
  * 本文件是它的**逐字镜像**：数组顺序、取值、标签一一对应。
  *
  * 两边一致性由后端单测钉死 —— `backend/src/business/shared/doc_kind_tests.rs`

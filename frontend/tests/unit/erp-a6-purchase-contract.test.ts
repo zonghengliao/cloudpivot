@@ -358,7 +358,7 @@ test('合同下拉只列「采购类 + 可下单状态」，状态口径与后�
   );
 
   // 与后端常量对齐（后端加/减一个状态，这里必须先红）
-  const backend = backendSource('erp/contract_model.rs');
+  const backend = backendSource('erp/contract/contract_model.rs');
   const match = /pub const USABLE_FOR_ORDER[^=]*=\s*\[([^\]]+)\];/.exec(backend);
   assert.ok(match, '后端 USABLE_FOR_ORDER 常量找不到（被改名了？）');
   const backendValues = match[1]

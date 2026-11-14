@@ -161,7 +161,7 @@ test('p307 页面：失败原样弹后端 msg（409+66013 中文明文不许改�
 test('p307 API：路径逐字对齐后端注解（/business/erp/payable/payment/{id}/execute，前缀补 /api）', () => {
   const api = sourceOf(API);
   assert.match(api, /`\$\{BASE\}\/payable\/payment\/\$\{paymentId\}\/execute`/);
-  const backend = sourceOf('../backend/src/business/erp/payable_payment.rs');
+  const backend = sourceOf('../backend/src/business/erp/payable/payable_payment.rs');
   assert.match(backend, /#\[nik::post\("\/business\/erp\/payable\/payment\/\{id\}\/execute"\)\]/);
   // 权限码与「发起付款」同一个（后端 handler 上声明的那个）
   assert.match(backend, /permission = "business:erp:payable:pay"/);

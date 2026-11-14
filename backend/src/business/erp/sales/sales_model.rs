@@ -17,7 +17,7 @@
 //!
 //! - **状态迁移入口 / `LEGAL_EDGES`**：单据状态机的唯一真相在
 //!   `business/shared/state_machine.rs`，登记一个新实体要先在
-//!   `business/shared/doc_kind.rs` 的 `DocKind` 里加枚举值（该枚举被词表闸④逐字比对）。
+//!   `crates/cloudpivot-doc/src/lib.rs` 的 `DocKind` 里加枚举值（该枚举被词表闸④逐字比对）。
 //!   本卡不动词表，所以**不建** `SALES_ORDER_EDGES`——SO-05 落 API 时再登记
 //!   `DocKind::SaleOrder` + 边表，登记后本文件的 [`STATUSES`] 必须与边表的域值逐字一致。
 //! - **建单 / 改单 / 分页 / 详情**：SO-05 的地盘（本文件只到取号为止，不写半边 CRUD）。

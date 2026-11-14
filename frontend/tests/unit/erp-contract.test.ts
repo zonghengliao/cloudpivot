@@ -174,7 +174,7 @@ test('⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_
   }
 
   // 后端 status_label 与前端映射逐字一致（大小写 / 措辞都不许漂）
-  const rust = backendSource('erp/contract_model.rs');
+  const rust = backendSource('erp/contract/contract_model.rs');
   for (const [status, label] of expected) {
     assert.ok(
       rust.includes(`${status} => "${label}"`),
@@ -193,9 +193,9 @@ test('⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_
     !contractEdgesBlock.includes('CANCELLED'),
     '合同的边表里不应出现 CANCELLED（其它单据的 CANCELLED 与此无关）',
   );
-  const contractStatusesBlock = backendSource('erp/contract_model.rs').slice(
-    backendSource('erp/contract_model.rs').indexOf('pub const STATUSES'),
-    backendSource('erp/contract_model.rs').indexOf('pub const STATUS_DRAFT'),
+  const contractStatusesBlock = backendSource('erp/contract/contract_model.rs').slice(
+    backendSource('erp/contract/contract_model.rs').indexOf('pub const STATUSES'),
+    backendSource('erp/contract/contract_model.rs').indexOf('pub const STATUS_DRAFT'),
   );
   assert.ok(!contractStatusesBlock.includes('CANCELLED'), '状态白名单里不应出现 CANCELLED');
 });
@@ -228,7 +228,7 @@ test('⑦ 状态按钮：只显示当前状态能走的合法边，且与前端�
   );
 
   // 状态清单本身也不许漂（后端 R-P1-1 加了 PENDING_APPROVAL）
-  const contractModel = backendSource('erp/contract_model.rs');
+  const contractModel = backendSource('erp/contract/contract_model.rs');
   const statusesBlock = contractModel.slice(
     contractModel.indexOf('pub const STATUSES'),
     contractModel.indexOf('/// 草稿。'),
@@ -534,7 +534,7 @@ test('⑮ 乙方主档：SALES → 客户，其余 → 供应商；称谓分四�
   assert.equal(contractPartyBTip('SALES'), '');
 
   // 后端推导必须同源：`contract_dto.rs` 里 SALES ↔ CUSTOMER 的配对是唯一真相
-  const dto = backendSource('erp/contract_dto.rs');
+  const dto = backendSource('erp/contract/contract_dto.rs');
   assert.ok(
     /party_b_type.*CUSTOMER|CUSTOMER.*party_b_type/s.test(dto),
     '后端 contract_dto.rs 里应有 SALES → CUSTOMER 的推导',
@@ -687,12 +687,12 @@ test('⑱ 归档前提示（E2E07-FIX-4 ④）：ACTIVE→COMPLETED 带上未关
   assert.ok(!clean.includes('未关闭单据'), `0 张时不许出现提示：${clean}`);
 
   // ③ 口径固定在后端详情：`open_order_count`（前端不重算，只显示）
-  const dto = backendSource('erp/contract_dto.rs');
+  const dto = backendSource('erp/contract/contract_dto.rs');
   assert.ok(
     dto.includes('pub open_order_count: i64'),
     'open_order_count 必须由详情接口下发（前端据此提示）',
   );
-  const model = backendSource('erp/contract_model.rs');
+  const model = backendSource('erp/contract/contract_model.rs');
   assert.ok(
     model.includes('open_order_count'),
     '未关闭单据数的口径在 contract_model（前端不许自己拼 SQL 语义）',

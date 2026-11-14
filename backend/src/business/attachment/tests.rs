@@ -136,7 +136,7 @@ fn doc_kinds_cover_five_distinct_tables() {
 ///
 /// # 这条用例守的是「词表第 5 处」
 ///
-/// 设计 §8.3 R10 只点了 4 处同步（两个 DDL CHECK + `shared/doc_kind.rs` + 前端
+/// 设计 §8.3 R10 只点了 4 处同步（两个 DDL CHECK + `crates/cloudpivot-doc/src/lib.rs` + 前端
 /// `attachment.ts`），漏了本模块的 [`DocKind`] —— 上传 DTO（`handler::UploadForm.doc_type`）
 /// 的闸就是它的 [`DocKind::parse`]。漏这一处的后果是**上传 400**（`parse` 返回 `None`），
 /// 不是 500，所以只有真调接口才看得见；HR-06 落地时 4 类附件正是这样被挡住的。

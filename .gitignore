@@ -7,6 +7,11 @@
 /backend/logs/
 /backend/uploads/
 /backend/downloads/
+# 词表 crate（cloudpivot-doc，P2-27）：它**不进 workspace**（P2-C / P2-40 才建），
+# 单独 `cd backend/crates/cloudpivot-doc && cargo …` 会在自己目录下生成 target/ 与 Cargo.lock。
+# 库 crate 的 lock 不入库（正式依赖图仍由 /backend/Cargo.lock 锁定），产物不入库。
+/backend/crates/*/target/
+/backend/crates/*/Cargo.lock
 
 # 前端依赖与构建产物
 /frontend/node_modules/

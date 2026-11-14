@@ -2097,7 +2097,7 @@ export function deleteStockIn(id: string): Promise<void> {
 // ==================== 应付单（P2-C1 数据层 / P2-E2 前端） ====================
 
 /**
- * 应付单状态（与 `backend/src/business/erp/payable.rs` 的 `STATUS_*` 逐字一致）。
+ * 应付单状态（与 `backend/src/business/erp/payable/mod.rs` 的 `STATUS_*` 逐字一致）。
  *
  * `PENDING_CANCEL`（作废审批中）是 P-FLOW-3B 新增的**真实状态**（V0191 补了三条边 +
  * 库约束 `ck_biz_payable_pending_cancel`）：`OPEN → PENDING_CANCEL`（送审）→
@@ -2106,7 +2106,7 @@ export function deleteStockIn(id: string): Promise<void> {
 export type PayableStatus = 'OPEN' | 'PARTIAL_PAID' | 'SETTLED' | 'CANCELLED' | 'PENDING_CANCEL';
 
 /**
- * 应付单行（字段逐字抄 `backend/src/business/erp/payable.rs` 的
+ * 应付单行（字段逐字抄 `backend/src/business/erp/payable/mod.rs` 的
  * `COLUMNS` 常量与 `PayableRow` 结构，列名以 V0148 为准）。
  *
  * # ⚠️ 查询接口尚未落地（P2-C1 的缺口，已写到看板评论）

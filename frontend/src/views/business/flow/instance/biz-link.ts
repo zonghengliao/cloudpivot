@@ -22,12 +22,12 @@
  * # 枚举口径（值域的唯一真相）
  *
  * key 只能取 {@link FlowBizType}（`@/api/business/erp/doc-kinds` 的 `FLOW_BIZ_TYPES`），
- * 它是后端 `backend/src/business/shared/doc_kind.rs::FlowBizType::as_str` 的逐字镜像，
+ * 它是后端 `backend/crates/cloudpivot-doc/src/lib.rs::FlowBizType::as_str` 的逐字镜像，
  * 由后端单测 `doc_kind_tests.rs::frontend_ts_mirror_matches_rust` 钉死。
  *
  * 注意：卡面写的是「对照 `backend/src/business/flow/dto.rs` 的 biz_type 取值」，但那个文件里
  * **没有枚举表**（只有一句注释举例 `TASK_ACCEPT` / `ORDER`，其中 `ORDER` 在库里根本不存在）。
- * 值域的唯一真相是 `shared/doc_kind.rs`（`V0219` 迁移里已写明「为什么不再抄第二套词表」），
+ * 值域的唯一真相是 `crates/cloudpivot-doc/src/lib.rs`（`V0219` 迁移里已写明「为什么不再抄第二套词表」），
  * 单测直接读那个文件逐字比对。**不许自己编类型名**。
  *
  * # 未登记的类型 ⇒ 不渲染按钮（`resolveBizLink` 返回 `null`）

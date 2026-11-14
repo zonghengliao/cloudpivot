@@ -688,7 +688,7 @@ import { exportFilterPayload } from '@/utils/batch-action';
  * # 字段来源（硬红线 1：以接口真实字段名为准）
  *
  * 契约在 `@/api/business/erp` 的 `PayableRow`，逐字抄
- * `backend/src/business/erp/payable.rs` 的 `COLUMNS` / `PayableRow`
+ * `backend/src/business/erp/payable/mod.rs` 的 `COLUMNS` / `PayableRow`
  * （`payable_no` / `supplier_id` / `amount` / `paid_amount` / `unpaid_amount` /
  * `status` / `due_date` / `period_code` / `voucher_id` …），不猜 `code` / `name` 那套。
  *

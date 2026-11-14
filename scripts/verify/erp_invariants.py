@@ -44,7 +44,7 @@ RESULT = []
 #  既误伤 check.sh 闸③，又把真正的「作废没退库存」淹掉）。
 #
 # 取值域来源（代码里改 biz_type 必须同步这张表；漏登记由两道闸兜住）：
-#   ① `backend/src/business/shared/doc_kind.rs::TxnBizType::ALL`（23 个，唯一拼写；含盘点三态 + 销售退货入库）
+#   ① `backend/crates/cloudpivot-doc/src/lib.rs::TxnBizType::ALL`（23 个，唯一拼写；含盘点三态 + 销售退货入库）
 #   ② `backend/src/business/erp/stocktake/stocktake_model.rs`
 #      （STOCK_TAKE_GAIN / STOCK_TAKE_LOSS / STOCK_TAKE_CANCEL 的写入常量 —— 盘点轴。
 #       这三个曾**只**以常量形式存在、词表里没有（已知漂移），t_6a667db8 已补进 ① 的

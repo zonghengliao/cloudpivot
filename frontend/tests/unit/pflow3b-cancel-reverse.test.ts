@@ -18,11 +18,11 @@
  * | 抽屉里作废进度 / 原因只在「送审那一刻」有，重开抽屉就没了 | ⑨ `approvalTargetOf` / `cancelReasonText` |
  *
  * 断言口径直接抄后端（`readFileSync` 读源码比对，后端改一个字这里先红）：
- * - `backend/src/business/erp/payable.rs` → `STATUS_PENDING_CANCEL = "PENDING_CANCEL"`；
- * - `backend/src/business/erp/payable_query.rs` → `"作废审批中"`；
- * - `backend/src/business/erp/voucher_write.rs` → `REVERSE_BIZ_TYPE = "VOUCHER_REVERSE"` /
+ * - `backend/src/business/erp/payable/mod.rs` → `STATUS_PENDING_CANCEL = "PENDING_CANCEL"`；
+ * - `backend/src/business/erp/payable/payable_query.rs` → `"作废审批中"`；
+ * - `backend/src/business/erp/voucher/voucher_write.rs` → `REVERSE_BIZ_TYPE = "VOUCHER_REVERSE"` /
  *   `OUTCOME_REVERSE_PENDING = "PENDING_APPROVAL"`；
- * - `backend/src/business/erp/payable_payment.rs` → `OUTCOME_CANCEL_PENDING = "PENDING_APPROVAL"`。
+ * - `backend/src/business/erp/payable/payable_payment.rs` → `OUTCOME_CANCEL_PENDING = "PENDING_APPROVAL"`。
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,12 +100,12 @@ function voucher(overrides: Record<string, unknown> = {}) {
 
 test('① 应付 PENDING_CANCEL → 「作废审批中」+ warning，文案与后端 status_label 逐字一致', () => {
   // 后端常量 / 标签（源码即契约）
-  const payableSrc = backendSource('payable.rs');
+  const payableSrc = backendSource('payable/mod.rs');
   assert.ok(
     payableSrc.includes('pub const STATUS_PENDING_CANCEL: &str = "PENDING_CANCEL";'),
-    '后端 payable.rs 里没有 STATUS_PENDING_CANCEL = "PENDING_CANCEL"',
+    '后端 payable/mod.rs 里没有 STATUS_PENDING_CANCEL = "PENDING_CANCEL"',
   );
-  const querySrc = backendSource('payable_query.rs');
+  const querySrc = backendSource('payable/payable_query.rs');
   assert.ok(
     querySrc.includes('s if s == payable::STATUS_PENDING_CANCEL => "作废审批中"'),
     '后端 payable_query.rs 的状态文案不是「作废审批中」，前端文案要跟着改',
@@ -336,10 +336,10 @@ test('⑧ 新字段是「恒在的 string | null」：前端必填 + 后端 DTO 
   assert.ok(erpApi.includes('cancel_reason: string | null;'), 'PayableRow 没声明 cancel_reason');
 
   // 后端：VoucherRes / PayableRes 必须真的带上（源码即契约，后端删字段这里先红）
-  const voucherQuery = backendSource('voucher_query.rs');
+  const voucherQuery = backendSource('voucher/voucher_query.rs');
   assert.ok(voucherQuery.includes('pub pending_reverse_instance_id: Option<String>'), 'VoucherRes 丢了 pending_reverse_instance_id');
   assert.ok(voucherQuery.includes('pub reverse_reason: Option<String>'), 'VoucherRes 丢了 reverse_reason');
-  const payableQuery = backendSource('payable_query.rs');
+  const payableQuery = backendSource('payable/payable_query.rs');
   assert.ok(payableQuery.includes('pub cancel_instance_id: Option<String>'), 'PayableRes 丢了 cancel_instance_id');
   assert.ok(payableQuery.includes('pub cancel_reason: Option<String>'), 'PayableRes 丢了 cancel_reason');
 });
@@ -384,8 +384,8 @@ test('⑨ 作废原因：有值原样显示，null / 空白不渲染空行', () 
 
 test('⑨ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）', () => {
   assert.equal(OUTCOME_PENDING_APPROVAL, 'PENDING_APPROVAL');
-  assert.ok(backendSource('payable_payment.rs').includes('pub const OUTCOME_CANCEL_PENDING: &str = "PENDING_APPROVAL";'));
-  assert.ok(backendSource('voucher_write.rs').includes('pub const OUTCOME_REVERSE_PENDING: &str = "PENDING_APPROVAL";'));
+  assert.ok(backendSource('payable/payable_payment.rs').includes('pub const OUTCOME_CANCEL_PENDING: &str = "PENDING_APPROVAL";'));
+  assert.ok(backendSource('voucher/voucher_write.rs').includes('pub const OUTCOME_REVERSE_PENDING: &str = "PENDING_APPROVAL";'));
   assert.equal(OUTCOME_CANCELLED, 'CANCELLED');
   assert.equal(OUTCOME_REVERSED, 'REVERSED');
 });

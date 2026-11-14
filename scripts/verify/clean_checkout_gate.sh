@@ -156,7 +156,7 @@ say "干净检出闸：基线 $HEAD_REF ($sha)"
 
 # 编译面一致性提示：本闸跑的是「主 target 里已编好的二进制（= 工作树）」＋「HEAD 的配置面」。
 # 工作树有未提交的后端改动时，两者不是同一份源码 —— 不判红（提交前的正常状态），但要如实说。
-if [ -n "$(git status --porcelain -- backend/src backend/Cargo.toml 2>/dev/null)" ]; then
+if [ -n "$(git status --porcelain -- backend/src backend/crates backend/Cargo.toml 2>/dev/null)" ]; then
     info "工作树有未提交的后端改动：本闸验证的是「工作树代码 + HEAD 的配置面」（提交后二者一致）"
 fi
 

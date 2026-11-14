@@ -39,7 +39,7 @@ left(biz_type, 4) = 'E2E_' OR biz_type = 'D2_SMOKE'
 ```
 
 与 `scripts/verify/biz_type_domain.py::is_test_residue` 逐字一致；Rust 侧同一口径在
-`backend/src/business/shared/doc_kind.rs`（`is_test_residue()` / `TEST_RESIDUE_SQL`），
+`backend/crates/cloudpivot-doc/src/lib.rs`（`is_test_residue()` / `TEST_RESIDUE_SQL`），
 `doc_kind_tests::test_residue_predicate_matches_python_and_sql` 钉住三边一致。
 
 ⚠️ **不是**「不在内置词表里就算垃圾」：`biz_type` 允许客户自定义，客户真流程同样不在

@@ -1246,7 +1246,7 @@ mod tests {
     fn flow_constants_match_design() {
         assert_eq!(FLOW_BIZ_TYPE, "HR_LEAVE");
         assert_eq!(FLOW_CODE, "hr_leave");
-        // 与词表（`business/shared/doc_kind.rs`）里的 DocKind 落库值对齐
+        // 与词表（`crates/cloudpivot-doc/src/lib.rs`）里的 DocKind 落库值对齐
         assert_eq!(state_machine::ENTITY_LEAVE_REQUEST, "LEAVE_REQUEST");
     }
 

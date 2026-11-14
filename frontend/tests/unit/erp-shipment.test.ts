@@ -4,7 +4,7 @@
  * 运行：`pnpm test:unit`（= `tsx --test "tests/unit/**\/*.test.ts"`，零新依赖）。
  *
  * 断言口径照后端抄：
- * - 状态域 / 标签 = `backend/src/business/erp/shipment_model.rs`（`STATUSES` / `status_label`）；
+ * - 状态域 / 标签 = `backend/src/business/erp/shipment/shipment_model.rs`（`STATUSES` / `status_label`）；
  * - 合法边 / 必填原因 = `backend/src/business/shared/state_machine.rs`
  *   （`SHIPMENT_EDGES` / `SHIPMENT_REASON_EDGES`）—— 这两张表直接读后端源码比对，
  *   前端自己抄错一条边，这里先红；
@@ -84,7 +84,7 @@ function form(overrides: Partial<ShipmentFormDraft> = {}): ShipmentFormDraft {
 test('状态域 4 值且顺序与后端 STATUSES 一致', () => {
   assert.deepEqual([...SHIPMENT_STATUSES], ['DRAFT', 'PENDING_POST', 'POSTED', 'CANCELLED']);
   // 后端源码里逐字有这四个值（顺序也一致）
-  const source = backendSource('business/erp/shipment_model.rs');
+  const source = backendSource('business/erp/shipment/shipment_model.rs');
   const anchor = source.slice(source.indexOf('pub const STATUSES: [&str; 4] = ['));
   const block = anchor.slice(0, anchor.indexOf('];'));
   const order = [...block.matchAll(/STATUS_(DRAFT|PENDING_POST|POSTED|CANCELLED)/g)].map(
@@ -100,7 +100,7 @@ test('状态中文名与后端 status_label 逐字一致', () => {
     POSTED: '已过账',
     CANCELLED: '已取消',
   });
-  const source = backendSource('business/erp/shipment_model.rs');
+  const source = backendSource('business/erp/shipment/shipment_model.rs');
   for (const [code, label] of Object.entries(SHIPMENT_STATUS_LABELS)) {
     assert.ok(
       source.includes(`STATUS_${code} => "${label}"`),

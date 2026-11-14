@@ -8,7 +8,7 @@
 //!
 //! # 词表从哪来：**不新开一套**
 //!
-//! 单据类型一律取 [`DocKind`]（`business/shared/doc_kind.rs`，DC-21 收敛后的唯一
+//! 单据类型一律取 [`DocKind`]（`crates/cloudpivot-doc/src/lib.rs`，DC-21 收敛后的唯一
 //! 真相，17 个业务对象 + 前端 TS 镜像 + 巡检域校验都在那里）。本文件只补两件
 //! `DocKind` 回答不了的事：
 //!

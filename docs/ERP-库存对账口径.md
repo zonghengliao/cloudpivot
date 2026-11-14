@@ -149,7 +149,7 @@ python3 scripts/verify/erp_invariants.py --group 账账
 | 手工其他出库 | `OTHER` | 空 | `OTHER_OUT` |
 | 出库作废冲销（方向 IN） | — | — | `STOCK_OUT_CANCEL` |
 
-> 取值唯一真相：`backend/src/business/shared/doc_kind.rs` 的 `TxnBizType`
+> 取值唯一真相：`backend/crates/cloudpivot-doc/src/lib.rs` 的 `TxnBizType`
 > （前端镜像 `frontend/src/api/business/erp/doc-kinds.ts` 的 `TXN_BIZ_TYPES`）。
 > 代码侧唯一入口是 `stockout_base::biz_type_of_doc(out_type, source_type)`。
 >
@@ -309,7 +309,7 @@ ADR-20261031 起「一物一码批量生成 = 一笔无来源入库」：成本�
 2. **成本按原价平移**：过账时 `transfer_settle::settle_transfer` 用调出桶的 `unit_cost`
    结转（`biz_stock_transfer.total_amount` / 明细金额快照），调入仓 `credit_inventory_row`
    按同一 `unit_cost` 入账 —— 金额在公司层面不变，不产生损益。
-3. **结构上就没有钩子**：`backend/src/business/shared/doc_kind.rs::VoucherSourceType` 的 19 个
+3. **结构上就没有钩子**：`backend/crates/cloudpivot-doc/src/lib.rs::VoucherSourceType` 的 19 个
    来源里没有调拨；`biz_stock_transfer` 的 DDL（V0140）只有 `approval_instance_id`（流程弱引用），
    没有 `voucher_id`；`transfer_settle.rs` / `transfer_handler.rs` 里 `voucher` 出现 **0** 次。
 
@@ -366,7 +366,7 @@ SELECT doc_no, out_amt, in_amt FROM (
 | `backend/src/business/erp/inventory_writer.rs` | 三本账唯一写入口（含巡检修正语句 `align_cost_qty_*`） |
 | `scripts/verify/erp_invariants.py` | 巡检（B1 / B1b / B4 已按本文口径固化） |
 | `scripts/verify/biz_type_domain.py` | `biz_type` 值域巡检（词表＝`doc_kind.rs`） |
-| `backend/src/business/shared/doc_kind.rs` | 业务类型词表唯一真相 |
+| `backend/crates/cloudpivot-doc/src/lib.rs` | 业务类型词表唯一真相（零依赖 crate；`business/shared/doc_kind.rs` 已改为转发垫片） |
 | `docs/evidence/20261107-p003-inventory-chain/09_reconcile.sql` / `13_final_reconcile.sql` | P0-03 演练对账 SQL（**已是正确口径**，与本文一致） |
 | `backend/migrations/business/V0330__inventory_biz_type_and_sourceless_in_type.up.sql` | 本卡迁移（销售出库 `SALE_OUT` 回填 + `SOURCELESS` 语义） |
 | `backend/src/business/erp/stockin/stockin_handler_post.rs` | 收货过账 ⑦：PURCHASE / SOURCELESS 生成应付 + 凭证（§5.1 口径；注释里有指针） |

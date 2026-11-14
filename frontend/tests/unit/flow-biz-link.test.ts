@@ -5,7 +5,7 @@
  *
  * # 断言口径：全部抄源码，不抄卡面
  *
- * - **枚举字面量**：读后端 `backend/src/business/shared/doc_kind.rs` 的
+ * - **枚举字面量**：读后端 `backend/crates/cloudpivot-doc/src/lib.rs` 的
  *   `impl FlowBizType { fn as_str }` 的 match 臂，与前端 `FLOW_BIZ_TYPES` 逐字比对。
  *   （卡面写「对照 `flow/dto.rs`」，但那个文件里没有枚举表 —— 值域唯一真相是 `doc_kind.rs`，
  *   `V0219` 迁移里已写明「不在迁移里抄第二套词表」。卡面提到 `ORDER` 这个类型，库里根本不存在。）
@@ -78,7 +78,7 @@ function backendHandler(relative: string): string {
 
 /** `doc_kind.rs::FlowBizType::as_str` 里的落库字面量（顺序 = match 臂顺序 = `ALL` 顺序） */
 function rustFlowBizTypes(): string[] {
-  const source = backend('src/business/shared/doc_kind.rs');
+  const source = backend('crates/cloudpivot-doc/src/lib.rs');
   const start = source.indexOf('impl FlowBizType');
   assert.ok(start > 0, '找不到 impl FlowBizType');
   const fnStart = source.indexOf('pub const fn as_str', start);
@@ -211,15 +211,15 @@ test('探测接口路径 = 后端 #[nik::get(...)] 注解（逐字，含 /api �
   const cases: Array<[keyof typeof BIZ_LINKS, string, string]> = [
     // 路由注解已随 P2-1A 拆到部件文件里（真实位置），断言按「handler.rs + 所有 task_handler_*.rs」聚合读
     ['TASK_ACCEPT', 'src/business/task/task_handler_crud.rs', '/business/task/{id}'],
-    ['CONTRACT_APPROVE', 'src/business/erp/contract_handler.rs', '/business/erp/contract/{id}'],
+    ['CONTRACT_APPROVE', 'src/business/erp/contract/contract_handler.rs', '/business/erp/contract/{id}'],
     ['PO_APPROVE', 'src/business/erp/handler.rs', '/business/erp/purchase-order/{id}'],
-    ['STOCK_IN_POST', 'src/business/erp/stockin_handler_query.rs', '/business/erp/stock-in/{id}'],
-    ['STOCK_IN_CANCEL', 'src/business/erp/stockin_handler_query.rs', '/business/erp/stock-in/{id}'],
+    ['STOCK_IN_POST', 'src/business/erp/stockin/stockin_handler_query.rs', '/business/erp/stock-in/{id}'],
+    ['STOCK_IN_CANCEL', 'src/business/erp/stockin/stockin_handler_query.rs', '/business/erp/stock-in/{id}'],
     // 同 P2-1A：`erp/transfer_handler.rs` 也已拆成 114 行 facade，详情路由在 query 部件
-    ['STOCK_TRANSFER', 'src/business/erp/transfer_handler_query.rs', '/business/erp/transfer/{id}'],
-    ['PAYABLE_PAY', 'src/business/erp/payable_query.rs', '/business/erp/payable/{id}'],
-    ['PAYABLE_CANCEL', 'src/business/erp/payable_query.rs', '/business/erp/payable/{id}'],
-    ['VOUCHER_REVERSE', 'src/business/erp/voucher_query.rs', '/business/erp/voucher/{id}'],
+    ['STOCK_TRANSFER', 'src/business/erp/transfer/transfer_handler_query.rs', '/business/erp/transfer/{id}'],
+    ['PAYABLE_PAY', 'src/business/erp/payable/payable_query.rs', '/business/erp/payable/{id}'],
+    ['PAYABLE_CANCEL', 'src/business/erp/payable/payable_query.rs', '/business/erp/payable/{id}'],
+    ['VOUCHER_REVERSE', 'src/business/erp/voucher/voucher_query.rs', '/business/erp/voucher/{id}'],
   ];
   for (const [bizType, file, route] of cases) {
     // 模块 handler 已按职责拆部件：契约断言读「facade + 全部 <family>_*.rs」，与

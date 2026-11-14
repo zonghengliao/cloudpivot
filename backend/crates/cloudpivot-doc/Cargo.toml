@@ -1,0 +1,29 @@
+# cloudpivot-doc —— 业务类型词表（七根轴 · 唯一真相）
+#
+# P2-27（P2-B 解环）：`shared → erp` 这条回边解掉的产物。
+# 词表被 ERP 全域引用，词表的一致性测试又要 import `business::erp::*`；
+# 把词表本体搬到一个**零依赖叶子 crate**，crate 图就没有环了。
+#
+# ⚠ 铁律：`[dependencies]` 永远保持为空。
+#   - 本 crate 一旦依赖 `cloudpivot`（或任何框架 crate），P2-B 解掉的环立刻回来；
+#   - 它只放枚举 / 常量 / `const fn` 拼写规则，不需要 serde / sqlx / tokio；
+#   - 「词表 ↔ 前端 TS ↔ 库内值域」的一致性测试留在应用 crate（`backend/src/business/shared/
+#     doc_kind_tests.rs`），因为那三条约束都是**应用内**的，不是词表自身的。
+#
+# 与应用 crate 的关系：`backend/Cargo.toml` 以 path 依赖引用本 crate；
+# `backend/src/business/shared/doc_kind.rs` 是转发垫片（`pub use cloudpivot_doc::*`），
+# 所以 141 处 `crate::business::shared::doc_kind::*` 调用点一个字都不用改。
+#
+# 本 crate 独立编译（不进 workspace —— workspace 骨架是 P2-C/P2-40 的活）：
+#     cd backend/crates/cloudpivot-doc && cargo check && cargo clippy -- -D warnings
+
+[package]
+name = "cloudpivot-doc"
+description = "云枢业务类型词表（DocKind / FlowBizType / TxnBizType … 七根轴唯一真相，零依赖）"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.1"
+license = "Apache-2.0"
+publish = false
+
+[dependencies]

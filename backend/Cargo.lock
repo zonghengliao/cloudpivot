@@ -562,6 +562,7 @@ dependencies = [
  "axum",
  "calamine",
  "chromiumoxide",
+ "cloudpivot-doc",
  "futures-util",
  "metrics",
  "nik",
@@ -580,6 +581,10 @@ dependencies = [
  "validator",
  "zip",
 ]
+
+[[package]]
+name = "cloudpivot-doc"
+version = "0.1.0"
 
 [[package]]
 name = "cmov"
