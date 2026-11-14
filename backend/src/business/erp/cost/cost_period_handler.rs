@@ -345,7 +345,7 @@ pub async fn cancel_period(
 /// `total_cost` 必须是 **JSON 数字**：条件节点的 `cmp` 只认 `Number`
 /// （`payable_payment::amount_number`）。
 fn submit_form_data(row: &CostPeriodRow) -> serde_json::Value {
-    let amount_number = crate::business::erp::payable_payment::amount_number;
+    let amount_number = crate::business::erp::payable::payable_payment::amount_number;
     json!({
         "batch_no": row.batch_no,
         "period_code": row.period_code,

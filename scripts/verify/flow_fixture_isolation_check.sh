@@ -53,7 +53,7 @@ q() { "${PSQL[@]}" "$1"; }
 LOG="${TMPDIR:-/tmp}/t977_flow_isolation.$$.log"
 echo "==> ① 同进程串跑：payable_bridge（P17）→ flow::edge_admin_tests"
 ( cd "$ROOT/backend" && cargo test --lib --features test-hooks -- \
-      --test-threads=1 business::erp::payable_bridge::tests business::flow::edge_admin_tests ) \
+      --test-threads=1 business::erp::payable::payable_bridge::tests business::flow::edge_admin_tests ) \
     > "$LOG" 2>&1
 rc=$?
 grep -E '^test result:' "$LOG" | sed 's/^/    /'

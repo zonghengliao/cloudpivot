@@ -39,7 +39,7 @@
 // ============================================================================
 
 use crate::business::erp::payable;
-use crate::business::erp::payable_query;
+use crate::business::erp::payable::payable_query;
 use crate::business::flow::linkage;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self};

@@ -25,7 +25,7 @@
 //!
 //! 本模块**没有**写路径：应付由 P2-C1 的 [`crate::business::erp::payable`] 在收货过账的同一事务里生成，
 //! 作废也由那边联动。付款 / 作废应付（P7）在
-//! [`crate::business::erp::payable_payment`]，本模块只负责「详情里把付款记录一起读出来」。
+//! [`crate::business::erp::payable::payable_payment`]，本模块只负责「详情里把付款记录一起读出来」。
 //!
 //! # 与卡面的三处口径差异
 //!
@@ -397,7 +397,7 @@ pub struct PayableDetailRes {
     pub voucher_no: Option<String>,
     /// 付款记录时间线（P7 起：部分付款可以有多条，`pay_date` 升序）。
     #[serde(default)]
-    pub payments: Vec<crate::business::erp::payable_payment::PaymentRes>,
+    pub payments: Vec<crate::business::erp::payable::payable_payment::PaymentRes>,
 }
 
 // ==================== 标签 / 派生 ====================
@@ -491,7 +491,7 @@ pub async fn payable_detail(id: Uuid) -> std::result::Result<PayableDetailRes, A
         None => None,
     };
     // 付款记录时间线（P7）：空列表 = 还没付过款，前端据此隐藏/置灰付款按钮。
-    let payments = crate::business::erp::payable_payment::payments_res(db(), id).await?;
+    let payments = crate::business::erp::payable::payable_payment::payments_res(db(), id).await?;
     Ok(PayableDetailRes {
         payable: PayableRes::from_row(&row, today_cst()),
         voucher_no,

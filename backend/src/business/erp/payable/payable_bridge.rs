@@ -32,7 +32,7 @@
 //!
 //! # 与 P7 的关系（硬红线 5：复用，不重写）
 //!
-//! 记账一行都不重写：直接调 [`crate::business::erp::payable_payment::settle_payment_in_tx`]，
+//! 记账一行都不重写：直接调 [`crate::business::erp::payable::payable_payment::settle_payment_in_tx`]，
 //! 它内部就是 P7 的「凭证 借 2202 / 贷 1002 → 付款记录回写 voucher_id → 应付重算 + 状态机」。
 //! 本模块只负责「什么时候该调它」。
 
@@ -44,9 +44,9 @@ use crate::business::flow::{engine, model as flow_model, settle_guard};
 use crate::shared::error_code;
 
 /// 付款审批的业务类型（与 V0175 种子 / `payable_payment::PAY_BIZ_TYPE` 同口径）。
-pub const BIZ_TYPE: &str = crate::business::erp::payable_payment::PAY_BIZ_TYPE;
+pub const BIZ_TYPE: &str = crate::business::erp::payable::payable_payment::PAY_BIZ_TYPE;
 /// 付款审批的流程编码。
-pub const FLOW_CODE: &str = crate::business::erp::payable_payment::PAY_FLOW_CODE;
+pub const FLOW_CODE: &str = crate::business::erp::payable::payable_payment::PAY_FLOW_CODE;
 
 /// 定时任务名（`sys_job.invoke_target` 与调度名同值）。
 pub const TASK_NAME: &str = "payable_payment_reconcile";
@@ -168,7 +168,7 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
         let Some(payable_id) = instance.biz_id else {
             return Ok(());
         };
-        let Ok(Some(row)) = crate::business::erp::payable_query::find_payable(payable_id).await else {
+        let Ok(Some(row)) = crate::business::erp::payable::payable_query::find_payable(payable_id).await else {
             return Ok(());
         };
         let creator = internal_control_creator_of_payable(Some(payable_id))
@@ -322,7 +322,7 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
     let approver = latest_completed_assignee(instance_id).await?;
     match verdict {
         Verdict::Execute => {
-            use crate::business::erp::payable_payment::{self, SettleOutcome};
+            use crate::business::erp::payable::payable_payment::{self, SettleOutcome};
             match payable_payment::settle_approved_payment(payment_id, approver).await {
                 Ok(SettleOutcome::Paid) => {
                     // 审批通过后重复回调（同一实例被点两次 approve）→ 幂等：账已经记过
@@ -393,7 +393,7 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
             }
         }
         Verdict::Abort => {
-            use crate::business::erp::payable_payment;
+            use crate::business::erp::payable::payable_payment;
             match payable_payment::abort_payment(payment_id, "审批驳回 / 撤回，付款未执行").await {
                 Ok(true) => Ok(Some(payment_id)),
                 Ok(false) => Ok(None),
@@ -468,7 +468,7 @@ async fn latest_completed_assignee(instance_id: Uuid) -> DbResult<Option<Uuid>> 
 /// 幂等：没有在跑的实例返回 `Ok(0)`。返回终止的实例数。
 ///
 /// 调用点（同事务）：
-/// * [`crate::business::erp::payable_payment::cancel_in_tx`]（应付单作废）；
+/// * [`crate::business::erp::payable::payable_payment::cancel_in_tx`]（应付单作废）；
 /// * [`crate::business::erp::payable::cancel_for_stock_in`]（收货单作废联动）。
 pub async fn cancel_pending_of_payable(ex: &impl SqlExecutor, payable_id: Uuid, reason: &str) -> DbResult<u64> {
     // 先取在跑的付款记录（拿单号给 cancel_pending_of_biz 兜住 biz_id 为空的历史行）
@@ -731,7 +731,7 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
         return Ok(None);
     };
     // ② 单据必须存在（当前状态能不能收这条结论交给 ③ 的统一前置校验）
-    let Some(row) = crate::business::erp::payable_query::find_payable(payable_id).await? else {
+    let Some(row) = crate::business::erp::payable::payable_query::find_payable(payable_id).await? else {
         tracing::warn!(%payable_id, "应付单不存在或已删除，跳过作废回调");
         return Ok(None);
     };
@@ -772,7 +772,7 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
                 );
                 return Ok(None);
             }
-            match crate::business::erp::payable_payment::cancel_after_approval(payable_id, approver).await {
+            match crate::business::erp::payable::payable_payment::cancel_after_approval(payable_id, approver).await {
                 Ok(()) => Ok(Some(payable_id)),
                 Err(error) => {
                     tracing::warn!(
@@ -785,22 +785,22 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
                 }
             }
         }
-        CancelVerdict::Restore => {
-            match crate::business::erp::payable_payment::restore_after_cancel_rejection(payable_id, verdict, approver)
-                .await
-            {
-                Ok(()) => Ok(Some(payable_id)),
-                Err(error) => {
-                    tracing::warn!(
-                        %payable_id,
-                        code = error.code,
-                        msg = %error.msg,
-                        "作废审批未通过，但应付单回位失败（等待 reconcile 兜扫）"
-                    );
-                    Ok(None)
-                }
+        CancelVerdict::Restore => match crate::business::erp::payable::payable_payment::restore_after_cancel_rejection(
+            payable_id, verdict, approver,
+        )
+        .await
+        {
+            Ok(()) => Ok(Some(payable_id)),
+            Err(error) => {
+                tracing::warn!(
+                    %payable_id,
+                    code = error.code,
+                    msg = %error.msg,
+                    "作废审批未通过，但应付单回位失败（等待 reconcile 兜扫）"
+                );
+                Ok(None)
             }
-        }
+        },
     }
 }
 
@@ -955,12 +955,12 @@ mod tests {
     use super::*;
     use crate::business::erp::approval_gate;
     use crate::business::erp::fixture_hygiene;
-    use crate::business::erp::payable::{self as payable_mod, PayableRow};
-    use crate::business::erp::payable_payment::{
+    use crate::business::erp::payable::payable_payment::{
         self as payment, APPROVAL_APPROVED, APPROVAL_CANCELLED, APPROVAL_PENDING, APPROVAL_REJECTED, OUTCOME_PAID,
         OUTCOME_PENDING, PayPayableReq,
     };
-    use crate::business::erp::payable_query;
+    use crate::business::erp::payable::payable_query;
+    use crate::business::erp::payable::{self as payable_mod, PayableRow};
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
     use crate::business::flow::graph;
     use nik::prelude::chrono::Duration;

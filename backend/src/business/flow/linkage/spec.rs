@@ -448,8 +448,8 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         ],
         wired: true,
         wiring: "已接线（LNK-03）：应付单的三个状态推进（付款 / 部分付款 / 结清）全部在 \
-                 erp/payable_payment.rs::settle_payment_in_tx 里用 transition_if_changed 推进，\
-                 该函数在第 ⑤ 步调 erp/payable_linkage.rs::run_in_tx → \
+                 erp/payable/payable_payment.rs::settle_payment_in_tx 里用 transition_if_changed 推进，\
+                 该函数在第 ⑤ 步调 erp/payable/payable_linkage.rs::run_in_tx → \
                  linkage::engine::run_excluding(spec::PAYABLE_EXCLUDED_ACTIONS)，\
                  排除 UPDATE_PAYABLE_BALANCE（第 ④ 步已回写 paid/unpaid/status）与 \
                  GENERATE_VOUCHER（第 ② 步已生成付款凭证）。两条入口（直付 pay_in_tx / \
@@ -458,8 +458,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  linkage::engine::run_deferred。状态没变（PARTIAL_PAID → PARTIAL_PAID）\
                  不触发",
         proofs: &[
-            ("src/business/erp/payable_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/payable_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/payable/payable_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/payable/payable_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1010,7 +1016,7 @@ pub const PURCHASE_EXCLUDED_ACTIONS: &[&str] = &[
 
 /// **应付单**的专用路由排除清单（LNK-03）。
 ///
-/// 付款事务（`erp/payable_payment.rs::settle_payment_in_tx`）自己已经写完了两类账，
+/// 付款事务（`erp/payable/payable_payment.rs::settle_payment_in_tx`）自己已经写完了两类账，
 /// 通用引擎在这个触发点上必须把它们交给专用路径，否则就是**重复落账**：
 ///
 /// - `UPDATE_PAYABLE_BALANCE` → 同一笔钱扣两次：`paid_amount` 翻倍、`unpaid_amount`
@@ -1019,7 +1025,7 @@ pub const PURCHASE_EXCLUDED_ACTIONS: &[&str] = &[
 /// - `GENERATE_VOUCHER` → 一笔付款两张付款凭证（借 2202 / 贷 1002 各两条），
 ///   总账 / 现金流量表按凭证汇总就翻倍；付款凭证的唯一生成点是付款事务第 ② 步。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::payable_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::payable::payable_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PURCHASE_ORDER/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::payable_status_wires_generic_engine_and_excludes_balance_and_voucher`。
 pub const PAYABLE_EXCLUDED_ACTIONS: &[&str] = &["UPDATE_PAYABLE_BALANCE", ACTION_GENERATE_VOUCHER];
@@ -1642,7 +1648,7 @@ pub const ACTIONS: &[ActionSpec] = &[
                 note: "金额（正数）",
             },
         ],
-        reuse: "erp/payable_payment.rs 的余额维护（paid_amount / balance 与状态推进同一事务）",
+        reuse: "erp/payable/payable_payment.rs 的余额维护（paid_amount / balance 与状态推进同一事务）",
     },
     ActionSpec {
         code: "CREATE_TASK",
@@ -2005,8 +2011,8 @@ mod tests {
     #[test]
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
-            asset::asset_dto, contract::contract_model, expense::expense_dto, payable_query, purchase::purchase_model,
-            stocktake::stocktake_model, voucher::voucher_query,
+            asset::asset_dto, contract::contract_model, expense::expense_dto, payable::payable_query,
+            purchase::purchase_model, stocktake::stocktake_model, voucher::voucher_query,
         };
 
         fn doc_module_label(entity: &str, status: &str) -> Option<String> {

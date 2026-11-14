@@ -20,7 +20,7 @@
 // 用法：
 // ```bash
 // export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<测试库>'
-// cargo test --lib business::erp::payable_payment::tests::payable_linkage_db -- --nocapture --test-threads=1
+// cargo test --lib business::erp::payable::payable_payment::tests::payable_linkage_db -- --nocapture --test-threads=1
 // ```
 // 缺 `ERP_DB_URL` 时打印 `SKIP` 并直接返回（CI 无库时 `cargo test --lib` 仍然全绿）。
 //
@@ -38,7 +38,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::*;
-use crate::business::erp::payable_payment::{self, PayPayableReq};
+use crate::business::erp::payable::payable_payment::{self, PayPayableReq};
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;

@@ -117,7 +117,7 @@ business/erp/expense/expense_model_tests.rs
 business/erp/fixture_hygiene.rs
 business/erp/lot_db_tests.rs
 business/erp/model_tests.rs
-business/erp/payable_payment/tests/payable_linkage_db_tests.rs
+business/erp/payable/payable_payment/tests/payable_linkage_db_tests.rs
 business/erp/period/period_items_tests.rs
 business/erp/period/period_linkage_tests.rs
 business/erp/period/period_remind_tests.rs

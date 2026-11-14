@@ -77,7 +77,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::payable;
-use crate::business::erp::payable_payment;
+use crate::business::erp::payable::payable_payment;
 use crate::business::erp::purchase::purchase_bridge;
 use crate::business::erp::purchase::purchase_model;
 use crate::business::erp::stockin::stockin_cancel;

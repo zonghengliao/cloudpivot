@@ -24,7 +24,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::approval_gate;
 use crate::business::erp::voucher::voucher_write;
 use crate::business::erp::{
-    fixture_hygiene, payable, payable_bridge, payable_payment, voucher, voucher::voucher_bridge,
+    fixture_hygiene, payable, payable::payable_bridge, payable::payable_payment, voucher, voucher::voucher_bridge,
 };
 use crate::business::flow::engine;
 

@@ -23,7 +23,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use rust_decimal::Decimal;
 
-use cloudpivot::business::erp::payable_payment::{PayPayableReq, cancel_payable, pay_payable};
+use cloudpivot::business::erp::payable::payable_payment::{PayPayableReq, cancel_payable, pay_payable};
 use cloudpivot::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 use cloudpivot::business::erp::stockin::stockin_handler::{change_stock_in_status, create_stock_in};
 

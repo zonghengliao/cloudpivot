@@ -44,6 +44,15 @@ use crate::business::erp::stockin::stockin_model::StockInRow;
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::state_machine;
 
+// ==================== 子模块（P2-16：`erp/payable_*.rs` 拆入 `erp/payable/`） ====================
+// 本文件是应付域的 **facade**（拆目录前叫 `erp/payable.rs`），对外路径 `erp::payable::*` 一字未变；
+// 下面 4 个 `payable_*` 与本文件同目录，路径为 `erp::payable::payable_*`。
+// `payable_linkage` 不在此列：它是 `payable_payment` 的私有子模块（`#[path]` 挂载），随文件搬即成立。
+pub mod payable_aging;
+pub mod payable_bridge;
+pub mod payable_payment;
+pub mod payable_query;
+
 /// 应付单表。
 pub const TABLE: &str = "biz_payable";
 
@@ -365,7 +374,7 @@ pub async fn cancel_for_stock_in(
         let status: String = row.get_typed("status")?;
         // ★ P17 反向：收货单作废 → 这张应付单在跑的**付款审批**也必须终止
         //   （否则付款审批会对着已作废的应付单批下去，只能靠回调兜底拒绝；提前终止更干净）
-        crate::business::erp::payable_bridge::cancel_pending_of_payable(
+        crate::business::erp::payable::payable_bridge::cancel_pending_of_payable(
             ex,
             id,
             "收货单作废联动作废应付单，付款审批自动终止",
@@ -374,7 +383,7 @@ pub async fn cancel_for_stock_in(
         // ★ P-FLOW-3B 反向（L6 关联物级联）：收货单作废 → 这张应付单在跑的**作废审批**
         //   也必须终止（否则审批中心留下孤儿待办，且下次发起会撞
         //   uk_biz_flow_instance_biz_active 永久 409）
-        crate::business::erp::payable_bridge::cancel_approval_of_payable_cancel(
+        crate::business::erp::payable::payable_bridge::cancel_approval_of_payable_cancel(
             ex,
             id,
             &payable_no,

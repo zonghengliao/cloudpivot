@@ -3,7 +3,7 @@
 //! # 为什么单开一个模块（而不是塞进 `payable.rs` / `payable_query.rs`）
 //!
 //! * [`crate::business::erp::payable`] 是 P2-C1 的**写模型**（过账即生成应付、作废联动），
-//! * [`crate::business::erp::payable_query`] 是 P2-C2 的**只读查询层**（文件头明写「没有写路径」），
+//! * [`crate::business::erp::payable::payable_query`] 是 P2-C2 的**只读查询层**（文件头明写「没有写路径」），
 //!
 //! 付款 / 作废是「应付台账的第二个写入口」，两者都不合适：塞进 query 层会与它自己的模块文档
 //! 互相矛盾，塞进 P2-C1 的 model 会把「过账路径」与「付款路径」搅在一起。
@@ -99,9 +99,9 @@ use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
 use crate::business::erp::approval_gate;
 use crate::business::erp::form_snapshot;
+use crate::business::erp::payable::payable_bridge;
+use crate::business::erp::payable::payable_query::{self, PayableDetailRes};
 use crate::business::erp::payable::{self, PayableRow};
-use crate::business::erp::payable_bridge;
-use crate::business::erp::payable_query::{self, PayableDetailRes};
 use crate::business::erp::separation;
 use crate::business::erp::voucher::{self, EntryLine, ReversalInput, SeqSpec};
 use crate::business::flow::{engine, model as flow_model};
@@ -1322,7 +1322,7 @@ pub async fn submit_payment(
         return Err(bad_request(format!("本次付款金额必须大于 0，收到 {amount}")));
     }
 
-    let flow = crate::business::erp::payable_bridge::published_pay_flow()
+    let flow = crate::business::erp::payable::payable_bridge::published_pay_flow()
         .await
         .map_err(|error| utils::db_error(error, "查询已发布的付款流程"))?;
     let Some(flow) = flow else {
@@ -1358,7 +1358,7 @@ async fn submit_for_approval(
     req: &PayPayableReq,
     amount: Decimal,
     operator: Option<Uuid>,
-    flow: &crate::business::erp::payable_bridge::PayFlow,
+    flow: &crate::business::erp::payable::payable_bridge::PayFlow,
 ) -> std::result::Result<PaySubmitRes, ApiError> {
     let Some(operator_id) = operator else {
         return Err(ApiError::new(
@@ -1479,7 +1479,7 @@ struct SubmitForApprovalTxInput<'a> {
     /// 申请人（必填；审批实例的发起人与此一致）。
     operator: Uuid,
     /// 付款审批流程快照（流程码 / 版本 / 定义 id）。
-    flow: &'a crate::business::erp::payable_bridge::PayFlow,
+    flow: &'a crate::business::erp::payable::payable_bridge::PayFlow,
     /// 业务时间（与变更日志 / 响应里的时间同源）。
     now: DateTime<Utc>,
 }
@@ -3025,7 +3025,7 @@ mod tests {
     /// LNK-03 真库用例（应付单付款路径的跨单据联动）：挂在本模块下，直接复用 P7 夹具
     /// （`setup` / `new_payable` / `row_of` / `pay_req`）。
     ///
-    /// 文件位置：`erp/payable_payment/tests/payable_linkage_db_tests.rs`（Rust 对内联模块
+    /// 文件位置：`erp/payable/payable_payment/tests/payable_linkage_db_tests.rs`（Rust 对内联模块
     /// `mod tests` 的子模块约定的目录 = `payable_payment/tests/`；`#[path]` 写 `..` 不行 ——
     /// 中间目录不存在时内核直接 ENOENT）。
     ///

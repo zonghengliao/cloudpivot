@@ -56,7 +56,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
-use crate::business::erp::payable_aging::{self, AgingBucketAmountRes, AgingBucketDef, AsOf, BUCKETS, DETAIL_LIMIT};
+use crate::business::erp::payable::payable_aging::{
+    self, AgingBucketAmountRes, AgingBucketDef, AsOf, BUCKETS, DETAIL_LIMIT,
+};
 use crate::business::erp::receivable;
 use crate::business::erp::report::period_name_of;
 use crate::business::erp::voucher;

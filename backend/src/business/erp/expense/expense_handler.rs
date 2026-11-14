@@ -1130,7 +1130,7 @@ fn submit_form_data(
     let mut type_names: Vec<&str> = items.iter().map(|item| item.type_name.as_str()).collect();
     type_names.sort_unstable();
     type_names.dedup();
-    let amount_number = crate::business::erp::payable_payment::amount_number;
+    let amount_number = crate::business::erp::payable::payable_payment::amount_number;
     Ok(json!({
         "amount": amount_number(row.total_with_tax),
         "report_no": row.report_no,

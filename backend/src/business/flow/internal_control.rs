@@ -44,7 +44,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::{payable_bridge, purchase::purchase_bridge, stockin::stockin_bridge};
+use crate::business::erp::{payable::payable_bridge, purchase::purchase_bridge, stockin::stockin_bridge};
 use crate::business::flow::assignee::Candidate;
 use crate::business::flow::model as flow_model;
 

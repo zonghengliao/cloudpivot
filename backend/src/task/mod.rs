@@ -294,12 +294,12 @@ impl Scheduler {
         // 判据：审批还在跑、付款记录却已删除或已不是「审批中」→ 终止审批单。
         // 不回收的代价比 P16 更大：孤儿实例会顶住 uk_biz_payment_pending，
         // 让那张应付单永远付不出第二笔钱（409 且无法自愈）。
-        crate::business::erp::payable_bridge::register_builtin(self);
+        crate::business::erp::payable::payable_bridge::register_builtin(self);
         // P-FLOW-3B：应付作废审批 / 凭证红冲审批的**孤儿实例回收**（每 10 分钟，与上面三个错开）。
         // 判据：审批还在跑、单据却已删除 / 状态已变 / pending 引用已被别处清掉 → 终止审批单。
         // 不回收的代价：审批中心留孤儿待办（点进去 404），且下一次发起会撞
         // uk_biz_flow_instance_biz_active 永久 409；凭证那边还会永远 409「已在红冲审批中」。
-        crate::business::erp::payable_bridge::register_cancel_builtin(self);
+        crate::business::erp::payable::payable_bridge::register_cancel_builtin(self);
         crate::business::erp::voucher::voucher_bridge::register_builtin(self);
         // FIN-2：折旧计提（每月 1 日 01:30 计提上一个会计月的折旧）
         crate::business::erp::depreciation_model::register_builtin(self);

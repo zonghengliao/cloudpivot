@@ -731,7 +731,7 @@ async fn k08_mutex_erp_maker_checker_gap() {
 const SELF_APPROVAL_GUARDS: [(&str, &str); 4] = [
     ("purchase/purchase_bridge.rs", "采购订单审批"),
     ("stockin/stockin_bridge.rs", "收货过账 / 收货作废审批"),
-    ("payable_bridge.rs", "应付付款 / 应付作废审批"),
+    ("payable/payable_bridge.rs", "应付付款 / 应付作废审批"),
     ("voucher/voucher_bridge.rs", "凭证红冲审批"),
 ];
 

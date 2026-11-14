@@ -458,7 +458,7 @@ fn purchase_excluded_actions_are_routed_elsewhere() {
 ///    `PAYABLE/SETTLED` 的通知永远发不出来。
 #[test]
 fn payable_status_wires_generic_engine_and_excludes_balance_and_voucher() {
-    let hook = include_str!("../../erp/payable_linkage.rs");
+    let hook = include_str!("../../erp/payable/payable_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "应付单状态变更必须调用通用引擎（run_excluding）：否则 PAYABLE 的联动规则配了不触发"
@@ -486,7 +486,7 @@ fn payable_status_wires_generic_engine_and_excludes_balance_and_voucher() {
     }
 
     // 唯一记账实现 `settle_payment_in_tx` 里必须真的调 hook（三条状态推进共用这一处）
-    let payment = include_str!("../../erp/payable_payment.rs");
+    let payment = include_str!("../../erp/payable/payable_payment.rs");
     assert!(
         payment.contains("payable_linkage::run_in_tx("),
         "payable_payment::settle_payment_in_tx 必须真的调 payable_linkage::run_in_tx\
