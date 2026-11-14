@@ -97,7 +97,7 @@ pub const SENTINEL_ORG_ID: Uuid = Uuid::nil();
 ///
 /// 用 `to_regclass` 而不是 `SELECT … FROM <表>`：表不存在时前者返回 NULL，
 /// 后者抛 `42P01` 让整个探针 500 —— 而探针的**用途恰恰就是**告诉运维「迁移没跑」
-/// （同 [`crate::business::erp::cost_labor_model::employee_table_present`] 的取舍）。
+/// （同 [`crate::business::erp::cost::cost_labor_model::employee_table_present`] 的取舍）。
 /// 表名走参数绑定（`$n::text`）+ `format('public.%I', …)` 转义，不拼字符串。
 pub fn presence_sql(table_count: usize) -> String {
     let values = (1..=table_count)

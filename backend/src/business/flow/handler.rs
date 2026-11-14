@@ -1822,7 +1822,7 @@ pub async fn withdraw_instance(
     // HR-39：也可能是「薪资单审批」单 → 撤回即退回 CALCULATED 重算（账一分没动）
     crate::business::hr::salary_bridge::on_salary_settled(Some(instance_id), "WITHDRAWN").await;
     // B3-3：也可能是「成本结算」单 → 撤回即批次回草稿 + 清空审批痕迹（账一分没动）
-    crate::business::erp::cost_period_bridge::on_cost_settle_decided(Some(instance_id), "WITHDRAWN").await;
+    crate::business::erp::cost::cost_period_bridge::on_cost_settle_decided(Some(instance_id), "WITHDRAWN").await;
     // ARCH-3 R-P1-1：也可能是「合同审批」单 → 撤回即回草稿（实例清空，可改后重提）
     crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "WITHDRAWN").await;
     // ARCH-3 DC-14：也可能是「盘点过账审批」单 → 撤回即回草稿（账一分没动，可改实盘数后重提）
@@ -1930,7 +1930,7 @@ pub async fn terminate_instance(
     // HR-39：薪资单审批被行政终止 → 退回 CALCULATED 重算（不许停在「审批中」却没人能批）
     crate::business::hr::salary_bridge::on_salary_settled(Some(instance_id), "CANCELLED").await;
     // B3-3：成本结算审批被行政终止 → 批次回草稿（不能停在「审批中」却没人能批）
-    crate::business::erp::cost_period_bridge::on_cost_settle_decided(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::cost::cost_period_bridge::on_cost_settle_decided(Some(instance_id), "CANCELLED").await;
     crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::stocktake_bridge::on_stock_take_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "CANCELLED").await;
@@ -2007,7 +2007,7 @@ pub async fn approve_task(
     // SO-14 遗留 D10：收款退款 —— 制单人 / 发起人不能批自己的退款（403 + 65019）
     crate::business::erp::receipt_refund_bridge::guard_self_approval(task_id, operator).await?;
     // B3-3：成本结算 —— 制单人 / 发起人不能批自己的结算（财务经理本人制单的场景）
-    crate::business::erp::cost_period_bridge::guard_self_approval(task_id, operator).await?;
+    crate::business::erp::cost::cost_period_bridge::guard_self_approval(task_id, operator).await?;
     // P2-02：采购申请 —— 制单人 / 发起人不能批自己的申请（403 + 65019）
     crate::business::erp::requisition_bridge::guard_self_approval(task_id, operator).await?;
     // P2-03：采购退货 —— 制单人 / 发起人不能批自己的退货（403 + 65019）
@@ -2055,7 +2055,7 @@ pub async fn approve_task(
     // （**不出凭证**，凭证在人工过账时生成）；驳回 / 终止则退回 CALCULATED 重算
     crate::business::hr::salary_bridge::on_salary_settled(out.instance_id, &out.instance_status).await;
     // B3-3：也可能是「成本结算」发起的 —— 通过则批次 APPROVED（数据冻结，等 B3-4 结算）
-    crate::business::erp::cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
+    crate::business::erp::cost::cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
     // ARCH-3 R-P1-1：也可能是「合同审批」发起的 —— 通过则 SIGNED（可被采购单引用），驳回则回草稿
     crate::business::erp::contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;
     // ARCH-3 DC-14：也可能是「盘点过账审批」发起的 —— 通过只是「允许过账」（状态仍待过账），
@@ -2151,7 +2151,7 @@ pub async fn reject_task(
     // （**不出凭证**，凭证在人工过账时生成）；驳回 / 终止则退回 CALCULATED 重算
     crate::business::hr::salary_bridge::on_salary_settled(out.instance_id, &out.instance_status).await;
     // B3-3：成本结算被驳回 / 驳回终止 → 回草稿 + 清空审批痕迹 + 意见进 remark（可改后重提）
-    crate::business::erp::cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
+    crate::business::erp::cost::cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
     // ARCH-3 R-P1-1：合同审批被驳回 / 驳回终止 → 回草稿（可改后重提，意见进状态日志）
     crate::business::erp::contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;
     // ARCH-3 DC-14：盘点过账审批被驳回 / 终止 → 回草稿（账一分没动，可改实盘数后重提）

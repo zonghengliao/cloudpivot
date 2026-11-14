@@ -183,7 +183,7 @@ pub async fn count_for_object(ex: &impl SqlExecutor, resource: &str, resource_id
 /// - `ex`：执行器；
 /// - `resource` / `resource_id`：对象坐标；
 /// - `action_label`：只认某个动作（`None` = 该对象的任意变更里取最新）。
-///   成本对象传 [`crate::business::erp::cost_object_dto::OUTPUT_ACTION_LABEL`]，
+///   成本对象传 [`crate::business::erp::cost::cost_object_dto::OUTPUT_ACTION_LABEL`]，
 ///   这样将来改主数据也接审计时，面板不会把「改了备注」显示成「填了产量」。
 ///
 /// # 返回值

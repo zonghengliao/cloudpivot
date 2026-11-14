@@ -1581,7 +1581,7 @@ pub const ERP_MANUAL_CODE_FORBIDDEN: i32 = 66054;
 /// 列给用户（哪张领料单没归集、哪条工时还是草稿、哪个期间已锁定），而不是
 /// 一句「冲突了」。报文里已经带了逐条说明，前端按 `msg` 展示即可。
 ///
-/// 5 条前置见 `business::erp::cost_object_dto::evaluate_close`（纯函数，单测钉住）。
+/// 5 条前置见 `business::erp::cost::cost_object_dto::evaluate_close`（纯函数，单测钉住）。
 pub const ERP_COST_OBJECT_CLOSE_BLOCKED: i32 = 66055;
 
 /// 批次主数据批号重复（HTTP 409，成本核算 ARCH-9 §3.1 ① · `66056`）。

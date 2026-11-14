@@ -758,8 +758,8 @@ def static_sync_check():
     （E4 的 biz_type 白名单就是这么漏过三次的，见 erp_invariants_e4_regression.py）。
     """
     print("\n[0] 静态同步：巡检常量 ↔ 后端常量（不连库）")
-    backing = ROOT / "backend/src/business/erp/cost_settle_voucher.rs"
-    run_src = ROOT / "backend/src/business/erp/cost_settle_run.rs"
+    backing = ROOT / "backend/src/business/erp/cost/cost_settle_voucher.rs"
+    run_src = ROOT / "backend/src/business/erp/cost/cost_settle_run.rs"
     inv_src = INVARIANTS
     failures = 0
     if not backing.exists() or not run_src.exists():

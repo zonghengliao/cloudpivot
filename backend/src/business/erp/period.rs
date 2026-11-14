@@ -3062,7 +3062,7 @@ mod tests {
     /// SQL 字面量与 Rust 谓词必须同时对。
     #[test]
     fn cost_status_settled_matches_design_list() {
-        use crate::business::erp::cost_period_dto::{self, STATUSES};
+        use crate::business::erp::cost::cost_period_dto::{self, STATUSES};
         let settled = ["SETTLED", "CLOSED", "CANCELLED", "REVERSED"];
         for status in STATUSES {
             assert_eq!(

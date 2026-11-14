@@ -46,7 +46,7 @@ mod linkage_hook;
 
 use crate::business::flow::linkage;
 
-use super::cost_object_model as cost_object;
+use super::cost::cost_object_model as cost_object;
 use super::stockout_base::*;
 use super::stockout_dto::{
     CostObjectOptionQuery, CostObjectOptionRes, CreateStockOutReq, IssuePrefillQuery, IssuePrefillRes,

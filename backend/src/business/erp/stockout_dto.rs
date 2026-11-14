@@ -184,7 +184,7 @@ impl CreateStockOutReq {
             .filter(|text| !text.is_empty())
         {
             None => Ok(None),
-            Some(text) => Ok(Some(crate::business::erp::cost_object_dto::parse_uuid(
+            Some(text) => Ok(Some(crate::business::erp::cost::cost_object_dto::parse_uuid(
                 text,
                 "cost_object_id",
             )?)),
@@ -201,9 +201,9 @@ impl CreateStockOutReq {
 /// 是「这批已经结完成本了，不能再往里投料」。
 pub fn cost_object_status_label(status: &str) -> &'static str {
     match status {
-        super::cost_object_dto::STATUS_OPEN => "在制",
-        super::cost_object_dto::STATUS_CLOSED => "已关批",
-        super::cost_object_dto::STATUS_CANCELLED => "已作废",
+        super::cost::cost_object_dto::STATUS_OPEN => "在制",
+        super::cost::cost_object_dto::STATUS_CLOSED => "已关批",
+        super::cost::cost_object_dto::STATUS_CANCELLED => "已作废",
         _ => "未知状态",
     }
 }
@@ -244,7 +244,7 @@ pub fn ensure_cost_object_usable(
             format!("cost_object_id 指向的成本对象 {cost_object_id} 不存在或已删除"),
         ));
     };
-    if object.status != super::cost_object_dto::STATUS_OPEN {
+    if object.status != super::cost::cost_object_dto::STATUS_OPEN {
         return Err(ApiError::new(
             409,
             error_code::ERP_COST_OBJECT_NOT_OPEN,
@@ -893,7 +893,7 @@ mod tests {
     /// 挂一个 **OPEN** 的成本对象 → 放行（卡面验收「可选成本对象」）。
     #[test]
     fn issue_with_open_cost_object_is_accepted() {
-        let object = object_no(super::super::cost_object_dto::STATUS_OPEN);
+        let object = object_no(super::super::cost::cost_object_dto::STATUS_OPEN);
         ensure_cost_object_usable(OUT_TYPE_ISSUE, Some(uuid::Uuid::now_v7()), Some(&object))
             .expect("OPEN 对象必须放行");
     }
@@ -913,7 +913,7 @@ mod tests {
         let error = ensure_cost_object_usable(
             OUT_TYPE_ISSUE,
             Some(uuid::Uuid::now_v7()),
-            Some(&object_no(super::super::cost_object_dto::STATUS_CLOSED)),
+            Some(&object_no(super::super::cost::cost_object_dto::STATUS_CLOSED)),
         )
         .expect_err("已关批对象必须被拒");
         assert_eq!(error.status, 409, "业务规则拒绝用 409（不是参数错）");
@@ -934,7 +934,7 @@ mod tests {
         let error = ensure_cost_object_usable(
             OUT_TYPE_ISSUE,
             Some(uuid::Uuid::now_v7()),
-            Some(&object_no(super::super::cost_object_dto::STATUS_CANCELLED)),
+            Some(&object_no(super::super::cost::cost_object_dto::STATUS_CANCELLED)),
         )
         .expect_err("已作废对象必须被拒");
         assert_eq!(error.status, 409);
@@ -955,7 +955,7 @@ mod tests {
     /// 非领用单挂对象 → 400（报废 / 盘亏是资产损失，进去也归集不到料）。
     #[test]
     fn non_issue_doc_cannot_attach_cost_object() {
-        let object = object_no(super::super::cost_object_dto::STATUS_OPEN);
+        let object = object_no(super::super::cost::cost_object_dto::STATUS_OPEN);
         for out_type in ["SCRAP", "LOSS", "OTHER"] {
             let error = ensure_cost_object_usable(out_type, Some(uuid::Uuid::now_v7()), Some(&object))
                 .expect_err("非领用单挂对象必须被拒");
