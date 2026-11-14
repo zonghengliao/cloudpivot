@@ -187,7 +187,7 @@ pub fn qty_within_returnable(qty: Decimal, shipped: Decimal, returned: Decimal) 
 /// `amount = round(price × qty, 4)`、`tax = round(amount × rate / 100, 4)`，
 /// 四舍五入（不是 `round_dp` 默认的银行家舍入）—— 两处口径不许各写一份。
 pub fn line_amounts(qty: Decimal, price: Decimal, tax_rate: Decimal) -> (Decimal, Decimal) {
-    crate::business::erp::sales_order_model::line_amounts(qty, price, tax_rate)
+    crate::business::erp::sales::sales_order_model::line_amounts(qty, price, tax_rate)
 }
 
 /// 明细合计：`(total_amount, total_tax, total_with_tax)`。

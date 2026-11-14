@@ -47,8 +47,8 @@ use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
 use crate::business::erp::purchase::purchase_return_dto;
 use crate::business::erp::purchase::purchase_return_model;
-use crate::business::erp::sales_order_model;
-use crate::business::erp::sales_return_model;
+use crate::business::erp::sales::sales_order_model;
+use crate::business::erp::sales::sales_return_model;
 use crate::business::erp::shipment_model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{

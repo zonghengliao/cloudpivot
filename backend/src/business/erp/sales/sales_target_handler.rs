@@ -52,13 +52,15 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
-use crate::business::erp::sales_target_dto::{
+use crate::business::erp::sales::sales_target_dto::{
     AchievementBasis, AchievementQuery, AchievementRow, BASIS_RECEIPT, ForecastCreateReq, ForecastFilter,
     ForecastPageQuery, ForecastRes, ForecastUpdateReq, Period, SCOPE_ALL, TargetCreateReq, TargetFilter,
     TargetPageQuery, TargetRes, TargetUpdateReq, achievement_rate, check_amount, check_qty, gap, money2,
     normalize_basis, normalize_confidence, normalize_period, normalize_scope, normalize_status,
 };
-use crate::business::erp::sales_target_model::{self as model, ForecastListRow, ForecastRow, TargetListRow, TargetRow};
+use crate::business::erp::sales::sales_target_model::{
+    self as model, ForecastListRow, ForecastRow, TargetListRow, TargetRow,
+};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -577,7 +579,7 @@ pub async fn achievement(query: AchievementQuery) -> std::result::Result<Vec<Ach
     {
         Some(raw) => {
             let normalized = raw.to_ascii_uppercase();
-            if !crate::business::erp::sales_target_dto::SCOPE_TYPES.contains(&normalized.as_str()) {
+            if !crate::business::erp::sales::sales_target_dto::SCOPE_TYPES.contains(&normalized.as_str()) {
                 return Err(bad_request(
                     "scope_type 只认 SALESPERSON / DEPT / MATERIAL_CATEGORY / ALL".to_string(),
                 ));
@@ -777,7 +779,7 @@ pub fn all_permissions() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::sales_target_dto::{
+    use crate::business::erp::sales::sales_target_dto::{
         BASIS_ORDER, CONFIDENCE_HIGH, CONFIDENCE_MEDIUM, SCOPE_DEPT, SCOPE_MATERIAL, SCOPE_SALESPERSON, TARGET_ACTIVE,
         TARGET_STATUSES,
     };

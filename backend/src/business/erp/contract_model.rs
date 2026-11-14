@@ -1155,7 +1155,7 @@ impl ContractCommitment {
 /// 数据库异常原样上抛（`DbError`），由 handler 折成 500 —— 详情页宁可报错，
 /// 也不显示一个「已执行 0.00」的假数字。
 pub async fn commitment_of(ex: &impl SqlExecutor, contract_id: Uuid) -> DbResult<ContractCommitment> {
-    use crate::business::erp::{purchase::purchase_model, sales_order_model};
+    use crate::business::erp::{purchase::purchase_model, sales::sales_order_model};
 
     let purchase_committed = purchase_model::committed_amount(ex, contract_id, None).await?;
     let sales_committed = sales_order_model::committed_amount(ex, contract_id, None).await?;

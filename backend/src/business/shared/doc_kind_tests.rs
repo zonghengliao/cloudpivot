@@ -507,8 +507,8 @@ fn approval_entries_use_registered_biz_types() {
     use crate::business::erp::cost::cost_period_bridge;
     use crate::business::erp::{
         contract_bridge, payable_bridge, purchase::purchase_bridge, purchase::purchase_return_bridge,
-        receipt_refund_bridge, requisition_bridge, sales_approval_bridge, stockin::stockin_query, stocktake_bridge,
-        voucher_bridge,
+        receipt_refund_bridge, requisition_bridge, sales::sales_approval_bridge, stockin::stockin_query,
+        stocktake_bridge, voucher_bridge,
     };
     let registered: Vec<&str> = FlowBizType::ALL.iter().map(|item| item.as_str()).collect();
     for (name, value) in [

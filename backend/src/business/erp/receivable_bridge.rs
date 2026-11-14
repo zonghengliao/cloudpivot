@@ -88,7 +88,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::receivable::{self, NewReceivable};
-use crate::business::erp::sales_order_model;
+use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::voucher;
 use crate::shared::error_code;
 use crate::utils;

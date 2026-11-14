@@ -42,7 +42,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::sales_order_model;
+use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment_model::{self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow};
 use crate::business::erp::stockout_base::{NewStockOut, NewStockOutLine, OUT_TYPE_OTHER, SOURCE_TYPE_SALES, Totals};
 use crate::business::erp::stockout_handler;

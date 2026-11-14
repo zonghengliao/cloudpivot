@@ -58,8 +58,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
-use crate::business::erp::sales_order_model;
-use crate::business::erp::sales_return_model::{self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow};
+use crate::business::erp::sales::sales_order_model;
+use crate::business::erp::sales::sales_return_model::{
+    self as model, NewReturn, NewReturnItem, ReturnItemRow, ReturnRow,
+};
 use crate::business::erp::shipment_model;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -1203,7 +1205,7 @@ pub async fn change_return_status(
         // 与上面的状态 CAS **同一个事务**：任何一步失败，状态与六本账一起回滚
         // （绝不出现「状态已过账、账上一分没动」的单）。
         if target == model::STATUS_POSTED {
-            let posted = crate::business::erp::sales_return_posting::post_in_tx(&tx, id, &op, now).await?;
+            let posted = crate::business::erp::sales::sales_return_posting::post_in_tx(&tx, id, &op, now).await?;
             tracing::info!(
                 return_no = %row.return_no,
                 stock_in_no = %posted.stock_in_no,
@@ -1414,7 +1416,7 @@ mod tests {
         assert_eq!(RETURNABLE_SHIPMENT_STATUSES, ["POSTED"]);
         for status in RETURNABLE_SO_STATUSES {
             assert!(
-                crate::business::erp::sales_model::STATUSES.contains(&status),
+                crate::business::erp::sales::sales_model::STATUSES.contains(&status),
                 "{status} 不是销售订单的合法状态：订单侧闸门写错了"
             );
         }

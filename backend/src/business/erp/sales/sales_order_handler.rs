@@ -83,8 +83,8 @@ use crate::business::erp::contract_model::{self, ContractRow};
 use crate::business::erp::credit;
 use crate::business::erp::currency;
 use crate::business::erp::customer_model::{self, STATUS_ACTIVE};
-use crate::business::erp::sales_approval_bridge;
-use crate::business::erp::sales_order_model::{
+use crate::business::erp::sales::sales_approval_bridge;
+use crate::business::erp::sales::sales_order_model::{
     self as model, NewItem, NewSalesOrder, SalesOrderItemRow, SalesOrderRow, Totals,
 };
 use crate::business::flow::engine;
@@ -576,8 +576,8 @@ fn build_order<'a>(
     // 同行重复物料不拦（同一物料两行 = 两个交期 / 两个价格，是合理业务），
     // 但总金额必须自洽：这里再跑一次恒等守卫（漏了就是库层 23514 = 500 手感）
     let totals = Totals::of(&built);
-    if !crate::business::erp::sales_model::totals_consistent(totals.amount, totals.tax, totals.with_tax)
-        || !crate::business::erp::sales_model::amounts_non_negative(totals.amount, totals.tax, totals.with_tax)
+    if !crate::business::erp::sales::sales_model::totals_consistent(totals.amount, totals.tax, totals.with_tax)
+        || !crate::business::erp::sales::sales_model::amounts_non_negative(totals.amount, totals.tax, totals.with_tax)
     {
         return Err(bad_request(
             "价税合计不自洽（total_with_tax 必须等于 amount + tax，且三项都非负）",

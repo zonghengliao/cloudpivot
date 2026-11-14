@@ -2,7 +2,7 @@
 //!
 //! 表结构唯一依据：`backend/migrations/business/V0264__sales_order.up.sql`
 //! （`biz_sales_order` / `biz_sales_order_item`）。**取号 / 单号解析 / 状态域 /
-//! 金额守卫在 [`crate::business::erp::sales_model`]**（SO-04 已交付并真库验证过），
+//! 金额守卫在 [`crate::business::erp::sales::sales_model`]**（SO-04 已交付并真库验证过），
 //! 本文件只做「行结构 + 读写 + 状态迁移落库」，**不另造一份取号**。
 //!
 //! # 与 `sales_model` 的分工
@@ -38,13 +38,13 @@ use nik::uuid::Uuid;
 use crate::business::erp::credit;
 use crate::business::erp::currency;
 use crate::business::erp::model_base::{find_by_id, page_of};
-use crate::business::erp::sales_model as base;
+use crate::business::erp::sales::sales_model as base;
 use crate::business::shared::{scope, state_machine};
 
 /// 分页口径（默认 20 / 上限 200 / `page_size = 0` 回落）直接复用底座。
 pub use crate::business::erp::model_base::{DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE, normalize_page};
 /// 状态域与标签（唯一真相在 `sales_model`，这里只做转发，避免两处漂移）。
-pub use crate::business::erp::sales_model::{
+pub use crate::business::erp::sales::sales_model::{
     STATUS_APPROVED, STATUS_CANCELLED, STATUS_CLOSED, STATUS_DRAFT, STATUS_OUTBOUND, STATUS_PARTIAL_OUT,
     STATUS_SUBMITTED, STATUSES, is_valid_status, status_label,
 };
@@ -524,11 +524,11 @@ pub async fn customer_open_credit(
             format!(
                 "SELECT COALESCE(SUM(total_with_tax), 0)::text AS returned \
                    FROM {} WHERE customer_id = ? AND deleted_at IS NULL AND status = ?",
-                crate::business::erp::sales_return_model::TABLE
+                crate::business::erp::sales::sales_return_model::TABLE
             ),
             vec![
                 Value::from(customer_id),
-                Value::Text(crate::business::erp::sales_return_model::STATUS_POSTED.to_string()),
+                Value::Text(crate::business::erp::sales::sales_return_model::STATUS_POSTED.to_string()),
             ],
         )
         .await?;

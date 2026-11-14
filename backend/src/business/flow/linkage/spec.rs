@@ -411,7 +411,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("CANCELLED", "已取消"),
         ],
         wired: true,
-        wiring: "已接线（LNK-02）：两处状态写入点共用 erp/purchase_linkage.rs 一份 hook —— \
+        wiring: "已接线（LNK-02）：两处状态写入点共用 erp/purchase/purchase_linkage.rs 一份 hook —— \
                  ① purchase_model::apply_status[_with_instance]（提交 / 审批通过 / 驳回 / 关闭 / \
                  作废，CAS 成功 affected>0 才跑）调 purchase_linkage::run_in_tx → \
                  linkage::engine::run_excluding(spec::PURCHASE_EXCLUDED_ACTIONS)；\
@@ -421,8 +421,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  这条边永远不触发。通知 / 建任务这类 AfterCommit 动作由调用方在 commit 之后 \
                  调 LinkageOutbox::flush → linkage::engine::run_deferred",
         proofs: &[
-            ("src/business/erp/purchase_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/purchase_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/purchase/purchase_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/purchase/purchase_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -662,7 +668,7 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("CANCELLED", "已作废"),
         ],
         wired: true,
-        wiring: "已接线（唯一动账点）：erp/purchase_return_handler.rs::confirm_return 在\
+        wiring: "已接线（唯一动账点）：erp/purchase/purchase_return_handler.rs::confirm_return 在\
                  **确认事务内**调 linkage::engine::run_excluding(\
                  spec::PURCHASE_RETURN_EXCLUDED_ACTIONS)（库存 / 库位账 / 流水 / 应付余额 /\
                  凭证全部由 purchase_return_posting::confirm_tx 的专用路径落账，\
@@ -672,11 +678,11 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  需要通知就在审批流自己的节点上配，不要在这条触发点上重复发",
         proofs: &[
             (
-                "src/business/erp/purchase_return_handler.rs",
+                "src/business/erp/purchase/purchase_return_handler.rs",
                 "linkage::engine::run_excluding",
             ),
             (
-                "src/business/erp/purchase_return_handler.rs",
+                "src/business/erp/purchase/purchase_return_handler.rs",
                 "linkage::engine::run_deferred",
             ),
         ],
@@ -975,7 +981,7 @@ pub const PAYABLE_EXCLUDED_ACTIONS: &[&str] = &["UPDATE_PAYABLE_BALANCE", ACTION
 
 /// **采购退货单**的专用路由排除清单（P2-03）。
 ///
-/// 退货确认事务（`erp/purchase_return_handler.rs::confirm_return` → \
+/// 退货确认事务（`erp/purchase/purchase_return_handler.rs::confirm_return` → \
 /// `purchase_return_posting::confirm_tx`）自己已经写完了五本账，通用引擎在这个触发点上
 /// 必须把它们交给专用路径，否则就是**重复落账**：
 ///

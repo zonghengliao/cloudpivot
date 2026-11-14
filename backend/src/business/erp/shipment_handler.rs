@@ -63,7 +63,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::sales_order_model;
+use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment_model::{self as model, NewShipment, NewShipmentItem, ShipmentItemRow, ShipmentRow};
 use crate::business::erp::shipment_posting;
 use crate::business::erp::stockout_handler;

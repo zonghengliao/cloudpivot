@@ -69,7 +69,7 @@
 //! | [`reminder_contract`] | ③ 合同到期：`end_date` 前 30/15/7/1 天 → 制单人 + 负责人 + 采购经理 | **ARCH-3 R-P1-2** |
 //! | [`reminder_stock`] | ④ 低库存：`qty < safety_stock`（DC-12 摆设字段落地）→ 仓管主管 | **ARCH-3 R-P1-2** |
 //! | [`customer_model`] | 客户档案数据层（V0260）：`ACTIVE`/`FROZEN` 域、软删后编码可复用、分页 | **SO-01/SO-02** |
-//! | [`sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
+//! | [`sales::sales_model`] | 销售订单数据层（V0264）：`SO-yyyyMMdd-6 位` 取号 + 7 态状态域 + 金额恒等守卫 | **SO-04** |
 //! | [`shipment_model`] | 发货单数据层（V0283）：`SH-yyyyMMdd-6 位` 取号 + 4 态状态域 + **超发守卫**（未发量 = 订单 − 已发 − 未过账占用） | **SO-08** |
 //! | [`shipment_posting`] | 发货过账的库存效果（V0285）：销售出库单（`source_type=SALES`）→ `inventory_writer` 三账负向 → `delivered_qty` → 订单 `PARTIAL_OUT`/`OUTBOUND`，**同一事务** | **SO-10** |
 //! | [`receivable`] | 应收单写侧（V0287）：手工挂账（`AR-yyyyMMdd-000001` / MANUAL 来源）+ 坏账核销（`WRITTEN_OFF` + 必须给原因） | **SO-13** |
@@ -246,16 +246,7 @@ pub mod report_pdf;
 pub mod requisition_bridge;
 /// 采购退货单 / 销售退货单 PDF 导出（PDF-04）：原单号 + 退货原因 + 双向库位口径。
 pub mod return_pdf;
-pub mod sales_approval_bridge;
-pub mod sales_model;
-pub mod sales_order_handler;
-pub mod sales_order_model;
-pub mod sales_return_handler;
-pub mod sales_return_model;
-pub mod sales_return_posting;
-pub mod sales_target_dto;
-pub mod sales_target_handler;
-pub mod sales_target_model;
+pub mod sales;
 pub mod separation;
 /// 主数据编码取号器（CODE-01）：`biz_seq` 纯流水号段 → `SUP-0001` / `WH-01`。
 pub mod seq;

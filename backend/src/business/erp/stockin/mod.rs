@@ -17,7 +17,7 @@ pub mod stockin_query; // 收货入库只读（`POST_BIZ_TYPE` / `CANCEL_BIZ_TYP
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
 //
 // `stockin_base` / `stockin_cancel` 用 `pub(in crate::business::erp)` 而不是裸 `mod`：
-// `erp/cost/*`、`erp/stocktake_model.rs`、`erp/sales_return_posting.rs`、
+// `erp/cost/*`、`erp/stocktake_model.rs`、`erp/sales/sales_return_posting.rs`、
 // `erp/cancel_cascade.rs` 等**同域兄弟**按绝对路径取它们
 // （`crate::business::erp::stockin::stockin_base::…`）。拆目录前那是「erp 内的私有」，
 // 拆完写裸 `mod` 会缩成「stockin 内的私有」，兄弟模块取不到 ——

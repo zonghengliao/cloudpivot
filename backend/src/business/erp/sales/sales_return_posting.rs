@@ -73,7 +73,7 @@ use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::invoice;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
-use crate::business::erp::sales_return_model::{self as model, ReturnItemRow, ReturnRow};
+use crate::business::erp::sales::sales_return_model::{self as model, ReturnItemRow, ReturnRow};
 use crate::business::erp::stockin::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
 use crate::business::erp::stockout_base::{DOC_TYPE_STOCK_OUT, TXN_TYPE_OUT};
 use crate::business::erp::stockout_model::{self as stock_out};
@@ -1623,7 +1623,7 @@ mod tests {
     /// ⑪ 信用额度释放：已过账退货从在手占用里抵减，抵减到底不出负数。
     #[test]
     fn credit_release_never_goes_negative() {
-        use crate::business::erp::sales_order_model::credited_after_returns;
+        use crate::business::erp::sales::sales_order_model::credited_after_returns;
         assert_eq!(credited_after_returns(dec("2429.5"), dec("339")), dec("2090.5"));
         assert_eq!(credited_after_returns(dec("100"), dec("100")), Decimal::ZERO);
         assert_eq!(

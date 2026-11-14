@@ -39,7 +39,7 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::sales_order_model::{self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
+use crate::business::erp::sales::sales_order_model::{self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
@@ -575,12 +575,12 @@ mod tests {
 ///
 /// 没设 `ERP_DB_URL` 时**逐条 SKIP**（打印原因，不假绿）：
 /// `ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_so06' cargo test --lib -- \
-///  business::erp::sales_approval_bridge --test-threads=1`
+///  business::erp::sales::sales_approval_bridge --test-threads=1`
 #[cfg(test)]
 mod db_tests {
     use super::*;
     use crate::business::erp::approval_gate::ApprovalGate;
-    use crate::business::erp::sales_order_handler;
+    use crate::business::erp::sales::sales_order_handler;
     use crate::business::flow::engine;
     use nik::prelude::chrono::NaiveDate;
 
