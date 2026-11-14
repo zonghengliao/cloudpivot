@@ -48,7 +48,15 @@ fn manifest_dir() -> PathBuf {
 /// 这个路径是不是「联动模块自身的代码」（自己不算调用方）。
 fn is_linkage_module(relative: &Path) -> bool {
     let text = relative.to_string_lossy().replace('\\', "/");
-    text == "flow/linkage.rs" || text.starts_with("flow/linkage/")
+    // P2-34：联动模块从 `flow/` 搬进 `erp/`，这里跟着改 —— 判据（「模块自身不算调用方」）不变。
+    //
+    // 例外：`erp/linkage/flow_instance_trigger.rs` 是**审批终态的 hook 本体**
+    // （P2-34 从 `flow/instance_linkage.rs` 搬来），它**就是**一个调用方 —— 引擎 / 动作 / 白名单
+    // 那些内部件不算，但它必须算，否则 `spec::TRIGGER_SPECS` 的 FLOW_INSTANCE 证据永远对不上。
+    if text == "erp/linkage/flow_instance_trigger.rs" {
+        return false;
+    }
+    text == "erp/linkage.rs" || text.starts_with("erp/linkage/")
 }
 
 /// 测试文件名（`*_tests.rs` / `tests*.rs`）：测试里调引擎不算生产接线。
@@ -327,11 +335,13 @@ fn transfer_status_wires_generic_engine_and_excludes_inventory() {
          （在事务里发通知，一旦回滚就是「用户看到通知、单子没动」）"
     );
 
-    // 审批回调：PENDING → APPROVED / DRAFT 走的是 task_bridge，不经过 change_transfer_status
-    let bridge = include_str!("../../flow/task_bridge.rs");
+    // 审批回调：PENDING → APPROVED / DRAFT 走的是注册表（`STOCK_TRANSFER` 的 on_settled），
+    // 不经过 change_transfer_status。P2-34：回调本体从 `flow::task_bridge` 搬进
+    // `erp/transfer/transfer_approval_settle.rs` —— 断言跟着搬，判据一个字没放宽。
+    let bridge = include_str!("../../erp/transfer/transfer_approval_settle.rs");
     assert!(
         bridge.contains("transfer_linkage::run_in_tx("),
-        "审批回调（flow::task_bridge::settle_transfer）也必须调 transfer_linkage::run_in_tx：\
+        "审批回调（transfer_approval_settle::settle_transfer）也必须调 transfer_linkage::run_in_tx：\
          否则配了已发布流程的环境里 STOCK_TRANSFER/APPROVED 的规则永远不触发"
     );
     assert!(
@@ -346,7 +356,7 @@ fn transfer_status_wires_generic_engine_and_excludes_inventory() {
 /// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
 #[test]
 fn transfer_excluded_actions_are_routed_elsewhere() {
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::TRANSFER_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::TRANSFER_EXCLUDED_ACTIONS, code),
@@ -429,7 +439,7 @@ fn purchase_order_wires_generic_engine_and_excludes_stock_actions() {
 /// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
 #[test]
 fn purchase_excluded_actions_are_routed_elsewhere() {
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::PURCHASE_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::PURCHASE_EXCLUDED_ACTIONS, code),
@@ -506,7 +516,7 @@ fn payable_status_wires_generic_engine_and_excludes_balance_and_voucher() {
 /// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
 #[test]
 fn payable_excluded_actions_are_routed_elsewhere() {
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::PAYABLE_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::PAYABLE_EXCLUDED_ACTIONS, code),
@@ -584,7 +594,7 @@ fn stocktake_wires_generic_engine_and_excludes_inventory() {
 /// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
 #[test]
 fn stocktake_excluded_actions_are_routed_elsewhere() {
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::STOCKTAKE_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::STOCKTAKE_EXCLUDED_ACTIONS, code),
@@ -679,7 +689,7 @@ fn expense_wires_generic_engine_and_excludes_voucher() {
 /// 命中的规则**不产生 `RuleRun`**（`run_excluding` 里 `continue`）。
 #[test]
 fn expense_excluded_actions_are_routed_elsewhere() {
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::EXPENSE_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::EXPENSE_EXCLUDED_ACTIONS, code),
@@ -765,7 +775,7 @@ fn voucher_wires_generic_engine_excludes_and_forbids_generate() {
     );
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::VOUCHER_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::VOUCHER_EXCLUDED_ACTIONS, code),
@@ -855,7 +865,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
     );
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::CONTRACT_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::CONTRACT_EXCLUDED_ACTIONS, code),
@@ -967,7 +977,7 @@ fn period_wires_generic_engine_and_excludes_ledger_actions() {
     }
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::PERIOD_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::PERIOD_EXCLUDED_ACTIONS, code),
@@ -1135,7 +1145,7 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
     );
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::FIXED_ASSET_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::FIXED_ASSET_EXCLUDED_ACTIONS, code),
@@ -1240,7 +1250,7 @@ fn depreciation_wires_generic_engine_and_excludes_voucher() {
     }
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::DEPRECIATION_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::DEPRECIATION_EXCLUDED_ACTIONS, code),
@@ -1356,7 +1366,7 @@ fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
     }
 
     // 排除清单在语义上真的会拦（不是只有字符串写对）
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::YEAR_END_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::YEAR_END_EXCLUDED_ACTIONS, code),
@@ -1386,7 +1396,7 @@ fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
 #[test]
 fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
     // ---------- ① hook 本身真的调引擎（不是只有注释） ----------
-    let hook = include_str!("../instance_linkage.rs");
+    let hook = include_str!("flow_instance_trigger.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "审批实例联动 hook 必须调用通用引擎（run_excluding）：否则 FLOW_INSTANCE 的规则配了不触发"
@@ -1401,16 +1411,16 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
     );
 
     // ---------- ② 四个调用点，一个不能少 ----------
-    let handler = include_str!("../handler.rs");
+    let handler = include_str!("../../flow/handler.rs");
     assert_eq!(
-        handler.matches("instance_linkage::fire_after_commit(").count(),
+        handler.matches("instance_hooks::fire_after_commit(").count(),
         4,
         "approve_task / reject_task / withdraw_instance / create_instance（发起即自动走完）\
          四个位置都必须真的调 hook（只改 spec.rs 的 wired 标记不算接线）"
     );
-    let timeout = include_str!("../timeout.rs");
+    let timeout = include_str!("../../flow/timeout.rs");
     assert!(
-        timeout.contains("instance_linkage::fire_after_commit("),
+        timeout.contains("instance_hooks::fire_after_commit("),
         "超时自动代点（timeout::auto_decide）也必须调 hook：这条路径没有 HTTP handler，\
          漏了就是「人工审批会响、自动审批不响」的半接线"
     );
@@ -1425,18 +1435,20 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
     assert!(approve_start < reject_start, "夹具：approve_task 应在 reject_task 之前");
     let approve = &handler[approve_start..reject_start];
     let fire = approve
-        .find("instance_linkage::fire_after_commit(")
+        .find("instance_hooks::fire_after_commit(")
         .expect("approve_task 必须在审批事务提交之后调 hook");
     let first_bridge = approve
         .find("task_bridge::on_instance_settled(")
         .expect("approve_task 必须调 task_bridge");
-    let po_bridge = approve
-        .find("purchase_bridge::on_po_settled(")
-        .expect("approve_task 必须调 purchase_bridge");
+    // P2-34：ERP 的 16 条终态回调不再逐条出现，收敛成一次 `dispatch_settled` ——
+    // 对照物换成它：顺序判据（实例先、单据后）一个字没放宽。
+    let doc_dispatch = approve
+        .find("doc_reader::dispatch_settled(")
+        .expect("approve_task 必须调 doc_reader::dispatch_settled（P2-34 的扇出入口）");
     assert!(
-        fire < first_bridge && fire < po_bridge,
+        fire < first_bridge && fire < doc_dispatch,
         "FLOW_INSTANCE 触发点必须排在业务桥**之前**（当前 fire@{fire} / \
-         task_bridge@{first_bridge} / purchase_bridge@{po_bridge}）：\
+         task_bridge@{first_bridge} / dispatch_settled@{doc_dispatch}）：\
          业务桥的错误被吞掉，排在它们后面就是「桥挂了 → 审批通过的通知永远丢」"
     );
     let drain = approve
@@ -1474,7 +1486,7 @@ fn flow_instance_wires_generic_engine_and_excludes_ledger_actions() {
             "{code} 不能被排除：审批结论的「通知 / 建任务」就靠通用引擎的 AfterCommit 动作"
         );
     }
-    use crate::business::flow::linkage::engine;
+    use crate::business::erp::linkage::engine;
     for code in spec::FLOW_INSTANCE_EXCLUDED_ACTIONS {
         assert!(
             engine::is_routed_elsewhere(spec::FLOW_INSTANCE_EXCLUDED_ACTIONS, code),

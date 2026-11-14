@@ -39,8 +39,8 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::separation;
 use crate::business::flow::{engine, model as flow_model, settle_guard};
+use crate::business::shared::separation;
 use crate::shared::error_code;
 
 /// 付款审批的业务类型（与 V0175 种子 / `payable_payment::PAY_BIZ_TYPE` 同口径）。
@@ -250,7 +250,7 @@ async fn payment_creator(payment_id: Uuid) -> std::result::Result<Option<(Option
 /// | 其它（`PENDING` / 空） | 不动 | 不动 |
 ///
 /// 返回受影响的付款记录 id（没推进 / 不该推进 → `None`）。**不返回错误**：审批已落库，
-/// 业务侧失败只记日志（与 `task_bridge::on_transfer_settled` 同口径）。
+/// 业务侧失败只记日志（与 `transfer_approval_settle::on_transfer_settled` 同口径）。
 pub async fn on_payment_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
     let instance_id = instance_id?;
     let verdict = settle_verdict(instance_status)?;

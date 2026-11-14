@@ -42,6 +42,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::linkage;
 use crate::business::erp::sales::sales_order_model;
 use crate::business::erp::shipment::shipment_model::{
     self as shipment, SHIPPABLE_SO_STATUSES, ShipmentItemRow, ShipmentRow,
@@ -51,7 +52,6 @@ use crate::business::erp::stockout::stockout_base::{
 };
 use crate::business::erp::stockout::stockout_handler;
 use crate::business::erp::stockout::stockout_model::{self as stock_out, MaterialInfo};
-use crate::business::flow::linkage;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;

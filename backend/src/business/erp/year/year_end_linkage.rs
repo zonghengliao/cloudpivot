@@ -71,8 +71,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::linkage;
 use crate::business::erp::year::year_end::STATUS_CLOSED;
-use crate::business::flow::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::shared::state_machine;

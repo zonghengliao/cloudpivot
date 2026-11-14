@@ -23,7 +23,11 @@ pub(super) async fn approve_flow_instance(instance_id: Uuid) {
     assert!(!outs.is_empty(), "审批通过前必须有 PENDING 待办（实例 {instance_id}）");
     for out in outs {
         // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
-        crate::business::flow::task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
+        crate::business::erp::transfer::transfer_approval_settle::on_transfer_settled(
+            out.instance_id,
+            &out.instance_status,
+        )
+        .await;
     }
     crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
 }

@@ -91,7 +91,7 @@ pub(crate) async fn assert_instance_status(instance_id: Uuid, expected: &str) {
 /// 把实例上**所有** `PENDING` 待办逐条同意，直到没有待办或实例离开 `PENDING`。
 ///
 /// 返回**每次动作**的出参（顺序 = 动作顺序），调用方在拿到出参后跑自己的业务桥
-/// （`on_cancel_settled` / `on_transfer_settled` …），与 `flow::handler::approve_task`
+/// （`on_cancel_settled` / `on_refund_settled` …，终态回调统一走 `doc_reader` 注册表），与 `flow::handler::approve_task`
 /// 同序：**事务先提交，再回调**。中间状态（`PENDING`）的回调本来就是 no-op
 /// （`settle_verdict` 只认终态），所以会签场景下真正干活的是最后那一条。
 ///

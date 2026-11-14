@@ -57,7 +57,7 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
-use crate::business::erp::approval_gate;
+use crate::business::flow::approval_gate;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine::{self, BaseEdge, Edge, EdgeConfigPatch, EdgeConfigRow, Entity, Operator};
 use crate::shared::error_code;

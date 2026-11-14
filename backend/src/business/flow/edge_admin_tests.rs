@@ -543,7 +543,7 @@ fn disable_stock_out_post() -> EdgeUpsertReq {
         // 这里验的是「送审 → 审批 → 落边」，所以按管理员显式确认带上 true。
         confirm_critical: true,
         reason: Some("D3 单测：必须走审批再过账".to_string()),
-        skip: crate::business::erp::approval_gate::SkipApprovalReq::default(),
+        skip: crate::business::flow::approval_gate::SkipApprovalReq::default(),
     }
 }
 
@@ -1081,7 +1081,7 @@ async fn offline_flow_falls_back_to_explicit_skip() {
     )
     .await;
     let mut skip_req = disable_stock_out_post();
-    skip_req.skip = crate::business::erp::approval_gate::SkipApprovalReq {
+    skip_req.skip = crate::business::flow::approval_gate::SkipApprovalReq {
         skip_approval: true,
         skip_reason: Some("短".to_string()),
     };
@@ -1242,7 +1242,7 @@ fn disable_edge(entity: &str, from: &str, to: &str) -> EdgeUpsertReq {
         // 这里代表「管理员已勾选确认」；否则 handler 直接 400，「批量 = 单条」根本跑不到审批。
         confirm_critical: true,
         reason: Some("P1-FIX-4 单测：批量审批也必须落边".to_string()),
-        skip: crate::business::erp::approval_gate::SkipApprovalReq::default(),
+        skip: crate::business::flow::approval_gate::SkipApprovalReq::default(),
     }
 }
 

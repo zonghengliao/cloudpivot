@@ -44,6 +44,11 @@
 //! | 14 | `PRT_APPROVE` | `biz_purchase_return` | `return_no` | `status` | `create_by` | [`purchase_return_bridge::on_settled`] |
 //! | 15 | `COST_SETTLE` | `biz_cost_period` | `batch_no` | `status` | `create_by` | [`cost_period_bridge::on_cost_settle_decided`] |
 //! | 16 | `RECEIPT_REFUND` | `biz_receipt_refund` | `refund_no` | `status` | `create_by` | [`receipt_refund_bridge::on_refund_settled`] |
+//! | 17 | `STOCK_TRANSFER` | `biz_stock_transfer` | `transfer_no` | `status` | `create_by` | [`transfer_approval_settle::on_transfer_settled`] |
+//!
+//! **第 17 行是 P2-34 补的**：调拨单的终态回调原来住在 `flow::task_bridge`（直连 ERP），
+//! 搬进 ERP 后需要一个入口被调起 —— 注册表就是那个入口。它**不在**内控受控集合里
+//! （`governed=false`），所以 `guard` 放行、`creator` 为 `None`，与改造前行为一致。
 //!
 //! 三条与上表相关的口径：
 //!
@@ -123,6 +128,7 @@ use crate::business::erp::purchase::{
 use crate::business::erp::sales::{sales_approval_bridge, sales_model};
 use crate::business::erp::stockin::{stockin_base, stockin_bridge};
 use crate::business::erp::stocktake::{stocktake_bridge, stocktake_model};
+use crate::business::erp::transfer::{transfer_approval_settle, transfer_model};
 use crate::business::erp::voucher::{voucher_bridge, voucher_query};
 use crate::business::erp::{receipt_refund, receipt_refund_bridge, requisition_bridge};
 use crate::business::flow::doc_reader::{self, DocReader, DocRegistry, DocSnapshot};
@@ -207,11 +213,20 @@ pub enum ErpDoc {
     CostSettle,
     /// 收款退款审批（`RECEIPT_REFUND`）。
     ReceiptRefund,
+    /// 库存调拨审批（`STOCK_TRANSFER`）。
+    ///
+    /// **只注册终态回调，不参与内控排除**（P2-34）：回调原来住在 `flow::task_bridge`，
+    /// 搬进 ERP 后由注册表调起；而「制单人不能批自己那一票」这条约束今天**不覆盖**调拨单
+    /// （`flow::internal_control::GOVERNED_CODES` 里没有它），所以本变体的 `guard` 是放行、
+    /// `creator` 是 `None` —— 与改造前逐字一致。
+    StockTransfer,
 }
 
 impl ErpDoc {
-    /// 全部实现（= 注册表里应当出现的 16 个键，顺序 = 模块注释表格的顺序）。
-    pub const ALL: [ErpDoc; 16] = [
+    /// 全部实现（= 注册表里应当出现的 17 个键，顺序 = 模块注释表格的顺序 + 调拨单）。
+    ///
+    /// 16 个受内控约束 + 1 个只接终态回调（`StockTransfer`，见该变体的注释）。
+    pub const ALL: [ErpDoc; 17] = [
         ErpDoc::PurchaseOrder,
         ErpDoc::StockInPost,
         ErpDoc::StockInCancel,
@@ -228,6 +243,7 @@ impl ErpDoc {
         ErpDoc::PrtApprove,
         ErpDoc::CostSettle,
         ErpDoc::ReceiptRefund,
+        ErpDoc::StockTransfer,
     ];
 
     /// 审批业务类型（注册表键）。
@@ -249,6 +265,7 @@ impl ErpDoc {
             ErpDoc::PrtApprove => FlowBizType::PrtApprove,
             ErpDoc::CostSettle => FlowBizType::CostSettle,
             ErpDoc::ReceiptRefund => FlowBizType::ReceiptRefund,
+            ErpDoc::StockTransfer => FlowBizType::StockTransfer,
         }
     }
 
@@ -271,6 +288,7 @@ impl ErpDoc {
             ErpDoc::PrtApprove => "采购退货单",
             ErpDoc::CostSettle => "成本核算批次",
             ErpDoc::ReceiptRefund => "收款退款单",
+            ErpDoc::StockTransfer => "调拨单",
         }
     }
 
@@ -378,6 +396,15 @@ impl ErpDoc {
                 creator: "create_by",
                 label: |status| cost_period_dto::status_label(status).to_string(),
             },
+            ErpDoc::StockTransfer => DocSpec {
+                // 表名是 `biz_stock_transfer`（不是 `biz_transfer`）：V0140 建表，
+                // `doc_spec_identifiers_exist_in_migrations` 会在迁移里逐字核对。
+                table: "biz_stock_transfer",
+                doc_no: "transfer_no",
+                status: "status",
+                creator: "create_by",
+                label: |status| transfer_model::status_label(status).to_string(),
+            },
             ErpDoc::ReceiptRefund => DocSpec {
                 table: "biz_receipt_refund",
                 doc_no: "refund_no",
@@ -442,6 +469,10 @@ impl ErpDoc {
             ErpDoc::ReceiptRefund => {
                 let _ = receipt_refund_bridge::on_refund_settled(instance_id, instance_status).await;
             }
+            ErpDoc::StockTransfer => {
+                // P2-34：回调本体从 `flow::task_bridge` 搬进 ERP（`transfer_approval_settle`）。
+                let _ = transfer_approval_settle::on_transfer_settled(instance_id, instance_status).await;
+            }
         }
     }
 
@@ -466,6 +497,9 @@ impl ErpDoc {
             ErpDoc::PrtApprove => purchase_return_bridge::guard_self_approval(task_id, operator).await,
             ErpDoc::CostSettle => cost_period_bridge::guard_self_approval(task_id, operator).await,
             ErpDoc::ReceiptRefund => receipt_refund_bridge::guard_self_approval(task_id, operator).await,
+            // 调拨单今天没有内控闸（`flow::internal_control::GOVERNED_CODES` 里没有它）。
+            // 补闸 = 多拦一批人 = 改变生产行为，不属于「解环」，所以这里显式放行。
+            ErpDoc::StockTransfer => Ok(()),
         }
     }
 
@@ -490,6 +524,10 @@ impl ErpDoc {
             ErpDoc::PrtApprove => purchase_return_bridge::internal_control_creator(biz_id).await,
             ErpDoc::CostSettle => cost_period_bridge::internal_control_creator(biz_id).await,
             ErpDoc::ReceiptRefund => receipt_refund_bridge::internal_control_creator(biz_id).await,
+            // 调拨单不在受控集合里 → 本方法不会被调用（`of_biz` 先用 GOVERNED_CODES 过滤）。
+            // 返回 `None` 而不是随便取一个 id：哪天有人把 STOCK_TRANSFER 加进受控集合，
+            // 这里必须显式补上「制单人取哪一列」，不能靠一个静默的兜底值。
+            ErpDoc::StockTransfer => Ok(None),
         }
     }
 }
@@ -539,7 +577,7 @@ impl DocReader for ErpDocReader {
     }
 }
 
-/// 全部 ERP 单据查询器（16 个，顺序 = [`ErpDoc::ALL`]）。
+/// 全部 ERP 单据查询器（17 个，顺序 = [`ErpDoc::ALL`]）。
 pub fn readers() -> Vec<Arc<dyn DocReader>> {
     ErpDoc::ALL
         .iter()
@@ -547,7 +585,7 @@ pub fn readers() -> Vec<Arc<dyn DocReader>> {
         .collect()
 }
 
-/// 把 16 个实现注册进**给定的**注册表（单测用；生产走 [`register_all`]）。
+/// 把 17 个实现注册进**给定的**注册表（单测用；生产走 [`register_all`]）。
 ///
 /// 返回注册成功的个数。重复注册（同一 `biz_type` 两个实现）返回 `Err` 且点名 ——
 /// 不静默覆盖：两个实现抢一个键时「谁赢取决于注册顺序」，那种不确定性必须在启动期暴露。
@@ -560,7 +598,7 @@ pub fn register_into(registry: &mut DocRegistry) -> std::result::Result<usize, S
 
 /// 启动期注册到**进程级**注册表（[`crate::bootstrap`] 调用；请求期不许调）。
 ///
-/// 返回注册个数（`Ok(16)`），失败时返回点名的 `Err`（重复注册 = 编程错误）。
+/// 返回注册个数（`Ok(17)`），失败时返回点名的 `Err`（重复注册 = 编程错误）。
 pub fn register_all() -> std::result::Result<usize, String> {
     let readers = readers();
     let count = readers.len();

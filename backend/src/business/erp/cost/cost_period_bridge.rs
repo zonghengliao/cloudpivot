@@ -38,9 +38,9 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::cost::cost_period_dto::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::cost::cost_period_model as model;
-use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
+use crate::business::shared::separation;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
@@ -465,25 +465,40 @@ mod tests {
 
     #[test]
     fn wired_into_flow_handler() {
-        // 三个终态出口（同意 / 驳回 / 撤回）+ 终止 + 自审闸，少一个就有单据卡中间态
-        let calls = FLOW_HANDLER
-            .matches("cost_period_bridge::on_cost_settle_decided")
-            .count();
+        // P2-34：`flow` 不再逐条点名业务桥，改为「注册表扇出 + 注册表闸」——
+        // 断言跟着换成接缝形态，**判据不变**（出口一个不能少、闸必须还在）。
+        //
+        // ① 终态出口：四个终态位置（同意 / 驳回 / 撤回 / 终止）各调一次扇出
+        let calls = FLOW_HANDLER.matches("doc_reader::dispatch_settled(").count();
         assert!(
             calls >= 4,
-            "flow/handler.rs 里成本结算回调只出现 {calls} 次（同意 / 驳回 / 撤回 / 终止各一处，至少 4）"
+            "flow/handler.rs 里终态扇出只出现 {calls} 次（同意 / 驳回 / 撤回 / 终止各一处，至少 4）"
         );
+        // ② 本桥的实现确实在注册表里（否则上面那次扇出到不了成本结算）
         assert!(
-            FLOW_HANDLER.contains("cost_period_bridge::guard_self_approval"),
-            "flow/handler.rs 必须调 guard_self_approval（制单人不能批自己的结算）"
+            crate::business::erp::doc_reader_impl::ErpDoc::CostSettle
+                .biz_type()
+                .as_str()
+                .eq(super::BIZ_TYPE),
+            "ErpDoc::CostSettle 必须对应 COST_SETTLE，注册键与桥常量不一致就扇不到"
+        );
+        // ③ 内控闸：审批入口必须调注册表的分派（制单人不能批自己的结算）
+        assert!(
+            FLOW_HANDLER.contains("doc_reader::guard_self_approval_for_task("),
+            "flow/handler.rs 必须调 guard_self_approval_for_task（制单人不能批自己的结算）"
         );
     }
 
     #[test]
     fn wired_into_internal_control() {
+        // P2-34：制单人改为「受控码表 + 注册表分派」—— 断言容器与分派都在，判据不变。
         assert!(
-            INTERNAL_CONTROL.contains("cost_period_bridge::internal_control_creator"),
-            "flow/internal_control.rs 必须排除制单人（否则财务经理本人制单 = 看得见点不动）"
+            INTERNAL_CONTROL.contains("doc_reader::internal_control_creator_of_code("),
+            "flow/internal_control.rs 必须经注册表取制单人（否则财务经理本人制单 = 看得见点不动）"
+        );
+        assert!(
+            INTERNAL_CONTROL.contains("\"COST_SETTLE\""),
+            "COST_SETTLE 必须在受控码表里：漏了它就等于把成本结算的内控关掉"
         );
     }
 }

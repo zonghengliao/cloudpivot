@@ -5,6 +5,7 @@
 //! （拆目录前直挂在 `crate::business::erp` 下，现在在 `crate::business::erp::transfer` 下）。
 
 // ==================== 四件套 + 只读 + PDF ====================
+pub mod transfer_approval_settle;
 pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;

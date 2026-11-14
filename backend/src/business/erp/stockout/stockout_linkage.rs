@@ -19,7 +19,7 @@
 // 而不是把「排除」写死进引擎 —— 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 // ============================================================================
 
-use crate::business::flow::linkage;
+use crate::business::erp::linkage;
 use crate::business::notice::{self, dto::NoticeLevel, dto::NoticeType};
 use crate::business::shared::state_machine;
 

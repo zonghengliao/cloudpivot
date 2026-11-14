@@ -1,6 +1,6 @@
 //! 收货单作废审批的**业务回调 + 反向兜底**（批次 2 · P16）。
 //!
-//! 与 `flow::task_bridge` / `flow::task_bridge::on_transfer_settled` 完全并列的第三类业务回调：
+//! 与 `flow::doc_reader`（注册表扇出）/ `erp::transfer::transfer_approval_settle::on_transfer_settled` 完全并列的第三类业务回调：
 //! 审批单落终态之后，把结论翻译成收货单的状态与六本账动作。**两者互不影响**。
 //!
 //! # 三个入口
@@ -40,10 +40,10 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::separation;
 use crate::business::erp::stockin::stockin_handler;
 use crate::business::erp::stockin::stockin_model::{self, STATUS_PENDING_CANCEL};
 use crate::business::flow::{engine, model as flow_model, settle_guard};
+use crate::business::shared::separation;
 use crate::shared::error_code;
 
 /// 作废审批的业务类型（与 V0174 种子 / `stockin_model::published_cancel_flow` 同口径）。

@@ -468,7 +468,7 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
         return Ok(());
     }
     // ERP-B2：「制单与审批分离」开关（默认开 = 改动前的内控闸；关掉 = 小团队允许本人自审）
-    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve).await {
+    if !crate::business::shared::separation::enabled(crate::business::shared::separation::Duty::Approve).await {
         return Ok(());
     }
     let Some(contract_id) = instance.biz_id else {
@@ -485,7 +485,7 @@ pub async fn guard_self_approval(task_id: Uuid, operator: Uuid) -> std::result::
                 "不能审批自己提交的合同：合同 {} 由你本人提交（内控要求制单与审批分离），\
                  请交给其他有审批权限的账号处理{}",
                 row.contract_no,
-                crate::business::erp::separation::approval_hint(crate::business::erp::separation::Duty::Approve)
+                crate::business::shared::separation::approval_hint(crate::business::shared::separation::Duty::Approve)
             ),
         ));
     }

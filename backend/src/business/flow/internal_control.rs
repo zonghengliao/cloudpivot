@@ -44,9 +44,47 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::{payable::payable_bridge, purchase::purchase_bridge, stockin::stockin_bridge};
 use crate::business::flow::assignee::Candidate;
+use crate::business::flow::doc_reader;
 use crate::business::flow::model as flow_model;
+use crate::business::shared::separation;
+
+/// 受内控约束的业务类型（`biz_flow_instance.biz_type` 落库原值）。
+///
+/// **恰好 16 个**：与 P2-33 在 `erp::doc_reader_impl` 注册的 16 条审批线一一对应，
+/// 也与改造前那段 16 段 `if biz_type == *_bridge::BIZ_TYPE` 的集合逐字一致
+/// （`stockin` 的两个码 `STOCK_IN_POST` / `STOCK_IN_CANCEL` 共用一条桥）。
+///
+/// # 为什么是常量而不是「注册表里有几个实现」
+///
+/// 「受内控约束」与「有终态回调」是**两件不同的事**：调拨单注册了回调却不做内控排除。
+/// 用 `doc_reader::is_registered(biz_type)` 当 `governed`，等于给调拨单凭空加一道闸
+/// ——那是改变生产行为（多拦一批人），不属于「解环」。
+/// 集合变动的唯一入口是「新增一条审批线」：那时注册表多一个实现，这里同步加一个码，
+/// `flow::doc_reader_tests::governed_codes_match_registered_readers` 双向对账。
+pub const GOVERNED_CODES: [&str; 16] = [
+    // 采购链
+    "PO_APPROVE",
+    "PR_APPROVE",
+    "PRT_APPROVE",
+    // 库存链
+    "STOCK_IN_POST",
+    "STOCK_IN_CANCEL",
+    "STOCK_TAKE_POST",
+    // 应付 / 资金链
+    "PAYABLE_PAY",
+    "PAYABLE_CANCEL",
+    "RECEIPT_REFUND",
+    "VOUCHER_REVERSE",
+    // 合同 / 预算 / 资产 / 费用
+    "CONTRACT_APPROVE",
+    "BUDGET_APPROVE",
+    "ASSET_DISPOSAL",
+    "EXPENSE",
+    // 销售 / 成本
+    "SO_APPROVE",
+    "COST_SETTLE",
+];
 
 /// 「制单人不可自审」的留痕原因（写进 `biz_flow_task.comment`，审批详情直接展示）。
 pub const CREATOR_REASON: &str = "内控：单据制单人不可审批自己制单的单据（职责分离），已跳过并留痕";
@@ -122,90 +160,27 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
     // ERP-B2：审批侧的排除同样受「制单与审批分离」开关管辖（默认开 = 改动前行为）。
     // 关掉它 = 小团队允许本人自审：既不排除（不落 SKIPPED），403 闸也同时放行 ——
     // 两处读同一个开关，不存在「待办被 SKIP 了但闸说可以批」的自相矛盾状态。
-    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve).await {
+    if !separation::enabled(separation::Duty::Approve).await {
         return Ok(Control::default());
     }
-    let mut exclusions: Vec<Exclusion> = Vec::new();
     let biz_type = biz_type.trim().to_ascii_uppercase();
-    let governed = if biz_type == purchase_bridge::BIZ_TYPE {
-        let creator = purchase_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::requisition_bridge::BIZ_TYPE {
-        // P2-02：采购申请的 `biz_id` 是**申请单 id**（提单人不能批自己提的需求）
-        let creator = crate::business::erp::requisition_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::purchase::purchase_return_bridge::BIZ_TYPE {
-        // P2-03：采购退货的 `biz_id` 是**退货单 id**（制单人不能批自己的退货）
-        let creator = crate::business::erp::purchase::purchase_return_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == stockin_bridge::POST_BIZ_TYPE || biz_type == stockin_bridge::BIZ_TYPE {
-        let creator = stockin_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == payable_bridge::BIZ_TYPE {
-        let creator = payable_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == payable_bridge::CANCEL_BIZ_TYPE {
-        // P-FLOW-3B：应付作废审批的 `biz_id` 是**应付单 id**（不是付款记录 id）
-        let creator = payable_bridge::internal_control_creator_of_payable(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::receipt_refund_bridge::BIZ_TYPE {
-        // SO-14 遗留 D10：收款退款审批的 `biz_id` 是**退款单 id**（制单人不能批自己的退款）
-        let creator = crate::business::erp::receipt_refund_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::voucher::voucher_bridge::BIZ_TYPE {
-        // P-FLOW-3B：凭证红冲审批的 `biz_id` 是**凭证 id**
-        let creator = crate::business::erp::voucher::voucher_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::contract::contract_bridge::BIZ_TYPE {
-        // ARCH-3 R-P1-1：合同审批的 `biz_id` 是**合同 id**（制单人不能批自己拟的合同）
-        let creator = crate::business::erp::contract::contract_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::stocktake::stocktake_bridge::BIZ_TYPE {
-        // ARCH-3 DC-14：盘点过账审批的 `biz_id` 是**盘点单 id**（盘的人不能批自己盘的账）
-        let creator = crate::business::erp::stocktake::stocktake_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::budget::budget_bridge::BIZ_TYPE {
-        // FIN-1：预算审批的 `biz_id` 是**预算版本 id**（编预算的人不能批自己编的预算）
-        let creator = crate::business::erp::budget::budget_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::expense::expense_bridge::BIZ_TYPE {
-        // FIN-3：费用报销的 `biz_id` 是**报销单 id**（报销人不能批自己的单）
-        let creator = crate::business::erp::expense::expense_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::asset::asset_bridge::BIZ_TYPE {
-        // FIN-2：资产处置审批的 `biz_id` 是**资产卡片 id**（建卡的人不能批自己这张卡的处置）
-        let creator = crate::business::erp::asset::asset_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::sales::sales_approval_bridge::BIZ_TYPE {
-        // SO-06：销售订单审批的 `biz_id` 是**销售订单 id**（制单人不能批自己提交的单）
-        let creator = crate::business::erp::sales::sales_approval_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else if biz_type == crate::business::erp::cost::cost_period_bridge::BIZ_TYPE {
-        // B3-3：成本结算审批的 `biz_id` 是**成本核算批次 id**（制单人不能批自己的结算）
-        let creator = crate::business::erp::cost::cost_period_bridge::internal_control_creator(biz_id).await?;
-        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
-        true
-    } else {
-        false
-    };
-    if governed {
-        push_exclusion(&mut exclusions, Some(initiator_id), INITIATOR_REASON);
+    // P2-34：受控集合是**显式常量**（不是「注册表里有没有实现」）。
+    // 两件事必须能分开：调拨单（`STOCK_TRANSFER`）注册了终态回调，但它今天**没有**内控排除；
+    // 拿 `is_registered` 当 `governed` 会给它凭空加一道闸 = 改变生产行为（多拦一批人）。
+    if !GOVERNED_CODES.contains(&biz_type.as_str()) {
+        return Ok(Control::default());
     }
-    Ok(Control { governed, exclusions })
+    // 制单人由业务域的实现提供（P2-33 注册的 16 条实现逐条委派原来的 `*_bridge`，
+    // 与改造前的 if/else 分支同源）：`biz_id` 指向哪张单、制单人取哪一列，
+    // 都在实现侧决定（例：应付作废取应付单的 `create_by`、报销取 `reporter_id`）。
+    let creator = doc_reader::internal_control_creator_of_code(&biz_type, biz_id).await?;
+    let mut exclusions: Vec<Exclusion> = Vec::new();
+    push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+    push_exclusion(&mut exclusions, Some(initiator_id), INITIATOR_REASON);
+    Ok(Control {
+        governed: true,
+        exclusions,
+    })
 }
 
 /// 把审批人列表按内控切成「该落 `PENDING` 的」与「该落 `SKIPPED` 留痕的」（**纯函数**）。
@@ -592,6 +567,43 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         initiator: Uuid,
     }
 
+    /// 给注册表装一个「制单人固定为 `creator`」的 `PO_APPROVE` 假实现（夹具专用）。
+    ///
+    /// # 为什么要重置注册表
+    ///
+    /// 注册表是进程级单例，同进程里别的用例（`flow::doc_reader_tests`）会 reset + 装假实现。
+    /// 本组真库用例靠 `DB_LOCK` 串行、且每组开头都重新装一份，所以最终状态总是本组需要的那个
+    /// —— 与「谁先跑」无关。**生产**不会走到这里：`bootstrap` 装的是 16 个真实实现。
+    fn install_creator_reader(creator: Uuid) {
+        use crate::business::flow::doc_reader::{self, DocReader, DocSnapshot};
+
+        struct FixedCreator(Uuid);
+
+        #[async_trait::async_trait]
+        impl DocReader for FixedCreator {
+            fn biz_type(&self) -> cloudpivot_doc::FlowBizType {
+                cloudpivot_doc::FlowBizType::PoApprove
+            }
+
+            async fn doc_status(&self, _doc_id: Uuid) -> DbResult<Option<DocSnapshot>> {
+                Ok(None)
+            }
+
+            async fn on_settled(&self, _instance_id: Option<Uuid>, _instance_status: &str) {}
+
+            async fn guard_self_approval(&self, _task_id: Uuid, _operator: Uuid) -> std::result::Result<(), ApiError> {
+                Ok(())
+            }
+
+            async fn internal_control_creator(&self, _biz_id: Option<Uuid>) -> DbResult<Option<Uuid>> {
+                Ok(Some(self.0))
+            }
+        }
+
+        doc_reader::reset_for_tests();
+        doc_reader::register(std::sync::Arc::new(FixedCreator(creator))).expect("夹具注册假实现");
+    }
+
     impl Scenario {
         /// 造场景并**发起实例**（发起被拒 → panic；「发起应当失败」的用例用 [`Self::build`]）。
         async fn start(tag: &str, seed: u128, approvers: &[(Uuid, &str)], role_members: &[Uuid]) -> Self {
@@ -614,6 +626,13 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
 
             // ---------- 清场（重跑安全） ----------
             Self::purge(&suffix, order_id, instance_id, def_id, version_id, role_id).await;
+
+            // ---------- 制单人来源（P2-34：注册表） ----------
+            // 本组用例不跑 `bootstrap`，注册表是空的 ⇒ 内控取不到制单人 ⇒ 排除不发生。
+            // 所以给 `PO_APPROVE` 装一个「制单人 = 夹具造的那个人」的假实现：
+            // 断言面仍是 `of_biz` / `partition` / 引擎（真实实现在 ERP 侧，由
+            // `erp::doc_reader_impl_tests` 与 `erp::purchase` 的用例覆盖）。
+            install_creator_reader(creator);
 
             // ---------- 单号（`create_by` = 制单人） ----------
             db().execute_with_params(
@@ -1226,26 +1245,12 @@ TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
         )
         .await;
 
-        // ① 事务前的内控闸（handler 的入口）对当事人一律 403
-        let creator_task = sc.task_id_of(creator).await;
-        let error = crate::business::erp::purchase::purchase_bridge::guard_self_approval(creator_task, creator)
-            .await
-            .expect_err("制单人必须被拦");
-        assert_eq!(error.status, 403);
-        assert_eq!(error.code, crate::shared::error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
-        assert!(error.msg.contains("不能审批自己提交的采购订单"), "{}", error.msg);
-
-        let initiator_task = sc.task_id_of(initiator).await;
-        let error = crate::business::erp::purchase::purchase_bridge::guard_self_approval(initiator_task, initiator)
-            .await
-            .expect_err("发起人必须被拦");
-        assert_eq!(error.status, 403);
-
-        // ② 与内控无关的审批人：闸放行
-        let keeper_task = sc.task_id_of(a).await;
-        crate::business::erp::purchase::purchase_bridge::guard_self_approval(keeper_task, a)
-            .await
-            .expect("非当事人不该被内控闸拦");
+        // ① 事务前的内控闸（handler 入口）对当事人一律 403 —— P2-34 之后 `flow` 只经
+        //    `doc_reader::guard_self_approval_for_task` 分派，闸的**实现与文案**在 ERP 侧：
+        //    · 真实 403 + 文案：`erp/purchase/purchase_handler.rs` 的同名断言（逐字同一句）；
+        //    · 分派本身（未注册放行 / 已注册透传 403 / 调全部实现）：
+        //      `flow::doc_reader_tests::guard_self_approval_for_task_*`。
+        //    这里只留引擎侧判据 ③：绕过分派直接调引擎，那票也早已 SKIPPED → 不推进实例。
 
         // ③ 就算绕过 handler 直接调引擎，那票也早就不是 PENDING → 不产生「他批了」的效果
         let before = sc.instance_status().await;

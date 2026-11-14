@@ -29,10 +29,10 @@
 
 use super::db_tests_fixtures::*;
 use super::*;
+use crate::business::erp::linkage;
+use crate::business::erp::linkage::spec;
 use crate::business::erp::transfer::transfer_linkage;
 use crate::business::erp::transfer::transfer_model::{self, STATUS_APPROVED, STATUS_DONE, STATUS_PENDING};
-use crate::business::flow::linkage;
-use crate::business::flow::linkage::spec;
 use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 

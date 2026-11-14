@@ -1,3 +1,6 @@
+// 位置：P2-34 从 `flow::instance_linkage` 搬进 `erp::linkage` —— 规则表与动作全在 ERP 侧，
+// 触发点跟着规则走；`flow` 侧只留 `flow::instance_hooks` 的订阅接口（`fire_after_commit`
+// 由 `handler` / `timeout` 调，本实现以 `InstanceSettledHook` 身份注册进来）。
 // ============================================================================
 // instance_linkage.rs —— 审批实例（FLOW_INSTANCE）终态的跨单据联动接线（LNK-12）
 //
@@ -85,7 +88,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::flow::linkage::{self, spec};
+use crate::business::erp::linkage::{self, spec};
 use crate::business::flow::model as flow_model;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeTarget};
@@ -292,10 +295,39 @@ pub async fn fire_after_commit(instance_id: Option<Uuid>, status: &str, operator
     run.runs.len() + executed.len()
 }
 
+// ==================== 作为 `flow` 的订阅者注册（P2-34） ====================
+
+use std::sync::Arc;
+
+use crate::business::flow::instance_hooks::{self, InstanceSettledHook};
+
+/// 把本触发点包成 `flow::instance_hooks` 的订阅者。
+///
+/// 名字固定为 `linkage.flow_instance`：注册表按名字查重，重复注册在启动期就报错
+/// （两个实现抢同一个触发点 = 「谁生效取决于注册顺序」，那种不确定性必须在启动期暴露）。
+pub struct FlowInstanceLinkageHook;
+
+#[async_trait::async_trait]
+impl InstanceSettledHook for FlowInstanceLinkageHook {
+    fn name(&self) -> &'static str {
+        "linkage.flow_instance"
+    }
+
+    async fn fire(&self, instance_id: Option<Uuid>, status: &str, operator: Option<Uuid>) -> usize {
+        fire_after_commit(instance_id, status, operator).await
+    }
+}
+
+/// 注册进 `flow` 的订阅表（`bootstrap` 调一次；返回已注册总数）。
+pub fn register_into_flow_hooks() -> std::result::Result<usize, String> {
+    instance_hooks::register(Arc::new(FlowInstanceLinkageHook))?;
+    Ok(instance_hooks::len())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::flow::linkage::spec::{Phase, Severity};
+    use crate::business::erp::linkage::spec::{Phase, Severity};
 
     /// 三个可配状态 = 三个会触发的终态 = 三个中文名，三处逐字一致。
     ///

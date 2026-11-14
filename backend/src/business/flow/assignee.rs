@@ -882,7 +882,7 @@ pub async fn resolve(
                 "自审金额上限：实例表单既没有 amount 也没有 total_amount，按 0 处理（不拦）"
             );
         }
-        let max_amount = crate::business::erp::separation::self_approval_max_amount().await;
+        let max_amount = crate::business::shared::separation::self_approval_max_amount().await;
         (amount, max_amount)
     } else {
         (None, 0.0)

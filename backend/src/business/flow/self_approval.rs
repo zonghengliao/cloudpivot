@@ -6,7 +6,7 @@
 //!
 //! | 层 | 落点 | 回答什么问题 |
 //! |----|------|--------------|
-//! | ① 金额上限 | [`crate::business::erp::separation::self_approval_max_amount`] + [`demote_over_limit`] | 大额单据还能不能自审（默认不限额） |
+//! | ① 金额上限 | [`crate::business::shared::separation::self_approval_max_amount`] + [`demote_over_limit`] | 大额单据还能不能自审（默认不限额） |
 //! | ② 审计留痕 | `operation_logs`（[`record`] / 三个 `OP_*` 操作码） | 谁、何时、哪张单、哪个节点、多少钱、为什么允许 |
 //! | ③ 月度报表 | [`monthly_report`]（`GET /business/flow/stats/self-approval`） | 本月自审占比多少、谁在自审、多少被阈值拦下 |
 //!
@@ -100,7 +100,7 @@ fn numeric(value: &Json) -> Option<f64> {
             let trimmed = text.trim();
             // 与 `separation::parse_amount` **同一份口径**：只认十进制字面量，
             // 不猜千分位 / 货币符号 / 科学计数法（SQL 侧的正则也是同一条规则）
-            if !crate::business::erp::separation::is_decimal_literal(trimmed) {
+            if !crate::business::shared::separation::is_decimal_literal(trimmed) {
                 return None;
             }
             trimmed.parse::<f64>().ok().filter(|v| v.is_finite())
@@ -712,7 +712,7 @@ pub fn over_limit_message(node_name: &str, amount: f64, threshold: f64, dispatch
          请把该节点的审批岗位指派给发起人以外的人，或在系统参数「{}」里调整上限（0 = 不限额）。",
         format_amount(amount),
         format_amount(threshold),
-        crate::business::erp::separation::SELF_APPROVAL_MAX_AMOUNT_KEY
+        crate::business::shared::separation::SELF_APPROVAL_MAX_AMOUNT_KEY
     )
 }
 
@@ -854,7 +854,7 @@ mod tests {
         assert!(text.contains("超出自审金额上限"), "{text}");
         assert!(text.contains("兜底人未配置"), "{text}");
         assert!(
-            text.contains(crate::business::erp::separation::SELF_APPROVAL_MAX_AMOUNT_KEY),
+            text.contains(crate::business::shared::separation::SELF_APPROVAL_MAX_AMOUNT_KEY),
             "{text}"
         );
         assert_eq!(over_limit_error("x").code, error_code::FLOW_SELF_APPROVAL_AMOUNT_LIMIT);

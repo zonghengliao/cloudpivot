@@ -49,8 +49,8 @@ use super::expense_dto::{
 };
 use super::expense_handler::{report_cancel, report_pay, report_submit};
 use super::expense_model::{self, ItemInsert, ReportInsert};
+use crate::business::erp::linkage::spec;
 use crate::business::flow::engine;
-use crate::business::flow::linkage::spec;
 use crate::shared::test_helpers as seed_guard;
 
 fn dec(text: &str) -> Decimal {

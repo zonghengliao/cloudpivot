@@ -23,13 +23,18 @@
 //! | 审批入口的 `*_bridge::guard_self_approval` | 17 | [`guard_self_approval`] |
 //! | `internal_control::of_biz` 的 17 段 `if biz_type == *_bridge::BIZ_TYPE` 分派 + `internal_control_creator` 调用 | 22 | [`internal_control_creator_of_code`] + [`is_registered`] |
 //!
-//! 合计 **99 / 135** 行（2026-11-15 实测：`flow` 下 55 个 `.rs` 里含「业务域绝对路径 + `erp`」
-//! 的行共 135 行，本模块两个文件不计）。其余 **36 行**不属于「按单据取状态」，归 P2-34 按类处置：
+//! 本模块替换掉其中 **99 / 135** 行（2026-11-15 实测：`flow` 下 55 个 `.rs` 里含
+//! 「业务域绝对路径 + `erp`」的行共 135 行，本模块两个文件不计）。其余 **36 行**不属于
+//! 「按单据取状态」，P2-34 已按类处置完（**`flow` 侧现已归零**，由
+//! `flow::doc_reader_tests::flow_erp_reference_budget_is_not_exceeded` 的 0 基线钉住）：
 //!
-//! - `separation` 的全局开关（自审金额上限 / 职责分离开关）10 行 —— 那是**配置**，不是单据查询，
-//!   该搬到 `shared` 而不是塞进 `DocReader`；
-//! - 联动规则 / 凭证快照 / `POSTED_RECEIVED_SQL` 这类 SQL 片段 / `approval_gate` 的 DTO 26 行 ——
-//!   各有归属，一个 trait 里塞进 SQL 片段只会变成第二个上帝对象。
+//! - `separation` 的全局开关（自审金额上限 / 职责分离开关）→ 搬 `business::shared::separation`
+//!   （那是**配置**，不是单据查询）；
+//! - 联动规则 / 凭证快照 / `POSTED_RECEIVED_SQL` 这类 SQL 片段 → 整块搬 `business::erp::linkage`
+//!   （动作、规则表、执行引擎全是 ERP 单据的事；`flow` 只剩一个类型引用，也一并消除）；
+//! - `approval_gate` 的通用闸门（跳过审批的判据）→ 搬本域 `flow::approval_gate`；
+//! - 单据 PDF 公共件 → 独立域 `business::docpdf`（`erp` / `flow` / `task` 三方共用）；
+//! - 审批终态的「联动订阅」→ 本域新接缝 [`super::instance_hooks`]（实现在 ERP，注册进来）。
 //!
 //! 分类脚本与逐类样本见 `docs/architecture/P2-32-flow单据查询接缝-DocReader.md` §2。
 //!
@@ -397,6 +402,29 @@ pub async fn guard_self_approval_of_code(
         None => Ok(()),
         Some(reader) => reader.guard_self_approval(task_id, operator).await,
     }
+}
+
+/// 审批入口的内控闸：**手里只有 `task_id`**，把所有已注册实现过一遍。
+///
+/// # 为什么不是 [`guard_self_approval_of_code`]
+///
+/// `handler::approve_task`（同意）在开事务之前只有待办 id，没有实例的 `biz_type`；
+/// 今天就是「每个桥的闸都调一遍」（每个实现自己查待办 → 实例 → 判 `biz_type` 是不是我的，
+/// 不是就返回 `Ok`）。本函数保留同一个调用形态，语义逐字不变：
+///
+/// - 未注册的实现根本不在循环里 → 与「没有这条闸」一致；
+/// - 第一个 `Err` 立刻返回（同一个实例只可能命中一个实现，顺序不影响结论）。
+///
+/// 代价与改造前相同（每个实现一次自己的查询），**没有**引入额外往返。
+pub async fn guard_self_approval_for_task(task_id: Uuid, operator: Uuid) -> std::result::Result<(), ApiError> {
+    let readers: Vec<Arc<dyn DocReader>> = {
+        let registry = read_registry();
+        registry.readers.values().cloned().collect()
+    };
+    for reader in &readers {
+        reader.guard_self_approval(task_id, operator).await?;
+    }
+    Ok(())
 }
 
 /// 审批实例落终态后，把结论扇出给**所有**已注册实现（`handler.rs` 里那 4 处扇出的替换点）。

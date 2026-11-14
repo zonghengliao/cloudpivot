@@ -40,9 +40,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::sales::sales_order_model::{self as model, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
-use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
+use crate::business::shared::separation;
 use crate::shared::error_code;
 
 /// 销售订单审批的业务类型（与 `V0281__sales_order_flow` 种子 / handler 同口径）。

@@ -53,8 +53,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::Value as Json;
 
-use crate::business::erp::doc_pdf_model;
-use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
+use crate::business::docpdf::doc_pdf_model;
+use crate::business::docpdf::doc_pdf_render::{self, RenderedDoc};
 use crate::business::flow::model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
@@ -201,7 +201,7 @@ fn decimal_of(value: &Json) -> Option<Decimal> {
         Json::Number(number) => number.to_string().parse::<Decimal>().ok(),
         Json::String(text) => {
             let trimmed = text.trim();
-            if crate::business::erp::separation::is_decimal_literal(trimmed) {
+            if crate::business::shared::separation::is_decimal_literal(trimmed) {
                 trimmed.parse::<Decimal>().ok()
             } else {
                 None

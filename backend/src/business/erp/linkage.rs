@@ -53,6 +53,11 @@
 pub mod actions;
 pub mod admin;
 pub mod engine;
+/// `FLOW_INSTANCE` 触发点（审批实例落终态 → 跑联动规则）。P2-34 从 `flow` 搬来，
+/// 以 `flow::instance_hooks::InstanceSettledHook` 的身份注册。
+pub mod flow_instance_trigger;
+#[cfg(test)]
+mod flow_instance_trigger_db_tests;
 pub mod model;
 pub mod spec;
 

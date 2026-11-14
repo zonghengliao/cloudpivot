@@ -49,8 +49,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::receipt_refund::{self, RefundRow};
-use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
+use crate::business::shared::separation;
 use crate::shared::error_code;
 
 /// 收款退款审批的业务类型（`biz_flow_def.biz_type`，与 `V0297` 种子逐字一致）。

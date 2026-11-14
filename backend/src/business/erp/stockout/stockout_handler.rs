@@ -34,8 +34,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::separation;
 use crate::business::erp::voucher;
+use crate::business::shared::separation;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -44,7 +44,7 @@ use crate::utils;
 #[path = "stockout_linkage.rs"]
 mod linkage_hook;
 
-use crate::business::flow::linkage;
+use crate::business::erp::linkage;
 
 use super::super::cost::cost_object_model as cost_object;
 use super::stockout_base::*;

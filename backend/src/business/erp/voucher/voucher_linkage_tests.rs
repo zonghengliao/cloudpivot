@@ -35,8 +35,8 @@ use super::voucher_linkage;
 use super::voucher_write::{
     CreateVoucherReq, ManualEntryReq, audit_voucher, create_manual_voucher, post_audited_voucher, reverse_voucher,
 };
+use crate::business::erp::linkage::{model as linkage_model, spec};
 use crate::business::erp::voucher;
-use crate::business::flow::linkage::{model as linkage_model, spec};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::shared::test_helpers as seed_guard;

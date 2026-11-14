@@ -45,6 +45,35 @@ use crate::system::user::model::{SysUserModel, SysUserRoleModel};
 ///
 /// 本函数**只允许调一次**（`bootstrap` 只跑一次）。重复调用会因注册表已有这些键而返回
 /// `Err` 并点名 —— 这正是想要的行为：二次注册说明有人把注册挪到了请求路径上。
+/// 注册「审批实例落终态」的订阅者（P2-34 · P2-B 解环）。
+///
+/// 目前唯一订阅者是 `erp::linkage::flow_instance_trigger`（`FLOW_INSTANCE` 联动触发点：
+/// 结论落库后发通知 / 建任务）。它原来住在 `flow::instance_linkage` 里、被 `flow::handler`
+/// 与 `flow::timeout` 直接调用 —— 那条 `flow → erp` 的边就是这样来的。
+///
+/// # 失败口径（与 [`register_doc_readers`] 同款）
+///
+/// 注册失败只可能是「重名注册 = 编程错误」：prod `exit(1)`、其它 profile `panic`。
+/// 漏注册的后果是**静默**的 —— 审批结论落库了，联动规则永远不触发（通知不发、任务不建），
+/// 没有任何错误日志会指向这里。
+fn register_flow_hooks() {
+    match crate::business::erp::linkage::flow_instance_trigger::register_into_flow_hooks() {
+        Ok(count) => tracing::info!(
+            count,
+            "审批终态订阅者注册完成（P2-34）：FLOW_INSTANCE 联动改由 flow::instance_hooks 扇出"
+        ),
+        Err(error) => {
+            let message = format!("审批终态订阅者注册失败（订阅表不完整）：{error}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            panic!("{message}");
+        }
+    }
+}
+
 fn register_doc_readers() {
     match crate::business::erp::doc_reader_impl::register_all() {
         Ok(count) => tracing::info!(
@@ -98,6 +127,9 @@ pub async fn bootstrap() {
     // 必须在 `tokio::join!` 之前、在这里同步做完：任何一次审批请求都可能读注册表
     // （内控闸 / 终态扇出），带着半个注册表跑起来 = 随机几条审批线没有内控闸。
     register_doc_readers();
+    // 审批终态订阅者（P2-34）：`flow` 在结论落库后扇出，实现在 ERP 业务域里注册进来。
+    // 同样必须在 `tokio::join!` 之前同步做完 —— 漏注册 = 联动规则永远不触发且没有报错。
+    register_flow_hooks();
 
     tokio::join!(
         async {

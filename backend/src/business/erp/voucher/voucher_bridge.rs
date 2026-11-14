@@ -52,8 +52,8 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::separation;
 use crate::business::flow::{engine, model as flow_model};
+use crate::business::shared::separation;
 use crate::shared::error_code;
 
 /// 红冲审批的业务类型（与 V0191 种子 / `voucher_write::REVERSE_BIZ_TYPE` 同口径）。

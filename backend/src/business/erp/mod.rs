@@ -130,10 +130,6 @@ pub mod currency_admin_handler;
 pub mod currency_admin_model;
 pub mod customer;
 pub mod depreciation;
-/// PDF-03 起的公共数据访问层：库位 / 仓库 / 供应商 / 客户补名 + 序列号 + 导出审计。
-pub mod doc_pdf_model;
-/// PDF-04 起的渲染收尾共用件：HTML → 字节 + 文件名 + 行数 + 金额 + 耗时。
-pub mod doc_pdf_render;
 /// P2-33（P2-B 解环）：ERP 侧对 `flow::doc_reader::DocReader` 的 16 个实现 + 启动期注册。
 ///
 /// 一条审批一个实现（`PO_APPROVE` / `STOCK_IN_POST` / …），三个方法全部**委派**给现有
@@ -159,6 +155,11 @@ pub mod inventory_audit;
 mod inventory_writer;
 pub mod invoice;
 pub mod ledger;
+/// 跨单据联动（【D2】流程配置化 · 阶段 4）：规则表 + 白名单动作 + 执行引擎 + 配置管理面。
+///
+/// P2-34 从 `flow` 搬到 `erp` —— 触发点与动作全部是 ERP 单据（取凭证 / 写库存 / 改状态），
+/// 20 个 ERP 文件用它、`flow` 只剩「一个类型引用」。它依赖 `flow` 的词表与状态机是单向边。
+pub mod linkage;
 /// 批次主数据（ARCH-9 §3.1 ① / §5.2 #7–#9）：`biz_lot` CRUD + 按物料取批号。
 pub mod lot;
 pub mod model;
@@ -185,7 +186,6 @@ pub mod requisition_bridge;
 /// 采购退货单 / 销售退货单 PDF 导出（PDF-04）：原单号 + 退货原因 + 双向库位口径。
 pub mod return_pdf;
 pub mod sales;
-pub mod separation;
 /// 主数据编码取号器（CODE-01）：`biz_seq` 纯流水号段 → `SUP-0001` / `WH-01`。
 pub mod seq;
 pub mod serial_dto;

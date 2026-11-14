@@ -40,9 +40,9 @@ use super::contract_bridge;
 use super::contract_dto::{ContractDetailRes, ContractStatusReq, CreateContractReq};
 use super::contract_handler::{contract_change_status, contract_create};
 use super::contract_model;
-use crate::business::flow::linkage;
-use crate::business::flow::linkage::model as linkage_model;
-use crate::business::flow::linkage::{engine as linkage_engine, spec};
+use crate::business::erp::linkage;
+use crate::business::erp::linkage::model as linkage_model;
+use crate::business::erp::linkage::{engine as linkage_engine, spec};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 

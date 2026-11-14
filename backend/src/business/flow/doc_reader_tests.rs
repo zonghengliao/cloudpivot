@@ -49,6 +49,8 @@ struct FakeReader {
     settle_calls: Arc<Mutex<Vec<SettleCall>>>,
     /// `guard_self_approval` 是否拒绝。
     deny_guard: bool,
+    /// `guard_self_approval` 被调了几次（P2-34 的 task 级分派要断言「每个实现都过一遍」）。
+    guard_calls: Arc<Mutex<usize>>,
 }
 
 impl FakeReader {
@@ -59,6 +61,7 @@ impl FakeReader {
             status_calls: Arc::new(Mutex::new(Vec::new())),
             settle_calls: Arc::new(Mutex::new(Vec::new())),
             deny_guard: false,
+            guard_calls: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -91,6 +94,9 @@ impl DocReader for FakeReader {
     }
 
     async fn guard_self_approval(&self, _task_id: Uuid, _operator: Uuid) -> std::result::Result<(), ApiError> {
+        if let Ok(mut calls) = self.guard_calls.lock() {
+            *calls += 1;
+        }
         if self.deny_guard {
             return Err(ApiError::new(
                 403,
@@ -522,7 +528,7 @@ fn seam_source_is_business_agnostic() {
 /// - 上调就是**回归**：等价于「又有人往 `flow` 里写死了 `erp` 的调用」，用例会红。
 ///
 /// 基线值来自模块注释那张对账表的实测（`grep -rn` 匹配「业务域绝对路径 + `erp`」）。
-const FLOW_TO_ERP_REFS_BASELINE: usize = 135;
+const FLOW_TO_ERP_REFS_BASELINE: usize = 0;
 
 /// 检索用的 token 拆成两段拼：本文件不能出现完整 token，否则 `grep` 对账时会把
 /// 这条用例自身也算成「`flow → erp` 的直连」（实测差 3 行，P2-34 对账会被绊住）。
@@ -533,13 +539,14 @@ const FLOW_SOURCE_MIN_FILES: usize = 40;
 /// 扫描面自检：`flow` 源码总字节数（handler.rs 一个文件就 200KB+，低于这个数说明目录没扫对）。
 const FLOW_SOURCE_MIN_BYTES: usize = 300_000;
 
-/// `flow → erp` 的直连引用**不许超过基线**（P2-B 解环批次的燃烧率闸门）。
+/// `flow → erp` 的直连引用**必须为 0**（P2-B 解环的燃烧率闸门）。
 ///
-/// # 为什么这张卡需要它
+/// # 基线为什么是 0
 ///
-/// P2-32 只建立接缝，**不消边**（消边是 P2-34）：所以就「这条依赖边还在不在」而言，
-/// 本卡的验收不是「归零」而是「**只降不升**」。没有这个闸门，P2-33 / P2-34 之间的任意一次
-/// 提交都可能悄悄把已摘掉的直连写回来，而 `module_cycle_report.py` 是人工工具、不进 CI。
+/// P2-32 建接缝（135 不动）、P2-33 在 ERP 侧实现并注册、**P2-34 把全部直连摘掉**：
+/// 现在 `flow` 下任何 `.rs` 里出现「业务域绝对路径 + `erp`」都是**回退**，不是「新功能」。
+/// 闸门留在 0 而不是删掉，是因为 `scripts/lint/module_cycle_report.py` 是人工工具、不进 CI ——
+/// 没有这条用例，下一个人写回一行直连就没人拦得住。
 ///
 /// # 统计口径
 ///
@@ -605,18 +612,90 @@ fn flow_erp_reference_budget_is_not_exceeded() {
         "扫描面异常：只读到 {total_bytes} 字节（预期 >= {FLOW_SOURCE_MIN_BYTES}），文件读错会假绿"
     );
     assert!(
-        refs <= FLOW_TO_ERP_REFS_BASELINE,
-        "flow → erp 直连引用涨了：{refs} 条 > 基线 {FLOW_TO_ERP_REFS_BASELINE} 条（{} 个文件 / {total_bytes} 字节）。\n\
-         新写死 `erp` 调用会让 P2-B 的解环成果回退 —— 请改走 `flow::doc_reader` 的注册表。\n\
+        refs == FLOW_TO_ERP_REFS_BASELINE,
+        "flow → erp 直连引用**回退**了：{refs} 条 > 基线 {FLOW_TO_ERP_REFS_BASELINE} 条（{} 个文件 / {total_bytes} 字节）。\n\
+         P2-34 已经把这条边摘干净了：单据查询 / 终态回调走 `flow::doc_reader` 的注册表，审批终态订阅走 `flow::instance_hooks` —— 不要往 `flow` 里再写死 `erp` 的调用。\n\
          前 10 处命中：\n{}",
         files.len(),
         worst.join("\n")
     );
-    // 只在真的降了的时候提示下调基线（不失败：降是好事，由 P2-34 顺手改常量）
-    if refs < FLOW_TO_ERP_REFS_BASELINE {
-        println!(
-            "提示：flow → erp 直连已降到 {refs} 条（基线 {FLOW_TO_ERP_REFS_BASELINE}），\
-             可把 FLOW_TO_ERP_REFS_BASELINE 下调到 {refs}"
+    // 基线是 0（终态）：没有「还能再降」的空间 —— 这条分支原来提示「下调基线」，
+    // P2-34 归零后它恒假，改成一句话说明，免得下一个人以为常量还能动。
+    println!("flow → erp 直连：{refs} 条（基线 {FLOW_TO_ERP_REFS_BASELINE}，已归零）");
+}
+
+// ==================== P2-34：审批入口的 task 级闸 + 受控码表 ====================
+
+/// 审批入口只有 `task_id`（没有实例 `biz_type`）：闸必须**把所有已注册实现过一遍**。
+///
+/// 这条钉住 `handler::approve_task` 的替换形态：改造前是「每个桥的闸都调一遍」，
+/// 每个实现自己查实例、自己判 `biz_type` 是不是我的（不是就 `Ok`）。判据换成注册表之后
+/// 语义必须**逐字不变** —— 所以这里断言「全都调到了」+「第一个拒绝原样透传」。
+#[tokio::test]
+async fn guard_self_approval_for_task_walks_every_reader_and_propagates_the_denial() {
+    let _guard = GLOBAL_LOCK.lock().await;
+    doc_reader::reset_for_tests();
+
+    let task_id = Uuid::now_v7();
+    let operator = Uuid::now_v7();
+
+    // ① 一个实现都没有 → 放行（与「没有这条闸」一致，不能把审批全锁死）
+    doc_reader::guard_self_approval_for_task(task_id, operator)
+        .await
+        .expect("空注册表必须放行");
+
+    // ② 两个实现都放行 → 两次都被调到（不能只问第一个）
+    let allow_a = Arc::new(FakeReader::new(FlowBizType::PoApprove, None));
+    let allow_b = Arc::new(FakeReader::new(FlowBizType::ContractApprove, None));
+    doc_reader::register(allow_a.clone()).expect("注册应成功");
+    doc_reader::register(allow_b.clone()).expect("注册应成功");
+    doc_reader::guard_self_approval_for_task(task_id, operator)
+        .await
+        .expect("都放行应 Ok");
+    assert_eq!(*allow_a.guard_calls.lock().expect("锁"), 1, "第一个实现必须被调到一次");
+    assert_eq!(
+        *allow_b.guard_calls.lock().expect("锁"),
+        1,
+        "第二个实现也必须被调到一次（只问第一个 = 「另一个桥的闸永远不响」）"
+    );
+
+    // ③ 有一个拒绝 → HTTP 状态 + 业务码原样透传（调用点的 `?` 直接变 403）
+    let mut deny = FakeReader::new(FlowBizType::StockTakePost, None);
+    deny.deny_guard = true;
+    doc_reader::register(Arc::new(deny)).expect("注册应成功");
+    let error = doc_reader::guard_self_approval_for_task(task_id, operator)
+        .await
+        .expect_err("应被拦下");
+    assert_eq!(error.status, 403);
+    assert_eq!(error.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+}
+
+/// 受控码表 `flow::internal_control::GOVERNED_CODES` 的自检（**不改表就改这条**）。
+///
+/// 三件事一起验：① 恰好 16 个且不重复；② 每个码都是词表里真实存在的 `FlowBizType`；
+/// ③ **调拨单不在里面** —— 它注册了终态回调但不做内控排除，加进去 = 多拦一批人（改变生产行为）。
+#[test]
+fn governed_codes_are_the_sixteen_approval_lines() {
+    use crate::business::flow::internal_control::GOVERNED_CODES;
+
+    assert_eq!(GOVERNED_CODES.len(), 16, "受控集合必须恰好 16 个审批码");
+    let unique: std::collections::BTreeSet<&str> = GOVERNED_CODES.iter().copied().collect();
+    assert_eq!(unique.len(), GOVERNED_CODES.len(), "受控码表里有重复项");
+
+    for code in GOVERNED_CODES {
+        assert!(
+            FlowBizType::parse(code).is_some(),
+            "受控码 `{code}` 在词表里不存在（拼错 = 这条审批线的内控闸永远不生效）"
         );
     }
+
+    assert!(
+        !GOVERNED_CODES.contains(&FlowBizType::StockTransfer.as_str()),
+        "调拨单（STOCK_TRANSFER）今天没有内控闸：把它加进受控码表 = 多拦一批人 = 改变生产行为"
+    );
+    // 任务是另一条审批线，也不受 ERP 内控约束
+    assert!(
+        !GOVERNED_CODES.contains(&FlowBizType::TaskAccept.as_str()),
+        "任务验收不受内控约束（TaskAccept 不在这 16 条里）"
+    );
 }

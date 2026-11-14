@@ -27,7 +27,7 @@
 //! DRAFT → PENDING：查已发布流程（biz_type='STOCK_TRANSFER' 或 flow_code='stock_transfer'）
 //!   · 有  → 同一事务里 engine::start 发起审批单 + 回写 approval_instance_id
 //!   · 没有 → 只把状态推到 PENDING（降级：PENDING → APPROVED 允许人工推）
-//! 审批结论回写（flow::task_bridge::on_transfer_settled，见该函数）：
+//! 审批结论回写（erp::transfer::transfer_approval_settle::on_transfer_settled，见该函数）：
 //!   · APPROVED → 调拨单 APPROVED
 //!   · REJECTED → 调拨单打回 DRAFT（审批意见写 reason，时间戳清空以满足 ck_biz_transfer_state）
 //! ```

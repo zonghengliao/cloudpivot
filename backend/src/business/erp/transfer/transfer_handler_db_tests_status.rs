@@ -210,7 +210,7 @@ async fn approval_callback_moves_transfer() {
     // APPROVED → 调拨单 APPROVED
     let (approved_id, approved_row) = transfer_in_status(STATUS_PENDING).await;
     let instance_id = approved_row.approval_instance_id.expect("审批实例 id");
-    crate::business::flow::task_bridge::on_transfer_settled(Some(instance_id), "APPROVED").await;
+    crate::business::erp::transfer::transfer_approval_settle::on_transfer_settled(Some(instance_id), "APPROVED").await;
     let row = refresh(approved_id).await;
     assert_eq!(row.status, STATUS_APPROVED);
     assert!(row.approved_at.is_some());
@@ -231,7 +231,7 @@ async fn approval_callback_moves_transfer() {
     )
     .await
     .expect("写审批意见");
-    crate::business::flow::task_bridge::on_transfer_settled(Some(instance_id), "REJECTED").await;
+    crate::business::erp::transfer::transfer_approval_settle::on_transfer_settled(Some(instance_id), "REJECTED").await;
     let row = refresh(rejected_id).await;
     assert_eq!(row.status, STATUS_DRAFT, "驳回必须打回 DRAFT");
     assert!(row.submitted_at.is_none(), "DRAFT 分支要求时间戳全空");

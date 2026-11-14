@@ -34,10 +34,10 @@ use nik::uuid::Uuid;
 // 拆目录后本模块的父模块就是 `erp::period` 本体（期间 facade），故 `period::` 走绝对路径导入；
 // `period_linkage` 仍是父模块的子模块，`super::` 不变。
 use super::period_linkage;
+use crate::business::erp::linkage;
+use crate::business::erp::linkage::spec;
 use crate::business::erp::period;
 use crate::business::erp::period::period_test_support as support;
-use crate::business::flow::linkage;
-use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
 
 /// 结账用例的期间。

@@ -10,13 +10,13 @@ use super::transfer_handler_common::*;
 use super::transfer_handler_query::*;
 use super::transfer_linkage;
 use crate::business::erp::form_snapshot;
-use crate::business::erp::separation;
+use crate::business::erp::linkage;
 use crate::business::erp::transfer::transfer_dto::{TransferDetailRes, TransferStatusReq};
 use crate::business::erp::transfer::transfer_model::{
     self, ALL_STATUSES, STATUS_PENDING, SettleError, TransferRow, transition_effect, transition_rejected_message,
 };
-use crate::business::flow::linkage;
 use crate::business::flow::{engine, model as flow_model, task_bridge as flow_task_bridge};
+use crate::business::shared::separation;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;

@@ -19,7 +19,7 @@
 //! | 序列号 | 无（整批按库位退） | `serial_nos`（一物一码） |
 //!
 //! ⚠️ 两种退货单的 `location_id` 口径**不同**（账行 vs 字典），混用会把
-//! 「A-01-03」印成别的库位 —— 见 [`crate::business::erp::doc_pdf_model`] 里
+//! 「A-01-03」印成别的库位 —— 见 [`crate::business::docpdf::doc_pdf_model`] 里
 //! 两个函数的文档。这也正是本模块不合并成一份取数逻辑的原因。
 //!
 //! # 审计
@@ -42,8 +42,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::doc_pdf_model;
-use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
+use crate::business::docpdf::doc_pdf_model;
+use crate::business::docpdf::doc_pdf_render::{self, RenderedDoc};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
 use crate::business::erp::purchase::purchase_return_dto;
 use crate::business::erp::purchase::purchase_return_model;

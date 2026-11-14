@@ -1,10 +1,12 @@
 //! 审批实例联动（`FLOW_INSTANCE`，LNK-12）的**真库**用例（`ERP_DB_URL` 开关）。
 //!
+//! 位置：P2-34 从 `flow::instance_linkage_db_tests` 搬来（触发点本体也搬进了本模块）。
+//!
 //! 不设 `ERP_DB_URL` 时全部 SKIP（与本仓其它真库用例同口径）。交付前必须真跑：
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::flow::instance_linkage_db_tests -- --test-threads=1
+//!   cargo test --lib business::erp::linkage::flow_instance_trigger_db_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面三条验收逐条对应）
@@ -26,8 +28,8 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::instance_linkage;
-use crate::business::flow::linkage::spec;
+use super::flow_instance_trigger as instance_linkage;
+use crate::business::erp::linkage::spec;
 
 /// 真库用例串行（共用全局 `db()` 与同一张规则表的全表唯一索引）。
 static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());

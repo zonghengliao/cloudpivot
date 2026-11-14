@@ -35,9 +35,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::purchase::purchase_model::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
-use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
 use crate::business::flow::settle_guard;
+use crate::business::shared::separation;
 use crate::shared::error_code;
 
 /// 采购订单审批的业务类型（与 V0182 种子 / `purchase_handler::submit_approval` 同口径）。

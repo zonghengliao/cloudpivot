@@ -58,6 +58,7 @@
 //! - **不碰 `business/aiagent/`**：AI 审批人是 D4 的解析逻辑（D18）。
 //! - **不碰 `shared/scope.rs`**：流程定义是全局配置，走权限码而不是数据范围（见 `model.rs` 的 SCOPE-EXEMPT）。
 
+pub mod approval_gate;
 pub mod assignee;
 pub mod batch;
 pub mod config_check;
@@ -75,12 +76,11 @@ pub mod engine;
 pub mod expression;
 pub mod graph;
 pub mod handler;
-pub mod instance_linkage;
-#[cfg(test)]
-pub mod instance_linkage_db_tests;
+/// 审批终态的外部订阅接缝（P2-34）：业务域实现 `InstanceSettledHook` 并注册，
+/// `flow` 只在结论落库后扇出 —— 这样 `handler` / `timeout` 不必直连任何业务域。
+pub mod instance_hooks;
 pub mod instance_pdf;
 pub mod internal_control;
-pub mod linkage;
 pub mod maintain;
 pub mod model;
 

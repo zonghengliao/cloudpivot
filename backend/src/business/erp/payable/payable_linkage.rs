@@ -38,9 +38,9 @@
 // 这种情况下联动也不许再跑一次 —— 否则「配一条通知规则，客户付几笔就收几条一模一样的信」。
 // ============================================================================
 
+use crate::business::erp::linkage;
 use crate::business::erp::payable;
 use crate::business::erp::payable::payable_query;
-use crate::business::flow::linkage;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self};
 use nik::prelude::*;

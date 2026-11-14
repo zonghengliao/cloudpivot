@@ -44,7 +44,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::doc_pdf_model::{self, ExportLogOwned};
+use crate::business::docpdf::doc_pdf_model::{self, ExportLogOwned};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
 use crate::business::erp::{stockin::stockin_model, stockout::stockout_model};
 use crate::business::pdf::template::{
@@ -1350,5 +1350,25 @@ mod db_tests {
         let error = export_stock_out("not-a-uuid").await.expect_err("必须 400");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, crate::shared::error_code::ERP_FILTER_INVALID);
+    }
+
+    /// 审计 detail 必须带 `source` 标记（日志页按它区分 PDF-02 / PDF-03 两批导出）。
+    ///
+    /// 位置：P2-34 从 `docpdf::doc_pdf_model` 搬回这里 —— `docpdf` 是公共域、不许反向
+    /// 依赖 `erp`，而断言的对象就是 ERP 自己这三个常量的字面量。
+    #[test]
+    fn export_log_source_tag() {
+        assert_eq!(
+            crate::business::erp::contract::contract_pdf::EXPORT_OPERATION,
+            "EXPORT_CONTRACT_PDF"
+        );
+        assert_eq!(
+            export_operation(crate::business::pdf::template::StockDocKind::StockIn),
+            "EXPORT_STOCK_IN_PDF"
+        );
+        assert_eq!(
+            export_operation(crate::business::pdf::template::StockDocKind::StockOut),
+            "EXPORT_STOCK_OUT_PDF"
+        );
     }
 }

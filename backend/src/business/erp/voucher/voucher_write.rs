@@ -72,12 +72,12 @@ use nik::uuid::Uuid;
 use serde::Deserialize;
 
 use crate::business::erp::approval_gate;
-use crate::business::erp::separation;
 use crate::business::erp::voucher::voucher_bridge;
 use crate::business::erp::voucher::voucher_linkage;
 use crate::business::erp::voucher::voucher_query::{self, VoucherDetailRes};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
 use crate::business::flow::{engine, model as flow_model};
+use crate::business::shared::separation;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;

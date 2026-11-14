@@ -14,12 +14,12 @@ use nik::uuid::Uuid;
 use super::stockin_handler_common::*;
 use super::stockin_handler_purchase::*;
 use crate::business::erp::model;
-use crate::business::erp::separation;
 use crate::business::erp::stockin::stockin_bridge;
 use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInDetailRes};
 use crate::business::erp::stockin::stockin_model::{
     self, NewStockIn, NewStockInLine, STATUS_DRAFT, STATUS_PENDING_CANCEL, STATUS_PENDING_POST, Totals, status_label,
 };
+use crate::business::shared::separation;
 use crate::business::shared::state_machine;
 use crate::utils;
 

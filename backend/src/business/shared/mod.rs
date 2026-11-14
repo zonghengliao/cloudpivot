@@ -64,5 +64,9 @@ pub mod guard;
 mod layering_tests;
 pub mod principal;
 pub mod scope;
+/// 内控开关（制单 ≠ 审批 / 过账 / 付款）：P2-34 从 `erp` 搬来 —— 它是**跨域可用的配置读取**，
+/// `flow` 的内控排除与 `erp` 的三个职责闸读同一份键；留在业务域里会让 `flow → erp` 的依赖
+/// 永远摘不掉（配置不是单据查询，塞不进 `DocReader` 接缝）。
+pub mod separation;
 pub mod state_machine;
 pub mod user_name;

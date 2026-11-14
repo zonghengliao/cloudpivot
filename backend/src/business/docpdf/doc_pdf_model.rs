@@ -6,7 +6,7 @@
 //! ② 取「一物一码」的序列号清单；③ 把「谁导出了哪张单」写进 `operation_logs`。
 //! **不含**权限判定，也**不含** PDF 渲染（那是 handler 与 `business/pdf` 的事）。
 //!
-//! PDF-02（采购 / 销售订单）的取数在 [`crate::business::erp::order_pdf_model`]，
+//! PDF-02（采购 / 销售订单）的取数在 `business/erp/order_pdf_model.rs`，
 //! 本文件是 PDF-03 起新增的公共件；物料 / 单位 / 用户名的批量解析直接复用那份，
 //! 不重复实现（同一份名字解析口径）。
 //!
@@ -513,29 +513,5 @@ mod tests {
         assert_eq!(text.len(), 16, "yyyy-MM-dd HH:mm：{text}");
         assert_eq!(&text[4..5], "-");
         assert_eq!(&text[10..11], " ");
-    }
-
-    /// 审计 detail 必须带 `source` 标记（日志页按它区分 PDF-02 / PDF-03 两批导出）。
-    ///
-    /// 说明：真正的落库断言在 `contract_pdf::db_tests` / `stock_pdf::db_tests`
-    /// 里对 `operation_logs` 回查（这里只钉住常量口径）。
-    #[test]
-    fn export_log_source_tag() {
-        assert_eq!(
-            crate::business::erp::contract::contract_pdf::EXPORT_OPERATION,
-            "EXPORT_CONTRACT_PDF"
-        );
-        assert_eq!(
-            crate::business::erp::stock::stock_pdf::export_operation(
-                crate::business::pdf::template::StockDocKind::StockIn
-            ),
-            "EXPORT_STOCK_IN_PDF"
-        );
-        assert_eq!(
-            crate::business::erp::stock::stock_pdf::export_operation(
-                crate::business::pdf::template::StockDocKind::StockOut
-            ),
-            "EXPORT_STOCK_OUT_PDF"
-        );
     }
 }

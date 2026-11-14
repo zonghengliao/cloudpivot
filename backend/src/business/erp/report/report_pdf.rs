@@ -70,8 +70,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::doc_pdf_model;
-use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
+use crate::business::docpdf::doc_pdf_model;
+use crate::business::docpdf::doc_pdf_render::{self, RenderedDoc};
 use crate::business::erp::income_statement;
 use crate::business::erp::{cash_flow, report};
 use crate::business::pdf::handler as pdf_handler;

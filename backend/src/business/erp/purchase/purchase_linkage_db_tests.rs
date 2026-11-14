@@ -35,10 +35,10 @@ use nik::uuid::Uuid;
 use super::stockin_handler_tests_fixtures::*;
 use super::stockin_handler_tests_helpers::*;
 use super::*;
+use crate::business::erp::linkage;
+use crate::business::erp::linkage::spec;
 use crate::business::erp::purchase::purchase_dto::PurchaseOrderStatusReq;
 use crate::business::erp::purchase::{purchase_handler, purchase_model};
-use crate::business::flow::linkage;
-use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
 
 /// 夹具规则的命名前缀（本卡专用，与其它卡 / 生产的规则互不影响）。

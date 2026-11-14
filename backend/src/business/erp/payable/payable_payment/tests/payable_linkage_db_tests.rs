@@ -38,9 +38,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use super::*;
+use crate::business::erp::linkage;
+use crate::business::erp::linkage::spec;
 use crate::business::erp::payable::payable_payment::{self, PayPayableReq};
-use crate::business::flow::linkage;
-use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
 
 /// 夹具规则的命名前缀（与其它卡 / 生产的规则互不影响）。

@@ -44,9 +44,9 @@ use super::stocktake_handler::{
     stock_take_page, stock_take_update, update_stock_take,
 };
 use super::stocktake_model::{self as model, STATUS_CANCELLED, STATUS_DRAFT, STATUS_PENDING_POST, STATUS_POSTED};
+use crate::business::erp::linkage;
+use crate::business::erp::linkage::spec;
 use crate::business::flow::engine;
-use crate::business::flow::linkage;
-use crate::business::flow::linkage::spec;
 use crate::shared::error_code;
 
 // ---------- 夹具常量 ----------

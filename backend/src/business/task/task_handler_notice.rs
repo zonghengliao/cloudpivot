@@ -226,8 +226,8 @@ pub(super) async fn notify_status_change(
     };
     // 跨单据联动白名单（D2 · 阶段 4 · 第 2 步）：有 SEND_NOTICE 配置时决定「谁发」
     // （影子对比 / 接管），没配置时恒返回 Legacy —— 行为与 D2 之前逐字相同。
-    let ctx = crate::business::flow::linkage::engine::LinkageContext::new(
-        crate::business::flow::linkage::spec::TRIGGER_TASK,
+    let ctx = crate::business::erp::linkage::engine::LinkageContext::new(
+        crate::business::erp::linkage::spec::TRIGGER_TASK,
         to.code(),
         task.card.id,
         &task.card.task_no,
@@ -235,11 +235,11 @@ pub(super) async fn notify_status_change(
     )
     .with_people(Some(task.card.owner_id), Some(task.creator_id), task.assigner_id)
     .with_notice(draft.clone());
-    match crate::business::flow::linkage::engine::status_notice(&ctx).await {
-        crate::business::flow::linkage::NoticeRoute::Legacy { .. } => {
+    match crate::business::erp::linkage::engine::status_notice(&ctx).await {
+        crate::business::erp::linkage::NoticeRoute::Legacy { .. } => {
             send_task_notice_draft(draft).await;
         }
-        crate::business::flow::linkage::NoticeRoute::Configured { rule_id, .. } => {
+        crate::business::erp::linkage::NoticeRoute::Configured { rule_id, .. } => {
             tracing::info!(
                 task_id = %task.card.id,
                 task_no = %task.card.task_no,

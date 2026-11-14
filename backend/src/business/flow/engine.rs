@@ -812,7 +812,7 @@ async fn vote(
     //   拒绝也要记（`vote=REJECTED`）—— 「自己驳回自己」同样说明自审通道被用上了。
     if task.is_self_approval {
         let amount = self_approval::amount_of(&instance.form_data);
-        let threshold = crate::business::erp::separation::self_approval_max_amount().await;
+        let threshold = crate::business::shared::separation::self_approval_max_amount().await;
         self_approval::record(
             ex,
             &self_approval::AuditEntry {
@@ -2910,7 +2910,7 @@ impl<'a> Run<'a> {
                         continue;
                     }
                     let amount = self_approval::amount_of(&self.instance.form_data);
-                    let threshold = crate::business::erp::separation::self_approval_max_amount().await;
+                    let threshold = crate::business::shared::separation::self_approval_max_amount().await;
                     self_approval::record(
                         self.ex,
                         &self_approval::AuditEntry {

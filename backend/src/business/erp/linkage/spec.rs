@@ -242,7 +242,7 @@ pub fn is_known_trigger(entity: &str) -> bool {
 ///
 /// 白名单 [`TRIGGERS`] 回答的是「这个单据类型**允许**作为触发点」（数据库 CHECK、
 /// `model::upsert_rule` 的校验都按它判）。它**不**回答「代码里真的有人在这个状态变更点
-/// 调 [`crate::business::flow::linkage::engine`]」——P1-FIX-5B 实测发现这两件事严重不等：
+/// 调 [`crate::business::erp::linkage::engine`]」——P1-FIX-5B 实测发现这两件事严重不等：
 /// 15 个白名单触发点里只有 2 个真的接了线，其余 13 个上配规则**能保存、能启用、永远不触发**。
 /// 这是一种最坏的「看起来配好了」：管理员以为生效了，业务上什么都没发生，而且没有任何报错。
 ///
@@ -770,11 +770,11 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         //   接在这里会造成「同一张单有时响、有时不响」——比不接更糟。这类通知由各自的
         //   业务回调负责（见 `task_bridge` / `expense_bridge`）。
         //
-        // 留下三个 = 审批的三种结论，与 `instance_linkage::TERMINAL_STATUSES` 逐字一致
+        // 留下三个 = 审批的三种结论，与 `flow_instance_trigger::TERMINAL_STATUSES` 逐字一致
         // （单测 `statuses_match_fired_verdicts` 钉住）。
         status_labels: &[("APPROVED", "已通过"), ("REJECTED", "已驳回"), ("WITHDRAWN", "已撤回")],
         wired: true,
-        wiring: "已接线：flow/instance_linkage.rs::fire_after_commit —— 审批实例落终态\
+        wiring: "已接线：erp/linkage/flow_instance_trigger.rs::fire_after_commit —— 审批实例落终态\
                  （APPROVED / REJECTED / WITHDRAWN）之后，在**审批事务提交之后**跑通用引擎：\
                  run_excluding(spec::FLOW_INSTANCE_EXCLUDED_ACTIONS)（排除清单 = 全部 Phase::InTx\
                  动作：改单据状态 / 写库存 / 出凭证 / 改累计量都归业务桥的专用实现）+\
@@ -785,10 +785,13 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  让同一次审批重放只发一条通知",
         proofs: &[
             (
-                "src/business/flow/instance_linkage.rs",
+                "src/business/erp/linkage/flow_instance_trigger.rs",
                 "linkage::engine::run_excluding",
             ),
-            ("src/business/flow/instance_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/linkage/flow_instance_trigger.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
 ];
@@ -1944,7 +1947,7 @@ fn json_kind(value: &serde_json::Value) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::flow::linkage::model;
+    use crate::business::erp::linkage::model;
     use crate::business::task::state::TaskStatus;
 
     /// ① 覆盖性（**双向**）：`statuses`（`model::known_statuses`）的每一项都要有中文名，

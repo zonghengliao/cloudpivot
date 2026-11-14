@@ -67,14 +67,33 @@ fn bridge_codes() -> Vec<(FlowBizType, &'static str)> {
     ]
 }
 
-/// 16 个实现与 16 个 `governed` 分支**一一对应**，且落库码与桥常量逐字一致。
+/// 16 个受控实现与 16 个 `governed` 分支**一一对应**，外加 1 个「只接回调」的调拨单，
+/// 且落库码与桥常量逐字一致（P2-34 起实现数 = 17）。
 #[test]
 fn supported_set_matches_governed_branches() {
     let expected = bridge_codes();
     assert_eq!(expected.len(), 16, "登记表本身应恰好 16 条");
 
     let implemented: Vec<FlowBizType> = ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect();
-    assert_eq!(implemented.len(), 16, "ErpDoc::ALL 应恰好 16 个实现");
+    assert_eq!(
+        implemented.len(),
+        17,
+        "ErpDoc::ALL 应恰好 17 个实现（16 受控 + 调拨单）"
+    );
+
+    // ⓪ P2-34：多出来的那一个必须**恰好**是 STOCK_TRANSFER —— 它只接终态回调、不做内控排除。
+    //    多一个别的（或少了它）都说明受控集合与注册集合漂移了，那正是本用例要拦的事。
+    let governed: BTreeSet<FlowBizType> = expected.iter().map(|(biz_type, _)| *biz_type).collect();
+    let extra: BTreeSet<FlowBizType> = implemented
+        .iter()
+        .copied()
+        .filter(|biz_type| !governed.contains(biz_type))
+        .collect();
+    assert_eq!(
+        extra,
+        BTreeSet::from([FlowBizType::StockTransfer]),
+        "注册集合里比受控集合多出来的必须只有调拨单（实际多出：{extra:?}）"
+    );
 
     // ① 同一 biz_type 不许被两个实现抢（注册表会在运行期报错，这里提前钉死）
     let unique: BTreeSet<FlowBizType> = implemented.iter().copied().collect();
@@ -98,9 +117,18 @@ fn supported_set_matches_governed_branches() {
         );
     }
 
-    // ③ 反向：实现里不许有 `governed` 名单之外的东西（多注册一条 = 悄悄多一道闸 / 多一次回调）
+    // ③ 反向：受控名单之外**只允许**调拨单 —— 它是 P2-34 补的「只接回调、不做内控排除」那条：
+    //    终态回调从 `flow::task_bridge` 搬进 ERP 后需要一个入口被调起（注册表），
+    //    而 `flow::internal_control::GOVERNED_CODES` 里仍然没有它（多拦一批人 = 改变生产行为）。
     let expected_types: BTreeSet<FlowBizType> = expected.iter().map(|(biz_type, _)| *biz_type).collect();
     for doc in ErpDoc::ALL {
+        if doc.biz_type() == FlowBizType::StockTransfer {
+            assert!(
+                !expected_types.contains(&doc.biz_type()),
+                "调拨单不许进受控名单：它今天没有内控闸（见 flow::internal_control::GOVERNED_CODES）"
+            );
+            continue;
+        }
         assert!(
             expected_types.contains(&doc.biz_type()),
             "{doc:?}（{}）不在 internal_control 的 governed 名单里：多注册会让行为与今天不同",
@@ -124,9 +152,9 @@ fn registers_every_reader_once() {
     let mut registry = DocRegistry::new();
     assert!(registry.is_empty(), "空注册表应 is_empty");
 
-    let count = doc_reader_impl::register_into(&mut registry).expect("16 个实现应能一次注册完");
-    assert_eq!(count, 16, "register_into 应报告注册了 16 个");
-    assert_eq!(registry.len(), 16, "注册表里应有 16 个键");
+    let count = doc_reader_impl::register_into(&mut registry).expect("17 个实现应能一次注册完");
+    assert_eq!(count, 17, "register_into 应报告注册了 17 个（16 受控 + 调拨单）");
+    assert_eq!(registry.len(), 17, "注册表里应有 17 个键");
 
     // 按落库编码取（P2-34 调用点最常用的入口）
     for doc in ErpDoc::ALL {
@@ -137,7 +165,7 @@ fn registers_every_reader_once() {
     }
 
     let registered: BTreeSet<FlowBizType> = registry.registered().into_iter().collect();
-    assert_eq!(registered.len(), 16, "registered() 应给出 16 个键");
+    assert_eq!(registered.len(), 17, "registered() 应给出 17 个键（16 受控 + 调拨单）");
     assert_eq!(
         registered,
         ErpDoc::ALL.iter().map(|doc| doc.biz_type()).collect::<BTreeSet<_>>(),
@@ -175,10 +203,15 @@ fn unknown_code_is_none_not_error() {
         registry.reader_of_code("NOT_A_BIZ_TYPE").is_none(),
         "不认识的编码应返回 None"
     );
-    // 词表里有、但本卡不注册（调拨审批的回调住在 flow::task_bridge，见模块注释）
+    // P2-34：调拨单**已注册**（回调从 `flow::task_bridge` 搬进 ERP，需要一个入口被调起），
+    // 但它不在 `flow::internal_control::GOVERNED_CODES` 里 —— 注册 ≠ 受内控约束。
     assert!(
-        registry.reader_of_code(FlowBizType::StockTransfer.as_str()).is_none(),
-        "STOCK_TRANSFER 本卡不注册（行为与今天一致）"
+        registry.reader_of_code(FlowBizType::StockTransfer.as_str()).is_some(),
+        "STOCK_TRANSFER 必须已注册（否则审批终态的扇出到不了调拨单）"
+    );
+    assert!(
+        !crate::business::flow::internal_control::GOVERNED_CODES.contains(&FlowBizType::StockTransfer.as_str()),
+        "STOCK_TRANSFER 不许进受控集合：它今天没有内控闸，加进去 = 多拦一批人"
     );
     // 人力资源由另一张卡实现
     assert!(
@@ -329,8 +362,8 @@ async fn process_registry_is_filled_by_register_all() {
     assert_eq!(doc_reader::len(), 0, "reset 之后应为空");
 
     let count = doc_reader_impl::register_all().expect("启动期注册应成功");
-    assert_eq!(count, 16);
-    assert_eq!(doc_reader::len(), 16, "进程级注册表应有 16 个键");
+    assert_eq!(count, 17);
+    assert_eq!(doc_reader::len(), 17, "进程级注册表应有 17 个键（16 受控 + 调拨单）");
 
     // 分派助手（P2-34 的替换点）能按编码取到实现
     for doc in ErpDoc::ALL {

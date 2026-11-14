@@ -28,6 +28,9 @@ pub mod announcement;
 pub mod attachment;
 pub mod changelog;
 pub mod dashboard;
+/// 单据 PDF 导出的公共件（P2-34 从 `erp/` 单独成域）：批量补名称 / 序列号 / 导出留痕 + 渲染收尾，
+/// 被 `erp` / `flow` / `task` 三个域共用。
+pub mod docpdf;
 pub mod erp;
 pub mod flow;
 pub mod help;
