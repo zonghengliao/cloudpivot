@@ -37,7 +37,7 @@ use super::asset_dto::{self, CreateAssetReq};
 use super::asset_model::{self, AssetInsert};
 use super::depreciation_linkage;
 use super::depreciation_model;
-use crate::business::erp::period_test_support as support;
+use crate::business::erp::period::period_test_support as support;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;

@@ -29,7 +29,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::period;
-use crate::business::erp::period_test_support as base;
+use crate::business::erp::period::period_test_support as base;
 use crate::business::shared::state_machine;
 
 /// 本年（被年结的年度）。
@@ -46,7 +46,7 @@ pub const NEXT_YEAR: i16 = 2038;
 /// `cargo test --lib` 并行跑时，本模块刚写下的 2037 年结状态会被 2031 的反结账用例看见
 /// → 那不是缺陷，是夹具串扰造成的假红。共享一把锁把两者互斥掉（顺带也挡住
 /// 期间 / 凭证 / 单据夹具的互删）。
-pub use crate::business::erp::period_test_support::DB_LOCK;
+pub use crate::business::erp::period::period_test_support::DB_LOCK;
 
 /// 夹具操作人 id（`closed_by` / `sender_id` 是弱引用，不要求真实用户）。
 pub const TEST_UID: &str = "00000000-0000-7000-8000-0000000000c7";

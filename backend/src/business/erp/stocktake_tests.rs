@@ -77,7 +77,7 @@ const TAKE_DATE: &str = "2033-03-15";
 // 而 `period::tests::cleanup()` 会 `DELETE ... WHERE period LIKE '2033-%'` 与
 // `biz_accounting_period LIKE '2033-%'` —— 两把不同的锁时，它会把本模块正在用的
 // 单据与期间删掉（反之 `period_test_support::cleanup()` 同样会删本模块的凭证）。
-use crate::business::erp::period_test_support::DB_LOCK;
+use crate::business::erp::period::period_test_support::DB_LOCK;
 
 fn uid(text: &str) -> Uuid {
     Uuid::parse_str(text).expect("夹具 UUID 非法")

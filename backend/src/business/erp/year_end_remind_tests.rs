@@ -16,7 +16,7 @@
 //! ```
 
 use super::*;
-use crate::business::erp::period_test_support as p2;
+use crate::business::erp::period::period_test_support as p2;
 use crate::business::erp::year_end::BLOCKER_DOC_UNFINISHED;
 use crate::business::erp::year_end_test_support as support;
 use nik::uuid::Uuid;

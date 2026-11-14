@@ -886,7 +886,7 @@ fn contract_wires_generic_engine_and_excludes_voucher() {
 /// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
 #[test]
 fn period_wires_generic_engine_and_excludes_ledger_actions() {
-    let hook = include_str!("../../erp/period_linkage.rs");
+    let hook = include_str!("../../erp/period/period_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "会计期间状态变更必须调用通用引擎（run_excluding）：否则 ACCOUNTING_PERIOD 的联动规则配了不触发"
@@ -921,7 +921,7 @@ fn period_wires_generic_engine_and_excludes_ledger_actions() {
     }
 
     // 两个状态推进点：结账（OPEN → CLOSED）与反结账（CLOSED → OPEN）
-    let source = include_str!("../../erp/period.rs");
+    let source = include_str!("../../erp/period/mod.rs");
     assert_eq!(
         source.matches("period_linkage::run_in_tx(").count(),
         2,

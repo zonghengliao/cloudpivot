@@ -20,7 +20,7 @@
 
 use super::reminder::{self, RemindKind};
 use super::reminder_stock;
-use crate::business::erp::period_test_support as base;
+use crate::business::erp::period::period_test_support as base;
 use nik::prelude::chrono::{DateTime, Duration, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;

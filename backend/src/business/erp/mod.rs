@@ -212,11 +212,6 @@ pub mod payable_bridge;
 pub mod payable_payment;
 pub mod payable_query;
 pub mod period;
-pub mod period_items;
-/// LNK-08 会计期间结账 / 反结账的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
-pub(crate) mod period_linkage;
-pub mod period_owner;
-pub mod period_remind;
 pub mod price_admin_handler;
 pub mod price_admin_model;
 pub mod price_dto;
@@ -297,8 +292,6 @@ mod lot_db_tests;
 // `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
 #[cfg(test)]
-mod period_test_support; // PERIOD-CLOSE 真库用例的公共夹具（`2033-xx` / `P2-` 前缀）
-#[cfg(test)]
 pub mod stocktake_tests; // 盘点单用例（纯逻辑 + 真库：盘盈 / 盘亏 / 无差异 / 作废回滚 / 审批流 / 负库存）
 #[cfg(test)]
 pub mod year_end_test_support; // YEAR-END 真库用例的公共夹具（`2037-xx` / `2038-xx` / `YE-` 前缀）
@@ -328,11 +321,6 @@ mod voucher_linkage_tests;
 /// 排除动作确实不跑、人工流转触发）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod contract_linkage_tests;
-
-/// LNK-08 的真库单测（会计期间联动接线：结账 / 反结账各触发一次、
-/// 事务回滚时通知不发、重复结账不重复触发、排除动作确实不跑）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod period_linkage_tests;
 
 /// LNK-09 的真库单测（固定资产联动接线：处置触发一次、重复处置不重复触发、
 /// 作废处置触发、事务回滚通知不发、排除动作确实不跑）。只在 `cargo test` 时编译。

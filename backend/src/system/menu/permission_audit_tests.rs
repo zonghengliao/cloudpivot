@@ -765,7 +765,7 @@ const AUDITABLE_ROWS: &str = "deleted_at IS NULL AND auth_code IS NOT NULL AND a
 /// | `system::menu::tests::n01..n12` | `N01-<tag>:b:list` … | ✅（且形态只有 2 段，N15 也会红） |
 /// | `system::auth::cache_tests`（C05/C06） | `testc3:<tag>:perm` | ✅（跨模块，实测打红 N15） |
 /// | `system::session_tests` | `FIX05S0x_<tag>:btn` | ✅（跨模块） |
-/// | `business::erp::period_test_support::seed_menu` | `business:erp:p2-…` | ✅（跨模块） |
+/// | `business::erp::period::period_test_support::seed_menu` | `business:erp:p2-…` | ✅（跨模块） |
 ///
 /// 实测（默认并行，隔离库）：`cargo test --lib system::menu::` 5 轮里 4 轮 N14 红，
 /// 报的正是 `N13-T<ts>:btn`；把 `system::auth::cache_tests` / `system::session_tests`

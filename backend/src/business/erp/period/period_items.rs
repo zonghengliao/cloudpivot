@@ -48,7 +48,7 @@
 //! 「具体处理人」是 5 选 1，猜谁都是错的；这时只给角色，前端显示角色名，
 //! 催办发给该角色全体。这条规则写进单测（`owner_name_only_when_role_has_single_user`）。
 //!
-//! 反查的**实现**在 [`crate::business::erp::period_owner`]（本模块 `pub use` 重导出，
+//! 反查的**实现**在 [`crate::business::erp::period::period_owner`]（本模块 `pub use` 重导出，
 //! 调用方路径不变）：将来接流程引擎的动态审批人只改那边，明细取数一行不用动。
 //!
 //! # 条数上限
@@ -110,9 +110,9 @@ pub const DOC_INVENTORY: &str = "INVENTORY";
 /// 单据类型：成本核算批次（期间结算单）—— 未结算时挡结账的第 5 项（ARCH-9 §4.11）。
 pub const DOC_COST_PERIOD: &str = "COST_PERIOD";
 
-/// 「下一个动作」的权限码与处理人反查 → 见 [`crate::business::erp::period_owner`]
+/// 「下一个动作」的权限码与处理人反查 → 见 [`crate::business::erp::period::period_owner`]
 /// （反查是「该谁处理」的唯一实现，本模块只消费它）。
-pub use crate::business::erp::period_owner::{
+pub use crate::business::erp::period::period_owner::{
     Owner, OwnerResolver, PERM_PO_STATUS, PERM_PO_SUBMIT, PERM_STOCK_IN_CREATE, PERM_STOCK_IN_STATUS,
     PERM_TRANSFER_STATUS, PERM_VOUCHER_POST,
 };
@@ -329,7 +329,7 @@ pub fn stock_transfer_next(status: &str) -> NextAction {
 ///    那条 CHECK（属 reminder 模块，本卡不动）。
 /// 2. 批次的下一步动作跨了两个权限码（`cost-period:submit` 提交 / `cost-period:settle`
 ///    结算），而 `NextAction` 只装得下一个 —— 与其挑一个猜，不如照
-///    [`crate::business::erp::period_items::inventory_items`] 的做法留空。
+///    [`crate::business::erp::period::period_items::inventory_items`] 的做法留空。
 ///
 /// 放宽 CHECK 之后在这里逐个状态填 `PERM_COST_PERIOD_*` 即可，明细结构不用动。
 pub fn cost_batch_next(status: &str) -> NextAction {

@@ -1536,7 +1536,7 @@ mod tests {
     //! （TRAVEL / MEAL / OFFICE …）不动。
 
     use super::*;
-    use crate::business::erp::period_test_support as support;
+    use crate::business::erp::period::period_test_support as support;
 
     /// 自动编码形态：`ET-` + ≥2 位纯流水（ET 的 `biz_seq.pad_width = 2` ⇒ `ET-01`）。
     fn is_auto_et_code(code: &str) -> bool {

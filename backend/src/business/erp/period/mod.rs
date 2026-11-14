@@ -20,7 +20,7 @@
 //! | GET | `/business/erp/period/{id}/close-check` | `business:erp:period:close` | 结账预检（只读） |
 //! | POST | `/business/erp/period/{id}/close` | `business:erp:period:close` | 结账 |
 //! | POST | `/business/erp/period/{id}/reopen` | `business:erp:period:reopen` | 反结账（必填原因 ≥ 10 字） |
-//! | POST | `/business/erp/period/{id}/remind` | `business:erp:period:remind` | 催办（把挡路单据的待办发给处理人，见 [`crate::business::erp::period_remind`]） |
+//! | POST | `/business/erp/period/{id}/remind` | `business:erp:period:remind` | 催办（把挡路单据的待办发给处理人，见 [`crate::business::erp::period::period_remind`]） |
 //!
 //! # 结账的五项前置校验（卡面硬红线 2）
 //!
@@ -33,7 +33,7 @@
 //!    ⑤ 只在**该期间存在成本批次**时才拦：存量客户没有 biz_cost_period 行，不受影响。
 //! 每一条 blocker 都带明细（`items`，最多 50 条）：单号 / 类型 / 金额 / 制单人 /
 //! 该谁处理 / 已等多久 / 「去处理」跳转。明细的取数口径与判定口径同源，
-//! 实现见 [`crate::business::erp::period_items`]（**改判定必须两处同步**）。
+//! 实现见 [`crate::business::erp::period::period_items`]（**改判定必须两处同步**）。
 //! ```
 //!
 //! **全库口径的账实 / 账账巡检（B4 流水累计、C1/C2 负库存）不拦结账**，
@@ -84,6 +84,34 @@
 //! 可见性与操作性由 business:erp:period:{open,close,reopen} 三个独立权限码控制。
 //! ```
 
+// ==================== 期间域子模块（P2-06 拆目录） ====================
+// 下面这些 `period_*.rs` 原本直挂在 `erp/` 下、由 `erp/mod.rs` 声明；P2-06 把它们收进
+// `erp/period/`，声明从 `erp/mod.rs` 原样搬到这里（doc 注释与 `#[cfg(test)]` 一并保真）。
+// **本文件就是 `erp::period` 模块本体**（拆前是 `erp/period.rs`）：对外路径
+// `crate::business::erp::period` 与拆前完全一致，只有搬走的兄弟模块多一层 `::period`
+// （`erp::period::period_items` 等）。
+// ==================== 期间校验明细 / 责任反查 / 催办 ====================
+pub mod period_items;
+/// LNK-08 会计期间结账 / 反结账的联动 hook（唯一一份上下文 / 排除清单 / 幂等口径）。
+pub(crate) mod period_linkage;
+pub mod period_owner;
+pub mod period_remind;
+
+// `period_items_tests` / `period_remind_tests` **不在此声明**：它们由 `period_items` /
+// `period_remind` 用 `#[path = "<同名>.rs"]` 挂在自己下面（拆前即如此），三个文件一起进了
+// `period/`，`#[path]` 相对**声明文件所在目录**，故那两行一行未改。
+/// LNK-08 的真库单测（会计期间联动接线：结账 / 反结账各触发一次、
+/// 事务回滚时通知不发、重复结账不重复触发、排除动作确实不跑）。只在 `cargo test` 时编译。
+#[cfg(test)]
+pub(in crate::business::erp) mod period_linkage_tests;
+/// PERIOD-CLOSE 真库用例的公共夹具（`2033-xx` / `P2-` 前缀）。
+///
+/// 拆前是 `erp/mod.rs` 下的裸 `mod`（= erp 子树可见）；搬到本文件后裸 `mod` 会缩成
+/// 「`period` 内可见」，把 `erp/{year_end,stocktake,reminder}_*` 这些兄弟挡在外面 ——
+/// 故按 `pub(in crate::business::erp)` 逐字等价保留，**不升级成 `pub(crate)`**。
+#[cfg(test)]
+pub(in crate::business::erp) mod period_test_support;
+
 use axum::Json;
 use nik::prelude::chrono::{DateTime, Datelike, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
@@ -93,10 +121,9 @@ use serde::{Deserialize, Serialize};
 use std::result::Result;
 use std::str::FromStr;
 
+use self::period_items::{BlockingItem, OwnerResolver};
 use crate::business::erp::dto::PeriodRes;
 use crate::business::erp::model::{self, PeriodRow};
-use crate::business::erp::period_items::{self, BlockingItem, OwnerResolver};
-use crate::business::erp::period_linkage;
 use crate::business::erp::voucher;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -123,7 +150,7 @@ pub const PERIOD_PERMISSIONS: [(&str, &str); 4] = [
     (PERM_CLOSE, "结账（含结账预检）"),
     (PERM_REOPEN, "反结账（撤销已封账的期间）"),
     (
-        crate::business::erp::period_remind::PERM_REMIND,
+        crate::business::erp::period::period_remind::PERM_REMIND,
         "催办（把结账待办发给处理人）",
     ),
 ];
@@ -163,7 +190,7 @@ pub const BLOCKER_PERIOD_STATUS: &str = "PERIOD_STATUS";
 /// 成本核算未结算（第 5 项，ARCH-9 §4.11）。
 ///
 /// 判据、文案、items 口径见 [`cost_unsettled_blocker`]；明细取数在
-/// [`crate::business::erp::period_items::cost_period_items`]。
+/// [`crate::business::erp::period::period_items::cost_period_items`]。
 pub const BLOCKER_COST_UNSETTLED: &str = "COST_UNSETTLED";
 
 // ==================== 年结护栏（R4 之后） ====================
@@ -653,7 +680,7 @@ pub fn invariant_blocker(failures: Vec<String>, items: Vec<BlockingItem>) -> Opt
 }
 
 /// 成本核算未结算 → 阻塞项（第 5 项，ARCH-9 §4.11；明细在
-/// [`crate::business::erp::period_items::cost_period_items`]）。
+/// [`crate::business::erp::period::period_items::cost_period_items`]）。
 ///
 /// # 判据
 ///
@@ -1196,7 +1223,7 @@ pub async fn ensure_current_year_periods() -> DbResult<u64> {
 // ==================== ② 结账 ====================
 
 // ① 草稿凭证 / ② 未完成单据的取数（条数 + 明细）搬到了
-// [`crate::business::erp::period_items`]：判定条件与明细投影必须是同一份 SQL，
+// [`crate::business::erp::period::period_items`]：判定条件与明细投影必须是同一份 SQL，
 // 两处各写一遍必然漂成「文案说 3 张、表格列 5 行」。
 
 /// 期间内试算平衡：分录 Σ借 / Σ贷。
@@ -1228,7 +1255,7 @@ async fn trial_balance(ex: &impl SqlExecutor, code: &str) -> Result<(Decimal, De
     ))
 }
 
-// ④ 期间内不变量（A 组）的判定与明细在 [`crate::business::erp::period_items::invariant_details`]：
+// ④ 期间内不变量（A 组）的判定与明细在 [`crate::business::erp::period::period_items::invariant_details`]：
 // 它同时给出**文案**（A1 / A2 各多少张）与**明细**（哪几张凭证），一次查询口径。
 // 全库口径的**账实 / 账账**检查（erp_invariants 的 B4 流水累计、C1/C2 负库存）
 // 不在这里拦，理由见 [`global_health_warnings`]。
@@ -1310,7 +1337,7 @@ impl CheckOutcome {
 ///
 /// 返回 [`CheckOutcome`]：`blockers` 拦人，`warnings` 只提示（全库巡检口径）。
 /// 每条 blocker 都带 `items`（最多 50 条明细 + 该谁处理 + 跳转），实现在
-/// [`crate::business::erp::period_items`]。
+/// [`crate::business::erp::period::period_items`]。
 pub(crate) async fn collect_blockers(ex: &impl SqlExecutor, row: &PeriodRow) -> Result<CheckOutcome, ApiError> {
     let mut blockers = Vec::new();
     // 处理人反查按请求缓存：同一个权限码一次预检只查一次库
@@ -1847,7 +1874,7 @@ mod tests {
     // 互不相识的锁 ⇒ `period::tests::cleanup()` 会把 `period_items::tests` 正在用的
     // 2033-10 草稿凭证（以及 `stocktake_tests` 的 2033-03 单据与期间）删掉，实测把
     // `period_items::tests::can_close_is_unaffected_by_items` 打成恒定假红。
-    use crate::business::erp::period_test_support::DB_LOCK;
+    use crate::business::erp::period::period_test_support::DB_LOCK;
     /// 夹具操作人（`closed_by` 是弱引用，不要求真实用户）。
     const TEST_UID: &str = "00000000-0000-7000-8000-0000000000a1";
 

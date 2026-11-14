@@ -37,7 +37,7 @@ use super::asset_handler;
 use super::asset_model::{self, AssetInsert};
 use super::depreciation_model;
 use super::ledger;
-use crate::business::erp::period_test_support as support;
+use crate::business::erp::period::period_test_support as support;
 
 /// 本文件独占的期间年度（见文件头）。
 const YEAR: i16 = 2048;

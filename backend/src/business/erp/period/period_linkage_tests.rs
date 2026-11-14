@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::period_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::period::period_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「结账触发 / 反结账触发 / 事务回滚时通知不发」逐条对应）
@@ -31,8 +31,11 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::{period, period_linkage};
-use crate::business::erp::period_test_support as support;
+// 拆目录后本模块的父模块就是 `erp::period` 本体（期间 facade），故 `period::` 走绝对路径导入；
+// `period_linkage` 仍是父模块的子模块，`super::` 不变。
+use super::period_linkage;
+use crate::business::erp::period;
+use crate::business::erp::period::period_test_support as support;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
@@ -91,7 +94,7 @@ fn operator_of(user: Uuid) -> state_machine::Operator {
 }
 
 /// 开一个测试期间并读回行（走真实 `open_period`，不手工插行）。
-async fn open_period(code: &str, user: Uuid) -> super::model::PeriodRow {
+async fn open_period(code: &str, user: Uuid) -> super::super::model::PeriodRow {
     let (year, month) = period::parse_year_month(code).expect("期间编码");
     let res = period::open_period(year, month, Some("LNK08 夹具"), operator_of(user))
         .await

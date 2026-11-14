@@ -2,7 +2,7 @@
 //!
 //! # 它解决什么
 //!
-//! 结账预检把挡路单据列出来了（见 [`crate::business::erp::period_items`]），
+//! 结账预检把挡路单据列出来了（见 [`crate::business::erp::period::period_items`]），
 //! 但「知道是哪 3 张」还不够 —— 财务得**通知到人**。本模块提供那一按：
 //!
 //! ```text
@@ -90,7 +90,7 @@ use serde::{Deserialize, Serialize};
 use std::result::Result;
 
 use crate::business::erp::period;
-use crate::business::erp::period_items::{self, BlockingItem};
+use crate::business::erp::period::period_items::{self, BlockingItem};
 use crate::business::erp::reminder::{self, ReminderLedgerRow};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};

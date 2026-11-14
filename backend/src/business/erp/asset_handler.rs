@@ -1790,7 +1790,7 @@ mod tests {
     //! （与 CODE-02/03 同口径）。存量 5 条分类（ELEC / FURNITURE / VEHICLE …）不动。
 
     use super::*;
-    use crate::business::erp::period_test_support as support;
+    use crate::business::erp::period::period_test_support as support;
 
     /// 自动编码形态：`AC-` + ≥2 位纯流水（AC 的 `biz_seq.pad_width = 2` ⇒ `AC-01`）。
     fn is_auto_ac_code(code: &str) -> bool {

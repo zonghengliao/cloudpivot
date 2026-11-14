@@ -2,7 +2,7 @@
 //!
 //! # 它解决什么
 //!
-//! 年结预检现在会把挡路单据列成表（见 [`crate::business::erp::period_items`] 与
+//! 年结预检现在会把挡路单据列成表（见 [`crate::business::erp::period::period_items`] 与
 //! [`crate::business::erp::year_end`] 的 `collect_blockers`），但「知道是哪 3 张」
 //! 还不够 —— 财务得**通知到人**。本模块提供那一按：
 //!
@@ -14,7 +14,7 @@
 //!
 //! # 为什么几乎是空的（复用，不照抄）
 //!
-//! 结账催办（[`crate::business::erp::period_remind`]）已经把那套东西写好了：
+//! 结账催办（[`crate::business::erp::period::period_remind`]）已经把那套东西写好了：
 //! 收件人按明细的 owner 现算、复用 `notice::dispatch` 扇出、同一张单 24h 防重、
 //! 结果四个计数 + 一句人话。年结与结账**只差四样**（标题里的「年」、正文口径、
 //! `sys_notice.biz_type`、幂等键前缀），所以那边把这四样抽成了
@@ -64,8 +64,8 @@ use serde::Deserialize;
 use std::result::Result;
 
 use crate::business::erp::period;
-use crate::business::erp::period_items::BlockingItem;
-use crate::business::erp::period_remind::{self, REMIND_MAX_ITEMS, RemindReq, RemindRes, RemindScope};
+use crate::business::erp::period::period_items::BlockingItem;
+use crate::business::erp::period::period_remind::{self, REMIND_MAX_ITEMS, RemindReq, RemindRes, RemindScope};
 use crate::business::erp::year_end::{self, YearEndBlocker};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;

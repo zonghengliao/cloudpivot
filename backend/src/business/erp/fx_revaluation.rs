@@ -997,7 +997,7 @@ mod tests {
         let closed = crate::business::erp::period::close_period(
             period_id,
             None,
-            crate::business::erp::period_test_support::operator(),
+            crate::business::erp::period::period_test_support::operator(),
         )
         .await
         .expect("结账应成功（无阻塞项）");

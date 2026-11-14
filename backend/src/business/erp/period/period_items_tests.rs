@@ -4,14 +4,14 @@
 //!
 //! ```bash
 //! export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_test'
-//! cargo test --lib business::erp::period_items -- --test-threads=1
+//! cargo test --lib business::erp::period::period_items -- --test-threads=1
 //! ```
 
 use super::*;
+use crate::business::erp::period::period_test_support as support;
 use crate::business::erp::period::{
     self, BLOCKER_COST_UNSETTLED, BLOCKER_DOC_UNFINISHED, BLOCKER_DRAFT_VOUCHER, BLOCKER_INVARIANT, BLOCKER_UNBALANCED,
 };
-use crate::business::erp::period_test_support as support;
 
 // ==================== ① 草稿凭证明细 ====================
 

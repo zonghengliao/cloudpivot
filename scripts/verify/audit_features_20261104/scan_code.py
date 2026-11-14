@@ -26,7 +26,7 @@ FEATURES = [
     (7, "调拨管理", ["backend/src/business/erp/transfer"], ["frontend/src/views/business/erp"], ["调拨"]),
     (8, "财务管理", ["backend/src/business/erp/voucher*.rs", "backend/src/business/erp/payable*.rs"], ["frontend/src/views/business/erp"], ["凭证", "应付", "付款"]),
     (9, "财务报表", ["backend/src/business/erp/report.rs", "backend/src/business/erp/income_statement.rs", "backend/src/business/erp/cash_flow.rs", "backend/src/business/erp/downloads"], ["frontend/src/views/business/erp"], ["报表", "利润表", "现金流量"]),
-    (10, "会计期间/年结", ["backend/src/business/erp/period*.rs", "backend/src/business/erp/year_end*.rs"], ["frontend/src/views/business/erp"], ["期间", "年结", "结账"]),
+    (10, "会计期间/年结", ["backend/src/business/erp/period", "backend/src/business/erp/year_end*.rs"], ["frontend/src/views/business/erp"], ["期间", "年结", "结账"]),
     (11, "总账/辅助账", ["backend/src/business/erp/ledger.rs", "backend/src/business/erp/aux_tests.rs"], ["frontend/src/views/business/erp"], ["总账", "明细账", "辅助核算"]),
     (12, "基础数据", ["backend/src/business/erp/model_master.rs", "backend/src/business/erp/unit_guard.rs"], ["frontend/src/views/business/erp"], ["物料", "供应商", "仓库", "科目"]),
     (13, "项目管理", ["backend/src/business/project"], ["frontend/src/views/business/project"], ["项目"]),
@@ -42,7 +42,7 @@ FEATURES = [
     (23, "跨单据联动白名单", ["backend/src/business/flow/linkage"], ["frontend/src/views/business/flow"], ["联动"]),
     (24, "巡检体系", ["scripts/verify/erp_invariants.py", "scripts/verify/snapshot_audit.py", "docs/architecture/snapshot-drift"], ["frontend/src/views/business/erp"], ["巡检", "不变量", "快照"]),
     (25, "审批进度显示", ["backend/src/business/erp/approval_gate.rs"], ["frontend/src/views/business/erp", "frontend/src/views/business/flow"], ["审批进度"]),
-    (26, "结账检查清单", ["backend/src/business/erp/period_items*.rs", "backend/src/business/erp/period_owner.rs", "backend/src/business/erp/period_remind*.rs"], ["frontend/src/views/business/erp"], ["结账检查", "检查清单"]),
+    (26, "结账检查清单", ["backend/src/business/erp/period/period_items*.rs", "backend/src/business/erp/period/period_owner.rs", "backend/src/business/erp/period/period_remind*.rs"], ["frontend/src/views/business/erp"], ["结账检查", "检查清单"]),
 ]
 
 

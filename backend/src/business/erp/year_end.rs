@@ -129,7 +129,7 @@ use std::str::FromStr;
 
 use crate::business::erp::opening;
 use crate::business::erp::period;
-use crate::business::erp::period_items::{self, BlockingItem, OwnerResolver};
+use crate::business::erp::period::period_items::{self, BlockingItem, OwnerResolver};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;

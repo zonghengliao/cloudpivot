@@ -480,9 +480,9 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         entity: state_machine::ENTITY_PERIOD,
         status_labels: &[("NOT_OPENED", "未开启"), ("OPEN", "已开启"), ("CLOSED", "已结账")],
         wired: true,
-        wiring: "已接线（LNK-08）：erp/period_linkage.rs 是唯一 hook，接在两个状态推进点上 —— \
-                 ① 结账 erp/period.rs::close_period（四项校验 + 期末汇兑重估 + 状态 CAS 成功后，\
-                 OPEN → CLOSED，commit 前）；② 反结账 erp/period.rs::reopen_period\
+        wiring: "已接线（LNK-08）：erp/period/period_linkage.rs 是唯一 hook，接在两个状态推进点上 —— \
+                 ① 结账 erp/period/mod.rs::close_period（四项校验 + 期末汇兑重估 + 状态 CAS 成功后，\
+                 OPEN → CLOSED，commit 前）；② 反结账 erp/period/mod.rs::reopen_period\
                  （后续期间校验 + 状态 CAS 成功后，CLOSED → OPEN，commit 前）。\
                  事务内 run_excluding(spec::PERIOD_EXCLUDED_ACTIONS)（结账第 ⑤ 步自己出期末汇兑\
                  重估凭证，GENERATE_VOUCHER 必须排除：同一期间两张重估凭证就是重复落账；库存 / 余额\
@@ -494,8 +494,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  ensure_year_periods 建行）**不接**：那是建行 / 批量补行，挂上就是启动扇出 N 条通知。\
                  要按「开账」通知请走单月开账后的其它触发点",
         proofs: &[
-            ("src/business/erp/period_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/period_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/period/period_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/period/period_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1044,7 +1050,7 @@ pub const CONTRACT_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
 
 /// **会计期间**（`ACCOUNTING_PERIOD`）的专用路由排除清单（LNK-08）。
 ///
-/// 结账事务（`erp/period.rs::close_period`）自己就落了一类账：第 ⑤ 步
+/// 结账事务（`erp/period/mod.rs::close_period`）自己就落了一类账：第 ⑤ 步
 /// `fx_revaluation::revalue_period` 把未核销外币应收按月末汇率重估，差额记
 /// 5603 / 1122，凭证落在本期间（幂等：同期间已提过即 `skipped`）。所以通用引擎在
 /// 这个触发点上必须把三类动作交给专用路径：
@@ -1061,7 +1067,7 @@ pub const CONTRACT_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER];
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：月结完成 / 反结账之后的通知与待办
 /// 就靠通用引擎的 `Phase::AfterCommit` 动作（卡面的正经用处），排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::period_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::period::period_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑凭证动作。
 /// 漂移守卫：`tests_wiring::period_wires_generic_engine_and_excludes_ledger_actions`。
 pub const PERIOD_EXCLUDED_ACTIONS: &[&str] = &[

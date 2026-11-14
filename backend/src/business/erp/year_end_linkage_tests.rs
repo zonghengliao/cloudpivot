@@ -40,7 +40,7 @@ use super::voucher::{self, EntryLine, PostVoucher};
 use super::year_end::{self, STATUS_CLOSED, STATUS_NOT_CLOSED};
 use super::year_end_linkage;
 use super::year_end_test_support as support;
-use crate::business::erp::period_test_support as p2;
+use crate::business::erp::period::period_test_support as p2;
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
 use crate::business::shared::state_machine;
