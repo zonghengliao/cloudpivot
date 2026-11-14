@@ -155,9 +155,7 @@ mod inventory_writer;
 pub mod invoice;
 pub mod ledger;
 /// 批次主数据（ARCH-9 §3.1 ① / §5.2 #7–#9）：`biz_lot` CRUD + 按物料取批号。
-pub mod lot_dto;
-pub mod lot_handler;
-pub mod lot_model;
+pub mod lot;
 pub mod model;
 pub mod opening;
 /// 采购订单 / 销售订单 PDF 导出（PDF-02）：两个 GET 接口 + 模板上下文组装。
@@ -206,10 +204,6 @@ pub mod transfer;
 pub mod unit_guard;
 pub mod voucher;
 pub mod year; // 年度域（YEAR-END）：年结 / 反年结 / 挡路明细 / 催办 + 联动接线
-
-/// B1-9 的真库用例（`ERP_DB_URL` 开关）：批次 CRUD + 按物料取批号 + 唯一键冲突文案。
-#[cfg(test)]
-mod lot_db_tests;
 
 // ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
 // 下面 6 个 `mod` 是超千行 model 文件按职责拆出的部件，**不直接对外**：

@@ -29,9 +29,9 @@ use nik::uuid::Uuid;
 
 mod db {
     use super::*;
-    use crate::business::erp::lot_dto::{LotCreateReq, LotOptionQuery, LotPageQuery, LotUpdateReq};
-    use crate::business::erp::lot_handler as handler;
-    use crate::business::erp::lot_model as model;
+    use crate::business::erp::lot::lot_dto::{LotCreateReq, LotOptionQuery, LotPageQuery, LotUpdateReq};
+    use crate::business::erp::lot::lot_handler as handler;
+    use crate::business::erp::lot::lot_model as model;
     use tokio::sync::OnceCell;
 
     /// 连库（进程内只做一次初始化）。`false` = 没配 `ERP_DB_URL`，用例直接跳过。
@@ -423,7 +423,7 @@ mod db {
         let lot_no = fixture.lot_no("RACE");
         // 绕过 handler 的预检，直接走 model::insert 两次（模拟「两个请求同时通过预检」）
         let spec =
-            crate::business::erp::lot_dto::spec_from_create(&create_req(&fixture, &lot_no, fixture.material_raw))
+            crate::business::erp::lot::lot_dto::spec_from_create(&create_req(&fixture, &lot_no, fixture.material_raw))
                 .expect("规格");
         let first = Uuid::now_v7();
         model::insert(first, &spec, None).await.expect("第一次直插");
@@ -435,7 +435,7 @@ mod db {
             "库层要抛 UniqueViolation（不是 InvalidValue）：{error:?}"
         );
         // 翻译层把它变成 409 + 66056 + 人话
-        let api = crate::business::erp::lot_dto::map_write_error(
+        let api = crate::business::erp::lot::lot_dto::map_write_error(
             error,
             &lot_no,
             &format!("COSTB19-M-R-{} 原料", fixture.suffix),

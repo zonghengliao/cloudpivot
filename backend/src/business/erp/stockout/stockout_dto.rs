@@ -1094,7 +1094,7 @@ mod tests {
         assert_eq!(COST_OBJECT_OPTION_LIMIT, 200);
         assert_eq!(
             COST_OBJECT_OPTION_LIMIT,
-            super::super::super::lot_dto::OPTIONS_LIMIT,
+            super::super::super::lot::lot_dto::OPTIONS_LIMIT,
             "两条下拉同一个上限口径"
         );
     }

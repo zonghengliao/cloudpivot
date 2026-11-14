@@ -34,10 +34,10 @@ use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::lot_dto::{
+use crate::business::erp::lot::lot_dto::{
     self, LotCreateReq, LotFilter, LotListRes, LotOptionQuery, LotOptionRes, LotPageQuery, LotUpdateReq,
 };
-use crate::business::erp::lot_model::{self as model, LotRow};
+use crate::business::erp::lot::lot_model::{self as model, LotRow};
 use crate::business::erp::model_base::normalize_page;
 use crate::utils;
 

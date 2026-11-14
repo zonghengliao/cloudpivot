@@ -30,7 +30,7 @@ use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::lot_dto::{self, LotFilter, LotSpec};
+use crate::business::erp::lot::lot_dto::{self, LotFilter, LotSpec};
 use crate::business::shared::scope;
 
 /// 表名。

@@ -115,7 +115,7 @@ business/erp/doc_shape_tests.rs
 business/erp/expense/expense_linkage_tests.rs
 business/erp/expense/expense_model_tests.rs
 business/erp/fixture_hygiene.rs
-business/erp/lot_db_tests.rs
+business/erp/lot/lot_db_tests.rs
 business/erp/model_tests.rs
 business/erp/payable/payable_payment/tests/payable_linkage_db_tests.rs
 business/erp/period/period_items_tests.rs
@@ -125,7 +125,7 @@ business/erp/period/period_test_support.rs
 business/erp/pflow3b_tests.rs
 business/erp/purchase/purchase_linkage_db_tests.rs
 business/erp/reminder_tests.rs
-business/erp/shipment_page_fill_tests.rs
+business/erp/shipment/shipment_page_fill_tests.rs
 business/erp/stockin/stockin_handler_tests_a4.rs
 business/erp/stockin/stockin_handler_tests_cancel.rs
 business/erp/stockin/stockin_handler_tests_d4_purchase.rs
@@ -182,12 +182,14 @@ business/hr/employee_model_db_tests.rs
 business/hr/employee_no_db_tests.rs
 business/hr/employee_seed_db_tests.rs
 business/hr/employee_sensitive_db_tests.rs
+business/hr/fixture_hygiene.rs
 business/hr/hr_e2e_contract_tests.rs
 business/hr/hr_invariants_tests.rs
 business/hr/leave_bridge_db_tests.rs
 business/hr/leave_db_tests.rs
 business/hr/leave_handler_db_tests.rs
 business/hr/perm_matrix_tests.rs
+business/hr/release_drill_contract_tests.rs
 business/hr/salary_bridge_db_tests.rs
 business/hr/salary_compute_db_tests.rs
 business/hr/salary_db_tests.rs
