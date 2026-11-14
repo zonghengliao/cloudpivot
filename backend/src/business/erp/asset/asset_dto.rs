@@ -28,8 +28,12 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 
-use crate::business::erp::asset_compute::{self, DisposalKind, depreciable_base, monthly_depreciation, residual_value};
-use crate::business::erp::asset_model::{self, AssetChangeRow, AssetRow, CategoryRow, DepBatchRow, DepDetailRow};
+use crate::business::erp::asset::asset_compute::{
+    self, DisposalKind, depreciable_base, monthly_depreciation, residual_value,
+};
+use crate::business::erp::asset::asset_model::{
+    self, AssetChangeRow, AssetRow, CategoryRow, DepBatchRow, DepDetailRow,
+};
 use crate::shared::error_code;
 
 /// 默认每页条数。

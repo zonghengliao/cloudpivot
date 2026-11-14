@@ -104,10 +104,10 @@ mod db {
     fn insert_input(
         dept: Uuid,
         category: &CategoryRow,
-        spec: crate::business::erp::asset_dto::CreateAssetSpec,
+        spec: crate::business::erp::asset::asset_dto::CreateAssetSpec,
         asset_no: String,
     ) -> AssetInsert {
-        let (residual, base, monthly) = crate::business::erp::asset_dto::derive_amounts(
+        let (residual, base, monthly) = crate::business::erp::asset::asset_dto::derive_amounts(
             spec.original_value,
             category.salvage_rate,
             category.useful_life_months,
@@ -123,9 +123,11 @@ mod db {
             monthly_depreciation: monthly,
             useful_life_months: category.useful_life_months,
             salvage_rate: category.salvage_rate,
-            start_depreciation_date: crate::business::erp::asset_compute::start_depreciation_date(spec.purchase_date),
+            start_depreciation_date: crate::business::erp::asset::asset_compute::start_depreciation_date(
+                spec.purchase_date,
+            ),
             operator: None,
-            spec: crate::business::erp::asset_dto::CreateAssetSpec {
+            spec: crate::business::erp::asset::asset_dto::CreateAssetSpec {
                 use_dept_id: dept,
                 ..spec
             },
@@ -133,8 +135,8 @@ mod db {
     }
 
     /// 建卡请求（夹具）。
-    fn create_req(category_id: Uuid, dept_id: Uuid) -> crate::business::erp::asset_dto::CreateAssetReq {
-        crate::business::erp::asset_dto::CreateAssetReq {
+    fn create_req(category_id: Uuid, dept_id: Uuid) -> crate::business::erp::asset::asset_dto::CreateAssetReq {
+        crate::business::erp::asset::asset_dto::CreateAssetReq {
             asset_name: Some("夹具笔记本".to_string()),
             category_id: Some(category_id.to_string()),
             spec: None,
@@ -156,9 +158,9 @@ mod db {
 
     /// 建卡请求 → 校验后的 spec（夹具；校验失败就是夹具写错了，直接 panic）。
     fn spec_of(
-        req: &crate::business::erp::asset_dto::CreateAssetReq,
-    ) -> crate::business::erp::asset_dto::CreateAssetSpec {
-        crate::business::erp::asset_dto::validate_create(req).expect("夹具请求必须通过校验")
+        req: &crate::business::erp::asset::asset_dto::CreateAssetReq,
+    ) -> crate::business::erp::asset::asset_dto::CreateAssetSpec {
+        crate::business::erp::asset::asset_dto::validate_create(req).expect("夹具请求必须通过校验")
     }
 
     /// ① 建卡落库：派生金额自动算好、净值恒等成立、`ck_biz_fa_value` 拦得住负原值。
@@ -171,7 +173,7 @@ mod db {
         let dept = any_dept().await;
         let category = any_category().await;
         let req = create_req(category.id, dept);
-        let spec = crate::business::erp::asset_dto::validate_create(&req).expect("校验通过");
+        let spec = crate::business::erp::asset::asset_dto::validate_create(&req).expect("校验通过");
         let id = Uuid::now_v7();
         let no = format!("FA-TEST-{}", &id.to_string()[..8]);
         let input = insert_input(dept, &category, spec, no.clone());

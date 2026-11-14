@@ -32,9 +32,9 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::asset_dto::{self, CreateAssetReq};
-use super::asset_handler;
-use super::asset_model::{self, AssetInsert};
+use super::asset::asset_dto::{self, CreateAssetReq};
+use super::asset::asset_handler;
+use super::asset::asset_model::{self, AssetInsert};
 use super::depreciation_model;
 use super::ledger;
 use crate::business::erp::period::period_test_support as support;
@@ -241,7 +241,7 @@ async fn make_asset(creator: Uuid, dept: Uuid, name: &str, purchase: NaiveDate) 
             monthly_depreciation: monthly,
             useful_life_months: category.useful_life_months,
             salvage_rate: category.salvage_rate,
-            start_depreciation_date: super::asset_compute::start_depreciation_date(purchase),
+            start_depreciation_date: super::asset::asset_compute::start_depreciation_date(purchase),
             operator: Some(creator),
         },
     )

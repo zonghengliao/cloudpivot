@@ -18,7 +18,7 @@ use axum::Json;
 use axum::extract::{Extension, Path, Query};
 use nik::prelude::*;
 
-use crate::business::erp::asset_dto::{
+use crate::business::erp::asset::asset_dto::{
     DepBatchDetailRes, DepBatchFilter, DepBatchRes, ReverseDepreciationReq, RunDepreciationReq, RunDepreciationRes,
     normalize_page, parse_uuid_text,
 };
@@ -41,9 +41,9 @@ pub async fn depreciation_page(
         filter.page.unwrap_or(1),
         filter
             .page_size
-            .unwrap_or(crate::business::erp::asset_dto::DEFAULT_PAGE_SIZE),
+            .unwrap_or(crate::business::erp::asset::asset_dto::DEFAULT_PAGE_SIZE),
     );
-    let (rows, total) = crate::business::erp::asset_model::batch_page(&filter, page, page_size)
+    let (rows, total) = crate::business::erp::asset::asset_model::batch_page(&filter, page, page_size)
         .await
         .map_err(|error| utils::db_error(error, "分页查询折旧批次"))?;
     let list: Vec<DepBatchRes> = rows.iter().map(DepBatchRes::from).collect();

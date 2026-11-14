@@ -1814,7 +1814,7 @@ pub async fn withdraw_instance(
     // FIN-1：也可能是「预算审批」单 → 打回草稿（额度一分没生效）
     crate::business::erp::budget::budget_bridge::on_budget_settled(Some(instance_id), "WITHDRAWN").await;
     // FIN-2：也可能是「资产处置审批」单 → 撤回即资产原地不动（一张凭证都不生成）
-    crate::business::erp::asset_bridge::on_disposal_settled(Some(instance_id), "WITHDRAWN").await;
+    crate::business::erp::asset::asset_bridge::on_disposal_settled(Some(instance_id), "WITHDRAWN").await;
     // FIN-3：也可能是「费用报销」单 → 撤回即回草稿并释放预算占用（不入账）
     crate::business::erp::expense::expense_bridge::on_expense_settled(Some(instance_id), "WITHDRAWN").await;
     // HR-27：也可能是「请假审批」单 → 撤回即回草稿（等 HR 改完重提）
@@ -1923,7 +1923,7 @@ pub async fn terminate_instance(
     crate::business::erp::purchase::purchase_return_bridge::on_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::sales::sales_approval_bridge::on_so_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::budget::budget_bridge::on_budget_settled(Some(instance_id), "CANCELLED").await;
-    crate::business::erp::asset_bridge::on_disposal_settled(Some(instance_id), "CANCELLED").await;
+    crate::business::erp::asset::asset_bridge::on_disposal_settled(Some(instance_id), "CANCELLED").await;
     crate::business::erp::expense::expense_bridge::on_expense_settled(Some(instance_id), "CANCELLED").await;
     // HR-27：请假审批被行政终止 → 单据回草稿（不许停在「审批中」却没人能批）
     crate::business::hr::leave_bridge::on_leave_settled(Some(instance_id), "CANCELLED").await;
@@ -1995,7 +1995,7 @@ pub async fn approve_task(
     // FIN-1：预算审批 —— 编预算的人不能批自己编的预算（403 + 65019）
     crate::business::erp::budget::budget_bridge::guard_self_approval(task_id, operator).await?;
     // FIN-2：资产处置 —— 发起人 / 制单人不能批自己的处置（403 + 65019）
-    crate::business::erp::asset_bridge::guard_self_approval(task_id, operator).await?;
+    crate::business::erp::asset::asset_bridge::guard_self_approval(task_id, operator).await?;
     // FIN-3：费用报销 —— 报销人 / 发起人不能批自己的报销（403 + 65019）
     crate::business::erp::expense::expense_bridge::guard_self_approval(task_id, operator).await?;
     // HR-27：请假审批 —— 发起人 / 请假员工本人不能批自己的请假（403 + 65019）
@@ -2046,7 +2046,7 @@ pub async fn approve_task(
     // FIN-1（ARCH-6 §3.3）：也可能是「预算审批」发起的 —— 通过则 ACTIVE（同槽旧版 SUPERSEDED）
     crate::business::erp::budget::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status).await;
     // FIN-2（ARCH-6 §5.6.3）：也可能是「资产处置」发起的 —— 通过则生成处置凭证 + 卡片 DISPOSED
-    crate::business::erp::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::asset::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status).await;
     // FIN-3（ARCH-6 §4.4.4）：也可能是「费用报销」发起的 —— 通过则入账（计提凭证 + 预算执行）
     crate::business::erp::expense::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status).await;
     // HR-27（ARCH-9 §4.3）：也可能是「请假审批」发起的 —— 通过则 SUBMITTED→APPROVED（不改考勤）
@@ -2142,7 +2142,7 @@ pub async fn reject_task(
     // FIN-1：预算审批被驳回 / 撤回 → 打回草稿（额度一分没生效）
     crate::business::erp::budget::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status).await;
     // FIN-2：资产处置被驳回 / 撤回 → 资产原地不动（一张凭证都没生成）
-    crate::business::erp::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status).await;
+    crate::business::erp::asset::asset_bridge::on_disposal_settled(out.instance_id, &out.instance_status).await;
     // FIN-3：报销被驳回 / 撤回 → 回草稿 + 释放预算占用（可改后重提）
     crate::business::erp::expense::expense_bridge::on_expense_settled(out.instance_id, &out.instance_status).await;
     // HR-27：请假被驳回 / 驳回终止 → 回草稿（意见进状态日志，可改后重提）

@@ -34,8 +34,10 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::asset_dto;
-use crate::business::erp::asset_dto::{AssetFilter, CategoryFilter, CategorySpec, CreateAssetSpec, DepBatchFilter};
+use crate::business::erp::asset::asset_dto;
+use crate::business::erp::asset::asset_dto::{
+    AssetFilter, CategoryFilter, CategorySpec, CreateAssetSpec, DepBatchFilter,
+};
 use crate::business::erp::voucher::{self, SeqSpec};
 use crate::business::shared::scope;
 
@@ -1382,12 +1384,12 @@ pub async fn batch_set_status(ex: &impl SqlExecutor, input: DepBatchStatusInput<
     // 那种写法让同一个占位符既当字符串比较又当时间来源，驱动按值精确校验类型时
     // 会报「query failed: db error」（没有可读信息，排查成本高）。这里全部当 text 传，
     // 由 `NULLIF(...)::timestamptz` 转，类型路径唯一。
-    let posted_at = if to == crate::business::erp::asset_dto::DEP_POSTED {
+    let posted_at = if to == crate::business::erp::asset::asset_dto::DEP_POSTED {
         now.to_rfc3339()
     } else {
         String::new()
     };
-    let reversed_at = if to == crate::business::erp::asset_dto::DEP_REVERSED {
+    let reversed_at = if to == crate::business::erp::asset::asset_dto::DEP_REVERSED {
         now.to_rfc3339()
     } else {
         String::new()

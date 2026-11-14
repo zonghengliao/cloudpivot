@@ -226,7 +226,7 @@ impl DisposalDepGate {
 ///
 /// | # | 落点 | 位置 |
 /// |---|---|---|
-/// | 1 | 扫描条件 `disposal_date IS NULL OR disposal_date >= 期初` | [`crate::business::erp::asset_model::scan_assets_for_period`] |
+/// | 1 | 扫描条件 `disposal_date IS NULL OR disposal_date >= 期初` | [`crate::business::erp::asset::asset_model::scan_assets_for_period`] |
 /// | 2 | **处置前置闸**「处置当月的折旧已计提并过账」 | 本函数 + `asset_handler::asset_dispose` |
 ///
 /// ## 为什么选方案 ①（处置前置闸），不选方案 ②（扫描纳入本月处置 + 处置凭证延后）

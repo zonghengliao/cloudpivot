@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::asset_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::asset::asset_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「处置触发 / 凭证不重复」逐条对应）

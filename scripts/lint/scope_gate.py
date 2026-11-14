@@ -82,8 +82,8 @@ SKIP_MANIFEST = frozenset(
     """
 business/attachment/rule_admin/tests.rs
 business/attachment/tests.rs
-business/erp/asset_linkage_tests.rs
-business/erp/asset_model_tests.rs
+business/erp/asset/asset_linkage_tests.rs
+business/erp/asset/asset_model_tests.rs
 business/erp/aux_tests.rs
 business/erp/budget/budget_dto_tests.rs
 business/erp/budget/budget_guard_tests.rs

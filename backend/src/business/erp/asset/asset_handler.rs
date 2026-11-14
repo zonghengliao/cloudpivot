@@ -43,15 +43,15 @@ use std::result::Result;
 
 use crate::business::attachment::model::DocKind as AttachDocKind;
 use crate::business::attachment::rule::{self as attach_rule, RequiredAt as AttachAt};
-use crate::business::erp::asset_bridge;
-use crate::business::erp::asset_compute;
-use crate::business::erp::asset_dto::{
+use crate::business::erp::asset::asset_bridge;
+use crate::business::erp::asset::asset_compute;
+use crate::business::erp::asset::asset_dto::{
     self, AssetDetailRes, AssetFilter, AssetRes, CategoryFilter, CategoryReq, CategoryRes, ChangeRes, CreateAssetReq,
     CustodianReq, DepDetailRes, DisposeReq, IdRes, StatusChangeReq, TransferReq, UpdateAssetReq, conflict, invalid,
     normalize_page, parse_uuid_text, status_label,
 };
-use crate::business::erp::asset_linkage;
-use crate::business::erp::asset_model::{self, AssetInsert, ChangeInsert};
+use crate::business::erp::asset::asset_linkage;
+use crate::business::erp::asset::asset_model::{self, AssetInsert, ChangeInsert};
 use crate::business::erp::code_policy;
 use crate::business::erp::seq;
 use crate::business::erp::voucher_multi;
@@ -217,7 +217,7 @@ pub async fn create_asset_category(operator: Option<Uuid>, req: CategoryReq) -> 
 
 /// 分类编码重复（409 + `66001`）：走六类共用的 [`code_conflict`]（E2E08-FIX-2 ③ 统一文案）。
 fn category_code_conflict(code: &str) -> ApiError {
-    super::handler::code_conflict("分类", code)
+    super::super::handler::code_conflict("分类", code)
 }
 
 /// 分类写路径的 DB 错误收口：唯一索引冲突翻成**带编码**的 409，其余走 [`db_err`]。
@@ -1615,7 +1615,7 @@ mod enable_warning_tests {
     //! 反解，所以这里用**真实规则文案的形态**构造，钉住「改 remark 文案就漂」。
     //!
     //! ```bash
-    //! cargo test --lib business::erp::asset_handler::enable_warning_tests
+    //! cargo test --lib business::erp::asset::asset_handler::enable_warning_tests
     //! ```
 
     use super::*;
@@ -1775,7 +1775,7 @@ mod tests {
     //!
     //! ```bash
     //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<已迁移的库>" \
-    //!   cargo test --lib business::erp::asset_handler -- --test-threads=1
+    //!   cargo test --lib business::erp::asset::asset_handler -- --test-threads=1
     //! ```
     //!
     //! | # | 用例 | 覆盖 |

@@ -730,7 +730,7 @@ pub async fn find_voucher(id: Uuid) -> DbResult<Option<VoucherRow>> {
 /// 两者共用 `idx_biz_voucher_source (source_type, source_id)`（V0149:80）。
 ///
 /// 只要 id 的同类取数（固定资产处置 / 折旧的「N 张凭证」）见
-/// [`crate::business::erp::asset_model::voucher_ids_of_source`] —— 它不返回行内容，本函数才返回。
+/// [`crate::business::erp::asset::asset_model::voucher_ids_of_source`] —— 它不返回行内容，本函数才返回。
 pub async fn vouchers_by_source(source_type: &str, source_id: Uuid) -> DbResult<Vec<VoucherRow>> {
     // SCOPE-EXEMPT: biz_voucher 是会计台账（V0149 无 dept_id / 归属人列），可见性由权限码控制。
     let sql = format!(

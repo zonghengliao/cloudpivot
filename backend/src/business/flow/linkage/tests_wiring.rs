@@ -231,7 +231,7 @@ fn wired_triggers_match_call_sites() {
          折旧批次联动 hook + 任务状态通知 + 审批实例联动 hook + \
          采购退货联动 hook（purchase_return_handler.rs::confirm_return，P2-03 新接））：{actual:?}\n\
          ⚠️ 本计数器是**文件级去重 + 只认 `linkage::engine::*` 直调**：\n\
-         固定资产新增的「停用 / 启用」写在 `erp/asset_handler.rs` 里、只间接调\
+         固定资产新增的「停用 / 启用」写在 `erp/asset/asset_handler.rs` 里、只间接调\
          `asset_linkage::run_in_tx`（引擎在 hook 里被调），所以**不会**也不该让这个数字 +1；\n\
          那条触发点的守卫在 `asset_wires_generic_engine_and_excludes_voucher` 的函数内计数上。"
     );
@@ -999,7 +999,7 @@ fn period_wires_generic_engine_and_excludes_ledger_actions() {
 /// 5. 排除清单把通知 / 建任务也排掉 → 联动配了等于没配（不报错、不落账）。
 #[test]
 fn asset_wires_generic_engine_and_excludes_voucher() {
-    let hook = include_str!("../../erp/asset_linkage.rs");
+    let hook = include_str!("../../erp/asset/asset_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "资产状态变更必须调用通用引擎（run_excluding）：否则 FIXED_ASSET 的联动规则配了不触发"
@@ -1030,7 +1030,7 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
     // 三处真实状态推进：① 处置（asset_bridge::execute，审批通过后）② 作废处置（asset_dispose_cancel）
     // ③ 停用 / 启用（asset_status_change，FIN-ASSET-ST02）—— 后两者都在 handler 里，
     //    所以下面对 handler 的 `run_in_tx(` / `run_deferred_after_commit(` 计数是 **2**。
-    let bridge = include_str!("../../erp/asset_bridge.rs");
+    let bridge = include_str!("../../erp/asset/asset_bridge.rs");
     assert_eq!(
         bridge.matches("asset_linkage::run_in_tx(").count(),
         1,
@@ -1043,7 +1043,7 @@ fn asset_wires_generic_engine_and_excludes_voucher() {
         "处置入口必须在 commit 之后 flush（事务内发通知 = 回滚后幽灵通知）"
     );
 
-    let handler = include_str!("../../erp/asset_handler.rs");
+    let handler = include_str!("../../erp/asset/asset_handler.rs");
     assert_eq!(
         handler.matches("asset_linkage::run_in_tx(").count(),
         2,

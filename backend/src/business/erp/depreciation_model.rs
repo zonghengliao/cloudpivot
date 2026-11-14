@@ -46,9 +46,9 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::asset_compute::{self, DepreciationCard};
-use crate::business::erp::asset_dto::{self, DepRunKind, DepRunOutcome, STATUS_DISPOSED};
-use crate::business::erp::asset_model::{self, DepBatchRow, DepDetailRow, DepInsert};
+use crate::business::erp::asset::asset_compute::{self, DepreciationCard};
+use crate::business::erp::asset::asset_dto::{self, DepRunKind, DepRunOutcome, STATUS_DISPOSED};
+use crate::business::erp::asset::asset_model::{self, DepBatchRow, DepDetailRow, DepInsert};
 use crate::business::erp::depreciation_linkage;
 use crate::business::erp::voucher;
 use crate::business::erp::voucher_multi;
@@ -847,7 +847,7 @@ fn db_err(error: DbError, ctx: &str) -> ApiError {
 }
 
 fn voucher_error(error: DbError, ctx: &str) -> ApiError {
-    crate::business::erp::asset_bridge::voucher_error(error, ctx)
+    crate::business::erp::asset::asset_bridge::voucher_error(error, ctx)
 }
 
 #[cfg(test)]

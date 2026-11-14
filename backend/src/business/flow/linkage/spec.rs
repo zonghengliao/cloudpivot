@@ -598,23 +598,29 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         entity: state_machine::ENTITY_FIXED_ASSET,
         status_labels: &[("IN_USE", "在役"), ("IDLE", "闲置"), ("DISPOSED", "已处置")],
         wired: true,
-        wiring: "已接线（三处状态推进）：① 处置 — erp/asset_bridge.rs::execute 第 ⑤ 步（处置凭证 + \
+        wiring: "已接线（三处状态推进）：① 处置 — erp/asset/asset_bridge.rs::execute 第 ⑤ 步（处置凭证 + \
                  状态机 IN_USE|IDLE → DISPOSED + 卡片回填 + 变动留痕之后、commit 之前）调 \
                  asset_linkage::run_in_tx → 通用引擎 \
                  run_excluding(spec::FIXED_ASSET_EXCLUDED_ACTIONS)（GENERATE_VOUCHER / \
                  REVERSE_VOUCHER 排除：处置凭证由 asset_bridge 专用路径出 1~3 张、红冲由 \
                  reverse_disposal_vouchers 做）；② 作废处置 — \
-                 erp/asset_handler.rs::asset_dispose_cancel 第 ⑤ 步（红冲 + DISPOSED → IN_USE + \
+                 erp/asset/asset_handler.rs::asset_dispose_cancel 第 ⑤ 步（红冲 + DISPOSED → IN_USE + \
                  恢复在役 + 留痕之后）调同一个 hook；③ 停用 / 启用 — \
-                 erp/asset_handler.rs::asset_status_change 第 ⑦ 步（状态机 IN_USE ⇄ IDLE + CAS \
+                 erp/asset/asset_handler.rs::asset_status_change 第 ⑦ 步（状态机 IN_USE ⇄ IDLE + CAS \
                  回写 + 变动留痕之后）调同一个 hook。三处都在各自事务 commit 之后调 \
                  asset_linkage::run_deferred_after_commit → linkage::engine::run_deferred。\
                  建卡（NULL → IN_USE）是建行动作、不接。通知幂等键含本次变动行 id\
                  （LNK:FIXED_ASSET:<状态>:<卡片 id>:<变动行 id>），所以可逆边（停用/启用、\
                  处置/作废处置）重复发生会各发一条。",
         proofs: &[
-            ("src/business/erp/asset_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/asset_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/asset/asset_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/asset/asset_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1122,7 +1128,7 @@ pub const EXPENSE_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERS
 
 /// **固定资产**（`FIXED_ASSET`）的专用路由排除清单（LNK-09）。
 ///
-/// 资产处置事务（`erp/asset_bridge.rs::execute`）自己就落了一类账：第 ① 步
+/// 资产处置事务（`erp/asset/asset_bridge.rs::execute`）自己就落了一类账：第 ① 步
 /// `post_disposal_vouchers` 按处置类型出 1~3 张处置凭证
 /// （出售：1606 清理 + 1002 收款 + 2221.02 销项；报废 / 盘亏：1606 + 1901 或 5711），
 /// 作废处置走 `reverse_disposal_vouchers` 原路红冲。所以通用引擎在这个触发点上
@@ -1141,7 +1147,7 @@ pub const EXPENSE_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERS
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：处置完成 / 作废处置之后的「通知制单人 /
 /// 建清理待办」就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::asset_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::asset::asset_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑凭证动作。
 /// 漂移守卫：`tests_wiring::asset_wires_generic_engine_and_excludes_voucher`。
 pub const FIXED_ASSET_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "REVERSE_VOUCHER"];
@@ -1984,7 +1990,7 @@ mod tests {
     #[test]
     fn status_labels_match_doc_modules() {
         use crate::business::erp::{
-            asset_dto, contract::contract_model, expense::expense_dto, payable_query, purchase::purchase_model,
+            asset::asset_dto, contract::contract_model, expense::expense_dto, payable_query, purchase::purchase_model,
             stocktake_model, voucher_query,
         };
 

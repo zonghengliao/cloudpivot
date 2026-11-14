@@ -61,7 +61,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::asset_dto;
+use crate::business::erp::asset::asset_dto;
 use crate::business::flow::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
@@ -353,8 +353,8 @@ mod tests {
     // 任何一处漂移 → 用例红，且文案直接说是哪条规则。
 
     /// 迁移原文（up / down）。
-    const PRESET_UP: &str = include_str!("../../../migrations/business/V0323__asset_linkage_rules.up.sql");
-    const PRESET_DOWN: &str = include_str!("../../../migrations/business/V0323__asset_linkage_rules.down.sql");
+    const PRESET_UP: &str = include_str!("../../../../migrations/business/V0323__asset_linkage_rules.up.sql");
+    const PRESET_DOWN: &str = include_str!("../../../../migrations/business/V0323__asset_linkage_rules.down.sql");
 
     /// 3 条预置规则（规则名 + 触发状态；触发状态 = 变更**之后**的目标态）。
     const PRESETS: &[(&str, &str)] = &[

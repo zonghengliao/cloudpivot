@@ -47,11 +47,11 @@
 //! | [`contract::contract_bridge`] | 合同**审批**的业务回调（通过 → 已签订 / 驳回 → 回草稿）+ 内控 + 反向兜底 | **ARCH-3 R-P1-1** |
 //! | [`contract::contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
 //! | [`contract::contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
-//! | [`asset_compute`] | 固定资产**纯计算**（ARCH-6 §5.3/§5.4/§5.6.4）：起提日 / 月折旧 / 尾差 / 期间工具 / 处置分录（不碰库） | **FIN-2** |
-//! | [`asset_dto`] | 固资契约：分类 / 卡片 / 转移 / 处置 / 折旧批次的入参与校验（纯函数，必填缺 400 指名） | **FIN-2** |
-//! | [`asset_model`] | 固资数据层（V0229/V0230）：分类 / 卡片 / 变动留痕（append-only）/ 折旧批次与明细 + 扫描 SQL | **FIN-2** |
-//! | [`asset_handler`] | 固资 14 个接口：分类 CRUD、建卡（含购入凭证）、转移 / 变更使用人、处置提交 / 作废、详情 | **FIN-2** |
-//! | [`asset_bridge`] | 资产**处置审批**的业务回调（通过 → 处置凭证 + 卡片 DISPOSED + 留痕）+ 内控闸 | **FIN-2** |
+//! | [`asset::asset_compute`] | 固定资产**纯计算**（ARCH-6 §5.3/§5.4/§5.6.4）：起提日 / 月折旧 / 尾差 / 期间工具 / 处置分录（不碰库） | **FIN-2** |
+//! | [`asset::asset_dto`] | 固资契约：分类 / 卡片 / 转移 / 处置 / 折旧批次的入参与校验（纯函数，必填缺 400 指名） | **FIN-2** |
+//! | [`asset::asset_model`] | 固资数据层（V0229/V0230）：分类 / 卡片 / 变动留痕（append-only）/ 折旧批次与明细 + 扫描 SQL | **FIN-2** |
+//! | [`asset::asset_handler`] | 固资 14 个接口：分类 CRUD、建卡（含购入凭证）、转移 / 变更使用人、处置提交 / 作废、详情 | **FIN-2** |
+//! | [`asset::asset_bridge`] | 资产**处置审批**的业务回调（通过 → 处置凭证 + 卡片 DISPOSED + 留痕）+ 内控闸 | **FIN-2** |
 //! | [`depreciation_model`] | 折旧计提（期间闸 / 幂等闸 / 扫描 / 按部门多借方凭证 / 回写卡片）+ 红冲 + 定时任务 | **FIN-2** |
 //! | [`depreciation_handler`] | 折旧 4 个接口：批次分页 / 详情 / 手动计提 / 红冲 | **FIN-2** |
 //! | [`depreciation_linkage`] | 折旧批次的**唯一**联动接线（LNK-10）：过账 / 红冲两处 `run_in_tx` + commit 后 `run_deferred_after_commit`，排除凭证类动作 | **LNK-10** |
@@ -114,12 +114,7 @@
 //! 理由见 [`model`] 文件头的 `SCOPE-EXEMPT` 说明。
 
 pub mod approval_gate;
-pub mod asset_bridge;
-pub mod asset_compute;
-pub mod asset_dto;
-pub mod asset_handler;
-pub mod asset_linkage;
-pub mod asset_model;
+pub mod asset;
 pub mod batch;
 pub mod budget;
 pub mod cancel_cascade;
@@ -279,11 +274,6 @@ mod cancel_cascade_tests;
 /// 被 400 拒绝、绕过 API 写库的行运行时被排除，重复过账不重复触发）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod voucher_linkage_tests;
-
-/// LNK-09 的真库单测（固定资产联动接线：处置触发一次、重复处置不重复触发、
-/// 作废处置触发、事务回滚通知不发、排除动作确实不跑）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod asset_linkage_tests;
 
 /// LNK-10 的真库单测（折旧批次联动接线：过账触发一次、大批量只发一条（聚合）、
 /// 重复计提不重复触发、红冲触发、排除动作确实不跑）。只在 `cargo test` 时编译。

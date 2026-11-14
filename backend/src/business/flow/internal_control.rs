@@ -184,9 +184,9 @@ pub async fn of_biz(biz_type: &str, biz_id: Option<Uuid>, initiator_id: Uuid) ->
         let creator = crate::business::erp::expense::expense_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
-    } else if biz_type == crate::business::erp::asset_bridge::BIZ_TYPE {
+    } else if biz_type == crate::business::erp::asset::asset_bridge::BIZ_TYPE {
         // FIN-2：资产处置审批的 `biz_id` 是**资产卡片 id**（建卡的人不能批自己这张卡的处置）
-        let creator = crate::business::erp::asset_bridge::internal_control_creator(biz_id).await?;
+        let creator = crate::business::erp::asset::asset_bridge::internal_control_creator(biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else if biz_type == crate::business::erp::sales::sales_approval_bridge::BIZ_TYPE {
