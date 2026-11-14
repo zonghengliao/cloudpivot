@@ -870,7 +870,7 @@ mod tests {
 ///
 /// ```bash
 /// export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<测试库>'
-/// cargo test --lib business::erp::stock_pdf -- --test-threads=1
+/// cargo test --lib business::erp::stock::stock_pdf -- --test-threads=1
 /// ```
 ///
 /// # 夹具卫生
