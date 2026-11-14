@@ -8,7 +8,7 @@
 
 use super::db_tests_fixtures::*;
 use super::*;
-use crate::business::erp::transfer_model::{self, STATUS_PENDING, TransferQuery};
+use crate::business::erp::transfer::transfer_model::{self, STATUS_PENDING, TransferQuery};
 
 // ---------- ⑱ 详情 / 序列号分组 ----------
 #[tokio::test]

@@ -50,7 +50,7 @@
 //! # 事务边界
 //!
 //! 写函数一律吃 `&impl SqlExecutor`（`Db` 与 `Transaction` 都实现），
-//! 由 [`crate::business::erp::transfer_handler`] 开事务：**建单 = 取号 + 单头 + 明细 + 序列号**、
+//! 由 [`crate::business::erp::transfer::transfer_handler`] 开事务：**建单 = 取号 + 单头 + 明细 + 序列号**、
 //! **提交审批 = 状态写入 + 发起审批单 + 回写 `approval_instance_id`** 必须原子。
 
 // ==================== 部件（TD-1 拆分，facade 重导出） ====================

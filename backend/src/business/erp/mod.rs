@@ -5,10 +5,10 @@
 //! | [`model`] | 13 张 `biz_*` 表的行结构、列清单、基础查询（含仓库子树、两级库存账） | W1b |
 //! | [`dto`] | 每张表的建 / 改 / 筛选 / 卡片 / 详情契约 + 校验（`Decimal` 定点金额） | W1b |
 //! | [`handler`] | 44 个接口：5 张主数据表的 CRUD + 3 个特殊查询 + 8 张台账的列表/详情 | **W1c** |
-//! | [`transfer_model`] | 库存调拨单（6 态状态机 + 取号 + 审批接入）与明细/序列号子表 | **W3b** |
-//! | [`transfer_dto`] | 调拨单出入参契约（建单 / 改单 / 状态流转 / 详情 / 序列号分组） | **W3b** |
-//! | [`transfer_handler`] | 调拨单 7 个接口：CRUD + 状态流转 + 审批发起/回调 | **W3b** |
-//! | [`transfer_overdue`] | 在途超期扫描与告警（每小时；阈值走 `sys_config`，默认 7 天） | **LNK-F12** |
+//! | [`transfer::transfer_model`] | 库存调拨单（6 态状态机 + 取号 + 审批接入）与明细/序列号子表 | **W3b** |
+//! | [`transfer::transfer_dto`] | 调拨单出入参契约（建单 / 改单 / 状态流转 / 详情 / 序列号分组） | **W3b** |
+//! | [`transfer::transfer_handler`] | 调拨单 7 个接口：CRUD + 状态流转 + 审批发起/回调 | **W3b** |
+//! | [`transfer::transfer_overdue`] | 在途超期扫描与告警（每小时；阈值走 `sys_config`，默认 7 天） | **LNK-F12** |
 //! | [`purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
 //! | [`purchase_credit`] | 供应商信用额度**现算**守卫（提交时点快照 + 强制审批） | **ARCH-3 P2-2** |
 //! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
@@ -291,12 +291,7 @@ pub mod stocktake_dto;
 pub mod stocktake_handler;
 pub mod stocktake_model;
 pub mod tax_rate;
-pub mod transfer_dto;
-pub mod transfer_handler;
-pub mod transfer_model;
-pub mod transfer_overdue;
-/// 调拨单 PDF 导出（PDF-04）：调出 / 调入仓库 + 双库位 + 原价转移成本口径。
-pub mod transfer_pdf;
+pub mod transfer;
 pub mod unit_guard;
 pub mod voucher;
 pub mod voucher_bridge;
@@ -318,8 +313,8 @@ pub mod year_end_remind;
 mod lot_db_tests;
 
 // ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
-// 下面 13 个 `mod` 是三个超千行 model 文件按职责拆出的部件，**不直接对外**：
-// 公开 API 由 `model` / `stockin_model` / `transfer_model` 三个 facade 用
+// 下面 8 个 `mod` 是超千行 model 文件按职责拆出的部件，**不直接对外**：
+// 公开 API 由 `model` / `stockin::stockin_model` 两个 facade 用
 // `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
 #[cfg(test)]
@@ -334,27 +329,6 @@ mod model_inventory; // 库存台账只读
 mod model_master; // 主数据只读（单位/仓库/库位/物料/供应商/科目/期间/取号规则）
 mod model_order; // 采购订单只读（头 + 明细）
 mod stockout_base; // 出库单底座：常量 / 状态机 / 行结构 / 取号
-mod transfer_base; // 调拨单底座：常量 / 6 态状态机 / 行结构 / 取号
-mod transfer_query; // 调拨单只读
-mod transfer_scan; // 调拨单在途超期扫描
-mod transfer_settle; // 调拨单过账结算
-mod transfer_write; // 调拨单写入（建改删 + 状态流转）
-
-// ==================== TD-2 拆分出的部件（只经 facade 对外） ====================
-// `transfer_handler.rs`（4676 行，含 3249 行测试）按职责拆成 6 个代码部件 + 7 个测试部件，
-// 公开 API 由 `transfer_handler` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变。
-// 拆法见 `docs/refactor-methodology.md`（TD-2 章节）。
-mod transfer_handler_common; // 底座：错误出口（409/404/写库映射）/ 入参解析 / 明细预处理
-mod transfer_handler_create; // 建单 / 复制 / 改单（取号 + 明细落库 + 草稿态校验）
-mod transfer_handler_delete; // 软删（仅 DRAFT / CANCELLED）
-mod transfer_handler_query; // 只读：分页 / 详情 / 涉及序列号 / 在途超期汇总
-mod transfer_handler_status; // 六态状态机：审核 / 发出 / 在途 / 收货（含结算）/ 作废 + 审批发起
-#[cfg(test)]
-mod transfer_handler_test_support; // 测试支撑：把审批实例批到终态（真库用例共用）
-// LNK-01 的**唯一**联动接线（人工流转 + 审批回调两条路共用）。`pub(crate)` 而不是私有：
-// 审批回调在 `flow::task_bridge` 里，跨模块必须够得着，才不至于让「配了已发布流程时
-// STOCK_TRANSFER/APPROVED 的规则永远不触发」这条静默缺口复活。
-pub(crate) mod transfer_linkage;
 
 /// R-P1-5 的真库单测（联动作废：影响分析 / 执行顺序 / 中途失败回滚 / 无下游直接作废）。
 /// 只在 `cargo test` 时编译。

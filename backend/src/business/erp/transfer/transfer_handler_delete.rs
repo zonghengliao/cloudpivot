@@ -7,7 +7,7 @@
 // ============================================================================
 
 use super::transfer_handler_common::*;
-use crate::business::erp::transfer_model::{self};
+use crate::business::erp::transfer::transfer_model::{self};
 use crate::utils;
 use nik::prelude::chrono::Utc;
 use nik::prelude::*;

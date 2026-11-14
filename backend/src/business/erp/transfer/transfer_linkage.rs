@@ -38,7 +38,7 @@
 // 的规则**永远不触发** —— 正是 P1-FIX-5C 那类「看起来配好了」的静默失效。
 // ============================================================================
 
-use crate::business::erp::transfer_base::status_label;
+use crate::business::erp::transfer::transfer_base::status_label;
 use crate::business::flow::linkage;
 use crate::business::notice::{self, dto::NoticeLevel, dto::NoticeType};
 use nik::prelude::*;

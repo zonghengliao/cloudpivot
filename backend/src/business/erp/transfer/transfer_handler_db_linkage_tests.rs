@@ -15,7 +15,7 @@
 // 用法：
 // ```bash
 // export ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/<测试库>'
-// cargo test --lib business::erp::transfer_handler::db_linkage -- --nocapture --test-threads=1
+// cargo test --lib business::erp::transfer::transfer_handler::db_linkage -- --nocapture --test-threads=1
 // ```
 // 缺 `ERP_DB_URL` 时打印 `SKIP` 并直接返回（CI 无库时 `cargo test --lib` 仍然全绿）。
 //
@@ -29,8 +29,8 @@
 
 use super::db_tests_fixtures::*;
 use super::*;
-use crate::business::erp::transfer_linkage;
-use crate::business::erp::transfer_model::{self, STATUS_APPROVED, STATUS_DONE, STATUS_PENDING};
+use crate::business::erp::transfer::transfer_linkage;
+use crate::business::erp::transfer::transfer_model::{self, STATUS_APPROVED, STATUS_DONE, STATUS_PENDING};
 use crate::business::flow::linkage;
 use crate::business::flow::linkage::spec;
 use nik::prelude::chrono::Utc;

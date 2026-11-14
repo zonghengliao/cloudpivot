@@ -282,7 +282,7 @@ impl Scheduler {
         // 批次 D · D4c：审批超时扫描 + 催办（每 10 分钟，LIMIT 500 分批；默认只提醒，AUTO_APPROVE 需全局闸）
         crate::business::flow::timeout::register_builtin(self);
         // LNK-F12：在途调拨超期扫描 + 告警（每小时第 5 分钟；阈值走 sys_config，默认 7 天）
-        crate::business::erp::transfer_overdue::register_builtin(self);
+        crate::business::erp::transfer::transfer_overdue::register_builtin(self);
         // R-P1-2：业务提醒任务包（应付到期 07:10 / 采购超期 07:20 / 合同到期 07:30 / 低库存 07:40）。
         // 幂等由 biz_reminder_log 台账（单据 × 类型 × 业务日唯一）+ 通知幂等键两层保证。
         crate::business::erp::reminder::register_builtin(self);

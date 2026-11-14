@@ -36,7 +36,7 @@ pub const BIZ_ACTIVE_INDEX: &str = "uk_biz_flow_instance_biz_active";
 ///
 /// # 谁该用
 ///
-/// 所有「业务单据 → 发起/重投审批单」的模块（`erp::transfer_handler` /
+/// 所有「业务单据 → 发起/重投审批单」的模块（`erp::transfer::transfer_handler` /
 /// `stockin_handler` / `purchase_handler` / `payable_payment` / `voucher_write`）。
 /// 判据只有这一份实现，文案只有 [`approval_in_progress`] 一份实现，改口径改这里。
 pub fn is_biz_active_duplicate(error: &DbError) -> bool {

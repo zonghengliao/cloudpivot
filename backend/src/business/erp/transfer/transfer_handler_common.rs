@@ -6,8 +6,8 @@
 // `transfer_handler.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
-use crate::business::erp::transfer_dto::CreateTransferReq;
-use crate::business::erp::transfer_model::{self, NewItem, SettleError};
+use crate::business::erp::transfer::transfer_dto::CreateTransferReq;
+use crate::business::erp::transfer::transfer_model::{self, NewItem, SettleError};
 use crate::business::erp::unit_guard;
 use crate::business::flow::model as flow_model;
 use crate::shared::error_code;

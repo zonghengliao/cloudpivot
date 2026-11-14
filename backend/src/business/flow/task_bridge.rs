@@ -34,8 +34,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
-use crate::business::erp::transfer_linkage;
-use crate::business::erp::transfer_model as erp_transfer;
+use crate::business::erp::transfer::transfer_linkage;
+use crate::business::erp::transfer::transfer_model as erp_transfer;
 use crate::business::flow::graph;
 use crate::business::flow::node_config::{self, OnCancel, OnComplete, OnReject, TaskNodeConfig};
 use crate::business::flow::task_node;
@@ -1407,7 +1407,7 @@ async fn settle_flow_node(approval_instance_id: Uuid, instance_status: &str) -> 
 // ==================== 第二类业务单据：库存调拨单（批次 D · W3b） ====================
 
 /// 库存调拨单的业务类型（`biz_flow_def.biz_type`，与
-/// [`crate::business::erp::transfer_model::published_transfer_flow`] 的查询条件同口径）。
+/// [`crate::business::erp::transfer::transfer_model::published_transfer_flow`] 的查询条件同口径）。
 pub const STOCK_TRANSFER_BIZ_TYPE: &str = "STOCK_TRANSFER";
 
 /// 审批单落终态后推进**库存调拨单**（`FlowCallback` 身份）。
@@ -1433,7 +1433,7 @@ pub const STOCK_TRANSFER_BIZ_TYPE: &str = "STOCK_TRANSFER";
 ///
 /// # 幂等
 ///
-/// 重复回调时调拨单已不在 `PENDING` → [`crate::business::erp::transfer_model::settle_approval`]
+/// 重复回调时调拨单已不在 `PENDING` → [`crate::business::erp::transfer::transfer_model::settle_approval`]
 /// 的 `WHERE status = 'PENDING'` 命中 0 行 → 返回 `None`，不报错。
 pub async fn on_transfer_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
     let instance_id = instance_id?;

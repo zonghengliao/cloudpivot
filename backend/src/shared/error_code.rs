@@ -946,7 +946,7 @@ pub const TASK_FLOW_GATE_BLOCKED: i32 = TASK_APPROVAL_PENDING;
 /// P5 卡面的命名别名：**与 [`TASK_APPROVAL_PENDING`] 同码同义**（`65030`），给**调拨单**用。
 ///
 /// 调拨单（`biz_stock_transfer`）提交审批后挂着在跑的审批单时，人工 `PENDING → APPROVED`
-/// 会被门闸拦住（`erp::transfer_model::flow_gate_blocked`），前端按 65030 统一提示
+/// 会被门闸拦住（`erp::transfer::transfer_model::flow_gate_blocked`），前端按 65030 统一提示
 /// 「正在审批中」。与上面那条一样是别名而不是第二个定义体：65030 是架构 §10.3 码表里的
 /// 既有契约，语义就是「这条单据正在审批中」，不因业务表不同而分裂。
 pub const TRANSFER_FLOW_GATE_BLOCKED: i32 = TASK_APPROVAL_PENDING;

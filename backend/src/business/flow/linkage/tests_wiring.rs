@@ -288,7 +288,7 @@ fn stockout_post_wires_generic_engine_and_excludes_dedicated_actions() {
 ///    `STOCK_TRANSFER/APPROVED` 的规则永远不触发（最坏的一种：能保存、能启用、永远不响）。
 #[test]
 fn transfer_status_wires_generic_engine_and_excludes_inventory() {
-    let hook = include_str!("../../erp/transfer_linkage.rs");
+    let hook = include_str!("../../erp/transfer/transfer_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "调拨状态变更必须调用通用引擎（run_excluding）：否则 STOCK_TRANSFER 的联动规则配了不触发"
@@ -315,7 +315,7 @@ fn transfer_status_wires_generic_engine_and_excludes_inventory() {
     }
 
     // 人工流转：状态事务内接线 + commit 后延迟接线
-    let handler = include_str!("../../erp/transfer_handler_status.rs");
+    let handler = include_str!("../../erp/transfer/transfer_handler_status.rs");
     assert!(
         handler.contains("transfer_linkage::run_in_tx("),
         "transfer_handler_status::apply_transition 必须真的调 transfer_linkage::run_in_tx\

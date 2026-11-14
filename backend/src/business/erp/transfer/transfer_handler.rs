@@ -79,7 +79,7 @@ pub use super::transfer_handler_status::*;
 pub(super) use super::transfer_handler_test_support::*;
 
 // ==================== 测试（#[path] 挂到各测试部件） ====================
-// 顺序即模块名，`cargo test --lib business::erp::transfer_handler` 会按模块名排序执行：
+// 顺序即模块名，`cargo test --lib business::erp::transfer::transfer_handler` 会按模块名排序执行：
 // `db_status` 里放着收尾的 `zz_teardown_purges_fixture_residue`，db_* 里它仍排最后。
 /// 单测（不连库）：权限码导出与审批冲突 409 文案。
 #[cfg(test)]

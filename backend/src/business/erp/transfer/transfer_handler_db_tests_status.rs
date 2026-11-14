@@ -8,8 +8,8 @@
 
 use super::db_tests_fixtures::*;
 use super::*;
-use crate::business::erp::transfer_model::{self, STATUS_PENDING};
-use crate::business::erp::transfer_model::{
+use crate::business::erp::transfer::transfer_model::{self, STATUS_PENDING};
+use crate::business::erp::transfer::transfer_model::{
     STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,
 };
 use crate::business::flow::graph::{canonical_json, parse_snapshot};

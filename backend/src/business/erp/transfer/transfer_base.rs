@@ -103,7 +103,7 @@ pub fn status_label(status: &str) -> &'static str {
 
 /// 一次流转要写的列（`true` = 必须写非空值）。
 ///
-/// 这是 [`crate::business::erp::transfer_handler::change_transfer_status`] 的**唯一判据**：
+/// 这是 [`crate::business::erp::transfer::transfer_handler::change_transfer_status`] 的**唯一判据**：
 /// 与 `ck_biz_transfer_state` 逐条对应，单测拿 [`state_check_holds`] 逐边验证。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TransitionEffect {

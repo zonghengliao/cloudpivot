@@ -44,6 +44,6 @@ pub(super) async fn approve_flow_instance(instance_id: Uuid) {
 // 用法：
 // ```bash
 // export ERP_DB_URL='postgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_w3b'
-// cargo test --lib business::erp::transfer_handler -- --nocapture --test-threads=1
+// cargo test --lib business::erp::transfer::transfer_handler -- --nocapture --test-threads=1
 // ```
 // 缺 `ERP_DB_URL` 时打印 `SKIP` 并直接返回（CI 无库时 `cargo test --lib` 仍然全绿）。

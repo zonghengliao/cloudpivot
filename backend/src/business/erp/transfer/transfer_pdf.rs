@@ -42,8 +42,8 @@ use nik::uuid::Uuid;
 use crate::business::erp::doc_pdf_model;
 use crate::business::erp::doc_pdf_render::{self, RenderedDoc};
 use crate::business::erp::order_pdf_model::{self, MaterialInfo};
-use crate::business::erp::transfer_base::TransferItemRow;
-use crate::business::erp::transfer_model;
+use crate::business::erp::transfer::transfer_base::TransferItemRow;
+use crate::business::erp::transfer::transfer_model;
 use crate::business::pdf::handler as pdf_handler;
 use crate::business::pdf::template::{
     self, OrderMetaField, TransferContext, TransferContextArgs, TransferItem, format_money, format_quantity,
@@ -459,7 +459,7 @@ mod tests {
 ///
 /// ```bash
 /// export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/<测试库>'
-/// cargo test --lib business::erp::transfer_pdf -- --test-threads=1
+/// cargo test --lib business::erp::transfer::transfer_pdf -- --test-threads=1
 /// ```
 ///
 /// # 夹具卫生

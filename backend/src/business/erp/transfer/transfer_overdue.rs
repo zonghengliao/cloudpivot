@@ -54,7 +54,7 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::transfer_model::{self, OverdueCandidate};
+use crate::business::erp::transfer::transfer_model::{self, OverdueCandidate};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::task::Scheduler;

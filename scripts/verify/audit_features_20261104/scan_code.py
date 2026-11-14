@@ -23,7 +23,7 @@ FEATURES = [
     (4, "收货管理", ["backend/src/business/erp/stockin*.rs"], ["frontend/src/views/business/erp"], ["收货", "入库"]),
     (5, "出库管理", ["backend/src/business/erp/stockout*.rs"], ["frontend/src/views/business/erp"], ["出库", "领用"]),
     (6, "库存管理", ["backend/src/business/erp/model_inventory.rs", "backend/src/business/erp/inventory_audit.rs", "backend/src/business/erp/opening.rs", "backend/src/business/erp/serial_model.rs", "backend/src/business/erp/serial_handler.rs", "backend/src/business/erp/serial_dto.rs", "backend/src/business/erp/stocktake*.rs", "backend/src/business/erp/batch.rs"], ["frontend/src/views/business/erp"], ["库存", "序列号", "期初"]),
-    (7, "调拨管理", ["backend/src/business/erp/transfer*.rs"], ["frontend/src/views/business/erp"], ["调拨"]),
+    (7, "调拨管理", ["backend/src/business/erp/transfer"], ["frontend/src/views/business/erp"], ["调拨"]),
     (8, "财务管理", ["backend/src/business/erp/voucher*.rs", "backend/src/business/erp/payable*.rs"], ["frontend/src/views/business/erp"], ["凭证", "应付", "付款"]),
     (9, "财务报表", ["backend/src/business/erp/report.rs", "backend/src/business/erp/income_statement.rs", "backend/src/business/erp/cash_flow.rs", "backend/src/business/erp/downloads"], ["frontend/src/views/business/erp"], ["报表", "利润表", "现金流量"]),
     (10, "会计期间/年结", ["backend/src/business/erp/period*.rs", "backend/src/business/erp/year_end*.rs"], ["frontend/src/views/business/erp"], ["期间", "年结", "结账"]),

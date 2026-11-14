@@ -379,9 +379,9 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
             ("CANCELLED", "已取消"),
         ],
         wired: true,
-        wiring: "已接线（LNK-01）：erp/transfer_handler_status.rs::apply_transition 第 ⑥ 步 \
+        wiring: "已接线（LNK-01）：erp/transfer/transfer_handler_status.rs::apply_transition 第 ⑥ 步 \
                  （提交 / 审核 / 发运 / 收货 / 作废 六态流转的**唯一**状态写入点，CAS 成功才跑）\
-                 调 erp::transfer_linkage::run_in_tx → linkage::engine::run_excluding(\
+                 调 erp::transfer::transfer_linkage::run_in_tx → linkage::engine::run_excluding(\
                  spec::TRANSFER_EXCLUDED_ACTIONS)（库存 / 流水由 settle_transfer 落账，必须排除，\
                  否则同一行明细扣两次、一张单四条流水）；commit 后 \
                  change_transfer_status 调 run_deferred_after_commit → run_deferred。\
@@ -389,8 +389,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  run_in_tx + commit 后 run_deferred（不接这条，配了已发布流程的生产环境里 \
                  STOCK_TRANSFER/APPROVED 的规则永远不触发）",
         proofs: &[
-            ("src/business/erp/transfer_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/transfer_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/transfer/transfer_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/transfer/transfer_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -912,7 +918,7 @@ pub const STOCKOUT_EXCLUDED_ACTIONS: &[&str] = &[
 /// **库存调拨单**的专用路由排除清单（LNK-01）。
 ///
 /// 调拨的库存落账**不在通用引擎里**：`IN_TRANSIT → DONE` 由
-/// `erp/transfer_settle.rs::settle_transfer` 在同一个事务里把调出仓 −、调入仓 +、写两条
+/// `erp/transfer/transfer_settle.rs::settle_transfer` 在同一个事务里把调出仓 −、调入仓 +、写两条
 /// `TRANSFER_OUT` / `TRANSFER_IN` 流水、并把成本原价从调出仓搬到调入仓。所以这条
 /// 触发点上通用引擎必须把这 3 类动作交给专用路径：
 ///
@@ -924,7 +930,7 @@ pub const STOCKOUT_EXCLUDED_ACTIONS: &[&str] = &[
 /// 在别的目标态（如 `APPROVED`）上仍可能需要它；而 `settle_transfer` 那条路上
 /// `UPDATE_COST` 没有对应的取数实现（占位动作，执行时 Skipped），不会重复落账。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp::transfer_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp::transfer::transfer_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::transfer_status_wires_generic_engine_and_excludes_inventory`。
 pub const TRANSFER_EXCLUDED_ACTIONS: &[&str] = &["WRITE_INVENTORY", "WRITE_INVENTORY_TXN", ACTION_GENERATE_VOUCHER];

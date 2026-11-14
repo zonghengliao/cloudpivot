@@ -12,7 +12,7 @@
 //! | ③ | 合同到期 | `biz_contract.end_date` | 到期前没人知道（DC-06） |
 //! | ④ | 安全库存 | `biz_material.safety_stock` | 填了但从不参与判定的摆设字段（DC-12） |
 //!
-//! 本模块是这 4 个提醒的**唯一入口**，范本是 [`crate::business::erp::transfer_overdue`]
+//! 本模块是这 4 个提醒的**唯一入口**，范本是 [`crate::business::erp::transfer::transfer_overdue`]
 //! （在途调拨超期告警）—— 那套「扫描 → 组装草稿 → `notice::dispatch` → 记台账」的结构
 //! 已经在本仓验证过，这里只替换「扫什么」与「发给谁」。
 //!

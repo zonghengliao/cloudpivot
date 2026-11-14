@@ -8,9 +8,9 @@
 
 use super::db_tests_fixtures::*;
 use super::*;
-use crate::business::erp::transfer_dto::TRANSFER_PERMISSIONS;
-use crate::business::erp::transfer_model::STATUS_DRAFT;
-use crate::business::erp::transfer_model::{self, NewItem, NewTransfer, STATUS_PENDING};
+use crate::business::erp::transfer::transfer_dto::TRANSFER_PERMISSIONS;
+use crate::business::erp::transfer::transfer_model::STATUS_DRAFT;
+use crate::business::erp::transfer::transfer_model::{self, NewItem, NewTransfer, STATUS_PENDING};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use nik::prelude::chrono::Utc;

@@ -8,8 +8,8 @@
 
 use super::transfer_handler_common::*;
 use super::transfer_handler_query::*;
-use crate::business::erp::transfer_dto::{CreateTransferReq, TransferDetailRes};
-use crate::business::erp::transfer_model::{self, NewItem, NewTransfer};
+use crate::business::erp::transfer::transfer_dto::{CreateTransferReq, TransferDetailRes};
+use crate::business::erp::transfer::transfer_model::{self, NewItem, NewTransfer};
 use crate::shared::error_code;
 use crate::utils;
 use axum::Json;

@@ -212,7 +212,7 @@ TRANSFER = dict(
     illegal_msg=(
         "文案必须逐字包含「非法状态流转：{FROMCN}（{FROM}）→ {TOCN}（{TO}）」（括号里跟一句拒绝原因，如「库存不足」「无权操作」）+「{FROMCN}（{FROM}）可以流转到：{OUT}」，"
         "第二句允许的去向必须等于当前态**真实出边**；终态时第二句是「{FROMCN}（{FROM}）是终态，不能再流转」；"
-        "源码 `backend/src/business/erp/transfer_model.rs:176-196`"
+        "源码 `backend/src/business/erp/transfer/transfer_model.rs:176-196`"
     ),
     self_msg="自环 → 409 + `10003`；不得重复扣减/重复入库",
     pre_tpl="admin 建一张 {from} 态调拨单（单号 `TC-XFER-{i}`，源仓 A → 目标仓 B，1 明细）",

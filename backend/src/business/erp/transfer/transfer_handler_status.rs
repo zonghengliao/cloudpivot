@@ -11,8 +11,8 @@ use super::transfer_handler_query::*;
 use super::transfer_linkage;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::separation;
-use crate::business::erp::transfer_dto::{TransferDetailRes, TransferStatusReq};
-use crate::business::erp::transfer_model::{
+use crate::business::erp::transfer::transfer_dto::{TransferDetailRes, TransferStatusReq};
+use crate::business::erp::transfer::transfer_model::{
     self, ALL_STATUSES, STATUS_PENDING, SettleError, TransferRow, transition_effect, transition_rejected_message,
 };
 use crate::business::flow::linkage;
@@ -465,4 +465,4 @@ pub async fn transfer_change_status(
 const _: () = assert!(ALL_STATUSES.len() == 6);
 
 /// 权限码对外只读引用（`scripts/verify/w3b_transfer_api.sh` 用它和 V0144 逐字比对）。
-pub use crate::business::erp::transfer_dto::TRANSFER_PERMISSIONS as TRANSFER_PERMISSIONS_PUB;
+pub use crate::business::erp::transfer::transfer_dto::TRANSFER_PERMISSIONS as TRANSFER_PERMISSIONS_PUB;

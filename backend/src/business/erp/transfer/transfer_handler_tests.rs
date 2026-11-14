@@ -7,7 +7,7 @@
 // ============================================================================
 
 use super::*;
-use crate::business::erp::transfer_dto::TRANSFER_PERMISSIONS;
+use crate::business::erp::transfer::transfer_dto::TRANSFER_PERMISSIONS;
 use crate::business::flow::model as flow_model;
 use crate::shared::error_code;
 use nik::prelude::*;

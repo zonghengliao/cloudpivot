@@ -23,7 +23,7 @@
 //! biz_stock_transfer_item_serial id, item_id, serial_id, created_at, create_by
 //! ```
 //!
-//! 卡面没写、但库里有且**会改变实现**的两处（已落地，见 [`crate::business::erp::transfer_model`]）：
+//! 卡面没写、但库里有且**会改变实现**的两处（已落地，见 [`crate::business::erp::transfer::transfer_model`]）：
 //!
 //! 1. `ck_biz_transfer_state`：6 个状态各自绑死了「哪几个时间戳必须非空」。
 //!    `IN_TRANSIT` / `DONE` 还额外要求 `transit_warehouse_id IS NOT NULL`，
@@ -45,7 +45,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::erp::transfer_model::{
+use crate::business::erp::transfer::transfer_model::{
     ALL_STATUSES, STATUS_CANCELLED, TransferItemRow, TransferRow, TransferSerialRow,
 };
 use crate::business::shared::doc_lines;
@@ -140,7 +140,7 @@ impl TransferFilter {
         }
         // 「超期在途」与状态互相矛盾时直接 400：静默返回空列表会被当成「没有超期单」。
         if let (Some(overdue), Some(status)) = (self.in_transit_overdue, trimmed(self.status.as_deref())) {
-            if overdue && status != crate::business::erp::transfer_model::STATUS_IN_TRANSIT {
+            if overdue && status != crate::business::erp::transfer::transfer_model::STATUS_IN_TRANSIT {
                 return Err(ApiError::new(
                     400,
                     error_code_param(),
@@ -150,7 +150,7 @@ impl TransferFilter {
                     ),
                 ));
             }
-            if !overdue && status == crate::business::erp::transfer_model::STATUS_IN_TRANSIT {
+            if !overdue && status == crate::business::erp::transfer::transfer_model::STATUS_IN_TRANSIT {
                 return Err(ApiError::new(
                     400,
                     error_code_param(),
@@ -457,7 +457,7 @@ impl TransferRes {
             to_warehouse_name: to_name,
             transit_warehouse_id: row.transit_warehouse_id.map(|id| id.to_string()),
             status: row.status.clone(),
-            status_label: crate::business::erp::transfer_model::status_label(&row.status).to_string(),
+            status_label: crate::business::erp::transfer::transfer_model::status_label(&row.status).to_string(),
             transfer_date: row.transfer_date,
             reason: row.reason.clone(),
             applicant_id: row.applicant_id.map(|id| id.to_string()),

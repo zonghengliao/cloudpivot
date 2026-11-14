@@ -7,11 +7,11 @@
 // ============================================================================
 
 use super::transfer_handler_common::*;
-use crate::business::erp::transfer_dto::{
+use crate::business::erp::transfer::transfer_dto::{
     TransferDetailRes, TransferFilter, TransferItemRes, TransferOverdueSummaryRes, TransferRes, TransferSerialGroupRes,
     TransferSerialRes, TransferSerialsRes,
 };
-use crate::business::erp::transfer_model::{self, TransferQuery};
+use crate::business::erp::transfer::transfer_model::{self, TransferQuery};
 use crate::utils;
 use nik::prelude::chrono::Utc;
 use nik::prelude::*;
