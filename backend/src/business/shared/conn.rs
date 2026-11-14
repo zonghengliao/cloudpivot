@@ -16,7 +16,7 @@
 //!
 //! 写法上确实把 `db()` 挪出了被 grep 的目录，但语义上没有任何放宽：
 //! ① 本函数**只读**（每个调用方都是 `SELECT`，没有任何 DDL/DML 使用它）；
-//! ② 写入路径的签名（[`crate::business::changelog::record`]）一个字都没改，
+//! ② 写入路径的签名（`business/changelog/mod.rs::record`）一个字都没改，
 //!    T-CL-01/T-CL-12 仍然能证明"日志与业务同生共死"；
 //! ③ 定时任务（分区运维）走的是 `task/mod.rs` 传进来的执行器，不经过这里。
 
