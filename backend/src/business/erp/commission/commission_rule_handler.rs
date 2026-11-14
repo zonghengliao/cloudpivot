@@ -47,12 +47,12 @@ use nik::prelude::chrono::{DateTime, FixedOffset, NaiveDate, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::commission_model::RuleRow;
-use crate::business::erp::commission_rule_dto::{
+use crate::business::erp::commission::commission_model::RuleRow;
+use crate::business::erp::commission::commission_rule_dto::{
     self, RuleCreateReq, RuleFilter, RulePageQuery, RuleRes, RuleSpec, RuleUpdateReq, SCOPE_SALESPERSON, scope_label,
     spec_from_create, spec_from_update,
 };
-use crate::business::erp::commission_rule_model::{self as model, RuleDetailRow};
+use crate::business::erp::commission::commission_rule_model::{self as model, RuleDetailRow};
 use crate::business::erp::model::normalize_page;
 use crate::shared::error_code;
 use crate::utils;
@@ -340,8 +340,8 @@ pub fn all_permissions() -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::commission_handler::{commission_of, pick_rule};
-    use crate::business::erp::commission_rule_dto::{
+    use crate::business::erp::commission::commission_handler::{commission_of, pick_rule};
+    use crate::business::erp::commission::commission_rule_dto::{
         CALC_FIXED, CALC_PERCENT, RULE_ACTIVE, RULE_INACTIVE, SCOPE_ALL, SCOPE_MATERIAL,
     };
     use nik::prelude::rust_decimal::Decimal;

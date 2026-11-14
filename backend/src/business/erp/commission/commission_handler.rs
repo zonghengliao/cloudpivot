@@ -71,11 +71,11 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::commission_dto::{
+use crate::business::erp::commission::commission_dto::{
     self, CommissionFilter, CommissionItemRes, CommissionPageQuery, CommissionStatusReq, STATUS_APPROVED, STATUS_PAID,
     STATUSES, SettleReq, SettleRes, SettlementDetailRes, SettlementRes, SkippedRes,
 };
-use crate::business::erp::commission_model::{self as model, NewItem, RuleRow};
+use crate::business::erp::commission::commission_model::{self as model, NewItem, RuleRow};
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::voucher::{self, EntryLine, PostVoucher};
@@ -1019,7 +1019,7 @@ pub async fn commission_status_api(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::commission_model::OrderLineRow;
+    use crate::business::erp::commission::commission_model::OrderLineRow;
     use nik::prelude::rust_decimal::prelude::FromPrimitive;
 
     fn dec(value: f64) -> Decimal {

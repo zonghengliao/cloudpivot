@@ -33,7 +33,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::commission_rule_dto::{
+use crate::business::erp::commission::commission_rule_dto::{
     RuleFilter, RuleSpec, SCOPE_MATERIAL, SCOPE_SALESPERSON, clean_optional,
 };
 use crate::business::erp::model_base::page_of;
@@ -363,7 +363,7 @@ fn date_text(value: NaiveDate) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::commission_rule_dto::{CALC_TYPES, SCOPE_TYPES};
+    use crate::business::erp::commission::commission_rule_dto::{CALC_TYPES, SCOPE_TYPES};
 
     /// 列清单必须覆盖 V0309 的全部业务列：漏一列 = 前端某个字段恒 `undefined`。
     #[test]
