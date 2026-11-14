@@ -905,7 +905,7 @@ async fn write_commission_voucher(
         ex,
         &PostVoucher {
             voucher_type: voucher::VOUCHER_TYPE_AUTO,
-            source_type: crate::business::shared::doc_kind::VoucherSourceType::Commission.as_str(),
+            source_type: cloudpivot_doc::VoucherSourceType::Commission.as_str(),
             source_id: Some(row.id),
             source_no: Some(row.settlement_no.as_str()),
             source_doc_no: None,

@@ -65,10 +65,10 @@ use crate::business::erp::stockin::stockin_model::{
     self, AppliedInventory, CancelDoc, CancelLine, MISSING_TXN_PREFIX, SHORTFALL_PREFIX,
 };
 use crate::business::erp::voucher::{self, ReversalInput};
-use crate::business::shared::doc_kind::TxnBizType;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::TxnBizType;
 
 // ==================== 常量（与设计 / 词表逐字对齐，单测钉死） ====================
 
@@ -78,7 +78,7 @@ pub const TXN_TYPE_OUT: &str = "OUT";
 /// 库存流水的业务类型：生产入库红冲（设计 §4.8 ③ 点名的 `PRODUCE_CANCEL`）。
 ///
 /// 直接取词表枚举而不是手写字符串：`TxnBizType::ProduceCancel` 早就在词表里
-/// （`doc_kind.rs`），写串字会有「改词表漏改这里」的漂移风险；`as_str()` 是 `const fn`。
+/// （`cloudpivot_doc`），写串字会有「改词表漏改这里」的漂移风险；`as_str()` 是 `const fn`。
 pub const BIZ_TYPE_PRODUCE_CANCEL: &str = TxnBizType::ProduceCancel.as_str();
 
 /// 数量容差（`NUMERIC(18,4)` 的最小单位）。
@@ -787,10 +787,7 @@ mod tests {
         // 词表里能反查回来（库里有历史流水时，巡检脚本按词表解析 biz_type）
         assert_eq!(TxnBizType::parse("PRODUCE_CANCEL"), Some(TxnBizType::ProduceCancel));
         // 这条流水造成的单据是入库单 —— E4 净额判据按单据轴解释
-        assert_eq!(
-            TxnBizType::ProduceCancel.doc_kind(),
-            crate::business::shared::doc_kind::DocKind::StockIn
-        );
+        assert_eq!(TxnBizType::ProduceCancel.doc_kind(), cloudpivot_doc::DocKind::StockIn);
         // 与结算写入的 PRODUCTION_IN 是**一对**（一进一出，净额归零）
         assert_eq!(BIZ_TYPE_PRODUCTION_IN, "PRODUCTION_IN");
         assert_eq!(TXN_TYPE_OUT, "OUT");

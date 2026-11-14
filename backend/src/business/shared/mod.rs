@@ -50,7 +50,11 @@ pub mod conn;
 pub mod content;
 /// 成本核算模块总开关 `erp.cost.enabled`（COST-B4-4）：接口 403 闸 + 菜单 / 权限过滤。
 pub mod cost_switch;
-pub mod doc_kind;
+/// 词表一致性用例（P2-28）：词表本体在 `cloudpivot-doc` crate，
+/// 这里只留「词表 ↔ 前端 TS ↔ 库内值域 ↔ ERP 写入点」的应用内比对。
+#[cfg(test)]
+#[path = "doc_kind_tests.rs"]
+mod doc_kind_tests;
 /// 单据明细行数上限的统一文案（P1-04）：明确拒绝 + 引导走导入通道。
 pub mod doc_lines;
 pub mod guard;

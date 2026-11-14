@@ -7,7 +7,7 @@
 //!
 //! | 谁 | 依赖方向 | 说明 |
 //! |---|---|---|
-//! | `cloudpivot`（应用） | → `cloudpivot-doc` | `backend/src/business/shared/doc_kind.rs` 已改为转发垫片（`pub use cloudpivot_doc::*`），调用点路径不变 |
+//! | `cloudpivot`（应用） | → `cloudpivot-doc` | 直接 `use cloudpivot_doc::*`（P2-28 起，旧转发垫片已删除），调用点路径即本 crate 路径 |
 //! | `cloudpivot-doc` | **无出边** | `cargo tree -p cloudpivot-doc` 只有一个根节点（`[dependencies]` 为空） |
 //!
 //! 解的是 `shared → erp` 这条回边：词表被 ERP 全域引用，而词表的**一致性测试**

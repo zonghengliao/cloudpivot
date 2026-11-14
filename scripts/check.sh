@@ -759,7 +759,7 @@ biz_vocab_gate() {
     python3 "$ROOT/scripts/verify/biz_type_domain.py" --strict > "$log" 2>&1
     rc=$?
     if [ "$rc" -eq 0 ]; then
-        echo "  ✓ 所有业务类型列的值都在 doc_kind.rs 词表域内"
+        echo "  ✓ 所有业务类型列的值都在 cloudpivot-doc 词表域内"
         rm -f "$log"
         return 0
     fi

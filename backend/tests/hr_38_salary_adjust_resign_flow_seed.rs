@@ -20,7 +20,7 @@
 //! 1. ★ up/down 成对，且两套文件都只碰本卡固定 id（改名忘配 down = 回滚做不成）。
 //! 2. ★ 不许 `+no-transaction`：自检 RAISE 之后前面已执行的语句必须整份回滚。
 //! 3. ★ `flow_code` / `biz_type` / 分类 / 流程名与设计逐格对得上，
-//!    且 `biz_type` ↔ `FlowBizType`（`doc_kind.rs`）双向一致 —— 否则提交审批时
+//!    且 `biz_type` ↔ `FlowBizType`（`cloudpivot_doc`）双向一致 —— 否则提交审批时
 //!    「哪条流程能发起这类单据」对不上，单据永远 409。
 //! 4. ★ `is_default` + `is_system` + `allow_auto_approve = FALSE`（免审直过是
 //!    AGENTS 约定 11 的最高危分支；系统预置流程客户不能删）。
@@ -48,7 +48,7 @@
 use std::path::PathBuf;
 
 use cloudpivot::business::flow::graph;
-use cloudpivot::business::shared::doc_kind::FlowBizType;
+use cloudpivot_doc::FlowBizType;
 use serde_json::{Map, Value};
 
 fn backend_root() -> PathBuf {
@@ -249,7 +249,7 @@ fn definitions_match_design_section_3_2_nine() {
 
 #[test]
 fn biz_types_line_up_with_the_flow_biz_type_enum() {
-    // 种子里写的 biz_type / flow_code 必须与 `doc_kind.rs::FlowBizType` 的映射逐字一致。
+    // 种子里写的 biz_type / flow_code 必须与 `cloudpivot_doc::FlowBizType` 的映射逐字一致。
     // 对不上 = 提交审批时「哪条流程能发起这类单据」查不到 ⇒ 单据永远 409 + 66033。
     for (biz_type, flow_code) in [
         ("HR_SALARY", "hr_salary"),

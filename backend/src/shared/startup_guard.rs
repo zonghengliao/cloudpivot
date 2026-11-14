@@ -936,7 +936,7 @@ pub fn orphan_dependency_warning(count: u64) -> Option<String> {
 /// 只能拦住「走这两个入口的脚本」，拦不住手工 `psql` 或以后新写的工具。
 /// 服务端自检覆盖的是「不管谁写的，只要落在这个库里我就看得见」。
 ///
-/// 判据来自 [`crate::business::shared::doc_kind`]（唯一真相，与 Python 巡检同口径），
+/// 判据来自 [`cloudpivot_doc`]（唯一真相，与 Python 巡检同口径），
 /// 这里不再抄一遍字符串。
 ///
 /// # 处置
@@ -949,7 +949,7 @@ pub fn orphan_dependency_warning(count: u64) -> Option<String> {
 /// 查库失败 → [`Error::Config`]（调用方同样只告警）。
 // SCOPE-EXEMPT: 启动自检是全局计数（跨全部流程定义 / 实例），注入数据范围会漏检。
 pub async fn count_test_residue() -> std::result::Result<TestResidue, Error> {
-    use crate::business::shared::doc_kind::TEST_RESIDUE_SQL;
+    use cloudpivot_doc::TEST_RESIDUE_SQL;
 
     let defs: i64 = db()
         .scalar_with_params(

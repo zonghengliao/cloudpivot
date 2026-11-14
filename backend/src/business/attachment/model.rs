@@ -255,7 +255,7 @@ impl DocKind {
     /// HR（ARCH-9-2 §3.2 ⑦ / V0389）从 17 类扩到 21 类：**只 4 类** ——
     /// 员工 / 劳动合同 / 请假单 / 薪资单。考勤批次没有附件口径（考勤是导入台账，
     /// 依据是 Excel 原件，走导入任务留痕），DDL 的 CHECK 也只放宽到这 4 个值。
-    /// 顺序与 `shared::doc_kind::ATTACHMENT_DOC_KINDS` 逐字一致：追加在末尾，不插中间
+    /// 顺序与 `cloudpivot_doc::ATTACHMENT_DOC_KINDS` 逐字一致：追加在末尾，不插中间
     /// （前端的 `ATTACHMENT_DOC_TYPES` 同序）。
     pub const ALL: [DocKind; 21] = [
         DocKind::Contract,

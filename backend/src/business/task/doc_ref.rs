@@ -34,9 +34,9 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::shared::doc_kind::DocKind;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::DocKind;
 
 /// 一种「任务可以挂上去」的单据类型：`DocKind` + 该表里的单号列。
 ///
@@ -79,7 +79,7 @@ pub const DOC_TARGETS: &[DocTarget] = &[
 
 /// 按落库值查白名单（**严格全等**，与 [`DocKind::parse`] 同一口径：不做大小写归一）。
 ///
-/// 为什么不做归一：`doc_kind.rs` 的约定是「落库值一律大写下划线，严格全等匹配」，
+/// 为什么不做归一：`cloudpivot_doc` 的约定是「落库值一律大写下划线，严格全等匹配」，
 /// 归一就是「新旧写法都认」—— 前端已经从 `DOC_KINDS` 常量取值，后端再放宽只会
 /// 掩盖调用方的错。错误文案会把允许的取值全列出来，调试成本并不高。
 pub fn find(raw: &str) -> Option<&'static DocTarget> {

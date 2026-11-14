@@ -79,8 +79,9 @@ nik-utils = { path = "vendor/nik-utils" }
 # 而它的一致性测试又要 import `business::erp::*`，构成模块级回边；词表本体搬进独立 crate 后，
 # 测试留在应用 crate（跨轴一致是应用内约束），回边即断。
 #
-# 调用点一个字没改：`src/business/shared/doc_kind.rs` 现在是 `pub use cloudpivot_doc::*;`
-# 的转发垫片，141 处 `crate::business::shared::doc_kind::*` 照旧编译。
+# 调用点已全部改到新路径（P2-28）：141 处 `crate::business::shared::doc_kind::*` 改为
+# `cloudpivot_doc::*`，转发垫片 `src/business/shared/doc_kind.rs` 已删除；应用内一致性用例
+# 仍在 `src/business/shared/doc_kind_tests.rs`（模块路径 `business::shared::doc_kind_tests`）。
 #
 # 它**不是**框架 crate，不受「只声明 nik 一个框架 crate」铁律约束：零依赖、不引入第二份
 # nik 实例、也不从 crates.io 拉任何东西。workspace 化（把 backend 变成 workspace 根）是

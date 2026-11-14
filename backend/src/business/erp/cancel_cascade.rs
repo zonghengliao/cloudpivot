@@ -48,7 +48,7 @@
 //! | `payable` | 凭证 | 未付款的应付单作废（进项凭证红冲） |
 //! | `stock-transfer` | 无 | **不支持**：调拨单作废不跨单据联动，沿用 `PATCH /transfer/{id}/status` |
 //!
-//! ⚠️ 路径段由 `shared::doc_kind::DocKind::route()` 生成，**只认 kebab 规范写法**：
+//! ⚠️ 路径段由 `cloudpivot_doc::DocKind::route()` 生成，**只认 kebab 规范写法**：
 //! `purchase_order` / `purchaseOrder` / `PO` 这类历史别名在 P2-5 起一律 400
 //! （「新旧都认」＝兼容层永久化，见 ARCH-3 DC-21）。
 //!
@@ -92,10 +92,10 @@ use crate::utils;
 
 // ==================== 常量 ====================
 
-// 路径段的唯一真相是 `shared::doc_kind::DocKind::route()`（P2-5 词表收敛）：
+// 路径段的唯一真相是 `cloudpivot_doc::DocKind::route()`（P2-5 词表收敛）：
 // 这里只是把它取出来当常量用，**不再自己写字面量**，也不再接受 `purchase_order` /
 // `PO` 这类历史别名（「新旧都认」＝兼容层永久化）。
-use crate::business::shared::doc_kind::DocKind;
+use cloudpivot_doc::DocKind;
 
 /// 采购订单（`PO-yyyyMMdd-000001`）。
 pub const DOC_TYPE_PURCHASE_ORDER: &str = DocKind::PurchaseOrder.route_expect();

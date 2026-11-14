@@ -98,9 +98,9 @@ use crate::business::hr::salary_sheet_dto::{
     SalarySheetCardRes,
 };
 use crate::business::hr::salary_sheet_model::{self as model, SheetRow};
-use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::state_machine::{self, ENTITY_SALARY_SHEET, Operator};
 use crate::shared::error_code;
+use cloudpivot_doc::VoucherSourceType;
 
 // ==================== 常量（与 V0394 种子 / ROUTE_CONTRACT 同口径） ====================
 
@@ -110,7 +110,7 @@ pub const BIZ_TYPE: &str = "HR_SALARY";
 /// 薪资审批的流程编码（`biz_flow_def.flow_code`，与 `V0394` 种子逐字一致）。
 pub const FLOW_CODE: &str = "hr_salary";
 
-/// 计提凭证的来源类型（`biz_voucher.source_type`，词表来自 HR-06 的 `doc_kind.rs`）。
+/// 计提凭证的来源类型（`biz_voucher.source_type`，词表来自 HR-06 的 `cloudpivot_doc`）。
 pub const SOURCE_ACCRUAL: &str = VoucherSourceType::PayrollAccrual.as_str();
 
 /// 发放凭证的来源类型。

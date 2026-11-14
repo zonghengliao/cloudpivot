@@ -13,9 +13,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model;
-use crate::business::shared::doc_kind::DocSubtype;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
+use cloudpivot_doc::DocSubtype;
 
 /// 金额 / 单价舍入策略：**四舍五入**（与 PG `ROUND(numeric, n)` 同口径）。
 ///
@@ -112,7 +112,7 @@ pub const DOC_TYPE_STOCK_IN: &str = "STOCK_IN";
 /// 追溯给出的是**假答案**。来源域里没有 `OTHER` 是设计选择（V0138 定的 4 值），
 /// 不在这张卡扩域 —— 扩域要动 CHECK + 前端映射 + 巡检登记表，属于独立卡。
 pub fn serial_source_of_in_type(in_type: &str) -> Option<&'static str> {
-    use crate::business::shared::doc_kind::SerialSourceType;
+    use cloudpivot_doc::SerialSourceType;
     match in_type {
         IN_TYPE_PURCHASE => Some(SerialSourceType::Purchase.as_str()),
         IN_TYPE_RETURN => Some(SerialSourceType::Return.as_str()),
@@ -651,7 +651,7 @@ pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_st
 mod tests {
     use super::*;
 
-    /// 入库类型必须逐字等于词表（`doc_kind.rs` 的 `DocSubtype::IN_TYPES` /
+    /// 入库类型必须逐字等于词表（`cloudpivot_doc` 的 `DocSubtype::IN_TYPES` /
     /// 前端 `doc-kinds.ts` 的 `IN_TYPES`），否则 `biz_type_domain.py` 巡检与镜像单测三方打架。
     #[test]
     fn in_type_vocabulary_matches_doc_kind() {

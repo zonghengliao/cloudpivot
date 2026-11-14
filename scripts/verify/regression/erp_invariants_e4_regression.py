@@ -257,7 +257,7 @@ def static_gate_self_test():
     import tempfile
 
     business_root = REPO / "backend/src/business"
-    # 词表本体在 cloudpivot-doc crate（P2-27 起）；旧路径 shared/doc_kind.rs 只剩转发垫片
+    # 词表本体在 cloudpivot-doc crate（P2-27 起）；旧的 shared/doc_kind.rs 垫片 P2-28 已删除
     doc_kind = REPO / "backend/crates/cloudpivot-doc/src/lib.rs"
     fake = ('fn write() {\n    inventory_writer::insert_txn(...);\n}\n'
             'pub const BIZ_TYPE_E4REG_GATE_FAKE: &str = "E4REG_GATE_FAKE";\n')

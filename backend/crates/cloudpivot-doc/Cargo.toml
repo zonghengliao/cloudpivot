@@ -10,9 +10,9 @@
 #   - 「词表 ↔ 前端 TS ↔ 库内值域」的一致性测试留在应用 crate（`backend/src/business/shared/
 #     doc_kind_tests.rs`），因为那三条约束都是**应用内**的，不是词表自身的。
 #
-# 与应用 crate 的关系：`backend/Cargo.toml` 以 path 依赖引用本 crate；
-# `backend/src/business/shared/doc_kind.rs` 是转发垫片（`pub use cloudpivot_doc::*`），
-# 所以 141 处 `crate::business::shared::doc_kind::*` 调用点一个字都不用改。
+# 与应用 crate 的关系：`backend/Cargo.toml` 以 path 依赖引用本 crate。
+# P2-28 已把 141 处 `crate::business::shared::doc_kind::*` 调用点改到 `cloudpivot_doc::*`，
+# 旧转发垫片 `backend/src/business/shared/doc_kind.rs` 已删除 —— 词表现在只有这一份定义。
 #
 # 本 crate 独立编译（不进 workspace —— workspace 骨架是 P2-C/P2-40 的活）：
 #     cd backend/crates/cloudpivot-doc && cargo check && cargo clippy -- -D warnings

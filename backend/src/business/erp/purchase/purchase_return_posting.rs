@@ -58,9 +58,9 @@ use crate::business::erp::stockin::stockin_base::InventorySnapshot;
 use crate::business::erp::stockout::stockout_base;
 use crate::business::erp::stockout::stockout_model as stock_out;
 use crate::business::erp::voucher::{self, ACCOUNT_MAIN_COST, AccountRef, EntryLine, PostVoucher, VOUCHER_TYPE_AUTO};
-use crate::business::shared::doc_kind::TxnBizType;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::TxnBizType;
 
 // ==================== 常量 ====================
 
@@ -879,7 +879,7 @@ mod tests {
         assert_eq!(STOCK_OUT_SOURCE_TYPE, "PURCHASE_RETURN");
         assert_eq!(TXN_BIZ_TYPE, "PURCHASE_RETURN");
         assert!(
-            crate::business::shared::doc_kind::TxnBizType::ALL
+            cloudpivot_doc::TxnBizType::ALL
                 .iter()
                 .any(|value| value.as_str() == TXN_BIZ_TYPE)
         );

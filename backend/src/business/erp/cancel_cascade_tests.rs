@@ -34,8 +34,8 @@ use crate::business::erp::purchase::purchase_model;
 use crate::business::erp::stockin::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 use crate::business::erp::stockin::stockin_handler;
 use crate::business::erp::stockin::stockin_model;
-use crate::business::shared::doc_kind::DocKind;
 use crate::business::shared::state_machine;
+use cloudpivot_doc::DocKind;
 
 // ==================== 夹具常量（本模块独占的命名空间） ====================
 

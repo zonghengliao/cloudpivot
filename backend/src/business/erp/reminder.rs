@@ -458,7 +458,7 @@ pub async fn ledger_snapshot(kind: RemindKind, day: NaiveDate, window_days: i64)
 /// 把 `stage` 和 `remind_kind` 写反（clippy 也会在超过 7 个参数时报警）。
 #[derive(Debug, Clone, Copy)]
 pub struct ReminderLedgerRow<'a> {
-    /// `doc_type` 列（取值域 = [`crate::business::shared::doc_kind::REMINDER_DOC_KINDS`]）。
+    /// `doc_type` 列（取值域 = [`cloudpivot_doc::REMINDER_DOC_KINDS`]）。
     pub doc_type: &'a str,
     /// `doc_id` 列（单据主键）。
     pub doc_id: Uuid,

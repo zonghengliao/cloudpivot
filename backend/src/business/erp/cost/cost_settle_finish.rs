@@ -65,10 +65,10 @@ use nik::uuid::Uuid;
 use crate::business::erp::inventory_writer::{self, TxnRecord};
 use crate::business::erp::stockin::stockin_base::{AppliedInventory, CostBasis, DOC_TYPE_STOCK_IN, TXN_TYPE_IN};
 use crate::business::erp::stockin::stockin_model;
-use crate::business::shared::doc_kind::TxnBizType;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::TxnBizType;
 
 // ==================== 常量（与迁移逐字对齐，单测钉死） ====================
 
@@ -582,10 +582,7 @@ mod tests {
         assert_eq!(BIZ_TYPE_PRODUCTION_IN, TxnBizType::ProductionIn.as_str());
         assert_eq!(BIZ_TYPE_PRODUCTION_IN, "PRODUCTION_IN");
         // 这条流水造成的单据是入库单 —— E4 净额判据按单据轴解释，不能记到别的 doc_kind
-        assert_eq!(
-            TxnBizType::ProductionIn.doc_kind(),
-            crate::business::shared::doc_kind::DocKind::StockIn
-        );
+        assert_eq!(TxnBizType::ProductionIn.doc_kind(), cloudpivot_doc::DocKind::StockIn);
     }
 
     #[test]

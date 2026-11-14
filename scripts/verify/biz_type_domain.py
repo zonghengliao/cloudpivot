@@ -10,8 +10,9 @@
 + 各 `*_VALUES` 常量（那才是唯一真相）。本脚本只负责「拿着词表去查库」——
 **绝不在这里再抄一份白名单**，抄一份就是造第 9 套词表。
 
-⚠️ 解析路径必须是**词表 crate 本体**，不能指向 `backend/src/business/shared/doc_kind.rs`：
-那个文件 P2-27 起只是 `pub use cloudpivot_doc::*;` 的转发垫片，里面**没有**任何常量定义。
+⚠️ 解析路径必须是**词表 crate 本体**，不能指回旧的 `shared/doc_kind.rs`（P2-27 曾是
+`pub use cloudpivot_doc::*;` 的转发垫片，P2-28 已删除）：那个文件里从来没有常量定义，
+按旧路径解析 = 「一个常量都找不到」却可能判绿。
 
 用法：
     python3 scripts/verify/biz_type_domain.py                # 全量巡检
@@ -47,8 +48,8 @@ import unicodedata
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-# 词表唯一真相 = cloudpivot-doc crate 本体（P2-27 起；旧路径 backend/src/business/shared/doc_kind.rs
-# 已是转发垫片，按旧路径解析会「一个常量都找不到」）
+# 词表唯一真相 = cloudpivot-doc crate 本体（P2-27 起；旧的 shared/doc_kind.rs 转发垫片
+# P2-28 已删除，按旧路径解析会「一个常量都找不到」）
 VOCAB = ROOT / "backend/crates/cloudpivot-doc/src/lib.rs"
 
 # 允许为空的列（其余列出现 NULL 也报警）
@@ -209,7 +210,7 @@ def render(results: list[dict], strict: bool) -> int:
     if failed:
         print(f"结果：FAIL（{len(failed)} 列有域外值）")
         return 1
-    print("结果：PASS（所有列的值都在 doc_kind.rs 的词表域内）")
+    print("结果：PASS（所有列的值都在 cloudpivot-doc 词表域内）")
     return 0
 
 

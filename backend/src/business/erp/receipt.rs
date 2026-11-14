@@ -82,11 +82,11 @@ use crate::business::erp::model::normalize_page;
 use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
 use crate::business::erp::voucher::{self, EntryLine, SeqSpec};
-use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::VoucherSourceType;
 
 // ==================== 权限码（与 V0293 的 sys_menu.auth_code 逐字一致） ====================
 
@@ -1816,9 +1816,9 @@ mod tests {
         );
         assert_eq!(
             VoucherSourceType::Receipt.doc_kind(),
-            Some(crate::business::shared::doc_kind::DocKind::Receipt)
+            Some(cloudpivot_doc::DocKind::Receipt)
         );
-        assert_eq!(crate::business::shared::doc_kind::DocKind::Receipt.table(), Some(TABLE));
+        assert_eq!(cloudpivot_doc::DocKind::Receipt.table(), Some(TABLE));
     }
 
     #[test]

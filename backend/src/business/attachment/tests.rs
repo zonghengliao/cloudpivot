@@ -170,13 +170,13 @@ fn hr_doc_kinds_parse_map_and_mirror_shared_vocabulary() {
 
     // ② 与共享词表**逐字同序同值**：任一处漏改都在这里红，而不是等界面上传 400。
     let mine: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.as_str()).collect();
-    let shared: Vec<&str> = crate::business::shared::doc_kind::ATTACHMENT_DOC_KINDS
+    let shared: Vec<&str> = cloudpivot_doc::ATTACHMENT_DOC_KINDS
         .iter()
         .map(|kind| kind.as_str())
         .collect();
     assert_eq!(
         mine, shared,
-        "attachment::model::DocKind::ALL 与 shared::doc_kind::ATTACHMENT_DOC_KINDS 漂移了"
+        "attachment::model::DocKind::ALL 与 cloudpivot_doc::ATTACHMENT_DOC_KINDS 漂移了"
     );
     assert_eq!(mine.len(), 21, "HR 落地后附件单据类型应为 21 类");
     println!("[HR] 4 类 HR 单据可解析 / 可映射表 + 与共享词表 21 值逐字一致 ✓");

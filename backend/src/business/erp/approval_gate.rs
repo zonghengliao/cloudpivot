@@ -495,7 +495,7 @@ pub async fn health() -> DbResult<FlowHealthRes> {
 
 /// 查测试残留（`biz_type` = `E2E_*` / `D2_SMOKE` 且未软删）。
 ///
-/// 判据**不在这里重写**：用 [`crate::business::shared::doc_kind::TEST_RESIDUE_SQL`]，
+/// 判据**不在这里重写**：用 [`cloudpivot_doc::TEST_RESIDUE_SQL`]，
 /// 与 `biz_type_domain.py --strict`、[`crate::shared::startup_guard::count_test_residue`]
 /// 是同一个口径（否则「巡检红了但 /health 说干净」这种对不上会反复出现）。
 ///
@@ -506,7 +506,7 @@ pub async fn health() -> DbResult<FlowHealthRes> {
 /// 数据库异常 → [`DbError`]（500）。
 // SCOPE-EXEMPT: 体检是全局计数（跨全部流程定义/实例），注入数据范围会漏检。
 async fn inspect_test_residue() -> DbResult<TestResidueRes> {
-    use crate::business::shared::doc_kind::TEST_RESIDUE_SQL;
+    use cloudpivot_doc::TEST_RESIDUE_SQL;
 
     let defs: i64 = db()
         .scalar_with_params(

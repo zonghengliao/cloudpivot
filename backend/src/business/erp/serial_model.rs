@@ -104,8 +104,8 @@ use crate::business::erp::model::normalize_page;
 use crate::business::erp::serial_dto::SerialFilter;
 use crate::business::erp::stockin::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, SerialMovement};
-use crate::business::shared::doc_kind;
 use crate::business::shared::scope;
+use cloudpivot_doc::SerialSourceType;
 
 use super::inventory_writer::{self, TxnRecord};
 
@@ -180,7 +180,7 @@ pub async fn ensure_source_pair(
         }
         return Ok(());
     };
-    let kind = doc_kind::SerialSourceType::parse(source_type).ok_or_else(|| {
+    let kind = SerialSourceType::parse(source_type).ok_or_else(|| {
         DbError::InvalidValue(format!(
             "source_type 只能是 {} 之一（收到 {source_type}）",
             SOURCE_TYPES.join(" / ")
@@ -212,7 +212,7 @@ pub async fn ensure_source_pair(
                 }
                 other => {
                     return Err(DbError::InvalidValue(format!(
-                        "序列号来源目标表 {other} 未登记（见 doc_kind::SerialSourceType::target_table）"
+                        "序列号来源目标表 {other} 未登记（见 cloudpivot_doc::SerialSourceType::target_table）"
                     )));
                 }
             }

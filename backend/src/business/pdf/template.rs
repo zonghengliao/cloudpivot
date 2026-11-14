@@ -226,7 +226,7 @@ impl OrderDocKind {
         }
     }
 
-    /// `shared::doc_kind::DocKind` 的落库值（大写下划线，**只在这里派生**）。
+    /// `cloudpivot_doc::DocKind` 的落库值（大写下划线，**只在这里派生**）。
     pub fn doc_kind_str(self) -> &'static str {
         match self {
             OrderDocKind::Purchase => "PURCHASE_ORDER",
@@ -868,7 +868,7 @@ impl StockDocKind {
         }
     }
 
-    /// `shared::doc_kind` 的落库值。
+    /// `cloudpivot_doc` 的落库值。
     pub fn doc_kind_str(self) -> &'static str {
         match self {
             StockDocKind::StockIn => "STOCK_IN",
@@ -1756,7 +1756,7 @@ impl ReturnDocKind {
         }
     }
 
-    /// `shared::doc_kind` 的落库值（`operation_logs.detail.doc_type`）。
+    /// `cloudpivot_doc` 的落库值（`operation_logs.detail.doc_type`）。
     pub fn doc_kind_str(self) -> &'static str {
         match self {
             ReturnDocKind::Purchase => "PURCHASE_RETURN",

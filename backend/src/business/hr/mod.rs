@@ -17,7 +17,7 @@
 //! 批 1 已由 HR-01~HR-08 落地（迁移见 `backend/migrations/business/V0383~V0389`）：
 //! 10 张表、9 个损益/负债科目、2 条工资凭证规则、4 条号段（`EMP/LV/ATT/SAL`）、4 个字典、
 //! 36 行菜单 + 35 个权限码、2 条脱敏规则（`id_card` / `bank_account`）、
-//! `doc_kind.rs` 的 5 `DocKind` / 4 `FlowBizType` / 2 `VoucherSourceType`。
+//! `cloudpivot_doc` 的 5 `DocKind` / 4 `FlowBizType` / 2 `VoucherSourceType`。
 //!
 //! # 本卡做了什么 / 不做什么
 //!

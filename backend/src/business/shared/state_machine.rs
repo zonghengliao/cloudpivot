@@ -62,12 +62,12 @@ use crate::shared::error_code;
 
 // ==================== 实体类型 ====================
 //
-// 落库值的**唯一真相**是 [`crate::business::shared::doc_kind::DocKind`]（P2-5 词表收敛）。
+// 落库值的**唯一真相**是 [`cloudpivot_doc::DocKind`]（P2-5 词表收敛）。
 // 这里的常量是它在状态机侧的别名：值从枚举取，不再各写一遍字面量 ——
 // 曾经 `ENTITY_TRANSFER = "TRANSFER"` 与本表 / `doc_type` / 审批 `biz_type` 三处的
 // `STOCK_TRANSFER` 对不上，报表按 `entity_type` 分组就把调拨拆成两行（V0219 已改存量）。
 
-use crate::business::shared::doc_kind::DocKind;
+use cloudpivot_doc::DocKind;
 
 /// 实体类型：收货入库单。
 pub const ENTITY_STOCK_IN: &str = DocKind::StockIn.as_str();

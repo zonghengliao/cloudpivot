@@ -113,11 +113,11 @@ use crate::business::erp::period;
 use crate::business::erp::receivable::{self, ReceivableRow};
 use crate::business::erp::tax_rate as tax_rate_mod;
 use crate::business::erp::voucher::{self, ReversalInput, SeqSpec};
-use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::VoucherSourceType;
 
 // ==================== 权限码（与 V0299 的 sys_menu.auth_code 逐字一致） ====================
 
@@ -2172,15 +2172,12 @@ mod tests {
         );
         assert_eq!(
             VoucherSourceType::Invoice.doc_kind(),
-            Some(crate::business::shared::doc_kind::DocKind::Invoice)
+            Some(cloudpivot_doc::DocKind::Invoice)
         );
-        assert_eq!(crate::business::shared::doc_kind::DocKind::Invoice.table(), Some(TABLE));
-        assert_eq!(
-            crate::business::shared::doc_kind::DocKind::Invoice.route(),
-            Some("invoice")
-        );
-        assert!(crate::business::shared::doc_kind::DocKind::Invoice.is_document());
-        assert_eq!(crate::business::shared::doc_kind::DocKind::Invoice.label(), "销售发票");
+        assert_eq!(cloudpivot_doc::DocKind::Invoice.table(), Some(TABLE));
+        assert_eq!(cloudpivot_doc::DocKind::Invoice.route(), Some("invoice"));
+        assert!(cloudpivot_doc::DocKind::Invoice.is_document());
+        assert_eq!(cloudpivot_doc::DocKind::Invoice.label(), "销售发票");
     }
 
     #[test]

@@ -45,7 +45,7 @@
 //! - 按 `posted_at DESC NULLS LAST, created_at DESC` 排（最新一笔在最前）；
 //! - **空结果返回 `[]`，不是 404**：没生成过凭证是正常业务状态（未记账 / 只建单），
 //!   前端据此决定按钮显示与否；404 会让「查不到」和「单据不存在」两件事混在一起。
-//! - `source_type` 必须在 [`crate::business::shared::doc_kind::VoucherSourceType`] 值域内，
+//! - `source_type` 必须在 [`cloudpivot_doc::VoucherSourceType`] 值域内，
 //!   非法值 **400**（静默返回空数组 = 让前端以为「这张单没凭证」，是静默错数据，与
 //!   `status` / `voucher_type` 的校验口径一致）。
 //!
@@ -74,10 +74,10 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::model::normalize_page;
-use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::VoucherSourceType;
 
 // ==================== 表名 / 常量 ====================
 

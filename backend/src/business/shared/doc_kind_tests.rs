@@ -22,8 +22,8 @@
 //! | [`demo_seed_voucher_sources_are_enum_values`] | `scripts/demo_seed.sh` 手写的凭证来源 ∈ `VoucherSourceType::ALL` |
 //! | [`demo_seed_source_guard_matches_enum`] | `demo_seed.sh` ⑩ 自检的来源白名单 ↔ `VoucherSourceType::ALL` |
 
-use super::*;
 use crate::business::erp::approval_gate;
+use cloudpivot_doc::*;
 
 /// 仓库根（`backend/` 的上一级），用于读前端的镜像文件。
 fn repo_root() -> std::path::PathBuf {
@@ -381,31 +381,28 @@ fn no_legacy_transfer_entity_type() {
 #[test]
 fn test_residue_predicate_matches_python_and_sql() {
     // 真阳性：e2e 脚本写进生产库的那两种形态
-    assert!(crate::business::shared::doc_kind::is_test_residue("E2E_AP_E2EMVUARCAT"));
-    assert!(crate::business::shared::doc_kind::is_test_residue("E2E_"));
-    assert!(crate::business::shared::doc_kind::is_test_residue("D2_SMOKE"));
+    assert!(cloudpivot_doc::is_test_residue("E2E_AP_E2EMVUARCAT"));
+    assert!(cloudpivot_doc::is_test_residue("E2E_"));
+    assert!(cloudpivot_doc::is_test_residue("D2_SMOKE"));
     // 真阴性：内置流程 / 客户自定义流程 / 形似但不是
     for raw in ["PO_APPROVE", "TASK_ACCEPT", "OTHER", "E2EX", "e2e_ap_x", "D2_SMOKE_X"] {
-        assert!(
-            !crate::business::shared::doc_kind::is_test_residue(raw),
-            "{raw} 不该被当成测试残留"
-        );
+        assert!(!cloudpivot_doc::is_test_residue(raw), "{raw} 不该被当成测试残留");
     }
     // SQL 片段与函数同口径（前缀 4 字符 + 精确值）
     assert_eq!(
-        crate::business::shared::doc_kind::TEST_RESIDUE_SQL,
+        cloudpivot_doc::TEST_RESIDUE_SQL,
         "(left(biz_type, 4) = 'E2E_' OR biz_type = 'D2_SMOKE')"
     );
     assert_eq!(
-        crate::business::shared::doc_kind::TEST_RESIDUE_PREFIX.len(),
+        cloudpivot_doc::TEST_RESIDUE_PREFIX.len(),
         4,
         "SQL 里用的是 left(biz_type, 4)，前缀长度必须也是 4"
     );
     // 内置词表里绝不能有测试残留值（否则「删残留」会把内置流程一起删掉）
-    for item in crate::business::shared::doc_kind::COLUMN_DOMAINS {
+    for item in cloudpivot_doc::COLUMN_DOMAINS {
         for value in item.values {
             assert!(
-                !crate::business::shared::doc_kind::is_test_residue(value),
+                !cloudpivot_doc::is_test_residue(value),
                 "{}.{} 的词表里出现了测试残留值 {value}",
                 item.table,
                 item.column

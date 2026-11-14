@@ -110,11 +110,11 @@ use crate::business::erp::receivable;
 use crate::business::erp::voucher::{self, EntryLine, SeqSpec};
 use crate::business::erp::{approval_gate, receipt_refund_bridge};
 use crate::business::flow::{engine, model as flow_model};
-use crate::business::shared::doc_kind::VoucherSourceType;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
+use cloudpivot_doc::VoucherSourceType;
 
 // ==================== 权限码（与 V0295 的 sys_menu.auth_code 逐字一致） ====================
 
@@ -2567,7 +2567,7 @@ mod tests {
         assert_eq!(VoucherSourceType::ReceiptRefund.as_str(), SOURCE_RECEIPT_REFUND);
         assert_eq!(
             VoucherSourceType::ReceiptRefund.doc_kind(),
-            Some(crate::business::shared::doc_kind::DocKind::ReceiptRefund)
+            Some(cloudpivot_doc::DocKind::ReceiptRefund)
         );
     }
 

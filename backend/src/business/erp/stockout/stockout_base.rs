@@ -25,9 +25,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::voucher;
-use crate::business::shared::doc_kind::{DocSubtype, TxnBizType, TxnDocType};
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
+use cloudpivot_doc::{DocSubtype, TxnBizType, TxnDocType};
 
 // ==================== 表名 / 常量 ====================
 
@@ -69,7 +69,7 @@ pub const DOC_TYPE_STOCK_OUT: &str = TxnDocType::StockOut.as_str();
 /// 出库流水的业务类型（`biz_inventory_txn.biz_type`）。
 ///
 /// **取值一律来自 [`TxnBizType`]（词表唯一真相）**，这里只是给 erp 侧一个好念的别名：
-/// 手写字符串会和 `doc_kind.rs` / 前端 `doc-kinds.ts` 的词表悄悄漂开（FIX-7 起因）。
+/// 手写字符串会和 `cloudpivot_doc` / 前端 `doc-kinds.ts` 的词表悄悄漂开（FIX-7 起因）。
 pub const BIZ_TYPE_ISSUE: &str = TxnBizType::IssueOut.as_str();
 
 /// 单据来源类型：销售发货（`source_type`，V0285）。
@@ -218,7 +218,7 @@ pub fn biz_type_of(out_type: &str) -> &'static str {
 /// 单看 `out_type` 会把「销售出库」和手工「其他出库」记成同一个业务动作，
 /// 按 `biz_type` 统计销售出库直接归零（报表 / 巡检 / 追溯都给假答案）。
 ///
-/// 取值全部来自词表 [`TxnBizType`]（`doc_kind.rs` 唯一真相），没有裸字面量。
+/// 取值全部来自词表 [`TxnBizType`]（`cloudpivot_doc` 唯一真相），没有裸字面量。
 pub fn biz_type_of_doc(out_type: &str, source_type: Option<&str>) -> &'static str {
     if source_type == Some(SOURCE_TYPE_SALES) {
         BIZ_TYPE_SALE_OUT
@@ -489,7 +489,7 @@ pub struct StockOutFilter {
 mod tests {
     use super::*;
 
-    /// 出库流水的 biz_type / out_type / doc_type 必须逐字等于词表（`doc_kind.rs`）：
+    /// 出库流水的 biz_type / out_type / doc_type 必须逐字等于词表（`cloudpivot_doc`）：
     /// 手写字符串一旦与词表漂开，前端 `doc-kinds.ts` 的镜像单测与库里存量值三方打架。
     #[test]
     fn stock_out_vocabulary_matches_doc_kind() {
