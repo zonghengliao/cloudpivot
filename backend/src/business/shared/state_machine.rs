@@ -792,7 +792,7 @@ pub const PERIOD_EDGES: [(&str, &str); 3] = [("NOT_OPENED", "OPEN"), ("OPEN", "C
 pub const PERIOD_REASON_EDGES: [(&str, &str); 1] = [("CLOSED", "OPEN")];
 
 /// 期间没有「入账态只读」的概念：`CLOSED` 的只读性由
-/// [`crate::business::erp::period::ensure_period_writable`] 在记账入口拦截（400），
+/// ERP 侧的 `business/erp/period.rs::ensure_period_writable` 在记账入口拦截（400），
 /// 不走 `ensure_writable`（那是「单据字段不许改」的闸，语义不同）。
 pub const PERIOD_LOCKED: [&str; 0] = [];
 
@@ -810,7 +810,7 @@ pub const YEAR_END_EDGES: [(&str, &str); 2] = [("NOT_CLOSED", "CLOSED"), ("CLOSE
 /// 年结本身的 `reason` 是可选备注（与期间结账同口径）。
 pub const YEAR_END_REASON_EDGES: [(&str, &str); 1] = [("CLOSED", "NOT_CLOSED")];
 
-/// 年结没有「入账态只读」：结转凭证一旦生成就由 [`crate::business::erp::year::year_end`]
+/// 年结没有「入账态只读」：结转凭证一旦生成就由 ERP 侧的 `business/erp/year.rs::year_end`
 /// 反年结删掉，不存在「字段不许改」的单据形态。
 pub const YEAR_END_LOCKED: [&str; 0] = [];
 
@@ -3969,9 +3969,6 @@ mod tests {
         db().execute_with_params("DELETE FROM biz_status_log WHERE entity_no LIKE 'P10SM-%'", vec![])
             .await
             .unwrap_or_else(|err| panic!("清理状态日志失败：{err}"));
-        db().execute_with_params("DELETE FROM biz_status_log WHERE entity_no LIKE 'P10SMV-%'", vec![])
-            .await
-            .unwrap();
     }
 
     fn op() -> Operator {
@@ -4381,46 +4378,6 @@ mod tests {
         assert_eq!(trail[0].biz_ref_no.as_deref(), Some("PM-P10SM-000001"));
     }
 
-    /// ⑫ POSTED 凭证改摘要 → 409（入账后只读，凭证侧）。
-    #[tokio::test]
-    async fn posted_voucher_summary_change_is_conflict() {
-        let _db = match setup().await {
-            Some(guard) => guard,
-            None => return,
-        };
-        // 直接造一张 POSTED 凭证（本用例只验只读闸，不验分录平衡）
-        let id = Uuid::now_v7();
-        let text = id.to_string();
-        let no = format!("P10SMV-{}", &text[text.len() - 8..]);
-        db().execute_with_params(
-            "INSERT INTO biz_voucher (id, voucher_word, voucher_no, period, voucher_date, \
-                 voucher_type, source_type, summary, total_debit, total_credit, entry_count, \
-                 status, is_red) \
-             VALUES (?::uuid, '记', ?, '2026-10', CURRENT_DATE, 'AUTO', 'STOCK_IN', '测试摘要', \
-                 0, 0, 2, 'POSTED', 0)",
-            vec![Value::from(&id), Value::Text(no.clone())],
-        )
-        .await
-        .unwrap();
-
-        let err = crate::business::erp::voucher::voucher_write::update_summary(id, Some("改过的摘要"), None)
-            .await
-            .unwrap_err();
-        assert_eq!(err.status, 409, "{}", err.msg);
-        assert!(err.msg.contains("已入账"), "{}", err.msg);
-        let summary: String = db()
-            .scalar_with_params(
-                "SELECT summary FROM biz_voucher WHERE id = ?::uuid",
-                vec![Value::from(&id)],
-            )
-            .await
-            .unwrap();
-        assert_eq!(summary, "测试摘要", "409 时不能真改库");
-
-        db().execute_with_params("DELETE FROM biz_voucher WHERE id = ?::uuid", vec![Value::from(&id)])
-            .await
-            .unwrap();
-    }
     // ==================== 【D1】第 1 层：BASE_EDGES ====================
 
     /// ❶ 纯重构不变量：BASE_EDGES 与 `edges()` **逐条同序**，`requires_reason` 与

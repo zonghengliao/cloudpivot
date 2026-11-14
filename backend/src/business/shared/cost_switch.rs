@@ -13,10 +13,10 @@
 //! 打开后全部恢复，**切换不需要重启**：值走 [`SysConfigModel::read_text`] 的进程内快照
 //! （参数写操作 / 跨实例版本轮询都会刷新），因此每一次判定都是当前值。
 //!
-//! # 为什么在 `business::shared` 而不是 `business::erp`
+//! # 为什么在 `business::shared` 而不是 `business/erp/`
 //!
 //! 判定要被 `system::auth`（菜单 / 权限过滤）用到，而 `system` 依赖 `business::shared::*`
-//! 是既有分层（`principal` / `scope` / `guard` 都这么用），依赖 `business::erp::*` 则会把
+//! 是既有分层（`principal` / `scope` / `guard` 都这么用），依赖 ERP 业务层则会把
 //! 平台层绑到某个业务域上。开关判定是「跨域的基础设施」，放这里最不容易被误用。
 //!
 //! # 三条不要再犯的坑

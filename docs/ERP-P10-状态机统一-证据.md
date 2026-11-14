@@ -54,6 +54,11 @@ test result: ok. 1439 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; f
 - `business::erp::*` **336 passed**（P9 交付基线 323 → 本卡 +13）
 - `business::shared::state_machine::*` **9 passed**
 
+> P2-30（2026-11-15）：上表 ⑬ 这条用例已从 `state_machine.rs` 迁到凭证侧
+> `business/erp/voucher/voucher_write.rs`（用例名不变），以摘掉 `shared → erp` 的最后一条回边；
+> 因此 `business::shared::state_machine::*` 现在是 **8 passed**，`voucher_write` 侧 +1。
+> 本条快照保留 P10 交付时的原始计数，不追改历史。
+
 ### 3. 本卡 16 条用例 ↔ 实现的对应表
 
 | 卡面 | 用例 | 位置 |
@@ -70,7 +75,7 @@ test result: ok. 1439 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; f
 | ⑩ | `p10_posted_items_change_is_conflict` | stockin_handler.rs |
 | ⑪ | `p10_posted_remark_change_is_allowed` | stockin_handler.rs |
 | ⑫ | `p10_draft_amount_change_is_allowed` | stockin_handler.rs |
-| ⑬ | `posted_voucher_summary_change_is_conflict` | state_machine.rs |
+| ⑬ | `posted_voucher_summary_change_is_conflict` | voucher_write.rs（P2-30 从 state_machine.rs 迁入，用例名未改） |
 | ⑭ | `p10_receipt_advances_order_and_logs_ref` | stockin_handler.rs |
 | ⑮ | `p10_partial_receipt_advances_to_partial_received` | stockin_handler.rs |
 | ⑯ | `purchase_order_draft_to_received_is_conflict` | state_machine.rs |

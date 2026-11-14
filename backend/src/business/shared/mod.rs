@@ -58,6 +58,10 @@ mod doc_kind_entity_tests;
 /// 单据明细行数上限的统一文案（P1-04）：明确拒绝 + 引导走导入通道。
 pub mod doc_lines;
 pub mod guard;
+/// 分层护栏（P2-30）：`shared` 是跨域基座，**不许**反向依赖任何业务域
+/// （`erp` 的两条历史回边已清零：词表进 `cloudpivot-doc` crate、凭证只读用例搬回 ERP 侧）。
+#[cfg(test)]
+mod layering_tests;
 pub mod principal;
 pub mod scope;
 pub mod state_machine;

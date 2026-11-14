@@ -2698,6 +2698,54 @@ mod tests {
         assert_eq!(row.summary, "草稿可以改");
     }
 
+    /// `POSTED` 凭证改摘要 → 409（入账后只读，**凭证侧**）。
+    ///
+    /// P2-30 从 `business::shared::state_machine` 的 `mod tests` 迁来（原编号 ⑫，用例名不变）：
+    /// 被调的是本模块的 [`update_summary`]，闸也在本模块 —— 留在 `shared` 会让跨域基座反过来
+    /// 依赖 `business::erp`（工具层 → 业务层，循环依赖）。断言一条没改，只做两处夹具适配：
+    /// 摘要换成 `P7V-` 前缀（并入本模块 `cleanup_fixtures()` 的清场口径）、删掉用例末尾的
+    /// 手工 DELETE（清场统一由 `setup()` / `zz_teardown_purges_voucher_status_logs` 收）。
+    #[tokio::test]
+    async fn posted_voucher_summary_change_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 直接造一张 POSTED 凭证（本用例只验只读闸，不验分录平衡）
+        const SUMMARY: &str = "P7V-POSTED-只读闸";
+        let id = Uuid::now_v7();
+        let text = id.to_string();
+        let no = format!("P7V-{}", &text[text.len() - 8..]);
+        db().execute_with_params(
+            "INSERT INTO biz_voucher (id, voucher_word, voucher_no, period, voucher_date, \
+                 voucher_type, source_type, summary, total_debit, total_credit, entry_count, \
+                 status, is_red) \
+             VALUES (?::uuid, '记', ?, '2026-10', CURRENT_DATE, 'AUTO', 'STOCK_IN', ?,
+                 0, 0, 2, 'POSTED', 0)",
+            vec![
+                Value::from(&id),
+                Value::Text(no.clone()),
+                Value::Text(SUMMARY.to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let err = update_summary(id, Some("改过的摘要"), None)
+            .await
+            .expect_err("已记账的凭证不许改摘要");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("已入账"), "{}", err.msg);
+        let summary: String = db()
+            .scalar_with_params(
+                "SELECT summary FROM biz_voucher WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(summary, SUMMARY, "409 时不能真改库");
+    }
+
     /// ⑽ 落库状态白名单：`AUDITED` 不能直接落库（没人审却显示已审核 = 掏空复核）。
     #[tokio::test]
     async fn p4a_initial_audited_status_is_rejected() {

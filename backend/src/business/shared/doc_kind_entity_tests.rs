@@ -1,8 +1,8 @@
 //! `state_machine` 实体注册表 ↔ 词表（`DocKind`）的契约（P2-29）。
 //!
 //! 这两条必须 import **应用代码**（`business::shared::state_machine`），所以它们留在应用 crate，
-//! 不进零依赖的 `cloudpivot-doc` crate —— 本模块**不**引用 `business::erp::*`，
-//! `shared → erp` 的回边不会再长出来。
+//! 不进零依赖的 `cloudpivot-doc` crate —— 本模块**不**引用 ERP 业务层，
+//! `shared → erp` 的回边不会再长出来（P2-30 起 `shared/` 全目录零业务域路径引用）。
 //!
 //! | 用例 | 钉住什么 |
 //! |---|---|

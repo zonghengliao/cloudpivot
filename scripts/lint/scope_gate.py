@@ -206,6 +206,7 @@ business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
 business/shared/doc_kind_entity_tests.rs
+business/shared/layering_tests.rs
 business/task/task_attachment_snapshot_tests.rs
 business/task/task_doc_link_tests.rs
 business/task/task_handler_copy_db_tests.rs
