@@ -615,7 +615,7 @@ P = 20（约 1/5）
 
 ### 5.1 API 清单
 
-> **出参口径**：卡面模板写的是 `header / items / meta`，但本仓库的实际口径是 `Res<T>` 的 `data = PageData<T> = {list, total, page, page_size}`（`frontend/src/api/request.ts:15-24`，后端同一口径的先例见 `backend/src/business/erp/stockout_dto.rs:482-492`）。**本设计服从仓库现状**，与 ARCH9-3 在 §5.1 的处理一致 —— 不为了一份卡面模板造第二套分页形状。
+> **出参口径**：卡面模板写的是 `header / items / meta`，但本仓库的实际口径是 `Res<T>` 的 `data = PageData<T> = {list, total, page, page_size}`（`frontend/src/api/request.ts:15-24`，后端同一口径的先例见 `backend/src/business/erp/stockout/stockout_dto.rs:482-492`）。**本设计服从仓库现状**，与 ARCH9-3 在 §5.1 的处理一致 —— 不为了一份卡面模板造第二套分页形状。
 
 | # | Method + Path | 入参 | 出参关键字段 | 权限码 |
 |---|---|---|---|---|

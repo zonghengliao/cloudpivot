@@ -2,7 +2,7 @@
 
 > 本文件回答三个问题：**取号器是全局单行还是按单据类型分行**、**跳号算不算 bug**、
 > **怎么核对有没有重号**。卡面（FIX-8 / t_6ddb0036）问题 1 的结论就写在这里，
-> 代码里的执行断言见 `backend/src/business/erp/voucher.rs` 的
+> 代码里的执行断言见 `backend/src/business/erp/voucher/mod.rs` 的
 > `fix8_concurrent_takes_never_duplicate` / `fix8_seq_types_advance_independently`。
 
 ## 1. 结论（先看这段）

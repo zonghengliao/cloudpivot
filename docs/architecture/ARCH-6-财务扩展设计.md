@@ -3375,11 +3375,11 @@ union all select 'office', round(240/1.13*0.13,2), 240-round(240/1.13*0.13,2);
 | 结论 | 命令 | 输出 |
 |---|---|---|
 | 报销无 ERP 审批桥接（`FlowBizType::Expense` 只有枚举） | `grep -rn "FlowBizType::Expense" backend/src` | 5 处全在 `doc_kind.rs` |
-| 凭证生成唯一实现 | `grep -n "pub async fn create_by_rule" backend/src/business/erp/voucher.rs` | `1472` |
+| 凭证生成唯一实现 | `grep -n "pub async fn create_by_rule" backend/src/business/erp/voucher/mod.rs` | `1472` |
 | 红冲唯一实现 | `grep -n "pub async fn reverse_posted" …` | `2014` |
 | 部门辅助账已支持 | `grep -n "AUX_DEPT" backend/src/business/erp/ledger.rs` | `713` `("DEPT", "aux_dept_id")` |
-| 供应商信用额度是策略 B | `sed -n '1,60p' backend/src/business/erp/purchase_credit.rs` | 整篇注释 |
-| 采购提交是预算守卫的挂点 | `grep -n "pub async fn submit_approval" backend/src/business/erp/purchase_handler.rs` | `1006` |
+| 供应商信用额度是策略 B | `sed -n '1,60p' backend/src/business/erp/purchase/purchase_credit.rs` | 整篇注释 |
+| 采购提交是预算守卫的挂点 | `grep -n "pub async fn submit_approval" backend/src/business/erp/purchase/purchase_handler.rs` | `1006` |
 | 状态机实体注册表 | `grep -n "pub enum Entity" backend/src/business/shared/state_machine.rs` | `703` |
 
 ---

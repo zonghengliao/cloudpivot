@@ -229,7 +229,7 @@ P08：付款 3.5 失败 10001 [10003] 应付单 AP-20261031-000153 的状态没�
 
 根因指针（未改动）：
 
-- 调用点 `backend/src/business/erp/payable_payment.rs:589`：无条件调用
+- 调用点 `backend/src/business/erp/payable/payable_payment.rs:589`：无条件调用
   `state_machine::transition(..., &row.status, status, ...)`，
   「已 PARTIAL_PAID 再部分付款」时 `from == to`；
 - 拒绝点 `backend/src/business/shared/state_machine.rs:452`：`if from == to → 409 / 10001`

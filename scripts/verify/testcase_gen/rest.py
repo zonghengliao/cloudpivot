@@ -433,7 +433,7 @@ BOUND = dict(
     cases=[
         c("数量 = 0", "—",
           "1.建收货单明细 `qty=0` 2.过账",
-          "**建单即 400 + `10001`**，文案含「收货数量必须 > 0」（`backend/src/business/erp/stockin_dto.rs` 的 `qty <= 0` 分支，草稿态同样拒）；`biz_stock_in_item` 不留任何行、库存与流水零变化",
+          "**建单即 400 + `10001`**，文案含「收货数量必须 > 0」（`backend/src/business/erp/stockin/stockin_dto.rs` 的 `qty <= 0` 分支，草稿态同样拒）；`biz_stock_in_item` 不留任何行、库存与流水零变化",
           "P0", AUTO_TODO, "库上还有 `ck_biz_si_item_qty CHECK (qty > 0)` 兜底，所以接口层和库层两道都得测"),
         c("数量 = 负数", "—",
           "1.`qty=-5` 过账",

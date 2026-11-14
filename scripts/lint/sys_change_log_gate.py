@@ -12,8 +12,8 @@
 v1 的判据是 `grep -rn sys_change_log | grep -v "business/changelog/"`，只排「整行注释」。
 2026-11-10（卡 t_2746ca53）实测它在 HEAD 上是红的，两条命中**全部是测试代码**：
 
-    backend/src/business/erp/contract_handler.rs:1998  #[cfg(test)] 里断言「改一次只写一行」
-    backend/src/business/erp/contract_handler.rs:2059  #[cfg(test)] 里 count(*) 断言「值没变不写」
+    backend/src/business/erp/contract/contract_handler.rs:1998  #[cfg(test)] 里断言「改一次只写一行」
+    backend/src/business/erp/contract/contract_handler.rs:2059  #[cfg(test)] 里 count(*) 断言「值没变不写」
 
 测试**读**一眼审计表来断言行为，不是生产写路径。判红等于「写这个测试要跟门禁打架」，
 于是要么有人关闸，要么有人不写测试 —— 两种结果都比这道闸想防的问题更糟。
@@ -56,7 +56,7 @@ ALLOWED_PREFIX = "business/changelog/"  # 唯一允许访问该表的模块
 def scan_source(name: str, text: str) -> list[tuple[int, str]]:
     """返回 [(行号, 代码片段)]，只报**生产面**的命中（测试文件 / #[cfg(test)] 项不算）。
 
-    `name` 用相对 src 的 posix 路径（如 `business/erp/contract_handler.rs`）。
+    `name` 用相对 src 的 posix 路径（如 `business/erp/contract/contract_handler.rs`）。
     """
     if is_test_file(Path(name)):
         return []
@@ -97,13 +97,13 @@ def scan_source(name: str, text: str) -> list[tuple[int, str]]:
 SELF_TEST_CASES: list[tuple[str, str, str, bool]] = [
     (
         "生产代码 SELECT 审计表",
-        "business/erp/contract_handler.rs",
+        "business/erp/contract/contract_handler.rs",
         'async fn f() { db().find("SELECT id FROM sys_change_log WHERE resource = ?").await; }',
         True,   # 期望红
     ),
     (
         "生产代码 INSERT 审计表",
-        "business/erp/sales_order.rs",
+        "business/erp/sales/sales_order_handler.rs",
         'db().execute("INSERT INTO sys_change_log (id) VALUES (?)").await;',
         True,
     ),
@@ -115,37 +115,37 @@ SELF_TEST_CASES: list[tuple[str, str, str, bool]] = [
     ),
     (
         "测试文件整体豁免",
-        "business/erp/contract_handler_tests.rs",
+        "business/erp/contract/contract_approval_tests.rs",
         'db().find("SELECT 1 FROM sys_change_log").await;',
         False,
     ),
     (
         "tests 目录豁免",
-        "business/erp/payable_payment/tests/linkage.rs",
+        "business/erp/payable/payable_payment/tests/payable_linkage_db_tests.rs",
         'db().find("SELECT 1 FROM sys_change_log").await;',
         False,
     ),
     (
         "文件内 #[cfg(test)] 项豁免（本次实测命中的形态）",
-        "business/erp/contract_handler.rs",
+        "business/erp/contract/contract_handler.rs",
         'pub async fn prod() { 1 }\n#[cfg(test)]\nmod tests {\n    async fn t() {\n        db().find("SELECT 1 FROM sys_change_log").await;\n    }\n}\n',
         False,
     ),
     (
         "注释里提到表名不算",
-        "business/erp/contract_handler.rs",
+        "business/erp/contract/contract_handler.rs",
         "// 不要直接写 sys_change_log，走 changelog::record\npub async fn prod() { 1 }\n",
         False,
     ),
     (
         "块注释里提到表名不算",
-        "business/erp/contract_handler.rs",
+        "business/erp/contract/contract_handler.rs",
         "/* SELECT * FROM sys_change_log */\npub async fn prod() { 1 }\n",
         False,
     ),
     (
         "#[cfg(test)] 之后的**生产代码**仍然要判红（别把整个文件豁免掉）",
-        "business/erp/contract_handler.rs",
+        "business/erp/contract/contract_handler.rs",
         '#[cfg(test)]\nmod tests { fn t() {} }\npub async fn prod() { db().find("SELECT 1 FROM sys_change_log").await; }\n',
         True,
     ),

@@ -31,7 +31,7 @@
 （后两个由原 `cascade_tests`（1135 行）按「状态级联」/「取消级联」拆开，
 原内嵌 `mod t11_cancel` 提升为独立模块 `cascade_cancel_tests`）。
 
-### 2. `backend/src/business/erp/stockin_handler.rs`：9394 → **131 行**（facade）
+### 2. `backend/src/business/erp/stockin/stockin_handler.rs`：9394 → **131 行**（facade）
 
 7 个代码部件：
 

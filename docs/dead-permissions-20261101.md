@@ -271,7 +271,7 @@ N18 会持续校验这笔台账（例外的码一旦有了注解或消失，N18 
 ## 9. 补记（SO-36b，2026-11-07）：佣金 7 码全部落地，例外台账清零
 
 `commission-rule:{list,create,update,delete}` 四个接口由 **SO-36b** 补齐
-（`backend/src/business/erp/commission_rule_handler.rs`），`commission-settle:{create,list,status}`
+（`backend/src/business/erp/commission/commission_rule_handler.rs`），`commission-settle:{create,list,status}`
 三个码由 SO-36 补齐。至此 V0310 预种的 7 个码**全部**有 `#[nik::permission]` 注解落地：
 
 - `ROUTE_LEVEL_ONLY` 里 4 条 `business:erp:commission-rule:*` 例外**已删除**（按第 8 节的纪律）；

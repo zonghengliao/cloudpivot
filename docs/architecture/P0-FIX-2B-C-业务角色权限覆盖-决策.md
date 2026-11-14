@@ -60,7 +60,7 @@
 
 ```text
 代码在用、菜单没有（无法通过 sys_role_menu 授予任何非超管角色）：
-  business:erp:voucher:audit      → backend/src/business/erp/voucher_write.rs:1589  审核 DRAFT→AUDITED
+  business:erp:voucher:audit      → backend/src/business/erp/voucher/voucher_write.rs:1589  审核 DRAFT→AUDITED
   business:erp:voucher:un-audit   → voucher_write.rs:1614                            反审核 AUDITED→DRAFT
   business:erp:voucher:post       → voucher_write.rs:1638                            记账 AUDITED→POSTED
 （另 1 条 x:y:z 是单测夹具，忽略）

@@ -22,8 +22,8 @@ $SRC/business/flow/linkage/engine.rs \
 $SRC/business/flow/linkage/spec.rs \
 $SRC/business/flow/linkage/tests.rs \
 $SRC/business/erp/voucher/mod.rs \
-$SRC/business/erp/stockin_query.rs \
-$SRC/business/erp/stockin_handler.rs"
+$SRC/business/erp/stockin/stockin_query.rs \
+$SRC/business/erp/stockin/stockin_handler.rs"
 
 fail=0
 

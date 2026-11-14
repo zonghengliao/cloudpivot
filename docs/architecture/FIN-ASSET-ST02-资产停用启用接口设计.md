@@ -30,7 +30,7 @@ grep -rn "STATUS_IDLE" backend/src | grep -v asset_dto.rs        # 只命中 LIV
 grep -rn "apply_asset_status" backend/src | grep -v asset_model.rs # 调用方只有单测
 
 # ② 资产接口清单（14 个，其中分类 5 个 + 卡片 9 个），没有一个改状态
-grep -n "nik::post\|nik::put\|nik::get\|nik::delete" backend/src/business/erp/asset_handler.rs
+grep -n "nik::post\|nik::put\|nik::get\|nik::delete" backend/src/business/erp/asset/asset_handler.rs
 
 # ③ 状态机是齐的
 grep -n "FIXED_ASSET_EDGES\|FIXED_ASSET_REASON_EDGES\|FIXED_ASSET_BASE" -A8 \
@@ -207,10 +207,10 @@ asset_status_change(claims, id, req)
 
 | # | 依据 | 位置 | 内容 |
 |---|------|------|------|
-| 1 | 折旧扫描 SQL 只认状态 | `backend/src/business/erp/asset_model.rs::scan_assets_for_period` | `AND a.status IN ('IN_USE','IDLE')` |
-| 2 | 口径函数显式返回 `true` | `backend/src/business/erp/depreciation_model.rs::in_depreciation_scope` | `status != STATUS_DISPOSED && asset_dto::disposable(status)`；单测 `assert!(in_depreciation_scope("IDLE"))` |
+| 1 | 折旧扫描 SQL 只认状态 | `backend/src/business/erp/asset/asset_model.rs::scan_assets_for_period` | `AND a.status IN ('IN_USE','IDLE')` |
+| 2 | 口径函数显式返回 `true` | `backend/src/business/erp/depreciation/depreciation_model.rs::in_depreciation_scope` | `status != STATUS_DISPOSED && asset_dto::disposable(status)`；单测 `assert!(in_depreciation_scope("IDLE"))` |
 | 3 | 状态机边标签写死 | `backend/src/business/shared/state_machine.rs::FIXED_ASSET_BASE` | `BaseEdge::mandatory("IN_USE", "IDLE", "停用（闲置，照提折旧）", true)` |
-| 4 | 页面口径文案 | `backend/src/business/erp/asset_dto.rs::scan_caption` | 「在役 + 闲置、已到计提起始日、未提足、本期处置的也算」 |
+| 4 | 页面口径文案 | `backend/src/business/erp/asset/asset_dto.rs::scan_caption` | 「在役 + 闲置、已到计提起始日、未提足、本期处置的也算」 |
 | 5 | 设计基线 | `docs/architecture/ARCH-6-财务扩展设计.md` **§5.5.2** 筛选 SQL（注：卡面写的 §5.3 是「卡片字段口径：原值/残值/购入模式」，折旧筛选 SQL 在 §5.5.2；两处都读过，口径一致） | `AND a.status IN ('IN_USE','IDLE')  -- 在役 / 闲置都要提` |
 | 6 | 准则口径 | 《企业会计准则第 4 号——固定资产》 | 「对所有固定资产计提折旧」，仅豁免「已提足折旧仍继续使用」与「单独计价入账的土地」；「当月减少的固定资产当月仍计提，从下月起不提」——**停用 / 闲置不构成"减少"，减少只由处置（出售/报废/毁损/盘亏）构成**。条文号请财务复核（本卡只按口径引用，未逐字核对条序） |
 

@@ -44,7 +44,7 @@
 
 | 卡面 / 历史文档说法 | 实测 | 证据 | 本文处置 |
 |---|---|---|---|
-| 框架 crate 是 `alun`，业务代码 `use alun::prelude::*`，权限宏 `#[alun::permission]` | **仓内是 `nik` 0.4.2（`vendor/nik`），代码里 0 处 `use alun`** | `backend/Cargo.toml:41` `nik = { path = "vendor/nik", … }`；`grep -rl "use alun" backend/src` → 0 行；`backend/src/business/erp/purchase_handler.rs:717` `#[nik::permission(...)]` | 全文一律写 `nik`；`AGENTS.md` 与 `skill/SKILL.md` 的 `alun` 表述属历史遗留，建议另开文档卡订正（本卡不改文档以外的东西） |
+| 框架 crate 是 `alun`，业务代码 `use alun::prelude::*`，权限宏 `#[alun::permission]` | **仓内是 `nik` 0.4.2（`vendor/nik`），代码里 0 处 `use alun`** | `backend/Cargo.toml:41` `nik = { path = "vendor/nik", … }`；`grep -rl "use alun" backend/src` → 0 行；`backend/src/business/erp/purchase/purchase_handler.rs:717` `#[nik::permission(...)]` | 全文一律写 `nik`；`AGENTS.md` 与 `skill/SKILL.md` 的 `alun` 表述属历史遗留，建议另开文档卡订正（本卡不改文档以外的东西） |
 | 迁移号段「基础版最大 V0017」 | **磁盘上 `business/` 已到 V0251，全局下一个可用 = V0252** | `ls backend/migrations/*/V*.up.sql \| sed … \| sort -n \| tail -3` → `0249 / 0250 / 0251`；重复检查为空 | MES 迁移从 **V0252** 起编，见 §4.8 |
 | 「销售/生产模块完全没做过」 | 半对：**库存侧已有出库单与盘点单**（DC-13/DC-14 已落地），但**客户、销售单、应收、工单、工艺、批次、设备 0 张表** | `biz_stock_out`（`out_type ∈ ISSUE/SCRAP/LOSS/OTHER`）、`biz_stock_take` 存在；`biz_customer` / `biz_sales_*` / `biz_mes_*` 全部不存在（70 张 `biz_*` 实测无一张） | 生产/销售是**新建域**，不是补字段；领料与完工入库**复用** `biz_stock_out` / `biz_stock_in` |
 | 「工作量计量可以从零设计」 | **不能忽略已有工时**：`biz_task_worklog` 有 99 行真实数据、8 列、靠 `COALESCE(sum(hours),0)` 回写 `biz_task.actual_hours` | `biz_task_worklog` 实测 8 列 2 CHECK 2 FK；`task/collab.rs:687` 汇总 SQL；`biz_task` 41 列含 `estimate_hours` / `actual_hours` | 明确边界与「统一视图」，见 D1 + §5.5 |

@@ -141,9 +141,9 @@ ERP 单据的状态是文本枚举（`POSTED` / `DRAFT` / `OPEN` …），`push_
 ```
 SCOPE-EXEMPT: biz_voucher / biz_purchase_order / biz_stock_in / biz_stock_transfer /
 biz_inventory 都是按「会计期间」取的全局台账（无 dept_id 与归属人列）…
-                                        —— backend/src/business/erp/period_items.rs:77-81
+                                        —— backend/src/business/erp/period/period_items.rs:77-81
 SCOPE-EXEMPT: 凭证 / 分录 / 科目映射规则是会计台账（V0149 建表，无 dept_id / 归属人列）…
-                                        —— backend/src/business/erp/voucher.rs:70-72
+                                        —— backend/src/business/erp/voucher/mod.rs:70-72
 ```
 
 `info = unscoped` 时 `scope::filter_for` 恒返回 `allow_all()`（`shared/scope.rs:436-442`），

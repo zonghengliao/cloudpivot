@@ -1864,10 +1864,10 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 | `SCOPED_TABLES` 是开放清单（12 项） | `backend/src/business/shared/scope.rs`（`SCOPED_TABLES` 常量） | 同上 |
 | `DocKind` 29 值 / 7 根轴 / 前端镜像单测 | `backend/src/business/shared/doc_kind.rs:59-183,1309-1339,1525+`；`frontend/src/api/business/erp/doc-kinds.ts`；`doc_kind_tests.rs`（`frontend_ts_mirror_matches_rust`） | `cargo test doc_kind` |
 | 状态机唯一入口 + 边表写法 | `backend/src/business/shared/state_machine.rs:1552+`（`Entity`）、`1720+`（EDGES） | `read_file` |
-| 凭证写入口（唯一）与分录单边/非负约束 | `backend/src/business/erp/voucher.rs:1920-1963`（`PostVoucher`/`post_voucher`）；`V0149:100-110`（`ck_biz_voucher_entry_side`） | `read_file` / `psql \d biz_voucher_entry` |
-| 多借方凭证入口（工资凭证复用） | `backend/src/business/erp/voucher_multi.rs:239`（`post_explicit_lines`）、`:305`（`ensure_leaf`） | `read_file` |
+| 凭证写入口（唯一）与分录单边/非负约束 | `backend/src/business/erp/voucher/mod.rs:1920-1963`（`PostVoucher`/`post_voucher`）；`V0149:100-110`（`ck_biz_voucher_entry_side`） | `read_file` / `psql \d biz_voucher_entry` |
+| 多借方凭证入口（工资凭证复用） | `backend/src/business/erp/voucher/voucher_multi.rs:239`（`post_explicit_lines`）、`:305`（`ensure_leaf`） | `read_file` |
 | `2211` 当前是末级、且无历史分录 | `psql -d cloudpivot_test -c "SELECT account_code,is_leaf FROM biz_account WHERE account_code LIKE '2211%'"`（1 行，`is_leaf=1`）；`SELECT count(*) FROM biz_voucher_entry WHERE account_code LIKE '2211%'`（0） | 两条 SQL |
-| 报表按编码前缀汇总（加子科目免改报表） | `backend/src/business/erp/report.rs:473-488`（`match_account`）；`V0183:216`（`PAYROLL_PAYABLE → 2211`） | `read_file` |
+| 报表按编码前缀汇总（加子科目免改报表） | `backend/src/business/erp/report/mod.rs:473-488`（`match_account`）；`V0183:216`（`PAYROLL_PAYABLE → 2211`） | `read_file` |
 | `2241.01/02` 已被报销/佣金占用 | `V0226:36`、`V0311:36` | `grep 2241.` |
 | 附件 `doc_type` 现为 16 值 + 必传规则表 | `V0347:79`、`V0350`（12→16 放宽先例） | `read_file` |
 | `biz_status_log.entity_type` 无 CHECK 白名单 | `V0159`、`V0219:44` | `read_file` |

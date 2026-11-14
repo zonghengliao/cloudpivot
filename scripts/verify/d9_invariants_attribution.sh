@@ -19,7 +19,7 @@ echo "== 基线 =="
 run_inv
 
 echo "== ① 收货单 D9 用例（8 条）=="
-cargo test --lib business::erp::stockin_handler::tests::d9_ -- --test-threads=1 2>&1 | grep -E "^test result:"
+cargo test --lib business::erp::stockin::stockin_handler::stockin_handler_tests_d9_copy::d9_ -- --test-threads=1 2>&1 | grep -E "^test result:"
 echo "== ① 任务 D9 用例（2 条 + 1 条纯逻辑）=="
 cargo test --lib business::task::handler::copy_db_tests::d9_ -- --test-threads=1 2>&1 | grep -E "^test result:"
 cargo test --lib business::task::handler::tests::copy_title -- --test-threads=1 2>&1 | grep -E "^test result:"
@@ -27,11 +27,11 @@ echo "== ① 跑完不变量（期望全绿）=="
 run_inv
 
 echo "== ② 调拨 D9 用例（2 条）=="
-cargo test --lib business::erp::transfer_handler::db_tests::d9_ -- --test-threads=1 2>&1 | grep -E "^test result:"
+cargo test --lib business::erp::transfer::transfer_handler::db_create::d9_ -- --test-threads=1 2>&1 | grep -E "^test result:"
 echo "== ② 跑完不变量 =="
 run_inv
 
 echo "== ③ 只跑**既有**调拨用例（与本卡无关，用于归因）=="
-cargo test --lib business::erp::transfer_handler::db_tests::create_returns_draft_with_card_no_format -- --test-threads=1 2>&1 | grep -E "^test result:"
+cargo test --lib business::erp::transfer::transfer_handler::db_create::create_returns_draft_with_card_no_format -- --test-threads=1 2>&1 | grep -E "^test result:"
 echo "== ③ 跑完不变量（应与 ② 同形）=="
 run_inv

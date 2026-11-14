@@ -1,7 +1,7 @@
 # ERP-R1 资产负债表（交付说明 + 运维手册）
 
 > 卡面：`t_17c44185【ERP-R1】资产负债表（补 40 个标准科目 + 报表项映射 + 勾稽校验，12 单测）`
-> 代码：`backend/src/business/erp/report.rs`、`backend/migrations/business/V0183__erp_balance_sheet.{up,down}.sql`、
+> 代码：`backend/src/business/erp/report/mod.rs`、`backend/migrations/business/V0183__erp_balance_sheet.{up,down}.sql`、
 > `frontend/src/views/business/erp/report/balance-sheet/index.vue`、`scripts/verify/erpr1_balance_sheet.sh`
 
 ## 一、一句话

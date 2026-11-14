@@ -143,7 +143,7 @@ STOCK_IN = dict(
     illegal_code="409 + `10003`（RESOURCE_CONFLICT）",
     illegal_msg=(
         "文案必须逐字包含「收货入库单当前是「{FROMCN}」（{FROM}），不能直接流转到「{TOCN}」（{TO}）：允许的去向是 {OUT}」"
-        "（源码原串 `backend/src/business/erp/stockin_model.rs:224`），白名单必须等于当前态**真实出边**；"
+        "（源码原串 `backend/src/business/erp/stockin/stockin_base.rs:186`），白名单必须等于当前态**真实出边**；"
         "库存/凭证/应付三处均无新增行"
     ),
     self_msg="自环 → 409 + `10003`；库存与凭证不得变动（防「重复过账」）",

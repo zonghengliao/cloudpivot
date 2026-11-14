@@ -1092,11 +1092,11 @@ CREATE INDEX IF NOT EXISTS idx_biz_flow_instance_org ON biz_flow_instance (org_i
 | 全仓无 `org_id` | `grep -ril "org_id" backend/migrations/ \| wc -l` → 0 |
 | 108 张 `biz_*` 表 | `grep -rhoE "CREATE TABLE (IF NOT EXISTS )?biz_[a-z_]+" backend/migrations/business/*.up.sql \| awk '{print $NF}' \| sort -u \| wc -l` |
 | `biz_account` 唯一键全局 | `backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:128` |
-| 凭证唯一写入口 | `backend/src/business/erp/voucher.rs:1963`（`post_voucher`），INSERT 在 2068；其余 12 处 insert 全在 `mod tests` |
+| 凭证唯一写入口 | `backend/src/business/erp/voucher/mod.rs:1963`（`post_voucher`），INSERT 在 2068；其余 12 处 insert 全在 `mod tests` |
 | 53 个 `post_voucher` 调用点 | `grep -rn "post_voucher(" backend/src --include=*.rs \| grep -v voucher.rs \| wc -l` |
 | 期间/期初/折旧批次唯一键 | `V0137:194-195`、`V0189:70`、`V0189:99`、`V0230:67` |
 | 年结/期初凭证唯一键 | `V0190:74`、`V0189:120` |
-| 科目匹配语法 | `backend/src/business/erp/report.rs:473-488`（`match_account`） |
+| 科目匹配语法 | `backend/src/business/erp/report/mod.rs:473-488`（`match_account`） |
 | 数据权限唯一入口与登记表 | `backend/src/business/shared/scope.rs`（模块文档 + `SCOPED_TABLES` 281-294） |
 | 部门树 `dept_path` | `backend/migrations/system/V0006__create_sys_dept.up.sql:7` |
 | 流程实例列 | `backend/migrations/business/V0122__flow_instance_tables.up.sql:33-70` |

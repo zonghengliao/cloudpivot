@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 迁移授权段角色码
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check / pnpm typecheck / pnpm typecheck:unit
@@ -100,6 +100,7 @@ plan_all() {
         plan L0 "偏好字典 ui.palette ↔ 前端色板一致" "python3 scripts/lint/palette_def_sync.py --root ."
         plan L0 "迁移版本号跨目录全局唯一（自检 + 扫描）" "python3 scripts/lint/migration_version_unique.py --selftest && python3 scripts/lint/migration_version_unique.py --root ."
         plan L0 "库存三本账唯一写入口（判据自检 + 扫描）" "python3 scripts/verify/inventory_write_gate.py [--self-test]"
+        plan L0 "脚本/钩子/CI 写死的源码路径必须存在" "python3 scripts/lint/path_refs_gate.py [--self-test] [--root .]"
         plan L0 "迁移授权段角色码（自检 + 扫描）" "python3 scripts/verify/role_code_gate.py [--self-test]"
         plan L0 "/metrics 端点存活 + cloudpivot_ 指标非空" "bash scripts/verify/metrics_gate.sh ${METRICS_GATE:-auto}（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）"
         plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
@@ -625,6 +626,35 @@ fi
 echo "==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.py）"
 if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py"; then
     echo "==> 门禁未通过：库存三本账的写语句必须走 backend/src/business/erp/inventory_writer.rs" >&2
+    exit 1
+fi
+fi
+
+# ======================================================================
+# 路径引用门禁（P2-26，卡 t_56f8dcd4）
+#
+# 为什么是硬门禁：目录搬迁（ERP 拆 24 个子目录，P2-01~26）之后，脚本里写死的旧路径
+# **不报错，只是静默变空** —— `grep <旧路径>` 命中 0 行照判绿、`cargo test --lib
+# business::erp::<旧模块>` 打印 `0 passed` 且退出码 0。一次搬迁就能让几十条验证脚本
+# 集体空跑而门禁全绿。这道闸把「引用的路径必须存在」变成静态断言（秒级、不编译、不连库）。
+#
+# 范围：scripts/**、.githooks/**、.github/** 里的可执行脚本（*.sh/.bash/.py/.mjs/.js/.json）；
+# 判据：backend/src/**.rs、frontend/src/**.{ts,vue,js,mjs} 必须真实存在，含 `$SRC` 归一化与
+#       src 相对裸路径（形如 `business/<域>/<文件>.rs`）；
+# 白名单：只给「合成语料 / 一次性重构对照表」，且条目文件必须存在、理由必写。
+# 判据本身由 `--self-test` 的红/绿语料守住。
+# ======================================================================
+
+if want L0; then
+echo "==> 路径引用门禁 · 判据自检（--self-test）"
+if ! python3 "$ROOT/scripts/lint/path_refs_gate.py" --self-test; then
+    echo "==> 门禁自身失效：自检语料未全绿（判据被改坏了？）" >&2
+    exit 1
+fi
+
+echo "==> 脚本 / 钩子 / CI 里写死的源码路径必须存在（scripts/lint/path_refs_gate.py）"
+if ! python3 "$ROOT/scripts/lint/path_refs_gate.py" --root "$ROOT"; then
+    echo "==> 门禁未通过：脚本引用的源码路径已不存在（文件搬了就把路径改成新路径，别加白名单）" >&2
     exit 1
 fi
 fi

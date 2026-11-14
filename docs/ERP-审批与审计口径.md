@@ -101,7 +101,7 @@ operator.name 为空、operator.id 有值                    → 主键查 sys_u
 ⚠️ 物料已软删 / 不存在 ⇒ 仍出分录（金额在明细上），摘要退回「物料 <uuid 前 8 位>」
 ```
 
-- 实现：`backend/src/business/erp/voucher.rs::material_inventory_accounts`（入库存货行）与
+- 实现：`backend/src/business/erp/voucher/mod.rs::material_inventory_accounts`（入库存货行）与
   `material_label` / `material_codes`（出库 / 收入行，本来就是按编码取的）。
 - 回归用例：`voucher::tests::fix9_voucher_summary_uses_material_code_without_inventory_account`（真库，`ERP_DB_URL` 开关）。
 
