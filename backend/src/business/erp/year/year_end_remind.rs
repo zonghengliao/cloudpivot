@@ -3,7 +3,7 @@
 //! # 它解决什么
 //!
 //! 年结预检现在会把挡路单据列成表（见 [`crate::business::erp::period::period_items`] 与
-//! [`crate::business::erp::year_end`] 的 `collect_blockers`），但「知道是哪 3 张」
+//! [`crate::business::erp::year::year_end`] 的 `collect_blockers`），但「知道是哪 3 张」
 //! 还不够 —— 财务得**通知到人**。本模块提供那一按：
 //!
 //! ```text
@@ -66,7 +66,7 @@ use std::result::Result;
 use crate::business::erp::period;
 use crate::business::erp::period::period_items::BlockingItem;
 use crate::business::erp::period::period_remind::{self, REMIND_MAX_ITEMS, RemindReq, RemindRes, RemindScope};
-use crate::business::erp::year_end::{self, YearEndBlocker};
+use crate::business::erp::year::year_end::{self, YearEndBlocker};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 

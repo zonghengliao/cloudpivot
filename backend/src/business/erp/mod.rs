@@ -41,7 +41,7 @@
 //! | [`report_item_admin`] | 报表项**维护面**（HTTP）：列表 / 新增 / 编辑 / 排序 / 启停 / 取数预览 + 整表公式校验 | **P1-FIX-8B** |
 //! | [`report_item_model`] | `biz_report_item` 的数据访问层（含停用行、引用关系、科目目录） | **P1-FIX-8B** |
 //! | [`opening`] | 期初余额录入（方式 A 按科目 + 库存期初）→ 生成 / 覆盖唯一的期初凭证 | **ERP-R5** |
-//! | [`year_end`] | 年结：损益结转凭证（`YEAR_END`）+ 下年期初台账 + 反年结（五项前置校验） | **ERP-R4** |
+//! | [`year::year_end`] | 年结：损益结转凭证（`YEAR_END`）+ 下年期初台账 + 反年结（五项前置校验） | **ERP-R4** |
 //! | [`batch`] | **批量操作（D7）**：勾选 → 逐条独立事务 → 逐条报告（过账 / 作废 / 删除 / 提交审批 / 导出） | **D7** |
 //! | [`contract::contract_model`] | 合同数据层（**A1 基座 + A2 CRUD**）：乙方引用解析（无外键靠应用层校验）、状态常量 / 边表、取号、分页、建改删 | **A1 / A2** |
 //! | [`contract::contract_bridge`] | 合同**审批**的业务回调（通过 → 已签订 / 驳回 → 回草稿）+ 内控 + 反向兜底 | **ARCH-3 R-P1-1** |
@@ -232,14 +232,7 @@ pub mod tax_rate;
 pub mod transfer;
 pub mod unit_guard;
 pub mod voucher;
-pub mod year_end;
-/// LNK-11 的**唯一**联动接线（年结 `close_year` / 反年结 `reopen_year` 两条边共用
-/// `run_in_tx` / `run_deferred_after_commit`）。
-///
-/// `pub(crate)` 而不是私有：两个宿主函数都在 `year_end` 里，但真库用例
-/// （`year_end_linkage_tests`）也要够得着同一份上下文口径。
-pub(crate) mod year_end_linkage;
-pub mod year_end_remind;
+pub mod year; // 年度域（YEAR-END）：年结 / 反年结 / 挡路明细 / 催办 + 联动接线
 
 /// B1-9 的真库用例（`ERP_DB_URL` 开关）：批次 CRUD + 按物料取批号 + 唯一键冲突文案。
 #[cfg(test)]
@@ -252,8 +245,6 @@ mod lot_db_tests;
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
 #[cfg(test)]
 pub mod stocktake_tests; // 盘点单用例（纯逻辑 + 真库：盘盈 / 盘亏 / 无差异 / 作废回滚 / 审批流 / 负库存）
-#[cfg(test)]
-pub mod year_end_test_support; // YEAR-END 真库用例的公共夹具（`2037-xx` / `2038-xx` / `YE-` 前缀）
 
 mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
 mod model_inventory; // 库存台账只读
@@ -269,11 +260,6 @@ mod cancel_cascade_tests;
 /// 重复计提不重复触发、红冲触发、排除动作确实不跑）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod depreciation_linkage_tests;
-
-/// LNK-11 的真库单测（年结联动接线：年结触发一次、多张凭证的年度只发一条、重复年结被 409
-/// 挡住不重复触发、反年结触发、事务回滚通知不发、排除动作确实不跑）。只在 `cargo test` 时编译。
-#[cfg(test)]
-mod year_end_linkage_tests;
 
 /// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
 #[cfg(test)]

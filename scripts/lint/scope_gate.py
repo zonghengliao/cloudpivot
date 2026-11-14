@@ -156,10 +156,10 @@ business/erp/transfer/transfer_handler_test_support.rs
 business/erp/transfer/transfer_handler_tests.rs
 business/erp/transfer/transfer_tests.rs
 business/erp/voucher/voucher_linkage_tests.rs
-business/erp/year_end_items_tests.rs
-business/erp/year_end_linkage_tests.rs
-business/erp/year_end_remind_tests.rs
-business/erp/year_end_test_support.rs
+business/erp/year/year_end_items_tests.rs
+business/erp/year/year_end_linkage_tests.rs
+business/erp/year/year_end_remind_tests.rs
+business/erp/year/year_end_test_support.rs
 business/flow/edge_admin_tests.rs
 business/flow/flow_model_delete_tests.rs
 business/flow/flow_model_tests.rs

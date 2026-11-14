@@ -197,7 +197,7 @@ pub const BLOCKER_COST_UNSETTLED: &str = "COST_UNSETTLED";
 
 /// 年度是否已经年结：`biz_status_log` 里 `ACCOUNTING_YEAR` 最新一行的 `to_status`。
 ///
-/// 判据与 [`crate::business::erp::year_end::load_state_in`] **同源**（同一张表、同一条
+/// 判据与 [`crate::business::erp::year::year_end::load_state_in`] **同源**（同一张表、同一条
 /// `ORDER BY created_at DESC LIMIT 1`）：年度状态不靠「有没有结转凭证」推断 ——
 /// 空年度没有结转凭证，但它确实已经年结过。
 async fn year_end_status_of(ex: &impl SqlExecutor, year: i16) -> Result<Option<String>, ApiError> {
@@ -224,7 +224,7 @@ async fn year_end_status_of(ex: &impl SqlExecutor, year: i16) -> Result<Option<S
 pub fn reopen_blocked_by_year_end(year_end_status: Option<&str>) -> bool {
     matches!(
         year_end_status,
-        Some(status) if status == crate::business::erp::year_end::STATUS_CLOSED
+        Some(status) if status == crate::business::erp::year::year_end::STATUS_CLOSED
     )
 }
 
@@ -1582,7 +1582,7 @@ async fn later_year_ended_after(ex: &impl SqlExecutor, year: i16) -> Result<Vec<
                 .to_string(),
             vec![
                 Value::Text(state_machine::ENTITY_YEAR_END.to_string()),
-                Value::Text(crate::business::erp::year_end::STATUS_CLOSED.to_string()),
+                Value::Text(crate::business::erp::year::year_end::STATUS_CLOSED.to_string()),
                 Value::I16(year),
             ],
         )
@@ -2900,7 +2900,7 @@ mod tests {
     /// 拦错了就把反年结之后的改账路径永久封死。
     #[test]
     fn p1_reopen_blocked_only_by_closed_year_end() {
-        use crate::business::erp::year_end::{STATUS_CLOSED as YEAR_CLOSED, STATUS_NOT_CLOSED};
+        use crate::business::erp::year::year_end::{STATUS_CLOSED as YEAR_CLOSED, STATUS_NOT_CLOSED};
         assert!(reopen_blocked_by_year_end(Some(YEAR_CLOSED)));
         assert!(!reopen_blocked_by_year_end(Some(STATUS_NOT_CLOSED)));
         assert!(!reopen_blocked_by_year_end(None));

@@ -1664,7 +1664,7 @@ pub async fn year_end_reopen_handler(
 //
 // ```bash
 // export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_r4'
-// cargo test --lib business::erp::year_end -- --test-threads=1
+// cargo test --lib business::erp::year::year_end -- --test-threads=1
 // ```
 //
 // # 夹具约定（三条都不能破）

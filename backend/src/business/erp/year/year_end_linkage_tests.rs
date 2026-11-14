@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! ERP_DB_URL="postgres://alun:***@127.0.0.1:5432/<干净库>" \
-//!   cargo test --lib business::erp::year_end_linkage_tests -- --test-threads=1
+//!   cargo test --lib business::erp::year::year_end_linkage_tests -- --test-threads=1
 //! ```
 //!
 //! # 覆盖（卡面「年结成功 + 联动触发一次 + 通知发出」「回滚场景通知不发」「排除动作不跑」逐条对应）
@@ -36,7 +36,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use super::voucher::{self, EntryLine, PostVoucher};
+use super::super::voucher::{self, EntryLine, PostVoucher};
 use super::year_end::{self, STATUS_CLOSED, STATUS_NOT_CLOSED};
 use super::year_end_linkage;
 use super::year_end_test_support as support;

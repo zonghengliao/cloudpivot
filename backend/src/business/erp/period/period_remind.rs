@@ -64,7 +64,7 @@
 //! 年结的催办与期间催办**只差四样**：标题里的「月 / 年」、正文里的口径、
 //! `sys_notice.biz_type`（消息中心分组）、幂等键前缀。收件人怎么算、24h 防重、
 //! 扇出、结果计数**全共用** —— 所以抽成 [`RemindScope`] + [`dispatch_all`]，
-//! 年结那边（[`crate::business::erp::year_end_remind`]）只写「上下文 + 取数 + 权限码」。
+//! 年结那边（[`crate::business::erp::year::year_end_remind`]）只写「上下文 + 取数 + 权限码」。
 //!
 //! | | 期间催办 | 年结催办 |
 //! |---|---|---|

@@ -810,7 +810,7 @@ pub const YEAR_END_EDGES: [(&str, &str); 2] = [("NOT_CLOSED", "CLOSED"), ("CLOSE
 /// 年结本身的 `reason` 是可选备注（与期间结账同口径）。
 pub const YEAR_END_REASON_EDGES: [(&str, &str); 1] = [("CLOSED", "NOT_CLOSED")];
 
-/// 年结没有「入账态只读」：结转凭证一旦生成就由 [`crate::business::erp::year_end`]
+/// 年结没有「入账态只读」：结转凭证一旦生成就由 [`crate::business::erp::year::year_end`]
 /// 反年结删掉，不存在「字段不许改」的单据形态。
 pub const YEAR_END_LOCKED: [&str; 0] = [];
 

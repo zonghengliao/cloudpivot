@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cp_year_end_clean'
-//! cargo test --lib business::erp::year_end_remind -- --test-threads=1
+//! cargo test --lib business::erp::year::year_end_remind -- --test-threads=1
 //! ```
 //!
 //! 与 `period_remind` 的 11 条用例是**同一套口径**（收件人服务端现算 / 24h 防重 /
@@ -17,8 +17,8 @@
 
 use super::*;
 use crate::business::erp::period::period_test_support as p2;
-use crate::business::erp::year_end::BLOCKER_DOC_UNFINISHED;
-use crate::business::erp::year_end_test_support as support;
+use crate::business::erp::year::year_end::BLOCKER_DOC_UNFINISHED;
+use crate::business::erp::year::year_end_test_support as support;
 use nik::uuid::Uuid;
 
 /// 本年夹具单据上的 `year_end_remind` 通知条数。

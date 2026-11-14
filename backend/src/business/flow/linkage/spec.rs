@@ -520,10 +520,10 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
         entity: state_machine::ENTITY_YEAR_END,
         status_labels: &[("NOT_CLOSED", "未结转"), ("CLOSED", "已结转")],
         wired: true,
-        wiring: "已接线（LNK-11）：erp/year_end_linkage.rs 是唯一 hook，接在两个真实状态推进上 —— \
-                 ① 年结 erp/year_end.rs::close_year 第 ④ 步（① 结转凭证 + ② 下年期初台账 + \
+        wiring: "已接线（LNK-11）：erp/year/year_end_linkage.rs 是唯一 hook，接在两个真实状态推进上 —— \
+                 ① 年结 erp/year/year_end.rs::close_year 第 ④ 步（① 结转凭证 + ② 下年期初台账 + \
                  ③ 状态留痕之后、commit 之前，NOT_CLOSED → CLOSED）；② 反年结 \
-                 erp/year_end.rs::reopen_year 第 ⑤ 步（① 删结转凭证 + ② 删下年期初 + \
+                 erp/year/year_end.rs::reopen_year 第 ⑤ 步（① 删结转凭证 + ② 删下年期初 + \
                  ③ 12 月解封 + ④ 留痕之后、commit 之前，CLOSED → NOT_CLOSED）。\
                  事务内 run_excluding(spec::YEAR_END_EXCLUDED_ACTIONS)：GENERATE_VOUCHER / \
                  REVERSE_VOUCHER 必须排除（年结自己用 voucher::post_voucher 出唯一一张 YEAR_END \
@@ -537,8 +537,14 @@ pub const TRIGGER_SPECS: &[TriggerSpec] = &[
                  通知另有幂等键 LNK:ACCOUNTING_YEAR:<状态>:<年度>:<本次事件凭证 id> —— \
                  同一笔年结重放只发一条，反年结后重结（新凭证）会再发一条",
         proofs: &[
-            ("src/business/erp/year_end_linkage.rs", "linkage::engine::run_excluding"),
-            ("src/business/erp/year_end_linkage.rs", "linkage::engine::run_deferred"),
+            (
+                "src/business/erp/year/year_end_linkage.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/year/year_end_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
         ],
     },
     TriggerSpec {
@@ -1185,7 +1191,7 @@ pub const DEPRECIATION_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "R
 
 /// **会计年度**（`ACCOUNTING_YEAR`，年结 / 反年结）的专用路由排除清单（LNK-11）。
 ///
-/// 年结事务（`erp/year_end.rs::close_year`）自己就把一整年的账做完了：第 ① 步
+/// 年结事务（`erp/year/year_end.rs::close_year`）自己就把一整年的账做完了：第 ① 步
 /// `voucher::post_voucher` 出一张 `YEAR_END` 结转凭证（借收入 / 贷费用 + 3103 → 3104，
 /// 库层有部分唯一索引 `uk_biz_voucher_year_end_period` 保证一年一张），第 ② 步
 /// `opening::write_year_end_opening_in` 写下一年度期初台账。反年结（`reopen_year`）
@@ -1206,7 +1212,7 @@ pub const DEPRECIATION_EXCLUDED_ACTIONS: &[&str] = &[ACTION_GENERATE_VOUCHER, "R
 /// `SEND_NOTICE` / `CREATE_TASK` **不能排除**：年结完成 / 反年结之后的「通知财务全组」与
 /// 「建次年审计待办」就靠通用引擎的 `Phase::AfterCommit` 动作，排掉等于接线了但永远不响。
 ///
-/// 排除清单放在**调用方**（这里导出、`erp/year_end_linkage` 传入）而不是写死在引擎里：
+/// 排除清单放在**调用方**（这里导出、`erp/year/year_end_linkage` 传入）而不是写死在引擎里：
 /// 换个触发点通用路线仍然要能跑这些动作。
 /// 漂移守卫：`tests_wiring::year_end_wires_generic_engine_and_excludes_ledger_actions`。
 pub const YEAR_END_EXCLUDED_ACTIONS: &[&str] = &[

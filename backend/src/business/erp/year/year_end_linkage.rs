@@ -1,7 +1,7 @@
 // ============================================================================
 // year_end_linkage.rs —— 会计年度（ACCOUNTING_YEAR）状态变更的**跨单据联动**接线（LNK-11）
 //
-// 年结（`erp/year_end.rs::close_year`）与反年结（`reopen_year`）各自是一个**长事务**：
+// 年结（`erp/year/year_end.rs::close_year`）与反年结（`reopen_year`）各自是一个**长事务**：
 // 年结要扫全年的凭证聚合损益、出一张 `YEAR_END` 结转凭证、写下一年度期初台账、写状态日志；
 // 反年结要删结转凭证 + 删下年期初 + 解封 12 月 + 留痕。两条边都是「一张单据走一步状态」，
 // 是两个能配联动规则、也真的值得通知财务的触发点：
@@ -71,7 +71,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::year_end::STATUS_CLOSED;
+use crate::business::erp::year::year_end::STATUS_CLOSED;
 use crate::business::flow::linkage;
 use crate::business::notice;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
@@ -286,7 +286,7 @@ pub(crate) async fn run_deferred_after_commit(mut change: YearEndStatusChange) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::year_end::STATUS_NOT_CLOSED;
+    use crate::business::erp::year::year_end::STATUS_NOT_CLOSED;
     use std::str::FromStr;
 
     fn dec(text: &str) -> Decimal {

@@ -1261,7 +1261,7 @@ fn depreciation_wires_generic_engine_and_excludes_voucher() {
 ///
 /// 这条防的六种漂移：
 ///
-/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`year_end.rs` 里没调用（P1-FIX-5C 的原罪）；
+/// 1. 只在 `spec.rs` 把 `wired` 改成 true、`year/year_end.rs` 里没调用（P1-FIX-5C 的原罪）；
 /// 2. 只接年结、漏掉反年结 → `ACCOUNTING_YEAR/NOT_CLOSED` 上配的「反年结要上报」永远不响；
 /// 3. 排除清单丢了或没传下去 → 通用引擎在年结事务里再跑 `GENERATE_VOUCHER`（年结第 ① 步
 ///    已经出过唯一一张 `YEAR_END` 结转凭证，再出一次撞 `uk_biz_voucher_year_end_period`）
@@ -1272,7 +1272,7 @@ fn depreciation_wires_generic_engine_and_excludes_voucher() {
 /// 6. 排除清单只排凭证、忘了库存 / 余额（卡面明确要求三类都排）。
 #[test]
 fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
-    let hook = include_str!("../../erp/year_end_linkage.rs");
+    let hook = include_str!("../../erp/year/year_end_linkage.rs");
     assert!(
         hook.contains("linkage::engine::run_excluding("),
         "年度结转必须调用通用引擎（run_excluding）：否则 ACCOUNTING_YEAR 的联动规则配了不触发"
@@ -1310,7 +1310,7 @@ fn year_end_wires_generic_engine_and_excludes_ledger_actions() {
     }
 
     // 两个状态推进点：年结（NOT_CLOSED → CLOSED）与反年结（CLOSED → NOT_CLOSED）
-    let source = include_str!("../../erp/year_end.rs");
+    let source = include_str!("../../erp/year/year_end.rs");
     assert_eq!(
         source.matches("year_end_linkage::run_in_tx(").count(),
         2,

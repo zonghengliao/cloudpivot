@@ -4,7 +4,7 @@
 //!
 //! ```bash
 //! export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cp_year_end_clean'
-//! cargo test --lib business::erp::year_end -- --test-threads=1
+//! cargo test --lib business::erp::year::year_end -- --test-threads=1
 //! ```
 //!
 //! 夹具年度是 **2037 / 2038**（`year_end_test_support`），与 `year_end.rs` 自带的
@@ -23,7 +23,7 @@
 use super::*;
 use crate::business::erp::period::period_items::{DOC_PURCHASE_ORDER, DOC_STOCK_IN, DOC_VOUCHER};
 use crate::business::erp::period::period_test_support as p2;
-use crate::business::erp::year_end_test_support as support;
+use crate::business::erp::year::year_end_test_support as support;
 
 // ==================== ① 未完成单据：全年逐单明细 ====================
 
