@@ -1,34 +1,23 @@
 <template>
   <div class="supplier-page">
-    <!-- 筛选行：关键词 / 状态 / 查询 / 重置 / 刷新 / 新建 -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="搜索供应商编码 / 名称 / 简称"
-          clearable
-          data-testid="sup-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="sup-status-filter"
-        />
-
-        <t-button theme="primary" data-testid="btn-sup-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-sup-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-sup-refresh" @click="handleRefresh">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+    <!-- 列表：筛选 / 分页 / 行操作 / 导出 全部交给 ListPage（P3-04 试点） -->
+    <ListPage
+      ref="listRef"
+      title="供应商"
+      testid="supplier"
+      table-testid="supplier-table"
+      meta-testid="sup-meta"
+      btn-prefix="btn-sup"
+      :columns="columns"
+      :filters="filters"
+      :fetcher="fetcher"
+      :query-builder="buildSupplierQuery"
+      :page-size="SUPPLIER_PAGE_SIZE"
+      :actions="actions"
+      exportable
+    >
+      <!-- 筛选行右侧：导入 + 新建（无 :create 权限时置灰 + tooltip 说明） -->
+      <template #toolbar>
         <ImportEntryButton
           biz-type="business.erp.supplier"
           biz-label="供应商"
@@ -51,81 +40,42 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">供应商</span>
-          <span class="panel-head__meta" data-testid="sup-meta">共 {{ total }} 条</span>
+      <template #contact_person="{ row }">
+        <span :class="{ muted: !row.contact_person && !row.contact_phone }">{{ contactLabel(row) }}</span>
+      </template>
+
+      <template #tax_no="{ row }">
+        <span :class="['mono', { muted: !row.tax_no }]">{{ textOr(row.tax_no) }}</span>
+      </template>
+
+      <template #credit_days="{ row }">
+        <span class="mono">{{ creditDaysLabel(row.credit_days) }}</span>
+      </template>
+
+      <template #status="{ row }">
+        <t-tag size="small" :theme="supplierStatusTheme(row.status)" variant="light" data-testid="sup-status-tag">
+          {{ supplierStatusLabel(row.status) }}
+        </t-tag>
+      </template>
+
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="supplier-empty">
+          <t-icon class="panel-empty__icon" name="shop" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的供应商' : '还没有供应商' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个关键词 / 状态试试，或点「重置」看全部'
+                : canWrite
+                  ? '点右上角「新建供应商」建第一个；账期天数会作为采购单的默认账期'
+                  : '当前账号没有新建权限，请联系管理员在主数据里补供应商'
+            }}
+          </p>
         </div>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadSuppliers()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="supplier-table"
-        @page-change="handlePageChange"
-      >
-        <template #contact_person="{ row }">
-          <span :class="{ muted: !row.contact_person && !row.contact_phone }">{{ contactLabel(row) }}</span>
-        </template>
-
-        <template #tax_no="{ row }">
-          <span :class="['mono', { muted: !row.tax_no }]">{{ textOr(row.tax_no) }}</span>
-        </template>
-
-        <template #credit_days="{ row }">
-          <span class="mono">{{ creditDaysLabel(row.credit_days) }}</span>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag size="small" :theme="supplierStatusTheme(row.status)" variant="light" data-testid="sup-status-tag">
-            {{ supplierStatusLabel(row.status) }}
-          </t-tag>
-        </template>
-
-        <template #op="{ row }">
-          <div class="op-row">
-            <t-link theme="primary" data-testid="btn-sup-view" @click="openDetail(row)">查看</t-link>
-            <t-link v-privilege="[PERM.update]" theme="primary" data-testid="btn-sup-edit" @click="openEdit(row)">
-              编辑
-            </t-link>
-            <t-link v-privilege="[PERM.update]" theme="danger" data-testid="btn-sup-delete" @click="confirmRemove(row)">
-              删除
-            </t-link>
-          </div>
-        </template>
-
-        <template #empty>
-          <div class="panel-empty" data-testid="supplier-empty">
-            <t-icon class="panel-empty__icon" name="shop" />
-            <p class="panel-empty__title">{{ isFiltered ? '没有匹配的供应商' : '还没有供应商' }}</p>
-            <p class="panel-empty__desc">
-              {{
-                isFiltered
-                  ? '换个关键词 / 状态试试，或点「重置」看全部'
-                  : canWrite
-                    ? '点右上角「新建供应商」建第一个；账期天数会作为采购单的默认账期'
-                    : '当前账号没有新建权限，请联系管理员在主数据里补供应商'
-              }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      </template>
+    </ListPage>
 
     <!-- 详情抽屉 -->
     <t-drawer v-model:visible="detailVisible" size="640px" :footer="false" :header="false" data-testid="sup-drawer">
@@ -397,7 +347,13 @@ import {
   type AccountRow,
   type Supplier,
 } from '@/api/business/erp';
-import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import { errorText } from '@/components/ListPage/list-page-pure';
+import type {
+  FilterDef,
+  ListActions,
+  ListFetcher,
+} from '@/components/ListPage/types';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
@@ -412,19 +368,17 @@ import {
   buildSupplierUpdatePayload,
   contactLabel,
   creditDaysLabel,
-  emptySupplierFilter,
   emptySupplierForm,
   formatAmount,
   hasSupplierFieldError,
-  isSupplierFiltered,
   supplierFormFromRow,
   supplierStatusLabel,
   supplierStatusTheme,
   textOr,
   validateSupplierForm,
   type SupplierFieldErrors,
-  type SupplierFilterState,
   type SupplierFormState,
+  type SupplierQuery as SupplierQueryInput,
 } from './supplier-query';
 
 /** 本页权限码（与 `V0141__erp_permissions.up.sql` 的 auth_code 逐字一致） */
@@ -447,88 +401,68 @@ const statusOptions = SUPPLIER_STATUS_OPTIONS.map((item) => ({ ...item }));
 const userStore = useUserStore();
 const canWrite = computed(() => userStore.hasPermission(PERM.create));
 
-// ==================== 列表状态 ====================
+// ==================== 列表（ListPage 声明） ====================
 
-/** 筛选行 */
-const filter = reactive<SupplierFilterState>(emptySupplierFilter());
-/** 当前页数据 */
-const rows = ref<Supplier[]>([]);
-/** 总条数 */
-const total = ref(0);
-/** 当前页码 */
-const current = ref(1);
-/** 每页条数 */
-const pageSize = SUPPLIER_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
+/**
+ * 筛选项声明。
+ *
+ * `buildSupplierQuery` 仍然负责拼入参（trim、空值整键缺席都被单测钉着）——
+ * 重构只搬「怎么画」，不换「发什么」。
+ */
+const filters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '搜索供应商编码 / 名称 / 简称',
+    width: 300,
+    testid: 'sup-keyword',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'sup-status-filter',
+  },
+];
 
-/** 是否筛选态 */
-const isFiltered = computed(() => isSupplierFiltered(filter));
+/** 拉一页（ListPage 的 fetcher；入参由 `buildSupplierQuery` 拼） */
+const fetcher: ListFetcher<Supplier> = (query) => fetchSupplierPage(query as SupplierQueryInput);
 
-/** 分页器（服务端分页） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 行操作（权限码与 `v-privilege` 同语义：没码就不出现） */
+const actions: ListActions = {
+  row: [
+    {
+      key: 'view',
+      label: '查看',
+      testid: 'btn-sup-view',
+      handler: (row: Supplier) => openDetail(row),
+    },
+    {
+      key: 'edit',
+      label: '编辑',
+      testid: 'btn-sup-edit',
+      permission: PERM.update,
+      handler: (row: Supplier) => openEdit(row),
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      theme: 'danger',
+      testid: 'btn-sup-delete',
+      permission: PERM.update,
+      handler: (row: Supplier) => confirmRemove(row),
+    },
+  ],
+};
 
-/** 错误文案 */
-function messageOf(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
+/** ListPage 实例（新建 / 编辑 / 删除后刷新用） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-/** 拉列表（服务端分页） */
-async function loadSuppliers(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchSupplierPage(buildSupplierQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    current.value = data.page ?? page;
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
-    if (current.value > lastPage) {
-      current.value = lastPage;
-      return loadSuppliers(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `供应商加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-/** 查询（回第 1 页） */
-function handleSearch(): void {
-  current.value = 1;
-  void loadSuppliers(1);
-}
-
-/** 重置 */
-function handleReset(): void {
-  Object.assign(filter, emptySupplierFilter());
-  current.value = 1;
-  void loadSuppliers(1);
-}
-
-/** 刷新 */
-function handleRefresh(): void {
-  void loadSuppliers(current.value);
-}
-
-/** 切页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadSuppliers(pageInfo.current);
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
 // ==================== 应付科目（译名 + 下拉） ====================
@@ -578,7 +512,7 @@ async function openDetail(row: Supplier): Promise<void> {
   try {
     detail.value = await fetchSupplierDetail(row.id);
   } catch (error) {
-    MessagePlugin.warning(`详情没刷新出来，显示的是列表里的数据：${messageOf(error)}`);
+    MessagePlugin.warning(`详情没刷新出来，显示的是列表里的数据：${errorText(error)}`);
   }
 }
 
@@ -657,7 +591,7 @@ async function handleGenCode(): Promise<void> {
     // 之前「超长」之类的提示已不成立，清掉免得红框跟着新号走
     delete formErrors.value.supplier_code;
   } catch (error) {
-    MessagePlugin.error(`生成编码失败：${messageOf(error)}`);
+    MessagePlugin.error(`生成编码失败：${errorText(error)}`);
   } finally {
     genCodeLoading.value = false;
   }
@@ -684,9 +618,9 @@ async function handleConfirm(): Promise<void> {
       MessagePlugin.success(`供应商已创建 · 编码 ${created.supplier_code}`);
     }
     dialogVisible.value = false;
-    await loadSuppliers(editing.value ? current.value : 1);
+    await reloadList(editing.value ? undefined : 1);
   } catch (error) {
-    submitError.value = messageOf(error);
+    submitError.value = errorText(error);
   } finally {
     saving.value = false;
   }
@@ -706,9 +640,9 @@ function confirmRemove(row: Supplier): void {
       try {
         await deleteSupplier(row.id);
         MessagePlugin.success('供应商已删除');
-        await loadSuppliers(current.value);
+        await reloadList();
       } catch (error) {
-        MessagePlugin.error(messageOf(error));
+        MessagePlugin.error(errorText(error));
       }
     },
   });
@@ -717,8 +651,8 @@ function confirmRemove(row: Supplier): void {
 // ==================== 初始化 ====================
 
 onMounted(async () => {
-  // 科目字典与列表并行：字典拉不到只是「应付科目」列显示 `—`
-  await Promise.all([loadAccounts(), loadSuppliers(1)]);
+  // 列表由 ListPage 自己在 setup 里拉首屏；这里只补字典（拉不到只是「应付科目」列显示 `—`）
+  await loadAccounts();
   // CODE-08：编码策略不影响列表首屏，单独取（失败按「允许手填」兜底，不打断页面）
   allowManualCode.value = await loadAllowManualCode();
 });
