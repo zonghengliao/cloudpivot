@@ -60,96 +60,62 @@
   -->
 <template>
   <div class="hr-attendance-page">
-    <!-- ==================== ⓞ tab ==================== -->
-    <t-card :bordered="false" class="tabs-card">
-      <t-tabs v-model="activeTab" data-testid="hr-att-tabs" @change="handleTabChange">
-        <t-tab-panel value="period" label="考勤期间" data-testid="hr-att-tab-period" />
-        <t-tab-panel value="ledger" label="考勤台账" data-testid="hr-att-tab-ledger" />
-      </t-tabs>
-    </t-card>
+    <!-- ==================== ⓞ tab（两个 tab 各自一个 ListPage，P3-10） ==================== -->
+    <t-tabs v-model="activeTab" class="page-tabs" data-testid="hr-att-tabs" @change="handleTabChange">
+      <t-tab-panel value="period" label="考勤期间" data-testid="hr-att-tab-period" />
+      <t-tab-panel value="ledger" label="考勤台账" data-testid="hr-att-tab-ledger" />
+    </t-tabs>
 
     <!-- ==================== ① 考勤期间 ==================== -->
-    <template v-if="activeTab === 'period'">
-      <t-card :bordered="false" class="filter-card">
-        <div class="filter-row">
-          <t-input
-            v-model="periodFilter.keyword"
-            class="filter-row__keyword"
-            placeholder="考勤月（如 2026-11）"
-            clearable
-            data-testid="hr-att-period-keyword"
-            @enter="handlePeriodSearch"
-            @clear="handlePeriodSearch"
-          >
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
+    <ListPage
+      v-if="activeTab === 'period'"
+      ref="periodListRef"
+      title="考勤期间"
+      meta-unit="期"
+      testid="hr-att-period"
+      :columns="ATTENDANCE_PERIOD_COLUMNS"
+      :filters="periodFilters"
+      :filter-state="periodFilter"
+      :initial-page="periodPage"
+      :fetcher="periodFetcher"
+      :query-builder="periodQueryBuilder"
+      :page-size="ATTENDANCE_PAGE_SIZE"
+      @loaded="onPeriodLoaded"
+      @reset="onPeriodReset"
+    >
+      <template #toolbar>
+        <t-button v-if="canPeriod" theme="primary" data-testid="hr-att-period-create" @click="openPeriodCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建期间
+        </t-button>
+      </template>
 
-          <t-select
-            v-model="periodFilter.status"
-            class="filter-row__select"
-            :options="statusFilterOptions"
-            placeholder="全部状态"
-            multiple
-            clearable
-            :min-collapsed-num="1"
-            data-testid="hr-att-period-status"
-          />
+      <!-- 年份框（后端是 `Option<i32>`，纯文本输入 + 回车即查，与改造前一致） -->
+      <template #filter-year>
+        <t-input
+          v-model="periodFilter.year"
+          class="filter-row__year"
+          placeholder="年份（如 2026）"
+          clearable
+          data-testid="hr-att-period-year"
+          @enter="handlePeriodSearch"
+        />
+      </template>
 
-          <t-input
-            v-model="periodFilter.year"
-            class="filter-row__year"
-            placeholder="年份（如 2026）"
-            clearable
-            data-testid="hr-att-period-year"
-            @enter="handlePeriodSearch"
-          />
+      <!-- 状态多选 -->
+      <template #filter-status>
+        <t-select
+          v-model="periodFilter.status"
+          class="filter-row__select"
+          :options="statusFilterOptions"
+          placeholder="全部状态"
+          multiple
+          clearable
+          :min-collapsed-num="1"
+          data-testid="hr-att-period-status"
+        />
+      </template>
 
-          <t-button theme="primary" data-testid="hr-att-period-search" @click="handlePeriodSearch">查询</t-button>
-          <t-button variant="outline" data-testid="hr-att-period-reset" @click="handlePeriodReset">重置</t-button>
-          <t-button variant="outline" data-testid="hr-att-period-refresh" @click="loadPeriods">刷新</t-button>
-          <span class="filter-row__spacer" />
-          <t-button
-            v-if="canPeriod"
-            theme="primary"
-            data-testid="hr-att-period-create"
-            @click="openPeriodCreate"
-          >
-            <template #icon><t-icon name="add" /></template>
-            新建期间
-          </t-button>
-        </div>
-      </t-card>
-
-      <t-card :bordered="false" class="list-card">
-        <div class="panel-head">
-          <div class="panel-head__main">
-            <span class="panel-head__title">考勤期间</span>
-            <span class="panel-head__meta" data-testid="hr-att-period-meta">共 {{ periodTotal }} 期</span>
-          </div>
-        </div>
-
-        <t-alert
-          v-if="periodError"
-          theme="error"
-          :message="periodError"
-          class="list-alert"
-          data-testid="hr-att-period-error"
-        >
-          <template #operation>
-            <t-button size="small" variant="outline" @click="loadPeriods">重试</t-button>
-          </template>
-        </t-alert>
-
-        <t-table
-          row-key="id"
-          :data="periods"
-          :columns="ATTENDANCE_PERIOD_COLUMNS"
-          :loading="periodLoading"
-          :pagination="periodPagination"
-          hover
-          data-testid="hr-att-period-table"
-          @page-change="handlePeriodPageChange"
-        >
           <template #period_code="{ row }">
             <t-link theme="primary" class="mono" data-testid="hr-att-period-open" @click="openLedger(row)">
               {{ row.period_code }}
@@ -264,125 +230,94 @@
               </p>
             </div>
           </template>
-        </t-table>
-      </t-card>
-    </template>
+    </ListPage>
 
     <!-- ==================== ② 考勤台账 ==================== -->
-    <template v-else>
-      <t-card :bordered="false" class="filter-card">
-        <div class="filter-row">
-          <t-select
-            v-model="recordFilter.period_id"
-            class="filter-row__period"
-            :options="ledgerPeriodOptions"
-            :loading="ledgerPeriodLoading"
-            placeholder="选择考勤期间"
-            filterable
-            data-testid="hr-att-ledger-period"
-            @change="handlePeriodSwitch"
-          />
+    <ListPage
+      v-else
+      ref="recordListRef"
+      title="考勤台账"
+      meta-unit="人"
+      testid="hr-att-ledger"
+      :columns="ATTENDANCE_RECORD_COLUMNS"
+      :filters="recordFilters"
+      :filter-state="recordFilter"
+      :initial-page="recordPage"
+      :fetcher="recordFetcher"
+      :query-builder="recordQueryBuilder"
+      :page-size="ATTENDANCE_PAGE_SIZE"
+      @loaded="onRecordLoaded"
+      @reset="onRecordReset"
+    >
+      <!-- 导入 / 导出 / 重算 / 锁定：页级动作，按权限码显隐（与改造前一致） -->
+      <template #toolbar>
+        <ImportEntryButton
+          v-if="canImport"
+          :biz-type="ATTENDANCE_BIZ_TYPE"
+          :biz-label="ATTENDANCE_BIZ_LABEL"
+          testid="hr-att-import-entry"
+        />
+        <t-button
+          v-if="canImport"
+          theme="primary"
+          variant="outline"
+          :disabled="!recordFilter.period_id"
+          data-testid="hr-att-import-upload"
+          @click="openImportDialog"
+        >
+          <template #icon><t-icon name="upload" /></template>
+          上传考勤表
+        </t-button>
 
-          <t-tag
-            v-if="selectedPeriod"
-            size="small"
-            variant="light"
-            :theme="periodStatusTheme(selectedPeriod.status)"
-            data-testid="hr-att-ledger-status"
-          >
-            {{ selectedPeriod.status_label || periodStatusLabel(selectedPeriod.status) }}
-          </t-tag>
+        <t-button
+          v-if="canExport"
+          variant="outline"
+          :loading="exporting"
+          :disabled="!recordFilter.period_id"
+          :title="`导出当前期间的台账（含锁定状态列；单次最多 ${ATTENDANCE_EXPORT_MAX_ROWS} 人）`"
+          data-testid="hr-att-export"
+          @click="handleExport"
+        >
+          <template #icon><t-icon name="download" /></template>
+          导出 Excel
+        </t-button>
 
-          <t-checkbox v-model="includeLocked" data-testid="hr-att-ledger-include-locked" @change="loadLedgerPeriods">
-            含已锁定
-          </t-checkbox>
+        <t-button
+          v-if="canPeriod && selectedPeriod && periodActionsOf(selectedPeriod.status).recalc"
+          variant="outline"
+          :loading="recalculating"
+          data-testid="hr-att-ledger-recalc"
+          @click="handleRecalc(selectedPeriod)"
+        >
+          重算汇总
+        </t-button>
 
-          <DeptTreeSelect
-            v-model="recordFilter.dept_id"
-            class="filter-row__dept"
-            placeholder="全部部门"
-            data-testid="hr-att-ledger-dept"
-          />
+        <t-button
+          v-if="canLock && selectedPeriod && periodActionsOf(selectedPeriod.status).lock"
+          theme="primary"
+          data-testid="hr-att-ledger-lock"
+          @click="openStatusDialog(selectedPeriod, 'LOCKED')"
+        >
+          锁定
+        </t-button>
+        <t-button
+          v-if="canLock && selectedPeriod && periodActionsOf(selectedPeriod.status).unlock"
+          theme="warning"
+          variant="outline"
+          data-testid="hr-att-ledger-unlock"
+          @click="openStatusDialog(selectedPeriod, 'DRAFT')"
+        >
+          解锁
+        </t-button>
+      </template>
 
-          <t-input
-            v-model="recordFilter.keyword"
-            class="filter-row__keyword"
-            placeholder="工号 / 姓名"
-            clearable
-            data-testid="hr-att-ledger-keyword"
-            @enter="handleRecordSearch"
-            @clear="handleRecordSearch"
-          >
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
+      <!-- 本页合计（期间头四个快照列；单行修正 / 重算 / 导入后跟着回执更新） -->
+      <template #head-extra>
+        <span class="ledger-totals mono" data-testid="hr-att-ledger-totals">{{ totalsLine }}</span>
+      </template>
 
-          <t-button theme="primary" data-testid="hr-att-ledger-search" @click="handleRecordSearch">查询</t-button>
-          <t-button variant="outline" data-testid="hr-att-ledger-reset" @click="handleRecordReset">重置</t-button>
-        </div>
-
-        <div class="ledger-actions">
-          <ImportEntryButton
-            v-if="canImport"
-            :biz-type="ATTENDANCE_BIZ_TYPE"
-            :biz-label="ATTENDANCE_BIZ_LABEL"
-            testid="hr-att-import-entry"
-          />
-          <t-button
-            v-if="canImport"
-            theme="primary"
-            variant="outline"
-            :disabled="!recordFilter.period_id"
-            data-testid="hr-att-import-upload"
-            @click="openImportDialog"
-          >
-            <template #icon><t-icon name="upload" /></template>
-            上传考勤表
-          </t-button>
-
-          <t-button
-            v-if="canExport"
-            variant="outline"
-            :loading="exporting"
-            :disabled="!recordFilter.period_id"
-            :title="`导出当前期间的台账（含锁定状态列；单次最多 ${ATTENDANCE_EXPORT_MAX_ROWS} 人）`"
-            data-testid="hr-att-export"
-            @click="handleExport"
-          >
-            <template #icon><t-icon name="download" /></template>
-            导出 Excel
-          </t-button>
-
-          <t-button
-            v-if="canPeriod && selectedPeriod && periodActionsOf(selectedPeriod.status).recalc"
-            variant="outline"
-            :loading="recalculating"
-            data-testid="hr-att-ledger-recalc"
-            @click="handleRecalc(selectedPeriod)"
-          >
-            重算汇总
-          </t-button>
-
-          <t-button
-            v-if="canLock && selectedPeriod && periodActionsOf(selectedPeriod.status).lock"
-            theme="primary"
-            data-testid="hr-att-ledger-lock"
-            @click="openStatusDialog(selectedPeriod, 'LOCKED')"
-          >
-            锁定
-          </t-button>
-          <t-button
-            v-if="canLock && selectedPeriod && periodActionsOf(selectedPeriod.status).unlock"
-            theme="warning"
-            variant="outline"
-            data-testid="hr-att-ledger-unlock"
-            @click="openStatusDialog(selectedPeriod, 'DRAFT')"
-          >
-            解锁
-          </t-button>
-
-          <span class="ledger-actions__totals mono" data-testid="hr-att-ledger-totals">{{ totalsLine }}</span>
-        </div>
-
+      <!-- 期间锁定提示 + 单元格修正的一致性警告（整宽，落在筛选卡内） -->
+      <template #filter-footer>
         <t-alert
           v-if="selectedPeriod && selectedPeriod.locked"
           theme="warning"
@@ -390,30 +325,54 @@
           data-testid="hr-att-ledger-locked-tip"
           message="本期间已锁定：台账只读（锁定期间是薪资试算的基线）。要改数据请先「解锁」（需要填写原因）。"
         />
-
         <t-alert
-          v-if="recordError"
-          theme="error"
-          :message="recordError"
+          v-for="(warning, index) in recordWarnings"
+          :key="index"
+          theme="warning"
           class="list-alert"
-          data-testid="hr-att-ledger-error"
-        >
-          <template #operation>
-            <t-button size="small" variant="outline" @click="loadRecords">重试</t-button>
-          </template>
-        </t-alert>
+          data-testid="hr-att-record-warning"
+          :message="warning"
+        />
+      </template>
 
-        <t-table
-          v-if="recordFilter.period_id"
-          row-key="id"
-          :data="records"
-          :columns="ATTENDANCE_RECORD_COLUMNS"
-          :loading="recordLoading"
-          :pagination="recordPagination"
-          hover
-          data-testid="hr-att-record-table"
-          @page-change="handleRecordPageChange"
+      <!-- 期间下拉 + 当前期间状态（两个控件挨在一起，状态标签跟着期间走） -->
+      <template #filter-period_id>
+        <t-select
+          v-model="recordFilter.period_id"
+          class="filter-row__period"
+          :options="ledgerPeriodOptions"
+          :loading="ledgerPeriodLoading"
+          placeholder="选择考勤期间"
+          filterable
+          data-testid="hr-att-ledger-period"
+          @change="handlePeriodSwitch"
+        />
+        <t-tag
+          v-if="selectedPeriod"
+          size="small"
+          variant="light"
+          :theme="periodStatusTheme(selectedPeriod.status)"
+          data-testid="hr-att-ledger-status"
         >
+          {{ selectedPeriod.status_label || periodStatusLabel(selectedPeriod.status) }}
+        </t-tag>
+      </template>
+
+      <template #filter-include_locked>
+        <t-checkbox v-model="includeLocked" data-testid="hr-att-ledger-include-locked" @change="loadLedgerPeriods">
+          含已锁定
+        </t-checkbox>
+      </template>
+
+      <template #filter-dept_id>
+        <DeptTreeSelect
+          v-model="recordFilter.dept_id"
+          class="filter-row__dept"
+          placeholder="全部部门"
+          data-testid="hr-att-ledger-dept"
+        />
+      </template>
+
           <template #employee_no="{ row }">
             <span class="mono">{{ row.employee_no }}</span>
           </template>
@@ -464,41 +423,30 @@
             </span>
           </template>
 
-          <template #empty>
-            <div class="panel-empty" data-testid="hr-att-record-empty">
-              <t-icon class="panel-empty__icon" name="user-business" />
-              <p class="panel-empty__title">
-                {{ isRecordFiltered(recordFilter) ? '没有匹配的考勤记录' : '这一期还没有考勤记录' }}
-              </p>
-              <p class="panel-empty__desc">
-                {{
-                  isRecordFiltered(recordFilter)
-                    ? '换个部门 / 关键字试试，或点「重置」看全部'
-                    : '点上方「上传考勤表」按模板导入（考勤月列填本期月份），导入后一人一行，可直接改数'
-                }}
-              </p>
-            </div>
-          </template>
-        </t-table>
-
-        <div v-else class="panel-empty" data-testid="hr-att-record-no-period">
+      <!-- 空态：没选期间 vs 选了但没记录（改造前是两个平级块，现在同一个插槽里分支） -->
+      <template #empty>
+        <div v-if="!recordFilter.period_id" class="panel-empty" data-testid="hr-att-record-no-period">
           <t-icon class="panel-empty__icon" name="calendar" />
           <p class="panel-empty__title">先选一期考勤期间</p>
           <p class="panel-empty__desc">
             台账按期间出数（一人一行）。还没有期间就去「考勤期间」tab 点「新建期间」，建好回来自动可选。
           </p>
         </div>
-
-        <t-alert
-          v-for="(warning, index) in recordWarnings"
-          :key="index"
-          theme="warning"
-          class="list-alert"
-          data-testid="hr-att-record-warning"
-          :message="warning"
-        />
-      </t-card>
-    </template>
+        <div v-else class="panel-empty" data-testid="hr-att-record-empty">
+          <t-icon class="panel-empty__icon" name="user-business" />
+          <p class="panel-empty__title">
+            {{ isRecordFiltered(recordFilter) ? '没有匹配的考勤记录' : '这一期还没有考勤记录' }}
+          </p>
+          <p class="panel-empty__desc">
+            {{
+              isRecordFiltered(recordFilter)
+                ? '换个部门 / 关键字试试，或点「重置」看全部'
+                : '点上方「上传考勤表」按模板导入（考勤月列填本期月份），导入后一人一行，可直接改数'
+            }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 期间表单抽屉 ==================== -->
     <t-drawer
@@ -769,11 +717,13 @@
  * 页面入口由 `router/index.ts` 的 `meta.permission` 拦；页内按钮由 `hasPermission` 拦
  * （无权限时按钮不出现，而不是点了 403）。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ImportEntryButton from '@/components/ImportEntryButton.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import { saveBlob } from '@/utils/download';
 import type { PrecheckReport } from '@/api/business/impexp';
@@ -876,6 +826,13 @@ function messageOf(error: unknown): string {
 
 const activeTab = ref<'period' | 'ledger'>('period');
 
+/**
+ * tab 切换。
+ *
+ * 两个 tab 各有一个 ListPage（`v-if`），切过去就由它自己首屏拉数据 —— 这里只补两件组件管不到的：
+ * ① 进台账要先把「期间下拉」的候选拉回来（否则选不到期间）；
+ * ② 期间下拉的默认第一期由 `loadLedgerPeriods` 选中并触发一次拉数。
+ */
 function handleTabChange(): void {
   if (activeTab.value === 'ledger') {
     void loadLedgerPeriods().then(() => {
@@ -884,62 +841,62 @@ function handleTabChange(): void {
       }
       void loadRecords();
     });
-  } else {
-    void loadPeriods();
   }
 }
 
 // ==================== 期间列表 ====================
 
 const periodFilter = reactive<PeriodFilter>(emptyPeriodFilter());
-const periods = ref<AttendancePeriodRow[]>([]);
-const periodTotal = ref(0);
-const periodLoading = ref(false);
-const periodError = ref('');
+/** 当前页（1 起；`ListPage` 每拉完一页回写） */
 const periodPage = ref(1);
-const periodPageSize = ref(ATTENDANCE_PAGE_SIZE);
+/** 期间列表 ListPage 实例（建 / 改 / 删 / 状态 / 重算之后重拉） */
+const periodListRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const periodPagination = computed(() => ({
-  current: periodPage.value,
-  pageSize: periodPageSize.value,
-  total: periodTotal.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 期间筛选项（顺序 = 改造前筛选行）。
+ *
+ * 考勤月是关键词框（声明式 `keyword`）；状态是**多选**、年份是纯文本输入（后端 `Option<i32>`），
+ * 两者 ListPage 的声明式控件表达不了，走 custom 插槽（插槽拿到的是同一个 `periodFilter`）。
+ */
+const periodFilters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '考勤月（如 2026-11）',
+    width: 200,
+    testid: 'hr-att-period-keyword',
+  },
+  { key: 'status', type: 'custom', defaultValue: [], testid: 'hr-att-period-status' },
+  { key: 'year', type: 'custom', defaultValue: '', testid: 'hr-att-period-year' },
+];
 
-async function loadPeriods(): Promise<void> {
-  periodLoading.value = true;
-  periodError.value = '';
-  try {
-    const data = await fetchPeriodPage(buildPeriodQuery(periodFilter, periodPage.value, periodPageSize.value));
-    periods.value = data.list ?? [];
-    periodTotal.value = data.total ?? 0;
-  } catch (error) {
-    periods.value = [];
-    periodTotal.value = 0;
-    periodError.value = messageOf(error);
-  } finally {
-    periodLoading.value = false;
-  }
+/** 拉一页（出参就是后端 `PageData`） */
+const periodFetcher: ListFetcher<AttendancePeriodRow> = (query) =>
+  fetchPeriodPage(query as Parameters<typeof fetchPeriodPage>[0]);
+
+/** 入参拼装：沿用 `buildPeriodQuery`（状态数组拼逗号串、年份转数字、空值不发） */
+const periodQueryBuilder: ListQueryBuilder = (_state, page, size) =>
+  buildPeriodQuery(periodFilter, page, size);
+
+/** 一页拉完：同步页码 */
+function onPeriodLoaded(payload: { page: number }): void {
+  periodPage.value = payload.page;
 }
 
+/** 年份框回车 / 关键词清空后重查（组件自带「查询」按钮） */
 function handlePeriodSearch(): void {
-  periodPage.value = 1;
-  void loadPeriods();
+  void periodListRef.value?.search();
 }
 
-function handlePeriodReset(): void {
+/** 「重置」：组件已按声明清筛选并回第 1 页，这里补 `emptyPeriodFilter()` 的形态 */
+function onPeriodReset(): void {
   Object.assign(periodFilter, emptyPeriodFilter());
   periodPage.value = 1;
-  void loadPeriods();
 }
 
-function handlePeriodPageChange(pageInfo: { current: number; pageSize: number }): void {
-  periodPage.value = pageInfo.current;
-  if (pageInfo.pageSize && pageInfo.pageSize !== periodPageSize.value) {
-    periodPageSize.value = pageInfo.pageSize;
-  }
-  void loadPeriods();
+/** 重拉期间列表当前页（建 / 改 / 删 / 状态流转 / 重算之后） */
+async function loadPeriods(): Promise<void> {
+  await periodListRef.value?.load(periodPage.value);
 }
 
 // ==================== 期间表单 ====================
@@ -1192,12 +1149,17 @@ function syncSelectedPeriod(): void {
 // ==================== 台账：列表 + 单元格编辑 ====================
 
 const recordFilter = reactive<RecordFilter>(emptyRecordFilter());
-const records = ref<AttendanceRecordRow[]>([]);
-const recordTotal = ref(0);
-const recordLoading = ref(false);
-const recordError = ref('');
+/** 当前页（1 起；`ListPage` 每拉完一页回写） */
 const recordPage = ref(1);
-const recordPageSize = ref(ATTENDANCE_PAGE_SIZE);
+/** 台账 ListPage 实例 */
+const recordListRef = ref<InstanceType<typeof ListPage> | null>(null);
+/**
+ * 当前页行（`ListPage` 的 `loaded` 镜像）。
+ *
+ * 单行修正成功后要把回执里的行盖回去（含 `ot_hours_total` / `updated_at`）——
+ * 镜像是**同一个数组对象**，就地 `Object.assign` 表格立刻跟着变，不用整页重拉。
+ */
+const records = ref<AttendanceRecordRow[]>([]);
 /** 底栏合计（期间头上的四个快照列；单行修正后由回执的 `period_totals` 刷新） */
 const currentTotals = ref<PeriodTotals>(emptyTotals());
 /**
@@ -1206,25 +1168,67 @@ const currentTotals = ref<PeriodTotals>(emptyTotals());
  * 为什么不只读 `ledgerPeriods` 里的期间行：那份数据是**进页面时**拉的，而单行修正会在
  * 回执里带**同事务重算**后的 `period_totals`（比列表里的行新）。只信列表行就会出现
  * 「改完一格、切走再切回来，合计又变回旧数字」。所以修正 / 重算 / 导入后的新值都写进这份
- * 缓存，`loadRecords` 优先取缓存，没有才回落到期间行。
+ * 缓存，拉页时优先取缓存，没有才回落到期间行。
  */
 const totalsCache = reactive<Record<string, PeriodTotals>>({});
-/** 单元格输入框的草稿值（`${rowId}:${field}` → number） */
+/** 单元格输入框的草稿值（`${rowId}:${field}` → number) */
 const cellDraft = reactive<Record<string, number>>({});
 /** 正在保存的单元格（`${rowId}:${field}`） */
 const cellSaving = ref('');
 /** 上一次修正的一致性警告（设计 §4.9 W1：只报不拦） */
 const recordWarnings = ref<string[]>([]);
 
-const recordPagination = computed(() => ({
-  current: recordPage.value,
-  pageSize: recordPageSize.value,
-  total: recordTotal.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 const totalsLine = computed(() => totalsText(currentTotals.value));
+
+/**
+ * 台账筛选项（顺序 = 改造前筛选行）。
+ *
+ * 期间是下拉（必填项，选了才出数）、「含已锁定」是勾选框、部门是树下拉、关键字是输入框 ——
+ * 前三样走 custom 插槽，关键字用声明式 `keyword`。
+ */
+const recordFilters: FilterDef[] = [
+  { key: 'period_id', type: 'custom', defaultValue: '', testid: 'hr-att-ledger-period' },
+  { key: 'include_locked', type: 'custom', defaultValue: false, testid: 'hr-att-ledger-include-locked' },
+  { key: 'dept_id', type: 'custom', defaultValue: '', testid: 'hr-att-ledger-dept' },
+  { key: 'keyword', type: 'keyword', placeholder: '工号 / 姓名', width: 200, testid: 'hr-att-ledger-keyword' },
+];
+
+/**
+ * 拉一页台账。
+ *
+ * 没选期间就不发请求（直接给空页）：后端 `period_id` 是必填，空串请求只会 400。
+ * 每页到手顺带做两件页面级的事 —— ① 11 个数值列灌进草稿；② 合计取缓存 / 期间行
+ * （原 `loadRecords` 的后半段，现在跟着每页走）。
+ */
+const recordFetcher: ListFetcher<AttendanceRecordRow> = async (query) => {
+  const periodId = recordFilter.period_id.trim();
+  if (!periodId) {
+    return { list: [], total: 0, page: 1, page_size: ATTENDANCE_PAGE_SIZE };
+  }
+  const data = await fetchRecordPage(query as Parameters<typeof fetchRecordPage>[0]);
+  for (const row of data.list ?? []) {
+    fillDraft(row);
+  }
+  const cached = totalsCache[periodId];
+  if (cached) {
+    currentTotals.value = cached;
+  } else {
+    const period = ledgerPeriods.value.find((item) => item.id === periodId);
+    currentTotals.value = period ? totalsOfPeriod(period) : emptyTotals();
+  }
+  return data;
+};
+
+/** 入参拼装：沿用 `buildRecordQuery`（没期间时回 null，这里兜一个空分页入参） */
+const recordQueryBuilder: ListQueryBuilder = (_state, page, size) =>
+  (buildRecordQuery(recordFilter, page, size) ?? { page, page_size: size }) as Record<string, unknown>;
+
+/** 一页拉完：镜像行 + 同步页码 + 清掉上一轮的一致性警告 */
+function onRecordLoaded(payload: { rows: AttendanceRecordRow[]; page: number }): void {
+  records.value = payload.rows;
+  recordPage.value = payload.page;
+  recordWarnings.value = [];
+}
 
 /** 单元格 key（模板里 `v-model` 与保存都用它） */
 function cellKey(row: AttendanceRecordRow, key: string): string {
@@ -1238,70 +1242,29 @@ function fillDraft(row: AttendanceRecordRow): void {
   }
 }
 
+/** 重拉台账当前页（切期间 / 单行修正另一入口 / 建删改之后） */
 async function loadRecords(): Promise<void> {
-  const query = buildRecordQuery(recordFilter, recordPage.value, recordPageSize.value);
-  if (!query) {
-    records.value = [];
-    recordTotal.value = 0;
-    return;
-  }
-  recordLoading.value = true;
-  recordError.value = '';
-  recordWarnings.value = [];
-  try {
-    const data = await fetchRecordPage(query);
-    records.value = data.list ?? [];
-    recordTotal.value = data.total ?? 0;
-    for (const row of records.value) {
-      fillDraft(row);
-    }
-    // 合计优先取「修正 / 重算 / 导入」回执带回来的那份（同事务重算，比列表里的期间行新），
-    // 没有缓存才回落到期间行上的四个快照列
-    const periodId = recordFilter.period_id;
-    const cached = totalsCache[periodId];
-    if (cached) {
-      currentTotals.value = cached;
-    } else {
-      const period = ledgerPeriods.value.find((item) => item.id === periodId);
-      currentTotals.value = period ? totalsOfPeriod(period) : emptyTotals();
-    }
-  } catch (error) {
-    records.value = [];
-    recordTotal.value = 0;
-    recordError.value = messageOf(error);
-  } finally {
-    recordLoading.value = false;
-  }
+  // tab 刚切过来时组件还没挂（`v-if`），等一拍再拉
+  await nextTick();
+  await recordListRef.value?.load(recordPage.value);
 }
 
 /** 期间切换：页码归零 + 重查（不能复用上一期的数组） */
 function handlePeriodSwitch(): void {
   recordPage.value = 1;
-  records.value = [];
-  recordTotal.value = 0;
   recordWarnings.value = [];
-  void loadRecords();
+  void recordListRef.value?.search();
 }
 
-function handleRecordSearch(): void {
-  recordPage.value = 1;
-  void loadRecords();
-}
-
-function handleRecordReset(): void {
+/**
+ * 「重置」：组件已按声明清筛选并回第 1 页 —— 但**期间必须留着**（它决定这一页出谁的数），
+ * 所以先把期间拿出来、清完再写回（与改造前 `handleRecordReset` 同一口径）。
+ */
+function onRecordReset(): void {
   const periodId = recordFilter.period_id;
   Object.assign(recordFilter, emptyRecordFilter());
   recordFilter.period_id = periodId;
   recordPage.value = 1;
-  void loadRecords();
-}
-
-function handleRecordPageChange(pageInfo: { current: number; pageSize: number }): void {
-  recordPage.value = pageInfo.current;
-  if (pageInfo.pageSize && pageInfo.pageSize !== recordPageSize.value) {
-    recordPageSize.value = pageInfo.pageSize;
-  }
-  void loadRecords();
 }
 
 /**
@@ -1331,9 +1294,11 @@ async function handleCellBlur(row: AttendanceRecordRow, field: NumberFieldMeta):
   cellSaving.value = key;
   try {
     const result = await patchRecord(row.id, payload);
-    const index = records.value.findIndex((item) => item.id === row.id);
-    if (index >= 0) {
-      records.value[index] = result.record;
+    // 就地覆盖：`records` 与表格是同一个数组对象，`Object.assign` 后表格那一行立刻更新
+    // （含 `ot_hours_total` / `updated_at`）；换元素引用则表格拿不到新对象。
+    const target = records.value.find((item) => item.id === row.id);
+    if (target) {
+      Object.assign(target, result.record);
       fillDraft(result.record);
     }
     currentTotals.value = result.period_totals;
@@ -1513,7 +1478,8 @@ async function handleConfirmImport(): Promise<void> {
 // ==================== 首次加载 ====================
 
 onMounted(() => {
-  void loadPeriods();
+  // 期间列表由它的 ListPage 首屏自己拉；这里只把台账 tab 的「期间下拉」候选准备好，
+  // 这样切到台账时下拉不是空的（与改造前一致）。
   void loadLedgerPeriods();
 });
 </script>
@@ -1525,76 +1491,32 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tabs-card :deep(.t-card__body) {
-  padding-bottom: 0;
+/* tab 条提到页面级（两个 tab 各一个 ListPage），与下方列表留一点间距 */
+.page-tabs {
+  margin-bottom: 8px;
 }
 
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-
-  &__keyword {
-    width: 200px;
-  }
-
-  &__select {
-    width: 180px;
-  }
-
-  &__year {
-    width: 140px;
-  }
-
-  &__period {
-    width: 280px;
-  }
-
-  &__dept {
-    width: 180px;
-  }
-
-  &__spacer {
-    flex: 1;
-  }
+/* 筛选控件宽度（容器由 ListPage 的筛选行提供，这里只定宽；关键词框的宽度走声明的 `width`） */
+.filter-row__select {
+  width: 180px;
 }
 
-.ledger-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-
-  &__totals {
-    margin-left: auto;
-    font-size: 12px;
-    color: var(--td-text-color-secondary);
-  }
+.filter-row__year {
+  width: 140px;
 }
 
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
+.filter-row__period {
+  width: 280px;
+}
 
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
+.filter-row__dept {
+  width: 180px;
+}
 
-  &__title {
-    font-size: 15px;
-    font-weight: 600;
-  }
-
-  &__meta {
-    font-size: 12px;
-    color: var(--td-text-color-secondary);
-  }
+/* 本页合计（页头右上角，原先在动作条尾部） */
+.ledger-totals {
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
 }
 
 .list-alert {

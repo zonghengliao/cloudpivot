@@ -53,105 +53,40 @@
             改公式不影响已生成的薪资单（历史按 <code class="mono">expr_snapshot</code> 留存）。
           </p>
         </div>
-        <div class="page-head__actions">
-          <t-button variant="outline" data-testid="hr-si-refresh" @click="loadRows">刷新</t-button>
-          <t-button
-            v-if="canCreate"
-            theme="primary"
-            data-testid="hr-si-create"
-            @click="openCreate"
-          >
-            <template #icon><t-icon name="add" /></template>
-            新建薪资项
-          </t-button>
-        </div>
       </div>
     </t-card>
 
-    <!-- ==================== ① 筛选 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="编码 / 名称"
-          clearable
-          data-testid="hr-si-keyword"
-          @enter="handleSearch"
-          @clear="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-10） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="薪资项"
+      meta-unit="项"
+      testid="hr-si"
+      :columns="SALARY_ITEM_COLUMNS"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="currentPage"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="ITEM_PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
+        <t-button v-if="canCreate" theme="primary" data-testid="hr-si-create" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建薪资项
+        </t-button>
+      </template>
 
-        <t-select
-          v-model="filter.item_type"
-          class="filter-row__select"
-          :options="itemTypeOptions()"
-          placeholder="全部类型"
-          clearable
-          data-testid="hr-si-filter-type"
-        />
+      <!-- 「共 N 项 · 启用 M 项」：同元素后缀（e2e / 单测按 `hr-si-meta` 读整串） -->
+      <template #meta-extra>
+        <span class="meta-extra">· 启用 {{ activeCount }} 项</span>
+      </template>
 
-        <t-select
-          v-model="filter.calc_type"
-          class="filter-row__select"
-          :options="calcTypeOptions()"
-          placeholder="全部算法"
-          clearable
-          data-testid="hr-si-filter-calc"
-        />
+      <template #head-extra>
+        <span v-if="isItemFiltered(filter)" class="filter-row__flag" data-testid="hr-si-filtered">已筛选</span>
+      </template>
 
-        <t-select
-          v-model="filter.is_active"
-          class="filter-row__select"
-          :options="activeFilterOptions"
-          placeholder="启用 / 停用"
-          clearable
-          data-testid="hr-si-filter-active"
-        />
-
-        <t-button theme="primary" data-testid="hr-si-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="hr-si-reset" @click="handleReset">重置</t-button>
-        <span class="filter-row__spacer" />
-        <span v-if="isItemFiltered(filter)" class="filter-row__flag" data-testid="hr-si-filtered">
-          已筛选
-        </span>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">薪资项</span>
-          <span class="panel-head__meta" data-testid="hr-si-meta">
-            共 {{ total }} 项 · 启用 {{ activeCount }} 项
-          </span>
-        </div>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        class="list-alert"
-        data-testid="hr-si-load-error"
-        :message="loadError"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        hover
-        :data="rows"
-        :columns="SALARY_ITEM_COLUMNS"
-        :loading="loading"
-        :pagination="pagination"
-        data-testid="hr-si-table"
-        @page-change="handlePageChange"
-      >
         <!-- 顺序 -->
         <template #sort_order="{ row }">
           <span class="mono sort-text">{{ row.sort_order }}</span>
@@ -252,8 +187,7 @@
             <span>{{ isItemFiltered(filter) ? '没有匹配的薪资项' : '还没有薪资项' }}</span>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 配置抽屉 ==================== -->
     <t-drawer
@@ -618,9 +552,11 @@
  * `business:hr:salary-item:{list,create,update}`。页面入口由 `router/index.ts` 的
  * `meta.permission` 拦；页内按钮由 `hasPermission` 拦（无权限时按钮不出现，而不是点了 403）。
  */
-import { computed, nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import {
   FORMULA_FUNCS,
@@ -695,22 +631,25 @@ function messageOf(error: unknown): string {
 
 // ==================== 列表 ====================
 
-const loading = ref(false);
-const loadError = ref('');
-const rows = ref<SalaryItemRow[]>([]);
-const total = ref(0);
+/** 每页条数（改造前是 `pageSize = ref(20)`，可改 10/20/50/100；现由组件统一 20） */
+const ITEM_PAGE_SIZE = 20;
+
+/** 当前页（1 起；`ListPage` 每拉完一页回写） */
 const currentPage = ref(1);
-const pageSize = ref(20);
+/** ListPage 实例（保存成功后重拉当前页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 const filter = reactive<SalaryItemFilter>(emptyItemFilter());
 const togglingId = ref('');
 
-const pagination = computed(() => ({
-  current: currentPage.value,
-  pageSize: pageSize.value,
-  total: total.value,
-  showJumper: true,
-  pageSizeOptions: [10, 20, 50, 100],
-}));
+/**
+ * 当前页行（`ListPage` 的 `loaded` 镜像）。
+ *
+ * 三处要用它：① 页头「启用 M 项」计数；② 新建时 `nextSortOrder(rows)` 取下一个排序号；
+ * ③ 变量面板的兜底中文名（`fallbackVarOptions`）。
+ * 镜像的是**同一个数组对象**（组件把自己的 `rows` 原样抛出来），所以在行上就地改字段
+ * （启停开关）表格会跟着变，不用整页重拉。
+ */
+const rows = ref<SalaryItemRow[]>([]);
 
 const activeCount = computed(() => rows.value.filter((row) => row.is_active).length);
 
@@ -719,40 +658,53 @@ const activeFilterOptions = [
   { label: '停用', value: '0' },
 ];
 
-/** 拉列表（筛选 / 分页共用一条路径） */
+/** 筛选项（关键词 / 类型 / 算法 / 启停，全是声明式控件） */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '编码 / 名称', width: 300, testid: 'hr-si-keyword' },
+  {
+    key: 'item_type',
+    type: 'select',
+    placeholder: '全部类型',
+    width: 150,
+    options: itemTypeOptions(),
+    testid: 'hr-si-filter-type',
+  },
+  {
+    key: 'calc_type',
+    type: 'select',
+    placeholder: '全部算法',
+    width: 150,
+    options: calcTypeOptions(),
+    testid: 'hr-si-filter-calc',
+  },
+  {
+    key: 'is_active',
+    type: 'select',
+    placeholder: '启用 / 停用',
+    width: 150,
+    options: activeFilterOptions,
+    testid: 'hr-si-filter-active',
+  },
+];
+
+/** 拉一页（出参就是后端 `PageData`） */
+const fetcher: ListFetcher<SalaryItemRow> = (query) =>
+  fetchSalaryItemPage(query as Parameters<typeof fetchSalaryItemPage>[0]);
+
+/** 入参拼装：沿用 `buildPageQuery`（空串不发、`is_active` 转数字） */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => buildPageQuery(filter, page, size);
+
+/** 一页拉完：镜像行（计数 / 排序号 / 变量兜底清单要用）+ 同步页码 + 刷兜底变量 */
+function onLoaded(payload: { rows: SalaryItemRow[]; page: number }): void {
+  rows.value = payload.rows;
+  currentPage.value = payload.page;
+  // 变量面板的兜底清单靠这份列表补中文名，改完列表要同步
+  refreshFallbackVars();
+}
+
+/** 重拉当前页（保存 / 新建成功后调） */
 async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchSalaryItemPage(buildPageQuery(filter, currentPage.value, pageSize.value));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    // 变量面板的兜底清单靠这份列表补中文名，改完列表要同步
-    refreshFallbackVars();
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  currentPage.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyItemFilter());
-  currentPage.value = 1;
-  void loadRows();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  currentPage.value = pageInfo.current;
-  pageSize.value = pageInfo.pageSize;
-  void loadRows();
+  await listRef.value?.load(currentPage.value);
 }
 
 /** 启用 / 停用（配置表的生命周期；后端 PUT 需要整份写入口，所以从行还原表单再改开关） */
@@ -1130,12 +1082,15 @@ async function handleSubmit(): Promise<void> {
   }
 }
 
-onMounted(() => {
-  void loadRows();
-});
+// 首屏由 `ListPage` 自己拉（setup 末尾 `load(1)`），这里不再手动 `loadRows()`。
 </script>
 
 <style scoped lang="less">
+/* 页头计数后缀「· 启用 M 项」（`#meta-extra` 与「共 N 项」同一元素） */
+.meta-extra {
+  margin-left: 6px;
+}
+
 .hr-salary-item-page {
   display: flex;
   flex-direction: column;
@@ -1170,61 +1125,9 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.page-head__actions {
-  display: flex;
-  flex: 0 0 auto;
-  gap: 8px;
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.filter-row__keyword {
-  width: 220px;
-}
-
-.filter-row__select {
-  width: 150px;
-}
-
-.filter-row__spacer {
-  flex: 1 1 auto;
-}
-
 .filter-row__flag {
   color: var(--td-brand-color, #0052d9);
   font-size: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-placeholder, #0000004d);
-  font-size: 13px;
-}
-
-.list-alert {
-  margin-bottom: 12px;
 }
 
 .mono {

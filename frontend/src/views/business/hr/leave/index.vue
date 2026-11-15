@@ -49,34 +49,56 @@
 -->
 <template>
   <div class="hr-leave-page">
-    <!-- ==================== ① tab + 筛选 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <t-tabs v-model="activeTab" class="page-tabs" data-testid="hr-leave-tabs" @change="handleTabChange">
-        <t-tab-panel v-if="canListAll" value="all" label="全部请假" data-testid="hr-leave-tab-all" />
-        <t-tab-panel value="mine" label="我的请假" data-testid="hr-leave-tab-mine" />
-      </t-tabs>
+    <!-- ==================== ①② tab / 筛选 / 分页 / 行操作（P3-10） ==================== -->
+    <!-- 两个 tab 共用一个 ListPage（fetcher 按 tab 选接口）：tabs 提到页面级，别在卡片里再套卡片 -->
+    <t-tabs v-model="activeTab" class="page-tabs" data-testid="hr-leave-tabs" @change="handleTabChange">
+      <t-tab-panel v-if="canListAll" value="all" label="全部请假" data-testid="hr-leave-tab-all" />
+      <t-tab-panel value="mine" label="我的请假" data-testid="hr-leave-tab-mine" />
+    </t-tabs>
 
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="单号 / 工号 / 姓名"
-          clearable
-          data-testid="hr-leave-keyword"
-          @enter="handleSearch"
-          @clear="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
+    <ListPage
+      ref="listRef"
+      :title="mineTab ? '我的请假' : '请假单'"
+      meta-unit="张"
+      testid="hr-leave"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="currentPage"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="LEAVE_PAGE_SIZE"
+      @loaded="onLoaded"
+      @reset="handleReset"
+    >
+      <template #toolbar>
+        <t-button v-if="canCreate" theme="primary" data-testid="hr-leave-create" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建请假
+        </t-button>
+      </template>
 
+      <!-- 列表记忆提示条（整宽，落在筛选卡底部） -->
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="memory.restored.value"
+          :text="memory.restoredText.value"
+          testid="hr-leave-memory"
+          @clear="handleClearMemory"
+        />
+      </template>
+
+      <!-- 部门树 / 假别多选 / 状态多选：ListPage 的声明式控件挡不住，走 custom 插槽自绘 -->
+      <template #filter-dept_id>
         <DeptTreeSelect
-          v-if="!mineTab"
           v-model="filter.dept_id"
           class="filter-row__dept"
           placeholder="全部部门"
           data-testid="hr-leave-dept"
         />
+      </template>
 
+      <template #filter-leave_type>
         <t-select
           v-model="filter.leave_type"
           class="filter-row__select"
@@ -87,7 +109,9 @@
           :min-collapsed-num="1"
           data-testid="hr-leave-type"
         />
+      </template>
 
+      <template #filter-status>
         <t-select
           v-model="filter.status"
           class="filter-row__select"
@@ -98,7 +122,10 @@
           :min-collapsed-num="1"
           data-testid="hr-leave-status"
         />
+      </template>
 
+      <!-- 起止日期：filter 里是两个字符串（后端参数），控件要数组 —— dateRange + watch 双向同步 -->
+      <template #filters-extra>
         <t-date-range-picker
           v-model="dateRange"
           class="filter-row__range"
@@ -106,51 +133,8 @@
           allow-input
           data-testid="hr-leave-dates"
         />
+      </template>
 
-        <t-button theme="primary" data-testid="hr-leave-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="hr-leave-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="hr-leave-refresh" @click="loadRows">刷新</t-button>
-      </div>
-
-      <ListMemoryBar
-        :restored="memory.restored.value"
-        :text="memory.restoredText.value"
-        testid="hr-leave-memory"
-        @clear="handleClearMemory"
-      />
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">{{ mineTab ? '我的请假' : '请假单' }}</span>
-          <span class="panel-head__meta" data-testid="hr-leave-meta">共 {{ total }} 张</span>
-        </div>
-        <div class="panel-head__side">
-          <t-button v-if="canCreate" theme="primary" data-testid="hr-leave-create" @click="openCreate">
-            <template #icon><t-icon name="add" /></template>
-            新建请假
-          </t-button>
-        </div>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="hr-leave-list-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="hr-leave-table"
-        @page-change="handlePageChange"
-      >
         <template #leave_no="{ row }">
           <t-link theme="primary" class="mono" data-testid="hr-leave-row-open" @click="openDetail(row)">
             {{ row.leave_no }}
@@ -239,8 +223,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑抽屉 ==================== -->
     <t-drawer
@@ -607,12 +590,14 @@
  * 新建抽屉里的员工下拉换成就地展示「我自己」，`employee_id` 从自己的请假记录推出来 ——
  * `/employee/my` 还没有（HR-41 / HR-47 的决策面），所以这里不假装能查到。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import { ApiError } from '@/api/request';
 import {
@@ -719,14 +704,15 @@ const filter = reactive(emptyLeaveFilter());
 const dateRange = ref<string[]>([]);
 
 const currentPage = ref(1);
-const pageSize = ref(LEAVE_PAGE_SIZE);
+/** ListPage 实例（tab 切换 / 增删改后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 列表记忆：进页面恢复筛选 + tab + 页码 */
 const memory = useListFilterMemory({
   listName: 'hr-leave',
   filter,
   page: currentPage,
-  pageSize,
+  pageSize: LEAVE_PAGE_SIZE,
   tab: activeTab,
   defaultTab: defaultLeaveTab(canListAll.value),
   allowedTabs: canListAll.value ? ['all', 'mine'] : ['mine'],
@@ -742,19 +728,6 @@ watch(dateRange, (value) => {
   filter.date_to = value && value[1] ? String(value[1]) : '';
 });
 
-const rows = ref<LeaveListRow[]>([]);
-const total = ref(0);
-const loading = ref(false);
-const loadError = ref('');
-
-const pagination = computed(() => ({
-  current: currentPage.value,
-  pageSize: pageSize.value,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 /** 统一错误文案（`ApiError` 带后端中文报文） */
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) {
@@ -765,78 +738,80 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * 拉列表。
+ * 筛选项（顺序 = 改造前筛选行）。
  *
- * # 「我的请假」有两条来源（卡 t_0af7ec46 解耦后）
- *
- * * 持有 `leave:list`（人事 / 超管）→ `/leave/page?mine=true`：与「全部」同一接口，
- *   顺带带审批态；
- * * 没有 `leave:list`（员工自助）→ `/leave/my`（登录即可、只出本人）：解耦后
- *   `/leave/page` 对他是 403，再调只会把「我的请假」变成一片报错。
- *
- * 判据用 `canListAll`（= 有 `leave:list`），与 tab 显隐同一个开关 —— 不可能出现
- * 「tab 显形了但接口 403」的界面撒谎。
+ * 「我的请假」不带部门筛选（自己的假与所选部门无关，带了反而会把结果筛空）——
+ * 所以 `dept_id` 只在「全部请假」时声明（`mineTab` 反过来影响 `filters` 数组）。
+ * 假别 / 状态是多选，控件要 `multiple`，走 custom 插槽；日期区间在 `#filters-extra`。
  */
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const query = buildLeaveQuery(filter, currentPage.value, pageSize.value, mineTab.value);
-    // 「我的请假」不带部门筛选（自己的假与所选部门无关，带了反而会把结果筛空）
-    if (mineTab.value) {
-      delete query.dept_id;
-    }
-    if (mineTab.value && !canListAll.value) {
-      const mine = await fetchMyLeaves({ page: query.page, page_size: query.page_size });
-      rows.value = (mine.list ?? []).map(myLeaveToListRow);
-      total.value = mine.total ?? 0;
-    } else {
-      const data = await fetchLeavePage(query);
-      rows.value = data.list ?? [];
-      total.value = data.total ?? 0;
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
+const filters = computed<FilterDef[]>(() => [
+  { key: 'keyword', type: 'keyword', placeholder: '单号 / 工号 / 姓名', width: 300, testid: 'hr-leave-keyword' },
+  ...(mineTab.value ? [] : [{ key: 'dept_id', type: 'custom' as const, defaultValue: undefined, testid: 'hr-leave-dept' }]),
+  { key: 'leave_type', type: 'custom', defaultValue: [], testid: 'hr-leave-type' },
+  { key: 'status', type: 'custom', defaultValue: [], testid: 'hr-leave-status' },
+]);
+
+/** 拉一页：入参由 `queryBuilder` 决定，出参统一成 `PageData` */
+const fetcher: ListFetcher<LeaveListRow> = async (query) => {
+  // 「我的请假」有两条来源（见 `loadRows` 的历史注释）：有 `leave:list` 走 `/leave/page?mine=true`，
+  // 员工自助走 `/leave/my`（登录即可、只出本人）；后者不是 PageData 形状，这里补齐分页字段。
+  if (mineTab.value && !canListAll.value) {
+    const page = Number(query.page ?? 1);
+    const pageSize = Number(query.page_size ?? LEAVE_PAGE_SIZE);
+    const mine = await fetchMyLeaves({ page, page_size: pageSize });
+    return {
+      list: (mine.list ?? []).map(myLeaveToListRow),
+      total: mine.total ?? 0,
+      page,
+      page_size: pageSize,
+    };
   }
+  return fetchLeavePage(query as Parameters<typeof fetchLeavePage>[0]);
+};
+
+/** 入参拼装：沿用 `buildLeaveQuery`（`mine` 由 tab 决定；我的请假不拼部门） */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => {
+  const query = buildLeaveQuery(filter, page, size, mineTab.value) as Record<string, unknown>;
+  if (mineTab.value) {
+    delete query.dept_id;
+  }
+  return query;
+};
+
+/** 一页拉完：同步页码（删掉最后一页最后一条时组件已回夹，这里跟着对） */
+function onLoaded(payload: { page: number }): void {
+  currentPage.value = payload.page;
 }
 
-/** tab 切换：换 tab 必须重查，且不能沿用上一个 tab 的数组 */
+/** 重拉当前页（新建 / 提交 / 作废成功后调） */
+async function loadRows(): Promise<void> {
+  await listRef.value?.load(currentPage.value);
+}
+
+/** tab 切换：换 tab 必须重查（页码归 1、不沿用上一个 tab 的数据） */
 function handleTabChange(): void {
   currentPage.value = 1;
-  rows.value = [];
-  total.value = 0;
-  void loadRows();
+  void listRef.value?.search();
 }
 
-function handleSearch(): void {
-  currentPage.value = 1;
-  void loadRows();
-}
-
+/**
+ * 「重置」：组件已按声明清筛选并回第 1 页，这里补三件它管不到的事 ——
+ * ① `status` / `leave_type` 回到空数组（不是 `undefined`）；② 日期区间清空；③ 忘掉列表记忆。
+ * tab 保持不动（重置筛选不等于切视图）。
+ */
 function handleReset(): void {
-  const tab = activeTab.value;
   Object.assign(filter, emptyLeaveFilter());
-  activeTab.value = tab;
   dateRange.value = [];
   currentPage.value = 1;
   memory.forget();
-  void loadRows();
 }
 
+/** 「清空筛选」提示条上的出口：清筛选 + 忘记忆 + 重查第 1 页 */
 function handleClearMemory(): void {
-  handleReset();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  currentPage.value = pageInfo.current;
-  if (pageInfo.pageSize && pageInfo.pageSize !== pageSize.value) {
-    pageSize.value = pageInfo.pageSize;
-  }
-  void loadRows();
+  Object.assign(filter, emptyLeaveFilter());
+  dateRange.value = [];
+  memory.forget();
+  void listRef.value?.search();
 }
 
 // ==================== 新建 / 编辑表单 ====================
@@ -1198,13 +1173,9 @@ async function confirmDialog(content: string, title: string): Promise<boolean> {
   });
 }
 
-// ==================== 首次加载 ====================
-
-onMounted(() => {
-  // `useListFilterMemory` 在 setup 阶段已恢复 tab / 筛选 / 页码 —— 这里用恢复后的
-  // `activeTab` 与 `currentPage`，否则「记住我的 tab / 第 2 页」永远回到默认。
-  void loadRows();
-});
+// ==================== 首屏 ====================
+// `ListPage` 在 setup 末尾自己拉第 1 页（`initial-page` = 记忆恢复出的页码；
+// `useListFilterMemory` 的 tab / 筛选在父 setup 阶段已恢复，子组件拿到的就是恢复后的值）。
 </script>
 
 <style scoped lang="less">
@@ -1214,23 +1185,8 @@ onMounted(() => {
   gap: 12px;
 }
 
-.filter-card {
-  flex: 0 0 auto;
-}
-
 .page-tabs {
   margin-bottom: 8px;
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.filter-row__keyword {
-  width: 220px;
 }
 
 .filter-row__dept {
@@ -1243,37 +1199,6 @@ onMounted(() => {
 
 .filter-row__range {
   width: 260px;
-}
-
-.filter-row__spacer {
-  flex: 1 1 auto;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-placeholder, #0000004d);
-  font-size: 13px;
-}
-
-.list-alert {
-  margin-bottom: 12px;
 }
 
 .emp-name {

@@ -13,6 +13,8 @@
   另加三个「布局/口径」小开关：`rowKey`（行主键字段，总账流水用「凭证+行号」）、
   `metaUnit`（「共 N **条/张/个**」的量词）、`rowClassName`（给行上色，如会计期间标「当月」）。
   抽屉、弹窗、附件面板、导入按钮都走插槽，组件不猜业务。
+  再有两个「行里还有一层」的小开关（只给需要展开行的列表）：`expandable`（显示展开图标）
+  + `tableSlots`（额外透传的 t-table 插槽名，目前就是 `['expandedRow']`）。
 
   # 插槽
 
@@ -198,6 +200,7 @@
         :pagination="pagination"
         :hover="true"
         :row-class-name="rowClassName"
+        :expand-icon="expandable"
         :selected-row-keys="selectionReady ? selectedIds : undefined"
         :data-testid="tableTestid"
         @page-change="handlePageChange"
@@ -207,6 +210,11 @@
         <!-- 单元格自绘：槽名 = 列 colKey（`#status` / `#contact_person` …），原样转给 t-table -->
         <template v-for="item in cellSlots" :key="item.source" #[item.target]="slotProps">
           <slot :name="item.source" v-bind="slotProps" />
+        </template>
+
+        <!-- 额外透传插槽（`tableSlots` 声明，如展开行 `expandedRow`）：页面自己的模板，组件不解释 -->
+        <template v-for="name in extraTableSlots" :key="`extra-${name}`" #[name]="slotProps">
+          <slot :name="name" v-bind="slotProps" />
         </template>
 
         <!-- 行操作：页面没自绘 op 列时按声明渲染 -->
@@ -341,6 +349,20 @@ const props = withDefaults(
     /** 表格 testid（默认 `${testid}-table`） */
     tableTestid?: string;
     /**
+     * 是否显示展开图标（透传 `t-table` 的 `expand-icon`）。
+     *
+     * 只给「行里还有一层明细」的列表用（我的薪资：一行一期，展开看这一期的薪资项）；
+     * 展开内容由页面在 `tableSlots: ['expandedRow']` 里自己写，组件不解释。
+     */
+    expandable?: boolean;
+    /**
+     * 额外透传给 `t-table` 的插槽名（除「槽名 = 列 colKey」的单元格插槽之外）。
+     *
+     * 目前唯一用途是 `['expandedRow']`：展开行模板不是某列的单元格，`cellSlots` 那条路转不过去。
+     * 名字原样转发，页面写什么名字这里就声明什么名字。
+     */
+    tableSlots?: string[];
+    /**
      * 行主键字段（默认 `id`）。
      *
      * 绝大多数 ERP 列表的主键就是 `id`；总账流水的行主键是「凭证 + 行号」
@@ -377,6 +399,8 @@ const props = withDefaults(
     rowClassName: undefined,
     testid: 'listpage',
     tableTestid: undefined,
+    expandable: false,
+    tableSlots: () => [],
     rowKey: 'id',
     metaTestid: undefined,
     metaUnit: '条',
@@ -635,6 +659,16 @@ const cellSlots = computed(() => {
     .map((name) => ({ source: name, target: name.replace(/^cell-/, '') }))
     .filter((item) => colKeys.has(item.target));
 });
+
+/**
+ * 额外透传插槽（`tableSlots`）。
+ *
+ * 只转发「页面声明了 + 页面真的写了」的名字：声明了但没写，`t-table` 会撞上一个空插槽
+ * 把默认渲染也顶掉（展开行会变成一片空白）。
+ */
+const extraTableSlots = computed(() =>
+  (props.tableSlots ?? []).filter((name) => Boolean(slots[name])),
+);
 
 // ==================== 筛选写回 ====================
 

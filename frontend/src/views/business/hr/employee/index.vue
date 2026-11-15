@@ -41,28 +41,82 @@
 -->
 <template>
   <div class="hr-employee-page">
-    <!-- ==================== ① 筛选行 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="工号 / 姓名 / 手机"
-          clearable
-          data-testid="hr-emp-keyword"
-          @enter="handleSearch"
-          @clear="handleSearch"
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-10） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="员工档案"
+      meta-unit="人"
+      testid="hr-emp"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="currentPage"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="EMPLOYEE_PAGE_SIZE"
+      @loaded="onLoaded"
+      @reset="handleReset"
+    >
+      <!-- 工具栏：建档 / 导入 / 从系统用户生成（各自按权限码显隐，与改造前一致） -->
+      <template #toolbar>
+        <t-button v-if="canCreate" variant="outline" data-testid="hr-emp-seed" @click="openSeed">
+          <template #icon><t-icon name="usergroup-add" /></template>
+          从系统用户生成
+        </t-button>
+        <t-button
+          v-if="canImport"
+          variant="outline"
+          :loading="templateLoading"
+          data-testid="hr-emp-template"
+          @click="handleDownloadTemplate"
         >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
+          <template #icon><t-icon name="download" /></template>
+          下载导入模板
+        </t-button>
+        <t-button v-if="canImport" theme="primary" data-testid="hr-emp-import" @click="openImport">
+          <template #icon><t-icon name="upload" /></template>
+          导入员工
+        </t-button>
+        <t-button v-if="canCreate" theme="primary" data-testid="hr-emp-create" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建员工
+        </t-button>
+      </template>
 
+      <!-- 页头右侧：口径提示 + 无建档权限的说明 -->
+      <template #head-extra>
+        <span class="filter-row__hint">默认不含离职（勾「含离职」才查得到）</span>
+        <span
+          v-if="!canCreate"
+          class="panel-head__hint"
+          title="所需权限码：business:hr:employee:create"
+          data-testid="hr-emp-create-denied"
+        >
+          无建档权限，需要建档请联系人事管理员
+        </span>
+      </template>
+
+      <!-- 列表记忆提示条（整宽，落在筛选卡底部） -->
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="memory.restored.value"
+          :text="memory.restoredText.value"
+          testid="hr-emp-memory"
+          @clear="handleClearMemory"
+        />
+      </template>
+
+      <!-- 部门树 / 状态多选 / 含离职开关：ListPage 的声明式控件挡不住，走 custom 插槽自绘 -->
+      <template #filter-dept_id>
         <DeptTreeSelect
           v-model="filter.dept_id"
           class="filter-row__dept"
           placeholder="全部部门"
           data-testid="hr-emp-dept"
         />
+      </template>
 
+      <template #filter-status>
         <t-select
           v-model="filter.status"
           class="filter-row__select"
@@ -73,110 +127,15 @@
           :min-collapsed-num="1"
           data-testid="hr-emp-status"
         />
+      </template>
 
-        <t-select
-          v-model="filter.employment_type"
-          class="filter-row__select"
-          :options="employmentTypeOptions"
-          placeholder="全部用工形式"
-          clearable
-          data-testid="hr-emp-employment"
-        />
-
+      <template #filter-include_resigned>
         <label class="filter-row__switch" data-testid="hr-emp-resigned-wrap">
           <t-switch v-model="filter.include_resigned" size="small" data-testid="hr-emp-resigned" />
           <span class="filter-row__switch-text">含离职</span>
         </label>
+      </template>
 
-        <t-button theme="primary" data-testid="hr-emp-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="hr-emp-reset" @click="handleReset">重置</t-button>
-
-        <span class="filter-row__spacer" />
-
-        <span class="filter-row__hint">默认不含离职（勾「含离职」才查得到）</span>
-        <t-button variant="outline" data-testid="hr-emp-refresh" @click="loadRows">刷新</t-button>
-      </div>
-
-      <ListMemoryBar
-        :restored="memory.restored.value"
-        :text="memory.restoredText.value"
-        testid="hr-emp-memory"
-        @clear="handleClearMemory"
-      />
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">员工档案</span>
-          <span class="panel-head__meta" data-testid="hr-emp-meta">共 {{ total }} 人</span>
-        </div>
-        <div class="panel-head__actions">
-          <span
-            v-if="!canCreate"
-            class="panel-head__hint"
-            title="所需权限码：business:hr:employee:create"
-            data-testid="hr-emp-create-denied"
-          >
-            无建档权限，需要建档请联系人事管理员
-          </span>
-          <t-button
-            v-if="canCreate"
-            variant="outline"
-            data-testid="hr-emp-seed"
-            @click="openSeed"
-          >
-            <template #icon><t-icon name="usergroup-add" /></template>
-            从系统用户生成
-          </t-button>
-          <t-button
-            v-if="canImport"
-            variant="outline"
-            :loading="templateLoading"
-            data-testid="hr-emp-template"
-            @click="handleDownloadTemplate"
-          >
-            <template #icon><t-icon name="download" /></template>
-            下载导入模板
-          </t-button>
-          <t-button
-            v-if="canImport"
-            theme="primary"
-            data-testid="hr-emp-import"
-            @click="openImport"
-          >
-            <template #icon><t-icon name="upload" /></template>
-            导入员工
-          </t-button>
-          <t-button
-            v-if="canCreate"
-            theme="primary"
-            data-testid="hr-emp-create"
-            @click="openCreate"
-          >
-            <template #icon><t-icon name="add" /></template>
-            新建员工
-          </t-button>
-        </div>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="hr-emp-list-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="hr-emp-table"
-        @page-change="handlePageChange"
-      >
         <template #emp_no="{ row }">
           <t-link theme="primary" class="mono" data-testid="hr-emp-row-open" @click="openDetail(row)">
             {{ row.emp_no }}
@@ -248,8 +207,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 详情抽屉 ==================== -->
     <t-drawer
@@ -1423,7 +1381,7 @@
  * 页面入口由 `router/index.ts` 的 `meta.permission` 拦；抽屉里的「查看明文」
  * 由 `v-if="canViewPlain"` 拦（无权限时按钮不出现，而不是点了 403）。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
@@ -1518,6 +1476,8 @@ import { saveBlob } from '@/utils/download';
 import type { ImportErrorRes, ImportUploadRes, PrecheckReport } from '@/api/business/impexp';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 
@@ -1578,32 +1538,19 @@ const idCardTypeOptions = ID_CARD_TYPE_OPTIONS.map((item) => ({ ...item }));
 /** 筛选行（`useListFilterMemory` 会就地恢复 / 写回） */
 const filter = reactive(emptyEmployeeFilter());
 
-/** 当前页（1 起） */
+/** 当前页（1 起；`useListFilterMemory` 进页面恢复，`ListPage` 每拉完一页回写） */
 const currentPage = ref(1);
-/** 每页条数 */
-const pageSize = ref(EMPLOYEE_PAGE_SIZE);
 
 /** 列表记忆：进页面恢复筛选与页码，改了防抖写回 */
 const memory = useListFilterMemory({
   listName: 'hr-employee',
   filter,
   page: currentPage,
-  pageSize,
+  pageSize: EMPLOYEE_PAGE_SIZE,
 });
 
-const rows = ref<EmployeeListRow[]>([]);
-const total = ref(0);
-const loading = ref(false);
-const loadError = ref('');
-
-/** 分页配置（`showJumper` 便于 42 人以上的客户直接跳页） */
-const pagination = computed(() => ({
-  current: currentPage.value,
-  pageSize: pageSize.value,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** ListPage 实例（新建 / 保存 / 删除 / 生成 / 导入完成后重拉当前页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 错误文案（`ApiError` 带后端中文报文，其它异常兜底） */
 function messageOf(error: unknown): string {
@@ -1613,49 +1560,63 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : '请求失败';
 }
 
-/** 拉列表（按当前筛选与页码） */
+/**
+ * 筛选项（顺序 = 改造前筛选行的顺序）。
+ *
+ * 部门树 / 状态多选 / 「含离职」开关这三样 ListPage 的声明式控件挡不住，声明成 `custom`，
+ * 由页面在 `#filter-<key>` 插槽里自绘 —— 插槽拿到的是**同一个** `filter` 对象，所以
+ * `buildEmployeeQuery` / `isEmployeeFiltered` 这些闭包一行都没改。
+ */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '工号 / 姓名 / 手机', width: 300, testid: 'hr-emp-keyword' },
+  { key: 'dept_id', type: 'custom', defaultValue: undefined, testid: 'hr-emp-dept' },
+  { key: 'status', type: 'custom', defaultValue: [], testid: 'hr-emp-status' },
+  {
+    key: 'employment_type',
+    type: 'select',
+    placeholder: '全部用工形式',
+    width: 150,
+    options: employmentTypeOptions,
+    defaultValue: undefined,
+    testid: 'hr-emp-employment',
+  },
+  { key: 'include_resigned', type: 'custom', defaultValue: false, testid: 'hr-emp-resigned-wrap' },
+];
+
+/** 拉一页（出参就是后端 `PageData`；空值整键缺席等口径在 `buildEmployeeQuery` 里） */
+const fetcher: ListFetcher<EmployeeListRow> = (query) =>
+  fetchEmployeePage(query as Parameters<typeof fetchEmployeePage>[0]);
+
+/** 入参拼装：沿用被单测钉住的 `buildEmployeeQuery`（状态数组转逗号串、含离职只在勾上时发） */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => buildEmployeeQuery(filter, page, size);
+
+/** 一页拉完：同步页码（删掉最后一页最后一条时组件已回夹，这里跟着对） */
+function onLoaded(payload: { page: number }): void {
+  currentPage.value = payload.page;
+}
+
+/** 重拉当前页（新建 / 保存 / 删除 / 从系统用户生成 / 导入完成后调） */
 async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchEmployeePage(buildEmployeeQuery(filter, currentPage.value, pageSize.value));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
+  await listRef.value?.load(currentPage.value);
 }
 
-/** 查询：回到第 1 页再拉 */
-function handleSearch(): void {
-  currentPage.value = 1;
-  void loadRows();
-}
-
-/** 重置：清空筛选 + 忘掉记忆 + 回第 1 页 */
+/**
+ * 「重置」：组件已按声明清空筛选并回第 1 页，这里补两件它管不到的事 ——
+ *
+ * ① 把 `status` 这类 custom 控件写回 `emptyEmployeeFilter()` 的形态（空数组，不是 `undefined`）；
+ * ② 忘掉列表记忆，否则下次进页面又把旧筛选恢复回来。
+ */
 function handleReset(): void {
   Object.assign(filter, emptyEmployeeFilter());
   currentPage.value = 1;
   memory.forget();
-  void loadRows();
 }
 
-/** 「清空筛选」提示条上的出口：清空筛选并重查（别让用户以为数据丢了） */
+/** 「清空筛选」提示条上的出口：清筛选 + 忘记忆 + 重查第 1 页（别让用户以为数据丢了） */
 function handleClearMemory(): void {
-  handleReset();
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  currentPage.value = pageInfo.current;
-  if (pageInfo.pageSize && pageInfo.pageSize !== pageSize.value) {
-    pageSize.value = pageInfo.pageSize;
-  }
-  void loadRows();
+  Object.assign(filter, emptyEmployeeFilter());
+  memory.forget();
+  void listRef.value?.search();
 }
 
 // ==================== 详情抽屉 ====================
@@ -2312,13 +2273,10 @@ async function handleDownloadErrors(): Promise<void> {
   }
 }
 
-// ==================== 首次加载 ====================
+// ==================== 首屏 ====================
+// ListPage 自己会在 setup 末尾拉第 1 页（`initial-page` = 记忆恢复出的页码），
+// 所以这里不再手动 `loadRows()` —— 手动再拉一次就是白跑一趟接口。
 
-onMounted(() => {
-  // `useListFilterMemory` 在 setup 阶段已恢复筛选与页码 —— 这里用 `currentPage`
-  // 而不是 1，否则「记住第 2 页」永远回到第 1 页（该 composable 的头注第 1 条）。
-  void loadRows();
-});
 </script>
 
 <style scoped lang="less">
@@ -2326,21 +2284,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.filter-card {
-  flex: 0 0 auto;
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.filter-row__keyword {
-  width: 240px;
 }
 
 .filter-row__dept {
@@ -2363,50 +2306,9 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
 }
 
-.filter-row__spacer {
-  flex: 1 1 auto;
-}
-
 .filter-row__hint {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
-}
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-  white-space: nowrap;
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  white-space: nowrap;
-}
-
-.list-alert {
-  margin-bottom: 8px;
 }
 
 .op-row {

@@ -50,9 +50,6 @@
           </p>
         </div>
         <div class="page-head__actions">
-          <t-button variant="outline" data-testid="hr-salary-refresh" @click="handleRefresh">
-            刷新
-          </t-button>
           <t-button
             v-if="canCalc"
             variant="outline"
@@ -75,20 +72,63 @@
       </div>
     </t-card>
 
-    <!-- ==================== ① 筛选（含 tab） ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <t-tabs
-        v-if="showTabs"
-        v-model="activeTab"
-        class="page-tabs"
-        data-testid="hr-salary-tabs"
-        @change="handleTabChange"
-      >
-        <t-tab-panel v-if="canList" value="all" label="薪资单" data-testid="hr-salary-tab-all" />
-        <t-tab-panel v-if="canMy" value="mine" label="我的薪资" data-testid="hr-salary-tab-mine" />
-      </t-tabs>
+    <!-- ==================== ①② 两个 tab 各一个 ListPage（P3-10） ==================== -->
+    <!--
+      tabs 提到页面级、面板留空，两张表各用自己的 ListPage：
+      「薪资单」后端分页（全量 + 筛选），「我的薪资」是另一个接口且行可展开 —— 两张表的口径、
+      列、行键都不同，塞进一个组件只会造出一堆 `activeTab === 'all'` 的分支。
+      只有一个 tab 可见时（员工 / 只有 list 权限的人）按 `showTabs` 把 tab 条藏起来，与改造前一致。
+    -->
+    <t-tabs
+      v-if="showTabs"
+      v-model="activeTab"
+      class="page-tabs"
+      data-testid="hr-salary-tabs"
+      @change="handleTabChange"
+    >
+      <t-tab-panel v-if="canList" value="all" label="薪资单" data-testid="hr-salary-tab-all" />
+      <t-tab-panel v-if="canMy" value="mine" label="我的薪资" data-testid="hr-salary-tab-mine" />
+    </t-tabs>
 
-      <div v-if="activeTab === 'all'" class="filter-row">
+    <!-- ==================== ② 薪资单列表 ==================== -->
+    <ListPage
+      v-if="activeTab === 'all'"
+      ref="allListRef"
+      title="薪资单"
+      meta-unit="单"
+      testid="hr-salary"
+      :columns="SALARY_LIST_COLUMNS"
+      :filters="listFilters"
+      :filter-state="filter"
+      :initial-page="currentPage"
+      :fetcher="listFetcher"
+      :query-builder="listQueryBuilder"
+      :page-size="SALARY_LIST_PAGE_SIZE"
+      show-page-size
+      @loaded="onListLoaded"
+      @reset="onListReset"
+      @row-click="handleRowClick"
+    >
+      <!-- 「共 N 单 · 本页 应发 … / 实发 …」：同元素后缀 -->
+      <template #meta-extra>
+        <span class="meta-extra">· 本页 {{ pageTotalsText(pageTotals) }}</span>
+      </template>
+
+      <template #head-extra>
+        <span v-if="isListFiltered(filter)" class="filter-row__flag" data-testid="hr-salary-filtered">
+          已筛选
+        </span>
+      </template>
+
+      <!-- 空态：文案沿用 `listEmptyText`（改造前是 t-table 的 `:empty`） -->
+      <template #empty>
+        <div class="panel-empty" data-testid="hr-salary-empty">
+          <p class="panel-empty__title">{{ listEmptyText(isListFiltered(filter)) }}</p>
+        </div>
+      </template>
+
+      <!-- 薪资期间（`t-date-picker mode="month"` 不是声明式控件，走 custom 插槽） -->
+      <template #filter-period_code>
         <t-date-picker
           v-model="filter.period_code"
           class="filter-row__period"
@@ -98,105 +138,10 @@
           placeholder="薪资期间"
           clearable
           data-testid="hr-salary-filter-period"
-          @change="handleSearch"
+          @change="handleListSearch"
         />
+      </template>
 
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="SALARY_LIST_STATUS_OPTIONS"
-          placeholder="全部状态"
-          clearable
-          data-testid="hr-salary-filter-status"
-          @change="handleSearch"
-        />
-
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="单号（SAL-202611）"
-          clearable
-          data-testid="hr-salary-filter-keyword"
-          @enter="handleSearch"
-          @clear="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-button theme="primary" data-testid="hr-salary-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="hr-salary-reset" @click="handleReset">重置</t-button>
-
-        <span class="filter-row__spacer" />
-        <span v-if="isListFiltered(filter)" class="filter-row__flag" data-testid="hr-salary-filtered">
-          已筛选
-        </span>
-      </div>
-
-      <div v-else class="filter-row">
-        <t-date-picker
-          v-model="myFilter.period_code"
-          class="filter-row__period"
-          mode="month"
-          value-type="YYYY-MM"
-          format="YYYY-MM"
-          placeholder="薪资期间"
-          clearable
-          data-testid="hr-salary-my-period"
-          @change="handleMySearch"
-        />
-
-        <label v-if="canCalc" class="filter-row__switch">
-          <t-switch v-model="myFilter.include_pending" data-testid="hr-salary-my-pending" />
-          <span class="filter-row__switch-text">含在途单</span>
-          <t-tooltip content="草稿 / 已计算 / 审批中的金额还会变，默认不显示">
-            <t-icon name="help-circle" />
-          </t-tooltip>
-        </label>
-
-        <t-button theme="primary" data-testid="hr-salary-my-search" @click="handleMySearch">
-          查询
-        </t-button>
-        <t-button variant="outline" data-testid="hr-salary-my-reset" @click="handleMyReset">
-          重置
-        </t-button>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 薪资单列表 ==================== -->
-    <t-card v-if="activeTab === 'all'" :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">薪资单</span>
-          <span class="panel-head__meta" data-testid="hr-salary-meta">
-            共 {{ total }} 单 · 本页 {{ pageTotalsText(pageTotals) }}
-          </span>
-        </div>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        class="list-alert"
-        data-testid="hr-salary-load-error"
-        :message="loadError"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        hover
-        :data="rows"
-        :columns="SALARY_LIST_COLUMNS"
-        :loading="loading"
-        :pagination="pagination"
-        :empty="listEmptyText(isListFiltered(filter))"
-        data-testid="hr-salary-table"
-        @page-change="handlePageChange"
-        @row-click="handleRowClick"
-      >
         <!-- 单号：点一下进详情页（最常见的动作） -->
         <template #sheet_no="{ row }">
           <a
@@ -268,44 +213,67 @@
             >导出</t-button>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 我的薪资（员工自助） ==================== -->
-    <t-card v-else :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">我的薪资</span>
-          <span class="panel-head__meta" data-testid="hr-salary-my-meta">
-            共 {{ myTotal }} 期 · 只显示已定稿的工资单{{ myFilter.include_pending ? '（含在途）' : '' }}
-          </span>
+    <ListPage
+      v-else
+      ref="myListRef"
+      title="我的薪资"
+      meta-unit="期"
+      testid="hr-salary-my"
+      row-key="detail_id"
+      expandable
+      :table-slots="['expandedRow']"
+      :columns="SALARY_MY_COLUMNS"
+      :filters="myFilters"
+      :filter-state="myFilter"
+      :initial-page="myPage"
+      :fetcher="myFetcher"
+      :query-builder="myQueryBuilder"
+      :page-size="SALARY_LIST_PAGE_SIZE"
+      show-page-size
+      @loaded="onMyLoaded"
+      @reset="onMyReset"
+    >
+      <template #meta-extra>
+        <span class="meta-extra">
+          · 只显示已定稿的工资单{{ myFilter.include_pending ? '（含在途）' : '' }}
+        </span>
+      </template>
+
+      <template #empty>
+        <div class="panel-empty" data-testid="hr-salary-my-empty">
+          <p class="panel-empty__title">{{ mySalaryEmptyText(myPeriodFiltered) }}</p>
         </div>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="myError"
-        theme="error"
-        class="list-alert"
-        data-testid="hr-salary-my-error"
-        :message="myError"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadMyRows">重试</t-button>
-        </template>
-      </t-alert>
+      <!-- 薪资期间（自定义插槽，与「薪资单」tab 同款） -->
+      <template #filter-period_code>
+        <t-date-picker
+          v-model="myFilter.period_code"
+          class="filter-row__period"
+          mode="month"
+          value-type="YYYY-MM"
+          format="YYYY-MM"
+          placeholder="薪资期间"
+          clearable
+          data-testid="hr-salary-my-period"
+          @change="handleMySearch"
+        />
+      </template>
 
-      <t-table
-        row-key="detail_id"
-        hover
-        :data="myRows"
-        :columns="SALARY_MY_COLUMNS"
-        :loading="myLoading"
-        :pagination="myPagination"
-        :empty="mySalaryEmptyText(Boolean((myFilter.period_code ?? '').trim()))"
-        :expand-icon="true"
-        data-testid="hr-salary-my-table"
-        @page-change="handleMyPageChange"
-      >
+      <!-- 含在途单：只有能算薪资的人（HR / 财务）才提这个开关 -->
+      <template #filter-include_pending>
+        <label v-if="canCalc" class="filter-row__switch">
+          <t-switch v-model="myFilter.include_pending" data-testid="hr-salary-my-pending" />
+          <span class="filter-row__switch-text">含在途单</span>
+          <t-tooltip content="草稿 / 已计算 / 审批中的金额还会变，默认不显示">
+            <t-icon name="help-circle" />
+          </t-tooltip>
+        </label>
+      </template>
+
         <template #sheet_status="{ row }">
           <t-tag size="small" variant="light" :theme="salaryStatusTheme(row.sheet_status)">
             {{ row.sheet_status_label || salaryStatusLabel(row.sheet_status) }}
@@ -357,8 +325,7 @@
             </template>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ④ 试算 / 建单抽屉 ==================== -->
     <t-drawer
@@ -545,7 +512,7 @@
  * 页面入口由 `router/index.ts` 的 `meta.permission` 拦；页内 tab / 按钮由
  * `hasPermission` 拦 —— 无权限时不渲染入口，而不是让用户点出 403。
  */
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 
@@ -553,9 +520,7 @@ import {
   CALC_MODE_HINTS,
   MAX_CALC_REMARK,
   SALARY_LIST_COLUMNS,
-  SALARY_LIST_MAX_PAGE_SIZE,
   SALARY_LIST_PAGE_SIZE,
-  SALARY_LIST_PAGE_SIZE_OPTIONS,
   SALARY_LIST_PERMS,
   SALARY_LIST_STATUS_OPTIONS,
   SALARY_MY_COLUMNS,
@@ -598,6 +563,8 @@ import {
   type SalarySheetRef,
   type SalarySheetRow,
 } from '@/api/business/hr/salary';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 
@@ -633,152 +600,125 @@ function messageOf(error: unknown): string {
   return '操作失败，请重试';
 }
 
-// ==================== 薪资单列表 ====================
+// ==================== 薪资单列表（ListPage） ====================
 
-const loading = ref(false);
-const loadError = ref('');
-const rows = ref<SalarySheetRow[]>([]);
-const total = ref(0);
+/** 当前页（1 起；`ListPage` 每拉完一页回写，建单成功要回第 1 页） */
 const currentPage = ref(1);
-const pageSize = ref(SALARY_LIST_PAGE_SIZE);
+/** 「薪资单」ListPage 实例（建单成功后重拉） */
+const allListRef = ref<InstanceType<typeof ListPage> | null>(null);
 const filter = reactive<SalaryListFilter>(emptyListFilter());
 const exportingId = ref('');
 
-const pagination = computed(() => ({
-  current: currentPage.value,
-  pageSize: pageSize.value,
-  total: total.value,
-  showJumper: true,
-  pageSizeOptions: SALARY_LIST_PAGE_SIZE_OPTIONS,
-}));
+/** 当前页行（`ListPage` 的 `loaded` 镜像：页头「本页合计」要算它） */
+const rows = ref<SalarySheetRow[]>([]);
 
 /** 本页合计（只统计当前页：全局合计要看期间汇总，那是详情页的事） */
 const pageTotals = computed(() => sumSheetRows(rows.value));
 
-/** 拉薪资单列表（筛选 / 分页共用一条路径） */
-async function loadRows(): Promise<void> {
-  if (!canList.value) {
-    rows.value = [];
-    total.value = 0;
-    return;
-  }
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchSalarySheetPage(
-      buildListQuery(filter, currentPage.value, pageSize.value),
-    );
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    // 页码越界（删了单 / 换筛选后页码过大）时回退到第一页，否则表格空着但「共 N 单」
-    if (!rows.value.length && total.value > 0 && currentPage.value > 1) {
-      currentPage.value = 1;
-      loading.value = false;
-      await loadRows();
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
+/**
+ * 筛选项：期间 / 状态 / 单号（顺序 = 改造前筛选行）。
+ *
+ * 期间是 `t-date-picker mode="month"`，不是声明式控件，走 custom 插槽；
+ * 期间与状态改了就查（与改造前的 `@change="handleSearch"` 一致），关键词按回车或点「查询」。
+ */
+const listFilters: FilterDef[] = [
+  { key: 'period_code', type: 'custom', defaultValue: '', testid: 'hr-salary-filter-period' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: SALARY_LIST_STATUS_OPTIONS,
+    searchOnChange: true,
+    testid: 'hr-salary-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '单号（SAL-202611）',
+    width: 300,
+    testid: 'hr-salary-filter-keyword',
+  },
+];
+
+/** 拉一页（出参就是后端 `PageData`） */
+const listFetcher: ListFetcher<SalarySheetRow> = (query) =>
+  fetchSalarySheetPage(query as Parameters<typeof fetchSalarySheetPage>[0]);
+
+/** 入参拼装：沿用 `buildListQuery`（空值整键缺席、期间/状态原样发） */
+const listQueryBuilder: ListQueryBuilder = (_state, page, size) => buildListQuery(filter, page, size);
+
+/** 一页拉完：镜像行（本页合计）+ 同步页码（删掉最后一页最后一条时组件已回夹） */
+function onListLoaded(payload: { rows: SalarySheetRow[]; page: number }): void {
+  rows.value = payload.rows;
+  currentPage.value = payload.page;
 }
 
-function handleSearch(): void {
-  currentPage.value = 1;
-  void loadRows();
+/** 期间改了：回第 1 页重查（`t-date-picker` 的 @change 没有声明式对应） */
+function handleListSearch(): void {
+  void allListRef.value?.search();
 }
 
-function handleReset(): void {
+/** 「重置」：组件已按声明清筛选并回第 1 页，这里补 `emptyListFilter()` 的形态与页码 */
+function onListReset(): void {
   Object.assign(filter, emptyListFilter());
   currentPage.value = 1;
-  void loadRows();
 }
 
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  currentPage.value = Math.min(
-    pageInfo.current,
-    Math.max(1, Math.ceil(total.value / Math.max(1, pageInfo.pageSize))),
-  );
-  pageSize.value = Math.min(SALARY_LIST_MAX_PAGE_SIZE, pageInfo.pageSize);
-  void loadRows();
+/** 重拉当前页（建单成功后） */
+async function loadRows(): Promise<void> {
+  await allListRef.value?.load(currentPage.value);
 }
 
 // ==================== 我的薪资（#46） ====================
 
-const myLoading = ref(false);
-const myError = ref('');
-const myRows = ref<MySalaryRow[]>([]);
-const myTotal = ref(0);
+/** 我的薪资页码（`ListPage` 每拉完一页回写） */
 const myPage = ref(1);
-const myPageSize = ref(SALARY_LIST_PAGE_SIZE);
+/** 「我的薪资」ListPage 实例 */
+const myListRef = ref<InstanceType<typeof ListPage> | null>(null);
 const myFilter = reactive<MySalaryFilter>(emptyMyFilter());
 
-const myPagination = computed(() => ({
-  current: myPage.value,
-  pageSize: myPageSize.value,
-  total: myTotal.value,
-  showJumper: true,
-  pageSizeOptions: SALARY_LIST_PAGE_SIZE_OPTIONS,
-}));
+/** 「我的薪资」是否在筛期间（空态文案 `mySalaryEmptyText` 的入参） */
+const myPeriodFiltered = computed(() => Boolean((myFilter.period_code ?? '').trim()));
 
-async function loadMyRows(): Promise<void> {
-  if (!canMy.value) {
-    myRows.value = [];
-    myTotal.value = 0;
-    return;
-  }
-  myLoading.value = true;
-  myError.value = '';
-  try {
-    const data = await fetchMySalary(buildMyQuery(myFilter, myPage.value, myPageSize.value));
-    myRows.value = data.list ?? [];
-    myTotal.value = data.total ?? 0;
-    if (!myRows.value.length && myTotal.value > 0 && myPage.value > 1) {
-      myPage.value = 1;
-      myLoading.value = false;
-      await loadMyRows();
-    }
-  } catch (error) {
-    myRows.value = [];
-    myTotal.value = 0;
-    myError.value = messageOf(error);
-  } finally {
-    myLoading.value = false;
-  }
+/** 筛选项：期间 + 「含在途单」（后者只给能算薪资的人显形，见模板里的 `v-if="canCalc"`） */
+const myFilters: FilterDef[] = [
+  { key: 'period_code', type: 'custom', defaultValue: '', testid: 'hr-salary-my-period' },
+  { key: 'include_pending', type: 'custom', defaultValue: false, testid: 'hr-salary-my-pending' },
+];
+
+/** 拉一页（员工自助接口，只出本人） */
+const myFetcher: ListFetcher<MySalaryRow> = (query) =>
+  fetchMySalary(query as Parameters<typeof fetchMySalary>[0]);
+
+/** 入参拼装：沿用 `buildMyQuery`（含在途开关只在这里换算成接口参数） */
+const myQueryBuilder: ListQueryBuilder = (_state, page, size) => buildMyQuery(myFilter, page, size);
+
+/** 一页拉完：同步页码 */
+function onMyLoaded(payload: { page: number }): void {
+  myPage.value = payload.page;
 }
 
+/** 期间改了：回第 1 页重查 */
 function handleMySearch(): void {
-  myPage.value = 1;
-  void loadMyRows();
+  void myListRef.value?.search();
 }
 
-function handleMyReset(): void {
+/** 「重置」：清筛选 + 回第 1 页（在途开关也回默认关） */
+function onMyReset(): void {
   Object.assign(myFilter, emptyMyFilter());
   myPage.value = 1;
-  void loadMyRows();
-}
-
-function handleMyPageChange(pageInfo: { current: number; pageSize: number }): void {
-  myPage.value = Math.min(
-    pageInfo.current,
-    Math.max(1, Math.ceil(myTotal.value / Math.max(1, pageInfo.pageSize))),
-  );
-  myPageSize.value = Math.min(SALARY_LIST_MAX_PAGE_SIZE, pageInfo.pageSize);
-  void loadMyRows();
 }
 
 // ==================== tab / 导航 ====================
 
+/**
+ * tab 切换：只切 `activeTab`，数据由那个 tab 自己的 ListPage 首屏拉
+ * （两个 tab 的接口 / 列 / 行键都不同，共用一个实例只会造出一堆分支）。
+ */
 function handleTabChange(value: string | number): void {
   // TDesign 的 change 回的是 `TabValue`（string | number），先归一再比
   activeTab.value = value === 'mine' ? 'mine' : 'all';
-  if (activeTab.value === 'all') {
-    void loadRows();
-  } else {
-    void loadMyRows();
-  }
 }
 
 /** 进详情页（`/business/hr/salary/:id`，HR-43 已注册） */
@@ -790,15 +730,6 @@ function handleRowClick(context: { row: unknown }): void {
   const row = context?.row as SalarySheetRow | undefined;
   if (row?.id) {
     openDetail(row);
-  }
-}
-
-/** 刷新：当前 tab 的数据 */
-function handleRefresh(): void {
-  if (activeTab.value === 'all') {
-    void loadRows();
-  } else {
-    void loadMyRows();
   }
 }
 
@@ -945,28 +876,20 @@ function applyRouteQuery(): boolean {
   activeTab.value = 'all';
   filter.keyword = sheetNo;
   currentPage.value = 1;
-  void loadRows();
   return true;
 }
 
-onMounted(() => {
-  // 深链进来先按单号筛（别再按默认条件拉一遍，两次请求会闪一下旧数据）
-  if (applyRouteQuery()) {
-    return;
-  }
-  // 只有一个 tab 时也把数据拉起来（否则 my-only 用户看到空页）
-  if (activeTab.value === 'all') {
-    void loadRows();
-  } else {
-    void loadMyRows();
-  }
-});
+// 深链要在 `ListPage` 首屏**之前**解析：父 setup 早于子组件 setup，
+// 放在这里就等于「首屏第一枪就带上单号筛选」，不会再白跑一次全量查询。
+applyRouteQuery();
 
 // 页面已打开时又从凭证点进来（`router.push` 只改 query 不重建组件）也要跟上
 watch(
   () => route.query.sheet_no,
   () => {
-    applyRouteQuery();
+    if (applyRouteQuery()) {
+      void allListRef.value?.search();
+    }
   },
 );
 </script>
@@ -1005,31 +928,30 @@ watch(
   gap: 8px;
 }
 
+/* 页头计数后缀（`#meta-extra` 与「共 N 单」同一元素） */
+.meta-extra {
+  margin-left: 6px;
+}
+
+/* 空态（改造前是 t-table 的 `:empty` 文案，现在插槽自绘） */
+.panel-empty {
+  padding: 40px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  line-height: 20px;
+}
+
 .page-tabs {
   margin-bottom: 8px;
 }
 
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
 .filter-row__period {
   width: 160px;
-}
-
-.filter-row__select {
-  width: 140px;
-}
-
-.filter-row__keyword {
-  width: 220px;
-}
-
-.filter-row__spacer {
-  flex: 1 1 auto;
 }
 
 .filter-row__flag {
@@ -1070,10 +992,6 @@ watch(
 .panel-head__meta {
   color: var(--td-text-color-placeholder, #0000004d);
   font-size: 13px;
-}
-
-.list-alert {
-  margin-bottom: 12px;
 }
 
 .mono {
