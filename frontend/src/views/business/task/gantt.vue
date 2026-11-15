@@ -78,6 +78,9 @@
       <div v-if="data" class="toolbar__meta">
         窗口 {{ data.range.start }} ~ {{ data.range.end }}（{{ data.range.days }} 天） · 任务
         {{ data.tasks.length }} 条 · 依赖 {{ data.dependencies.length }} 条
+        <span v-if="cpm.projectDays > 0" class="toolbar__tag" data-test="gantt-project-days">
+          项目工期 {{ cpm.projectDays }} 天
+        </span>
         <span class="toolbar__tag">可拖拽改期</span>
         <span v-if="data.truncated" class="toolbar__warn">· 任务数超过 500，已截断，请缩小区间</span>
         <span v-if="data.member_scope_truncated" class="toolbar__warn">
@@ -117,6 +120,16 @@
             <t-tab-panel value="all" label="全部可见" />
             <t-tab-panel value="my" label="只看我的" />
           </t-tabs>
+          <!-- 关键路径开关：默认开（本版甘特的主打信息），关掉回到原始排期配色 -->
+          <t-divider layout="vertical" />
+          <t-switch v-model="showCritical" size="small" data-test="gantt-critical-switch" />
+          <span class="gantt-legend" :class="{ 'gantt-legend--off': !showCritical }" data-test="gantt-critical-legend">
+            <i class="gantt-legend__swatch" aria-hidden="true" />
+            {{ legendText }}
+          </span>
+          <span v-if="data && cpm.cyclicIds.length > 0" class="gantt-legend__warn">
+            依赖成环 {{ cpm.cyclicIds.length }} 处，关键路径不完整
+          </span>
         </t-space>
       </div>
       <t-loading :loading="loading" size="small">
@@ -151,6 +164,18 @@
                 orient="auto-start-reverse"
               >
                 <path d="M 0 0 L 10 5 L 0 10 z" :fill="cssVar('--td-brand-color', '#0052d9')" />
+              </marker>
+              <!-- 关键路径的箭头：与红线同色（蓝三角插在红色链路末端会很跳） -->
+              <marker
+                id="gantt-arrow-critical"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="6"
+                markerHeight="6"
+                orient="auto-start-reverse"
+              >
+                <path d="M 0 0 L 10 5 L 0 10 z" :fill="cssVar('--td-error-color', '#d54941')" />
               </marker>
               <!-- 被阻塞任务的斜纹底（核心设计 §五：斜纹=被阻塞） -->
               <pattern id="gantt-blocked" width="6" height="6" patternUnits="userSpaceOnUse">
@@ -246,21 +271,24 @@
                   :width="barGeom(row)!.width"
                   :height="BAR_H"
                   rx="4"
-                  :fill="barColor(row)"
-                  :fill-opacity="row.depth > 0 ? 0.16 : 0.3"
-                  :stroke="row.task.overdue ? cssVar('--td-error-color', '#d54941') : barColor(row)"
-                  :stroke-width="row.task.overdue ? 2 : 1"
-                  :stroke-opacity="row.task.overdue ? 1 : row.depth > 0 ? 0.6 : 1"
+                  :fill="barFill(row)"
+                  :fill-opacity="barFillOpacity(row)"
+                  :stroke="barStroke(row)"
+                  :stroke-width="barStrokeWidth(row)"
+                  :stroke-opacity="barStrokeOpacity(row)"
                   class="gantt-bar gantt-bar__body"
                   :class="[
                     canDrag(row.task) ? 'gantt-bar__body--draggable' : 'gantt-bar__body--locked',
                     row.depth > 0 ? 'gantt-bar__body--child' : 'gantt-bar__body--parent',
                     isLinkedRow(row.id) ? 'gantt-bar__body--linked' : '',
+                    isCriticalComputed(row) ? 'gantt-bar__body--critical' : '',
                     dragState?.id === row.id ? 'gantt-bar--dragging' : '',
                   ]"
                   :style="barTransition(row)"
                   :data-task-no="row.task.task_no"
                   :data-depth="row.depth"
+                  :data-critical="isCriticalComputed(row) ? 'true' : 'false'"
+                  :data-float="cpmInfoOf(row.task)?.totalFloat ?? ''"
                   :data-bar-kind="row.depth > 0 ? 'child' : 'parent'"
                   :data-parent-id="row.task.parent_id ?? ''"
                   :data-summary="isSummary(row.task) ? 'true' : 'false'"
@@ -307,7 +335,7 @@
                   :width="Math.max(2, (barGeom(row)!.width * row.task.progress) / 100)"
                   :height="5"
                   rx="2"
-                  :fill="barColor(row)"
+                  :fill="barAccent(row)"
                   :fill-opacity="row.depth > 0 ? 0.7 : 0.95"
                   class="gantt-bar gantt-bar__overlay"
                   :style="barTransition(row)"
@@ -320,7 +348,7 @@
                     :y1="rowTop(index) + 6"
                     :x2="barGeom(row)!.x + 1"
                     :y2="barTop(index) + BAR_H + 2"
-                    :stroke="barColor(row)"
+                    :stroke="barAccent(row)"
                     stroke-width="2"
                     class="gantt-bar__overlay"
                   />
@@ -329,7 +357,7 @@
                     :y1="rowTop(index) + 6"
                     :x2="barGeom(row)!.x + barGeom(row)!.width - 1"
                     :y2="barTop(index) + BAR_H + 2"
-                    :stroke="barColor(row)"
+                    :stroke="barAccent(row)"
                     stroke-width="2"
                     class="gantt-bar__overlay"
                   />
@@ -367,16 +395,17 @@
                 <path
                   :d="link.d"
                   fill="none"
-                  :stroke="link.released ? cssVar('--td-success-color', '#2ba471') : cssVar('--td-brand-color', '#0052d9')"
-                  :stroke-width="isLinkActive(link) ? 2.2 : 1.4"
-                  :stroke-opacity="link.released ? 0.6 : 0.85"
-                  :stroke-dasharray="link.released ? '5 3' : undefined"
-                  marker-end="url(#gantt-arrow)"
+                  :stroke="linkStroke(link)"
+                  :stroke-width="linkStrokeWidth(link)"
+                  :stroke-opacity="linkStrokeOpacity(link)"
+                  :stroke-dasharray="linkDashArray(link)"
+                  :marker-end="linkMarker(link)"
                   class="gantt-link"
-                  :class="{ 'gantt-link--active': isLinkActive(link) }"
+                  :class="{ 'gantt-link--active': isLinkActive(link), 'gantt-link--critical': isCriticalLink(link) }"
                   :data-link="link.key"
                   :data-dep-type="link.depType"
                   :data-released="link.released ? 'true' : 'false'"
+                  :data-critical="isCriticalLinkComputed(link) ? 'true' : 'false'"
                 />
                 <!-- 命中区：加粗透明路径只覆盖「除箭头尖以外」的段（箭头尖下面是拖拽手柄） -->
                 <path
@@ -498,6 +527,21 @@
  * - **状态语义**：前置 `DONE` / `CANCELLED` → 绿色虚线（依赖已解除，与后端
  *   `check_dependencies_ready` 同口径）；否则蓝色实线（仍在阻塞）。
  *
+ * # 关键路径（P3-14）
+ *
+ * - **算**：`gantt-cpm.ts::computeCpm`（纯函数 + 13 条单测）跑标准 CPM ——
+ *   正推 ES/EF、逆推 LS/LF、`浮动 = LS - ES`；`浮动 ≤ 0` 的条形标红；
+ * - **连成链**：两头都关键**且**这条边真的在顶（`ES_后继 = EF_前置 + lag`）的依赖线
+ *   画成 2px 红线 + 红箭头，于是关键路径是「红条 + 红线」一条连续的链；
+ * - **口径**：计划开始当「不早于」约束（`ES = max(计划开始, 前置约束)`），
+ *   浮动 = 还能往后滑几天而不拖累**项目完成日**（= 全网最大 EF）。
+ *   所以**关键 ≠ 在依赖链上**：链里有空档时，只有顶到项目完成日的那一段是红的，
+ *   空档前面那个任务有余量（拖它不影响工期），不该标红；
+ * - **父子**：父条是子任务汇总，不做 CPM 节点（否则工期算两遍），
+ *   只按「子任务里有关键任务」整体标红；依赖连到父任务时展开成它的每个叶子；
+ * - **开关**：控件条上的「关键路径」开关可关掉（回到原始排期配色）；
+ *   开关只影响渲染，`data-critical` 始终是真值（e2e 靠它断言，不靠颜色）。
+ *
  * # 几何量：一套换算，两种输入
  *
  * 像素换算**只有** [`geomOfSpan`] 一个入口（「日期 × 列宽」，含裁到时间窗内，
@@ -531,6 +575,7 @@ import {
   depReleased,
   linkTipLines,
 } from './gantt-links';
+import { computeCpm, floatLabel, type CpmResult } from './gantt-cpm';
 
 /** 布局常量（像素）：左侧任务名宽度、行高、表头高度、任务条高度 */
 const LEFT_W = 280;
@@ -1009,6 +1054,155 @@ const links = computed<GanttLink[]>(() => {
   return out;
 });
 
+/**
+ * ==================== P3-14：关键路径（CPM） ====================
+ *
+ * 算法全在 `gantt-cpm.ts`（纯函数 + 13 条单测），这里只做三件事：
+ * ① 把 `tasks + dependencies` 喂进去，缓存成 computed；
+ * ② 把结果映射到「行 / 边」上（叶子取节点、父任务取 rollup）；
+ * ③ 提供条形 / 线的颜色（红 = 关键路径），以及 tooltip 里的浮动天数。
+ *
+ * 口径提醒（详见 `gantt-cpm.ts` 文件头）：计划开始当「不早于」约束，
+ * 浮动 = 还能往后滑几天而不拖累项目完成日 —— 所以**关键 ≠ 在链上**，
+ * 链上有空档时只有顶到项目完成日的那一段是红的。
+ */
+const cpm = computed<CpmResult>(() =>
+  computeCpm({
+    tasks: data.value?.tasks ?? [],
+    deps: data.value?.dependencies ?? [],
+  }),
+);
+
+/** 是否画关键路径（默认开：这是本版甘特的主打信息；关掉看原始排期） */
+const showCritical = ref(true);
+
+/** 关键任务数（叶子；不含汇总条的 rollup 计数） */
+const criticalCount = computed(
+  () => [...cpm.value.byId.values()].filter((node) => node.critical).length,
+);
+
+/**
+ * 图例文案。
+ *
+ * 必须整串写在一个插值里：模板里写 `关键路径<span> {{ n }} 条</span>` 时，
+ * Vue 编译器会把标签内的**前导空格裁掉**（实测渲染成「关键路径3 条」），
+ * 数字贴着汉字，看着像 coding 漏了空格。
+ */
+const legendText = computed(() =>
+  criticalCount.value > 0 ? `关键路径 · ${criticalCount.value} 条` : '关键路径',
+);
+
+/** 该行的 CPM 结果（叶子取节点、汇总条取 rollup；缺日期/不在本批数据 → null） */
+function cpmInfoOf(task: GanttTask): { critical: boolean; totalFloat: number | null } | null {
+  const leaf = cpm.value.byId.get(task.id);
+  if (leaf) {
+    return { critical: leaf.critical, totalFloat: leaf.totalFloat };
+  }
+  const summary = cpm.value.summaryById.get(task.id);
+  return summary ? { critical: summary.critical, totalFloat: summary.minFloat } : null;
+}
+
+/** 该行**算出**是关键路径（不受开关影响 —— `data-critical` 用它，e2e 才能断言真值） */
+function isCriticalComputed(row: GanttRow): boolean {
+  return cpmInfoOf(row.task)?.critical ?? false;
+}
+
+/** 该行**当前渲染成**关键路径（算出关键 ∧ 开关打开） */
+function isCriticalRow(row: GanttRow): boolean {
+  return showCritical.value && isCriticalComputed(row);
+}
+
+/** 关键路径用的红（与「逾期」同一个语义色，但描边更粗、填充也红 —— 两者叠在一起也读得懂） */
+function criticalColor(): string {
+  return cssVar('--td-error-color', '#d54941');
+}
+
+/** 条形填充：关键 → 红；否则父深子浅的主题色 */
+function barFill(row: GanttRow): string {
+  return isCriticalRow(row) ? criticalColor() : barColor(row);
+}
+
+/** 条形填充透明度：关键路径要一眼看见，比自己那档更实一点 */
+function barFillOpacity(row: GanttRow): number {
+  if (isCriticalRow(row)) {
+    return row.depth > 0 ? 0.3 : 0.5;
+  }
+  return row.depth > 0 ? 0.16 : 0.3;
+}
+
+/** 条形描边颜色：关键 / 逾期 → 红；否则主题色 */
+function barStroke(row: GanttRow): string {
+  if (isCriticalRow(row) || row.task.overdue) {
+    return criticalColor();
+  }
+  return barColor(row);
+}
+
+/** 条形描边粗细：关键 / 逾期 → 2px（关键路径要能从一排条形里跳出来） */
+function barStrokeWidth(row: GanttRow): number {
+  return isCriticalRow(row) || row.task.overdue ? 2 : 1;
+}
+
+/** 条形描边透明度：关键 → 实线满不透明 */
+function barStrokeOpacity(row: GanttRow): number {
+  if (isCriticalRow(row)) {
+    return 1;
+  }
+  return row.task.overdue ? 1 : row.depth > 0 ? 0.6 : 1;
+}
+
+/** 汇总括号 / 进度内条的颜色（跟随条形，关键路径连这两处也不许掉色） */
+function barAccent(row: GanttRow): string {
+  return barFill(row);
+}
+
+/** 该依赖边**算出**在关键路径上（两端关键 ∧ 这条边真的在顶） */
+function isCriticalLinkComputed(link: GanttLink): boolean {
+  return cpm.value.criticalEdges.has(link.key);
+}
+
+/** 该依赖边当前是否渲染为红色链路 */
+function isCriticalLink(link: GanttLink): boolean {
+  return showCritical.value && isCriticalLinkComputed(link);
+}
+
+/** 依赖线颜色：关键 → 红（盖过「已解除」的绿：链路连续性优先）；否则绿虚线 / 蓝实线 */
+function linkStroke(link: GanttLink): string {
+  if (isCriticalLink(link)) {
+    return criticalColor();
+  }
+  return link.released ? cssVar('--td-success-color', '#2ba471') : cssVar('--td-brand-color', '#0052d9');
+}
+
+/** 依赖线宽：悬停态 > 关键路径 2px > 常态 1.4px */
+function linkStrokeWidth(link: GanttLink): number {
+  if (isLinkActive(link)) {
+    return 2.2;
+  }
+  return isCriticalLink(link) ? 2 : 1.4;
+}
+
+/** 依赖线透明度：关键路径实心（红线要能连成一条链），已解除的绿线淡一档 */
+function linkStrokeOpacity(link: GanttLink): number {
+  if (isCriticalLink(link)) {
+    return 1;
+  }
+  return link.released ? 0.6 : 0.85;
+}
+
+/** 虚线：只有「已解除且不在关键路径上」才虚线（关键路径必须连续，虚线会断链路） */
+function linkDashArray(link: GanttLink): string | undefined {
+  if (isCriticalLink(link)) {
+    return undefined;
+  }
+  return link.released ? '5 3' : undefined;
+}
+
+/** 箭头颜色跟着线走：红线配红箭头（否则关键路径末端插一个蓝三角，很跳） */
+function linkMarker(link: GanttLink): string {
+  return isCriticalLink(link) ? 'url(#gantt-arrow-critical)' : 'url(#gantt-arrow)';
+}
+
 /** 当前悬停的依赖边（`null` = 没悬停） */
 const hoverLinkKey = ref<string | null>(null);
 /** 当前悬停的任务条（用于「悬停在条形上时高亮它的所有依赖线」） */
@@ -1150,6 +1344,14 @@ function tooltipOf(task: GanttTask): string {
     task.blocked ? '被前置阻塞' : '',
     statusMeta('task', task.status).label,
     isSummary(task) ? '父任务（条形 = 子任务汇总）' : '',
+    // 关键路径：浮动 0 就是「再推迟一天项目就晚一天」
+    (() => {
+      const info = cpmInfoOf(task);
+      if (!info) {
+        return '';
+      }
+      return info.critical ? '关键路径（浮动 0）' : floatLabel(info.totalFloat);
+    })(),
     canDrag(task) ? '可拖拽改期' : '不可拖拽',
   ]
     .filter(Boolean)
@@ -1675,6 +1877,12 @@ onMounted(() => {
   filter: drop-shadow(0 0 2px var(--td-brand-color-3));
 }
 
+// 关键路径的红色链路：末端收圆，多条边接起来时不像断口
+.gantt-link--critical {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 // 悬停依赖线时，两端的任务条描粗一档（一眼看清「谁连谁」）
 .gantt-bar__body--linked {
   stroke-width: 2;
@@ -1770,6 +1978,41 @@ onMounted(() => {
   border-radius: 3px;
   color: var(--td-brand-color, #51697c);
   background: var(--td-brand-color-1, #eef2f6);
+}
+
+/* 关键路径图例（控件条里：开关 + 红块 + 条数）：红块与画布上的条形同色 */
+.gantt-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--td-text-color-primary, #1f2329);
+  white-space: nowrap;
+
+  &__swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    background: var(--td-error-color, #d54941);
+    box-shadow: 0 0 0 1px rgb(0 0 0 / 6%);
+  }
+
+  /* 开关关掉时图例降灰：不留一个「红的但没生效」的假提示 */
+  &--off {
+    color: var(--td-text-color-placeholder, #a6a6a6);
+
+    .gantt-legend__swatch {
+      background: var(--td-component-stroke, #dcdcdc);
+    }
+  }
+
+  &__warn {
+    font-size: 12px;
+    color: var(--td-warning-color, #e37318);
+    white-space: nowrap;
+  }
 }
 
 .filter-meta {
