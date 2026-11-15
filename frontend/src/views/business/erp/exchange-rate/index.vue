@@ -24,6 +24,15 @@
           <t-tag v-if="baseCode" size="small" variant="light" theme="success">
             目标币种 {{ baseCode }}
           </t-tag>
+          <t-tag
+            v-if="fxSettings"
+            size="small"
+            variant="light"
+            :theme="fxSettings.problem ? 'danger' : 'primary'"
+            data-testid="rate-fx-account-tag"
+          >
+            汇兑损益 {{ fxCurrentLabel }}
+          </t-tag>
           方向固定 <b>1 原币 = 汇率 × 目标币种</b>（只存「外币 → 本位币」，反向由 1/汇率 推导，不落重复行）。
           取数口径：<code>effective_date ≤ 单据日</code> 取最近一条（含当日），
           <b>建单那一刻锁进单据行</b>，之后改汇率不影响已建单据（SO-40）。
@@ -46,6 +55,22 @@
       </template>
 
       <template #toolbar>
+        <t-tooltip
+          :content="fxHint || '指定汇兑差额记在哪个科目（期末调汇 / 应收重估都写它）'"
+          placement="top-right"
+        >
+          <span class="gate-wrap">
+            <t-button
+              theme="default"
+              variant="outline"
+              data-testid="btn-rate-fx-settings"
+              @click="openFxSettings"
+            >
+              <template #icon><t-icon name="currency-exchange" /></template>
+              汇兑损益科目
+            </t-button>
+          </span>
+        </t-tooltip>
         <t-tooltip
           :content="
             canBatch
@@ -308,6 +333,53 @@
         本位币不出现在列表里（自反汇率恒 1，库层会拒）。
       </div>
     </t-dialog>
+
+    <!-- ==================== 汇兑损益科目（M1-06） ==================== -->
+    <t-dialog
+      v-model:visible="fxVisible"
+      header="汇兑损益科目"
+      width="560px"
+      :confirm-btn="{ content: '保存', loading: fxSaving, disabled: !canSaveFx }"
+      :close-on-overlay-click="false"
+      data-testid="rate-fx-settings-dialog"
+      @confirm="submitFxSettings"
+    >
+      <t-alert v-if="fxError" theme="error" :message="fxError" class="page-alert" data-testid="rate-fx-settings-error" />
+      <t-alert
+        v-if="fxSettings?.problem"
+        theme="warning"
+        :message="`当前配置不可用：${fxSettings.problem}`"
+        class="page-alert"
+        data-testid="rate-fx-settings-problem"
+      />
+      <t-form label-width="112px" class="rate-form">
+        <t-form-item label="当前科目">
+          <span class="mono" data-testid="rate-fx-settings-current">{{ fxCurrentLabel }}</span>
+          <t-tag size="small" variant="light" :theme="fxSettings?.source === 'CONFIG' ? 'primary' : 'default'">
+            {{ fxSourceText }}
+          </t-tag>
+        </t-form-item>
+        <t-form-item label="改为">
+          <t-select
+            v-model="fxSelected"
+            :options="fxCandidateOpts"
+            filterable
+            placeholder="选择末级损益类科目（如 5603 财务费用）"
+            data-testid="rate-fx-settings-select"
+          />
+          <template #help>
+            只能选<b>启用中的末级损益类</b>科目，且该科目不能标记「外币核算」
+            （标了就会自己被期末调汇扫进去，差额越滚越大）。
+          </template>
+        </t-form-item>
+        <t-form-item label="影响面">
+          <span class="muted" data-testid="rate-fx-settings-hint">{{ fxHint }}</span>
+        </t-form-item>
+        <t-form-item v-if="fxBlockedReason" label=" ">
+          <span class="muted" data-testid="rate-fx-settings-blocked">{{ fxBlockedReason }}</span>
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </div>
 </template>
 
@@ -345,13 +417,25 @@ import {
   createRate,
   deleteRate,
   fetchCurrencyOptions,
+  fetchFxSettings,
   fetchRatePage,
+  updateFxSettings,
   updateRate,
   type CurrencyOption,
   type ExchangeRateFilter,
   type ExchangeRateRow,
+  type FxSettings,
   type RateType,
 } from '@/api/business/erp/currency';
+import {
+  PERM_FX_SETTINGS_UPDATE,
+  fxAccountLabel,
+  fxCandidateOptions,
+  fxErrorText,
+  fxSaveBlockedReason,
+  fxSettingsHint,
+  fxSourceLabel,
+} from './fx-settings-logic';
 import ListPage from '@/components/ListPage/index.vue';
 import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 
@@ -363,6 +447,8 @@ const PERM = {
   remove: 'business:erp:fx-rate:delete',
   batch: 'business:erp:fx-rate:batch',
   quote: 'business:erp:fx-rate:quote',
+  /** 汇兑损益科目配置（M1-06 · V0411）—— 写权限，读复用 list */
+  fxSettings: PERM_FX_SETTINGS_UPDATE,
 } as const;
 
 const PAGE_SIZE = 20;
@@ -781,9 +867,73 @@ async function submitBatch(): Promise<void> {
   }
 }
 
+// ==================== 汇兑损益科目配置（M1-06 · V0411） ====================
+//
+// 这块是**账务口径**：改的是「汇兑差额记哪个科目」，不是牌价。三条交互约定：
+//   ① 只读也能看（`fx-rate:list` 就能看），写按钮另判 `fx-settings:update`；
+//   ② 配置坏了（科目停用 / 被删）读接口仍 200，页面用 `problem` 画出原因并让用户就地改；
+//   ③ 保存成功后要刷新页面上的「当前配置」提示（同一个响应体就是最新配置，不用再拉一次）。
+
+/** 当前配置（读接口复用 `fx-rate:list`；读失败时保持 null，页面不显示这块信息） */
+const fxSettings = ref<FxSettings | null>(null);
+const fxVisible = ref(false);
+const fxError = ref('');
+const fxSaving = ref(false);
+const fxSelected = ref('');
+
+const canUpdateFxSettings = computed(() => userStore.hasPermission(PERM_FX_SETTINGS_UPDATE));
+const fxCandidateOpts = computed(() => (fxSettings.value ? fxCandidateOptions(fxSettings.value) : []));
+const fxCurrentLabel = computed(() => (fxSettings.value ? fxAccountLabel(fxSettings.value) : '—'));
+const fxSourceText = computed(() => (fxSettings.value ? fxSourceLabel(fxSettings.value) : '—'));
+const fxHint = computed(() => (fxSettings.value ? fxSettingsHint(fxSettings.value) : ''));
+const fxBlockedReason = computed(() =>
+  fxSaveBlockedReason(fxSelected.value, fxSettings.value, canUpdateFxSettings.value),
+);
+const canSaveFx = computed(() => fxBlockedReason.value === null);
+
+async function loadFxSettings(): Promise<void> {
+  try {
+    fxSettings.value = await fetchFxSettings();
+  } catch (error) {
+    // 读配置失败不该让汇率列表报错（列表本身仍可用）
+    fxSettings.value = null;
+    fxError.value = `汇兑损益科目读取失败：${messageOf(error)}`;
+  }
+}
+
+function openFxSettings(): void {
+  fxError.value = '';
+  fxSelected.value = fxSettings.value?.account_code ?? '';
+  fxVisible.value = true;
+  if (!fxSettings.value) {
+    void loadFxSettings();
+  }
+}
+
+async function submitFxSettings(): Promise<void> {
+  if (!canSaveFx.value) {
+    return;
+  }
+  fxSaving.value = true;
+  fxError.value = '';
+  try {
+    fxSettings.value = await updateFxSettings(fxSelected.value);
+    fxSelected.value = fxSettings.value.account_code;
+    fxVisible.value = false;
+    MessagePlugin.success(`汇兑损益科目已改为 ${fxAccountLabel(fxSettings.value)}`);
+  } catch (error) {
+    const code = error instanceof ApiError ? error.code : undefined;
+    fxError.value = fxErrorText(code, messageOf(error));
+  } finally {
+    fxSaving.value = false;
+  }
+}
+
 onMounted(async () => {
   // 主列表由 ListPage 自己拉首屏；这里只补币种主数据（下拉 / 目标币种 / 批量录入行）
+  // 与汇兑损益科目配置（页面顶部要显示「现在记在哪个科目」）
   await loadCurrencies();
+  await loadFxSettings();
 });
 </script>
 

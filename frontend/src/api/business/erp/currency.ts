@@ -305,6 +305,55 @@ export function quoteRate(fromCurrency?: string, date?: string): Promise<RateQuo
   });
 }
 
+// ==================== 汇兑损益科目配置（M1-06 · V0411） ====================
+
+/** 值来源：`CONFIG` 参数里配的 / `DEFAULT` 参数缺失走缺省 5603 */
+export type FxSettingsSource = 'CONFIG' | 'DEFAULT';
+
+/** 可选科目（启用 + 末级 + 损益类 + 未标外币核算） */
+export interface FxAccountCandidate {
+  code: string;
+  name: string;
+}
+
+/** 汇兑损益科目配置（`GET /api/business/erp/fx-settings`，权限 `business:erp:fx-rate:list`） */
+export interface FxSettings {
+  /** 参数键（`erp.fx.gain_loss_account`） */
+  config_key: string;
+  /** 当前生效的科目编码（缺省 `5603`） */
+  account_code: string;
+  /** 科目名称（科目不可用时为 null —— 页面要提示「配置不可用」） */
+  account_name: string | null;
+  /** 科目 id（字符串；null = 配置指向的科目不可用） */
+  account_id: string | null;
+  source: FxSettingsSource;
+  /** 内置缺省编码（`5603`） */
+  default_code: string;
+  /** 配置不可用的原因（null = 可用） */
+  problem: string | null;
+  candidates: FxAccountCandidate[];
+}
+
+/**
+ * 读汇兑损益科目配置（只读）。
+ *
+ * 注意：**配置坏了也返回 200**（`problem` 会说明原因、`account_id = null`），
+ * 这样页面还打得开、用户还能就地改；真正跑调汇时后端才 400 + 66083 硬拒。
+ */
+export function fetchFxSettings(): Promise<FxSettings> {
+  return get<FxSettings>(`${BASE}/fx-settings`);
+}
+
+/**
+ * 改汇兑损益科目（权限 `business:erp:fx-settings:update`）。
+ *
+ * 后端四条校验（存在 / 启用 / 末级 / 损益类 / 未标外币核算）不过 ⇒ `400 + 66083`，
+ * 报文直接可展示；值相同 ⇒ 幂等（不写库）。
+ */
+export function updateFxSettings(accountCode: string): Promise<FxSettings> {
+  return put<FxSettings>(`${BASE}/fx-settings`, { account_code: accountCode });
+}
+
 // ==================== 域值常量（与后端逐字一致，页面不要另写字面量） ====================
 
 /** 币种状态选项 */

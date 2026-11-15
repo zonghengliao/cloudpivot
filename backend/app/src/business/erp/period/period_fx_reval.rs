@@ -14,7 +14,8 @@
 //!
 //!   diff > 0 ⇒ 借 该科目 diff   （资产类 = 调增；负债类 = 减少负债）
 //!   diff < 0 ⇒ 贷 该科目 |diff|
-//!   合计 net = Σdiff ≠ 0 ⇒ 对侧 5603 财务费用-汇兑损益（net > 0 贷方收益 / net < 0 借方损失）
+//!   合计 net = Σdiff ≠ 0 ⇒ 对侧「汇兑损益科目」（`sys_config.erp.fx.gain_loss_account`，
+//!   缺省 5603 财务费用；net > 0 贷方收益 / net < 0 借方损失）—— 科目可配，见 M1-06
 //! ```
 //!
 //! **记账方向一律用「借方为正」的有符号口径**：`debit − credit`。这样资产（借方余额）
@@ -92,6 +93,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::currency;
+use crate::business::erp::fx_settings;
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
 use cloudpivot_kernel::shared::error_code;
 use cloudpivot_kernel::utils;
@@ -396,7 +398,8 @@ async fn existing_voucher(ex: &impl SqlExecutor, period_code: &str) -> DbResult<
 ///
 /// * 币种在期末日（含）之前没有 SPOT 牌价 ⇒ `400 + 66082`，文案点名币种与日期
 ///   （**不**默认 rate = 1：拿 1 调汇等于把外币余额按人民币重估，账直接错）；
-/// * 5603 财务费用-汇兑损益科目缺失 ⇒ `400`（`voucher::account_required` 的既有文案）。
+/// * 汇兑损益科目（`sys_config.erp.fx.gain_loss_account`，缺省 5603）不可用 ⇒
+///   `400 + 66083`（不存在 / 停用 / 非末级 / 非损益类 / 已标外币核算都拒，**不静默回落 5603**）。
 ///
 /// 期间状态（已结账 / 未开账）由调用方在事务内先判，这里不再重复查。
 pub async fn revalue(
@@ -547,13 +550,9 @@ pub async fn revalue(
     }
 
     // ⑤ 生成调汇凭证：**本位币凭证**（currency = 本位币、rate = 1、分录不带原币）
-    let fx_account = voucher::account_required(
-        ex,
-        voucher::ACCOUNT_FX_GAIN_LOSS,
-        "期末调汇凭证的 5603 财务费用-汇兑损益",
-    )
-    .await
-    .map_err(|error| utils::db_error(error, "查询汇兑损益科目 5603"))?;
+    //    承接差额的科目读 `sys_config.erp.fx.gain_loss_account`（M1-06），缺省 5603 财务费用；
+    //    配置指向不可用科目 ⇒ 400 + 66083 点名（不静默回落 5603）。
+    let fx_account = fx_settings::require_gain_loss_account_api(ex).await?;
     let entries = build_entries(period_code, &rows, net, &fx_account);
     let label = format!(
         "{period_code} 期末调汇（{} 个外币科目 / 币种 {} 个，期末汇率取 {period_end}）",
@@ -1122,6 +1121,166 @@ mod tests {
             .get_typed("n")
             .expect("count 值");
         assert_eq!(count, 1, "同一期间只能有一张调汇凭证");
+    }
+
+    /// 真库（M1-06 夹具）：给某个科目再灌一笔**纯本位币**分录（不改原币），让调汇 `net ≠ 0`
+    /// —— 只有一借一贷同币种同汇率的凭证，两条分录的差额正好互为相反数，`net` 恒为 0，
+    /// 不会出「承接科目」那一行（见 `entries_skip_5603_when_net_is_zero`）。
+    async fn post_base_adjustment(counter: &AccountRef, base: &AccountRef, amount: &str) {
+        let value = amount.parse::<Decimal>().expect("金额可解析");
+        let entries = vec![
+            EntryLine {
+                line_no: 1,
+                summary: "M106 本位币调整 借".to_string(),
+                account: counter.clone(),
+                debit: value,
+                credit: Decimal::ZERO,
+                aux_supplier_id: None,
+                aux_material_id: None,
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            },
+            EntryLine {
+                line_no: 2,
+                summary: "M106 本位币调整 贷".to_string(),
+                account: base.clone(),
+                debit: Decimal::ZERO,
+                credit: value,
+                aux_supplier_id: None,
+                aux_material_id: None,
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            },
+        ];
+        voucher::post_voucher_fx(
+            db(),
+            &PostVoucher {
+                voucher_type: voucher::VOUCHER_TYPE_AUTO,
+                source_type: "M105",
+                source_id: None,
+                source_no: Some("M105-B0"),
+                source_doc_no: None,
+                voucher_date: date(2051, 1, 20),
+                summary: "M106 本位币调整".to_string(),
+                lines: entries,
+                remark: None,
+                red_of: None,
+                status: voucher::STATUS_POSTED,
+            },
+            None,
+            Some(("CNY", Decimal::ONE)),
+            None,
+            Utc::now(),
+        )
+        .await
+        .expect("本位币调整凭证落库");
+    }
+
+    /// 真库（M1-06）：承接汇兑差额的科目**跟随系统参数** `erp.fx.gain_loss_account`，
+    /// 不是写死的 5603。
+    #[tokio::test]
+    async fn revalue_uses_configured_gain_loss_account() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let (asset, counter, base_acc) = seed_accounts().await;
+        post_fx_voucher("M105-B1", "2051-01-10", "7.1", &asset, &counter, "100", "710").await;
+        post_base_adjustment(&counter, &base_acc, "50").await;
+        seed_rate("2051-01-31", "7.9").await;
+
+        // M1-06：把承接科目改成 5601 销售费用（模板库里的末级损益类科目、未标外币核算）
+        fx_settings::save_gain_loss_account("5601", None)
+            .await
+            .expect("保存汇兑损益科目参数");
+        assert_eq!(fx_settings::gain_loss_account_code().await, "5601");
+
+        let outcome = revalue(db(), PERIOD, date(2051, 1, 31), false, None, Utc::now())
+            .await
+            .expect("调汇应成功");
+        assert_eq!(outcome.net, dec("-50"), "净损失 50（80 − 130）");
+        let voucher_id = outcome.voucher_id.expect("应生成调汇凭证");
+
+        let entries = db()
+            .query_sql(
+                "SELECT line_no, account_code, debit_amount, credit_amount \
+                   FROM biz_voucher_entry WHERE voucher_id = ?::uuid ORDER BY line_no"
+                    .to_string(),
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("读分录");
+        let fx_line = entries
+            .iter()
+            .find(|row| row.get_typed::<String>("account_code").unwrap() == "5601")
+            .expect("差额必须记到配置的 5601");
+        assert_eq!(
+            fx_line.get_typed::<Decimal>("debit_amount").unwrap(),
+            dec("50"),
+            "净损失 50 ⇒ 借 5601"
+        );
+        assert!(
+            entries
+                .iter()
+                .all(|row| row.get_typed::<String>("account_code").unwrap() != voucher::ACCOUNT_FX_GAIN_LOSS),
+            "参数改成 5601 之后，凭证里不许再出现 5603（否则说明没读配置）"
+        );
+
+        // 收尾：恢复缺省 5603（其它模块的用例按缺省口径断言）
+        fx_settings::save_gain_loss_account(voucher::ACCOUNT_FX_GAIN_LOSS, None)
+            .await
+            .expect("恢复缺省 5603");
+    }
+
+    /// 真库（M1-06）：参数指向不可用科目 ⇒ 调汇 **400 + 66083 硬拒**，一张凭证都不落
+    /// （不静默回落 5603：静默回落会让「改了配置没生效」永远查不出来）。
+    #[tokio::test]
+    async fn revalue_rejects_unavailable_configured_account() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let (asset, counter, base_acc) = seed_accounts().await;
+        post_fx_voucher("M105-B2", "2051-01-10", "7.1", &asset, &counter, "100", "710").await;
+        post_base_adjustment(&counter, &base_acc, "50").await;
+        seed_rate("2051-01-31", "7.9").await;
+
+        // 直改参数（绕过接口校验 = 模拟「科目被删 / 参数被手改坏」）
+        db().exec_sql(
+            "UPDATE sys_config SET config_value = 'M106.99' WHERE config_key = ?".to_string(),
+            vec![Value::Text(fx_settings::CONFIG_FX_GAIN_LOSS_ACCOUNT.to_string())],
+        )
+        .await
+        .expect("改参数");
+        crate::support::config::model::reload_runtime_snapshot()
+            .await
+            .expect("刷新参数快照");
+
+        let error = revalue(db(), PERIOD, date(2051, 1, 31), false, None, Utc::now())
+            .await
+            .expect_err("配置不可用必须拒");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::ERP_FX_ACCOUNT_INVALID);
+        assert!(error.msg.contains("M106.99"), "报文要点名编码：{}", error.msg);
+
+        let count: i64 = db()
+            .query_first_sql(
+                "SELECT count(*) AS n FROM biz_voucher \
+                  WHERE source_type = ? AND source_no = ? AND is_red = 0 AND deleted_at IS NULL"
+                    .to_string(),
+                vec![
+                    Value::Text(SOURCE_FX_REVAL_ACCOUNT.to_string()),
+                    Value::Text(PERIOD.to_string()),
+                ],
+            )
+            .await
+            .expect("统计凭证")
+            .expect("count 必有行")
+            .get_typed("n")
+            .expect("count 值");
+        assert_eq!(count, 0, "被拒的调汇不许留下半张凭证");
+
+        fx_settings::save_gain_loss_account(voucher::ACCOUNT_FX_GAIN_LOSS, None)
+            .await
+            .expect("恢复缺省 5603");
     }
 
     /// 真库：`dry_run` 只算不落账；差额不足 1 分的科目不出行。

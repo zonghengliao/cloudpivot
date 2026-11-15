@@ -146,6 +146,10 @@ pub mod dto;
 pub mod expense;
 pub mod form_snapshot;
 pub mod fx_revaluation;
+/// 汇兑损益科目配置（M1-06 · V0411）：`sys_config.erp.fx.gain_loss_account` 的唯一读取点
+/// + 四条入口校验（末级 / 损益类 / 启用 / 未标外币核算），期末调汇与应收重估都读它。
+pub mod fx_settings;
+pub mod fx_settings_handler;
 pub mod handler;
 pub mod income_statement;
 pub mod inventory_audit;

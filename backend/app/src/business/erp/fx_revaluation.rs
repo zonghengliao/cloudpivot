@@ -51,7 +51,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::currency::{self, scale_amount};
-use crate::business::erp::voucher::{self, ACCOUNT_AR, ACCOUNT_FX_GAIN_LOSS};
+use crate::business::erp::fx_settings;
+use crate::business::erp::voucher::{self, ACCOUNT_AR};
 
 /// 凭证来源类型：期末汇兑重估（`biz_voucher.source_type` 是 `VARCHAR(24)` 且无白名单 CHECK，
 /// 新增取值不需要迁移 —— 与 `SOURCE_STOCK_OUT` 同一个理由）。
@@ -440,13 +441,10 @@ pub async fn revalue_period(
 
     // ④ 生成调整分录：一张凭证两行（1122 应收账款 / 5603 财务费用-汇兑损益）
     let ar_account = voucher::account_required(ex, ACCOUNT_AR, "汇兑重估凭证的 1122 应收账款").await?;
-    let fx_account = voucher::account_required(
-        ex,
-        ACCOUNT_FX_GAIN_LOSS,
-        // 卡面写 6603，本仓科目表是小企业准则（财务费用 = 5603），口径见 `ACCOUNT_FX_GAIN_LOSS`
-        "汇兑重估凭证的 5603 财务费用（卡面 6603 在本库不存在）",
-    )
-    .await?;
+    // 承接差额的科目读 `sys_config.erp.fx.gain_loss_account`（M1-06），缺省 5603 财务费用
+    // （卡面写 6603，本仓科目表是小企业准则：损益类只有 5xxx）。
+    // 配置指向不可用科目 ⇒ InvalidValue 点名（结账事务回滚，不静默回落 5603）。
+    let fx_account = fx_settings::require_gain_loss_account(ex).await?;
     let amount = net.abs();
     let label = format!(
         "{period_code} 期末汇兑重估（{} 笔外币应收，期末汇率取 {close_date}）",
@@ -536,6 +534,9 @@ pub async fn revalue_period(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // M1-06 起 5603 只是缺省值（`sys_config.erp.fx.gain_loss_account` 可改）；
+    // 本文件的两条真库断言按**缺省口径**验证，所以直接引常量。
+    use crate::business::erp::voucher::ACCOUNT_FX_GAIN_LOSS;
     use nik::prelude::chrono::NaiveDate;
 
     fn dec(text: &str) -> Decimal {
