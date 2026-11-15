@@ -140,7 +140,14 @@ node ../docs/evidence/2026-11-16-shell-b2/shell-probe-diff.mjs /tmp/b2/before.js
 | 前后 | **18 页有有意义差异**（mask 外且 Δ>8），**7 页零差异**（invoice / receipt / receivable / receivable 账龄 / sales-order / sales-return / shipment） |
 | 差异形态 | 颜色类 = 一行文字（y 区间 1–2 条）；间距类 = 该元素以下整体位移（ledger 20px、报表 4px、卡片高 2px） |
 
-diff 图与截图都留存在 `/tmp/b2/shots/{before,after,after2,diff,diff-control}/`（未入库；复现命令见上）。
+截图与 diff 图**已入库**（复验那次运行，干净 worktree 产出，视口 1600×1000）：
+
+- `shots/before/`、`shots/after/` —— 25 页前后各一张（`business_erp_*.png`）
+- `shots/diff/` —— 25 张可视 diff（差异涂红、其余压暗）
+- `shots/pixels-before-after.log`、`shots/pixels-control.log` —— 两次像素判定的原始逐页输出
+- `INTENTIONAL-CHANGES.md` —— **逐页核对表**（探针归因 + 像素数字 + 卡面口径三列并排），由探针 JSON 与像素日志机械生成
+- `probe-attribution.log` —— 探针逐路由归因 + 「几何只出现在 gap/margin 承载类」断言结果（违规 0 条）
+
 人工复核过的 4 张（避免「机械通过但看着不对」）：
 
 - `budget/mapping`：工具行 5 个控件间距均匀、卡片头一行、tip 不换行不挤压 → 正常。
