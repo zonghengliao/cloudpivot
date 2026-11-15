@@ -63,20 +63,15 @@ mod db {
     }
 
     /// 唯一后缀（纳秒 + 进程内计数器）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> String {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        format!("{}{seq:03}", now % 1_000_000_000)
+        crate::test_seed::uniq_suffix()
     }
 
     /// 期间年份：2600 + 进程内序号（每个夹具独占一个会计年度）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn next_year() -> i32 {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        2600 + i32::try_from(SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 400).unwrap_or(0)
+        crate::test_seed::year_seq(2600, 400)
     }
 
     fn dec(text: &str) -> Decimal {
@@ -154,11 +149,9 @@ mod db {
             "DELETE FROM biz_cost_object WHERE object_no LIKE 'CB35-%'",
             "DELETE FROM sys_dept WHERE dept_name LIKE 'CB35车间%'",
         ];
-        for sql in statements {
-            if let Err(error) = db().exec_sql(sql.to_string(), vec![]).await {
-                println!("sweep 失败（{sql}）：{error}");
-            }
-        }
+        // 每进程只扫一次（P2-62）：清的是**上一轮崩溃**留下的行；
+        // 本进程内夹具编码带唯一后缀、年度由 year_seq 递增，天然不撞。
+        crate::test_seed::sweep_once("erp::cost::cost_settle_voucher_db_tests", &statements).await;
     }
 
     impl Fixture {

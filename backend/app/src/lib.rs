@@ -43,6 +43,12 @@ pub mod task;
 #[cfg(test)]
 mod kernel_axis_tests;
 
+/// 数据准备脚本化（P2-62）：统一的 `ensure_*` 夹具 —— 真库用例不再手写主数据 `INSERT`
+/// （部门 / 用户 / 角色成员 / 单位 / 物料 / 仓库 / 科目 / 供应商 / 客户 / 期间），
+/// 以及 `uniq_suffix` / `year_seq` 一类编码工具的唯一实现。
+#[cfg(test)]
+pub mod test_seed;
+
 /// 构建并启动 HTTP 服务。
 ///
 /// 启动链按固定顺序装配：

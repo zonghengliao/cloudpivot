@@ -70,14 +70,9 @@ mod db {
             .await
     }
 
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> u64 {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        now.wrapping_add(seq.wrapping_mul(7_919))
+        crate::test_seed::uniq_u64()
     }
 
     /// 期间码：年份取 2400~2899（远离真实数据与演示库），月份取 01~12。

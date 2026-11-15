@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 提交前 / push 前 / 发版前的统一门禁。**分四层**（卡 t_2746ca53，ARCH-9 §4 口径）：
 #
-#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽
+#   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽 / 统一测试夹具（P2-62）
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check（三条都在 workspace 根，P2-40 起覆盖 app + crates/*）
@@ -108,6 +108,7 @@ plan_all() {
         plan L0 "/metrics 端点存活 + cloudpivot_ 指标非空" "bash scripts/verify/metrics_gate.sh ${METRICS_GATE:-auto}（auto：有部署证据才真跑；SKIP_METRICS_CHECK=1 跳过）"
         plan L0 "kanban assignee 必须是真实 profile" "python3 scripts/lint/assignee_valid.py（无 kanban DB 则跳过）"
         plan L0 "测试分域登记表自洽（域↔crate、前缀尾 ::）" "python3 scripts/test_domain.py check --manifest-only（完整性另跑 scripts/verify/test_domains_gate.sh）"
+        plan L0 "数据准备统一夹具（uniq/ensure_* 只有一份）" "scripts/verify/test_seed_gate.sh（① 转发 ② 导出 ③ 主数据 INSERT 预算；反证 --selftest）"
     fi
     if want L2; then
         plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
@@ -1111,6 +1112,25 @@ if want L0; then
 echo "==> 测试分域登记表自洽（backend/test-domains.tsv ↔ workspace crate）"
 if ! python3 "$ROOT/scripts/test_domain.py" check --manifest-only; then
     echo "==> 门禁未通过：登记表坏了（crate 名写错 / 前缀没带尾部 :: / 域名重复）" >&2
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L0 · 数据准备脚本化（P2-62）
+#
+# 三条断言，秒级、不编译、不连库：
+#   ① `fn uniq(` / `fn tail_code(` / `fn next_year(` 的实现只有一份（`test_seed`），
+#      其余文件必须是 4 行转发 —— 改前是 41 个文件各写一份（4 种实现）；
+#   ② `test_seed` 的 `ensure_*` 导出名单齐全（删掉任何一个都会红）；
+#   ③ 测试代码里主数据 `INSERT INTO` 不超过登记预算（只许降、不许升）。
+# 反证：`bash scripts/verify/test_seed_gate.sh --selftest`（造一个本地实现，必须 exit=1）。
+# ======================================================================
+if want L0; then
+echo "==> 数据准备统一夹具（crate::test_seed）"
+if ! bash "$ROOT/scripts/verify/test_seed_gate.sh"; then
+    echo "==> 门禁未通过：又有人手写主数据 INSERT / 自己实现 uniq 了" >&2
+    echo "    新用例请用 crate::test_seed::ensure_*（见 docs/architecture/P2-62-数据准备脚本化.md）" >&2
     exit 1
 fi
 fi

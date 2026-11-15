@@ -63,35 +63,21 @@ mod db {
     }
 
     /// 唯一后缀（纳秒 + 进程内计数器）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> String {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        format!("{}{seq:03}", now % 1_000_000_000)
+        crate::test_seed::uniq_suffix()
     }
 
     /// 期间年份：2400 + 进程内序号（每个夹具独占一个会计年度）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn next_year() -> i32 {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        2400 + i32::try_from(SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst) % 400).unwrap_or(0)
+        crate::test_seed::year_seq(2400, 400)
     }
 
     /// 编码尾巴（物料 / 仓库编码有长度上限）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn tail_code(suffix: &str) -> String {
-        suffix
-            .chars()
-            .filter(|ch| ch.is_ascii_digit())
-            .collect::<String>()
-            .chars()
-            .rev()
-            .take(8)
-            .collect::<String>()
-            .chars()
-            .rev()
-            .collect()
+        crate::test_seed::tail_code(suffix, 8)
     }
 
     /// 库里读回的字符串金额 → `Decimal`。
@@ -148,11 +134,9 @@ mod db {
             "DELETE FROM biz_material WHERE material_code LIKE 'CB34-%'",
             "DELETE FROM biz_warehouse WHERE warehouse_code LIKE 'CB34W%'",
         ];
-        for sql in statements {
-            if let Err(error) = db().exec_sql(sql.to_string(), vec![]).await {
-                println!("sweep 失败（{sql}）：{error}");
-            }
-        }
+        // 每进程只扫一次（P2-62）：清的是**上一轮崩溃**留下的行；
+        // 本进程内夹具编码带唯一后缀、年度由 year_seq 递增，天然不撞。
+        crate::test_seed::sweep_once("erp::cost::cost_settle_finish_db_tests", &statements).await;
     }
 
     impl Fixture {
@@ -161,41 +145,15 @@ mod db {
             let suffix = uniq();
             let year = next_year();
             let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
-            let unit: Uuid = db()
-                .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
-                .await
-                .expect("取计量单位");
-            let product = Uuid::now_v7();
-            db().exec_sql(
-                "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
-                                          status, created_at, updated_at) \
-                 VALUES (?::uuid, ?, ?, ?::uuid, 'FINISHED', 1, now(), now())"
-                    .to_string(),
-                vec![
-                    Value::from(&product),
-                    Value::Text(format!("CB34-{suffix}")),
-                    Value::Text(format!("完工入库夹具产出品 {suffix}")),
-                    Value::from(&unit),
-                ],
+            let unit: Uuid = crate::test_seed::ensure_unit().await;
+            let product = crate::test_seed::ensure_material_kind(
+                &format!("CB34-{suffix}"),
+                &format!("完工入库夹具产出品 {suffix}"),
+                "FINISHED",
             )
-            .await
-            .expect("造产出品夹具");
-            let warehouse = Uuid::now_v7();
+            .await;
             let code = format!("CB34W{}", tail_code(&suffix));
-            db().exec_sql(
-                "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, \
-                                            is_leaf, level, status, created_at, updated_at) \
-                 VALUES (?::uuid, ?, ?, ?, 1, 1, 1, now(), now())"
-                    .to_string(),
-                vec![
-                    Value::from(&warehouse),
-                    Value::Text(code.clone()),
-                    Value::Text(format!("完工入库夹具仓 {suffix}")),
-                    Value::Text(format!("/{code}")),
-                ],
-            )
-            .await
-            .expect("造仓库夹具");
+            let warehouse = crate::test_seed::ensure_warehouse(&code, &format!("完工入库夹具仓 {suffix}")).await;
             // 指定库位行（qty 从 0 开始；`add_location_qty` 的分支 A 按主键加）。
             // ★ `location_id` 必须**非空**：`location_id IS NULL` 的那一行是「未分配库位桶」
             //   （`uk_biz_inv_loc … NULLS NOT DISTINCT`），拿它当「指定库位」两个桶就混成一个了。

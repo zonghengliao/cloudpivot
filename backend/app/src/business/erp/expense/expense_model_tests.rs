@@ -123,12 +123,9 @@ mod db {
         }
     }
 
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> String {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        format!("{}{}", now % 1_000_000_000_000, std::process::id())
+        crate::test_seed::uniq_suffix()
     }
 
     /// 造一张单的写库载荷（一条明细，税率 6%，可抵扣）。

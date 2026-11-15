@@ -66,20 +66,15 @@ mod db {
     }
 
     /// 唯一后缀（纳秒 + 进程内计数器，避免并发用例互相踩）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> String {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        format!("{}{seq:03}", now % 1_000_000_000)
+        crate::test_seed::uniq_suffix()
     }
 
     /// 仓库编码的尾巴（`biz_warehouse.warehouse_code` 有长度上限）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn fx_suffix_code(suffix: &str) -> String {
-        let start = suffix.len().saturating_sub(10);
-        suffix[start..].to_string()
+        crate::test_seed::last_chars(suffix, 10)
     }
 
     /// 全套夹具：车间 / 产出品 / 仓库 + **登记过的**行、对象、科目 id（清场用）。
@@ -97,41 +92,14 @@ mod db {
         async fn build() -> Self {
             let suffix = uniq();
             let dept = cloudpivot_kernel::shared::test_helpers::ensure_any_dept().await;
-            let unit: Uuid = db()
-                .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
-                .await
-                .expect("取计量单位");
-            let product = Uuid::now_v7();
-            db().exec_sql(
-                "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
-                                          status, created_at, updated_at) \
-                 VALUES (?::uuid, ?, ?, ?::uuid, 'FINISHED', 1, now(), now())"
-                    .to_string(),
-                vec![
-                    Value::from(&product),
-                    Value::Text(format!("COSTB24-MAT-{suffix}")),
-                    Value::Text(format!("费用夹具产出品 {suffix}")),
-                    Value::from(&unit),
-                ],
+            let product = crate::test_seed::ensure_material_kind(
+                &format!("COSTB24-MAT-{suffix}"),
+                &format!("费用夹具产出品 {suffix}"),
+                "FINISHED",
             )
-            .await
-            .expect("造产出品夹具");
-            let warehouse = Uuid::now_v7();
+            .await;
             let code = format!("CB24W{}", fx_suffix_code(&suffix));
-            db().exec_sql(
-                "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, \
-                                            is_leaf, level, status, created_at, updated_at) \
-                 VALUES (?::uuid, ?, ?, ?, 1, 1, 1, now(), now())"
-                    .to_string(),
-                vec![
-                    Value::from(&warehouse),
-                    Value::Text(code.clone()),
-                    Value::Text(format!("费用夹具仓 {suffix}")),
-                    Value::Text(format!("/{code}")),
-                ],
-            )
-            .await
-            .expect("造仓库夹具");
+            let warehouse = crate::test_seed::ensure_warehouse(&code, &format!("费用夹具仓 {suffix}")).await;
             Self {
                 suffix,
                 dept,

@@ -1,0 +1,16 @@
+根目录               : /tmp/p262_head/backend/app/src
+测试文件 INSERT 总数 : 380
+fn uniq( 定义数      : 41
+  sys_dept                     8
+  sys_user                    29
+  sys_user_role               15
+  sys_role                     7
+  biz_unit                     9
+  biz_material                24
+  biz_warehouse               23
+  biz_account                  6
+  biz_supplier                 7
+  biz_customer                 1
+  biz_accounting_period        2
+  biz_location                 2
+  主数据合计                    133

@@ -1,0 +1,2 @@
+✓ 反证成立：本地 uniq 实现被门禁抓到（exit=1 语义）
+   /root/.hermes/profiles/test-enginner/cache/scratch/tmp.Zr6oN6G390/src/fake_tests.rs:1:fn uniq() -> String {

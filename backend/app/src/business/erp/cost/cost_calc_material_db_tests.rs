@@ -73,14 +73,9 @@ mod db {
     }
 
     /// 唯一后缀（纳秒 + 进程内计数器，避免并发用例互相踩）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> String {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        format!("{}{seq:03}", now % 1_000_000_000)
+        crate::test_seed::uniq_suffix()
     }
 
     /// 进程内递增槽位：决定夹具独占的会计期间。
@@ -142,43 +137,17 @@ mod db {
                 .await
                 .expect("取部门名");
 
-            let unit: Uuid = db()
-                .scalar_with_params("SELECT id FROM biz_unit WHERE deleted_at IS NULL LIMIT 1", vec![])
-                .await
-                .expect("取计量单位");
+            let unit: Uuid = crate::test_seed::ensure_unit().await;
 
-            let product = Uuid::now_v7();
-            db().exec_sql(
-                "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
-                                          status, created_at, updated_at) \
-                 VALUES (?::uuid, ?, ?, ?::uuid, 'FINISHED', 1, now(), now())"
-                    .to_string(),
-                vec![
-                    Value::from(&product),
-                    Value::Text(format!("B26-MAT-{suffix}")),
-                    Value::Text(format!("料归集夹具产出品 {suffix}")),
-                    Value::from(&unit),
-                ],
+            let product = crate::test_seed::ensure_material_kind(
+                &format!("B26-MAT-{suffix}"),
+                &format!("料归集夹具产出品 {suffix}"),
+                "FINISHED",
             )
-            .await
-            .expect("造产出品夹具");
+            .await;
 
-            let warehouse = Uuid::now_v7();
             let code = format!("B26W{}", &suffix[suffix.len().saturating_sub(8)..]);
-            db().exec_sql(
-                "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, \
-                                            is_leaf, level, status, created_at, updated_at) \
-                 VALUES (?::uuid, ?, ?, ?, 1, 1, 1, now(), now())"
-                    .to_string(),
-                vec![
-                    Value::from(&warehouse),
-                    Value::Text(code.clone()),
-                    Value::Text(format!("料归集夹具仓 {suffix}")),
-                    Value::Text(format!("/{code}")),
-                ],
-            )
-            .await
-            .expect("造仓库夹具");
+            let warehouse = crate::test_seed::ensure_warehouse(&code, &format!("料归集夹具仓 {suffix}")).await;
 
             Self {
                 suffix,

@@ -186,12 +186,9 @@ fn constants_admin() -> &'static str {
 }
 
 /// 每个用例唯一的后缀（毫秒 + 进程内自增），用于所有夹具标识与清理前缀。
+/// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
 pub(crate) fn uniq() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static SEQ: AtomicU64 = AtomicU64::new(0);
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let ms = chrono::Utc::now().timestamp_millis();
-    format!("T{ms}{seq:03}")
+    crate::test_seed::uniq_suffix()
 }
 
 /// 执行一条写 SQL（返回受影响行数）。

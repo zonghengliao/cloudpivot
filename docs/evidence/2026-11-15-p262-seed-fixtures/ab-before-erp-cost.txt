@@ -1,0 +1,3 @@
+run1 | test result: FAILED. 627 passed; 5 failed; 0 ignored; 0 measured; 4816 filtered out; finished in 6.92s
+run2 | test result: FAILED. 627 passed; 5 failed; 0 ignored; 0 measured; 4816 filtered out; finished in 7.22s
+run3 | test result: FAILED. 627 passed; 5 failed; 0 ignored; 0 measured; 4816 filtered out; finished in 6.96s

@@ -27,7 +27,7 @@ kernel	cloudpivot-kernel	-	内核 crate 全部用例（shared/utils/business-sha
 doc	cloudpivot-doc	-	词表 crate（DocKind 等，零依赖）
 system	cloudpivot	system::	系统域（用户/角色/菜单/字典/配置/日志/会话/权限授予）
 support	cloudpivot	support::	支撑域（附件存储/任务调度/通知等 support 容器）
-platform	cloudpivot	middleware:: task:: kernel_axis_tests:: bootstrap::	平台层：中间件、顶层任务、跨轴用例、启动链
+platform	cloudpivot	middleware:: task:: kernel_axis_tests:: bootstrap:: test_seed::	平台层：中间件、顶层任务、跨轴用例、启动链、统一夹具（P2-62）
 erp	cloudpivot	business::erp::	ERP 兜底域（未切给下面 erp-* 子域的一切：单据头/模型/DTO/联动/余额等）
 erp-cost	cloudpivot	business::erp::cost::	成本域（成本对象/归集/分配/差异/期间）
 erp-inventory	cloudpivot	business::erp::stockin:: business::erp::stockout:: business::erp::transfer:: business::erp::stock:: business::erp::stocktake:: business::erp::lot:: business::erp::serial_handler:: business::erp::serial_model:: business::erp::serial_dto:: business::erp::batch:: business::erp::inventory_audit:: business::erp::shipment::	库存域（出入库/调拨/盘点/批次序列号/发运）

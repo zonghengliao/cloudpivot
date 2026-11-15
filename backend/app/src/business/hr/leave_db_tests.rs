@@ -73,14 +73,9 @@ mod db {
     }
 
     /// 全局唯一后缀（同一进程内多次调用不会重）。
+    /// 实现统一在 `crate::test_seed`（P2-62）；此处只保留本地签名，调用点零改动。
     fn uniq() -> u64 {
-        static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
-            .unwrap_or(0);
-        let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        now.wrapping_add(seq.wrapping_mul(7_919))
+        crate::test_seed::uniq_u64()
     }
 
     /// 北京时间的一个「不与真实数据搅在一起」的请假窗口：固定 2026-11 的某两天。
