@@ -1,4 +1,4 @@
-================ 语义自证 · 临时目录 /root/.hermes/profiles/manong/cache/scratch/lr-selftest.rroKZ0（不碰线上日志） ================
+================ 语义自证 · 临时目录 /root/.hermes/profiles/manong/cache/scratch/lr-selftest.MZXdtp（不碰线上日志） ================
 PASS 自证 conf 由仓库源派生（路径已替换）
 PASS logrotate -f 在临时目录执行成功（rc=0）
 PASS ① copytruncate：app.log 仍在且已清零
@@ -12,4 +12,4 @@ PASS ③e .30.gz = 最老保留日（marker-3），marker-1/marker-2 已随第 3
 PASS ⑤ missingok：路径无匹配时 rc=0（不会让每日 cron 报错）
 PASS ⑥ 重复执行 rc=0（清空后的基文件被 notifempty 跳过，不会产生空归档）
 ---- 小计
-PASS=12  FAIL=0  （临时目录 /root/.hermes/profiles/manong/cache/scratch/lr-selftest.rroKZ0 保留供复核）
+PASS=12  FAIL=0  （临时目录 /root/.hermes/profiles/manong/cache/scratch/lr-selftest.MZXdtp 保留供复核）

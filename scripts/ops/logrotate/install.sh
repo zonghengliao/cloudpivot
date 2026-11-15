@@ -16,6 +16,7 @@
 #   bash scripts/ops/logrotate/install.sh --host 172.18.10.145 --rotate  # 强制切一次（验收用）
 #   bash scripts/ops/logrotate/install.sh --no-journald   # 只做 logrotate，不碰 journald
 #   bash scripts/ops/logrotate/install.sh --self-test     # 临时目录自证 rotate 30 / notifempty / missingok
+#   bash scripts/ops/logrotate/install.sh --fix-conflicts # 修 /etc/logrotate.d 里的重复 glob（仅当两份逐字节相同时才移走）
 #
 # 退出码：0 全绿 / 1 有断言失败（可直接给 cron / CI 用）
 #
@@ -37,6 +38,7 @@ RETAIN_DAYS=30
 HOST=""
 MODE="install"          # install | check | rotate | self-test
 WITH_JOURNALD=1
+FIX_CONFLICTS=0
 
 usage() { sed -n '2,25p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
@@ -46,6 +48,7 @@ while [ $# -gt 0 ]; do
     --check)        MODE="check"; shift ;;
     --rotate)       MODE="rotate"; shift ;;
     --no-journald)  WITH_JOURNALD=0; shift ;;
+    --fix-conflicts) FIX_CONFLICTS=1; shift ;;
     --self-test)    MODE="self-test"; shift ;;
     -h|--help)      usage; exit 0 ;;
     *) echo "未知参数：$1" >&2; usage >&2; exit 2 ;;
@@ -99,7 +102,6 @@ run_self_test() {
   # ④ notifempty：空文件不切
   if [ ! -f "$t/logs/empty.log.1.gz" ] && [ -f "$t/logs/empty.log" ]; then ok "④ notifempty：empty.log 未被切（无 empty.log.1.gz）"
   else bad "④ notifempty：empty.log 未被切" "出现了 empty.log.1.gz"; fi
-
   # ③ 连切 32 天，验证「保留 30 天」的真实语义（不是数已有文件，而是跑出来）
   #    每天：往 app.log 追加 marker-N → logrotate -f → 期望第 N 天的内容出现在 .1.gz
   local d rotfail=0
@@ -156,6 +158,7 @@ cat <<PAYLOAD
 set -uo pipefail
 MODE='$MODE'
 WITH_JOURNALD='$WITH_JOURNALD'
+FIX_CONFLICTS='$FIX_CONFLICTS'
 TARGET_CONF='$TARGET_CONF'
 JOURNALD_DIR='$JOURNALD_DIR'
 JOURNALD_TARGET='$JOURNALD_TARGET'
@@ -205,6 +208,25 @@ if [ "\$MODE" != check ]; then
       systemctl is-active --quiet systemd-journald && echo "  systemd-journald: active（重启后存活）" \
         || echo "  !! systemd-journald 未存活，请立即排查"
     fi
+  fi
+
+  # 片段冲突：/etc/logrotate.d 是按目录整体解析的，两个包提供同一 glob 会让整份配置 rc=1，
+  # 定时器天天红（cloud-init / cloud-init-base 就是这种，2026-11-12 起每天失败）。
+  # 修法：给重复的那份加 .disabled 后缀 —— logrotate 忽略该后缀（99 上已是这个形态，实测 rc=0）。
+  # 只在「两份文件逐字节相同」时才动手，否则拒绝并打印 diff —— 绝不猜。
+  if [ "\$FIX_CONFLICTS" = 1 ]; then
+    hr '修 logrotate 片段冲突（重复 glob）'
+    for pair in cloud-init:cloud-init-base; do
+      canon="\${pair%%:*}"; dup="\${pair##*:}"
+      a="/etc/logrotate.d/\$canon"; b="/etc/logrotate.d/\$dup"
+      if [ ! -f "\$b" ]; then echo "  \$b 不存在或已禁用（无需处理）"; continue; fi
+      if [ -f "\$a" ] && cmp -s "\$a" "\$b"; then
+        mv "\$b" "\$b.disabled"
+        echo "  \$b 与 \$a 逐字节相同 → 重命名为 \$b.disabled（logrotate 忽略该后缀；原件内容不变，改回来只需去掉后缀）"
+      else
+        printf '  !! %s 与 %s 内容不同，未改动（需人工判断）：%s\n' "\$b" "\$a" "\$(diff -q "\$a" "\$b" 2>&1)"
+      fi
+    done
   fi
 fi
 
@@ -269,6 +291,17 @@ if [ -f "\$TARGET_CONF" ]; then
   nwarn="\$(printf '%s\n' "\$dout" | grep -ci 'warning' || true)"
   [ "\$nwarn" -gt 0 ] && echo "  （提示：logrotate -d 有 \$nwarn 条 warning，不影响退出码）"
 else bad "③ logrotate -d 解析通过" "文件不存在"; fi
+
+# ③b 整份配置 dry-run：定时器每天跑的是 /etc/logrotate.conf（含 /etc/logrotate.d/*），
+#    只验自己的片段会漏掉「别人的片段坏了 → 整个 run rc=1 → 天天红」。
+fc_out="\$(logrotate -d /etc/logrotate.conf 2>&1)"; fc_rc=\$?
+fc_err="\$(printf '%s\n' "\$fc_out" | grep -iE 'error:' || true)"
+if [ \$fc_rc -eq 0 ] && [ -z "\$fc_err" ]; then
+  ok "③b 整份配置 logrotate -d rc=0 无 error（定时器每天跑的正是这份）"
+else
+  bad "③b 整份配置 logrotate -d 无错" "rc=\$fc_rc \$(printf '%s' "\$fc_err" | head -3 | tr '\n' ' ')"
+  printf '%s\n' "\$fc_err" | head -5 | sed 's/^/    /'
+fi
 
 # ④ 按天切割的触发者：logrotate.timer（systemd）或 cron.daily
 timer_state="\$(systemctl is-active logrotate.timer 2>/dev/null || echo unknown)"

@@ -1,0 +1,85 @@
+######## 172.18.10.144 定时器自动触发 / 单元状态 / 生产健康 ########
+NEXT                        LEFT LAST                          PASSED UNIT            ACTIVATES
+Tue 2026-11-17 00:29:42 CST  24h Mon 2026-11-16 00:01:38 CST 9min ago logrotate.timer logrotate.service
+--- 状态文件日期（翻到 11-16 说明定时器真的切过）---
+"/var/log/cloudpivot/backup.log" 2026-11-15-23:49:4
+"/var/log/cloudpivot/alert-check.cron.log" 2026-11-16-0:1:38
+--- .1/.2 归档（.1=新一天内容，.2=前一天内容）---
+-rw-r--r-- 1 root root   324 11-12_10:50 /var/log/cloudpivot/ALERT.log.1.gz
+-rw-r--r-- 1 root root   691 11-16_00:00 /var/log/cloudpivot/alert-check.cron.log.1.gz
+-rw-r--r-- 1 root root 74949 11-15_23:45 /var/log/cloudpivot/alert-check.cron.log.2.gz
+-rw-r--r-- 1 root root  1371 11-15_02:30 /var/log/cloudpivot/backup.log.1.gz
+-rw-r--r-- 1 root root  1855 10-31_11:17 /var/log/cloudpivot/erp-health-202610.log.1.gz
+-rw-r--r-- 1 root root  1891 11-05_02:00 /var/log/cloudpivot/erp-health-202611.log.1.gz
+-rw-r--r-- 1 root root  1309 11-09_08:53 /var/log/cloudpivot/prod-cleanup-20261109-085319.log.1.gz
+-rw-r--r-- 1 root root   763 11-09_08:53 /var/log/cloudpivot/prod-cleanup-v3-20261109-085346.log.1.gz
+-rw-r--r-- 1 root root   515 11-09_08:54 /var/log/cloudpivot/prod-cleanup-v4-20261109-085401.log.1.gz
+-rw-r--r-- 1 root root  1099 11-09_08:54 /var/log/cloudpivot/prod-cleanup-v4-20261109-085410.log.1.gz
+-rw-r--r-- 1 root root   753 11-07_19:20 /var/log/cloudpivot/prod-deploy-20261107-191627.log.1.gz
+-rw-r--r-- 1 root root   725 11-08_08:15 /var/log/cloudpivot/prod-deploy-20261108-081124.log.1.gz
+-rw-r--r-- 1 root root   752 11-08_08:57 /var/log/cloudpivot/prod-deploy-20261108-085329.log.1.gz
+-rw-r--r-- 1 root root   907 11-10_06:12 /var/log/cloudpivot/prod-deploy-20261110-061243.log.1.gz
+-rw-r--r-- 1 root root   908 11-10_06:19 /var/log/cloudpivot/prod-deploy-20261110-061902.log.1.gz
+-rw-r--r-- 1 root root   908 11-10_08:43 /var/log/cloudpivot/prod-deploy-20261110-084307.log.1.gz
+-rw-r--r-- 1 root root   908 11-10_08:48 /var/log/cloudpivot/prod-deploy-20261110-084803.log.1.gz
+-rw-r--r-- 1 root root  1563 11-15_02:00 /var/log/cloudpivot/snapshot-audit.log.1.gz
+--- 重复 glob 修复后是否还有 error ---
+0
+whole-config -d rc=0
+--- logrotate.service 单元状态（修前每天 Failed）---
+inactive success 0 
+2026-11-16T00:01:39+08:00 ubuntu-svr systemd[1]: logrotate.service: Main process exited, code=exited, status=1/FAILURE
+2026-11-16T00:01:39+08:00 ubuntu-svr systemd[1]: logrotate.service: Failed with result 'exit-code'.
+2026-11-16T00:01:39+08:00 ubuntu-svr systemd[1]: Failed to start logrotate.service - Rotate log files.
+2026-11-16T00:11:00+08:00 ubuntu-svr systemd[1]: Starting logrotate.service - Rotate log files...
+2026-11-16T00:11:00+08:00 ubuntu-svr systemd[1]: logrotate.service: Deactivated successfully.
+2026-11-16T00:11:00+08:00 ubuntu-svr systemd[1]: Finished logrotate.service - Rotate log files.
+--- 云枢服务健康 ---
+active inactive inactive active 
+GET /health -> HTTP 200
+GET /health(8024) -> HTTP 000
+
+######## 172.18.10.145 定时器自动触发 / 单元状态 / 生产健康 ########
+NEXT                        LEFT LAST                              PASSED UNIT            ACTIVATES
+Tue 2026-11-17 00:55:14 CST  24h Mon 2026-11-16 00:08:14 CST 3min 15s ago logrotate.timer logrotate.service
+--- 状态文件日期（翻到 11-16 说明定时器真的切过）---
+"/var/log/cloudpivot/backup.log" 2026-11-15-23:48:56
+"/var/log/cloudpivot/alert-check.cron.log" 2026-11-16-0:8:14
+"/var/log/cloudpivot/test-deploy.log" 2026-11-16-0:8:14
+--- .1/.2 归档（.1=新一天内容，.2=前一天内容）---
+-rw-r--r-- 1 root root   513 11-10_03:25 /var/log/cloudpivot/ALERT.log.1.gz
+-rw-r--r-- 1 root root   838 11-16_00:05 /var/log/cloudpivot/alert-check.cron.log.1.gz
+-rw-r--r-- 1 root root 61240 11-15_23:45 /var/log/cloudpivot/alert-check.cron.log.2.gz
+-rw-r--r-- 1 root root  1460 11-15_03:30 /var/log/cloudpivot/backup.log.1.gz
+-rw-r--r-- 1 root root   824 11-07_22:36 /var/log/cloudpivot/force-rebuild-145.log.1.gz
+-rw-r--r-- 1 root root  1063 11-16_00:01 /var/log/cloudpivot/test-deploy.log.1.gz
+-rw-r--r-- 1 root root 48315 11-15_23:32 /var/log/cloudpivot/test-deploy.log.2.gz
+-rw-r--r-- 1 root root  2647 11-10_20:57 /var/log/cloudpivot/upgrade-20261110-205703.log.1.gz
+-rw-r--r-- 1 root root  3301 11-10_21:01 /var/log/cloudpivot/upgrade-20261110-210149.log.1.gz
+-rw-r--r-- 1 root root  3651 11-10_21:02 /var/log/cloudpivot/upgrade-20261110-210239.log.1.gz
+-rw-r--r-- 1 root root  4583 11-10_21:06 /var/log/cloudpivot/upgrade-20261110-210305.log.1.gz
+-rw-r--r-- 1 root root  3757 11-10_21:07 /var/log/cloudpivot/upgrade-20261110-210639.log.1.gz
+-rw-r--r-- 1 root root  1052 11-10_21:07 /var/log/cloudpivot/upgrade-20261110-210733.log.1.gz
+-rw-r--r-- 1 root root  2369 11-10_21:08 /var/log/cloudpivot/upgrade-20261110-210801.log.1.gz
+-rw-r--r-- 1 root root  3059 11-10_21:09 /var/log/cloudpivot/upgrade-20261110-210855.log.1.gz
+-rw-r--r-- 1 root root   323 11-10_21:09 /var/log/cloudpivot/upgrade-20261110-210944.log.1.gz
+-rw-r--r-- 1 root root  1030 11-10_21:10 /var/log/cloudpivot/upgrade-20261110-211000.log.1.gz
+-rw-r--r-- 1 root root   901 11-10_21:10 /var/log/cloudpivot/upgrade-20261110-211025.log.1.gz
+-rw-r--r-- 1 root root  3750 11-10_21:11 /var/log/cloudpivot/upgrade-20261110-211040.log.1.gz
+-rw-r--r-- 1 root root  2969 11-10_21:12 /var/log/cloudpivot/upgrade-20261110-211210.log.1.gz
+--- 重复 glob 修复后是否还有 error ---
+0
+whole-config -d rc=0
+--- logrotate.service 单元状态（修前每天 Failed）---
+inactive success 0 
+2026-11-16T00:08:14+08:00 ubuntu-svr systemd[1]: logrotate.service: Main process exited, code=exited, status=1/FAILURE
+2026-11-16T00:08:14+08:00 ubuntu-svr systemd[1]: logrotate.service: Failed with result 'exit-code'.
+2026-11-16T00:08:14+08:00 ubuntu-svr systemd[1]: Failed to start logrotate.service - Rotate log files.
+2026-11-16T00:10:55+08:00 ubuntu-svr systemd[1]: Starting logrotate.service - Rotate log files...
+2026-11-16T00:10:55+08:00 ubuntu-svr systemd[1]: logrotate.service: Deactivated successfully.
+2026-11-16T00:10:55+08:00 ubuntu-svr systemd[1]: Finished logrotate.service - Rotate log files.
+--- 云枢服务健康 ---
+inactive active active active 
+GET /health -> HTTP 000
+GET /health(8024) -> HTTP 200
+

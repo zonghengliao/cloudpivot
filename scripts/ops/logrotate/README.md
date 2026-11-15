@@ -28,6 +28,9 @@ bash scripts/ops/logrotate/install.sh --host 172.18.10.144 --rotate
 
 # 语义自证：临时目录里连切 32 天，证明「只留 30 份」（不碰线上日志，任何机器可跑）
 bash scripts/ops/logrotate/install.sh --self-test
+
+# 修 /etc/logrotate.d 里的重复 glob（仅当两份逐字节相同时才改名；不同则拒绝并打 diff）
+bash scripts/ops/logrotate/install.sh --host 172.18.10.144 --fix-conflicts
 ```
 
 退出码 0 = 断言全绿，非 0 = 有断言失败（可直接进 cron / CI）。
@@ -38,7 +41,8 @@ bash scripts/ops/logrotate/install.sh --self-test
 |:--:|:--|
 | ① | `/etc/logrotate.d/cloudpivot` 存在且 `644 root:root` |
 | ② | 线上片段与仓库源逐字节一致（sha256） |
-| ③ | `logrotate -d` 解析通过（rc=0，输出无 `error:`） |
+| ③ | 本片段 `logrotate -d` 解析通过（rc=0，输出无 `error:`） |
+| ③b | **整份配置** `logrotate -d /etc/logrotate.conf` rc=0 —— 定时器每天跑的是这份，别人的片段坏了也会让整个 run rc=1 |
 | ④ | `logrotate.timer` active+enabled（`OnCalendar=daily` → 每天真会跑） |
 | ⑤ | 所有 `.gz` 归档 `gzip -t` 通过 |
 | ⑥ | 每个基名归档数 ≤ 31 |
@@ -59,6 +63,10 @@ bash scripts/ops/logrotate/install.sh --self-test
    下一次轮转点（`journalctl --rotate` 可手工触发同样路径）。
 5. **`.log` 之外的日志不在范围内**：`snapshot-audit.log.2026-11-12` 这种自管日期的归档
    （脚本自己 `mv`）、`/var/log/cloudpivot/hermes/*.log`（hermes 自管）都不匹配 `*.log` 通配，保持原样。
+6. **`/etc/logrotate.d` 是按目录整体解析的**：任意一份片段坏了，整份配置 rc=1、`logrotate.service`
+   天天红，而你自己的片段可能是好的（假绿的来源）。断言 ③b 因此跑**整份**配置。
+   已知同类：`cloud-init` / `cloud-init-base` 重复 glob —— 用 `--fix-conflicts` 改名成 `.disabled`
+   （logrotate 忽略该后缀；仅在两份逐字节相同时才动，不同则拒绝）。
 
 ## 改配置的正确姿势
 
