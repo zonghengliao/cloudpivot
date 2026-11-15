@@ -242,7 +242,7 @@
               <template v-if="barGeom(row)">
                 <rect
                   :x="barGeom(row)!.x"
-                  :y="rowTop(index) + 8"
+                  :y="barTop(index)"
                   :width="barGeom(row)!.width"
                   :height="BAR_H"
                   rx="4"
@@ -255,6 +255,7 @@
                   :class="[
                     canDrag(row.task) ? 'gantt-bar__body--draggable' : 'gantt-bar__body--locked',
                     row.depth > 0 ? 'gantt-bar__body--child' : 'gantt-bar__body--parent',
+                    isLinkedRow(row.id) ? 'gantt-bar__body--linked' : '',
                     dragState?.id === row.id ? 'gantt-bar--dragging' : '',
                   ]"
                   :style="barTransition(row)"
@@ -263,6 +264,8 @@
                   :data-bar-kind="row.depth > 0 ? 'child' : 'parent'"
                   :data-parent-id="row.task.parent_id ?? ''"
                   :data-summary="isSummary(row.task) ? 'true' : 'false'"
+                  @pointerenter="enterBar(row.id)"
+                  @pointerleave="leaveBar(row.id)"
                   @pointerdown="onPointerDown($event, row, 'move')"
                   @click="onBarClick(row.task)"
                 >
@@ -273,7 +276,7 @@
                 <circle
                   v-if="row.task.is_new"
                   :cx="barGeom(row)!.x + 5"
-                  :cy="rowTop(index) + 8 + BAR_H / 2"
+                  :cy="barTop(index) + BAR_H / 2"
                   r="3"
                   :fill="cssVar('--td-error-color', '#d54941')"
                   class="gantt-bar gantt-bar__overlay gantt-bar__new"
@@ -286,7 +289,7 @@
                 <rect
                   v-if="row.task.blocked"
                   :x="barGeom(row)!.x"
-                  :y="rowTop(index) + 8"
+                  :y="barTop(index)"
                   :width="barGeom(row)!.width"
                   :height="BAR_H"
                   rx="4"
@@ -300,7 +303,7 @@
                 <rect
                   v-if="row.task.progress > 0"
                   :x="barGeom(row)!.x"
-                  :y="rowTop(index) + 8 + BAR_H - 5"
+                  :y="barTop(index) + BAR_H - 5"
                   :width="Math.max(2, (barGeom(row)!.width * row.task.progress) / 100)"
                   :height="5"
                   rx="2"
@@ -316,7 +319,7 @@
                     :x1="barGeom(row)!.x + 1"
                     :y1="rowTop(index) + 6"
                     :x2="barGeom(row)!.x + 1"
-                    :y2="rowTop(index) + 8 + BAR_H + 2"
+                    :y2="barTop(index) + BAR_H + 2"
                     :stroke="barColor(row)"
                     stroke-width="2"
                     class="gantt-bar__overlay"
@@ -325,7 +328,7 @@
                     :x1="barGeom(row)!.x + barGeom(row)!.width - 1"
                     :y1="rowTop(index) + 6"
                     :x2="barGeom(row)!.x + barGeom(row)!.width - 1"
-                    :y2="rowTop(index) + 8 + BAR_H + 2"
+                    :y2="barTop(index) + BAR_H + 2"
                     :stroke="barColor(row)"
                     stroke-width="2"
                     class="gantt-bar__overlay"
@@ -357,20 +360,37 @@
               </template>
             </g>
 
-            <!-- ④ 依赖线：前置结束 → 后继开始（折线 + 箭头）；拖动时随条形实时移动 -->
-            <g>
-              <polyline
-                v-for="link in links"
-                :key="`${link.from}-${link.to}`"
-                :points="link.points"
-                fill="none"
-                :stroke="cssVar('--td-brand-color', '#0052d9')"
-                stroke-width="1.2"
-                stroke-opacity="0.75"
-                marker-end="url(#gantt-arrow)"
-                class="gantt-link"
-                :data-link="`${link.from}->${link.to}`"
-              />
+            <!-- ④ 依赖线：前置结束 → 后继开始（圆角折线 + 箭头）；
+                 悬停显示「依赖类型 + 前后置任务」；前置已完成 → 虚线表示依赖已解除 -->
+            <g class="gantt-links">
+              <g v-for="link in links" :key="link.key">
+                <path
+                  :d="link.d"
+                  fill="none"
+                  :stroke="link.released ? cssVar('--td-success-color', '#2ba471') : cssVar('--td-brand-color', '#0052d9')"
+                  :stroke-width="isLinkActive(link) ? 2.2 : 1.4"
+                  :stroke-opacity="link.released ? 0.6 : 0.85"
+                  :stroke-dasharray="link.released ? '5 3' : undefined"
+                  marker-end="url(#gantt-arrow)"
+                  class="gantt-link"
+                  :class="{ 'gantt-link--active': isLinkActive(link) }"
+                  :data-link="link.key"
+                  :data-dep-type="link.depType"
+                  :data-released="link.released ? 'true' : 'false'"
+                />
+                <!-- 命中区：加粗透明路径只覆盖「除箭头尖以外」的段（箭头尖下面是拖拽手柄） -->
+                <path
+                  :d="link.dHit"
+                  fill="none"
+                  :stroke="cssVar('--td-brand-color', '#0052d9')"
+                  :stroke-width="HIT_STROKE_WIDTH"
+                  stroke-opacity="0"
+                  class="gantt-link__hit"
+                  :data-link-hit="link.key"
+                  @pointerenter="hoverLink(link)"
+                  @pointerleave="leaveLink(link)"
+                />
+              </g>
             </g>
 
             <!-- ⑤ 今天竖线（醒目色；今天不在窗口内时不画） -->
@@ -397,6 +417,23 @@
           >
             {{ dragLabel }}
           </div>
+
+          <!-- 依赖线悬停浮层（第一行 = 依赖类型；锚在竖段上，不跟指针抖） -->
+          <div
+            v-if="hoverTip"
+            class="gantt-link-tip"
+            data-test="gantt-link-tip"
+            :data-link-tip-for="hoverTip.key"
+            :style="{ left: `${hoverTip.x}px`, top: `${hoverTip.y}px` }"
+          >
+            <div class="gantt-link-tip__type">{{ hoverTip.lines[0] }}</div>
+            <div class="gantt-link-tip__line">{{ hoverTip.lines[1] }}</div>
+            <div class="gantt-link-tip__line">{{ hoverTip.lines[2] }}</div>
+            <div class="gantt-link-tip__state" :class="{ 'gantt-link-tip__state--released': hoverTip.released }">
+              {{ hoverTip.lines[3] }}
+            </div>
+          </div>
+
         </div>
       </t-loading>
     </t-card>
@@ -445,6 +482,22 @@
  * 4. **依赖线实时跟随**：`links` 全部由 `barGeom()` 推导，拖动中几何量变了线自然跟着走；
  *    没有第二套「拖拽专用」坐标。
  *
+ * # 依赖连线（P3-13）
+ *
+ * - **画什么**：`GET /business/task/gantt` 的 `dependencies`（后端只下发 `FS` 边，
+ *   两端都在窗口内的才下发），从**前置条形右端中点**连到**后继条形左端中点** ——
+ *   「前置结束 → 后继开始」，箭头在前者这一端；
+ * - **怎么画**：几何交给 `gantt-links.ts::buildFsLink`（纯函数 + 单测）：
+ *   间隙充足走「右出 STUB → 竖段 → 水平进入」，间隙很窄把竖段放间隙中点，
+ *   后继排在前置左边时绕行到两行之间的空带；所有段钳在左栏右侧，不会画到任务名上；
+ * - **悬停**：细线（1.4px）点不中，所以另有一条 10px 宽的透明命中路径
+ *   （`pointer-events: stroke`）负责 `pointerenter`，浮层显示
+ *   「依赖类型（完成-开始 FS）+ 前置 / 后继 + 状态」；
+ *   命中路径刻意**去掉最后一段** —— 箭头尖落在后继条形的左边缘，那里是拖拽左手柄，
+ *   命中区盖住它就会「能悬停但拖不动」；
+ * - **状态语义**：前置 `DONE` / `CANCELLED` → 绿色虚线（依赖已解除，与后端
+ *   `check_dependencies_ready` 同口径）；否则蓝色实线（仍在阻塞）。
+ *
  * # 几何量：一套换算，两种输入
  *
  * 像素换算**只有** [`geomOfSpan`] 一个入口（「日期 × 列宽」，含裁到时间窗内，
@@ -472,12 +525,20 @@ import {
 } from '@/api/business/task-api';
 import { statusMeta } from '@/constants/status-map';
 import { PERM } from '@/constants/permissions';
+import {
+  HIT_STROKE_WIDTH,
+  buildFsLink,
+  depReleased,
+  linkTipLines,
+} from './gantt-links';
 
 /** 布局常量（像素）：左侧任务名宽度、行高、表头高度、任务条高度 */
 const LEFT_W = 280;
 const ROW_H = 34;
 const HEAD_H = 46;
 const BAR_H = 18;
+/** 条形相对行顶的上边距（行顶 + 该值 = 条形上沿；依赖线锚点也用它，别写死两处） */
+const BAR_TOP = 8;
 /** 子任务相对父任务的缩进（E6c：父 0、子 +16px） */
 const INDENT = 16;
 
@@ -657,6 +718,11 @@ const svgHeight = computed(() => HEAD_H + rows.value.length * ROW_H + 12);
 /** 行顶 y 坐标 */
 function rowTop(index: number): number {
   return HEAD_H + index * ROW_H;
+}
+
+/** 条形上沿 y 坐标（行顶 + 条形上边距；依赖线锚点与模板共用，避免两处写死 8） */
+function barTop(index: number): number {
+  return rowTop(index) + BAR_TOP;
 }
 
 /** task_id → 行序号（依赖线定位用） */
@@ -858,14 +924,39 @@ function barTransition(row: GanttRow): string {
 }
 
 /**
- * 依赖线：前置条右端 → 后继条左端（折线，拐点在中缝）；拖动时随 barGeom 跟随。
+ * 依赖线：前置条右端 → 后继条左端（FS 型），悬停显示依赖类型。
  *
- * **父子之间不画依赖线**（E6c §二.5）：父子是拆解关系，不是依赖关系。
- * 后端 `biz_task_dependency` 里理论上可以存出一条「父 → 子」的边（用户手加的），
- * 这里按 `parent_id` 关系直接跳过，避免树形上出现一条自上而下的假箭头。
+ * 几何换算全部交给 `gantt-links.ts::buildFsLink`（纯函数，带单测），
+ * 这里只负责「把哪些任务连起来」：
+ *
+ * - **父子之间不画依赖线**（E6c §二.5）：父子是拆解关系，不是依赖关系。
+ *   后端 `biz_task_dependency` 里理论上可以存出一条「父 → 子」的边（用户手加的），
+ *   这里按 `parent_id` 关系直接跳过，避免树形上出现一条自上而下的假箭头；
+ * - 一端被折叠 / 不在窗口内（没有行）或画不出条形（没有日期）→ 不画；
+ * - 线宽 / 颜色 / 虚线样式由**前置是否已完成**决定：`DONE` / `CANCELLED` = 依赖已解除
+ *   （与后端 `check_dependencies_ready` 同口径），画成绿色虚线；否则蓝色实线。
  */
-const links = computed(() => {
-  const out: { from: string; to: string; points: string }[] = [];
+interface GanttLink {
+  /** `from->to`（`data-link` 与悬停态都用它） */
+  key: string;
+  from: string;
+  to: string;
+  pred: GanttTask;
+  succ: GanttTask;
+  /** 依赖类型（后端没下发时退化成 `FS`） */
+  depType: string;
+  /** 滞后天数（后端没下发时按 0） */
+  lagDays: number;
+  /** 前置已完成 / 已取消 → 依赖已解除 */
+  released: boolean;
+  d: string;
+  dHit: string;
+  /** 浮层锚点（SVG 坐标） */
+  anchor: { x: number; y: number };
+}
+
+const links = computed<GanttLink[]>(() => {
+  const out: GanttLink[] = [];
   const parentOf = new Map<string, string>();
   for (const task of data.value?.tasks ?? []) {
     if (task.parent_id) {
@@ -882,22 +973,121 @@ const links = computed(() => {
     if (predIndex === undefined || succIndex === undefined) {
       continue; // 一端被折叠 / 不在窗口内 → 不画
     }
-    const pred = barGeom(rows.value[predIndex] ?? { id: '', task: {} as GanttTask, depth: 0, childCount: 0 });
-    const succ = barGeom(rows.value[succIndex] ?? { id: '', task: {} as GanttTask, depth: 0, childCount: 0 });
-    if (!pred || !succ) {
+    const predRow = rows.value[predIndex];
+    const succRow = rows.value[succIndex];
+    if (!predRow || !succRow) {
       continue;
     }
-    const x1 = pred.x + pred.width;
-    const y1 = rowTop(predIndex) + 8 + BAR_H / 2;
-    const x2 = succ.x;
-    const y2 = rowTop(succIndex) + 8 + BAR_H / 2;
-    // 中缝：后继条在左侧时（画不出标准 FS 形状）也保证线不穿过条形
-    const midX = x2 > x1 ? x1 + 10 : x2 - 10;
-    const points = `${x1},${y1} ${midX},${y1} ${midX},${y2} ${Math.max(LEFT_W, x2 - 4)},${y2}`;
-    out.push({ from: dep.from, to: dep.to, points });
+    const predBar = barGeom(predRow);
+    const succBar = barGeom(succRow);
+    if (!predBar || !succBar) {
+      continue;
+    }
+    const geom = buildFsLink(predBar, succBar, {
+      leftWidth: LEFT_W,
+      predRowTop: rowTop(predIndex),
+      succRowTop: rowTop(succIndex),
+      barTopOffset: BAR_TOP,
+      barHeight: BAR_H,
+      maxX: svgWidth.value,
+    });
+    const depType = (dep.dep_type ?? 'FS').toUpperCase();
+    out.push({
+      key: `${dep.from}->${dep.to}`,
+      from: dep.from,
+      to: dep.to,
+      pred: predRow.task,
+      succ: succRow.task,
+      depType,
+      lagDays: dep.lag_days ?? 0,
+      released: depReleased(predRow.task.status),
+      d: geom.d,
+      dHit: geom.dHit,
+      anchor: geom.anchor,
+    });
   }
   return out;
 });
+
+/** 当前悬停的依赖边（`null` = 没悬停） */
+const hoverLinkKey = ref<string | null>(null);
+/** 当前悬停的任务条（用于「悬停在条形上时高亮它的所有依赖线」） */
+const hoverBarId = ref<string | null>(null);
+
+/** 该依赖边是否处于高亮态（悬停线本身 / 悬停它两端的任一任务条） */
+function isLinkActive(link: GanttLink): boolean {
+  if (hoverLinkKey.value === link.key) {
+    return true;
+  }
+  const bar = hoverBarId.value;
+  return bar !== null && (link.from === bar || link.to === bar);
+}
+
+/** 悬停依赖线：记住它，浮层跟着出来 */
+function hoverLink(link: GanttLink): void {
+  hoverLinkKey.value = link.key;
+}
+
+/** 离开依赖线：只有「还是这一条」时才清（避免快速划过时清掉后一条） */
+function leaveLink(link: GanttLink): void {
+  if (hoverLinkKey.value === link.key) {
+    hoverLinkKey.value = null;
+  }
+}
+
+/** 悬停任务条：高亮它的所有依赖线；拖动中不参与（拖动以条形的跟手为准） */
+function enterBar(id: string): void {
+  if (!dragState.value) {
+    hoverBarId.value = id;
+  }
+}
+
+/** 离开任务条 */
+function leaveBar(id: string): void {
+  if (hoverBarId.value === id) {
+    hoverBarId.value = null;
+  }
+}
+
+/** 该行是否与当前悬停的依赖线相连（相连的两条任务条描粗，一眼看清「谁连谁」） */
+function isLinkedRow(id: string): boolean {
+  const key = hoverLinkKey.value;
+  if (!key) {
+    return false;
+  }
+  const link = links.value.find((item) => item.key === key);
+  return Boolean(link) && (link!.from === id || link!.to === id);
+}
+
+/** 悬停浮层：内容 = 依赖类型 + 前后置编号标题 + 状态；位置锚在竖段上 */
+const hoverTip = computed<{ key: string; lines: string[]; released: boolean; x: number; y: number } | null>(
+  () => {
+    const key = hoverLinkKey.value;
+    if (!key) {
+      return null;
+    }
+    const link = links.value.find((item) => item.key === key);
+    if (!link) {
+      return null;
+    }
+    // 浮层宽度约 300px：贴到右边界时往左翻，别被滚动容器裁掉
+    const tipWidth = 300;
+    const x = Math.max(4, Math.min(link.anchor.x + 14, svgWidth.value - tipWidth));
+    return {
+      key,
+      lines: linkTipLines({
+        depType: link.depType,
+        lagDays: link.lagDays,
+        pred: { taskNo: link.pred.task_no, title: link.pred.title },
+        succ: { taskNo: link.succ.task_no, title: link.succ.title },
+        released: link.released,
+      }),
+      released: link.released,
+      x,
+      y: Math.max(4, link.anchor.y - 12),
+    };
+  },
+);
 
 /** 日期刻度：日档每天一根、周档每周一根（周一） */
 const ticks = computed(() => {
@@ -1284,6 +1474,9 @@ async function load(): Promise<void> {
     if (next.size !== collapsed.value.size) {
       collapsed.value = next;
     }
+    // 悬停态同理：重新拉数后旧的快捷 id 已经失效，留着会指向不存在的行
+    hoverLinkKey.value = null;
+    hoverBarId.value = null;
   } catch (error) {
     data.value = null;
     errorMessage.value =
@@ -1466,8 +1659,61 @@ onMounted(() => {
   cursor: ew-resize;
 }
 
+// 依赖线：可见路径不吃指针（悬停交给下面那条加粗透明路径，避免 1.4px 的线「点不中」）
 .gantt-link {
   pointer-events: none;
+}
+
+// 命中区：`pointer-events: stroke` 只让描边可命中，10px 宽便于鼠标落到细线上
+.gantt-link__hit {
+  pointer-events: stroke;
+  cursor: help;
+}
+
+// 高亮态（悬停这条线 / 悬停它两端的任务条）：加一圈主题色柔光
+.gantt-link--active {
+  filter: drop-shadow(0 0 2px var(--td-brand-color-3));
+}
+
+// 悬停依赖线时，两端的任务条描粗一档（一眼看清「谁连谁」）
+.gantt-bar__body--linked {
+  stroke-width: 2;
+}
+
+// 依赖线悬停浮层（第一行就是依赖类型 —— 卡面要求）
+.gantt-link-tip {
+  position: absolute;
+  z-index: 11;
+  max-width: 300px;
+  padding: 6px 10px;
+  border: 1px solid var(--td-component-stroke, #e7e7e7);
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--td-text-color-primary, #1f2329);
+  background: var(--td-bg-color-container, #ffffff);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 12%);
+  pointer-events: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &__type {
+    font-weight: 600;
+    color: var(--td-brand-color, #0052d9);
+  }
+
+  &__line {
+    color: var(--td-text-color-secondary, #666);
+  }
+
+  &__state {
+    color: var(--td-warning-color, #e37318);
+  }
+
+  &__state--released {
+    color: var(--td-success-color, #2ba471);
+  }
 }
 
 .gantt-drag-label {

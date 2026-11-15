@@ -463,6 +463,8 @@ pub async fn gantt(
         .map(|edge| GanttDepRes {
             from: edge.depends_on_id.to_string(),
             to: edge.task_id.to_string(),
+            dep_type: edge.dep_type.clone(),
+            lag_days: edge.lag_days,
         })
         .collect();
 

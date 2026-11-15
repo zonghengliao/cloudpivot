@@ -1260,12 +1260,21 @@ pub struct GanttTaskRes {
 }
 
 /// 甘特依赖边。`from` = 前置（先做完），`to` = 后继（被阻塞）。
+///
+/// `dep_type` / `lag_days` 是**如实下发**的库列值（`biz_task_dependency`）：
+/// 甘特前端悬停要显示「依赖类型」，只有 from/to 的话前端只能写死一个常量。
+/// 本版 SQL 仍只取 `FS`（其它类型尚未支持），但字段口径已经打开，
+/// 将来放开 `SS/FF/SF` 时前端与接口都不用改形状。
 #[derive(Debug, Clone, Serialize)]
 pub struct GanttDepRes {
     /// 前置任务 id。
     pub from: String,
     /// 后继任务 id。
     pub to: String,
+    /// 依赖类型 `FS / SS / FF / SF`（本版恒 `FS`）。
+    pub dep_type: String,
+    /// 滞后天数（前置完成后还要等 N 天；只展示，不参与排程）。
+    pub lag_days: i32,
 }
 
 /// 甘特图数据（`GET /business/task/gantt`）。

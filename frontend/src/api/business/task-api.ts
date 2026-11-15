@@ -756,10 +756,24 @@ export interface GanttTask {
   bar: GanttBar | null;
 }
 
-/** 甘特依赖边：`from` = 前置，`to` = 后继 */
+/**
+ * 甘特依赖边：`from` = 前置，`to` = 后继。
+ *
+ * # 为什么 `dep_type` / `lag_days` 是可选
+ *
+ * 库表 `biz_task_dependency` 有 `dep_type`（`FS/SS/FF/SF`）与 `lag_days` 两列，
+ * 但甘特接口早期只回 `from` / `to`（SQL 里硬过滤 `dep_type = 'FS'`）。
+ * 这两个字段现在按「后端给了就按真值渲染、没给就当 `FS` / 0」处理 ——
+ * 所以类型是**可选**：写成必填会让旧部署的响应在类型上撒谎，
+ * 写成不存在又会让悬停浮层只能写死一个常量。
+ */
 export interface GanttDependency {
   from: string;
   to: string;
+  /** 依赖类型（缺省 `FS`；本版后端恒 `FS`） */
+  dep_type?: string;
+  /** 滞后天数（缺省 0；只展示，不参与排程） */
+  lag_days?: number;
 }
 
 /** 甘特数据 */
@@ -799,7 +813,7 @@ export function fetchGantt(query: TaskGanttQuery): Promise<TaskGantt> {
 // ======================================================================
 
 /**
- * 任务域错误码（与后端 `backend/app/src/shared/error_code.rs` 逐字一致）。
+ * 任务域错误码（与后端 `backend/crates/cloudpivot-kernel/src/shared/error_code.rs` 逐字一致）。
  *
  * 前端只有「按码给文案」这一条路：HTTP 状态码在 `api/request.ts` 里已被
  * 规整成 `ApiError`（只保留业务码），所以判据只能是业务码。

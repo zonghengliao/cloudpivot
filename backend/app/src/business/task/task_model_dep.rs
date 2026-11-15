@@ -379,12 +379,29 @@ pub(super) async fn blocked_task_ids(ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
     Ok(blocked)
 }
 
+/// 甘特图上的一条依赖边（`task_id` = 后继、`depends_on_id` = 前置）。
+///
+/// 比 [`dep::DepEdge`] 多带 `dep_type` / `lag_days`：甘特前端悬停要显示
+/// 「依赖类型」，光有 from/to 只能让前端写死一个常量。本版 SQL 仍只取 `FS`
+/// （见 [`gantt_edges`]），但类型与滞后天数**如实下发**，将来放开 SS/FF/SF 时前端不用改。
+#[derive(Debug, Clone)]
+pub struct GanttEdge {
+    /// 后继（被阻塞方，`biz_task_dependency.task_id`）
+    pub task_id: Uuid,
+    /// 前置（阻塞方，`biz_task_dependency.depends_on_id`）
+    pub depends_on_id: Uuid,
+    /// 依赖类型 `FS / SS / FF / SF`（本版恒 `FS`）
+    pub dep_type: String,
+    /// 滞后天数（前置完成后还要等 N 天；只展示不排程）
+    pub lag_days: i32,
+}
+
 /// 甘特图里要画的依赖边（**两端都在给定集合里**才画）。
 ///
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn gantt_edges(ids: &[Uuid]) -> DbResult<Vec<dep::DepEdge>> {
+pub async fn gantt_edges(ids: &[Uuid]) -> DbResult<Vec<GanttEdge>> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
@@ -394,7 +411,7 @@ pub async fn gantt_edges(ids: &[Uuid]) -> DbResult<Vec<dep::DepEdge>> {
     ));
     let rows = db()
         .find_with_params(
-            "SELECT task_id, depends_on_id FROM biz_task_dependency \
+            "SELECT task_id, depends_on_id, dep_type, lag_days FROM biz_task_dependency \
               WHERE dep_type = 'FS' \
                 AND task_id = ANY(?::text::uuid[]) \
                 AND depends_on_id = ANY(?::text::uuid[])",
@@ -403,10 +420,12 @@ pub async fn gantt_edges(ids: &[Uuid]) -> DbResult<Vec<dep::DepEdge>> {
         .await?;
     let mut edges = Vec::with_capacity(rows.len());
     for row in &rows {
-        edges.push(dep::DepEdge::new(
-            row.get_typed("task_id")?,
-            row.get_typed("depends_on_id")?,
-        ));
+        edges.push(GanttEdge {
+            task_id: row.get_typed("task_id")?,
+            depends_on_id: row.get_typed("depends_on_id")?,
+            dep_type: row.get_typed("dep_type")?,
+            lag_days: row.get_typed("lag_days")?,
+        });
     }
     Ok(edges)
 }
