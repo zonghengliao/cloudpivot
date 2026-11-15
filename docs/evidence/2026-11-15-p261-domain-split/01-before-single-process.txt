@@ -1,0 +1,10 @@
+$ cd backend/app && time cargo test --lib --workspace -- --test-threads=1
+
+
+real	2m50.509s
+user	1m41.918s
+sys	0m5.971s
+
+test result: FAILED. 5436 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 170.29s
+
+(cargo 在 app target 失败后中止：cloudpivot-kernel 240 / cloudpivot-doc 19 未被跑到)

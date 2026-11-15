@@ -1,0 +1,18 @@
+$ diff before_fails.txt after_fails.txt
+(空 = 逐条相同)
+
+(diff 无输出)
+
+before 12 条：
+  business::erp::contract::contract_handler::tests::detail_fills_person_names_and_follows_rename
+  business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces
+  business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch
+  business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch
+  business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed
+  business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft
+  business::erp::stockin::stockin_handler::stockin_handler_tests_pflow3a::bug02_repost_blocked_by_separation_of_duties
+  business::hr::no_erp_edge_tests::the_neutral_homes_still_exist
+  business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source
+  system::session_tests::s02_assign_roles_invalidates_old_token
+  system::session_tests::s06_degrades_to_db_without_cache
+  system::session_tests::s07_deleted_user_has_no_session

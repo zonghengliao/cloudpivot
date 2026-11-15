@@ -1,0 +1,31 @@
+$ printf "business::newthing::tests::t01_should_be_registered\n" >> <用例清单>/cloudpivot.txt   # 造一条未登记前缀的用例
+$ bash scripts/verify/test_domains_gate.sh --tests-from /tmp/p261_neg
+
+用例总数 5708（cloudpivot=5449, cloudpivot-doc=19, cloudpivot-kernel=240）
+  kernel            240
+  doc                19
+  system            137
+  support            41
+  platform           43
+  erp               382
+  erp-cost          632
+  erp-inventory     544
+  erp-procure       251
+  erp-sales         320
+  erp-finance       776
+  hr                695
+  flow              432
+  task-biz          250
+  impexp            221
+  attachment        174
+  docpdf             92
+  notice            134
+  business-misc     324
+
+✗ 有 1 条用例不属于任何域（新增模块后忘了登记？）：
+    前缀 business::newthing::  → 在 backend/test-domains.tsv 里加一列（或并进最近的域）
+    前 5 条：['business::newthing::tests::t01_should_be_registered']
+
+✗ 计数不平：分域合计 5707 ≠ 用例总数 5708
+
+exit=1（期望 1：门禁必须红）
