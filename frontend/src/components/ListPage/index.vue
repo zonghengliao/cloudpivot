@@ -20,9 +20,22 @@
   | `#toolbar-end` | 导出按钮之后 |
   | `#filters-extra` | 声明式筛选项之后（日期区间之类控件自绘时用） |
   | `#filter-<key>` | `FilterDef.type = 'custom'` 的筛选控件（拿到 `value` / `set`） |
+  | `#filter-footer` | 筛选卡内、按钮行下方（整宽）：列表记忆提示条 / 页面级信息条 |
   | `#cell-<colKey>`（= `#<colKey>`） | 单元格自绘，名字必须与列 `colKey` 一致 |
+  | `#op` | 行操作列自绘（列里要有 `colKey: 'op'` 或别名的操作列，且**不要**同时声明 `actions.row`） |
   | `#empty` | 整块空态（默认按「有没有筛选」给两种文案） |
-  | `#head-extra` | 「共 N 条」右边的补充（如「已选 M 条」） |
+  | `#head-extra` | 「共 N 条」右边的补充（页头提示 / 「已选 M 条」） |
+
+  # 事件
+
+  | 事件 | 时机 |
+  |------|------|
+  | `loaded` | 每次拉完一页（页面据此镜像行 / 同步页码给列表记忆） |
+  | `reset` | 点过「重置」 |
+  | `refresh` | 点过「刷新」（页面可顺带重拉主数据字典） |
+  | `selection-change` | 勾选变化 / 换页清空（`selectable` 或批量模式下） |
+  | `batch-done` | 一批批量动作跑完（列表已自动刷新） |
+
 
   # 行操作与权限
 
@@ -65,8 +78,10 @@
             :style="{ width: widthOf(def) }"
             :options="def.options ?? []"
             :placeholder="def.placeholder ?? '全部'"
+            :filterable="def.filterable === true"
             :data-testid="def.testid"
             clearable
+            @change="def.searchOnChange ? handleSearch() : undefined"
           />
 
           <t-input-number
@@ -100,7 +115,7 @@
           查询
         </t-button>
         <t-button variant="outline" :data-testid="`${btnPrefix}-reset`" @click="handleReset">重置</t-button>
-        <t-button variant="outline" :data-testid="`${btnPrefix}-refresh`" @click="reload">刷新</t-button>
+        <t-button variant="outline" :data-testid="`${btnPrefix}-refresh`" @click="handleRefresh">刷新</t-button>
 
         <span class="lp__spacer" />
 
@@ -127,6 +142,9 @@
 
         <slot name="toolbar-end" :reload="reload" />
       </div>
+
+      <!-- 筛选行下方：列表记忆提示条 / 页面级提示（整宽，不属于按钮行） -->
+      <slot name="filter-footer" :filter="filter" :reload="reload" />
     </t-card>
 
     <!-- 列表 -->
@@ -150,6 +168,7 @@
         :selected="selectedRows"
         :actions="batchActions"
         :runner="batchRunner"
+        :can="batchCanFn"
         :filtered-total="total"
         :fetch-all-ids="fetchAllIds"
         :testid="`${testid}-batch`"
@@ -164,7 +183,7 @@
         :loading="loading"
         :pagination="pagination"
         :hover="true"
-        :selected-row-keys="batchReady ? selectedIds : undefined"
+        :selected-row-keys="selectionReady ? selectedIds : undefined"
         :data-testid="tableTestid"
         @page-change="handlePageChange"
         @select-change="onSelectChange"
@@ -222,10 +241,11 @@ import BatchActionBar from '@/components/BatchActionBar.vue';
 import { useBatchSelection, type SelectableRow } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
 import { saveBlob } from '@/utils/download';
-import type { BatchOutcome, BatchRow, BatchRunner } from '@/utils/batch-action';
+import type { BatchOutcome, BatchRow, BatchRunner, BatchActionSpec } from '@/utils/batch-action';
 import {
   buildListQuery,
   clampPage,
+  clearFilter,
   csvFileName,
   emptyFilter,
   errorText,
@@ -255,12 +275,31 @@ const props = withDefaults(
     fetcher: ListFetcher<any>;
     /** 声明式筛选（`keyword` / `select` / `number` / `custom`） */
     filters?: FilterDef[];
+    /**
+     * 外部筛选对象（可选）。
+     *
+     * 页面自己已有 `reactive` 的筛选状态（被 `buildXxxQuery` / `useListFilterMemory` /
+     * `fetchAllIds` 直接引用）时传进来，组件就地读写**同一个对象** —— 这样重构只换渲染，
+     * 不换「谁持有筛选状态」，那些闭包一行都不用改。
+     */
+    filterState?: ListFilter;
+    /** 首屏页码（列表记忆恢复时用；默认 1） */
+    initialPage?: number;
     /** 自定义入参拼装（页面已有被单测钉住的 `buildXxxQuery` 时传它） */
     queryBuilder?: ListQueryBuilder;
     /** 批量 / 行内操作 */
     actions?: ListActions;
     /** 批量执行器（声明 `actions.batch` 时必须给） */
     batchRunner?: BatchRunner;
+    /** 批量动作的权限门（不给 = 都能点；给了就按返回值禁用 + tooltip） */
+    batchCan?: (action: BatchActionSpec) => boolean;
+    /**
+     * 只要行勾选（不做批量动作）：如「勾几条合并成一张单」。
+     *
+     * 声明后组件补勾选列并 `emit('selection-change', ids)`；页面自己拿去开弹窗。
+     * `actions.batch` 存在时以批量那套为准（勾选状态不重复造）。
+     */
+    selectable?: boolean;
     /** 「选中全部筛选结果」时怎么把全部行拿回来；不传就不显示该链接 */
     fetchAllIds?: () => Promise<BatchRow[]>;
     /** 是否显示导出按钮 */
@@ -282,9 +321,13 @@ const props = withDefaults(
   }>(),
   {
     filters: () => [],
+    filterState: undefined,
+    initialPage: 1,
     queryBuilder: undefined,
     actions: undefined,
     batchRunner: undefined,
+    batchCan: undefined,
+    selectable: false,
     fetchAllIds: undefined,
     exportable: false,
     exportTask: undefined,
@@ -304,6 +347,10 @@ const emit = defineEmits<{
   (event: 'reset'): void;
   /** 行操作 / 批量动作执行完（页面可刷新关联数据） */
   (event: 'batch-done', outcome: BatchOutcome): void;
+  /** 行勾选变化（`selectable` 声明后；页面拿去开合并 / 对比弹窗这类非批量动作） */
+  (event: 'selection-change', ids: string[]): void;
+  /** 点过「刷新」（页面据此顺带刷主数据字典） */
+  (event: 'refresh'): void;
 }>();
 
 const slots = useSlots();
@@ -318,10 +365,13 @@ const btnPrefix = computed(() => props.btnPrefix ?? props.testid);
 // ==================== 列表状态 ====================
 
 const filterDefs = computed(() => props.filters ?? []);
-const filter = reactive<ListFilter>(emptyFilter(props.filters));
+/** 筛选状态：页面传了外部对象就用它（页面里的 `buildXxxQuery` 等闭包引用的是同一个对象） */
+const filter: ListFilter = props.filterState ?? reactive<ListFilter>(emptyFilter(props.filters));
 const rows = ref<any[]>([]);
 const total = ref(0);
-const current = ref(1);
+const current = ref(Math.max(1, Math.floor(props.initialPage ?? 1)));
+/** 每页条数（分页器允许改时以用户选中的为准，初值取 props） */
+const pageSize = ref(props.pageSize);
 const loading = ref(false);
 const loadError = ref('');
 const exporting = ref(false);
@@ -329,7 +379,7 @@ const exporting = ref(false);
 const loadedOnce = ref(false);
 
 const filtered = computed(() => isFiltered(filter, filterDefs.value));
-const pagination = computed(() => paginationOf(current.value, props.pageSize, total.value, props.showPageSize));
+const pagination = computed(() => paginationOf(current.value, pageSize.value, total.value, props.showPageSize));
 const exportTip = computed(() =>
   props.exportable && !props.exportTask ? '导出当前页（CSV）；要全量请联系管理员走导入导出任务' : '',
 );
@@ -351,9 +401,9 @@ function widthOf(def: FilterDef): string {
 /** 当前页入参 */
 function queryOf(page: number): ListQuery {
   if (props.queryBuilder) {
-    return props.queryBuilder(filter, page, props.pageSize);
+    return props.queryBuilder(filter, page, pageSize.value);
   }
-  return buildListQuery(filter, filterDefs.value, page, props.pageSize);
+  return buildListQuery(filter, filterDefs.value, page, pageSize.value);
 }
 
 /**
@@ -367,7 +417,7 @@ async function load(page: number = current.value): Promise<void> {
   try {
     let data = await props.fetcher(queryOf(page));
     let resolvedPage = data.page ?? page;
-    const fixed = clampPage(resolvedPage, data.total ?? 0, props.pageSize);
+    const fixed = clampPage(resolvedPage, data.total ?? 0, pageSize.value);
     if (fixed !== resolvedPage) {
       resolvedPage = fixed;
       data = await props.fetcher(queryOf(fixed));
@@ -391,27 +441,40 @@ function reload(): void {
   void load(current.value);
 }
 
+/**
+ * 「刷新」按钮：刷列表 + 抛事件让页面顺带刷主数据（供应商 / 仓库字典可能被别人改过）。
+ *
+ * 不给 `#refresh` 监听的页面只刷列表，行为与直接调 `reload` 一致。
+ */
+function handleRefresh(): void {
+  emit('refresh');
+  reload();
+}
+
 /** 查询（回第 1 页） */
 function handleSearch(): void {
-  clearSelection();
+  resetSelection();
   current.value = 1;
   void load(1);
 }
 
 /** 重置（清筛选 + 回第 1 页） */
 function handleReset(): void {
-  Object.assign(filter, emptyFilter(props.filters));
-  clearSelection();
+  clearFilter(filterDefs.value, filter);
+  resetSelection();
   current.value = 1;
   emit('reset');
   void load(1);
 }
 
-/** 切页 */
+/** 切页 / 改每页条数 */
 function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  clearSelection();
-  current.value = pageInfo.current;
-  void load(pageInfo.current);
+  resetSelection();
+  // 改了每页条数就回第 1 页：停在第 7 页 + 每页 100 条通常是空页
+  const resized = pageInfo.pageSize !== pageSize.value;
+  pageSize.value = pageInfo.pageSize;
+  current.value = resized ? 1 : pageInfo.current;
+  void load(current.value);
 }
 
 // ==================== 批量 ====================
@@ -420,6 +483,11 @@ const batchActions = computed(() => props.actions?.batch ?? []);
 const batchReady = computed(() => batchActions.value.length > 0 && typeof props.batchRunner === 'function');
 /** `BatchActionBar` 的 runner 必填；`batchReady` 已经判过是函数 */
 const batchRunner = computed(() => props.batchRunner as BatchRunner);
+/** 批量按钮的权限门（页面没给就都能点，与 `BatchActionBar` 的默认一致） */
+const batchCanFn = computed(() => props.batchCan ?? (() => true));
+
+/** 勾选列要不要出现：批量动作或页面单纯要行勾选 */
+const selectionReady = computed(() => batchReady.value || props.selectable);
 
 /**
  * 批量勾选状态。
@@ -436,10 +504,26 @@ const selectableRows = computed<SelectableRow[]>(() =>
 const selection = useBatchSelection(batchActions.value, selectableRows);
 const selectedIds = selection.selectedIds;
 const selectedRows = selection.selectedRows;
-const onSelectChange = selection.onSelectChange;
 const onSelectedRows = selection.onSelectedRows;
 const clearSelection = selection.clearSelection;
 const isSelectable = selection.isSelectable;
+
+/** 清空勾选并把「已清空」也抛给页面（换页 / 查询 / 重置时页面镜像里的 id 要跟着清） */
+function resetSelection(): void {
+  clearSelection();
+  emit('selection-change', []);
+}
+
+/** 表格勾选变化：同步本地勾选，并把 id 列表抛给页面（合并转单这类非批量动作要用） */
+function onSelectChange(keys: Array<string | number>): void {
+  selection.onSelectChange(keys);
+  emit('selection-change', selectedIds.value);
+}
+
+/** 表格勾选列的禁用判据：没有批量动作时（`selectable` 模式）所有行都能勾 */
+function rowDisabled(options: { row: any }): boolean {
+  return batchReady.value ? !isSelectable(options.row) : false;
+}
 
 /** 一批跑完：清勾选已由 `BatchActionBar` 触发，这里只刷列表 */
 function onBatchDone(outcome: BatchOutcome): void {
@@ -454,13 +538,13 @@ const rowActions = computed<Array<RowActionDef<any>>>(() => props.actions?.row ?
 
 const tableColumns = computed<ColumnDef[]>(() => {
   const cols = [...props.columns];
-  if (batchReady.value) {
+  if (selectionReady.value) {
     cols.unshift({
       colKey: 'row-select',
       type: 'multiple',
       width: 50,
       fixed: 'left',
-      disabled: (options: { row: any; rowIndex: number }) => !isSelectable(options.row),
+      disabled: rowDisabled,
     });
   }
   if (rowActions.value.length === 0) {
@@ -478,11 +562,15 @@ const hasCustomOpSlot = computed(() => Boolean(slots['cell-op'] ?? slots.op) && 
 /**
  * 要转给 t-table 的单元格插槽。
  *
- * 页面写 `#status`（= 列 colKey）或 `#cell-status` 都认，统一按列名 `status` 转给 t-table。
+ * 页面写 `#status`（= 列 colKey）或 `#cell-<colKey>` 都认，统一按列名 `status` 转给 t-table。
+ * `op` 列**只有页面自绘时**才转（声明式行操作由下面的内置模板画，两边同时画会出现两套操作）。
  */
 const cellSlots = computed(() => {
+  const declarativeOp = rowActions.value.length > 0;
   const colKeys = new Set(
-    props.columns.map((column) => column.colKey).filter((key): key is string => typeof key === 'string' && key !== 'op'),
+    props.columns
+      .map((column) => column.colKey)
+      .filter((key): key is string => typeof key === 'string' && (key !== 'op' || !declarativeOp)),
   );
   return Object.keys(slots)
     .map((name) => ({ source: name, target: name.replace(/^cell-/, '') }))
@@ -582,8 +670,12 @@ defineExpose({
   total,
   /** 当前页码 */
   current,
-  /** 筛选状态 */
+  /** 当前筛选状态 */
   filter,
+  /** 已勾选的行 id（`selectable` / 批量模式下） */
+  selectedIds,
+  /** 已勾选的行（批量判状态用） */
+  selectedRows,
   /** 是否已拉过首屏 */
   loadedOnce,
   /** 清空批量勾选 */

@@ -56,6 +56,10 @@ export interface FilterDef {
   placeholder?: string;
   /** `select` 的选项（值里**不要**放 `''` 当「全部」：TDesign 把空串当未选，显示成 placeholder）。 */
   options?: Array<{ label: string; value: string | number }>;
+  /** `select` 是否可搜索（供应商 / 物料这类几百条的字典必须开，否则要滚半天）。 */
+  filterable?: boolean;
+  /** 值一变就查询（老页面上 `@change="handleSearch"` 的行为，保持手感一致）。 */
+  searchOnChange?: boolean;
   /** 控件宽度（px），默认 keyword 300 / select 150 / number 140。 */
   width?: number;
   /** 空筛选时的初值，默认 `''`（`number` / `date-range` 默认不设）。 */

@@ -1,8 +1,39 @@
 <template>
   <div class="purchase-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 列表：筛选 / 分页 / 批量 / 行操作交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="采购订单"
+      testid="purchase"
+      table-testid="purchase-table"
+      meta-testid="purchase-meta"
+      btn-prefix="btn-purchase"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PURCHASE_PAGE_SIZE"
+      :actions="{ batch: BATCH_ACTIONS }"
+      :batch-runner="runBatchAction"
+      :batch-can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+      @loaded="onLoaded"
+      @refresh="handleBarRefresh"
+      @batch-done="onBatchDone"
+    >
+      <!-- O4 列表记忆：恢复筛选是静默行为，必须给用户可感知的提示 + 一键清空 -->
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="listMemoryRestored"
+          :text="listMemoryText"
+          testid="purchase-memory"
+          @clear="handleClearListMemory"
+        />
+      </template>
+
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,235 +43,134 @@
           <template #icon><t-icon name="add" /></template>
           新建采购单
         </t-button>
-        <t-button variant="outline" data-testid="btn-purchase-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="purchase-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.supplier_id"
-          class="tool-row__supplier"
-          :options="supplierOptions"
-          placeholder="全部供应商"
-          clearable
-          filterable
-          data-testid="purchase-filter-supplier"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__no"
-          placeholder="采购单号 / 备注（模糊）"
-          clearable
-          data-testid="purchase-filter-no"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-purchase-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-purchase-reset" @click="handleReset">重置</t-button>
-      </div>
-      <!-- O4 列表记忆：恢复筛选是静默行为，必须给用户可感知的提示 + 一键清空 -->
-      <ListMemoryBar
-        :restored="listMemoryRestored"
-        :text="listMemoryText"
-        testid="purchase-memory"
-        @clear="handleClearListMemory"
-      />
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">采购订单</span>
-          <span class="panel-head__meta" data-testid="purchase-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">金额列按「价税合计」展示，单据口径见单号旁的徽标</span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="purchase-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadOrders()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
-      <BatchActionBar
-        :selected="selectedRows"
-        :actions="BATCH_ACTIONS"
-        :filtered-total="total"
-        :runner="runBatchAction"
-        :can="canBatchAction"
-      :fetch-all-ids="fetchAllRowIds"
-        testid="purchase-batch"
-        @update:selected="onSelectedRows"
-        @done="handleBatchDone"
-      />
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        :selected-row-keys="selectedIds"
-        data-testid="purchase-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-      >
-        <template #order_no="{ row }">
-          <div class="no-cell">
-            <span class="mono" :data-testid="`purchase-no-${row.order_no}`">{{ row.order_no }}</span>
-            <!-- ★ PRD §3.1.4：口径徽标常驻（列表也标，避免两人对着同一单说不同数） -->
-            <t-tag size="small" variant="outline" :theme="priceModeTheme(row.price_mode)">
-              {{ priceModeLabel(row.price_mode) }}
-            </t-tag>
-          </div>
-        </template>
-
-        <!-- P2-7-F1：供应商列走「主档现值 → 单据快照 → —」，**不再回落 uuid 短号**（口径 S2） -->
-        <template #supplier_id="{ row }">
-          <span :data-testid="`purchase-supplier-${row.order_no}`">
-            {{ supplierDisplayOf(row) }}
-          </span>
-        </template>
-
-        <!--
-          P2-8：项目列 —— 「实时项目名 →（已删除项目）→ —」。
-          **任何情况不显示 uuid**（同 S2 口径）：项目软删后后端只丢名字不丢 id，
-          有 id 没名字就是「项目已删」，不是「未知」。
-        -->
-        <template #project_name="{ row }">
-          <span :data-testid="`purchase-project-${row.order_no}`">
-            {{ projectDisplayName(row.project_id, row.project_name) }}
-          </span>
-        </template>
-
-        <!-- P2-9 / DC-23：仓库列读后端 `warehouse_name`（列表 = 快照；老单后端兜底现查） -->
-        <template #warehouse_name="{ row }">
-          <span :data-testid="`purchase-warehouse-${row.order_no}`">{{ warehouseDisplayOf(row) }}</span>
-        </template>
-
-        <template #purchase_type="{ row }">
-          <t-tag
-            size="small"
-            variant="outline"
-            :theme="purchaseTypeTheme(row.purchase_type)"
-            :data-testid="`purchase-type-${row.order_no}`"
-          >
-            {{ purchaseTypeLabel(row.purchase_type) }}
+      <template #order_no="{ row }">
+        <div class="no-cell">
+          <span class="mono" :data-testid="`purchase-no-${row.order_no}`">{{ row.order_no }}</span>
+          <!-- ★ PRD §3.1.4：口径徽标常驻（列表也标，避免两人对着同一单说不同数） -->
+          <t-tag size="small" variant="outline" :theme="priceModeTheme(row.price_mode)">
+            {{ priceModeLabel(row.price_mode) }}
           </t-tag>
-        </template>
+        </div>
+      </template>
 
-        <!-- A6：合同号读**快照列**（不是实时 JOIN）；现货单没有合同 → 显示「—」 -->
-        <template #contract_no_snapshot="{ row }">
-          <span
-            v-if="row.contract_no_snapshot"
-            class="mono"
-            :data-testid="`purchase-contract-no-${row.order_no}`"
-          >{{ row.contract_no_snapshot }}</span>
-          <span v-else class="muted">—</span>
-        </template>
+      <!-- P2-7-F1：供应商列走「主档现值 → 单据快照 → —」，**不再回落 uuid 短号**（口径 S2） -->
+      <template #supplier_id="{ row }">
+        <span :data-testid="`purchase-supplier-${row.order_no}`">{{ supplierDisplayOf(row) }}</span>
+      </template>
 
-        <template #order_date="{ row }">
-          <span class="muted">{{ shortDate(row.order_date) }}</span>
-        </template>
+      <!--
+        P2-8：项目列 —— 「实时项目名 →（已删除项目）→ —」。
+        **任何情况不显示 uuid**（同 S2 口径）：项目软删后后端只丢名字不丢 id，
+        有 id 没名字就是「项目已删」，不是「未知」。
+      -->
+      <template #project_name="{ row }">
+        <span :data-testid="`purchase-project-${row.order_no}`">
+          {{ projectDisplayName(row.project_id, row.project_name) }}
+        </span>
+      </template>
 
-        <!-- ★ 金额列必须标「(价税合计)」 -->
-        <template #total_with_tax="{ row }">
-          <span class="money" :data-testid="`purchase-total-${row.order_no}`">{{ formatMoney(row.total_with_tax) }}</span>
-        </template>
+      <!-- P2-9 / DC-23：仓库列读后端 `warehouse_name`（列表 = 快照；老单后端兜底现查） -->
+      <template #warehouse_name="{ row }">
+        <span :data-testid="`purchase-warehouse-${row.order_no}`">{{ warehouseDisplayOf(row) }}</span>
+      </template>
 
-        <template #status="{ row }">
-          <t-tag size="small" :theme="purchaseStatusTheme(row.status)" :data-testid="`purchase-status-${row.order_no}`">
-            {{ purchaseStatusLabel(row.status) }}
+      <template #purchase_type="{ row }">
+        <t-tag
+          size="small"
+          variant="outline"
+          :theme="purchaseTypeTheme(row.purchase_type)"
+          :data-testid="`purchase-type-${row.order_no}`"
+        >
+          {{ purchaseTypeLabel(row.purchase_type) }}
+        </t-tag>
+      </template>
+
+      <!-- A6：合同号读**快照列**（不是实时 JOIN）；现货单没有合同 → 显示「—」 -->
+      <template #contract_no_snapshot="{ row }">
+        <span v-if="row.contract_no_snapshot" class="mono" :data-testid="`purchase-contract-no-${row.order_no}`">{{
+          row.contract_no_snapshot
+        }}</span>
+        <span v-else class="muted">—</span>
+      </template>
+
+      <template #order_date="{ row }">
+        <span class="muted">{{ shortDate(row.order_date) }}</span>
+      </template>
+
+      <!-- ★ 金额列必须标「(价税合计)」 -->
+      <template #total_with_tax="{ row }">
+        <span class="money" :data-testid="`purchase-total-${row.order_no}`">{{ formatMoney(row.total_with_tax) }}</span>
+      </template>
+
+      <template #status="{ row }">
+        <t-tag size="small" :theme="purchaseStatusTheme(row.status)" :data-testid="`purchase-status-${row.order_no}`">
+          {{ purchaseStatusLabel(row.status) }}
+        </t-tag>
+        <!-- P2-2 ①：超信用额度（提交时现算的结论，只有真超了才出现） -->
+        <t-tooltip v-if="creditVerdictOf(row).over" :content="creditVerdictOf(row).tip">
+          <t-tag size="small" theme="danger" variant="light" :data-testid="`purchase-over-credit-${row.order_no}`">
+            超信用额度
           </t-tag>
-          <!-- P2-2 ①：超信用额度（提交时现算的结论，只有真超了才出现） -->
-          <t-tooltip v-if="creditVerdictOf(row).over" :content="creditVerdictOf(row).tip">
-            <t-tag size="small" theme="danger" variant="light" :data-testid="`purchase-over-credit-${row.order_no}`">
-              超信用额度
-            </t-tag>
-          </t-tooltip>
-          <!-- P-FLOW-3A：审批中点名审批单号（O5：报文/界面都要能直接照着找） -->
-          <span v-if="row.status === 'SUBMITTED' && row.approval_instance_no" class="approval-no">
-            {{ row.approval_instance_no }}
-          </span>
-        </template>
+        </t-tooltip>
+        <!-- P-FLOW-3A：审批中点名审批单号（O5：报文/界面都要能直接照着找） -->
+        <span v-if="row.status === 'SUBMITTED' && row.approval_instance_no" class="approval-no">
+          {{ row.approval_instance_no }}
+        </span>
+      </template>
 
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link theme="primary" :data-testid="`btn-view-${row.order_no}`" @click="openDetail(row)">查看</t-link>
-            <t-link
-              v-if="actionsOf(row).edit"
-              theme="primary"
-              :data-testid="`btn-edit-${row.order_no}`"
-              @click="openEditDialog(row)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).submit"
-              theme="primary"
-              :data-testid="`btn-submit-${row.order_no}`"
-              @click="confirmSubmit(row)"
-            >
-              提交审批
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).close"
-              theme="default"
-              :data-testid="`btn-close-${row.order_no}`"
-              @click="confirmClose(row)"
-            >
-              关闭
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).cancel"
-              theme="danger"
-              :data-testid="`btn-cancel-${row.order_no}`"
-              @click="confirmCancel(row)"
-            >
-              取消
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).remove"
-              theme="danger"
-              :data-testid="`btn-remove-${row.order_no}`"
-              @click="confirmRemove(row)"
-            >
-              删除
-            </t-link>
-          </div>
-        </template>
+      <!-- 行操作按状态给（编辑 / 提交 / 关闭 / 取消 / 删除都是条件入口）——自绘 op 列 -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link theme="primary" :data-testid="`btn-view-${row.order_no}`" @click="openDetail(row)">查看</t-link>
+          <t-link
+            v-if="actionsOf(row).edit"
+            theme="primary"
+            :data-testid="`btn-edit-${row.order_no}`"
+            @click="openEditDialog(row)"
+          >编辑</t-link>
+          <t-link
+            v-if="actionsOf(row).submit"
+            theme="primary"
+            :data-testid="`btn-submit-${row.order_no}`"
+            @click="confirmSubmit(row)"
+          >提交审批</t-link>
+          <t-link
+            v-if="actionsOf(row).close"
+            theme="default"
+            :data-testid="`btn-close-${row.order_no}`"
+            @click="confirmClose(row)"
+          >关闭</t-link>
+          <t-link
+            v-if="actionsOf(row).cancel"
+            theme="danger"
+            :data-testid="`btn-cancel-${row.order_no}`"
+            @click="confirmCancel(row)"
+          >取消</t-link>
+          <t-link
+            v-if="actionsOf(row).remove"
+            theme="danger"
+            :data-testid="`btn-remove-${row.order_no}`"
+            @click="confirmRemove(row)"
+          >删除</t-link>
+        </div>
+      </template>
 
-        <template #empty>
-          <div class="panel-empty" data-testid="purchase-empty">
-            <t-icon name="file-copy" class="panel-empty__icon" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的采购单' : '还没有采购单' }}</p>
-            <p class="panel-empty__desc">
-              {{ filtered ? '换个条件再查，或点右侧「重置」回全量' : '点左上角「新建采购单」录入第一张' }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="purchase-empty">
+          <t-icon name="file-copy" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的采购单' : '还没有采购单' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个条件再查，或点「重置」回全量' : '点右上角「新建采购单」录入第一张' }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑弹窗 ==================== -->
     <t-dialog
@@ -903,8 +833,8 @@ import {
   purchaseOrderBatchStatus,
 } from '@/api/business/batch';
 import { pageProjects, type ProjectItem } from '@/api/business/project-api';
-import BatchActionBar from '@/components/BatchActionBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { computed, onMounted, reactive, ref } from 'vue';
@@ -988,7 +918,6 @@ import {
   formatQty,
   isContractLocked,
   isContractPurchase,
-  isPurchaseFiltered,
   isPurchaseTypeLocked,
   lineAmountsOfItem,
   lineCountText,
@@ -1030,15 +959,8 @@ const PERM = {
 /** 主数据下拉一次拉多少（种子规模下够用；上千条应该走远端搜索） */
 const OPTION_LIMIT = 200;
 
-/** 表格列（`colKey` 与 `PurchaseOrderRow` 字段同名，插槽按 colKey 命中） */
-const columns: PrimaryTableCol[] = [
-  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
-  {
-    colKey: 'row-select',
-    type: 'multiple',
-    width: 44,
-    disabled: (options: { row: unknown }) => !isSelectable(options.row as PurchaseOrderRow),
-  },
+/** 表格列（`colKey` 与 `PurchaseOrderRow` 字段同名，插槽按 colKey 命中；勾选列由 ListPage 补） */
+const columns: ColumnDef[] = [
   // 250 是「单号(19 位 mono) + 口径徽标」不换行的最小宽度，别为了腾地方压它
   { colKey: 'order_no', title: '采购单号', width: 250 },
   // A6：采购类型列（合同采购 / 现货采购）—— 一行先看清供应商从哪来
@@ -1131,12 +1053,48 @@ const LINE_MEMORY_LABELS: Record<string, string> = { tax_rate: '税率' };
 
 // ==================== 列表 ====================
 
-/** 筛选行 */
 const filter = reactive<PurchaseFilterState>(emptyPurchaseFilter());
-/** 行数据 */
-const rows = ref<PurchaseOrderRow[]>([]);
-/** 总条数 */
-const total = ref(0);
+/** 表单 / 行操作的忙状态（列表自己的 loading 由 ListPage 管） */
+const loading = ref(false);
+/** 当前页码（列表记忆 O4 读写它；每拉完一页由 `onLoaded` 同步） */
+const current = ref(1);
+/** ListPage 实例（新建 / 编辑 / 状态流转后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/**
+ * 筛选项：状态 / 供应商 / 单号。
+ *
+ * 两个下拉都是主数据，值一变就查（改造前是 `@change="handleSearch"`）。
+ * 用 `computed` 是因为下拉选项在本文件后半段才建。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'purchase-filter-status',
+  },
+  {
+    key: 'supplier_id',
+    type: 'select',
+    placeholder: '全部供应商',
+    width: 190,
+    options: supplierOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'purchase-filter-supplier',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '采购单号 / 备注（模糊）',
+    width: 240,
+    testid: 'purchase-filter-no',
+  },
+]);
 
 // ==================== 批量操作（D7） ====================
 
@@ -1177,8 +1135,7 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   cancel: 'business:erp:purchase-order:status',
 };
 
-const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
-  useBatchSelection(BATCH_ACTIONS, rows);
+
 
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
@@ -1217,18 +1174,6 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
   return acc;
 }
 
-/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
-function handleBatchDone(): void {
-  void loadOrders(1);
-}
-/** 当前页 */
-const current = ref(1);
-/** 每页条数 */
-const pageSize = PURCHASE_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
 
 /**
  * 列表记忆（O4）。
@@ -1244,7 +1189,7 @@ const {
   listName: 'erp-purchase',
   filter,
   page: current,
-  pageSize,
+  pageSize: PURCHASE_PAGE_SIZE,
 });
 
 /**
@@ -1296,8 +1241,6 @@ const supplierNameMap = computed(() => {
 const contracts = ref<ContractRow[]>([]);
 
 /** 是否处于筛选态 */
-const filtered = computed(() => isPurchaseFiltered(filter));
-
 /** 供应商下拉 */
 const supplierOptions = computed(() =>
   suppliers.value.map((item) => ({ label: `${item.supplier_name}（${item.supplier_code}）`, value: item.id })),
@@ -1343,14 +1286,7 @@ const contractSupplierText = computed(() => {
   return '';
 });
 
-/** 分页器（服务端分页） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+
 
 /**
  * 供应商显示名（列表列 + 详情「供应商（现名）」）—— **主档现值 → 单据快照 → `—`**。
@@ -1419,26 +1355,33 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 拉列表 */
-async function loadOrders(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchPurchaseOrderPage(buildPurchaseQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
+/** 拉一页（ListPage 的 fetcher；入参由 `buildPurchaseQuery` 拼） */
+const fetcher: ListFetcher<PurchaseOrderRow> = (query) =>
+  fetchPurchaseOrderPage(query as Parameters<typeof fetchPurchaseOrderPage>[0]);
+
+/** 入参拼装：沿用 `buildPurchaseQuery`（空值整键缺席等口径由它自己的单测钉住） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildPurchaseQuery(state as PurchaseFilterState, page, pageSize);
+
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
+/** 一页拉完：同步页码（列表记忆 O4 按它写 sessionStorage） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
+
+/** 「刷新」按钮：列表 + 主数据一起刷（供应商 / 仓库 / 项目可能被别人改过） */
+function handleBarRefresh(): void {
+  void loadBasics();
+}
+
+/** 批量跑完：回第 1 页刷新（勾选已由组件清空，避免误点第二次） */
+function onBatchDone(): void {
+  void reloadList(1);
+}
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
 async function loadBasics(): Promise<void> {
   const [supplierList, warehousePage, materialPage, contractPage, projectPage] = await Promise.all([
@@ -1486,17 +1429,6 @@ function handleContractChange(value: unknown): void {
   delete formErrors.value.contract_id;
 }
 
-/** 查询（回第一页） */
-function handleSearch(): void {
-  void loadOrders(1);
-}
-
-/** 重置筛选 */
-function handleReset(): void {
-  Object.assign(filter, emptyPurchaseFilter());
-  void loadOrders(1);
-}
-
 /**
  * 列表记忆 · 「清空筛选」（提示条上的出口）。
  *
@@ -1507,20 +1439,8 @@ function handleClearListMemory(): void {
   Object.assign(filter, emptyPurchaseFilter());
   current.value = 1;
   forgetListMemory();
-  void loadOrders(1);
+  void reloadList(1);
 }
-
-/** 刷新（保留筛选与页码） */
-function refresh(): void {
-  void loadOrders();
-  void loadBasics();
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current?: number }): void {
-  void loadOrders(pageInfo.current ?? 1);
-}
-
 // ==================== 表单 ====================
 
 /** 弹窗可见 */
@@ -1727,7 +1647,7 @@ async function save(mode: 'draft' | 'submit'): Promise<void> {
     formMemory.remember(form);
     lineMemory.remember({ tax_rate: form.items[form.items.length - 1]?.tax_rate ?? 13 });
     memoryLabels.value = [];
-    await loadOrders(isEdit ? current.value : 1);
+    await reloadList(isEdit ? current.value : 1);
   } catch (error) {
     submitError.value = messageOf(error);
   } finally {
@@ -1743,7 +1663,7 @@ async function patchStatus(row: PurchaseOrderRow, status: 'SUBMITTED' | 'CLOSED'
   try {
     await updatePurchaseOrderStatus(row.id, buildStatusPayload(status, reason));
     MessagePlugin.success(`${row.order_no} 状态已更新`);
-    await loadOrders();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   }
@@ -1765,7 +1685,7 @@ function confirmSubmit(row: PurchaseOrderRow): void {
       try {
         await submitPurchaseOrderApproval(row.id);
         MessagePlugin.success(`${row.order_no} 已提交审批`);
-        await loadOrders();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -1870,7 +1790,7 @@ async function submitFromDetail(): Promise<void> {
   try {
     await submitPurchaseOrderApproval(row.id);
     MessagePlugin.success(`${row.order_no} 已提交审批`);
-    await loadOrders();
+    await reloadList();
     await loadDetail(row.id);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
@@ -1886,7 +1806,7 @@ function openCancelImpact(): void {
 /** 联动作废成功：列表与详情一起刷新（下游单据/凭证/应付都变了） */
 async function handleCascadeDone(): Promise<void> {
   const id = detail.value?.id;
-  await loadOrders();
+  await reloadList();
   if (id) await loadDetail(id);
 }
 
@@ -2005,7 +1925,7 @@ async function confirmRemove(row: PurchaseOrderRow): Promise<void> {
       try {
         await deletePurchaseOrder(row.id);
         MessagePlugin.success('已删除');
-        await loadOrders();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -2015,7 +1935,7 @@ async function confirmRemove(row: PurchaseOrderRow): Promise<void> {
 onMounted(() => {
   void loadBasics();
   // 用 `current.value` 而不是写死 1：列表记忆恢复的页码要在首次加载就生效
-  void loadOrders(current.value);
+  void reloadList(current.value);
   // D4：从收货单详情跳「来源采购单」（`?po_id=`）→ 直开详情
   void applyRouteQuery();
 });

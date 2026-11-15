@@ -1,55 +1,54 @@
 <template>
   <div class="prq-page">
-    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="申请单号 / 部门 / 申请人 / PO 号"
-          clearable
-          data-testid="prq-filter-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="prq-filter-status"
-        />
-
+    <!-- ==================== ①② 列表：筛选 / 分页 / 行操作交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="采购申请"
+      testid="prq"
+      table-testid="prq-table"
+      btn-prefix="btn-prq"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      show-page-size
+      :selectable="true"
+      @loaded="onLoaded"
+      @selection-change="onSelectionChange"
+    >
+      <template #filter-date_from="{ value, set }">
         <t-date-picker
-          v-model="filter.date_from"
-          class="filter-row__date"
+          :value="(value as DateValue | undefined)"
           value-type="YYYY-MM-DD"
           placeholder="申请日期起"
           clearable
           data-testid="prq-filter-date-from"
+          @change="(picked: DateValue | DateMultipleValue) => set(picked)"
         />
+      </template>
+      <template #filter-date_to="{ value, set }">
         <t-date-picker
-          v-model="filter.date_to"
-          class="filter-row__date"
+          :value="(value as DateValue | undefined)"
           value-type="YYYY-MM-DD"
           placeholder="申请日期止"
           clearable
           data-testid="prq-filter-date-to"
+          @change="(picked: DateValue | DateMultipleValue) => set(picked)"
         />
-
-        <t-checkbox v-model="filter.convertible_only" data-testid="prq-filter-convertible">
+      </template>
+      <template #filter-convertible_only="{ value, set }">
+        <t-checkbox
+          :checked="Boolean(value)"
+          data-testid="prq-filter-convertible"
+          @change="(checked: boolean) => set(checked)"
+        >
           只看可转单
         </t-checkbox>
+      </template>
 
-        <t-button theme="primary" data-testid="btn-prq-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-prq-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-prq-refresh" @click="loadList">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+      <template #toolbar>
         <t-tooltip
           :content="
             canCreate
@@ -59,12 +58,7 @@
           placement="top-right"
         >
           <span class="gate-wrap">
-            <t-button
-              theme="primary"
-              :disabled="!canCreate"
-              data-testid="btn-prq-new"
-              @click="openCreate"
-            >
+            <t-button theme="primary" :disabled="!canCreate" data-testid="btn-prq-new" @click="openCreate">
               <template #icon><t-icon name="add" /></template>
               新建申请
             </t-button>
@@ -91,115 +85,78 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="listError"
-        theme="error"
-        :message="listError"
-        class="page-alert"
-        data-testid="prq-list-error"
-      />
-      <t-alert
-        v-else-if="mergeHint"
-        theme="info"
-        :message="mergeHint"
-        class="page-alert"
-        data-testid="prq-merge-hint"
-      />
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="table-card">
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :row-selection="rowSelection"
-        :selected-row-keys="selectedKeys"
-        :hover="true"
-        size="medium"
-        data-testid="prq-table"
-        @select-change="onSelectChange"
-      >
-        <template #req_no="{ row }">
-          <span class="mono">{{ row.req_no }}</span>
-        </template>
-        <template #dept_name="{ row }">
-          <div class="cell-stack">
-            <span>{{ row.dept_name || '—' }}</span>
-            <span class="cell-sub">{{ row.applicant_name || '—' }}</span>
-          </div>
-        </template>
-        <template #est_amount="{ row }">
-          <div class="cell-stack cell-right">
-            <span class="mono">{{ decimalText(row.est_amount) }}</span>
-            <span class="cell-sub">{{ row.item_count }} 行</span>
-          </div>
-        </template>
-        <template #budget="{ row }">
-          <t-tag :theme="row.over_budget ? 'danger' : 'default'" variant="light" size="small">
-            {{ budgetTextOf(row) }}
-          </t-tag>
-        </template>
-        <template #status="{ row }">
-          <t-tag :theme="statusTheme(row.status)" variant="light" size="small">
-            {{ row.status_label }}
-          </t-tag>
-        </template>
-        <template #po_no="{ row }">
-          <span v-if="row.po_no" class="mono">{{ row.po_no }}</span>
-          <span v-else class="cell-sub">—</span>
-        </template>
-        <template #actions="{ row }">
-          <t-space size="small">
-            <t-link theme="primary" data-testid="btn-prq-detail" @click="openDetail(row.id)">
-              详情
-            </t-link>
-            <t-link
-              v-if="canSubmit(row) && canSubmitPerm"
-              theme="warning"
-              data-testid="btn-prq-submit"
-              @click="handleSubmit(row)"
-            >
-              提交审批
-            </t-link>
-            <t-link
-              v-if="row.status === 'SUBMITTED'"
-              theme="default"
-              data-testid="btn-prq-goto-flow"
-              @click="goFlowCenter(row)"
-            >
-              审批中
-            </t-link>
-            <t-link
-              v-if="canConvert(row) && canToPo"
-              theme="success"
-              data-testid="btn-prq-to-po"
-              @click="openToPo(row)"
-            >
-              转采购单
-            </t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-block" data-testid="prq-empty">{{ emptyListText(isFiltered(filter)) }}</div>
-        </template>
-      </t-table>
-
-      <div class="pager-row">
-        <t-pagination
-          v-model="page"
-          v-model:page-size="pageSize"
-          :total="total"
-          :page-size-options="[10, 20, 50]"
-          show-jumper
-          data-testid="prq-pager"
-          @change="loadList"
+      <!-- 合并结果提示（改造前挂在筛选卡下方，位置不变） -->
+      <template #filter-footer>
+        <t-alert
+          v-if="mergeHint"
+          theme="info"
+          :message="mergeHint"
+          class="page-alert"
+          data-testid="prq-merge-hint"
         />
-      </div>
-    </t-card>
+      </template>
+
+      <template #req_no="{ row }">
+        <span class="mono">{{ row.req_no }}</span>
+      </template>
+      <template #dept_name="{ row }">
+        <div class="cell-stack">
+          <span>{{ row.dept_name || '—' }}</span>
+          <span class="cell-sub">{{ row.applicant_name || '—' }}</span>
+        </div>
+      </template>
+      <template #est_amount="{ row }">
+        <div class="cell-stack cell-right">
+          <span class="mono">{{ decimalText(row.est_amount) }}</span>
+          <span class="cell-sub">{{ row.item_count }} 行</span>
+        </div>
+      </template>
+      <template #budget="{ row }">
+        <t-tag :theme="row.over_budget ? 'danger' : 'default'" variant="light" size="small">
+          {{ budgetTextOf(row) }}
+        </t-tag>
+      </template>
+      <template #status="{ row }">
+        <t-tag :theme="statusTheme(row.status)" variant="light" size="small">
+          {{ row.status_label }}
+        </t-tag>
+      </template>
+      <template #po_no="{ row }">
+        <span v-if="row.po_no" class="mono">{{ row.po_no }}</span>
+        <span v-else class="cell-sub">—</span>
+      </template>
+
+      <!-- 行操作按状态 / 权限给（提交、审批中、转采购单都是条件入口）——自绘列 -->
+      <template #actions="{ row }">
+        <t-space size="small">
+          <t-link theme="primary" data-testid="btn-prq-detail" @click="openDetail(row.id)">详情</t-link>
+          <t-link
+            v-if="canSubmit(row) && canSubmitPerm"
+            theme="warning"
+            data-testid="btn-prq-submit"
+            @click="handleSubmit(row)"
+          >提交审批</t-link>
+          <t-link
+            v-if="row.status === 'SUBMITTED'"
+            theme="default"
+            data-testid="btn-prq-goto-flow"
+            @click="goFlowCenter(row)"
+          >审批中</t-link>
+          <t-link
+            v-if="canConvert(row) && canToPo"
+            theme="success"
+            data-testid="btn-prq-to-po"
+            @click="openToPo(row)"
+          >转采购单</t-link>
+        </t-space>
+      </template>
+
+      <template #empty="{ filtered }">
+        <div class="empty-block" data-testid="prq-empty">{{ emptyListText(filtered) }}</div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新建申请 ==================== -->
     <t-dialog
@@ -503,6 +460,9 @@
  * ③ 转单是「合并」语义：路径 id + `requisition_ids` 一起提交，后端按物料合并。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import type { DateMultipleValue, DateValue } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
@@ -544,7 +504,6 @@ import {
   emptyFilter,
   emptyListText,
   emptyToPoForm,
-  isFiltered,
   newCreateLine,
   validateCreateForm,
   validateMerge,
@@ -581,20 +540,21 @@ function errorText(error: unknown, fallback: string): string {
   return fallback;
 }
 
-// ==================== 列表 ====================
+/** 每页条数（页面上可改：10 / 20 / 50） */
+const PAGE_SIZE = 20;
 
 const filter = reactive<FilterState>(emptyFilter());
+/** 当前页的行（只做「勾选 → 合并」的镜像，列表本身由 ListPage 持有） */
 const rows = ref<RequisitionRow[]>([]);
-const total = ref(0);
-const page = ref(1);
-const pageSize = ref(20);
-const loading = ref(false);
-const listError = ref('');
+/** 勾选中的行 id（`selectable` 模式下由 `selection-change` 抛上来） */
+const selectedIds = ref<string[]>([]);
 const mergeHint = ref('');
+/** ListPage 实例（提交 / 转单后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 const statusOptions = STATUS_OPTIONS.map((item) => ({ label: item.label, value: item.value }));
 
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'req_no', title: '申请单号', width: 180 },
   { colKey: 'req_date', title: '申请日期', width: 120 },
   { colKey: 'dept_name', title: '部门 / 申请人', width: 170 },
@@ -606,52 +566,71 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'actions', title: '操作', width: 220, fixed: 'right' },
 ];
 
-const selectedKeys = ref<Array<string | number>>([]);
-
-const rowSelection = computed(() => ({
-  type: 'checkbox' as const,
-  selectedRowKeys: selectedKeys.value,
-}));
-
-function onSelectChange(keys: Array<string | number>) {
-  selectedKeys.value = keys;
-}
-
+/** 勾选里「真的能合并转单」的那些（按钮上的数字就是它，不是勾选总数） */
 const convertibleSelected = computed(() =>
-  rows.value.filter((row) => selectedKeys.value.includes(row.id) && canConvert(row)),
+  rows.value.filter((row) => selectedIds.value.includes(row.id) && canConvert(row)),
 );
 
-async function loadList() {
+// ==================== 列表（ListPage 声明） ====================
+
+const filters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '申请单号 / 部门 / 申请人 / PO 号',
+    width: 300,
+    testid: 'prq-filter-keyword',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'prq-filter-status',
+  },
+  { key: 'date_from', type: 'custom', testid: 'prq-filter-date-from-def' },
+  { key: 'date_to', type: 'custom', testid: 'prq-filter-date-to-def' },
+  { key: 'convertible_only', type: 'custom', testid: 'prq-filter-convertible-def' },
+];
+
+/** 入参拼装：沿用 `buildQuery`；空串一律不传（口径由 `buildQuery` 自己保证） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const typed = state as FilterState;
+  const normalized: FilterState = {
+    ...typed,
+    keyword: typed.keyword ?? '',
+    date_from: typed.date_from ? String(typed.date_from) : '',
+    date_to: typed.date_to ? String(typed.date_to) : '',
+    convertible_only: Boolean(typed.convertible_only),
+  };
+  return buildQuery(normalized, page, pageSize);
+};
+
+/** 拉一页：「起晚于止」先在前端拦（后端会 400），抛给 ListPage 画红条 */
+const fetcher: ListFetcher<RequisitionRow> = async (query) => {
   const rangeError = dateRangeError(filter.date_from, filter.date_to);
   if (rangeError) {
-    listError.value = rangeError;
-    return;
+    throw new Error(rangeError);
   }
-  loading.value = true;
-  listError.value = '';
-  try {
-    const data = await fetchRequisitionPage(buildQuery(filter, page.value, pageSize.value));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    // 翻页后丢掉不在本页的勾选（否则「合并 3 张」里混进别的页看不见的单）
-    const ids = new Set(rows.value.map((row) => row.id));
-    selectedKeys.value = selectedKeys.value.filter((key) => ids.has(String(key)));
-  } catch (error) {
-    listError.value = errorText(error, '加载采购申请失败');
-  } finally {
-    loading.value = false;
-  }
+  return fetchRequisitionPage(query as Parameters<typeof fetchRequisitionPage>[0]);
+};
+
+/** 一页拉完：留一份行镜像（勾选 → 合并要用行对象）+ 丢掉不在本页的勾选 */
+function onLoaded(payload: { rows: RequisitionRow[] }): void {
+  rows.value = payload.rows;
+  const ids = new Set(payload.rows.map((row) => row.id));
+  selectedIds.value = selectedIds.value.filter((id) => ids.has(id));
 }
 
-function handleSearch() {
-  page.value = 1;
-  void loadList();
+/** 勾选变化（ListPage 抛 id 列表） */
+function onSelectionChange(ids: string[]): void {
+  selectedIds.value = ids;
 }
 
-function handleReset() {
-  Object.assign(filter, emptyFilter());
-  page.value = 1;
-  void loadList();
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
 // ==================== 主数据选项 ====================
@@ -741,7 +720,7 @@ async function handleCreate() {
     const detail = await createRequisition(buildCreatePayload(createForm));
     MessagePlugin.success(`已创建 ${detail.requisition.req_no}（草稿）`);
     createVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (err) {
     MessagePlugin.error(errorText(err, '建申请失败'));
   } finally {
@@ -759,7 +738,7 @@ async function handleSubmit(row: RequisitionRow) {
         detail.requisition.over_budget ? '（超预算：已自动加一道财务经理特殊审批）' : ''
       }`,
     );
-    await loadList();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error, '提交审批失败'));
   }
@@ -892,9 +871,9 @@ async function handleToPo() {
       } 行，价税合计 ${rowDecimalText(result.header.total_with_tax)}）`,
     );
     toPoVisible.value = false;
-    selectedKeys.value = [];
+    selectedIds.value = [];
     mergeHint.value = `最近一次合并：${result.requisition_nos.join(' + ')} → ${result.header.po_no}`;
-    await loadList();
+    await reloadList();
   } catch (err) {
     MessagePlugin.error(errorText(err, '转采购订单失败'));
   } finally {
@@ -936,7 +915,7 @@ async function openDetail(id: string) {
 
 onMounted(async () => {
   await loadOptions();
-  await loadList();
+  await reloadList();
 });
 </script>
 

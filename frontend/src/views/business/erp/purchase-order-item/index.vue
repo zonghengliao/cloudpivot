@@ -1,167 +1,107 @@
 <template>
   <div class="item-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-item-refresh" @click="loadItems()">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
-
-        <span class="tool-row__spacer" />
-
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="搜索单号 / 物料编码 / 物料名称"
-          clearable
-          data-testid="item-filter-keyword"
-          @enter="handleSearch"
-          @clear="handleKeywordClear"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-        <t-select
-          v-model="orderModel"
-          class="tool-row__order"
-          :options="orderOptions"
-          placeholder="全部采购单"
-          filterable
-          clearable
-          data-testid="item-filter-order"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="materialModel"
-          class="tool-row__material"
-          :options="materialOptions"
-          placeholder="全部物料"
-          filterable
-          clearable
-          data-testid="item-filter-material"
-          @change="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-item-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-item-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 明细列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">采购明细</span>
-          <span class="panel-head__meta" data-testid="item-meta">共 {{ total }} 行</span>
-        </div>
-        <!-- 明细行只能由采购单的建单 / 收货流程写入，本页没有写入口 -->
+    <!-- ==================== ①② 列表：筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="采购明细"
+      testid="item"
+      table-testid="item-table"
+      meta-testid="item-meta"
+      btn-prefix="btn-item"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      :actions="actions"
+      exportable
+    >
+      <!-- 页头右侧：明细只读的归属说明 -->
+      <template #head-extra>
         <span class="panel-head__tip" data-testid="item-readonly-tip">
           只读：明细随采购单建单 / 收货过账自动生成
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="apiMissing"
-        theme="info"
-        message="采购明细接口尚未上线"
-        class="list-alert"
-        data-testid="item-api-missing"
-      >
-        <template #description>
-          <span class="mono">GET /api/business/erp/purchase-order-item/page</span> 返回 404。接口上线后本页无需改动。
-        </template>
-      </t-alert>
+      <!-- 接口未注册（404）：不报红，给信息条 + 空态 -->
+      <template #filter-footer>
+        <t-alert
+          v-if="apiMissing"
+          theme="info"
+          message="采购明细接口尚未上线"
+          class="list-alert"
+          data-testid="item-api-missing"
+        >
+          <template #description>
+            <span class="mono">GET /api/business/erp/purchase-order-item/page</span> 返回 404。接口上线后本页无需改动。
+          </template>
+        </t-alert>
+      </template>
 
-      <t-alert
-        v-else-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="item-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadItems()">重试</t-button>
-        </template>
-      </t-alert>
+      <template #order_id="{ row }">
+        <span class="mono order-no" :data-testid="`item-order-${row.id}`">
+          {{ orderText(row.order_id) }}
+        </span>
+      </template>
 
-      <t-table
-        v-if="rows.length > 0 || loading"
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="item-table"
-        @page-change="handlePageChange"
-      >
-        <template #order_id="{ row }">
-          <span class="mono order-no" :data-testid="`item-order-${row.id}`">
-            {{ orderText(row.order_id) }}
-          </span>
-        </template>
+      <template #line_no="{ row }">
+        <span class="muted">{{ row.line_no }}</span>
+      </template>
 
-        <template #line_no="{ row }">
-          <span class="muted">{{ row.line_no }}</span>
-        </template>
+      <template #material_id="{ row }">
+        <span :data-testid="`item-material-${row.id}`">{{ materialText(row.material_id) }}</span>
+      </template>
 
-        <template #material_id="{ row }">
-          <span :data-testid="`item-material-${row.id}`">{{ materialText(row.material_id) }}</span>
-        </template>
+      <template #unit_id="{ row }">
+        <span class="muted">{{ unitText(row.unit_id) }}</span>
+      </template>
 
-        <template #unit_id="{ row }">
-          <span class="muted">{{ unitText(row.unit_id) }}</span>
-        </template>
+      <template #qty="{ row }">
+        <span class="num">{{ decimalText(row.qty) }}</span>
+      </template>
 
-        <template #qty="{ row }">
-          <span class="num">{{ decimalText(row.qty) }}</span>
-        </template>
+      <template #price="{ row }">
+        <span class="num">{{ formatMoney(row.price) }}</span>
+      </template>
 
-        <template #price="{ row }">
-          <span class="num">{{ formatMoney(row.price) }}</span>
-        </template>
+      <template #tax_rate="{ row }">
+        <span class="muted">{{ taxRateText(row.tax_rate) }}</span>
+      </template>
 
-        <template #tax_rate="{ row }">
-          <span class="muted">{{ taxRateText(row.tax_rate) }}</span>
-        </template>
+      <template #amount="{ row }">
+        <span class="num">{{ formatMoney(row.amount) }}</span>
+      </template>
 
-        <template #amount="{ row }">
-          <span class="num">{{ formatMoney(row.amount) }}</span>
-        </template>
+      <template #tax_amount="{ row }">
+        <span class="num muted">{{ formatMoney(row.tax_amount) }}</span>
+      </template>
 
-        <template #tax_amount="{ row }">
-          <span class="num muted">{{ formatMoney(row.tax_amount) }}</span>
-        </template>
+      <template #with_tax_amount="{ row }">
+        <span class="num strong" :data-testid="`item-with-tax-${row.id}`">
+          {{ formatMoney(row.with_tax_amount) }}
+        </span>
+      </template>
 
-        <template #with_tax_amount="{ row }">
-          <span class="num strong" :data-testid="`item-with-tax-${row.id}`">
-            {{ formatMoney(row.with_tax_amount) }}
-          </span>
-        </template>
+      <template #received_qty="{ row }">
+        <span class="received" :class="{ 'received--done': isFullyReceived(row) }">
+          {{ receivedText(row) }}
+        </span>
+        <t-tag v-if="isFullyReceived(row)" size="small" variant="light" theme="success" class="done-tag">
+          已收满
+        </t-tag>
+      </template>
 
-        <template #received_qty="{ row }">
-          <span class="received" :class="{ 'received--done': isFullyReceived(row) }">
-            {{ receivedText(row) }}
-          </span>
-          <t-tag v-if="isFullyReceived(row)" size="small" variant="light" theme="success" class="done-tag">
-            已收满
-          </t-tag>
-        </template>
-
-        <template #op="{ row }">
-          <t-link theme="primary" hover="color" data-testid="btn-item-detail" @click="openDetail(row)">
-            详情
-          </t-link>
-        </template>
-      </t-table>
-
-      <div v-else class="panel-empty" data-testid="item-empty">
-        <t-icon name="order-list" class="panel-empty__icon" />
-        <p class="panel-empty__title">{{ filtered ? '没有匹配的采购明细' : '暂无采购明细' }}</p>
-        <p class="panel-empty__desc">
-          {{ filtered ? '换个关键词、采购单或物料再试' : '采购单建单后，明细行会自动出现在这里' }}
-        </p>
-      </div>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="item-empty">
+          <t-icon name="order-list" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的采购明细' : '暂无采购明细' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个关键词、采购单或物料再试' : '采购单建单后，明细行会自动出现在这里' }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 明细抽屉 ==================== -->
     <t-drawer
@@ -273,7 +213,8 @@
  * 单号与物料名），不是筛选错了：筛选结果本身是全的，可点「详情」核对金额 / 行号。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
-import type { PrimaryTableCol } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListActions, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import {
   fetchMaterialPage,
@@ -292,7 +233,6 @@ import {
   decimalText,
   emptyItemFilter,
   isFullyReceived,
-  isItemFiltered,
   labelOf,
   receivedText,
   taxRateText,
@@ -305,7 +245,7 @@ const PAGE_SIZE = 20;
 const OPTION_LIMIT = 200;
 
 /** 表格列（顺序 = 采购人读一行明细的顺序：单号 → 哪一行 → 什么货 → 多少 → 多少钱） */
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'order_id', title: '采购单', width: 210, fixed: 'left' },
   { colKey: 'line_no', title: '行', width: 60 },
   { colKey: 'material_id', title: '物料', minWidth: 180, ellipsis: true },
@@ -321,21 +261,6 @@ const columns: PrimaryTableCol[] = [
 ];
 
 const filter = reactive<ItemFilterState>(emptyItemFilter());
-
-/** `t-select` 的 v-model 不收 null：清空 → `''`（= 全部） */
-const orderModel = computed<string | undefined>({
-  get: () => filter.order_id || undefined,
-  set: (value) => {
-    filter.order_id = typeof value === 'string' ? value : '';
-  },
-});
-
-const materialModel = computed<string | undefined>({
-  get: () => filter.material_id || undefined,
-  set: (value) => {
-    filter.material_id = typeof value === 'string' ? value : '';
-  },
-});
 
 /** 主数据（拉不到就空 Map，名称列退化成短 id） */
 const orders = ref<PurchaseOrderRow[]>([]);
@@ -364,11 +289,6 @@ const materialOptions = computed(() =>
   })),
 );
 
-const rows = ref<PurchaseOrderItemLine[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
 /** 接口未注册（404）：不报红，改成信息条 + 空态 */
 const apiMissing = ref(false);
 
@@ -376,25 +296,91 @@ const apiMissing = ref(false);
 const detailVisible = ref(false);
 const detail = ref<PurchaseOrderItemLine | null>(null);
 
-const filtered = computed(() => isItemFiltered(filter));
+// ==================== 列表（ListPage 声明） ====================
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项。
+ *
+ * 采购单 / 物料是**主数据下拉**：值一变就查（`searchOnChange`），与改造前
+ * `@change="handleSearch"` 的手感一致 —— 加了一个 `查询` 才算数的门槛就是手感退化。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '搜索单号 / 物料编码 / 物料名称',
+    width: 300,
+    testid: 'item-filter-keyword',
+  },
+  {
+    key: 'order_id',
+    type: 'select',
+    placeholder: '全部采购单',
+    width: 210,
+    options: orderOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'item-filter-order',
+  },
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '全部物料',
+    width: 240,
+    options: materialOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'item-filter-material',
+  },
+]);
+
+/**
+ * 入参拼装：沿用被单测钉住的 `buildItemQuery`（空值整键缺席、keyword 去首尾空格）。
+ *
+ * `keyword` 兜一个 `''`：`t-input` 清空后 filter 里可能是 `undefined`，
+ * 而 `buildItemQuery` 里是 `filter.keyword.trim()`。
+ */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const typed = state as ItemFilterState;
+  return buildItemQuery({ ...typed, keyword: typed.keyword ?? '' }, page, pageSize);
+};
+
+/**
+ * 拉一页。
+ *
+ * 接口未注册（404）时降级成「信息条 + 空态」：老页面就是这么处理的，
+ * 直接把 404 抛给 ListPage 会变成红条，看起来像本页坏了而不是接口没上线。
+ */
+const fetcher: ListFetcher<PurchaseOrderItemLine> = async (query) => {
+  try {
+    const data = await fetchPurchaseOrderItemPage(query as Parameters<typeof fetchPurchaseOrderItemPage>[0]);
+    apiMissing.value = false;
+    return data;
+  } catch (error) {
+    if (isApiMissing(error)) {
+      apiMissing.value = true;
+      return { list: [], total: 0, page: 1, page_size: PAGE_SIZE };
+    }
+    throw error;
+  }
+};
+
+/** 行操作：本页只读，只有「详情」 */
+const actions: ListActions = {
+  row: [
+    {
+      key: 'detail',
+      label: '详情',
+      testid: 'btn-item-detail',
+      handler: (row: PurchaseOrderItemLine) => openDetail(row),
+    },
+  ],
+};
+
+/** ListPage 实例 */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 // ==================== 行为 ====================
-
-/** 错误 → 文案 */
-function messageOf(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** 未注册路由 = HTTP 404；业务 404 = `10002` */
 function isApiMissing(error: unknown): boolean {
@@ -431,28 +417,6 @@ function timeText(value: string | null | undefined): string {
   return raw.slice(0, 19).replace('T', ' ');
 }
 
-/** 拉列表 */
-async function loadItems(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchPurchaseOrderItemPage(buildItemQuery(filter, page, PAGE_SIZE));
-    apiMissing.value = false;
-    rows.value = data.list ?? [];
-    total.value = data.total ?? rows.value.length;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / PAGE_SIZE));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    apiMissing.value = isApiMissing(error);
-    loadError.value = apiMissing.value ? '' : messageOf(error);
-  } finally {
-    loading.value = false;
-  }
-}
-
 /** 拉主数据（任一失败都不挡列表） */
 async function loadRefs(): Promise<void> {
   const [orderPage, materialPage, unitPage] = await Promise.all([
@@ -463,34 +427,6 @@ async function loadRefs(): Promise<void> {
   orders.value = orderPage?.list ?? [];
   materials.value = materialPage?.list ?? [];
   units.value = unitPage?.list ?? [];
-}
-
-/** 查询：条件变了回第 1 页 */
-function handleSearch(): void {
-  void loadItems(1);
-}
-
-/**
- * 清空关键词 → 恢复全量。
- *
- * 不能直接复用 `handleSearch`：`clear` 事件与 `update:modelValue` 的先后顺序由组件
- * 内部决定，掐不清时可能拿旧关键词再查一次（界面清空了、结果还是过滤后的）。
- * 这里显式把 keyword 归零再查，口径不依赖事件顺序。
- */
-function handleKeywordClear(): void {
-  filter.keyword = '';
-  void loadItems(1);
-}
-
-/** 重置 */
-function handleReset(): void {
-  Object.assign(filter, emptyItemFilter());
-  void loadItems(1);
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  void loadItems(pageInfo.current);
 }
 
 /**
@@ -510,8 +446,8 @@ async function openDetail(row: PurchaseOrderItemLine): Promise<void> {
 }
 
 onMounted(() => {
+  // 列表由 ListPage 自己在 setup 里拉首屏；这里只补主数据（拉不到就是短 id，不挡列表）
   void loadRefs();
-  void loadItems(1);
 });
 </script>
 

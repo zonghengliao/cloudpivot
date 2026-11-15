@@ -1,212 +1,127 @@
 <template>
   <div class="payable-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-payable-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
-
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="payable-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.supplier_id"
-          class="tool-row__supplier"
-          :options="supplierOptions"
-          placeholder="全部供应商"
-          clearable
-          filterable
-          data-testid="payable-filter-supplier"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.payable_no"
-          class="tool-row__no"
-          placeholder="应付单号（模糊）"
-          clearable
-          data-testid="payable-filter-no"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-payable-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-payable-reset" @click="handleReset">重置</t-button>
-      </div>
-      <!-- O4 列表记忆：应付单经常按「某供应商 + 某到期区间」反复看，恢复时要让用户看得见 -->
-      <ListMemoryBar
-        :restored="listMemoryRestored"
-        :text="listMemoryText"
-        testid="payable-memory"
-        @clear="handleClearListMemory"
-      />
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">应付单</span>
-          <span class="panel-head__meta" data-testid="payable-meta">共 {{ total }} 条</span>
-        </div>
-        <!-- ★ P7：付款 / 作废已开放（不再是只读页） -->
-        <span class="panel-head__tip">付款可多次登记（部分付款）；只有「未付且一分未付」的单能作废</span>
-      </div>
-
-      <t-alert
-        v-if="apiMissing"
-        theme="info"
-        message="应付查询接口尚未上线"
-        class="list-alert"
-        data-testid="payable-api-missing"
-      >
-        <template #description>
-          应付单在收货过账时已自动生成（<span class="mono">biz_payable</span>），但
-          <span class="mono">GET /business/erp/payable/page</span> 后端还没注册
-          （P2-C1 只交了数据层）。接口上线后本页无需改动即可显示数据。
-        </template>
-      </t-alert>
-
-      <t-alert
-        v-else-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="payable-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadPayables()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
-      <BatchActionBar
-        :selected="selectedRows"
-        :actions="BATCH_ACTIONS"
-        :filtered-total="total"
-        :runner="runBatchAction"
-        :can="canBatchAction"
+    <!-- ==================== ①② 列表：筛选 / 分页 / 批量 / 行操作交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="应付单"
+      testid="payable"
+      table-testid="payable-table"
+      meta-testid="payable-meta"
+      btn-prefix="btn-payable"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAYABLE_PAGE_SIZE"
+      :actions="{ batch: BATCH_ACTIONS }"
+      :batch-runner="runBatchAction"
+      :batch-can="canBatchAction"
       :fetch-all-ids="fetchAllRowIds"
-        testid="payable-batch"
-        @update:selected="onSelectedRows"
-        @done="handleBatchDone"
-      />
+      @loaded="onLoaded"
+      @batch-done="onBatchDone"
+    >
+      <!-- 筛选行下方：O4 列表记忆提示条 + 接口未上线（404）的信息条 -->
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="listMemoryRestored"
+          :text="listMemoryText"
+          testid="payable-memory"
+          @clear="handleClearListMemory"
+        />
+        <t-alert
+          v-if="apiMissing"
+          theme="info"
+          message="应付单接口尚未上线"
+          class="list-alert"
+          data-testid="payable-api-missing"
+        />
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        :selected-row-keys="selectedIds"
-        data-testid="payable-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-      >
-        <template #payable_no="{ row }">
-          <span class="mono" :data-testid="`payable-no-${row.payable_no}`">{{ row.payable_no }}</span>
-        </template>
+      <!-- ★ P7：付款 / 作废已开放（不再是只读页） -->
+      <template #head-extra>
+        <span class="panel-head__tip">付款可多次登记（部分付款）；只有「未付且一分未付」的单能作废</span>
+      </template>
 
-        <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
+      <template #payable_no="{ row }">
+        <span class="mono" :data-testid="`payable-no-${row.payable_no}`">{{ row.payable_no }}</span>
+      </template>
 
-        <template #source="{ row }">
-          <span class="muted" :data-testid="`payable-source-${row.payable_no}`">
-            {{ sourceText(row) }}
-          </span>
-        </template>
+      <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
 
-        <template #amount="{ row }">
-          <span class="money" :data-testid="`payable-amount-${row.payable_no}`">
-            {{ formatMoney(row.amount) }}
-          </span>
-        </template>
+      <template #source="{ row }">
+        <span class="muted" :data-testid="`payable-source-${row.payable_no}`">{{ sourceText(row) }}</span>
+      </template>
 
-        <template #paid_amount="{ row }">
-          <span class="money muted">{{ formatMoney(row.paid_amount) }}</span>
-        </template>
+      <template #amount="{ row }">
+        <span class="money" :data-testid="`payable-amount-${row.payable_no}`">
+          {{ formatMoney(row.amount) }}
+        </span>
+      </template>
 
-        <template #unpaid_amount="{ row }">
-          <span class="money" :data-testid="`payable-unpaid-${row.payable_no}`">
-            {{ formatMoney(unpaidOf(row)) }}
-          </span>
-          <t-tag v-if="paidPercent(row.paid_amount, row.amount) > 0" size="small" variant="light" theme="primary">
-            已付 {{ paidPercent(row.paid_amount, row.amount) }}%
-          </t-tag>
-        </template>
+      <template #paid_amount="{ row }">
+        <span class="money muted">{{ formatMoney(row.paid_amount) }}</span>
+      </template>
 
-        <template #due_date="{ row }">
-          <span class="muted">{{ shortDate(row.due_date) }}</span>
-          <t-tag v-if="overdueText(row)" size="small" variant="light" theme="danger">
-            {{ overdueText(row) }}
-          </t-tag>
-        </template>
+      <template #unpaid_amount="{ row }">
+        <span class="money" :data-testid="`payable-unpaid-${row.payable_no}`">
+          {{ formatMoney(unpaidOf(row)) }}
+        </span>
+        <t-tag v-if="paidPercent(row.paid_amount, row.amount) > 0" size="small" variant="light" theme="primary">
+          已付 {{ paidPercent(row.paid_amount, row.amount) }}%
+        </t-tag>
+      </template>
 
-        <template #status="{ row }">
-          <t-tag
-            size="small"
-            :theme="payableStatusTheme(row.status)"
-            :data-testid="`payable-status-${row.payable_no}`"
-          >
-            {{ payableStatusLabel(row.status) }}
-          </t-tag>
-        </template>
+      <template #due_date="{ row }">
+        <span class="muted">{{ shortDate(row.due_date) }}</span>
+        <t-tag v-if="overdueText(row)" size="small" variant="light" theme="danger">{{ overdueText(row) }}</t-tag>
+      </template>
 
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link theme="primary" :data-testid="`btn-payable-view-${row.payable_no}`" @click="openDetail(row)">
-              查看
-            </t-link>
-            <t-link
-              v-if="canPay(row)"
-              theme="primary"
-              :data-testid="`btn-payable-pay-${row.payable_no}`"
-              @click="openPay(row)"
-            >
-              付款
-            </t-link>
-            <t-link
-              v-if="canCancel(row)"
-              theme="danger"
-              :data-testid="`btn-payable-cancel-${row.payable_no}`"
-              @click="openCancel(row)"
-            >
-              作废
-            </t-link>
-            <!-- ★ P-FLOW-3B：作废审批中 → 「作废」消失，换「撤回作废」（撤回后单据回「未付」） -->
-            <t-link
-              v-if="canWithdrawCancel(row, hasWithdrawPermission)"
-              theme="warning"
-              :data-testid="`btn-payable-withdraw-${row.payable_no}`"
-              @click="openWithdrawCancel(row)"
-            >
-              撤回作废
-            </t-link>
-          </div>
-        </template>
+      <template #status="{ row }">
+        <t-tag size="small" :theme="payableStatusTheme(row.status)" :data-testid="`payable-status-${row.payable_no}`">
+          {{ payableStatusLabel(row.status) }}
+        </t-tag>
+      </template>
 
-        <template #empty>
-          <div class="panel-empty" data-testid="payable-empty">
-            <t-icon name="file-add" class="panel-empty__icon" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的应付单' : '暂无应付单' }}</p>
-            <p class="panel-empty__desc">
-              {{
-                filtered
-                  ? '换个状态 / 供应商 / 单号再试'
-                  : '收货单过账后会自动生成应付单（同一事务），本页只读'
-              }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <!-- 行操作按状态 / 权限给（付款、作废、撤回作废都是条件入口）——自绘 op 列 -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link theme="primary" :data-testid="`btn-payable-view-${row.payable_no}`" @click="openDetail(row)">
+            查看
+          </t-link>
+          <t-link
+            v-if="canPay(row)"
+            theme="primary"
+            :data-testid="`btn-payable-pay-${row.payable_no}`"
+            @click="openPay(row)"
+          >付款</t-link>
+          <t-link
+            v-if="canCancel(row)"
+            theme="danger"
+            :data-testid="`btn-payable-cancel-${row.payable_no}`"
+            @click="openCancel(row)"
+          >作废</t-link>
+          <!-- ★ P-FLOW-3B：作废审批中 → 「作废」消失，换「撤回作废」（撤回后单据回「未付」） -->
+          <t-link
+            v-if="canWithdrawCancel(row, hasWithdrawPermission)"
+            theme="warning"
+            :data-testid="`btn-payable-withdraw-${row.payable_no}`"
+            @click="openWithdrawCancel(row)"
+          >撤回作废</t-link>
+        </div>
+      </template>
+
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="payable-empty">
+          <t-icon name="file-add" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的应付单' : '暂无应付单' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个状态 / 供应商 / 单号再试' : '收货单过账后会自动生成应付单（同一事务），本页主要做付款' }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 详情抽屉 ==================== -->
     <t-drawer
@@ -677,8 +592,8 @@
 import {
   payableBatchExport,
 } from '@/api/business/batch';
-import BatchActionBar from '@/components/BatchActionBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { exportFilterPayload } from '@/utils/batch-action';
@@ -705,7 +620,7 @@ import { exportFilterPayload } from '@/utils/batch-action';
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { listDictItems } from '@/api/support/dict-api';
@@ -761,7 +676,6 @@ import {
   executePaymentConfirmText,
   executorProbeInstanceId,
   isAwaitingExecutor,
-  isPayableFiltered,
   isPendingCancel,
   overdueText,
   paidPercent,
@@ -783,15 +697,8 @@ import { dash, formatCents, formatMoney, shortDate, shortId, toCents, toNumber }
 /** 主数据下拉一次拉多少（种子规模下够用；上千条应该走远端搜索） */
 const OPTION_LIMIT = 200;
 
-/** 表格列（`colKey` 与 `PayableRow` 字段同名，插槽按 colKey 命中） */
-const columns: PrimaryTableCol[] = [
-  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
-  {
-    colKey: 'row-select',
-    type: 'multiple',
-    width: 50,
-    disabled: (options: { row: unknown }) => !isSelectable(options.row as PayableRow),
-  },
+/** 表格列（`colKey` 与 `PayableRow` 字段同名，插槽按 colKey 命中；勾选列由 ListPage 补） */
+const columns: ColumnDef[] = [
   { colKey: 'payable_no', title: '应付单号', width: 220 },
   { colKey: 'supplier_id', title: '供应商', minWidth: 150, ellipsis: true },
   { colKey: 'source', title: '来源', width: 200, ellipsis: true },
@@ -810,8 +717,45 @@ const statusFilterOptions = PAYABLE_STATUS_FILTER_OPTIONS.map((item) => ({ ...it
 // ==================== 列表 ====================
 
 const filter = reactive<PayableFilterState>(emptyPayableFilter());
-const rows = ref<PayableRow[]>([]);
-const total = ref(0);
+/** 当前页码（列表记忆 O4 读写它；每拉完一页由 `onLoaded` 同步） */
+const current = ref(1);
+/** ListPage 实例（付款 / 作废 / 刷新后重拉列表；深链也要读它的行） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/**
+ * 筛选项：状态 / 供应商 / 应付单号。
+ *
+ * 两个下拉都是主数据，值一变就查（改造前是 `@change="handleSearch"`）。
+ * 用 `computed` 是因为供应商字典在本文件后半段才建。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'payable-filter-status',
+  },
+  {
+    key: 'supplier_id',
+    type: 'select',
+    placeholder: '全部供应商',
+    width: 190,
+    options: supplierOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'payable-filter-supplier',
+  },
+  {
+    key: 'payable_no',
+    type: 'keyword',
+    placeholder: '应付单号（模糊）',
+    width: 220,
+    testid: 'payable-filter-no',
+  },
+]);
 
 // ==================== 批量操作（D7） ====================
 
@@ -833,8 +777,7 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   export: 'business:impexp:export:create',
 };
 
-const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
-  useBatchSelection(BATCH_ACTIONS, rows);
+
 
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
@@ -875,14 +818,7 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
   return acc;
 }
 
-/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
-function handleBatchDone(): void {
-  void loadPayables(1);
-}
-const current = ref(1);
-const pageSize = PAYABLE_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+
 /**
  * 列表记忆（O4）：筛选 + 页码，进页面自动恢复，改动防抖 300ms 写回 sessionStorage。
  * 构造即恢复，早于 `onMounted` 的首次加载。
@@ -895,14 +831,12 @@ const {
   listName: 'erp-payable',
   filter,
   page: current,
-  pageSize,
+  pageSize: PAYABLE_PAGE_SIZE,
 });
 /** 接口未注册（404）：不报红，改成信息条 + 空态 */
 const apiMissing = ref(false);
 
 const suppliers = ref<Supplier[]>([]);
-
-const filtered = computed(() => isPayableFiltered(filter));
 
 const supplierOptions = computed(() =>
   suppliers.value.map((item) => ({ label: `${item.supplier_name}（${item.supplier_code}）`, value: item.id })),
@@ -917,13 +851,7 @@ const supplierNameMap = computed(() => {
   return map;
 });
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+
 
 /** 供应商名称（主数据没加载完时退化成短 id） */
 function supplierNameOf(supplierId: string | null | undefined): string {
@@ -953,28 +881,28 @@ function isApiMissing(error: unknown): boolean {
   }
   return false;
 }
-
-/** 拉列表 */
-async function loadPayables(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
+/**
+ * 拉一页（ListPage 的 fetcher）。
+ *
+ * 接口未注册（404）→ 信息条 + 空态（老页面就是这么降级的），其余错误照常抛给红条。
+ */
+const fetcher: ListFetcher<PayableRow> = async (query) => {
   try {
-    const data = await fetchPayablePage(buildPayableQuery(filter, page, pageSize));
+    const data = await fetchPayablePage(query as Parameters<typeof fetchPayablePage>[0]);
     apiMissing.value = false;
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
+    return data;
   } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    apiMissing.value = isApiMissing(error);
-    loadError.value = apiMissing.value ? '' : messageOf(error);
-  } finally {
-    loading.value = false;
+    if (isApiMissing(error)) {
+      apiMissing.value = true;
+      return { list: [], total: 0, page: 1, page_size: PAYABLE_PAGE_SIZE };
+    }
+    throw error;
   }
-}
+};
+
+/** 入参拼装：沿用 `buildPayableQuery` */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildPayableQuery(state as PayableFilterState, page, pageSize);
 
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
 async function loadBasics(): Promise<void> {
@@ -994,15 +922,19 @@ async function loadBasics(): Promise<void> {
     });
 }
 
-/** 查询（回第一页） */
-function handleSearch(): void {
-  void loadPayables(1);
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
-/** 重置筛选 */
-function handleReset(): void {
-  Object.assign(filter, emptyPayableFilter());
-  void loadPayables(1);
+/** 一页拉完：同步页码（列表记忆按它写 sessionStorage） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
+
+/** 批量跑完：回第 1 页刷新（勾选已由组件清空，避免误点第二次） */
+function onBatchDone(): void {
+  void reloadList(1);
 }
 
 /** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
@@ -1010,19 +942,8 @@ function handleClearListMemory(): void {
   Object.assign(filter, emptyPayableFilter());
   current.value = 1;
   forgetListMemory();
-  void loadPayables(1);
+  void reloadList(1);
 }
-
-/** 刷新（保留筛选与页码） */
-function refresh(): void {
-  void loadPayables();
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current?: number }): void {
-  void loadPayables(pageInfo.current ?? 1);
-}
-
 // ==================== 详情 ====================
 
 const detailVisible = ref(false);
@@ -1408,7 +1329,7 @@ async function doExecutePayment(item: PayablePayment): Promise<void> {
     if (payableId) {
       await refreshDetail(payableId);
     }
-    void loadPayables();
+    void reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
     const payableId = detail.value?.id;
@@ -1601,7 +1522,7 @@ async function submitPay(): Promise<void> {
     // 必须关闭抽屉重开才更新 —— 用户会以为付款没登记上。见 `refreshDetail` 注释。
     detail.value = result.detail;
     await refreshDetail(target.id, result.approval_instance_id);
-    void loadPayables();
+    void reloadList();
   } catch (error) {
     payError.value = messageOf(error);
   } finally {
@@ -1666,7 +1587,7 @@ async function submitCancel(): Promise<void> {
     // 送审的响应是 `PayableDetailRes` 平铺（含 `cancel_instance_id` / `cancel_reason`），
     // 进度 / 原因都从单据字段读，不依赖「送审那一刻」的临时状态
     await refreshApprovalProgress(result);
-    void loadPayables();
+    void reloadList();
   } catch (error) {
     cancelError.value = messageOf(error);
   } finally {
@@ -1718,7 +1639,7 @@ async function doWithdrawCancel(row: PayableRow | PayableDetail): Promise<void> 
       await refreshApprovalProgress(updated);
     }
     await loadPayInfo(updated.id);
-    void loadPayables();
+    void reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -1738,8 +1659,8 @@ async function openByQuery(): Promise<void> {
     return;
   }
   filter.payable_no = no;
-  await loadPayables(1);
-  const row = rows.value.find((item) => item.payable_no === no);
+  await reloadList(1);
+  const row = listRef.value?.rows.find((item) => item.payable_no === no);
   if (row) {
     await openDetail(row);
   } else {
@@ -1753,7 +1674,7 @@ async function openByQuery(): Promise<void> {
 onMounted(() => {
   void loadBasics();
   // 列表记忆恢复的页码要在首次加载就生效
-  void loadPayables(current.value).then(() => openByQuery());
+  void reloadList(current.value).then(() => openByQuery());
 });
 </script>
 

@@ -35,6 +35,26 @@ export function emptyFilter(defs: FilterDef[] | undefined): ListFilter {
 }
 
 /**
+ * 清空筛选（「重置」按钮）。
+ *
+ * 与 {@link emptyFilter} 的差别：这里**按声明逐键写回**，`custom`（日期区间 / 复选框）这类
+ * 控件也要清 —— `emptyFilter` 只覆盖 `keyword` / `select` / `defaultValue`，用它做重置会把
+ * 日期区间留在原地，用户以为「重置了还筛着」。声明外的键（页面自己的私有状态）不动。
+ */
+export function clearFilter(defs: FilterDef[] | undefined, filter: ListFilter): ListFilter {
+  for (const def of defs ?? []) {
+    if (def.defaultValue !== undefined) {
+      filter[def.key] = def.defaultValue;
+    } else if (def.type === 'keyword' || def.type === 'select') {
+      filter[def.key] = '';
+    } else {
+      filter[def.key] = undefined;
+    }
+  }
+  return filter;
+}
+
+/**
  * 拼分页入参。
  *
  * **空值一律整键缺席**：`?keyword=` 会被后端当成「等于空串」去过滤，查出 0 行

@@ -1,8 +1,39 @@
 <template>
   <div class="stockin-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 列表：筛选 / 分页 / 批量 / 行操作交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="收货入库"
+      testid="stockin"
+      table-testid="stockin-table"
+      meta-testid="stockin-meta"
+      btn-prefix="btn-stockin"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="STOCKIN_PAGE_SIZE"
+      :actions="{ batch: BATCH_ACTIONS }"
+      :batch-runner="runBatchAction"
+      :batch-can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+      @refresh="loadBasics"
+      @loaded="onLoaded"
+      @batch-done="onBatchDone"
+    >
+      <!-- 筛选行下方：O4 列表记忆提示条（恢复筛选是静默行为，必须让用户看得见） -->
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="listMemoryRestored"
+          :text="listMemoryText"
+          testid="stockin-memory"
+          @clear="handleClearListMemory"
+        />
+      </template>
+
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,231 +43,115 @@
           <template #icon><t-icon name="add" /></template>
           新建收货单
         </t-button>
-        <t-button variant="outline" data-testid="btn-stockin-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="stockin-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.supplier_id"
-          class="tool-row__supplier"
-          :options="supplierOptions"
-          placeholder="全部供应商"
-          clearable
-          filterable
-          data-testid="stockin-filter-supplier"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.warehouse_id"
-          class="tool-row__warehouse"
-          :options="warehouseOptions"
-          placeholder="全部仓库"
-          clearable
-          filterable
-          data-testid="stockin-filter-warehouse"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__no"
-          placeholder="收货单号 / 备注（模糊）"
-          clearable
-          data-testid="stockin-filter-no"
-          @enter="handleSearch"
-        />
-        <!-- D4/O3：按来源采购单号筛（从采购单跳过来的人最常用这一条） -->
-        <t-input
-          v-model="filter.purchase_order_no"
-          class="tool-row__po"
-          placeholder="来源采购单号（模糊）"
-          clearable
-          data-testid="stockin-filter-po-no"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-stockin-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-stockin-reset" @click="handleReset">重置</t-button>
-      </div>
-      <!-- O4 列表记忆：恢复筛选必须让用户看得见，并能一键清掉 -->
-      <ListMemoryBar
-        :restored="listMemoryRestored"
-        :text="listMemoryText"
-        testid="stockin-memory"
-        @clear="handleClearListMemory"
-      />
-    </t-card>
-
-    <!-- ==================== ② 批量操作（D7） ==================== -->
-    <BatchActionBar
-      :selected="selectedRows"
-      :actions="BATCH_ACTIONS"
-      :filtered-total="total"
-      :runner="runBatchAction"
-      :fetch-all-ids="fetchAllRowIds"
-      :can="canBatchAction"
-      testid="stockin-batch"
-      @update:selected="onSelectedRows"
-      @done="handleBatchDone"
-    />
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">收货入库</span>
-          <span class="panel-head__meta" data-testid="stockin-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">草稿可编辑 / 过账；过账后作废需复核（作废审批中锁定单据，审批通过才回滚六本账）</span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="stockin-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadOrders()">重试</t-button>
-        </template>
-      </t-alert>
+      <template #in_no="{ row }">
+        <span class="mono" :data-testid="`stockin-no-${row.in_no}`">{{ row.in_no }}</span>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :selected-row-keys="selectedIds"
-        hover
-        data-testid="stockin-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-      >
-        <template #in_no="{ row }">
-          <span class="mono" :data-testid="`stockin-no-${row.in_no}`">{{ row.in_no }}</span>
-        </template>
+      <!-- D4/F3：来源采购单号可点，跳回采购单详情（没有来源就是「—」） -->
+      <template #source_order_no="{ row }">
+        <t-link
+          v-if="row.source_order_no"
+          theme="primary"
+          class="mono"
+          :data-testid="`stockin-po-link-${row.in_no}`"
+          @click="goPurchaseOrder(row)"
+        >
+          {{ row.source_order_no }}
+        </t-link>
+        <!-- A6：无源单据（A4 的显式标记）在列表上要看得见，不能只是一个「—」 -->
+        <t-tag
+          v-else-if="row.is_sourceless"
+          size="small"
+          theme="warning"
+          variant="outline"
+          :data-testid="`stockin-sourceless-${row.in_no}`"
+        >无源单据</t-tag>
+        <span v-else class="muted">—</span>
+      </template>
 
-        <!-- D4/F3：来源采购单号可点，跳回采购单详情（没有来源就是「—」） -->
-        <template #source_order_no="{ row }">
+      <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
+
+      <template #warehouse_id="{ row }">{{ warehouseNameOf(row.warehouse_id) }}</template>
+
+      <template #in_date="{ row }">
+        <span class="muted">{{ shortDate(row.in_date) }}</span>
+      </template>
+
+      <template #total_qty="{ row }">
+        <span class="num" :data-testid="`stockin-qty-${row.in_no}`">{{ formatQty(row.total_qty) }}</span>
+      </template>
+
+      <!-- ★ 金额列同样标「(价税合计)」 -->
+      <template #total_with_tax="{ row }">
+        <span class="money" :data-testid="`stockin-total-${row.in_no}`">{{ formatMoney(row.total_with_tax) }}</span>
+      </template>
+
+      <template #status="{ row }">
+        <div class="status-cell">
+          <t-tag size="small" :theme="stockInStatusTheme(row.status)" :data-testid="`stockin-status-${row.in_no}`">
+            {{ stockInStatusLabel(row.status) }}
+          </t-tag>
+          <!-- 过账后能看出「按可抵扣进项税入账」还是事后作废 -->
+          <t-tag v-if="row.status === 'POSTED' && row.invoice_received" size="small" variant="outline" theme="success">
+            发票已到
+          </t-tag>
+        </div>
+      </template>
+
+      <!-- 行操作按状态给（`availableStockInActions` 是纯逻辑，判据不搬）——自绘 op 列 -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link theme="primary" :data-testid="`btn-view-${row.in_no}`" @click="openDetail(row)">查看</t-link>
           <t-link
-            v-if="row.source_order_no"
+            v-if="actionsOf(row).edit"
             theme="primary"
-            class="mono"
-            :data-testid="`stockin-po-link-${row.in_no}`"
-            @click="goPurchaseOrder(row)"
-          >
-            {{ row.source_order_no }}
-          </t-link>
-          <!-- A6：无源单据（A4 的显式标记）在列表上要看得见，不能只是一个「—」 -->
-          <t-tag
-            v-else-if="row.is_sourceless"
-            size="small"
-            theme="warning"
-            variant="outline"
-            :data-testid="`stockin-sourceless-${row.in_no}`"
-          >无源单据</t-tag>
-          <span v-else class="muted">—</span>
-        </template>
+            :data-testid="`btn-edit-${row.in_no}`"
+            @click="openEditDialog(row)"
+          >编辑</t-link>
+          <t-link
+            v-if="actionsOf(row).post"
+            theme="primary"
+            :disabled="!canPost(row)"
+            :data-testid="`btn-post-${row.in_no}`"
+            @click="openPostDialog(row)"
+          >提交过账</t-link>
+          <t-link
+            v-if="actionsOf(row).cancel"
+            theme="danger"
+            :data-testid="`btn-cancel-${row.in_no}`"
+            @click="confirmCancel(row)"
+          >作废</t-link>
+          <t-link
+            v-if="actionsOf(row).withdrawCancel"
+            theme="primary"
+            :data-testid="`btn-withdraw-cancel-${row.in_no}`"
+            @click="confirmWithdrawCancel(row)"
+          >撤回作废申请</t-link>
+          <t-link
+            v-if="actionsOf(row).remove"
+            theme="danger"
+            :data-testid="`btn-remove-${row.in_no}`"
+            @click="confirmRemove(row)"
+          >删除</t-link>
+        </div>
+      </template>
 
-        <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
-
-        <template #warehouse_id="{ row }">{{ warehouseNameOf(row.warehouse_id) }}</template>
-
-        <template #in_date="{ row }">
-          <span class="muted">{{ shortDate(row.in_date) }}</span>
-        </template>
-
-        <template #total_qty="{ row }">
-          <span class="num" :data-testid="`stockin-qty-${row.in_no}`">{{ formatQty(row.total_qty) }}</span>
-        </template>
-
-        <!-- ★ 金额列同样标「(价税合计)」 -->
-        <template #total_with_tax="{ row }">
-          <span class="money" :data-testid="`stockin-total-${row.in_no}`">{{ formatMoney(row.total_with_tax) }}</span>
-        </template>
-
-        <template #status="{ row }">
-          <div class="status-cell">
-            <t-tag size="small" :theme="stockInStatusTheme(row.status)" :data-testid="`stockin-status-${row.in_no}`">
-              {{ stockInStatusLabel(row.status) }}
-            </t-tag>
-            <!-- 过账后能看出「按可抵扣进项税入账」还是事后作废 -->
-            <t-tag v-if="row.status === 'POSTED' && row.invoice_received" size="small" variant="outline" theme="success">
-              发票已到
-            </t-tag>
-          </div>
-        </template>
-
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link theme="primary" :data-testid="`btn-view-${row.in_no}`" @click="openDetail(row)">查看</t-link>
-            <t-link
-              v-if="actionsOf(row).edit"
-              theme="primary"
-              :data-testid="`btn-edit-${row.in_no}`"
-              @click="openEditDialog(row)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).post"
-              theme="primary"
-              :disabled="!canPost(row)"
-              :data-testid="`btn-post-${row.in_no}`"
-              @click="openPostDialog(row)"
-            >
-              提交过账
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).cancel"
-              theme="danger"
-              :data-testid="`btn-cancel-${row.in_no}`"
-              @click="confirmCancel(row)"
-            >
-              作废
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).withdrawCancel"
-              theme="primary"
-              :data-testid="`btn-withdraw-cancel-${row.in_no}`"
-              @click="confirmWithdrawCancel(row)"
-            >
-              撤回作废申请
-            </t-link>
-            <t-link
-              v-if="actionsOf(row).remove"
-              theme="danger"
-              :data-testid="`btn-remove-${row.in_no}`"
-              @click="confirmRemove(row)"
-            >
-              删除
-            </t-link>
-          </div>
-        </template>
-
-        <template #empty>
-          <div class="panel-empty" data-testid="stockin-empty">
-            <t-icon name="inbox" class="panel-empty__icon" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的收货单' : '还没有收货单' }}</p>
-            <p class="panel-empty__desc">
-              {{ filtered ? '换个条件再查，或点右侧「重置」回全量' : '点左上角「新建收货单」录入第一张' }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="stockin-empty">
+          <t-icon name="inbox" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的收货单' : '还没有收货单' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个条件再查，或点「重置」回全量' : '点右上角「新建收货单」录入第一张' }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑弹窗 ==================== -->
     <t-dialog
@@ -961,10 +876,10 @@ import {
   stockInBatchExport,
   stockInBatchStatus,
 } from '@/api/business/batch';
-import BatchActionBar from '@/components/BatchActionBar.vue';
 import FormMemoryHint from '@/components/FormMemoryHint.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useUserStore } from '@/stores/user';
 import type {
   BatchActionSpec,
@@ -1021,7 +936,6 @@ import {
   formatMoney,
   formatQty,
   formFromPending,
-  isStockInFiltered,
   isSupplierReadonly,
   lineAmountsOfItem,
   locationSelectOptions,
@@ -1059,14 +973,8 @@ const userStore = useUserStore();
 const OPTION_LIMIT = 200;
 
 /** 表格列（卡面 §四：in_no / 供应商 / 仓库 / 入库日期 / 数量 / 金额 / 状态 / 操作） */
-const columns: PrimaryTableCol[] = [
-  // D7：勾选列。「没有任何可用批量动作」的行复选框直接禁用（已过账不能过账，但仍可作废）
-  {
-    colKey: 'row-select',
-    type: 'multiple',
-    width: 50,
-    disabled: (options: { row: unknown }) => !isSelectable(options.row as StockInRow),
-  },
+const columns: ColumnDef[] = [
+
   { colKey: 'in_no', title: '收货单号', width: 210 },
   // D4/F3：来源采购单（列上直接给单号，不用点进详情才知道这批货是给哪张单收的）
   { colKey: 'source_order_no', title: '来源采购单', width: 190, ellipsis: true },
@@ -1139,12 +1047,66 @@ const LINE_MEMORY_LABELS: Record<string, string> = { tax_rate: '税率' };
 // ==================== 列表 ====================
 
 const filter = reactive<StockInFilterState>(emptyStockInFilter());
-const rows = ref<StockInRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const pageSize = STOCKIN_PAGE_SIZE;
+/** 表单 / 带出动作的忙状态（列表自己的 loading 由 ListPage 管） */
 const loading = ref(false);
-const loadError = ref('');
+/** 当前页码（列表记忆 O4 要读写它；每拉完一页由 `onLoaded` 同步） */
+const current = ref(1);
+/** ListPage 实例（保存 / 过账 / 作废 / 删除后刷新列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/**
+ * 筛选项。
+ *
+ * 与改造前逐一对应：状态 / 供应商 / 仓库 / 单号 / 来源采购单号。
+ * 三个下拉都是主数据，值一变就查（`searchOnChange`，改造前是 `@change="handleSearch"`）。
+ * 用 `computed` 是因为选项字典在本文件后半段才建（直接写数组会撞 TDZ）。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'stockin-filter-status',
+  },
+  {
+    key: 'supplier_id',
+    type: 'select',
+    placeholder: '全部供应商',
+    width: 190,
+    options: supplierOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'stockin-filter-supplier',
+  },
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '全部仓库',
+    width: 170,
+    options: warehouseOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'stockin-filter-warehouse',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '收货单号 / 备注（模糊）',
+    width: 240,
+    testid: 'stockin-filter-no',
+  },
+  // D4/O3：按来源采购单号筛（从采购单跳过来的人最常用这一条）
+  {
+    key: 'purchase_order_no',
+    type: 'keyword',
+    placeholder: '来源采购单号（模糊）',
+    width: 220,
+    testid: 'stockin-filter-po-no',
+  },
+]);
 
 // ==================== 批量操作（D7） ====================
 
@@ -1194,8 +1156,7 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   export: 'business:impexp:export:create',
 };
 
-const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
-  useBatchSelection(BATCH_ACTIONS, rows);
+
 
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
@@ -1242,9 +1203,7 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
 }
 
 /** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
-function handleBatchDone(): void {
-  void loadOrders(1);
-}
+
 
 /**
  * 列表记忆（O4）：进页面恢复筛选 + 页码，改了防抖 300ms 写 sessionStorage。
@@ -1258,7 +1217,7 @@ const {
   listName: 'erp-stockin',
   filter,
   page: current,
-  pageSize,
+  pageSize: STOCKIN_PAGE_SIZE,
 });
 
 /** 表单记忆（O1）：供应商 / 仓库 / 发票随货，优先级 源单 > 记忆 > 默认 */
@@ -1340,8 +1299,6 @@ function handleBatchSetLocation(): void {
  */
 const purchaseOrders = ref<PurchaseOrderRow[]>([]);
 
-const filtered = computed(() => isStockInFiltered(filter));
-
 const supplierOptions = computed(() =>
   suppliers.value.map((item) => ({ label: `${item.supplier_name}（${item.supplier_code}）`, value: item.id })),
 );
@@ -1362,13 +1319,7 @@ const purchaseOrderOptions = computed(() =>
   })),
 );
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+
 
 /** 供应商名称 */
 function supplierNameOf(supplierId: string | null | undefined): string {
@@ -1408,26 +1359,20 @@ function messageOf(error: unknown): string {
 }
 
 /** 拉列表 */
-async function loadOrders(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchStockInPage(buildStockInQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
+/** 拉一页（ListPage 的 fetcher；入参由 `buildStockInQuery` 拼） */
+const fetcher: ListFetcher<StockInRow> = (query) =>
+  fetchStockInPage(query as Parameters<typeof fetchStockInPage>[0]);
+
+/** 入参拼装：沿用 `buildStockInQuery`（口径由它自己的单测钉住） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildStockInQuery(state as StockInFilterState, page, pageSize);
+
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
-/** 主数据 */
+/** 主数据（供应商 / 仓库 / 物料 / 采购单下拉；任一失败都不挡列表） */
 async function loadBasics(): Promise<void> {
   const [supplierList, warehousePage, materialPage, poPage] = await Promise.all([
     fetchSupplierOptions(OPTION_LIMIT).catch(() => [] as Supplier[]),
@@ -1442,13 +1387,14 @@ async function loadBasics(): Promise<void> {
   purchaseOrders.value = poPage?.list ?? [];
 }
 
-function handleSearch(): void {
-  void loadOrders(1);
+/** 一页拉完：同步页码（列表记忆 O4 按它写 sessionStorage） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
-function handleReset(): void {
-  Object.assign(filter, emptyStockInFilter());
-  void loadOrders(1);
+/** 批量跑完：回第 1 页刷新（勾选已由组件清空，避免误点第二次） */
+function onBatchDone(): void {
+  void reloadList(1);
 }
 
 /** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
@@ -1456,18 +1402,8 @@ function handleClearListMemory(): void {
   Object.assign(filter, emptyStockInFilter());
   current.value = 1;
   forgetListMemory();
-  void loadOrders(1);
+  void reloadList(1);
 }
-
-function refresh(): void {
-  void loadOrders();
-  void loadBasics();
-}
-
-function handlePageChange(pageInfo: { current?: number }): void {
-  void loadOrders(pageInfo.current ?? 1);
-}
-
 // ==================== 表单 ====================
 
 const formVisible = ref(false);
@@ -1694,7 +1630,7 @@ async function copyCurrent(): Promise<void> {
     submitError.value = '';
     formVisible.value = true;
     MessagePlugin.success(`已复制为 ${created.header.in_no}（草稿），请核对后提交`);
-    await loadOrders(1);
+    await reloadList(1);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -1745,7 +1681,7 @@ async function save(): Promise<void> {
     formMemory.remember(form);
     lineMemory.remember({ tax_rate: form.items[form.items.length - 1]?.tax_rate ?? 13 });
     memoryLabels.value = [];
-    await loadOrders(isEdit ? current.value : 1);
+    await reloadList(isEdit ? current.value : 1);
   } catch (error) {
     submitError.value = messageOf(error);
   } finally {
@@ -1805,7 +1741,7 @@ async function confirmPost(): Promise<void> {
     }
     postVisible.value = false;
     postTarget.value = null;
-    await loadOrders();
+    await reloadList();
   } catch (error) {
     // 重复过账会拿到 409 + 10003（文案含「已过账」），原样透出
     MessagePlugin.error(messageOf(error));
@@ -1841,7 +1777,7 @@ function confirmRepost(row: StockInRow): void {
         if (detailVisible.value && updated?.header?.id === row.id) {
           detail.value = updated;
         }
-        await loadOrders();
+        await reloadList();
       } catch (error) {
         // 明确原因原样透出（如「采购单已收满」），状态仍是过账审批中
         MessagePlugin.error(`重新过账失败：${messageOf(error)}`);
@@ -1888,7 +1824,7 @@ function confirmCancel(row: StockInRow): void {
         if (detailVisible.value && updated?.header?.id === row.id) {
           detail.value = updated;
         }
-        await loadOrders();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -1918,7 +1854,7 @@ function confirmWithdrawCancel(row: StockInRow): void {
         if (detailVisible.value && updated?.header?.id === row.id) {
           detail.value = updated;
         }
-        await loadOrders();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -1947,7 +1883,7 @@ function confirmRemove(row: StockInRow): void {
       try {
         await deleteStockIn(row.id);
         MessagePlugin.success(`${row.in_no} 已删除`);
-        await loadOrders();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -2008,7 +1944,7 @@ async function loadDetail(id: string): Promise<void> {
 onMounted(() => {
   void loadBasics();
   // 恢复的页码（列表记忆）要在首次加载就生效
-  void loadOrders(current.value);
+  void reloadList(current.value);
   void applyRouteQuery();
 });
 

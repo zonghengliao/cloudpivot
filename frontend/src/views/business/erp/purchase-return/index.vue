@@ -1,71 +1,71 @@
 <template>
   <div class="prt-page">
-    <t-card :bordered="false">
-      <!-- 筛选 -->
-      <t-form :data="query" layout="inline" label-width="80px" class="prt-filter">
-        <t-form-item label="状态">
-          <t-select v-model="query.status" :options="statusFilters" clearable placeholder="全部" />
-        </t-form-item>
-        <t-form-item label="关键字">
-          <t-input v-model="query.keyword" placeholder="退货单号 / 入库单号 / 供应商 / 原因" clearable />
-        </t-form-item>
-        <t-form-item label="退货日期">
-          <t-date-range-picker v-model="dateRange" clearable @change="onDateChange" />
-        </t-form-item>
-        <t-form-item>
-          <t-space>
-            <t-button theme="primary" data-testid="btn-prt-search" @click="load(1)">查询</t-button>
-            <t-button variant="outline" data-testid="btn-prt-reset" @click="reset">重置</t-button>
-            <t-button theme="success" data-testid="btn-prt-create" @click="openCreate">新建退货单</t-button>
-          </t-space>
-        </t-form-item>
-      </t-form>
+    <!-- 列表：筛选 / 分页 / 行操作交给 ListPage（P3-05 迁移） -->
+    <ListPage
+      ref="listRef"
+      title="采购退货单"
+      testid="prt"
+      table-testid="table-purchase-return"
+      btn-prefix="btn-prt"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      show-page-size
+    >
+      <!-- 退货日期区间：一个区间控件，拼参时拆成 date_from / date_to -->
+      <template #filter-date_range="{ value, set }">
+        <t-date-range-picker
+          :value="(value as string[] | undefined)"
+          clearable
+          data-testid="prt-filter-date"
+          @change="(picked: DateRangeValue) => set(picked)"
+        />
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        data-testid="table-purchase-return"
-        @page-change="onPageChange"
-      >
-        <template #status="{ row }">
-          <t-tag :theme="statusTheme(row.status)" variant="light">{{ row.status_label }}</t-tag>
-        </template>
-        <template #total_with_tax="{ row }">{{ decimalText(row.total_with_tax) }}</template>
-        <template #links="{ row }">
-          <t-space size="small">
-            <span v-if="row.payable_no">应付 {{ row.payable_no }}</span>
-            <span v-if="row.supplier_receivable_no">应退 {{ row.supplier_receivable_no }}</span>
-            <span v-if="row.voucher_no">凭证 {{ row.voucher_no }}</span>
-          </t-space>
-        </template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link theme="primary" data-testid="btn-prt-detail" @click="openDetail(row.id)">详情</t-link>
-            <t-link
-              v-if="row.status === 'DRAFT'"
-              theme="primary"
-              data-testid="btn-prt-submit"
-              @click="onSubmit(row)"
-            >提交审批</t-link>
-            <t-link
-              v-if="row.status === 'APPROVED'"
-              theme="success"
-              data-testid="btn-prt-confirm"
-              @click="onConfirm(row)"
-            >确认退货</t-link>
-            <t-link
-              v-if="row.status === 'DRAFT' || row.status === 'APPROVED'"
-              theme="danger"
-              data-testid="btn-prt-cancel"
-              @click="onCancel(row)"
-            >作废</t-link>
-          </t-space>
-        </template>
-      </t-table>
-    </t-card>
+      <template #toolbar>
+        <t-button theme="success" data-testid="btn-prt-create" @click="openCreate">新建退货单</t-button>
+      </template>
+
+      <template #status="{ row }">
+        <t-tag :theme="statusTheme(row.status)" variant="light">{{ row.status_label }}</t-tag>
+      </template>
+      <template #total_with_tax="{ row }">{{ decimalText(row.total_with_tax) }}</template>
+      <template #links="{ row }">
+        <t-space size="small">
+          <span v-if="row.payable_no">应付 {{ row.payable_no }}</span>
+          <span v-if="row.supplier_receivable_no">应退 {{ row.supplier_receivable_no }}</span>
+          <span v-if="row.voucher_no">凭证 {{ row.voucher_no }}</span>
+        </t-space>
+      </template>
+
+      <!-- 行操作按状态给（草稿可提交 / 已批准可确认 / 两种状态都能作废）——自绘 op 列 -->
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link theme="primary" data-testid="btn-prt-detail" @click="openDetail(row.id)">详情</t-link>
+          <t-link
+            v-if="row.status === 'DRAFT'"
+            theme="primary"
+            data-testid="btn-prt-submit"
+            @click="onSubmit(row)"
+          >提交审批</t-link>
+          <t-link
+            v-if="row.status === 'APPROVED'"
+            theme="success"
+            data-testid="btn-prt-confirm"
+            @click="onConfirm(row)"
+          >确认退货</t-link>
+          <t-link
+            v-if="row.status === 'DRAFT' || row.status === 'APPROVED'"
+            theme="danger"
+            data-testid="btn-prt-cancel"
+            @click="onCancel(row)"
+          >作废</t-link>
+        </t-space>
+      </template>
+    </ListPage>
 
     <!-- 详情 -->
     <t-drawer v-model:visible="detailVisible" header="采购退货详情" size="900px" :footer="false">
@@ -282,6 +282,8 @@ import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAle
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import { gateButtonTip } from '@/views/business/erp/shared/attachment-gate-pure';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   cancelPurchaseReturn,
   confirmPurchaseReturn,
@@ -299,23 +301,46 @@ import {
   type ReturnableSource,
 } from '@/api/business/erp/purchase-return';
 
-const loading = ref(false);
-const rows = ref<ReturnRow[]>([]);
-const total = ref(0);
-const query = reactive<ReturnPageQuery>({ page: 1, page_size: 20, status: '', keyword: '' });
-const dateRange = ref<DateRangeValue>();
+/** 每页条数（页面上可改：10 / 20 / 50） */
+const PAGE_SIZE = 20;
 
-const pagination = computed(() => ({
-  current: query.page,
-  pageSize: query.page_size,
-  total: total.value,
-  showJumper: true,
-  pageSizeOptions: [10, 20, 50],
-}));
+/**
+ * 列表筛选状态。
+ *
+ * `date_range` 是**一个**区间控件（改造前就是 `t-date-range-picker`），
+ * 拼参时才拆成 `date_from` / `date_to` —— 拆成两个 key 会让「重置」和「是否在筛选」
+ * 都变成两件事，界面上一失控就是「清了一半」。
+ */
+interface ReturnFilter {
+  status: string;
+  keyword: string;
+  date_range?: DateRangeValue;
+}
 
-const statusFilters = [{ value: '', label: '全部' }, ...STATUS_OPTIONS];
+const filter = reactive<ReturnFilter>({ status: '', keyword: '', date_range: undefined });
+/** ListPage 实例（建单 / 提交 / 确认 / 作废后刷新列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const columns = [
+const filters: FilterDef[] = [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: STATUS_OPTIONS.map((item) => ({ label: item.label, value: item.value })),
+    testid: 'prt-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '退货单号 / 入库单号 / 供应商 / 原因',
+    width: 320,
+    testid: 'prt-filter-keyword',
+  },
+  { key: 'date_range', type: 'custom', testid: 'prt-filter-date-range' },
+];
+
+const columns: ColumnDef[] = [
   { colKey: 'return_no', title: '退货单号', width: 190 },
   { colKey: 'stock_in_no', title: '来源入库单', width: 175 },
   { colKey: 'supplier_name', title: '供应商', width: 150, ellipsis: true },
@@ -352,40 +377,37 @@ const sourceColumns = [
   { colKey: 'input', title: '本次退货', width: 140 },
 ];
 
-// ==================== 列表 ====================
+// ==================== 列表（ListPage 声明） ====================
 
-async function load(page = query.page ?? 1) {
-  loading.value = true;
-  try {
-    query.page = page;
-    const data = await pagePurchaseReturn({ ...query });
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-  } catch (error) {
-    MessagePlugin.error(String(error));
-  } finally {
-    loading.value = false;
+/**
+ * 入参拼装。
+ *
+ * 空值一律整键缺席（与改造前「空串照样发」等价：后端 `''` 与缺席都是不过滤，
+ * 但干净入参让「导出 / 调试」时看得懂到底筛了什么）。
+ */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const current = state as ReturnFilter;
+  const query: ReturnPageQuery = { page, page_size: pageSize };
+  if (current.status) {
+    query.status = current.status;
   }
-}
+  const keyword = (current.keyword ?? '').trim();
+  if (keyword) {
+    query.keyword = keyword;
+  }
+  const range = current.date_range;
+  if (Array.isArray(range) && range.length === 2) {
+    query.date_from = String(range[0]);
+    query.date_to = String(range[1]);
+  }
+  return query;
+};
 
-function reset() {
-  query.status = '';
-  query.keyword = '';
-  query.date_from = undefined;
-  query.date_to = undefined;
-  dateRange.value = undefined;
-  load(1);
-}
+const fetcher: ListFetcher<ReturnRow> = (query) => pagePurchaseReturn(query as ReturnPageQuery);
 
-function onDateChange(value: unknown) {
-  const range = Array.isArray(value) ? (value as Array<string | number | Date>) : [];
-  query.date_from = range[0] ? String(range[0]) : undefined;
-  query.date_to = range[1] ? String(range[1]) : undefined;
-}
-
-function onPageChange(info: { current: number; pageSize: number }) {
-  query.page_size = info.pageSize;
-  load(info.current);
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
 // ==================== 详情 ====================
@@ -518,7 +540,7 @@ async function saveCreate() {
       items,
     });
     createVisible.value = false;
-    await load(1);
+    await reloadList(1);
     // 验收①（E2E01-FIX-1）：保存后**直接落到本单详情** —— 附件红字与上传入口在一屏内，
     // 不再只回列表让用户自己再点一次「详情」才发现缺附件。
     detail.value = created;
@@ -628,7 +650,7 @@ async function runSubmit(id: string): Promise<void> {
   try {
     await submitPurchaseReturn(id);
     MessagePlugin.success('已提交审批');
-    await load();
+    await reloadList();
     if (detailVisible.value) {
       detail.value = await getPurchaseReturn(id);
     }
@@ -651,7 +673,7 @@ async function onConfirm(row: ReturnRow) {
     MessagePlugin.success(
       `已确认：出库单 ${result.purchase_return.stock_out_no ?? ''} / 凭证 ${result.purchase_return.voucher_no ?? ''}`,
     );
-    load();
+    void reloadList();
   } catch (error) {
     MessagePlugin.error(String(error));
   }
@@ -668,13 +690,15 @@ async function onCancel(row: ReturnRow) {
   try {
     await cancelPurchaseReturn(row.id, reason || undefined);
     MessagePlugin.success('已作废');
-    load();
+    void reloadList();
   } catch (error) {
     MessagePlugin.error(String(error));
   }
 }
 
-onMounted(() => load(1));
+onMounted(() => {
+  // 列表由 ListPage 自己拉首屏，这里没有额外初始化
+});
 </script>
 
 <style scoped>

@@ -1,51 +1,42 @@
 <template>
   <div class="piq-page">
-    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="单号 / 采购员 / 物料编码"
-          clearable
-          data-testid="piq-filter-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="piq-filter-status"
-        />
-
+    <!-- ==================== ①② 列表：筛选 / 分页 / 行操作交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="询价单"
+      testid="piq"
+      table-testid="piq-table"
+      btn-prefix="btn-piq"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      :actions="actions"
+    >
+      <template #filter-date_from="{ value, set }">
         <t-date-picker
-          v-model="filter.date_from"
-          class="filter-row__date"
+          :value="(value as DateValue | undefined)"
           value-type="YYYY-MM-DD"
           placeholder="询价日期起"
           clearable
           data-testid="piq-filter-date-from"
+          @change="(picked: DateValue | DateMultipleValue) => set(picked)"
         />
+      </template>
+      <template #filter-date_to="{ value, set }">
         <t-date-picker
-          v-model="filter.date_to"
-          class="filter-row__date"
+          :value="(value as DateValue | undefined)"
           value-type="YYYY-MM-DD"
           placeholder="询价日期止"
           clearable
           data-testid="piq-filter-date-to"
+          @change="(picked: DateValue | DateMultipleValue) => set(picked)"
         />
+      </template>
 
-        <t-button theme="primary" data-testid="btn-piq-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-piq-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-piq-refresh" @click="loadList">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+      <template #toolbar>
         <t-tooltip
           :content="
             canCreate
@@ -66,117 +57,53 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="listError"
-        theme="error"
-        :message="listError"
-        class="page-alert"
-        data-testid="piq-list-error"
-      />
-    </t-card>
+      <template #inquiry_no="{ row }">
+        <div class="no-cell">
+          <b class="mono">{{ row.inquiry_no }}</b>
+          <span class="sub">{{ row.inquiry_date }}</span>
+        </div>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="table-card">
-      <t-table
-        row-key="id"
-        size="small"
-        hover
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :empty="emptyText"
-        data-testid="piq-table"
-      >
-        <template #inquiry_no="{ row }">
-          <div class="no-cell">
-            <b class="mono">{{ row.inquiry_no }}</b>
-            <span class="sub">{{ row.inquiry_date }}</span>
-          </div>
-        </template>
+      <template #buyer_name="{ row }">
+        <span>{{ row.buyer_name || '—' }}</span>
+      </template>
 
-        <template #buyer_name="{ row }">
-          <span>{{ row.buyer_name || '—' }}</span>
-        </template>
+      <template #warehouse_name="{ row }">
+        <span>{{ row.warehouse_name || '—' }}</span>
+      </template>
 
-        <template #warehouse_name="{ row }">
-          <span>{{ row.warehouse_name || '—' }}</span>
-        </template>
+      <template #counts="{ row }">
+        <span class="mono counts-cell">{{ row.item_count }} 行 / {{ row.supplier_count }} 家</span>
+      </template>
 
-        <template #counts="{ row }">
-          <span class="mono counts-cell">
-            {{ row.item_count }} 行 / {{ row.supplier_count }} 家
-          </span>
-        </template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="statusTheme(row.status)">
+          {{ row.status_label || statusLabel(row.status) }}
+        </t-tag>
+      </template>
 
-        <template #status="{ row }">
-          <t-tag size="small" variant="light" :theme="statusTheme(row.status)">
-            {{ row.status_label || statusLabel(row.status) }}
+      <template #award="{ row }">
+        <div class="award-cell">
+          <t-tag v-if="row.award_mode" size="small" variant="outline" theme="primary">
+            {{ row.award_mode_label }}
           </t-tag>
-        </template>
+          <span class="sub">{{ row.award_supplier_name || awardSupplierText(row) }}</span>
+        </div>
+      </template>
 
-        <template #award="{ row }">
-          <div class="award-cell">
-            <t-tag v-if="row.award_mode" size="small" variant="outline" theme="primary">
-              {{ row.award_mode_label }}
-            </t-tag>
-            <span class="sub">{{ row.award_supplier_name || awardSupplierText(row) }}</span>
-          </div>
-        </template>
+      <template #po_refs="{ row }">
+        <span class="sub mono">{{ poRefsText(row.po_refs) }}</span>
+      </template>
 
-        <template #po_refs="{ row }">
-          <span class="sub mono">{{ poRefsText(row.po_refs) }}</span>
-        </template>
-
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-button
-              variant="text"
-              theme="primary"
-              size="small"
-              data-testid="btn-piq-detail"
-              @click="openDetail(row.id)"
-            >
-              比价 / 详情
-            </t-button>
-            <t-button
-              variant="text"
-              theme="primary"
-              size="small"
-              :disabled="!canQuote || row.status === 'CONVERTED'"
-              data-testid="btn-piq-quote"
-              @click="openQuoteFor(row.id)"
-            >
-              录入报价
-            </t-button>
-            <t-button
-              variant="text"
-              theme="primary"
-              size="small"
-              :disabled="!canToPo || row.status !== 'AWARDED'"
-              data-testid="btn-piq-to-po"
-              @click="openToPoFor(row.id)"
-            >
-              转采购单
-            </t-button>
-          </div>
-        </template>
-      </t-table>
-
-      <div class="pager-row">
-        <t-pagination
-          :current="page"
-          :page-size="PAGE_SIZE"
-          :total="total"
-          :show-page-size="false"
-          show-jumper
-          data-testid="piq-pager"
-          @current-change="handlePageChange"
-        />
-      </div>
-    </t-card>
-
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="piq-empty">
+          <t-icon name="search" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ emptyListText(filtered) }}</p>
+        </div>
+      </template>
+    </ListPage>
     <!-- ==================== ③ 新建询价单 ==================== -->
     <t-dialog
       v-model:visible="createVisible"
@@ -677,7 +604,14 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import {
+  MessagePlugin,
+  type DateMultipleValue,
+  type DateValue,
+  type PrimaryTableCol,
+} from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListActions, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 import DetailLineLimitAlert from '@/views/business/erp/shared/DetailLineLimitAlert.vue';
@@ -724,7 +658,6 @@ import {
   emptyListText,
   emptyQuoteForm,
   emptyToPoForm,
-  isFiltered,
   lowestPicksOf,
   newCreateLine,
   poRefsText,
@@ -773,16 +706,12 @@ function errorText(error: unknown, fallback: string): string {
 // ==================== 列表 ====================
 
 const filter = reactive<FilterState>(emptyFilter());
-const rows = ref<PriceInquiryRow[]>([]);
-const total = ref(0);
-const page = ref(1);
-const loading = ref(false);
-const listError = ref('');
+
 
 const statusOptions = STATUS_OPTIONS.map((item) => ({ label: item.label, value: item.value }));
-const emptyText = computed(() => emptyListText(isFiltered(filter)));
 
-const columns: PrimaryTableCol[] = [
+
+const columns: ColumnDef[] = [
   { colKey: 'inquiry_no', title: '询价单号', width: 190 },
   { colKey: 'buyer_name', title: '采购员', width: 100 },
   { colKey: 'warehouse_name', title: '收货仓库', width: 130 },
@@ -817,41 +746,94 @@ function awardSupplierText(row: Pick<PriceInquiryRow, 'award_supplier_id' | 'awa
   return '—';
 }
 
-async function loadList(): Promise<void> {
+// ==================== 列表（ListPage 声明） ====================
+
+/** 筛选项：关键词 / 状态 / 询价日期区间（两个日期控件，与改造前一致） */
+const filters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '单号 / 采购员 / 物料编码',
+    width: 300,
+    testid: 'piq-filter-keyword',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'piq-filter-status',
+  },
+  { key: 'date_from', type: 'custom', testid: 'piq-filter-date-from-def' },
+  { key: 'date_to', type: 'custom', testid: 'piq-filter-date-to-def' },
+];
+
+/** 入参拼装：沿用 `buildQuery`（空值整键缺席、keyword 去空格） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const typed = state as FilterState;
+  // 日期控件给的是 DateValue（值类型已声明 YYYY-MM-DD），落库口径统一按字符串补齐成 ''
+  const normalized: FilterState = {
+    ...typed,
+    keyword: typed.keyword ?? '',
+    date_from: typed.date_from ? String(typed.date_from) : '',
+    date_to: typed.date_to ? String(typed.date_to) : '',
+  };
+  return buildQuery(normalized, page, pageSize);
+};
+
+/**
+ * 拉一页。
+ *
+ * 「起晚于止」在前端先拦（后端会 400）：抛出去由 ListPage 统一画红条，
+ * 省掉一次必然失败的请求。
+ */
+const fetcher: ListFetcher<PriceInquiryRow> = async (query) => {
   const rangeError = dateRangeError(filter);
   if (rangeError) {
-    listError.value = rangeError;
-    return;
+    throw new Error(rangeError);
   }
-  loading.value = true;
-  listError.value = '';
-  try {
-    const data = await fetchPriceInquiryPage(buildQuery(filter, page.value));
-    rows.value = data.list;
-    total.value = data.total;
-  } catch (error) {
-    listError.value = errorText(error, '询价单列表加载失败');
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
-}
+  return fetchPriceInquiryPage(query as Parameters<typeof fetchPriceInquiryPage>[0]);
+};
 
-function handleSearch(): void {
-  page.value = 1;
-  void loadList();
-}
+/** 行操作（改造前是三个常驻按钮：不可用就置灰 + tooltip 说明为什么） */
+const actions: ListActions = {
+  row: [
+    {
+      key: 'detail',
+      label: '比价 / 详情',
+      testid: 'btn-piq-detail',
+      handler: (row: PriceInquiryRow) => openDetail(row.id),
+    },
+    {
+      key: 'quote',
+      label: '录入报价',
+      testid: 'btn-piq-quote',
+      permission: PERM.quote,
+      whenDenied: 'disable',
+      disabled: (row: PriceInquiryRow) => row.status === 'CONVERTED',
+      tip: () => '已转采购订单的询价单不能再改报价',
+      handler: (row: PriceInquiryRow) => openQuoteFor(row.id),
+    },
+    {
+      key: 'to-po',
+      label: '转采购单',
+      testid: 'btn-piq-to-po',
+      permission: PERM.toPo,
+      whenDenied: 'disable',
+      disabled: (row: PriceInquiryRow) => row.status !== 'AWARDED',
+      tip: () => '只有已定标的询价单能转采购订单',
+      handler: (row: PriceInquiryRow) => openToPoFor(row.id),
+    },
+  ],
+};
 
-function handleReset(): void {
-  Object.assign(filter, emptyFilter());
-  page.value = 1;
-  void loadList();
-}
+/** ListPage 实例（建单后回第 1 页刷新） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-function handlePageChange(next: number): void {
-  page.value = next;
-  void loadList();
+/** 刷新到指定页（不传 = 当前页） */
+async function reloadList(page?: number): Promise<void> {
+  await listRef.value?.load(page ?? listRef.value.current);
 }
 
 // ==================== 主数据下拉 ====================
@@ -927,8 +909,7 @@ async function submitCreate(): Promise<void> {
     const detail = await createPriceInquiry(buildCreatePayload(createForm));
     createVisible.value = false;
     MessagePlugin.success(`询价单 ${detail.header.inquiry_no} 已创建（${detail.items.length} 行），下一步录入报价`);
-    page.value = 1;
-    await loadList();
+    await reloadList(1);
     // 建完直接进详情，省一次点击（详情里能直接录入报价）
     showDetail(detail);
   } catch (error) {
@@ -1033,7 +1014,7 @@ async function submitAward(): Promise<void> {
         ? '已定标（单源例外，理由已留痕），可以转采购订单'
         : '已定标，可以转采购订单',
     );
-    await loadList();
+    await reloadList();
   } catch (error) {
     awardError.value = errorText(error, '定标失败');
   } finally {
@@ -1110,7 +1091,7 @@ async function submitQuote(): Promise<void> {
     MessagePlugin.success(
       quoteReplacing.value ? '报价已更新（同一明细 × 供应商 = 改价）' : '报价已录入',
     );
-    await loadList();
+    await reloadList();
   } catch (error) {
     quoteError.value = errorText(error, '报价提交失败');
   } finally {
@@ -1161,7 +1142,7 @@ async function submitToPo(): Promise<void> {
     const names = result.purchase_orders.map((order) => order.po_no).join('、');
     MessagePlugin.success(`已生成 ${result.purchase_orders.length} 张采购订单：${names}`);
     await refreshDetail(inquiryId);
-    await loadList();
+    await reloadList();
   } catch (error) {
     toPoError.value = errorText(error, '转采购订单失败');
   } finally {
@@ -1182,7 +1163,6 @@ function onQuoteSupplierChange(value: unknown): void {
 
 onMounted(() => {
   void loadOptions();
-  void loadList();
 });
 </script>
 

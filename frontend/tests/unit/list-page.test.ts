@@ -17,6 +17,7 @@ import {
   activeFilterCount,
   buildListQuery,
   clampPage,
+  clearFilter,
   csvFileName,
   emptyFilter,
   errorText,
@@ -161,4 +162,45 @@ test('csvFileName：本地时间戳到分钟，非法字符剔除', () => {
   assert.equal(name, '供应商-20261115-1730.csv');
   assert.equal(csvFileName('a/b:c*?', new Date(2026, 0, 2, 3, 4)), 'abc-20260102-0304.csv');
   assert.equal(csvFileName('', new Date(2026, 0, 2, 3, 4)), '列表-20260102-0304.csv');
+});
+
+test('clearFilter：keyword / select 回空串，custom（日期区间、复选框）回 undefined', () => {
+  const defs = [
+    { key: 'keyword', type: 'keyword' as const },
+    { key: 'status', type: 'select' as const },
+    { key: 'date_range', type: 'custom' as const },
+    { key: 'convertible_only', type: 'custom' as const },
+  ];
+  const filter: Record<string, unknown> = {
+    keyword: 'AP-001',
+    status: 'DRAFT',
+    date_range: ['2026-11-01', '2026-11-30'],
+    convertible_only: true,
+  };
+  clearFilter(defs, filter);
+  assert.deepEqual(filter, { keyword: '', status: '', date_range: undefined, convertible_only: undefined });
+});
+
+test('clearFilter：defaultValue 回默认值（不是清成空）', () => {
+  const filter: Record<string, unknown> = { page_size_hint: 50 };
+  clearFilter([{ key: 'page_size_hint', type: 'number' as const, defaultValue: 20 }], filter);
+  assert.equal(filter.page_size_hint, 20);
+});
+
+test('clearFilter：声明外的键不动（页面私有状态不该被列表组件清掉）', () => {
+  const filter: Record<string, unknown> = { keyword: 'x', internalTab: 'mine' };
+  clearFilter([{ key: 'keyword', type: 'keyword' as const }], filter);
+  assert.equal(filter.keyword, '');
+  assert.equal(filter.internalTab, 'mine');
+});
+
+test('clearFilter 之后 isFiltered 必须是 false（否则空态文案会一直说「没有匹配」）', () => {
+  const defs = [
+    { key: 'status', type: 'select' as const },
+    { key: 'date_range', type: 'custom' as const },
+  ];
+  const filter: Record<string, unknown> = { status: 'POSTED', date_range: ['2026-11-01', '2026-11-02'] };
+  assert.equal(isFiltered(filter, defs), true);
+  clearFilter(defs, filter);
+  assert.equal(isFiltered(filter, defs), false);
 });
