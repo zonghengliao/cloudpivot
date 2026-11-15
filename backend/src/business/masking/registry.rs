@@ -38,7 +38,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
-use crate::business::masking::masker::{self, MaskError, MaskType};
+use crate::business::masking::masker::{self, MaskError, MaskType, Masker};
 use crate::business::masking::model::{self, RawRule};
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::shared::constants;
@@ -196,7 +196,7 @@ impl MaskSet {
     }
 
     /// 对单个值脱敏：`None` = 该列没有规则（调用方按各自的策略处理；
-    /// 导出路径必须把它当错误，见 `impexp::engine::format_export_rows`）。
+    /// 导出路径必须把它当错误，见导出引擎的 `format_export_rows`）。
     ///
     /// # 参数
     ///
@@ -227,6 +227,19 @@ impl MaskSet {
     /// - `raw`：原文。
     pub fn fail_closed(raw: &str) -> String {
         "*".repeat(raw.chars().count())
+    }
+}
+
+/// P2-39：`MaskSet` 是脱敏接缝 [`Masker`] 的**默认实现**（导出引擎等跨域调用方只认 trait）。
+///
+/// 方法体委托给同名固有方法：固有方法的文档（含 fail-closed 口径）就在这里，不再抄一份。
+impl Masker for MaskSet {
+    fn is_exempt(&self) -> bool {
+        MaskSet::is_exempt(self)
+    }
+
+    fn mask_value(&self, table: &str, column: &str, raw: &str) -> std::result::Result<Option<String>, MaskError> {
+        MaskSet::mask_value(self, table, column, raw)
     }
 }
 

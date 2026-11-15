@@ -1,5 +1,12 @@
 //! 用户列表导出定义（`system.user`）——**导出脱敏的实机验证载体**（批次 B · B6）。
 //!
+//! # 为什么放在 `impexp/builtin/`（P2-39 搬家说明）
+//!
+//! 本文件原先住在 `business/masking/`，导致 `masking → impexp` 出现反向依赖（它要实现
+//! [`crate::business::impexp::definition::ExportDefinition`]）。导出定义本来就属于导出域的
+//! 内置定义目录（与 `dict_item` / `erp_doc` / `hr` 同级），搬家后依赖只剩一个方向：
+//! **impexp → masking**（脱敏接缝 [`crate::business::masking::masker::Masker`]）。
+//!
 //! # 为什么 B6 要新增这个定义
 //!
 //! 架构 §3.7 把「导出必须走同一套脱敏」列为安全红线，而 A3 交付时唯一的内建导出

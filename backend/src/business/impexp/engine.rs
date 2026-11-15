@@ -26,8 +26,7 @@ use calamine::{Data, Reader, Xlsx};
 use nik::prelude::*;
 
 use crate::business::impexp::definition::{DictTranslation, ExportColumn, ImportColumn};
-use crate::business::masking::masker::MaskError;
-use crate::business::masking::registry::MaskSet;
+use crate::business::masking::masker::{MaskError, Masker};
 use crate::shared::error_code;
 
 /// xlsx 文件头（zip 容器魔数 `PK\x03\x04`）。
@@ -387,7 +386,8 @@ fn export_headers(columns: &'static [ExportColumn]) -> Vec<&'static str> {
 /// - `columns`：导出列定义。
 /// - `rows`：库中值（键为列 `key`）。
 /// - `dicts`：字典翻译表（键为字典编码）。
-/// - `mask`：本次导出请求者的脱敏规则集合（由 handler / worker 解析后传入）。
+/// - `mask`：本次导出请求者的脱敏规则集合（由 handler / worker 解析后传入，
+///   类型是脱敏域的读取接缝 [`Masker`]，所以本引擎不需要知道 `MaskSet` 的形态）。
 ///
 /// # 返回值
 ///
@@ -405,7 +405,7 @@ pub fn format_export_rows(
     columns: &'static [ExportColumn],
     rows: &[HashMap<&'static str, String>],
     dicts: &HashMap<String, DictTranslation>,
-    mask: &MaskSet,
+    mask: &dyn Masker,
 ) -> std::result::Result<Vec<HashMap<String, String>>, MaskError> {
     rows.iter()
         .map(|row| {
@@ -554,6 +554,7 @@ pub fn write_workbook(sheets: &[WorkbookSheet<'_>]) -> std::result::Result<Vec<u
 mod tests {
     use super::*;
     use crate::business::impexp::definition::{ColumnKind, EnumItem, FkSpec, ImportColumn};
+    use crate::business::masking::registry::MaskSet;
 
     const STATUS: &[EnumItem] = &[EnumItem {
         label: "启用",

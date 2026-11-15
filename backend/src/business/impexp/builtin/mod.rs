@@ -9,11 +9,21 @@
 //! 3. 导入的是运维真会用的数据（批量维护字典项），不是玩具定义。
 //!
 //! 新增业务定义只需在本模块加一个文件 + 在 [`register`] 里挂一行。
+//!
+//! # 目录内的定义（按业务域分组）
+//!
+//! - [`dict_item`]：`system.dict_item`（字典项导入 / 导出，A3 的端到端载体）；
+//! - [`master_data`]：ERP 主数据 6 个导入定义；
+//! - [`erp_doc`]：ERP 单据 3 个导出定义；
+//! - [`hr`]：考勤台账 / 员工档案导入；
+//! - [`user_export`]：`system.user` 导出定义（批次 B · B6 的导出脱敏载体，P2-39 由
+//!   `masking/` 搬入 —— 导出定义归导出域，脱敏只经 `masking::masker::Masker` 接缝参与）。
 
 pub mod dict_item;
 pub mod erp_doc;
 pub mod hr;
 pub mod master_data;
+pub mod user_export;
 
 use crate::business::impexp::registry::DefinitionRegistry;
 
@@ -50,5 +60,9 @@ pub fn register(registry: &mut DefinitionRegistry) -> std::result::Result<(), St
     // HR-47（卡 `t_b0808afe`）：员工档案导入（`hr.employee`）。同样只注册导入：
     // 员工导出走 `/business/hr/employee/export`（列级脱敏 + 数据范围），不进批量导出清单。
     registry.register_import(std::sync::Arc::new(hr::employee::EmployeeImport))?;
+    // 批次 B · B6：`sys_user` 导出定义（三个敏感列），P2-39 由 `masking/user_export.rs`
+    // 搬入本目录——导出定义归导出域，脱敏只经 `masking::masker::Masker` 接缝参与，
+    // 于是依赖只剩 `impexp → masking` 一个方向。
+    registry.register_export(std::sync::Arc::new(user_export::UserExport))?;
     Ok(())
 }

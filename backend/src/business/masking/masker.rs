@@ -292,6 +292,41 @@ pub fn apply(ty: MaskType, param: Option<&str>, raw: &str) -> std::result::Resul
     }
 }
 
+// ==================== 跨域读取接缝（P2-39） ====================
+
+/// 脱敏规则集的**跨域只读接缝**：调用方（导出引擎等）只依赖这三个方法的形状，
+/// 不依赖 [`crate::business::masking::registry::MaskSet`] 的字段与构造方式。
+///
+/// # 为什么要有这个 trait（P2-39）
+///
+/// 导出路径必须脱敏（批次 B 架构 §3.7），但它不该知道规则是怎么从库里合并出来的。
+/// 把「取值」收敛到 trait 之后依赖方向只有一个：**导出域 → 脱敏域**（导出域 import
+/// 本 trait，脱敏域对导出域零引用）。`MaskSet` 只是它的一个实现；将来换成缓存快照 /
+/// 租户级规则也不会动导出侧一行代码。
+///
+/// # 契约（fail-closed）
+///
+/// - [`Masker::mask_value`] 返回 `Ok(None)` **只**表示「这一列没有生效规则」，
+///   不表示可以出明文：导出路径必须把它当错误（422 + `61008`）。
+/// - [`Masker::is_exempt`] 为真（超管 / 持 `system:field-mask:plain`）时调用方才可以
+///   跳过脱敏。
+pub trait Masker {
+    /// 是否被豁免（超管 / 明版权限）。
+    fn is_exempt(&self) -> bool;
+
+    /// 对单个值脱敏：`None` = 该列没有生效规则。
+    ///
+    /// # 参数
+    ///
+    /// - `table` / `column`：列坐标；
+    /// - `raw`：明文值。
+    ///
+    /// # 异常情况
+    ///
+    /// 规则不可用（非法 `mask_type` / 参数不合法）时返回 [`MaskError`]。
+    fn mask_value(&self, table: &str, column: &str, raw: &str) -> std::result::Result<Option<String>, MaskError>;
+}
+
 // ==================== 参数解析（纯逻辑） ====================
 
 /// 解析 `"保留前N,保留后M"`；缺省走 [`MaskType::default_param`]。

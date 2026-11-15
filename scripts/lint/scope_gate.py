@@ -208,6 +208,8 @@ business/hr/self_service_db_tests.rs
 business/impexp/builtin/hr/db_tests.rs
 business/impexp/builtin/hr/import_post_db_tests.rs
 business/impexp/builtin/master_data/db_tests.rs
+business/impexp/export_mask_tests.rs
+business/masking/independence_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
 business/shared/doc_kind_entity_tests.rs

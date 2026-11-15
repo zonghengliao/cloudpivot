@@ -59,6 +59,7 @@
 use nik::prelude::*;
 
 use crate::business::masking::dto::{FieldMaskCreateReq, FieldMaskUpdateReq};
+use crate::business::masking::masker::Masker;
 use crate::business::masking::model::RawRule;
 use crate::business::masking::{handler, masker, registry};
 use crate::system::tests_support as ts;
@@ -291,14 +292,16 @@ async fn m03_exempt_principal_sees_plaintext() {
     fx.sweep().await;
 }
 
-// ==================== M04 导出链路 ====================
+// ==================== M04 规则集 → 脱敏接缝 ====================
 
-/// M04：**导出**走同一份规则集合，导出的单元格里不能有原值。
+/// M04：**库里的规则** → `registry::load_user_set` → 脱敏接缝 [`Masker`] 端到端一次。
 ///
-/// 导出是脱敏最容易漏的出口（列表遮住了、导出把明文带走），所以从「库里配置的规则」→
-/// `registry` 解析 → `impexp::engine::format_export_rows` 端到端验证一次。
+/// 导出是脱敏最容易漏的出口（列表遮住了、导出把明文带走），所以「库里配的规则必须在
+/// 导出那条链路上生效」是硬要求。P2-39 解环后这半条链路的**导出侧**断言搬到导出域
+/// 自己的用例（`business::impexp::export_mask_tests`），本用例钉住脱敏域这一半：
+/// 规则从库里读出来 → 经 `&dyn Masker`（导出引擎实际拿到的形状）调用 → 得到掩码。
 #[tokio::test]
-async fn m04_export_applies_mask_from_database_rule() {
+async fn m04_loaded_ruleset_masks_through_masker_seam() {
     if !ts::ensure_db().await {
         return;
     }
@@ -312,60 +315,28 @@ async fn m04_export_applies_mask_from_database_rule() {
     .await;
 
     let set = registry::load_user_set(&holder).await.expect("加载规则失败");
-    static COLUMNS: &[crate::business::impexp::definition::ExportColumn] = &[
-        crate::business::impexp::definition::ExportColumn {
-            key: "username",
-            header: "用户名",
-            kind: crate::business::impexp::definition::ColumnKind::Text { max_len: None },
-            width: None,
-            table: "sys_user",
-            sensitive: false,
-        },
-        crate::business::impexp::definition::ExportColumn {
-            key: "remark",
-            header: "备注",
-            kind: crate::business::impexp::definition::ColumnKind::Text { max_len: None },
-            width: None,
-            table: "sys_user",
-            sensitive: true,
-        },
-    ];
     let raw = "13912345678";
-    let mut row = std::collections::HashMap::new();
-    row.insert("username", "alice".to_string());
-    row.insert("remark", raw.to_string());
+    // 关键：以 **trait 对象** 调用 —— 导出引擎拿到的就是这个形状（`&dyn Masker`）
+    let seam: &dyn Masker = &set;
+    assert!(!seam.is_exempt(), "普通用户不应被豁免");
+    let masked = seam
+        .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
+        .expect("脱敏计算不应失败")
+        .expect("该列有规则，必须返回 Some");
+    assert!(!masked.contains(raw), "掩码里绝不能出现原值，实际 {masked:?}");
+    assert!(masked.contains('*'), "打码结果应包含掩码字符，实际 {masked:?}");
 
-    let formatted =
-        crate::business::impexp::engine::format_export_rows(COLUMNS, &[row], &std::collections::HashMap::new(), &set)
-            .expect("库里有规则，导出应成功");
-    let cell = formatted[0].get("备注").cloned().unwrap_or_default();
-    assert!(!cell.contains(raw), "导出的单元格里不能出现原值，实际 {cell:?}");
-    assert_eq!(
-        formatted[0].get("用户名").map(String::as_str),
-        Some("alice"),
-        "非敏感列不受影响"
-    );
-
-    // 反向：同一个导出器 + 没有规则的集合 → 敏感列必须 fail-closed（422），不是明文
-    let error = crate::business::impexp::engine::format_export_rows(
-        COLUMNS,
-        &[std::collections::HashMap::from([
-            ("username", "alice".to_string()),
-            ("remark", raw.to_string()),
-        ])],
-        &std::collections::HashMap::new(),
-        &registry::MaskSet::empty(),
-    )
-    .expect_err("敏感列没有规则必须报错");
+    // 空集合 → `None`（「该列没有规则」，调用方按 fail-closed 处理；导出侧 422 由
+    // `business::impexp::export_mask_tests` 钉住）
+    let empty = registry::MaskSet::empty();
+    let empty: &dyn Masker = &empty;
     assert!(
-        !error.message().contains(raw),
-        "错误信息里也不能泄漏原值，实际 {}",
-        error.message()
+        empty
+            .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
+            .expect("不应失败")
+            .is_none()
     );
-    println!(
-        "[M04] 导出单元格 {cell:?} 已打码；无规则时 fail-closed（HTTP {}）✓",
-        error.http_status()
-    );
+    println!("[M04] 库规则 → load_user_set → dyn Masker 得到 {masked:?} ✓");
     fx.sweep().await;
 }
 

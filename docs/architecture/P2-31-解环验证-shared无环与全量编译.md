@@ -259,9 +259,9 @@ test result: ok. 19 passed; 0 failed
 | `erp ⇄ flow` | 132 / 131 | P2-32 ~ P2-34（flow 定义 `DocReader` trait，erp 实现注入） |
 | `erp ⇄ hr` | 0 / 6（erp 侧只有 1 处注释） | P2-35 ~ P2-36 |
 | `flow ⇄ task` | 11 / 13 | **已完成（P2-37 + P2-38）**：`task → flow` = 0（P2-37），`flow → task` = 0（P2-38）；写法 `flow::task_port` + `task::approval_port` 双接缝，实现在中立接线域 `business::taskflow`。见 `P2-37-task去掉对flow的直调.md` / `P2-38-flow去掉对task的直连.md` |
-| `impexp ⇄ masking` | 8 / 9 | P2-39 |
+| `impexp ⇄ masking` | 8 / 9 | **已完成（P2-39）**：`masking → impexp` = 0（导出定义搬去 `impexp/builtin/user_export.rs`、导出 e2e 搬去 `impexp/export_mask_tests.rs`）；反方向保留且只认接缝 `masking::masker::Masker`（`format_export_rows` 收 `&dyn Masker`）。见 `P2-39-impexp与masking解环.md` |
 | `flow ⇄ hr` | 10 / 5 | 随 P2-32~36 一起收（`hr` 侧调 `flow` 的建流程 + 回调） |
-| `hr ⇄ impexp` | 18 / 11 | 随 P2-39 收（导入导出双向） |
+| `hr ⇄ impexp` | 18 / 11 | **未排卡**（P2-39 只收 `impexp ⇄ masking`）：HR 侧导入走通用 impexp、导出走自己的 `/business/hr/*/export`，两边形状不同，需单卡设计（见 `P2-39-impexp与masking解环.md` §6） |
 | `erp ⇄ changelog` | 6 / 0（changelog 侧只有 1 处注释） | 随 P2-32~34 收（`erp` 写变更日志，注释回指 erp） |
 | `announcement ⇄ notice` | 5 / 0（notice 侧只有 1 处注释） | 未排卡，体量极小（注释回边） |
 

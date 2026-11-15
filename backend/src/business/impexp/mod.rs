@@ -61,5 +61,9 @@ pub mod template;
 pub mod validate;
 pub mod worker;
 
+/// 导出链路的脱敏端到端用例（批次 B · B6 的导出半条链路；P2-39 由 `masking/tests.rs` 搬入）。
+#[cfg(test)]
+mod export_mask_tests;
+
 pub use definition::{ExportDefinition, ImportDefinition};
 pub use registry::global_registry;

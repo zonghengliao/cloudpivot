@@ -17,7 +17,9 @@
 //! | [`dto`] | 请求 / 响应 DTO |
 //! | [`registry`] | [`registry::MaskSet`] + [`registry::Maskable`] + 合并口径 + 已登记 DTO 的实现 |
 //! | [`handler`] | 规则 CRUD / 试运行 / 生效规则自检 |
-//! | [`user_export`] | `sys_user` 导出定义（导出脱敏的实机验证载体） |
+//!
+//! 导出侧的 `sys_user` 导出定义住在导出域的 `impexp/builtin/user_export.rs`（P2-39 搬家）：
+//! 本模块只提供规则解析与 [`masker::Masker`] 接缝，**不引用导出域的任何类型**。
 //!
 //! # 五个必须记住的结论
 //!
@@ -29,8 +31,9 @@
 //!    `email` / `bank_card` 加 ASCII 前置判定。
 //! 3. **fail-closed**：脱敏失败 → 明确报错（导出 422 / 页面全掩码），
 //!    **绝不静默返回明文**。
-//! 4. **导出必须脱敏**：`impexp::engine::format_export_rows` 是唯一改点，
-//!    敏感列没有生效规则 → `422 + 61008`，并把 `mask_applied` 写进 `sys_export_task`。
+//! 4. **导出必须脱敏**：导出引擎的 `format_export_rows`（导出域唯一改点）经
+//!    [`masker::Masker`] 接缝取规则，敏感列没有生效规则 → `422 + 61008`，
+//!    并把 `mask_applied` 写进 `sys_export_task`。
 //! 5. **豁免要留痕**：`SUPER_ADMIN` 或持 `system:field-mask:plain` 看明文；
 //!    后者每次明文访问落一条 `audit_logs`（`FIELD_MASK_PLAIN_READ`）。
 
@@ -39,9 +42,11 @@ pub mod handler;
 pub mod masker;
 pub mod model;
 pub mod registry;
-pub mod user_export;
 
-pub use masker::{MaskError, MaskType, apply};
+#[cfg(test)]
+mod independence_tests;
+
+pub use masker::{MaskError, MaskType, Masker, apply};
 pub use registry::{MaskRule, MaskSet, MaskSource, Maskable, resolve};
 
 /// 测试C：字段脱敏全链路用例集（M01–M09，真库 + 真实 handler）。
