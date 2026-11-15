@@ -1,83 +1,57 @@
 <template>
   <div class="rf-page">
-    <!-- ==================== ① 筛选条 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-rf-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
-
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="rf-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.customerId"
-          class="tool-row__customer"
-          :options="customerOptions"
-          placeholder="全部客户"
-          clearable
-          filterable
-          data-testid="rf-filter-customer"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.method"
-          class="tool-row__method"
-          :options="methodOptions"
-          placeholder="全部方式"
-          clearable
-          data-testid="rf-filter-method"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.refundNo"
-          class="tool-row__no"
-          placeholder="退款单号 / 客户名（模糊）"
-          clearable
-          data-testid="rf-filter-no"
-          @enter="handleSearch"
-        />
-      </div>
-      <div class="tool-row tool-row--second">
-        <span class="tool-row__label">退款日期</span>
-        <t-date-picker
-          v-model="filter.dateFrom"
-          class="tool-row__date"
-          value-type="YYYY-MM-DD"
-          allow-input
-          clearable
-          placeholder="起（含）"
-          data-testid="rf-filter-date-from"
-          @change="handleSearch"
-        />
-        <span class="tool-row__tilde">~</span>
-        <t-date-picker
-          v-model="filter.dateTo"
-          class="tool-row__date"
-          value-type="YYYY-MM-DD"
-          allow-input
-          clearable
-          placeholder="止（含）"
-          data-testid="rf-filter-date-to"
-          @change="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-rf-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-rf-reset" @click="handleReset">重置</t-button>
-        <t-tag v-if="isRefundFiltered(filter)" size="small" variant="light" theme="primary">
-          已筛选
-        </t-tag>
-
-        <span class="tool-row__spacer" />
-
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="收款退款单"
+      testid="rf"
+      table-testid="rf-table"
+      meta-testid="rf-meta"
+      btn-prefix="btn-rf"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="REFUND_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <!--
+        退款日期区间整块画在一个槽里，并自带 inline-flex 容器：两个日期框分属两个槽时，
+        筛选行一换行就会「起（含）在上一行、止（含）在下一行」，看不出这是一个区间。
+        `dateTo` 仍是声明里的筛选项（重置时由 ListPage 逐键写回空串），只是不再单独出槽。
+      -->
+      <template #filter-dateFrom>
+        <span class="lp-date-range">
+          <span class="tool-row__label">退款日期</span>
+          <t-date-picker
+            :model-value="filter.dateFrom"
+            class="tool-row__date"
+            value-type="YYYY-MM-DD"
+            allow-input
+            clearable
+            placeholder="起（含）"
+            data-testid="rf-filter-date-from"
+            @update:model-value="setDateFrom"
+            @change="searchNow"
+          />
+          <span class="tool-row__tilde">~</span>
+          <t-date-picker
+            :model-value="filter.dateTo"
+            class="tool-row__date"
+            value-type="YYYY-MM-DD"
+            allow-input
+            clearable
+            placeholder="止（含）"
+            data-testid="rf-filter-date-to"
+            @update:model-value="setDateTo"
+            @change="searchNow"
+          />
+        </span>
+      </template>
+      <template #toolbar>
         <t-tooltip :content="createTip" :disabled="!createTip" placement="top-right">
           <span class="op-wrap">
             <t-button
@@ -91,44 +65,17 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 退款单列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">收款退款单</span>
-          <span class="panel-head__meta" data-testid="rf-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
+        <t-tag v-if="isFiltered" size="small" variant="light" theme="primary" data-testid="rf-filtered-tag">
+          已筛选
+        </t-tag>
         <span class="panel-head__tip">
           登记（DRAFT）→ 核销冲减应收已收 → 确认（CONFIRMED）→ 提交审批 → 通过后自动过账
           （生成「借 1122 应收 / 贷 1002 银行」凭证）；退款金额与冲减明细都不得超出「已收到的钱」
         </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="rf-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRefunds(current)">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="REFUND_COLUMNS"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="rf-table"
-        @page-change="handlePageChange"
-      >
+      </template>
         <template #refund_no="{ row }">
           <t-link
             theme="primary"
@@ -298,8 +245,7 @@
             </span>
           </t-tooltip>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 登记退款弹窗 ==================== -->
     <t-dialog
@@ -824,6 +770,8 @@ import {
 } from '@/api/business/erp';
 import { getFlowInstance, withdrawFlowInstance } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { useUserStore } from '@/stores/user';
 
@@ -881,28 +829,19 @@ const hasAllocatePermission = computed(() => userStore.hasPermission(REFUND_PERM
 const hasStatusPermission = computed(() => userStore.hasPermission(REFUND_PERMS.status));
 
 const filter = reactive<RefundFilter>(emptyRefundFilter());
+/** 表格列（colKey 与后端出参同名；行操作由页面 `#op` 插槽自绘） */
+const columns = REFUND_COLUMNS;
 const statusOptions = REFUND_STATUS_OPTIONS.map((item) => ({ label: item.label, value: item.value }));
 const methodOptions = REFUND_METHOD_OPTIONS.map((item) => ({ label: item.label, value: item.value }));
 
 const rows = ref<ReceiptRefund[]>([]);
 const total = ref(0);
 const current = ref(1);
-const pageSize = REFUND_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
 
 const customers = ref<Customer[]>([]);
 const customerOptions = computed(() =>
   customers.value.map((item) => ({ label: `${item.name}（${item.code}）`, value: item.id })),
 );
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 const createTip = computed(() =>
   hasCreatePermission.value ? '' : `缺少权限 ${REFUND_PERMS.create}`,
@@ -920,26 +859,54 @@ function statusTip(_row: ReceiptRefund, allowed: boolean, reason: string): strin
   return '';
 }
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 
-async function loadRefunds(page = 1): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchReceiptRefundPage(buildRefundQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
-}
+/** 是否筛选态（「已筛选」提示用） */
+const isFiltered = computed(() => isRefundFiltered(filter));
+/** ListPage 实例 */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 筛选项：状态 / 客户 / 方式 / 单号 / 退款日期区间 */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    searchOnChange: true,
+    testid: 'rf-filter-status',
+  },
+  {
+    key: 'customerId',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 200,
+    options: customerOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'rf-filter-customer',
+  },
+  {
+    key: 'method',
+    type: 'select',
+    placeholder: '全部方式',
+    width: 150,
+    options: methodOptions,
+    searchOnChange: true,
+    testid: 'rf-filter-method',
+  },
+  {
+    key: 'refundNo',
+    type: 'keyword',
+    placeholder: '退款单号 / 客户名（模糊）',
+    width: 240,
+    testid: 'rf-filter-no',
+  },
+  // 退款日期区间：`custom` + `defaultValue: ''`（重置写回空串，日期框才是受控的）
+  { key: 'dateFrom', type: 'custom', defaultValue: '', testid: 'rf-filter-date-from' },
+  { key: 'dateTo', type: 'custom', defaultValue: '', testid: 'rf-filter-date-to' },
+]);
 
 async function loadCustomers(): Promise<void> {
   customers.value = await fetchCustomerPage({ page: 1, page_size: 200 })
@@ -947,25 +914,45 @@ async function loadCustomers(): Promise<void> {
     .catch(() => [] as Customer[]);
 }
 
-function handleSearch(): void {
-  void loadRefunds(1);
+
+/** 拉一页（入参拼装沿用 `buildRefundQuery`，空值整键缺席等口径由它自己的单测钉住） */
+const fetcher: ListFetcher<ReceiptRefund> = (query) =>
+  fetchReceiptRefundPage(query as Parameters<typeof fetchReceiptRefundPage>[0]);
+
+/** 入参拼装（页面自己的 `buildRefundQuery`，接口契约不动） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildRefundQuery(state as RefundFilter, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function handleReset(): void {
-  Object.assign(filter, emptyRefundFilter());
-  void loadRefunds(1);
+/** 下拉 / 日期框变了立刻查（回第 1 页，与改造前 `@change="handleSearch"` 同） */
+/** 日期框写回（`t-date-picker` 的 `update:model-value` 可能是 `null`，一律归成空串） */
+function setDateFrom(value: unknown): void {
+  filter.dateFrom = value == null ? '' : String(value);
 }
 
-function handlePageChange(pageInfo: { current: number }): void {
-  void loadRefunds(pageInfo.current);
+function setDateTo(value: unknown): void {
+  filter.dateTo = value == null ? '' : String(value);
 }
 
-function refresh(): void {
-  void loadRefunds(current.value);
+function searchNow(): void {
+  void listRef.value?.search();
+}
+
+/** 一页拉完：同步页码 / 行 / 总数（页面别处还读 `rows`） */
+function onLoaded(payload: { rows: ReceiptRefund[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+  
 }
 
 onMounted(async () => {
-  await Promise.all([loadCustomers(), loadRefunds(1)]);
+  // 列表首屏由 ListPage 自己在 setup 里拉；这里只补客户下拉（拉不到只是筛选器少选项）
+  await loadCustomers();
 });
 
 // ==================== 登记退款 ====================
@@ -1127,7 +1114,7 @@ async function submitCreate(): Promise<void> {
     });
     MessagePlugin.success(`已登记退款单 ${created.refund_no}（草稿）：下一步在「核销」里冲减应收的已收金额`);
     createVisible.value = false;
-    await loadRefunds(1);
+    await reloadList(1);
     await openDetail(created);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
@@ -1251,7 +1238,7 @@ async function afterMutation(row: { id: string }): Promise<void> {
   if (detail.value?.id === row.id) {
     await loadDetail(row.id);
   }
-  await loadRefunds(current.value);
+  await reloadList(current.value);
 }
 
 // ==================== 作废 ====================
@@ -1431,6 +1418,14 @@ async function submitAllocation(): Promise<void> {
 .tool-row__label {
   color: var(--td-text-color-secondary);
   font-size: 13px;
+}
+
+/* 日期区间整块（含标签与 ~）：作为一个 flex item，换行时整体走，不会被拆开 */
+.lp-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .tool-row__tilde {

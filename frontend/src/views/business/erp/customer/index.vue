@@ -1,90 +1,40 @@
 <template>
   <div class="customer-page">
-    <!-- 筛选行：编码 / 名称 / 状态 / 查询 / 重置 / 刷新 / 新建 -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.code"
-          class="filter-row__keyword"
-          placeholder="客户编码（模糊）"
-          clearable
-          data-testid="cus-code-filter"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-input
-          v-model="filter.name"
-          class="filter-row__keyword"
-          placeholder="客户名称（模糊）"
-          clearable
-          data-testid="cus-name-filter"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="cus-status-filter"
-        />
-
-        <t-button theme="primary" data-testid="btn-cus-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-cus-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-cus-refresh" @click="handleRefresh">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+    <!-- 筛选 / 分页 / 行操作 / 导出交给 ListPage（P3-06） -->
+    <ListPage
+      ref="listRef"
+      title="客户档案"
+      testid="customer"
+      table-testid="customer-table"
+      meta-testid="cus-meta"
+      btn-prefix="btn-cus"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="CUSTOMER_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-tooltip
           :content="canWrite ? '新建一个客户档案' : '当前账号没有 business:erp:customer:create 权限'"
           placement="top-right"
         >
           <span class="gate-wrap">
-            <t-button
-              theme="primary"
-              data-testid="btn-cus-new"
-              :disabled="!canWrite"
-              @click="openCreate"
-            >
+            <t-button theme="primary" data-testid="btn-cus-new" :disabled="!canWrite" @click="openCreate">
               <template #icon><t-icon name="add" /></template>
               新建客户
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">客户档案</span>
-          <span class="panel-head__meta" data-testid="cus-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__hint">冻结只影响开新单，历史单据与引用不受影响</span>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadCustomers()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="customer-table"
-        @page-change="handlePageChange"
-      >
+      </template>
         <template #code="{ row }">
           <span class="mono">{{ row.code }}</span>
         </template>
@@ -164,8 +114,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- 新建 / 编辑弹窗 -->
     <t-dialog
@@ -390,6 +339,12 @@ import { ApiError } from '@/api/request';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+/**
+ * P3-06：列表壳换成通用 `ListPage`（筛选 / 服务端分页 / 行操作 / 导出）。
+ * 只换渲染与分页接线，`buildCustomerQuery` / `isCustomerFiltered` 的口径一行没动。
+ */
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { loadAllowManualCode, manualCodeDisabled, manualCodeHelp } from '../shared/code-policy';
 import {
   CUSTOMER_COLUMNS,
@@ -442,89 +397,61 @@ const statusOptions = CUSTOMER_STATUS_OPTIONS.map((item) => ({ ...item }));
 const userStore = useUserStore();
 const canWrite = computed(() => userStore.hasPermission(PERM.create));
 
-// ==================== 列表状态 ====================
+// ==================== 列表状态（筛选 / 分页 / 导出交给 ListPage） ====================
 
-/** 筛选行 */
+/**
+ * 筛选行。
+ *
+ * 传给 `ListPage` 的 `filterState` —— 组件就地读写**同一个对象**，所以
+ * `buildCustomerQuery` / `isCustomerFiltered` 这些闭包一行都不用改。
+ */
 const filter = reactive<CustomerFilterState>(emptyCustomerFilter());
-/** 当前页数据 */
-const rows = ref<Customer[]>([]);
-/** 总条数 */
-const total = ref(0);
-/** 当前页码 */
+/** 当前页码（新建 / 编辑后回页要用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-/** 每页条数 */
-const pageSize = CUSTOMER_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
+/** ListPage 实例（保存 / 删完后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-/** 是否筛选态 */
+/** 是否筛选态（空态文案用） */
 const isFiltered = computed(() => isCustomerFiltered(filter));
 
-/** 分页器（服务端分页） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 筛选项：编码 / 名称 / 状态（原页面的两个关键词框 + 状态下拉，改动只换渲染不换口径） */
+const filters: FilterDef[] = [
+  { key: 'code', type: 'keyword', placeholder: '客户编码（模糊）', width: 200, testid: 'cus-code-filter' },
+  { key: 'name', type: 'keyword', placeholder: '客户名称（模糊）', width: 200, testid: 'cus-name-filter' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'cus-status-filter',
+  },
+];
 
-/** 错误文案 */
+/** 拉一页（入参拼装沿用 `buildCustomerQuery`，空值整键缺席等口径由它自己的单测钉住） */
+const fetcher: ListFetcher<Customer> = (query) =>
+  fetchCustomerPage(query as Parameters<typeof fetchCustomerPage>[0]);
+
+/** 入参拼装 */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildCustomerQuery(state as CustomerFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码（删掉最后一页最后一条时组件已回夹，这里跟着对） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
+
+/** 错误 → 人话（ApiError 带后端 msg，别吃掉） */
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) {
     return error.message;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-/** 拉列表（服务端分页） */
-async function loadCustomers(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchCustomerPage(buildCustomerQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    current.value = data.page ?? page;
-    // 删掉本页最后一条后，服务端会把 page 夹回合法页码；前端同步显示，避免停在空页
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
-    if (current.value > lastPage) {
-      current.value = lastPage;
-      return loadCustomers(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `客户加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-/** 查询（回第 1 页） */
-function handleSearch(): void {
-  current.value = 1;
-  void loadCustomers(1);
-}
-
-/** 重置 */
-function handleReset(): void {
-  Object.assign(filter, emptyCustomerFilter());
-  current.value = 1;
-  void loadCustomers(1);
-}
-
-/** 刷新 */
-function handleRefresh(): void {
-  void loadCustomers(current.value);
-}
-
-/** 切页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadCustomers(pageInfo.current);
 }
 
 // ==================== 新建 / 编辑 ====================
@@ -624,7 +551,7 @@ async function handleConfirm(): Promise<void> {
       MessagePlugin.success(`客户已创建 · 编码 ${created.code}`);
     }
     dialogVisible.value = false;
-    await loadCustomers(editing.value ? current.value : 1);
+    await reloadList(editing.value ? current.value : 1);
   } catch (error) {
     // 409（编码重复）/ 400（超长、额度为负）都原样显示后端文案：它比前端猜得准
     submitError.value = messageOf(error);
@@ -644,7 +571,7 @@ async function toggleStatus(row: Customer): Promise<void> {
     MessagePlugin.success(
       next === 'FROZEN' ? '已冻结（不能再开新单，历史单据不受影响）' : '已解冻（可以继续开单）',
     );
-    await loadCustomers(current.value);
+    await reloadList(current.value);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   }
@@ -664,7 +591,7 @@ function confirmRemove(row: Customer): void {
       try {
         await deleteCustomer(row.id);
         MessagePlugin.success('客户已删除');
-        await loadCustomers(current.value);
+        await reloadList(current.value);
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -675,7 +602,7 @@ function confirmRemove(row: Customer): void {
 // ==================== 初始化 ====================
 
 onMounted(async () => {
-  void loadCustomers(1);
+  void reloadList(1);
   // CODE-08：编码策略单独取（失败按「允许手填」兜底，不打断列表）
   allowManualCode.value = await loadAllowManualCode();
 });

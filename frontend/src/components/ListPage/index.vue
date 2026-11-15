@@ -106,16 +106,23 @@
 
         <slot name="filters-extra" :filter="filter" />
 
-        <t-button
-          theme="primary"
-          :data-testid="`${btnPrefix}-search`"
-          :loading="loading"
-          @click="handleSearch"
-        >
-          查询
-        </t-button>
-        <t-button variant="outline" :data-testid="`${btnPrefix}-reset`" @click="handleReset">重置</t-button>
-        <t-button variant="outline" :data-testid="`${btnPrefix}-refresh`" @click="handleRefresh">刷新</t-button>
+        <!--
+          查询 / 重置 / 刷新 三只按钮包成一个 flex item：
+          筛选条件多（销售/财务页 6 个起）时这一行会换行，不包起来就会出现
+          「查询在上一行、重置刷新在下一行」——按钮被拆散比换行本身更难用。
+        -->
+        <span class="lp__actions">
+          <t-button
+            theme="primary"
+            :data-testid="`${btnPrefix}-search`"
+            :loading="loading"
+            @click="handleSearch"
+          >
+            查询
+          </t-button>
+          <t-button variant="outline" :data-testid="`${btnPrefix}-reset`" @click="handleReset">重置</t-button>
+          <t-button variant="outline" :data-testid="`${btnPrefix}-refresh`" @click="handleRefresh">刷新</t-button>
+        </span>
 
         <span class="lp__spacer" />
 
@@ -708,6 +715,14 @@ void load(1);
 
 .lp__spacer {
   flex: 1 1 auto;
+}
+
+/* 查询 / 重置 / 刷新：换行时整体走，别把三个按钮拆到两行 */
+.lp__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  white-space: nowrap;
 }
 
 .lp__gate {

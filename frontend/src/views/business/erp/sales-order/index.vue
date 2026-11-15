@@ -1,93 +1,44 @@
 <template>
   <div class="sales-order-page">
-    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.so_no"
-          class="filter-row__keyword"
-          placeholder="订单编号（模糊）"
-          clearable
-          data-testid="so-filter-no"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="so-filter-status"
-        />
-
-        <t-select
-          v-model="filter.customer_id"
-          class="filter-row__customer"
-          :options="customerOptions"
-          placeholder="全部客户"
-          clearable
-          filterable
-          data-testid="so-filter-customer"
-        />
-
-        <t-button theme="primary" data-testid="btn-so-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-so-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-so-refresh" @click="handleRefresh">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="销售订单"
+      testid="so"
+      table-testid="so-table"
+      meta-testid="so-meta"
+      btn-prefix="btn-so"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="SALES_ORDER_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-tooltip
           :content="canWrite ? '新建一张销售订单（SO-yyyyMMdd-000001）' : '当前账号没有 business:erp:sale-order:create 权限'"
           placement="top-right"
         >
           <span class="gate-wrap">
-            <t-button
-              theme="primary"
-              data-testid="btn-so-new"
-              :disabled="!canWrite"
-              @click="openCreate"
-            >
+            <t-button theme="primary" data-testid="btn-so-new" :disabled="!canWrite" @click="openCreate">
               <template #icon><t-icon name="add" /></template>
               新建销售订单
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">销售订单</span>
-          <span class="panel-head__meta" data-testid="so-meta">共 {{ total }} 条</span>
-          <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="so-filtered-tag">已筛选</t-tag>
-        </div>
+      <template #head-extra>
+        <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="so-filtered-tag">已筛选</t-tag>
         <span class="panel-head__hint">
           提交后走审批中心（<code>so_approve</code>：销售主管 → 金额 ≥1 万加财务经理 → ≥10 万加总经理）；
           已审批 / 部分出库可关闭，草稿 / 审批中 / 已审批可作废
         </span>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="so-load-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadOrders()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="so-table"
-        @page-change="handlePageChange"
-      >
+      </template>
         <template #so_no="{ row }">
           <t-link theme="primary" class="mono" data-testid="so-no-link" @click="openDetail(row)">
             {{ row.so_no }}
@@ -177,8 +128,7 @@
         <template #empty>
           <div class="empty-block" data-testid="so-empty">{{ emptyListText(filter) }}</div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑弹窗 ==================== -->
     <t-dialog
@@ -675,6 +625,8 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   createSalesOrder,
   changeSalesOrderStatus,
@@ -792,24 +744,80 @@ const detailItemColumns: PrimaryTableCol[] = [
 /** 状态下拉（`''` = 全部，靠 `clearable` 清） */
 const statusOptions = SALES_ORDER_STATUS_OPTIONS.map((item) => ({ ...item }));
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 
+/**
+ * 筛选行。
+ *
+ * 作为 `ListPage` 的 `filterState` 传进去 —— 组件就地读写**同一个对象**，
+ * 所以 `buildSalesOrderQuery` / `isSalesOrderFiltered` 这些闭包一行都不用改。
+ */
 const filter = reactive<SalesOrderFilter>(emptySalesOrderFilter());
+/** 当前页数据（镜像 ListPage 拉回来的这一页，页面别处仍会读它） */
 const rows = ref<SalesOrder[]>([]);
+/** 总条数（镜像） */
 const total = ref(0);
+/** 当前页码（状态流转后回页要用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = SALES_ORDER_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑 / 状态流转后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 是否筛选态（「已筛选」提示用） */
 const isFiltered = computed(() => isSalesOrderFiltered(filter));
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+
+/**
+ * 筛选项：单号 / 状态 / 客户。
+ *
+ * 两个下拉都是主数据，改造前它们**不**触发即时查询（只靠「查询」按钮 / 回车），
+ * 所以这里也不开 `searchOnChange` —— 保持原来的手感，别让重构顺手改交互。
+ * 用 `computed` 是因为客户下拉选项在下面的「主数据下拉」段才建。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'so_no',
+    type: 'keyword',
+    placeholder: '订单编号（模糊）',
+    width: 220,
+    testid: 'so-filter-no',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'so-filter-status',
+  },
+  {
+    key: 'customer_id',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 200,
+    options: customerOptions.value,
+    filterable: true,
+    testid: 'so-filter-customer',
+  },
+]);
+
+/** 拉一页（入参拼装沿用 `buildSalesOrderQuery`，空值整键缺席等口径由它自己的单测钉住） */
+const fetcher: ListFetcher<SalesOrder> = (query) =>
+  fetchSalesOrderPage(query as Parameters<typeof fetchSalesOrderPage>[0]);
+
+/** 入参拼装（页面自己的 `buildSalesOrderQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildSalesOrderQuery(state as SalesOrderFilter, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码 / 行 / 总数（页面别处还有读 `rows` 的逻辑） */
+function onLoaded(payload: { rows: SalesOrder[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+}
 
 /** 错误 → 人话（ApiError 带后端 msg，别吃掉） */
 function messageOf(error: unknown): string {
@@ -817,48 +825,6 @@ function messageOf(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-async function loadOrders(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchSalesOrderPage(buildSalesOrderQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    current.value = data.page ?? page;
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
-    if (current.value > lastPage) {
-      current.value = lastPage;
-      await loadOrders(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `销售订单加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadOrders(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptySalesOrderFilter());
-  current.value = 1;
-  void loadOrders(1);
-}
-
-function handleRefresh(): void {
-  void loadOrders(current.value);
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadOrders(pageInfo.current);
 }
 
 // ==================== 主数据下拉（客户 / 物料 / 销售合同） ====================
@@ -1242,7 +1208,7 @@ async function submitForm(): Promise<void> {
       : await createSalesOrder(buildCreatePayload(form));
     MessagePlugin.success(editingId.value ? `已保存 ${created.so_no}` : `已创建 ${created.so_no}`);
     formVisible.value = false;
-    await loadOrders(editingId.value ? current.value : 1);
+    await reloadList(editingId.value ? current.value : 1);
   } catch (submitError) {
     // 后端原文（客户冻结 / 状态已变 / 明细校验）直接摆到弹窗里，别只说「保存失败」
     formError.value = messageOf(submitError);
@@ -1267,7 +1233,7 @@ async function submitOrder(row: SalesOrder): Promise<void> {
     await refreshAfterMutation(updated.id);
   } catch (error) {
     MessagePlugin.error(`提交失败：${messageOf(error)}`);
-    await loadOrders(current.value);
+    await reloadList(current.value);
   }
 }
 
@@ -1286,7 +1252,7 @@ async function withdrawOrder(row: SalesOrder): Promise<void> {
     }
     if (!instanceId) {
       MessagePlugin.warning('这张单当前没有在跑的审批实例（可能已结束），请刷新后查看状态');
-      await loadOrders(current.value);
+      await reloadList(current.value);
       return;
     }
     await withdrawFlowInstance(instanceId, '制单人撤回审批');
@@ -1294,7 +1260,7 @@ async function withdrawOrder(row: SalesOrder): Promise<void> {
     await refreshAfterMutation(row.id);
   } catch (error) {
     MessagePlugin.error(`撤回失败：${messageOf(error)}`);
-    await loadOrders(current.value);
+    await reloadList(current.value);
   }
 }
 
@@ -1347,7 +1313,7 @@ async function confirmReason(): Promise<void> {
 
 /** 变更后刷新列表；详情抽屉开着就同步刷新那一张 */
 async function refreshAfterMutation(id: string): Promise<void> {
-  await loadOrders(current.value);
+  await reloadList(current.value);
   if (detailVisible.value && detail.value?.id === id) {
     await loadDetail(id);
   }
@@ -1427,7 +1393,7 @@ async function loadVoucherShipments(soId: string): Promise<void> {
 
 onMounted(async () => {
   // 币种下拉与订单/主数据互不依赖：一起发，币种读不到也不挡开单项
-  await Promise.all([loadOrders(1), loadOptions(), loadCurrencies()]);
+  await Promise.all([reloadList(1), loadOptions(), loadCurrencies()]);
 });
 </script>
 

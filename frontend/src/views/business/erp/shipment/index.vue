@@ -1,44 +1,24 @@
 <template>
   <div class="shipment-page">
-    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.ship_no"
-          class="filter-row__keyword"
-          placeholder="发货单号（模糊）"
-          clearable
-          data-testid="shipment-filter-no"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="shipment-filter-status"
-        />
-
-        <t-select
-          v-model="filter.customer_id"
-          class="filter-row__customer"
-          :options="customerOptions"
-          placeholder="全部客户"
-          clearable
-          filterable
-          data-testid="shipment-filter-customer"
-        />
-
-        <t-button theme="primary" data-testid="btn-shipment-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-shipment-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-shipment-refresh" @click="handleRefresh">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="发货单"
+      testid="shipment"
+      table-testid="shipment-table"
+      meta-testid="shipment-meta"
+      btn-prefix="btn-shipment"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="SHIPMENT_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-tooltip
           :content="
             canWrite
@@ -48,58 +28,21 @@
           placement="top-right"
         >
           <span class="gate-wrap">
-            <t-button
-              theme="primary"
-              data-testid="btn-shipment-new"
-              :disabled="!canWrite"
-              @click="openCreate"
-            >
+            <t-button theme="primary" data-testid="btn-shipment-new" :disabled="!canWrite" @click="openCreate">
               <template #icon><t-icon name="add" /></template>
               新建发货单
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">发货单</span>
-          <span class="panel-head__meta" data-testid="shipment-meta">共 {{ total }} 条</span>
-          <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="shipment-filtered-tag">
-            已筛选
-          </t-tag>
-        </div>
+      <template #head-extra>
+        <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="shipment-filtered-tag">已筛选</t-tag>
         <span class="panel-head__hint">
           状态机 DRAFT → 待过账 → 已过账（过账同事务生成销售出库单、扣三本账、回写订单已发量）；
           已过账不可作废，走红冲
         </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="shipment-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadShipments()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="shipment-table"
-        @page-change="handlePageChange"
-      >
+      </template>
         <template #ship_no="{ row }">
           <t-link theme="primary" class="mono" data-testid="shipment-no-link" @click="openDetail(row)">
             {{ row.ship_no }}
@@ -209,8 +152,7 @@
         <template #empty>
           <div class="empty-block" data-testid="shipment-empty">{{ emptyListText(filter) }}</div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 新建（从销售订单带出未发完明细） ==================== -->
     <t-dialog
@@ -579,6 +521,8 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   fetchCustomerPage,
   fetchLocationList,
@@ -676,24 +620,74 @@ const formItemColumns: PrimaryTableCol[] = [
   { colKey: 'line_op', title: '操作', width: 80 },
 ];
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 
+/**
+ * 筛选行。
+ *
+ * 作为 `ListPage` 的 `filterState` 传进去 —— 组件就地读写**同一个对象**，
+ * 所以 `buildShipmentQuery` / `isShipmentFiltered` 这些闭包一行都不用改。
+ */
 const filter = reactive<ShipmentFilter>(emptyShipmentFilter());
+/** 当前页数据（镜像 ListPage 拉回来的这一页，页面别处仍会读它） */
 const rows = ref<Shipment[]>([]);
+/** 总条数（镜像） */
 const total = ref(0);
+/** 当前页码（状态流转后回页要用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = SHIPMENT_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑 / 状态流转后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 是否筛选态（「已筛选」提示用） */
 const isFiltered = computed(() => isShipmentFiltered(filter));
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+
+/** 筛选项：发货单号 / 状态 / 客户（下拉改造前不即时查询，这里也不开 `searchOnChange`） */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'ship_no',
+    type: 'keyword',
+    placeholder: '发货单号（模糊）',
+    width: 220,
+    testid: 'shipment-filter-no',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'shipment-filter-status',
+  },
+  {
+    key: 'customer_id',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 200,
+    options: customerOptions.value,
+    filterable: true,
+    testid: 'shipment-filter-customer',
+  },
+]);
+
+/** 拉一页（入参拼装沿用 `buildShipmentQuery`，空值整键缺席等口径由它自己的单测钉住） */
+const fetcher: ListFetcher<Shipment> = (query) =>
+  fetchShipmentPage(query as Parameters<typeof fetchShipmentPage>[0]);
+
+/** 入参拼装（页面自己的 `buildShipmentQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildShipmentQuery(state as ShipmentFilter, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码 / 行 / 总数（页面别处还有读 `rows` 的逻辑） */
+function onLoaded(payload: { rows: Shipment[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+}
 
 /** 错误 → 人话（ApiError 带后端 msg，别吃掉） */
 function messageOf(error: unknown): string {
@@ -701,48 +695,6 @@ function messageOf(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-async function loadShipments(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchShipmentPage(buildShipmentQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    current.value = data.page ?? page;
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
-    if (current.value > lastPage) {
-      current.value = lastPage;
-      await loadShipments(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `发货单加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadShipments(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyShipmentFilter());
-  current.value = 1;
-  void loadShipments(1);
-}
-
-function handleRefresh(): void {
-  void loadShipments(current.value);
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadShipments(pageInfo.current);
 }
 
 // ==================== 主数据下拉 ====================
@@ -996,7 +948,7 @@ async function submitForm(): Promise<void> {
     const created = await createShipment(buildCreatePayload(form));
     MessagePlugin.success(`已创建 ${created.ship_no}（草稿，${formatQty(created.total_qty)} 件）`);
     formVisible.value = false;
-    await loadShipments(1);
+    await reloadList(1);
     await openDetail(created);
   } catch (submitError) {
     // 后端原文（超发 400 / 订单状态已变 409 / 无未发量 409）直接摆在弹窗里
@@ -1018,7 +970,7 @@ async function submitShipment(row: Shipment): Promise<void> {
     await refreshAfterMutation(updated.id);
   } catch (error) {
     MessagePlugin.error(`提交失败：${messageOf(error)}`);
-    await loadShipments(current.value);
+    await reloadList(current.value);
   }
 }
 
@@ -1107,7 +1059,7 @@ async function confirmCancel(): Promise<void> {
 
 /** 变更后刷新列表；详情抽屉开着就同步刷新那一张 */
 async function refreshAfterMutation(id: string): Promise<void> {
-  await loadShipments(current.value);
+  await reloadList(current.value);
   if (detailVisible.value && detail.value?.id === id) {
     await loadDetail(id);
   }
@@ -1147,7 +1099,7 @@ async function loadDetail(id: string): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([loadShipments(1), loadOptions()]);
+  await Promise.all([reloadList(1), loadOptions()]);
 });
 </script>
 

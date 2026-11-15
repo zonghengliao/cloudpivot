@@ -1,83 +1,57 @@
 <template>
   <div class="rc-page">
-    <!-- ==================== ① 筛选条 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-rc-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
-
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="rc-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.customerId"
-          class="tool-row__customer"
-          :options="customerOptions"
-          placeholder="全部客户"
-          clearable
-          filterable
-          data-testid="rc-filter-customer"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.method"
-          class="tool-row__method"
-          :options="methodOptions"
-          placeholder="全部方式"
-          clearable
-          data-testid="rc-filter-method"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.receiptNo"
-          class="tool-row__no"
-          placeholder="收款单号 / 客户名（模糊）"
-          clearable
-          data-testid="rc-filter-no"
-          @enter="handleSearch"
-        />
-      </div>
-      <div class="tool-row tool-row--second">
-        <span class="tool-row__label">收款日期</span>
-        <t-date-picker
-          v-model="filter.dateFrom"
-          class="tool-row__date"
-          value-type="YYYY-MM-DD"
-          allow-input
-          clearable
-          placeholder="起（含）"
-          data-testid="rc-filter-date-from"
-          @change="handleSearch"
-        />
-        <span class="tool-row__tilde">~</span>
-        <t-date-picker
-          v-model="filter.dateTo"
-          class="tool-row__date"
-          value-type="YYYY-MM-DD"
-          allow-input
-          clearable
-          placeholder="止（含）"
-          data-testid="rc-filter-date-to"
-          @change="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-rc-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-rc-reset" @click="handleReset">重置</t-button>
-        <t-tag v-if="isReceiptFiltered(filter)" size="small" variant="light" theme="primary">
-          已筛选
-        </t-tag>
-
-        <span class="tool-row__spacer" />
-
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="收款单"
+      testid="rc"
+      table-testid="rc-table"
+      meta-testid="rc-meta"
+      btn-prefix="btn-rc"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="RECEIPT_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <!--
+        收款日期区间整块画在一个槽里，并自带 inline-flex 容器：两个日期框分属两个槽时，
+        筛选行一换行就会「起（含）在上一行、止（含）在下一行」，看不出这是一个区间。
+        `dateTo` 仍是声明里的筛选项（重置时由 ListPage 逐键写回空串），只是不再单独出槽。
+      -->
+      <template #filter-dateFrom>
+        <span class="lp-date-range">
+          <span class="tool-row__label">收款日期</span>
+          <t-date-picker
+            :model-value="filter.dateFrom"
+            class="tool-row__date"
+            value-type="YYYY-MM-DD"
+            allow-input
+            clearable
+            placeholder="起（含）"
+            data-testid="rc-filter-date-from"
+            @update:model-value="setDateFrom"
+            @change="searchNow"
+          />
+          <span class="tool-row__tilde">~</span>
+          <t-date-picker
+            :model-value="filter.dateTo"
+            class="tool-row__date"
+            value-type="YYYY-MM-DD"
+            allow-input
+            clearable
+            placeholder="止（含）"
+            data-testid="rc-filter-date-to"
+            @update:model-value="setDateTo"
+            @change="searchNow"
+          />
+        </span>
+      </template>
+      <template #toolbar>
         <t-tooltip :content="createTip" :disabled="!createTip" placement="top-right">
           <span class="op-wrap">
             <t-button
@@ -91,44 +65,17 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 收款单列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">收款单</span>
-          <span class="panel-head__meta" data-testid="rc-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
+        <t-tag v-if="isFiltered" size="small" variant="light" theme="primary" data-testid="rc-filtered-tag">
+          已筛选
+        </t-tag>
         <span class="panel-head__tip">
           登记（DRAFT）→ 核销到应收 → 确认 → 过账生成「借 1002 / 贷 1122」凭证；
           <span class="mono">allocated_amount</span> 以库内核销明细 SUM 为准
         </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="rc-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadReceipts()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="RECEIPT_COLUMNS"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="rc-table"
-        @page-change="handlePageChange"
-      >
+      </template>
         <template #receipt_no="{ row }">
           <t-link
             theme="primary"
@@ -272,8 +219,7 @@
             </span>
           </t-tooltip>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 收款登记弹窗 ==================== -->
     <t-dialog
@@ -803,6 +749,8 @@ import {
   type ReceiptMethod,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { checkDocAttachments, type DocType } from '@/api/business/erp/attachment';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { useUserStore } from '@/stores/user';
@@ -854,6 +802,8 @@ const userStore = useUserStore();
 /** 主数据下拉一次拉多少（种子规模够用；后端上限 200） */
 const OPTION_LIMIT = 200;
 
+/** 表格列（colKey 与后端出参同名；行操作由页面 `#op` 插槽自绘） */
+const columns = RECEIPT_COLUMNS;
 const statusOptions = RECEIPT_STATUS_OPTIONS.map((item) => ({ ...item }));
 const methodOptions = RECEIPT_METHOD_OPTIONS.map((item) => ({ ...item }));
 
@@ -868,50 +818,28 @@ const postTip = computed(() => (hasStatusPermission.value ? '' : `缺少权限 $
 
 // ==================== 列表 ====================
 
+/**
+ * 筛选行（`ListPage` 就地读写**同一个对象**，`{build}` 的闭包不用改）。
+ *
+ * 声明里出现的键，组件「重置」时逐键写回（日期区间写回空串，不会留在原地）。
+ */
 const filter = reactive<ReceiptFilterState>(emptyReceiptFilter());
+/** 当前页数据（镜像 ListPage 拉回来的这一页） */
 const rows = ref<Receipt[]>([]);
+/** 总条数（镜像） */
 const total = ref(0);
+/** 当前页码（状态流转 / 作废后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = RECEIPT_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例 */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 是否筛选态（「已筛选」提示用） */
+const isFiltered = computed(() => isReceiptFiltered(filter));
 
 const customers = ref<Customer[]>([]);
 const customerOptions = computed(() =>
   customers.value.map((item) => ({ label: `${item.name}（${item.code}）`, value: item.id })),
 );
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
-function messageOf(error: unknown): string {
-  if (error instanceof ApiError) return error.message;
-  return error instanceof Error ? error.message : String(error);
-}
-
-async function loadReceipts(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchReceiptPage(buildReceiptQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
-}
 
 async function loadCustomers(): Promise<void> {
   customers.value = await fetchCustomerPage({ page: 1, page_size: OPTION_LIMIT })
@@ -919,21 +847,87 @@ async function loadCustomers(): Promise<void> {
     .catch(() => [] as Customer[]);
 }
 
-function handleSearch(): void {
-  void loadReceipts(1);
+/** 筛选项：状态 / 客户 / 方式 / 单号 / 收款日期区间 */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    searchOnChange: true,
+    testid: 'rc-filter-status',
+  },
+  {
+    key: 'customerId',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 200,
+    options: customerOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'rc-filter-customer',
+  },
+  {
+    key: 'method',
+    type: 'select',
+    placeholder: '全部方式',
+    width: 150,
+    options: methodOptions,
+    searchOnChange: true,
+    testid: 'rc-filter-method',
+  },
+  {
+    key: 'receiptNo',
+    type: 'keyword',
+    placeholder: '收款单号 / 客户名（模糊）',
+    width: 240,
+    testid: 'rc-filter-no',
+  },
+  // 收款日期区间：`custom` + `defaultValue: ''`（重置写回空串，日期框才是受控的）
+  { key: 'dateFrom', type: 'custom', defaultValue: '', testid: 'rc-filter-date-from' },
+  { key: 'dateTo', type: 'custom', defaultValue: '', testid: 'rc-filter-date-to' },
+]);
+
+
+/** 拉一页（入参拼装沿用 `buildReceiptQuery`，空值整键缺席等口径由它自己的单测钉住） */
+const fetcher: ListFetcher<Receipt> = (query) =>
+  fetchReceiptPage(query as Parameters<typeof fetchReceiptPage>[0]);
+
+/** 入参拼装（页面自己的 `buildReceiptQuery`，接口契约不动） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildReceiptQuery(state as ReceiptFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function handleReset(): void {
-  Object.assign(filter, emptyReceiptFilter());
-  void loadReceipts(1);
+/** 下拉 / 日期框变了立刻查（回第 1 页，与改造前 `@change="handleSearch"` 同） */
+/** 日期框写回（`t-date-picker` 的 `update:model-value` 可能是 `null`，一律归成空串） */
+function setDateFrom(value: unknown): void {
+  filter.dateFrom = value == null ? '' : String(value);
 }
 
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  void loadReceipts(pageInfo.current);
+function setDateTo(value: unknown): void {
+  filter.dateTo = value == null ? '' : String(value);
 }
 
-function refresh(): void {
-  void loadReceipts(current.value);
+function searchNow(): void {
+  void listRef.value?.search();
+}
+
+/** 一页拉完：同步页码 / 行 / 总数（页面别处还读 `rows`） */
+function onLoaded(payload: { rows: Receipt[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+  
+}
+
+function messageOf(error: unknown): string {
+  if (error instanceof ApiError) return error.message;
+  return error instanceof Error ? error.message : String(error);
 }
 
 // ==================== 权限相关的按钮态 ====================
@@ -1019,7 +1013,7 @@ async function submitCreate(): Promise<void> {
     });
     MessagePlugin.success(`${created.receipt_no} 已登记（草稿），下一步核销到应收`);
     createVisible.value = false;
-    await loadReceipts(1);
+    await reloadList(1);
     // 登记完直接开核销面板：收款登记的下一个动作 99% 是把它冲到应收上
     await openAllocation(created);
   } catch (error) {
@@ -1118,7 +1112,7 @@ async function afterMutation(updated: ReceiptDetail): Promise<void> {
   if (allocVisible.value && allocTarget.value?.id === updated.id) {
     allocTarget.value = updated;
   }
-  await loadReceipts(current.value);
+  await reloadList(current.value);
 }
 
 // ==================== 确认 / 过账 ====================
@@ -1364,7 +1358,7 @@ async function submitAllocation(): Promise<void> {
 
 onMounted(() => {
   void loadCustomers();
-  void loadReceipts(1);
+  void reloadList(1);
 });
 </script>
 
@@ -1397,6 +1391,14 @@ onMounted(() => {
 .tool-row__label {
   color: var(--td-text-color-secondary);
   font-size: 13px;
+}
+
+/* 日期区间整块（含标签与 ~）：作为一个 flex item，换行时整体走，不会被拆开 */
+.lp-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .tool-row__tilde {

@@ -3,111 +3,66 @@
     <t-tabs v-model="activeTab" class="ar-tabs" @change="handleTabChange">
       <!-- ==================== ① 应收台账 ==================== -->
       <t-tab-panel value="list" label="应收台账">
-        <t-card :bordered="false" class="tool-card">
-          <div class="tool-row">
-            <t-button variant="outline" data-testid="btn-ar-refresh" @click="refresh">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-
-            <span class="tool-row__spacer" />
-
-            <t-select
-              v-model="filter.status"
-              class="tool-row__status"
-              :options="statusOptions"
-              placeholder="全部状态"
-              clearable
-              data-testid="ar-filter-status"
-              @change="handleSearch"
-            />
-            <t-select
-              v-model="filter.customerId"
-              class="tool-row__customer"
-              :options="customerOptions"
-              placeholder="全部客户"
-              clearable
-              filterable
-              data-testid="ar-filter-customer"
-              @change="handleSearch"
-            />
-            <t-input
-              v-model="filter.arNo"
-              class="tool-row__no"
-              placeholder="应收单号 / 来源单号（模糊）"
-              clearable
-              data-testid="ar-filter-no"
-              @enter="handleSearch"
-            />
-            <t-select
-              v-model="filter.sourceType"
-              class="tool-row__source"
-              :options="sourceOptions"
-              placeholder="全部来源"
-              clearable
-              data-testid="ar-filter-source"
-              @change="handleSearch"
-            />
-          </div>
-          <div class="tool-row tool-row--second">
-            <span class="tool-row__label">到期日</span>
-            <t-date-picker
-              v-model="filter.dueFrom"
-              class="tool-row__date"
-              value-type="YYYY-MM-DD"
-              allow-input
-              clearable
-              placeholder="起（含）"
-              data-testid="ar-filter-due-from"
-              @change="handleSearch"
-            />
-            <span class="tool-row__tilde">~</span>
-            <t-date-picker
-              v-model="filter.dueTo"
-              class="tool-row__date"
-              value-type="YYYY-MM-DD"
-              allow-input
-              clearable
-              placeholder="止（含）"
-              data-testid="ar-filter-due-to"
-              @change="handleSearch"
-            />
-            <t-button theme="primary" data-testid="btn-ar-search" @click="handleSearch">查询</t-button>
-            <t-button variant="outline" data-testid="btn-ar-reset" @click="handleReset">重置</t-button>
-            <t-tag v-if="isReceivableFiltered(filter)" size="small" variant="light" theme="primary">
+        <!-- 筛选 / 分页 / 行操作 / 导出交给 ListPage（P3-06） -->
+        <ListPage
+          ref="listRef"
+          title="应收单"
+          testid="ar"
+          table-testid="ar-table"
+          meta-testid="ar-meta"
+          btn-prefix="btn-ar"
+          :columns="columns"
+          :filters="filters"
+          :filter-state="filter"
+          :initial-page="current"
+          :fetcher="fetcher"
+          :query-builder="queryBuilder"
+          :page-size="RECEIVABLE_PAGE_SIZE"
+          exportable
+          @loaded="onLoaded"
+        >
+          <!--
+            到期日区间整块画在一个槽里，并自带 inline-flex 容器：两个日期框分属两个槽时，
+            筛选行一换行就会「起（含）在上一行、止（含）在下一行」，看不出这是一个区间。
+            `dueTo` 仍是声明里的筛选项（重置时由 ListPage 逐键写回空串），只是不再单独出槽。
+          -->
+          <template #filter-dueFrom>
+            <span class="lp-date-range">
+              <span class="tool-row__label">到期日</span>
+              <t-date-picker
+                :model-value="filter.dueFrom"
+                class="tool-row__date"
+                value-type="YYYY-MM-DD"
+                allow-input
+                clearable
+                placeholder="起（含）"
+                data-testid="ar-filter-due-from"
+                @update:model-value="setDueFrom"
+                @change="searchNow"
+              />
+              <span class="tool-row__tilde">~</span>
+              <t-date-picker
+                :model-value="filter.dueTo"
+                class="tool-row__date"
+                value-type="YYYY-MM-DD"
+                allow-input
+                clearable
+                placeholder="止（含）"
+                data-testid="ar-filter-due-to"
+                @update:model-value="setDueTo"
+                @change="searchNow"
+              />
+            </span>
+          </template>
+          <template #head-extra>
+            <t-tag v-if="isFiltered" size="small" variant="light" theme="primary" data-testid="ar-filtered-tag">
               已筛选
             </t-tag>
-          </div>
-        </t-card>
-
-        <t-card :bordered="false" class="list-card">
-          <div class="panel-head">
-            <div class="panel-head__main">
-              <span class="panel-head__title">应收单</span>
-              <span class="panel-head__meta" data-testid="ar-meta">共 {{ total }} 条</span>
-            </div>
             <span class="panel-head__tip">
               出库过账时自动挂账（来源=销售出库）；坏账核销需
               <span class="mono">business:erp:receivable:write-off</span> 权限
             </span>
-          </div>
-
-          <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="ar-load-error">
-            <template #operation>
-              <t-button size="small" variant="outline" @click="loadReceivables()">重试</t-button>
-            </template>
-          </t-alert>
-
-          <t-table
-            row-key="id"
-            :data="rows"
-            :columns="RECEIVABLE_COLUMNS"
-            :loading="loading"
-            :pagination="pagination"
-            hover
-            data-testid="ar-table"
-            @page-change="handlePageChange"
-          >
+          </template>
             <template #ar_no="{ row }">
               <t-link theme="primary" hover="color" :data-testid="`ar-no-${row.ar_no}`" @click="openDetail(row)">
                 <span class="mono">{{ row.ar_no }}</span>
@@ -188,8 +143,7 @@
                 </span>
               </t-tooltip>
             </template>
-          </t-table>
-        </t-card>
+        </ListPage>
       </t-tab-panel>
 
       <!-- ==================== ② 账龄看板 ==================== -->
@@ -616,6 +570,12 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
+/**
+ * P3-06：列表壳换成通用 `ListPage`（筛选 / 服务端分页 / 行操作 / 导出）。
+ * 只换渲染与分页接线，`buildReceivableQuery` / `isReceivableFiltered` 的口径一行没动。
+ */
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 
 import { dash, formatMoney, shortDate, shortId, toCents } from '../shared/money';
 import {
@@ -659,16 +619,29 @@ const activeTab = ref<'list' | 'aging'>('list');
 
 const statusOptions = RECEIVABLE_STATUS_OPTIONS.map((item) => ({ ...item }));
 const sourceOptions = RECEIVABLE_SOURCE_OPTIONS.map((item) => ({ ...item }));
+/** 表格列（colKey 与后端出参同名；行操作由页面 `#op` 插槽自绘） */
+const columns = RECEIVABLE_COLUMNS;
 
 // ==================== 列表 ====================
 
+/**
+ * 筛选行（`ListPage` 就地读写**同一个对象**，`buildReceivableQuery` 的闭包不用改）。
+ *
+ * 所有键都在 `filters` 里有声明：`ListPage` 的「重置」按声明逐键写回，
+ * 日期区间不会像 P3-05 之前那样留在原地（那是个真 bug，见组件 `clearFilter`）。
+ */
 const filter = reactive<ReceivableFilterState>(emptyReceivableFilter());
+/** 当前页数据（镜像；坏账核销后要看「刚才那行」） */
 const rows = ref<Receivable[]>([]);
+/** 总条数（镜像） */
 const total = ref(0);
+/** 当前页码（核销后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = RECEIVABLE_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（核销 / 重开后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 是否筛选态（「已筛选」提示用） */
+const isFiltered = computed(() => isReceivableFiltered(filter));
 
 const customers = ref<Customer[]>([]);
 const customerOptions = computed(() =>
@@ -682,59 +655,96 @@ const today = computed(() => {
   return cst.toISOString().slice(0, 10);
 });
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项：状态 / 客户 / 单号 / 来源 / 到期日区间。
+ *
+ * 下拉与日期改造前都是 `@change="handleSearch"`（值一变就查），这里用 `searchOnChange` 保手感；
+ * 到期日的两个框走 `custom` 槽自绘，同样在 `@change` 里调 `searchNow`。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    searchOnChange: true,
+    testid: 'ar-filter-status',
+  },
+  {
+    key: 'customerId',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 200,
+    options: customerOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'ar-filter-customer',
+  },
+  {
+    key: 'arNo',
+    type: 'keyword',
+    placeholder: '应收单号 / 来源单号（模糊）',
+    width: 260,
+    testid: 'ar-filter-no',
+  },
+  {
+    key: 'sourceType',
+    type: 'select',
+    placeholder: '全部来源',
+    width: 150,
+    options: sourceOptions,
+    searchOnChange: true,
+    testid: 'ar-filter-source',
+  },
+  // 到期日区间：`custom` + `defaultValue: ''`（重置写回空串而不是 undefined，日期框才是受控的）
+  { key: 'dueFrom', type: 'custom', defaultValue: '', testid: 'ar-filter-due-from' },
+  { key: 'dueTo', type: 'custom', defaultValue: '', testid: 'ar-filter-due-to' },
+]);
+
+/** 拉一页（入参拼装沿用 `buildReceivableQuery`，空值口径由它自己的单测钉住） */
+const fetcher: ListFetcher<Receivable> = (query) =>
+  fetchReceivablePage(query as Parameters<typeof fetchReceivablePage>[0]);
+
+/** 入参拼装 */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildReceivableQuery(state as ReceivableFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 日期框 / 下拉变了立刻查（回第 1 页，与改造前 `handleSearch` 同） */
+/** 日期框写回（`t-date-picker` 的 `update:model-value` 可能是 `null`，一律归成空串） */
+function setDueFrom(value: unknown): void {
+  filter.dueFrom = value == null ? '' : String(value);
+}
+
+function setDueTo(value: unknown): void {
+  filter.dueTo = value == null ? '' : String(value);
+}
+
+function searchNow(): void {
+  void listRef.value?.search();
+}
+
+/** 一页拉完：同步页码 / 行 / 总数 */
+function onLoaded(payload: { rows: Receivable[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+}
 
 function messageOf(error: unknown): string {
   if (error instanceof ApiError) return error.message;
   return error instanceof Error ? error.message : String(error);
 }
 
-async function loadReceivables(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchReceivablePage(buildReceivableQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
-}
-
 async function loadCustomers(): Promise<void> {
   customers.value = await fetchCustomerPage({ page: 1, page_size: OPTION_LIMIT })
     .then((data) => data.list ?? [])
     .catch(() => [] as Customer[]);
-}
-
-function handleSearch(): void {
-  void loadReceivables(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyReceivableFilter());
-  void loadReceivables(1);
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  void loadReceivables(pageInfo.current);
-}
-
-function refresh(): void {
-  void loadReceivables(current.value);
 }
 
 function handleTabChange(value: string | number): void {
@@ -821,7 +831,7 @@ async function submitWriteOff(): Promise<void> {
     if (detailVisible.value && detailId.value === updated.id) {
       detail.value = updated;
     }
-    await loadReceivables(current.value);
+    await reloadList(current.value);
     if (aging.value) await loadAging();
   } catch (err) {
     MessagePlugin.error(messageOf(err));
@@ -881,7 +891,7 @@ function formatDateTime(value: string | null | undefined): string {
 onMounted(() => {
   void loadCustomers();
   applyArNoDeepLink();
-  void loadReceivables(1);
+  void reloadList(1);
 });
 
 /**
@@ -904,7 +914,7 @@ watch(
   (value) => {
     if (!value) return;
     applyArNoDeepLink();
-    void loadReceivables(1);
+    void reloadList(1);
   },
 );
 </script>
@@ -942,6 +952,14 @@ watch(
 .tool-row__label {
   color: var(--td-text-color-secondary);
   font-size: 13px;
+}
+
+/* 日期区间整块（含标签与 ~）：作为一个 flex item，换行时整体走，不会被拆开 */
+.lp-date-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
 
 .tool-row__tilde {

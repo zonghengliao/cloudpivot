@@ -1,44 +1,24 @@
 <template>
   <div class="sales-return-page">
-    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.return_no"
-          class="filter-row__keyword"
-          placeholder="退货单号（模糊）"
-          clearable
-          data-testid="return-filter-no"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="return-filter-status"
-        />
-
-        <t-select
-          v-model="filter.customer_id"
-          class="filter-row__customer"
-          :options="customerOptions"
-          placeholder="全部客户"
-          clearable
-          filterable
-          data-testid="return-filter-customer"
-        />
-
-        <t-button theme="primary" data-testid="btn-return-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-return-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-return-refresh" @click="handleRefresh">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+    <!-- ==================== ①② 筛选 / 分页 / 行操作 / 导出交给 ListPage ==================== -->
+    <ListPage
+      ref="listRef"
+      title="销售退货单"
+      testid="return"
+      table-testid="return-table"
+      meta-testid="return-meta"
+      btn-prefix="btn-return"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="RETURN_PAGE_SIZE"
+      exportable
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-tooltip
           :content="
             canWrite
@@ -48,57 +28,20 @@
           placement="top-right"
         >
           <span class="gate-wrap">
-            <t-button
-              theme="primary"
-              data-testid="btn-return-new"
-              :disabled="!canWrite"
-              @click="openCreate"
-            >
+            <t-button theme="primary" data-testid="btn-return-new" :disabled="!canWrite" @click="openCreate">
               <template #icon><t-icon name="rollback" /></template>
               从发货单新建
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">销售退货单</span>
-          <span class="panel-head__meta" data-testid="return-meta">共 {{ total }} 条</span>
-          <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="return-filtered-tag">
-            已筛选
-          </t-tag>
-        </div>
+      <template #head-extra>
+        <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="return-filtered-tag">已筛选</t-tag>
         <span class="panel-head__hint">
           状态机 草稿 → 已提交 → 已批准 → 待过账 → 已过账；过账同事务回库 + 冲减应收 + 红字凭证，不可撤销
         </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="return-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadReturns()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="return-table"
-        @page-change="handlePageChange"
-      >
+      </template>
         <template #return_no="{ row }">
           <t-link theme="primary" class="mono" data-testid="return-no-link" @click="openDetail(row)">
             {{ row.return_no }}
@@ -206,8 +149,7 @@
         <template #empty>
           <div class="empty-block" data-testid="return-empty">{{ emptyListText(filter) }}</div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 新建（从原发货单带出可退明细） ==================== -->
     <t-dialog
@@ -684,6 +626,8 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { checkDocAttachments, DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import AttachmentGateHint from '@/views/business/erp/shared/AttachmentGateHint.vue';
@@ -773,24 +717,74 @@ const typeOptions = RETURN_TYPE_OPTIONS.map((item) => ({ ...item }));
 /** 新建弹窗明细列 */
 const formItemColumns = RETURN_FORM_ITEM_COLUMNS;
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 导出交给 ListPage） ====================
 
+/**
+ * 筛选行。
+ *
+ * 作为 `ListPage` 的 `filterState` 传进去 —— 组件就地读写**同一个对象**，
+ * 所以 `buildReturnQuery` / `isReturnFiltered` 这些闭包一行都不用改。
+ */
 const filter = reactive<ReturnFilterState>(emptyReturnFilter());
+/** 当前页数据（镜像 ListPage 拉回来的这一页，页面别处仍会读它） */
 const rows = ref<SalesReturn[]>([]);
+/** 总条数（镜像） */
 const total = ref(0);
+/** 当前页码（状态流转后回页要用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const pageSize = RETURN_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑 / 状态流转后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 是否筛选态（「已筛选」提示用） */
 const isFiltered = computed(() => isReturnFiltered(filter));
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+
+/** 筛选项：退货单号 / 状态 / 客户（下拉改造前不即时查询，这里也不开 `searchOnChange`） */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'return_no',
+    type: 'keyword',
+    placeholder: '退货单号（模糊）',
+    width: 220,
+    testid: 'return-filter-no',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'return-filter-status',
+  },
+  {
+    key: 'customer_id',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 200,
+    options: customerOptions.value,
+    filterable: true,
+    testid: 'return-filter-customer',
+  },
+]);
+
+/** 拉一页（入参拼装沿用 `buildReturnQuery`，空值整键缺席等口径由它自己的单测钉住） */
+const fetcher: ListFetcher<SalesReturn> = (query) =>
+  fetchReturnPage(query as Parameters<typeof fetchReturnPage>[0]);
+
+/** 入参拼装（页面自己的 `buildReturnQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildReturnQuery(state as ReturnFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码 / 行 / 总数（页面别处还有读 `rows` 的逻辑） */
+function onLoaded(payload: { rows: SalesReturn[]; total: number; page: number }): void {
+  rows.value = payload.rows;
+  total.value = payload.total;
+  current.value = payload.page;
+}
 
 /** 错误 → 人话（ApiError 带后端 msg，别吃掉） */
 function messageOf(error: unknown): string {
@@ -798,48 +792,6 @@ function messageOf(error: unknown): string {
     return error.message;
   }
   return error instanceof Error ? error.message : String(error);
-}
-
-async function loadReturns(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchReturnPage(buildReturnQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    current.value = data.page ?? page;
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
-    if (current.value > lastPage) {
-      current.value = lastPage;
-      await loadReturns(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `退货单加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadReturns(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyReturnFilter());
-  current.value = 1;
-  void loadReturns(1);
-}
-
-function handleRefresh(): void {
-  void loadReturns(current.value);
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadReturns(pageInfo.current);
 }
 
 // ==================== 主数据下拉 ====================
@@ -1102,7 +1054,7 @@ async function submitForm(): Promise<void> {
     const created = await createReturn(buildCreatePayload(form));
     MessagePlugin.success(`已创建 ${created.return_no}（草稿，价税合计 ${moneyText(created.total_with_tax)}）`);
     formVisible.value = false;
-    await loadReturns(1);
+    await reloadList(1);
     await openDetail(created);
   } catch (submitError) {
     // 后端原文（超退 400 / 发货单未过账 409 / 客户不一致 400）直接摆在弹窗里
@@ -1128,7 +1080,7 @@ async function advance(
     await refreshAfterMutation(updated.id);
   } catch (error) {
     MessagePlugin.error(`${verb}失败：${messageOf(error)}`);
-    await loadReturns(current.value);
+    await reloadList(current.value);
   }
 }
 
@@ -1234,7 +1186,7 @@ async function confirmCancel(): Promise<void> {
 
 /** 变更后刷新列表；详情抽屉开着就同步刷新那一张 */
 async function refreshAfterMutation(id: string): Promise<void> {
-  await loadReturns(current.value);
+  await reloadList(current.value);
   if (detailVisible.value && detail.value?.id === id) {
     await loadDetail(id);
   }
@@ -1331,7 +1283,7 @@ async function loadDetail(id: string): Promise<void> {
 }
 
 onMounted(async () => {
-  await Promise.all([loadReturns(1), loadOptions()]);
+  await Promise.all([reloadList(1), loadOptions()]);
 });
 </script>
 
