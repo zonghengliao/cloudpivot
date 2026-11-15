@@ -900,9 +900,12 @@ pub async fn supplier_page(q: &SupplierFilter) -> DbResult<(Vec<SupplierRow>, i6
 // ==================== ⑥ biz_account 会计科目 ====================
 
 /// `biz_account` 列清单。
+///
+/// `is_foreign_currency`（M1-03 / V0408）：0 本位币核算 / 1 外币核算，只有末级科目可为 1。
+/// 列顺序不影响取数（`from_row` 按列名取值），排在这里是为了让「科目属性」连成一片。
 pub const ACCOUNT_COLUMNS: &str = "id, account_code, account_name, parent_id, level, \
-     account_category, balance_direction, is_leaf, aux_dimensions, status, remark, created_at, \
-     updated_at, create_by, update_by, deleted_at";
+     account_category, balance_direction, is_leaf, is_foreign_currency, aux_dimensions, status, \
+     remark, created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 会计科目行（`parent_id` / `level` 组成科目树，`level >= 1`，DB 只禁自引用）。
 #[derive(Debug, Clone)]
@@ -923,6 +926,8 @@ pub struct AccountRow {
     pub balance_direction: String,
     /// 是否末级科目（1/0；只有末级可挂业务）。
     pub is_leaf: i16,
+    /// 是否外币核算（1/0；M1-03 / V0408，只有末级科目可为 1）。
+    pub is_foreign_currency: i16,
     /// 辅助核算维度（逗号分隔的文本）。
     pub aux_dimensions: Option<String>,
     /// 启用状态（1 启用 / 0 停用）。
@@ -953,6 +958,7 @@ impl AccountRow {
             account_category: row.get_typed("account_category")?,
             balance_direction: row.get_typed("balance_direction")?,
             is_leaf: row.get_typed("is_leaf")?,
+            is_foreign_currency: row.get_typed("is_foreign_currency")?,
             aux_dimensions: row.get_typed("aux_dimensions")?,
             status: row.get_typed("status")?,
             remark: row.get_typed("remark")?,
@@ -993,7 +999,7 @@ pub async fn account_children(parent_id: Uuid) -> DbResult<Vec<AccountRow>> {
     rows.iter().map(AccountRow::from_row).collect()
 }
 
-/// 科目分页（关键词 / 类别 / 末级 / 上级 / 启用位）。
+/// 科目分页（关键词 / 类别 / 末级 / 外币核算 / 上级 / 启用位）。
 pub async fn account_page(q: &AccountFilter) -> DbResult<(Vec<AccountRow>, i64)> {
     let mut sql = format!("SELECT {ACCOUNT_COLUMNS} FROM biz_account WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
@@ -1009,6 +1015,13 @@ pub async fn account_page(q: &AccountFilter) -> DbResult<(Vec<AccountRow>, i64)>
     if let Some(is_leaf) = q.is_leaf {
         sql.push_str(" AND is_leaf = ?");
         let flag: i16 = if is_leaf { 1 } else { 0 };
+        params.push(TypeMapper::to_value(&flag));
+    }
+    // 外币核算筛选（M1-03）：M1-05 期末调汇 / M1-07 外币余额表都按这一位取科目。
+    // 走 `idx_biz_account_foreign_currency` 的部分索引（谓词同形）。
+    if let Some(is_foreign_currency) = q.is_foreign_currency {
+        sql.push_str(" AND is_foreign_currency = ?");
+        let flag: i16 = if is_foreign_currency { 1 } else { 0 };
         params.push(TypeMapper::to_value(&flag));
     }
     if let Some(parent_id) = q.parent_id.as_deref() {
@@ -1029,6 +1042,43 @@ pub async fn account_page(q: &AccountFilter) -> DbResult<(Vec<AccountRow>, i64)>
         AccountRow::from_row,
     )
     .await
+}
+
+/// 设置科目「是否外币核算」标记（**M1-03 的唯一写入口**，只改这一列）。
+///
+/// 返回受影响行数：
+/// * `1` = 真的改了一列；
+/// * `0` = 主键不存在 / 已软删 /（开启时）非末级科目 / 值本来就是这个（`IS DISTINCT FROM`）。
+///
+/// 四种情况**都由调用方预读后给指名文案**（404 / `66080` / 幂等直接返回当前行），
+/// 这里只管「一条语句原子改一列」—— 不在 model 里做业务判断，也不开事务（单语句自带原子性）。
+///
+/// 为什么带 `is_foreign_currency IS DISTINCT FROM ?`：幂等 + 不白刷 `updated_at`。
+/// 为什么开启时带 `AND is_leaf = 1`：与 V0408 的 `ck_biz_account_fc_leaf` 同一条规则，
+/// 预读之后的并发窗口里若别人把该科目改成非末级，这条谓词会让 UPDATE 落空（而不会撞
+/// check_violation 变成 500）。
+pub async fn account_set_foreign_currency(id: Uuid, enabled: bool, operator: Option<Uuid>) -> DbResult<u64> {
+    let flag: i16 = i16::from(enabled);
+    let mut sql = String::from(
+        "UPDATE biz_account SET is_foreign_currency = ?, updated_at = now(), \
+         update_by = NULLIF(?::text,'')::uuid \
+         WHERE id = ?::uuid AND deleted_at IS NULL AND is_foreign_currency IS DISTINCT FROM ?",
+    );
+    if enabled {
+        sql.push_str(" AND is_leaf = 1");
+    }
+    let affected = db()
+        .execute_with_params(
+            &sql,
+            vec![
+                TypeMapper::to_value(&flag),
+                Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),
+                Value::from(&id),
+                TypeMapper::to_value(&flag),
+            ],
+        )
+        .await?;
+    Ok(affected)
 }
 
 // ==================== ⑦ biz_accounting_period 会计期间 ====================

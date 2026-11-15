@@ -1,0 +1,7 @@
+== A) 克隆模板库 + V0408，逐条跑本卡相关用例 ==
+--- business::erp::model::tests::account_foreign_currency_flag_round_trips_and_filters
+test business::erp::model::tests::account_foreign_currency_flag_round_trips_and_filters ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5457 filtered out; finished in 0.08s
+--- business::erp::model::tests::account_row_maps_direction_and_leaf
+test business::erp::model::tests::account_row_maps_direction_and_leaf ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5457 filtered out; finished in 0.06s

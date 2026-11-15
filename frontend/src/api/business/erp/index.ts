@@ -2375,6 +2375,9 @@ export function fetchVouchersBySource(
  * 会计科目（逐字抄 `dto.rs::AccountRes`）。
  *
  * 总账 Tab1 的「科目」下拉与 Tab2 的译名都读它；`level` / `is_leaf` 决定下拉是否缩进。
+ *
+ * `is_foreign_currency`（M1-03 / V0408）：科目是否按外币核算。只有**末级科目**可为 `true`
+ * （后端 `ck_biz_account_fc_leaf` + 400/66080 同一条规则）。
  */
 export interface AccountRow {
   /** 主键 */
@@ -2393,6 +2396,8 @@ export interface AccountRow {
   balance_direction: string;
   /** 是否末级 */
   is_leaf: boolean;
+  /** 是否外币核算（只有末级科目可为 true） */
+  is_foreign_currency: boolean;
   /** 辅助核算维度 */
   aux_dimensions: string | null;
   /** 启用状态：1 启用 / 0 停用 */
@@ -2839,12 +2844,25 @@ export function fetchAccountPage(query: {
   keyword?: string;
   account_category?: AccountCategory | '';
   is_leaf?: boolean;
+  is_foreign_currency?: boolean;
   parent_id?: string;
   status?: number;
   page?: number;
   page_size?: number;
 }): Promise<PageData<AccountRow>> {
   return get<PageData<AccountRow>>(`${BASE}/account/page`, asParams(query));
+}
+
+/**
+ * 设置科目「是否外币核算」（M1-03；`PUT /erp/account/{id}/foreign-currency`）。
+ *
+ * 后端只有这一条路能改科目（科目页其余部分仍只读）：
+ *   - 只有末级科目能开启，否则 `400 + 66080`（文案点名「不是末级科目」，直接展示 `msg`）；
+ *   - 值相同时后端幂等返回当前行（不写库、不刷 `updated_at`），连点两次开关不会互踢；
+ *   - 失败一律抛 `ApiError`，调用方把开关回滚到 `row.is_foreign_currency`（**别留半开的 UI**）。
+ */
+export function setAccountForeignCurrency(id: string, enabled: boolean): Promise<AccountRow> {
+  return put<AccountRow>(`${BASE}/account/${id}/foreign-currency`, { is_foreign_currency: enabled });
 }
 
 /**

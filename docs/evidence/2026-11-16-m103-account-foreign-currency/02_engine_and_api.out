@@ -1,0 +1,72 @@
+== A) 克隆库升级（真引擎：模板库 → cp_m103_upgrade）==
+  升级前：versioned 326 条，最大 version=404（模板停在 V404，V0408 之后都是本卡要验的）
+  PASS  克隆库真启动成功（/health 200）
+  数据库迁移完成: 应用 4 个迁移
+  PASS  应用了 4 个迁移（含 V0408）
+  PASS  V0408 自检块在真引擎里通过（NOTICE 已打印）
+  schema_migrations：408/true/app/migrations/business/V0408__account_foreign_currency.up.sql
+  PASS  schema_migrations 登记 408/true/源文件
+  PASS  升级后列结构 = smallint/NO/0
+  PASS  两条 CHECK 在位
+  PASS  权限码菜单按钮行在位且唯一
+  PASS  存量 83 行全部回填 0
+  PASS  重启：应用 0 个迁移（引擎级幂等）
+  PASS  versioned 迁移条数 326 → 330（+4，与日志一致）
+
+== B) 空库首启（全量迁移 + V0408 自检；真 HTTP 的落点）==
+  数据库迁移完成: 应用 340 个迁移
+  PASS  空库首启 versioned 迁移 = 328（V0408 是第 328 条）
+  PASS  空库首启也跑了 V0408 自检
+  PASS  /health 200
+  PASS  演练库：清掉 admin 的 must_change_password（仅为跑通本卡接口）
+
+== C) 真 HTTP：科目外币核算开关 ==
+  PASS  登录成功（access_token 461 字符）
+  末级科目 M103.01 = 4362de24-c5ef-4787-8042-4342f77baa3b；汇总科目 M103 = 87e41ce6-7846-4343-a974-e4d291ed0a95
+  PASS  演练科目已就位（1 末级 + 1 汇总）
+  PASS  M103 确实是汇总科目（is_leaf=0）
+-- C1) 列出科目（升级后每个科目都带 is_foreign_currency）--
+  行数=5；字段 is_foreign_currency 全为 False：True
+  样例： {'account_code': '1001', 'account_name': '库存现金', 'is_leaf': True, 'is_foreign_currency': False}
+-- C2) 开启末级科目的外币核算 --
+  200 code=0 msg=ok flag=True
+  PASS  PUT 开启 → 200 + is_foreign_currency=true
+  PASS  库里的值 = 1
+  PASS  update_by 已落操作人
+-- C3) 幂等：重复开关同一个值（不写库、不刷 updated_at）--
+  200 code=0 msg=ok flag=True
+  PASS  重复开启 → 200（幂等）
+  PASS  updated_at 未被刷新（2026-11-16 03:11:11.124534+08）
+-- C4) 非末级科目开启 → 必须 400 + 66080 --
+  400 code=66080 msg=科目 M103 __m103_parent__ 不是末级科目，不能标记外币核算：外币核算按末级科目挂分录、期末调汇，汇总科目由下级汇总（标注末级明细科目，或先给当前科目建下级科目） flag=None
+  PASS  400 + 66080（业务规则拒绝，文案点名末级科目）
+  PASS  汇总科目库里仍是 0（拒绝时没写脏）
+-- C5) 不存在的科目 → 404 + 10002 --
+  404 code=10002 msg=会计科目不存在或已删除 flag=None
+  PASS  404 + 10002
+-- C6) 非法 UUID → 400 + 66006 --
+  400 code=66006 msg=id 不是合法的 UUID：not-a-uuid flag=None
+  PASS  400 + 66006
+-- C7) 缺字段 → 4xx（不允许静默当 false）--
+  422 code=10001 msg=请求体参数校验失败：Failed to deserialize the JSON body into the target type: missing field `is_foreign_currency` at line 1 column 2 flag=None
+  PASS  缺 is_foreign_currency 被拒（422 + 10001，框架 JSON 提取器口径）
+-- C8) 列表按 is_foreign_currency 筛选 --
+  命中 1 条：['M103.01']（全部 flag=True：True）
+  OK 只命中被标记的末级科目
+  PASS  列表筛选 is_foreign_currency=true 只回被标记科目
+-- C9) 关闭 → 200 + false，库里回 0 --
+  200 code=0 msg=ok flag=False
+  PASS  关闭 → 200 + false
+  PASS  库里回 0
+-- C10) 未带令牌 → 401（路由真的挂了权限中间件）--
+  PASS  未鉴权 → 401
+-- C11) 科目不是末级时先改 is_leaf=0 再开启 → 仍 66080（与 DB 约束同一条规则）--
+  400 code=66080 msg=科目 M103.01 __m103_leaf__ 不是末级科目，不能标记外币核算：外币核算按末级科目挂分录、期末调汇，汇总科目由下级汇总（标注末级明细科目，或先给当前科目建下级科目） flag=None
+  PASS  非末级（原末级改成汇总）也 400 + 66080
+
+== D) 收尾 ==
+  PASS  演练库 cp_m103_upgrade 已删
+  PASS  演练库 cp_m103_e2e 已删
+  PASS  cp_m103* 残留库计数 = 0
+
+== 汇总：PASS=35 FAIL=0 ==

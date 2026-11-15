@@ -1,0 +1,14 @@
+== B) 干净克隆（模板原样，**不应用 V0408**：is_foreign_currency 列数见下） ==
+0
+--- business::erp::model::tests::list_pages_respect_filters
+  left: 0
+ right: 1
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5457 filtered out; finished in 0.07s
+--- business::erp::model::tests::material_row_maps_type_and_tax
+  left: 13.0000
+ right: 0.13
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5457 filtered out; finished in 0.07s
+--- business::erp::model::tests::purchase_order_row_maps_amounts_and_currency
+  left: "SUBMITTED"
+ right: "DRAFT"
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 5457 filtered out; finished in 0.07s

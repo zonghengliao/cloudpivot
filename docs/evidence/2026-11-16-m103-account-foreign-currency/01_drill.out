@@ -1,0 +1,49 @@
+== 0) 建演练库（克隆 cloudpivot_test @ 172.18.10.145）==
+  PASS  演练库 cp_m103_drill 已建
+== 1) up 首次执行（自检块：任一断言不符即整体回滚）==
+  PASS  up 首次执行成功
+psql:/opt/cloudpivot/backend/app/migrations/business/V0408__account_foreign_currency.up.sql:72: NOTICE:  V0408: 前置表齐备，开始加「是否外币核算」标记
+psql:/opt/cloudpivot/backend/app/migrations/business/V0408__account_foreign_currency.up.sql:328: NOTICE:  V0408 自检通过：is_foreign_currency（smallint 0/1，默认 0）+ 2 条 CHECK（取值 / 仅末级）+ 部分索引 + 权限码 business:erp:account:update + 行为探针 6 组
+== 2) 结构对拍 ==
+  PASS  列型 / NOT NULL / 默认值（smallint|NO|0）
+  PASS  两条 CHECK 在位（2）
+  PASS  fc_leaf 约束定义含两个列（t）
+  PASS  部分索引 + 谓词（1）
+  PASS  权限码按钮行（type/code/parent/sort）（3|business:erp:account:update|20000000-0000-0000-0000-000000000950|10）
+  PASS  授权只给 2 个角色（ADMIN 不是生产角色码）（0）
+  PASS  财务经理确实被授权（可授出去）（1）
+  PASS  存量行全部回填 0（0）
+== 3) up 重复执行幂等（整表指纹不变）==
+  PASS  up 第二次执行成功（幂等）
+  PASS  重放后整表指纹不变（83/3c18ab4c96f6b9275c0d302e52618d91）
+== 4) 行为反证（脏数据必须被拒）==
+  PASS  值 2 被 ck_biz_account_foreign_currency 拒（ck_biz_account_foreign_currency）
+  PASS  值 -1 被拒（ck_biz_account_foreign_currency）
+  PASS  NULL 被 NOT NULL 拒（null value in column）
+  PASS  非末级科目标记被 ck_biz_account_fc_leaf 拒（ck_biz_account_fc_leaf）
+== 5) 行为正证（正常业务必须放行）==
+  PASS  末级科目标记外币核算成功（读回 1）
+  PASS  已标记科目改成非末级被拒（反向也挡住）（ck_biz_account_fc_leaf）
+  PASS  关闭外币核算成功（读回 0）
+== 6) down 数据护栏（有外币科目必须拒绝）==
+  PASS  有外币科目时 down 被拒（业务信息不许回滚丢掉）（V0408 down 拒绝执行）
+  PASS  被拒后列仍在（没被半途删掉）（1）
+== 7) down 幂等（先清标记再连跑两次）==
+  PASS  down 第 1 次执行成功
+  PASS  down 第 2 次执行成功
+  PASS  down 后列已删（0）
+  PASS  down 后约束已删（0）
+  PASS  down 后索引已删（0）
+  PASS  down 后权限码行已删（0）
+  PASS  down 后授权行已删（0）
+  PASS  down 不动业务行（2 行演练科目还在）（2）
+== 8) 回滚后重放 up（指纹与第一次一致）==
+  PASS  回滚后重放 up 成功
+  PASS  重放后仍全部为 0（0）
+  PASS  重放后权限码行回来了（且只有一行）（1）
+  PASS  重放不动业务行（指纹一致 83/8a26ee9295eb28d49be63b7863bcada4）
+== 9) 收尾：DROP 演练库 ==
+  PASS  演练库已删
+  PASS  cp_m103* 残留库计数 = 0
+
+== 汇总：PASS=35 FAIL=0 ==

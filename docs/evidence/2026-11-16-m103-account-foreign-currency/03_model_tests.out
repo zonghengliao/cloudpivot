@@ -1,0 +1,33 @@
+== 演练库 cp_m103_models 就绪（模板 + V0408），开始跑 erp model_tests ==
+
+thread 'business::erp::model::tests::list_pages_respect_filters' (2480159) panicked at app/src/business/erp/model_tests.rs:969:5:
+assertion `left == right` failed
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::model::tests::material_row_maps_type_and_tax stdout ----
+
+thread 'business::erp::model::tests::material_row_maps_type_and_tax' (2480165) panicked at app/src/business/erp/model_tests.rs:305:5:
+assertion `left == right` failed
+  left: 13.0000
+ right: 0.13
+
+---- business::erp::model::tests::purchase_order_row_maps_amounts_and_currency stdout ----
+
+thread 'business::erp::model::tests::purchase_order_row_maps_amounts_and_currency' (2480172) panicked at app/src/business/erp/model_tests.rs:458:5:
+assertion `left == right` failed
+  left: "SUBMITTED"
+ right: "DRAFT"
+
+
+failures:
+    business::erp::model::tests::list_pages_respect_filters
+    business::erp::model::tests::material_row_maps_type_and_tax
+    business::erp::model::tests::purchase_order_row_maps_amounts_and_currency
+
+test result: FAILED. 27 passed; 3 failed; 0 ignored; 0 measured; 5428 filtered out; finished in 0.33s
+
+error: test failed, to rerun pass `-p cloudpivot --lib`
+!! 0 个用例命中（过滤名写错？），本次结果不算通过
+== 演练库已删 ==

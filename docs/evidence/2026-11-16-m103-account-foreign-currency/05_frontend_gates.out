@@ -1,0 +1,28 @@
+$ pnpm typecheck
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js --noEmit
+
+$ pnpm test:unit
+1..1866
+# tests 1866
+# suites 0
+# pass 1866
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 6716.334898
+$ pnpm check (palettes + typecheck + typecheck:unit)
+
+> @cloudpivot/web@0.1.0 typecheck:unit /opt/cloudpivot/frontend
+> node --max-old-space-size=4096 ./node_modules/vue-tsc/bin/vue-tsc.js -p tsconfig.unit.json --noEmit
+
+$ pnpm lint:shell
+| B6 单页专有壳类（1-2 页） | 26 | 20 | 105 | tool-row--second×4、tool-row__dept×2、tool-row__year×2、panel-head__link×2、panel-head__overdue×2 |
+门禁档：快照 215 条 / 当前 215 条（scripts/shell-variant-allowlist.json）
+✓ 无新增页面壳类声明（存量 215 条待按批削减，已删 0 条可同步削 allowlist）
+$ pnpm build
+dist//opt/cloudpivot/frontend/assets/pdf.worker.min-yatZIOMy.mjs.gz                                        1343.59kb / gzip: 393.48kb
+dist//opt/cloudpivot/frontend/assets/tdesign-B3swqWaX.js.gz                                                7998.25kb / gzip: 773.39kb
+
+

@@ -1,0 +1,15 @@
+$ cargo fmt -- --check
+exit 0（零差异）
+$ cargo clippy -p cloudpivot --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend/app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 16s
+$ cargo test --lib business::erp::account_admin_handler
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 5454 filtered out; finished in 0.00s
+$ cargo test --lib business::erp::handler
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 5407 filtered out; finished in 0.01s
+$ cargo test --lib system::menu::permission_audit_tests
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 5450 filtered out; finished in 0.78s
+$ cargo test --test m1_03_account_foreign_currency_migration
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+$ cargo test --test flow_all_role_multiversion_migration
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

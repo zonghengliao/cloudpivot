@@ -1,0 +1,31 @@
+== perm_menu_gate --self-test（闸门自检） ==
+✔ 裸白名单被拒（理由不是字符串）：EXEMPT 里 `a:b:c` 没有理由（裸白名单）
+✔ 带理由的白名单被接受：OK
+--------------------------------------------------------------------------------------------
+19/19 通过
+== perm_menu_gate 连库比对（cp_m103_gate） ==
+  · support:job:list                   行级/常量引用  backend/app/src/support/job/handler.rs:43
+  · support:log:delete                 行级/常量引用  backend/app/src/support/log/handler.rs:102
+  · support:log:list                   行级/常量引用  backend/app/src/support/log/handler.rs:34
+  · support:online:list                行级/常量引用  backend/app/src/support/online/handler.rs:26
+  · system:dept:create                 行级/常量引用  backend/app/src/system/dept/handler.rs:187
+  · system:dept:list                   行级/常量引用  backend/app/src/system/dept/handler.rs:56
+  · system:dept:update                 行级/常量引用  backend/app/src/system/dept/handler.rs:278
+  · system:field-mask:plain            行级/常量引用  backend/app/src/business/masking/registry.rs:47
+  · system:help:doc:create             行级/常量引用  backend/app/src/business/help/handler.rs:240
+  · system:menu:create                 行级/常量引用  backend/app/src/system/menu/handler.rs:99
+  · system:menu:delete                 行级/常量引用  backend/app/src/system/menu/handler.rs:254
+  · system:menu:list                   行级/常量引用  backend/app/src/system/menu/handler.rs:36
+  · system:menu:update                 行级/常量引用  backend/app/src/system/menu/handler.rs:154
+  · system:preference:view             源码零引用（纯前端权限点）
+  · system:role-mutex:list             行级/常量引用  backend/app/src/business/mutex/handler.rs:75
+  · system:role:create                 行级/常量引用  backend/app/src/system/role/handler.rs:135
+  · system:role:delete                 行级/常量引用  backend/app/src/system/role/handler.rs:383
+  · system:role:list                   行级/常量引用  backend/app/src/system/role/handler.rs:47
+  · system:role:menu                   行级/常量引用  backend/app/src/system/role/handler.rs:500
+  · system:role:update                 行级/常量引用  backend/app/src/system/role/handler.rs:231
+  · system:setup:read                  行级/常量引用  backend/app/src/system/setup/handler.rs:44
+  · system:user:create                 行级/常量引用  backend/app/src/business/aiagent/handler.rs:107
+  · system:user:role                   行级/常量引用  backend/app/src/system/user/handler.rs:822
+============================================================================================
+==> 闸：PASS

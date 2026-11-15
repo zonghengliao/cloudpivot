@@ -337,6 +337,91 @@ async fn account_row_maps_direction_and_leaf() {
 }
 
 #[tokio::test]
+async fn account_foreign_currency_flag_round_trips_and_filters() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+
+    // V0408：默认必须是 0（本位币核算），存量 83 行全是 0
+    let leaf = account_find_by_code("W1B100101").await.unwrap().expect("夹具末级科目");
+    assert_eq!(leaf.is_foreign_currency, 0, "默认必须本位币核算（DEFAULT 0）");
+    assert_eq!(leaf.is_leaf, 1, "夹具 W1B100101 是末级科目");
+
+    // 开启：1 行受影响，读回 1
+    assert_eq!(
+        account_set_foreign_currency(leaf.id, true, None).await.unwrap(),
+        1,
+        "末级科目开启必须真的写一列"
+    );
+    assert_eq!(
+        account_find_by_code("W1B100101")
+            .await
+            .unwrap()
+            .unwrap()
+            .is_foreign_currency,
+        1
+    );
+
+    // 幂等：同值再开 = 0 行（`IS DISTINCT FROM` 谓词，不白刷 updated_at）
+    assert_eq!(
+        account_set_foreign_currency(leaf.id, true, None).await.unwrap(),
+        0,
+        "同值重复开启必须是 no-op（否则连点两次开关会互踢）"
+    );
+
+    // 按标记筛选：只回标记行（这就是 M1-05 期末调汇取科目的口径）
+    let filter = AccountFilter {
+        keyword: Some("W1B1001".into()),
+        is_foreign_currency: Some(true),
+        page_size: 50,
+        ..AccountFilter::default()
+    };
+    let (rows, total) = account_page(&filter).await.unwrap();
+    assert!(total >= 1, "筛外币科目必须命中刚标的那一行");
+    assert!(
+        rows.iter().all(|row| row.is_foreign_currency == 1),
+        "筛 is_foreign_currency=true 不许回本位币科目"
+    );
+    assert!(
+        rows.iter().any(|row| row.account_code == "W1B100101"),
+        "刚标记的末级科目必须在结果里"
+    );
+
+    // 非末级科目开启必须落空（`AND is_leaf = 1` 谓词 + DB 的 ck_biz_account_fc_leaf 同一条规则）
+    assert_eq!(
+        account_set_foreign_currency(uuid(ACC_ROOT_ID), true, None)
+            .await
+            .unwrap(),
+        0,
+        "汇总科目不许被标记外币核算（否则期末调汇会算出金额恒 0 的凭证）"
+    );
+    assert_eq!(
+        account_find_by_code("W1B1001")
+            .await
+            .unwrap()
+            .unwrap()
+            .is_foreign_currency,
+        0
+    );
+
+    // 关闭：1 行受影响，读回 0（关闭永远允许）
+    assert_eq!(
+        account_set_foreign_currency(leaf.id, false, None).await.unwrap(),
+        1,
+        "关闭标记必须成功"
+    );
+    assert_eq!(
+        account_find_by_code("W1B100101")
+            .await
+            .unwrap()
+            .unwrap()
+            .is_foreign_currency,
+        0
+    );
+}
+
+#[tokio::test]
 async fn period_row_maps_code_and_status() {
     let _db = match setup().await {
         Some(guard) => guard,

@@ -142,11 +142,24 @@ pub const READONLY_PERMISSIONS: [(&str, &str); 8] = [
     ("business:erp:inventory-txn:list", "库存流水"),
 ];
 
+/// M1-03 起新增的写码（不属 V0141 的 32 码批次，但同在前缀与菜单体系内）。
+///
+/// 与「死码」的区别见 `scripts/verify/perm_menu_gate.py`：这条码在 `V0408` 里有对应的
+/// `sys_menu` 按钮行（否则除超管没人授得出去）。
+pub const POST_W1C_PERMISSIONS: [(&str, &str); 1] = [(
+    crate::business::erp::account_admin_handler::PERM_ACCOUNT_UPDATE,
+    "科目外币核算标记",
+)];
+
 /// 全部 32 个权限码（24 卡面码 + 8 只读码），单测钉住「无重复 / 前缀正确」。
+///
+/// M1-03 之后另有 [`POST_W1C_PERMISSIONS`]（科目外币核算标记）一起进清单：这条码不属
+/// V0141 的 32 码批次，但同属 `business:erp:` 前缀，汇总出口只该有一个。
 pub fn all_permissions() -> Vec<&'static str> {
     CARD_PERMISSIONS
         .iter()
         .chain(READONLY_PERMISSIONS.iter())
+        .chain(POST_W1C_PERMISSIONS.iter())
         .map(|(code, _)| *code)
         .collect()
 }
@@ -2510,15 +2523,16 @@ mod tests {
 
     // ---------- 纯逻辑用例（无需数据库） ----------
 
-    /// ① 权限码清单：21 卡面码 + 8 只读码 = 29，无重复，前缀统一。
+    /// ① 权限码清单：21 卡面码 + 8 只读码 + 1 M1-03 写码 = 30，无重复，前缀统一。
     ///
     /// BUG-SYS-05：物料分类 3 码（表未建、无路由、无注解）已移除，见 `CARD_PERMISSIONS` 文档。
     #[test]
     fn permissions_are_complete_and_unique() {
         let codes = all_permissions();
-        assert_eq!(codes.len(), 29, "21 卡面码 + 8 只读码");
+        assert_eq!(codes.len(), 30, "21 卡面码 + 8 只读码 + 1 个 M1-03 科目写码");
         assert_eq!(CARD_PERMISSIONS.len(), 21, "卡面码去掉预留的物料分类 3 码");
         assert_eq!(READONLY_PERMISSIONS.len(), 8, "8 张只读表各 1 个码");
+        assert_eq!(POST_W1C_PERMISSIONS.len(), 1, "M1-03 只加 1 个码（科目外币核算标记）");
         let unique: std::collections::BTreeSet<_> = codes.iter().collect();
         assert_eq!(unique.len(), codes.len(), "权限码不得重复");
         assert!(

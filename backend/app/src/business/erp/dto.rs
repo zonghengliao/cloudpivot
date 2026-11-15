@@ -1737,6 +1737,8 @@ pub struct AccountFilter {
     pub account_category: Option<String>,
     /// 只看末级 / 只看非末级。
     pub is_leaf: Option<bool>,
+    /// 只看外币核算 / 只看本位币核算（M1-03；M1-05 期末调汇、M1-07 外币余额表都按这一位取科目）。
+    pub is_foreign_currency: Option<bool>,
     /// 直接上级。
     pub parent_id: Option<String>,
     /// 启用状态。
@@ -1753,6 +1755,7 @@ impl Default for AccountFilter {
             keyword: None,
             account_category: None,
             is_leaf: None,
+            is_foreign_currency: None,
             parent_id: None,
             status: None,
             page: 1,
@@ -1819,6 +1822,8 @@ pub struct AccountRes {
     pub balance_direction: String,
     /// 是否末级。
     pub is_leaf: bool,
+    /// 是否外币核算（M1-03；只有末级科目可为 `true`）。
+    pub is_foreign_currency: bool,
     /// 辅助核算维度。
     pub aux_dimensions: Option<String>,
     /// 启用状态。
@@ -1842,6 +1847,7 @@ impl From<&AccountRow> for AccountRes {
             account_category: row.account_category.clone(),
             balance_direction: row.balance_direction.clone(),
             is_leaf: row.is_leaf == 1,
+            is_foreign_currency: row.is_foreign_currency == 1,
             aux_dimensions: row.aux_dimensions.clone(),
             status: row.status,
             remark: row.remark.clone(),
@@ -1849,6 +1855,20 @@ impl From<&AccountRow> for AccountRes {
             updated_at: row.updated_at,
         }
     }
+}
+
+/// 「是否外币核算」开关入参（M1-03）。
+///
+/// `PUT /business/erp/account/{id}/foreign-currency` 的**唯一**语义是「把这一位设成给定值」，
+/// 所以字段是**必填**而不是 `Option`：
+///   * 缺字段 = 调用方没说清要开还是要关，静默按 `false` 处理会把已标记的外币科目悄悄关掉
+///     （关掉后 M1-05 期末调汇不再扫它 ⇒ 少一张调汇凭证，账表对不上且没有报错）；
+///   * 幂等靠「值相同就直接返回当前行」实现（`model::account_set_foreign_currency` 的
+///     `IS DISTINCT FROM` 谓词），不靠字段可省。
+#[derive(Debug, Clone, Deserialize)]
+pub struct AccountForeignCurrencyReq {
+    /// 是否外币核算：`true` 开启 / `false` 关闭。
+    pub is_foreign_currency: bool,
 }
 
 // ==================== ⑦ 会计期间 ====================

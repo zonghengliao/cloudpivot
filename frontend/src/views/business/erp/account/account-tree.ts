@@ -115,6 +115,38 @@ export const ACCOUNT_STATUS_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 0, label: '停用' },
 ];
 
+// ==================== 是否外币核算（M1-03 / V0408） ====================
+
+/**
+ * 「是否外币核算」→ 中文。
+ *
+ * 口径来自迁移 `V0408`：`is_foreign_currency SMALLINT NOT NULL DEFAULT 0`，0 本位币 / 1 外币。
+ * 这里刻意说「外币核算 / 本位币核算」而不是「是 / 否」：财务看这一列时真正要判断的是
+ * 「这个科目按不按原币记账、期末要不要调汇」，回一个「否」等于什么都没说。
+ */
+export function foreignCurrencyLabel(flag: boolean | null | undefined): string {
+  return flag === true ? '外币核算' : '本位币核算';
+}
+
+/** 外币核算下拉项（`''` = 全部，由页面拼）；`boolean` 与后端 `is_foreign_currency: Option<bool>` 对齐 */
+export const ACCOUNT_FOREIGN_CURRENCY_OPTIONS: Array<{ value: boolean; label: string }> = [
+  { value: true, label: '外币核算' },
+  { value: false, label: '本位币核算' },
+];
+
+/**
+ * 这个科目**能不能**改「是否外币核算」。
+ *
+ * 只有末级科目能开启（后端 `ck_biz_account_fc_leaf` + `400/66080`）。汇总科目自己那一行没有
+ * 余额（余额由下级汇总而来），标上会让 M1-05 期末调汇扫出金额恒 0 的凭证，而下级若也标了就是
+ * 同一笔外币余额调两次 —— 所以汇总科目的开关在界面上是**禁用 + 说明**，不是点了才报错。
+ *
+ * 关闭永远允许：取消标记不需要理由（但汇总科目本来就不该有标记，见上）。
+ */
+export function canMarkForeignCurrency(row: { is_leaf?: boolean | null; is_foreign_currency?: boolean | null }): boolean {
+  return row.is_leaf === true || row.is_foreign_currency === true;
+}
+
 /** 层级 → 中文（会计科目常规到 3 级；超出就如实报数字，不编「四级」这种不存在的口径） */
 export function accountLevelLabel(level: number | null | undefined): string {
   const value = typeof level === 'number' && Number.isFinite(level) ? level : 0;
@@ -335,16 +367,28 @@ export interface AccountFilterState {
   account_category: AccountCategory | '';
   /** 启用状态（`null` = 全部；数字与后端 `status` 对齐） */
   status: number | null;
+  /**
+   * 是否外币核算（`null` = 全部；与后端 `is_foreign_currency: Option<bool>` 对齐）。
+   *
+   * 放在前端过滤而不是每次回服务端：本页一次拉全量科目再拼树，加一次远端筛选就要重建整棵树，
+   * 而「只看外币科目」是财务核对调汇范围时的高频动作，必须即时。
+   */
+  is_foreign_currency: boolean | null;
 }
 
 /** 空筛选 */
 export function emptyAccountFilter(): AccountFilterState {
-  return { keyword: '', account_category: '', status: null };
+  return { keyword: '', account_category: '', status: null, is_foreign_currency: null };
 }
 
 /** 筛选是否有内容（决定「重置」按钮是否可用 / 表头提示是否写「已过滤」） */
 export function isAccountFiltered(filter: AccountFilterState): boolean {
-  return filter.keyword.trim() !== '' || filter.account_category !== '' || filter.status !== null;
+  return (
+    filter.keyword.trim() !== '' ||
+    filter.account_category !== '' ||
+    filter.status !== null ||
+    filter.is_foreign_currency !== null
+  );
 }
 
 /** 过滤结果 */
@@ -368,7 +412,8 @@ export function filterAccountTree(nodes: AccountTreeNode[], filter: AccountFilte
   const needle = filter.keyword.trim().toLowerCase();
   const category = filter.account_category;
   const status = filter.status;
-  if (!needle && !category && status === null) {
+  const foreign = filter.is_foreign_currency;
+  if (!needle && !category && status === null && foreign === null) {
     return { tree: nodes, expandedIds: [], matchedCount: 0 };
   }
 
@@ -382,7 +427,10 @@ export function filterAccountTree(nodes: AccountTreeNode[], filter: AccountFilte
           node.account_code.toLowerCase().includes(needle) ||
           node.account_name.toLowerCase().includes(needle)) &&
         (!category || node.account_category === category) &&
-        (status === null || node.status === status);
+        (status === null || node.status === status) &&
+        // 「只看外币科目」按**标记**过滤（`is_foreign_currency`），不是按科目币种列（`currency_code`）：
+        // 前者是「要不要调汇」的开关，后者是「记什么币」的属性，两者可以不同（如 USD 科目未开外币核算）。
+        (foreign === null || node.is_foreign_currency === foreign);
       if (!selfMatch && children.length === 0) {
         continue;
       }

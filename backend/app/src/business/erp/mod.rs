@@ -113,6 +113,7 @@
 //! 分页一律走 `scope::paginate_unscoped` + `ScopeTarget::unscoped`，
 //! 理由见 [`model`] 文件头的 `SCOPE-EXEMPT` 说明。
 
+pub mod account_admin_handler;
 pub mod approval_gate;
 pub mod asset;
 pub mod batch;

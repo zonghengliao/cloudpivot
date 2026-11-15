@@ -37,6 +37,16 @@
           data-testid="account-filter-status"
           @change="applyFilter"
         />
+        <!-- M1-03：只看外币核算科目（期末调汇 M1-05 / 外币余额表 M1-07 的核对入口） -->
+        <t-select
+          v-model="foreignModel"
+          class="tool-row__type"
+          :options="foreignOptions"
+          placeholder="全部币种核算"
+          clearable
+          data-testid="account-filter-foreign"
+          @change="applyFilter"
+        />
         <t-button theme="primary" data-testid="btn-account-search" @click="applyFilter">查询</t-button>
         <t-button variant="outline" data-testid="btn-account-reset" @click="handleReset">重置</t-button>
         <!-- 本页只读：批量导入是唯一「成批建科目」的入口，直接给模板下载 -->
@@ -56,9 +66,10 @@
           <span class="panel-head__meta" data-testid="account-meta">{{ metaText }}</span>
         </div>
         <div class="panel-head__side">
-          <!-- ★ 本页只读：科目是财务专业配置（启停 / 增删要走管理员），界面上把这件事写明白 -->
+          <!-- ★ 科目结构只读（增删 / 改名 / 启停要走管理员）；唯一可改的是「外币核算」开关（M1-03），
+               它不动分录也不动余额，只决定期末调汇要不要算这个科目 -->
           <span class="panel-head__tip" data-testid="account-readonly-tip">
-            只读：科目由系统管理员维护
+            只读：科目由系统管理员维护，「外币核算」开关除外
           </span>
           <t-button
             size="small"
@@ -170,6 +181,26 @@
             {{ accountStatusLabel(row.status) }}
           </t-tag>
         </template>
+
+        <!--
+          M1-03：科目「是否外币核算」开关（`PUT /erp/account/{id}/foreign-currency`）。
+
+          三处刻意的处置：
+          1. **汇总科目禁用**（`canMarkForeignCurrency`）：只有末级科目能按外币记账，汇总科目标上会让
+             期末调汇算出一张金额恒 0 的凭证（后端同一条规则给 400/66080）。禁用比「点了报错」友好。
+          2. **没有权限时禁用**（`business:erp:account:update`）：本页其余部分只读，这一位单独受码管。
+          3. **失败回滚**：`t-switch` 的 `:value` 绑的是行数据，请求失败时行数据没变，UI 自动回到原值 ——
+             不会出现「界面上开着、库里没开」的半开状态。
+        -->
+        <template #is_foreign_currency="{ row }">
+          <t-switch
+            :value="row.is_foreign_currency"
+            :disabled="!canManage || !canMarkForeignCurrency(row) || togglingIds.has(row.id)"
+            :loading="togglingIds.has(row.id)"
+            :data-testid="`account-foreign-${row.account_code}`"
+            @change="(value: unknown) => handleToggleForeignCurrency(row, Boolean(value))"
+          />
+        </template>
       </t-enhanced-table>
 
       <div v-else class="panel-empty" data-testid="account-empty">
@@ -185,14 +216,15 @@
 
 <script setup lang="ts">
 /**
- * 会计科目页（P4-C）——**只读树形**。
+ * 会计科目页（P4-C）——**只读树形** + M1-03 的「是否外币核算」开关。
  *
  * # 字段来源（硬红线 1：以库列 / DTO 为准，不猜）
  *
  * `psql \d biz_account`：`account_code / account_name / parent_id / level / account_category /
- * balance_direction / is_leaf / aux_dimensions / status(smallint) / remark`；
+ * balance_direction / is_leaf / is_foreign_currency / aux_dimensions / status(smallint) / remark`；
  * 出参 `dto.rs::AccountRes` 同名 + `id / created_at / updated_at`。
  * 所以列里是 `account_code`，不是卡面草稿里的 `code`。
+ * `is_foreign_currency` 是 V0408（M1-03）加的 `SMALLINT 0/1`，DTO 侧翻成 `boolean`。
  *
  * # 为什么一次拉全量（`page_size = 500`）而不是服务端分页
  *
@@ -201,18 +233,26 @@
  * 一次拉全 + 前端拼树 + 前端过滤，既正确又快（少 3 次往返）。
  * 真到上万条该走「懒加载子树」，那是后端加 `/account/tree` 的活，不在本卡。
  *
- * # 只读（硬红线 2）
+ * # 只读（硬红线 2）与唯一的例外（M1-03）
  *
  * 没有新建 / 编辑 / 启停按钮：财务科目是专业配置，误点一次会让凭证分录挂错科目。
  * 页头用一行字说明「由系统管理员维护」，省得财务来问「为什么这页不能改」。
+ *
+ * **例外**是「是否外币核算」这一位：它不是科目结构，改它不动分录、不动余额、不影响已生成凭证，
+ * 只决定**未来**期末调汇（M1-05）要不要给这个科目出调汇凭证。所以给它开一个窄接口
+ * （`PUT /erp/account/{id}/foreign-currency`，权限码 `business:erp:account:update`），
+ * 开关就落在这一列上 —— 其余结构仍然只读。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import ImportEntryButton from '@/components/ImportEntryButton.vue';
-import { fetchAccountPage, type AccountRow } from '@/api/business/erp';
+import { fetchAccountPage, setAccountForeignCurrency, type AccountRow } from '@/api/business/erp';
+import { useUserStore } from '@/stores/user';
 import {
   ACCOUNT_CATEGORY_OPTIONS,
+  ACCOUNT_FOREIGN_CURRENCY_OPTIONS,
   ACCOUNT_STATUS_OPTIONS,
   accountCategoryLabel,
   accountCategoryTheme,
@@ -223,6 +263,7 @@ import {
   accountTreeMeta,
   balanceDirectionLabel,
   buildAccountTree,
+  canMarkForeignCurrency,
   emptyAccountFilter,
   expandableAccountIds,
   filterAccountTree,
@@ -232,6 +273,16 @@ import {
   type AccountFilterState,
   type AccountTreeNode,
 } from './account-tree';
+
+/** 本页权限码（与 V0141 的 `account:list` / V0408 的 `account:update` 逐字一致）。 */
+const PERM = {
+  list: 'business:erp:account:list',
+  update: 'business:erp:account:update',
+} as const;
+
+const userStore = useUserStore();
+/** 能不能改「外币核算」：菜单里没勾 `account:update` 就禁用（超管持 `*:*:*` 自然为 true）。 */
+const canManage = computed(() => userStore.hasPermission(PERM.update));
 
 /**
  * 一次拉多少条科目。
@@ -248,6 +299,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'account_category', title: '科目类型', width: 110 },
   { colKey: 'balance_direction', title: '余额方向', width: 100, align: 'center' },
   { colKey: 'level', title: '层级', width: 90 },
+  { colKey: 'is_foreign_currency', title: '外币核算', width: 110, align: 'center' },
   { colKey: 'status', title: '是否启用', width: 110 },
 ];
 
@@ -257,6 +309,10 @@ const treeConfig = { treeNodeColumnIndex: arrowIndex >= 0 ? arrowIndex : 0, inde
 
 const categoryOptions = ACCOUNT_CATEGORY_OPTIONS.map((item) => ({ ...item }));
 const statusOptions = ACCOUNT_STATUS_OPTIONS.map((item) => ({ ...item }));
+const foreignOptions = ACCOUNT_FOREIGN_CURRENCY_OPTIONS.map((item) => ({
+  value: item.value,
+  label: item.label,
+}));
 
 // ==================== 数据 ====================
 
@@ -290,6 +346,34 @@ const categoryModel = computed<string | undefined>({
     filter.account_category = (typeof value === 'string' ? value : '') as AccountFilterState['account_category'];
   },
 });
+
+/**
+ * 「外币核算」下拉的桥（`null` = 全部）。
+ *
+ * 注意值可能是字符串 `'true'`/`'false'`（`t-select` 的 option value 是 boolean 时 TDesign 会原样回传，
+ * 但清空 / 复位路径上偶尔会给字符串），所以这里做一次显式归一 —— 否则 `filter.is_foreign_currency`
+ * 会变成 `'false'`（真值），筛选结果把「本位币核算」当成「外币核算」全反了。
+ */
+const foreignModel = computed<boolean | string | undefined>({
+  get: () => (filter.is_foreign_currency === null ? undefined : filter.is_foreign_currency),
+  set: (value) => {
+    if (typeof value === 'boolean') {
+      filter.is_foreign_currency = value;
+      return;
+    }
+    if (value === 'true' || value === 'false') {
+      filter.is_foreign_currency = value === 'true';
+      return;
+    }
+    filter.is_foreign_currency = null;
+  },
+});
+
+/**
+ * 正在提交的科目 id（开关显示 loading 且暂时禁用，防连点重复请求）。
+ * 用 Set 而不是单个 id：财务会连着标好几个科目。
+ */
+const togglingIds = ref<Set<string>>(new Set());
 
 const filtered = computed(() => isAccountFiltered(filter));
 
@@ -408,6 +492,54 @@ function handleExpandedKeysChange(keys: Array<string | number>): void {
   expandedKeys.value = keys.map((key) => String(key));
 }
 
+// ==================== 外币核算开关（M1-03） ====================
+
+/** 把后端返回的最新标记写回源数据（树是 `allRows` 的投影，改源数据即重建） */
+function applyForeignFlag(id: string, flag: boolean): void {
+  const target = allRows.value.find((item) => item.id === id);
+  if (target) {
+    target.is_foreign_currency = flag;
+  }
+}
+
+/**
+ * 切换科目「是否外币核算」。
+ *
+ * 三条与后端对齐的处置：
+ * 1. **先本地拦一层**（没权限 / 汇总科目）：后端同规则会拒（`403` / `400 + 66080`），但界面上
+ *    开关本来就该是禁用的，走到这里说明状态不同步，给一句人话比让用户等一次往返更清楚。
+ * 2. **以服务端返回值为准**写回行数据：不乐观更新。乐观更新失败后要「回滚」，而这里改的是
+ *    财务口径（标记错了 = 期末调汇多算/少算一个科目），宁可慢一步也不能出现「看着开着、其实没开」。
+ * 3. **失败只报错、不动数据**：`t-switch` 的 `:value` 绑的是行数据，行数据没变 ⇒ UI 自动弹回原值。
+ */
+async function handleToggleForeignCurrency(row: AccountTreeNode, next: boolean): Promise<void> {
+  if (!canManage.value) {
+    MessagePlugin.warning('没有「编辑科目」权限（business:erp:account:update），不能改外币核算标记');
+    return;
+  }
+  if (next && !canMarkForeignCurrency(row)) {
+    MessagePlugin.warning(`「${row.account_name}」不是末级科目，不能标记外币核算`);
+    return;
+  }
+  if (togglingIds.value.has(row.id)) {
+    return;
+  }
+  togglingIds.value.add(row.id);
+  try {
+    const saved = await setAccountForeignCurrency(row.id, next);
+    applyForeignFlag(row.id, saved.is_foreign_currency);
+    MessagePlugin.success(
+      saved.is_foreign_currency
+        ? `「${saved.account_name}」已标为外币核算：期末调汇将纳入该科目`
+        : `已取消「${saved.account_name}」的外币核算标记：期末调汇不再纳入该科目`,
+    );
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    togglingIds.value.delete(row.id);
+  }
+}
+
 onMounted(() => {
   void loadAccounts();
 });
@@ -423,6 +555,9 @@ onMounted(() => {
 .tool-row__category {
   width: 130px;
 }
+
+/* 「外币核算」筛选吃基线 `.tool-row__type`（140px，shell.less）；本页不另立壳类，
+   见 docs/architecture/shell-样式变体收敛-决策.md §2.1 铁律 A/B（页面零壳类声明）。 */
 
 .panel-head {
   display: flex;

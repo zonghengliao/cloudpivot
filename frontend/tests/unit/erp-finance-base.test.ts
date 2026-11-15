@@ -19,6 +19,7 @@ import assert from 'node:assert/strict';
 import type { AccountRow } from '@/api/business/erp';
 import {
   ACCOUNT_CATEGORY_OPTIONS,
+  ACCOUNT_FOREIGN_CURRENCY_OPTIONS,
   accountCategoryLabel,
   accountCategoryTheme,
   accountLevelLabel,
@@ -30,12 +31,14 @@ import {
   accountTreeMeta,
   balanceDirectionLabel,
   buildAccountTree,
+  canMarkForeignCurrency,
   compareAccountCode,
   countAccounts,
   emptyAccountFilter,
   expandableAccountIds,
   filterAccountTree,
   flattenAccountTree,
+  foreignCurrencyLabel,
   initialExpandedAccountIds,
   isAccountFiltered,
   toggleExpandedAccountId,
@@ -65,6 +68,7 @@ function account(partial: Partial<AccountRow> & Pick<AccountRow, 'id' | 'account
     account_category: 'ASSET',
     balance_direction: 'DEBIT',
     is_leaf: true,
+    is_foreign_currency: false,
     aux_dimensions: null,
     status: 1,
     remark: null,
@@ -264,16 +268,109 @@ test('科目树：过滤保留祖先，但祖先不算命中', () => {
   const noFilter = filterAccountTree(tree, emptyAccountFilter());
   assert.equal(noFilter.tree, tree, '空筛选应原样返回（省一次深拷贝）');
   assert.equal(isAccountFiltered(emptyAccountFilter()), false);
-  assert.equal(isAccountFiltered({ keyword: '  ', account_category: '', status: null }), false);
+  assert.equal(
+    isAccountFiltered({ keyword: '  ', account_category: '', status: null, is_foreign_currency: null }),
+    false,
+  );
   assert.equal(isAccountFiltered({ ...emptyAccountFilter(), status: 0 }), true, 'status=0 是有效筛选');
+  assert.equal(
+    isAccountFiltered({ ...emptyAccountFilter(), is_foreign_currency: false }),
+    true,
+    'is_foreign_currency=false 也是有效筛选（「只看本位币科目」）',
+  );
 
   // 副标题文案
   assert.equal(accountTreeMeta([]), '暂无科目');
   assert.match(accountTreeMeta(tree), /共 7 条科目 · 4 个一级 · 最深 3 级/);
 });
 
-// ==================== ② 科目类型映射 ====================
+// ==================== ② 科目「是否外币核算」（M1-03 / V0408） ====================
 
+test('外币核算：只有末级科目能标记，汇总科目开关必须禁用', () => {
+  // 末级 = 可以开
+  assert.equal(canMarkForeignCurrency({ is_leaf: true, is_foreign_currency: false }), true);
+  // 汇总 = 不能开（后端 ck_biz_account_fc_leaf + 400/66080 同一条规则）
+  assert.equal(canMarkForeignCurrency({ is_leaf: false, is_foreign_currency: false }), false);
+  // 历史脏数据兜底：库里若真有「汇总 + 已标记」，开关必须可用（否则关不掉）
+  assert.equal(canMarkForeignCurrency({ is_leaf: false, is_foreign_currency: true }), true);
+  // 字段缺失（旧接口 / mock）按「不能开」处理，别放行一次必然 400 的请求
+  assert.equal(canMarkForeignCurrency({}), false);
+});
+
+test('外币核算：文案说「外币核算 / 本位币核算」，不说「是 / 否」', () => {
+  assert.equal(foreignCurrencyLabel(true), '外币核算');
+  assert.equal(foreignCurrencyLabel(false), '本位币核算');
+  // 缺字段（老响应）按本位币展示：默认值就是 0，与库一致
+  assert.equal(foreignCurrencyLabel(undefined), '本位币核算');
+  assert.equal(foreignCurrencyLabel(null), '本位币核算');
+  assert.deepEqual(
+    ACCOUNT_FOREIGN_CURRENCY_OPTIONS.map((item) => item.value),
+    [true, false],
+    '下拉值必须是 boolean（与后端 Option<bool> 对齐），不是字符串 / 0-1',
+  );
+  assert.deepEqual(
+    ACCOUNT_FOREIGN_CURRENCY_OPTIONS.map((item) => item.label),
+    ['外币核算', '本位币核算'],
+  );
+});
+
+test('外币核算：筛选只收被标记的科目，且不误伤祖先与其他科目', () => {
+  const rows: AccountRow[] = [
+    account({ id: 'a-1001', account_code: '1001', account_name: '库存现金' }),
+    account({ id: 'a-1002', account_code: '1002', account_name: '银行存款', is_foreign_currency: true }),
+    account({
+      id: 'a-1122',
+      account_code: '1122',
+      account_name: '应收账款',
+      is_leaf: false,
+      is_foreign_currency: false,
+    }),
+    account({
+      id: 'a-1122-01',
+      account_code: '1122.01',
+      account_name: '应收账款-美元',
+      parent_id: 'a-1122',
+      level: 2,
+      is_foreign_currency: true,
+    }),
+  ];
+  const tree = buildAccountTree(rows);
+
+  const only = filterAccountTree(tree, { ...emptyAccountFilter(), is_foreign_currency: true });
+  assert.equal(only.matchedCount, 2, '标记为外币的只有 1002 与 1122.01');
+  // 祖先 1122 必须保留（否则命中行 1122.01 无处可挂，整枝静默消失），但不算命中
+  assert.deepEqual(
+    only.tree.map((node) => node.account_code),
+    ['1002', '1122'],
+    '1122 作为祖先保留；1001 被过滤掉',
+  );
+  assert.deepEqual(only.tree[1].children?.map((child) => child.account_code), ['1122.01']);
+  assert.deepEqual(only.expandedIds, ['a-1122'], '过滤后自动展开祖先，否则看不到命中行');
+
+  // 反向：「只看本位币」必须回 1001 + 1122（1122.01 被过滤掉，1122 自己就是本位币 → 命中）
+  const local = filterAccountTree(tree, { ...emptyAccountFilter(), is_foreign_currency: false });
+  assert.equal(local.matchedCount, 2, '本位币科目：1001 与 1122');
+
+  // 与关键词组合：外币 + 关键词「美元」→ 只命中 1122.01（祖先保留、不算命中）
+  const combined = filterAccountTree(tree, {
+    ...emptyAccountFilter(),
+    keyword: '美元',
+    is_foreign_currency: true,
+  });
+  assert.equal(combined.matchedCount, 1);
+  assert.deepEqual(combined.tree.map((node) => node.account_code), ['1122']);
+
+  // 组合里有一条不满足就不能算命中：外币标记 + 关键词「现金」= 0 条
+  const miss = filterAccountTree(tree, {
+    ...emptyAccountFilter(),
+    keyword: '现金',
+    is_foreign_currency: true,
+  });
+  assert.equal(miss.matchedCount, 0);
+  assert.deepEqual(miss.tree, []);
+});
+
+// ==================== ③ 科目类型映射 ====================
 test('科目类型映射：ASSET/LIABILITY/EQUITY/COST/PROFIT_LOSS → 中文（卡面的 PROFIT 是别名）', () => {
   assert.equal(accountCategoryLabel('ASSET'), '资产');
   assert.equal(accountCategoryLabel('LIABILITY'), '负债');
