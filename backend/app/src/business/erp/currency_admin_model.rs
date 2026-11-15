@@ -19,6 +19,12 @@
 //!    反向要 `1 / rate` 推导，不落重复行（两行互为倒数必然因四舍五入对不上，是假账源头）。
 //! 5. **`effective_date` 必填**（DDL 无 DEFAULT）：月度批量录入取**月末日**，
 //!    取汇率 = `effective_date <= 目标日 ORDER BY effective_date DESC LIMIT 1`（含当日）。
+//! 6. **`effective_to` 是派生列（V0407）**：失效日（含）恒等于「同组（币对 + 汇率类型）下一条
+//!    `effective_date` - 1」，本组最后一行为 `NULL`（长期有效）。它由 [`rederive_group`] 在
+//!    **每次写操作所在的同一事务里**重算，**不接受**人工赋值；库层有
+//!    `ex_biz_exchange_rate_period`（区间不许重叠）+ `ck_biz_exchange_rate_dates`（止不早于起）
+//!    兜底。所以「新增/改键/改生效日/删除」四个入口都必须走本文件的函数，绕开就会在 commit 时
+//!    被排除约束拒（不会写脏），或者改出空洞让建单取汇率 4xx。
 //!
 //! # 数据权限
 //!
@@ -213,6 +219,8 @@ pub struct RateRow {
     pub rate_type: String,
     /// 生效日（含）。
     pub effective_date: NaiveDate,
+    /// 失效日（含）；`None` = 沿用至下一条（本组最后一行）。**派生列**，见模块头铁律 6。
+    pub effective_to: Option<NaiveDate>,
     /// 备注（来源：中国银行 / 央行中间价 …）。
     pub remark: Option<String>,
     /// 创建时间。
@@ -230,6 +238,7 @@ impl RateRow {
             rate: row.get_typed("rate")?,
             rate_type: row.get_typed("rate_type")?,
             effective_date: row.get_typed("effective_date")?,
+            effective_to: row.get_typed("effective_to")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
@@ -293,7 +302,7 @@ const CURRENCY_SELECT: &str = "SELECT c.code, c.name, c.symbol, c.decimal_places
 
 /// 汇率查询列。
 const RATE_SELECT: &str = "SELECT r.id, r.from_currency, r.to_currency, r.rate, r.rate_type, \
-     r.effective_date, r.remark, r.created_at, r.updated_at FROM biz_exchange_rate r";
+     r.effective_date, r.effective_to, r.remark, r.created_at, r.updated_at FROM biz_exchange_rate r";
 
 /// 币种列表排序：本位币置顶 → 码升序（`false < true`，故 DESC 让 `true` 在前）。
 const CURRENCY_ORDER: &str = "ORDER BY c.is_base DESC, c.code ASC";
@@ -514,65 +523,173 @@ pub async fn rate_taken(
     }
 }
 
-/// 新建汇率行（`from` / `to` 必须已存在：库层 FK 兜底，handler 先查给人话）。
-pub async fn rate_insert(id: Uuid, write: &RateWrite, operator: Option<Uuid>) -> DbResult<u64> {
-    db().execute_with_params(
-        "INSERT INTO biz_exchange_rate \
-             (id, from_currency, to_currency, rate, rate_type, effective_date, remark, \
-              created_at, updated_at, create_by, update_by) \
-         VALUES (?::uuid, ?, ?, ?::text::numeric, ?, ?::text::date, ?, now(), now(), \
-                 NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
+/// 汇率区间重算：把 `(from, to, rate_type)` 这一组的时间轴重新切成首尾相接的段（V0407）。
+///
+/// 第 i 行的 `effective_to` 恒等于第 i+1 行 `effective_date` - 1，最后一行 `NULL`。
+/// 凡是改动过这一组的写操作（新增 / 改键 / 改生效日 / 删除）**必须在同一事务里**调它：
+///   · 不调 ⇒ 旧行还开着 → commit 时 `ex_biz_exchange_rate_period` 拒绝整笔（写不脏，但用户看到 500）；
+///   · 人工绕开 ⇒ 区间出空洞 → 建单取汇率 4xx（`currency::spot_rate` 的区间谓词），不静默用过期牌价。
+///
+/// 幂等：值没变就不动（`IS DISTINCT FROM`）。副作用只有本组行被 UPDATE（含 `updated_at`），
+/// 顺带把同一币对的并发维护串行化（汇率维护是低频管理操作，不值得为它做乐观锁）。
+async fn rederive_group(
+    tx: &Transaction,
+    from_currency: &str,
+    to_currency: &str,
+    rate_type: &str,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    tx.execute_with_params(
+        "WITH derived AS ( \
+             SELECT id, \
+                    (lead(effective_date) OVER (ORDER BY effective_date)) - 1 AS derived_to \
+               FROM biz_exchange_rate \
+              WHERE from_currency = ? AND to_currency = ? AND rate_type = ? \
+         ) \
+         UPDATE biz_exchange_rate r \
+            SET effective_to = d.derived_to, \
+                updated_at = now(), \
+                update_by = COALESCE(NULLIF(?::text,'')::uuid, r.update_by) \
+           FROM derived d \
+          WHERE r.id = d.id AND r.effective_to IS DISTINCT FROM d.derived_to",
         vec![
-            Value::from(&id),
-            Value::from(write.from_currency.clone()),
-            Value::from(write.to_currency.clone()),
-            Value::Text(write.rate.to_string()),
-            Value::from(write.rate_type.clone()),
-            Value::Text(write.effective_date.to_string()),
-            Value::from(write.remark.clone()),
-            uuid_text(operator),
+            Value::from(from_currency),
+            Value::from(to_currency),
+            Value::from(rate_type),
             uuid_text(operator),
         ],
     )
     .await
+}
+
+/// 锁住一行汇率并回它的**改动前**键（`from, to, rate_type`）。
+///
+/// 改键 / 改生效日 / 删除时，旧组的时间轴也缺了一段，必须按旧键再重算一次；
+/// `SELECT … FOR UPDATE` 保证「读到旧键」与「后续写」之间不会被人插一脚。
+async fn rate_lock(tx: &Transaction, id: Uuid) -> DbResult<Option<(String, String, String)>> {
+    let rows = tx
+        .find_with_params(
+            "SELECT from_currency, to_currency, rate_type FROM biz_exchange_rate \
+              WHERE id = ?::uuid FOR UPDATE",
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some((
+            row.get_typed("from_currency")?,
+            row.get_typed("to_currency")?,
+            row.get_typed("rate_type")?,
+        ))),
+    }
+}
+
+/// 新建汇率行（`from` / `to` 必须已存在：库层 FK 兜底，handler 先查给人话）。
+///
+/// 写入后同事务重算本组区间：新行的生效日会**自动收口**前一条（把它的 `effective_to`
+/// 打成「新行生效日 - 1」），所以往后补录新汇率不会被排除约束拦。
+pub async fn rate_insert(id: Uuid, write: &RateWrite, operator: Option<Uuid>) -> DbResult<u64> {
+    let tx = db().begin().await?;
+    let affected = tx
+        .execute_with_params(
+            "INSERT INTO biz_exchange_rate \
+                 (id, from_currency, to_currency, rate, rate_type, effective_date, remark, \
+                  created_at, updated_at, create_by, update_by) \
+             VALUES (?::uuid, ?, ?, ?::text::numeric, ?, ?::text::date, ?, now(), now(), \
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
+            vec![
+                Value::from(&id),
+                Value::from(write.from_currency.clone()),
+                Value::from(write.to_currency.clone()),
+                Value::Text(write.rate.to_string()),
+                Value::from(write.rate_type.clone()),
+                Value::Text(write.effective_date.to_string()),
+                Value::from(write.remark.clone()),
+                uuid_text(operator),
+                uuid_text(operator),
+            ],
+        )
+        .await?;
+    rederive_group(
+        &tx,
+        &write.from_currency,
+        &write.to_currency,
+        &write.rate_type,
+        operator,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(affected)
 }
 
 /// 整行覆盖编辑。
+///
+/// 编辑可能改币对 / 改汇率类型 / 改生效日 ⇒ **旧组与新组都要重算**：旧组少了一行，时间轴上
+/// 前一条要重新接上后一条；新组多了一行，前一条要被收口。
 pub async fn rate_update(id: Uuid, write: &RateWrite, operator: Option<Uuid>) -> DbResult<u64> {
-    db().execute_with_params(
-        "UPDATE biz_exchange_rate SET from_currency = ?, to_currency = ?, \
-             rate = ?::text::numeric, rate_type = ?, effective_date = ?::text::date, \
-             remark = ?, updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
-         WHERE id = ?::uuid",
-        vec![
-            Value::from(write.from_currency.clone()),
-            Value::from(write.to_currency.clone()),
-            Value::Text(write.rate.to_string()),
-            Value::from(write.rate_type.clone()),
-            Value::Text(write.effective_date.to_string()),
-            Value::from(write.remark.clone()),
-            uuid_text(operator),
-            Value::from(&id),
-        ],
+    let tx = db().begin().await?;
+    let old = rate_lock(&tx, id).await?;
+    let affected = tx
+        .execute_with_params(
+            "UPDATE biz_exchange_rate SET from_currency = ?, to_currency = ?, \
+                 rate = ?::text::numeric, rate_type = ?, effective_date = ?::text::date, \
+                 remark = ?, updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
+             WHERE id = ?::uuid",
+            vec![
+                Value::from(write.from_currency.clone()),
+                Value::from(write.to_currency.clone()),
+                Value::Text(write.rate.to_string()),
+                Value::from(write.rate_type.clone()),
+                Value::Text(write.effective_date.to_string()),
+                Value::from(write.remark.clone()),
+                uuid_text(operator),
+                Value::from(&id),
+            ],
+        )
+        .await?;
+    if let Some((old_from, old_to, old_type)) = old {
+        rederive_group(&tx, &old_from, &old_to, &old_type, operator).await?;
+    }
+    rederive_group(
+        &tx,
+        &write.from_currency,
+        &write.to_currency,
+        &write.rate_type,
+        operator,
     )
-    .await
+    .await?;
+    tx.commit().await?;
+    Ok(affected)
 }
 
 /// 物理删汇率行（该表无软删列；录错就该消失，否则「取最近一条」会被错行污染）。
+///
+/// 删除后同事务重算本组区间：前一条的 `effective_to` 会被放开成「后一条生效日 - 1」
+/// （删的是末行则放开成 `NULL`），不留下「删一行就把汇率断档」的洞。
 pub async fn rate_delete(id: Uuid) -> DbResult<u64> {
-    db().execute_with_params(
-        "DELETE FROM biz_exchange_rate WHERE id = ?::uuid",
-        vec![Value::from(&id)],
-    )
-    .await
+    let tx = db().begin().await?;
+    let old = rate_lock(&tx, id).await?;
+    let affected = tx
+        .execute_with_params(
+            "DELETE FROM biz_exchange_rate WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await?;
+    if let Some((from_currency, to_currency, rate_type)) = old {
+        rederive_group(&tx, &from_currency, &to_currency, &rate_type, None).await?;
+    }
+    tx.commit().await?;
+    Ok(affected)
 }
 
 /// 覆盖写入（月度批量录入）：同币对 / 同类型 / 同生效日已存在则**改值不改行**。
 ///
 /// `ON CONFLICT … DO UPDATE` 命中 `uk_biz_exchange_rate` 的四个列（V0272 头注释 ②.5 已
 /// 按这个写法约定索引列序）。返回 `true` = 新插、`false` = 更新既有行。
+/// 写入后同事务重算本组区间（新插的一行会收口前一条）。
 pub async fn rate_upsert(write: &RateWrite, operator: Option<Uuid>) -> DbResult<bool> {
-    let affected = db()
+    let tx = db().begin().await?;
+    let affected = tx
         .execute_with_params(
             "INSERT INTO biz_exchange_rate \
                  (id, from_currency, to_currency, rate, rate_type, effective_date, remark, \
@@ -596,6 +713,15 @@ pub async fn rate_upsert(write: &RateWrite, operator: Option<Uuid>) -> DbResult<
             ],
         )
         .await?;
+    rederive_group(
+        &tx,
+        &write.from_currency,
+        &write.to_currency,
+        &write.rate_type,
+        operator,
+    )
+    .await?;
+    tx.commit().await?;
     Ok(affected > 0)
 }
 
@@ -610,6 +736,9 @@ pub async fn spot_preview(code: &str, on_date: NaiveDate) -> DbResult<Option<Dec
 }
 
 /// 取到的那条 SPOT 汇率行：`(生效日, 汇率)`（预览界面要显示「用的是哪天的牌价」）。
+///
+/// 与 [`currency::spot_rate`] 同一条取数口径（含 V0407 的生效区间谓词），
+/// 保证「预览显示的那一行」与「建单锁进去的那个值」一定是同一行。
 pub async fn spot_row(
     from_currency: &str,
     to_currency: &str,
@@ -620,12 +749,14 @@ pub async fn spot_row(
             "SELECT effective_date, rate FROM biz_exchange_rate \
               WHERE from_currency = ? AND to_currency = ? AND rate_type = ? \
                 AND effective_date <= ?::text::date \
+                AND (effective_to IS NULL OR effective_to >= ?::text::date) \
               ORDER BY effective_date DESC LIMIT 1"
                 .to_string(),
             vec![
                 Value::from(from_currency),
                 Value::from(to_currency),
                 Value::from(RATE_TYPE_SPOT),
+                Value::Text(on_date.to_string()),
                 Value::Text(on_date.to_string()),
             ],
         )

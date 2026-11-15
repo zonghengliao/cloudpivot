@@ -1,0 +1,85 @@
+== M1-02 空库首启（407 条迁移含 V0407）+ 写入口区间维护实测 ==
+空库 cp_m102_e2e 已建（无 template）
+
+-- 首次启动（空库 → 全量迁移） --
+[2m2026-11-15T17:37:51.724425Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 339 个迁移
+[2m2026-11-15T17:37:51.676776Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0407: 已建 ex_biz_exchange_rate_period（同币对同类型区间不许重叠）
+[2m2026-11-15T17:37:51.680468Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: M1-02 自检通过：effective_to 区间 + 反向护栏 + 区间排除约束 + 存量回填连续 + 7 组行为探针
+[2m2026-11-15T17:37:51.680558Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'exchange_rate_effective_range', '407', 'da4a72d9f2662c97bb45ab820e4afd095e5c34522a0c2aff7579ae06189ab04e', 'executed', 1794764271, 327, 5, TRUE, 'app/migrations/business/V0407__exchange_rate_effective_range.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+versioned 迁移条数 = 327；V0407 登记 = 407/true/da4a72d9f2662c97
+GET /health -> 200
+
+登录：access_token 长度 461
+
+== A) POST 第一条（2026-11-01）==
+{"code":0,"msg":"ok","data":{"id":"ba266a11-8fad-486c-b811-ef7cf0bc98ce","from_currency":"USD","to_currency":"CNY","rate":"7.10000000","rate_type":"SPOT","effective_date":"2026-11-01","effective_to":null,"remark":null,"created_at":"2026-11-15T17:37:52.848411+00:00","updated_at":"2026-11-15T17:37:52.848411+00:00"}}
+HTTP=200 effective_date | effective_to |    rate    
+----------------+--------------+------------
+ 2026-11-01     | NULL         | 7.10000000
+(1 row)
+
+
+== B) POST 更晚一条（2026-12-01）→ 前一条必须被自动收口到 2026-11-30 ==
+{"code":0,"msg":"ok","data":{"id":"cde9b42e-dd45-4ef0-ae39-bb4290f7c5f8","from_currency":"USD","to_currency":"CNY","rate":"7.20000000","rate_type":"SPOT","effective_date":"2026-12-01","effective_to":null,"remark":null,"created_at":"2026-11-15T17:37:52.894279+00:00","updated_at":"2026-11-15T17:37:52.894279+00:00"}}
+HTTP=200 effective_date | effective_to |    rate    
+----------------+--------------+------------
+ 2026-11-01     | 2026-11-30   | 7.10000000
+ 2026-12-01     | NULL         | 7.20000000
+(2 rows)
+
+
+== C) 月度批量录入 upsert（2027-01-31）→ 三行首尾相接 ==
+{"code":0,"msg":"ok","data":{"month":"2027-01","effective_date":"2027-01-31","rate_type":"SPOT","to_currency":"CNY","created_count":1,"updated_count":0,"saved":[{"from_currency":"USD","rate":"7.30","created":true}]}}
+HTTP=200 effective_date | effective_to |    rate    
+----------------+--------------+------------
+ 2026-11-01     | 2026-11-30   | 7.10000000
+ 2026-12-01     | 2027-01-30   | 7.20000000
+ 2027-01-31     | NULL         | 7.30000000
+(3 rows)
+
+
+== D) DELETE 末行（2027-01-31）→ 前一条重新变成长期有效（NULL） ==
+{"code":0,"msg":"ok","data":null}
+HTTP=200 effective_date | effective_to |    rate    
+----------------+--------------+------------
+ 2026-11-01     | 2026-11-30   | 7.10000000
+ 2026-12-01     | NULL         | 7.20000000
+(2 rows)
+
+
+== E) PUT 把中间那条生效日从 2026-12-01 改到 2026-12-20 → 两侧区间跟着重算 ==
+{"code":0,"msg":"ok","data":{"id":"cde9b42e-dd45-4ef0-ae39-bb4290f7c5f8","from_currency":"USD","to_currency":"CNY","rate":"7.25000000","rate_type":"SPOT","effective_date":"2026-12-20","effective_to":null,"remark":null,"created_at":"2026-11-15T17:37:52.894279+00:00","updated_at":"2026-11-15T17:37:53.080404+00:00"}}
+HTTP=200 effective_date | effective_to |    rate    
+----------------+--------------+------------
+ 2026-11-01     | 2026-12-19   | 7.10000000
+ 2026-12-20     | NULL         | 7.25000000
+(2 rows)
+
+
+== F) 挂到中间插入（2026-12-10）→ 12-20 那条不动，前一条收口到 12-09 ==
+{"code":0,"msg":"ok","data":{"id":"f463f9f7-9194-41b8-bd43-5177651587a6","from_currency":"USD","to_currency":"CNY","rate":"7.15000000","rate_type":"SPOT","effective_date":"2026-12-10","effective_to":"2026-12-19","remark":null,"created_at":"2026-11-15T17:37:53.126059+00:00","updated_at":"2026-11-15T17:37:53.126059+00:00"}}
+HTTP=200 effective_date | effective_to |    rate    
+----------------+--------------+------------
+ 2026-11-01     | 2026-12-09   | 7.10000000
+ 2026-12-10     | 2026-12-19   | 7.15000000
+ 2026-12-20     | NULL         | 7.25000000
+(3 rows)
+
+
+== G) 取汇率（区间谓词）：11-20→7.10 / 12-15→7.15 / 12-25→7.25 ==
+date=2026-11-20 -> {"code":0,"msg":"ok","data":{"from_currency":"USD","to_currency":"CNY","currency_code":"USD","base_currency":"CNY","exchange_rate":"7.10000000","on_date":"2026-
+date=2026-12-15 -> {"code":0,"msg":"ok","data":{"from_currency":"USD","to_currency":"CNY","currency_code":"USD","base_currency":"CNY","exchange_rate":"7.15000000","on_date":"2026-
+date=2026-12-25 -> {"code":0,"msg":"ok","data":{"from_currency":"USD","to_currency":"CNY","currency_code":"USD","base_currency":"CNY","exchange_rate":"7.25000000","on_date":"2026-
+
+== H) 区间空洞反证：手工把末行关到 2026-12-31，再问 2027-03-01（必须 4xx，不许沿用过期牌价） ==
+date=2027-03-01 -> {"code":0,"msg":"ok","data":{"from_currency":"USD","to_currency":"CNY","currency_code":"USD","base_currency":"CNY","exchange_rate":"0","on_date":"2027-03-01","source":"MISSING","effective_date":null}} HTTP=200
+
+== I) 库层反证：直接 INSERT 重叠区间必须被 ex 约束拒 ==
+ERROR:  conflicting key value violates exclusion constraint "ex_biz_exchange_rate_period"
+DETAIL:  Key (from_currency, to_currency, rate_type, daterange(effective_date, effective_to, '[]'::text))=(USD, CNY, SPOT, [2026-12-15,)) conflicts with existing key (from_currency, to_currency, rate_type, daterange(effective_date, effective_to, '[]'::text))=(USD, CNY, SPOT, [2026-12-10,2026-12-20)).
+
+== J) 重启一次：引擎级幂等（应用 0 个迁移） ==
+[2m2026-11-15T17:37:56.696729Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+GET /health -> 200
+
+== 完成；演练库 cp_m102_e2e / cp_m102_upgrade 由收尾步骤 DROP ==

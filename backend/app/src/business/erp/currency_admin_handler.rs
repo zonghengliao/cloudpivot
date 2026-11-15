@@ -390,6 +390,8 @@ pub struct RateRes {
     pub rate_type: String,
     /// 生效日（含）。
     pub effective_date: String,
+    /// 失效日（含）；`null` = 沿用至下一条（本组最后一行）。派生列（V0407）。
+    pub effective_to: Option<String>,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间（RFC3339）。
@@ -407,6 +409,7 @@ impl From<&RateRow> for RateRes {
             rate: row.rate,
             rate_type: row.rate_type.clone(),
             effective_date: row.effective_date.to_string(),
+            effective_to: row.effective_to.map(|date| date.to_string()),
             remark: row.remark.clone(),
             created_at: row.created_at.to_rfc3339(),
             updated_at: row.updated_at.to_rfc3339(),

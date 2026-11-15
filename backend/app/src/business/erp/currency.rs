@@ -225,8 +225,15 @@ pub async fn base_currency_code(ex: &impl SqlExecutor) -> DbResult<String> {
 
 /// 取「截至 `on_date`（含）最近一条 SPOT 汇率」：`1 from = rate to`。
 ///
-/// SQL 与 SO-39 交接的取数口径逐字一致；`uk_biz_exchange_rate`
+/// SQL 与 SO-39 交接的取数口径一致；`uk_biz_exchange_rate`
 /// `(from_currency, to_currency, rate_type, effective_date)` 的最左前缀正好覆盖。
+///
+/// **V0407 的区间谓词**（`effective_to IS NULL OR effective_to >= on_date`）：汇率行自带
+/// `[effective_date, effective_to]` 生效区间，取数要求「目标日真的在这一行覆盖范围内」。
+/// 区间由写入口派生（恒等于「同组下一条生效日 - 1」，末行 NULL），所以正常情况下
+/// 谓词是**恒真重判** —— 结果与「取 <= 目标日的最新一条」逐行相同；一旦有人绕开写入口
+/// 改库改出空洞，这里会**取不到汇率并让建单 4xx 拒绝**，而不是静默沿用一条已经失效的牌价
+/// （外币单按过期汇率入账 = 账直接错，见模块头「取不到汇率 4xx 拒绝建单」）。
 pub async fn spot_rate(
     ex: &impl SqlExecutor,
     from_currency: &str,
@@ -238,12 +245,14 @@ pub async fn spot_rate(
             "SELECT rate FROM biz_exchange_rate \
               WHERE from_currency = ? AND to_currency = ? AND rate_type = ? \
                 AND effective_date <= ?::text::date \
+                AND (effective_to IS NULL OR effective_to >= ?::text::date) \
               ORDER BY effective_date DESC LIMIT 1"
                 .to_string(),
             vec![
                 Value::Text(from_currency.to_string()),
                 Value::Text(to_currency.to_string()),
                 Value::Text(RATE_TYPE_SPOT.to_string()),
+                Value::Text(on_date.to_string()),
                 Value::Text(on_date.to_string()),
             ],
         )

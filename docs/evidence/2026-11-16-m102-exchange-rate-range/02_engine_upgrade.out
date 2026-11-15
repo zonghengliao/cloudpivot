@@ -1,0 +1,59 @@
+== 克隆库升级演练（真引擎，不是 psql 手动执行）==
+模板库 cloudpivot_test → 克隆 cp_m102_upgrade（versioned 326 条，最大 V0404）
+
+-- 升级前（模板自带 2 行 + 预置 1 行；此时还没有 effective_to 列） --
+ from_currency | to_currency | rate_type | effective_date 
+---------------+-------------+-----------+----------------
+ USD           | CNY         | SPOT      | 2026-11-01
+ USD           | CNY         | SPOT      | 2026-11-15
+ USD           | CNY         | SPOT      | 2026-12-01
+(3 rows)
+
+
+-- 首次启动：应用新迁移 --
+[2m2026-11-15T17:37:31.653868Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 3 个迁移
+V0407: 已建 ex_biz_exchange_rate_period（同币对同类型区间不许重叠）
+M1-02 自检通过：effective_to 区间 + 反向护栏 + 区间排除约束 + 存量回填连续 + 7 组行为探针
+
+-- schema_migrations 尾部（V0407 已登记 + 指纹） --
+   kind    |             name              | version |    checksum16    | applied_via | success |                               source                                
+-----------+-------------------------------+---------+------------------+-------------+---------+---------------------------------------------------------------------
+ versioned | exchange_rate_effective_range | 407     | da4a72d9f2662c97 | executed    | t       | app/migrations/business/V0407__exchange_rate_effective_range.up.sql
+ versioned | account_voucher_currency      | 406     | ffd620623f8fca76 | executed    | t       | app/migrations/business/V0406__account_voucher_currency.up.sql
+ versioned | config_category_normalize     | 405     | bf39c99cd73b5a33 | executed    | t       | app/migrations/business/V0405__config_category_normalize.up.sql
+ versioned | notice_alert_dedup            | 404     | b37e869aa850c0f2 | executed    | t       | 
+(4 rows)
+
+
+-- 升级后结构：effective_to + 双约束 --
+  column_name   | data_type | is_nullable 
+----------------+-----------+-------------
+ effective_date | date      | NO
+ effective_to   | date      | YES
+(2 rows)
+
+           conname           | contype |                                                                            pg_get_constraintdef                                                                            
+-----------------------------+---------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ ck_biz_exchange_rate_dates  | c       | CHECK (((effective_to IS NULL) OR (effective_to >= effective_date)))
+ ex_biz_exchange_rate_period | x       | EXCLUDE USING gist (from_currency WITH =, to_currency WITH =, rate_type WITH =, daterange(effective_date, effective_to, '[]'::text) WITH &&) DEFERRABLE INITIALLY DEFERRED
+(2 rows)
+
+
+-- 存量回填（时间轴首尾相接：11-01→11-14 / 11-15→11-30 / 12-01→NULL） --
+ from_currency | to_currency | rate_type | effective_date | effective_to 
+---------------+-------------+-----------+----------------+--------------
+ USD           | CNY         | SPOT      | 2026-11-01     | 2026-11-14
+ USD           | CNY         | SPOT      | 2026-11-15     | 2026-11-30
+ USD           | CNY         | SPOT      | 2026-12-01     | NULL
+(3 rows)
+
+
+-- /health 与 /health/deps --
+GET /health      -> 200
+GET /health/deps -> {"status":"ok","db":{"ok":true,"latency_ms":1.451},"cache":{"ok":true,"latency_ms":0.027},"auth":{"revocation_source":"db","cache_degraded":false}}
+
+-- 重启一次：引擎级幂等（应用 0 个迁移） --
+[2m2026-11-15T17:37:35.754901Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+GET /health      -> 200
+
+== 完成（演练库 cp_m102_upgrade 已 DROP） ==

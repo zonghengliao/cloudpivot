@@ -1,0 +1,52 @@
+== M1-02 / V0407 真库往返演练 ==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m102_v0407_drill_2420732
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  ---- 预置后存量行数 = 5（USD/SPOT 3 行、USD/MONTH_END 1 行、EUR/SPOT 1 行）
+
+== 1) up 第一次（建列 + 回填 + 双约束 + 自检）==
+  [32mPASS[0m up 第一次执行成功（含自检块）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0407__exchange_rate_effective_range.up.sql:134: NOTICE:  V0407: 已建 ex_biz_exchange_rate_period（同币对同类型区间不许重叠）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0407__exchange_rate_effective_range.up.sql:355: NOTICE:  M1-02 自检通过：effective_to 区间 + 反向护栏 + 区间排除约束 + 存量回填连续 + 7 组行为探针
+
+== 2) 结构断言 ==
+  [32mPASS[0m effective_to 是可空 DATE（=date|YES）
+  [32mPASS[0m ck_biz_exchange_rate_dates 在位（=1）
+  [32mPASS[0m ex_biz_exchange_rate_period 排除约束在位（=1）
+  [32mPASS[0m 排除约束是 (币对+类型, daterange &&) 且 DEFERRABLE（=1）
+  [32mPASS[0m V0272 的 uk_biz_exchange_rate 仍在（upsert 目标不许拆）（=1）
+  [32mPASS[0m btree_gist 扩展在位（=1）
+
+== 3) 回填断言（时间轴首尾相接）==
+  [32mPASS[0m 回填不增删行（=5）
+  [32mPASS[0m USD/SPOT 11-01 的失效日 = 下一行前一天（=2026-11-14）
+  [32mPASS[0m USD/SPOT 11-15 的失效日 = 下一行前一天（=2026-11-30）
+  [32mPASS[0m USD/SPOT 末行保持 NULL（长期有效）（=NULL）
+  [32mPASS[0m USD/MONTH_END 单行组保持 NULL（=NULL）
+  [32mPASS[0m EUR/SPOT 单行组保持 NULL（=NULL）
+  [32mPASS[0m 全表零重叠对（=0）
+
+== 4) up 第二次（幂等）==
+  [32mPASS[0m up 重复执行成功
+  [32mPASS[0m 第二次执行后整表指纹不变（回填不覆盖已派生值）（=e18080446d1a5ac58f89cb206e14c2b0）
+
+== 5) 行为反证（库层真的会拦）==
+  [32mPASS[0m 插入落在开放区间内的新起点被 ex 拒（=1）
+  [32mPASS[0m effective_to < effective_date 被 ck 拒（=1）
+  [32mPASS[0m 同起点重复被 uk 拒（=1）
+  [32mPASS[0m 相邻区间（12-31 失效 / 01-01 生效）放行（=INSERT 0 1）
+  [32mPASS[0m 探针清理后回到 up 完成态（=e18080446d1a5ac58f89cb206e14c2b0）
+
+== 6) down ×2（回滚 + 幂等）==
+  [32mPASS[0m down 第一次执行成功
+  [32mPASS[0m 回滚后 effective_to 已移除（=0）
+  [32mPASS[0m 回滚后两条约束已移除（=0）
+  [32mPASS[0m 回滚后业务行一行不少（=5）
+  [32mPASS[0m 回滚后 uk_biz_exchange_rate 仍在（=1）
+  [32mPASS[0m down 重复执行成功（幂等）
+
+== 7) 回滚后重放 up（回填必须逐行复现）==
+  [32mPASS[0m 回滚后重放 up 成功
+  [32mPASS[0m 重放后整表指纹与第一次完全一致（=e18080446d1a5ac58f89cb206e14c2b0）
+
+== 汇总：PASS=29 FAIL=0 ==
