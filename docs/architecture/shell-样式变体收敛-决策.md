@@ -86,6 +86,10 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > 上表是**决策当时（B1 落地前）**的分布：合计 273 块 / 68 文件 / 1591 行。
 > B1 已落（2026-11-16，卡 `t_79f92c08`）：20 块 / 16 文件删净，当前实测 **253 块 / 1468 行**，
 > B2–B6 的块数不变（B1 的量不来自这些批）。后续各批落完照此更新本表。
+>
+> B2 已落（2026-11-16，卡 `t_9c90f3d1`）：38 块 / 24 文件删净，**215 块 / 63 文件 / 1171 行**。
+> 逐批复核：B0 4、**B1 0、B2 0**、B3 16、B4 33、B5 136、B6 26 —— 只有 B2 归零，其余批块数未动。
+> 同时 `shell.less` 由 27 类扩到 **32 类**（新增 5 个命名变体，见 §2.3）。
 
 ---
 
@@ -147,11 +151,14 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 
 | 变体 | 语义 | 页数 | 作用于 |
 |---|---|---|---|
-| `.tool-row--dense` | 紧凑工具行（成本/预算类页面，筛选项多、需要一行塞下） | 7 | `gap:8px`；`__period`/`__date` 收窄 140px |
+| `.tool-row--dense` | 紧凑工具行（成本/预算类页面，筛选项多、需要一行塞下） | 3（B2 已落；B3 再加） | `gap:8px`（B2）；`__period`/`__date` 收窄 140px（B3） |
 | `.tool-row--second` | 工具行第二排（单据类页面的第二行筛选） | 4 | `margin-top:8px` |
 | `.tool-row--filter` | 报表页筛选条 | 1 | `margin-top:12px` |
 | `.panel-head__title--lg` | 大卡片标题 | 10 | `font-size:16px` |
-| `.panel-head__tip--end` / `__hint--end` | 提示推到卡片头右侧 | 5 | `margin-left:auto`（tip 另加 `text-align:right`） |
+| `.panel-head__tip--end` | 提示推到卡片头右侧 | 3（receipt / receivable / invoice） | `margin-left:auto` |
+| `.panel-head__hint--end` | 同上，作用于 `__hint` | 3（sales-order / sales-return / shipment） | `margin-left:auto` |
+| `.panel-head__tip--right` | 提示仅右对齐、不推位（长 tip 换行后不要居中/靠左） | 3（budget/index、budget/mapping、invoice） | `text-align:right` |
+| `.panel-head__main--nowrap` | 卡片头主槽整体防断行（`__main` 无 `min-width:0`，失去 nowrap 会缩到单字宽） | 1（budget/mapping） | `white-space:nowrap` |
 | `.tool-row__label--sm` | 报表/单据页标签小一号 | 6 | `font-size:13px; white-space:nowrap` |
 | `.panel-empty--rich` | 主数据页大空态（带说明文案） | 6 | `justify-content:center; gap:6px; padding:48px 16px`；icon 32px；desc `max-width:460px; line-height:1.6` |
 | `.panel-empty--file` | 导入导出/存储类空态（标题更大、说明更粗） | 4 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 15px/primary/margin 12px 0 4px；desc 13px/secondary/margin 0 0 16px |
@@ -250,6 +257,13 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 **口径**：每族一个值（`panel-head__main` 10px、`panel-head` 10px、`tool-row` 12px）；
 整行需要更紧的页面用 `.tool-row--dense`（8px），并且 `--dense` 是**已登记变体**，不是随便写 8。
 
+> **已落（B2，卡 `t_9c90f3d1`）**：`panel-head__main` 的 8px（7 个文件）与 `panel-head` 的 12px（2 个文件，第 3 个
+> `asset` 归 B4）全部删本地吃基线；`tool-row` 的 8px 三页（budget/mapping、budget/report、receivable）改挂 `--dense`，
+> 其余（ledger + 4 张报表）删本地吃 12px 且**去掉外边距**。
+> 一个实测更正：7 个写法里只有 3 个**真的生效过** —— 另外 4 页（asset / sales-order / sales-return / shipment）
+> 的 `&__main{gap:8px}` 写在页面 `<style scoped>` 里，而 `.panel-head__main` 那个 DOM 属于 `ListPage` 组件模板、
+> 不带页面的 `data-v` 作用域，本地规则从未命中（探针实测这 4 页 gap 前后都是 10px）。删掉它们是**删死代码**，不是改观感。
+
 ### 4.2 字号：两档制（14 / 16）
 
 `panel-head__title` 实测 14（基线）/15（3 页）/16（7 页）。15px 是填出来的中间值。
@@ -260,6 +274,11 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 `panel-head__tip` / `__meta` 实测 9 页用 `--td-text-color-secondary`、基线是 `--td-text-color-placeholder`。
 两者都是「次要信息色」，但一个更淡。**口径**：同类角色一个色——`tip`/`meta`/`hint` 统一 placeholder（基线）；
 需要更强对比的（`cost-period/UncollectedPanel` 的 meta）→ 提变体，不留在页面。
+
+> **已落（B2，卡 `t_9c90f3d1`）**：14 个 tip + 4 个 meta 的 `secondary` 全删，统一吃 `placeholder`（探针实测渲染到
+> 11 个 tip + 3 个 meta 由 `rgb(76,82,92)` 变 `rgb(121,130,144)`，其余两者本来就同色）。
+> `UncollectedPanel` 的 meta 本卡按**和其余三页同等对待**（直接吃 placeholder，不提变体）—— 卡面把这一页列进了
+> 「meta color secondary → placeholder，删本地」那类里；若后续要「更强对比」，再按 §2.3 提 `__meta--strong`。
 
 ### 4.4 控件宽度：`--dense` + 基线
 
@@ -312,6 +331,13 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
   已核对 18 个用 icon 的页面全部有 ✓。
 - **B2（卡②）**：`margin-left:auto` 类（tip 2 页 + hint 3 页）不是「归一」而是「推右侧」的**结构意图**，
   要提成 `--end` 变体（模板加类），不能当成间距归一删掉。
+  > 已落的实际形态（`t_9c90f3d1`）：`tip--end` 3 页（receipt / receivable / invoice）、`hint--end` 3 页、
+  > `tip--right` 3 页（budget 两页 + invoice 两个修饰类都挂）。另有两个卡面没预料的坑：
+  > ① `budget/mapping` 的 `__main` 还带 `white-space:nowrap`（防「预算科目映射」被长 tip 挤成竖排）。
+  > 正文只让删 gap，直接删块会把守卫一起删掉 —— 按 §2.2「white-space 是排版守卫，需要就提进基线或变体」，
+  > 提了 `.panel-head__main--nowrap`（1 页）；等 B4/B6 把 `nowrap` 落到基线 title/meta 后可以删掉它。
+  > ② **页面 `<style scoped>` 里写 `.panel-head__*` 有 4 页是死代码**（DOM 属于 ListPage 模板，不带页面 `data-v`），
+  > 见 §4.1 的实测更正 —— 后续批次遇到「删了没反应」先查这一条。
 - **B3（卡③）**：`--dense` 上线后要确认换行点没飘（宽度改动的副作用就是工具行换行位置变化）——
   每页截图必须包含工具行区域。
 - **B4（卡④）**：这批的每一条都是「删本地会补属性」，**不能批量删**。逐页裁定：

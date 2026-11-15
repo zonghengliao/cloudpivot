@@ -58,7 +58,7 @@
             <t-tag v-if="isFiltered" size="small" variant="light" theme="primary" data-testid="ar-filtered-tag">
               已筛选
             </t-tag>
-            <span class="panel-head__tip">
+            <span class="panel-head__tip panel-head__tip--end">
               出库过账时自动挂账（来源=销售出库）；坏账核销需
               <span class="mono">business:erp:receivable:write-off</span> 权限
             </span>
@@ -149,7 +149,7 @@
       <!-- ==================== ② 账龄看板 ==================== -->
       <t-tab-panel value="aging" label="账龄看板">
         <t-card :bordered="false" class="tool-card">
-          <div class="tool-row">
+          <div class="tool-row tool-row--dense">
             <span class="tool-row__label">基准日</span>
             <t-date-picker
               v-model="agingAsOf"
@@ -934,13 +934,6 @@ watch(
   border-radius: 8px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .tool-row--second {
   margin-top: 8px;
 }
@@ -956,12 +949,6 @@ watch(
   align-items: center;
   gap: 8px;
   white-space: nowrap;
-}
-
-.panel-head__tip {
-  margin-left: auto;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
 }
 
 .list-alert {

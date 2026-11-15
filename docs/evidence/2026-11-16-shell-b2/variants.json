@@ -1,0 +1,14 @@
+{
+  "views/business/erp/budget/index.vue::panel-head__tip": { "text-align": "right" },
+  "views/business/erp/budget/mapping.vue::tool-row": { "gap": "8px" },
+  "views/business/erp/budget/mapping.vue::panel-head__tip": { "text-align": "right" },
+  "views/business/erp/budget/mapping.vue::panel-head__main": { "white-space": "nowrap" },
+  "views/business/erp/budget/report.vue::tool-row": { "gap": "8px" },
+  "views/business/erp/invoice/index.vue::panel-head__tip": { "margin-left": "auto", "text-align": "right" },
+  "views/business/erp/receipt/index.vue::panel-head__tip": { "margin-left": "auto" },
+  "views/business/erp/receivable/index.vue::panel-head__tip": { "margin-left": "auto" },
+  "views/business/erp/receivable/index.vue::tool-row": { "gap": "8px" },
+  "views/business/erp/sales-order/index.vue::panel-head__hint": { "margin-left": "auto" },
+  "views/business/erp/sales-return/index.vue::panel-head__hint": { "margin-left": "auto" },
+  "views/business/erp/shipment/index.vue::panel-head__hint": { "margin-left": "auto" }
+}

@@ -71,7 +71,7 @@
         <t-tag v-if="isFiltered" size="small" variant="light" theme="primary" data-testid="inv-filtered-tag">
           已筛选
         </t-tag>
-        <span class="panel-head__tip">
+        <span class="panel-head__tip panel-head__tip--end panel-head__tip--right">
           草稿 → 开票（生成收入凭证 借 1122 / 贷 5001 + 2221.02，并回写应收发票号）→ 归档；
           DRAFT / ISSUED 可作废（ISSUED 作废生成红字凭证）
         </span>
@@ -1312,13 +1312,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
-}
-
-.panel-head__tip {
-  margin-left: auto;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-  text-align: right;
 }
 
 .list-alert {

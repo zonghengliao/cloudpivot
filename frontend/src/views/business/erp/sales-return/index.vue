@@ -38,7 +38,7 @@
 
       <template #head-extra>
         <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="return-filtered-tag">已筛选</t-tag>
-        <span class="panel-head__hint">
+        <span class="panel-head__hint panel-head__hint--end">
           状态机 草稿 → 已提交 → 已批准 → 待过账 → 已过账；过账同事务回库 + 冲减应收 + 红字凭证，不可撤销
         </span>
       </template>
@@ -1333,21 +1333,9 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 8px;
 
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
   &__title {
     font-size: 16px;
     font-weight: 600;
-  }
-
-  &__hint {
-    margin-left: auto;
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
   }
 }
 

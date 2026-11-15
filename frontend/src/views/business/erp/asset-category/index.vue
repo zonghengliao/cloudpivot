@@ -470,12 +470,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-/* 页头附注（#head-extra）：折旧方法口径 */
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .accounts-cell {
   display: flex;
   flex-wrap: wrap;

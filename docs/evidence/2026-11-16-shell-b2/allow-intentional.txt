@@ -1,0 +1,11 @@
+# B2 批「有意变化」白名单（类.属性 粒度）—— 见 docs/architecture/shell-样式变体收敛-决策.md §4.1/§4.3
+# 1) panel-head__main 的 gap 归一到基线 10px（原本 8px 的三页）
+CHANGED panel-head__main.gap
+# 2) panel-head 的 margin-bottom 归一到基线 10px（原本 12px 的两页；asset 归 B4）
+CHANGED panel-head.margin-bottom
+# 3) tip / meta 的颜色归一到 placeholder（原本 secondary）
+CHANGED panel-head__tip.color
+CHANGED panel-head__meta.color
+# 4) tool-row 去掉外边距（ledger 的 margin 简写、4 张报表页的 margin-bottom）—— 卡面明列的「有意变化」
+LOST tool-row.margin
+LOST tool-row.margin-bottom

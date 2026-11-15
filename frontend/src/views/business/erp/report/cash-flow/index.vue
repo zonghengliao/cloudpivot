@@ -385,14 +385,6 @@ onMounted(async () => {
   min-height: 200px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
 .tool-row__label {
   color: var(--td-text-color-secondary);
 }

@@ -575,14 +575,6 @@ watch(activeTab, (tab) => {
   flex-wrap: wrap;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin: 8px 0 12px;
-}
-
 .tool-row__period {
   width: 140px;
 }

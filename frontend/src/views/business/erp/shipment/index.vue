@@ -38,7 +38,7 @@
 
       <template #head-extra>
         <t-tag v-if="isFiltered" size="small" variant="outline" data-testid="shipment-filtered-tag">已筛选</t-tag>
-        <span class="panel-head__hint">
+        <span class="panel-head__hint panel-head__hint--end">
           状态机 DRAFT → 待过账 → 已过账（过账同事务生成销售出库单、扣三本账、回写订单已发量）；
           已过账不可作废，走红冲
         </span>
@@ -1149,21 +1149,9 @@ onMounted(async () => {
   gap: 12px;
   margin-bottom: 8px;
 
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
   &__title {
     font-size: 16px;
     font-weight: 600;
-  }
-
-  &__hint {
-    margin-left: auto;
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
   }
 }
 

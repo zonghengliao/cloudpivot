@@ -1419,12 +1419,6 @@ async function submitAllocation(): Promise<void> {
   display: inline-block;
 }
 
-.panel-head__meta,
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .list-alert {
   margin-bottom: 10px;
 }

@@ -559,11 +559,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .name-cell {
   display: flex;
   flex-direction: column;

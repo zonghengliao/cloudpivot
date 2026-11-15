@@ -55,7 +55,7 @@
 
     <!-- ==================== ② 筛选 ==================== -->
     <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+      <div class="tool-row tool-row--dense">
         <t-select
           v-model="yearFilterValue"
           class="tool-row__year"
@@ -454,23 +454,16 @@ onMounted(() => {
   }
 }
 
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+.tool-row__year {
+  width: 112px;
+}
 
-  &__year {
-    width: 112px;
-  }
+.tool-row__dept {
+  width: 160px;
+}
 
-  &__dept {
-    width: 160px;
-  }
-
-  &__keyword {
-    width: 200px;
-  }
+.tool-row__keyword {
+  width: 200px;
 }
 
 .list-alert {
@@ -507,28 +500,14 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.panel-head {
+.panel-head__title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.panel-head__actions {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  &__actions {
-    display: flex;
-    gap: 8px;
-  }
+  gap: 8px;
 }
 
 .name-cell {

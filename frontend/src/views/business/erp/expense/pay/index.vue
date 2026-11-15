@@ -309,11 +309,6 @@ function errorText(error: unknown): string {
   font-size: 12px;
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .panel-empty {
   display: flex;
   flex-direction: column;

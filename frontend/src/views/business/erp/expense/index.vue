@@ -945,11 +945,6 @@ onMounted(async () => {
   color: var(--td-warning-color);
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 /* E2E01-FIX-1：新建报销单弹窗里的「提交前必须上传附件」提示 */
 .form-alert {
   margin-bottom: 12px;

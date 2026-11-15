@@ -1641,20 +1641,9 @@ onMounted(async () => {
   justify-content: space-between;
   margin-bottom: 12px;
 
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
   &__title {
     font-size: 16px;
     font-weight: 600;
-  }
-
-  &__tip {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
   }
 }
 

@@ -466,11 +466,6 @@ watch(
   font-weight: 600;
 }
 
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-secondary, #666);
-}
-
 .panel-head__ops {
   margin-left: auto;
   display: flex;

@@ -71,7 +71,7 @@
         <t-tag v-if="isFiltered" size="small" variant="light" theme="primary" data-testid="rc-filtered-tag">
           已筛选
         </t-tag>
-        <span class="panel-head__tip">
+        <span class="panel-head__tip panel-head__tip--end">
           登记（DRAFT）→ 核销到应收 → 确认 → 过账生成「借 1002 / 贷 1122」凭证；
           <span class="mono">allocated_amount</span> 以库内核销明细 SUM 为准
         </span>
@@ -1382,12 +1382,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   white-space: nowrap;
-}
-
-.panel-head__tip {
-  margin-left: auto;
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
 }
 
 .list-alert {

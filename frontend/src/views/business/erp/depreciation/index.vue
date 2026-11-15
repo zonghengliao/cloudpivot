@@ -626,12 +626,6 @@ onMounted(() => {
   margin-bottom: 12px;
 }
 
-/* 页头附注（#head-extra）：计提 / 红冲口径 */
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .op-cell {
   display: flex;
   gap: 10px;

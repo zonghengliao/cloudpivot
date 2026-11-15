@@ -144,6 +144,31 @@
   width: 250px;
 }
 
+// ---------- 命名变体（页面差异的唯一出口，见决策 §2.3） ----------
+// 规则：变体与基线同特指度（裸类 0,1,0），属性写全「该变体要改的属性」，靠文件内更靠后取胜。
+// 页面模板只加类 token，不写本地声明（铁律 A/B）。
+.tool-row--dense {
+  gap: 8px;
+}
+
+.panel-head__tip--end {
+  margin-left: auto;
+}
+
+.panel-head__tip--right {
+  text-align: right;
+}
+
+.panel-head__hint--end {
+  margin-left: auto;
+}
+
+// 卡片头主槽整体防断行：`__main` 没有 min-width:0，失去 nowrap 后缩到单字宽会把标题挤成竖排。
+// 决策 §2.3 的长期方案是把 nowrap 放到基线 title/meta 上（后续批），在那之前用变体承载这一页的守卫。
+.panel-head__main--nowrap {
+  white-space: nowrap;
+}
+
 // ---------- 空态图标（必须带 `.panel-empty` 前缀：TDesign 的 `.t-icon.t-size-m` 是 (0,2,0)，裸类压不住） ----------
 .panel-empty .panel-empty__icon {
   font-size: 28px;

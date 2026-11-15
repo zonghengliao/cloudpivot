@@ -44,7 +44,7 @@
 
       <!-- 口径说明：改造前在面板头右侧，现在挂在「共 N 条」右边 -->
       <template #head-extra>
-        <span class="panel-head__tip">
+        <span class="panel-head__tip panel-head__tip--right">
           一条预算 = 部门 × 预算科目 × 年度；同槽同时只有一个「已生效」版本，改额度走「调整」
         </span>
       </template>
@@ -1067,13 +1067,6 @@ onMounted(() => {
 }
 
 /* ==================== 列表 ==================== */
-
-/* 「共 N 条」右侧的口径说明（ListPage 的 #head-extra 插槽） */
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-  text-align: right;
-}
 
 .name-cell {
   display: flex;

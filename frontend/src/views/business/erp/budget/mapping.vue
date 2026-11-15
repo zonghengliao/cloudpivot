@@ -16,7 +16,7 @@
   <div class="mapping-page">
     <!-- ==================== ① 工具栏 ==================== -->
     <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+      <div class="tool-row tool-row--dense">
         <t-button
           v-privilege="[PERM]"
           theme="primary"
@@ -57,11 +57,11 @@
     <!-- ==================== ② 映射清单 ==================== -->
     <t-card :bordered="false" class="list-card">
       <div class="panel-head">
-        <div class="panel-head__main">
+        <div class="panel-head__main panel-head__main--nowrap">
           <span class="panel-head__title">预算科目映射</span>
           <span class="panel-head__meta" data-testid="budget-mapping-meta">共 {{ total }} 条</span>
         </div>
-        <span class="panel-head__tip">
+        <span class="panel-head__tip panel-head__tip--right">
           命中顺序：物料 &gt; 仓库 / 物料类型（比优先级）&gt; 全公司兜底；一条都不命中则不占用预算
         </span>
       </div>
@@ -610,49 +610,21 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+.tool-row__type {
+  width: 150px;
+}
 
-  &__type {
-    width: 150px;
-  }
-
-  &__dept {
-    width: 180px;
-  }
+.tool-row__dept {
+  width: 180px;
 }
 
 .list-alert {
   margin-bottom: 12px;
 }
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    white-space: nowrap;
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  &__tip {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-    text-align: right;
-  }
+.panel-head__title {
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .name-cell {

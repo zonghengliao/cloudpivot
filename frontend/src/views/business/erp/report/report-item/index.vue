@@ -861,12 +861,6 @@ async function handleSave(): Promise<void> {
   font-weight: 600;
 }
 
-.panel-head__meta,
-.panel-head__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .ri-sort {
   display: flex;
   align-items: center;
