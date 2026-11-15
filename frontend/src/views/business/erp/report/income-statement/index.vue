@@ -331,11 +331,6 @@ onMounted(async () => {
 .is-card {
   min-height: 200px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-}
-
 .is-alert {
   margin-bottom: 12px;
 }

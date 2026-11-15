@@ -77,7 +77,7 @@
       </template>
 
       <template #empty>
-        <div class="panel-empty" data-testid="lot-empty">
+        <div class="panel-empty panel-empty--doc" data-testid="lot-empty">
           <t-icon name="inbox" class="panel-empty__icon" />
           <p class="panel-empty__title">{{ filtered ? '没有匹配的批次' : '还没有批次' }}</p>
           <p class="panel-empty__desc">
@@ -469,27 +469,6 @@ onMounted(() => {
 .dlg-alert {
   margin-bottom: 12px;
 }
-
-.panel-empty {
-  padding: 32px 0;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 40px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 8px 0 4px;
-  font-weight: 600;
-}
-
-.panel-empty__desc {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .form-row {
   display: flex;
   gap: 12px;

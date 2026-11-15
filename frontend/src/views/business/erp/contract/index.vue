@@ -25,7 +25,7 @@
       -->
       <template #filter-sign_range>
         <span class="lp-range">
-          <span class="tool-row__label">签订日期</span>
+          <span class="tool-row__label tool-row__label--sm">签订日期</span>
           <t-date-range-picker
             v-model="filter.sign_range"
             class="tool-row__range"
@@ -38,7 +38,7 @@
       </template>
       <template #filter-expire_range>
         <span class="lp-range">
-          <span class="tool-row__label">到期日期</span>
+          <span class="tool-row__label tool-row__label--sm">到期日期</span>
           <t-date-range-picker
             v-model="filter.expire_range"
             class="tool-row__range"
@@ -139,7 +139,7 @@
       </template>
 
       <template #empty>
-        <div class="panel-empty" data-testid="contract-empty">
+        <div class="panel-empty panel-empty--doc" data-testid="contract-empty">
           <t-icon name="file" class="panel-empty__icon" />
           <p class="panel-empty__title">{{ emptyState.title }}</p>
           <p class="panel-empty__desc">{{ emptyState.desc }}</p>
@@ -1191,29 +1191,6 @@ async function applyRouteQuery(): Promise<void> {
   align-items: center;
   gap: 8px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.panel-empty {
-  padding: 36px 0;
-  text-align: center;
-
-  &__title {
-    margin: 8px 0 4px;
-    font-weight: 600;
-  }
-
-  &__desc {
-    margin: 0;
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-  }
-}
-
 .op-cell {
   display: flex;
   flex-wrap: nowrap;

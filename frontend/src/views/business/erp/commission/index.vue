@@ -780,27 +780,6 @@ onMounted(() => {
   gap: 12px;
   white-space: nowrap;
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 明细（抽屉） ==================== */
 
 .items-block {

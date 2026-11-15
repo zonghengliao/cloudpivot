@@ -25,7 +25,7 @@
       -->
       <template #filter-dateFrom>
         <span class="lp-date-range">
-          <span class="tool-row__label">收款日期</span>
+          <span class="tool-row__label tool-row__label--sm">收款日期</span>
           <t-date-picker
             :model-value="filter.dateFrom"
             class="tool-row__date"
@@ -889,7 +889,6 @@ const filters = computed<FilterDef[]>(() => [
   { key: 'dateTo', type: 'custom', defaultValue: '', testid: 'rc-filter-date-to' },
 ]);
 
-
 /** 拉一页（入参拼装沿用 `buildReceiptQuery`，空值整键缺席等口径由它自己的单测钉住） */
 const fetcher: ListFetcher<Receipt> = (query) =>
   fetchReceiptPage(query as Parameters<typeof fetchReceiptPage>[0]);
@@ -1370,12 +1369,6 @@ onMounted(() => {
 .tool-row--second {
   margin-top: 8px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-}
-
 /* 日期区间整块（含标签与 ~）：作为一个 flex item，换行时整体走，不会被拆开 */
 .lp-date-range {
   display: inline-flex;

@@ -99,6 +99,12 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > 逐批复核：B0 4、**B1 0、B2 0、B3 0、B4 0**、B5 136、B6 26 —— 只有 B1–B4 归零。
 > `shell.less` 34 → **36 类**（`--side` 补全 5 属性、新增 `--side--loose`；`--lg` 挂到 6 页）。
 > 裁定 A 25 块 / B 8 块 / **C 0 块**；§4.5 记录本批推翻的三处卡面前提。
+>
+> B5 已落（2026-11-16，卡 `t_26cc85f5`）：134 块 / 45 文件删净（46 个文件里 `hr/salary/index` 进白名单保留），
+> **32 块 / 22 文件 / 约 136 行**。逐批复核：B0 4、**B1 0、B2 0、B3 0、B4 0、B5 0**、B6 26 —— B1–B5 全归零，
+> 剩 B6（26 块 / 20 文件）与 B0 组件自持 4 块。`shell.less` 36 → **47 类**（空态 1 基线 + 4 变体 + 2 个图标修饰、
+> 标签 1 基线 + 1 变体）。37 页模板加了类 token、1 页进白名单、1 页（`erp/price-inquiry`）首次吃到基线。
+> 裁定与本批实测口径见 §4.6；有意变化 11 条全部落实 + 6 条新登记（§3.3）。
 
 ---
 
@@ -169,11 +175,13 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | `.panel-head__tip--right` | 提示仅右对齐、不推位（长 tip 换行后不要居中/靠左） | 3（budget/index、budget/mapping、invoice） | `text-align:right` |
 | `.panel-head__hint--right` | 说明仅右对齐、不推位（与 `--end` 正交，照 `tip--right` 的口径） | 1（hr/employee） | `text-align:right` |
 | `.panel-head__main--nowrap` | 卡片头主槽整体防断行（`__main` 无 `min-width:0`，失去 nowrap 会缩到单字宽） | 1（budget/mapping） | `white-space:nowrap`。**B3 已把 nowrap 提到基线 `__title`/`__meta`**：子元素自身 nowrap 后 `__main` 的 min-content 不再塌到单字宽，本变体在 1600px 下已无作用，窄窗未验证 → B4 交回退役判定 |
-| `.tool-row__label--sm` | 报表/单据页标签小一号 | 6 | `font-size:13px; white-space:nowrap` |
-| `.panel-empty--rich` | 主数据页大空态（带说明文案） | 6 | `justify-content:center; gap:6px; padding:48px 16px`；icon 32px；desc `max-width:460px; line-height:1.6` |
-| `.panel-empty--file` | 导入导出/存储类空态（标题更大、说明更粗） | 4 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 15px/primary/margin 12px 0 4px；desc 13px/secondary/margin 0 0 16px |
-| `.panel-empty--doc` | 单据类空态（居中标题 + 说明） | 6 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 14px/600/primary/margin 8px 0 4px；desc 12px/placeholder |
-| `.panel-empty--inline` | 卡片内嵌小空态（薪资审批详情） | 1 | `display:block; text-align:center; padding:16px 12px; font-size:13px` |
+| `.tool-row__label--sm` | 报表/单据页标签小一号 | 6（B5 落：invoice / receipt / receivable / receipt-refund / contract / cost-labor；前 5 页 13px 原样、cost-labor 12→13px） | `font-size:13px; white-space:nowrap`；基线 `.tool-row__label` 只给 `color`（4 个报表页色值逐字相同 → 本地块直接删） |
+| `.panel-empty--rich` | 主数据页大空态（带说明文案） | 6（customer / material / supplier / unit / warehouse / hr/employee） | `display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:48px 16px; text-align:center`；icon 32px；desc `max-width:460px; line-height:1.6` |
+| `.panel-empty--file` | 导入导出/存储类空态（标题更大、说明更粗） | 4（impexp/export-task、impexp/import-task、storage/backend、storage/file） | `display:block; padding:40px 0; text-align:center`；icon 40px；title 15px/primary/margin 12px 0 4px；desc 13px/secondary/margin **13px** 0 16px（13px 是保留 `<p>` 的 UA 上边距，见 §4.6 坑③） |
+| `.panel-empty--doc` | 单据类空态（居中标题 + 说明） | 6（contract / lot / stock-out / stock-take / hr/attendance / hr/leave）+ 1 元素（hr/salary/detail 的整块空态） | `display:block; padding:40px 0; text-align:center`；icon 40px；title 14px/600/primary/margin 8px 0 4px；desc 12px/placeholder |
+| `.panel-empty--inline` | 卡片内嵌小空态（薪资单详情的抽屉/展开行/审批轨迹） | 1 页 3 元素（hr/salary/detail） | `display:block; text-align:center; padding:16px 12px; font-size:13px; color:secondary`（`color` 是 B5 实测补的：该页 3 处纯文字空态原先靠 `.panel-empty` 继承 secondary） |
+| `.panel-empty__icon--success` | 空态图标用语义成功色 | 1（erp/expense/pay 的绿勾「都付清了」） | `color: var(--td-success-color)`；选择器写成 `.panel-empty .panel-empty__icon--success`（(0,2,0)，压基线 icon 规则） |
+| `.panel-empty__icon--lg` | rich 族里 icon 用大号 | 1（hr/employee 空态图标 40px，比同族大一号） | `font-size:40px`；选择器写成 `.panel-empty--rich .panel-empty__icon--lg`（(0,2,0)，压 `--rich` 的 32px） |
 | `.list-card--side` | 固定宽度侧栏卡（帮助中心三栏布局的 320px 中列；卡内要自己滚、pager 沉底） | 1（help/center；B4 落） | `flex:0 0 320px; width:320px; display:flex; flex-direction:column; min-height:0`（5 条写全） |
 | `.panel-head__side--loose` | 卡片头右侧槽的松排（ledger 的「当前科目 + 余额口径说明」：12px 间距、文字基线对齐、窄窗可换行） | 1（erp/ledger；B4 落） | `display:inline-flex; align-items:baseline; gap:12px; flex-wrap:wrap`（4 条写全；`inline-flex` 在 flex 父里会被 blockify 成 `flex`，实测如此） |
 
@@ -238,6 +246,12 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > 例如 `--doc` 要写 `title{margin:8px 0 4px; font-size:14px; color:primary}`，
 > 而不是只写 `margin` 然后指望基线补 `font-size`——后者正是父卡踩过的坑。
 
+> **已落（B5，卡 `t_26cc85f5`）**：37 页 = 19 页吃基线（零变化）+ 16 页挂变体（rich 6 / file 4 / doc 6，
+> 其中 `hr/salary/detail` 逐元素拆成 3 处 `--inline` + 1 处 `--doc`）+ 1 页白名单（`hr/salary/index`）
+> + 1 页未声明页（`erp/price-inquiry`）由新基线首次生效。`tool-row__label` 10 页：4 页色值逐字相同直接删、
+> 6 页挂 `--sm`。实测口径与三个坑的验证见 §4.6，逐页表见
+> `docs/evidence/2026-11-16-shell-b5/README.md` §3。
+
 ### 3.3 收敛要接受的观感变化（逐条列出，实施卡逐页截图）
 
 | # | 变化 | 页数 | 判断 |
@@ -253,6 +267,10 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | 9 | `tool-row__label` cost-labor 12px→13px | 1 | 接受 |
 | 10 | `--doc` 族 title 加 `font-weight:600`：4 页原本就是 600（不变）、2 页（stock-out、stock-take）变粗 | 2 | 接受：加粗比丢掉 4 页的粗体更小 |
 | 11 | `--doc` 族 desc 归一到 `12px / placeholder`：contract 13px+secondary、lot 12px+secondary、attendance 12px+secondary、leave 13px+placeholder | 4 | 接受：说明文字统一用 placeholder |
+| **12** | `--doc` 族 title `color` placeholder→primary：contract / lot / attendance / leave 4 页原先没写 title 色，靠 ListPage 空槽的继承拿到 placeholder，变体写全后变 primary（深一档） | 4 | 接受（**B5 实测登记**）：§3.3 只登记了 desc 色，title 色同属「doc 族说明归一」；这 4 页的标题变深与同族 stock-out/stock-take（本来就 primary）一致 |
+| **13** | `erp/lot` 的 desc 边距：UA 的 `12px 0` 归一到 `0`（doc 族 desc 写 `margin:0`；该页原来没写 margin，靠 `<p>` 的 UA 边距） | 1 | 接受（**B5 实测登记**）：标题→说明的间距 12→4px（外边距折叠取大者），块高 180→176 |
+| **14** | `erp/price-inquiry` 首次吃到基线：该页模板里早有 `panel-empty / __icon / __title`，但页面 `<style>` 从来没声明过 → 一直是「无样式块」（图标 16px、左对齐、p 的 UA 边距） | 1 | 接受（**B5 实测登记**，是收敛的正收益）：变标准空态（flex 居中、icon 28px、标题 14px/secondary、padding 24px 0），块高 78→102 |
+| **15** | `hr/salary/detail` 逐元素归族：4 处 `panel-empty` 里 3 处纯文字走 `--inline`（padding 32px 12px→16px 12px、直系文字 14→13px），1 处带图标的整块空态走 `--doc`（padding 32px 12px→40px 0、icon 28→40、title 加粗 600、desc secondary→placeholder） | 1 页 | 接受（**B5 实测登记**）：卡面按页归族只写了 `--inline`，实测该页有两种空态形态，逐元素归族更忠实 |
 
 **不接受任何一条也可以**——但要在对应实施卡的 review 里写清「为什么不接受」，并把它变成一个**命名变体**（登记到 §2.3），
 而不是留在页面里。这是本决策唯一的松紧尺度：**可以有更多变体，不能有页面本地声明。**
@@ -342,6 +360,33 @@ B4 批（33 块）里**没有一块需要把属性补进壳类**：`tool-card{fl
 > **帮助中心的 `.list-card` 不是右侧栏**，是三栏布局的 320px 中列，必须连
 > `display:flex;flex-direction:column;min-height:0` 一起写全，否则内部不滚、pager 不沉底。
 
+### 4.6 空态 / 标签族（B5 实测口径）
+
+B5（134 块 / 45 文件）没有一块需要「再立新变体」以外的动作：4 个类先立 1 基线 + 4 变体，页面只加类 token。
+实测要点（卡面预告了三个坑，全部证实；另有三个卡面没预告）：
+
+1. **`desc` 是 `<p>` 的页面确实会被基线 `margin:0` 消掉 UA 上边距**（坑①，证实）。
+   `--file` 族 4 页的 desc 全是 `<p>`，实测 before 的 `margin-top=13px`（= 13px 字号的 1em）；
+   若照附录 A 写 `margin:0 0 16px`，标题与说明的间距会从 13px 掉到 4px。→ 变体写 `margin:13px 0 16px`，
+   4 页像素零差异（`impexp/*`、`storage/*` 的 `.empty.png` 逐像素 0）。
+2. **`display:block` 必须显式写**（坑②，证实）：`--file`/`--doc`/`--inline` 都写了，基线里的
+   `flex-direction/align-items/gap` 变成惰性声明（计算值变了但几何零变化，探针 8 个 file 页元素几何全 0）。
+3. **图标规则特指度**（坑③，证实）：变体 icon 一律 `.panel-empty--x .panel-empty__icon`（(0,2,0)）且在基线之后，
+   40px/32px 都压得住；`--lg`/`--success` 两个图标修饰同理（`.panel-empty--rich .panel-empty__icon--lg`、
+   `.panel-empty .panel-empty__icon--success`）。
+4. **白名单页也会被新基线波及**（卡面没预告）：`hr/salary/index` 保留本地声明，但基线新增的
+   `.panel-empty__title{font-size:14px;color:secondary}` 会盖掉它靠 `.panel-empty` 继承来的 13px/placeholder
+   → 该页本地块显式补 `font-size:13px;color:placeholder` 两条，实测像素零差异（探针几何 0 / diff 1px 噪声）。
+5. **模板里用 `panel-empty__icon` 但**不在** `.panel-empty` 容器内的元素会掉样式**（卡面没预告）：
+   `storage/file` 的预览抽屉兜底图标（`.preview__fallback` 里）就是这种 —— 基线图标规则带祖先，删掉页面裸类
+   规则后它会从 40px 掉回 TDesign 默认。→ 模板加页面自有 token `preview__icon` 承接（§2.2 末行「装饰留在页面」）。
+6. **「模板里有类、页面没声明」的页会被新基线首次点亮**（卡面没预告）：`erp/price-inquiry` 一直是无样式空态，
+   B5 之后变成标准空态（§3.3 第 14 条）。这是收敛的正收益，但必须入镜登记，否则会被当回归。
+
+**逐页归族与验真**（本批三件套全过）：静态等价 `LOST=0 / CHANGED=0 / NEW=0`（102 条有意变化全部落到
+§3.3 的 11 条 + 4 条新登记）；探针 47 路由 × 2 档 = 165 元素，22 路由**零差异**、25 路由的差异逐条归因；
+像素 85 图 × 2 档（每组含 `*.empty.png` 空态裁切），有差异 27/25 页，全部对上 §3.3 或「块高变化导致下方下移」。
+
 ---
 
 ## 5. 分批与实施卡
@@ -356,7 +401,7 @@ B4 批（33 块）里**没有一块需要把属性补进壳类**：`tool-card{fl
 | B2 | 38 | 24 | 273 | gap/margin/color/text-align 归一 + `--end` 变体 | 2px 级 + 提示色变淡 | **卡 ②** 间距与颜色归一 |
 | B3 | 16 | 13 | 61 | 控件宽度归一 + `--dense` 变体 + `--lg` 标题 | 宽度变化 | **卡 ③** 尺寸与字号档位（已落 `t_84bc7f25`：**B3=0**，199 块） |
 | B4 | 33 | 17 | 245 | 缺基线属性的「半个变体」：`panel-head__title`×10、`panel-head`×8、`list-card`×7、`tool-card`×5 | 补属性会变 → 逐页裁定 | **卡 ④** 半变体补全（已落 `t_6cec42fc`：**B4=0**，166 块） |
-| B5 | 136 | 46 | 808 | 空态/标签变体族（4 个空态变体 + `--sm` 标签） | 9 条接受的观感变化 | **卡 ⑤** 空态与标签收敛 |
+| B5 | 136 | 46 | 808 | 空态/标签变体族（4 个空态变体 + `--sm` 标签） | 11 条接受的观感变化 | **卡 ⑤** 空态与标签收敛（已落 `t_26cc85f5`：**B5=0**，32 块） |
 | B6 | 26 | 20 | 105 | 单页专有壳类：提为基线类（`--second`/`--filter`/`--inline` 登记）或改名去壳前缀 | 视裁定 | **卡 ⑥** 单页专有类处置 |
 
 > 文件有重叠（同一页多个批），所以 4+16+24+13+17+46+20 = 140 ≠ 68 个唯一文件。
@@ -529,6 +574,14 @@ B4 批（33 块）里**没有一块需要把属性补进壳类**：`tool-card{fl
 > ③ 三条「提进基线」已落（`__main{min-width:0}`、`__title/__meta{white-space:nowrap}`），
 > `warehouse` 的三块本地声明随之删除（像素零差异）。
 
+> **B5 落地后的实际形态与上面 spec 的差异**（共 47 类）：
+> ① `--rich` 把 `display:flex / flex-direction:column / align-items:center` 也写全了（spec 只写了
+> `justify-content/gap/padding/text-align`）—— 铁律 B 要求「属性写全」，同值重写不影响结果；
+> ② `--file` 的 desc 上边距写 `13px` 而不是 `0`（spec 写 `margin:0 0 16px`），依据见 §4.6 坑①；
+> ③ `--inline` 补了 `color: var(--td-text-color-secondary)`（该族 3 处纯文字空态要靠它拿 secondary）；
+> ④ 新增两个**图标修饰**（`__icon--success`、`__icon--lg`），各 1 页，理由见 §2.3；
+> ⑤ `hr/salary/detail` 的 4 处空态逐元素归族（3 处 `--inline` + 1 处 `--doc`），不是整页一个变体。
+
 ## 附录 B：度量工具
 
 ```bash
@@ -552,7 +605,7 @@ node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist
 
 node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write
 #   → 重写存量快照。**每落一批（B1…B6）后必须跑一次**，条目数只许降；
-#     B3 之后应为 199 条（B0 4 + B4 33 + B5 136 + B6 26；B1/B2/B3 均为 0）
+#     B5 之后应为 32 条（B0 4 + B5-ALLOW 2 + B6 26；B1–B5 均为 0）
 
 pnpm lint:shell     # = 上面第一条（package.json 里的脚本）
 SHELL_VARIANT_GATE=block bash scripts/check.sh --l0   # 按阻断档跑（默认 warn）
@@ -562,8 +615,8 @@ SHELL_VARIANT_GATE=block bash scripts/check.sh --l0   # 按阻断档跑（默认
 
 ```json
 {
-  "shellLess": { "file": "src/style/shell.less", "classCount": 34, "classesHash": "<sha256 前 16 位>" },
-  "totals":   { "entries": 199, "byBatch": { "B0": 4, "B4": 33, "B5": 136, "B6": 26 } },
+  "shellLess": { "file": "src/style/shell.less", "classCount": 47, "classesHash": "<sha256 前 16 位>" },
+  "totals":   { "entries": 6, "byBatch": { "B0": 4, "B5-ALLOW": 2 } },
   "entries":  [ { "file": "components/ListPage/index.vue", "class": "panel-head", "selector": ".panel-head", "batch": "B0" }, … ]
 }
 ```

@@ -216,7 +216,7 @@
           </template>
 
           <template #empty>
-            <div class="panel-empty" data-testid="hr-att-period-empty">
+            <div class="panel-empty panel-empty--doc" data-testid="hr-att-period-empty">
               <t-icon class="panel-empty__icon" name="calendar" />
               <p class="panel-empty__title">
                 {{ isPeriodFiltered(periodFilter) ? '没有匹配的考勤期间' : '还没有考勤期间' }}
@@ -425,14 +425,14 @@
 
       <!-- 空态：没选期间 vs 选了但没记录（改造前是两个平级块，现在同一个插槽里分支） -->
       <template #empty>
-        <div v-if="!recordFilter.period_id" class="panel-empty" data-testid="hr-att-record-no-period">
+        <div v-if="!recordFilter.period_id" class="panel-empty panel-empty--doc" data-testid="hr-att-record-no-period">
           <t-icon class="panel-empty__icon" name="calendar" />
           <p class="panel-empty__title">先选一期考勤期间</p>
           <p class="panel-empty__desc">
             台账按期间出数（一人一行）。还没有期间就去「考勤期间」tab 点「新建期间」，建好回来自动可选。
           </p>
         </div>
-        <div v-else class="panel-empty" data-testid="hr-att-record-empty">
+        <div v-else class="panel-empty panel-empty--doc" data-testid="hr-att-record-empty">
           <t-icon class="panel-empty__icon" name="user-business" />
           <p class="panel-empty__title">
             {{ isRecordFiltered(recordFilter) ? '没有匹配的考勤记录' : '这一期还没有考勤记录' }}
@@ -1564,28 +1564,6 @@ onMounted(() => {
     background: var(--td-bg-color-container-hover);
   }
 }
-
-.panel-empty {
-  padding: 28px 0;
-  text-align: center;
-
-  &__icon {
-    font-size: 32px;
-    color: var(--td-text-color-placeholder);
-  }
-
-  &__title {
-    margin: 8px 0 4px;
-    font-weight: 600;
-  }
-
-  &__desc {
-    margin: 0;
-    font-size: 12px;
-    color: var(--td-text-color-secondary);
-  }
-}
-
 .drawer {
   display: flex;
   flex-direction: column;

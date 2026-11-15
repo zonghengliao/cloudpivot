@@ -941,9 +941,15 @@ watch(
   color: var(--td-text-color-placeholder);
 }
 
+// 白名单页（B5 决策 §3.2）：这一页的空态是「40px 16px 内边距 + 13px 小字 + 提示色」的独一份写法，
+// 不套任何变体，本地声明保留。下面两条（font-size/color）是显式抵住新基线
+// `.panel-empty__title{font-size:14px;color:secondary}` 用的 —— 该页原本靠 `.panel-empty` 的
+// 继承拿到 13px/placeholder，基线全局化后必须写全，否则标题会变 14px + 变深（观感零变化是白名单的前提）。
 .panel-empty__title {
   margin: 0;
   line-height: 20px;
+  font-size: 13px;
+  color: var(--td-text-color-placeholder);
 }
 
 .page-tabs {

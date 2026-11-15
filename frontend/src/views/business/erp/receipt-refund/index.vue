@@ -26,7 +26,7 @@
       -->
       <template #filter-dateFrom>
         <span class="lp-date-range">
-          <span class="tool-row__label">退款日期</span>
+          <span class="tool-row__label tool-row__label--sm">退款日期</span>
           <t-date-picker
             :model-value="filter.dateFrom"
             class="tool-row__date"
@@ -915,7 +915,6 @@ async function loadCustomers(): Promise<void> {
     .catch(() => [] as Customer[]);
 }
 
-
 /** 拉一页（入参拼装沿用 `buildRefundQuery`，空值整键缺席等口径由它自己的单测钉住） */
 const fetcher: ListFetcher<ReceiptRefund> = (query) =>
   fetchReceiptRefundPage(query as Parameters<typeof fetchReceiptRefundPage>[0]);
@@ -1398,12 +1397,6 @@ async function submitAllocation(): Promise<void> {
 .tool-row--second {
   margin-top: 10px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-}
-
 /* 日期区间整块（含标签与 ~）：作为一个 flex item，换行时整体走，不会被拆开 */
 .lp-date-range {
   display: inline-flex;

@@ -72,7 +72,7 @@
         </template>
 
       <template #empty>
-        <div class="panel-empty" data-testid="materials-empty">
+        <div class="panel-empty panel-empty--rich" data-testid="materials-empty">
           <t-icon class="panel-empty__icon" name="box" />
           <p class="panel-empty__title">{{ isFiltered ? '没有匹配的物料' : '还没有物料' }}</p>
           <p class="panel-empty__desc">
@@ -622,34 +622,5 @@ onMounted(async () => {
 /* 禁用的开关外面包一层 span，否则 t-tooltip 在 disabled 元素上不触发 */
 .gate-wrap {
   display: inline-flex;
-}
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 420px;
-  line-height: 1.6;
 }
 </style>

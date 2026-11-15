@@ -28,7 +28,7 @@
           -->
           <template #filter-dueFrom>
             <span class="lp-date-range">
-              <span class="tool-row__label">到期日</span>
+              <span class="tool-row__label tool-row__label--sm">到期日</span>
               <t-date-picker
                 :model-value="filter.dueFrom"
                 class="tool-row__date"
@@ -150,7 +150,7 @@
       <t-tab-panel value="aging" label="账龄看板">
         <t-card :bordered="false" class="tool-card ar-aging-tool">
           <div class="tool-row tool-row--dense">
-            <span class="tool-row__label">基准日</span>
+            <span class="tool-row__label tool-row__label--sm">基准日</span>
             <t-date-picker
               v-model="agingAsOf"
               class="tool-row__date"
@@ -938,12 +938,6 @@ watch(
 .tool-row--second {
   margin-top: 8px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-  font-size: 13px;
-}
-
 /* 日期区间整块（含标签与 ~）：作为一个 flex item，换行时整体走，不会被拆开 */
 .lp-date-range {
   display: inline-flex;

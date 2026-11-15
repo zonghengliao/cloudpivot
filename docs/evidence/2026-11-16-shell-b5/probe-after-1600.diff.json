@@ -1,0 +1,2052 @@
+[
+ {
+  "route": "/business/erp/contract",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(6)>span:nth-child(1)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(7)>span:nth-child(1)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "x",
+  "before": 818.5,
+  "after": 826,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "w",
+  "before": 195,
+  "after": 180,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 156,
+  "after": 176,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-top",
+  "before": "36px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-bottom",
+  "before": "36px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "width",
+  "before": "195px",
+  "after": "180px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "156px",
+  "after": "176px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "x",
+  "before": 902,
+  "after": 896,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "y",
+  "before": 323,
+  "after": 327,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "w",
+  "before": 28,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "h",
+  "before": 28,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "font-size",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "width",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-file panel-empty__icon",
+  "prop": "height",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "x",
+  "before": 818.5,
+  "after": 826,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 359,
+  "after": 375,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "w",
+  "before": 195,
+  "after": 180,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "color",
+  "before": "rgb(138, 145, 158)",
+  "after": "rgb(46, 50, 56)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "width",
+  "before": "195px",
+  "after": "180px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "x",
+  "before": 818.5,
+  "after": 826,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "y",
+  "before": 385,
+  "after": 401,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "w",
+  "before": 195,
+  "after": 180,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "font-size",
+  "before": "13px",
+  "after": "12px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "color",
+  "before": "rgb(76, 82, 92)",
+  "after": "rgb(121, 130, 144)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/contract",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "width",
+  "before": "195px",
+  "after": "180px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(10)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "GEOM",
+  "cls": "tool-row__label",
+  "prop": "x",
+  "before": 1476,
+  "after": 1469,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(10)"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "GEOM",
+  "cls": "tool-row__label",
+  "prop": "w",
+  "before": 84,
+  "after": 91,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(10)"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "STYLE",
+  "cls": "tool-row__label",
+  "prop": "font-size",
+  "before": "12px",
+  "after": "13px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(10)"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "STYLE",
+  "cls": "tool-row__label",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(10)"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "STYLE",
+  "cls": "tool-row__label",
+  "prop": "width",
+  "before": "84px",
+  "after": "91px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(10)"
+ },
+ {
+  "route": "/business/erp/customer",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/erp/expense/pay",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)",
+  "before": "t-icon t-icon-check-circle panel-empty__icon",
+  "after": "t-icon t-icon-check-circle panel-empty__icon panel-empty__icon--success"
+ },
+ {
+  "route": "/business/erp/invoice",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(4)>span:nth-child(1)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 180,
+  "after": 176,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-top",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-bottom",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "180px",
+  "after": "176px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-inbox panel-empty__icon",
+  "prop": "y",
+  "before": 331,
+  "after": 339,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 379,
+  "after": 387,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "color",
+  "before": "rgb(138, 145, 158)",
+  "after": "rgb(46, 50, 56)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "margin-top",
+  "before": "12px",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "margin-bottom",
+  "before": "12px",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/lot",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "color",
+  "before": "rgb(76, 82, 92)",
+  "after": "rgb(121, 130, 144)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/material",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/erp/material",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "max-width",
+  "before": "420px",
+  "after": "460px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/receipt-refund",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(5)>span:nth-child(1)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/receipt",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(5)>span:nth-child(1)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/receivable",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(5)>span:nth-child(1)",
+  "before": "tool-row__label",
+  "after": "tool-row__label tool-row__label--sm"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 168,
+  "after": 176,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-top",
+  "before": "36px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-bottom",
+  "before": "36px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "168px",
+  "after": "176px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-inbox panel-empty__icon",
+  "prop": "y",
+  "before": 323,
+  "after": 327,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 371,
+  "after": 375,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "font-weight",
+  "before": "400",
+  "after": "600",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "y",
+  "before": 397,
+  "after": 401,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/stock-take",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "font-weight",
+  "before": "400",
+  "after": "600",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/supplier",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/erp/unit",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/erp/warehouse",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/erp/warehouse",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "max-width",
+  "before": "420px",
+  "after": "460px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/warehouse",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/erp/warehouse",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "max-width",
+  "before": "420px",
+  "after": "460px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "y",
+  "before": 308,
+  "after": 296,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 78,
+  "after": 102,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "display",
+  "before": "block",
+  "after": "flex",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-top",
+  "before": "0px",
+  "after": "24px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-bottom",
+  "before": "0px",
+  "after": "24px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "78px",
+  "after": "102px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-search panel-empty__icon",
+  "prop": "x",
+  "before": 797,
+  "after": 902,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-search panel-empty__icon",
+  "prop": "y",
+  "before": 308,
+  "after": 320,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-search panel-empty__icon",
+  "prop": "display",
+  "before": "inline-block",
+  "after": "block",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-search panel-empty__icon",
+  "prop": "min-width",
+  "before": "0px",
+  "after": "auto",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-search panel-empty__icon",
+  "prop": "min-height",
+  "before": "0px",
+  "after": "auto",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 350,
+  "after": 352,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "margin-top",
+  "before": "14px",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "margin-bottom",
+  "before": "14px",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "color",
+  "before": "rgb(138, 145, 158)",
+  "after": "rgb(76, 82, 92)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "min-width",
+  "before": "0px",
+  "after": "auto",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price-inquiry",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "min-height",
+  "before": "0px",
+  "after": "auto",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 144,
+  "after": 176,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-top",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-bottom",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "144px",
+  "after": "176px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "x",
+  "before": 900,
+  "after": 896,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "y",
+  "before": 406,
+  "after": 418,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "w",
+  "before": 32,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "h",
+  "before": 32,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "font-size",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "width",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-calendar panel-empty__icon",
+  "prop": "height",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 446,
+  "after": 466,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "color",
+  "before": "rgb(138, 145, 158)",
+  "after": "rgb(46, 50, 56)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "y",
+  "before": 472,
+  "after": 492,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/attendance",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "color",
+  "before": "rgb(76, 82, 92)",
+  "after": "rgb(121, 130, 144)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--rich"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 210,
+  "after": 208.4,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "210px",
+  "after": "208.375px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)",
+  "before": "t-icon t-icon-user-business panel-empty__icon",
+  "after": "t-icon t-icon-user-business panel-empty__icon panel-empty__icon--lg"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "h",
+  "before": 40,
+  "after": 38.4,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "line-height",
+  "before": "20px",
+  "after": "19.2px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "height",
+  "before": "40px",
+  "after": "38.375px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "x",
+  "before": 714.5,
+  "after": 730,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "w",
+  "before": 403,
+  "after": 372,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 168,
+  "after": 176,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "width",
+  "before": "403px",
+  "after": "372px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "168px",
+  "after": "176px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-time panel-empty__icon",
+  "prop": "x",
+  "before": 900,
+  "after": 896,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-time panel-empty__icon",
+  "prop": "w",
+  "before": 32,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-time panel-empty__icon",
+  "prop": "h",
+  "before": 32,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-time panel-empty__icon",
+  "prop": "font-size",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-time panel-empty__icon",
+  "prop": "width",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-time panel-empty__icon",
+  "prop": "height",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "x",
+  "before": 714.5,
+  "after": 730,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 435,
+  "after": 443,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "w",
+  "before": 403,
+  "after": 372,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "color",
+  "before": "rgb(138, 145, 158)",
+  "after": "rgb(46, 50, 56)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "width",
+  "before": "403px",
+  "after": "372px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "x",
+  "before": 714.5,
+  "after": 730,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "y",
+  "before": 461,
+  "after": 469,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "w",
+  "before": 403,
+  "after": 372,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "font-size",
+  "before": "13px",
+  "after": "12px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/leave",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "width",
+  "before": "403px",
+  "after": "372px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "display",
+  "before": "block",
+  "after": "flex",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "min-width",
+  "before": "0px",
+  "after": "auto",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "min-height",
+  "before": "0px",
+  "after": "auto",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--doc"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "x",
+  "before": 749.3,
+  "after": 761.3,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "y",
+  "before": 316,
+  "after": 315.1,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "w",
+  "before": 333.3,
+  "after": 309.3,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty",
+  "prop": "h",
+  "before": 148,
+  "after": 176,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-top",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-right",
+  "before": "12px",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-bottom",
+  "before": "32px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "padding-left",
+  "before": "12px",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "color",
+  "before": "rgb(76, 82, 92)",
+  "after": "rgb(138, 145, 158)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "width",
+  "before": "333.344px",
+  "after": "309.344px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "height",
+  "before": "148px",
+  "after": "176px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "x",
+  "before": 902,
+  "after": 896,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "y",
+  "before": 348,
+  "after": 355.1,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "w",
+  "before": 28,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "h",
+  "before": 28,
+  "after": 40,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "font-size",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "width",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "t-icon t-icon-user-business panel-empty__icon",
+  "prop": "height",
+  "before": "28px",
+  "after": "40px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty__title",
+  "prop": "y",
+  "before": 384,
+  "after": 403.1,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty__title",
+  "prop": "font-weight",
+  "before": "400",
+  "after": "600",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty__desc",
+  "prop": "y",
+  "before": 410,
+  "after": 429.1,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty__desc",
+  "prop": "color",
+  "before": "rgb(76, 82, 92)",
+  "after": "rgb(121, 130, 144)",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)>p:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "GEOM",
+  "cls": "panel-empty panel-empty--inline",
+  "prop": "y",
+  "before": 606,
+  "after": 633.1,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty panel-empty--inline",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty panel-empty--inline",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty panel-empty--inline",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty panel-empty--inline",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001",
+  "kind": "STYLE",
+  "cls": "panel-empty panel-empty--inline",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/impexp/export-task",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--file"
+ },
+ {
+  "route": "/business/impexp/export-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/export-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/export-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/export-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/export-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/import-task",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--file"
+ },
+ {
+  "route": "/business/impexp/import-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/import-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/import-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/import-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/impexp/import-task",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/backend",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--file"
+ },
+ {
+  "route": "/business/storage/backend",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/backend",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/backend",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/backend",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/backend",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "panel-empty",
+  "after": "panel-empty panel-empty--file"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "flex-direction",
+  "before": "row",
+  "after": "column",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "align-items",
+  "before": "normal",
+  "after": "center",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "row-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "STYLE",
+  "cls": "panel-empty",
+  "prop": "column-gap",
+  "before": "normal",
+  "after": "4px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>table:nth-child(1)>tbody:nth-child(3)>tr:nth-child(1)>td:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/storage/file",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>svg:nth-child(1)",
+  "before": "t-icon t-icon-file panel-empty__icon",
+  "after": "t-icon t-icon-file panel-empty__icon preview__icon"
+ }
+]

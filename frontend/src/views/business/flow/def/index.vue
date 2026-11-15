@@ -698,27 +698,6 @@ onMounted(() => {
 .cell-muted {
   color: var(--td-text-color-placeholder);
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 .table-empty {
   display: flex;
   flex-direction: column;

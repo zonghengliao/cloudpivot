@@ -47,7 +47,7 @@
       <!-- 本页没有筛选：空态不会出现「没有匹配」那种情况，直接说清为什么是空的 -->
       <template #empty>
         <div class="panel-empty" data-testid="expense-pay-empty">
-          <t-icon class="panel-empty__icon" name="check-circle" />
+          <t-icon class="panel-empty__icon panel-empty__icon--success" name="check-circle" />
           <p class="panel-empty__title">没有待付款的报销单</p>
           <p class="panel-empty__desc">已审批的报销单都付清了；新审批通过的单据会自动出现在这里</p>
         </div>
@@ -308,32 +308,6 @@ function errorText(error: unknown): string {
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-success-color);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 .name-cell {
   display: flex;
   flex-direction: column;

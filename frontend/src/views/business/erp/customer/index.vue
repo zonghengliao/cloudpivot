@@ -100,7 +100,7 @@
         </template>
 
         <template #empty>
-          <div class="panel-empty" data-testid="customer-empty">
+          <div class="panel-empty panel-empty--rich" data-testid="customer-empty">
             <t-icon class="panel-empty__icon" name="usergroup" />
             <p class="panel-empty__title">{{ isFiltered ? '没有匹配的客户' : '还没有客户档案' }}</p>
             <p class="panel-empty__desc">
@@ -683,36 +683,6 @@ onMounted(async () => {
 .muted {
   color: var(--td-text-color-placeholder);
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 460px;
-  line-height: 1.6;
-}
-
 /* ATT-11：编辑弹窗里的附件区（小标题 + 一句建议说明） */
 .section-title {
   font-weight: 600;

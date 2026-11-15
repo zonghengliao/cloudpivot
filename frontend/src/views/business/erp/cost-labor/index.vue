@@ -63,7 +63,7 @@
 
         <t-divider layout="vertical" />
 
-        <span class="tool-row__label">按成本对象分组</span>
+        <span class="tool-row__label tool-row__label--sm">按成本对象分组</span>
         <t-switch
           v-model="grouped"
           data-testid="cl-switch-grouped"
@@ -1061,12 +1061,6 @@ onMounted(() => {
   flex-direction: column;
   gap: 12px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .panel-foot {
   margin: 8px 0 0;
   color: var(--td-text-color-secondary);

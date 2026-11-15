@@ -602,27 +602,6 @@ watch(activeTab, (tab) => {
   font-family: var(--td-font-family-mono, ui-monospace, monospace);
   color: var(--td-text-color-primary);
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 合计行（两个 Tab 共用外框） ==================== */
 
 .footer-row {

@@ -250,12 +250,22 @@ const BATCHES = {
   B3: '尺寸/字号档位（width / font-size）',
   B4: '半变体补全（缺基线属性）',
   B5: '空态与标签变体族（panel-empty* + tool-row__label）',
+  'B5-ALLOW': '白名单（登记保留的页面声明，不算债）',
   B6: '单页专有壳类（1-2 页）',
+};
+
+// 页面级白名单（登记制，理由写在值里）：不算债、不参与 --strict 判定，但要能被报告看见，
+// 免得「消失了」，也免得下一个人以为漏了。
+const PAGE_ALLOW = {
+  // 决策 §3.2 / B5 卡：HR 薪资首页的空态是「40px 16px 内边距 + 13px 小字 + 提示色 + title line-height 20px」，
+  // 37 页里独一份；套 --rich 会多 8px 内边距和 32px 图标，套基线会掉 13px 小字。保留本地声明最省。
+  'views/business/hr/salary/index.vue': 'B5-ALLOW',
 };
 
 function batchOf(b) {
   const inBase = b.cls in baseline;
   if (SELF_HOSTED.includes(b.file)) return 'B0';
+  if (PAGE_ALLOW[b.file]) return PAGE_ALLOW[b.file];
   if (/^panel-empty/.test(b.cls) || FOUR.has(b.cls)) {
     if (inBase && b.diff.kind === 'same') return 'B1';
     return 'B5';
@@ -400,8 +410,8 @@ if (opt.baseline) {
   console.log(`✓ 无新增页面壳类声明（存量 ${blocks.length} 条待按批削减，已删 ${fixed.length} 条可同步削 allowlist）`);
 }
 
-// --strict：未来做门禁用（B1–B6 落地后，除 B0 组件自持外任何页面壳类声明即失败）
+// --strict：未来做门禁用（B1–B6 落地后，除 B0 组件自持 / 登记白名单外任何页面壳类声明即失败）
 if (opt.strict && !opt.baseline) {
-  const debt = blocks.filter((b) => b.batch !== 'B0').length;
-  if (debt) { console.error(`\n--strict：仍有 ${debt} 处非白名单变体（B0 组件自持 ${groups.B0 ? groups.B0.blocks.length : 0} 块不计）`); process.exit(1); }
+  const debt = blocks.filter((b) => b.batch !== 'B0' && !String(b.batch).endsWith('-ALLOW')).length;
+  if (debt) { console.error(`\n--strict：仍有 ${debt} 处非白名单变体（B0 组件自持 ${groups.B0 ? groups.B0.blocks.length : 0} 块 + 登记白名单不计）`); process.exit(1); }
 }

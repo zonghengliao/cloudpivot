@@ -108,7 +108,7 @@
             </template>
           </t-tree>
 
-          <div v-else-if="!treeLoading" class="panel-empty" data-testid="tree-empty">
+          <div v-else-if="!treeLoading" class="panel-empty panel-empty--rich" data-testid="tree-empty">
             <t-icon class="panel-empty__icon" name="shop" />
             <p class="panel-empty__title">{{ keyword.trim() ? '没有匹配的仓库' : '还没有仓库' }}</p>
             <p class="panel-empty__desc">
@@ -147,7 +147,7 @@
         </t-alert>
 
         <!-- 未选仓库：直接说清为什么没有列表 -->
-        <div v-if="!selected" class="panel-empty" data-testid="list-placeholder">
+        <div v-if="!selected" class="panel-empty panel-empty--rich" data-testid="list-placeholder">
           <t-icon class="panel-empty__icon" name="scan" />
           <p class="panel-empty__title">先在左侧选中一个仓库</p>
           <p class="panel-empty__desc">库位按所属仓库展示；只有叶子仓库才能挂库位</p>
@@ -195,7 +195,7 @@
             </t-space>
           </template>
           <template #empty>
-            <div class="panel-empty" data-testid="locations-empty">
+            <div class="panel-empty panel-empty--rich" data-testid="locations-empty">
               <t-icon class="panel-empty__icon" name="scan" />
               <p class="panel-empty__title">「{{ selected?.warehouse_name }}」还没有库位</p>
               <p class="panel-empty__desc">点工具条「新建库位」建第一个；编码在同一仓库内唯一</p>
@@ -645,34 +645,5 @@ defineExpose({ toggleNode });
   flex: 0 0 auto;
   font-size: 12px;
   color: var(--td-text-color-placeholder);
-}
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 420px;
-  line-height: 1.6;
 }
 </style>

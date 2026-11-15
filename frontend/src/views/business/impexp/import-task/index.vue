@@ -116,7 +116,7 @@
       </template>
 
       <template #empty="{ filtered }">
-        <div class="panel-empty" data-testid="impexp-import-empty">
+        <div class="panel-empty panel-empty--file" data-testid="impexp-import-empty">
           <t-icon class="panel-empty__icon" name="upload" />
           <p class="panel-empty__title">{{ filtered ? '没有匹配的导入任务' : '还没有导入任务' }}</p>
           <p class="panel-empty__desc">
@@ -470,26 +470,4 @@ onBeforeUnmount(() => {
   }
 }
 
-/* 空态（与其它已迁页面同一套 class 口径，样式随 shell 下沉一并收走） */
-.panel-empty {
-  padding: 40px 0;
-  text-align: center;
-
-  &__icon {
-    font-size: 40px;
-    color: var(--td-text-color-placeholder);
-  }
-
-  &__title {
-    margin: 12px 0 4px;
-    font-size: 15px;
-    color: var(--td-text-color-primary);
-  }
-
-  &__desc {
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
-  }
-}
 </style>

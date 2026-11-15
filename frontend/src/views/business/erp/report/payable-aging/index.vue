@@ -406,11 +406,6 @@ onMounted(async () => {
 .pa-card {
   min-height: 200px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-}
-
 .pa-alert {
   margin-bottom: 12px;
 }

@@ -1,0 +1,748 @@
+{
+ "totals": {
+  "lost": 0,
+  "changed": 21,
+  "added": 81,
+  "allowed": 0,
+  "files": 45,
+  "classes": 147
+ },
+ "rows": [
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-top",
+   "before": "36px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-bottom",
+   "before": "36px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-size",
+   "after": "14px"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "color",
+   "after": "var(--td-text-color-primary)"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "color",
+   "before": "var(--td-text-color-secondary)",
+   "after": "var(--td-text-color-placeholder)"
+  },
+  {
+   "file": "views/business/erp/contract/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "font-size",
+   "before": "13px",
+   "after": "12px"
+  },
+  {
+   "file": "views/business/erp/cost-labor/index.vue",
+   "cls": "tool-row__label",
+   "kind": "CHANGED",
+   "prop": "font-size",
+   "before": "12px",
+   "after": "13px"
+  },
+  {
+   "file": "views/business/erp/cost-labor/index.vue",
+   "cls": "tool-row__label",
+   "kind": "NEW",
+   "prop": "white-space",
+   "after": "nowrap"
+  },
+  {
+   "file": "views/business/erp/invoice/index.vue",
+   "cls": "tool-row__label",
+   "kind": "NEW",
+   "prop": "white-space",
+   "after": "nowrap"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-top",
+   "before": "32px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-bottom",
+   "before": "32px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-size",
+   "after": "14px"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "color",
+   "after": "var(--td-text-color-primary)"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "color",
+   "before": "var(--td-text-color-secondary)",
+   "after": "var(--td-text-color-placeholder)"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-top",
+   "after": "0"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-right",
+   "after": "0"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-bottom",
+   "after": "0"
+  },
+  {
+   "file": "views/business/erp/lot/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-left",
+   "after": "0"
+  },
+  {
+   "file": "views/business/erp/material/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "max-width",
+   "before": "420px",
+   "after": "460px"
+  },
+  {
+   "file": "views/business/erp/receipt-refund/index.vue",
+   "cls": "tool-row__label",
+   "kind": "NEW",
+   "prop": "white-space",
+   "after": "nowrap"
+  },
+  {
+   "file": "views/business/erp/receipt/index.vue",
+   "cls": "tool-row__label",
+   "kind": "NEW",
+   "prop": "white-space",
+   "after": "nowrap"
+  },
+  {
+   "file": "views/business/erp/receivable/index.vue",
+   "cls": "tool-row__label",
+   "kind": "NEW",
+   "prop": "white-space",
+   "after": "nowrap"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-top",
+   "before": "36px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-bottom",
+   "before": "36px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/erp/stock-out/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-weight",
+   "after": "600"
+  },
+  {
+   "file": "views/business/erp/stock-take/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/erp/stock-take/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/erp/stock-take/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/erp/stock-take/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/erp/stock-take/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-weight",
+   "after": "600"
+  },
+  {
+   "file": "views/business/erp/warehouse/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "max-width",
+   "before": "420px",
+   "after": "460px"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-top",
+   "before": "28px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-bottom",
+   "before": "28px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty__icon",
+   "kind": "CHANGED",
+   "prop": "font-size",
+   "before": "32px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-size",
+   "after": "14px"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "color",
+   "after": "var(--td-text-color-primary)"
+  },
+  {
+   "file": "views/business/hr/attendance/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "color",
+   "before": "var(--td-text-color-secondary)",
+   "after": "var(--td-text-color-placeholder)"
+  },
+  {
+   "file": "views/business/hr/employee/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "line-height",
+   "before": "20px",
+   "after": "1.6"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty__icon",
+   "kind": "CHANGED",
+   "prop": "font-size",
+   "before": "32px",
+   "after": "40px"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-size",
+   "after": "14px"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "color",
+   "after": "var(--td-text-color-primary)"
+  },
+  {
+   "file": "views/business/hr/leave/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "CHANGED",
+   "prop": "font-size",
+   "before": "13px",
+   "after": "12px"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-top",
+   "before": "32px",
+   "after": "16px"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "CHANGED",
+   "prop": "padding-bottom",
+   "before": "32px",
+   "after": "16px"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "font-size",
+   "after": "13px"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty--inline",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty--inline",
+   "kind": "NEW",
+   "prop": "text-align",
+   "after": "center"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty--inline",
+   "kind": "NEW",
+   "prop": "color",
+   "after": "var(--td-text-color-secondary)"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty__title",
+   "kind": "NEW",
+   "prop": "font-weight",
+   "after": "600"
+  },
+  {
+   "file": "views/business/hr/salary/detail.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "color",
+   "after": "var(--td-text-color-placeholder)"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-top",
+   "after": "13px"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-right",
+   "after": "0"
+  },
+  {
+   "file": "views/business/impexp/export-task/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-left",
+   "after": "0"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-top",
+   "after": "13px"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-right",
+   "after": "0"
+  },
+  {
+   "file": "views/business/impexp/import-task/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-left",
+   "after": "0"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-top",
+   "after": "13px"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-right",
+   "after": "0"
+  },
+  {
+   "file": "views/business/storage/backend/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-left",
+   "after": "0"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "display",
+   "after": "block"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "flex-direction",
+   "after": "column"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "align-items",
+   "after": "center"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty",
+   "kind": "NEW",
+   "prop": "gap",
+   "after": "4px"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-top",
+   "after": "13px"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-right",
+   "after": "0"
+  },
+  {
+   "file": "views/business/storage/file/index.vue",
+   "cls": "panel-empty__desc",
+   "kind": "NEW",
+   "prop": "margin-left",
+   "after": "0"
+  }
+ ],
+ "allowedRows": []
+}

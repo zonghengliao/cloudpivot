@@ -369,11 +369,6 @@ onMounted(async () => {
 .bs-card {
   min-height: 200px;
 }
-
-.tool-row__label {
-  color: var(--td-text-color-secondary);
-}
-
 .bs-alert {
   margin-bottom: 12px;
 }

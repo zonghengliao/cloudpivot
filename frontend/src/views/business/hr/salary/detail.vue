@@ -218,7 +218,7 @@
           <span class="money">{{ moneyText(row.net_total) }}</span>
         </template>
         <template #empty>
-          <div class="panel-empty">这张单还没有明细行（引擎没算过人，或明细被清空）</div>
+          <div class="panel-empty panel-empty--inline">这张单还没有明细行（引擎没算过人，或明细被清空）</div>
         </template>
       </t-table>
 
@@ -400,7 +400,7 @@
         </template>
 
         <template #empty>
-          <div class="panel-empty" data-testid="hr-salary-detail-empty">
+          <div class="panel-empty panel-empty--doc" data-testid="hr-salary-detail-empty">
             <t-icon class="panel-empty__icon" name="user-business" />
             <p class="panel-empty__title">
               {{ isDetailFiltered(detailFilter) ? '没有匹配的员工' : '这张单没有明细' }}
@@ -1405,29 +1405,6 @@ watch(sheetId, (next, prev) => {
   font-size: 12px;
   color: var(--td-text-color-secondary, #00000099);
 }
-
-.panel-empty {
-  padding: 32px 12px;
-  text-align: center;
-  color: var(--td-text-color-secondary, #00000099);
-}
-
-.panel-empty--inline {
-  padding: 16px 12px;
-  font-size: 13px;
-}
-
-.panel-empty__title {
-  margin: 8px 0 4px;
-  font-size: 14px;
-  color: var(--td-text-color-primary, #000000e6);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-}
-
 /* ==================== 审批 ==================== */
 
 .approval-fallback {

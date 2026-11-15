@@ -777,8 +777,6 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   export: 'business:impexp:export:create',
 };
 
-
-
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
   const code = BATCH_PERMISSIONS[action.key];
@@ -818,7 +816,6 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
   return acc;
 }
 
-
 /**
  * 列表记忆（O4）：筛选 + 页码，进页面自动恢复，改动防抖 300ms 写回 sessionStorage。
  * 构造即恢复，早于 `onMounted` 的首次加载。
@@ -850,8 +847,6 @@ const supplierNameMap = computed(() => {
   }
   return map;
 });
-
-
 
 /** 供应商名称（主数据没加载完时退化成短 id） */
 function supplierNameOf(supplierId: string | null | undefined): string {
@@ -1254,7 +1249,6 @@ function syncPayAttachSelection(): void {
   const awaiting = list.find((item) => isAwaitingExecutor(item, instanceStatusOf(item)));
   payAttachDocId.value = awaiting?.id ?? list[0].id;
 }
-
 
 /**
  * 拉「执行付款」判据需要的那一次实例状态（**幂等**，可重复调）。
@@ -1712,27 +1706,6 @@ onMounted(() => {
   font-family: var(--td-font-family-mono, ui-monospace, monospace);
   color: var(--td-text-color-primary);
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 抽屉 ==================== */
 
 .drawer {

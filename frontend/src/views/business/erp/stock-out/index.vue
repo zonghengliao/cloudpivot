@@ -110,7 +110,7 @@
         </template>
 
         <template #empty>
-          <div class="panel-empty" data-testid="stockout-empty">
+          <div class="panel-empty panel-empty--doc" data-testid="stockout-empty">
             <t-icon name="inbox" class="panel-empty__icon" />
             <p class="panel-empty__title">{{ filtered ? '没有匹配的出库单' : '还没有出库单' }}</p>
             <p class="panel-empty__desc">
@@ -1434,29 +1434,6 @@ function applyOutNoDeepLink(): boolean {
   align-items: center;
   gap: 10px;
 }
-
-.panel-empty {
-  padding: 36px 0;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 40px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 8px 0 4px;
-  font-size: 14px;
-  color: var(--td-text-color-primary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 表单 ==================== */
 
 .form {

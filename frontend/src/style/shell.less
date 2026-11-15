@@ -102,6 +102,19 @@
   color: var(--td-text-color-placeholder);
 }
 
+// 工具行标签（「签订日期」「开票日期」这类筛选控件的名字）。B5 批之前这 10 页各写一份。
+// 基线只给颜色：字号保持继承 14px（历史上 4 个报表页就只写 color）。
+.tool-row__label {
+  color: var(--td-text-color-secondary);
+}
+
+// 单据/报表页标签小一号（13px）。`white-space:nowrap` 是原来 contract 页单独写的守卫，
+// 归到这一档（标签都是短词，实测换行点零变化）。
+.tool-row__label--sm {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
 // ---------- 工具栏里各筛选控件的固定宽度（不要改成百分比：换行点会飘） ----------
 .tool-row__date {
   width: 150px;
@@ -217,8 +230,138 @@
   white-space: nowrap;
 }
 
-// ---------- 空态图标（必须带 `.panel-empty` 前缀：TDesign 的 `.t-icon.t-size-m` 是 (0,2,0)，裸类压不住） ----------
+// =============================================================================
+// ---------- 空态（panel-empty）：1 基线 + 4 变体 + 2 个图标修饰 ----------
+//
+// B5 批（卡 t_26cc85f5）把这 4 个「刻意未全局化」的类收上来：37 页里 36 页吃基线/变体，
+// 1 页（hr/salary/index，非标准空态）进白名单，理由见决策 §3.2。
+//
+// 铁律（决策 §2.1 铁律 B）：变体**属性写全**、与基线同特指度（裸类 (0,1,0)，靠文件内更靠后取胜）。
+// 三个实测坑：
+//   ① `--file`/`--doc`/`--inline` 必须显式 `display:block` —— 否则吃到基线的 flex，
+//      图标与文字的相对位置会变（父卡实测 8 页空态高度变化就是这么来的）。基线里的
+//      `flex-direction`/`align-items`/`gap` 在 block 布局下是惰性的（探针实测几何零变化）。
+//   ② 变体里的图标规则必须写 `.panel-empty--x .panel-empty__icon`（(0,2,0)）且在本文件里**更靠后**，
+//      否则 40px 会被基线 28px 压回去；TDesign 的 `.t-icon.t-size-m` 也是 (0,2,0)，裸类压不住。
+//   ③ desc 是 `<p>` 的页面，今天的上边距来自 UA 的 `1em`（基线 `margin:0` 会把它消掉）——
+//      `--file` 族 4 页的 desc 全是 `<p>`，所以变体显式写回 `13px`（= 13px 字号下的 1em）。
+// =============================================================================
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
 .panel-empty .panel-empty__icon {
   font-size: 28px;
   color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+// 主数据页大空态（客户/物料/供应商/单位/仓库/员工档案）：留白更大、说明文案长要限宽。
+.panel-empty--rich {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.panel-empty--rich .panel-empty__icon {
+  font-size: 32px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty--rich .panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  max-width: 460px;
+  line-height: 1.6;
+  color: var(--td-text-color-placeholder);
+}
+
+// 导入导出 / 存储类空态：标题更大更粗（15px/primary），说明 13px/secondary，块级 + 居中。
+.panel-empty--file {
+  display: block;
+  padding: 40px 0;
+  text-align: center;
+}
+
+.panel-empty--file .panel-empty__icon {
+  font-size: 40px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty--file .panel-empty__title {
+  margin: 12px 0 4px;
+  font-size: 15px;
+  color: var(--td-text-color-primary);
+}
+
+// 刻意写 `13px` 上边距（不是 `0`）：见文件头坑 ③，4 页的 desc 都是 `<p>`，
+// 今天靠 UA 的 `1em` 撑开与标题/按钮的间距。
+.panel-empty--file .panel-empty__desc {
+  margin: 13px 0 16px;
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+}
+
+// 单据类空态（合同/批次/出入库/盘点/考勤/请假）：块级居中，标题加粗到 600。
+.panel-empty--doc {
+  display: block;
+  padding: 40px 0;
+  text-align: center;
+}
+
+.panel-empty--doc .panel-empty__icon {
+  font-size: 40px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty--doc .panel-empty__title {
+  margin: 8px 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.panel-empty--doc .panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+// 卡片内嵌小空态（薪资单详情的抽屉/展开行/审批轨迹里那一行小字）。
+.panel-empty--inline {
+  display: block;
+  text-align: center;
+  padding: 16px 12px;
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
+}
+
+// 图标修饰（(<0,2,0) 压不住基线/变体里的 (0,2,0) 图标规则，所以带前缀写）。
+// ① 成功色图标：erp/expense/pay 的空态图标是绿勾（「都付清了」），语义色不能丢。
+.panel-empty .panel-empty__icon--success {
+  color: var(--td-success-color);
+}
+
+// ② rich 族里 icon 用大号 40px：hr/employee 的空态图标本来就比同类大一号。
+.panel-empty--rich .panel-empty__icon--lg {
+  font-size: 40px;
 }

@@ -87,7 +87,7 @@
       <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
 
       <template #empty="{ filtered }">
-        <div class="panel-empty" data-testid="storage-file-empty">
+        <div class="panel-empty panel-empty--file" data-testid="storage-file-empty">
           <t-icon class="panel-empty__icon" name="folder" />
           <p class="panel-empty__title">{{ filtered ? '没有匹配的文件' : '还没有文件' }}</p>
           <p class="panel-empty__desc">
@@ -108,7 +108,7 @@
         <img v-if="previewKind === 'image'" class="preview__image" :src="previewUrl" :alt="previewTitle" />
         <iframe v-else-if="previewKind === 'pdf'" class="preview__pdf" :src="previewUrl" :title="previewTitle" />
         <div v-else class="preview__fallback">
-          <t-icon class="panel-empty__icon" name="file" />
+          <t-icon class="panel-empty__icon preview__icon" name="file" />
           <p>该类型不支持在线预览，请下载后查看</p>
           <t-button theme="primary" @click="handleDownload(previewRow!)">下载</t-button>
         </div>
@@ -629,27 +629,13 @@ onBeforeUnmount(() => {
     text-align: center;
     color: var(--td-text-color-secondary);
   }
-}
 
-.panel-empty {
-  padding: 40px 0;
-  text-align: center;
-
+  // 兜底图标：它在 `.preview__fallback` 里、不在 `.panel-empty` 容器内，所以吃不到基线
+  // 的 `.panel-empty .panel-empty__icon`（那条带祖先）。B5 删掉本页裸类规则后必须由
+  // 页面自有类承接，否则图标从 40px 掉回 TDesign 默认（决策 §2.2 末行：装饰留在页面）。
   &__icon {
     font-size: 40px;
     color: var(--td-text-color-placeholder);
-  }
-
-  &__title {
-    margin: 12px 0 4px;
-    font-size: 15px;
-    color: var(--td-text-color-primary);
-  }
-
-  &__desc {
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
   }
 }
 </style>

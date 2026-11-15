@@ -1,0 +1,5882 @@
+{
+  "generatedAt": "2026-11-15T20:30:34.786Z",
+  "baseline": {
+    "file": "style/shell.less",
+    "classes": {
+      "tool-card": {
+        "props": {
+          "flex": "0 0 auto"
+        },
+        "selector": ".tool-card"
+      },
+      "list-card": {
+        "props": {
+          "flex": "1 1 auto",
+          "min-width": "0"
+        },
+        "selector": ".list-card"
+      },
+      "panel-head": {
+        "props": {
+          "display": "flex",
+          "align-items": "baseline",
+          "justify-content": "space-between",
+          "gap": "12px",
+          "margin-bottom": "10px"
+        },
+        "selector": ".panel-head"
+      },
+      "panel-head__main": {
+        "props": {
+          "display": "flex",
+          "align-items": "baseline",
+          "gap": "10px",
+          "min-width": "0"
+        },
+        "selector": ".panel-head__main"
+      },
+      "panel-head__title": {
+        "props": {
+          "font-size": "14px",
+          "font-weight": "600",
+          "color": "var(--td-text-color-primary)",
+          "white-space": "nowrap"
+        },
+        "selector": ".panel-head__title"
+      },
+      "panel-head__meta": {
+        "props": {
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)",
+          "white-space": "nowrap"
+        },
+        "selector": ".panel-head__meta"
+      },
+      "panel-head__tip": {
+        "props": {
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".panel-head__tip"
+      },
+      "panel-head__hint": {
+        "props": {
+          "font-size": "12px",
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".panel-head__hint"
+      },
+      "panel-head__side": {
+        "props": {
+          "display": "flex",
+          "align-items": "center",
+          "gap": "6px"
+        },
+        "selector": ".panel-head__side"
+      },
+      "tool-row": {
+        "props": {
+          "display": "flex",
+          "align-items": "center",
+          "gap": "12px",
+          "flex-wrap": "wrap"
+        },
+        "selector": ".tool-row"
+      },
+      "tool-row__spacer": {
+        "props": {
+          "flex": "1 1 auto"
+        },
+        "selector": ".tool-row__spacer"
+      },
+      "tool-row__hint": {
+        "props": {
+          "color": "var(--td-text-color-placeholder)",
+          "font-size": "12px"
+        },
+        "selector": ".tool-row__hint"
+      },
+      "tool-row__sep": {
+        "props": {
+          "color": "var(--td-text-color-placeholder)",
+          "font-size": "12px"
+        },
+        "selector": ".tool-row__sep"
+      },
+      "tool-row__tilde": {
+        "props": {
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".tool-row__tilde"
+      },
+      "tool-row__date": {
+        "props": {
+          "width": "140px"
+        },
+        "selector": ".tool-row__date"
+      },
+      "tool-row__period": {
+        "props": {
+          "width": "140px"
+        },
+        "selector": ".tool-row__period"
+      },
+      "tool-row__no": {
+        "props": {
+          "width": "220px"
+        },
+        "selector": ".tool-row__no"
+      },
+      "tool-row__keyword": {
+        "props": {
+          "width": "220px"
+        },
+        "selector": ".tool-row__keyword"
+      },
+      "tool-row__type": {
+        "props": {
+          "width": "140px"
+        },
+        "selector": ".tool-row__type"
+      },
+      "tool-row__status": {
+        "props": {
+          "width": "130px"
+        },
+        "selector": ".tool-row__status"
+      },
+      "tool-row__customer": {
+        "props": {
+          "width": "200px"
+        },
+        "selector": ".tool-row__customer"
+      },
+      "tool-row__supplier": {
+        "props": {
+          "width": "200px"
+        },
+        "selector": ".tool-row__supplier"
+      },
+      "tool-row__warehouse": {
+        "props": {
+          "width": "190px"
+        },
+        "selector": ".tool-row__warehouse"
+      },
+      "tool-row__material": {
+        "props": {
+          "width": "220px"
+        },
+        "selector": ".tool-row__material"
+      },
+      "tool-row__method": {
+        "props": {
+          "width": "130px"
+        },
+        "selector": ".tool-row__method"
+      },
+      "tool-row__range": {
+        "props": {
+          "width": "250px"
+        },
+        "selector": ".tool-row__range"
+      },
+      "tool-row--dense": {
+        "props": {
+          "gap": "8px"
+        },
+        "selector": ".tool-row--dense"
+      },
+      "list-card--side": {
+        "props": {
+          "flex": "0 0 320px",
+          "width": "320px",
+          "display": "flex",
+          "flex-direction": "column",
+          "min-height": "0"
+        },
+        "selector": ".list-card--side"
+      },
+      "panel-head__side--loose": {
+        "props": {
+          "display": "inline-flex",
+          "align-items": "baseline",
+          "gap": "12px",
+          "flex-wrap": "wrap"
+        },
+        "selector": ".panel-head__side--loose"
+      },
+      "panel-head__title--lg": {
+        "props": {
+          "font-size": "16px"
+        },
+        "selector": ".panel-head__title--lg"
+      },
+      "panel-head__tip--end": {
+        "props": {
+          "margin-left": "auto"
+        },
+        "selector": ".panel-head__tip--end"
+      },
+      "panel-head__tip--right": {
+        "props": {
+          "text-align": "right"
+        },
+        "selector": ".panel-head__tip--right"
+      },
+      "panel-head__hint--end": {
+        "props": {
+          "margin-left": "auto"
+        },
+        "selector": ".panel-head__hint--end"
+      },
+      "panel-head__hint--right": {
+        "props": {
+          "text-align": "right"
+        },
+        "selector": ".panel-head__hint--right"
+      },
+      "panel-head__main--nowrap": {
+        "props": {
+          "white-space": "nowrap"
+        },
+        "selector": ".panel-head__main--nowrap"
+      },
+      "panel-empty__icon": {
+        "props": {
+          "font-size": "28px",
+          "color": "var(--td-text-color-placeholder)"
+        },
+        "selector": ".panel-empty .panel-empty__icon"
+      }
+    }
+  },
+  "totals": {
+    "blocks": 166,
+    "files": 55,
+    "estLines": 932
+  },
+  "batches": {
+    "B0": {
+      "label": "组件自持（allowlist，不动）",
+      "blocks": 4,
+      "files": [
+        "components/ListPage/index.vue"
+      ],
+      "estLines": 24,
+      "detail": [
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head",
+          "cls": "panel-head",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "align-items": "baseline",
+            "justify-content": "space-between",
+            "gap": "12px",
+            "margin-bottom": "10px"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        },
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__main",
+          "cls": "panel-head__main",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "align-items": "baseline",
+            "gap": "10px",
+            "min-width": "0"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        },
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__title",
+          "cls": "panel-head__title",
+          "direct": true,
+          "props": {
+            "font-size": "14px",
+            "font-weight": "600",
+            "color": "var(--td-text-color-primary)",
+            "white-space": "nowrap"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        },
+        {
+          "file": "components/ListPage/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__meta",
+          "cls": "panel-head__meta",
+          "direct": true,
+          "props": {
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "white-space": "nowrap"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "same",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B0"
+        }
+      ]
+    },
+    "B5": {
+      "label": "空态与标签变体族（panel-empty* + tool-row__label）",
+      "blocks": 136,
+      "files": [
+        "views/business/erp/account/index.vue",
+        "views/business/erp/commission-rule/index.vue",
+        "views/business/erp/commission/index.vue",
+        "views/business/erp/contract/index.vue",
+        "views/business/erp/cost-labor/index.vue",
+        "views/business/erp/customer-price/index.vue",
+        "views/business/erp/customer/index.vue",
+        "views/business/erp/exchange-rate/index.vue",
+        "views/business/erp/expense/pay/index.vue",
+        "views/business/erp/inventory/index.vue",
+        "views/business/erp/invoice/index.vue",
+        "views/business/erp/ledger/index.vue",
+        "views/business/erp/location/index.vue",
+        "views/business/erp/lot/index.vue",
+        "views/business/erp/material/index.vue",
+        "views/business/erp/payable/index.vue",
+        "views/business/erp/period/index.vue",
+        "views/business/erp/purchase-order-item/index.vue",
+        "views/business/erp/purchase/index.vue",
+        "views/business/erp/receipt-refund/index.vue",
+        "views/business/erp/receipt/index.vue",
+        "views/business/erp/receivable/index.vue",
+        "views/business/erp/report/balance-sheet/index.vue",
+        "views/business/erp/report/cash-flow/index.vue",
+        "views/business/erp/report/income-statement/index.vue",
+        "views/business/erp/report/payable-aging/index.vue",
+        "views/business/erp/seq/index.vue",
+        "views/business/erp/serial/index.vue",
+        "views/business/erp/stock-out/index.vue",
+        "views/business/erp/stock-take/index.vue",
+        "views/business/erp/stockin/index.vue",
+        "views/business/erp/supplier/index.vue",
+        "views/business/erp/transfer/index.vue",
+        "views/business/erp/unit/index.vue",
+        "views/business/erp/voucher/index.vue",
+        "views/business/erp/warehouse/index.vue",
+        "views/business/flow/def/index.vue",
+        "views/business/hr/attendance/index.vue",
+        "views/business/hr/employee/index.vue",
+        "views/business/hr/leave/index.vue",
+        "views/business/hr/salary/detail.vue",
+        "views/business/hr/salary/index.vue",
+        "views/business/impexp/export-task/index.vue",
+        "views/business/impexp/import-task/index.vue",
+        "views/business/storage/backend/index.vue",
+        "views/business/storage/file/index.vue"
+      ],
+      "estLines": 803,
+      "detail": [
+        {
+          "file": "views/business/erp/account/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/account/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/account/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/commission/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/commission/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/commission/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/commission-rule/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/commission-rule/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/contract/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "13px",
+            "white-space": "nowrap"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "white-space",
+                "local": "nowrap"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/contract/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "36px 0",
+            "text-align": "center"
+          },
+          "lines": 15,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "36px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/contract/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-weight": "600"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-weight",
+                "local": "600"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/contract/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "13px"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/cost-labor/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "12px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            "gap": "6px",
+            "padding": "48px 16px",
+            "text-align": "center"
+          },
+          "lines": 9,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "6px"
+              },
+              {
+                "prop": "padding",
+                "local": "48px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "max-width": "460px",
+            "line-height": "1.6"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              },
+              {
+                "prop": "max-width",
+                "local": "460px"
+              },
+              {
+                "prop": "line-height",
+                "local": "1.6"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer-price/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer-price/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/customer-price/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/exchange-rate/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/exchange-rate/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/exchange-rate/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/expense/pay/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/expense/pay/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "28px",
+            "color": "var(--td-success-color)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "color",
+                "local": "var(--td-success-color)",
+                "base": "var(--td-text-color-placeholder)"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/expense/pay/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/expense/pay/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/inventory/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/inventory/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/inventory/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/invoice/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "13px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/ledger/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/ledger/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/ledger/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/location/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/location/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/location/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/lot/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "32px 0",
+            "text-align": "center"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "32px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/lot/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/lot/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-weight": "600"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-weight",
+                "local": "600"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/lot/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "12px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/material/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            "gap": "6px",
+            "padding": "48px 16px",
+            "text-align": "center"
+          },
+          "lines": 9,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "6px"
+              },
+              {
+                "prop": "padding",
+                "local": "48px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/material/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/material/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/material/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "max-width": "420px",
+            "line-height": "1.6"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              },
+              {
+                "prop": "max-width",
+                "local": "420px"
+              },
+              {
+                "prop": "line-height",
+                "local": "1.6"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/payable/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/payable/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/payable/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/period/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/period/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/period/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/purchase/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/purchase/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/purchase/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/purchase-order-item/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/purchase-order-item/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/purchase-order-item/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/receipt/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "13px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/receipt-refund/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "13px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/receivable/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "13px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/report/balance-sheet/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/report/cash-flow/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/report/income-statement/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/report/payable-aging/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__label",
+          "cls": "tool-row__label",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/seq/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/seq/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/seq/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/serial/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/serial/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/serial/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-out/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "36px 0",
+            "text-align": "center"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "36px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-out/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-out/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-size": "14px",
+            "color": "var(--td-text-color-primary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-out/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-take/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 0",
+            "text-align": "center"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-take/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-take/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-size": "14px",
+            "color": "var(--td-text-color-primary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stock-take/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stockin/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stockin/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/stockin/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/supplier/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            "gap": "6px",
+            "padding": "48px 16px",
+            "text-align": "center"
+          },
+          "lines": 9,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "6px"
+              },
+              {
+                "prop": "padding",
+                "local": "48px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/supplier/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/supplier/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/supplier/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "max-width": "460px",
+            "line-height": "1.6"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              },
+              {
+                "prop": "max-width",
+                "local": "460px"
+              },
+              {
+                "prop": "line-height",
+                "local": "1.6"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/transfer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/transfer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/transfer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/unit/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            "gap": "6px",
+            "padding": "48px 16px",
+            "text-align": "center"
+          },
+          "lines": 9,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "6px"
+              },
+              {
+                "prop": "padding",
+                "local": "48px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/unit/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/unit/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/unit/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "max-width": "460px",
+            "line-height": "1.6"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              },
+              {
+                "prop": "max-width",
+                "local": "460px"
+              },
+              {
+                "prop": "line-height",
+                "local": "1.6"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/voucher/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/voucher/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/voucher/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/warehouse/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            "gap": "6px",
+            "padding": "48px 16px",
+            "text-align": "center"
+          },
+          "lines": 9,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "6px"
+              },
+              {
+                "prop": "padding",
+                "local": "48px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/warehouse/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/warehouse/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/erp/warehouse/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "max-width": "420px",
+            "line-height": "1.6"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              },
+              {
+                "prop": "max-width",
+                "local": "420px"
+              },
+              {
+                "prop": "line-height",
+                "local": "1.6"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/flow/def/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "gap": "4px",
+            "padding": "24px 0"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "4px"
+              },
+              {
+                "prop": "padding",
+                "local": "24px 0"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/flow/def/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/flow/def/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/attendance/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "28px 0",
+            "text-align": "center"
+          },
+          "lines": 20,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "28px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/attendance/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/attendance/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-weight": "600"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-weight",
+                "local": "600"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/attendance/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/employee/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "flex-direction": "column",
+            "align-items": "center",
+            "justify-content": "center",
+            "gap": "6px",
+            "padding": "48px 16px",
+            "text-align": "center"
+          },
+          "lines": 9,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "flex-direction",
+                "local": "column"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "6px"
+              },
+              {
+                "prop": "padding",
+                "local": "48px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/employee/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/employee/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "14px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/employee/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px",
+            "color": "var(--td-text-color-placeholder)",
+            "max-width": "460px",
+            "line-height": "20px"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              },
+              {
+                "prop": "max-width",
+                "local": "460px"
+              },
+              {
+                "prop": "line-height",
+                "local": "20px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/leave/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 0",
+            "text-align": "center"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/leave/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "32px",
+            "color": "var(--td-text-color-placeholder, #0000004d)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "32px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/leave/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-weight": "600"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-weight",
+                "local": "600"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/leave/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "color": "var(--td-text-color-placeholder, #0000004d)",
+            "font-size": "13px"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder, #0000004d)"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/salary/detail.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "32px 12px",
+            "text-align": "center",
+            "color": "var(--td-text-color-secondary, #00000099)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "32px 12px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary, #00000099)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/salary/detail.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty--inline",
+          "cls": "panel-empty--inline",
+          "direct": true,
+          "props": {
+            "padding": "16px 12px",
+            "font-size": "13px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "16px 12px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/salary/detail.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "8px 0 4px",
+            "font-size": "14px",
+            "color": "var(--td-text-color-primary, #000000e6)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "8px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "14px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary, #000000e6)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/salary/detail.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "font-size": "12px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/salary/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 16px",
+            "text-align": "center",
+            "font-size": "13px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 16px"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-placeholder)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/hr/salary/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "0",
+            "line-height": "20px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "0"
+              },
+              {
+                "prop": "line-height",
+                "local": "20px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/export-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 0",
+            "text-align": "center"
+          },
+          "lines": 21,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/export-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/export-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "12px 0 4px",
+            "font-size": "15px",
+            "color": "var(--td-text-color-primary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "12px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "15px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/export-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin-bottom": "16px",
+            "font-size": "13px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-bottom",
+                "local": "16px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/import-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 0",
+            "text-align": "center"
+          },
+          "lines": 21,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/import-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/import-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "12px 0 4px",
+            "font-size": "15px",
+            "color": "var(--td-text-color-primary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "12px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "15px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/impexp/import-task/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin-bottom": "16px",
+            "font-size": "13px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-bottom",
+                "local": "16px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/backend/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 0",
+            "text-align": "center"
+          },
+          "lines": 21,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/backend/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/backend/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "12px 0 4px",
+            "font-size": "15px",
+            "color": "var(--td-text-color-primary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "12px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "15px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/backend/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin-bottom": "16px",
+            "font-size": "13px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-bottom",
+                "local": "16px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/file/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty",
+          "cls": "panel-empty",
+          "direct": true,
+          "props": {
+            "padding": "40px 0",
+            "text-align": "center"
+          },
+          "lines": 21,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "padding",
+                "local": "40px 0"
+              },
+              {
+                "prop": "text-align",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/file/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__icon",
+          "cls": "panel-empty__icon",
+          "direct": true,
+          "props": {
+            "font-size": "40px",
+            "color": "var(--td-text-color-placeholder)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "conflict",
+            "missing": [],
+            "extra": [],
+            "changed": [
+              {
+                "prop": "font-size",
+                "local": "40px",
+                "base": "28px"
+              }
+            ]
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/file/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__title",
+          "cls": "panel-empty__title",
+          "direct": true,
+          "props": {
+            "margin": "12px 0 4px",
+            "font-size": "15px",
+            "color": "var(--td-text-color-primary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin",
+                "local": "12px 0 4px"
+              },
+              {
+                "prop": "font-size",
+                "local": "15px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-primary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        },
+        {
+          "file": "views/business/storage/file/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-empty__desc",
+          "cls": "panel-empty__desc",
+          "direct": true,
+          "props": {
+            "margin-bottom": "16px",
+            "font-size": "13px",
+            "color": "var(--td-text-color-secondary)"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-bottom",
+                "local": "16px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B5"
+        }
+      ]
+    },
+    "B6": {
+      "label": "单页专有壳类（1-2 页）",
+      "blocks": 26,
+      "files": [
+        "views/business/erp/account/index.vue",
+        "views/business/erp/budget/mapping.vue",
+        "views/business/erp/budget/report.vue",
+        "views/business/erp/cost-object/index.vue",
+        "views/business/erp/cost-overhead/index.vue",
+        "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+        "views/business/erp/expense/pay/index.vue",
+        "views/business/erp/inventory/index.vue",
+        "views/business/erp/invoice/index.vue",
+        "views/business/erp/ledger/index.vue",
+        "views/business/erp/location/index.vue",
+        "views/business/erp/receipt-refund/index.vue",
+        "views/business/erp/receipt/index.vue",
+        "views/business/erp/receivable/index.vue",
+        "views/business/erp/report/report-item/index.vue",
+        "views/business/erp/serial/index.vue",
+        "views/business/erp/transfer/index.vue",
+        "views/business/erp/warehouse/index.vue",
+        "views/business/erp/year-end/index.vue",
+        "views/business/help/center/index.vue"
+      ],
+      "estLines": 105,
+      "detail": [
+        {
+          "file": "views/business/erp/account/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__category",
+          "cls": "tool-row__category",
+          "direct": true,
+          "props": {
+            "width": "130px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "130px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/budget/mapping.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__dept",
+          "cls": "tool-row__dept",
+          "direct": true,
+          "props": {
+            "width": "180px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "180px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/budget/report.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__year",
+          "cls": "tool-row__year",
+          "direct": true,
+          "props": {
+            "width": "112px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "112px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/budget/report.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__dept",
+          "cls": "tool-row__dept",
+          "direct": true,
+          "props": {
+            "width": "160px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "160px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/budget/report.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__actions",
+          "cls": "panel-head__actions",
+          "direct": true,
+          "props": {
+            "display": "flex",
+            "gap": "8px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "gap",
+                "local": "8px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/cost-object/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__month",
+          "cls": "tool-row__month",
+          "direct": true,
+          "props": {
+            "width": "132px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "132px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/cost-overhead/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__item",
+          "cls": "tool-row__item",
+          "direct": true,
+          "props": {
+            "width": "150px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "150px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__ops",
+          "cls": "panel-head__ops",
+          "direct": true,
+          "props": {
+            "margin-left": "auto",
+            "display": "flex",
+            "gap": "8px"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-left",
+                "local": "auto"
+              },
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "gap",
+                "local": "8px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/expense/pay/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__tip",
+          "cls": "tool-row__tip",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-size": "12px"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-size",
+                "local": "12px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/inventory/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__switch",
+          "cls": "tool-row__switch",
+          "direct": true,
+          "props": {
+            "display": "inline-flex",
+            "align-items": "center",
+            "gap": "8px",
+            "font-size": "13px",
+            "color": "var(--td-text-color-secondary)",
+            "cursor": "pointer"
+          },
+          "lines": 8,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "display",
+                "local": "inline-flex"
+              },
+              {
+                "prop": "align-items",
+                "local": "center"
+              },
+              {
+                "prop": "gap",
+                "local": "8px"
+              },
+              {
+                "prop": "font-size",
+                "local": "13px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "cursor",
+                "local": "pointer"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/inventory/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__tip code",
+          "cls": "panel-head__tip",
+          "direct": false,
+          "props": {
+            "padding": "1px 4px",
+            "border-radius": "3px",
+            "background": "var(--td-bg-color-container-hover)",
+            "font-family": "var(--td-font-family-mono, ui-monospace, monospace)"
+          },
+          "lines": 6,
+          "diff": {
+            "kind": "context",
+            "missing": [],
+            "extra": [],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/invoice/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row--second",
+          "cls": "tool-row--second",
+          "direct": true,
+          "props": {
+            "margin-top": "8px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-top",
+                "local": "8px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/ledger/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__account",
+          "cls": "panel-head__account",
+          "direct": true,
+          "props": {
+            "color": "var(--td-text-color-secondary)",
+            "font-weight": "400"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "font-weight",
+                "local": "400"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/location/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__link",
+          "cls": "panel-head__link",
+          "direct": true,
+          "props": {
+            "color": "var(--td-brand-color)",
+            "text-decoration": "none"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "color",
+                "local": "var(--td-brand-color)"
+              },
+              {
+                "prop": "text-decoration",
+                "local": "none"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/location/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__link:hover",
+          "cls": "panel-head__link",
+          "direct": true,
+          "props": {
+            "text-decoration": "underline"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "text-decoration",
+                "local": "underline"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/receipt/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row--second",
+          "cls": "tool-row--second",
+          "direct": true,
+          "props": {
+            "margin-top": "8px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-top",
+                "local": "8px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/receipt-refund/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row--second",
+          "cls": "tool-row--second",
+          "direct": true,
+          "props": {
+            "margin-top": "10px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-top",
+                "local": "10px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/receivable/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row--second",
+          "cls": "tool-row--second",
+          "direct": true,
+          "props": {
+            "margin-top": "8px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-top",
+                "local": "8px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/report/report-item/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row--filter",
+          "cls": "tool-row--filter",
+          "direct": true,
+          "props": {
+            "margin-top": "12px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-top",
+                "local": "12px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/serial/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__warn",
+          "cls": "panel-head__warn",
+          "direct": true,
+          "props": {
+            "font-size": "12px",
+            "color": "var(--td-warning-color)"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-warning-color)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/transfer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__overdue",
+          "cls": "tool-row__overdue",
+          "direct": true,
+          "props": {
+            "margin-right": "-2px",
+            "white-space": "nowrap"
+          },
+          "lines": 4,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-right",
+                "local": "-2px"
+              },
+              {
+                "prop": "white-space",
+                "local": "nowrap"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/transfer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__overdue",
+          "cls": "panel-head__overdue",
+          "direct": true,
+          "props": {
+            "cursor": "pointer",
+            "transition": "filter 0.15s ease"
+          },
+          "lines": 8,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "cursor",
+                "local": "pointer"
+              },
+              {
+                "prop": "transition",
+                "local": "filter 0.15s ease"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/transfer/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__overdue:hover",
+          "cls": "panel-head__overdue",
+          "direct": true,
+          "props": {
+            "filter": "brightness(0.96)"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "filter",
+                "local": "brightness(0.96)"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/warehouse/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".panel-head__sub",
+          "cls": "panel-head__sub",
+          "direct": true,
+          "props": {
+            "font-size": "12px",
+            "color": "var(--td-text-color-secondary)",
+            "overflow": "hidden",
+            "text-overflow": "ellipsis",
+            "white-space": "nowrap"
+          },
+          "lines": 7,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "font-size",
+                "local": "12px"
+              },
+              {
+                "prop": "color",
+                "local": "var(--td-text-color-secondary)"
+              },
+              {
+                "prop": "overflow",
+                "local": "hidden"
+              },
+              {
+                "prop": "text-overflow",
+                "local": "ellipsis"
+              },
+              {
+                "prop": "white-space",
+                "local": "nowrap"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/erp/year-end/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".tool-row__year",
+          "cls": "tool-row__year",
+          "direct": true,
+          "props": {
+            "width": "160px"
+          },
+          "lines": 3,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "width",
+                "local": "160px"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        },
+        {
+          "file": "views/business/help/center/index.vue",
+          "scoped": true,
+          "at": null,
+          "selector": ".list-card__pager",
+          "cls": "list-card__pager",
+          "direct": true,
+          "props": {
+            "margin-top": "10px",
+            "display": "flex",
+            "justify-content": "center"
+          },
+          "lines": 5,
+          "diff": {
+            "kind": "not-in-baseline",
+            "missing": [],
+            "extra": [
+              {
+                "prop": "margin-top",
+                "local": "10px"
+              },
+              {
+                "prop": "display",
+                "local": "flex"
+              },
+              {
+                "prop": "justify-content",
+                "local": "center"
+              }
+            ],
+            "changed": []
+          },
+          "batch": "B6"
+        }
+      ]
+    }
+  },
+  "failures": []
+}

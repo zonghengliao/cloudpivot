@@ -149,6 +149,14 @@
           >
             反结账
           </t-link>
+          <t-link
+            v-if="row.status === 'OPEN' && canFxReval"
+            theme="primary"
+            :data-testid="`btn-period-fx-reval-${row.period_code}`"
+            @click="openFxRevalDialog(row)"
+          >
+            期末调汇
+          </t-link>
           <span v-if="!hasRowAction(row)" class="muted">—</span>
         </div>
       </template>
@@ -306,6 +314,60 @@
         {{ reopenDialog.error }}
       </p>
     </t-dialog>
+
+    <!-- ==================== ⑦ 期末调汇弹窗（先试算：逐科目差额摆出来，确认才落账） ==================== -->
+    <t-dialog
+      v-model:visible="fxDialog.visible"
+      :header="`期末调汇 ${fxDialog.code}`"
+      :confirm-btn="{
+        content: '确认调汇',
+        theme: 'warning',
+        loading: fxDialog.saving,
+        disabled: !fxDialogCanPost,
+      }"
+      :cancel-btn="{ content: '取消' }"
+      width="1000px"
+      data-testid="period-fx-reval-dialog"
+      @confirm="submitFxReval"
+    >
+      <div v-if="fxDialog.loading" class="check-loading" data-testid="period-fx-reval-loading">
+        正在试算外币科目差额…
+      </div>
+      <template v-else-if="fxDialog.result">
+        <t-alert
+          v-if="fxDialog.result.skipped"
+          theme="info"
+          message="该期间已经提过调汇凭证（同一期间只提一次，不重复计提）"
+          class="list-alert"
+          data-testid="period-fx-reval-skipped"
+        >
+          <template #description>
+            凭证号 {{ fxDialog.result.voucher_no || '—' }}。要重提请先按正常流程红冲那张凭证，再回来重新调汇。
+          </template>
+        </t-alert>
+        <p class="form-hint">
+          外币科目按「原币余额 × 期末 {{ fxDialog.result.period_end }} 的 SPOT 汇率」重估，差额调进
+          5603 财务费用-汇兑损益；本位币差额不足 1 分的科目不出行。本次只试算，还没有落任何凭证。
+        </p>
+        <t-table
+          :data="fxDialog.result.lines"
+          :columns="fxColumns"
+          row-key="account_id"
+          size="small"
+          data-testid="period-fx-reval-lines"
+        />
+        <p class="form-hint" data-testid="period-fx-reval-net">
+          净差额：<strong>{{ fxDialog.result.net }}</strong> {{ fxDialog.result.base_currency }}
+          （正 = 净收益 / 负 = 净损失）
+        </p>
+        <p v-for="(warning, index) in fxDialog.result.warnings" :key="index" class="form-hint">
+          {{ warning }}
+        </p>
+      </template>
+      <p v-if="fxDialog.error" class="form-error" data-testid="period-fx-reval-error">
+        {{ fxDialog.error }}
+      </p>
+    </t-dialog>
   </div>
 </template>
 
@@ -351,9 +413,11 @@ import {
   closePeriod,
   fetchPeriodCloseCheck,
   fetchPeriodPage,
+  fxRevalPeriod,
   openPeriod,
   reopenPeriod,
   type AccountPeriodRow,
+  type FxRevalResult,
   type PeriodCloseCheck,
   type PeriodRemindResult,
 } from '@/api/business/erp';
@@ -394,7 +458,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'range', title: '起止日期', minWidth: 240 },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'closed_at', title: '结账时间', width: 190 },
-  { colKey: 'op', title: '操作', width: 120 },
+  { colKey: 'op', title: '操作', width: 210 },
 ];
 
 const statusOptions = PERIOD_STATUS_OPTIONS.map((item) => ({ ...item }));
@@ -475,6 +539,14 @@ const canReopen = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIO
  */
 const canRemind = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIONS.remind));
 
+/**
+ * 有期末调汇权限（M1-05 / V0410）。
+ *
+ * 无权限时行内**不渲染**「期末调汇」（`v-if` 而不是 `:disabled`：置灰会留一个点不动的按钮）。
+ * 与结账分开一个码：调汇是落一张凭证（可红冲重跑），结账是封账开关（要反结账才能撤）。
+ */
+const canFxReval = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIONS.fxReval));
+
 /** 结账弹窗里的检查清单面板（重新预检时清掉「已催」标记） */
 const checkPanel = ref<InstanceType<typeof CloseCheckPanel> | null>(null);
 
@@ -487,9 +559,10 @@ const actionTip = computed(() => {
   if (canOpen.value) actions.push('开账');
   if (canClose.value) actions.push('结账');
   if (canReopen.value) actions.push('反结账');
+  if (canFxReval.value) actions.push('期末调汇');
   if (canRemind.value) actions.push('催办');
   if (actions.length === 0) {
-    return '只读：开账 / 结账 / 反结账需要财务权限';
+    return '只读：开账 / 结账 / 反结账 / 期末调汇需要财务权限';
   }
   return `当前账号可操作：${actions.join(' / ')}`;
 });
@@ -538,6 +611,44 @@ const reopenDialog = reactive({
   reason: '',
   error: '',
 });
+
+/**
+ * 期末调汇弹窗（M1-05）。
+ *
+ * 打开时先跑一次 `dry_run`（试算）：把每个外币科目的原币余额 / 账面 / 期末汇率 / 差额
+ * 全列出来，财务看一眼再点「确认调汇」落账 —— 调汇直接改损益，不该点一下就落。
+ */
+const fxDialog = reactive({
+  visible: false,
+  loading: false,
+  saving: false,
+  id: '',
+  code: '',
+  result: null as FxRevalResult | null,
+  error: '',
+});
+
+/**
+ * 试算表格列。
+ *
+ * 金额列显示后端给的**定点字符串**（`"50.0000"` / `"-80.0000"`），不做 `Number()` 转换：
+ * 转成浮点会把 4 位小数抹成 `5e-1` 这类尾数，财务对不上账就会怀疑凭证。
+ */
+const fxColumns: PrimaryTableCol[] = [
+  { colKey: 'account_code', title: '科目', width: 110 },
+  { colKey: 'account_name', title: '名称', minWidth: 180 },
+  { colKey: 'currency_code', title: '币种', width: 80 },
+  { colKey: 'fc_balance', title: '原币余额', width: 130 },
+  { colKey: 'book_balance', title: '账面本位币', width: 130 },
+  { colKey: 'close_rate', title: '期末汇率', width: 120 },
+  { colKey: 'revalued_base', title: '重估后', width: 130 },
+  { colKey: 'diff', title: '差额', width: 130 },
+];
+
+/** 能不能落账：有结果、有行、且不是「已提过」的幂等命中 */
+const fxDialogCanPost = computed(
+  () => !!fxDialog.result && fxDialog.result.lines.length > 0 && !fxDialog.result.skipped,
+);
 
 /** 开账弹窗里那句「起止日大概是多少」的预览（真实值以后端返回为准） */
 const openDialogPreview = computed(() => {
@@ -588,7 +699,11 @@ function rowAction(row: AccountPeriodRow): PeriodAction | null {
 
 /** 这一行是否**显示**了可点动作（无权限时行内只有「—」） */
 function hasRowAction(row: AccountPeriodRow): boolean {
-  return canRunPeriodAction(row.status, (code) => userStore.hasPermission(code));
+  if (canRunPeriodAction(row.status, (code) => userStore.hasPermission(code))) {
+    return true;
+  }
+  // 期末调汇与「结账」同排但不同码：只有调汇权的人也该看到一个有内容的操作列
+  return row.status === 'OPEN' && canFxReval.value;
 }
 
 /**
@@ -840,6 +955,65 @@ async function submitReopen(): Promise<void> {
   }
 }
 
+// ---------- 期末调汇（M1-05） ----------
+
+/**
+ * 打开期末调汇弹窗：先跑一次**试算**（`dry_run = true`）。
+ *
+ * 试算与落账是同一个接口的两个分支，试算返回的逐科目结论与落账时用的**完全同源**
+ * （同一段 SQL、同一份汇率），所以「看到的差额」就是「将要落的分录」——
+ * 不存在「预览一套、落账另一套」。
+ */
+async function openFxRevalDialog(row: AccountPeriodRow): Promise<void> {
+  if (!canFxReval.value) {
+    return;
+  }
+  fxDialog.id = row.id;
+  fxDialog.code = row.period_code;
+  fxDialog.result = null;
+  fxDialog.error = '';
+  fxDialog.visible = true;
+  fxDialog.loading = true;
+  try {
+    fxDialog.result = await fxRevalPeriod(row.id, true);
+  } catch (error) {
+    fxDialog.error = messageOf(error);
+    MessagePlugin.error(`期末调汇试算失败：${messageOf(error)}`);
+  } finally {
+    fxDialog.loading = false;
+  }
+}
+
+/**
+ * 确认调汇：`dry_run = false` 落账。
+ *
+ * 落的是**本位币凭证**（借方 = 差额为正的科目、贷方 = 差额为负的科目、净额进 5603），
+ * 成功的提示里带凭证号 —— 财务可以直接拿这个号去凭证页核对。
+ */
+async function submitFxReval(): Promise<void> {
+  if (fxDialog.saving || !fxDialogCanPost.value) {
+    return;
+  }
+  fxDialog.saving = true;
+  fxDialog.error = '';
+  try {
+    const result = await fxRevalPeriod(fxDialog.id, false);
+    const voucher = result.voucher_no ? `，凭证号 ${result.voucher_no}` : '';
+    MessagePlugin.success(
+      result.skipped
+        ? `会计期间 ${result.period_code} 已提过调汇凭证${voucher}`
+        : `会计期间 ${result.period_code} 期末调汇完成：${result.lines.length} 个科目，净差额 ${result.net} ${result.base_currency}${voucher}`,
+    );
+    fxDialog.visible = false;
+    await reloadList();
+  } catch (error) {
+    fxDialog.error = messageOf(error);
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    fxDialog.saving = false;
+  }
+}
+
 onMounted(() => {
   void reloadList(1);
 });
@@ -894,27 +1068,6 @@ onMounted(() => {
 :deep(.period-row--current) {
   background-color: var(--td-bg-color-container-hover);
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 弹窗 ==================== */
 
 .form-grid {

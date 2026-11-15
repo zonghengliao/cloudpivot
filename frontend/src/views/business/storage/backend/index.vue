@@ -113,7 +113,7 @@
       </template>
 
       <template #empty="{ filtered }">
-        <div class="panel-empty" data-testid="storage-config-empty">
+        <div class="panel-empty panel-empty--file" data-testid="storage-config-empty">
           <t-icon class="panel-empty__icon" name="object-storage" />
           <p class="panel-empty__title">{{ filtered ? '没有匹配的存储配置' : '还没有配置存储后端' }}</p>
           <p class="panel-empty__desc">
@@ -939,29 +939,6 @@ function showError(error: unknown): void {
     background: var(--td-error-color);
   }
 }
-
-.panel-empty {
-  padding: 40px 0;
-  text-align: center;
-
-  &__icon {
-    font-size: 40px;
-    color: var(--td-text-color-placeholder);
-  }
-
-  &__title {
-    margin: 12px 0 4px;
-    font-size: 15px;
-    color: var(--td-text-color-primary);
-  }
-
-  &__desc {
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
-  }
-}
-
 .config-form {
   &__alert {
     margin: 0 0 16px 96px;

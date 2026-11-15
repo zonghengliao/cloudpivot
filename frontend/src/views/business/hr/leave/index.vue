@@ -209,7 +209,7 @@
         </template>
 
         <template #empty>
-          <div class="panel-empty" data-testid="hr-leave-empty">
+          <div class="panel-empty panel-empty--doc" data-testid="hr-leave-empty">
             <t-icon class="panel-empty__icon" name="time" />
             <p class="panel-empty__title">{{ isLeaveFiltered(filter) ? '没有匹配的请假单' : '还没有请假单' }}</p>
             <p class="panel-empty__desc">
@@ -1227,28 +1227,6 @@ async function confirmDialog(content: string, title: string): Promise<boolean> {
 .muted {
   color: var(--td-text-color-placeholder, #0000004d);
 }
-
-.panel-empty {
-  padding: 40px 0;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder, #0000004d);
-}
-
-.panel-empty__title {
-  margin: 8px 0 4px;
-  font-weight: 600;
-}
-
-.panel-empty__desc {
-  margin: 0;
-  color: var(--td-text-color-placeholder, #0000004d);
-  font-size: 13px;
-}
-
 .drawer {
   display: flex;
   flex-direction: column;

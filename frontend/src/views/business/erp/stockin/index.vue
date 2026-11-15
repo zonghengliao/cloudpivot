@@ -1156,8 +1156,6 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   export: 'business:impexp:export:create',
 };
 
-
-
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
   const code = BATCH_PERMISSIONS[action.key];
@@ -1203,7 +1201,6 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
 }
 
 /** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
-
 
 /**
  * 列表记忆（O4）：进页面恢复筛选 + 页码，改了防抖 300ms 写 sessionStorage。
@@ -1318,8 +1315,6 @@ const purchaseOrderOptions = computed(() =>
     value: row.id,
   })),
 );
-
-
 
 /** 供应商名称 */
 function supplierNameOf(supplierId: string | null | undefined): string {
@@ -2016,27 +2011,6 @@ async function applyRouteQuery(): Promise<void> {
   gap: 12px;
   flex-wrap: wrap;
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 表单 ==================== */
 
 .dlg-alert {

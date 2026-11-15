@@ -107,7 +107,7 @@
       </template>
 
       <template #empty="{ filtered }">
-        <div class="panel-empty" data-testid="impexp-export-empty">
+        <div class="panel-empty panel-empty--file" data-testid="impexp-export-empty">
           <t-icon class="panel-empty__icon" name="download" />
           <p class="panel-empty__title">{{ filtered ? '没有匹配的导出任务' : '还没有导出任务' }}</p>
           <p class="panel-empty__desc">
@@ -454,27 +454,5 @@ onBeforeUnmount(() => {
   font-size: 12px;
   line-height: 1.6;
   color: var(--td-text-color-secondary);
-}
-
-.panel-empty {
-  padding: 40px 0;
-  text-align: center;
-
-  &__icon {
-    font-size: 40px;
-    color: var(--td-text-color-placeholder);
-  }
-
-  &__title {
-    margin: 12px 0 4px;
-    font-size: 15px;
-    color: var(--td-text-color-primary);
-  }
-
-  &__desc {
-    margin-bottom: 16px;
-    font-size: 13px;
-    color: var(--td-text-color-secondary);
-  }
 }
 </style>

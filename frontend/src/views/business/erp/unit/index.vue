@@ -109,7 +109,7 @@
         </template>
 
         <template #empty>
-          <div class="panel-empty" data-testid="unit-empty">
+          <div class="panel-empty panel-empty--rich" data-testid="unit-empty">
             <t-icon class="panel-empty__icon" name="measurement" />
             <p class="panel-empty__title">{{ isFiltered ? '没有匹配的计量单位' : '还没有计量单位' }}</p>
             <p class="panel-empty__desc">
@@ -647,36 +647,6 @@ onMounted(async () => {
 .muted {
   color: var(--td-text-color-placeholder);
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 460px;
-  line-height: 1.6;
-}
-
 /* ==================== 详情抽屉 ==================== */
 
 .drawer {

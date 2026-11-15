@@ -195,8 +195,8 @@
         </template>
 
         <template #empty>
-          <div class="panel-empty" data-testid="hr-emp-empty">
-            <t-icon class="panel-empty__icon" name="user-business" />
+          <div class="panel-empty panel-empty--rich" data-testid="hr-emp-empty">
+            <t-icon class="panel-empty__icon panel-empty__icon--lg" name="user-business" />
             <p class="panel-empty__title">{{ isEmployeeFiltered(filter) ? '没有匹配的员工' : '还没有员工档案' }}</p>
             <p class="panel-empty__desc">
               {{
@@ -2359,36 +2359,6 @@ async function handleDownloadErrors(): Promise<void> {
   font-family: var(--td-font-family-number, monospace);
   font-variant-numeric: tabular-nums;
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.panel-empty__icon {
-  font-size: 40px;
-  color: var(--td-text-color-placeholder);
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 460px;
-  line-height: 20px;
-}
-
 /* ==================== 详情抽屉 ==================== */
 .drawer {
   display: flex;

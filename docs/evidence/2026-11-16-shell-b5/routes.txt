@@ -1,0 +1,53 @@
+# B5 采集路由（探针 / 截图同一份）：46 个改动文件逐页 + 1 页「新基线波及」对照
+#
+/business/erp/account
+/business/erp/commission-rule
+/business/erp/commission
+/business/erp/contract
+/business/erp/cost-labor
+/business/erp/customer-price
+/business/erp/customer
+/business/erp/exchange-rate
+/business/erp/expense/pay
+/business/erp/inventory
+/business/erp/invoice
+/business/erp/ledger
+/business/erp/location
+/business/erp/lot
+/business/erp/material
+/business/erp/payable
+/business/erp/period
+/business/erp/purchase-order-item
+/business/erp/purchase
+/business/erp/receipt-refund
+/business/erp/receipt
+/business/erp/receivable
+/business/erp/report/balance-sheet
+/business/erp/report/cash-flow
+/business/erp/report/income-statement
+/business/erp/report/payable-aging
+/business/erp/seq
+/business/erp/serial
+/business/erp/stock-out
+/business/erp/stock-take
+/business/erp/stockin
+/business/erp/supplier
+/business/erp/transfer
+/business/erp/unit
+/business/erp/voucher
+/business/erp/warehouse
+# 新基线波及页（本批未改它的文件：模板里早就有 panel-empty*，但页面从没声明过这些类，
+# 之前等于没有样式；B5 之后吃上新基线 —— 必须入镜并单独登记）
+/business/erp/price-inquiry
+/flow/def?view=mine
+/business/hr/attendance
+/business/hr/employee
+/business/hr/leave
+# hr/salary 首页 = 白名单页（本地声明保留，要求零观感变化）
+/business/hr/salary
+# hr/salary/:id（薪资单详情）—— 4 处 panel-empty：3 处 --inline + 1 处 --doc
+/business/hr/salary/bbbbbbbb-0000-0000-0000-000000000001
+/business/impexp/export-task
+/business/impexp/import-task
+/business/storage/backend
+/business/storage/file
