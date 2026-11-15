@@ -23,9 +23,25 @@
 -->
 <template>
   <div class="cost-alloc-rule-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 勾选 / 行操作交给 ListPage（P3-09） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="分摊规则"
+      testid="car"
+      table-testid="car-table"
+      meta-testid="car-meta"
+      btn-prefix="car-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      selectable
+      @loaded="onLoaded"
+      @selection-change="onSelectionChange"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -45,10 +61,17 @@
           <template #icon><t-icon name="calculate" /></template>
           试算
         </t-button>
-        <t-button variant="outline" data-testid="car-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #head-extra>
+        <span class="panel-head__tip">
+          一条规则 = 「某车间的某制造费用科目，按某标准摊给该车间当期在产的对象」；
+          改口径请新建生效期更晚的版本（不溯及历史）
+        </span>
+      </template>
 
+      <!-- 生效覆盖期间：`t-date-picker mode="month"` 走 custom 插槽自绘 -->
+      <template #filter-period_code>
         <t-date-picker
           v-model="filter.period_code"
           class="tool-row__period"
@@ -60,149 +83,72 @@
           data-testid="car-filter-period"
           @change="handleSearch"
         />
-        <t-select
-          v-model="filter.dept_id"
-          class="tool-row__dept"
-          :options="deptOptions"
-          placeholder="全部车间"
-          clearable
-          filterable
-          data-testid="car-filter-dept"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.basis"
-          class="tool-row__basis"
-          :options="basisFilterOptions"
-          placeholder="全部分配标准"
-          clearable
-          data-testid="car-filter-basis"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="car-filter-status"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="编码 / 名称 / 科目 / 备注"
-          clearable
-          data-testid="car-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="car-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="car-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">分摊规则</span>
-          <span class="panel-head__meta" data-testid="car-meta">共 {{ total }} 条</span>
+      <template #rule_code="{ row }">
+        <span class="mono" :data-testid="`car-code-${row.rule_code}`">{{ row.rule_code }}</span>
+      </template>
+      <template #rule_name="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.rule_name }}</span>
+          <span class="name-cell__sub">{{ row.remark || '—' }}</span>
         </div>
-        <span class="panel-head__tip">
-          一条规则 = 「某车间的某制造费用科目，按某标准摊给该车间当期在产的对象」；
-          改口径请新建生效期更晚的版本（不溯及历史）
-        </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="car-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :selected-row-keys="selectedIds"
-        hover
-        data-testid="car-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-      >
-        <template #rule_code="{ row }">
-          <span class="mono" :data-testid="`car-code-${row.rule_code}`">{{ row.rule_code }}</span>
-        </template>
-        <template #rule_name="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.rule_name }}</span>
-            <span class="name-cell__sub">{{ row.remark || '—' }}</span>
-          </div>
-        </template>
-        <template #source_dept_name="{ row }">
-          {{ row.source_dept_name || shortId(row.source_dept_id) }}
-        </template>
-        <template #account_code="{ row }">
-          <span class="mono">{{ row.account_code }}</span> {{ row.account_name || '' }}
-        </template>
-        <template #basis="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.basis_label || basisLabel(row.basis) }}</span>
-            <span class="name-cell__sub">{{ row.basis }}</span>
-          </div>
-        </template>
-        <template #effective="{ row }">{{ effectiveRangeText(row) }}</template>
-        <template #status="{ row }">
-          <t-tag size="small" variant="light" :theme="row.status === 1 ? 'success' : 'default'">
-            {{ row.status_label || statusLabel(row.status) }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link
-              v-privilege="[PERM.update]"
-              theme="primary"
-              data-testid="car-btn-edit"
-              @click="openEdit(row)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-privilege="[PERM.update]"
-              theme="primary"
-              data-testid="car-btn-toggle"
-              @click="toggleStatus(row)"
-            >
-              {{ row.status === 1 ? '停用' : '启用' }}
-            </t-link>
-            <t-link
-              v-privilege="[PERM.preview]"
-              theme="primary"
-              data-testid="car-btn-preview-row"
-              @click="openPreviewFor(row)"
-            >
-              试算
-            </t-link>
-            <t-link
-              v-privilege="[PERM.delete]"
-              theme="danger"
-              data-testid="car-btn-delete"
-              @click="handleDelete(row)"
-            >
-              删除
-            </t-link>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      </template>
+      <template #source_dept_name="{ row }">
+        {{ row.source_dept_name || shortId(row.source_dept_id) }}
+      </template>
+      <template #account_code="{ row }">
+        <span class="mono">{{ row.account_code }}</span> {{ row.account_name || '' }}
+      </template>
+      <template #basis="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.basis_label || basisLabel(row.basis) }}</span>
+          <span class="name-cell__sub">{{ row.basis }}</span>
+        </div>
+      </template>
+      <template #effective="{ row }">{{ effectiveRangeText(row) }}</template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="row.status === 1 ? 'success' : 'default'">
+          {{ row.status_label || statusLabel(row.status) }}
+        </t-tag>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link
+            v-privilege="[PERM.update]"
+            theme="primary"
+            data-testid="car-btn-edit"
+            @click="openEdit(row)"
+          >
+            编辑
+          </t-link>
+          <t-link
+            v-privilege="[PERM.update]"
+            theme="primary"
+            data-testid="car-btn-toggle"
+            @click="toggleStatus(row)"
+          >
+            {{ row.status === 1 ? '停用' : '启用' }}
+          </t-link>
+          <t-link
+            v-privilege="[PERM.preview]"
+            theme="primary"
+            data-testid="car-btn-preview-row"
+            @click="openPreviewFor(row)"
+          >
+            试算
+          </t-link>
+          <t-link
+            v-privilege="[PERM.delete]"
+            theme="danger"
+            data-testid="car-btn-delete"
+            @click="handleDelete(row)"
+          >
+            删除
+          </t-link>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 规则表单 ==================== -->
     <t-dialog
@@ -330,9 +276,17 @@
           placeholder="试算期间"
           data-testid="car-preview-period"
         />
-        <t-checkbox v-model="previewSelectedOnly" :disabled="!selectedIds.length" data-testid="car-preview-selected">
+        <t-checkbox
+          v-if="!previewRuleId"
+          v-model="previewSelectedOnly"
+          :disabled="!selectedIds.length"
+          data-testid="car-preview-selected"
+        >
           只算本页勾选的 {{ selectedIds.length }} 条规则
         </t-checkbox>
+        <span v-else class="muted" data-testid="car-preview-row-scope">
+          只算 {{ previewRuleCode }} 这一条规则
+        </span>
         <t-button
           theme="primary"
           :loading="previewLoading"
@@ -470,6 +424,13 @@ import {
   type CostAllocRuleRow,
 } from '@/api/business/erp/cost-alloc-rule';
 import { fetchAccountOptions } from '@/api/business/erp';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import { formatMoney, shortId, todayString, todayPeriod } from '@/views/business/erp/shared/money';
@@ -501,13 +462,7 @@ import {
 /** 本页权限码（V0378 种子逐一对应） */
 const PERM = COST_ALLOC_RULE_PERMISSIONS;
 
-// ==================== 列表 ====================
-
-const rows = ref<CostAllocRuleRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+// ==================== 列表（列 / 筛选 / 勾选 / 拉页交给 ListPage，P3-09） ====================
 
 const filter = reactive<{
   period_code: string;
@@ -517,6 +472,8 @@ const filter = reactive<{
   keyword: string;
 }>({ period_code: '', dept_id: '', basis: '', status: '', keyword: '' });
 
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
 const statusFilterOptions = [
   { label: statusLabel(ALLOC_RULE_ACTIVE), value: ALLOC_RULE_ACTIVE },
   { label: statusLabel(ALLOC_RULE_DISABLED), value: ALLOC_RULE_DISABLED },
@@ -525,17 +482,9 @@ const statusFilterOptions = [
 const basisFilterOptions = ALLOC_BASES.map((value) => ({ label: basisLabel(value), value }));
 const basisSelectOptions = basisOptions();
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 // 列宽合计 ≈ 1136px：1440 视口（内容区约 1170px）不横向溢出（第一版 1292px 会把操作列挤出去）
-const columns: PrimaryTableCol[] = [
-  { colKey: 'row-select', type: 'multiple', width: 46 },
+// 勾选列由 ListPage 补（`selectable`），这里不再手声明 `row-select`
+const columns: ColumnDef[] = [
   { colKey: 'rule_code', title: '编码', width: 140, ellipsis: true },
   { colKey: 'rule_name', title: '规则名 / 备注', width: 170, ellipsis: true },
   { colKey: 'source_dept_name', title: '车间', width: 90, ellipsis: true },
@@ -543,7 +492,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'basis', title: '分配标准', width: 150, ellipsis: true },
   { colKey: 'effective', title: '生效期', width: 150 },
   { colKey: 'status', title: '状态', width: 70 },
-  { colKey: 'op', title: '操作', width: 170, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 170, fixed: 'right', exportable: false },
 ];
 
 const previewColumns: PrimaryTableCol[] = [
@@ -562,58 +511,104 @@ const unallocatedColumns: PrimaryTableCol[] = [
   { colKey: 'reason', title: '为什么没摊' },
 ];
 
+/** 本页勾选（试算弹窗「只算勾选的 N 条」用；清勾选由 ListPage 在换页/查询时抛空数组） */
 const selectedIds = ref<string[]>([]);
 
-function onSelectChange(keys: Array<string | number>): void {
-  selectedIds.value = keys.map((key) => String(key));
+function onSelectionChange(ids: string[]): void {
+  selectedIds.value = ids;
 }
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchCostAllocRulePage({
-      page: current.value,
-      page_size: PAGE_SIZE,
-      period_code: filter.period_code,
-      dept_id: filter.dept_id,
-      basis: filter.basis as '' | undefined,
-      status: filter.status === '' ? undefined : filter.status,
-      keyword: filter.keyword.trim(),
-    });
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-    selectedIds.value = [];
-  } catch (error) {
-    loadError.value = errorText(error, '加载失败');
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
+/**
+ * 声明式筛选（顺序即渲染顺序）。
+ *
+ * 「生效覆盖期间」是 `custom`：`t-date-picker mode="month"` 不是声明式控件。
+ */
+const filters = computed<FilterDef[]>(() => [
+  { key: 'period_code', type: 'custom', testid: 'car-filter-period' },
+  {
+    key: 'dept_id',
+    type: 'select',
+    options: deptOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    placeholder: '全部车间',
+    width: 140,
+    testid: 'car-filter-dept',
+  },
+  {
+    key: 'basis',
+    type: 'select',
+    options: basisFilterOptions,
+    searchOnChange: true,
+    placeholder: '全部分配标准',
+    width: 160,
+    testid: 'car-filter-basis',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    options: statusFilterOptions,
+    searchOnChange: true,
+    placeholder: '全部状态',
+    width: 110,
+    testid: 'car-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '编码 / 名称 / 科目 / 备注',
+    width: 200,
+    testid: 'car-filter-keyword',
+  },
+]);
+
+/** 拉一页 */
+const fetcher: ListFetcher<CostAllocRuleRow> = (query) =>
+  fetchCostAllocRulePage(query as Parameters<typeof fetchCostAllocRulePage>[0]);
+
+/** 入参拼装（与改造前 `loadRows` 里那段逐字一致） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as {
+    period_code: string;
+    dept_id: string;
+    basis: AllocBasis | '';
+    status: number | '';
+    keyword: string;
+  };
+  return {
+    page,
+    page_size: pageSize,
+    period_code: value.period_code,
+    dept_id: value.dept_id,
+    basis: value.basis as '' | undefined,
+    status: value.status === '' ? undefined : value.status,
+    keyword: value.keyword.trim(),
+  };
+};
+
+/**
+ * 一页拉完：清勾选。
+ *
+ * 改造前 `loadRows` 每次都会 `selectedIds = []`（换页/改状态后不会带着旧 id 试算），
+ * 这里保持同一口径：ListPage 只管渲染，清勾选的动作仍在页面里做。
+ */
+function onLoaded(): void {
+  listRef.value?.clearSelection();
+  selectedIds.value = [];
+}
+
+/** 重拉列表（不传 = 当前页）；名字保持不变，页面里 4 处调用点不用改 */
+async function loadRows(page?: number): Promise<void> {
+  if (page === undefined) {
+    await listRef.value?.reload();
+    return;
   }
+  await listRef.value?.load(page);
 }
 
+/** 筛选项值一变就查（原来 `@change="handleSearch"` 的手感：回第 1 页） */
 function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  filter.period_code = '';
-  filter.dept_id = '';
-  filter.basis = '';
-  filter.status = '';
-  filter.keyword = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
+  void listRef.value?.search();
 }
 
 // ==================== 下拉主数据 ====================
@@ -783,6 +778,15 @@ const previewError = ref('');
 const preview = ref<CostAllocPreviewRes | null>(null);
 const previewPeriod = ref(todayPeriod());
 const previewSelectedOnly = ref(false);
+/**
+ * 行上点「试算」时的「只算这一条」范围。
+ *
+ * 单独一个 ref 而不是写 `selectedIds = [row.id]`：勾选状态现在归 ListPage 管，
+ * 页面改本地数组不会让表格的勾选框跟着变 —— 那会出现「弹窗说只算 1 条、
+ * 表格勾着 3 条」的矛盾。行上的意图是「就这一条」，所以直接按 id 算，不动勾选。
+ */
+const previewRuleId = ref('');
+const previewRuleCode = ref('');
 
 function openPreview(): void {
   previewVisible.value = true;
@@ -790,6 +794,8 @@ function openPreview(): void {
   preview.value = null;
   previewPeriod.value = filter.period_code || todayPeriod();
   previewSelectedOnly.value = false;
+  previewRuleId.value = '';
+  previewRuleCode.value = '';
 }
 
 /** 行上点「试算」：直接把期间定为该规则生效月，并只算这一条 */
@@ -798,7 +804,8 @@ function openPreviewFor(row: CostAllocRuleRow): void {
   previewError.value = '';
   preview.value = null;
   previewPeriod.value = row.effective_from.slice(0, 7);
-  selectedIds.value = [row.id];
+  previewRuleId.value = row.id;
+  previewRuleCode.value = row.rule_code;
   previewSelectedOnly.value = true;
 }
 
@@ -807,8 +814,10 @@ async function runPreview(): Promise<void> {
   previewLoading.value = true;
   try {
     const req: { period_code: string; rule_ids?: string[] } = { period_code: previewPeriod.value };
-    if (previewSelectedOnly.value && selectedIds.value.length) {
-      req.rule_ids = [...selectedIds.value];
+    // 行上进来 ⇒ 只算那一条；工具栏进来 ⇒ 看「只算勾选」勾没勾
+    const onlyIds = previewRuleId.value ? [previewRuleId.value] : selectedIds.value;
+    if (previewSelectedOnly.value && onlyIds.length) {
+      req.rule_ids = [...onlyIds];
     }
     preview.value = await previewCostAllocation(req);
   } catch (error) {
@@ -841,64 +850,8 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  border-radius: 8px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
 .tool-row__period {
   width: 140px;
-}
-
-.tool-row__dept {
-  width: 140px;
-}
-
-.tool-row__basis {
-  width: 160px;
-}
-
-.tool-row__status {
-  width: 110px;
-}
-
-.tool-row__keyword {
-  width: 200px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
 }
 
 .panel-head__tip {

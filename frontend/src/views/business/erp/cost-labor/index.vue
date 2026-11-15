@@ -21,9 +21,26 @@
 -->
 <template>
   <div class="cost-labor-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 批量 / 行操作交给 ListPage（P3-09） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="工时台账"
+      meta-unit="行"
+      testid="cl"
+      table-testid="cl-table"
+      meta-testid="cl-meta"
+      btn-prefix="cl-btn"
+      :columns="listColumns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :actions="listActions"
+      :batch-runner="runBatchAction"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -42,15 +59,25 @@
           <template #icon><t-icon name="upload" /></template>
           导入
         </t-button>
-        <t-button variant="outline" data-testid="cl-btn-refresh" @click="refresh">刷新</t-button>
 
         <t-divider layout="vertical" />
 
         <span class="tool-row__label">按成本对象分组</span>
-        <t-switch v-model="grouped" data-testid="cl-switch-grouped" />
+        <t-switch
+          v-model="grouped"
+          data-testid="cl-switch-grouped"
+          @change="onGroupedChange"
+        />
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #head-extra>
+        <span class="panel-head__tip">
+          只有「已确认」的工时会进成本归集；金额 = round(工时 × 工资率, 4)，由系统算
+        </span>
+      </template>
 
+      <!-- 会计期间：`t-date-picker mode="month"` 不是声明式控件，走 custom 插槽自绘 -->
+      <template #filter-period_code>
         <t-date-picker
           v-model="filter.period_code"
           class="tool-row__period"
@@ -62,202 +89,125 @@
           data-testid="cl-filter-period"
           @change="handleSearch"
         />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="cl-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.dept_id"
-          class="tool-row__dept"
-          :options="deptOptions"
-          placeholder="全部工作中心"
-          clearable
-          filterable
-          data-testid="cl-filter-dept"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="员工 / 对象号 / 产出品（模糊）"
-          clearable
-          data-testid="cl-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="cl-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="cl-btn-reset" @click="handleReset">重置</t-button>
+      </template>
+
+      <!-- 深链带进来的成本对象筛选：不在筛选条上，点 × 连其它筛选一起重置（与改造前一致） -->
+      <template #filters-extra>
         <t-tag
           v-if="filter.cost_object_id"
           theme="primary"
           variant="light"
           closable
           data-testid="cl-filter-object"
-          @close="handleReset"
+          @close="handleResetAll"
         >
           成本对象 {{ objectFilterNo || shortId(filter.cost_object_id) }}
         </t-tag>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">工时台账</span>
-          <span class="panel-head__meta" data-testid="cl-meta">共 {{ total }} 行</span>
-        </div>
-        <span class="panel-head__tip">
-          只有「已确认」的工时会进成本归集；金额 = round(工时 × 工资率, 4)，由系统算
-        </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="cl-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <!-- D7 批量确认（勾选 → 进度 → 逐条结果） -->
-      <BatchActionBar
-        :selected="selectedRows"
-        :actions="BATCH_ACTIONS"
-        :runner="runBatchAction"
-        :filtered-total="total"
-        testid="cl-batch"
-        @update:selected="onSelectedRows"
-        @done="handleBatchDone"
-      />
-
-      <!-- 分组视图（当前页汇总） -->
-      <template v-if="grouped">
+      <!-- 分组视图的口径说明（只统计当前页） -->
+      <template #filter-footer>
         <t-alert
+          v-if="grouped"
           theme="info"
           message="分组汇总只统计「当前页」的行（列表是服务端分页）。要看整期请把筛选的期间缩小到一个月后再翻页核对。"
           class="list-alert"
           data-testid="cl-group-tip"
         />
-        <t-table
-          row-key="cost_object_id"
-          :data="groups"
-          :columns="groupColumns"
-          :loading="loading"
-          hover
-          data-testid="cl-group-table"
-        >
-          <template #cost_object_no="{ row }">
-            <span class="mono">{{ row.cost_object_no }}</span>
-          </template>
-          <template #product_name="{ row }">{{ row.product_name || '—' }}</template>
-          <template #hours_total="{ row }"><span class="num">{{ row.hours_total }}</span></template>
-          <template #machine_hours_total="{ row }">
-            <span class="num">{{ row.machine_hours_total }}</span>
-          </template>
-          <template #amount_total="{ row }">
-            <span class="money">{{ formatMoney(row.amount_total) }}</span>
-          </template>
-          <template #progress="{ row }">
-            <span class="num">{{ row.confirmed_count }} 已确认 / {{ row.draft_count }} 草稿</span>
-          </template>
-        </t-table>
-        <p class="panel-foot" data-testid="cl-group-foot">
-          本页 {{ rows.length }} 行 → {{ groups.length }} 个成本对象；人工工时合计
+      </template>
+
+      <!-- ==================== 明细视图 ==================== -->
+      <template #work_date="{ row }">
+        <span class="mono" :data-testid="`cl-date-${row.id}`">{{ row.work_date }}</span>
+      </template>
+      <template #cost_object_no="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main mono">{{ row.cost_object_no || shortId(row.cost_object_id) }}</span>
+          <span class="name-cell__sub">
+            {{ row.product_name || '产出品未知' }}
+            <t-tag v-if="objectClosed(row)" size="small" variant="light" theme="default">
+              {{ row.cost_object_status === 'CLOSED' ? '已关批' : '已作废' }}
+            </t-tag>
+          </span>
+        </div>
+      </template>
+      <template #employee_name="{ row }">{{ row.employee_name }}</template>
+      <template #dept_name="{ row }">{{ row.dept_name || shortId(row.dept_id) }}</template>
+      <template #hours="{ row }"><span class="num">{{ row.hours }}</span></template>
+      <template #machine_hours="{ row }"><span class="num">{{ row.machine_hours }}</span></template>
+      <template #rate="{ row }">
+        <span class="num">{{ row.rate }}</span>
+        <span v-if="row.rate_scope_label" class="rate-scope">（{{ row.rate_scope_label }}）</span>
+      </template>
+      <template #amount="{ row }">
+        <span class="money" :data-testid="`cl-amount-${row.id}`">{{ formatMoney(row.amount) }}</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="statusTheme(row.status)">
+          {{ statusLabel(row.status) }}
+        </t-tag>
+      </template>
+      <template #source_type="{ row }">
+        <span class="muted">{{ sourceLabel(row.source_type) }}</span>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link
+            v-if="canConfirmRow(row)"
+            v-privilege="[PERM.update]"
+            theme="primary"
+            data-testid="cl-btn-confirm"
+            @click="handleConfirm(row)"
+          >
+            确认
+          </t-link>
+          <t-link
+            v-if="canEditRow(row)"
+            v-privilege="[PERM.update]"
+            theme="primary"
+            data-testid="cl-btn-edit"
+            @click="openEdit(row)"
+          >
+            编辑
+          </t-link>
+          <t-link
+            v-if="canDeleteRow(row)"
+            v-privilege="[PERM.delete]"
+            theme="danger"
+            data-testid="cl-btn-delete"
+            @click="handleDelete(row)"
+          >
+            删除
+          </t-link>
+          <span v-if="!canEditRow(row)" class="op-cell__hint">已确认只读</span>
+        </div>
+      </template>
+
+      <!-- ==================== 分组视图（列名带 g_ 前缀，避免与明细同名插槽串台） ==================== -->
+      <template #g_cost_object_no="{ row }">
+        <span class="mono">{{ row.cost_object_no }}</span>
+      </template>
+      <template #g_product_name="{ row }">{{ row.product_name || '—' }}</template>
+      <template #g_hours_total="{ row }"><span class="num">{{ row.hours_total }}</span></template>
+      <template #g_machine_hours_total="{ row }">
+        <span class="num">{{ row.machine_hours_total }}</span>
+      </template>
+      <template #g_amount_total="{ row }">
+        <span class="money">{{ formatMoney(row.amount_total) }}</span>
+      </template>
+      <template #g_progress="{ row }">
+        <span class="num">{{ row.confirmed_count }} 已确认 / {{ row.draft_count }} 草稿</span>
+      </template>
+
+      <!-- 分组视图的页脚合计（仍在列表卡内，与表格同宽） -->
+      <template #footer>
+        <p v-if="grouped" class="panel-foot" data-testid="cl-group-foot">
+          本页 {{ detailRows.length }} 行 → {{ groups.length }} 个成本对象；人工工时合计
           <b class="num">{{ pageHoursTotal }}</b> 小时，金额合计
           <b class="money">{{ formatMoney(pageAmountTotal) }}</b>
         </p>
       </template>
-
-      <!-- 明细视图 -->
-      <t-table
-        v-else
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :selected-row-keys="selectedIds"
-        hover
-        data-testid="cl-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-      >
-        <template #work_date="{ row }">
-          <span class="mono" :data-testid="`cl-date-${row.id}`">{{ row.work_date }}</span>
-        </template>
-        <template #cost_object_no="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main mono">{{ row.cost_object_no || shortId(row.cost_object_id) }}</span>
-            <span class="name-cell__sub">
-              {{ row.product_name || '产出品未知' }}
-              <t-tag v-if="objectClosed(row)" size="small" variant="light" theme="default">
-                {{ row.cost_object_status === 'CLOSED' ? '已关批' : '已作废' }}
-              </t-tag>
-            </span>
-          </div>
-        </template>
-        <template #employee_name="{ row }">{{ row.employee_name }}</template>
-        <template #dept_name="{ row }">{{ row.dept_name || shortId(row.dept_id) }}</template>
-        <template #hours="{ row }"><span class="num">{{ row.hours }}</span></template>
-        <template #machine_hours="{ row }"><span class="num">{{ row.machine_hours }}</span></template>
-        <template #rate="{ row }">
-          <span class="num">{{ row.rate }}</span>
-          <span v-if="row.rate_scope_label" class="rate-scope">（{{ row.rate_scope_label }}）</span>
-        </template>
-        <template #amount="{ row }">
-          <span class="money" :data-testid="`cl-amount-${row.id}`">{{ formatMoney(row.amount) }}</span>
-        </template>
-        <template #status="{ row }">
-          <t-tag size="small" variant="light" :theme="statusTheme(row.status)">
-            {{ statusLabel(row.status) }}
-          </t-tag>
-        </template>
-        <template #source_type="{ row }">
-          <span class="muted">{{ sourceLabel(row.source_type) }}</span>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link
-              v-if="canConfirmRow(row)"
-              v-privilege="[PERM.update]"
-              theme="primary"
-              data-testid="cl-btn-confirm"
-              @click="handleConfirm(row)"
-            >
-              确认
-            </t-link>
-            <t-link
-              v-if="canEditRow(row)"
-              v-privilege="[PERM.update]"
-              theme="primary"
-              data-testid="cl-btn-edit"
-              @click="openEdit(row)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-if="canDeleteRow(row)"
-              v-privilege="[PERM.delete]"
-              theme="danger"
-              data-testid="cl-btn-delete"
-              @click="handleDelete(row)"
-            >
-              删除
-            </t-link>
-            <span v-if="!canEditRow(row)" class="op-cell__hint">已确认只读</span>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 表单（新增 / 编辑） ==================== -->
     <t-dialog
@@ -488,8 +438,14 @@ import {
 } from '@/api/business/erp/cost-labor';
 import { fetchCostObjectPage } from '@/api/business/erp/cost-object';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
-import BatchActionBar from '@/components/BatchActionBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListActions,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import type { BatchActionSpec, BatchFailItem, BatchOkItem, BatchResult } from '@/utils/batch-action';
 import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import { formatMoney, shortId, todayString } from '@/views/business/erp/shared/money';
@@ -524,17 +480,10 @@ import {
 /** 本页权限码（V0378 种子逐一对应；`confirm` 复用 `update`） */
 const PERM = COST_LABOR_PERMISSIONS;
 
-// ==================== 列表 ====================
+// ==================== 列表（列 / 筛选 / 批量 / 拉页交给 ListPage，P3-09） ====================
 
 const route = useRoute();
 const router = useRouter();
-
-const rows = ref<CostLaborRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
-const grouped = ref(false);
 
 const filter = reactive<{
   period_code: string;
@@ -549,25 +498,30 @@ const filter = reactive<{
   cost_object_id: string;
 }>({ period_code: '', status: '', dept_id: '', keyword: '', cost_object_id: '' });
 
+/**
+ * 当前页的**明细**行。
+ *
+ * 分组视图与页脚合计都从它现算（`groupByObject` / `sumDecimal`），所以它必须存明细、
+ * 不是列表当前显示的那些行 —— 分组时列表显示的是聚合结果，拿它算合计会把人数算重。
+ */
+const detailRows = ref<CostLaborRow[]>([]);
+const current = ref(1);
+/** 分组视图开关（同一套筛选与分页，只换呈现） */
+const grouped = ref(false);
+
 /** 深链带进来的对象号（只用于显示标签，不参与请求） */
 const objectFilterNo = ref('');
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 const statusFilterOptions = COST_LABOR_STATUSES.map((value) => ({
   label: statusLabel(value),
   value,
 }));
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 // 列宽合计 ≈ 1112px：1440 视口（侧栏展开，内容区约 1170px）不横向溢出，
 // 状态列不会被固定「操作」列盖住（第一版 1260px 实测会被盖）
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'work_date', title: '日期', width: 96 },
   { colKey: 'cost_object_no', title: '成本对象 / 产出品', width: 170, ellipsis: true },
   { colKey: 'employee_name', title: '员工', width: 80, ellipsis: true },
@@ -578,18 +532,19 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'amount', title: '金额', width: 100, align: 'right' },
   { colKey: 'status', title: '状态', width: 76 },
   { colKey: 'source_type', title: '来源', width: 84 },
-  { colKey: 'op', title: '操作', width: 120, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 120, fixed: 'right', exportable: false },
 ];
 
-const groupColumns: PrimaryTableCol[] = [
-  { colKey: 'cost_object_no', title: '成本对象', width: 170 },
-  { colKey: 'product_name', title: '产出品', width: 180, ellipsis: true },
+/** 分组视图列（`g_` 前缀 = 与明细视图同名的字段换一个插槽，见文件头） */
+const groupColumns: ColumnDef[] = [
+  { colKey: 'g_cost_object_no', title: '成本对象', width: 170 },
+  { colKey: 'g_product_name', title: '产出品', width: 180, ellipsis: true },
   { colKey: 'people_count', title: '人数', width: 70, align: 'right' },
   { colKey: 'row_count', title: '行数', width: 70, align: 'right' },
-  { colKey: 'hours_total', title: '人工工时', width: 100, align: 'right' },
-  { colKey: 'machine_hours_total', title: '机器工时', width: 100, align: 'right' },
-  { colKey: 'amount_total', title: '金额', width: 120, align: 'right' },
-  { colKey: 'progress', title: '确认进度', width: 160 },
+  { colKey: 'g_hours_total', title: '人工工时', width: 100, align: 'right' },
+  { colKey: 'g_machine_hours_total', title: '机器工时', width: 100, align: 'right' },
+  { colKey: 'g_amount_total', title: '金额', width: 120, align: 'right' },
+  { colKey: 'g_progress', title: '确认进度', width: 160 },
 ];
 
 const issueColumns: PrimaryTableCol[] = [
@@ -598,51 +553,143 @@ const issueColumns: PrimaryTableCol[] = [
   { colKey: 'message', title: '原因' },
 ];
 
-const groups = computed(() => groupByObject(rows.value));
-const pageHoursTotal = computed(() => sumDecimal(rows.value.map((row) => row.hours), 2));
+/** 当前显示用的列：分组视图把同一成本对象的多行合成一行 */
+const listColumns = computed<ColumnDef[]>(() => (grouped.value ? groupColumns : columns));
+
+const groups = computed(() => groupByObject(detailRows.value));
+const pageHoursTotal = computed(() => sumDecimal(detailRows.value.map((row) => row.hours), 2));
 const pageAmountTotal = computed(() =>
   sumDecimal(
-    rows.value.map((row) => row.amount),
+    detailRows.value.map((row) => row.amount),
     4,
   ),
 );
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchCostLaborPage({
-      page: current.value,
-      page_size: PAGE_SIZE,
-      period_code: filter.period_code,
-      status: filter.status,
-      dept_id: filter.dept_id,
-      cost_object_id: filter.cost_object_id,
-      keyword: filter.keyword.trim(),
-    });
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error, '加载失败');
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
+/**
+ * 声明式筛选（顺序即渲染顺序）。
+ *
+ * 「会计期间」是 `custom`：`t-date-picker mode="month"` 不是声明式控件。
+ */
+const filters = computed<FilterDef[]>(() => [
+  { key: 'period_code', type: 'custom', testid: 'cl-filter-period' },
+  {
+    key: 'status',
+    type: 'select',
+    options: statusFilterOptions,
+    searchOnChange: true,
+    placeholder: '全部状态',
+    width: 130,
+    testid: 'cl-filter-status',
+  },
+  {
+    key: 'dept_id',
+    type: 'select',
+    options: deptOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    placeholder: '全部工作中心',
+    width: 150,
+    testid: 'cl-filter-dept',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '员工 / 对象号 / 产出品（模糊）',
+    width: 220,
+    testid: 'cl-filter-keyword',
+  },
+]);
+
+/**
+ * 拉一页：先取服务端那一页，再按视图决定喂什么给表格。
+ *
+ * 分组视图**不是**另一个接口：它把同一页的行聚合后交给表格，`total` 仍是服务端行数，
+ * 所以分页器翻的还是明细页（与改造前一致 —— 原来也是「一张表 + 一份 pagination」）。
+ */
+const fetcher: ListFetcher<CostLaborRow> = async (query) => {
+  const data = await fetchCostLaborPage(query as Parameters<typeof fetchCostLaborPage>[0]);
+  detailRows.value = data.list ?? [];
+  return {
+    list: grouped.value ? groupedRows(detailRows.value) : detailRows.value,
+    total: Number(data.total ?? 0),
+    page: data.page,
+    page_size: data.page_size,
+  };
+};
+
+/**
+ * 分组行。
+ *
+ * 两个要点：
+ * 1. `id` 必须补上（= `cost_object_id`）：列表的 `row-key` 始终是 `id`。
+ *    切视图时**不能改 row-key**——实测（P3-09）切到分组视图后 t-table 会留下一条
+ *    上一版的残行：6 个分组渲染成 7 行，第一组重复一次，刷新也不消失。
+ * 2. `g_` 前缀列（`g_cost_object_no` / `g_product_name`）是给分组视图的单元格插槽用的，
+ *    原字段名保留（页脚、后续逻辑都按原名读）。
+ */
+function groupedRows(source: CostLaborRow[]): any[] {
+  return groupByObject(source).map((group) => ({
+    ...group,
+    id: group.cost_object_id,
+    g_cost_object_no: group.cost_object_no,
+    g_product_name: group.product_name,
+  }));
+}
+
+/** 入参拼装（与改造前 `loadRows` 里那段逐字一致） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as {
+    period_code: string;
+    status: CostLaborStatus | '';
+    dept_id: string;
+    keyword: string;
+    cost_object_id: string;
+  };
+  return {
+    page,
+    page_size: pageSize,
+    period_code: value.period_code,
+    status: value.status,
+    dept_id: value.dept_id,
+    cost_object_id: value.cost_object_id,
+    keyword: value.keyword.trim(),
+  };
+};
+
+/**
+ * 批量动作：分组视图里没有可勾选的行（分组行只用于看汇总），
+ * 所以那边不声明批量 —— 否则会出现「勾选框勾不到、批量条一直显示已选 0 条」。
+ */
+const listActions = computed<ListActions>(() => (grouped.value ? {} : { batch: BATCH_ACTIONS }));
+
+/** 一页拉完：同步页码（明细行已在 `fetcher` 里镜像） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
+
+/** 重拉列表（不传 = 当前页）；名字保持不变，页面里 7 处调用点不用改 */
+async function loadRows(page?: number): Promise<void> {
+  if (page === undefined) {
+    await listRef.value?.reload();
+    return;
   }
+  await listRef.value?.load(page);
 }
 
+/** 切分组视图：列与主键换了，重拉同一页即可（筛选与页码不动） */
+function onGroupedChange(): void {
+  void listRef.value?.reload();
+}
+
+/** 筛选项值一变就查（原来 `@change="handleSearch"` 的手感：回第 1 页） */
 function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
+  void listRef.value?.search();
 }
 
-function handleReset(): void {
-  filter.period_code = '';
-  filter.status = '';
-  filter.dept_id = '';
-  filter.keyword = '';
+/** 重置：清深链带进来的对象筛选 + 声明式筛选（原来 `handleReset` 一并清） */
+function handleResetAll(): void {
   clearObjectFilter();
-  handleSearch();
+  void listRef.value?.reset();
 }
 
 /**
@@ -651,6 +698,9 @@ function handleReset(): void {
  *
  * 纪律与其它 ERP 页的深链一致：只读 query、只在有值时写筛选（不带参数进页面不能清掉
  * 用户手填的筛选），处理完把这两个 query 摘掉，免得刷新又筛一次。
+ *
+ * ⚠️ 必须在本组件 setup 里调用（见文件末尾），不能挪到 `onMounted`：ListPage 在**自己的
+ * setup** 里就发出首屏请求，那时父组件的 onMounted 还没跑 —— 首屏会先拉一次全量再拉一次。
  */
 function applyDeepLink(): void {
   const period = readQuery('period_code');
@@ -683,14 +733,8 @@ function clearObjectFilter(): void {
   objectFilterNo.value = '';
 }
 
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
-}
+// 深链必须早于 ListPage 的首屏请求（理由见 `applyDeepLink` 注释）
+applyDeepLink();
 
 // ==================== 主数据下拉 ====================
 
@@ -902,18 +946,16 @@ const BATCH_ACTIONS: BatchActionSpec[] = [
   },
 ];
 
-const {
-  selectedIds,
-  selectedRows,
-  onSelectChange,
-  onSelectedRows,
-} = useBatchSelection(BATCH_ACTIONS, rows);
-
+/**
+ * 批量确认的执行器（勾选与批量条由 ListPage 接 D7 的 `BatchActionBar`，这里只管逐条调接口）。
+ *
+ * 行数据从 `detailRows` 取（分组视图下列表显示的是聚合行，不能用它找 `no`）。
+ */
 async function runBatchAction(_action: BatchActionSpec, ids: string[]): Promise<BatchResult> {
   const succeeded: BatchOkItem[] = [];
   const failed: BatchFailItem[] = [];
   for (const id of ids) {
-    const row = rows.value.find((item) => item.id === id);
+    const row = detailRows.value.find((item) => item.id === id);
     try {
       await confirmCostLabor(id);
       succeeded.push({ id, no: row?.cost_object_no ?? null });
@@ -933,10 +975,6 @@ async function runBatchAction(_action: BatchActionSpec, ids: string[]): Promise<
     success_count: succeeded.length,
     fail_count: failed.length,
   };
-}
-
-function handleBatchDone(): void {
-  void loadRows();
 }
 
 // ==================== 导入 ====================
@@ -1011,9 +1049,8 @@ async function submitImport(): Promise<void> {
 }
 
 onMounted(() => {
-  applyDeepLink();
+  // 列表首屏由 ListPage 自己拉；深链已在 setup 末尾落到 `filter` 上（见 `applyDeepLink`）
   void loadOptions();
-  void loadRows();
 });
 </script>
 
@@ -1024,65 +1061,13 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  border-radius: 8px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .tool-row__label {
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }
 
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
 .tool-row__period {
   width: 132px;
-}
-
-.tool-row__status {
-  width: 118px;
-}
-
-.tool-row__dept {
-  width: 156px;
-}
-
-.tool-row__keyword {
-  width: 220px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
 }
 
 .panel-head__tip {

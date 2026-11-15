@@ -17,9 +17,24 @@
 -->
 <template>
   <div class="cost-overhead-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-09） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="手工费用台账"
+      meta-unit="行"
+      testid="co"
+      table-testid="co-table"
+      meta-testid="co-meta"
+      btn-prefix="co-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -29,10 +44,17 @@
           <template #icon><t-icon name="add" /></template>
           新增费用
         </t-button>
-        <t-button variant="outline" data-testid="co-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #head-extra>
+        <span class="panel-head__tip">
+          折旧由固定资产模块自动进来、报销由费用报销进来；这里只录「手工台账」，
+          借方必须是 4101.* 制造费用科目
+        </span>
+      </template>
 
+      <!-- 会计期间：`t-date-picker mode="month"` 不是声明式控件，走 custom 插槽自绘 -->
+      <template #filter-period_code>
         <t-date-picker
           v-model="filter.period_code"
           class="tool-row__period"
@@ -44,16 +66,10 @@
           data-testid="co-filter-period"
           @change="handleSearch"
         />
-        <t-select
-          v-model="filter.dept_id"
-          class="tool-row__dept"
-          :options="deptOptions"
-          placeholder="全部车间"
-          clearable
-          filterable
-          data-testid="co-filter-dept"
-          @change="handleSearch"
-        />
+      </template>
+
+      <!-- 费用项目：字典下拉（`DictSelect` 自带字典加载与缓存，清空回传空串） -->
+      <template #filter-expense_item>
         <DictSelect
           v-model="filter.expense_item"
           class="tool-row__item"
@@ -62,104 +78,60 @@
           data-testid="co-filter-item"
           @update:model-value="handleSearch"
         />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="科目 / 车间 / 备注（模糊）"
-          clearable
-          data-testid="co-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="co-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="co-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">手工费用台账</span>
-          <span class="panel-head__meta" data-testid="co-meta">共 {{ total }} 行</span>
-        </div>
-        <span class="panel-head__tip">
-          折旧由固定资产模块自动进来、报销由费用报销进来；这里只录「手工台账」，
-          借方必须是 4101.* 制造费用科目
+      <template #period_code="{ row }">
+        <span class="mono">{{ row.period_code }}</span>
+      </template>
+      <template #cost_object_id="{ row }">
+        <span v-if="isPoolRow(row)" class="pool-tag" data-testid="co-pool-tag">
+          <t-tag size="small" variant="light" theme="warning">车间池</t-tag>
+          <span class="muted">待分摊</span>
         </span>
-      </div>
+        <span v-else class="mono">{{ row.cost_object_no || shortId(row.cost_object_id) }}</span>
+      </template>
+      <template #dept_name="{ row }">{{ row.dept_name || shortId(row.dept_id) }}</template>
+      <template #expense_item="{ row }">
+        {{ expenseItemLabel(row.expense_item, row.expense_item_label) }}
+      </template>
+      <template #debit_account_code="{ row }">
+        <span class="mono">{{ row.debit_account_code }}</span>
+        <span class="muted">{{ row.debit_account_name || '' }}</span>
+      </template>
+      <template #credit_account_code="{ row }">
+        <span class="mono">{{ row.credit_account_code }}</span>
+        <span class="muted">{{ row.credit_account_name || '' }}</span>
+      </template>
+      <template #amount="{ row }">
+        <span class="money" :data-testid="`co-amount-${row.id}`">{{ formatMoney(row.amount) }}</span>
+      </template>
+      <template #remark="{ row }">{{ row.remark || '—' }}</template>
+      <template #op="{ row }">
+        <t-link
+          v-privilege="[PERM.delete]"
+          theme="danger"
+          data-testid="co-btn-delete"
+          @click="handleDelete(row)"
+        >
+          删除
+        </t-link>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="co-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="co-table"
-        @page-change="handlePageChange"
-      >
-        <template #period_code="{ row }">
-          <span class="mono">{{ row.period_code }}</span>
-        </template>
-        <template #cost_object_id="{ row }">
-          <span v-if="isPoolRow(row)" class="pool-tag" data-testid="co-pool-tag">
-            <t-tag size="small" variant="light" theme="warning">车间池</t-tag>
-            <span class="muted">待分摊</span>
+      <!-- 页脚：本页汇总（服务端分页下只有当前页，「本页」两个字必须留着） -->
+      <template #footer>
+        <div class="summary-row" data-testid="co-summary">
+          <span>
+            本页 {{ summary.row_count }} 行：车间池
+            <b class="money">{{ formatMoney(summary.pool_amount) }}</b>
+            （{{ summary.pool_count }} 行）· 直接计入
+            <b class="money">{{ formatMoney(summary.direct_amount) }}</b>
+            （{{ summary.direct_count }} 行）· 合计
+            <b class="money">{{ formatMoney(summary.total_amount) }}</b>
           </span>
-          <span v-else class="mono">{{ row.cost_object_no || shortId(row.cost_object_id) }}</span>
-        </template>
-        <template #dept_name="{ row }">{{ row.dept_name || shortId(row.dept_id) }}</template>
-        <template #expense_item="{ row }">
-          {{ expenseItemLabel(row.expense_item, row.expense_item_label) }}
-        </template>
-        <template #debit_account_code="{ row }">
-          <span class="mono">{{ row.debit_account_code }}</span>
-          <span class="muted">{{ row.debit_account_name || '' }}</span>
-        </template>
-        <template #credit_account_code="{ row }">
-          <span class="mono">{{ row.credit_account_code }}</span>
-          <span class="muted">{{ row.credit_account_name || '' }}</span>
-        </template>
-        <template #amount="{ row }">
-          <span class="money" :data-testid="`co-amount-${row.id}`">{{ formatMoney(row.amount) }}</span>
-        </template>
-        <template #remark="{ row }">{{ row.remark || '—' }}</template>
-        <template #op="{ row }">
-          <t-link
-            v-privilege="[PERM.delete]"
-            theme="danger"
-            data-testid="co-btn-delete"
-            @click="handleDelete(row)"
-          >
-            删除
-          </t-link>
-        </template>
-      </t-table>
-
-      <div class="summary-row" data-testid="co-summary">
-        <span>
-          本页 {{ summary.row_count }} 行：车间池
-          <b class="money">{{ formatMoney(summary.pool_amount) }}</b>
-          （{{ summary.pool_count }} 行）· 直接计入
-          <b class="money">{{ formatMoney(summary.direct_amount) }}</b>
-          （{{ summary.direct_count }} 行）· 合计
-          <b class="money">{{ formatMoney(summary.total_amount) }}</b>
-        </span>
-        <span class="muted">合计只统计「当前页」（列表是服务端分页）</span>
-      </div>
-    </t-card>
+          <span class="muted">合计只统计「当前页」（列表是服务端分页）</span>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新增 ==================== -->
     <t-dialog
@@ -261,7 +233,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 
 import {
   createCostOverhead,
@@ -275,6 +247,13 @@ import {
 } from '@/api/business/erp/cost-overhead';
 import { fetchCostObjectPage } from '@/api/business/erp/cost-object';
 import { fetchAccountOptions } from '@/api/business/erp';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import DictSelect from '@/components/DictSelect.vue';
 import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
@@ -298,13 +277,7 @@ import {
 /** 本页权限码（V0378 种子逐一对应；**没有 update**：设计只给了 3 个接口） */
 const PERM = COST_OVERHEAD_PERMISSIONS;
 
-// ==================== 列表 ====================
-
-const rows = ref<CostOverheadRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+// ==================== 列表（列 / 筛选 / 拉页交给 ListPage，P3-09） ====================
 
 const filter = reactive<{
   period_code: string;
@@ -313,16 +286,13 @@ const filter = reactive<{
   keyword: string;
 }>({ period_code: '', dept_id: '', expense_item: '', keyword: '' });
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 当前页的行：页脚「本页汇总」只统计这一页（列表是服务端分页） */
+const rows = ref<CostOverheadRow[]>([]);
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 // 列宽合计 ≈ 1000px：1280 视口（侧栏展开）不会被固定「操作」列压住金额列
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'period_code', title: '期间', width: 84 },
   { colKey: 'dept_name', title: '车间', width: 104, ellipsis: true },
   { colKey: 'expense_item', title: '费用项目', width: 100, ellipsis: true },
@@ -331,55 +301,77 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'credit_account_code', title: '对方科目', width: 168, ellipsis: true },
   { colKey: 'amount', title: '金额', width: 120, align: 'right' },
   { colKey: 'remark', title: '备注', ellipsis: true },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 80, fixed: 'right', exportable: false },
 ];
 
 const summary = computed(() => summarizeRows(rows.value));
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const query: CostOverheadPageQuery = {
-      page: current.value,
-      page_size: PAGE_SIZE,
-      period_code: filter.period_code,
-      dept_id: filter.dept_id,
-      expense_item: filter.expense_item,
-      keyword: filter.keyword.trim(),
-    };
-    const page = await fetchCostOverheadPage(query);
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error, '加载失败');
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
+/** 拉一页 */
+const fetcher: ListFetcher<CostOverheadRow> = (query) =>
+  fetchCostOverheadPage(query as CostOverheadPageQuery);
+
+/** 入参拼装（与改造前 `loadRows` 里那段逐字一致；空串由 api 层 `asParams` 整键丢掉） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as { period_code: string; dept_id: string; expense_item: string; keyword: string };
+  return {
+    page,
+    page_size: pageSize,
+    period_code: value.period_code,
+    dept_id: value.dept_id,
+    expense_item: value.expense_item,
+    keyword: value.keyword.trim(),
+  };
+};
+
+/**
+ * 声明式筛选（顺序即渲染顺序）。
+ *
+ * 期间与费用项目是 `custom`：前者是 `t-date-picker mode="month"`，后者是 `DictSelect`，
+ * 两者都自带取值/清空语义，套进 `t-select` 反而会丢「清空回空串」这一条。
+ */
+const filters = computed<FilterDef[]>(() => [
+  { key: 'period_code', type: 'custom', testid: 'co-filter-period' },
+  {
+    key: 'dept_id',
+    type: 'select',
+    options: deptOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    placeholder: '全部车间',
+    width: 150,
+    testid: 'co-filter-dept',
+  },
+  { key: 'expense_item', type: 'custom', testid: 'co-filter-item' },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '科目 / 车间 / 备注（模糊）',
+    width: 210,
+    testid: 'co-filter-keyword',
+  },
+]);
+
+/** 一页拉完：镜像行（页脚汇总用） */
+function onLoaded(payload: { rows: CostOverheadRow[] }): void {
+  rows.value = payload.rows;
+}
+
+/**
+ * 重拉列表（不传 = 当前页）。
+ *
+ * 名字与签名保持改造前的样子：新增 / 删除成功后的 4 处 `await loadRows()` 一行都不用改。
+ */
+async function loadRows(page?: number): Promise<void> {
+  if (page === undefined) {
+    await listRef.value?.reload();
+    return;
   }
+  await listRef.value?.load(page);
 }
 
+/** 筛选项值一变就查（原来 `@change="handleSearch"` 的手感：回第 1 页） */
 function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  filter.period_code = '';
-  filter.dept_id = '';
-  filter.expense_item = '';
-  filter.keyword = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
+  void listRef.value?.search();
 }
 
 // ==================== 下拉主数据 ====================
@@ -527,60 +519,12 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  border-radius: 8px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
 .tool-row__period {
   width: 132px;
 }
 
-.tool-row__dept {
-  width: 150px;
-}
-
 .tool-row__item {
   width: 150px;
-}
-
-.tool-row__keyword {
-  width: 210px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
 }
 
 .panel-head__tip {

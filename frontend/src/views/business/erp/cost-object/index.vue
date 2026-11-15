@@ -22,9 +22,23 @@
 -->
 <template>
   <div class="cost-object-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-09） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="成本对象"
+      meta-unit="个"
+      testid="co"
+      table-testid="co-table"
+      meta-testid="co-meta"
+      btn-prefix="co-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -34,29 +48,16 @@
           <template #icon><t-icon name="add" /></template>
           新建成本对象
         </t-button>
-        <t-button variant="outline" data-testid="co-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #head-extra>
+        <span class="panel-head__tip">
+          一个生产批一个对象；料工费按批归集，关批后不可回「在产」（要复工请新建批）
+        </span>
+      </template>
 
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="co-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.workshop_dept_id"
-          class="tool-row__dept"
-          :options="deptOptions"
-          placeholder="全部车间"
-          clearable
-          filterable
-          data-testid="co-filter-dept"
-          @change="handleSearch"
-        />
+      <!-- 开工期间：`t-date-picker mode="month"` 走 custom 插槽（后端按开工日期区间过滤） -->
+      <template #filter-month>
         <t-date-picker
           v-model="filter.month"
           class="tool-row__month"
@@ -68,118 +69,72 @@
           data-testid="co-filter-month"
           @change="handleSearch"
         />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="对象号 / 批号 / 订单号（模糊）"
-          clearable
-          data-testid="co-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="co-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="co-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">成本对象</span>
-          <span class="panel-head__meta" data-testid="co-meta">共 {{ total }} 个</span>
+      <template #object_no="{ row }">
+        <span class="mono" :data-testid="`co-no-${row.object_no}`">{{ row.object_no }}</span>
+      </template>
+      <template #product_name="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.product_name || '—' }}</span>
+          <span class="name-cell__sub">{{ lotOrOrderText(row) }}</span>
         </div>
-        <span class="panel-head__tip">
-          一个生产批一个对象；料工费按批归集，关批后不可回「在产」（要复工请新建批）
+      </template>
+      <template #plan_qty="{ row }">
+        <span class="num">{{ formatQty(row.plan_qty) }}</span>
+      </template>
+      <template #completed_qty="{ row }">
+        <span class="num">{{ formatQty(row.completed_qty) }}</span>
+      </template>
+      <template #wip_qty="{ row }">
+        <span class="num" :class="{ 'num--warn': !isZeroQty(row.wip_qty) }">
+          {{ formatQty(row.wip_qty) }}
         </span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="co-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="co-table"
-        @page-change="handlePageChange"
-      >
-        <template #object_no="{ row }">
-          <span class="mono" :data-testid="`co-no-${row.object_no}`">{{ row.object_no }}</span>
-        </template>
-        <template #product_name="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.product_name || '—' }}</span>
-            <span class="name-cell__sub">{{ lotOrOrderText(row) }}</span>
-          </div>
-        </template>
-        <template #plan_qty="{ row }">
-          <span class="num">{{ formatQty(row.plan_qty) }}</span>
-        </template>
-        <template #completed_qty="{ row }">
-          <span class="num">{{ formatQty(row.completed_qty) }}</span>
-        </template>
-        <template #wip_qty="{ row }">
-          <span class="num" :class="{ 'num--warn': !isZeroQty(row.wip_qty) }">
-            {{ formatQty(row.wip_qty) }}
-          </span>
-        </template>
-        <template #cost_total="{ row }">
-          <span class="money">{{ formatMoney(row.cost_total) }}</span>
-        </template>
-        <template #status="{ row }">
-          <t-tag
-            size="small"
-            variant="light"
-            :theme="statusTheme(row.status)"
-            :data-testid="`co-status-${row.object_no}`"
+      </template>
+      <template #cost_total="{ row }">
+        <span class="money">{{ formatMoney(row.cost_total) }}</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          variant="light"
+          :theme="statusTheme(row.status)"
+          :data-testid="`co-status-${row.object_no}`"
+        >
+          {{ statusLabel(row.status) }}
+        </t-tag>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link
+            theme="primary"
+            :data-testid="`co-btn-detail-${row.object_no}`"
+            @click="openDetail(row)"
           >
-            {{ statusLabel(row.status) }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link
-              theme="primary"
-              :data-testid="`co-btn-detail-${row.object_no}`"
-              @click="openDetail(row)"
-            >
-              详情
-            </t-link>
-            <t-link
-              v-if="canEditObject(row.status)"
-              v-privilege="[PERM.update]"
-              theme="primary"
-              :data-testid="`co-btn-edit-${row.object_no}`"
-              @click="openEdit(row)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-if="canCloseRow(row)"
-              v-privilege="[PERM.close]"
-              theme="warning"
-              :data-testid="`co-btn-close-${row.object_no}`"
-              @click="openClose(row)"
-            >
-              关批
-            </t-link>
-            <span v-if="!canEditObject(row.status)" class="op-cell__hint">已结项</span>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+            详情
+          </t-link>
+          <t-link
+            v-if="canEditObject(row.status)"
+            v-privilege="[PERM.update]"
+            theme="primary"
+            :data-testid="`co-btn-edit-${row.object_no}`"
+            @click="openEdit(row)"
+          >
+            编辑
+          </t-link>
+          <t-link
+            v-if="canCloseRow(row)"
+            v-privilege="[PERM.close]"
+            theme="warning"
+            :data-testid="`co-btn-close-${row.object_no}`"
+            @click="openClose(row)"
+          >
+            关批
+          </t-link>
+          <span v-if="!canEditObject(row.status)" class="op-cell__hint">已结项</span>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 建 / 改 表单 ==================== -->
     <t-dialog
@@ -798,6 +753,13 @@ import {
   type CostObjectSources,
   type CostObjectStatus,
 } from '@/api/business/erp/cost-object';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import {
   fetchCustomerPage,
   fetchLocationList,
@@ -860,13 +822,7 @@ const PERM = COST_OBJECT_PERMISSIONS;
 
 const router = useRouter();
 
-// ==================== 列表 ====================
-
-const rows = ref<CostObjectRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+// ==================== 列表（列 / 筛选 / 拉页交给 ListPage，P3-09） ====================
 
 const filter = reactive<{
   keyword: string;
@@ -875,21 +831,15 @@ const filter = reactive<{
   month: string;
 }>({ keyword: '', status: '', workshop_dept_id: '', month: '' });
 
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
 const statusFilterOptions = COST_OBJECT_STATUSES.map((value) => ({
   label: statusLabel(value),
   value,
 }));
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 // 列宽合计 ≈ 940px：1280 视口（侧栏展开）不会被固定「操作」列压住状态列
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'object_no', title: '对象号', width: 156 },
   { colKey: 'product_name', title: '产出品 / 批号 · 订单', width: 190, ellipsis: true },
   { colKey: 'workshop_dept_name', title: '车间', width: 90, ellipsis: true },
@@ -898,7 +848,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'wip_qty', title: '在制', width: 76, align: 'right' },
   { colKey: 'cost_total', title: '归集成本', width: 110, align: 'right' },
   { colKey: 'status', title: '状态', width: 80 },
-  { colKey: 'op', title: '操作', width: 150, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 150, fixed: 'right', exportable: false },
 ];
 
 const periodColumns: PrimaryTableCol[] = [
@@ -912,6 +862,80 @@ const periodColumns: PrimaryTableCol[] = [
   { colKey: 'finished_cost', title: '完工转出', width: 120, align: 'right' },
 ];
 
+/**
+ * 声明式筛选（顺序即渲染顺序）。
+ *
+ * 「开工期间」是 `custom`：后端列表接口没有 `period_code`，这里把月份折成
+ * `start_from` / `start_to` 日期区间（`monthRange`，口径见 `cost-object-logic`）。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    options: statusFilterOptions,
+    searchOnChange: true,
+    placeholder: '全部状态',
+    width: 118,
+    testid: 'co-filter-status',
+  },
+  {
+    key: 'workshop_dept_id',
+    type: 'select',
+    options: deptOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    placeholder: '全部车间',
+    width: 150,
+    testid: 'co-filter-dept',
+  },
+  { key: 'month', type: 'custom', testid: 'co-filter-month' },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '对象号 / 批号 / 订单号（模糊）',
+    width: 220,
+    testid: 'co-filter-keyword',
+  },
+]);
+
+/** 拉一页 */
+const fetcher: ListFetcher<CostObjectRow> = (query) =>
+  fetchCostObjectPage(query as Parameters<typeof fetchCostObjectPage>[0]);
+
+/** 入参拼装（与改造前 `loadRows` 里那段逐字一致；空串由 api 层 `asParams` 整键丢掉） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as {
+    keyword: string;
+    status: CostObjectStatus | '';
+    workshop_dept_id: string;
+    month: string;
+  };
+  const range = monthRange(value.month);
+  return {
+    page,
+    page_size: pageSize,
+    keyword: value.keyword.trim(),
+    status: value.status,
+    workshop_dept_id: value.workshop_dept_id,
+    start_from: range.start_from,
+    start_to: range.start_to,
+  };
+};
+
+/** 重拉列表（不传 = 当前页）；名字保持不变，页面里 4 处调用点不用改 */
+async function loadRows(page?: number): Promise<void> {
+  if (page === undefined) {
+    await listRef.value?.reload();
+    return;
+  }
+  await listRef.value?.load(page);
+}
+
+/** 筛选项值一变就查（原来 `@change="handleSearch"` 的手感：回第 1 页） */
+function handleSearch(): void {
+  void listRef.value?.search();
+}
+
 /** 批号 / 订单合一行显示（列表没有开工日期列，靠这行给业务线索） */
 function lotOrOrderText(row: CostObjectRow): string {
   const parts: string[] = [];
@@ -922,53 +946,6 @@ function lotOrOrderText(row: CostObjectRow): string {
     parts.push(`订单 ${row.source_doc_no}`);
   }
   return parts.length ? parts.join(' · ') : '无批号 / 订单';
-}
-
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const range = monthRange(filter.month);
-    const page = await fetchCostObjectPage({
-      page: current.value,
-      page_size: PAGE_SIZE,
-      keyword: filter.keyword.trim(),
-      status: filter.status,
-      workshop_dept_id: filter.workshop_dept_id,
-      start_from: range.start_from,
-      start_to: range.start_to,
-    });
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  filter.keyword = '';
-  filter.status = '';
-  filter.workshop_dept_id = '';
-  filter.month = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
 }
 
 // ==================== 下拉主数据 ====================
@@ -1525,60 +1502,12 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  border-radius: 8px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
 .tool-row__spacer {
   flex: 1 1 auto;
 }
 
-.tool-row__status {
-  width: 118px;
-}
-
-.tool-row__dept {
-  width: 150px;
-}
-
 .tool-row__month {
   width: 132px;
-}
-
-.tool-row__keyword {
-  width: 220px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
 }
 
 .panel-head__tip {

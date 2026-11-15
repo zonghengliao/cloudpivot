@@ -32,9 +32,25 @@
 -->
 <template>
   <div class="cost-period-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-09） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="成本核算批次"
+      meta-unit="批"
+      testid="cp"
+      table-testid="cp-table"
+      meta-testid="cp-meta"
+      btn-prefix="cp-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+      @refresh="onRefresh"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.calc]"
           theme="primary"
@@ -44,102 +60,54 @@
           <template #icon><t-icon name="add" /></template>
           新建核算批次
         </t-button>
-        <t-button variant="outline" data-testid="cp-btn-refresh" @click="refreshAll">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #head-extra>
+        <span class="panel-head__tip">
+          一个期间一条活跃批次；已结算 / 已红冲 / 已作废的批次留作审计凭据，点批次号回看
+        </span>
+      </template>
 
-        <t-select
-          v-model="filter.period_code"
-          class="tool-row__period"
-          :options="periodFilterOptions"
-          placeholder="全部期间"
-          clearable
-          filterable
-          data-testid="cp-filter-period"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="cp-filter-status"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="批次号 / 备注"
-          clearable
-          data-testid="cp-filter-keyword"
-          @enter="handleSearch"
-          @clear="handleSearch"
-        />
-        <t-button variant="outline" data-testid="cp-btn-search" @click="handleSearch">查询</t-button>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 批次列表 ==================== -->
-    <t-card :bordered="false" class="table-card">
-      <t-alert v-if="loadError" theme="error" class="table-alert" data-testid="cp-list-error">
-        <template #message>{{ loadError }}</template>
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="cp-table"
-        @page-change="handlePageChange"
-      >
-        <template #batch_no="{ row }">
-          <t-link theme="primary" class="mono" data-testid="cp-row-open" @click="openWizard(row)">
-            {{ row.batch_no }}
+      <template #batch_no="{ row }">
+        <t-link theme="primary" class="mono" data-testid="cp-row-open" @click="openWizard(row)">
+          {{ row.batch_no }}
+        </t-link>
+      </template>
+      <template #period_code="{ row }"><span class="mono">{{ row.period_code }}</span></template>
+      <template #status="{ row }">
+        <t-tag size="small" :theme="statusTheme(row.status)" variant="light">
+          {{ statusLabel(row.status) }}
+        </t-tag>
+      </template>
+      <template #object_count="{ row }"><span class="num">{{ row.object_count }}</span></template>
+      <template #total_cost="{ row }">
+        <span class="money">{{ formatMoney(row.total_cost) }}</span>
+      </template>
+      <template #total_finished="{ row }">
+        <span class="money">{{ formatMoney(row.total_finished) }}</span>
+      </template>
+      <template #total_wip="{ row }"><span class="money">{{ formatMoney(row.total_wip) }}</span></template>
+      <template #settled_at="{ row }">
+        <span class="mono">{{ dash(row.settled_at ? shortDate(row.settled_at) : '') }}</span>
+      </template>
+      <template #created_by_name="{ row }">
+        {{ row.created_by_name || '—' }}
+      </template>
+      <template #ops="{ row }">
+        <div class="row-ops">
+          <t-link theme="primary" @click="openWizard(row)">继续核算</t-link>
+          <t-link
+            v-if="canReverse(row.status)"
+            v-privilege="[PERM.reverse]"
+            theme="danger"
+            data-testid="cp-row-reverse"
+            @click="openReverse(row.id)"
+          >
+            红冲
           </t-link>
-        </template>
-        <template #period_code="{ row }"><span class="mono">{{ row.period_code }}</span></template>
-        <template #status="{ row }">
-          <t-tag size="small" :theme="statusTheme(row.status)" variant="light">
-            {{ statusLabel(row.status) }}
-          </t-tag>
-        </template>
-        <template #object_count="{ row }"><span class="num">{{ row.object_count }}</span></template>
-        <template #total_cost="{ row }">
-          <span class="money">{{ formatMoney(row.total_cost) }}</span>
-        </template>
-        <template #total_finished="{ row }">
-          <span class="money">{{ formatMoney(row.total_finished) }}</span>
-        </template>
-        <template #total_wip="{ row }"><span class="money">{{ formatMoney(row.total_wip) }}</span></template>
-        <template #settled_at="{ row }">
-          <span class="mono">{{ dash(row.settled_at ? shortDate(row.settled_at) : '') }}</span>
-        </template>
-        <template #created_by_name="{ row }">
-          {{ row.created_by_name || '—' }}
-        </template>
-        <template #ops="{ row }">
-          <div class="row-ops">
-            <t-link theme="primary" @click="openWizard(row)">继续核算</t-link>
-            <t-link
-              v-if="canReverse(row.status)"
-              v-privilege="[PERM.reverse]"
-              theme="danger"
-              data-testid="cp-row-reverse"
-              @click="openReverse(row.id)"
-            >
-              红冲
-            </t-link>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 五步核算向导 ==================== -->
     <t-drawer
@@ -575,7 +543,7 @@
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute } from 'vue-router';
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { MessagePlugin } from 'tdesign-vue-next';
 
 import {
   calcCostPeriod,
@@ -600,6 +568,13 @@ import {
 } from '@/api/business/erp/cost-period';
 import { fetchPeriodPage, type AccountPeriodRow } from '@/api/business/erp';
 import { getFlowInstance } from '@/api/business/flow-api';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import { formatMoney, dash, shortDate, shortId, todayPeriod } from '@/views/business/erp/shared/money';
 import { errorText } from '@/views/business/erp/shared/error-text';
@@ -646,7 +621,7 @@ const PERM = COST_PERIOD_PERMISSIONS;
 /** 路由（读深链 `?batch_no=`） */
 const route = useRoute();
 
-// ==================== 列表 ====================
+// ==================== 列表（列 / 筛选 / 拉页交给 ListPage，P3-09） ====================
 
 const filter = reactive<{ period_code: string; status: CostPeriodStatus | ''; keyword: string }>({
   period_code: '',
@@ -654,22 +629,15 @@ const filter = reactive<{ period_code: string; status: CostPeriodStatus | ''; ke
   keyword: '',
 });
 
+/** 当前页的行：页面自己要用（期间下拉的候选值、深链按批次号定位） */
 const rows = ref<CostPeriodRow[]>([]);
-const loading = ref(false);
-const loadError = ref('');
-const total = ref(0);
-const page = ref(1);
+/** 已拉过首屏（深链只在首屏后解析一次） */
+let loadedOnce = false;
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 会计期间（用于 ① 期间下拉：只列未结账；已结账置灰并说明） */
 const periods = ref<AccountPeriodRow[]>([]);
-
-const pagination = computed(() => ({
-  current: page.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  pageSizeOptions: [PAGE_SIZE],
-}));
 
 const statusFilterOptions = COST_PERIOD_STATUSES.map((status) => ({
   label: statusLabel(status),
@@ -703,46 +671,84 @@ function periodLabel(code: string, closed = false): string {
   return closed ? `${code}（已结账，需先反结账）` : code;
 }
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchCostPeriodPage({
-      ...filter,
-      page: page.value,
-      page_size: PAGE_SIZE,
-    });
-    rows.value = data.list;
-    total.value = data.total;
-  } catch (error) {
-    loadError.value = errorText(error, '加载成本核算批次失败');
-  } finally {
-    loading.value = false;
-  }
-}
-
+/**
+ * 期间字典（步①「选期间」下拉用）。
+ *
+ * 拉不到不影响核算（只是步①下拉为空）：不弹窗、不阻断，用户仍可从列表进批次。
+ */
 async function loadPeriods(): Promise<void> {
   try {
     const data = await fetchPeriodPage({ page: 1, page_size: 100 });
     periods.value = data.list;
   } catch {
-    // 期间拉不到不影响核算（只是步①下拉为空）：不弹窗、不阻断，用户仍可从列表进批次
     periods.value = [];
   }
 }
 
-function handleSearch(): void {
-  page.value = 1;
-  void loadRows();
+/** 声明式筛选（顺序即渲染顺序；下拉选项随期间字典变化） */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'period_code',
+    type: 'select',
+    options: periodFilterOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    placeholder: '全部期间',
+    width: 200,
+    testid: 'cp-filter-period',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    options: statusFilterOptions,
+    searchOnChange: true,
+    placeholder: '全部状态',
+    width: 140,
+    testid: 'cp-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '批次号 / 备注',
+    width: 200,
+    testid: 'cp-filter-keyword',
+  },
+]);
+
+/** 拉一页 */
+const fetcher: ListFetcher<CostPeriodRow> = (query) =>
+  fetchCostPeriodPage(query as Parameters<typeof fetchCostPeriodPage>[0]);
+
+/** 入参拼装（与改造前 `loadRows` 里那段逐字一致） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => ({
+  ...(state as { period_code: string; status: CostPeriodStatus | ''; keyword: string }),
+  page,
+  page_size: pageSize,
+});
+
+/** 一页拉完：镜像行（期间下拉 + 深链用），首屏后解析深链 */
+function onLoaded(payload: { rows: CostPeriodRow[]; page: number }): void {
+  rows.value = payload.rows;
+  if (!loadedOnce) {
+    loadedOnce = true;
+    void resolveDeepLink();
+  }
 }
 
-function handlePageChange(info: { current: number }): void {
-  page.value = info.current;
-  void loadRows();
+/** 重拉列表（不传 = 当前页）；名字保持不变，页面里 9 处调用点不用改 */
+async function loadRows(page?: number): Promise<void> {
+  if (page === undefined) {
+    await listRef.value?.reload();
+    return;
+  }
+  await listRef.value?.load(page);
 }
 
-function refreshAll(): void {
-  void loadRows();
+/**
+ * 「刷新」按钮：列表由 ListPage 自己重拉，这里补上**别的区域**——
+ * 期间字典（步① 的下拉）与正开着的向导详情。改造前 `refreshAll` 就是这三件事。
+ */
+function onRefresh(): void {
   void loadPeriods();
   if (wizardVisible.value && batch.value) {
     void loadDetail(batch.value.id);
@@ -1242,7 +1248,7 @@ const submitPreviewVisible = ref(false);
  * 列表列（1440 视口，内容区约 1128px）：批次号 150 / 期间 80 / 状态 96 /
  * 对象 60 / 投入 104 / 完工 104 / 在制 104 / 结算时间 88 / 制单 72 / 操作 120。
  */
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'batch_no', title: '批次号', width: 150, fixed: 'left' },
   { colKey: 'period_code', title: '期间', width: 80 },
   { colKey: 'status', title: '状态', width: 96 },
@@ -1252,21 +1258,29 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'total_wip', title: '期末在制', width: 104, align: 'right' },
   { colKey: 'settled_at', title: '结算时间', width: 88 },
   { colKey: 'created_by_name', title: '制单', width: 72, ellipsis: true },
-  { colKey: 'ops', title: '操作', width: 120, fixed: 'right' },
+  { colKey: 'ops', title: '操作', width: 120, fixed: 'right', exportable: false },
 ];
 
 // ==================== 生命周期 ====================
 
-onMounted(async () => {
-  await loadRows();
+onMounted(() => {
+  // 列表首屏由 ListPage 自己拉（它比 onMounted 更早发出请求）；这里只补期间字典（步① 的下拉）
   void loadPeriods();
-  // 深链：凭证来源「成本核算批次」带 `?batch_no=CS-yyyyMM-NNNN` 进来（VTRACE 的凭证明细
-  // 点批次号），直接打开那一批的五步向导。找不到就留在列表（不弹错：来源可能是别的组织 / 已删）。
+});
+
+/**
+ * 深链：凭证来源「成本核算批次」带 `?batch_no=CS-yyyyMM-NNNN` 进来（VTRACE 的凭证明细
+ * 点批次号），直接打开那一批的五步向导。找不到就留在列表（不弹错：来源可能是别的组织 / 已删）。
+ *
+ * 在首屏 `@loaded` 之后解析：ListPage 的首次拉页早于 `onMounted`，那时 `rows` 还是空的，
+ * 拿它去 `find` 必然 miss（会白跑一次按批次号的兜底查询）。
+ */
+async function resolveDeepLink(): Promise<void> {
   const batchNo = String(route.query.batch_no ?? '').trim();
   if (batchNo) {
     await openByBatchNo(batchNo);
   }
-});
+}
 
 /** 按批次号打开向导（深链入口；找不到就静默留在列表） */
 async function openByBatchNo(batchNo: string): Promise<void> {
@@ -1292,32 +1306,6 @@ async function openByBatchNo(batchNo: string): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tool-row__spacer {
-  flex: 1;
-}
-
-.tool-row__period {
-  width: 200px;
-}
-
-.tool-row__status {
-  width: 140px;
-}
-
-.tool-row__keyword {
-  width: 200px;
-}
-
-.table-alert {
-  margin-bottom: 8px;
 }
 
 .mono {
