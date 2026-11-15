@@ -1,0 +1,6 @@
+用例 5712 条已量 / 0 条未量 / 命中 1 条 / 最慢 9017.0 ms
+① budget_from_xml（读+判定 5712 条）：min 11.0 ms / median 11.2 ms
+② format_budget（打印列表）：      min 0.098 ms / median 0.100 ms
+③ write_budget_tsv（5712 行 TSV）：min 1.9 ms / median 1.9 ms
+④ CLI 端到端（含 Python 启动）：    59.4 ms
+   TSV：/root/p264/alarm-cost.tsv（5712 行）

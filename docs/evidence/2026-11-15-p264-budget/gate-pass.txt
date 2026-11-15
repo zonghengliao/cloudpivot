@@ -1,0 +1,46 @@
+==> test_budget_gate：预算判据边界 + 反证 + 接线（源：scripts/junit_report.py）
+
+-- ① 解析器自检（scripts/junit_report.py selftest）
+✓ selftest 通过（27 条断言，含预算 ⑰–㉒）
+
+-- ② 夹具结构自洽（scripts/junit_report.py check）
+✓ 两份夹具通过 JUnit 结构校验
+
+-- ③ 默认阈值（5000 ms）边界：> 才算超
+✓ 默认档不阻断（只提示）（rc=0）
+✓ 抓到 1 条超预算
+✓ 超的是 5.001 s 那条
+✓ 正好 5.000 s 不算超（口径是「>」不是「>=」）
+✓ 报出实测耗时（5001 ms）
+
+-- ④ 阈值 5001 ms ⇒ 0 条超（不误报）
+✓ 0 条超时 --strict 也 exit 0（rc=0）
+✓ 口头结论是『全部在预算内』
+
+-- ⑤ 阈值 1 ms ⇒ 4 条全抓（不漏报）
+✓ 压低阈值不阻断（rc=0）
+✓ 抓到 4 条
+✓ 最慢的那条也在
+
+-- ⑥ --strict 有超预算 ⇒ exit 1
+✓ 严格档阻断（rc=1）
+
+-- ⑦ 反证：未量的套件不得被判成『全部在预算内』
+✓ 未量时默认不阻断（但要说清未判定）（rc=0）
+✓ 明确说『预算未判定』
+✓ 报出未量条数
+✓ **不得**出现『全部在预算内』
+✓ --require-measured 时 exit 2（防静默降级）（rc=2）
+
+-- ⑧ 反证：判据坏了会被抓住
+✓ 反证 (a) 判定确实读 testcase/@time（改小 1 条后 4 条超 → 3 条超）
+✓ 反证 (b) 静默合格形态造得出来（正因如此 ⑦ 必须断言『预算未判定』）
+
+-- ⑨ 接线（test_domain.py ↔ junit_report.py ↔ check.sh）
+✓ test_domain.py run 仍有 --budget-ms
+✓ test_domain.py 仍调用 budget_from_suites
+✓ test_domain.py 仍打印预算告警（format_budget）
+✓ check.sh 仍挂载本闸
+
+==> test_budget_gate 通过
+rc=0

@@ -1,0 +1,9 @@
+== 支线探针：单进程全量的红集合为什么不稳（与本卡无关，仅取证）==
+命令：bash -c 'cargo test -p cloudpivot --lib -- --test-threads=1 2>&1 | tee pipe.log'（stdout 接管道，不经 Python）
+pipe REAL=164.53s
+
+test result: FAILED. 5440 passed; 12 failed; 1 ignored; 0 measured; 0 filtered out; finished in 164.39s
+
+结论：接管道仍是 12 红（与 stdout 直连文件相同）⇒ 12↔10 的差异**不是**『输出被管道接走』造成的。
+改后两轮 10 红的共同点是 p16_graph_snapshot_selfcheck_is_clean 变红、cost_period_approval 5 条变绿，
+属单进程夹具互踩（P2-60 已知），成因未定，交总管决定是否单独开卡。

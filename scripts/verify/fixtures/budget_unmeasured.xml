@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="cloudpivot lib tests (budget fixture: from-logs 回填形态)" tests="2" failures="0" errors="0" skipped="0" time="9.000" timestamp="2026-11-15T08:00:00Z">
+  <testsuite name="legacy" package="legacy" tests="2" failures="0" errors="0" skipped="0" time="0.900" timestamp="2026-11-15T08:00:00Z" hostname="ci">
+    <properties>
+      <property name="wall_total_s" value="0.900" />
+      <property name="cargo_rc" value="0" />
+      <property name="per_testcase_time" value="unavailable" />
+      <property name="libtest_running" value="2" />
+      <property name="filtered_out" value="0" />
+      <property name="interleaved_cases" value="0" />
+    </properties>
+    <testcase classname="legacy::demo" name="t01_unknown_duration" time="0.000" />
+    <testcase classname="legacy::demo" name="t02_unknown_duration" time="0.000" />
+  </testsuite>
+</testsuites>

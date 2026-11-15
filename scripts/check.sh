@@ -110,6 +110,7 @@ plan_all() {
         plan L0 "测试分域登记表自洽（域↔crate、前缀尾 ::）" "python3 scripts/test_domain.py check --manifest-only（完整性另跑 scripts/verify/test_domains_gate.sh）"
         plan L0 "数据准备统一夹具（uniq/ensure_* 只有一份）" "scripts/verify/test_seed_gate.sh（① 转发 ② 导出 ③ 主数据 INSERT 预算；反证 --selftest）"
         plan L0 "CI 报告 JUnit XML（解析器 + 4 类畸变反证 + 接线）" "scripts/verify/junit_report_gate.sh（python3 scripts/junit_report.py selftest）"
+        plan L0 "耗时预算告警（单测 >5000ms 提示；边界 + 未量不算合格 + 接线）" "scripts/verify/test_budget_gate.sh（固定夹具，不编译不连库）"
     fi
     if want L2; then
         plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
@@ -1154,6 +1155,25 @@ echo "==> CI 报告 JUnit XML（scripts/junit_report.py）"
 if ! bash "$ROOT/scripts/verify/junit_report_gate.sh"; then
     echo "==> 门禁未通过：JUnit 报告生成链路坏了（解析/计数/失败原因/接线）" >&2
     echo "    见 docs/architecture/P2-63-CI报告-JUnit.md；真实产物用 scripts/junit_report.py check <xml> 复核" >&2
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L0 · 耗时预算告警（P2-64）
+#
+# 为什么进 L0：预算告警是「单测 > 5000 ms 就提示」，它只输出文本，坏掉有两种形态且都不自己喊：
+#   ① **漏报**（边界 `>=`、单位秒/毫秒写错、没读 testcase/@time）⇒ 慢用例被放过；
+#   ② **假合格**（没量到逐条耗时却报「全部在预算内」）⇒ CI 一片绿而一个都没量。
+# 所以本档用固定夹具钉边界（1.200 / 4.999 / 5.000 / 5.001 s 只抓 5.001）+ 反证未量形态
+# + 接线检查（`test_domain.py --budget-ms` 与 check.sh 的挂载都不能被摘掉）。
+# 纯 stdlib，不编译、不连库（秒级）。判据只有一份实现：scripts/verify/test_budget_gate.sh。
+# ======================================================================
+if want L0; then
+echo "==> 耗时预算告警（单测 > 5000 ms 提示，P2-64）"
+if ! bash "$ROOT/scripts/verify/test_budget_gate.sh"; then
+    echo "==> 门禁未通过：耗时预算告警坏了（漏报 / 把「没量到」当合格 / 接线被摘）" >&2
+    echo "    见 docs/architecture/P2-64-耗时预算告警.md；真实产物用 scripts/junit_report.py budget <xml> 复核" >&2
     exit 1
 fi
 fi

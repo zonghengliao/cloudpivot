@@ -1,0 +1,55 @@
+== 字面口径 A/B：一次单进程全量 = time cargo test -p cloudpivot --lib -- --test-threads=1 ==
+改前 = 直接跑 cargo；改后 = 同一条 cargo + junit_report.py run（逐条计时 + 预算告警）
+库：cloudpivot_test_p264_single（-T cloudpivot_test_full 克隆，跑前 drop/建、跑后 drop）
+
+-- 第 1 轮
+Command exited with non-zero status 101
+改前 REAL=169.89s
+
+test result: FAILED. 5440 passed; 12 failed; 1 ignored; 0 measured; 0 filtered out; finished in 169.75s
+Command exited with non-zero status 1
+改后 REAL=172.20s
+
+5453 条 / 10 红 / 1 跳过 / 172.1s → /root/p264/single/junit/cloudpivot.xml
+==> 耗时预算（单测 > 5000 ms 提示）：5453 条已量
+    ✗ 1 条超预算（> 5000 ms）—— 单测里出现这个量级，通常是在等网络/起进程：
+
+-- 第 2 轮
+Command exited with non-zero status 101
+改前2 REAL=169.60s
+
+test result: FAILED. 5440 passed; 12 failed; 1 ignored; 0 measured; 0 filtered out; finished in 169.44s
+Command exited with non-zero status 1
+改后2 REAL=169.81s
+
+5453 条 / 10 红 / 1 跳过 / 169.7s → /root/p264/single2/junit/cloudpivot.xml
+
+== 判读 ==
+改前 169.89 / 169.60 s；改后 172.20 / 169.81 s。逐行打戳实测增量 0.03 ms/行（P2-63），
+本卡追加的预算后处理 12.8 ms ⇒ 1~2 s 的差异属共享主机抖动（同机另有卡在跑测试/编译）。
+
+== 顺带发现：单进程全量的红集合不稳定（与本卡无关，P2-60 已知夹具互踩）==
+改前（直连文件）两轮都是 12 红：
+    business::erp::contract::contract_handler::tests::detail_fills_person_names_and_follows_rename
+    business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces
+    business::erp::cost::cost_period_approval_db_tests::db::submit_starts_instance_and_freezes_batch
+    business::erp::cost::cost_period_approval_db_tests::db::two_levels_then_approved_freezes_batch
+    business::erp::cost::cost_period_approval_db_tests::db::withdraw_self_heals_when_callback_failed
+    business::erp::cost::cost_period_approval_db_tests::db::withdraw_terminates_instance_and_returns_draft
+    business::erp::stockin::stockin_handler::stockin_handler_tests_pflow3a::bug02_repost_blocked_by_separation_of_duties
+    business::hr::no_erp_edge_tests::the_neutral_homes_still_exist
+    business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source
+    system::session_tests::s02_assign_roles_invalidates_old_token
+    system::session_tests::s06_degrades_to_db_without_cache
+    system::session_tests::s07_deleted_user_has_no_session
+改后（经 Python 管道捕获）两轮都是 10 红：
+    business::erp::contract::contract_handler::tests::detail_fills_person_names_and_follows_rename
+    business::erp::cost::cost_period_approval_db_tests::db::reject_returns_batch_to_draft_and_clears_traces
+    business::erp::cost::cost_period_approval_db_tests::db::submit_and_withdraw_guard_non_draft_states
+    business::erp::stockin::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean
+    business::erp::stockin::stockin_handler::stockin_handler_tests_pflow3a::bug02_repost_blocked_by_separation_of_duties
+    business::hr::no_erp_edge_tests::the_neutral_homes_still_exist
+    business::permission::scope_model::tests::d8c_wiring_anchors_exist_in_source
+    system::session_tests::s02_assign_roles_invalidates_old_token
+    system::session_tests::s06_degrades_to_db_without_cache
+    system::session_tests::s07_deleted_user_has_no_session

@@ -1,0 +1,18 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuites name="cloudpivot lib tests (budget fixture)" tests="4" failures="0" errors="0" skipped="0" time="12.500" timestamp="2026-11-15T08:00:00Z">
+  <testsuite name="demo" package="demo" tests="4" failures="0" errors="0" skipped="0" time="11.100" timestamp="2026-11-15T08:00:00Z" hostname="ci">
+    <properties>
+      <property name="wall_total_s" value="11.200" />
+      <property name="cargo_rc" value="0" />
+      <property name="per_testcase_time" value="measured" />
+      <property name="libtest_running" value="4" />
+      <property name="filtered_out" value="0" />
+      <property name="sum_case_s" value="11.100" />
+      <property name="interleaved_cases" value="0" />
+    </properties>
+    <testcase classname="demo::budget" name="t01_fast_1200ms" time="1.200" />
+    <testcase classname="demo::budget" name="t02_below_budget_4999ms" time="4.999" />
+    <testcase classname="demo::budget" name="t03_edge_exactly_5000ms" time="5.000" />
+    <testcase classname="demo::budget" name="t04_over_5001ms" time="5.001" />
+  </testsuite>
+</testsuites>

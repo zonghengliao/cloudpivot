@@ -1,0 +1,29 @@
+✓ ① 解析用例数：4（期望 4）
+✓ ② 失败/跳过：failures=1 skipped=1（期望 1/1）
+✓ ③ 逐条状态：['ok', 'ok', 'ignored', 'FAILED']
+✓ ④ 失败消息取到 panic 正文：'左借 != 右贷（差 4.0000）'
+✓ ⑤ classname/name 拆分：business::other::tests :: t04_boom
+✓ ⑥ 逐条耗时是量出来的：{'t01_ok': 0.01, 't02_ok': 0.02, 't03_ignored': 0.001, 't04_boom': 0.03}
+✓ ⑦ harness 真间隔（running→result）：0.061s
+✓ ⑧ 生成的 XML 自洽（1427 字节，0 问题）
+✓ ⑨ 反证 · 计数造假（tests=4→3） → 被抓
+✓ ⑨ 反证 · 失败元素被删（failures 仍 1） → 被抓
+✓ ⑨ 反证 · 用例重复 → 被抓
+✓ ⑨ 反证 · XML 截断（不可解析） → 被抓
+✓ ⑨ 反证 · 少算一条用例但计数自洽（静默漏报） → 被抓
+✓ ⑩ 反证 · 进程被杀（无 test result 行）→ error 元素：'libtest 未输出 `test result:` 行（cargo rc=13'
+✓ ⑪ 进程被杀仍产出结构合法的 XML（'errors' 计数与 <error> 元素一致）
+✓ ⑫ 跨行判定（`ok` 被日志输出挤到下一行）：4 条 / interleaved=1 / mismatch=''
+✓ ⑬ 被挤开的日志行收进该用例的 <system-out>（不丢）
+✓ ⑭ from-logs 回填：1 个 suite / 4 条 / 墙钟 0.9s（逐条耗时=不可得，不用假数）
+✓ ⑮ from-logs 产物同样通过结构校验
+✓ ⑯ test_domain.py 仍接线（import/--junit/run_capture/write_xml 四处在位）：/opt/cloudpivot/scripts/test_domain.py
+✓ ⑰ 预算命中（限 25 ms）：1 条超 —— ['business::other::tests::t04_boom']
+✓ ⑱ 降阈值到 5 ms：3 条超（10/20/30 ms 都抓，1 ms 的 ignored 不抓）：['t04_boom', 't02_ok', 't01_ok']
+✓ ⑲ 边界：正好 30 ms **不算**超（卡面口径是「> 5000」）—— hits=0 / 最慢 30.0 ms
+✓ ⑳ XML 往返判定一致（CI 上只有 artifact 也能判）：4 条已量 / 1 条超
+✓ ㉑ 反证 · 没量到耗时**不算合格**（from-logs 的 0.000 不能当 0 ms）：已量 0 / 未量 4
+✓ ㉒ 预算告警仍接线（test_domain.py 调用两处在位=True；CLI 有 budget 子命令=True）
+
+✓ junit_report 自检通过
+rc=0

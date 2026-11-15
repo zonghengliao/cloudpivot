@@ -1,0 +1,4 @@
+diff rc=0（0 = 逐条相同）
+  12 /root/p264/before/failures.txt
+  12 /root/p264/after/failures.txt
+  24 total

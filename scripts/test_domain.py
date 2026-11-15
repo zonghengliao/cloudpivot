@@ -21,7 +21,10 @@
 #   list    列出登记表里的域（不编译、不连库）
 #   check   门禁用：用例↔域**恰好一一对应**（无遗漏/无重复/域非空/crate 真实存在）
 #   run     真跑：克隆库 → 编译热身 → 并行跑 → 汇总失败名到 failures.txt
-#           （加 `--junit [DIR]` 时同时产出 JUnit XML 报告，见 scripts/junit_report.py）
+#           （加 `--junit [DIR]` 时同时产出 JUnit XML 报告，见 scripts/junit_report.py；
+#             加 `--budget-ms 5000` 时出「耗时预算告警」——单测超过阈值就点名，
+#             不阻断（`--budget-strict` 才 exit 1）。预算吃的是逐条实测耗时，
+#             与 `--junit` 共用同一档计时（P2-64）。）
 #
 # 用法：
 #   python3 scripts/test_domain.py list
@@ -65,7 +68,9 @@ PG_USER = os.environ.get("PGUSER", "cloudpivot")
 PG_PASS = os.environ.get("PGPASS", "fbb1263691ff75c31ec99eaf258138b4")
 PG_PORT = os.environ.get("PGPORT", "5432")
 TEMPLATE = os.environ.get("TPL", "cloudpivot_test_full")
-CLONE_PREFIX = "cloudpivot_test_p261_"
+# 克隆库名前缀。默认沿用 P2-61 的 `cloudpivot_test_p261_`；多张卡在同一天跑分域套件时
+# 用 `CLONE_PREFIX=cloudpivot_test_p264_` 隔开，避免互相 dropdb 掉对方正在跑的库。
+CLONE_PREFIX = os.environ.get("CLONE_PREFIX", "cloudpivot_test_p261_")
 
 RESULT_RE = re.compile(r"^test result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignored")
 
@@ -255,18 +260,21 @@ def run_cmd(d: Domain, tests: list[str]) -> list[str]:
 
 
 def run_one(d: Domain, tests: list[str], url: str | None, out: Path, idx: int, total: int,
-            junit_dir: Path | None = None) -> dict:
+            junit_dir: Path | None = None, capture: bool = False) -> dict:
     cmd = run_cmd(d, tests)
     log = out / f"{d.name}.log"
     t0 = time.monotonic()
     suite = None
-    if junit_dir is not None:
-        # P2-63：逐行读 stdout 并打时间戳 ⇒ 每条用例的真实耗时（stable libtest 没有
+    if capture:
+        # P2-63/P2-64：逐行读 stdout 并打时间戳 ⇒ 每条用例的真实耗时（stable libtest 没有
         # 机器可读格式，见 scripts/junit_report.py 头注）。日志仍是同一份，口径不变。
+        # 耗时预算告警（P2-64）就吃这份逐条耗时 —— 所以 `--budget-ms` 也会打开本档，
+        # 不写 XML 也能量（`--junit` 是「顺便产报告」，不是「量的前提」）。
         suite = junit_report.run_capture(cmd, APP_DIR, build_env(url), log)
         rc = suite.rc
         suite.name, suite.package = d.name, d.crate
-        junit_report.write_xml([suite], junit_dir / f"{d.name}.xml")
+        if junit_dir is not None:
+            junit_report.write_xml([suite], junit_dir / f"{d.name}.xml")
     else:
         with open(log, "w", encoding="utf-8") as fh:
             rc = subprocess.run(cmd, cwd=APP_DIR, stdout=fh, stderr=subprocess.STDOUT,
@@ -376,13 +384,15 @@ def cmd_run(args) -> int:
     if args.junit is not None:
         junit_dir = Path(args.junit) if args.junit else out / "junit"
         junit_dir.mkdir(parents=True, exist_ok=True)
+    # P2-64：逐条计时在「要报告」或「要判预算」时都开（`--budget-ms` 显式给了就说明要看耗时）
+    capture = junit_dir is not None or args.budget_ms is not None
 
     order = sorted(selected, key=lambda d: len(picked[d.name]), reverse=True)  # 最长优先（LPT）
     print(f"==> 开始跑（最长优先）：{' → '.join(d.name for d in order)}")
     t_start = time.monotonic()
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as ex:
         futures = [ex.submit(run_one, d, picked[d.name], urls.get(d.name), out, i + 1, len(order),
-                             junit_dir)
+                             junit_dir, capture)
                    for i, d in enumerate(order)]
         results = [f.result() for f in futures]
     wall = time.monotonic() - t_start
@@ -427,6 +437,21 @@ def cmd_run(args) -> int:
         for p in problems:
             print(f"    - {p}", file=sys.stderr)
 
+    # —— 耗时预算告警（P2-64）——
+    budget: junit_report.Budget | None = None
+    if capture and not args.no_budget:
+        limit = (args.budget_ms if args.budget_ms is not None
+                 else junit_report.DEFAULT_BUDGET_MS)
+        budget = junit_report.budget_from_suites(
+            [r["suite"] for r in results if r["suite"]], limit_ms=limit)
+        print()
+        print(junit_report.format_budget(budget, args.budget_top))
+        tsv = junit_report.write_budget_tsv(budget, out / "budget.tsv")
+        print(f"    清单：{tsv}（全部已量用例，耗时降序；可 diff 两个版本做趋势）")
+    elif not capture and not args.no_budget:
+        # 没量就没有判定 —— 不能因为「没测」而看起来像「合格」
+        print("\n==> 耗时预算：未判定（本次没开逐条计时；加 --junit 或 --budget-ms 5000 才会量）")
+
     print(f"\n==> 日志与汇总：{out}\n==> 失败用例名：{out / 'failures.txt'}（{'空' if not fails else str(len(fails)) + ' 条'}）")
 
     if urls and (args.keep or total_fail):
@@ -438,7 +463,13 @@ def cmd_run(args) -> int:
 
     if not report_ok:
         return 2  # 用例结果另说；报告本身坏了 CI 会静默当绿，必须红
-    return 0 if total_fail == 0 else 1
+    if total_fail:
+        return 1
+    if args.budget_strict and budget is not None and budget.hits:
+        print(f"✗ 预算严格档（--budget-strict）：{len(budget.hits)} 条单测超过 "
+              f"{budget.limit_ms:.0f} ms", file=sys.stderr)
+        return 1
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -552,6 +583,15 @@ def main(argv: list[str]) -> int:
     p_run.add_argument("--junit", nargs="?", const="", default=None,
                        help="产出 JUnit XML（CI 报告，P2-63）：不给该开关=不生成；"
                             "`--junit` 写到 <out>/junit/；`--junit DIR` 写到指定目录")
+    p_run.add_argument("--budget-ms", type=float, default=None,
+                       help="耗时预算告警（P2-64）：单测 > 该毫秒数就提示"
+                            "（默认 5000，仅在有逐条计时时生效；显式给了就强制开计时）；"
+                            "也可用环境变量 TEST_BUDGET_MS")
+    p_run.add_argument("--budget-top", type=int, default=10,
+                       help="额外列出最慢 N 条（默认 10，0 = 只报超预算的）")
+    p_run.add_argument("--budget-strict", action="store_true",
+                       help="有超预算就 exit 1（默认只提示，不阻断 —— 卡面口径是「提示」）")
+    p_run.add_argument("--no-budget", action="store_true", help="不出预算告警")
     p_run.set_defaults(func=cmd_run)
 
     args = ap.parse_args(argv)

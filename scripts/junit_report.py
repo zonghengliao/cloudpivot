@@ -23,6 +23,7 @@
 # 子命令：
 #   selftest                    门禁自检：真解析 + 4 类畸变必须被抓（反证），exit 0/1
 #   check <xml…>                校验 XML 结构自洽（计数/重复/失败元素/时间），exit 0/1
+#   budget <xml…>               耗时预算告警：单测 > 阈值（默认 5000 ms）就提示（P2-64）
 #   from-logs <DIR> [--out F]   把已有的 `<域>.log`(+`summary.tsv`) 补成 XML（无逐条耗时）
 #   run -p <crate> …            独立跑一次并直接产出 XML（不经 test_domain.py 时用）
 #
@@ -52,6 +53,10 @@ from typing import Iterable, NoReturn
 # ---------------------------------------------------------------------------
 # libtest 输出的四类行（stable pretty 格式，实测 rustc 1.94.1）
 # ---------------------------------------------------------------------------
+# 单测耗时预算（P2-64）：一条用例 > 这个毫秒数就提示 —— 它是「慢用例」的公认分界线
+# （CI 上单条 5 s 已足够让人怀疑它其实在跑集成/在等网络），可用 --limit-ms / 环境变量覆盖。
+DEFAULT_BUDGET_MS = 5000.0
+
 RUNNING_RE = re.compile(r"^running (\d+) tests?$")
 # `test business::x::t01 ... ok` / `... FAILED` / `... ignored` / `... bench: 1,234 ns/iter`
 TEST_LINE_RE = re.compile(r"^test (\S+) \.\.\.(?: (.*))?$")
@@ -525,6 +530,106 @@ def check_files(paths: list[Path]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# 耗时预算（P2-64）：单测 > 阈值就提示
+# ---------------------------------------------------------------------------
+@dataclass
+class BudgetHit:
+    name: str        # 用例全名（classname::name）
+    suite: str       # 所属域/套件
+    ms: float        # 实测耗时（毫秒，保留 0.1）
+
+
+@dataclass
+class Budget:
+    limit_ms: float
+    rows: list[BudgetHit]   # **全部**已量到耗时的用例，耗时降序
+    measured: int           # 已量条数
+    unmeasured: int         # 没量到（from-logs 回填的老日志）条数
+
+    @property
+    def hits(self) -> list[BudgetHit]:
+        # 卡面口径是「> 5000 时提示」⇒ 严格大于；正好 5000 ms 算合格（边界有断言）。
+        return [h for h in self.rows if h.ms > self.limit_ms]
+
+    @property
+    def ok(self) -> bool:
+        return not self.hits
+
+
+def budget_from_suites(suites: list[Suite], limit_ms: float = DEFAULT_BUDGET_MS) -> Budget:
+    """用例耗时 vs 预算。`duration is None` 的用例**不能**当 0（那是「没量到」，不是「很快」）。"""
+    rows: list[BudgetHit] = []
+    unmeasured = 0
+    for s in suites:
+        for c in s.cases:
+            if c.duration is None:
+                unmeasured += 1
+                continue
+            rows.append(BudgetHit(name=c.name, suite=s.name, ms=round(c.duration * 1000.0, 1)))
+    rows.sort(key=lambda h: h.ms, reverse=True)
+    return Budget(limit_ms=limit_ms, rows=rows, measured=len(rows), unmeasured=unmeasured)
+
+
+def budget_from_xml(paths: list[Path], limit_ms: float = DEFAULT_BUDGET_MS) -> Budget:
+    """从 JUnit XML 判定（CI 上只拿得到 artifact 时用）。
+
+    ⚠ 静默降级防线：`from-logs` 回填的 XML 里每条 `time` 都是 0.000（没有逐条耗时），
+    若按 0 判定就会得出「5712 条全部合格」的假绿。所以这里读 suite 的
+    `per_testcase_time` 属性：`unavailable` 的套件里所有用例算**未量**，不算合格。
+    """
+    rows: list[BudgetHit] = []
+    unmeasured = 0
+    for p in paths:
+        root = ET.parse(p).getroot()
+        for suite in root.findall("testsuite"):
+            props = {q.get("name"): q.get("value") for q in suite.findall("./properties/property")}
+            measured = (props.get("per_testcase_time") or "measured") == "measured"
+            sname = suite.get("name") or p.stem
+            for tc in suite.findall("testcase"):
+                name = f"{tc.get('classname', '')}::{tc.get('name', '')}"
+                if not measured:
+                    unmeasured += 1
+                    continue
+                rows.append(BudgetHit(name=name, suite=sname, ms=round(float(tc.get("time") or 0) * 1000.0, 1)))
+    rows.sort(key=lambda h: h.ms, reverse=True)
+    return Budget(limit_ms=limit_ms, rows=rows, measured=len(rows), unmeasured=unmeasured)
+
+
+def format_budget(b: Budget, top: int = 10) -> str:
+    """告警正文。三件事要点清楚：① 超了哪几条 ② 一条没超时最慢的是谁（看趋势）③ 没量到的不能算合格。"""
+    lim = f"{b.limit_ms:.0f} ms"
+    out = [f"==> 耗时预算（单测 > {lim} 提示）：{b.measured} 条已量"
+           + (f" / {b.unmeasured} 条未量（不计入判定）" if b.unmeasured else "")]
+    if b.measured == 0:
+        out.append("    ⚠ 一条用例都没量到耗时（from-logs 回填的日志没有逐行时间戳）"
+                   "⇒ **预算未判定**；要判定请用 `test_domain.py run --junit` 真跑。")
+        return "\n".join(out)
+    hits = b.hits
+    if hits:
+        out.append(f"    ✗ {len(hits)} 条超预算（> {lim}）—— 单测里出现这个量级，通常是在等网络/起进程：")
+        for h in hits:
+            out.append(f"      {h.ms:>9.1f} ms  {h.name}   [{h.suite}]")
+    else:
+        out.append(f"    ✓ 全部在预算内（最慢 {b.rows[0].ms:.1f} ms：{b.rows[0].name}）")
+    if top > 0:
+        shown = b.rows[:top]
+        out.append(f"    最慢 {len(shown)} 条（含未超预算的，便于提前看出变慢趋势）：")
+        for h in shown:
+            out.append(f"      {h.ms:>9.1f} ms  {h.name}   [{h.suite}]" + ("  ← 超预算" if h.ms > b.limit_ms else ""))
+    return "\n".join(out)
+
+
+def write_budget_tsv(b: Budget, path: Path) -> Path:
+    """给下游（趋势看板 / diff 两个版本）用的机器可读清单：全部已量用例，耗时降序。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("ms\tsuite\tname\tover_budget\n")
+        for h in b.rows:
+            fh.write(f"{h.ms:.1f}\t{h.suite}\t{h.name}\t{'1' if h.ms > b.limit_ms else '0'}\n")
+    return path
+
+
+# ---------------------------------------------------------------------------
 # from-logs：把已有日志补成 XML（无逐条耗时，testsuite time 用 summary.tsv 的墙钟）
 # ---------------------------------------------------------------------------
 def suites_from_logs(directory: Path) -> list[Suite]:
@@ -687,6 +792,36 @@ def cmd_selftest(_args) -> int:
                                    "junit_report.write_xml("))
     say(wired, f"⑯ test_domain.py 仍接线（import/--junit/run_capture/write_xml 四处在位）：{runner}")
 
+    # —— 耗时预算告警（P2-64）：单测 > 阈值就提示 ——
+    b25 = budget_from_suites([suite], limit_ms=25.0)
+    say([h.name for h in b25.hits] == ["business::other::tests::t04_boom"]
+        and b25.measured == 4 and b25.unmeasured == 0,
+        f"⑰ 预算命中（限 25 ms）：{len(b25.hits)} 条超 —— {[h.name for h in b25.hits]}")
+    b5 = budget_from_suites([suite], limit_ms=5.0)
+    say(len(b5.hits) == 3,
+        f"⑱ 降阈值到 5 ms：{len(b5.hits)} 条超（10/20/30 ms 都抓，1 ms 的 ignored 不抓）："
+        f"{[h.name.rpartition('::')[2] for h in b5.hits]}")
+    b30 = budget_from_suites([suite], limit_ms=30.0)
+    say(b30.ok and abs(b30.rows[0].ms - 30.0) < 0.11,
+        f"⑲ 边界：正好 30 ms **不算**超（卡面口径是「> 5000」）—— hits={len(b30.hits)} / "
+        f"最慢 {b30.rows[0].ms} ms")
+    bx_path = write_xml([suite], tmp / "budget.xml")
+    bx = budget_from_xml([bx_path], limit_ms=25.0)
+    say(bx.measured == 4 and [h.name for h in bx.hits] == ["business::other::tests::t04_boom"],
+        f"⑳ XML 往返判定一致（CI 上只有 artifact 也能判）：{bx.measured} 条已量 / {len(bx.hits)} 条超")
+    bback = budget_from_xml([tmp / "back.xml"], limit_ms=25.0) if back else None
+    if bback is not None:
+        btext = format_budget(bback)
+        # 反证：from-logs 的 XML 里每条 time 都是 0.000 —— 当成 0 就会报「全部合格」的假绿
+        say(bback.measured == 0 and bback.unmeasured == 4
+            and "预算未判定" in btext and "全部在预算内" not in btext,
+            f"㉑ 反证 · 没量到耗时**不算合格**（from-logs 的 0.000 不能当 0 ms）："
+            f"已量 {bback.measured} / 未量 {bback.unmeasured}")
+    budget_wired = all(s in src for s in ("junit_report.budget_from_suites(", "junit_report.format_budget("))
+    cli_ok = 'add_parser("budget"' in Path(__file__).read_text(encoding="utf-8")
+    say(budget_wired and cli_ok,
+        f"㉒ 预算告警仍接线（test_domain.py 调用两处在位={budget_wired}；CLI 有 budget 子命令={cli_ok}）")
+
     print()
     print("✓ junit_report 自检通过" if ok else "✗ junit_report 自检未通过")
     return 0 if ok else 1
@@ -777,7 +912,34 @@ def cmd_run(args) -> int:
     suite.package = args.package
     path = write_xml([suite], out / f"{args.package}.xml")
     print(f"{suite.tests} 条 / {suite.failures} 红 / {suite.skipped} 跳过 / {suite.wall_total:.1f}s → {path}")
+    if not args.no_budget:
+        budget = budget_from_suites([suite], limit_ms=args.budget_ms)
+        print()
+        print(format_budget(budget, args.budget_top))
+        write_budget_tsv(budget, out / f"{args.package}.budget.tsv")
+        if args.strict and budget.hits:
+            return 1
     return 0 if suite.failures == 0 and not suite.crashed and suite.rc == 0 else 1
+
+
+def cmd_budget(args) -> int:
+    paths = [Path(p) for p in args.xml]
+    missing = [str(p) for p in paths if not p.is_file()]
+    if missing:
+        die(f"XML 不存在：{missing}")
+    budget = budget_from_xml(paths, limit_ms=args.limit_ms)
+    print(format_budget(budget, args.top))
+    if args.tsv:
+        write_budget_tsv(budget, Path(args.tsv))
+        print(f"    清单：{args.tsv}（全部已量用例，耗时降序）")
+    if budget.measured == 0:
+        # 静默降级防线：没有任何耗时数据时必须说清「未判定」，不能靠「0 条超预算」混过去
+        print("!! 没有任何一条用例量到耗时 ⇒ 预算无法判定（不等于合格）", file=sys.stderr)
+        return 2 if args.require_measured else 0
+    if args.strict and budget.hits:
+        print(f"✗ 严格档：{len(budget.hits)} 条用例超过 {args.limit_ms:.0f} ms", file=sys.stderr)
+        return 1
+    return 0
 
 
 def main(argv: list[str]) -> int:
@@ -798,11 +960,30 @@ def main(argv: list[str]) -> int:
                    help="本次跑批墙钟（秒）；给了就写进 root 的 time 属性（默认各 suite 之和）")
     p.set_defaults(func=cmd_from_logs)
 
+    p = sub.add_parser("budget", help="耗时预算告警：单测 > 阈值（默认 5000 ms）就提示")
+    p.add_argument("xml", nargs="+", help="JUnit XML（test_domain.py --junit 的产物）")
+    p.add_argument("--limit-ms", type=float,
+                   default=float(os.environ.get("TEST_BUDGET_MS", DEFAULT_BUDGET_MS)),
+                   help=f"单测耗时上限（毫秒，默认 {DEFAULT_BUDGET_MS:.0f}；也可用环境变量 TEST_BUDGET_MS）")
+    p.add_argument("--top", type=int, default=10, help="额外列出最慢 N 条（0 = 不列）")
+    p.add_argument("--tsv", default="", help="把全部已量用例写成 TSV（耗时降序）")
+    p.add_argument("--strict", action="store_true",
+                   help="有超预算就 exit 1（默认只提示，不阻断 —— 卡面口径是「提示」）")
+    p.add_argument("--require-measured", action="store_true",
+                   help="一条都没量到耗时（如 from-logs 产物）时 exit 2，防止「静默合格」")
+    p.set_defaults(func=cmd_budget)
+
     p = sub.add_parser("run", help="独立跑一个 crate 并产出 XML")
     p.add_argument("-p", "--package", default="cloudpivot")
     p.add_argument("--cwd", default=str(Path(__file__).resolve().parent.parent / "backend" / "app"))
     p.add_argument("--out", default="")
     p.add_argument("--db-url", default=os.environ.get("ERP_DB_URL", ""))
+    p.add_argument("--budget-ms", type=float,
+                   default=float(os.environ.get("TEST_BUDGET_MS", DEFAULT_BUDGET_MS)),
+                   help=f"单测耗时上限（毫秒，默认 {DEFAULT_BUDGET_MS:.0f}）")
+    p.add_argument("--budget-top", type=int, default=10, help="额外列出最慢 N 条")
+    p.add_argument("--strict", action="store_true", help="有超预算就 exit 1")
+    p.add_argument("--no-budget", action="store_true", help="不出预算告警")
     p.set_defaults(func=cmd_run)
 
     args = ap.parse_args(argv)

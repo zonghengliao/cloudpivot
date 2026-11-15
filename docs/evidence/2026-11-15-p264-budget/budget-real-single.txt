@@ -1,0 +1,20 @@
+==> 耗时预算（单测 > 5000 ms 提示）：5453 条已量
+    ✗ 1 条超预算（> 5000 ms）—— 单测里出现这个量级，通常是在等网络/起进程：
+         8825.0 ms  system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point   [cloudpivot]
+    最慢 15 条（含未超预算的，便于提前看出变慢趋势）：
+         8825.0 ms  system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point   [cloudpivot]  ← 超预算
+         3320.0 ms  business::erp::stockin::stockin_handler::stockin_handler_tests_dc03::lockorder_concurrent_post_and_cancel_no_deadlock   [cloudpivot]
+         1825.0 ms  system::user::tests::u05_repeated_login_failures_lock_account   [cloudpivot]
+         1237.0 ms  system::user::tests::u03_password_reset_bumps_token_version   [cloudpivot]
+         1104.0 ms  system::auth::handler::tests::login_rate_resets_after_window_expires   [cloudpivot]
+          963.0 ms  system::user::tests::u09_user_list_search_and_pagination   [cloudpivot]
+          734.0 ms  system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live   [cloudpivot]
+          732.0 ms  system::menu::permission_audit_tests::n21_static_routes_are_not_shadowed_by_sibling_template_rules   [cloudpivot]
+          662.0 ms  system::role::tests::r07_assign_menus_bumps_holders_token_version   [cloudpivot]
+          660.0 ms  system::menu::tests::n13_permission_change_invalidates_tokens_in_db   [cloudpivot]
+          654.0 ms  system::session_tests::s03_assign_role_menus_invalidates_holders   [cloudpivot]
+          647.0 ms  system::user::tests::u01_password_never_stored_in_plaintext   [cloudpivot]
+          638.0 ms  system::session_tests::s05_reset_password_invalidates_token   [cloudpivot]
+          633.0 ms  system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception   [cloudpivot]
+          586.0 ms  business::aiagent::handler::tests::robot_password_hash_is_random_and_hashed   [cloudpivot]
+rc=0

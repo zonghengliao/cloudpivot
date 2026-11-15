@@ -1,0 +1,23 @@
+== P2-64 改前/改后 A/B：全量分域（19 域并行 + JUnit），只差「预算告警开/关」==
+== 命令：CLONE_PREFIX=cloudpivot_test_p264_ python3 scripts/test_domain.py run --package all --junit <dir>/junit --out <dir> [--no-budget]
+
+before-r3  real=38.45   s  合计 5711 5699 12 36.5 有红
+before-r4  real=38.03   s  合计 5711 5699 12 36.1 有红
+after-r3   real=37.90   s  合计 5711 5699 12 36.1 有红
+after-r4   real=38.29   s  合计 5711 5699 12 36.4 有红
+
+== 各轮预算告警段（改前无、改后有）==
+-- before-r3
+-- after-r3
+==> 耗时预算（单测 > 5000 ms 提示）：5712 条已量
+    ✗ 1 条超预算（> 5000 ms）—— 单测里出现这个量级，通常是在等网络/起进程：
+         9051.7 ms  system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point   [system]
+         9051.7 ms  system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point   [system]  ← 超预算
+-- after-r4
+==> 耗时预算（单测 > 5000 ms 提示）：5712 条已量
+    ✗ 1 条超预算（> 5000 ms）—— 单测里出现这个量级，通常是在等网络/起进程：
+         9256.5 ms  system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point   [system]
+         9256.5 ms  system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point   [system]  ← 超预算
+
+== 改前改后失败名单逐条对比 ==
+（diff 为空 = 12 条既有红逐条相同，本卡 0 新增 0 消失）
