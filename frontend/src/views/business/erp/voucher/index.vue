@@ -1,122 +1,49 @@
 <template>
   <div class="voucher-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-voucher-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+    <!-- ==================== ①② 筛选 / 分页 / 批量 / 行操作交给 ListPage（P3-08） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="记账凭证"
+      testid="voucher"
+      table-testid="voucher-table"
+      meta-testid="voucher-meta"
+      btn-prefix="btn-voucher"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="pageSize"
+      :actions="{ batch: BATCH_ACTIONS }"
+      :batch-runner="runBatchAction"
+      :batch-can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+      @loaded="onLoaded"
+      @batch-done="handleBatchDone"
+      @row-click="handleRowClick"
+    >
+      <template #toolbar>
         <t-button theme="primary" data-testid="btn-voucher-create" @click="openCreate">
           <template #icon><t-icon name="add" /></template>
           新增凭证
         </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-input
-          v-model="filter.period"
-          class="tool-row__period"
-          placeholder="期间 yyyy-MM"
-          clearable
-          data-testid="voucher-filter-period"
-          @enter="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="voucher-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.voucher_type"
-          class="tool-row__type"
-          :options="typeFilterOptions"
-          placeholder="全部来源类型"
-          clearable
-          data-testid="voucher-filter-type"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.voucher_no"
-          class="tool-row__no"
-          placeholder="凭证号（模糊）"
-          clearable
-          data-testid="voucher-filter-no"
-          @enter="handleSearch"
-        />
-        <!-- E2E-FIX-5 ②：按业务单号查（退货单号 SR-… 一次查出该单的两张凭证） -->
-        <t-input
-          v-model="filter.source_doc_no"
-          class="tool-row__no"
-          placeholder="业务单号（如退货单 SR-…，精确）"
-          clearable
-          data-testid="voucher-filter-doc-no"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-voucher-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-voucher-reset" @click="handleReset">重置</t-button>
-      </div>
       <!-- O4 列表记忆：凭证按「期间 + 类型 + 状态」反复查，恢复后必须让用户看得见 -->
-      <ListMemoryBar
-        :restored="listMemoryRestored"
-        :text="listMemoryText"
-        testid="voucher-memory"
-        @clear="handleClearListMemory"
-      />
-    </t-card>
+      <template #filter-footer>
+        <ListMemoryBar
+          :restored="listMemoryRestored"
+          :text="listMemoryText"
+          testid="voucher-memory"
+          @clear="handleClearListMemory"
+        />
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">记账凭证</span>
-          <span class="panel-head__meta" data-testid="voucher-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">凭证由过账自动生成；点行看分录与借贷平衡</span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="voucher-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadVouchers()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
-      <BatchActionBar
-        :selected="selectedRows"
-        :actions="BATCH_ACTIONS"
-        :filtered-total="total"
-        :runner="runBatchAction"
-        :can="canBatchAction"
-      :fetch-all-ids="fetchAllRowIds"
-        testid="voucher-batch"
-        @update:selected="onSelectedRows"
-        @done="handleBatchDone"
-      />
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        :selected-row-keys="selectedIds"
-        data-testid="voucher-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-        @row-click="handleRowClick"
-      >
         <template #voucher_no="{ row }">
           <div class="no-cell">
             <span class="mono" :data-testid="`voucher-no-${row.voucher_no}`">
@@ -261,8 +188,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 详情抽屉（分录表 + ★ 借贷平衡） ==================== -->
     <t-drawer
@@ -773,8 +699,6 @@
 import {
   voucherBatchExport,
 } from '@/api/business/batch';
-import BatchActionBar from '@/components/BatchActionBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { exportFilterPayload } from '@/utils/batch-action';
@@ -806,6 +730,8 @@ import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import {
   fetchAccountOptions,
@@ -886,13 +812,7 @@ import { auditVoucher, postVoucher, unAuditVoucher } from './voucher-audit-api';
 
 /** 表格列（`colKey` 与 `VoucherRow` 字段同名；`source_type` / `entry_count` 不是列字段，走插槽） */
 const columns: PrimaryTableCol[] = [
-  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
-  {
-    colKey: 'row-select',
-    type: 'multiple',
-    width: 50,
-    disabled: (options: { row: unknown }) => !isSelectable(options.row as VoucherRowEx),
-  },
+  // D7 勾选列由 ListPage 补（`actions.batch` 声明后自动挂，判据与改造前同一个 `useBatchSelection`）
   { colKey: 'voucher_no', title: '凭证号', width: 230 },
   { colKey: 'voucher_date', title: '日期', width: 90 },
   { colKey: 'period', title: '期间', width: 100 },
@@ -921,14 +841,61 @@ const entryColumns: PrimaryTableCol[] = [
 const statusFilterOptions = VOUCHER_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
 const typeFilterOptions = VOUCHER_TYPE_FILTER_OPTIONS.map((item) => ({ ...item }));
 
+/**
+ * 筛选项声明。
+ *
+ * 五个控件改造前**各自**绑在 `filter` 上，状态 / 类型是「值一变就查」（`@change="handleSearch"`）、
+ * 三个输入框走回车 —— 手感与改造前一致，只换成声明式。
+ */
+const filters: FilterDef[] = [
+  {
+    key: 'period',
+    type: 'keyword',
+    placeholder: '期间 yyyy-MM',
+    width: 120,
+    testid: 'voucher-filter-period',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 120,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'voucher-filter-status',
+  },
+  {
+    key: 'voucher_type',
+    type: 'select',
+    placeholder: '全部来源类型',
+    width: 150,
+    options: typeFilterOptions,
+    searchOnChange: true,
+    testid: 'voucher-filter-type',
+  },
+  {
+    key: 'voucher_no',
+    type: 'keyword',
+    placeholder: '凭证号（模糊）',
+    width: 170,
+    testid: 'voucher-filter-no',
+  },
+  // E2E-FIX-5 ②：按业务单号查（退货单号 SR-… 一次查出该单的两张凭证）
+  {
+    key: 'source_doc_no',
+    type: 'keyword',
+    placeholder: '业务单号（精确）',
+    width: 200,
+    testid: 'voucher-filter-doc-no',
+  },
+];
+
 // ==================== 列表 ====================
 
 const router = useRouter();
 const route = useRoute();
 
 const filter = reactive<VoucherFilterState>(emptyVoucherFilter());
-const rows = ref<VoucherRowEx[]>([]);
-const total = ref(0);
 
 // ==================== 批量操作（D7） ====================
 
@@ -976,8 +943,6 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   export: 'business:impexp:export:create',
 };
 
-const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
-  useBatchSelection(BATCH_ACTIONS, rows);
 
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
@@ -1020,12 +985,14 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
 
 /** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
 function handleBatchDone(): void {
-  void loadVouchers(1);
+  void reloadList(1);
 }
+/** 当前页（镜像；列表记忆恢复的页码要作用到首屏，批量完回第 1 页） */
 const current = ref(1);
+/** 每页条数（列表记忆与入参拼装共用） */
 const pageSize = VOUCHER_PAGE_SIZE;
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（批量完 / 深链 / 审核后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /**
  * 列表记忆（O4）：期间 / 状态 / 类型 / 凭证号 + 页码。
@@ -1044,14 +1011,6 @@ const {
 });
 
 const filtered = computed(() => isVoucherFiltered(filter));
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 /** 错误 → 文案 */
 function messageOf(error: unknown): string {
@@ -1073,35 +1032,33 @@ function messageOf(error: unknown): string {
  * （不是本人发起 / 参与的就查不到）—— 于是「能看凭证列表但没参与过红冲审批」的账号
  * 看不到徽标。换成后端字段后，只要能看到凭证列表就能看到徽标，且一次请求都不多发。
  */
-async function loadVouchers(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchVoucherPage(buildVoucherQuery(filter, page, pageSize));
-    // 后端多给 `reverse_of_no` / `reversed_by_no`（P7）、`pending_reverse_instance_id` /
-    // `reverse_reason`（P-FLOW-3B）；api 层的 VoucherRow 还没声明（那个文件是全 ERP 共用契约，
-    // 本卡不动），这里按扩展类型收。
-    rows.value = (data.list ?? []) as VoucherRowEx[];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
+/**
+ * 拉一页（列进 ListPage 的 `fetcher`）。
+ *
+ * 「红冲审批中」直接读后端下发的 `pending_reverse_instance_id`（P-FLOW-3B 补漏后
+ * `voucher_query.rs::VoucherRes` 的**列表 / 详情 / 红冲回执三处都下发**，不审批时是
+ * `null`、字段恒在），所以前端不需要自己倒查审批实例。
+ */
+const fetcher: ListFetcher<VoucherRowEx> = async (query) => {
+  const data = await fetchVoucherPage(query as Parameters<typeof fetchVoucherPage>[0]);
+  // 后端多给 `reverse_of_no` / `reversed_by_no`（P7）、`pending_reverse_instance_id` /
+  // `reverse_reason`（P-FLOW-3B）；api 层的 VoucherRow 还没声明（那个文件是全 ERP 共用契约，
+  // 本卡不动），这里按扩展类型收。
+  return { ...data, list: (data.list ?? []) as VoucherRowEx[] };
+};
+
+/** 入参拼装（页面自己的 `buildVoucherQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, size) =>
+  buildVoucherQuery(state as VoucherFilterState, page, size);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function handleSearch(): void {
-  void loadVouchers(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyVoucherFilter());
-  void loadVouchers(1);
+/** 一页拉完：同步页码（列表记忆 / 批量完回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
 /** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
@@ -1109,16 +1066,7 @@ function handleClearListMemory(): void {
   Object.assign(filter, emptyVoucherFilter());
   current.value = 1;
   forgetListMemory();
-  void loadVouchers(1);
-}
-
-function refresh(): void {
-  void loadVouchers();
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current?: number }): void {
-  void loadVouchers(pageInfo.current ?? 1);
+  void reloadList(1);
 }
 
 /** 行点击 → 详情（TDesign 给的是 `RowEventContext`，不是 row 本体） */
@@ -1456,7 +1404,7 @@ function applyAuditResult(action: VoucherAuditAction, target: VoucherAuditable, 
   if (detail.value?.id === updated.id) {
     detail.value = normalizePendingReverse(updated);
   }
-  void loadVouchers();
+  void reloadList();
 }
 
 // ==================== 红冲（P7 → P-FLOW-3B 走审批） ====================
@@ -1526,7 +1474,7 @@ async function submitReverse(): Promise<void> {
       detailVisible.value = true;
       approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
     }
-    void loadVouchers();
+    void reloadList();
   } catch (error) {
     reverseError.value = messageOf(error);
   } finally {
@@ -1578,7 +1526,7 @@ async function doWithdrawReverse(row: { id: string; voucher_no: string }): Promi
       // C2：审批单没了 → 进度区跟着消失（不留上一张审批单的节点）
       approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
     }
-    void loadVouchers();
+    void reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -1905,7 +1853,7 @@ async function submitCreate(): Promise<void> {
     const created = await createVoucher(body);
     createVisible.value = false;
     void MessagePlugin.success(`已生成草稿 ${created.voucher_no}，待审核`);
-    void loadVouchers(1);
+    void reloadList(1);
     detail.value = created;
     detailVisible.value = true;
   } catch (error) {
@@ -1916,26 +1864,24 @@ async function submitCreate(): Promise<void> {
 }
 
 /**
- * 深链：`/business/erp/voucher?voucher_no=PZ-…`（D5 F3：应付单付款记录里的「凭证 PZ-xxx」点过来）。
+ * 深链 `?voucher_no=…`（D5 F3：应付单付款记录里的「凭证 PZ-xxx」点过来）。
  *
- * 只预填「凭证号」这一个筛选项（后端 `LIKE %x%`，付款凭证号的唯一前缀已经足够定位），
- * 打开后把 query 清掉，免得刷新页面又把筛选项改回去。
+ * 筛选**在 setup 里**先落进 `filter`：父组件的 setup 早于子组件（ListPage）的 setup，
+ * 所以首屏那一拉就是带筛选的 —— 不需要「先拉全量再拉一次」，也没有两次请求谁后到的竞态。
+ * query 用完就清掉（刷新页面不该又把筛选项改回去）。
  */
-async function openByQuery(): Promise<void> {
-  const no = typeof route.query.voucher_no === 'string' ? route.query.voucher_no.trim() : '';
-  if (!no) {
-    return;
-  }
-  filter.voucher_no = no;
-  await loadVouchers(1);
-  const rest = { ...route.query };
-  delete rest.voucher_no;
-  void router.replace({ path: route.path, query: rest });
+const deepLinkVoucherNo = typeof route.query.voucher_no === 'string' ? route.query.voucher_no.trim() : '';
+if (deepLinkVoucherNo) {
+  filter.voucher_no = deepLinkVoucherNo;
 }
 
 onMounted(() => {
-  // 列表记忆恢复的页码要在首次加载就生效
-  void loadVouchers(current.value).then(() => openByQuery());
+  if (!deepLinkVoucherNo) {
+    return;
+  }
+  const rest = { ...route.query };
+  delete rest.voucher_no;
+  void router.replace({ path: route.path, query: rest });
 });
 </script>
 

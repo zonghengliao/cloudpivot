@@ -9,7 +9,9 @@
 
   # 页面只声明五样东西
 
-  `title` / `columns` / `fetcher` / `filters` / `actions`（`exportable` 可选）——
+  `title` / `columns` / `fetcher` / `filters` / `actions`（`exportable` 可选），
+  另加三个「布局/口径」小开关：`rowKey`（行主键字段，总账流水用「凭证+行号」）、
+  `metaUnit`（「共 N **条/张/个**」的量词）、`rowClassName`（给行上色，如会计期间标「当月」）。
   抽屉、弹窗、附件面板、导入按钮都走插槽，组件不猜业务。
 
   # 插槽
@@ -163,7 +165,7 @@
         <div class="panel-head__main">
           <span class="panel-head__title">{{ title }}</span>
           <span class="panel-head__meta" :data-testid="metaTestid">
-            共 {{ total }} 条<slot name="meta-extra" :rows="rows" :total="total" />
+            共 {{ total }} {{ metaUnit }}<slot name="meta-extra" :rows="rows" :total="total" />
           </span>
         </div>
         <slot name="head-extra" :rows="rows" :total="total" />
@@ -189,12 +191,13 @@
       />
 
       <t-table
-        row-key="id"
+        :row-key="rowKey"
         :data="rows"
         :columns="tableColumns"
         :loading="loading"
         :pagination="pagination"
         :hover="true"
+        :row-class-name="rowClassName"
         :selected-row-keys="selectionReady ? selectedIds : undefined"
         :data-testid="tableTestid"
         @page-change="handlePageChange"
@@ -326,12 +329,34 @@ const props = withDefaults(
     pageSize?: number;
     /** 分页器是否允许改每页条数 */
     showPageSize?: boolean;
+    /**
+     * 行 class（透传给 `t-table` 的 `row-class-name`）。
+     *
+     * 唯一用途是**跨组件还能给行上色**：会计期间页要标「当月」那一行，
+     * class 由 t-table 挂到 `<tr>` 上，页面用 `:deep(.period-row--current)` 上底色。
+     */
+    rowClassName?: (ctx: { row: any }) => string;
     /** 组件根 testid（默认 `listpage`） */
     testid?: string;
     /** 表格 testid（默认 `${testid}-table`） */
     tableTestid?: string;
+    /**
+     * 行主键字段（默认 `id`）。
+     *
+     * 绝大多数 ERP 列表的主键就是 `id`；总账流水的行主键是「凭证 + 行号」
+     * （同一张凭证有多行，`voucher_id` 不唯一），页面在 `fetcher` 里拼一个 `rowKey` 字段传进来，
+     * 否则 t-table 会把同凭证的第二行当成重复 key。
+     */
+    rowKey?: string;
     /** 「共 N 条」testid（默认 `${testid}-meta`） */
     metaTestid?: string;
+    /**
+     * 「共 N **条**」的量词。
+     *
+     * 财务口径里「期间」论个、「资产卡片」论张 —— 统一成「条」读着别扭，
+     * 而「共 N …」是页头唯一的计数说明，量词让页面自己定。
+     */
+    metaUnit?: string;
     /** 查询/重置/刷新/导出按钮的 testid 前缀（默认 `${testid}`） */
     btnPrefix?: string;
   }>(),
@@ -349,9 +374,12 @@ const props = withDefaults(
     exportTask: undefined,
     pageSize: 20,
     showPageSize: false,
+    rowClassName: undefined,
     testid: 'listpage',
     tableTestid: undefined,
+    rowKey: 'id',
     metaTestid: undefined,
+    metaUnit: '条',
     btnPrefix: undefined,
   },
 );

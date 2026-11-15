@@ -1,17 +1,28 @@
 <template>
   <div class="period-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-period-refresh" @click="loadPeriods()">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
-
-        <!--
-          ★ ERP-P1：开账 / 批量开账 / 行内结账与反结账**按权限码渲染**。
-          无权限 = 不渲染（不是 disabled）：这三个动作本来就不该出现在没权限的人眼前。
-        -->
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-08） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="会计期间"
+      testid="period"
+      table-testid="period-table"
+      meta-testid="period-meta"
+      meta-unit="个"
+      btn-prefix="btn-period"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      :row-class-name="rowClassName"
+      @loaded="onLoaded"
+    >
+      <!--
+        开账 / 批量开账**按权限码渲染**：无权限 = 不渲染（不是 disabled）——
+        这两个动作本来就不该出现在没权限的人眼前。
+      -->
+      <template #toolbar>
         <template v-if="canOpen">
           <t-button theme="primary" data-testid="btn-period-open" @click="openOpenDialog">
             <template #icon><t-icon name="add" /></template>
@@ -21,155 +32,137 @@
             批量开账
           </t-button>
         </template>
+      </template>
 
-        <span class="tool-row__spacer" />
-
+      <!--
+        年份 / 状态下拉**自绘**：`filter` 里「全部」是 `null` / `''`（与后端 `Option<T>` 同构，
+        `period-logic` 的单测按它写），而 `t-select` 的 v-model 不收 `null` ——
+        声明式控件清空时会写进 `undefined`，`isPeriodFiltered` 就误判成「筛选中」。
+        这里只换渲染不换语义：两个双向 computed 桥接，值仍落在 `filter` 上。
+      -->
+      <template #filter-period_year>
         <t-select
           v-model="yearModel"
-          class="tool-row__year"
+          class="period-filter"
           :options="yearOptions"
           placeholder="全部年份"
           clearable
           data-testid="period-filter-year"
           @change="handleSearch"
         />
+      </template>
+
+      <template #filter-status>
         <t-select
           v-model="statusModel"
-          class="tool-row__status"
+          class="period-filter"
           :options="statusOptions"
           placeholder="全部状态"
           clearable
           data-testid="period-filter-status"
           @change="handleSearch"
         />
-        <t-button theme="primary" data-testid="btn-period-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-period-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 期间列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">会计期间</span>
-          <span class="panel-head__meta" data-testid="period-meta">共 {{ total }} 个期间</span>
-        </div>
-        <span class="panel-head__tip" data-testid="period-action-tip">
-          {{ actionTip }}
+      <!-- 接口未注册（404）：降级成信息条 + 空态，不染红 -->
+      <template #filter-footer>
+        <t-alert
+          v-if="apiMissing"
+          theme="info"
+          message="会计期间接口尚未上线"
+          class="list-alert"
+          data-testid="period-api-missing"
+        >
+          <template #description>
+            <span class="mono">GET /api/business/erp/period/page</span> 返回 404。接口上线后本页无需改动。
+          </template>
+        </t-alert>
+      </template>
+
+      <!-- 页头右侧：按当前账号的权限说清「能做什么」 -->
+      <template #head-extra>
+        <span class="panel-head__tip" data-testid="period-action-tip">{{ actionTip }}</span>
+      </template>
+
+      <!-- 「共 N 个期间」：量词「个」由 meta-unit 给，名词留在同一条计数里 -->
+      <template #meta-extra>期间</template>
+
+      <template #period_code="{ row }">
+        <span class="mono period-code" :data-testid="`period-code-${row.period_code}`">
+          {{ row.period_code }}
         </span>
-      </div>
+        <t-tag
+          v-if="isCurrentPeriodRow(row)"
+          size="small"
+          variant="light"
+          theme="primary"
+          class="current-tag"
+          data-testid="period-current-mark"
+        >
+          当月
+        </t-tag>
+      </template>
 
-      <t-alert
-        v-if="apiMissing"
-        theme="info"
-        message="会计期间接口尚未上线"
-        class="list-alert"
-        data-testid="period-api-missing"
-      >
-        <template #description>
-          <span class="mono">GET /api/business/erp/period/page</span> 返回 404。接口上线后本页无需改动。
-        </template>
-      </t-alert>
+      <template #range="{ row }">
+        <span class="muted" :data-testid="`period-range-${row.period_code}`">{{ periodRangeText(row) }}</span>
+        <span class="muted days">（{{ periodDays(row) }} 天）</span>
+      </template>
 
-      <t-alert
-        v-else-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="period-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadPeriods()">重试</t-button>
-        </template>
-      </t-alert>
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          variant="light"
+          :theme="periodStatusTheme(row.status)"
+          :data-testid="`period-status-${row.period_code}`"
+        >
+          {{ periodStatusLabel(row.status) }}
+        </t-tag>
+      </template>
 
-      <t-table
-        v-if="rows.length > 0 || loading"
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :row-class-name="rowClassName"
-        hover
-        data-testid="period-table"
-        @page-change="handlePageChange"
-      >
-        <template #period_code="{ row }">
-          <span class="mono period-code" :data-testid="`period-code-${row.period_code}`">
-            {{ row.period_code }}
-          </span>
-          <t-tag
-            v-if="isCurrentPeriodRow(row)"
-            size="small"
-            variant="light"
+      <template #closed_at="{ row }">
+        <span class="muted" :data-testid="`period-closed-${row.period_code}`">{{ closedAtText(row) }}</span>
+      </template>
+
+      <template #op="{ row }">
+        <div class="op-row">
+          <t-link
+            v-if="rowAction(row) === 'open' && canOpen"
             theme="primary"
-            class="current-tag"
-            data-testid="period-current-mark"
+            :data-testid="`btn-period-open-${row.period_code}`"
+            @click="runOpenOne(row)"
           >
-            当月
-          </t-tag>
-        </template>
-
-        <template #range="{ row }">
-          <span class="muted" :data-testid="`period-range-${row.period_code}`">{{ periodRangeText(row) }}</span>
-          <span class="muted days">（{{ periodDays(row) }} 天）</span>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag
-            size="small"
-            variant="light"
-            :theme="periodStatusTheme(row.status)"
-            :data-testid="`period-status-${row.period_code}`"
+            开账
+          </t-link>
+          <t-link
+            v-if="rowAction(row) === 'close' && canClose"
+            theme="danger"
+            :data-testid="`btn-period-close-${row.period_code}`"
+            @click="openCloseDialog(row)"
           >
-            {{ periodStatusLabel(row.status) }}
-          </t-tag>
-        </template>
+            结账
+          </t-link>
+          <t-link
+            v-if="rowAction(row) === 'reopen' && canReopen"
+            theme="warning"
+            :data-testid="`btn-period-reopen-${row.period_code}`"
+            @click="openReopenDialog(row)"
+          >
+            反结账
+          </t-link>
+          <span v-if="!hasRowAction(row)" class="muted">—</span>
+        </div>
+      </template>
 
-        <template #closed_at="{ row }">
-          <span class="muted" :data-testid="`period-closed-${row.period_code}`">{{ closedAtText(row) }}</span>
-        </template>
-
-        <template #op="{ row }">
-          <div class="op-row">
-            <t-link
-              v-if="rowAction(row) === 'open' && canOpen"
-              theme="primary"
-              :data-testid="`btn-period-open-${row.period_code}`"
-              @click="runOpenOne(row)"
-            >
-              开账
-            </t-link>
-            <t-link
-              v-if="rowAction(row) === 'close' && canClose"
-              theme="danger"
-              :data-testid="`btn-period-close-${row.period_code}`"
-              @click="openCloseDialog(row)"
-            >
-              结账
-            </t-link>
-            <t-link
-              v-if="rowAction(row) === 'reopen' && canReopen"
-              theme="warning"
-              :data-testid="`btn-period-reopen-${row.period_code}`"
-              @click="openReopenDialog(row)"
-            >
-              反结账
-            </t-link>
-            <span v-if="!hasRowAction(row)" class="muted">—</span>
-          </div>
-        </template>
-      </t-table>
-
-      <div v-else class="panel-empty" data-testid="period-empty">
-        <t-icon name="calendar" class="panel-empty__icon" />
-        <p class="panel-empty__title">{{ filtered ? '没有匹配的会计期间' : '暂无会计期间' }}</p>
-        <p class="panel-empty__desc">
-          {{ filtered ? '换个年份或状态再试' : emptyHint }}
-        </p>
-      </div>
-    </t-card>
+      <template #empty>
+        <div class="panel-empty" data-testid="period-empty">
+          <t-icon name="calendar" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的会计期间' : '暂无会计期间' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个年份或状态再试' : emptyHint }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 开账弹窗 ==================== -->
     <t-dialog
@@ -365,6 +358,8 @@ import {
   type PeriodRemindResult,
 } from '@/api/business/erp';
 import CloseCheckPanel from './CloseCheckPanel.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useUserStore } from '@/stores/user';
 import {
   MIN_REOPEN_REASON_CHARS,
@@ -404,6 +399,17 @@ const columns: PrimaryTableCol[] = [
 
 const statusOptions = PERIOD_STATUS_OPTIONS.map((item) => ({ ...item }));
 
+/**
+ * 筛选项声明。
+ *
+ * 两个控件 `type: 'custom'`：值写回走页面自己的桥（见模板注释），
+ * `defaultValue` 让组件「重置」写回 `null` / `''` 而不是 `undefined`。
+ */
+const filters: FilterDef[] = [
+  { key: 'period_year', type: 'custom', defaultValue: null },
+  { key: 'status', type: 'custom', defaultValue: '' },
+];
+
 /** 月份下拉 1–12 */
 const monthOptions = Array.from({ length: 12 }, (_, index) => ({
   value: index + 1,
@@ -431,13 +437,19 @@ const statusModel = computed<string | undefined>({
   },
 });
 
+/**
+ * 行数据（镜像 ListPage 抛回来的这一页）。
+ *
+ * 唯一用途是**年份下拉的选项**：期间是逐月建的，没建过的年份选了也是空列表，
+ * 所以选项只铺「数据里出现过的年份 + 当前年」，不从 1970 铺到 2100。
+ */
 const rows = ref<AccountPeriodRow[]>([]);
-const total = ref(0);
+/** 最近一次进过第几页（开账 / 结账后回原页刷；由 `@loaded` 同步） */
 const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
 /** 接口未注册（404）：不报红，改成信息条 + 空态 */
 const apiMissing = ref(false);
+/** ListPage 实例（开账 / 结账 / 反结账之后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 年份下拉：数据里出现过的年份 + 当前年，倒序 */
 const yearOptions = computed(() =>
@@ -445,14 +457,6 @@ const yearOptions = computed(() =>
 );
 
 const filtered = computed(() => isPeriodFiltered(filter));
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 // ==================== 权限 ====================
 
@@ -587,42 +591,44 @@ function hasRowAction(row: AccountPeriodRow): boolean {
   return canRunPeriodAction(row.status, (code) => userStore.hasPermission(code));
 }
 
-/** 拉列表 */
-async function loadPeriods(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
+/**
+ * 拉一页。
+ *
+ * 404（接口没注册）在这里**就地降级**成「空页 + 信息条」：ListPage 的兜底是红条 + 重试，
+ * 而「接口尚未上线」不是错误态 —— 红条会让财务以为系统坏了。
+ */
+const fetcher: ListFetcher<AccountPeriodRow> = async (query) => {
   try {
-    const data = await fetchPeriodPage(buildPeriodQuery(filter, page, PAGE_SIZE));
+    const data = await fetchPeriodPage(query as Parameters<typeof fetchPeriodPage>[0]);
     apiMissing.value = false;
-    rows.value = data.list ?? [];
-    total.value = data.total ?? rows.value.length;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / PAGE_SIZE));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
+    return data;
   } catch (error) {
-    rows.value = [];
-    total.value = 0;
     apiMissing.value = isApiMissing(error);
-    loadError.value = apiMissing.value ? '' : messageOf(error);
-  } finally {
-    loading.value = false;
+    if (apiMissing.value) {
+      return { list: [], total: 0, page: 1, page_size: PAGE_SIZE };
+    }
+    throw error;
   }
+};
+
+/** 入参拼装（页面自己的 `buildPeriodQuery`，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildPeriodQuery(state as PeriodFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：镜像行 / 页码 */
+function onLoaded(payload: { rows: AccountPeriodRow[]; page: number }): void {
+  rows.value = payload.rows;
+  current.value = payload.page;
 }
 
 /** 查询：条件变了回第 1 页（否则在第 3 页筛选出 1 条会看到空表） */
 function handleSearch(): void {
-  void loadPeriods(1);
-}
-
-/** 重置 */
-function handleReset(): void {
-  Object.assign(filter, emptyPeriodFilter());
-  void loadPeriods(1);
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  void loadPeriods(pageInfo.current);
+  void reloadList(1);
 }
 
 // ---------- 开账 ----------
@@ -650,7 +656,7 @@ async function submitOpen(): Promise<void> {
     });
     MessagePlugin.success(`会计期间 ${row.period_code} 已开账（${row.start_date} ~ ${row.end_date}）`);
     openDialog.visible = false;
-    await loadPeriods(1);
+    await reloadList(1);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -671,7 +677,7 @@ async function runOpenOne(row: AccountPeriodRow): Promise<void> {
   try {
     const updated = await openPeriod({ period_year: row.period_year, period_month: row.period_month });
     MessagePlugin.success(`会计期间 ${updated.period_code} 已开账`);
-    await loadPeriods();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   }
@@ -711,7 +717,7 @@ async function submitBatch(): Promise<void> {
     const skipped = result.skipped_count > 0 ? `，跳过 ${result.skipped_count} 个已存在的期间` : '';
     MessagePlugin.success(`已开账 ${result.created_count} 个期间${skipped}`);
     batchDialog.visible = false;
-    await loadPeriods(1);
+    await reloadList(1);
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -787,7 +793,7 @@ async function submitClose(): Promise<void> {
     const row = await closePeriod(closeDialog.id, closeDialog.reason.trim() || undefined);
     MessagePlugin.success(`会计期间 ${row.period_code} 已结账`);
     closeDialog.visible = false;
-    await loadPeriods();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(messageOf(error));
   } finally {
@@ -825,7 +831,7 @@ async function submitReopen(): Promise<void> {
     const row = await reopenPeriod(reopenDialog.id, reopenDialog.reason.trim());
     MessagePlugin.success(`会计期间 ${row.period_code} 已反结账，回到「已开启」`);
     reopenDialog.visible = false;
-    await loadPeriods();
+    await reloadList();
   } catch (error) {
     reopenDialog.error = messageOf(error);
     MessagePlugin.error(messageOf(error));
@@ -835,7 +841,7 @@ async function submitReopen(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadPeriods(1);
+  void reloadList(1);
 });
 </script>
 
@@ -846,37 +852,14 @@ onMounted(() => {
   gap: 12px;
 }
 
-/* ==================== 工具栏 ==================== */
+/* ==================== 筛选行 ==================== */
 
-.tool-card {
-  flex: 0 0 auto;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
-.tool-row__year {
-  width: 140px;
-}
-
-.tool-row__status {
+/* 年份 / 状态下拉（`#filter-period_year` / `#filter-status` 里的控件） */
+.period-filter {
   width: 140px;
 }
 
 /* ==================== 列表 ==================== */
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
 
 .panel-head {
   display: flex;

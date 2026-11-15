@@ -1,89 +1,81 @@
 <template>
   <div class="ledger-page">
-    <t-card :bordered="false" class="list-card">
-      <t-tabs v-model="activeTab" data-testid="ledger-tabs">
-        <!-- ==================== Tab 1：总账（流水账） ==================== -->
-        <t-tab-panel value="ledger" label="总账（流水）">
-          <div class="tool-row">
-            <t-button variant="outline" data-testid="btn-ledger-refresh" @click="refreshLedger">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
+    <!--
+      两个 Tab 各自成页：Tab1 是服务端分页的流水（交给 ListPage），Tab2 是一次拉全量的报表
+      （没有分页，只包一层卡片）。所以 tabs 提到页面级，卡片各归各的 —— 别在卡片里再套两层卡片。
+    -->
+    <t-tabs v-model="activeTab" data-testid="ledger-tabs" class="ledger-tabs">
+      <!-- ==================== Tab 1：总账（流水账） ==================== -->
+      <t-tab-panel value="ledger" label="总账（流水）">
+          <ListPage
+            ref="listRef"
+            title="科目流水"
+            testid="ledger"
+            table-testid="ledger-table"
+            meta-testid="ledger-meta"
+            btn-prefix="btn-ledger"
+            row-key="rowKey"
+            :columns="ledgerColumns"
+            :filters="filtersWithOptions"
+            :filter-state="ledgerFilter"
+            :fetcher="fetcher"
+            :query-builder="queryBuilder"
+            :page-size="ledgerPageSize"
+            @loaded="onLoaded"
+            @reset="handleLedgerReset"
+          >
+            <!--
+              区间非法 / 没选科目时的提示：不发请求，只在筛选条下方说一句
+              （原来这两条判据在 `loadLedger` 里，现在由 `ledgerHint` 从 `filter` 推导出来 ——
+              少一份「什么时候该报什么」的镜像状态）。
+            -->
+            <template #filter-footer>
+              <t-alert
+                v-if="ledgerHint"
+                theme="info"
+                :message="ledgerHint"
+                class="list-alert"
+                data-testid="ledger-hint"
+              />
+            </template>
 
-            <t-select
-              v-model="ledgerFilter.account_id"
-              class="tool-row__account"
-              :options="accountOptions"
-              placeholder="选择科目（必填）"
-              filterable
-              clearable
-              data-testid="ledger-filter-account"
-              @change="handleLedgerSearch"
-            />
-            <t-input
-              v-model="ledgerFilter.period_from"
-              class="tool-row__period"
-              placeholder="起始 yyyy-MM"
-              clearable
-              data-testid="ledger-filter-from"
-              @enter="handleLedgerSearch"
-            />
-            <span class="tool-row__sep">到</span>
-            <t-input
-              v-model="ledgerFilter.period_to"
-              class="tool-row__period"
-              placeholder="结束 yyyy-MM"
-              clearable
-              data-testid="ledger-filter-to"
-              @enter="handleLedgerSearch"
-            />
-            <t-button theme="primary" data-testid="btn-ledger-search" @click="handleLedgerSearch">查询</t-button>
-            <t-button variant="outline" data-testid="btn-ledger-reset" @click="handleLedgerReset">重置</t-button>
-          </div>
+            <!-- 起止期间两格 + 「到」连成一个 flex 项：拆开换行会把「起始 / 到 / 结束」排成两行 -->
+            <template #filter-period_from>
+              <span class="ledger-range">
+                <t-input
+                  v-model="ledgerFilter.period_from"
+                  class="tool-row__period"
+                  placeholder="起始 yyyy-MM"
+                  clearable
+                  data-testid="ledger-filter-from"
+                  @enter="applyFilter"
+                />
+                <span class="tool-row__sep">到</span>
+                <t-input
+                  v-model="ledgerFilter.period_to"
+                  class="tool-row__period"
+                  placeholder="结束 yyyy-MM"
+                  clearable
+                  data-testid="ledger-filter-to"
+                  @enter="applyFilter"
+                />
+              </span>
+            </template>
 
-          <div class="panel-head">
-            <div class="panel-head__main">
-              <span class="panel-head__title">
-                科目流水<span v-if="currentAccountText" class="panel-head__account" data-testid="ledger-current-account">
+            <template #head-extra>
+              <span class="panel-head__side">
+                <span
+                  v-if="currentAccountText"
+                  class="panel-head__account"
+                  data-testid="ledger-current-account"
+                >
                   · {{ currentAccountText }}
                 </span>
+                <!-- 逐行余额是「本页内」的净额累加（第一行含本页之前所有行），别说成「期初余额」 -->
+                <span class="panel-head__tip">余额 = 本页内逐行净额累加（不含期初，期初看「科目余额表」）</span>
               </span>
-              <span class="panel-head__meta" data-testid="ledger-meta">共 {{ ledgerTotal }} 条</span>
-            </div>
-            <!-- 逐行余额是「本页内」的净额累加（第一行含本页之前所有行），别说成「期初余额」 -->
-            <span class="panel-head__tip">余额 = 本页内逐行净额累加（不含期初，期初看「科目余额表」）</span>
-          </div>
-
-          <t-alert
-            v-if="ledgerError"
-            theme="error"
-            :message="ledgerError"
-            class="list-alert"
-            data-testid="ledger-load-error"
-          >
-            <template #operation>
-              <t-button size="small" variant="outline" @click="loadLedger()">重试</t-button>
             </template>
-          </t-alert>
 
-          <t-alert
-            v-if="ledgerHint"
-            theme="info"
-            :message="ledgerHint"
-            class="list-alert"
-            data-testid="ledger-hint"
-          />
-
-          <t-table
-            row-key="rowKey"
-            :data="ledgerRows"
-            :columns="ledgerColumns"
-            :loading="ledgerLoading"
-            :pagination="ledgerPagination"
-            hover
-            data-testid="ledger-table"
-            @page-change="handleLedgerPageChange"
-          >
             <template #voucher_date="{ row }">
               <span class="muted">{{ shortDate(row.voucher_date) }}</span>
             </template>
@@ -129,28 +121,31 @@
                 </p>
               </div>
             </template>
-          </t-table>
 
-          <!-- 本页合计 + ★ 余额自洽校验 -->
-          <div class="footer-row" data-testid="ledger-footer">
-            <span class="footer-row__label">本页合计</span>
-            <span class="footer-row__money money" data-testid="ledger-footer-debit">
-              {{ formatCents(ledgerTotals.debitCents) }}
-            </span>
-            <span class="footer-row__money money" data-testid="ledger-footer-credit">
-              {{ formatCents(ledgerTotals.creditCents) }}
-            </span>
-            <span class="footer-row__verdict" :class="ledgerConsistent ? 'footer-row__verdict--ok' : 'footer-row__verdict--bad'">
-              <t-icon :name="ledgerConsistent ? 'check-circle-filled' : 'error-circle-filled'" />
-              <span data-testid="ledger-footer-verdict">
-                {{ ledgerConsistent ? '逐行余额自洽' : `余额断点 ${ledgerBreakCount} 处` }}
-              </span>
-            </span>
-          </div>
-        </t-tab-panel>
+            <!-- 本页合计 + ★ 余额自洽校验 -->
+            <template #footer>
+              <div class="footer-row" data-testid="ledger-footer">
+                <span class="footer-row__label">本页合计</span>
+                <span class="footer-row__money money" data-testid="ledger-footer-debit">
+                  {{ formatCents(ledgerTotals.debitCents) }}
+                </span>
+                <span class="footer-row__money money" data-testid="ledger-footer-credit">
+                  {{ formatCents(ledgerTotals.creditCents) }}
+                </span>
+                <span class="footer-row__verdict" :class="ledgerConsistent ? 'footer-row__verdict--ok' : 'footer-row__verdict--bad'">
+                  <t-icon :name="ledgerConsistent ? 'check-circle-filled' : 'error-circle-filled'" />
+                  <span data-testid="ledger-footer-verdict">
+                    {{ ledgerConsistent ? '逐行余额自洽' : `余额断点 ${ledgerBreakCount} 处` }}
+                  </span>
+                </span>
+              </div>
+            </template>
+          </ListPage>
+      </t-tab-panel>
 
-        <!-- ==================== Tab 2：科目余额表 ==================== -->
-        <t-tab-panel value="trial" label="科目余额表">
+      <!-- ==================== Tab 2：科目余额表 ==================== -->
+      <t-tab-panel value="trial" label="科目余额表">
+        <t-card :bordered="false" class="list-card">
           <div class="tool-row">
             <t-button variant="outline" data-testid="btn-trial-refresh" @click="refreshTrial">
               <template #icon><t-icon name="refresh" /></template>
@@ -256,9 +251,9 @@
               formatCents(totals.closingCreditCents)
             }}
           </p>
-        </t-tab-panel>
-      </t-tabs>
-    </t-card>
+        </t-card>
+      </t-tab-panel>
+    </t-tabs>
   </div>
 </template>
 
@@ -312,6 +307,8 @@ import {
   type LedgerFilterState,
 } from './ledger-logic';
 import { dash, formatCents, formatMoney, shortDate, toCents } from '../shared/money';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 
 /** 当前 Tab（`ledger` = 流水，`trial` = 余额表） */
 const activeTab = ref<'ledger' | 'trial'>('ledger');
@@ -360,27 +357,47 @@ function messageOf(error: unknown): string {
 // ==================== Tab1：流水 ====================
 
 const ledgerFilter = reactive<LedgerFilterState>(emptyLedgerFilter());
+/** 本页行（镜像；页脚合计与逐行余额自洽校验都在这上面算） */
 const ledgerRowsRaw = ref<LedgerRow[]>([]);
 const ledgerTotal = ref(0);
 const ledgerCurrent = ref(1);
 const ledgerPageSize = LEDGER_PAGE_SIZE;
-const ledgerLoading = ref(false);
-const ledgerError = ref('');
-/** 未选科目 / 区间非法时的提示（不发请求） */
-const ledgerHint = ref('');
+/** ListPage 实例（切 Tab / 改筛选后重拉由组件自己做，这里只给别处用） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-/** 行 key：同一张凭证可能有多行（`voucher_id` 不唯一），必须拼 `line_no` */
-const ledgerRows = computed(() =>
-  ledgerRowsRaw.value.map((row) => ({ ...row, rowKey: `${row.voucher_id}-${row.line_no}` })),
+/**
+ * 筛选项声明。
+ *
+ * 科目下拉是声明式（清空 = `undefined`，`buildLedgerQuery` 判的是 falsy，语义不变）；
+ * 起止期间两格 + 中间那个「到」必须连在一起不换行，所以走 `custom` 自绘一个槽 ——
+ * `period_to` 也声明一份（值在同一个槽里读写），否则组件「重置」不知道要清它。
+ */
+const filters: FilterDef[] = [
+  {
+    key: 'account_id',
+    type: 'select',
+    placeholder: '选择科目（必填）',
+    width: 240,
+    options: accountOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'ledger-filter-account',
+  },
+  { key: 'period_from', type: 'custom', defaultValue: '' },
+  { key: 'period_to', type: 'custom', defaultValue: '' },
+];
+
+/** 科目下拉（异步拉到后要跟着变，所以用 computed 挂到 filters 上） */
+const filtersWithOptions = computed<FilterDef[]>(() =>
+  filters.map((def) => (def.key === 'account_id' ? { ...def, options: accountOptions.value } : def)),
 );
 
-const ledgerPagination = computed(() => ({
-  current: ledgerCurrent.value,
-  pageSize: ledgerPageSize,
-  total: ledgerTotal.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 行 key：同一张凭证可能有多行（`voucher_id` 不唯一），必须拼 `line_no`。
+ *
+ * 在 `fetcher` 里就拼好（而不是再做一份 `computed` 镜像）：组件拿到的行就是最终行，
+ * 页脚下标、`row-key` 与页面上看到的行是同一批对象。
+ */
 
 /** 本页合计（借 / 贷） */
 const ledgerTotals = computed(() => ledgerPageTotals(ledgerRowsRaw.value));
@@ -396,57 +413,58 @@ const ledgerBreaks = computed(() => runningBreaks(ledgerRowsRaw.value));
 const ledgerConsistent = computed(() => ledgerBreaks.value.length === 0);
 const ledgerBreakCount = computed(() => ledgerBreaks.value.length);
 
-/** 拉流水 */
-async function loadLedger(page: number = ledgerCurrent.value): Promise<void> {
+/** 未选科目 / 区间非法时的提示（从 `filter` 推导，不另存一份镜像状态） */
+const ledgerHint = computed(() => {
   const rangeError = ledgerRangeError(ledgerFilter);
   if (rangeError) {
-    ledgerHint.value = rangeError;
-    return;
+    return rangeError;
   }
-  const query = buildLedgerQuery(ledgerFilter, page, ledgerPageSize);
-  if (!query) {
-    ledgerHint.value = '请先选择科目（总账是单科目的流水）';
-    ledgerRowsRaw.value = [];
-    ledgerTotal.value = 0;
-    return;
+  return ledgerFilter.account_id ? '' : '请先选择科目（总账是单科目的流水）';
+});
+
+/**
+ * 拉一页（列进 ListPage 的 `fetcher`）。
+ *
+ * 没选科目 / 区间非法时**不发请求**，直接给一张空页：原来这两条判据是 `loadLedger` 的早退分支，
+ * 语义一样（空列表 + 提示条），只是从「保留上一次的行」改成「清空」—— 条件不成立还留着旧行，
+ * 用户会以为那些行满足新条件。
+ */
+const fetcher: ListFetcher<LedgerRow> = async (query) => {
+  if (!query.account_id) {
+    return { list: [], total: 0, page: 1, page_size: ledgerPageSize };
   }
-  ledgerHint.value = '';
-  ledgerLoading.value = true;
-  ledgerError.value = '';
-  try {
-    const data = await fetchLedgerPage(query);
-    ledgerRowsRaw.value = data.list ?? [];
-    ledgerTotal.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(ledgerTotal.value / ledgerPageSize));
-    ledgerCurrent.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    ledgerRowsRaw.value = [];
-    ledgerTotal.value = 0;
-    ledgerError.value = messageOf(error);
-  } finally {
-    ledgerLoading.value = false;
+  if (ledgerRangeError(ledgerFilter)) {
+    return { list: [], total: 0, page: 1, page_size: ledgerPageSize };
   }
+  const data = await fetchLedgerPage(query as Parameters<typeof fetchLedgerPage>[0]);
+  // 行主键：同一张凭证多行，`voucher_id` 不唯一 —— 拼 `line_no`（组件的 `row-key="rowKey"`）
+  return {
+    ...data,
+    list: (data.list ?? []).map((row) => ({ ...row, rowKey: `${row.voucher_id}-${row.line_no}` })),
+  };
+};
+
+/** 入参拼装（页面自己的 `buildLedgerQuery`；它没选科目时返回 `null`，这里兜成空对象） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildLedgerQuery(state as LedgerFilterState, page, pageSize) ?? { page, page_size: pageSize };
+
+/** 一页拉完：镜像行 / 总数 / 页码（合计行与自洽校验都读镜像） */
+function onLoaded(payload: { rows: LedgerRow[]; total: number; page: number }): void {
+  ledgerRowsRaw.value = payload.rows;
+  ledgerTotal.value = payload.total;
+  ledgerCurrent.value = payload.page;
 }
 
-function handleLedgerSearch(): void {
-  void loadLedger(1);
-}
-
+/** 重置（组件已按声明清过筛选，这里补齐 `filter` 的「全部」口径并重拉） */
 function handleLedgerReset(): void {
   Object.assign(ledgerFilter, emptyLedgerFilter());
-  ledgerRowsRaw.value = [];
-  ledgerTotal.value = 0;
-  ledgerHint.value = '';
-  ledgerError.value = '';
 }
 
-function refreshLedger(): void {
-  void loadLedger();
-}
-
-function handleLedgerPageChange(pageInfo: { current?: number }): void {
-  void loadLedger(pageInfo.current ?? 1);
+/**
+ * 自绘控件（起止期间）改完就查：走组件暴露的 `search`（回第 1 页 + 清勾选）
+ */
+function applyFilter(): void {
+  void listRef.value?.search();
 }
 
 // ==================== Tab2：科目余额表 ====================
@@ -546,6 +564,21 @@ watch(activeTab, (tab) => {
 }
 
 /* ==================== 工具栏 ==================== */
+
+/* Tab1 的起止期间：两格 + 「到」包成一个 flex 项（换行时整体走） */
+.ledger-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 页头右侧：当前科目 + 余额口径说明 */
+.panel-head__side {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
 
 .tool-row {
   display: flex;

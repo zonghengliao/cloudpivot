@@ -11,9 +11,24 @@
 -->
 <template>
   <div class="asset-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-08） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="资产卡片"
+      meta-unit="张"
+      testid="asset"
+      table-testid="asset-table"
+      meta-testid="asset-meta"
+      btn-prefix="asset-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -23,86 +38,14 @@
           <template #icon><t-icon name="add" /></template>
           新建资产
         </t-button>
-        <t-button variant="outline" data-testid="asset-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="asset-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.category_id"
-          class="tool-row__category"
-          :options="categoryOptions"
-          placeholder="全部分类"
-          clearable
-          filterable
-          data-testid="asset-filter-category"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.use_dept_id"
-          class="tool-row__dept"
-          :options="deptOptions"
-          placeholder="全部部门"
-          clearable
-          filterable
-          data-testid="asset-filter-dept"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="编号 / 名称 / 规格（模糊）"
-          clearable
-          data-testid="asset-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="asset-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="asset-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 台账 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">资产卡片</span>
-          <span class="panel-head__meta" data-testid="asset-meta">共 {{ total }} 张</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">
           一台设备一张卡；月折旧额与净值由服务端按分类参数维护（当月增加当月不提，起提日为购入次月 1 日）
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="asset-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="asset-table"
-        @page-change="handlePageChange"
-      >
         <template #asset_no="{ row }">
           <span class="mono" :data-testid="`asset-no-${row.asset_no}`">{{ row.asset_no }}</span>
         </template>
@@ -215,8 +158,7 @@
             </t-link>
           </div>
         </template>
-      </t-table>
-    </t-card>
+    </ListPage>
 
     <!-- ==================== ③ 建卡 / 编辑弹窗 ==================== -->
     <t-dialog
@@ -826,6 +768,8 @@ import { fetchStockInPage, fetchSupplierOptions, type StockInRow, type Supplier 
 import { DEFAULT_ROLE_BY_DOC, type DocType } from '@/api/business/erp/attachment';
 import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { useAttachmentGate } from '@/views/business/erp/shared/use-attachment-gate';
 import {
   cancelAssetDispose,
@@ -903,11 +847,10 @@ const PAGE_SIZE = 20;
 /** 下拉一次拉多少 */
 const OPTION_LIMIT = 200;
 
-const rows = ref<AssetRow[]>([]);
-const total = ref(0);
+/** 当前页（镜像；建卡后回第 1 页要让新卡出现在视野里） */
 const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（建卡 / 编辑 / 状态流转后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 const filter = reactive<{
   keyword: string;
@@ -920,6 +863,51 @@ const statusFilterOptions = ASSET_STATUSES.map((value) => ({
   label: ASSET_STATUS_LABELS[value],
   value,
 }));
+
+/**
+ * 筛选项声明。
+ *
+ * 三个下拉改造前**都**是「值一变就查」（`@change="handleSearch"`），关键词走回车 ——
+ * 手感与改造前一致。分类 / 部门下拉依赖异步拉回的主数据，所以是 `computed`。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'asset-filter-status',
+  },
+  {
+    key: 'category_id',
+    type: 'select',
+    placeholder: '全部分类',
+    width: 240,
+    options: categoryOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'asset-filter-category',
+  },
+  {
+    key: 'use_dept_id',
+    type: 'select',
+    placeholder: '全部部门',
+    width: 200,
+    options: deptOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'asset-filter-dept',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '编号 / 名称 / 规格（模糊）',
+    width: 260,
+    testid: 'asset-filter-keyword',
+  },
+]);
 const payModeOptions = PAY_MODES.map((value) => ({ label: PAY_MODE_LABELS[value], value }));
 
 const categories = ref<AssetCategory[]>([]);
@@ -961,14 +949,6 @@ const stockInOptions = computed(() =>
     value: item.id,
   })),
 );
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 // 列宽总和 = 948px：1280 视口（侧栏展开时表格可视宽实测 968px）也不会被固定「操作」列遮挡。
 // 上一版合计 1020px，在 1280 下溢出 52px，固定列正好压住「状态」列（实测 statusRight 1112 > opLeft 1060）。
@@ -1012,49 +992,42 @@ function sourceLabel(raw: string | null | undefined): string {
 
 // ==================== 列表 ====================
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchAssetPage({
-      page: current.value,
-      page_size: PAGE_SIZE,
-      keyword: filter.keyword.trim(),
-      status: filter.status,
-      category_id: filter.category_id,
-      use_dept_id: filter.use_dept_id,
-    });
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
+/**
+ * 拉一页（列进 ListPage 的 `fetcher`）。
+ *
+ * 空值整键缺席由 `buildAssetQuery` 保证（`?keyword=` 会被后端当成「等于空串」过滤出 0 行）。
+ */
+const fetcher: ListFetcher<AssetRow> = (query) =>
+  fetchAssetPage(query as Parameters<typeof fetchAssetPage>[0]);
+
+/** 入参拼装（与原 `loadRows` 里那段入参逐字一致） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const filter = state as { keyword: string; status: AssetStatus | ''; category_id: string; use_dept_id: string };
+  const query: Parameters<typeof fetchAssetPage>[0] = { page, page_size: pageSize };
+  const keyword = filter.keyword.trim();
+  if (keyword) {
+    query.keyword = keyword;
   }
+  if (filter.status) {
+    query.status = filter.status;
+  }
+  if (filter.category_id) {
+    query.category_id = filter.category_id;
+  }
+  if (filter.use_dept_id) {
+    query.use_dept_id = filter.use_dept_id;
+  }
+  return query;
+};
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  filter.keyword = '';
-  filter.status = '';
-  filter.category_id = '';
-  filter.use_dept_id = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
+/** 一页拉完：同步页码 */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
 // ==================== 主数据 ====================
@@ -1219,7 +1192,7 @@ async function submitForm(): Promise<void> {
       });
       MessagePlugin.success('已保存（金额与折旧口径不可改）');
       formVisible.value = false;
-      await loadRows();
+      await reloadList();
     } catch (error) {
       MessagePlugin.error(errorText(error));
     } finally {
@@ -1240,7 +1213,7 @@ async function submitForm(): Promise<void> {
     MessagePlugin.success(`建卡成功：${result.no}${result.note ? `（${result.note}）` : ''}`);
     formVisible.value = false;
     current.value = 1;
-    await loadRows();
+    await reloadList();
     // E2E01-FIX-1：建卡后直接开详情并落在「附件」页签 —— 「启用（入账）」要求发票/验收单
     // （`FIXED_ASSET` + `ACTIVATE`，V0347），上传入口与「确认启用」按钮在同一屏。
     detailVisible.value = true;
@@ -1332,7 +1305,7 @@ async function submitTransfer(): Promise<void> {
     });
     transferVisible.value = false;
     MessagePlugin.success('已转移（不产生凭证，已留痕）');
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -1379,7 +1352,7 @@ async function submitCustodian(): Promise<void> {
     });
     custodianVisible.value = false;
     MessagePlugin.success('使用人已变更（已留痕）');
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -1433,7 +1406,7 @@ async function submitDispose(): Promise<void> {
     detail.value = await disposeAsset(target.id, toDisposePayload(disposeForm));
     disposeVisible.value = false;
     MessagePlugin.success('处置申请已提交审批（发起人不能审批自己提交的单据）');
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -1470,7 +1443,7 @@ async function submitCancelDispose(): Promise<void> {
     detail.value = await cancelAssetDispose(target.id, cancelReason.value.trim());
     cancelDisposeVisible.value = false;
     MessagePlugin.success('已作废处置：红字回滚完成，资产恢复在役');
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -1617,7 +1590,7 @@ async function doSubmitStatusChange(): Promise<void> {
         idling ? '已停用：资产转为「闲置」（折旧照提）' : '已启用：资产恢复「在役」',
       );
     }
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -1638,7 +1611,7 @@ function confirmDelete(row: AssetRow): void {
         await deleteAsset(row.id);
         MessagePlugin.success('已删除');
         dialog.hide();
-        await loadRows();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       }
@@ -1647,7 +1620,7 @@ function confirmDelete(row: AssetRow): void {
 }
 
 onMounted(async () => {
-  await Promise.all([loadCategories(), loadDepts(), loadUsers(), loadSuppliers(), loadRows()]);
+  await Promise.all([loadCategories(), loadDepts(), loadUsers(), loadSuppliers(), reloadList()]);
 });
 </script>
 

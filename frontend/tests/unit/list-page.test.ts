@@ -187,6 +187,15 @@ test('clearFilter：defaultValue 回默认值（不是清成空）', () => {
   assert.equal(filter.page_size_hint, 20);
 });
 
+test('clearFilter：defaultValue 可以是 null（会计期间页「全部年份」= null，不是 undefined）', () => {
+  // 期间页的 filter 与后端 `Option<i32>` 同构：「全部年份」是 null，
+  // 清成 undefined 会让 `filter.period_year !== null` 成立 → 空态一直说「没有匹配」。
+  const filter: Record<string, unknown> = { period_year: 2026 };
+  clearFilter([{ key: 'period_year', type: 'custom' as const, defaultValue: null }], filter);
+  assert.equal(filter.period_year, null);
+  assert.equal(isFiltered(filter, [{ key: 'period_year', type: 'custom' as const, defaultValue: null }]), false);
+});
+
 test('clearFilter：声明外的键不动（页面私有状态不该被列表组件清掉）', () => {
   const filter: Record<string, unknown> = { keyword: 'x', internalTab: 'mine' };
   clearFilter([{ key: 'keyword', type: 'keyword' as const }], filter);

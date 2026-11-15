@@ -62,8 +62,13 @@ export interface FilterDef {
   searchOnChange?: boolean;
   /** 控件宽度（px），默认 keyword 300 / select 150 / number 140。 */
   width?: number;
-  /** 空筛选时的初值，默认 `''`（`number` / `date-range` 默认不设；`custom` 可以是布尔 / 数组）。 */
-  defaultValue?: string | number | boolean | unknown[];
+  /**
+   * 空筛选时的初值，默认 `''`（`number` / `date-range` 默认不设；`custom` 可以是布尔 / 数组）。
+   *
+   * `null` 也在列表里：会计期间页的「全部年份」用 `null`（与后端 `Option<i32>` 同构、
+   * `period-logic` 的单测按它写），`clearFilter` 要能把它写回去。
+   */
+  defaultValue?: string | number | boolean | unknown[] | null;
   /** e2e / 单测选择器，挂到控件外层 `data-testid`。 */
   testid?: string;
 }
