@@ -1,0 +1,46 @@
+=== P3-16 最终状态复核 2026-11-16 00:29:18 CST ===
+
+######## 172.18.10.145
+--- postgresql.conf 托管块:
+# >>> cloudpivot P3-16 pg slowlog (managed by scripts/ops/postgres/pg_slowlog.sh) >>>
+# 卡片 P3-16：慢查询（>=1000ms）进 PG 日志。由 scripts/ops/postgres/pg_slowlog.sh 托管，手改会被覆盖。
+log_min_duration_statement = 1000		# 记录执行 >= 1000ms 的语句（-1 = 关闭）
+log_line_prefix = '%m [%p] %q%u@%d '	# 会话行 = 时间 [pid] user@db；%q 只抑制后台进程的空 user@db
+# <<< cloudpivot P3-16 pg slowlog <<<
+--- 生效值 (name|setting|unit|source|pending_restart):
+log_line_prefix|%m [%p] %q%u@%d |-|configuration file|f
+log_min_duration_statement|1000|ms|configuration file|f
+--- 重启后读到的值（postgres -C）:
+1000
+--- 最近 3 条慢查询行:
+2026-11-16 00:20:53.365 CST [1388886] postgres@cloudpivot_test LOG:  duration: 2010.945 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+2026-11-16 00:21:49.721 CST [1389446] postgres@cloudpivot_test LOG:  duration: 2007.569 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+2026-11-16 00:25:41.481 CST [1390362] postgres@cloudpivot_test LOG:  duration: 2004.091 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+--- PG 启动时间 / 服务状态:
+2026-11-14 06:32:03.441606+08
+active
+
+######## 172.18.10.144
+--- postgresql.conf 托管块:
+# >>> cloudpivot P3-16 pg slowlog (managed by scripts/ops/postgres/pg_slowlog.sh) >>>
+# 卡片 P3-16：慢查询（>=1000ms）进 PG 日志。由 scripts/ops/postgres/pg_slowlog.sh 托管，手改会被覆盖。
+log_min_duration_statement = 1000		# 记录执行 >= 1000ms 的语句（-1 = 关闭）
+log_line_prefix = '%m [%p] %q%u@%d '	# 会话行 = 时间 [pid] user@db；%q 只抑制后台进程的空 user@db
+# <<< cloudpivot P3-16 pg slowlog <<<
+--- 生效值 (name|setting|unit|source|pending_restart):
+log_line_prefix|%m [%p] %q%u@%d |-|configuration file|f
+log_min_duration_statement|1000|ms|configuration file|f
+--- 重启后读到的值（postgres -C）:
+1000
+--- 最近 3 条慢查询行:
+2026-11-16 00:20:56.942 CST [1007015] postgres@postgres LOG:  duration: 2002.787 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+2026-11-16 00:21:54.810 CST [1007702] postgres@postgres LOG:  duration: 2002.880 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+2026-11-16 00:25:46.611 CST [1009175] postgres@postgres LOG:  duration: 2003.172 ms  statement: select pg_backend_pid() as pid, pg_sleep(2);
+--- PG 启动时间 / 服务状态:
+2026-11-14 06:58:19.502798+08
+active
+
+######## 144 生产服务
+ActiveEnterTimestamp=Sat 2026-11-14 16:45:28 CST
+MainPID=633825
+health=200
