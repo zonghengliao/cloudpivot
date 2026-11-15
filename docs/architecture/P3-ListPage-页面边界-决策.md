@@ -108,7 +108,7 @@ comm -23 <(grep -rl "<t-table\|<t-enhanced-table" views/business --include=index
 
 7 处判据全部要加 `if (paginated)`，其中「回夹 + 二次请求」和「导出只导当前页」两条是**语义级**的（无分页时「当前页」= 全表，`rowsToCsv` 的注释直接就不成立）。
 
-**顺带发现的真 bug（不是不进 ListPage 的理由，但必须修）**：`move(rowIndex, ±1)` 的 `rowIndex` 来自表格 `:data="visibleRows"`（L102、L119/L131），而 `move()` 里 `rows.value.slice()` 用的是**全表**下标（L584）。**有筛选时（`visibleRows ⊂ rows`）会移错行**：`rows=[A,B,C,D]` 筛出 `[B,D]`，在 D 上点 ↑（rowIndex=1）→ 实际交换的是 B 和 A。已开独立卡。
+**顺带发现的真 bug（不是不进 ListPage 的理由，但必须修）**：`move(rowIndex, ±1)` 的 `rowIndex` 来自表格 `:data="visibleRows"`（L102、L119/L131），而 `move()` 里 `rows.value.slice()` 用的是**全表**下标（L584）。**有筛选时（`visibleRows ⊂ rows`）会移错行**：`rows=[A,B,C,D]` 筛出 `[B,D]`，在 D 上点 ↑（rowIndex=1）→ 实际交换的是 B 和 A。已开独立卡。**已修（commit `ce05f7e2`）**：换算抽成 `report-item-logic.ts::moveVisibleRow`（按行 id 定位全表下标，在相邻**可见**行之间换位），`move()` 只留接线，14 条单测钉住（含无筛选对齐旧行为、`[A,B,C,D]/[B,D]` 算例、提交 id 恒为整表全集、传回 `rowIndex` 即红）。
 
 ---
 
