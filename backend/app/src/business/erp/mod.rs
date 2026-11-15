@@ -150,6 +150,13 @@ pub mod form_snapshot;
 /// 取数口径与 `period_fx_reval`（M1-05 期末调汇）**逐字一致**：原币只取外币凭证、
 /// 账面取科目全部已过账分录（含历次调汇）—— 报表上的「汇兑差额」必须等于调汇凭证会调的金额。
 pub mod fx_balance;
+/// 外币明细账（M1-08 · V0413）：按**币种**列示已过账分录的明细流水 + 按科目分别累计的
+/// 逐行原币余额（只读报表）。
+///
+/// 与 `fx_balance`（外币余额表）**同口径同数字**：同一 `WHERE`（外币核算科目 + POSTED +
+/// 凭证币种）+ 同一 `COALESCE(fc_*, 金额)` 表达式，某 `(科目, 币种)` 的期末原币必须相等，
+/// 两张表可对拍（真库用例 `fx_ledger_closing_matches_fx_balance` 盯着这件事）。
+pub mod fx_ledger;
 pub mod fx_revaluation;
 /// 汇兑损益科目配置（M1-06 · V0411）：`sys_config.erp.fx.gain_loss_account` 的唯一读取点
 /// + 四条入口校验（末级 / 损益类 / 启用 / 未标外币核算），期末调汇与应收重估都读它。

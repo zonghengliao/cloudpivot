@@ -1027,6 +1027,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '外币余额表', permission: 'business:erp:report:fx-balance' },
       },
       {
+        // ==================== ERP 外币明细账（M1-08 · 迁移 V0413） ====================
+        // `sys_menu` 种子（V0413 …1760）path = `/business/erp/report/fx-ledger`，
+        // component `business/erp/report/fx-ledger/index`（与迁移里的 component 逐字一致）。
+        // 报表页的权限码**就是**后端接口码（`business:erp:report:fx-ledger`）。
+        // **路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/fx-ledger',
+        name: 'BusinessErpFxLedger',
+        component: () => import('@/views/business/erp/report/fx-ledger/index.vue'),
+        meta: { title: '外币明细账', permission: 'business:erp:report:fx-ledger' },
+      },
+      {
         // ==================== ERP 报表项维护（P1-FIX-8B） ====================
         // `sys_menu` 种子（V0256 …1700）path = `/business/erp/report/report-item`，
         // component `business/erp/report/report-item/index`；写权限单列
