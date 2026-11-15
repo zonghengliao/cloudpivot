@@ -81,7 +81,14 @@ pub const ACCOUNT_BANK: &str = "1002";
 
 /// 列表锚点：`salesperson_id` 是归属列（SELF 范围用），无部门列
 /// （部门类范围由 `filter_for` 安全侧降级为「仅本人」）。
-pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::new(TABLE, "t", None, Some("salesperson_id"));
+///
+/// **直接复用登记表常量**（`shared/scope.rs` 的 `SCOPED_TABLES` 里那条 `BIZ_COMMISSION_SETTLEMENT`），
+/// 不要再 `ScopeTarget::new(...)` 抄一份：抄本会与登记表各自演进（部门列 / 归属列改一处漏一处），
+/// 而 `permission::scope_model::tests::d8c_wiring_anchors_exist_in_source` 是按「登记表锚点
+/// 常量名 + 同文件 scope 调用」校验接线的 —— 抄本让守卫扫不到，真接线也会被判成
+/// 「登记表漂移」（卡 `t_acd1787a` 定位的既有红）。
+/// 与 `business/hr/employee_model.rs::EMPLOYEE_TARGET` 同一写法。
+pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::BIZ_COMMISSION_SETTLEMENT;
 
 // ==================== 行 ====================
 

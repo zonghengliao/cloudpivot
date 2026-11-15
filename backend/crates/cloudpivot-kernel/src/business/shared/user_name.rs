@@ -186,7 +186,11 @@ where
         return Ok(std::collections::HashMap::new());
     }
     let joined = unique.iter().map(Uuid::to_string).collect::<Vec<_>>().join(",");
-    #[cfg(test)]
+    // 计数钩子必须与 `stats` 模块的门同口径：`#[cfg(test)]` 只在**本 crate 自己**跑用例时为真，
+    // 域包（app）在 `[dev-dependencies]` 下打开 `test-support` 时它编译进来、但这里不计数 ⇒
+    // `contract_handler::tests::detail_fills_person_names…` 的「一次详情只允许 1 条取名字 SQL」
+    // 实测恒 0（假红，卡 `t_acd1787a`）。改成同一个门之后，计数就是真实 SQL 条数。
+    #[cfg(any(test, feature = "test-support"))]
     stats::bump();
     let rows = db()
         .find_with_params(

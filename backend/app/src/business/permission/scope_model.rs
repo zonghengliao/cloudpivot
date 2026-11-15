@@ -182,7 +182,7 @@ pub const TABLE_WIRING: &[TableWiring] = &[
         status: WiringStatus::Wired,
         no_paginate: false,
         anchor: "BIZ_COMMISSION_SETTLEMENT",
-        reason: "佣金结算单分页走 scope::paginate(BIZ_COMMISSION_SETTLEMENT)，归属列 salesperson_id（business/erp/commission_model.rs:469）；无 dept_id ⇒ 部门类范围安全侧降级为「仅本人」（提成对个人不对部门）",
+        reason: "佣金结算单分页走 scope::paginate(LIST_TARGET)，归属列 salesperson_id（business/erp/commission/commission_model.rs::page，锚点常量直接复用登记表那条 ScopeTarget）；无 dept_id ⇒ 部门类范围安全侧降级为「仅本人」（提成对个人不对部门）",
     },
     // ---- business/erp（成本核算 ARCH-9 · B1-8） ----
     TableWiring {
@@ -1263,6 +1263,19 @@ mod tests {
     }
 
     /// D8c：漂移守卫 —— 登记为 `wired` 的表，其锚点常量必须在某个**含 scope:: 调用**的源文件里真实出现。
+    ///
+    /// # 为什么要排除登记表自己（卡 `t_acd1787a`）
+    ///
+    /// 登记表所在的 `business/permission/scope_model.rs` 里既有 `scope::paginate(` 字样（文档与
+    /// `reason` 说明），又可以在 `anchor` / `reason` 里写出 `ScopeTarget::XXX` 字面量 —— 于是本用例
+    /// 会被**登记表自己**满足，判据归零。把本文件排除后，锚点只能靠**真正的调用点**命中
+    /// （判据只加不减：原来查的是「某个文件」，现在查的是「某个文件，且不是登记表自己」）。
+    ///
+    /// # 命中口径（每张 wired 表都必须同时满足）
+    ///
+    /// 1. 出现 `ScopeTarget::<anchor>` 字面量（即声明时**复用**登记表常量，而不是 `ScopeTarget::new(…)`
+    ///    抄一份 —— 抄本会与登记表各自演进，见 `erp/commission/commission_model.rs` 的注释）；
+    /// 2. 该字面量与 `scope::paginate(` / `scope::filter_for(` / `scope::paginate_unscoped(` 同文件。
     #[test]
     fn d8c_wiring_anchors_exist_in_source() {
         fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
@@ -1281,13 +1294,15 @@ mod tests {
         let mut files = Vec::new();
         walk(std::path::Path::new("src"), &mut files);
         assert!(!files.is_empty(), "找不到 src/ 下的 rs 文件（单测须以 crate 根为 CWD）");
+        // 登记表自己不算「调用点」：它天然同时含锚点字面量与 scope:: 说明文字。
+        let registry = std::path::Path::new("src/business/permission/scope_model.rs");
         let wired: Vec<&TableWiring> = TABLE_WIRING
             .iter()
             .filter(|wiring| wiring.status == WiringStatus::Wired)
             .collect();
         for wiring in &wired {
             let anchor = format!("ScopeTarget::{}", wiring.anchor);
-            let found = files.iter().any(|path| {
+            let found = files.iter().filter(|path| path.as_path() != registry).any(|path| {
                 let Ok(text) = std::fs::read_to_string(path) else {
                     return false;
                 };
@@ -1298,8 +1313,10 @@ mod tests {
             });
             assert!(
                 found,
-                "{} 登记为 wired，但 src/ 里没有含 scope:: 调用的文件出现 {anchor}（登记表已与代码漂移）",
-                wiring.table
+                "{} 登记为 wired，但 src/ 里没有含 scope:: 调用的文件出现 {anchor}（登记表已与代码漂移）。\
+                 修法：在查询模块里 `const XXX_TARGET: scope::ScopeTarget = scope::ScopeTarget::{};` \
+                 复用登记表常量（如 hr/employee_model.rs::EMPLOYEE_TARGET）",
+                wiring.table, wiring.anchor
             );
         }
         println!("[D8c] {} 张 wired 表的锚点在源码中可查 ✓", wired.len());

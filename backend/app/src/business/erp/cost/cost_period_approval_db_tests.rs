@@ -40,6 +40,9 @@ mod db {
     /// 共享角色（`V0182` / `V0379` 种子的固定 UUID）。
     const ROLE_FM: &str = "20000000-0000-4000-8000-0000000f0005";
     const ROLE_FD: &str = "20000000-0000-4000-8000-0000000f0006";
+    /// 角色编码（审批节点按 `role_code` 解析成员，用例按同一口径对账待办）。
+    const ROLE_FM_CODE: &str = "FINANCE_MANAGER";
+    const ROLE_FD_CODE: &str = "FINANCE_DIRECTOR";
 
     /// 制单人（建批次 + 提交的人；不是审批人）。
     const U_MAKER: &str = "b3a30001-0000-4000-8000-000000000001";
@@ -141,7 +144,40 @@ mod db {
     }
 
     /// 清场：夹具账号 + 角色绑定（必须在实例 / 待办之后删，它们有 FK 指 sys_user）。
+    ///
+    /// # 先按「发起人」自愈一次崩溃残留（`t_acd1787a` 实测）
+    ///
+    /// 上一次进程若在用例中途 panic，它留下的实例挂在**它自己那个期间**上：`purge(period)` 按期间
+    /// 收不到别的期间的行，而这里要删 `sys_user` ⇒ 撞
+    /// `biz_flow_instance_initiator_id_fkey`（`initiator_id` 仍引用夹具账号），报出来的还是一条
+    /// 与业务无关的外键错。所以删账号之前先按「本模块 biz_type + 夹具发起人」把实例链收干净。
+    ///
+    /// 为什么安全：`biz_type = 'COST_SETTLE' AND initiator_id = 夹具` 只会命中本模块自己造的行
+    /// （整个模块在同一把 [`DB_LOCK`] 下串行，没有并发写）；不按前缀/全表扫，不会误伤别人。
     async fn purge_fixtures() {
+        for sql in [
+            "DELETE FROM biz_flow_cc WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_type = 'COST_SETTLE' AND initiator_id = ?::uuid)"
+                .to_string(),
+            "DELETE FROM biz_flow_task WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_type = 'COST_SETTLE' AND initiator_id = ?::uuid)"
+                .to_string(),
+            "DELETE FROM biz_flow_instance_node WHERE instance_id IN \
+             (SELECT id FROM biz_flow_instance WHERE biz_type = 'COST_SETTLE' AND initiator_id = ?::uuid)"
+                .to_string(),
+            // `biz_status_log` 没有外键（不会级联）：按**期间 id** 跟着删（实例 `biz_id` = 批次 id，
+            // 批次 `create_by` = 夹具制单人），否则每轮留孤儿日志，打红别的模块的「整库无孤儿」断言。
+            "DELETE FROM biz_status_log WHERE entity_type = 'COST_PERIOD' AND entity_id IN \
+             (SELECT id FROM biz_cost_period WHERE create_by = ?::uuid)"
+                .to_string(),
+            "DELETE FROM biz_flow_instance WHERE biz_type = 'COST_SETTLE' AND initiator_id = ?::uuid".to_string(),
+            // 批次单头：崩溃残留的那个期间行按**建单人**收（不按 period_code，本模块不知道别人用过哪些期间）。
+            "DELETE FROM biz_cost_period WHERE create_by = ?::uuid".to_string(),
+        ] {
+            db().exec_sql(sql, vec![Value::from(&uid(U_MAKER))])
+                .await
+                .expect("清崩溃残留的审批实例链");
+        }
         for id in [U_MAKER, U_FM, U_FD] {
             db().exec_sql(
                 "DELETE FROM sys_user_role WHERE user_id = ?".to_string(),
@@ -240,6 +276,79 @@ mod db {
             .expect("解析待办")
     }
 
+    /// 审批节点的待办展开（**产品语义，不是放宽**）：`n_fm` / `n_fd` 都是
+    /// `assignee_type = ROLE` + `approval_mode = ANY`，引擎按**该角色的在职成员**逐个生成待办
+    /// （`flow::assignee::load_role_members` ∩ 未过期 ∩ 未删 ∩ `status = 1` ∩ 非 ROBOT），
+    /// 谁先投谁生效、其余作废 ⇒ **待办数 = 成员数**，不是 1。
+    ///
+    /// # 为什么旧断言「第一级只该有一条待办」会红（P2-60 定位的既有红，卡 `t_acd1787a`）
+    ///
+    /// 旧断言把「夹具把角色绑给唯一成员」当成了前提。全量套件的库口径是**种子完备库**
+    /// （`scripts/verify/make_full_suite_db.sh`：全量迁移 + 演示组织种子），演示种子
+    /// （`NIK_SEED_DEMO_USERS=true` → `system::setup::model::DEMO_USERS`）已经把
+    /// `FINANCE_MANAGER` 挂给 `demo_finance` / `demo_finance_mgr` 两个在职账号，
+    /// 夹具再挂 [`U_FM`] ⇒ 第一级恒 **3 条**待办。种子是产品自己写的、不能删（约定：种子完备库口径）。
+    ///
+    /// # 换成的判据（逐项对账，比「== 1」更严）
+    ///
+    /// 1. 待办集合 **==** 角色在职成员集合（少一个 = 引擎没展开；多一个 = 展开了不该有的人）；
+    /// 2. 成员里出现「既不是夹具账号、也不是 `demo_*` 演示账号」的人 ⇒ 报**夹具污染**
+    ///    （别的用例把该角色绑给临时账号却没清场），当场点名，不让它伪装成业务断言失败；
+    /// 3. 夹具账号必须在成员里（证明绑定生效），调用方再按需断言「制单人不在待办里」（内控）。
+    ///
+    /// 返回该实例上的 `PENDING` 待办（按 `assignee_id` 稳定排序），调用方按 `assignee` 挑自己那一票。
+    async fn role_tasks(instance: Uuid, role_code: &str, fixture: Uuid) -> Vec<(Uuid, Uuid)> {
+        let rows = db()
+            .query_sql(
+                "SELECT u.id, u.username FROM sys_user u \
+                   JOIN sys_user_role ur ON ur.user_id = u.id \
+                   JOIN sys_role r ON r.id = ur.role_id \
+                  WHERE r.role_code = ? AND r.deleted_at IS NULL \
+                    AND u.deleted_at IS NULL AND u.status = 1 AND u.user_type <> 'ROBOT' \
+                    AND (ur.expire_time IS NULL OR ur.expire_time > now()) \
+                  ORDER BY u.id"
+                    .to_string(),
+                vec![Value::Text(role_code.to_string())],
+            )
+            .await
+            .expect("查角色在职成员");
+        let mut members: Vec<(Uuid, String)> = rows
+            .iter()
+            .map(|row| Ok((row.get_typed::<Uuid>("id")?, row.get_typed::<String>("username")?)))
+            .collect::<DbResult<Vec<_>>>()
+            .expect("解析角色成员");
+        members.sort_by_key(|(id, _)| *id);
+        members.dedup_by_key(|(id, _)| *id);
+
+        let strangers: Vec<&str> = members
+            .iter()
+            .filter(|(id, name)| *id != fixture && !name.starts_with("demo_"))
+            .map(|(_, name)| name.as_str())
+            .collect();
+        assert!(
+            strangers.is_empty(),
+            "夹具污染：{role_code} 上有夹具与演示种子之外的在职成员 {strangers:?} —— \
+             别的用例把该角色绑给了临时账号却没清场。先修那个用例的 teardown，别改本断言的期望值"
+        );
+        assert!(
+            members.iter().any(|(id, _)| *id == fixture),
+            "夹具角色绑定没生效：{role_code} 的在职成员里没有夹具账号 {fixture}"
+        );
+
+        let mut tasks = pending_tasks(instance).await;
+        tasks.sort_by_key(|(task_id, assignee)| (*assignee, *task_id));
+        let member_ids: Vec<Uuid> = members.iter().map(|(id, _)| *id).collect();
+        let assignees: Vec<Uuid> = tasks.iter().map(|(_, assignee)| *assignee).collect();
+        assert_eq!(
+            assignees,
+            member_ids,
+            "{role_code} 节点的待办必须逐项等于该角色的在职成员（{role_code} 在职 {} 人）：\
+             少一条 = 引擎没把成员展开成待办；多一条 = 展开了不该有的人",
+            member_ids.len()
+        );
+        tasks
+    }
+
     /// 状态日志（`(from, to, reason)`，按写入顺序）。
     async fn logs_of(id: Uuid) -> Vec<(Option<String>, String, Option<String>)> {
         let rows = db()
@@ -325,11 +434,17 @@ mod db {
         assert_eq!(biz_id, id, "biz_id 必须是批次 id（回调靠它找单）");
         assert!(biz_no.starts_with("CS-"), "biz_no 应是批次号：{biz_no}");
 
-        // 待办落到财务经理（两级流程的第一级），制单人不在里面
-        let tasks = pending_tasks(instance).await;
-        assert_eq!(tasks.len(), 1, "第一级只该有一条待办：{tasks:?}");
-        assert_eq!(tasks[0].1, uid(U_FM), "第一级待办必须落到财务经理");
-        assert_ne!(tasks[0].1, uid(U_MAKER), "制单人不能拿到自己的待办（内控）");
+        // 待办落到财务经理（两级流程的第一级），制单人不在里面。
+        // 节点是 `ROLE=FINANCE_MANAGER` + `approval_mode=ANY` ⇒ 每个在职成员一条（演示种子 2 + 夹具 1）。
+        let tasks = role_tasks(instance, ROLE_FM_CODE, uid(U_FM)).await;
+        assert!(
+            tasks.iter().any(|(_, assignee)| *assignee == uid(U_FM)),
+            "第一级待办必须落到财务经理：{tasks:?}"
+        );
+        assert!(
+            !tasks.iter().any(|(_, assignee)| *assignee == uid(U_MAKER)),
+            "制单人不能拿到自己的待办（内控）：{tasks:?}"
+        );
 
         // 状态日志留痕（建单也会写一条 None→DRAFT，所以看**最后一条**）
         let logs = logs_of(id).await;
@@ -352,9 +467,13 @@ mod db {
             .expect("提交应成功");
         let instance = instance_of(id).await.expect("提交后必须有实例");
 
-        let tasks = pending_tasks(instance).await;
-        assert_eq!(tasks.len(), 1);
-        let out = reject_final(tasks[0].0, uid(U_FM)).await;
+        let tasks = role_tasks(instance, ROLE_FM_CODE, uid(U_FM)).await;
+        let task_id = tasks
+            .iter()
+            .find(|(_, assignee)| *assignee == uid(U_FM))
+            .map(|(task_id, _)| *task_id)
+            .expect("财务经理必须拿到第一级待办");
+        let out = reject_final(task_id, uid(U_FM)).await;
         assert_eq!(out.instance_status, "REJECTED", "驳回终止后实例是 REJECTED");
         // 审批事务提交之后才跑业务回调（与 flow::handler::reject_task 同顺序）
         cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
@@ -402,7 +521,8 @@ mod db {
             .await
             .expect("提交应成功");
         let instance = instance_of(id).await.expect("提交后必须有实例");
-        assert!(!pending_tasks(instance).await.is_empty(), "撤回前应有待办");
+        let tasks = role_tasks(instance, ROLE_FM_CODE, uid(U_FM)).await;
+        assert!(!tasks.is_empty(), "撤回前应有待办");
 
         let detail = handler::withdraw_period(Some(uid(U_MAKER)), &id.to_string())
             .await
@@ -436,10 +556,14 @@ mod db {
             .expect("提交应成功");
         let instance = instance_of(id).await.expect("提交后必须有实例");
 
-        // 第一级：财务经理
-        let tasks = pending_tasks(instance).await;
-        assert_eq!(tasks.len(), 1);
-        let out = approve(tasks[0].0, uid(U_FM)).await;
+        // 第一级：财务经理（该节点是或签，任一成员同意即通过，其余待办作废）
+        let tasks = role_tasks(instance, ROLE_FM_CODE, uid(U_FM)).await;
+        let task_id = tasks
+            .iter()
+            .find(|(_, assignee)| *assignee == uid(U_FM))
+            .map(|(task_id, _)| *task_id)
+            .expect("财务经理必须拿到第一级待办");
+        let out = approve(task_id, uid(U_FM)).await;
         assert_eq!(out.instance_status, "PENDING", "批完第一站实例还在跑");
         cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
         assert_eq!(
@@ -448,11 +572,14 @@ mod db {
             "两级流程第一级通过后批次必须仍在审批中（中间态不许打回草稿）"
         );
 
-        // 第二级：财务总监
-        let tasks = pending_tasks(instance).await;
-        assert_eq!(tasks.len(), 1, "第二级应有一条待办");
-        assert_eq!(tasks[0].1, uid(U_FD), "第二级必须落到财务总监");
-        let out = approve(tasks[0].0, uid(U_FD)).await;
+        // 第二级：财务总监（同一套展开语义：待办逐项等于 FINANCE_DIRECTOR 的在职成员）
+        let tasks = role_tasks(instance, ROLE_FD_CODE, uid(U_FD)).await;
+        let task_id = tasks
+            .iter()
+            .find(|(_, assignee)| *assignee == uid(U_FD))
+            .map(|(task_id, _)| *task_id)
+            .expect("第二级必须落到财务总监");
+        let out = approve(task_id, uid(U_FD)).await;
         assert_eq!(out.instance_status, "APPROVED");
         cost_period_bridge::on_cost_settle_decided(out.instance_id, &out.instance_status).await;
 
@@ -519,8 +646,13 @@ mod db {
         let instance = instance_of(id).await.expect("提交后必须有实例");
 
         // 审批中心驳回，但**故意不跑桥回调**（模拟回调失败）
-        let tasks = pending_tasks(instance).await;
-        let out = reject_final(tasks[0].0, uid(U_FM)).await;
+        let tasks = role_tasks(instance, ROLE_FM_CODE, uid(U_FM)).await;
+        let task_id = tasks
+            .iter()
+            .find(|(_, assignee)| *assignee == uid(U_FM))
+            .map(|(task_id, _)| *task_id)
+            .expect("财务经理必须拿到第一级待办");
+        let out = reject_final(task_id, uid(U_FM)).await;
         assert_eq!(out.instance_status, "REJECTED");
         assert_eq!(
             status_of(id).await,

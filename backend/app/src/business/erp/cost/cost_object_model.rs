@@ -53,8 +53,14 @@ pub const OBJECT_COLUMNS: &str = "id, object_no, object_type, product_id, lot_no
      start_date, due_date, status, closed_at, closed_by, remark, created_at, updated_at";
 
 /// 列表 / 详情的数据权限锚点（车间列 = `workshop_dept_id`）。
-pub const OBJECT_TARGET: scope::ScopeTarget =
-    scope::ScopeTarget::new(COST_OBJECT_TABLE, "t", Some("workshop_dept_id"), None);
+///
+/// **直接复用登记表常量**（`shared/scope.rs` 的 `SCOPED_TABLES` 里那条 `BIZ_COST_OBJECT`），
+/// 别再 `ScopeTarget::new(...)` 抄一份：抄本会让登记表与代码各自演进（部门列 / 归属列改一处漏一处），
+/// 而且 `permission::scope_model::tests::d8c_wiring_anchors_exist_in_source` 是按「登记表锚点
+/// 常量名 + 同文件 scope 调用」校验接线的 —— 抄本让守卫扫不到，真接线也被判成漂移
+/// （卡 `t_acd1787a` 定位的既有红）。别名 `t` 与登记表常量一致（行 SQL 用 `FROM ... t`）。
+/// 与 `business/hr/employee_model.rs::EMPLOYEE_TARGET` 同一写法。
+pub const OBJECT_TARGET: scope::ScopeTarget = scope::ScopeTarget::BIZ_COST_OBJECT;
 
 /// 列表全序：在产的排前面，再按开工日期倒序，最后用对象号 / id 收全序
 /// （没有全序时翻页会漏行 / 重复行，与其余列表同款）。
