@@ -151,7 +151,7 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | `.tool-row__label--sm` | 报表/单据页标签小一号 | 6 | `font-size:13px; white-space:nowrap` |
 | `.panel-empty--rich` | 主数据页大空态（带说明文案） | 6 | `justify-content:center; gap:6px; padding:48px 16px`；icon 32px；desc `max-width:460px; line-height:1.6` |
 | `.panel-empty--file` | 导入导出/存储类空态（标题更大、说明更粗） | 4 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 15px/primary/margin 12px 0 4px；desc 13px/secondary/margin 0 0 16px |
-| `.panel-empty--doc` | 单据类空态（居中标题 + 说明） | 6 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 14px/primary/margin 8px 0 4px |
+| `.panel-empty--doc` | 单据类空态（居中标题 + 说明） | 6 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 14px/600/primary/margin 8px 0 4px；desc 12px/placeholder |
 | `.panel-empty--inline` | 卡片内嵌小空态（薪资审批详情） | 1 | `display:block; text-align:center; padding:16px 12px; font-size:13px` |
 | `.list-card--side` | 侧栏卡（帮助中心，固定 320px） | 1 | `flex:0 0 320px; width:320px` |
 
@@ -219,6 +219,8 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | 7 | `tool-row` gap 8→12（3）、`panel-head__main` gap 8→10（7）、`panel-head` margin-bottom 12→10（3） | 13 | 接受：2px 级，归一到同族单值 |
 | 8 | 控件宽度归一（period 132/140/200→220 或 140、date 140/180→150、status 140→130、range 240→250、type 150→140、keyword 200→220） | 11 | 接受：`--dense` 覆盖紧凑场景，其余取基线 |
 | 9 | `tool-row__label` cost-labor 12px→13px | 1 | 接受 |
+| 10 | `--doc` 族 title 加 `font-weight:600`：4 页原本就是 600（不变）、2 页（stock-out、stock-take）变粗 | 2 | 接受：加粗比丢掉 4 页的粗体更小 |
+| 11 | `--doc` 族 desc 归一到 `12px / placeholder`：contract 13px+secondary、lot 12px+secondary、attendance 12px+secondary、leave 13px+placeholder | 4 | 接受：说明文字统一用 placeholder |
 
 **不接受任何一条也可以**——但要在对应实施卡的 review 里写清「为什么不接受」，并把它变成一个**命名变体**（登记到 §2.3），
 而不是留在页面里。这是本决策唯一的松紧尺度：**可以有更多变体，不能有页面本地声明。**
@@ -409,7 +411,8 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 
 .panel-empty--doc { display: block; padding: 40px 0; text-align: center; }
 .panel-empty--doc .panel-empty__icon { font-size: 40px; }
-.panel-empty--doc .panel-empty__title { margin: 8px 0 4px; font-size: 14px; color: var(--td-text-color-primary); }
+.panel-empty--doc .panel-empty__title { margin: 8px 0 4px; font-size: 14px; font-weight: 600;
+                                        color: var(--td-text-color-primary); }
 .panel-empty--doc .panel-empty__desc  { margin: 0; font-size: 12px; color: var(--td-text-color-placeholder); }
 
 .panel-empty--inline { display: block; text-align: center; padding: 16px 12px; font-size: 13px; }
