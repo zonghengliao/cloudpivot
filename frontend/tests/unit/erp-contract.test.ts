@@ -9,6 +9,7 @@
  * 但这些用例真正要钉住的是**口径**：
  * - 6 个状态的文案与配色（`constants/status-map.ts`，页面只调它）；
  * - 合法边（`state_machine.rs::CONTRACT_EDGES` —— 直接 `readFileSync` 读 Rust 源码比对，
+ *   P2-40 起该文件在 `backend/crates/cloudpivot-kernel/src/business/shared/`；
  *   后端加一条边而前端没跟，这里先红）；
  * - 表单校验（`contract_dto.rs::CreateContractReq::validate` 的同口径）；
  * - 「哪些按钮该出现」（`canEditContract` / `canDeleteContract` / `contractTransitions`）。
@@ -64,9 +65,21 @@ import type { ContractDetail, ContractRow } from '@/api/business/erp';
 
 // ---------------------------------------------------------------- 夹具
 
-/** 读后端源码（口径的唯一真相） */
+/**
+ * 读后端源码（口径的唯一真相）。
+ *
+ * P2-40 之后后端是 workspace：绝大部分业务模块仍在主包 `backend/app/src/business/`，
+ * 而内核那批（`business/shared` / `shared` / `utils`）搬进了
+ * `backend/crates/cloudpivot-kernel/src/`。所以：
+ * - 传**仓库相对全路径**（以 `backend/` 开头）→ 按仓库根拼；
+ * - 传模块内相对路径（如 `erp/contract/contract_model.rs`）→ 按主包 src 拼。
+ *
+ * 两条都直接 `readFileSync`：路径写错就 ENOENT 让用例真红，**不做 try/catch 静默兜底**
+ * （静默兜底等于把「后端加边前端没跟」的守卫关掉）。
+ */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/app/src/business/${relative}`, import.meta.url), 'utf8');
+  const base = relative.startsWith('backend/') ? '../../../' : '../../../backend/app/src/business/';
+  return readFileSync(new URL(`${base}${relative}`, import.meta.url), 'utf8');
 }
 
 /** 读前端源码（模板接线断言） */
@@ -184,7 +197,7 @@ test('⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_
 
   // 卡面写的 CANCELLED 在 DDL / 状态机里都不存在
   assert.ok(!CONTRACT_STATUSES.includes('CANCELLED' as never), '合同没有 CANCELLED 态（草稿作废走软删）');
-  const machine = backendSource('shared/state_machine.rs');
+  const machine = backendSource('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const contractEdgesBlock = machine.slice(
     machine.indexOf('pub const CONTRACT_EDGES'),
     machine.indexOf('pub const CONTRACT_REASON_EDGES'),
@@ -204,7 +217,7 @@ test('⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_
 
 test('⑦ 状态按钮：只显示当前状态能走的合法边，且与前端的边表 = 后端状态机', () => {
   // ---- 边表本身：逐条与 Rust 源码比对（不是靠人眼记忆）
-  const machine = backendSource('shared/state_machine.rs');
+  const machine = backendSource('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const edgesBlock = machine.slice(
     machine.indexOf('pub const CONTRACT_EDGES'),
     machine.indexOf('pub const CONTRACT_REASON_EDGES'),

@@ -149,11 +149,11 @@ test('后端导出白名单：字段名与 status_code 契约逐字未变', () =
   // 批量导出请求体必须收 status_code（前端发的就是这个键）
   assert.ok(
     batchRs.includes('pub status_code: Option<String>'),
-    'backend/batch.rs::BatchExportReq 没有 status_code 字段（契约变了，前端发出去会丢）'
+    'backend/app/src/business/erp/batch.rs::BatchExportReq 没有 status_code 字段（契约变了，前端发出去会丢）'
   );
   assert.ok(
     batchRs.includes('pub status: Option<i16>'),
-    'backend/batch.rs::BatchExportReq 的 status 类型变了（字典项/用户那套口径要跟着核对）'
+    'backend/app/src/business/erp/batch.rs::BatchExportReq 的 status 类型变了（字典项/用户那套口径要跟着核对）'
   );
 });
 

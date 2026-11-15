@@ -463,10 +463,23 @@ test('票面形式：电子票只收 pdf/ofd/xml、纸质票收 jpg/png/pdf，�
 // ==================== 后端源码契约（逐字） ====================
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BACKEND = resolve(HERE, '../../../backend/app/src/business');
+const REPO_ROOT = resolve(HERE, '../../..');
+const BACKEND = resolve(REPO_ROOT, 'backend/app/src/business');
 
+/**
+ * 读后端 Rust 源码。
+ *
+ * P2-40 之后后端是 workspace：主包在 `backend/app/src/business/`，内核那批
+ * （`business/shared` / `shared` / `utils`）在 `backend/crates/cloudpivot-kernel/src/`。
+ * - 传**仓库相对全路径**（以 `backend/` 开头）→ 按仓库根拼；
+ * - 传模块内相对路径（如 `erp/invoice.rs`）→ 按主包 business 拼。
+ *
+ * 直接 `readFileSync`，路径写错就 ENOENT 让用例红 —— **不包 try/catch**，
+ * 否则「后端边表改了前端没跟」这条守卫会被静默关掉。
+ */
 function readBackend(relative: string): string {
-  return readFileSync(resolve(BACKEND, relative), 'utf8');
+  const abs = relative.startsWith('backend/') ? resolve(REPO_ROOT, relative) : resolve(BACKEND, relative);
+  return readFileSync(abs, 'utf8');
 }
 
 test('后端 invoice.rs 的状态域 / 原因长度 / 票种 / 额度口径与前端一致', () => {
@@ -525,7 +538,7 @@ test('后端票面形式（is_electronic）落库与规则分支与前端一致'
 });
 
 test('后端 state_machine.rs 的 INVOICE 边表 / 终态与前端逐条一致', () => {
-  const src = readBackend('shared/state_machine.rs');
+  const src = readBackend('backend/crates/cloudpivot-kernel/src/business/shared/state_machine.rs');
   const edges = /pub const INVOICE_EDGES: \[\(&str, &str\); 4\] = \[([\s\S]*?)\];/.exec(src);
   assert.ok(edges, '找不到 INVOICE_EDGES（后端改名了？）');
   const edgeTuples = [...(edges?.[1] ?? '').matchAll(/\("([A-Z_]+)", "([A-Z_]+)"\)/g)].map(
