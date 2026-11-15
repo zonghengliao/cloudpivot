@@ -20,8 +20,11 @@ test.describe('专项5 错误与边界', () => {
     await page.goto('/business/erp/material');
     await expect(page.locator('.basic-layout__aside')).toBeVisible();
 
-    // 友好提示：页面级 t-alert / 全局 toast 至少出现一个，且文案不是堆栈
-    const alert = page.locator('.t-alert, .t-message').first();
+    // 友好提示：页面级提示至少出现一个，且文案不是堆栈
+    // P3-17 起列表页的加载失败走 `components/StateView`（`data-state="error"` + 重试按钮），不再是 `t-alert`。
+    // 选择器里的 `:visible` 不能去掉：`ImportEntryButton` 内部有一个常驻的 hidden `t-alert`
+    // （`.import-entry__tip`），`.first()` 会先命中它，用例就成了「改前改后都红」的假缺陷。
+    const alert = page.locator('[data-state="error"], .t-message:visible, .t-alert:visible').first();
     await expect(alert).toBeVisible({ timeout: 20_000 });
     const text = (await alert.innerText()).replace(/\s+/g, ' ').trim();
     expect(text.length, '提示文案不能为空').toBeGreaterThan(2);

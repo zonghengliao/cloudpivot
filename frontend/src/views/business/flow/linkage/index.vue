@@ -66,12 +66,19 @@
 
     <!-- ==================== ③ 列表 ==================== -->
     <t-card :bordered="false" class="table-card">
-      <t-alert v-if="errorMessage" class="table-alert" theme="error" :message="errorMessage">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadList">重试</t-button>
-        </template>
-      </t-alert>
+      <!-- 三态（P3-17）：接口失败整块 StateView（带重试），不再「红条 + 空表格」两套提示 -->
+      <StateView
+        v-if="errorMessage"
+        state="error"
+        compact
+        title="联动规则加载失败"
+        :description="errorMessage"
+        :action-loading="loading"
+        testid="linkage-error"
+        @action="loadList"
+      />
 
+      <template v-else>
       <t-table
         row-key="id"
         :data="filteredRows"
@@ -199,20 +206,27 @@
             </t-link>
           </t-space>
         </template>
-      </t-table>
 
-      <t-empty
-        v-if="!loading && !errorMessage && filteredRows.length === 0"
-        class="empty"
-        :description="total === 0 ? '还没有任何联动规则' : '没有符合筛选条件的规则'"
-      >
-        <template #action>
-          <div class="empty__hint">
-            0 条规则 = 引擎一条动作都不执行（现有业务行为不变）。点右上角「新增规则」配第一条，
-            例如「收货入库单过账后 → 发通知给仓管」。
-          </div>
+        <!-- 空态（P3-17）：放进表格自己的 #empty 槽，否则 t-table 会先画一条「暂无数据」，
+             下面再叠一整块插画空态 —— 一眼看到两个空态。说明文字走 #actions 槽。 -->
+        <template #empty>
+          <StateView
+            v-if="!loading"
+            state="empty"
+            compact
+            :title="total === 0 ? '还没有任何联动规则' : '没有符合筛选条件的规则'"
+            testid="linkage-empty"
+          >
+            <template #actions>
+              <div class="empty__hint">
+                0 条规则 = 引擎一条动作都不执行（现有业务行为不变）。点右上角「新增规则」配第一条，
+                例如「收货入库单过账后 → 发通知给仓管」。
+              </div>
+            </template>
+          </StateView>
         </template>
-      </t-empty>
+      </t-table>
+      </template>
     </t-card>
 
     <!-- ==================== ④ 新增 / 编辑弹窗 ==================== -->
@@ -521,6 +535,7 @@
 import { computed, reactive, ref, watch } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import StateView from '@/components/StateView/index.vue';
 import { PERM } from '@/constants/permissions';
 import {
   deleteLinkageRule,
@@ -640,7 +655,8 @@ async function loadList(): Promise<void> {
     actions.value = data.actions ?? [];
   } catch (error) {
     rules.value = [];
-    errorMessage.value = errorText(error, '联动规则加载失败');
+    // 标题由 StateView 的 title 承担（「联动规则加载失败」），这里只放具体原因
+    errorMessage.value = errorText(error, '请求没有成功（网络中断或后端不可用）');
   } finally {
     loading.value = false;
   }
@@ -1115,10 +1131,6 @@ void loadList();
   margin-left: 6px;
   font-size: 12px;
   color: var(--td-text-color-secondary);
-}
-
-.empty {
-  padding: 24px 0;
 }
 
 .empty__hint {

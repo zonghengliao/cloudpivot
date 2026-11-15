@@ -173,11 +173,17 @@
         <slot name="head-extra" :rows="rows" :total="total" />
       </div>
 
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="lp__alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="reload">重试</t-button>
-        </template>
-      </t-alert>
+      <!-- 三态（P3-17）：接口失败整块走 StateView，不再「红条 + 空表格」两套提示打架 -->
+      <StateView
+        v-if="loadError"
+        class="lp__error"
+        state="error"
+        compact
+        :title="`${title}加载失败`"
+        :description="loadError"
+        :testid="`${testid}-error`"
+        @action="reload"
+      />
 
       <BatchActionBar
         v-if="batchReady"
@@ -193,6 +199,7 @@
       />
 
       <t-table
+        v-if="!loadError"
         :row-key="rowKey"
         :data="rows"
         :columns="tableColumns"
@@ -238,13 +245,15 @@
 
         <template #empty>
           <slot name="empty" :filtered="filtered" :total="total">
-            <div class="lp__empty" :data-testid="`${testid}-empty`">
-              <t-icon class="lp__empty-icon" name="file" />
-              <p class="lp__empty-title">{{ filtered ? '没有匹配的记录' : `还没有${title}` }}</p>
-              <p class="lp__empty-desc">
-                {{ filtered ? '换个关键词 / 筛选条件试试，或点「重置」看全部' : '先在上面新建一条，列表就有数据了' }}
-              </p>
-            </div>
+            <StateView
+              state="empty"
+              compact
+              :title="filtered ? '没有匹配的记录' : `还没有${title}`"
+              :description="
+                filtered ? '换个关键词 / 筛选条件试试，或点「重置」看全部' : '先在上面新建一条，列表就有数据了'
+              "
+              :testid="`${testid}-empty`"
+            />
           </slot>
         </template>
       </t-table>
@@ -265,6 +274,7 @@
 import { computed, reactive, ref, useSlots } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import BatchActionBar from '@/components/BatchActionBar.vue';
+import StateView from '@/components/StateView/index.vue';
 import { useBatchSelection, type SelectableRow } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
 import { saveBlob } from '@/utils/download';
@@ -515,7 +525,7 @@ async function load(page: number = current.value): Promise<void> {
   } catch (error) {
     rows.value = [];
     total.value = 0;
-    loadError.value = `${props.title}加载失败：${errorText(error)}`;
+    loadError.value = errorText(error);
   } finally {
     loading.value = false;
   }
@@ -863,7 +873,7 @@ void load(1);
   white-space: nowrap;
 }
 
-.lp__alert {
+.lp__error {
   margin-bottom: 8px;
 }
 
@@ -877,34 +887,5 @@ void load(1);
 .lp__op-disabled {
   color: var(--td-text-color-disabled);
   cursor: not-allowed;
-}
-
-.lp__empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 48px 16px;
-  text-align: center;
-}
-
-.lp__empty-icon {
-  font-size: 32px;
-  color: var(--td-text-color-placeholder);
-}
-
-.lp__empty-title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.lp__empty-desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  max-width: 460px;
-  line-height: 1.6;
 }
 </style>

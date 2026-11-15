@@ -89,15 +89,24 @@
       </div>
     </t-card>
 
-    <!-- 错误态：可重试，不白屏 -->
+    <!--
+      三态（P3-17）：错误 → 首屏骨架屏 → 正常画布，三选一。
+      骨架屏只在「还没有任何数据」的那一次占位：已经有图之后的刷新仍走卡片内的 `t-loading` 遮罩，
+      换骨架屏会把图闪没，改期时手感更差。
+    -->
     <t-card v-if="errorMessage" :bordered="false" class="body-card">
-      <t-alert theme="error" :message="errorMessage">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="load">重试</t-button>
-        </template>
-      </t-alert>
+      <StateView
+        state="error"
+        title="甘特图加载失败"
+        :description="errorMessage"
+        :action-loading="loading"
+        testid="gantt-error"
+        @action="load"
+      />
     </t-card>
-
+    <t-card v-else-if="loading && !data" :bordered="false" class="body-card">
+      <StateView state="loading" :rows="8" description="正在加载甘特数据…" testid="gantt-loading" />
+    </t-card>
     <t-card v-else :bordered="false" class="body-card">
       <!-- 图表控制条：紧贴画布（浏览时高频操作，视线不用离开图表） -->
       <div class="gantt-ctrl">
@@ -133,14 +142,17 @@
         </t-space>
       </div>
       <t-loading :loading="loading" size="small">
-        <!-- 空态：没有任何可排期任务（都没有 start_date / due_date） -->
-        <div v-if="!loading && visibleTasks.length === 0" class="gantt-empty">
-          <t-icon name="calendar" size="32px" class="gantt-empty__icon" />
-          <p class="gantt-empty__text">
-            这个时间窗内没有可排期的任务（任务需要有「计划开始」或「截止日期」才能画到甘特图上）
-          </p>
-          <t-button size="small" variant="outline" @click="goToday">回到今天</t-button>
-        </div>
+        <!-- 空态（P3-17）：StateView 统一画法 -->
+        <StateView
+          v-if="!loading && visibleTasks.length === 0"
+          state="empty"
+          compact
+          title="这个时间窗内没有可排期的任务"
+          description="任务需要有「计划开始」或「截止日期」才能画到甘特图上"
+          action-text="回到今天"
+          testid="gantt-empty"
+          @action="goToday"
+        />
 
         <!-- 甘特主体：**纯 SVG 手绘**（不引任何甘特库；拖拽用原生 pointer 事件） -->
         <div v-else ref="scrollRef" class="gantt-scroll">
@@ -559,6 +571,7 @@ import TaskDetail from './detail.vue';
 import UserSelect from './components/UserSelect.vue';
 import TaskForm from './components/TaskForm.vue';
 import { ApiError } from '@/api/request';
+import StateView from '@/components/StateView/index.vue';
 import { pageProjects } from '@/api/business/project-api';
 import {
   fetchGantt,
@@ -1764,24 +1777,6 @@ onMounted(() => {
   overflow-x: auto;
   overflow-y: auto;
   max-height: 68vh;
-}
-
-.gantt-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 48px 0;
-
-  &__icon {
-    color: var(--td-text-color-placeholder, #bbb);
-  }
-
-  &__text {
-    margin: 0;
-    font-size: 13px;
-    color: var(--td-text-color-secondary, #666);
-  }
 }
 
 .gantt-svg {
