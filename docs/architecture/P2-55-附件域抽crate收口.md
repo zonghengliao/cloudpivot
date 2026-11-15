@@ -225,7 +225,7 @@ business/storage/cleanup.rs:25   use crate::task::Scheduler;
 | `#[cfg(test)]` | 6 | — | `mod.rs` 2 + `model.rs` 2 + `rule.rs` 1 + `rule_admin/mod.rs` 1 |
 | `#[test]` / `#[tokio::test]` | 96 | — | `tests.rs` 65 + `rule_admin/tests.rs` 14 + `rule.rs` 17 |
 | 表 | 3 | — | `biz_doc_attachment`（桥接表）、`biz_attachment_rule`（必传规则）、`sys_file`（复用 storage，只读/写引用） |
-| 迁移 | 9 | — | `V0212`（建表+3 码+菜单）/`V0344`（sort_order）/`V0345`（file_roles）/`V0347`（必传规则）/`V0349`（规则管理菜单 4 码）/`V0350`（advice 单据类型）/`V0352`（uploader_name 快照）/`V0362`（file_name）/`V0389`（HR 单据类型） |
+| 迁移 | **14 个版本** | — | 名字带 `attachment` 的 **10 个**（`V0212` 建表+3 码+3 菜单行、`V0344` sort_order、`V0345` file_roles、`V0346` storage 策略补 wps/et/dps、`V0347` 必传规则表、`V0349` 规则管理 4 码+4 菜单行、`V0350` advice 单据类型、`V0352` uploader_name 快照、`V0362` file_name、`V0389` HR 单据类型；共 20 个 up+down 文件）+ 以别的功能为名却改到附件表的 **4 个**（`V0232`/`V0244` 改 `ck_biz_doc_attachment_type`、`V0348` 改 `biz_attachment_rule` 种子、`V0368` 改 doc_type CHECK） |
 
 **搬包时另有一处会断**（不在 C4 行的 5 个机械量里）：上表 2 处 `include_str!` 的相对深度会变。
 现在 `src/business/attachment/tests.rs` + `../../../` = `backend/app/migrations/`；搬到
