@@ -1,0 +1,44 @@
+== M1-01 / V0406 真库往返演练 ==
+   PG=172.18.10.145:5432 模板=cloudpivot_test 演练库=cp_m101_v0406_drill_2410948
+
+  ---- 演练库已从 cloudpivot_test 克隆
+  ---- 存量 biz_account 行数 = 83（回填对象）
+
+== 1) up 第一次 ==
+  [32mPASS[0m up 第一次执行成功（自检块通过）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0406__account_voucher_currency.up.sql:199: NOTICE:  V0406 回填：biz_account.currency_code 0 行、biz_voucher.currency_code 0 行、biz_voucher.exchange_rate 0 行（ADD COLUMN 已默认填好时这里全为 0）
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0406__account_voucher_currency.up.sql:404: NOTICE:  V0406 自检通过：三列（varchar(8) / 18,8）+ 默认 CNY/1 + 3 条 CHECK + 2 条索引 + 存量回填无空值 + 行为探针 6 条
+
+== 2) up 第二次（幂等）==
+  [32mPASS[0m up 重复执行成功（幂等）
+
+== 3) 结构 / 回填断言 ==
+  [32mPASS[0m 三列齐（=3）
+  [32mPASS[0m biz_account.currency_code 长度（=8）
+  [32mPASS[0m biz_voucher.exchange_rate 精度（=18,8）
+  [32mPASS[0m biz_voucher.currency_code NOT NULL 且默认 CNY（=NO|'CNY'）
+  [32mPASS[0m biz_voucher.exchange_rate 默认 1（=1）
+  [32mPASS[0m 3 条 CHECK 在位（=3）
+  [32mPASS[0m 2 条索引在位（=2）
+  [32mPASS[0m 凭证索引是「只收外币」的部分索引（=1）
+  [32mPASS[0m 存量科目全部回填为 CNY（=0）
+  [32mPASS[0m 存量凭证币种/汇率无空值（=0）
+  [32mPASS[0m 小写币种被 ck_biz_account_currency_code 拦下（=1）
+  [32mPASS[0m 汇率 0 被 ck_biz_voucher_exchange_rate 拦下（=1）
+  [32mPASS[0m 两位币种被 ck_biz_voucher_currency_code 拦下（=1）
+
+== 4) down ×2（回滚 + 幂等）==
+  [32mPASS[0m down 第一次执行成功
+  [32mPASS[0m 回滚后三列已移除（=0）
+  [32mPASS[0m down 重复执行成功（幂等）
+
+== 5) 回滚后重放 up ==
+  [32mPASS[0m 回滚后重放 up 成功
+  [32mPASS[0m 重放后三列回来了（=3）
+
+== 6) down 护栏反证（有外币数据必须拒绝回滚）==
+  [32mPASS[0m down 被护栏拒绝并给出去向说明
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0406__account_voucher_currency.down.sql:50: ERROR:  V0406 down 拒绝执行：biz_account 已有 1 行外币科目，回滚会连币种信息一起丢掉（要回滚请先把这些科目改回 CNY）
+  [32mPASS[0m 拒绝回滚后结构未被破坏（三列仍在）（=3）
+
+== 汇总：PASS=22 FAIL=0 ==

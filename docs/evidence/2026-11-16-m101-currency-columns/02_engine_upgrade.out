@@ -1,0 +1,34 @@
+== 克隆库升级演练（真引擎，不是 psql 手动执行）==
+模板库 cloudpivot_test（versioned 326 条，最大 V0404）→ 克隆 cp_m101_upgrade → 启动 backend/target/debug/cloudpivot
+
+-- 首次启动：应用 2 条新迁移（V0405 / V0406） --
+[2m2026-11-15T17:16:30.332246Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 2 个迁移
+
+-- schema_migrations 尾部（版本 406 已登记 + 指纹） --
+   kind    |           name            | version |                             checksum                             | applied_via | success |                             source                              
+-----------+---------------------------+---------+------------------------------------------------------------------+-------------+---------+-----------------------------------------------------------------
+ versioned | account_voucher_currency  | 406     | ffd620623f8fca76008755d56138fbe4c1d5070420981a3b52f366f94970b038 | executed    | t       | app/migrations/business/V0406__account_voucher_currency.up.sql
+ versioned | config_category_normalize | 405     | bf39c99cd73b5a335e5ab66b9280e610003164a255ab7e5489992548a0a1a637 | executed    | t       | app/migrations/business/V0405__config_category_normalize.up.sql
+ versioned | notice_alert_dedup        | 404     | b37e869aa850c0f2c1adb24189201aba7f87daf008ddd3942acade0f87781fad | executed    | t       | 
+(3 rows)
+
+-- 升级后三列已建 --
+ table_name  |  column_name  |     data_type     | character_maximum_length | numeric_precision | numeric_scale | is_nullable |      column_default      
+-------------+---------------+-------------------+--------------------------+-------------------+---------------+-------------+--------------------------
+ biz_account | currency_code | character varying |                        8 |                   |               | NO          | 'CNY'::character varying
+ biz_voucher | currency_code | character varying |                        8 |                   |               | NO          | 'CNY'::character varying
+ biz_voucher | exchange_rate | numeric           |                          |                18 |             8 | NO          | 1
+(3 rows)
+
+-- 存量回填（biz_account 全 CNY） --
+ currency_code | count 
+---------------+-------
+ CNY           |    83
+(1 row)
+
+
+-- 重启一次：引擎级幂等（应用 0 个迁移） --
+[2m2026-11-15T17:16:47.091429Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+-- /health 与 /health/deps --
+GET /health      -> 200（两次启动均 200）
+GET /health/deps -> {"status":"ok","db":{"ok":true,...},"cache":{"ok":true,...},"auth":{"revocation_source":"db","cache_degraded":false}}
