@@ -1,112 +1,126 @@
+<!--
+  导出任务列表（impexp）。
+
+  # 列表部分（P3-11）
+  筛选 / 分页 / 空态 / 加载失败交给 `components/ListPage`：本页只声明
+  「列 + 筛选项 + 怎么拉一页 + 入参怎么拼」。
+
+  # 3 秒轮询（组件不管，页面自己挂）
+  `PENDING / RUNNING` 的导出进度是后台任务推进的（架构文档 §5.3 第 5 条），页面靠
+  `@loaded` 拿到这一页，只有存在未完成的行才安排下一跳；全部终态后自动停表。
+  轮询只重拉当前页，不重置筛选、不跳页。
+
+  # 两种「下载不了」的判定（都按后端状态机写，避免「按钮能点但必然 409/410」）
+  - `canRetry`：失败 / 已取消 / **产物已过期**（后端 `requeue_export_task` 的三种前置状态）；
+  - 下载链接：`SUCCESS` 才有，过期后置灰（E-EXP-05 24 小时有效期）。
+-->
 <template>
   <div class="export-task-page">
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="3">
-          <t-input v-model="query.keyword" placeholder="任务号 / 文件名" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable>
-            <t-option v-for="item in STATUS_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
-          </t-select>
-        </t-col>
-        <t-col :span="3">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <ListPage
+      ref="listRef"
+      title="导出任务"
+      testid="impexp-export"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.impexpExportCreate]"
+          theme="primary"
+          data-testid="impexp-export-create"
+          @click="openCreate"
+        >
+          <template #icon><t-icon name="download" /></template>
+          新建导出
+        </t-button>
+      </template>
 
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.impexpExportCreate]" theme="primary" @click="openCreate">
-            <template #icon><t-icon name="download" /></template>
-            新建导出
-          </t-button>
-          <t-button theme="default" :loading="loading" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
+      <template #task_no="{ row }">{{ row.task_no }}</template>
+      <template #biz_type="{ row }">{{ row.biz_name || row.biz_type }}</template>
+      <template #status="{ row }">
+        <t-tag :theme="statusTheme(row.status)" variant="light" size="small">{{ statusLabel(row.status) }}</t-tag>
+      </template>
+      <template #progress="{ row }">
+        <t-progress
+          :percentage="row.progress"
+          :status="row.status === 'FAILED' ? 'error' : row.progress === 100 ? 'success' : 'active'"
+          :label="true"
+          size="small"
+        />
+      </template>
+      <template #rows="{ row }">
+        {{ (row.exported_rows || 0).toLocaleString() }} / {{ (row.total_rows || 0).toLocaleString() }}
+      </template>
+      <template #expire_at="{ row }">
+        <span v-if="row.status === 'SUCCESS' && row.expire_at" :class="{ 'cell-expired': isExpired(row.expire_at) }">
+          {{ expireText(row.expire_at) }}
+        </span>
+        <span v-else class="cell-empty">—</span>
+      </template>
+      <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+
+      <!-- 行操作按状态出现 → 页面自绘（声明式行操作只能整条置灰，不能按行隐藏） -->
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link
+            v-if="row.status === 'SUCCESS'"
+            v-privilege="[PERM.impexpExportDownload]"
+            :theme="isExpired(row.expire_at) ? 'default' : 'primary'"
+            :disabled="isExpired(row.expire_at)"
+            data-testid="impexp-export-download"
+            @click="handleDownload(row)"
+          >
+            下载
+          </t-link>
+          <t-link
+            v-if="row.status === 'PENDING' || row.status === 'RUNNING'"
+            v-privilege="[PERM.impexpExportCancel]"
+            theme="warning"
+            data-testid="impexp-export-cancel"
+            @click="confirmCancel(row)"
+          >
+            取消
+          </t-link>
+          <t-link
+            v-if="canRetry(row)"
+            v-privilege="[PERM.impexpExportRetry]"
+            theme="primary"
+            data-testid="impexp-export-retry"
+            @click="confirmRetry(row)"
+          >
+            重试
+          </t-link>
+          <t-link
+            v-privilege="[PERM.impexpExportDelete]"
+            theme="danger"
+            data-testid="impexp-export-delete"
+            @click="confirmRemove(row)"
+          >
+            删除
+          </t-link>
         </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 条</span>
-      </div>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :stripe="true"
-        @page-change="handlePageChange"
-      >
-        <template #task_no="{ row }">{{ row.task_no }}</template>
-        <template #biz_type="{ row }">{{ row.biz_name || row.biz_type }}</template>
-        <template #status="{ row }">
-          <t-tag :theme="statusTheme(row.status)" variant="light" size="small">{{ statusLabel(row.status) }}</t-tag>
-        </template>
-        <template #progress="{ row }">
-          <t-progress
-            :percentage="row.progress"
-            :status="row.status === 'FAILED' ? 'error' : row.progress === 100 ? 'success' : 'active'"
-            :label="true"
-            size="small"
-          />
-        </template>
-        <template #rows="{ row }">{{ (row.exported_rows || 0).toLocaleString() }} / {{ (row.total_rows || 0).toLocaleString() }}</template>
-        <template #expire_at="{ row }">
-          <span v-if="row.status === 'SUCCESS' && row.expire_at" :class="{ 'cell-expired': isExpired(row.expire_at) }">
-            {{ expireText(row.expire_at) }}
-          </span>
-          <span v-else class="cell-empty">—</span>
-        </template>
-        <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link
-              v-if="row.status === 'SUCCESS'"
-              v-privilege="[PERM.impexpExportDownload]"
-              :theme="isExpired(row.expire_at) ? 'default' : 'primary'"
-              :disabled="isExpired(row.expire_at)"
-              @click="handleDownload(row)"
-            >
-              下载
-            </t-link>
-            <t-link
-              v-if="row.status === 'PENDING' || row.status === 'RUNNING'"
-              v-privilege="[PERM.impexpExportCancel]"
-              theme="warning"
-              @click="confirmCancel(row)"
-            >
-              取消
-            </t-link>
-            <t-link
-              v-if="canRetry(row)"
-              v-privilege="[PERM.impexpExportRetry]"
-              theme="primary"
-              @click="confirmRetry(row)"
-            >
-              重试
-            </t-link>
-            <t-link v-privilege="[PERM.impexpExportDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="download" />
-            <p class="empty-state__title">还没有导出任务</p>
-            <p class="empty-state__desc">数据量大时会转为后台导出，完成后可在本页下载（链接 24 小时内有效）</p>
-            <t-button v-privilege="[PERM.impexpExportCreate]" theme="primary" @click="openCreate">新建导出</t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="impexp-export-empty">
+          <t-icon class="panel-empty__icon" name="download" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的导出任务' : '还没有导出任务' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个关键词 / 状态试试，或点「重置」看全部'
+                : '数据量大时会转为后台导出，完成后可在本页下载（链接 24 小时内有效）'
+            }}
+          </p>
+          <t-button v-privilege="[PERM.impexpExportCreate]" theme="primary" @click="openCreate">新建导出</t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- 新建导出 -->
     <t-dialog
@@ -119,7 +133,13 @@
     >
       <t-form label-width="96px">
         <t-form-item label="导出业务">
-          <t-select v-model="createBizType" :options="bizOptions" :loading="defLoading" placeholder="请选择业务" />
+          <t-select
+            v-model="createBizType"
+            :options="bizOptions"
+            :loading="defLoading"
+            placeholder="请选择业务"
+            data-testid="impexp-export-biz"
+          />
         </t-form-item>
         <t-form-item label="说明">
           <span class="hint">
@@ -133,9 +153,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { computed, onBeforeUnmount, reactive, ref } from 'vue';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListFilter, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import {
   cancelExport,
@@ -153,18 +175,8 @@ import { formatDateTime } from '@/utils/format';
 import { saveBlob } from '@/utils/download';
 import { PERM } from '@/constants/permissions';
 
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
-
-const rows = ref<ExportTaskRes[]>([]);
-const loading = ref(false);
-const query = reactive({ keyword: '', status: '' as string });
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
 
 const STATUS_OPTIONS: Array<{ value: ExportTaskStatus; label: string }> = [
   { value: 'PENDING', label: '排队中' },
@@ -191,16 +203,73 @@ function statusTheme(status: ExportTaskStatus): 'success' | 'primary' | 'warning
   return 'primary';
 }
 
-const columns: PrimaryTableCol[] = [
+// ==================== 列表（P3-11） ====================
+
+const filter = reactive<ListFilter>({ keyword: '', status: '' });
+
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '任务号 / 文件名', width: 260, testid: 'impexp-export-keyword' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 160,
+    options: STATUS_OPTIONS,
+    testid: 'impexp-export-status',
+  },
+];
+
+const columns: ColumnDef[] = [
   { colKey: 'task_no', title: '任务号', width: 190 },
   { colKey: 'biz_type', title: '业务', width: 150 },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'progress', title: '进度', width: 160 },
-  { colKey: 'rows', title: '已导出 / 总行数', width: 170 },
+  { colKey: 'rows', title: '已导出 / 总行数', width: 170, exportable: false },
   { colKey: 'expire_at', title: '下载有效期', width: 200 },
   { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'op', title: '操作', width: 200, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 200, fixed: 'right', exportable: false },
 ];
+
+const fetcher: ListFetcher<ExportTaskRes> = (query) => pageExportTasks(query as Parameters<typeof pageExportTasks>[0]);
+
+/** 入参拼装：空串整键缺席 */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => {
+  const keyword = String(filter.keyword ?? '').trim();
+  return {
+    page,
+    page_size: size,
+    keyword: keyword || undefined,
+    status: filter.status || undefined,
+  };
+};
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 一页拉完：安排轮询（只重拉当前页） */
+function onLoaded(payload: { rows: ExportTaskRes[] }): void {
+  schedulePolling(payload.rows);
+}
+
+/** 有未完成任务时 3 秒轮询一次（架构文档 §5.3 第 5 条） */
+let pollTimer: number | undefined;
+function schedulePolling(list: ExportTaskRes[]): void {
+  if (pollTimer) {
+    window.clearTimeout(pollTimer);
+    pollTimer = undefined;
+  }
+  const hasActive = list.some((row) => row.status === 'PENDING' || row.status === 'RUNNING');
+  if (!hasActive) {
+    return;
+  }
+  pollTimer = window.setTimeout(() => {
+    listRef.value?.reload();
+  }, 3000);
+}
+
+/** 增删改后重拉当前页 */
+function reloadList(): void {
+  listRef.value?.reload();
+}
 
 /** 下载链接是否已过期（E-EXP-05：有效期 24 小时） */
 function isExpired(expireAt?: string | null): boolean {
@@ -232,58 +301,6 @@ function expireText(expireAt: string): string {
   }
   const minutes = Math.max(1, dayjs(expireAt).diff(dayjs(), 'minute'));
   return `${dayjs(expireAt).format('HH:mm')}（剩 ${minutes} 分钟）`;
-}
-
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageExportTasks({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      keyword: query.keyword || undefined,
-      status: query.status || undefined,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-    schedulePolling();
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
-}
-
-/** 有未完成任务时 3 秒轮询一次（架构文档 §5.3 第 5 条） */
-let pollTimer: number | undefined;
-function schedulePolling(): void {
-  if (pollTimer) {
-    window.clearTimeout(pollTimer);
-    pollTimer = undefined;
-  }
-  const hasActive = rows.value.some((row) => row.status === 'PENDING' || row.status === 'RUNNING');
-  if (!hasActive) {
-    return;
-  }
-  pollTimer = window.setTimeout(() => {
-    void loadList();
-  }, 3000);
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.keyword = '';
-  query.status = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
 }
 
 // ==================== 新建导出 ====================
@@ -326,8 +343,7 @@ async function submitCreate(): Promise<void> {
     const task = await createExport({ biz_type: createBizType.value });
     void MessagePlugin.success(`导出任务 ${task.task_no} 已创建，完成后会收到站内信通知`);
     createVisible.value = false;
-    pagination.current = 1;
-    await loadList();
+    listRef.value?.search();
   } catch (error) {
     createError.value = error instanceof ApiError ? error.message : '创建导出任务失败';
   } finally {
@@ -357,7 +373,7 @@ function confirmCancel(row: ExportTaskRes): void {
         try {
           await cancelExport(row.id);
           void MessagePlugin.success('任务已取消');
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error);
         }
@@ -378,7 +394,7 @@ function confirmRetry(row: ExportTaskRes): void {
         try {
           await retryExport(row.id);
           void MessagePlugin.success('已重新排队，完成后可在本页下载');
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error);
         }
@@ -399,7 +415,7 @@ function confirmRemove(row: ExportTaskRes): void {
         try {
           await deleteExport(row.id);
           void MessagePlugin.success('已删除');
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error);
         }
@@ -412,10 +428,6 @@ function showError(error: unknown): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message : '请求失败，请稍后重试');
 }
 
-onMounted(() => {
-  void loadList();
-});
-
 onBeforeUnmount(() => {
   if (pollTimer) {
     window.clearTimeout(pollTimer);
@@ -425,58 +437,44 @@ onBeforeUnmount(() => {
 
 <style lang="less" scoped>
 .export-task-page {
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
+.cell-empty {
+  color: var(--td-text-color-placeholder);
+}
 
-  .toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
+.cell-expired {
+  color: var(--td-error-color);
+}
 
-    &__count {
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
-  }
+.hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--td-text-color-secondary);
+}
 
-  .cell-empty {
+.panel-empty {
+  padding: 40px 0;
+  text-align: center;
+
+  &__icon {
+    font-size: 40px;
     color: var(--td-text-color-placeholder);
   }
 
-  .cell-expired {
-    color: var(--td-error-color);
+  &__title {
+    margin: 12px 0 4px;
+    font-size: 15px;
+    color: var(--td-text-color-primary);
   }
 
-  .hint {
-    font-size: 12px;
-    line-height: 1.6;
+  &__desc {
+    margin-bottom: 16px;
+    font-size: 13px;
     color: var(--td-text-color-secondary);
-  }
-
-  .empty-state {
-    padding: 48px 0;
-    text-align: center;
-
-    &__icon {
-      font-size: 48px;
-      color: var(--td-text-color-placeholder);
-    }
-
-    &__title {
-      margin: 12px 0 4px;
-      font-size: 15px;
-      color: var(--td-text-color-primary);
-    }
-
-    &__desc {
-      margin-bottom: 16px;
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
   }
 }
 </style>

@@ -1,129 +1,106 @@
+<!--
+  文件管理（storage/file）。
+
+  # 列表部分（P3-11）
+  筛选 / 分页 / 批量删除 / 行操作 / 空态交给 `components/ListPage`：本页只声明
+  「列 + 筛选项 + 怎么拉一页 + 入参怎么拼 + 批量动作怎么跑」。
+
+  # 批量删除改用 D7 的 `BatchActionBar`
+  改造前是页面自己 for 循环 + 「成功 N 失败 M」toast。后端没有文件批量接口，但
+  `BatchRunner` 的契约是「给 ids、回 `BatchResult`」——逐条调 `DELETE /storage/{id}`
+  再把成功/失败聚合成 `BatchResult` 就能完整复用那套交互：二次确认（正文带影响条数）、
+  逐条失败原因清单、跑完自动刷新 + 清勾选。**逐条独立事务**：一条失败不影响其余条。
+
+  # 上传进度面板放哪
+  改造前它压在表格上方（表格卡内）。迁到 ListPage 后放进 `#filter-footer`（筛选卡整宽底部）：
+  上传是「筛选区之上」的页面级动作，进度条跟着筛选卡走，不挤占表格可读区。
+
+  # 上传人译名（缺陷②）
+  `uploaded_by` 是 UUID，列表原来直接渲染主键。AUD-02 起后端直接给 `uploader_name`
+  （一次批量 join），前端只在「后端没给（老后端 / 已删账号）」时才去用户表补译名，
+  失败不报错（拿不到就保持 UUID 回退，不该为一句译名弹红条打断上传主流程）。
+-->
 <template>
   <div class="storage-file-page">
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="3">
-          <t-input v-model="query.original_name" placeholder="文件名" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-input v-model="query.category" placeholder="分类（如 attachment）" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-input v-model="query.storage_code" placeholder="存储后端编码" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
-
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <input ref="fileInputRef" class="file-input" type="file" multiple @change="onFilesPicked" />
-          <t-button v-privilege="[PERM.storageUpload]" theme="primary" @click="pickFiles">
-            <template #icon><t-icon name="cloud-upload" /></template>
-            上传文件
-          </t-button>
-          <t-button
-            v-privilege="[PERM.storageDelete]"
-            theme="danger"
-            variant="outline"
-            :disabled="selectedIds.length === 0"
-            @click="confirmBatchRemove"
-          >
-            <template #icon><t-icon name="delete" /></template>
-            批量删除
-          </t-button>
-          <t-button theme="default" :loading="loading" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
-        </t-space>
-        <span class="toolbar__count">
-          <template v-if="selectedIds.length">已选 {{ selectedIds.length }} 项 / </template>共 {{ pagination.total }} 条
-        </span>
-      </div>
+    <ListPage
+      ref="listRef"
+      title="文件"
+      testid="storage-file"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      :actions="actions"
+      :batch-runner="batchRunner"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
+        <input ref="fileInputRef" class="file-input" type="file" multiple @change="onFilesPicked" />
+        <t-button v-privilege="[PERM.storageUpload]" theme="primary" data-testid="storage-file-upload" @click="pickFiles">
+          <template #icon><t-icon name="cloud-upload" /></template>
+          上传文件
+        </t-button>
+      </template>
 
       <!-- 上传进度：直传与中转共用同一份进度条（真实 XHR onprogress） -->
-      <div v-if="uploadTasks.length" class="upload-panel">
-        <div v-for="task in uploadTasks" :key="task.key" class="upload-panel__item">
-          <t-icon class="upload-panel__icon" :name="taskIcon(task)" />
-          <span class="upload-panel__name" :title="task.name">{{ task.name }}</span>
-          <t-progress
-            class="upload-panel__progress"
-            :percentage="task.percent"
-            :status="task.state === 'error' ? 'error' : task.state === 'done' ? 'success' : 'active'"
-            :label="false"
-            size="small"
-          />
-          <span class="upload-panel__meta">{{ taskMessage(task) }}</span>
-        </div>
-        <t-link class="upload-panel__clear" theme="default" @click="clearFinished">清除已完成</t-link>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :stripe="true"
-        @page-change="handlePageChange"
-        @select-change="onSelectChange"
-      >
-        <template #original_name="{ row }">
-          <t-link theme="primary" class="cell-file" @click="openPreview(row)">
-            <t-icon class="cell-file__icon" :name="fileIcon(row)" />
-            {{ row.original_name || row.file_name }}
-          </t-link>
-        </template>
-        <template #file_size="{ row }">{{ formatFileSize(row.file_size) }}</template>
-        <template #upload_mode="{ row }">
-          <t-tag size="small" variant="light" :theme="row.upload_mode === 'direct' ? 'primary' : 'default'">
-            {{ row.upload_mode === 'direct' ? '直传' : '中转' }}
-          </t-tag>
-        </template>
-        <template #storage_code="{ row }">
-          <span>{{ row.storage_code || '默认' }}</span>
-        </template>
-        <!--
-          缺陷②（P2-2B）：后端 `uploaded_by` 是 `sys_file.uploaded_by` 的 UUID 文本，原来直接渲染，
-          列里是 `01a19012-7573-…`。**AUD-02** 起后端直接给 `uploader_name`（一次批量 join），
-          这里的回退链降级为：后端姓名 → 前端译名 → `—`（不再回退渲染 UUID）。
-        -->
-        <template #uploaded_by="{ row }">
-          <span
-            class="uploader"
-            :title="uploaderLabelOf(row, uploaderNames)"
-            :data-testid="`file-uploader-${row.id}`"
-          >
-            {{ uploaderLabelOf(row, uploaderNames) }}
-          </span>
-        </template>
-        <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link v-privilege="[PERM.storageDownload]" theme="primary" @click="handleDownload(row)">下载</t-link>
-            <t-link v-privilege="[PERM.storageDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="folder" />
-            <p class="empty-state__title">还没有文件</p>
-            <p class="empty-state__desc">上传后会出现在这里，图片与 PDF 支持在线预览</p>
-            <t-button v-privilege="[PERM.storageUpload]" theme="primary" @click="pickFiles">上传文件</t-button>
+      <template #filter-footer>
+        <div v-if="uploadTasks.length" class="upload-panel" data-testid="storage-upload-panel">
+          <div v-for="task in uploadTasks" :key="task.key" class="upload-panel__item">
+            <t-icon class="upload-panel__icon" :name="taskIcon(task)" />
+            <span class="upload-panel__name" :title="task.name">{{ task.name }}</span>
+            <t-progress
+              class="upload-panel__progress"
+              :percentage="task.percent"
+              :status="task.state === 'error' ? 'error' : task.state === 'done' ? 'success' : 'active'"
+              :label="false"
+              size="small"
+            />
+            <span class="upload-panel__meta">{{ taskMessage(task) }}</span>
           </div>
-        </template>
-      </t-table>
-    </t-card>
+          <t-link class="upload-panel__clear" theme="default" @click="clearFinished">清除已完成</t-link>
+        </div>
+      </template>
+
+      <template #original_name="{ row }">
+        <t-link theme="primary" class="cell-file" data-testid="storage-file-preview" @click="openPreview(row)">
+          <t-icon class="cell-file__icon" :name="fileIcon(row)" />
+          {{ row.original_name || row.file_name }}
+        </t-link>
+      </template>
+      <template #file_size="{ row }">{{ formatFileSize(row.file_size) }}</template>
+      <template #upload_mode="{ row }">
+        <t-tag size="small" variant="light" :theme="row.upload_mode === 'direct' ? 'primary' : 'default'">
+          {{ row.upload_mode === 'direct' ? '直传' : '中转' }}
+        </t-tag>
+      </template>
+      <template #storage_code="{ row }">
+        <span>{{ row.storage_code || '默认' }}</span>
+      </template>
+      <!-- 上传人：后端姓名 → 前端译名 → 「—」（不再回退渲染 UUID） -->
+      <template #uploaded_by="{ row }">
+        <span class="uploader" :title="uploaderLabelOf(row, uploaderNames)" :data-testid="`file-uploader-${row.id}`">
+          {{ uploaderLabelOf(row, uploaderNames) }}
+        </span>
+      </template>
+      <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="storage-file-empty">
+          <t-icon class="panel-empty__icon" name="folder" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的文件' : '还没有文件' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个文件名 / 分类 / 存储后端试试，或点「重置」看全部'
+                : '上传后会出现在这里，图片与 PDF 支持在线预览'
+            }}
+          </p>
+          <t-button v-privilege="[PERM.storageUpload]" theme="primary" @click="pickFiles">上传文件</t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- 预览抽屉：图片内嵌、PDF 用 iframe、其它类型提示下载 -->
     <t-drawer v-model:visible="previewVisible" :header="previewTitle" size="720px" :footer="false">
@@ -131,7 +108,7 @@
         <img v-if="previewKind === 'image'" class="preview__image" :src="previewUrl" :alt="previewTitle" />
         <iframe v-else-if="previewKind === 'pdf'" class="preview__pdf" :src="previewUrl" :title="previewTitle" />
         <div v-else class="preview__fallback">
-          <t-icon class="empty-state__icon" name="file" />
+          <t-icon class="panel-empty__icon" name="file" />
           <p>该类型不支持在线预览，请下载后查看</p>
           <t-button theme="primary" @click="handleDownload(previewRow!)">下载</t-button>
         </div>
@@ -141,8 +118,18 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { onBeforeUnmount, reactive, ref } from 'vue';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListActions,
+  ListFetcher,
+  ListFilter,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
+import type { BatchResult, BatchRunner } from '@/utils/batch-action';
 import { ApiError } from '@/api/request';
 import {
   completeStorageUpload,
@@ -158,20 +145,7 @@ import { formatDateTime, formatFileSize } from '@/utils/format';
 import { fallbackFileName, saveBlob } from '@/utils/download';
 import { PERM } from '@/constants/permissions';
 import { pageUsers } from '@/api/system/user-api';
-import {
-  UPLOADER_PAGE_SIZE,
-  mergeUserNames,
-  pendingUploaderIds,
-  uploaderLabelOf,
-} from './uploader-names';
-
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
+import { UPLOADER_PAGE_SIZE, mergeUserNames, pendingUploaderIds, uploaderLabelOf } from './uploader-names';
 
 /** 单个上传任务的界面状态 */
 interface UploadTask {
@@ -187,16 +161,25 @@ interface UploadTask {
   message: string;
 }
 
-const rows = ref<StorageFileRes[]>([]);
-const loading = ref(false);
-const selectedIds = ref<string[]>([]);
-const query = reactive({ original_name: '', category: '', storage_code: '' });
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
-const uploadTasks = ref<UploadTask[]>([]);
-const fileInputRef = ref<HTMLInputElement>();
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
 
-const columns: PrimaryTableCol[] = [
-  { colKey: 'row-select', type: 'multiple', width: 50 },
+// ==================== 列表（P3-11） ====================
+
+const filter = reactive<ListFilter>({ original_name: '', category: '', storage_code: '' });
+
+/** 三个筛选都是文本模糊（分类与后端编码也一样），宽度按原筛选行比例给 */
+const filters: FilterDef[] = [
+  { key: 'original_name', type: 'keyword', placeholder: '文件名', width: 240, testid: 'storage-file-name' },
+  { key: 'category', type: 'keyword', placeholder: '分类（如 attachment）', width: 200, testid: 'storage-file-category' },
+  { key: 'storage_code', type: 'keyword', placeholder: '存储后端编码', width: 200, testid: 'storage-file-code' },
+];
+
+/**
+ * 列。勾选列由 ListPage 按 `actions.batch` 自动补在最左（页面不再声明 `row-select`）；
+ * 操作列保留（列宽 140），两个行操作走 `actions.row` 声明式渲染。
+ */
+const columns: ColumnDef[] = [
   { colKey: 'original_name', title: '文件名', width: 260, ellipsis: true },
   { colKey: 'category', title: '分类', width: 110 },
   { colKey: 'file_size', title: '大小', width: 110 },
@@ -204,29 +187,92 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'storage_code', title: '存储后端', width: 130 },
   { colKey: 'uploaded_by', title: '上传人', width: 130 },
   { colKey: 'created_at', title: '上传时间', width: 170 },
-  { colKey: 'op', title: '操作', width: 140, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 140, fixed: 'right', exportable: false },
 ];
 
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageStorageFiles({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      original_name: query.original_name || undefined,
-      category: query.category || undefined,
-      storage_code: query.storage_code || undefined,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-    // 上传人译名（缺陷②）：不阻塞列表渲染，拿不到就保持 UUID 回退
-    void resolveUploaderNames(rows.value);
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
+const fetcher: ListFetcher<StorageFileRes> = (query) => pageStorageFiles(query as Parameters<typeof pageStorageFiles>[0]);
+
+/** 入参拼装：空串整键缺席 */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => {
+  const text = (value: unknown): string | undefined => {
+    const trimmed = String(value ?? '').trim();
+    return trimmed || undefined;
+  };
+  return {
+    page,
+    page_size: size,
+    original_name: text(filter.original_name),
+    category: text(filter.category),
+    storage_code: text(filter.storage_code),
+  };
+};
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 一页拉完：补上传人译名（不阻塞渲染） */
+function onLoaded(payload: { rows: StorageFileRes[] }): void {
+  void resolveUploaderNames(payload.rows);
 }
+
+/** 重拉当前页（上传完成 / 单行删除后调） */
+function reloadList(): void {
+  listRef.value?.reload();
+}
+
+// ==================== 行操作 + 批量（声明式） ====================
+
+const actions: ListActions = {
+  batch: [
+    {
+      key: 'delete',
+      label: '批量删除',
+      theme: 'danger',
+      // 高危：二次确认弹窗正文带「影响 N 条」
+      needConfirm: true,
+    },
+  ],
+  row: [
+    {
+      key: 'download',
+      label: '下载',
+      permission: PERM.storageDownload,
+      testid: 'storage-file-download',
+      handler: (row: StorageFileRes) => handleDownload(row),
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      theme: 'danger',
+      permission: PERM.storageDelete,
+      testid: 'storage-file-delete',
+      handler: (row: StorageFileRes) => confirmRemove(row),
+    },
+  ],
+};
+
+/**
+ * 批量删除：后端没有文件批量接口 → 逐条删、逐条记结果。
+ *
+ * `BatchActionBar` 只认 `BatchResult`，所以这里自己聚合（成功/失败都带 id，
+ * 失败再带后端报文），「哪一条为什么没删掉」在结果弹窗里逐条列出来。
+ */
+const batchRunner: BatchRunner = async (_action, ids): Promise<BatchResult> => {
+  const succeeded: Array<{ id: string; no?: string | null }> = [];
+  const failed: Array<{ id: string; no?: string | null; code: number; error: string }> = [];
+  for (const id of ids) {
+    try {
+      await deleteStorageFile(id);
+      succeeded.push({ id });
+    } catch (error) {
+      failed.push({
+        id,
+        code: error instanceof ApiError ? error.code : 0,
+        error: error instanceof ApiError ? error.message : '删除失败',
+      });
+    }
+  }
+  return { succeeded, failed, total: ids.length, success_count: succeeded.length, fail_count: failed.length };
+};
 
 // ==================== 上传人译名（缺陷②） ====================
 
@@ -251,28 +297,6 @@ async function resolveUploaderNames(list: StorageFileRes[]): Promise<void> {
   } catch {
     // 无权限 / 接口异常：保留 UUID 回退（见函数注释，不打扰用户）
   }
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.original_name = '';
-  query.category = '';
-  query.storage_code = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
-}
-
-function onSelectChange(keys: Array<string | number>): void {
-  selectedIds.value = keys.map((key) => String(key));
 }
 
 /** 文件图标：按扩展名粗分，避免所有文件都是同一个图标 */
@@ -343,6 +367,9 @@ const DIRECT_THRESHOLD = 10 * 1024 * 1024;
  */
 const HASH_LIMIT = 32 * 1024 * 1024;
 
+const uploadTasks = ref<UploadTask[]>([]);
+const fileInputRef = ref<HTMLInputElement>();
+
 function pickFiles(): void {
   fileInputRef.value?.click();
 }
@@ -371,7 +398,8 @@ async function sha256(file: File): Promise<string> {
 }
 
 async function uploadSequentially(files: File[]): Promise<void> {
-  const category = query.category || 'attachment';
+  // 分类跟着当前筛选走（改造前就是这样：在「分类=attachment」下上传即归该类）
+  const category = String(filter.category ?? '').trim() || 'attachment';
   for (const file of files) {
     uploadTasks.value.push({
       key: `${file.name}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -385,7 +413,7 @@ async function uploadSequentially(files: File[]): Promise<void> {
     const tracked = uploadTasks.value[uploadTasks.value.length - 1];
     await uploadOne(file, category, tracked);
   }
-  await loadList();
+  reloadList();
 }
 
 async function uploadOne(file: File, category: string, task: UploadTask): Promise<void> {
@@ -487,7 +515,7 @@ function confirmRemove(row: StorageFileRes): void {
         try {
           await deleteStorageFile(row.id);
           void MessagePlugin.success('已删除');
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error);
         }
@@ -496,45 +524,9 @@ function confirmRemove(row: StorageFileRes): void {
   });
 }
 
-function confirmBatchRemove(): void {
-  const count = selectedIds.value.length;
-  const dialog = DialogPlugin.confirm({
-    header: '批量删除',
-    body: `确定删除选中的 ${count} 个文件？删除后不可恢复。`,
-    theme: 'danger',
-    confirmBtn: { content: '删除', theme: 'danger' },
-    onConfirm: () => {
-      dialog.destroy();
-      void (async () => {
-        let success = 0;
-        let failed = 0;
-        for (const id of selectedIds.value) {
-          try {
-            await deleteStorageFile(id);
-            success += 1;
-          } catch {
-            failed += 1;
-          }
-        }
-        if (failed === 0) {
-          void MessagePlugin.success(`成功 ${success}，失败 0`);
-        } else {
-          void MessagePlugin.warning(`成功 ${success}，失败 ${failed}`);
-        }
-        selectedIds.value = [];
-        await loadList();
-      })();
-    },
-  });
-}
-
 function showError(error: unknown): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message : '请求失败，请稍后重试');
 }
-
-onMounted(() => {
-  void loadList();
-});
 
 onBeforeUnmount(() => {
   if (previewUrl.value) {
@@ -545,133 +537,119 @@ onBeforeUnmount(() => {
 
 <style lang="less" scoped>
 .storage-file-page {
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
+.file-input {
+  display: none;
+}
 
-  .toolbar {
+.upload-panel {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: 6px;
+  background: var(--td-bg-color-container);
+
+  &__item {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-
-    &__count {
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
+    gap: 12px;
+    padding: 4px 0;
   }
 
-  .file-input {
-    display: none;
+  &__icon {
+    font-size: 16px;
+    color: var(--td-brand-color-7);
   }
 
-  .upload-panel {
-    margin-bottom: 12px;
-    padding: 12px 16px;
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 6px;
-    background: var(--td-bg-color-container);
-
-    &__item {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      padding: 4px 0;
-    }
-
-    &__icon {
-      font-size: 16px;
-      color: var(--td-brand-color-7);
-    }
-
-    &__name {
-      width: 220px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-size: 13px;
-    }
-
-    &__progress {
-      flex: 1;
-    }
-
-    &__meta {
-      width: 220px;
-      font-size: 12px;
-      color: var(--td-text-color-secondary);
-    }
-
-    &__clear {
-      margin-top: 4px;
-      font-size: 12px;
-    }
-  }
-
-  .cell-file {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-
-    &__icon {
-      color: var(--td-text-color-secondary);
-    }
-  }
-
-  /* 上传人：姓名可能较长（回退 UUID 时更长），一行截断 + title 看全 */
-  .uploader {
-    display: inline-block;
-    max-width: 100%;
+  &__name {
+    width: 220px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    vertical-align: bottom;
+    font-size: 13px;
   }
 
-  .preview {
-    height: 100%;
-
-    &__image {
-      display: block;
-      max-width: 100%;
-      margin: 0 auto;
-    }
-
-    &__pdf {
-      width: 100%;
-      height: calc(100vh - 160px);
-      border: none;
-    }
-
-    &__fallback {
-      padding: 64px 0;
-      text-align: center;
-      color: var(--td-text-color-secondary);
-    }
+  &__progress {
+    flex: 1;
   }
 
-  .empty-state {
-    padding: 48px 0;
+  &__meta {
+    width: 220px;
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__clear {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+}
+
+.cell-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  &__icon {
+    color: var(--td-text-color-secondary);
+  }
+}
+
+/* 上传人：姓名可能较长（回退 UUID 时更长），一行截断 + title 看全 */
+.uploader {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+.preview {
+  height: 100%;
+
+  &__image {
+    display: block;
+    max-width: 100%;
+    margin: 0 auto;
+  }
+
+  &__pdf {
+    width: 100%;
+    height: calc(100vh - 160px);
+    border: none;
+  }
+
+  &__fallback {
+    padding: 64px 0;
     text-align: center;
+    color: var(--td-text-color-secondary);
+  }
+}
 
-    &__icon {
-      font-size: 48px;
-      color: var(--td-text-color-placeholder);
-    }
+.panel-empty {
+  padding: 40px 0;
+  text-align: center;
 
-    &__title {
-      margin: 12px 0 4px;
-      font-size: 15px;
-      color: var(--td-text-color-primary);
-    }
+  &__icon {
+    font-size: 40px;
+    color: var(--td-text-color-placeholder);
+  }
 
-    &__desc {
-      margin-bottom: 16px;
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
+  &__title {
+    margin: 12px 0 4px;
+    font-size: 15px;
+    color: var(--td-text-color-primary);
+  }
+
+  &__desc {
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: var(--td-text-color-secondary);
   }
 }
 </style>

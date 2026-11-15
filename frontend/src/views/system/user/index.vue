@@ -1,3 +1,29 @@
+<!--
+  用户管理（system/user）。
+
+  ```
+  左：部门树（选中 → 按部门子树筛用户）
+  右：筛选行（用户名 / 姓名 / 状态）+ 用户列表 + 行操作（编辑 / 分配角色 / 重置密码 / 删除）
+  ```
+
+  # 列表部分（P3-11）
+  右侧列表的筛选 / 分页 / 空态 / 行操作 / 加载失败全部交给 `components/ListPage`。
+  本页只声明「列 + 筛选项 + 怎么拉一页 + 入参怎么拼」。
+
+  # 部门树不是筛选项，是「第二套入口」
+  左树选中写进**同一份筛选状态**（`filter.dept_id`），列表请求带上
+  `include_children=true`（点部门要连子部门的人一起看）。所以：
+
+  - `dept_id` 刻意**不**声明成 `FilterDef`：它没有筛选行控件（控件在左树），
+    声明了反而会多出一个空槽位；
+  - 「重置」时组件清的是声明的三个键，`dept_id` 与树的选中态由页面自己一并清
+    （见 `handleReset`），否则会出现「列表回到全量、树还高亮着某个部门」。
+
+  # AI 用户（云枢 × Hermes）
+  `user_type='ROBOT'` 的账号：列表带机器人图标 + 类型标签；删除必须走专用接口
+  （通用删除只软删 `sys_user`，会留下孤立 profile）；编辑态的职责 / SOUL.md / 模型
+  走 AI 专用接口与探活。
+-->
 <template>
   <div class="user-page">
     <div class="user-layout">
@@ -6,7 +32,7 @@
         <t-card :bordered="false" class="dept-card">
           <div class="dept-toolbar">
             <span class="dept-title">组织架构</span>
-            <t-button size="small" variant="text" @click="loadDeptTree">
+            <t-button size="small" variant="text" data-testid="user-dept-refresh" @click="loadDeptTree">
               <template #icon><t-icon name="refresh" /></template>
             </t-button>
           </div>
@@ -27,112 +53,92 @@
         </t-card>
       </div>
 
-      <!-- 右侧：筛选栏 + 列表 -->
+      <!-- 右侧：筛选 + 列表（P3-11：全部交给 ListPage） -->
       <div class="user-right">
-        <!-- 筛选栏 -->
-        <t-card :bordered="false" class="filter-card">
-          <t-row :gutter="16">
-            <t-col :span="2.4">
-              <t-input v-model="query.username" placeholder="用户名" clearable @enter="handleSearch" />
-            </t-col>
-            <t-col :span="2.4">
-              <t-input v-model="query.real_name" placeholder="姓名" clearable @enter="handleSearch" />
-            </t-col>
-            <t-col :span="2.4">
-              <t-select v-model="query.status" placeholder="状态" clearable>
-                <t-option :value="1" label="正常" />
-                <t-option :value="0" label="停用" />
-              </t-select>
-            </t-col>
-            <t-col :span="2.4">
-              <t-space>
-                <t-button theme="primary" @click="handleSearch">
-                  <template #icon><t-icon name="search" /></template>
-                  查询
-                </t-button>
-                <t-button theme="default" @click="handleReset">重置</t-button>
-              </t-space>
-            </t-col>
-          </t-row>
-        </t-card>
+        <ListPage
+          ref="listRef"
+          title="用户"
+          testid="system-user"
+          :columns="columns"
+          :filters="filters"
+          :filter-state="filter"
+          :fetcher="fetcher"
+          :query-builder="queryBuilder"
+          :page-size="PAGE_SIZE"
+          @reset="handleReset"
+        >
+          <template #toolbar>
+            <t-button
+              v-privilege="['system:user:create']"
+              theme="primary"
+              data-testid="system-user-create"
+              @click="openCreate"
+            >
+              <template #icon><t-icon name="add" /></template>
+              新增用户
+            </t-button>
+          </template>
 
-        <!-- 表格 -->
-        <t-card :bordered="false" class="table-card">
-          <div class="toolbar">
-            <t-space>
-              <t-button v-privilege="['system:user:create']" theme="primary" @click="openCreate">
-                <template #icon><t-icon name="add" /></template>
-                新增用户
-              </t-button>
-              <t-button theme="default" @click="loadList">
-                <template #icon><t-icon name="refresh" /></template>
-                刷新
-              </t-button>
+          <!-- 按部门筛选的入口在左树：把「当前在看哪个部门」显示在筛选行里，避免用户忘了自己选过 -->
+          <template #filter-footer>
+            <div v-if="activeDeptName" class="dept-chip" data-testid="system-user-dept-chip">
+              <t-tag theme="primary" variant="light" size="small">部门：{{ activeDeptName }}（含子部门）</t-tag>
+              <t-link theme="primary" size="small" data-testid="system-user-dept-clear" @click="clearDept">清除</t-link>
+            </div>
+          </template>
+
+          <template #username="{ row }">
+            <t-space size="4" align="center">
+              <t-icon v-if="row.user_type === 'ROBOT'" name="robot" class="cell-robot" />
+              <span>{{ row.username }}</span>
             </t-space>
-            <span class="toolbar__count">共 {{ pagination.total }} 条</span>
-          </div>
-
-          <t-table
-            row-key="id"
-            :data="rows"
-            :columns="columns"
-            :loading="loading"
-            :pagination="pagination"
-            @page-change="handlePageChange"
-          >
-            <template #username="{ row }">
-              <t-space size="4" align="center">
-                <t-icon v-if="row.user_type === 'ROBOT'" name="robot" class="cell-robot" />
-                <span>{{ row.username }}</span>
-              </t-space>
-            </template>
-            <template #user_type="{ row }">
-              <t-tag v-if="row.user_type === 'ROBOT'" size="small" theme="primary" variant="light">
-                机器人
+          </template>
+          <template #user_type="{ row }">
+            <t-tag v-if="row.user_type === 'ROBOT'" size="small" theme="primary" variant="light">机器人</t-tag>
+            <t-tag v-else size="small" variant="light">人类</t-tag>
+          </template>
+          <template #status="{ row }">
+            <t-switch
+              :value="row.status === 1"
+              :disabled="!hasPermission('system:user:update')"
+              @change="() => toggleStatus(row)"
+            />
+          </template>
+          <template #last_login_at="{ row }">{{ formatDateTime(row.last_login_at) }}</template>
+          <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          <template #roles="{ row }">
+            <t-space v-if="row.roles && row.roles.length" size="4" break-line>
+              <t-tag v-for="role in row.roles" :key="role.role_id" size="small" theme="primary" variant="light">
+                {{ role.role_name }}
               </t-tag>
-              <t-tag v-else size="small" variant="light">人类</t-tag>
-            </template>
-            <template #status="{ row }">
-              <t-switch
-                :value="row.status === 1"
-                :disabled="!hasPermission('system:user:update')"
-                @change="() => toggleStatus(row)"
-              />
-            </template>
-            <template #last_login_at="{ row }">{{ formatDateTime(row.last_login_at) }}</template>
-            <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
-            <template #roles="{ row }">
-              <t-space v-if="row.roles && row.roles.length" size="4" break-line>
-                <t-tag
-                  v-for="role in row.roles"
-                  :key="role.role_id"
-                  size="small"
-                  theme="primary"
-                  variant="light"
-                >
-                  {{ role.role_name }}
-                </t-tag>
-              </t-space>
-              <span v-else class="cell-empty">—</span>
-            </template>
-            <template #op="{ row }">
-              <t-space size="small">
-                <t-link v-privilege="['system:user:update']" theme="primary" @click="openEdit(row)">
-                  编辑
-                </t-link>
-                <t-link v-privilege="['system:user:assign']" theme="primary" @click="openAssignRoles(row)">
-                  分配角色
-                </t-link>
-                <t-link v-privilege="['system:user:reset']" v-if="row.user_type !== 'ROBOT'" theme="warning" @click="openResetPassword(row)">
-                  重置密码
-                </t-link>
-                <t-link v-privilege="['system:user:delete']" theme="danger" @click="confirmRemove(row)">
-                  删除
-                </t-link>
-              </t-space>
-            </template>
-          </t-table>
-        </t-card>
+            </t-space>
+            <span v-else class="cell-empty">—</span>
+          </template>
+
+          <!-- 行操作按状态 / 权限出现 → 页面自绘（AI 用户没有「重置密码」） -->
+          <template #op="{ row }">
+            <t-space size="small">
+              <t-link v-privilege="['system:user:update']" theme="primary" data-testid="system-user-edit" @click="openEdit(row)">
+                编辑
+              </t-link>
+              <t-link v-privilege="['system:user:assign']" theme="primary" data-testid="system-user-assign" @click="openAssignRoles(row)">
+                分配角色
+              </t-link>
+              <t-link
+                v-if="row.user_type !== 'ROBOT'"
+                v-privilege="['system:user:reset']"
+                theme="warning"
+                data-testid="system-user-reset-pwd"
+                @click="openResetPassword(row)"
+              >
+                重置密码
+              </t-link>
+              <t-link v-privilege="['system:user:delete']" theme="danger" data-testid="system-user-delete" @click="confirmRemove(row)">
+                删除
+              </t-link>
+            </t-space>
+          </template>
+        </ListPage>
       </div>
     </div>
 
@@ -269,16 +275,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRules, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRules } from 'tdesign-vue-next';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListFilter, ListQueryBuilder } from '@/components/ListPage/types';
 import AiUserForm from './components/AiUserForm.vue';
-import {
-  createAiUser,
-  deleteAiUser,
-  getAiUser,
-  getAiUserStatus,
-  updateAiUser,
-} from '@/api/system/ai-user-api';
+import { createAiUser, deleteAiUser, getAiUser, getAiUserStatus, updateAiUser } from '@/api/system/ai-user-api';
 import {
   changeUserStatus,
   createUser,
@@ -297,26 +299,6 @@ import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 import { formatDateTime } from '@/utils/format';
-
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
-
-/** 查询条件 */
-interface UserQuery {
-  /** 用户名 */
-  username: string;
-  /** 姓名 */
-  real_name: string;
-  /** 部门 id（query 参数为空串时不下发） */
-  dept_id: string | undefined;
-  /** 状态 */
-  status: StatusValue | undefined;
-}
 
 /** 新增/编辑表单 */
 interface UserForm {
@@ -350,38 +332,149 @@ interface UserForm {
   soul_md: string;
 }
 
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
+
 const userStore = useUserStore();
 const { hasPermission } = userStore;
 
-const query = reactive<UserQuery>({
-  username: '',
-  real_name: '',
-  dept_id: undefined,
-  status: undefined,
-});
-const rows = ref<UserRes[]>([]);
-const loading = ref(false);
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+// ==================== 列表（P3-11） ====================
+
+/** 筛选状态（`dept_id` 由左树写入，不声明成筛选项，见文件头注释） */
+const filter = reactive<ListFilter>({ username: '', real_name: '', status: '', dept_id: undefined });
+
+const filters: FilterDef[] = [
+  { key: 'username', type: 'keyword', placeholder: '用户名', width: 200, testid: 'system-user-username' },
+  { key: 'real_name', type: 'keyword', placeholder: '姓名', width: 200, testid: 'system-user-real-name' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 140,
+    options: [
+      { label: '正常', value: 1 },
+      { label: '停用', value: 0 },
+    ],
+    testid: 'system-user-status',
+  },
+];
+
+const columns: ColumnDef[] = [
+  { colKey: 'username', title: '用户名', width: 150 },
+  { colKey: 'user_type', title: '类型', width: 90, exportable: false },
+  { colKey: 'real_name', title: '姓名', width: 120 },
+  { colKey: 'dept_name', title: '部门', width: 160 },
+  { colKey: 'roles', title: '角色', width: 180, exportable: false },
+  { colKey: 'mobile', title: '手机号', width: 140 },
+  { colKey: 'email', title: '邮箱', ellipsis: true },
+  { colKey: 'status', title: '状态', width: 100, exportable: false },
+  { colKey: 'last_login_at', title: '最近登录', width: 180 },
+  { colKey: 'created_at', title: '创建时间', width: 180 },
+  { colKey: 'op', title: '操作', width: 240, fixed: 'right', exportable: false },
+];
+
+const fetcher: ListFetcher<UserRes> = (query) => pageUsers(query as Parameters<typeof pageUsers>[0]);
+
+/**
+ * 入参拼装。
+ *
+ * `include_children` 只在「选了部门」时才发（点部门树默认查本部门及其全部子部门）；
+ * `status` 是数字枚举，`0`（停用）是真条件，不能按假值丢掉。
+ */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => {
+  const status = filter.status;
+  const deptId = filter.dept_id ? String(filter.dept_id) : undefined;
+  return {
+    page,
+    page_size: size,
+    username: textOf(filter.username),
+    real_name: textOf(filter.real_name),
+    dept_id: deptId,
+    include_children: deptId ? true : undefined,
+    status: status === '' || status === undefined || status === null ? undefined : Number(status),
+  };
+};
+
+/** 去空格，空值返回 undefined */
+function textOf(value: unknown): string | undefined {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+}
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 重拉当前页（增删改 / 启停后） */
+function reloadList(): void {
+  listRef.value?.reload();
+}
 
 // ===== 左侧部门树 =====
 const deptTree = ref<DeptNode[]>([]);
 const deptLoading = ref(false);
-/// 当前激活的部门节点 key（受控，重置筛选时同步清空）
+/** 当前激活的部门节点 key（受控，重置筛选时同步清空） */
 const activeDeptKeys = ref<Array<string | number>>([]);
 
-const columns: PrimaryTableCol[] = [
-  { colKey: 'username', title: '用户名', width: 150, cell: 'username' },
-  { colKey: 'user_type', title: '类型', width: 90, cell: 'user_type' },
-  { colKey: 'real_name', title: '姓名', width: 120 },
-  { colKey: 'dept_name', title: '部门', width: 160 },
-  { colKey: 'roles', title: '角色', width: 180, cell: 'roles' },
-  { colKey: 'mobile', title: '手机号', width: 140 },
-  { colKey: 'email', title: '邮箱', ellipsis: true },
-  { colKey: 'status', title: '状态', width: 100, cell: 'status' },
-  { colKey: 'last_login_at', title: '最近登录', width: 180, cell: 'last_login_at' },
-  { colKey: 'created_at', title: '创建时间', width: 180, cell: 'created_at' },
-  { colKey: 'op', title: '操作', width: 240, fixed: 'right' },
-];
+/** 当前选中部门名（筛选行里的提示条用；树里翻不到名字时退回「已选部门」） */
+const activeDeptName = computed(() => {
+  const id = filter.dept_id ? String(filter.dept_id) : '';
+  if (!id) {
+    return '';
+  }
+  const found = findDept(deptTree.value, id);
+  return found?.dept_name ?? '已选部门';
+});
+
+/** 在部门树里按 id 找节点 */
+function findDept(nodes: DeptNode[], id: string): DeptNode | null {
+  for (const node of nodes) {
+    if (node.id === id) {
+      return node;
+    }
+    const hit = findDept(node.children ?? [], id);
+    if (hit) {
+      return hit;
+    }
+  }
+  return null;
+}
+
+/** 加载左侧部门树 */
+async function loadDeptTree(): Promise<void> {
+  deptLoading.value = true;
+  try {
+    deptTree.value = await getDeptTree();
+  } catch (error) {
+    deptTree.value = [];
+    showError(error instanceof ApiError ? error.message : '部门树加载失败');
+  } finally {
+    deptLoading.value = false;
+  }
+}
+
+/** 部门树选中：按所选部门（含子部门）筛选用户列表 */
+function onDeptActive(value: Array<string | number>): void {
+  activeDeptKeys.value = value;
+  filter.dept_id = value.length > 0 ? String(value[0]) : undefined;
+  listRef.value?.search();
+}
+
+/** 清掉部门筛选（筛选行里的「清除」） */
+function clearDept(): void {
+  activeDeptKeys.value = [];
+  filter.dept_id = undefined;
+  listRef.value?.search();
+}
+
+/**
+ * 「重置」：组件已把声明的三个筛选键清空并回第 1 页，这里补两件它管不到的事 ——
+ * ① 清掉左树的部门筛选（`dept_id` 不是声明的筛选项）；② 取消树节点高亮。
+ */
+function handleReset(): void {
+  filter.dept_id = undefined;
+  activeDeptKeys.value = [];
+}
+
+// ==================== 新增 / 编辑表单 ====================
 
 const formVisible = ref(false);
 const isEdit = ref(false);
@@ -449,29 +542,6 @@ function showError(message: string): void {
   void MessagePlugin.error(message);
 }
 
-/** 加载用户列表 */
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageUsers({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      username: query.username || undefined,
-      real_name: query.real_name || undefined,
-      dept_id: query.dept_id || undefined,
-      // 点击部门树默认查询本部门及其全部子部门的用户
-      include_children: query.dept_id ? true : undefined,
-      status: query.status,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    showError(error instanceof ApiError ? error.message : '用户列表加载失败');
-  } finally {
-    loading.value = false;
-  }
-}
-
 /** 加载角色下拉数据，供新增 / 编辑弹窗与分配角色弹窗共用 */
 async function loadRoleOptions(): Promise<void> {
   roleOptionsLoading.value = true;
@@ -483,46 +553,6 @@ async function loadRoleOptions(): Promise<void> {
   } finally {
     roleOptionsLoading.value = false;
   }
-}
-
-/** 加载左侧部门树 */
-async function loadDeptTree(): Promise<void> {
-  deptLoading.value = true;
-  try {
-    deptTree.value = await getDeptTree();
-  } catch (error) {
-    deptTree.value = [];
-    showError(error instanceof ApiError ? error.message : '部门树加载失败');
-  } finally {
-    deptLoading.value = false;
-  }
-}
-
-/** 部门树选中：按所选部门筛选用户列表 */
-function onDeptActive(value: Array<string | number>): void {
-  activeDeptKeys.value = value;
-  query.dept_id = value.length > 0 ? String(value[0]) : undefined;
-  handleSearch();
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.username = '';
-  query.real_name = '';
-  query.dept_id = undefined;
-  query.status = undefined;
-  activeDeptKeys.value = [];
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
 }
 
 // ===== AI 用户（云枢 × Hermes）=====
@@ -707,7 +737,7 @@ async function submitForm(): Promise<void> {
       void MessagePlugin.success('用户已创建');
     }
     formVisible.value = false;
-    await loadList();
+    reloadList();
   } catch (error) {
     showError(error instanceof ApiError ? error.message : '保存失败');
   } finally {
@@ -728,7 +758,7 @@ function toggleStatus(row: UserRes): void {
         try {
           await changeUserStatus(row.id, next);
           void MessagePlugin.success(`已${action}`);
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error instanceof ApiError ? error.message : `${action}失败`);
         }
@@ -753,14 +783,12 @@ function confirmRemove(row: UserRes): void {
           if (isRobot) {
             // AI 用户必须走专用删除接口：通用删除只软删 sys_user，会留下孤立 profile
             const res = await deleteAiUser(row.id);
-            void MessagePlugin.success(
-              `AI 用户已删除${res.soul_backup_path ? '（SOUL.md 已备份）' : ''}`,
-            );
+            void MessagePlugin.success(`AI 用户已删除${res.soul_backup_path ? '（SOUL.md 已备份）' : ''}`);
           } else {
             await deleteUser(row.id);
             void MessagePlugin.success('用户已删除');
           }
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error instanceof ApiError ? error.message : '删除失败');
         }
@@ -789,6 +817,8 @@ async function submitRoles(): Promise<void> {
     await updateUserRoles(currentRow.value.id, roleForm.role_ids);
     void MessagePlugin.success('角色已更新');
     roleVisible.value = false;
+    // 角色列在列表里 → 改完刷一下当前页
+    reloadList();
   } catch (error) {
     showError(error instanceof ApiError ? error.message : '角色保存失败');
   } finally {
@@ -820,7 +850,6 @@ async function submitPassword(): Promise<void> {
 
 onMounted(() => {
   void loadDeptTree();
-  void loadList();
   void loadRoleOptions();
 });
 </script>
@@ -899,20 +928,12 @@ onMounted(() => {
     overflow-y: auto;
   }
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
-
-  .toolbar {
+  /* 筛选卡底部的「当前在看哪个部门」提示条 */
+  .dept-chip {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-
-    &__count {
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
+    gap: 8px;
+    margin-top: 12px;
   }
 
   /* AI 用户：列表里的机器人图标（与「类型」列的标签配合使用） */

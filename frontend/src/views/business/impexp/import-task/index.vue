@@ -1,123 +1,135 @@
+<!--
+  导入任务列表（impexp）。
+
+  # 列表部分（P3-11）
+  筛选 / 分页 / 空态 / 加载失败全部交给 `components/ListPage`：本页只声明
+  「列 + 筛选项 + 怎么拉一页 + 入参怎么拼」。组件统一的口径（空串筛选整键缺席、
+  删掉最后一页最后一条时回夹页码、失败红条带重试）不再在这里重复一份。
+
+  # 3 秒轮询（组件不管，页面自己挂）
+  `PENDING / VALIDATING / IMPORTING` 的进度是后台推进的，页面靠 `@loaded` 拿到这一页，
+  只有存在「进行中」的行才安排下一跳，全部终态后自动停表（`schedulePolling`）。
+  轮询只是「再拉一次当前页」，不重置筛选、不跳页 —— 用户正翻到第 2 页时不能被弹回第 1 页。
+
+  # 「只看我的」为什么走 custom 槽
+  ListPage 的声明式控件只有 keyword / select / number（`date-range` 与 `custom` 也要页面自绘），
+  复选框属于页面自己的交互，用 `#filter-only_mine` 填。
+-->
 <template>
   <div class="import-task-page">
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="3">
-          <t-input v-model="query.keyword" placeholder="任务号 / 文件名" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable>
-            <t-option v-for="item in STATUS_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
-          </t-select>
-        </t-col>
-        <t-col :span="3">
-          <t-checkbox v-model="query.only_mine">只看我的</t-checkbox>
-        </t-col>
-        <t-col :span="3">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <ListPage
+      ref="listRef"
+      title="导入任务"
+      testid="impexp-import"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.impexpImportUpload]"
+          theme="primary"
+          data-testid="impexp-import-create"
+          @click="goWizard"
+        >
+          <template #icon><t-icon name="upload" /></template>
+          发起导入
+        </t-button>
+      </template>
 
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.impexpImportUpload]" theme="primary" @click="goWizard">
-            <template #icon><t-icon name="upload" /></template>
-            发起导入
-          </t-button>
-          <t-button theme="default" :loading="loading" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
+      <!-- 只看我的：复选框（ListPage 无此控件，走 custom 槽） -->
+      <template #filter-only_mine>
+        <t-checkbox v-model="filter.only_mine" data-testid="impexp-import-only-mine">只看我的</t-checkbox>
+      </template>
+
+      <template #task_no="{ row }">
+        <t-link theme="primary" data-testid="impexp-import-open" @click="openDetail(row)">{{ row.task_no }}</t-link>
+      </template>
+      <template #biz_type="{ row }">{{ row.biz_name || row.biz_type }}</template>
+      <template #status="{ row }">
+        <t-tag :theme="statusTheme(row.status)" variant="light" size="small">{{ statusLabel(row.status) }}</t-tag>
+      </template>
+      <template #progress="{ row }">
+        <t-progress
+          :percentage="row.progress"
+          :status="row.status === 'FAILED' ? 'error' : row.progress === 100 ? 'success' : 'active'"
+          :label="true"
+          size="small"
+        />
+      </template>
+      <template #rows="{ row }">
+        <span>{{ row.valid_rows }} / {{ row.total_rows }}</span>
+        <t-tooltip v-if="row.error_rows > 0" :content="`失败 ${row.error_rows} 行`">
+          <t-tag class="cell-tag" theme="danger" size="small" variant="light">{{ row.error_rows }} 失败</t-tag>
+        </t-tooltip>
+      </template>
+      <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+
+      <!--
+        行操作保留页面自绘（`#op`）：这几条链接的出现条件取决于**行状态**，
+        声明式行操作只能整条置灰、不能按行隐藏（见 types.ts `RowActionDef`）。
+      -->
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link theme="primary" data-testid="impexp-import-detail" @click="openDetail(row)">详情</t-link>
+          <t-link
+            v-if="row.status === 'VALIDATED' && row.error_rows === 0"
+            v-privilege="[PERM.impexpImportConfirm]"
+            theme="primary"
+            data-testid="impexp-import-confirm"
+            @click="handleConfirm(row)"
+          >
+            确认入库
+          </t-link>
+          <t-link
+            v-if="row.status === 'PENDING' || row.status === 'VALIDATED'"
+            v-privilege="[PERM.impexpImportCancel]"
+            theme="warning"
+            data-testid="impexp-import-cancel"
+            @click="confirmCancel(row)"
+          >
+            取消
+          </t-link>
+          <t-link
+            v-if="row.status === 'FAILED'"
+            v-privilege="[PERM.impexpImportRetry]"
+            theme="primary"
+            data-testid="impexp-import-retry"
+            @click="handleRetry(row)"
+          >
+            重试
+          </t-link>
+          <t-link
+            v-if="row.error_rows > 0"
+            v-privilege="[PERM.impexpImportDownload]"
+            theme="primary"
+            data-testid="impexp-import-errors"
+            @click="downloadErrors(row)"
+          >
+            错误明细
+          </t-link>
         </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 条</span>
-      </div>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :stripe="true"
-        @page-change="handlePageChange"
-      >
-        <template #task_no="{ row }">
-          <t-link theme="primary" @click="openDetail(row)">{{ row.task_no }}</t-link>
-        </template>
-        <template #biz_type="{ row }">{{ row.biz_name || row.biz_type }}</template>
-        <template #status="{ row }">
-          <t-tag :theme="statusTheme(row.status)" variant="light" size="small">{{ statusLabel(row.status) }}</t-tag>
-        </template>
-        <template #progress="{ row }">
-          <t-progress
-            :percentage="row.progress"
-            :status="row.status === 'FAILED' ? 'error' : row.progress === 100 ? 'success' : 'active'"
-            :label="true"
-            size="small"
-          />
-        </template>
-        <template #rows="{ row }">
-          <span>{{ row.valid_rows }} / {{ row.total_rows }}</span>
-          <t-tooltip v-if="row.error_rows > 0" :content="`失败 ${row.error_rows} 行`">
-            <t-tag class="cell-tag" theme="danger" size="small" variant="light">{{ row.error_rows }} 失败</t-tag>
-          </t-tooltip>
-        </template>
-        <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link theme="primary" @click="openDetail(row)">详情</t-link>
-            <t-link
-              v-if="row.status === 'VALIDATED' && row.error_rows === 0"
-              v-privilege="[PERM.impexpImportConfirm]"
-              theme="primary"
-              @click="handleConfirm(row)"
-            >
-              确认入库
-            </t-link>
-            <t-link
-              v-if="row.status === 'PENDING' || row.status === 'VALIDATED'"
-              v-privilege="[PERM.impexpImportCancel]"
-              theme="warning"
-              @click="confirmCancel(row)"
-            >
-              取消
-            </t-link>
-            <t-link
-              v-if="row.status === 'FAILED'"
-              v-privilege="[PERM.impexpImportRetry]"
-              theme="primary"
-              @click="handleRetry(row)"
-            >
-              重试
-            </t-link>
-            <t-link
-              v-if="row.error_rows > 0"
-              v-privilege="[PERM.impexpImportDownload]"
-              theme="primary"
-              @click="downloadErrors(row)"
-            >
-              错误明细
-            </t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="upload" />
-            <p class="empty-state__title">还没有导入任务</p>
-            <p class="empty-state__desc">从「发起导入」上传 Excel，校验通过后确认入库</p>
-            <t-button v-privilege="[PERM.impexpImportUpload]" theme="primary" @click="goWizard">发起导入</t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="impexp-import-empty">
+          <t-icon class="panel-empty__icon" name="upload" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的导入任务' : '还没有导入任务' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个关键词 / 状态试试，或点「重置」看全部'
+                : '从「发起导入」上传 Excel，校验通过后确认入库'
+            }}
+          </p>
+          <t-button v-privilege="[PERM.impexpImportUpload]" theme="primary" @click="goWizard">发起导入</t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- 详情抽屉 -->
     <t-drawer v-model:visible="detailVisible" :header="`导入任务 ${detail?.task_no ?? ''}`" size="780px" :footer="false">
@@ -172,9 +184,11 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue';
+import { onBeforeUnmount, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListFilter, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import {
   cancelImport,
@@ -200,11 +214,8 @@ interface TablePageInfo {
   pageSize: number;
 }
 
-const router = useRouter();
-const rows = ref<ImportTaskRes[]>([]);
-const loading = ref(false);
-const query = reactive({ keyword: '', status: '' as string, only_mine: false });
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
 
 /** 状态筛选项（与后端状态机逐字对齐） */
 const STATUS_OPTIONS: Array<{ value: ImportTaskStatus; label: string }> = [
@@ -240,14 +251,32 @@ function statusTheme(status: ImportTaskStatus): 'success' | 'primary' | 'warning
   return 'primary';
 }
 
-const columns: PrimaryTableCol[] = [
+// ==================== 列表（P3-11：声明交给 ListPage） ====================
+
+const router = useRouter();
+const filter = reactive<ListFilter>({ keyword: '', status: '', only_mine: false });
+
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '任务号 / 文件名', width: 260, testid: 'impexp-import-keyword' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 160,
+    options: STATUS_OPTIONS,
+    testid: 'impexp-import-status',
+  },
+  { key: 'only_mine', type: 'custom', defaultValue: false, testid: 'impexp-import-only-mine' },
+];
+
+const columns: ColumnDef[] = [
   { colKey: 'task_no', title: '任务号', width: 190 },
   { colKey: 'biz_type', title: '业务', width: 150 },
   { colKey: 'status', title: '状态', width: 110 },
   { colKey: 'progress', title: '进度', width: 160 },
-  { colKey: 'rows', title: '通过 / 总数', width: 160 },
+  { colKey: 'rows', title: '通过 / 总数', width: 160, exportable: false },
   { colKey: 'created_at', title: '创建时间', width: 170 },
-  { colKey: 'op', title: '操作', width: 260, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 260, fixed: 'right', exportable: false },
 ];
 
 const errorColumns: PrimaryTableCol[] = [
@@ -256,58 +285,50 @@ const errorColumns: PrimaryTableCol[] = [
   { colKey: 'error_message', title: '失败原因', width: 360 },
 ];
 
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageImportTasks({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      keyword: query.keyword || undefined,
-      status: query.status || undefined,
-      only_mine: query.only_mine || undefined,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-    schedulePolling();
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
+const fetcher: ListFetcher<ImportTaskRes> = (query) => pageImportTasks(query as Parameters<typeof pageImportTasks>[0]);
+
+/** 入参拼装：空串 / 未勾选整键缺席（`?only_mine=false` 与不传不是一回事） */
+const queryBuilder: ListQueryBuilder = (_state, page, size) => ({
+  page,
+  page_size: size,
+  keyword: textOrUndefined(filter.keyword),
+  status: filter.status || undefined,
+  only_mine: filter.only_mine ? true : undefined,
+});
+
+/** 去掉首尾空格，空串返回 undefined */
+function textOrUndefined(value: unknown): string | undefined {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text || undefined;
+}
+
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 一页拉完：安排下一次轮询（轮询只重拉当前页，见 `schedulePolling`） */
+function onLoaded(payload: { rows: ImportTaskRes[] }): void {
+  schedulePolling(payload.rows);
 }
 
 /** 有进行中的任务时 3 秒轮询一次进度，全部终态后自动停表 */
 let pollTimer: number | undefined;
-function schedulePolling(): void {
-  const hasActive = rows.value.some((row) => ['PENDING', 'VALIDATING', 'IMPORTING'].includes(row.status));
+function schedulePolling(list: ImportTaskRes[]): void {
   if (pollTimer) {
     window.clearTimeout(pollTimer);
     pollTimer = undefined;
   }
+  const hasActive = list.some((row) => ['PENDING', 'VALIDATING', 'IMPORTING'].includes(row.status));
   if (!hasActive) {
     return;
   }
   pollTimer = window.setTimeout(() => {
-    void loadList();
+    // 只重拉当前页：不重置筛选、不跳页（`reload` 走的就是 `load(current)`）
+    listRef.value?.reload();
   }, 3000);
 }
 
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.keyword = '';
-  query.status = '';
-  query.only_mine = false;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
+/** 增删改后重拉当前页 */
+function reloadList(): void {
+  listRef.value?.reload();
 }
 
 // ==================== 详情 / 错误明细 ====================
@@ -362,7 +383,7 @@ function handleConfirm(row: ImportTaskRes): void {
         try {
           const res = await confirmImport(row.id);
           void MessagePlugin.success(res.message || `已入库 ${res.imported_rows} 行`);
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error);
         }
@@ -383,7 +404,7 @@ function confirmCancel(row: ImportTaskRes): void {
         try {
           await cancelImport(row.id);
           void MessagePlugin.success('任务已取消');
-          await loadList();
+          reloadList();
         } catch (error) {
           showError(error);
         }
@@ -396,7 +417,7 @@ async function handleRetry(row: ImportTaskRes): Promise<void> {
   try {
     const created = await retryImport(row.id);
     void MessagePlugin.success(`已创建重试任务 ${created.task_no}`);
-    await loadList();
+    reloadList();
   } catch (error) {
     showError(error);
   }
@@ -419,10 +440,6 @@ function showError(error: unknown): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message : '请求失败，请稍后重试');
 }
 
-onMounted(() => {
-  void loadList();
-});
-
 onBeforeUnmount(() => {
   if (pollTimer) {
     window.clearTimeout(pollTimer);
@@ -432,60 +449,47 @@ onBeforeUnmount(() => {
 
 <style lang="less" scoped>
 .import-task-page {
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
+.cell-tag {
+  margin-left: 6px;
+}
 
-  .toolbar {
+.detail-errors {
+  margin-top: 16px;
+
+  &__head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+}
 
-    &__count {
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
+/* 空态（与其它已迁页面同一套 class 口径，样式随 shell 下沉一并收走） */
+.panel-empty {
+  padding: 40px 0;
+  text-align: center;
+
+  &__icon {
+    font-size: 40px;
+    color: var(--td-text-color-placeholder);
   }
 
-  .cell-tag {
-    margin-left: 6px;
+  &__title {
+    margin: 12px 0 4px;
+    font-size: 15px;
+    color: var(--td-text-color-primary);
   }
 
-  .detail-errors {
-    margin-top: 16px;
-
-    &__head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 8px;
-      font-weight: 600;
-    }
-  }
-
-  .empty-state {
-    padding: 48px 0;
-    text-align: center;
-
-    &__icon {
-      font-size: 48px;
-      color: var(--td-text-color-placeholder);
-    }
-
-    &__title {
-      margin: 12px 0 4px;
-      font-size: 15px;
-      color: var(--td-text-color-primary);
-    }
-
-    &__desc {
-      margin-bottom: 16px;
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
+  &__desc {
+    margin-bottom: 16px;
+    font-size: 13px;
+    color: var(--td-text-color-secondary);
   }
 }
 </style>

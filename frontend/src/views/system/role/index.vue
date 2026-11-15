@@ -135,39 +135,57 @@
               </t-loading>
             </t-tab-panel>
             <t-tab-panel value="users" label="角色用户列表">
-              <t-table
-                row-key="id"
-                :data="roleUsers"
-                :columns="userColumns"
-                :loading="usersLoading"
-                :pagination="usersPagination"
-                :max-height="usersTableMaxHeight"
-                hover
-                stripe
-                @page-change="handleUsersPageChange"
-              >
-                <template #roles="{ row }">
-                  <t-space size="small">
-                    <t-tag
-                      v-for="name in row.roles"
-                      :key="name"
-                      theme="primary"
-                      variant="light"
+              <!--
+                「角色用户列表」（P3-11）：服务端分页的只读行列表 → 走 ListPage。
+                没有筛选项（后端 `GET /role/{id}/users` 只收 page/page_size），因此组件
+                不画筛选卡（`showFilterCard`），只在页头挂一个「刷新」。
+                切角色 / 切回本 tab 时用 `search()` 重查（见 `onTabChange` / `selectRole`）。
+              -->
+              <div class="role-users-list">
+                <ListPage
+                  v-if="activeTab === 'users'"
+                  ref="usersListRef"
+                  title="角色用户"
+                  testid="system-role-users"
+                  :columns="userColumns"
+                  :filters="userFilters"
+                  :filter-state="userFilter"
+                  :fetcher="userFetcher"
+                  :query-builder="userQueryBuilder"
+                  :page-size="USERS_PAGE_SIZE"
+                >
+                  <template #head-extra>
+                    <t-button
                       size="small"
+                      variant="outline"
+                      data-testid="system-role-users-refresh"
+                      @click="reloadRoleUsers"
                     >
-                      {{ name }}
+                      <template #icon><t-icon name="refresh" /></template>
+                      刷新
+                    </t-button>
+                  </template>
+
+                  <template #roles="{ row }">
+                    <t-space size="small">
+                      <t-tag
+                        v-for="name in row.roles"
+                        :key="name"
+                        theme="primary"
+                        variant="light"
+                        size="small"
+                      >
+                        {{ name }}
+                      </t-tag>
+                      <span v-if="row.roles.length === 0">-</span>
+                    </t-space>
+                  </template>
+                  <template #status="{ row }">
+                    <t-tag :theme="row.status === 1 ? 'success' : 'danger'" variant="light" size="small">
+                      {{ row.status === 1 ? '正常' : '停用' }}
                     </t-tag>
-                    <span v-if="row.roles.length === 0">-</span>
-                  </t-space>
-                </template>
-                <template #status="{ row }">
-                  <t-tag :theme="row.status === 1 ? 'success' : 'danger'" variant="light" size="small">
-                    {{ row.status === 1 ? '正常' : '停用' }}
-                  </t-tag>
-                </template>
-              </t-table>
-              <div v-if="!usersLoading && roleUsers.length === 0" class="users-placeholder">
-                <t-empty description="暂无用户拥有此角色" />
+                  </template>
+                </ListPage>
               </div>
             </t-tab-panel>
             <!--
@@ -251,6 +269,8 @@ import type {
   PrimaryTableCol,
   TdEnhancedTableProps,
 } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   createRole,
   deleteRole,
@@ -356,19 +376,43 @@ const permColumns: PrimaryTableCol[] = [
   { colKey: 'buttons', title: '按钮权限', cell: 'buttons' },
 ];
 
-// ===== 角色用户列表 tab =====
-const roleUsers = ref<RoleUserRes[]>([]);
-const usersLoading = ref(false);
-/// 角色用户表格动态高度：视口高度减去布局与页签占用
-const usersTableMaxHeight = ref(window.innerHeight - 320);
-const usersPagination = reactive({ current: 1, pageSize: 10, total: 0 });
-const userColumns: PrimaryTableCol[] = [
+// ===== 角色用户列表 tab（P3-11：ListPage） =====
+/** 每页条数（与改造前一致） */
+const USERS_PAGE_SIZE = 10;
+/** 筛选状态：本 tab 没有筛选项（后端只收 page/page_size），留空对象给组件当受控状态 */
+const userFilter = reactive<Record<string, unknown>>({});
+const userFilters: FilterDef[] = [];
+/** ListPage 实例（切角色 / 切回 tab / 点刷新时重查） */
+const usersListRef = ref<InstanceType<typeof ListPage> | null>(null);
+const userColumns: ColumnDef[] = [
   { colKey: 'username', title: '用户名称', width: 140 },
   { colKey: 'real_name', title: '用户昵称', width: 140 },
   { colKey: 'mobile', title: '手机号', width: 160 },
-  { colKey: 'roles', title: '角色名称', cell: 'roles' },
-  { colKey: 'status', title: '状态', width: 100, cell: 'status' },
+  { colKey: 'roles', title: '角色名称', exportable: false },
+  { colKey: 'status', title: '状态', width: 100 },
 ];
+
+/** 拉一页：当前选中角色的持有者（未选中角色时给空页，不发请求） */
+const userFetcher: ListFetcher<RoleUserRes> = async (query) => {
+  const page = Number(query.page ?? 1);
+  const pageSize = Number(query.page_size ?? USERS_PAGE_SIZE);
+  if (!selectedRoleId.value) {
+    return { list: [], total: 0, page, page_size: pageSize };
+  }
+  return getRoleUsers(selectedRoleId.value, { page, page_size: pageSize });
+};
+
+/** 入参拼装：只有页码（角色 id 在 URL 里，不在 query 里） */
+const userQueryBuilder: ListQueryBuilder = (_state, page, size) => ({ page, page_size: size });
+
+/** 重查本 tab 的用户列表（切角色 / 点刷新） */
+function reloadRoleUsers(): void {
+  if (!usersListRef.value) {
+    return;
+  }
+  usersListRef.value.search();
+}
+
 
 // ===== 新增/编辑表单 =====
 const formRef = ref<FormInstanceFunctions>();
@@ -513,48 +557,15 @@ async function selectRole(role: RoleRes): Promise<void> {
   selectedRoleId.value = role.id;
   selectedRole.value = role;
   activeTab.value = 'perm';
-  // 切换角色时清空上一角色的用户列表，避免残留
-  roleUsers.value = [];
-  usersPagination.current = 1;
-  usersPagination.total = 0;
+  // 切角色后「角色用户列表」的组件会随 tab 卸载（`v-if`），切回去时按新角色重新挂载并拉数
   await loadPermData();
 }
 
-/// 加载当前角色下的用户列表（分页）
-async function loadRoleUsers(): Promise<void> {
-  if (!selectedRoleId.value) return;
-  usersLoading.value = true;
-  try {
-    const data = await getRoleUsers(selectedRoleId.value, {
-      page: usersPagination.current,
-      page_size: usersPagination.pageSize,
-    });
-    roleUsers.value = data.list;
-    usersPagination.total = data.total;
-  } catch (error) {
-    showError(error instanceof ApiError ? error.message : '角色用户加载失败');
-    roleUsers.value = [];
-    usersPagination.total = 0;
-  } finally {
-    usersLoading.value = false;
-  }
-}
-
-/// 页签切换：进入「角色用户列表」时重置分页并加载
+/// 页签切换：`role-users-list` 内的 ListPage 随 tab 挂载 / 卸载（`v-if`），
+/// 进入本 tab 时组件自己拉首屏，这里不需要再补请求
 function onTabChange(value: string | number): void {
   const tab = value as RoleTab;
   activeTab.value = tab === 'users' ? 'users' : tab === 'scope' ? 'scope' : 'perm';
-  if (activeTab.value === 'users' && selectedRoleId.value) {
-    usersPagination.current = 1;
-    void loadRoleUsers();
-  }
-}
-
-/// 角色用户表格分页变化
-function handleUsersPageChange(pageInfo: { current: number; pageSize: number }): void {
-  usersPagination.current = pageInfo.current;
-  usersPagination.pageSize = pageInfo.pageSize;
-  void loadRoleUsers();
 }
 
 /// 加载角色列表，默认选中第一个角色
@@ -870,8 +881,6 @@ async function handleDelete(row: RoleRes): Promise<void> {
       permTreeData.value = [];
       selectedMenuIds.value = [];
       checkedIds.value = [];
-      roleUsers.value = [];
-      usersPagination.total = 0;
     }
     await loadList();
   } catch (error) {
@@ -1096,13 +1105,11 @@ onMounted(() => {
     }
   }
 
-  /// 角色用户列表暂未接入接口，居中展示空态
-  .users-placeholder {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 48px 0;
+  /// 角色用户列表：外层 tab 面板已有留白，ListPage 自带卡片内边距在这里会再叠一层
+  .role-users-list {
+    :deep(.t-card__body) {
+      padding: 0;
+    }
   }
 }
 </style>

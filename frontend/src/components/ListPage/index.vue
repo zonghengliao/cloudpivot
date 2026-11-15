@@ -61,8 +61,8 @@
 -->
 <template>
   <div class="lp" :data-testid="testid">
-    <!-- 筛选行 -->
-    <t-card :bordered="false" class="lp__filter-card">
+    <!-- 筛选行（页面没有筛选项 / 工具按钮 / 导出时整卡不画，见 `showFilterCard`） -->
+    <t-card v-if="showFilterCard" :bordered="false" class="lp__filter-card">
       <div class="lp__filter-row">
         <template v-for="def in filterDefs" :key="def.key">
           <t-input
@@ -449,6 +449,21 @@ const exporting = ref(false);
 const loadedOnce = ref(false);
 
 const filtered = computed(() => isFiltered(filter, filterDefs.value));
+
+/**
+ * 筛选卡要不要画。
+ *
+ * 只有「一张表」的列表（零筛选、无工具按钮、不导出，如角色详情里的「角色用户列表」）
+ * 画出来就是一张空白卡片加「查询 / 重置 / 刷新」三个按钮 —— 查询与重置无事可做，是纯噪音。
+ * 有筛选项 / 工具按钮 / 导出 / 页脚提示的页面一律照旧画（现有消费者全部属于这一类）。
+ */
+const showFilterCard = computed(
+  () =>
+    filterDefs.value.length > 0 ||
+    props.exportable ||
+    Boolean(slots.toolbar || slots['toolbar-end'] || slots['filters-extra'] || slots['filter-footer']),
+);
+
 const pagination = computed(() => paginationOf(current.value, pageSize.value, total.value, props.showPageSize));
 const exportTip = computed(() =>
   props.exportable && !props.exportTask ? '导出当前页（CSV）；要全量请联系管理员走导入导出任务' : '',

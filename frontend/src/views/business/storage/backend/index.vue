@@ -1,184 +1,168 @@
+<!--
+  存储配置（storage/backend）：两个 tab，各自一张 ListPage（P3-11）。
+
+  ```
+  tab 1 存储后端：配置列表 + 连通性测试 + 设为默认 + 增删改（抽屉）
+  tab 2 上传策略：分类策略列表 + 单条编辑（抽屉）
+  ```
+
+  # tab 提到页面级
+  改造前 tabs 包在一张卡片里，两个 tab 的内容各画一套「筛选卡 + 表格卡」。现在 tabs 直接
+  置于页面顶部（与 HR 考勤 / 薪资同款），每个 tab 一个 ListPage —— 两个 tab 的筛选状态、
+  页码、空态互不干扰，也不需要「切回来还在第 2 页」这种记忆。
+
+  # 行内操作的两种写法（本页各用一个，正好是判据）
+  - 存储后端：**页面自绘** `#op` —— 「测试」按钮文案随测试中变化（`测试中…`），
+    「设为默认」按 `row.is_default` 置灰，声明式行操作表达不了「按行改文案」；
+  - 上传策略：**声明式** `actions.row` —— 只有一个「编辑」，权限码一挂就行。
+
+  # 连通性结果不改列表筛选
+  测试 / 设为默认 / 启停成功后只重拉**当前页**（`reload`），不回到第 1 页：用户可能正翻到
+  第 2 页测某个配置，被弹回第 1 页找不到刚测的那行才是真的难用。
+-->
 <template>
   <div class="storage-config-page">
-    <t-card :bordered="false" class="tabs-card">
-      <t-tabs v-model="activeTab" @change="onTabChange">
-        <t-tab-panel value="backend" label="存储后端" />
-        <t-tab-panel value="policy" label="上传策略" />
-      </t-tabs>
-    </t-card>
+    <t-tabs v-model="activeTab" class="page-tabs" data-testid="storage-tabs">
+      <t-tab-panel value="backend" label="存储后端" data-testid="storage-tab-backend" />
+      <t-tab-panel value="policy" label="上传策略" data-testid="storage-tab-policy" />
+    </t-tabs>
 
     <!-- ==================== 存储后端 ==================== -->
-    <template v-if="activeTab === 'backend'">
-      <t-card :bordered="false" class="filter-card">
-        <t-row :gutter="16">
-          <t-col :span="3">
-            <t-input v-model="query.keyword" placeholder="配置名称 / 编码" clearable @enter="handleSearch" />
-          </t-col>
-          <t-col :span="3">
-            <t-select v-model="query.backend_type" placeholder="存储类型" clearable>
-              <t-option value="local" label="本地存储" />
-              <t-option value="minio" label="MinIO / S3 兼容" />
-            </t-select>
-          </t-col>
-          <t-col :span="3">
-            <t-select v-model="query.status" placeholder="状态" clearable>
-              <t-option :value="1" label="启用" />
-              <t-option :value="0" label="停用" />
-            </t-select>
-          </t-col>
-          <t-col :span="3">
-            <t-space>
-              <t-button theme="primary" @click="handleSearch">
-                <template #icon><t-icon name="search" /></template>
-                查询
-              </t-button>
-              <t-button theme="default" @click="handleReset">重置</t-button>
-            </t-space>
-          </t-col>
-        </t-row>
-      </t-card>
-
-      <t-card :bordered="false" class="table-card">
-        <div class="toolbar">
-          <t-space>
-            <t-button v-privilege="[PERM.storageConfigCreate]" theme="primary" @click="openCreate">
-              <template #icon><t-icon name="add" /></template>
-              新增存储配置
-            </t-button>
-            <t-button theme="default" :loading="loading" @click="loadConfigs">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </t-space>
-          <span class="toolbar__count">共 {{ pagination.total }} 条</span>
-        </div>
-
-        <t-table
-          row-key="id"
-          :data="rows"
-          :columns="columns"
-          :loading="loading"
-          :pagination="pagination"
-          :stripe="true"
-          @page-change="handlePageChange"
+    <ListPage
+      v-if="activeTab === 'backend'"
+      ref="configListRef"
+      title="存储配置"
+      meta-unit="条"
+      testid="storage-config"
+      :columns="columns"
+      :filters="configFilters"
+      :filter-state="configFilter"
+      :fetcher="configFetcher"
+      :query-builder="configQueryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.storageConfigCreate]"
+          theme="primary"
+          data-testid="storage-config-create"
+          @click="openCreate"
         >
-          <template #config_name="{ row }">
-            <span class="cell-name">{{ row.config_name }}</span>
-            <t-tag v-if="row.is_default" class="cell-name__tag" theme="primary" size="small">默认</t-tag>
-          </template>
-          <template #backend_type="{ row }">{{ backendTypeLabel(row) }}</template>
-          <template #endpoint="{ row }">
-            <t-tooltip v-if="row.endpoint" :content="`${row.endpoint}${row.bucket ? ` / ${row.bucket}` : ''}`">
-              <span class="cell-ellipsis">{{ row.endpoint }}<span v-if="row.bucket"> / {{ row.bucket }}</span></span>
-            </t-tooltip>
-            <span v-else class="cell-empty">—</span>
-          </template>
-          <template #ak_masked="{ row }">
-            <span v-if="row.has_secret">{{ row.ak_masked || '已配置' }}</span>
-            <span v-else class="cell-empty">未配置</span>
-          </template>
-          <template #health="{ row }">
-            <span class="health" :class="`health--${row.health_status}`">
-              <i class="health__dot" />
-              {{ healthLabel(row) }}
-            </span>
-          </template>
-          <template #status="{ row }">
-            <t-switch
-              :value="row.status === 1"
-              :loading="statusLoadingId === row.id"
-              :disabled="!hasPermission(PERM.storageConfigUpdate)"
-              @change="() => toggleStatus(row)"
-            />
-          </template>
-          <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
-          <template #op="{ row }">
-            <t-space size="small">
-              <t-link v-privilege="[PERM.storageConfigTest]" theme="primary" @click="handleTest(row)">
-                {{ testingId === row.id ? '测试中…' : '测试' }}
-              </t-link>
-              <t-link v-privilege="[PERM.storageConfigUpdate]" theme="primary" @click="openEdit(row)">
-                编辑
-              </t-link>
-              <t-link
-                v-privilege="[PERM.storageConfigUpdate]"
-                :theme="row.is_default ? 'default' : 'primary'"
-                :disabled="row.is_default"
-                @click="confirmSetDefault(row)"
-              >
-                设为默认
-              </t-link>
-              <t-link v-privilege="[PERM.storageConfigDelete]" theme="danger" @click="confirmRemove(row)">
-                删除
-              </t-link>
-            </t-space>
-          </template>
-          <template #empty>
-            <div class="empty-state">
-              <t-icon class="empty-state__icon" name="object-storage" />
-              <p class="empty-state__title">还没有配置存储后端</p>
-              <p class="empty-state__desc">系统将使用本地磁盘（uploads 目录）作为默认存储</p>
-              <t-button v-privilege="[PERM.storageConfigCreate]" theme="primary" @click="openCreate">
-                新增存储配置
-              </t-button>
-            </div>
-          </template>
-        </t-table>
-      </t-card>
-    </template>
+          <template #icon><t-icon name="add" /></template>
+          新增存储配置
+        </t-button>
+      </template>
+
+      <template #config_name="{ row }">
+        <span class="cell-name">{{ row.config_name }}</span>
+        <t-tag v-if="row.is_default" class="cell-name__tag" theme="primary" size="small">默认</t-tag>
+      </template>
+      <template #backend_type="{ row }">{{ backendTypeLabel(row) }}</template>
+      <template #endpoint="{ row }">
+        <t-tooltip v-if="row.endpoint" :content="`${row.endpoint}${row.bucket ? ` / ${row.bucket}` : ''}`">
+          <span class="cell-ellipsis">{{ row.endpoint }}<span v-if="row.bucket"> / {{ row.bucket }}</span></span>
+        </t-tooltip>
+        <span v-else class="cell-empty">—</span>
+      </template>
+      <template #ak_masked="{ row }">
+        <span v-if="row.has_secret">{{ row.ak_masked || '已配置' }}</span>
+        <span v-else class="cell-empty">未配置</span>
+      </template>
+      <template #health="{ row }">
+        <span class="health" :class="`health--${row.health_status}`">
+          <i class="health__dot" />
+          {{ healthLabel(row) }}
+        </span>
+      </template>
+      <template #status="{ row }">
+        <t-switch
+          :value="row.status === 1"
+          :loading="statusLoadingId === row.id"
+          :disabled="!hasPermission(PERM.storageConfigUpdate)"
+          @change="() => toggleStatus(row)"
+        />
+      </template>
+      <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
+
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link
+            v-privilege="[PERM.storageConfigTest]"
+            theme="primary"
+            data-testid="storage-config-test"
+            @click="handleTest(row)"
+          >
+            {{ testingId === row.id ? '测试中…' : '测试' }}
+          </t-link>
+          <t-link v-privilege="[PERM.storageConfigUpdate]" theme="primary" data-testid="storage-config-edit" @click="openEdit(row)">
+            编辑
+          </t-link>
+          <t-link
+            v-privilege="[PERM.storageConfigUpdate]"
+            :theme="row.is_default ? 'default' : 'primary'"
+            :disabled="row.is_default"
+            data-testid="storage-config-default"
+            @click="confirmSetDefault(row)"
+          >
+            设为默认
+          </t-link>
+          <t-link v-privilege="[PERM.storageConfigDelete]" theme="danger" data-testid="storage-config-delete" @click="confirmRemove(row)">
+            删除
+          </t-link>
+        </t-space>
+      </template>
+
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="storage-config-empty">
+          <t-icon class="panel-empty__icon" name="object-storage" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的存储配置' : '还没有配置存储后端' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个关键词 / 存储类型 / 状态试试，或点「重置」看全部'
+                : '系统将使用本地磁盘（uploads 目录）作为默认存储'
+            }}
+          </p>
+          <t-button v-privilege="[PERM.storageConfigCreate]" theme="primary" @click="openCreate">新增存储配置</t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== 上传策略 ==================== -->
-    <template v-else>
-      <t-card :bordered="false" class="table-card">
-        <div class="toolbar">
-          <t-space>
-            <t-input v-model="policyKeyword" class="toolbar__search" placeholder="分类名称" clearable @enter="loadPolicies" />
-            <t-button theme="primary" @click="loadPolicies">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" :loading="policyLoading" @click="loadPolicies">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </t-space>
-          <span class="toolbar__count">共 {{ policyPagination.total }} 条</span>
-        </div>
-
-        <t-table
-          row-key="id"
-          :data="policyRows"
-          :columns="policyColumns"
-          :loading="policyLoading"
-          :pagination="policyPagination"
-          :stripe="true"
-          @page-change="handlePolicyPageChange"
-        >
-          <template #category="{ row }">
-            <span class="cell-name">{{ row.category_name }}</span>
-            <span class="cell-sub">{{ row.category }}</span>
-          </template>
-          <template #max_size_mb="{ row }">{{ row.max_size_mb }} MB</template>
-          <template #allowed_extensions="{ row }">
-            <span v-if="row.allowed_extensions">{{ extensionSummary(row.allowed_extensions) }}</span>
-            <span v-else class="cell-empty">不限</span>
-          </template>
-          <template #direct_upload="{ row }">
-            <t-tag :theme="row.direct_upload ? 'success' : 'default'" size="small" variant="light">
-              {{ row.direct_upload ? '允许' : '关闭' }}
-            </t-tag>
-          </template>
-          <template #status="{ row }">
-            <t-tag :theme="row.status === 1 ? 'success' : 'default'" size="small" variant="light">
-              {{ row.status === 1 ? '启用' : '停用' }}
-            </t-tag>
-          </template>
-          <template #op="{ row }">
-            <t-link v-privilege="[PERM.storagePolicyUpdate]" theme="primary" @click="openPolicyEdit(row)">编辑</t-link>
-          </template>
-        </t-table>
-      </t-card>
-    </template>
+    <ListPage
+      v-else
+      ref="policyListRef"
+      title="上传策略"
+      meta-unit="条"
+      testid="storage-policy"
+      :columns="policyColumns"
+      :filters="policyFilters"
+      :filter-state="policyFilter"
+      :fetcher="policyFetcher"
+      :query-builder="policyQueryBuilder"
+      :page-size="PAGE_SIZE"
+      :actions="policyActions"
+    >
+      <template #category="{ row }">
+        <span class="cell-name">{{ row.category_name }}</span>
+        <span class="cell-sub">{{ row.category }}</span>
+      </template>
+      <template #max_size_mb="{ row }">{{ row.max_size_mb }} MB</template>
+      <template #allowed_extensions="{ row }">
+        <span v-if="row.allowed_extensions">{{ extensionSummary(row.allowed_extensions) }}</span>
+        <span v-else class="cell-empty">不限</span>
+      </template>
+      <template #direct_upload="{ row }">
+        <t-tag :theme="row.direct_upload ? 'success' : 'default'" size="small" variant="light">
+          {{ row.direct_upload ? '允许' : '关闭' }}
+        </t-tag>
+      </template>
+      <template #status="{ row }">
+        <t-tag :theme="row.status === 1 ? 'success' : 'default'" size="small" variant="light">
+          {{ row.status === 1 ? '启用' : '停用' }}
+        </t-tag>
+      </template>
+    </ListPage>
 
     <!-- ==================== 新增 / 编辑抽屉 ==================== -->
     <t-drawer
@@ -190,7 +174,7 @@
     >
       <t-form ref="formRef" :data="form" :rules="formRules" label-width="96px" class="config-form">
         <t-form-item label="配置名称" name="config_name">
-          <t-input v-model="form.config_name" placeholder="如：生产 MinIO" :maxlength="64" />
+          <t-input v-model="form.config_name" placeholder="如：生产 MinIO" :maxlength="64" data-testid="storage-form-name" />
         </t-form-item>
         <t-form-item label="配置编码" name="config_code">
           <t-input v-model="form.config_code" :disabled="isEdit" placeholder="如：prod-minio" />
@@ -270,7 +254,7 @@
         </t-button>
         <span class="config-form__footer-spacer" />
         <t-button theme="default" @click="formVisible = false">取消</t-button>
-        <t-button theme="primary" :loading="submitting" @click="submitForm">保存</t-button>
+        <t-button theme="primary" :loading="submitting" data-testid="storage-form-save" @click="submitForm">保存</t-button>
       </div>
     </t-drawer>
 
@@ -318,15 +302,26 @@
       <div class="config-form__footer">
         <span class="config-form__footer-spacer" />
         <t-button theme="default" @click="policyVisible = false">取消</t-button>
-        <t-button theme="primary" :loading="policySubmitting" @click="submitPolicy">保存</t-button>
+        <t-button theme="primary" :loading="policySubmitting" data-testid="storage-policy-save" @click="submitPolicy">
+          保存
+        </t-button>
       </div>
     </t-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRules, type PrimaryTableCol } from 'tdesign-vue-next';
+import { computed, reactive, ref } from 'vue';
+import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRules } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListActions,
+  ListFetcher,
+  ListFilter,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import {
   createStorageConfig,
@@ -345,16 +340,11 @@ import { useUserStore } from '@/stores/user';
 import { formatDateTime } from '@/utils/format';
 import { PERM } from '@/constants/permissions';
 
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
-
 /** 连通性探测结果的界面状态 */
 type TestState = 'ok' | 'warn' | 'error';
+
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
 
 const userStore = useUserStore();
 const hasPermission = (code: string): boolean => userStore.hasPermission(code);
@@ -362,23 +352,66 @@ const hasPermission = (code: string): boolean => userStore.hasPermission(code);
 const activeTab = ref<'backend' | 'policy'>('backend');
 
 // ==================== 存储后端列表 ====================
-const query = reactive({ keyword: '', backend_type: '' as string, status: undefined as number | undefined });
-const rows = ref<StorageConfigRes[]>([]);
-const loading = ref(false);
-const testingId = ref('');
-const statusLoadingId = ref('');
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+const configFilter = reactive<ListFilter>({ keyword: '', backend_type: '', status: '' });
 
-const columns: PrimaryTableCol[] = [
+const configFilters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '配置名称 / 编码', width: 260, testid: 'storage-config-keyword' },
+  {
+    key: 'backend_type',
+    type: 'select',
+    placeholder: '存储类型',
+    width: 180,
+    options: [
+      { label: '本地存储', value: 'local' },
+      { label: 'MinIO / S3 兼容', value: 'minio' },
+    ],
+    testid: 'storage-config-type',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 140,
+    options: [
+      { label: '启用', value: 1 },
+      { label: '停用', value: 0 },
+    ],
+    testid: 'storage-config-status',
+  },
+];
+
+const columns: ColumnDef[] = [
   { colKey: 'config_name', title: '配置名称', width: 180 },
   { colKey: 'backend_type', title: '类型', width: 130 },
   { colKey: 'endpoint', title: '端点 / 桶', width: 260, ellipsis: true },
-  { colKey: 'ak_masked', title: '密钥', width: 140 },
-  { colKey: 'health', title: '连通性', width: 120 },
-  { colKey: 'status', title: '状态', width: 80 },
+  { colKey: 'ak_masked', title: '密钥', width: 140, exportable: false },
+  { colKey: 'health', title: '连通性', width: 120, exportable: false },
+  { colKey: 'status', title: '状态', width: 80, exportable: false },
   { colKey: 'updated_at', title: '更新时间', width: 170 },
-  { colKey: 'op', title: '操作', width: 240, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 240, fixed: 'right', exportable: false },
 ];
+
+const configFetcher: ListFetcher<StorageConfigRes> = (query) =>
+  pageStorageConfigs(query as Parameters<typeof pageStorageConfigs>[0]);
+
+/** 入参拼装：空串整键缺席；`status` 是数字（`0` 是真条件，不能当空值丢掉） */
+const configQueryBuilder: ListQueryBuilder = (_state, page, size) => ({
+  page,
+  page_size: size,
+  keyword: textOf(configFilter.keyword),
+  backend_type: textOf(configFilter.backend_type),
+  status: configFilter.status === '' || configFilter.status === undefined ? undefined : Number(configFilter.status),
+});
+
+/** 去空格，空值返回 undefined */
+function textOf(value: unknown): string | undefined {
+  const text = String(value ?? '').trim();
+  return text || undefined;
+}
+
+const configListRef = ref<InstanceType<typeof ListPage> | null>(null);
+const testingId = ref('');
+const statusLoadingId = ref('');
 
 /** 后端类型展示名：MinIO 类型同时承载 S3 兼容 / 阿里 OSS（PRD D2 口径） */
 function backendTypeLabel(row: StorageConfigRes): string {
@@ -404,46 +437,9 @@ function healthLabel(row: StorageConfigRes): string {
     return '正常';
   }
   if (row.health_status === 'fail') {
-    return row.last_error ? '失败' : '失败';
+    return '失败';
   }
   return '未测试';
-}
-
-async function loadConfigs(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageStorageConfigs({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      keyword: query.keyword || undefined,
-      backend_type: query.backend_type || undefined,
-      status: query.status,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadConfigs();
-}
-
-function handleReset(): void {
-  query.keyword = '';
-  query.backend_type = '';
-  query.status = undefined;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadConfigs();
 }
 
 // ==================== 新增 / 编辑 ====================
@@ -619,7 +615,7 @@ async function handleTestInDrawer(): Promise<void> {
     testResult.value = res.healthy
       ? `连接成功 · 桶 ${form.bucket || '（本地）'} ${res.message ? `· ${res.message}` : ''} · 延迟 ${res.latency_ms}ms`
       : res.message;
-    await loadConfigs();
+    reloadConfigs();
   } catch (error) {
     testState.value = 'error';
     testResult.value = error instanceof ApiError ? error.message : '连通性测试失败';
@@ -635,6 +631,11 @@ const testIcon = computed(() => {
   }
   return testState.value === 'warn' ? 'info-circle' : 'error-circle';
 });
+
+/** 重拉当前页（增删改 / 测试 / 启停后） */
+function reloadConfigs(): void {
+  configListRef.value?.reload();
+}
 
 async function submitForm(): Promise<void> {
   const valid = await formRef.value?.validate();
@@ -666,7 +667,7 @@ async function submitForm(): Promise<void> {
       void MessagePlugin.success('存储配置已新增');
     }
     formVisible.value = false;
-    await loadConfigs();
+    reloadConfigs();
   } catch (error) {
     showError(error);
   } finally {
@@ -684,7 +685,7 @@ async function handleTest(row: StorageConfigRes): Promise<void> {
     } else {
       void MessagePlugin.error(res.message || '连接失败');
     }
-    await loadConfigs();
+    reloadConfigs();
   } catch (error) {
     showError(error);
   } finally {
@@ -702,7 +703,7 @@ async function toggleStatus(row: StorageConfigRes): Promise<void> {
       status: row.status === 1 ? 0 : 1,
     });
     void MessagePlugin.success(row.status === 1 ? '已停用' : '已启用');
-    await loadConfigs();
+    reloadConfigs();
   } catch (error) {
     // 停用默认后端会被后端拒绝，文案原样透出（E-STG-10）
     showError(error);
@@ -722,7 +723,7 @@ function confirmSetDefault(row: StorageConfigRes): void {
         try {
           await setDefaultStorageConfig(row.id);
           void MessagePlugin.success('已设为默认存储');
-          await loadConfigs();
+          reloadConfigs();
         } catch (error) {
           showError(error);
         }
@@ -743,7 +744,7 @@ function confirmRemove(row: StorageConfigRes): void {
         try {
           await deleteStorageConfig(row.id);
           void MessagePlugin.success('已删除');
-          await loadConfigs();
+          reloadConfigs();
         } catch (error) {
           showError(error);
         }
@@ -753,10 +754,54 @@ function confirmRemove(row: StorageConfigRes): void {
 }
 
 // ==================== 上传策略 ====================
-const policyRows = ref<StoragePolicyRes[]>([]);
-const policyLoading = ref(false);
-const policyKeyword = ref('');
-const policyPagination = reactive({ current: 1, pageSize: 10, total: 0 });
+const policyFilter = reactive<ListFilter>({ keyword: '' });
+
+const policyFilters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '分类名称', width: 240, testid: 'storage-policy-keyword' },
+];
+
+const policyColumns: ColumnDef[] = [
+  { colKey: 'category', title: '分类', width: 180 },
+  { colKey: 'max_size_mb', title: '单文件上限', width: 120 },
+  { colKey: 'allowed_extensions', title: '类型白名单', width: 280, ellipsis: true },
+  { colKey: 'direct_upload', title: '允许直传', width: 110 },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'op', title: '操作', width: 100, fixed: 'right', exportable: false },
+];
+
+const policyFetcher: ListFetcher<StoragePolicyRes> = (query) =>
+  pageStoragePolicies(query as Parameters<typeof pageStoragePolicies>[0]);
+
+const policyQueryBuilder: ListQueryBuilder = (_state, page, size) => ({
+  page,
+  page_size: size,
+  keyword: textOf(policyFilter.keyword),
+});
+
+const policyListRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 行操作只有「编辑」一条 → 声明式（权限码一挂就行） */
+const policyActions: ListActions = {
+  row: [
+    {
+      key: 'edit',
+      label: '编辑',
+      permission: PERM.storagePolicyUpdate,
+      testid: 'storage-policy-edit',
+      handler: (row: StoragePolicyRes) => openPolicyEdit(row),
+    },
+  ],
+};
+
+/** 白名单摘要：前 5 个 + 「等 N 种」 */
+function extensionSummary(raw: string): string {
+  const list = raw.split(',').map((item) => item.trim()).filter(Boolean);
+  if (list.length <= 5) {
+    return list.join(' / ');
+  }
+  return `${list.slice(0, 5).join(' / ')} 等 ${list.length} 种`;
+}
+
 const policyVisible = ref(false);
 const policySubmitting = ref(false);
 const policyForm = reactive({
@@ -774,47 +819,6 @@ const policyForm = reactive({
   sort_order: 0,
   remark: '',
 });
-
-const policyColumns: PrimaryTableCol[] = [
-  { colKey: 'category', title: '分类', width: 180 },
-  { colKey: 'max_size_mb', title: '单文件上限', width: 120 },
-  { colKey: 'allowed_extensions', title: '类型白名单', width: 280, ellipsis: true },
-  { colKey: 'direct_upload', title: '允许直传', width: 110 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'op', title: '操作', width: 100, fixed: 'right' },
-];
-
-/** 白名单摘要：前 5 个 + 「等 N 种」 */
-function extensionSummary(raw: string): string {
-  const list = raw.split(',').map((item) => item.trim()).filter(Boolean);
-  if (list.length <= 5) {
-    return list.join(' / ');
-  }
-  return `${list.slice(0, 5).join(' / ')} 等 ${list.length} 种`;
-}
-
-async function loadPolicies(): Promise<void> {
-  policyLoading.value = true;
-  try {
-    const data = await pageStoragePolicies({
-      page: policyPagination.current,
-      page_size: policyPagination.pageSize,
-      keyword: policyKeyword.value || undefined,
-    });
-    policyRows.value = data.list;
-    policyPagination.total = data.total;
-  } catch (error) {
-    showError(error);
-  } finally {
-    policyLoading.value = false;
-  }
-}
-
-function handlePolicyPageChange(pageInfo: TablePageInfo): void {
-  policyPagination.current = pageInfo.current;
-  policyPagination.pageSize = pageInfo.pageSize;
-  void loadPolicies();
-}
 
 function openPolicyEdit(row: StoragePolicyRes): void {
   Object.assign(policyForm, {
@@ -853,7 +857,7 @@ async function submitPolicy(): Promise<void> {
     });
     void MessagePlugin.success('已保存');
     policyVisible.value = false;
-    await loadPolicies();
+    policyListRef.value?.reload();
   } catch (error) {
     showError(error);
   } finally {
@@ -861,192 +865,158 @@ async function submitPolicy(): Promise<void> {
   }
 }
 
-function onTabChange(value: unknown): void {
-  if (value === 'policy' && policyRows.value.length === 0) {
-    void loadPolicies();
-  }
-}
-
 /** 统一错误提示：后端 msg 已经是给人看的话，直接展示（8.0 约定第 7 条） */
 function showError(error: unknown): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message : '请求失败，请稍后重试');
 }
-
-onMounted(() => {
-  void loadConfigs();
-});
 </script>
 
 <style lang="less" scoped>
 .storage-config-page {
-  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 
-  .tabs-card {
-    margin-bottom: 12px;
+.page-tabs {
+  margin-bottom: 8px;
+}
 
-    :deep(.t-card__body) {
-      padding: 0 16px;
-    }
-  }
+.cell-name {
+  font-weight: 600;
 
-  .filter-card {
-    margin-bottom: 12px;
-  }
-
-  .table-card {
-    .toolbar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-
-      &__count {
-        font-size: 13px;
-        color: var(--td-text-color-secondary);
-      }
-
-      &__search {
-        width: 200px;
-      }
-    }
-  }
-
-  .cell-name {
-    font-weight: 600;
-
-    &__tag {
-      margin-left: 8px;
-    }
-  }
-
-  .cell-sub {
+  &__tag {
     margin-left: 8px;
-    font-size: 12px;
+  }
+}
+
+.cell-sub {
+  margin-left: 8px;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.cell-ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-empty {
+  color: var(--td-text-color-placeholder);
+}
+
+.health {
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+
+  &__dot {
+    width: 8px;
+    height: 8px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--td-text-color-placeholder);
+  }
+
+  &--ok &__dot,
+  &--ok {
+    color: var(--td-success-color);
+  }
+
+  &--ok &__dot {
+    background: var(--td-success-color);
+  }
+
+  &--fail,
+  &--fail &__dot {
+    color: var(--td-error-color);
+  }
+
+  &--fail &__dot {
+    background: var(--td-error-color);
+  }
+}
+
+.panel-empty {
+  padding: 40px 0;
+  text-align: center;
+
+  &__icon {
+    font-size: 40px;
     color: var(--td-text-color-placeholder);
   }
 
-  .cell-ellipsis {
-    display: inline-block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  &__title {
+    margin: 12px 0 4px;
+    font-size: 15px;
+    color: var(--td-text-color-primary);
   }
 
-  .cell-empty {
-    color: var(--td-text-color-placeholder);
-  }
-
-  .health {
-    display: inline-flex;
-    align-items: center;
+  &__desc {
+    margin-bottom: 16px;
     font-size: 13px;
+    color: var(--td-text-color-secondary);
+  }
+}
 
-    &__dot {
-      width: 8px;
-      height: 8px;
-      margin-right: 6px;
-      border-radius: 50%;
-      background: var(--td-text-color-placeholder);
-    }
-
-    &--ok &__dot,
-    &--ok {
-      color: var(--td-success-color);
-    }
-
-    &--ok &__dot {
-      background: var(--td-success-color);
-    }
-
-    &--fail,
-    &--fail &__dot {
-      color: var(--td-error-color);
-    }
-
-    &--fail &__dot {
-      background: var(--td-error-color);
-    }
+.config-form {
+  &__alert {
+    margin: 0 0 16px 96px;
   }
 
-  .empty-state {
-    padding: 48px 0;
-    text-align: center;
-
-    &__icon {
-      font-size: 48px;
-      color: var(--td-text-color-placeholder);
-    }
-
-    &__title {
-      margin: 12px 0 4px;
-      font-size: 15px;
-      color: var(--td-text-color-primary);
-    }
-
-    &__desc {
-      margin-bottom: 16px;
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
-  }
-
-  .config-form {
-    &__alert {
-      margin: 0 0 16px 96px;
-    }
-
-    &__hint {
-      margin-top: 4px;
-      font-size: 12px;
-      line-height: 1.6;
-      color: var(--td-text-color-secondary);
-    }
-
-    &__footer {
-      display: flex;
-      align-items: center;
-      margin-top: 8px;
-      padding-top: 16px;
-      border-top: 1px solid var(--td-component-stroke);
-    }
-
-    &__footer-spacer {
-      flex: 1;
-    }
-  }
-
-  .test-result {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-left: 96px;
-    padding: 10px 12px;
-    border-radius: 4px;
-    font-size: 13px;
-    line-height: 1.6;
-
-    &--ok {
-      color: var(--td-success-color);
-      background: var(--td-success-color-light);
-    }
-
-    &--warn {
-      color: var(--td-warning-color);
-      background: var(--td-warning-color-light);
-    }
-
-    &--error {
-      color: var(--td-error-color);
-      background: var(--td-error-color-light);
-    }
-  }
-
-  .policy-quick {
-    display: flex;
-    gap: 12px;
+  &__hint {
     margin-top: 4px;
     font-size: 12px;
+    line-height: 1.6;
+    color: var(--td-text-color-secondary);
   }
+
+  &__footer {
+    display: flex;
+    align-items: center;
+    margin-top: 8px;
+    padding-top: 16px;
+    border-top: 1px solid var(--td-component-stroke);
+  }
+
+  &__footer-spacer {
+    flex: 1;
+  }
+}
+
+.test-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 96px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+
+  &--ok {
+    color: var(--td-success-color);
+    background: var(--td-success-color-light);
+  }
+
+  &--warn {
+    color: var(--td-warning-color);
+    background: var(--td-warning-color-light);
+  }
+
+  &--error {
+    color: var(--td-error-color);
+    background: var(--td-error-color-light);
+  }
+}
+
+.policy-quick {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  font-size: 12px;
 }
 </style>
