@@ -115,8 +115,8 @@
               variant="text"
               shape="square"
               :disabled="rowIndex === 0 || sorting"
-              data-testid="`ri-move-up-${row.item_code}`"
-              @click="move(rowIndex, -1)"
+              :data-testid="`ri-move-up-${row.item_code}`"
+              @click="move(row.id, -1)"
             >
               <t-icon name="chevron-up" />
             </t-button>
@@ -127,8 +127,8 @@
               variant="text"
               shape="square"
               :disabled="rowIndex === visibleRows.length - 1 || sorting"
-              data-testid="`ri-move-down-${row.item_code}`"
-              @click="move(rowIndex, 1)"
+              :data-testid="`ri-move-down-${row.item_code}`"
+              @click="move(row.id, 1)"
             >
               <t-icon name="chevron-down" />
             </t-button>
@@ -418,6 +418,7 @@ import {
 import { fetchAccountOptions } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
+import { moveVisibleRow, sortPayloadIds } from './report-item-logic';
 
 /** 本页权限码（与 V0256 的 sys_menu.auth_code 逐字一致）。 */
 const PERM = {
@@ -575,19 +576,21 @@ async function handleToggle(row: ReportItem, next: boolean): Promise<void> {
  *
  * 必须把**整表顺序**发给后端：公式只能引用排在前面的项，局部交换无法判断
  * 「换完之后还有没有公式引用落到后面」，后端会整表校验，不合法直接 400 并说明是哪一项。
+ *
+ * 入参是**行的 id**，不是表格给的 `rowIndex`：表格数据是本地过滤后的 `visibleRows`，
+ * 它的下标和 `rows` 的下标在有筛选时不是一回事（拿可见下标去 splice 全表会静默移错行，
+ * 而后端收的是整表全集，不会报错）。换算与判定都在 `report-item-logic.ts` 里，单测钉住。
  */
-async function move(index: number, delta: number): Promise<void> {
-  const target = index + delta;
-  if (target < 0 || target >= rows.value.length) {
+async function move(rowId: string, delta: number): Promise<void> {
+  const result = moveVisibleRow(rows.value, visibleRows.value, rowId, delta);
+  if (!result) {
+    // 首行 ↑ / 末行 ↓ / 行已不在表里：无操作，不发请求
     return;
   }
-  const next = rows.value.slice();
-  const [moved] = next.splice(index, 1);
-  next.splice(target, 0, moved);
   sorting.value = true;
   try {
-    rows.value = await sortReportItems(activeReport.value, next.map((row) => row.id));
-    MessagePlugin.success(`「${moved.item_name}」已${delta < 0 ? '上移' : '下移'}`);
+    rows.value = await sortReportItems(activeReport.value, sortPayloadIds(result.next));
+    MessagePlugin.success(`「${result.moved.item_name}」已${delta < 0 ? '上移' : '下移'}`);
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
