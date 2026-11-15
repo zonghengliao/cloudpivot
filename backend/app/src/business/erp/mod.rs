@@ -145,6 +145,11 @@ mod doc_shape_tests;
 pub mod dto;
 pub mod expense;
 pub mod form_snapshot;
+/// 外币余额表（M1-07 · V0412）：按 `(科目, 币种)` 列示原币余额 + 本位币折算（只读报表）。
+///
+/// 取数口径与 `period_fx_reval`（M1-05 期末调汇）**逐字一致**：原币只取外币凭证、
+/// 账面取科目全部已过账分录（含历次调汇）—— 报表上的「汇兑差额」必须等于调汇凭证会调的金额。
+pub mod fx_balance;
 pub mod fx_revaluation;
 /// 汇兑损益科目配置（M1-06 · V0411）：`sys_config.erp.fx.gain_loss_account` 的唯一读取点
 /// + 四条入口校验（末级 / 损益类 / 启用 / 未标外币核算），期末调汇与应收重估都读它。

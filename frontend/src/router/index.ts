@@ -1016,6 +1016,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '应付账龄分析', permission: 'business:erp:report:payable-aging' },
       },
       {
+        // ==================== ERP 外币余额表（M1-07 · 迁移 V0412） ====================
+        // `sys_menu` 种子（V0412 …1750）path = `/business/erp/report/fx-balance`，
+        // component `business/erp/report/fx-balance/index`（与迁移里的 component 逐字一致）。
+        // 报表页的权限码**就是**后端接口码（`business:erp:report:fx-balance`）。
+        // **路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/fx-balance',
+        name: 'BusinessErpFxBalance',
+        component: () => import('@/views/business/erp/report/fx-balance/index.vue'),
+        meta: { title: '外币余额表', permission: 'business:erp:report:fx-balance' },
+      },
+      {
         // ==================== ERP 报表项维护（P1-FIX-8B） ====================
         // `sys_menu` 种子（V0256 …1700）path = `/business/erp/report/report-item`，
         // component `business/erp/report/report-item/index`；写权限单列
