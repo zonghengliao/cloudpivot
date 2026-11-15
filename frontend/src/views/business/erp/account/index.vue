@@ -559,22 +559,6 @@ onMounted(() => {
 /* 「外币核算」筛选吃基线 `.tool-row__type`（140px，shell.less）；本页不另立壳类，
    见 docs/architecture/shell-样式变体收敛-决策.md §2.1 铁律 A/B（页面零壳类声明）。 */
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .list-alert {
   margin-bottom: 10px;
 }

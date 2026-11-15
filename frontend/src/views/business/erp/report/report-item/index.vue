@@ -86,7 +86,7 @@
     <t-card :bordered="false" class="list-card">
       <div class="panel-head">
         <div class="panel-head__main">
-          <span class="panel-head__title">{{ activeReportName }}</span>
+          <span class="panel-head__title panel-head__title--lg">{{ activeReportName }}</span>
           <span class="panel-head__meta" data-testid="ri-meta">
             共 {{ rows.length }} 项 · 启用 {{ activeCount }} · 停用 {{ rows.length - activeCount }} ·
             未命中科目 {{ unmatchedCount }}
@@ -811,11 +811,6 @@ async function handleSave(): Promise<void> {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  border-radius: 8px;
-}
-
 .tool-row--filter {
   margin-top: 12px;
 }
@@ -846,19 +841,6 @@ async function handleSave(): Promise<void> {
 
 .ri-alert {
   margin-top: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
 }
 
 .ri-sort {

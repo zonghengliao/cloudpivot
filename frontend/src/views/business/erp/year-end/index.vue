@@ -477,12 +477,13 @@ onMounted(async () => {
 
 <style scoped>
 .year-end-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   padding: 16px;
 }
-.tool-card,
-.main-card {
-  margin-bottom: 12px;
-}
+/* 卡片间距走容器 `gap`（与 opening / price / account 同族写法）；`.tool-card,.main-card`
+   上的 `margin-bottom:12px` 一并退役，否则最后一张卡会多出 12px 空档。 */
 .tool-row__year {
   width: 160px;
 }

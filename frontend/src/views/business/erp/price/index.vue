@@ -4,7 +4,7 @@
     <t-card :bordered="false" class="tool-card">
       <div class="panel-head">
         <div class="panel-head__main">
-          <span class="panel-head__title">取价查询</span>
+          <span class="panel-head__title panel-head__title--lg">取价查询</span>
           <span class="panel-head__meta">
             5 级确定性取价：客户协议价 → 客户专属阶梯 → 通用阶梯 → 物料标准售价 → 无价
           </span>
@@ -76,7 +76,7 @@
     <t-card :bordered="false" class="result-card">
       <div class="panel-head">
         <div class="panel-head__main">
-          <span class="panel-head__title">取价结果</span>
+          <span class="panel-head__title panel-head__title--lg">取价结果</span>
           <t-tag
             v-if="result"
             size="small"
@@ -333,15 +333,9 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-card,
 .result-card {
   background: var(--td-bg-color-container);
   border-radius: var(--td-radius-medium);
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
 }
 
 .form-row {

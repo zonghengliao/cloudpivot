@@ -50,7 +50,7 @@
       </t-card>
 
       <!-- 中：文档 / 命中列表 -->
-      <t-card :bordered="false" class="list-card">
+      <t-card :bordered="false" class="list-card list-card--side">
         <t-loading :loading="listLoading" size="small">
           <div v-if="searchMode" class="list-head">
             <span>「{{ keyword }}」的搜索结果</span>
@@ -408,18 +408,10 @@ onMounted(() => {
   color: var(--td-text-color-placeholder);
 }
 
-.list-card {
-  width: 320px;
-  flex: 0 0 320px;
+.list-card__pager {
+  margin-top: 10px;
   display: flex;
-  flex-direction: column;
-  min-height: 0;
-
-  &__pager {
-    margin-top: 10px;
-    display: flex;
-    justify-content: center;
-  }
+  justify-content: center;
 }
 
 .list-head {

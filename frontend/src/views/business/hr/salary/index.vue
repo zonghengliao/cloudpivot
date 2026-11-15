@@ -446,7 +446,7 @@
 
           <div class="panel-head">
             <div class="panel-head__main">
-              <span class="panel-head__title">逐人核对</span>
+              <span class="panel-head__title panel-head__title--lg">逐人核对</span>
               <span class="panel-head__meta">共 {{ calcResult.employees.length }} 人</span>
             </div>
           </div>
@@ -969,18 +969,6 @@ watch(
 
 .filter-row__switch-text {
   user-select: none;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
 }
 
 .mono {

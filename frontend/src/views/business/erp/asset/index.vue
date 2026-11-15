@@ -1635,18 +1635,6 @@ onMounted(async () => {
   margin-bottom: 12px;
 }
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-}
-
 .name-cell {
   display: flex;
   flex-direction: column;

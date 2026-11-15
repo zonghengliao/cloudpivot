@@ -1405,11 +1405,6 @@ onMounted(async () => {
   padding: 16px;
 }
 
-.filter-card,
-.list-card {
-  border-radius: 8px;
-}
-
 .filter-row {
   display: flex;
   flex-wrap: wrap;
@@ -1435,18 +1430,6 @@ onMounted(async () => {
 
 .gate-wrap {
   display: inline-flex;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 8px;
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
 }
 
 .list-alert {

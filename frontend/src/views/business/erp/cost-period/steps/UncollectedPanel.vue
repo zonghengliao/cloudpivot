@@ -3,7 +3,7 @@
     <!-- ==================== 头部：一句话结论 + 刷新 ==================== -->
     <div class="panel-head">
       <div class="panel-head__main">
-        <span class="panel-head__title">未归集清单</span>
+        <span class="panel-head__title panel-head__title--lg">未归集清单</span>
         <t-tag
           size="small"
           :theme="res && res.gap_count > 0 ? 'warning' : 'success'"
@@ -445,25 +445,6 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
 }
 
 .panel-head__ops {

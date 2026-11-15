@@ -148,7 +148,7 @@
 
       <!-- ==================== ② 账龄看板 ==================== -->
       <t-tab-panel value="aging" label="账龄看板">
-        <t-card :bordered="false" class="tool-card">
+        <t-card :bordered="false" class="tool-card ar-aging-tool">
           <div class="tool-row tool-row--dense">
             <span class="tool-row__label">基准日</span>
             <t-date-picker
@@ -928,10 +928,11 @@ watch(
   padding-top: 12px;
 }
 
-.tool-card,
-.list-card {
+/* 账龄看板两张卡之间的 12px：**页面自有布局类**（不是壳类声明）。
+   B4 把 `.tool-card,.list-card{margin-bottom:12px;border-radius:8px}` 拆掉：
+   壳类部分（flex/圆角）吃基线，间距这条留在页面自己的类上 —— 决策 §2.2 末行「装饰留在页面」。 */
+.ar-aging-tool {
   margin-bottom: 12px;
-  border-radius: 8px;
 }
 
 .tool-row--second {

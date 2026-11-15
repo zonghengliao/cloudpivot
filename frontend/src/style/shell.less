@@ -166,6 +166,27 @@
   width: 140px;
 }
 
+// 固定宽度侧栏卡（帮助中心三栏：目录 230 / 命中列表 320 / 正文吃满）。
+// 属性写全（含 `display:flex; flex-direction:column; min-height:0` —— 那张卡内部要自己滚，
+// pager 钉在底部；只写 flex/width 会把它变回 block，列表与分页会拆开）。
+.list-card--side {
+  flex: 0 0 320px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+// 卡片头右侧槽的「松排」（ledger）：基线 `__side` 是 6px 紧排 + 居中；这页右侧是
+// 「当前科目 + 一段口径说明」，要 12px 间距、按文字基线对齐、窄窗允许换行。
+// 注意 `display:inline-flex` 在 flex 父里会被 blockify 成 `flex`（实测计算值），保留原文是让声明自洽。
+.panel-head__side--loose {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 // 大卡片标题（字号两档制的上档；下档 = 基线 14px）。15px 那种中间值不存在。
 .panel-head__title--lg {
   font-size: 16px;

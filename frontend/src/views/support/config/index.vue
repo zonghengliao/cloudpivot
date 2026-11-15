@@ -685,6 +685,9 @@ onMounted(() => {
 
 <style scoped lang="less">
 .config-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
   padding: 16px;
 }
 
@@ -694,9 +697,8 @@ onMounted(() => {
   }
 }
 
-.list-card {
-  margin-top: 16px;
-}
+/* B4：卡片间距走容器 `gap`（16px 与原 `.list-card{margin-top}` 一致），
+   `.list-card` 的本地声明已删 —— 壳类声明不允许留在页面（决策 §2.1 铁律 A）。 */
 
 .list-toolbar {
   display: flex;

@@ -2,14 +2,13 @@
   "_comment": "页面壳类声明存量快照（门禁 allowlist）。由 `node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write` 生成，勿手改。每落一批（B1…B6）后重新 --write，条目数只许降。终态只剩 B0 components/ListPage/index.vue。",
   "shellLess": {
     "file": "src/style/shell.less",
-    "classCount": 34,
-    "classesHash": "8fb5cfd0dae0622c"
+    "classCount": 36,
+    "classesHash": "371def3b6102d089"
   },
   "totals": {
-    "entries": 199,
+    "entries": 166,
     "byBatch": {
       "B0": 4,
-      "B4": 33,
       "B5": 136,
       "B6": 26
     }
@@ -59,39 +58,9 @@
     },
     {
       "file": "views/business/erp/account/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/account/index.vue",
-      "class": "panel-head__main",
-      "selector": ".panel-head__main",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/account/index.vue",
       "class": "tool-row__category",
       "selector": ".tool-row__category",
       "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/asset/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/asset/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/budget/mapping.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/budget/mapping.vue",
@@ -104,12 +73,6 @@
       "class": "panel-head__actions",
       "selector": ".panel-head__actions",
       "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/budget/report.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/budget/report.vue",
@@ -197,27 +160,9 @@
     },
     {
       "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
-      "class": "panel-head__main",
-      "selector": ".panel-head__main",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
       "class": "panel-head__ops",
       "selector": ".panel-head__ops",
       "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/customer-price/index.vue",
@@ -376,12 +321,6 @@
       "batch": "B6"
     },
     {
-      "file": "views/business/erp/ledger/index.vue",
-      "class": "panel-head__side",
-      "selector": ".panel-head__side",
-      "batch": "B4"
-    },
-    {
       "file": "views/business/erp/location/index.vue",
       "class": "panel-empty",
       "selector": ".panel-empty",
@@ -460,12 +399,6 @@
       "batch": "B5"
     },
     {
-      "file": "views/business/erp/opening/index.vue",
-      "class": "tool-card",
-      "selector": ".tool-card",
-      "batch": "B4"
-    },
-    {
       "file": "views/business/erp/payable/index.vue",
       "class": "panel-empty",
       "selector": ".panel-empty",
@@ -500,18 +433,6 @@
       "class": "panel-empty__title",
       "selector": ".panel-empty__title",
       "batch": "B5"
-    },
-    {
-      "file": "views/business/erp/price/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/price/index.vue",
-      "class": "tool-card",
-      "selector": ".tool-card",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/purchase-order-item/index.vue",
@@ -572,18 +493,6 @@
       "class": "tool-row--second",
       "selector": ".tool-row--second",
       "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/receivable/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/receivable/index.vue",
-      "class": "tool-card",
-      "selector": ".tool-card",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/receivable/index.vue",
@@ -623,69 +532,9 @@
     },
     {
       "file": "views/business/erp/report/report-item/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/report/report-item/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/report/report-item/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/report/report-item/index.vue",
-      "class": "tool-card",
-      "selector": ".tool-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/report/report-item/index.vue",
       "class": "tool-row--filter",
       "selector": ".tool-row--filter",
       "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/sales-order/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/sales-order/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/sales-order/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/sales-return/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/sales-return/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/sales-return/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/seq/index.vue",
@@ -728,24 +577,6 @@
       "class": "panel-head__warn",
       "selector": ".panel-head__warn",
       "batch": "B6"
-    },
-    {
-      "file": "views/business/erp/shipment/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/shipment/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/shipment/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
     },
     {
       "file": "views/business/erp/stock-out/index.vue",
@@ -947,12 +778,6 @@
     },
     {
       "file": "views/business/erp/year-end/index.vue",
-      "class": "tool-card",
-      "selector": ".tool-card",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/erp/year-end/index.vue",
       "class": "tool-row__year",
       "selector": ".tool-row__year",
       "batch": "B6"
@@ -974,12 +799,6 @@
       "class": "panel-empty__title",
       "selector": ".panel-empty__title",
       "batch": "B5"
-    },
-    {
-      "file": "views/business/help/center/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
     },
     {
       "file": "views/business/help/center/index.vue",
@@ -1096,18 +915,6 @@
       "batch": "B5"
     },
     {
-      "file": "views/business/hr/salary/index.vue",
-      "class": "panel-head",
-      "selector": ".panel-head",
-      "batch": "B4"
-    },
-    {
-      "file": "views/business/hr/salary/index.vue",
-      "class": "panel-head__title",
-      "selector": ".panel-head__title",
-      "batch": "B4"
-    },
-    {
       "file": "views/business/impexp/export-task/index.vue",
       "class": "panel-empty",
       "selector": ".panel-empty",
@@ -1202,12 +1009,6 @@
       "class": "panel-empty__title",
       "selector": ".panel-empty__title",
       "batch": "B5"
-    },
-    {
-      "file": "views/support/config/index.vue",
-      "class": "list-card",
-      "selector": ".list-card",
-      "batch": "B4"
     }
   ]
 }

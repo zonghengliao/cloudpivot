@@ -731,7 +731,6 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-card,
 .main-card {
   padding: 4px 8px;
 }

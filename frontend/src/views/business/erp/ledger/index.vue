@@ -64,7 +64,7 @@
             </template>
 
             <template #head-extra>
-              <span class="panel-head__side">
+              <span class="panel-head__side panel-head__side--loose">
                 <span
                   v-if="currentAccountText"
                   class="panel-head__account"
@@ -566,14 +566,6 @@ watch(activeTab, (tab) => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-/* 页头右侧：当前科目 + 余额口径说明 */
-.panel-head__side {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .panel-head__account {

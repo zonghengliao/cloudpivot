@@ -96,7 +96,7 @@
     <t-card :bordered="false" class="list-card">
       <div class="panel-head">
         <div class="panel-head__main">
-          <span class="panel-head__title">预算执行</span>
+          <span class="panel-head__title panel-head__title--lg">预算执行</span>
           <span class="panel-head__meta" data-testid="budget-report-meta">共 {{ rows.length }} 个槽</span>
         </div>
         <div class="panel-head__actions">
@@ -493,11 +493,6 @@ onMounted(() => {
 
 .period-note__body b {
   color: var(--td-text-color-primary);
-  font-weight: 600;
-}
-
-.panel-head__title {
-  font-size: 16px;
   font-weight: 600;
 }
 

@@ -58,7 +58,7 @@
     <t-card :bordered="false" class="list-card">
       <div class="panel-head">
         <div class="panel-head__main panel-head__main--nowrap">
-          <span class="panel-head__title">预算科目映射</span>
+          <span class="panel-head__title panel-head__title--lg">预算科目映射</span>
           <span class="panel-head__meta" data-testid="budget-mapping-meta">共 {{ total }} 条</span>
         </div>
         <span class="panel-head__tip panel-head__tip--right">
@@ -616,11 +616,6 @@ onMounted(() => {
 
 .list-alert {
   margin-bottom: 12px;
-}
-
-.panel-head__title {
-  font-size: 16px;
-  font-weight: 600;
 }
 
 .name-cell {
