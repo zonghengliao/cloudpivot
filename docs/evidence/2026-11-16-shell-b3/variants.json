@@ -1,0 +1,18 @@
+{
+  "views/business/erp/budget/mapping.vue::tool-row__type": {},
+  "views/business/erp/budget/report.vue::tool-row__keyword": {},
+  "views/business/erp/cost-alloc-rule/index.vue::tool-row__period": { "width": "140px" },
+  "views/business/erp/cost-labor/index.vue::tool-row__period": { "width": "140px" },
+  "views/business/erp/cost-overhead/index.vue::tool-row__period": { "width": "140px" },
+  "views/business/erp/ledger/index.vue::tool-row__period": { "width": "140px" },
+  "views/business/erp/receipt-refund/index.vue::tool-row__date": { "width": "140px" },
+  "views/business/erp/report/payable-aging/index.vue::tool-row__period": {},
+  "views/business/erp/report/payable-aging/index.vue::tool-row__date": {},
+  "views/business/erp/stock-out/index.vue::tool-row__range": {},
+  "views/business/erp/transfer/index.vue::tool-row__status": {},
+  "views/business/erp/warehouse/index.vue::panel-head__main": {},
+  "views/business/erp/warehouse/index.vue::panel-head__title": {},
+  "views/business/erp/warehouse/index.vue::panel-head__meta": {},
+  "views/business/hr/employee/index.vue::panel-head__hint": { "text-align": "right", "margin-left": "auto" },
+  "views/business/hr/salary/index.vue::panel-head__meta": {}
+}

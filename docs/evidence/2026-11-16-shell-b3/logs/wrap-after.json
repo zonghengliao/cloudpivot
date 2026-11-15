@@ -1,0 +1,456 @@
+{
+ "dist": "/tmp/b3/dist-after",
+ "routes": {
+  "/business/erp/account": [
+   {
+    "idx": 0,
+    "cls": "tool-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "刷新",
+      "tool-row__keyword:div",
+      "tool-row__category:div",
+      "tool-row__status:div",
+      "查询",
+      "重置",
+      "导入 导入会计科目 支持 Excel"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/budget/mapping": [
+   {
+    "idx": 0,
+    "cls": "tool-row tool-row--dense",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "新建映射",
+      "刷新",
+      "tool-row__type:div",
+      "tool-row__dept:div",
+      "查询",
+      "重置"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/budget/report": [
+   {
+    "idx": 0,
+    "cls": "tool-row tool-row--dense",
+    "x": 272,
+    "y": 206,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "tool-row__year:div",
+      "tool-row__dept:div",
+      "tool-row__keyword:div",
+      "查询",
+      "重置",
+      "tool-row__hint:只有「已生效（ACTIVE）」的预算"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/cost-alloc-rule": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "tool-row__period:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新增规则",
+      "试算"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/cost-labor": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 64,
+    "lineCount": 2,
+    "lines": [
+     [
+      "tool-row__period:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新增工时",
+      "导入",
+      "tool-row__label:按成本对象分组"
+     ],
+     [
+      "div"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/cost-overhead": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "tool-row__period:div",
+      "lp__control:div",
+      "tool-row__item:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新增费用"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/cost-period": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新建核算批次"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/inventory": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 136,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "tool-row__switch:隐藏零库存",
+      "lp__actions:查询 重置刷新",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/ledger": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 136,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "lp__control:div",
+      "到",
+      "lp__actions:查询 重置刷新"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/ledger?probe=trial": [
+   {
+    "idx": 0,
+    "cls": "tool-row tool-row--dense",
+    "x": 272,
+    "y": 136,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "刷新",
+      "tool-row__period:div",
+      "查询"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/price": [],
+  "/business/erp/receipt-refund": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 76,
+    "lineCount": 2,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "退款日期~"
+     ],
+     [
+      "lp__actions:查询 重置刷新",
+      "登记退款",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/report/payable-aging": [
+   {
+    "idx": 0,
+    "cls": "tool-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "tool-row__label:会计期间",
+      "tool-row__period:div",
+      "tool-row__label:基准日",
+      "tool-row__date:div",
+      "查询",
+      "导出 Excel"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/report/report-item": [
+   {
+    "idx": 0,
+    "cls": "tool-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 2,
+    "lines": [
+     [
+      "新增报表项",
+      "刷新"
+     ],
+     [
+      "div",
+      "共 0 项"
+     ]
+    ]
+   },
+   {
+    "idx": 1,
+    "cls": "tool-row tool-row--filter",
+    "x": 272,
+    "y": 132,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "div",
+      "div",
+      "只看「未命中任何科目」",
+      "改完即生效：报表每次编制都现读这张配"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/sales-order": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 288,
+    "y": 104,
+    "w": 1256,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新建销售订单",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/sales-return": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 288,
+    "y": 104,
+    "w": 1256,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "从发货单新建",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/shipment": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 288,
+    "y": 104,
+    "w": 1256,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新建发货单",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/stock-out": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 76,
+    "lineCount": 2,
+    "lines": [
+     [
+      "lp__control:div",
+      "lp__control:div",
+      "lp__control:div",
+      "tool-row__range:-",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新"
+     ],
+     [
+      "新建出库单",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/transfer": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "tool-row__overdue:超期在途",
+      "tool-row__status:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新",
+      "新建调拨单",
+      "lp__gate:导出"
+     ]
+    ]
+   }
+  ],
+  "/business/erp/warehouse": [],
+  "/business/hr/employee": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 88,
+    "w": 1288,
+    "h": 76,
+    "lineCount": 2,
+    "lines": [
+     [
+      "lp__control:div",
+      "div",
+      "全部状态",
+      "lp__control:div",
+      "含离职",
+      "lp__actions:查询 重置刷新"
+     ],
+     [
+      "从系统用户生成",
+      "下载导入模板",
+      "导入员工",
+      "新建员工"
+     ]
+    ]
+   }
+  ],
+  "/business/hr/salary": [
+   {
+    "idx": 0,
+    "cls": "lp__filter-row",
+    "x": 272,
+    "y": 268,
+    "w": 1288,
+    "h": 32,
+    "lineCount": 1,
+    "lines": [
+     [
+      "div",
+      "lp__control:div",
+      "lp__control:div",
+      "lp__actions:查询 重置刷新"
+     ]
+    ]
+   }
+  ]
+ }
+}

@@ -90,6 +90,10 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > B2 已落（2026-11-16，卡 `t_9c90f3d1`）：38 块 / 24 文件删净，**215 块 / 63 文件 / 1171 行**。
 > 逐批复核：B0 4、**B1 0、B2 0**、B3 16、B4 33、B5 136、B6 26 —— 只有 B2 归零，其余批块数未动。
 > 同时 `shell.less` 由 27 类扩到 **32 类**（新增 5 个命名变体，见 §2.3）。
+>
+> B3 已落（2026-11-16，卡 `t_84bc7f25`）：16 块 / 13 文件删净，**199 块 / 62 文件 / 约 1110 行**。
+> 逐批复核：B0 4、**B1 0、B2 0、B3 0**、B4 33、B5 136、B6 26 —— 只有 B3 归零。
+> 同时 `shell.less` 由 32 类扩到 **34 类**（新增 `--lg`、`hint--right`；`--dense` 与 `__main/__title/__meta` 三处基线补属性）。
 
 ---
 
@@ -151,14 +155,15 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 
 | 变体 | 语义 | 页数 | 作用于 |
 |---|---|---|---|
-| `.tool-row--dense` | 紧凑工具行（成本/预算类页面，筛选项多、需要一行塞下） | 3（B2 已落；B3 再加） | `gap:8px`（B2）；`__period`/`__date` 收窄 140px（B3） |
+| `.tool-row--dense` | 紧凑工具行（成本/预算类页面，筛选项多、需要一行塞下） | **7**（B2 落 3；B3 加 4：cost-alloc-rule / cost-labor / cost-overhead / ledger，另 receipt-refund 只吃宽度那半） | `gap:8px`；`__period`/`__date` 收窄 140px（B3 已落）。**ListPage 系页面把类挂在 `<ListPage>` 根节点**：那些页的筛选行是组件自持的 `.lp__filter-row`（不是 `.tool-row`），后代选择器照样命中宽度那条、`gap` 那条不生效 |
 | `.tool-row--second` | 工具行第二排（单据类页面的第二行筛选） | 4 | `margin-top:8px` |
 | `.tool-row--filter` | 报表页筛选条 | 1 | `margin-top:12px` |
-| `.panel-head__title--lg` | 大卡片标题 | 10 | `font-size:16px` |
+| `.panel-head__title--lg` | 大卡片标题 | 10（B3 只**定义**，不改页面；三个 15px 页在 B4 挂类） | `font-size:16px` |
 | `.panel-head__tip--end` | 提示推到卡片头右侧 | 3（receipt / receivable / invoice） | `margin-left:auto` |
 | `.panel-head__hint--end` | 同上，作用于 `__hint` | 3（sales-order / sales-return / shipment） | `margin-left:auto` |
 | `.panel-head__tip--right` | 提示仅右对齐、不推位（长 tip 换行后不要居中/靠左） | 3（budget/index、budget/mapping、invoice） | `text-align:right` |
-| `.panel-head__main--nowrap` | 卡片头主槽整体防断行（`__main` 无 `min-width:0`，失去 nowrap 会缩到单字宽） | 1（budget/mapping） | `white-space:nowrap` |
+| `.panel-head__hint--right` | 说明仅右对齐、不推位（与 `--end` 正交，照 `tip--right` 的口径） | 1（hr/employee） | `text-align:right` |
+| `.panel-head__main--nowrap` | 卡片头主槽整体防断行（`__main` 无 `min-width:0`，失去 nowrap 会缩到单字宽） | 1（budget/mapping） | `white-space:nowrap`。**B3 已把 nowrap 提到基线 `__title`/`__meta`**：子元素自身 nowrap 后 `__main` 的 min-content 不再塌到单字宽，本变体在 1600px 下已无作用，窄窗未验证 → B4 交回退役判定 |
 | `.tool-row__label--sm` | 报表/单据页标签小一号 | 6 | `font-size:13px; white-space:nowrap` |
 | `.panel-empty--rich` | 主数据页大空态（带说明文案） | 6 | `justify-content:center; gap:6px; padding:48px 16px`；icon 32px；desc `max-width:460px; line-height:1.6` |
 | `.panel-empty--file` | 导入导出/存储类空态（标题更大、说明更粗） | 4 | `display:block; padding:40px 0; text-align:center`；icon 40px；title 15px/primary/margin 12px 0 4px；desc 13px/secondary/margin 0 0 16px |
@@ -168,6 +173,10 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 
 `panel-head__main{min-width:0}`、`panel-head__title/meta{white-space:nowrap}` 这两条**提进基线**
 （不是变体：所有 `__main` 都该能收缩防溢出，所有卡片标题都该防断行）。
+> **已落（B3，卡 `t_84bc7f25`）**：三条全部进了 `shell.less` 基线。爆炸半径实测很小 ——
+> 全站只有 8 个页面在**自己的模板**里画 `class="panel-head"`（其余都走 ListPage 组件，而组件自持的
+> 同名规则本来就是 `min-width:0` + `nowrap`），这 8 页探针实测**几何零变化**，只有计算值从
+> `auto→0px` / `normal→nowrap`；`warehouse` 的三块本地声明（`__main`/`__title`/`__meta`）删掉后像素零差异。
 
 ### 2.4 落地方式：lint（先报告，后门禁）
 
@@ -269,6 +278,11 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 `panel-head__title` 实测 14（基线）/15（3 页）/16（7 页）。15px 是填出来的中间值。
 **口径**：14px 默认、16px 用 `--lg`；15px 归一到 16px（那 3 页都是「大卡片」场景，与 16px 的 7 页同类）。
 
+> **已落（B3，卡 `t_84bc7f25`）**：`.panel-head__title--lg{font-size:16px}` 已定义（34 类之一），
+> 但**只定义不挂类** —— 那三个 15px 页（`cost-period/steps/UncollectedPanel`、`price`、`report/report-item`）
+> 的 `panel-head__title` 块同时缺基线属性，归 B4 一起处理（避免两卡改同一文件冲突）。
+> B3 只把 `hr/salary` 的 `panel-head__meta` 13px 归一到 12px（实测渲染 13→12、宽 39→36，无换行）。
+
 ### 4.3 颜色：角色色，不按页面偏好
 
 `panel-head__tip` / `__meta` 实测 9 页用 `--td-text-color-secondary`、基线是 `--td-text-color-placeholder`。
@@ -287,6 +301,12 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 说明它不是「每页各自决定」，而是「这一族页面更紧凑」。→ 定义 `.tool-row--dense`（gap 8px + period/date 140px），
 其余页面一律吃基线（220/150/130/250）。payable-aging 的 period 200/date 180 属单独裁量 → 归一到基线（截图确认）。
 
+> **已落（B3，卡 `t_84bc7f25`）**：`--dense` 补上 `__period/__date{width:140px}`，成员 3 → **7** 页
+> （新增 cost-alloc-rule / cost-labor / cost-overhead / ledger；receipt-refund 只吃宽度那半 —— 它的筛选行是
+> ListPage 的 `.lp__filter-row`，`gap` 不归 `--dense`）。其余 5 页按卡面吃基线：
+> mapping `__type` 150→140、report `__keyword` 200→220、transfer `__status` 140→130、stock-out `__range` 240→250、
+> payable-aging period 200→220 / date 180→150。**换行点实测零变化**（22 条采集路由逐页比工具行行数与每行成员，全同）。
+
 ---
 
 ## 5. 分批与实施卡
@@ -299,7 +319,7 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 | B0 | 4 | 1 | 24 | `components/ListPage/index.vue` 自持 scoped 样式 | 无（不动） | 无（进 lint 白名单） |
 | B1 | 20 | 16 | 75 | 本地 == 基线（14 块）+ `flex:1` ≡ `1 1 auto`（5 块）+ `panel-empty__icon` 同值（2 块）；**同时落 lint（allowlist 快照档）** | 零 | **卡 ①** 纯冗余删除 + 门禁建立 |
 | B2 | 38 | 24 | 273 | gap/margin/color/text-align 归一 + `--end` 变体 | 2px 级 + 提示色变淡 | **卡 ②** 间距与颜色归一 |
-| B3 | 16 | 13 | 61 | 控件宽度归一 + `--dense` 变体 + `--lg` 标题 | 宽度变化 | **卡 ③** 尺寸与字号档位 |
+| B3 | 16 | 13 | 61 | 控件宽度归一 + `--dense` 变体 + `--lg` 标题 | 宽度变化 | **卡 ③** 尺寸与字号档位（已落 `t_84bc7f25`：**B3=0**，199 块） |
 | B4 | 33 | 17 | 245 | 缺基线属性的「半个变体」：`panel-head__title`×10、`panel-head`×8、`list-card`×7、`tool-card`×5 | 补属性会变 → 逐页裁定 | **卡 ④** 半变体补全 |
 | B5 | 136 | 46 | 808 | 空态/标签变体族（4 个空态变体 + `--sm` 标签） | 9 条接受的观感变化 | **卡 ⑤** 空态与标签收敛 |
 | B6 | 26 | 20 | 105 | 单页专有壳类：提为基线类（`--second`/`--filter`/`--inline` 登记）或改名去壳前缀 | 视裁定 | **卡 ⑥** 单页专有类处置 |
@@ -340,6 +360,8 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
   > 见 §4.1 的实测更正 —— 后续批次遇到「删了没反应」先查这一条。
 - **B3（卡③）**：`--dense` 上线后要确认换行点没飘（宽度改动的副作用就是工具行换行位置变化）——
   每页截图必须包含工具行区域。
+  > 已落（`t_84bc7f25`）：`wrap-probe-b3.mjs` 逐页比「工具行行数 + 每行成员」，22 条采集路由**全同**；
+  > 截图除 viewport 外另存 `*.toolrow.png`（按 `.tool-row`/`.lp__filter-row` 包围盒裁切），13 页逐页入镜。
 - **B4（卡④）**：这批的每一条都是「删本地会补属性」，**不能批量删**。逐页裁定：
   补的属性是想要的 → 删本地；不想要 → 提命名变体；都不行 → 进白名单并写明理由。
   `list-card` 里 `help/center` 是 320px 侧栏卡（`flex:0 0 320px; width:320px`）→ `.list-card--side`。
@@ -461,6 +483,14 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 > `--doc`/`--file` 用 `display: block` 覆盖基线的 `flex`：这两族的页面是「块级 + `text-align:center`」的
 > 老写法，改成 flex 会移动图标与文字的相对位置（父卡实测 8 页空态高度变化就是这么来的）。
 
+> **B2/B3 落地后的实际形态与上面 spec 的差异**（以 `frontend/src/style/shell.less` 为准，共 34 类）：
+> ① `tip`/`hint` 的「推位」与「右对齐」拆成两个独立变体（`--end` = `margin-left:auto`、`--right` = `text-align:right`），
+> 因为两者正交：invoice 同时挂两个，hr/employee 只要 `--right` 语义的一段；折在一个类里会让「只想右对齐」的页被迫推位。
+> ② `--dense` 的宽度那条是**后代选择器**（`(0,2,0)`）：ListPage 系页面的筛选行不是 `.tool-row`，
+> 那几个页把 `--dense` 挂在 `<ListPage>` 根节点上，只吃宽度、不吃 `gap`。
+> ③ 三条「提进基线」已落（`__main{min-width:0}`、`__title/__meta{white-space:nowrap}`），
+> `warehouse` 的三块本地声明随之删除（像素零差异）。
+
 ## 附录 B：度量工具
 
 ```bash
@@ -484,7 +514,7 @@ node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist
 
 node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write
 #   → 重写存量快照。**每落一批（B1…B6）后必须跑一次**，条目数只许降；
-#     B1 之后应为 253 条（B0 4 条 + B2 38 + B3 16 + B4 33 + B5 136 + B6 26）
+#     B3 之后应为 199 条（B0 4 + B4 33 + B5 136 + B6 26；B1/B2/B3 均为 0）
 
 pnpm lint:shell     # = 上面第一条（package.json 里的脚本）
 SHELL_VARIANT_GATE=block bash scripts/check.sh --l0   # 按阻断档跑（默认 warn）
@@ -494,8 +524,8 @@ SHELL_VARIANT_GATE=block bash scripts/check.sh --l0   # 按阻断档跑（默认
 
 ```json
 {
-  "shellLess": { "file": "src/style/shell.less", "classCount": 27, "classesHash": "<sha256 前 16 位>" },
-  "totals":   { "entries": 253, "byBatch": { "B0": 4, "B2": 38, "B3": 16, "B4": 33, "B5": 136, "B6": 26 } },
+  "shellLess": { "file": "src/style/shell.less", "classCount": 34, "classesHash": "<sha256 前 16 位>" },
+  "totals":   { "entries": 199, "byBatch": { "B0": 4, "B4": 33, "B5": 136, "B6": 26 } },
   "entries":  [ { "file": "components/ListPage/index.vue", "class": "panel-head", "selector": ".panel-head", "batch": "B0" }, … ]
 }
 ```

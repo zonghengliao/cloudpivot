@@ -1,0 +1,561 @@
+[
+ {
+  "route": "/business/erp/account",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/account",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/account",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/budget/mapping",
+  "kind": "GEOM",
+  "cls": "tool-row__spacer",
+  "prop": "w",
+  "before": 602,
+  "after": 612,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/budget/mapping",
+  "kind": "STYLE",
+  "cls": "tool-row__spacer",
+  "prop": "width",
+  "before": "602px",
+  "after": "612px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/budget/mapping",
+  "kind": "GEOM",
+  "cls": "t-select__wrap tool-row__type",
+  "prop": "x",
+  "before": 1078,
+  "after": 1088,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/budget/mapping",
+  "kind": "GEOM",
+  "cls": "t-select__wrap tool-row__type",
+  "prop": "w",
+  "before": 150,
+  "after": 140,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/budget/mapping",
+  "kind": "STYLE",
+  "cls": "t-select__wrap tool-row__type",
+  "prop": "width",
+  "before": "150px",
+  "after": "140px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/budget/mapping",
+  "kind": "STYLE",
+  "cls": "panel-head__main panel-head__main--nowrap",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "GEOM",
+  "cls": "t-input__wrap tool-row__keyword",
+  "prop": "w",
+  "before": 200,
+  "after": 220,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "STYLE",
+  "cls": "t-input__wrap tool-row__keyword",
+  "prop": "width",
+  "before": "200px",
+  "after": "220px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "GEOM",
+  "cls": "tool-row__spacer",
+  "prop": "x",
+  "before": 912,
+  "after": 932,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(6)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "GEOM",
+  "cls": "tool-row__spacer",
+  "prop": "w",
+  "before": 208.7,
+  "after": 188.7,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(6)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "STYLE",
+  "cls": "tool-row__spacer",
+  "prop": "width",
+  "before": "208.672px",
+  "after": "188.672px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(6)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/budget/report",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(3)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/cost-alloc-rule",
+  "kind": "COUNT",
+  "before": 8,
+  "after": 9
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "COUNT",
+  "before": 9,
+  "after": 10
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "GEOM",
+  "cls": "t-date-picker tool-row__period",
+  "prop": "w",
+  "before": 132,
+  "after": 140,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/cost-labor",
+  "kind": "STYLE",
+  "cls": "t-date-picker tool-row__period",
+  "prop": "width",
+  "before": "132px",
+  "after": "140px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/cost-overhead",
+  "kind": "COUNT",
+  "before": 9,
+  "after": 10
+ },
+ {
+  "route": "/business/erp/cost-overhead",
+  "kind": "GEOM",
+  "cls": "t-date-picker tool-row__period",
+  "prop": "w",
+  "before": 132,
+  "after": 140,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/cost-overhead",
+  "kind": "STYLE",
+  "cls": "t-date-picker tool-row__period",
+  "prop": "width",
+  "before": "132px",
+  "after": "140px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/cost-overhead",
+  "kind": "GEOM",
+  "cls": "t-select__wrap tool-row__item",
+  "prop": "x",
+  "before": 578,
+  "after": 586,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/cost-period",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>section:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/cost-period",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>section:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/cost-period",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>section:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/ledger",
+  "kind": "COUNT",
+  "before": 15,
+  "after": 16
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)",
+  "before": "tool-row",
+  "after": "tool-row tool-row--dense"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "STYLE",
+  "cls": "tool-row",
+  "prop": "gap",
+  "before": "12px",
+  "after": "8px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "STYLE",
+  "cls": "tool-row",
+  "prop": "row-gap",
+  "before": "12px",
+  "after": "8px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "STYLE",
+  "cls": "tool-row",
+  "prop": "column-gap",
+  "before": "12px",
+  "after": "8px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "GEOM",
+  "cls": "t-input__wrap tool-row__period",
+  "prop": "x",
+  "before": 368,
+  "after": 364,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/ledger?probe=trial",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/price",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/price",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/receipt-refund",
+  "kind": "COUNT",
+  "before": 11,
+  "after": 12
+ },
+ {
+  "route": "/business/erp/report/payable-aging",
+  "kind": "GEOM",
+  "cls": "t-select__wrap tool-row__period",
+  "prop": "w",
+  "before": 200,
+  "after": 220,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/report/payable-aging",
+  "kind": "STYLE",
+  "cls": "t-select__wrap tool-row__period",
+  "prop": "width",
+  "before": "200px",
+  "after": "220px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/report/payable-aging",
+  "kind": "GEOM",
+  "cls": "tool-row__label",
+  "prop": "x",
+  "before": 552,
+  "after": 572,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/erp/report/payable-aging",
+  "kind": "GEOM",
+  "cls": "t-date-picker tool-row__date",
+  "prop": "x",
+  "before": 606,
+  "after": 626,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/report/payable-aging",
+  "kind": "GEOM",
+  "cls": "t-date-picker tool-row__date",
+  "prop": "w",
+  "before": 180,
+  "after": 150,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/report/payable-aging",
+  "kind": "STYLE",
+  "cls": "t-date-picker tool-row__date",
+  "prop": "width",
+  "before": "180px",
+  "after": "150px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/report/report-item",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/report/report-item",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/erp/report/report-item",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "GEOM",
+  "cls": "t-date-range-picker tool-row__range",
+  "prop": "w",
+  "before": 240,
+  "after": 250,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/stock-out",
+  "kind": "STYLE",
+  "cls": "t-date-range-picker tool-row__range",
+  "prop": "width",
+  "before": "240px",
+  "after": "250px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(4)"
+ },
+ {
+  "route": "/business/erp/transfer",
+  "kind": "GEOM",
+  "cls": "t-select__wrap tool-row__status",
+  "prop": "w",
+  "before": 140,
+  "after": 130,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/erp/transfer",
+  "kind": "STYLE",
+  "cls": "t-select__wrap tool-row__status",
+  "prop": "width",
+  "before": "140px",
+  "after": "130px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "GEOM",
+  "cls": "panel-head__main",
+  "prop": "w",
+  "before": 113,
+  "after": 110,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "width",
+  "before": "113px",
+  "after": "110px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-head__main",
+  "prop": "min-width",
+  "before": "auto",
+  "after": "0px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-head__title",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)>span:nth-child(1)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "GEOM",
+  "cls": "panel-head__meta",
+  "prop": "w",
+  "before": 39,
+  "after": 36,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "font-size",
+  "before": "13px",
+  "after": "12px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "white-space",
+  "before": "normal",
+  "after": "nowrap",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)>span:nth-child(2)"
+ },
+ {
+  "route": "/business/hr/salary",
+  "kind": "STYLE",
+  "cls": "panel-head__meta",
+  "prop": "width",
+  "before": "39px",
+  "after": "36px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(2)>div:nth-child(2)>div:nth-child(1)>div:nth-child(4)>div:nth-child(1)>span:nth-child(2)"
+ }
+]

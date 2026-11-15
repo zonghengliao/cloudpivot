@@ -1,0 +1,9 @@
+{
+ "perms": "narrow",
+ "shots": {
+  "/business/hr/employee": "/tmp/b3/shots-narrow/before/business_hr_employee.png"
+ },
+ "toolRows": {
+  "/business/hr/employee": "/tmp/b3/shots-narrow/before/business_hr_employee.toolrow.png"
+ }
+}

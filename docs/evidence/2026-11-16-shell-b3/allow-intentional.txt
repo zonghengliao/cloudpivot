@@ -1,0 +1,25 @@
+# B3 有意变化白名单（file::cls.prop 精确到页，别写成裸类，避免掩盖同类在别页的意外漂移）
+#
+# 一、控件宽度归一（卡面「有意变化」表逐条对应：--dense 收窄 / 其余吃基线）
+CHANGED views/business/erp/budget/mapping.vue::tool-row__type.width            # 150 → 基线 140（该页已挂 --dense；基线 __type 本就是 140，故不加 --dense 规则）
+CHANGED views/business/erp/budget/report.vue::tool-row__keyword.width         # 200 → 基线 220
+CHANGED views/business/erp/cost-labor/index.vue::tool-row__period.width       # 132 → --dense 140
+CHANGED views/business/erp/cost-overhead/index.vue::tool-row__period.width    # 132 → --dense 140
+CHANGED views/business/erp/report/payable-aging/index.vue::tool-row__period.width  # 200 → 基线 220
+CHANGED views/business/erp/report/payable-aging/index.vue::tool-row__date.width    # 180 → 基线 150
+CHANGED views/business/erp/stock-out/index.vue::tool-row__range.width         # 240 → 基线 250
+CHANGED views/business/erp/transfer/index.vue::tool-row__status.width         # 140 → 基线 130
+#
+# 二、字号两档（13px 中间值归一 12px）
+CHANGED views/business/hr/salary/index.vue::panel-head__meta.font-size        # 13 → 基线 12
+#
+# 三、hr/employee 的卡片头右侧说明：本地 3 条属性归一
+LOST views/business/hr/employee/index.vue::panel-head__hint.max-width         # 460px 实测无效（文案 216px 不换行）
+LOST views/business/hr/employee/index.vue::panel-head__hint.line-height       # 18px → 默认 22px（盒子高 18→22，基线与行高不变）
+NEW views/business/hr/employee/index.vue::panel-head__hint.margin-left        # --end 的 margin-left:auto（本地从没写过）
+#
+# 四、两条提基线后，原本「半个变体」的页面补到 nowrap（B4 批的块还在，只是多了这一条）
+NEW views/business/erp/budget/mapping.vue::panel-head__title.white-space
+NEW views/business/erp/budget/report.vue::panel-head__title.white-space
+NEW views/business/hr/salary/index.vue::panel-head__title.white-space
+NEW views/business/hr/salary/index.vue::panel-head__meta.white-space

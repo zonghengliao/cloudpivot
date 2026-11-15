@@ -1,0 +1,30 @@
+# B3 采集路由（探针 / 截图同一份）
+#
+# 第 1 组：本批改动的 13 个文件（warehouse / hr 两个 + 11 个 ERP 工具行）
+# 第 2 组：基线两条（`__main{min-width:0}` / `title,meta{white-space:nowrap}`）的爆炸半径 ——
+#         全站只有这 8 个页面在**自己的模板**里写 `class="panel-head"`（其余都走 ListPage 组件，
+#         组件自持的同名规则本来就是 min-width:0 + nowrap，基线补齐它们不受影响）：
+#         account / inventory / price / report-item / cost-period(steps) / mapping / report / warehouse
+# 第 3 组：`--hint--end` 已有的 3 页（本批**没有**把 text-align 折进 `--end`，用它证明零变化）
+/business/erp/account
+/business/erp/budget/mapping
+/business/erp/budget/report
+/business/erp/cost-alloc-rule
+/business/erp/cost-labor
+/business/erp/cost-overhead
+/business/erp/cost-period
+/business/erp/inventory
+/business/erp/ledger
+/business/erp/ledger?probe=trial
+/business/erp/price
+/business/erp/receipt-refund
+/business/erp/report/payable-aging
+/business/erp/report/report-item
+/business/erp/sales-order
+/business/erp/sales-return
+/business/erp/shipment
+/business/erp/stock-out
+/business/erp/transfer
+/business/erp/warehouse
+/business/hr/employee
+/business/hr/salary

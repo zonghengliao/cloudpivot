@@ -189,8 +189,9 @@
   text-align: right;
 }
 
-// 卡片头主槽整体防断行：`__main` 没有 min-width:0，失去 nowrap 后缩到单字宽会把标题挤成竖排。
-// 决策 §2.3 的长期方案是把 nowrap 放到基线 title/meta 上（后续批），在那之前用变体承载这一页的守卫。
+// 卡片头主槽整体防断行。B3 已把 nowrap 提到基线 `__title`/`__meta`（见上），子元素自身 nowrap 之后
+// `__main` 的 min-content 不会再塌到单字宽 —— 本变体在 1600px 下已无作用，窄窗行为未验证，
+// 退役判定留给 B4（决策 §2.3 已登记）。
 .panel-head__main--nowrap {
   white-space: nowrap;
 }

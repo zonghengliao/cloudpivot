@@ -1,0 +1,63 @@
+[
+ {
+  "route": "/business/hr/employee",
+  "kind": "CLASS",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)",
+  "before": "panel-head__hint",
+  "after": "panel-head__hint panel-head__hint--end panel-head__hint--right"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "GEOM",
+  "cls": "panel-head__hint",
+  "prop": "y",
+  "before": 166,
+  "after": 164,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "GEOM",
+  "cls": "panel-head__hint",
+  "prop": "h",
+  "before": 18,
+  "after": 22,
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-head__hint",
+  "prop": "margin-left",
+  "before": "0px",
+  "after": "730px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-head__hint",
+  "prop": "line-height",
+  "before": "18px",
+  "after": "22px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-head__hint",
+  "prop": "max-width",
+  "before": "460px",
+  "after": "none",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ },
+ {
+  "route": "/business/hr/employee",
+  "kind": "STYLE",
+  "cls": "panel-head__hint",
+  "prop": "height",
+  "before": "18px",
+  "after": "22px",
+  "path": "div:nth-child(2)>section:nth-child(1)>section:nth-child(2)>main:nth-child(2)>div:nth-child(1)>div:nth-child(1)>div:nth-child(2)>div:nth-child(1)>div:nth-child(1)>span:nth-child(3)"
+ }
+]
