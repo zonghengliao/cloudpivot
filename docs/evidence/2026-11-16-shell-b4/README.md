@@ -105,8 +105,8 @@ B4 落地后：166 块 / 55 文件 / 约  932 行
 | 32 | hr/salary | `panel-head__title` | 缺 color/nowrap；16px | **B** `--lg` | color/nowrap 补进来 | 仅 CLASS + 无几何 |
 | 33 | support/config | `list-card` | 缺 `flex`/`min-width`（早已）；多写 `margin-top:16` | **A**（间距转容器 `.config-page{gap:16px}`） | `flex:1 1 auto`/`min-width:0` | 像素 0 差异（两卡 16px 间距不变） |
 
-**计数**：A = 25 块 / 10 页（其中 11 块是死代码或早已由基线生效，零观感）；B = 8 块 / 7 页（2 个新类 + `--lg` 复用）；
-C = **0 块**（没有一条需要进白名单保留页面声明）。
+**计数**：A = 25 块 / **13 页**（其中 11 块是死代码或早已由基线生效，零观感）；B = 8 块 / **8 页**（2 个新类 + `--lg` 复用）；
+C = **0 块**（没有一条需要进白名单保留页面声明）。A+B 去重后正好覆盖本批 17 个文件（其中 4 页同时有 A 与 B：UncollectedPanel / price / report-item / hr-salary）。
 
 ## 4. `receivable` 的间距为什么走页面自有类
 

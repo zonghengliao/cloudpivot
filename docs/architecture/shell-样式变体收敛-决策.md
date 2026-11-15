@@ -334,7 +334,7 @@ B4 批（33 块）里**没有一块需要把属性补进壳类**：`tool-card{fl
 
 > **已落（B4，卡 `t_6cec42fc`）**：33 块 / 17 文件删净（199 → **166** 块，B4 归零），
 > `shell.less` 34 → **36 类**（`--side` 补全为 5 属性、新增 `--side--loose`）。
-> 裁定：**A 25 块 / 10 页、B 8 块 / 7 页、C 0 块**。逐页表见
+> 裁定：**A 25 块 / 13 页、B 8 块 / 8 页、C 0 块**。逐页表见
 > `docs/evidence/2026-11-16-shell-b4/README.md` §3，实测数字见同目录 `logs/`。
 > **卡面三处前提被实测推翻**：① `tool-card` 的 `flex` 并不缺（5 页实测早就是 `0 0 auto`）；
 > ② 4 页的 `panel-head__title` 是死代码，`--lg` 只可能挂 6 页；③ `account` / `UncollectedPanel` 的
