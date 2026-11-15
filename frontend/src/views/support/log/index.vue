@@ -18,6 +18,7 @@
 
     <ListPage
       ref="listRef"
+      :key="activeTab"
       title="日志"
       testid="log"
       table-testid="log-table"
@@ -377,9 +378,17 @@ function rangeValueOf(value: unknown): string[] {
   return normalizeRange(value);
 }
 
-/** 切 tab：回第 1 页重拉（列已经跟着 activeTab 换掉） */
-function handleTabChange(): void {
-  listRef.value?.search();
+/**
+ * 切 tab。
+ *
+ * `:key="activeTab"` 让 ListPage **整个重建**：新列 + 新 fetcher + 空白行 + 回第 1 页。
+ * 这顺带解决了「旧行短暂套在新列上」（改造前是 `rows.value = []` 手清）。
+ *
+ * `activeTab` 显式写回：`t-tabs` 的 `change` 与 `update:modelValue` 谁先谁后不是契约，
+ * 只靠 v-model 可能让重建时读到的还是旧 tab（拿 A 日志的接口配 B 日志的列）。
+ */
+function handleTabChange(value: unknown): void {
+  activeTab.value = value as LogTab;
 }
 
 const detailVisible = ref(false);
