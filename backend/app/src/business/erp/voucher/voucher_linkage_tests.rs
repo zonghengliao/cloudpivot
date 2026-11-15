@@ -168,6 +168,8 @@ async fn new_draft(creator: Uuid) -> (Uuid, voucher::VoucherRow) {
         summary: Some(format!("{TAG} 联动用例")),
         entries: Some(vec![entry(&inventory, "100", "0"), entry(&payable_account, "0", "100")]),
         remark: Some(format!("{TAG} 单测夹具")),
+        currency_code: None,
+        exchange_rate: None,
     };
     let detail = create_manual_voucher(&req, Some(creator))
         .await

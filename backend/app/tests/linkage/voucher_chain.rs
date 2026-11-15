@@ -184,6 +184,9 @@ fn manual_req(ctx: &Ctx, debit: &str, credit: &str) -> CreateVoucherReq {
             },
         ]),
         remark: Some(format!("{}-MANUAL", ctx.prefix)),
+        // M1-04：外币字段留空 = 按账套本位币记账（与本卡之前的行为逐字相同）
+        currency_code: None,
+        exchange_rate: None,
     }
 }
 

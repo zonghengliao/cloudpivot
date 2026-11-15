@@ -11,7 +11,7 @@
  * * `POST /business/erp/voucher`              → `VoucherDetailRes`（手工凭证，落 **DRAFT**，见下方 `createVoucher`）
  * * `POST /business/erp/voucher/{id}/reverse` → `VoucherDetailRes`（**红字凭证**的详情，不是原凭证）
  */
-import { post } from '@/api/request';
+import { get, post } from '@/api/request';
 import type { VoucherDetail, VoucherRow } from '@/api/business/erp';
 
 const BASE = '/api/business/erp';
@@ -106,6 +106,61 @@ export interface CreateVoucherReq {
   entries: ManualVoucherEntryReq[];
   /** 备注 */
   remark?: string | null;
+  /**
+   * 凭证币种（M1-04）：ISO 4217 三位大写。**缺省 / 空串 = 账套本位币**。
+   *
+   * 传外币时 `entries[].debit/credit` 按**原币**录入，后端按凭证日 SPOT 牌价折本位币落库；
+   * 分录科目必须已在「会计科目」页标记「外币核算」（否则后端 400 + `66081`）。
+   */
+  currency_code?: string | null;
+  /**
+   * 汇率（M1-04）：**只做一致性校验，不接受手改**。
+   *
+   * 传了就必须与后端按凭证日锁到的 SPOT 牌价完全相等（不等 → 400 并在报文里给出当日牌价）；
+   * 不传也完全可以（后端自己取牌价）。本页面传的是 `fx-options` 给的同一份牌价。
+   */
+  exchange_rate?: string | null;
+}
+
+/** 一个外币录入选项（`GET /business/erp/voucher/fx-options` 的 `currencies[]`）。 */
+export interface FxCurrencyOption {
+  /** 币种码（ISO 4217 三位大写） */
+  code: string;
+  /** 币种名称 */
+  name: string;
+  /** 是否账套本位币（本位币恒 `exchange_rate = 1`） */
+  is_base: boolean;
+  /**
+   * `1 该币种 = exchange_rate 本位币`；本位币恒 1。
+   *
+   * **取不到牌价时是 `null`**（不是 1）：不能在界面上把「没有牌价」显示成「汇率 1」，
+   * 那会让用户以为按平价折算，实际后端会 400 拒绝建单。
+   */
+  exchange_rate: string | number | null;
+}
+
+/** 外币录入选项（`GET /business/erp/voucher/fx-options`，权限同「新增凭证」）。 */
+export interface FxOptionsRes {
+  /** 账套本位币 */
+  base_currency: string;
+  /** 这次取值用的凭证日期（= 传的，或今天） */
+  voucher_date: string;
+  /** 启用中的币种（本位币排第一），带各自的 SPOT 牌价 */
+  currencies: FxCurrencyOption[];
+}
+
+/**
+ * 外币录入选项：账套本位币 + 启用币种 + **凭证日的 SPOT 牌价**（M1-04）。
+ *
+ * 为什么不复用 `GET /exchange-rate/quote`：那个接口的权限是 `business:erp:fx-rate:quote`
+ * （汇率维护页的码），只有制单权限的会计会 403；本接口挂在 `business:erp:voucher:create`
+ * 上，只读不落库，返回的牌价与建单时锁定的完全同源。
+ */
+export function fetchVoucherFxOptions(voucher_date?: string): Promise<FxOptionsRes> {
+  return get<FxOptionsRes>(
+    `${BASE}/voucher/fx-options`,
+    voucher_date ? { voucher_date } : undefined,
+  );
 }
 
 /**

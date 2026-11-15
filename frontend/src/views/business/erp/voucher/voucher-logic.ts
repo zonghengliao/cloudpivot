@@ -25,7 +25,7 @@
  */
 import type { VoucherEntryLine, VoucherRow, VoucherStatus, VoucherType } from '@/api/business/erp';
 import type { TagTheme } from '../payable/payable-logic';
-import { dash, toCents } from '../shared/money';
+import { dash, toCents, toNumber } from '../shared/money';
 
 /** 每页条数（与其它 ERP 列表页同口径） */
 export const VOUCHER_PAGE_SIZE = 20;
@@ -426,3 +426,95 @@ export function withdrawReverseBlockedReason(
  * 后端补漏后列表 / 详情 / 红冲回执三处都下发该字段（字段恒在、不审批时为 `null`），
  * 前端直接读字段即可 —— 红冲的流程业务类型常量也随之成了死代码，一并删掉。
  */
+
+/* ==================== M1-04：外币金额 → 本位币（录入时预览） ==================== */
+
+/**
+ * 原币金额（整数分）→ 本位币金额（**万分之一元** = 4 位小数的最小单位）。
+ *
+ * 与后端 `currency::scale_amount`（`round_dp_with_strategy(4, MidpointAwayFromZero)`）
+ * 同口径：先乘汇率再四舍五入到 4 位小数，最后换成 1/10000 元整数，避免浮点比较。
+ *
+ * ⚠️ **只用于录入界面的预览**：真正落库的金额由后端算（`voucher_write::convert_lines`，
+ * 还带尾差吸收），前端这一份不参与任何写操作 —— 所以这里不做尾差吸收：
+ * 两边的「合计」天然可能差 1 个最小单位，界面必须显式说明「尾差由后端吸收」。
+ */
+export function baseTenThousandths(origCents: number, rate: number): number {
+  if (!Number.isFinite(origCents) || !Number.isFinite(rate) || rate <= 0) {
+    return 0;
+  }
+  return Math.round(origCents * rate * 100);
+}
+
+/** 万分之一元 → `1,234.5678`（4 位小数、三位分组；用于本位币预览列）。 */
+export function formatTenThousandths(value: number): string {
+  const negative = value < 0;
+  const text = (Math.abs(value) / 10000).toFixed(4);
+  const [integer, fraction] = text.split('.');
+  const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${negative ? '-' : ''}${grouped}.${fraction}`;
+}
+
+/**
+ * 汇率文案：保留有效位（最多 8 位，去掉尾随 0），`null` → `—`。
+ *
+ * 不四舍五入成 4 位：JPY 这类 0.04x 量级的牌价被截成 0.0400 会让用户以为汇率错了。
+ */
+export function formatFxRate(rate: number | string | null | undefined): string {
+  if (rate === null || rate === undefined || rate === '') {
+    return dash(undefined);
+  }
+  const num = toNumber(rate);
+  if (!Number.isFinite(num) || num <= 0) {
+    return dash(undefined);
+  }
+  return num
+    .toFixed(8)
+    .replace(/0+$/, '')
+    .replace(/\.$/, '');
+}
+
+/** 录入区的一行（只要借贷两列，外币预览与提交都用它）。 */
+export interface FxPreviewRow {
+  /** 借方金额（**原币**，元） */
+  debit: number | string | null;
+  /** 贷方金额（**原币**，元） */
+  credit: number | string | null;
+}
+
+/**
+ * 外币录入的合计预览（全部换成万分之一元，避免浮点比较）：
+ * 原币合计仍按分（与保存按钮的平衡判断同源），本位币合计 4 位小数。
+ */
+export function fxPreview(
+  rows: FxPreviewRow[],
+  rate: number | null,
+): {
+  debitCents: number;
+  creditCents: number;
+  baseDebitTenThousandths: number;
+  baseCreditTenThousandths: number;
+  baseDiffTenThousandths: number;
+} {
+  let debitCents = 0;
+  let creditCents = 0;
+  let baseDebit = 0;
+  let baseCredit = 0;
+  for (const row of rows) {
+    const debit = toCents(row.debit);
+    const credit = toCents(row.credit);
+    debitCents += debit;
+    creditCents += credit;
+    if (rate !== null) {
+      baseDebit += baseTenThousandths(debit, rate);
+      baseCredit += baseTenThousandths(credit, rate);
+    }
+  }
+  return {
+    debitCents,
+    creditCents,
+    baseDebitTenThousandths: baseDebit,
+    baseCreditTenThousandths: baseCredit,
+    baseDiffTenThousandths: baseDebit - baseCredit,
+  };
+}

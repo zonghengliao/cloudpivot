@@ -587,10 +587,30 @@
         <t-form label-align="top">
           <div class="form-row">
             <t-form-item label="凭证日期">
-              <t-input v-model="createForm.voucher_date" placeholder="YYYY-MM-DD（留空 = 今天）" data-testid="voucher-create-date" />
+              <t-input v-model="createForm.voucher_date" placeholder="YYYY-MM-DD（留空 = 今天）" data-testid="voucher-create-date" @blur="loadFxOptions" />
             </t-form-item>
             <t-form-item label="摘要" required-mark class="form-row__grow">
               <t-input v-model="createForm.summary" placeholder="例如：计提本月折旧" data-testid="voucher-create-summary" />
+            </t-form-item>
+          </div>
+          <div class="form-row">
+            <t-form-item label="币种">
+              <t-select
+                v-model="createForm.currency_code"
+                :options="currencyOptions"
+                :loading="fxLoading"
+                :disabled="fxLoading"
+                filterable
+                data-testid="voucher-create-currency"
+              />
+            </t-form-item>
+            <t-form-item label="汇率（1 外币 = ? 本位币）" class="form-row__grow">
+              <t-input
+                :value="fxRateText"
+                readonly
+                :placeholder="fxRateAvailable ? '' : '该币种在凭证日没有牌价，请先维护汇率'"
+                data-testid="voucher-create-rate"
+              />
             </t-form-item>
           </div>
         </t-form>
@@ -657,6 +677,9 @@
           <template #summary="{ row }">
             <t-input v-model="row.summary" placeholder="留空继承单头摘要" />
           </template>
+          <template #base="{ row }">
+            <span class="money" :data-testid="`voucher-create-base-${row.key}`">{{ baseTextOf(row) }}</span>
+          </template>
           <template #op="{ row }">
             <t-link
               theme="danger"
@@ -678,6 +701,10 @@
           <span class="money" data-testid="voucher-create-total-debit">{{ formatCents(createTotals.debitCents) }}</span>
           <span class="muted">贷方合计</span>
           <span class="money" data-testid="voucher-create-total-credit">{{ formatCents(createTotals.creditCents) }}</span>
+          <span v-if="isForeign" class="muted">本位币合计（汇率 {{ fxRateText }}）</span>
+          <span v-if="isForeign" class="money" data-testid="voucher-create-base-total">
+            {{ formatTenThousandths(fxPreviewTotals.baseDebitTenThousandths) }}
+          </span>
           <t-tag :theme="createBalanced ? 'success' : 'danger'" size="small" data-testid="voucher-create-balance">
             {{ createBalanced ? '借贷平衡' : `差额 ${formatCents(createTotals.diffCents)}` }}
           </t-tag>
@@ -688,6 +715,12 @@
           期间必须是「已开启」，借贷不平衡时保存按钮不可用（后端同样会 400 并点名差额）。
           科目挂了辅助核算（如 5602.x / 5601 / 5603 / 5711 要求部门）时，必须在分录里选对应维度，
           否则保存会被拒绝（这些维度就是部门辅助账的取数来源）。
+        </p>
+        <p v-if="isForeign" class="form-tip" data-testid="voucher-create-fx-tip">
+          选了外币（{{ createForm.currency_code }}）后，分录里的<strong>借方 / 贷方金额按原币录入</strong>，
+          后端按<strong>凭证日的 SPOT 牌价</strong>折本位币落库（汇率在建单那一刻锁定，之后改汇率不影响这张凭证）；
+          右侧「本位币金额」只是预览，逐行四舍五入的尾差由后端吸收到金额最大的一行。
+          外币分录的科目必须已在「会计科目」页标记<strong>「外币核算」</strong>，否则期末调汇（M1-05）扫不到它，后端会拒绝保存。
         </p>
         <t-alert v-if="createError" theme="error" :message="createError" data-testid="voucher-create-error" />
       </div>
@@ -747,9 +780,11 @@ import {
 import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import {
   createVoucher,
+  fetchVoucherFxOptions,
   submitReverseVoucher,
   withdrawReverseVoucher,
   type CreateVoucherReq,
+  type FxOptionsRes,
   type ManualVoucherEntryReq,
   type VoucherDetailEx,
   type VoucherRowEx,
@@ -766,6 +801,9 @@ import {
   canReverseVoucher as canReverse,
   canWithdrawReverse as canWithdrawReverseVoucher,
   emptyVoucherFilter,
+  formatFxRate,
+  formatTenThousandths,
+  fxPreview,
   isPendingReverse,
   isVoucherFiltered,
   sourceTypeLabel,
@@ -942,7 +980,6 @@ const BATCH_ACTIONS: BatchActionSpec[] = [
 const BATCH_PERMISSIONS: Record<string, string> = {
   export: 'business:impexp:export:create',
 };
-
 
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
@@ -1722,8 +1759,94 @@ const createError = ref('');
 const createForm = reactive({
   voucher_date: '',
   summary: '',
+  /** 凭证币种（M1-04）：空串 = 还没加载到本位币（打开弹窗时会被填成本位币码） */
+  currency_code: '',
   entries: [newEditorRow(), newEditorRow()] as EditorRow[],
 });
+
+/**
+ * 外币录入选项（M1-04）：账套本位币 + 启用币种 + 凭证日的 SPOT 牌价。
+ *
+ * 取自 `GET /business/erp/voucher/fx-options`（权限同「新增凭证」，只读不落库）——
+ * 返回的牌价与后端建单时锁定的完全同源，所以界面上显示的就是最终落在凭证上的那个汇率。
+ */
+const fxOptions = ref<FxOptionsRes | null>(null);
+const fxLoading = ref(false);
+/** 账套本位币（选项还没加载到时先按 CNY 显示，不阻塞录入）。 */
+const baseCurrency = computed(() => fxOptions.value?.base_currency || 'CNY');
+/** 是否外币凭证（币种 ≠ 账套本位币）。 */
+const isForeign = computed(() => Boolean(createForm.currency_code) && createForm.currency_code !== baseCurrency.value);
+/** 当前选中币种的选项。 */
+const selectedCurrency = computed(
+  () => fxOptions.value?.currencies.find((item) => item.code === createForm.currency_code) ?? null,
+);
+/** 汇率（数字）：本位币恒 1；外币取不到牌价时为 `null`。 */
+const fxRate = computed<number | null>(() => {
+  if (!isForeign.value) {
+    return 1;
+  }
+  const raw = selectedCurrency.value?.exchange_rate;
+  if (raw === null || raw === undefined || raw === '') {
+    return null;
+  }
+  const num = Number(raw);
+  return Number.isFinite(num) && num > 0 ? num : null;
+});
+/** `fxRate` 有值（外币取到了牌价也算）。 */
+const fxRateAvailable = computed(() => fxRate.value !== null);
+/** 汇率文案（8 位以内、去掉尾随 0）。 */
+const fxRateText = computed(() => formatFxRate(fxRate.value));
+/** 币种下拉：本位币排第一；没有当日牌价的外币**可见但禁用**（并说明原因）。 */
+const currencyOptions = computed(() =>
+  (fxOptions.value?.currencies ?? []).map((item) => {
+    const missing = !item.is_base && (item.exchange_rate === null || item.exchange_rate === undefined || item.exchange_rate === '');
+    const name = item.is_base ? `${item.name}（${item.code}）· 本位币` : `${item.name}（${item.code}）`;
+    return {
+      label: missing ? `${name}（无当日牌价）` : name,
+      value: item.code,
+      disabled: missing,
+    };
+  }),
+);
+/** 录入区的外币预览（原币合计仍按分；本位币合计 4 位小数）。 */
+const fxPreviewTotals = computed(() =>
+  fxPreview(
+    createForm.entries.map((row) => ({ debit: row.debit, credit: row.credit })),
+    isForeign.value ? fxRate.value : null,
+  ),
+);
+/** 一行分录的本位币（4 位小数）预览文案：外币才显示；本位币单直接显示原币。 */
+function baseTextOf(row: EditorRow): string {
+  const rate = fxRate.value;
+  if (rate === null) {
+    return '—';
+  }
+  const amount = toCents(row.debit) || toCents(row.credit);
+  if (amount === 0) {
+    return '—';
+  }
+  return formatTenThousandths(Math.round(amount * rate * 100));
+}
+
+/** 拉一次外币选项（按当前凭证日期取牌价；失败不阻断录入，只是没有币种可选）。 */
+async function loadFxOptions(): Promise<void> {
+  fxLoading.value = true;
+  try {
+    const dateText = createForm.voucher_date.trim();
+    const options = await fetchVoucherFxOptions(/^\d{4}-\d{2}-\d{2}$/.test(dateText) ? dateText : undefined);
+    fxOptions.value = options;
+    // 币种被重置成本位币（换日期后外币牌价可能变了，不保留旧选择避免「显示一个已失效的汇率」）
+    if (!options.currencies.some((item) => item.code === createForm.currency_code)) {
+      createForm.currency_code = options.base_currency;
+    }
+  } catch {
+    // 取不到选项就不给选外币：币种留空 = 按本位币记（后端也会按本位币处理），不阻塞录入
+    fxOptions.value = null;
+    createForm.currency_code = '';
+  } finally {
+    fxLoading.value = false;
+  }
+}
 
 const accounts = ref<AccountRow[]>([]);
 /** 科目下拉：只给启用中的**末级**科目（非末级记账不合法，后端也会按 id 取快照但语义上不该选）。 */
@@ -1733,14 +1856,26 @@ const accountOptions = computed(() =>
     .map((item) => ({ label: `${item.account_code} ${item.account_name}`, value: item.id })),
 );
 
-const editorColumns: PrimaryTableCol[] = [
-  { colKey: 'account_id', title: '科目', minWidth: 240 },
-  { colKey: 'aux', title: '辅助核算', minWidth: 190 },
-  { colKey: 'debit', title: '借方金额', width: 150 },
-  { colKey: 'credit', title: '贷方金额', width: 150 },
-  { colKey: 'summary', title: '分录摘要', minWidth: 180 },
-  { colKey: 'op', title: '操作', width: 80, align: 'center' },
-];
+/**
+ * 分录编辑器列：外币时多一列「本位币金额（预览）」（M1-04）。
+ *
+ * 列是 computed 而不是常量：本位币凭证的编辑器不该多出一列「本位币金额」——
+ * 那一列对 CNY 单就是重复显示（原始金额本身就是本位币）。
+ */
+const editorColumns = computed<PrimaryTableCol[]>(() => {
+  const columns: PrimaryTableCol[] = [
+    { colKey: 'account_id', title: '科目', minWidth: 240 },
+    { colKey: 'aux', title: '辅助核算', minWidth: 190 },
+    { colKey: 'debit', title: isForeign.value ? '借方原币金额' : '借方金额', width: 150 },
+    { colKey: 'credit', title: isForeign.value ? '贷方原币金额' : '贷方金额', width: 150 },
+  ];
+  if (isForeign.value) {
+    columns.push({ colKey: 'base', title: `本位币金额（${baseCurrency.value}）`, width: 170 });
+  }
+  columns.push({ colKey: 'summary', title: '分录摘要', minWidth: 180 });
+  columns.push({ colKey: 'op', title: '操作', width: 80, align: 'center' });
+  return columns;
+});
 
 /** 实时合计（整数分，避免浮点误差把「平」算成「不平」）。 */
 const createTotals = computed(() => {
@@ -1766,11 +1901,14 @@ async function openCreate(): Promise<void> {
   createError.value = '';
   createForm.voucher_date = '';
   createForm.summary = '';
+  createForm.currency_code = '';
   createForm.entries = [newEditorRow(), newEditorRow()];
   createVisible.value = true;
   if (accounts.value.length === 0) {
     accounts.value = await fetchAccountOptions().catch(() => [] as AccountRow[]);
   }
+  // 外币选项（M1-04）：本位币 + 启用币种 + 今天的 SPOT 牌价；失败不阻断（只能按本位币录）
+  await loadFxOptions();
   // 辅助核算下拉：只加载有科目声明的维度（E2E04-FIX-1），失败不阻断建单
   await ensureAuxOptions();
 }
@@ -1824,6 +1962,11 @@ async function submitCreate(): Promise<void> {
     createError.value = '凭证日期必须是 YYYY-MM-DD（或留空 = 今天）';
     return;
   }
+  // 外币（M1-04）：没有牌价就不许提交（后端也会 400，前端先把人指到汇率维护）
+  if (isForeign.value && !fxRateAvailable.value) {
+    createError.value = `币种 ${createForm.currency_code} 在${dateText || '凭证日'}没有 SPOT 牌价：请先在「币种 / 汇率」维护该币种的即时汇率，再回来录这张外币凭证（外币单不允许按汇率 1 入账）`;
+    return;
+  }
 
   const body: CreateVoucherReq = {
     voucher_date: dateText || null,
@@ -1845,6 +1988,10 @@ async function submitCreate(): Promise<void> {
       return entry;
     }),
     remark: null,
+    // 外币（M1-04）：分录金额是**原币**，汇率由后端按凭证日锁定；这里把 fx-options 给的
+    // 同一份牌价回传做一致性校验（后端不会用它换算，只比对是否与当日牌价相等）。
+    currency_code: isForeign.value ? createForm.currency_code : null,
+    exchange_rate: isForeign.value && fxRate.value !== null ? fxRate.value.toFixed(8) : null,
   };
 
   createSubmitting.value = true;
@@ -1932,27 +2079,6 @@ onMounted(() => {
   gap: 8px;
   min-width: 0;
 }
-
-.panel-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 24px 0;
-}
-
-.panel-empty__title {
-  margin: 0;
-  font-size: 14px;
-  color: var(--td-text-color-secondary);
-}
-
-.panel-empty__desc {
-  margin: 0;
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
 /* ==================== 抽屉 ==================== */
 
 .drawer {

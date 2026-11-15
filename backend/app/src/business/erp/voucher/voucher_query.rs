@@ -106,7 +106,7 @@ pub const VOUCHER_TYPES: [&str; 2] = ["AUTO", "MANUAL"];
 pub const HEADER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
      source_type, source_id, source_no, source_doc_no, summary, total_debit, total_credit, entry_count, status, \
      is_red, reverse_of, reversed_by, posted_at, posted_by, remark, \
-     pending_reverse_instance_id, reverse_reason, created_at, updated_at, \
+     pending_reverse_instance_id, reverse_reason, currency_code, exchange_rate, created_at, updated_at, \
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reverse_of) AS reverse_of_no, \
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reversed_by) AS reversed_by_no";
 
@@ -121,7 +121,8 @@ pub const HEADER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_
 /// 列一律带 `e.` 前缀（因为 FROM 里还有四张主数据表同名 id 列）；四个名字显式
 /// `AS aux_*_name`，`VoucherEntryRow::from_row` 按别名取值。
 pub const ENTRY_COLUMNS: &str = "e.id, e.voucher_id, e.line_no, e.summary, e.account_id, e.account_code, \
-     e.account_name, e.debit_amount, e.credit_amount, e.aux_supplier_id, e.aux_material_id, \
+     e.account_name, e.debit_amount, e.credit_amount, e.fc_debit_amount, e.fc_credit_amount, \
+     e.aux_supplier_id, e.aux_material_id, \
      e.aux_warehouse_id, e.aux_dept_id, e.aux_qty, \
      sup.supplier_name AS aux_supplier_name, mat.material_name AS aux_material_name, \
      wh.warehouse_name AS aux_warehouse_name, dept.dept_name AS aux_dept_name";
@@ -345,6 +346,10 @@ pub struct VoucherRow {
     pub pending_reverse_instance_id: Option<Uuid>,
     /// 红冲原因（P-FLOW-3B）。
     pub reverse_reason: Option<String>,
+    /// 凭证原币币种（M1-04 · V0406；本位币凭证 = 账套本位币码）。
+    pub currency_code: String,
+    /// 建单锁定的汇率：`1 原币 = exchange_rate 本位币`（本位币凭证恒 1）。
+    pub exchange_rate: Decimal,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -382,6 +387,8 @@ impl VoucherRow {
             remark: row.get_typed("remark")?,
             pending_reverse_instance_id: row.get_typed("pending_reverse_instance_id")?,
             reverse_reason: row.get_typed("reverse_reason")?,
+            currency_code: row.get_typed("currency_code")?,
+            exchange_rate: row.get_typed("exchange_rate")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             reverse_of_no: row.get_typed("reverse_of_no")?,
@@ -411,6 +418,10 @@ pub struct VoucherEntryRow {
     pub debit_amount: Decimal,
     /// 贷方金额。
     pub credit_amount: Decimal,
+    /// 借方**原币**金额（M1-04 · V0409；`None` = 本位币分录）。
+    pub fc_debit_amount: Option<Decimal>,
+    /// 贷方**原币**金额（M1-04 · V0409；`None` = 本位币分录）。
+    pub fc_credit_amount: Option<Decimal>,
     /// 辅助核算：供应商。
     pub aux_supplier_id: Option<Uuid>,
     /// 辅助核算：物料。
@@ -444,6 +455,8 @@ impl VoucherEntryRow {
             account_name: row.get_typed("account_name")?,
             debit_amount: row.get_typed("debit_amount")?,
             credit_amount: row.get_typed("credit_amount")?,
+            fc_debit_amount: row.get_typed("fc_debit_amount")?,
+            fc_credit_amount: row.get_typed("fc_credit_amount")?,
             aux_supplier_id: row.get_typed("aux_supplier_id")?,
             aux_material_id: row.get_typed("aux_material_id")?,
             aux_warehouse_id: row.get_typed("aux_warehouse_id")?,
@@ -520,6 +533,13 @@ pub struct VoucherRes {
     pub pending_reverse_instance_id: Option<String>,
     /// 红冲原因（P-FLOW-3B）：送审时填的那段文字，审批通过后成为红字凭证的分录摘要。
     pub reverse_reason: Option<String>,
+    /// 凭证原币币种（M1-04 · V0406）：本位币凭证 = 账套本位币（如 `CNY`）。
+    pub currency_code: String,
+    /// 建单锁定的汇率：`1 原币 = exchange_rate 本位币`（本位币凭证恒 1）。
+    ///
+    /// 前端「币种 / 汇率」列与明细抽屉都读它；外币凭证的**本位币金额**在各分录的
+    /// `debit_amount` / `credit_amount` 上，`fc_*_amount` 是原币金额。
+    pub exchange_rate: Decimal,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
 }
@@ -555,6 +575,8 @@ impl VoucherRes {
             remark: row.remark.clone(),
             pending_reverse_instance_id: row.pending_reverse_instance_id.map(|id| id.to_string()),
             reverse_reason: row.reverse_reason.clone(),
+            currency_code: row.currency_code.clone(),
+            exchange_rate: row.exchange_rate,
             created_at: row.created_at,
         }
     }
@@ -579,6 +601,10 @@ pub struct VoucherEntryRes {
     pub debit_amount: Decimal,
     /// 贷方金额。
     pub credit_amount: Decimal,
+    /// 借方**原币**金额（M1-04 · V0409）：外币凭证才有值，`null` = 本位币分录。
+    pub fc_debit_amount: Option<Decimal>,
+    /// 贷方**原币**金额（M1-04 · V0409）：外币凭证才有值，`null` = 本位币分录。
+    pub fc_credit_amount: Option<Decimal>,
     /// 辅助核算：供应商。
     pub aux_supplier_id: Option<String>,
     /// 辅助核算：物料。
@@ -614,6 +640,8 @@ impl VoucherEntryRes {
             account_name: row.account_name.clone(),
             debit_amount: row.debit_amount,
             credit_amount: row.credit_amount,
+            fc_debit_amount: row.fc_debit_amount,
+            fc_credit_amount: row.fc_credit_amount,
             aux_supplier_id: row.aux_supplier_id.map(|id| id.to_string()),
             aux_material_id: row.aux_material_id.map(|id| id.to_string()),
             aux_warehouse_id: row.aux_warehouse_id.map(|id| id.to_string()),
@@ -1216,6 +1244,8 @@ pub(crate) mod tests {
             remark: None,
             pending_reverse_instance_id: pending,
             reverse_reason: reason.map(str::to_string),
+            currency_code: "CNY".to_string(),
+            exchange_rate: Decimal::ONE,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             reverse_of_no: None,

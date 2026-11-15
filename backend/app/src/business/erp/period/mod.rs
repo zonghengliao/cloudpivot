@@ -2828,6 +2828,8 @@ mod tests {
                 },
             ]),
             remark: None,
+            currency_code: None,
+            exchange_rate: None,
         };
         let err = create_manual_voucher(&req, Some(uid()))
             .await

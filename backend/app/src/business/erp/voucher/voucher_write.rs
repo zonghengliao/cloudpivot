@@ -72,6 +72,7 @@ use nik::uuid::Uuid;
 use serde::Deserialize;
 
 use crate::business::erp::approval_gate;
+use crate::business::erp::currency;
 use crate::business::erp::voucher::voucher_bridge;
 use crate::business::erp::voucher::voucher_linkage;
 use crate::business::erp::voucher::voucher_query::{self, VoucherDetailRes};
@@ -159,6 +160,21 @@ pub struct CreateVoucherReq {
     pub entries: Option<Vec<ManualEntryReq>>,
     /// 备注。
     pub remark: Option<String>,
+    /// 凭证币种（M1-04）：ISO 4217 三位大写（`USD` / `HKD` / `EUR`…）。
+    ///
+    /// **缺省 / 空串 = 账套本位币**（与不传本字段的老客户端逐字节相同）。
+    /// 传外币时：① `entries[].debit/credit` 按**原币**录入；② 后端按**凭证日的 SPOT 牌价**
+    /// 折本位币落库（`biz_voucher_entry.debit_amount/credit_amount` 仍是本位币，
+    /// 原币另存 `fc_debit_amount/fc_credit_amount`）；③ 分录科目必须已在科目页标记
+    /// 「外币核算」（否则 400 + `66081`，见 M1-03）。
+    pub currency_code: Option<String>,
+    /// 汇率（M1-04 · **只做一致性校验，不接受手改**）。
+    ///
+    /// 不传也可以（后端按凭证日牌价锁定）。传了就必须与后端锁到的 SPOT 牌价**完全相等**
+    /// （8 位小数比较）：不等说明前端拿着过期牌价（跨了周末 / 刚补录了汇率），返回 400 并
+    /// 把当日牌价写在报文里 —— 允许手填汇率会让「建单锁定」变成「随手填的数」，
+    /// 期末调汇与外币余额表就失去唯一真相。
+    pub exchange_rate: Option<Decimal>,
 }
 
 /// 审核入参（P0-FIX-4A）：`remark` 是**可选**审核意见，写进凭证状态日志。
@@ -824,6 +840,8 @@ pub async fn create_manual_voucher(
             remark: req.remark.as_deref(),
             operator,
             now,
+            currency_code: req.currency_code.as_deref(),
+            exchange_rate: req.exchange_rate,
         },
     )
     .await;
@@ -947,6 +965,257 @@ fn check_entries(
     Ok((lines, debit_total))
 }
 
+// ==================== 多币种：外币金额 + 汇率 + 本位币换算（M1-04 · V0406/V0409） ====================
+
+/// 外币录入的换算计划（事务内解析出来的全部外币上下文）。
+///
+/// 四样东西一起决定「这张凭证怎么落库」，所以打包成一个结构体传：
+/// 单头币种、锁定汇率、逐行本位币金额、逐行原币金额。
+struct FxPlan {
+    /// 单头要落的币种（本位币凭证 = 账套本位币码，如 `CNY`）。
+    currency_code: String,
+    /// 单头要锁的汇率：`1 原币 = rate 本位币`（本位币凭证恒 1）。
+    exchange_rate: Decimal,
+    /// 逐行**本位币**金额 `(借, 贷)`，与分录逐行对齐（外币时已吸收尾差）。
+    base: Vec<(Decimal, Decimal)>,
+    /// 逐行**原币**金额（本位币凭证为 `None` ⇒ 分录两列留 NULL）。
+    fc: Option<Vec<voucher::FcAmount>>,
+    /// 是否外币凭证（币种 ≠ 账套本位币）。
+    is_foreign: bool,
+}
+
+/// 外币换算（纯逻辑，不碰库）：逐行 `round(原币 × 汇率, 4)` + **尾差吸收**。
+///
+/// # 为什么必须吸收尾差
+///
+/// `round(a×r) + round(b×r)` 与逐行求和的期望值差 1~n 个最小单位（0.0001），而
+/// `biz_voucher` 的 `ck_biz_voucher_balance CHECK (total_debit = total_credit)` 是库层硬约束：
+/// 不吸收，外币凭证就会以「借贷不平衡」落不了库 —— 用户在界面上看两边的原币明明一样多。
+///
+/// # 吸收口径（与 `voucher::absorb_tail_diff` 同一套）
+///
+/// * 差额落在**合计较大**的那一边；
+/// * 改**金额最大**的那一行（相对失真最小）；吸收后必须仍 > 0，否则换下一行；
+/// * 所有候选都吸收不了（金额太小）⇒ 400 报错，**不静默**留一张不平的凭证。
+///
+/// # 为什么不做「按整单换算再按比例分摊」
+///
+/// 逐行换算的结果与「原币行 × 汇率」逐行可对账（每一行都能被审计复核）：
+/// 按比例分摊出来的数字对不上任何单行，会计查账会问「这一行的本位币为什么是 719.9999」。
+fn convert_lines(
+    original: &[(Decimal, Decimal)],
+    rate: Decimal,
+) -> std::result::Result<Vec<(Decimal, Decimal)>, ApiError> {
+    let mut base: Vec<(Decimal, Decimal)> = Vec::with_capacity(original.len());
+    for (index, (debit, credit)) in original.iter().enumerate() {
+        let scaled = (
+            currency::scale_amount(*debit * rate),
+            currency::scale_amount(*credit * rate),
+        );
+        if scaled.0 == Decimal::ZERO && scaled.1 == Decimal::ZERO {
+            return Err(bad_request(format!(
+                "entries[{index}] 原币金额（借 {debit} / 贷 {credit}）× 汇率 {rate} 折算后不足 0.0001 \
+                 （本仓金额列是 4 位小数）：请把该行原币补到能折出至少 0.0001 本位币，或核对汇率"
+            )));
+        }
+        base.push(scaled);
+    }
+    let debit_total = base
+        .iter()
+        .fold(Decimal::ZERO, |acc, (debit, _)| acc + *debit)
+        .round_dp(4);
+    let credit_total = base
+        .iter()
+        .fold(Decimal::ZERO, |acc, (_, credit)| acc + *credit)
+        .round_dp(4);
+    let diff = (debit_total - credit_total).round_dp(4);
+    if diff == Decimal::ZERO {
+        return Ok(base);
+    }
+    // 差额落在合计较大的那一边，从该边金额最大的行开始吸收
+    let on_debit = diff > Decimal::ZERO;
+    let need = diff.abs();
+    let mut order: Vec<usize> = (0..base.len()).collect();
+    order.sort_by(|left, right| {
+        let value = |index: &usize| if on_debit { base[*index].0 } else { base[*index].1 };
+        value(right).cmp(&value(left))
+    });
+    for index in order {
+        let current = if on_debit { base[index].0 } else { base[index].1 };
+        if current > need {
+            if on_debit {
+                base[index].0 = current - need;
+            } else {
+                base[index].1 = current - need;
+            }
+            return Ok(base);
+        }
+    }
+    Err(bad_request(format!(
+        "汇率 {rate} 逐行换算后借贷差 {diff}，且{side}没有任何一行金额大于该差额，无法吸收尾差：\
+         请核对原币金额（或先把汇率维护成更精确的牌价）",
+        side = if on_debit { "借方" } else { "贷方" }
+    )))
+}
+
+/// 外币录入的全部解析与校验（事务内）：币种形态 → 锁汇率 → 币种主数据 → 汇率一致性 → 换算。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：币种码形态非法 / 请求的汇率与当日牌价不一致 / 换算后金额不足 0.0001；
+/// * 400 + `66002`：币种不存在或已停用（`ERP_REFERENCE_MISSING`，与「科目不存在」同一码）；
+/// * 400 + `10001`：外币单在凭证日（含）之前取不到 SPOT 牌价（`currency::lock` 的文案会指出
+///   去「币种 / 汇率」维护）。
+async fn resolve_fx(
+    tx: &Transaction,
+    requested_currency: Option<&str>,
+    requested_rate: Option<Decimal>,
+    voucher_date: NaiveDate,
+    raw: &[RawLine],
+) -> std::result::Result<FxPlan, ApiError> {
+    // ① 币种码形态：`normalize_currency` 只认三位大写字母。形态非法直接 400 ——
+    //    不要让它走到「查不到币种」再报 66002，那样文案会指向主数据而不是用户填错。
+    let requested = requested_currency.map(str::trim).filter(|text| !text.is_empty());
+    if let Some(raw_code) = requested
+        && currency::normalize_currency(raw_code).is_none()
+    {
+        return Err(bad_request(format!(
+            "currency_code「{raw_code}」不是合法的币种码：必须是 ISO 4217 三位大写字母\
+                 （USD / HKD / EUR …）。留空则按账套本位币记账"
+        )));
+    }
+    // ② 币种主数据必须存在且启用（**放在锁汇率之前**：未知币种先在主数据上被点名，
+    //    否则会落到「取不到 SPOT 汇率」那条文案上 —— 用户会去汇率页找一个根本不存在的币种）。
+    //    V0406 头注释：单据表的 `currency_code` 是弱引用，库层不建外键，主数据校验只能在写入口做。
+    let base_currency = currency::base_currency_code(tx)
+        .await
+        .map_err(|error| utils::db_error(error, "查询账套本位币"))?;
+    let wanted = match requested {
+        None => base_currency.clone(),
+        Some(raw) => currency::normalize_currency(raw).unwrap_or_default(),
+    };
+    if wanted != base_currency {
+        let exists = tx
+            .query_first_sql(
+                "SELECT name FROM biz_currency WHERE code = ? AND status = 'ACTIVE'".to_string(),
+                vec![Value::Text(wanted.clone())],
+            )
+            .await
+            .map_err(|error| utils::db_error(error, "查询币种主数据"))?;
+        if exists.is_none() {
+            return Err(ApiError::new(
+                400,
+                error_code::ERP_REFERENCE_MISSING,
+                format!("币种 {wanted} 不存在或已停用：请先在「币种 / 汇率」里建好该币种（或把它启用），再录外币凭证"),
+            ));
+        }
+    }
+    // ③ 锁定汇率：**唯一入口** `currency::lock`（→ `spot_rate`：币种对 + 凭证日最近一条 SPOT）。
+    //    外币取不到牌价 ⇒ 400 拒绝建单，绝不默认 1（默认 1 = 把 USD 单按人民币入账，账直接错）。
+    let locked = currency::lock(tx, requested, voucher_date)
+        .await
+        .map_err(|error| utils::db_error(error, "查询汇率"))?
+        .into_locked("凭证")?;
+    // ④ 请求里带了汇率 ⇒ 必须与锁到的牌价逐字相等（8 位小数）。手改汇率会让「建单锁定」
+    //    变成「随手填的数」，M1-05 调汇 / M1-07 外币余额表就都失去唯一真相。
+    if let Some(sent) = requested_rate {
+        let sent = currency::scale_rate(sent);
+        if sent != locked.exchange_rate {
+            return Err(bad_request(format!(
+                "exchange_rate 传的是 {sent}，但系统按凭证日 {voucher_date} 取到的 {} → {} SPOT 牌价是 {}：\
+                 汇率只做一致性校验、不接受手改（要改汇率请去「币种 / 汇率」维护牌价，改完重新打开录入框）",
+                locked.currency_code, locked.base_currency, locked.exchange_rate
+            )));
+        }
+    }
+    let is_foreign = locked.currency_code != locked.base_currency;
+    if !is_foreign {
+        return Ok(FxPlan {
+            currency_code: locked.currency_code,
+            exchange_rate: locked.exchange_rate,
+            base: raw.iter().map(|line| (line.debit, line.credit)).collect(),
+            fc: None,
+            is_foreign,
+        });
+    }
+    let originals: Vec<(Decimal, Decimal)> = raw.iter().map(|line| (line.debit, line.credit)).collect();
+    let base = convert_lines(&originals, locked.exchange_rate)?;
+    let fc = raw
+        .iter()
+        .map(|line| voucher::FcAmount {
+            debit: line.debit,
+            credit: line.credit,
+        })
+        .collect();
+    Ok(FxPlan {
+        currency_code: locked.currency_code,
+        exchange_rate: locked.exchange_rate,
+        base,
+        fc: Some(fc),
+        is_foreign,
+    })
+}
+
+/// 外币凭证：每条分录的科目都必须标记「外币核算」（M1-03 的 `is_foreign_currency = 1`）。
+///
+/// # 为什么是硬闸（而不是「能记就记，调汇自然扫不到」）
+///
+/// 调汇（M1-05）按 `is_foreign_currency = 1` 扫科目。外币凭证记到未标记的科目上，
+/// 后果是**静默**的：本位币余额永远停在历史汇率（没人调）、原币余额也没人跟踪，
+/// 而界面上一切正常。这类错账只能在期末对账时被发现，修起来要反向补凭证。
+/// 硬闸 + 点名科目 + 告诉用户两条出路（标记科目 / 改成本位币凭证），是唯一不挖坑的口径。
+///
+/// 一次 `IN (...)` 取回全部科目的标记，不做 N 次单查。
+async fn ensure_accounts_fx_marked(
+    tx: &Transaction,
+    lines: &[EntryLine],
+    currency_code: &str,
+    base_currency: &str,
+) -> std::result::Result<(), ApiError> {
+    if lines.is_empty() {
+        return Ok(());
+    }
+    let placeholders = vec!["?::uuid"; lines.len()].join(", ");
+    let sql =
+        format!("SELECT id, is_foreign_currency FROM biz_account WHERE id IN ({placeholders}) AND deleted_at IS NULL");
+    let params: Vec<Value> = lines.iter().map(|line| Value::from(line.account.id)).collect();
+    let rows = tx
+        .query_sql(sql, params)
+        .await
+        .map_err(|error| utils::db_error(error, "查询科目外币核算标记"))?;
+    let mut marked: std::collections::BTreeMap<Uuid, i16> = std::collections::BTreeMap::new();
+    for row in &rows {
+        let id: Uuid = row
+            .get_typed("id")
+            .map_err(|error| utils::db_error(error, "读取科目 id"))?;
+        let flag: i16 = row
+            .get_typed("is_foreign_currency")
+            .map_err(|error| utils::db_error(error, "读取科目外币核算标记"))?;
+        marked.insert(id, flag);
+    }
+    let offenders: Vec<String> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| marked.get(&line.account.id).copied().unwrap_or(0) != 1)
+        .map(|(index, line)| format!("entries[{index}] 科目 {}（{}）", line.account.code, line.account.name))
+        .collect();
+    if offenders.is_empty() {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        400,
+        error_code::ERP_VOUCHER_FX_ACCOUNT_UNMARKED,
+        format!(
+            "外币凭证（{currency_code} / 本位币 {base_currency}）的分录科目必须标记「外币核算」：{}。\
+             未标记的科目不参与期末调汇（调汇按 is_foreign_currency = 1 取数），\
+             它的本位币余额会永远停在历史汇率上、原币余额也不会被跟踪。\
+             请先在「会计科目」页给这些科目打开「外币核算」（权限 business:erp:account:update），\
+             或把这笔业务记成本位币凭证（不选外币）",
+            offenders.join("、")
+        ),
+    ))
+}
+
 /// 科目声明的辅助核算维度（`biz_account.aux_dimensions` 解析成维度表条目）。
 ///
 /// 口径（与 `ledger` 读取口径一致）：
@@ -1031,9 +1300,9 @@ fn aux_field_name(code: &str) -> &'static str {
 
 /// 手工凭证事务的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
 struct ManualVoucher<'a> {
-    /// 待补科目快照的分录。
+    /// 待补科目快照的分录（**原币口径**：外币单是原币，本位币单就是本位币）。
     raw: Vec<RawLine>,
-    /// 借方合计（= 贷方合计）。
+    /// 借方合计（= 贷方合计，**原币口径**）。
     debit_total: Decimal,
     /// 凭证日期。
     voucher_date: NaiveDate,
@@ -1045,6 +1314,10 @@ struct ManualVoucher<'a> {
     operator: Option<Uuid>,
     /// 业务时间。
     now: nik::prelude::chrono::DateTime<Utc>,
+    /// 请求的凭证币种（M1-04；`None` / 空串 = 账套本位币）。
+    currency_code: Option<&'a str>,
+    /// 请求的汇率（M1-04；只做一致性校验，见 [`resolve_fx`]）。
+    exchange_rate: Option<Decimal>,
 }
 
 /// 手工凭证的事务体：期间校验 → 科目快照 → 落库 → 联动（LNK-06）。
@@ -1060,6 +1333,8 @@ async fn manual_in_tx(
         remark,
         operator,
         now,
+        currency_code,
+        exchange_rate,
     } = input;
     let period = voucher::period_of(tx, voucher_date)
         .await
@@ -1096,6 +1371,10 @@ async fn manual_in_tx(
         }
     }
 
+    // ② 多币种（M1-04）：解析币种 / 锁汇率 / 校验币种主数据与汇率一致性 / 换算本位币。
+    //    放在期间闸之后、科目校验之前：期间不合法是「这次操作根本不允许」，币种问题才轮到。
+    let fx = resolve_fx(tx, currency_code, exchange_rate, voucher_date, &raw).await?;
+
     let mut lines = Vec::with_capacity(raw.len());
     for (index, line) in raw.iter().enumerate() {
         let account_id = parse_uuid(&line.account_id, &format!("entries[{index}].account_id"))?;
@@ -1115,12 +1394,16 @@ async fn manual_in_tx(
             .await
             .map_err(|error| utils::db_error(error, "查询科目辅助核算维度"))?;
         check_aux_dimensions(index, &account, dimensions.as_deref(), line)?;
+        // 金额口径（M1-04）：外币单的 `fx.base[index]` 是**换算后的本位币**（已吸收尾差）；
+        // 本位币单它逐行等于原币。分录落的一律是本位币金额 —— 总账 / 报表 / 试算平衡
+        // 全部按本位币取数，原币另存 `fc_debit_amount / fc_credit_amount`。
+        let (base_debit, base_credit) = fx.base[index];
         lines.push(EntryLine {
             line_no: i32::try_from(index + 1).unwrap_or(0),
             summary: line.summary.clone(),
             account,
-            debit: line.debit,
-            credit: line.credit,
+            debit: base_debit,
+            credit: base_credit,
             aux_supplier_id: parse_aux_id(line.aux_supplier_id.as_ref(), index, "aux_supplier_id")?,
             aux_material_id: parse_aux_id(line.aux_material_id.as_ref(), index, "aux_material_id")?,
             aux_warehouse_id: parse_aux_id(line.aux_warehouse_id.as_ref(), index, "aux_warehouse_id")?,
@@ -1128,8 +1411,27 @@ async fn manual_in_tx(
         });
     }
 
-    let source_no = format!("手工凭证 {debit_total}");
-    let voucher_id = voucher::post_voucher(
+    // ③ 外币凭证的科目必须标记「外币核算」（M1-03）：逐行校验，一次 IN 查询取回标记。
+    if fx.is_foreign {
+        let base_currency = currency::base_currency_code(tx)
+            .await
+            .map_err(|error| utils::db_error(error, "查询账套本位币"))?;
+        ensure_accounts_fx_marked(tx, &lines, &fx.currency_code, &base_currency).await?;
+    }
+
+    // 单号里的合计：外币单必须把「原币合计 + 币种 + 本位币合计」都写清，否则
+    // 「手工凭证 100」在 USD 单上会被读成 100 元（清单页按单号认金额的用法直接错）。
+    let base_total = fx
+        .base
+        .iter()
+        .fold(Decimal::ZERO, |acc, (debit, _)| acc + *debit)
+        .round_dp(4);
+    let source_no = if fx.is_foreign {
+        format!("手工凭证 {debit_total} {}（本位币 {base_total}）", fx.currency_code)
+    } else {
+        format!("手工凭证 {debit_total}")
+    };
+    let voucher_id = voucher::post_voucher_fx(
         tx,
         &voucher::PostVoucher {
             voucher_type: voucher::VOUCHER_TYPE_MANUAL,
@@ -1144,6 +1446,8 @@ async fn manual_in_tx(
             red_of: None,
             status: crate::business::erp::voucher::STATUS_DRAFT,
         },
+        fx.fc.as_deref(),
+        Some((fx.currency_code.as_str(), fx.exchange_rate)),
         operator,
         now,
     )
@@ -1766,6 +2070,147 @@ pub async fn voucher_create_handler(
     Ok(Res::ok(create_manual_voucher(&req, operator_of(&claims)).await?))
 }
 
+// ==================== 外币录入选项（M1-04） ====================
+
+/// 外币录入选项的查询参数。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct FxOptionsQuery {
+    /// 凭证日期（`YYYY-MM-DD`；缺省 = 今天 CST）。
+    ///
+    /// 牌价按这一天取「生效日 ≤ 该日（且未失效）的最近一条 SPOT」—— 与建单时
+    /// `currency::lock` 的取数口径**逐字一致**，前端显示的就是后端会锁的那个汇率。
+    pub voucher_date: Option<String>,
+}
+
+/// 一个币种选项（前端「币种」下拉的每一行）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FxCurrencyOptionRes {
+    /// 币种码（ISO 4217 三位大写）。
+    pub code: String,
+    /// 币种名称。
+    pub name: String,
+    /// 是否账套本位币（本位币恒 `exchange_rate = 1`，且不需要汇率行）。
+    pub is_base: bool,
+    /// `1 该币种 = rate 本位币`；本位币恒 `1`，**取不到牌价时是 `null`**（前端要提示
+    /// 「该币种在凭证日没有牌价，先维护汇率再选它」—— 别把它当 1 显示）。
+    pub exchange_rate: Option<Decimal>,
+}
+
+/// 外币录入选项（`GET /business/erp/voucher/fx-options`）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FxOptionsRes {
+    /// 账套本位币（`biz_currency.is_base AND ACTIVE`）。
+    pub base_currency: String,
+    /// 这次查询用的凭证日期（= 前端传的，或今天）。
+    pub voucher_date: NaiveDate,
+    /// 启用中的币种（本位币排第一），带各自的 SPOT 牌价。
+    pub currencies: Vec<FxCurrencyOptionRes>,
+}
+
+/// 外币录入选项：账套本位币 + 启用币种 + **凭证日的 SPOT 牌价**（M1-04 前端）。
+///
+/// # 为什么要一个专门的接口，而不是复用 `GET /exchange-rate/quote`
+///
+/// 那个接口的权限是 `business:erp:fx-rate:quote`（币种 / 汇率维护页的码）：只有制单权限、
+/// 没有汇率维护权限的会计一点「新增凭证 → 选币种」就 403，页面等于不可用。
+/// 本接口挂在 `business:erp:voucher:create`（就是「能录凭证」这个码）上，
+/// **只读、不落库**，返回的牌价与建单时锁定的完全同源（`currency::spot_rate` 的口径）。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：`voucher_date` 不是 `YYYY-MM-DD`。
+#[nik::permission(
+    path = "/business/erp/voucher/fx-options",
+    method = "GET",
+    permission = "business:erp:voucher:create"
+)]
+#[nik::get("/business/erp/voucher/fx-options")]
+pub async fn voucher_fx_options_handler(Query(q): Query<FxOptionsQuery>) -> ResResult<FxOptionsRes> {
+    Ok(Res::ok(fx_options(q.voucher_date.as_deref()).await?))
+}
+
+/// [`voucher_fx_options_handler`] 的数据层实现（handler 与单测共用）。
+pub async fn fx_options(voucher_date: Option<&str>) -> std::result::Result<FxOptionsRes, ApiError> {
+    let on_date = match voucher_date.map(str::trim).filter(|text| !text.is_empty()) {
+        None => voucher::today_cst(Utc::now()),
+        Some(text) => NaiveDate::parse_from_str(text, "%Y-%m-%d").map_err(|_| {
+            bad_request(format!(
+                "voucher_date「{text}」不是合法日期：要 `YYYY-MM-DD`（留空则按今天取牌价）"
+            ))
+        })?,
+    };
+    let base_currency = currency::base_currency_code(db())
+        .await
+        .map_err(|error| utils::db_error(error, "查询账套本位币"))?;
+    let rows = db()
+        .query_sql(
+            "SELECT code, name, is_base FROM biz_currency WHERE status = 'ACTIVE' \
+              ORDER BY is_base DESC, code ASC"
+                .to_string(),
+            vec![],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询币种列表"))?;
+    // 一条 SQL 取齐「每个原币 → 本位币」在凭证日（含）之前最近一条 SPOT 牌价（不做 N 次单查）。
+    // 区间谓词与 `currency::spot_rate` 同形（V0407 的 `[effective_date, effective_to]`）。
+    let rate_rows = db()
+        .query_sql(
+            "SELECT DISTINCT ON (from_currency) from_currency, rate FROM biz_exchange_rate \
+              WHERE to_currency = ? AND rate_type = ? \
+                AND effective_date <= ?::text::date \
+                AND (effective_to IS NULL OR effective_to >= ?::text::date) \
+              ORDER BY from_currency, effective_date DESC"
+                .to_string(),
+            vec![
+                Value::Text(base_currency.clone()),
+                Value::Text(currency::RATE_TYPE_SPOT.to_string()),
+                Value::Text(on_date.to_string()),
+                Value::Text(on_date.to_string()),
+            ],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询 SPOT 牌价"))?;
+    let mut rates: std::collections::BTreeMap<String, Decimal> = std::collections::BTreeMap::new();
+    for row in &rate_rows {
+        let code: String = row
+            .get_typed("from_currency")
+            .map_err(|error| utils::db_error(error, "读取牌价币种"))?;
+        let rate: Decimal = row
+            .get_typed("rate")
+            .map_err(|error| utils::db_error(error, "读取牌价汇率"))?;
+        rates.insert(code, rate);
+    }
+    let mut currencies = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let code: String = row
+            .get_typed("code")
+            .map_err(|error| utils::db_error(error, "读取币种码"))?;
+        let name: String = row
+            .get_typed("name")
+            .map_err(|error| utils::db_error(error, "读取币种名称"))?;
+        let is_base: bool = row
+            .get_typed("is_base")
+            .map_err(|error| utils::db_error(error, "读取本位币标记"))?;
+        // 本位币恒 1（不查汇率表：`from <> to` 的自反汇率本来就不允许存在）
+        let exchange_rate = if is_base || code == base_currency {
+            Some(Decimal::ONE)
+        } else {
+            rates.get(&code).copied()
+        };
+        currencies.push(FxCurrencyOptionRes {
+            code,
+            name,
+            is_base,
+            exchange_rate,
+        });
+    }
+    Ok(FxOptionsRes {
+        base_currency,
+        voucher_date: on_date,
+        currencies,
+    })
+}
+
 // ==================== P0-FIX-4A：审核链三个入口 ====================
 //
 // 与 `voucher-audit-api.ts`（P0-FIX-4B 前端契约）逐字对齐：
@@ -2067,6 +2512,8 @@ mod tests {
                 entry(&payable_account, "0", "100", "P7V 贷 应付"),
             ]),
             remark: Some("P7V 单测夹具".to_string()),
+            currency_code: None,
+            exchange_rate: None,
         };
         create_manual_voucher(&req, Some(CREATOR))
             .await
@@ -2272,6 +2719,8 @@ mod tests {
                 entry(&payable_account, "0", "99.5", "贷 99.5"),
             ]),
             remark: None,
+            currency_code: None,
+            exchange_rate: None,
         };
         let err = create_manual_voucher(&req, None).await.expect_err("借贷不平衡必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
@@ -2310,6 +2759,8 @@ mod tests {
                 entry(&payable_account, "0", "23.45", "P7V 贷 应付 2"),
             ]),
             remark: Some("P7V 三道分录".to_string()),
+            currency_code: None,
+            exchange_rate: None,
         };
         let detail = create_manual_voucher(&req, Some(CREATOR))
             .await
@@ -3068,6 +3519,8 @@ mod tests {
                 },
             ]),
             remark: None,
+            currency_code: None,
+            exchange_rate: None,
         };
         let err = create_manual_voucher(&req, Some(CREATOR))
             .await
@@ -3112,6 +3565,8 @@ mod tests {
                 },
             ]),
             remark: None,
+            currency_code: None,
+            exchange_rate: None,
         };
         let created = create_manual_voucher(&req, Some(CREATOR))
             .await
@@ -3172,6 +3627,8 @@ mod tests {
                 entry(&payable_account, "0", "50", "贷 应付"),
             ]),
             remark: None,
+            currency_code: None,
+            exchange_rate: None,
         };
         let created = create_manual_voucher(&req, Some(CREATOR))
             .await
@@ -3235,6 +3692,8 @@ mod tests {
                 },
             ]),
             remark: None,
+            currency_code: None,
+            exchange_rate: None,
         };
         let err = create_manual_voucher(&req, Some(CREATOR))
             .await
@@ -3299,5 +3758,432 @@ mod tests {
             0,
             "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
         );
+    }
+
+    // ==================== M1-04：外币凭证（外币金额 + 汇率 + 本位币换算） ====================
+
+    /// 外币用例的借方科目（`is_foreign_currency = 1`）。
+    const FX_DEBIT: Uuid = Uuid::from_u128(0x4b00_0000_0000_0000_0000_0000_0000_00b1);
+    /// 外币用例的贷方科目（`is_foreign_currency = 1`）。
+    const FX_CREDIT: Uuid = Uuid::from_u128(0x4b00_0000_0000_0000_0000_0000_0000_00b2);
+    /// 外币用例的**未标记**科目（`is_foreign_currency = 0`，用来验 66081）。
+    const FX_UNMARKED: Uuid = Uuid::from_u128(0x4b00_0000_0000_0000_0000_0000_0000_00b3);
+    /// 外币用例的币种（模板库里 `EUR` 已存在且没有牌价行 ⇒ 不会与既有的 USD 牌价区间重叠）。
+    const FX_CURRENCY: &str = "EUR";
+    /// 外币用例的牌价：`1 EUR = 8.5 CNY`，自 2026-10-01 起（`setup()` 的 2026-10 期间覆盖）。
+    const FX_RATE: &str = "8.5";
+    /// 外币用例的凭证日期（落在 `setup()` 打开的 2026-10 期间里）。
+    const FX_DATE: &str = "2026-10-15";
+
+    /// 建/重建外币用例夹具：三个末级科目 + EUR 牌价（幂等：先删后插）。
+    async fn fx_fixture() {
+        for (id, code, name, marked) in [
+            (FX_DEBIT, "M104.01", "M1-04 外币借方", 1),
+            (FX_CREDIT, "M104.02", "M1-04 外币贷方", 1),
+            (FX_UNMARKED, "M104.03", "M1-04 未标外币核算", 0),
+        ] {
+            exec(&format!("DELETE FROM biz_account WHERE id = '{id}'::uuid")).await;
+            exec(&format!(
+                "INSERT INTO biz_account (id, account_code, account_name, parent_id, level, \
+                                         account_category, balance_direction, is_leaf, status, is_foreign_currency) \
+                 VALUES ('{id}'::uuid, '{code}', '{name}', NULL, 1, 'ASSET', 'DEBIT', 1, 1, {marked})"
+            ))
+            .await;
+        }
+        // 牌价：EUR → 本位币（取本位币码，别写死 CNY —— 账套本位币是可配的）
+        let base = currency::base_currency_code(db())
+            .await
+            .unwrap_or_else(|err| panic!("查本位币失败：{err}"));
+        exec(&format!(
+            "DELETE FROM biz_exchange_rate WHERE from_currency = '{FX_CURRENCY}' AND to_currency = '{base}'"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO biz_exchange_rate (from_currency, to_currency, rate, rate_type, effective_date) \
+             VALUES ('{FX_CURRENCY}', '{base}', {FX_RATE}, 'SPOT', DATE '2026-10-01')"
+        ))
+        .await;
+    }
+
+    /// 外币用例的清场（除了 `cleanup_fixtures()` 那份，还要拆掉科目 / 牌价夹具）。
+    async fn fx_cleanup() {
+        // 凭证先删（分录有 FK CASCADE，但 `cleanup_fixtures()` 已按摘要删过一遍）
+        exec("DELETE FROM biz_voucher WHERE summary LIKE 'M104-%'").await;
+        exec(&format!(
+            "DELETE FROM biz_exchange_rate WHERE from_currency = '{FX_CURRENCY}'"
+        ))
+        .await;
+        for id in [FX_DEBIT, FX_CREDIT, FX_UNMARKED] {
+            exec(&format!("DELETE FROM biz_account WHERE id = '{id}'::uuid")).await;
+        }
+    }
+
+    /// `setup()` + 外币夹具。
+    async fn fx_setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = setup().await?;
+        fx_fixture().await;
+        Some(guard)
+    }
+
+    /// 一条分录（指定科目 id）。
+    fn fx_entry(account: Uuid, debit: &str, credit: &str) -> ManualEntryReq {
+        ManualEntryReq {
+            account_id: Some(account.to_string()),
+            debit: Some(dec(debit)),
+            credit: Some(dec(credit)),
+            summary: Some("M104 外币分录".to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// 建一张外币（或本位币）手工凭证，制单人 = [`CREATOR`]。
+    async fn create_fx(
+        currency: Option<&str>,
+        rate: Option<&str>,
+        entries: Vec<ManualEntryReq>,
+    ) -> std::result::Result<VoucherDetailRes, ApiError> {
+        let req = CreateVoucherReq {
+            voucher_date: Some(NaiveDate::parse_from_str(FX_DATE, "%Y-%m-%d").expect("固定日期")),
+            summary: Some("M104 外币凭证".to_string()),
+            entries: Some(entries),
+            remark: Some("M104 单测夹具".to_string()),
+            currency_code: currency.map(str::to_string),
+            exchange_rate: rate.map(dec),
+        };
+        create_manual_voucher(&req, Some(CREATOR)).await
+    }
+
+    /// 换算纯逻辑：汇率 1 ⇒ 逐行恒等（本位币凭证一字不变）。
+    #[test]
+    fn m104_convert_identity_when_rate_is_one() {
+        let lines = vec![(dec("100.1234"), Decimal::ZERO), (Decimal::ZERO, dec("100.1234"))];
+        let base = convert_lines(&lines, Decimal::ONE).expect("汇率 1 必须恒等通过");
+        assert_eq!(base, lines);
+    }
+
+    /// 换算纯逻辑：逐行五入后的尾差**必须被吸收**（否则库层 `total_debit = total_credit` 拦死）。
+    #[test]
+    fn m104_convert_absorbs_tail_diff_into_largest_line() {
+        // 原币平衡：33.3333 + 66.6667 = 100（借），贷 100；汇率 8.5
+        // 逐行五入：283.3331 + 566.6670 = 850.0001 ≠ 贷方 850.0000（差 +0.0001）
+        let lines = vec![
+            (dec("33.3333"), Decimal::ZERO),
+            (dec("66.6667"), Decimal::ZERO),
+            (Decimal::ZERO, dec("100")),
+        ];
+        let base = convert_lines(&lines, dec(FX_RATE)).expect("尾差必须能吸收");
+        assert_eq!(base[0], (dec("283.3331"), Decimal::ZERO), "小额行不该被动");
+        assert_eq!(base[1], (dec("566.6669"), Decimal::ZERO), "差额从借方最大的行吸收");
+        assert_eq!(base[2], (Decimal::ZERO, dec("850.0000")));
+        let debit = base.iter().fold(Decimal::ZERO, |acc, (d, _)| acc + *d);
+        let credit = base.iter().fold(Decimal::ZERO, |acc, (_, c)| acc + *c);
+        assert_eq!(debit, credit, "吸收后必须严格平：借 {debit} / 贷 {credit}");
+    }
+
+    /// 换算纯逻辑：原币太小（折算后不足 0.0001）⇒ 明确报错，不静默写 0 元分录。
+    #[test]
+    fn m104_convert_rejects_amount_rounding_to_zero() {
+        let lines = vec![(dec("0.00001"), Decimal::ZERO), (Decimal::ZERO, dec("0.00001"))];
+        let error = convert_lines(&lines, Decimal::ONE).expect_err("折算成 0 必须拒绝");
+        assert_eq!(error.status, 400);
+        assert!(error.msg.contains("不足 0.0001"), "{}", error.msg);
+    }
+
+    /// 换算纯逻辑：差额大于任何单行金额 ⇒ 报错（不静默留一张不平的凭证）。
+    #[test]
+    fn m104_convert_reports_unabsorbable_diff() {
+        // 0.0001 + 0.0001（借）→ 每行 ×0.5 都五入成 0.0001；贷方 0.0002 ×0.5 = 0.0001
+        // ⇒ 借方合计 0.0002 / 贷方 0.0001，差 0.0001，而借方每行都只有 0.0001（吸收后归 0）
+        let lines = vec![
+            (dec("0.0001"), Decimal::ZERO),
+            (dec("0.0001"), Decimal::ZERO),
+            (Decimal::ZERO, dec("0.0002")),
+        ];
+        let error = convert_lines(&lines, dec("0.5")).expect_err("吸收不了必须报错");
+        assert_eq!(error.status, 400);
+        assert!(error.msg.contains("无法吸收尾差"), "{}", error.msg);
+    }
+
+    /// 外币凭证落库：**原币**录入 → 本位币换算 → 单头锁币种/汇率、分录存双口径。
+    #[tokio::test]
+    async fn m104_foreign_voucher_stores_base_and_fc_amounts() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let created = create_fx(
+            Some(FX_CURRENCY),
+            None,
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("建外币凭证失败：{} {}", err.code, err.msg));
+
+        assert_eq!(created.voucher.currency_code, FX_CURRENCY, "单头必须记原币币种");
+        assert_eq!(created.voucher.exchange_rate, dec(FX_RATE), "单头必须锁住当日牌价");
+        assert_eq!(created.voucher.total_debit, dec("850.0000"), "本位币合计 = 100 × 8.5");
+        assert_eq!(created.voucher.total_credit, dec("850.0000"));
+        assert!(created.balanced, "单头与分录必须一致");
+
+        let debit = &created.entries[0];
+        assert_eq!(debit.debit_amount, dec("850.0000"), "分录存**本位币**金额");
+        assert_eq!(debit.fc_debit_amount, Some(dec("100.0000")), "分录另存**原币**金额");
+        assert_eq!(debit.fc_credit_amount, Some(Decimal::ZERO));
+        let credit = &created.entries[1];
+        assert_eq!(credit.credit_amount, dec("850.0000"));
+        assert_eq!(credit.fc_credit_amount, Some(dec("100.0000")));
+        assert_eq!(credit.fc_debit_amount, Some(Decimal::ZERO));
+
+        // 库里读回来必须是同一份（列表 / 详情走的是 HEADER_COLUMNS / ENTRY_COLUMNS）
+        let id = Uuid::parse_str(&created.voucher.id).expect("凭证 id 非法");
+        let row = find_voucher(db(), id).await.unwrap().expect("凭证必须能读回");
+        assert_eq!(row.currency_code, FX_CURRENCY);
+        assert_eq!(row.exchange_rate, dec(FX_RATE));
+        let rows = entries_of(db(), id).await.unwrap();
+        assert_eq!(rows[0].fc_debit, Some(dec("100.0000")));
+        assert_eq!(rows[1].fc_credit, Some(dec("100.0000")));
+    }
+
+    /// 尾差吸收（真库往返）：三行外币凭证落库后单头仍严格平衡。
+    #[tokio::test]
+    async fn m104_tail_diff_voucher_is_balanced_in_db() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let created = create_fx(
+            Some(FX_CURRENCY),
+            None,
+            vec![
+                fx_entry(FX_DEBIT, "33.3333", "0"),
+                fx_entry(FX_DEBIT, "66.6667", "0"),
+                fx_entry(FX_CREDIT, "0", "100"),
+            ],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("建尾差凭证失败：{} {}", err.code, err.msg));
+        assert_eq!(created.voucher.total_debit, dec("850.0000"));
+        assert_eq!(created.voucher.total_credit, dec("850.0000"));
+        assert_eq!(created.entry_total_debit, dec("850.0000"));
+        assert_eq!(created.entries[0].debit_amount, dec("283.3331"));
+        assert_eq!(created.entries[1].debit_amount, dec("566.6669"));
+        // 原币金额保持用户输入，不受尾差吸收影响
+        assert_eq!(created.entries[0].fc_debit_amount, Some(dec("33.3333")));
+        assert_eq!(created.entries[1].fc_debit_amount, Some(dec("66.6667")));
+    }
+
+    /// 外币凭证记到**未标记外币核算**的科目 ⇒ 400 + `66081`，并点名科目。
+    #[tokio::test]
+    async fn m104_unmarked_account_is_rejected() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let error = create_fx(
+            Some(FX_CURRENCY),
+            None,
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_UNMARKED, "0", "100")],
+        )
+        .await
+        .expect_err("未标记外币核算的科目必须被拒");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_VOUCHER_FX_ACCOUNT_UNMARKED);
+        assert!(error.msg.contains("M104.03"), "文案必须点名科目：{}", error.msg);
+        assert!(
+            error.msg.contains("entries[1]"),
+            "文案必须点名是第几条分录：{}",
+            error.msg
+        );
+        // 拒了就不许留半张凭证
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_voucher WHERE summary = 'M104 外币凭证'",
+                vec![],
+            )
+            .await
+            .expect("查残留")
+            .unwrap_or(0);
+        assert_eq!(left, 0, "被拒的外币凭证不许留行");
+    }
+
+    /// 请求里带了与当日牌价不一致的汇率 ⇒ 400 + `10001`（汇率不接受手改）。
+    #[tokio::test]
+    async fn m104_rate_mismatch_is_rejected() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let error = create_fx(
+            Some(FX_CURRENCY),
+            Some("7.2"),
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .expect_err("汇率与牌价不一致必须被拒");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(error.msg.contains("8.5"), "文案必须给出当日牌价：{}", error.msg);
+
+        // 传对了就放行（一致性校验不是「一律拒绝」）
+        let ok = create_fx(
+            Some(FX_CURRENCY),
+            Some(FX_RATE),
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("牌价一致必须能建单：{} {}", err.code, err.msg));
+        assert_eq!(ok.voucher.exchange_rate, dec(FX_RATE));
+    }
+
+    /// 币种不存在 ⇒ 400 + `66002`（`ERP_REFERENCE_MISSING`）。
+    #[tokio::test]
+    async fn m104_unknown_currency_is_rejected() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let error = create_fx(
+            Some("ZZZ"),
+            None,
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .expect_err("不存在的币种必须被拒");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(error.msg.contains("ZZZ"), "{}", error.msg);
+    }
+
+    /// 外币在凭证日（含）之前没有牌价 ⇒ 400 + `10001`，**绝不按 1 入账**。
+    #[tokio::test]
+    async fn m104_missing_rate_is_rejected_not_defaulted_to_one() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // HKD 在模板库里没有任何牌价行
+        let error = create_fx(
+            Some("HKD"),
+            None,
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .expect_err("没有牌价必须被拒");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(error.msg.contains("HKD"), "{}", error.msg);
+        assert!(error.msg.contains("汇率"), "文案要把人指到汇率维护：{}", error.msg);
+    }
+
+    /// 本位币凭证（不传币种）行为**逐字不变**：CNY / 1、分录原币列为 NULL。
+    #[tokio::test]
+    async fn m104_base_currency_voucher_is_unchanged() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let created = create_fx(
+            None,
+            None,
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("建本位币凭证失败：{} {}", err.code, err.msg));
+        let base = currency::base_currency_code(db()).await.expect("查本位币");
+        assert_eq!(created.voucher.currency_code, base);
+        assert_eq!(created.voucher.exchange_rate, Decimal::ONE);
+        assert_eq!(created.voucher.total_debit, dec("100.0000"));
+        assert_eq!(created.entries[0].fc_debit_amount, None, "本位币分录不许写原币");
+        assert_eq!(created.entries[0].fc_credit_amount, None);
+    }
+
+    /// 红冲外币凭证：红字凭证**继承币种/汇率**，原币金额借贷互换。
+    #[tokio::test]
+    async fn m104_reverse_keeps_currency_and_swaps_fc() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let created = create_fx(
+            Some(FX_CURRENCY),
+            None,
+            vec![fx_entry(FX_DEBIT, "100", "0"), fx_entry(FX_CREDIT, "0", "100")],
+        )
+        .await
+        .expect("建外币凭证");
+        let id = Uuid::parse_str(&created.voucher.id).expect("凭证 id");
+        audit_voucher(id, Some("M104 复核"), Some(AUDITOR)).await.expect("审核");
+        post_audited_voucher(id, Some(AUDITOR)).await.expect("记账");
+
+        let red = reverse_voucher(id, Some("M104 红冲"), Some(AUDITOR))
+            .await
+            .expect("红冲外币凭证");
+        assert!(red.voucher.is_red, "红冲必须生成红字凭证");
+        assert_eq!(
+            red.voucher.currency_code, FX_CURRENCY,
+            "红字凭证必须继承原币币种（退回 CNY 会让原币余额冲不平）"
+        );
+        assert_eq!(red.voucher.exchange_rate, dec(FX_RATE), "汇率也必须继承");
+        assert_eq!(red.voucher.total_debit, dec("850.0000"));
+        // 原凭证「借 100 原币」→ 红字凭证「贷 100 原币」
+        assert_eq!(red.entries[0].credit_amount, dec("850.0000"));
+        assert_eq!(red.entries[0].fc_credit_amount, Some(dec("100.0000")));
+        assert_eq!(red.entries[0].fc_debit_amount, Some(Decimal::ZERO));
+        assert_eq!(red.entries[1].debit_amount, dec("850.0000"));
+        assert_eq!(red.entries[1].fc_debit_amount, Some(dec("100.0000")));
+    }
+
+    /// 外币录入选项（`fx-options`）：本位币恒 1、外币取凭证日牌价、取不到时是 `null`。
+    #[tokio::test]
+    async fn m104_fx_options_expose_locked_rate() {
+        let _db = match fx_setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let options = fx_options(Some(FX_DATE)).await.expect("取外币选项");
+        let base = currency::base_currency_code(db()).await.expect("查本位币");
+        assert_eq!(options.base_currency, base);
+        assert_eq!(options.voucher_date.to_string(), FX_DATE);
+        let base_row = options
+            .currencies
+            .iter()
+            .find(|row| row.code == base)
+            .expect("本位币必须在列表里");
+        assert!(base_row.is_base);
+        assert_eq!(base_row.exchange_rate, Some(Decimal::ONE));
+        let eur = options
+            .currencies
+            .iter()
+            .find(|row| row.code == FX_CURRENCY)
+            .expect("EUR 必须在列表里");
+        assert_eq!(eur.exchange_rate, Some(dec(FX_RATE)));
+        let hkd = options
+            .currencies
+            .iter()
+            .find(|row| row.code == "HKD")
+            .expect("HKD 必须在列表里");
+        assert_eq!(hkd.exchange_rate, None, "没有牌价必须是 null，不能当 1 显示");
+        // 非法日期 400
+        let error = fx_options(Some("2026/10/15")).await.expect_err("非法日期必须 400");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+    }
+
+    /// 外币用例的收尾清场（名字 `zz_` 开头，libtest 按名排序 ⇒ 必然排在最后）。
+    #[tokio::test]
+    async fn zz_m104_teardown_purges_fx_fixtures() {
+        if !ensure_db().await {
+            return;
+        }
+        fx_cleanup().await;
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_account WHERE account_code LIKE 'M104.%'",
+                vec![],
+            )
+            .await
+            .expect("查科目残留")
+            .unwrap_or(0);
+        assert_eq!(left, 0, "外币用例的科目夹具必须清干净");
     }
 }

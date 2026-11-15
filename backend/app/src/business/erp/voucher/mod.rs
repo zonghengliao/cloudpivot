@@ -1274,10 +1274,14 @@ pub fn totals_of(lines: &[EntryLine]) -> (Decimal, Decimal) {
 // ==================== 行结构（读） ====================
 
 /// `biz_voucher` 列清单。
+///
+/// `currency_code` / `exchange_rate`（V0406 · M1-01）：凭证原币币种与建单锁定的汇率。
+/// 红冲要把它们**原样继承**给红字凭证（M1-04 · `reverse_posted`），所以列表 / 详情 / 反查
+/// 三处共用的清单里必须带上它们 —— 少一列，红冲出来的红字凭证就会退回默认 `CNY / 1`。
 pub const VOUCHER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, \
      voucher_type, source_type, source_id, source_no, source_doc_no, summary, total_debit, total_credit, \
      entry_count, status, is_red, reverse_of, reversed_by, posted_at, posted_by, remark, \
-     pending_reverse_instance_id, reverse_reason, \
+     pending_reverse_instance_id, reverse_reason, currency_code, exchange_rate, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 凭证行。
@@ -1330,6 +1334,10 @@ pub struct VoucherRow {
     pub pending_reverse_instance_id: Option<Uuid>,
     /// 红冲原因（P-FLOW-3B）：提交审批时填写，通过后成为红字凭证的分录摘要。
     pub reverse_reason: Option<String>,
+    /// 凭证原币币种（ISO 4217 三位大写；本位币凭证 = 账套本位币码，M1-04）。
+    pub currency_code: String,
+    /// 建单时锁定的汇率：`1 原币 = exchange_rate 本位币`（本位币凭证恒 1，M1-04）。
+    pub exchange_rate: Decimal,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -1362,6 +1370,8 @@ impl VoucherRow {
             remark: row.get_typed("remark")?,
             pending_reverse_instance_id: row.get_typed("pending_reverse_instance_id")?,
             reverse_reason: row.get_typed("reverse_reason")?,
+            currency_code: row.get_typed("currency_code")?,
+            exchange_rate: row.get_typed("exchange_rate")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -1369,9 +1379,12 @@ impl VoucherRow {
 }
 
 /// `biz_voucher_entry` 列清单。
+///
+/// `fc_debit_amount` / `fc_credit_amount`（V0409 · M1-04）：**原币**金额，`NULL` = 本位币分录。
+/// 红冲要把它们借贷互换后继承（`reversed_lines` → `write_entries_with_fc`），所以清单里必须有。
 pub const ENTRY_COLUMNS: &str = "id, voucher_id, line_no, summary, account_id, account_code, \
-     account_name, debit_amount, credit_amount, aux_supplier_id, aux_material_id, \
-     aux_warehouse_id, aux_dept_id, created_at";
+     account_name, debit_amount, credit_amount, fc_debit_amount, fc_credit_amount, \
+     aux_supplier_id, aux_material_id, aux_warehouse_id, aux_dept_id, created_at";
 
 /// 分录行（读回用）。
 #[derive(Debug, Clone)]
@@ -1390,6 +1403,10 @@ pub struct EntryRow {
     pub debit: Decimal,
     /// 贷方金额。
     pub credit: Decimal,
+    /// 借方**原币**金额（外币凭证才有值；`None` = 本位币分录，M1-04 · V0409）。
+    pub fc_debit: Option<Decimal>,
+    /// 贷方**原币**金额（外币凭证才有值；`None` = 本位币分录）。
+    pub fc_credit: Option<Decimal>,
     /// 辅助核算：供应商。
     pub aux_supplier_id: Option<Uuid>,
     /// 辅助核算：物料。
@@ -1414,6 +1431,8 @@ impl EntryRow {
             },
             debit: row.get_typed("debit_amount")?,
             credit: row.get_typed("credit_amount")?,
+            fc_debit: row.get_typed("fc_debit_amount")?,
+            fc_credit: row.get_typed("fc_credit_amount")?,
             aux_supplier_id: row.get_typed("aux_supplier_id")?,
             aux_material_id: row.get_typed("aux_material_id")?,
             aux_warehouse_id: row.get_typed("aux_warehouse_id")?,
@@ -1880,17 +1899,57 @@ pub fn compare_snapshots(configured: &VoucherSnapshot, legacy: &VoucherSnapshot)
     diffs
 }
 
-/// 批量写分录（单条语句，行号唯一键冲突即失败）。
-async fn write_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[EntryLine]) -> DbResult<()> {
-    for line in lines {
+/// 一条分录的**原币金额**（M1-04 · V0409）：外币凭证才需要，本位币凭证整表传 `None`
+/// （两列留 NULL，语义 = 原币 ≡ 本位币）。
+///
+/// 为什么它不在 [`EntryLine`] 里加两个字段：`EntryLine` 在全仓有 **80 处**结构体字面量
+/// （收货 / 出库 / 年结 / 期初 / 成本 / 佣金 / 各种夹具），加字段等于把本卡的 diff 摊到
+/// 十几个别的模块上（那些文件当时正被别的卡改）。外币是**单一入口**（手工凭证）的属性，
+/// 用旁路参数表达，写入口仍然只有一份。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FcAmount {
+    /// 借方原币金额。
+    pub debit: Decimal,
+    /// 贷方原币金额。
+    pub credit: Decimal,
+}
+
+/// 落一张凭证的全部分录（本位币金额 + **可选**的原币金额）。
+///
+/// 逐行一条 INSERT（行号唯一键冲突即失败）。
+/// `fc` 为 `None` = 本位币凭证（两列 NULL）；`Some` 时**长度必须与 `lines` 逐行对齐**
+/// （错位会把 A 行的原币写到 B 行上，且库层 CHECK 只在同边/成对上拦，错行拦不住）。
+pub async fn write_entries_with_fc(
+    ex: &impl SqlExecutor,
+    voucher_id: Uuid,
+    lines: &[EntryLine],
+    fc: Option<&[FcAmount]>,
+) -> DbResult<()> {
+    if let Some(fc) = fc
+        && fc.len() != lines.len()
+    {
+        return Err(DbError::InvalidValue(format!(
+            "凭证分录原币金额与分录行数不一致（{} 行分录 / {} 组原币）：原币必须逐行对齐，\
+                 错位会把金额写到别的科目上",
+            lines.len(),
+            fc.len()
+        )));
+    }
+    for (index, line) in lines.iter().enumerate() {
+        let (fc_debit, fc_credit) = match fc {
+            Some(list) => (list[index].debit.to_string(), list[index].credit.to_string()),
+            None => (String::new(), String::new()),
+        };
         // SCOPE-EXEMPT: 凭证分录无归属列（见模块文档）。
         ex.exec_sql(
             format!(
                 "INSERT INTO {ENTRY_TABLE} \
                     (voucher_id, line_no, summary, account_id, account_code, account_name, \
-                     debit_amount, credit_amount, aux_supplier_id, aux_material_id, aux_warehouse_id, \
+                     debit_amount, credit_amount, fc_debit_amount, fc_credit_amount, \
+                     aux_supplier_id, aux_material_id, aux_warehouse_id, \
                      aux_dept_id) \
                  VALUES (?::uuid, ?, ?, ?::uuid, ?, ?, NULLIF(?::text,'')::numeric, \
+                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::uuid, \
                          NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
                          NULLIF(?::text,'')::uuid)"
@@ -1904,6 +1963,8 @@ async fn write_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[EntryLi
                 Value::Text(line.account.name.clone()),
                 Value::Text(line.debit.to_string()),
                 Value::Text(line.credit.to_string()),
+                Value::Text(fc_debit),
+                Value::Text(fc_credit),
                 Value::Text(line.aux_supplier_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(line.aux_material_id.map(|v| v.to_string()).unwrap_or_default()),
                 Value::Text(line.aux_warehouse_id.map(|v| v.to_string()).unwrap_or_default()),
@@ -1913,6 +1974,11 @@ async fn write_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[EntryLi
         .await?;
     }
     Ok(())
+}
+
+/// 落分录（本位币凭证的便捷入口，等价于 [`write_entries_with_fc`] 传 `None`）。
+async fn write_entries(ex: &impl SqlExecutor, voucher_id: Uuid, lines: &[EntryLine]) -> DbResult<()> {
+    write_entries_with_fc(ex, voucher_id, lines, None).await
 }
 
 /// 覆盖一张凭证的全部分录（期初凭证「覆盖式更新」专用）。
@@ -1992,6 +2058,34 @@ pub struct PostVoucher<'a> {
 pub async fn post_voucher(
     ex: &impl SqlExecutor,
     req: &PostVoucher<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Uuid> {
+    post_voucher_fx(ex, req, None, None, operator, now).await
+}
+
+/// [`post_voucher`] 的**外币变体**（M1-04）：凭证原币币种 / 锁定汇率 + 逐行原币金额。
+///
+/// # 两个旁路参数
+///
+/// * `currency = Some((币种, 汇率))` → 单头落 `biz_voucher.currency_code / exchange_rate`；
+///   `None` → 落库用列默认值（`CNY / 1`），与 V0406 之前的行为逐个字节相同；
+/// * `fc = Some(逐行原币)` → 分录落 `fc_debit_amount / fc_credit_amount`（长度必须与 `lines` 对齐）；
+///   `None` → 两列 NULL（本位币分录）。
+///
+/// **借贷平衡与末级科目校验仍然只按本位币金额做**（`lines` 里的 `debit` / `credit` 就是
+/// 换算后的本位币金额）：外币单的原币平衡由调用方在换汇时保证 —— 换算是逐行五入的，
+/// 原币平衡不蕴含「逐行换算后仍然平衡」，尾差必须由换汇算法吸收（见
+/// `voucher_write::convert_lines`），这里不接受「先落库再说」。
+///
+/// **为什么不给 `PostVoucher` 加字段**：它有 37 处结构体字面量（收货 / 出库 / 年结 / 期初 /
+/// 成本 / 佣金 / 各种夹具），加字段会把 diff 摊到十几个别的模块。外币是单一入口的属性，
+/// 用参数表达，落库实现仍然只有一份。
+pub async fn post_voucher_fx(
+    ex: &impl SqlExecutor,
+    req: &PostVoucher<'_>,
+    fc: Option<&[FcAmount]>,
+    currency: Option<(&str, Decimal)>,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
@@ -2090,18 +2184,22 @@ pub async fn post_voucher(
     let source_doc_no = req.source_doc_no.or(req.source_no);
 
     // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    let (currency_code, exchange_rate) = match currency {
+        Some((code, rate)) => (code.trim().to_ascii_uppercase(), rate),
+        None => ("CNY".to_string(), Decimal::ONE),
+    };
     let inserted = ex
         .query_first_sql(
             format!(
                 "INSERT INTO {TABLE} \
                     (voucher_word, voucher_no, period, voucher_date, voucher_type, source_type, \
                      source_id, source_no, source_doc_no, summary, total_debit, total_credit, entry_count, \
-                     status, is_red, reverse_of, posted_at, posted_by, remark, \
+                     status, is_red, reverse_of, currency_code, exchange_rate, posted_at, posted_by, remark, \
                      created_at, updated_at, create_by, update_by) \
                  VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, \
                          NULLIF(?::text,''), ?, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, ?, ?, \
-                         NULLIF(?::text,'')::uuid, ?::timestamptz, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+                         NULLIF(?::text,'')::uuid, ?, ?::text::numeric, ?::timestamptz, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
                          ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
                  RETURNING id"
             ),
@@ -2122,6 +2220,8 @@ pub async fn post_voucher(
                 Value::Text(req.status.to_string()),
                 Value::I16(is_red),
                 Value::Text(req.red_of.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(currency_code),
+                Value::Text(exchange_rate.to_string()),
                 posted_at,
                 posted_by,
                 Value::Text(req.remark.unwrap_or_default().to_string()),
@@ -2142,7 +2242,7 @@ pub async fn post_voucher(
         }
     };
 
-    write_entries(ex, voucher_id, &req.lines).await?;
+    write_entries_with_fc(ex, voucher_id, &req.lines, fc).await?;
     // P10 铁律 ③：凭证建单留痕（`NULL → DRAFT` / `NULL → POSTED`）。
     // 凭证的「原地状态流转」只有 P0-FIX-4A 的三条边（审核 / 反审核 / 记账），
     // 建单本身不是流转，所以这里只留「谁在什么时候、以什么状态落了这张凭证」。
@@ -2181,6 +2281,51 @@ pub struct ReversalInput<'a> {
     pub reason: Option<&'a str>,
     /// 红字凭证日期（业务口径：作废 / 更正当天）。
     pub voucher_date: NaiveDate,
+}
+
+/// 红冲要继承的外币上下文：`(逐行原币, 单头 (币种, 汇率))`。
+///
+/// 用类型别名而不是裸元组：裸元组类型会触发 `clippy::type_complexity`
+/// （`Option<Vec<FcAmount>>` + `Option<(&str, Decimal)>` 叠在一个返回类型里）。
+type ReversalFx<'a> = (Option<Vec<FcAmount>>, Option<(&'a str, Decimal)>);
+
+/// 红冲外币凭证时要继承的两样东西（M1-04）：逐行原币（**借贷互换**）+ 单头币种/汇率。
+///
+/// 三条口径：
+/// * 原凭证是**本位币凭证**（分录原币全 NULL）⇒ 返回 `(None, None)`，红字凭证一字不变
+///   （两列留 NULL、单头走默认 CNY/1 —— 与 V0409 之前逐字节相同）；
+/// * 原凭证是**外币凭证** ⇒ 币种 / 汇率**原样继承**（红冲冲的是同一笔外币业务，按红冲日的牌价
+///   重锁会把「原样冲回」变成「按新汇率冲回」，原币余额冲不平、还凭空生一笔汇兑损益）；
+/// * 原币必须**成对**：库层 `ck_biz_voucher_entry_fc_side` 保证正常数据不会半对；
+///   真撞上半对说明有人绕过约束改库 —— 红冲拒绝比默默写出错行金额好。
+fn reversal_fx<'a>(original: &'a VoucherRow, entries: &[EntryRow]) -> DbResult<ReversalFx<'a>> {
+    if !entries
+        .iter()
+        .any(|entry| entry.fc_debit.is_some() || entry.fc_credit.is_some())
+    {
+        return Ok((None, None));
+    }
+    let mut swapped = Vec::with_capacity(entries.len());
+    for entry in entries {
+        match (entry.fc_debit, entry.fc_credit) {
+            (Some(debit), Some(credit)) => swapped.push(FcAmount {
+                debit: credit,
+                credit: debit,
+            }),
+            _ => {
+                return Err(DbError::InvalidValue(format!(
+                    "红冲失败：凭证 {} 的第 {} 行原币金额不成对（借 {:?} / 贷 {:?}）。\
+                     ck_biz_voucher_entry_fc_side 本不该放行这种行 —— 说明有数据绕过了约束改库，\
+                     请先修那一行再红冲（红冲会按错行写出原币金额）",
+                    original.voucher_no, entry.line_no, entry.fc_debit, entry.fc_credit
+                )));
+            }
+        }
+    }
+    Ok((
+        Some(swapped),
+        Some((original.currency_code.as_str(), original.exchange_rate)),
+    ))
 }
 
 /// 红冲一张**已记账**凭证：生成红字凭证（借贷互换）+ 回写原凭证 `reversed_by`。
@@ -2240,8 +2385,11 @@ pub async fn reverse_posted(
     }
     let lines = reversed_lines(&entries, input.reason);
     let summary = format!("红冲凭证 {} 借贷合计 {}", original.voucher_no, original.total_debit);
+    // 外币凭证的红冲（M1-04）：币种 / 汇率**原样继承**（红字凭证冲的是同一笔外币金额），
+    // 逐行原币金额跟着本位币一起**借贷互换**（与 `reversed_lines` 完全同口径）。
+    let (fc_lines, fx_currency) = reversal_fx(original, &entries)?;
 
-    let red_id = post_voucher(
+    let red_id = post_voucher_fx(
         ex,
         &PostVoucher {
             voucher_type: &original.voucher_type,
@@ -2257,6 +2405,8 @@ pub async fn reverse_posted(
             red_of: Some(original.id),
             status: crate::business::erp::voucher::STATUS_POSTED,
         },
+        fc_lines.as_deref(),
+        fx_currency,
         operator,
         now,
     )
@@ -4090,6 +4240,9 @@ mod tests {
                 account: line.account.clone(),
                 debit: line.debit,
                 credit: line.credit,
+                // M1-04：本位币分录的原币列为 NULL（本用例只验红冲的借贷互换）
+                fc_debit: None,
+                fc_credit: None,
                 aux_supplier_id: line.aux_supplier_id,
                 aux_material_id: line.aux_material_id,
                 aux_warehouse_id: line.aux_warehouse_id,

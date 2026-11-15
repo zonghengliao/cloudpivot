@@ -2264,6 +2264,17 @@ export interface VoucherRow {
   posted_by: string | null;
   /** 备注 */
   remark: string | null;
+  /**
+   * 凭证原币币种（M1-04 · V0406）：本位币凭证 = 账套本位币（如 `CNY`）。
+   */
+  currency_code: string;
+  /**
+   * 建单锁定的汇率：`1 原币 = exchange_rate 本位币`（本位币凭证恒 1，M1-04）。
+   *
+   * 外币凭证的**本位币金额**在各分录的 `debit_amount` / `credit_amount` 上，
+   * `fc_*_amount` 才是原币金额。
+   */
+  exchange_rate: number | string;
   /** 创建时间 */
   created_at: string;
 }
@@ -2291,6 +2302,13 @@ export interface VoucherEntryLine {
   debit_amount: number | string;
   /** 贷方金额 */
   credit_amount: number | string;
+  /**
+   * 借方**原币**金额（M1-04 · V0409）：外币凭证才有值，`null` = 本位币分录
+   * （语义 = 原币 ≡ 本位币）。
+   */
+  fc_debit_amount: number | string | null;
+  /** 贷方**原币**金额（M1-04 · V0409），口径同 `fc_debit_amount`。 */
+  fc_credit_amount: number | string | null;
   /** 辅助核算：供应商 */
   aux_supplier_id: string | null;
   /** 辅助核算：物料 */

@@ -66,6 +66,9 @@ function voucher(over: Partial<VoucherRow> & { id: string; voucher_no: string })
     posted_at: '2026-11-11T09:00:00+08:00',
     posted_by: ID_B,
     remark: null,
+    // M1-04：本位币凭证的币种/汇率（外币列在分录上，本文件不读）
+    currency_code: 'CNY',
+    exchange_rate: '1',
     created_at: '2026-11-11T09:00:00+08:00',
     ...over,
   };
