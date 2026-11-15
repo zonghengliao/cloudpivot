@@ -1070,11 +1070,6 @@ onMounted(() => {
   width: 132px;
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
 .panel-foot {
   margin: 8px 0 0;
   color: var(--td-text-color-secondary);

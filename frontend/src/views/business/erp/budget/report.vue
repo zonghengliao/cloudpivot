@@ -460,10 +460,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
 
-  &__spacer {
-    flex: 1;
-  }
-
   &__year {
     width: 112px;
   }
@@ -474,11 +470,6 @@ onMounted(() => {
 
   &__keyword {
     width: 200px;
-  }
-
-  &__hint {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
   }
 }
 
@@ -532,11 +523,6 @@ onMounted(() => {
   &__title {
     font-size: 16px;
     font-weight: 600;
-  }
-
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
   }
 
   &__actions {

@@ -465,11 +465,6 @@ onMounted(() => {
   padding: 12px;
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
 .list-alert,
 .dlg-alert {
   margin-bottom: 12px;

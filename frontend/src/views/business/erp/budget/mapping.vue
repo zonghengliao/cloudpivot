@@ -616,10 +616,6 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
 
-  &__spacer {
-    flex: 1;
-  }
-
   &__type {
     width: 150px;
   }
@@ -650,11 +646,6 @@ onMounted(() => {
   &__title {
     font-size: 16px;
     font-weight: 600;
-  }
-
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
   }
 
   &__tip {

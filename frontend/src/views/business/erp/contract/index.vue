@@ -1198,19 +1198,9 @@ async function applyRouteQuery(): Promise<void> {
   white-space: nowrap;
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
 .panel-empty {
   padding: 36px 0;
   text-align: center;
-
-  &__icon {
-    font-size: 28px;
-    color: var(--td-text-color-placeholder);
-  }
 
   &__title {
     margin: 8px 0 4px;

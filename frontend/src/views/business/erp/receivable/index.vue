@@ -945,10 +945,6 @@ watch(
   margin-top: 8px;
 }
 
-.tool-row__spacer {
-  flex: 1;
-}
-
 .tool-row__label {
   color: var(--td-text-color-secondary);
   font-size: 13px;

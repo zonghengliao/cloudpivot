@@ -1454,11 +1454,6 @@ onMounted(async () => {
     font-weight: 600;
   }
 
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-
   &__hint {
     margin-left: auto;
     color: var(--td-text-color-placeholder);

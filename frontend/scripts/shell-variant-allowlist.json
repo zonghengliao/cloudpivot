@@ -1,0 +1,1539 @@
+{
+  "_comment": "页面壳类声明存量快照（门禁 allowlist）。由 `node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write` 生成，勿手改。每落一批（B1…B6）后重新 --write，条目数只许降。终态只剩 B0 components/ListPage/index.vue。",
+  "shellLess": {
+    "file": "src/style/shell.less",
+    "classCount": 27,
+    "classesHash": "d3c3cd330ef153e2"
+  },
+  "totals": {
+    "entries": 253,
+    "byBatch": {
+      "B0": 4,
+      "B2": 38,
+      "B3": 16,
+      "B4": 33,
+      "B5": 136,
+      "B6": 26
+    }
+  },
+  "entries": [
+    {
+      "file": "components/ListPage/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B0"
+    },
+    {
+      "file": "components/ListPage/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B0"
+    },
+    {
+      "file": "components/ListPage/index.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B0"
+    },
+    {
+      "file": "components/ListPage/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B0"
+    },
+    {
+      "file": "views/business/erp/account/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/account/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/account/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/account/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/account/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/account/index.vue",
+      "class": "tool-row__category",
+      "selector": ".tool-row__category",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/asset-category/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/asset/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/asset/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/asset/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/asset/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/budget/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "tool-row__dept",
+      "selector": ".tool-row__dept",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/budget/mapping.vue",
+      "class": "tool-row__type",
+      "selector": ".tool-row__type",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "panel-head__actions",
+      "selector": ".panel-head__actions",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "tool-row__dept",
+      "selector": ".tool-row__dept",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "tool-row__keyword",
+      "selector": ".tool-row__keyword",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/budget/report.vue",
+      "class": "tool-row__year",
+      "selector": ".tool-row__year",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/commission-rule/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/commission-rule/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/commission/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/commission/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/commission/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/contract/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/contract/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/contract/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/contract/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/cost-alloc-rule/index.vue",
+      "class": "tool-row__period",
+      "selector": ".tool-row__period",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/cost-labor/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/cost-labor/index.vue",
+      "class": "tool-row__period",
+      "selector": ".tool-row__period",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/cost-object/index.vue",
+      "class": "tool-row__month",
+      "selector": ".tool-row__month",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/cost-overhead/index.vue",
+      "class": "tool-row__item",
+      "selector": ".tool-row__item",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/cost-overhead/index.vue",
+      "class": "tool-row__period",
+      "selector": ".tool-row__period",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+      "class": "panel-head__ops",
+      "selector": ".panel-head__ops",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/cost-period/steps/UncollectedPanel.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/customer-price/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/customer-price/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/customer-price/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/customer/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/customer/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/customer/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/customer/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/depreciation/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/exchange-rate/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/exchange-rate/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/exchange-rate/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/expense-type/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/expense/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/expense/pay/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/expense/pay/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/expense/pay/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/expense/pay/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/expense/pay/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/expense/pay/index.vue",
+      "class": "tool-row__tip",
+      "selector": ".tool-row__tip",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/inventory/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/inventory/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/inventory/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/inventory/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip code",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/inventory/index.vue",
+      "class": "tool-row__switch",
+      "selector": ".tool-row__switch",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/invoice/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/invoice/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/invoice/index.vue",
+      "class": "tool-row--second",
+      "selector": ".tool-row--second",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "panel-head__account",
+      "selector": ".panel-head__account",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "panel-head__side",
+      "selector": ".panel-head__side",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/ledger/index.vue",
+      "class": "tool-row__period",
+      "selector": ".tool-row__period",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/location/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/location/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/location/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/location/index.vue",
+      "class": "panel-head__link",
+      "selector": ".panel-head__link",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/location/index.vue",
+      "class": "panel-head__link",
+      "selector": ".panel-head__link:hover",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/lot/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/lot/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/lot/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/lot/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/material/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/material/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/material/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/material/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/opening/index.vue",
+      "class": "tool-card",
+      "selector": ".tool-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/payable/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/payable/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/payable/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/period/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/period/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/period/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/price/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/price/index.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/price/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/price/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/price/index.vue",
+      "class": "tool-card",
+      "selector": ".tool-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/purchase-order-item/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/purchase-order-item/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/purchase-order-item/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/purchase/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/purchase/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/purchase/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/receipt-refund/index.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/receipt-refund/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/receipt-refund/index.vue",
+      "class": "tool-row__date",
+      "selector": ".tool-row__date",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/receipt-refund/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/receipt-refund/index.vue",
+      "class": "tool-row--second",
+      "selector": ".tool-row--second",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/receipt/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/receipt/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/receipt/index.vue",
+      "class": "tool-row--second",
+      "selector": ".tool-row--second",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/receivable/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/receivable/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/receivable/index.vue",
+      "class": "tool-card",
+      "selector": ".tool-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/receivable/index.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/receivable/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/receivable/index.vue",
+      "class": "tool-row--second",
+      "selector": ".tool-row--second",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/report/balance-sheet/index.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/report/balance-sheet/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/report/cash-flow/index.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/report/cash-flow/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/report/income-statement/index.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/report/income-statement/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/report/payable-aging/index.vue",
+      "class": "tool-row",
+      "selector": ".tool-row",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/report/payable-aging/index.vue",
+      "class": "tool-row__date",
+      "selector": ".tool-row__date",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/report/payable-aging/index.vue",
+      "class": "tool-row__label",
+      "selector": ".tool-row__label",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/report/payable-aging/index.vue",
+      "class": "tool-row__period",
+      "selector": ".tool-row__period",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "panel-head__tip",
+      "selector": ".panel-head__tip",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "tool-card",
+      "selector": ".tool-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/report/report-item/index.vue",
+      "class": "tool-row--filter",
+      "selector": ".tool-row--filter",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/sales-order/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/sales-order/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/sales-order/index.vue",
+      "class": "panel-head__hint",
+      "selector": ".panel-head__hint",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/sales-order/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/sales-order/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/sales-return/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/sales-return/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/sales-return/index.vue",
+      "class": "panel-head__hint",
+      "selector": ".panel-head__hint",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/sales-return/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/sales-return/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/seq/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/seq/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/seq/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/serial/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/serial/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/serial/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/serial/index.vue",
+      "class": "panel-head__warn",
+      "selector": ".panel-head__warn",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/shipment/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/shipment/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/shipment/index.vue",
+      "class": "panel-head__hint",
+      "selector": ".panel-head__hint",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/shipment/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B2"
+    },
+    {
+      "file": "views/business/erp/shipment/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/stock-out/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-out/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-out/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-out/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-out/index.vue",
+      "class": "tool-row__range",
+      "selector": ".tool-row__range",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/stock-take/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-take/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-take/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stock-take/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stockin/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stockin/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/stockin/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/supplier/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/supplier/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/supplier/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/supplier/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "panel-head__overdue",
+      "selector": ".panel-head__overdue",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "panel-head__overdue",
+      "selector": ".panel-head__overdue:hover",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "tool-row__overdue",
+      "selector": ".tool-row__overdue",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/transfer/index.vue",
+      "class": "tool-row__status",
+      "selector": ".tool-row__status",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/unit/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/unit/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/unit/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/unit/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/voucher/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/voucher/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/voucher/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-head__main",
+      "selector": ".panel-head__main",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-head__sub",
+      "selector": ".panel-head__sub",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/erp/warehouse/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/erp/year-end/index.vue",
+      "class": "tool-card",
+      "selector": ".tool-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/erp/year-end/index.vue",
+      "class": "tool-row__year",
+      "selector": ".tool-row__year",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/flow/def/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/flow/def/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/flow/def/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/help/center/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/help/center/index.vue",
+      "class": "list-card__pager",
+      "selector": ".list-card__pager",
+      "batch": "B6"
+    },
+    {
+      "file": "views/business/hr/attendance/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/attendance/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/attendance/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/attendance/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/employee/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/employee/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/employee/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/employee/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/employee/index.vue",
+      "class": "panel-head__hint",
+      "selector": ".panel-head__hint",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/hr/leave/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/leave/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/leave/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/leave/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/detail.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/detail.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/detail.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/detail.vue",
+      "class": "panel-empty--inline",
+      "selector": ".panel-empty--inline",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/hr/salary/index.vue",
+      "class": "panel-head",
+      "selector": ".panel-head",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/hr/salary/index.vue",
+      "class": "panel-head__meta",
+      "selector": ".panel-head__meta",
+      "batch": "B3"
+    },
+    {
+      "file": "views/business/hr/salary/index.vue",
+      "class": "panel-head__title",
+      "selector": ".panel-head__title",
+      "batch": "B4"
+    },
+    {
+      "file": "views/business/impexp/export-task/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/export-task/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/export-task/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/export-task/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/import-task/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/import-task/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/import-task/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/impexp/import-task/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/backend/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/backend/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/backend/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/backend/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/file/index.vue",
+      "class": "panel-empty",
+      "selector": ".panel-empty",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/file/index.vue",
+      "class": "panel-empty__desc",
+      "selector": ".panel-empty__desc",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/file/index.vue",
+      "class": "panel-empty__icon",
+      "selector": ".panel-empty__icon",
+      "batch": "B5"
+    },
+    {
+      "file": "views/business/storage/file/index.vue",
+      "class": "panel-empty__title",
+      "selector": ".panel-empty__title",
+      "batch": "B5"
+    },
+    {
+      "file": "views/support/config/index.vue",
+      "class": "list-card",
+      "selector": ".list-card",
+      "batch": "B4"
+    }
+  ]
+}

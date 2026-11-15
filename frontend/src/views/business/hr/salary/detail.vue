@@ -1417,11 +1417,6 @@ watch(sheetId, (next, prev) => {
   font-size: 13px;
 }
 
-.panel-empty__icon {
-  font-size: 28px;
-  color: var(--td-text-color-placeholder, #0000004d);
-}
-
 .panel-empty__title {
   margin: 8px 0 4px;
   font-size: 14px;

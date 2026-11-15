@@ -83,6 +83,10 @@ B5 空态与标签变体族               136 块 / 46 文件 / 808 行
 B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 ```
 
+> 上表是**决策当时（B1 落地前）**的分布：合计 273 块 / 68 文件 / 1591 行。
+> B1 已落（2026-11-16，卡 `t_79f92c08`）：20 块 / 16 文件删净，当前实测 **253 块 / 1468 行**，
+> B2–B6 的块数不变（B1 的量不来自这些批）。后续各批落完照此更新本表。
+
 ---
 
 ## 2. 决策一：壳类契约（根治变体再生长）
@@ -167,6 +171,12 @@ B6 单页专有壳类                    26 块 / 20 文件 / 105 行
 2. 每落一批（B1…B6），从 allowlist 里删掉对应条目。
 3. 全部落完后 allowlist 只剩 §5 B0 的 `components/ListPage/index.vue`，此时改为「零例外」硬门禁，
    并把报告挂进 `scripts/check.sh` 的 L0。
+
+**落地状态（2026-11-16，B1 卡 `t_79f92c08`）**：第 1、3 步的「挂进 L0」已完成 ——
+`frontend/scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json`
+（=`pnpm lint:shell`）已挂进 `scripts/check.sh` 的 **L0**，**按 `warn` 档**（有 `NEW` 只告警不打断；
+存量 253 条清完后把 `SHELL_VARIANT_GATE` 改成 `block`）。开关：`SHELL_VARIANT_GATE=block|warn|off`，
+默认 `warn`。快照由 `--baseline ... --write` 生成，**每落一批必须重跑一次**（条目数只许降）。
 
 ---
 
@@ -432,18 +442,54 @@ cd frontend
 node scripts/shell-variant-report.cjs                     # 汇总：7 批的块/文件/行
 node scripts/shell-variant-report.cjs --batch B5 --md b5.md   # 某批逐文件明细（写实施卡用）
 node scripts/shell-variant-report.cjs --json out.json     # 完整数据（含每条声明与差异属性）
-node scripts/shell-variant-report.cjs --strict            # 有非白名单变体即退出 1（待 B1 卡接入门禁）
+node scripts/shell-variant-report.cjs --strict            # 有非白名单变体即退出 1（B1–B6 全部落完后的终态门禁）
 ```
 
-输出示例（当前树，2026-11-16）：
+**门禁档 `--baseline`（B1 卡 `t_79f92c08` 落地，已挂 `scripts/check.sh` 的 L0）**：
+
+```bash
+cd frontend
+node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json
+#   → 只拦「快照里没有的新声明」：
+#       NEW   <file> <selector> [批]    当前树有、快照没有 → 退出码 1（页面零壳类声明契约被破坏）
+#       FIXED <file> <selector> [批]    快照有、当前树已没有 → 只提示（可以削 allowlist，不算失败）
+#       BASELINE-DRIFT                  shell.less 的类清单哈希变了 → 只提示（B2/B3 合法改基线）
+#   → 退出码：0 无新增 / 1 有 NEW / 2 快照缺失或 less 未装
+
+node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write
+#   → 重写存量快照。**每落一批（B1…B6）后必须跑一次**，条目数只许降；
+#     B1 之后应为 253 条（B0 4 条 + B2 38 + B3 16 + B4 33 + B5 136 + B6 26）
+
+pnpm lint:shell     # = 上面第一条（package.json 里的脚本）
+SHELL_VARIANT_GATE=block bash scripts/check.sh --l0   # 按阻断档跑（默认 warn）
+```
+
+快照格式（`frontend/scripts/shell-variant-allowlist.json`，工具生成勿手改）：
+
+```json
+{
+  "shellLess": { "file": "src/style/shell.less", "classCount": 27, "classesHash": "<sha256 前 16 位>" },
+  "totals":   { "entries": 253, "byBatch": { "B0": 4, "B2": 38, "B3": 16, "B4": 33, "B5": 136, "B6": 26 } },
+  "entries":  [ { "file": "components/ListPage/index.vue", "class": "panel-head", "selector": ".panel-head", "batch": "B0" }, … ]
+}
+```
+
+判定键是 `file + selector` —— 同一个类在两个页面各写一次算两条，改了选择器算「旧的一条 FIXED +
+新的一条 NEW」，正是想要的效果（换写法等于新增声明，得走评审）。
+
+输出示例（当前树，2026-11-16，B1 已落）：
 
 ```
 壳样式变体报告 —— 基线 src/style/shell.less（27 类）
-扫描 198 个 .vue + 1 个页面级 .less，命中 273 块 / 68 文件 / 约 1591 行
-| B1 纯冗余删除（零观感）        | 20 | 16 |  75 |
-| B2 间距/颜色归一               | 38 | 24 | 273 |
-| B3 尺寸/字号档位               | 16 | 13 |  61 |
-| B4 半变体补全                  | 33 | 17 | 245 |
-| B5 空态与标签变体族           | 136 | 46 | 808 |
-| B6 单页专有壳类                | 26 | 20 | 105 |
+扫描 198 个 .vue + 1 个页面级 .less，命中 253 块 / 68 文件 / 约 1468 行
+| B0 组件自持（allowlist，不动）      |  4 |  1 |   24 |
+| B2 间距/颜色归一                    | 38 | 24 |  250 |
+| B3 尺寸/字号档位                    | 16 | 13 |   61 |
+| B4 半变体补全                       | 33 | 17 |  225 |
+| B5 空态与标签变体族                | 136 | 46 |  803 |
+| B6 单页专有壳类                     | 26 | 20 |  105 |
 ```
+
+> `B1` 行已消失（20 块 / 16 文件删净，2026-11-16）。B2–B6 每落一批，行数与 `totals.entries`
+> 同步下降；`--baseline --write` 之后 allowlist 条目数必须等于这里的块数之和（当前 253）。
+

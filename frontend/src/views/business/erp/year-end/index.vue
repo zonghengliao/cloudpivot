@@ -486,9 +486,6 @@ onMounted(async () => {
 .tool-row__year {
   width: 160px;
 }
-.tool-row__spacer {
-  flex: 1;
-}
 .tool-label {
   color: var(--td-text-color-secondary);
   font-size: 13px;

@@ -14,16 +14,22 @@
 //   node scripts/shell-variant-report.cjs --md  out.md     # 写 markdown 明细（逐批逐文件）
 //   node scripts/shell-variant-report.cjs --json out.json  # 写完整结构化数据（含每条声明）
 //   node scripts/shell-variant-report.cjs --batch "B2"     # 只看某一批
-//   node scripts/shell-variant-report.cjs --strict         # 有非白名单变体时退出码 1（未来做门禁用）
+//   node scripts/shell-variant-report.cjs --strict         # 有非白名单变体时退出码 1
+//   node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json
+//                                                          # 门禁档：新增页面壳类声明即退出码 1
+//   node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write
+//                                                          # 重写快照（每落一批 / 削一条之后跑）
 //
-// 分批口径见 docs/architecture/shell-样式变体收敛-决策.md §5。
+// 分批口径见 docs/architecture/shell-样式变体收敛-决策.md §5，门禁口径见 §2.4。
 //
-// 注意：这是**报告工具，不是门禁**。现在跑会看到几百条，属正常（存量债）。等 §5 的 B1–B4
-// 批落地后再把 `--strict` 挂进 check.sh。
+// `--baseline` 与 `--strict` 的区别：`--strict` 要求「页面零壳类声明」（B1–B6 全部落完之后
+// 的终态），`--baseline` 是**存量快照档**——只拦「快照里没有的新声明」，存量按批次逐步削。
+// 门禁先按 warn 档挂在 scripts/check.sh 的 L0（开关 SHELL_VARIANT_GATE）。
 // =============================================================================
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 function findLess() {
   // 允许从仓库任意位置调用：脚本在 frontend/scripts/ 下，less 在 frontend/node_modules/
@@ -40,20 +46,23 @@ const less = findLess();
 
 // ---------------- 参数 ----------------
 const argv = process.argv.slice(2);
-const opt = { src: path.join(__dirname, '..', 'src'), md: null, json: null, batch: null, strict: false, quiet: false };
+const opt = { src: path.join(__dirname, '..', 'src'), md: null, json: null, batch: null, strict: false, quiet: false, baseline: null, write: false };
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--src') opt.src = path.resolve(argv[++i]);
   else if (a === '--md') opt.md = path.resolve(argv[++i]);
   else if (a === '--json') opt.json = path.resolve(argv[++i]);
   else if (a === '--batch') opt.batch = argv[++i];
+  else if (a === '--baseline') opt.baseline = path.resolve(argv[++i]);
+  else if (a === '--write') opt.write = true;
   else if (a === '--strict') opt.strict = true;
   else if (a === '--quiet') opt.quiet = true;
   else if (a === '--help' || a === '-h') {
-    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 27).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 32).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
     process.exit(0);
   } else { console.error('未知参数：' + a); process.exit(2); }
 }
+if (opt.write && !opt.baseline) { console.error('--write 必须与 --baseline <json> 一起用'); process.exit(2); }
 const SRC = opt.src;
 
 // ---------------- less 编译（剥离 @import，跨文件另行跟进） ----------------
@@ -318,8 +327,75 @@ if (opt.json) {
   if (!opt.quiet) console.log('json → ' + opt.json);
 }
 
+// ---------------- 6. 门禁档（--baseline）：只拦「快照里没有的新声明」 ----------------
+//
+// 存量快照 = `scripts/shell-variant-allowlist.json`（本工具 --write 生成，勿手改）。
+// 判定（每条 block 以 `file + selector` 为键）：
+//   · 当前树有、快照没有        → `NEW <file> <selector>`，**退出码 1**（新长出来的壳类声明）
+//   · 快照有、当前树已没有      → `FIXED <file> <selector>`，只提示（可以削 allowlist，不算失败）
+//   · shell.less 的类清单哈希变了 → `BASELINE-DRIFT`，只提示（B2/B3 合法改基线，之后 --write 刷新）
+if (opt.baseline) {
+  const keyOf = (e) => e.file + '\u0000' + e.selector;
+  const classHash = crypto
+    .createHash('sha256')
+    .update(Object.keys(baseline).sort().join('\n'))
+    .digest('hex')
+    .slice(0, 16);
+
+  if (opt.write) {
+    const entries = blocks
+      .map((b) => ({ file: b.file, class: b.cls, selector: b.selector, batch: b.batch }))
+      .sort((a, b) => (a.file + a.selector).localeCompare(b.file + b.selector));
+    const doc = {
+      _comment:
+        '页面壳类声明存量快照（门禁 allowlist）。由 `node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json --write` 生成，勿手改。' +
+        '每落一批（B1…B6）后重新 --write，条目数只许降。终态只剩 B0 components/ListPage/index.vue。',
+      shellLess: { file: path.relative(path.join(__dirname, '..'), shellLessPath).split(path.sep).join('/'), classCount: Object.keys(baseline).length, classesHash: classHash },
+      totals: { entries: entries.length, byBatch: Object.fromEntries(order.filter((k) => groups[k]).map((k) => [k, groups[k].blocks.length])) },
+      entries,
+    };
+    fs.writeFileSync(opt.baseline, JSON.stringify(doc, null, 2) + '\n');
+    console.log(`allowlist 已重写 → ${path.relative(process.cwd(), opt.baseline)}（${entries.length} 条 / shell.less 类哈希 ${classHash}）`);
+    process.exit(0);
+  }
+
+  if (!fs.existsSync(opt.baseline)) {
+    console.error(`找不到存量快照：${opt.baseline}\n  先跑一次：node scripts/shell-variant-report.cjs --baseline ${path.relative(process.cwd(), opt.baseline)} --write`);
+    process.exit(2);
+  }
+  const snap = JSON.parse(fs.readFileSync(opt.baseline, 'utf8'));
+  const snapEntries = Array.isArray(snap.entries) ? snap.entries : [];
+  const snapKeys = new Set(snapEntries.map(keyOf));
+  const curKeys = new Set(blocks.map(keyOf));
+
+  const added = blocks.filter((b) => !snapKeys.has(keyOf(b)));
+  const fixed = snapEntries.filter((e) => !curKeys.has(keyOf(e)));
+  const drift = snap.shellLess && snap.shellLess.classesHash !== classHash;
+
+  if (!opt.quiet) {
+    console.log(`门禁档：快照 ${snapEntries.length} 条 / 当前 ${blocks.length} 条（${path.relative(process.cwd(), opt.baseline)}）`);
+  }
+  if (drift) {
+    console.log(
+      `BASELINE-DRIFT  shell.less 类清单变了（快照 ${snap.shellLess.classCount} 类/${snap.shellLess.classesHash} → 当前 ${Object.keys(baseline).length} 类/${classHash}）` +
+        '——改基线属 B2/B3 的合法动作，改完请重跑 --write 刷新快照',
+    );
+  }
+  for (const b of added) console.log(`NEW   ${b.file}  ${b.selector}   [${b.batch}]`);
+  for (const e of fixed) console.log(`FIXED ${e.file}  ${e.selector}   [${e.batch}]（可从 allowlist 削掉）`);
+
+  if (added.length) {
+    console.error(
+      `\n✗ 新增 ${added.length} 处页面壳类声明（快照里没有）。页面必须零壳类声明：` +
+        `\n  差异走命名变体（shell.less 里登记 + 属性写全），见 docs/architecture/shell-样式变体收敛-决策.md §2.1`,
+    );
+    process.exit(1);
+  }
+  console.log(`✓ 无新增页面壳类声明（存量 ${blocks.length} 条待按批削减，已删 ${fixed.length} 条可同步削 allowlist）`);
+}
+
 // --strict：未来做门禁用（B1–B6 落地后，除 B0 组件自持外任何页面壳类声明即失败）
-if (opt.strict) {
+if (opt.strict && !opt.baseline) {
   const debt = blocks.filter((b) => b.batch !== 'B0').length;
   if (debt) { console.error(`\n--strict：仍有 ${debt} 处非白名单变体（B0 组件自持 ${groups.B0 ? groups.B0.blocks.length : 0} 块不计）`); process.exit(1); }
 }

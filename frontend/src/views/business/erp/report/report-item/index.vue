@@ -820,10 +820,6 @@ async function handleSave(): Promise<void> {
   margin-top: 12px;
 }
 
-.tool-row__spacer {
-  flex: 1;
-}
-
 .ri-tab-count {
   margin-left: 6px;
   color: var(--td-text-color-placeholder);

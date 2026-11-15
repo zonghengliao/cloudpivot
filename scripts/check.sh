@@ -3,6 +3,7 @@
 #
 #   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码 / 测试分域登记表自洽 / 统一测试夹具（P2-62）/ CI 报告 JUnit XML（P2-63）
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
+#                                       + 页面零壳类声明（t_79f92c08：allowlist 快照档，SHELL_VARIANT_GATE 默认 warn）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
 #                                       / cargo check（三条都在 workspace 根，P2-40 起覆盖 app + crates/*）
 #                                       / 词表 crate 的契约单测（cargo test -p cloudpivot-doc）
@@ -29,6 +30,7 @@
 #   METRICS_GATE          L0 的 /metrics 自检：auto（默认，见 §「L0 · /metrics 自检」）/ block / warn / off
 #   SKIP_METRICS_CHECK=1  等价于 METRICS_GATE=off（卡面要求的逃生门：本机没起服务时别挡路）
 #   METRICS_URL           直接指定完整地址（默认按 NIK_SERVER_LISTEN / env 文件 / config.toml 推出来）
+#   SHELL_VARIANT_GATE    页面零壳类声明（L0）：warn（默认，只告警）/ block（B1–B6 落完后改它）/ off
 #
 # 说明：本脚本的退出码 = 「本次所跑层里任一检查失败」。批次B 闸② 是**故意**会在当前树上报错的
 #       —— 它度量的是「还没接入数据权限的存量查询」，见 docs/批次B-DDL.md §6 与
@@ -111,6 +113,7 @@ plan_all() {
         plan L0 "数据准备统一夹具（uniq/ensure_* 只有一份）" "scripts/verify/test_seed_gate.sh（① 转发 ② 导出 ③ 主数据 INSERT 预算；反证 --selftest）"
         plan L0 "CI 报告 JUnit XML（解析器 + 4 类畸变反证 + 接线）" "scripts/verify/junit_report_gate.sh（python3 scripts/junit_report.py selftest）"
         plan L0 "耗时预算告警（单测 >5000ms 提示；边界 + 未量不算合格 + 接线）" "scripts/verify/test_budget_gate.sh（固定夹具，不编译不连库）"
+        plan L0 "页面零壳类声明（存量快照档）" "cd frontend && node scripts/shell-variant-report.cjs --baseline scripts/shell-variant-allowlist.json（SHELL_VARIANT_GATE=warn 默认）"
     fi
     if want L2; then
         plan L2 "闸③ ERP 账务不变量" "python3 scripts/verify/erp_invariants.py"
@@ -1216,6 +1219,75 @@ metrics_gate() {
 
 if want L0; then
 if ! metrics_gate; then
+    exit 1
+fi
+fi
+
+# ======================================================================
+# L0 · 页面零壳类声明（壳类契约，卡 t_79f92c08 / 决策 §2.4）
+#
+# 为什么进 L0：壳样式下沉（t_3a87ffac）之后仍有 253 处页面 `<style>` 自己写壳类规则，
+# 而这些规则**不会报错、只会安静漂移** —— `.panel-head__tip` 两个颜色、`.tool-row--second`
+# 4 个文件 2 个值、`.panel-empty__icon` 一度被 TDesign 的 (0,2,0) 压成 16px（父卡实测
+# 20 个页面空态图标变小）。没有门禁，删完还会长回来，所以闸必须在这里。
+#
+# 判据只有一份实现：`frontend/scripts/shell-variant-report.cjs --baseline`。
+#   · 存量快照 `frontend/scripts/shell-variant-allowlist.json`（工具 --write 生成，勿手改）；
+#   · 当前树出现快照里没有的页面壳类声明 → 打印 `NEW <file> <selector>` 并退出码 1；
+#   · 快照里有、当前树已没有 → 打印 `FIXED ...`（提示削 allowlist，**不算失败**）。
+#
+# 三档开关（SHELL_VARIANT_GATE）：
+#   warn（默认）  真跑，有 NEW 只告警不阻断 —— 存量 253 条还没清完，卡面要求先按 warn 档挂
+#   block         真跑并阻断（B1–B6 全部落完之后改成它）
+#   off           跳过（本机没装前端依赖 / 排障时的逃生门）
+#
+# 缺 `frontend/node_modules` 或没有 node 时跳过（与 L1 的 typecheck 同口径：
+# 干净检出里没装依赖不该判红）。
+# ======================================================================
+shell_variant_gate() {
+    local mode="${SHELL_VARIANT_GATE:-warn}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 页面零壳类声明（SHELL_VARIANT_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 页面零壳类声明（frontend/scripts/shell-variant-report.cjs --baseline）"
+    local dir="$ROOT/frontend"
+    local baseline="scripts/shell-variant-allowlist.json"
+    if [ ! -d "$dir/node_modules" ]; then
+        echo "  ℹ frontend/node_modules 不存在 → 跳过（先 cd frontend && pnpm install；CI 会跑）"
+        return 0
+    fi
+    if ! command -v node >/dev/null 2>&1; then
+        echo "  ℹ 本机没有 node → 跳过"
+        return 0
+    fi
+    local log rc=0
+    log="$(mktemp /tmp/shell_variant.XXXXXX.log)"
+    ( cd "$dir" && node scripts/shell-variant-report.cjs --baseline "$baseline" --quiet ) > "$log" 2>&1 || rc=$?
+    cat "$log"
+    if [ "$rc" -eq 0 ]; then
+        echo "  ✓ PASS：无新增页面壳类声明（存量按 §5 的 B1–B6 逐批削减）"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$rc" -ge 2 ]; then
+        echo "  ℹ 跳过：门禁自身没跑起来（退出码 $rc：快照缺失 / less 未装）—— 不算失败，但请修"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有新增页面壳类声明（SHELL_VARIANT_GATE=warn → 不阻断；已定 warning）"
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 页面壳类声明只能写在 frontend/src/style/shell.less 里，页面 <style> 不许再写" >&2
+    echo "    改法：差异走命名变体（shell.less 里登记 + 属性写全），或删掉本地规则吃基线。" >&2
+    echo "    见 docs/architecture/shell-样式变体收敛-决策.md §2.1/§2.4；完整输出：$log" >&2
+    return 1
+}
+
+if want L0; then
+if ! shell_variant_gate; then
     exit 1
 fi
 fi

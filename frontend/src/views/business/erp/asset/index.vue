@@ -1652,11 +1652,6 @@ onMounted(async () => {
     font-weight: 600;
   }
 
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-
   &__tip {
     color: var(--td-text-color-secondary);
     font-size: 12px;

@@ -854,11 +854,6 @@ onMounted(() => {
   width: 140px;
 }
 
-.panel-head__tip {
-  color: var(--td-text-color-placeholder);
-  font-size: 12px;
-}
-
 .list-alert,
 .form-alert {
   margin-bottom: 8px;
