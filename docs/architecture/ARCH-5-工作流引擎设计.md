@@ -62,8 +62,8 @@
 
 # 第一章 实测基线：现有引擎能做什么、不能做什么
 
-> 本章全部结论来自**当天实测**：读 `backend/src/business/flow/` 下 28 个 Rust 文件（41,408 行）、
-> 读 `backend/migrations/business/` 里 24 个 `*flow*` 迁移（up.sql）、连 PostgreSQL 18.6 查
+> 本章全部结论来自**当天实测**：读 `backend/app/src/business/flow/` 下 28 个 Rust 文件（41,408 行）、
+> 读 `backend/app/migrations/business/` 里 24 个 `*flow*` 迁移（up.sql）、连 PostgreSQL 18.6 查
 > `information_schema` 与 `\d+` 看真实表结构、跑一次 DDL 落到 102 张表的库副本上。
 > 每条结论后面括号里是取证方式，不是印象。
 
@@ -4470,7 +4470,7 @@ PKG-FLW-20261104-D4E5F6A7-A.zip
 | `65082` | 归档包生成失败 | 打包 |
 | `65083` | 闭环验证未通过（不许关闭） | 关闭闸 |
 
-> 现有号段实测最大值 **`65039`**（`FLOW_PREVIEW_INVALID`，已核对 `backend/src/shared/error_code.rs:978`）。
+> 现有号段实测最大值 **`65039`**（`FLOW_PREVIEW_INVALID`，已核对 `backend/app/src/shared/error_code.rs:978`）。
 > 本设计从 **`65070`** 起，中间留 `65040`–`65069` 共 30 个空号给并行卡。
 
 ## 18.3 迁移清单（V0220–V0229）

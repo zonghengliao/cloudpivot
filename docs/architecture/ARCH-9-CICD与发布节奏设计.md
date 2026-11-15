@@ -90,7 +90,7 @@
 | 提交门禁 | `scripts/check.sh`（843 行） | **20 项**硬门禁（+ 库存写入口的判据自检 = 21 道）+ 可选档闸⓪：fmt / clippy / check / typecheck / B闸① / B闸② / C7-G1..G6 / 色板 / 库存写入口（含自检）/ 闸③④⑤⑥⑦⑧ | 拆成 L0/L1/L2 三层复用，**不重写判据** |
 | 本地 hook | `.githooks/pre-commit`（只查暂存 `.rs` 的 rustfmt）、`.githooks/pre-push`（fmt + clippy + typecheck，`SKIP_PREPUSH=1` 可绕） | 已装（`core.hooksPath=.githooks`），**今天刚由 `845618b2` 加** | L0/L1 的执行体；本设计只补「留痕」与「test」 |
 | 测试机部署循环 | 145 `/root/test_deploy.sh`（307 行，cron 每 30 min） | 拉代码 → 增量 `cargo build`（实测 58 s–2 m 13 s）→ 前端 build（需 4096 MB 堆）→ 逐条迁移 → 重启 → health + 进程/磁盘 md5 比对 → `menu_invariants.sh`（**只告警不阻断**）→ 全周期实测 1 m 16 s–3 m 13 s | L2 的宿主；**回归任务挂在它同一台机、错峰时段** |
-| 内置调度器 | `backend/src/task/mod.rs`（`Scheduler::register_builtin` + `register_cron`）、`sys_job` 表 | 已有 12+ 个内置任务；`invariant_audit` 每天 02:20 起子进程跑 `erp_invariants.py` → 落 `sys_invariant_result` | **不在应用内跑编译**；但 L2 的「干净库迁移 + 巡检」这一段可以复用同一套 runner 形态（§4.1 给出边界） |
+| 内置调度器 | `backend/app/src/task/mod.rs`（`Scheduler::register_builtin` + `register_cron`）、`sys_job` 表 | 已有 12+ 个内置任务；`invariant_audit` 每天 02:20 起子进程跑 `erp_invariants.py` → 落 `sys_invariant_result` | **不在应用内跑编译**；但 L2 的「干净库迁移 + 巡检」这一段可以复用同一套 runner 形态（§4.1 给出边界） |
 | 巡检结果表 | `sys_invariant_result`（V0235） | 生产 144 有 1 行：`2026-11-09 10:20 SCHEDULED FAIL 79 项 / 2 失败 / 1 BLOCKER / duration_ms=3976` | 保留不动；L2 的 erp_invariants 结果继续由它承载 |
 | 巡检脚本 | `scripts/verify/erp_invariants.py`（155 KB） | 干净库 80 项 **4.50 s**；生产 3.98 s（79 项） | L2 的闸③ |
 | 菜单不变量 | `scripts/verify/menu_invariants.sh`（8 条断言） | 干净库 **0.39 s** 全绿；145 dev 上也是全绿（433 条菜单，`deploy_check` 日志） | L2 的第 9 道静态闸（**不在 check.sh 里**，需并入） |
@@ -165,7 +165,7 @@
 ### 3.1 新增表（完整 DDL，已在 PG 18.6 真库跑通并整段 ROLLBACK，零残留）
 
 > 验证证据：`docs/evidence/2026-11-10-arch9-4-cicd/01_ci_ddl_check.sql` + `.out`（**14 组断言 A–J 全过**，`should_be_0 = 0`，零残留）。
-> 迁移文件号：**V0368 / V0369**（实测当代最大 `V0367__flow_all_role_approval_to_any_multiversion.up.sql`，`ls backend/migrations/*/` 核对过）。
+> 迁移文件号：**V0368 / V0369**（实测当代最大 `V0367__flow_all_role_approval_to_any_multiversion.up.sql`，`ls backend/app/migrations/*/` 核对过）。
 
 #### ① `sys_ci_run` —— 一次运行一行
 
@@ -615,7 +615,7 @@ P = 20（约 1/5）
 
 ### 5.1 API 清单
 
-> **出参口径**：卡面模板写的是 `header / items / meta`，但本仓库的实际口径是 `Res<T>` 的 `data = PageData<T> = {list, total, page, page_size}`（`frontend/src/api/request.ts:15-24`，后端同一口径的先例见 `backend/src/business/erp/stockout/stockout_dto.rs:482-492`）。**本设计服从仓库现状**，与 ARCH9-3 在 §5.1 的处理一致 —— 不为了一份卡面模板造第二套分页形状。
+> **出参口径**：卡面模板写的是 `header / items / meta`，但本仓库的实际口径是 `Res<T>` 的 `data = PageData<T> = {list, total, page, page_size}`（`frontend/src/api/request.ts:15-24`，后端同一口径的先例见 `backend/app/src/business/erp/stockout/stockout_dto.rs:482-492`）。**本设计服从仓库现状**，与 ARCH9-3 在 §5.1 的处理一致 —— 不为了一份卡面模板造第二套分页形状。
 
 | # | Method + Path | 入参 | 出参关键字段 | 权限码 |
 |---|---|---|---|---|
@@ -648,7 +648,7 @@ P = 20（约 1/5）
 | `support:ci:baseline` | 台账新增/撤销 | 按钮「登记已知红」 |
 | `support:ci:delete` | 删 `ABORTED` 运行 | 按钮（默认**不授给任何业务角色**，只超管） |
 
-- 命名遵循 `{模块}:{资源}:{动作}`；与 `support:invariant:list` / `:run` 完全同构（`backend/src/support/invariant/handler.rs:7-8` 明确写了「两个都是功能权限（不看行）」）。
+- 命名遵循 `{模块}:{资源}:{动作}`；与 `support:invariant:list` / `:run` 完全同构（`backend/app/src/support/invariant/handler.rs:7-8` 明确写了「两个都是功能权限（不看行）」）。
 - **不登记数据范围**（`SCOPED_TABLES`）：CI 结果是平台级事实，不是谁的业务数据 —— 与 `biz_flow_def`（流程定义）同一判断，闸② 应写 `// SCOPE-EXEMPT: CI 结果是平台级事实，无按部门裁剪语义`。
 - **授权矩阵**：`support:ci:list` 授给与 `support:invariant:list` **完全相同**的角色集合（实测该菜单已授 11 个业务角色 + 超管），不另造一套；`support:ci:run` 只授 `SUPER_ADMIN` + `FINANCE_DIRECTOR`（发版/回归责任人）。
 
@@ -724,7 +724,7 @@ P = 20（约 1/5）
 | `V0369__seed_ci_menu.up.sql` | 1 页面 + 2 按钮 + 3 条权限码文案 + 11 个角色的 `sys_role_menu`（**与 `support:invariant` 同集合**） | 固定 UUID + `WHERE NOT EXISTS` / `ON CONFLICT (id) DO NOTHING`；授权段按**码**判重（V0258 矩阵口径） |
 | `V0369__seed_ci_menu.down.sql` | 先删 `sys_role_menu`（FK），再删菜单行 | 按固定 UUID 删 |
 
-> 号段核对：实测当代最大 `V0367__flow_all_role_approval_to_any_multiversion.up.sql`（`find backend/migrations -name '*.up.sql' \| sort \| tail`），且 `.down.sql` 必须与 `.up.sql` 成对。**动手前再 `ls` 一次**（ARCH-9 的分支还有别的卡在加迁移，号段会撞）。
+> 号段核对：实测当代最大 `V0367__flow_all_role_approval_to_any_multiversion.up.sql`（`find backend/app/migrations -name '*.up.sql' \| sort \| tail`），且 `.down.sql` 必须与 `.up.sql` 成对。**动手前再 `ls` 一次**（ARCH-9 的分支还有别的卡在加迁移，号段会撞）。
 
 ### 7.2 存量数据处理
 

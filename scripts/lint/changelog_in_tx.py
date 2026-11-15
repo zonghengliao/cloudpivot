@@ -37,7 +37,7 @@
 
 ## 用法
 
-    python3 scripts/lint/changelog_in_tx.py              # 默认扫 backend/src
+    python3 scripts/lint/changelog_in_tx.py              # 默认扫 backend/app/src
     python3 scripts/lint/changelog_in_tx.py --root .     # 指定仓库根
     python3 scripts/lint/changelog_in_tx.py --list       # 顺带列出每个调用点的判定
     python3 scripts/lint/changelog_in_tx.py --self-test  # 负例自测（口径 v2 · D6）
@@ -455,7 +455,7 @@ def coverage_ok(call_sites: int) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="门禁 G5：record 调用点必须有事务证据")
     parser.add_argument("--root", default=None, help="仓库根目录（默认由脚本位置推断）")
-    parser.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/src）")
+    parser.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/app/src）")
     parser.add_argument("--list", action="store_true", help="列出每个调用点的判定")
     parser.add_argument("--self-test", action="store_true", help="负例自测（口径 v2 · D6）")
     args = parser.parse_args(argv)
@@ -464,7 +464,7 @@ def main(argv: list[str] | None = None) -> int:
         return self_test()
 
     repo_root = Path(args.root).resolve() if args.root else Path(__file__).resolve().parents[2]
-    src = Path(args.src).resolve() if args.src else repo_root / "backend" / "src"
+    src = Path(args.src).resolve() if args.src else repo_root / "backend" / "app" / "src"
     if not src.is_dir():
         print(f"G5 跳过/失败：找不到源码目录 {src}", file=sys.stderr)
         return 2
@@ -513,7 +513,7 @@ def main(argv: list[str] | None = None) -> int:
 SELF_TEST_CASES: tuple[dict, ...] = (
     {
         "name": "① 函数顶层 changelog::record(db(), …) → 报红",
-        "file": "backend/src/case_top_level_db.rs",
+        "file": "backend/app/src/case_top_level_db.rs",
         "source": """
 use crate::db::Db;
 
@@ -528,7 +528,7 @@ pub async fn record_something(target: ChangeTarget<'_>) -> Result<(), ApiError> 
     },
     {
         "name": "② tokio::spawn(async { changelog::record(&tx, …) }) → 报红（不在 transaction 闭包内）",
-        "file": "backend/src/case_spawn.rs",
+        "file": "backend/app/src/case_spawn.rs",
         "source": """
 pub async fn spawn_task(tx: &Transaction, ctx: &ChangeCtx) -> Result<(), ApiError> {
     tokio::spawn(async move {
@@ -543,7 +543,7 @@ pub async fn spawn_task(tx: &Transaction, ctx: &ChangeCtx) -> Result<(), ApiErro
     },
     {
         "name": "③ transaction(|tx| async move { changelog::record(db(), …) }) → 报红（第二个事务入口）",
-        "file": "backend/src/case_tx_db.rs",
+        "file": "backend/app/src/case_tx_db.rs",
         "source": """
 pub async fn run(db: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
     db.transaction(|tx| async move {
@@ -558,7 +558,7 @@ pub async fn run(db: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
     },
     {
         "name": "④ 本地 fn record 遮蔽 + 裸调不报红，同文件 changelog::record 在事务外仍报红",
-        "file": "backend/src/case_shadow.rs",
+        "file": "backend/app/src/case_shadow.rs",
         "source": """
 fn record(rule: &str, outcome: &str) -> u8 {
     1
@@ -577,7 +577,7 @@ pub async fn run(conn: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
     },
     {
         "name": "⑤ fn f(ex: &Transaction, …) 里 changelog::record(ex, …) → 判绿（D5 类型证据）",
-        "file": "backend/src/case_typed_param.rs",
+        "file": "backend/app/src/case_typed_param.rs",
         "source": """
 pub async fn cancel_tasks(ex: &Transaction, ctx: &ChangeCtx) -> Result<(), ApiError> {
     for victim in &victims {
@@ -591,7 +591,7 @@ pub async fn cancel_tasks(ex: &Transaction, ctx: &ChangeCtx) -> Result<(), ApiEr
     },
     {
         "name": "⑥ 缓存闸门方法调用 GATE.record(true) 不计入判定面（28 处误报的回归防护）",
-        "file": "backend/src/case_method_calls.rs",
+        "file": "backend/app/src/case_method_calls.rs",
         "source": """
 pub fn bump(gate: &InvalidationGate) {
     TREE_CACHE_GATE.record(true);
@@ -604,7 +604,7 @@ pub fn bump(gate: &InvalidationGate) {
     },
     {
         "name": "⑦ changelog 模块内部未限定调用 record(ex, …) 保留在判定面且透传判绿",
-        "file": "backend/src/business/changelog/mod.rs",
+        "file": "backend/app/src/business/changelog/mod.rs",
         "source": """
 pub async fn record(ex: &impl SqlExecutor, ctx: &ChangeCtx) -> ApiError {}
 
@@ -617,7 +617,7 @@ pub async fn record_in(ex: &impl SqlExecutor, ctx: &ChangeCtx) -> ApiError {
     },
     {
         "name": "⑧ 注释里的 changelog::record(db(), …) 不判红（mask 生效）",
-        "file": "backend/src/case_comment.rs",
+        "file": "backend/app/src/case_comment.rs",
         "source": """
 //! 不要写 changelog::record(db(), …)（这是文档，不是代码）
 // changelog::record(db(), &ctx, target, input);
@@ -628,7 +628,7 @@ pub fn ok() {}
     },
     {
         "name": "⑨ 事务闭包内 &tx 判绿（原有合规形态不能回退）",
-        "file": "backend/src/case_in_tx.rs",
+        "file": "backend/app/src/case_in_tx.rs",
         "source": """
 pub async fn run(db: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
     db.transaction(|tx| async move {
@@ -643,7 +643,7 @@ pub async fn run(db: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
     {
         # 口径 v2 硬化 R4：v2 早期版本对这一种只打「提示」就 exit 0，现收回。
         "name": "⑨' use 导入后的裸调 record(db(), …) → 报红（R4：本地没有 fn record 就不许裸调）",
-        "file": "backend/src/case_plain_import.rs",
+        "file": "backend/app/src/case_plain_import.rs",
         "source": """
 use crate::business::changelog::record;
 

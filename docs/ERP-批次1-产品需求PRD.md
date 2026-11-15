@@ -26,17 +26,17 @@
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code VARCHAR(100)`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值仅 `system` / `support` | `backend/migrations/system/V0004__create_sys_menu.up.sql:5-22` | 新增权限码走 `business:erp:{资源}:{动作}`；`module_code` 填 `business`（20 字符够用） |
-| **F2** | 现有顶级目录只有两个：系统管理（`/system`，sort 10）、支撑功能（`/support`，sort 20） | `backend/migrations/seed/S__menu_data.sql:24,80` | ERP 作为第三个一级目录，`sort_order=40`（30 留给协同办公），见第六章 |
-| **F3** | 后端接口级鉴权用声明式宏 `#[nik::permission(path, method, permission)]` + `#[nik::get("/system/user/page")]`，路由风格 `/system/user/page`，返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49` | ERP 接口统一走 `/business/erp/.../page`；每个接口必须挂权限码，第五章逐个列出 |
+| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code VARCHAR(100)`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值仅 `system` / `support` | `backend/app/migrations/system/V0004__create_sys_menu.up.sql:5-22` | 新增权限码走 `business:erp:{资源}:{动作}`；`module_code` 填 `business`（20 字符够用） |
+| **F2** | 现有顶级目录只有两个：系统管理（`/system`，sort 10）、支撑功能（`/support`，sort 20） | `backend/app/migrations/seed/S__menu_data.sql:24,80` | ERP 作为第三个一级目录，`sort_order=40`（30 留给协同办公），见第六章 |
+| **F3** | 后端接口级鉴权用声明式宏 `#[nik::permission(path, method, permission)]` + `#[nik::get("/system/user/page")]`，路由风格 `/system/user/page`，返回 `ResResult<PageData<Vec<T>>>` | `backend/app/src/system/user/handler.rs:43-49` | ERP 接口统一走 `/business/erp/.../page`；每个接口必须挂权限码，第五章逐个列出 |
 | **F4** | 前端页面级鉴权用路由 `meta.permission`；按钮级用 `v-privilege="['system:user:create']"` 指令 | `frontend/src/views/system/user/index.vue:63` | 过账/作废/冲销等敏感按钮直接用 `v-privilege`，不新造机制 |
 | **F5** | `hasPermission()` 是**全等匹配**，只额外支持超管通配 `*:*:*`，**不支持 `business:erp:*` 这类前缀通配**；`code` 为空视为放行 | `frontend/src/stores/user.ts:63-71` | ①"一组动作都给"必须逐条勾选，不能写通配；②全员可见页面 `auth_code` 留空串 |
 | **F6** | 导航树由 `filterNavMenus` **递归**过滤：剔除 `menu_type=3`（按钮）与 `is_visible=false`，目录下无可见子菜单则整目录隐藏 | `frontend/src/stores/user.ts:17-38` | 菜单必须写成种子数据，不能在路由里硬编码；空目录自动消失，不需要额外处理 |
 | **F7** | 侧边栏渲染组件 `SideMenuItem` 递归：**有子节点即渲染 `t-submenu`，层级不限** | `frontend/src/layouts/components/SideMenuItem.vue:1-12` | 「目录→目录→菜单」三级导航在技术上可行，第六章据此给出菜单结构 |
 | **F8** | 列表页既有范式：`t-row/t-col` 横排筛选（`@enter` 触发查询）+ 工具栏 `t-button theme="primary"` + `t-table` + `t-dialog` 内嵌 `t-form` | `frontend/src/views/system/user/index.vue:34-146` | 第四章所有列表页沿用此布局，素材行高度一致，开发不用重新设计交互 |
-| **F9** | `sys_role` **没有 data_scope 数据范围字段**（只有 role_code/name/status/sort_order） | `backend/migrations/system/V0002__create_sys_role.up.sql` | 数据权限无法靠角色表配置，必须在 ERP 服务层用"权限码 + 业务表关联"硬实现，见 5.3（**本项目最容易漏的一条**） |
+| **F9** | `sys_role` **没有 data_scope 数据范围字段**（只有 role_code/name/status/sort_order） | `backend/app/migrations/system/V0002__create_sys_role.up.sql` | 数据权限无法靠角色表配置，必须在 ERP 服务层用"权限码 + 业务表关联"硬实现，见 5.3（**本项目最容易漏的一条**） |
 | **F10** | `sys_dept` 有 `parent_id` / `dept_path` / `leader_id`；`sys_user` 有 `dept_id`；`sys_file` 具备附件能力 | `V0006__create_sys_dept.up.sql`、`V0001__create_sys_user.up.sql:8`、`V0010__create_sys_file.up.sql` | ERP 单据的"部门"取 `sys_user.dept_id`；附件直接用 `sys_file.id`，不重造上传链路 |
-| **F11** | 底盘 `backend/src/` 下**无 `business` 目录**，business 域当前为空 | `backend/src/` 目录清单 | ERP 是 business 域模块，从 0 建，目录结构见附录 A |
+| **F11** | 底盘 `backend/app/src/` 下**无 `business` 目录**，business 域当前为空 | `backend/app/src/` 目录清单 | ERP 是 business 域模块，从 0 建，目录结构见附录 A |
 | **F12** | 现有主题机制：`src/style/theme.less` 通过覆盖 `--td-brand-color-1..10` 注入品牌色，且必须镜像 TDesign 的 `[theme-mode]` 选择器 | `frontend/src/style/theme.less:1-60` | 莫兰迪配色按同一机制注入：`#51697C` 作为 `--td-brand-color-7` 主色，其余 9 级锁死同一色相铺层次，见 4.0 |
 | **F13** | 财政部《增值税会计处理规定》：一般纳税人"应交税费—应交增值税"下设"进项税额"专栏；**货物已验收入库但未取得扣税凭证的，月末按货物清单/合同价暂估入账，不暂估进项税额**，下月初红字冲销，取得扣税凭证后再计入进项税 | 财政部 mof.gov.cn《关于印发〈增值税会计处理规定〉的通知》（财会〔2016〕22 号） | 直接决定第 3.3 节"凭证生成时机"的推荐方案与"暂估"分支的写法 |
 | **F14** | 会计科目编码：`1405` 库存商品 / `1403` 原材料 / `2202` 应付账款 / `2221` 应交税费 / `222101` 应交增值税 | 国管局系统级企业会计科目体系、正保会计网校科目表 | 科目种子数据与凭证科目映射用的就是这套编码，不自创 |
@@ -2132,12 +2132,12 @@ ERP                                    /erp                     sort 40   icon a
 ## A.4 目录结构建议
 
 ```
-backend/src/business/erp/
+backend/app/src/business/erp/
 ├── item/       supplier/    warehouse/   account/    uom/
 ├── purchase/   receipt/     stock/       payable/
 ├── voucher/    ledger/      period/
 └── shared/     ← 成本引擎（移动加权）、凭证引擎（科目映射+分录生成）、单据编号器、数据范围过滤器
-backend/migrations/business/  ← V0001__create_erp_*.up.sql（与现有 migrations/system 分区并列）
+backend/app/migrations/business/  ← V0001__create_erp_*.up.sql（与现有 migrations/system 分区并列）
 
 frontend/src/views/business/erp/
 ├── master/{item,supplier,warehouse,account,uom}/index.vue

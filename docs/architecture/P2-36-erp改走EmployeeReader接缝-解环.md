@@ -2,8 +2,8 @@
 
 > 上游：**P2-35**（`hr` 提供接缝，`docs/architecture/P2-35-hr员工只读查询接缝-EmployeeReader.md`）
 > 本卡：把消费方切过去，并把「`erp` 生产面直连 `biz_employee`」的燃烧率基线从 **19 降到 0**。
-> 落点：`backend/src/business/erp/cost/cost_labor_{model,import,dto}.rs`、`backend/src/business/erp/seq.rs`、
-> `backend/src/business/hr/employee_no.rs`（表属主自持查重 SQL）。
+> 落点：`backend/app/src/business/erp/cost/cost_labor_{model,import,dto}.rs`、`backend/app/src/business/erp/seq.rs`、
+> `backend/app/src/business/hr/employee_no.rs`（表属主自持查重 SQL）。
 
 ---
 
@@ -120,7 +120,7 @@ $ cargo tree | grep -c "business::"
 
 ```console
 # 改前（HEAD 57187ca0，脚本 --src 指向 git archive 出来的旧树）
-$ python3 scripts/lint/module_cycle_report.py --src …/p236_before/backend/src --edge business::erp business::hr
+$ python3 scripts/lint/module_cycle_report.py --src …/p236_before/backend/app/src --edge business::erp business::hr
 边 business::erp → business::hr：**不存在**（该域内无任何 crate:: 引用指向 business::hr）
 
 # 改后（工作区）

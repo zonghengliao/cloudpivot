@@ -50,7 +50,7 @@ DB_PASS = os.environ.get("C1_DB_PASS", "alun")
 ADMIN_PW = os.environ.get("C1_ADMIN_PW", "")
 LOG = os.environ.get("C1_LOG", "/root/c1-e2e-server.log")
 
-# 留痕正文前缀，与 backend/src/business/flow/settle_guard.rs 的常量同值
+# 留痕正文前缀，与 backend/app/src/business/flow/settle_guard.rs 的常量同值
 TRACE_PREFIX = "审批结论未落单据"
 
 FEEDBACK = {"pass": 0, "fail": 0}

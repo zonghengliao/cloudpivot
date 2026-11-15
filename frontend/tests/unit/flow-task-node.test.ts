@@ -63,10 +63,10 @@ import {
 } from '../../src/views/business/flow/components/flow-error-codes.ts';
 import { NODE_TYPES, needsAssignee } from '../../src/views/business/flow/graph.ts';
 
-/** 读 `backend/src/shared/error_code.rs` */
+/** 读 `backend/app/src/shared/error_code.rs` */
 function errorCodeSource(): string {
   return readFileSync(
-    fileURLToPath(new URL('../../../backend/src/shared/error_code.rs', import.meta.url)),
+    fileURLToPath(new URL('../../../backend/app/src/shared/error_code.rs', import.meta.url)),
     'utf8',
   );
 }

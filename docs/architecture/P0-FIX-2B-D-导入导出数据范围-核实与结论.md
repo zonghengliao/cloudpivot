@@ -65,7 +65,7 @@
 ### 2.2 关键在定义层：带 scope 的入口是**可选**的，默认实现把 principal 丢掉
 
 ```rust
-// backend/src/business/impexp/definition.rs:893-906（count_scoped 默认实现，节选）
+// backend/app/src/business/impexp/definition.rs:893-906（count_scoped 默认实现，节选）
 async fn count_scoped(&self, filter: &ExportFilter, principal: Option<&ScopedPrincipal>)
     -> Result<i64, DbError> {
     let _ = principal;          // ← 默认实现显式忽略发起人
@@ -80,17 +80,17 @@ async fn count_scoped(&self, filter: &ExportFilter, principal: Option<&ScopedPri
 ### 2.3 谁真的覆盖了？全仓只有 1 个
 
 ```
-$ grep -rn "async fn count_scoped|async fn fetch_scoped" backend/src/business --include=*.rs
-backend/src/business/impexp/definition.rs:893   ← 默认实现
-backend/src/business/impexp/definition.rs:910   ← 默认实现
-backend/src/business/masking/user_export.rs:154 ← 唯一覆盖（system.user）
-backend/src/business/masking/user_export.rs:173 ← 唯一覆盖（system.user）
+$ grep -rn "async fn count_scoped|async fn fetch_scoped" backend/app/src/business --include=*.rs
+backend/app/src/business/impexp/definition.rs:893   ← 默认实现
+backend/app/src/business/impexp/definition.rs:910   ← 默认实现
+backend/app/src/business/masking/user_export.rs:154 ← 唯一覆盖（system.user）
+backend/app/src/business/masking/user_export.rs:173 ← 唯一覆盖（system.user）
 ```
 
 `system.user` 的实现是**对的**，而且是 deny-by-default：
 
 ```rust
-// backend/src/business/masking/user_export.rs:106-116
+// backend/app/src/business/masking/user_export.rs:106-116
 fn build_where(filter, principal) -> (String, Vec<Value>) {
     let row_filter = match principal {
         Some(principal) => scope::filter_for(principal, ScopeTarget::SYS_USER),
@@ -103,7 +103,7 @@ fn build_where(filter, principal) -> (String, Vec<Value>) {
 ### 2.4 ERP 单据导出：裸 SQL，没有任何 scope 谓词
 
 ```rust
-// backend/src/business/impexp/builtin/erp_doc.rs:465-470
+// backend/app/src/business/impexp/builtin/erp_doc.rs:465-470
 async fn count(&self, filter: &ExportFilter) -> Result<i64, DbError> {
     let mut sql = format!("SELECT COUNT(*) {}", self.spec.from);   // ← 只有业务过滤
     push_filters(&mut sql, &mut params, self.spec, filter);
@@ -141,9 +141,9 @@ ERP 单据的状态是文本枚举（`POSTED` / `DRAFT` / `OPEN` …），`push_
 ```
 SCOPE-EXEMPT: biz_voucher / biz_purchase_order / biz_stock_in / biz_stock_transfer /
 biz_inventory 都是按「会计期间」取的全局台账（无 dept_id 与归属人列）…
-                                        —— backend/src/business/erp/period/period_items.rs:77-81
+                                        —— backend/app/src/business/erp/period/period_items.rs:77-81
 SCOPE-EXEMPT: 凭证 / 分录 / 科目映射规则是会计台账（V0149 建表，无 dept_id / 归属人列）…
-                                        —— backend/src/business/erp/voucher/mod.rs:70-72
+                                        —— backend/app/src/business/erp/voucher/mod.rs:70-72
 ```
 
 `info = unscoped` 时 `scope::filter_for` 恒返回 `allow_all()`（`shared/scope.rs:436-442`），
@@ -166,7 +166,7 @@ SCOPE-EXEMPT: 凭证 / 分录 / 科目映射规则是会计台账（V0149 建表
 1. 导入上下文**只有操作人 id，没有 principal / 数据范围**：
 
    ```rust
-   // backend/src/business/impexp/definition.rs:790-797
+   // backend/app/src/business/impexp/definition.rs:790-797
    pub struct ImportCtx { pub task_id: Uuid, pub operator: Option<Uuid>, pub mode: ImportMode }
    ```
 

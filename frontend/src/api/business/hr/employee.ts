@@ -1,7 +1,7 @@
 /**
  * 员工档案 API 层（ARCH-9 §5.2 #1 / #2 / #7 · HR-18）。
  *
- * 后端：`backend/src/business/hr/employee_handler.rs`（HR-12）+ `employee_dto.rs`（HR-11）。
+ * 后端：`backend/app/src/business/hr/employee_handler.rs`（HR-12）+ `employee_dto.rs`（HR-11）。
  * 出参契约与词表在 `./employee-kinds.ts`（纯逻辑、可单测），本文件 `export *` 出来 ——
  * 页面只认 `@/api/business/hr/employee` 一个入口。
  *

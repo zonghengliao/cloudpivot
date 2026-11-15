@@ -13,8 +13,8 @@ export PATH=/root/.cargo/bin:$PATH
 ROOT=${REPO:-/opt/cloudpivot}
 DB=${P14_MIG_DB:-cp_p14_mig}
 URL="postgres://alun:alun@127.0.0.1:5432/$DB"
-UP="$ROOT/backend/migrations/business/V0212__erp_doc_attachment.up.sql"
-DOWN="$ROOT/backend/migrations/business/V0212__erp_doc_attachment.down.sql"
+UP="$ROOT/backend/app/migrations/business/V0212__erp_doc_attachment.up.sql"
+DOWN="$ROOT/backend/app/migrations/business/V0212__erp_doc_attachment.down.sql"
 
 echo "== 建空库 $DB =="
 su - postgres -c "dropdb --if-exists $DB" >/dev/null 2>&1

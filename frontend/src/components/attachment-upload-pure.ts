@@ -17,7 +17,7 @@
  *
  * ⚠ `MAX_ATTACHMENT_FILE_BYTES` / `FILE_TOO_LARGE_MESSAGE` / `OFFICE_OPEN_HINT` 三处
  * 文案与数字由后端单测 `business::attachment::tests::file_size_limit_matches_frontend`
- * 逐字比对（`backend/src/business/attachment/dto.rs` 的 `MAX_FILE_BYTES` /
+ * 逐字比对（`backend/app/src/business/attachment/dto.rs` 的 `MAX_FILE_BYTES` /
  * `FILE_TOO_LARGE_MSG`）—— 改这里必须同步改后端，否则 cargo test 直接红。
  */
 

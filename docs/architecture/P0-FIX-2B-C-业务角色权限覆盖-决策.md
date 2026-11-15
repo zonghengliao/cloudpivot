@@ -56,11 +56,11 @@
 
 ### 2.3 另一个真缺口：3 条权限码没有菜单行
 
-全库比对（`backend/src` 的 `permission = "…"` 去重 274 条 vs `sys_menu.auth_code` 282 条）：
+全库比对（`backend/app/src` 的 `permission = "…"` 去重 274 条 vs `sys_menu.auth_code` 282 条）：
 
 ```text
 代码在用、菜单没有（无法通过 sys_role_menu 授予任何非超管角色）：
-  business:erp:voucher:audit      → backend/src/business/erp/voucher/voucher_write.rs:1589  审核 DRAFT→AUDITED
+  business:erp:voucher:audit      → backend/app/src/business/erp/voucher/voucher_write.rs:1589  审核 DRAFT→AUDITED
   business:erp:voucher:un-audit   → voucher_write.rs:1614                            反审核 AUDITED→DRAFT
   business:erp:voucher:post       → voucher_write.rs:1638                            记账 AUDITED→POSTED
 （另 1 条 x:y:z 是单测夹具，忽略）

@@ -9,13 +9,13 @@
 
 | 文件 | 行数 | 说明 |
 |------|------|------|
-| `backend/migrations/business/V0080__create_announcement.{up,down}.sql` | 107 / 13 | 公告四表（主体 / 范围 / 已读 / 附件），DDL 逐字取自架构 §6 附录 A.1 |
-| `backend/migrations/business/V0081__announcement_indexes.{up,down}.sql` | 40 / 11 | 7 个索引（含 3 个部分索引），取自附录 A.2 |
-| `backend/migrations/business/V0087__seed_announcement_read_permission.{up,down}.sql` | 81 / 17 | `business:announcement:read` 权限点 + 全员授予 + 迁移期自检 |
-| `backend/src/business/announcement/model.rs` | 745 | 可见性查询 / 已读 / 计数 / 附件绑定（+5 单测） |
-| `backend/src/business/announcement/dto.rs` | 295 | 请求 / 响应 DTO（+3 单测） |
-| `backend/src/business/announcement/handler.rs` | 832 | 用户侧 7 个接口 + 架构别名 + 附件代理下载（+8 单测） |
-| `backend/src/business/announcement/mod.rs` | 39 | 模块声明与契约边界（改 `pub mod` 三行 + 文档） |
+| `backend/app/migrations/business/V0080__create_announcement.{up,down}.sql` | 107 / 13 | 公告四表（主体 / 范围 / 已读 / 附件），DDL 逐字取自架构 §6 附录 A.1 |
+| `backend/app/migrations/business/V0081__announcement_indexes.{up,down}.sql` | 40 / 11 | 7 个索引（含 3 个部分索引），取自附录 A.2 |
+| `backend/app/migrations/business/V0087__seed_announcement_read_permission.{up,down}.sql` | 81 / 17 | `business:announcement:read` 权限点 + 全员授予 + 迁移期自检 |
+| `backend/app/src/business/announcement/model.rs` | 745 | 可见性查询 / 已读 / 计数 / 附件绑定（+5 单测） |
+| `backend/app/src/business/announcement/dto.rs` | 295 | 请求 / 响应 DTO（+3 单测） |
+| `backend/app/src/business/announcement/handler.rs` | 832 | 用户侧 7 个接口 + 架构别名 + 附件代理下载（+8 单测） |
+| `backend/app/src/business/announcement/mod.rs` | 39 | 模块声明与契约边界（改 `pub mod` 三行 + 文档） |
 | `scripts/batchc/migrate_test.sh` | 104 | 迁移往返验证（up / down / verify） |
 | `scripts/batchc/c2_accept.py` | 658 | 真机验收（seed / verify / explain） |
 

@@ -24,7 +24,7 @@ su postgres -c "psql -q -c 'CREATE DATABASE $DB;'" >>"$LOG" 2>&1
 
 echo "==== 1. 按版本序应用底座迁移（system → support → business） ====" | tee -a "$LOG"
 for dir in system support business; do
-  for f in $(ls $SRC/backend/migrations/$dir/*.up.sql 2>/dev/null | sort -V); do
+  for f in $(ls $SRC/backend/app/migrations/$dir/*.up.sql 2>/dev/null | sort -V); do
     target=$(stage "$f")
     if run_psql "$target"; then
       echo "  OK   ${f#$SRC/}" | tee -a "$LOG"
@@ -35,7 +35,7 @@ for dir in system support business; do
 done
 
 echo "==== 2. 应用种子数据（角色 / 菜单） ====" | tee -a "$LOG"
-for f in $(ls $SRC/backend/migrations/seed/*.sql 2>/dev/null | sort); do
+for f in $(ls $SRC/backend/app/migrations/seed/*.sql 2>/dev/null | sort); do
   target=$(stage "$f")
   if run_psql "$target"; then echo "  OK   ${f#$SRC/}" | tee -a "$LOG"; else echo "  FAIL ${f#$SRC/}" | tee -a "$LOG"; fi
 done
@@ -48,13 +48,13 @@ ON CONFLICT (id) DO NOTHING;\"" >>"$LOG" 2>&1 && echo "  OK   非超管角色 OP
 
 echo "==== 3. 首次执行 V0046 / V0047 ====" | tee -a "$LOG"
 for v in V0046__seed_storage_permissions V0047__seed_impexp_notice_permissions; do
-  target=$(stage "$SRC/backend/migrations/business/$v.up.sql")
+  target=$(stage "$SRC/backend/app/migrations/business/$v.up.sql")
   if run_psql "$target"; then echo "  OK   $v.up.sql" | tee -a "$LOG"; else echo "  FAIL $v.up.sql" | tee -a "$LOG"; fi
 done
 
 echo "==== 4. 幂等复跑（第二次执行不应报错、不产生重复行） ====" | tee -a "$LOG"
 for v in V0046__seed_storage_permissions V0047__seed_impexp_notice_permissions; do
-  target=$(stage "$SRC/backend/migrations/business/$v.up.sql")
+  target=$(stage "$SRC/backend/app/migrations/business/$v.up.sql")
   if run_psql "$target"; then echo "  OK   $v.up.sql (2nd)" | tee -a "$LOG"; else echo "  FAIL $v.up.sql (2nd)" | tee -a "$LOG"; fi
 done
 
@@ -80,7 +80,7 @@ WHERE r.role_code = 'OPS_ONLY' ORDER BY m.auth_code;\"" | tee -a "$LOG"
 
 echo "==== 6. 回滚 V0047 / V0046（down） ====" | tee -a "$LOG"
 for v in V0047__seed_impexp_notice_permissions V0046__seed_storage_permissions; do
-  target=$(stage "$SRC/backend/migrations/business/$v.down.sql")
+  target=$(stage "$SRC/backend/app/migrations/business/$v.down.sql")
   if run_psql "$target"; then echo "  OK   $v.down.sql" | tee -a "$LOG"; else echo "  FAIL $v.down.sql" | tee -a "$LOG"; fi
 done
 

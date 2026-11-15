@@ -2,8 +2,8 @@
 
 > 卡：`t_72b6a4d4`【P2-4】库位做完整（收货永远进「未分配」桶，库位管理等于没有）
 > 依据：`docs/architecture/ARCH-3-模块勾稽关系审计.md` §5 **DC-22**（P2）
-> 迁移：`backend/migrations/business/V0218__erp_p2_4_stock_in_item_location_dict.{up,down}.sql`
-> 代码：`backend/src/business/erp/stockin/stockin_location.rs`（库位解析原语）、
+> 迁移：`backend/app/migrations/business/V0218__erp_p2_4_stock_in_item_location_dict.{up,down}.sql`
+> 代码：`backend/app/src/business/erp/stockin/stockin_location.rs`（库位解析原语）、
 > `stockin_handler_common.rs`（建单校验 + 详情提示）、`stockin_handler_post.rs`（过账落位）、
 > `stockout_model.rs` / `stockout_handler.rs`（出库 FIFO）
 

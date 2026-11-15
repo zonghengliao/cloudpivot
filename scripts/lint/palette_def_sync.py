@@ -41,7 +41,7 @@ def read(path):
 
 def latest_palette_oneof(root):
     """返回 (迁移文件名, [id...])：迁移号最大的那条 `ui.palette` oneof。"""
-    pattern = os.path.join(root, "backend", "migrations", "system", "*.up.sql")
+    pattern = os.path.join(root, "backend", "app", "migrations", "system", "*.up.sql")
     candidates = []
     for path in glob.glob(pattern):
         match = VERSION_RE.search(path.replace(os.sep, "/"))
@@ -83,7 +83,7 @@ def main():
 
     source_migration, allowed = latest_palette_oneof(args.root)
     if not allowed:
-        print(f"  FAIL：backend/migrations/system/ 下找不到写入 ui.palette oneof 的迁移")
+        print(f"  FAIL：backend/app/migrations/system/ 下找不到写入 ui.palette oneof 的迁移")
         return 1
 
     missing = [item for item in palette_ids if item not in allowed]

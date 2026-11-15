@@ -26,7 +26,7 @@ C2_DB="${C2_DB:-cloudpivot_c2v}"
 ENVF=/etc/cloudpivot/cloudpivot-test.env
 RUN_DIR="${RUN_DIR:-/var/tmp/c2run}"
 BIN="${BIN:-/var/tmp/c2-target/debug/cloudpivot}"
-MIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/backend/migrations/business"
+MIG_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/backend/app/migrations/business"
 
 for k in ALUN_DATABASE_HOST ALUN_DATABASE_PORT ALUN_DATABASE_USER ALUN_DATABASE_PASSWORD \
          ALUN_DATABASE_SSL_MODE ALUN_MIDDLEWARE_AUTH_JWT_SECRET CLOUDPIVOT_STORAGE_MASTER_KEY \

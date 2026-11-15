@@ -4,7 +4,7 @@
 
 为什么需要它（一次真实事故）
 --------------------------
-`backend/migrations/` 分了 `system` / `support` / `business` 三个目录，但 nik 的迁移
+`backend/app/migrations/` 分了 `system` / `support` / `business` 三个目录，但 nik 的迁移
 加载器（`backend/vendor/nik-db/src/migrate/loader.rs`）把**所有来源目录合成一个槽位表**，
 再按版本号排序执行。同一个版本号出现在两个目录里，加载阶段直接失败：
 
@@ -182,7 +182,7 @@ def check(relpaths):
 
 
 def find_migroot(root: str) -> str:
-    migroot = os.path.join(root, "backend", "migrations")
+    migroot = os.path.join(root, "backend", "app", "migrations")
     if not os.path.isdir(migroot):
         raise SystemExit(f"找不到迁移目录：{migroot}（--root 要指向仓库根）")
     return migroot

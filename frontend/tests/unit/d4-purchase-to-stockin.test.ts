@@ -3,7 +3,7 @@
  *
  * 运行：`pnpm test:unit`（= `tsx --test "tests/unit/**\/*.test.ts"`，零新依赖、无 DOM）。
  *
- * 口径与后端对齐（`backend/src/business/erp/purchase/purchase_handler.rs::pending_items_of`）：
+ * 口径与后端对齐（`backend/app/src/business/erp/purchase/purchase_handler.rs::pending_items_of`）：
  * - 待收 = 订单 − 已收（**只算已过账收货单**）；
  * - 带出时只带 `pending_qty > 0` 的行，数量默认 = 待收数量；
  * - 保存时每行必须带回 `purchase_order_item_id`（后端按明细行回写已收数量）；

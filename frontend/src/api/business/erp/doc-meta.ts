@@ -1,7 +1,7 @@
 /**
  * ERP 单据出参三段式口径 —— `data.meta` 段（E2E01-FIX-4）。
  *
- * 后端唯一定义处：`backend/src/business/erp/doc_shape.rs::DocMeta`；
+ * 后端唯一定义处：`backend/app/src/business/erp/doc_shape.rs::DocMeta`；
  * 规范全文：`docs/编码规范.md` §1.12「ERP 接口出参口径」。
  *
  * # 口径

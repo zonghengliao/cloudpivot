@@ -16,17 +16,17 @@
 ## 一、交付文件
 
 ```
-backend/src/business/task/schedule.rs                       新增：PATCH /business/task/{id}/schedule
+backend/app/src/business/task/schedule.rs                       新增：PATCH /business/task/{id}/schedule
                                                             四类校验（纯逻辑可单测）+ 14 条单测
-backend/src/business/task/model.rs                          +排期快照 / 对端查询（前置·后继·父·子）
+backend/app/src/business/task/model.rs                          +排期快照 / 对端查询（前置·后继·父·子）
                                                             / update_schedule / COMMENT_TYPE_SCHEDULE
-backend/src/business/task/dto.rs                            +TaskScheduleReq / ScheduleMode / TaskScheduleRes
-backend/src/business/task/mod.rs                            +pub mod schedule;
-backend/src/business/task/handler.rs                        三个 helper 提升为 pub(crate)（current_user /
+backend/app/src/business/task/dto.rs                            +TaskScheduleReq / ScheduleMode / TaskScheduleRes
+backend/app/src/business/task/mod.rs                            +pub mod schedule;
+backend/app/src/business/task/handler.rs                        三个 helper 提升为 pub(crate)（current_user /
                                                             param_invalid / display_name）
-backend/src/shared/error_code.rs                            +63110 / 63111 / 63112，进码表自检数组
-backend/src/business/changelog/diff.rs                      BIZ_TASK 白名单 + start_date / due_date
-backend/migrations/business/V0114__task_schedule_comment_type.{up,down}.sql
+backend/app/src/shared/error_code.rs                            +63110 / 63111 / 63112，进码表自检数组
+backend/app/src/business/changelog/diff.rs                      BIZ_TASK 白名单 + start_date / due_date
+backend/app/migrations/business/V0114__task_schedule_comment_type.{up,down}.sql
                                                             comment_type 扩到 7 值（新增 SCHEDULE）
 frontend/src/views/business/task/gantt.vue                  拖拽改期（平移 / 左边缘 / 右边缘 + 浮动标签
                                                             + 乐观更新 + 过渡回弹 + 禁用态 + 今天按钮）

@@ -8,8 +8,8 @@
 
 | 类别 | 文件 | 说明 |
 |------|------|------|
-| 后端（新） | `backend/src/business/task/workspace_files.rs` | 3 个接口 + 7 条红线 + 11 个单测 |
-| 后端 | `backend/src/business/task/mod.rs` | `pub mod workspace_files;` |
+| 后端（新） | `backend/app/src/business/task/workspace_files.rs` | 3 个接口 + 7 条红线 + 11 个单测 |
+| 后端 | `backend/app/src/business/task/mod.rs` | `pub mod workspace_files;` |
 | 前端（新） | `frontend/src/views/business/task/components/AiWorkspaceFiles.vue` | 列表 + 预览抽屉 + Blob 下载 |
 | 前端 | `frontend/src/views/business/task/detail.vue` | 「AI 产出文件」tab（仅 `exec_mode === 'AI'`） |
 | 前端 | `frontend/src/api/business/task-api.ts` | `TaskCard.exec_mode` + 3 个接口函数 |

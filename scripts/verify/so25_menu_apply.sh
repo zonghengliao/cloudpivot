@@ -10,7 +10,7 @@
 # 端口 18225 ∈ 隔离段 18000-18999（18223=SO-23 / 18224=SO-24，不撞）
 #
 # 为什么要真起后端：`[database.migration] auto_migrate = true` 是唯一的迁移执行路径
-# （alun-db 在启动时 read_dir 扫描 backend/migrations 并按版本应用）。
+# （alun-db 在启动时 read_dir 扫描 backend/app/migrations 并按版本应用）。
 # 直接 psql 灌 SQL 会绕开指纹/kind/applied_via 记账 —— 那证明不了「APPLY_OK」。
 # =============================================================================
 set -uo pipefail

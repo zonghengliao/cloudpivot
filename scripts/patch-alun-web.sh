@@ -20,7 +20,7 @@
 #
 # 本脚本对 registry 源码做**幂等**文本补丁（带 `cloudpivot-patch` 标记，可重复执行）。
 # 注意：`cargo update` / `cargo clean` / 换 CARGO_HOME 会重新解包 crate，届时需重跑本脚本；
-# 业务侧的启动守卫（backend/src/shared/startup_guard.rs）不依赖本补丁，二者互为兜底。
+# 业务侧的启动守卫（backend/app/src/shared/startup_guard.rs）不依赖本补丁，二者互为兜底。
 #
 # 用法：
 #   bash scripts/patch-alun-web.sh            # 打补丁
@@ -111,7 +111,7 @@ new_auth = """            if cfg.middleware.auth.enabled {
                 // 原实现是 `enabled && !jwt_secret.is_empty()`：密钥为空时**什么也不挂**，
                 // 且不报错；此时 AuthClaims 提取器仍会用空 HMAC 密钥验签，攻击者自签
                 // permissions=["*:*:*"] 即可通行。这里改为启动即失败（含长度下限），
-                // 与业务侧 backend/src/shared/startup_guard.rs 互为兜底。
+                // 与业务侧 backend/app/src/shared/startup_guard.rs 互为兜底。
                 if cfg.middleware.auth.jwt_secret.trim().chars().count() < 32 {
                     panic!(
                         "FATAL: [middleware.auth] enabled=true 但 jwt_secret 缺失或短于 32 字符，\\

@@ -5,8 +5,8 @@
 - 基线：A5 已交付（`93f634a` + `cf7e5a9`，202 tests）
 - 实测环境：172.18.10.144（ubuntu-svr）/ profile=`test` / 库 **`cloudpivot_test`** / 端口 **8026**
   （独立 worktree `/var/tmp/a6` + 独立 `CARGO_TARGET_DIR=/var/tmp/a6-target`，不碰 prod 8023 与 dev 8024/8025）
-- 原始日志：`backend/tests/sql/a6/acceptance_run.log`（本文件中的片段均为其逐字摘录）
-- 复跑方式：`bash backend/tests/sql/a6/run_test_instance.sh` → `python3 backend/tests/sql/a6/acceptance.py`
+- 原始日志：`backend/app/tests/sql/a6/acceptance_run.log`（本文件中的片段均为其逐字摘录）
+- 复跑方式：`bash backend/app/tests/sql/a6/run_test_instance.sh` → `python3 backend/app/tests/sql/a6/acceptance.py`
 
 ---
 
@@ -14,15 +14,15 @@
 
 | 文件 | 说明 |
 |------|------|
-| `backend/src/business/notice/sse_hub.rs`（**新增** 617 行） | per-user 频道中心：`HashMap<user_id, Arc<Broadcaster<String>>>`、惰性创建、订阅/取消、推送、计数、心跳、空频道回收（`Subscription::drop` + 5 分钟巡逻任务） |
-| `backend/src/business/notice/delivery.rs`（**新增** 267 行） | 通道投递计划与投递记录：站内信必投，邮件/Webhook/短信未配置记 `SKIPPED`（**永不 `FAILED`**） |
-| `backend/src/business/notice/handler.rs` | 新增 `GET /business/notice/stream`（SSE）与 `GET /business/notice/stream/stats`（排障/取证） |
-| `backend/src/business/notice/mod.rs` | `dispatch` 接入：通道计划改为「模板通道 ∪ 调用方通道 \| 站内信」；事务提交后 `push_realtime` 只推「接收人 ∩ 在线」 |
-| `backend/src/business/notice/model.rs` | 新增 `online_receivers(notice_id, online_user_ids)`：只查在线用户的接收行（含逐用户 `receiver_id`） |
-| `backend/src/business/notice/dto.rs` | 新增 `StreamStatsRes` / `StreamUserStat` |
-| `backend/src/task/mod.rs` | 注册 `notice_sse_channel_sweep`（cron `0 */5 * * * *`） |
+| `backend/app/src/business/notice/sse_hub.rs`（**新增** 617 行） | per-user 频道中心：`HashMap<user_id, Arc<Broadcaster<String>>>`、惰性创建、订阅/取消、推送、计数、心跳、空频道回收（`Subscription::drop` + 5 分钟巡逻任务） |
+| `backend/app/src/business/notice/delivery.rs`（**新增** 267 行） | 通道投递计划与投递记录：站内信必投，邮件/Webhook/短信未配置记 `SKIPPED`（**永不 `FAILED`**） |
+| `backend/app/src/business/notice/handler.rs` | 新增 `GET /business/notice/stream`（SSE）与 `GET /business/notice/stream/stats`（排障/取证） |
+| `backend/app/src/business/notice/mod.rs` | `dispatch` 接入：通道计划改为「模板通道 ∪ 调用方通道 \| 站内信」；事务提交后 `push_realtime` 只推「接收人 ∩ 在线」 |
+| `backend/app/src/business/notice/model.rs` | 新增 `online_receivers(notice_id, online_user_ids)`：只查在线用户的接收行（含逐用户 `receiver_id`） |
+| `backend/app/src/business/notice/dto.rs` | 新增 `StreamStatsRes` / `StreamUserStat` |
+| `backend/app/src/task/mod.rs` | 注册 `notice_sse_channel_sweep`（cron `0 */5 * * * *`） |
 | `backend/Cargo.toml` | 开启框架 `sse` feature（`nik::sse` 在该 feature 之后才存在）+ 显式化 `futures-util`（**依赖树里已有**，不新增 crate） |
-| `backend/tests/sql/a6/{acceptance.py,run_test_instance.sh,acceptance_run.log}` | 验收脚本 + 起实例脚本 + 原始日志 |
+| `backend/app/tests/sql/a6/{acceptance.py,run_test_instance.sh,acceptance_run.log}` | 验收脚本 + 起实例脚本 + 原始日志 |
 
 > 红线遵守：未改 `system/`、`support/`；`shared/error_code.rs` **零改动**（复用 `AUTH_TOKEN_INVALID`，因此与 A4 无冲突面）；DB 全程只用 `cloudpivot_test`；未新增迁移。
 
@@ -286,7 +286,7 @@ for (;;) {
 
 ## 7. 补充验证：SSE 端点的鉴权不可穿透（红线：走现有鉴权）
 
-脚本 `backend/tests/sql/a6/auth_probe.py`，原始输出 `backend/tests/sql/a6/auth_probe.log`：
+脚本 `backend/app/tests/sql/a6/auth_probe.py`，原始输出 `backend/app/tests/sql/a6/auth_probe.log`：
 
 ```
 ① 不带 Authorization 访问 SSE 端点

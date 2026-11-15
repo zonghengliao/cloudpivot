@@ -8,10 +8,10 @@
 
 | 文件 | 状态 | 说明 |
 |---|---|---|
-| `backend/src/business/flow/expression.rs` | 新增（~700 行含测试） | 解析 + 纯函数求值 + Target→查询计划 |
-| `backend/migrations/business/V0136__flow_expression_assignee.up.sql` | 新增 | 放开枚举 + `ck_biz_flow_node_expression` + `biz_flow_task.assignee_rule_id` + 自检 |
-| `backend/migrations/business/V0136__flow_expression_assignee.down.sql` | 新增 | 回滚（先断言无节点在用 EXPRESSION） |
-| `backend/src/business/flow/mod.rs` | 改 1 行 | `pub mod expression;` |
+| `backend/app/src/business/flow/expression.rs` | 新增（~700 行含测试） | 解析 + 纯函数求值 + Target→查询计划 |
+| `backend/app/migrations/business/V0136__flow_expression_assignee.up.sql` | 新增 | 放开枚举 + `ck_biz_flow_node_expression` + `biz_flow_task.assignee_rule_id` + 自检 |
+| `backend/app/migrations/business/V0136__flow_expression_assignee.down.sql` | 新增 | 回滚（先断言无节点在用 EXPRESSION） |
+| `backend/app/src/business/flow/mod.rs` | 改 1 行 | `pub mod expression;` |
 
 **未动**：`engine.rs`（红线 1）、`graph.rs` 的 `SnapshotNode` / `SNAPSHOT_SCHEMA_VERSION` / `graph_hash`（红线 2）、
 `assignee.rs` / `dto.rs` / `handler.rs`（P1-A2 范围）。

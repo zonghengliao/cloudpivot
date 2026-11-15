@@ -7,7 +7,7 @@
 set -uo pipefail
 DB=${1:-cloudpivot_p22b_c}
 HERE=$(cd "$(dirname "$0")" && pwd)
-MIG_DIR=${MIG_DIR:-$HERE/../../backend/migrations/business}
+MIG_DIR=${MIG_DIR:-$HERE/../../backend/app/migrations/business}
 export PGPASSWORD=alun
 PSQL="psql -h 127.0.0.1 -U alun -d $DB --no-psqlrc -v ON_ERROR_STOP=1 -P pager=off"
 

@@ -104,7 +104,7 @@ probe P3a "另存为出来的副本数（flow_code 以 _custom 结尾）" 0 "$CU
 # ---------- P4 标准流程接口与流程定义列表是不是同一张表 ----------
 # P2-6b 之后：`model::templates(scope)` 在默认口径（`TemplateScope::Standard`）里带
 # `AND d.is_system`；`TemplateScope::All` 才不过滤。静态核对「过滤在不在」。
-SRC="$(dirname "$0")/../../backend/src/business/flow/model.rs"
+SRC="$(dirname "$0")/../../backend/app/src/business/flow/model.rs"
 FILTER=$(grep -c 'is_system' "$SRC" 2>/dev/null || echo 0)
 WHERE_SYS=$(awk '/pub async fn templates\(/,/\}\);/' "$SRC" 2>/dev/null \
             | grep -c 'AND d\.is_system' || true)

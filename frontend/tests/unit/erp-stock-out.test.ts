@@ -7,7 +7,7 @@
  * node 里，而「按钮该不该出、作废要不要拦、请求体发什么」全在逻辑层；
  * `.vue` 只负责渲染，这些一旦漂移 `vue-tsc` 抓不到。
  *
- * 断言口径照后端抄（`backend/src/business/erp/stockout_{base,dto}.rs`）：
+ * 断言口径照后端抄（`backend/app/src/business/erp/stockout_{base,dto}.rs`）：
  * - 类型四值 `OUT_TYPES`、状态四值 `STATUS_*`；
  * - `SCRAP` / `LOSS` 必须填事由（凭证要挂 1901）；
  * - 明细 `StockOutItemReq` **没有** 单价 / 金额 / 单位；

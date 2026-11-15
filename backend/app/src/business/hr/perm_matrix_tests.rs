@@ -621,7 +621,7 @@ fn self_service_routes_are_login_only_by_design() {
 fn matrix_script_reads_the_same_migration() {
     // 回归脚本（真 HTTP）通过 hr_perm_expect.py 解析 V0387 + V0401 得到期望矩阵；
     // 若哪天脚本改成读别的文件，这里先红 —— 两份期望值必须同源，否则「矩阵绿了」不代表矩阵对。
-    let script = include_str!("../../../../scripts/verify/hr/hr_perm_expect.py");
+    let script = include_str!("../../../../../scripts/verify/hr/hr_perm_expect.py");
     assert!(
         script.contains("V0387__hr_menu_perms.up.sql"),
         "hr_perm_expect.py 必须解析 V0387（菜单/授权的历史真源）"
@@ -630,7 +630,7 @@ fn matrix_script_reads_the_same_migration() {
         script.contains("V0401__hr_page_code_split.up.sql"),
         "hr_perm_expect.py 必须叠加 V0401（页面码解耦的覆盖层），否则期望矩阵还停在解耦前"
     );
-    let sh = include_str!("../../../../scripts/verify/hr/hr_permission_matrix.sh");
+    let sh = include_str!("../../../../../scripts/verify/hr/hr_permission_matrix.sh");
     for role in [
         "SUPER_ADMIN",
         "HR_MANAGER",

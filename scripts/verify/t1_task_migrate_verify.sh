@@ -7,7 +7,7 @@ set -uo pipefail
 DB=cloudpivot_t1m
 PSQL="su postgres -c"
 REPO=/opt/cloudpivot
-MIG=$REPO/backend/migrations
+MIG=$REPO/backend/app/migrations
 
 q() { # q <sql>  → 单值输出（整数/文本）
     su postgres -c "psql -d $DB -tAc \"$1\""

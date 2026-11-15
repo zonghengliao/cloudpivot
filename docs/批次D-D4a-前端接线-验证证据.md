@@ -2,7 +2,7 @@
 
 - 卡片：`t_55242a3b`「【D4a-follow】前端接线：我发起 Tab + 待办卡片新字段 + 详情 form_data 展示」
 - 改动范围：**只改 `frontend/src`**（3 个文件 + 1 个自动生成的类型声明），后端一行未动、零新增依赖
-- 后端契约来源：`main @ 27f1fba`（D4a），`backend/src/business/flow/dto.rs` / `handler.rs`
+- 后端契约来源：`main @ 27f1fba`（D4a），`backend/app/src/business/flow/dto.rs` / `handler.rs`
 
 ## 0. 本次接线清单
 

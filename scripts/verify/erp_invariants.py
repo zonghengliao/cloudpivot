@@ -45,7 +45,7 @@ RESULT = []
 #
 # 取值域来源（代码里改 biz_type 必须同步这张表；漏登记由两道闸兜住）：
 #   ① `backend/crates/cloudpivot-doc/src/lib.rs::TxnBizType::ALL`（23 个，唯一拼写；含盘点三态 + 销售退货入库）
-#   ② `backend/src/business/erp/stocktake/stocktake_model.rs`
+#   ② `backend/app/src/business/erp/stocktake/stocktake_model.rs`
 #      （STOCK_TAKE_GAIN / STOCK_TAKE_LOSS / STOCK_TAKE_CANCEL 的写入常量 —— 盘点轴。
 #       这三个曾**只**以常量形式存在、词表里没有（已知漂移），t_6a667db8 已补进 ① 的
 #       枚举与 TXN_BIZ_TYPE_VALUES；仍在此登记是因为「写入点 ≠ 词表」两件事要分开看：
@@ -918,11 +918,11 @@ def _blank_sql_comments(text):
 
 
 def _migrations_root():
-    """迁移根目录（`ERP_MIGRATIONS_ROOT` 只给负向自测用；默认仓内 backend/migrations）。"""
+    """迁移根目录（`ERP_MIGRATIONS_ROOT` 只给负向自测用；默认仓内 backend/app/migrations）。"""
     env = os.environ.get("ERP_MIGRATIONS_ROOT")
     if env:
         return Path(env)
-    return Path(__file__).resolve().parents[2] / "backend" / "migrations"
+    return Path(__file__).resolve().parents[2] / "backend" / "app" / "migrations"
 
 
 def _load_up_migrations():
@@ -2533,7 +2533,7 @@ def group_s():
         check(S_CHECK_NAMES[7], tag, "INFO", True, "本库缺三本账/出库表，跳过")
 
     # ── S9 客户信用额度一致性（ARCH-7 §15.5.4，SO-38）─────────────────
-    # 口径（与 backend/src/business/erp/credit.rs 的 usage_of 逐字同源）：
+    # 口径（与 backend/app/src/business/erp/credit.rs 的 usage_of 逐字同源）：
     #   credit_used = Σ(有效订单含税[APPROVED/PARTIAL_OUT/OUTBOUND])
     #               − Σ(应收已核销 received_amount)
     #               − Σ(已过账退货含税[POSTED])

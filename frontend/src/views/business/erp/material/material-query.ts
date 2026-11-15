@@ -5,7 +5,7 @@
  * `@vue/test-utils`），`.vue` 里的判断一条都测不到。所以「筛选参数怎么组装 / 一物一码
  * 显示成什么 / 分页参数怎么算 / 新建编辑请求体带哪些字段」全放这里，`.vue` 只渲染。
  *
- * # 字段口径（照 `backend/src/business/erp/dto.rs` 的 serde 出参，不是卡面草图）
+ * # 字段口径（照 `backend/app/src/business/erp/dto.rs` 的 serde 出参，不是卡面草图）
  *
  * | 卡面草图 | 真字段 | 出处 |
  * |---|---|---|
@@ -59,7 +59,7 @@ export const SERIAL_FILTER_OPTIONS: ReadonlyArray<{ label: string; value: Serial
 /**
  * 成本法（计价方式）下拉项 —— **只有一项**。
  *
- * 收敛依据：`backend/src/business/erp/dto.rs::COSTING_METHODS`（V0201 起 = `["MOVING_AVG"]`）。
+ * 收敛依据：`backend/app/src/business/erp/dto.rs::COSTING_METHODS`（V0201 起 = `["MOVING_AVG"]`）。
  * 后端 `stockin_write.rs` / `transfer_settle.rs` / `serial_model.rs` 全文不读 `costing_method`，
  * 成本一律按 `avg_cost`（移动加权）算 —— FIFO / STANDARD 从来没有实现，以前选了只是
  * **静默按移动加权算**。所以这里把下拉砍成一项 + 灰字说明，不再让用户以为自己能选。

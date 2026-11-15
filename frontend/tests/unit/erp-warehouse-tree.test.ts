@@ -7,7 +7,7 @@
  * `.vue` 只把它们绑到 `t-tree` 上。放在纯逻辑层，`node --test` 能直接跑，
  * 也不用为一次断言装 jsdom。
  *
- * 断言里的字段名照后端抄（`backend/src/business/erp/dto.rs` `WarehouseRes`）：
+ * 断言里的字段名照后端抄（`backend/app/src/business/erp/dto.rs` `WarehouseRes`）：
  * `warehouse_code` / `warehouse_name` / `warehouse_path` / `parent_id` / `level` / `is_leaf`，
  * **不是** `code` / `name` / `path` —— 写错字段名的测试等于测了个假对象。
  */

@@ -83,23 +83,23 @@ import {
 } from '../../src/api/business/hr/attendance-kinds';
 
 const RUST_PERIOD_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/attendance_period_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/attendance_period_dto.rs', import.meta.url),
   'utf8',
 );
 const RUST_RECORD_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/attendance_record_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/attendance_record_dto.rs', import.meta.url),
   'utf8',
 );
 const RUST_STATE_MACHINE = readFileSync(
-  new URL('../../../backend/src/business/shared/state_machine.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/shared/state_machine.rs', import.meta.url),
   'utf8',
 );
 const SQL_HR_TABLES = readFileSync(
-  new URL('../../../backend/migrations/business/V0383__hr_tables.up.sql', import.meta.url),
+  new URL('../../../backend/app/migrations/business/V0383__hr_tables.up.sql', import.meta.url),
   'utf8',
 );
 const SQL_HR_MENU = readFileSync(
-  new URL('../../../backend/migrations/business/V0387__hr_menu_perms.up.sql', import.meta.url),
+  new URL('../../../backend/app/migrations/business/V0387__hr_menu_perms.up.sql', import.meta.url),
   'utf8',
 );
 const PAGE = readFileSync(
@@ -108,7 +108,7 @@ const PAGE = readFileSync(
 );
 const API = readFileSync(new URL('../../src/api/business/hr/attendance.ts', import.meta.url), 'utf8');
 const RUST_EXPORT = readFileSync(
-  new URL('../../../backend/src/business/hr/attendance_export.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/attendance_export.rs', import.meta.url),
   'utf8',
 );
 const ROUTER = readFileSync(new URL('../../src/router/index.ts', import.meta.url), 'utf8');

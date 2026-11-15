@@ -1,5 +1,5 @@
 /**
- * 收款退款单 API 层（后端 `backend/src/business/erp/receipt_refund.rs`，
+ * 收款退款单 API 层（后端 `backend/app/src/business/erp/receipt_refund.rs`，
  * SO-14 遗留卡 t_573bfe5b 建表 → 本卡 NEAR-FIX-1 / t_67dcb9cb 补前端）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）

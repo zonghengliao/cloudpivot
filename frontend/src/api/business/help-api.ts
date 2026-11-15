@@ -1,7 +1,7 @@
 /**
  * 帮助文档接口（批次 C · C4）。
  *
- * 路径与后端 `backend/src/business/help/handler.rs` 逐条对应。
+ * 路径与后端 `backend/app/src/business/help/handler.rs` 逐条对应。
  *
  * # 四条口径
  *

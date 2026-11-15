@@ -14,14 +14,14 @@
 
 | # | 文件 | diff | 内容 |
 |---|---|---|---|
-| #3 | `backend/src/system/role/model.rs` | +50 | `SysRoleModel.data_scope: i16`（注释说明「不加这一列 → 整行 update 会写坏范围」）+ `find_role_holder_ids()`（范围缓存失效的持有者反查） |
-| #4 | `backend/src/system/role/dto.rs` | +19 | `RoleRes.data_scope: i16`（**必下发**，前端回显 / §5.6 R5）+ `RoleSaveReq.data_scope: Option<i16>`（**`None` = 保留现值**，架构点名的坑） |
-| #5 | `backend/src/system/role/handler.rs` | +455 | `create`/`update` 透传 `data_scope`；`resolve_data_scope()`（唯一转换口）；`scope_class()` / `scope_width()` + `ensure_data_scope_grantable[_with]()`（范围上限，403/61002）；`data_scope` 变更后 `invalidate_role_scope_cache()`；6 个单测 |
-| #7 | `backend/src/system/user/model.rs` + `handler.rs` | +80 | `page_users` 改走 `scope::paginate`（签名加 `&ScopedPrincipal`，`{FILTER}` 标记 + `ORDER BY` 独立传参）；`handler::page` 解析 principal；`update`（换部门）/`batch_update_dept`/`assign_roles` 补 `invalidate_user_scope(s)` |
-| #8 | `backend/src/system/dept/model.rs` + `handler.rs` | +94 | `find_dept_list` 按 `scope::filter_for(SYS_DEPT)` 裁剪（主体表统一别名 `d`）；`tree` 裁剪 + **不可见上级提升为根**；全量树缓存**只在 `is_noop()` 时读写**；create/update/delete/migrate 4 个写点各加 `bump_epoch()` |
-| #9 | `backend/src/bootstrap.rs` | +56 | `tokio::join!` 第 5 分支 `preflight_permission_guard()`：prod 自检失败 `exit(1)`，其它 profile 记 error/warn 继续 |
-| #10 | `backend/src/shared/error_code.rs` | +64 | 6100x 段补满 **61005–61012**（61001/61002 由 B2、61003/61004 由 B4 落地，本卡与 B4 的措辞合并保留）+ 码值稳定性单测 |
-| #11 | `backend/src/shared/constants.rs` | +20 | `CACHE_KEY_PREFIX_USER_SCOPE` / `CACHE_KEY_USER_SCOPE_EPOCH` / `CACHE_KEY_PREFIX_USER_MASK`；`business/shared/principal.rs` 改为 `pub use` 转出（键常量集中一处） |
+| #3 | `backend/app/src/system/role/model.rs` | +50 | `SysRoleModel.data_scope: i16`（注释说明「不加这一列 → 整行 update 会写坏范围」）+ `find_role_holder_ids()`（范围缓存失效的持有者反查） |
+| #4 | `backend/app/src/system/role/dto.rs` | +19 | `RoleRes.data_scope: i16`（**必下发**，前端回显 / §5.6 R5）+ `RoleSaveReq.data_scope: Option<i16>`（**`None` = 保留现值**，架构点名的坑） |
+| #5 | `backend/app/src/system/role/handler.rs` | +455 | `create`/`update` 透传 `data_scope`；`resolve_data_scope()`（唯一转换口）；`scope_class()` / `scope_width()` + `ensure_data_scope_grantable[_with]()`（范围上限，403/61002）；`data_scope` 变更后 `invalidate_role_scope_cache()`；6 个单测 |
+| #7 | `backend/app/src/system/user/model.rs` + `handler.rs` | +80 | `page_users` 改走 `scope::paginate`（签名加 `&ScopedPrincipal`，`{FILTER}` 标记 + `ORDER BY` 独立传参）；`handler::page` 解析 principal；`update`（换部门）/`batch_update_dept`/`assign_roles` 补 `invalidate_user_scope(s)` |
+| #8 | `backend/app/src/system/dept/model.rs` + `handler.rs` | +94 | `find_dept_list` 按 `scope::filter_for(SYS_DEPT)` 裁剪（主体表统一别名 `d`）；`tree` 裁剪 + **不可见上级提升为根**；全量树缓存**只在 `is_noop()` 时读写**；create/update/delete/migrate 4 个写点各加 `bump_epoch()` |
+| #9 | `backend/app/src/bootstrap.rs` | +56 | `tokio::join!` 第 5 分支 `preflight_permission_guard()`：prod 自检失败 `exit(1)`，其它 profile 记 error/warn 继续 |
+| #10 | `backend/app/src/shared/error_code.rs` | +64 | 6100x 段补满 **61005–61012**（61001/61002 由 B2、61003/61004 由 B4 落地，本卡与 B4 的措辞合并保留）+ 码值稳定性单测 |
+| #11 | `backend/app/src/shared/constants.rs` | +20 | `CACHE_KEY_PREFIX_USER_SCOPE` / `CACHE_KEY_USER_SCOPE_EPOCH` / `CACHE_KEY_PREFIX_USER_MASK`；`business/shared/principal.rs` 改为 `pub use` 转出（键常量集中一处） |
 | 报批尾项 | `backend/Cargo.toml` + `Cargo.lock` | +6 / +1 | 显式声明 `regex = "1"`（1.13.1 本就在依赖树里，`nik-utils` 的依赖；**不引入新 crate**，与 `tokio-util`/`futures-util`/`redis` 三个先例同口径） |
 
 **未动**：`business/` 下任何业务模块（storage/impexp/notice 是 B5）、`sys_field_mask` 相关、
@@ -36,7 +36,7 @@
 ### 关于与 B4 的并发提交（rebase 记录）
 
 本卡开发期间 B4 并发落地并先推到 `main`（`05ef6f4`：`business/permission/` + V0065 + error_code 61003/61004）。
-本卡提交已 rebase 到 B4 之上，**唯一冲突**在 `backend/src/shared/error_code.rs`（两卡都加了 61003/61004）：
+本卡提交已 rebase 到 B4 之上，**唯一冲突**在 `backend/app/src/shared/error_code.rs`（两卡都加了 61003/61004）：
 
 - 保留 B4 的措辞与常量定义（61003 = 自己持有角色的范围锁定、61004 = 部门不存在/已软删）；
 - 本卡补齐 61005–61012 与码值稳定性单测；

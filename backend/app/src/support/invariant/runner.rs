@@ -218,8 +218,10 @@ pub fn summary(record: &SysInvariantResultModel) -> String {
 /// # 返回值
 ///
 /// 依次尝试：环境变量 `CLOUDPIVOT_INVARIANT_SCRIPT` → `../scripts/verify/erp_invariants.py`
-/// （服务以 `backend/` 为工作目录）→ `scripts/verify/erp_invariants.py`（以仓库根为工作目录）
-/// → 可执行文件相邻的 `../../scripts/...`。全部不存在时返回 `None`（由调用方落 ERROR 行）。
+/// （服务以 `backend/` 为工作目录）→ `../../scripts/verify/erp_invariants.py`
+/// （cwd 是包根 `backend/app/`，即 `cargo test` 的口径）→ `scripts/verify/erp_invariants.py`
+/// （以仓库根为工作目录）→ 可执行文件相邻的 `../../scripts/...`。全部不存在时返回 `None`
+/// （由调用方落 ERROR 行）。
 pub fn resolve_script() -> Option<PathBuf> {
     if let Ok(custom) = std::env::var(SCRIPT_ENV) {
         let path = PathBuf::from(custom.trim());
@@ -229,6 +231,9 @@ pub fn resolve_script() -> Option<PathBuf> {
     }
     let mut candidates = vec![
         PathBuf::from(SCRIPT_RELATIVE),
+        // P2-40（workspace 化）后 `cargo test` 的 cwd 是包根 `backend/app/`，
+        // 这时 `../scripts` 落在 `backend/scripts`，得再上一级才是仓库根的 `scripts/`。
+        PathBuf::from("../../scripts/verify/erp_invariants.py"),
         PathBuf::from("scripts/verify/erp_invariants.py"),
     ];
     if let Ok(exe) = std::env::current_exe()

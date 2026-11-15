@@ -24,11 +24,11 @@ def pub_names(text: str):
 
 
 targets = [
-    ("backend/src/business/task/model.rs",
-     [f"backend/src/business/task/task_model_{n}.rs" for n in [
+    ("backend/app/src/business/task/model.rs",
+     [f"backend/app/src/business/task/task_model_{n}.rs" for n in [
          "base", "rows", "query", "write", "hierarchy", "dep", "ai", "stats", "flow", "schedule"]]),
-    ("backend/src/business/erp/stockin_handler.rs",
-     [f"backend/src/business/erp/stockin_handler_{n}.rs" for n in [
+    ("backend/app/src/business/erp/stockin_handler.rs",
+     [f"backend/app/src/business/erp/stockin_handler_{n}.rs" for n in [
          "common", "purchase", "write", "post", "cancel", "status", "query"]]),
 ]
 

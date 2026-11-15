@@ -15,7 +15,7 @@ set -uo pipefail
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$DIR/../.." && pwd)
 DB=${SO25_DB:-cloudpivot_so25}
-MIG="$ROOT/backend/migrations/business"
+MIG="$ROOT/backend/app/migrations/business"
 OUT="$ROOT/docs/evidence/20261106-so25-sales-menu/migration-roundtrip.txt"
 export PGPASSWORD=alun
 Q() { psql -h 127.0.0.1 -U alun -d "$DB" -tAF'|' -c "$1"; }

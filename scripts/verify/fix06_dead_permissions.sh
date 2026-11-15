@@ -204,7 +204,7 @@ while IFS= read -r c; do
     [ -z "$c" ] && continue
     case " $EXCEPTIONS " in *" $c "*) continue ;; esac
     # 剥离注释口径由单测 N14 负责（见 A8）；这里用字面量口径做快速体检
-    n=$(grep -rn --fixed-strings "$c" "$REPO/backend/src" --include='*.rs' 2>/dev/null |
+    n=$(grep -rn --fixed-strings "$c" "$REPO/backend/app/src" --include='*.rs' 2>/dev/null |
         grep -v 'tests\.rs:' | grep -v 'tests_support' | wc -l)
     [ "$n" = "0" ] && DEAD="$DEAD $c"
 done < <(psql_q "select distinct auth_code from sys_menu where deleted_at is null and auth_code is not null and auth_code <> '' order by 1" |

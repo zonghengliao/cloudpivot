@@ -12,7 +12,7 @@
 改后：flow ──trait/注册表──→ (抽象)  ←──实现+注册──  erp / hr
 ```
 
-- 接缝文件 `backend/src/business/flow/doc_reader.rs`：**零业务域依赖**（只 `use cloudpivot_doc`
+- 接缝文件 `backend/app/src/business/flow/doc_reader.rs`：**零业务域依赖**（只 `use cloudpivot_doc`
   这个零出边叶子 crate + 框架），用例 `seam_source_is_business_agnostic` 钉死；
 - trait 与注册表：`DocReader` / `DocRegistry` / `register` / `doc_status_of` /
   `internal_control_creator_of_code` / `guard_self_approval` / `dispatch_settled`；

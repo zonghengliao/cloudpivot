@@ -12,9 +12,9 @@
  *
  * # 断言口径照后端 / 迁移抄，不照卡面
  *
- * - `backend/src/business/erp/commission/commission_dto.rs`：`STATUSES` / `LEGAL_EDGES` / 期间校验
- * - `backend/migrations/business/V0309__sales_commission.up.sql`：三条金额 / 范围 CHECK
- * - `backend/migrations/business/V0310__commission_permissions.up.sql`：7 个权限码
+ * - `backend/app/src/business/erp/commission/commission_dto.rs`：`STATUSES` / `LEGAL_EDGES` / 期间校验
+ * - `backend/app/migrations/business/V0309__sales_commission.up.sql`：三条金额 / 范围 CHECK
+ * - `backend/app/migrations/business/V0310__commission_permissions.up.sql`：7 个权限码
  *
  * 其中「源码即契约」两条（状态边、权限码）直接 `readFileSync` 读后端文件断言逐字包含，
  * 后端改字面量 / 前端抄错都会当场红（本仓 `flow-biz-link.test.ts` 同款做法）。
@@ -335,7 +335,7 @@ test('结算状态机：只能 DRAFT→APPROVED→PAID，没有回退边', () =>
 
 test('前端状态边 = 后端 commission_dto::LEGAL_EDGES（源码即契约）', () => {
   const dto = readFileSync(
-    resolve(REPO_ROOT, 'backend/src/business/erp/commission/commission_dto.rs'),
+    resolve(REPO_ROOT, 'backend/app/src/business/erp/commission/commission_dto.rs'),
     'utf8',
   );
 
@@ -386,7 +386,7 @@ test('前端状态边 = 后端 commission_dto::LEGAL_EDGES（源码即契约）'
 
 test('权限码 = V0310 种的 7 个（前端先核对，别再出现「卡面写错码」）', () => {
   const migration = readFileSync(
-    resolve(REPO_ROOT, 'backend/migrations/business/V0310__commission_permissions.up.sql'),
+    resolve(REPO_ROOT, 'backend/app/migrations/business/V0310__commission_permissions.up.sql'),
     'utf8',
   );
   for (const code of [

@@ -267,7 +267,7 @@ async function main() {
   });
 
   // 登录一次拿 token（后端限流 10 次/60 秒/(账号+IP)，整轮复用；跨进程用 token 缓存文件）
-  // ★ 限流实现是进程内计数且**不会随时间衰减**（backend/src/system/auth/handler.rs 的
+  // ★ 限流实现是进程内计数且**不会随时间衰减**（backend/app/src/system/auth/handler.rs 的
   //   check_login_rate：内存 cache 的 set_ex 不生效 → 计数只增不减），所以这里刻意做成
   //   「一次登录、反复复用」，否则连跑 chromium + webkit 两轮就会把自己锁死（要重启后端才解锁）。
   const login = await loadOrLogin();

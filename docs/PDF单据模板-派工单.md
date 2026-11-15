@@ -36,11 +36,11 @@ Cache-Control: no-store
 ## 二、代码落点
 
 ```
-backend/src/business/pdf/
+backend/app/src/business/pdf/
   templates/task.html.tera    派工单版式（include_str! 编译进二进制）
   template.rs                 TaskContext / TaskChecklistItem / TaskSignCell
                               + render_task / task_footer / task_pdf_opts / sample_task
-backend/src/business/task/
+backend/app/src/business/task/
   task_pdf.rs                 取数 + 纯口径（优先级 / 状态文案 / 协作人 / 派工人 /
                               检查项 / 签字栏）+ HTTP 入口 + 导出审计 + 13 条单测
   task_model_query.rs         新增 list_children_for_document（本单全部子任务，见 §五）

@@ -14,7 +14,7 @@
  * Rust `VoucherSourceType` 枚举的逐字镜像，两边由后端单测
  * `frontend_ts_mirror_matches_rust` 钉死）**再加** {@link EXTRA_VOUCHER_SOURCES}。
  * 后者只放「后端确实写进 `biz_voucher.source_type`、但还没进枚举」的值 ——
- * 目前只有一个：`FX_REVALUATION`（`backend/src/business/erp/fx_revaluation.rs:58`
+ * 目前只有一个：`FX_REVALUATION`（`backend/app/src/business/erp/fx_revaluation.rs:58`
  * 直接落库，`doc_kind.rs` 的 `VOUCHER_SOURCE_VALUES` 里还没有它）。
  *
  * **不要在这里写别的词的映射。** 卡面（VTRACE-1 body）列的

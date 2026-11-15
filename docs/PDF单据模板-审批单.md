@@ -32,12 +32,12 @@ Cache-Control: no-store
 ## 二、代码落点
 
 ```
-backend/src/business/pdf/
+backend/app/src/business/pdf/
   templates/approval.html.tera   审批单版式（include_str! 编译进二进制）
   template.rs                    ApprovalContext / ApprovalTrace / ApprovalSignSlot
                                  + render_approval / approval_footer / approval_pdf_opts
                                  + sample_approval（三种 ARCH-8 标记各来一条，单测与联调用）
-backend/src/business/flow/
+backend/app/src/business/flow/
   instance_pdf.rs                取数（model::timeline / nodes_of）+ 纯口径（级次 / 标记 /
                                  金额 / 签字位）+ HTTP 入口 + 导出审计 + 24 条单测
 ```

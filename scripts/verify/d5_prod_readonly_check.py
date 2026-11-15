@@ -34,7 +34,7 @@ import urllib.request
 BASE = os.environ.get("D5_PROD_BASE_URL", "http://127.0.0.1:8023")
 # 登录口径（卡 t_d4e92b99）：运维账号 CLOUDPIVOT_OPS_*，**单次尝试**。
 # 曾经的「候选口令列表 + 逐个重试」是锁号放大器：每错一次 sys_user.login_fail_count +1，
-# 5 次就把账号锁 30 分钟（backend/src/shared/constants.rs）。
+# 5 次就把账号锁 30 分钟（backend/app/src/shared/constants.rs）。
 USER = os.environ.get("D5_PROD_USER") or os.environ.get("CLOUDPIVOT_OPS_USER") or "admin"
 PASSWORD = (
     os.environ.get("D5_PROD_PASSWORD")

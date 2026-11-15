@@ -33,13 +33,13 @@ import sys
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--root", default=".", help="仓库根（含 backend/src 与 scripts/lint/scope_gate.py）")
+    ap.add_argument("--root", default=".", help="仓库根（含 backend/app/src 与 scripts/lint/scope_gate.py）")
     ap.add_argument("--gate", default=None, help="要审计的 scope_gate.py（默认用仓库内那份）")
     ap.add_argument("--list", action="store_true", help="只列文件清单，不打印逐条证据")
     args = ap.parse_args()
 
     root = pathlib.Path(args.root).resolve()
-    src = root / "backend" / "src"
+    src = root / "backend" / "app" / "src"
     gate = pathlib.Path(args.gate).resolve() if args.gate else root / "scripts" / "lint" / "scope_gate.py"
     if not gate.is_file():
         print(f"找不到门禁脚本：{gate}", file=sys.stderr)
@@ -52,10 +52,10 @@ def main() -> int:
     )
     out = run.stdout + run.stderr
     pairs = re.findall(
-        r"跳过清单断言：backend/src/(\S+) 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 ([^）]+)）",
+        r"跳过清单断言：backend/app/src/(\S+) 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 ([^）]+)）",
         out,
     )
-    stale = re.findall(r"跳过清单断言：SKIP_MANIFEST 登记了 backend/src/(\S+)，但本次解析没有跳过它", out)
+    stale = re.findall(r"跳过清单断言：SKIP_MANIFEST 登记了 backend/app/src/(\S+)，但本次解析没有跳过它", out)
     text = gate.read_text()
     m = re.search(r'SKIP_MANIFEST = frozenset\(\n    """\n(.*?)\n"""\.split\(\)', text, re.S)
     registered = m.group(1).split() if m else []
@@ -64,9 +64,9 @@ def main() -> int:
     print(f"登记 {len(registered)} 条；未登记但被跳过 {len(pairs)} 条；登记了但未跳过 {len(stale)} 条")
     if args.list:
         for rel, decl in sorted(pairs):
-            print(f"  + backend/src/{rel}   ← {decl}")
+            print(f"  + backend/app/src/{rel}   ← {decl}")
         for rel in sorted(stale):
-            print(f"  - backend/src/{rel}   （登记失效：文件被删/改名，或声明被去掉）")
+            print(f"  - backend/app/src/{rel}   （登记失效：文件被删/改名，或声明被去掉）")
         return 1 if (pairs or stale) else 0
 
     print()
@@ -87,7 +87,7 @@ def main() -> int:
                 continue
             if re.search(rf"\b{re.escape(stem)}\b", other.read_text(errors="ignore")):
                 users.append(other.relative_to(src).as_posix())
-        print(f"backend/src/{rel}")
+        print(f"backend/app/src/{rel}")
         print(f"  声明 {decl_path}:{line}   cfg(test)={cfg_ok}")
         print(f"  tests={ntest}  pub_fn={len(pub_fn)}  被引用={users[:6]}{' …' if len(users) > 6 else ''}")
         print(f"  上下文: {ctx[:160]}")

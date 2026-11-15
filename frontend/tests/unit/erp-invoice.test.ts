@@ -463,7 +463,7 @@ test('票面形式：电子票只收 pdf/ofd/xml、纸质票收 jpg/png/pdf，�
 // ==================== 后端源码契约（逐字） ====================
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const BACKEND = resolve(HERE, '../../../backend/src/business');
+const BACKEND = resolve(HERE, '../../../backend/app/src/business');
 
 function readBackend(relative: string): string {
   return readFileSync(resolve(BACKEND, relative), 'utf8');

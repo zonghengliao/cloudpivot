@@ -7,7 +7,7 @@
 > **10 条是报告误判（行级校验真实生效，不是死码）**、**1 条是纯前端权限点（C 类，保留 + TODO）**。
 > **未发现「接口存在但完全无权限校验」的安全漏洞**（逐条核查见 §1）。
 
-扫描口径（三处一致）：`backend/src/**/*.rs`，**剥离注释**（`//` `///` `//!` `/* */`）、
+扫描口径（三处一致）：`backend/app/src/**/*.rs`，**剥离注释**（`//` `///` `//!` `/* */`）、
 **保留字符串字面量**、**排除测试文件**。`①注解` = 中间件闸；`②行级` = handler 内
 `claims.has_permission(...)`；`①②都没有` = 死码。
 
@@ -30,7 +30,7 @@
 > 红线②要求：发现即单列在文档最前面。**本次核查结论是 0 条**，下面给出覆盖面与逐条把关人，
 > 便于复核（而不是「没查所以没有」）。
 
-**覆盖面**：扫描 `backend/src/**/*.rs` 的全部 372 条路由声明（`#[nik::{get,post,put,delete,patch}]`），
+**覆盖面**：扫描 `backend/app/src/**/*.rs` 的全部 372 条路由声明（`#[nik::{get,post,put,delete,patch}]`），
 其中 356 条带 `#[nik::permission(permission = "...")]`，**16 条无注解** —— 逐条如下：
 
 | # | 方法 路径 | 谁在把权限闸 | 证据 |
@@ -220,7 +220,7 @@ $ NIK_DATABASE_NAME=cloudpivot_fix06 NIK_DATABASE_USER=alun NIK_DATABASE_PASSWOR
 
 ## 6. 防线（本次新增，防复发）
 
-`backend/src/system/menu/permission_audit_tests.rs`（`#[cfg(test)]`，5 条用例）：
+`backend/app/src/system/menu/permission_audit_tests.rs`（`#[cfg(test)]`，5 条用例）：
 
 | 用例 | 断言 | 为什么值钱 |
 |---|---|---|
@@ -271,7 +271,7 @@ N18 会持续校验这笔台账（例外的码一旦有了注解或消失，N18 
 ## 9. 补记（SO-36b，2026-11-07）：佣金 7 码全部落地，例外台账清零
 
 `commission-rule:{list,create,update,delete}` 四个接口由 **SO-36b** 补齐
-（`backend/src/business/erp/commission/commission_rule_handler.rs`），`commission-settle:{create,list,status}`
+（`backend/app/src/business/erp/commission/commission_rule_handler.rs`），`commission-settle:{create,list,status}`
 三个码由 SO-36 补齐。至此 V0310 预种的 7 个码**全部**有 `#[nik::permission]` 注解落地：
 
 - `ROUTE_LEVEL_ONLY` 里 4 条 `business:erp:commission-rule:*` 例外**已删除**（按第 8 节的纪律）；

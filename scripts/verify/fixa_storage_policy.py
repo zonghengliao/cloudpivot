@@ -26,7 +26,7 @@ import requests
 BASE = "http://127.0.0.1:8026/api"
 DB = "cloudpivot_fixa_v107"
 ENVF = "/etc/cloudpivot/cloudpivot-test.env"
-MIG_DIR = "/var/tmp/designA/backend/migrations/business"
+MIG_DIR = "/var/tmp/designA/backend/app/migrations/business"
 UP = MIG_DIR + "/V0107__storage_task_policies.up.sql"
 DOWN = MIG_DIR + "/V0107__storage_task_policies.down.sql"
 

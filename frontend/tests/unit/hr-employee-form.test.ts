@@ -46,19 +46,19 @@ import type { EmployeeCreateReq, EmployeeUpdateReq } from '@/api/business/hr/emp
 
 /** 后端入参校验源码（长度上限 / 取值域的唯一真源） */
 const RUST_HANDLER = readFileSync(
-  new URL('../../../backend/src/business/hr/employee_handler.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/employee_handler.rs', import.meta.url),
   'utf8',
 );
 /** 后端出参词表源码（证件类型码表在 dto 里） */
 const RUST_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/employee_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/employee_dto.rs', import.meta.url),
   'utf8',
 );
 /** 页面源码（接线断言用） */
 const PAGE = readFileSync(new URL('../../src/views/business/hr/employee/index.vue', import.meta.url), 'utf8');
 /** 建表迁移（性别码值的真源：`ck_biz_employee_gender`） */
 const DDL = readFileSync(
-  new URL('../../../backend/migrations/business/V0383__hr_tables.up.sql', import.meta.url),
+  new URL('../../../backend/app/migrations/business/V0383__hr_tables.up.sql', import.meta.url),
   'utf8',
 );
 

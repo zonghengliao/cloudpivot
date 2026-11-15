@@ -53,10 +53,10 @@ P2-38：把写 `biz_task` 的那几段挪出 `flow`，反方向归零
 
 | 文件 | 内容 | 约 |
 |:--|:--|--:|
-| `backend/src/business/task/approval_port.rs` | `TaskApprovalPort` trait + 注册表 + 7 个降级入口 + `PreparedAccept` 不透明句柄 | 460 行 |
-| `backend/src/business/task/approval_port_tests.rs` | 注册表语义（离线 10 条）+ **依赖边闸门** | 305 行 |
-| `backend/src/business/flow/task_approval_impl.rs` | 唯一实现（逐方法委派 `task_bridge`）+ 纯转换用例 7 条 | 285 行 |
-| `backend/src/business/shared/task_node_switch.rs` | 三个走向枚举的真源 + 用例 3 条 | 175 行 |
+| `backend/app/src/business/task/approval_port.rs` | `TaskApprovalPort` trait + 注册表 + 7 个降级入口 + `PreparedAccept` 不透明句柄 | 460 行 |
+| `backend/app/src/business/task/approval_port_tests.rs` | 注册表语义（离线 10 条）+ **依赖边闸门** | 305 行 |
+| `backend/app/src/business/flow/task_approval_impl.rs` | 唯一实现（逐方法委派 `task_bridge`）+ 纯转换用例 7 条 | 285 行 |
+| `backend/app/src/business/shared/task_node_switch.rs` | 三个走向枚举的真源 + 用例 3 条 | 175 行 |
 
 ## 4. 三条等价性（改造不许改变行为）
 
@@ -109,7 +109,7 @@ $ cargo tree | grep -c "business::"
 
 ```text
 $ python3 scripts/lint/module_cycle_report.py --edge business::task business::flow
-源码根：/opt/cloudpivot/backend/src
+源码根：/opt/cloudpivot/backend/app/src
 扫描面：778 个 .rs / 节点 21 个 / 跨域有向边 61 条 （口径：仅 business::*）
 
 边 business::task → business::flow：**不存在**（该域内无任何 crate:: 引用指向 business::flow）
@@ -149,7 +149,7 @@ $ python3 scripts/lint/module_cycle_report.py --mutual
 ### 5.4 闸门（进 `cargo test` 的那一条）
 
 `task::approval_port_tests::task_source_has_no_flow_references`：
-扫描 `backend/src/business/task/*.rs` 全部文件，判据 `crate::business::flow`，基线 **0**（`==` 而非 `<=`，
+扫描 `backend/app/src/business/task/*.rs` 全部文件，判据 `crate::business::flow`，基线 **0**（`==` 而非 `<=`，
 P2-37 之后不是「只降不升」而是「必须为零」）。**扫描面硬断言**：`files >= 40`（现 48）、`bytes >= 300_000` ——
 扫空时「0 命中」是假绿，先证明真的扫到了东西。
 

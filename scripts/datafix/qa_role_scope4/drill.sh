@@ -15,8 +15,8 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
-UP="$REPO/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql"
-DOWN="$REPO/backend/migrations/business/V0249__qa_fixture_role_scope_self_only.down.sql"
+UP="$REPO/backend/app/migrations/business/V0249__qa_fixture_role_scope_self_only.up.sql"
+DOWN="$REPO/backend/app/migrations/business/V0249__qa_fixture_role_scope_self_only.down.sql"
 OUT="${OUT_DIR:-/tmp/p0fix3b_drill}"
 mkdir -p "$OUT"
 

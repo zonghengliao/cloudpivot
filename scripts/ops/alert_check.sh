@@ -3,7 +3,7 @@
 #
 # =============================== 它解决什么 ===============================
 # 评审 5.8：「无指标、无告警规则、无外部告警通道」。指标由后端每分钟采样进 /metrics
-# （见 backend/src/task/metrics_sampler.rs），**本脚本是告警规则 + 告警通道**：
+# （见 backend/app/src/task/metrics_sampler.rs），**本脚本是告警规则 + 告警通道**：
 #
 #   ① health        服务挂了            GET /health 非 200 或 data.status != ok
 #   ② deps          依赖挂了            GET /health/deps 任一依赖 ok=false

@@ -1,5 +1,5 @@
 /**
- * 取价解析 API（后端 `backend/src/business/erp/price_handler.rs`，SO-33 / ARCH-7 §15.3.3）。
+ * 取价解析 API（后端 `backend/app/src/business/erp/price_handler.rs`，SO-33 / ARCH-7 §15.3.3）。
  *
  * # 为什么单独一个文件
  *

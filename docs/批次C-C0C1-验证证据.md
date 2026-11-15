@@ -13,10 +13,10 @@
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `backend/src/business/shared/content.rs` | 1224 | **C1 主体**：渲染 + 三套净化配方 + TOC 树 + 12 个单测 |
-| `backend/src/business/announcement/mod.rs` | 22 | C0 空壳（C2/C3 的模块入口，含两条不变量） |
-| `backend/src/business/help/mod.rs` | 18 | C0 空壳（C4 的模块入口，含两条不变量） |
-| `backend/src/business/changelog/mod.rs` | 26 | C0 空壳（C5/C6 的模块入口，含三条不变量） |
+| `backend/app/src/business/shared/content.rs` | 1224 | **C1 主体**：渲染 + 三套净化配方 + TOC 树 + 12 个单测 |
+| `backend/app/src/business/announcement/mod.rs` | 22 | C0 空壳（C2/C3 的模块入口，含两条不变量） |
+| `backend/app/src/business/help/mod.rs` | 18 | C0 空壳（C4 的模块入口，含两条不变量） |
+| `backend/app/src/business/changelog/mod.rs` | 26 | C0 空壳（C5/C6 的模块入口，含三条不变量） |
 
 底座改动（`git show --stat 410f84e`，**改动面严格受控**）：
 
@@ -24,10 +24,10 @@
 |---|---|---|
 | `backend/Cargo.toml` | +15 行（`pulldown-cmark` 新增 + `ammonia` 显式化） | ✅ B-1 |
 | `backend/Cargo.lock` | +20 行（`pulldown-cmark 0.13.5` / `pulldown-cmark-escape 0.11.0`） | ✅ B-1 的锁文件 |
-| `backend/src/shared/error_code.rs` | +83 行（13 个 62xxx 码 + 1 个码位自检单测） | ✅ B-3 |
-| `backend/src/business/mod.rs` | +6 行（3 个 `pub mod` + 文档表 3 行） | ✅ B-4 |
-| `backend/src/task/mod.rs` | +69 行（`BATCH_C_TASKS` 5 条 + 注册函数 + 文档表 5 行） | ✅ B-2 |
-| `backend/src/business/shared/mod.rs` | **+2 行**（`pub mod content;` + 文档表 1 行） | ⚠️ 卡里没列，属**必需的接线**：不声明 `pub mod content` 新文件不参与编译。只加了这一行声明，`scope.rs` 一行未动。 |
+| `backend/app/src/shared/error_code.rs` | +83 行（13 个 62xxx 码 + 1 个码位自检单测） | ✅ B-3 |
+| `backend/app/src/business/mod.rs` | +6 行（3 个 `pub mod` + 文档表 3 行） | ✅ B-4 |
+| `backend/app/src/task/mod.rs` | +69 行（`BATCH_C_TASKS` 5 条 + 注册函数 + 文档表 5 行） | ✅ B-2 |
+| `backend/app/src/business/shared/mod.rs` | **+2 行**（`pub mod content;` + 文档表 1 行） | ⚠️ 卡里没列，属**必需的接线**：不声明 `pub mod content` 新文件不参与编译。只加了这一行声明，`scope.rs` 一行未动。 |
 
 > 红线自查：`shared/scope.rs` **未改动**（`git show --stat 410f84e` 里没有它）；`support/log`、
 > `business/storage`、`business/notice`、`middleware/*` 均未触碰。
@@ -66,7 +66,7 @@ ammonia = "4.2"
 ### 2.2 B-3 `shared/error_code.rs`：13 个 62xxx 码
 
 ```
-$ grep -cE "= 620[0-9]{2}" backend/src/shared/error_code.rs
+$ grep -cE "= 620[0-9]{2}" backend/app/src/shared/error_code.rs
 13
 ```
 

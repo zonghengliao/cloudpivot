@@ -1,6 +1,6 @@
 # ERP-R3：现金流量表（简化版）
 
-> 卡：t_e2f972bd ｜ 代码：`backend/src/business/erp/cash_flow.rs`（+ `V0185`）｜ 前端：`frontend/src/views/business/erp/report/cash-flow/index.vue`
+> 卡：t_e2f972bd ｜ 代码：`backend/app/src/business/erp/cash_flow.rs`（+ `V0185`）｜ 前端：`frontend/src/views/business/erp/report/cash-flow/index.vue`
 > 依赖：ERP-R1（`biz_report_item` / 期间口径 / 金额格式 / 导出 / 快照模式）、ERP-R2（两表勾稽的写法）
 
 ---
@@ -274,7 +274,7 @@ for k in $(redis-cli -n 0 --scan --pattern "cloudpivot:perm:user_menus:*"); do r
 
 ```sql
 -- 先停应用，再执行（会删表与菜单节点）
-\i backend/migrations/business/V0185__erp_cashflow.down.sql
+\i backend/app/migrations/business/V0185__erp_cashflow.down.sql
 ```
 
 只删本卡的东西：权限节点 …1018 + 12 条分类行 + `biz_cashflow_item`；

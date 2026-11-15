@@ -1,6 +1,6 @@
 # E2ERES3 · 清掉生产库里的 e2e 标记残留（383 行 + 6 个在用测试账号）
 
-一次性生产数据修复（2026-11-05，卡 `t_44766ab3`）。**不是迁移**，不进 `backend/migrations/`。
+一次性生产数据修复（2026-11-05，卡 `t_44766ab3`）。**不是迁移**，不进 `backend/app/migrations/`。
 承接 `scripts/datafix/e2e_residue/`（`t_61dca492`）、`scripts/datafix/e2e_residue2/`（`t_142317a2`）。
 
 前两张卡清的是「流程定义 / 流程实例」（`biz_flow_def` / `biz_flow_instance`）。

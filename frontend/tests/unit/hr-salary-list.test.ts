@@ -74,8 +74,8 @@ import {
 import { SALARY_PERMS, SALARY_STATUS_LABELS, SALARY_STATUS_VALUES } from '../../src/api/business/hr/salary-kinds.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const backend = resolve(here, '../../../backend/src/business/hr');
-const migrations = resolve(here, '../../../backend/migrations/business');
+const backend = resolve(here, '../../../backend/app/src/business/hr');
+const migrations = resolve(here, '../../../backend/app/migrations/business');
 const readBackend = (file: string): string => readFileSync(resolve(backend, file), 'utf8');
 const readMigration = (file: string): string => readFileSync(resolve(migrations, file), 'utf8');
 const readFrontend = (file: string): string =>

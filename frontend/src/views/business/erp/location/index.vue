@@ -248,7 +248,7 @@ import {
 } from './location-logic';
 
 /**
- * 本页权限码（与 `backend/migrations/business/V0141__erp_permissions.up.sql` 逐字一致）。
+ * 本页权限码（与 `backend/app/migrations/business/V0141__erp_permissions.up.sql` 逐字一致）。
  *
  * 就近放在页面里（不改 `src/constants/permissions.ts`）：那个文件是全站单点，
  * ERP 这一批多张卡会同时往它里面加码，谁后提交谁撞冲突。

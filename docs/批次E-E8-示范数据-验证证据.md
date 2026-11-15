@@ -10,10 +10,10 @@
 
 | 文件 | 行数 | 作用 |
 |---|---|---|
-| `backend/migrations/business/V0131__seed_help_docs.up.sql` | 536 | 2 个分类 + 5 篇已发布文档 + 5 条版本快照 |
-| `backend/migrations/business/V0131__seed_help_docs.down.sql` | 51 | 版本 → 文档 → 分类，逆序零残留 |
-| `backend/migrations/business/V0132__seed_projects.up.sql` | 188 | 2 个 ACTIVE 项目 + 6 条示范任务 |
-| `backend/migrations/business/V0132__seed_projects.down.sql` | 42 | 任务 → 摘关联 → 项目，逆序零残留 |
+| `backend/app/migrations/business/V0131__seed_help_docs.up.sql` | 536 | 2 个分类 + 5 篇已发布文档 + 5 条版本快照 |
+| `backend/app/migrations/business/V0131__seed_help_docs.down.sql` | 51 | 版本 → 文档 → 分类，逆序零残留 |
+| `backend/app/migrations/business/V0132__seed_projects.up.sql` | 188 | 2 个 ACTIVE 项目 + 6 条示范任务 |
+| `backend/app/migrations/business/V0132__seed_projects.down.sql` | 42 | 任务 → 摘关联 → 项目，逆序零残留 |
 
 ## 二、帮助中心内容（5 篇，57–77 行 Markdown）
 

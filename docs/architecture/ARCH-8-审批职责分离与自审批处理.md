@@ -38,7 +38,7 @@
 
 ## 二、现状盘点（已有能力，不用重建）
 
-`backend/src/business/flow/assignee.rs` 已实现：
+`backend/app/src/business/flow/assignee.rs` 已实现：
 
 ### 2.1 节点级自审批策略
 

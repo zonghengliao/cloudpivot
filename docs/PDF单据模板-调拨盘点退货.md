@@ -22,13 +22,13 @@
 ## 二、代码落点
 
 ```
-backend/src/business/pdf/
+backend/app/src/business/pdf/
   templates/transfer.html.tera     调拨单
   templates/stock_take.html.tera   盘点表（★ 唯一带空白手写栏的模板）
   templates/return_doc.html.tera   采购退货 / 销售退货共用（按 kind 开关专有列）
   template.rs                      TransferContext / StockTakeContext / ReturnContext
                                    + 渲染 + 页脚 + PdfOpts + 样本数据
-backend/src/business/erp/
+backend/app/src/business/erp/
   transfer_pdf.rs                  调拨单：取数 + 渲染 + HTTP 入口 + 审计
   stock_take_pdf.rs                盘点表：取数 + 渲染 + HTTP 入口 + 审计
   return_pdf.rs                    两种退货单：取数 + 渲染 + 两个 HTTP 入口 + 审计

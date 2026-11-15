@@ -171,13 +171,13 @@
 
 | 文件 | 变更 |
 |---|---|
-| `backend/migrations/business/V0171__transfer_in_transit_overdue.up.sql` / `.down.sql` | 新增：两列 + 部分索引 + 两条参数 |
-| `backend/src/business/erp/transfer/transfer_model.rs` | 新增：阈值读取 / `is_in_transit_overdue` / `cutoff_of` / `overdue_elapsed_days` / `TransferQuery.in_transit_overdue` / `scan_overdue_candidates` / `mark_overdue_alerted` / `overdue_summary` |
-| `backend/src/business/erp/transfer/transfer_dto.rs` | 新增：`TransferFilter.in_transit_overdue` + 矛盾组合校验、`TransferRes` 4 个超期字段、`TransferOverdueSummaryRes` |
-| `backend/src/business/erp/transfer/transfer_handler.rs` | 新增：列表筛选接线 + `GET /business/erp/transfer/overdue/summary` |
-| `backend/src/business/erp/transfer/transfer_overdue.rs` | 新增：扫描任务 / 告警草稿 / 幂等键 / 注册 + 6 条纯逻辑单测 |
-| `backend/src/business/erp/mod.rs`、`backend/src/task/mod.rs` | 模块声明 + 任务注册（各 1–2 行） |
-| `backend/tests/linkage/transfer_chain.rs` | F12 从 `#[ignore]` 转正并**重写断言**（原断言是裸 SQL 计数，没有实现也是绿的） |
+| `backend/app/migrations/business/V0171__transfer_in_transit_overdue.up.sql` / `.down.sql` | 新增：两列 + 部分索引 + 两条参数 |
+| `backend/app/src/business/erp/transfer/transfer_model.rs` | 新增：阈值读取 / `is_in_transit_overdue` / `cutoff_of` / `overdue_elapsed_days` / `TransferQuery.in_transit_overdue` / `scan_overdue_candidates` / `mark_overdue_alerted` / `overdue_summary` |
+| `backend/app/src/business/erp/transfer/transfer_dto.rs` | 新增：`TransferFilter.in_transit_overdue` + 矛盾组合校验、`TransferRes` 4 个超期字段、`TransferOverdueSummaryRes` |
+| `backend/app/src/business/erp/transfer/transfer_handler.rs` | 新增：列表筛选接线 + `GET /business/erp/transfer/overdue/summary` |
+| `backend/app/src/business/erp/transfer/transfer_overdue.rs` | 新增：扫描任务 / 告警草稿 / 幂等键 / 注册 + 6 条纯逻辑单测 |
+| `backend/app/src/business/erp/mod.rs`、`backend/app/src/task/mod.rs` | 模块声明 + 任务注册（各 1–2 行） |
+| `backend/app/tests/linkage/transfer_chain.rs` | F12 从 `#[ignore]` 转正并**重写断言**（原断言是裸 SQL 计数，没有实现也是绿的） |
 | `scripts/verify/f12_transfer_overdue.sh` | 新增：接口级 e2e（20 项断言，自带夹具与清理） |
 | `docs/在途调拨超期告警-LNK-F12.md` | 本文档 |
 
@@ -222,7 +222,7 @@ F12：扫描必须至少告警一张单（transfer_overdue_scan: scanned=0 alert
 test result: FAILED. 0 passed; 1 failed; …
 ```
 
-还原后复绿（证据里已确认临时短路代码未残留：`grep -rn MUTATION backend/src backend/tests` 零命中）。
+还原后复绿（证据里已确认临时短路代码未残留：`grep -rn MUTATION backend/app/src backend/app/tests` 零命中）。
 
 ### 8.3 单测 / 静态检查
 

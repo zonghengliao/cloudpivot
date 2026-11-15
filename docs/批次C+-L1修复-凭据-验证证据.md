@@ -84,11 +84,11 @@ $ ls /tmp/authprobe/.env     → 不存在
 
 | 文件 | 内容 |
 |---|---|
-| `backend/src/business/aiagent/hermes.rs` | `ensure_profile_env`（补齐+自检）、`verify_profile_credentials`（只读自检）、`env_file_path` / `resolve_provider` / `read_text_opt` / `file_mode` / `write_env_text`；自由函数 `provider_api_key_var` / `is_credential_env_key` / `parse_env_pairs` / `env_lookup` / `merge_env_text` / `parse_model_provider`；`create_profile` 在 `ensure_profile_config` 之后**硬性**补齐凭据；`status()` 出参加凭据自检 |
-| `backend/src/business/aiagent/handler.rs` | 创建流程新增 **⑤ 凭据自检**（进创建成功条件）；新增 `POST /system/user/ai/{id}/repair`；`rollback` 改为「以磁盘事实为准 + 库内物理删除」；`hard_delete_records` |
-| `backend/src/business/aiagent/dto.rs` | `AiUserStatusRes` 补 5 个凭据字段；新增 `AiUserCredentialRes` |
-| `backend/src/business/aiagent/mod.rs` | 六个接口表 + 不变式表（回滚语义改物理删除） |
-| `backend/src/shared/error_code.rs` | **+64014 `AI_AGENT_CREDENTIAL_MISSING`**（64001–64014，码表自检 13→14） |
+| `backend/app/src/business/aiagent/hermes.rs` | `ensure_profile_env`（补齐+自检）、`verify_profile_credentials`（只读自检）、`env_file_path` / `resolve_provider` / `read_text_opt` / `file_mode` / `write_env_text`；自由函数 `provider_api_key_var` / `is_credential_env_key` / `parse_env_pairs` / `env_lookup` / `merge_env_text` / `parse_model_provider`；`create_profile` 在 `ensure_profile_config` 之后**硬性**补齐凭据；`status()` 出参加凭据自检 |
+| `backend/app/src/business/aiagent/handler.rs` | 创建流程新增 **⑤ 凭据自检**（进创建成功条件）；新增 `POST /system/user/ai/{id}/repair`；`rollback` 改为「以磁盘事实为准 + 库内物理删除」；`hard_delete_records` |
+| `backend/app/src/business/aiagent/dto.rs` | `AiUserStatusRes` 补 5 个凭据字段；新增 `AiUserCredentialRes` |
+| `backend/app/src/business/aiagent/mod.rs` | 六个接口表 + 不变式表（回滚语义改物理删除） |
+| `backend/app/src/shared/error_code.rs` | **+64014 `AI_AGENT_CREDENTIAL_MISSING`**（64001–64014，码表自检 13→14） |
 
 > 唯一动到 `business/aiagent/` 之外的是 `error_code.rs`（错误码按架构就该在共享段）：
 > 新增 64014 是必要的行为差异 —— 用 64008（AI 配置文件 IO 失败）会把「业务上不可用」

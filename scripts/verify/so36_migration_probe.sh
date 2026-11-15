@@ -14,7 +14,7 @@
 set -uo pipefail
 DB=${SO36_PROBE_DB:-cloudpivot_so36p}
 URL=${SO36_PROBE_URL:-postgresql://alun:alun@127.0.0.1:5432/$DB}
-DIR=/opt/cloudpivot/backend/migrations/business
+DIR=/opt/cloudpivot/backend/app/migrations/business
 export PGPASSWORD=alun
 PSQL=(psql "$URL" -v ON_ERROR_STOP=1 -q)
 

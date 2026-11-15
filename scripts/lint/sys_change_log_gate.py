@@ -12,8 +12,8 @@
 v1 的判据是 `grep -rn sys_change_log | grep -v "business/changelog/"`，只排「整行注释」。
 2026-11-10（卡 t_2746ca53）实测它在 HEAD 上是红的，两条命中**全部是测试代码**：
 
-    backend/src/business/erp/contract/contract_handler.rs:1998  #[cfg(test)] 里断言「改一次只写一行」
-    backend/src/business/erp/contract/contract_handler.rs:2059  #[cfg(test)] 里 count(*) 断言「值没变不写」
+    backend/app/src/business/erp/contract/contract_handler.rs:1998  #[cfg(test)] 里断言「改一次只写一行」
+    backend/app/src/business/erp/contract/contract_handler.rs:2059  #[cfg(test)] 里 count(*) 断言「值没变不写」
 
 测试**读**一眼审计表来断言行为，不是生产写路径。判红等于「写这个测试要跟门禁打架」，
 于是要么有人关闸，要么有人不写测试 —— 两种结果都比这道闸想防的问题更糟。
@@ -171,7 +171,7 @@ def self_test() -> bool:
 def main() -> None:
     ap = argparse.ArgumentParser(description="C7 G1：sys_change_log 只能由 business/changelog/ 访问（只判生产面）")
     ap.add_argument("--root", default=str(Path(__file__).resolve().parents[2]), help="仓库根")
-    ap.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/src）")
+    ap.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/app/src）")
     ap.add_argument("--self-test", action="store_true", dest="self_test")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -180,7 +180,7 @@ def main() -> None:
         sys.exit(0 if self_test() else 1)
 
     root = Path(args.root).resolve()
-    src = Path(args.src).resolve() if args.src else root / "backend" / "src"
+    src = Path(args.src).resolve() if args.src else root / "backend" / "app" / "src"
     if not src.is_dir():
         print(f"✗ 源码目录不存在：{src}", file=sys.stderr)
         sys.exit(2)
@@ -201,7 +201,7 @@ def main() -> None:
         except UnicodeDecodeError:  # pragma: no cover
             continue
         for lineno, snippet in scan_source(rel, text):
-            violations.append(dict(file=f"backend/src/{rel}", line=lineno, code=snippet))
+            violations.append(dict(file=f"backend/app/src/{rel}", line=lineno, code=snippet))
 
     ok = not violations
     if args.json:

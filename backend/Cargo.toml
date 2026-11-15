@@ -1,210 +1,69 @@
-[package]
-name = "cloudpivot"
-description = "云枢（CloudPivot）通用后台管理系统 —— Rust + Vue 3 全栈"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.94.1"
-authors = ["Laoliu"]
-license = "Apache-2.0"
-repository = "https://github.com/zonghengliao/cloudpivot"
-publish = false
-
-# ======================================================================
-# Cargo features
+# ==============================================================================
+# 云枢（CloudPivot）后端 workspace 根
 #
-# `test-hooks`（批次 C · C7）：打开后才会编译 `business/changelog/test_hooks`
-# （`changelog::test_hooks::record_then_rollback`，在真实事务里 record 后强制回滚）。
+# 布局（P2-40 落地，2026-11-15）：
 #
-# 它是**测试专用**开关，故意不进 default：
-#   - `cargo build` / `cargo build --release` 的产物里**不存在**该符号（C7 红线）；
-#   - 要用时显式打开：
-#       cargo test --features test-hooks
-#       cargo run --features test-hooks --example c7_rollback_probe
+#     backend/
+#       Cargo.toml          ← 本文件（虚拟 workspace 根，**没有** [package]）
+#       Cargo.lock          ← 全 workspace 共用一份锁文件（位置不变，脚本/CI/Docker 无需改）
+#       target/             ← 全 workspace 共用 target（位置不变：backend/target/**）
+#       rustfmt.toml        ← 全 workspace 共用格式基线
+#       config/             ← 运行时配置（部署输入，**不进** app 包；cwd = backend/ 时生效）
+#       crates/             ← 域 crate（P2-41 起逐个抽取：cloudpivot-doc 已在此）
+#       vendor/             ← 框架源码（path 依赖，**不是**成员，见下）
+#       app/                ← 主 binary crate（name = cloudpivot）
+#         Cargo.toml  src/  tests/  examples/  build.rs  migrations/
 #
-# 判空理由（评审问过）：不给它 `#[cfg(test)]` 是因为集成测试与 example 都编译在
-# 独立的 crate 里，`cfg(test)` 对它们不生效；`cfg(feature)` 才是跨 target 的统一开关。
-# ======================================================================
-[features]
-default = []
-test-hooks = []
-
-
-[dependencies]
-# 门面依赖：只声明 nik 一个框架 crate，其余能力通过 feature 选择。
-# 不在 Cargo.toml 里出现 nik-db / nik-db-core / nik-web / nik-config，
-# 它们的能力由 `use nik::prelude::*` 转发（新框架铁律）。
-nik = { path = "vendor/nik", features = [
-    # 数据库：驱动即能力，写 `postgres` 即可（它隐含 `db`）。
-    # `db` 本身**不含任何驱动**，单独列出只是显式表达「需要数据库能力」，可选。
-    "db",
-    "postgres",
-    # 缓存：JWT 黑名单、字典预热等依赖全局 cache()
-    "cache",
-    # 插件设施：定时任务调度器（scheduler）
-    "plugin",
-    # 文件存储后端：本地磁盘。切 MinIO 时改为 `fs-minio`（二者互斥，按需选一个）
-    "fs-local",
-    # 模型生态类型：DateTime / Uuid / JSON 列 / IP 地址（operation_logs.ip 为 INET 列）
-    "chrono",
-    "uuid",
-    "json",
-    "ipnetwork",
-    # HTML 净化：社区公告等富文本入库前过滤
-    "xss",
-    # 定点小数（W1b · ERP 金额）：`NUMERIC(18,4)` 走 rust_decimal::Decimal，
-    # 不用 f64（f64 会在合计/税率上与库里的定点值分叉）。
-    "rust_decimal",
-    # SSE 实时推送（批次 A · A6）：框架 `nik-web::sse` 的 `Broadcaster` / `sse_json`
-    # 在这个 feature 之后才存在（不开就根本没有这两个 API，而不是静默退化）。
-    "sse",
-    # 真 XLSX 读写（框架 nik-utils/export 的 xlsx 子模块）：写走 Export::to_xlsx_workbook，
-    # 读走 calamine。不开此 feature 时这些 API 根本不存在（不是静默退化成 CSV）。
-    "xlsx",
-    # Prometheus 导出（ADR-20261101 §5.4）：装 recorder 并把 `/metrics` 挂到主路由。
-    # 运行时开关是 config/*.toml 的 `[metrics] enabled`（默认 false = 端点不存在）。
-    # 只开 `metrics` 而不开本 feature 时，埋点代码依然编译、但没有任何 exporter。
-    "metrics-prometheus",
-] }
-
-# 工具集：门面 prelude 未转发 UA 解析，而 `auth_logs` 需要写入设备 / 浏览器 / 操作系统，
-# 故按「必要时可声明 nik-utils」的约定直接依赖（与 nik 同源，不会引入第二份实例）。
-nik-utils = { path = "vendor/nik-utils" }
-
-# ======================================================================
-# 仓库内自己的 crate（P2-27 · P2-B 解环）：业务类型词表
+# 为什么 `migrations/` 跟着 `src/` 一起进了 `app/`：
+#   ① 迁移是**这个包**的 schema，和源码同生命周期；`src/**` 里大量的
+#      `include_str!("../../../../migrations/…")` 与 `join("migrations")` 都按
+#      「源码相对路径 / `CARGO_MANIFEST_DIR`」定位 —— 一起搬，**一行 Rust 都不用改**；
+#      只搬 src 会把它们全部指向不存在的目录（编译期/运行期双红）。
+#   ② 运行时仍是 `config/config.toml` 的 `[database.migration] path` 决定，见下。
 #
-# 依赖方向只有一条：`cloudpivot → cloudpivot-doc`。该 crate 的 `[dependencies]` 为空，
-# 零出边 —— 这正是「`shared → erp` 回边已消失」的判据（`cargo tree -p cloudpivot-doc`
-# 只有一个根节点）。词表原来在 `src/business/shared/doc_kind.rs`：它被 ERP 全域引用，
-# 而它的一致性测试又要 import `business::erp::*`，构成模块级回边；词表本体搬进独立 crate 后，
-# 测试留在应用 crate（跨轴一致是应用内约束），回边即断。
+# 运行时路径没变（这是本卡刻意保住的兼容面）：
+#   - 进程 cwd 仍是 `backend/`（scripts/**、systemd、docker 都是 `cd backend`），
+#     所以 `config/`、`uploads/`、`downloads/` 与 `config.toml` 里的相对路径全部照旧；
+#   - `[database.migration] path` 由 `"migrations"` 改成 `"app/migrations"`
+#     （cwd 相对）；编译期用 `CARGO_MANIFEST_DIR` 定位的那批用例不受影响。
+# ==============================================================================
+
+[workspace]
+# `crates/*` 是域 crate 的落地位置：P2-41 起每张卡往这里放一个，
+# 无需再回来改本文件。`cloudpivot-doc`（P2-27 抽出）已在此。
+members = ["app", "crates/*"]
+
+# `vendor/*` 是框架源码（nik 全家桶的 path 依赖，16 个包）。
+# **必须 exclude**：
+#   ① Cargo 的默认规则是「workspace 目录内的 path 依赖自动成为成员」——不排除的话
+#      它们会被吸进 workspace，于是 `cargo fmt --check` / `cargo clippy --workspace`
+#      会去格式化与 lint 第三方源码（check.sh 的 L1 立刻红，且红在别人的代码上）；
+#   ② 它们各自有自己的版本与格式基线，不该被本仓的 rustfmt.toml 接管。
+# 排除只影响「是否算本 workspace 的成员」，不影响它们作为 path 依赖被编译。
 #
-# 调用点已全部改到新路径（P2-28）：141 处 `crate::business::shared::doc_kind::*` 改为
-# `cloudpivot_doc::*`，转发垫片 `src/business/shared/doc_kind.rs` 已删除；应用内一致性用例
-# 仍在 `src/business/shared/doc_kind_tests.rs`（模块路径 `business::shared::doc_kind_tests`）。
-#
-# 它**不是**框架 crate，不受「只声明 nik 一个框架 crate」铁律约束：零依赖、不引入第二份
-# nik 实例、也不从 crates.io 拉任何东西。workspace 化（把 backend 变成 workspace 根）是
-# P2-C / P2-40 的活，本卡刻意不做 —— `vendor/` 下 16 个 path 依赖会被 workspace 自动吸成
-# member，`cargo fmt` / `clippy --workspace` 就会扫到 vendor 源码，必须在专用窗口单独处理。
-# ======================================================================
-cloudpivot-doc = { path = "crates/cloudpivot-doc" }
+# ⚠ 必须逐个列全，**不能用 `vendor/*`**：实测 cargo 1.94.1 的 `exclude` 不支持 glob
+#   （写成 `exclude = ["vendor/*"]` 时 16 个 vendor 包照样是成员，
+#   `cargo metadata | jq .workspace_members` 里全是 `vendor/nik-*`）。
+#   新增/删除 vendor 包时同步改这一行 —— 漏掉的会静默变成成员。
+exclude = [
+    "vendor/nik",
+    "vendor/nik-cache",
+    "vendor/nik-config",
+    "vendor/nik-core",
+    "vendor/nik-db",
+    "vendor/nik-db-build",
+    "vendor/nik-db-core",
+    "vendor/nik-db-driver-postgres",
+    "vendor/nik-db-macro",
+    "vendor/nik-db-sql",
+    "vendor/nik-fs",
+    "vendor/nik-log",
+    "vendor/nik-macros",
+    "vendor/nik-plugin",
+    "vendor/nik-utils",
+    "vendor/nik-web",
+]
 
-# Excel 读取：与 nik-utils 的 xlsx feature 锁定同一版本（nik-utils 0.4.2 声明 calamine = "0.36"），
-# 依赖树里只有一份 calamine，不引入 nik 之外的新 crate。
-# 直连原因：框架 Import::from_xlsx 把整表转成 Vec<HashMap> 且不暴露表头——
-# E-IMP-02/03/04/05 四条结构校验必须读表头；逐行 range.rows() 也省掉第二份行集合的内存。
-calamine = "0.36"
-
-# 金额 / 数量定点数（W1b · ERP）：版本与 nik-db-core 内部的 rust_decimal 声明一致（1.43），
-# 依赖树里只有一份；直接声明的唯一目的是打开 `serde`（DTO 要序列化 Decimal）。
-rust_decimal = { version = "1.43", features = ["serde"] }
-
-# 可观测性（ADR-20261101 §5.4）：业务侧只发 gauge / counter，全部走 `metrics` 全局
-# 注册表。**版本与 vendor/nik-web 声明的一致（0.24）**，依赖树里只有一份；
-# 未装 recorder 时 `gauge!` / `counter!` 是 no-op，所以这几行零风险。
-metrics = "0.24"
-
-# Web 层：multipart 用于文件上传；中间件钩子需要 axum::Router
-axum = { version = "0.8", features = ["multipart"] }
-tokio = { version = "1", features = ["full"] }
-tracing = "0.1"
-
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-# 请求 DTO 校验：Version 与 nik 工作区保持一致（0.21）
-validator = { version = "0.21", features = ["derive"] }
-
-# 自定义插件需要实现 async trait：框架未把 async_trait 重导出，故在此显式声明
-async-trait = "0.1"
-# 文件秒传与完整性校验：上传时计算内容 SHA-256（见 support/file/handler.rs）
-sha2 = "0.10"
-# 流式下载：`ReaderStream` 把 `AsyncRead`（本地文件 / S3 连接）直接转成响应 body，
-# 避免整文件进内存（A2 硬指标：1 GB 下载 RSS 增长 < 200 MB）。
-# 注意：该 crate **本就在依赖树中**（axum / hyper 的间接依赖，见 Cargo.lock），
-# 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
-tokio-util = { version = "0.7", features = ["io"] }
-
-# SSE 流适配（A6）：`futures_util::stream::unfold` 把 `tokio::sync::broadcast::Receiver`
-# 驱动的异步接收转成 `Stream`，供 axum 的 `Sse` 消费；同时用 `unfold` 的 state 持有
-# 订阅守卫，客户端断开时随流 drop 自动退订（框架未公开 `poll_recv`，见 nik-web/src/sse.rs）。
-# 注意：该 crate **本就在依赖树中**（nik-web 的 SSE 模块直接依赖，见 Cargo.lock），
-# 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
-futures-util = "0.3"
-
-# Redis 客户端（二开说明，已评审）：
-# 工作台的「服务器状态」需要执行 `INFO` 读取运行时长 / 内存 / 命中率等运行时指标，
-# 而框架的缓存门面 `Cache` 只暴露 KV 语义（get/set/del/incr/keys），拿不到 INFO。
-# 版本与 features 与 nik-cache 0.4.2 内部声明的完全一致（redis 1.7 + tokio-comp
-# + connection-manager），**不引入依赖树中不存在的新 crate**，仅把既有的间接依赖
-# 显式化，供 business/monitor 使用。
-redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
-
-# 数据权限（批次 B · B3，报批 §5.3「Cargo.toml 加 regex」）：
-# 列级脱敏的自定义正则类型（B6）与范围自检接口的标识符校验需要编译正则；
-# `regex 1.13.1` **本就在依赖树中**（nik-utils 的依赖，见 Cargo.lock），
-# 这里只是把既有的间接依赖显式化，不引入新 crate、不改版本。
-regex = "1"
-
-# 诊断包（服务器状态页「下载诊断包」）：多文件归档需要真正的 zip 容器。
-# 版本与 features 与本 crate 原有 **dev-dependencies** 里的声明完全一致
-# （`rust_xlsxwriter` 已依赖 zip 8.6，Cargo.lock 里只有一份），
-# 这里从 dev-dependencies 提升到 dependencies —— **不引入新 crate、不改版本**。
-# 业务上只用于 `business/monitor/diagnostic.rs`（诊断包组装与单测回读）；
-# xlsx 读写仍然一律走 nik-utils（那条约束不变）。
-zip = { version = "8.3", default-features = false, features = ["deflate"] }
-
-# Markdown 渲染（批次 C · C0，报批 §5.4.1 B-1，本批**唯一新增的非 nik 依赖**）：
-# D4 选定「Markdown 源 + 服务端渲染」，而仓库此前**没有任何**渲染器
-# （`grep -r markdown|comrak|pulldown backend/src` 零命中），渲染器是硬需求。
-# 纯 Rust、无 C 依赖、无 IO，`edition 2024` 兼容；关掉默认 feature 里的 `getopts`
-# （那是它自带 CLI 用的，服务端不需要），只保留 `html`（`html::push_html` 渲染器本体）。
-pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
-
-# HTML 净化（批次 C · C1，与上一行同批落地，报批 §5.4.1 B-1 的净化的另一半）：
-# 本 crate **本就在依赖树中**（nik 的 `xss` feature → nik-utils → ammonia 4.2.0，
-# 见 Cargo.lock），这里只是把既有的间接依赖显式化，**不引入新 crate、不改版本**。
-# 直连原因：`nik_utils::xss::sanitize_html` 只暴露默认规则，而帮助文档必须用
-# `Builder::add_generic_attributes(&["id"])` 才能保住 heading 锚点——POC-13 实测
-# 默认规则会把 `id` **静默剥离**，导致 TOC 跳转全线失效（架构 §3.2 第 2 条）。
-ammonia = "4.2"
-
-# ======================================================================
-# PDF 导出（PDF-01）：Chromium CDP 客户端 + tera 模板引擎
-#
-# 这两个都是**本批新增的非 nik 依赖**（此前仓库里没有任何 CDP 客户端或模板引擎：
-# `grep -rniE "chromiumoxide|headless_chrome|tera|minijinja" backend/src` 零命中）。
-#
-# · chromiumoxide —— 连本机常驻 Chromium（`scripts/pdf/chromium-pdf.service`，:9222）
-#   的 DevTools 协议，`Page.printToPDF` 直接拿 PDF 字节。
-#   版本说明：卡面写的是 0.7 + `tokio-runtime` feature，但 0.7 的该 feature 在
-#   0.9 已被移除（crate 只剩 tokio 运行时），且 0.9 才支持 `Browser::connect(url)`
-#   直接吃 `http://…:9222`（0.7 要自己先 curl `json/version` 取 ws 地址）。
-#   因此按 0.9 落地，仓库 rust-version 1.94.1 ≥ 其要求的 1.85。
-# · tera —— Jinja 风格模板（单据 HTML 由模板渲染，含自动 HTML 转义）。
-#   框架自带的 `nik-template` 需要开 `template` feature 且未在本仓库启用，故直连 tera。
-# 实测（145/arm64）：新增依赖首次 release 编译约 96s，之后增量 ≈ 4s；
-# 渲染 20 行 87ms / 500 行 332ms（详见 docs/PDF导出基础设施.md）。
-# ======================================================================
-chromiumoxide = "0.9"
-tera = "1"
-
-# ======================================================================
-# C7 回滚探针 example（`scripts/verify/changelog_rollback.sh` 调用）
-#
-# `required-features` 是红线的一部分：不带 `--features test-hooks` 时，cargo
-# 连尝试编译它都不会做（否则 `cargo build` 会因引用未编译的 `test_hooks` 而失败，
-# 或者更糟——有人为了让 check.sh 绿掉而把 feature 打开）。
-# ======================================================================
-[[example]]
-name = "c7_rollback_probe"
-path = "examples/c7_rollback_probe.rs"
-required-features = ["test-hooks"]
-
-# ======================================================================
-# 单测专用（当前为空）
-#
-# 原来这里只有 `zip`（读回 xlsx 容器断言 dataValidation XML 节点）。诊断包
-# （`business/monitor/diagnostic.rs`）在**生产代码**里也要写 zip，故已提升到
-# `[dependencies]`（同一版本 8.3 / 同一 feature deflate，Cargo.lock 里仍只有一份）。
-# ======================================================================
+# resolver 2：edition 2024 的包默认就是 2，这里显式写死，
+# 免得以后加进来的 crate 各自用不同 resolver 导致 feature 合并结果不一致。
+resolver = "2"

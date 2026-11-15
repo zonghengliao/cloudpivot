@@ -1,7 +1,7 @@
 /**
  * 工作任务接口（批次 C+ · T1 后端 6 个接口）。
  *
- * 路径与后端 `backend/src/business/task/handler.rs` 的
+ * 路径与后端 `backend/app/src/business/task/handler.rs` 的
  * `#[nik::get/post/put/delete("/business/task/...")]` 逐条对应（注解不含 `/api`，前端写全）。
  *
  * # 三条取值口径（照后端 `dto.rs`，别自己发明）
@@ -799,7 +799,7 @@ export function fetchGantt(query: TaskGanttQuery): Promise<TaskGantt> {
 // ======================================================================
 
 /**
- * 任务域错误码（与后端 `backend/src/shared/error_code.rs` 逐字一致）。
+ * 任务域错误码（与后端 `backend/app/src/shared/error_code.rs` 逐字一致）。
  *
  * 前端只有「按码给文案」这一条路：HTTP 状态码在 `api/request.ts` 里已被
  * 规整成 `ApiError`（只保留业务码），所以判据只能是业务码。

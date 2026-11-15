@@ -34,7 +34,7 @@ import os
 import re
 import sys
 
-BACKEND = os.environ.get("CLOUDPIVOT_BACKEND", "backend/src")
+BACKEND = os.environ.get("CLOUDPIVOT_BACKEND", "backend/app/src")
 FRONTEND = os.environ.get("CLOUDPIVOT_FRONTEND", "frontend/src")
 EVIDENCE_DIR = os.environ.get(
     "CLOUDPIVOT_EVIDENCE", "docs/evidence/20261109-aud02-uuid-audit"

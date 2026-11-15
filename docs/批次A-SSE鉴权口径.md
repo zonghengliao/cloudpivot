@@ -1,7 +1,7 @@
 # 批次 A · SSE 实时推送鉴权口径（定稿）
 
 > 端点：`GET /api/business/notice/stream`（权限码 `business:notice:mine`）
-> 代码：`backend/src/business/notice/handler.rs::stream` + `backend/src/business/notice/sse_hub.rs`
+> 代码：`backend/app/src/business/notice/handler.rs::stream` + `backend/app/src/business/notice/sse_hub.rs`
 > 框架侧：`backend/vendor/nik-web/src/middleware/auth.rs`（CODE-10 补丁，已内联进 vendored 源码）
 > 状态：**定稿**（A7 定口径；**2026-11-05 P1-FIX-6 修订**：白名单改为配置项默认带值 + 首启自检 + 前端只走带头流）
 

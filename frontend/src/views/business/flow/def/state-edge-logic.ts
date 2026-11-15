@@ -5,8 +5,8 @@
  * 全在这里，「哪个状态出哪个按钮 / 少传一个字段会怎样」被 `vue-tsc` 抓不到，
  * 只有写成函数才能被 `pnpm test:unit` 钉住（同 `erp/period/period-logic.ts` 的做法）。
  *
- * # 三条与后端逐字对齐的硬口径（`backend/src/business/shared/state_machine.rs`
- *   的 `upsert_edge_config` + `backend/src/business/flow/edge_admin.rs` 的 `EdgeUpsertReq`）
+ * # 三条与后端逐字对齐的硬口径（`backend/app/src/business/shared/state_machine.rs`
+ *   的 `upsert_edge_config` + `backend/app/src/business/flow/edge_admin.rs` 的 `EdgeUpsertReq`）
  *
  * 1. **`confirm: true` 必须显式传**：缺了直接 400 / `10001`
  *    （真机实测报文：「改状态机配置需要二次确认（confirm = true）」）。

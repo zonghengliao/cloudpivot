@@ -1,0 +1,72 @@
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -15,12 +15,20 @@
+ 
+ ## 目录
+ ```
+-backend/src/
+-  system/   support/      # 底座两个容器：每模块 mod+handler+dto+model（不设 service 层）
+-  business/               # 二开业务容器（与上面平级，不侵入底座）：erp / flow / task / impexp / im / pdf / hr …
+-                          #   同样四件套；HR 见下方「人力资源模块（HR）口径」
+-  middleware/ task/ utils/ shared/ bootstrap.rs
+-  lib.rs                    # 启动链 App::new()?...scan().start()
++backend/                    # workspace 根（虚拟清单：无 [package]，`cargo build --workspace`）
++  Cargo.lock  target/       # 全 workspace 共用（产物仍是 backend/target/debug|release/cloudpivot）
++  config/                   # 运行时配置（部署输入；进程 cwd 约定是 backend/）
++  crates/                   # 域 crate（零框架依赖可进这里；现有 cloudpivot-doc）
++  vendor/                   # nik 全家桶源码（path 依赖，**故意 exclude**，不是 workspace 成员）
++  app/                      # 主 binary crate（name = cloudpivot）
++    Cargo.toml  build.rs  migrations/   # 迁移随包走：config.toml 里 path = "app/migrations"
++    src/
++      system/   support/    # 底座两个容器：每模块 mod+handler+dto+model（不设 service 层）
++      business/             # 二开业务容器（与上面平级，不侵入底座）：erp / flow / task / impexp / im / pdf / hr …
++                            #   同样四件套；HR 见下方「人力资源模块（HR）口径」
++      middleware/ task/ utils/ shared/ bootstrap.rs
++      lib.rs                # 启动链 App::new()?...scan().start()
++    tests/  examples/       # 集成测试与 example（`env!("CARGO_MANIFEST_DIR")` = backend/app）
+ frontend/src/
+   api/{system,support,business}/   views/{system,support,business}/
+   router/index.ts  stores/  layouts/  components/
+@@ -28,10 +36,12 @@
+ 
+ ## 常用命令
+ ```bash
+-# 后端（backend/）
++# 后端（backend/ = workspace 根；cwd 必须留在这里，config/ 与 uploads/ 是相对 cwd 的）
+ cargo run                       # 自动迁移 + 启动 :8023
+-cargo check                     # 类型检查（零警告才提交）
+-cargo fmt && cargo clippy -- -D warnings
++cargo check                     # 类型检查（零警告才提交；workspace 全量）
++cargo fmt && cargo clippy --all-targets -- -D warnings
++cargo build --workspace         # 全部成员（app + crates/*）
++cargo test -p cloudpivot-doc    # 只跑某个 crate（词表契约用例）
+ 
+ # 前端（frontend/）
+ pnpm install && pnpm dev        # :5173
+@@ -52,11 +62,14 @@
+ 
+ ## 必须遵守的约定
+ 1. **后端每模块四件套** `mod.rs + handler.rs + dto.rs + model.rs`；业务编排在 `handler`，数据访问在 `model`，**不设 service 层**。
+-2. **二开业务放 `business/` 容器**（后端 `backend/src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`），与 `system/`、`support/` 平级，**不侵入框架底座**。
+-3. **依赖铁律**：`Cargo.toml` 只声明 `nik` 一个框架 crate（`nik-utils` 必要时可加）。**不出现** `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
++2. **二开业务放 `business/` 容器**（后端 `backend/app/src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`），与 `system/`、`support/` 平级，**不侵入框架底座**。
++3. **依赖铁律**：`app/Cargo.toml` 只声明 `nik` 一个框架 crate（`nik-utils` 必要时可加）。**不出现** `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
++   例外：仓库内自建 crate 可以 path 依赖（`backend/crates/*`，现有 `cloudpivot-doc`）——它们不带第二份 nik 实例。
++   **方向必须单向**：`app → crates/*`，反向依赖即重新造环（`cargo tree -p cloudpivot-doc` 应只有它自己一个节点）。
++   `vendor/` 是框架源码，**故意排除在 workspace 之外**（`exclude` 逐条列名，不用 glob）：吞进来 `cargo fmt` / `clippy --workspace` 就会去动别人的代码。
+ 4. **feature 语义**：默认集是 `core`（非 `full`）。用数据库必须显式 `postgres`/`mysql`/`sqlite`（`db` 只表能力、不含驱动）。预设 `mini ⊂ lite ⊂ full`；常用 `lite`（= core+postgres+cache+plugin+fs-local）。点单 feature：`fs-local`/`fs-minio`、`xlsx`、`sse`、`metrics`、`template`、`xss`。
+ 5. **错误出口只有三个名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`。handler 内 `DbError/io::Error/nik_core::Error` 直接 `?`，**不要**写多余 `.map_err(ApiError::internal(...))`。
+-6. **迁移号段**（动手前先 `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3` 核对）：2026-11-13 已到 `V0403`；版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。
++6. **迁移号段**（动手前先 `ls backend/app/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3` 核对）：2026-11-13 已到 `V0403`；版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。
+ 7. **权限码** `{模块}:{资源}:{动作}`，与 `sys_menu.auth_code` 和 `#[nik::permission]` 声明一一对应；`SUPER_ADMIN` 短路全部校验。
+ 8. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册豁免前缀。
+ 9. **前端 API 路径必须写全 `/api/...`**（漏前缀会命中 SPA fallback 返回 HTML 导致"响应体格式不符合"）。
+@@ -97,7 +110,7 @@
+ 
+ ## 人力资源模块（HR）口径（2026-11-13 定稿 · 照 ARCH-9 §5/§6 逐条回写）
+ 
+-HR 是第一个完整业务模块（`backend/src/business/hr/`，75 个 `.rs` / 约 6.2 万行），改它之前先读
++HR 是第一个完整业务模块（`backend/app/src/business/hr/`，75 个 `.rs` / 约 6.2 万行），改它之前先读
+ `docs/architecture/ARCH-9-人力资源模块设计.md`（**已定稿，别重新设计**）；改代码看
+ `docs/后端二开指南.md` §十七，改页面看 `docs/前端二开指南.md` §十一。
+ 

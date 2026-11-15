@@ -291,7 +291,7 @@ say "== schema_migrations max = $SCHEMA（期望 ≥151）"
 # 空库首启时迁移先于 bootstrap：角色还不存在 → 授权 0 行。重放 up 证明幂等 + 补齐授权。
 GRANTS0=$(psql_at "SELECT count(*) FROM sys_role_menu WHERE menu_id IN ('20000000-0000-0000-0000-000000001009'::uuid,'20000000-0000-0000-0000-000000001010'::uuid)")
 say "== 重放前授权行数 = $GRANTS0（空库首启应为 0）"
-$PSQL -f "$REPO/backend/migrations/business/V0151__erp_payable_permissions.up.sql" >/tmp/p2c2_replay.log 2>&1 \
+$PSQL -f "$REPO/backend/app/migrations/business/V0151__erp_payable_permissions.up.sql" >/tmp/p2c2_replay.log 2>&1 \
     && ok "V0151 重放（幂等）" || { bad "V0151 重放失败"; tail -5 /tmp/p2c2_replay.log; }
 expect "⑬-a 重放后权限节点仍是 2 个（幂等）" "2" \
     "$(psql_at "SELECT count(*) FROM sys_menu WHERE right(id::text,4) IN ('1009','1010')")"

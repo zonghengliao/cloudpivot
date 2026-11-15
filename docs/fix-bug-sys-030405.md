@@ -107,7 +107,7 @@ permissions.contains(perm)`，**不查库**。`is_super_admin()` 只看 claims �
 ### 3.1 扫描口径（脚本见 `scan_dead_codes.py` / `judge_codes.py` / `show_refs.py`）
 
 1. 从库里取 `sys_menu.auth_code`（`deleted_at IS NULL`）；
-2. 剥离源码（`backend/src/**/*.rs`）里的行注释与块注释；
+2. 剥离源码（`backend/app/src/**/*.rs`）里的行注释与块注释；
 3. 对每个码统计：① 是否有 `permission = "<码>"` 路由注解；② 是否有字符串/常量引用
    （行级 `claims.has_permission(...)` / `ensure_writable(..., PERM_*)`）。
 
@@ -141,7 +141,7 @@ system:field-mask:plain                （脱敏豁免：masking/registry.rs 的
 
 ### 3.3 落地
 
-- 迁移 `backend/migrations/business/V0173__remove_dead_permission_codes.{up,down}.sql`
+- 迁移 `backend/app/migrations/business/V0173__remove_dead_permission_codes.{up,down}.sql`
   - **号段变更（P13 合并收口）**：本条迁移原为 `V0160`，与 `origin/main` 侧的
     `V0160__erp_serial_init_accounts`（批量生成「无来源入库」，ADR 文档已定稿 V0160）撞号。
     框架 `check_identity_conflicts()` 对「同版本不同名」直接拒绝启动

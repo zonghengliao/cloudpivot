@@ -13,12 +13,12 @@
 
 ```
 === 闸① ===
-backend/src/support/config/model.rs:447      backend/src/support/dict/model.rs:175 / :297
-backend/src/support/file/model.rs:153        backend/src/support/job/model.rs:256 / :314
-backend/src/support/log/model.rs:333 / :448  backend/src/system/role/model.rs:150 / :216
-backend/src/business/storage/model.rs:220 / :465 / :991
-backend/src/business/impexp/model.rs:455 / :549 / :913
-backend/src/business/notice/model.rs:556 / :670 / :830        ← 共 19 处
+backend/app/src/support/config/model.rs:447      backend/app/src/support/dict/model.rs:175 / :297
+backend/app/src/support/file/model.rs:153        backend/app/src/support/job/model.rs:256 / :314
+backend/app/src/support/log/model.rs:333 / :448  backend/app/src/system/role/model.rs:150 / :216
+backend/app/src/business/storage/model.rs:220 / :465 / :991
+backend/app/src/business/impexp/model.rs:455 / :549 / :913
+backend/app/src/business/notice/model.rs:556 / :670 / :830        ← 共 19 处
 === 闸② ===
 FAIL: support/dashboard/model.rs sys_user          FAIL: support/dashboard/model.rs sys_dept
 FAIL: support/dashboard/model.rs operation_logs    FAIL: support/dashboard/model.rs auth_logs

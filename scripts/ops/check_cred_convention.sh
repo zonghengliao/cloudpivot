@@ -72,7 +72,7 @@ show_lines() {
 mapfile -t FILES < <(
   cd "$ROOT" && {
     find scripts -maxdepth 3 -type f \( -name '*.sh' -o -name '*.py' -o -name '*.mjs' \) 2>/dev/null
-    find backend/tests -maxdepth 3 -type f -name '*.sh' 2>/dev/null
+    find backend/app/tests -maxdepth 3 -type f -name '*.sh' 2>/dev/null
   } | grep -v '__pycache__' | sort
 )
 

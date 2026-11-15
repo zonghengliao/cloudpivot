@@ -25,7 +25,7 @@ V0258 已把业务角色矩阵整体补齐，但这套「抄老清单」的写�
 
 ## 判据
 
-1. 扫 `backend/migrations/**/*.up.sql`（**不含** `seed/S__*.sql` 里的授权段：种子是 repeatable、
+1. 扫 `backend/app/migrations/**/*.up.sql`（**不含** `seed/S__*.sql` 里的授权段：种子是 repeatable、
    重复执行，且不参与版本指纹）；但 `S__*.sql` 里 `INSERT INTO sys_role` **定义**的角色会并入白名单
    —— 否则「新迁移授权给种子造的角色」会被误判未知码；
 2. 定位每条 `INSERT INTO sys_role_menu …` 语句（到该语句的 `;` 为止，字符串 / 美元引号里的
@@ -102,7 +102,7 @@ PROD_ACTIVE_ROLES = {
 }
 
 BASELINE_NAME = "role_code_gate_baseline.json"
-MIGRATIONS_REL = os.path.join("backend", "migrations")
+MIGRATIONS_REL = os.path.join("backend", "app", "migrations")
 EXEMPT_MARK = "ROLE-EXEMPT:"
 EXEMPT_LOOKBACK_LINES = 5  # 豁免注释写在 INSERT 上方几行内都算
 
@@ -682,9 +682,9 @@ def write_baseline(root: str, files, statements, force: bool = False) -> int:
         if (added or widened) and not force:
             print("✗ 拒绝写入：本次冻结会**放宽**基线（把新的未知角色码吞进去）", file=sys.stderr)
             for p in added:
-                print(f"  · 新增文件 backend/migrations/{p} → {sorted(per_file[p])}", file=sys.stderr)
+                print(f"  · 新增文件 backend/app/migrations/{p} → {sorted(per_file[p])}", file=sys.stderr)
             for p in widened:
-                print(f"  · 码范围变宽 backend/migrations/{p} → {sorted(per_file[p])}", file=sys.stderr)
+                print(f"  · 码范围变宽 backend/app/migrations/{p} → {sorted(per_file[p])}", file=sys.stderr)
             print("  正确修法：把新迁移里的 code 换成真实角色码（或先 INSERT INTO sys_role 建角色）。",
                   file=sys.stderr)
             print("  确属历史补录（评审过），加 --force 重新冻结。", file=sys.stderr)
@@ -1118,17 +1118,17 @@ def main() -> int:
             "baseline_files": rep["baseline_files"],
             "tampered_baseline_files": rep["tampered"],
             "stale_baseline_files": rep["stale_baseline"],
-            "unknown": [{"file": f"backend/migrations/{u['file']}", "line": u["line"],
+            "unknown": [{"file": f"backend/app/migrations/{u['file']}", "line": u["line"],
                          "codes": [c for c, _ in u["codes"]], "why": u["why"]}
                         for u in rep["unknown"]],
             "baseline_exempted_statements": len(rep["known"]),
             "exempt_comment_statements": len(rep["exempted"]),
-            "policy_warnings": [{"file": f"backend/migrations/{u['file']}", "line": u["line"],
+            "policy_warnings": [{"file": f"backend/app/migrations/{u['file']}", "line": u["line"],
                                  "kind": u["kind"], "codes": u["codes"],
                                  "dynamic": u.get("dynamic", False)}
                                 for u in rep["policy"]],
             "policy_baselined_statements": rep["policy_baselined"],
-            "bad_exempt": [{"file": f"backend/migrations/{u['file']}", "line": u["line"],
+            "bad_exempt": [{"file": f"backend/app/migrations/{u['file']}", "line": u["line"],
                             "why": u["why"]} for u in rep["bad_exempt"]],
         }, ensure_ascii=False, indent=2))
         return rep["rc"]
@@ -1148,23 +1148,23 @@ def main() -> int:
     if rep["bad_exempt"]:
         print(f"✗ ROLE-EXEMPT 写法不合格（理由必填，≥8 字符）{len(rep['bad_exempt'])} 处：")
         for u in rep["bad_exempt"]:
-            print(f"  · backend/migrations/{u['file']}:{u['line']}  {u['why']}")
+            print(f"  · backend/app/migrations/{u['file']}:{u['line']}  {u['why']}")
     if rep["tampered"]:
         print(f"✗ 历史基线文件被改动（已应用迁移不可改 ⇒ 原豁免失效）{len(rep['tampered'])} 个：")
         for p in rep["tampered"]:
-            print(f"  · backend/migrations/{p}")
+            print(f"  · backend/app/migrations/{p}")
         print("  若确属「路径/换行符」类无害变更，核对后跑 --write-baseline 重新冻结（需评审）。")
     if rep["stale_baseline"]:
         print(f"✗ 基线里登记的迁移文件已不存在 {len(rep['stale_baseline'])} 个（基线漂移）：")
         for p in rep["stale_baseline"]:
-            print(f"  · backend/migrations/{p}")
+            print(f"  · backend/app/migrations/{p}")
         print("  历史迁移只能新增不能删；确属误登记就跑 --write-baseline 收敛。")
     if rep["unknown"]:
         print(f"✗ 未知角色码 {sum(len(u['codes']) for u in rep['unknown'])} 处"
               f"（{len(rep['unknown'])} 条语句）—— 这些码在 sys_role 里不存在，授权会**静默 0 行**：")
         for u in rep["unknown"]:
             tag = "，".join(f"'{c}'@L{ln}" for c, ln in u["codes"])
-            print(f"  · backend/migrations/{u['file']}:{u['line']} → {tag}   [{u['why']}]")
+            print(f"  · backend/app/migrations/{u['file']}:{u['line']} → {tag}   [{u['why']}]")
         print("  修法：① 换成生产真实角色码（`select role_code from sys_role where deleted_at is null；"
               "见 docs/后端二开指南.md`「迁移授权段怎么拿角色码」）；")
         print("        ② 新业务角色 ⇒ 先在迁移里 `INSERT INTO sys_role` 建出来，再在同一/后续迁移里授；")
@@ -1172,7 +1172,7 @@ def main() -> int:
     if rep["exempted"]:
         print(f"ℹ 显式豁免（ROLE-EXEMPT 注释）{len(rep['exempted'])} 条语句：")
         for u in rep["exempted"][:10]:
-            print(f"  · backend/migrations/{u['file']}:{u['line']}  {u['why']}")
+            print(f"  · backend/app/migrations/{u['file']}:{u['line']}  {u['why']}")
     if rep["known"]:
         print(f"ℹ 历史基线豁免 {len(rep['known'])} 条语句（存量授权段，文件指纹已锁）。")
     if rep["policy"]:
@@ -1181,7 +1181,7 @@ def main() -> int:
         for u in rep["policy"][:10]:
             codes = "，".join(f"'{c}'" for c in u["codes"]) or "（无字面量，按子查询/矩阵）"
             tail = "  ← 动态表达式（LIKE / 子查询），闸无法静态验证角色码，请人工确认" if u.get("dynamic") else ""
-            print(f"  · backend/migrations/{u['file']}:{u['line']}  {u['kind']}  {codes}{tail}")
+            print(f"  · backend/app/migrations/{u['file']}:{u['line']}  {u['kind']}  {codes}{tail}")
         if len(rep["policy"]) > 10:
             print(f"  … 另有 {len(rep['policy']) - 10} 条，加 --json 看全量")
         print(f"  {POLICY_HINT}；见 docs/architecture/P2-新装配库权限矩阵-决策.md")

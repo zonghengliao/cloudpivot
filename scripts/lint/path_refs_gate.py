@@ -16,15 +16,15 @@
 ## 判据
 
 1. 范围：**会执行的**脚本与**会读源码的测试** —— `scripts/**`、`.githooks/**`、`.github/**`、
-   `frontend/tests/**`、`backend/tests/**`，扩展名 `.sh/.bash/.py/.mjs/.js/.json/.ts/.rs`
+   `frontend/tests/**`、`backend/app/tests/**`，扩展名 `.sh/.bash/.py/.mjs/.js/.json/.ts/.rs`
    （`*.txt`/`*.md` 是证据快照与说明，不判）。
-   `frontend/tests` 与 `backend/tests` 是 2026-11-15（P2-27）补进来的：那里的用例用
+   `frontend/tests` 与 `backend/app/tests` 是 2026-11-15（P2-27）补进来的：那里的用例用
    `readFileSync` / `include_str!` 直接读后端源码做「逐字对齐」，路径写错同样只是 ENOENT 或
    空断言 —— ERP 拆目录后就有 11 个后端路径在 9 个前端用例里失效（22 处），
    而 `pnpm test:unit` 不在这道闸里，没人看得见。判据不变，只是把「会读源码的地方」补齐。
-2. 归一化：`$SRC` / `${SRC}` → `backend/src`，`$REPO/` → ``（脚本里拼路径的常见写法）。
+2. 归一化：`$SRC` / `${SRC}` → `backend/app/src`，`$REPO/` → ``（脚本里拼路径的常见写法）。
    归一化后含变量的片段（如 `$f`）跳过，不做臆测。
-3. 匹配：`backend/src/**/*.rs`、`frontend/src/**/*.{ts,vue,js,mjs}`。
+3. 匹配：`backend/app/src/**/*.rs`、`frontend/src/**/*.{ts,vue,js,mjs}`。
 4. 断言：路径必须存在于仓库磁盘上；缺失即判红，打印 `文件:行 + 路径 + 原文`。
 5. `ALLOW_LIST`：一次性重构工具 / 合成语料（**不是**真实路径引用）。每条的「理由」必写，
    且**条目文件本身必须存在** —— 白名单失效时判红，防止无限期膨胀。
@@ -44,14 +44,16 @@ import sys
 import tempfile
 from pathlib import Path
 
-SCAN_ROOTS = ("scripts", ".githooks", ".github", "frontend/tests", "backend/tests")
+SCAN_ROOTS = ("scripts", ".githooks", ".github", "frontend/tests", "backend/app/tests")
 SCAN_EXTS = (".sh", ".bash", ".py", ".mjs", ".js", ".json", ".ts", ".rs")
 
 # 引用形态 ①：带前缀的绝对（仓库相对）路径
+# P2-40 起后端源码在 `backend/app/src/`（workspace 化：`backend/` 是 workspace 根，
+# `backend/app/` 是主 binary crate），前端源码仍在 `frontend/src/`。
 REF_RE = re.compile(
-    r"((?:backend|frontend)/src/[A-Za-z0-9_./\-]+\.(?:rs|ts|vue|js|mjs))"
+    r"((?:backend/app|frontend)/src/[A-Za-z0-9_./\-]+\.(?:rs|ts|vue|js|mjs))"
 )
-# 引用形态 ②：相对 backend/src 的裸路径（脚本里很常见：`("business/erp/x_dto.rs", "Res", …)`）
+# 引用形态 ②：相对 backend/app/src 的裸路径（脚本里很常见：`("business/erp/x_dto.rs", "Res", …)`）
 # 只认「已知后端模块根 + 至少两级」且必须以 .rs 结尾 —— API URL（/api/business/erp/…）
 # 没有 .rs 后缀，不会被误判。
 REF_RE_SRC_REL = re.compile(
@@ -60,8 +62,8 @@ REF_RE_SRC_REL = re.compile(
 )
 # 脚本里拼路径的写法：$SRC / ${SRC} / $REPO/
 NORM_RULES = (
-    ("${SRC}", "backend/src"),
-    ("$SRC", "backend/src"),
+    ("${SRC}", "backend/app/src"),
+    ("$SRC", "backend/app/src"),
     ("${REPO}/", ""),
     ("$REPO/", ""),
 )
@@ -123,7 +125,7 @@ def scan(root: Path, allow: dict[str, str]) -> list[tuple[str, int, str, str]]:
             for m in REF_RE_SRC_REL.finditer(line):
                 if any(s <= m.start(1) < e for s, e in spans):
                     continue  # 已被 ① 形态覆盖
-                refs.append("backend/src/" + m.group(1))
+                refs.append("backend/app/src/" + m.group(1))
             for ref in refs:
                 if "$" in ref:
                     continue
@@ -178,15 +180,15 @@ def self_test() -> int:
     cases: list[tuple[str, dict[str, str], dict[str, str], dict[str, str], bool, str]] = [
         (
             "引用存在的路径 → 绿",
-            {"scripts/a.sh": "grep -rn x backend/src/ok.rs\n"},
-            {"backend/src/ok.rs": ""},
+            {"scripts/a.sh": "grep -rn x backend/app/src/ok.rs\n"},
+            {"backend/app/src/ok.rs": ""},
             {},
             False,
             "存在的路径不该判红",
         ),
         (
             "引用已搬走的旧路径 → 红",
-            {"scripts/b.sh": "grep -rn x backend/src/business/erp/gone.rs\n"},
+            {"scripts/b.sh": "grep -rn x backend/app/src/business/erp/gone.rs\n"},
             {},
             {},
             True,
@@ -203,7 +205,7 @@ def self_test() -> int:
         (
             "$SRC 归一化后路径存在 → 绿",
             {"scripts/d.sh": "grep -rn x ${SRC}/business/erp/kept.rs\n"},
-            {"backend/src/business/erp/kept.rs": ""},
+            {"backend/app/src/business/erp/kept.rs": ""},
             {},
             False,
             "归一化不许把正常引用判红",
@@ -227,14 +229,14 @@ def self_test() -> int:
         (
             "src 相对裸路径存在 → 绿",
             {"scripts/g.py": 'REQUIRED = [("business/erp/kept_dto.rs", "Res")]\n'},
-            {"backend/src/business/erp/kept_dto.rs": ""},
+            {"backend/app/src/business/erp/kept_dto.rs": ""},
             {},
             False,
             "别把正常清单判红",
         ),
         (
             "白名单文件不判 → 绿",
-            {"scripts/lint/changelog_in_tx.py": "f='backend/src/case_x.rs'\n"},
+            {"scripts/lint/changelog_in_tx.py": "f='backend/app/src/case_x.rs'\n"},
             {},
             {"scripts/lint/changelog_in_tx.py": "自检语料：合成文件名，磁盘上本就没有这些文件"},
             False,
@@ -258,7 +260,7 @@ def self_test() -> int:
         ),
         (
             "前端用例里读后端源码的旧路径 → 红",
-            {"frontend/tests/unit/x.test.ts": "readFileSync(new URL('../../../backend/src/business/erp/gone_model.rs'))\n"},
+            {"frontend/tests/unit/x.test.ts": "readFileSync(new URL('../../../backend/app/src/business/erp/gone_model.rs'))\n"},
             {},
             {},
             True,
@@ -266,16 +268,16 @@ def self_test() -> int:
         ),
         (
             "集成测试里 `src/` 相对裸路径（含 .rs 扩展名）同样判",
-            {"backend/tests/x.rs": "let p = \"business/erp/gone_v2.rs\";\n"},
+            {"backend/app/tests/x.rs": "let p = \"business/erp/gone_v2.rs\";\n"},
             {},
             {},
             True,
-            "backend/tests 是 .rs，扫不到就等于漏掉一整类（同一套裸路径判据必须覆盖）",
+            "backend/app/tests 是 .rs，扫不到就等于漏掉一整类（同一套裸路径判据必须覆盖）",
         ),
         (
             "前端用例引用存在的后端源码 → 绿",
-            {"frontend/tests/unit/y.test.ts": "readFileSync(new URL('../../../backend/src/business/erp/kept_model.rs'))\n"},
-            {"backend/src/business/erp/kept_model.rs": ""},
+            {"frontend/tests/unit/y.test.ts": "readFileSync(new URL('../../../backend/app/src/business/erp/kept_model.rs'))\n"},
+            {"backend/app/src/business/erp/kept_model.rs": ""},
             {},
             False,
             "别把正常的逐字对齐用例判红",

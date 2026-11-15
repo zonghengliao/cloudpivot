@@ -2,7 +2,7 @@
 
 > 卡：`t_21dc81c3`（architect）· 父卡：`t_53c23814`（P1-FIX-5B）
 > 关联实现卡：`t_befea97a`（backend-developer，同一 P1-FIX-5C 的代码落地面）
-> 判据来源：`backend/src/business/flow/linkage/spec.rs::TRIGGER_SPECS`（唯一真相）
+> 判据来源：`backend/app/src/business/flow/linkage/spec.rs::TRIGGER_SPECS`（唯一真相）
 > 日期：2026-11-05
 
 ---
@@ -82,7 +82,7 @@ P1-FIX-5C 之前，配置页只把「动作」这一侧的占位项置灰了，�
   找到的所有「调联动引擎」的文件集合，必须**恰好等于** wired 触发点点名的文件集合
   （多接一个没登记 → 红；登记了没调用 → 红）。
 
-守卫文件：`backend/src/business/flow/linkage/tests_wiring.rs`。
+守卫文件：`backend/app/src/business/flow/linkage/tests_wiring.rs`。
 
 > **为什么反向扫描是文本匹配而不是语法树**：本仓库没有把 `syn` 拉进 dev-dependencies，
 > 为一条守卫引入解析器不值得；引擎入口名（`run` / `run_excluding` / `run_deferred` /
@@ -603,7 +603,7 @@ EXIT=0
    `APPROVED / REJECTED / WITHDRAWN`（`PENDING` 由流程通知节点负责、`SKIPPED` 从来不是实例状态、
    `CANCELLED` 只来自级联终止且「删单据 → 终止」走 SQL 不经过引擎）；幂等键
    `LNK:FLOW_INSTANCE:<状态>:<实例 id>`，重放只落一条通知。
-   设计原文见 `backend/src/business/flow/instance_linkage.rs` 文件头。
+   设计原文见 `backend/app/src/business/flow/instance_linkage.rs` 文件头。
 5. **动作侧仍有 7 个占位**：即使把 12 个触发点全接上，「写库存 / 红冲 / 改状态 / 锁单」
    这些动作仍然配置不了。触发点接线与动作接管是两条并行线，不要互相当成前置。
 6. **截图 / 实测的时效**：本卡的验收是打在**共享工作区当时那棵树**上的；实现卡若在同一批文件上继续改动，

@@ -9,7 +9,7 @@
  * 「界面长什么样」。
  *
  * 断言口径照后端抄（不是照卡面草图）：
- * - 状态三值 / 状态机 = `backend/src/business/erp/serial_model.rs::ALL_STATUSES` + `can_transition`；
+ * - 状态三值 / 状态机 = `backend/app/src/business/erp/serial_model.rs::ALL_STATUSES` + `can_transition`；
  * - 可写目标只有 `OUTBOUND` / `SCRAPPED` = `serial_dto.rs::WRITABLE_TARGETS`；
  * - 扫码未命中是 HTTP 404 + `code = 10002` = `serial_handler::not_found`。
  */

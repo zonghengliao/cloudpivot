@@ -625,10 +625,10 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
     for rel in SCAN_DIRS:
         directory = src / rel
         if not directory.is_dir():
-            coverage_errors.append(f"扫描范围缺少目录 backend/src/{rel}（闸② 会漏掉该目录下的查询）")
+            coverage_errors.append(f"扫描范围缺少目录 backend/app/src/{rel}（闸② 会漏掉该目录下的查询）")
             continue
         if not any(directory.rglob("*.rs")):
-            coverage_errors.append(f"扫描范围 backend/src/{rel} 下没有 .rs 文件（目录搬走或未纳入版本管理）")
+            coverage_errors.append(f"扫描范围 backend/app/src/{rel} 下没有 .rs 文件（目录搬走或未纳入版本管理）")
 
     skipped = collect_test_surface(files)
     production = {p: info for p, info in files.items() if p not in skipped}
@@ -639,14 +639,14 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
     for rel in REQUIRED_PRODUCTION:
         target = (src / rel).resolve()
         if not target.is_file():
-            guard_errors.append(f"防假绿断言：已知生产文件 backend/src/{rel} 不存在（扫描根/目录结构异常）")
+            guard_errors.append(f"防假绿断言：已知生产文件 backend/app/src/{rel} 不存在（扫描根/目录结构异常）")
         elif target in skipped:
             guard_errors.append(
-                f"防假绿断言：已知生产文件 backend/src/{rel} 被判成了测试面"
+                f"防假绿断言：已知生产文件 backend/app/src/{rel} 被判成了测试面"
                 f"（声明位置 {skipped[target]}）—— 解析器误判，闸② 不许据此变绿"
             )
         elif rel not in production_rel:
-            guard_errors.append(f"防假绿断言：已知生产文件 backend/src/{rel} 不在生产面扫描结果里")
+            guard_errors.append(f"防假绿断言：已知生产文件 backend/app/src/{rel} 不在生产面扫描结果里")
 
     failures: dict[str, list[str]] = {}
     skipped_rel = {info.path.relative_to(src).as_posix(): why for p, why in skipped.items() for info in [files[p]]}
@@ -658,13 +658,13 @@ def run_gate(src: Path, expect_skipped: Collection[str] | None = None) -> Report
         observed = set(skipped_rel)
         for rel in sorted(observed - expected):
             skip_manifest_errors.append(
-                f"跳过清单断言：backend/src/{rel} 被判成了测试面，但 SKIP_MANIFEST 里没有登记"
+                f"跳过清单断言：backend/app/src/{rel} 被判成了测试面，但 SKIP_MANIFEST 里没有登记"
                 f"（声明位置 {skipped_rel[rel]}）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」"
                 f'的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："{rel}",'
             )
         for rel in sorted(expected - observed):
             skip_manifest_errors.append(
-                f"跳过清单断言：SKIP_MANIFEST 登记了 backend/src/{rel}，但本次解析没有跳过它"
+                f"跳过清单断言：SKIP_MANIFEST 登记了 backend/app/src/{rel}，但本次解析没有跳过它"
                 f"（文件被删/改名/搬进子目录，或声明被去掉）—— "
                 f"**文件搬了就把这一行改成新路径**（P2 系列目录拆分就是这么来的）；"
                 f"只有确认文件真被删掉才允许删条目 —— 删条目 = 放宽门禁，不许用「找不到就删」收红："
@@ -706,7 +706,7 @@ def print_report(report: Report, list_skipped: bool, baseline: int | None) -> No
         for item in report.coverage_errors:
             print(f"  FAIL：{item}")
     else:
-        print("  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}")
+        print("  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support,shared}")
     if list_skipped:
         print(f"被跳过的测试面文件（{len(report.skipped)} 个，含声明位置）：")
         for rel, why in report.skipped.items():
@@ -1051,7 +1051,7 @@ def self_test() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="门禁 闸②：登记表查询必须有 scope:: 或 SCOPE-EXEMPT")
     parser.add_argument("--root", default=None, help="仓库根（默认由脚本位置推断）")
-    parser.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/src）")
+    parser.add_argument("--src", default=None, help="源码目录（默认 <root>/backend/app/src）")
     parser.add_argument("--list-skipped", action="store_true", help="打印被跳过的测试面文件清单")
     parser.add_argument("--baseline", type=int, default=None, help="历史基线数字（仅用于提示文案）")
     parser.add_argument(
@@ -1068,7 +1068,7 @@ def main(argv: list[str] | None = None) -> int:
         return self_test()
 
     repo_root = Path(args.root).resolve() if args.root else Path(__file__).resolve().parents[2]
-    src = Path(args.src).resolve() if args.src else repo_root / "backend" / "src"
+    src = Path(args.src).resolve() if args.src else repo_root / "backend" / "app" / "src"
     if not src.is_dir():
         print(f"闸② 跳过/失败：找不到源码目录 {src}", file=sys.stderr)
         return 2

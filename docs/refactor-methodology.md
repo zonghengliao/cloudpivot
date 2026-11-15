@@ -1,14 +1,14 @@
 # 拆分超千行文件的方法论（TD-1 定稿）
 
-> 适用对象：本仓 `backend/src/**` 与 `frontend/src/**` 里**单个文件超过 1000 行**的模块。
+> 适用对象：本仓 `backend/app/src/**` 与 `frontend/src/**` 里**单个文件超过 1000 行**的模块。
 > 本文件是第一批（`erp/model.rs`、`erp/stockin_model.rs`、`erp/transfer_model.rs`）的
 > **复盘 + 可复制流程**，后续批次照做，不要各自发明拆法。
 
 ## 0. 现状（以 `HEAD` 实测为准，不是估算）
 
 ```bash
-# 统计口径：HEAD 里 > 1000 行的源文件（backend/src + frontend/src）
-for f in $(git ls-tree -r --name-only HEAD | grep -E '^(backend/src|frontend/src)/.*\.(rs|ts|vue)$'); do
+# 统计口径：HEAD 里 > 1000 行的源文件（backend/app/src + frontend/src）
+for f in $(git ls-tree -r --name-only HEAD | grep -E '^(backend/app/src|frontend/src)/.*\.(rs|ts|vue)$'); do
   n=$(git show "HEAD:$f" | wc -l); [ "$n" -gt 1000 ] && echo "$n $f";
 done | sort -rn
 ```

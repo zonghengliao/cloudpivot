@@ -1,7 +1,7 @@
 /**
  * 状态机边配置的**管理面**接口（【D3】流程配置化 · 阶段 3 出口 / 卡 t_a392a5da）。
  *
- * 契约逐字抄自 `backend/src/business/flow/edge_admin.rs`：
+ * 契约逐字抄自 `backend/app/src/business/flow/edge_admin.rs`：
  *
  * | # | 方法 | 路径 | 权限码 | 落点 |
  * |---|------|------|--------|------|

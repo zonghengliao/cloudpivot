@@ -157,14 +157,14 @@ SUBMODULE_CN: dict[str, str] = {
 }
 
 BACKEND_SCAN_DIRS = [
-    "backend/src/business",
-    "backend/src/system",
-    "backend/src/support",
-    "backend/src/middleware",
-    "backend/src/task",
-    "backend/src/shared",
+    "backend/app/src/business",
+    "backend/app/src/system",
+    "backend/app/src/support",
+    "backend/app/src/middleware",
+    "backend/app/src/task",
+    "backend/app/src/shared",
 ]
-BACKEND_ROOT_FILES = ["backend/src/bootstrap.rs", "backend/src/lib.rs"]
+BACKEND_ROOT_FILES = ["backend/app/src/bootstrap.rs", "backend/app/src/lib.rs"]
 FRONTEND_SCAN_DIRS = ["frontend/src/api", "frontend/src/views"]
 
 CREATE_TABLE_RE = re.compile(
@@ -256,7 +256,7 @@ class Scan:
 # ==========================================================================
 def discover_tables(repo: Path) -> list[str]:
     tables: set[str] = set()
-    for p in (repo / "migrations").rglob("*.up.sql") if (repo / "migrations").exists() else (repo / "backend" / "migrations").rglob("*.up.sql"):
+    for p in (repo / "migrations").rglob("*.up.sql") if (repo / "migrations").exists() else (repo / "backend" / "app" / "migrations").rglob("*.up.sql"):
         text = p.read_text(encoding="utf-8", errors="ignore")
         # 先剥 `--` 行注释：注释里出现的 `CREATE TABLE biz_[a-z_]+` 之类示例会造出幽灵表（实测 biz_）
         text = re.sub(r"--[^\n]*", "", text)

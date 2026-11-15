@@ -3,7 +3,7 @@
 - **卡**：`t_0af7ec46`（平台级根治项；前置卡 `t_be54535c` 的"选项 3"）
 - **状态**：决策落地 + **人力资源模块试点**完成（其余模块按 §6 逐模块推进）
 - **日期**：2026-11-13
-- **迁移**：`backend/migrations/business/V0401__hr_page_code_split.{up,down}.sql`
+- **迁移**：`backend/app/migrations/business/V0401__hr_page_code_split.{up,down}.sql`
 - **相关**：`docs/编码规范.md` §1.7.2、`docs/architecture/ARCH-9-人力资源模块设计.md` §3.2/§6.1
 
 ---

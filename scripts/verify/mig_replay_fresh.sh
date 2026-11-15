@@ -25,7 +25,7 @@
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MROOT="${MROOT:-$ROOT/backend/migrations}"
+MROOT="${MROOT:-$ROOT/backend/app/migrations}"
 DBHOST="${DBHOST:-127.0.0.1}"
 DBPORT="${DBPORT:-5432}"
 DBUSER="${DBUSER:-alun}"

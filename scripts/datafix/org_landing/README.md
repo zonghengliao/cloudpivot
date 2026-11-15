@@ -1,6 +1,6 @@
 # 组织落位（P0-FIX-2B-A）· datafix 脚本
 
-一次性数据修复，**不是迁移**（不进 `backend/migrations/`，不参与启动自动应用）。
+一次性数据修复，**不是迁移**（不进 `backend/app/migrations/`，不参与启动自动应用）。
 上游决策：[`docs/architecture/P0-FIX-2B-生产组织落位与超管收敛-决策.md`](../../../docs/architecture/P0-FIX-2B-生产组织落位与超管收敛-决策.md)（D-1 / D-6）。
 卡片：`t_db82c38e`。证据：`docs/evidence/20261105-p0fix2b-orglanding/`。
 

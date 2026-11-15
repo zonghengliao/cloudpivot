@@ -1,6 +1,6 @@
 # E2ERES2 · 清掉「上一张卡判不了」的两类测试痕迹（36 软删定义 + 16 孤儿实例）
 
-一次性生产数据修复（2026-11-04，卡 `t_142317a2`）。**不是迁移**，不进 `backend/migrations/`。
+一次性生产数据修复（2026-11-04，卡 `t_142317a2`）。**不是迁移**，不进 `backend/app/migrations/`。
 承接 `scripts/datafix/e2e_residue/`（卡 `t_61dca492`）—— 那张卡只清了 `biz_type` 能证明是测试脚本写的行。
 
 ## 背景：清完 E2E_* 之后，`30_verify.sql` 还留着两条 WARN

@@ -11,19 +11,19 @@
 
 | 文件 | 行数 | 内容 |
 |---|---|---|
-| `backend/src/business/shared/principal.rs` | 1164 | `ScopedPrincipal`（字段全私有）+ `resolve(user_id)`（**一次往返**：3 表 join + 递归 CTE + `sys_role_dept` + `UNION ALL` 事实行）+ `merge_scope_rows`（纯函数合并/并集/降级）+ Redis cache-aside（键 `perm:user_scope:{epoch}:{uid}`，TTL 复用 `CACHE_PRINCIPAL_TTL_SECS=300`）+ 埋点 `cache_stats()` |
-| `backend/src/business/shared/scope.rs` | 1109 | `ScopeKind`（1..5 ↔ 枚举，非法 → `DATA_SCOPE_INVALID`）、`RowFilter`（SQL 与参数同构不可拆）、`ScopeTarget` + `SCOPED_TABLES`（10 张登记表）、`filter_for`、`FILTER_MARKER`、`paginate`（**列表查询唯一入口**，自算 count 并剥 `ORDER BY`） |
-| `backend/src/business/shared/guard.rs` | 434 | `bump_epoch()`（`INCR perm:user_scope_epoch`，O(1) 全量失效）、`invalidate_user_scope(s)`、`preflight_permission()`（闸 3 启动自检：10 张登记表的列 + `SUPER_ADMIN` 存在性）、`ensure_scope_grant_allowed()`（范围上限，S14） |
-| `backend/src/business/shared/mod.rs` | 45 | 模块契约与接入示例（B3/B5 照抄） |
-| `backend/tests/batchB_b2_scope.rs` | 416 | 真库集成测试（5 范围行数、count 可执行、参数顺序、回退查库、自检、S14） |
-| `backend/tests/sql/batchb/b2_scope_fixture.sql` | 91 | 真库夹具（3 层部门树 + 5 个范围角色 + 12 用户 + 过期绑定），幂等 |
+| `backend/app/src/business/shared/principal.rs` | 1164 | `ScopedPrincipal`（字段全私有）+ `resolve(user_id)`（**一次往返**：3 表 join + 递归 CTE + `sys_role_dept` + `UNION ALL` 事实行）+ `merge_scope_rows`（纯函数合并/并集/降级）+ Redis cache-aside（键 `perm:user_scope:{epoch}:{uid}`，TTL 复用 `CACHE_PRINCIPAL_TTL_SECS=300`）+ 埋点 `cache_stats()` |
+| `backend/app/src/business/shared/scope.rs` | 1109 | `ScopeKind`（1..5 ↔ 枚举，非法 → `DATA_SCOPE_INVALID`）、`RowFilter`（SQL 与参数同构不可拆）、`ScopeTarget` + `SCOPED_TABLES`（10 张登记表）、`filter_for`、`FILTER_MARKER`、`paginate`（**列表查询唯一入口**，自算 count 并剥 `ORDER BY`） |
+| `backend/app/src/business/shared/guard.rs` | 434 | `bump_epoch()`（`INCR perm:user_scope_epoch`，O(1) 全量失效）、`invalidate_user_scope(s)`、`preflight_permission()`（闸 3 启动自检：10 张登记表的列 + `SUPER_ADMIN` 存在性）、`ensure_scope_grant_allowed()`（范围上限，S14） |
+| `backend/app/src/business/shared/mod.rs` | 45 | 模块契约与接入示例（B3/B5 照抄） |
+| `backend/app/tests/batchB_b2_scope.rs` | 416 | 真库集成测试（5 范围行数、count 可执行、参数顺序、回退查库、自检、S14） |
+| `backend/app/tests/sql/batchb/b2_scope_fixture.sql` | 91 | 真库夹具（3 层部门树 + 5 个范围角色 + 12 用户 + 过期绑定），幂等 |
 
 **附带改动（2 处，均为增量、不改编既有逻辑）**
 
 | 文件 | 改动 |
 |---|---|
-| `backend/src/business/mod.rs` | `+ pub mod shared;`（1 行模块声明 + 1 行模块表文档） |
-| `backend/src/shared/error_code.rs` | `+ 6100x 段 2 个码`：`DATA_SCOPE_INVALID=61001`、`DATA_SCOPE_EXCEED_LIMIT=61002`（B2 实际用到的两个；其余 10 个由 B3/B4/B6/B7 按 §5.3 码表补齐，**码值不改**）。放在 `error_code.rs` 而不是 `business/` 里，是为守住项目铁律「错误码统一在此定义，禁止散落魔法数字」 |
+| `backend/app/src/business/mod.rs` | `+ pub mod shared;`（1 行模块声明 + 1 行模块表文档） |
+| `backend/app/src/shared/error_code.rs` | `+ 6100x 段 2 个码`：`DATA_SCOPE_INVALID=61001`、`DATA_SCOPE_EXCEED_LIMIT=61002`（B2 实际用到的两个；其余 10 个由 B3/B4/B6/B7 按 §5.3 码表补齐，**码值不改**）。放在 `error_code.rs` 而不是 `business/` 里，是为守住项目铁律「错误码统一在此定义，禁止散落魔法数字」 |
 
 未改：`system/`、`support/`、`bootstrap.rs`、`Cargo.toml`、`scripts/check.sh`、任何既有查询。
 
@@ -52,7 +52,7 @@ cargo test --test batchB_b2_scope -- --nocapture --test-threads=1
 #    check.sh 会先跑 fmt/clippy/前端 typecheck，前端缺 pnpm 时会提前退出，
 #    所以这里只复刻那两段循环）
 cd /opt/cloudpivot
-src=backend/src
+src=backend/app/src
 BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice \
 sys_file operation_logs audit_logs auth_logs security_logs"
 # 闸①

@@ -47,7 +47,7 @@
 
 | 问题 | 现状证据 | 后果 |
 |---|---|---|
-| 没有人事档案，员工信息散落在账号表 | `sys_user` 只有 `username/real_name/dept_id/mobile/email/status`（`system/V0001:2-24`）；全仓 `grep -ril "biz_employee\|biz_salary\|biz_attendance" backend/migrations/` = **0 个文件** | 入职日期、身份证、学历、合同、紧急联系人、工资卡都没有地方放；客户第一轮演示就会问"你们人事模块在哪" |
+| 没有人事档案，员工信息散落在账号表 | `sys_user` 只有 `username/real_name/dept_id/mobile/email/status`（`system/V0001:2-24`）；全仓 `grep -ril "biz_employee\|biz_salary\|biz_attendance" backend/app/migrations/` = **0 个文件** | 入职日期、身份证、学历、合同、紧急联系人、工资卡都没有地方放；客户第一轮演示就会问"你们人事模块在哪" |
 | 有员工没账号、有账号不是员工 | `sys_user` 无 `employee_id`，`user_type` 只有 `HUMAN`/`ROBOT`（`system/V0102`） | 车间工人（无账号）无法被"员工"口径统计；外包/系统账号被误算进人头与工资表 |
 | 工资靠 Excel，与总账两条线 | `biz_voucher` 的 `source_type` 枚举里没有工资来源（`shared/doc_kind.rs` `VoucherSourceType`：`STOCK_IN`…`Commission` 共 18 值，无 `Payroll`）；`biz_account` 2211 应付职工薪酬**至今没有一张凭证落过账**（`SELECT count(*) FROM biz_voucher_entry WHERE account_code LIKE '2211%'` 实测 **0**） | 每月工资靠会计手工做凭证；"应付职工薪酬"科目长期挂零，资产负债表这一行永远是假的 |
 | 竞品都有 | 用友 U8/畅捷通 T+、金蝶 KIS 云均含"人事 + 考勤 + 工资"三件套，且工资凭证自动生成 | 中端客户选型清单里，"能不能发工资/出工资表"是硬指标；只做账不做工资 = 只能卖给已有人事系统的客户 |
@@ -663,7 +663,7 @@ SELECT v.t, v.n, v.p, v.d, CASE WHEN v.d = 'none' THEN 'GLOBAL' ELSE '' END, 0, 
   `…001600` 已是 `business:erp:report:payable-aging`（应付账龄分析）。落地实现（HR-04 / V0387）改用
   空闲段 **`20000000-0000-4000-8000-00000000e0xx`**（e000 目录 / e001-e005 页面 / e011-e019 员工 /
   e021-e025 考勤 / e031-e036 请假 / e041-e047 薪资 / e051-e053 薪资项），见
-  `backend/migrations/business/V0387__hr_menu_perms.up.sql`。
+  `backend/app/migrations/business/V0387__hr_menu_perms.up.sql`。
 
 > ★ **页面行的 `auth_code` 会被复用成全量列表接口的码 —— 这是本设计的一个已知耦合（HR-47 实测，卡 t_be54535c）**
 >
@@ -1210,7 +1210,7 @@ COMMIT
 
 ##### 落地记录（HR-39，2026-11-12）
 
-代码：`backend/src/business/hr/salary_bridge.rs`（过账 + 审批回调桥）、
+代码：`backend/app/src/business/hr/salary_bridge.rs`（过账 + 审批回调桥）、
 `salary_sheet_handler.rs` 的 #42/#43 两条路由、`salary_sheet_model.rs` 的 4 个状态回写 CAS。
 
 | 设计条目 | 落地方式 | 偏差 / 说明 |
@@ -1636,7 +1636,7 @@ COMMIT
 > `V0392__attendance_lock_guard`（HR-23 考勤锁定守卫）。HR-26 要写 `hr_leave_flow`（原映射 V0390），
 > 故 **HR-26 取 V0393**，其后各卡顺延：`hr_salary_flow`→**V0394**、`hr_adjust_resign_flow`→**V0395**、
 > `hr_salary_items_seed`→**V0396**、`hr_selfcheck`→**V0397**（下表已更新）。
-> 这仍是**建议号**：每张卡落地前必须 `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3`
+> 这仍是**建议号**：每张卡落地前必须 `ls backend/app/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3`
 > 再核对，撞号就继续后移（先落地者定号）。
 >
 > **第四次号段修正（HR-45 实施时，t_914199ef）**：第三次修正给本卡留的 `V0397` 已被 **HR-40 红冲**
@@ -1858,25 +1858,25 @@ SELECT count(*) FROM biz_seq     WHERE seq_type IN ('EMP','LV','ATT','SAL');    
 |---|---|---|
 | 10 张表 DDL 可执行、45 条语义断言通过 | `docs/evidence/2026-11-10-arch9-2-hr-ddl/01_new_tables_check.sql` + `.out` | `psql -f 01_…sql`（RC=0，`NOTICE: 通过 45 条`） |
 | 科目/号段/字典/菜单/角色/脱敏/配置/规则/流程 种子可执行、24 条断言通过 | 同目录 `02_alter_tables_check.sql` + `.out` | `psql -f 02_…sql`（RC=0，`NOTICE: 通过 24 条`） |
-| `sys_user` 无任何人事实段 | `backend/migrations/system/V0001__create_sys_user.up.sql:2-24` | `read_file` |
-| `sys_user.user_type` 只有 HUMAN/ROBOT | `backend/migrations/system/V0102__add_sys_user_type.up.sql` | 同上 |
-| 数据权限 SELF 只按列比较 | `backend/src/business/shared/scope.rs`（`filter_for` ③ 与 `ScopeTarget` 常量表） | `search_files "filter_for"` |
-| `SCOPED_TABLES` 是开放清单（12 项） | `backend/src/business/shared/scope.rs`（`SCOPED_TABLES` 常量） | 同上 |
-| `DocKind` 29 值 / 7 根轴 / 前端镜像单测 | `backend/src/business/shared/doc_kind.rs:59-183,1309-1339,1525+`；`frontend/src/api/business/erp/doc-kinds.ts`；`backend/crates/cloudpivot-doc/src/contract_tests.rs`（`frontend_ts_mirror_matches_rust`） | `cargo test doc_kind` |
-| 状态机唯一入口 + 边表写法 | `backend/src/business/shared/state_machine.rs:1552+`（`Entity`）、`1720+`（EDGES） | `read_file` |
-| 凭证写入口（唯一）与分录单边/非负约束 | `backend/src/business/erp/voucher/mod.rs:1920-1963`（`PostVoucher`/`post_voucher`）；`V0149:100-110`（`ck_biz_voucher_entry_side`） | `read_file` / `psql \d biz_voucher_entry` |
-| 多借方凭证入口（工资凭证复用） | `backend/src/business/erp/voucher/voucher_multi.rs:239`（`post_explicit_lines`）、`:305`（`ensure_leaf`） | `read_file` |
+| `sys_user` 无任何人事实段 | `backend/app/migrations/system/V0001__create_sys_user.up.sql:2-24` | `read_file` |
+| `sys_user.user_type` 只有 HUMAN/ROBOT | `backend/app/migrations/system/V0102__add_sys_user_type.up.sql` | 同上 |
+| 数据权限 SELF 只按列比较 | `backend/app/src/business/shared/scope.rs`（`filter_for` ③ 与 `ScopeTarget` 常量表） | `search_files "filter_for"` |
+| `SCOPED_TABLES` 是开放清单（12 项） | `backend/app/src/business/shared/scope.rs`（`SCOPED_TABLES` 常量） | 同上 |
+| `DocKind` 29 值 / 7 根轴 / 前端镜像单测 | `backend/app/src/business/shared/doc_kind.rs:59-183,1309-1339,1525+`；`frontend/src/api/business/erp/doc-kinds.ts`；`backend/crates/cloudpivot-doc/src/contract_tests.rs`（`frontend_ts_mirror_matches_rust`） | `cargo test doc_kind` |
+| 状态机唯一入口 + 边表写法 | `backend/app/src/business/shared/state_machine.rs:1552+`（`Entity`）、`1720+`（EDGES） | `read_file` |
+| 凭证写入口（唯一）与分录单边/非负约束 | `backend/app/src/business/erp/voucher/mod.rs:1920-1963`（`PostVoucher`/`post_voucher`）；`V0149:100-110`（`ck_biz_voucher_entry_side`） | `read_file` / `psql \d biz_voucher_entry` |
+| 多借方凭证入口（工资凭证复用） | `backend/app/src/business/erp/voucher/voucher_multi.rs:239`（`post_explicit_lines`）、`:305`（`ensure_leaf`） | `read_file` |
 | `2211` 当前是末级、且无历史分录 | `psql -d cloudpivot_test -c "SELECT account_code,is_leaf FROM biz_account WHERE account_code LIKE '2211%'"`（1 行，`is_leaf=1`）；`SELECT count(*) FROM biz_voucher_entry WHERE account_code LIKE '2211%'`（0） | 两条 SQL |
-| 报表按编码前缀汇总（加子科目免改报表） | `backend/src/business/erp/report/mod.rs:473-488`（`match_account`）；`V0183:216`（`PAYROLL_PAYABLE → 2211`） | `read_file` |
+| 报表按编码前缀汇总（加子科目免改报表） | `backend/app/src/business/erp/report/mod.rs:473-488`（`match_account`）；`V0183:216`（`PAYROLL_PAYABLE → 2211`） | `read_file` |
 | `2241.01/02` 已被报销/佣金占用 | `V0226:36`、`V0311:36` | `grep 2241.` |
 | 附件 `doc_type` 现为 16 值 + 必传规则表 | `V0347:79`、`V0350`（12→16 放宽先例） | `read_file` |
 | `biz_status_log.entity_type` 无 CHECK 白名单 | `V0159`、`V0219:44` | `read_file` |
-| 号段四入口与主数据码语义 | `backend/src/business/erp/seq.rs`（模块文档「与单据号的区别」） | `read_file` |
+| 号段四入口与主数据码语义 | `backend/app/src/business/erp/seq.rs`（模块文档「与单据号的区别」） | `read_file` |
 | 流程种子写法（含 `is_system=TRUE` 的 H6 教训） | `V0243`（`expense` 流程） | `read_file` |
-| 审批 fail-closed 口径 | `backend/src/business/erp/approval_gate.rs`（模块文档） | `read_file` |
+| 审批 fail-closed 口径 | `backend/app/src/business/erp/approval_gate.rs`（模块文档） | `read_file` |
 | 附件/流程/操作栏组件路径 | `frontend/src/views/business/erp/shared/{DocActionBar,DocAttachmentPanel,CancelImpactDialog}.vue`、`approval-progress.ts`、`use-attachment-gate.ts` | `ls` |
-| impexp 定义注册方式 | `backend/src/business/impexp/builtin/mod.rs`（`register`） | `read_file` |
+| impexp 定义注册方式 | `backend/app/src/business/impexp/builtin/mod.rs`（`register`） | `read_file` |
 | 顶级菜单 19 个、`sort_order=77` 空闲、`title ≤12` 断言 | `psql` 实测（19 行 sort：…75/76/95）；证据脚本 §④ 断言 | 两条 SQL + 断言 |
 | MES 结算单自带凭证（冲突来源） | `docs/architecture/ARCH-4-通用MES与委外架构设计.md:1890,1938` | `grep` |
-| 迁移号段：business 最大 V0367、ARCH-9-1 预留 V0368~V0377 | `ls backend/migrations/business | sort | tail -1`；`ARCH-9-多组织与合并报表设计.md` §7.1 | `ls` / `grep` |
+| 迁移号段：business 最大 V0367、ARCH-9-1 预留 V0368~V0377 | `ls backend/app/migrations/business | sort | tail -1`；`ARCH-9-多组织与合并报表设计.md` §7.1 | `ls` / `grep` |
 | 演算数字（689.66 / 735.63 / 9954.03 / 8154.03 / 12594.03） | `psql` 单查询实算（见 §7.5 同批命令） | 任选一条 `SELECT 8000/21.75/8*10*1.5` |

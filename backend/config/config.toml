@@ -50,7 +50,8 @@ ssl_mode = "prefer"
 
 [database.migration]
 enabled = true
-path = "migrations"
+# cwd 相对路径（进程 cwd 约定为 `backend/`）：迁移随主包进了 `app/`（P2-40）。
+path = "app/migrations"
 auto_migrate = true
 
 [redis]

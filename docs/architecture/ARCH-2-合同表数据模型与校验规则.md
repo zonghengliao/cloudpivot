@@ -17,7 +17,7 @@
 |---|------|------|
 | F1 | `biz_contract` / `biz_customer` **完全不存在**；全库 **137 个非模板库**逐一 grep 均无 | `select count(*) from information_schema.tables where table_name in ('biz_contract','biz_snapshot_drift')` → 0（逐库扫描） |
 | F2 | 主干业务表存在且结构可用：`biz_supplier`(22 列) / `biz_purchase_order`(27 列) / `biz_stock_in`(28 列) / `biz_payable`(27 列) | P0 段输出 + `information_schema.columns` 计数（取未改动的 `cloudpivot_3b_sql`，四表 `\d` 原文见执行终端记录） |
-| F3 | 仓库迁移目录上限 **V0192**，`V0193` 无迁移文件占用（`docs/evidence/*/V0193__erp_contract.up.sql` 是草稿，不是迁移） | `ls backend/migrations/*/ \| grep -oE 'V[0-9]{4}' \| sort -u \| tail -1` → `V0192`；`grep -c V0193` → 0 |
+| F3 | 仓库迁移目录上限 **V0192**，`V0193` 无迁移文件占用（`docs/evidence/*/V0193__erp_contract.up.sql` 是草稿，不是迁移） | `ls backend/app/migrations/*/ \| grep -oE 'V[0-9]{4}' \| sort -u \| tail -1` → `V0192`；`grep -c V0193` → 0 |
 | F4 | 全库 **0 个触发器**（零触发器是本仓基线，`updated_at` 由模型层写） | `information_schema.triggers` → 0 |
 | F5 | 全库 82 个外键，但**单据链零外键**：`biz_purchase_order` / `biz_stock_in` / `biz_payable` 各 0 个 | `pg_constraint where contype='f'` 分组统计 → 三表均无行 |
 | F6 | 主数据侧确有外键先例：`biz_stock_transfer` 的 3 个仓库列 → `biz_warehouse.id` | pg_constraint 明细 |
@@ -797,7 +797,7 @@ psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U alun -d arch2_contract_poc \
 
 | # | 事项 | 位置 | 备注 |
 |---|---|---|---|
-| 1 | 迁移 `V0193__erp_contract.up.sql` | `backend/migrations/business/` | 只放 §2.2 的 DDL（1 张表 + 4 个索引 + 19 条 COMMENT〔1 表 + 18 列〕+ CT 取号 1 行）；开工前复核 V0193 仍空（F3） |
+| 1 | 迁移 `V0193__erp_contract.up.sql` | `backend/app/migrations/business/` | 只放 §2.2 的 DDL（1 张表 + 4 个索引 + 19 条 COMMENT〔1 表 + 18 列〕+ CT 取号 1 行）；开工前复核 V0193 仍空（F3） |
 | 2 | 迁移 down 脚本 | 同上 | `DELETE FROM biz_seq WHERE seq_type='CT';` + `DROP TABLE biz_contract;`（顺序不敏感，写清是为了 down 可重复执行） |
 | 3 | `Entity::Contract` 七处注册 | `business/shared/state_machine.rs` | 变体 / `ALL` / `as_str` / `label` / `edges()` / `reason_edges()` / `locked_statuses()`；漏一处运行期 500（F11） |
 | 4 | 错误码 `66013–66020` | `shared/error_code.rs` | 已确认 66013+ 空（F14）；只加常量，不改既有码 |

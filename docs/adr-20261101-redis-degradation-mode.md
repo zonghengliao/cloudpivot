@@ -234,7 +234,7 @@ PostgreSQL —— 后者本来就已经是每个请求的硬依赖（F3），不
 
 ### 5.1 表
 
-`backend/migrations/system/V0176__create_sys_token_blacklist.up.sql` / `.down.sql`（**本卡已交付并实测**，见 §6）。
+`backend/app/migrations/system/V0176__create_sys_token_blacklist.up.sql` / `.down.sql`（**本卡已交付并实测**，见 §6）。
 
 编号依据：全仓共用一个号段（`migrations/system/V0105__create_sys_ai_agent.up.sql:13` 明确记载
 "编号是全仓共享资源，`migrations/{system,business}` 共用一个号段"）；当前最大值是
@@ -254,17 +254,17 @@ PostgreSQL —— 后者本来就已经是每个请求的硬依赖（F3），不
 
 | 文件 | 改动 |
 |------|------|
-| `backend/src/shared/token_revocation.rs`（新增） | `revoke(...)`（先库后缓存）与 `is_revoked(jti) -> Result<bool, DbError>`；`mod.rs` 加一行声明 |
-| `backend/src/middleware/auth_guard.rs` | `check_revoked()`（`:61-74`）改查库；删掉 `try_cache()` / `Cache::get` 两条分支；`Err → 401` 保留（`:107-116`） |
-| `backend/src/support/online/model.rs` | `blacklist_jti`（`:567`）与 `blacklist_token`（`:559`）委托 `revoke(...)`；调用点签名不变 |
-| `backend/src/system/auth/handler.rs` | `:552` 后补显式 access-jti `revoke(...)`（修 §1.3 的洞）；`:488-494` 轮换作废改走 `revoke` |
-| `backend/src/system/auth/handler.rs` | §3.3：`load_rotated` / `load_replay`（`:1150-1182`）在 `try_cache() == None` 时返回 `Ok(None)` 而非 500 |
-| `backend/src/support/health.rs` + `lib.rs` | 新增 `GET /health/deps`（§5.4）；`/health` 不动 |
+| `backend/app/src/shared/token_revocation.rs`（新增） | `revoke(...)`（先库后缓存）与 `is_revoked(jti) -> Result<bool, DbError>`；`mod.rs` 加一行声明 |
+| `backend/app/src/middleware/auth_guard.rs` | `check_revoked()`（`:61-74`）改查库；删掉 `try_cache()` / `Cache::get` 两条分支；`Err → 401` 保留（`:107-116`） |
+| `backend/app/src/support/online/model.rs` | `blacklist_jti`（`:567`）与 `blacklist_token`（`:559`）委托 `revoke(...)`；调用点签名不变 |
+| `backend/app/src/system/auth/handler.rs` | `:552` 后补显式 access-jti `revoke(...)`（修 §1.3 的洞）；`:488-494` 轮换作废改走 `revoke` |
+| `backend/app/src/system/auth/handler.rs` | §3.3：`load_rotated` / `load_replay`（`:1150-1182`）在 `try_cache() == None` 时返回 `Ok(None)` 而非 500 |
+| `backend/app/src/support/health.rs` + `lib.rs` | 新增 `GET /health/deps`（§5.4）；`/health` 不动 |
 | `backend/Cargo.toml` + `config/config-{dev,prod}.toml` | 开 `metrics-prometheus` feature 与 `[metrics]` 段（§5.4 第一层告警） |
 
 ### 5.3 清理任务
 
-`backend/src/task/mod.rs` 的 `Scheduler::register_builtin`（`:235` 起）里追加，写法照
+`backend/app/src/task/mod.rs` 的 `Scheduler::register_builtin`（`:235` 起）里追加，写法照
 `business/storage/cleanup.rs` 的内置任务模式（`TASK_NAME` / `TASK_CRON` / `register_builtin`）：
 
 ```rust
@@ -487,14 +487,14 @@ PGOPTIONS="-c search_path=$SC" psql -h 127.0.0.1 -U alun -d cloudpivot_test \
 psql -h 127.0.0.1 -U alun -d cloudpivot_test -q -c "DROP SCHEMA $SC CASCADE;"
 
 # ⑤ 编号占用核查
-find /opt/cloudpivot/backend/migrations -name "V017[5-9]*"
+find /opt/cloudpivot/backend/app/migrations -name "V017[5-9]*"
 ```
 
 ---
 
-## 附录 A：迁移全文（已实测，直接落 `backend/migrations/system/`）
+## 附录 A：迁移全文（已实测，直接落 `backend/app/migrations/system/`）
 
-> 本卡**只出决策与规格，不落实现**，因此这两个文件没有放进 `backend/migrations/`——
+> 本卡**只出决策与规格，不落实现**，因此这两个文件没有放进 `backend/app/migrations/`——
 > 一旦放进去，`config.toml` 的 `auto_migrate = true`（`backend/config/config.toml:51-54`）会在
 > 下一次后端重启时**自动建表**，而消费它的代码还没进来。实现卡落地时把这几个文件拷进去即可。
 > 两份文件已在本机 PostgreSQL 18.6 上真跑过（up → 读写 → 清理 → down → 零残留，见 §6）。

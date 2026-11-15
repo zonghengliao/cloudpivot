@@ -81,7 +81,7 @@ import {
 } from '../../src/api/business/hr/salary-item-kinds.ts';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const backend = resolve(here, '../../../backend/src/business/hr');
+const backend = resolve(here, '../../../backend/app/src/business/hr');
 const readBackend = (file: string): string => readFileSync(resolve(backend, file), 'utf8');
 const readFrontend = (file: string): string =>
   readFileSync(resolve(here, '../../src', file), 'utf8');
@@ -714,7 +714,7 @@ test('router 注册了 /business/hr/salary-item（漏了 = 点菜单 404）', ()
 
 test('菜单种子 / 权限码与 V0387 一致（页面能用得上这 3 个码）', () => {
   const seed = readFileSync(
-    resolve(here, '../../../backend/migrations/business/V0387__hr_menu_perms.up.sql'),
+    resolve(here, '../../../backend/app/migrations/business/V0387__hr_menu_perms.up.sql'),
     'utf8',
   );
   assert.ok(seed.includes("'/business/hr/salary-item'"), 'V0387 没有薪资项菜单路径');

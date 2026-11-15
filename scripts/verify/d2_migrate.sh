@@ -13,7 +13,7 @@ export PATH=/root/.cargo/bin:$PATH
 
 REPO=${REPO:-/opt/cloudpivot}
 DB=${D2_DB:-cloudpivot_d2}
-MIG="$REPO/backend/migrations/business"
+MIG="$REPO/backend/app/migrations/business"
 export PGPASSWORD=alun
 PSQL="psql -h 127.0.0.1 -U alun -d $DB -At"
 

@@ -11,13 +11,13 @@
 
 | # | 文件 | 改动 | 对应卡面 |
 |---|---|---|---|
-| 1 | `backend/src/business/flow/assignee.rs` | `resolve()` 新增第 4 个参数 `eval: &EvalContext`；把 D2 的 9 个来源分支**逐字搬运**成 `load_plan()`；新增 `expression_plans()`（纯函数）、`is_expression()`、`load_role_ids_by_code()`（code→id）；`Finalized` 加 `rule_id` | §一① |
-| 2 | `backend/src/business/flow/graph.rs` | `AssigneeKind` 加 `Expression` 变体（`as_str`/`parse`，`is_enumerable=false`）；`validate()` 加 **R16**；新增 `expression_issues()` + `expression_uses_prev_approver()` | §一② |
-| 3 | `backend/src/business/flow/dto.rs` | `into_graph` 的非法来源文案补 `EXPRESSION`；新增 `validate_expression_nodes()`（保存期结构校验，400+65016） | §一③ |
-| 4 | `backend/src/business/flow/handler.rs` | `save_graph()` 在 `into_graph()` 之后调用 `dto::validate_expression_nodes()` | §一③ |
-| 5 | `backend/src/shared/error_code.rs` | 新增 `FLOW_EXPRESSION_INVALID = 65033` + 码表登记（27 → 28） | 设计 §8.6 |
-| 6 | `backend/src/business/flow/model.rs` | `NewTask` 加 `assignee_rule_id` 字段；`insert_task` 的 INSERT 增列 + 绑参 | D-E5 |
-| 7 | `backend/src/business/flow/engine.rs` | 2 处 `assignee::resolve(...)` 传 `&eval`；5 处 `NewTask` 字面量补 `assignee_rule_id`（2 处传 `finalized.rule_id`、3 处 `None`） | D-E5 / §8.2④ |
+| 1 | `backend/app/src/business/flow/assignee.rs` | `resolve()` 新增第 4 个参数 `eval: &EvalContext`；把 D2 的 9 个来源分支**逐字搬运**成 `load_plan()`；新增 `expression_plans()`（纯函数）、`is_expression()`、`load_role_ids_by_code()`（code→id）；`Finalized` 加 `rule_id` | §一① |
+| 2 | `backend/app/src/business/flow/graph.rs` | `AssigneeKind` 加 `Expression` 变体（`as_str`/`parse`，`is_enumerable=false`）；`validate()` 加 **R16**；新增 `expression_issues()` + `expression_uses_prev_approver()` | §一② |
+| 3 | `backend/app/src/business/flow/dto.rs` | `into_graph` 的非法来源文案补 `EXPRESSION`；新增 `validate_expression_nodes()`（保存期结构校验，400+65016） | §一③ |
+| 4 | `backend/app/src/business/flow/handler.rs` | `save_graph()` 在 `into_graph()` 之后调用 `dto::validate_expression_nodes()` | §一③ |
+| 5 | `backend/app/src/shared/error_code.rs` | 新增 `FLOW_EXPRESSION_INVALID = 65033` + 码表登记（27 → 28） | 设计 §8.6 |
+| 6 | `backend/app/src/business/flow/model.rs` | `NewTask` 加 `assignee_rule_id` 字段；`insert_task` 的 INSERT 增列 + 绑参 | D-E5 |
+| 7 | `backend/app/src/business/flow/engine.rs` | 2 处 `assignee::resolve(...)` 传 `&eval`；5 处 `NewTask` 字面量补 `assignee_rule_id`（2 处传 `finalized.rule_id`、3 处 `None`） | D-E5 / §8.2④ |
 
 ### 硬红线逐条对照
 

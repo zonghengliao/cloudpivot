@@ -5,7 +5,7 @@
 - 提交前核对：`git rev-list --count HEAD..origin/main` = **0**（已包含 A3 的 66eefb1，线性提交，无冲突）
 - 验证环境：profile=test、库 `cloudpivot_test`、127.0.0.1:8025（dev 8024 / prod 8023 未触碰）
 - S3 服务：MinIO `RELEASE.2025-09-07T16-13-09Z` 跑在 `172.18.10.99:9000`，bucket `cloudpivot-test`
-- 脚本归档：`backend/tests/sql/a2/`（README 内含运行步骤）
+- 脚本归档：`backend/app/tests/sql/a2/`（README 内含运行步骤）
 
 > **容器 vs 二进制的偏差（如实说明）**：卡里写的是 `docker run minio/minio`，但 144 与本机
 > 都**没有 docker**（`docker: command not found`），`dl.min.io` 对该版本已返回 410。改为跑

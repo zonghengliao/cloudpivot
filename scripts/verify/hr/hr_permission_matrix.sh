@@ -71,7 +71,7 @@ REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 BACKEND=${HR47_BACKEND:-$REPO_ROOT/backend}
 BIN=${HR47_BIN:-$BACKEND/target/debug/cloudpivot}
 EXPECT_PY=$HERE/hr_perm_expect.py
-MIGRATION=$REPO_ROOT/backend/migrations/business/V0387__hr_menu_perms.up.sql
+MIGRATION=$REPO_ROOT/backend/app/migrations/business/V0387__hr_menu_perms.up.sql
 
 TAG=$(date +%m%d-%H%M%S)
 PORT=${HR47_PORT:-18147}

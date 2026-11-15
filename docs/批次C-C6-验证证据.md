@@ -4,7 +4,7 @@
 - 依据：`docs/批次C-技术架构.md` §4（变更日志）、§4.8、§4.9、§4.10、§4.12.3、§7 C6 行
 - 验证机：`172.18.10.144`（Ubuntu 26.04 / PG 18.6）+ 自建验证库 `cloudpivot_c6v`
 - 验证时间：2026-10-29（CST）
-- 验证方式：`backend/tests/batchC_c6_changelog.rs`（真库，3 个用例串行）+ `cargo test` 全量 + `cargo clippy --all-targets -D warnings`
+- 验证方式：`backend/app/tests/batchC_c6_changelog.rs`（真库，3 个用例串行）+ `cargo test` 全量 + `cargo clippy --all-targets -D warnings`
 
 > 全部数字都是本次真跑的原始输出，未做任何人工修饰。命令与输出逐段贴在下面。
 
@@ -30,11 +30,11 @@
 
 | 文件 | 职责 |
 |---|---|
-| `backend/src/business/changelog/handler.rs` | **6 个查询接口** + 导出脱敏渲染（L3）+ 13 个单测 |
-| `backend/src/business/changelog/query.rs` | 读侧 SQL（分页 / 详情 / 时间线 / 统计 / 导出取数 / 登记表清单）+ 9 个单测 |
-| `backend/src/business/changelog/partition.rs` | 分区运维（预建下月、DROP 过期、清单巡检）+ 9 个单测 |
-| `backend/src/business/shared/conn.rs` | 只读查询的全局连接入口（让 `business/changelog/` 内**没有** `db()`） |
-| `backend/tests/batchC_c6_changelog.rs` | 真库验收：T-CL-02/03/04/05/06/11/13 + 性能 + 分区 + 回滚零残留 |
+| `backend/app/src/business/changelog/handler.rs` | **6 个查询接口** + 导出脱敏渲染（L3）+ 13 个单测 |
+| `backend/app/src/business/changelog/query.rs` | 读侧 SQL（分页 / 详情 / 时间线 / 统计 / 导出取数 / 登记表清单）+ 9 个单测 |
+| `backend/app/src/business/changelog/partition.rs` | 分区运维（预建下月、DROP 过期、清单巡检）+ 9 个单测 |
+| `backend/app/src/business/shared/conn.rs` | 只读查询的全局连接入口（让 `business/changelog/` 内**没有** `db()`） |
+| `backend/app/tests/batchC_c6_changelog.rs` | 真库验收：T-CL-02/03/04/05/06/11/13 + 性能 + 分区 + 回滚零残留 |
 
 ### 1.2 修改文件（每处都有明确理由）
 

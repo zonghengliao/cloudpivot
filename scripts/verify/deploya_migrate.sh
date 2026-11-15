@@ -12,8 +12,8 @@
 #
 # 扫目录口径（**必须与引擎一致**）：
 #   `config.toml` 的 `[database.migration] path = "migrations"` 是**递归**装载，
-#   `backend/migrations/{business,system,support}/` 全在引擎扫描范围内。
-#   本工具早期版本写死 `backend/migrations/business`、source 拼死
+#   `backend/app/migrations/{business,system,support}/` 全在引擎扫描范围内。
+#   本工具早期版本写死 `backend/app/migrations/business`、source 拼死
 #   `migrations/business/…`，于是 system/support 的迁移会「缺文件 / 记账 source 错」
 #   —— 2026-11-05 发版漏掉 `system/V0235__create_sys_invariant_result` 就是这个原因。
 #   现在递归扫全部子目录，`source` 按文件**真实路径**记账。
@@ -56,7 +56,7 @@ export PGPASSWORD="${NIK_DATABASE_PASSWORD:?}"
 DBUSER="${NIK_DATABASE_USER:-cloudpivot}"
 DBHOST="${NIK_DATABASE_HOST:-127.0.0.1}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MIGROOT="$ROOT/backend/migrations"   # 引擎口径：递归全部子目录（business/system/support/…）
+MIGROOT="$ROOT/backend/app/migrations"   # 引擎口径：递归全部子目录（business/system/support/…）
 DB="${1:?用法: deploya_migrate.sh <db> [<version>:<name> ... | --from <n>]}"
 shift
 

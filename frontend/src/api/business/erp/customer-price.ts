@@ -1,5 +1,5 @@
 /**
- * 价格维护 API 层（后端 `backend/src/business/erp/price_admin_handler.rs` + `price_handler.rs`，
+ * 价格维护 API 层（后端 `backend/app/src/business/erp/price_admin_handler.rs` + `price_handler.rs`，
  * SO-32 建表 / SO-33 取价 / SO-34 维护页）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）

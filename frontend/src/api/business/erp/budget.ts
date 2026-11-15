@@ -1,5 +1,5 @@
 /**
- * 预算 API 层（FIN-1 后端 `backend/src/business/erp/budget_{dto,handler,model,guard}.rs`）。
+ * 预算 API 层（FIN-1 后端 `backend/app/src/business/erp/budget_{dto,handler,model,guard}.rs`）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）
  *

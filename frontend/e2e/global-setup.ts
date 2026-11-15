@@ -2,7 +2,7 @@
  * 全局准备：**只登录一次**，把登录态存成 Playwright 的 storageState 给所有用例复用。
  *
  * 为什么必须这么做：后端 `/api/system/auth/login` 有按 (账号, IP) 的限流
- * （10 次 / 60 秒，见 `backend/src/shared/constants.rs`
+ * （10 次 / 60 秒，见 `backend/app/src/shared/constants.rs`
  * 的 `LOGIN_RATE_MAX_ATTEMPTS` / `LOGIN_RATE_WINDOW_SECS`）。每个用例都自己登一次的话，
  * 一轮 5 条用例 × (UI 登录 + API 客户端) 就会把自己限流成 429。
  *

@@ -641,8 +641,8 @@
  *
  * # 口径从哪来
  *
- * - 字段与会话契约：`backend/src/business/erp/contract_dto.rs`（A2）；
- * - 状态与合法边：`backend/src/business/shared/state_machine.rs::CONTRACT_EDGES`；
+ * - 字段与会话契约：`backend/app/src/business/erp/contract_dto.rs`（A2）；
+ * - 状态与合法边：`backend/app/src/business/shared/state_machine.rs::CONTRACT_EDGES`；
  * - 列表行的 `next_statuses` / `can_edit` 由后端详情下发，**有就不用前端再判一遍**。
  *
  * # 卡面 → 实际的四处出入（以已落库的 DDL/代码为准，卡里已报告）

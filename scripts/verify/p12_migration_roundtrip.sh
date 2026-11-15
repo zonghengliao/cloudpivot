@@ -3,8 +3,8 @@
 set -uo pipefail
 export PGPASSWORD=${PGPASSWORD:-alun}
 DB=${P12_DB_NAME:-cp_p12}
-UP=/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.up.sql
-DOWN=/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.down.sql
+UP=/opt/cloudpivot/backend/app/migrations/business/V0210__erp_business_reminder.up.sql
+DOWN=/opt/cloudpivot/backend/app/migrations/business/V0210__erp_business_reminder.down.sql
 run() { psql -h 127.0.0.1 -U alun -d "$DB" -X -q -v ON_ERROR_STOP=1 -f "$1" 2>&1 | sed 's/^/    /'; return ${PIPESTATUS[0]}; }
 snapshot() {
   psql -h 127.0.0.1 -U alun -d "$DB" -X -q -tAc "

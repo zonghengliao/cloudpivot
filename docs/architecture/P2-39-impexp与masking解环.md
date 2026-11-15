@@ -108,9 +108,9 @@ $ python3 scripts/lint/module_cycle_report.py --mutual | sed -n 4,10p
   ● business::hr → business::impexp (代码 18/注释 4) ⇄ business::impexp → business::hr (代码 11/注释 0)
 
 # ⑥ 文字层面（含注释）
-$ grep -rn 'crate::business::impexp' backend/src/business/masking/ | wc -l
+$ grep -rn 'crate::business::impexp' backend/app/src/business/masking/ | wc -l
 0
-$ grep -rn 'masking::user_export' backend/src/ | wc -l
+$ grep -rn 'masking::user_export' backend/app/src/ | wc -l
 0
 ```
 
@@ -118,7 +118,7 @@ $ grep -rn 'masking::user_export' backend/src/ | wc -l
 
 ### 3.1 闸门（进 CI，防回退）
 
-`backend/src/business/masking/independence_tests.rs`（`#[cfg(test)]`，3 条）：
+`backend/app/src/business/masking/independence_tests.rs`（`#[cfg(test)]`，3 条）：
 
 | 用例 | 管什么 |
 |---|---|
@@ -192,7 +192,7 @@ $ python3 scripts/lint/path_refs_gate.py --root .    # PASS（898 个脚本 / 0 
 - 导出脱敏的实际行为**一行未改**：同一份规则集、同一个 `format_export_rows`、同一个
   fail-closed 分支（422 + 61008）；改动只是「参数类型从具体 `MaskSet` 变成 `&dyn Masker`」。
 - `sys_user` 导出定义注册时机未变（仍是 `global_registry()` 首次调用时的懒装载），
-  `biz_type = "system.user"` 未变，前端 / 集成用例（`backend/tests/testd/masking.rs` 的 X04）不受影响。
+  `biz_type = "system.user"` 未变，前端 / 集成用例（`backend/app/tests/testd/masking.rs` 的 X04）不受影响。
 - 无迁移、无权限码、无路由变化；不涉及事务与补偿（本卡只搬文件 + 抽 trait）。
 
 ## 6. 遗留 / 后续（不是本卡的遗漏）

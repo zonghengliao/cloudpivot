@@ -8,13 +8,13 @@
 
 | 文件 | 行数 | 说明 |
 |------|------|------|
-| `backend/migrations/system/V0090__create_sys_user_preference.{up,down}.sql` | 62 / 3 | 两张表 + 注释 + 3 条约束 |
-| `backend/migrations/system/V0091__seed_preference_def.{up,down}.sql` | 38 / 12 | 8 项预置字典（`ON CONFLICT DO UPDATE` 幂等） |
-| `backend/src/system/preference/mod.rs` | 44 | 模块文档（两级结构 / 加偏好的步骤 / 数据权限口径） |
-| `backend/src/system/preference/dto.rs` | 184 | 两代请求形态（扁平三字段 / `items` KV）+ 响应体 |
-| `backend/src/system/preference/model.rs` | 726 | 字典与用户值读写 + **唯一**校验实现（`oneof` / `range` / 类型） |
-| `backend/src/system/preference/handler.rs` | 123 | `GET` / `PUT /system/auth/preference` |
-| `backend/tests/pref_preference.rs` | 280 | 真库集成测试（6 个场景，缺 `PREF_DB_URL` 自动 SKIP） |
+| `backend/app/migrations/system/V0090__create_sys_user_preference.{up,down}.sql` | 62 / 3 | 两张表 + 注释 + 3 条约束 |
+| `backend/app/migrations/system/V0091__seed_preference_def.{up,down}.sql` | 38 / 12 | 8 项预置字典（`ON CONFLICT DO UPDATE` 幂等） |
+| `backend/app/src/system/preference/mod.rs` | 44 | 模块文档（两级结构 / 加偏好的步骤 / 数据权限口径） |
+| `backend/app/src/system/preference/dto.rs` | 184 | 两代请求形态（扁平三字段 / `items` KV）+ 响应体 |
+| `backend/app/src/system/preference/model.rs` | 726 | 字典与用户值读写 + **唯一**校验实现（`oneof` / `range` / 类型） |
+| `backend/app/src/system/preference/handler.rs` | 123 | `GET` / `PUT /system/auth/preference` |
+| `backend/app/tests/pref_preference.rs` | 280 | 真库集成测试（6 个场景，缺 `PREF_DB_URL` 自动 SKIP） |
 | `frontend/src/api/system/preference-api.ts` | 133 | 接口封装 + `savePreferenceQuietly`（fail-safe） |
 | `frontend/src/stores/preference.ts` | 133 | **通用偏好 store**（KV → 有类型读接口，其余偏好的统一入口） |
 | `frontend/src/composables/usePalette.ts` | +81 | 本地即时渲染 + 登录后按后端校正 + 切换异步落库 |
@@ -22,7 +22,7 @@
 | `frontend/src/layouts/BasicLayout.vue` | +15 | 侧边栏折叠改绑 store（原来钉在组件内 `ref`，刷新即丢） |
 | `frontend/src/stores/user.ts` | +8 | `loadProfile` 末尾触发一次偏好同步 |
 | `scripts/lint/palette_def_sync.py` + `scripts/check.sh` | 79 / +14 | 门禁：字典 `ui.palette` 的 oneof ↔ 22 套色板逐字一致 |
-| `backend/src/shared/error_code.rs` | +38 | 62020–62024 五个偏好码（码表自检同步扩到 24 个） |
+| `backend/app/src/shared/error_code.rs` | +38 | 62020–62024 五个偏好码（码表自检同步扩到 24 个） |
 
 红线核对：**未改** `frontend/src/style/palettes.ts`（22 套色板与色阶算法）、**未改** `frontend/src/style/theme.less`。
 

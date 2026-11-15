@@ -4,7 +4,8 @@
 #   L0  静态闸（秒级，无编译、无库）  ：C7 G1–G6 / 色板 / 迁移文件名与版本号全局唯一 / 库存写入口（含自检）/ 路径引用（含自检）/ 迁移授权段角色码
 #                                       + /metrics 自检（P1-09：端点存活 + 业务指标非空；有部署证据才真跑）
 #   L1  编译与类型闸（≈2 分钟）       ：cargo fmt --check / clippy --all-targets -D warnings
-#                                       / cargo check / 词表 crate（cloudpivot-doc）的 fmt+clippy
+#                                       / cargo check（三条都在 workspace 根，P2-40 起覆盖 app + crates/*）
+#                                       / 词表 crate 的契约单测（cargo test -p cloudpivot-doc）
 #                                       / pnpm typecheck / pnpm typecheck:unit
 #   L2  连库与存量档（分钟级，需库）   ：闸⓪真库用例（CHECK_WITH_DB=1）/ 批次B 闸①闸②
 #                                       / 闸③ERP不变量 / 闸④词表 / 闸⑤快照 / 闸⑥死权限码 / 闸⑦孤儿按钮
@@ -80,10 +81,10 @@ plan() { printf '   [%s] %-44s %s\n' "$1" "$2" "${3:-}"; }
 plan_all() {
     echo "==> 计划（--dry-run）："
     if want L1; then
-        plan L1 "后端格式" "cd backend && cargo fmt -- --check"
+        plan L1 "后端格式（workspace 全量：app + crates/*）" "cd backend && cargo fmt -- --check"
         plan L1 "后端 lint（lib+bin+tests+examples，告警即错）" "cd backend && cargo clippy --all-targets -- -D warnings"
         plan L1 "后端类型检查" "cd backend && cargo check"
-        plan L1 "词表 crate 格式+lint+单测（cloudpivot-doc，不进 workspace）" "cd backend/crates/cloudpivot-doc && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test"
+        plan L1 "词表 crate 契约单测（cloudpivot-doc，P2-40 起在 workspace 内）" "cd backend && cargo test -p cloudpivot-doc"
         if [ -d "$ROOT/frontend/node_modules" ]; then
             plan L1 "前端类型检查（src/**）" "cd frontend && pnpm typecheck"
             plan L1 "前端类型检查（tests/unit/**，tsconfig.unit.json）" "cd frontend && pnpm typecheck:unit"
@@ -139,17 +140,16 @@ run_l1() {
     echo "==> L1 后端：cargo check"
     (cd "$ROOT/backend" && cargo check)
 
-    # 词表 crate（cloudpivot-doc，P2-27）：它是 backend 的 path 依赖，但**不在 workspace 里**
-    # （workspace 骨架是 P2-C / P2-40 的活），所以上面三条 `cargo fmt / clippy / check` 都扫不到它 ——
-    # 依赖被编译 ≠ 它自己的格式和 lint 被检查。这里单独补一档，否则这个 crate 从落地第一天起
-    # 就没人管格式（而 pre-commit 的 rustfmt 只查暂存文件，改完后再提交才可能漏）。
+    # 词表 crate（cloudpivot-doc，P2-27）：P2-40 起它是 workspace 成员
+    # （`backend/Cargo.toml` 的 `members = ["app", "crates/*"]`），所以上面三条
+    # `cargo fmt / clippy / check` 在 workspace 根就已经覆盖它了 —— 这里只剩“跑它自己的测试”。
     #
-    # `cargo test` 也在这一档里（P2-29）：词表的契约用例（`vocab_tests` + 读前端镜像 /
-    # demo_seed.sh / 巡检 SQL 的 `contract_tests`）**跟着词表搬进了这个 crate**，
-    # 而闸⓪ 的 `cargo test --lib` 只跑应用 crate（backend/），扫不到这里的 19 条。
+    # `cargo test -p cloudpivot-doc` 不能省（P2-29）：词表的契约用例（`vocab_tests` + 读前端镜像 /
+    # demo_seed.sh / 巡检 SQL 的 `contract_tests`）跟着词表搬进了这个 crate，
+    # 而闸⓪ 的 `cargo test --lib` 只跑应用 crate（backend/app），扫不到这里的 19 条。
     # 少了这一句，搬过来的契约断言从此无人执行 —— 门禁仍然全绿，闸却是空的。
-    echo "==> L1 词表 crate：cargo fmt -- --check && cargo clippy -- -D warnings && cargo test（backend/crates/cloudpivot-doc）"
-    (cd "$ROOT/backend/crates/cloudpivot-doc" && cargo fmt -- --check && cargo clippy -- -D warnings && cargo test)
+    echo "==> L1 词表 crate 契约单测：cargo test -p cloudpivot-doc（backend/crates/cloudpivot-doc）"
+    (cd "$ROOT/backend" && cargo test -p cloudpivot-doc)
 
     echo "==> L1 前端：pnpm typecheck（src/**）"
     # 干净克隆里没有 node_modules（.gitignore）；这时跳过而不是判红，
@@ -332,7 +332,7 @@ biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc"
 #   「A 部门的人看不到自己的单据要走哪个流程」；写权限由 `business:flow:create/update/delete/publish`
 #   这 4 个权限码隔离，可见范围由统一门禁 `business:flow:read` 控制。
 #   同一口径的先例：`biz_task_status_def`（全局字典）。豁免理由写在
-#   `backend/src/business/flow/model.rs` 的文件头（`// SCOPE-EXEMPT: …` 两行），闸② 命中即放过。
+#   `backend/app/src/business/flow/model.rs` 的文件头（`// SCOPE-EXEMPT: …` 两行），闸② 命中即放过。
 
 # 2026-10-29 批次D · D2 补入 4 张审批流运行侧表（`biz_flow_instance` /
 # `biz_flow_instance_node` / `biz_flow_task` / `biz_flow_cc`），卡面 t_3715c446「其他·26」要求。
@@ -356,7 +356,7 @@ BATCHB_GATE1_WHITELIST="business/shared/scope.rs"
 BATCHB_GATE_WARNED=0
 
 batchb_gates() {
-    local src="$ROOT/backend/src"
+    local src="$ROOT/backend/app/src"
     local failed=0
     local gate1_out gate1_n i t f gate2_n gate2_out
 
@@ -452,7 +452,7 @@ batchc_strip_comments() {
 }
 
 batchc_gates() {
-    local src="$ROOT/backend/src"
+    local src="$ROOT/backend/app/src"
     local failed=0
     local out n
 
@@ -574,7 +574,7 @@ fi
 # ======================================================================
 # 迁移文件名 / 版本号跨目录全局唯一（判据 A–E，见脚本头注释）
 #
-# 为什么是硬门禁：`backend/migrations/{system,support,business}` 在磁盘上是三个目录，
+# 为什么是硬门禁：`backend/app/migrations/{system,support,business}` 在磁盘上是三个目录，
 # 但 nik 的加载器把它们合成**一张槽位表**，再按版本号排序执行。同一个版本号出现在两个
 # 目录里 ⇒ 加载阶段直接 `duplicate up migration for version N` + FATAL，**与库的状态无关**
 # （2026-11-13 实测：主题配色卡 2609c7f6 与 HR-40 卡 83a4cfab 各取了一个 V0397，
@@ -639,7 +639,7 @@ fi
 
 echo "==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.py）"
 if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py"; then
-    echo "==> 门禁未通过：库存三本账的写语句必须走 backend/src/business/erp/inventory_writer.rs" >&2
+    echo "==> 门禁未通过：库存三本账的写语句必须走 backend/app/src/business/erp/inventory_writer.rs" >&2
     exit 1
 fi
 fi
@@ -653,7 +653,7 @@ fi
 # 集体空跑而门禁全绿。这道闸把「引用的路径必须存在」变成静态断言（秒级、不编译、不连库）。
 #
 # 范围：scripts/**、.githooks/**、.github/** 里的可执行脚本（*.sh/.bash/.py/.mjs/.js/.json）；
-# 判据：backend/src/**.rs、frontend/src/**.{ts,vue,js,mjs} 必须真实存在，含 `$SRC` 归一化与
+# 判据：backend/app/src/**.rs、frontend/src/**.{ts,vue,js,mjs} 必须真实存在，含 `$SRC` 归一化与
 #       src 相对裸路径（形如 `business/<域>/<文件>.rs`）；
 # 白名单：只给「合成语料 / 一次性重构对照表」，且条目文件必须存在、理由必写。
 # 判据本身由 `--self-test` 的红/绿语料守住。

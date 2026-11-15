@@ -268,7 +268,7 @@
  *
  * # 字段来源（硬红线 1）
  *
- * 逐字抄 `backend/src/business/erp/ledger.rs`：
+ * 逐字抄 `backend/app/src/business/erp/ledger.rs`：
  *
  * | 接口 | 出参 | 本页用到的字段 |
  * |------|------|----------------|

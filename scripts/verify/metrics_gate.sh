@@ -212,7 +212,7 @@ metrics_gate() {
     if [ "$helps" -eq 0 ]; then
         rm -f "$out"
         echo "  ✘ /metrics 返回 200（$total 行），但没有一条 cloudpivot_ 指标" >&2
-        echo "    ⇒ 名字/HELP 没登记：backend/src/shared/observability.rs 的 CATALOG；" >&2
+        echo "    ⇒ 名字/HELP 没登记：backend/app/src/shared/observability.rs 的 CATALOG；" >&2
         echo "    ⇒ 或采样器没跑：看 cloudpivot_metrics_sampler_last_success_timestamp 是否前进；" >&2
         echo "    ⇒ 只有 nik_* 序列 = 业务侧从未写入（「200 但是空的」比 404 更难发现，所以判红）" >&2
         if [ "$mode" = "warn" ]; then

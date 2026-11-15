@@ -17,9 +17,9 @@
 改动文件：
 
 ```
-backend/src/business/task/model.rs        +6  CARD_COLUMNS 补 t.parent_id / TaskCardRow 字段 / from_row / 单测断言
-backend/src/business/task/dto.rs          +2  TaskCardRes.parent_id
-backend/src/business/task/handler.rs      +1  card_res 映射
+backend/app/src/business/task/model.rs        +6  CARD_COLUMNS 补 t.parent_id / TaskCardRow 字段 / from_row / 单测断言
+backend/app/src/business/task/dto.rs          +2  TaskCardRes.parent_id
+backend/app/src/business/task/handler.rs      +1  card_res 映射
 frontend/src/api/business/task-api.ts     +2  TaskCard.parent_id
 frontend/src/views/business/task/index.vue            +183  t-enhanced-table 树形 + 懒加载 + 父行样式
 frontend/src/views/business/task/components/TaskForm.vue  +92  父任务选择器（仅新建）

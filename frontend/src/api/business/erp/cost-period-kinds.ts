@@ -1,7 +1,7 @@
 /**
  * 成本核算批次的词表与契约类型（**纯声明 / 纯常量，不 import 任何请求层**）。
  *
- * 出处：`backend/src/business/erp/cost_period_dto.rs`、表 `biz_cost_period` /
+ * 出处：`backend/app/src/business/erp/cost_period_dto.rs`、表 `biz_cost_period` /
  * `biz_cost_period_item`（V0373）、设计 `ARCH-9 §4.1 / §5.2 #25–#33 / §6.2.2`。
  *
  * # 六条不能想当然的口径

@@ -4,8 +4,8 @@
  * 运行：`pnpm test:unit`（= `tsx --test "tests/unit/**\/*.test.ts"`，零新依赖）。
  *
  * 断言口径照后端抄：
- * - 状态域 / 标签 = `backend/src/business/erp/shipment/shipment_model.rs`（`STATUSES` / `status_label`）；
- * - 合法边 / 必填原因 = `backend/src/business/shared/state_machine.rs`
+ * - 状态域 / 标签 = `backend/app/src/business/erp/shipment/shipment_model.rs`（`STATUSES` / `status_label`）；
+ * - 合法边 / 必填原因 = `backend/app/src/business/shared/state_machine.rs`
  *   （`SHIPMENT_EDGES` / `SHIPMENT_REASON_EDGES`）—— 这两张表直接读后端源码比对，
  *   前端自己抄错一条边，这里先红；
  * - 「只带未发完的行」= `shipment_handler::resolve_items` 的 ① 分支（`remaining > 0`）；
@@ -51,9 +51,9 @@ import {
   type ShipmentFormDraft,
 } from '@/views/business/erp/shipment/shipment-query';
 
-/** 读后端源码（仓库根的 `backend/src/...`），断言「前端没抄错」用 */
+/** 读后端源码（仓库根的 `backend/app/src/...`），断言「前端没抄错」用 */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/src/${relative}`, import.meta.url), 'utf8');
+  return readFileSync(new URL(`../../../backend/app/src/${relative}`, import.meta.url), 'utf8');
 }
 
 /** 一行可发明细（字段逐字照 `ShippableItemRes`） */

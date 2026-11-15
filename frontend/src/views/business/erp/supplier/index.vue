@@ -375,7 +375,7 @@
  *
  * # 后端接口（开工前按硬红线 grep 过）
  *
- * `grep -n 'erp/supplier' backend/src/business/erp/handler.rs` 命中 8 处：
+ * `grep -n 'erp/supplier' backend/app/src/business/erp/handler.rs` 命中 8 处：
  * `GET /business/erp/supplier/page`、`GET|PUT|DELETE /business/erp/supplier/{id}`、`POST /business/erp/supplier`
  * —— 读写齐全，所以做完整 CRUD。`\d biz_supplier` 核过列名，见 `supplier-query.ts` 头注释。
  *

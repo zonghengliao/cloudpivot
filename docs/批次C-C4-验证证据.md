@@ -7,13 +7,13 @@
 ## 0. 交付物
 
 ```
-backend/migrations/business/V0082__create_help.{up,down}.sql        3 表
-backend/migrations/business/V0083__help_indexes.{up,down}.sql       5 索引 + trgm 预案（注释态）
-backend/migrations/business/V0088__seed_help_permissions.{up,down}.sql  11 权限码 + 菜单/授权
-backend/src/business/help/{mod,model,dto,handler}.rs
-backend/tests/batchC_c4_help.rs                                     11 个真库用例
-backend/src/shared/error_code.rs                                    +62014..62019
-backend/src/task/mod.rs                                             help_version_cleanup 接真实现
+backend/app/migrations/business/V0082__create_help.{up,down}.sql        3 表
+backend/app/migrations/business/V0083__help_indexes.{up,down}.sql       5 索引 + trgm 预案（注释态）
+backend/app/migrations/business/V0088__seed_help_permissions.{up,down}.sql  11 权限码 + 菜单/授权
+backend/app/src/business/help/{mod,model,dto,handler}.rs
+backend/app/tests/batchC_c4_help.rs                                     11 个真库用例
+backend/app/src/shared/error_code.rs                                    +62014..62019
+backend/app/src/task/mod.rs                                             help_version_cleanup 接真实现
 ```
 
 | 文件 | 行数 |

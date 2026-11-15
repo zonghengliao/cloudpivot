@@ -20,7 +20,7 @@ echo "基表已就绪；warehouse_path 列存在数（应为 0）：$($PSQL -Atc
 
 echo
 echo "################ 路径 B：在「表已存在」的库上跑 V0137 up ################"
-$PSQL -f "$REPO/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql" 2>&1 \
+$PSQL -f "$REPO/backend/app/migrations/business/V0137__erp_master_data_and_warehouse.up.sql" 2>&1 \
   | grep -E "ERROR|自检通过|种子核对" | sed 's/^/  /'
 
 echo

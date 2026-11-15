@@ -3,7 +3,7 @@
  *
  * # 字段口径（硬红线①）
  *
- * 出参逐字抄 `backend/src/business/erp/dto.rs::SupplierRes`（= `biz_supplier` 的列），
+ * 出参逐字抄 `backend/app/src/business/erp/dto.rs::SupplierRes`（= `biz_supplier` 的列），
  * 并用真接口 `GET /api/business/erp/supplier/page` 核对过：
  * `supplier_code / supplier_name / short_name / contact_person / contact_phone / email /
  *  tax_no / address / credit_days / credit_limit / payable_account_id / invoice_title /

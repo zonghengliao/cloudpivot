@@ -66,7 +66,7 @@ import type { ContractDetail, ContractRow } from '@/api/business/erp';
 
 /** 读后端源码（口径的唯一真相） */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/src/business/${relative}`, import.meta.url), 'utf8');
+  return readFileSync(new URL(`../../../backend/app/src/business/${relative}`, import.meta.url), 'utf8');
 }
 
 /** 读前端源码（模板接线断言） */

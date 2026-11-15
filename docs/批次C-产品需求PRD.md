@@ -60,33 +60,33 @@
 
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
-| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；按钮行 `is_visible=FALSE` 不进导航 | `backend/migrations/system/V0004__create_sys_menu.up.sql:1-24` | 本批 21 个权限码全部落成 `sys_menu` 种子行（第 6 章） |
+| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；按钮行 `is_visible=FALSE` 不进导航 | `backend/app/migrations/system/V0004__create_sys_menu.up.sql:1-24` | 本批 21 个权限码全部落成 `sys_menu` 种子行（第 6 章） |
 | **F2** | 前端 `hasPermission()` 是**全等匹配**，只特判 `*:*:*`，**不支持前缀通配** | `frontend/src/stores/user.ts:67-73` | 每个动作必须有独立 `auth_code`。写 `business:announcement:*` 在前端恒为 false，按钮永远不显示 |
 | **F3** | `filterNavMenus` 递归过滤：`is_visible=FALSE` 不进导航，**目录下无可见子菜单则整目录隐藏** | `frontend/src/stores/user.ts:21-38` | 用户端"公告中心/帮助中心"必须做成隐藏菜单，否则会出现在侧边栏 |
-| **F4** | 顶级目录 sort_order 现状：`system`=10、`support`=20；30 预留给协同办公，40/50/60 已被 ERP/BI/MDM 批次占用，70 是批次 A 的 `/platform` | `backend/migrations/seed/S__menu_data.sql:24,80-81` + 批次 A PRD 7.1 | 本批**不新建一级目录**，三处管理端菜单挂到批次 A 的 `/platform` 下（sort 60/70/80），零排序冲突（第 7 章） |
+| **F4** | 顶级目录 sort_order 现状：`system`=10、`support`=20；30 预留给协同办公，40/50/60 已被 ERP/BI/MDM 批次占用，70 是批次 A 的 `/platform` | `backend/app/migrations/seed/S__menu_data.sql:24,80-81` + 批次 A PRD 7.1 | 本批**不新建一级目录**，三处管理端菜单挂到批次 A 的 `/platform` 下（sort 60/70/80），零排序冲突（第 7 章） |
 | **F5** | `sys_menu.module_code` 是 `VARCHAR(20)` | 同上 F1 迁移 | 新模块段只能取 ≤20 字符；本批统一用 `business`（与批次 A 一致），不新增值 |
 | **F6** | 菜单管理页的"模块编码"是**自由输入框**，不是下拉 | `frontend/src/views/system/menu/index.vue:139-140` | 无需改前端下拉选项（批次 B 担心的"筛不到菜单"问题在本仓库不成立，但种子数据仍要正确填） |
-| **F7** | `sys_role` **没有 `data_scope` 列**，业务代码中也无该字段 | `backend/migrations/system/V0002__create_sys_role.up.sql:2-15`（列清单无 data_scope）；`grep -rn data_scope backend/src` 返回空 | 数据权限只能服务层硬实现。本批公告的"部门主管只能发本部门"用祖先链校验硬编码（3.4），不依赖配置 |
-| **F8** | 部门子树递归**已有**：`find_dept_subtree_ids()` 用 `WITH RECURSIVE` **向下**取子树，自带 `deleted_at IS NULL` | `backend/src/system/dept/model.rs:261-279` | 「发布给技术部（含下级）」的**受众展开**复用它；但「判断某用户是否可见」需要**向上**的祖先链（3.4.3，本文新增一次递归，实测更省） |
+| **F7** | `sys_role` **没有 `data_scope` 列**，业务代码中也无该字段 | `backend/app/migrations/system/V0002__create_sys_role.up.sql:2-15`（列清单无 data_scope）；`grep -rn data_scope backend/app/src` 返回空 | 数据权限只能服务层硬实现。本批公告的"部门主管只能发本部门"用祖先链校验硬编码（3.4），不依赖配置 |
+| **F8** | 部门子树递归**已有**：`find_dept_subtree_ids()` 用 `WITH RECURSIVE` **向下**取子树，自带 `deleted_at IS NULL` | `backend/app/src/system/dept/model.rs:261-279` | 「发布给技术部（含下级）」的**受众展开**复用它；但「判断某用户是否可见」需要**向上**的祖先链（3.4.3，本文新增一次递归，实测更省） |
 
 ## 0.2 日志与审计事实（F9–F16）—— 第 5 章的地基
 
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
-| **F9** | `audit_logs` 现有列：`request_id / user_id / username / operation / target_type / target_id / before_data(JSONB) / after_data(JSONB) / detail(JSONB) / ip / user_agent / created_at`。**没有** `module_code`、**没有** `result`、**没有** `action`（新增/修改/删除）；索引只有 user_id / operation / created_at 三个 | `backend/migrations/support/V0014__create_audit_logs.up.sql:1-35` | 「列表要按模块筛选、要显示结果列、要按对象 ID 查历史」在现有表上**做不了**——缺列缺索引。这是本批要新建 `sys_change_log` 而不是"照抄 audit_logs"的直接原因（5.1） |
-| **F10** | **审计日志是异步写**：业务侧只做一次无阻塞 `channel send`，后台 worker 每 500ms 或满 256 行批量落库；写库失败只记 `tracing::error!` 并**丢弃该批次** | `backend/src/support/log/bus.rs:45,96-101,204-232,292-309` | 🔴 **本批最关键的架构事实**：日志落库与业务事务**完全解耦**。业务事务回滚后，已经入队的日志照样会落库 → **"回滚留下假的成功日志"是现状架构的必然结果**，不是偶发 bug（5.3 给解法，9.6 给判定） |
-| **F11** | `USER_UPDATE` 的审计快照只写了 **3 个字段**：`real_name`、`dept_id`、`status`。**`mobile` / `email` / `remark` 根本没有进快照** | `backend/src/system/user/handler.rs:316-335`（before/after 各三个 key） | 验收场景 5「改手机号 → 日志显示手机号前后值」**按现状 100% 做不到**。本批必须把"受管对象的变更字段白名单"显式定义出来（5.4.2），否则这条验收无法通过 |
-| **F12** | `update()` 用户是**单条 UPDATE、没有事务**（`to_save.update(db())`）；只有 `delete` / 分配角色 / 批量调部门 / 创建用户包了 `db().transaction(...)` | `backend/src/system/user/handler.rs:297-300`（无事务）；`:209,385,699,781`（有事务） | 要让"业务与日志同生共死"，这些写操作**必须补事务**。这是本批对存量代码唯一的侵入式改造，清单见附录 C.5 |
-| **F13** | `record_audit()` **不做任何脱敏**：`before_data/after_data` 原样进模型，直接投递 | `backend/src/support/log/mod.rs:204-220` | 一旦按 F11 补齐 mobile/email 快照，**日志表里就会多一份明文 PII 副本**。脱敏必须在写入路径上做（5.6） |
-| **F14** | `security_logs` 列：`request_id / user_id / username / event_type / detail(JSONB) / ip / user_agent / created_at`，无 result、无 target | `backend/migrations/support/V0016__create_security_logs.up.sql:1-27` | 失败尝试留痕放这里（`event_type='OPERATION_FAIL'`），**不放**变更日志，避免"失败记录"污染变更事实（5.5.3） |
-| **F15** | 五张日志表清理任务是**五段 cron**、03:00–03:40 错峰（`clean_operation_log`=0 3 / `clean_audit_log`=10 3 / `clean_auth_log`=20 3 / `clean_security_log`=30 3 / `clean_password_log`=40 3）；保留期常量统一 **90 天** | `backend/src/task/mod.rs:45-55`；`backend/src/shared/constants.rs:210-217` | 本批新增的归档任务排 **04:00**、公告已读清理排 **04:20**，五段 cron，避开现有 5 个任务（3.12、5.8） |
+| **F9** | `audit_logs` 现有列：`request_id / user_id / username / operation / target_type / target_id / before_data(JSONB) / after_data(JSONB) / detail(JSONB) / ip / user_agent / created_at`。**没有** `module_code`、**没有** `result`、**没有** `action`（新增/修改/删除）；索引只有 user_id / operation / created_at 三个 | `backend/app/migrations/support/V0014__create_audit_logs.up.sql:1-35` | 「列表要按模块筛选、要显示结果列、要按对象 ID 查历史」在现有表上**做不了**——缺列缺索引。这是本批要新建 `sys_change_log` 而不是"照抄 audit_logs"的直接原因（5.1） |
+| **F10** | **审计日志是异步写**：业务侧只做一次无阻塞 `channel send`，后台 worker 每 500ms 或满 256 行批量落库；写库失败只记 `tracing::error!` 并**丢弃该批次** | `backend/app/src/support/log/bus.rs:45,96-101,204-232,292-309` | 🔴 **本批最关键的架构事实**：日志落库与业务事务**完全解耦**。业务事务回滚后，已经入队的日志照样会落库 → **"回滚留下假的成功日志"是现状架构的必然结果**，不是偶发 bug（5.3 给解法，9.6 给判定） |
+| **F11** | `USER_UPDATE` 的审计快照只写了 **3 个字段**：`real_name`、`dept_id`、`status`。**`mobile` / `email` / `remark` 根本没有进快照** | `backend/app/src/system/user/handler.rs:316-335`（before/after 各三个 key） | 验收场景 5「改手机号 → 日志显示手机号前后值」**按现状 100% 做不到**。本批必须把"受管对象的变更字段白名单"显式定义出来（5.4.2），否则这条验收无法通过 |
+| **F12** | `update()` 用户是**单条 UPDATE、没有事务**（`to_save.update(db())`）；只有 `delete` / 分配角色 / 批量调部门 / 创建用户包了 `db().transaction(...)` | `backend/app/src/system/user/handler.rs:297-300`（无事务）；`:209,385,699,781`（有事务） | 要让"业务与日志同生共死"，这些写操作**必须补事务**。这是本批对存量代码唯一的侵入式改造，清单见附录 C.5 |
+| **F13** | `record_audit()` **不做任何脱敏**：`before_data/after_data` 原样进模型，直接投递 | `backend/app/src/support/log/mod.rs:204-220` | 一旦按 F11 补齐 mobile/email 快照，**日志表里就会多一份明文 PII 副本**。脱敏必须在写入路径上做（5.6） |
+| **F14** | `security_logs` 列：`request_id / user_id / username / event_type / detail(JSONB) / ip / user_agent / created_at`，无 result、无 target | `backend/app/migrations/support/V0016__create_security_logs.up.sql:1-27` | 失败尝试留痕放这里（`event_type='OPERATION_FAIL'`），**不放**变更日志，避免"失败记录"污染变更事实（5.5.3） |
+| **F15** | 五张日志表清理任务是**五段 cron**、03:00–03:40 错峰（`clean_operation_log`=0 3 / `clean_audit_log`=10 3 / `clean_auth_log`=20 3 / `clean_security_log`=30 3 / `clean_password_log`=40 3）；保留期常量统一 **90 天** | `backend/app/src/task/mod.rs:45-55`；`backend/app/src/shared/constants.rs:210-217` | 本批新增的归档任务排 **04:00**、公告已读清理排 **04:20**，五段 cron，避开现有 5 个任务（3.12、5.8） |
 | **F16** | 现有日志页 `/support/log` 用 5 个 tab（操作/登录/审计/安全/改密）覆盖全部日志；**审计 tab 的列只有**：时间 / 用户名 / 操作 / 目标类型 / 目标 ID / IP / request_id，**没有模块、没有动作、没有结果、没有详情 diff、没有导出** | `frontend/src/views/support/log/index.vue:216-222,270-278` | 「变更日志」不是"再造一个审计 tab"，而是**面向业务与合规的可读视图**：按模块/动作/结果筛、按对象追历史、字段级 diff、脱敏导出（5.2 讲清分工） |
 
 ## 0.3 XSS 与渲染事实（F17–F23）—— 第 3.9、4.7 节的依据
 
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
-| **F17** | backend 的 `nik` 依赖**已开启 `xss` feature**，Cargo.toml 里的注释写的就是"HTML 净化：社区公告等富文本入库前过滤"；但 `backend/src` 全仓 `grep xss::` **一次都没调用过** | `backend/Cargo.toml:32`；`grep -rn "xss::\|sanitize_html" backend/src` 返回空 | 能力已就位、从未使用。本批是它第一次真正上身——**不需要新增 feature，不需要新增 crate 下载**（F21） |
+| **F17** | backend 的 `nik` 依赖**已开启 `xss` feature**，Cargo.toml 里的注释写的就是"HTML 净化：社区公告等富文本入库前过滤"；但 `backend/app/src` 全仓 `grep xss::` **一次都没调用过** | `backend/Cargo.toml:32`；`grep -rn "xss::\|sanitize_html" backend/app/src` 返回空 | 能力已就位、从未使用。本批是它第一次真正上身——**不需要新增 feature，不需要新增 crate 下载**（F21） |
 | **F18** | `nik_utils::xss` 只暴露 3 个函数：`sanitize_html` / `sanitize_html_strict` / `has_potential_xss`，**没有暴露 `Builder`，无法自定义标签/属性白名单** | `~/.cargo/registry/src/*/nik-utils-0.4.2/src/xss.rs:29-48` | 若产品要求"保留 target=_blank"或"允许 span 样式"，仅靠这 3 个函数做不到，必须**在 backend 直接依赖 ammonia** 并自建 Builder（F21 已证零下载） |
 | **F19** | **ammonia 4.2 默认白名单实测结果**（本机真跑，输入→输出见附录 C.7）：`<script>`/`<iframe>`/`<svg>`/`<style>` **整块删除**；`onerror` 等事件属性删除；`style` 属性**整条删除**（含 `position:fixed` 全屏覆盖层）；`class` 属性**整条删除**；`href="javascript:"` → 只留 `<a rel="noopener noreferrer">`；`<img src="data:text/html...">` → `src` 被剥只剩 `<img>`；`target="_blank"` **被剥掉**；`table/thead/tr/th/td/pre/code/ul/ol/li/img(https)/h1-h6` 正常保留 | `~/.cargo/registry/src/*/ammonia-4.2.4/src/lib.rs:380-500`（默认 tags / generic_attributes={lang,title} / tag_attributes / style_properties=None / allowed_classes={} / link_rel=noopener noreferrer）+ 本地 `cargo run` 实测输出 | ①XSS 默认策略够严，**可以放心用于公告富文本**；②但 `class`/`style` 被剥意味着**富文本不能保留字体颜色、字号、自定义样式**，这是必须写进界面的产品限制（3.9.3）；③`<code class="language-xx">` 的语言标记会丢 → 帮助文档**不能用富文本存代码块**（4.1 的选型依据之一） |
 | **F20** | `nik` 的 `xss.rs` 文档注释称 `<a>` 支持 `href, title, target`，**实际 ammonia 默认 `a` 只有 `href, hreflang`**（`title` 来自 generic_attributes 所以有，`target` 没有） | `nik-utils-0.4.2/src/xss.rs:24` 对比 `ammonia-4.2.4/src/lib.rs:394-398` 与实测 | 文档与实现不一致，**以实测为准**。公告里的外链会在当前页打开（不是新窗口）——要么接受，要么自建 Builder 加 `target`（附录 B3 待拍板） |
@@ -115,15 +115,15 @@
 | **F31** | 分区可行性实测：`sys_change_log ... PARTITION BY RANGE (created_at)` + `PRIMARY KEY (id, created_at)`（分区键必须进主键）建表成功；按月分区路由正确（10 月/11 月行各进各分区）；`DETACH PARTITION` 后 `ATTACH` 到**同构分区归档表**成功，归档表立即可查；**不能再手工 `ADD PRIMARY KEY`**（分区已继承主键，会报 `multiple primary keys`） | 实测输出：`partition=sys_change_log_2026_10/11`、`archive_rows=3` | 归档方案定为「DETACH → ATTACH 同构归档表」（5.8），**秒级、不扫行**；附录 C.1 的建表脚本必须按实测写法给，避免开发踩 `multiple primary keys` |
 | **F32** | JSONB 索引操作符实测：默认 `jsonb_ops` 的 GIN **支持 `?` / `?|`**（键存在），强制关 seqscan 后走 `Bitmap Index Scan`；`jsonb_path_ops` **不支持 `?`**（只有 `@>`），写 `after_data ? 'mobile'` 会退化为 `Seq Scan` | 实测输出：`Bitmap Index Scan on ..._after_data_idx1`；`jsonb_path_ops` 那条三处全是 `Seq Scan` | 「按字段名筛变更日志」（如"谁改过手机号"）必须用 **`jsonb_ops`（默认）**，不能用 `jsonb_path_ops`（5.1.1 索引清单） |
 | **F33** | 中文检索实测（5000 行文档）：**2 字关键词**（`'%请假%'`）**不生成三元组 → 退化为 Seq Scan**，耗时 **9.75ms**；**3 字**（`'%请假流%'`）与 **4 字**（`'%请假流程%'`）走 `Bitmap Index Scan`，耗时 **0.25ms / 0.21ms** | 实测 `EXPLAIN (ANALYZE)` 三连 | 「搜『请假』」是验收场景 4 的原文，正好是**最慢的 2 字场景**。结论：P0 必须接受"2 字词走全表扫描"，并在文档量 >5000 篇时给出性能红线（4.5.4）；trgm 索引仍要建（3 字以上直接受益） |
-| **F34** | 底座**没有任何** `CREATE EXTENSION` 迁移，`grep pg_trgm` 为空；数据库容器是官方 `postgres:16-alpine` | `grep -rn "pg_trgm\|CREATE EXTENSION" backend/migrations` 返回空；`docker/init/Dockerfile:8` | `pg_trgm` 需在迁移里 `CREATE EXTENSION IF NOT EXISTS pg_trgm;`（要求 DB 属主有权限）→ 列入交付前提 C.3，并给"扩展不可用"的降级方案（4.5.4） |
+| **F34** | 底座**没有任何** `CREATE EXTENSION` 迁移，`grep pg_trgm` 为空；数据库容器是官方 `postgres:16-alpine` | `grep -rn "pg_trgm\|CREATE EXTENSION" backend/app/migrations` 返回空；`docker/init/Dockerfile:8` | `pg_trgm` 需在迁移里 `CREATE EXTENSION IF NOT EXISTS pg_trgm;`（要求 DB 属主有权限）→ 列入交付前提 C.3，并给"扩展不可用"的降级方案（4.5.4） |
 
 ## 0.6 依赖与边界事实（F35–F38）
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F35** | 底座仓库**完全没有**消息/公告能力：`grep -i notice` 在 backend/frontend/migrations 全仓 0 命中 | `grep -rn "notice" -i backend/src backend/migrations frontend/src` 返回空 | 本批的「公告发布 → 推站内消息」**建立在批次 A 交付物之上**（`sys_notice_message` / `sys_notice_receiver` / `business:notice:*`）。若批次 A 消息中心尚未合并到主干，本批**先做公告本体，站内信联动按 D4 的降级方案排队**（3.8.4） |
-| **F36** | `sys_file` 列：`file_name/original_name/file_key/file_size/file_hash/mime_type/extension/storage_path/category/status/uploaded_by/…/deleted_at`，**没有** `storage_id` | `backend/migrations/support/V0010__create_sys_file.up.sql:2-24` | 公告与帮助文档的**附件只存 `file_id` 关联**，不复制文件元数据；附件下载走批次 A 的文件接口（契约零改动） |
-| **F37** | 错误码分段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑域；日志查询接口权限码统一 `support:log:list` | `backend/src/shared/error_code.rs:26-31`（码段表）、`:45`（`RESOURCE_NOT_FOUND=10002`）；`backend/src/support/log/handler.rs:135-137` | 本批新增业务错误码在 `error_code.rs` 追加 **`5000x` 内容域**段（不复用 4000x，避免与支撑域语义混淆）；**用户看到的文案见 8.8，界面上不出现任何错误码** |
+| **F35** | 底座仓库**完全没有**消息/公告能力：`grep -i notice` 在 backend/frontend/migrations 全仓 0 命中 | `grep -rn "notice" -i backend/app/src backend/app/migrations frontend/src` 返回空 | 本批的「公告发布 → 推站内消息」**建立在批次 A 交付物之上**（`sys_notice_message` / `sys_notice_receiver` / `business:notice:*`）。若批次 A 消息中心尚未合并到主干，本批**先做公告本体，站内信联动按 D4 的降级方案排队**（3.8.4） |
+| **F36** | `sys_file` 列：`file_name/original_name/file_key/file_size/file_hash/mime_type/extension/storage_path/category/status/uploaded_by/…/deleted_at`，**没有** `storage_id` | `backend/app/migrations/support/V0010__create_sys_file.up.sql:2-24` | 公告与帮助文档的**附件只存 `file_id` 关联**，不复制文件元数据；附件下载走批次 A 的文件接口（契约零改动） |
+| **F37** | 错误码分段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑域；日志查询接口权限码统一 `support:log:list` | `backend/app/src/shared/error_code.rs:26-31`（码段表）、`:45`（`RESOURCE_NOT_FOUND=10002`）；`backend/app/src/support/log/handler.rs:135-137` | 本批新增业务错误码在 `error_code.rs` 追加 **`5000x` 内容域**段（不复用 4000x，避免与支撑域语义混淆）；**用户看到的文案见 8.8，界面上不出现任何错误码** |
 | **F38** | `Mask::mobile("13812345678") == "138****5678"`（前 3 + `****` + 后 4）；而 `Mask::mask_by_type` 的 `_ =>` 兜底分支按**字节**切片，中文值会 panic | `~/.cargo/registry/src/*/nik-utils-0.4.2/src/mask.rs:209-210`（测试断言）；`mask.rs:196-201`（兜底分支） | 变更日志的字段脱敏必须**逐字段显式指定类型**调 `Mask::mobile/email/name/id_card`，**禁止**走 `mask_by_type` 兜底（会导致中文备注字段 5xx）。列入代码评审强制项（附录 E.4） |
 
 ---
@@ -776,7 +776,7 @@
 | `announcement_top_expire` | `*/10 * * * *` | `is_top AND top_expire_at<=now()` → `is_top=FALSE` | 置顶多挂 10 分钟 |
 | `announcement_read_cleanup` | `20 4 * * *` | 物理删除 `read_at < now()-24 months` 的已读行，每批 1000 行循环 | 表变大，不影响功能 |
 
-> 用**五段 cron**（与 `backend/src/task/mod.rs:45-55` 现有写法一致，F15/F26）；不要写批次 A 文档里的六段写法（`0 50 3 * * *?`）——本仓库尚未用过六段，统一一种减少踩坑。
+> 用**五段 cron**（与 `backend/app/src/task/mod.rs:45-55` 现有写法一致，F15/F26）；不要写批次 A 文档里的六段写法（`0 50 3 * * *?`）——本仓库尚未用过六段，统一一种减少踩坑。
 
 ---
 
@@ -1234,7 +1234,7 @@ CONSTRAINT ck_cl_failed_no_snapshot CHECK (result <> 'FAILED' OR after_data IS N
 ### 5.3.3 唯一写入契约（开发照抄，不要自创）
 
 ```rust
-// backend/src/shared/change_log.rs（本次新建）
+// backend/app/src/shared/change_log.rs（本次新建）
 /// 记录一条成功变更。**必须在业务事务闭包内调用**。
 pub async fn record(tx: &mut Transaction, input: ChangeLogInput) -> Result<(), DbError>;
 //   input: { module_code, operation, action, target_type, target_id, target_name,

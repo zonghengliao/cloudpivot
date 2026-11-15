@@ -42,10 +42,10 @@ def resolve_src(explicit: str | None) -> Path:
         return Path(explicit).resolve()
     here = Path.cwd().resolve()
     for base in (here, *here.parents):
-        cand = base / "backend" / "src"
+        cand = base / "backend" / "app" / "src"
         if cand.is_dir():
             return cand
-    raise SystemExit(f"找不到 backend/src（cwd={here}）；请用 --src 显式指定")
+    raise SystemExit(f"找不到 backend/app/src（cwd={here}）；请用 --src 显式指定")
 
 
 def module_of(path: Path, src: Path) -> str:
@@ -121,7 +121,7 @@ def counts(edges, a, b):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--src", default=None, help="源码根（默认从 cwd 向上找 backend/src）")
+    ap.add_argument("--src", default=None, help="源码根（默认从 cwd 向上找 backend/app/src）")
     ap.add_argument("--fail-on-cycle", action="store_true")
     ap.add_argument("--all-containers", action="store_true", help="把 system/support/utils 等容器也当节点")
     ap.add_argument("--from", dest="from_domain", default=None, help="列出某域的出边")

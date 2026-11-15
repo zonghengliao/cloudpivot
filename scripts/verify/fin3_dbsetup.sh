@@ -3,7 +3,7 @@
 set -uo pipefail
 export PGPASSWORD=alun
 DB=${1:-cloudpivot_fin3}
-MIG=/opt/cloudpivot/backend/migrations/business
+MIG=/opt/cloudpivot/backend/app/migrations/business
 
 sudo -u postgres psql -d postgres -q -v ON_ERROR_STOP=1 \
   -c "DROP DATABASE IF EXISTS $DB" \

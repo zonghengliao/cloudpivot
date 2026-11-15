@@ -3,7 +3,7 @@
  *
  * # 字段口径（逐字抄后端，不猜）
  *
- * - 列表 / 详情：`backend/src/business/erp/receivable_query.rs` 的 `ReceivableRes`
+ * - 列表 / 详情：`backend/app/src/business/erp/receivable_query.rs` 的 `ReceivableRes`
  *   → 前端类型 `@/api/business/erp` 的 `Receivable`（`ar_no` / `customer_name` /
  *   `source_no` / `amount` / `received_amount` / `unsettled_amount` / `due_date` / `status`）；
  * - 账龄：`receivable_aging.rs` 的 `ReceivableAgingRes`。**分档口径与应付同源**

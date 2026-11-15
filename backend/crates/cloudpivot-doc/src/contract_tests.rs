@@ -15,8 +15,8 @@
 //! 留在**应用 crate** 的是另外两条「应用内」约束（它们必须 import 应用代码，
 //! 塞进本 crate 会把 `shared → erp` 的回边重新拉回来）：
 //!
-//! - `backend/src/business/shared/doc_kind_entity_tests.rs` —— `state_machine` 实体注册表 ∈ `DocKind` 域；
-//! - `backend/src/business/erp/flow_biz_type_contract_tests.rs` —— 各 `*_bridge::BIZ_TYPE` /
+//! - `backend/app/src/business/shared/doc_kind_entity_tests.rs` —— `state_machine` 实体注册表 ∈ `DocKind` 域；
+//! - `backend/app/src/business/erp/flow_biz_type_contract_tests.rs` —— 各 `*_bridge::BIZ_TYPE` /
 //!   `approval_gate::FLOW_TYPES` ∈ `FlowBizType` 域。
 
 use super::*;

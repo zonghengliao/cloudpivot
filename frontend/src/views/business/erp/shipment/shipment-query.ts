@@ -3,7 +3,7 @@
  *
  * # 字段口径
  *
- * 出参 / 入参逐字抄 `backend/src/business/erp/shipment_handler.rs`
+ * 出参 / 入参逐字抄 `backend/app/src/business/erp/shipment_handler.rs`
  * （`ShipmentRes` / `ShipmentItemRes` / `ShippableItemRes` / `CreateShipmentReq` /
  * `ShipmentItemReq`），前端类型在 `@/api/business/erp/shipment`。
  *

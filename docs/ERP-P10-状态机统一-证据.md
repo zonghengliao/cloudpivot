@@ -8,7 +8,7 @@
 
 | 洞（开工实测） | 修法 | 验证口径 |
 |---|---|---|
-| ① 状态机可被绕过：`purchase_model::LEGAL_EDGES` 只有 4 条边，而 `RECEIVED` 由 `stockin_model::sync_purchase_status` 一句 `UPDATE … CASE` 直接写 | 新增 `backend/src/business/shared/state_machine.rs`（唯一入口 `transition()`）；`sync_purchase_status` 改为「锁单 → 算目标态 → 变了才 transition → CAS」 | 单测 ⑭/⑮/⑯ + e2e ④/⑤ |
+| ① 状态机可被绕过：`purchase_model::LEGAL_EDGES` 只有 4 条边，而 `RECEIVED` 由 `stockin_model::sync_purchase_status` 一句 `UPDATE … CASE` 直接写 | 新增 `backend/app/src/business/shared/state_machine.rs`（唯一入口 `transition()`）；`sync_purchase_status` 改为「锁单 → 算目标态 → 变了才 transition → CAS」 | 单测 ⑭/⑮/⑯ + e2e ④/⑤ |
 | ② 没有状态变更日志：只有 `created_by/update_by/updated_at` | 迁移 `V0159__biz_status_log`（只增不改：无 `deleted_at`/`update_by`/`updated_at`，只有 INSERT）+ 五个实体建单与流转全部留痕 | 单测 ①④⑥⑦ + e2e ①/④/⑤ |
 | ③ 入账后还能改：`POSTED/RECEIVED/SETTLED` 下金额/数量/明细无硬约束 | `state_machine::ensure_writable()` 挂在各 `update_*` 入口；白名单只放 `status`/`updated_at`/`update_by`/`remark`/`approval_instance_id`/`voucher_id`/`payable_id` | 单测 ⑧–⑬ + ⑰⑱ + e2e ②/②b/③ |
 
@@ -111,7 +111,7 @@ $ BASE=http://127.0.0.1:18090 DB_USER=p10role DB_NAME=cloudpivot_p10 DB_PASS=***
 ```text
 V0159__biz_status_log.up.sql   → 建表 + 3 索引 + 自检块（表/索引计数/「不许有 deleted_at|update_by|updated_at」）
 V0159__biz_status_log.down.sql → 有日志行时主动中止（审计证据链不许静默丢）
-grep -rEn '^\\[a-z]' backend/migrations/  → 0 命中（无 psql 元命令）
+grep -rEn '^\\[a-z]' backend/app/migrations/  → 0 命中（无 psql 元命令）
 cloudpivot_p10: select max(version::int) → 159（应用本迁移后随其它卡推进到 170）
 ```
 

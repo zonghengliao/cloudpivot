@@ -31,7 +31,7 @@
  * **且校验判非法**（{@link validateTemplateVars}）—— 两处都要，只做一处等于没做。
  */
 
-/** 固定字段白名单（逐字复制自 `backend/src/business/flow/graph.rs::FIXED_FIELDS`）。 */
+/** 固定字段白名单（逐字复制自 `backend/app/src/business/flow/graph.rs::FIXED_FIELDS`）。 */
 export const FIXED_FIELDS = [
   'initiator.id',
   'initiator.name',

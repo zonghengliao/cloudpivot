@@ -1,7 +1,7 @@
 /**
  * 请假单 API 层（ARCH-9 §5.2 #26~#31 · HR-25 后端 / HR-28 前端）。
  *
- * 后端：`backend/src/business/hr/leave_handler.rs`（HR-25）+ `leave_dto.rs`（HR-24 契约）。
+ * 后端：`backend/app/src/business/hr/leave_handler.rs`（HR-25）+ `leave_dto.rs`（HR-24 契约）。
  * 出参契约与词表在 `./leave-kinds.ts`（纯逻辑、可单测），本文件 `export *` 出来 ——
  * 页面只认 `@/api/business/hr/leave` 一个入口。
  *

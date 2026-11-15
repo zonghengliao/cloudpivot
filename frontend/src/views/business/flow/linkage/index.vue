@@ -509,7 +509,7 @@
 /**
  * 跨单据联动规则配置页（卡 t_d0daa4f0 / P1-FIX-5A）。
  *
- * 后端契约：`backend/src/business/flow/linkage/admin.rs`（列表 / 增改 / 启停 / 删除 / 预览影响）。
+ * 后端契约：`backend/app/src/business/flow/linkage/admin.rs`（列表 / 增改 / 启停 / 删除 / 预览影响）。
  * 纯逻辑在 `./linkage-logic.ts`（参数表单拼装 / 列表筛选 / 文案），单测 `tests/unit/flow-linkage.test.ts`。
  *
  * # 三个「不许自己发明」的点

@@ -394,8 +394,8 @@ note "9.5 万行下扫码接口最快 HTTP 往返：${T_BEST} ms（含鉴权中�
 
 # ---------------------------------------------------------------- 12. V0142 幂等 / down / up
 echo "== 12) V0142 权限迁移：幂等重放 + down 零残留 + 再 up"
-UP="$REPO/backend/migrations/business/V0142__erp_serial_permissions.up.sql"
-DOWN="$REPO/backend/migrations/business/V0142__erp_serial_permissions.down.sql"
+UP="$REPO/backend/app/migrations/business/V0142__erp_serial_permissions.up.sql"
+DOWN="$REPO/backend/app/migrations/business/V0142__erp_serial_permissions.down.sql"
 CODES=$(psql_q "select count(*) from sys_menu where auth_code like 'business:erp:serial:%' and deleted_at is null")
 [ "$CODES" = "5" ] && ok "  迁移后 5 个权限码齐备" || bad "  权限码数量" "$CODES"
 if psql_f "$UP" >/tmp/w2b_v0142_replay.log 2>&1; then

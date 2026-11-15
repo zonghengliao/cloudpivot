@@ -5,7 +5,7 @@
 ----------------------------------------------
 E2E 脚本要在**任何**一台测试机上一键跑通（145 / CI / 新环境），不能把
 `pip install` 当成前置条件；而 impexp 的导入通道只吃 `.xlsx`
-（`backend/src/business/impexp/engine.rs` 用 calamine 0.36 读整表，没有 CSV 分支），
+（`backend/app/src/business/impexp/engine.rs` 用 calamine 0.36 读整表，没有 CSV 分支），
 所以这里用 `zipfile` + OOXML 手写一个最小工作簿：
 `[Content_Types].xml` + `_rels/.rels` + `workbook.xml` + 一张 sheet + `sharedStrings.xml`。
 

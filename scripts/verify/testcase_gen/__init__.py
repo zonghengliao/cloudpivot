@@ -3,7 +3,7 @@
 
 | 模块 | 内容 |
 |---|---|
-| `state_machines.py` | 六张单据的状态机全组合（N×N），边表来自 `backend/src/business/shared/state_machine.rs` |
+| `state_machines.py` | 六张单据的状态机全组合（N×N），边表来自 `backend/app/src/business/shared/state_machine.rs` |
 | `flows.py` | 审批流 A1–A15 × 角色视角 |
 | `rest.py` | AUTH / PERM / CONS / BOUND / FE / BASE 人工设计用例 |
 

@@ -57,17 +57,17 @@
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F1** | 权限码存 `sys_menu.auth_code VARCHAR(100)`，格式 `{模块}:{资源}:{动作}`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值 `system`(22 条) / `support`(24 条) / `app`(1 条) | `backend/migrations/system/V0004__create_sys_menu.up.sql`、`seed/S__menu_data.sql` | 本批权限码统一 `business:storage:*` / `business:impexp:*` / `business:notice:*`，`module_code='business'`（20 字符够，已由 ERP 批次先例验证） |
+| **F1** | 权限码存 `sys_menu.auth_code VARCHAR(100)`，格式 `{模块}:{资源}:{动作}`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值 `system`(22 条) / `support`(24 条) / `app`(1 条) | `backend/app/migrations/system/V0004__create_sys_menu.up.sql`、`seed/S__menu_data.sql` | 本批权限码统一 `business:storage:*` / `business:impexp:*` / `business:notice:*`，`module_code='business'`（20 字符够，已由 ERP 批次先例验证） |
 | **F2** | 现有顶级目录：系统管理 `/system` sort 10、支撑功能 `/support` sort 20。**已被前序批次占用**：ERP sort 40、BI `/bi` sort 50、MDM `/mdm` sort 60；**30 已预留给协同办公** | `S__menu_data.sql:24,80`；ERP PRD F2、大数据 PRD 6.1 | 本批一级目录取 **sort_order = 70**（下一个空位），不抢 30 |
-| **F3** | 后端接口鉴权用声明式宏 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，分页返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49` | 新接口走 `/business/storage/...`、`/business/impexp/...`、`/business/notice/...`，第六章逐个列权限码 |
+| **F3** | 后端接口鉴权用声明式宏 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，分页返回 `ResResult<PageData<Vec<T>>>` | `backend/app/src/system/user/handler.rs:43-49` | 新接口走 `/business/storage/...`、`/business/impexp/...`、`/business/notice/...`，第六章逐个列权限码 |
 | **F4** | 前端页面级鉴权用路由 `meta.permission`；按钮级用 `v-privilege="['system:user:create']"` | `frontend/src/views/system/user/index.vue:63`、`directives/permission/privilege.ts` | 删除、群发、导出明文等敏感按钮一律用 `v-privilege`，不新造机制 |
 | **F5** | `hasPermission()` 是**全等匹配**，只额外支持超管通配 `*:*:*`；**不支持 `business:storage:*` 这种前缀通配**；`code` 为空视为放行 | `frontend/src/stores/user.ts:63-71` | ①"整包授权"只能逐条勾选；②全员可见页面 `auth_code` 留空串；③**不要在前端写 `v-privilege="['business:storage:*']"`，它永远返回 false** |
 | **F6** | 导航树由 `filterNavMenus` 递归过滤：剔除 `menu_type=3`（按钮）与 `is_visible=false`；目录下无可见子菜单则**整目录隐藏** | `frontend/src/stores/user.ts:17-38` | 隐藏菜单（消息中心）必须 `is_visible=FALSE`，但它仍参与路由与权限；目录下必须有至少一个可见子菜单，否则整个「通用底座」不显示 |
 | **F7** | 侧边栏 `SideMenuItem` 递归渲染，有子节点即渲染 `t-submenu`，层级不限 | `frontend/src/layouts/components/SideMenuItem.vue` | 本批只需「目录 → 菜单」两级，不依赖三级能力 |
 | **F8** | 列表页既有范式：`t-card` + `t-row/t-col` 横排筛选（`@enter` 触发查询）+ 工具栏 + `t-table` + `t-dialog` 内嵌 `t-form` | `frontend/src/views/system/user/index.vue:34-146`、`views/support/file/index.vue:1-120` | 第九章所有列表页沿用此布局，与既有页面行高、间距、按钮位置一致 |
 | **F9** | `sys_role` **没有 data_scope（数据范围）字段**，只有 role_code / role_name / status / sort_order | `migrations/system/V0002__create_sys_role.up.sql` | 数据权限不能靠角色表配置，必须在服务层用「权限码 + 业务表 create_by」硬实现，见 6.2 |
-| **F10** | `sys_dept` 有 `parent_id` / `dept_path` / `leader_id`；`sys_user.dept_id` 指向 `sys_dept`；后端**已实现**部门子树递归 `find_dept_subtree_ids(root_id)`（`WITH RECURSIVE`，返回自身 + 全部下级） | `V0006__create_sys_dept.up.sql`、`backend/src/system/dept/model.rs:261-279` | **"部门（含下级）"发送目标直接复用这个函数，不要重写递归**；它一次返回 UUID 列表，5.4 的扇出与去重就建在它之上 |
-| **F11** | 底盘 `backend/src/` 下**无 `business` 目录**（现有：bootstrap、middleware、shared、support、system、task、utils） | `backend/src/` 目录清单 | 三个模块都是 business 域，从 0 建目录，结构见附录 C.3 |
+| **F10** | `sys_dept` 有 `parent_id` / `dept_path` / `leader_id`；`sys_user.dept_id` 指向 `sys_dept`；后端**已实现**部门子树递归 `find_dept_subtree_ids(root_id)`（`WITH RECURSIVE`，返回自身 + 全部下级） | `V0006__create_sys_dept.up.sql`、`backend/app/src/system/dept/model.rs:261-279` | **"部门（含下级）"发送目标直接复用这个函数，不要重写递归**；它一次返回 UUID 列表，5.4 的扇出与去重就建在它之上 |
+| **F11** | 底盘 `backend/app/src/` 下**无 `business` 目录**（现有：bootstrap、middleware、shared、support、system、task、utils） | `backend/app/src/` 目录清单 | 三个模块都是 business 域，从 0 建目录，结构见附录 C.3 |
 | **F12** | 主题机制：`src/style/theme.less` 覆盖 `--td-brand-color-1..10` 注入品牌色，且**必须镜像 TDesign 的 `[theme-mode]` 选择器**（只写 `:root` 会被 TDesign 的 `[theme-mode]` 块压回默认蓝） | `frontend/src/style/theme.less:1-60` | 本批所有颜色**只用 CSS 变量**（`--td-brand-color-*`、`--td-success-color`、`--td-warning-color`、`--td-error-color`、`--td-bg-color-*`、`--td-text-color-*`），**禁止写死十六进制**，这样 22 套配色切换时业务页面零改动 |
 
 ## 0.2 现有文件模块事实（F13–F18）—— 本批改造的地基
@@ -97,7 +97,7 @@
 | **F23** | ⚠️ **`sys_config` 的读接口会把加密值解密后明文返回前端**：`ConfigRes::from_model()` 对 `is_encrypted` 的行调用 `decrypt_config_value()` 并放进 `config_value` 字段，分页接口 `page()` 直接用它 | `support/config/dto.rs:62-66`、`support/config/handler.rs:126-130` | **AK/SK 绝不能存进 `sys_config` 走现有读接口**，否则运维打开"参数管理"就能看到明文 AK/SK。必须建独立表 + 独立 DTO，响应里 SK 恒为空串（3.7.3）。这是本批最重要的一条安全约束 |
 | **F24** | 框架内置真 XLSX 读写：开 `xlsx` feature 后才有 `Export::to_xlsx_*`（rust_xlsxwriter 写）/ `Import::from_xlsx_*`（calamine 读，`Import` 本身一直存在）；**不开 feature 时这些 API 根本不存在**（不是静默退化成 CSV）；`XlsxSheet` 支持多 sheet | `nik-0.4.2/src/lib.rs:93,155,1199,1265`、`Cargo.toml:160` | **backend 当前未开 `xlsx` feature**（现有 features 只有 db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss），导入导出必须在 `Cargo.toml` 补 `"xlsx"`，列进交付前提（附录 C.1） |
 | **F25** | 框架有 **SSE** 能力：`Broadcaster` + `sse_json`（单向推送，仅依赖 futures-util），需 `sse` feature；**backend 当前未开** | `nik-0.4.2/src/lib.rs:90,1188-1193`、`Cargo.toml:135` | 未读角标"实时 vs 轮询"的决策（D7）以此为依据：SSE 技术上可行但要开 feature + 运维长连接，P0 先用轮询 |
-| **F26** | 分页常量：`DEFAULT_PAGE_SIZE = 10`、**`MAX_PAGE_SIZE = 1000`**；`utils::normalize_page()` 对 `page_size` 做 `clamp(1, 1000)` | `nik-web-0.4.2/src/api.rs:104,107`、`backend/src/utils/mod.rs:110-116` | **导出不能靠"前端翻页把数据捞全"**：20 万行 ÷ 1000 = 200 次请求，必超时。导出一律在后端一次性查询落文件（4.6） |
+| **F26** | 分页常量：`DEFAULT_PAGE_SIZE = 10`、**`MAX_PAGE_SIZE = 1000`**；`utils::normalize_page()` 对 `page_size` 做 `clamp(1, 1000)` | `nik-web-0.4.2/src/api.rs:104,107`、`backend/app/src/utils/mod.rs:110-116` | **导出不能靠"前端翻页把数据捞全"**：20 万行 ÷ 1000 = 200 次请求，必超时。导出一律在后端一次性查询落文件（4.6） |
 
 ## 0.5 前端与部署事实（F27–F31）
 
@@ -105,7 +105,7 @@
 |---|---|---|---|
 | **F27** | 前端 axios **全局 `timeout = 15000`（15 秒）**，`request.ts` 里两处创建实例都是 15s | `frontend/src/api/request.ts:68,138` | **15 秒是硬墙**：①同步导出必须单独把 timeout 调到 180s（4.6.1）；②导入校验 2 万行以内走同步（估 2 秒，4.5.1），**2 万行以上必须走异步**（10 万行估 14 秒，已贴住 15 秒上限） |
 | **F28** | 生产 nginx 配置 `client_max_body_size 50m` | `docker/frontend/nginx.conf:16` | ①**500MB 文件走"后端中转"必然被 nginx 挡在 50MB**——这正是"大文件直传"的产品价值（浏览器 → 对象存储，不经 nginx/后端）；②本地后端不支持直传，降级方案须同步把该值调大，列进交付前提（附录 C.1） |
-| **F29** | 定时任务是框架 `SchedulerPlugin`（**cron 表达式驱动，非延时队列**）；**运行期增删任务必须 `stop()` → 增删注册 → `start()`**（启动时做一次性快照，之后 register 不生效）；已有 5 个日志清理任务跑在 03:00 / 03:10 / 03:20 / 03:30 / 03:40 | `backend/src/task/mod.rs:1-30` | ①"定时发送通知"和"异步导入导出"都能用"每分钟一次的 cron 任务"驱动，**不需要引 Kafka**（D11）；②消息清理任务取 **03:50**，与现有 5 个错峰，避免同时批量删抬高 DB 压力（5.8） |
+| **F29** | 定时任务是框架 `SchedulerPlugin`（**cron 表达式驱动，非延时队列**）；**运行期增删任务必须 `stop()` → 增删注册 → `start()`**（启动时做一次性快照，之后 register 不生效）；已有 5 个日志清理任务跑在 03:00 / 03:10 / 03:20 / 03:30 / 03:40 | `backend/app/src/task/mod.rs:1-30` | ①"定时发送通知"和"异步导入导出"都能用"每分钟一次的 cron 任务"驱动，**不需要引 Kafka**（D11）；②消息清理任务取 **03:50**，与现有 5 个错峰，避免同时批量删抬高 DB 压力（5.8） |
 | **F30** | 图标库 `tdesign-icons-vue-next@0.4.11` 中：**`bell` / `notice` / `announcement` 不存在**；确认真实存在：`notification` `notification-filled` `notification-add` `notification-circle` `mail` `mail-filled` `cloud` `cloud-upload` `cloud-download` `upload` `download` `import` `export` `file-import` `file-export` `file` `file-pdf` `file-image` `file-excel` `file-zip` `file-attachment` `file-locked` `file-safety` `folder` `hard-disk-storage` `object-storage` `system-storage` `server` `check-circle` `error-circle` `info-circle` `tips` `pending` `task` `task-checked` `task-error` `task-time` `setting` `filter` `search` `delete` `edit` `send` `usergroup` `user` `user-business` `refresh` `history` `time` `copy` `link` `lock-on` `system-messages` `chat-message` `view-list` `root-list` `chart-bar` `system-log` | 包文件 `esm/components/` 清单实测 | **顶栏铃铛图标用 `notification`，不是 `bell`**；菜单图标：存储管理 `object-storage`、文件管理 `folder`、导入导出 `file-export`、通知管理 `notification`。用错名字会渲染成空白方块 |
 | **F31** | 平台已有字典体系 `sys_dict_type` / `sys_dict_item`（如 `user_status` / `menu_type` / `job_status`）与参数表 `sys_config`（含 `select_value` 供前端下拉）；上传分类当前是**前端硬编码映射表**（`CATEGORY_LABELS`，attachment→附件 等） | `migrations/support/V0007/V0008/V0009`、`seed/S__dict_data.sql`、`views/support/file/index.vue:118+` | ①上传分类要落成字典 `storage_category`，前后端同源（现在前端硬编码、后端自由字符串，是隐患）；②所有阈值（大小上限、链接有效期、保留天数）都放 `sys_config`，**不改代码可调** |
 
@@ -482,7 +482,7 @@ F21：`BackendRegistry` 的键是 `backend_type` 字符串，`register()` 同类
 - 如果按框架用法把配置 `注册` 进去，两条 `minio` 配置会互相覆盖，只剩最后一条；
 - 而用户明确需要"新增多条配置、随时切换默认"，这是产品需求（S1-02/S1-05）。
 
-**定法**：业务侧建一个 `StorageRouter`（放在 `backend/src/business/storage/`），内部是 `配置 id → 后端实例` 的映射（进程内缓存），实例由 `MinioBackend::from_config()` / `LocalFs::new()` 创建——**复用框架的两个实现，但不复用框架的注册中心**。`health_check()`、`presign_download_url()` 这些方法照常调用。
+**定法**：业务侧建一个 `StorageRouter`（放在 `backend/app/src/business/storage/`），内部是 `配置 id → 后端实例` 的映射（进程内缓存），实例由 `MinioBackend::from_config()` / `LocalFs::new()` 创建——**复用框架的两个实现，但不复用框架的注册中心**。`health_check()`、`presign_download_url()` 这些方法照常调用。
 
 > 给 architect 的一句话：这不是"绕过框架"，框架 trait 就是给业务实现调用的（`backend.rs` 文档注释里给了自定义实现示例）。registry 只是**可选的**便利设施，按 id 路由时它不适用。
 
@@ -1296,7 +1296,7 @@ key = {root_prefix}{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}
 
 ## 5.0 一句话说清本模块在改什么
 
-> **现状**：平台**没有任何消息/通知能力**（F 核查：`backend/src` 下无 notice/message 模块，migrations 里无消息表）。系统里"发生了什么事"只能靠人自己去看。
+> **现状**：平台**没有任何消息/通知能力**（F 核查：`backend/app/src` 下无 notice/message 模块，migrations 里无消息表）。系统里"发生了什么事"只能靠人自己去看。
 > **本批**：建一条**站内信主干道**——投递、收件箱、未读数、模板、群发、保留策略。同时把"业务系统怎么发通知"的**调用契约**定下来（附录 E），D 批次审批流直接调，不用改本批的表。
 
 ---
@@ -2657,7 +2657,7 @@ key = {root_prefix}{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}
 ## C.3 目录结构建议（给 backend-developer）
 
 ```
-backend/src/business/
+backend/app/src/business/
 ├── storage/
 │   ├── router.rs      # StorageRouter：配置 id → 后端实例，读写路由（3.2）
 │   ├── backend/       # 存储配置 CRUD + 连通性测试
@@ -2674,7 +2674,7 @@ backend/src/business/
     ├── message/       # 收件箱/已读/未读
     └── channel/       # 通道配置
 ```
-（`backend/src/` 下现无 `business` 目录，F11；`task/` 里新增 2 个 handler 注册到 `Scheduler::reload`。）
+（`backend/app/src/` 下现无 `business` 目录，F11；`task/` 里新增 2 个 handler 注册到 `Scheduler::reload`。）
 
 ## C.4 性能与容量基线
 

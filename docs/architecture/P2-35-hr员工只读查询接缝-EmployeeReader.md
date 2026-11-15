@@ -13,7 +13,7 @@
 | 模块级边 `erp → hr` | 存在（代码 0 / **注释 1**） | **不存在** | `python3 scripts/lint/module_cycle_report.py --edge business::erp business::hr` |
 | `erp` 生产面对 `biz_employee` 的直连 | 19 行 / 4 文件 | 19 行（本卡**不动**，只立接缝） | 用例 `employee_reader_tests::erp_biz_employee_reference_budget_is_not_exceeded` 钉住基线 19 |
 | `hr` 侧跨域读员工的能力 | 无（各消费方自写 SQL） | `EmployeeReader` trait + 注册表 + HR 侧实现 | 本文件 §3 |
-| 启动接线 | — | `bootstrap::register_hr_employee_reader()`（prod 失败 `exit(1)`） | `backend/src/bootstrap.rs` |
+| 启动接线 | — | `bootstrap::register_hr_employee_reader()`（prod 失败 `exit(1)`） | `backend/app/src/bootstrap.rs` |
 | 测试 | — | 17 条（离线 11 + 真库 6），全绿 | 本文件 §5 |
 
 **这张卡只做接缝，不切换消费方**：`erp` 的 19 行直连在 P2-36 摘掉（那是 P2-36 的验收），
@@ -26,7 +26,7 @@
 `biz_employee` 是 HR 的表（`V0383__hr_tables.up.sql`），但读它的人不止 HR：
 
 ```console
-$ cd backend/src/business/erp
+$ cd backend/app/src/business/erp
 $ grep -rn biz_employee --include=*.rs . | grep -v _tests.rs | sed 's/:.*//' | sort | uniq -c
       2 ./cost/cost_labor_dto.rs
       3 ./cost/cost_labor_import.rs
@@ -52,7 +52,7 @@ $ grep -rn biz_employee --include=*.rs . | grep -v _tests.rs | wc -l
 
 ---
 
-## 3. 接缝设计（`backend/src/business/hr/employee_reader{,impl}.rs`）
+## 3. 接缝设计（`backend/app/src/business/hr/employee_reader{,impl}.rs`）
 
 ### 3.1 形状
 
@@ -236,13 +236,13 @@ test result: ok. 690 passed; 0 failed; 0 ignored; 0 measured; 4947 filtered out;
 
 | 文件 | 说明 |
 |:--|:--|
-| `backend/src/business/hr/employee_reader.rs` | **新**：trait / `EmployeeBrief` / 注册表 / 模块级入口 / 单测串行锁 |
-| `backend/src/business/hr/employee_reader_impl.rs` | **新**：`HrEmployeeReader`（唯一实现，跨域只读 SQL 出口）+ 3 条离线单测 |
-| `backend/src/business/hr/employee_reader_tests.rs` | **新**：11 条离线用例（含燃烧率闸门、接缝零业务域依赖） |
-| `backend/src/business/hr/employee_reader_db_tests.rs` | **新**：6 条真库用例 |
-| `backend/src/business/hr/mod.rs` | 挂 4 个模块（2 生产 + 2 测试面） |
-| `backend/src/bootstrap.rs` | `register_hr_employee_reader()` + 调用（prod 失败 `exit(1)`） |
-| `backend/src/business/erp/seq.rs` | 文档里那处跨域路径改成人话（`erp → hr` 注释边归零） |
+| `backend/app/src/business/hr/employee_reader.rs` | **新**：trait / `EmployeeBrief` / 注册表 / 模块级入口 / 单测串行锁 |
+| `backend/app/src/business/hr/employee_reader_impl.rs` | **新**：`HrEmployeeReader`（唯一实现，跨域只读 SQL 出口）+ 3 条离线单测 |
+| `backend/app/src/business/hr/employee_reader_tests.rs` | **新**：11 条离线用例（含燃烧率闸门、接缝零业务域依赖） |
+| `backend/app/src/business/hr/employee_reader_db_tests.rs` | **新**：6 条真库用例 |
+| `backend/app/src/business/hr/mod.rs` | 挂 4 个模块（2 生产 + 2 测试面） |
+| `backend/app/src/bootstrap.rs` | `register_hr_employee_reader()` + 调用（prod 失败 `exit(1)`） |
+| `backend/app/src/business/erp/seq.rs` | 文档里那处跨域路径改成人话（`erp → hr` 注释边归零） |
 | `scripts/lint/scope_gate.py` | `SKIP_MANIFEST` 补两个新测试面文件（闸② 硬断言，多一条少一条都红） |
 
 ---

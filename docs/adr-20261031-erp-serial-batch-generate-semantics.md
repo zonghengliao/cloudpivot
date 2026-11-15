@@ -4,8 +4,8 @@
 - 日期：2026-10-31
 - 触发：`t_5d52a72e`（测试侧升级）／`t_d75b02e7`（prod 夹具事故取证）／
   `docs/datafix-20261031-p11-m-w1a-004-recur.md` §6 遗留 ②
-- 涉及代码：`backend/src/business/erp/serial_model.rs`、`backend/src/business/erp/serial_handler.rs`、
-  `backend/src/business/erp/stockin/stockin_model.rs`、`frontend/src/views/business/erp/serial/*`、
+- 涉及代码：`backend/app/src/business/erp/serial_model.rs`、`backend/app/src/business/erp/serial_handler.rs`、
+  `backend/app/src/business/erp/stockin/stockin_model.rs`、`frontend/src/views/business/erp/serial/*`、
   `frontend/e2e/12-erp-serial-batch-walkthrough.spec.ts`
 - 库里现状（HEAD）：`e1b5ce0`
 

@@ -3,7 +3,7 @@
  *
  * # 字段口径（硬红线①：以 dto.rs 的 serde 为准）
  *
- * 出参逐字抄 `backend/src/business/erp/dto.rs::UnitRes`，并用真接口 curl 核对过：
+ * 出参逐字抄 `backend/app/src/business/erp/dto.rs::UnitRes`，并用真接口 curl 核对过：
  * `unit_code / unit_name / is_base / base_unit_id / rate / status / sort_order / remark
  *  / is_system / precision`。
  *

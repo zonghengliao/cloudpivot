@@ -8,7 +8,7 @@
  * `''` 还是 `null`」全在 `customer-query.ts`；`.vue` 只负责渲染，这些一旦漂移
  * `vue-tsc` 抓不到（编译期两个都是 `string`）。
  *
- * 断言口径全部照后端抄（`backend/src/business/erp/customer/customer_handler.rs` +
+ * 断言口径全部照后端抄（`backend/app/src/business/erp/customer/customer_handler.rs` +
  * `customer_model.rs`），并用真接口 `GET /api/business/erp/customer/page` 核对过。
  */
 import { test } from 'node:test';

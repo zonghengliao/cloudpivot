@@ -21,7 +21,7 @@
 | 1. 四场景可见性结果与返工前完全一致（29 条断言全 PASS） | ✅ 1 / 2 / 1 / 3 / 5，与 T1 证据文档逐条相同 | §2 |
 | 2. EXPLAIN 证明走索引（5 万行） | ✅ `BitmapOr(idx_biz_task_dept_status, biz_task_pkey)`；**无 `Seq Scan on biz_task`**；166.375 ms → **16.728 ms** | §3 |
 | 3. 上限降级路径（2001 条协作关系） | ✅ `member_scope_truncated=true` 且只按范围；边界 2000 不降级 | §4 |
-| 4. `shared/scope.rs` 一行未改 | ✅ `git diff -- backend/src/business/shared/scope.rs` 为空 | §5 |
+| 4. `shared/scope.rs` 一行未改 | ✅ `git diff -- backend/app/src/business/shared/scope.rs` 为空 | §5 |
 | 5. `cargo test` 全绿 | ✅ **584 passed / 0 failed**（返工前 582；本卡净 +2：删 1 加 3） | §6 |
 | 6. `scripts/check.sh` 全绿 | ✅ B 闸① 0 处 / 闸② 0 处、C7 G1–G6 0 条未过、前端 typecheck 通过 | §7 |
 
@@ -29,7 +29,7 @@
 
 ## 1. 改法说明
 
-### 1.1 谓词（`backend/src/business/task/model.rs`）
+### 1.1 谓词（`backend/app/src/business/task/model.rs`）
 
 ```rust
 // 返工前（T1 首版，50eb300）
@@ -288,16 +288,16 @@ t1_emp 协作行 = 1998
 ## 5. `shared/scope.rs` 一行未改
 
 ```
-$ git diff --stat -- backend/src/business/shared/scope.rs
+$ git diff --stat -- backend/app/src/business/shared/scope.rs
 （无输出）
 
 $ git status --short
- M backend/src/business/task/dto.rs
- M backend/src/business/task/handler.rs
- M backend/src/business/task/mod.rs
- M backend/src/business/task/model.rs
-?? backend/migrations/business/V0104__task_creator_index.down.sql
-?? backend/migrations/business/V0104__task_creator_index.up.sql
+ M backend/app/src/business/task/dto.rs
+ M backend/app/src/business/task/handler.rs
+ M backend/app/src/business/task/mod.rs
+ M backend/app/src/business/task/model.rs
+?? backend/app/migrations/business/V0104__task_creator_index.down.sql
+?? backend/app/migrations/business/V0104__task_creator_index.up.sql
 ```
 
 B 批次核心（`scope.rs`）与“分页唯一入口”闸① 均未触碰：`page_visible` 仍然只经 `scope::paginate`。

@@ -50,7 +50,7 @@ Cache-Control: no-store
 ## 二、代码落点
 
 ```
-backend/src/business/
+backend/app/src/business/
   erp/report_pdf.rs                     取数编排 + 纯口径（金额格式化 / 两栏对齐 / 行语义）+ HTTP 入口 + 导出审计 + 10 用例
   pdf/templates/report_balance.html.tera  资产负债表版式（左右两栏 × 期末/期初）
   pdf/templates/report_amount.html.tera   利润表 / 现金流量表版式（项目 / 本期金额 / 本年累计）

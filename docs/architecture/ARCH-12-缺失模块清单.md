@@ -11,7 +11,7 @@
 ```
 ① 查生产库 sys_menu（一级 + 二级）
 ② 查 information_schema 的 biz_ 表清单（100 张）
-③ 查 backend/src/business/erp/ 的模块文件
+③ 查 backend/app/src/business/erp/ 的模块文件
 ④ 查 frontend/src/views/business/erp/ 的页面目录
 ⑤ 对照标准 ERP 模块清单（SAP/用友 U8/金蝶 K3 的功能域）
 ```
@@ -311,7 +311,7 @@
 ```
 ① 一级菜单：2026-11-10 10:20 查生产库 sys_menu（12 个）
 ② biz_ 表：2026-11-10 10:20 查 information_schema（100 张）
-③ 后端模块：ls backend/src/business/erp/（asset/budget/contract/expense 全有）
+③ 后端模块：ls backend/app/src/business/erp/（asset/budget/contract/expense 全有）
 ④ 前端页面：ls frontend/src/views/business/erp/（budget/contract/expense/depreciation 有）
 ⑤ ARCH9 的三份设计已存在（多组织 49 卡 / 人力 50 卡 / 成本 42 卡）
 ```

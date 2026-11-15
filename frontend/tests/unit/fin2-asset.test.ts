@@ -779,8 +779,8 @@ test('分类逻辑：科目只列末级、回填表单、方法译名', () => {
 
 test('迁移里的三个菜单 component 都真实存在视图文件', () => {
   const migrations = [
-    'backend/migrations/business/V0229__erp_asset_tables.up.sql',
-    'backend/migrations/business/V0230__erp_depreciation_tables.up.sql',
+    'backend/app/migrations/business/V0229__erp_asset_tables.up.sql',
+    'backend/app/migrations/business/V0230__erp_depreciation_tables.up.sql',
   ]
     .map((relative) => resolve(FRONTEND_ROOT, '..', relative))
     .map((file) => {

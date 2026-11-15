@@ -8,7 +8,7 @@
  * 「金额预览与后端口径是否一致」全在 `sales-order-query.ts`；`.vue` 只渲染，
  * 这些一旦漂移 `vue-tsc` 抓不到（编译期两个都是 `string`）。
  *
- * 断言口径照后端抄：`backend/src/business/erp/sales/sales_order_handler.rs`（入参校验 /
+ * 断言口径照后端抄：`backend/app/src/business/erp/sales/sales_order_handler.rs`（入参校验 /
  * `SalesOrderRes`）、`sales_order_model.rs`（`line_amounts` / `Totals::of`）、
  * `shared/state_machine.rs`（`SALES_ORDER_EDGES` / `SALES_ORDER_BASE` 的 requires_reason）。
  */

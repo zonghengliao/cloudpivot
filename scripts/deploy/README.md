@@ -25,7 +25,7 @@ ssh root@172.18.10.144 'bash /opt/cloudpivot/scripts/deploy/deploy.sh --dry-run'
 
 | 步 | 动作 | 关键判据 |
 |---|---|---|
-| 1 | `git fetch` + 列全量待上线提交；**待跑迁移按「磁盘 vs 库」做集合差**（`backend/migrations/` **递归全部子目录**：磁盘上每个 `V<n>__<name>.up.sql` 减去库里 `kind='versioned' and success` 的 `name`，按版本号升序） | HEAD 必须是 origin/main 的祖先（分叉直接停）；`applied_via` 取值、迁移文件名合法性、同名冲突三种预检不过直接停 |
+| 1 | `git fetch` + 列全量待上线提交；**待跑迁移按「磁盘 vs 库」做集合差**（`backend/app/migrations/` **递归全部子目录**：磁盘上每个 `V<n>__<name>.up.sql` 减去库里 `kind='versioned' and success` 的 `name`，按版本号升序） | HEAD 必须是 origin/main 的祖先（分叉直接停）；`applied_via` 取值、迁移文件名合法性、同名冲突三种预检不过直接停 |
 | 2 | 备份三件套到 `/root/deploy-backup-<TAG>/`（`db.dump` / `cloudpivot` / `dist/`） | 每份 > 0 字节 |
 | 3 | `git merge --ff-only` | 生产工作区有**已跟踪**改动时**拒绝**执行（不替你 stash 别人的在途任务） |
 | 4 | **后端需重做时**（`backend/` 有 diff **或 二进制 mtime < 最近一次后端提交时间**）：`cargo build --release`（默认 `CARGO_BUILD_JOBS=1`）—— **只编译，不重启** | 编译失败即停（此时线上仍是旧二进制 + 旧 schema，一致状态） |
@@ -47,7 +47,7 @@ ssh root@172.18.10.144 'bash /opt/cloudpivot/scripts/deploy/deploy.sh --dry-run'
 1. **绝不先 `mv dist` 再 build**：先 `vite build --outDir dist-<TAG>`，成功后 `dist → dist-prev-<TAG>`、`dist-<TAG> → dist` 双 rename。
 2. **换二进制用 `cp → .rollback/.new` + `mv -f`**，不要 `cp` 到正在运行的路径（ETXTBSY）。
 3. **迁移逐条跑 + 按引擎口径记账**（`version` 不补零、`checksum=sha256`、`applied_via='imported'`、`source` 记文件真实子目录）。
-   硬判据是**集合差为空**：磁盘上（`backend/migrations/` 递归全部分目录）的每个版本化迁移在库里都有 `success=true` 记录（第 5 步迁移后、第 6 步重启后各校一次）。
+   硬判据是**集合差为空**：磁盘上（`backend/app/migrations/` 递归全部分目录）的每个版本化迁移在库里都有 `success=true` 记录（第 5 步迁移后、第 6 步重启后各校一次）。
    重启日志「数据库迁移完成: 应用 0 个迁移」是**辅证**而非判据：改动过 `S__` 种子 / `R__` 可重复脚本时引擎按指纹变化会重跑，日志会出现 `应用 N 个迁移`（N>0）而版本化记账完全一致（2026-11-05 发版实测：`S__support_invariant_menu` 随 P2-7 改过，首启 N=1、次启 N=0），所以脚本对日志只做提示、对集合差才 `die`。
 4. **只在有改动时才动那一半**：后端没改不重启（避免无谓抖动），前端没改不 build。
 5. **`cargo test` / Playwright 与 `cargo build --release` 不要并发**：7 GB 机器会 OOM（`signal: 9`）。
@@ -79,13 +79,13 @@ systemctl start cloudpivot
 git -C /opt/cloudpivot reset --hard <部署前 HEAD>
 ```
 
-迁移是不可逆的：要退回去必须跑对应 `backend/migrations/business/V****__*.down.sql`，
+迁移是不可逆的：要退回去必须跑对应 `backend/app/migrations/business/V****__*.down.sql`，
 并在 `schema_migrations` 里删掉对应记录（`delete from schema_migrations where kind='versioned' and version='207'`）。
 
 ## 已知的坑（踩过的）
 
 - **用 `max(version)` 比大小选迁移**（2026-11-05 发版中断的根因，卡 t_9467ce9f）：旧版第 1 步取 `max(version::int)` 当游标、只挑「版本号 > max」的脚本（旧 L184/L189，第 5 步再按 `-le APPLIED_MAX` 跳一次，旧 L237），于是**库内最大版本以下的 gap 永远挑不出来**。当时库里 max 是 V0235，而 V0220/V0221/V0226..V0234 十一条从未记账 ⇒ 只挑出 V0236..V0241 六条，跑到 V0240 时它依赖的 `biz_budget_subject_map`（V0227 建）不存在 → `ERROR: relation "biz_budget_subject_map" does not exist` → `[5/8]` 中断、V0241 也没跑。**引擎自己不是这么判的**：`needs_apply`（`backend/vendor/nik-db/src/migrate/mod.rs:1263-1275`）只看 `(kind,name)` 有没有 `success` 记录，低版本照样执行（只打 `out_of_order` WARN，`mod.rs:876-888`）。现在清单构造只在 `migrate_plan.sh:mp_build_pending` 一处实现（deploy.sh 与自测脚本共用），是**集合差**；gap 会在第 1 步用 `⚠ 其中 N 条版本号低于库内最大已应用` 显式列出来。
-- **漏扫 system/support 目录**（2026-11-05 发版实测）：旧版第 1 步只 `git ls-tree backend/migrations/business/`，而引擎的 `path = "migrations"` 是**递归**装载 ⇒ `system/V0235__create_sys_invariant_result` 不在清单里，启动期被引擎按集合语义补跑（只打 `out_of_order` WARN，不炸启动），「应用 0 个迁移」自检失效。现在两处都改成递归全部分目录 + `source` 按真实子目录记；再加集合差硬校验兜底。
+- **漏扫 system/support 目录**（2026-11-05 发版实测）：旧版第 1 步只 `git ls-tree backend/app/migrations/business/`，而引擎的 `path = "migrations"` 是**递归**装载 ⇒ `system/V0235__create_sys_invariant_result` 不在清单里，启动期被引擎按集合语义补跑（只打 `out_of_order` WARN，不炸启动），「应用 0 个迁移」自检失效。现在两处都改成递归全部分目录 + `source` 按真实子目录记；再加集合差硬校验兜底。
 - **自造 `applied_via` 值**（2026-11-05 踩过）：引擎只认 `executed` / `baseline` / `imported`（`backend/vendor/nik-db/src/migrate/kind.rs:95-111`），手工补跑用 `'deploy-backfill'` 记一行 → 服务启动直接 `FATAL: unknown applied_via 'deploy-backfill' in record table`（`history.rs:219-221`）。现在 deploy.sh 第 1 步、迁移工具跑前、跑后、重启后各校一次，非法值当场停。
 - **生产工作区脏了**（有未提交的已跟踪文件）→ 脚本直接停：生产上不该有人手改代码，先查清是谁。
 - **`/health` 排不到 60 s**：先看 `journalctl -u cloudpivot -n 60`，最常见是迁移/种子失败或端口被占。

@@ -319,7 +319,7 @@ import {
   type MaterialFormState,
 } from './material-query';
 
-/** 本页用到的权限码（码值与 `backend/migrations/business/V0141__erp_permissions.up.sql` 的 `auth_code` 逐字一致） */
+/** 本页用到的权限码（码值与 `backend/app/migrations/business/V0141__erp_permissions.up.sql` 的 `auth_code` 逐字一致） */
 const PERM = {
   /** 列表（页面入口） */
   materialList: 'business:erp:material:list',

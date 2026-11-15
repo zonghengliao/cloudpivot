@@ -33,7 +33,7 @@ COPY --from=builder /app/backend/target/release/cloudpivot /usr/local/bin/cloudp
 
 # 运行时需要的配置与迁移（App::new() 读取 config/，迁移 runner 读取 migrations/）
 COPY backend/config/ /app/config/
-COPY backend/migrations/ /app/migrations/
+COPY backend/app/migrations/ /app/migrations/
 
 # 运行时目录：上传 / 下载 / 日志（挂载卷时以 -v 覆盖）
 RUN mkdir -p /app/uploads /app/downloads /app/logs

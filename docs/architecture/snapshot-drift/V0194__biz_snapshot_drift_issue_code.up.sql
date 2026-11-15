@@ -1,5 +1,5 @@
 -- ============================================================
--- V0194（草案，本卡只出设计，不进 backend/migrations）
+-- V0194（草案，本卡只出设计，不进 backend/app/migrations）
 --   快照一致性巡检：给 biz_snapshot_drift 补「巡检项编码」+ 只读视图
 --
 -- 前置：V0193__erp_contract（biz_contract / PO 合同三列 / biz_snapshot_drift）

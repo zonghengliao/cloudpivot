@@ -1,7 +1,7 @@
 # 批次 D · W1b：13 张 ERP 表的 Rust model + dto（数据层）——验证证据
 
 > 云枢任务：TSK-202610-000676（W1b）；父任务 W1（TSK-000673）；前置 W1a（V0137 已部署生产）
-> 交付范围：`backend/src/business/erp/{mod,model,dto}.rs`，**不含 handler**（W1c）
+> 交付范围：`backend/app/src/business/erp/{mod,model,dto}.rs`，**不含 handler**（W1c）
 > 验收脚本：`scripts/verify/w1b_erp_data_layer.sh`（REPO 参数化，自建/自毁一次性库，15 项断言）
 
 ## 0. 一句话结论
@@ -14,11 +14,11 @@
 
 | 文件 | 行数 | 内容 |
 |------|------|------|
-| `backend/src/business/erp/model.rs` | 2908 | 13 个 Row 结构 + 13 个 `*_COLUMNS` + 30 个查询函数（含 `warehouse_tree` / `inventory_balance` 两级账）+ 22 条真库单测 |
-| `backend/src/business/erp/dto.rs` | 3419 | 13 张表的建 / 改 / 筛选 / 卡片 / 详情（64 个 DTO）+ `validate` 校验 + 14 条纯逻辑单测 |
-| `backend/src/business/erp/mod.rs` | 27 | 模块文档（W1c 接手须知） |
+| `backend/app/src/business/erp/model.rs` | 2908 | 13 个 Row 结构 + 13 个 `*_COLUMNS` + 30 个查询函数（含 `warehouse_tree` / `inventory_balance` 两级账）+ 22 条真库单测 |
+| `backend/app/src/business/erp/dto.rs` | 3419 | 13 张表的建 / 改 / 筛选 / 卡片 / 详情（64 个 DTO）+ `validate` 校验 + 14 条纯逻辑单测 |
+| `backend/app/src/business/erp/mod.rs` | 27 | 模块文档（W1c 接手须知） |
 | `backend/Cargo.toml` / `Cargo.lock` | +7 行 | 打开 `nik` 的 `rust_decimal` feature + 直接声明 `rust_decimal 1.43`（只为开 serde） |
-| `backend/src/business/mod.rs` | +2 行 | 注册 `pub mod erp;` + 模块表一行 |
+| `backend/app/src/business/mod.rs` | +2 行 | 注册 `pub mod erp;` + 模块表一行 |
 | `scripts/verify/w1b_erp_data_layer.sh` | 175 | 验收脚本（建库 → 迁移 → 36 条单测 → EXPLAIN → 门禁复查 → 删库） |
 
 ## 2. 与卡面文字的四处差异（全部以 `information_schema` / 迁移实测为准）

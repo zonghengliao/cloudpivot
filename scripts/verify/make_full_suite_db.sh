@@ -72,7 +72,7 @@ die()  { printf '!! %s\n' "$*" >&2; exit 1; }
 psql_q() { PGPASSWORD="$DB_PASS" psql -h "$PGHOST" -p "$PGPORT" -U "$DB_USER" -d "$1" -Atc "$2"; }
 
 [ -n "$REPO" ] || die "推导不出仓根（REPO=… 显式指定）"
-[ -d "$REPO/backend/migrations" ] || die "迁移目录不存在：$REPO/backend/migrations"
+[ -d "$REPO/backend/app/migrations" ] || die "迁移目录不存在：$REPO/backend/app/migrations"
 [ -x "$BIN" ] || die "二进制不存在：$BIN（先 cargo build --bin cloudpivot，或用 BIN=… 指定）"
 
 # ---------- 1) owner（role "cloudpivot" 在 99 上不存在，实际 owner 是 alun） ----------

@@ -99,7 +99,7 @@ MIG_EPOCH_SQL = (
 def parse_report(stdout: str) -> dict:
     """从脚本 stdout 里解析末尾 JSON 段，并按 runner 口径重算计数。
 
-    与 `backend/src/support/invariant/runner.rs::parse_report` 一一对应：
+    与 `backend/app/src/support/invariant/runner.rs::parse_report` 一一对应：
     取最后一个 JSON 段起点 → 解析 → `results` 必须是数组且非空 → 计数只信 `results`。
 
     返回 dict(total, passed, failed, blockers, warns, results, failures)。
@@ -276,7 +276,7 @@ def http_run_invariant(base_url: str, conf: dict) -> tuple[bool, dict | str]:
     登录口径（卡 t_d4e92b99）：`CLOUDPIVOT_OPS_USER` / `CLOUDPIVOT_OPS_PASSWORD` 优先；
     回退 `NIK_OPS_*`；最后才回退 `NIK_ADMIN_*`（种子语义，仅 dev/test 库成立）。
     登录**只试一次** —— 401 不重试：`sys_user.login_fail_count` 攒到 5 就把账号锁 30 分钟
-    （`backend/src/shared/constants.rs`），例行部署不该拿生产账号试口令。
+    （`backend/app/src/shared/constants.rs`），例行部署不该拿生产账号试口令。
     """
     env_file = load_env_file(os.environ.get("NIK_ALERT_ENV_FILE", DEFAULT_ENV_FILE))
 

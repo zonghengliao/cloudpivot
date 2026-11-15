@@ -1,7 +1,7 @@
 /**
  * 对象存储接口（批次 A · A1/A2）。
  *
- * 路径与后端 `backend/src/business/storage/handler.rs` 的 `#[nik::get/post/put/delete]`
+ * 路径与后端 `backend/app/src/business/storage/handler.rs` 的 `#[nik::get/post/put/delete]`
  * 逐条对应；权限码与 `#[nik::permission]` 注解、`sys_menu.auth_code` 三者一致。
  *
  * # 约定

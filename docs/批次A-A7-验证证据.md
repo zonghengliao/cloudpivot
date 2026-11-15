@@ -26,8 +26,8 @@
 | 工具 | `frontend/src/utils/download.ts` | 鉴权下载（blob → 临时链） |
 | 修改 | `frontend/src/layouts/BasicLayout.vue` | 挂载铃铛 + SSE 连接生命周期 |
 | 修改 | `frontend/src/router/index.ts` | 8 条路由 + `meta.permission` |
-| 迁移 | `backend/migrations/business/V0046__seed_storage_permissions.{up,down}.sql` | 存储 11 权限点 + 目录 / 2 菜单 |
-| 迁移 | `backend/migrations/business/V0047__seed_impexp_notice_permissions.{up,down}.sql` | 导入导出 13 权限点 + 3 菜单；修正 V0045 菜单路径；补消息中心/发送通知隐藏菜单 |
+| 迁移 | `backend/app/migrations/business/V0046__seed_storage_permissions.{up,down}.sql` | 存储 11 权限点 + 目录 / 2 菜单 |
+| 迁移 | `backend/app/migrations/business/V0047__seed_impexp_notice_permissions.{up,down}.sql` | 导入导出 13 权限点 + 3 菜单；修正 V0045 菜单路径；补消息中心/发送通知隐藏菜单 |
 | 取证 | `tools/a7-mock-server.mjs`、`scripts/a7_perm_seed_check.sh`、`evidence/*` | mock 后端、迁移实跑脚本、日志与采样 |
 
 ## 1. 硬指标 ①：`pnpm typecheck` 零错误 + `pnpm build` 成功
@@ -225,4 +225,4 @@ git merge --ff-only feat/a7-frontend      # 或按项目惯例推 main
 git rev-parse HEAD origin/main            # 贴出两者相等
 ```
 
-基线差异提示：本卡基线的 `backend/migrations/business/` 只到 V0040 / V0048（A3–A6 的 V0041–V0045、V0049 不在快照内），因此**若上游 main 已有 V0041–V0045，请确认版本号不冲突**：本卡新增的是 V0046 / V0047，与架构文档 §5.2 的预留号一致，与 A5 实际落地的 V0043/V0044/V0045/V0049 不冲突。
+基线差异提示：本卡基线的 `backend/app/migrations/business/` 只到 V0040 / V0048（A3–A6 的 V0041–V0045、V0049 不在快照内），因此**若上游 main 已有 V0041–V0045，请确认版本号不冲突**：本卡新增的是 V0046 / V0047，与架构文档 §5.2 的预留号一致，与 A5 实际落地的 V0043/V0044/V0045/V0049 不冲突。

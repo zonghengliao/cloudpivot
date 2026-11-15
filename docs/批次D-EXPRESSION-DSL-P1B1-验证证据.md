@@ -18,7 +18,7 @@
 
 ## 二、与后端逐字兼容的依据
 
-读的代码：`backend/src/business/flow/graph.rs`
+读的代码：`backend/app/src/business/flow/graph.rs`
 
 - `FIXED_FIELDS`（10 项）逐字复制进 `condition-tree.ts::FIXED_FIELDS`
 - `field_allowed`：`form.` + 首字符 `[A-Za-z_]`，其余 `[A-Za-z0-9_]`，后缀 ≤ 64 → 同规则实现为 `fieldError()`

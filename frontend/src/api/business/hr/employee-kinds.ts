@@ -7,7 +7,7 @@
  *
  * # 字段名逐条抄自后端，不缩写
  *
- * 出处：`backend/src/business/hr/employee_dto.rs`（HR-11 定稿出参契约）
+ * 出处：`backend/app/src/business/hr/employee_dto.rs`（HR-11 定稿出参契约）
  * —— `EmployeeListRes` 21 个键 / `EmployeeDetailRes` 49 个键 /
  * `EmployeeContractRes` / `EmployeeSalaryRes` / `SensitiveMasked`。
  * 猜字段名的代价是运行时 `undefined`（列空白、金额显示 `NaN`），编译期抓不到；

@@ -123,7 +123,7 @@
 |---|---|---|
 | **勾稽自检** | ✅ 已上线：库存三本账、应收应付与总账、凭证借贷平衡等不变量检查，页面化 | 支撑功能 → 不变量检查（`support/invariant`，553 行前端） |
 | **附件必传预检** | ✅ 已上线：按钮态就能看到"本单据在本动作下缺什么附件"，不用提交才发现 | `GET /business/attachment/check`（ATT-08） |
-| **错误码体系化** | ✅ **281 个**错误码，分段编码 + 中文文案 | `backend/src/shared/error_code.rs`（2056 行） |
+| **错误码体系化** | ✅ **281 个**错误码，分段编码 + 中文文案 | `backend/app/src/shared/error_code.rs`（2056 行） |
 | **凭证来源字段** | ✅ 已备：`source_type` + `source_id` + 联合索引（**缺可视化追溯界面**） | `biz_voucher`（V0149） |
 | **性能基线脚本** | ✅ k6 脚本 3 个（任务列表 / 凭证列表 / 公共库） | `scripts/verify/perf/` |
 | **空闲自动退出** | ✅ 15 分钟默认，服务端滑动过期 + 前端计时双保险 | `shared/idle_session.rs` + `useIdleLogout.ts` |
@@ -562,7 +562,7 @@ cloudpivot/
 
 ```
 业务代码统一放 business/            不侵入框架底座
-后端 backend/src/business/<模块>/    前端 frontend/src/api|views/business/<模块>/
+后端 backend/app/src/business/<模块>/    前端 frontend/src/api|views/business/<模块>/
 新表必须带：软删字段、创建/更新时间、创建人/更新人、审计日志
 新迁移必须：幂等、只追加、有对应 down 脚本
 ```

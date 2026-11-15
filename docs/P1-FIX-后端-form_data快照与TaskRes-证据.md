@@ -30,7 +30,7 @@
 
 | 文件 | 改动 |
 |---|---|
-| `backend/src/business/erp/form_snapshot.rs`（新增，~420 行含单测） | 显示名 / 明细快照查询层：`supplier_name` / `warehouse_name` / `purchase_items` / `stock_in_items` / `transfer_items`；`ITEM_KEYS` 是与前端 `FORM_FIELD_LABELS` 对齐的键契约 |
+| `backend/app/src/business/erp/form_snapshot.rs`（新增，~420 行含单测） | 显示名 / 明细快照查询层：`supplier_name` / `warehouse_name` / `purchase_items` / `stock_in_items` / `transfer_items`；`ITEM_KEYS` 是与前端 `FORM_FIELD_LABELS` 对齐的键契约 |
 | `purchase_handler.rs` | `purchase_form_data` 变 async，补 `supplier_name` / `warehouse_name` / `items` |
 | `stockin_handler.rs` | `stock_in_form_data` 变 async，补 `supplier_name` / `warehouse_name` / `items` |
 | `payable_payment.rs` | 抽出 `payment_form_data`，补 `supplier_name` |

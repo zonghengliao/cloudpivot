@@ -29,10 +29,10 @@ X-Content-Type-Options: nosniff
 
 | 文件 | 职责 |
 |------|------|
-| `backend/src/business/pdf/templates/order.html.tera` | A4 版式（`include_str!` 编译进二进制，运行期零文件依赖） |
-| `backend/src/business/pdf/template.rs` | `OrderDocKind` / `OrderContext` / `sample_order` / `render_order` / `order_footer` / `order_pdf_opts`；金额格式化（`yuan_to_fen` / `format_quantity`） |
-| `backend/src/business/erp/order_pdf.rs` | 两个 GET 入口 + 上下文组装（`purchase_order_context` / `sales_order_context`）+ 审计编排；纯函数 `build_items` / `compose_remark` 可单测 |
-| `backend/src/business/erp/order_pdf_model.rs` | 批量补名字（物料 / 单位 / 用户）+ 写 `operation_logs` |
+| `backend/app/src/business/pdf/templates/order.html.tera` | A4 版式（`include_str!` 编译进二进制，运行期零文件依赖） |
+| `backend/app/src/business/pdf/template.rs` | `OrderDocKind` / `OrderContext` / `sample_order` / `render_order` / `order_footer` / `order_pdf_opts`；金额格式化（`yuan_to_fen` / `format_quantity`） |
+| `backend/app/src/business/erp/order_pdf.rs` | 两个 GET 入口 + 上下文组装（`purchase_order_context` / `sales_order_context`）+ 审计编排；纯函数 `build_items` / `compose_remark` 可单测 |
+| `backend/app/src/business/erp/order_pdf_model.rs` | 批量补名字（物料 / 单位 / 用户）+ 写 `operation_logs` |
 
 **分层口径**：`business/pdf` 不读业务数据（模板 + 渲染参数）；业务侧自己查库、自己组装上下文，
 然后两步 `render_order` → `engine::render_pdf`。加新单据时**只动业务侧 + 新增模板**，不碰引擎。

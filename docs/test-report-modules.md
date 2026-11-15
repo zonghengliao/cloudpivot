@@ -2,7 +2,7 @@
 
 - 卡片：`t_69e8220e`【测试D】公告/通知/存储/项目/日志/互斥/导入导出测试（66+ 用例，含 8 条跨模块联动）
 - 仓库/工作区：`/opt/cloudpivot`（主仓 `main`，直接在主仓干；只加测试文件，未改业务逻辑）
-- 数据库：只连 `cloudpivot_test`（`backend/tests/testd/common.rs::ensure_db` 硬校验连接串，指错库直接 panic）
+- 数据库：只连 `cloudpivot_test`（`backend/app/tests/testd/common.rs::ensure_db` 硬校验连接串，指错库直接 panic）
 - 执行命令：`cd backend && cargo test --test testd -- --test-threads=1`
 - 最终结果（真实输出）：
   ```
@@ -222,7 +222,7 @@
 4. `sys_dict_item` 只按 `item_label LIKE 前缀` 删，漏掉用别的前缀做的项；
 5. 失败只 `println` 一行，测试继续绿 —— 典型「静默污染」。
 
-**修复**（只改测试夹具 `backend/tests/testd/common.rs`，不碰业务代码）：
+**修复**（只改测试夹具 `backend/app/tests/testd/common.rs`，不碰业务代码）：
 
 - `Ctx::reset` 改为**外键拓扑序**：`sys_change_log → 任务子表 → 任务（先断 parent_id）→ 项目 → 公告/通知 → 导入导出 → 帮助 → 字典 → 角色关联/互斥/脱敏 → sys_file → 用户 → 角色`；
 - 失败改 `WARN[cleanup]` + 数据库原文 + SQL，并**返回本前缀残留行数**；
@@ -250,7 +250,7 @@ sys_role_mutex → sys_role → sys_user`、`sys_notice_receiver → sys_notice 
 sys_announcement` 逐条查证）。**缺陷修好后守卫变绿、这个问题就"自己消失"了**——
 但那是运气，不是机制：任何一次 panic 都会重新污染库。
 
-**修复**（只改 `backend/tests/testd/**`，不碰业务代码）：
+**修复**（只改 `backend/app/tests/testd/**`，不碰业务代码）：
 
 1. 新增 `common::case(tag, |ctx| async move { … })` 外壳：用例体包进
    `AssertUnwindSafe(..).catch_unwind()`，**正常返回和 panic 两条路径都执行
@@ -353,5 +353,5 @@ PGPASSWORD=*** bash /opt/cloudpivot/scripts/verify/testd_http.sh
 ## 13. 结论
 
 - 卡面要求的 **≥58 + 8 联动 = ≥66** 全部落地：**67 条真库用例全绿**（含 1 条清理自检），另有 **11 条 HTTP 层断言**全绿。
-- 未改任何业务代码（`git show --stat` 只有 `backend/tests/**`、`scripts/verify/testd_http.sh`、本报告）。
+- 未改任何业务代码（`git show --stat` 只有 `backend/app/tests/**`、`scripts/verify/testd_http.sh`、本报告）。
 - **放行判断**：P0 的导入导出「事务边界 / 幂等 / 1 万行 / 篡改拒绝 / 过期 410 / 失败可重试」与脱敏「详情 / 导出 / fail-closed」都成立；**BUG-D-08（文件下载无属主隔离）与 BUG-D-09（php 类脚本漏网）已于卡 `t_7a9b87f8` 修复并回归全绿**；BUG-D-13（明文导出无留痕）同卡修复（真因是 `request_id` 超长，不是 jsonb 绑定）；**BUG-D-05（公告删了通知还在）由 FIX-04 修复、BUG-D-14（ERP 自审）由 P-FLOW-3A/3B 修复**，两条守卫型用例都已在卡 `t_3d77b506` 改成正向断言（`cargo test --test testd` = 67 passed / 0 failed）。

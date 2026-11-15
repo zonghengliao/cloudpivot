@@ -3,7 +3,7 @@ import { del, get, post, put } from '@/api/request';
 /**
  * 附件必传规则管理接口（**ATT-09**）。
  *
- * 后端：`backend/src/business/attachment/rule_admin/`，权限码前缀
+ * 后端：`backend/app/src/business/attachment/rule_admin/`，权限码前缀
  * `support:attachment-rule:*`，**只有超管能用**（非超管 403）。
  *
  * # 为什么下拉数据也从后端取

@@ -3,7 +3,7 @@
  *
  * # 字段口径（硬红线①）
  *
- * 出参逐字抄 `backend/src/business/erp/customer_handler.rs::CustomerRes`
+ * 出参逐字抄 `backend/app/src/business/erp/customer_handler.rs::CustomerRes`
  * （= `biz_customer` 的存活列），并用真接口 `GET /api/business/erp/customer/page`
  * 核对过（`docs/evidence/20261106-so03-customer/`）：
  *

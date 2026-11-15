@@ -4,7 +4,7 @@
  * # 与后端的关系
  *
  * 后端 7 个单据各自有 `MAX_LINES = 200`，超限时由
- * `backend/src/business/shared/doc_lines.rs` 的 `too_many_lines()` 生成同一句话。
+ * `backend/app/src/business/shared/doc_lines.rs` 的 `too_many_lines()` 生成同一句话。
  * 这里**照抄同一句话**（前端提前提示，后端保存时兜底拒绝）：
  *
  * ```

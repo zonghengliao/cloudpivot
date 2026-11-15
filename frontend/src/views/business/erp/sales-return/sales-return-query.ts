@@ -3,7 +3,7 @@
  *
  * # 字段口径
  *
- * 出参 / 入参逐字抄 `backend/src/business/erp/sales_return_handler.rs`
+ * 出参 / 入参逐字抄 `backend/app/src/business/erp/sales_return_handler.rs`
  * （`ReturnRes` / `ReturnItemRes` / `ReturnableItemRes` / `CreateReturnReq` /
  * `ReturnItemReq` / `ReturnStatusReq`），前端类型在 `@/api/business/erp/sales-return`。
  *

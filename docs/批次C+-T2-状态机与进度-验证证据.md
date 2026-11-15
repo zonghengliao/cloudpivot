@@ -46,8 +46,8 @@
 
 | 文件 | 职责 |
 |---|---|
-| `backend/src/business/task/state.rs` | **状态机纯逻辑**：5 态枚举 / 角色位掩码 / 10 条白名单流转表 / 授权三段式判定 / 进度聚合（加权·等权·全完成）/ 15 条单测 |
-| `backend/migrations/business/V0108__task_status_progress.{up,down}.sql` | `biz_task.status_semantic`（P1 扩展位）+ `biz_task_comment.comment_type`（STATUS_CHANGE / PROGRESS_AUTO）+ 3 个权限按钮节点（…0765–…0767）+ 自检 |
+| `backend/app/src/business/task/state.rs` | **状态机纯逻辑**：5 态枚举 / 角色位掩码 / 10 条白名单流转表 / 授权三段式判定 / 进度聚合（加权·等权·全完成）/ 15 条单测 |
+| `backend/app/migrations/business/V0108__task_status_progress.{up,down}.sql` | `biz_task.status_semantic`（P1 扩展位）+ `biz_task_comment.comment_type`（STATUS_CHANGE / PROGRESS_AUTO）+ 3 个权限按钮节点（…0765–…0767）+ 自检 |
 | `scripts/verify/t2_task_status_fixture.sql` | 走查夹具（跨部门组织 / 4 账号 / 三级嵌套 A→B→C） |
 | `scripts/verify/t2_task_status_verify.py` | 真服务走查（**104 条断言**，HTTP 码 + 业务码 + 落库值 + 评论 + 变更日志 + 通知） |
 | `docs/批次C+-T2-状态机与进度-验证证据.md` | 本文 |
@@ -56,10 +56,10 @@
 
 | 文件 | 改动 | 为什么必须改 |
 |---|---|---|
-| `backend/src/business/task/{mod,dto,model,handler}.rs` | `pub mod state;` + 4 个接口（PATCH status / PATCH progress / POST subtask / GET subtasks）+ 进度重算与评论落库 + 通知分级 | T2 的主体交付 |
-| `backend/src/business/changelog/diff.rs` | `BIZ_TASK` 登记项 + 加入 `REGISTRY` | `record()` 对未登记表 **fail-closed**（62012），状态迁移留痕必须先登记白名单 |
-| `backend/src/shared/error_code.rs` | 63xxx 段 +4 个码（63010–63013）+ 更新码表自检（9 → 13） | 新增「非法流转 / 无权流转 / 进度锁定 / 打回缺原因」四种错误必须**可区分** |
-| `backend/migrations/seed/S__task_permissions.sql` | 授权清单 5 → 8 个节点；自检「每角色 4 个按钮」→「每角色 7 个按钮」 | 新权限码要给**所有未软删角色**授权，否则普通账号点不到新按钮（与 V0103 同款的时序理由：版本化迁移先跑、种子后跑） |
+| `backend/app/src/business/task/{mod,dto,model,handler}.rs` | `pub mod state;` + 4 个接口（PATCH status / PATCH progress / POST subtask / GET subtasks）+ 进度重算与评论落库 + 通知分级 | T2 的主体交付 |
+| `backend/app/src/business/changelog/diff.rs` | `BIZ_TASK` 登记项 + 加入 `REGISTRY` | `record()` 对未登记表 **fail-closed**（62012），状态迁移留痕必须先登记白名单 |
+| `backend/app/src/shared/error_code.rs` | 63xxx 段 +4 个码（63010–63013）+ 更新码表自检（9 → 13） | 新增「非法流转 / 无权流转 / 进度锁定 / 打回缺原因」四种错误必须**可区分** |
+| `backend/app/migrations/seed/S__task_permissions.sql` | 授权清单 5 → 8 个节点；自检「每角色 4 个按钮」→「每角色 7 个按钮」 | 新权限码要给**所有未软删角色**授权，否则普通账号点不到新按钮（与 V0103 同款的时序理由：版本化迁移先跑、种子后跑） |
 
 **没有动的红线**：`business/shared/scope.rs` 一行未改；批次 A/B/C 模块一个未改；
 `biz_task.status` 的 5 值 CHECK 未动（本次不做自定义列）。
@@ -297,7 +297,7 @@ TOTAL_PASSED= 627
 ==> 批次B 闸①：分页必须走 scope::paginate
   PASS：0 处（分页全部走 scope::paginate）
 ==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
-  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support,shared}
   PASS：0 处
 ==> 批次B 门禁汇总：闸①=0 处  闸②=0 处  （B0 基线 20 / 21）
 ==> C7 G1：只有 business/changelog/ 能碰 sys_change_log            PASS：0 处
@@ -319,12 +319,12 @@ G5 PASS：20 个 record/record_in 调用点全部在 transaction 闭包内且传
 ### 8.1 一个必须说清的现象：共享工作区里 `cargo fmt --check` 会红
 
 `/opt/cloudpivot` 是**多卡共享工作区**。本次交付期间，另一张卡（T6a）在
-`backend/src/bin/` 下留了一个**未跟踪的临时工具** `genhash.rs`（文件头自述「临时工具…用完即删」），
+`backend/app/src/bin/` 下留了一个**未跟踪的临时工具** `genhash.rs`（文件头自述「临时工具…用完即删」），
 它没有格式化，于是共享工作区里的 `bash scripts/check.sh` 在第一步 `cargo fmt --check` 就红：
 
 ```
 ==> 后端：cargo fmt --check
-Diff in /opt/cloudpivot/backend/src/bin/genhash.rs:2:
+Diff in /opt/cloudpivot/backend/app/src/bin/genhash.rs:2:
 -    let pwd = std::env::args().nth(1).unwrap_or_else(|| "Test@12345".to_string());
 +    let pwd = std::env::args()
 +        .nth(1)
@@ -403,7 +403,7 @@ $ git rev-parse origin/main     → 6a2444d0625c529ab7563f0d39da42c2293c2982
 $ git --git-dir=/opt/git/cloudpivot.git rev-parse main
                                 → 6a2444d0625c529ab7563f0d39da42c2293c2982
 $ git status --porcelain
-?? backend/src/bin/            （别人的未跟踪临时工具，不是本卡的交付物，未提交）
+?? backend/app/src/bin/            （别人的未跟踪临时工具，不是本卡的交付物，未提交）
 ```
 
 提交前钩子（`pre-commit`）通过：

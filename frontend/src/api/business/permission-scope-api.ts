@@ -5,7 +5,7 @@ import { get, put } from '@/api/request';
  *
  * # 契约来源
  *
- * 后端 `backend/src/business/permission/{dto,scope_handler}.rs`，前缀 `/api` 由后端
+ * 后端 `backend/app/src/business/permission/{dto,scope_handler}.rs`，前缀 `/api` 由后端
  * `[router].prefix` 注入，本文件写全路径。
  *
  * | 方法 | 路径 | 权限码 |

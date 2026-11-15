@@ -1,5 +1,5 @@
 /**
- * 盘点单 API 层（DC-14 后端 `backend/src/business/erp/stocktake_{dto,handler,model}.rs`）。
+ * 盘点单 API 层（DC-14 后端 `backend/app/src/business/erp/stocktake_{dto,handler,model}.rs`）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）
  *

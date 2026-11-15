@@ -5,7 +5,7 @@
  *
  * # 测什么（四层，越往下越容易出事）
  *
- * 1. **与后端逐条对拍**（读 `backend/src/business/impexp/builtin/hr/employee.rs`）：
+ * 1. **与后端逐条对拍**（读 `backend/app/src/business/impexp/builtin/hr/employee.rs`）：
  *    业务编码 `hr.employee`、行数上限 1000、列数 28、冲突策略是 `SKIP` 语义、
  *    「工号留空自动取号」。后端改一个字 / 一个数，这条先红。
  * 2. **计数算术**：`skippedDuplicateCount` / `importOutcomeText` —— 页面上
@@ -43,12 +43,12 @@ import {
 
 /** 后端定义源码（逐条对拍用） */
 const RUST = readFileSync(
-  new URL('../../../backend/src/business/impexp/builtin/hr/employee.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/impexp/builtin/hr/employee.rs', import.meta.url),
   'utf8',
 );
 /** 后端 HR 模板路由源码 */
 const RUST_HANDLER = readFileSync(
-  new URL('../../../backend/src/business/hr/employee_import_handler.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/employee_import_handler.rs', import.meta.url),
   'utf8',
 );
 /** 前端 API 层 */
@@ -87,7 +87,7 @@ test('模板与导入解析共用同一份列定义（不存在两份真相）',
   assert.match(RUST_HANDLER, /EMPLOYEE_BIZ_TYPE/);
   // 定义必须挂进 registry（漏挂 → 模板接口 60011）
   const builtin = readFileSync(
-    new URL('../../../backend/src/business/impexp/builtin/mod.rs', import.meta.url),
+    new URL('../../../backend/app/src/business/impexp/builtin/mod.rs', import.meta.url),
     'utf8',
   );
   assert.match(builtin, /hr::employee::EmployeeImport/);

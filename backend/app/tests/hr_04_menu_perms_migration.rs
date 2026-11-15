@@ -40,7 +40,11 @@ fn backend_root() -> PathBuf {
 }
 
 fn repo_root() -> PathBuf {
-    backend_root().parent().expect("backend/ 应有父目录").to_path_buf()
+    backend_root()
+        .ancestors()
+        .nth(2)
+        .expect("backend/app/ 应有上两级目录（仓库根）")
+        .to_path_buf()
 }
 
 fn read_migration(relative: &str) -> String {

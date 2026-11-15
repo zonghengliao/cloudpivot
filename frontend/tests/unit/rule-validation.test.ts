@@ -7,7 +7,7 @@
  *
  * 1. **行为**：深度 8/9、节点 64/65、规则 32/33、白名单、then 目标 —— 边界两侧各一条，
  *    改常量而没改判定时立刻红。
- * 2. **对齐**：直接读 `backend/src/**` 的 rust 源码，断言前端常量 / 文案模板与后端**逐字一致**。
+ * 2. **对齐**：直接读 `backend/app/src/**` 的 rust 源码，断言前端常量 / 文案模板与后端**逐字一致**。
  *    这是卡面 ⑤ 的落地方式 —— 不靠人眼比对，靠 `fs.readFileSync`。
  */
 import { test } from 'node:test';
@@ -273,7 +273,7 @@ test('PREV_APPROVER → 65033 + graph.rs 原文（本期唯一给 65033 的场�
 /** 读后端源码（路径相对本测试文件） */
 function rust(relative: string): string {
   return readFileSync(
-    fileURLToPath(new URL(`../../../backend/src/business/flow/${relative}`, import.meta.url)),
+    fileURLToPath(new URL(`../../../backend/app/src/business/flow/${relative}`, import.meta.url)),
     'utf8',
   );
 }
@@ -281,7 +281,7 @@ function rust(relative: string): string {
 /** 读 error_code.rs */
 function errorCodeSource(): string {
   return readFileSync(
-    fileURLToPath(new URL('../../../backend/src/shared/error_code.rs', import.meta.url)),
+    fileURLToPath(new URL('../../../backend/app/src/shared/error_code.rs', import.meta.url)),
     'utf8',
   );
 }

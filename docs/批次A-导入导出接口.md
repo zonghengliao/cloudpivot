@@ -1,6 +1,6 @@
 # 批次 A · 导入导出接口契约（A3 + A4 合并后的最终口径）
 
-> 代码：`backend/src/business/impexp/`
+> 代码：`backend/app/src/business/impexp/`
 > 迁移：`V0041__create_impexp_task`（`sys_import_task` / `sys_export_task`）、`V0042__create_impexp_error_detail`（`sys_import_task_error`）、`V0052__seed_impexp_export_retry`（补 `export:retry` 权限点）
 > 依据：`docs/批次A-技术架构.md` §3、`docs/批次A-产品需求PRD.md` 第四章
 > 本文件在「批次 A 遗留修复」中已按实现校正（下载路径别名、权限码、取消 / 重试 / 异步导出），差异见文末「§7 变更记录」。

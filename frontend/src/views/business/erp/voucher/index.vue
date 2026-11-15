@@ -784,7 +784,7 @@ import { exportFilterPayload } from '@/utils/batch-action';
  * # 字段来源（硬红线 1）
  *
  * 契约在 `@/api/business/erp` 的 `VoucherRow` / `VoucherDetail`，逐字抄
- * `backend/src/business/erp/voucher_query.rs` 的 `VoucherRes` / `VoucherEntryRes` /
+ * `backend/app/src/business/erp/voucher_query.rs` 的 `VoucherRes` / `VoucherEntryRes` /
  * `VoucherDetailRes`（`voucher_no` / `voucher_date` / `period` / `voucher_type` /
  * `status` / `total_debit` / `total_credit` / `entries[].line_no` …）。
  *

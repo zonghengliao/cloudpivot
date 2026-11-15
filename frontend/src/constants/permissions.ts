@@ -226,7 +226,7 @@ export const CHANGELOG_PERMISSIONS = {
  * （第 5 个节点 …0760 是页面本身，auth_code 复用 `read`）；第 5 个
  * `business:task:status`（改状态）由 `V0108` 补种（按钮节点 …0765）；
  * 第 6 个 `business:task:subtask`（建子任务）同样由 `V0108` 补种（按钮节点 …0767）。
- * 后端注解在 `backend/src/business/task/handler.rs`。三处任一处改名都要同步。
+ * 后端注解在 `backend/app/src/business/task/handler.rs`。三处任一处改名都要同步。
  */
 export const TASK_PERMISSIONS = {
   /** 查看任务（菜单入口 / 分页 / 详情 / 我的任务） */
@@ -268,9 +268,9 @@ export const PROJECT_PERMISSIONS = {
 /**
  * 审批流权限码（批次 D · D1 定义侧 5 个，`business:flow:*`）。
  *
- * 与 `backend/migrations/business/V0121__flow_def_permissions.up.sql` 的 5 个
+ * 与 `backend/app/migrations/business/V0121__flow_def_permissions.up.sql` 的 5 个
  * `auth_code` 逐字一致（第 6 个节点 …0780 是页面本身，auth_code 复用 `read`）；
- * 后端注解在 `backend/src/business/flow/handler.rs`。三处任一处改名都要同步。
+ * 后端注解在 `backend/app/src/business/flow/handler.rs`。三处任一处改名都要同步。
  *
  * # 实例侧码位（D2 追加，页面里**先不用**）
  *

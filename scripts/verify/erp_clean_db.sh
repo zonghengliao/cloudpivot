@@ -65,8 +65,8 @@ if [ ! -x "$BIN" ]; then
   echo "二进制不存在：$BIN（先 cargo build 或传 BIN=…）" >&2
   exit 1
 fi
-if [ ! -d "$REPO/backend/migrations" ]; then
-  echo "迁移目录不存在：$REPO/backend/migrations（REPO 指到仓根）" >&2
+if [ ! -d "$REPO/backend/app/migrations" ]; then
+  echo "迁移目录不存在：$REPO/backend/app/migrations（REPO 指到仓根）" >&2
   exit 1
 fi
 

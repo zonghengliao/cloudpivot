@@ -3,9 +3,9 @@
  *
  * # 契约来源
  *
- * - 后端 handler：`backend/src/business/attachment/handler.rs`
- * - 出参结构：`backend/src/business/attachment/dto.rs`（`DocAttachmentItemRes` / `DocAttachmentListRes` …）
- * - 表与权限码：`backend/migrations/business/V0212__erp_doc_attachment.up.sql`
+ * - 后端 handler：`backend/app/src/business/attachment/handler.rs`
+ * - 出参结构：`backend/app/src/business/attachment/dto.rs`（`DocAttachmentItemRes` / `DocAttachmentListRes` …）
+ * - 表与权限码：`backend/app/migrations/business/V0212__erp_doc_attachment.up.sql`
  *
  * # 路径必须写全 `/api/...`
  *

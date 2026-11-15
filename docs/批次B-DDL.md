@@ -1,7 +1,7 @@
 # 批次 B · DDL 与迁移落地说明（B1）
 
 > 范围：**V0060–V0064 + V0067**（6 个版本、12 个 up/down 文件），全部落在
-> `backend/migrations/business/`。
+> `backend/app/migrations/business/`。
 > 依据：`docs/批次B-技术架构.md` 附录 A（DDL 原文，已在 PG 18.6 实跑）。
 > 验收证据（空库迁移、down 往返、约束语义实测）：`docs/批次B-B0B1-验证证据.md`。
 >
@@ -30,7 +30,7 @@
 
 > 每节的 SQL 与架构文档附录 A **逐字一致**（除每个文件顶部补了「版本 / 依据 / 回滚」头注释，
 > 与仓库既有迁移风格对齐）。下面为便于评审而重排，实际文件以
-> `backend/migrations/business/V00xx__*.sql` 为准。
+> `backend/app/migrations/business/V00xx__*.sql` 为准。
 
 ### 2.1 V0060 — `alter_sys_role_add_data_scope`
 
@@ -249,7 +249,7 @@ V0063 声明的索引，库内不自洽。这是本卡唯一偏离附录 A 的�
 
 ```bash
 # 1) 空库全量迁移（全新库 cloudpivot_b；prod 库 cloudpivot 绝不在命令里出现）
-psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b -f backend/tests/sql/batchb/verify_up.sql
+psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b -f backend/app/tests/sql/batchb/verify_up.sql
 
 # 2) down 可逆（框架 Migrator 的 rollback，LIFO）→ 再 run 回到最新
 #    工具：临时 example（验收后已删除，源码与理由见 docs/批次B-B0B1-验证证据.md 附录 A）
@@ -257,7 +257,7 @@ psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b -f backend/tests/sql/batchb/veri
 /var/tmp/b1_migrate.sh run
 
 # 3) 约束语义（对称唯一 / NULLS NOT DISTINCT / 反自反 / 标识符 CHECK / data_scope CHECK）
-psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b -f backend/tests/sql/batchb/verify_constraints.sql
+psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b -f backend/app/tests/sql/batchb/verify_constraints.sql
 
 # 4) 门禁基线
 bash scripts/check.sh          # 期望：闸① 20、闸② 21，退出码 1

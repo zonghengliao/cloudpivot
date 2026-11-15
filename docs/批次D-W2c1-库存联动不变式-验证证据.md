@@ -66,7 +66,7 @@ serial_handler::apply_status      ── begin ──▶ serial_model::transitio
 
 ## 四、单测：11 条（卡面要求 ≥8）
 
-`backend/src/business/erp/serial_handler.rs` 的 `tests`（真库 `ERP_DB_URL`，缺库则 SKIP）：
+`backend/app/src/business/erp/serial_handler.rs` 的 `tests`（真库 `ERP_DB_URL`，缺库则 SKIP）：
 
 | # | 用例 | 断言要点 |
 |---|---|---|
@@ -183,9 +183,9 @@ Aggregate
 ## 十、改动文件
 
 ```
-backend/src/business/erp/serial_model.rs     + 仓储联动段（recompute / 流水 / 事务内联动），
+backend/app/src/business/erp/serial_model.rs     + 仓储联动段（recompute / 流水 / 事务内联动），
                                              transition_status / batch_generate / take_numbers 改吃 &impl SqlExecutor
-backend/src/business/erp/serial_handler.rs   事务边界下沉到接口层 + warehouse_id 校验 + 11 条单测
+backend/app/src/business/erp/serial_handler.rs   事务边界下沉到接口层 + warehouse_id 校验 + 11 条单测
 scripts/verify/w2c1_invariant.sh             40 项真机验收（自建/自毁隔离库）
 docs/批次D-W2c1-库存联动不变式-验证证据.md     本文件
 ```

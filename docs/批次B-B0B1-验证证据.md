@@ -113,7 +113,7 @@ curl -s http://127.0.0.1:8026/health
 ## 2. down 可逆 + 往返 1 次（验收 2）
 
 框架只在 `App::start()` 里自动向上迁移，没有暴露 rollback 的 CLI，因此用一个**临时** example
-（`backend/examples/b1_migrate.rs`，验收后已删除、未提交；源码见本文件附录 A）调用框架同一套
+（`backend/app/examples/b1_migrate.rs`，验收后已删除、未提交；源码见本文件附录 A）调用框架同一套
 `alun_db::Migrator`（同一来源目录 `migrations/`、同一默认 options）执行 `rollback`。
 
 > **一个必须说明的操作**：`Migrator::rollback` 是「按 `applied_seq` LIFO 回滚最近一次成功的迁移」，
@@ -199,16 +199,16 @@ V0050 的 `heartbeat_at` 与 `sys_role.role_code` 未受牵连。
 ==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
     白名单：business/shared/scope.rs（+ 注释行不计）
   FAIL：20 处直接调 paginate_with_params（基线 20 处；B5 完成后应为 0）
-    backend/src/support/config/model.rs:447
-    backend/src/support/dict/model.rs:175 / :297
-    backend/src/support/file/model.rs:153
-    backend/src/support/job/model.rs:256 / :314
-    backend/src/support/log/model.rs:333 / :448
-    backend/src/system/role/model.rs:138 / :204
-    backend/src/system/user/model.rs:240
-    backend/src/business/storage/model.rs:220 / :465 / :991
-    backend/src/business/impexp/model.rs:455 / :549 / :913
-    backend/src/business/notice/model.rs:556 / :670 / :830
+    backend/app/src/support/config/model.rs:447
+    backend/app/src/support/dict/model.rs:175 / :297
+    backend/app/src/support/file/model.rs:153
+    backend/app/src/support/job/model.rs:256 / :314
+    backend/app/src/support/log/model.rs:333 / :448
+    backend/app/src/system/role/model.rs:138 / :204
+    backend/app/src/system/user/model.rs:240
+    backend/app/src/business/storage/model.rs:220 / :465 / :991
+    backend/app/src/business/impexp/model.rs:455 / :549 / :913
+    backend/app/src/business/notice/model.rs:556 / :670 / :830
   （实际输出逐行带完整路径与代码行，此处按文件聚合展示）
 ==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
     登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs
@@ -261,7 +261,7 @@ V0050 的 `heartbeat_at` 与 `sys_role.role_code` 未受牵连。
 ### 3.3 一处顺手修掉的既有格式债务（与前四项目检相关）
 
 `cargo fmt -- --check` 在**本次改动之前的 HEAD（`cf84231`）上就是红的**：`00e1f90`（批次 A 遗留修复卡）
-提交的 `backend/src/business/notice/model.rs:487` 有一段未格式化代码
+提交的 `backend/app/src/business/notice/model.rs:487` 有一段未格式化代码
 
 ```
 -        vec![
@@ -271,7 +271,7 @@ V0050 的 `heartbeat_at` 与 `sys_role.role_code` 未受牵连。
 +        vec![TypeMapper::to_value(&max_attempts), Value::from(*id)],
 ```
 
-复现：`git show HEAD:backend/src/business/notice/model.rs > /tmp/x.rs && rustfmt --edition 2024 --check /tmp/x.rs` → exit 1。
+复现：`git show HEAD:backend/app/src/business/notice/model.rs > /tmp/x.rs && rustfmt --edition 2024 --check /tmp/x.rs` → exit 1。
 它会让 `scripts/check.sh` 在第 1 步就退出，**新加的门禁永远打印不出来**，因此本卡对该文件做了
 `rustfmt`（纯空白、无语义改动，`git diff` = 1 insertion / 4 deletions），未触碰 `system/`、`support/`。
 
@@ -329,16 +329,16 @@ test `34/4/1`，距 100 万行阈值 5 个数量级 → **保持普通 `CREATE I
 ## 6. 交付清单（本卡改动文件）
 
 ```
-backend/migrations/business/V0060__alter_sys_role_add_data_scope.{up,down}.sql
-backend/migrations/business/V0061__create_sys_role_dept.{up,down}.sql
-backend/migrations/business/V0062__create_sys_field_mask.{up,down}.sql
-backend/migrations/business/V0063__create_sys_role_mutex.{up,down}.sql
-backend/migrations/business/V0064__batchb_indexes.{up,down}.sql
-backend/migrations/business/V0067__alter_export_task_add_mask_applied.{up,down}.sql
-backend/tests/sql/batchb/verify_up.sql            （验收 1 的断言脚本）
-backend/tests/sql/batchb/verify_down.sql          （验收 2 的回滚断言）
-backend/tests/sql/batchb/verify_constraints.sql   （§4 的约束语义实测）
-backend/src/business/notice/model.rs              （仅 rustfmt：1 insertion / 4 deletions，见 §3.3）
+backend/app/migrations/business/V0060__alter_sys_role_add_data_scope.{up,down}.sql
+backend/app/migrations/business/V0061__create_sys_role_dept.{up,down}.sql
+backend/app/migrations/business/V0062__create_sys_field_mask.{up,down}.sql
+backend/app/migrations/business/V0063__create_sys_role_mutex.{up,down}.sql
+backend/app/migrations/business/V0064__batchb_indexes.{up,down}.sql
+backend/app/migrations/business/V0067__alter_export_task_add_mask_applied.{up,down}.sql
+backend/app/tests/sql/batchb/verify_up.sql            （验收 1 的断言脚本）
+backend/app/tests/sql/batchb/verify_down.sql          （验收 2 的回滚断言）
+backend/app/tests/sql/batchb/verify_constraints.sql   （§4 的约束语义实测）
+backend/app/src/business/notice/model.rs              （仅 rustfmt：1 insertion / 4 deletions，见 §3.3）
 scripts/check.sh                                  （新增批次B 闸①/闸②，见 §3）
 docs/批次B-DDL.md                                 （DDL 原文 + down 说明 + 并发性判断）
 docs/批次B-B0B1-验证证据.md                        （本文）
@@ -396,10 +396,10 @@ B1_DB=cloudpivot_b2 B1_LISTEN=127.0.0.1:8027 /var/tmp/b1_run.sh
 
 # 2) 结构断言
 export PGPASSWORD=$(grep -m1 '^NIK_DATABASE_PASSWORD' /etc/cloudpivot/cloudpivot-test.env | cut -d= -f2-)
-psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b2 -f backend/tests/sql/batchb/verify_up.sql
+psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b2 -f backend/app/tests/sql/batchb/verify_up.sql
 
 # 3) 约束语义（事务内，自动 ROLLBACK）
-psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b2 -f backend/tests/sql/batchb/verify_constraints.sql
+psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b2 -f backend/app/tests/sql/batchb/verify_constraints.sql
 
 # 4) 门禁基线
 bash scripts/check.sh     # 期望 闸①=20 闸②=21、exit 1

@@ -186,7 +186,7 @@ def scan_biz_type_layers(business_root, audit_path, doc_kind_path, ts_mirror, ex
 
 def static_registry_gate():
     print("\n[闸①] 三层静态漂移：写入点字面量 ⊆ 词表 ⊆ E4 登记表")
-    r = scan_biz_type_layers(REPO / "backend/src/business", AUDIT,
+    r = scan_biz_type_layers(REPO / "backend/app/src/business", AUDIT,
                              REPO / "backend/crates/cloudpivot-doc/src/lib.rs", BIZ_TS_MIRROR)
     for problem in r["problems"]:
         free_of(False, problem)
@@ -204,8 +204,8 @@ def static_registry_gate():
             f"枚举独有 {sorted(enum_vals - vocab)} / 词表独有 {sorted(vocab - enum_vals)}")
 
     # ── 写入点探测（内容探测 + 锚点自检）──
-    writer_names = {p.relative_to(REPO / "backend/src/business").as_posix()
-                    for p in r["writers"] if str(p).startswith(str(REPO / "backend/src/business"))}
+    writer_names = {p.relative_to(REPO / "backend/app/src/business").as_posix()
+                    for p in r["writers"] if str(p).startswith(str(REPO / "backend/app/src/business"))}
     print(f"        ℹ️ 探测到 {len(writer_names)} 个动账写入点模块：{sorted(writer_names)}")
     free_of(len(writer_names) >= 5, f"动账写入点模块探测到 {len(writer_names)} 个（≥5）",
             str(sorted(writer_names)))
@@ -256,7 +256,7 @@ def static_gate_self_test():
     """
     import tempfile
 
-    business_root = REPO / "backend/src/business"
+    business_root = REPO / "backend/app/src/business"
     # 词表本体在 cloudpivot-doc crate（P2-27 起）；旧的 shared/doc_kind.rs 垫片 P2-28 已删除
     doc_kind = REPO / "backend/crates/cloudpivot-doc/src/lib.rs"
     fake = ('fn write() {\n    inventory_writer::insert_txn(...);\n}\n'

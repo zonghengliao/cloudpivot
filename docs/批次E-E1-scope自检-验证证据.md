@@ -1,7 +1,7 @@
 # 批次E · E1：scope 自检误报修复 + 11 个豁免逐条核对 —— 验证证据
 
 - 卡：`t_68bea742`【整合-E1】修 scope 自检误报 + 逐条核对 11 个豁免
-- 提交：`backend/src/business/permission/{scope_model.rs, dto.rs, scope_handler.rs}`（3 文件 +322/-42）
+- 提交：`backend/app/src/business/permission/{scope_model.rs, dto.rs, scope_handler.rs}`（3 文件 +322/-42）
 - 迁移：**0**　接口：**1 个**（`GET /api/business/permission/scope/uncovered-tables`，返回值扩展、向后兼容）
 - 结论：**`uncovered: 0`**（生产实测）；11 张登记表逐条核对，**11 条理由全部成立**；另给出 2 条"待修清单"（本卡不修）
 
@@ -23,7 +23,7 @@
 自检接口的实现是"登记表 → `wired: bool`"一档投影，而**运行时镜子清单本身是空的**：
 
 ```rust
-// 改动前 backend/src/business/permission/scope_model.rs
+// 改动前 backend/app/src/business/permission/scope_model.rs
 pub const WIRED_TABLES: &[&str] = &[];          // ← 11 张表一张都没登记
 pub fn is_wired(table: &str) -> bool { WIRED_TABLES.contains(&table) }
 ```
@@ -74,7 +74,7 @@ pub fn is_wired(table: &str) -> bool { WIRED_TABLES.contains(&table) }
 
 | # | 位置 | 问题 | 为什么本卡不动 | 建议 |
 |---|---|---|---|---|
-| 1 | `backend/src/business/flow/task_bridge.rs` | 查询 `biz_flow_task` / `biz_task`，**既无 `scope::` 也无 `SCOPE-EXEMPT`** → `bash scripts/check.sh` 闸② 实测 **FAIL 1 处**（EXIT=1）。D3b（`0d8fa8e`）引入，非本卡改动 | 属 D3b 的接线口径问题，改它要动审批门闸，超出 E1 范围 | 接 `scope::filter_for` 或补显式豁免+理由；建议单独一张卡，附 `scripts/check.sh` 全绿为验收 |
+| 1 | `backend/app/src/business/flow/task_bridge.rs` | 查询 `biz_flow_task` / `biz_task`，**既无 `scope::` 也无 `SCOPE-EXEMPT`** → `bash scripts/check.sh` 闸② 实测 **FAIL 1 处**（EXIT=1）。D3b（`0d8fa8e`）引入，非本卡改动 | 属 D3b 的接线口径问题，改它要动审批门闸，超出 E1 范围 | 接 `scope::filter_for` 或补显式豁免+理由；建议单独一张卡，附 `scripts/check.sh` 全绿为验收 |
 | 2 | `sys_file` / `sys_notice` / `sys_import_task` / `sys_export_task` / 5 张日志表 | 这些表**没有部门列** → 部门类范围（`DEPT` / `DEPT_AND_CHILD` / `CUSTOM`）在 `scope.rs:462-468` **fail-closed 降级为「仅本人」**并置 `is_degraded()` | 不是"豁免理由不成立"（降级是安全方向），是**覆盖面已知上限**，补它要 join `sys_user` | 另开卡评估「部门形态补齐」（架构 §2.5 的 P1） |
 
 > 说明：`uncovered` 类（"应该过滤但没做"）**为空**；上表 #1 是**门禁红**（不是本接口的 `uncovered`），#2 是**覆盖降级**，两者都在本接口之外，如实列出不代表 E1 未达成。

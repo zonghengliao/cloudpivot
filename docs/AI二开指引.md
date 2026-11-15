@@ -84,15 +84,15 @@
 
 | 想生成什么 | 照抄哪个范本 |
 |------------|--------------|
-| 后端模块四件套 | `backend/src/system/user/{mod,handler,dto,model}.rs` |
-| 后端事务 / 批量 | `backend/src/system/user/handler.rs` 的 `create`（含 `db().transaction`） |
-| 后端鉴权 / 登录 / 限流 | `backend/src/system/auth/handler.rs`、`model.rs` |
+| 后端模块四件套 | `backend/app/src/system/user/{mod,handler,dto,model}.rs` |
+| 后端事务 / 批量 | `backend/app/src/system/user/handler.rs` 的 `create`（含 `db().transaction`） |
+| 后端鉴权 / 登录 / 限流 | `backend/app/src/system/auth/handler.rs`、`model.rs` |
 | 前端列表页 | `frontend/src/views/system/user/index.vue` |
 | 前端接口封装 | `frontend/src/api/system/user-api.ts` |
 | 前端路由 / 守卫 | `frontend/src/router/index.ts` |
 | 前端 axios 封装 | `frontend/src/api/request.ts` |
 | 主题 / 渐变变量 | `frontend/src/style/theme.less` |
-| 启动链 / 分层 | `backend/src/lib.rs` |
+| 启动链 / 分层 | `backend/app/src/lib.rs` |
 | 配置 / 部署 | `backend/config/config.toml`、`docker/`、`scripts/` |
 | 框架依赖（crates.io 发布版） | `nik = { version = "0.3.0" }`（见 `backend/Cargo.toml`；构建时由 cargo 从 crates.io 拉取，无需本地框架源码） |
 
@@ -112,7 +112,7 @@
 
 ## 七、二开前必做
 
-- 改迁移前先 `ls backend/migrations/*/` 核对当前最大版本号，确认号段。
+- 改迁移前先 `ls backend/app/migrations/*/` 核对当前最大版本号，确认号段。
 - 写 `INSERT INTO sys_role_menu` 授权段前，先 `select role_code from sys_role where deleted_at is null
   and status = 1` 确认角色码真的存在（闸⑧ 会拦未知码；授权应优先走 `V0258` 角色矩阵）。
 - 新增权限点后，确认 `sys_menu.auth_code` 种子、`#[nik::permission(...)]`、`router.meta.permission` 三处字符串完全一致。

@@ -14,7 +14,7 @@
 set -uo pipefail
 export PATH=/root/.cargo/bin:$PATH
 DB=${1:-cloudpivot_fin3}
-MIG=/opt/cloudpivot/backend/migrations/business
+MIG=/opt/cloudpivot/backend/app/migrations/business
 ROOT=/opt/cloudpivot
 export PGPASSWORD=alun
 

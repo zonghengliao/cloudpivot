@@ -10,7 +10,7 @@
  *
  * # 取值来源（改这里之前先改后端）
  *
- * - 状态：`backend/src/business/erp/expense_dto.rs::STATUS_*`
+ * - 状态：`backend/app/src/business/erp/expense_dto.rs::STATUS_*`
  * - 付款状态：同文件 `PAY_*`
  * - 发票类型：迁移 `V0242` 的 CHECK `ck_biz_exp_item_inv`
  * - 付款方式：`expense_dto::PAY_METHODS`（应用层收口，DDL 不设 CHECK）

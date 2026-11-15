@@ -22,11 +22,12 @@
 
 use std::path::{Path, PathBuf};
 
-/// 仓库根（`backend/` 的上一级）。
+/// 仓库根（`backend/app/` 的上两级，P2-40 起包目录是 `backend/app/`）。
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("backend/ 一定有上级目录")
+        .ancestors()
+        .nth(2)
+        .expect("backend/app/ 一定有上两级目录")
         .to_path_buf()
 }
 

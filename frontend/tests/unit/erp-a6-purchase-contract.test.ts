@@ -64,7 +64,7 @@ import type {
 
 /** 读后端源码（口径的唯一真相；前端跟丢了这里先红） */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/src/business/${relative}`, import.meta.url), 'utf8');
+  return readFileSync(new URL(`../../../backend/app/src/business/${relative}`, import.meta.url), 'utf8');
 }
 
 /** 读前端源码（接线断言） */

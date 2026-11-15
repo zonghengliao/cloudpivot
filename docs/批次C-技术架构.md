@@ -84,7 +84,7 @@
 # 生产 HEAD 与迁移号段（真机核对）
 $ ssh root@172.18.10.144 'cd /opt/cloudpivot && git log --oneline -1'
 a234762 feat(frontend): B8 权限增强前端 —— 数据范围 / 脱敏规则 / 角色互斥
-$ ssh root@172.18.10.144 'ls /opt/cloudpivot/backend/migrations/*/ | grep -o "V00[0-9]*" | sort -u | tail -5'
+$ ssh root@172.18.10.144 'ls /opt/cloudpivot/backend/app/migrations/*/ | grep -o "V00[0-9]*" | sort -u | tail -5'
 V0064 V0065 V0066 V0067 V0068
 ```
 
@@ -1388,9 +1388,9 @@ if headers.get("x-test-force-rollback").is_some() {
 
 | 门禁 | 断言 | 说明 |
 |---|---|---|
-| G1 | `grep -rn "sys_change_log" backend/src | grep -v "business/changelog/"` → **0 命中** | 只有 changelog 模块能写变更日志（防止别处偷偷 `INSERT`） |
-| G2 | `grep -rn "db()" backend/src/business/changelog/` → **0 命中** | C3：模块内禁止独立事务 |
-| G3 | `grep -rn "record(" backend/src/business/changelog/mod.rs` 的签名中 `&impl SqlExecutor` 必须存在 | C1 |
+| G1 | `grep -rn "sys_change_log" backend/app/src | grep -v "business/changelog/"` → **0 命中** | 只有 changelog 模块能写变更日志（防止别处偷偷 `INSERT`） |
+| G2 | `grep -rn "db()" backend/app/src/business/changelog/` → **0 命中** | C3：模块内禁止独立事务 |
+| G3 | `grep -rn "record(" backend/app/src/business/changelog/mod.rs` 的签名中 `&impl SqlExecutor` 必须存在 | C1 |
 | G4 | `grep -rn "async fn record" ... ` 不得存在「无 executor 版本」 | C1 |
 | G5 | 每个 `record(` 调用点必须在 `transaction(` 的词法范围内（用 `scripts/lint/changelog_in_tx.py` 做括号/作用域静态检查） | 这是唯一能自动化的「同事务」证据 |
 

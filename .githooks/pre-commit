@@ -71,7 +71,7 @@ else
   if ! python3 "$GATE"; then
     echo "" >&2
     echo "✘ 提交被拒绝：非测试代码里出现直写 biz_inventory / _location / _txn 的 SQL。" >&2
-    echo "  改法：把写语句搬进 backend/src/business/erp/inventory_writer.rs 的语义函数" >&2
+    echo "  改法：把写语句搬进 backend/app/src/business/erp/inventory_writer.rs 的语义函数" >&2
     echo "        （add_cost / subtract_cost / insert_txn …），业务侧只负责编排。" >&2
     echo "  说明：docs/后端二开指南.md §十四；测试夹具不受限（*_tests.rs / #[cfg(test)]）。" >&2
     exit 1

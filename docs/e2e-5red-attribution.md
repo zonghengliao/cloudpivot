@@ -250,7 +250,7 @@ Call log:
 
 **归因：A 断言过时（菜单重组，ERP 目录已被整层删掉）**
 
-依据 1 — 迁移里写得很清楚（`backend/migrations/business/V0156__remove_erp_top_menu.up.sql`）：
+依据 1 — 迁移里写得很清楚（`backend/app/migrations/business/V0156__remove_erp_top_menu.up.sql`）：
 
 ```sql
 -- 老板要求（2026-10-31 08:30）：

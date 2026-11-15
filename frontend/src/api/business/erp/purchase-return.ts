@@ -1,5 +1,5 @@
 /**
- * 采购退货 API 层（后端 `backend/src/business/erp/purchase_return_handler.rs`，P2-03）。
+ * 采购退货 API 层（后端 `backend/app/src/business/erp/purchase_return_handler.rs`，P2-03）。
  *
  * | 动作 | 接口 | 权限码 |
  * |------|------|--------|

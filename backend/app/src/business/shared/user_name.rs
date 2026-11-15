@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(DELETED_USER_LABEL, "(已删除用户)");
         let script = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../scripts/datafix/aud01/backfill_attachment_uploader_name.sql"
+            "/../../scripts/datafix/aud01/backfill_attachment_uploader_name.sql"
         ));
         assert!(
             script.contains("'(已删除用户)'"),

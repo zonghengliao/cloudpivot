@@ -6,7 +6,7 @@
  * # 测什么
  *
  * 1. **词表镜像**：`employee-kinds.ts` 的 4 张「码值 → 中文」表逐条对齐后端
- *    `backend/src/business/hr/employee_dto.rs` 的常量（直接 `readFileSync` 读 Rust 源码）。
+ *    `backend/app/src/business/hr/employee_dto.rs` 的常量（直接 `readFileSync` 读 Rust 源码）。
  *    后端改取值而前端没跟 → 这里先红，而不是线上看到 `PROBATION` 这种码值。
  * 2. **口径**：合同到期文案（≤30 天橙字 / 已过期 / 今天到期）、筛选序列化
  *    （数组 → 逗号串，后端 `Query` 是 `serde_urlencoded`，重复键会被拒）、
@@ -54,7 +54,7 @@ import {
 
 /** 后端出参契约源码（词表唯一真源） */
 const RUST_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/employee_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/employee_dto.rs', import.meta.url),
   'utf8',
 );
 

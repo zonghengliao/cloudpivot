@@ -1,7 +1,7 @@
 /**
  * 分摊规则的词表与契约类型（**纯声明 / 纯常量，不 import 任何请求层**）。
  *
- * 出处：`backend/src/business/erp/cost_alloc_rule_dto.rs`、表 `biz_cost_alloc_rule`（V0372）。
+ * 出处：`backend/app/src/business/erp/cost_alloc_rule_dto.rs`、表 `biz_cost_alloc_rule`（V0372）。
  *
  * # 三条口径
  *

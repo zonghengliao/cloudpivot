@@ -52,9 +52,9 @@
 
 | 任务书假设 | 代码实况（证据） | 本设计的处理 |
 |---|---|---|
-| 「现有项目用 `sql!` 宏手写 SQL」 | **项目里 `sql!` 出现 0 次**（`grep -rn "sql!" backend/src` → 0 命中）。真实写法是 `String` 拼接 + `?` 占位符 + `Vec<Value>` 按序绑定，例：`system/role/model.rs:115-139`、`system/user/model.rs:185-250`。框架侧**确实有** `sql!` 宏（`nik-db-macro-0.4.2/src/lib.rs:124-160`，支持 `SqlFragment` 嵌套与参数自动配对），但项目一处未用 | 选型对比表仍按 (a)(b)(c) 给（§2.3），并增加 (b′) 「`sql!` 片段组合」子选项；**本批不迁移既有 130 处 `SELECT`（22 个文件）**（回归风险 >> 收益），仅**新增/改动的查询**可以选 `sql!` 形态。防漏靠"单入口 + grep 门禁"，不靠宏 |
+| 「现有项目用 `sql!` 宏手写 SQL」 | **项目里 `sql!` 出现 0 次**（`grep -rn "sql!" backend/app/src` → 0 命中）。真实写法是 `String` 拼接 + `?` 占位符 + `Vec<Value>` 按序绑定，例：`system/role/model.rs:115-139`、`system/user/model.rs:185-250`。框架侧**确实有** `sql!` 宏（`nik-db-macro-0.4.2/src/lib.rs:124-160`，支持 `SqlFragment` 嵌套与参数自动配对），但项目一处未用 | 选型对比表仍按 (a)(b)(c) 给（§2.3），并增加 (b′) 「`sql!` 片段组合」子选项；**本批不迁移既有 130 处 `SELECT`（22 个文件）**（回归风险 >> 收益），仅**新增/改动的查询**可以选 `sql!` 形态。防漏靠"单入口 + grep 门禁"，不靠宏 |
 | 「框架层 hook 若支持需查证」 | **不支持查询改写**。`Hook` trait 只有 `before/after_insert/update/delete`（无 query hook），且文档明写绕过 Model 的 raw SQL 不触发；`AsyncHook` 只有 `after_*` 且**延迟到事务提交后**，无法用于"阻止/缩小结果集" | 方案 (c) 在结论表里标 **不可行（证据见 `nik-db-core-0.4.2/src/traits/hook.rs:9-10, 36-42`）**，不作为候选 |
-| 「`sys_role` 无 `data_scope`，需新增」 | 属实（`migrations/system/V0002__create_sys_role.up.sql`：只有 `role_code/role_name/description/status/sort_order/remark` + 审计列）。另有一条**任务书未提**的同源事实：`auth/model.rs:241-243` 的注释引用了 `shared/principal.rs`，**该文件不存在**（`ls backend/src/shared/` → `constants/enums/error_code/mod/startup_guard`），是一处悬空引用 | 本批正好补上「业务侧主体口径」这一层：新建 `business/shared/principal.rs`（超管判定 + 范围解析 + 脱敏集合），并把 `system/` 侧悬空注释的指向修正（1 行注释，随 §5.3-#7 同批提交） |
+| 「`sys_role` 无 `data_scope`，需新增」 | 属实（`migrations/system/V0002__create_sys_role.up.sql`：只有 `role_code/role_name/description/status/sort_order/remark` + 审计列）。另有一条**任务书未提**的同源事实：`auth/model.rs:241-243` 的注释引用了 `shared/principal.rs`，**该文件不存在**（`ls backend/app/src/shared/` → `constants/enums/error_code/mod/startup_guard`），是一处悬空引用 | 本批正好补上「业务侧主体口径」这一层：新建 `business/shared/principal.rs`（超管判定 + 范围解析 + 脱敏集合），并把 `system/` 侧悬空注释的指向修正（1 行注释，随 §5.3-#7 同批提交） |
 | 「脱敏可考虑 SQL 层（PG 函数）」 | 技术可行但实测代价与副作用都不可接受（14× 耗时、破坏过滤、破坏排序聚合、且 `SELECT *` 的写法无从下手） | 结论定为**不用**，把实测数字写进 §3.3 对比表，避免下一批再讨论一次 |
 | 「Excel 导出是否也脱敏（必须，否则绕过）」 | 导出确实存在**两条**产出路径：同步导出 `impexp/handler.rs:780`、异步 worker `impexp/worker.rs:607`，**都**调 `engine::format_export_rows` | 改 1 处 `format_export_rows` 签名即可双路覆盖（§3.7）；异步 path 需要靠 `sys_export_task.create_by` 回查请求者身份——该列已存在（`V0041:95`），无需加列 |
 
@@ -75,7 +75,7 @@
 ### 1.1 代码布局与本次要动的文件
 
 ```
-backend/src/
+backend/app/src/
 ├── system/            # 底座（本批只读，改动逐项报批 §5.3）
 │   ├── auth/   model.rs(398)  handler.rs      ← 权限装载 / 主体缓存失效
 │   ├── user/   model.rs(557) guard.rs(414) handler.rs(1041) dto.rs(253)
@@ -199,7 +199,7 @@ let sql = "WITH RECURSIVE dept_tree AS ( \
 
 | 红线 | 本设计怎么守 |
 |---|---|
-| 新代码进 `business/` | 三个模块的实现全在 `backend/src/business/permission/{scope,mask,sod}/` + `business/shared/` |
+| 新代码进 `business/` | 三个模块的实现全在 `backend/app/src/business/permission/{scope,mask,sod}/` + `business/shared/` |
 | `system/` `support/` 只读 | 只做**11 处最小改动**，逐项在 §5.3 报批（每项 1–15 行），并给出"为什么不动它做不到" |
 | 不设 service 层 | 编排在 `business/permission/*/handler.rs`，数据访问在同目录 `model.rs`；**没有** `service.rs` |
 | 错误三出口 | handler 一律 `ResResult<T>`；model 一律 `DbError`；启动/任务 `nik::Result<T>` |
@@ -294,7 +294,7 @@ business/shared/scope.rs
 # ① 分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
 #    注意写法：用 if grep; then FAIL; fi，不要用 `! grep && echo FAIL`
 #    （后者在"找不到"时反而命中 -> 门禁永远报错，是这类脚本最常见的自伤）
-if grep -rn "paginate_with_params" backend/src --include=*.rs \
+if grep -rn "paginate_with_params" backend/app/src --include=*.rs \
      | grep -v "business/shared/scope.rs" \
      | grep -v -E "^[^:]+:[0-9]+: *(//|\*)" >/tmp/_gate1.txt; then
     echo "FAIL: 以下位置绕过了 scope::paginate："; sed 's/^/  /' /tmp/_gate1.txt; exit 1
@@ -305,7 +305,7 @@ fi
 FAILED=0
 for t in sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file \
          operation_logs audit_logs auth_logs security_logs; do
-  for f in $(grep -rl "FROM $t" backend/src --include=*.rs 2>/dev/null || true); do
+  for f in $(grep -rl "FROM $t" backend/app/src --include=*.rs 2>/dev/null || true); do
     grep -q "scope::\|SCOPE-EXEMPT" "$f" || { echo "FAIL: $f 查询 $t 未接入"; FAILED=1; }
   done
 done
@@ -330,7 +330,7 @@ done
 **闸 4 · 自检接口 + 真库集成测试**
 
 - `GET /system/data-scope/preview?user_id=` → 返回该用户**最终会注入的片段原文 + 绑定参数个数 + 逐表的预估计数**（每表一条 `SELECT count(*)`，`LIMIT` 保护：只对 ≤ 3 张表计数，且 3 s 超时）。这是运维侧"为什么他看不到"的唯一权威答案（大数据批的产品需求里把这类页面叫"数据权限自检"，同一思路，见 `docs/大数据-产品需求PRD.md:1484-1486`）。
-- 集成测试（`backend/tests/`，用 `tests/sql/` 的既有建库范式）：建 3 层部门树 + 4 个用户 + 5 种角色，断言 5 种范围的**可见行数**（POC-3 已验证这套断言形态可跑）。
+- 集成测试（`backend/app/tests/`，用 `tests/sql/` 的既有建库范式）：建 3 层部门树 + 4 个用户 + 5 种角色，断言 5 种范围的**可见行数**（POC-3 已验证这套断言形态可跑）。
 
 ### 2.5 哪些表需要数据权限（**登记表清单**，本批的"业务表"定义）
 
@@ -765,7 +765,7 @@ WHERE m.deleted_at IS NULL
 
 ### 5.2 迁移分配（V0060–V0069）
 
-**全部放 `backend/migrations/business/`**，理由与批次 A 相同（`docs/批次A-技术架构.md:791` 的论证）：迁移与 `src/business/` 代码同生命周期、一起评审；且 **`migrations/system/` 目录本身不动**（红线）。
+**全部放 `backend/app/migrations/business/`**，理由与批次 A 相同（`docs/批次A-技术架构.md:791` 的论证）：迁移与 `src/business/` 代码同生命周期、一起评审；且 **`migrations/system/` 目录本身不动**（红线）。
 
 > 需要明说的偏离：`V0060`（`ALTER sys_role`）、`V0061`（`sys_role_dept`）操作的是 `system/` 域的表。**迁移文件放 business 目录不等于"不是底座改动"**——所以这两条同时出现在 §5.3 的报批清单里（#1、#2），不能因为"文件在 business 下"就绕过报批。
 
@@ -834,7 +834,7 @@ WHERE m.deleted_at IS NULL
 
 ### 5.4 测试要求（C7）：每模块单测覆盖点
 
-**总量**：34 个单测点 + 3 个真库集成测试。纯函数优先（不连库），DB 相关的用 `tests/` 现有范式（`backend/tests/impexp/`、`tests/sql/` 已存在）。
+**总量**：34 个单测点 + 3 个真库集成测试。纯函数优先（不连库），DB 相关的用 `tests/` 现有范式（`backend/app/tests/impexp/`、`tests/sql/` 已存在）。
 
 **A. 数据范围（`business/permission/scope/`）—— 14 点**
 
@@ -881,7 +881,7 @@ WHERE m.deleted_at IS NULL
 | D7 | 存量冲突检查 | 建互斥前有 1 个用户双持 → 返回该用户 + `total=1` |
 | D8 | 唯一索引兜底 | 插入反向重复 → DB 唯一索引报错被转成 `ROLE_MUTEX_DUPLICATE`（而不是 500） |
 
-**D. 真库集成测试（`backend/tests/`）—— 3 个**
+**D. 真库集成测试（`backend/app/tests/`）—— 3 个**
 
 | # | 场景 | 验收 |
 |---|---|---|
@@ -1111,7 +1111,7 @@ CREATE INDEX IF NOT EXISTS idx_sys_role_mutex_b
 
 ```sql
 -- 批次 B 三模块权限点（3 个菜单 + 12 个按钮）
--- 权限码必须与 backend/src/business/permission/*/handler.rs 的 #[nik::permission] 逐字一致。
+-- 权限码必须与 backend/app/src/business/permission/*/handler.rs 的 #[nik::permission] 逐字一致。
 -- 授权策略：只授 SUPER_ADMIN（这三项都是「能改别人能看什么」的元权限）。
 -- 幂等：固定 UUID + ON CONFLICT DO NOTHING。
 INSERT INTO sys_menu (id, name, menu_type, auth_code, path, parent_id, component,
@@ -1227,7 +1227,7 @@ ORDER BY u.username;
 | 项 | 内容 |
 |---|---|
 | 交付物 | ① `docs/后端二开指南.md` 增加「数据权限 / 脱敏 / 互斥」三节检查清单（含"新增列表接口必须走 `scope::paginate`"、"新表必须登记 `SCOPED_TABLES`"、"新 DTO 若含敏感列必须实现 `Maskable` + 样例函数"）；② `scripts/check.sh` 增加 §2.4 闸 2 的两条断言（脚本草案已实测跑通，见附录 C 末尾的基线输出）；③ 记录基线：闸 ① 20 处、闸 ② 17 处 |
-| 可执行验收 | `bash scripts/check.sh` 在**当前代码上必须报出预期失败**（20 / 17 条，说明门禁不哑）；在 B5 完成后必须**只剩 `SCOPE-EXEMPT` 的豁免项**；`grep -rc "SCOPE-EXEMPT" backend/src \| wc -l` 覆盖 ≥ 19 处（附录 C 备注的清单） |
+| 可执行验收 | `bash scripts/check.sh` 在**当前代码上必须报出预期失败**（20 / 17 条，说明门禁不哑）；在 B5 完成后必须**只剩 `SCOPE-EXEMPT` 的豁免项**；`grep -rc "SCOPE-EXEMPT" backend/app/src \| wc -l` 覆盖 ≥ 19 处（附录 C 备注的清单） |
 | 依赖 | 无 |
 
 ### B1 · 迁移落地（V0060–V0064 + V0067）（1 人日 · 后端）
@@ -1455,7 +1455,7 @@ for f in system/V0001__create_sys_user system/V0002__create_sys_role \
          system/V0005__create_sys_role_menu system/V0006__create_sys_dept \
          system/V0022__add_session_security_flags support/V0010__create_sys_file \
          business/V0040__create_storage_config business/V0041__create_impexp_task; do
-  psql -q -d batchb_poc3 -v ON_ERROR_STOP=1 -f backend/migrations/$f.up.sql
+  psql -q -d batchb_poc3 -v ON_ERROR_STOP=1 -f backend/app/migrations/$f.up.sql
 done
 psql -q -d batchb_poc3 -v ON_ERROR_STOP=1 -f batchB_poc/V0060_batchb_ddl.sql
 psql -q -d batchb_poc3 -v ON_ERROR_STOP=1 -f batchB_poc/poc2_seed.sql
@@ -1504,7 +1504,7 @@ psql -d batchb_poc3 -f batchB_poc/poc7b_mask.sql
 
 > 备注：`SCOPE-EXEMPT` 实际应落在 #2/#3/#6/#8/#15/#16/#17/#18/#21–#27，共 **19 处**（B5 验收口径：`grep -c "SCOPE-EXEMPT"` ≥ 19）。#21–#27 是**闸 2 在真实仓库上跑出来的**结果（附录 B 的 `gate_batchb.sh`，基线 17 条命中），不是坐在这里想的——这批"清理任务 / 聚合计数 / 扇出"如果机械地"全部注入 scope"，会得到**静默少数据**的故障（比漏权限更危险）。
 
-**闸 2 门禁的基线输出（`bash gate_batchb.sh <repo>/backend/src`，2026-10-28 实测）**
+**闸 2 门禁的基线输出（`bash gate_batchb.sh <repo>/backend/app/src`，2026-10-28 实测）**
 
 ```
 [1/2] 分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
@@ -1539,38 +1539,38 @@ psql -d batchb_poc3 -f batchB_poc/poc7b_mask.sql
 
 | 事实 | 位置 |
 |---|---|
-| `sys_role` 无 `data_scope` | `backend/migrations/system/V0002__create_sys_role.up.sql`（全表 13 列） |
-| `sys_dept` 有 `parent_id` + `dept_path` | `backend/migrations/system/V0006__create_sys_dept.up.sql` |
-| `sys_user` 有 `dept_id` + `idx_sys_user_dept_id` | `backend/migrations/system/V0001__create_sys_user.up.sql` |
-| `sys_user_role` 双 FK + `expire_time` + UNIQUE | `backend/migrations/system/V0003__create_sys_user_role.up.sql` |
-| 递归 CTE 子树查询（可复用） | `backend/src/system/dept/model.rs:261-281` |
-| 用户分页现有 dept 过滤 + `paginate_with_params` | `backend/src/system/user/model.rs:179-258` |
-| 角色分页 raw SQL 拼装范式 | `backend/src/system/role/model.rs:110-151` |
-| 超管判定（库侧，处理过期绑定） | `backend/src/system/user/model.rs:317-360` |
-| 业务侧超管口径注释（并引用**不存在的** `shared/principal.rs`） | `backend/src/system/auth/model.rs:241-243` |
-| 权限装载（超管短路成 `*:*:*`） | `backend/src/system/auth/model.rs:236-255` |
-| 主体缓存键与失效 | `backend/src/system/auth/model.rs:24-36, 91-156` |
-| `CACHE_PRINCIPAL_TTL_SECS = 300` / 键前缀 | `backend/src/shared/constants.rs:363-375` |
-| 授权上限（三条规则，纯函数 + 单测友好） | `backend/src/system/user/guard.rs:98-155, 160-240` |
-| 角色菜单授予上限（不能授自己没有的码） | `backend/src/system/role/handler.rs:651-680` |
-| 用户角色写入权威点（1 行接线处） | `backend/src/system/user/handler.rs:717-760` |
-| 角色变更强制下线（为何必须吊销） | `backend/src/system/role/handler.rs:276-294, 508-522` |
-| `ExportColumn.sensitive` 只做标记 | `backend/src/business/impexp/definition.rs:620-633` |
-| 「导出脱敏与明文权限：未做」自认 | `backend/src/business/impexp/mod.rs:31` |
-| 导出格式化的两个调用点 | `backend/src/business/impexp/handler.rs:780`、`worker.rs:607` |
-| `format_export_rows` 实现 | `backend/src/business/impexp/engine.rs:408-437` |
-| 日志中间件的响应体捕获 + `mask_json_value` | `backend/src/middleware/operation_log.rs:60-79, 223-240, 285` |
-| 启动钩子（无错误通道 / prod `exit(1)` 先例） | `backend/src/bootstrap.rs:26-53, 189-200` |
-| 启动预检范式 | `backend/src/shared/startup_guard.rs`；调用点 `backend/src/lib.rs:72-78` |
-| 装配链（route_layer / layer_from_fn / scan） | `backend/src/lib.rs:80-101` |
+| `sys_role` 无 `data_scope` | `backend/app/migrations/system/V0002__create_sys_role.up.sql`（全表 13 列） |
+| `sys_dept` 有 `parent_id` + `dept_path` | `backend/app/migrations/system/V0006__create_sys_dept.up.sql` |
+| `sys_user` 有 `dept_id` + `idx_sys_user_dept_id` | `backend/app/migrations/system/V0001__create_sys_user.up.sql` |
+| `sys_user_role` 双 FK + `expire_time` + UNIQUE | `backend/app/migrations/system/V0003__create_sys_user_role.up.sql` |
+| 递归 CTE 子树查询（可复用） | `backend/app/src/system/dept/model.rs:261-281` |
+| 用户分页现有 dept 过滤 + `paginate_with_params` | `backend/app/src/system/user/model.rs:179-258` |
+| 角色分页 raw SQL 拼装范式 | `backend/app/src/system/role/model.rs:110-151` |
+| 超管判定（库侧，处理过期绑定） | `backend/app/src/system/user/model.rs:317-360` |
+| 业务侧超管口径注释（并引用**不存在的** `shared/principal.rs`） | `backend/app/src/system/auth/model.rs:241-243` |
+| 权限装载（超管短路成 `*:*:*`） | `backend/app/src/system/auth/model.rs:236-255` |
+| 主体缓存键与失效 | `backend/app/src/system/auth/model.rs:24-36, 91-156` |
+| `CACHE_PRINCIPAL_TTL_SECS = 300` / 键前缀 | `backend/app/src/shared/constants.rs:363-375` |
+| 授权上限（三条规则，纯函数 + 单测友好） | `backend/app/src/system/user/guard.rs:98-155, 160-240` |
+| 角色菜单授予上限（不能授自己没有的码） | `backend/app/src/system/role/handler.rs:651-680` |
+| 用户角色写入权威点（1 行接线处） | `backend/app/src/system/user/handler.rs:717-760` |
+| 角色变更强制下线（为何必须吊销） | `backend/app/src/system/role/handler.rs:276-294, 508-522` |
+| `ExportColumn.sensitive` 只做标记 | `backend/app/src/business/impexp/definition.rs:620-633` |
+| 「导出脱敏与明文权限：未做」自认 | `backend/app/src/business/impexp/mod.rs:31` |
+| 导出格式化的两个调用点 | `backend/app/src/business/impexp/handler.rs:780`、`worker.rs:607` |
+| `format_export_rows` 实现 | `backend/app/src/business/impexp/engine.rs:408-437` |
+| 日志中间件的响应体捕获 + `mask_json_value` | `backend/app/src/middleware/operation_log.rs:60-79, 223-240, 285` |
+| 启动钩子（无错误通道 / prod `exit(1)` 先例） | `backend/app/src/bootstrap.rs:26-53, 189-200` |
+| 启动预检范式 | `backend/app/src/shared/startup_guard.rs`；调用点 `backend/app/src/lib.rs:72-78` |
+| 装配链（route_layer / layer_from_fn / scan） | `backend/app/src/lib.rs:80-101` |
 | Framework：Hook 仅 Model 生命周期，raw SQL 不触发 | `nik-db-core-0.4.2/src/traits/hook.rs:9-10` |
 | Framework：`paginate_with_params` 的 count 包裹 | `nik-db-0.4.2/src/db.rs:194-226` |
 | Framework：`sql!` 宏与 `SqlFragment` 组合 | `nik-db-macro-0.4.2/src/lib.rs:124-160`；`nik-db-core-0.4.2/src/query.rs:52` |
 | Framework：`has_permission` / `is_super_admin`（通配） | `nik-web-0.4.2/src/middleware/mod.rs:148-160` |
 | Framework：`Cache` trait（含 `incr`/`delete_pattern`） | `nik-cache-0.4.2/src/lib.rs:33-61` |
 | Framework：`Mask` 的 6 个方法 + `mask_by_type` 的 panic | `nik-utils-0.4.2/src/mask.rs:120-200`（panic 在 `:198`） |
-| 权限种子范式（固定 UUID + `ON CONFLICT`） | `backend/migrations/business/V0045__seed_notice_permissions.up.sql` |
-| `sys_export_task.create_by`（异步导出身份来源） | `backend/migrations/business/V0041__create_impexp_task.up.sql:95` |
+| 权限种子范式（固定 UUID + `ON CONFLICT`） | `backend/app/migrations/business/V0045__seed_notice_permissions.up.sql` |
+| `sys_export_task.create_by`（异步导出身份来源） | `backend/app/migrations/business/V0041__create_impexp_task.up.sql:95` |
 | 「能改别人能看什么 = 元权限，必须留痕」的同源论断 | `docs/大数据-产品需求PRD.md:1560` |
 | 「数据权限自检页」的同源设计 | `docs/大数据-产品需求PRD.md:1484-1486` |
 | 项目铁律（四件套 / 错误三出口 / 迁移号段 / 权限码格式） | `AGENTS.md`「必须遵守的约定」1–10 |

@@ -6,7 +6,7 @@
  * # 测什么
  *
  * 1. **词表镜像**：`leave-kinds.ts` 的 4 张「码值 → 中文」表（假别 9 / 状态 4 / 带薪 2 /
- *    审批待办 7）逐条对齐后端 `backend/src/business/hr/leave_dto.rs`（直接读 Rust 源码）。
+ *    审批待办 7）逐条对齐后端 `backend/app/src/business/hr/leave_dto.rs`（直接读 Rust 源码）。
  *    后端改取值而前端没跟 → 这里先红，而不是线上看到 `PERSONAL` 这种码值。
  * 2. **口径**：`mine` 只在「我的请假」tab 出现（漏传 = 看到全员数据）；多选按逗号串
  *    （后端 `serde_urlencoded` 不收重复键）；`duration_days` 去尾零；`ISO → 本地展示`
@@ -70,7 +70,7 @@ import {
 
 /** 后端契约源码（词表 + 状态清单的唯一真源） */
 const RUST_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/leave_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/leave_dto.rs', import.meta.url),
   'utf8',
 );
 
@@ -138,7 +138,7 @@ test('状态清单（可编辑 / 可提交 / 可撤回 / 可作废 / 锁死）�
   );
   // 锁死清单在 state_machine 里（APPROVED / CANCELLED）
   const stateMachine = readFileSync(
-    new URL('../../../backend/src/business/shared/state_machine.rs', import.meta.url),
+    new URL('../../../backend/app/src/business/shared/state_machine.rs', import.meta.url),
     'utf8',
   );
   const locked = /pub const LEAVE_LOCKED: \[&str; \d+\] = \[([^\]]+)\]/.exec(stateMachine);
@@ -150,7 +150,7 @@ test('状态清单（可编辑 / 可提交 / 可撤回 / 可作废 / 锁死）�
 
 test('审批待办 7 个状态与后端 task_status_label 逐条一致', () => {
   const handler = readFileSync(
-    new URL('../../../backend/src/business/hr/leave_handler.rs', import.meta.url),
+    new URL('../../../backend/app/src/business/hr/leave_handler.rs', import.meta.url),
     'utf8',
   );
   for (const [code, label] of Object.entries(APPROVAL_TASK_LABELS)) {

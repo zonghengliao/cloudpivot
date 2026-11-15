@@ -25,7 +25,8 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     // 分支切换 / 新提交都会改 HEAD，重新构建即可拿到新的短哈希
-    println!("cargo:rerun-if-changed=../.git/HEAD");
+    // 相对路径按「本脚本所在包目录」（`backend/app/`）解析，故上跳两级到仓库根的 `.git`。
+    println!("cargo:rerun-if-changed=../../.git/HEAD");
 
     println!("cargo:rustc-env=CLOUDPIVOT_GIT_COMMIT={}", git_commit());
     println!("cargo:rustc-env=CLOUDPIVOT_RUSTC_VERSION={}", rustc_version());

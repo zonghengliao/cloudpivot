@@ -3,7 +3,7 @@
  *
  * # 字段名逐字抄后端
  *
- * 出处：`backend/src/business/erp/cost_overhead_dto.rs`
+ * 出处：`backend/app/src/business/erp/cost_overhead_dto.rs`
  * （`CostOverheadListRes` / `CostOverheadCreateReq`）、表 `biz_cost_overhead`（V0371）。
  *
  * # 三条口径

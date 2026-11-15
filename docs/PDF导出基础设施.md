@@ -164,7 +164,7 @@ pdffonts 某份导出.pdf
 
 ## 8. 加新单据模板（PDF-02 起）
 
-1. 新建 `backend/src/business/pdf/templates/<单据>.html.tera`，复制 `statement.html.tera` 的
+1. 新建 `backend/app/src/business/pdf/templates/<单据>.html.tera`，复制 `statement.html.tera` 的
    `<style>` 段（`@page` / `thead` / `break-inside` / `.num` 四条约束**不要改**），只改 body 结构；
 2. 在 `template.rs` 里加 `include_str!` 常量 + 一个 `XxxContext` + `render_xxx()`；
    金额一律用 `format_money(fen)` / `amount_upper(fen)`，**不要用 f64**；

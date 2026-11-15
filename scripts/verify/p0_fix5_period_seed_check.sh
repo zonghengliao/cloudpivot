@@ -27,7 +27,7 @@ PORT=${2:-18121}
 SRC_DB=${SRC_DB:-cloudpivot_audit}
 F2_DB="${FRESH_DB}_f2"
 BIN="$ROOT/backend/target/debug/cloudpivot"
-MIG_DIR="$ROOT/backend/migrations/business"
+MIG_DIR="$ROOT/backend/app/migrations/business"
 LOG_DIR=${LOG_DIR:-/root/.cloudpivot/p0fix5}
 mkdir -p "$LOG_DIR"
 

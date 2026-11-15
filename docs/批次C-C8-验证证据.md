@@ -218,7 +218,7 @@ exit=0
 
 ## 6. 权限码「三方一致性」比对
 
-口径：`docs/批次C-技术架构.md §5.1` 的 20 码。后端 = `backend/src/business/**` 的
+口径：`docs/批次C-技术架构.md §5.1` 的 20 码。后端 = `backend/app/src/business/**` 的
 `#[nik::permission(permission="…")]`；种子 = `sys_menu.auth_code`；前端 =
 `frontend/src/constants/permissions.ts`。
 

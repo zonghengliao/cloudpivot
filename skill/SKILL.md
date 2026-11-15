@@ -27,7 +27,7 @@ bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
 - **依赖铁律**：`Cargo.toml` 只声明 `nik`（必要时 `nik-utils`）；**不写** `nik-db/nik-db-core/nik-web/nik-config`（旧名 `alun*` 全部作废，照抄编译不过）。业务代码 `use nik::prelude::*`。
 - **feature**：默认集 `core`（非 full）。用 DB 须显式 `postgres/mysql/sqlite`。预设 `mini⊂lite⊂full`，常用 `lite`（core+postgres+cache+plugin+fs-local）。点单：`fs-local`/`fs-minio`、`xlsx`、`sse`、`metrics`、`template`、`xss`。
 - **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`；handler 内 `DbError/io::Error/nik::Error` 直接 `?`，勿写多余 `.map_err(ApiError::internal(...))`。
-- **迁移号段**（动手前 `ls backend/migrations/*/` 核对）：基础版 `V0017` 封顶；4 位补零，已应用迁移指纹校验不可改；种子 `ON CONFLICT` 幂等。
+- **迁移号段**（动手前 `ls backend/app/migrations/*/` 核对）：基础版 `V0017` 封顶；4 位补零，已应用迁移指纹校验不可改；种子 `ON CONFLICT` 幂等。
 - **路由宏**：`#[nik::get/post(...)]` + `#[nik::permission(path,method,permission)]`；路径不含 `/api`；`/health` 手动注册。
 - **事务 RAII**：`db().transaction(|tx| async move { ... }).await`，`Err` 自动回滚。
 
@@ -43,16 +43,16 @@ bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
 2. TDesign 图标：`user-check`→`user-checked`、`speed`→`rocket`。
 
 ## 成本核算速查（ARCH-9，详见 `docs/后端二开指南.md` §十六）
-- **六段 calc（无 HTTP 入口，有意如此）**：`backend/src/business/erp/cost_calc_{material,labor,overhead,reconcile,alloc,item}.rs` → `collect_material` / `collect_labor` / `collect_overhead` / `reconcile_pool_with_ledger(period, Stage)` / `allocate_overhead` / `calc_items`；段序不可交换，各段另有 `*_in_tx`（真身，外层只管 begin/commit）。
+- **六段 calc（无 HTTP 入口，有意如此）**：`backend/app/src/business/erp/cost_calc_{material,labor,overhead,reconcile,alloc,item}.rs` → `collect_material` / `collect_labor` / `collect_overhead` / `reconcile_pool_with_ledger(period, Stage)` / `allocate_overhead` / `calc_items`；段序不可交换，各段另有 `*_in_tx`（真身，外层只管 begin/commit）。
 - **结算 / 红冲**：`cost_settle_run.rs::settle_period(id, operator)`（一个事务：完工入库 + 最多 4 张凭证 + 6 条断言，失败整笔回滚仍 `APPROVED`）、`cost_reverse_run.rs::reverse_period(id, reason, operator)`。
 - **表 / 迁移**：13 张 `biz_cost_*` + `biz_lot`（V0370~V0374），存量改造 V0375/`biz_stock_out`、V0376/`biz_stock_in`、V0377/科目、V0378/菜单；归集唯一落点 `biz_cost_collect`，幂等键 `(source_type, source_id, line_no)`。
 - **加分配标准要改 6 处**：`cost_alloc_rule_dto.rs`（`BASES`/`basis_value`/`basis_label`）+ 新迁移重建 `ck_biz_cost_rule_basis` + 两条取数路径（`cost_calc_alloc.rs::DeptBasis`、`cost_alloc_rule_handler.rs::basis_map_of`）+ 前端 `api/business/erp/cost-alloc-rule-kinds.ts`。
 - **验收 / 巡检**：`bash scripts/verify/cost_e2e.sh`（自建演练库→calc→审→结算→对平→红冲→重算→再结算→删库，9 步 78 条断言）、`python3 scripts/verify/erp_invariants.py --group 成本`（C-COST-1~6）；错误码 `66055`~`66079` 见二开指南 §16.4。
 
 ## 关键文件指针
-- 启动链：`backend/src/lib.rs`
-- 用户模块范本：`backend/src/system/user/{handler,dto,model}.rs`
-- 菜单种子：`backend/migrations/seed/S__menu_data.sql`
+- 启动链：`backend/app/src/lib.rs`
+- 用户模块范本：`backend/app/src/system/user/{handler,dto,model}.rs`
+- 菜单种子：`backend/app/migrations/seed/S__menu_data.sql`
 - 配置：`backend/config/config.toml`
 - 工程脚本：`scripts/{dev,check,build,deploy,init-db}.sh`
 - 二开文档集：`docs/README.md`

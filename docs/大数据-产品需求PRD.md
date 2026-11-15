@@ -54,17 +54,17 @@
 
 | # | 核查结论 | 证据 |
 |---|---|---|
-| **F1** | 权限码存 `sys_menu.auth_code VARCHAR(100)`，格式 `{模块}:{资源}:{动作}`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值只有 `system` / `support` | `backend/migrations/system/V0004__create_sys_menu.up.sql` |
-| **F2** | 现有顶级目录只有两个：系统管理（`/system`，sort 10）、支撑功能（`/support`，sort 20）；ERP 第 1 批 PRD 已占 sort 40 | `backend/migrations/seed/S__menu_data.sql`（`'system'…10`、`'app'…20`）、ERP PRD 决策 D3 |
-| **F3** | 后端接口鉴权用声明式宏 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49`、`125`、`165` |
+| **F1** | 权限码存 `sys_menu.auth_code VARCHAR(100)`，格式 `{模块}:{资源}:{动作}`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值只有 `system` / `support` | `backend/app/migrations/system/V0004__create_sys_menu.up.sql` |
+| **F2** | 现有顶级目录只有两个：系统管理（`/system`，sort 10）、支撑功能（`/support`，sort 20）；ERP 第 1 批 PRD 已占 sort 40 | `backend/app/migrations/seed/S__menu_data.sql`（`'system'…10`、`'app'…20`）、ERP PRD 决策 D3 |
+| **F3** | 后端接口鉴权用声明式宏 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，返回 `ResResult<PageData<Vec<T>>>` | `backend/app/src/system/user/handler.rs:43-49`、`125`、`165` |
 | **F4** | 前端页面级鉴权用路由 `meta.permission`；按钮级用 `v-privilege="['system:user:create']"` | `frontend/src/router/index.ts:42,47,52,58`、`views/system/user/index.vue:63` |
 | **F5** | `hasPermission()` 是**全等匹配**，只额外支持超管通配 `*:*:*`，**不支持 `business:bi:*` 这种前缀通配**；`code` 为空视为放行 | `frontend/src/stores/user.ts:19,63-71` |
 | **F6** | 导航树由 `filterNavMenus` **递归**过滤：剔除 `menu_type=3`（按钮）与 `is_visible=false`；**目录下无可见子菜单则整目录隐藏** | `frontend/src/stores/user.ts:17-38` |
 | **F7** | 侧边栏组件 `SideMenuItem` 递归渲染，**有子节点即渲染 `t-submenu`，层级不限** | `frontend/src/layouts/components/SideMenuItem.vue` |
 | **F8** | 列表页既有范式：`t-row/t-col` 横排筛选（`@enter` 触发查询）+ 工具栏 `t-button theme="primary"` + `t-table` + `t-dialog` 内嵌 `t-form` | `frontend/src/views/system/user/index.vue:34-146` |
-| **F9** | **`sys_role` 没有 data_scope（数据范围）字段**，只有 role_code/name/status/sort_order | `backend/migrations/system/V0002__create_sys_role.up.sql` |
-| **F10** | `sys_user.dept_id` 指向 `sys_dept`；`sys_dept` 有 `parent_id`/`dept_path`/`leader_id`；后端已有**部门子树递归查询** `find_dept_subtree_ids(root_id)`（`WITH RECURSIVE` 返回自身+全部下级） | `V0001__create_sys_user.up.sql:8`、`V0006__create_sys_dept.up.sql`、`backend/src/system/dept/model.rs:261-279` |
-| **F11** | 底盘 `backend/src/` 下**无 `business` 目录**（现有：bootstrap、middleware、shared、support、system、task、utils），business 域当前为空 | `backend/src/` 目录清单 |
+| **F9** | **`sys_role` 没有 data_scope（数据范围）字段**，只有 role_code/name/status/sort_order | `backend/app/migrations/system/V0002__create_sys_role.up.sql` |
+| **F10** | `sys_user.dept_id` 指向 `sys_dept`；`sys_dept` 有 `parent_id`/`dept_path`/`leader_id`；后端已有**部门子树递归查询** `find_dept_subtree_ids(root_id)`（`WITH RECURSIVE` 返回自身+全部下级） | `V0001__create_sys_user.up.sql:8`、`V0006__create_sys_dept.up.sql`、`backend/app/src/system/dept/model.rs:261-279` |
+| **F11** | 底盘 `backend/app/src/` 下**无 `business` 目录**（现有：bootstrap、middleware、shared、support、system、task、utils），business 域当前为空 | `backend/app/src/` 目录清单 |
 | **F12** | 主题机制：`src/style/theme.less` 覆盖 `--td-brand-color-1..10` 注入品牌色，且必须**镜像 TDesign 的 `[theme-mode]` 选择器** | `frontend/src/style/theme.less`；ERP PRD 4.0.1 已实测 |
 | **F13** | **前端已依赖 `echarts ~5.4.3`，且已有通用组件 `src/components/EChart.vue`**（props: `option` / `height`，处理了零尺寸容器补渲染 + `ResizeObserver` 自适应）；首页 `views/dashboard/index.vue` 已用 EChart + `t-row/t-col` **12 列栅格**（`xl=3` 即一行 4 个） | `frontend/package.json:22`、`frontend/src/components/EChart.vue:1-100`、`views/dashboard/index.vue:19-45` |
 
@@ -74,10 +74,10 @@
 
 | # | 核查结论 | 证据 |
 |---|---|---|
-| **F14** | 平台库是 **PostgreSQL 16**（`postgres:16-alpine`），迁移大量使用 `gen_random_uuid()` / `JSONB` / 部分唯一索引；**现有 migrations 里没有任何 `CREATE EXTENSION`** | `docker/docker-compose.prod.yml:24-34`、`backend/migrations/**/*.sql` |
+| **F14** | 平台库是 **PostgreSQL 16**（`postgres:16-alpine`），迁移大量使用 `gen_random_uuid()` / `JSONB` / 部分唯一索引；**现有 migrations 里没有任何 `CREATE EXTENSION`** | `docker/docker-compose.prod.yml:24-34`、`backend/app/migrations/**/*.sql` |
 | **F15** | 框架**已内置 XLSX 真读写能力**：`xlsx` feature → `Export::to_xlsx_*` 写（rust_xlsxwriter）、`Import::from_xlsx_*` 读（calamine）；**未开该 feature 时这些 API 根本不存在** | `nik-0.4.2/src/lib.rs:70,93,155,1199,1265` |
-| **F16** | 已有两张日志表：`operation_logs`（接口级：operation/target_type/target_id/detail/耗时/路径）、`audit_logs`（**前后快照** `before_data`/`after_data JSONB`，只写不改删） | `backend/migrations/support/V0011`、`V0014` |
-| **F17** | 已有字典体系 `sys_dict_type` / `sys_dict_item`（如 `user_status`/`menu_type`/`job_status`）、参数表 `sys_config` | `backend/migrations/support/V0007/V0009`、`seed/S__dict_data.sql` |
+| **F16** | 已有两张日志表：`operation_logs`（接口级：operation/target_type/target_id/detail/耗时/路径）、`audit_logs`（**前后快照** `before_data`/`after_data JSONB`，只写不改删） | `backend/app/migrations/support/V0011`、`V0014` |
+| **F17** | 已有字典体系 `sys_dict_type` / `sys_dict_item`（如 `user_status`/`menu_type`/`job_status`）、参数表 `sys_config` | `backend/app/migrations/support/V0007/V0009`、`seed/S__dict_data.sql` |
 | **F18** | 已有定时任务体系 `sys_job`（cron_expr/invoke_target/params/next_run_at）+ `sys_job_log`；已有 Redis 缓存（`try_cache()`） | `V0012__create_sys_job.up.sql`、`dept/model.rs:281-290` |
 
 **F14 的产品含义**：模糊查重要用 `pg_trgm`（`similarity()` + `GIN(gin_trgm_ops)`），**必须新增一条 `CREATE EXTENSION IF NOT EXISTS pg_trgm` 迁移**——这条迁移需要 DBA 权限，已列入交付前提（见 3.7.2）。若环境不允许装扩展，降级方案见 3.7.2 末尾。

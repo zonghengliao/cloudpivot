@@ -1,7 +1,7 @@
 # 二开模块 `business/monitor` —— 服务器状态接口契约
 
 > 引入版本：迁移 `V0020`（二开号段，基础版封顶 V0017）
-> 代码位置：`backend/src/business/monitor/`（`mod.rs` / `handler.rs` / `dto.rs` / `model.rs`）
+> 代码位置：`backend/app/src/business/monitor/`（`mod.rs` / `handler.rs` / `dto.rs` / `model.rs`）
 > 前端位置：`frontend/src/api/business/monitor-api.ts` + `frontend/src/views/dashboard/index.vue`
 > 这是本项目**第一个 `business/` 业务模块**，同时完成了「`business/` 容器首次登记」：`src/business/mod.rs` + `lib.rs` 的 `pub mod business;`
 
@@ -62,7 +62,7 @@
 ## 4. 迁移与权限种子
 
 ```sql
--- backend/migrations/business/V0020__add_biz_monitor_permission.up.sql
+-- backend/app/migrations/business/V0020__add_biz_monitor_permission.up.sql
 INSERT INTO sys_menu (...) VALUES ('20000000-0000-0000-0000-000000000001', 'business:monitor:server-status', ...)
 ON CONFLICT (id) DO NOTHING;
 INSERT INTO sys_role_menu (...) SELECT ... WHERE r.role_code = 'SUPER_ADMIN' ON CONFLICT DO NOTHING;

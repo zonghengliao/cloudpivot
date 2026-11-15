@@ -12,12 +12,12 @@
 
 | 路径 | 内容 |
 |------|------|
-| `backend/migrations/business/V0120__flow_def_tables.{up,down}.sql` | 定义侧 5 张表 + 索引 + 约束 + 外键 + 结构自检 |
-| `backend/migrations/business/V0121__flow_def_permissions.{up,down}.sql` | 5 个权限节点 + 1 个页面节点 + 自检 |
-| `backend/migrations/seed/S__workflow_permissions.sql` | SUPER_ADMIN 授权（种子，排在 `S__role_data` 之后） |
-| `backend/src/business/flow/{mod,graph,dto,model,handler}.rs` | 图算法 / DTO / 数据访问 / 12 个接口 |
-| `backend/src/business/mod.rs` | 挂载 `pub mod flow;` |
-| `backend/src/shared/error_code.rs` | 新增 `65xxx` 段 22 个码（架构 §10.3 整体契约） |
+| `backend/app/migrations/business/V0120__flow_def_tables.{up,down}.sql` | 定义侧 5 张表 + 索引 + 约束 + 外键 + 结构自检 |
+| `backend/app/migrations/business/V0121__flow_def_permissions.{up,down}.sql` | 5 个权限节点 + 1 个页面节点 + 自检 |
+| `backend/app/migrations/seed/S__workflow_permissions.sql` | SUPER_ADMIN 授权（种子，排在 `S__role_data` 之后） |
+| `backend/app/src/business/flow/{mod,graph,dto,model,handler}.rs` | 图算法 / DTO / 数据访问 / 12 个接口 |
+| `backend/app/src/business/mod.rs` | 挂载 `pub mod flow;` |
+| `backend/app/src/shared/error_code.rs` | 新增 `65xxx` 段 22 个码（架构 §10.3 整体契约） |
 | `scripts/check.sh` | 闸② 登记 5 张 `biz_flow_*` 表 + 豁免口径说明 |
 
 未改：`business/task/`、`business/aiagent/`、`shared/scope.rs`（卡面「不改」段）。
@@ -182,7 +182,7 @@ after re-up → tables=5 / indexes=17 / menus=6 / grants(read)=1 / grants(write)
 ### 4.3 严禁递归 CTE（红线）
 
 ```
-$ grep -rniE 'recursive' backend/src/business/flow/
+$ grep -rniE 'recursive' backend/app/src/business/flow/
 mod.rs:37:  //! **全模块 `grep RECURSIVE` 必须 0 命中**（验收 6）。
 graph.rs:12: //! | `WITH RECURSIVE … CYCLE`（路径枚举） | **300 秒未结束**…
 graph.rs:13: //! | `WITH RECURSIVE … UNION`（去重） | …**有环也返回 200 行 ⇒ 判不出环** |

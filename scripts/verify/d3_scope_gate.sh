@@ -8,7 +8,7 @@
 set -uo pipefail
 
 REPO=${REPO:-/opt/cloudpivot}
-SRC="$REPO/backend/src"
+SRC="$REPO/backend/app/src"
 BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice
 sys_file operation_logs audit_logs auth_logs security_logs
 biz_task biz_task_comment biz_task_attachment biz_task_worklog

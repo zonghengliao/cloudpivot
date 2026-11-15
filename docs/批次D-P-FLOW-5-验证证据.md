@@ -7,12 +7,12 @@
 
 | 层 | 文件 | 作用 |
 |---|---|---|
-| 迁移 | `backend/migrations/business/V0193__flow_def_is_system.{up,down}.sql` | `biz_flow_def.is_system` 列 + 8 条预置流程按种子 UUID 打标 + `category` 归一为中文业务域 |
-| 迁移 | `backend/migrations/business/V0194__flow_templates_menu.{up,down}.sql` | 菜单节点 `/flow/templates`（`business:flow:read`） |
-| 后端 | `backend/src/business/flow/{dto,model,handler}.rs` | `GET /business/flow/def/templates`、`POST /def/{id}/duplicate`、`POST /def/{id}/enable` |
+| 迁移 | `backend/app/migrations/business/V0193__flow_def_is_system.{up,down}.sql` | `biz_flow_def.is_system` 列 + 8 条预置流程按种子 UUID 打标 + `category` 归一为中文业务域 |
+| 迁移 | `backend/app/migrations/business/V0194__flow_templates_menu.{up,down}.sql` | 菜单节点 `/flow/templates`（`business:flow:read`） |
+| 后端 | `backend/app/src/business/flow/{dto,model,handler}.rs` | `GET /business/flow/def/templates`、`POST /def/{id}/duplicate`、`POST /def/{id}/enable` |
 | 前端 | `frontend/src/views/business/flow/templates/index.vue` | 模板库页（分类 Tab / 卡片 / 只看流程图 / 另存为 / 启停） |
 | 前端 | `frontend/src/api/business/flow-api.ts`、`frontend/src/router/index.ts` | 类型 + API 封装 + 路由 |
-| 测试 | `backend/tests/pflow5.rs` | 12 条真库端到端（卡面要求 ≥8） |
+| 测试 | `backend/app/tests/pflow5.rs` | 12 条真库端到端（卡面要求 ≥8） |
 
 ### 1.1 为什么多了一个 `POST /def/{id}/enable`
 

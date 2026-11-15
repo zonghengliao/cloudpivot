@@ -237,22 +237,22 @@ test business::hr::salary_bridge_db_tests::db::reversed_sheet_frees_the_period_f
 
 | 文件 | 动作 |
 |---|---|
-| `backend/src/business/shared/period_key.rs` | **新增**：周期键 / 期间码 / CST 日期（纯函数，6 条单测） |
-| `backend/src/business/shared/seq.rs` | **新增**：取号引擎（只发号、不认表）+ 4 条单测 |
-| `backend/src/business/shared/voucher_port.rs` | **新增**：`VoucherWriter` 接缝 + 注册表 + 未安装即大声失败 + 4 条纪律用例 |
-| `backend/src/business/shared/mod.rs` | 挂 3 个新模块 |
-| `backend/src/business/erp/voucher/voucher_port_impl.rs` | **新增**：接缝的**唯一实现**（7 个方法纯委派 + 3 条单测） |
-| `backend/src/business/erp/voucher/mod.rs` | 挂 `voucher_port_impl`；`today_cst` 改为委托基座 |
-| `backend/src/business/erp/seq.rs` | 引擎搬走，变「再导出 + 本域查重表 + 4 个便捷入口」（-364 行） |
-| `backend/src/business/erp/serial_model.rs` | `period_key_of` / `today_period_key` / `period_code_of` / `CST_OFFSET_HOURS` 改为委托基座 |
-| `backend/src/business/hr/salary_bridge.rs` | 7 个调用点改走接缝；`biz_account` SQL 搬去凭证域 |
-| `backend/src/business/hr/leave_handler.rs`、`salary_sheet_handler.rs` | 审批闸改指 `flow::approval_gate` |
-| `backend/src/business/hr/leave_model.rs` | 期间键改指 `shared::period_key` |
-| `backend/src/business/hr/employee_no.rs` | 号段改指 `shared::seq`；删掉一条要 import ERP 的断言（等价断言在 ERP 侧） |
-| `backend/src/business/hr/salary_bridge_db_tests.rs` | 夹具初始化时装接缝（经 `bootstrap`，不 import erp） |
-| `backend/src/business/hr/no_erp_edge_tests.rs` | **新增**：`hr → erp` 基线 0 的回归闸 + 中立落点存在性 + 实现位置 |
-| `backend/src/business/hr/mod.rs` | 挂新用例模块；凭证口径文档改写 |
-| `backend/src/bootstrap.rs` | `register_voucher_port()`（prod 失败 `exit(1)`）+ `#[cfg(test)] install_voucher_port_for_tests()` |
+| `backend/app/src/business/shared/period_key.rs` | **新增**：周期键 / 期间码 / CST 日期（纯函数，6 条单测） |
+| `backend/app/src/business/shared/seq.rs` | **新增**：取号引擎（只发号、不认表）+ 4 条单测 |
+| `backend/app/src/business/shared/voucher_port.rs` | **新增**：`VoucherWriter` 接缝 + 注册表 + 未安装即大声失败 + 4 条纪律用例 |
+| `backend/app/src/business/shared/mod.rs` | 挂 3 个新模块 |
+| `backend/app/src/business/erp/voucher/voucher_port_impl.rs` | **新增**：接缝的**唯一实现**（7 个方法纯委派 + 3 条单测） |
+| `backend/app/src/business/erp/voucher/mod.rs` | 挂 `voucher_port_impl`；`today_cst` 改为委托基座 |
+| `backend/app/src/business/erp/seq.rs` | 引擎搬走，变「再导出 + 本域查重表 + 4 个便捷入口」（-364 行） |
+| `backend/app/src/business/erp/serial_model.rs` | `period_key_of` / `today_period_key` / `period_code_of` / `CST_OFFSET_HOURS` 改为委托基座 |
+| `backend/app/src/business/hr/salary_bridge.rs` | 7 个调用点改走接缝；`biz_account` SQL 搬去凭证域 |
+| `backend/app/src/business/hr/leave_handler.rs`、`salary_sheet_handler.rs` | 审批闸改指 `flow::approval_gate` |
+| `backend/app/src/business/hr/leave_model.rs` | 期间键改指 `shared::period_key` |
+| `backend/app/src/business/hr/employee_no.rs` | 号段改指 `shared::seq`；删掉一条要 import ERP 的断言（等价断言在 ERP 侧） |
+| `backend/app/src/business/hr/salary_bridge_db_tests.rs` | 夹具初始化时装接缝（经 `bootstrap`，不 import erp） |
+| `backend/app/src/business/hr/no_erp_edge_tests.rs` | **新增**：`hr → erp` 基线 0 的回归闸 + 中立落点存在性 + 实现位置 |
+| `backend/app/src/business/hr/mod.rs` | 挂新用例模块；凭证口径文档改写 |
+| `backend/app/src/bootstrap.rs` | `register_voucher_port()`（prod 失败 `exit(1)`）+ `#[cfg(test)] install_voucher_port_for_tests()` |
 | `scripts/lint/scope_gate.py` | `SKIP_MANIFEST` 登记 1 个新测试面文件 |
 
 ---

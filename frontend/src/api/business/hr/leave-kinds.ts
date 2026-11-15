@@ -8,7 +8,7 @@
  *
  * # 字段名逐条抄自后端，不缩写
  *
- * 出处：`backend/src/business/hr/leave_dto.rs`（HR-24 契约 + HR-25 详情/作废回执）。
+ * 出处：`backend/app/src/business/hr/leave_dto.rs`（HR-24 契约 + HR-25 详情/作废回执）。
  * `LeaveRes` 是列表 / 详情 / 作废回执**共用的同一形状**（详情用 `#[serde(flatten)]`
  * 平铺 + `approval` / `approval_history`，作废回执平铺 + `action` / `action_label`），
  * 所以前端一个 {@link LeaveListRow} 通吃三个接口。

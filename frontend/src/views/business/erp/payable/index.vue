@@ -688,14 +688,14 @@ import { exportFilterPayload } from '@/utils/batch-action';
  * # 字段来源（硬红线 1：以接口真实字段名为准）
  *
  * 契约在 `@/api/business/erp` 的 `PayableRow`，逐字抄
- * `backend/src/business/erp/payable/mod.rs` 的 `COLUMNS` / `PayableRow`
+ * `backend/app/src/business/erp/payable/mod.rs` 的 `COLUMNS` / `PayableRow`
  * （`payable_no` / `supplier_id` / `amount` / `paid_amount` / `unpaid_amount` /
  * `status` / `due_date` / `period_code` / `voucher_id` …），不猜 `code` / `name` 那套。
  *
  * # ⚠️ 后端缺口（P2-C1 没交查询接口）
  *
- * `GET /business/erp/payable/page` 在 `backend/src/business/erp/` 里**不存在**
- * （`grep -rn 'erp/payable' backend/src/` 0 命中），V0148 也没种
+ * `GET /business/erp/payable/page` 在 `backend/app/src/business/erp/` 里**不存在**
+ * （`grep -rn 'erp/payable' backend/app/src/` 0 命中），V0148 也没种
  * `business:erp:payable:*` 权限码。所以本页按「接口未上线」的姿势处理：
  *
  * * 404 → 顶部蓝色**信息**条 + 空态（不是红色错误，路由未注册也是 404，红错会让人以为页面坏了）；

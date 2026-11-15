@@ -11,7 +11,7 @@
 > | 本文档性质 | **只做设计，不交付业务代码**。所有 DDL 在真库 **PG 18.6 实跑通过**（`d_flow_v1` 约束负面测试 / `d_flow_v3` 十万级性能实验）；所有性能结论附 `EXPLAIN (ANALYZE, BUFFERS)` 实测；所有代码事实附 `文件:行号` |
 > | 验证环境 | 本机 PG 18.6（Ubuntu 26.04 / x86_64），验证库 `d_flow_v1` / `d_flow_v3`；脚本见附录 B，**可一键复跑** |
 > | 本地代码镜像 | `/root/.hermes/workspace/architect/baseline3/{src,migrations,frontend-src}`（rsync 自生产 HEAD `db1e56e`，仅供检索定位） |
-> | 交付代码位置 | 新模块 `backend/src/business/flow/`；**改一处** `business/task/state.rs`（任务状态机闸门，§5.2 报批项）；`business/changelog/diff.rs` 加 3 条 `ResourceSpec`；`shared/error_code.rs` 加 `65xxx` 段 |
+> | 交付代码位置 | 新模块 `backend/app/src/business/flow/`；**改一处** `business/task/state.rs`（任务状态机闸门，§5.2 报批项）；`business/changelog/diff.rs` 加 3 条 `ResourceSpec`；`shared/error_code.rs` 加 `65xxx` 段 |
 > | 证据文件 | `/root/.hermes/workspace/architect/d_flow/`（`ddl.sql` / `neg_test.sql` / `seed.sql` / `perf*.sql` / `cycle*.sql` / `mech.sql` / 各 `*.out` 原始输出） |
 
 ---

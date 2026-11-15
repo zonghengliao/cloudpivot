@@ -1,6 +1,6 @@
 # 批次 A · 通知定时发送（`scheduled_at`）实现说明
 
-> 代码：`backend/src/business/notice/{mod,handler,dto,model}.rs` + `scheduled.rs`（巡逻任务）
+> 代码：`backend/app/src/business/notice/{mod,handler,dto,model}.rs` + `scheduled.rs`（巡逻任务）
 > 迁移：`V0051__notice_scheduled_dispatch`（新迁移，**未改 V0043**）
 > 任务：`notice_scheduled_dispatch`，cron `*/30 * * * * *`（每 30 秒）
 
@@ -79,5 +79,5 @@ PENDING ─────────┴──────────────
 
 ## 6. 注册位置（易踩）
 
-巡逻任务必须由 `backend/src/task/mod.rs::Scheduler::register_builtin` 注册。写在 `bootstrap.rs` 会被随后的
+巡逻任务必须由 `backend/app/src/task/mod.rs::Scheduler::register_builtin` 注册。写在 `bootstrap.rs` 会被随后的
 `reload()` 清空（A1 已踩过），这是框架调度器的「一次性快照」语义。

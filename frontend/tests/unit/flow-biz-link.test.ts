@@ -32,8 +32,13 @@ import {
   type BizLinkTarget,
 } from '@/views/business/flow/instance/biz-link';
 
-/** 读后端源码（`frontend/tests/unit` → 仓库根 → `backend/src/...`） */
+/** 读**主包**源码（参数相对 `app/`，例：`src/business/erp/handler.rs` → `backend/app/src/...`） */
 function backend(relative: string): string {
+  return readFileSync(new URL(`../../../backend/app/${relative}`, import.meta.url), 'utf8');
+}
+
+/** 读**workspace 根**下的任意文件（参数相对 `backend/`，例：`crates/cloudpivot-doc/src/lib.rs`） */
+function workspace(relative: string): string {
   return readFileSync(new URL(`../../../backend/${relative}`, import.meta.url), 'utf8');
 }
 
@@ -57,7 +62,7 @@ function frontend(relative: string): string {
 function backendHandler(relative: string): string {
   const slash = relative.lastIndexOf('/');
   const file = relative.slice(slash + 1);
-  const dir = new URL(`../../../backend/${relative.slice(0, slash + 1)}`, import.meta.url);
+  const dir = new URL(`../../../backend/app/${relative.slice(0, slash + 1)}`, import.meta.url);
   const stem = file.replace(/\.rs$/, '');
   const family = stem.includes('_handler')
     ? stem.slice(0, stem.indexOf('_handler') + '_handler'.length)
@@ -78,7 +83,7 @@ function backendHandler(relative: string): string {
 
 /** `doc_kind.rs::FlowBizType::as_str` 里的落库字面量（顺序 = match 臂顺序 = `ALL` 顺序） */
 function rustFlowBizTypes(): string[] {
-  const source = backend('crates/cloudpivot-doc/src/lib.rs');
+  const source = workspace('crates/cloudpivot-doc/src/lib.rs');
   const start = source.indexOf('impl FlowBizType');
   assert.ok(start > 0, '找不到 impl FlowBizType');
   const fnStart = source.indexOf('pub const fn as_str', start);

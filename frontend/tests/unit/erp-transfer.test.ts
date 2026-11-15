@@ -7,7 +7,7 @@
  * 哪些按钮、建单该拦哪些错、请求体发什么」全在 `transfer-logic.ts`；`.vue` 只负责渲染。
  * 这些一旦漂移，`vue-tsc` 抓不到，e2e 也只看得见「界面长什么样」。
  *
- * 断言口径照后端迁移抄（`backend/migrations/business/V0140__erp_stock_transfer.up.sql`）：
+ * 断言口径照后端迁移抄（`backend/app/migrations/business/V0140__erp_stock_transfer.up.sql`）：
  * - 状态六值 = `ck_transfer_status`；
  * - 同仓禁止 = `ck_transfer_diff_wh`；
  * - 明细数量 = `ck_transfer_item_qty`（`qty > 0`）；

@@ -10,10 +10,10 @@
  *
  * # 取值来源（改这里之前先改后端）
  *
- * - 状态：`backend/src/business/erp/cost_object_dto.rs::STATUS_*`
+ * - 状态：`backend/app/src/business/erp/cost_object_dto.rs::STATUS_*`
  *   + 迁移 `V0370` 的 `ck_biz_cost_object_status`
  * - 对象类型 / 投料方式：同文件 `OBJECT_TYPES` / `MODES` + `ck_biz_cost_object_type` / `_input`
- * - 关批拦截原因：同文件 `BLOCK_*`；业务码 `66055` 见 `backend/src/shared/error_code.rs`
+ * - 关批拦截原因：同文件 `BLOCK_*`；业务码 `66055` 见 `backend/app/src/shared/error_code.rs`
  * - 权限码：迁移 `V0378` 的 `sys_menu.auth_code` 种子
  *
  * 加值会同时踩后端的状态机 / CHECK 约束巡检，前端不要自行发明取值。

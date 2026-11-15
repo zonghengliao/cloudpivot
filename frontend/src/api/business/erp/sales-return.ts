@@ -1,5 +1,5 @@
 /**
- * 销售退货单 API 层（后端 `backend/src/business/erp/sales_return_handler.rs`，
+ * 销售退货单 API 层（后端 `backend/app/src/business/erp/sales_return_handler.rs`，
  * SO-28 建表 / SO-29 接口 / SO-30 过账 / SO-31 前端页面消费）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）

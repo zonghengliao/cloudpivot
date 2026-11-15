@@ -35,9 +35,9 @@
 ③ PATCH /api/business/erp/shipment/{id}/status   body: {"target_status":"POSTED"}        过账（动三本账）
 ```
 
-- 合法边只有 4 条（`DRAFT→PENDING_POST`、`PENDING_POST→POSTED`、`DRAFT→CANCELLED`、`PENDING_POST→CANCELLED`，后者 `reason` 必填）：`backend/src/business/shared/state_machine.rs::SHIPMENT_EDGES`。
+- 合法边只有 4 条（`DRAFT→PENDING_POST`、`PENDING_POST→POSTED`、`DRAFT→CANCELLED`、`PENDING_POST→CANCELLED`，后者 `reason` 必填）：`backend/app/src/business/shared/state_machine.rs::SHIPMENT_EDGES`。
 - 其余接口：`GET /shipment/page`、`GET /shipment/{id}`、`GET /shipment/shippable/{so_id}`（该订单**未发完的行**，前端「从订单带出」的唯一读数）。
-- 出处：`backend/src/business/erp/shipment/shipment_handler.rs` 文件头接口清单 + `#[nik::post("/business/erp/shipment")]`。
+- 出处：`backend/app/src/business/erp/shipment/shipment_handler.rs` 文件头接口清单 + `#[nik::post("/business/erp/shipment")]`。
 
 ## 2. 收款方式白名单= 4 个值，`BANK` → 400
 
@@ -47,7 +47,7 @@
 ```
 
 - 落库约束 `ck_biz_receipt_method`：`method IS NULL OR method IN ('BANK_TRANSFER','CASH','CHECK','OTHER')`。
-- 代码里的白名单常量：`backend/src/business/erp/receipt_refund.rs::METHODS`（同一份 4 值，退款单 `ck_biz_receipt_refund_method` 逐字一致）。
+- 代码里的白名单常量：`backend/app/src/business/erp/receipt_refund.rs::METHODS`（同一份 4 值，退款单 `ck_biz_receipt_refund_method` 逐字一致）。
 - 登记收款：`POST /api/business/erp/receipt`，body 关键字段 `customer_id / amount / method / receipt_date / bank_account / currency_code`；核销走 `POST /receipt/{id}/allocate`，状态迁移走 `PATCH /receipt/{id}/status`（`DRAFT→CONFIRMED→POSTED`）。
 
 ## 3. 付款：`POST /payable/{id}/pay` 返回 **202 PENDING_APPROVAL**，不是 200 直接生效
@@ -62,7 +62,7 @@ POST /api/business/erp/payable/{id}/pay
 - 有已发布的 `payable_pay` 流程 ⇒ **202**，响应带 `approval_instance_id` / `payment_no`（`outcome = PENDING_APPROVAL`），钱还没动；
 - 没配流程 ⇒ **409 + `APPROVAL_FLOW_NOT_CONFIGURED`（fail-closed）**，只有「持 `business:erp:skip-approval` + `skip_reason` ≥10 字」才能显式跳过直付，理由进 `biz_status_log`；
 - 想看这单能付多少：`GET /api/business/erp/payable/{id}/payment-info`（详情抽屉「发起付款」的唯一读数）。
-- 出处：`backend/src/business/erp/payable/payable_payment.rs::submit_payment` 文档注释（"卡面 ③：改成先发起审批，返回 202"）。
+- 出处：`backend/app/src/business/erp/payable/payable_payment.rs::submit_payment` 文档注释（"卡面 ③：改成先发起审批，返回 202"）。
 
 ## 4. `received_qty` **不是表列**（已收数量是派生值）
 
@@ -72,7 +72,7 @@ POST /api/business/erp/payable/{id}/pay
 ✅ 接口：GET /api/business/erp/purchase-order-item/page            → 同样带 received_qty
 ```
 
-真库口径（唯一真相，`backend/src/business/erp/purchase/purchase_model.rs::POSTED_RECEIVED_SQL`）：
+真库口径（唯一真相，`backend/app/src/business/erp/purchase/purchase_model.rs::POSTED_RECEIVED_SQL`）：
 
 ```sql
 COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
@@ -96,7 +96,7 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
 
 - `budget/report` 只吃筛选参数（`fiscal_year` / `dept_id` / `account_id` / `change_type` / `keyword`），**没有分页**，返回数组；
 - 其余入口：`POST /budget`（建 DRAFT + v1 + 12 月分解）、`PUT /budget/{id}`、`POST /budget/{id}/submit`（送 `budget_approve`）、`POST /budget/{id}/adjust`（新版本直接送审）、`GET /budget/{id}`（含占用记录 + 版本链）。
-- 出处：`backend/src/business/erp/budget/budget_handler.rs` 文件头接口清单 + `#[nik::get("/business/erp/budget/report")]`。
+- 出处：`backend/app/src/business/erp/budget/budget_handler.rs` 文件头接口清单 + `#[nik::get("/business/erp/budget/report")]`。
 
 ## 6. `biz_budget` **没有 `used_amount` 列**（已用是现算的）
 
@@ -121,7 +121,7 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
 ```
 
 - 「审批通过」**不改单据状态**（实例 `APPROVED` 后单据仍是 `PENDING_POST`），真正过账是上面那一句；未审批就过账 → **409**（审批结论闸）。
-- 字段名 `status` 与 `target_status` 都收，两个都给时必须相等：`backend/src/business/erp/stocktake/stocktake_dto.rs::StockTakeStatusReq`。
+- 字段名 `status` 与 `target_status` 都收，两个都给时必须相等：`backend/app/src/business/erp/stocktake/stocktake_dto.rs::StockTakeStatusReq`。
 - 其余：`POST /stock-take`、`PUT /stock-take/{id}`、`DELETE /stock-take/{id}`（草稿）、`GET /stock-take/page`、`GET /stock-take/{id}`。
 - 口径细节见 `docs/ERP-盘点审批过账口径.md`（FIX-8）。
 
@@ -138,7 +138,7 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
         POST /asset/{id}/status  {"target_status":"IN_USE","reason":"重新投用"}  ← 启用
 ```
 
-- 建卡必填（`backend/src/business/erp/asset/asset_dto.rs::CreateAssetReq`）：`asset_name`、`category_id`、`use_dept_id`、`original_value`、`purchase_date`、`pay_mode`（`CREDIT` 赊购贷 2202 / `CASH` 现付贷 1002）；`buy_mode` = `DIRECT_BUY` / `FROM_STOCK`（收货单来源强制 `FROM_STOCK`）。建卡**同时生成购入凭证**。
+- 建卡必填（`backend/app/src/business/erp/asset/asset_dto.rs::CreateAssetReq`）：`asset_name`、`category_id`、`use_dept_id`、`original_value`、`purchase_date`、`pay_mode`（`CREDIT` 赊购贷 2202 / `CASH` 现付贷 1002）；`buy_mode` = `DIRECT_BUY` / `FROM_STOCK`（收货单来源强制 `FROM_STOCK`）。建卡**同时生成购入凭证**。
 - **列名**（实测 `biz_fixed_asset`）：`useful_life_months`（月数）/ `salvage_rate`（净残值率 0≤r<1）/ `residual_value` / `depreciable_base` / `monthly_depreciation` / `accumulated_depreciation` / `net_value` / `depreciation_months_done`——**没有** `useful_life`、`residual_rate` 这两个名字。
 - 分类表 `biz_asset_category` 才是来源：`useful_life_months`（1..=600）+ `salvage_rate`（默认 0.05）+ 三个科目（1601 / 1602 / 5602.01）。
 - 金额与分类**不可改**（`PUT /asset/{id}` 只放行名称 / 规格 / 地点 / 备注）；状态变更只走状态机（`POST /asset/{id}/status`，`target_status` 只收 `IDLE` / `IN_USE`，`reason` 必填、`change_date` 可空），停用 / 启用**不出凭证**、折旧照提。
@@ -154,7 +154,7 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
 ```
 
 - 合同是 **6 态**：`DRAFT / PENDING_APPROVAL / SIGNED / ACTIVE / COMPLETED / TERMINATED`
-  （`ck_biz_contract_status`；`backend/src/business/shared/state_machine.rs::CONTRACT_EDGES`）。
+  （`ck_biz_contract_status`；`backend/app/src/business/shared/state_machine.rs::CONTRACT_EDGES`）。
   `CLOSED` 是**采购单 / 销售单**的状态，不是合同的 —— 两个域的字面量别混用。
 - `COMPLETED` 的语义是**归档（不再接新单）**，不是「履约完成」：是否履行完要看详情的
   `open_order_count == 0`（`biz_contract` 没有「已履行」列）。
@@ -168,7 +168,7 @@ COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s
 - 乙方类型只有 `CUSTOMER` / `SUPPLIER`：`PURCHASE`/`SERVICE`/`LEASE` → `SUPPLIER`、
   `SALES` → `CUSTOMER`。**服务商 / 出租方都建在供应商档**（决策 D1，见
   `docs/合同类型开放口径-决策.md` §二）；传 `CUSTOMER` 给服务/租赁类一律 400（`66021`）。
-- 出处：`backend/src/business/erp/contract/contract_handler.rs::contract_change_status`、
+- 出处：`backend/app/src/business/erp/contract/contract_handler.rs::contract_change_status`、
   `contract_bridge.rs::terminate_for_out_of_band_sign`、`contract_dto.rs::ContractStatusReq`。
 
 ---
@@ -208,7 +208,7 @@ POST /api/business/erp/serial/batch-generate     权限码 business:erp:serial:g
 - 出参：`count / period_key / serial_nos / list / unit_cost / amount / inventory`；
   `unit_cost`（6 位）、`amount`（4 位，**取自 `apply_cost` 的 `RETURNING amount` 真实增量，
   不是前端算的 N × 单价**）、`inventory.{qty,amount,avg_cost}` 都是 **字符串** Decimal。
-- 出处：`backend/src/business/erp/serial_dto.rs::BatchGenerateReq::parse_unit_cost`
+- 出处：`backend/app/src/business/erp/serial_dto.rs::BatchGenerateReq::parse_unit_cost`
   （报文逐字）、`serial_handler.rs::serial_batch_generate`（路由 + 权限码）；
   前端对应实现 `frontend/src/views/business/erp/serial/serial-logic.ts`（同一份报文透出）。
 
@@ -219,7 +219,7 @@ POST /api/business/erp/serial/batch-generate     权限码 business:erp:serial:g
 采购入库                          → in_type = PURCHASE
 ```
 
-唯一入口 `backend/src/business/erp/stockin/stockin_base.rs::in_type_of`（建单 / 改单都走它，`in_type_vocabulary_matches_doc_kind` 用例钉住）。按 `in_type` 做统计时，别再把「没走采购的入库」混进采购口径。
+唯一入口 `backend/app/src/business/erp/stockin/stockin_base.rs::in_type_of`（建单 / 改单都走它，`in_type_vocabulary_matches_doc_kind` 用例钉住）。按 `in_type` 做统计时，别再把「没走采购的入库」混进采购口径。
 
 ## 附录 B：资产折旧凭证「同部门多台汇总一行」的口径
 

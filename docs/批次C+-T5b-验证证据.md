@@ -28,14 +28,14 @@
 
 | 文件 | 内容 |
 |---|---|
-| `backend/migrations/business/V0112__task_hermes_integration.{up,down}.sql` | `biz_task` 7 列（`exec_mode` / Hermes 三件套 / 同步时间 / `ai_summary` / `ai_result`）+ `biz_task_attachment` 2 列（`source` / `ai_profile`）+ 令牌表 `biz_task_ai_token` + 评论类型值域扩 `AI_REPORT` / `AI_PROGRESS`，含自检 `DO` 块 |
-| `backend/src/middleware/task_token.rs` | **独立于 JWT 的**任务令牌守卫：`cpai_` 前缀识别（69 字符形态）→ `sha256` 命中 → `path_task_id == token.task_id` → 过期 → 终态 → `exec_mode='AI'`；白名单只放行 4 个端点；8 条单测 |
-| `backend/src/business/task/hermes_sync.rs` | 派活（body 模板 + 幂等键 + 失败收尾）、30s 轮询、状态映射、done 三层回传、failed/blocked/404 处理、`status_unchanged` 幂等判定，13 条单测 |
-| `backend/src/business/aiagent/hermes.rs` | `kanban create / show` 的 CLI 封装（`--json` 解析、`ensure_profile_config` 前置、profile/board/幂等键校验） |
-| `backend/src/business/task/{handler,dto,model}.rs` | 4 个接口 + `dispatch-ai` + `stats`；`TaskReader`（人类 / 令牌双身份）；`task_stats` 聚合（走同一条可见性谓词） |
-| `backend/src/lib.rs` | 令牌守卫挂在**最外层**（`layer_from_fn`，早于框架认证层） |
+| `backend/app/migrations/business/V0112__task_hermes_integration.{up,down}.sql` | `biz_task` 7 列（`exec_mode` / Hermes 三件套 / 同步时间 / `ai_summary` / `ai_result`）+ `biz_task_attachment` 2 列（`source` / `ai_profile`）+ 令牌表 `biz_task_ai_token` + 评论类型值域扩 `AI_REPORT` / `AI_PROGRESS`，含自检 `DO` 块 |
+| `backend/app/src/middleware/task_token.rs` | **独立于 JWT 的**任务令牌守卫：`cpai_` 前缀识别（69 字符形态）→ `sha256` 命中 → `path_task_id == token.task_id` → 过期 → 终态 → `exec_mode='AI'`；白名单只放行 4 个端点；8 条单测 |
+| `backend/app/src/business/task/hermes_sync.rs` | 派活（body 模板 + 幂等键 + 失败收尾）、30s 轮询、状态映射、done 三层回传、failed/blocked/404 处理、`status_unchanged` 幂等判定，13 条单测 |
+| `backend/app/src/business/aiagent/hermes.rs` | `kanban create / show` 的 CLI 封装（`--json` 解析、`ensure_profile_config` 前置、profile/board/幂等键校验） |
+| `backend/app/src/business/task/{handler,dto,model}.rs` | 4 个接口 + `dispatch-ai` + `stats`；`TaskReader`（人类 / 令牌双身份）；`task_stats` 聚合（走同一条可见性谓词） |
+| `backend/app/src/lib.rs` | 令牌守卫挂在**最外层**（`layer_from_fn`，早于框架认证层） |
 | `scripts/patch-nik-web.sh` | **CODE-11 / CODE-11b**：框架认证层与权限层的「免认证路径」判定支持模板段，且模板段只匹配 id 形态 |
-| `backend/src/shared/error_code.rs` | 633xx 子段 8 个码（令牌 / 派活 / 进度） |
+| `backend/app/src/shared/error_code.rs` | 633xx 子段 8 个码（令牌 / 派活 / 进度） |
 
 关键不变式（后面改这块必须守住）：
 

@@ -8,7 +8,7 @@
 #     「脚本说红、面板说绿」两套口径。
 #   · 两套可以并存：脚本管建卡/日志/飞书即时通知，Prometheus 管趋势与历史。
 #
-# 指标来源（backend/src/task/metrics_sampler.rs，每分钟采样）：
+# 指标来源（backend/app/src/task/metrics_sampler.rs，每分钟采样）：
 #   cloudpivot_invariant_ok                    1 通过 / 0 未通过 / -1 从未跑过
 #   cloudpivot_invariant_blockers              失败项里 BLOCKER 数（-1 未知）
 #   cloudpivot_invariant_age_seconds           最近一次巡检距今秒数（-1 从未跑过）

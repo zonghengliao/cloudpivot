@@ -10,9 +10,9 @@
 
 | 文件 | 改动 |
 |---|---|
-| `backend/src/business/task/dto.rs` | `TaskPageQuery` 新增 `#[serde(default)] pub root_only: Option<bool>`（带「为什么需要」的文档） |
-| `backend/src/business/task/model.rs` | `TaskFilter` 新增 `pub root_only: bool`；`build_filters()` 末尾追加 **无参数常量片段** `AND t.parent_id IS NULL`；新增 `root_only_tests`（7 条） |
-| `backend/src/business/task/handler.rs` | `build_filter()` 归一化 `root_only: query.root_only.unwrap_or(false)`；`page()` 文档补参数说明 |
+| `backend/app/src/business/task/dto.rs` | `TaskPageQuery` 新增 `#[serde(default)] pub root_only: Option<bool>`（带「为什么需要」的文档） |
+| `backend/app/src/business/task/model.rs` | `TaskFilter` 新增 `pub root_only: bool`；`build_filters()` 末尾追加 **无参数常量片段** `AND t.parent_id IS NULL`；新增 `root_only_tests`（7 条） |
+| `backend/app/src/business/task/handler.rs` | `build_filter()` 归一化 `root_only: query.root_only.unwrap_or(false)`；`page()` 文档补参数说明 |
 | `frontend/src/api/business/task-api.ts` | `TaskPageQuery` 新增 `root_only?: boolean` |
 | `frontend/src/views/business/task/index.vue` | `loadList()` 的 `pageTasks({…})` 新增 `root_only: true`（**仅列表视图**） |
 | `frontend/tests/unit/task-root-only.test.ts` | 前端单测 4 条（类型契约 / 列表默认启用 / 其它视图不传 / 跨层一致） |

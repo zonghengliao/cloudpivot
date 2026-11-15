@@ -1,5 +1,5 @@
 /**
- * 询比价 API 层（后端 `backend/src/business/erp/price_inquiry_handler.rs`，P2-01）。
+ * 询比价 API 层（后端 `backend/app/src/business/erp/price_inquiry_handler.rs`，P2-01）。
  *
  * # 接口
  *

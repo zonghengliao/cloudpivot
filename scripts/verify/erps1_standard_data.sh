@@ -18,7 +18,7 @@ set -uo pipefail
 REPO=${REPO:-/opt/cloudpivot}
 DB=${S1_DB:-cloudpivot_s1v}
 KEEP=${S1_KEEP:-0}
-MIG="$REPO/backend/migrations/business/V0187__erp_standard_master_data"
+MIG="$REPO/backend/app/migrations/business/V0187__erp_standard_master_data"
 
 set -a; . /etc/cloudpivot/cloudpivot.env; set +a
 export PGPASSWORD="$NIK_DATABASE_PASSWORD"

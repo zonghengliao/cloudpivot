@@ -1,7 +1,7 @@
 /**
  * 变更日志接口（批次 C · C6）。
  *
- * 路径与后端 `backend/src/business/changelog/handler.rs` 逐条对应。
+ * 路径与后端 `backend/app/src/business/changelog/handler.rs` 逐条对应。
  *
  * # 四条口径
  *

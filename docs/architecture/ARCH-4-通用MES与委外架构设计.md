@@ -44,8 +44,8 @@
 
 | 卡面 / 历史文档说法 | 实测 | 证据 | 本文处置 |
 |---|---|---|---|
-| 框架 crate 是 `alun`，业务代码 `use alun::prelude::*`，权限宏 `#[alun::permission]` | **仓内是 `nik` 0.4.2（`vendor/nik`），代码里 0 处 `use alun`** | `backend/Cargo.toml:41` `nik = { path = "vendor/nik", … }`；`grep -rl "use alun" backend/src` → 0 行；`backend/src/business/erp/purchase/purchase_handler.rs:717` `#[nik::permission(...)]` | 全文一律写 `nik`；`AGENTS.md` 与 `skill/SKILL.md` 的 `alun` 表述属历史遗留，建议另开文档卡订正（本卡不改文档以外的东西） |
-| 迁移号段「基础版最大 V0017」 | **磁盘上 `business/` 已到 V0251，全局下一个可用 = V0252** | `ls backend/migrations/*/V*.up.sql \| sed … \| sort -n \| tail -3` → `0249 / 0250 / 0251`；重复检查为空 | MES 迁移从 **V0252** 起编，见 §4.8 |
+| 框架 crate 是 `alun`，业务代码 `use alun::prelude::*`，权限宏 `#[alun::permission]` | **仓内是 `nik` 0.4.2（`vendor/nik`），代码里 0 处 `use alun`** | `backend/Cargo.toml:41` `nik = { path = "vendor/nik", … }`；`grep -rl "use alun" backend/app/src` → 0 行；`backend/app/src/business/erp/purchase/purchase_handler.rs:717` `#[nik::permission(...)]` | 全文一律写 `nik`；`AGENTS.md` 与 `skill/SKILL.md` 的 `alun` 表述属历史遗留，建议另开文档卡订正（本卡不改文档以外的东西） |
+| 迁移号段「基础版最大 V0017」 | **磁盘上 `business/` 已到 V0251，全局下一个可用 = V0252** | `ls backend/app/migrations/*/V*.up.sql \| sed … \| sort -n \| tail -3` → `0249 / 0250 / 0251`；重复检查为空 | MES 迁移从 **V0252** 起编，见 §4.8 |
 | 「销售/生产模块完全没做过」 | 半对：**库存侧已有出库单与盘点单**（DC-13/DC-14 已落地），但**客户、销售单、应收、工单、工艺、批次、设备 0 张表** | `biz_stock_out`（`out_type ∈ ISSUE/SCRAP/LOSS/OTHER`）、`biz_stock_take` 存在；`biz_customer` / `biz_sales_*` / `biz_mes_*` 全部不存在（70 张 `biz_*` 实测无一张） | 生产/销售是**新建域**，不是补字段；领料与完工入库**复用** `biz_stock_out` / `biz_stock_in` |
 | 「工作量计量可以从零设计」 | **不能忽略已有工时**：`biz_task_worklog` 有 99 行真实数据、8 列、靠 `COALESCE(sum(hours),0)` 回写 `biz_task.actual_hours` | `biz_task_worklog` 实测 8 列 2 CHECK 2 FK；`task/collab.rs:687` 汇总 SQL；`biz_task` 41 列含 `estimate_hours` / `actual_hours` | 明确边界与「统一视图」，见 D1 + §5.5 |
 
@@ -187,7 +187,7 @@ $ sudo -u postgres psql -d cloudpivot_deadmin -t -c "select count(*) from biz_ta
 
 ## 1.5 现有状态机的能力边界（MES 全部要吃透）
 
-`backend/src/business/shared/state_machine.rs` 实测（编译期注册表）：
+`backend/app/src/business/shared/state_machine.rs` 实测（编译期注册表）：
 
 | 能力 | 实现 | MES 怎么用 |
 |---|---|---|
@@ -509,7 +509,7 @@ flowchart TB
 后端沿用四件套铁律（`mod.rs + handler.rs + dto.rs + model.rs`，不设 service 层），MES 因体量大，在 `business/mes/` 下按**子域**再分一层，每个子域仍是四件套：
 
 ```
-backend/src/business/mes/
+backend/app/src/business/mes/
   mod.rs                 # 域总览：6 个子域 + 与 erp/flow/task 的依赖方向（只依赖，不反向）
   cfg/                   # 配置域：模板 / profile / 字段定义 / 规则
     mod.rs handler.rs dto.rs model.rs template.rs field.rs rule.rs
@@ -603,7 +603,7 @@ flowchart LR
 
 ## 本章红线
 
-1. **不许出现行业字符串分支**：代码里 `grep -r "SEMICONDUCTOR\|半导体" backend/src` 必须为 0（模板数据里可以出现，代码里不行）。
+1. **不许出现行业字符串分支**：代码里 `grep -r "SEMICONDUCTOR\|半导体" backend/app/src` 必须为 0（模板数据里可以出现，代码里不行）。
 2. **不许为模板新增表结构**：模板只能填 §2.5 的 Schema，Schema 里的每个键都必须在 `biz_mes_profile` / 字典里有落点。
 3. **核心引擎只许 6 条不可配置**（§2.4 第 11–16 行），加第 7 条必须先在本文档补一节论证。
 4. **依赖单向**：`erp` / `flow` / `task` 任何文件里出现 `mes::` 引用即违规。
@@ -3729,7 +3729,7 @@ POSTED 之后（同事务）：
 
 ## 本章红线
 
-1. **任何状态变更必须调 `state_machine::transition`**，不许 `UPDATE … SET status`（`grep -r "SET status" backend/src/business/mes` 必须为 0）。
+1. **任何状态变更必须调 `state_machine::transition`**，不许 `UPDATE … SET status`（`grep -r "SET status" backend/app/src/business/mes` 必须为 0）。
 2. **报工必须同事务 7 步全做**（§6.2.4），不许「先记货、后记工时」。
 3. **委外 `loss_qty < 0` 必须 400**（回收数超过发料数 = 加工商贴料或单位错，绝不放过）。
 4. **拆并数量必须严格守恒**（`sum(子) = 母`），不许容差。
@@ -4094,8 +4094,8 @@ POSTED 之后（同事务）：
 
 | # | 接线点 | 位置 | 改动性质 | 风险 |
 |---|---|---|---|---|
-| C-1 | `DocKind` 新增 14 个变体 | `backend/src/business/shared/doc_kind.rs`（`ALL` / `as_str` / `label` / `table` / `is_document` / `flow_code`） | 改**代码**（词表唯一真相）；单测（`cloudpivot-doc` 的 `contract_tests`）会强制前端 TS 镜像同步 | 低（编译期能拦住漏改） |
-| C-2 | `state_machine::Entity` 新增 11 个变体 + 边常量 | `backend/src/business/shared/state_machine.rs` | 改代码（注册表）；`transition` 会核对边与注册表一致 | 中（边写错会导致流程走不通，需单测覆盖每条边） |
+| C-1 | `DocKind` 新增 14 个变体 | `backend/app/src/business/shared/doc_kind.rs`（`ALL` / `as_str` / `label` / `table` / `is_document` / `flow_code`） | 改**代码**（词表唯一真相）；单测（`cloudpivot-doc` 的 `contract_tests`）会强制前端 TS 镜像同步 | 低（编译期能拦住漏改） |
+| C-2 | `state_machine::Entity` 新增 11 个变体 + 边常量 | `backend/app/src/business/shared/state_machine.rs` | 改代码（注册表）；`transition` 会核对边与注册表一致 | 中（边写错会导致流程走不通，需单测覆盖每条边） |
 | C-3 | `task/doc_ref.rs::DOC_TARGETS` 增加 6 行 | 任务模块 | 改代码（一行一个 DocTarget） | 低 |
 | C-4 | `biz_doc_attachment.ck_biz_doc_attachment_type` 扩值域 | 迁移（`ALTER TABLE … DROP/ADD CONSTRAINT`） | **改现有表约束**（扩枚举值，不改结构） | 中（需同步 `DocKind`） |
 | C-5 | `biz_reminder_log` 两个 CHECK 扩值域 | 迁移 | 同上 | 中 |
@@ -4105,7 +4105,7 @@ POSTED 之后（同事务）：
 | C-9 | `sys_job` 新增 4 个扫描任务 | 迁移（INSERT）+ `task/scheduler.rs` 注册 | 数据 + 代码 | 低 |
 | C-10 | `scripts/verify/erp_invariants.py` 增加 MES 检查段（`H-MES-*`） | 巡检脚本 | 代码（Python） | 低（跑不动就是 ERROR，不会假绿） |
 | C-11 | `business/mod.rs` 注册 `pub mod mes;` + `pub mod sales;` | 一行 | 代码 | 低 |
-| C-12 | `erp` 反向依赖检查（`grep -r "mes::" backend/src/business/erp` 必须为 0） | CI 检查 | — | — |
+| C-12 | `erp` 反向依赖检查（`grep -r "mes::" backend/app/src/business/erp` 必须为 0） | CI 检查 | — | — |
 
 **注意 C-4/C-5 的性质**：这是**唯一两处**触及现有表的地方。它不是「加列/改结构」，而是「放宽值域 CHECK」。如果坚持「一个字都不许碰」，替代方案是：MES 单据不挂 `biz_doc_attachment` / `biz_reminder_log`，改用 MES 自己的附件/提醒表 —— **但那就是第二个附件系统**（违反 R1）。两害相权，选扩 CHECK，并在附录 C-6 请老板拍板。
 

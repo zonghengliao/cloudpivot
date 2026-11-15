@@ -148,13 +148,13 @@ name = title = business:erp:voucher:list   path=/business/erp/voucher
 
 | 模块 | 文件 | 用例数 | 结果 |
 |---|---|---|---|
-| `system/dept` | `backend/src/system/dept/tests.rs` | 12（D01–D11 + 补充） | ✅ 全绿（真库） |
-| `system/menu` | `backend/src/system/menu/tests.rs` | 12（N01–N12） | ✅ 10 绿 + 2 `#[ignore]`（BUG-SYS-01/02） |
-| `business/masking`（= 卡片说的 `system/field-mask`） | `backend/src/business/masking/tests.rs` | 9（M01–M09） | ✅ 全绿 |
-| 越权 O 系列 | `backend/src/system/authz_tests.rs` | 14（O01–O14） | ✅ 全绿 |
-| `system/user` | `backend/src/system/user/tests.rs` | 12（U01–U12） | ✅ 全绿（含真实登录流程） |
-| `system/role` | `backend/src/system/role/tests.rs` | 6（R01–R06） | ✅ 全绿 |
-| `business/permission` | `backend/src/business/permission/tests.rs` | 12（A01–A12） | ✅ 全绿 |
+| `system/dept` | `backend/app/src/system/dept/tests.rs` | 12（D01–D11 + 补充） | ✅ 全绿（真库） |
+| `system/menu` | `backend/app/src/system/menu/tests.rs` | 12（N01–N12） | ✅ 10 绿 + 2 `#[ignore]`（BUG-SYS-01/02） |
+| `business/masking`（= 卡片说的 `system/field-mask`） | `backend/app/src/business/masking/tests.rs` | 9（M01–M09） | ✅ 全绿 |
+| 越权 O 系列 | `backend/app/src/system/authz_tests.rs` | 14（O01–O14） | ✅ 全绿 |
+| `system/user` | `backend/app/src/system/user/tests.rs` | 12（U01–U12） | ✅ 全绿（含真实登录流程） |
+| `system/role` | `backend/app/src/system/role/tests.rs` | 6（R01–R06） | ✅ 全绿 |
+| `business/permission` | `backend/app/src/business/permission/tests.rs` | 12（A01–A12） | ✅ 全绿 |
 | **合计** | | **77** | 75 绿 + 2 ignored |
 
 ### 2.2 交付口径的总跑（贴真实输出）
@@ -202,8 +202,8 @@ SYS_DB_URL="postgres://<user>:<pwd>@127.0.0.1:5432/cloudpivot_test" cargo test -
 
 | 卡片写法 | 实际情况 | 证据 |
 |---|---|---|
-| `system/field-mask` **0 测试** | 实现在 `business/masking/`（路由前缀仍是 `/system/field-mask`），且 `masker/registry/model/handler/user_export` **各自已有单测** | `grep -rn "cfg(test)" backend/src/business/masking/` |
-| `business/permission` = 权限码全集/权限树 | 实际是**数据范围权限**（`/business/permission/scope/*` 5 个路由 + `scope_model` 纯逻辑）；权限码权威来源是 `sys_menu.auth_code` + `#[nik::permission]` | `backend/src/business/permission/{scope_handler,scope_model}.rs` |
+| `system/field-mask` **0 测试** | 实现在 `business/masking/`（路由前缀仍是 `/system/field-mask`），且 `masker/registry/model/handler/user_export` **各自已有单测** | `grep -rn "cfg(test)" backend/app/src/business/masking/` |
+| `business/permission` = 权限码全集/权限树 | 实际是**数据范围权限**（`/business/permission/scope/*` 5 个路由 + `scope_model` 纯逻辑）；权限码权威来源是 `sys_menu.auth_code` + `#[nik::permission]` | `backend/app/src/business/permission/{scope_handler,scope_model}.rs` |
 | 建部门上级不存在 → **400** | 实际 **404** `RESOURCE_NOT_FOUND`（`D02` 按实际断言） | `system/dept/tests.rs::d02` |
 | 部门层级上限 8 层 → 400 | 实现**没有**层级上限（`D09` 按实际断言并注明） | `system/dept/tests.rs::d09` |
 | 密码 **bcrypt** | 实际 **Argon2id** PHC 串（`nik::Crypto::hash_password`）；`U01` 断言「非明文 + `$argon2` 前缀 + 可校验」 | `vendor/nik-utils/src/crypto.rs:69` |

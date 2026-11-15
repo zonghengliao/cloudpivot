@@ -2,7 +2,7 @@
 
 > 卡片：`t_e1976a56`（ARCH9-1【L-2】）｜上游：评审报告 §5.1 / §6.2「需要账套维度改造，越早做越省事」
 > 代码基线：`origin/main` = `2dc4f288`（2026-11-10 实测 `git log --oneline -1`）
-> 影响迁移号段：**V0368 起**（现有 business 最大 `V0367__flow_all_role_approval_to_any_multiversion`，2026-11-10 `ls backend/migrations/business | sort | tail -1` 实测）
+> 影响迁移号段：**V0368 起**（现有 business 最大 `V0367__flow_all_role_approval_to_any_multiversion`，2026-11-10 `ls backend/app/migrations/business | sort | tail -1` 实测）
 > 本文只做设计：**不含实现代码**（除 DDL 与接口签名示例），不改现有代码，不建迁移文件。
 
 ---
@@ -35,9 +35,9 @@
 
 | 问题 | 现状证据 | 后果 |
 |---|---|---|
-| 一个集团下多个法人，无法各自出报表 | 全仓 `grep -ril org_id backend/migrations/` = **0 个文件**；`biz_voucher` / `biz_account` / `biz_accounting_period` 全部全局一套 | 客户只能给集团开 N 个库（N 套系统），合并靠 Excel；账套口径一旦不一致，报表对不上 |
+| 一个集团下多个法人，无法各自出报表 | 全仓 `grep -ril org_id backend/app/migrations/` = **0 个文件**；`biz_voucher` / `biz_account` / `biz_accounting_period` 全部全局一套 | 客户只能给集团开 N 个库（N 套系统），合并靠 Excel；账套口径一旦不一致，报表对不上 |
 | 竞品都有 | 用友 U8/U9、金蝶 K3/星瀚均把"多组织 + 合并报表"作为集团版核心卖点 | 中大型客户在选型清单里直接勾"必须支持多公司合并"，缺失即出局 |
-| 越早做越省事 | 现在已经 **108 张 `biz_*` 表**（`grep -rhoE "CREATE TABLE ... biz_" \| sort -u \| wc -l` = 108）、**615 处 `SCOPE-EXEMPT`/scope 注解**（`grep -rn SCOPE-EXEMPT backend/src --include=*.rs \| wc -l`） | 每多一张业务表、多一个报表 SQL，`org_id` 接入成本线性增长 |
+| 越早做越省事 | 现在已经 **108 张 `biz_*` 表**（`grep -rhoE "CREATE TABLE ... biz_" \| sort -u \| wc -l` = 108）、**615 处 `SCOPE-EXEMPT`/scope 注解**（`grep -rn SCOPE-EXEMPT backend/app/src --include=*.rs \| wc -l`） | 每多一张业务表、多一个报表 SQL，`org_id` 接入成本线性增长 |
 
 ### 1.2 不解决什么问题（边界）
 
@@ -89,7 +89,7 @@
 | **新增表** | `biz_org`、`biz_org_user`、`biz_org_account`、`biz_consol_worksheet`、`biz_consol_scope`、`biz_consol_rule`、`biz_consol_offset` | **7 张** |
 | **改造表（加列）** | 财务核心 8 + 单据主表 24 + 库存/仓库 4 + 主数据/系统 5 + 流程 1 = **42 张**（明细见 §3.2） | 42 张 |
 | **唯一键重建** | `biz_accounting_period` ×2、`biz_voucher` ×3、`biz_opening_balance` ×1、`biz_opening_inventory` ×1、`biz_seq` ×1、`biz_depreciation_batch` ×1 | 8 条索引 |
-| **代码改造点** | `post_voucher` 1 处（+ `PostReq` 字段）、`post_voucher(` 调用点 **53 处**（`grep -rn "post_voucher(" backend/src \| grep -v voucher.rs \| wc -l`）、`FROM biz_voucher` 取数语句 **244 处 / 62 个文件**（`grep -rc "FROM biz_voucher" backend/src --include=*.rs` 实测；含测试夹具，生产侧集中在 `voucher.rs`(25)、`year_end.rs`(20)、`serial_handler.rs`(12)、`payable_payment.rs`(9)、`fx_revaluation.rs`(9)、`voucher_write.rs`(8)、`receipt_refund.rs`(8)、`opening.rs`(7)）、取号 3 处、期间/年结/期初 ≈ 12 处 | ≈ 310 处 |
+| **代码改造点** | `post_voucher` 1 处（+ `PostReq` 字段）、`post_voucher(` 调用点 **53 处**（`grep -rn "post_voucher(" backend/app/src \| grep -v voucher.rs \| wc -l`）、`FROM biz_voucher` 取数语句 **244 处 / 62 个文件**（`grep -rc "FROM biz_voucher" backend/app/src --include=*.rs` 实测；含测试夹具，生产侧集中在 `voucher.rs`(25)、`year_end.rs`(20)、`serial_handler.rs`(12)、`payable_payment.rs`(9)、`fx_revaluation.rs`(9)、`voucher_write.rs`(8)、`receipt_refund.rs`(8)、`opening.rs`(7)）、取号 3 处、期间/年结/期初 ≈ 12 处 | ≈ 310 处 |
 | **不改** | 明细行表（`*_item` / `biz_*_allocation`）、附件（`biz_doc_attachment`）、状态日志（`biz_status_log`）、`biz_task*` 任务域、`biz_flow_def*` 定义域、`sys_menu` 语义 | 靠主表 join 归属 |
 
 ### 2.3 会不会破坏现有数据（必须：不破坏）
@@ -1088,19 +1088,19 @@ CREATE INDEX IF NOT EXISTS idx_biz_flow_instance_org ON biz_flow_instance (org_i
 
 | 结论 | 复核命令 |
 |---|---|
-| business 迁移最大号 V0367 | `ls backend/migrations/business \| sort \| tail -1` |
-| 全仓无 `org_id` | `grep -ril "org_id" backend/migrations/ \| wc -l` → 0 |
-| 108 张 `biz_*` 表 | `grep -rhoE "CREATE TABLE (IF NOT EXISTS )?biz_[a-z_]+" backend/migrations/business/*.up.sql \| awk '{print $NF}' \| sort -u \| wc -l` |
-| `biz_account` 唯一键全局 | `backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:128` |
-| 凭证唯一写入口 | `backend/src/business/erp/voucher/mod.rs:1963`（`post_voucher`），INSERT 在 2068；其余 12 处 insert 全在 `mod tests` |
-| 53 个 `post_voucher` 调用点 | `grep -rn "post_voucher(" backend/src --include=*.rs \| grep -v voucher.rs \| wc -l` |
+| business 迁移最大号 V0367 | `ls backend/app/migrations/business \| sort \| tail -1` |
+| 全仓无 `org_id` | `grep -ril "org_id" backend/app/migrations/ \| wc -l` → 0 |
+| 108 张 `biz_*` 表 | `grep -rhoE "CREATE TABLE (IF NOT EXISTS )?biz_[a-z_]+" backend/app/migrations/business/*.up.sql \| awk '{print $NF}' \| sort -u \| wc -l` |
+| `biz_account` 唯一键全局 | `backend/app/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:128` |
+| 凭证唯一写入口 | `backend/app/src/business/erp/voucher/mod.rs:1963`（`post_voucher`），INSERT 在 2068；其余 12 处 insert 全在 `mod tests` |
+| 53 个 `post_voucher` 调用点 | `grep -rn "post_voucher(" backend/app/src --include=*.rs \| grep -v voucher.rs \| wc -l` |
 | 期间/期初/折旧批次唯一键 | `V0137:194-195`、`V0189:70`、`V0189:99`、`V0230:67` |
 | 年结/期初凭证唯一键 | `V0190:74`、`V0189:120` |
-| 科目匹配语法 | `backend/src/business/erp/report/mod.rs:473-488`（`match_account`） |
-| 数据权限唯一入口与登记表 | `backend/src/business/shared/scope.rs`（模块文档 + `SCOPED_TABLES` 281-294） |
-| 部门树 `dept_path` | `backend/migrations/system/V0006__create_sys_dept.up.sql:7` |
-| 流程实例列 | `backend/migrations/business/V0122__flow_instance_tables.up.sql:33-70` |
-| 审批人 8+2 种来源 | `backend/src/business/flow/assignee.rs` 模块文档 |
+| 科目匹配语法 | `backend/app/src/business/erp/report/mod.rs:473-488`（`match_account`） |
+| 数据权限唯一入口与登记表 | `backend/app/src/business/shared/scope.rs`（模块文档 + `SCOPED_TABLES` 281-294） |
+| 部门树 `dept_path` | `backend/app/migrations/system/V0006__create_sys_dept.up.sql:7` |
+| 流程实例列 | `backend/app/migrations/business/V0122__flow_instance_tables.up.sql:33-70` |
+| 审批人 8+2 种来源 | `backend/app/src/business/flow/assignee.rs` 模块文档 |
 | 红冲=借贷互换（金额非负） | `V0149:1-40` 头部说明 + `ck_biz_voucher_entry_positive`（V0149:107） |
 | 生产组织现状（4 部门 / 7-9 账号无部门） | `docs/architecture/P0-FIX-2B-生产组织落位与超管收敛-决策.md` §1.1-1.2 |
 | 生产凭证 21 张 / 多币种"半截" | `docs/评审报告-现有功能评分-20261104.md` §7.1 |

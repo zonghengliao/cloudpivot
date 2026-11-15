@@ -38,12 +38,12 @@
 
 ## 口径（与 `system::menu::tests::n10` / `permission_audit_tests.rs` 对齐）
 
-1. 范围 `backend/src/**/*.rs`；**排除测试文件**（按文件名：`tests.rs` / `tests_support.rs` /
+1. 范围 `backend/app/src/**/*.rs`；**排除测试文件**（按文件名：`tests.rs` / `tests_support.rs` /
    `test_*.rs` / `*_tests.rs` / `tests/` 目录）；
 2. **剥注释**（`//` `///` `//!` `//*` 全部抹成空格，字符串字面量保留）——
    只在注释/文档里举例的码不算「在用」（`x:y:z` 就是这种夹具）；
 3. 文件内 `#[cfg(test)]` 标记的项整段跳过（按花括号配对）：
-   在 `backend/src` 下写用例夹具不可避免会写权限字符串，把它算成「在用」会让闸
+   在 `backend/app/src` 下写用例夹具不可避免会写权限字符串，把它算成「在用」会让闸
    对测试夹具报警（FIX-06 的 n10 就栽过：被 `system:ok:list` 咬过）；
 4. 取码只看**注解行**：`permission = "<码>"`（多行属性形态）与单行的
    `#[nik::permission(permission = "<码>")]` 两种写法都认；
@@ -80,7 +80,7 @@
 ## 基线（2026-11-05 17:14 实测，写死在注释里供对照，**不作为判据**）
 
 生产库 `cloudpivot@172.18.10.144`：`sys_menu` 活跃 **328 行 / 285 个去重 auth_code**；
-主分支代码 `backend/src` 注解码 **273 个**（486 处，95 个码被多处复用）：
+主分支代码 `backend/app/src` 注解码 **273 个**（486 处，95 个码被多处复用）：
 
     missing_in_menu = 0     ← 本次补齐的 3 条凭证码已在 `sys_menu` 里（V0250 + datafix）
     unused_in_code  = 12    ← 逐条见下（不判红）
@@ -121,10 +121,10 @@ def _default_root() -> Path:
     here = Path(__file__).resolve()
     # 拷到 /tmp 时 `parents[2]` 会 IndexError（本卡实测）
     cand = here.parents[2] if len(here.parents) > 2 else here.parent
-    if (cand / "backend" / "src").is_dir():
+    if (cand / "backend" / "app" / "src").is_dir():
         return cand
     cwd = Path.cwd()
-    if (cwd / "backend" / "src").is_dir():
+    if (cwd / "backend" / "app" / "src").is_dir():
         return cwd
     return cand
 
@@ -344,8 +344,8 @@ def scan_source(name: str, text: str) -> dict:
 
 
 def scan_tree(repo_root: Path) -> dict:
-    """扫整棵 `backend/src`（`repo_root` = 仓根，用于算相对路径）。"""
-    src_root = repo_root / "backend" / "src"
+    """扫整棵 `backend/app/src`（`repo_root` = 仓根，用于算相对路径）。"""
+    src_root = repo_root / "backend" / "app" / "src"
     codes: dict[str, list[str]] = {}
     exempt_comments: dict[str, str] = {}
     bad_exempt: list[tuple[str, str, str]] = []
@@ -474,7 +474,7 @@ def collect_row_level_refs(repo_root: Path, candidates: list[str]) -> dict[str, 
     out: dict[str, list[str]] = {}
     if not candidates:
         return out
-    src_root = repo_root / "backend" / "src"
+    src_root = repo_root / "backend" / "app" / "src"
     for path in sorted(src_root.rglob("*.rs")):
         if is_test_file(path):
             continue
@@ -593,7 +593,7 @@ def main() -> int:
         return 0 if self_test() else 1
 
     repo = Path(args.repo).resolve()
-    src_root = repo / "backend" / "src"
+    src_root = repo / "backend" / "app" / "src"
     if not src_root.is_dir():
         print(f"✗ 找不到源码目录：{src_root}", file=sys.stderr)
         return 2

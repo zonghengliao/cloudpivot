@@ -16,7 +16,7 @@
 | `RATIO` | 按比例（`approve_ratio` ∈ (0,1]） | 同意/应到 ≥ 比例 | 「已同意 + 未表态」也追不上比例 |
 | `ANY` | 任一人同意（或签） | 同意 ≥ 1 | 没有待审票仍无人同意 |
 
-判定实现：`backend/src/business/flow/engine.rs::judge`（一条纯函数，`tally` 每次 `COUNT(*)` 现算，不信任累加器）。
+判定实现：`backend/app/src/business/flow/engine.rs::judge`（一条纯函数，`tally` 每次 `COUNT(*)` 现算，不信任累加器）。
 
 **所以「多成员要全员签」是设计（会签），不是 bug** —— 默认 `approval_mode` 为空 ⇒ 按 `ALL` 走。
 
@@ -43,7 +43,7 @@
 **背景**：引擎一直把「同意 / 驳回」的意见写在**待办行** `biz_flow_task.comment`，实例行
 `biz_flow_instance.result_comment` 从来没人写。而审批中心 → 实例详情读的是实例行 ⇒ 用户看不到审批人说了什么。
 
-**现在的口径**（`backend/src/business/flow/engine.rs::vote` 第 ⑦ 步）：
+**现在的口径**（`backend/app/src/business/flow/engine.rs::vote` 第 ⑦ 步）：
 
 ```text
 实例落终态（APPROVED / REJECTED / …）时：
@@ -54,7 +54,7 @@
 - 「最新一条非空」而不是「本次这一票」：会签最后一票常常只点同意不写话，严格取本票会让实例又空掉；
 - **排除 `CANCELLED`**：会签提前通过 / 驳回时其余待办会被置 `CANCELLED` 并写系统文案
   （「该节点已满足通过条件，无需再投」），那不是人的意见，不能盖掉真话；
-- 实现：`backend/src/business/flow/flow_model_instance.rs::latest_verdict_comment`，写入走 `bump_instance` 的
+- 实现：`backend/app/src/business/flow/flow_model_instance.rs::latest_verdict_comment`，写入走 `bump_instance` 的
   `COALESCE(?, result_comment)`（不传 = 保留原值，重复审批幂等）；
 - 撤回（`WITHDRAWN`）与人工终止仍写入各自的原因文案（「发起人撤回」等），口径不变。
 
@@ -70,7 +70,7 @@ select status, comment from biz_flow_task where instance_id = '<实例 id>' orde
 **背景**：绝大多数状态变更走的是事务体 / model 路径，手上只有 `operator_id`（`Operator::of(Some(id))`），
 `operator_name` 一路写空。用户改名 / 销号之后，审计只剩一串 uuid。
 
-**口径**（`backend/src/business/shared/state_machine.rs::insert_log`）：
+**口径**（`backend/app/src/business/shared/state_machine.rs::insert_log`）：
 
 ```text
 operator.name 有值（API 路径：令牌里的 username）        → 直接落
@@ -101,7 +101,7 @@ operator.name 为空、operator.id 有值                    → 主键查 sys_u
 ⚠️ 物料已软删 / 不存在 ⇒ 仍出分录（金额在明细上），摘要退回「物料 <uuid 前 8 位>」
 ```
 
-- 实现：`backend/src/business/erp/voucher/mod.rs::material_inventory_accounts`（入库存货行）与
+- 实现：`backend/app/src/business/erp/voucher/mod.rs::material_inventory_accounts`（入库存货行）与
   `material_label` / `material_codes`（出库 / 收入行，本来就是按编码取的）。
 - 回归用例：`voucher::tests::fix9_voucher_summary_uses_material_code_without_inventory_account`（真库，`ERP_DB_URL` 开关）。
 

@@ -11,7 +11,7 @@
 所以：
   · **期望** = 本脚本解析迁移文件（种子怎么种，就该是什么）
   · **实际** = 真实例 `/api/system/auth/me` 的 `permissions` + 各路由的 200/403
-  · Rust 侧 `backend/src/business/hr/perm_matrix_tests.rs` 用 `include_str!` 独立解析
+  · Rust 侧 `backend/app/src/business/hr/perm_matrix_tests.rs` 用 `include_str!` 独立解析
     同一份 SQL 并对拍设计定稿的矩阵 —— 两个解析器互相牵制，谁偏了都红。
 
 ## 输出（--json）
@@ -38,10 +38,10 @@ import re
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parents[3]
-DEFAULT_MIGRATION = REPO / "backend/migrations/business/V0387__hr_menu_perms.up.sql"
+DEFAULT_MIGRATION = REPO / "backend/app/migrations/business/V0387__hr_menu_perms.up.sql"
 # 页面码解耦的**覆盖层**（卡 t_0af7ec46）：V0387 种菜单，V0401 把页面行改名成 `*:page`、
 # 把 `*:list` 挪到新按钮行，并按设计意图逐角色补 `:list` 授权。期望矩阵 = 两者叠加。
-DEFAULT_OVERLAY = REPO / "backend/migrations/business/V0401__hr_page_code_split.up.sql"
+DEFAULT_OVERLAY = REPO / "backend/app/migrations/business/V0401__hr_page_code_split.up.sql"
 
 # 迁移里的角色数组变量 → 角色编码（数组名见 V0387 §4）
 ARRAY_TO_ROLE = {

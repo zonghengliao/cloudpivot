@@ -9,10 +9,10 @@
 
 | 文件 | 内容 |
 |------|------|
-| `backend/src/business/erp/handler.rs` | 新增 3079 行：44 个接口 + 6 个写路径不变量 + 28 条单测（含真库用例） |
-| `backend/src/business/erp/mod.rs` | `pub mod handler;` + 模块文档补接口层说明 |
-| `backend/src/shared/error_code.rs` | 新增 **66xxx 段**（`66001`–`66006`）ERP 错误码 + 段内自检单测 |
-| `backend/migrations/business/V0141__erp_permissions.{up,down}.sql` | 32 个权限码（`sys_menu.auth_code`）+ 2 目录 / 13 菜单 / 19 按钮 + 授权 |
+| `backend/app/src/business/erp/handler.rs` | 新增 3079 行：44 个接口 + 6 个写路径不变量 + 28 条单测（含真库用例） |
+| `backend/app/src/business/erp/mod.rs` | `pub mod handler;` + 模块文档补接口层说明 |
+| `backend/app/src/shared/error_code.rs` | 新增 **66xxx 段**（`66001`–`66006`）ERP 错误码 + 段内自检单测 |
+| `backend/app/migrations/business/V0141__erp_permissions.{up,down}.sql` | 32 个权限码（`sys_menu.auth_code`）+ 2 目录 / 13 菜单 / 19 按钮 + 授权 |
 | `scripts/verify/w1c_erp_api.sh` | 真机验收脚本：自建库 + 起隔离实例 + **78 项断言**（接口 / 权限 / EXPLAIN / 残留） |
 
 ## 二、接口清单（44 个）

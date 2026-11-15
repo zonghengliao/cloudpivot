@@ -11,7 +11,7 @@
 #
 # 它做什么（6 步，任一步失败即退出并说明原因）：
 #   1. 建空库（owner 可指定；本机账号无 CREATEDB 权限时自动借 postgres 账号建）
-#   2. **起一次真实后端实例**，让迁移引擎按 `schema_migrations` 把 backend/migrations
+#   2. **起一次真实后端实例**，让迁移引擎按 `schema_migrations` 把 backend/app/migrations
 #      下全部版本化迁移跑完 + 完成 bootstrap（这是「复用现有的迁移执行逻辑」的正确做法：
 #      手写 psql 逐条 apply 不会写 schema_migrations，也跑不到引擎的 seed/bootstrap 那一档）
 #   3. 迁移完整性自检：schema_migrations 按 kind 对账（versioned ↔ V*.up.sql、
@@ -66,13 +66,13 @@ esac
 
 # ── 0) 定位仓根与辅助脚本 ────────────────────────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -d "$SCRIPT_DIR/../backend/migrations" ]; then
+if [ -d "$SCRIPT_DIR/../backend/app/migrations" ]; then
     ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 else
     ROOT="${REPO:-/opt/cloudpivot}"
 fi
-[ -d "$ROOT/backend/migrations" ] || {
-    echo "⛔ 迁移目录不存在：$ROOT/backend/migrations（脚本不在仓内时请传 REPO=<仓根>）" >&2; exit 2; }
+[ -d "$ROOT/backend/app/migrations" ] || {
+    echo "⛔ 迁移目录不存在：$ROOT/backend/app/migrations（脚本不在仓内时请传 REPO=<仓根>）" >&2; exit 2; }
 
 # 辅助脚本解析：优先「脚本同级」（不污染目标仓），再退回仓内 scripts/verify
 helper() {
@@ -190,11 +190,11 @@ fi
 
 # ── 3) 迁移完整性自检：按 kind 对账 ─────────────────────────────────────────
 # 引擎把两类迁移都记进 schema_migrations（kind 区分）：
-#   versioned ↔ backend/migrations/**/V*__*.up.sql   表结构 / 数据修正
-#   seed      ↔ backend/migrations/seed/S__*.sql     初始数据（菜单基线就在这里）
+#   versioned ↔ backend/app/migrations/**/V*__*.up.sql   表结构 / 数据修正
+#   seed      ↔ backend/app/migrations/seed/S__*.sql     初始数据（菜单基线就在这里）
 # 少一条就说明有迁移被跳过或文件被改动，新环境结构必然与生产分叉。
-FILES_V=$(find "$ROOT/backend/migrations" -name 'V*__*.up.sql' | wc -l)
-FILES_S=$(find "$ROOT/backend/migrations" -path '*/seed/*' -name 'S__*.sql' | wc -l)
+FILES_V=$(find "$ROOT/backend/app/migrations" -name 'V*__*.up.sql' | wc -l)
+FILES_S=$(find "$ROOT/backend/app/migrations" -path '*/seed/*' -name 'S__*.sql' | wc -l)
 ROW=$(psql_q "$DB" "select count(*) filter (where kind='versioned') || '|' ||
                            count(*) filter (where kind='seed') || '|' ||
                            count(*) filter (where not success) || '|' ||

@@ -15,16 +15,16 @@
 
 | 类型 | 文件 |
 |---|---|
-| 迁移 | `backend/migrations/business/V0109__task_assign_permissions.{up,down}.sql` |
-| 种子 | `backend/migrations/seed/S__task_permissions.sql`（追加第 3 段：只授 SUPER_ADMIN） |
-| 接口 | `backend/src/business/task/handler.rs`（4 个 handler + 权限矩阵 + 通知接线） |
-| 数据访问 | `backend/src/business/task/model.rs`（`assign_owner` / `insert_members` / `remove_member` / `member_ids` / `valid_users` / `user_type_of`） |
-| DTO/常量 | `backend/src/business/task/dto.rs`（4 组入参回执 + `MAX_MEMBERS_PER_TASK=50` + 两个权限码常量） |
-| 公共逻辑 | `backend/src/business/notice/mod.rs`（`NoticeDraft.force`）、`notice/fanout.rs`（偏好过滤层） |
-| 审计 | `backend/src/business/changelog/diff.rs`（`BIZ_TASK` 白名单 + `owner_id` / `assigner_id` / `source`） |
-| 错误码 | `backend/src/shared/error_code.rs`（63014–63020） |
-| 模块文档 | `backend/src/business/task/mod.rs`（T3 行 + 通知分级表） |
-| 基线修复 | `backend/src/business/aiagent/hermes.rs`、`aiagent/handler.rs`（见 §9） |
+| 迁移 | `backend/app/migrations/business/V0109__task_assign_permissions.{up,down}.sql` |
+| 种子 | `backend/app/migrations/seed/S__task_permissions.sql`（追加第 3 段：只授 SUPER_ADMIN） |
+| 接口 | `backend/app/src/business/task/handler.rs`（4 个 handler + 权限矩阵 + 通知接线） |
+| 数据访问 | `backend/app/src/business/task/model.rs`（`assign_owner` / `insert_members` / `remove_member` / `member_ids` / `valid_users` / `user_type_of`） |
+| DTO/常量 | `backend/app/src/business/task/dto.rs`（4 组入参回执 + `MAX_MEMBERS_PER_TASK=50` + 两个权限码常量） |
+| 公共逻辑 | `backend/app/src/business/notice/mod.rs`（`NoticeDraft.force`）、`notice/fanout.rs`（偏好过滤层） |
+| 审计 | `backend/app/src/business/changelog/diff.rs`（`BIZ_TASK` 白名单 + `owner_id` / `assigner_id` / `source`） |
+| 错误码 | `backend/app/src/shared/error_code.rs`（63014–63020） |
+| 模块文档 | `backend/app/src/business/task/mod.rs`（T3 行 + 通知分级表） |
+| 基线修复 | `backend/app/src/business/aiagent/hermes.rs`、`aiagent/handler.rs`（见 §9） |
 
 ## 2. 接口（`/api` 前缀由 `[router].prefix` 注入）
 

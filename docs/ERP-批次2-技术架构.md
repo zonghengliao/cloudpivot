@@ -109,7 +109,7 @@ select distinct tax_rate from biz_stock_in_item; -- 13.0000
 |------|----------------|------|
 | `cloudpivot_p2e1` 已应用 | max=**150**，共 **99** 条 | `select max(version::int), count(*) from schema_migrations` |
 | `cloudpivot_p2e2` 已应用 | max=**151**，共 **100** 条（V0151 应付权限码已应用） | 同上 |
-| 仓库迁移文件最大号 | **V0156**（`V0156__remove_erp_top_menu`，"去掉 ERP 顶级目录"） | `ls backend/migrations/business/` |
+| 仓库迁移文件最大号 | **V0156**（`V0156__remove_erp_top_menu`，"去掉 ERP 顶级目录"） | `ls backend/app/migrations/business/` |
 | 仓库已有但未必已应用 | V0151 / V0154 / V0155 / V0156 | 同上 |
 | **批次 2 占用** | **V0160–V0168**（9 条） | §2.7 |
 | 剩余空号（给批次 1 补丁） | **V0157–V0159**（3 个） | — |
@@ -194,7 +194,7 @@ $ for db in cloudpivot_p2e1 cloudpivot_p2e2; do
 > **结论**：批次 2 从 **V0160** 起，占 V0160–V0168 共 9 个号。补丁号段的真实占用（以**仓库文件**为准）是 **V0151 / V0154 / V0155 / V0156 已用 → V0157–V0159 只剩 3 个空号**；这个排法与 V0151 是否已在某个库应用无关。
 
 > **补记（本轮重派 2026-10-31 复核仓库 HEAD 得到的两处更新）**：
-> ① 仓库 `backend/migrations/business/` 里已有 **V0151（应付权限）、V0154（ERP 菜单按业务线重组）、V0155（菜单 title/icon 修复）、V0156（去掉 ERP 顶级目录）** 四个补丁文件；其中 V0156 是任务书明确点名"已被用掉"的那个号，因此**批次 1 补丁只能排 V0157–V0159**（§8.5 的四条建议按此收缩为 3 条，剩下的并入批次 3）。
+> ① 仓库 `backend/app/migrations/business/` 里已有 **V0151（应付权限）、V0154（ERP 菜单按业务线重组）、V0155（菜单 title/icon 修复）、V0156（去掉 ERP 顶级目录）** 四个补丁文件；其中 V0156 是任务书明确点名"已被用掉"的那个号，因此**批次 1 补丁只能排 V0157–V0159**（§8.5 的四条建议按此收缩为 3 条，剩下的并入批次 3）。
 > ② 库状态与文件不同步：`cloudpivot_p2e1` 仍是 `150/99`，`cloudpivot_p2e2` 已是 `151/100`——同一份仓库，两个库应用进度不同。**这正是"排号看文件、不看库"的实证**：如果按 `p2e1` 的 150 排批次 2 就会撞上 V0151–V0156 这些已存在的文件。迁移器按文件号顺序执行，文件号冲突比库内版本落后更难修。
 
 ### 1.2 现有 `biz_` 表实测清单（42 张）
@@ -1619,7 +1619,7 @@ biz_stock_out_item_serial
 
 ### 3.0 模块结构与文件清单
 
-批次 1 的既有文件（`backend/src/business/erp/mod.rs` 已注册）本批**不改一列 DDL、不改一个函数签名**，只做三件事：新增文件、在 `mod.rs` 加 `pub mod`、在 `shared/error_code.rs` 加常量。
+批次 1 的既有文件（`backend/app/src/business/erp/mod.rs` 已注册）本批**不改一列 DDL、不改一个函数签名**，只做三件事：新增文件、在 `mod.rs` 加 `pub mod`、在 `shared/error_code.rs` 加常量。
 
 | 新文件 | 内容 | 行数估算 | 依据 |
 |--------|------|---------|------|
@@ -2598,7 +2598,7 @@ HAVING i.qty <> count(s.serial_id) OR count(*) FILTER (WHERE ms.status <> 'OUTBO
 | `665xx` | **收款 / 核销**（新增） | — | 66501–66506 |
 | `666xx` | **客户对账单**（新增） | — | 66601–66603 |
 
-> **为什么 661xx 不接着 66010 往下排**：`66xxx` 是批次 D 的 ERP 大段，`660xx` 是"主数据/仓储通用"子段（`ERP_CODE_CONFLICT` 等对所有 ERP 模块通用）。销售侧的码按**业务对象**分子段（信用 / 订单 / 出库 / 应收 / 收款 / 对账），与批次 C+ 的 `630xx`–`633xx` 子段划分同一逻辑——前端文案映射按子段挂载，一个子段一份文案表，不会串味。实测 `backend/src/shared/error_code.rs` 里 `66001`–`66009` 已占用，`661xx` 起是空白段。
+> **为什么 661xx 不接着 66010 往下排**：`66xxx` 是批次 D 的 ERP 大段，`660xx` 是"主数据/仓储通用"子段（`ERP_CODE_CONFLICT` 等对所有 ERP 模块通用）。销售侧的码按**业务对象**分子段（信用 / 订单 / 出库 / 应收 / 收款 / 对账），与批次 C+ 的 `630xx`–`633xx` 子段划分同一逻辑——前端文案映射按子段挂载，一个子段一份文案表，不会串味。实测 `backend/app/src/shared/error_code.rs` 里 `66001`–`66009` 已占用，`661xx` 起是空白段。
 
 **统一错误码表（HTTP 状态码语义固定，不新增）**
 
@@ -3650,7 +3650,7 @@ export function availableSaleOrderActions(
 ---
 ## 6. 测试策略
 
-三层：**纯函数单测**（不碰库，快）、**真库集成测试**（打真 PostgreSQL，验并发与约束）、**HTTP e2e**（curl 打隔离实例，验接口契约）。批次 1 的现状是三层都跑：`backend/src` 里 `#[cfg(test)]` 模块 119 个文件、`#[test]`/`#[tokio::test]` 共 **1345 处**（本 run `grep -rho` 实测）；`frontend/tests/unit` 15 个文件（`tsx --test`）；`scripts/verify/*.sh` 12 个 HTTP e2e 脚本。
+三层：**纯函数单测**（不碰库，快）、**真库集成测试**（打真 PostgreSQL，验并发与约束）、**HTTP e2e**（curl 打隔离实例，验接口契约）。批次 1 的现状是三层都跑：`backend/app/src` 里 `#[cfg(test)]` 模块 119 个文件、`#[test]`/`#[tokio::test]` 共 **1345 处**（本 run `grep -rho` 实测）；`frontend/tests/unit` 15 个文件（`tsx --test`）；`scripts/verify/*.sh` 12 个 HTTP e2e 脚本。
 
 ### 6.1 后端单测估算（按 §3.0 的 18 个新文件）
 
@@ -3770,7 +3770,7 @@ assert!(ra.is_ok() && rb.is_ok(), "不应出现死锁：{ra:?} {rb:?}");
 
 | 步 | 内容 | 产物 | 依赖 | 人日 | 验收 |
 |----|------|------|------|------|------|
-| **E1** | 9 条迁移 V0160–V0168（13 表 + 权限 + 科目 + 凭证规则 + 序列） | `backend/migrations/business/V016*.sql` 各 up/down | 无 | 1.5 | 空库跑全绿；重放 NOTICE 跳过；`\d` 逐表核对 |
+| **E1** | 9 条迁移 V0160–V0168（13 表 + 权限 + 科目 + 凭证规则 + 序列） | `backend/app/migrations/business/V016*.sql` 各 up/down | 无 | 1.5 | 空库跑全绿；重放 NOTICE 跳过；`\d` 逐表核对 |
 | **E2** | 凭证引擎增量（`create_auto_with` + 3 个模板 + `reverse_auto` + `resolve_sales_accounts`）**不改既有签名** | `voucher.rs` +260 行 | E1（规则种子） | 2.0 | 16 个新用例 + `purchase_in_lines_unchanged` 快照测试 |
 | **E3** | 客户 + 信用（model / dto / handler，9 接口） | 3 文件组 + 4.1 全部接口 | E1、E2（无凭证） | 2.5 | e2e `p3d2_sales_order.sh` 的前半段（建客户/调额/超额 66101） |
 | **E4** | 销售订单（7 态机 + 占用 / 释放 / 平移） | 3 文件组 + 4.2 全部接口 | E3 | 3.0 | 状态机 34 用例 + 订单 e2e 全绿 |
@@ -4294,7 +4294,7 @@ $ python3 qa_doc.py docs/ERP-批次2-技术架构.md      # 补完 §9.7 后的�
 #### 9.7.5 迁移号一次性复核（本轮）
 
 ```bash
-$ ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -4
+$ ls backend/app/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -4
 V0154
 V0155
 V0156          # ← 任务书点名"已被用掉"的那个号，就在这

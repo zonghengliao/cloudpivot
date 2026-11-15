@@ -1,7 +1,7 @@
 /**
  * 「未归集清单」的类型与纯逻辑（COST-B2-12 / ARCH-9 §5.2 #33 · §6.2.2 ②）。
  *
- * 后端：`backend/src/business/erp/cost_uncollected_{dto,model,handler}.rs`。
+ * 后端：`backend/app/src/business/erp/cost_uncollected_{dto,model,handler}.rs`。
  * 两侧契约是**机器码 + 字符串金额**，本文件是前端唯一的落点：
  *
  * | 后端常量 | 值 | 前端用途 |

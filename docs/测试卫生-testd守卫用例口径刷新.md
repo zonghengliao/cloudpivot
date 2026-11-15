@@ -52,7 +52,7 @@
 `TD-G03-…` / `TD-K08-…`（按前缀 + 外键链 `sys_user_role → sys_role_mutex → sys_role →
 sys_user`、`sys_notice_receiver → sys_notice → sys_announcement` 逐条查证）。
 
-改法（只动 `backend/tests/testd/**`）：
+改法（只动 `backend/app/tests/testd/**`）：
 
 1. 新增 `common::case(tag, |ctx| async move { … })`：用例体包进
    `AssertUnwindSafe(..).catch_unwind()`，**正常/panic 两条路径都 `ctx.reset()`**，
@@ -103,7 +103,7 @@ sys_user`、`sys_notice_receiver → sys_notice → sys_announcement` 逐条查�
 
 ## 5. 边界 / 没做的事
 
-- **没改任何业务代码**：`git show --stat` 只有 `backend/tests/testd/**` 与本报告 + 报告文档；
+- **没改任何业务代码**：`git show --stat` 只有 `backend/app/tests/testd/**` 与本报告 + 报告文档；
   旧守卫跟着修复走，不是反过来改实现。
 - **没放宽判据**：K08 从「扫关键字命中就红」变成「逐桥点名必须有」，判据更严不是更松。
 - **生产零触碰**：所有真库操作只在 `cloudpivot_test`（testd 硬校验）与新建的

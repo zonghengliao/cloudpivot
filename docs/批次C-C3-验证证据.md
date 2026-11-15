@@ -142,7 +142,7 @@ S3 扇出失败补偿（A-07）
 > 直接回吐首次的 `notice_id`（`duplicated=true`），**不再插通知、不再扇出**，只把
 > `notice_id` 回填到公告上。第二轮清空 `notice_id` 是为了模拟「回执丢失」，否则任务扫不到行。
 
-同一结论有**可复跑**的真库集成测试兜底（`backend/tests/batchC_c3_dispatch.rs`，无
+同一结论有**可复跑**的真库集成测试兜底（`backend/app/tests/batchC_c3_dispatch.rs`，无
 `C3_DB_URL` 时打印 `SKIP` 直接返回，不影响 `cargo test`）：
 
 ```text

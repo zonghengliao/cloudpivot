@@ -159,7 +159,7 @@ bash scripts/verify/hr/hr_permission_matrix.sh --fresh
 2. **二开业务放 `business/` 容器**：后端 `src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`，与 `system/`、`support/` 平级，**不侵入框架底座**。
 3. **依赖铁律**：`Cargo.toml` 只声明 `nik`（必要时 `nik-utils`）；**禁止**写 `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
 4. **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`；handler 内 `?` 直接传播，不要写多余 `.map_err(ApiError::internal(...))`。
-5. **迁移号段**：动手前**必须实测**当前最大号 —— `ls backend/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3`（2026-11-13 已到 `V0403`）。版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。
+5. **迁移号段**：动手前**必须实测**当前最大号 —— `ls backend/app/migrations/*/ | grep -oE 'V[0-9]{4}' | sort -u | tail -3`（2026-11-13 已到 `V0403`）。版本 4 位补零，**跨目录全局唯一**（重号 = 服务启动直接失败），已应用迁移指纹校验、不可改。规律：**先落地者定号，后落地者避让**。
 6. **权限码三段式** `{模块}:{资源}:{动作}`（如 `system:user:create`），与 `sys_menu.auth_code` 和 `#[nik::permission(...)]` 一一对应；`SUPER_ADMIN` 短路。
 7. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册免前缀。
 8. **前端 API 路径必须写全 `/api/...`**（漏前缀命中 SPA fallback 返回 HTML → “响应体格式不符合”）。
@@ -173,4 +173,4 @@ bash scripts/verify/hr/hr_permission_matrix.sh --fresh
 
 - 本项目已为 AI 准备好 `AGENTS.md`、`llms.txt`、`skill/SKILL.md` 与本文档集。**不要跳过它们凭印象生成代码**——尤其是「依赖只写 nik」「四件套结构」「错误出口三名字」「迁移号段 V0020+」「权限码三段式」「前端 /api 前缀」这些铁律。
 - 具体反魔幻清单、二开设计方案骨架见 [AI二开指引.md](./AI二开指引.md)。
-- 范本永远优先照抄：`backend/src/system/user/` 是后端四件套范本；`frontend/src/views/system/user/index.vue` + `frontend/src/api/system/user-api.ts` 是前端列表页范本。
+- 范本永远优先照抄：`backend/app/src/system/user/` 是后端四件套范本；`frontend/src/views/system/user/index.vue` + `frontend/src/api/system/user-api.ts` 是前端列表页范本。

@@ -22,8 +22,8 @@ PGPORT=${PGPORT:-5432}
 DB_USER=${DB_USER:-alun}
 DB_PASS=${DB_PASS:-alun}
 REPO=${REPO:-/opt/cloudpivot}
-UP="$REPO/backend/migrations/business/V0272__sales_currency.up.sql"
-DOWN="$REPO/backend/migrations/business/V0272__sales_currency.down.sql"
+UP="$REPO/backend/app/migrations/business/V0272__sales_currency.up.sql"
+DOWN="$REPO/backend/app/migrations/business/V0272__sales_currency.down.sql"
 PROBES="$REPO/docs/evidence/20261107-so39-currency/constraint-probes.sql"
 
 fail=0

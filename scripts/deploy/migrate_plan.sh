@@ -29,9 +29,9 @@
 #   MP_REPO=<path>   仓库根，默认当前目录
 # =============================================================================
 
-MIG_ROOT_REL="${MIG_ROOT_REL:-backend/migrations}"
+MIG_ROOT_REL="${MIG_ROOT_REL:-backend/app/migrations}"
 # 引擎认可的版本化迁移文件名；认不出的落盘文件要么改文件名，要么显式失败（不静默跳过）
-MIG_PATH_RE='^backend/migrations/[A-Za-z0-9_.-]+/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$'
+MIG_PATH_RE='^backend/app/migrations/[A-Za-z0-9_.-]+/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$'
 # 引擎认可的 applied_via（kind.rs:95-111）；写记录时只用 imported
 MP_ALLOWED_APPLIED_VIA="executed imported baseline"
 MP_WRITE_APPLIED_VIA="imported"

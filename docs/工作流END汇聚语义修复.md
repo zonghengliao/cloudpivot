@@ -85,11 +85,11 @@ else
 
 | 位置 | 作用 |
 |---|---|
-| `backend/src/business/flow/engine.rs` · `Run::step` | 入度 ≥ 2 的闸门按节点类型分派：`NodeType::End` → `end_waits_upstream`；其它 → 原来的「AND 等齐 / OR 先到先走」**一行未改** |
-| `backend/src/business/flow/engine.rs` · `Run::end_waits_upstream` + 自由函数 `end_waits` | 判据本体（唯一的决策点，纯函数部分可单测） |
-| `backend/src/business/flow/engine.rs` · `upstream_closure` | 上游可达闭包（迭代 BFS + 步数保险，与 `graph.rs` 的环检测同款；无递归） |
-| `backend/src/business/flow/flow_model_node.rs` · `inflight_node_keys` | `SELECT DISTINCT node_key … WHERE round = ? AND status IN ('ACTIVE','PENDING')`（**必须带 `round`**，否则退回后上一轮幽灵行会让 END 永远等下去） |
-| `backend/src/business/flow/graph.rs` · `check_join_mode` 文档 | 把 R8「END 不参与」与运行期口径写成同一段话，避免下次又漂移 |
+| `backend/app/src/business/flow/engine.rs` · `Run::step` | 入度 ≥ 2 的闸门按节点类型分派：`NodeType::End` → `end_waits_upstream`；其它 → 原来的「AND 等齐 / OR 先到先走」**一行未改** |
+| `backend/app/src/business/flow/engine.rs` · `Run::end_waits_upstream` + 自由函数 `end_waits` | 判据本体（唯一的决策点，纯函数部分可单测） |
+| `backend/app/src/business/flow/engine.rs` · `upstream_closure` | 上游可达闭包（迭代 BFS + 步数保险，与 `graph.rs` 的环检测同款；无递归） |
+| `backend/app/src/business/flow/flow_model_node.rs` · `inflight_node_keys` | `SELECT DISTINCT node_key … WHERE round = ? AND status IN ('ACTIVE','PENDING')`（**必须带 `round`**，否则退回后上一轮幽灵行会让 END 永远等下去） |
+| `backend/app/src/business/flow/graph.rs` · `check_join_mode` 文档 | 把 R8「END 不参与」与运行期口径写成同一段话，避免下次又漂移 |
 
 ### 4.3 为什么保留「上游」这个约束（而不是「全实例有在跑节点」）
 
@@ -152,7 +152,7 @@ select count(*) from biz_flow_instance i
 | 项 | 结果 | 证据 |
 |---|---|---|
 | 纯单测（新加 3 条：闭包覆盖 / 不跨 END / 只在有存活上游时等） | 18/18 passed | `cargo test --lib business::flow::engine::tests` |
-| flow 模块全量单测 | **504 passed / 3 failed（既有失败，与本卡无关）** | 失败全在 `business::flow::linkage::{tests_wiring, admin}`：`触发点计数守卫断言 15/16，实际 16/17`。`git diff HEAD -- backend/src/business/flow/linkage/` 为空、`git show HEAD:…/linkage/spec.rs` 里 `wired: true` 已是 16 ⇒ **HEAD 上就红**，属另一张卡（新增第 16 个联动触发点未同步这两个硬编码计数） |
+| flow 模块全量单测 | **504 passed / 3 failed（既有失败，与本卡无关）** | 失败全在 `business::flow::linkage::{tests_wiring, admin}`：`触发点计数守卫断言 15/16，实际 16/17`。`git diff HEAD -- backend/app/src/business/flow/linkage/` 为空、`git show HEAD:…/linkage/spec.rs` 里 `wired: true` 已是 16 ⇒ **HEAD 上就红**，属另一张卡（新增第 16 个联动触发点未同步这两个硬编码计数） |
 | clippy（`--lib`，`-D warnings`） | 本卡 3 个文件 0 warning | 唯一 error 是 `erp/sales_order_model.rs::update_order` 参数 8/7，属别人未提交的改动 |
 | P3-09 全链路演练（17 场景） | **PASS=243 FAIL=0** | `docs/evidence/20261108-p309-wf-drill/raw/00_run_fix.txt`；`B2b` 由「缺陷复现」改为「必须 APPROVED」并通过，新增 `B2c`（并行两支汇同一个 END 必须等齐）12 条断言全绿 |
 | 存量 `graph_hash` | 18 条非演练流程逐行一致 | 见 §5 |

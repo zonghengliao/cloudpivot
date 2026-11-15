@@ -18,11 +18,11 @@
  * | 抽屉里作废进度 / 原因只在「送审那一刻」有，重开抽屉就没了 | ⑨ `approvalTargetOf` / `cancelReasonText` |
  *
  * 断言口径直接抄后端（`readFileSync` 读源码比对，后端改一个字这里先红）：
- * - `backend/src/business/erp/payable/mod.rs` → `STATUS_PENDING_CANCEL = "PENDING_CANCEL"`；
- * - `backend/src/business/erp/payable/payable_query.rs` → `"作废审批中"`；
- * - `backend/src/business/erp/voucher/voucher_write.rs` → `REVERSE_BIZ_TYPE = "VOUCHER_REVERSE"` /
+ * - `backend/app/src/business/erp/payable/mod.rs` → `STATUS_PENDING_CANCEL = "PENDING_CANCEL"`；
+ * - `backend/app/src/business/erp/payable/payable_query.rs` → `"作废审批中"`；
+ * - `backend/app/src/business/erp/voucher/voucher_write.rs` → `REVERSE_BIZ_TYPE = "VOUCHER_REVERSE"` /
  *   `OUTCOME_REVERSE_PENDING = "PENDING_APPROVAL"`；
- * - `backend/src/business/erp/payable/payable_payment.rs` → `OUTCOME_CANCEL_PENDING = "PENDING_APPROVAL"`。
+ * - `backend/app/src/business/erp/payable/payable_payment.rs` → `OUTCOME_CANCEL_PENDING = "PENDING_APPROVAL"`。
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -64,7 +64,7 @@ import {
 
 /** 后端源码（相对本仓根：`frontend/tests/unit` → `../../../backend`）。 */
 function backendSource(relative: string): string {
-  return readFileSync(new URL(`../../../backend/src/business/erp/${relative}`, import.meta.url), 'utf8');
+  return readFileSync(new URL(`../../../backend/app/src/business/erp/${relative}`, import.meta.url), 'utf8');
 }
 
 /** 应付单（只映出判据用得到的两个字段）。 */

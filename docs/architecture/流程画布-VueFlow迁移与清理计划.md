@@ -92,7 +92,7 @@ Vue Flow 用 HTML 节点层 + SVG 连线层，天然绕开上面两类问题；�
 
 ## 7. 已知问题（与本次切换无关，但值得单独开卡）
 
-- **登录限流计数不衰减**：`backend/src/system/auth/handler.rs` 的 `check_login_rate()` 用
+- **登录限流计数不衰减**：`backend/app/src/system/auth/handler.rs` 的 `check_login_rate()` 用
   `Cache::incr` + `if count == 1 { set_ex(…) }`，而本地 `profile=test`（无 Redis）走进程内缓存时
   `set_ex` 的 TTL 不生效 → 累计 10 次登录后该「账号+IP」**永久 429**，只能重启进程才恢复。
   本次验证期间被它堵过一次（重启 18150 验证实例后恢复，生产有 Redis 时按 `LOGIN_RATE_WINDOW_SECS` 正常过期）。

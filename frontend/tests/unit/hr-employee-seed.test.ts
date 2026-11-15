@@ -5,7 +5,7 @@
  *
  * # 测什么（四层，越往下越容易出事）
  *
- * 1. **与后端逐条对拍**（读 `backend/src/business/hr/employee_seed.rs`）：路由、权限码、
+ * 1. **与后端逐条对拍**（读 `backend/app/src/business/hr/employee_seed.rs`）：路由、权限码、
  *    单次上限 `MAX_CANDIDATES`、6 个跳过原因码、`CREATE_FAILED`、`dry_run` 缺省 true。
  *    后端改一个字 / 一个数，这条先红 —— 而不是等 HR 点了「确认生成」才发现码值对不上。
  * 2. **汇总算术**：预览 / 已落库两种回执下的四桶数字、跳过分组的顺序与计数。
@@ -49,7 +49,7 @@ import {
 
 /** 后端实现（常量 / 原因码 / dry_run 缺省的唯一真源） */
 const RUST_SEED = readFileSync(
-  new URL('../../../backend/src/business/hr/employee_seed.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/employee_seed.rs', import.meta.url),
   'utf8',
 );
 /** 前端请求层（`dry_run` 真假与路径的接线） */

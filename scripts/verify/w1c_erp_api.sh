@@ -356,7 +356,7 @@ note "空库首次迁移时超管授权 = $GRANTED 个（bootstrap 尚未建出�
 
 # 生产库（角色早已存在）里 V0141 的授权会真的落库；这里在 bootstrap 之后**重放一次迁移**
 # 证明「幂等 + 授权补齐」两条都成立（重放不产生重复行，也不会覆盖运维改过的标题）。
-psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$W1C_DB" -q      -f "$REPO/backend/migrations/business/V0141__erp_permissions.up.sql" >/tmp/w1c_replay.log 2>&1
+psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$W1C_DB" -q      -f "$REPO/backend/app/migrations/business/V0141__erp_permissions.up.sql" >/tmp/w1c_replay.log 2>&1
 REPLAY_RC=$?
 grep -E "NOTICE" /tmp/w1c_replay.log | sed 's/^/       /' | tail -3
 [ "$REPLAY_RC" = "0" ] && ok "V0141 重放（幂等）：exit=0" || bad "V0141 重放（幂等）" "exit=$REPLAY_RC $(tail -3 /tmp/w1c_replay.log)"

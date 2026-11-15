@@ -14,8 +14,8 @@ set -uo pipefail
 DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd "$DIR/../.." && pwd)
 DB=${SO30_DB:-cloudpivot_so30}
-UP="$ROOT/backend/migrations/business/V0305__sales_return_posting.up.sql"
-DOWN="$ROOT/backend/migrations/business/V0305__sales_return_posting.down.sql"
+UP="$ROOT/backend/app/migrations/business/V0305__sales_return_posting.up.sql"
+DOWN="$ROOT/backend/app/migrations/business/V0305__sales_return_posting.down.sql"
 export PGPASSWORD=alun
 PSQL() { psql -h 127.0.0.1 -U alun -d "$DB" "$@"; }
 

@@ -457,9 +457,9 @@ fn backend_root() -> std::path::PathBuf {
     std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-/// 前端仓库根（`backend/` 的兄弟目录）。
+/// 前端仓库根（`backend/app/` 的上两级再进 `frontend/`；P2-40 起包目录是 `backend/app/`）。
 fn frontend_root() -> std::path::PathBuf {
-    backend_root().join("../frontend")
+    backend_root().join("../../frontend")
 }
 
 /// N08：**所有 `menu_type=2` 的菜单路径必须在前端路由里注册**，否则点菜单进 404。

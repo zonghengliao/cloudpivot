@@ -27,11 +27,12 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-/// 仓库根目录（`backend/tests/xxx.rs` → 上跳两级）
+/// 仓库根目录（`backend/app/tests/xxx.rs` 的 `CARGO_MANIFEST_DIR` → 上跳两级）
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("backend/ 应有上级目录（仓库根）")
+        .ancestors()
+        .nth(2)
+        .expect("backend/app/ 应有上两级目录（仓库根）")
         .to_path_buf()
 }
 

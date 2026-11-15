@@ -8,7 +8,7 @@
  * 这些一旦漂移，`vue-tsc` 抓不到，e2e 也只看得见「界面长什么样」。
  *
  * 断言口径照后端抄：
- * - 金额公式 = `backend/src/business/erp/purchase/purchase_model.rs::line_amounts`（口径 A / B + 减法倒挤）；
+ * - 金额公式 = `backend/app/src/business/erp/purchase/purchase_model.rs::line_amounts`（口径 A / B + 减法倒挤）；
  * - 合计 = `sum_lines`（**逐行舍入后相加**）；
  * - 状态机 = `purchase_model::LEGAL_EDGES` / `stockin_model` 的三条边；
  * - 过账弹窗 = PRD §3.3.2（「发票已随货到达」默认勾选、「发票未到」置灰）。

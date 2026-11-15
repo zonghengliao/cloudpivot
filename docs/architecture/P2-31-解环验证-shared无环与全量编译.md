@@ -12,7 +12,7 @@
 | crate 级解析无环 | `cargo metadata` | 465 个包解析成功；`cloudpivot-doc` 的 `resolve.deps` = `[]`（§1.3） |
 | 模块级：`shared → erp` 消失 | `python3 scripts/lint/module_cycle_report.py --edge business::shared business::erp` | **不存在**（§2.2） |
 | 模块级：`shared` 不在任何环里 | 同上 `--from business::shared` | 出边 **0 条**，SCC 里不含 `shared`（§2.3） |
-| 文字证据 | `grep -rn 'business::erp' backend/src/business/shared/ \| wc -l` | `0` |
+| 文字证据 | `grep -rn 'business::erp' backend/app/src/business/shared/ \| wc -l` | `0` |
 | 全量编译 | `cargo check --lib` / `--all-targets` / `test --lib --no-run` | 13.02s / 24.65s / 2m24s，**零 warning**（§4） |
 | 受影响模块测试 | `cargo test --lib business::shared::` | **129 passed / 0 failed**（真库，§5.1） |
 | 词表 crate 测试 | `cd crates/cloudpivot-doc && cargo test` | **19 passed / 0 failed**（§5.2） |
@@ -74,7 +74,7 @@ $ cargo metadata --format-version 1 >/dev/null; echo $?
 
 ### 2.1 它做什么
 
-从 `backend/src/**/*.rs` 全文抽 `crate::a::b::c` 引用（**含注释** —— intra-doc link 是 rustdoc 依赖），
+从 `backend/app/src/**/*.rs` 全文抽 `crate::a::b::c` 引用（**含注释** —— intra-doc link 是 rustdoc 依赖），
 把每个文件归到「业务域」节点（`business/<域>`），用 **Tarjan** 求强连通分量。
 
 - 扫描面硬断言：少于 **500** 个 `.rs` 直接报错退出 —— 防「路径基准变了 → 扫 0 个文件 → 静默无环」
@@ -92,7 +92,7 @@ $ cargo metadata --format-version 1 >/dev/null; echo $?
 
 ```console
 $ python3 scripts/lint/module_cycle_report.py --edge business::shared business::erp
-源码根：/opt/cloudpivot/backend/src
+源码根：/opt/cloudpivot/backend/app/src
 扫描面：762 个 .rs / 节点 20 个 / 跨域有向边 58 条 （口径：仅 business::*）
 
 边 business::shared → business::erp：**不存在**（该域内无任何 crate:: 引用指向 business::erp）
@@ -117,7 +117,7 @@ SCC 环（长度 >1）：1 个
 文字层面的同一条证据：
 
 ```console
-$ grep -rn 'business::erp' backend/src/business/shared/ | wc -l
+$ grep -rn 'business::erp' backend/app/src/business/shared/ | wc -l
 0
 ```
 
@@ -125,7 +125,7 @@ $ grep -rn 'business::erp' backend/src/business/shared/ | wc -l
 
 ## 3. 本轮改动（1 处代码注释 + 1 处护栏强化 + 1 个工具）
 
-### 3.1 `backend/src/business/shared/conn.rs`：摘掉最后一条注释回边
+### 3.1 `backend/app/src/business/shared/conn.rs`：摘掉最后一条注释回边
 
 P2-30 清完 `state_machine` 后，`shared` 还有**一条注释级回边**（本卡新发现）：
 
@@ -142,10 +142,10 @@ intra-doc link 会被 rustdoc 解析成 `business::changelog` 的引用 —— �
 
 改完 `--from business::shared` 从「1 条（注释）」变成「0 条」。
 
-### 3.2 `backend/src/business/shared/layering_tests.rs`：禁区从 1 个域扩到**全部**业务域
+### 3.2 `backend/app/src/business/shared/layering_tests.rs`：禁区从 1 个域扩到**全部**业务域
 
 P2-30 建这条护栏时 `FORBIDDEN_DOMAINS = ["erp"]`（当时只有这一个越界者）。本卡改成
-**从 `backend/src/business/` 动态枚举**（排除 `shared` 自己）：
+**从 `backend/app/src/business/` 动态枚举**（排除 `shared` 自己）：
 
 - 新增业务域**自动**进禁区，不用回来改常量（否则新域一建，护栏就漏）；
 - 扫描面两道硬断言：`MIN_DOMAINS = 18`（实测 19 个域）+ `REQUIRED_FILES` 5 个必扫文件；
@@ -163,7 +163,7 @@ $ cargo test --lib business::shared::layering_tests -- --test-threads=1
 test business::shared::layering_tests::shared_never_references_business_domains ... FAILED
 
 business/shared 是跨域基座，不许依赖任何业务域（禁区 19 个：business::aiagent / … / business::task）：
-/opt/cloudpivot/backend/src/business/shared/zz_redproof_probe.rs:3: //! 引用 business::erp::period::ensure_period_writable —— 这是模块路径 token，不是 HTTP 路径。
+/opt/cloudpivot/backend/app/src/business/shared/zz_redproof_probe.rs:3: //! 引用 business::erp::period::ensure_period_writable —— 这是模块路径 token，不是 HTTP 路径。
 test result: FAILED. 0 passed; 1 failed
 ```
 
@@ -282,7 +282,7 @@ python3 scripts/lint/module_cycle_report.py --from business::shared
 python3 scripts/lint/module_cycle_report.py --edge business::shared business::erp
 
 # ③ 文字层面
-grep -rn 'business::erp' backend/src/business/shared/ | wc -l      # 期望 0
+grep -rn 'business::erp' backend/app/src/business/shared/ | wc -l      # 期望 0
 
 # ④ 全量编译
 cd backend && cargo check --lib --all-targets && cargo test --lib --no-run

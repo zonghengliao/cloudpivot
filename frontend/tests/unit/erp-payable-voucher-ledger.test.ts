@@ -8,7 +8,7 @@
  * 恰恰是会误导财务的判定 —— 全部搬进 `*-logic.ts`，`.vue` 只负责渲染。
  *
  * 断言口径照后端抄：
- * - 应付状态 = `backend/src/business/erp/payable/mod.rs` 的 `STATUS_*` 四个常量；
+ * - 应付状态 = `backend/app/src/business/erp/payable/mod.rs` 的 `STATUS_*` 四个常量；
  * - 凭证状态 = `voucher_query.rs::STATUSES` + `status_label` 文案；
  * - 平衡 = `biz_voucher` 的 `CHECK (total_debit = total_credit)` / `66009`；
  * - 余额恒等式 = `ledger.rs` 文件头 `closing_net = opening_net + Σ本期借 − Σ本期贷`。

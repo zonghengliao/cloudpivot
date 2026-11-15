@@ -74,27 +74,27 @@ import {
 // ==================== 源码（后端契约的唯一真相） ====================
 
 const RUST_SHEET_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/salary_sheet_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/salary_sheet_dto.rs', import.meta.url),
   'utf8',
 );
 const RUST_SHEET_HANDLER = readFileSync(
-  new URL('../../../backend/src/business/hr/salary_sheet_handler.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/salary_sheet_handler.rs', import.meta.url),
   'utf8',
 );
 const RUST_EXPORT = readFileSync(
-  new URL('../../../backend/src/business/hr/salary_export.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/salary_export.rs', import.meta.url),
   'utf8',
 );
 const RUST_OVERRIDE_DTO = readFileSync(
-  new URL('../../../backend/src/business/hr/salary_override_dto.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/salary_override_dto.rs', import.meta.url),
   'utf8',
 );
 const RUST_STATE_MACHINE = readFileSync(
-  new URL('../../../backend/src/business/shared/state_machine.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/shared/state_machine.rs', import.meta.url),
   'utf8',
 );
 const RUST_HR_HANDLER = readFileSync(
-  new URL('../../../backend/src/business/hr/handler.rs', import.meta.url),
+  new URL('../../../backend/app/src/business/hr/handler.rs', import.meta.url),
   'utf8',
 );
 const PAGE = readFileSync(

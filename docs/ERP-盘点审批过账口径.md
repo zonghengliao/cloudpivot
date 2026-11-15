@@ -3,7 +3,7 @@
 > 卡面（FIX-8 / t_6ddb0036）问题 2 的结论：**两步是设计意图，不是漏了自动过账**。
 > 卡面写的 `/stock-take/{id}/confirm` 并不存在（也不该存在）——过账入口是
 > `PATCH /api/business/erp/stock-take/{id}/status`，body `{"status":"POSTED"}`。
-> 代码里的口径说明在 `backend/src/business/erp/stocktake/stocktake_handler.rs` 文件头
+> 代码里的口径说明在 `backend/app/src/business/erp/stocktake/stocktake_handler.rs` 文件头
 > 「为什么『审批通过』与『过账』是两次动作」，本文是对外的同一份口径。
 
 ## 1. 状态机（后端唯一真相：`stocktake_model::LEGAL_EDGES`）

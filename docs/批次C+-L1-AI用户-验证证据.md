@@ -29,13 +29,13 @@ Hermes 在 `172.18.10.99`（`/root/.hermes`），云枢经 SSH 调官方 CLI。
 
 | 文件 | 说明 |
 |---|---|
-| `backend/migrations/system/V0105__create_sys_ai_agent.{up,down}.sql` | `sys_ai_agent` 表（卡面写 V0092，编号已推进且 V0104 被并行卡占用，顺延到 V0105） |
-| `backend/src/business/aiagent/{mod,hermes,model,dto,handler}.rs` | 适配层 + 模型 + DTO + 5 个接口 |
-| `backend/src/shared/error_code.rs` | 新增 `64xxx` 段 13 个码（64001–64013）+ 码表稳定性自测 |
-| `backend/src/shared/startup_guard.rs` | `check_ai_agent_invariant()`（两条不变式查询） |
-| `backend/src/bootstrap.rs` | `ai_agent_invariant_guard()`（ERROR 日志；prod 拒启动） |
-| `backend/src/system/user/{dto,model,handler}.rs` | 出参补 `user_type`；update/delete 对 ROBOT 返回 409 |
-| `backend/src/business/masking/registry.rs` | 脱敏样例补 `user_type` 字段（该文件的「加字段即编译失败」闸门） |
+| `backend/app/migrations/system/V0105__create_sys_ai_agent.{up,down}.sql` | `sys_ai_agent` 表（卡面写 V0092，编号已推进且 V0104 被并行卡占用，顺延到 V0105） |
+| `backend/app/src/business/aiagent/{mod,hermes,model,dto,handler}.rs` | 适配层 + 模型 + DTO + 5 个接口 |
+| `backend/app/src/shared/error_code.rs` | 新增 `64xxx` 段 13 个码（64001–64013）+ 码表稳定性自测 |
+| `backend/app/src/shared/startup_guard.rs` | `check_ai_agent_invariant()`（两条不变式查询） |
+| `backend/app/src/bootstrap.rs` | `ai_agent_invariant_guard()`（ERROR 日志；prod 拒启动） |
+| `backend/app/src/system/user/{dto,model,handler}.rs` | 出参补 `user_type`；update/delete 对 ROBOT 返回 409 |
+| `backend/app/src/business/masking/registry.rs` | 脱敏样例补 `user_type` 字段（该文件的「加字段即编译失败」闸门） |
 | `frontend/src/api/system/ai-user-api.ts` | 5 个接口的类型与调用 |
 | `frontend/src/views/system/user/components/{AiUserForm,SoulEditor}.vue` | 职责 / 模型 / SOUL.md 编辑器（等宽 + 结构预览 + 字数 + 模板填充 + 保存前路径提示） |
 | `frontend/src/views/system/user/index.vue` | 账号类型单选、类型列徽标、AI 编辑与删除分支 |

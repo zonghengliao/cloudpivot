@@ -75,7 +75,7 @@ $ cargo tree | grep -c "business::"
 
 ```text
 $ python3 scripts/lint/module_cycle_report.py --edge business::flow business::erp
-源码根：/opt/cloudpivot/backend/src
+源码根：/opt/cloudpivot/backend/app/src
 扫描面：770 个 .rs / 节点 21 个 / 跨域有向边 62 条 （口径：仅 business::*）
 
 边 business::flow → business::erp：**不存在**（该域内无任何 crate:: 引用指向 business::erp）

@@ -1,8 +1,8 @@
 # ERP-R2 利润表（交付说明 + 运维手册）
 
 > 卡面：`t_3e6d3220【ERP-R2】利润表（本期+本年累计，勾稽到权益变动，10 单测）`
-> 代码：`backend/src/business/erp/income_statement.rs`、
-> `backend/migrations/business/V0184__erp_income_statement.{up,down}.sql`、
+> 代码：`backend/app/src/business/erp/income_statement.rs`、
+> `backend/app/migrations/business/V0184__erp_income_statement.{up,down}.sql`、
 > `frontend/src/views/business/erp/report/income-statement/index.vue`、
 > `scripts/verify/erpr2_income_statement.sh`（端到端）、
 > `scripts/verify/erpr2_page_check.mjs`（页面 DOM 断言）、
@@ -278,7 +278,7 @@ node ../scripts/verify/erpr2_page_check.mjs broken  # ⇒ PASS=19  FAIL=0（需�
 ## 九、回滚
 
 ```bash
-psql -f backend/migrations/business/V0184__erp_income_statement.down.sql
+psql -f backend/app/migrations/business/V0184__erp_income_statement.down.sql
 ```
 
 只删本迁移种下的 12 个报表项 + 权限节点 `…1017` 及其授权；资产负债表配置（V0183）、

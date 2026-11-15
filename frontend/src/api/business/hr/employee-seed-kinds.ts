@@ -6,7 +6,7 @@
  * 那里 `export * from './employee-seed-kinds'` —— 页面只认
  * `@/api/business/hr/employee` 一个入口。
  *
- * # 唯一真源：`backend/src/business/hr/employee_seed.rs`
+ * # 唯一真源：`backend/app/src/business/hr/employee_seed.rs`
  *
  * | 常量 | 后端 |
  * |---|---|

@@ -1,5 +1,5 @@
 /**
- * 发货单 API 层（SO-09 后端 `backend/src/business/erp/shipment_{handler,model}.rs`，
+ * 发货单 API 层（SO-09 后端 `backend/app/src/business/erp/shipment_{handler,model}.rs`，
  * SO-11 前端页面消费）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）

@@ -340,7 +340,7 @@
  *
  * # 后端接口（开工前已按硬红线核对）
  *
- * `grep -n 'erp/unit' backend/src/business/erp/handler.rs` 命中 8 处：
+ * `grep -n 'erp/unit' backend/app/src/business/erp/handler.rs` 命中 8 处：
  * `GET /business/erp/unit/page`、`GET|PUT|DELETE /business/erp/unit/{id}`、`POST /business/erp/unit`
  * —— **读写接口齐全**，所以本页做完整 CRUD（不是只读页）。
  * 表结构 `\d biz_unit` 核过：没有「小数位数」列，见 `unit-query.ts` 头注释。
@@ -395,7 +395,7 @@ import {
   type UnitFormState,
 } from './unit-query';
 
-/** 本页权限码（与 `backend/migrations/business/V0141__erp_permissions.up.sql` 的 auth_code 逐字一致） */
+/** 本页权限码（与 `backend/app/migrations/business/V0141__erp_permissions.up.sql` 的 auth_code 逐字一致） */
 const PERM = {
   /** 列表（页面入口） */
   list: 'business:erp:unit:list',

@@ -92,48 +92,48 @@
 
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
-| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code VARCHAR(100)`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；按钮行 `is_visible=FALSE` 不进导航；表里还有 `hidden_expression VARCHAR(255)`（条件隐藏） | `backend/migrations/system/V0004__create_sys_menu.up.sql:1-24` | 本批 **28 个权限码**全部落成 `sys_menu` 种子行（13.1、13.5）；流程定义页的两个按钮用 `hidden_expression` 而不新增权限码（13.1 说明哪些不用码） |
+| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code VARCHAR(100)`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；按钮行 `is_visible=FALSE` 不进导航；表里还有 `hidden_expression VARCHAR(255)`（条件隐藏） | `backend/app/migrations/system/V0004__create_sys_menu.up.sql:1-24` | 本批 **28 个权限码**全部落成 `sys_menu` 种子行（13.1、13.5）；流程定义页的两个按钮用 `hidden_expression` 而不新增权限码（13.1 说明哪些不用码） |
 | **F2** | 前端 `hasPermission()` 是**全等匹配**：`list.includes('*:*:*') \|\| list.includes(code)`，**不支持前缀通配** | `frontend/src/stores/user.ts:16,70-75` | 每个动作必须有独立 `auth_code`。写 `business:approval:*` 在前端恒为 false，按钮永远不显示——这是本批最容易犯的错 |
 | **F3** | `filterNavMenus` 递归过滤：只认 `NAV_MENU_TYPES=[1,2]`、`is_visible=TRUE`；**目录下无可见子菜单则整目录隐藏** | `frontend/src/stores/user.ts:19,22-39` | 「审批中心」（待办/已办/我发起/抄送我）**必须对全员可见**，路由权限挂 `business:approval:task:self`（全员默认持有），否则普通员工看不到整个目录 |
-| **F4** | 顶级目录 `sort_order` 现状（**实测**扫全部种子迁移）：`工作台`=5（隐藏）、`system`=10、`support`=20、`通用底座`=70、`内容管理`=70、`task`=75 | `backend/migrations/seed/S__menu_data.sql:24,80-81,141-145`；`business/V0046__seed_storage_permissions.up.sql:28-30`；`business/V0089__group_content_menus.up.sql:33-36`；`business/V0103__seed_task_permissions.up.sql:38-42` | 30/40/50/60 **仍是空的**（ERP/BI/MDM 目录在本仓库尚未落地）。本批新建一级目录 `/approval`，取 **sort_order = 76**，紧跟 `task`(75)（13.5.1 给三种方案对比，为什么不用 30） |
+| **F4** | 顶级目录 `sort_order` 现状（**实测**扫全部种子迁移）：`工作台`=5（隐藏）、`system`=10、`support`=20、`通用底座`=70、`内容管理`=70、`task`=75 | `backend/app/migrations/seed/S__menu_data.sql:24,80-81,141-145`；`business/V0046__seed_storage_permissions.up.sql:28-30`；`business/V0089__group_content_menus.up.sql:33-36`；`business/V0103__seed_task_permissions.up.sql:38-42` | 30/40/50/60 **仍是空的**（ERP/BI/MDM 目录在本仓库尚未落地）。本批新建一级目录 `/approval`，取 **sort_order = 76**，紧跟 `task`(75)（13.5.1 给三种方案对比，为什么不用 30） |
 | **F5** | `sys_menu.module_code` 是 `VARCHAR(20)`；菜单管理页「模块编码」是**自由输入框**不是下拉 | `V0004:19`；`frontend/src/views/system/menu/index.vue` | 新模块统一填 `business`（与 A/B/C/C+ 一致），不加新值、不需要改前端下拉 |
-| **F6** | 数据权限**已存在**：`sys_role.data_scope SMALLINT DEFAULT 1`，CHECK 限定 1–5（1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义部门集合），自定义集合落 `sys_role_dept` | `backend/migrations/business/V0060__alter_sys_role_add_data_scope.up.sql:19-26`；`V0061__create_sys_role_dept.up.sql` | 13.3 的 `data_scope` 判据**不再讨论"能不能做"**，而是回答"审批单该不该受它管"——结论是**不受**（D13），理由见 13.3.2 |
-| **F7** | 部门子树递归**已有**：`find_dept_subtree_ids()` 用 `WITH RECURSIVE` 向下取子树 | `backend/src/system/dept/model.rs:280-283` | 「本部门及以下」的选人/可见性复用它，不自己写 SQL |
-| **F8** | 🔴 `dept_path` 只在**本部门**新建/更新时维护，代码注释明写「**仅重算自身 dept_path，不改写已存在子部门的历史路径（已知限制）**」 | `backend/src/system/dept/handler.rs:283-290` | **任何**按部门取范围的地方都不许用 `dept_path LIKE '/x/%'`。本批「发起权限=本部门及以下」必须走 F7 |
-| **F9** | `sys_user` **没有 `manager_id`**、没有岗位/职级表；唯一的"上下级"信号是 `sys_dept.leader_id`（部门负责人） | `backend/migrations/system/V0001__create_sys_user.up.sql:2-20`；`V0006__create_sys_dept.up.sql:8,26` | 「直属主管」不是一条数据库关系，只能**推导**：本人所在部门的 `leader_id` = 直接上级。4.6 把这条推导写成规则，并给出"部门没设负责人"的兜底链 |
+| **F6** | 数据权限**已存在**：`sys_role.data_scope SMALLINT DEFAULT 1`，CHECK 限定 1–5（1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义部门集合），自定义集合落 `sys_role_dept` | `backend/app/migrations/business/V0060__alter_sys_role_add_data_scope.up.sql:19-26`；`V0061__create_sys_role_dept.up.sql` | 13.3 的 `data_scope` 判据**不再讨论"能不能做"**，而是回答"审批单该不该受它管"——结论是**不受**（D13），理由见 13.3.2 |
+| **F7** | 部门子树递归**已有**：`find_dept_subtree_ids()` 用 `WITH RECURSIVE` 向下取子树 | `backend/app/src/system/dept/model.rs:280-283` | 「本部门及以下」的选人/可见性复用它，不自己写 SQL |
+| **F8** | 🔴 `dept_path` 只在**本部门**新建/更新时维护，代码注释明写「**仅重算自身 dept_path，不改写已存在子部门的历史路径（已知限制）**」 | `backend/app/src/system/dept/handler.rs:283-290` | **任何**按部门取范围的地方都不许用 `dept_path LIKE '/x/%'`。本批「发起权限=本部门及以下」必须走 F7 |
+| **F9** | `sys_user` **没有 `manager_id`**、没有岗位/职级表；唯一的"上下级"信号是 `sys_dept.leader_id`（部门负责人） | `backend/app/migrations/system/V0001__create_sys_user.up.sql:2-20`；`V0006__create_sys_dept.up.sql:8,26` | 「直属主管」不是一条数据库关系，只能**推导**：本人所在部门的 `leader_id` = 直接上级。4.6 把这条推导写成规则，并给出"部门没设负责人"的兜底链 |
 
 ## 0.2 任务管理（批次 C+）事实（F10–F14）
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F10** | `biz_task.approval_instance_id UUID` **已存在且注释写明"批次 D 预留，本批恒为 NULL"**，无外键、无索引 | `backend/migrations/business/V0100__create_task_tables.up.sql:98,131` | 这是本批与任务集成的**唯一挂点**（第 11 章）。字段名不改、类型不改，本批只把它从"恒 NULL"变成"REVIEW 期间指向审批实例" |
+| **F10** | `biz_task.approval_instance_id UUID` **已存在且注释写明"批次 D 预留，本批恒为 NULL"**，无外键、无索引 | `backend/app/migrations/business/V0100__create_task_tables.up.sql:98,131` | 这是本批与任务集成的**唯一挂点**（第 11 章）。字段名不改、类型不改，本批只把它从"恒 NULL"变成"REVIEW 期间指向审批实例" |
 | **F11** | `biz_task` 关键列：`status VARCHAR(16)` CHECK 5 值（`TODO/DOING/REVIEW/DONE/CANCELLED`）、`need_review BOOLEAN`、`owner_id`、`creator_id`、`assigner_id`、`done_at`、`reject_reason VARCHAR(500)`、`cancel_reason VARCHAR(500)` | `V0100:71-135` | 审批回写只动 `status`（+ 联动的 `done_at`/`reject_reason`/`progress`），**不改表结构**（11.2 给映射表） |
-| **F12** | 任务状态机是**白名单表** `TRANSITIONS: [Transition; 10]`；`REVIEW → DONE` 允许 `creator\|assigner\|admin`；`REVIEW → DOING` 同角色且 `requires_reject_reason=true`（`REJECT_REASON_MIN_CHARS = 5`）；`REVIEW → DONE` 的进度副作用是 `Force(100)`、`done_at=SetNow`；`REVIEW → DOING` 是 `Reset(10)` | `backend/src/business/task/state.rs:227,280-370` | 🔴 **本批最大的集成风险**：如果审批的审批人不是"创建人/分派人/管理员"，用他的身份回写 `REVIEW→DONE` 会被状态机拒绝（`63011`）。11.3 给三种解法并选定"引擎内部写 + 审批授权前置 + 变更日志留痕" |
-| **F13** | `biz_task_comment.comment_type` 已加，CHECK 三值 `PLAIN / STATUS_CHANGE / PROGRESS_AUTO`；评论正文 `content TEXT` 纯文本 | `backend/migrations/business/V0108__task_status_progress.up.sql:72-88`；`V0100:152-172` | 驳回原因进任务评论走 `comment_type='STATUS_CHANGE'`，前端时间线据此区分颜色（11.4.2） |
+| **F12** | 任务状态机是**白名单表** `TRANSITIONS: [Transition; 10]`；`REVIEW → DONE` 允许 `creator\|assigner\|admin`；`REVIEW → DOING` 同角色且 `requires_reject_reason=true`（`REJECT_REASON_MIN_CHARS = 5`）；`REVIEW → DONE` 的进度副作用是 `Force(100)`、`done_at=SetNow`；`REVIEW → DOING` 是 `Reset(10)` | `backend/app/src/business/task/state.rs:227,280-370` | 🔴 **本批最大的集成风险**：如果审批的审批人不是"创建人/分派人/管理员"，用他的身份回写 `REVIEW→DONE` 会被状态机拒绝（`63011`）。11.3 给三种解法并选定"引擎内部写 + 审批授权前置 + 变更日志留痕" |
+| **F13** | `biz_task_comment.comment_type` 已加，CHECK 三值 `PLAIN / STATUS_CHANGE / PROGRESS_AUTO`；评论正文 `content TEXT` 纯文本 | `backend/app/migrations/business/V0108__task_status_progress.up.sql:72-88`；`V0100:152-172` | 驳回原因进任务评论走 `comment_type='STATUS_CHANGE'`，前端时间线据此区分颜色（11.4.2） |
 | **F14** | 任务**没有**"审批状态"列，也没有按审批筛的索引 | `V0100`、`V0101__task_indexes.up.sql` 全文 | 「任务列表按审批状态筛选」需要 `approval_instance_id` 上的查询能力（11.6 给筛选语义；是否加索引归 architect） |
 
 ## 0.3 通知与偏好事实（F15–F19）
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F15** | 通知**唯一出口**是 `notice::dispatch(NoticeDraft)`；`NoticeDraft.force: bool` 就是**修正 8 的通知分级开关**：`force=true` 跳过 `notify.inbox` 偏好照发；`force=false` 时把关了站内信的人**从接收人集合里剔除**（通知主体仍落库、`receiver_count=0`，审计看得见"发过但被偏好过滤"）。`dispatch` 的"落 notice → 扇出 → 回写计数 → 写投递记录"在**一个事务**内 | `backend/src/business/notice/mod.rs:95-142,290`；`backend/src/business/notice/fanout.rs:135-170,220-240,259-310` | 12.2 的强制/偏好分级**不是新机制**，是给本批 10 个事件逐个标注 `force` |
-| **F16** | `NoticeType` 已含 **`TODO`（待办提醒）** 与 **`WORKFLOW`（流程消息/审批结果）** 两个值，与本批语义完全吻合 | `backend/src/business/notice/dto.rs:30-41` | 「待你审批」用 `TODO`、「通过/驳回」用 `WORKFLOW`，前端消息中心的两个筛选页签天然有数据，不需要新增枚举 |
-| **F17** | `NoticeTarget` 只有 4 种：`User(Vec<Uuid>)` / `Role(Vec<Uuid>)` / `Dept(Vec<Uuid>，含下级)` / `All`；单条通知接收人上限 **50000** | `backend/src/business/notice/fanout.rs:31-46` | 审批的收件人永远是**具体人**（`User`），不做"发给部门"——因为审批人是解析出来的确定集合（8.4） |
-| **F18** | 偏好体系已落库：`sys_preference_def`（字典）+ `sys_user_preference`（用户值），预置 8 项含 `notify.inbox`（默认 true）/ `notify.email`（默认 false） | `backend/migrations/system/V0090__create_sys_user_preference.up.sql`；`V0091__seed_preference_def.up.sql` | 12.2 只引用 `notify.inbox`，**不新增偏好键**（新增键要改前端偏好页，收益为零）。审批的"抄送"是唯一尊重偏好的事件 |
-| **F19** | `sys_change_log` 有结构化列 `module / resource / resource_id / action / action_label / diff / diff_mode / changed_fields / result`，唯一写入契约 `record(&impl SqlExecutor, ...)` **必须在业务事务内调用** | `backend/migrations/business/V0084__create_change_log.up.sql`；`backend/src/business/changelog/mod.rs:119-130` | 审批单的每一次流转（提交/同意/驳回/撤回/作废/变更审批人）**必须**走 `record`，与业务同事务；**禁止**另建一张 `biz_approval_log` 表（14.5 时间线与 15.2 分工） |
+| **F15** | 通知**唯一出口**是 `notice::dispatch(NoticeDraft)`；`NoticeDraft.force: bool` 就是**修正 8 的通知分级开关**：`force=true` 跳过 `notify.inbox` 偏好照发；`force=false` 时把关了站内信的人**从接收人集合里剔除**（通知主体仍落库、`receiver_count=0`，审计看得见"发过但被偏好过滤"）。`dispatch` 的"落 notice → 扇出 → 回写计数 → 写投递记录"在**一个事务**内 | `backend/app/src/business/notice/mod.rs:95-142,290`；`backend/app/src/business/notice/fanout.rs:135-170,220-240,259-310` | 12.2 的强制/偏好分级**不是新机制**，是给本批 10 个事件逐个标注 `force` |
+| **F16** | `NoticeType` 已含 **`TODO`（待办提醒）** 与 **`WORKFLOW`（流程消息/审批结果）** 两个值，与本批语义完全吻合 | `backend/app/src/business/notice/dto.rs:30-41` | 「待你审批」用 `TODO`、「通过/驳回」用 `WORKFLOW`，前端消息中心的两个筛选页签天然有数据，不需要新增枚举 |
+| **F17** | `NoticeTarget` 只有 4 种：`User(Vec<Uuid>)` / `Role(Vec<Uuid>)` / `Dept(Vec<Uuid>，含下级)` / `All`；单条通知接收人上限 **50000** | `backend/app/src/business/notice/fanout.rs:31-46` | 审批的收件人永远是**具体人**（`User`），不做"发给部门"——因为审批人是解析出来的确定集合（8.4） |
+| **F18** | 偏好体系已落库：`sys_preference_def`（字典）+ `sys_user_preference`（用户值），预置 8 项含 `notify.inbox`（默认 true）/ `notify.email`（默认 false） | `backend/app/migrations/system/V0090__create_sys_user_preference.up.sql`；`V0091__seed_preference_def.up.sql` | 12.2 只引用 `notify.inbox`，**不新增偏好键**（新增键要改前端偏好页，收益为零）。审批的"抄送"是唯一尊重偏好的事件 |
+| **F19** | `sys_change_log` 有结构化列 `module / resource / resource_id / action / action_label / diff / diff_mode / changed_fields / result`，唯一写入契约 `record(&impl SqlExecutor, ...)` **必须在业务事务内调用** | `backend/app/migrations/business/V0084__create_change_log.up.sql`；`backend/app/src/business/changelog/mod.rs:119-130` | 审批单的每一次流转（提交/同意/驳回/撤回/作废/变更审批人）**必须**走 `record`，与业务同事务；**禁止**另建一张 `biz_approval_log` 表（14.5 时间线与 15.2 分工） |
 
 ## 0.4 调度、前端与图标事实（F20–F27）
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F20** | 定时任务现状（**全部实测 grep `pub const`**）：日志清理 `03:00/03:10/03:20/03:30/03:40`；变更日志分区 `0 20 1 1 * *`（每月 1 日）；帮助文档清理 `0 40 2 * * *`；导入导出清理 `0 40 4 * * *`；通知清理 `0 50 4 * * *`；公告自动下线 `0 5 0 * * *`、置顶过期 `0 10 0 * * *`、投递重试 `0 */10 * * * *`；导入导出 worker `*/5 * * * * *`；通知巡逻 `*/30 * * * * *`；SSE 清扫 `0 */5 * * * *`；任务 Hermes 同步 `*/30 * * * * *` | `backend/src/task/mod.rs:64-68`；`changelog/partition.rs:45`；`help/model.rs:53`；`impexp/cleanup.rs:40`；`impexp/worker.rs:61`；`notice/cleanup.rs:28`；`notice/scheduled.rs:47`；`notice/sse_hub.rs:79`；`announcement/maintenance.rs:39,44,49`；`task/hermes_sync.rs:72` | 本批 3 个定时任务排在 **`0 15 * * * *`（每小时催办扫描）/ `0 30 9 * * *`（每日逾期知会）/ `0 10 4 * * *`（04:10 清理）**，与现存 0 冲突（9.7 给完整时刻表） |
+| **F20** | 定时任务现状（**全部实测 grep `pub const`**）：日志清理 `03:00/03:10/03:20/03:30/03:40`；变更日志分区 `0 20 1 1 * *`（每月 1 日）；帮助文档清理 `0 40 2 * * *`；导入导出清理 `0 40 4 * * *`；通知清理 `0 50 4 * * *`；公告自动下线 `0 5 0 * * *`、置顶过期 `0 10 0 * * *`、投递重试 `0 */10 * * * *`；导入导出 worker `*/5 * * * * *`；通知巡逻 `*/30 * * * * *`；SSE 清扫 `0 */5 * * * *`；任务 Hermes 同步 `*/30 * * * * *` | `backend/app/src/task/mod.rs:64-68`；`changelog/partition.rs:45`；`help/model.rs:53`；`impexp/cleanup.rs:40`；`impexp/worker.rs:61`；`notice/cleanup.rs:28`；`notice/scheduled.rs:47`；`notice/sse_hub.rs:79`；`announcement/maintenance.rs:39,44,49`；`task/hermes_sync.rs:72` | 本批 3 个定时任务排在 **`0 15 * * * *`（每小时催办扫描）/ `0 30 9 * * *`（每日逾期知会）/ `0 10 4 * * *`（04:10 清理）**，与现存 0 冲突（9.7 给完整时刻表） |
 | **F21** | 分页 `MAX_PAGE_SIZE=1000`、`DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/nik-web-0.4.2/src/api.rs:104,107` | 待办列表默认 20 条/页；「我发起的」可筛全部状态，导出走批次 A 异步导出 |
 | **F22** | 前端 axios 全局 `timeout: 15000` | `frontend/src/api/request.ts:68` | 流程设计器的「发布校验」「预览走向」要单独放宽到 **30s**（要走一遍图遍历 + 审批人解析） |
 | **F23** | 图标清单**实测 2363 个**（`tdesign-icons-vue-next 0.4.11`）。✅ 存在：`flowchart` `flowchart-filled` `git-branch` `git-merge` `git-pull-request` `tree-round-dot` `check-double` `check-circle` `close-circle` `rollback` `swap` `user-add` `usergroup` `send` `mail` `chat-bubble` `history` `view-list` `view-module` `chart-bar` `setting` `task-checked` `assignment-checked` `pending` `notification` `drag-move` `fullscreen` `zoom-in` `zoom-out` `file-add` `file-copy` `filter-1` `search` `more` `ellipsis` `edit-1` `delete` `add` `close` `arrow-right` `chevron-right` `mode-light` `poweroff` `secured-filled` `certificate-1`；❌ **不存在**：`flow` `workflow` `flow-chart` `stamp` `node-tree` `branch` `list` `user-check` `view-kanban` `kanban` `sort` `funnel` `undo` `redo` `preview` `publish` `version` `connection` `arrow-triangle` | `frontend/src/components/IconSelect/icons.ts`（去 CRLF 后 `grep -x` 逐个实测）；TDesign `esm/components/` 目录 | 本批 6 个菜单 + 设计器工具条的图标**只能**从 ✅ 里选：审批目录=`flowchart`、待办=`check-double`、已办=`assignment-checked`、我发起=`send`、抄送我=`mail`、流程定义=`git-branch`、监控=`chart-bar`。选 ❌ 里的名字**不会报错**，但菜单左侧是空白（F25），评审时极难发现 |
 | **F24** | 🔴 **顺带发现的存量缺陷**：批次 C+ 已上线的菜单里用了 3 个**不存在**的图标——`/task/list` 用 `list`、`/task/mine` 用 `user-check`、`/task/board` 用 `view-kanban`（**实测**从 `c_task_v3` 库读 `sys_menu` 得到，与 `icons.ts` 逐个比对全部不存在） | `business/V0103__seed_task_permissions.up.sql:38-42`（写入值）+ 数据库实测 + `icons.ts` | 本批的 `V0120` 迁移**顺带修**这 3 行（改成 `view-list` / `user` / `view-module`），并在附录 C.2 记为"跨批修复项"，不动其它任何 C+ 逻辑 |
 | **F25** | 侧边栏渲染是 `<t-icon :name="icon" />`，**没有任何白名单校验** | `frontend/src/layouts/components/SideMenuItem.vue:3,8` | 图标名不存在时 TDesign 只打一条 warn、渲染空白，**不崩页面**——所以 F24 那种缺陷能安然上线。评审流程里必须有一条"图标名逐个实测"的检查（附录 C.3 给脚本） |
-| **F26** | 业务定时任务通过 `Scheduler::register_cron(name, cron, desc, runner)` 在 `register_builtin` 里注册；`sys_job` 可存可调 cron，但运行期增删要 stop→reload→start；`invoke_target` 必须是已注册的处理器标识 | `backend/src/task/mod.rs:59-70,234-260,293-340,501-520` | 本批 3 个任务都做成**代码内注册的处理器**，`sys_job` 只放开 cron 与开关 |
-| **F27** | 错误码段已占用：`60xxx` 批次 A（存储/导入导出/通知，60001–60033）、`610xx` 批次 B（数据权限，61001–61012）、`62xxx` 批次 C（公告/帮助/变更日志 62001–62019 + 偏好 62020–62024）、`63xxx` 批次 C+（任务 63001–63020 / 依赖甘特 63101–63105 / AI 硬拒 63201–63204 / AI 通道 63301–63308）、`64xxx` 云枢×Hermes（64001–64013）。**`65xxx` 完全空闲** | `backend/src/shared/error_code.rs:36-45,180-200,286-296,335-400,423-440,506-530,660-710` | 本批取 **`65xxx`** 段（65001–65019，19 个码），清单在附录 E.4；界面上**永远不出现错误码**，用户看到的是 14.8 的原文 |
+| **F26** | 业务定时任务通过 `Scheduler::register_cron(name, cron, desc, runner)` 在 `register_builtin` 里注册；`sys_job` 可存可调 cron，但运行期增删要 stop→reload→start；`invoke_target` 必须是已注册的处理器标识 | `backend/app/src/task/mod.rs:59-70,234-260,293-340,501-520` | 本批 3 个任务都做成**代码内注册的处理器**，`sys_job` 只放开 cron 与开关 |
+| **F27** | 错误码段已占用：`60xxx` 批次 A（存储/导入导出/通知，60001–60033）、`610xx` 批次 B（数据权限，61001–61012）、`62xxx` 批次 C（公告/帮助/变更日志 62001–62019 + 偏好 62020–62024）、`63xxx` 批次 C+（任务 63001–63020 / 依赖甘特 63101–63105 / AI 硬拒 63201–63204 / AI 通道 63301–63308）、`64xxx` 云枢×Hermes（64001–64013）。**`65xxx` 完全空闲** | `backend/app/src/shared/error_code.rs:36-45,180-200,286-296,335-400,423-440,506-530,660-710` | 本批取 **`65xxx`** 段（65001–65019，19 个码），清单在附录 E.4；界面上**永远不出现错误码**，用户看到的是 14.8 的原文 |
 
 ## 0.5 与批次 C+ 的接口预留对账（F28–F30）
 
@@ -141,7 +141,7 @@
 |---|---|---|---|
 | **F28** | C+ 核心设计写明：「审批流整合 —— 等批次 D 完成后，把"任务验收"替换为可配置的审批流。本模块先做内置两级验收，并**预留 `approval_instance_id` 字段（空）**」「接口预留：等批次 D 完成后，只需把"验收"逻辑替换为发起审批流实例 + 回调更新状态，**不改表结构**」 | `/root/.hermes/workspace/frontend-developer/t6a_w1/docs/批次C+-工作任务管理-核心设计.md:27,313,316` | 本批**严格兑现**这三句话：不改 `biz_task` 结构、验收走"发起实例 + 回调"、`approval_instance_id` 从 NULL 变为指向实例。11.1 逐条对账 |
 | **F29** | C+ 的验收是**内置两级**：一级=创建人/分派人，二级=部门负责人（重要任务），且**第三级明确划给批次 D**（「三级的真实诉求是审批，那走批次 D 的审批流」） | `docs/批次C+-工作任务管理-产品需求PRD.md:170,314,3845` | 本批**不删**两级验收，而是让它成为审批流的一个**内置模板**（11.1.3）：既有用户零感知，想要三级/会签的人去配流程 |
-| **F30** | `sys_user_type` 区分人类与 AI 用户（`ROBOT`），AI 用户禁网页登录、禁删任务、禁改数据权限 | `backend/migrations/system/V0102__add_sys_user_type.up.sql`；`error_code.rs:584-605`（63201–63204） | D17：**AI 用户不能当审批人、不能发起审批**。审批是"人的决策"，AI 是执行者（与修正 11 的分工一致） |
+| **F30** | `sys_user_type` 区分人类与 AI 用户（`ROBOT`），AI 用户禁网页登录、禁删任务、禁改数据权限 | `backend/app/migrations/system/V0102__add_sys_user_type.up.sql`；`error_code.rs:584-605`（63201–63204） | D17：**AI 用户不能当审批人、不能发起审批**。审批是"人的决策"，AI 是执行者（与修正 11 的分工一致） |
 
 ## 0.6 二十四条必须先定的产品口径（本文已定，开发照做）
 
@@ -5031,36 +5031,36 @@ done
 
 ```bash
 # F1/F5 权限码与菜单表结构
-sed -n '1,30p' backend/migrations/system/V0004__create_sys_menu.up.sql
+sed -n '1,30p' backend/app/migrations/system/V0004__create_sys_menu.up.sql
 
 # F2/F3 hasPermission 全等 + 目录隐藏
 sed -n '16,40p;63,80p' frontend/src/stores/user.ts
 
 # F6 数据权限（批次 B 已加）
-sed -n '15,30p' backend/migrations/business/V0060__alter_sys_role_add_data_scope.up.sql
+sed -n '15,30p' backend/app/migrations/business/V0060__alter_sys_role_add_data_scope.up.sql
 
 # F7/F8 部门递归 vs dept_path 限制
-grep -n "find_dept_subtree_ids" -A 5 backend/src/system/dept/model.rs
-sed -n '280,295p' backend/src/system/dept/handler.rs
+grep -n "find_dept_subtree_ids" -A 5 backend/app/src/system/dept/model.rs
+sed -n '280,295p' backend/app/src/system/dept/handler.rs
 
 # F10/F11 任务的 approval_instance_id 与状态列
-sed -n '71,135p' backend/migrations/business/V0100__create_task_tables.up.sql
+sed -n '71,135p' backend/app/migrations/business/V0100__create_task_tables.up.sql
 
 # F12 状态机白名单（10 条流转 + 角色位）
-sed -n '280,375p' backend/src/business/task/state.rs
+sed -n '280,375p' backend/app/src/business/task/state.rs
 
 # F13 评论类型
-sed -n '70,90p' backend/migrations/business/V0108__task_status_progress.up.sql
+sed -n '70,90p' backend/app/migrations/business/V0108__task_status_progress.up.sql
 
 # F15/F16 通知的唯一出口与 force 分级
-sed -n '95,142p;290,300p' backend/src/business/notice/mod.rs
-sed -n '30,45p' backend/src/business/notice/dto.rs
+sed -n '95,142p;290,300p' backend/app/src/business/notice/mod.rs
+sed -n '30,45p' backend/app/src/business/notice/dto.rs
 
 # F18 偏好键
-grep -n "notify.inbox" -A 2 backend/migrations/system/V0091__seed_preference_def.up.sql
+grep -n "notify.inbox" -A 2 backend/app/migrations/system/V0091__seed_preference_def.up.sql
 
 # F20 定时任务现状
-grep -rn "pub const.*CRON" backend/src --include=*.rs
+grep -rn "pub const.*CRON" backend/app/src --include=*.rs
 
 # F23/F24 图标存在性（实测 2363 个）
 tr -d '\r' < frontend/src/components/IconSelect/icons.ts | grep -c '"'
@@ -5070,7 +5070,7 @@ for n in flowchart list user-check view-kanban view-list view-module; do
 done
 
 # F27 错误码段
-grep -n "pub const" backend/src/shared/error_code.rs | sed -n '1,40p'
+grep -n "pub const" backend/app/src/shared/error_code.rs | sed -n '1,40p'
 ```
 
 ## C.7 交付前提（缺一条就要砍范围）

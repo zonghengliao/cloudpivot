@@ -30,7 +30,7 @@
 
 ## 1. 修复 1（代码）：内控闸改成「生成待办时排除」
 
-### 新增 `backend/src/business/flow/internal_control.rs`
+### 新增 `backend/app/src/business/flow/internal_control.rs`
 
 | 单元 | 作用 |
 |---|---|
@@ -307,7 +307,7 @@ active；进程 md5 == 磁盘 md5 == e3327684822450620f5052c497823564；/health=
 
 | 类型 | 路径 |
 |---|---|
-| 代码 | `backend/src/business/flow/internal_control.rs`（新）、`flow/{engine,mod}.rs`、`erp/{purchase,stockin,payable}_bridge.rs` |
+| 代码 | `backend/app/src/business/flow/internal_control.rs`（新）、`flow/{engine,mod}.rs`、`erp/{purchase,stockin,payable}_bridge.rs` |
 | 用例 | `flow/internal_control.rs`（14 条）、`erp/{purchase_handler,stockin_handler,payable_payment}.rs`（内控旧用例改新语义） |
 | 运维脚本 | `scripts/maintenance/p0fix_self_approval.sh`、`scripts/maintenance/p0fix_bind_approver_roles.sh` |
 | 验收脚本 | `scripts/verify/p0fix_deadlock_repair.sh`（20 项断言）、`scripts/verify/p0fix_e2e.py`（三段真机 HTTP） |

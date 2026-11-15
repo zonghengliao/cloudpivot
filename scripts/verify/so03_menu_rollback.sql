@@ -10,8 +10,8 @@ SELECT name, title, path, component, is_visible
 SELECT name, title, coalesce(path,'(NULL)') AS path, coalesce(component,'(NULL)') AS component, is_visible
   FROM sys_menu WHERE id = '20000000-0000-0000-0000-000000002601'::uuid;
 
-\i /opt/cloudpivot/backend/migrations/business/V0263__sales_customer_menu_label.down.sql
-\i /opt/cloudpivot/backend/migrations/business/V0262__sales_customer_menu_page.down.sql
+\i /opt/cloudpivot/backend/app/migrations/business/V0263__sales_customer_menu_label.down.sql
+\i /opt/cloudpivot/backend/app/migrations/business/V0262__sales_customer_menu_page.down.sql
 
 \echo '--- 两个 down 之后（应为 path=NULL / component=NULL / is_visible=f / title=长文案）---'
 SELECT name, title, coalesce(path,'(NULL)') AS path, coalesce(component,'(NULL)') AS component, is_visible
@@ -32,8 +32,8 @@ BEGIN
 END $$;
 
 \echo '--- 再跑一遍 up（幂等 + 前置校验）---'
-\i /opt/cloudpivot/backend/migrations/business/V0262__sales_customer_menu_page.up.sql
-\i /opt/cloudpivot/backend/migrations/business/V0263__sales_customer_menu_label.up.sql
+\i /opt/cloudpivot/backend/app/migrations/business/V0262__sales_customer_menu_page.up.sql
+\i /opt/cloudpivot/backend/app/migrations/business/V0263__sales_customer_menu_label.up.sql
 
 SELECT name, title, path, component, is_visible
   FROM sys_menu WHERE id = '20000000-0000-0000-0000-000000002601'::uuid;

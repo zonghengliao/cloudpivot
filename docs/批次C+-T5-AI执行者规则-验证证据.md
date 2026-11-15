@@ -31,19 +31,19 @@
 
 | 文件 | 改动 |
 |------|------|
-| `backend/src/shared/ai_actor.rs` | **新增**。四道硬拒的纯函数判定（`login_forbidden` / `task_delete_forbidden` / `data_scope_forbidden` / `aiagent_admin_forbidden`）+ `is_robot` + 3 条单测 |
-| `backend/src/shared/error_code.rs` | 新增 `632xx` 子段（63201–63204）+ 稳定性单测；`63016` 标注「已由 63202 取代，值不回收」 |
-| `backend/src/system/auth/handler.rs` | 登录流程插入 AI 硬拒（查到用户后、**验密之前**）+ `auth_logs` 留痕 |
-| `backend/src/business/task/handler.rs` | 删任务硬拒码 `63016 → 63202`；`is_robot` 改为走 `shared::ai_actor` |
-| `backend/src/business/permission/scope_handler.rs` | `role_scope_update` 最前面加 AI 硬拒（63203，先于角色存在性校验） |
-| `backend/src/business/aiagent/handler.rs` | create / update / delete 三个写接口加 AI 硬拒（63204） |
-| `backend/src/business/changelog/dto.rs` | 新增 `OperatorType` 枚举；`ChangeCtx.operator_type` + `with_operator_type`；列表 / 详情 / 时间线出参加 `operator_type` |
-| `backend/src/business/changelog/model.rs` | `NewChangeLog.operator_type` + INSERT 列 + `operator_type_of(ex, id)`（同事务查 `sys_user.user_type`，带 `SCOPE-EXEMPT`） |
-| `backend/src/business/changelog/mod.rs` | `record()` 在「空 diff 短路之后」解析操作人类型；导出 `OperatorType` |
-| `backend/src/business/changelog/query.rs` | `SELECT_COLUMNS` / `ChangeLogRow` / `from_row` 带 `operator_type` |
-| `backend/src/business/changelog/handler.rs` | 导出多一列「操作人类型」 |
-| `backend/migrations/business/V0111__changelog_operator_type.{up,down}.sql` | 新增列 + CHECK + 部分索引 + 自检 DO 块 |
-| `backend/tests/batchT_t5_ai_rules.rs` | **新增**。6 条真库用例（迁移结构 / ROBOT 写入 / HUMAN 写入 / 解析器默认值 / 显式覆盖 / 结构体必带字段） |
+| `backend/app/src/shared/ai_actor.rs` | **新增**。四道硬拒的纯函数判定（`login_forbidden` / `task_delete_forbidden` / `data_scope_forbidden` / `aiagent_admin_forbidden`）+ `is_robot` + 3 条单测 |
+| `backend/app/src/shared/error_code.rs` | 新增 `632xx` 子段（63201–63204）+ 稳定性单测；`63016` 标注「已由 63202 取代，值不回收」 |
+| `backend/app/src/system/auth/handler.rs` | 登录流程插入 AI 硬拒（查到用户后、**验密之前**）+ `auth_logs` 留痕 |
+| `backend/app/src/business/task/handler.rs` | 删任务硬拒码 `63016 → 63202`；`is_robot` 改为走 `shared::ai_actor` |
+| `backend/app/src/business/permission/scope_handler.rs` | `role_scope_update` 最前面加 AI 硬拒（63203，先于角色存在性校验） |
+| `backend/app/src/business/aiagent/handler.rs` | create / update / delete 三个写接口加 AI 硬拒（63204） |
+| `backend/app/src/business/changelog/dto.rs` | 新增 `OperatorType` 枚举；`ChangeCtx.operator_type` + `with_operator_type`；列表 / 详情 / 时间线出参加 `operator_type` |
+| `backend/app/src/business/changelog/model.rs` | `NewChangeLog.operator_type` + INSERT 列 + `operator_type_of(ex, id)`（同事务查 `sys_user.user_type`，带 `SCOPE-EXEMPT`） |
+| `backend/app/src/business/changelog/mod.rs` | `record()` 在「空 diff 短路之后」解析操作人类型；导出 `OperatorType` |
+| `backend/app/src/business/changelog/query.rs` | `SELECT_COLUMNS` / `ChangeLogRow` / `from_row` 带 `operator_type` |
+| `backend/app/src/business/changelog/handler.rs` | 导出多一列「操作人类型」 |
+| `backend/app/migrations/business/V0111__changelog_operator_type.{up,down}.sql` | 新增列 + CHECK + 部分索引 + 自检 DO 块 |
+| `backend/app/tests/batchT_t5_ai_rules.rs` | **新增**。6 条真库用例（迁移结构 / ROBOT 写入 / HUMAN 写入 / 解析器默认值 / 显式覆盖 / 结构体必带字段） |
 
 ### 与卡面的一处差异（有意，且已在代码注释里写明）
 
@@ -233,7 +233,7 @@ test result: ok. 6 passed; 0 failed
 ==> 批次B 闸①：分页必须走 scope::paginate
   PASS：0 处（分页全部走 scope::paginate）
 ==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
-  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support,shared}
   PASS：0 处
 ==> 批次B 门禁汇总：闸①=0 处  闸②=0 处  （B0 基线 20 / 21）
 ==> C7 G1：只有 business/changelog/ 能碰 sys_change_log        PASS：0 处

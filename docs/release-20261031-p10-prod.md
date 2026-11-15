@@ -13,7 +13,7 @@
 | 二进制 | sha256 `8a3a2b70abd8705b931698c9683e959075f98f1a9925a0707c2304dc5a877c4d`（41,386,960 B） |
 | 替换方式 | `cp 新 → $REL.new && mv -f $REL.new $REL`（同盘 rename，原子；避开 `Text file busy`） |
 | 发布前二进制 | sha256 `cacf939a983d401828f04405f21e368278ad4548097e64257e34709ea215f438`（`c49c0bb`，已留档） |
-| 迁移 | `V0159__biz_status_log`（up/down 2 个文件从 `1c424ec` 落到 `backend/migrations/business/`，prod 目录与 main 的**唯一**差异就是这两个文件） |
+| 迁移 | `V0159__biz_status_log`（up/down 2 个文件从 `1c424ec` 落到 `backend/app/migrations/business/`，prod 目录与 main 的**唯一**差异就是这两个文件） |
 | 服务 | `systemctl restart cloudpivot` → `health=200`（2s 内），`MainPID=3080807` |
 
 `c49c0bb` 是 `1c424ec` 的**祖先**（`git merge-base --is-ancestor` = YES），所以本次是纯前滚：`c49c0bb..main` 共 19 个提交（P10 四笔 + P12 画布视觉（前端）+ P11 任务取消撤审批实例 + 数据修复/文档/e2e），**不含任何只在共享工作区里的旁支改动**。
@@ -123,7 +123,7 @@ GET /api/business/erp/stock-in/{uuid}                     -> 401
 
 ## 五、已知边界（发布后仍需注意）
 
-1. 共享工作区 `/opt/cloudpivot` 仍停在 `b0bfb8b`（分叉未解决）。本次只把两个 V0159 迁移文件落进它的 `backend/migrations/business/` 并 `git add`（内容与 main 上的逐字节相同：`V0159__biz_status_log.up.sql` sha256 `3f7c575d…`），**没有** merge/rebase 任何人的在途改动。下次有人在共享工作区 `git merge --ff-only origin/main` 时，这两个文件不会以「未跟踪文件会被覆盖」挡住合并。
+1. 共享工作区 `/opt/cloudpivot` 仍停在 `b0bfb8b`（分叉未解决）。本次只把两个 V0159 迁移文件落进它的 `backend/app/migrations/business/` 并 `git add`（内容与 main 上的逐字节相同：`V0159__biz_status_log.up.sql` sha256 `3f7c575d…`），**没有** merge/rebase 任何人的在途改动。下次有人在共享工作区 `git merge --ff-only origin/main` 时，这两个文件不会以「未跟踪文件会被覆盖」挡住合并。
 2. main tip 是「本文档所在的 docs 提交」（`1c424ec` 之后只有本文件与它的两次 docs 提交）；`git diff 1c424ec..main -- backend` 为空，`git diff --stat 1c424ec..main` 只列出本文件 —— 线上二进制对应的代码树就是 `1c424ec` 的树。
 3. P12 画布视觉与 P11 的前端改动属于 `c49c0bb..main` 的一部分，但**本次只替换后端二进制**，`frontend/dist` 未重建 —— 前端是否同步上线属于 P12 卡的范围。
 4. 本轮不涉及新配置项；`/etc/cloudpivot/cloudpivot.env` 未改动。

@@ -8,8 +8,8 @@
 set -uo pipefail
 export PGPASSWORD=${PGPASSWORD:-alun}
 DB=${P13_DB_NAME:-cp_p13}
-UP=/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.up.sql
-DOWN=/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.down.sql
+UP=/opt/cloudpivot/backend/app/migrations/business/V0211__erp_stock_take.up.sql
+DOWN=/opt/cloudpivot/backend/app/migrations/business/V0211__erp_stock_take.down.sql
 
 run() { psql -h 127.0.0.1 -U alun -d "$DB" -X -q -v ON_ERROR_STOP=1 -f "$1" 2>&1 | sed 's/^/    /'; return ${PIPESTATUS[0]}; }
 

@@ -53,7 +53,7 @@ ENV_FILE="${DEPLOY_ENV_FILE:-/etc/cloudpivot/cloudpivot.env}"
 SERVICE="${DEPLOY_SERVICE:-cloudpivot}"
 BACKEND_DIR="$REPO/backend"
 FRONTEND_DIR="$REPO/frontend"
-MIG_ROOT="$REPO/backend/migrations"   # 引擎口径：递归全部子目录（business/system/support/…）
+MIG_ROOT="$REPO/backend/app/migrations"   # 引擎口径：递归全部子目录（business/system/support/…）
 MIGRATE_TOOL="$REPO/scripts/verify/deploya_migrate.sh"
 MIG_PLAN_LIB="$REPO/scripts/deploy/migrate_plan.sh"   # 待迁移判定唯一实现（deploy.sh 与自测共用）
 HEALTH_URL="http://127.0.0.1:8023/health"
@@ -187,8 +187,8 @@ fi
 
 # --- 待应用迁移 -----------------------------------------------------------------
 # 口径（= 迁移引擎的 pending 语义，唯一实现在 scripts/deploy/migrate_plan.sh）：
-#   disk = $NEW_HEAD 的树里 backend/migrations/**/V<n>__<name>.up.sql（全部子目录；
-#          引擎 `[database.migration] path = "migrations"` 是递归装载）
+#   disk = $NEW_HEAD 的树里 backend/app/migrations/**/V<n>__<name>.up.sql（全部子目录；
+#          引擎 `[database.migration] path = "app/migrations"` 是递归装载）
 #   done = 库内 kind='versioned' 且 success 的 name 集合
 #   todo = disk - done，按版本号数值升序（版本号只用于排序/展示）
 #
@@ -229,9 +229,9 @@ say "预检通过：applied_via 取值合法、迁移文件名可被引擎识别
 # --- 后端/前端是否要重做 ---------------------------------------------------------
 # 判据不只是「本次 diff 有没有碰这个目录」，还要看**产物是否比最近一次提交旧**：
 # 主仓同步了但没编译/没 build 时，diff 是空的、产物却过期（v2 检测卡抓到的正是这个）。
-BE_LAST_TS=$(git log -1 --format=%ct "$NEW_HEAD" -- backend/ ':!backend/migrations' ':!backend/tests' 2>/dev/null || echo 0)
+BE_LAST_TS=$(git log -1 --format=%ct "$NEW_HEAD" -- backend/ ':!backend/app/migrations' ':!backend/app/tests' 2>/dev/null || echo 0)
 BIN_TS=$(stat -c %Y "$BACKEND_DIR/target/release/cloudpivot" 2>/dev/null || echo 0)
-BE_CHANGED=$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- backend/ | grep -vE '^backend/(migrations|tests)/' | head -1 || true)
+BE_CHANGED=$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- backend/ | grep -vE '^backend/app/(migrations|tests)/' | head -1 || true)
 if [ -z "$BE_CHANGED" ] && [ "${BE_LAST_TS:-0}" -gt "${BIN_TS:-0}" ]; then
   BE_CHANGED="stale-binary"
   say "二进制过期：线上二进制 $(date -d @"$BIN_TS" '+%F %T') 早于最近后端提交 $(date -d @"$BE_LAST_TS" '+%F %T') ⇒ 重编译"
@@ -245,7 +245,10 @@ if [ -z "$FE_CHANGED" ] && [ "${FE_LAST_TS:-0}" -gt "${DIST_TS:-0}" ]; then
   say "dist 过期：线上 dist $(date -d @"$DIST_TS" '+%F %T') 早于最近前端提交 $(date -d @"$FE_LAST_TS" '+%F %T') ⇒ 重构建"
 fi
 
-[ -n "$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- Cargo.toml Cargo.lock rust-toolchain.toml backend/Cargo.toml backend/Cargo.lock backend/rust-toolchain.toml 2>/dev/null)" ] && BE_CHANGED=1
+# 清单文件（依赖/工具链）单独盯：它们变了必须重编译，哪怕源码一行没动。
+# P2-40 起 backend 是 workspace 根，主包清单在 backend/app/，域 crate 在 backend/crates/ ——
+# 两处都要盯，否则「只在 app 里加了个依赖」会被判成后端无改动。
+[ -n "$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- Cargo.toml Cargo.lock rust-toolchain.toml backend/Cargo.toml backend/Cargo.lock backend/rust-toolchain.toml backend/app/Cargo.toml backend/crates 2>/dev/null)" ] && BE_CHANGED=1
 
 [ "$FORCE_FRONTEND" = "1" ] && [ -z "$FE_CHANGED" ] && { FE_CHANGED="forced"; say "（--force-frontend：无视「前端无改动」，强制重建 dist）"; }
 [ "$SKIP_BACKEND" = "1" ] && BE_CHANGED="" && say "（--skip-backend：忽略后端改动）"

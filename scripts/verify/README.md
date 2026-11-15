@@ -695,7 +695,7 @@ E2E-07（合同 `n_pm` / `n_pm_hi`，`p3a_0003` 同病）各实测一次。
 | ③ | ALL 节点的角色里不得有坏号 | 角色成员出现 软删 / 停用 / 授权过期 / 口令占位符（`'x'`/`''`/`CHANGE_ME` 或 `length < 20`）⇒ 违规 |
 | ④ | ALL 节点可用候选人不得为 0 | 为 0 时只能靠 `empty_assignee` 兜：`FALLBACK_ADMIN` = 退化成「全部超管会签」（同一条死锁换个角色重演），`SKIP` = 审批被静默跳过 |
 
-与发布校验 **R28**（`backend/src/business/flow/graph.rs::all_countersign_issues`，错误码 `65048`）
+与发布校验 **R28**（`backend/app/src/business/flow/graph.rs::all_countersign_issues`，错误码 `65048`）
 同一口径：发布期挡**新图**，本脚本管**存量库**。①③④ 是发布期查不出来的（候选人是否可用是运行期数据）。
 
 **有牙齿的证明**（145 实测，见 `docs/evidence/e2e07-fix1/invariants_145_teeth.txt`）：
@@ -881,7 +881,7 @@ HR_DB_URL=postgres://cloudpivot:***@172.18.10.145:5432/hr45_drill \
 ② A10 原文「APPROVED 的必须有已通过的节点」在**免审直过**（流程无审批节点，引擎同事务直接
 APPROVED）时一个节点行都没有，故改为断言实例终态 = APPROVED。
 
-**迁移侧的分工**：静态种子完整性由 `backend/migrations/business/V0398__hr_selfcheck.up.sql`
+**迁移侧的分工**：静态种子完整性由 `backend/app/migrations/business/V0398__hr_selfcheck.up.sql`
 （一次性、纯 `DO` 块、缺一项就 `RAISE EXCEPTION` 回滚整批）保证；本巡检只查**数据层面**的
 不变式（单据算得对不对、凭证挂没挂、有没有死单），空库全绿是正常现象，别拿它替代迁移自检。
 

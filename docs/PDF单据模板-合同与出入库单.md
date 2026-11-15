@@ -21,11 +21,11 @@
 ## 二、代码落点
 
 ```
-backend/src/business/pdf/
+backend/app/src/business/pdf/
   templates/contract.html.tera   合同模板（include_str! 进二进制）
   templates/stock.html.tera      收货入库单 / 出库单共用模板
   template.rs                    ContractContext / StockContext + 渲染 + 页脚 + PdfOpts
-backend/src/business/erp/
+backend/app/src/business/erp/
   contract_pdf.rs                合同：取数 + 渲染 + HTTP 入口 + 审计
   stock_pdf.rs                   出入库单：取数 + 渲染 + HTTP 入口 + 审计
   doc_pdf_model.rs               PDF-03 起的公共数据层：库位/仓库/供应商/客户补名、

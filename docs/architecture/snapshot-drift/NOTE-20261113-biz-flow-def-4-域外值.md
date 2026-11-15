@@ -14,7 +14,7 @@
 | `PRT_APPROVE` | 1 | `V0332__purchase_return` | `erp::purchase_return_bridge::BIZ_TYPE` |
 | `COST_SETTLE` | 1 | `V0381__cost_flow_def` | `erp::cost_period_bridge::BIZ_TYPE` |
 
-唯一真相 `backend/src/business/shared/doc_kind.rs::FLOW_BIZ_TYPE_VALUES` 当时是 20 个值，
+唯一真相 `backend/app/src/business/shared/doc_kind.rs::FLOW_BIZ_TYPE_VALUES` 当时是 20 个值，
 不含这 4 个 ⇒ 巡检判红；而库里的行是**合法业务数据**（标准流程定义 + 历史审批实例）。
 
 ## 2. 处置（已执行）

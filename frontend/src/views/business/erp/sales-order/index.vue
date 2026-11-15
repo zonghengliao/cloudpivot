@@ -645,7 +645,7 @@
 /**
  * 销售订单页（SO-07）。
  *
- * # 接口（全部真接口，路径逐字对应 `backend/src/business/erp/sales_order_handler.rs`）
+ * # 接口（全部真接口，路径逐字对应 `backend/app/src/business/erp/sales_order_handler.rs`）
  *
  * | 动作 | 请求 | 权限 |
  * |------|------|------|

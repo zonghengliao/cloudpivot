@@ -8,9 +8,9 @@
 判据（全部读真实文件系统，不做「看起来对」的推断）：
 
   A. 章节里出现的 `*.rs|*.py|*.ts|*.sql|*.sh|*.md` 反引号路径必须解析到真实文件
-     （按 repo 根 / backend / backend/src / business/erp / frontend/src / migrations
+     （按 repo 根 / backend / backend/app/src / business/erp / frontend/src / migrations
      等候选前缀逐个试，含 `{a,b,c}` 花括号展开与 `*` 通配）；
-  B. 出现的 `fn_name(` 形式的后端函数名必须能在 `backend/src` grep 到 `fn fn_name`
+  B. 出现的 `fn_name(` 形式的后端函数名必须能在 `backend/app/src` grep 到 `fn fn_name`
      （`async` 亦可）；SQL / shell / 第三方库方法在 SKIP 里显式列名；
   C. 迁移号引用（`V0xxx__...`）必须有对应 `*.up.sql`；
   D. 号段大于当前最大迁移的示例文件名视为「待新建」，打印 `[PLANNED]` 不算死链。
@@ -34,7 +34,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOC = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else ROOT / "docs/后端二开指南.md"
-ERP = ROOT / "backend/src/business/erp"
+ERP = ROOT / "backend/app/src/business/erp"
 
 CHAPTER_START = "## 十六、成本核算"
 # 号段大于它 ⇒ 文档里的迁移引用属于「示例，待新建」
@@ -46,9 +46,9 @@ PREFIXES = [
     ROOT / "backend",
     ERP,
     ERP.parent,
-    ROOT / "backend/src",
+    ROOT / "backend/app/src",
     ROOT / "frontend/src",
-    ROOT / "backend/migrations/business",
+    ROOT / "backend/app/migrations/business",
     ROOT / "scripts/verify",
     ROOT / "scripts",
     ROOT / "docs/architecture",
@@ -91,8 +91,8 @@ def resolve(raw: str) -> list[Path]:
     if hits:
         return hits
     # 退路：按文件名全树找（文档常只写文件名）
-    for pattern in (f"backend/src/**/{name}", f"frontend/src/**/{name}",
-                    f"backend/migrations/**/{name}", f"scripts/**/{name}"):
+    for pattern in (f"backend/app/src/**/{name}", f"frontend/src/**/{name}",
+                    f"backend/app/migrations/**/{name}", f"scripts/**/{name}"):
         hits += [p for p in ROOT.glob(pattern) if p.is_file()]
     return hits
 
@@ -126,19 +126,19 @@ def main() -> int:
         if fn in SKIP_FNS:
             continue
         got = subprocess.run(
-            ["grep", "-rqE", rf"(async )?fn {fn}\b", str(ROOT / "backend/src")],
+            ["grep", "-rqE", rf"(async )?fn {fn}\b", str(ROOT / "backend/app/src")],
             capture_output=True,
         )
         if got.returncode == 0:
             ok_fns += 1
         else:
-            fail.append(f"[FN] backend/src 里找不到 fn {fn}")
+            fail.append(f"[FN] backend/app/src 里找不到 fn {fn}")
 
     # ---------- C. 迁移号 ----------
     ok_migs = 0
     for full in sorted(set(MIG_RE.findall(chapter))):
         # 全名匹配（只按号段匹配会把「同号不同名」的其它迁移当成存在）
-        if list((ROOT / "backend/migrations").glob(f"*/{full}.up.sql")):
+        if list((ROOT / "backend/app/migrations").glob(f"*/{full}.up.sql")):
             ok_migs += 1
         elif full[:5] > MAX_MIGRATION:
             planned.append(full)
@@ -146,7 +146,7 @@ def main() -> int:
             fail.append(f"[MIG] 迁移不存在：{full}")
     # 只写号段的形式（表格里的 `V0375`）
     for ver in sorted(set(BARE_MIG_RE.findall(chapter))):
-        if list((ROOT / "backend/migrations").glob(f"*/{ver}__*.up.sql")):
+        if list((ROOT / "backend/app/migrations").glob(f"*/{ver}__*.up.sql")):
             ok_migs += 1
         elif ver > MAX_MIGRATION:
             planned.append(ver)

@@ -56,7 +56,7 @@
 ### 1.1 模块与文件布局
 
 ```
-/root/work/c144/backend/src/
+/root/work/c144/backend/app/src/
 ├── system/{auth,dept,menu,role,user}/      # 底座：只读（除批准的最小改动）
 ├── support/{config,dashboard,dict,file,health.rs,ipgeo.rs,job,log,online}/
 ├── business/monitor/{mod,handler,dto,model}.rs   # 二开范本，四件套、无 service 层
@@ -791,7 +791,7 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 
 ### 5.2 迁移文件分配（V0040–V0049）
 
-全部放 `backend/migrations/business/`（与 `src/business/` 对应，符合 `docs/后端二开指南.md` 第九节）。版本号必须全局唯一（框架在**编译期**把所有 `*.sql` 按版本序合并成 schema 快照，`nik-db-build` 语义），现有最大 V0022、ERP 预留 V0030–V0039，故本批从 V0040 起。
+全部放 `backend/app/migrations/business/`（与 `src/business/` 对应，符合 `docs/后端二开指南.md` 第九节）。版本号必须全局唯一（框架在**编译期**把所有 `*.sql` 按版本序合并成 schema 快照，`nik-db-build` 语义），现有最大 V0022、ERP 预留 V0030–V0039，故本批从 V0040 起。
 
 | 版本 | 名称 | 内容 | 可回滚性 |
 |---|---|---|---|
@@ -1408,7 +1408,7 @@ CREATE INDEX idx_sys_notice_delivery_retry ON sys_notice_delivery (next_retry_at
 
 ### 8.1 DDL 在真实 PostgreSQL 18.6 的验证结果
 
-执行方式：`psql -d batcha_v2 -v ON_ERROR_STOP=1 -f batchA_ddl.sql` 然后 `-f batchA_verify.sql`，**28 条断言全部 PASS、退出码 0**。完整脚本已归档到工作区 `batchA_verify.sql`（可直接进仓库 `backend/tests/sql/`）。
+执行方式：`psql -d batcha_v2 -v ON_ERROR_STOP=1 -f batchA_ddl.sql` 然后 `-f batchA_verify.sql`，**28 条断言全部 PASS、退出码 0**。完整脚本已归档到工作区 `batchA_verify.sql`（可直接进仓库 `backend/app/tests/sql/`）。
 
 | 编号 | 断言 | 期望 | 实际结果 |
 |---|---|---|---|
@@ -1454,7 +1454,7 @@ POC 全部在**工作区之外**的临时目录，不属于交付物，验证完
 产物归档（留在工作区、作为实施依据）：
 - `cloudpivot-batchA-architecture.md`（本文档）
 - `batchA_ddl.sql`（= §7 附录，可直接拆成 V0040–V0045）
-- `batchA_verify.sql`（= §8.1 断言脚本，建议进 `backend/tests/sql/`）
+- `batchA_verify.sql`（= §8.1 断言脚本，建议进 `backend/app/tests/sql/`）
 
 ### 8.3 结论
 

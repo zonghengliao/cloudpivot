@@ -1,5 +1,5 @@
 /**
- * 币种 / 汇率维护 API 层（后端 `backend/src/business/erp/currency_admin_handler.rs`，
+ * 币种 / 汇率维护 API 层（后端 `backend/app/src/business/erp/currency_admin_handler.rs`，
  * SO-39 建表 / SO-40 建单锁定 / SO-42 维护页）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）

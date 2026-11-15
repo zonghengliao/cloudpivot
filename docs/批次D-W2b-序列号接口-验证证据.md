@@ -8,13 +8,13 @@
 
 | 文件 | 内容 |
 |------|------|
-| `backend/src/business/erp/serial_model.rs` | 数据层：原子取号（`UPDATE … RETURNING`）、批量生成、扫码、分页、状态流转（事务 + `FOR UPDATE`） |
-| `backend/src/business/erp/serial_dto.rs` | 契约：批量生成 / 筛选 / 状态流转入参校验，三种出参 |
-| `backend/src/business/erp/serial_handler.rs` | 5 个接口 + 5 个权限码 + 25 条单测（含 20 条真库用例） |
-| `backend/migrations/business/V0142__erp_serial_permissions.{up,down}.sql` | 序列号菜单 0981 + 4 个按钮（0982–0985）+ 超管/laoliu 授权 + 自检 |
+| `backend/app/src/business/erp/serial_model.rs` | 数据层：原子取号（`UPDATE … RETURNING`）、批量生成、扫码、分页、状态流转（事务 + `FOR UPDATE`） |
+| `backend/app/src/business/erp/serial_dto.rs` | 契约：批量生成 / 筛选 / 状态流转入参校验，三种出参 |
+| `backend/app/src/business/erp/serial_handler.rs` | 5 个接口 + 5 个权限码 + 25 条单测（含 20 条真库用例） |
+| `backend/app/migrations/business/V0142__erp_serial_permissions.{up,down}.sql` | 序列号菜单 0981 + 4 个按钮（0982–0985）+ 超管/laoliu 授权 + 自检 |
 | `scripts/verify/w2b_serial_api.sh` | 73 项真机验收（接口 / 重号 / 并发 / 状态机 / 权限 / EXPLAIN / V0142 往返） |
-| `backend/src/shared/error_code.rs` | 新增 `66007 ERP_SERIAL_NOT_REQUIRED`、`66008 ERP_SERIAL_STATUS_INVALID` |
-| `backend/src/business/erp/{model,dto,handler}.rs` | **补口**：物料主数据能读写 `serial_required`（见 §四） |
+| `backend/app/src/shared/error_code.rs` | 新增 `66007 ERP_SERIAL_NOT_REQUIRED`、`66008 ERP_SERIAL_STATUS_INVALID` |
+| `backend/app/src/business/erp/{model,dto,handler}.rs` | **补口**：物料主数据能读写 `serial_required`（见 §四） |
 
 ## 二、5 个接口
 

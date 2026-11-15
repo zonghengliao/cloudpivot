@@ -1,6 +1,6 @@
 # P10 ERP 残留收口 · 数据修复脚本（2026-10-31）
 
-一次性数据修复，**不是迁移**（不进 `backend/migrations/`，不参与启动自动应用）。
+一次性数据修复，**不是迁移**（不进 `backend/app/migrations/`，不参与启动自动应用）。
 留痕与证据链见 [`docs/datafix-20261031-p10.md`](../../../docs/datafix-20261031-p10.md)，
 以及 11:34 复发那次的 [`docs/datafix-20261031-p11-m-w1a-004-recur.md`](../../../docs/datafix-20261031-p11-m-w1a-004-recur.md)。
 

@@ -1,7 +1,7 @@
 /**
  * 年度结转页的**纯逻辑**（ERP-R4）—— 不 import vue，可被 `tsx --test` 直接单测。
  *
- * # 与后端对齐的硬口径（逐字抄 `backend/src/business/erp/year_end.rs`）
+ * # 与后端对齐的硬口径（逐字抄 `backend/app/src/business/erp/year_end.rs`）
  *
  * | 语义 | 真值 | 出处 |
  * |------|------|------|

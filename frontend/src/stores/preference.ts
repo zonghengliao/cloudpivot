@@ -27,7 +27,7 @@ import {
 /**
  * 已接入的偏好键（与后端 `sys_preference_def.pref_key` 逐字一致）。
  *
- * ⚠️ 改这里必须同时改 `backend/migrations/system/V0091__seed_preference_def.up.sql`，
+ * ⚠️ 改这里必须同时改 `backend/app/migrations/system/V0091__seed_preference_def.up.sql`，
  * 否则后端会以 `62020 未知的偏好项` 拒绝写入。
  */
 export const PREF_KEYS = {

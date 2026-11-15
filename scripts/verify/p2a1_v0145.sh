@@ -31,7 +31,7 @@ ENVF=${P2A1_ENVF:-/etc/cloudpivot/cloudpivot-dev.env}
 KEEP=${P2A1_KEEP:-0}
 
 # 迁移源目录：默认用仓里的。要在「文件还没进共享仓」的阶段先验一遍时，传 P2A1_MIGSRC
-MIGSRC=${P2A1_MIGSRC:-$REPO/backend/migrations}
+MIGSRC=${P2A1_MIGSRC:-$REPO/backend/app/migrations}
 MIG_DIR="$MIGSRC/business"
 MIG_UP="$MIG_DIR/V0145__purchase_order_amounts_and_stock_in.up.sql"
 MIG_DOWN="$MIG_DIR/V0145__purchase_order_amounts_and_stock_in.down.sql"
@@ -118,7 +118,7 @@ head_ "2. 场景① 空库全新库跑 V0145（真实迁移器）"
 rm -rf "$STAGE/backend"
 mkdir -p "$STAGE/backend"
 cp -a "$REPO/backend/config" "$STAGE/backend/config"
-cp -a "$MIGSRC" "$STAGE/backend/migrations"
+cp -a "$MIGSRC" "$STAGE/backend/app/migrations"
 mkdir -p "$STAGE/backend/uploads"
 
 cd "$STAGE/backend" || exit 1

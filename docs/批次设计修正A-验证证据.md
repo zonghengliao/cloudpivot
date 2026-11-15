@@ -17,12 +17,12 @@
 | # | 改动 | 理由 |
 |---|---|---|
 | ① | `BATCHB_SCOPED_TABLES` 补入 7 张任务表：`biz_task` `biz_task_comment` `biz_task_attachment` `biz_task_worklog`（卡面点名）+ `biz_task_member` `biz_task_dependency` `biz_task_status_def` | `biz_task_member` 在 `business/task/model.rs` 被**直接查询** 2 处（「我参与」的 id 集合、协作人列表）；`dependency` / `status_def` T1 只建表还没有 Rust 查询，但它们按 `task_id` 挂在任务下，提前列入避免「新代码没有门禁条目」的静默缺口 |
-| ② | 闸② 新增**扫描范围自检**：硬断言 `backend/src/{business/task,business,system,support,shared}` 都存在且各有 `.rs` 文件 | 扫描根本来就是整个 `backend/src`（`business/task/` 天然在范围内），但「天然在范围内」会随目录搬家静默失效 —— 写成断言，缺覆盖时门禁自己红 |
+| ② | 闸② 新增**扫描范围自检**：硬断言 `backend/app/src/{business/task,business,system,support,shared}` 都存在且各有 `.rs` 文件 | 扫描根本来就是整个 `backend/app/src`（`business/task/` 天然在范围内），但「天然在范围内」会随目录搬家静默失效 —— 写成断言，缺覆盖时门禁自己红 |
 | ③ | 闸② 判定**只看真实代码行**（先剥整行注释），`FROM <表>` 与 `scope::` 两侧都剥；`SCOPE-EXEMPT` 仍整文件搜 | 修两个实测坑：注释里举例的 SQL 会把文件拖进门禁（`business/shared/mod.rs` 的 `//!` 示例）；注释里写一句 `scope::` 就能让整文件被判成已接入 = **假绿**（skill cailu-dev §9.15-6）。顺带把「同一文件命中多张表」按文件聚合，不再把 1 个文件报成 N 处 |
 
 ### 1.2 故意违反 → 必须被抓到（失败态）
 
-在 `backend/src/business/task/` 放一个**故意不接 scope** 的临时文件（`tmp_gate_probe.rs`，未被 `mod.rs` 声明，
+在 `backend/app/src/business/task/` 放一个**故意不接 scope** 的临时文件（`tmp_gate_probe.rs`，未被 `mod.rs` 声明，
 只含一句 `SELECT count(*) FROM biz_task_comment …`），跑 `bash scripts/check.sh`：
 
 ```
@@ -32,7 +32,7 @@ $ bash scripts/check.sh            # EXIT=1
   PASS：0 处（分页全部走 scope::paginate）
 ==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
     登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs biz_task biz_task_comment biz_task_attachment biz_task_worklog biz_task_member biz_task_dependency biz_task_status_def
-  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support,shared}
     FAIL: business/task/tmp_gate_probe.rs 查询 biz_task biz_task_comment 未接入 scope:: 且无 SCOPE-EXEMPT
   FAIL：1 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
 ==> 批次B 门禁汇总：闸①=0 处  闸②=1 处  （B0 基线 20 / 21）
@@ -50,14 +50,14 @@ $ bash scripts/check.sh            # EXIT=1
 ### 1.3 删掉临时文件 → 必须全绿
 
 ```
-$ rm -f backend/src/business/task/tmp_gate_probe.rs && bash scripts/check.sh   # EXIT=0
+$ rm -f backend/app/src/business/task/tmp_gate_probe.rs && bash scripts/check.sh   # EXIT=0
 ==> 后端：cargo fmt --check
 ==> 后端：cargo clippy -- -D warnings
 ==> 后端：cargo check
 ==> 前端：pnpm typecheck
 > vue-tsc --noEmit
 ==> 批次B 闸①：… PASS：0 处（分页全部走 scope::paginate）
-==> 批次B 闸②： … PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+==> 批次B 闸②： … PASS：扫描范围已覆盖 backend/app/src/{business/task,business,system,support,shared}
                  PASS：0 处
 ==> 批次B 门禁汇总：闸①=0 处  闸②=0 处  （B0 基线 20 / 21）
 ==> 批次B 门禁：全部通过
@@ -84,7 +84,7 @@ G5 PASS：19 个 record/record_in 调用点全部在 transaction 闭包内且传
 
 ### 2.1 新增迁移
 
-`backend/migrations/business/V0107__storage_task_policies.{up,down}.sql`
+`backend/app/migrations/business/V0107__storage_task_policies.{up,down}.sql`
 
 | 分类 | 用途 | max_size | 白名单 | 直传 |
 |---|---|---|---|---|

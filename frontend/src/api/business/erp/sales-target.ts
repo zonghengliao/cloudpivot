@@ -1,5 +1,5 @@
 /**
- * 销售目标 / 预测 API 层（后端 `backend/src/business/erp/sales_target_handler.rs`，SO-44）。
+ * 销售目标 / 预测 API 层（后端 `backend/app/src/business/erp/sales_target_handler.rs`，SO-44）。
  *
  * # 三块接口
  *

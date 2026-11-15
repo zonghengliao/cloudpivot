@@ -9,7 +9,7 @@
  * 界面上也看不出来（筛选「什么都没发生」和「筛出全部」长得一样）。
  *
  * 断言口径照后端抄（不是照卡面草图）：
- * - 字段名 / 枚举 = `backend/src/business/erp/dto.rs`（`LocationRes` / `LOCATION_TYPES` / `LocationFilter`）；
+ * - 字段名 / 枚举 = `backend/app/src/business/erp/dto.rs`（`LocationRes` / `LOCATION_TYPES` / `LocationFilter`）；
  * - `status` 是 `smallint` 1/0（`V0137__erp_master_data_and_warehouse.up.sql` 的 `biz_location.status`）；
  * - 分页来自 `GET /business/erp/location/page`（服务端分页，`model.rs::location_page` 只认
  *   `keyword / warehouse_id / location_type / status / page / page_size`）。

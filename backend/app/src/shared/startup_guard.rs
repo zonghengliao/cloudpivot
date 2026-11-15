@@ -1202,16 +1202,22 @@ enabled = false
         // `config-dev.toml` / `config-test.toml` 是**本机私有**文件（.gitignore 第 27–28 行），
         // 干净检出 / CI 上不存在 —— 早先直接断言这两份，导致「干净检出必红 2 条」。
         // 口径：私有文件在就断言它；不在就断言入库的 `*.example.toml` 模板同样开启认证。
+        // ⚠ P2-40（workspace 化）：`config/` 在 **workspace 根**（`backend/`），而 cargo 跑单测时的
+        // cwd 是**包根** `backend/app/` —— 直接拿 `DEFAULT_CONFIG_DIR`（"config"）会指向
+        // app/config（不存在），用例会假红。生产路径不受影响：进程 cwd 约定就是 `backend/`
+        // （systemd / docker / scripts 都先 cd 那里），`DEFAULT_CONFIG_DIR` 照旧相对 cwd。
+        let cfg_dir_buf = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../config");
+        let cfg_dir = cfg_dir_buf.to_string_lossy().to_string();
         for profile in ["dev", "test"] {
-            let private = std::path::Path::new(DEFAULT_CONFIG_DIR).join(format!("config-{profile}.toml"));
+            let private = cfg_dir_buf.join(format!("config-{profile}.toml"));
             if private.exists() {
                 assert_eq!(
-                    auth_enabled_in_files(DEFAULT_CONFIG_DIR, profile),
+                    auth_enabled_in_files(&cfg_dir, profile),
                     Some(true),
                     "{profile}：私有配置里认证必须开启"
                 );
             } else {
-                let example = std::path::Path::new(DEFAULT_CONFIG_DIR).join(format!("config-{profile}.example.toml"));
+                let example = cfg_dir_buf.join(format!("config-{profile}.example.toml"));
                 let text = std::fs::read_to_string(&example)
                     .unwrap_or_else(|error| panic!("入库模板 {} 读不到：{error}", example.display()));
                 assert_eq!(
@@ -1222,12 +1228,9 @@ enabled = false
             }
         }
         // prod 的配置是入库的，任何环境都必须存在
-        assert_eq!(auth_enabled_in_files(DEFAULT_CONFIG_DIR, "prod"), Some(true));
+        assert_eq!(auth_enabled_in_files(&cfg_dir, "prod"), Some(true));
         // 未知 profile：只有基础配置（enabled = false）
-        assert_eq!(
-            auth_enabled_in_files(DEFAULT_CONFIG_DIR, "no-such-profile"),
-            Some(false)
-        );
+        assert_eq!(auth_enabled_in_files(&cfg_dir, "no-such-profile"), Some(false));
         // 配置目录不存在：无法判定 → None（预检放行，插件守卫兜底）
         assert_eq!(auth_enabled_in_files("no-such-dir", "dev"), None);
     }

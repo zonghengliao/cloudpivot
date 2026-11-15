@@ -3,7 +3,7 @@
  *
  * # 口径逐字抄后端，不猜
  *
- * | 语义 | 出处（`backend/src/business/erp/invoice.rs`） |
+ * | 语义 | 出处（`backend/app/src/business/erp/invoice.rs`） |
  * |------|------|
  * | 状态域 4 值 | `invoice::STATUSES` / `ck_biz_invoice_status`（V0298） |
  * | 状态中文 | `invoice::status_label`（前端只做兜底） |

@@ -17,32 +17,32 @@ ROOT = sys.argv[1] if len(sys.argv) > 1 else "/opt/cp_audit_head"
 
 FEATURES = [
     # (编号, 名称, [后端路径], [前端路径], [文档 glob 关键词])
-    (1, "工作任务管理", ["backend/src/business/task"], ["frontend/src/views/business/task", "frontend/src/api/business"], ["任务", "task"]),
-    (2, "审批流引擎", ["backend/src/business/flow"], ["frontend/src/views/business/flow", "frontend/src/api/business/flow"], ["工作流", "流程", "flow"]),
-    (3, "采购管理", ["backend/src/business/erp/contract/contract_handler.rs", "backend/src/business/erp/contract/contract_model.rs", "backend/src/business/erp/contract/contract_dto.rs", "backend/src/business/erp/contract/contract_bridge.rs", "backend/src/business/erp/contract/contract_approval_tests.rs", "backend/src/business/erp/purchase/purchase_handler.rs", "backend/src/business/erp/purchase/purchase_model.rs", "backend/src/business/erp/purchase/purchase_dto.rs", "backend/src/business/erp/purchase/purchase_bridge.rs", "backend/src/business/erp/purchase/purchase_credit.rs"], ["frontend/src/views/business/erp"], ["采购", "合同"]),
-    (4, "收货管理", ["backend/src/business/erp/stockin/*.rs"], ["frontend/src/views/business/erp"], ["收货", "入库"]),
-    (5, "出库管理", ["backend/src/business/erp/stockout"], ["frontend/src/views/business/erp"], ["出库", "领用"]),
-    (6, "库存管理", ["backend/src/business/erp/model_inventory.rs", "backend/src/business/erp/inventory_audit.rs", "backend/src/business/erp/opening.rs", "backend/src/business/erp/serial_model.rs", "backend/src/business/erp/serial_handler.rs", "backend/src/business/erp/serial_dto.rs", "backend/src/business/erp/stocktake/*.rs", "backend/src/business/erp/batch.rs"], ["frontend/src/views/business/erp"], ["库存", "序列号", "期初"]),
-    (7, "调拨管理", ["backend/src/business/erp/transfer"], ["frontend/src/views/business/erp"], ["调拨"]),
-    (8, "财务管理", ["backend/src/business/erp/voucher/*.rs", "backend/src/business/erp/payable/*.rs"], ["frontend/src/views/business/erp"], ["凭证", "应付", "付款"]),
-    (9, "财务报表", ["backend/src/business/erp/report/*.rs", "backend/src/business/erp/income_statement.rs", "backend/src/business/erp/cash_flow.rs", "backend/src/business/erp/downloads"], ["frontend/src/views/business/erp"], ["报表", "利润表", "现金流量"]),
-    (10, "会计期间/年结", ["backend/src/business/erp/period", "backend/src/business/erp/year/*.rs"], ["frontend/src/views/business/erp"], ["期间", "年结", "结账"]),
-    (11, "总账/辅助账", ["backend/src/business/erp/ledger.rs", "backend/src/business/erp/aux_tests.rs"], ["frontend/src/views/business/erp"], ["总账", "明细账", "辅助核算"]),
-    (12, "基础数据", ["backend/src/business/erp/model_master.rs", "backend/src/business/erp/unit_guard.rs"], ["frontend/src/views/business/erp"], ["物料", "供应商", "仓库", "科目"]),
-    (13, "项目管理", ["backend/src/business/project"], ["frontend/src/views/business/project"], ["项目"]),
-    (14, "系统管理", ["backend/src/system"], ["frontend/src/views/system"], ["系统管理", "权限"]),
-    (15, "数据权限", ["backend/src/business/permission", "backend/src/business/masking", "backend/src/business/shared/scope.rs"], ["frontend/src/views/system/data-scope", "frontend/src/views/system/masking"], ["数据权限", "脱敏"]),
-    (16, "协作", ["backend/src/business/announcement", "backend/src/business/notice"], ["frontend/src/views/business/announcement", "frontend/src/views/business/notice"], ["公告", "站内信", "通知"]),
-    (17, "文件存储", ["backend/src/support/file", "backend/src/business/storage", "backend/src/business/attachment"], ["frontend/src/views/support/file", "frontend/src/views/business/storage"], ["文件", "存储", "附件"]),
-    (18, "导入导出", ["backend/src/business/impexp"], ["frontend/src/views/business/impexp", "frontend/src/api/business/impexp"], ["导入", "导出"]),
-    (19, "帮助中心/变更日志", ["backend/src/business/help", "backend/src/business/changelog"], ["frontend/src/views/business/help", "frontend/src/views/system/changelog"], ["帮助", "变更日志"]),
-    (20, "定时任务", ["backend/src/support/job"], ["frontend/src/views/support/job"], ["定时任务", "cron"]),
-    (21, "流程模板库", ["backend/src/business/flow"], ["frontend/src/views/business/flow"], ["模板"]),
-    (22, "状态机配置化", ["backend/src/business/shared/state_machine.rs"], ["frontend/src/views/business/erp", "frontend/src/views/system"], ["状态机"]),
-    (23, "跨单据联动白名单", ["backend/src/business/flow/linkage"], ["frontend/src/views/business/flow"], ["联动"]),
+    (1, "工作任务管理", ["backend/app/src/business/task"], ["frontend/src/views/business/task", "frontend/src/api/business"], ["任务", "task"]),
+    (2, "审批流引擎", ["backend/app/src/business/flow"], ["frontend/src/views/business/flow", "frontend/src/api/business/flow"], ["工作流", "流程", "flow"]),
+    (3, "采购管理", ["backend/app/src/business/erp/contract/contract_handler.rs", "backend/app/src/business/erp/contract/contract_model.rs", "backend/app/src/business/erp/contract/contract_dto.rs", "backend/app/src/business/erp/contract/contract_bridge.rs", "backend/app/src/business/erp/contract/contract_approval_tests.rs", "backend/app/src/business/erp/purchase/purchase_handler.rs", "backend/app/src/business/erp/purchase/purchase_model.rs", "backend/app/src/business/erp/purchase/purchase_dto.rs", "backend/app/src/business/erp/purchase/purchase_bridge.rs", "backend/app/src/business/erp/purchase/purchase_credit.rs"], ["frontend/src/views/business/erp"], ["采购", "合同"]),
+    (4, "收货管理", ["backend/app/src/business/erp/stockin/*.rs"], ["frontend/src/views/business/erp"], ["收货", "入库"]),
+    (5, "出库管理", ["backend/app/src/business/erp/stockout"], ["frontend/src/views/business/erp"], ["出库", "领用"]),
+    (6, "库存管理", ["backend/app/src/business/erp/model_inventory.rs", "backend/app/src/business/erp/inventory_audit.rs", "backend/app/src/business/erp/opening.rs", "backend/app/src/business/erp/serial_model.rs", "backend/app/src/business/erp/serial_handler.rs", "backend/app/src/business/erp/serial_dto.rs", "backend/app/src/business/erp/stocktake/*.rs", "backend/app/src/business/erp/batch.rs"], ["frontend/src/views/business/erp"], ["库存", "序列号", "期初"]),
+    (7, "调拨管理", ["backend/app/src/business/erp/transfer"], ["frontend/src/views/business/erp"], ["调拨"]),
+    (8, "财务管理", ["backend/app/src/business/erp/voucher/*.rs", "backend/app/src/business/erp/payable/*.rs"], ["frontend/src/views/business/erp"], ["凭证", "应付", "付款"]),
+    (9, "财务报表", ["backend/app/src/business/erp/report/*.rs", "backend/app/src/business/erp/income_statement.rs", "backend/app/src/business/erp/cash_flow.rs", "backend/app/src/business/erp/downloads"], ["frontend/src/views/business/erp"], ["报表", "利润表", "现金流量"]),
+    (10, "会计期间/年结", ["backend/app/src/business/erp/period", "backend/app/src/business/erp/year/*.rs"], ["frontend/src/views/business/erp"], ["期间", "年结", "结账"]),
+    (11, "总账/辅助账", ["backend/app/src/business/erp/ledger.rs", "backend/app/src/business/erp/aux_tests.rs"], ["frontend/src/views/business/erp"], ["总账", "明细账", "辅助核算"]),
+    (12, "基础数据", ["backend/app/src/business/erp/model_master.rs", "backend/app/src/business/erp/unit_guard.rs"], ["frontend/src/views/business/erp"], ["物料", "供应商", "仓库", "科目"]),
+    (13, "项目管理", ["backend/app/src/business/project"], ["frontend/src/views/business/project"], ["项目"]),
+    (14, "系统管理", ["backend/app/src/system"], ["frontend/src/views/system"], ["系统管理", "权限"]),
+    (15, "数据权限", ["backend/app/src/business/permission", "backend/app/src/business/masking", "backend/app/src/business/shared/scope.rs"], ["frontend/src/views/system/data-scope", "frontend/src/views/system/masking"], ["数据权限", "脱敏"]),
+    (16, "协作", ["backend/app/src/business/announcement", "backend/app/src/business/notice"], ["frontend/src/views/business/announcement", "frontend/src/views/business/notice"], ["公告", "站内信", "通知"]),
+    (17, "文件存储", ["backend/app/src/support/file", "backend/app/src/business/storage", "backend/app/src/business/attachment"], ["frontend/src/views/support/file", "frontend/src/views/business/storage"], ["文件", "存储", "附件"]),
+    (18, "导入导出", ["backend/app/src/business/impexp"], ["frontend/src/views/business/impexp", "frontend/src/api/business/impexp"], ["导入", "导出"]),
+    (19, "帮助中心/变更日志", ["backend/app/src/business/help", "backend/app/src/business/changelog"], ["frontend/src/views/business/help", "frontend/src/views/system/changelog"], ["帮助", "变更日志"]),
+    (20, "定时任务", ["backend/app/src/support/job"], ["frontend/src/views/support/job"], ["定时任务", "cron"]),
+    (21, "流程模板库", ["backend/app/src/business/flow"], ["frontend/src/views/business/flow"], ["模板"]),
+    (22, "状态机配置化", ["backend/app/src/business/shared/state_machine.rs"], ["frontend/src/views/business/erp", "frontend/src/views/system"], ["状态机"]),
+    (23, "跨单据联动白名单", ["backend/app/src/business/flow/linkage"], ["frontend/src/views/business/flow"], ["联动"]),
     (24, "巡检体系", ["scripts/verify/erp_invariants.py", "scripts/verify/snapshot_audit.py", "docs/architecture/snapshot-drift"], ["frontend/src/views/business/erp"], ["巡检", "不变量", "快照"]),
-    (25, "审批进度显示", ["backend/src/business/erp/approval_gate.rs"], ["frontend/src/views/business/erp", "frontend/src/views/business/flow"], ["审批进度"]),
-    (26, "结账检查清单", ["backend/src/business/erp/period/period_items*.rs", "backend/src/business/erp/period/period_owner.rs", "backend/src/business/erp/period/period_remind*.rs"], ["frontend/src/views/business/erp"], ["结账检查", "检查清单"]),
+    (25, "审批进度显示", ["backend/app/src/business/erp/approval_gate.rs"], ["frontend/src/views/business/erp", "frontend/src/views/business/flow"], ["审批进度"]),
+    (26, "结账检查清单", ["backend/app/src/business/erp/period/period_items*.rs", "backend/app/src/business/erp/period/period_owner.rs", "backend/app/src/business/erp/period/period_remind*.rs"], ["frontend/src/views/business/erp"], ["结账检查", "检查清单"]),
 ]
 
 
@@ -140,16 +140,16 @@ print("## 全仓基础数据")
 def sh(c):
     return subprocess.run(c, shell=True, capture_output=True, text=True, cwd=ROOT).stdout.strip()
 
-print("backend/src 总行数        :", sh('find backend/src -name "*.rs" | xargs cat | wc -l'))
-print("backend .rs 文件数        :", sh('find backend/src -name "*.rs" | wc -l'))
+print("backend/app/src 总行数        :", sh('find backend/app/src -name "*.rs" | xargs cat | wc -l'))
+print("backend .rs 文件数        :", sh('find backend/app/src -name "*.rs" | wc -l'))
 print("backend 最大 10 文件      :")
-print(sh('find backend/src -name "*.rs" | xargs wc -l | sort -rn | sed -n "2,12p"'))
+print(sh('find backend/app/src -name "*.rs" | xargs wc -l | sort -rn | sed -n "2,12p"'))
 print("frontend/src 总行数       :", sh('find frontend/src -name "*.vue" -o -name "*.ts" | xargs cat | wc -l'))
 print("frontend 最大 10 文件     :")
 print(sh('find frontend/src \\( -name "*.vue" -o -name "*.ts" \\) | xargs wc -l | sort -rn | sed -n "2,12p"'))
-print("迁移文件数                :", sh('ls backend/migrations/*/V*.up.sql | wc -l'))
-print("迁移最大版本              :", sh('ls backend/migrations/*/V*.up.sql | sed "s/.*\\/V\\([0-9]*\\).*/\\1/" | sort -n | tail -1'))
+print("迁移文件数                :", sh('ls backend/app/migrations/*/V*.up.sql | wc -l'))
+print("迁移最大版本              :", sh('ls backend/app/migrations/*/V*.up.sql | sed "s/.*\\/V\\([0-9]*\\).*/\\1/" | sort -n | tail -1'))
 print("全仓 TODO/FIXME/unimplemented：")
-print(sh('grep -rn "TODO\\|FIXME\\|unimplemented!\\|todo!()" backend/src --include="*.rs" | wc -l'))
-print("全仓 .unwrap() 数量        :", sh('grep -rn "\\.unwrap()" backend/src --include="*.rs" | wc -l'))
-print("全仓 #[alun::permission]   :", sh('grep -rn "#\\[alun::permission" backend/src --include="*.rs" | wc -l'))
+print(sh('grep -rn "TODO\\|FIXME\\|unimplemented!\\|todo!()" backend/app/src --include="*.rs" | wc -l'))
+print("全仓 .unwrap() 数量        :", sh('grep -rn "\\.unwrap()" backend/app/src --include="*.rs" | wc -l'))
+print("全仓 #[alun::permission]   :", sh('grep -rn "#\\[alun::permission" backend/app/src --include="*.rs" | wc -l'))

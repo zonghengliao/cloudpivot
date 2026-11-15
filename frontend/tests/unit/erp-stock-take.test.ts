@@ -7,7 +7,7 @@
  * 而「按钮该不该出、全盘能不能带 items、实盘数怎么发」全在逻辑层；
  * `.vue` 只负责渲染，这些一旦漂移 `vue-tsc` 抓不到。
  *
- * 断言口径照后端抄（`backend/src/business/erp/stocktake_{model,dto}.rs`）：
+ * 断言口径照后端抄（`backend/app/src/business/erp/stocktake_{model,dto}.rs`）：
  * - 类型两值 `TAKE_TYPES = [FULL, PARTIAL]`（全盘 / 抽盘）；
  * - 状态四值 `STATUS_*`，边表 `STOCK_TAKE_EDGES` **没有** `DRAFT → POSTED`；
  * - 全盘不接受 items、抽盘 1–2000 行（`MAX_LINES = 2000`）；
@@ -430,7 +430,7 @@ test('gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已�
 const here = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(here, '../..');
 
-/** 与 `backend/src/system/menu/tests.rs::n08` 同一套解析：`path: 'xxx'` → `/xxx` */
+/** 与 `backend/app/src/system/menu/tests.rs::n08` 同一套解析：`path: 'xxx'` → `/xxx` */
 function registeredPaths(): string[] {
   const source = readFileSync(resolve(frontendRoot, 'src/router/index.ts'), 'utf-8');
   const out: string[] = [];

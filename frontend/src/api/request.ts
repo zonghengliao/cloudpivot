@@ -47,7 +47,7 @@ const REFRESH_PATH = '/api/system/auth/refresh';
 
 /**
  * 后端错误码：会话因长时间未操作已自动退出（`AUTH_IDLE_TIMEOUT`，见
- * `backend/src/shared/error_code.rs`）。
+ * `backend/app/src/shared/error_code.rs`）。
  *
  * 这类 401 **不能走刷新流程**：服务端在判超时的同时已经吊销了该会话名下的 refresh
  * 令牌（`revoke_refresh_by_sid`），刷新必然失败；而且用户要看到的是「因长时间未操作

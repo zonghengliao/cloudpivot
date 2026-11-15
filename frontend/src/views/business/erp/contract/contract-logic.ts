@@ -10,9 +10,9 @@
  *
  * | 内容 | 唯一真相 |
  * |---|---|
- * | 6 个状态字面量 | `backend/src/business/erp/contract_model.rs::STATUSES` |
+ * | 6 个状态字面量 | `backend/app/src/business/erp/contract_model.rs::STATUSES` |
  * | 状态中文名 | `contract_model.rs::status_label` |
- * | 合法边 | `backend/src/business/shared/state_machine.rs::CONTRACT_EDGES` |
+ * | 合法边 | `backend/app/src/business/shared/state_machine.rs::CONTRACT_EDGES` |
  * | 需要 reason 的边 | `state_machine.rs::CONTRACT_REASON_EDGES` |
  * | 边的按钮文案 | `state_machine.rs::CONTRACT_BASE`（`BaseEdge::default_label`） |
  * | 建单白名单 / 金额下限 / 日期顺序 | `contract_dto.rs::CreateContractReq::validate` |

@@ -36,7 +36,7 @@
 
 ## 三、单测（`pnpm test:unit` = 81 passed / 0 failed，基线 50 + 本卡 31）
 
-对齐类（**直接读 `backend/src/**` 源码**，不是人眼比对）：
+对齐类（**直接读 `backend/app/src/**` 源码**，不是人眼比对）：
 
 1. 码值：`FLOW_CONDITION_INVALID` / `FLOW_EXPRESSION_INVALID` 与 `shared/error_code.rs` 相等（65016 / 65033）
 2. 上限：`MAX_CONDITION_DEPTH/NODES/ARGS`（graph.rs）、`MAX_EXPR_RULES/TARGETS`（expression.rs）逐项相等

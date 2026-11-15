@@ -138,25 +138,25 @@ G5 的逐点判定（`--list`）：
 
 ```
 $ python3 scripts/lint/changelog_in_tx.py --root /opt/cloudpivot --list
-  ok  backend/src/business/announcement/handler.rs:935  record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/announcement/handler.rs:1054 record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/announcement/handler.rs:1120 record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/announcement/handler.rs:1232 record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/announcement/handler.rs:1388 record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/changelog/mod.rs:292        record(ex) 模块内部透传 executor
-  ok  backend/src/business/changelog/test_hooks.rs:119 record_in(...) 使用 begin() 创建的显式事务句柄
-  ok  backend/src/business/help/handler.rs:291         record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/help/handler.rs:358         record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/help/handler.rs:400         record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/help/handler.rs:456         record_in(...) 在 transaction 闭包内
-  ok  backend/src/business/help/handler.rs:526         record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/role/handler.rs:194           record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/role/handler.rs:326           record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/role/handler.rs:456           record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/user/handler.rs:278           record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/user/handler.rs:388           record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/user/handler.rs:506           record_in(...) 在 transaction 闭包内
-  ok  backend/src/system/user/handler.rs:623           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/announcement/handler.rs:935  record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/announcement/handler.rs:1054 record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/announcement/handler.rs:1120 record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/announcement/handler.rs:1232 record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/announcement/handler.rs:1388 record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/changelog/mod.rs:292        record(ex) 模块内部透传 executor
+  ok  backend/app/src/business/changelog/test_hooks.rs:119 record_in(...) 使用 begin() 创建的显式事务句柄
+  ok  backend/app/src/business/help/handler.rs:291         record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/help/handler.rs:358         record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/help/handler.rs:400         record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/help/handler.rs:456         record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/business/help/handler.rs:526         record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/role/handler.rs:194           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/role/handler.rs:326           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/role/handler.rs:456           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/user/handler.rs:278           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/user/handler.rs:388           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/user/handler.rs:506           record_in(...) 在 transaction 闭包内
+  ok  backend/app/src/system/user/handler.rs:623           record_in(...) 在 transaction 闭包内
 G5 PASS：19 个 record/record_in 调用点全部在 transaction 闭包内且传 &tx（扫了 147 个文件）
 ```
 
@@ -167,12 +167,12 @@ G5 PASS：19 个 record/record_in 调用点全部在 transaction 闭包内且传
 
 ## 4. 验收 ⑤：G2 反向验证（故意注入真 `db()` → 必须报红）
 
-注入（`backend/src/business/changelog/model.rs` 的 `insert()` 开头加一行真实调用）：
+注入（`backend/app/src/business/changelog/model.rs` 的 `insert()` 开头加一行真实调用）：
 
 ```
 已注入： let _g2_reverse_probe = db(); // 反向验证注入（G2 必须报红）
 --- 注入后的命中 ---
-backend/src/business/changelog/model.rs:96:    let _g2_reverse_probe = db(); // 反向验证注入（G2 必须报红）
+backend/app/src/business/changelog/model.rs:96:    let _g2_reverse_probe = db(); // 反向验证注入（G2 必须报红）
 ```
 
 红：
@@ -180,13 +180,13 @@ backend/src/business/changelog/model.rs:96:    let _g2_reverse_probe = db(); // 
 ```
 ==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）
   FAIL：1 处（模块内只能吃 &impl SqlExecutor，不能 db()）
-    /opt/cloudpivot/backend/src/business/changelog/model.rs:96:    let _g2_reverse_probe = db(); // 反向验证注入（G2 必须报红）
+    /opt/cloudpivot/backend/app/src/business/changelog/model.rs:96:    let _g2_reverse_probe = db(); // 反向验证注入（G2 必须报红）
 ...
 ==> C7 门禁汇总：G1–G6 共 6 条，未通过 1 条
 check_rc=1
 ```
 
-撤销（`git checkout -- backend/src/business/changelog/model.rs`，`git status` 对该文件无输出 = 完全还原）后重新绿：
+撤销（`git checkout -- backend/app/src/business/changelog/model.rs`，`git status` 对该文件无输出 = 完全还原）后重新绿：
 
 ```
 ==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）

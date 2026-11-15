@@ -754,7 +754,7 @@
 
 <script setup lang="ts">
 /**
- * 收款单页（SO-18）—— 后端 SO-17（`backend/src/business/erp/receipt.rs`，5 个接口）。
+ * 收款单页（SO-18）—— 后端 SO-17（`backend/app/src/business/erp/receipt.rs`，5 个接口）。
  *
  * # 口径来源（逐字抄后端，不猜）
  *

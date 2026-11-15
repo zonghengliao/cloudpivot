@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """库存三本账「唯一写入口」闸（P2-5A 收口 / P2-5B 门禁加固）。
 
-判据：`backend/src` 下**非测试**代码里，除了
-`backend/src/business/erp/inventory_writer.rs` 之外，任何文件都不许出现对
+判据：`backend/app/src` 下**非测试**代码里，除了
+`backend/app/src/business/erp/inventory_writer.rs` 之外，任何文件都不许出现对
 `biz_inventory` / `biz_inventory_location` / `biz_inventory_txn` 的写语句
 （`INSERT INTO` / `UPDATE` / `DELETE FROM` / `TRUNCATE` / `COPY`）。
 
@@ -42,7 +42,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = ROOT / "backend" / "src"
+SRC = ROOT / "backend" / "app" / "src"
 WRITER = SRC / "business" / "erp" / "inventory_writer.rs"
 
 # 写法：<写关键字> [schema.] 表名，表名可选双引号。

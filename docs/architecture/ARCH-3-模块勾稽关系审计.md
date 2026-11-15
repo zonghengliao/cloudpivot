@@ -70,7 +70,7 @@
 
 | 步骤 | 做法 | 为什么这么做 |
 |---|---|---|
-| ① 事实表清单 | 从 `backend/migrations/**/V*.up.sql` 抓 `CREATE TABLE` | 只信迁移，不信文档（历史文档里的表名/号段大量过期） |
+| ① 事实表清单 | 从 `backend/app/migrations/**/V*.up.sql` 抓 `CREATE TABLE` | 只信迁移，不信文档（历史文档里的表名/号段大量过期） |
 | ② SQL 提取 | 正则抽 Rust 字符串字面量（跨行、含 `\` 续行），筛含 `SELECT/INSERT/UPDATE/DELETE` 的 | 本仓 2,022 条 |
 | ③ 表引用 | 字面量内解析 `FROM` / `JOIN` / `INSERT INTO` / `UPDATE` | 得到「谁读/写谁」 |
 | ④ 勾稽边 | 同一条 SQL 内出现过的表两两成对 | 这就是「模块 A 和模块 B 有没有数据往来」的物理证据 |
@@ -619,7 +619,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 
 | 检查项 | 事实 |
 |---|---|
-| ERP 模块里出现 `sys_file` 或 `storage::` 的次数 | **0**（`grep -rn` 在 `backend/src/business/erp/*.rs` 无输出） |
+| ERP 模块里出现 `sys_file` 或 `storage::` 的次数 | **0**（`grep -rn` 在 `backend/app/src/business/erp/*.rs` 无输出） |
 | 用 `sys_file` 的模块 | `announcement`（公告附件）、`task`（任务附件 `biz_task_attachment`）、`storage` 自身、`support/file`、`permission`（scope） |
 | 业务含义 | 采购合同扫描件、收货单签收单、付款凭证影像、发票影像**全都没地方存** |
 
@@ -914,7 +914,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | DC-04 审批终态→单据不动 | ⚠️ 只有一半（H1/H2 是反向） | 缺 H3 |
 | DC-05 received_qty 双真相 | ❌ | — |
 | DC-06 业务提醒 | ❌ | 无提醒=无数据，巡检发现不了 |
-| DC-07 供应商三名 | ✅ **已补 DI-26**（P2-7） | DI-26 查「名字映射唯一性 + 快照名 vs 现名」：同名/同简称/简称撞全名/晚写旧名 = WARN，快照≠现名/存量 NULL = INFO；另 `backend/tests/invariant_registry.rs` 防「视图写了没登记」 |
+| DC-07 供应商三名 | ✅ **已补 DI-26**（P2-7） | DI-26 查「名字映射唯一性 + 快照名 vs 现名」：同名/同简称/简称撞全名/晚写旧名 = WARN，快照≠现名/存量 NULL = INFO；另 `backend/app/tests/invariant_registry.rs` 防「视图写了没登记」 |
 | DC-08 多态悬空 | ❌ | DI 清单 15 条里没有一条查 `source_id`/`doc_id`/`entity_id` |
 | DC-09 单位换算 | ❌ | B2/C4 只校验「金额=数量×均价」，不校验「数量单位是否正确」 |
 | DC-10 成本法 | ❌ | C4 用 `avg_cost` 自洽，看不出「本应是 FIFO」 |

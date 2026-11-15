@@ -1,5 +1,5 @@
 /**
- * 首次启动向导 / 指派审批人接口（`backend/src/system/setup/handler.rs` 的前端镜像）。
+ * 首次启动向导 / 指派审批人接口（`backend/app/src/system/setup/handler.rs` 的前端镜像）。
  *
  * ```text
  * GET  /api/system/setup/check        关键角色谁还没人（向导清单）

@@ -90,28 +90,28 @@
 
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
-| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；按钮行 `is_visible=FALSE` 不进导航 | `backend/migrations/system/V0004__create_sys_menu.up.sql:1-24` | 本批 **26 个权限码**全部落成 `sys_menu` 种子行（第 11 章） |
+| **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；按钮行 `is_visible=FALSE` 不进导航 | `backend/app/migrations/system/V0004__create_sys_menu.up.sql:1-24` | 本批 **26 个权限码**全部落成 `sys_menu` 种子行（第 11 章） |
 | **F2** | 前端 `hasPermission()` 是**全等匹配**，只特判超级权限 `*:*:*`，**不支持前缀通配** | `frontend/src/stores/user.ts:67-73` | 每个动作必须有独立 `auth_code`。写 `business:task:*` 在前端恒为 false，按钮永远不显示（这是最容易犯的错） |
 | **F3** | `filterNavMenus` 递归过滤：`is_visible=FALSE` 不进导航；**目录下无可见子菜单则整目录隐藏** | `frontend/src/stores/user.ts:21-38,60` | 「我的任务」「任务板」是所有人可见，不能藏在只有领导有权限的目录下，否则普通员工的侧边栏里整个目录消失（11.6.1） |
-| **F4** | 顶级目录 `sort_order` 现状：`system`=10、`support`=20（底座种子只有这两个）；**30 预留给协同办公**，40/50/60 已被 ERP/BI/MDM 占用，70 是批次 A 的 `/platform` | `backend/migrations/seed/S__menu_data.sql:24,80-81` + 批次 A PRD 7.1、批次 C PRD F4 | 工作任务管理属于**协同办公**，正好用上预留的 30 → 新建一级目录 `/collab`（sort 30），不抢别人的位（11.6.1） |
+| **F4** | 顶级目录 `sort_order` 现状：`system`=10、`support`=20（底座种子只有这两个）；**30 预留给协同办公**，40/50/60 已被 ERP/BI/MDM 占用，70 是批次 A 的 `/platform` | `backend/app/migrations/seed/S__menu_data.sql:24,80-81` + 批次 A PRD 7.1、批次 C PRD F4 | 工作任务管理属于**协同办公**，正好用上预留的 30 → 新建一级目录 `/collab`（sort 30），不抢别人的位（11.6.1） |
 | **F5** | `sys_menu.module_code` 是 `VARCHAR(20)`；菜单管理页的「模块编码」是**自由输入框**不是下拉 | `V0004:19`；`frontend/src/views/system/menu/index.vue:139-140` | 新模块统一填 `business`（与批次 A/C 一致），不加新值、不需要改前端下拉 |
-| **F6** | `sys_role` **没有 `data_scope` 列**，业务代码中也没有该字段 | `backend/migrations/system/V0002__create_sys_role.up.sql:2-15`；`grep -rn data_scope backend/src` 返回空 | 数据权限只能**服务层硬实现**。本批的「谁看谁的任务」不用配置项，写成固定规则 + 权限码（4.1、11.2） |
-| **F7** | 部门子树递归**已有**：`find_dept_subtree_ids()` 用 `WITH RECURSIVE` 向下取子树，自带 `deleted_at IS NULL` | `backend/src/system/dept/model.rs:261-279` | 「本部门及以下」的数据权限**复用它**，不自己写 SQL |
-| **F8** | 🔴 `dept_path` 只在**本部门**新建/更新时维护，代码注释明写「**仅重算自身 dept_path，不改写已存在子部门的历史路径（已知限制）**」 | `backend/src/system/dept/handler.rs:283-290` | **数据权限绝对不能用 `dept_path LIKE '/x/%'`** —— 部门一搬迁，子部门路径就是旧值，权限范围立刻漏/错。必须走 F7 的递归（这是本文最重要的一条实现约束） |
-| **F9** | `sys_user` 列清单里**没有 `manager_id`**、没有岗位/职级表；唯一的"上下级"信号是 `sys_dept.leader_id`（部门负责人） | `backend/migrations/system/V0001__create_sys_user.up.sql:2-20`；`V0006__create_sys_dept.up.sql`（`leader_id UUID`） | 「上级」不是一条数据库关系，只能是**推导出来**的：本人所在部门的 `leader_id` = 直接上级；`leader_id` 再往上是上级的部门负责人。本批把这条推导写成规则（4.1.2），不做"直属主管"字段（见附录 B1） |
+| **F6** | `sys_role` **没有 `data_scope` 列**，业务代码中也没有该字段 | `backend/app/migrations/system/V0002__create_sys_role.up.sql:2-15`；`grep -rn data_scope backend/app/src` 返回空 | 数据权限只能**服务层硬实现**。本批的「谁看谁的任务」不用配置项，写成固定规则 + 权限码（4.1、11.2） |
+| **F7** | 部门子树递归**已有**：`find_dept_subtree_ids()` 用 `WITH RECURSIVE` 向下取子树，自带 `deleted_at IS NULL` | `backend/app/src/system/dept/model.rs:261-279` | 「本部门及以下」的数据权限**复用它**，不自己写 SQL |
+| **F8** | 🔴 `dept_path` 只在**本部门**新建/更新时维护，代码注释明写「**仅重算自身 dept_path，不改写已存在子部门的历史路径（已知限制）**」 | `backend/app/src/system/dept/handler.rs:283-290` | **数据权限绝对不能用 `dept_path LIKE '/x/%'`** —— 部门一搬迁，子部门路径就是旧值，权限范围立刻漏/错。必须走 F7 的递归（这是本文最重要的一条实现约束） |
+| **F9** | `sys_user` 列清单里**没有 `manager_id`**、没有岗位/职级表；唯一的"上下级"信号是 `sys_dept.leader_id`（部门负责人） | `backend/app/migrations/system/V0001__create_sys_user.up.sql:2-20`；`V0006__create_sys_dept.up.sql`（`leader_id UUID`） | 「上级」不是一条数据库关系，只能是**推导出来**的：本人所在部门的 `leader_id` = 直接上级；`leader_id` 再往上是上级的部门负责人。本批把这条推导写成规则（4.1.2），不做"直属主管"字段（见附录 B1） |
 
 ## 0.2 复用与依赖事实（F10–F17）
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F10** | 底座仓库**完全没有**消息/通知能力：`grep -rn "notice" -i backend/src backend/migrations` **0 命中** | 实测 grep 返回 0 行 | 14 个通知触发点全部建立在**批次 A 的 `business/notice` 之上**；若批次 A 已上线则直接调用，否则按 9.6 降级（只留站内角标 + 日志） |
-| **F11** | `sys_file` 有 `file_key/file_hash/category/storage_path/uploaded_by…`，**没有 `storage_id`** | `backend/migrations/support/V0010__create_sys_file.up.sql:2-19` | 任务附件**只存 `file_id` 关联**，不复制文件元数据，下载走批次 A 文件接口（契约零改动） |
-| **F12** | 变更日志 `sys_change_log` 由**批次 C 新建**，唯一写入契约 `record(&mut tx, ChangeLogInput)`，**必须在业务事务内调用** | 批次 C PRD 5.3.3（`backend/src/shared/change_log.rs`，本次随 C 批落地） | 任务的每一次状态变更、改派、进度改动都走这个契约；**禁止**另建一张任务日志表（14.3 给理由与分工） |
-| **F13** | 定时任务是**五段 cron**，现役 5 个清理任务占 03:00–03:40 每 10 分钟一个 | `backend/src/task/mod.rs:50-54` | 本批 6 个新增任务排在 **07:00 / 08:30 / 09:00 / 09:30 / 18:30 / 每周一 08:00**，与清理任务零冲突（9.5） |
-| **F14** | `sys_job` 表可存任务定义（`job_name/cron_expr/invoke_target/params/status`），运行期增删要 stop→reload→start | `backend/migrations/support/V0012__create_sys_job.up.sql`；`backend/src/task/mod.rs:229-250` | 提醒类任务做成**注册在代码里的处理器**（`invoke_target`），`sys_job` 只放可调的 cron 与开关，不放到期任务逻辑 |
+| **F10** | 底座仓库**完全没有**消息/通知能力：`grep -rn "notice" -i backend/app/src backend/app/migrations` **0 命中** | 实测 grep 返回 0 行 | 14 个通知触发点全部建立在**批次 A 的 `business/notice` 之上**；若批次 A 已上线则直接调用，否则按 9.6 降级（只留站内角标 + 日志） |
+| **F11** | `sys_file` 有 `file_key/file_hash/category/storage_path/uploaded_by…`，**没有 `storage_id`** | `backend/app/migrations/support/V0010__create_sys_file.up.sql:2-19` | 任务附件**只存 `file_id` 关联**，不复制文件元数据，下载走批次 A 文件接口（契约零改动） |
+| **F12** | 变更日志 `sys_change_log` 由**批次 C 新建**，唯一写入契约 `record(&mut tx, ChangeLogInput)`，**必须在业务事务内调用** | 批次 C PRD 5.3.3（`backend/app/src/shared/change_log.rs`，本次随 C 批落地） | 任务的每一次状态变更、改派、进度改动都走这个契约；**禁止**另建一张任务日志表（14.3 给理由与分工） |
+| **F13** | 定时任务是**五段 cron**，现役 5 个清理任务占 03:00–03:40 每 10 分钟一个 | `backend/app/src/task/mod.rs:50-54` | 本批 6 个新增任务排在 **07:00 / 08:30 / 09:00 / 09:30 / 18:30 / 每周一 08:00**，与清理任务零冲突（9.5） |
+| **F14** | `sys_job` 表可存任务定义（`job_name/cron_expr/invoke_target/params/status`），运行期增删要 stop→reload→start | `backend/app/migrations/support/V0012__create_sys_job.up.sql`；`backend/app/src/task/mod.rs:229-250` | 提醒类任务做成**注册在代码里的处理器**（`invoke_target`），`sys_job` 只放可调的 cron 与开关，不放到期任务逻辑 |
 | **F15** | 分页上限 `MAX_PAGE_SIZE=1000`、默认 `DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/nik-web-0.4.2/src/api.rs:104,107` | 任务列表默认 20 条/页；导出走批次 A 异步导出（不受此限）；**看板每列上限 100 条**（超出显示「还有 N 条，请用筛选」） |
 | **F16** | axios 全局 `timeout: 15000` | `frontend/src/api/request.ts:68,138` | 统计报表、甘特/燃尽、批量操作 200 条以上要**单独放宽 timeout 到 30s** |
-| **F17** | 错误码段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑域；批次 C 追加 `5000x` 内容域 | `backend/src/shared/error_code.rs:26-31`；批次 C PRD F37 | 本批追加 **`6000x` 任务域**（60001–60019，清单在附录 E.4）；**界面上永远不出现错误码**，用户看到的是 12.8 的原文 |
+| **F17** | 错误码段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑域；批次 C 追加 `5000x` 内容域 | `backend/app/src/shared/error_code.rs:26-31`；批次 C PRD F37 | 本批追加 **`6000x` 任务域**（60001–60019，清单在附录 E.4）；**界面上永远不出现错误码**，用户看到的是 12.8 的原文 |
 
 ## 0.3 前端与图标事实（F18–F22）
 
@@ -120,8 +120,8 @@
 | **F18** | 图标存在性实测（`ICON_NAMES` 共 **2355** 个）：✅ `task` `task-checked` `task-add` `task-1` `calendar` `calendar-event` `flag` `time` `time-filled` `user` `user-add` `usergroup` `check-circle` `close-circle` `rollback` `refresh` `view-module` `view-list` `chart-bar` `chart-pie` `chart-line` `chart-ring` `chart-bubble` `filter` `move` `swap` `star` `star-filled` `chat` `attach` `root-list` `queue` `dashboard` `assignment` `template` `copy` `history` `pin` `notification` `error-circle` `info-circle` `edit-1` `add` `delete` `search` `more` `ellipsis` `link` `share` `jump` `play` `pause` `thumb-up` `folder` `tree-round-dot`；❌ **不存在** `checklist` `comment` `sorting` `exchange` `list` `component` `transfer` `announcement` | `frontend/src/components/IconSelect/icons.ts`（去 CRLF 后逐个 `grep -x` 实测） | 任务=`task`、我的任务=`assignment`、任务板=`view-module`、评论=`chat`（**不是** `comment`）、转派=`swap`（**不是** `transfer`）、拆子任务=`swap`/`add`、模板=`template`、统计=`chart-bar`、依赖=`link`。**前端照这张表选图标，选不存在的图标会让整个菜单渲染报错** |
 | **F19** | `v-privilege` 指令存在，无权限时 `display:none`（保留 DOM） | `frontend/src/directives/permission/privilege.ts:26-27` | 页面内所有按钮统一 `v-privilege="['code']"`，不要写 `v-if="hasPermission(...)"`（两套写法会导致有人绕过） |
 | **F20** | 路由 `meta.permission` 做页面级权限；`meta.title` 供面包屑 | `frontend/src/router/index.ts:5-13,39-43` | 6 个新路由全部带 `meta.permission`；「我的任务」「任务板」这两个**人人可用**的页面例外，见 11.5 |
-| **F21** | 后端路由 `prefix = "/api"`，处理器用 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/业务/资源/动作")]` 声明两遍，由 `App::scan()` 收集 | `backend/config/config.toml:121`；`backend/src/system/user/handler.rs:44-49`；`backend/src/lib.rs`（文档注释「路由使用宏声明…无需手工注册」） | 新接口一律 `/business/task/…`；`permission` 与 `get` 的 path **必须写成一样的字符串**，否则鉴权表与路由表对不上（底座现有代码就是这么写的，照抄） |
-| **F22** | 后端业务容器只有 `system/` 与 `support/` 两个，`lib.rs` 里 `pub mod` 只列了它们；**没有 `business/`** | `backend/src/lib.rs:33-38` | 本批第一次引入 `backend/src/business/task/`（`mod.rs + handler.rs + dto.rs + model.rs`，**不设 service 层**），必须在 `lib.rs` 加 `pub mod business;` 并加 `business/mod.rs`。这是**结构性改动**，写进附录 C.1 上线顺序 |
+| **F21** | 后端路由 `prefix = "/api"`，处理器用 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/业务/资源/动作")]` 声明两遍，由 `App::scan()` 收集 | `backend/config/config.toml:121`；`backend/app/src/system/user/handler.rs:44-49`；`backend/app/src/lib.rs`（文档注释「路由使用宏声明…无需手工注册」） | 新接口一律 `/business/task/…`；`permission` 与 `get` 的 path **必须写成一样的字符串**，否则鉴权表与路由表对不上（底座现有代码就是这么写的，照抄） |
+| **F22** | 后端业务容器只有 `system/` 与 `support/` 两个，`lib.rs` 里 `pub mod` 只列了它们；**没有 `business/`** | `backend/app/src/lib.rs:33-38` | 本批第一次引入 `backend/app/src/business/task/`（`mod.rs + handler.rs + dto.rs + model.rs`，**不设 service 层**），必须在 `lib.rs` 加 `pub mod business;` 并加 `business/mod.rs`。这是**结构性改动**，写进附录 C.1 上线顺序 |
 
 ## 0.4 数据库实测事实（F23–F31）—— 本机 PostgreSQL 18.6 真跑
 
@@ -144,9 +144,9 @@
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
 | **F32** | 后端 `nik` features **没有 `sse`**（只有 db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss）；框架自带 `sse` feature 可用但要显式开启 | `backend/Cargo.toml:14-32`；`nik-0.4.2/src/lib.rs:65-73` | **不做实时推送**（任务被分派时对方页面自动冒泡）。P0 用「进入页面拉取 + 60 秒轮询未读数」，SSE 列 P1 |
-| **F33** | `support/dashboard` 的既定哲学：**不新增统计表**、只读旁路、**口径随响应下发**（每张卡片带 `tip`）、缓存异常降级为 0 不报 500 | `backend/src/support/dashboard/mod.rs:1-20` | 第 10 章统计报表**完全沿用这三条**，不发明第二套 |
-| **F34** | 字典能力完备：`sys_dict_type` / `sys_dict_item`，前端有 `DictSelect.vue` / `DictTag.vue` | `backend/migrations/support/V0007,V0008`；`frontend/src/components/DictSelect.vue`、`DictTag.vue` | 任务状态/优先级/来源/验收结果**全部走字典**（`task_status`/`task_priority`/`task_source`/`task_review`），不自造枚举常量到前端 |
-| **F35** | 业务写入不一定在事务里（底座现有 `update()` 很多是单条 UPDATE 无事务） | `backend/src/system/user/handler.rs:297-300`（无事务）vs `:209,385`（有事务） | 任务的写操作（改状态 + 写变更日志 + 汇总父进度）**必须包在一个事务里**，否则会出现「状态变了、日志没写、父进度没算」三者不一致（5.1.4 给出事务边界清单） |
+| **F33** | `support/dashboard` 的既定哲学：**不新增统计表**、只读旁路、**口径随响应下发**（每张卡片带 `tip`）、缓存异常降级为 0 不报 500 | `backend/app/src/support/dashboard/mod.rs:1-20` | 第 10 章统计报表**完全沿用这三条**，不发明第二套 |
+| **F34** | 字典能力完备：`sys_dict_type` / `sys_dict_item`，前端有 `DictSelect.vue` / `DictTag.vue` | `backend/app/migrations/support/V0007,V0008`；`frontend/src/components/DictSelect.vue`、`DictTag.vue` | 任务状态/优先级/来源/验收结果**全部走字典**（`task_status`/`task_priority`/`task_source`/`task_review`），不自造枚举常量到前端 |
+| **F35** | 业务写入不一定在事务里（底座现有 `update()` 很多是单条 UPDATE 无事务） | `backend/app/src/system/user/handler.rs:297-300`（无事务）vs `:209,385`（有事务） | 任务的写操作（改状态 + 写变更日志 + 汇总父进度）**必须包在一个事务里**，否则会出现「状态变了、日志没写、父进度没算」三者不一致（5.1.4 给出事务边界清单） |
 | **F36** | nginx `client_max_body_size 50m`；上传白名单是硬编码扩展名、下载恒为 `Content-Disposition: attachment` | `docker/frontend/nginx.conf:16`；批次 A PRD 3.4/F38 | 任务附件单文件 ≤ 50MB；**不做在线预览**（图片可缩略图，PDF/Office 只给下载） |
 | **F37** | TDesign 主题变量全部是 `--td-brand-color-1…10` 等 `--td-*`；主题文件用**两套选择器** `:root,:root[theme-mode='light']` 与 `:root.dark,:root[theme-mode='dark']` 镜像 TDesign，否则明暗切换会掉回默认蓝 | `frontend/src/style/theme.less:1-60` | 任务卡片的**优先级/逾期/状态颜色必须取 `--td-*` 语义色**（`--td-error-color`/`--td-warning-color`/`--td-success-color`/`--td-brand-color`），业务页面**零硬编码色值**，否则 22 套配色切过去会花（12.9） |
 | **F38** | 分页返回体是 `PageData {list,total,page,page_size}`；`ResResult<T>` 包一层 `code/message/data` | `frontend/src/api/request.ts:15-22`；`nik-web-0.4.2/src/api.rs` | 看板接口**不用 PageData**（它是"每列若干条"的结构），自定义 DTO；列表接口用 PageData |
@@ -189,7 +189,7 @@
 
 | # | 改动 | 位置 | 为什么必须动 |
 |---|---|---|---|
-| 1 | 新增业务容器 `business` | `backend/src/lib.rs`（加一行 `pub mod business;`）+ 新建 `backend/src/business/mod.rs` | 底座只有 `system`/`support` 两个容器（F22）。任务管理既不是系统管理也不是支撑功能，塞进 `support` 会让后续所有业务模块都往 `support` 里挤 |
+| 1 | 新增业务容器 `business` | `backend/app/src/lib.rs`（加一行 `pub mod business;`）+ 新建 `backend/app/src/business/mod.rs` | 底座只有 `system`/`support` 两个容器（F22）。任务管理既不是系统管理也不是支撑功能，塞进 `support` 会让后续所有业务模块都往 `support` 里挤 |
 
 **除了这 1 处，本批不改任何既有文件**——不改 `sys_user` 表结构（不加 `manager_id`）、不改 `sys_dept`、不改 `sys_role`、不改 `sys_menu` 表结构（只插种子行）、不改批次 A/C 的接口。数据库侧的新表全部是 `biz_task*` 前缀（见第 3 章）。
 
@@ -949,7 +949,7 @@ biz_task ──template_id─▶ biz_task_template（由模板创建时记下来
 | 9 | `S__task_dict_data.sql` | 4 个字典类型 + 17 个字典项 | `DELETE FROM sys_dict_item WHERE …` |
 | 10 | `S__task_menu_data.sql` | 1 个一级目录 + 4 个可见菜单 + 1 个隐藏菜单 + 23 个按钮权限 | 同上 |
 
-> 迁移目录：前 7 个放 `backend/migrations/business/`（**新目录**，与 `system/`、`support/` 平级，跟随 F22 的容器划分）；第 8 个放 `support/`，因为 `sys_user_preference` 是通用表。
+> 迁移目录：前 7 个放 `backend/app/migrations/business/`（**新目录**，与 `system/`、`support/` 平级，跟随 F22 的容器划分）；第 8 个放 `support/`，因为 `sys_user_preference` 是通用表。
 
 ## 3.8 边界与并发（开发必须写进代码的三件事）
 
@@ -3782,11 +3782,11 @@ P0 **不做**（D14）。P1 做的时候按这四条来，不要发明新的：
 
 | # | 强制项 | 怎么查 |
 |---|---|---|
-| 1 | **禁止**用 `dept_path LIKE` 做数据权限 | `grep -rn "dept_path.*LIKE\|LIKE.*dept_path" backend/src` |
-| 2 | **禁止**在 SQL 里用子查询取"当前用户"（F26：慢 760 倍） | `grep -rn "assignee_id = (SELECT" backend/src` |
+| 1 | **禁止**用 `dept_path LIKE` 做数据权限 | `grep -rn "dept_path.*LIKE\|LIKE.*dept_path" backend/app/src` |
+| 2 | **禁止**在 SQL 里用子查询取"当前用户"（F26：慢 760 倍） | `grep -rn "assignee_id = (SELECT" backend/app/src` |
 | 3 | **禁止**在事务外写任务变更日志 | 人工 review `business/task/handler.rs` 的每个写方法 |
 | 4 | **禁止**拖拽走独立代码路径 | 检查前端拖拽调用的 URL 与详情页按钮是否一致 |
-| 5 | **禁止**写 `business:task:*` 通配 | `grep -rn "business:task:\*" frontend/src backend/src` |
+| 5 | **禁止**写 `business:task:*` 通配 | `grep -rn "business:task:\*" frontend/src backend/app/src` |
 | 6 | **禁止**硬编码色值 | `grep -rnE "#[0-9a-fA-F]{6}" frontend/src/views/business` |
 | 7 | **禁止**前端做数据权限过滤 | 前端只能 `v-privilege` 控按钮，不能 `filter(t => t.dept_id === …)` |
 | 8 | **禁止**出现"暂无数据" | `grep -rn "暂无数据" frontend/src/views/business` |

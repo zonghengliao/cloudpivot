@@ -1,7 +1,7 @@
 /**
  * 成本核算批次 API 层（ARCH-9 §5.2 #25–#33 · COST-B3-11）。
  *
- * 后端：`backend/src/business/erp/cost_period_handler.rs`（+ `cost_period_dto.rs`），
+ * 后端：`backend/app/src/business/erp/cost_period_handler.rs`（+ `cost_period_dto.rs`），
  * 词表与契约类型在 `cost-period-kinds.ts`（不 import 请求层，纯逻辑单测可引用），
  * 本文件原样 `export *` 出来 —— 页面只认 `@/api/business/erp/cost-period` 一个入口。
  *

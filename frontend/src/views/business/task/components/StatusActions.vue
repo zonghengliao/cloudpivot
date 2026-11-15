@@ -73,7 +73,7 @@
  *
  * # 判据全部来自后端，前端只是提前拦
  *
- * 与 `backend/src/business/task/state.rs` 的 `TRANSITIONS` 逐条对齐（10 条）：
+ * 与 `backend/app/src/business/task/state.rs` 的 `TRANSITIONS` 逐条对齐（10 条）：
  *
  * | # | from → to | 角色位 | 附加条件 |
  * |---|---|---|---|

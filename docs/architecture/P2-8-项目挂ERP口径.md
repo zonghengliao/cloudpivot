@@ -36,7 +36,7 @@
 
 | 层 | 改动 | 位置 |
 |---|---|---|
-| 库 | `biz_purchase_order.project_id uuid`（**可空、无外键**）+ 部分索引 `idx_biz_po_project (project_id, order_date DESC) WHERE project_id IS NOT NULL` | `backend/migrations/business/V0237__erp_po_project_link.up/down.sql` |
+| 库 | `biz_purchase_order.project_id uuid`（**可空、无外键**）+ 部分索引 `idx_biz_po_project (project_id, order_date DESC) WHERE project_id IS NOT NULL` | `backend/app/migrations/business/V0237__erp_po_project_link.up/down.sql` |
 | 模型 | `PurchaseOrderRow.project_id`、`PURCHASE_ORDER_COLUMNS` 补列、`NewPurchaseOrder.project_id`（建单 / 改单 SQL 落库）、`project_ref` / `project_names_of` | `erp/model_order.rs`、`erp/purchase_model.rs` |
 | DTO | `CreatePurchaseOrderReq.project_id`（建单/改单共用）、`PreparedOrder.project_id_raw`、`PurchaseOrderRes.project_id` + `project_name`、`PurchaseOrderFilter.project_id`（列表可按项目筛） | `erp/purchase_dto.rs`、`erp/dto.rs` |
 | 校验 | 事务外 `select` 校验「项目存在且未软删」→ 不通过 `400 + 66002`；非法 UUID `400 + 66006` | `erp/purchase_handler.rs::resolve_project` |
@@ -57,7 +57,7 @@
 
 ## 3. 迁移号段的实际选择（卡面写 V0219，实际用 V0237）
 
-动手前复核 `backend/migrations/*/`：
+动手前复核 `backend/app/migrations/*/`：
 
 - `V0219` 早已被占用（`V0219__erp_p2_5_biz_type_vocabulary`，见 `schema_migrations.version=219`）；
 - 当前最大号是 `system/V0235`、`business/V0236`，故本卡取 **`V0237`**。

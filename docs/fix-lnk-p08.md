@@ -37,8 +37,8 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 61 filtered out;
 
 | 位置 | 问题 |
 |---|---|
-| `backend/src/business/erp/payable/payable_payment.rs:589`（修复前） | 无条件调 `state_machine::transition(..., &row.status, status, ...)`。第二期付款时 `row.status = PARTIAL_PAID`、算出的目标态也是 `PARTIAL_PAID` → `from == to` |
-| `backend/src/business/shared/state_machine.rs:450` | `if from == to → 409 / 10001`（**这条护栏本身是对的**：原地流转不是状态变更，不该写状态日志） |
+| `backend/app/src/business/erp/payable/payable_payment.rs:589`（修复前） | 无条件调 `state_machine::transition(..., &row.status, status, ...)`。第二期付款时 `row.status = PARTIAL_PAID`、算出的目标态也是 `PARTIAL_PAID` → `from == to` |
+| `backend/app/src/business/shared/state_machine.rs:450` | `if from == to → 409 / 10001`（**这条护栏本身是对的**：原地流转不是状态变更，不该写状态日志） |
 
 为什么 1343 个单模块用例没抓到：`payable_payment::tests::p7_two_partial_payments_accumulate_and_settle`
 只付两次，且两次都跨状态（`OPEN → PARTIAL_PAID → SETTLED`），永远碰不到
@@ -49,7 +49,7 @@ test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 61 filtered out;
 ### 3.1 新增显式语义入口
 
 ```rust
-// backend/src/business/shared/state_machine.rs
+// backend/app/src/business/shared/state_machine.rs
 pub async fn transition_if_changed(/* 与 transition 同款入参 */) -> Result<Option<TransitionOutcome>, ApiError> {
     check_registration(entity_type, edges)?;   // 注册表核对在自环短路之前
     if from == to {
@@ -74,7 +74,7 @@ pub async fn transition_if_changed(/* 与 transition 同款入参 */) -> Result<
 ### 3.3 付款路径改用它（业务照做，只有日志跳过）
 
 ```rust
-// backend/src/business/erp/payable/payable_payment.rs ④ 应付单重算
+// backend/app/src/business/erp/payable/payable_payment.rs ④ 应付单重算
 let _status_log = state_machine::transition_if_changed(
     tx, ENTITY_PAYABLE, row.id, &row.payable_no, &PAYABLE_EDGES,
     &row.status, status, operator, Some(&format!("付款 {payment_no}")), None,
@@ -99,12 +99,12 @@ let _status_log = state_machine::transition_if_changed(
 
 | 文件 | 改动 |
 |---|---|
-| `backend/src/business/shared/state_machine.rs` | 新增 `transition_if_changed` + 抽出 `check_registration`；模块文档补「自环」正确用法与 LNK-P08 反面教材；新增 3 条真库单测（⑰⑱⑲，共 11→14 条） |
-| `backend/src/business/erp/payable/payable_payment.rs` | ④ 改调 `transition_if_changed`；模块文档补「状态日志只写真实变化」的三期表 |
-| `backend/src/business/erp/stockin/stockin_model.rs` | `sync_purchase_status` 改用同一入口（语义不变） |
-| `backend/tests/linkage/payable_chain.rs` | P08 **去掉 `#[ignore]`**；补「状态日志只写真实变化」断言（建单 1 条 + 两期各 1 条，不许有 `PARTIAL_PAID → PARTIAL_PAID`） |
-| `backend/tests/linkage/common.rs` | 夹具清理补「状态日志按 ERP 单据 id 清」（见 §6） |
-| `backend/tests/linkage/cleanup_leftovers.sql` | 同上，收尾脚本同步补 |
+| `backend/app/src/business/shared/state_machine.rs` | 新增 `transition_if_changed` + 抽出 `check_registration`；模块文档补「自环」正确用法与 LNK-P08 反面教材；新增 3 条真库单测（⑰⑱⑲，共 11→14 条） |
+| `backend/app/src/business/erp/payable/payable_payment.rs` | ④ 改调 `transition_if_changed`；模块文档补「状态日志只写真实变化」的三期表 |
+| `backend/app/src/business/erp/stockin/stockin_model.rs` | `sync_purchase_status` 改用同一入口（语义不变） |
+| `backend/app/tests/linkage/payable_chain.rs` | P08 **去掉 `#[ignore]`**；补「状态日志只写真实变化」断言（建单 1 条 + 两期各 1 条，不许有 `PARTIAL_PAID → PARTIAL_PAID`） |
+| `backend/app/tests/linkage/common.rs` | 夹具清理补「状态日志按 ERP 单据 id 清」（见 §6） |
+| `backend/app/tests/linkage/cleanup_leftovers.sql` | 同上，收尾脚本同步补 |
 
 ## 5. 验证（原始输出）
 

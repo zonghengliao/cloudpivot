@@ -9,7 +9,7 @@
  *
  * # 公式口径：与后端逐字一致
  *
- * 真源是 `backend/src/business/erp/purchase_model.rs::line_amounts`（P2-A2）：
+ * 真源是 `backend/app/src/business/erp/purchase_model.rs::line_amounts`（P2-A2）：
  *
  * ```text
  * 口径 A（EXCL 不含税录入）

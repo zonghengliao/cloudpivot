@@ -2,7 +2,7 @@
 
 > 任务卡：**【测试A】跨模块联动矩阵测试（补 1343 个测试的盲区，60+ 用例）**
 > 执行：测试工程师（test-enginner）　日期：2026-10-31
-> 代码位置：`backend/tests/linkage.rs` + `backend/tests/linkage/`（6 个文件，4200+ 行）
+> 代码位置：`backend/app/tests/linkage.rs` + `backend/app/tests/linkage/`（6 个文件，4200+ 行）
 > 运行入口：`cargo test --test linkage -- --test-threads=1`
 
 ---
@@ -229,10 +229,10 @@ P08：付款 3.5 失败 10001 [10003] 应付单 AP-20261031-000153 的状态没�
 
 根因指针（未改动）：
 
-- 调用点 `backend/src/business/erp/payable/payable_payment.rs:589`：无条件调用
+- 调用点 `backend/app/src/business/erp/payable/payable_payment.rs:589`：无条件调用
   `state_machine::transition(..., &row.status, status, ...)`，
   「已 PARTIAL_PAID 再部分付款」时 `from == to`；
-- 拒绝点 `backend/src/business/shared/state_machine.rs:452`：`if from == to → 409 / 10001`
+- 拒绝点 `backend/app/src/business/shared/state_machine.rs:452`：`if from == to → 409 / 10001`
   （这条护栏本身是**对的**，原地流转不该写状态日志）。
 
 为什么 1343 个单模块测试没抓到：`payable_payment` 的 `p7_*` 只测了「两次付款且**两次都跨状态**」
@@ -333,7 +333,7 @@ F04/F05 才是"数量真的动了"的地方。若产品确需"在途仓真实持
 
 ---
 
-## 7. 测试基础设施（`backend/tests/linkage/common.rs`）
+## 7. 测试基础设施（`backend/app/tests/linkage/common.rs`）
 
 | 要求 | 实现 |
 |---|---|
@@ -390,7 +390,7 @@ UNION ALL SELECT 'role',count(*) FROM sys_role WHERE role_code LIKE 'LNK-%'
 
 1. **断言 panic 时 `cleanup()` 不执行**（Rust 没有 async 析构）。失败那一轮会留一套夹具：
    编码带随机后缀，**不会污染别的用例**，但会累积。收尾工具：
-   `backend/tests/linkage/cleanup_leftovers.sql`（整份在一个事务里，任一步外键失败则全回滚）。
+   `backend/app/tests/linkage/cleanup_leftovers.sql`（整份在一个事务里，任一步外键失败则全回滚）。
    该脚本第一版有顺序 bug —— `biz_material_serial` 早于 `biz_stock_transfer_item_serial` 被删，
    整批在第一个外键就回滚（表面"跑完没报错"，实际一行没删）。已修正为「先删关联表」并加了收尾核对查询。
 2. **必须串行跑**（`--test-threads=1`）：T17 会临时改 `TASK_ACCEPT` 的 `is_default`。

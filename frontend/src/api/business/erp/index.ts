@@ -7,8 +7,8 @@
  * # 字段名为什么不叫 `code` / `name` / `path`
  *
  * 卡面草稿写的是 `code / name / path`，那是**猜的**。真口径逐条抄自
- * `backend/src/business/erp/dto.rs`（`WarehouseRes` / `WarehouseTreeNode` / `LocationRes`）
- * 与 `backend/migrations/business/V0137__erp_warehouse_location.up.sql`（`biz_warehouse` 列名）：
+ * `backend/app/src/business/erp/dto.rs`（`WarehouseRes` / `WarehouseTreeNode` / `LocationRes`）
+ * 与 `backend/app/migrations/business/V0137__erp_warehouse_location.up.sql`（`biz_warehouse` 列名）：
  *
  * | 语义 | 真字段名 | 出处 |
  * |------|----------|------|
@@ -2097,7 +2097,7 @@ export function deleteStockIn(id: string): Promise<void> {
 // ==================== 应付单（P2-C1 数据层 / P2-E2 前端） ====================
 
 /**
- * 应付单状态（与 `backend/src/business/erp/payable/mod.rs` 的 `STATUS_*` 逐字一致）。
+ * 应付单状态（与 `backend/app/src/business/erp/payable/mod.rs` 的 `STATUS_*` 逐字一致）。
  *
  * `PENDING_CANCEL`（作废审批中）是 P-FLOW-3B 新增的**真实状态**（V0191 补了三条边 +
  * 库约束 `ck_biz_payable_pending_cancel`）：`OPEN → PENDING_CANCEL`（送审）→
@@ -2106,15 +2106,15 @@ export function deleteStockIn(id: string): Promise<void> {
 export type PayableStatus = 'OPEN' | 'PARTIAL_PAID' | 'SETTLED' | 'CANCELLED' | 'PENDING_CANCEL';
 
 /**
- * 应付单行（字段逐字抄 `backend/src/business/erp/payable/mod.rs` 的
+ * 应付单行（字段逐字抄 `backend/app/src/business/erp/payable/mod.rs` 的
  * `COLUMNS` 常量与 `PayableRow` 结构，列名以 V0148 为准）。
  *
  * # ⚠️ 查询接口尚未落地（P2-C1 的缺口，已写到看板评论）
  *
  * P2-C1 只交了**数据层**：收货过账时在同一个事务里写 `biz_payable`
  * （`payable::create_for_stock_in`），但**没有** HTTP 查询接口 ——
- * 实测 `grep -rn 'erp/payable' backend/src/` **0 命中**，
- * `backend/migrations/business/V0148__erp_payable.up.sql` 也**没有**种 `business:erp:payable:*` 权限码。
+ * 实测 `grep -rn 'erp/payable' backend/app/src/` **0 命中**，
+ * `backend/app/migrations/business/V0148__erp_payable.up.sql` 也**没有**种 `business:erp:payable:*` 权限码。
  *
  * 本层按架构文档 `docs/ERP-批次1-技术架构.md` 第 1888 行的契约
  * （`GET /business/erp/payable/page`，权限码 `business:erp:payable:list`）先落地，
@@ -2817,7 +2817,7 @@ export function deleteSupplier(id: string): Promise<void> {
 // ==================== 财务基础页：会计科目 / 会计期间（P4-C，只读） ====================
 
 /**
- * 会计科目类别（逐字抄 `backend/migrations/business/V0141` 的
+ * 会计科目类别（逐字抄 `backend/app/migrations/business/V0141` 的
  * `ck_biz_account_category` CHECK 约束：5 个字面量，**损益是 `PROFIT_LOSS` 不是 `PROFIT`**）。
  */
 export type AccountCategory = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'COST' | 'PROFIT_LOSS';

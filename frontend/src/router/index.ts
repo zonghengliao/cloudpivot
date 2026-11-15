@@ -949,7 +949,7 @@ const routes: RouteRecordRaw[] = [
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
-        // backend/migrations/` 0 命中）。所以本页暂时只能按 URL 进（卡面验收路径就是
+        // backend/app/migrations/` 0 命中）。所以本页暂时只能按 URL 进（卡面验收路径就是
         // `/business/erp/payable`），侧边栏要等后端补 V0151 才出现 —— 这是在
         // P2-E2 完成说明里点明的后端缺口，前端不做假菜单。
         path: 'business/erp/payable',

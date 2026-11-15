@@ -246,7 +246,7 @@ test('收货入库：规则表里没有 STOCK_IN 的必传规则 → 不许凭�
 
 test('词表一致：规则表种子的 8 类单据在页面上都有接线', () => {
   const rules = readFileSync(
-    resolve(HERE, '../../../backend/migrations/business/V0347__attachment_required_rules.up.sql'),
+    resolve(HERE, '../../../backend/app/migrations/business/V0347__attachment_required_rules.up.sql'),
     'utf8',
   );
   // 规则表里的 (doc_type, required_at) 必须与页面接线逐字对上
@@ -385,7 +385,7 @@ test('N-5 ④：8 个必传单据的新建 / 登记入口都先说清「必传�
 
 test('N-5：V0347 种子里每个 (doc_type, required_at) 至少有一个页面接线', () => {
   const migration = readFileSync(
-    resolve(HERE, '../../../backend/migrations/business/V0347__attachment_required_rules.up.sql'),
+    resolve(HERE, '../../../backend/app/migrations/business/V0347__attachment_required_rules.up.sql'),
     'utf8',
   );
   const start = migration.indexOf('-- §3');

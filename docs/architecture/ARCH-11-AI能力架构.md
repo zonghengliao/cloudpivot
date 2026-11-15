@@ -90,7 +90,7 @@ t_c3b4d40d：创建 AI 员工时强制注入 19 条安全红线到 SOUL.md（不
 → 就像一个员工入职了、工位有了、规则讲清了，但没有系统账号
 ```
 
-**设计**（`backend/src/business/aiagent/mcp.rs` 或独立 crate）：
+**设计**（`backend/app/src/business/aiagent/mcp.rs` 或独立 crate）：
 
 ```
 云枢暴露一个 MCP Server（:8101，只监听 127.0.0.1）

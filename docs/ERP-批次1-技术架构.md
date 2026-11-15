@@ -1124,7 +1124,7 @@ biz_supplier ──> biz_purchase_order ──(1:N)──> biz_purchase_order_it
 项目红线是"**不设 service 层**"（`AGENTS.md` 约定 1）。但凭证引擎必然是一段跨表、跨子模块的领域逻辑，放在 handler 里会撑爆 handler、放在各 model 里会割裂。因此必须先明确它的归属：
 
 ```
-backend/src/business/erp/
+backend/app/src/business/erp/
 ├── mod.rs                    # 模块文档 + 接口总表
 ├── shared/                   # 【model 层】跨子模块共用的领域原语（纯函数为主）
 │   ├── mod.rs

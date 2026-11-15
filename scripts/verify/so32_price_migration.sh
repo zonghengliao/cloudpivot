@@ -58,7 +58,7 @@ chk "V0270 schema_migrations 记录(version|kind|applied_via|success)" \
     "270|versioned|executed|true"
 chk "versioned 迁移条数（历史 + 本卡）" \
     "$(q "$DB1" "select count(*) from schema_migrations where kind='versioned' and success")" \
-    "$(ls "$ROOT/backend/migrations"/*/V*.up.sql | wc -l)"
+    "$(ls "$ROOT/backend/app/migrations"/*/V*.up.sql | wc -l)"
 chk "applied_via 非法值行数（只允许 executed/imported）" \
     "$(q "$DB1" "select count(*) from schema_migrations where applied_via not in ('executed','imported')")" "0"
 chk "本卡迁移按版本号次序落在 V0267 与 V0280 之间（空库重放排序正确）" \
@@ -144,7 +144,7 @@ echo "=============================================================="
 su - postgres -c "dropdb --if-exists $DB3" >/dev/null 2>&1
 su - postgres -c "createdb -O alun -T $DB2 $DB3" || { echo "FATAL: 克隆失败"; exit 1; }
 MAT_CNT=$(q "$DB3" "select count(*) from biz_material")
-MIG_SQL="$ROOT/backend/migrations/business"
+MIG_SQL="$ROOT/backend/app/migrations/business"
 run_sql() { PGPASSWORD=alun psql -h 127.0.0.1 -U alun -d "$DB3" -v ON_ERROR_STOP=1 -f "$1" 2>&1; }
 out=$(run_sql "$MIG_SQL/V0270__sales_price.down.sql"); rc=$?
 chk "down 退出码" "$rc" "0"

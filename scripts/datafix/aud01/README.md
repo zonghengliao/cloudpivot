@@ -1,7 +1,7 @@
 # AUD-01 · 附件上传人姓名快照 —— 存量回填（一次性数据修复）
 
-**不是迁移**：不进 `backend/migrations/`，不参与启动自动应用。结构变更在
-`backend/migrations/business/V0352__attachment_uploader_name.up.sql`（加两列），
+**不是迁移**：不进 `backend/app/migrations/`，不参与启动自动应用。结构变更在
+`backend/app/migrations/business/V0352__attachment_uploader_name.up.sql`（加两列），
 本目录只负责**把历史行填上值**。
 
 ## 为什么要有这一步
@@ -20,7 +20,7 @@ V0352 加了 `uploader_name` 快照列，新上传由代码写入；**历史行*
 | `20_verify.sql` | 回填后验收：空值数 = 0、无 UUID 脏值、占位串只出现在该出现的行、抽样 10 行 | 否 |
 | `apply.sh` | 执行器：`--check` / 默认回填 / `--verify` / `--rollback` | — |
 
-## 取值口径（与 `backend/src/business/shared/user_name.rs` 逐字一致）
+## 取值口径（与 `backend/app/src/business/shared/user_name.rs` 逐字一致）
 
 | 情况 | 写成 |
 |------|------|
@@ -37,7 +37,7 @@ V0352 加了 `uploader_name` 快照列，新上传由代码写入；**历史行*
 
 ```bash
 # 0) 前置：V0352 已应用（新代码启动时自动跑；单独补也可以）
-#    psql -f backend/migrations/business/V0352__attachment_uploader_name.up.sql
+#    psql -f backend/app/migrations/business/V0352__attachment_uploader_name.up.sql
 
 # 1) 体检（只读）
 AUD01_DB=cloudpivot bash scripts/datafix/aud01/apply.sh --check

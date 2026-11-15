@@ -5,7 +5,7 @@ import { del, get, post, put, type PageData } from '@/api/request';
  *
  * # 契约来源
  *
- * 后端 `backend/src/business/masking/{dto,handler}.rs`（接口挂在 `/system/field-mask`）。
+ * 后端 `backend/app/src/business/masking/{dto,handler}.rs`（接口挂在 `/system/field-mask`）。
  *
  * | 方法 | 路径 | 权限码 |
  * |------|------|--------|

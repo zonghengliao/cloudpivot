@@ -11,7 +11,7 @@
   读（也可用 `--admin-password-file` 指另一个 600 文件）。**只登录一次**，失败即停
   （错 5 次锁 30 分钟、60 秒内 11 次 429）。
 
-为什么账号必须是 `user_type='HUMAN'`：`backend/src/system/auth/handler.rs` 的
+为什么账号必须是 `user_type='HUMAN'`：`backend/app/src/system/auth/handler.rs` 的
 `ai_actor::login_forbidden` 禁止 ROBOT 走网页登录，ROBOT 还与 `sys_ai_agent` 有不变式。
 接口建号不传 user_type → 落库走 `sys_user.user_type` 的默认值 `'HUMAN'`（V0102），
 所以本脚本建完会**回读**确认它确实是 HUMAN。

@@ -35,7 +35,7 @@ const UP: &str = include_str!("../../../../migrations/business/V0360__linkage_ru
 const DOWN: &str = include_str!("../../../../migrations/business/V0360__linkage_rules_coverage.down.sql");
 
 /// 库侧不变量脚本原文（写死在里面的是触发点 / 状态 / 动作清单，必须与代码同口径）。
-const INVARIANTS: &str = include_str!("../../../../../scripts/verify/linkage_rule_invariants.sh");
+const INVARIANTS: &str = include_str!("../../../../../../scripts/verify/linkage_rule_invariants.sh");
 
 /// 一条预置规则的「代码侧期望值」（与迁移逐字对拍）。
 struct Preset {

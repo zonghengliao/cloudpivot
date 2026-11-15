@@ -101,7 +101,7 @@
 [PASS] V0141：32 个 ERP 权限码已落库
 [PASS] V0141：34 个菜单节点已落库（2 目录 + 13 菜单 + 19 按钮）
        空库首次迁移时超管授权 = 0 个（bootstrap 尚未建出角色，与 V0045/V0128/V0133 同一口径）
-       psql:/opt/cloudpivot/backend/migrations/business/V0141__erp_permissions.up.sql:366: NOTICE:  V0141 完成：32 个 ERP 权限码、2 目录 / 5 主数据菜单 / 8 台账菜单 / 19 按钮，超管已全量授权
+       psql:/opt/cloudpivot/backend/app/migrations/business/V0141__erp_permissions.up.sql:366: NOTICE:  V0141 完成：32 个 ERP 权限码、2 目录 / 5 主数据菜单 / 8 台账菜单 / 19 按钮，超管已全量授权
 [PASS] V0141 重放（幂等）：exit=0
 [PASS] 超管已授权 34 个 ERP 节点（重放后补齐）
 [PASS] 角色-菜单授权无重复行（重放幂等）

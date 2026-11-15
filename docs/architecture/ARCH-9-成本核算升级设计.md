@@ -46,7 +46,7 @@
 ### 1.1 要解决的问题（都是实测出来的，不是「感觉」）
 
 1. **料工费没有归集地**。现在领料出库直接「借 6401 主营业务成本 / 贷 1405 库存商品」（`stockout_base::debit_account_of:167` → `stockout_handler.rs:747`，出库过账时执行）。也就是说：**料一进车间就当期损益化了**，在制品（WIP）永远是 0，任何时点的利润表都被「还没卖出去的货」压着。
-   - 实测印证：`4001 生产成本` / `4101 制造费用` 两个科目**存在但从未被记账**（科目种子 V0183:111-112 种了；`grep` 全仓 `backend/src`，这两个编码只出现在现金流量表的科目归类清单 `cash_flow.rs:1646,1751,2115` 与测试里，**没有一处** `post_voucher` 往它们记账）。
+   - 实测印证：`4001 生产成本` / `4101 制造费用` 两个科目**存在但从未被记账**（科目种子 V0183:111-112 种了；`grep` 全仓 `backend/app/src`，这两个编码只出现在现金流量表的科目归类清单 `cash_flow.rs:1646,1751,2115` 与测试里，**没有一处** `post_voucher` 往它们记账）。
 2. **一批货的成本算不出来**。`biz_inventory.avg_cost` 是「物料×仓库」的移动加权（V0137:400 注释明写「粒度=物料×仓库，不按库位分裂」）——它回答「这个物料现在值多少钱」，回答不了「这一批 800 件是花了 27000 还是 31000 做出来的」。分批生产、按订单报价的客户第一句就问这个。
 3. **没有差异分析**。没有标准成本卡，就没有「材料超用 320 件多花 3840 元」这种结论，成本改善无从下手。
 
@@ -1494,7 +1494,7 @@ business:erp:cost-variance:list                        （二期）
 
 ### 7.1 迁移文件清单
 
-`backend/migrations/business/` 当前最大版本 **V0367**（实测：`ls | sed 's/_.*//' | sort -u | tail`），本设计占用 **V0368 ~ V0379**，每个版本一对 `up/down`。
+`backend/app/migrations/business/` 当前最大版本 **V0367**（实测：`ls | sed 's/_.*//' | sort -u | tail`），本设计占用 **V0368 ~ V0379**，每个版本一对 `up/down`。
 
 | 版本 | 文件 | 内容 | 幂等策略 |
 |---|---|---|---|
@@ -1600,7 +1600,7 @@ B3 的上线门槛「演练两轮」由 `scripts/verify/cost_e2e.sh` 一条命�
 1. **calc 走 HTTP 接口**：`POST /business/erp/cost-period/calc`（设计 §5.2 #27，COST-B2-15
    已落地）就是六段编排本身 —— 后端一次事务跑完 料 → 工 → 费 → 池对账 → 分摊 → 计算单。
    演练**只走 HTTP**（客户在页面上点「重算」走的是同一条路；探针能跑通不等于接口能跑通）。
-   探针 `backend/examples/cost_calc_probe.rs` 保留供**离线分段排查**，但 `cost_e2e.sh` 不再依赖它。
+   探针 `backend/app/examples/cost_calc_probe.rs` 保留供**离线分段排查**，但 `cost_e2e.sh` 不再依赖它。
    演练前脚本会把 `erp.cost.enabled` 打开（默认 false，关闭时 `/business/erp/cost-*` 一律 403）。
 2. **输入侧是夹具、账务产物全真**：成本对象 / 领料单（含 `4001.01` 领料凭证）/ 工时台账 / 手工费用
    台账 / 分摊规则用 SQL 夹具（`E2E-` 前缀，脚本开头会拒绝非演练库）；**三张结算凭证 + 手工台账
@@ -1787,7 +1787,7 @@ PGPASSWORD=<pwd> psql -h 127.0.0.1 -U <user> -d <db> -v ON_ERROR_STOP=1 \
 | 库里有 3 处自由文本批号、**没有 `biz_lot`** | `V0145:225`、`V0203:141`、`V0138:80` |
 | 凭证唯一收口 + 只允许末级科目 + 已结账期间只读 | `erp/voucher.rs:1963-2050`（`post_voucher`） |
 | 库存三本账唯一写入口 + CI 闸 | `erp/inventory_writer.rs:1-25`；`scripts/verify/inventory_write_gate.py` |
-| `4001/4101/2211` 均 `is_leaf=1`、无子科目、无历史分录 | 真库查询 `biz_account`（56 行全表）+ `grep`（`backend/src` 里这三个编码只出现在 `cash_flow.rs` 的科目归类清单与测试，无一处记账） |
+| `4001/4101/2211` 均 `is_leaf=1`、无子科目、无历史分录 | 真库查询 `biz_account`（56 行全表）+ `grep`（`backend/app/src` 里这三个编码只出现在 `cash_flow.rs` 的科目归类清单与测试，无一处记账） |
 | 存货报表项已含 `1401..1405,1408,4001,4101` | `V0183__erp_balance_sheet.up.sql:192` |
 | `1404 材料成本差异` 科目已存在 | `V0183:76` |
 | 结账预检四项 blocker 常量 | `erp/period.rs:151-160`；文档头 `period.rs:25-40` |
@@ -1799,7 +1799,7 @@ PGPASSWORD=<pwd> psql -h 127.0.0.1 -U <user> -d <db> -v ON_ERROR_STOP=1 \
 | 菜单挂载点与 sort 现状 | 真库 `sys_menu` 查询（财务管理 `…e02` 子项 10~50；仓库管理 `…e01` 10~70） |
 | 号段表现状（PZ/IN/OUT/TK/SN…） | 真库 `biz_seq` 查询 |
 | 列表出参是 `{list,total,page,page_size}` | `stockout_dto.rs:482-492` |
-| 迁移号段现状最大 V0367 | `ls backend/migrations/business \| sed 's/_.*//' \| sort -u \| tail` |
+| 迁移号段现状最大 V0367 | `ls backend/app/migrations/business \| sed 's/_.*//' \| sort -u \| tail` |
 | 流程种子四重守卫范本 | `V0332__purchase_return.up.sql:269-300` |
 
 ## 附录 C：术语表

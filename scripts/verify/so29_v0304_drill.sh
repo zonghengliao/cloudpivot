@@ -29,19 +29,19 @@ say "== 基线：$(COUNT) 行（期望 3）"
 [ "$(COUNT)" = "3" ] || { say "FATAL: 基线不是 3 行，先启动实例让 V0304 应用"; exit 1; }
 
 say; say "== ① down =="
-PSQL -f "$ROOT/backend/migrations/business/V0304__sales_return_permissions.down.sql" 2>&1 | tail -3
+PSQL -f "$ROOT/backend/app/migrations/business/V0304__sales_return_permissions.down.sql" 2>&1 | tail -3
 after_down=$(COUNT)
 say "down 后 sys_menu 承载行 = $after_down（期望 0）"
 [ "$after_down" = "0" ] || FAIL=1
 
 say; say "== ② up =="
-PSQL -f "$ROOT/backend/migrations/business/V0304__sales_return_permissions.up.sql" 2>&1 | tail -3
+PSQL -f "$ROOT/backend/app/migrations/business/V0304__sales_return_permissions.up.sql" 2>&1 | tail -3
 after_up=$(COUNT)
 say "up 后 sys_menu 承载行 = $after_up（期望 3）"
 [ "$after_up" = "3" ] || FAIL=1
 
 say; say "== ③ 二次 up（幂等） =="
-PSQL -f "$ROOT/backend/migrations/business/V0304__sales_return_permissions.up.sql" 2>&1 | tail -2
+PSQL -f "$ROOT/backend/app/migrations/business/V0304__sales_return_permissions.up.sql" 2>&1 | tail -2
 after_again=$(COUNT)
 say "二次 up 后 sys_menu 承载行 = $after_again（期望 3）"
 [ "$after_again" = "3" ] || FAIL=1

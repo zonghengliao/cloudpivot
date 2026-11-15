@@ -87,14 +87,14 @@ test('看板 / 燃尽图 / 甘特图 / 父任务选择器都不传 root_only（�
 // ---------------------------------------------------------------- ④ 跨层对齐（参数名 / 片段 / 归一化）
 
 test('后端 dto / model / handler 三处与前端契约一致', () => {
-  const dto = readFileSync(join(REPO, 'backend/src/business/task/dto.rs'), 'utf8');
+  const dto = readFileSync(join(REPO, 'backend/app/src/business/task/dto.rs'), 'utf8');
   const dtoBlock = slice(dto, 'pub struct TaskPageQuery {', '\n}\n');
   assert.match(dtoBlock, /pub root_only: Option<bool>,/, 'dto.rs 的 TaskPageQuery 必须有 root_only');
 
   // TD-2 拆分后 `TaskFilter` 在 `task_model_*.rs` 部件里（`model.rs` 只剩 facade 重导出），
   // 所以这里按「model.rs + 所有 task_model_*.rs 部件」拼起来读 —— 再拆一次也不会假红。
-  const modelPath = join(REPO, 'backend/src/business/task/model.rs');
-  const taskDir = join(REPO, 'backend/src/business/task');
+  const modelPath = join(REPO, 'backend/app/src/business/task/model.rs');
+  const taskDir = join(REPO, 'backend/app/src/business/task');
   const model = [
     readFileSync(modelPath, 'utf8'),
     ...readdirSync(taskDir)

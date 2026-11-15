@@ -12,33 +12,33 @@
 
 | 文件 | 职责 |
 |------|------|
-| `backend/src/business/notice/mod.rs` | 模块入口 + **`dispatch(NoticeDraft)` 对外唯一发送口径** + `DispatchResult` / `DispatchError` |
-| `backend/src/business/notice/model.rs` | 四张表读写（`sys_notice` / `sys_notice_receiver` / `sys_notice_template` / `sys_notice_delivery`）+ `Executor`（池 / 事务同一份 SQL） |
-| `backend/src/business/notice/dto.rs` | 领域枚举（类型 / 级别 / 格式 / 通道掩码）+ 请求响应 DTO |
-| `backend/src/business/notice/render.rs` | 自研 `{{var}}` 渲染器（5 条规则 + 单测） |
-| `backend/src/business/notice/fanout.rs` | 四种目标集合式扇出（用户 / 角色 / 部门含下级 / 全员） |
-| `backend/src/business/notice/handler.rs` | 15 个接口（发送 / 列表 / 详情 / 删除 / 我的 / 未读数 / 已读 / 删除我的 / 模板 CRUD / 试渲染 / 通道配置） |
-| `backend/src/business/notice/cleanup.rs` | 过期通知清理任务（每日 04:50） |
+| `backend/app/src/business/notice/mod.rs` | 模块入口 + **`dispatch(NoticeDraft)` 对外唯一发送口径** + `DispatchResult` / `DispatchError` |
+| `backend/app/src/business/notice/model.rs` | 四张表读写（`sys_notice` / `sys_notice_receiver` / `sys_notice_template` / `sys_notice_delivery`）+ `Executor`（池 / 事务同一份 SQL） |
+| `backend/app/src/business/notice/dto.rs` | 领域枚举（类型 / 级别 / 格式 / 通道掩码）+ 请求响应 DTO |
+| `backend/app/src/business/notice/render.rs` | 自研 `{{var}}` 渲染器（5 条规则 + 单测） |
+| `backend/app/src/business/notice/fanout.rs` | 四种目标集合式扇出（用户 / 角色 / 部门含下级 / 全员） |
+| `backend/app/src/business/notice/handler.rs` | 15 个接口（发送 / 列表 / 详情 / 删除 / 我的 / 未读数 / 已读 / 删除我的 / 模板 CRUD / 试渲染 / 通道配置） |
+| `backend/app/src/business/notice/cleanup.rs` | 过期通知清理任务（每日 04:50） |
 
 ### 新增（迁移与脚本）
 
 | 文件 | 内容 |
 |------|------|
-| `backend/migrations/business/V0043__create_notice.{up,down}.sql` | `sys_notice` + `sys_notice_receiver` + `sys_notice_delivery`（含全部 CHECK） |
-| `backend/migrations/business/V0044__create_notice_template.{up,down}.sql` | `sys_notice_template`（含 `channels` 通道预留列）+ 3 条内置模板种子 |
-| `backend/migrations/business/V0045__seed_notice_permissions.{up,down}.sql` | 9 个权限点 + 菜单载体；`business:notice:mine` 授予**所有角色** |
-| `backend/migrations/business/V0049__notice_indexes.{up,down}.sql` | 全部索引（含未读**部分索引** `idx_sys_notice_receiver_unread`） |
-| `backend/tests/sql/a5/acceptance.py` | 四条硬指标实测脚本（造数据 → 四种目标 → 幂等 → 模板 → 通道 → 未读数 → EXPLAIN） |
-| `backend/tests/sql/a5/schema_evidence.sh` | 结构证据（迁移记录 / 表 / 索引 / CHECK / 权限点 / 授权范围） |
-| `backend/tests/sql/a5/run_test_instance.sh` | 在 8025 起 profile=test 实例（独立 target 目录，不干扰 8023/8024） |
+| `backend/app/migrations/business/V0043__create_notice.{up,down}.sql` | `sys_notice` + `sys_notice_receiver` + `sys_notice_delivery`（含全部 CHECK） |
+| `backend/app/migrations/business/V0044__create_notice_template.{up,down}.sql` | `sys_notice_template`（含 `channels` 通道预留列）+ 3 条内置模板种子 |
+| `backend/app/migrations/business/V0045__seed_notice_permissions.{up,down}.sql` | 9 个权限点 + 菜单载体；`business:notice:mine` 授予**所有角色** |
+| `backend/app/migrations/business/V0049__notice_indexes.{up,down}.sql` | 全部索引（含未读**部分索引** `idx_sys_notice_receiver_unread`） |
+| `backend/app/tests/sql/a5/acceptance.py` | 四条硬指标实测脚本（造数据 → 四种目标 → 幂等 → 模板 → 通道 → 未读数 → EXPLAIN） |
+| `backend/app/tests/sql/a5/schema_evidence.sh` | 结构证据（迁移记录 / 表 / 索引 / CHECK / 权限点 / 授权范围） |
+| `backend/app/tests/sql/a5/run_test_instance.sh` | 在 8025 起 profile=test 实例（独立 target 目录，不干扰 8023/8024） |
 
 ### 修改（仅 3 处，均最小侵入）
 
 | 文件 | 改动 |
 |------|------|
-| `backend/src/business/mod.rs` | `pub mod notice;` + `_example_notice_dispatch_from_external_module()`（**编译期契约示例**，AI 无法在不改变签名的情况下通过编译） |
-| `backend/src/task/mod.rs` | 在 `Scheduler::register_builtin` 内追加一行注册（**不是** `bootstrap.rs`） |
-| `backend/src/shared/error_code.rs` | 只在 `6002x` 段追加 11 个常量（`60021`–`60031`），未改动任何既有码值 |
+| `backend/app/src/business/mod.rs` | `pub mod notice;` + `_example_notice_dispatch_from_external_module()`（**编译期契约示例**，AI 无法在不改变签名的情况下通过编译） |
+| `backend/app/src/task/mod.rs` | 在 `Scheduler::register_builtin` 内追加一行注册（**不是** `bootstrap.rs`） |
+| `backend/app/src/shared/error_code.rs` | 只在 `6002x` 段追加 11 个常量（`60021`–`60031`），未改动任何既有码值 |
 
 ## 2. 关键实现点与取舍（按架构文档，未自创）
 
@@ -113,7 +113,7 @@ Execution Time: 0.082 ms
 
 ### 指标 4：`notice::dispatch` 可被外部模块调用
 
-- **编译期证明**：`backend/src/business/mod.rs::_example_notice_dispatch_from_external_module()` 在 crate 根的业务容器里构造
+- **编译期证明**：`backend/app/src/business/mod.rs::_example_notice_dispatch_from_external_module()` 在 crate 根的业务容器里构造
   `NoticeDraft` 并调用 `notice::dispatch(...)`；它参与 `cargo clippy --all-targets -- -D warnings`，签名一改就编译失败。
 - **测试期证明**：`business::notice::tests::dispatch_api_shape_is_public` 用 `assert_future(...)` 约束返回类型
   `Future<Output = Result<DispatchResult, DispatchError>>`。

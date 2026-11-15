@@ -5,12 +5,12 @@
 
 | 实体 | 来源 |
 |---|---|
-| `biz_task` | `backend/src/business/task/state.rs::TRANSITIONS`（10 条） |
-| `biz_stock_in` | `backend/src/business/shared/state_machine.rs::STOCK_IN_EDGES`（3 条） |
+| `biz_task` | `backend/app/src/business/task/state.rs::TRANSITIONS`（10 条） |
+| `biz_stock_in` | `backend/app/src/business/shared/state_machine.rs::STOCK_IN_EDGES`（3 条） |
 | `biz_transfer` | 同上 `TRANSFER_EDGES`（6 条） |
 | `biz_purchase_order` | 同上 `PURCHASE_ORDER_EDGES`（10 条） |
 | `biz_payable` | 同上 `PAYABLE_EDGES`（4 条） |
-| `biz_material_serial` | `backend/src/business/erp/serial_model.rs::transition_rejected_message`（3 条） |
+| `biz_material_serial` | `backend/app/src/business/erp/serial_model.rs::transition_rejected_message`（3 条） |
 
 **生成规则**：`N 个状态 × N 个状态` 全排列，一条不落。合法边断言"通过 + 副作用 + 状态日志"，
 非法边（含自环）断言 `409 + 错误码 + 文案点名当前态可选去向`。
@@ -104,7 +104,7 @@ TASK = dict(
     },
     auto_default=AUTO_PART,
     auto_note=(
-        "`backend/src/business/task/state.rs::whitelist_covers_exactly_the_ten_allowed_pairs` + "
+        "`backend/app/src/business/task/state.rs::whitelist_covers_exactly_the_ten_allowed_pairs` + "
         "`illegal_pairs_are_rejected_with_illegal_pair`（25 组合表驱动，纯逻辑无库）；"
         "接口层 200/409 未覆盖"
     ),
@@ -143,7 +143,7 @@ STOCK_IN = dict(
     illegal_code="409 + `10003`（RESOURCE_CONFLICT）",
     illegal_msg=(
         "文案必须逐字包含「收货入库单当前是「{FROMCN}」（{FROM}），不能直接流转到「{TOCN}」（{TO}）：允许的去向是 {OUT}」"
-        "（源码原串 `backend/src/business/erp/stockin/stockin_base.rs:186`），白名单必须等于当前态**真实出边**；"
+        "（源码原串 `backend/app/src/business/erp/stockin/stockin_base.rs:186`），白名单必须等于当前态**真实出边**；"
         "库存/凭证/应付三处均无新增行"
     ),
     self_msg="自环 → 409 + `10003`；库存与凭证不得变动（防「重复过账」）",
@@ -212,7 +212,7 @@ TRANSFER = dict(
     illegal_msg=(
         "文案必须逐字包含「非法状态流转：{FROMCN}（{FROM}）→ {TOCN}（{TO}）」（括号里跟一句拒绝原因，如「库存不足」「无权操作」）+「{FROMCN}（{FROM}）可以流转到：{OUT}」，"
         "第二句允许的去向必须等于当前态**真实出边**；终态时第二句是「{FROMCN}（{FROM}）是终态，不能再流转」；"
-        "源码 `backend/src/business/erp/transfer/transfer_model.rs:176-196`"
+        "源码 `backend/app/src/business/erp/transfer/transfer_model.rs:176-196`"
     ),
     self_msg="自环 → 409 + `10003`；不得重复扣减/重复入库",
     pre_tpl="admin 建一张 {from} 态调拨单（单号 `TC-XFER-{i}`，源仓 A → 目标仓 B，1 明细）",
@@ -284,7 +284,7 @@ PURCHASE = dict(
     illegal_code="409 + `10003`（RESOURCE_CONFLICT）",
     illegal_msg=(
         "文案必须逐字包含「采购订单当前是「{FROMCN}」（{FROM}），不能直接流转到「{TOCN}」（{TO}）：允许的去向是 {OUT}」"
-        "（源码原串 `backend/src/business/erp/purchase/purchase_model.rs:155`）；"
+        "（源码原串 `backend/app/src/business/erp/purchase/purchase_model.rs:155`）；"
         "从终态（RECEIVED/CLOSED/CANCELLED）出发时改成「没有可流转的下一个状态：它已是终态，或该状态由收货 / 审批流程维护（P2-B1）」（`purchase_model.rs:148`）"
     ),
     self_msg="自环 → 409 + `10003`（`PARTIAL_RECEIVED→PARTIAL_RECEIVED` 的继续收货由调用方跳过 transition，只写流水）",

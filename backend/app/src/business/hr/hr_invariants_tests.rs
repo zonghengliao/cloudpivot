@@ -16,11 +16,13 @@
 
 use std::path::{Path, PathBuf};
 
-/// 仓库根（`backend/` 的上一级）。脚本在 `<root>/scripts/verify/`，迁移在 `<root>/backend/migrations/`。
+/// 仓库根（`backend/app/` 的**上两级**；P2-40 起包目录是 `backend/app/`）。
+/// 脚本在 `<root>/scripts/verify/`，迁移在 `<root>/backend/app/migrations/`。
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("backend/ 一定有上级目录")
+        .ancestors()
+        .nth(2)
+        .expect("backend/app/ 一定有上两级目录")
         .to_path_buf()
 }
 
@@ -45,8 +47,8 @@ fn strip_line_comments(sql: &str) -> String {
 const SELFTEST: &str = "scripts/verify/hr_invariants_selftest.sh";
 const INVARIANTS: &str = "scripts/verify/hr_invariants.sql";
 const FIXTURE: &str = "scripts/verify/hr/hr_invariants_fixture.sql";
-const SELFCHECK_UP: &str = "backend/migrations/business/V0398__hr_selfcheck.up.sql";
-const SELFCHECK_DOWN: &str = "backend/migrations/business/V0398__hr_selfcheck.down.sql";
+const SELFCHECK_UP: &str = "backend/app/migrations/business/V0398__hr_selfcheck.up.sql";
+const SELFCHECK_DOWN: &str = "backend/app/migrations/business/V0398__hr_selfcheck.down.sql";
 
 #[test]
 fn invariants_sql_lists_all_ten_blocker_assertions() {
@@ -260,7 +262,7 @@ fn every_migration_version_is_globally_unique() {
     let mut by_version: std::collections::BTreeMap<(char, u32, &'static str), Vec<String>> =
         std::collections::BTreeMap::new();
 
-    let mroot = repo_root().join("backend/migrations");
+    let mroot = repo_root().join("backend/app/migrations");
     let mut stack = vec![mroot];
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else {

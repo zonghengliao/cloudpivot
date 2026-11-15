@@ -230,7 +230,7 @@ SELECT SUM(i.qty)
 ## 6. 库存巡检（不变式③）：`book_qty` 口径与修复语义
 
 接口 `GET /api/business/erp/inventory/audit?dry_run=true|false`（权限 `business:erp:inventory:audit`），
-实现 `backend/src/business/erp/inventory_audit.rs`（修正语句在唯一写入口 `inventory_writer.rs`）。
+实现 `backend/app/src/business/erp/inventory_audit.rs`（修正语句在唯一写入口 `inventory_writer.rs`）。
 
 ### 6.1 判定口径（唯一）
 
@@ -287,7 +287,7 @@ ADR-20261031 起「一物一码批量生成 = 一笔无来源入库」：成本�
 
 ### 6.4 回归用例
 
-`backend/src/business/erp/inventory_audit.rs::tests`（真库，需 `ERP_DB_URL`）：
+`backend/app/src/business/erp/inventory_audit.rs::tests`（真库，需 `ERP_DB_URL`）：
 
 - `book_qty_sums_all_buckets_no_false_drift`：两桶并存且总数正确 → `mismatched = 0`（不再假红）；
 - `multi_bucket_mismatch_is_never_auto_fixed`：多桶 + 真差异 → `MULTI_BUCKET`、`dry_run=false` 一行不改；
@@ -362,13 +362,13 @@ SELECT doc_no, out_amt, in_amt FROM (
 
 | 文件 | 作用 |
 |---|---|
-| `backend/src/business/erp/inventory_audit.rs` | 库存巡检（不变式③）：`book_qty = SUM(所有桶)`、桶数诊断、修复分流 |
-| `backend/src/business/erp/inventory_writer.rs` | 三本账唯一写入口（含巡检修正语句 `align_cost_qty_*`） |
+| `backend/app/src/business/erp/inventory_audit.rs` | 库存巡检（不变式③）：`book_qty = SUM(所有桶)`、桶数诊断、修复分流 |
+| `backend/app/src/business/erp/inventory_writer.rs` | 三本账唯一写入口（含巡检修正语句 `align_cost_qty_*`） |
 | `scripts/verify/erp_invariants.py` | 巡检（B1 / B1b / B4 已按本文口径固化） |
 | `scripts/verify/biz_type_domain.py` | `biz_type` 值域巡检（词表＝`doc_kind.rs`） |
 | `backend/crates/cloudpivot-doc/src/lib.rs` | 业务类型词表唯一真相（零依赖 crate；`business/shared/doc_kind.rs` 已改为转发垫片） |
 | `docs/evidence/20261107-p003-inventory-chain/09_reconcile.sql` / `13_final_reconcile.sql` | P0-03 演练对账 SQL（**已是正确口径**，与本文一致） |
-| `backend/migrations/business/V0330__inventory_biz_type_and_sourceless_in_type.up.sql` | 本卡迁移（销售出库 `SALE_OUT` 回填 + `SOURCELESS` 语义） |
-| `backend/src/business/erp/stockin/stockin_handler_post.rs` | 收货过账 ⑦：PURCHASE / SOURCELESS 生成应付 + 凭证（§5.1 口径；注释里有指针） |
-| `backend/src/business/erp/sales/sales_return_posting.rs` | 销售退货回库的**另一条**过账事务（借 1405 / 贷 6401，不挂应付） |
-| `backend/src/business/erp/transfer/transfer_settle.rs` | 调拨过账：两条成对流水 + 三本账，**不生成凭证**（§7） |
+| `backend/app/migrations/business/V0330__inventory_biz_type_and_sourceless_in_type.up.sql` | 本卡迁移（销售出库 `SALE_OUT` 回填 + `SOURCELESS` 语义） |
+| `backend/app/src/business/erp/stockin/stockin_handler_post.rs` | 收货过账 ⑦：PURCHASE / SOURCELESS 生成应付 + 凭证（§5.1 口径；注释里有指针） |
+| `backend/app/src/business/erp/sales/sales_return_posting.rs` | 销售退货回库的**另一条**过账事务（借 1405 / 贷 6401，不挂应付） |
+| `backend/app/src/business/erp/transfer/transfer_settle.rs` | 调拨过账：两条成对流水 + 三本账，**不生成凭证**（§7） |

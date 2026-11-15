@@ -1,7 +1,7 @@
 /**
  * 跨单据联动规则的**配置管理面**接口（卡 t_d0daa4f0 / P1-FIX-5A）。
  *
- * 契约逐字抄自 `backend/src/business/flow/linkage/admin.rs`：
+ * 契约逐字抄自 `backend/app/src/business/flow/linkage/admin.rs`：
  *
  * | # | 方法 | 路径 | 权限码 | 落点 |
  * |---|------|------|--------|------|

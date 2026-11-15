@@ -40,8 +40,8 @@ def _read(p: Path) -> str:
 
 def count_backend_tests() -> int:
     pat = re.compile(r"^\s*#\[(?:tokio::)?test\]", re.M)
-    files = list((ROOT / "backend" / "src").rglob("*.rs")) + \
-            list((ROOT / "backend" / "tests").rglob("*.rs"))
+    files = list((ROOT / "backend" / "app" / "src").rglob("*.rs")) + \
+            list((ROOT / "backend" / "app" / "tests").rglob("*.rs"))
     return sum(len(pat.findall(_read(p))) for p in files)
 
 
@@ -257,7 +257,7 @@ def render_cases(sections, st):
     L.append("")
     L.append("| 项 | 口径 |")
     L.append("|---|---|")
-    L.append("| 状态机的合法边 | 抄自代码，不是我编的：`backend/src/business/shared/state_machine.rs`（STOCK_IN 3 / TRANSFER 6 / PURCHASE_ORDER 10 / PAYABLE 4）、"
+    L.append("| 状态机的合法边 | 抄自代码，不是我编的：`backend/app/src/business/shared/state_machine.rs`（STOCK_IN 3 / TRANSFER 6 / PURCHASE_ORDER 10 / PAYABLE 4）、"
              "`task/state.rs::TRANSITIONS`（`[Transition; 10]`）、`serial_model.rs`（3） |")
     L.append("| 非法边断言 | 409 + 具体错误码 + 文案**必须点名当前态可选去向**：任务 `63010`、ERP 四单 `10003`、序列号 `66008` |")
     L.append("| 审批流场景 | 接口与常量来自 `flow/handler.rs` / `flow/dto.rs` / `flow/timeout.rs` / `flow/task_bridge.rs`，错误码逐个核对 |")
@@ -437,7 +437,7 @@ def render_coverage(st, day: str):
     L.append("")
     L.append("| 资产 | 规模 | 入口 |")
     L.append("|---|---|---|")
-    L.append(f"| 后端 Rust 单测/集成测 | {be_tests} 个 `#[test]`/`#[tokio::test]`（脚本实时统计 `backend/src` + `backend/tests`） | `cd backend && cargo test` |")
+    L.append(f"| 后端 Rust 单测/集成测 | {be_tests} 个 `#[test]`/`#[tokio::test]`（脚本实时统计 `backend/app/src` + `backend/app/tests`） | `cd backend && cargo test` |")
     L.append(f"| 前端 Playwright E2E | {e2e_specs} 个 spec / {e2e_tests} 个顶层 `test()`（另有 `22-pages-*.spec.ts` 用 `_pagerunner.ts` 动态生成 `it`，未计入） | `cd frontend && pnpm test:e2e` |")
     L.append(f"| 前端纯函数单测 | {unit_files} 个文件（`frontend/tests/unit/`） | `pnpm test:unit` |")
     L.append("| 接口验证套件 | `verify.py` 6 个子命令（`smoke` / `a` / `b` / `c` / `task` / `flow`），`all` 串跑 | `python3 scripts/verify/verify.py all` |")
@@ -456,7 +456,7 @@ def render_coverage(st, day: str):
     L.append("| ⑤ 不变量审计 | FAIL（**旧脚本误报**） | **SKIP** | 旧脚本 psql 没口令也照跑 → 报 6 个「执行异常 BLOCKER」；改成先探库再跑，现在是 SKIP |")
     L.append("| ⑥ 联动扫描 | FAIL（**旧脚本误报**） | **SKIP** | 同上：登录失败/缺 env 文件时先探接口可达性再决定跑不跑 |")
     L.append("| ⑦ 前端 E2E（生产） | FAIL | 未重跑（原因见下） | 12 passed / 5 failed / 4 skipped；红的是 `06-task-detail-tabs`、`08-t8b-task-tree`、`09-t8c-root-only`×2、`10-erp-warehouse` |")
-    L.append("| ⑧ 静态检查 | FAIL | 未重跑 | `cargo fmt` 卡在**别人在途**的 `backend/tests/linkage/task_flow_linkage.rs`（本卡一个文件都没改业务代码） |")
+    L.append("| ⑧ 静态检查 | FAIL | 未重跑 | `cargo fmt` 卡在**别人在途**的 `backend/app/tests/linkage/task_flow_linkage.rs`（本卡一个文件都没改业务代码） |")
     L.append("")
     L.append("**⑦ 为什么 12:03 轮没重跑 E2E**：同一时刻「测试E · 52 页全量」那张卡正在打**同一台生产**跑 9 个 spec，")
     L.append("生产全局限流 300 req / 60s 按**客户端 IP** 计，两轮叠一起必然 429（本仓 README 有复现记录）。")

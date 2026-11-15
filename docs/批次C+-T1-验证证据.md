@@ -4,7 +4,7 @@
 - 依据：`docs/批次C+-工作任务管理-核心设计.md`（v2，老大 2026-10-29 批准）§二 / §三 / §七 / §十二 / §十三
 - 验证机：`172.18.10.144`（Ubuntu 26.04 / PG 18.6）+ 自建验证库 `cloudpivot_t1m`（迁移往返）/ `cloudpivot_t1v`（真库 + 接口走查）
 - 验证时间：2026-10-29（CST）
-- 验证方式：`backend/tests/batchT_t1_task.rs`（真库 5 用例）+ 真服务 curl 走查（29 条断言）+ 真库 EXPLAIN + `cargo test` 全量 + `scripts/check.sh`
+- 验证方式：`backend/app/tests/batchT_t1_task.rs`（真库 5 用例）+ 真服务 curl 走查（29 条断言）+ 真库 EXPLAIN + `cargo test` 全量 + `scripts/check.sh`
 
 > **2026-10-29 返工更新（任务卡 `t_4c09fcc7`）**：可见性谓词已从「4 列 OR + `EXISTS`」改为
 > **参与 id 数组**（`AND ( (1 = 1 {FILTER}) OR t.id = ANY(?::text::uuid[]) )`，架构决策 D6/D7），
@@ -37,13 +37,13 @@
 
 | 文件 | 职责 |
 |---|---|
-| `backend/migrations/business/V0100__create_task_tables.{up,down}.sql` | **7 张表**一次建完（设计文档 §十二 逐字：`biz_task` / `biz_task_member` / `biz_task_comment` / `biz_task_attachment` / `biz_task_dependency` / `biz_task_worklog` / `biz_project`） |
-| `backend/migrations/business/V0101__task_indexes.{up,down}.sql` | 12 条索引，含**部分索引** `idx_biz_task_due_open`（`WHERE status NOT IN ('DONE','CANCELLED')`） |
-| `backend/migrations/system/V0102__add_sys_user_type.{up,down}.sql` | 底座改动：`sys_user.user_type`（`HUMAN`/`ROBOT`，默认 HUMAN，老大已批准的 1 处） |
-| `backend/migrations/business/V0103__seed_task_permissions.{up,down}.sql` | `business:task:*` 5 个菜单节点（…0760–…0764） |
-| `backend/migrations/seed/S__task_permissions.sql` | 权限**授权**（授给所有未软删角色）+ 自检；放种子里是因为版本化迁移先于角色种子执行（§2.4 有实测依据） |
-| `backend/src/business/task/{mod,dto,model,handler}.rs` | 模块四件套：6 个接口 + 可见性谓词 + 编号生成 + 20 个单测 |
-| `backend/tests/batchT_t1_task.rs` | 真库集成测试 5 用例（可见性四场景 / CRUD / 编号 / 结构与索引 / 我的任务分组 + 逾期扫描） |
+| `backend/app/migrations/business/V0100__create_task_tables.{up,down}.sql` | **7 张表**一次建完（设计文档 §十二 逐字：`biz_task` / `biz_task_member` / `biz_task_comment` / `biz_task_attachment` / `biz_task_dependency` / `biz_task_worklog` / `biz_project`） |
+| `backend/app/migrations/business/V0101__task_indexes.{up,down}.sql` | 12 条索引，含**部分索引** `idx_biz_task_due_open`（`WHERE status NOT IN ('DONE','CANCELLED')`） |
+| `backend/app/migrations/system/V0102__add_sys_user_type.{up,down}.sql` | 底座改动：`sys_user.user_type`（`HUMAN`/`ROBOT`，默认 HUMAN，老大已批准的 1 处） |
+| `backend/app/migrations/business/V0103__seed_task_permissions.{up,down}.sql` | `business:task:*` 5 个菜单节点（…0760–…0764） |
+| `backend/app/migrations/seed/S__task_permissions.sql` | 权限**授权**（授给所有未软删角色）+ 自检；放种子里是因为版本化迁移先于角色种子执行（§2.4 有实测依据） |
+| `backend/app/src/business/task/{mod,dto,model,handler}.rs` | 模块四件套：6 个接口 + 可见性谓词 + 编号生成 + 20 个单测 |
+| `backend/app/tests/batchT_t1_task.rs` | 真库集成测试 5 用例（可见性四场景 / CRUD / 编号 / 结构与索引 / 我的任务分组 + 逾期扫描） |
 | `scripts/verify/t1_task_migrate_verify.sh` | 迁移往返取证（空库 up → down → up） |
 | `scripts/verify/t1_task_run_tests.sh` | 建验证库 + 迁移 + 跑真库集成测试 |
 | `scripts/verify/t1_task_api_fixture.sql` | 接口走查夹具（跨部门组织 + 4 个账号） |
@@ -54,8 +54,8 @@
 
 | 文件 | 改动 | 为什么必须改 |
 |---|---|---|
-| `backend/src/business/mod.rs` | `pub mod task;` + 模块表一行 | 新模块注册（路由由 `App::scan()` 自动收集，无需改 router） |
-| `backend/src/shared/error_code.rs` | 新增 **63xxx** 段 9 个码 + 1 条码表自检 | 62xxx 段的既有单测硬断言「24 个码 / 62001–62024」是冻结契约，往里塞要改那条「不得改动」的测试；任务错误语义独立成段更干净 |
+| `backend/app/src/business/mod.rs` | `pub mod task;` + 模块表一行 | 新模块注册（路由由 `App::scan()` 自动收集，无需改 router） |
+| `backend/app/src/shared/error_code.rs` | 新增 **63xxx** 段 9 个码 + 1 条码表自检 | 62xxx 段的既有单测硬断言「24 个码 / 62001–62024」是冻结契约，往里塞要改那条「不得改动」的测试；任务错误语义独立成段更干净 |
 
 **没有动的红线**：`business/shared/scope.rs` 一行未改（B 批门禁核心）；批次 A/B/C 的模块一个未改。
 
@@ -142,13 +142,13 @@ CREATE INDEX idx_biz_task_due_open ON public.biz_task USING btree (due_date)
 ### 2.2 down 回滚（V0103 → V0102 → V0101 → V0100，逆序）
 
 ```
---- 执行 backend/migrations/business/V0103__seed_task_permissions.down.sql ---
+--- 执行 backend/app/migrations/business/V0103__seed_task_permissions.down.sql ---
   OK
---- 执行 backend/migrations/system/V0102__add_sys_user_type.down.sql ---
+--- 执行 backend/app/migrations/system/V0102__add_sys_user_type.down.sql ---
   OK
---- 执行 backend/migrations/business/V0101__task_indexes.down.sql ---
+--- 执行 backend/app/migrations/business/V0101__task_indexes.down.sql ---
   OK
---- 执行 backend/migrations/business/V0100__create_task_tables.down.sql ---
+--- 执行 backend/app/migrations/business/V0100__create_task_tables.down.sql ---
   OK
 已清除 4 条版本化迁移记录 + 1 条种子记录（task_permissions）
 

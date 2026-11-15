@@ -87,7 +87,7 @@ HQ 云枢总部 (root, dept_path=/…ead5cd/)
 
 两处代码，缺一不可：
 
-1. **建单落快照**：`backend/src/business/task/handler.rs:409` → `model::user_dept(owner_id)`；
+1. **建单落快照**：`backend/app/src/business/task/handler.rs:409` → `model::user_dept(owner_id)`；
    负责人没部门 ⇒ 快照写 NULL ⇒ `scope::filter_for` 生成 `t.dept_id = ANY(…)` 永远匹配不到。
    任务可见性退化成「范围 ∪ 参与关系」里的第二个分支（只看自己参与的）。
 2. **解析不出部门就降级**：`principal.rs::merge_scope_rows`（:396-471）里，持有 2/3/5 档角色但

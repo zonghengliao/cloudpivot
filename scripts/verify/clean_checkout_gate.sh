@@ -156,7 +156,7 @@ say "干净检出闸：基线 $HEAD_REF ($sha)"
 
 # 编译面一致性提示：本闸跑的是「主 target 里已编好的二进制（= 工作树）」＋「HEAD 的配置面」。
 # 工作树有未提交的后端改动时，两者不是同一份源码 —— 不判红（提交前的正常状态），但要如实说。
-if [ -n "$(git status --porcelain -- backend/src backend/crates backend/Cargo.toml 2>/dev/null)" ]; then
+if [ -n "$(git status --porcelain -- backend/app/src backend/crates backend/Cargo.toml 2>/dev/null)" ]; then
     info "工作树有未提交的后端改动：本闸验证的是「工作树代码 + HEAD 的配置面」（提交后二者一致）"
 fi
 
@@ -196,7 +196,10 @@ if ! command -v cargo >/dev/null 2>&1; then
     bad "找不到 cargo：本闸需要先能编译测试二进制"; exit 2
 fi
 build_log="$(mktemp "$TMPROOT/cleanco-build.XXXXXX.log")"
-( cd "$ROOT/backend" && cargo test --lib --no-run ) > "$build_log" 2>&1
+# `-p cloudpivot` 必须写：P2-40 起 backend 是 workspace 根（成员 app + crates/*），
+# 不带 -p 时输出里会有**多个** `Executable unittests src/lib.rs (...)`，
+# 下面 `tail -1` 会挑到词表 crate 那个只有 19 条的二进制 —— 闸照样绿，但全量单测没跑。
+( cd "$ROOT/backend" && cargo test -p cloudpivot --lib --no-run ) > "$build_log" 2>&1
 build_rc=$?
 TEST_BIN="$(sed -n 's/.*Executable unittests src\/lib\.rs (\(.*\))$/\1/p' "$build_log" | tail -1)"
 BIN_ABS=""
@@ -228,7 +231,7 @@ if [ "$run_rc" -ne 0 ] || [ "$failed" -ne 0 ]; then
     bad "干净检出任有 $failed 条单测失败（这正是「干净检出必红」）"
     grep -E '^test .* FAILED|^---- .* stdout' "$run_log" | head -20 | sed 's/^/    /' >&2
     echo "    完整日志：$run_log（--keep 可保留干净树排查）" >&2
-    echo "    修法：把测试改成「私有文件在就断言它，不在就断言 *.example.toml」（范本：backend/src/shared/startup_guard.rs）" >&2
+    echo "    修法：把测试改成「私有文件在就断言它，不在就断言 *.example.toml」（范本：backend/app/src/shared/startup_guard.rs）" >&2
     exit 1
 fi
 

@@ -98,7 +98,7 @@ print()
 print(f"{'模块':<6} {'能力':<26} {'后端':>4} {'前端':>4} {'文档':>4}  判定")
 print("-" * 78)
 for mod, cap, pats in CAPS:
-    be = count(pats, ["backend/src"])
+    be = count(pats, ["backend/app/src"])
     fe = count(pats, ["frontend/src"], (".vue", ".ts"))
     dc = count(pats, ["docs", "skill"], (".md",))
     if be >= 3:

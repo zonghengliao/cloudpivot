@@ -15,10 +15,10 @@ P2-33：                        erp ──实现+注册──→ 抽象    ← �
 P2-34：flow 的 99 行直连 → 4 个注册表调用                ← 消边
 ```
 
-- 实现与注册：`backend/src/business/erp/doc_reader_impl.rs`（新，约 550 行）；
-- 注册点：`backend/src/bootstrap.rs` 的 `register_doc_readers()`（`bootstrap()` 第一件事，
+- 实现与注册：`backend/app/src/business/erp/doc_reader_impl.rs`（新，约 550 行）；
+- 注册点：`backend/app/src/bootstrap.rs` 的 `register_doc_readers()`（`bootstrap()` 第一件事，
   `tokio::join!` 之前同步做完）；
-- 用例：`backend/src/business/erp/doc_reader_impl_tests.rs`（新，16 条：9 条离线 + 6 条真库 + 1 条进程级注册）。
+- 用例：`backend/app/src/business/erp/doc_reader_impl_tests.rs`（新，16 条：9 条离线 + 6 条真库 + 1 条进程级注册）。
 
 **本卡不消边，也不该消边**：`flow → erp` 的 135 行直连一行没动（`flow::doc_reader_tests` 的
 燃烧率闸门仍以 135 为基线并通过），消边是 P2-34 的交付。本卡交付的是「P2-34 换调用点时
@@ -178,10 +178,10 @@ $ （同一报告里）business::erp → business::flow (代码 135 / 注释 3) 
   方向是 `erp → flow`（**本来就有**的那半条边，134 行 → 138 行不是新边，只是加粗同向边）：
 
 ```text
-$ grep -rn 'crate::business::flow' backend/src/business/erp --include=*.rs | grep -v doc_reader_impl | wc -l
+$ grep -rn 'crate::business::flow' backend/app/src/business/erp --include=*.rs | grep -v doc_reader_impl | wc -l
 134
-$ grep -rn 'crate::business::flow' backend/src/business/erp/doc_reader_impl.rs \
-    backend/src/business/erp/doc_reader_impl_tests.rs | wc -l
+$ grep -rn 'crate::business::flow' backend/app/src/business/erp/doc_reader_impl.rs \
+    backend/app/src/business/erp/doc_reader_impl_tests.rs | wc -l
 4
 ```
 
@@ -219,9 +219,9 @@ let snapshot = doc_reader::doc_status_of_code(biz_type, doc_id).await?;
 
 | 文件 | 改动 |
 |:--|:--|
-| `backend/src/business/erp/doc_reader_impl.rs` | **新**：16 个实现 + `DocSpec` 表 + `register_into` / `register_all` |
-| `backend/src/business/erp/doc_reader_impl_tests.rs` | **新**：16 条用例（9 离线 + 6 真库 + 1 进程级注册） |
-| `backend/src/business/erp/mod.rs` | +6 行挂载（`pub mod doc_reader_impl` + `#[cfg(test)] mod doc_reader_impl_tests`） |
-| `backend/src/bootstrap.rs` | +38 行：`register_doc_readers()` + `bootstrap()` 里一行调用 |
-| `backend/src/business/flow/doc_reader.rs` | +9 行：`#[cfg(test)] pub static GLOBAL_LOCK`（把「动全局注册表」的锁搬到注册表持有者这边，供 `flow` / `erp` 两个测试模块共用） |
-| `backend/src/business/flow/doc_reader_tests.rs` | −2 / +1 行：改用上面那把共享锁，不再自己定义一份 |
+| `backend/app/src/business/erp/doc_reader_impl.rs` | **新**：16 个实现 + `DocSpec` 表 + `register_into` / `register_all` |
+| `backend/app/src/business/erp/doc_reader_impl_tests.rs` | **新**：16 条用例（9 离线 + 6 真库 + 1 进程级注册） |
+| `backend/app/src/business/erp/mod.rs` | +6 行挂载（`pub mod doc_reader_impl` + `#[cfg(test)] mod doc_reader_impl_tests`） |
+| `backend/app/src/bootstrap.rs` | +38 行：`register_doc_readers()` + `bootstrap()` 里一行调用 |
+| `backend/app/src/business/flow/doc_reader.rs` | +9 行：`#[cfg(test)] pub static GLOBAL_LOCK`（把「动全局注册表」的锁搬到注册表持有者这边，供 `flow` / `erp` 两个测试模块共用） |
+| `backend/app/src/business/flow/doc_reader_tests.rs` | −2 / +1 行：改用上面那把共享锁，不再自己定义一份 |

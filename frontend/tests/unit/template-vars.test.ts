@@ -8,7 +8,7 @@
  * 1. **行为**：白名单的三种归属（固定 10 / 只给模板的 4 / `form.*` 动态）、
  *    `task.*` 的 `TASK_ACCEPT` 开关、路径文法（一个点号 + 每段 ≤ 64）、
  *    以及「插到光标处 / 替换选中段 / 插完光标落在 `}}` 之后」这条卡面验收 3 的口径。
- * 2. **对齐**：直接读 `backend/src/**` 的 rust 源码，断言常量与后端**逐字一致**。
+ * 2. **对齐**：直接读 `backend/app/src/**` 的 rust 源码，断言常量与后端**逐字一致**。
  *    后端加一个字段、改一个上限，这里先红 —— 而不是等到发布时报 65037 才发现。
  */
 import { test } from 'node:test';
@@ -34,18 +34,18 @@ import { FIXED_FIELDS as CONDITION_FIXED_FIELDS } from '../../src/views/business
 
 // ==================== 读后端源码的工具 ====================
 
-/** 读 `backend/src/business/flow/<relative>` */
+/** 读 `backend/app/src/business/flow/<relative>` */
 function rust(relative: string): string {
   return readFileSync(
-    fileURLToPath(new URL(`../../../backend/src/business/flow/${relative}`, import.meta.url)),
+    fileURLToPath(new URL(`../../../backend/app/src/business/flow/${relative}`, import.meta.url)),
     'utf8',
   );
 }
 
-/** 读 `backend/src/business/notice/render.rs`（变量名文法的唯一出处） */
+/** 读 `backend/app/src/business/notice/render.rs`（变量名文法的唯一出处） */
 function renderSource(): string {
   return readFileSync(
-    fileURLToPath(new URL('../../../backend/src/business/notice/render.rs', import.meta.url)),
+    fileURLToPath(new URL('../../../backend/app/src/business/notice/render.rs', import.meta.url)),
     'utf8',
   );
 }

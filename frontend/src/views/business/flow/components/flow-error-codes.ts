@@ -30,7 +30,7 @@
  * 按卡面把 then 目标写成 65033 会让前端提示的码与后端真实返回的码不一致 —— 那正是本卡要消灭的错位。
  */
 
-// ==================== 码值（`backend/src/shared/error_code.rs`） ====================
+// ==================== 码值（`backend/app/src/shared/error_code.rs`） ====================
 
 /** 条件表达式 / 审批人表达式**结构**非法（`error_code.rs::FLOW_CONDITION_INVALID`）。 */
 export const FLOW_CONDITION_INVALID = 65016;

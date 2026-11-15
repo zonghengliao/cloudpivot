@@ -44,13 +44,13 @@ A7 专门证明「注入有效、旧值确实还在缓存里」，A8 才证明�
 
 | 文件 | 改动 |
 |------|------|
-| `backend/src/shared/cache_gate.rs`（新增） | `InvalidationGate`：`AtomicBool` 记账「上次失效失败了」，纯逻辑可单测；附 5 条用例 |
-| `backend/src/shared/mod.rs` | 注册 `pub mod cache_gate;` |
-| `backend/src/system/menu/model.rs` | 菜单树缓存：失效失败 → 记欠账 + `warn(cache_invalidation_pending=true)`；读缓存前补失效，补不成查库 |
-| `backend/src/system/role/model.rs` | 启用角色下拉缓存：同款 |
-| `backend/src/system/dept/model.rs` | 部门树缓存：同款（同族缺陷，顺手收口） |
-| `backend/src/system/menu/tests.rs` | 新增 `n14_writes_succeed_without_cache`（建/改/删在无缓存下全成功 + 读路径回退查库） |
-| `backend/src/system/role/tests.rs` | 新增 `r08_assign_menus_succeeds_without_cache`（授权/清空两次都成功且落库） |
+| `backend/app/src/shared/cache_gate.rs`（新增） | `InvalidationGate`：`AtomicBool` 记账「上次失效失败了」，纯逻辑可单测；附 5 条用例 |
+| `backend/app/src/shared/mod.rs` | 注册 `pub mod cache_gate;` |
+| `backend/app/src/system/menu/model.rs` | 菜单树缓存：失效失败 → 记欠账 + `warn(cache_invalidation_pending=true)`；读缓存前补失效，补不成查库 |
+| `backend/app/src/system/role/model.rs` | 启用角色下拉缓存：同款 |
+| `backend/app/src/system/dept/model.rs` | 部门树缓存：同款（同族缺陷，顺手收口） |
+| `backend/app/src/system/menu/tests.rs` | 新增 `n14_writes_succeed_without_cache`（建/改/删在无缓存下全成功 + 读路径回退查库） |
+| `backend/app/src/system/role/tests.rs` | 新增 `r08_assign_menus_succeeds_without_cache`（授权/清空两次都成功且落库） |
 | `scripts/verify/fix03_no_redis.sh`（新增） | 验收脚本：23 条断言，自带假 Redis 与隔离库/端口 | 
 | `scripts/verify/fix03_fake_redis.py`（新增） | 可控假 Redis（RESP 子集 + 控制口） |
 

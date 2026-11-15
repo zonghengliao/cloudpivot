@@ -12,8 +12,8 @@
 
 ## 2. 依据一：处置凭证的固定形状（代码契约，非约定俗成）
 
-`backend/src/business/erp/asset/asset_bridge.rs::post_disposal_vouchers`
-→ `backend/src/business/erp/asset/asset_compute.rs::disposal_vouchers`
+`backend/app/src/business/erp/asset/asset_bridge.rs::post_disposal_vouchers`
+→ `backend/app/src/business/erp/asset/asset_compute.rs::disposal_vouchers`
 
 三种处置（`SALE` / `SCRAP` / `LOSS`）的**第一张**凭证形状相同，只有中间科目不同：
 

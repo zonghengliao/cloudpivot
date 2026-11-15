@@ -27,18 +27,18 @@ def rs_files(paths):
 
 def feat_files():
     return {
-        "task": rs_files(["backend/src/business/task"]),
-        "flow": rs_files(["backend/src/business/flow"]),
-        "erp": rs_files(["backend/src/business/erp"]),
-        "project": rs_files(["backend/src/business/project"]),
-        "system": rs_files(["backend/src/system"]),
-        "permission+masking": rs_files(["backend/src/business/permission", "backend/src/business/masking"]),
-        "collab": rs_files(["backend/src/business/announcement", "backend/src/business/notice"]),
-        "storage": rs_files(["backend/src/support/file", "backend/src/business/storage", "backend/src/business/attachment"]),
-        "impexp": rs_files(["backend/src/business/impexp"]),
-        "help+changelog": rs_files(["backend/src/business/help", "backend/src/business/changelog"]),
-        "job": rs_files(["backend/src/support/job"]),
-        "shared": rs_files(["backend/src/business/shared"]),
+        "task": rs_files(["backend/app/src/business/task"]),
+        "flow": rs_files(["backend/app/src/business/flow"]),
+        "erp": rs_files(["backend/app/src/business/erp"]),
+        "project": rs_files(["backend/app/src/business/project"]),
+        "system": rs_files(["backend/app/src/system"]),
+        "permission+masking": rs_files(["backend/app/src/business/permission", "backend/app/src/business/masking"]),
+        "collab": rs_files(["backend/app/src/business/announcement", "backend/app/src/business/notice"]),
+        "storage": rs_files(["backend/app/src/support/file", "backend/app/src/business/storage", "backend/app/src/business/attachment"]),
+        "impexp": rs_files(["backend/app/src/business/impexp"]),
+        "help+changelog": rs_files(["backend/app/src/business/help", "backend/app/src/business/changelog"]),
+        "job": rs_files(["backend/app/src/support/job"]),
+        "shared": rs_files(["backend/app/src/business/shared"]),
     }
 
 
@@ -121,7 +121,7 @@ tables = ["biz_inventory", "biz_inventory_txn", "biz_inventory_location", "biz_v
           "biz_voucher_entry", "biz_payable", "biz_stock_in", "biz_stock_out",
           "biz_purchase_order", "biz_stock_transfer", "biz_material_serial", "biz_status_log"]
 writers = collections.defaultdict(set)
-for f in glob.glob(os.path.join(ROOT, "backend/src/**/*.rs"), recursive=True):
+for f in glob.glob(os.path.join(ROOT, "backend/app/src/**/*.rs"), recursive=True):
     txt = open(f, encoding="utf-8", errors="replace").read()
     rel = os.path.relpath(f, ROOT)
     for m in re.finditer(r"(INSERT\s+INTO|UPDATE)\s+([a-z_]+)", txt, re.I):

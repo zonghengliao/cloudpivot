@@ -172,7 +172,7 @@ fi
 echo "== 2.5) V0143 授权：空库首启时角色还不存在（迁移先于 bootstrap）→ bootstrap 后重放补齐"
 REPLAY_LOG=/tmp/w2c2_v0143_replay.log
 psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$W2C2_DB" -q \
-     -f "$REPO/backend/migrations/business/V0143__erp_audit_permission.up.sql" >"$REPLAY_LOG" 2>&1
+     -f "$REPO/backend/app/migrations/business/V0143__erp_audit_permission.up.sql" >"$REPLAY_LOG" 2>&1
 REPLAY_RC=$?
 grep -E "NOTICE" "$REPLAY_LOG" | sed 's/^/       /' | tail -3
 [ "$REPLAY_RC" = "0" ] && ok "V0143 重放（幂等）：exit=0" || bad "V0143 重放" "exit=$REPLAY_RC $(tail -3 "$REPLAY_LOG")"
@@ -183,7 +183,7 @@ DUP=$(one "$(psql_q "SELECT count(*) FROM (SELECT menu_id FROM sys_role_menu rm 
 # 重放不能把菜单标题改回去（ON CONFLICT DO NOTHING 的意义）
 psql_q "UPDATE sys_menu SET title='W2C2 手工改过的标题' WHERE id='20000000-0000-0000-0000-000000000986'" >/dev/null
 psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d "$W2C2_DB" -q \
-     -f "$REPO/backend/migrations/business/V0143__erp_audit_permission.up.sql" >/dev/null 2>&1
+     -f "$REPO/backend/app/migrations/business/V0143__erp_audit_permission.up.sql" >/dev/null 2>&1
 TITLE=$(one "$(psql_q "SELECT title FROM sys_menu WHERE id='20000000-0000-0000-0000-000000000986'")")
 [ "$TITLE" = "W2C2 手工改过的标题" ] && ok "  重放不覆盖运维改过的标题" || bad "  重放覆盖了标题" "实际 $TITLE"
 psql_q "UPDATE sys_menu SET title='库存巡检（账面 vs 序列号件数）' WHERE id='20000000-0000-0000-0000-000000000986'" >/dev/null

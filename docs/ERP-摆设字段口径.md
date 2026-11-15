@@ -2,8 +2,8 @@
 
 > 卡：`t_dfdbfcaf`【P2-2】摆设字段处置
 > 依据：`docs/architecture/ARCH-3-模块勾稽关系审计.md` §5 **DC-12**
-> 迁移：`backend/migrations/business/V0215__erp_p2_2_stub_fields.{up,down}.sql`
-> 代码：`backend/src/business/erp/purchase/purchase_credit.rs`（①）、`reminder_stock.rs`（②）、
+> 迁移：`backend/app/migrations/business/V0215__erp_p2_2_stub_fields.{up,down}.sql`
+> 代码：`backend/app/src/business/erp/purchase/purchase_credit.rs`（①）、`reminder_stock.rs`（②）、
 > `dto.rs` / `model_inventory.rs` / `stockin_write.rs`（③）
 
 ## 0. 一句话结论（卡面要求逐条回答）

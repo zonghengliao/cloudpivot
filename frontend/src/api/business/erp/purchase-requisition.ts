@@ -1,5 +1,5 @@
 /**
- * 采购申请 API 层（后端 `backend/src/business/erp/purchase_requisition_handler.rs`，P2-02）。
+ * 采购申请 API 层（后端 `backend/app/src/business/erp/purchase_requisition_handler.rs`，P2-02）。
  *
  * # 接口
  *

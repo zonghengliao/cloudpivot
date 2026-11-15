@@ -1,8 +1,8 @@
 # ERP 凭证辅助核算口径（DC-11 · P2-1 / P2-1b）
 
-> 代码入口：`backend/src/business/erp/voucher/mod.rs`（写入口径）、
-> `backend/src/business/erp/ledger.rs`（辅助账查询）、
-> `backend/src/business/erp/payable/payable_payment.rs`（付款凭证的部门）。
+> 代码入口：`backend/app/src/business/erp/voucher/mod.rs`（写入口径）、
+> `backend/app/src/business/erp/ledger.rs`（辅助账查询）、
+> `backend/app/src/business/erp/payable/payable_payment.rs`（付款凭证的部门）。
 > 真机验收：`scripts/verify/p21_aux_e2e.py`（56 项断言）、
 > `scripts/verify/p21b_switch_point.py`（20 项切换点断言）。
 > §4 是 **P2-1b 决议**（2026-11-04）：多物料单按**去重物料**拆分录 —— 决议口径即目标态，

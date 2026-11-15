@@ -180,13 +180,13 @@ esac
 ORIG_DIR="${CP_UPGRADE_ORIG_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
 if [ -n "$REPO_ARG" ]; then
   REPO="$REPO_ARG"
-elif [ -d "$ORIG_DIR/../backend/migrations" ]; then
+elif [ -d "$ORIG_DIR/../backend/app/migrations" ]; then
   REPO="$(cd "$ORIG_DIR/.." && pwd)"
 else
   REPO="/opt/cloudpivot"
 fi
 ( cd "$REPO" 2>/dev/null && REPO="$(pwd)" ) || true
-[ -d "$REPO/backend/migrations" ] || { echo "⛔ 找不到仓库根（$REPO 下没有 backend/migrations）；用 --repo 指定" >&2; exit 2; }
+[ -d "$REPO/backend/app/migrations" ] || { echo "⛔ 找不到仓库根（$REPO 下没有 backend/app/migrations）；用 --repo 指定" >&2; exit 2; }
 git -C "$REPO" rev-parse --git-dir >/dev/null 2>&1 || { echo "⛔ $REPO 不是 git 仓库（升级要靠 git 取目标版本）" >&2; exit 2; }
 
 # 日志目录：默认 /var/log/cloudpivot；没有 root 权限时退到用户目录并提示（不假装成功）
@@ -287,7 +287,7 @@ KEY_TABLES=(sys_user sys_role sys_menu sys_dict_type sys_config biz_purchase_ord
 # 引擎认可的 applied_via（kind.rs:95-111），出现别的值 = 服务启动期 FATAL
 ALLOWED_APPLIED_VIA="executed imported baseline"
 # 引擎认的版本化迁移路径（与 scripts/deploy/migrate_plan.sh 的 MIG_PATH_RE 一致）
-MIG_PATH_RE='^backend/migrations/[A-Za-z0-9_.-]+/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$'
+MIG_PATH_RE='^backend/app/migrations/[A-Za-z0-9_.-]+/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$'
 
 PSQL=(psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER")
 Q() { "${PSQL[@]}" -d "$1" -Atq -v ON_ERROR_STOP=1 -c "$2"; }
@@ -411,7 +411,7 @@ die() {
 
 # -----------------------------------------------------------------------------
 # 5) 迁移清单算法（自带实现：老版本客户的树里没有 scripts/deploy/migrate_plan.sh）
-#    disk@target = 目标 ref 树里的 backend/migrations/**/V<n>__<name>.up.sql
+#    disk@target = 目标 ref 树里的 backend/app/migrations/**/V<n>__<name>.up.sql
 #    applied     = 库里 kind='versioned' 且 success=true 的 name
 #    pending     = disk - applied，按版本号数值升序
 # -----------------------------------------------------------------------------
@@ -429,7 +429,7 @@ load_applied() {
 load_disk_at() { # $1 = git ref → MIG_VER / MIG_NAME / MIG_FILE
   local ref="$1" raw bad_names dups
   MIG_VER=(); MIG_NAME=(); MIG_FILE=()
-  raw=$(git -C "$REPO" ls-tree -r --name-only "$ref" -- backend/migrations | grep -E '\.up\.sql$' || true)
+  raw=$(git -C "$REPO" ls-tree -r --name-only "$ref" -- backend/app/migrations | grep -E '\.up\.sql$' || true)
   if [ -z "$raw" ]; then bad "目标版本 $ref 的树里没有任何 V*.up.sql"; return 1; fi
   bad_names=$(printf '%s\n' "$raw" | grep -vE "$MIG_PATH_RE" || true)
   if [ -n "$bad_names" ]; then

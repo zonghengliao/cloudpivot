@@ -18,9 +18,9 @@
 提交文件（6 个，比卡面 4 个多 2 个，原因见 §6）：
 
 ```
-backend/src/business/task/model.rs        +25   CARD_COLUMNS / TaskCardRow / from_row / find_raw / 单测
-backend/src/business/task/dto.rs          +2    TaskCardRes.child_done_count
-backend/src/business/task/handler.rs      +1    card_res 映射（不改就编译不过）
+backend/app/src/business/task/model.rs        +25   CARD_COLUMNS / TaskCardRow / from_row / find_raw / 单测
+backend/app/src/business/task/dto.rs          +2    TaskCardRes.child_done_count
+backend/app/src/business/task/handler.rs      +1    card_res 映射（不改就编译不过）
 frontend/src/api/business/task-api.ts     +63    createSubtask / listSubtasks / 两个类型 / TaskCard 补字段
 frontend/src/constants/permissions.ts     +12   PERM.taskSubtask
 frontend/src/views/business/task/detail.vue +249 子任务区块常显 + 新建弹窗 + 行可点 + 返回父任务

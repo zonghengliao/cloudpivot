@@ -145,7 +145,7 @@ test('api 类型：BatchExportPayload / createExport 都声明了 status_code �
 // ==================== 3. 跨栈漂移守卫（前端筛选项 ⇄ 后端白名单） ====================
 
 test('后端导出白名单：字段名与 status_code 契约逐字未变', () => {
-  const batchRs = readRepoFile('backend/src/business/erp/batch.rs');
+  const batchRs = readRepoFile('backend/app/src/business/erp/batch.rs');
   // 批量导出请求体必须收 status_code（前端发的就是这个键）
   assert.ok(
     batchRs.includes('pub status_code: Option<String>'),
@@ -158,7 +158,7 @@ test('后端导出白名单：字段名与 status_code 契约逐字未变', () =
 });
 
 test('状态码漂移守卫：三页筛选项 = 后端导出白名单（集合相等）', () => {
-  const source = readRepoFile('backend/src/business/impexp/builtin/erp_doc.rs');
+  const source = readRepoFile('backend/app/src/business/impexp/builtin/erp_doc.rs');
   const pairs = [
     { name: 'erp.stock_in', backend: 'STOCK_IN_STATUS', frontend: STOCKIN_STATUS_FILTER_OPTIONS },
     { name: 'erp.payable', backend: 'PAYABLE_STATUS', frontend: PAYABLE_STATUS_FILTER_OPTIONS },

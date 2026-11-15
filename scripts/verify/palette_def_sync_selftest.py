@@ -15,13 +15,13 @@ NEG = pathlib.Path('/tmp/neg-check')
 if NEG.exists():
     shutil.rmtree(NEG)
 (NEG / 'frontend/src/style').mkdir(parents=True)
-(NEG / 'backend/migrations/system').mkdir(parents=True)
+(NEG / 'backend/app/migrations/system').mkdir(parents=True)
 repo = pathlib.Path(__file__).resolve().parents[2]   # scripts/verify/x.py → 仓库根（不再写死 /opt/cloudpivot，worktree 里也能跑）
 shutil.copy(repo / 'frontend/src/style/palettes.ts', NEG / 'frontend/src/style/palettes.ts')
 
 VERSION_RE = re.compile(r'V(\d+)__[^/]*\.up\.sql$')
 candidates = []
-for path in (repo / 'backend/migrations/system').glob('V*.up.sql'):
+for path in (repo / 'backend/app/migrations/system').glob('V*.up.sql'):
     match = VERSION_RE.search(str(path))
     if not match:
         continue
@@ -35,7 +35,7 @@ candidates.sort()
 PALETTE_UP = candidates[-1][1]
 
 for name in ('V0091__seed_preference_def.up.sql', PALETTE_UP.name):
-    shutil.copy(repo / 'backend/migrations/system' / name, NEG / 'backend/migrations/system' / name)
+    shutil.copy(repo / 'backend/app/migrations/system' / name, NEG / 'backend/app/migrations/system' / name)
 
 gate = repo / 'scripts/lint/palette_def_sync.py'
 
@@ -52,7 +52,7 @@ def run(tag):
 print(f'被测迁移：{PALETTE_UP.name}')
 ok_exit = run('正向（99 套一致）')
 
-target = NEG / 'backend/migrations/system' / PALETTE_UP.name
+target = NEG / 'backend/app/migrations/system' / PALETTE_UP.name
 text = io.open(target, encoding='utf-8').read()
 io.open(target, 'w', encoding='utf-8').write(text.replace(',guci-gongming', '', 1))
 bad_exit = run('负向（字典少一个 id）')

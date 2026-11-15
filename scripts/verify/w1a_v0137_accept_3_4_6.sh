@@ -7,7 +7,7 @@ set -a; . /etc/cloudpivot/cloudpivot-dev.env; set +a
 DB=${W1A_DB:-cloudpivot_w1a}
 export PGPASSWORD="$NIK_DATABASE_PASSWORD"
 PSQL="psql -h 127.0.0.1 -p 5432 -U $NIK_DATABASE_USER -d $DB -At -v ON_ERROR_STOP=1"
-MIG=$REPO/backend/migrations/business
+MIG=$REPO/backend/app/migrations/business
 UP=$MIG/V0137__erp_master_data_and_warehouse.up.sql
 DOWN=$MIG/V0137__erp_master_data_and_warehouse.down.sql
 T13="'biz_unit','biz_account','biz_supplier','biz_accounting_period','biz_purchase_order','biz_purchase_order_item','biz_seq','biz_warehouse','biz_material','biz_inventory','biz_inventory_txn','biz_location','biz_inventory_location'"

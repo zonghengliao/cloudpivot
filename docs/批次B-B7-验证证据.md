@@ -14,22 +14,22 @@
 
 | 文件 | 行数 | 职责 |
 |---|---|---|
-| `backend/src/business/mutex/mod.rs` | 81 | 模块文档：三校验点、与 delegation cap 的协同、超管不短路、权限码说明 |
-| `backend/src/business/mutex/model.rs` | 715 | `sys_role_mutex` 读写；**`HELD_ROLE_SQL` = 「有效持有」的唯一权威口径** |
-| `backend/src/business/mutex/guard.rs` | 486 | 三校验点共用守卫 + 文案纯函数（可无库断言） |
-| `backend/src/business/mutex/checker.rs` | 147 | 单用户体检 / 单对持有者 / 全量扫描 |
-| `backend/src/business/mutex/handler.rs` | 660 | 6 个 HTTP 接口 + 审计 + 错误翻译 |
-| `backend/src/business/mutex/dto.rs` | 237 | 请求 / 响应 DTO（ID 一律 `String`，A/B 已规范化） |
-| `backend/migrations/business/V0068__role_mutex_conflict_perm.{up,down}.sql` | 78 + 28 | 冲突查询权限补授（Q2 默认）+ 迁移期自检 |
-| `backend/tests/batchB_b7_mutex.rs` | 449 | 真库集成测试（缺 `B7_DB_URL` 自动 SKIP） |
+| `backend/app/src/business/mutex/mod.rs` | 81 | 模块文档：三校验点、与 delegation cap 的协同、超管不短路、权限码说明 |
+| `backend/app/src/business/mutex/model.rs` | 715 | `sys_role_mutex` 读写；**`HELD_ROLE_SQL` = 「有效持有」的唯一权威口径** |
+| `backend/app/src/business/mutex/guard.rs` | 486 | 三校验点共用守卫 + 文案纯函数（可无库断言） |
+| `backend/app/src/business/mutex/checker.rs` | 147 | 单用户体检 / 单对持有者 / 全量扫描 |
+| `backend/app/src/business/mutex/handler.rs` | 660 | 6 个 HTTP 接口 + 审计 + 错误翻译 |
+| `backend/app/src/business/mutex/dto.rs` | 237 | 请求 / 响应 DTO（ID 一律 `String`，A/B 已规范化） |
+| `backend/app/migrations/business/V0068__role_mutex_conflict_perm.{up,down}.sql` | 78 + 28 | 冲突查询权限补授（Q2 默认）+ 迁移期自检 |
+| `backend/app/tests/batchB_b7_mutex.rs` | 449 | 真库集成测试（缺 `B7_DB_URL` 自动 SKIP） |
 
 底座最小接线（`git diff --stat`：**3 文件 / +23 −1 行**，只加校验、不改任何既有语义）：
 
 | 文件 | 改动 |
 |---|---|
-| `backend/src/business/mod.rs` | `pub mod mutex;` + 文档表 1 行 |
-| `backend/src/system/user/handler.rs` | `create` 预生成 `user_id` 后插互斥校验；`assign_roles` 在 cap 之后插 1 行 |
-| `backend/src/system/role/handler.rs` | `update` 在写库前，对「停用 → 启用」跃迁复核持有者 |
+| `backend/app/src/business/mod.rs` | `pub mod mutex;` + 文档表 1 行 |
+| `backend/app/src/system/user/handler.rs` | `create` 预生成 `user_id` 后插互斥校验；`assign_roles` 在 cap 之后插 1 行 |
+| `backend/app/src/system/role/handler.rs` | `update` 在写库前，对「停用 → 启用」跃迁复核持有者 |
 
 > `system/dept`、数据权限、脱敏（`business/permission`、`business/masking`、`business/shared`）**一行未动**。
 

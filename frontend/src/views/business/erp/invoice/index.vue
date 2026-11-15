@@ -707,7 +707,7 @@
 
 <script setup lang="ts">
 /**
- * 销售发票页（SO-21）—— 后端 SO-20（`backend/src/business/erp/invoice.rs`，4 个接口）。
+ * 销售发票页（SO-21）—— 后端 SO-20（`backend/app/src/business/erp/invoice.rs`，4 个接口）。
  *
  * # 口径来源（逐字抄后端，不猜）
  *

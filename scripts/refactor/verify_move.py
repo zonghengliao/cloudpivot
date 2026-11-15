@@ -134,36 +134,36 @@ def main():
     ref = sys.argv[1] if len(sys.argv) > 1 else "HEAD"
     targets = [
         # P2-1A：task/handler.rs（5757 行）按职责拆成 11 个代码部件 + 3 个测试部件
-        ("backend/src/business/task/handler.rs",
-         ["backend/src/business/task/handler.rs"] +
-         [f"backend/src/business/task/task_handler_{n}.rs" for n in [
+        ("backend/app/src/business/task/handler.rs",
+         ["backend/app/src/business/task/handler.rs"] +
+         [f"backend/app/src/business/task/task_handler_{n}.rs" for n in [
              "common", "notice", "crud", "status", "hierarchy", "dep", "comment", "attachment",
              "ai", "assign", "flow", "tests", "stats_tests", "copy_db_tests"]]),
-        ("backend/src/business/task/model.rs",
-         ["backend/src/business/task/model.rs"] +
-         [f"backend/src/business/task/task_model_{n}.rs" for n in [
+        ("backend/app/src/business/task/model.rs",
+         ["backend/app/src/business/task/model.rs"] +
+         [f"backend/app/src/business/task/task_model_{n}.rs" for n in [
              "base", "rows", "query", "write", "hierarchy", "dep", "ai", "stats", "flow",
              "schedule", "tests", "display_file_name_tests", "depth_tests", "root_only_tests",
              "statuses_filter_tests", "stats_tests", "repair_tests", "cascade_tests",
              "cascade_cancel_tests"]]),
         # P2-1B：flow/model.rs（4732 行）按职责拆成 10 个代码部件 + 2 个测试部件
-        ("backend/src/business/flow/model.rs",
-         ["backend/src/business/flow/model.rs"] +
-         [f"backend/src/business/flow/flow_model_{n}.rs" for n in [
+        ("backend/app/src/business/flow/model.rs",
+         ["backend/app/src/business/flow/model.rs"] +
+         [f"backend/app/src/business/flow/flow_model_{n}.rs" for n in [
              "base", "def", "graph", "guard", "instance", "node", "cancel", "progress",
              "inbox", "stats", "tests", "delete_tests"]]),
-        ("backend/src/business/erp/stockin_handler.rs",
-         ["backend/src/business/erp/stockin_handler.rs"] +
-         [f"backend/src/business/erp/stockin_handler_{n}.rs" for n in [
+        ("backend/app/src/business/erp/stockin_handler.rs",
+         ["backend/app/src/business/erp/stockin_handler.rs"] +
+         [f"backend/app/src/business/erp/stockin_handler_{n}.rs" for n in [
              "common", "purchase", "write", "post", "cancel", "status", "query",
              "tests_fixtures", "tests_helpers", "tests_posting", "tests_update",
              "tests_location", "tests_cancel", "tests_p10_locked", "tests_dc03", "tests_p16",
              "tests_d4_purchase", "tests_pflow3a", "tests_d9_copy", "tests_a4"]]),
         # P2-1C：erp/transfer_handler.rs（4676 行，含 3249 行测试）按职责拆成
         # 6 个代码部件 + 7 个测试部件
-        ("backend/src/business/erp/transfer_handler.rs",
-         ["backend/src/business/erp/transfer_handler.rs"] +
-         [f"backend/src/business/erp/transfer_handler_{n}.rs" for n in [
+        ("backend/app/src/business/erp/transfer_handler.rs",
+         ["backend/app/src/business/erp/transfer_handler.rs"] +
+         [f"backend/app/src/business/erp/transfer_handler_{n}.rs" for n in [
              "common", "create", "query", "status", "delete", "test_support",
              "tests", "db_tests_fixtures", "db_tests_create", "db_tests_status",
              "db_tests_settle", "db_tests_books", "db_tests_query"]]),

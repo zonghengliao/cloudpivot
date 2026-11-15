@@ -23,7 +23,7 @@ REDIS_DB=${B3_REDIS_DB:-6}
 mkdir -p "$RUN/config"
 cp -f "$TARGET/debug/cloudpivot" "$RUN/cloudpivot"
 cp -f /opt/cloudpivot/backend/config/*.toml "$RUN/config/" 2>/dev/null || true
-ln -sfn /opt/cloudpivot/backend/migrations "$RUN/migrations"
+ln -sfn /opt/cloudpivot/backend/app/migrations "$RUN/migrations"
 chmod +x "$RUN/cloudpivot"
 
 # 只取白名单键：`source /etc/cloudpivot/*.env` 在部分环境会被命令守卫拦下，

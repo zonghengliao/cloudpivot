@@ -454,7 +454,7 @@ import {
   type SerialRowWithScan,
 } from './serial-logic';
 
-/** 本页权限码（与 `backend/migrations/business/V0142__erp_serial_permissions.up.sql` 逐字一致） */
+/** 本页权限码（与 `backend/app/migrations/business/V0142__erp_serial_permissions.up.sql` 逐字一致） */
 const PERM = {
   /** 列表（页面入口） */
   serialList: 'business:erp:serial:list',

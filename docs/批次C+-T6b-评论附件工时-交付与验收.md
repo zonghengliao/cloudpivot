@@ -2,7 +2,7 @@
 
 > 卡号：`t_3fe560e1` ｜ 交付日期：2026-10-29 ｜ 角色：manong（开发团队）
 > 依据：卡面「一/二/三/四/五」五段 + `docs/批次C+-工作任务管理-核心设计.md` §八/§九/§十三
-> 迁移：`backend/migrations/business/V0113__task_comment_worklog_permissions.{up,down}.sql`
+> 迁移：`backend/app/migrations/business/V0113__task_comment_worklog_permissions.{up,down}.sql`
 
 ---
 
@@ -27,13 +27,13 @@ T1 建了 7 张表，只实现了 3 张；本卡把 **`biz_task_comment` / `biz_
 
 | 文件 | 变更 |
 |---|---|
-| `backend/src/business/task/collab.rs` | **新增**（约 1350 行）：8 个 handler + 子表查询 + 4 条纯判定 + 8 条单测 |
-| `backend/src/business/task/dto.rs` | 新增 3 个权限码常量 + 12 个 DTO |
-| `backend/src/business/task/handler.rs` | `add_comment` 接 @ 强制通知；`upload_attachment` 加 50 个上限；`parse_uuid_field` / `not_found` 提为 `pub(crate)` |
-| `backend/src/business/task/model.rs` | `bind_*_attachment` 支持「软删后重新上传」的复活路径 |
-| `backend/src/business/storage/handler.rs` | `download_response` 提为 `pub(crate)`（出流只留一份实现） |
-| `backend/migrations/business/V0113__*.sql` | 附件软删列 + 2 条索引 + 工时区间 CHECK + 3 个权限节点 |
-| `backend/migrations/seed/S__task_permissions.sql` | 第 4 段：3 个新权限码只授 SUPER_ADMIN |
+| `backend/app/src/business/task/collab.rs` | **新增**（约 1350 行）：8 个 handler + 子表查询 + 4 条纯判定 + 8 条单测 |
+| `backend/app/src/business/task/dto.rs` | 新增 3 个权限码常量 + 12 个 DTO |
+| `backend/app/src/business/task/handler.rs` | `add_comment` 接 @ 强制通知；`upload_attachment` 加 50 个上限；`parse_uuid_field` / `not_found` 提为 `pub(crate)` |
+| `backend/app/src/business/task/model.rs` | `bind_*_attachment` 支持「软删后重新上传」的复活路径 |
+| `backend/app/src/business/storage/handler.rs` | `download_response` 提为 `pub(crate)`（出流只留一份实现） |
+| `backend/app/migrations/business/V0113__*.sql` | 附件软删列 + 2 条索引 + 工时区间 CHECK + 3 个权限节点 |
+| `backend/app/migrations/seed/S__task_permissions.sql` | 第 4 段：3 个新权限码只授 SUPER_ADMIN |
 | `frontend/src/api/business/task-api.ts` | 评论/附件/工时的类型与 11 个方法（含 Blob 下载、multipart 上传） |
 | `frontend/src/views/business/task/detail.vue` | 详情抽屉新增「协作」三 Tab（评论时间线 / 附件拖拽上传 / 工时合计与登记弹窗） |
 | `frontend/src/views/business/task/components/MentionSelect.vue` | **新增**：评论 @ 的多人选择器（远程搜索，与 `UserSelect` 单选互不影响） |

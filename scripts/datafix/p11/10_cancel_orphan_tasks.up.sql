@@ -4,8 +4,8 @@
 -- 背景（老板 2026-10-31 报 TSK-202610-000149）：
 --   任务被推 CANCELLED 时只级联取消了子孙任务，没有撤它的审批实例与待办，
 --   于是审批人（henry.liao）的「待我审批」里有一条点不动的孤儿待办。
---   代码修复见 backend/src/business/task/handler.rs（change_status 的 CANCELLED 分支）
---   与 backend/src/business/flow/task_bridge.rs（cancel_on_task_cancelled）。
+--   代码修复见 backend/app/src/business/task/handler.rs（change_status 的 CANCELLED 分支）
+--   与 backend/app/src/business/flow/task_bridge.rs（cancel_on_task_cancelled）。
 --
 -- 口径（严格按「实例已终态」这一组合，绝不批量清全库待办）：
 --   biz_flow_task.status = 'PENDING'             ← 只动还挂着的人

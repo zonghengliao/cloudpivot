@@ -9,7 +9,7 @@
  * e2e 也只看得见「界面长什么样」。
  *
  * 断言里的口径都照后端抄：
- * - 出参字段 = `backend/src/business/erp/dto.rs::MaterialRes`（**没有** category_id / unit_name / is_active）；
+ * - 出参字段 = `backend/app/src/business/erp/dto.rs::MaterialRes`（**没有** category_id / unit_name / is_active）；
  * - 分类 = `dto::MATERIAL_TYPES`（RAW / SEMI / FINISHED / SERVICE）；
  * - 编辑请求体 = `dto::UpdateMaterialReq`（**没有** material_code）。
  */

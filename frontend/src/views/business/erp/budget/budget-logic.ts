@@ -241,7 +241,7 @@ export function evenSplitRows(fiscalYear: number, totalAmount: string | number):
  *
  * 设计文档写的来源是 `biz_voucher_entry` 按 `account_id + aux_dept_id + period` 汇总的上年
  * 12 个月金额，但本期**没有**暴露「分录按部门聚合」的接口（`grep -n 'entry/agg'
- * backend/src` 零命中），所以页面拿不到发生额。本函数吃的是**上年同槽 ACTIVE 预算的
+ * backend/app/src` 零命中），所以页面拿不到发生额。本函数吃的是**上年同槽 ACTIVE 预算的
  * 月度额度**：它同样反映「这家公司在这个科目上的季节性」，且数据就在 `/budget/{id}` 里。
  *
  * 分摊用**最大余数法**（不是逐月四舍五入）：逐月 round 会让 Σ 漂几分；最大余数法能保证

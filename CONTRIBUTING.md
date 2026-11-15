@@ -65,7 +65,7 @@ flow_engine::start("po_approve", order.id)?;
 ### 4. 新业务代码的位置
 
 ```
-backend/src/business/<模块>/          后端业务
+backend/app/src/business/<模块>/          后端业务
 frontend/src/api/business/<模块>/     前端 API
 frontend/src/views/business/<模块>/   前端页面
 ```

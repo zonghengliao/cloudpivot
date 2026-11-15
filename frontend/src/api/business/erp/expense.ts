@@ -1,5 +1,5 @@
 /**
- * 费用报销 API 层（后端 `backend/src/business/erp/expense_{dto,handler,model,compute}.rs`，
+ * 费用报销 API 层（后端 `backend/app/src/business/erp/expense_{dto,handler,model,compute}.rs`，
  * ARCH-6 §4.10）。
  *
  * # 为什么单独成文件

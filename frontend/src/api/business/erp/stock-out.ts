@@ -1,5 +1,5 @@
 /**
- * 出库单 API 层（DC-13 后端 `backend/src/business/erp/stockout_{dto,handler,model}.rs`）。
+ * 出库单 API 层（DC-13 后端 `backend/app/src/business/erp/stockout_{dto,handler,model}.rs`）。
  *
  * # 为什么单独一个文件（不并进 `erp/index.ts`）
  *

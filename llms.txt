@@ -10,10 +10,12 @@
 - [docker/](./docker/) : PG+Redis+后端+前端编排
 
 ## Backend
-- [backend/Cargo.toml](./backend/Cargo.toml) : 依赖门面化——只声明 `alun`，能力靠 feature 点单
-- [backend/src/lib.rs](./backend/src/lib.rs) : 启动链 `App::new()?...scan().start()` 与分层约定
-- [backend/src/system/user/](./backend/src/system/user/) : 用户模块四件套范本
-- [backend/migrations/](./backend/migrations/) : SQL 迁移（`V{n}__*.up.sql`/`down.sql` + 种子 `S__*.sql`）；最大 `V0017`
+- [backend/Cargo.toml](./backend/Cargo.toml) : workspace 根（成员 `app` + `crates/*`；`vendor/` 是 path 依赖但**不**是成员）
+- [backend/app/Cargo.toml](./backend/app/Cargo.toml) : 主 binary crate（依赖门面化——只声明 `nik`，能力靠 feature 点单）
+- [backend/app/src/lib.rs](./backend/app/src/lib.rs) : 启动链 `App::new()?...scan().start()` 与分层约定
+- [backend/app/src/system/user/](./backend/app/src/system/user/) : 用户模块四件套范本
+- [backend/crates/cloudpivot-doc/](./backend/crates/cloudpivot-doc/) : 业务类型词表 crate（零依赖叶子）
+- [backend/app/migrations/](./backend/app/migrations/) : SQL 迁移（`V{n}__*.up.sql`/`down.sql` + 种子 `S__*.sql`）
 
 ## Frontend
 - [frontend/package.json](./frontend/package.json) : Vue 3.5 + TDesign + Pinia + ECharts + Vite 6

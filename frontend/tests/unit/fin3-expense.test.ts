@@ -576,7 +576,7 @@ test('预算占用 / 付款 / 发票 / 方式的中文映射（未知值原样�
 
 test('三页菜单 path / component 与迁移 V0242 逐字一致', () => {
   const migration = readFileSync(
-    resolve(FRONTEND_ROOT, '../backend/migrations/business/V0242__erp_expense_tables.up.sql'),
+    resolve(FRONTEND_ROOT, '../backend/app/migrations/business/V0242__erp_expense_tables.up.sql'),
     'utf8',
   );
 

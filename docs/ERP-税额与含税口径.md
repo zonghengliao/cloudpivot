@@ -3,7 +3,7 @@
 > 卡：`t_728f716e`【FIX-6】税务与科目：tax_rate 标度统一 + 期初科目可配 + 含税口径 + 留抵重分类
 > 迁移：`V0327__tax_rate_percent_scale`、`V0328__opening_equity_account_config`、
 > `V0329__report_item_negative_reclass`
-> 代码：`backend/src/business/erp/tax_rate.rs`（唯一入口）、`invoice.rs`、`dto.rs`/`handler.rs`（物料）、
+> 代码：`backend/app/src/business/erp/tax_rate.rs`（唯一入口）、`invoice.rs`、`dto.rs`/`handler.rs`（物料）、
 > `sales_return_posting.rs`、`opening.rs`、`report.rs`
 
 本文是这四件事的**口径唯一来源**。改一处必须同步本文件 + 对应迁移 + 单测。

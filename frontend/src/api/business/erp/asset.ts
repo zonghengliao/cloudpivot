@@ -1,5 +1,5 @@
 /**
- * 固定资产 API 层（后端 `backend/src/business/erp/asset_{dto,handler,model,compute}.rs`）。
+ * 固定资产 API 层（后端 `backend/app/src/business/erp/asset_{dto,handler,model,compute}.rs`）。
  *
  * # 为什么单独成文件
  *

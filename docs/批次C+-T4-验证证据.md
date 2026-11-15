@@ -12,20 +12,20 @@
 
 | 文件 | 内容 |
 |---|---|
-| `backend/migrations/business/V0110__task_dependency_constraints.up.sql` | ① 补 `lag_days` 列（`NOT NULL DEFAULT 0` + `CHECK >= 0`）；② 反自反约束**存在性自检**（V0100 已建，缺了才补）；③ `idx_biz_task_dependency_on`（反查「谁依赖我」）+ `uk_biz_task_dependency_triplet`（`task_id, depends_on_id, dep_type` 防重）；④ 2 个菜单节点（甘特页 `…0770` / 依赖管理按钮 `…0771`）；⑤ 5 条自检（列 / 约束 / 两个索引 / 节点数量 / 节点字段逐字比对） |
-| `backend/migrations/business/V0110__task_dependency_constraints.down.sql` | 撤授权 → 删节点 → 删索引 → 删 `lag` 约束 → 删列（**保留 V0100 的反自反约束**） |
-| `backend/migrations/seed/S__task_dependency_permissions.sql` | 甘特页授**所有未软删角色**；`business:task:dependency` **只授 SUPER_ADMIN**（与 T3 的 assign/member 同口径：权限码是「加项」，行级关系才是主口径） |
+| `backend/app/migrations/business/V0110__task_dependency_constraints.up.sql` | ① 补 `lag_days` 列（`NOT NULL DEFAULT 0` + `CHECK >= 0`）；② 反自反约束**存在性自检**（V0100 已建，缺了才补）；③ `idx_biz_task_dependency_on`（反查「谁依赖我」）+ `uk_biz_task_dependency_triplet`（`task_id, depends_on_id, dep_type` 防重）；④ 2 个菜单节点（甘特页 `…0770` / 依赖管理按钮 `…0771`）；⑤ 5 条自检（列 / 约束 / 两个索引 / 节点数量 / 节点字段逐字比对） |
+| `backend/app/migrations/business/V0110__task_dependency_constraints.down.sql` | 撤授权 → 删节点 → 删索引 → 删 `lag` 约束 → 删列（**保留 V0100 的反自反约束**） |
+| `backend/app/migrations/seed/S__task_dependency_permissions.sql` | 甘特页授**所有未软删角色**；`business:task:dependency` **只授 SUPER_ADMIN**（与 T3 的 assign/member 同口径：权限码是「加项」，行级关系才是主口径） |
 
 ### 后端
 
 | 文件 | 变更 |
 |---|---|
-| `backend/src/business/task/dep.rs`（新增，~700 行含 11 条单测） | 纯逻辑：`find_cycle`（BFS + 100 层深度上限 + 闭合路径）、`orient_cycle_from`（路径从被编辑的任务读起）、`render_cycle`（点名每个任务）、`is_blocking_status`（`DONE`/`CANCELLED` 解除，其余阻塞，**状态写坏 fail-closed**）、`resolve_range` / `bar_span` / `today_offset` / `is_overdue`（甘特排期） |
-| `backend/src/business/task/model.rs` | 依赖 SQL：`list_prerequisites` / `list_successors` / `blocking_prerequisites` / `dependency_edges`（事务内全量边）/ `find_dependency` / `insert_dependency` / `delete_dependency`（**pair 双向匹配**）/ `task_relation`（父子 + 跨项目）/ `dependency_labels`；甘特 SQL：`gantt_tasks`（复用 `VISIBLE_OR_TAIL` 可见性 + 窗口重叠 + `LIMIT 501`）/ `blocked_task_ids`（一条 SQL 批量算，避免 N+1）/ `gantt_edges` |
-| `backend/src/business/task/handler.rs` | 4 个新接口 + `check_dependencies_ready` 真实实现（T2 留的 hook）+ `notify_dependents`（前置 DONE/CANCELLED 通知后继） |
-| `backend/src/business/task/dto.rs` | 依赖 / 甘特 DTO 共 11 个 + `PERM_DEPENDENCY` |
-| `backend/src/business/task/state.rs` | 三处 `H-REL` / `H-DEP` 占位文案改为真实语义（流转表本身未改） |
-| `backend/src/shared/error_code.rs` | `63101`–`63105`（T4 子段）+ 码表单测同步（610 条 lib 单测全绿） |
+| `backend/app/src/business/task/dep.rs`（新增，~700 行含 11 条单测） | 纯逻辑：`find_cycle`（BFS + 100 层深度上限 + 闭合路径）、`orient_cycle_from`（路径从被编辑的任务读起）、`render_cycle`（点名每个任务）、`is_blocking_status`（`DONE`/`CANCELLED` 解除，其余阻塞，**状态写坏 fail-closed**）、`resolve_range` / `bar_span` / `today_offset` / `is_overdue`（甘特排期） |
+| `backend/app/src/business/task/model.rs` | 依赖 SQL：`list_prerequisites` / `list_successors` / `blocking_prerequisites` / `dependency_edges`（事务内全量边）/ `find_dependency` / `insert_dependency` / `delete_dependency`（**pair 双向匹配**）/ `task_relation`（父子 + 跨项目）/ `dependency_labels`；甘特 SQL：`gantt_tasks`（复用 `VISIBLE_OR_TAIL` 可见性 + 窗口重叠 + `LIMIT 501`）/ `blocked_task_ids`（一条 SQL 批量算，避免 N+1）/ `gantt_edges` |
+| `backend/app/src/business/task/handler.rs` | 4 个新接口 + `check_dependencies_ready` 真实实现（T2 留的 hook）+ `notify_dependents`（前置 DONE/CANCELLED 通知后继） |
+| `backend/app/src/business/task/dto.rs` | 依赖 / 甘特 DTO 共 11 个 + `PERM_DEPENDENCY` |
+| `backend/app/src/business/task/state.rs` | 三处 `H-REL` / `H-DEP` 占位文案改为真实语义（流转表本身未改） |
+| `backend/app/src/shared/error_code.rs` | `63101`–`63105`（T4 子段）+ 码表单测同步（610 条 lib 单测全绿） |
 
 ### 接口（4 个，`/api` 前缀由 `[router].prefix` 注入）
 

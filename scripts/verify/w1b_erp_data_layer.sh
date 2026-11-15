@@ -148,7 +148,7 @@ SETS_RANGE=$(q "select string_agg(warehouse_code, ',' order by warehouse_path) f
 
 # ---------------------------------------------------------------- 6) 门禁复查
 step "6) 门禁复查（分页入口 / SCOPE 口径）"
-ERPDIR="$REPO/backend/src/business/erp"
+ERPDIR="$REPO/backend/app/src/business/erp"
 # 只看真实代码行（剥掉整行注释：`//` / `//!` / `///` / `*`），与 check.sh 闸① 同口径
 if grep -rn "paginate_with_params" "$ERPDIR" --include=*.rs | grep -vE ":[0-9]+:[[:space:]]*(//|\*)" | grep -q .; then
   bad "新模块里出现 paginate_with_params（闸① 会红）"
@@ -162,7 +162,7 @@ UNSCOPED=$(grep -c "scope::paginate_unscoped(" "$ERPDIR/model.rs")
 [ "$UNSCOPED" -eq 1 ] && ok "paginate_unscoped 只在 page_of 里出现 1 处（唯一分页入口）" \
   || bad "paginate_unscoped 出现 $UNSCOPED 处（应只在 page_of 里 1 处）"
 grep -q "SCOPE-EXEMPT" "$ERPDIR/model.rs" && ok "模块头写明了 SCOPE-EXEMPT 理由" || bad "缺 SCOPE-EXEMPT 说明"
-grep -q "pub mod erp;" "$REPO/backend/src/business/mod.rs" && ok "business/mod.rs 已注册 pub mod erp;" || bad "未注册 erp 模块"
+grep -q "pub mod erp;" "$REPO/backend/app/src/business/mod.rs" && ok "business/mod.rs 已注册 pub mod erp;" || bad "未注册 erp 模块"
 ls "$ERPDIR"/{mod,model,dto}.rs > /dev/null 2>&1 && ok "交付 3 个文件：mod.rs / model.rs / dto.rs" || bad "文件缺失"
 
 # ---------------------------------------------------------------- 收尾

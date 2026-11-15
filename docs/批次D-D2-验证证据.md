@@ -10,12 +10,12 @@
 
 | 类别 | 文件 | 说明 |
 |---|---|---|
-| 迁移 | `backend/migrations/business/V0122__flow_instance_tables.{up,down}.sql` | 运行侧 4 张表（实例 / 实例节点 / 待办 / 抄送） |
-| 迁移 | `backend/migrations/business/V0123__flow_instance_indexes.{up,down}.sql` | POC 实测补出来的 3 条索引 |
-| 迁移 | `backend/migrations/business/V0124__flow_instance_permissions.{up,down}.sql` | **实例侧 5 个权限节点**（卡面未列，理由见 §9.1） |
-| 新模块 | `backend/src/business/flow/assignee.rs` | 审批人解析：8 种来源 + 三层去重 + 三策略 + ROBOT 过滤（12 条单测） |
-| 新模块 | `backend/src/business/flow/engine.rs` | 引擎：发起 / 同意 / 驳回+退回 / 撤回 / 转办 / 加签 / 超时代点（12 条单测） |
-| 新模块 | `backend/src/business/flow/timeout.rs` | 超时扫描（REMIND / AUTO_APPROVE / AUTO_REJECT，2 条单测） |
+| 迁移 | `backend/app/migrations/business/V0122__flow_instance_tables.{up,down}.sql` | 运行侧 4 张表（实例 / 实例节点 / 待办 / 抄送） |
+| 迁移 | `backend/app/migrations/business/V0123__flow_instance_indexes.{up,down}.sql` | POC 实测补出来的 3 条索引 |
+| 迁移 | `backend/app/migrations/business/V0124__flow_instance_permissions.{up,down}.sql` | **实例侧 5 个权限节点**（卡面未列，理由见 §9.1） |
+| 新模块 | `backend/app/src/business/flow/assignee.rs` | 审批人解析：8 种来源 + 三层去重 + 三策略 + ROBOT 过滤（12 条单测） |
+| 新模块 | `backend/app/src/business/flow/engine.rs` | 引擎：发起 / 同意 / 驳回+退回 / 撤回 / 转办 / 加签 / 超时代点（12 条单测） |
+| 新模块 | `backend/app/src/business/flow/timeout.rs` | 超时扫描（REMIND / AUTO_APPROVE / AUTO_REJECT，2 条单测） |
 | 扩展 | `flow/model.rs` | 运行侧行结构 + 全部运行侧 SQL（锁顺序/现算计票/派生计数） |
 | 扩展 | `flow/dto.rs` | 12 个接口的请求 / 出参 |
 | 扩展 | `flow/handler.rs` | 12 个接口（12–23） |

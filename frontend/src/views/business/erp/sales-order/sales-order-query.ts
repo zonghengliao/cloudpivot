@@ -3,7 +3,7 @@
  *
  * # 字段口径
  *
- * 出参与入参逐字抄 `backend/src/business/erp/sales_order_handler.rs`
+ * 出参与入参逐字抄 `backend/app/src/business/erp/sales_order_handler.rs`
  * （`SalesOrderRes` / `CreateSalesOrderReq` / `UpdateSalesOrderReq` / `SalesOrderItemReq`），
  * 前端类型在 `@/api/business/erp` 的「销售订单」段。**别照采购单抄**：采购是
  * `order_no` / `supplier_id` / `price_mode`，销售是 `so_no` / `customer_id`，没有

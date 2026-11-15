@@ -12,7 +12,7 @@
 > | 本文档性质 | **只做设计，不交付业务代码**。所有 DDL 在真库 **PG 18.6 实跑通过**；所有性能结论有 `EXPLAIN (ANALYZE, BUFFERS)` 实测；所有代码事实附 `文件:行号` |
 > | 验证环境 | PG 18.6（Ubuntu 26.04 / x86_64），验证库 `c_task_v1`（迁移首跑与自检）、`c_task_v2`（20 万任务性能实验）；脚本见附录 B |
 > | 本地代码镜像 | `/root/.hermes/workspace/architect/baseline2/{src,migrations,frontend-src}`（rsync 自生产 HEAD `97d1367`，仅供检索定位） |
-> | 交付代码位置 | 新代码全部进 `backend/src/business/task/`；**不改** `system/` / `support/`；`business/shared/` 只在 §4.4 说明的那一处需要报批 |
+> | 交付代码位置 | 新代码全部进 `backend/app/src/business/task/`；**不改** `system/` / `support/`；`business/shared/` 只在 §4.4 说明的那一处需要报批 |
 
 ---
 
@@ -87,7 +87,7 @@
 ### 1.1 组织结构：`dept` 有 leader，`user` 没有上级
 
 ```sql
--- backend/migrations/system/V0006__create_sys_dept.up.sql:5-12（实测原文）
+-- backend/app/migrations/system/V0006__create_sys_dept.up.sql:5-12（实测原文）
 CREATE TABLE sys_dept (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     dept_code VARCHAR(50) NOT NULL,
@@ -99,7 +99,7 @@ CREATE TABLE sys_dept (
 ```
 
 ```sql
--- backend/migrations/system/V0001__create_sys_user.up.sql（全文 19 列，逐列核对）
+-- backend/app/migrations/system/V0001__create_sys_user.up.sql（全文 19 列，逐列核对）
 id / username / password / real_name / email / mobile / dept_id / status /
 login_fail_count / is_locked / lock_time / last_login_at / remark /
 created_at / updated_at / create_by / update_by / deleted_at
