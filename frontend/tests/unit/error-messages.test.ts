@@ -1,17 +1,17 @@
 /**
- * P3-01 单测：错误码 → 人话（审批类 `409` / `6502x`）。
+ * P3-01 / P3-02 单测：错误码 → 人话（审批类 `650xx` + ERP 单据类 `66xxx`）。
  *
  * 运行：`pnpm test:unit`（= `tsx --test "tests/unit/**\/*.test.ts"`，零新依赖、无 DOM）。
  *
  * # 分三层（与 `n4-request-id.test.ts` 同一套姿势）
  *
  * 1. **行为层**（`constants/error-messages.ts` 的 `resolveErrorMessage`，真跑）：
- *    卡面验收「给一个 65023 响应 → 展示中文提示」就在这里钉死 —— 而且不止测「有中文」，
+ *    卡面验收「给一个 65023 / 66034 响应 → 展示中文提示」就在这里钉死 —— 而且不止测「有中文」，
  *    还测**四条取文优先级**各自的分支（后端自足 / 后端不自足 / 无后端文案 / 表里没有）。
  * 2. **表格质量**：全部条目非空、含中文、不含裸码、长度合理（toast 会换行，太长看不清）。
  * 3. **覆盖面 + 接线**：
- *    - 读 `backend/crates/cloudpivot-kernel/src/shared/error_code.rs`，`65xxx` 段**每一条**
- *      常量都必须在表里（后端新增审批码而前端没登记 → 这里先红）；
+ *    - 读 `backend/crates/cloudpivot-kernel/src/shared/error_code.rs`，`65xxx` 与 `66xxx` 两段
+ *      **每一条**常量都必须在表里（后端新增码而前端没登记 → 这里先红）；
  *    - `api/request.ts` 的两条错误路径（HTTP 失败 / 业务码非 0）都必须过这张表，且旧硬编码
  *      文案（`权限不足` / `网络异常，请检查服务是否可用`）不许再出现 —— 它们绕过了码表。
  */
@@ -72,20 +72,63 @@ test('65020 + 「已处理过」后端原文 → 表补上「不用再点」的�
   assert.match(message, /销售主管审批/, '节点名不能丢');
 });
 
+// ==================== ① ERP 单据类（P3-02）：库存不足 / 期间锁定 / 被引用 ====================
+
+test('66034 负库存 + 后端点名物料与可用量 → 表给「怎么办」，单号与数量不丢', () => {
+  // 后端真实报文（`stockout_handler`）：点名物料、仓库、可用量（P3-01 已定「后端原文优先」，
+  // 但这条 msg 只说了现象、没说动作，所以表里的「减少数量 / 换库位 / 先补货」要补上）
+  const backend = '物料 MAT-0001「钢板」在仓库「一号库」可用量 3，本次出库 5';
+  const { message, source } = resolveErrorMessage({ code: 66034, status: 409, message: backend });
+  assert.equal(source, 'table');
+  assert.match(message, /减少数量|补货|有货的仓库/, '必须告诉用户下一步怎么做');
+  assert.match(message, /MAT-0001/, '后端报文的物料编码不能丢');
+  assert.ok(!message.includes('66034'), `不许把裸码甩给用户：${message}`);
+});
+
+test('66066 期间已锁定 + 后端已给动作 → 整段用后端原文（带批次号）', () => {
+  const backend = '该期间成本批次 CP-202610 已结算，请先红冲后再重算分摊';
+  const { message, source } = resolveErrorMessage({ code: 66066, status: 409, message: backend });
+  assert.equal(source, 'backend');
+  assert.match(message, /CP-202610/);
+});
+
+test('66018 单据已被引用 + 后端没文案 → 表里说清「先处理单据，或改为终止」', () => {
+  const { message, source } = resolveErrorMessage({ code: 66018, status: 409 });
+  assert.equal(source, 'table');
+  assert.match(message, /采购单/);
+  assert.match(message, /不能删除/);
+  assert.ok(!message.includes('66018'));
+});
+
+test('66038 期间已结账 + 后端只说现象 → 表补「反结账 / 开账」动作，后端原文保留', () => {
+  const { message, source } = resolveErrorMessage({ code: 66038, status: 409, message: '目标会计期间已结账' });
+  assert.equal(source, 'table');
+  assert.match(message, /反结账/);
+  assert.match(message, /后端说明：目标会计期间已结账/);
+});
+
 // ==================== ② 取文优先级（四条分支逐条钉） ====================
 
-test('表里没有的业务码 + 后端文案 → 用后端文案，不被 HTTP 409 通用话盖掉', () => {
-  // 66xxx 是 ERP 主数据（P3-02 的活）：这里必须原样透出，否则「编码已存在」会变成「请刷新后重试」
+test('码在表里 + 后端文案只说了现象（无可执行动作）→ 表给动作，后端原文当说明保留', () => {
   const { message, source } = resolveErrorMessage({ code: 66001, status: 409, message: '单位编码已存在' });
-  assert.equal(source, 'backend');
-  assert.equal(message, '单位编码已存在');
+  assert.equal(source, 'table');
+  assert.match(message, /换一个编码/, '表里的动作指引要在');
+  assert.match(message, /后端说明：单位编码已存在/, '后端点名了是「单位」编码，不能丢');
+  assert.ok(!message.includes('66001'));
 });
 
 test('表里没有的业务码 + 没有文案 + 409 → 用 HTTP 状态的人话（仍不是裸码）', () => {
-  const { message, source } = resolveErrorMessage({ code: 66001, status: 409 });
+  // 67555 是 67xxx（PDF）段里**不存在**的值：用来钉「查不到码」这条分支，永远不会被后续卡占用
+  const { message, source } = resolveErrorMessage({ code: 67555, status: 409 });
   assert.equal(source, 'http');
   assert.match(message, /刷新/);
-  assert.ok(!message.includes('66001'));
+  assert.ok(!message.includes('67555'));
+});
+
+test('表里没有的业务码 + 后端文案 → 用后端文案，不被 HTTP 409 通用话盖掉', () => {
+  const { message, source } = resolveErrorMessage({ code: 67555, status: 409, message: '导出服务暂不可用' });
+  assert.equal(source, 'backend');
+  assert.equal(message, '导出服务暂不可用');
 });
 
 test('后端 msg 就是个裸码 → 视为没给文案，改走码表', () => {
@@ -144,22 +187,44 @@ test('同一条码只有一个文案（表没有重复键被后写覆盖）', ()
   }
 });
 
-// ==================== ④ 覆盖后端 error_code.rs 的 65xxx 整段 ====================
+// ==================== ④ 覆盖后端 error_code.rs 的 65xxx / 66xxx 两段 ====================
 
-test('error_code.rs 里 65xxx 每一条常量，前端表里都有（后端加码 → 这里先红）', () => {
-  // 只认 `pub const NAME: i32 = 650xx;` 这种定义体；`= TASK_APPROVAL_PENDING` 那种别名会
-  // 命中不到数字，但它指向的那条已经被下面的清单覆盖（65030 由 TASK_APPROVAL_PENDING 提供）。
-  const declared = [...ERROR_CODE_RS.matchAll(/pub const ([A-Z_0-9]+): i32 = (6[45]\d{3});/g)]
+/** 从 `error_code.rs` 里抠出某码段的所有 `pub const NAME: i32 = code;`（只认数字字面量）。 */
+function declaredCodes(from: number, to: number): Array<{ name: string; code: number }> {
+  // `= TASK_APPROVAL_PENDING` 这种别名命中不到数字，但它指向的那条已被数字条文覆盖
+  // （65030 由 TASK_APPROVAL_PENDING 提供）。
+  return [...ERROR_CODE_RS.matchAll(/pub const ([A-Z_0-9]+): i32 = (6[4-6]\d{3});/g)]
     .map((m) => ({ name: m[1], code: Number(m[2]) }))
-    .filter((item) => item.code >= 65000 && item.code < 66000);
-  assert.ok(declared.length >= 40, `没解析到 65xxx 常量（实际 ${declared.length}），regex 可能过时了`);
+    .filter((item) => item.code >= from && item.code < to);
+}
 
+test('error_code.rs 里 65xxx（审批流）每一条常量，前端表里都有（后端加码 → 这里先红）', () => {
+  const declared = declaredCodes(65000, 66000);
+  assert.ok(declared.length >= 40, `没解析到 65xxx 常量（实际 ${declared.length}），regex 可能过时了`);
   const missing = declared.filter((item) => !(String(item.code) in ERROR_MESSAGES));
   assert.deepEqual(
     missing.map((item) => `${item.name}(${item.code})`),
     [],
     '这些审批流码还没翻译成人话，请补进 ERROR_MESSAGES',
   );
+});
+
+test('error_code.rs 里 66xxx（ERP 单据 / 主数据）每一条常量，前端表里都有', () => {
+  const declared = declaredCodes(66000, 67000);
+  // 2026-11-15 实测 79 条（66001–66079 连续、无重号）；低于 75 说明 regex 或码段读歪了
+  assert.ok(declared.length >= 75, `没解析到 66xxx 常量（实际 ${declared.length}），regex 可能过时了`);
+  const missing = declared.filter((item) => !(String(item.code) in ERROR_MESSAGES));
+  assert.deepEqual(
+    missing.map((item) => `${item.name}(${item.code})`),
+    [],
+    '这些 ERP 码还没翻译成人话，请补进 ERROR_MESSAGES',
+  );
+  // 段里没有的码不该在表里凭空出现（抄错号会导致「后端从没返回过的码也有文案」）
+  const declaredSet = new Set(declared.map((item) => item.code));
+  const invented = Object.keys(ERROR_MESSAGES)
+    .map(Number)
+    .filter((code) => code >= 66000 && code < 67000 && !declaredSet.has(code));
+  assert.deepEqual(invented, [], ' 表里出现了 66xxx 段内不存在的码，请核对码值');
 });
 
 // ==================== ⑤ 接线：request.ts 两条错误路径都必须过表 ====================
