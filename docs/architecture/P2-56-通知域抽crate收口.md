@@ -59,7 +59,7 @@ P2-56 与「C5 的 notice 半步」是同一件事，作废的实质是**并入 
 
 ## 2. `notice` 的实测（只读、无库依赖，2026-11-15 于 99）
 
-### 2.1 工具原始输出（逐字）
+### 2.1 工具原始输出（摘录：回边的 `file:line` 明细省略，逐行列于 §4）
 
 ```bash
 $ python3 scripts/verify/crate_split_readiness.py --domain notice --layer-check
@@ -113,7 +113,7 @@ exit=0
    **本步要切 1 条 / 2 行：support(2)**。按卡序 C3（support）在 C5 之前 ⇒ 这 2 行变合法向下箭头，
    不增加 C5 的账；但**卡面 4 包、工具 3 包**这个差要写进 C5 卡面，否则按工具排产会漏 `monitor`。
 2. **`notice` 的手写路由不计入工具的宏路由口径**：`P2-42` §4 与 C5 行用的是宏路由条数，
-   而 `notice` 另有 1 条 `library` 侧手工注册的 `POST /internal/alert`（§5）—— 数路由时要么统一
+   而 `notice` 另有 1 条 `lib.rs` 侧手工注册的 `POST /internal/alert`（§5）—— 数路由时要么统一
    「宏 + 手册」，要么在卡面注明「+1 条装配层手写路由」。
 
 ### 2.3 SCC：与 23 个节点同环，但环可以按卡序单向化
