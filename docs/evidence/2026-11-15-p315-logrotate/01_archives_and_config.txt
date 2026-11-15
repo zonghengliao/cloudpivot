@@ -1,0 +1,99 @@
+######## 172.18.10.145 ########
+-- /etc/logrotate.d/cloudpivot --
+644 root:root /etc/logrotate.d/cloudpivot (sha256 1357 bytes)
+60466966cca81bb2ce220f2cac010b9ec4faf88197d53dc733011cc9b7d46ed9  /etc/logrotate.d/cloudpivot
+-- logrotate -d --
+
+reading config file /etc/logrotate.d/cloudpivot
+Reading state from file: /var/lib/logrotate/status
+Allocating hash table for state file, size 64 entries
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+-- .gz 归档 --
+-rw-r--r-- 1 root root   513 Nov 10 03:25 /var/log/cloudpivot/ALERT.log.1.gz
+-rw-r--r-- 1 root root 61240 Nov 15 23:45 /var/log/cloudpivot/alert-check.cron.log.1.gz
+-rw-r--r-- 1 root root  1460 Nov 15 03:30 /var/log/cloudpivot/backup.log.1.gz
+-rw-r--r-- 1 root root   824 Nov  7 22:36 /var/log/cloudpivot/force-rebuild-145.log.1.gz
+-rw-r--r-- 1 root root 48315 Nov 15 23:32 /var/log/cloudpivot/test-deploy.log.1.gz
+-rw-r--r-- 1 root root  2647 Nov 10 20:57 /var/log/cloudpivot/upgrade-20261110-205703.log.1.gz
+-rw-r--r-- 1 root root  3301 Nov 10 21:01 /var/log/cloudpivot/upgrade-20261110-210149.log.1.gz
+-rw-r--r-- 1 root root  3651 Nov 10 21:02 /var/log/cloudpivot/upgrade-20261110-210239.log.1.gz
+-rw-r--r-- 1 root root  4583 Nov 10 21:06 /var/log/cloudpivot/upgrade-20261110-210305.log.1.gz
+-rw-r--r-- 1 root root  3757 Nov 10 21:07 /var/log/cloudpivot/upgrade-20261110-210639.log.1.gz
+-rw-r--r-- 1 root root  1052 Nov 10 21:07 /var/log/cloudpivot/upgrade-20261110-210733.log.1.gz
+-rw-r--r-- 1 root root  2369 Nov 10 21:08 /var/log/cloudpivot/upgrade-20261110-210801.log.1.gz
+-rw-r--r-- 1 root root  3059 Nov 10 21:09 /var/log/cloudpivot/upgrade-20261110-210855.log.1.gz
+-rw-r--r-- 1 root root   323 Nov 10 21:09 /var/log/cloudpivot/upgrade-20261110-210944.log.1.gz
+-rw-r--r-- 1 root root  1030 Nov 10 21:10 /var/log/cloudpivot/upgrade-20261110-211000.log.1.gz
+-rw-r--r-- 1 root root   901 Nov 10 21:10 /var/log/cloudpivot/upgrade-20261110-211025.log.1.gz
+-rw-r--r-- 1 root root  3750 Nov 10 21:11 /var/log/cloudpivot/upgrade-20261110-211040.log.1.gz
+-rw-r--r-- 1 root root  2969 Nov 10 21:12 /var/log/cloudpivot/upgrade-20261110-211210.log.1.gz
+归档数: 18
+-- 目录大小 --
+188K	/var/log/cloudpivot
+-- 基文件清空数 --
+17
+-- journald --
+Storage=persistent
+MaxFileSec=1day
+MaxRetentionSec=30day
+SystemMaxUse=2G
+SystemMaxFileSize=128M
+Archived and active journals take up 171M in the file system.
+active
+active
+######## 172.18.10.144 ########
+-- /etc/logrotate.d/cloudpivot --
+644 root:root /etc/logrotate.d/cloudpivot (sha256 1357 bytes)
+60466966cca81bb2ce220f2cac010b9ec4faf88197d53dc733011cc9b7d46ed9  /etc/logrotate.d/cloudpivot
+-- logrotate -d --
+
+reading config file /etc/logrotate.d/cloudpivot
+Reading state from file: /var/lib/logrotate/status
+Allocating hash table for state file, size 64 entries
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+Creating new state
+-- .gz 归档 --
+-rw-r--r-- 1 root root   324 Nov 12 10:50 /var/log/cloudpivot/ALERT.log.1.gz
+-rw-r--r-- 1 root root 74949 Nov 15 23:45 /var/log/cloudpivot/alert-check.cron.log.1.gz
+-rw-r--r-- 1 root root  1371 Nov 15 02:30 /var/log/cloudpivot/backup.log.1.gz
+-rw-r--r-- 1 root root  1855 Oct 31 11:17 /var/log/cloudpivot/erp-health-202610.log.1.gz
+-rw-r--r-- 1 root root  1891 Nov  5 02:00 /var/log/cloudpivot/erp-health-202611.log.1.gz
+-rw-r--r-- 1 root root  1309 Nov  9 08:53 /var/log/cloudpivot/prod-cleanup-20261109-085319.log.1.gz
+-rw-r--r-- 1 root root   763 Nov  9 08:53 /var/log/cloudpivot/prod-cleanup-v3-20261109-085346.log.1.gz
+-rw-r--r-- 1 root root   515 Nov  9 08:54 /var/log/cloudpivot/prod-cleanup-v4-20261109-085401.log.1.gz
+-rw-r--r-- 1 root root  1099 Nov  9 08:54 /var/log/cloudpivot/prod-cleanup-v4-20261109-085410.log.1.gz
+-rw-r--r-- 1 root root   753 Nov  7 19:20 /var/log/cloudpivot/prod-deploy-20261107-191627.log.1.gz
+-rw-r--r-- 1 root root   725 Nov  8 08:15 /var/log/cloudpivot/prod-deploy-20261108-081124.log.1.gz
+-rw-r--r-- 1 root root   752 Nov  8 08:57 /var/log/cloudpivot/prod-deploy-20261108-085329.log.1.gz
+-rw-r--r-- 1 root root   907 Nov 10 06:12 /var/log/cloudpivot/prod-deploy-20261110-061243.log.1.gz
+-rw-r--r-- 1 root root   908 Nov 10 06:19 /var/log/cloudpivot/prod-deploy-20261110-061902.log.1.gz
+-rw-r--r-- 1 root root   908 Nov 10 08:43 /var/log/cloudpivot/prod-deploy-20261110-084307.log.1.gz
+-rw-r--r-- 1 root root   908 Nov 10 08:48 /var/log/cloudpivot/prod-deploy-20261110-084803.log.1.gz
+-rw-r--r-- 1 root root  1563 Nov 15 02:00 /var/log/cloudpivot/snapshot-audit.log.1.gz
+归档数: 17
+-- 目录大小 --
+380K	/var/log/cloudpivot
+-- 基文件清空数 --
+17
+-- journald --
+Storage=persistent
+MaxFileSec=1day
+MaxRetentionSec=30day
+SystemMaxUse=2G
+SystemMaxFileSize=128M
+Archived and active journals take up 146.9M in the file system.
+active
+active

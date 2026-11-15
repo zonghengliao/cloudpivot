@@ -1,0 +1,27 @@
+# 云枢日志切割 —— 按天切割，保留 30 天
+#
+# 安装位置：/etc/logrotate.d/cloudpivot
+# 落地方式：bash scripts/ops/logrotate/install.sh [--host HOST]   （勿在线手改，改了会被下一次 install 覆盖）
+# 触发方式：logrotate.timer（OnCalendar=daily + RandomizedDelaySec=1h），见 install.sh 断言 ④
+#
+# 覆盖范围：/var/log/cloudpivot/*.log —— 由 cron / 运维脚本 >> 追加的日志
+#   alert-check.cron.log · backup.log · snapshot-audit.log · test-deploy.log
+#   *-deploy-*.log · erp-health-YYYYMM.log · ALERT.log …
+#
+# 边界（重要）：应用进程自己的输出走 journald（cloudpivot.service /
+# cloudpivot-base / cloudpivot-test 都是 StandardOutput=journal），
+# 不在本文件管辖内，logrotate 切不到。它们的「按天切分 + 保留 30 天」
+# 由同目录的 journald-cloudpivot-retention.conf 负责。
+#
+# 用 copytruncate 而不是 create：写方是 `>>` 追加（每次 cron 重新打开），
+# 但 copytruncate 不换 inode，写方无需重开文件即可继续写，最稳。
+# 已知代价：copy 与 truncate 之间的写入窗口（微秒级）理论上可能丢行，
+# 因此这里只切运维/告警脚本日志，不切任何业务事务日志。
+/var/log/cloudpivot/*.log {
+  daily
+  rotate 30
+  compress
+  missingok
+  notifempty
+  copytruncate
+}
