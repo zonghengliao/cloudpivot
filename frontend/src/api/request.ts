@@ -56,6 +56,27 @@ const REFRESH_PATH = '/api/system/auth/refresh';
  */
 const AUTH_IDLE_TIMEOUT_CODE = 20009;
 
+/**
+ * 后端错误码：权限已变更，需重新登录（`AUTH_PERMISSION_CHANGED`，HTTP 401）。
+ *
+ * 触发面（`middleware/session_guard.rs`）：改密 / 改角色 / 改角色权限 / 改菜单授权 /
+ * 停用删除账号都会推进 `sys_user.token_version`，旧令牌里的**权限快照**随即作废。
+ *
+ * 这类 401 同样**不能走刷新流程**：`system/auth/handler.rs::refresh` 也会比对
+ * `token_version`，版本不一致就退 `401 + 20008`（「您的权限已变更，请重新登录」），
+ * 所以刷新必然失败，只是白跑一次请求、还多一条无用的失败审计。后端注释明确要求
+ * 「前端据此文案提示并直接跳登录页」，故按 `reason=changed` 回登录页说明原因。
+ */
+const AUTH_PERMISSION_CHANGED_CODE = 20008;
+
+/**
+ * 回登录页时携带的提示原因（`?reason=`）：`idle` 空闲自动退出、`changed` 权限已变更。
+ *
+ * 登录页据此显示不同的一句话（见 `views/login/index.vue::idleNoticeText`）——「被踢出去」
+ * 本身不需要解释，但**为什么**被踢出去决定了用户下一步该做什么（等一会儿重登 / 找管理员）。
+ */
+type LoginNoticeReason = 'idle' | 'changed';
+
 /** 登录页路径，令牌彻底失效后跳转至此 */
 const LOGIN_PATH = `${import.meta.env.VITE_APP_CONTEXT_PATH || '/'}login`.replace(/\/{2,}/g, '/');
 
@@ -154,10 +175,15 @@ service.interceptors.response.use(
     // 吊销。这里不再尝试刷新，直接记下当场路由、广播给其它标签、清令牌回登录页
     // （带 reason=idle，登录页据此显示「因长时间未操作已自动退出」）。
     if (isIdleTimeout(error)) {
-      saveIdleRedirect(`${window.location.pathname}${window.location.search}${window.location.hash}`);
-      broadcastLogout();
-      clearTokens();
+      forgetSession();
       redirectToLogin('idle');
+      return Promise.reject(toApiError(error));
+    }
+    // 权限已变更（401 + 20008）：refresh 也必然失败（刷新路径同样比对 token_version），
+    // 直接清令牌回登录页并说明「权限被改过，请重新登录」——别让用户无理由地被踢出去。
+    if (isPermissionChanged(error)) {
+      forgetSession();
+      redirectToLogin('changed');
       return Promise.reject(toApiError(error));
     }
     if (shouldRefresh(error, config)) {
@@ -199,11 +225,37 @@ function shouldRefresh(error: AxiosError<ApiResult>, config?: RetriableConfig): 
  * 退出」的提示，并把当前路由留给登录后跳回（卡面验收 ⑥⑦⑰）。
  */
 function isIdleTimeout(error: AxiosError<ApiResult>): boolean {
+  return is401WithCode(error, AUTH_IDLE_TIMEOUT_CODE);
+}
+
+/**
+ * 是否是「权限已变更」401（`code = 20008`）。
+ *
+ * 触发面：管理员改了你的角色 / 角色权限 / 菜单授权，或你自己改了密码 —— 服务端推进
+ * `token_version`，旧令牌与其 refresh 一并作废。处置与空闲超时相同（不刷新、清令牌、
+ * 带原因回登录页），只是登录页要说清「权限被调整过」而不是「长时间未操作」。
+ */
+function isPermissionChanged(error: AxiosError<ApiResult>): boolean {
+  return is401WithCode(error, AUTH_PERMISSION_CHANGED_CODE);
+}
+
+/** 401 且响应体 `code` 等于给定业务码（拿不到响应 / 没有 JSON 体时为 false）。 */
+function is401WithCode(error: AxiosError<ApiResult>, code: number): boolean {
   if (error.response?.status !== 401) {
     return false;
   }
   const body = error.response.data;
-  return Boolean(body && typeof body === 'object' && body.code === AUTH_IDLE_TIMEOUT_CODE);
+  return Boolean(body && typeof body === 'object' && body.code === code);
+}
+
+/**
+ * 服务端已经结束这个会话时的本地清理（两个 401 分支共用）：
+ * 记下当场路由供登录后跳回 → 广播给其它标签 → 清本地令牌。
+ */
+function forgetSession(): void {
+  saveIdleRedirect(`${window.location.pathname}${window.location.search}${window.location.hash}`);
+  broadcastLogout();
+  clearTokens();
 }
 
 /** 进行中的刷新请求，用于把并发 401 合并成一次刷新 */
@@ -252,9 +304,11 @@ async function doRefresh(): Promise<string | null> {
 /**
  * 令牌彻底失效时跳转登录页（replace 避免把失效页面留在历史记录里）。
  *
- * @param reason 登录页展示的提示原因：`idle` = 因长时间未操作已自动退出
+ * @param reason 登录页展示的提示原因：
+ *   - `idle` = 因长时间未操作已自动退出；
+ *   - `changed` = 权限被管理员调整过，需重新登录（`20008`）。
  */
-function redirectToLogin(reason?: 'idle'): void {
+function redirectToLogin(reason?: LoginNoticeReason): void {
   if (window.location.pathname.endsWith('/login')) {
     return;
   }

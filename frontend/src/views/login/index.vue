@@ -105,16 +105,27 @@ const submitting = ref(false);
 const errorMessage = ref('');
 
 /**
- * 是否因空闲超时 / 主动退出被送回来（`?reason=idle|manual`）。
+ * 是否被送回了登录页（`?reason=idle|manual|changed`）。
  *
- * 空闲退出由前端计时器、服务端 401（20009）与其它标签的广播三条路触发，它们都会带
- * `reason`。提示语写人话，不出现 "idle timeout" 这种字眼。
+ * 三条退出路径都会带 `reason`：
+ * - `idle` —— 空闲超时（前端计时器 / 服务端 401 `20009` / 其它标签页的广播）；
+ * - `manual` —— 自己点了退出；
+ * - `changed` —— 权限刚被管理员调整过（服务端 401 `20008`，见 `api/request.ts::isPermissionChanged`）。
+ * 提示语写人话，不出现 "idle timeout" 这种字眼。
  */
-const idleNotice = computed<boolean>(() => route.query.reason === 'idle' || route.query.reason === 'manual');
-/** 提示文案 */
-const idleNoticeText = computed<string>(() =>
-  route.query.reason === 'manual' ? '您已退出登录' : '因长时间未操作已自动退出，请重新登录',
+const idleNotice = computed<boolean>(
+  () => route.query.reason === 'idle' || route.query.reason === 'manual' || route.query.reason === 'changed',
 );
+/** 提示文案 */
+const idleNoticeText = computed<string>(() => {
+  if (route.query.reason === 'manual') {
+    return '您已退出登录';
+  }
+  if (route.query.reason === 'changed') {
+    return '您的权限刚被管理员调整，请重新登录以加载最新权限';
+  }
+  return '因长时间未操作已自动退出，请重新登录';
+});
 
 /**
  * 提交登录：失败提示留在表单内，成功后回到「空闲退出前所在页面」。

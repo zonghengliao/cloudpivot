@@ -1,6 +1,7 @@
 /**
- * P3-01 / P3-02 单测：错误码 → 人话（审批类 `650xx` + ERP 单据类 `66xxx`）。
+ * P3-01 / P3-02 / P3-03 单测：错误码 → 人话。
  *
+ * 覆盖段：审批流 `650xx`、ERP 单据 `66xxx`、底座 `1000x`–`4000x`、权限增强 `6100x`。
  * 运行：`pnpm test:unit`（= `tsx --test "tests/unit/**\/*.test.ts"`，零新依赖、无 DOM）。
  *
  * # 分三层（与 `n4-request-id.test.ts` 同一套姿势）
@@ -10,7 +11,7 @@
  *    还测**四条取文优先级**各自的分支（后端自足 / 后端不自足 / 无后端文案 / 表里没有）。
  * 2. **表格质量**：全部条目非空、含中文、不含裸码、长度合理（toast 会换行，太长看不清）。
  * 3. **覆盖面 + 接线**：
- *    - 读 `backend/crates/cloudpivot-kernel/src/shared/error_code.rs`，`65xxx` 与 `66xxx` 两段
+ *    - 读 `backend/crates/cloudpivot-kernel/src/shared/error_code.rs`，上面这几段
  *      **每一条**常量都必须在表里（后端新增码而前端没登记 → 这里先红）；
  *    - `api/request.ts` 的两条错误路径（HTTP 失败 / 业务码非 0）都必须过这张表，且旧硬编码
  *      文案（`权限不足` / `网络异常，请检查服务是否可用`）不许再出现 —— 它们绕过了码表。
@@ -107,6 +108,71 @@ test('66038 期间已结账 + 后端只说现象 → 表补「反结账 / 开账
   assert.match(message, /后端说明：目标会计期间已结账/);
 });
 
+// ==================== ① 权限 / 系统类（P3-03）：会话 / 无权限 / 底座唯一性 ====================
+
+test('20009 空闲自动退出 + 后端没文案 → 说清「为什么掉线」和「登录后回到原页」', () => {
+  // 前端在 `isIdleTimeout` 里已经处理了跳转，但这条文案仍要能站住（toast / 其它调用方）
+  const { message, source } = resolveErrorMessage({ code: 20009, status: 401 });
+  assert.equal(source, 'table');
+  assert.match(message, /长时间没有操作/, '要说清是「长时间没操作」而不是「登录失效」');
+  assert.match(message, /回到刚才那一页/);
+  assert.ok(!message.includes('20009'));
+});
+
+test('20008 权限已变更 + 后端原文已自足 → 用后端原文（不套本地话）', () => {
+  // 后端真实报文（`session_guard.rs:101` / `auth/handler.rs` 的 refresh 分支逐字一致）
+  const backend = '您的权限已变更，请重新登录';
+  const { message, source } = resolveErrorMessage({ code: 20008, status: 401, message: backend });
+  assert.equal(source, 'backend');
+  assert.equal(message, backend);
+});
+
+test('20008 权限已变更 + 没有后端文案 → 表里点明「权限被调整过」，不是笼统的登录失效', () => {
+  const { message, source } = resolveErrorMessage({ code: 20008, status: 401 });
+  assert.equal(source, 'table');
+  assert.match(message, /权限/);
+  assert.match(message, /重新登录/);
+});
+
+test('30001 无权限 + 后端点名了缺哪个权限码 → 表给动作，权限码不丢', () => {
+  // 后端真实报文（`business/attachment/dto.rs::doc_upload_forbidden`）：
+  // `无权上传附件（需要以下任一权限：business:attachment:upload / business:attachment:manage）`
+  const backend = '无权上传附件（需要以下任一权限：business:attachment:upload / business:attachment:manage）';
+  const { message, source } = resolveErrorMessage({ code: 30001, status: 403, message: backend });
+  assert.equal(source, 'table');
+  assert.match(message, /联系管理员/, '表里要告诉用户找谁开权限');
+  assert.match(message, /business:attachment:upload/, '缺哪个权限码必须保留');
+});
+
+test('30001 无权限 + 后端只写「权限不足」→ 表补动作，后端原文作说明', () => {
+  const { message } = resolveErrorMessage({ code: 30001, status: 403, message: '权限不足' });
+  assert.match(message, /联系管理员/);
+  assert.match(message, /后端说明：权限不足/);
+});
+
+test('10005 登录限流 + 后端已给动作（含「请」）→ 整段用后端原文', () => {
+  // 后端真实报文（`system/auth/handler.rs::check_login_rate_on`）
+  const backend = '登录尝试过于频繁，请稍后再试';
+  const { message, source } = resolveErrorMessage({ code: 10005, status: 429, message: backend });
+  assert.equal(source, 'backend');
+  assert.equal(message, backend);
+});
+
+test('40007 文件超限 + 后端只说现象 → 表补「压缩 / 拆分」，上限数字不丢', () => {
+  const backend = '文件大小超过上限 20MB';
+  const { message, source } = resolveErrorMessage({ code: 40007, status: 422, message: backend });
+  assert.equal(source, 'table');
+  assert.match(message, /压缩|拆分/);
+  assert.match(message, /20MB/);
+});
+
+test('61003 改自己角色的数据范围 → 表说清「换一位管理员」，角色名不丢', () => {
+  const backend = '不能修改自己持有角色「财务主管」的数据范围（避免自我扩权）';
+  const { message, source } = resolveErrorMessage({ code: 61003, status: 403, message: backend });
+  assert.equal(source, 'table');
+  assert.match(message, /另一位管理员/);
+  assert.match(message, /财务主管/);
+});
 // ==================== ② 取文优先级（四条分支逐条钉） ====================
 
 test('码在表里 + 后端文案只说了现象（无可执行动作）→ 表给动作，后端原文当说明保留', () => {
@@ -187,15 +253,27 @@ test('同一条码只有一个文案（表没有重复键被后写覆盖）', ()
   }
 });
 
-// ==================== ④ 覆盖后端 error_code.rs 的 65xxx / 66xxx 两段 ====================
+// ==================== ④ 覆盖后端 error_code.rs 的已翻译段 ====================
 
-/** 从 `error_code.rs` 里抠出某码段的所有 `pub const NAME: i32 = code;`（只认数字字面量）。 */
+/**
+ * 从 `error_code.rs` 里抠出某码段的所有 `pub const NAME: i32 = code;`（只认数字字面量）。
+ *
+ * 正则放宽到 `\d{4,5}`（P3-03 起要覆盖 `1000x`–`4000x` 与 `6100x`）。别名形式的常量
+ * （`= TASK_APPROVAL_PENDING`）命中不到数字，但它指向的那条已被数字条文覆盖
+ * （`65030` 由 `TASK_APPROVAL_PENDING` 提供）。
+ */
 function declaredCodes(from: number, to: number): Array<{ name: string; code: number }> {
-  // `= TASK_APPROVAL_PENDING` 这种别名命中不到数字，但它指向的那条已被数字条文覆盖
-  // （65030 由 TASK_APPROVAL_PENDING 提供）。
-  return [...ERROR_CODE_RS.matchAll(/pub const ([A-Z_0-9]+): i32 = (6[4-6]\d{3});/g)]
+  return [...ERROR_CODE_RS.matchAll(/pub const ([A-Z_0-9]+): i32 = (\d{4,5});/g)]
     .map((m) => ({ name: m[1], code: Number(m[2]) }))
     .filter((item) => item.code >= from && item.code < to);
+}
+
+/** 表里该段内「凭空出现」的码（抄错号会让后端从没返回过的码也有文案，且没人发现）。 */
+function inventedCodes(from: number, to: number): number[] {
+  const declaredSet = new Set(declaredCodes(from, to).map((item) => item.code));
+  return Object.keys(ERROR_MESSAGES)
+    .map(Number)
+    .filter((code) => code >= from && code < to && !declaredSet.has(code));
 }
 
 test('error_code.rs 里 65xxx（审批流）每一条常量，前端表里都有（后端加码 → 这里先红）', () => {
@@ -220,12 +298,36 @@ test('error_code.rs 里 66xxx（ERP 单据 / 主数据）每一条常量，前�
     '这些 ERP 码还没翻译成人话，请补进 ERROR_MESSAGES',
   );
   // 段里没有的码不该在表里凭空出现（抄错号会导致「后端从没返回过的码也有文案」）
-  const declaredSet = new Set(declared.map((item) => item.code));
-  const invented = Object.keys(ERROR_MESSAGES)
-    .map(Number)
-    .filter((code) => code >= 66000 && code < 67000 && !declaredSet.has(code));
-  assert.deepEqual(invented, [], ' 表里出现了 66xxx 段内不存在的码，请核对码值');
+  assert.deepEqual(inventedCodes(66000, 67000), [], '表里出现了 66xxx 段内不存在的码，请核对码值');
 });
+
+/**
+ * P3-03 纳入覆盖面的底座段：通用 / 认证 / 授权 / 支撑域 / 数据权限。
+ *
+ * `min` 是「低于这个数说明 regex 或码段读歪了」的下限（2026-11-15 实测 6 / 9 / 13 / 15 / 12）。
+ */
+const BASE_SEGMENTS = [
+  { label: '1000x 通用', from: 10000, to: 11000, min: 6 },
+  { label: '2000x 认证（登录 / 令牌 / 会话）', from: 20000, to: 21000, min: 9 },
+  { label: '3000x 授权（权限 / 角色 / 菜单 / 部门 / 用户）', from: 30000, to: 31000, min: 13 },
+  { label: '4000x 支撑域（字典 / 参数 / 文件 / 任务 / 日志 / 在线用户）', from: 40000, to: 41000, min: 15 },
+  { label: '6100x 数据权限 / 脱敏 / 角色互斥', from: 61000, to: 62000, min: 12 },
+];
+
+for (const seg of BASE_SEGMENTS) {
+  test(`error_code.rs 里 ${seg.label} 每一条常量，前端表里都有`, () => {
+    const declared = declaredCodes(seg.from, seg.to);
+    assert.ok(declared.length >= seg.min, `没解析到 ${seg.label} 常量（实际 ${declared.length}），regex 或码段可能过时`);
+    const missing = declared.filter((item) => !(String(item.code) in ERROR_MESSAGES));
+    assert.deepEqual(
+      missing.map((item) => `${item.name}(${item.code})`),
+      [],
+      `这些 ${seg.label} 码还没翻译成人话，请补进 ERROR_MESSAGES`,
+    );
+    // 反向断言：表里不许出现该段内不存在的码（防抄错号）
+    assert.deepEqual(inventedCodes(seg.from, seg.to), [], `表里出现了 ${seg.label} 段内不存在的码，请核对码值`);
+  });
+}
 
 // ==================== ⑤ 接线：request.ts 两条错误路径都必须过表 ====================
 
@@ -239,4 +341,22 @@ test('request.ts 不再硬编码绕过码表的兜底文案', () => {
   // 这两句一旦回来，就意味着「没码表也能出文案」——那正是本卡要消灭的裸码/无指引形态
   assert.ok(!REQUEST_TS.includes("'权限不足'"), "403 文案应走码表（'403'），别再硬编码 '权限不足'");
   assert.ok(!REQUEST_TS.includes('网络异常，请检查服务是否可用'), '网络兜底应走 NETWORK_MESSAGE');
+});
+
+test('request.ts 识破 401 + 20008（权限已变更）：不刷新、带 reason=changed 回登录页', () => {
+  // 后端 refresh 路径同样比对 token_version，刷新必然 401 —— 试一次就是白跑 + 多一条失败审计
+  assert.match(REQUEST_TS, /AUTH_PERMISSION_CHANGED_CODE = 20008/, '必须识别服务端 20008');
+  assert.match(REQUEST_TS, /function isPermissionChanged/, '需要独立的判定函数（与 20009 分开）');
+  assert.match(REQUEST_TS, /redirectToLogin\('changed'\)/, '20008 必须带 reason=changed 回登录页');
+  // 判定顺序：两个会话终止分支都要在 shouldRefresh 之前，否则会先去刷新
+  assert.ok(
+    REQUEST_TS.indexOf("redirectToLogin('changed')") < REQUEST_TS.indexOf('if (shouldRefresh('),
+    '20008 分支必须排在刷新逻辑之前',
+  );
+});
+
+test('登录页认识 reason=changed，并说清「权限被调整」而不是「长时间未操作」', () => {
+  const page = readFileSync(resolve(HERE, '../../src/views/login/index.vue'), 'utf8');
+  assert.match(page, /route\.query\.reason === 'changed'/, '登录页必须处理 reason=changed');
+  assert.match(page, /权限刚被管理员调整/, '提示语要说清原因');
 });
