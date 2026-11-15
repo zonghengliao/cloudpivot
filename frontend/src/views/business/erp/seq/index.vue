@@ -1,159 +1,134 @@
 <template>
   <div class="seq-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="btn-seq-refresh" @click="loadSeqs()">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+    <!-- 筛选 / 分页 / 空态 / 加载失败交给 ListPage（P3-12）：本页只留列、筛选项与详情抽屉 -->
+    <ListPage
+      ref="listRef"
+      title="单号序列"
+      testid="seq"
+      table-testid="seq-table"
+      meta-testid="seq-meta"
+      btn-prefix="btn-seq"
+      meta-unit="个取号器"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <!-- 取号器是各业务模块的号段状态，改它等于改「下一个号从几开始」 -->
+      <template #head-extra>
+        <span class="panel-head__tip" data-testid="seq-readonly-tip">
+          只读：号段由业务单据取号时自动推进
+        </span>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="序列类型 / 名称（如 PO、采购订单）"
-          clearable
-          data-testid="seq-filter-keyword"
-          @enter="handleSearch"
-        />
+      <!-- 状态是 `number | null`（`null` = 全部），`t-select` 清空写回的是 `undefined`，
+           声明式 `select` 表达不了这个映射，所以整条自绘 -->
+      <template #filter-status>
         <t-select
-          v-model="statusModel"
-          class="tool-row__status"
+          class="filter-status"
+          :model-value="filter.status === null ? undefined : filter.status"
           :options="statusOptions"
           placeholder="全部状态"
           clearable
           data-testid="seq-filter-status"
-          @change="handleSearch"
+          @change="onStatusChange"
         />
-        <t-button theme="primary" data-testid="btn-seq-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-seq-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 序列列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">单号序列</span>
-          <span class="panel-head__meta" data-testid="seq-meta">共 {{ total }} 个取号器</span>
+      <!-- 接口未注册（404）不是故障：信息条 + 空态，不弹红条 -->
+      <template #filter-footer>
+        <t-alert
+          v-if="apiMissing"
+          theme="info"
+          message="单号序列接口尚未上线"
+          class="list-alert"
+          data-testid="seq-api-missing"
+        >
+          <template #description>
+            <span class="mono">GET /api/business/erp/seq/page</span> 返回 404。接口上线后本页无需改动。
+          </template>
+        </t-alert>
+      </template>
+
+      <template #seq_type="{ row }">
+        <span class="mono seq-type" :data-testid="`seq-type-${row.seq_type}`">{{ row.seq_type }}</span>
+      </template>
+
+      <template #seq_name="{ row }">
+        <span :data-testid="`seq-name-${row.seq_type}`">{{ row.seq_name }}</span>
+      </template>
+
+      <template #prefix="{ row }">
+        <span class="mono">{{ row.prefix || '—' }}</span>
+      </template>
+
+      <template #date_pattern="{ row }">
+        <span class="muted">{{ datePatternText(row.date_pattern) }}</span>
+      </template>
+
+      <template #period_key="{ row }">
+        <span class="mono" :class="{ muted: !row.period_key }">{{ periodKeyText(row) }}</span>
+      </template>
+
+      <template #current_no="{ row }">
+        <span class="num strong" :data-testid="`seq-current-${row.seq_type}`">{{ row.current_no }}</span>
+      </template>
+
+      <template #step="{ row }">
+        <span class="num muted">{{ row.step }}</span>
+      </template>
+
+      <template #next_no="{ row }">
+        <span class="num" :data-testid="`seq-next-${row.seq_type}`">{{ nextNoOf(row) }}</span>
+      </template>
+
+      <template #separator="{ row }">
+        <span class="mono muted">{{ separatorText(row.separator) }}</span>
+      </template>
+
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          variant="light"
+          :theme="seqStatusTheme(row.status)"
+          :data-testid="`seq-status-${row.seq_type}`"
+        >
+          {{ seqStatusLabel(row.status) }}
+        </t-tag>
+      </template>
+
+      <template #remark="{ row }">
+        <span class="muted ellipsis">{{ row.remark || '—' }}</span>
+      </template>
+
+      <template #op="{ row }">
+        <t-link theme="primary" hover="color" data-testid="btn-seq-detail" @click="openDetail(row)">
+          详情
+        </t-link>
+      </template>
+
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="seq-empty">
+          <t-icon name="automatic-numbering" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的取号器' : '暂无取号器' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个关键词或状态再试' : '取号器由各业务模块的种子迁移写入（如 PO / IN / TR）' }}
+          </p>
         </div>
-        <!-- 取号器是各业务模块的号段状态，改它等于改「下一个号从几开始」 -->
-        <span class="panel-head__tip" data-testid="seq-readonly-tip">
-          只读：号段由业务单据取号时自动推进
-        </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="apiMissing"
-        theme="info"
-        message="单号序列接口尚未上线"
-        class="list-alert"
-        data-testid="seq-api-missing"
-      >
-        <template #description>
-          <span class="mono">GET /api/business/erp/seq/page</span> 返回 404。接口上线后本页无需改动。
-        </template>
-      </t-alert>
-
-      <t-alert
-        v-else-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="seq-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadSeqs()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        v-if="rows.length > 0 || loading"
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="seq-table"
-        @page-change="handlePageChange"
-      >
-        <template #seq_type="{ row }">
-          <span class="mono seq-type" :data-testid="`seq-type-${row.seq_type}`">{{ row.seq_type }}</span>
-        </template>
-
-        <template #seq_name="{ row }">
-          <span :data-testid="`seq-name-${row.seq_type}`">{{ row.seq_name }}</span>
-        </template>
-
-        <template #prefix="{ row }">
-          <span class="mono">{{ row.prefix || '—' }}</span>
-        </template>
-
-        <template #date_pattern="{ row }">
-          <span class="muted">{{ datePatternText(row.date_pattern) }}</span>
-        </template>
-
-        <template #period_key="{ row }">
-          <span class="mono" :class="{ muted: !row.period_key }">{{ periodKeyText(row) }}</span>
-        </template>
-
-        <template #current_no="{ row }">
-          <span class="num strong" :data-testid="`seq-current-${row.seq_type}`">{{ row.current_no }}</span>
-        </template>
-
-        <template #step="{ row }">
-          <span class="num muted">{{ row.step }}</span>
-        </template>
-
-        <template #next_no="{ row }">
-          <span class="num" :data-testid="`seq-next-${row.seq_type}`">{{ nextNoOf(row) }}</span>
-        </template>
-
-        <template #separator="{ row }">
-          <span class="mono muted">{{ separatorText(row.separator) }}</span>
-        </template>
-
-        <template #status="{ row }">
-          <t-tag
-            size="small"
-            variant="light"
-            :theme="seqStatusTheme(row.status)"
-            :data-testid="`seq-status-${row.seq_type}`"
-          >
-            {{ seqStatusLabel(row.status) }}
-          </t-tag>
-        </template>
-
-        <template #remark="{ row }">
-          <span class="muted ellipsis">{{ row.remark || '—' }}</span>
-        </template>
-
-        <template #op="{ row }">
-          <t-link theme="primary" hover="color" data-testid="btn-seq-detail" @click="openDetail(row)">
-            详情
-          </t-link>
-        </template>
-      </t-table>
-
-      <div v-else class="panel-empty" data-testid="seq-empty">
-        <t-icon name="automatic-numbering" class="panel-empty__icon" />
-        <p class="panel-empty__title">{{ filtered ? '没有匹配的取号器' : '暂无取号器' }}</p>
-        <p class="panel-empty__desc">
-          {{ filtered ? '换个关键词或状态再试' : '取号器由各业务模块的种子迁移写入（如 PO / IN / TR）' }}
+      <template #footer>
+        <p class="panel-foot" data-testid="seq-foot-tip">
+          「下次序号」= 当前序号 + 步长，<b>只在同一周期内成立</b>：跨周期（按日 / 按月）后端会先把序号归零再取号，
+          实际发出的号可能更小。完整的单号模板由各业务模块决定（如采购单是
+          <span class="mono">PO-yyyyMMdd-000001</span>），不由本表的前缀 / 分隔符驱动。
         </p>
-      </div>
+      </template>
+    </ListPage>
 
-      <p class="panel-foot" data-testid="seq-foot-tip">
-        「下次序号」= 当前序号 + 步长，<b>只在同一周期内成立</b>：跨周期（按日 / 按月）后端会先把序号归零再取号，
-        实际发出的号可能更小。完整的单号模板由各业务模块决定（如采购单是
-        <span class="mono">PO-yyyyMMdd-000001</span>），不由本表的前缀 / 分隔符驱动。
-      </p>
-    </t-card>
-
-    <!-- ==================== ③ 详情抽屉 ==================== -->
+    <!-- ==================== 详情抽屉 ==================== -->
     <t-drawer
       v-model:visible="detailVisible"
       size="520px"
@@ -253,17 +228,23 @@
  * 单号模板写死在**各业务模块**里（`purchase_model.rs::format_order_no` 是
  * `PO-{period_key}-{no:06}`，根本不读本表的 prefix/separator）。凭本表字段拼一个
  * 看起来很像的字符串，只会让人拿它去对账然后发现对不上 —— 所以只给「下次序号」。
+ *
+ * # 列表部分（P3-12）
+ *
+ * 筛选 / 分页 / 空态 / 加载失败交给 `components/ListPage`：本页只声明列、筛选项、
+ * 「怎么拉一页」和详情抽屉。`total` 的 `data.total ?? list.length` 兜底写进 fetcher。
  */
-import { computed, onMounted, reactive, ref } from 'vue';
+import { reactive, ref } from 'vue';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { fetchSeqDetail, fetchSeqPage, type SeqRow } from '@/api/business/erp';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   SEQ_STATUS_OPTIONS,
   buildSeqQuery,
   datePatternText,
   emptySeqFilter,
-  isSeqFiltered,
   nextNoOf,
   periodKeyText,
   seqStatusLabel,
@@ -293,46 +274,38 @@ const columns: PrimaryTableCol[] = [
 
 const statusOptions = SEQ_STATUS_OPTIONS.map((item) => ({ ...item }));
 
+/** 筛选行（`filterState` 就地读写；`buildSeqQuery` 引用的是同一个对象） */
 const filter = reactive<SeqFilterState>(emptySeqFilter());
 
-/** `t-select` 的 v-model 不收 null：清空 → `null`（= 全部） */
-const statusModel = computed<number | undefined>({
-  get: () => (filter.status === null ? undefined : filter.status),
-  set: (value) => {
-    filter.status = typeof value === 'number' ? value : null;
+const filters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '序列类型 / 名称（如 PO、采购订单）',
+    width: 260,
+    testid: 'seq-filter-keyword',
   },
-});
+  // 「全部」在本页是 `null`（与后端 `Option<i32>` 同构），`t-select` 清空写回 `undefined`
+  { key: 'status', type: 'custom', defaultValue: null },
+];
 
-const rows = ref<SeqRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+/** ListPage 实例（状态下拉「值一变就查」要回第 1 页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 状态变了就查询（改造前 `@change="handleSearch"`，手感不变） */
+function onStatusChange(next: unknown): void {
+  filter.status = typeof next === 'number' ? next : null;
+  void listRef.value?.search();
+}
+
+/** 入参拼装直接复用 `buildSeqQuery`（空关键词 / 全部状态都不发键） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildSeqQuery(state as SeqFilterState, page, pageSize);
+
 /** 接口未注册（404）：不报红，改成信息条 + 空态 */
 const apiMissing = ref(false);
 
-const detailVisible = ref(false);
-const detail = ref<SeqRow | null>(null);
-
-const filtered = computed(() => isSeqFiltered(filter));
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 // ==================== 行为 ====================
-
-/** 错误 → 文案 */
-function messageOf(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.message;
-  }
-  return error instanceof Error ? error.message : String(error);
-}
 
 /** 未注册路由 = HTTP 404；业务 404 = `10002` */
 function isApiMissing(error: unknown): boolean {
@@ -354,43 +327,28 @@ function timeText(value: string | null | undefined): string {
   return raw.slice(0, 19).replace('T', ' ');
 }
 
-/** 拉列表 */
-async function loadSeqs(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
+/**
+ * 拉一页。
+ *
+ * `total` 的 `?? list.length` 兜底原样保留（早期后端只回 `list`）；
+ * 接口未上线（404）时吞掉错误返回空页 —— 红条会让人以为系统坏了，实际是接口还没发。
+ */
+const fetcher: ListFetcher<SeqRow> = async (query) => {
   try {
-    const data = await fetchSeqPage(buildSeqQuery(filter, page, PAGE_SIZE));
+    const data = await fetchSeqPage(query as Parameters<typeof fetchSeqPage>[0]);
     apiMissing.value = false;
-    rows.value = data.list ?? [];
-    total.value = data.total ?? rows.value.length;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / PAGE_SIZE));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
+    return { ...data, total: data.total ?? data.list.length };
   } catch (error) {
-    rows.value = [];
-    total.value = 0;
     apiMissing.value = isApiMissing(error);
-    loadError.value = apiMissing.value ? '' : messageOf(error);
-  } finally {
-    loading.value = false;
+    if (apiMissing.value) {
+      return { list: [], total: 0, page: 1, page_size: PAGE_SIZE };
+    }
+    throw error;
   }
-}
+};
 
-/** 查询：条件变了回第 1 页 */
-function handleSearch(): void {
-  void loadSeqs(1);
-}
-
-/** 重置 */
-function handleReset(): void {
-  Object.assign(filter, emptySeqFilter());
-  void loadSeqs(1);
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  void loadSeqs(pageInfo.current);
-}
+const detailVisible = ref(false);
+const detail = ref<SeqRow | null>(null);
 
 /** 打开详情：先渲染列表行，再拉详情覆盖（同采购明细页的取舍） */
 async function openDetail(row: SeqRow): Promise<void> {
@@ -402,10 +360,6 @@ async function openDetail(row: SeqRow): Promise<void> {
     // 拉不到就保留列表行
   }
 }
-
-onMounted(() => {
-  void loadSeqs(1);
-});
 </script>
 
 <style scoped lang="less">
@@ -415,62 +369,10 @@ onMounted(() => {
   gap: 12px;
 }
 
-/* ==================== 工具栏 ==================== */
+/* ==================== 筛选行 ==================== */
 
-.tool-card {
-  flex: 0 0 auto;
-}
-
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1 1 auto;
-}
-
-.tool-row__keyword {
-  width: 260px;
-}
-
-.tool-row__status {
+.filter-status {
   width: 130px;
-}
-
-/* ==================== 列表 ==================== */
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
 }
 
 .panel-head__tip {
@@ -479,7 +381,7 @@ onMounted(() => {
 }
 
 .list-alert {
-  margin-bottom: 10px;
+  margin-top: 10px;
 }
 
 .mono {

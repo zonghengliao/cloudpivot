@@ -1,103 +1,99 @@
 <template>
   <div class="flow-delegate-page">
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="[16, 12]">
-        <t-col :span="5">
-          <t-select
-            v-model="view"
-            :options="viewOpts"
-            data-testid="delegate-view"
-            @change="handleSearch"
-          />
-        </t-col>
-        <t-col :span="4">
-          <t-checkbox v-model="onlyActive" data-testid="delegate-only-active" @change="handleSearch">
-            只看生效中
-          </t-checkbox>
-        </t-col>
-        <t-col :span="15">
-          <t-space>
-            <t-button theme="primary" data-testid="delegate-search" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button
-              v-privilege="[PERM.flowDelegateSave]"
-              theme="primary"
-              variant="outline"
-              data-testid="delegate-create"
-              @click="openCreate"
-            >
-              <template #icon><t-icon name="add" /></template>
-              新增委托
-            </t-button>
-            <t-button variant="outline" :loading="loading" @click="loadList">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-      <p class="page-tip">
-        出差 / 休假时把自己的审批权临时让给同事：委托期内新派下来的票直接进受托人的待办，
-        待办上标「代你审批」。委托**不需要审批**，但会留痕；同一时间只能委托给一个人。
-      </p>
-    </t-card>
+    <!-- ①② 筛选 / 分页 / 行操作交给 ListPage（P3-12 收口） -->
+    <ListPage
+      ref="listRef"
+      title="审批委托"
+      testid="delegate"
+      table-testid="delegate-table"
+      meta-testid="delegate-meta"
+      btn-prefix="delegate"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <!--
+        视角 / 只看生效中都是「一变就查」（改造前 `@change="handleSearch"`）：
+        两个控件走 `custom` 插槽，`@change` 里手动 `search()` 保住这个手感。
+      -->
+      <template #filter-view>
+        <t-select
+          v-model="filter.view"
+          class="delegate-filter"
+          :options="viewOpts"
+          data-testid="delegate-view"
+          @change="handleSearch"
+        />
+      </template>
 
-    <t-card :bordered="false">
-      <t-alert v-if="errorText" class="list-alert" theme="error" :message="errorText">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadList">重试</t-button>
-        </template>
-      </t-alert>
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        data-testid="delegate-table"
-        @page-change="onPageChange"
-      >
-        <template #delegator="{ row }">
-          <span>{{ row.delegator_name || '—' }}</span>
-        </template>
-        <template #delegate="{ row }">
-          <span>{{ row.delegate_name || '（用户已删除）' }}</span>
-        </template>
-        <template #period="{ row }">
-          <span class="period">
-            {{ formatTime(row.start_at) }} → {{ formatTime(row.end_at) }}
-          </span>
-        </template>
-        <template #scope="{ row }">
-          <span>{{ scopeLabel(row.scope) }}</span>
-        </template>
-        <template #state="{ row }">
-          <t-tag v-if="!row.enabled" theme="default" variant="light" size="small">已停用</t-tag>
-          <t-tag v-else-if="row.is_active_now" theme="success" variant="light" size="small">
-            生效中
-          </t-tag>
-          <t-tag v-else-if="new Date(row.start_at).getTime() > Date.now()" theme="primary" variant="light" size="small">
-            未开始
-          </t-tag>
-          <t-tag v-else theme="default" variant="light" size="small">已过期</t-tag>
-        </template>
-        <template #ops="{ row }">
-          <t-space size="small">
-            <t-link v-privilege="[PERM.flowDelegateSave]" theme="primary" @click="openEdit(row)">
-              编辑
-            </t-link>
-            <t-link v-privilege="[PERM.flowDelegateSave]" theme="warning" @click="toggleEnabled(row)">
-              {{ row.enabled ? '停用' : '启用' }}
-            </t-link>
-            <t-link v-privilege="[PERM.flowDelegateDelete]" theme="danger" @click="removeRow(row)">
-              删除
-            </t-link>
-          </t-space>
-        </template>
-      </t-table>
-    </t-card>
+      <template #filter-only_active>
+        <t-checkbox v-model="filter.only_active" data-testid="delegate-only-active" @change="handleSearch">
+          只看生效中
+        </t-checkbox>
+      </template>
+
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.flowDelegateSave]"
+          theme="primary"
+          variant="outline"
+          data-testid="delegate-create"
+          @click="openCreate"
+        >
+          <template #icon><t-icon name="add" /></template>
+          新增委托
+        </t-button>
+      </template>
+
+      <!-- 页面说明（原筛选卡下方的 page-tip，文案逐字保留） -->
+      <template #filter-footer>
+        <p class="page-tip">
+          出差 / 休假时把自己的审批权临时让给同事：委托期内新派下来的票直接进受托人的待办，
+          待办上标「代你审批」。委托**不需要审批**，但会留痕；同一时间只能委托给一个人。
+        </p>
+      </template>
+
+      <template #delegator="{ row }">
+        <span>{{ row.delegator_name || '—' }}</span>
+      </template>
+      <template #delegate="{ row }">
+        <span>{{ row.delegate_name || '（用户已删除）' }}</span>
+      </template>
+      <template #period="{ row }">
+        <span class="period">
+          {{ formatTime(row.start_at) }} → {{ formatTime(row.end_at) }}
+        </span>
+      </template>
+      <template #scope="{ row }">
+        <span>{{ scopeLabel(row.scope) }}</span>
+      </template>
+      <template #state="{ row }">
+        <t-tag v-if="!row.enabled" theme="default" variant="light" size="small">已停用</t-tag>
+        <t-tag v-else-if="row.is_active_now" theme="success" variant="light" size="small">
+          生效中
+        </t-tag>
+        <t-tag v-else-if="new Date(row.start_at).getTime() > Date.now()" theme="primary" variant="light" size="small">
+          未开始
+        </t-tag>
+        <t-tag v-else theme="default" variant="light" size="small">已过期</t-tag>
+      </template>
+      <template #ops="{ row }">
+        <t-space size="small">
+          <t-link v-privilege="[PERM.flowDelegateSave]" theme="primary" @click="openEdit(row)">
+            编辑
+          </t-link>
+          <t-link v-privilege="[PERM.flowDelegateSave]" theme="warning" @click="toggleEnabled(row)">
+            {{ row.enabled ? '停用' : '启用' }}
+          </t-link>
+          <t-link v-privilege="[PERM.flowDelegateDelete]" theme="danger" @click="removeRow(row)">
+            删除
+          </t-link>
+        </t-space>
+      </template>
+    </ListPage>
 
     <t-dialog
       v-model:visible="dialogVisible"
@@ -170,52 +166,54 @@
  * `422 + 65043`（区间非法 / 自委托 / 区间重叠）直接把后端 `msg` 弹出来 ——
  * 那段文案已经写了「跟哪条冲突、怎么改」，前端不该再编一遍。
  */
-import { onMounted, reactive, ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
-import type { PrimaryTableCol } from 'tdesign-vue-next';
 import {
   createFlowDelegate,
   deleteFlowDelegate,
   pageFlowDelegates,
   updateFlowDelegate,
   type FlowDelegate,
+  type FlowDelegatePageQuery,
 } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { PERM } from '@/constants/permissions';
 import { FLOW_BIZ_TYPES, FLOW_BIZ_TYPE_LABELS } from '@/api/business/erp/doc-kinds';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 
-/** 视角：我的委托（默认）/ 全部委托（需 business:flow:admin，后端会拦） */
-const view = ref<'mine' | 'all'>('mine');
+/** 页大小（服务端分页） */
+const PAGE_SIZE = 20;
+
+/** 视角选项：我的委托（默认）/ 全部委托（需 business:flow:admin，后端会拦） */
 const viewOpts = [
   { label: '我的委托', value: 'mine' },
   { label: '全部委托（管理员）', value: 'all' },
 ];
-/** 只看生效中 */
-const onlyActive = ref(false);
-/** 当前页数据 */
-const rows = ref<FlowDelegate[]>([]);
-/** 总数 */
-const total = ref(0);
-/** 页码 */
-const page = ref(1);
-/** 页大小 */
-const pageSize = ref(20);
-/** 加载中 */
-const loading = ref(false);
-/** 列表错误（真接口失败时显示，不静默空表） */
-const errorText = ref('');
 
-/** 分页配置 */
-const pagination = reactive({
-  current: 1,
-  pageSize: 20,
-  total: 0,
-  showJumper: true,
+/** 筛选状态（`filterState` 就地读写；`queryBuilder` 引用的是同一个对象） */
+const filter = reactive<{ view: 'mine' | 'all'; only_active: boolean }>({
+  view: 'mine',
+  only_active: false,
 });
 
+/** ListPage 实例（新增 / 编辑 / 停启用 / 删除后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/**
+ * 筛选项声明。
+ *
+ * 两项都是 `custom`：视角是普通 select、只看生效中是 checkbox，都不在
+ * 声明式控件的四种形态里；「一变就查」由插槽里的 `@change="handleSearch"` 保住。
+ */
+const filters: FilterDef[] = [
+  { key: 'view', type: 'custom', defaultValue: 'mine', width: 220, testid: 'delegate-view' },
+  { key: 'only_active', type: 'custom', defaultValue: false, testid: 'delegate-only-active' },
+];
+
 /** 表格列 */
-const columns: PrimaryTableCol[] = [
+const columns: ColumnDef[] = [
   { colKey: 'delegator', title: '委托人', width: 140 },
   { colKey: 'delegate', title: '受托人', width: 140 },
   { colKey: 'period', title: '生效时间', width: 300 },
@@ -260,43 +258,28 @@ function errorMessageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 拉列表 */
-async function loadList(): Promise<void> {
-  loading.value = true;
-  errorText.value = '';
-  try {
-    const data = await pageFlowDelegates({
-      view: view.value,
-      only_active: onlyActive.value || undefined,
-      page: page.value,
-      page_size: pageSize.value,
-    });
-    rows.value = data.list;
-    total.value = data.total;
-    pagination.total = data.total;
-    pagination.current = data.page;
-    pagination.pageSize = data.page_size;
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    errorText.value = `加载委托失败：${errorMessageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
+/** 拉一页 */
+const fetcher: ListFetcher<FlowDelegate> = (query) => pageFlowDelegates(query as FlowDelegatePageQuery);
+
+/** 入参拼装（`only_active` 假值就整键缺席 —— 与改造前 `onlyActive || undefined` 一致） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as { view: 'mine' | 'all'; only_active: boolean };
+  return {
+    view: value.view,
+    only_active: value.only_active || undefined,
+    page,
+    page_size: pageSize,
+  };
+};
+
+/** 重拉当前页（新增 / 编辑 / 停启用 / 删除后） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
 }
 
-/** 查询（回到第 1 页） */
+/** 查询（回到第 1 页）：筛选控件一变就调它，保住改造前「一变就查」的手感 */
 function handleSearch(): void {
-  page.value = 1;
-  pagination.current = 1;
-  void loadList();
-}
-
-/** 翻页 */
-function onPageChange(info: { current: number; pageSize: number }): void {
-  page.value = info.current;
-  pageSize.value = info.pageSize;
-  void loadList();
+  void listRef.value?.search();
 }
 
 // ==================== 表单 ====================
@@ -365,7 +348,7 @@ async function submit(): Promise<void> {
       MessagePlugin.success('委托已创建，生效后新派下来的审批会直接进受托人的待办');
     }
     dialogVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     // 65043（区间非法 / 自委托 / 重叠）等业务错误的文案直接来自后端
     MessagePlugin.error(errorMessageOf(error));
@@ -386,7 +369,7 @@ async function toggleEnabled(row: FlowDelegate): Promise<void> {
       enabled: !row.enabled,
     });
     MessagePlugin.success(row.enabled ? '已停用' : '已启用');
-    await loadList();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorMessageOf(error));
   }
@@ -397,15 +380,11 @@ async function removeRow(row: FlowDelegate): Promise<void> {
   try {
     await deleteFlowDelegate(row.id);
     MessagePlugin.success('已删除（历史仍可审计）');
-    await loadList();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorMessageOf(error));
   }
 }
-
-onMounted(() => {
-  void loadList();
-});
 </script>
 
 <style scoped>
@@ -415,19 +394,17 @@ onMounted(() => {
   gap: 12px;
 }
 
-.filter-card {
-  padding: 4px 0;
+/* 视角下拉（custom 筛选插槽自绘） */
+.delegate-filter {
+  width: 220px;
 }
 
+/* 页面说明（#filter-footer）：出差 / 休假代审批的口径 */
 .page-tip {
   margin: 12px 0 0;
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 1.6;
-}
-
-.list-alert {
-  margin-bottom: 12px;
 }
 
 .period {

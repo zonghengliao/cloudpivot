@@ -1,139 +1,86 @@
 <template>
   <div class="flow-def-page">
     <!-- 两个入口收敛成一个（P2-6 决策 A「合并概念」）：
-         「我的流程」= 原有流程定义表格；「标准流程」= 只读卡片墙（is_system = TRUE 的那批）。 -->
+         「我的流程」= 服务端分页列表（ListPage）；「标准流程」= 只读卡片墙（is_system = TRUE 的那批）。 -->
     <t-card :bordered="false" class="view-tabs-card">
       <t-tabs v-model="activeTab" data-testid="def-view-tabs">
         <t-tab-panel value="mine" label="我的流程">
-          <div class="tab-body">
-            <!-- 筛选区 -->
-            <t-card :bordered="false" class="filter-card">
-              <t-row :gutter="[16, 12]">
-                <t-col :span="5">
-                  <t-input v-model="query.keyword" placeholder="流程编码 / 名称" clearable @enter="handleSearch">
-                    <template #prefix-icon><t-icon name="search" /></template>
-                  </t-input>
-                </t-col>
-                <t-col :span="3">
-                  <t-select v-model="query.status" placeholder="状态" clearable :options="statusOpts" />
-                </t-col>
-                <t-col :span="3">
-                  <t-input v-model="query.biz_type" placeholder="业务类型，如 TASK_ACCEPT" clearable @enter="handleSearch" />
-                </t-col>
-                <t-col :span="13">
-                  <t-space>
-                    <t-button theme="primary" @click="handleSearch">
-                      <template #icon><t-icon name="search" /></template>
-                      查询
-                    </t-button>
-                    <t-button variant="outline" @click="handleReset">重置</t-button>
-                  </t-space>
-                </t-col>
-              </t-row>
-            </t-card>
+          <!-- tab 内容用 v-if 只挂当前 tab：切回来时 ListPage 重新挂载并自己拉首屏 -->
+          <ListPage
+            v-if="activeTab === 'mine'"
+            ref="listRef"
+            title="流程定义"
+            meta-unit="个"
+            testid="flow-def"
+            table-testid="flow-def-table"
+            btn-prefix="btn-flow-def"
+            show-page-size
+            :columns="columns"
+            :filters="filters"
+            :filter-state="query"
+            :fetcher="fetcher"
+            :query-builder="queryBuilder"
+            :page-size="DEF_PAGE_SIZE"
+            :actions="actions"
+          >
+            <!-- 状态取值只在页头说一次（筛选 / 表格里用的都是这三个码） -->
+            <template #meta-extra>
+              · 状态取值 DRAFT / PUBLISHED / DISABLED
+            </template>
 
-            <!-- 工具条 -->
-            <t-card :bordered="false" class="toolbar-card">
-              <div class="toolbar">
-                <t-space align="center">
-                  <t-button v-privilege="[PERM.flowCreate]" theme="primary" size="small" @click="openCreate">
-                    <template #icon><t-icon name="add" /></template>
-                    新建流程
-                  </t-button>
-                  <!-- 状态机边配置入口（D3 管理面前端入口，卡 t_a392a5da）：读 BASE 边 + 配置，改配置走审批 -->
-                  <t-button
-                    v-privilege="[PERM.flowStateEdgeList]"
-                    variant="outline"
-                    size="small"
-                    data-testid="btn-state-edge"
-                    @click="openStateEdge()"
-                  >
-                    <template #icon><t-icon name="setting" /></template>
-                    边配置
-                  </t-button>
-                  <t-button variant="outline" size="small" :loading="loading" @click="loadList">
-                    <template #icon><t-icon name="refresh" /></template>
-                    刷新
-                  </t-button>
-                </t-space>
-                <span class="toolbar__count">共 {{ total }} 个流程 · 状态取值 DRAFT / PUBLISHED / DISABLED</span>
-              </div>
-            </t-card>
-
-            <!-- 列表 -->
-            <t-card :bordered="false" class="table-card">
-              <t-alert v-if="errorMessage" class="table-alert" theme="error" :message="errorMessage">
-                <template #operation>
-                  <t-button size="small" variant="outline" @click="loadList">重试</t-button>
-                </template>
-              </t-alert>
-
-              <t-table
-                row-key="id"
-                :data="rows"
-                :columns="columns"
-                :loading="loading"
-                :pagination="tablePagination"
-                :hover="true"
-                stripe
-                @page-change="handlePageChange"
+            <template #toolbar>
+              <t-button v-privilege="[PERM.flowCreate]" theme="primary" @click="openCreate">
+                <template #icon><t-icon name="add" /></template>
+                新建流程
+              </t-button>
+              <!-- 状态机边配置入口（D3 管理面前端入口，卡 t_a392a5da）：读 BASE 边 + 配置，改配置走审批 -->
+              <t-button
+                v-privilege="[PERM.flowStateEdgeList]"
+                variant="outline"
+                data-testid="btn-state-edge"
+                @click="openStateEdge()"
               >
-                <template #flow_code="{ row }">
-                  <span class="cell-code">{{ row.flow_code }}</span>
-                </template>
+                <template #icon><t-icon name="setting" /></template>
+                边配置
+              </t-button>
+            </template>
 
-                <template #flow_name="{ row }">
-                  <div class="cell-name">
-                    <t-link theme="primary" @click="openEditor(row)">{{ row.flow_name }}</t-link>
-                    <t-tag v-if="row.is_default" size="small" variant="light" theme="primary">默认</t-tag>
-                  </div>
-                </template>
+            <template #flow_code="{ row }">
+              <span class="cell-code">{{ row.flow_code }}</span>
+            </template>
 
-                <template #status="{ row }">
-                  <StatusBadge domain="flow-def" :status="row.status" />
-                </template>
+            <template #flow_name="{ row }">
+              <div class="cell-name">
+                <t-link theme="primary" @click="openEditor(row)">{{ row.flow_name }}</t-link>
+                <t-tag v-if="row.is_default" size="small" variant="light" theme="primary">默认</t-tag>
+              </div>
+            </template>
 
-                <template #version="{ row }">
-                  <span v-if="row.current_version_no > 0">v{{ row.current_version_no }}</span>
-                  <span v-else class="cell-muted">未发布</span>
-                </template>
+            <template #status="{ row }">
+              <StatusBadge domain="flow-def" :status="row.status" />
+            </template>
 
-                <template #graph_size="{ row }">
-                  <span class="cell-muted">{{ row.node_count }} 节点 / {{ row.edge_count }} 连线</span>
-                </template>
+            <template #version="{ row }">
+              <span v-if="row.current_version_no > 0">v{{ row.current_version_no }}</span>
+              <span v-else class="cell-muted">未发布</span>
+            </template>
 
-                <template #updated_at="{ row }">
-                  {{ formatTime(row.updated_at) }}
-                </template>
+            <template #graph_size="{ row }">
+              <span class="cell-muted">{{ row.node_count }} 节点 / {{ row.edge_count }} 连线</span>
+            </template>
 
-                <template #op="{ row }">
-                  <t-space size="small">
-                    <t-link v-privilege="[PERM.flowUpdate]" theme="primary" @click="openEditor(row)">编辑</t-link>
-                    <t-link v-privilege="[PERM.flowPublish]" theme="primary" :disabled="row.status === 'PUBLISHED'" @click="openPublish(row)">
-                      发布
-                    </t-link>
-                    <t-link
-                      v-privilege="[PERM.flowPublish]"
-                      theme="warning"
-                      :disabled="row.status !== 'PUBLISHED'"
-                      @click="openOffline(row)"
-                    >
-                      停用
-                    </t-link>
-                    <t-link theme="default" @click="openVersions(row)">版本历史</t-link>
-                    <t-link v-privilege="[PERM.flowDelete]" theme="danger" @click="openDelete(row)">删除</t-link>
-                  </t-space>
-                </template>
+            <template #updated_at="{ row }">
+              {{ formatTime(row.updated_at) }}
+            </template>
 
-                <template #empty>
-                  <div class="table-empty">
-                    <t-icon name="file-copy" size="24px" />
-                    <p>还没有流程定义。点「新建流程」建一张最简图（开始 → 结束），再进编辑器扩展。</p>
-                  </div>
-                </template>
-              </t-table>
-            </t-card>
-          </div>
+            <template #empty>
+              <div class="panel-empty" data-testid="flow-def-empty">
+                <t-icon class="panel-empty__icon" name="file-copy" />
+                <p class="panel-empty__title">还没有流程定义</p>
+                <p class="panel-empty__desc">点「新建流程」建一张最简图（开始 → 结束），再进编辑器扩展。</p>
+              </div>
+            </template>
+          </ListPage>
         </t-tab-panel>
 
         <t-tab-panel value="standard" label="标准流程">
@@ -257,7 +204,8 @@
  *
  * # 两个 Tab（P2-6 决策 A「合并概念」，术语统一为「标准流程」）
  *
- * - **我的流程**：原有流程定义表格（分页 / 筛选 / 新建 / 发布 / 停用 / 删除 / 版本历史）。
+ * - **我的流程**：流程定义列表（服务端分页 / 筛选 / 新建 / 发布 / 停用 / 删除 / 版本历史）。
+ *   筛选 / 分页 / 行操作交给 ListPage（P3-12），页面只留列、筛选、入参与弹窗。
  * - **标准流程**：`StandardFlowWall` 只读卡片墙（数据口径 `scope=standard`，即 `is_system = TRUE`）。
  *   独立的老页面 `/flow/templates`（「流程模板库」）已下线，路由改成 redirect 到
  *   `/flow/def?view=standard`，老书签 / 老菜单不会 404。
@@ -279,7 +227,7 @@
  * 「编辑」与「版本历史 → 查看 / 编辑」都进 `/flow/def/{defId}/edit`，
  * 区别只是后者带 `?vid=` 指定要看哪一版（编辑器据此决定加载哪张图 / 是否只读）。
  */
-import { computed, onMounted, ref, watch } from 'vue';
+import { onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol, FormRules } from 'tdesign-vue-next';
@@ -294,6 +242,8 @@ import {
   type FlowVersionSummary,
 } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListActions, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { PERM } from '@/constants/permissions';
 import { flowVersionStatusMeta } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
@@ -302,6 +252,9 @@ import StateEdgePanel from './StateEdgePanel.vue';
 
 const router = useRouter();
 const route = useRoute();
+
+/** 每页条数（与改造前一致） */
+const DEF_PAGE_SIZE = 20;
 
 // ==================== Tab（我的流程 / 标准流程） ====================
 
@@ -345,7 +298,7 @@ watch(activeTab, (tab) => {
 /** 标准流程墙上的启用 / 停用 / 另存为改了数据 → 「我的流程」表格重拉一次（状态列别留在旧值） */
 function handleWallChanged(): void {
   if (activeTab.value === 'mine') {
-    void loadList();
+    void listRef.value?.load();
   } else {
     // 表格此时被 Tab 销毁，切回来时由 watch(activeTab) 重拉
     listDirty.value = true;
@@ -355,18 +308,22 @@ function handleWallChanged(): void {
 /** 「我的流程」数据是否需要重拉（表格被 Tab 销毁期间墙改过数据）。 */
 const listDirty = ref(false);
 
-/** 切回「我的流程」时表格刚重新挂载，按需重拉（表体是 v-if 销毁的，不主动拉就是空白） */
+/** 切回「我的流程」时按需重拉（`v-if` 重建的 ListPage 会自己拉首屏，这里只管「被保活」那种情况） */
 watch(activeTab, (tab) => {
-  if (tab === 'mine' && (listDirty.value || rows.value.length === 0)) {
+  if (tab === 'mine' && listDirty.value) {
     listDirty.value = false;
-    void loadList();
+    void listRef.value?.load();
   }
 });
 
-// ==================== 查询条件 ====================
+// ==================== 查询条件 / 列表（交给 ListPage） ====================
 
-/** 查询条件 */
-const query = ref<{ keyword: string; status: string; biz_type: string }>({ keyword: '', status: '', biz_type: '' });
+/** 查询条件（`filterState` 就地读写） */
+const query = reactive<{ keyword: string; status: string; biz_type: string }>({
+  keyword: '',
+  status: '',
+  biz_type: '',
+});
 
 /** 状态筛选选项（顺序 = 状态机推进顺序） */
 const statusOpts = [
@@ -375,25 +332,12 @@ const statusOpts = [
   { label: '已停用', value: 'DISABLED' },
 ];
 
-/** 列表数据 */
-const rows = ref<FlowDef[]>([]);
-/** 总条数 */
-const total = ref(0);
-/** 加载中 */
-const loading = ref(false);
-/** 错误提示（可重试，不白屏） */
-const errorMessage = ref('');
-/** 分页 */
-const pagination = ref({ current: 1, pageSize: 20 });
-
-/** 表格分页配置 */
-const tablePagination = computed(() => ({
-  current: pagination.value.current,
-  pageSize: pagination.value.pageSize,
-  total: total.value,
-  showJumper: true,
-  pageSizeOptions: [10, 20, 50],
-}));
+/** 筛选项声明（改造前状态是「值变即查以外的显式查询」，这里保持回车 / 点查询） */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '流程编码 / 名称', width: 260 },
+  { key: 'status', type: 'select', placeholder: '状态', width: 140, options: statusOpts },
+  { key: 'biz_type', type: 'keyword', placeholder: '业务类型，如 TASK_ACCEPT', width: 240 },
+];
 
 /** 表格列 */
 const columns: PrimaryTableCol[] = [
@@ -407,47 +351,68 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'op', title: '操作', width: 300, fixed: 'right' },
 ];
 
-/** 加载列表 */
-async function loadList(): Promise<void> {
-  loading.value = true;
-  errorMessage.value = '';
-  try {
-    const data = await pageFlowDefs({
-      page: pagination.value.current,
-      page_size: pagination.value.pageSize,
-      keyword: query.value.keyword,
-      status: query.value.status,
-      biz_type: query.value.biz_type,
-    });
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    errorMessage.value = error instanceof ApiError ? error.message : '流程定义加载失败';
-  } finally {
-    loading.value = false;
-  }
-}
+/** 列表实例（新建 / 发布 / 停用 / 删除后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-/** 查询（回到第一页） */
-function handleSearch(): void {
-  pagination.value.current = 1;
-  void loadList();
-}
+/** 拉一页 */
+const fetcher: ListFetcher<FlowDef> = (params) =>
+  pageFlowDefs(params as Parameters<typeof pageFlowDefs>[0]);
 
-/** 重置筛选 */
-function handleReset(): void {
-  query.value = { keyword: '', status: '', biz_type: '' };
-  handleSearch();
-}
+/** 入参拼装（键名与改造前逐字一致；空串由 api 层 `asParams` 丢掉） */
+const queryBuilder: ListQueryBuilder = (state, page, size) => ({
+  page,
+  page_size: size,
+  keyword: state.keyword ?? '',
+  status: state.status ?? '',
+  biz_type: state.biz_type ?? '',
+});
 
-/** 翻页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  pagination.value.current = pageInfo.current;
-  pagination.value.pageSize = pageInfo.pageSize;
-  void loadList();
-}
+/**
+ * 行操作：显隐按权限码（`v-privilege` 同语义 = 无码隐藏），可用性按状态置灰。
+ *
+ * 「发布」只在非已发布时可点、「停用」只在已发布时可点 —— 声明式 `disabled` + `tip`
+ * 能把「为什么点不了」写在 tooltip 里，不必页面自绘 op 列。
+ */
+const actions: ListActions = {
+  row: [
+    {
+      key: 'edit',
+      label: '编辑',
+      permission: PERM.flowUpdate,
+      handler: (row: FlowDef) => openEditor(row),
+    },
+    {
+      key: 'publish',
+      label: '发布',
+      permission: PERM.flowPublish,
+      disabled: (row: FlowDef) => row.status === 'PUBLISHED',
+      tip: () => '已发布的流程不需要重复发布',
+      handler: (row: FlowDef) => openPublish(row),
+    },
+    {
+      key: 'offline',
+      label: '停用',
+      theme: 'warning',
+      permission: PERM.flowPublish,
+      disabled: (row: FlowDef) => row.status !== 'PUBLISHED',
+      tip: () => '只有已发布的流程可以停用',
+      handler: (row: FlowDef) => openOffline(row),
+    },
+    {
+      key: 'versions',
+      label: '版本历史',
+      theme: 'default',
+      handler: (row: FlowDef) => openVersions(row),
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      theme: 'danger',
+      permission: PERM.flowDelete,
+      handler: (row: FlowDef) => openDelete(row),
+    },
+  ],
+};
 
 /** 时间格式化（后端下发 RFC3339，按本地时区展示到分钟） */
 function formatTime(value: string | null): string {
@@ -530,7 +495,7 @@ async function submitCreate(): Promise<void> {
     });
     createVisible.value = false;
     MessagePlugin.success(`流程已创建（v${result.version_no} 草稿，${result.node_count} 个节点）`);
-    await loadList();
+    await listRef.value?.load();
     void router.push({ path: `/flow/def/${result.id}/edit`, query: { vid: result.version_id } });
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '创建失败');
@@ -571,7 +536,7 @@ async function submitPublish(): Promise<void> {
     const result = await publishFlowDef(currentRow.value.id);
     publishVisible.value = false;
     MessagePlugin.success(`已发布 v${result.version_no}（${result.node_count} 节点 / ${result.edge_count} 连线）`);
-    await loadList();
+    await listRef.value?.load();
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '发布失败');
   } finally {
@@ -602,7 +567,7 @@ async function submitOffline(): Promise<void> {
     await offlineFlowDef(currentRow.value.id);
     offlineVisible.value = false;
     MessagePlugin.success('已停用（在跑审批单不受影响）');
-    await loadList();
+    await listRef.value?.load();
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '停用失败');
   } finally {
@@ -633,7 +598,7 @@ async function submitDelete(): Promise<void> {
     const result = await deleteFlowDef(currentRow.value.id);
     deleteVisible.value = false;
     MessagePlugin.success(`已删除 ${result.flow_code}`);
-    await loadList();
+    await listRef.value?.load();
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '删除失败');
   } finally {
@@ -650,7 +615,7 @@ const versions = ref<FlowVersionSummary[]>([]);
 /** 版本加载中 */
 const versionLoading = ref(false);
 
-/** 版本表列 */
+/** 版本表列（弹窗内的子表，不是主列表：原样保留，不进 ListPage） */
 const versionColumns: PrimaryTableCol[] = [
   { colKey: 'version_no', title: '版本', width: 110 },
   { colKey: 'version_status', title: '状态', width: 100 },
@@ -699,8 +664,7 @@ function openStateEdge(entity = ''): void {
 }
 
 onMounted(() => {
-  void loadList();
-  // 深链：`/flow/def?entity=STOCK_OUT` 直接打开面板并定位到该实体（路由路径本身不动）
+  // 列表由 ListPage 在 setup 里拉首屏；这里只处理深链
   const deepLink = route.query.entity;
   if (typeof deepLink === 'string' && deepLink.trim()) {
     openStateEdge(deepLink.trim());
@@ -719,34 +683,6 @@ onMounted(() => {
   border-radius: 8px;
 }
 
-/* Tab 体内的三张卡保持原来的 12px 竖向间距（面板不是 flex 容器，这里自己补） */
-.tab-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.filter-card,
-.toolbar-card,
-.table-card {
-  border-radius: 8px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-
-  &__count {
-    font-size: 12px;
-    color: var(--td-text-color-placeholder);
-  }
-}
-
-.table-alert {
-  margin-bottom: 12px;
-}
-
 .cell-code {
   font-family: var(--app-font-mono, monospace);
   font-size: 13px;
@@ -760,6 +696,31 @@ onMounted(() => {
 }
 
 .cell-muted {
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
   color: var(--td-text-color-placeholder);
 }
 

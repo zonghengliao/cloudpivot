@@ -1,8 +1,60 @@
 <template>
   <div class="contract-page">
-    <!-- ==================== ① 筛选 / 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ①② 筛选 / 分页 / 行操作交给 ListPage（P3-12） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="合同管理"
+      testid="contract"
+      table-testid="contract-table"
+      meta-testid="contract-meta"
+      btn-prefix="btn-contract"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="CONTRACT_PAGE_SIZE"
+      @loaded="onLoaded"
+      @reset="handleReset"
+      @refresh="loadBasics"
+    >
+      <!--
+        签订 / 到期两个区间各自画一块：两个日期框分属两个槽时，筛选行一换行就会
+        「起在上一行、止在下一行」，看不出这是一个区间。
+      -->
+      <template #filter-sign_range>
+        <span class="lp-range">
+          <span class="tool-row__label">签订日期</span>
+          <t-date-range-picker
+            v-model="filter.sign_range"
+            class="tool-row__range"
+            placeholder="签订日期区间"
+            format="YYYY-MM-DD"
+            clearable
+            data-testid="contract-filter-sign-range"
+          />
+        </span>
+      </template>
+      <template #filter-expire_range>
+        <span class="lp-range">
+          <span class="tool-row__label">到期日期</span>
+          <t-date-range-picker
+            v-model="filter.expire_range"
+            class="tool-row__range"
+            placeholder="到期日期区间"
+            format="YYYY-MM-DD"
+            clearable
+            data-testid="contract-filter-expire-range"
+          />
+        </span>
+      </template>
+
+      <template #head-extra>
+        <span class="panel-head__tip">金额列为含税总额；「已签订」的合同才能被采购单引用</span>
+      </template>
+
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -12,195 +64,88 @@
           <template #icon><t-icon name="add" /></template>
           新建合同
         </t-button>
-        <t-button variant="outline" data-testid="btn-contract-refresh" @click="refresh">
-          <template #icon><t-icon name="refresh" /></template>
-          刷新
-        </t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
+      <template #contract_no="{ row }">
+        <t-link theme="primary" class="mono" :data-testid="`contract-no-${row.contract_no}`" @click="openDetail(row)">
+          {{ row.contract_no }}
+        </t-link>
+      </template>
 
-        <t-input
-          v-model="filter.contract_no"
-          class="tool-row__no"
-          placeholder="合同号（模糊）"
-          clearable
-          data-testid="contract-filter-no"
-          @enter="handleSearch"
-        />
-        <t-input
-          v-model="filter.name"
-          class="tool-row__name"
-          placeholder="合同名称（模糊）"
-          clearable
-          data-testid="contract-filter-name"
-          @enter="handleSearch"
-        />
-        <t-select
-          v-model="filter.contract_type"
-          class="tool-row__type"
-          :options="typeFilterOptions"
-          placeholder="全部类型"
-          clearable
-          data-testid="contract-filter-type"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="contract-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.party_b_id"
-          class="tool-row__supplier"
-          :options="supplierOptions"
-          placeholder="全部乙方"
-          clearable
-          filterable
-          data-testid="contract-filter-supplier"
-          @change="handleSearch"
-        />
-      </div>
+      <template #contract_type="{ row }">{{ contractTypeLabel(row.contract_type) }}</template>
 
-      <div class="tool-row tool-row--second">
-        <span class="tool-row__label">签订日期</span>
-        <t-date-range-picker
-          v-model="filter.sign_range"
-          class="tool-row__range"
-          placeholder="签订日期区间"
-          format="YYYY-MM-DD"
-          clearable
-          data-testid="contract-filter-sign-range"
+      <template #party_b_name="{ row }">
+        <span :data-testid="`contract-party-${row.contract_no}`">{{ contractPartyBName(row) }}</span>
+      </template>
+
+      <template #amount="{ row }">
+        <span class="money" :data-testid="`contract-amount-${row.contract_no}`">{{ contractAmountText(row.amount) }}</span>
+      </template>
+
+      <template #sign_date="{ row }">
+        <span class="muted">{{ row.sign_date || '—' }}</span>
+      </template>
+
+      <template #period="{ row }">
+        <span class="muted">{{ contractPeriodText(row.start_date, row.end_date) }}</span>
+      </template>
+
+      <template #status="{ row }">
+        <StatusBadge
+          domain="erp-contract"
+          :status="row.status"
+          :data-testid="`contract-status-${row.contract_no}`"
         />
-        <span class="tool-row__label">到期日期</span>
-        <t-date-range-picker
-          v-model="filter.expire_range"
-          class="tool-row__range"
-          placeholder="到期日期区间"
-          format="YYYY-MM-DD"
-          clearable
-          data-testid="contract-filter-expire-range"
-        />
-        <t-button theme="primary" data-testid="btn-contract-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-contract-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">合同管理</span>
-          <span class="panel-head__meta" data-testid="contract-meta">{{ listState.totalText }}</span>
-        </div>
-        <span class="panel-head__tip">金额列为含税总额；「已签订」的合同才能被采购单引用</span>
-      </div>
-
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="contract-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadContracts()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="listState.rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="contract-table"
-        @page-change="handlePageChange"
-      >
-        <template #contract_no="{ row }">
-          <t-link theme="primary" class="mono" :data-testid="`contract-no-${row.contract_no}`" @click="openDetail(row)">
-            {{ row.contract_no }}
+      <!-- 行操作：查看 / 编辑 / 删除 + 状态机下发的流转边，页面自绘（每行条数随状态变） -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link theme="primary" :data-testid="`btn-contract-view-${row.contract_no}`" @click="openDetail(row)">
+            查看
           </t-link>
-        </template>
+          <!-- 只有草稿能改（后端 PUT 非 DRAFT 一律 409 + 66016） -->
+          <t-link
+            v-if="canEditContract(row)"
+            v-privilege="[PERM.update]"
+            theme="primary"
+            :data-testid="`btn-contract-edit-${row.contract_no}`"
+            @click="openEditDialog(row)"
+          >
+            编辑
+          </t-link>
+          <!-- 卡面：删除只给 DRAFT（且被采购单引用时后端 409 + 66018） -->
+          <t-link
+            v-if="canDeleteContract(row)"
+            v-privilege="[PERM.remove]"
+            theme="danger"
+            :data-testid="`btn-contract-remove-${row.contract_no}`"
+            @click="confirmRemove(row)"
+          >
+            删除
+          </t-link>
+          <!-- 合法边全部来自状态机（见 contract-logic.ts::CONTRACT_EDGES） -->
+          <t-link
+            v-for="action in contractTransitions(row.status)"
+            :key="action.target"
+            v-privilege="[PERM.status]"
+            :theme="action.theme === 'default' ? 'default' : action.theme"
+            :data-testid="`btn-contract-to-${action.target}-${row.contract_no}`"
+            @click="openStatusDialog(row, action)"
+          >
+            {{ action.label }}
+          </t-link>
+        </div>
+      </template>
 
-        <template #contract_type="{ row }">{{ contractTypeLabel(row.contract_type) }}</template>
-
-        <template #party_b_name="{ row }">
-          <span :data-testid="`contract-party-${row.contract_no}`">{{ contractPartyBName(row) }}</span>
-        </template>
-
-        <template #amount="{ row }">
-          <span class="money" :data-testid="`contract-amount-${row.contract_no}`">{{ contractAmountText(row.amount) }}</span>
-        </template>
-
-        <template #sign_date="{ row }">
-          <span class="muted">{{ row.sign_date || '—' }}</span>
-        </template>
-
-        <template #period="{ row }">
-          <span class="muted">{{ contractPeriodText(row.start_date, row.end_date) }}</span>
-        </template>
-
-        <template #status="{ row }">
-          <StatusBadge
-            domain="erp-contract"
-            :status="row.status"
-            :data-testid="`contract-status-${row.contract_no}`"
-          />
-        </template>
-
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link theme="primary" :data-testid="`btn-contract-view-${row.contract_no}`" @click="openDetail(row)">
-              查看
-            </t-link>
-            <!-- 只有草稿能改（后端 PUT 非 DRAFT 一律 409 + 66016） -->
-            <t-link
-              v-if="canEditContract(row)"
-              v-privilege="[PERM.update]"
-              theme="primary"
-              :data-testid="`btn-contract-edit-${row.contract_no}`"
-              @click="openEditDialog(row)"
-            >
-              编辑
-            </t-link>
-            <!-- 卡面：删除只给 DRAFT（且被采购单引用时后端 409 + 66018） -->
-            <t-link
-              v-if="canDeleteContract(row)"
-              v-privilege="[PERM.remove]"
-              theme="danger"
-              :data-testid="`btn-contract-remove-${row.contract_no}`"
-              @click="confirmRemove(row)"
-            >
-              删除
-            </t-link>
-            <!-- 合法边全部来自状态机（见 contract-logic.ts::CONTRACT_EDGES） -->
-            <t-link
-              v-for="action in contractTransitions(row.status)"
-              :key="action.target"
-              v-privilege="[PERM.status]"
-              :theme="action.theme === 'default' ? 'default' : action.theme"
-              :data-testid="`btn-contract-to-${action.target}-${row.contract_no}`"
-              @click="openStatusDialog(row, action)"
-            >
-              {{ action.label }}
-            </t-link>
-          </div>
-        </template>
-
-        <template #empty>
-          <div class="panel-empty" data-testid="contract-empty">
-            <t-icon name="file" class="panel-empty__icon" />
-            <p class="panel-empty__title">{{ emptyState.title }}</p>
-            <p class="panel-empty__desc">{{ emptyState.desc }}</p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty>
+        <div class="panel-empty" data-testid="contract-empty">
+          <t-icon name="file" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ emptyState.title }}</p>
+          <p class="panel-empty__desc">{{ emptyState.desc }}</p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑弹窗 ==================== -->
     <t-dialog
@@ -679,6 +624,8 @@ import { DEFAULT_ROLE_BY_DOC } from '@/api/business/erp/attachment';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import DocPdfButton from '@/components/DocPdfButton.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { todayString } from '@/views/business/erp/shared/money';
 import {
   COMMITMENT_NOT_APPLICABLE_TEXT,
@@ -698,7 +645,6 @@ import {
   contractAmountText,
   contractEmptyState,
   contractFormFromDetail,
-  contractListState,
   contractPartyBKind,
   contractPartyBLabel,
   contractPartyBName,
@@ -766,38 +712,20 @@ const typeFilterOptions = contractTypeOptions().map((item) => ({
 /** 表单里的类型下拉（四类全可选，CTR-02-F1） */
 const formTypeOptions = contractTypeOptions();
 
-// ==================== 列表 ====================
+// ==================== 列表（交给 ListPage） ====================
 
-/** 筛选行 */
+/** 筛选行（`filterState` 就地读写；`buildContractQuery` / `isContractFiltered` 引用同一个对象） */
 const filter = reactive<ContractFilterState>(emptyContractFilter());
-/** 当前页 */
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-/** 每页条数 */
-const pageSize = CONTRACT_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
-/** 服务端响应（行 + 总数） */
-const pageData = ref<{ list: ContractRow[]; total: number }>({ list: [], total: 0 });
-
-/** 列表区状态（行数 / 总数 / 空态判定，逻辑在 contract-logic.ts，单测覆盖） */
-const listState = computed(() => contractListState(pageData.value));
+/** ListPage 实例（保存 / 删除 / 流转后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 /** 是否处于筛选态（决定空态文案） */
 const filtered = computed(() => isContractFiltered(filter));
 
 /** 空态文案 */
 const emptyState = computed(() => contractEmptyState(filtered.value));
-
-/** 分页器（服务端分页） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: listState.value.total,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 /** 乙方下拉：供应商（PURCHASE）与客户（SALES）两套数据源，按表单类型切换 */
 const suppliers = ref<Supplier[]>([]);
@@ -818,6 +746,60 @@ const partyBLabel = computed(() => contractPartyBLabel(form.contract_type));
 const partyBTip = computed(() => contractPartyBTip(form.contract_type));
 
 /**
+ * 筛选项声明。
+ *
+ * 乙方下拉依赖 `suppliers`（异步拉回来的），所以整组用 `computed`；
+ * 两个日期区间走 `custom` 自绘（一块槽里画两个日期框，换行时不至于把「起 / 止」拆开），
+ * 声明里带 `defaultValue: []` 是为了让组件的「重置」知道要把它们清成空区间。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'contract_no',
+    type: 'keyword',
+    placeholder: '合同号（模糊）',
+    width: 180,
+    testid: 'contract-filter-no',
+  },
+  {
+    key: 'name',
+    type: 'keyword',
+    placeholder: '合同名称（模糊）',
+    width: 200,
+    testid: 'contract-filter-name',
+  },
+  {
+    key: 'contract_type',
+    type: 'select',
+    placeholder: '全部类型',
+    width: 150,
+    options: typeFilterOptions,
+    searchOnChange: true,
+    testid: 'contract-filter-type',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'contract-filter-status',
+  },
+  {
+    key: 'party_b_id',
+    type: 'select',
+    placeholder: '全部乙方',
+    width: 220,
+    options: supplierOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'contract-filter-supplier',
+  },
+  { key: 'sign_range', type: 'custom', defaultValue: [] },
+  { key: 'expire_range', type: 'custom', defaultValue: [] },
+]);
+
+/**
  * 切换合同类型时清空乙方：供应商 id 与客户 id 是两个 id 空间，
  * 留着上一个类型选中的 id 会让「乙方」看起来选好了、实际指向另一张主档（提交才 400）。
  */
@@ -833,24 +815,22 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** 拉列表 */
-async function loadContracts(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchContractPage(buildContractQuery(filter, page, pageSize));
-    const rows = data?.list ?? [];
-    const total = data?.total ?? 0;
-    pageData.value = { list: rows, total };
-    const rawPage = data?.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-  } catch (error) {
-    pageData.value = { list: [], total: 0 };
-    loadError.value = messageOf(error);
-  } finally {
-    loading.value = false;
-  }
+/** 拉一页（行保持原始 `ContractRow`，文案翻译在单元格里做） */
+const fetcher: ListFetcher<ContractRow> = (query) =>
+  fetchContractPage(query as Parameters<typeof fetchContractPage>[0]);
+
+/** 入参拼装（页面自己的 `buildContractQuery`，接口契约不动） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildContractQuery(state as ContractFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
@@ -864,26 +844,9 @@ async function loadBasics(): Promise<void> {
   customers.value = customerResult.status === 'fulfilled' ? (customerResult.value.list ?? []) : [];
 }
 
-/** 查询（回第一页） */
-function handleSearch(): void {
-  void loadContracts(1);
-}
-
-/** 重置筛选 */
+/** 重置筛选（组件已按声明清过一遍，这里补 `emptyContractFilter()` 的「全部」口径） */
 function handleReset(): void {
   Object.assign(filter, emptyContractFilter());
-  void loadContracts(1);
-}
-
-/** 刷新（保留筛选与页码） */
-function refresh(): void {
-  void loadContracts();
-  void loadBasics();
-}
-
-/** 翻页 */
-function handlePageChange(pageInfo: { current?: number }): void {
-  void loadContracts(pageInfo.current ?? 1);
 }
 
 // ==================== 表单 ====================
@@ -957,7 +920,7 @@ async function save(): Promise<void> {
       MessagePlugin.success(`${detail.contract_no} 已创建为草稿`);
     }
     formVisible.value = false;
-    await loadContracts(isEdit ? current.value : 1);
+    await reloadList(isEdit ? current.value : 1);
   } catch (error) {
     submitError.value = messageOf(error);
   } finally {
@@ -1065,7 +1028,7 @@ function confirmRemove(row: ContractRow): void {
       try {
         await deleteContract(row.id);
         MessagePlugin.success(`${row.contract_no} 已删除`);
-        await loadContracts();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -1169,7 +1132,7 @@ async function submitStatus(): Promise<void> {
     if (detail.value?.id === row.id) {
       detail.value = detailAfter;
     }
-    await loadContracts();
+    await reloadList();
   } catch (error) {
     statusError.value = messageOf(error);
   } finally {
@@ -1194,7 +1157,6 @@ function formatDateTime(value: string | null | undefined): string {
 
 onMounted(() => {
   void loadBasics();
-  void loadContracts(1);
   void applyRouteQuery();
 });
 
@@ -1223,87 +1185,26 @@ async function applyRouteQuery(): Promise<void> {
   gap: 12px;
 }
 
-.tool-card,
-.list-card {
-  padding: 4px 0;
-}
-
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
+/* 日期区间：两个日期框 + 标签连成一个 flex 项，筛选行换行时不会被拆开 */
+.lp-range {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-
-  & + & {
-    margin-top: 10px;
-  }
-
-  &__spacer {
-    flex: 1 1 auto;
-  }
-
-  &__label {
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-    white-space: nowrap;
-  }
-
-  &__no {
-    width: 180px;
-  }
-
-  &__name {
-    width: 200px;
-  }
-
-  &__type {
-    width: 150px;
-  }
-
-  &__status {
-    width: 130px;
-  }
-
-  &__supplier {
-    width: 220px;
-  }
-
-  &__range {
-    width: 250px;
-  }
 }
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  &__meta {
-    color: var(--td-text-color-secondary);
-    font-size: 13px;
-  }
-
-  &__tip {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
+.tool-row__label {
+  color: var(--td-text-color-secondary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
-.list-alert {
-  margin-bottom: 12px;
+.tool-row__range {
+  width: 250px;
+}
+
+.panel-head__tip {
+  color: var(--td-text-color-placeholder);
+  font-size: 12px;
 }
 
 .panel-empty {

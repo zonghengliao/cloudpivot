@@ -76,48 +76,28 @@
       </div>
     </t-card>
 
-    <!-- ② 筛选行 -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-select
-          v-model="filter.material_id"
-          class="filter-row__select"
-          :options="materialOptions"
-          placeholder="全部物料"
-          clearable
-          filterable
-          data-testid="serial-filter-material"
-        />
-        <t-select
-          v-model="filter.warehouse_id"
-          class="filter-row__select"
-          :options="warehouseOptions"
-          placeholder="全部仓库"
-          clearable
-          filterable
-          data-testid="serial-filter-warehouse"
-        />
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select filter-row__select--narrow"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="serial-filter-status"
-        />
-        <t-input
-          v-model="filter.serial_no"
-          class="filter-row__no"
-          placeholder="序列号（模糊）"
-          clearable
-          data-testid="serial-filter-no"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="btn-serial-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-serial-reset" @click="handleReset">重置</t-button>
-
-        <span class="filter-row__spacer" />
-
+    <!-- ② 筛选 / 分页 / 批量 / 行操作交给 ListPage（P3-12）；扫码行与批量生成弹窗留在页面里 -->
+    <ListPage
+      ref="listRef"
+      title="序列号列表"
+      testid="serial"
+      table-testid="serial-table"
+      meta-testid="serial-meta"
+      btn-prefix="btn-serial"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="SERIAL_PAGE_SIZE"
+      :actions="actions"
+      :batch-runner="runBatchAction"
+      :batch-can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+      :row-class-name="rowClassName"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.serialGenerate]"
           theme="primary"
@@ -127,140 +107,117 @@
           <template #icon><t-icon name="add" /></template>
           批量生成
         </t-button>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- ③ 列表 -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">序列号列表</span>
-          <span class="panel-head__meta" data-testid="serial-meta">共 {{ total }} 条</span>
-        </div>
+      <!-- 扫码命中的行不在当前页时提示「已按该号筛选」（改造前在面板头右侧） -->
+      <template #head-extra>
         <span v-if="scannedId && !scanHitOnPage" class="panel-head__warn" data-testid="serial-scan-offpage">
           扫码命中的行不在当前页，已按该号筛选
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="batchResultText"
-        theme="success"
-        :message="batchResultText"
-        close
-        class="list-alert"
-        data-testid="batch-result-hint"
-        @close="batchResultText = ''"
-      />
+      <!-- 批量生成结果提示（改造前在列表卡顶部，现在挂在筛选卡底部整宽） -->
+      <template #filter-footer>
+        <t-alert
+          v-if="batchResultText"
+          theme="success"
+          :message="batchResultText"
+          close
+          class="list-alert"
+          data-testid="batch-result-hint"
+          @close="batchResultText = ''"
+        />
+      </template>
 
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadSerials()">重试</t-button>
-        </template>
-      </t-alert>
+      <template #serial_no="{ row }">
+        <span class="mono" :data-testid="`serial-no-${row.serial_no}`">{{ row.serial_no }}</span>
+        <t-tag
+          v-if="row.id === scannedId"
+          size="small"
+          theme="warning"
+          variant="light"
+          class="hit-flag"
+          data-testid="serial-hit-flag"
+        >
+          扫码命中
+        </t-tag>
+      </template>
 
-      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
-      <BatchActionBar
-        :selected="selectedRows"
-        :actions="BATCH_ACTIONS"
-        :filtered-total="total"
-        :runner="runBatchAction"
-        :can="canBatchAction"
-      :fetch-all-ids="fetchAllRowIds"
-        testid="serial-batch"
-        @update:selected="onSelectedRows"
-        @done="handleBatchDone"
-      />
+      <template #material_id="{ row }">
+        {{ materialNameOf(row.material_id) }}
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="tableRows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :row-class-name="rowClassName"
-        :hover="true"
-        :selected-row-keys="selectedIds"
-        data-testid="serial-table"
-        @select-change="onSelectChange"
-        @page-change="handlePageChange"
-      >
-        <template #serial_no="{ row }">
-          <span class="mono" :data-testid="`serial-no-${row.serial_no}`">{{ row.serial_no }}</span>
-          <t-tag v-if="row.scanned" size="small" theme="warning" variant="light" class="hit-flag" data-testid="serial-hit-flag">
-            扫码命中
-          </t-tag>
-        </template>
+      <template #warehouse_id="{ row }">
+        {{ warehouseNameOf(row.warehouse_id) }}
+      </template>
 
-        <template #material_id="{ row }">
-          {{ materialNameOf(row.material_id) }}
-        </template>
+      <template #location_id="{ row }">
+        <!-- SerialRes 只给 location_id（指向 biz_inventory_location.id），没有名称 -->
+        <t-tooltip v-if="row.location_id" :content="row.location_id">
+          <span class="mono muted">{{ shortId(row.location_id) }}</span>
+        </t-tooltip>
+        <span v-else class="muted">—</span>
+      </template>
 
-        <template #warehouse_id="{ row }">
-          {{ warehouseNameOf(row.warehouse_id) }}
-        </template>
+      <template #batch_no="{ row }">
+        {{ dash(row.batch_no) }}
+      </template>
 
-        <template #location_id="{ row }">
-          <!-- SerialRes 只给 location_id（指向 biz_inventory_location.id），没有名称 -->
-          <t-tooltip v-if="row.location_id" :content="row.location_id">
-            <span class="mono muted">{{ shortId(row.location_id) }}</span>
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          :theme="serialStatusTheme(row.status)"
+          variant="light"
+          :data-testid="`status-${row.serial_no}`"
+        >
+          {{ serialStatusLabel(row.status) }}
+        </t-tag>
+      </template>
+
+      <template #inbound_at="{ row }">
+        <span class="muted">{{ formatTime(row.inbound_at) }}</span>
+      </template>
+
+      <!-- 行操作：出库 / 报废都不可逆，按钮禁用原因用 tooltip 说明（页面自绘 op 列） -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-tooltip :content="actionsOf(row).outbound ? '出库：在库 → 已出库（不可逆）' : serialActionHint(row.status)">
+            <t-link
+              v-privilege="[PERM.serialStatus]"
+              theme="primary"
+              :disabled="!actionsOf(row).outbound"
+              :class="{ 'op-disabled': !actionsOf(row).outbound }"
+              :data-testid="`btn-outbound-${row.serial_no}`"
+              @click="confirmTransition(row, 'OUTBOUND')"
+            >
+              出库
+            </t-link>
           </t-tooltip>
-          <span v-else class="muted">—</span>
-        </template>
+          <t-tooltip :content="actionsOf(row).scrap ? '报废：不可逆，报废后不能再出库' : serialActionHint(row.status)">
+            <t-link
+              v-privilege="[PERM.serialStatus]"
+              theme="danger"
+              :disabled="!actionsOf(row).scrap"
+              :class="{ 'op-disabled': !actionsOf(row).scrap }"
+              :data-testid="`btn-scrap-${row.serial_no}`"
+              @click="confirmTransition(row, 'SCRAPPED')"
+            >
+              报废
+            </t-link>
+          </t-tooltip>
+        </div>
+      </template>
 
-        <template #batch_no="{ row }">
-          {{ dash(row.batch_no) }}
-        </template>
-
-        <template #status="{ row }">
-          <t-tag size="small" :theme="serialStatusTheme(row.status)" variant="light" :data-testid="`status-${row.serial_no}`">
-            {{ serialStatusLabel(row.status) }}
-          </t-tag>
-        </template>
-
-        <template #inbound_at="{ row }">
-          <span class="muted">{{ formatTime(row.inbound_at) }}</span>
-        </template>
-
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-tooltip :content="actionsOf(row).outbound ? '出库：在库 → 已出库（不可逆）' : serialActionHint(row.status)">
-              <t-link
-                v-privilege="[PERM.serialStatus]"
-                theme="primary"
-                :disabled="!actionsOf(row).outbound"
-                :class="{ 'op-disabled': !actionsOf(row).outbound }"
-                :data-testid="`btn-outbound-${row.serial_no}`"
-                @click="confirmTransition(row, 'OUTBOUND')"
-              >
-                出库
-              </t-link>
-            </t-tooltip>
-            <t-tooltip :content="actionsOf(row).scrap ? '报废：不可逆，报废后不能再出库' : serialActionHint(row.status)">
-              <t-link
-                v-privilege="[PERM.serialStatus]"
-                theme="danger"
-                :disabled="!actionsOf(row).scrap"
-                :class="{ 'op-disabled': !actionsOf(row).scrap }"
-                :data-testid="`btn-scrap-${row.serial_no}`"
-                @click="confirmTransition(row, 'SCRAPPED')"
-              >
-                报废
-              </t-link>
-            </t-tooltip>
-          </div>
-        </template>
-
-        <template #empty>
-          <div class="panel-empty" data-testid="serial-empty">
-            <t-icon class="panel-empty__icon" name="barcode" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的序列号' : '还没有序列号' }}</p>
-            <p class="panel-empty__desc">
-              {{ filtered ? '换个物料 / 仓库 / 状态，或点「重置」看全部' : '点右上角「批量生成」为一物一码物料生成号段' }}
-            </p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="serial-empty">
+          <t-icon class="panel-empty__icon" name="barcode" />
+          <p class="panel-empty__title">{{ filtered ? '没有匹配的序列号' : '还没有序列号' }}</p>
+          <p class="panel-empty__desc">
+            {{ filtered ? '换个物料 / 仓库 / 状态，或点「重置」看全部' : '点右上角「批量生成」为一物一码物料生成号段' }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ④ 批量生成弹窗 -->
     <t-dialog
@@ -401,12 +358,18 @@
 import {
   serialBatchStatus,
 } from '@/api/business/batch';
-import BatchActionBar from '@/components/BatchActionBar.vue';
-import { useBatchSelection } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListActions,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue';
-import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import {
   batchGenerateSerials,
   fetchLocationList,
@@ -428,7 +391,6 @@ import {
   SERIAL_PAGE_SIZE,
   SERIAL_STATUS_FILTER_OPTIONS,
   SOURCE_TYPE_OPTIONS,
-  applyScanHighlight,
   availableActions,
   batchGenerateErrorText,
   buildBatchPayload,
@@ -441,7 +403,6 @@ import {
   formatBatchResultText,
   formatTime,
   hasBatchFormError,
-  isSerialFiltered,
   isSerialNotFound,
   locationAfterWarehouseSwitch,
   serialActionHint,
@@ -451,7 +412,6 @@ import {
   type BatchFormErrors,
   type BatchGenerateFormState,
   type SerialFilterState,
-  type SerialRowWithScan,
 } from './serial-logic';
 
 /** 本页权限码（与 `backend/app/migrations/business/V0142__erp_serial_permissions.up.sql` 逐字一致） */
@@ -467,14 +427,8 @@ const PERM = {
 } as const;
 
 /** 表格列（`colKey` 与 `SerialRes` 字段同名，插槽按 colKey 命中） */
-const columns: PrimaryTableCol[] = [
-  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
-  {
-    colKey: 'row-select',
-    type: 'multiple',
-    width: 50,
-    disabled: (options: { row: unknown }) => !isSelectable(options.row as SerialRow),
-  },
+const columns: ColumnDef[] = [
+  // 勾选列由 ListPage 按 `actions.batch` 自动补在最左（页面不再声明 `row-select`）
   { colKey: 'serial_no', title: '序列号', width: 250, fixed: 'left' },
   { colKey: 'material_id', title: '物料', minWidth: 160, ellipsis: true },
   { colKey: 'warehouse_id', title: '仓库', width: 140, ellipsis: true },
@@ -482,7 +436,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'batch_no', title: '批次', width: 120, ellipsis: true },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'inbound_at', title: '入库', width: 150 },
-  { colKey: 'op', title: '操作', width: 120, fixed: 'right' },
+  { colKey: 'op', title: '操作', width: 120, fixed: 'right', exportable: false },
 ];
 
 /** 状态下拉（`''` = 全部） */
@@ -551,10 +505,10 @@ async function handleScan(): Promise<void> {
     scannedId.value = hit.id;
     if (!rows.value.some((row) => row.id === hit.id)) {
       Object.assign(filter, { ...emptySerialFilter(), serial_no: hit.serial_no });
-      current.value = 1;
-      await loadSerials(1);
+      await listRef.value?.load(1);
     }
-    scanHitOnPage.value = tableRows.value.some((row) => row.id === hit.id && row.scanned);
+    // 命中行是否落在本页（不在就提示「已按该号筛选」；行镜像在 `onLoaded` 里同步）
+    scanHitOnPage.value = rows.value.some((row) => row.id === hit.id);
     await scrollToScannedRow(hit.id);
   } catch (error) {
     scanResult.value = null;
@@ -581,12 +535,10 @@ async function scrollToScannedRow(id: string): Promise<void> {
 
 // ==================== 列表 / 筛选 ====================
 
-/** 筛选行 */
+/** 筛选行（`filterState` 就地读写：`buildSerialQuery` / 扫码改筛选引用的是同一个对象） */
 const filter = reactive<SerialFilterState>(emptySerialFilter());
-/** 原始行数据 */
+/** 本页行镜像（表格由 ListPage 渲染；扫码要判断「命中行在不在本页」） */
 const rows = ref<SerialRow[]>([]);
-/** 总条数 */
-const total = ref(0);
 
 // ==================== 批量操作（D7） ====================
 
@@ -619,8 +571,15 @@ const BATCH_PERMISSIONS: Record<string, string> = {
   scrap: 'business:erp:serial:status',
 };
 
-const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
-  useBatchSelection(BATCH_ACTIONS, rows);
+/**
+ * 交给 ListPage 的动作声明（P3-12）。
+ *
+ * 勾选状态、进度、逐条失败清单全部由组件内置的 `BatchActionBar` 负责；
+ * 行内「出库 / 报废」仍由页面自绘的 `#op` 列渲染（按钮禁用原因要 tooltip）。
+ */
+const actions: ListActions = {
+  batch: BATCH_ACTIONS,
+};
 
 /** 当前用户能不能点这个批量动作。 */
 function canBatchAction(action: BatchActionSpec): boolean {
@@ -655,25 +614,10 @@ async function fetchAllRowIds(): Promise<BatchRow[]> {
   return acc;
 }
 
-/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
-function handleBatchDone(): void {
-  void loadSerials(1);
-}
-/** 当前页 */
-const current = ref(1);
-/** 每页条数 */
-const pageSize = SERIAL_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
 /** 物料主数据（译 material_id → 名称 + 筛选下拉） */
 const materials = ref<MaterialRow[]>([]);
 /** 仓库主数据（译 warehouse_id → 名称 + 下拉） */
 const warehouses = ref<Warehouse[]>([]);
-
-/** 是否处于筛选态（空态文案分「没数据」「没匹配」） */
-const filtered = computed(() => isSerialFiltered(filter));
 
 /** 物料下拉（筛选：全部物料） */
 const materialOptions = computed(() =>
@@ -692,17 +636,74 @@ const warehouseOptions = computed(() =>
   warehouses.value.map((item) => ({ label: `${item.warehouse_name}（${item.warehouse_code}）`, value: item.id })),
 );
 
-/** 表格数据 = 原始行 + 扫码命中标记 */
-const tableRows = computed<SerialRowWithScan[]>(() => applyScanHighlight(rows.value, scannedId.value).list);
+/** ListPage 实例（扫码 / 生成 / 状态流转 / 批量后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-/** 分页器（服务端分页） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项声明。
+ *
+ * 改造前四个控件都**不**自动查询（选完点「查询」，序列号框回车查），
+ * 所以这里不设 `searchOnChange`，手感与改造前一致。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '全部物料',
+    width: 190,
+    options: materialOptions.value,
+    filterable: true,
+    testid: 'serial-filter-material',
+  },
+  {
+    key: 'warehouse_id',
+    type: 'select',
+    placeholder: '全部仓库',
+    width: 190,
+    options: warehouseOptions.value,
+    filterable: true,
+    testid: 'serial-filter-warehouse',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 130,
+    options: statusFilterOptions,
+    testid: 'serial-filter-status',
+  },
+  {
+    key: 'serial_no',
+    type: 'keyword',
+    placeholder: '序列号（模糊）',
+    width: 220,
+    testid: 'serial-filter-no',
+  },
+]);
+
+/** 拉一页（出参 `PageData<SerialRow>`，与 ListPage 的 `fetcher` 同构） */
+const fetcher: ListFetcher<SerialRow> = (query) =>
+  fetchSerialPage(query as Parameters<typeof fetchSerialPage>[0]);
+
+/** 入参拼装（页面自己的 `buildSerialQuery`：空串整键缺席，不换接口契约） */
+const queryBuilder: ListQueryBuilder = (state, page, size) =>
+  buildSerialQuery(state as SerialFilterState, page, size);
+
+/**
+ * 一页拉完：镜像本页行（扫码判断「命中行在不在本页」要用）+ 刷新「是否命中本页」标记。
+ * 表格本身由 ListPage 渲染，这里不碰。
+ */
+function onLoaded(payload: { rows: SerialRow[] }): void {
+  rows.value = payload.rows;
+  scanHitOnPage.value = scannedId.value
+    ? payload.rows.some((row) => row.id === scannedId.value)
+    : false;
+}
+
+/** 重拉列表（不传 = 当前页） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
+}
 
 /** 物料名称（查不到就显示 id 短码，别显示空白） */
 function materialNameOf(materialId: string): string {
@@ -734,47 +735,7 @@ function rowClassName({ row }: { row: SerialRow }): string {
   return row.id === scannedId.value ? 'serial-row--hit' : '';
 }
 
-/** 拉列表 */
-async function loadSerials(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchSerialPage(buildSerialQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    const rawPage = data.page ?? page;
-    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
-    current.value = Math.min(Math.max(1, rawPage), maxPage);
-    scanHitOnPage.value = scannedId.value
-      ? rows.value.some((row) => row.id === scannedId.value)
-      : false;
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `序列号列表加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-/** 查询（回第 1 页） */
-function handleSearch(): void {
-  current.value = 1;
-  void loadSerials(1);
-}
-
-/** 重置筛选 */
-function handleReset(): void {
-  Object.assign(filter, emptySerialFilter());
-  current.value = 1;
-  void loadSerials(1);
-}
-
-/** 切页 */
-function handlePageChange(pageInfo: { current: number }): void {
-  current.value = pageInfo.current;
-  void loadSerials(pageInfo.current);
-}
+// 拉列表 / 查询 / 重置 / 切页都交给 ListPage（`fetcher` + `queryBuilder` + 组件内置分页器）
 
 // ==================== 状态流转（不可逆，二次确认） ====================
 
@@ -805,7 +766,7 @@ function confirmTransition(row: SerialRow, target: Exclude<SerialStatus, 'IN_STO
         await updateSerialStatus(row.id, { status: target });
         MessagePlugin.success(`${row.serial_no} 已${action}`);
         dialog.hide();
-        await loadSerials(current.value);
+        await reloadList();
         // 状态变了，扫码信息卡里的状态也得跟着变（重新点查一次，别让卡片说谎）
         if (scanResult.value?.id === row.id) {
           await handleScan();
@@ -948,8 +909,8 @@ async function submitBatch(): Promise<void> {
     }`;
     MessagePlugin.success(batchResultText.value);
     batchVisible.value = false;
-    current.value = 1;
-    await loadSerials(1);
+    // 新生成的号段在最新一批，回第 1 页才看得见
+    await listRef.value?.load(1);
   } catch (error) {
     // 400（code 10001）的 msg 已写清原因（缺单价 / ≤0 / 非数字），直出；只有拿不到 msg 才兜底
     batchSubmitError.value = batchGenerateErrorText(error);
@@ -962,14 +923,13 @@ async function submitBatch(): Promise<void> {
 
 onMounted(async () => {
   focusScanInput();
-  // 主数据拉不到不挡列表（只是名称列退化成长 id）
+  // 主数据拉不到不挡列表（只是名称列退化成长 id）；列表首屏由 ListPage 自己拉
   const [materialList, warehouseList] = await Promise.all([
     fetchMaterialPage({ page: 1, page_size: 200 }).catch(() => ({ list: [] as MaterialRow[] })),
     fetchWarehousePage({ page: 1, page_size: 200 }).catch(() => ({ list: [] as Warehouse[] })),
   ]);
   materials.value = materialList.list ?? [];
   warehouses.value = warehouseList.list ?? [];
-  await loadSerials(1);
 });
 </script>
 
@@ -1077,72 +1037,17 @@ onMounted(async () => {
   white-space: nowrap;
 }
 
-/* ==================== 筛选 / 列表 ==================== */
+/* ==================== 列表 ==================== */
 
-.filter-card {
-  flex: 0 0 auto;
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.filter-row__select {
-  width: 190px;
-}
-
-.filter-row__select--narrow {
-  width: 130px;
-}
-
-.filter-row__no {
-  width: 220px;
-}
-
-.filter-row__spacer {
-  flex: 1 1 auto;
-}
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
+/* 扫码命中行不在当前页的提示（ListPage 的 #head-extra 插槽） */
 .panel-head__warn {
   font-size: 12px;
   color: var(--td-warning-color);
 }
 
+/* 批量生成结果条（挂在筛选卡底部 #filter-footer） */
 .list-alert {
-  margin-bottom: 10px;
+  margin-top: 12px;
 }
 
 .mono {

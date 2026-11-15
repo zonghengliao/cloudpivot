@@ -1,110 +1,87 @@
 <template>
   <div class="ann-manage-page">
-    <!-- 筛选 -->
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="[16, 12]">
-        <t-col :span="3">
-          <t-input v-model="query.keyword" placeholder="标题 / 摘要 / 编号" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="2">
-          <t-select v-model="query.status" placeholder="状态" clearable :options="statusOptions" />
-        </t-col>
-        <t-col :span="2">
-          <t-select v-model="query.scope_type" placeholder="发布范围" clearable :options="scopeOptions" />
-        </t-col>
-        <t-col :span="2">
-          <t-select v-model="query.level" placeholder="级别" clearable :options="levelOptions" />
-        </t-col>
-        <t-col :span="3">
-          <t-date-range-picker v-model="publishRange" placeholder="发布时间范围" clearable />
-        </t-col>
-        <t-col :span="4">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <!-- 筛选 / 分页 / 行操作交给 ListPage（P3-12）；编辑弹窗、详情、阅读明细抽屉留在页面里 -->
+    <ListPage
+      ref="listRef"
+      title="公告管理"
+      testid="ann"
+      table-testid="ann-table"
+      meta-testid="ann-meta"
+      btn-prefix="ann-btn"
+      :columns="columns"
+      :filters="filters"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <template #toolbar>
+        <t-button v-privilege="[PERM.announcementCreate]" theme="primary" data-testid="ann-btn-create" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建公告
+        </t-button>
+      </template>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.announcementCreate]" theme="primary" @click="openCreate">
-            <template #icon><t-icon name="add" /></template>
-            新建公告
-          </t-button>
-          <t-button variant="outline" :loading="loading" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
+      <!-- 发布时间范围：ListPage 只画壳，控件由页面自绘（值写回 `filter.publish_range`） -->
+      <template #filter-publish_range="{ value, set }">
+        <t-date-range-picker
+          :model-value="value as string[]"
+          placeholder="发布时间范围"
+          clearable
+          data-testid="ann-filter-range"
+          @change="set"
+        />
+      </template>
+
+      <template #title="{ row }">
+        <div class="cell-title">
+          <t-icon v-if="row.is_top" class="cell-title__pin" name="pin" />
+          <t-link theme="primary" @click="openDetail(row)">{{ row.title }}</t-link>
+        </div>
+        <div class="cell-title__no">{{ row.ann_no }}</div>
+      </template>
+      <template #level="{ row }">
+        <t-tag :theme="levelTheme(row.level)" size="small" variant="light">{{ levelLabel(row.level) }}</t-tag>
+      </template>
+      <template #scope_type="{ row }">
+        <t-tag size="small" variant="outline" theme="default">{{ scopeLabel(row.scope_type) }}</t-tag>
+      </template>
+      <template #status="{ row }">
+        <t-tag :theme="statusTheme(row.status)" size="small" variant="light">{{ statusLabel(row.status) }}</t-tag>
+      </template>
+      <template #read_rate="{ row }">
+        <div class="cell-read">
+          <span>{{ row.read_count }} / {{ row.receiver_count }}</span>
+          <t-progress
+            class="cell-read__bar"
+            :percentage="Math.round((row.read_rate || 0) * 100)"
+            :label="false"
+            theme="line"
+          />
+        </div>
+      </template>
+      <template #publish_at="{ row }">{{ formatDateTime(row.publish_at) }}</template>
+      <template #expire_at="{ row }">{{ formatDateTime(row.expire_at) }}</template>
+      <!-- 行操作 6 个入口都按权限显隐（v-privilege），页面自绘 op 列 -->
+      <template #op="{ row }">
+        <t-space size="small" break-line>
+          <t-link v-privilege="[PERM.announcementUpdate]" theme="primary" @click="openEdit(row)">编辑</t-link>
+          <t-link v-privilege="[PERM.announcementPublish]" theme="primary" @click="confirmPublish(row)">发布</t-link>
+          <t-link v-privilege="[PERM.announcementOffline]" theme="warning" @click="openOffline(row)">下线</t-link>
+          <t-link v-privilege="[PERM.announcementUpdate]" theme="default" @click="openTop(row)">
+            {{ row.is_top ? '取消置顶' : '置顶' }}
+          </t-link>
+          <t-link v-privilege="[PERM.announcementList]" theme="default" @click="openReaders(row)">阅读明细</t-link>
+          <t-link v-privilege="[PERM.announcementDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
         </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 条</span>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        stripe
-        @page-change="handlePageChange"
-      >
-        <template #title="{ row }">
-          <div class="cell-title">
-            <t-icon v-if="row.is_top" class="cell-title__pin" name="pin" />
-            <t-link theme="primary" @click="openDetail(row)">{{ row.title }}</t-link>
-          </div>
-          <div class="cell-title__no">{{ row.ann_no }}</div>
-        </template>
-        <template #level="{ row }">
-          <t-tag :theme="levelTheme(row.level)" size="small" variant="light">{{ levelLabel(row.level) }}</t-tag>
-        </template>
-        <template #scope_type="{ row }">
-          <t-tag size="small" variant="outline" theme="default">{{ scopeLabel(row.scope_type) }}</t-tag>
-        </template>
-        <template #status="{ row }">
-          <t-tag :theme="statusTheme(row.status)" size="small" variant="light">{{ statusLabel(row.status) }}</t-tag>
-        </template>
-        <template #read_rate="{ row }">
-          <div class="cell-read">
-            <span>{{ row.read_count }} / {{ row.receiver_count }}</span>
-            <t-progress
-              class="cell-read__bar"
-              :percentage="Math.round((row.read_rate || 0) * 100)"
-              :label="false"
-              theme="line"
-            />
-          </div>
-        </template>
-        <template #publish_at="{ row }">{{ formatDateTime(row.publish_at) }}</template>
-        <template #expire_at="{ row }">{{ formatDateTime(row.expire_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small" break-line>
-            <t-link v-privilege="[PERM.announcementUpdate]" theme="primary" @click="openEdit(row)">编辑</t-link>
-            <t-link v-privilege="[PERM.announcementPublish]" theme="primary" @click="confirmPublish(row)">发布</t-link>
-            <t-link v-privilege="[PERM.announcementOffline]" theme="warning" @click="openOffline(row)">下线</t-link>
-            <t-link v-privilege="[PERM.announcementUpdate]" theme="default" @click="openTop(row)">
-              {{ row.is_top ? '取消置顶' : '置顶' }}
-            </t-link>
-            <t-link v-privilege="[PERM.announcementList]" theme="default" @click="openReaders(row)">阅读明细</t-link>
-            <t-link v-privilege="[PERM.announcementDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="notification" />
-            <p class="empty-state__title">还没有公告</p>
-            <p class="empty-state__desc">新建草稿后点「发布」才会推送到用户的公告中心</p>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      </template>
+      <template #empty>
+        <div class="empty-state">
+          <t-icon class="empty-state__icon" name="notification" />
+          <p class="empty-state__title">还没有公告</p>
+          <p class="empty-state__desc">新建草稿后点「发布」才会推送到用户的公告中心</p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- 新建 / 编辑 -->
     <t-dialog
@@ -354,11 +331,13 @@
  * 2. `scope_type != ALL` 时 `scope_ids` 不能为空；
  * 3. 时间入参是 **RFC3339**（页面用 `dayjs().toISOString()` 转换，picker 只负责展示）。
  */
-import { onMounted, reactive, ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
 import FileUploader from '@/components/FileUploader.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import {
@@ -385,19 +364,13 @@ import type { FileRes } from '@/api/support/file-api';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 
 /** 表格行 */
-const rows = ref<ManageCard[]>([]);
-const loading = ref(false);
-const pagination = reactive({ current: 1, pageSize: 10, total: 0, showJumper: true });
-const query = reactive<ManagePageQuery>({
-  keyword: '',
-  status: '',
-  scope_type: '',
-  level: '',
-});
-const publishRange = ref<string[]>([]);
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
 
 /** 列定义（顺序即视觉顺序：标题 → 级别 → 范围 → 状态 → 已读 → 时间 → 操作） */
-const columns = [
+const columns: ColumnDef[] = [
   { colKey: 'title', title: '标题 / 编号', width: 240 },
   { colKey: 'level', title: '级别', width: 84 },
   { colKey: 'scope_type', title: '范围', width: 84 },
@@ -405,7 +378,7 @@ const columns = [
   { colKey: 'read_rate', title: '已读 / 受众', width: 140 },
   { colKey: 'publish_at', title: '发布时间', width: 160 },
   { colKey: 'expire_at', title: '有效期至', width: 160 },
-  { colKey: 'op', title: '操作', width: 320, fixed: 'right' as const },
+  { colKey: 'op', title: '操作', width: 320, fixed: 'right', exportable: false },
 ];
 
 const statusOptions = [
@@ -459,45 +432,72 @@ function levelTheme(level: string): 'primary' | 'warning' | 'danger' {
   return 'primary';
 }
 
-/** 列表 */
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const [from, to] = publishRange.value ?? [];
-    const data = await pageManageAnnouncements({
-      ...query,
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      publish_from: from ? dayjs(from).startOf('day').toISOString() : undefined,
-      publish_to: to ? dayjs(to).endOf('day').toISOString() : undefined,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
-}
+// ==================== 列表（交给 ListPage） ====================
 
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
+/**
+ * 筛选项声明。
+ *
+ * 改造前四个控件都不自动查询（选完点「查询」，关键词框回车查），所以不设 `searchOnChange`；
+ * 发布时间范围是自绘控件（`#filter-publish_range`），值就存在 `filter.publish_range` 里，
+ * 「重置」由组件清空，页面不必再单独清一遍。
+ */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '标题 / 摘要 / 编号', width: 240, testid: 'ann-filter-keyword' },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 130,
+    options: statusOptions,
+    testid: 'ann-filter-status',
+  },
+  {
+    key: 'scope_type',
+    type: 'select',
+    placeholder: '发布范围',
+    width: 130,
+    options: scopeOptions,
+    testid: 'ann-filter-scope',
+  },
+  {
+    key: 'level',
+    type: 'select',
+    placeholder: '级别',
+    width: 120,
+    options: levelOptions,
+    testid: 'ann-filter-level',
+  },
+  // 控件本身在 `#filter-publish_range` 插槽里自绘（`dayjs` 转 RFC3339 在 queryBuilder 里做）
+  { key: 'publish_range', type: 'date-range', width: 260 },
+];
 
-function handleReset(): void {
-  query.keyword = '';
-  query.status = '';
-  query.scope_type = '';
-  query.level = '';
-  publishRange.value = [];
-  handleSearch();
-}
+/** 拉一页 */
+const fetcher: ListFetcher<ManageCard> = (query) =>
+  pageManageAnnouncements(query as ManagePageQuery);
 
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
+/**
+ * 入参拼装。
+ *
+ * 口径与改造前逐字一致：`keyword / status / scope_type / level` 原样透传（空串由
+ * `asParams` 整键丢掉），发布时间范围是 `[起, 止]`，转成当天 00:00 / 23:59:59 的 RFC3339。
+ */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const [from, to] = (state.publish_range ?? []) as string[];
+  return {
+    page,
+    page_size: pageSize,
+    keyword: state.keyword,
+    status: state.status,
+    scope_type: state.scope_type,
+    level: state.level,
+    publish_from: from ? dayjs(from).startOf('day').toISOString() : undefined,
+    publish_to: to ? dayjs(to).endOf('day').toISOString() : undefined,
+  };
+};
+
+/** 重拉列表（保存 / 发布 / 下线 / 置顶 / 删除后调；不传 = 当前页） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
 }
 
 // ===== 表单（新建 / 编辑） =====
@@ -694,7 +694,7 @@ async function handleSave(): Promise<void> {
       void MessagePlugin.success('草稿已创建，别忘了点「发布」');
     }
     editorVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error);
   } finally {
@@ -759,7 +759,7 @@ async function confirmPublish(row: ManageCard): Promise<void> {
   try {
     const res = await publishAnnouncement(row.id);
     void MessagePlugin.success(`已发布：受众 ${res.receiver_count} 人，扇出 ${res.fanout}${res.warning ? `（${res.warning}）` : ''}`);
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error);
   }
@@ -789,7 +789,7 @@ async function handleOffline(): Promise<void> {
     await offlineAnnouncement(offlineTarget.value.id, offlineReason.value.trim());
     void MessagePlugin.success('已下线');
     offlineVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error);
   } finally {
@@ -826,7 +826,7 @@ async function handleTop(): Promise<void> {
     );
     void MessagePlugin.success(topForm.is_top ? '已置顶' : '已取消置顶');
     topVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error);
   } finally {
@@ -861,7 +861,7 @@ async function confirmRemove(row: ManageCard): Promise<void> {
   try {
     await deleteAnnouncement(row.id);
     void MessagePlugin.success('已删除');
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error);
   }
@@ -930,10 +930,6 @@ function onReadersPageChange(pageInfo: { current: number; pageSize: number }): v
 function showError(error: unknown): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message : '请求失败，请稍后重试');
 }
-
-onMounted(() => {
-  void loadList();
-});
 </script>
 
 <style scoped lang="less">
@@ -941,18 +937,6 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  &__count {
-    font-size: 13px;
-    color: var(--td-text-color-placeholder);
-  }
 }
 
 .cell-title {

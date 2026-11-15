@@ -1,52 +1,41 @@
 <template>
   <div class="rule-page">
-    <!-- ==================== ① 筛选 + 列表 ==================== -->
-    <t-card :bordered="false" class="panel-card">
-      <div class="page-head">
-        <div class="page-head__title">
-          <span>佣金规则</span>
-          <t-tag size="small" variant="light" theme="primary">按销售员 / 按物料 / 全局</t-tag>
-        </div>
-        <span class="page-head__tip">
+    <!-- ==================== ① 筛选 / 分页 / 行操作交给 ListPage（P3-12） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="佣金规则"
+      testid="rule"
+      table-testid="rule-table"
+      meta-testid="rule-meta"
+      btn-prefix="btn-rule"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="RULE_PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <!-- 命中优先级 / 生效范围 / 只影响之后生成的结算单：整宽提示条 -->
+      <template #filter-footer>
+        <p class="page-head__tip">
           命中优先级：<b>销售员 &gt; 物料 &gt; 全局</b>；同级取生效日更新的。
           「按物料」本期绑定的是<b>具体物料</b>（基础版没有物料分类表）。
           规则只影响之后生成的结算单 —— 已审批 / 已发放的结算单不会被改写。
+        </p>
+      </template>
+
+      <template #head-extra>
+        <span class="rule-head">
+          <t-tag size="small" variant="light" theme="primary">按销售员 / 按物料 / 全局</t-tag>
+          <span class="page-head__hint">
+            停用 / 过期规则仍留在列表里（历史明细要引用它），只是不再参与匹配
+          </span>
         </span>
-      </div>
+      </template>
 
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="规则名 / 销售员 / 物料"
-          clearable
-          data-testid="rule-filter-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-        <t-select
-          v-model="filter.scope_type"
-          class="filter-row__select"
-          :options="scopeFilterOptions"
-          placeholder="全部范围"
-          clearable
-          data-testid="rule-filter-scope"
-        />
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="rule-filter-status"
-        />
-
-        <t-button theme="primary" data-testid="btn-rule-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-rule-reset" @click="handleReset">重置</t-button>
-
-        <span class="filter-row__spacer" />
-
+      <template #toolbar>
         <t-tooltip
           :content="
             canCreate
@@ -67,111 +56,86 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="page-alert"
-        data-testid="rule-list-error"
-      />
-
-      <t-table
-        row-key="id"
-        size="small"
-        hover
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :empty="emptyText"
-        data-testid="rule-table"
-      >
-        <template #scope_type="{ row }">
-          <t-tag size="small" variant="outline" :theme="scopeTheme(row.scope_type)">
-            {{ scopeTypeLabel(row.scope_type) }}
-          </t-tag>
-        </template>
-        <template #scope_display="{ row }">
-          <span class="scope-cell">{{ scopeDisplay(row as CommissionRuleRow) }}</span>
-        </template>
-        <template #calc_type="{ row }">
-          <span>{{ calcTypeLabel(row.calc_type) }}</span>
-        </template>
-        <template #rate="{ row }">
-          <span class="mono" data-testid="rule-rate">{{ rateText(row as CommissionRuleRow) }}</span>
-        </template>
-        <template #amount_range="{ row }">
-          <span class="mono" data-testid="rule-amount-range">
-            {{ amountRangeText(row as CommissionRuleRow) }}
-          </span>
-        </template>
-        <template #validity="{ row }">
-          <span class="mono validity-cell">
-            {{ validityText(row.effective_from, row.effective_to) }}
-          </span>
-        </template>
-        <template #status="{ row }">
-          <div class="status-cell">
-            <t-tag size="small" variant="light" :theme="ruleStatusTheme(row.status)">
-              {{ ruleStatusLabel(row.status) }}
-            </t-tag>
-            <t-tag
-              v-if="!isRuleEffective(row as CommissionRuleRow)"
-              size="small"
-              variant="light"
-              theme="default"
-              data-testid="rule-off-period"
-            >
-              不在有效期
-            </t-tag>
-          </div>
-        </template>
-        <template #op="{ row }">
-          <div class="op-row">
-            <t-link
-              v-privilege="[PERM.update]"
-              theme="primary"
-              data-testid="btn-rule-edit"
-              @click="openEdit(row as CommissionRuleRow)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-privilege="[PERM.update]"
-              :theme="row.status === 'ACTIVE' ? 'warning' : 'success'"
-              data-testid="btn-rule-toggle"
-              @click="confirmToggle(row as CommissionRuleRow)"
-            >
-              {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
-            </t-link>
-            <t-link
-              v-privilege="[PERM.remove]"
-              theme="danger"
-              data-testid="btn-rule-delete"
-              @click="confirmDelete(row as CommissionRuleRow)"
-            >
-              删除
-            </t-link>
-          </div>
-        </template>
-      </t-table>
-
-      <div class="pager-row">
-        <span class="pager-row__hint">
-          共 {{ total }} 条 · 停用 / 过期规则仍留在列表里（历史明细要引用它），只是不再参与匹配
+      <template #scope_type="{ row }">
+        <t-tag size="small" variant="outline" :theme="scopeTheme(row.scope_type)">
+          {{ scopeTypeLabel(row.scope_type) }}
+        </t-tag>
+      </template>
+      <template #scope_display="{ row }">
+        <span class="scope-cell">{{ scopeDisplay(row as CommissionRuleRow) }}</span>
+      </template>
+      <template #calc_type="{ row }">
+        <span>{{ calcTypeLabel(row.calc_type) }}</span>
+      </template>
+      <template #rate="{ row }">
+        <span class="mono" data-testid="rule-rate">{{ rateText(row as CommissionRuleRow) }}</span>
+      </template>
+      <template #amount_range="{ row }">
+        <span class="mono" data-testid="rule-amount-range">
+          {{ amountRangeText(row as CommissionRuleRow) }}
         </span>
-        <t-pagination
-          :current="page"
-          :page-size="RULE_PAGE_SIZE"
-          :total="total"
-          :show-page-size="false"
-          show-jumper
-          data-testid="rule-pager"
-          @current-change="handlePageChange"
-        />
-      </div>
-    </t-card>
+      </template>
+      <template #validity="{ row }">
+        <span class="mono validity-cell">
+          {{ validityText(row.effective_from, row.effective_to) }}
+        </span>
+      </template>
+      <template #status="{ row }">
+        <div class="status-cell">
+          <t-tag size="small" variant="light" :theme="ruleStatusTheme(row.status)">
+            {{ ruleStatusLabel(row.status) }}
+          </t-tag>
+          <t-tag
+            v-if="!isRuleEffective(row as CommissionRuleRow)"
+            size="small"
+            variant="light"
+            theme="default"
+            data-testid="rule-off-period"
+          >
+            不在有效期
+          </t-tag>
+        </div>
+      </template>
+
+      <!-- 行操作：编辑 / 启停 / 删除各自带权限码，停用与删除语义不同（停用保留历史引用） -->
+      <template #op="{ row }">
+        <div class="op-row">
+          <t-link
+            v-privilege="[PERM.update]"
+            theme="primary"
+            data-testid="btn-rule-edit"
+            @click="openEdit(row as CommissionRuleRow)"
+          >
+            编辑
+          </t-link>
+          <t-link
+            v-privilege="[PERM.update]"
+            :theme="row.status === 'ACTIVE' ? 'warning' : 'success'"
+            data-testid="btn-rule-toggle"
+            @click="confirmToggle(row as CommissionRuleRow)"
+          >
+            {{ row.status === 'ACTIVE' ? '停用' : '启用' }}
+          </t-link>
+          <t-link
+            v-privilege="[PERM.remove]"
+            theme="danger"
+            data-testid="btn-rule-delete"
+            @click="confirmDelete(row as CommissionRuleRow)"
+          >
+            删除
+          </t-link>
+        </div>
+      </template>
+
+      <template #empty>
+        <div class="panel-empty" data-testid="rule-empty">
+          <t-icon name="file" class="panel-empty__icon" />
+          <p class="panel-empty__title">{{ emptyText }}</p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ② 新建 / 编辑弹窗 ==================== -->
     <t-dialog
@@ -402,6 +366,8 @@ import {
 } from '@/api/business/erp/commission';
 import { fetchMaterialPage, type MaterialRow } from '@/api/business/erp';
 import { pageUsers, type UserRes } from '@/api/system/user-api';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { todayString } from '@/views/business/erp/shared/money';
 import {
   CALC_OPTIONS,
@@ -481,62 +447,69 @@ function isRuleEffective(row: CommissionRuleRow): boolean {
   return true;
 }
 
-// ==================== 列表 ====================
+// ==================== 列表（交给 ListPage） ====================
 
+/** 筛选行（`filterState` 就地读写；`ruleEmptyText` 引用同一个对象） */
 const filter = reactive<CommissionRuleFilter>(emptyRuleFilter());
-const rows = ref<CommissionRuleRow[]>([]);
-const total = ref(0);
-const page = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
+const current = ref(1);
+/** ListPage 实例（新建 / 编辑 / 启停 / 删除后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const emptyText = computed(() => {
-  if (loading.value) {
-    return '加载中…';
-  }
-  return ruleEmptyText(filter);
+/** 空态文案 */
+const emptyText = computed(() => ruleEmptyText(filter));
+
+/**
+ * 筛选项声明。
+ *
+ * 改造前三个控件**都**不 auto-search（只有「查询」按钮触发），这里同样不声明
+ * `searchOnChange` —— 关键词走回车、下拉选完点「查询」，手感与改造前一致。
+ */
+const filters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '规则名 / 销售员 / 物料',
+    width: 260,
+    testid: 'rule-filter-keyword',
+  },
+  {
+    key: 'scope_type',
+    type: 'select',
+    placeholder: '全部范围',
+    width: 170,
+    options: scopeFilterOptions,
+    testid: 'rule-filter-scope',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 170,
+    options: statusOptions,
+    testid: 'rule-filter-status',
+  },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<CommissionRuleRow> = (query) =>
+  fetchCommissionRulePage(query as CommissionRuleFilter);
+
+/** 入参拼装（沿用改造前「整份 filter + 页码」的口径，键名不变） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => ({
+  ...(state as CommissionRuleFilter),
+  page,
+  page_size: pageSize,
 });
 
-async function loadRules(target: number = page.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchCommissionRulePage({
-      ...filter,
-      page: target,
-      page_size: RULE_PAGE_SIZE,
-    });
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    page.value = data.page ?? target;
-    const lastPage = Math.max(1, Math.ceil(total.value / RULE_PAGE_SIZE));
-    if (page.value > lastPage) {
-      page.value = lastPage;
-      await loadRules(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `佣金规则加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
+/** 重拉到指定页（不传 = 当前页；删到最后一页停在空页由组件回夹） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function handleSearch(): void {
-  page.value = 1;
-  void loadRules(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyRuleFilter());
-  page.value = 1;
-  void loadRules(1);
-}
-
-function handlePageChange(current: number): void {
-  page.value = current;
-  void loadRules(current);
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
 // ==================== 候选下拉（销售员 / 物料） ====================
@@ -652,7 +625,7 @@ async function submitForm(): Promise<void> {
       MessagePlugin.success('佣金规则已创建');
     }
     formVisible.value = false;
-    await loadRules(editingId.value ? page.value : 1);
+    await reloadList(editingId.value ? current.value : 1);
   } catch (err) {
     // 后端错误原样展示（库层 CHECK / 唯一键 / 权限），不要编安慰话
     formError.value = messageOf(err);
@@ -684,7 +657,7 @@ function confirmToggle(row: CommissionRuleRow): void {
         });
         MessagePlugin.success(`已${verb}`);
         dialog.destroy();
-        await loadRules(page.value);
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(`${verb}失败：${messageOf(error)}`);
       }
@@ -704,7 +677,7 @@ function confirmDelete(row: CommissionRuleRow): void {
         await deleteCommissionRule(row.id);
         MessagePlugin.success('已删除');
         dialog.destroy();
-        await loadRules(page.value);
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(`删除失败：${messageOf(error)}`);
       }
@@ -713,7 +686,6 @@ function confirmDelete(row: CommissionRuleRow): void {
 }
 
 onMounted(() => {
-  void loadRules(1);
   void loadOptions();
 });
 </script>
@@ -725,58 +697,46 @@ onMounted(() => {
   gap: 12px;
 }
 
-.panel-card {
-  padding: 16px 20px 8px;
-}
-
-.page-head {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.page-head__title {
-  display: flex;
+/* 表头右侧：范围标签 + 「停用 / 过期仍留档」说明 */
+.rule-head {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
 }
 
 .page-head__tip {
+  margin: 0;
   font-size: 12px;
   line-height: 20px;
   color: var(--td-text-color-secondary);
 }
 
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.filter-row__keyword {
-  width: 260px;
-}
-
-.filter-row__select {
-  width: 170px;
-}
-
-.filter-row__spacer {
-  flex: 1;
+.page-head__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .gate-wrap {
   display: inline-flex;
 }
 
-.page-alert {
-  margin-bottom: 12px;
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
 }
 
 .mono {
@@ -807,22 +767,6 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   white-space: nowrap;
-}
-
-.pager-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0 8px;
-}
-
-.pager-row__hint {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.pager-row :deep(.t-pagination) {
-  margin-left: auto;
 }
 
 .form-body {

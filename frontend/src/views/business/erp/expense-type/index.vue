@@ -7,6 +7,11 @@
   ③ 是否受预算控制（决定提交时是否占预算）、
   ④ 是否必填发票号、⑤ 单笔金额上限（0 = 不限）。
 
+  # 列表部分（P3-12）
+
+  筛选 / 分页 / 空态 / 加载失败交给 `components/ListPage`：本页只声明
+  「列 + 筛选项 + 怎么拉一页 + 入参怎么拼」，弹窗与启停 / 删除仍是页面自己的事。
+
   # 为什么「删除」要给 409 兜底
 
   被报销单引用过的类型后端会拒绝 DELETE（409），只能停用 —— 硬删会让历史单据
@@ -19,8 +24,21 @@
 -->
 <template>
   <div class="type-page">
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <ListPage
+      ref="listRef"
+      title="费用类型"
+      testid="expense-type"
+      table-testid="expense-type-table"
+      meta-testid="expense-type-meta"
+      btn-prefix="expense-type-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -30,133 +48,81 @@
           <template #icon><t-icon name="add" /></template>
           新建费用类型
         </t-button>
-        <t-button variant="outline" data-testid="expense-type-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="expense-type-filter-status"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="编码 / 名称（模糊）"
-          clearable
-          data-testid="expense-type-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="expense-type-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="expense-type-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
-
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">费用类型</span>
-          <span class="panel-head__meta" data-testid="expense-type-meta">共 {{ total }} 条</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">
           编码留空保存时自动生成（ET-01 形态）；「不可抵扣」的类型在报销单里税额恒为 0
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="expense-type-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="expense-type-table"
-        @page-change="handlePageChange"
-      >
-        <template #type_code="{ row }">
-          <span class="mono" :data-testid="`expense-type-code-${row.type_code}`">{{ row.type_code }}</span>
-        </template>
-        <template #type_name="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.type_name }}</span>
-            <span v-if="row.remark" class="name-cell__sub">{{ row.remark }}</span>
-          </div>
-        </template>
-        <template #account="{ row }">
-          <div class="name-cell">
-            <span class="mono">{{ row.account_code }}</span>
-            <span class="name-cell__sub">{{ row.account_name }}</span>
-          </div>
-        </template>
-        <template #tax_deductible="{ row }">
-          <t-tag size="small" variant="light" :theme="row.tax_deductible ? 'success' : 'warning'">
-            {{ row.tax_deductible ? '可抵扣' : '不可抵扣' }}
-          </t-tag>
-        </template>
-        <template #budget_controlled="{ row }">
-          <span class="muted">{{ row.budget_controlled ? '受预算' : '不占预算' }}</span>
-        </template>
-        <template #need_invoice_no="{ row }">
-          <span class="muted">{{ row.need_invoice_no ? '必填' : '可选' }}</span>
-        </template>
-        <template #amount_limit="{ row }">
-          <span class="money">{{ limitText(row.amount_limit) }}</span>
-        </template>
-        <template #status="{ row }">
-          <t-tag size="small" variant="light" :theme="row.status === 1 ? 'success' : 'default'">
-            {{ row.status === 1 ? '启用' : '停用' }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-button
-              v-privilege="[PERM.update]"
-              variant="text"
-              size="small"
-              data-testid="expense-type-op-edit"
-              @click="openEdit(row)"
-            >
-              编辑
-            </t-button>
-            <t-button
-              v-privilege="[PERM.update]"
-              variant="text"
-              size="small"
-              data-testid="expense-type-op-toggle"
-              @click="toggleStatus(row)"
-            >
-              {{ row.status === 1 ? '停用' : '启用' }}
-            </t-button>
-            <t-button
-              v-privilege="[PERM.remove]"
-              variant="text"
-              size="small"
-              theme="danger"
-              data-testid="expense-type-op-delete"
-              @click="handleDelete(row)"
-            >
-              删除
-            </t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #type_code="{ row }">
+        <span class="mono" :data-testid="`expense-type-code-${row.type_code}`">{{ row.type_code }}</span>
+      </template>
+      <template #type_name="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.type_name }}</span>
+          <span v-if="row.remark" class="name-cell__sub">{{ row.remark }}</span>
+        </div>
+      </template>
+      <template #account="{ row }">
+        <div class="name-cell">
+          <span class="mono">{{ row.account_code }}</span>
+          <span class="name-cell__sub">{{ row.account_name }}</span>
+        </div>
+      </template>
+      <template #tax_deductible="{ row }">
+        <t-tag size="small" variant="light" :theme="row.tax_deductible ? 'success' : 'warning'">
+          {{ row.tax_deductible ? '可抵扣' : '不可抵扣' }}
+        </t-tag>
+      </template>
+      <template #budget_controlled="{ row }">
+        <span class="muted">{{ row.budget_controlled ? '受预算' : '不占预算' }}</span>
+      </template>
+      <template #need_invoice_no="{ row }">
+        <span class="muted">{{ row.need_invoice_no ? '必填' : '可选' }}</span>
+      </template>
+      <template #amount_limit="{ row }">
+        <span class="money">{{ limitText(row.amount_limit) }}</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="row.status === 1 ? 'success' : 'default'">
+          {{ row.status === 1 ? '启用' : '停用' }}
+        </t-tag>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-button
+            v-privilege="[PERM.update]"
+            variant="text"
+            size="small"
+            data-testid="expense-type-op-edit"
+            @click="openEdit(row)"
+          >
+            编辑
+          </t-button>
+          <t-button
+            v-privilege="[PERM.update]"
+            variant="text"
+            size="small"
+            data-testid="expense-type-op-toggle"
+            @click="toggleStatus(row)"
+          >
+            {{ row.status === 1 ? '停用' : '启用' }}
+          </t-button>
+          <t-button
+            v-privilege="[PERM.remove]"
+            variant="text"
+            size="small"
+            theme="danger"
+            data-testid="expense-type-op-delete"
+            @click="handleDelete(row)"
+          >
+            删除
+          </t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== 新建 / 编辑 ==================== -->
     <t-dialog
@@ -303,6 +269,8 @@ import {
 } from '@/api/business/erp/expense';
 import { fetchBudgetAccountOptions, type BudgetAccountOption } from '@/api/business/erp/budget';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { formatMoney } from '@/views/business/erp/shared/money';
 import { masterCodeError } from '@/views/business/erp/shared/master-code';
 import {
@@ -328,26 +296,13 @@ const PERM = {
 
 const PAGE_SIZE = 20;
 
-const rows = ref<ExpenseType[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
-
-const filter = reactive<{ keyword: string; status: number | undefined }>({ keyword: '', status: undefined });
+/** 筛选行（`filterState` 就地读写；`queryBuilder` 引用的是同一个对象） */
+const filter = reactive<{ keyword: string; status: number | '' }>({ keyword: '', status: '' });
 
 const statusOptions = [
   { label: '启用', value: 1 },
   { label: '停用', value: 0 },
 ];
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
 
 const columns: PrimaryTableCol[] = [
   { colKey: 'type_code', title: '编码', width: 110 },
@@ -361,6 +316,50 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'op', title: '操作', width: 160, fixed: 'right' },
 ];
 
+/** 状态下拉「值一变就查」（改造前 `@change="handleSearch"`，手感不变） */
+const filters: FilterDef[] = [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 140,
+    options: statusOptions,
+    searchOnChange: true,
+    testid: 'expense-type-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '编码 / 名称（模糊）',
+    width: 220,
+    testid: 'expense-type-filter-keyword',
+  },
+];
+
+/** 拉一页（入参键名与 `TypeFilter` 一致） */
+const fetcher: ListFetcher<ExpenseType> = (query) =>
+  fetchExpenseTypePage(query as Parameters<typeof fetchExpenseTypePage>[0]);
+
+/** 入参拼装：空串 / 未选整键缺席（`status` 的「全部」是 `''`，不能当 0 发出去） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const keyword = String(state.keyword ?? '').trim();
+  const status = state.status === '' || state.status === null || state.status === undefined ? undefined : state.status;
+  return {
+    page,
+    page_size: pageSize,
+    keyword: keyword || undefined,
+    status,
+  };
+};
+
+/** ListPage 实例（保存 / 启停 / 删除后重拉当前页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 重拉当前页（不传页码 = 停在哪页拉哪页） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.load();
+}
+
 /** 单笔上限文案（0 = 不限，别显示成「0.00」） */
 function limitText(raw: string | null | undefined): string {
   const cents = Number(raw ?? 0) * 100;
@@ -368,47 +367,6 @@ function limitText(raw: string | null | undefined): string {
     return '不限';
   }
   return formatMoney(raw);
-}
-
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchExpenseTypePage({
-      page: current.value,
-      page_size: PAGE_SIZE,
-      keyword: filter.keyword.trim(),
-      status: filter.status,
-    });
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  filter.keyword = '';
-  filter.status = undefined;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
 }
 
 // ==================== 表单 ====================
@@ -521,7 +479,7 @@ async function handleSave(): Promise<void> {
       MessagePlugin.success(`已新建费用类型 · 编码 ${created.type_code}`);
     }
     dialogVisible.value = false;
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -538,7 +496,7 @@ async function toggleStatus(row: ExpenseType): Promise<void> {
   try {
     await updateExpenseType(row.id, toTypePayload(nextForm));
     MessagePlugin.success(nextStatus === 1 ? '已启用' : '已停用（历史单据不受影响）');
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   }
@@ -555,7 +513,7 @@ function handleDelete(row: ExpenseType): void {
         await deleteExpenseType(row.id);
         MessagePlugin.success('已删除');
         dialog.hide();
-        await loadRows();
+        await reloadList();
       } catch (error) {
         // 409 = 已被报销单引用：这不是故障，是业务约束，给可执行建议
         if (error instanceof ApiError && error.status === 409) {
@@ -587,7 +545,8 @@ function errorText(error: unknown): string {
 }
 
 onMounted(async () => {
-  await Promise.all([loadAccounts(), loadRows()]);
+  // 列表由 ListPage 自己在 setup 里拉首屏；这里只补科目下拉与编码策略
+  await loadAccounts();
   // CODE-08：编码策略单独取（失败按「允许手填」兜底，不打断列表）
   allowManualCode.value = await loadAllowManualCode();
 });
@@ -600,51 +559,9 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1;
-}
-
-.tool-row__status {
-  width: 140px;
-}
-
-.tool-row__keyword {
-  width: 220px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  margin-left: 8px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .panel-head__tip {
   color: var(--td-text-color-secondary);
   font-size: 12px;
-}
-
-.list-alert {
-  margin-bottom: 12px;
 }
 
 .name-cell {

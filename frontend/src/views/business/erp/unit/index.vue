@@ -1,79 +1,43 @@
 <template>
   <div class="unit-page">
-    <!-- 筛选行：关键词 / 状态 / 查询 / 重置 / 刷新 / 新建 -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="filter-row">
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="搜索单位编码 / 名称"
-          clearable
-          data-testid="unit-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
+    <!-- 筛选 / 分页 / 行操作交给 ListPage（P3-12） -->
+    <ListPage
+      ref="listRef"
+      title="计量单位"
+      testid="unit"
+      table-testid="unit-table"
+      meta-testid="unit-meta"
+      btn-prefix="btn-unit"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="UNIT_PAGE_SIZE"
+      @loaded="onLoaded"
+      @refresh="handleRefresh"
+    >
+      <!-- 页头副题：「共 N 条 · 本页 M 个基础单位」写进同一个 meta 元素 -->
+      <template #meta-extra>
+        <template v-if="baseCountOnPage > 0"> · 本页 {{ baseCountOnPage }} 个基础单位</template>
+      </template>
 
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="unit-status-filter"
-        />
-
-        <t-button theme="primary" data-testid="btn-unit-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-unit-reset" @click="handleReset">重置</t-button>
-        <t-button variant="outline" data-testid="btn-unit-refresh" @click="handleRefresh">刷新</t-button>
-
-        <span class="filter-row__spacer" />
-
+      <template #toolbar>
         <ImportEntryButton biz-type="business.erp.unit" biz-label="计量单位" testid="btn-import-unit" />
 
-        <t-tooltip :content="canWrite ? '新建一个计量单位' : '当前账号没有 business:erp:unit:create 权限'" placement="top-right">
+        <t-tooltip
+          :content="canWrite ? '新建一个计量单位' : '当前账号没有 business:erp:unit:create 权限'"
+          placement="top-right"
+        >
           <span class="gate-wrap">
-            <t-button
-              theme="primary"
-              data-testid="btn-unit-new"
-              :disabled="!canWrite"
-              @click="openCreate"
-            >
+            <t-button theme="primary" data-testid="btn-unit-new" :disabled="!canWrite" @click="openCreate">
               <template #icon><t-icon name="add" /></template>
               新建单位
             </t-button>
           </span>
         </t-tooltip>
-      </div>
-    </t-card>
+      </template>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">计量单位</span>
-          <span class="panel-head__meta" data-testid="unit-meta">
-            共 {{ total }} 条<template v-if="baseCountOnPage > 0"> · 本页 {{ baseCountOnPage }} 个基础单位</template>
-          </span>
-        </div>
-      </div>
-
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadUnits()">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        data-testid="unit-table"
-        @page-change="handlePageChange"
-      >
         <template #is_system="{ row }">
           <t-tag
             size="small"
@@ -159,9 +123,7 @@
             </p>
           </div>
         </template>
-      </t-table>
-    </t-card>
-
+    </ListPage>
     <!-- 详情抽屉 -->
     <t-drawer v-model:visible="detailVisible" size="560px" :footer="false" :header="false" data-testid="unit-drawer">
       <div v-if="detail" class="drawer" data-testid="unit-detail">
@@ -365,6 +327,8 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import ImportEntryButton from '@/components/ImportEntryButton.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   UNIT_COLUMNS,
   UNIT_PAGE_SIZE,
@@ -421,39 +385,61 @@ const statusOptions = UNIT_STATUS_OPTIONS.map((item) => ({ ...item }));
 const userStore = useUserStore();
 const canWrite = computed(() => userStore.hasPermission(PERM.create));
 
-// ==================== 列表状态 ====================
+// ==================== 筛选 / 列表（交给 ListPage） ====================
 
-/** 筛选行 */
+/** 筛选行（`filterState` 就地读写；`buildUnitQuery` / `isUnitFiltered` 引用的是同一个对象） */
 const filter = reactive<UnitFilterState>(emptyUnitFilter());
-/** 当前页数据 */
-const rows = ref<Unit[]>([]);
-/** 总条数 */
-const total = ref(0);
-/** 当前页码 */
+/** 本页行（`@loaded` 镜像，页头副题与「本页基础单位数」用） */
+const pageRows = ref<Unit[]>([]);
+/** 当前页码（保存 / 删除后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-/** 每页条数 */
-const pageSize = UNIT_PAGE_SIZE;
-/** 加载中 */
-const loading = ref(false);
-/** 加载错误 */
-const loadError = ref('');
+/** ListPage 实例（新建 / 编辑 / 删除后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 /** 单位字典（把 `base_unit_id` 译成名字 + 「折算基准」下拉候选） */
 const unitDict = ref<UnitRow[]>([]);
 
-/** 是否筛选态 */
+/** 是否筛选态（空态文案分「没数据」「没匹配」） */
 const isFiltered = computed(() => isUnitFiltered(filter));
 
 /** 本页基础单位数（面板副标题用） */
-const baseCountOnPage = computed(() => rows.value.filter((row) => row.is_base).length);
+const baseCountOnPage = computed(() => pageRows.value.filter((row) => row.is_base).length);
 
-/** 表格分页器（服务端分页：只喂 current / pageSize / total） */
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 筛选项声明（关键词走回车、状态下拉原来也是「选完点查询」，两个都不开 searchOnChange） */
+const filters: FilterDef[] = [
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '搜索单位编码 / 名称',
+    width: 260,
+    testid: 'unit-keyword',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'unit-status-filter',
+  },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<Unit> = (query) => fetchUnitPage(query as Parameters<typeof fetchUnitPage>[0]);
+
+/** 入参拼装（沿用 `buildUnitQuery`，接口契约不变） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  buildUnitQuery(state as UnitFilterState, page, pageSize);
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 一页拉完：镜像行 + 同步页码 */
+function onLoaded(payload: { rows: Unit[]; page: number }): void {
+  pageRows.value = payload.rows;
+  current.value = payload.page;
+}
 
 /** 「折算基准」下拉候选（只列基础单位，剔除自己） */
 const baseOptionList = computed(() => baseUnitOptions(unitDict.value, editing.value?.id ?? ''));
@@ -466,34 +452,6 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * 拉列表（服务端分页）。
- *
- * @param page 目标页码（默认当前页；筛选变化时传 1）
- */
-async function loadUnits(page: number = current.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchUnitPage(buildUnitQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    current.value = data.page ?? page;
-    // 页码夹紧：筛到只剩 1 页时别停在不存在的第 3 页
-    const lastPage = Math.max(1, Math.ceil(total.value / pageSize));
-    if (current.value > lastPage) {
-      current.value = lastPage;
-      return loadUnits(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `计量单位加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
 /** 拉单位字典（译名 + 下拉；失败不挡列表） */
 async function loadDict(): Promise<void> {
   try {
@@ -503,29 +461,9 @@ async function loadDict(): Promise<void> {
   }
 }
 
-/** 查询（回第 1 页） */
-function handleSearch(): void {
-  current.value = 1;
-  void loadUnits(1);
-}
-
-/** 重置筛选 */
-function handleReset(): void {
-  Object.assign(filter, emptyUnitFilter());
-  current.value = 1;
-  void loadUnits(1);
-}
-
-/** 刷新（保持当前筛选与页码） */
+/** 「刷新」按钮：字典顺带重拉（列表由组件的刷新重拉当前页） */
 function handleRefresh(): void {
   void loadDict();
-  void loadUnits(current.value);
-}
-
-/** 切页 */
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadUnits(pageInfo.current);
 }
 
 // ==================== 详情抽屉 ====================
@@ -617,7 +555,7 @@ async function handleConfirm(): Promise<void> {
       MessagePlugin.success('计量单位已创建');
     }
     dialogVisible.value = false;
-    await Promise.all([loadDict(), loadUnits(editing.value ? current.value : 1)]);
+    await Promise.all([loadDict(), reloadList(editing.value ? current.value : 1)]);
   } catch (error) {
     submitError.value = messageOf(error);
   } finally {
@@ -642,7 +580,7 @@ function confirmRemove(row: Unit): void {
       try {
         await deleteUnit(row.id);
         MessagePlugin.success('计量单位已删除');
-        await Promise.all([loadDict(), loadUnits(current.value)]);
+        await Promise.all([loadDict(), reloadList(current.value)]);
       } catch (error) {
         MessagePlugin.error(messageOf(error));
       }
@@ -653,8 +591,8 @@ function confirmRemove(row: Unit): void {
 // ==================== 初始化 ====================
 
 onMounted(async () => {
-  // 字典与列表并行：字典拉不到不影响列表（只是「折算基准」译名与下拉是空的）
-  await Promise.all([loadDict(), loadUnits(1)]);
+  // 列表由 ListPage 在 setup 里拉首屏；这里只补单位字典（拉不到只是「折算基准」译名与下拉为空）
+  await loadDict();
 });
 </script>
 
@@ -663,67 +601,6 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
-}
-
-.filter-card {
-  flex: 0 0 auto;
-}
-
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.filter-row__keyword {
-  width: 260px;
-}
-
-.filter-row__select {
-  width: 150px;
-}
-
-.filter-row__spacer {
-  flex: 1 1 auto;
-}
-
-.list-card {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.panel-head__main {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.panel-head__title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-  white-space: nowrap;
-}
-
-.panel-head__meta {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-  white-space: nowrap;
-}
-
-.list-alert,
-.dlg-alert {
-  margin-bottom: 8px;
 }
 
 .op-row {

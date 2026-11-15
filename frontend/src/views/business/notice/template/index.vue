@@ -1,101 +1,67 @@
 <template>
   <div class="notice-template-page">
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="16">
-        <t-col :span="4">
-          <t-input v-model="query.keyword" placeholder="模板名称 / 编码" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.notice_type" placeholder="通知类型" clearable>
-            <t-option v-for="item in TYPE_OPTIONS" :key="item.value" :value="item.value" :label="item.label" />
-          </t-select>
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable>
-            <t-option :value="1" label="启用" />
-            <t-option :value="0" label="停用" />
-          </t-select>
-        </t-col>
-        <t-col :span="3">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button theme="default" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <!-- 筛选 / 分页 / 空态 / 加载失败交给 ListPage（P3-12）：本页只留列、筛选项与编辑抽屉 -->
+    <ListPage
+      ref="listRef"
+      title="通知模板"
+      testid="notice-template"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <template #toolbar>
+        <t-button v-privilege="[PERM.noticeTemplateCreate]" theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新增模板
+        </t-button>
+        <!-- E10：发送通知是隐藏菜单（/business/notice/send 不在侧边栏），这里用主色描边按钮把入口顶出来 -->
+        <t-button v-privilege="[PERM.noticeSend]" theme="primary" variant="outline" @click="goSend">
+          <template #icon><t-icon name="send" /></template>
+          发送通知
+        </t-button>
+      </template>
 
-    <t-card :bordered="false" class="table-card">
-      <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.noticeTemplateCreate]" theme="primary" @click="openCreate">
-            <template #icon><t-icon name="add" /></template>
-            新增模板
-          </t-button>
-          <!-- E10：发送通知是隐藏菜单（/business/notice/send 不在侧边栏），这里用主色描边按钮把入口顶出来 -->
-          <t-button v-privilege="[PERM.noticeSend]" theme="primary" variant="outline" @click="goSend">
-            <template #icon><t-icon name="send" /></template>
-            发送通知
-          </t-button>
-          <t-button theme="default" :loading="loading" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
-        </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 条</span>
-      </div>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :stripe="true"
-        @page-change="handlePageChange"
-      >
-        <template #template_name="{ row }">
-          <span class="cell-name">{{ row.template_name }}</span>
-          <span class="cell-sub">{{ row.template_code }}</span>
-        </template>
-        <template #notice_type="{ row }">{{ typeLabel(row.notice_type) }}</template>
-        <template #default_level="{ row }">
-          <t-tag :theme="levelTheme(row.default_level)" size="small" variant="light">{{ levelLabel(row.default_level) }}</t-tag>
-        </template>
-        <template #variables="{ row }">
-          <t-space v-if="row.variables?.length" size="4" break-line>
-            <t-tag v-for="variable in row.variables" :key="variable.name" size="small" variant="outline">
-              {{ variable.name }}
-            </t-tag>
-          </t-space>
-          <span v-else class="cell-empty">无变量</span>
-        </template>
-        <template #status="{ row }">
-          <t-tag :theme="row.status === 1 ? 'success' : 'default'" size="small" variant="light">
-            {{ row.status === 1 ? '启用' : '停用' }}
+      <template #template_name="{ row }">
+        <span class="cell-name">{{ row.template_name }}</span>
+        <span class="cell-sub">{{ row.template_code }}</span>
+      </template>
+      <template #notice_type="{ row }">{{ typeLabel(row.notice_type) }}</template>
+      <template #default_level="{ row }">
+        <t-tag :theme="levelTheme(row.default_level)" size="small" variant="light">{{ levelLabel(row.default_level) }}</t-tag>
+      </template>
+      <template #variables="{ row }">
+        <t-space v-if="row.variables?.length" size="4" break-line>
+          <t-tag v-for="variable in row.variables" :key="variable.name" size="small" variant="outline">
+            {{ variable.name }}
           </t-tag>
-        </template>
-        <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link v-privilege="[PERM.noticeTemplateUpdate]" theme="primary" @click="openEdit(row)">编辑</t-link>
-            <t-link v-privilege="[PERM.noticeSend]" theme="primary" @click="goSendWith(row)">测试发送</t-link>
-            <t-link v-privilege="[PERM.noticeTemplateDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
-          </t-space>
-        </template>
-        <template #empty>
-          <div class="empty-state">
-            <t-icon class="empty-state__icon" name="mail" />
-            <p class="empty-state__title">还没有通知模板</p>
-            <p class="empty-state__desc">模板用 {{ VAR_EXAMPLE }} 这类占位符声明变量，发送时按接收人渲染</p>
-            <t-button v-privilege="[PERM.noticeTemplateCreate]" theme="primary" @click="openCreate">新增模板</t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+        </t-space>
+        <span v-else class="cell-empty">无变量</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag :theme="row.status === 1 ? 'success' : 'default'" size="small" variant="light">
+          {{ row.status === 1 ? '启用' : '停用' }}
+        </t-tag>
+      </template>
+      <template #updated_at="{ row }">{{ formatDateTime(row.updated_at) }}</template>
+      <template #op="{ row }">
+        <t-space size="small">
+          <t-link v-privilege="[PERM.noticeTemplateUpdate]" theme="primary" @click="openEdit(row)">编辑</t-link>
+          <t-link v-privilege="[PERM.noticeSend]" theme="primary" @click="goSendWith(row)">测试发送</t-link>
+          <t-link v-privilege="[PERM.noticeTemplateDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
+        </t-space>
+      </template>
+      <template #empty>
+        <div class="empty-state">
+          <t-icon class="empty-state__icon" name="mail" />
+          <p class="empty-state__title">还没有通知模板</p>
+          <p class="empty-state__desc">模板用 {{ VAR_EXAMPLE }} 这类占位符声明变量，发送时按接收人渲染</p>
+          <t-button v-privilege="[PERM.noticeTemplateCreate]" theme="primary" @click="openCreate">新增模板</t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- 编辑抽屉：左表单 + 右变量面板 / 预览 -->
     <t-drawer
@@ -193,7 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
@@ -206,25 +172,25 @@ import {
   type NoticeTemplateRes,
   type TemplatePreviewRes,
 } from '@/api/business/notice';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { formatDateTime } from '@/utils/format';
 import { PERM } from '@/constants/permissions';
 
-/** 表格分页事件载荷 */
-interface TablePageInfo {
-  /** 当前页码 */
-  current: number;
-  /** 每页条数 */
-  pageSize: number;
-}
-
 const router = useRouter();
+
+/** 每页条数（与改造前一致） */
+const PAGE_SIZE = 10;
 
 /** 变量占位符示例（模板里直接写 `{{userName}}` 会被 Vue 当成插值，这里用常量绕开） */
 const VAR_EXAMPLE = '{' + '{userName}' + '}'
-const rows = ref<NoticeTemplateRes[]>([]);
-const loading = ref(false);
-const query = reactive({ keyword: '', notice_type: '' as string, status: undefined as number | undefined });
-const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
+
+/** 筛选行（`filterState` 就地读写；`queryBuilder` 引用的是同一个对象） */
+const filter = reactive<{ keyword: string; notice_type: string; status: number | '' }>({
+  keyword: '',
+  notice_type: '',
+  status: '',
+});
 
 const TYPE_OPTIONS = [
   { value: 'SYSTEM', label: '系统消息' },
@@ -267,41 +233,49 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'op', title: '操作', width: 200, fixed: 'right' },
 ];
 
-async function loadList(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageNoticeTemplates({
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      keyword: query.keyword || undefined,
-      notice_type: query.notice_type || undefined,
-      status: query.status,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
-}
+/**
+ * 筛选项声明。
+ *
+ * 改造前两个下拉都**不**自动查询（只在点「查询」/ 关键词回车时拉），所以这里不设
+ * `searchOnChange` —— 手感保持一致。
+ */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '模板名称 / 编码', width: 300 },
+  { key: 'notice_type', type: 'select', placeholder: '通知类型', width: 150, options: TYPE_OPTIONS },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '状态',
+    width: 120,
+    options: [
+      { value: 1, label: '启用' },
+      { value: 0, label: '停用' },
+    ],
+  },
+];
 
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
+/** 入参拼装：空串 / 未选整键缺席（`status` 的「全部」是空值，不能当 0 发出去） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const keyword = String(state.keyword ?? '').trim();
+  return {
+    page,
+    page_size: pageSize,
+    keyword: keyword || undefined,
+    notice_type: state.notice_type || undefined,
+    status: typeof state.status === 'number' ? state.status : undefined,
+  };
+};
 
-function handleReset(): void {
-  query.keyword = '';
-  query.notice_type = '';
-  query.status = undefined;
-  handleSearch();
-}
+/** 拉一页 */
+const fetcher: ListFetcher<NoticeTemplateRes> = (query) =>
+  pageNoticeTemplates(query as Parameters<typeof pageNoticeTemplates>[0]);
 
-function handlePageChange(pageInfo: TablePageInfo): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadList();
+/** ListPage 实例（保存 / 删除后重拉当前页） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 重拉当前页 */
+async function reloadList(): Promise<void> {
+  await listRef.value?.load();
 }
 
 // ==================== 编辑 ====================
@@ -465,7 +439,7 @@ async function submitForm(): Promise<void> {
       void MessagePlugin.success('模板已新增');
     }
     formVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     showError(error);
   } finally {
@@ -485,7 +459,7 @@ function confirmRemove(row: NoticeTemplateRes): void {
         try {
           await deleteNoticeTemplate(row.id);
           void MessagePlugin.success('已删除');
-          await loadList();
+          await reloadList();
         } catch (error) {
           showError(error);
         }
@@ -506,31 +480,13 @@ function goSendWith(row: NoticeTemplateRes): void {
 function showError(error: unknown): void {
   void MessagePlugin.error(error instanceof ApiError ? error.message : '请求失败，请稍后重试');
 }
-
-onMounted(() => {
-  void loadList();
-});
 </script>
 
 <style lang="less" scoped>
 .notice-template-page {
-  padding: 16px;
-
-  .filter-card {
-    margin-bottom: 12px;
-  }
-
-  .toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-
-    &__count {
-      font-size: 13px;
-      color: var(--td-text-color-secondary);
-    }
-  }
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 
   .cell-name {
     font-weight: 600;

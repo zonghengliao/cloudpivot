@@ -1,60 +1,47 @@
 <template>
   <div class="project-page">
-    <!-- 筛选区 -->
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="[16, 12]">
-        <t-col :span="4">
-          <t-input v-model="query.name" placeholder="项目名称 / 编码" clearable @enter="handleSearch">
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable :options="statusOpts" />
-        </t-col>
-        <t-col :span="3">
-          <UserSelect v-model="query.owner_id" placeholder="负责人" />
-        </t-col>
-        <t-col :span="6">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleReset">重置</t-button>
-            <t-button v-privilege="[PERM.projectCreate]" variant="outline" theme="primary" @click="openCreate">
-              <template #icon><t-icon name="add" /></template>
-              新建项目
-            </t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
-
-    <!-- 列表 -->
-    <t-card :bordered="false" class="table-card">
-      <div class="table-head">
-        <span class="table-head__title">项目分组</span>
+    <!-- 筛选 / 分页 / 行操作交给 ListPage（P3-12） -->
+    <ListPage
+      ref="listRef"
+      title="项目分组"
+      testid="project"
+      table-testid="project-table"
+      meta-testid="project-meta"
+      btn-prefix="project-btn"
+      meta-unit="个"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="query"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PROJECT_PAGE_SIZE"
+      :show-page-size="true"
+      @loaded="onLoaded"
+    >
+      <!-- 页头提示：项目只是任务的逻辑分组 -->
+      <template #head-extra>
         <span class="table-head__hint">
           项目只是任务的逻辑分组：负责人 / 成员**不会**因此看到项目下的全部任务（可见性仍按数据范围 ∪ 参与关系）
         </span>
-      </div>
+      </template>
 
-      <t-alert v-if="errorMessage" class="table-alert" theme="error" :message="errorMessage">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadList">重试</t-button>
-        </template>
-      </t-alert>
+      <!-- 负责人筛选：远程搜索用户，声明式下拉表达不了 -->
+      <template #filter-owner_id="{ value, set }">
+        <UserSelect
+          :model-value="value"
+          class="project-owner-filter"
+          placeholder="负责人"
+          @update:model-value="set"
+        />
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        :hover="true"
-        stripe
-        @page-change="handlePageChange"
-      >
+      <template #toolbar>
+        <t-button v-privilege="[PERM.projectCreate]" theme="primary" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建项目
+        </t-button>
+      </template>
+
         <template #code="{ row }">
           <span class="cell-code">{{ row.code }}</span>
         </template>
@@ -96,21 +83,19 @@
           </t-space>
         </template>
 
-        <template #empty>
+        <template #empty="{ filtered }">
           <div class="empty-state">
             <t-icon class="empty-state__icon" name="folder" />
-            <p class="empty-state__title">{{ hasFilter ? '没有符合条件的项目' : '还没有项目' }}</p>
+            <p class="empty-state__title">{{ filtered ? '没有符合条件的项目' : '还没有项目' }}</p>
             <p class="empty-state__desc">
-              {{ hasFilter ? '换个筛选条件试试，或点「重置」看全部' : '建一个项目，把相关任务归到一起去' }}
+              {{ filtered ? '换个筛选条件试试，或点「重置」看全部' : '建一个项目，把相关任务归到一起去' }}
             </p>
             <t-button v-privilege="[PERM.projectCreate]" theme="primary" variant="outline" @click="openCreate">
               新建项目
             </t-button>
           </div>
         </template>
-      </t-table>
-    </t-card>
-
+    </ListPage>
     <!-- 新建 / 编辑 -->
     <t-dialog
       v-model:visible="formVisible"
@@ -266,6 +251,8 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import { ApiError } from '@/api/request';
@@ -297,11 +284,12 @@ const statusOpts = [
 ];
 
 /** 表格数据 */
-const rows = ref<ProjectItem[]>([]);
-/** 加载中 */
-const loading = ref(false);
-/** 错误文案（非空即渲染错误态 + 重试） */
-const errorMessage = ref('');
+/** 每页条数（原来可选 10 / 20 / 50，交给组件分页器的每页条数开关） */
+const PROJECT_PAGE_SIZE = 10;
+/** ListPage 实例（保存 / 删除 / 详情里改任务后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+/** 当前页码（`@loaded` 同步） */
+const currentPage = ref(1);
 
 /** 筛选条件 */
 const query = reactive<{ name: string; status: ProjectStatus | ''; owner_id: string }>({
@@ -310,11 +298,34 @@ const query = reactive<{ name: string; status: ProjectStatus | ''; owner_id: str
   owner_id: '',
 });
 
-/** 分页 */
-const pagination = reactive({ current: 1, pageSize: 10, total: 0, showJumper: true, pageSizeOptions: [10, 20, 50] });
+/** 筛选项声明（关键词走回车、状态下拉选完点「查询」，与改造前一致） */
+const filters: FilterDef[] = [
+  { key: 'name', type: 'keyword', placeholder: '项目名称 / 编码', width: 240 },
+  { key: 'status', type: 'select', placeholder: '状态', width: 150, options: statusOpts },
+  { key: 'owner_id', type: 'custom' },
+];
 
-/** 是否处于筛选态（空态文案据此变化） */
-const hasFilter = computed(() => Boolean(query.name || query.status || query.owner_id));
+/** 拉一页 */
+const fetcher: ListFetcher<ProjectItem> = (params) => pageProjects(params as ProjectPageQuery);
+
+/** 入参拼装（沿用改造前的键名与「空串照传」口径） */
+const queryBuilder: ListQueryBuilder = (_state, page, pageSize) => ({
+  page,
+  page_size: pageSize,
+  name: query.name,
+  status: query.status,
+  owner_id: query.owner_id,
+});
+
+/** 一页拉完：同步页码 */
+function onLoaded(payload: { page: number }): void {
+  currentPage.value = payload.page;
+}
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = currentPage.value): Promise<void> {
+  await listRef.value?.load(page);
+}
 
 /** 列定义：编码 / 名称 / 负责人 / 起止 / 任务数 / 完成率 / 状态 / 操作 */
 const columns = [
@@ -408,46 +419,6 @@ const statCards = computed(() => {
   ];
 });
 
-/** 拉列表 */
-async function loadList(): Promise<void> {
-  loading.value = true;
-  errorMessage.value = '';
-  try {
-    const params: ProjectPageQuery = {
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      name: query.name,
-      status: query.status,
-      owner_id: query.owner_id,
-    };
-    const data = await pageProjects(params);
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    errorMessage.value = error instanceof ApiError ? error.message : '项目列表加载失败';
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  pagination.current = 1;
-  void loadList();
-}
-
-function handleReset(): void {
-  query.name = '';
-  query.status = '';
-  query.owner_id = '';
-  pagination.current = 1;
-  void loadList();
-}
-
-function handlePageChange(pageInfo: { current?: number; pageSize?: number }): void {
-  pagination.current = pageInfo.current ?? 1;
-  pagination.pageSize = pageInfo.pageSize ?? pagination.pageSize;
-  void loadList();
-}
 
 /** 打开新建 */
 function openCreate(): void {
@@ -510,7 +481,7 @@ async function handleSubmit(): Promise<void> {
       MessagePlugin.success('项目已创建');
     }
     formVisible.value = false;
-    await loadList();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '保存失败，请稍后重试');
   } finally {
@@ -535,7 +506,7 @@ function confirmRemove(row: ProjectItem): void {
         const result = await deleteProject(row.id);
         MessagePlugin.success(`项目已删除，${result.unbound_tasks} 个任务已移出项目（任务本身未删除）`);
         dialog.hide();
-        await loadList();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(error instanceof ApiError ? error.message : '删除失败，请稍后重试');
       }
@@ -636,7 +607,7 @@ function openTask(row: TaskCard): void {
 }
 
 onMounted(() => {
-  void loadList();
+  void reloadList();
   // 深链：任务页 / 任务详情点「项目」会带 `?id=<uuid>` 过来，直接展开该项目的详情抽屉
   const deepLinkId = typeof route.query.id === 'string' ? route.query.id : '';
   if (deepLinkId) {
@@ -669,8 +640,8 @@ onMounted(() => {
   }
 }
 
-.table-alert {
-  margin-bottom: 12px;
+.project-owner-filter {
+  width: 150px;
 }
 
 .cell-code {

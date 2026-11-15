@@ -1,40 +1,38 @@
 <template>
   <div class="rate-page">
     <!-- ==================== 页面头 + 筛选 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="page-head">
-        <div class="page-head__title">
-          <span>汇率管理</span>
+    <!--
+      ①② 主列表（服务端分页）交给 ListPage（P3-12 收口）。
+      「按月批量录入」的行内编辑表格与新建 / 编辑表单仍是本页自己的弹窗（录入表单不是列表）。
+    -->
+    <ListPage
+      ref="listRef"
+      title="汇率管理"
+      testid="rate"
+      table-testid="rate-table"
+      btn-prefix="btn-rate"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @reset="handleReset"
+    >
+      <template #head-extra>
+        <span class="page-head__tip">
           <t-tag v-if="baseCode" size="small" variant="light" theme="success">
             目标币种 {{ baseCode }}
           </t-tag>
-        </div>
-        <span class="page-head__tip">
           方向固定 <b>1 原币 = 汇率 × 目标币种</b>（只存「外币 → 本位币」，反向由 1/汇率 推导，不落重复行）。
           取数口径：<code>effective_date ≤ 单据日</code> 取最近一条（含当日），
           <b>建单那一刻锁进单据行</b>，之后改汇率不影响已建单据（SO-40）。
           月末重估（SO-41）读的是 <code>MONTH_END</code> 类型。
         </span>
-      </div>
+      </template>
 
-      <div class="filter-row">
-        <t-select
-          v-model="filter.from_currency"
-          class="filter-row__code"
-          :options="currencyCodeOptions"
-          placeholder="全部原币"
-          clearable
-          filterable
-          data-testid="rate-filter-from"
-        />
-        <t-select
-          v-model="filter.rate_type"
-          class="filter-row__type"
-          :options="rateTypeOptions"
-          placeholder="全部类型"
-          clearable
-          data-testid="rate-filter-type"
-        />
+      <!-- 生效日区间：拆成 date_from / date_to 两个入参键，声明式控件表达不了 -->
+      <template #filter-date_range>
         <t-date-range-picker
           v-model="dateRange"
           class="filter-row__dates"
@@ -45,9 +43,9 @@
           data-testid="rate-filter-dates"
           @change="handleDateChange"
         />
-        <t-button theme="primary" data-testid="btn-rate-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-rate-reset" @click="handleReset">重置</t-button>
-        <span class="filter-row__spacer" />
+      </template>
+
+      <template #toolbar>
         <t-tooltip
           :content="
             canBatch
@@ -89,80 +87,74 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="pageError"
-        theme="error"
-        :message="pageError"
-        class="page-alert"
-        data-testid="rate-error"
-      />
-
-      <t-table
-        row-key="id"
-        size="small"
-        hover
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :empty="emptyText"
-        data-testid="rate-table"
-      >
-        <template #pair="{ row }">
-          <span class="mono pair-cell" data-testid="rate-pair">
-            {{ row.from_currency }} → {{ row.to_currency }}
-          </span>
-        </template>
-        <template #rate="{ row }">
-          <span class="mono rate-cell" data-testid="rate-value">{{ rateText(row.rate) }}</span>
-        </template>
-        <template #rate_type="{ row }">
-          <t-tag size="small" variant="light" :theme="row.rate_type === 'SPOT' ? 'primary' : 'warning'">
-            {{ row.rate_type === 'SPOT' ? '即时' : '月末' }}
-          </t-tag>
-        </template>
-        <template #effective_date="{ row }">
-          <span class="mono">{{ row.effective_date }}</span>
-        </template>
-        <template #remark="{ row }">
-          <span class="muted">{{ row.remark || '—' }}</span>
-        </template>
-        <template #op="{ row }">
-          <div class="op-row">
-            <t-link
-              v-privilege="[PERM.update]"
-              theme="primary"
-              data-testid="btn-rate-edit"
-              @click="openEdit(row as ExchangeRateRow)"
-            >
-              编辑
-            </t-link>
-            <t-link
-              v-privilege="[PERM.remove]"
-              theme="danger"
-              data-testid="btn-rate-delete"
-              @click="confirmDelete(row as ExchangeRateRow)"
-            >
-              删除
-            </t-link>
-          </div>
-        </template>
-      </t-table>
-
-      <div class="pager-row">
-        <span class="pager-row__total">共 {{ total }} 条</span>
-        <t-pagination
-          :current="page"
-          :page-size="PAGE_SIZE"
-          :total="total"
-          :show-page-size="false"
-          show-jumper
-          data-testid="rate-pager"
-          @current-change="handlePageChange"
+      <!-- 币种下拉加载失败的提示（列表本身失败由 ListPage 自己的错误条兜） -->
+      <template #filter-footer>
+        <t-alert
+          v-if="pageError"
+          theme="error"
+          :message="pageError"
+          class="page-alert"
+          data-testid="rate-error"
         />
-      </div>
-    </t-card>
+      </template>
+
+      <template #pair="{ row }">
+        <span class="mono pair-cell" data-testid="rate-pair">
+          {{ row.from_currency }} → {{ row.to_currency }}
+        </span>
+      </template>
+      <template #rate="{ row }">
+        <span class="mono rate-cell" data-testid="rate-value">{{ rateText(row.rate) }}</span>
+      </template>
+      <template #rate_type="{ row }">
+        <t-tag size="small" variant="light" :theme="row.rate_type === 'SPOT' ? 'primary' : 'warning'">
+          {{ row.rate_type === 'SPOT' ? '即时' : '月末' }}
+        </t-tag>
+      </template>
+      <template #effective_date="{ row }">
+        <span class="mono">{{ row.effective_date }}</span>
+      </template>
+      <template #remark="{ row }">
+        <span class="muted">{{ row.remark || '—' }}</span>
+      </template>
+      <template #op="{ row }">
+        <div class="op-row">
+          <t-link
+            v-privilege="[PERM.update]"
+            theme="primary"
+            data-testid="btn-rate-edit"
+            @click="openEdit(row as ExchangeRateRow)"
+          >
+            编辑
+          </t-link>
+          <t-link
+            v-privilege="[PERM.remove]"
+            theme="danger"
+            data-testid="btn-rate-delete"
+            @click="confirmDelete(row as ExchangeRateRow)"
+          >
+            删除
+          </t-link>
+        </div>
+      </template>
+
+      <!-- 空态文案分两态：筛过 / 还没录过（原文案逐字保留） -->
+      <template #empty>
+        <div class="panel-empty" data-testid="rate-empty">
+          <t-icon class="panel-empty__icon" name="money" />
+          <p class="panel-empty__title">{{ hasFilter ? '没有符合条件的汇率' : '还没有汇率' }}</p>
+          <p class="panel-empty__desc">
+            {{
+              hasFilter
+                ? '换个币种 / 类型 / 日期试试，或点「重置」'
+                : '点右上角「按月批量录入」一次录一批，或「新建汇率」单条录入'
+            }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== 新建 / 编辑 ==================== -->
     <t-dialog
@@ -346,7 +338,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
-import { ApiError, type PageData } from '@/api/request';
+import { ApiError } from '@/api/request';
 import {
   RATE_TYPE_OPTIONS,
   batchMonthRates,
@@ -360,6 +352,8 @@ import {
   type ExchangeRateRow,
   type RateType,
 } from '@/api/business/erp/currency';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 
 /** 本页权限码（与 `V0316__currency_menu.up.sql` 的 auth_code 逐字一致） */
 const PERM = {
@@ -379,7 +373,7 @@ const canBatch = computed(() => userStore.hasPermission(PERM.batch));
 
 const rateTypeOptions = RATE_TYPE_OPTIONS;
 
-const columns = [
+const columns: ColumnDef[] = [
   { colKey: 'pair', title: '币种对', width: 180 },
   { colKey: 'rate', title: '汇率', width: 160 },
   { colKey: 'rate_type', title: '类型', width: 100 },
@@ -450,7 +444,7 @@ async function loadCurrencies(): Promise<void> {
   }
 }
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 行操作交给 ListPage） ====================
 
 const filter = reactive<ExchangeRateFilter>({
   from_currency: undefined,
@@ -461,21 +455,63 @@ const filter = reactive<ExchangeRateFilter>({
 // ⚠️ 初值必须是 `[]` 而不是 `undefined`：`t-date-range-picker` 的 `value` 校验要求 Array，
 // 传 undefined 会在控制台刷 `typeof value: undefined must be Array!`（功能不坏但脏）
 const dateRange = ref<Array<string | number>>([]);
-const rows = ref<ExchangeRateRow[]>([]);
-const total = ref(0);
-const page = ref(1);
-const loading = ref(false);
+/** 页面级错误（目前只有币种下拉加载失败；列表加载失败由 ListPage 自己的错误条兜） */
 const pageError = ref('');
 
-const emptyText = computed(() => {
-  if (loading.value) {
-    return '加载中…';
-  }
-  if (filter.from_currency || filter.rate_type || filter.date_from) {
-    return '没有符合条件的汇率（换个币种 / 类型 / 日期试试，或点「重置」）';
-  }
-  return '还没有汇率 —— 点右上角「按月批量录入」一次录一批，或「新建汇率」单条录入';
-});
+/** ListPage 实例（保存 / 删除 / 批量录入后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 是否处于筛选态（空态文案分「没匹配」「还没录过」） */
+const hasFilter = computed(() => Boolean(filter.from_currency || filter.rate_type || filter.date_from));
+
+/**
+ * 筛选项声明（顺序即渲染顺序）。
+ *
+ * 前两个是声明式下拉；生效日区间是 `custom` —— 它要拆成 `date_from` / `date_to`
+ * 两个入参键，`t-date-range-picker` 的取值/清空语义也由页面自己接。
+ * 三个控件改造前都是「改完点查询」，所以不开 `searchOnChange`（手感不变）。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'from_currency',
+    type: 'select',
+    options: currencyCodeOptions.value,
+    placeholder: '全部原币',
+    width: 190,
+    filterable: true,
+    testid: 'rate-filter-from',
+  },
+  {
+    key: 'rate_type',
+    type: 'select',
+    options: rateTypeOptions,
+    placeholder: '全部类型',
+    width: 190,
+    testid: 'rate-filter-type',
+  },
+  { key: 'date_range', type: 'custom', testid: 'rate-filter-dates' },
+]);
+
+/** 拉一页 */
+const fetcher: ListFetcher<ExchangeRateRow> = (query) => fetchRatePage(query as ExchangeRateFilter);
+
+/** 入参拼装（与改造前 `loadRows` 里那段逐字一致：空值由 api 层的 `get` 整键丢掉） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as ExchangeRateFilter;
+  return {
+    from_currency: value.from_currency,
+    rate_type: value.rate_type,
+    date_from: value.date_from,
+    date_to: value.date_to,
+    page,
+    page_size: pageSize,
+  };
+};
+
+/** 重拉当前页（保存 / 删除 / 批量录入后） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
+}
 
 function handleDateChange(value: unknown): void {
   // `value-type="YYYY-MM-DD"` ⇒ 实际给的是 `[string, string]`；类型上 TDesign 声明得比这宽
@@ -489,50 +525,11 @@ function handleDateChange(value: unknown): void {
   filter.date_to = String(pair[1]);
 }
 
-async function loadRows(target: number = page.value): Promise<void> {
-  loading.value = true;
-  pageError.value = '';
-  try {
-    const data: PageData<ExchangeRateRow> = await fetchRatePage({
-      ...filter,
-      page: target,
-      page_size: PAGE_SIZE,
-    });
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    page.value = data.page ?? target;
-    const lastPage = Math.max(1, Math.ceil(total.value / PAGE_SIZE));
-    if (page.value > lastPage) {
-      page.value = lastPage;
-      await loadRows(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    pageError.value = `汇率加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
-function handleSearch(): void {
-  page.value = 1;
-  void loadRows(1);
-}
-
+/** 「重置」：ListPage 会清声明里的键，日期区间拆出来的两个键要页面自己清 */
 function handleReset(): void {
-  filter.from_currency = undefined;
-  filter.rate_type = undefined;
   filter.date_from = undefined;
   filter.date_to = undefined;
   dateRange.value = [];
-  page.value = 1;
-  void loadRows(1);
-}
-
-function handlePageChange(current: number): void {
-  page.value = current;
-  void loadRows(current);
 }
 
 // ==================== 新建 / 编辑 ====================
@@ -634,7 +631,7 @@ async function submitForm(): Promise<void> {
       MessagePlugin.success('汇率已创建');
     }
     formVisible.value = false;
-    await loadRows();
+    await reloadList();
   } catch (error) {
     // 后端原文（同键重复 409 / 汇率非法 / 币种不存在）直接摆到弹窗里
     formError.value = messageOf(error);
@@ -653,7 +650,7 @@ function confirmDelete(row: ExchangeRateRow): void {
       try {
         await deleteRate(row.id);
         MessagePlugin.success('已删除');
-        await loadRows();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(`删除失败：${messageOf(error)}`);
       } finally {
@@ -776,7 +773,7 @@ async function submitBatch(): Promise<void> {
       `${result.month} 月末（${result.effective_date}）已写入：新增 ${result.created_count} 条，覆盖 ${result.updated_count} 条`,
     );
     batchVisible.value = false;
-    await loadRows();
+    await reloadList();
   } catch (error) {
     batchError.value = messageOf(error);
   } finally {
@@ -785,8 +782,8 @@ async function submitBatch(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 主列表由 ListPage 自己拉首屏；这里只补币种主数据（下拉 / 目标币种 / 批量录入行）
   await loadCurrencies();
-  await loadRows();
 });
 </script>
 
@@ -797,53 +794,42 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.filter-card {
-  padding: 16px;
-}
-
-.page-head {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.page-head__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-}
-
+/* 页头附注（#head-extra）：方向 / 取数口径说明 */
 .page-head__tip {
   font-size: 12px;
   color: var(--td-text-color-secondary);
   line-height: 1.7;
 }
 
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.filter-row__code {
-  width: 190px;
-}
-
-.filter-row__type {
-  width: 190px;
-}
-
+/* 生效日区间（custom 筛选插槽自绘） */
 .filter-row__dates {
   width: 280px;
 }
 
-.filter-row__spacer {
-  flex: 1;
+/* 空态（#empty） */
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .page-alert {
@@ -875,15 +861,6 @@ onMounted(async () => {
 
 .gate-wrap {
   display: inline-block;
-}
-
-.pager-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--td-text-color-secondary);
 }
 
 .rate-form {

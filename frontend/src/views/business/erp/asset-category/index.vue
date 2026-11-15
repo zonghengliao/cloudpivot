@@ -6,8 +6,22 @@
 -->
 <template>
   <div class="category-page">
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ①② 筛选 / 分页 / 行操作交给 ListPage（P3-12 收口） -->
+    <ListPage
+      ref="listRef"
+      title="资产分类"
+      testid="category"
+      table-testid="category-table"
+      meta-testid="category-meta"
+      btn-prefix="category-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -17,91 +31,46 @@
           <template #icon><t-icon name="add" /></template>
           新建分类
         </t-button>
-        <t-button variant="outline" data-testid="category-btn-refresh" @click="loadRows">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="category-filter-status"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="编码 / 名称（模糊）"
-          clearable
-          data-testid="category-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="category-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
-
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">资产分类</span>
-          <span class="panel-head__meta" data-testid="category-meta">共 {{ total }} 条</span>
-        </div>
+      <!-- 页头附注：折旧方法口径（原来是列表卡右上角的说明） -->
+      <template #head-extra>
         <span class="panel-head__tip">
           折旧方法本期只有平均年限法；月折旧额 = round((原值 × (1 − 残值率)) / 月数, 4)
         </span>
-      </div>
+      </template>
 
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="category-load-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="category-table"
-        @page-change="handlePageChange"
-      >
-        <template #category_code="{ row }">
-          <span class="mono" :data-testid="`category-code-${row.category_code}`">{{ row.category_code }}</span>
-        </template>
-        <template #depreciation_method="{ row }">
-          <t-tag size="small" variant="light">{{ methodLabel(row.depreciation_method) }}</t-tag>
-        </template>
-        <template #useful_life_months="{ row }">
-          <span class="num">{{ row.useful_life_months }} 个月</span>
-        </template>
-        <template #salvage_rate="{ row }">
-          <span class="num">{{ formatRate(row.salvage_rate) }}</span>
-        </template>
-        <template #accounts="{ row }">
-          <div class="accounts-cell">
-            <span>{{ accountLabel(accounts, row.asset_account_id) }}</span>
-            <span class="muted">/ {{ accountLabel(accounts, row.accum_account_id) }}</span>
-            <span class="muted">/ {{ accountLabel(accounts, row.expense_account_id) }}</span>
-          </div>
-        </template>
-        <template #status="{ row }">
-          <t-tag size="small" :theme="categoryStatusTheme(row.status)" variant="light">
-            {{ categoryStatusLabel(row.status) }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link v-privilege="[PERM.update]" theme="primary" @click="openEdit(row)">编辑</t-link>
-            <t-link v-privilege="[PERM.remove]" theme="danger" @click="confirmDelete(row)">删除</t-link>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #category_code="{ row }">
+        <span class="mono" :data-testid="`category-code-${row.category_code}`">{{ row.category_code }}</span>
+      </template>
+      <template #depreciation_method="{ row }">
+        <t-tag size="small" variant="light">{{ methodLabel(row.depreciation_method) }}</t-tag>
+      </template>
+      <template #useful_life_months="{ row }">
+        <span class="num">{{ row.useful_life_months }} 个月</span>
+      </template>
+      <template #salvage_rate="{ row }">
+        <span class="num">{{ formatRate(row.salvage_rate) }}</span>
+      </template>
+      <template #accounts="{ row }">
+        <div class="accounts-cell">
+          <span>{{ accountLabel(accounts, row.asset_account_id) }}</span>
+          <span class="muted">/ {{ accountLabel(accounts, row.accum_account_id) }}</span>
+          <span class="muted">/ {{ accountLabel(accounts, row.expense_account_id) }}</span>
+        </div>
+      </template>
+      <template #status="{ row }">
+        <t-tag size="small" :theme="categoryStatusTheme(row.status)" variant="light">
+          {{ categoryStatusLabel(row.status) }}
+        </t-tag>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link v-privilege="[PERM.update]" theme="primary" @click="openEdit(row)">编辑</t-link>
+          <t-link v-privilege="[PERM.remove]" theme="danger" @click="confirmDelete(row)">删除</t-link>
+        </div>
+      </template>
+    </ListPage>
 
     <t-dialog
       v-model:visible="formVisible"
@@ -234,7 +203,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 
 import { fetchAccountOptions, type AccountRow } from '@/api/business/erp';
 import {
@@ -245,7 +214,11 @@ import {
   updateAssetCategory,
   type AssetCategory,
   type AssetCategoryPayload,
+  type AssetCategoryQuery,
 } from '@/api/business/erp/asset';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
+
 import {
   CATEGORY_STATUS_FILTER_OPTIONS,
   CATEGORY_STATUS_OPTIONS,
@@ -276,27 +249,58 @@ const PERM = {
 
 const PAGE_SIZE = 20;
 
-const rows = ref<AssetCategory[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
 const accounts = ref<AccountRow[]>([]);
 
+/** 筛选行（`filterState` 就地读写；`queryBuilder` 引用的是同一个对象） */
 const filter = reactive<{ keyword: string; status: number | '' }>({ keyword: '', status: '' });
 const statusFilterOptions = CATEGORY_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
 const statusOptions = CATEGORY_STATUS_OPTIONS.map((item) => ({ ...item }));
 const optionsOfAccount = computed(() => accountOptions(accounts.value));
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** ListPage 实例（保存 / 删除后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const columns: PrimaryTableCol[] = [
+/**
+ * 筛选项声明（顺序即渲染顺序）。
+ *
+ * 两个控件改造前都是「状态一变就查」（`@change="handleSearch"`），关键词走回车 ——
+ * 手感与改造前一致。
+ */
+const filters: FilterDef[] = [
+  {
+    key: 'status',
+    type: 'select',
+    options: statusFilterOptions,
+    placeholder: '全部状态',
+    width: 130,
+    searchOnChange: true,
+    testid: 'category-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '编码 / 名称（模糊）',
+    width: 220,
+    testid: 'category-filter-keyword',
+  },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<AssetCategory> = (query) =>
+  fetchAssetCategoryPage(query as AssetCategoryQuery);
+
+/** 入参拼装（与改造前 `loadRows` 里那段一致：关键词 trim、状态原样） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as { keyword: string; status: number | '' };
+  return {
+    page,
+    page_size: pageSize,
+    keyword: value.keyword.trim(),
+    status: value.status,
+  };
+};
+
+const columns: ColumnDef[] = [
   { colKey: 'category_code', title: '分类编码', width: 130 },
   { colKey: 'category_name', title: '分类名称', width: 140 },
   { colKey: 'depreciation_method', title: '折旧方法', width: 120 },
@@ -307,41 +311,13 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'op', title: '操作', width: 120, fixed: 'right' },
 ];
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchAssetCategoryPage({
-      page: current.value,
-      page_size: PAGE_SIZE,
-      keyword: filter.keyword.trim(),
-      status: filter.status,
-    });
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
+/** 重拉当前页（保存 / 删除后；新建时回第 1 页让新行进视野） */
+async function reloadList(page?: number): Promise<void> {
+  if (page === undefined) {
+    await listRef.value?.reload();
+    return;
   }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  filter.keyword = '';
-  filter.status = '';
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
+  await listRef.value?.load(page);
 }
 
 async function loadAccounts(): Promise<void> {
@@ -451,7 +427,8 @@ async function submitForm(): Promise<void> {
       MessagePlugin.success(`分类已创建 · 编码 ${created.category_code}`);
     }
     formVisible.value = false;
-    await loadRows();
+    // 新建回第 1 页（新行按 sort_order/code 排在前面），编辑留在当前页
+    await reloadList(editingId.value ? undefined : 1);
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -470,7 +447,7 @@ function confirmDelete(row: AssetCategory): void {
         await deleteAssetCategory(row.id);
         MessagePlugin.success('已删除');
         dialog.hide();
-        await loadRows();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       }
@@ -479,7 +456,8 @@ function confirmDelete(row: AssetCategory): void {
 }
 
 onMounted(async () => {
-  await Promise.all([loadAccounts(), loadRows()]);
+  // 列表由 ListPage 自己在 setup 里拉首屏；这里只补表单依赖：科目表 + 编码策略
+  await loadAccounts();
   // CODE-08：编码策略单独取（失败按「允许手填」兜底，不打断列表）
   allowManualCode.value = await loadAllowManualCode();
 });
@@ -492,55 +470,10 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-
-  &__spacer {
-    flex: 1;
-  }
-
-  &__status {
-    width: 130px;
-  }
-
-  &__keyword {
-    width: 220px;
-  }
-}
-
-.list-alert {
-  margin-bottom: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-
-  &__tip {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-  }
+/* 页头附注（#head-extra）：折旧方法口径 */
+.panel-head__tip {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
 }
 
 .accounts-cell {

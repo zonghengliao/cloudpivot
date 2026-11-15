@@ -21,9 +21,45 @@
 -->
 <template>
   <div class="expense-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!-- ==================== ① 筛选 / 分页 / 行操作交给 ListPage（P3-12） ==================== -->
+    <ListPage
+      ref="listRef"
+      title="报销单"
+      testid="expense"
+      table-testid="expense-table"
+      meta-testid="expense-meta"
+      btn-prefix="expense-btn"
+      meta-unit="张"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :initial-page="current"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+      @reset="handleReset"
+    >
+      <!-- 只看我的：口径开关 + 当前口径说明（整宽，落在筛选卡内） -->
+      <template #filter-footer>
+        <div class="scope-row">
+          <span class="scope-row__text">
+            当前口径：{{ mineOnly ? '只看我的报销单' : '全部报销单（按数据范围）' }}
+            <span v-if="mineOnly && !myId" class="scope-row__warn">（还没拿到当前用户 id，本轮未带 reporter_id）</span>
+          </span>
+          <t-switch v-model="mineOnly" size="small" data-testid="expense-switch-mine" @change="applyScope">
+            <template #label>只看我的</template>
+          </t-switch>
+        </div>
+      </template>
+
+      <template #head-extra>
+        <span class="panel-head__tip">
+          提交后按金额分级走审批；审批通过自动生成计提凭证，付款登记在「待付款」页
+        </span>
+      </template>
+
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -33,190 +69,109 @@
           <template #icon><t-icon name="add" /></template>
           新建报销
         </t-button>
-        <t-button variant="outline" data-testid="expense-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="expense-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.pay_status"
-          class="tool-row__status"
-          :options="payStatusFilterOptions"
-          placeholder="全部付款状态"
-          clearable
-          data-testid="expense-filter-pay-status"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="单号 / 事由（模糊）"
-          clearable
-          data-testid="expense-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="expense-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="expense-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-
-      <div class="scope-row">
-        <span class="scope-row__text">
-          当前口径：{{ mineOnly ? '只看我的报销单' : '全部报销单（按数据范围）' }}
-          <span v-if="mineOnly && !myId" class="scope-row__warn">（还没拿到当前用户 id，本轮未带 reporter_id）</span>
-        </span>
-        <t-switch
-          v-model="mineOnly"
-          size="small"
-          data-testid="expense-switch-mine"
-          @change="handleSearch"
-        >
-          <template #label>只看我的</template>
-        </t-switch>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 列表 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">报销单</span>
-          <span class="panel-head__meta" data-testid="expense-meta">共 {{ total }} 张</span>
+      <template #report_no="{ row }">
+        <span class="mono" :data-testid="`expense-no-${row.report_no}`">{{ row.report_no }}</span>
+      </template>
+      <template #title="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.title }}</span>
+          <span class="name-cell__sub">{{ row.reporter_name }} · {{ row.dept_name || '—' }} · {{ row.item_count }} 条明细</span>
         </div>
-        <span class="panel-head__tip">
-          提交后按金额分级走审批；审批通过自动生成计提凭证，付款登记在「待付款」页
-        </span>
-      </div>
+      </template>
+      <template #total_with_tax="{ row }">
+        <span class="money money--strong">{{ formatMoney(row.total_with_tax) }}</span>
+      </template>
+      <template #budget="{ row }">
+        <t-tag
+          v-if="budgetFlag(row)"
+          size="small"
+          variant="light"
+          :theme="budgetCell(row).theme"
+          :data-testid="`expense-budget-${row.report_no}`"
+        >
+          {{ budgetCell(row).text }}
+        </t-tag>
+        <span v-else class="muted">—</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          variant="light"
+          :theme="statusTheme(row.status)"
+          :data-testid="`expense-status-${row.report_no}`"
+        >
+          {{ statusText(row) }}
+        </t-tag>
+      </template>
+      <template #pay_status="{ row }">
+        <t-tag size="small" variant="outline" :theme="payStatusTheme(row.pay_status)">
+          {{ payStatusText(row) }}
+        </t-tag>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="expense-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="expense-table"
-        @page-change="handlePageChange"
-      >
-        <template #report_no="{ row }">
-          <span class="mono" :data-testid="`expense-no-${row.report_no}`">{{ row.report_no }}</span>
-        </template>
-        <template #title="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.title }}</span>
-            <span class="name-cell__sub">{{ row.reporter_name }} · {{ row.dept_name || '—' }} · {{ row.item_count }} 条明细</span>
-          </div>
-        </template>
-        <template #total_with_tax="{ row }">
-          <span class="money money--strong">{{ formatMoney(row.total_with_tax) }}</span>
-        </template>
-        <template #budget="{ row }">
-          <t-tag
-            v-if="budgetFlag(row)"
+      <!-- 行操作：六个动作各自带权限码与状态前置条件，页面自绘（每行显示哪些链接由状态决定） -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-button variant="text" size="small" data-testid="expense-op-detail" @click="openDetail(row)">
+            详情
+          </t-button>
+          <t-button
+            v-if="canEditReport(row)"
+            v-privilege="[PERM.update]"
+            variant="text"
             size="small"
-            variant="light"
-            :theme="budgetCell(row).theme"
-            :data-testid="`expense-budget-${row.report_no}`"
+            data-testid="expense-op-edit"
+            @click="openEdit(row)"
           >
-            {{ budgetCell(row).text }}
-          </t-tag>
-          <span v-else class="muted">—</span>
-        </template>
-        <template #status="{ row }">
-          <t-tag
+            编辑
+          </t-button>
+          <t-button
+            v-if="canSubmitReport(row)"
+            v-privilege="[PERM.submit]"
+            variant="text"
             size="small"
-            variant="light"
-            :theme="statusTheme(row.status)"
-            :data-testid="`expense-status-${row.report_no}`"
+            data-testid="expense-op-submit"
+            @click="handleSubmit(row)"
           >
-            {{ statusText(row) }}
-          </t-tag>
-        </template>
-        <template #pay_status="{ row }">
-          <t-tag size="small" variant="outline" :theme="payStatusTheme(row.pay_status)">
-            {{ payStatusText(row) }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-button variant="text" size="small" data-testid="expense-op-detail" @click="openDetail(row)">
-              详情
-            </t-button>
-            <t-button
-              v-if="canEditReport(row)"
-              v-privilege="[PERM.update]"
-              variant="text"
-              size="small"
-              data-testid="expense-op-edit"
-              @click="openEdit(row)"
-            >
-              编辑
-            </t-button>
-            <t-button
-              v-if="canSubmitReport(row)"
-              v-privilege="[PERM.submit]"
-              variant="text"
-              size="small"
-              data-testid="expense-op-submit"
-              @click="handleSubmit(row)"
-            >
-              提交
-            </t-button>
-            <t-button
-              v-if="canWithdrawReport(row)"
-              v-privilege="[PERM.submit]"
-              variant="text"
-              size="small"
-              data-testid="expense-op-withdraw"
-              @click="handleWithdraw(row)"
-            >
-              撤回
-            </t-button>
-            <t-button
-              v-if="canCancelReport(row)"
-              v-privilege="[PERM.cancel]"
-              variant="text"
-              size="small"
-              theme="danger"
-              data-testid="expense-op-cancel"
-              @click="openCancel(row)"
-            >
-              作废
-            </t-button>
-            <t-button
-              v-if="canDeleteReport(row)"
-              v-privilege="[PERM.remove]"
-              variant="text"
-              size="small"
-              theme="danger"
-              data-testid="expense-op-delete"
-              @click="handleDelete(row)"
-            >
-              删除
-            </t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+            提交
+          </t-button>
+          <t-button
+            v-if="canWithdrawReport(row)"
+            v-privilege="[PERM.submit]"
+            variant="text"
+            size="small"
+            data-testid="expense-op-withdraw"
+            @click="handleWithdraw(row)"
+          >
+            撤回
+          </t-button>
+          <t-button
+            v-if="canCancelReport(row)"
+            v-privilege="[PERM.cancel]"
+            variant="text"
+            size="small"
+            theme="danger"
+            data-testid="expense-op-cancel"
+            @click="openCancel(row)"
+          >
+            作废
+          </t-button>
+          <t-button
+            v-if="canDeleteReport(row)"
+            v-privilege="[PERM.remove]"
+            variant="text"
+            size="small"
+            theme="danger"
+            data-testid="expense-op-delete"
+            @click="handleDelete(row)"
+          >
+            删除
+          </t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 新建 / 编辑草稿 ==================== -->
     <t-dialog
@@ -525,6 +480,8 @@ import {
   type ExpenseItemForm,
 } from './expense-logic';
 import ExpenseDetailDrawer from './ExpenseDetailDrawer.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 
 /** 本页权限码（V0242 种的 12 个码里的 8 个；一个都不多加） */
 const PERM = {
@@ -547,15 +504,16 @@ const reporterLabel = computed(
   () => userStore.userInfo?.real_name || userStore.userInfo?.username || '当前登录用户',
 );
 
-// ==================== 列表 ====================
+// ==================== 列表（交给 ListPage） ====================
 
-const rows = ref<ExpenseReport[]>([]);
-const total = ref(0);
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
 const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+/** 「只看我的」开关（默认只看自己，§4.10 细节 1） */
 const mineOnly = ref(true);
+/** ListPage 实例（保存 / 作废 / 删除后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
+/** 筛选行（`filterState` 就地读写） */
 const filter = reactive({
   keyword: '',
   status: '',
@@ -569,13 +527,34 @@ const payStatusFilterOptions = [
   { label: '已付清', value: 'PAID' },
 ];
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** 筛选项声明（状态 / 付款状态值一变就查，关键词走回车 —— 手感与改造前一致） */
+const filters: FilterDef[] = [
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'expense-filter-status',
+  },
+  {
+    key: 'pay_status',
+    type: 'select',
+    placeholder: '全部付款状态',
+    width: 150,
+    options: payStatusFilterOptions,
+    searchOnChange: true,
+    testid: 'expense-filter-pay-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '单号 / 事由（模糊）',
+    width: 220,
+    testid: 'expense-filter-keyword',
+  },
+];
 
 // 列宽合计 ≈ 942px：1280 视口（侧栏展开时表格可视宽约 968px）不会让固定列压住状态列
 const columns: PrimaryTableCol[] = [
@@ -595,53 +574,48 @@ function budgetCell(row: ExpenseReport): { text: string; theme: 'default' | 'dan
   return budgetFlag(row) ?? { text: '—', theme: 'default' };
 }
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const query: ExpenseReportQuery = {
-      page: current.value,
-      page_size: PAGE_SIZE,
-      keyword: filter.keyword.trim(),
-      status: filter.status,
-      pay_status: filter.pay_status,
-    };
-    // §4.10 细节 1：默认只查自己；空串会被后端当「等于空串」，所以只在拿到 id 时才带
-    if (mineOnly.value && myId.value) {
-      query.reporter_id = myId.value;
-    }
-    const page = await fetchExpensePage(query);
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
+/** 拉一页（入参由 `queryBuilder` 拼，出参是后端 `PageData`） */
+const fetcher: ListFetcher<ExpenseReport> = (query) =>
+  fetchExpensePage(query as ExpenseReportQuery);
+
+/**
+ * 入参拼装（键名与改造前逐字一致，出参解构也不动）。
+ *
+ * §4.10 细节 1：默认只查自己；空串会被后端当「等于空串」，所以只在拿到 id 时才带 `reporter_id`。
+ */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const form = state as typeof filter;
+  const query: ExpenseReportQuery = {
+    page,
+    page_size: pageSize,
+    keyword: form.keyword.trim(),
+    status: form.status,
+    pay_status: form.pay_status,
+  };
+  if (mineOnly.value && myId.value) {
+    query.reporter_id = myId.value;
   }
+  return query;
+};
+
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
 }
 
-function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
+/** 一页拉完：同步页码（保存后回页要用） */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
 }
 
+/** 「只看我的」开关：口径变了回第 1 页重查（与改造前 `@change="handleSearch"` 同） */
+function applyScope(): void {
+  void listRef.value?.search();
+}
+
+/** 重置：筛选由组件按声明清空，这里只把「只看我的」拨回默认口径 */
 function handleReset(): void {
-  filter.keyword = '';
-  filter.status = '';
-  filter.pay_status = '';
   mineOnly.value = true;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
 }
 
 // ==================== 表单 ====================
@@ -768,7 +742,7 @@ async function handleSave(submitAfter: boolean): Promise<void> {
       );
       if (blocked && !blocked.can_proceed) {
         dialogVisible.value = false;
-        await loadRows();
+        await reloadList();
         MessagePlugin.warning(
           `已保存草稿：${blocked.at_label || '提交'}前需要补齐 ${blocked.hint ?? '必传附件'}（在详情里上传后再提交）`,
         );
@@ -781,7 +755,7 @@ async function handleSave(submitAfter: boolean): Promise<void> {
       MessagePlugin.success('已保存草稿');
     }
     dialogVisible.value = false;
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -823,7 +797,7 @@ async function passAttachmentGate(row: ExpenseReport, openOnBlocked = true): Pro
 
 /** 详情抽屉里提交成功：列表要重拉（状态变了），抽屉自己会重读详情 */
 function onDetailSubmitted(): void {
-  void loadRows();
+  void reloadList();
 }
 
 function confirmAction(header: string, body: string, run: () => Promise<void>): void {
@@ -854,7 +828,7 @@ async function handleSubmit(row: ExpenseReport): Promise<void> {
     async () => {
       await submitExpense(row.id);
       MessagePlugin.success('已提交审批');
-      await loadRows();
+      await reloadList();
     },
   );
 }
@@ -866,7 +840,7 @@ function handleWithdraw(row: ExpenseReport): void {
     async () => {
       await withdrawExpense(row.id);
       MessagePlugin.success('已撤回为草稿');
-      await loadRows();
+      await reloadList();
     },
   );
 }
@@ -878,7 +852,7 @@ function handleDelete(row: ExpenseReport): void {
     async () => {
       await deleteExpense(row.id);
       MessagePlugin.success('已删除');
-      await loadRows();
+      await reloadList();
     },
   );
 }
@@ -912,7 +886,7 @@ async function handleCancel(): Promise<void> {
     await cancelExpense(target.id, cancelReason.value.trim());
     MessagePlugin.success('已作废（入账的会红冲，预算占用已释放）');
     cancelVisible.value = false;
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -948,7 +922,7 @@ function errorText(error: unknown): string {
 }
 
 onMounted(async () => {
-  await Promise.all([loadTypes(), loadRows()]);
+  await loadTypes();
 });
 </script>
 
@@ -959,30 +933,10 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.tool-row__spacer {
-  flex: 1;
-}
-
-.tool-row__status {
-  width: 150px;
-}
-
-.tool-row__keyword {
-  width: 220px;
-}
-
 .scope-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-top: 8px;
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }
@@ -991,33 +945,11 @@ onMounted(async () => {
   color: var(--td-warning-color);
 }
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  margin-left: 8px;
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
 .panel-head__tip {
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }
 
-.list-alert {
-  margin-bottom: 12px;
-}
 /* E2E01-FIX-1：新建报销单弹窗里的「提交前必须上传附件」提示 */
 .form-alert {
   margin-bottom: 12px;

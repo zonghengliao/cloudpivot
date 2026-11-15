@@ -11,9 +11,26 @@
 -->
 <template>
   <div class="budget-page">
-    <!-- ==================== ① 工具栏 ==================== -->
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
+    <!--
+      ① 筛选 / 分页 / 行操作交给 ListPage（P3-12）。
+      ② 编制 / 编辑 / 调整弹窗与详情抽屉留在页面自己手里（弹窗里那 4 张表是行内编辑，不进组件）。
+    -->
+    <ListPage
+      ref="listRef"
+      title="预算编制"
+      testid="budget"
+      table-testid="budget-table"
+      meta-testid="budget-meta"
+      btn-prefix="budget-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <template #toolbar>
         <t-button
           v-privilege="[PERM.create]"
           theme="primary"
@@ -23,157 +40,78 @@
           <template #icon><t-icon name="add" /></template>
           新建预算
         </t-button>
-        <t-button variant="outline" data-testid="budget-btn-refresh" @click="refresh">刷新</t-button>
+      </template>
 
-        <span class="tool-row__spacer" />
-
-        <t-select
-          v-model="yearFilterValue"
-          class="tool-row__year"
-          :options="yearOptions"
-          placeholder="全部年度"
-          clearable
-          data-testid="budget-filter-year"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.dept_id"
-          class="tool-row__dept"
-          :options="deptOptions"
-          placeholder="全部部门"
-          clearable
-          filterable
-          data-testid="budget-filter-dept"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="budget-filter-status"
-          @change="handleSearch"
-        />
-        <t-select
-          v-model="filter.change_type"
-          class="tool-row__change"
-          :options="changeTypeFilterOptions"
-          placeholder="编制 / 调整"
-          clearable
-          data-testid="budget-filter-change"
-          @change="handleSearch"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="tool-row__keyword"
-          placeholder="单号 / 科目 / 部门（模糊）"
-          clearable
-          data-testid="budget-filter-keyword"
-          @enter="handleSearch"
-        />
-        <t-button theme="primary" data-testid="budget-btn-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="budget-btn-reset" @click="handleReset">重置</t-button>
-      </div>
-    </t-card>
-
-    <!-- ==================== ② 预算清单 ==================== -->
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">预算编制</span>
-          <span class="panel-head__meta" data-testid="budget-meta">共 {{ total }} 条</span>
-        </div>
+      <!-- 口径说明：改造前在面板头右侧，现在挂在「共 N 条」右边 -->
+      <template #head-extra>
         <span class="panel-head__tip">
           一条预算 = 部门 × 预算科目 × 年度；同槽同时只有一个「已生效」版本，改额度走「调整」
         </span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="budget-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
-
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="budget-table"
-        @page-change="handlePageChange"
-      >
-        <template #budget_no="{ row }">
-          <span class="mono" :data-testid="`budget-no-${row.budget_no}`">{{ row.budget_no }}</span>
-        </template>
-        <template #dept_name="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.dept_name }}</span>
-            <span class="name-cell__sub">{{ row.fiscal_year }} 年度</span>
-          </div>
-        </template>
-        <template #account="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.account_name }}</span>
-            <span class="name-cell__sub">{{ row.account_code }}</span>
-          </div>
-        </template>
-        <template #total_amount="{ row }">
-          <span class="money money--strong">{{ formatMoney(row.total_amount) }}</span>
-        </template>
-        <template #control_mode="{ row }">
-          <span class="muted">{{ controlModeShort(row.control_mode) }}</span>
-        </template>
-        <template #version_no="{ row }">
-          <div class="version-cell">
-            <span class="mono">v{{ row.version_no }}</span>
-            <t-tag size="small" variant="light" :theme="changeTypeTheme(row.change_type)">
-              {{ changeTypeLabel(row.change_type) }}
-            </t-tag>
-          </div>
-        </template>
-        <template #status="{ row }">
-          <t-tag
-            size="small"
-            variant="light"
-            :theme="budgetStatusTheme(row.status)"
-            :data-testid="`budget-status-${row.budget_no}`"
-          >
-            {{ budgetStatusLabel(row.status, row.status_label) }}
+      <template #budget_no="{ row }">
+        <span class="mono" :data-testid="`budget-no-${row.budget_no}`">{{ row.budget_no }}</span>
+      </template>
+      <template #dept_name="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.dept_name }}</span>
+          <span class="name-cell__sub">{{ row.fiscal_year }} 年度</span>
+        </div>
+      </template>
+      <template #account="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.account_name }}</span>
+          <span class="name-cell__sub">{{ row.account_code }}</span>
+        </div>
+      </template>
+      <template #total_amount="{ row }">
+        <span class="money money--strong">{{ formatMoney(row.total_amount) }}</span>
+      </template>
+      <template #control_mode="{ row }">
+        <span class="muted">{{ controlModeShort(row.control_mode) }}</span>
+      </template>
+      <template #version_no="{ row }">
+        <div class="version-cell">
+          <span class="mono">v{{ row.version_no }}</span>
+          <t-tag size="small" variant="light" :theme="changeTypeTheme(row.change_type)">
+            {{ changeTypeLabel(row.change_type) }}
           </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link
-              v-for="action in budgetRowActions(row, permissions)"
-              :key="action.key"
-              :theme="action.danger ? 'danger' : 'primary'"
-              :data-testid="`budget-btn-${action.key}-${row.budget_no}`"
-              @click="handleAction(action.key, row)"
-            >
-              {{ action.label }}
-            </t-link>
-            <!-- 草稿但没有提交权限：显式说明为什么按钮不见了，而不是让人反复点 -->
-            <t-tooltip
-              v-if="row.status === 'DRAFT' && !permissions.submit"
-              content="当前角色没有「预算提交」权限（business:erp:budget:submit）"
-            >
-              <span class="muted muted--hint" :data-testid="`budget-btn-submit-denied-${row.budget_no}`">
-                提交?
-              </span>
-            </t-tooltip>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+        </div>
+      </template>
+      <template #status="{ row }">
+        <t-tag
+          size="small"
+          variant="light"
+          :theme="budgetStatusTheme(row.status)"
+          :data-testid="`budget-status-${row.budget_no}`"
+        >
+          {{ budgetStatusLabel(row.status, row.status_label) }}
+        </t-tag>
+      </template>
+      <!-- 行操作由 `budgetRowActions` 按状态给（页面自绘 op 列：无权限的「提交?」要显式说明原因） -->
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link
+            v-for="action in budgetRowActions(row, permissions)"
+            :key="action.key"
+            :theme="action.danger ? 'danger' : 'primary'"
+            :data-testid="`budget-btn-${action.key}-${row.budget_no}`"
+            @click="handleAction(action.key, row)"
+          >
+            {{ action.label }}
+          </t-link>
+          <!-- 草稿但没有提交权限：显式说明为什么按钮不见了，而不是让人反复点 -->
+          <t-tooltip
+            v-if="row.status === 'DRAFT' && !permissions.submit"
+            content="当前角色没有「预算提交」权限（business:erp:budget:submit）"
+          >
+            <span class="muted muted--hint" :data-testid="`budget-btn-submit-denied-${row.budget_no}`">
+              提交?
+            </span>
+          </t-tooltip>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 编制 / 编辑 / 调整弹窗 ==================== -->
     <t-dialog
@@ -486,11 +424,19 @@ import {
   submitBudget,
   updateBudget,
   type BudgetDetail,
+  type BudgetFilterQuery,
   type BudgetRow,
   type CreateBudgetReq,
 } from '@/api/business/erp/budget';
 import { getDeptTree, type DeptNode } from '@/api/system/dept-api';
 import { useUserStore } from '@/stores/user';
+import ListPage from '@/components/ListPage/index.vue';
+import type {
+  ColumnDef,
+  FilterDef,
+  ListFetcher,
+  ListQueryBuilder,
+} from '@/components/ListPage/types';
 import { dash, formatMoney, toCents } from '@/views/business/erp/shared/money';
 import {
   BUDGET_PERMS,
@@ -539,29 +485,19 @@ const PAGE_SIZE = 20;
 /** 下拉一次拉多少 */
 const OPTION_LIMIT = 300;
 
-// ==================== 列表 ====================
-
-const rows = ref<BudgetRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
-
-const filter = reactive<BudgetFilterState>(emptyBudgetFilter());
+// ==================== 列表（交给 ListPage） ====================
 
 /**
- * 年度筛选的 v-model 代理。
+ * 筛选行（`filterState` 就地读写：`budgetFilterParams` / `openCreate` 引用的是同一个对象）。
  *
- * `BudgetFilterState.fiscal_year` 是 `number | null`（与后端 `Option<i16>` 同构），
- * 而 `t-select` 的 `modelValue` 不接受 `null`（typecheck 会红）。这里把 `null` 与
- * `undefined` 互转，逻辑层口径不变。
+ * 年度用 `number | null`（与后端 `Option<i16>` 同构），`t-select` 清空时给 `undefined`，
+ * `budgetFilterParams` 的那一句 `=== null ? undefined` 同样把 `undefined` 整键缺席 ——
+ * 所以原来那层 `yearFilterValue` 代理不再需要。
  */
-const yearFilterValue = computed<number | undefined>({
-  get: () => filter.fiscal_year ?? undefined,
-  set: (value) => {
-    filter.fiscal_year = typeof value === 'number' ? value : null;
-  },
-});
+const filter = reactive<BudgetFilterState>(emptyBudgetFilter());
+
+/** ListPage 实例（保存 / 提交 / 删除后重拉列表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
 const yearOptions = fiscalYearOptions().map((year) => ({ label: `${year} 年度`, value: year }));
 const statusFilterOptions = BUDGET_STATUS_OPTIONS.map((item) => ({ label: item.label, value: item.value }));
@@ -593,15 +529,82 @@ const accountOptions = computed(() =>
   })),
 );
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/**
+ * 筛选项声明。
+ *
+ * 改造前四个下拉都是「值一变就查」（`@change="handleSearch"`）、关键词回车查 ——
+ * 手感保持一致；部门下拉依赖异步部门树，所以整组用 `computed`。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'fiscal_year',
+    type: 'select',
+    placeholder: '全部年度',
+    width: 118,
+    options: yearOptions,
+    // 重置回「今年」：预算年度事务，与 `emptyBudgetFilter()` 同口径
+    defaultValue: new Date().getFullYear(),
+    searchOnChange: true,
+    testid: 'budget-filter-year',
+  },
+  {
+    key: 'dept_id',
+    type: 'select',
+    placeholder: '全部部门',
+    width: 150,
+    options: deptOptions.value,
+    filterable: true,
+    searchOnChange: true,
+    testid: 'budget-filter-dept',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 108,
+    options: statusFilterOptions,
+    searchOnChange: true,
+    testid: 'budget-filter-status',
+  },
+  {
+    key: 'change_type',
+    type: 'select',
+    placeholder: '编制 / 调整',
+    width: 112,
+    options: changeTypeFilterOptions,
+    searchOnChange: true,
+    testid: 'budget-filter-change',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '单号 / 科目 / 部门（模糊）',
+    width: 220,
+    testid: 'budget-filter-keyword',
+  },
+]);
 
-const columns: PrimaryTableCol[] = [
+/** 拉一页（出参 `PageData<BudgetRow>`，与 ListPage 的 `fetcher` 同构） */
+const fetcher: ListFetcher<BudgetRow> = (query) => fetchBudgetPage(query as BudgetFilterQuery);
+
+/** 入参拼装（页面自己的 `budgetFilterParams`，接口契约不变） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) =>
+  budgetFilterParams(state as BudgetFilterState, { page, page_size: pageSize });
+
+/** 当前页（保存后回页用；每拉完一页由 `onLoaded` 同步） */
+const current = ref(1);
+
+/** 一页拉完：同步页码 */
+function onLoaded(payload: { page: number }): void {
+  current.value = payload.page;
+}
+
+/** 重拉列表（新建 / 编辑 / 调整 / 提交 / 删除后调；不传 = 当前页） */
+async function reloadList(page: number = current.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+const columns: ColumnDef[] = [
   { colKey: 'budget_no', title: '预算单号', width: 158 },
   { colKey: 'dept_name', title: '部门 / 年度', width: 126, ellipsis: true },
   { colKey: 'account', title: '预算科目', minWidth: 160, ellipsis: true },
@@ -888,7 +891,7 @@ async function submitForm(): Promise<void> {
       MessagePlugin.success(`已生成新版本 v${detail.budget.version_no} 并送审：${detail.budget.budget_no}`);
     }
     visibleReset();
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -928,7 +931,7 @@ function confirmSubmit(row: BudgetRow): void {
         const detail = await submitBudget(row.id);
         MessagePlugin.success(`已提交：${detail.budget.budget_no}（${detail.budget.status_label}）`);
         dialog.hide();
-        await loadRows();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       }
@@ -947,7 +950,7 @@ function confirmDelete(row: BudgetRow): void {
         await deleteBudget(row.id);
         MessagePlugin.success('已删除');
         dialog.hide();
-        await loadRows();
+        await reloadList();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       }
@@ -988,22 +991,6 @@ async function refreshDetail(): Promise<void> {
 
 // ==================== 数据加载 ====================
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchBudgetPage(budgetFilterParams(filter, { page: current.value, page_size: PAGE_SIZE }));
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `预算列表加载失败：${errorText(error)}`;
-  } finally {
-    loading.value = false;
-  }
-}
-
 async function loadDepts(): Promise<void> {
   try {
     depts.value = await getDeptTree();
@@ -1018,26 +1005,6 @@ async function loadAccounts(): Promise<void> {
   } catch (error) {
     MessagePlugin.warning(`预算科目加载失败（只显示末级启用科目）：${errorText(error)}`);
   }
-}
-
-function handleSearch(): void {
-  current.value = 1;
-  void loadRows();
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptyBudgetFilter());
-  current.value = 1;
-  void loadRows();
-}
-
-function refresh(): void {
-  void loadRows();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
 }
 
 // ==================== 小工具 ====================
@@ -1086,9 +1053,9 @@ function errorText(error: unknown): string {
 }
 
 onMounted(() => {
+  // 列表由 ListPage 在 setup 里拉首屏；这里只补下拉字典（部门树 / 预算科目）
   void loadDepts();
   void loadAccounts();
-  void loadRows();
 });
 </script>
 
@@ -1099,70 +1066,13 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+/* ==================== 列表 ==================== */
 
-  &__spacer {
-    flex: 1;
-  }
-
-  &__year {
-    width: 112px;
-  }
-
-  &__dept {
-    width: 150px;
-  }
-
-  &__status {
-    width: 108px;
-  }
-
-  &__change {
-    width: 112px;
-  }
-
-  &__keyword {
-    width: 180px;
-  }
-}
-
-.list-alert {
-  margin-bottom: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    white-space: nowrap;
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-
-  &__tip {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-    text-align: right;
-  }
+/* 「共 N 条」右侧的口径说明（ListPage 的 #head-extra 插槽） */
+.panel-head__tip {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
+  text-align: right;
 }
 
 .name-cell {

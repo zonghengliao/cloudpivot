@@ -42,50 +42,36 @@
       </div>
     </t-card>
 
-    <!-- 文档列表 -->
-    <t-card :bordered="false" class="table-card">
-      <t-row :gutter="[12, 12]" class="filter-row">
-        <t-col :span="4">
-          <t-input v-model="query.keyword" placeholder="标题 / 摘要 / 正文关键字" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable :options="statusOptions" />
-        </t-col>
-        <t-col :span="5">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleReset">重置</t-button>
-            <t-checkbox v-model="includeUnpublished" @change="handleSearch">含草稿 / 已下架</t-checkbox>
-          </t-space>
-        </t-col>
-      </t-row>
+    <!-- 文档列表：筛选 / 分页 / 行操作交给 ListPage（P3-12） -->
+    <ListPage
+      ref="listRef"
+      title="帮助文档"
+      testid="help-doc"
+      table-testid="help-doc-table"
+      meta-testid="help-doc-meta"
+      btn-prefix="help-doc-btn"
+      meta-unit="篇"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="query"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="DOC_PAGE_SIZE"
+      @loaded="onLoaded"
+      @reset="handleReset"
+    >
+      <!-- 「含草稿 / 已下架」开关：不在筛选口径里（默认开），放在按钮行之前 -->
+      <template #filters-extra>
+        <t-checkbox v-model="includeUnpublished" @change="handleSearch">含草稿 / 已下架</t-checkbox>
+      </template>
 
-      <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.helpDocCreate]" theme="primary" @click="openDocCreate">
-            <template #icon><t-icon name="add" /></template>
-            新建文档
-          </t-button>
-          <t-button variant="outline" :loading="loading" @click="loadDocs">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
-        </t-space>
-        <span class="toolbar__count">共 {{ pagination.total }} 篇</span>
-      </div>
+      <template #toolbar>
+        <t-button v-privilege="[PERM.helpDocCreate]" theme="primary" @click="openDocCreate">
+          <template #icon><t-icon name="add" /></template>
+          新建文档
+        </t-button>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        stripe
-        @page-change="handlePageChange"
-      >
         <template #title="{ row }">
           <t-link theme="primary" @click="openDocEdit(row)">{{ row.title }}</t-link>
           <div class="cell-slug">{{ row.slug }}</div>
@@ -111,9 +97,7 @@
             <p class="empty-state__desc">新建草稿后点「发布」才会出现在帮助中心</p>
           </div>
         </template>
-      </t-table>
-    </t-card>
-
+    </ListPage>
     <!-- 文档编辑（Markdown 编辑器 + 预览 + 发布） -->
     <t-dialog
       v-model:visible="editorVisible"
@@ -296,6 +280,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import {
@@ -480,7 +466,7 @@ async function confirmCategoryRemove(node: HelpCategoryNode): Promise<void> {
       query.category_id = '';
     }
     await loadCategories();
-    await loadDocs();
+    await reloadList();
   } catch (error) {
     showError(error);
   }
@@ -488,11 +474,13 @@ async function confirmCategoryRemove(node: HelpCategoryNode): Promise<void> {
 
 // ===== 文档列表 =====
 
-const rows = ref<HelpDocCard[]>([]);
-const loading = ref(false);
 const includeUnpublished = ref(true);
+/** 筛选状态（`filterState` 就地读写；树选中分类写的是同一个对象的 `category_id`） */
 const query = reactive<DocPageQuery>({ keyword: '', status: '', category_id: '' });
-const pagination = reactive({ current: 1, pageSize: 10, total: 0, showJumper: true });
+/** ListPage 实例（保存 / 发布 / 删除 / 切分类后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+/** 当前页码（`@loaded` 同步，编辑保存后回原页） */
+const currentPage = ref(1);
 
 const statusOptions = [
   { label: '草稿', value: 'DRAFT' },
@@ -523,40 +511,47 @@ function statusTheme(status: string): 'default' | 'success' | 'warning' {
   return 'default';
 }
 
-async function loadDocs(): Promise<void> {
-  loading.value = true;
-  try {
-    const data = await pageDocs({
-      ...query,
-      page: pagination.current,
-      page_size: pagination.pageSize,
-      include_unpublished: includeUnpublished.value || undefined,
-    });
-    rows.value = data.list;
-    pagination.total = data.total;
-  } catch (error) {
-    showError(error);
-  } finally {
-    loading.value = false;
-  }
+/** 每页条数（原分页器固定 10 条/页） */
+const DOC_PAGE_SIZE = 10;
+
+/** 筛选项声明（关键词走回车、状态下拉选完点「查询」——与改造前一致） */
+const filters: FilterDef[] = [
+  { key: 'keyword', type: 'keyword', placeholder: '标题 / 摘要 / 正文关键字', width: 280 },
+  { key: 'status', type: 'select', placeholder: '状态', width: 150, options: statusOptions },
+];
+
+/** 拉一页 */
+const fetcher: ListFetcher<HelpDocCard> = (params) => pageDocs(params as Parameters<typeof pageDocs>[0]);
+
+/** 入参拼装（沿用原 `pageDocs` 口径：空值整键缺席 + 含草稿开关） */
+const queryBuilder: ListQueryBuilder = (_state, page, pageSize) => ({
+  keyword: query.keyword?.trim() || undefined,
+  status: query.status || undefined,
+  category_id: query.category_id || undefined,
+  include_unpublished: includeUnpublished.value || undefined,
+  page,
+  page_size: pageSize,
+});
+
+/** 一页拉完：同步页码 */
+function onLoaded(payload: { page: number }): void {
+  currentPage.value = payload.page;
 }
 
+/** 重拉到指定页（不传 = 当前页） */
+async function reloadList(page: number = currentPage.value): Promise<void> {
+  await listRef.value?.load(page);
+}
+
+/** 查询（回第 1 页） */
 function handleSearch(): void {
-  pagination.current = 1;
-  void loadDocs();
+  listRef.value?.search();
 }
 
+/** 重置（组件清声明式筛选项；分类 = 左侧树当前选中，开关回默认「含草稿」） */
 function handleReset(): void {
-  query.keyword = '';
-  query.status = '';
   query.category_id = activeCategory.value;
-  handleSearch();
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  pagination.current = pageInfo.current;
-  pagination.pageSize = pageInfo.pageSize;
-  void loadDocs();
+  includeUnpublished.value = true;
 }
 
 // ===== 文档编辑 =====
@@ -685,7 +680,7 @@ async function saveDoc(publishAfter: boolean): Promise<void> {
     } else {
       void MessagePlugin.success('已保存（草稿）。已发布文档编辑后会退回草稿，需重新发布');
     }
-    await loadDocs();
+    await reloadList();
   } catch (error) {
     showError(error);
   } finally {
@@ -698,7 +693,7 @@ async function confirmPublish(row: HelpDocCard): Promise<void> {
   try {
     await publishDoc(row.id, { change_note: `从列表发布（v${row.version}）` });
     void MessagePlugin.success('已发布');
-    await loadDocs();
+    await reloadList();
   } catch (error) {
     showError(error);
   }
@@ -712,7 +707,7 @@ async function confirmDocRemove(row: HelpDocCard): Promise<void> {
   try {
     await deleteDoc(row.id);
     void MessagePlugin.success('已删除');
-    await loadDocs();
+    await reloadList();
   } catch (error) {
     showError(error);
   }
@@ -746,7 +741,7 @@ async function confirmRollback(version: number): Promise<void> {
     currentVersion.value = detail.version;
     void MessagePlugin.success(`已回滚：内容取自 v${version}，生成了新版本 v${detail.version}`);
     versions.value = await listDocVersions(editingId.value);
-    await loadDocs();
+    await reloadList();
   } catch (error) {
     showError(error);
   }
@@ -784,7 +779,7 @@ watch(activeCategory, (value) => {
 
 onMounted(() => {
   void loadCategories();
-  void loadDocs();
+  void reloadList();
 });
 </script>
 
@@ -830,30 +825,6 @@ onMounted(() => {
     font-size: 13px;
     font-weight: 600;
     color: var(--td-text-color-primary);
-  }
-}
-
-.table-card {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-.filter-row {
-  margin-bottom: 4px;
-}
-
-.toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 12px 0;
-
-  &__count {
-    font-size: 13px;
-    color: var(--td-text-color-placeholder);
   }
 }
 

@@ -1,296 +1,181 @@
 <template>
   <div class="price-page">
-    <!-- ==================== 页面头 ==================== -->
-    <t-card :bordered="false" class="filter-card">
-      <div class="page-head">
-        <div class="page-head__title">
-          <span>价格管理</span>
-          <t-tag size="small" variant="light" theme="primary">协议价 / 阶梯价 / 促销价</t-tag>
-        </div>
-        <span class="page-head__tip">
-          取价优先级：客户协议价 → 客户专属阶梯 → 通用阶梯 → 物料标准售价 → 未找到（手填）。
-          同一物料可维护多档，档位区间是<b>左闭右开</b>（10 到 100 指 [10, 100)）。
-        </span>
+    <!-- ==================== 页面头（取价链口径，两个 Tab 共用） ==================== -->
+    <div class="page-head">
+      <div class="page-head__title">
+        <span>价格管理</span>
+        <t-tag size="small" variant="light" theme="primary">协议价 / 阶梯价 / 促销价</t-tag>
       </div>
+      <span class="page-head__tip">
+        取价优先级：客户协议价 → 客户专属阶梯 → 通用阶梯 → 物料标准售价 → 未找到（手填）。
+        同一物料可维护多档，档位区间是<b>左闭右开</b>（10 到 100 指 [10, 100)）。
+      </span>
+    </div>
 
-      <t-tabs v-model="activeTab" class="price-tabs" data-testid="price-tabs">
-        <!-- ==================== ① 客户协议价 ==================== -->
-        <t-tab-panel value="agreed" label="客户协议价">
-          <div class="filter-row">
-            <t-select
-              v-model="agreedFilter.customer_id"
-              class="filter-row__customer"
-              :options="customerOptions"
-              placeholder="全部客户"
-              clearable
-              filterable
-              data-testid="price-filter-customer"
-            />
-            <t-select
-              v-model="agreedFilter.material_id"
-              class="filter-row__material"
-              :options="materialOptions"
-              placeholder="全部物料"
-              clearable
-              filterable
-              data-testid="price-filter-material"
-            />
-            <t-select
-              v-model="agreedFilter.status"
-              class="filter-row__status"
-              :options="statusOptions"
-              placeholder="全部状态"
-              clearable
-              data-testid="price-filter-status"
-            />
-            <t-input
-              v-model="agreedFilter.keyword"
-              class="filter-row__keyword"
-              placeholder="客户 / 物料 编码或名称"
-              clearable
-              data-testid="price-filter-keyword"
-              @enter="handleAgreedSearch"
+    <t-tabs v-model="activeTab" class="page-tabs" data-testid="price-tabs">
+      <t-tab-panel value="agreed" label="客户协议价" />
+      <t-tab-panel value="tier" label="阶梯价 / 促销价" />
+    </t-tabs>
+
+    <!-- ==================== ① 客户协议价（服务端分页，tab 内 v-if 只挂当前 tab） ==================== -->
+    <ListPage
+      v-if="activeTab === 'agreed'"
+      ref="agreedListRef"
+      title="客户协议价"
+      meta-unit="条"
+      testid="price-agreed"
+      table-testid="price-agreed-table"
+      btn-prefix="btn-price"
+      :columns="agreedColumns"
+      :filters="agreedFilters"
+      :filter-state="agreedFilter"
+      :fetcher="agreedFetcher"
+      :query-builder="agreedQueryBuilder"
+      :page-size="PRICE_PAGE_SIZE"
+      :actions="agreedActions"
+      @loaded="onAgreedLoaded"
+    >
+      <template #toolbar>
+        <t-tooltip
+          :content="
+            canAgreedCreate
+              ? '给某个客户单独定价（同一客户 + 物料 + 起订量 + 生效日 只能一条）'
+              : '当前账号没有 business:erp:cust-price:create 权限'
+          "
+          placement="top-right"
+        >
+          <span class="gate-wrap">
+            <t-button
+              theme="primary"
+              data-testid="btn-price-agreed-new"
+              :disabled="!canAgreedCreate"
+              @click="openAgreedCreate"
             >
-              <template #prefix-icon><t-icon name="search" /></template>
-            </t-input>
+              <template #icon><t-icon name="add" /></template>
+              新建协议价
+            </t-button>
+          </span>
+        </t-tooltip>
+      </template>
 
-            <t-button theme="primary" data-testid="btn-price-search" @click="handleAgreedSearch">查询</t-button>
-            <t-button variant="outline" data-testid="btn-price-reset" @click="handleAgreedReset">重置</t-button>
-            <span class="filter-row__spacer" />
-            <t-tooltip
-              :content="
-                canAgreedCreate
-                  ? '给某个客户单独定价（同一客户 + 物料 + 起订量 + 生效日 只能一条）'
-                  : '当前账号没有 business:erp:cust-price:create 权限'
-              "
-              placement="top-right"
+      <template #customer="{ row }">
+        <span>{{ customerText(row) }}</span>
+      </template>
+      <template #material="{ row }">
+        <span>{{ materialText(row) }}</span>
+      </template>
+      <template #price="{ row }">
+        <span class="mono price-cell" data-testid="price-agreed-price">{{ priceText(row.price) }}</span>
+      </template>
+      <template #min_qty="{ row }">
+        <span class="mono">{{ decimalText(row.min_qty) }}</span>
+      </template>
+      <template #validity="{ row }">
+        <span class="mono validity-cell">{{ validityText(row.effective_from, row.effective_to) }}</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
+      </template>
+
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="price-agreed-empty">
+          <t-icon class="panel-empty__icon" name="price" />
+          <p class="panel-empty__title">
+            {{ filtered ? '没有符合条件的协议价' : '还没有协议价' }}
+          </p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个客户 / 物料试试，或点「重置」'
+                : '点右上角「新建协议价」给客户单独定价'
+            }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
+
+    <!-- ==================== ② 阶梯价 / 促销价（服务端分页） ==================== -->
+    <ListPage
+      v-else
+      ref="tierListRef"
+      title="阶梯价 / 促销价"
+      meta-unit="条"
+      testid="price-tier"
+      table-testid="price-tier-table"
+      btn-prefix="btn-price-tier"
+      :columns="tierColumns"
+      :filters="tierFilters"
+      :filter-state="tierFilter"
+      :fetcher="tierFetcher"
+      :query-builder="tierQueryBuilder"
+      :page-size="PRICE_PAGE_SIZE"
+      :actions="tierActions"
+      @loaded="onTierLoaded"
+    >
+      <template #toolbar>
+        <t-tooltip
+          :content="
+            canTierCreate
+              ? '同一物料可维护多档：区间左闭右开、首尾相接即形成阶梯'
+              : '当前账号没有 business:erp:price-tier:create 权限'
+          "
+          placement="top-right"
+        >
+          <span class="gate-wrap">
+            <t-button
+              theme="primary"
+              data-testid="btn-price-tier-new"
+              :disabled="!canTierCreate"
+              @click="openTierCreate"
             >
-              <span class="gate-wrap">
-                <t-button
-                  theme="primary"
-                  data-testid="btn-price-agreed-new"
-                  :disabled="!canAgreedCreate"
-                  @click="openAgreedCreate"
-                >
-                  <template #icon><t-icon name="add" /></template>
-                  新建协议价
-                </t-button>
-              </span>
-            </t-tooltip>
-          </div>
+              <template #icon><t-icon name="add" /></template>
+              新建档位
+            </t-button>
+          </span>
+        </t-tooltip>
+      </template>
 
-          <t-alert v-if="agreedError" theme="error" :message="agreedError" class="page-alert" data-testid="price-agreed-error" />
+      <template #material="{ row }">
+        <span>{{ materialText(row) }}</span>
+      </template>
+      <template #scope="{ row }">
+        <t-tag v-if="!row.customer_id" size="small" variant="light" theme="default">通用</t-tag>
+        <span v-else>{{ customerText(row) }}</span>
+      </template>
+      <template #tier_type="{ row }">
+        <t-tag size="small" variant="light" :theme="tierTypeTheme(row.tier_type)">
+          {{ tierTypeLabel(row.tier_type) }}
+        </t-tag>
+      </template>
+      <template #range="{ row }">
+        <span class="mono" data-testid="price-tier-range">{{ tierRangeText(row) }}</span>
+      </template>
+      <template #price="{ row }">
+        <span class="mono price-cell">{{ priceText(row.price) }}</span>
+      </template>
+      <template #validity="{ row }">
+        <span class="mono validity-cell">{{ validityText(row.effective_from, row.effective_to) }}</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
+      </template>
 
-          <t-table
-            row-key="id"
-            size="small"
-            hover
-            :data="agreedRows"
-            :columns="agreedColumns"
-            :loading="agreedLoading"
-            :empty="agreedEmptyText"
-            data-testid="price-agreed-table"
-          >
-            <template #customer="{ row }">
-              <span>{{ customerText(row) }}</span>
-            </template>
-            <template #material="{ row }">
-              <span>{{ materialText(row) }}</span>
-            </template>
-            <template #price="{ row }">
-              <span class="mono price-cell" data-testid="price-agreed-price">{{ priceText(row.price) }}</span>
-            </template>
-            <template #min_qty="{ row }">
-              <span class="mono">{{ decimalText(row.min_qty) }}</span>
-            </template>
-            <template #validity="{ row }">
-              <span class="mono validity-cell">{{ validityText(row.effective_from, row.effective_to) }}</span>
-            </template>
-            <template #status="{ row }">
-              <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
-            </template>
-            <template #op="{ row }">
-              <div class="op-row">
-                <t-link
-                  v-privilege="[PERM.agreedUpdate]"
-                  theme="primary"
-                  data-testid="btn-price-agreed-edit"
-                  @click="openAgreedEdit(row as CustomerPriceRow)"
-                >
-                  编辑
-                </t-link>
-                <t-link
-                  v-privilege="[PERM.agreedDelete]"
-                  theme="danger"
-                  data-testid="btn-price-agreed-delete"
-                  @click="confirmAgreedDelete(row as CustomerPriceRow)"
-                >
-                  删除
-                </t-link>
-              </div>
-            </template>
-          </t-table>
-
-          <div class="pager-row">
-            <span class="pager-row__total">共 {{ agreedTotal }} 条</span>
-            <t-pagination
-              :current="agreedPage"
-              :page-size="PRICE_PAGE_SIZE"
-              :total="agreedTotal"
-              :show-page-size="false"
-              show-jumper
-              data-testid="price-agreed-pager"
-              @current-change="handleAgreedPageChange"
-            />
-          </div>
-        </t-tab-panel>
-
-        <!-- ==================== ② 阶梯价 / 促销价 ==================== -->
-        <t-tab-panel value="tier" label="阶梯价 / 促销价">
-          <div class="filter-row">
-            <t-select
-              v-model="tierFilter.material_id"
-              class="filter-row__material"
-              :options="materialOptions"
-              placeholder="全部物料"
-              clearable
-              filterable
-              data-testid="price-tier-filter-material"
-            />
-            <t-select
-              v-model="tierFilter.customer_id"
-              class="filter-row__customer"
-              :options="customerOptions"
-              placeholder="适用客户（通用档位不选）"
-              clearable
-              filterable
-              data-testid="price-tier-filter-customer"
-            />
-            <t-select
-              v-model="tierFilter.tier_type"
-              class="filter-row__status"
-              :options="tierTypeOptions"
-              placeholder="全部类型"
-              clearable
-              data-testid="price-tier-filter-type"
-            />
-            <t-select
-              v-model="tierFilter.status"
-              class="filter-row__status"
-              :options="statusOptions"
-              placeholder="全部状态"
-              clearable
-              data-testid="price-tier-filter-status"
-            />
-            <t-input
-              v-model="tierFilter.keyword"
-              class="filter-row__keyword"
-              placeholder="物料 / 客户 编码或名称"
-              clearable
-              data-testid="price-tier-filter-keyword"
-              @enter="handleTierSearch"
-            >
-              <template #prefix-icon><t-icon name="search" /></template>
-            </t-input>
-
-            <t-button theme="primary" data-testid="btn-price-tier-search" @click="handleTierSearch">查询</t-button>
-            <t-button variant="outline" data-testid="btn-price-tier-reset" @click="handleTierReset">重置</t-button>
-            <span class="filter-row__spacer" />
-            <t-tooltip
-              :content="
-                canTierCreate
-                  ? '同一物料可维护多档：区间左闭右开、首尾相接即形成阶梯'
-                  : '当前账号没有 business:erp:price-tier:create 权限'
-              "
-              placement="top-right"
-            >
-              <span class="gate-wrap">
-                <t-button
-                  theme="primary"
-                  data-testid="btn-price-tier-new"
-                  :disabled="!canTierCreate"
-                  @click="openTierCreate"
-                >
-                  <template #icon><t-icon name="add" /></template>
-                  新建档位
-                </t-button>
-              </span>
-            </t-tooltip>
-          </div>
-
-          <t-alert v-if="tierError" theme="error" :message="tierError" class="page-alert" data-testid="price-tier-error" />
-
-          <t-table
-            row-key="id"
-            size="small"
-            hover
-            :data="tierRows"
-            :columns="tierColumns"
-            :loading="tierLoading"
-            :empty="tierEmptyText"
-            data-testid="price-tier-table"
-          >
-            <template #material="{ row }">
-              <span>{{ materialText(row) }}</span>
-            </template>
-            <template #scope="{ row }">
-              <t-tag v-if="!row.customer_id" size="small" variant="light" theme="default">通用</t-tag>
-              <span v-else>{{ customerText(row) }}</span>
-            </template>
-            <template #tier_type="{ row }">
-              <t-tag size="small" variant="light" :theme="tierTypeTheme(row.tier_type)">
-                {{ tierTypeLabel(row.tier_type) }}
-              </t-tag>
-            </template>
-            <template #range="{ row }">
-              <span class="mono" data-testid="price-tier-range">{{ tierRangeText(row) }}</span>
-            </template>
-            <template #price="{ row }">
-              <span class="mono price-cell">{{ priceText(row.price) }}</span>
-            </template>
-            <template #validity="{ row }">
-              <span class="mono validity-cell">{{ validityText(row.effective_from, row.effective_to) }}</span>
-            </template>
-            <template #status="{ row }">
-              <t-tag size="small" variant="light" :theme="statusTheme(row.status)">{{ statusLabel(row.status) }}</t-tag>
-            </template>
-            <template #op="{ row }">
-              <div class="op-row">
-                <t-link
-                  v-privilege="[PERM.tierUpdate]"
-                  theme="primary"
-                  data-testid="btn-price-tier-edit"
-                  @click="openTierEdit(row as PriceTierRow)"
-                >
-                  编辑
-                </t-link>
-                <t-link
-                  v-privilege="[PERM.tierDelete]"
-                  theme="danger"
-                  data-testid="btn-price-tier-delete"
-                  @click="confirmTierDelete(row as PriceTierRow)"
-                >
-                  删除
-                </t-link>
-              </div>
-            </template>
-          </t-table>
-
-          <div class="pager-row">
-            <span class="pager-row__total">共 {{ tierTotal }} 条</span>
-            <t-pagination
-              :current="tierPage"
-              :page-size="PRICE_PAGE_SIZE"
-              :total="tierTotal"
-              :show-page-size="false"
-              show-jumper
-              data-testid="price-tier-pager"
-              @current-change="handleTierPageChange"
-            />
-          </div>
-        </t-tab-panel>
-      </t-tabs>
-    </t-card>
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="price-tier-empty">
+          <t-icon class="panel-empty__icon" name="price" />
+          <p class="panel-empty__title">
+            {{ filtered ? '没有符合条件的档位' : '还没有阶梯价' }}
+          </p>
+          <p class="panel-empty__desc">
+            {{
+              filtered
+                ? '换个物料试试，或点「重置」'
+                : '同一物料可以按数量维护多档，区间首尾相接'
+            }}
+          </p>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== ③ 协议价新建 / 编辑 ==================== -->
     <t-dialog
@@ -494,9 +379,14 @@
  * * 唯一键：协议价 `(客户, 物料, 起订量, 生效日)`；档位 `(物料, 客户含通用, 类型, 起订量, 生效日)`；
  * * 停用（`INACTIVE`）不删行：取价链只看 `ACTIVE`，历史价永远可追溯。
  *
+ * # 两个 Tab 各一张 ListPage（P3-12 收口）
+ *
+ * 两个 Tab 都是**服务端分页**，所以各挂一个 ListPage、tab 内容用 `v-if` 只挂当前 tab
+ * （与 `storage/backend` 同款）：切过去才拉，两个 tab 的筛选 / 页码 / 空态互不干扰。
+ *
  * # 权限
  *
- * 三个权限码各自对应一个按钮；`v-privilege` 只隐藏**按钮**，接口侧后端还会再判一次
+ * 三个权限码各自对应一个按钮；`actions.row[].permission` 只隐藏**按钮**，接口侧后端还会再判一次
  * （前端隐藏不是安全边界）。
  *
  * # 数据
@@ -508,6 +398,8 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next';
 import { useUserStore } from '@/stores/user';
 import { ApiError } from '@/api/request';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListActions, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   createCustomerPrice,
   createPriceTier,
@@ -540,8 +432,6 @@ import {
   emptyAgreedForm,
   emptyTierFilter,
   emptyTierForm,
-  isAgreedFiltered,
-  isTierFiltered,
   materialText,
   priceText,
   statusLabel,
@@ -623,118 +513,178 @@ async function loadOptions(): Promise<void> {
   }
 }
 
-// ==================== ① 协议价列表 ====================
+// ==================== ① 协议价列表（交给 ListPage） ====================
 
 const agreedFilter = reactive<CustomerPriceFilter>(emptyAgreedFilter());
-const agreedRows = ref<CustomerPriceRow[]>([]);
-const agreedTotal = ref(0);
-const agreedPage = ref(1);
-const agreedLoading = ref(false);
-const agreedError = ref('');
+/** 当前页（保存 / 删除后回页用；每拉完一页由 `onAgreedLoaded` 同步） */
+const agreedCurrent = ref(1);
+/** ListPage 实例（新建 / 编辑 / 删除后重拉） */
+const agreedListRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const agreedEmptyText = computed(() => {
-  if (agreedLoading.value) {
-    return '加载中…';
-  }
-  if (isAgreedFiltered(agreedFilter)) {
-    return '没有符合条件的协议价（换个客户 / 物料试试，或点「重置」）';
-  }
-  return '还没有协议价 —— 点右上角「新建协议价」给客户单独定价';
+/** 协议价筛选项（客户 / 物料下拉是异步拉的，所以用 computed） */
+const agreedFilters = computed<FilterDef[]>(() => [
+  {
+    key: 'customer_id',
+    type: 'select',
+    placeholder: '全部客户',
+    width: 220,
+    options: customerOptions.value,
+    filterable: true,
+    testid: 'price-filter-customer',
+  },
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '全部物料',
+    width: 260,
+    options: materialOptions.value,
+    filterable: true,
+    testid: 'price-filter-material',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'price-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '客户 / 物料 编码或名称',
+    width: 220,
+    testid: 'price-filter-keyword',
+  },
+]);
+
+const agreedFetcher: ListFetcher<CustomerPriceRow> = (query) =>
+  fetchCustomerPricePage(query as Parameters<typeof fetchCustomerPricePage>[0]);
+
+const agreedQueryBuilder: ListQueryBuilder = (state, page, size) => ({
+  ...(state as CustomerPriceFilter),
+  page,
+  page_size: size,
 });
 
-async function loadAgreed(page: number = agreedPage.value): Promise<void> {
-  agreedLoading.value = true;
-  agreedError.value = '';
-  try {
-    const data = await fetchCustomerPricePage({ ...agreedFilter, page, page_size: PRICE_PAGE_SIZE });
-    agreedRows.value = data.list ?? [];
-    agreedTotal.value = data.total ?? 0;
-    agreedPage.value = data.page ?? page;
-    const lastPage = Math.max(1, Math.ceil(agreedTotal.value / PRICE_PAGE_SIZE));
-    if (agreedPage.value > lastPage) {
-      agreedPage.value = lastPage;
-      await loadAgreed(lastPage);
-    }
-  } catch (error) {
-    agreedRows.value = [];
-    agreedTotal.value = 0;
-    agreedError.value = `协议价加载失败：${messageOf(error)}`;
-  } finally {
-    agreedLoading.value = false;
-  }
+/** 行操作：只有「编辑 / 删除」，权限码一挂就行 */
+const agreedActions: ListActions = {
+  row: [
+    {
+      key: 'edit',
+      label: '编辑',
+      permission: PERM.agreedUpdate,
+      testid: 'btn-price-agreed-edit',
+      handler: (row: CustomerPriceRow) => openAgreedEdit(row),
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      theme: 'danger',
+      permission: PERM.agreedDelete,
+      testid: 'btn-price-agreed-delete',
+      handler: (row: CustomerPriceRow) => confirmAgreedDelete(row),
+    },
+  ],
+};
+
+/** 一页拉完：同步页码 */
+function onAgreedLoaded(payload: { page: number }): void {
+  agreedCurrent.value = payload.page;
 }
 
-function handleAgreedSearch(): void {
-  agreedPage.value = 1;
-  void loadAgreed(1);
+/** 重拉协议价列表（不传 = 当前页） */
+async function reloadAgreed(page: number = agreedCurrent.value): Promise<void> {
+  await agreedListRef.value?.load(page);
 }
 
-function handleAgreedReset(): void {
-  Object.assign(agreedFilter, emptyAgreedFilter());
-  agreedPage.value = 1;
-  void loadAgreed(1);
-}
-
-function handleAgreedPageChange(current: number): void {
-  agreedPage.value = current;
-  void loadAgreed(current);
-}
-
-// ==================== ② 档位列表 ====================
+// ==================== ② 档位列表（交给 ListPage） ====================
 
 const tierFilter = reactive<PriceTierFilter>(emptyTierFilter());
-const tierRows = ref<PriceTierRow[]>([]);
-const tierTotal = ref(0);
-const tierPage = ref(1);
-const tierLoading = ref(false);
-const tierError = ref('');
+const tierCurrent = ref(1);
+const tierListRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const tierEmptyText = computed(() => {
-  if (tierLoading.value) {
-    return '加载中…';
-  }
-  if (isTierFiltered(tierFilter)) {
-    return '没有符合条件的档位（换个物料试试，或点「重置」）';
-  }
-  return '还没有阶梯价 —— 同一物料可以按数量维护多档，区间首尾相接';
+const tierFilters = computed<FilterDef[]>(() => [
+  {
+    key: 'material_id',
+    type: 'select',
+    placeholder: '全部物料',
+    width: 260,
+    options: materialOptions.value,
+    filterable: true,
+    testid: 'price-tier-filter-material',
+  },
+  {
+    key: 'customer_id',
+    type: 'select',
+    placeholder: '适用客户（通用档位不选）',
+    width: 220,
+    options: customerOptions.value,
+    filterable: true,
+    testid: 'price-tier-filter-customer',
+  },
+  {
+    key: 'tier_type',
+    type: 'select',
+    placeholder: '全部类型',
+    width: 150,
+    options: tierTypeOptions,
+    testid: 'price-tier-filter-type',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 150,
+    options: statusOptions,
+    testid: 'price-tier-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '物料 / 客户 编码或名称',
+    width: 220,
+    testid: 'price-tier-filter-keyword',
+  },
+]);
+
+const tierFetcher: ListFetcher<PriceTierRow> = (query) =>
+  fetchPriceTierPage(query as Parameters<typeof fetchPriceTierPage>[0]);
+
+const tierQueryBuilder: ListQueryBuilder = (state, page, size) => ({
+  ...(state as PriceTierFilter),
+  page,
+  page_size: size,
 });
 
-async function loadTier(page: number = tierPage.value): Promise<void> {
-  tierLoading.value = true;
-  tierError.value = '';
-  try {
-    const data = await fetchPriceTierPage({ ...tierFilter, page, page_size: PRICE_PAGE_SIZE });
-    tierRows.value = data.list ?? [];
-    tierTotal.value = data.total ?? 0;
-    tierPage.value = data.page ?? page;
-    const lastPage = Math.max(1, Math.ceil(tierTotal.value / PRICE_PAGE_SIZE));
-    if (tierPage.value > lastPage) {
-      tierPage.value = lastPage;
-      await loadTier(lastPage);
-    }
-  } catch (error) {
-    tierRows.value = [];
-    tierTotal.value = 0;
-    tierError.value = `阶梯价加载失败：${messageOf(error)}`;
-  } finally {
-    tierLoading.value = false;
-  }
+const tierActions: ListActions = {
+  row: [
+    {
+      key: 'edit',
+      label: '编辑',
+      permission: PERM.tierUpdate,
+      testid: 'btn-price-tier-edit',
+      handler: (row: PriceTierRow) => openTierEdit(row),
+    },
+    {
+      key: 'delete',
+      label: '删除',
+      theme: 'danger',
+      permission: PERM.tierDelete,
+      testid: 'btn-price-tier-delete',
+      handler: (row: PriceTierRow) => confirmTierDelete(row),
+    },
+  ],
+};
+
+/** 一页拉完：同步页码 */
+function onTierLoaded(payload: { page: number }): void {
+  tierCurrent.value = payload.page;
 }
 
-function handleTierSearch(): void {
-  tierPage.value = 1;
-  void loadTier(1);
-}
-
-function handleTierReset(): void {
-  Object.assign(tierFilter, emptyTierFilter());
-  tierPage.value = 1;
-  void loadTier(1);
-}
-
-function handleTierPageChange(current: number): void {
-  tierPage.value = current;
-  void loadTier(current);
+/** 重拉档位列表（不传 = 当前页） */
+async function reloadTier(page: number = tierCurrent.value): Promise<void> {
+  await tierListRef.value?.load(page);
 }
 
 // ==================== ③ 协议价新建 / 编辑 ====================
@@ -783,7 +733,7 @@ async function submitAgreedForm(): Promise<void> {
       MessagePlugin.success(`已创建 ${customerText(created)} × ${materialText(created)} 协议价 ${priceText(created.price)}`);
     }
     agreedFormVisible.value = false;
-    await loadAgreed(agreedEditingId.value ? agreedPage.value : 1);
+    await reloadAgreed(agreedEditingId.value ? agreedCurrent.value : 1);
   } catch (submitError) {
     // 后端原文（唯一键冲突 / 价格必须 > 0 / 物料不存在）直接摆进弹窗，别只说「保存失败」
     agreedFormError.value = messageOf(submitError);
@@ -803,7 +753,7 @@ async function confirmAgreedDelete(row: CustomerPriceRow): Promise<void> {
   try {
     await deleteCustomerPrice(row.id);
     MessagePlugin.success('已删除该协议价');
-    await loadAgreed(agreedPage.value);
+    await reloadAgreed();
   } catch (error) {
     MessagePlugin.error(`删除失败：${messageOf(error)}`);
   }
@@ -854,7 +804,7 @@ async function submitTierForm(): Promise<void> {
       MessagePlugin.success(`已创建档位 ${tierRangeText(created)} → ${priceText(created.price)}`);
     }
     tierFormVisible.value = false;
-    await loadTier(tierEditingId.value ? tierPage.value : 1);
+    await reloadTier(tierEditingId.value ? tierCurrent.value : 1);
   } catch (submitError) {
     tierFormError.value = messageOf(submitError);
   } finally {
@@ -873,7 +823,7 @@ async function confirmTierDelete(row: PriceTierRow): Promise<void> {
   try {
     await deletePriceTier(row.id);
     MessagePlugin.success('已删除该档位');
-    await loadTier(tierPage.value);
+    await reloadTier();
   } catch (error) {
     MessagePlugin.error(`删除失败：${messageOf(error)}`);
   }
@@ -908,27 +858,22 @@ function confirmDialog(title: string, tip: string): Promise<boolean> {
 }
 
 onMounted(() => {
+  // 两个列表由各自的 ListPage 在 setup 里拉首屏（tab 内 v-if，切过去才拉）；这里只补主数据下拉
   void loadOptions();
-  // 两个列表都先拉：Tab 切过去时不该再等一次网络（数据量小，服务端分页 20 条）
-  void loadAgreed(1);
-  void loadTier(1);
 });
 </script>
 
-<style scoped>
+<style scoped lang="less">
 .price-page {
-  padding: 0;
-}
-
-.filter-card {
-  padding: 4px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .page-head {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 0 4px;
 }
 
 .page-head__title {
@@ -945,43 +890,14 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-.price-tabs {
+.page-tabs {
   margin-top: 4px;
-}
-
-.filter-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0 12px;
-}
-
-.filter-row__customer {
-  width: 220px;
-}
-
-.filter-row__material {
-  width: 260px;
-}
-
-.filter-row__status {
-  width: 150px;
-}
-
-.filter-row__keyword {
-  width: 220px;
-}
-
-.filter-row__spacer {
-  flex: 1;
 }
 
 .gate-wrap {
   display: inline-flex;
 }
 
-.page-alert,
 .form-alert {
   margin-bottom: 12px;
 }
@@ -1000,26 +916,29 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
 }
 
-.op-row {
+.panel-empty {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
   align-items: center;
+  gap: 4px;
+  padding: 24px 0;
 }
 
-.pager-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0 4px;
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
 }
 
-.pager-row__total {
-  font-size: 12px;
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
   color: var(--td-text-color-secondary);
 }
 
-.pager-row :deep(.t-pagination) {
-  margin-left: auto;
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .price-form :deep(.t-input-number) {

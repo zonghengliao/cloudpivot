@@ -5,6 +5,11 @@
   的 SQL 固定是 `status = 'APPROVED' AND pay_status <> 'PAID'`，且只认 `page / page_size`
   两个参数。所以这一页**不摆筛选框**（摆了也不生效＝骗用户），只做列表 + 付款登记。
 
+  # 列表部分（P3-12）
+
+  分页 / 空态 / 加载失败交给 `components/ListPage`：本页只声明列与「怎么拉一页」，
+  筛选为空（后端固定过滤），付款登记弹窗与详情抽屉仍是页面自己的事。
+
   付款登记的三条硬约束（后端 409/400，前端先拦）：
   1. 金额 > 0 且 ≤ 未付金额（部分付款后还能再付，付清即 PAID）；
   2. 付款日期必填（缺省今天）；
@@ -15,95 +20,86 @@
 -->
 <template>
   <div class="pay-page">
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button variant="outline" data-testid="expense-pay-btn-refresh" @click="refresh">刷新</t-button>
-        <span class="tool-row__spacer" />
+    <ListPage
+      ref="listRef"
+      title="待付款报销单"
+      testid="expense-pay"
+      table-testid="expense-pay-table"
+      meta-testid="expense-pay-meta"
+      btn-prefix="expense-pay-btn"
+      meta-unit="张"
+      :columns="columns"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+    >
+      <!-- 本页没有服务端筛选项：这一行只剩「刷新」+ 口径说明 -->
+      <template #toolbar>
         <span class="tool-row__tip">
           仅显示「已审批且未付清」的报销单（按审批通过时间升序，先批的先付）
         </span>
-      </div>
-    </t-card>
+      </template>
 
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">待付款报销单</span>
-          <span class="panel-head__meta" data-testid="expense-pay-meta">共 {{ total }} 张</span>
-        </div>
+      <template #head-extra>
         <span class="panel-head__tip">付款登记会写付款凭证；已付过款的单据不可作废（需先红冲付款）</span>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="list-alert"
-        data-testid="expense-pay-load-error"
-      >
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadRows">重试</t-button>
-        </template>
-      </t-alert>
+      <!-- 本页没有筛选：空态不会出现「没有匹配」那种情况，直接说清为什么是空的 -->
+      <template #empty>
+        <div class="panel-empty" data-testid="expense-pay-empty">
+          <t-icon class="panel-empty__icon" name="check-circle" />
+          <p class="panel-empty__title">没有待付款的报销单</p>
+          <p class="panel-empty__desc">已审批的报销单都付清了；新审批通过的单据会自动出现在这里</p>
+        </div>
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="expense-pay-table"
-        @page-change="handlePageChange"
-      >
-        <template #report_no="{ row }">
-          <span class="mono" :data-testid="`expense-pay-no-${row.report_no}`">{{ row.report_no }}</span>
-        </template>
-        <template #title="{ row }">
-          <div class="name-cell">
-            <span class="name-cell__main">{{ row.title }}</span>
-            <span class="name-cell__sub">{{ row.reporter_name }} · {{ row.dept_name || '—' }}</span>
-          </div>
-        </template>
-        <template #approved_at="{ row }">
-          <span class="muted">{{ shortTime(row.approved_at) }}</span>
-        </template>
-        <template #total_with_tax="{ row }">
-          <span class="money">{{ formatMoney(row.total_with_tax) }}</span>
-        </template>
-        <template #paid_amount="{ row }">
-          <span class="money muted">{{ formatMoney(row.paid_amount) }}</span>
-        </template>
-        <template #unpaid_amount="{ row }">
-          <span class="money money--strong money--warn" :data-testid="`expense-pay-unpaid-${row.report_no}`">
-            {{ formatMoney(row.unpaid_amount) }}
-          </span>
-        </template>
-        <template #pay_status="{ row }">
-          <t-tag size="small" variant="light" :theme="payStatusTheme(row.pay_status)">
-            {{ payStatusText(row) }}
-          </t-tag>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-button variant="text" size="small" data-testid="expense-pay-op-detail" @click="openDetail(row)">
-              详情
-            </t-button>
-            <t-button
-              v-if="canPayReport(row)"
-              v-privilege="[PERM.pay]"
-              variant="text"
-              size="small"
-              theme="primary"
-              data-testid="expense-pay-op-pay"
-              @click="openPay(row)"
-            >
-              付款登记
-            </t-button>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #report_no="{ row }">
+        <span class="mono" :data-testid="`expense-pay-no-${row.report_no}`">{{ row.report_no }}</span>
+      </template>
+      <template #title="{ row }">
+        <div class="name-cell">
+          <span class="name-cell__main">{{ row.title }}</span>
+          <span class="name-cell__sub">{{ row.reporter_name }} · {{ row.dept_name || '—' }}</span>
+        </div>
+      </template>
+      <template #approved_at="{ row }">
+        <span class="muted">{{ shortTime(row.approved_at) }}</span>
+      </template>
+      <template #total_with_tax="{ row }">
+        <span class="money">{{ formatMoney(row.total_with_tax) }}</span>
+      </template>
+      <template #paid_amount="{ row }">
+        <span class="money muted">{{ formatMoney(row.paid_amount) }}</span>
+      </template>
+      <template #unpaid_amount="{ row }">
+        <span class="money money--strong money--warn" :data-testid="`expense-pay-unpaid-${row.report_no}`">
+          {{ formatMoney(row.unpaid_amount) }}
+        </span>
+      </template>
+      <template #pay_status="{ row }">
+        <t-tag size="small" variant="light" :theme="payStatusTheme(row.pay_status)">
+          {{ payStatusText(row) }}
+        </t-tag>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-button variant="text" size="small" data-testid="expense-pay-op-detail" @click="openDetail(row)">
+            详情
+          </t-button>
+          <t-button
+            v-if="canPayReport(row)"
+            v-privilege="[PERM.pay]"
+            variant="text"
+            size="small"
+            theme="primary"
+            data-testid="expense-pay-op-pay"
+            @click="openPay(row)"
+          >
+            付款登记
+          </t-button>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ==================== 付款登记 ==================== -->
     <t-dialog
@@ -161,7 +157,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import {
@@ -171,6 +167,8 @@ import {
   EXPENSE_PAY_METHOD_LABELS,
   type ExpenseReport,
 } from '@/api/business/erp/expense';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import { formatMoney } from '@/views/business/erp/shared/money';
 import {
   canPayReport,
@@ -192,20 +190,6 @@ const PERM = {
 
 const PAGE_SIZE = 20;
 
-const rows = ref<ExpenseReport[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
-
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
-
 // 列宽合计 ≈ 940px：1280 视口（侧栏展开时表格可视宽约 968px）不会让固定列压住状态列
 const columns: PrimaryTableCol[] = [
   { colKey: 'report_no', title: '单号', width: 150 },
@@ -218,29 +202,18 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'op', title: '操作', width: 120, fixed: 'right' },
 ];
 
-async function loadRows(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const page = await fetchExpensePayPage(current.value, PAGE_SIZE);
-    rows.value = page.list ?? [];
-    total.value = Number(page.total ?? 0);
-  } catch (error) {
-    loadError.value = errorText(error);
-    rows.value = [];
-    total.value = 0;
-  } finally {
-    loading.value = false;
-  }
-}
+/** 入参只有分页两个键（后端 `GET /expense/pay/page` 不认别的） */
+const queryBuilder: ListQueryBuilder = (_state, page, pageSize) => ({ page, page_size: pageSize });
 
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void loadRows();
-}
+/** 拉一页：`fetchExpensePayPage` 是位置参数，这里解包后按原样调用 */
+const fetcher: ListFetcher<ExpenseReport> = ({ page, page_size }) => fetchExpensePayPage(page, page_size);
 
-function refresh(): void {
-  void loadRows();
+/** ListPage 实例（付款成功后重拉当前页 —— 付清的行会被后端过滤掉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
+
+/** 重拉当前页 */
+async function reloadList(): Promise<void> {
+  await listRef.value?.load();
 }
 
 // ==================== 付款 ====================
@@ -285,7 +258,7 @@ async function handlePay(): Promise<void> {
     await payExpense(target.id, toPayPayload(payForm));
     MessagePlugin.success('付款登记成功（已生成付款凭证）');
     payVisible.value = false;
-    await loadRows();
+    await reloadList();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -322,10 +295,6 @@ function errorText(error: unknown): string {
   }
   return String(error);
 }
-
-onMounted(() => {
-  void loadRows();
-});
 </script>
 
 <style scoped>
@@ -335,36 +304,7 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tool-row__spacer {
-  flex: 1;
-}
-
 .tool-row__tip {
-  color: var(--td-text-color-secondary);
-  font-size: 12px;
-}
-
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.panel-head__title {
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.panel-head__meta {
-  margin-left: 8px;
   color: var(--td-text-color-secondary);
   font-size: 12px;
 }
@@ -374,8 +314,29 @@ onMounted(() => {
   font-size: 12px;
 }
 
-.list-alert {
-  margin-bottom: 12px;
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-success-color);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .name-cell {

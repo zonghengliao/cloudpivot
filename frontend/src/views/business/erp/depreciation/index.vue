@@ -10,46 +10,10 @@
 -->
 <template>
   <div class="dep-page">
-    <t-card :bordered="false" class="tool-card">
-      <div class="tool-row">
-        <t-button
-          v-privilege="[PERM.run]"
-          theme="primary"
-          data-testid="dep-btn-run"
-          :loading="running"
-          @click="confirmRun"
-        >
-          <template #icon><t-icon name="play-circle" /></template>
-          计提本月折旧
-        </t-button>
-        <t-button variant="outline" data-testid="dep-btn-refresh" @click="refresh">刷新</t-button>
-
-        <span class="tool-row__spacer" />
-
-        <span class="tool-row__label">会计期间</span>
-        <t-select
-          v-model="period"
-          class="tool-row__period"
-          :options="periodSelectOptions"
-          data-testid="dep-filter-period"
-          @change="handlePeriodChange"
-        />
-        <t-select
-          v-model="status"
-          class="tool-row__status"
-          :options="statusFilterOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="dep-filter-status"
-          @change="handleStatusChange"
-        />
-      </div>
-    </t-card>
-
     <!-- ============ 三行汇总（交互细节③） ============ -->
     <div class="summary" data-testid="dep-summary">
       <t-card :bordered="false" class="summary-card">
-        <div class="summary-card__label">本月应提（{{ periodLabel(period) }}）</div>
+        <div class="summary-card__label">本月应提（{{ periodLabel(filter.period_code) }}）</div>
         <div class="summary-card__value" data-testid="dep-summary-expected">
           {{ formatMoney(summary.expected_amount) }}
         </div>
@@ -84,68 +48,102 @@
       </template>
     </t-alert>
 
-    <t-card :bordered="false" class="list-card">
-      <div class="panel-head">
-        <div class="panel-head__main">
-          <span class="panel-head__title">折旧批次</span>
-          <span class="panel-head__meta" data-testid="dep-meta">共 {{ total }} 条</span>
-        </div>
+    <!-- ③④ 主表（批次列表）走 ListPage（P3-12 收口）：服务端分页 + 只读行。汇总卡片留在列表外：它读的是整期数据，不是当前页 -->
+    <ListPage
+      ref="listRef"
+      title="折旧批次"
+      testid="dep"
+      table-testid="dep-table"
+      meta-testid="dep-meta"
+      btn-prefix="dep-btn"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="PAGE_SIZE"
+      @refresh="refreshAux"
+    >
+      <template #toolbar>
+        <t-button
+          v-privilege="[PERM.run]"
+          theme="primary"
+          data-testid="dep-btn-run"
+          :loading="running"
+          @click="confirmRun"
+        >
+          <template #icon><t-icon name="play-circle" /></template>
+          计提本月折旧
+        </t-button>
+      </template>
+
+      <template #head-extra>
         <span class="panel-head__tip">
           计提与定时任务走同一个 run_batch（每月 1 日 01:30）；已过账批次可整批红冲，红冲后可重跑复用同一批次行
         </span>
-      </div>
+      </template>
 
-      <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="dep-load-error">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="refresh">重试</t-button>
-        </template>
-      </t-alert>
+      <!--
+        期间 / 状态下拉自绘：期间一变，汇总（应提 / 已提 / 差异）要跟着重算，
+        `searchOnChange` 只会重拉列表，所以两个控件走 `custom` 插槽自己接 `@change`。
+      -->
+      <template #filter-period_code>
+        <span class="dep-filter__label">会计期间</span>
+        <t-select
+          v-model="filter.period_code"
+          class="dep-filter"
+          :options="periodSelectOptions"
+          data-testid="dep-filter-period"
+          @change="handlePeriodChange"
+        />
+      </template>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="pagination"
-        hover
-        data-testid="dep-table"
-        @page-change="handlePageChange"
-      >
-        <template #batch_no="{ row }">
-          <span class="mono" :data-testid="`dep-no-${row.batch_no}`">{{ row.batch_no }}</span>
-        </template>
-        <template #status="{ row }">
-          <t-tag size="small" variant="light" :theme="depBatchTheme(row.status)">
-            {{ depBatchLabel(row.status) }}
-          </t-tag>
-        </template>
-        <template #total_amount="{ row }">
-          <span class="money">{{ formatMoney(row.total_amount) }}</span>
-        </template>
-        <template #voucher_id="{ row }">
-          <span class="mono muted">{{ row.voucher_id ? shortId(row.voucher_id) : '—' }}</span>
-        </template>
-        <template #run_at="{ row }">
-          <span class="muted">{{ formatDateTime(row.run_at) }}</span>
-        </template>
-        <template #op="{ row }">
-          <div class="op-cell">
-            <t-link theme="primary" :data-testid="`dep-btn-detail-${row.batch_no}`" @click="openDetail(row)">
-              明细
-            </t-link>
-            <t-link
-              v-if="canReverseBatch(row)"
-              v-privilege="[PERM.reverse]"
-              theme="danger"
-              :data-testid="`dep-btn-reverse-${row.batch_no}`"
-              @click="openReverse(row)"
-            >
-              红冲
-            </t-link>
-          </div>
-        </template>
-      </t-table>
-    </t-card>
+      <template #filter-status>
+        <t-select
+          v-model="filter.status"
+          class="dep-filter dep-filter--narrow"
+          :options="statusFilterOptions"
+          placeholder="全部状态"
+          clearable
+          data-testid="dep-filter-status"
+          @change="handleStatusChange"
+        />
+      </template>
+
+      <template #batch_no="{ row }">
+        <span class="mono" :data-testid="`dep-no-${row.batch_no}`">{{ row.batch_no }}</span>
+      </template>
+      <template #status="{ row }">
+        <t-tag size="small" variant="light" :theme="depBatchTheme(row.status)">
+          {{ depBatchLabel(row.status) }}
+        </t-tag>
+      </template>
+      <template #total_amount="{ row }">
+        <span class="money">{{ formatMoney(row.total_amount) }}</span>
+      </template>
+      <template #voucher_id="{ row }">
+        <span class="mono muted">{{ row.voucher_id ? shortId(row.voucher_id) : '—' }}</span>
+      </template>
+      <template #run_at="{ row }">
+        <span class="muted">{{ formatDateTime(row.run_at) }}</span>
+      </template>
+      <template #op="{ row }">
+        <div class="op-cell">
+          <t-link theme="primary" :data-testid="`dep-btn-detail-${row.batch_no}`" @click="openDetail(row)">
+            明细
+          </t-link>
+          <t-link
+            v-if="canReverseBatch(row)"
+            v-privilege="[PERM.reverse]"
+            theme="danger"
+            :data-testid="`dep-btn-reverse-${row.batch_no}`"
+            @click="openReverse(row)"
+          >
+            红冲
+          </t-link>
+        </div>
+      </template>
+    </ListPage>
 
     <!-- ============ 批次明细 ============ -->
     <t-drawer
@@ -266,7 +264,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 
 import { fetchAssetPage, type AssetRow } from '@/api/business/erp/asset';
@@ -277,7 +275,10 @@ import {
   runDepreciation,
   type DepBatch,
   type DepBatchDetail,
+  type DepBatchQuery,
 } from '@/api/business/erp/depreciation';
+import ListPage from '@/components/ListPage/index.vue';
+import type { ColumnDef, FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   errorText,
   formatDateTime,
@@ -312,8 +313,6 @@ const PAGE_SIZE = 20;
 const ASSET_PAGE_SIZE = 100;
 const ASSET_MAX_PAGES = 30;
 
-const period = ref(defaultPeriod());
-const status = ref('');
 const periodSelectOptions = periodOptions();
 
 const statusFilterOptions = [
@@ -324,29 +323,55 @@ const statusFilterOptions = [
   { label: '已计算', value: 'CALCULATED' },
 ];
 
-const rows = ref<DepBatch[]>([]);
+/**
+ * 筛选行（`filterState` 就地读写）。
+ *
+ * 期间默认 = 上一个会计月（`defaultPeriod()`，与后端 `run` 不传期间、定时任务同口径）。
+ */
+const filter = reactive<{ period_code: string; status: string }>({
+  period_code: defaultPeriod(),
+  status: '',
+});
+
+/** 旁路数据：该期间**全部**批次的列表（汇总「已提」用，不是当前页的行） */
 const periodBatches = ref<DepBatch[]>([]);
+/** 旁路数据：台账卡片（汇总「应提」逐台测算用） */
 const assets = ref<AssetRow[]>([]);
-const total = ref(0);
-const current = ref(1);
-const loading = ref(false);
-const loadError = ref('');
 const running = ref(false);
 
 const summary = computed<DepreciationSummary>(() =>
-  summarizeDepreciation({ assets: assets.value, batches: periodBatches.value, period_code: period.value }),
+  summarizeDepreciation({ assets: assets.value, batches: periodBatches.value, period_code: filter.period_code }),
 );
 const diff = computed(() => diffDisplay(summary.value));
 
-const pagination = computed(() => ({
-  current: current.value,
-  pageSize: PAGE_SIZE,
-  total: total.value,
-  showJumper: true,
-  showPageSize: false,
-}));
+/** ListPage 实例（计提 / 红冲后重拉主表） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const columns: PrimaryTableCol[] = [
+/**
+ * 筛选项声明。
+ *
+ * 两个控件都是 `custom`：期间一变除了列表还要重算汇总，`searchOnChange` 只管列表。
+ */
+const filters: FilterDef[] = [
+  { key: 'period_code', type: 'custom', testid: 'dep-filter-period', width: 150 },
+  { key: 'status', type: 'custom', testid: 'dep-filter-status', width: 130 },
+];
+
+/** 拉一页（行保持原始 `DepBatch`） */
+const fetcher: ListFetcher<DepBatch> = (query) => fetchDepBatchPage(query as DepBatchQuery);
+
+/** 入参拼装（与改造前 `loadBatches` 一致） */
+const queryBuilder: ListQueryBuilder = (state, page, pageSize) => {
+  const value = state as { period_code: string; status: string };
+  return {
+    page,
+    page_size: pageSize,
+    period_code: value.period_code,
+    status: value.status as DepBatchQuery['status'],
+  };
+};
+
+const columns: ColumnDef[] = [
   { colKey: 'batch_no', title: '批次号', width: 190 },
   { colKey: 'period_code', title: '期间', width: 100 },
   { colKey: 'status', title: '状态', width: 100 },
@@ -373,22 +398,22 @@ function shortId(id: string): string {
   return id.slice(0, 8);
 }
 
-async function loadBatches(): Promise<void> {
-  const page = await fetchDepBatchPage({
-    page: current.value,
-    page_size: PAGE_SIZE,
-    period_code: period.value,
-    status: status.value as '' | 'CALCULATED' | 'POSTED' | 'REVERSED' | 'SKIPPED',
-  });
-  rows.value = page.list ?? [];
-  total.value = Number(page.total ?? 0);
+/** 重拉当前页（计提 / 红冲后） */
+async function reloadList(): Promise<void> {
+  await listRef.value?.reload();
 }
 
+/**
+ * 该期间的**全部**批次（不受状态筛选影响，供汇总「已提」用）。
+ *
+ * 与主表分开拉：主表是服务端分页的当前页，汇总要的是整期。
+ */
 async function loadPeriodBatches(): Promise<void> {
-  const page = await fetchDepBatchPage({ page: 1, page_size: 100, period_code: period.value });
+  const page = await fetchDepBatchPage({ page: 1, page_size: 100, period_code: filter.period_code });
   periodBatches.value = page.list ?? [];
 }
 
+/** 台账卡片（汇总「应提」按卡片参数逐台测算） */
 async function loadAssets(): Promise<void> {
   const out: AssetRow[] = [];
   for (let index = 1; index <= ASSET_MAX_PAGES; index += 1) {
@@ -402,54 +427,48 @@ async function loadAssets(): Promise<void> {
   assets.value = out;
 }
 
-async function refresh(): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
+/**
+ * 只刷汇总旁路数据（列表由 ListPage 自己刷，「刷新」按钮同时抛 `@refresh`）。
+ * 旁路失败要提示：三个数字会停在旧值，不能静默。
+ */
+async function refreshAux(): Promise<void> {
   try {
-    await Promise.all([loadBatches(), loadPeriodBatches(), loadAssets()]);
+    await Promise.all([loadPeriodBatches(), loadAssets()]);
   } catch (error) {
-    loadError.value = errorText(error);
-  } finally {
-    loading.value = false;
+    MessagePlugin.error(`汇总数据加载失败：${errorText(error)}`);
   }
 }
 
+/** 列表 + 汇总一起刷（计提 / 红冲后：两处都会变） */
+async function refreshAll(): Promise<void> {
+  await Promise.all([reloadList(), refreshAux()]);
+}
+
+/** 期间一变：列表回第 1 页 + 汇总重算 */
 function handlePeriodChange(): void {
-  current.value = 1;
-  void refresh();
+  void listRef.value?.search();
+  void refreshAux();
 }
 
+/** 状态一变：只重拉列表（汇总口径与本筛选无关） */
 function handleStatusChange(): void {
-  current.value = 1;
-  loading.value = true;
-  loadBatches()
-    .catch((error) => {
-      loadError.value = errorText(error);
-    })
-    .finally(() => {
-      loading.value = false;
-    });
-}
-
-function handlePageChange(pageInfo: { current: number; pageSize: number }): void {
-  current.value = pageInfo.current;
-  void refresh();
+  void listRef.value?.search();
 }
 
 // ==================== 计提 ====================
 
 function confirmRun(): void {
   const dialog = DialogPlugin.confirm({
-    header: `计提 ${periodLabel(period.value)} 折旧`,
+    header: `计提 ${periodLabel(filter.period_code)} 折旧`,
     body: `将按卡片参数计提该期间折旧（与定时任务同一算法）。已计提过会幂等返回「已计提」，不会重复入账。`,
     confirmBtn: '开始计提',
     onConfirm: async () => {
       dialog.hide();
       running.value = true;
       try {
-        const result = await runDepreciation({ period_code: period.value });
+        const result = await runDepreciation({ period_code: filter.period_code });
         MessagePlugin.success(runResultText(result.outcome, result.message, result.total_amount));
-        await refresh();
+        await refreshAll();
       } catch (error) {
         MessagePlugin.error(errorText(error));
       } finally {
@@ -523,7 +542,7 @@ async function submitReverse(): Promise<void> {
     detail.value = await reverseDepreciation(target.id, reverseReason.value.trim());
     reverseVisible.value = false;
     MessagePlugin.success('已红冲：红字凭证已生成，卡片累计折旧已回滚');
-    await refresh();
+    await refreshAll();
   } catch (error) {
     MessagePlugin.error(errorText(error));
   } finally {
@@ -532,7 +551,8 @@ async function submitReverse(): Promise<void> {
 }
 
 onMounted(() => {
-  void refresh();
+  // 主表由 ListPage 自己拉首屏；这里只补汇总旁路数据（该期间全部批次 + 台账卡片）
+  void refreshAux();
 });
 </script>
 
@@ -543,27 +563,17 @@ onMounted(() => {
   gap: 12px;
 }
 
-.tool-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
+/* 期间 / 状态下拉（custom 筛选插槽自绘） */
+.dep-filter {
+  width: 150px;
 
-  &__spacer {
-    flex: 1;
+  &--narrow {
+    width: 130px;
   }
 
   &__label {
     color: var(--td-text-color-secondary);
     font-size: 13px;
-  }
-
-  &__period {
-    width: 150px;
-  }
-
-  &__status {
-    width: 130px;
   }
 }
 
@@ -611,37 +621,15 @@ onMounted(() => {
   margin-top: -4px;
 }
 
-.list-alert,
+/* 抽屉里的预警条（主表现已走 ListPage，列表错误条不在这里） */
 .detail-alert {
   margin-bottom: 12px;
 }
 
-.panel-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
-
-  &__main {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-  }
-
-  &__title {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  &__meta {
-    color: var(--td-text-color-placeholder);
-    font-size: 12px;
-  }
-
-  &__tip {
-    color: var(--td-text-color-secondary);
-    font-size: 12px;
-  }
+/* 页头附注（#head-extra）：计提 / 红冲口径 */
+.panel-head__tip {
+  color: var(--td-text-color-secondary);
+  font-size: 12px;
 }
 
 .op-cell {

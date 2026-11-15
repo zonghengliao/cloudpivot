@@ -1,60 +1,36 @@
 <template>
   <div class="commission-page">
-    <!-- ==================== ① 筛选 + 列表 ==================== -->
-    <t-card :bordered="false" class="panel-card">
-      <div class="page-head">
-        <div class="page-head__title">
-          <span>佣金结算</span>
-          <t-tag size="small" variant="light" theme="primary">按已收款计佣 · 期间 × 销售员</t-tag>
-        </div>
-        <span class="page-head__tip">
+    <!-- 筛选 / 分页 / 行操作交给 ListPage（P3-12 收口） -->
+    <ListPage
+      ref="listRef"
+      title="佣金结算"
+      meta-unit="张"
+      testid="cmset"
+      table-testid="cmset-table"
+      meta-testid="cmset-meta"
+      btn-prefix="btn-cmset"
+      :columns="columns"
+      :filters="filters"
+      :filter-state="filter"
+      :fetcher="fetcher"
+      :query-builder="queryBuilder"
+      :page-size="SETTLEMENT_PAGE_SIZE"
+      @loaded="onLoaded"
+    >
+      <!-- 页头后缀：「按已收款计佣」是这一页最容易被误读的口径 -->
+      <template #head-extra>
+        <t-tag size="small" variant="light" theme="primary">按已收款计佣 · 期间 × 销售员</t-tag>
+      </template>
+
+      <!-- 口径说明（页面级信息条，整宽，不属于按钮行） -->
+      <template #filter-footer>
+        <p class="page-tip">
           佣金基数 = 应收单<b>已核销（真正收到钱）</b>的金额，不是开单金额；退货 / 退款会落<b>负数基数</b>（冲回）。
           状态单向走：草稿 → 审批通过（出计提凭证）→ 确认发放（出付款凭证），<b>不能回退</b>。
-        </span>
-      </div>
+        </p>
+      </template>
 
-      <div class="filter-row">
-        <t-select
-          v-model="filter.period_code"
-          class="filter-row__period"
-          :options="periods"
-          placeholder="全部期间"
-          clearable
-          data-testid="cmset-filter-period"
-        />
-        <t-select
-          v-model="filter.salesperson_id"
-          class="filter-row__select"
-          :options="userOptions"
-          placeholder="全部销售员"
-          clearable
-          filterable
-          data-testid="cmset-filter-salesperson"
-        />
-        <t-select
-          v-model="filter.status"
-          class="filter-row__select"
-          :options="statusOptions"
-          placeholder="全部状态"
-          clearable
-          data-testid="cmset-filter-status"
-        />
-        <t-input
-          v-model="filter.keyword"
-          class="filter-row__keyword"
-          placeholder="结算单号 / 销售员"
-          clearable
-          data-testid="cmset-filter-keyword"
-          @enter="handleSearch"
-        >
-          <template #prefix-icon><t-icon name="search" /></template>
-        </t-input>
-
-        <t-button theme="primary" data-testid="btn-cmset-search" @click="handleSearch">查询</t-button>
-        <t-button variant="outline" data-testid="btn-cmset-reset" @click="handleReset">重置</t-button>
-
-        <span class="filter-row__spacer" />
-
+      <template #toolbar>
         <t-tooltip
           :content="
             canCreate
@@ -75,216 +51,188 @@
             </t-button>
           </span>
         </t-tooltip>
-      </div>
+      </template>
 
-      <t-alert
-        v-if="loadError"
-        theme="error"
-        :message="loadError"
-        class="page-alert"
-        data-testid="cmset-list-error"
-      />
-
-      <div v-if="rows.length" class="totals-strip" data-testid="cmset-totals">
-        <span>本页 {{ totals.count }} 张</span>
-        <span class="totals-strip__sep">·</span>
-        <span>
-          基数合计
-          <b class="mono">{{ moneyText(totals.sales) }}</b>
-        </span>
-        <span class="totals-strip__sep">·</span>
-        <span>
-          应发合计
-          <b class="mono" :class="{ 'money--bad': totals.commission < 0 }">
-            {{ moneyText(totals.commission) }}
-          </b>
-        </span>
-        <span class="totals-strip__hint">（只汇总当前页，不是全量）</span>
-      </div>
-
-      <t-table
-        row-key="id"
-        size="small"
-        hover
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :empty="emptyText"
-        :expand-icon="true"
-        :expanded-row-keys="expandedKeys"
-        data-testid="cmset-table"
-        @expand-change="handleExpandChange"
-      >
-        <template #settlement_no="{ row }">
-          <span class="mono">{{ row.settlement_no }}</span>
-        </template>
-        <template #salesperson_name="{ row }">
-          <span>{{ row.salesperson_name || '（账号已删除）' }}</span>
-        </template>
-        <template #period_code="{ row }">
-          <div class="period-cell">
-            <span>{{ periodLabel(row.period_code) }}</span>
-            <span class="period-cell__code mono">{{ row.period_code }}</span>
-          </div>
-        </template>
-        <template #total_sales="{ row }">
-          <span class="mono">{{ moneyText(row.total_sales) }}</span>
-        </template>
-        <template #total_commission="{ row }">
-          <span
-            class="mono"
-            :class="{ 'money--bad': isClawback(row.total_commission) }"
-            data-testid="cmset-commission"
-          >
-            {{ moneyText(row.total_commission) }}
+      <!-- 页脚合计条：只汇总当前页（拿不到全量，绝不假装有） -->
+      <template #footer>
+        <div v-if="totals.count" class="totals-strip" data-testid="cmset-totals">
+          <span>本页 {{ totals.count }} 张</span>
+          <span class="totals-strip__sep">·</span>
+          <span>
+            基数合计
+            <b class="mono">{{ moneyText(totals.sales) }}</b>
           </span>
+          <span class="totals-strip__sep">·</span>
+          <span>
+            应发合计
+            <b class="mono" :class="{ 'money--bad': totals.commission < 0 }">
+              {{ moneyText(totals.commission) }}
+            </b>
+          </span>
+          <span class="totals-strip__hint">（只汇总当前页，不是全量）</span>
+        </div>
+      </template>
+
+      <template #settlement_no="{ row }">
+        <span class="mono">{{ row.settlement_no }}</span>
+      </template>
+      <template #salesperson_name="{ row }">
+        <span>{{ row.salesperson_name || '（账号已删除）' }}</span>
+      </template>
+      <template #period_code="{ row }">
+        <div class="period-cell">
+          <span>{{ periodLabel(row.period_code) }}</span>
+          <span class="period-cell__code mono">{{ row.period_code }}</span>
+        </div>
+      </template>
+      <template #total_sales="{ row }">
+        <span class="mono">{{ moneyText(row.total_sales) }}</span>
+      </template>
+      <template #total_commission="{ row }">
+        <span
+          class="mono"
+          :class="{ 'money--bad': isClawback(row.total_commission) }"
+          data-testid="cmset-commission"
+        >
+          {{ moneyText(row.total_commission) }}
+        </span>
+        <t-tag
+          v-if="isClawback(row.total_commission)"
+          size="small"
+          variant="light"
+          theme="danger"
+          class="clawback-tag"
+        >
+          冲回
+        </t-tag>
+      </template>
+      <template #item_count="{ row }">
+        <span class="mono">{{ row.item_count }}</span>
+      </template>
+      <template #status="{ row }">
+        <div class="status-cell">
           <t-tag
-            v-if="isClawback(row.total_commission)"
             size="small"
             variant="light"
-            theme="danger"
-            class="clawback-tag"
+            :theme="settlementStatusTheme(row.status)"
+            data-testid="cmset-status-tag"
           >
-            冲回
+            {{ settlementStatusLabel(row.status) }}
           </t-tag>
-        </template>
-        <template #item_count="{ row }">
-          <span class="mono">{{ row.item_count }}</span>
-        </template>
-        <template #status="{ row }">
-          <div class="status-cell">
-            <t-tag
-              size="small"
-              variant="light"
-              :theme="settlementStatusTheme(row.status)"
-              data-testid="cmset-status-tag"
-            >
-              {{ settlementStatusLabel(row.status) }}
-            </t-tag>
-            <t-tooltip
-              v-if="row.voucher_no"
-              :content="`计提凭证 ${row.voucher_no}`"
-              placement="top"
-            >
-              <t-tag size="small" variant="outline" theme="default">已计提</t-tag>
-            </t-tooltip>
-          </div>
-        </template>
-        <template #op="{ row }">
-          <div class="op-row">
-            <t-link
-              v-if="canStatus && canTransition(row.status, 'APPROVED')"
-              v-privilege="[PERM.status]"
-              theme="primary"
-              data-testid="btn-cmset-approve"
-              @click="openStatus(row as CommissionSettlementRow, 'APPROVED')"
-            >
-              审批通过
-            </t-link>
-            <t-link
-              v-if="canStatus && canTransition(row.status, 'PAID')"
-              v-privilege="[PERM.status]"
-              theme="success"
-              data-testid="btn-cmset-pay"
-              @click="openStatus(row as CommissionSettlementRow, 'PAID')"
-            >
-              确认发放
-            </t-link>
-            <t-link
-              theme="default"
-              data-testid="btn-cmset-items"
-              @click="toggleExpand(row as CommissionSettlementRow)"
-            >
-              {{ expandedKeys.includes(row.id) ? '收起明细' : '明细' }}
-            </t-link>
-          </div>
-        </template>
+          <t-tooltip v-if="row.voucher_no" :content="`计提凭证 ${row.voucher_no}`" placement="top">
+            <t-tag size="small" variant="outline" theme="default">已计提</t-tag>
+          </t-tooltip>
+        </div>
+      </template>
 
-        <!-- ==================== 明细展开（哪笔订单产生多少佣金） ==================== -->
-        <template #expandedRow="{ row }">
-          <div class="items-block" :data-testid="`cmset-items-${row.id}`">
-            <div class="items-block__head">
-              <span class="items-block__title">
-                佣金明细（{{ row.item_count }} 行）· 结算单 {{ row.settlement_no }}
-              </span>
-              <span class="items-block__meta">
-                凭证：{{ voucherText(row as CommissionSettlementRow) }} · 发放时间：{{
-                  paidAtText(row.paid_at)
-                }}
-              </span>
-            </div>
+      <!-- 行操作：显隐取决于「状态能否迁到目标态 + 权限」，声明式表达不了，页面自绘 -->
+      <template #op="{ row }">
+        <div class="op-row">
+          <t-link
+            v-if="canStatus && canTransition(row.status, 'APPROVED')"
+            v-privilege="[PERM.status]"
+            theme="primary"
+            data-testid="btn-cmset-approve"
+            @click="openStatus(row as CommissionSettlementRow, 'APPROVED')"
+          >
+            审批通过
+          </t-link>
+          <t-link
+            v-if="canStatus && canTransition(row.status, 'PAID')"
+            v-privilege="[PERM.status]"
+            theme="success"
+            data-testid="btn-cmset-pay"
+            @click="openStatus(row as CommissionSettlementRow, 'PAID')"
+          >
+            确认发放
+          </t-link>
+          <t-link theme="default" data-testid="btn-cmset-items" @click="openItems(row as CommissionSettlementRow)">
+            明细
+          </t-link>
+        </div>
+      </template>
 
-            <t-alert
-              v-if="detailErrors[row.id]"
-              theme="error"
-              :message="detailErrors[row.id]"
-              class="items-block__alert"
-              :data-testid="`cmset-items-error-${row.id}`"
-            />
+      <template #empty="{ filtered }">
+        <div class="panel-empty" data-testid="cmset-empty">
+          <t-icon class="panel-empty__icon" name="file" />
+          <p class="panel-empty__title">{{ settlementEmptyText(filter) }}</p>
+          <p v-if="filtered" class="panel-empty__desc">换个期间 / 状态再查，或点「重置」看全部</p>
+        </div>
+      </template>
+    </ListPage>
 
-            <t-table
-              v-else
-              row-key="id"
-              size="small"
-              :data="details[row.id]?.items ?? []"
-              :columns="itemColumns"
-              :loading="detailLoading[row.id] === true"
-              :empty="detailEmptyText(row as CommissionSettlementRow)"
-              :data-testid="`cmset-items-table-${row.id}`"
-            >
-              <template #so_no="{ row: item }">
-                <span class="mono">{{ item.so_no || '—' }}</span>
-              </template>
-              <template #ar_no="{ row: item }">
-                <span class="mono">{{ item.ar_no || '—' }}</span>
-              </template>
-              <template #rule_name="{ row: item }">
-                <span>{{ item.rule_name || '—（规则已删除）' }}</span>
-              </template>
-              <template #rate="{ row: item }">
-                <span class="mono">{{ itemRateText(item) }}</span>
-              </template>
-              <template #base_amount="{ row: item }">
-                <span class="mono" :class="{ 'money--bad': isClawback(item.base_amount) }">
-                  {{ moneyText(item.base_amount) }}
-                </span>
-              </template>
-              <template #commission="{ row: item }">
-                <span class="mono" :class="{ 'money--bad': isClawback(item.commission) }">
-                  {{ moneyText(item.commission) }}
-                </span>
-              </template>
-              <template #remark="{ row: item }">
-                <span>{{ item.remark || '—' }}</span>
-              </template>
-            </t-table>
+    <!-- ==================== ② 佣金明细（哪笔订单产生多少佣金） ==================== -->
+    <t-drawer
+      v-model:visible="itemsVisible"
+      :header="itemsTitle"
+      size="880px"
+      :footer="false"
+      data-testid="cmset-items-drawer"
+    >
+      <div v-if="itemsRow" class="items-block" :data-testid="`cmset-items-${itemsRow.id}`">
+        <div class="items-block__head">
+          <span class="items-block__title">
+            佣金明细（{{ itemsRow.item_count }} 行）· 结算单 {{ itemsRow.settlement_no }}
+          </span>
+          <span class="items-block__meta">
+            凭证：{{ voucherText(itemsRow) }} · 发放时间：{{ paidAtText(itemsRow.paid_at) }}
+          </span>
+        </div>
 
-            <div v-if="details[row.id]" class="items-block__foot" :data-testid="`cmset-items-total-${row.id}`">
-              明细佣金合计 <b class="mono">{{ moneyText(sumItems(details[row.id]?.items ?? [])) }}</b>
-              · 结算单应发 <b class="mono">{{ moneyText(row.total_commission) }}</b>
-              <span class="items-block__hint">（两者由后端同事务写入，应相等）</span>
-            </div>
-          </div>
-        </template>
-      </t-table>
-
-      <div class="pager-row">
-        <span class="pager-row__hint">
-          同人同期间只能有一张存活的结算单；草稿可重算覆盖，已审批 / 已发放的拒绝重算
-        </span>
-        <t-pagination
-          :current="page"
-          :page-size="SETTLEMENT_PAGE_SIZE"
-          :total="total"
-          :show-page-size="false"
-          show-jumper
-          data-testid="cmset-pager"
-          @current-change="handlePageChange"
+        <t-alert
+          v-if="detailErrors[itemsRow.id]"
+          theme="error"
+          :message="detailErrors[itemsRow.id]"
+          class="items-block__alert"
+          :data-testid="`cmset-items-error-${itemsRow.id}`"
         />
-      </div>
-    </t-card>
 
-    <!-- ==================== ② 生成结算单 ==================== -->
+        <t-table
+          v-else
+          row-key="id"
+          size="small"
+          :data="details[itemsRow.id]?.items ?? []"
+          :columns="itemColumns"
+          :loading="detailLoading[itemsRow.id] === true"
+          :empty="detailEmptyText(itemsRow)"
+          :data-testid="`cmset-items-table-${itemsRow.id}`"
+        >
+          <template #so_no="{ row: item }">
+            <span class="mono">{{ item.so_no || '—' }}</span>
+          </template>
+          <template #ar_no="{ row: item }">
+            <span class="mono">{{ item.ar_no || '—' }}</span>
+          </template>
+          <template #rule_name="{ row: item }">
+            <span>{{ item.rule_name || '—（规则已删除）' }}</span>
+          </template>
+          <template #rate="{ row: item }">
+            <span class="mono">{{ itemRateText(item) }}</span>
+          </template>
+          <template #base_amount="{ row: item }">
+            <span class="mono" :class="{ 'money--bad': isClawback(item.base_amount) }">
+              {{ moneyText(item.base_amount) }}
+            </span>
+          </template>
+          <template #commission="{ row: item }">
+            <span class="mono" :class="{ 'money--bad': isClawback(item.commission) }">
+              {{ moneyText(item.commission) }}
+            </span>
+          </template>
+          <template #remark="{ row: item }">
+            <span>{{ item.remark || '—' }}</span>
+          </template>
+        </t-table>
+
+        <div v-if="details[itemsRow.id]" class="items-block__foot" :data-testid="`cmset-items-total-${itemsRow.id}`">
+          明细佣金合计 <b class="mono">{{ moneyText(sumItems(details[itemsRow.id]?.items ?? [])) }}</b>
+          · 结算单应发 <b class="mono">{{ moneyText(itemsRow.total_commission) }}</b>
+          <span class="items-block__hint">（两者由后端同事务写入，应相等）</span>
+        </div>
+      </div>
+    </t-drawer>
+
+    <!-- ==================== ③ 生成结算单 ==================== -->
     <t-dialog
       v-model:visible="settleVisible"
       header="生成佣金结算单"
@@ -348,7 +296,7 @@
       </div>
     </t-dialog>
 
-    <!-- ==================== ③ 审批 / 发放 ==================== -->
+    <!-- ==================== ④ 审批 / 发放 ==================== -->
     <t-dialog
       v-model:visible="statusVisible"
       :header="statusTarget ? `${statusActionLabel(statusTarget.to)} — ${statusTarget.row.settlement_no}` : '状态流转'"
@@ -421,8 +369,13 @@
  *
  * # 明细是懒加载的
  *
- * 列表接口只带 `item_count`，明细要 `GET /commission/{id}`。展开时才拉（带缓存），
+ * 列表接口只带 `item_count`，明细要 `GET /commission/{id}`。点「明细」才拉（带缓存），
  * 否则一页 20 张 × 每张几十行明细会打出 20 个请求。
+ *
+ * 明细**从展开行改成了抽屉**：ListPage 只透传 `expandedRow` 插槽，不转发 t-table 的
+ * `expand-change`、也不支持受控 `expandedRowKeys`，页面拿不到「这一行刚被展开」的时机，
+ * 懒加载就无从触发（一次性把 20 张的明细拉回来正是这条注释要避免的）。抽屉保留原来的
+ * 全部文案与 `data-testid`（`cmset-items-*`）。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
@@ -442,6 +395,8 @@ import {
 } from '@/api/business/erp/commission';
 import { pageUsers, type UserRes } from '@/api/system/user-api';
 import { todayPeriod } from '@/views/business/erp/shared/money';
+import ListPage from '@/components/ListPage/index.vue';
+import type { FilterDef, ListFetcher, ListQueryBuilder } from '@/components/ListPage/types';
 import {
   ITEM_COLUMNS,
   SETTLEMENT_COLUMNS,
@@ -482,7 +437,8 @@ const canStatus = computed(() => userStore.hasPermission(PERM.status));
 
 const columns = SETTLEMENT_COLUMNS;
 const itemColumns = ITEM_COLUMNS;
-const statusOptions = SETTLEMENT_STATUS_OPTIONS;
+/** 状态下拉（`''` = 全部，交给 placeholder，不在选项里放空串） */
+const statusOptions = SETTLEMENT_STATUS_OPTIONS.filter((item) => item.value !== '').map((item) => ({ ...item }));
 /** 期间候选：本月往前 12 个月（未来月一定没有已收款，选出来只会是空单） */
 const periods = periodOptions();
 
@@ -494,79 +450,94 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// ==================== 列表 ====================
+// ==================== 列表（筛选 / 分页 / 行操作交给 ListPage） ====================
 
+/** 筛选状态（`filterState` 就地读写） */
 const filter = reactive<CommissionSettlementFilter>(emptySettlementFilter());
-const rows = ref<CommissionSettlementRow[]>([]);
-const total = ref(0);
-const page = ref(1);
-const loading = ref(false);
-const loadError = ref('');
+/** 当前页（保存 / 状态流转后回页用；每拉完一页由 `onLoaded` 同步） */
+const current = ref(1);
+/** 本页行（页脚合计用；`#footer` 拿得 到 rows，这里存一份给 computed） */
+const pageRows = ref<CommissionSettlementRow[]>([]);
+/** ListPage 实例（生成 / 状态流转后重拉） */
+const listRef = ref<InstanceType<typeof ListPage> | null>(null);
 
-const emptyText = computed(() => {
-  if (loading.value) {
-    return '加载中…';
-  }
-  return settlementEmptyText(filter);
+/** 本页合计（前端只汇总**当前页**，不是全量） */
+const totals = computed(() => pageTotals(pageRows.value));
+
+/**
+ * 筛选项声明（关键词走回车，下拉一律不「值变即查」，与改造前手感一致）。
+ *
+ * `computed` 是因为销售员下拉的候选是异步拉回来的（拉不到就是空下拉，与改造前一致）。
+ */
+const filters = computed<FilterDef[]>(() => [
+  {
+    key: 'period_code',
+    type: 'select',
+    placeholder: '全部期间',
+    width: 170,
+    options: periods,
+    testid: 'cmset-filter-period',
+  },
+  {
+    key: 'salesperson_id',
+    type: 'select',
+    placeholder: '全部销售员',
+    width: 170,
+    options: userOptions.value,
+    filterable: true,
+    testid: 'cmset-filter-salesperson',
+  },
+  {
+    key: 'status',
+    type: 'select',
+    placeholder: '全部状态',
+    width: 170,
+    options: statusOptions,
+    testid: 'cmset-filter-status',
+  },
+  {
+    key: 'keyword',
+    type: 'keyword',
+    placeholder: '结算单号 / 销售员',
+    width: 220,
+    testid: 'cmset-filter-keyword',
+  },
+]);
+
+/** 拉一页 */
+const fetcher: ListFetcher<CommissionSettlementRow> = (query) =>
+  fetchCommissionSettlementPage(query as Parameters<typeof fetchCommissionSettlementPage>[0]);
+
+/** 入参拼装（`{...filter, page, page_size}`，与改造前逐字同口径） */
+const queryBuilder: ListQueryBuilder = (state, page, size) => ({
+  ...(state as CommissionSettlementFilter),
+  page,
+  page_size: size,
 });
 
-const totals = computed(() => pageTotals(rows.value));
-
-async function loadRows(target: number = page.value): Promise<void> {
-  loading.value = true;
-  loadError.value = '';
-  try {
-    const data = await fetchCommissionSettlementPage({
-      ...filter,
-      page: target,
-      page_size: SETTLEMENT_PAGE_SIZE,
-    });
-    rows.value = data.list ?? [];
-    total.value = data.total ?? 0;
-    page.value = data.page ?? target;
-    // 行集变了：清掉不再可见行的明细缓存与展开态
-    const alive = new Set(rows.value.map((row) => row.id));
-    for (const key of Object.keys(details.value)) {
-      if (!alive.has(key)) {
-        delete details.value[key];
-        delete detailErrors.value[key];
-        delete detailLoading.value[key];
-      }
+/** 一页拉完：同步页码，并把不再可见行的明细缓存 / 错误清掉（省内存，也避免旧行残留） */
+function onLoaded(payload: { rows: CommissionSettlementRow[]; page: number }): void {
+  current.value = payload.page;
+  pageRows.value = payload.rows;
+  const alive = new Set(payload.rows.map((row) => row.id));
+  for (const key of Object.keys(details.value)) {
+    if (!alive.has(key)) {
+      delete details.value[key];
+      delete detailErrors.value[key];
+      delete detailLoading.value[key];
     }
-    expandedKeys.value = expandedKeys.value.filter((key) => alive.has(key));
-    const lastPage = Math.max(1, Math.ceil(total.value / SETTLEMENT_PAGE_SIZE));
-    if (page.value > lastPage) {
-      page.value = lastPage;
-      await loadRows(lastPage);
-    }
-  } catch (error) {
-    rows.value = [];
-    total.value = 0;
-    loadError.value = `结算单加载失败：${messageOf(error)}`;
-  } finally {
-    loading.value = false;
   }
-}
-
-function handleSearch(): void {
-  page.value = 1;
-  void loadRows(1);
-}
-
-function handleReset(): void {
-  Object.assign(filter, emptySettlementFilter());
-  page.value = 1;
-  void loadRows(1);
-}
-
-function handlePageChange(current: number): void {
-  page.value = current;
-  void loadRows(current);
 }
 
 // ==================== 明细（懒加载 + 缓存） ====================
 
-const expandedKeys = ref<string[]>([]);
+/** 明细抽屉可见 */
+const itemsVisible = ref(false);
+/** 抽屉里这张结算单 */
+const itemsRow = ref<CommissionSettlementRow | null>(null);
+/** 抽屉标题 */
+const itemsTitle = computed(() => (itemsRow.value ? `佣金明细 · ${itemsRow.value.settlement_no}` : '佣金明细'));
+
 const details = ref<Record<string, CommissionSettlementDetail>>({});
 const detailLoading = ref<Record<string, boolean>>({});
 const detailErrors = ref<Record<string, string>>({});
@@ -594,21 +565,11 @@ async function loadDetail(id: string): Promise<void> {
   }
 }
 
-function handleExpandChange(keys: Array<string | number>): void {
-  expandedKeys.value = keys.map((key) => String(key));
-  for (const id of expandedKeys.value) {
-    void loadDetail(id);
-  }
-}
-
-/** 行尾「明细」链接：等价于点展开箭头（省得用户找不到那个小三角） */
-function toggleExpand(row: CommissionSettlementRow): void {
-  if (expandedKeys.value.includes(row.id)) {
-    expandedKeys.value = expandedKeys.value.filter((key) => key !== row.id);
-    return;
-  }
-  expandedKeys.value = [...expandedKeys.value, row.id];
-  void loadDetail(row.id);
+/** 行尾「明细」：打开抽屉并拉明细（有缓存就不再请求） */
+async function openItems(row: CommissionSettlementRow): Promise<void> {
+  itemsRow.value = row;
+  itemsVisible.value = true;
+  await loadDetail(row.id);
 }
 
 /** 明细佣金合计（与单头 `total_commission` 应相等；用来发现后端算错） */
@@ -681,7 +642,7 @@ async function submitSettle(): Promise<void> {
     );
     settleResult.value = res;
     // 弹窗不自动关：用户要看「生成了几张 / 谁被跳过 / 为什么」
-    await loadRows(1);
+    await listRef.value?.load(1);
     if (res.settlements.length > 0) {
       MessagePlugin.success(settleResultText(res));
     } else {
@@ -729,7 +690,7 @@ async function submitStatus(): Promise<void> {
     statusVisible.value = false;
     // 回包是完整详情：直接刷新该行明细缓存，列表重载拿最新合计与凭证号
     details.value[target.row.id] = updated;
-    await loadRows(page.value);
+    await listRef.value?.load(current.value);
   } catch (err) {
     statusError.value = messageOf(err);
   } finally {
@@ -738,7 +699,7 @@ async function submitStatus(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadRows(1);
+  // 列表由 ListPage 自己在 setup 里拉首屏；这里只补销售员候选
   void loadSalespersonOptions();
 });
 </script>
@@ -750,62 +711,15 @@ onMounted(() => {
   gap: 12px;
 }
 
-.panel-card {
-  padding: 16px 20px 8px;
-}
-
-.page-head {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-
-.page-head__title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.page-head__tip {
+.page-tip {
+  margin: 8px 0 0;
   font-size: 12px;
   line-height: 20px;
   color: var(--td-text-color-secondary);
 }
 
-.filter-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-}
-
-.filter-row__period {
-  width: 170px;
-}
-
-.filter-row__select {
-  width: 170px;
-}
-
-.filter-row__keyword {
-  width: 220px;
-}
-
-.filter-row__spacer {
-  flex: 1;
-}
-
 .gate-wrap {
   display: inline-flex;
-}
-
-.page-alert {
-  margin-bottom: 12px;
 }
 
 .totals-strip {
@@ -814,7 +728,7 @@ onMounted(() => {
   gap: 8px;
   flex-wrap: wrap;
   padding: 8px 12px;
-  margin-bottom: 10px;
+  margin-top: 10px;
   font-size: 12px;
   color: var(--td-text-color-secondary);
   background: var(--td-bg-color-container-hover);
@@ -867,10 +781,35 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* ==================== 明细（抽屉） ==================== */
+
 .items-block {
-  padding: 8px 12px 12px;
-  background: var(--td-bg-color-container-hover);
-  border-radius: var(--td-radius-default);
+  padding: 4px 0 12px;
 }
 
 .items-block__head {
@@ -905,22 +844,6 @@ onMounted(() => {
 
 .items-block__hint {
   color: var(--td-text-color-placeholder);
-}
-
-.pager-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 0 8px;
-}
-
-.pager-row__hint {
-  font-size: 12px;
-  color: var(--td-text-color-placeholder);
-}
-
-.pager-row :deep(.t-pagination) {
-  margin-left: auto;
 }
 
 .form :deep(.t-form__item) {
